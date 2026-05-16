@@ -4,6 +4,7 @@ import { Check, Folder, Plus } from 'lucide-react'
 import { theme } from '@renderer/theme/theme'
 import { isDismissEscapeKey } from '@renderer/lib/imeUtils'
 import { useRestoreFocusOnUnmount } from '@renderer/lib/focusRestore'
+import { SettingsShortcutButton } from './SettingsShortcutButton'
 
 function WorkspaceOption({
   description,
@@ -150,14 +151,23 @@ export function WorkspaceSelectorPopup({
           borderBottom: `1px solid ${theme.border.panel}`
         }}
       >
-        <div
-          style={{
-            fontSize: 12,
-            fontWeight: 600,
-            color: theme.text.primary
-          }}
-        >
-          Workspace
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <div
+            style={{
+              flex: 1,
+              minWidth: 0,
+              fontSize: 12,
+              fontWeight: 600,
+              color: theme.text.primary
+            }}
+          >
+            Workspace
+          </div>
+          <SettingsShortcutButton
+            label="Open workspace settings"
+            route="capabilities/workspace"
+            onClose={onClose}
+          />
         </div>
         <div
           style={{

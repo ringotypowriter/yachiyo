@@ -197,10 +197,15 @@ function App(): React.JSX.Element {
     }
   }, [config?.general?.uiFontSize, config?.general?.chatFontSize])
 
+  const windowBackdrop = `linear-gradient(90deg, ${theme.background.sidebarVibrancy} 0%, ${theme.background.surfaceLight} 100%)`
+
   return (
     <div
       className="flex h-full overflow-hidden relative"
-      style={{ userSelect: isDragging ? 'none' : undefined }}
+      style={{
+        background: windowBackdrop,
+        userSelect: isDragging ? 'none' : undefined
+      }}
     >
       <AppSidebar
         isDragging={isDragging}

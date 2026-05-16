@@ -8,6 +8,7 @@ import { theme } from '@renderer/theme/theme'
 import { isDismissEscapeKey } from '@renderer/lib/imeUtils'
 import { useRestoreFocusOnUnmount } from '@renderer/lib/focusRestore'
 import { matchProviderPreset } from '../../../../../shared/yachiyo/providerPresets.ts'
+import { SettingsShortcutButton } from './SettingsShortcutButton'
 import {
   resolveModelSelectorState,
   type AcpAgentEntry,
@@ -363,6 +364,11 @@ export function ModelSelectorPopup({
             letterSpacing: '-0.1px',
             opacity: selectionPending ? 0.65 : 1
           }}
+        />
+        <SettingsShortcutButton
+          label="Open provider settings"
+          route="providers"
+          onClose={onClose}
         />
       </div>
 

@@ -5,6 +5,7 @@ import type { SkillCatalogEntry } from '@renderer/app/types'
 import { theme } from '@renderer/theme/theme'
 import { isDismissEscapeKey } from '@renderer/lib/imeUtils'
 import { useRestoreFocusOnUnmount } from '@renderer/lib/focusRestore'
+import { SettingsShortcutButton } from './SettingsShortcutButton'
 
 const SKILL_LIST_MAX_HEIGHT = 320
 
@@ -77,15 +78,24 @@ export function SkillsSelectorPopup({
           borderBottom: `1px solid ${theme.border.panel}`
         }}
       >
-        <div
-          style={{
-            fontSize: 12,
-            fontWeight: 600,
-            color: theme.text.primary,
-            letterSpacing: '-0.1px'
-          }}
-        >
-          Skills
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <div
+            style={{
+              flex: 1,
+              minWidth: 0,
+              fontSize: 12,
+              fontWeight: 600,
+              color: theme.text.primary,
+              letterSpacing: '-0.1px'
+            }}
+          >
+            Skills
+          </div>
+          <SettingsShortcutButton
+            label="Open skill settings"
+            route="capabilities/skills"
+            onClose={onClose}
+          />
         </div>
         <div
           style={{

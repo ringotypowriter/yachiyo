@@ -81,7 +81,7 @@ export function AppSidebar({
       className="flex flex-col h-full shrink-0 overflow-hidden"
       style={{
         width: sidebarWidth,
-        background: theme.background.sidebarVibrancy,
+        background: 'transparent',
         opacity: isOpen ? 1 : 0,
         pointerEvents: isOpen ? 'auto' : 'none',
         transition: isDragging ? 'none' : 'opacity 200ms, width 200ms'

@@ -1,17 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   BarChart3,
-  Bot,
-  Brain,
   Clock,
   Compass,
   Cpu,
-  FolderOpen,
-  Grid2X2,
-  Hash,
   Info,
   MessageSquare,
-  Monitor,
   Radio,
   Sparkles,
   Settings2
@@ -65,93 +59,43 @@ import {
   loadUserDocument,
   persistUserDocument
 } from './panes/userDocumentEditorModel'
+import {
+  SETTINGS_TABS,
+  getInitialSettingsSubTabs,
+  resolveSettingsRoute,
+  type SettingsTab,
+  type SettingsTabId
+} from './settingsNavigation'
 
-type TabId =
-  | 'general'
-  | 'providers'
-  | 'chat'
-  | 'essentials'
-  | 'skills'
-  | 'coding-agents'
-  | 'prompts'
-  | 'workspace'
-  | 'search'
-  | 'memory'
-  | 'channels'
-  | 'schedules'
-  | 'usage'
-  | 'ui'
-  | 'about'
-
-interface SubTab {
-  id: string
-  label: string
-}
-
-interface Tab {
-  id: TabId
+interface AppTab extends SettingsTab {
   icon: LucideIcon
-  label: string
-  subTabs?: SubTab[]
 }
 
-const TABS: Tab[] = [
-  { id: 'general', label: 'General', icon: Settings2 },
-  { id: 'providers', label: 'Providers', icon: Cpu },
-  { id: 'chat', label: 'Chat', icon: MessageSquare },
-  { id: 'essentials', label: 'Essentials', icon: Grid2X2 },
-  { id: 'skills', label: 'Skills', icon: Sparkles },
-  { id: 'coding-agents', label: 'Coding', icon: Bot },
-  { id: 'prompts', label: 'Prompts', icon: Hash },
-  { id: 'workspace', label: 'Workspace', icon: FolderOpen },
-  { id: 'search', label: 'Search', icon: Compass },
-  {
-    id: 'memory',
-    label: 'Memory',
-    icon: Brain
-  },
-  {
-    id: 'channels',
-    label: 'Channels',
-    icon: Radio,
-    subTabs: [
-      { id: 'general', label: 'General' },
-      { id: 'telegram', label: 'Telegram' },
-      { id: 'qq', label: 'QQ' },
-      { id: 'qqbot', label: 'QQBot' },
-      { id: 'discord', label: 'Discord' }
-    ]
-  },
-  {
-    id: 'schedules',
-    label: 'Schedules',
-    icon: Clock,
-    subTabs: [
-      { id: 'list', label: 'Schedules' },
-      { id: 'history', label: 'History' }
-    ]
-  },
-  {
-    id: 'usage',
-    label: 'Statistics',
-    icon: BarChart3,
-    subTabs: [
-      { id: 'usage', label: 'Usage' },
-      { id: 'performance', label: 'Performance' }
-    ]
-  },
-  { id: 'ui', label: 'User Interface', icon: Monitor },
-  { id: 'about', label: 'About', icon: Info }
-]
+const TAB_ICONS: Record<SettingsTabId, LucideIcon> = {
+  general: Settings2,
+  providers: Cpu,
+  chat: MessageSquare,
+  capabilities: Sparkles,
+  source: Compass,
+  channels: Radio,
+  schedules: Clock,
+  usage: BarChart3,
+  about: Info
+}
 
-function initSubTabs(): Record<string, string> {
-  const map: Record<string, string> = {}
-  for (const tab of TABS) {
-    if (tab.subTabs?.length) {
-      map[tab.id] = tab.subTabs[0].id
-    }
+const TABS: AppTab[] = SETTINGS_TABS.map((tab) => ({ ...tab, icon: TAB_ICONS[tab.id] }))
+
+function getInitialSettingsRoute(): ReturnType<typeof resolveSettingsRoute> {
+  return resolveSettingsRoute(window.location.hash.slice(1))
+}
+
+function getInitialActiveSubTabs(): Record<string, string> {
+  const subTabs = getInitialSettingsSubTabs()
+  const route = getInitialSettingsRoute()
+  if (route.subTab) {
+    subTabs[route.tab] = route.subTab
   }
-  return map
+  return subTabs
 }
 
 function validateConfig(config: SettingsConfig | null): string | null {
@@ -205,11 +149,8 @@ function validateConfig(config: SettingsConfig | null): string | null {
 }
 
 function SettingsApp(): React.ReactNode {
-  const [activeTab, setActiveTab] = useState<TabId>(() => {
-    const hash = window.location.hash.slice(1)
-    return (TABS.some((t) => t.id === hash) ? hash : 'general') as TabId
-  })
-  const [activeSubTab, setActiveSubTab] = useState(initSubTabs)
+  const [activeTab, setActiveTab] = useState<SettingsTabId>(() => getInitialSettingsRoute().tab)
+  const [activeSubTab, setActiveSubTab] = useState(getInitialActiveSubTabs)
   const [savedConfig, setSavedConfig] = useState<SettingsConfig | null>(null)
   const [draft, setDraft] = useState<SettingsConfig | null>(null)
   const [savedChannelsConfig, setSavedChannelsConfig] = useState<ChannelsConfig | null>(null)
@@ -235,13 +176,16 @@ function SettingsApp(): React.ReactNode {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const previousActiveTabRef = useRef<TabId | null>(null)
+  const previousActiveTabRef = useRef<SettingsTabId | null>(null)
   useApplyThemeConfig(draft ?? savedConfig, false)
 
   useEffect(() => {
     return window.api.onNavigateSettingsTo((tab) => {
-      if (TABS.some((t) => t.id === tab)) {
-        setActiveTab(tab as TabId)
+      const route = resolveSettingsRoute(tab)
+      setActiveTab(route.tab)
+      const { subTab } = route
+      if (subTab) {
+        setActiveSubTab((current) => ({ ...current, [route.tab]: subTab }))
       }
     })
   }, [])
@@ -621,32 +565,36 @@ function SettingsApp(): React.ReactNode {
     )
   } else if (draft) {
     if (activeTab === 'general') {
-      body = (
-        <GeneralPane
-          draft={draft}
-          onChange={setDraft}
-          userDocument={savedUserDocument}
-          userDraft={userDocumentDraft}
-          isLoadingUserDocument={isLoadingUserDocument}
-          userDocumentError={userDocumentError}
-          onLoadUserDocument={loadUserDocumentDraft}
-          onUserDraftChange={setUserDocumentDraft}
-          onRevertUserDocument={() => {
-            setUserDocumentDraft(savedUserDocument?.content ?? '')
-            setUserDocumentError(null)
-          }}
-          soulDocument={savedSoulDocument}
-          soulDraftTraits={soulDocumentDraft}
-          isLoadingSoulDocument={isLoadingSoulDocument}
-          soulDocumentError={soulDocumentError}
-          onLoadSoulDocument={loadSoulDocumentDraft}
-          onSoulDraftChange={setSoulDocumentDraft}
-          onRevertSoulDocument={() => {
-            setSoulDocumentDraft(savedSoulDocument?.evolvedTraits ?? [])
-            setSoulDocumentError(null)
-          }}
-        />
-      )
+      if ((activeSubTab['general'] ?? 'general') === 'ui') {
+        body = <UIPane draft={draft} onChange={setDraft} />
+      } else {
+        body = (
+          <GeneralPane
+            draft={draft}
+            onChange={setDraft}
+            userDocument={savedUserDocument}
+            userDraft={userDocumentDraft}
+            isLoadingUserDocument={isLoadingUserDocument}
+            userDocumentError={userDocumentError}
+            onLoadUserDocument={loadUserDocumentDraft}
+            onUserDraftChange={setUserDocumentDraft}
+            onRevertUserDocument={() => {
+              setUserDocumentDraft(savedUserDocument?.content ?? '')
+              setUserDocumentError(null)
+            }}
+            soulDocument={savedSoulDocument}
+            soulDraftTraits={soulDocumentDraft}
+            isLoadingSoulDocument={isLoadingSoulDocument}
+            soulDocumentError={soulDocumentError}
+            onLoadSoulDocument={loadSoulDocumentDraft}
+            onSoulDraftChange={setSoulDocumentDraft}
+            onRevertSoulDocument={() => {
+              setSoulDocumentDraft(savedSoulDocument?.evolvedTraits ?? [])
+              setSoulDocumentError(null)
+            }}
+          />
+        )
+      }
     } else if (activeTab === 'providers') {
       body = (
         <ProvidersPane
@@ -657,21 +605,30 @@ function SettingsApp(): React.ReactNode {
         />
       )
     } else if (activeTab === 'chat') {
-      body = <ChatPane draft={draft} onChange={setDraft} />
-    } else if (activeTab === 'essentials') {
-      body = <EssentialsPane draft={draft} onChange={setDraft} />
-    } else if (activeTab === 'skills') {
-      body = <SkillsPane availableSkills={availableSkills} draft={draft} onChange={setDraft} />
-    } else if (activeTab === 'coding-agents') {
-      body = <CodingAgentsPane draft={draft} onChange={setDraft} />
-    } else if (activeTab === 'prompts') {
-      body = <PromptsPane draft={draft} onChange={setDraft} />
-    } else if (activeTab === 'workspace') {
-      body = <WorkspacePane draft={draft} onChange={setDraft} />
-    } else if (activeTab === 'search') {
-      body = <SearchPane draft={draft} onChange={setDraft} />
-    } else if (activeTab === 'memory') {
-      body = <MemoryPane draft={draft} onChange={setDraft} />
+      body =
+        (activeSubTab['chat'] ?? 'threads') === 'essentials' ? (
+          <EssentialsPane draft={draft} onChange={setDraft} />
+        ) : (
+          <ChatPane draft={draft} onChange={setDraft} />
+        )
+    } else if (activeTab === 'capabilities') {
+      const tab = activeSubTab['capabilities'] ?? 'skills'
+      if (tab === 'coding-agents') {
+        body = <CodingAgentsPane draft={draft} onChange={setDraft} />
+      } else if (tab === 'prompts') {
+        body = <PromptsPane draft={draft} onChange={setDraft} />
+      } else if (tab === 'workspace') {
+        body = <WorkspacePane draft={draft} onChange={setDraft} />
+      } else {
+        body = <SkillsPane availableSkills={availableSkills} draft={draft} onChange={setDraft} />
+      }
+    } else if (activeTab === 'source') {
+      body =
+        (activeSubTab['source'] ?? 'memory') === 'search' ? (
+          <SearchPane draft={draft} onChange={setDraft} />
+        ) : (
+          <MemoryPane draft={draft} onChange={setDraft} />
+        )
     } else if (activeTab === 'channels') {
       if (isLoadingChannelsConfig) {
         body = (
@@ -712,11 +669,16 @@ function SettingsApp(): React.ReactNode {
       body = (
         <SchedulePane
           activeSubTab={activeSubTab['schedules'] ?? 'list'}
-          onNavigateToTab={(tab) => setActiveTab(tab as TabId)}
+          onNavigateToTab={(tab) => {
+            const route = resolveSettingsRoute(tab)
+            setActiveTab(route.tab)
+            const { subTab } = route
+            if (subTab) {
+              setActiveSubTab((current) => ({ ...current, [route.tab]: subTab }))
+            }
+          }}
         />
       )
-    } else if (activeTab === 'ui') {
-      body = <UIPane draft={draft} onChange={setDraft} />
     }
   }
 

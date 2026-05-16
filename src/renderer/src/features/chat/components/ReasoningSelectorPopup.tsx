@@ -6,6 +6,7 @@ import type { ComposerReasoningSelection } from '@renderer/app/types'
 import { isDismissEscapeKey } from '@renderer/lib/imeUtils'
 import { useRestoreFocusOnUnmount } from '@renderer/lib/focusRestore'
 import { REASONING_SELECTION_COPY } from '../lib/reasoningSelectionLabel'
+import { SettingsShortcutButton } from './SettingsShortcutButton'
 
 export function ReasoningSelectorPopup({
   options,
@@ -66,7 +67,24 @@ export function ReasoningSelectorPopup({
           borderBottom: `1px solid ${theme.border.panel}`
         }}
       >
-        <div style={{ fontSize: 12, fontWeight: 600, color: theme.text.primary }}>Reasoning</div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <div
+            style={{
+              flex: 1,
+              minWidth: 0,
+              fontSize: 12,
+              fontWeight: 600,
+              color: theme.text.primary
+            }}
+          >
+            Reasoning
+          </div>
+          <SettingsShortcutButton
+            label="Open provider settings"
+            route="providers"
+            onClose={onClose}
+          />
+        </div>
       </div>
 
       <div style={{ padding: '6px 0' }}>
