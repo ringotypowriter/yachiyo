@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import { Check } from 'lucide-react'
 import type { SkillCatalogEntry } from '@renderer/app/types'
 import { theme } from '@renderer/theme/theme'
+import { isDismissEscapeKey } from '@renderer/lib/imeUtils'
 
 const SKILL_LIST_MAX_HEIGHT = 320
 
@@ -35,7 +36,7 @@ export function SkillsSelectorPopup({
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent): void => {
-      if (event.key === 'Escape') {
+      if (isDismissEscapeKey(event)) {
         onClose()
       }
     }

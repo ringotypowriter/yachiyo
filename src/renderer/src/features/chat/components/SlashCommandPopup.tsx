@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Folder, Hash, NotebookPen, Sparkles, Zap } from 'lucide-react'
 import { theme } from '@renderer/theme/theme'
+import { isDismissEscapeKey } from '@renderer/lib/imeUtils'
 
 export interface SlashCommand {
   key: string
@@ -118,7 +119,7 @@ export function SlashCommandPopup({
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent): void => {
-      if (event.key === 'Escape') {
+      if (isDismissEscapeKey(event)) {
         onClose()
       }
     }

@@ -4,6 +4,7 @@ import { X, RotateCcw, FilePlus2, FileMinus2, FileEdit, SquareArrowOutUpRight } 
 import { theme, alpha } from '@renderer/theme/theme'
 import { useAppStore } from '@renderer/app/store/useAppStore'
 import { ConfirmDialog } from '@renderer/components/ConfirmDialog'
+import { isDismissEscapeKey } from '@renderer/lib/imeUtils'
 import { ToolCodeBlock } from './ToolCodeBlock'
 import type {
   FileChangeForReview,
@@ -69,7 +70,7 @@ export function DiffPreviewerModal({
 
   const handleEscape = useCallback(
     (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
+      if (isDismissEscapeKey(e)) onClose()
     },
     [onClose]
   )

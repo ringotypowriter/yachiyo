@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import { Streamdown } from 'streamdown'
 import { X } from 'lucide-react'
 import { theme, alpha } from '@renderer/theme/theme'
+import { isDismissEscapeKey } from '@renderer/lib/imeUtils'
 
 interface ChangelogModalProps {
   version: string
@@ -22,7 +23,7 @@ export function ChangelogModal({ version, onClose }: ChangelogModalProps): React
 
   const handleEscape = useCallback(
     (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
+      if (isDismissEscapeKey(e)) onClose()
     },
     [onClose]
   )

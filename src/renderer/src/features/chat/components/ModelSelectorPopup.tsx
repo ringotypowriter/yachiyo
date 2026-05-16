@@ -5,6 +5,7 @@ import { Check, Cpu, Factory, Search } from 'lucide-react'
 import { ProviderIconAvatar } from '@renderer/lib/providerIcons'
 import type { SettingsConfig } from '@renderer/app/types'
 import { theme } from '@renderer/theme/theme'
+import { isDismissEscapeKey } from '@renderer/lib/imeUtils'
 import { matchProviderPreset } from '../../../../../shared/yachiyo/providerPresets.ts'
 import {
   resolveModelSelectorState,
@@ -253,7 +254,7 @@ export function ModelSelectorPopup({
 
   useEffect(() => {
     const handler = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape' && !selectionPending) onClose()
+      if (isDismissEscapeKey(e) && !selectionPending) onClose()
     }
     document.addEventListener('keydown', handler)
     return () => document.removeEventListener('keydown', handler)

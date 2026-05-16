@@ -29,6 +29,7 @@ import { ThreadFolderItem } from './ThreadFolderItem'
 import { ThreadListItem } from './ThreadListItem'
 import { ConfirmDialog } from '@renderer/components/ConfirmDialog'
 import { theme } from '@renderer/theme/theme'
+import { isDismissEscapeKey } from '@renderer/lib/imeUtils'
 import { isMemoryConfigured } from '../../../../../shared/yachiyo/protocol.ts'
 import { resolveThreadColor } from '@renderer/features/threads/lib/threadColorPalette'
 import {
@@ -637,7 +638,7 @@ function ThreadListContent({
   useEffect(() => {
     if (!selectMode) return
     function handleKeyDown(e: KeyboardEvent): void {
-      if (e.key === 'Escape') exitSelectMode()
+      if (isDismissEscapeKey(e)) exitSelectMode()
     }
     document.addEventListener('keydown', handleKeyDown)
     return () => document.removeEventListener('keydown', handleKeyDown)

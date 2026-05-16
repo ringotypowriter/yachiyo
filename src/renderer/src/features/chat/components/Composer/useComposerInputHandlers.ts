@@ -19,6 +19,7 @@ import {
 import type { UseChatInputBufferResult } from '@renderer/features/chat/hooks/useChatInputBuffer'
 import { clearGoalX, navigatePretextLine } from '@renderer/features/chat/lib/pretextSync'
 import type { ThreadContextOperationKey } from '@renderer/features/threads/lib/threadContextOperations'
+import { isDismissEscapeKey } from '@renderer/lib/imeUtils'
 import { longestCommonPrefix } from '../../lib/longestCommonPrefix'
 import type { SlashCommand } from '../SlashCommandPopup'
 import {
@@ -541,15 +542,15 @@ export function useComposerInputHandlers(
           if (selected) handleSlashCommandSelect(selected)
           return
         }
-        if (event.key === 'Escape') {
+        if (isDismissEscapeKey(event.nativeEvent)) {
           event.preventDefault()
           dismissSlashPopup()
           return
         }
       }
 
-      if (event.key === 'Escape') {
-        if (isComposing || event.nativeEvent.isComposing) return
+      if (isDismissEscapeKey(event.nativeEvent)) {
+        if (isComposing) return
         if (
           modelSelectorOpen ||
           reasoningSelectorOpen ||

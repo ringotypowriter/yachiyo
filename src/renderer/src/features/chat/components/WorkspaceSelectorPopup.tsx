@@ -2,6 +2,7 @@ import type React from 'react'
 import { useEffect, useState } from 'react'
 import { Check, Folder, Plus } from 'lucide-react'
 import { theme } from '@renderer/theme/theme'
+import { isDismissEscapeKey } from '@renderer/lib/imeUtils'
 
 function WorkspaceOption({
   description,
@@ -107,7 +108,7 @@ export function WorkspaceSelectorPopup({
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent): void => {
-      if (event.key === 'Escape') {
+      if (isDismissEscapeKey(event)) {
         onClose()
       }
     }

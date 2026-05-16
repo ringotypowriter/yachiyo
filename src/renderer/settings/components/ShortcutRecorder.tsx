@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Keyboard, X } from 'lucide-react'
 import { theme } from '@renderer/theme/theme'
+import { isDismissEscapeKey } from '@renderer/lib/imeUtils'
 
 interface ShortcutRecorderProps {
   value: string
@@ -81,6 +82,10 @@ export function ShortcutRecorder({
     const handleKeyDown = (e: KeyboardEvent): void => {
       e.preventDefault()
       e.stopPropagation()
+      if (isDismissEscapeKey(e)) {
+        setIsRecording(false)
+        return
+      }
       const accelerator = eventToAccelerator(e)
       if (accelerator) {
         onChange(accelerator)
@@ -129,7 +134,7 @@ export function ShortcutRecorder({
           if (e.key === 'Enter' || e.key === ' ') {
             e.preventDefault()
             setIsRecording(true)
-          } else if (e.key === 'Escape') {
+          } else if (isDismissEscapeKey(e.nativeEvent)) {
             setIsRecording(false)
           }
         }}

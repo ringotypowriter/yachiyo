@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import { Check } from 'lucide-react'
 import { theme } from '@renderer/theme/theme'
 import type { ComposerReasoningSelection } from '@renderer/app/types'
+import { isDismissEscapeKey } from '@renderer/lib/imeUtils'
 import { REASONING_SELECTION_COPY } from '../lib/reasoningSelectionLabel'
 
 export function ReasoningSelectorPopup({
@@ -24,7 +25,7 @@ export function ReasoningSelectorPopup({
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent): void => {
-      if (event.key === 'Escape') {
+      if (isDismissEscapeKey(event)) {
         onClose()
       }
     }

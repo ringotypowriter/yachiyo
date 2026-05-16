@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Search, X } from 'lucide-react'
 import type { ThreadSearchResult } from '../../../../shared/yachiyo/protocol'
 import { theme } from '@renderer/theme/theme'
+import { isDismissEscapeKey } from '@renderer/lib/imeUtils'
 
 interface Segment {
   text: string
@@ -122,7 +123,7 @@ export function SidebarSearch({
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') onClose()
+      if (isDismissEscapeKey(e)) onClose()
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)

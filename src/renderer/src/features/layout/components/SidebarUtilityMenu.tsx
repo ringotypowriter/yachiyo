@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import { Languages, NotebookPen, Radio } from 'lucide-react'
 import type { ConnectionStatus } from '@renderer/app/types'
 import { theme } from '@renderer/theme/theme'
+import { isDismissEscapeKey } from '@renderer/lib/imeUtils'
 
 export interface SidebarUtilityMenuProps {
   anchorRect: DOMRect
@@ -37,7 +38,7 @@ export function SidebarUtilityMenu({
       }
     }
     const handleEscape = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') onClose()
+      if (isDismissEscapeKey(e)) onClose()
     }
     document.addEventListener('mousedown', handlePointerDown)
     document.addEventListener('keydown', handleEscape)

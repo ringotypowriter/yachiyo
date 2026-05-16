@@ -2,6 +2,7 @@ import { useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import { Copy, ExternalLink } from 'lucide-react'
 import { theme, alpha } from '@renderer/theme/theme'
+import { isDismissEscapeKey } from '@renderer/lib/imeUtils'
 import type { LinkSafetyModalProps } from 'streamdown'
 
 export function LinkSafetyModal({
@@ -13,7 +14,7 @@ export function LinkSafetyModal({
   useEffect(() => {
     if (!isOpen) return
     const handleEscape = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') onClose()
+      if (isDismissEscapeKey(e)) onClose()
     }
     document.addEventListener('keydown', handleEscape)
     return () => document.removeEventListener('keydown', handleEscape)

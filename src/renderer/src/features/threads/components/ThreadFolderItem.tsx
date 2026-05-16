@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { FolderOpen, FolderClosed, PenLine, Trash2, Archive, RotateCcw } from 'lucide-react'
 import type { FolderColorTag, FolderRecord } from '@renderer/app/types'
-import { imeSafeEnter } from '@renderer/lib/imeUtils'
+import { imeSafeEnter, isDismissEscapeKey } from '@renderer/lib/imeUtils'
 import { theme } from '@renderer/theme/theme'
 import {
   THREAD_COLOR_FILTER_LABELS,
@@ -63,7 +63,7 @@ export function ThreadFolderItem({
   }
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>): void => {
-    if (e.key === 'Escape') {
+    if (isDismissEscapeKey(e.nativeEvent)) {
       setIsRenaming(false)
       return
     }
@@ -205,7 +205,7 @@ function FolderContextMenu({
     const handlePointerDown = (): void => onClose()
     const handleContextMenu = (): void => onClose()
     const handleEscape = (event: KeyboardEvent): void => {
-      if (event.key === 'Escape') onClose()
+      if (isDismissEscapeKey(event)) onClose()
     }
     document.addEventListener('mousedown', handlePointerDown)
     document.addEventListener('contextmenu', handleContextMenu, true)

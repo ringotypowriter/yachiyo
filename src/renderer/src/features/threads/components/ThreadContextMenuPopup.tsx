@@ -18,6 +18,7 @@ import {
 } from '@renderer/features/threads/lib/threadContextOperations'
 import { THREAD_COLOR_FILTER_LABELS } from '@renderer/features/threads/lib/threadColorPalette'
 import { theme } from '@renderer/theme/theme'
+import { isDismissEscapeKey } from '@renderer/lib/imeUtils'
 import { ColorDotPicker } from './ColorDotPicker'
 
 export interface ThreadContextMenuPopupProps {
@@ -91,7 +92,7 @@ export function ThreadContextMenuPopup({
     const handlePointerDown = (): void => onClose()
     const handleContextMenu = (): void => onClose()
     const handleEscape = (event: KeyboardEvent): void => {
-      if (event.key === 'Escape') {
+      if (isDismissEscapeKey(event)) {
         onClose()
       }
     }

@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import { Check } from 'lucide-react'
 import type { ToolCallName } from '@renderer/app/types'
 import { theme } from '@renderer/theme/theme'
+import { isDismissEscapeKey } from '@renderer/lib/imeUtils'
 import { USER_MANAGED_TOOL_NAMES } from '../../../../../shared/yachiyo/protocol.ts'
 
 const TOOL_COPY: Record<
@@ -76,7 +77,7 @@ export function ToolSelectorPopup({
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent): void => {
-      if (event.key === 'Escape') {
+      if (isDismissEscapeKey(event)) {
         onClose()
       }
     }

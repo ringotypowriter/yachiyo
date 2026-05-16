@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Check, Star } from 'lucide-react'
 import type { Thread, ThreadColorTag, ToolCall } from '@renderer/app/types'
 import { ThreadContextMenuPopup } from '@renderer/features/threads/components/ThreadContextMenuPopup'
-import { imeSafeEnter } from '@renderer/lib/imeUtils'
+import { imeSafeEnter, isDismissEscapeKey } from '@renderer/lib/imeUtils'
 import {
   resolveThreadContextOperations,
   resolveThreadColorOperationTag,
@@ -191,7 +191,7 @@ export function ThreadListItem({
 
   function handleTitleInputKeyDown(e: React.KeyboardEvent<HTMLInputElement>): void {
     e.stopPropagation()
-    if (e.key === 'Escape') {
+    if (isDismissEscapeKey(e.nativeEvent)) {
       setRenamingTitle(false)
       return
     }

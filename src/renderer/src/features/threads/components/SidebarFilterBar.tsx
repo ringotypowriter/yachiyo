@@ -22,6 +22,7 @@ import {
   THREAD_COLOR_VALUES
 } from '@renderer/features/threads/lib/threadColorPalette'
 import { Tooltip } from '@renderer/components/Tooltip'
+import { isDismissEscapeKey } from '@renderer/lib/imeUtils'
 import {
   TEMPORARY_WORKSPACE_FILTER,
   resolveWorkspaceDisplayName,
@@ -276,7 +277,7 @@ function SidebarFilterDropdown({
       }
     }
     const handleEscape = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') onClose()
+      if (isDismissEscapeKey(e)) onClose()
     }
     document.addEventListener('mousedown', handlePointerDown)
     document.addEventListener('keydown', handleEscape)

@@ -2,6 +2,7 @@ import type React from 'react'
 import { useEffect, useRef } from 'react'
 import { ChevronDown, ChevronUp, Search, X } from 'lucide-react'
 import { theme } from '@renderer/theme/theme'
+import { isDismissEscapeKey } from '@renderer/lib/imeUtils'
 import type { FindMatch } from '../lib/threadFindBar'
 
 export interface ThreadFindBarProps {
@@ -30,7 +31,7 @@ export function ThreadFindBar({
   }, [])
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>): void {
-    if (e.key === 'Escape') {
+    if (isDismissEscapeKey(e.nativeEvent)) {
       onClose()
     } else if (e.key === 'Enter') {
       if (e.shiftKey) {

@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import { theme, alpha } from '@renderer/theme/theme'
+import { isDismissEscapeKey } from '@renderer/lib/imeUtils'
 
 export interface ConfirmDialogAction {
   key: string
@@ -25,7 +26,7 @@ export function ConfirmDialog({
 }: ConfirmDialogProps): React.JSX.Element {
   useEffect(() => {
     const handleEscape = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') onClose()
+      if (isDismissEscapeKey(e)) onClose()
     }
     document.addEventListener('keydown', handleEscape)
     return () => document.removeEventListener('keydown', handleEscape)

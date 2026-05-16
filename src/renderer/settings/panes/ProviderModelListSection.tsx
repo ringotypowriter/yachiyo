@@ -12,7 +12,7 @@ import {
   X
 } from 'lucide-react'
 import { theme, alpha } from '@renderer/theme/theme'
-import { imeSafeEnter } from '@renderer/lib/imeUtils'
+import { imeSafeEnter, isDismissEscapeKey } from '@renderer/lib/imeUtils'
 import { SettingSwitch, SimpleSelect } from '../components/primitives'
 import {
   REASONING_EFFORT_LEVELS,
@@ -195,7 +195,7 @@ function ReasoningSettingsModal({
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent): void => {
-      if (event.key === 'Escape') {
+      if (isDismissEscapeKey(event)) {
         onClose()
       }
     }
