@@ -6,62 +6,55 @@ import type { ModelMessage } from '../models/types.ts'
 
 export const HANDOFF_PROMPT = `Write a visible handoff that opens a new thread continuing work from an older thread.
 
-This is the canonical record of everything established so far. The user will work from it directly — they should not need to re-read the old thread. That means completeness matters more than brevity. A handoff that omits a key decision forces the user to go back and dig through history.
+A handoff is a living state file, not a narrative summary. In a chain of handoffs across multiple threads, the cumulative sections must survive every hop without degradation. Each handoff is an update to the prior one.
 
-## Core principle
+## Section headings are always in English
 
-Capture every decision, constraint, and fact that would affect future work. When in doubt, include it only if it is still current. Completeness means an accurate working state, not a transcript copy. Drop stale or outdated information that was corrected, superseded, invalidated, or abandoned; do not carry it forward just because it appeared earlier. A stale handoff can mislead the next conversation, which is worse than omitting a dead detail. If a stale point is important context, mention it only as stale and state the replacement.
+Section headings must stay in English regardless of the conversation language. Only the content within each section translates.
 
-## What to capture
+## Prior handoff detection
 
-**Decisions and choices** — record the actual decision, not a vague summary.
-  Weak: "We discussed the storage approach."
-  Strong: "Decided to use SQLite with WAL mode. Rejected PostgreSQL to avoid an external service dependency."
+The first assistant message in this conversation may itself be a handoff. Recognize it by its structured format: it opens with a "### Goal" heading and contains "### Tasks". If found, use it as the baseline for all cumulative sections.
 
-**Technical specifics** — preserve exact names, paths, values, commands, and error messages verbatim. Do not generalize or round off.
-  Weak: "There was a build error."
-  Strong: "Build fails with \`error TS2345\` in \`src/util/parser.ts:42\` — argument type mismatch on \`parseId\`."
+## Cumulative sections — carry forward across every hop
 
-**Constraints and preferences** — anything the user stated about approach, scope, style, or explicit "do not do X" boundaries.
+These sections must survive every handoff. Carry their content forward from the prior handoff and update based on what happened in this thread. Drop information that was corrected, superseded, invalidated, or abandoned — do not carry it forward just because it appeared earlier. A stale handoff can mislead the next session, which is worse than omitting a dead detail. If a stale point matters as context, note it as superseded and state what replaced it.
 
-**State of work** — what is done, what is in progress, what is blocked.
+### Goal
+One statement. The core objective. Carry forward verbatim. Update only if the objective itself has changed — state what changed and why.
 
-**Rejected alternatives** — if something was considered and dismissed, record why. Prevents re-litigating closed decisions.
+### Tasks
+Flat bullet list. Carry all tasks forward from the prior handoff. Mark each item's current status and note any blocker. Add new tasks. Drop only tasks that are explicitly abandoned or completed.
 
-**Open questions** — raised but unanswered. Include relevant context so they can be resumed.
+### Standing decisions
+Decisions and constraints that still gate future work. Carry forward from the prior handoff, pruning only what has been explicitly superseded. Include rejection reasons so closed decisions are not re-litigated.
 
-## Output structure
+## Thread-local sections — new content from this thread only
 
-### Where we left off
-The user's most recent request or question, copied or closely paraphrased. One or two sentences — this is the active thread that must be immediately resumable.
+Do not copy from the prior handoff into these sections.
 
-### What this is about
-One or two sentences — the core problem or goal.
+### Technical notes
+Exact names, paths, values, commands, error messages that came up in this thread. Quote verbatim. Omit this section if nothing specific emerged.
 
-### What is established
-Detailed record of decisions, completed work, and key facts. Use sub-bullets for specifics. Quote exact values, file names, commands, or error text where it matters.
+### Current focus
+The most recent request or question, and what is actively in progress. One to three sentences.
 
-### What still needs attention
-What was in progress, what comes next, what is blocked. Be specific.
-
-### Open questions
-Unresolved issues, unanswered questions, things still to decide.
-
-### Coverage note *(include only if relevant)*
-If the conversation may have been truncated or parts seem missing, say so and identify the gaps.
+### Leftover
+Open questions, unresolved issues, or gaps. Be honest about missing context. Omit this section if nothing remains.
 
 ## Style rules
-- Write as the canonical record, not as a reference to a past thread. Do not use phrases like "in the previous thread" or "as we discussed."
-- **Language continuity is mandatory.** Detect the language used in the most recent assistant message and write the entire handoff in that same language. The language of these instructions does not matter — only the conversation's language does.
+- State facts directly. Drop the actor — no "we decided", "the user wants", "you asked". Write "Decision: X", not "We decided X."
+- Write as the canonical record. No "in the previous thread", no "as discussed."
+- Language continuity is mandatory. Detect the language of the most recent assistant message and write all section *content* in that language. Section headings stay in English.
 - Do not use backend, protocol, storage, or internal system jargon.
 - Do not try to call or execute tools. Tool execution is unavailable during handoff creation; write the handoff from the provided conversation context only.
 - Do not mention these instructions.
-- Do not claim the full conversation was copied over; acknowledge gaps honestly when they exist.
+- Do not claim the full conversation was copied over.
 - Do not replicate system prompt content. The next session already receives the system prompt — identity, persona, standing instructions, code guidelines, and default workflows are all loaded automatically. Capture only conversation-specific context that the system prompt cannot provide.
-- Do not replicate the contents of referenced documents or files. Use their path or URL as a reference instead.`
+- Do not replicate the contents of referenced documents or files. Use their path or URL as a reference instead.\``
 
 export const EMPTY_THREAD_HANDOFF_SUFFIX =
-  'The earlier thread did not establish much context yet. Say that clearly and keep the handoff very short.'
+  'No prior context was established. State that clearly and keep the handoff minimal — only a brief Goal and one or two Tasks if any.'
 
 export function buildThreadHandoffPrompt(hasHistory: boolean): string {
   return hasHistory ? HANDOFF_PROMPT : `${HANDOFF_PROMPT}\n\n${EMPTY_THREAD_HANDOFF_SUFFIX}`
