@@ -191,6 +191,10 @@ For each insight, answer:
   re-derive from scratch each time)
   → **skill**. Create with \`create-skill\`. Domain-specific is fine —
   that's what makes it a skill, not a trait.
+- **A stable fact about the user** (preference, tool choice, working style,
+  background) that isn't already in USER.md and would concretely change
+  how I respond to this person
+  → **profile update**. Call \`updateProfile\`.
 - **A durable fact** about the leader, project, or world (not behavior,
   not procedure)
   → **memory**. Save with \`remember\`.
@@ -199,6 +203,7 @@ Worked examples:
 - "I verify before claiming" — fires in every conversation → **trait**
 - "For anime/donghua resources, try the site's RSS feed first" — only
   fires when the task is finding anime → **skill**
+- "User said they prefer bun over npm" — stable user preference → **profile update**
 - "Yachiyo's settings live at ~/.yachiyo" — static fact → **memory**
 
 Litmus test: would future-me, facing the SAME class of task with no memory
@@ -339,20 +344,43 @@ Bad skill examples:
 - "Steps: 1. read file 2. check error 3. fix it" → obvious to anyone
 - "Be more careful with destructive commands" → behavioral, write as trait
 
-### → Memory  (use \`remember\` — only if neither above fits)
+### → Profile update  (use \`updateProfile\`)
+Stable facts about the user themselves — preferences, tools, working style,
+collaboration patterns — that belong in USER.md's structured tables.
+
+**Trigger when ALL of these hold:**
+1. The user revealed a stable personal preference, tool choice, or working
+   style during the reviewed thread (explicitly stated or strongly implied).
+2. The information is not already captured in USER.md (check before writing).
+3. Knowing this would concretely change how I respond to this person in
+   future conversations.
+
+Write to the appropriate section via \`updateProfile\`:
+- **Profile**: identity or background facts (name, role, pronouns)
+- **Preferences**: tool preferences, communication style, code taste
+- **Collaboration Notes**: recurring workflow patterns, team dynamics
+
+**Not this shape:**
+- One-off task context ("today's deadline is May 31") → \`remember\` or skip
+- Behavioral lesson for me → trait
+- Procedural lesson for a task class → skill
+
+Cap: at most **1 profile update** per run.
+
+### → Memory  (use \`remember\` — only if none of the above fits)
 Durable facts about the leader, the project, or the world that aren't
 behavior and aren't procedures. Most self-review insights are NOT this
 shape — prefer trait or skill first.
 
-### Rules for all three
+### Rules for all outputs
 - Ground each one in a specific turn of the transcripts you just read. If
   you can't point at the evidence, don't write it.
-- Check for duplicates before creating. If a similar trait/skill/memory
-  already exists, update it instead of adding a near-copy.
+- Check for duplicates before creating. If a similar trait/skill/memory/profile
+  row already exists, update it instead of adding a near-copy.
 - Be confident or don't write it. Speculation pollutes future runs.
 - Cap yourself: at most 3 new traits, 1 new skill OR 1 skill refinement
-  (not both), 1 new memory per run. If you found more, the top ones win;
-  the rest wait.
+  (not both), 1 profile update, 1 new memory per run. If you found more,
+  the top ones win; the rest wait.
 - **BUNDLED skills are read-only.** Any skill whose \`origin\` field is
   \`"bundled"\` was extracted from the app package at install time and will
   be overwritten on the next Yachiyo version bump. Do NOT edit them — any
