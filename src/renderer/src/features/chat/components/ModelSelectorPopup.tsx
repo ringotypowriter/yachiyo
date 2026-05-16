@@ -44,7 +44,6 @@ function ModelOption({
             ? theme.background.hover
             : 'transparent',
         border: 'none',
-        cursor: disabled ? 'progress' : 'pointer',
         gap: 6,
         textAlign: 'left',
         transition: 'background 0.1s',
@@ -102,7 +101,6 @@ function AcpAgentOption({
             ? theme.background.hover
             : 'transparent',
         border: 'none',
-        cursor: disabled ? 'progress' : 'pointer',
         gap: 6,
         textAlign: 'left',
         transition: 'background 0.1s',

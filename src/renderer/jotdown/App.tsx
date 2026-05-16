@@ -353,9 +353,7 @@ export default function JotdownApp(): React.JSX.Element {
               style={{
                 borderBottom:
                   index < notes.length - 1 ? `1px solid ${theme.border.subtle}` : undefined,
-                background:
-                  note.id === activeNote?.id ? theme.background.accentSoft : 'transparent',
-                cursor: 'pointer'
+                background: note.id === activeNote?.id ? theme.background.accentSoft : 'transparent'
               }}
               onMouseEnter={(e) => {
                 if (note.id !== activeNote?.id)

@@ -302,7 +302,6 @@ export function DiffPreviewerModal({
                           color: theme.text.danger,
                           background: alpha('danger', 0.08),
                           border: 'none',
-                          cursor: reverting ? 'not-allowed' : 'pointer',
                           opacity: reverting ? 0.5 : 1
                         }}
                       >

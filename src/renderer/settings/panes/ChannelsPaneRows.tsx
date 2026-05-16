@@ -329,7 +329,6 @@ export function ChannelGroupRow({
             color: theme.text.tertiary,
             background: `${theme.text.tertiary}14`,
             border: 'none',
-            cursor: busy ? 'default' : 'pointer',
             opacity: busy ? 0.55 : 0.75
           }}
         >

@@ -128,7 +128,6 @@ export function AskUserInlineWidget({ toolCall }: AskUserInlineWidgetProps): Rea
                   border: `1px solid ${theme.border.panel}`,
                   boxShadow: theme.shadow.button,
                   color: theme.text.secondary,
-                  cursor: isSending ? 'not-allowed' : 'pointer',
                   fontSize: '11.5px',
                   fontWeight: 450,
                   transition: 'all 0.12s ease'
@@ -189,7 +188,6 @@ export function AskUserInlineWidget({ toolCall }: AskUserInlineWidgetProps): Rea
               style={{
                 background: hasInput ? theme.text.accent : 'transparent',
                 color: hasInput ? theme.text.inverse : theme.text.placeholder,
-                cursor: isSending || !hasInput ? 'default' : 'pointer',
                 border: 'none',
                 opacity: hasInput ? 1 : 0.4,
                 transition: 'all 0.12s ease'

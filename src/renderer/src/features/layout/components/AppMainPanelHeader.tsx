@@ -145,8 +145,7 @@ export function AppMainPanelHeader({
                     : 0.25
                   : isPrivacyMode
                     ? 1
-                    : 0.45,
-                cursor: isPrivacyToggleLocked ? 'not-allowed' : 'pointer'
+                    : 0.45
               }}
               aria-label={
                 isPrivacyToggleLocked

@@ -390,8 +390,7 @@ export function ChatPane({ draft, onChange }: ChatPaneProps): React.ReactNode {
               className="flex items-center gap-1.5 px-2 py-1 rounded-lg text-xs font-medium transition-opacity"
               style={{
                 color: theme.text.primary,
-                opacity: defaultModelSelectorOpen ? 1 : 0.72,
-                cursor: hasEnabledModels ? 'pointer' : 'default'
+                opacity: defaultModelSelectorOpen ? 1 : 0.72
               }}
               aria-label="Default model selection"
             >
@@ -464,8 +463,7 @@ export function ChatPane({ draft, onChange }: ChatPaneProps): React.ReactNode {
               className="flex items-center gap-1.5 px-2 py-1 rounded-lg text-xs font-medium transition-opacity"
               style={{
                 color: theme.text.primary,
-                opacity: toolModelSelectorOpen ? 1 : 0.72,
-                cursor: canOpenToolModelSelector ? 'pointer' : 'default'
+                opacity: toolModelSelectorOpen ? 1 : 0.72
               }}
               aria-label="Tool model selection"
             >
@@ -578,8 +576,7 @@ export function ChatPane({ draft, onChange }: ChatPaneProps): React.ReactNode {
               className="flex items-center gap-1.5 px-2 py-1 rounded-lg text-xs font-medium transition-opacity"
               style={{
                 color: theme.text.primary,
-                opacity: i2tModelSelectorOpen ? 1 : 0.72,
-                cursor: hasEnabledModels ? 'pointer' : 'default'
+                opacity: i2tModelSelectorOpen ? 1 : 0.72
               }}
               aria-label="Image to Text model selection"
             >

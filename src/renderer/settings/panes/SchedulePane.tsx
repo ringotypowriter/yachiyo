@@ -346,8 +346,7 @@ function ScheduleForm({
                 border: 'none',
                 fontWeight: mode === m ? 500 : 400,
                 letterSpacing: '0.01em',
-                opacity: isBundled ? 0.6 : 1,
-                cursor: isBundled ? 'default' : 'pointer'
+                opacity: isBundled ? 0.6 : 1
               }}
               disabled={isBundled}
               onClick={() => setMode(m)}

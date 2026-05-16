@@ -868,13 +868,11 @@ function SettingsApp(): React.ReactNode {
                   ? {
                       background: 'transparent',
                       color: theme.text.muted,
-                      cursor: 'not-allowed',
                       opacity: 0.4
                     }
                   : {
                       background: theme.text.accent,
-                      color: theme.text.inverse,
-                      cursor: 'default'
+                      color: theme.text.inverse
                     })
               }}
             >

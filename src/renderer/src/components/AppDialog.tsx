@@ -280,7 +280,6 @@ export function AppDialog({
                   }
                   style={{
                     border: 'none',
-                    cursor: action.disabled ? 'not-allowed' : 'default',
                     opacity: action.disabled ? 0.5 : 1,
                     background: actionBackground(action.tone),
                     color: actionColor(action.tone)

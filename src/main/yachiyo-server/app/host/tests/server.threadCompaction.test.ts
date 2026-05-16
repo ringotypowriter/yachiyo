@@ -652,10 +652,7 @@ test('YachiyoServer.compactThreadToAnotherThread asks for a short handoff when t
 
       const lastMessage = handoffRequest.messages.at(-1)
       assert.equal(lastMessage?.role, 'user')
-      assert.match(
-        String(lastMessage?.content),
-        /No prior context was established/
-      )
+      assert.match(String(lastMessage?.content), /No prior context was established/)
       assert.match(String(lastMessage?.content), /keep the handoff minimal/)
     },
     {

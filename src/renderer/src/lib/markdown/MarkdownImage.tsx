@@ -84,8 +84,7 @@ const buttonStyle: React.CSSProperties = {
   background: theme.background.surface,
   color: theme.text.primary,
   fontSize: 12,
-  fontWeight: 500,
-  cursor: 'pointer'
+  fontWeight: 500
 }
 
 function prettyHost(url: string): string {

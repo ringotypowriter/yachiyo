@@ -7,7 +7,7 @@ import type { InlineCodeFileLinkSnapshot } from './inlineCodeFileLinkSnapshot'
 import { toInlineCodeFileReferenceCandidate } from '../../../../shared/yachiyo/inlineCodeFileReferences.ts'
 
 const URL_RE = /^https?:\/\/\S+$/
-const LINK_STYLE = { cursor: 'pointer', textDecoration: 'underline', textUnderlineOffset: 2 }
+const LINK_STYLE = { textDecoration: 'underline', textUnderlineOffset: 2 }
 
 /**
  * Inline code component that makes URL-only code spans clickable.

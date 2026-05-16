@@ -856,6 +856,11 @@ button,
   cursor: default !important;
 }
 
+button:not(:disabled):active,
+[role='button']:not([aria-disabled='true']):active {
+  filter: brightness(0.97);
+}
+
 input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='file']),
 textarea,
 [contenteditable='true'] {

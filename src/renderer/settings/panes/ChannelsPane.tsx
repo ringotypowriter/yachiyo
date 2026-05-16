@@ -54,7 +54,6 @@ function RestartServiceButton({
           color: enabled ? theme.text.accent : theme.text.tertiary,
           background: 'none',
           border: 'none',
-          cursor: enabled ? 'pointer' : 'default',
           opacity: enabled ? 1 : 0.5,
           padding: 0
         }}

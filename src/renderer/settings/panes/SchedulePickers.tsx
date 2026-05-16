@@ -658,8 +658,7 @@ export function DateTimePick({
                 style={{
                   background: selDay != null ? alpha('accent', 0.12) : alpha('ink', 0.06),
                   color: selDay != null ? theme.text.accent : theme.text.tertiary,
-                  border: 'none',
-                  cursor: selDay != null ? 'pointer' : 'default'
+                  border: 'none'
                 }}
                 onClick={handleApply}
               >

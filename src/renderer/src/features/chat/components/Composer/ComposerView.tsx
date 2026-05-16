@@ -697,8 +697,7 @@ export function ComposerView(props: any): React.JSX.Element {
             className="flex items-center gap-0.5 px-1 py-1 rounded-lg text-xs font-medium transition-opacity"
             style={{
               color: theme.text.primary,
-              opacity: workspaceSelectorOpen ? 1 : 0.6,
-              cursor: isWorkspaceLocked ? 'default' : 'pointer'
+              opacity: workspaceSelectorOpen ? 1 : 0.6
             }}
             aria-label="Workspace selection"
             aria-expanded={workspaceSelectorOpen}
@@ -832,8 +831,7 @@ export function ComposerView(props: any): React.JSX.Element {
             className="flex items-center gap-1.5 px-2 py-1 rounded-lg text-xs font-medium transition-opacity ml-0.5"
             style={{
               color: theme.text.primary,
-              opacity: modelSelectorOpen ? 1 : 0.6,
-              cursor: canOpenModelPicker && !isModelSelectorLocked ? 'pointer' : 'default'
+              opacity: modelSelectorOpen ? 1 : 0.6
             }}
             aria-label="Model selection"
             type="button"
@@ -1086,8 +1084,7 @@ export function ComposerView(props: any): React.JSX.Element {
               style={{
                 background: theme.background.accentPanel,
                 border: `1px solid ${theme.border.accent}`,
-                opacity: isCancelInFlight ? 0.6 : 1,
-                cursor: isCancelInFlight ? 'default' : 'pointer'
+                opacity: isCancelInFlight ? 0.6 : 1
               }}
               aria-label="Stop generation"
               title="Stop generation"
@@ -1114,7 +1111,6 @@ export function ComposerView(props: any): React.JSX.Element {
             className="w-8 h-8 rounded-lg flex items-center justify-center transition-all"
             style={{
               background: canSend ? theme.text.accent : theme.border.panel,
-              cursor: canSend ? 'pointer' : 'default',
               opacity: isSendInFlight ? 0.6 : 1
             }}
             aria-label={

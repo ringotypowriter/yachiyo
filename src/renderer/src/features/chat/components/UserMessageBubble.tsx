@@ -37,7 +37,6 @@ function UserMessageImages({ message }: { message: Message }): React.JSX.Element
                 src={image.dataUrl}
                 alt={alt}
                 onClick={handleImageClick(image.dataUrl, alt)}
-                style={{ cursor: 'pointer' }}
               />
             </div>
           )
