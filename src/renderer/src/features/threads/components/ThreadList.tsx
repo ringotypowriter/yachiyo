@@ -28,6 +28,7 @@ import {
 import { ThreadFolderItem } from './ThreadFolderItem'
 import { ThreadListItem } from './ThreadListItem'
 import { ConfirmDialog } from '@renderer/components/ConfirmDialog'
+import { useAppDialog } from '@renderer/components/AppDialogContext'
 import { theme } from '@renderer/theme/theme'
 import { isDismissEscapeKey } from '@renderer/lib/imeUtils'
 import { isMemoryConfigured } from '../../../../../shared/yachiyo/protocol.ts'
@@ -610,6 +611,7 @@ function ThreadListContent({
   moveThreadToFolder: (threadId: string, folderId: string | null) => Promise<void>
   createFolderForThreads: (threadIds: string[]) => Promise<void>
 }): React.JSX.Element {
+  const dialog = useAppDialog()
   const [selectMode, setSelectMode] = useState(false)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [archiveTarget, setArchiveTarget] = useState<Thread | null>(null)
@@ -704,18 +706,28 @@ function ThreadListContent({
       }
 
       if (latestRunsByThread[thread.id]?.status === 'running') {
-        if (!window.confirm(`"${thread.title}" has an active run. Cancel the run and delete?`)) {
-          return
-        }
+        const confirmed = await dialog.confirm({
+          title: `"${thread.title}" has an active run.`,
+          message: 'Cancel the run and delete this thread?',
+          confirmLabel: 'Delete',
+          tone: 'danger'
+        })
+        if (!confirmed) return
         await cancelRunForThread(thread.id)
         await deleteThread(thread.id)
         return
       }
-      if (window.confirm(`Delete "${thread.title}" permanently?`)) {
-        await deleteThread(thread.id)
-      }
+      const confirmed = await dialog.confirm({
+        title: `Delete "${thread.title}" permanently?`,
+        confirmLabel: 'Delete',
+        tone: 'danger'
+      })
+      if (!confirmed) return
+      await deleteThread(thread.id)
     } catch (error) {
-      window.alert(error instanceof Error ? error.message : 'Failed to update the thread.')
+      await dialog.alert({
+        title: error instanceof Error ? error.message : 'Failed to update the thread.'
+      })
     }
   }
 
@@ -740,34 +752,49 @@ function ThreadListContent({
       }
       exitSelectMode()
     } catch (error) {
-      window.alert(error instanceof Error ? error.message : 'Failed to archive threads.')
+      await dialog.alert({
+        title: error instanceof Error ? error.message : 'Failed to archive threads.'
+      })
     }
   }
 
   async function handleBulkRestore(): Promise<void> {
     const ids = [...selectedIds]
-    if (!window.confirm(`Restore ${ids.length} thread${ids.length !== 1 ? 's' : ''}?`)) return
+    const confirmed = await dialog.confirm({
+      title: `Restore ${ids.length} thread${ids.length !== 1 ? 's' : ''}?`,
+      confirmLabel: 'Restore',
+      tone: 'accent'
+    })
+    if (!confirmed) return
     try {
       for (const id of ids) {
         await restoreThread(id)
       }
       exitSelectMode()
     } catch (error) {
-      window.alert(error instanceof Error ? error.message : 'Failed to restore threads.')
+      await dialog.alert({
+        title: error instanceof Error ? error.message : 'Failed to restore threads.'
+      })
     }
   }
 
   async function handleBulkDelete(): Promise<void> {
     const ids = [...selectedIds]
-    if (!window.confirm(`Delete ${ids.length} thread${ids.length !== 1 ? 's' : ''} permanently?`))
-      return
+    const confirmed = await dialog.confirm({
+      title: `Delete ${ids.length} thread${ids.length !== 1 ? 's' : ''} permanently?`,
+      confirmLabel: 'Delete',
+      tone: 'danger'
+    })
+    if (!confirmed) return
     try {
       for (const id of ids) {
         await deleteThread(id)
       }
       exitSelectMode()
     } catch (error) {
-      window.alert(error instanceof Error ? error.message : 'Failed to delete threads.')
+      await dialog.alert({
+        title: error instanceof Error ? error.message : 'Failed to delete threads.'
+      })
     }
   }
 
@@ -778,7 +805,9 @@ function ThreadListContent({
         await regenerateThreadTitle(id)
       }
     } catch (error) {
-      window.alert(error instanceof Error ? error.message : 'Failed to regenerate thread titles.')
+      await dialog.alert({
+        title: error instanceof Error ? error.message : 'Failed to regenerate thread titles.'
+      })
     }
   }
 
@@ -786,7 +815,9 @@ function ThreadListContent({
     try {
       await renameThread(thread.id, nextTitle)
     } catch (error) {
-      window.alert(error instanceof Error ? error.message : 'Failed to rename the thread.')
+      await dialog.alert({
+        title: error instanceof Error ? error.message : 'Failed to rename the thread.'
+      })
     }
   }
 
@@ -794,7 +825,9 @@ function ThreadListContent({
     try {
       await setThreadIcon(thread.id, icon)
     } catch (error) {
-      window.alert(error instanceof Error ? error.message : 'Failed to update the thread icon.')
+      await dialog.alert({
+        title: error instanceof Error ? error.message : 'Failed to update the thread icon.'
+      })
     }
   }
 
@@ -805,7 +838,9 @@ function ThreadListContent({
     try {
       await setThreadColor(thread.id, colorTag)
     } catch (error) {
-      window.alert(error instanceof Error ? error.message : 'Failed to update the thread color.')
+      await dialog.alert({
+        title: error instanceof Error ? error.message : 'Failed to update the thread color.'
+      })
     }
   }
 
@@ -813,7 +848,9 @@ function ThreadListContent({
     try {
       await starThread(thread.id, !thread.starredAt)
     } catch (error) {
-      window.alert(error instanceof Error ? error.message : 'Failed to update the thread.')
+      await dialog.alert({
+        title: error instanceof Error ? error.message : 'Failed to update the thread.'
+      })
     }
   }
 
@@ -839,7 +876,9 @@ function ThreadListContent({
       }
       dropSelectionIds(target.threads.map((t) => t.id))
     } catch (error) {
-      window.alert(error instanceof Error ? error.message : 'Failed to archive folder threads.')
+      await dialog.alert({
+        title: error instanceof Error ? error.message : 'Failed to archive folder threads.'
+      })
     }
   }
 
@@ -853,7 +892,9 @@ function ThreadListContent({
       }
       dropSelectionIds(target.threads.map((t) => t.id))
     } catch (error) {
-      window.alert(error instanceof Error ? error.message : 'Failed to restore folder threads.')
+      await dialog.alert({
+        title: error instanceof Error ? error.message : 'Failed to restore folder threads.'
+      })
     }
   }
 
@@ -870,7 +911,9 @@ function ThreadListContent({
         await saveThread(thread.id, { archiveAfterSave: true })
       }
     } catch (error) {
-      window.alert(error instanceof Error ? error.message : 'Failed to archive the thread.')
+      await dialog.alert({
+        title: error instanceof Error ? error.message : 'Failed to archive the thread.'
+      })
     }
   }
 

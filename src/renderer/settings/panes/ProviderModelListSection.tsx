@@ -1,5 +1,4 @@
-import { useDeferredValue, useEffect, useMemo, useState } from 'react'
-import { createPortal } from 'react-dom'
+import { useDeferredValue, useMemo, useState } from 'react'
 import {
   Brain,
   Eraser,
@@ -12,8 +11,8 @@ import {
   X
 } from 'lucide-react'
 import { theme, alpha } from '@renderer/theme/theme'
-import { useRestoreFocusOnUnmount } from '@renderer/lib/focusRestore'
-import { imeSafeEnter, isDismissEscapeKey } from '@renderer/lib/imeUtils'
+import { AppDialog } from '@renderer/components/AppDialog'
+import { imeSafeEnter } from '@renderer/lib/imeUtils'
 import { SettingSwitch, SimpleSelect } from '../components/primitives'
 import {
   REASONING_EFFORT_LEVELS,
@@ -180,8 +179,6 @@ function ReasoningSettingsModal({
   onClose,
   provider
 }: ReasoningModalProps): React.ReactNode {
-  useRestoreFocusOnUnmount()
-
   const choices = REASONING_CHOICES.filter(
     (choice) =>
       choice.value === 'off' ||
@@ -196,117 +193,62 @@ function ReasoningSettingsModal({
     label: REASONING_CHOICES.find((choice) => choice.value === value)?.label ?? value
   }))
 
-  useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent): void => {
-      if (isDismissEscapeKey(event)) {
-        onClose()
-      }
-    }
-
-    document.addEventListener('keydown', handleKeyDown)
-    return () => document.removeEventListener('keydown', handleKeyDown)
-  }, [onClose])
-
-  return createPortal(
-    <div
-      role="presentation"
-      onMouseDown={onClose}
-      style={{
-        position: 'fixed',
-        inset: 0,
-        zIndex: 9998,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        background: 'rgba(10, 18, 25, 0.22)',
-        backdropFilter: 'blur(10px)',
-        WebkitBackdropFilter: 'blur(10px)',
-        padding: 24
-      }}
+  return (
+    <AppDialog
+      title={model}
+      description="Reasoning levels shown in the composer"
+      showCloseButton
+      width="min(520px, 100%)"
+      bodyPadding="16px 20px"
+      zIndex={9998}
+      ariaLabel={`Reasoning settings for ${model}`}
+      onClose={onClose}
     >
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-label={`Reasoning settings for ${model}`}
-        onMouseDown={(event) => event.stopPropagation()}
-        style={{
-          width: 'min(520px, 100%)',
-          borderRadius: 16,
-          border: `1px solid ${theme.border.strong}`,
-          background: theme.background.surface,
-          boxShadow: theme.shadow.overlay,
-          overflow: 'hidden'
-        }}
-      >
-        <div
-          className="flex items-start justify-between gap-4 px-5 py-4"
-          style={{ borderBottom: `1px solid ${theme.border.subtle}` }}
-        >
-          <div className="min-w-0">
-            <div className="text-sm font-semibold truncate" style={{ color: theme.text.primary }}>
-              {model}
-            </div>
-            <div className="mt-1 text-xs" style={{ color: theme.text.muted }}>
-              Reasoning levels shown in the composer
-            </div>
+      <div className="space-y-4">
+        <div>
+          <div className="mb-2 text-xs font-medium" style={{ color: theme.text.primary }}>
+            Available levels
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="shrink-0 rounded-lg p-1 transition-opacity opacity-50 hover:opacity-100"
-            aria-label="Close reasoning settings"
-          >
-            <X size={15} strokeWidth={1.8} color={theme.icon.muted} />
-          </button>
+          <div className="grid grid-cols-3 gap-2">
+            {choices.map((choice) => {
+              const active = options.includes(choice.value)
+              return (
+                <button
+                  key={choice.value}
+                  type="button"
+                  onClick={() => onToggleOption(choice.value)}
+                  className="rounded-lg px-3 py-2 text-sm font-medium transition-colors"
+                  style={{
+                    color: active ? theme.text.accent : theme.text.secondary,
+                    background: active ? theme.background.accentSoft : alpha('ink', 0.04),
+                    border: `1px solid ${active ? theme.border.accent : theme.border.subtle}`
+                  }}
+                >
+                  {choice.label}
+                </button>
+              )
+            })}
+          </div>
         </div>
 
-        <div className="px-5 py-4 space-y-4">
-          <div>
-            <div className="mb-2 text-xs font-medium" style={{ color: theme.text.primary }}>
-              Available levels
+        <div className="flex items-center justify-between gap-4">
+          <div className="min-w-0">
+            <div className="text-xs font-medium" style={{ color: theme.text.primary }}>
+              Default
             </div>
-            <div className="grid grid-cols-3 gap-2">
-              {choices.map((choice) => {
-                const active = options.includes(choice.value)
-                return (
-                  <button
-                    key={choice.value}
-                    type="button"
-                    onClick={() => onToggleOption(choice.value)}
-                    className="rounded-lg px-3 py-2 text-sm font-medium transition-colors"
-                    style={{
-                      color: active ? theme.text.accent : theme.text.secondary,
-                      background: active ? theme.background.accentSoft : alpha('ink', 0.04),
-                      border: `1px solid ${active ? theme.border.accent : theme.border.subtle}`
-                    }}
-                  >
-                    {choice.label}
-                  </button>
-                )
-              })}
+            <div className="mt-1 text-xs truncate" style={{ color: theme.text.muted }}>
+              {formatReasoningOptionList(options)}
             </div>
           </div>
-
-          <div className="flex items-center justify-between gap-4">
-            <div className="min-w-0">
-              <div className="text-xs font-medium" style={{ color: theme.text.primary }}>
-                Default
-              </div>
-              <div className="mt-1 text-xs truncate" style={{ color: theme.text.muted }}>
-                {formatReasoningOptionList(options)}
-              </div>
-            </div>
-            <SimpleSelect<ComposerReasoningSelection>
-              value={defaultEffort}
-              options={defaultOptions}
-              width={140}
-              onChange={onSetDefault}
-            />
-          </div>
+          <SimpleSelect<ComposerReasoningSelection>
+            value={defaultEffort}
+            options={defaultOptions}
+            width={140}
+            onChange={onSetDefault}
+          />
         </div>
       </div>
-    </div>,
-    document.body
+    </AppDialog>
   )
 }
 

@@ -4,6 +4,7 @@ import { FolderOpen, SquareArrowOutUpRight } from 'lucide-react'
 import { alpha, solid } from '@renderer/theme/theme'
 import { code as codePlugin } from '@streamdown/code'
 import { useAppStore } from '@renderer/app/store/useAppStore'
+import { useAppDialog } from '@renderer/components/AppDialogContext'
 import { detectLanguage } from '../lib/detectLanguage'
 
 interface ToolCodeBlockProps {
@@ -260,6 +261,7 @@ function Container({
   filePath?: string
   children: React.ReactNode
 }): React.JSX.Element {
+  const dialog = useAppDialog()
   const editorApp = useAppStore((s) => s.config?.workspace?.editorApp)
   const markdownApp = useAppStore((s) => s.config?.workspace?.markdownApp)
 
@@ -275,9 +277,11 @@ function Container({
     try {
       await window.api.yachiyo.openFileInEditor({ path: filePath, editorApp: app })
     } catch (error) {
-      window.alert(error instanceof Error ? error.message : 'Failed to open in editor.')
+      await dialog.alert({
+        title: error instanceof Error ? error.message : 'Failed to open in editor.'
+      })
     }
-  }, [filePath, editorApp, markdownApp])
+  }, [dialog, filePath, editorApp, markdownApp])
 
   const hasActions = !!filePath
 

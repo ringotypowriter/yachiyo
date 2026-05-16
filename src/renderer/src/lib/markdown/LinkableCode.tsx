@@ -1,5 +1,6 @@
 import { useContext, useState, useCallback } from 'react'
 import { StreamdownContext } from 'streamdown'
+import { useAppDialog } from '@renderer/components/AppDialogContext'
 import { LinkSafetyModal } from './LinkSafetyModal'
 import { getLinkableCodeFileAction } from './linkableCodeFileAction'
 import type { InlineCodeFileLinkSnapshot } from './inlineCodeFileLinkSnapshot'
@@ -23,6 +24,7 @@ export function LinkableCode({
 }): React.JSX.Element {
   // `node` is the hast AST node injected by Streamdown — strip it so it doesn't hit the DOM.
   void node
+  const dialog = useAppDialog()
   const { linkSafety } = useContext(StreamdownContext)
   const [modalOpen, setModalOpen] = useState(false)
 
@@ -56,10 +58,12 @@ export function LinkableCode({
           await window.api.yachiyo.openFile({ path: filePath })
         }
       } catch (error) {
-        window.alert(error instanceof Error ? error.message : 'Failed to open file.')
+        await dialog.alert({
+          title: error instanceof Error ? error.message : 'Failed to open file.'
+        })
       }
     },
-    [filePath, fileReference]
+    [dialog, filePath, fileReference]
   )
 
   const handleConfirm = useCallback(() => {

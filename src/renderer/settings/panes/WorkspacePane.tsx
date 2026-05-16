@@ -4,6 +4,7 @@ import { createPortal } from 'react-dom'
 import { theme, alpha } from '@renderer/theme/theme'
 import type { SettingsConfig } from '../../../shared/yachiyo/protocol.ts'
 import { SettingLabel, SettingSection } from '../components/primitives'
+import { useAppDialog } from '@renderer/components/AppDialogContext'
 import { useRestoreFocusOnUnmount } from '@renderer/lib/focusRestore'
 import { imeSafeEnter } from '@renderer/lib/imeUtils'
 
@@ -298,24 +299,33 @@ function AppPicker({ value, options, placeholder, onChange }: AppPickerProps): R
 
 function PruneButton(): React.JSX.Element {
   const [hovered, setHovered] = useState(false)
+  const dialog = useAppDialog()
 
   return (
     <button
       type="button"
       onClick={() => {
-        if (!window.confirm('Delete empty temporary workspaces? This cannot be undone.')) {
-          return
-        }
-        void window.api.yachiyo
-          .pruneEmptyTemporaryWorkspaces()
-          .then((count) => {
-            window.alert(`Pruned ${count} empty temporary workspace${count === 1 ? '' : 's'}.`)
+        void (async () => {
+          const confirmed = await dialog.confirm({
+            title: 'Delete empty temporary workspaces?',
+            message: 'This cannot be undone.',
+            confirmLabel: 'Delete',
+            tone: 'danger'
           })
-          .catch((error) => {
-            window.alert(
-              `Failed to prune temporary workspaces: ${error instanceof Error ? error.message : String(error)}`
-            )
-          })
+          if (!confirmed) return
+
+          try {
+            const count = await window.api.yachiyo.pruneEmptyTemporaryWorkspaces()
+            await dialog.alert({
+              title: `Pruned ${count} empty temporary workspace${count === 1 ? '' : 's'}.`
+            })
+          } catch (error) {
+            await dialog.alert({
+              title: 'Failed to prune temporary workspaces',
+              message: error instanceof Error ? error.message : String(error)
+            })
+          }
+        })()
       }}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}

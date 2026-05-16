@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { SidebarVisibility } from '@renderer/app/types'
 import { useAppStore } from '@renderer/app/store/useAppStore'
+import { useAppDialog } from '@renderer/components/AppDialogContext'
 import {
   DEFAULT_SIDEBAR_WIDTH,
   MAX_SIDEBAR_WIDTH,
@@ -29,6 +30,7 @@ export interface UseSidebarVisibilityStateResult {
 }
 
 export function useSidebarVisibilityState(): UseSidebarVisibilityStateResult {
+  const dialog = useAppDialog()
   const config = useAppStore((state) => state.config)
   const clearPendingOverrideSyncRef = useRef<(() => void) | null>(null)
   const [cachedSidebarVisibility, setCachedSidebarVisibility] = useState<SidebarVisibility | null>(
@@ -173,7 +175,9 @@ export function useSidebarVisibilityState(): UseSidebarVisibilityStateResult {
     } catch (error) {
       clearPendingOverrideSync()
       setSidebarOpenOverride(null)
-      window.alert(error instanceof Error ? error.message : 'Failed to save sidebar visibility.')
+      await dialog.alert({
+        title: error instanceof Error ? error.message : 'Failed to save sidebar visibility.'
+      })
     }
   }
 

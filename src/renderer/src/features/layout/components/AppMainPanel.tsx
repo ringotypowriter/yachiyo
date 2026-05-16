@@ -24,6 +24,7 @@ import { computeRecapDecision } from '@renderer/features/layout/lib/recapIdle'
 import { selectContextPromptTokens } from '@renderer/lib/contextPromptTokens'
 import { MessageSquare, Trash2 } from 'lucide-react'
 import { ConfirmDialog } from '@renderer/components/ConfirmDialog'
+import { useAppDialog } from '@renderer/components/AppDialogContext'
 import { Tooltip } from '@renderer/components/Tooltip'
 import { theme } from '@renderer/theme/theme'
 import { isMemoryConfigured } from '../../../../../shared/yachiyo/protocol.ts'
@@ -75,6 +76,7 @@ export function AppMainPanel({
   pendingFindQuery,
   onPendingFindQueryApplied
 }: AppMainPanelProps): React.JSX.Element {
+  const dialog = useAppDialog()
   const archiveThread = useAppStore((s) => s.archiveThread)
   const archivedThreads = useAppStore((s) => s.archivedThreads)
   const activeArchivedThreadId = useAppStore((s) => s.activeArchivedThreadId)
@@ -339,14 +341,22 @@ export function AppMainPanel({
 
     setRenamingThreadId(thread.id)
     try {
-      const nextTitle = window.prompt('Rename thread', thread.title)?.trim()
+      const nextTitle = (
+        await dialog.prompt({
+          title: 'Rename thread',
+          initialValue: thread.title,
+          confirmLabel: 'Rename'
+        })
+      )?.trim()
       if (!nextTitle || nextTitle === thread.title) {
         return
       }
 
       await renameThread(thread.id, nextTitle)
     } catch (error) {
-      window.alert(error instanceof Error ? error.message : 'Failed to rename the thread.')
+      await dialog.alert({
+        title: error instanceof Error ? error.message : 'Failed to rename the thread.'
+      })
     } finally {
       setRenamingThreadId(null)
     }
@@ -365,28 +375,39 @@ export function AppMainPanel({
         await saveThread(thread.id, { archiveAfterSave: true })
       }
     } catch (error) {
-      window.alert(error instanceof Error ? error.message : 'Failed to archive the thread.')
+      await dialog.alert({
+        title: error instanceof Error ? error.message : 'Failed to archive the thread.'
+      })
     }
   }
 
   async function handleDeleteThread(thread: Thread): Promise<void> {
     if (latestRunsByThread[thread.id]?.status === 'running') {
-      if (!window.confirm(`"${thread.title}" has an active run. Cancel the run and delete?`)) {
-        return
-      }
+      const confirmed = await dialog.confirm({
+        title: `"${thread.title}" has an active run.`,
+        message: 'Cancel the run and delete this thread?',
+        confirmLabel: 'Delete',
+        tone: 'danger'
+      })
+      if (!confirmed) return
       await cancelRunForThread(thread.id)
       await deleteThread(thread.id)
       return
     }
 
-    if (!window.confirm(`Delete "${thread.title}" permanently?`)) {
-      return
-    }
+    const confirmed = await dialog.confirm({
+      title: `Delete "${thread.title}" permanently?`,
+      confirmLabel: 'Delete',
+      tone: 'danger'
+    })
+    if (!confirmed) return
 
     try {
       await deleteThread(thread.id)
     } catch (error) {
-      window.alert(error instanceof Error ? error.message : 'Failed to delete the thread.')
+      await dialog.alert({
+        title: error instanceof Error ? error.message : 'Failed to delete the thread.'
+      })
     }
   }
 
@@ -394,7 +415,9 @@ export function AppMainPanel({
     try {
       await restoreThread(thread.id)
     } catch (error) {
-      window.alert(error instanceof Error ? error.message : 'Failed to restore the thread.')
+      await dialog.alert({
+        title: error instanceof Error ? error.message : 'Failed to restore the thread.'
+      })
     }
   }
 
@@ -403,7 +426,9 @@ export function AppMainPanel({
     try {
       await setThreadPrivacyMode(activeThread.id, !activeThread.privacyMode)
     } catch (error) {
-      window.alert(error instanceof Error ? error.message : 'Failed to toggle privacy mode.')
+      await dialog.alert({
+        title: error instanceof Error ? error.message : 'Failed to toggle privacy mode.'
+      })
     }
   }
 
@@ -413,7 +438,9 @@ export function AppMainPanel({
     try {
       await window.api.yachiyo.openThreadWorkspace({ threadId: activeThread.id })
     } catch (error) {
-      window.alert(error instanceof Error ? error.message : 'Failed to open the workspace.')
+      await dialog.alert({
+        title: error instanceof Error ? error.message : 'Failed to open the workspace.'
+      })
     }
   }
 
@@ -425,7 +452,9 @@ export function AppMainPanel({
         appName: config.workspace.editorApp
       })
     } catch (error) {
-      window.alert(error instanceof Error ? error.message : 'Failed to open in editor.')
+      await dialog.alert({
+        title: error instanceof Error ? error.message : 'Failed to open in editor.'
+      })
     }
   }
 
@@ -437,7 +466,9 @@ export function AppMainPanel({
         appName: config.workspace.terminalApp
       })
     } catch (error) {
-      window.alert(error instanceof Error ? error.message : 'Failed to open in terminal.')
+      await dialog.alert({
+        title: error instanceof Error ? error.message : 'Failed to open in terminal.'
+      })
     }
   }
 
@@ -461,9 +492,9 @@ export function AppMainPanel({
         try {
           await compactThreadToAnotherThread()
         } catch (error) {
-          window.alert(
-            error instanceof Error ? error.message : 'Failed to compact into another thread.'
-          )
+          await dialog.alert({
+            title: error instanceof Error ? error.message : 'Failed to compact into another thread.'
+          })
         }
       })()
       return
@@ -474,7 +505,9 @@ export function AppMainPanel({
         try {
           await starThread(activeThread.id, operationKey === 'star')
         } catch (error) {
-          window.alert(error instanceof Error ? error.message : 'Failed to update the thread.')
+          await dialog.alert({
+            title: error instanceof Error ? error.message : 'Failed to update the thread.'
+          })
         }
       })()
       return

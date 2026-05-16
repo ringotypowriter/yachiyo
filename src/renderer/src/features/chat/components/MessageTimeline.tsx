@@ -4,6 +4,7 @@ import { useShallow } from 'zustand/react/shallow'
 import { Waypoints } from 'lucide-react'
 import { useAppStore } from '@renderer/app/store/useAppStore'
 import type { Message, RunRecord, ToolCall } from '@renderer/app/types'
+import { useAppDialog, type AppConfirmOptions } from '@renderer/components/AppDialogContext'
 import { theme } from '@renderer/theme/theme'
 import {
   useInlineCodeFileLinkSnapshot,
@@ -115,16 +116,22 @@ function resolveMessageTimelineWorkspacePath(
   return undefined
 }
 
-function confirmDelete(message: Message): boolean {
+function getDeleteMessageDialog(message: Message): AppConfirmOptions {
   if (message.role === 'user') {
-    return window.confirm(
-      'Delete this request and every attached response branch after it in the current thread?'
-    )
+    return {
+      title: 'Delete this request?',
+      message: 'Every attached response branch after it in the current thread will be deleted.',
+      confirmLabel: 'Delete',
+      tone: 'danger'
+    }
   }
 
-  return window.confirm(
-    'Delete this response branch and everything that continues from it in the current thread? Sibling responses will stay.'
-  )
+  return {
+    title: 'Delete this response branch?',
+    message: 'Everything that continues from it will be deleted. Sibling responses will stay.',
+    confirmLabel: 'Delete',
+    tone: 'danger'
+  }
 }
 
 function renderTimelineItem(
@@ -441,6 +448,7 @@ const TimelineItemContent = memo(
 )
 
 export function MessageTimeline({ threadId, recapText }: MessageTimelineProps): React.JSX.Element {
+  const dialog = useAppDialog()
   const {
     thread,
     messages,
@@ -999,10 +1007,12 @@ export function MessageTimeline({ threadId, recapText }: MessageTimelineProps): 
       try {
         await createBranch(messageId)
       } catch (error) {
-        window.alert(error instanceof Error ? error.message : 'Failed to create a branch.')
+        await dialog.alert({
+          title: error instanceof Error ? error.message : 'Failed to create a branch.'
+        })
       }
     },
-    [createBranch]
+    [createBranch, dialog]
   )
 
   const handleRetry = useCallback(
@@ -1010,27 +1020,33 @@ export function MessageTimeline({ threadId, recapText }: MessageTimelineProps): 
       try {
         await retryMessage(messageId)
       } catch (error) {
-        window.alert(error instanceof Error ? error.message : 'Failed to retry this message.')
+        await dialog.alert({
+          title: error instanceof Error ? error.message : 'Failed to retry this message.'
+        })
       }
     },
-    [retryMessage]
+    [dialog, retryMessage]
   )
 
   const handleDelete = useCallback(
     async (messageId: string): Promise<void> => {
       const currentMessages = useAppStore.getState().messages[threadId!] ?? []
       const target = currentMessages.find((message) => message.id === messageId)
-      if (!target || !confirmDelete(target)) {
+      if (!target) {
         return
       }
+      const confirmed = await dialog.confirm(getDeleteMessageDialog(target))
+      if (!confirmed) return
 
       try {
         await deleteMessage(messageId)
       } catch (error) {
-        window.alert(error instanceof Error ? error.message : 'Failed to delete this message.')
+        await dialog.alert({
+          title: error instanceof Error ? error.message : 'Failed to delete this message.'
+        })
       }
     },
-    [deleteMessage, threadId]
+    [deleteMessage, dialog, threadId]
   )
 
   const handleSelectReplyBranch = useCallback(
@@ -1038,10 +1054,12 @@ export function MessageTimeline({ threadId, recapText }: MessageTimelineProps): 
       try {
         await selectReplyBranch(messageId)
       } catch (error) {
-        window.alert(error instanceof Error ? error.message : 'Failed to switch reply branches.')
+        await dialog.alert({
+          title: error instanceof Error ? error.message : 'Failed to switch reply branches.'
+        })
       }
     },
-    [selectReplyBranch]
+    [dialog, selectReplyBranch]
   )
 
   const isAcpThread = thread?.runtimeBinding?.kind === 'acp'

@@ -27,6 +27,7 @@ import {
 } from '../../../../../shared/yachiyo/protocol.ts'
 import { getReasoningSelectorState } from '../../../../../shared/yachiyo/reasoningEffort.ts'
 import type { ThreadContextOperationKey } from '@renderer/features/threads/lib/threadContextOperations'
+import { useAppDialog } from '@renderer/components/AppDialogContext'
 import { selectContextPromptTokens } from '@renderer/lib/contextPromptTokens'
 import { estimateDraftPromptTokens } from '@renderer/lib/estimatePromptTokens'
 import {
@@ -53,6 +54,7 @@ export function Composer({
 }: {
   onSelectThreadOperation?: (key: ThreadContextOperationKey) => void
 }): React.JSX.Element {
+  const dialog = useAppDialog()
   const activeThreadId = useAppStore((s) => s.activeThreadId)
   const composerDraft = useAppStore(
     (s) => s.composerDrafts[s.activeThreadId ?? NEW_THREAD_DRAFT_KEY] ?? EMPTY_COMPOSER_DRAFT
@@ -425,22 +427,32 @@ export function Composer({
       try {
         await revertQueuedFollowUp(queuedFollowUpMessageId)
       } catch (error) {
-        window.alert(error instanceof Error ? error.message : 'Failed to edit queued follow-up.')
+        await dialog.alert({
+          title: error instanceof Error ? error.message : 'Failed to edit queued follow-up.'
+        })
       }
     })()
-  }, [queuedFollowUpMessageId, revertQueuedFollowUp])
+  }, [dialog, queuedFollowUpMessageId, revertQueuedFollowUp])
 
   const handleRemoveQueuedFollowUp = useCallback(() => {
-    if (!queuedFollowUpMessageId || !window.confirm('Remove this queued follow-up?')) return
-
     void (async () => {
+      if (!queuedFollowUpMessageId) return
+      const confirmed = await dialog.confirm({
+        title: 'Remove this queued follow-up?',
+        confirmLabel: 'Remove',
+        tone: 'danger'
+      })
+      if (!confirmed) return
+
       try {
         await deleteMessage(queuedFollowUpMessageId)
       } catch (error) {
-        window.alert(error instanceof Error ? error.message : 'Failed to remove queued follow-up.')
+        await dialog.alert({
+          title: error instanceof Error ? error.message : 'Failed to remove queued follow-up.'
+        })
       }
     })()
-  }, [deleteMessage, queuedFollowUpMessageId])
+  }, [deleteMessage, dialog, queuedFollowUpMessageId])
 
   const dispatchSend = useCallback(
     (mode: 'normal' | 'steer' | 'follow-up') => {

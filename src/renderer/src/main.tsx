@@ -5,14 +5,17 @@ import { createRoot } from 'react-dom/client'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import App from './App'
 import { bootstrapAppSession } from './app/bootstrap'
+import { AppDialogProvider } from './components/AppDialogProvider'
 
 const queryClient = new QueryClient()
 bootstrapAppSession()
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <QueryClientProvider client={queryClient}>
-      <App />
-    </QueryClientProvider>
+    <AppDialogProvider>
+      <QueryClientProvider client={queryClient}>
+        <App />
+      </QueryClientProvider>
+    </AppDialogProvider>
   </StrictMode>
 )
