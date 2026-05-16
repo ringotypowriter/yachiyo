@@ -137,7 +137,7 @@ export function createSqliteThreadSearchStorageMethods(input: {
         messageMatchesByThread.set(match.threadId, existing)
       }
 
-      // Merge title and message matches, preserving BM25 relevance order.
+      // Merge title and message matches, preserving BM25 match order.
       // Title hits come first (they matched the thread subject), followed by
       // threads that only matched on message content.  Within each group the
       // order is the BM25-ranked order returned by the FTS queries above.

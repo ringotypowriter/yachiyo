@@ -21,15 +21,19 @@ const SOURCE_TABLES = [
 ] as const
 
 const SOURCE_VIEWS = ['index', 'content', 'detail'] as const
-const SOURCE_ORDER = ['relevance', 'timeAsc', 'timeDesc'] as const
+const SOURCE_ORDER = ['auto', 'match', 'timeAsc', 'timeDesc'] as const
 const DEFAULT_LIMIT = 10
 const MAX_LIMIT = 50
 const SPAN_CONTEXT_RADIUS = 2
 const DETAIL_CONTEXT_RADIUS = 4
+const MATCH_ORDER_ERROR =
+  'orderBy.match is only supported for memories and text-filtered thread_spans.'
+const MEMORY_TIME_ORDER_ERROR = 'memories only supports orderBy.auto or orderBy.match.'
 
 type SourceTable = (typeof SOURCE_TABLES)[number]
 type SourceView = (typeof SOURCE_VIEWS)[number]
 type SourceOrder = (typeof SOURCE_ORDER)[number]
+type AppliedSourceOrder = Exclude<SourceOrder, 'auto'>
 
 export interface QuerySourceWhere {
   text?: string
@@ -108,7 +112,10 @@ const inputSchema = z.object({
   from: z.enum(SOURCE_TABLES).describe('Virtual source table to query.'),
   view: z.enum(SOURCE_VIEWS).optional().describe('Return size: index, content, or detail.'),
   where: whereSchema,
-  orderBy: z.enum(SOURCE_ORDER).optional().describe('Row ordering.'),
+  orderBy: z
+    .enum(SOURCE_ORDER)
+    .optional()
+    .describe('Row ordering: auto, match, timeAsc, or timeDesc.'),
   limit: z.number().int().min(1).max(MAX_LIMIT).optional(),
   cursor: z.string().optional().describe('Pagination cursor returned by a previous query.')
 })
@@ -169,6 +176,17 @@ Views:
 
 - detail
   Return fuller surrounding context. Use this only after narrowing results with a rowId, parentRowId, threadId, folderId, or tight time range.
+
+Ordering:
+
+- auto
+  Default. Chooses the natural order for the table: match order for memories and text-filtered thread_spans, newest-first time order for timeline and browsing tables, and chronological order for thread_messages.
+
+- match
+  Match-ranked search order. Only supported for memories and thread_spans with where.text. Do not use this for source_events, activity_records, threads, thread_folders, or thread_messages because they do not have one unified match score.
+
+- timeAsc / timeDesc
+  Explicit chronological order. Not supported for memories because memory rows are match-ranked facts, not timeline events.
 
 Rules:
 
@@ -368,9 +386,46 @@ function paginate(
   }
 }
 
+function isSourceOrder(value: unknown): value is SourceOrder {
+  return typeof value === 'string' && SOURCE_ORDER.includes(value as SourceOrder)
+}
+
+function supportsMatchOrder(input: QuerySourceToolInput): boolean {
+  if (input.from === 'memories') {
+    return true
+  }
+  return input.from === 'thread_spans' && Boolean(normalizeText(input.where?.text))
+}
+
+function validateOrder(input: QuerySourceToolInput): QuerySourceToolOutput | undefined {
+  if (input.orderBy === undefined) {
+    return undefined
+  }
+  if (!isSourceOrder(input.orderBy)) {
+    return toError(
+      `Unsupported orderBy "${String(input.orderBy)}". Use auto, match, timeAsc, or timeDesc.`,
+      input
+    )
+  }
+  if (input.from === 'memories' && (input.orderBy === 'timeAsc' || input.orderBy === 'timeDesc')) {
+    return toError(MEMORY_TIME_ORDER_ERROR, input)
+  }
+  if (input.orderBy === 'match' && !supportsMatchOrder(input)) {
+    return toError(MATCH_ORDER_ERROR, input)
+  }
+  return undefined
+}
+
+function resolveOrder(
+  input: QuerySourceToolInput,
+  autoOrder: AppliedSourceOrder
+): AppliedSourceOrder {
+  return input.orderBy === undefined || input.orderBy === 'auto' ? autoOrder : input.orderBy
+}
+
 function sortByOrder(
   rows: Array<Record<string, unknown>>,
-  orderBy: SourceOrder | undefined
+  orderBy: AppliedSourceOrder
 ): Array<Record<string, unknown>> {
   if (orderBy === 'timeAsc') {
     return rows.slice().sort((left, right) => getRowTime(left).localeCompare(getRowTime(right)))
@@ -598,8 +653,9 @@ function queryThreadSpans(
 ): QueryRowsResult {
   const view = input.view ?? 'index'
   const rows = buildThreadSpans(storage, input, catalog, view)
+  const order = resolveOrder(input, normalizeText(input.where?.text) ? 'match' : 'timeDesc')
 
-  return paginate(sortByOrder(rows, input.orderBy), input)
+  return paginate(sortByOrder(rows, order), input)
 }
 
 function buildThreadSpans(
@@ -715,7 +771,7 @@ function queryThreadMessages(input: QuerySourceToolInput, catalog: SourceCatalog
   }
 
   const rows = messages.map(({ thread, message }) => toThreadMessageRow(catalog, thread, message))
-  return paginate(sortByOrder(rows, input.orderBy ?? 'timeAsc'), input)
+  return paginate(sortByOrder(rows, resolveOrder(input, 'timeAsc')), input)
 }
 
 function queryThreads(input: QuerySourceToolInput, catalog: SourceCatalog): QueryRowsResult {
@@ -747,7 +803,7 @@ function queryThreads(input: QuerySourceToolInput, catalog: SourceCatalog): Quer
       }
     })
 
-  return paginate(sortByOrder(rows, input.orderBy ?? 'timeDesc'), input)
+  return paginate(sortByOrder(rows, resolveOrder(input, 'timeDesc')), input)
 }
 
 function queryThreadFolders(input: QuerySourceToolInput, catalog: SourceCatalog): QueryRowsResult {
@@ -774,7 +830,7 @@ function queryThreadFolders(input: QuerySourceToolInput, catalog: SourceCatalog)
       }
     })
 
-  return paginate(sortByOrder(rows, input.orderBy ?? 'timeDesc'), input)
+  return paginate(sortByOrder(rows, resolveOrder(input, 'timeDesc')), input)
 }
 
 function matchesActivityRecord(
@@ -852,7 +908,7 @@ function queryActivityRecords(
     .filter((record) => matchesActivityRecord(record, input.where))
     .map((record) => toActivityRecordRow(record, catalog, view))
 
-  return paginate(sortByOrder(rows, input.orderBy ?? 'timeDesc'), input)
+  return paginate(sortByOrder(rows, resolveOrder(input, 'timeDesc')), input)
 }
 
 async function queryMemories(
@@ -942,7 +998,7 @@ function querySourceEvents(
     })
 
   const rows = [...threadRows, ...activityRows]
-  return paginate(sortByOrder(rows, input.orderBy ?? 'timeDesc'), input)
+  return paginate(sortByOrder(rows, resolveOrder(input, 'timeDesc')), input)
 }
 
 async function executeQuery(
@@ -950,6 +1006,11 @@ async function executeQuery(
   input: QuerySourceToolInput,
   signal?: AbortSignal
 ): Promise<QueryRowsResult | QuerySourceToolOutput> {
+  const orderError = validateOrder(input)
+  if (orderError) {
+    return orderError
+  }
+
   if (input.from === 'memories') {
     return queryMemories(deps, input, signal)
   }

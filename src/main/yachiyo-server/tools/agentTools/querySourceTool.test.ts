@@ -245,7 +245,7 @@ test('querySource delegates thread span text search without bootstrapping storag
       {
         from: 'thread_spans',
         where: { text: 'querySource performance' },
-        orderBy: 'relevance',
+        orderBy: 'match',
         view: 'index',
         limit: 3
       },
@@ -258,10 +258,181 @@ test('querySource delegates thread span text search without bootstrapping storag
   assert.deepEqual(delegatedInput, {
     from: 'thread_spans',
     where: { text: 'querySource performance' },
-    orderBy: 'relevance',
+    orderBy: 'match',
     view: 'index',
     limit: 3
   })
+})
+
+test('querySource auto orders range thread spans by event time, not thread list order', async () => {
+  const storage = createInMemoryYachiyoStorage()
+  storage.createThread({
+    thread: makeThread({
+      id: 'thread-updated-late',
+      title: 'Updated later but older discussion',
+      updatedAt: '2026-05-16T12:00:00.000Z'
+    }),
+    createdAt: BASE_TIME,
+    messages: [
+      makeMessage({
+        id: 'msg-older',
+        threadId: 'thread-updated-late',
+        content: 'Older source discussion.',
+        createdAt: '2026-05-16T09:05:00.000Z'
+      })
+    ]
+  })
+  storage.createThread({
+    thread: makeThread({
+      id: 'thread-updated-early',
+      title: 'Updated earlier but newer discussion',
+      updatedAt: '2026-05-16T09:30:00.000Z'
+    }),
+    createdAt: BASE_TIME,
+    messages: [
+      makeMessage({
+        id: 'msg-newer',
+        threadId: 'thread-updated-early',
+        content: 'Newer source discussion.',
+        createdAt: '2026-05-16T10:15:00.000Z'
+      })
+    ]
+  })
+
+  const tool = createQuerySourceTool({ storage, memoryService: createMemoryService() })
+  const result = parseToolJson(
+    await tool.execute!(
+      {
+        from: 'thread_spans',
+        where: {
+          since: '2026-05-16T09:00:00.000Z',
+          until: '2026-05-16T11:00:00.000Z'
+        },
+        orderBy: 'auto',
+        view: 'index'
+      },
+      { abortSignal: new AbortController().signal, toolCallId: 'tc-auto-spans', messages: [] }
+    )
+  )
+
+  assert.equal(result.error, undefined)
+  assert.deepEqual(
+    result.rows?.map((row) => row['threadId']),
+    ['thread-updated-early', 'thread-updated-late']
+  )
+})
+
+test('querySource auto orders source events by timeline time across sources', async () => {
+  const storage = createInMemoryYachiyoStorage()
+  storage.createThread({
+    thread: makeThread({
+      id: 'thread-source',
+      title: 'Source database design',
+      updatedAt: '2026-05-16T09:40:00.000Z'
+    }),
+    createdAt: BASE_TIME,
+    messages: [
+      makeMessage({
+        id: 'msg-thread',
+        threadId: 'thread-source',
+        content: 'Conversation event happened first.',
+        createdAt: '2026-05-16T09:05:00.000Z'
+      })
+    ]
+  })
+  storage.saveActivitySourceRecord(
+    makeActivityRecord({
+      id: 'activity-later',
+      threadId: 'thread-source',
+      startedAt: '2026-05-16T09:50:00.000Z',
+      endedAt: '2026-05-16T09:55:00.000Z',
+      summaryText: 'Later Zed activity.'
+    })
+  )
+
+  const tool = createQuerySourceTool({ storage, memoryService: createMemoryService() })
+  const result = parseToolJson(
+    await tool.execute!(
+      {
+        from: 'source_events',
+        where: {
+          since: '2026-05-16T09:00:00.000Z',
+          until: '2026-05-16T10:00:00.000Z'
+        },
+        orderBy: 'auto',
+        view: 'index'
+      },
+      { abortSignal: new AbortController().signal, toolCallId: 'tc-auto-events', messages: [] }
+    )
+  )
+
+  assert.equal(result.error, undefined)
+  assert.deepEqual(
+    result.rows?.map((row) => row['sourceKind']),
+    ['activity', 'thread']
+  )
+})
+
+test('querySource rejects match ordering for non-match-ranked tables', async () => {
+  const storage = createInMemoryYachiyoStorage()
+  storage.createThread({
+    thread: makeThread({
+      id: 'thread-source',
+      title: 'Source database design',
+      updatedAt: '2026-05-16T09:40:00.000Z'
+    }),
+    createdAt: BASE_TIME,
+    messages: [
+      makeMessage({
+        id: 'msg-thread',
+        threadId: 'thread-source',
+        content: 'Activity record owner thread.',
+        createdAt: '2026-05-16T09:05:00.000Z'
+      })
+    ]
+  })
+  storage.saveActivitySourceRecord(makeActivityRecord())
+
+  const tool = createQuerySourceTool({ storage, memoryService: createMemoryService() })
+  const result = parseToolJson(
+    await tool.execute!(
+      {
+        from: 'activity_records',
+        where: { text: 'Zed' },
+        orderBy: 'match',
+        view: 'index'
+      },
+      { abortSignal: new AbortController().signal, toolCallId: 'tc-match-activity', messages: [] }
+    )
+  )
+
+  assert.equal(
+    result.error,
+    'orderBy.match is only supported for memories and text-filtered thread_spans.'
+  )
+  assert.deepEqual(result.rows, [])
+})
+
+test('querySource rejects time ordering for memories', async () => {
+  const tool = createQuerySourceTool({
+    storage: createInMemoryYachiyoStorage(),
+    memoryService: createMemoryService()
+  })
+
+  const result = parseToolJson(
+    await tool.execute!(
+      {
+        from: 'memories',
+        where: { text: 'durable source' },
+        orderBy: 'timeDesc',
+        view: 'index'
+      },
+      { abortSignal: new AbortController().signal, toolCallId: 'tc-memory-time', messages: [] }
+    )
+  )
+
+  assert.equal(result.error, 'memories only supports orderBy.auto or orderBy.match.')
+  assert.deepEqual(result.rows, [])
 })
 
 test('querySource fallback excludes privacy-mode thread data and related activity', async () => {

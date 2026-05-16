@@ -67,7 +67,7 @@ test('theme resolver lets explicit appearance override the system variant', () =
 test('theme catalog exposes coordinated light and dark preview stripes', () => {
   assert.deepEqual(
     THEME_OPTIONS.map((option) => option.id),
-    ['mizu', 'sumi', 'ume', 'aoba']
+    ['mizu', 'sumi', 'ume', 'aoba', 'mint']
   )
 
   for (const option of THEME_OPTIONS) {
@@ -94,6 +94,14 @@ test('theme catalog exposes coordinated light and dark preview stripes', () => {
       )
     }
   }
+})
+
+test('theme catalog exposes Mint with the requested core color', () => {
+  const mint = THEME_OPTIONS.find((option) => option.id === 'mint')
+
+  assert.equal(mint?.label, 'Mint')
+  assert.equal(mint?.palettes.light.sidebar, '161 227 216')
+  assert.equal(mint?.palettes.dark.accent, '161 227 216')
 })
 
 test('theme scheme preview uses one balanced line without text-color dominance', () => {

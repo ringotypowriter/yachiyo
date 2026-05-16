@@ -229,6 +229,39 @@ export const THEME_OPTIONS: readonly ThemeOption[] = [
         accentStrong: '164 221 190'
       })
     }
+  },
+  {
+    id: 'mint',
+    label: 'Mint',
+    description: 'Fresh mint glass.',
+    palettes: {
+      light: lightPalette({
+        ink: '38 49 47',
+        textSecondary: '78 95 91',
+        textTertiary: '98 116 111',
+        textMuted: '132 148 143',
+        textPlaceholder: '164 178 174',
+        app: '235 247 244',
+        canvas: '247 253 251',
+        sidebar: '161 227 216',
+        surface: '255 255 255',
+        accent: '42 128 118',
+        accentStrong: '24 96 88'
+      }),
+      dark: darkPalette({
+        ink: '236 244 241',
+        textSecondary: '202 215 211',
+        textTertiary: '156 174 169',
+        textMuted: '121 139 134',
+        textPlaceholder: '91 110 104',
+        app: '20 29 28',
+        canvas: '24 36 34',
+        sidebar: '29 48 44',
+        surface: '35 55 50',
+        accent: '161 227 216',
+        accentStrong: '194 246 237'
+      })
+    }
   }
 ]
 
@@ -236,7 +269,8 @@ const themeOptionsById: Record<ThemeId, ThemeOption> = {
   mizu: THEME_OPTIONS[0],
   sumi: THEME_OPTIONS[1],
   ume: THEME_OPTIONS[2],
-  aoba: THEME_OPTIONS[3]
+  aoba: THEME_OPTIONS[3],
+  mint: THEME_OPTIONS[4]
 }
 
 export function getThemeOption(themeId: ThemeId): ThemeOption {

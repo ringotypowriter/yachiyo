@@ -102,7 +102,7 @@ export type ProviderKind =
   | 'vercel-gateway'
 export type ActiveRunEnterBehavior = 'enter-steers' | 'enter-queues-follow-up'
 export type SidebarVisibility = 'expanded' | 'collapsed'
-export const THEME_IDS = ['mizu', 'sumi', 'ume', 'aoba'] as const
+export const THEME_IDS = ['mizu', 'sumi', 'ume', 'aoba', 'mint'] as const
 export type ThemeId = (typeof THEME_IDS)[number]
 export type ThemeAppearance = 'system' | 'light' | 'dark'
 export type SendChatMode = 'normal' | 'steer' | 'follow-up'
