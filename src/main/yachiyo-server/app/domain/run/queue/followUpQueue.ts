@@ -15,6 +15,7 @@ import { summarizeMessageInput } from '../../../../../../shared/yachiyo/messageC
 import { wouldCreateParentCycle } from '../../../../../../shared/yachiyo/threadTree.ts'
 import type { BootstrapState, RunRecoveryCheckpoint } from '../../../../storage/storage.ts'
 import { resolveEnabledTools } from '../../config/configDomain.ts'
+import { createRunEventMetadata } from '../../shared/runEventMetadata.ts'
 import type { StartActiveRunInput } from '../active/activeRunStart.ts'
 import { withParentMessageId } from '../chat/threadMessages.ts'
 import type { RunDomainDeps } from '../runTypes.ts'
@@ -433,10 +434,12 @@ function activatePreparedQueuedFollowUp(
 
   context.deps.emit<RunCreatedEvent>({
     type: 'run.created',
-    threadId: prepared.thread.id,
-    runId: prepared.runId,
-    requestMessageId: prepared.requestMessageId,
-    runTrigger: prepared.runTrigger
+    ...createRunEventMetadata({
+      threadId: prepared.thread.id,
+      runId: prepared.runId,
+      requestMessageId: prepared.requestMessageId,
+      runTrigger: prepared.runTrigger
+    })
   })
 
   context.startActiveRun({

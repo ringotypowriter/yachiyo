@@ -26,6 +26,7 @@ import {
   saveImageFilesToWorkspace
 } from '../../attachments/attachmentDomain.ts'
 import { assertSupportedImages, resolveEnabledTools } from '../../config/configDomain.ts'
+import { createRunEventMetadata } from '../../shared/runEventMetadata.ts'
 import { DEFAULT_THREAD_TITLE } from '../../shared/shared.ts'
 import { buildTitleQuery, deriveThreadTitleFallback } from '../../threads/threadTitle.ts'
 import type { RunDomainDeps, RunState } from '../runTypes.ts'
@@ -304,10 +305,12 @@ function startFreshRun(
   })
   deps.emit<RunCreatedEvent>({
     type: 'run.created',
-    threadId: accepted.thread.id,
-    runId: accepted.runId,
-    requestMessageId: userMessage.id,
-    runTrigger: input.runTrigger
+    ...createRunEventMetadata({
+      threadId: accepted.thread.id,
+      runId: accepted.runId,
+      requestMessageId: userMessage.id,
+      runTrigger: input.runTrigger
+    })
   })
 
   if (!input.hidden && fallbackTitle && fallbackTitle !== DEFAULT_THREAD_TITLE && input.content) {

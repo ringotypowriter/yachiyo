@@ -28,6 +28,7 @@ import {
   type EmitServerEvent,
   type Timestamp
 } from '../../app/domain/shared/shared.ts'
+import { createRunEventMetadata } from '../../app/domain/shared/runEventMetadata.ts'
 import type { ExecuteRunResult } from '../../app/domain/run/execution/runExecutionTypes.ts'
 import { launchAcpProcess } from './acpLauncher.ts'
 import { continueAcpSession, runAcpSession } from './acpSessionClient.ts'
@@ -320,9 +321,11 @@ export async function runAcpChatThread(
     deps.onTerminalState?.()
     deps.emit<RunCompletedEvent>({
       type: 'run.completed',
-      threadId: input.thread.id,
-      runId: input.runId,
-      runTrigger: 'local'
+      ...createRunEventMetadata({
+        threadId: input.thread.id,
+        runId: input.runId,
+        runTrigger: 'local'
+      })
     })
 
     if (pendingWarmSession) {

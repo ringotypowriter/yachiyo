@@ -21,6 +21,7 @@ import type { ModelUsage } from '../../../../runtime/models/types.ts'
 import { toEffectiveProviderSettings } from '../../../../settings/settingsStore.ts'
 import { createAgentToolSet, ReadRecordCache } from '../../../../tools/agentTools.ts'
 import { resolveEnabledTools } from '../../config/configDomain.ts'
+import { createRunEventMetadata } from '../../shared/runEventMetadata.ts'
 import { createDeltaBatcher, DEFAULT_THREAD_TITLE } from '../../shared/shared.ts'
 import { buildTitleQuery, deriveThreadTitleFallback } from '../../threads/threadTitle.ts'
 import { prepareServerRunContext } from '../context/prepareServerRunContext.ts'
@@ -380,9 +381,11 @@ export async function streamCompactThreadHandoff(
     activeRunTasks.delete(input.runId)
     deps.emit<RunCompletedEvent>({
       type: 'run.completed',
-      threadId: input.thread.id,
-      runId: input.runId,
-      runTrigger: 'local',
+      ...createRunEventMetadata({
+        threadId: input.thread.id,
+        runId: input.runId,
+        runTrigger: 'local'
+      }),
       ...(handoffUsage
         ? {
             promptTokens: handoffUsage.completionTokens,

@@ -1,6 +1,41 @@
 import { describe, test } from 'node:test'
 import assert from 'node:assert'
+import { createRunEventMetadata } from './runEventMetadata.ts'
 import { createDeltaBatcher } from './shared.ts'
+
+describe('createRunEventMetadata', () => {
+  test('includes common run event fields and request message when present', () => {
+    assert.deepStrictEqual(
+      createRunEventMetadata({
+        threadId: 'thread-1',
+        runId: 'run-1',
+        requestMessageId: 'message-1',
+        runTrigger: 'channel'
+      }),
+      {
+        threadId: 'thread-1',
+        runId: 'run-1',
+        requestMessageId: 'message-1',
+        runTrigger: 'channel'
+      }
+    )
+  })
+
+  test('omits request message for assistant-only runs', () => {
+    assert.deepStrictEqual(
+      createRunEventMetadata({
+        threadId: 'thread-1',
+        runId: 'run-1',
+        runTrigger: 'local'
+      }),
+      {
+        threadId: 'thread-1',
+        runId: 'run-1',
+        runTrigger: 'local'
+      }
+    )
+  })
+})
 
 describe('createDeltaBatcher', () => {
   test('coalesces multiple pushes into one flush', () => {

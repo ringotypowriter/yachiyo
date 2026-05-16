@@ -9,6 +9,7 @@ import type {
 import type { ModelUsage } from '../../../../runtime/models/types.ts'
 import type { SnapshotTracker } from '../../../../services/fileSnapshot/snapshotTracker.ts'
 import type { RunPerfCollector } from '../../../../services/perfMonitor.ts'
+import { createRunEventMetadata } from '../../shared/runEventMetadata.ts'
 import type { RecoveryResponseMessage } from '../runRecovery.ts'
 import { balanceResponseMessages } from '../context/runHistory.ts'
 import { bindCompletedToolCallsToAssistant } from '../tools/toolCallLifecycle.ts'
@@ -172,10 +173,12 @@ async function persistCompletedRun(
   input.deps.onTerminalState?.()
   input.deps.emit<RunCompletedEvent>({
     type: 'run.completed',
-    threadId: input.executionInput.thread.id,
-    runId: input.executionInput.runId,
-    requestMessageId: input.executionInput.requestMessageId,
-    runTrigger: input.executionInput.runTrigger,
+    ...createRunEventMetadata({
+      threadId: input.executionInput.thread.id,
+      runId: input.executionInput.runId,
+      requestMessageId: input.executionInput.requestMessageId,
+      runTrigger: input.executionInput.runTrigger
+    }),
     ...finalUsage
   })
   input.perfCollector.finish(input.executionInput.thread.id)

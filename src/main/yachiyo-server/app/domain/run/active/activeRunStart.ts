@@ -13,6 +13,7 @@ import type {
   ToolCallName
 } from '../../../../../../shared/yachiyo/protocol.ts'
 import type { RunRecoveryCheckpoint } from '../../../../storage/storage.ts'
+import { createRunEventMetadata } from '../../shared/runEventMetadata.ts'
 import { streamCompactThreadHandoff } from '../handoff/threadHandoffRun.ts'
 import type { RunDomainDeps, RunState } from '../runTypes.ts'
 import type { ThreadTitleGenerationRunner } from '../title/threadTitleGeneration.ts'
@@ -101,10 +102,12 @@ export function startRecoveredRun(
 
   context.deps.emit<RunCreatedEvent>({
     type: 'run.created',
-    threadId: checkpoint.threadId,
-    runId: checkpoint.runId,
-    requestMessageId: checkpoint.requestMessageId,
-    runTrigger: checkpoint.runTrigger
+    ...createRunEventMetadata({
+      threadId: checkpoint.threadId,
+      runId: checkpoint.runId,
+      requestMessageId: checkpoint.requestMessageId,
+      runTrigger: checkpoint.runTrigger
+    })
   })
   context.deps.emit<MessageStartedEvent>({
     type: 'message.started',

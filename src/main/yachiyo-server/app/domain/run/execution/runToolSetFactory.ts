@@ -14,6 +14,7 @@ import { readChannelsConfig } from '../../../../runtime/config/channelsConfig.ts
 import type { SnapshotTracker } from '../../../../services/fileSnapshot/snapshotTracker.ts'
 import { createFilteredMemoryService } from '../../../../services/memory/memoryService.ts'
 import { createAgentToolSet } from '../../../../tools/agentTools.ts'
+import { createRunEventMetadata } from '../../shared/runEventMetadata.ts'
 import type {
   DelegateCodingTaskFinishedEvent,
   DelegateCodingTaskProgressEvent,
@@ -198,9 +199,11 @@ function createAskUserContext(input: CreateRunToolSetInput): {
         })
         input.deps.emit<NotificationRequestEvent>({
           type: 'notification.requested',
-          threadId: input.executionInput.thread.id,
-          runId: input.executionInput.runId,
-          runTrigger: input.executionInput.runTrigger,
+          ...createRunEventMetadata({
+            threadId: input.executionInput.thread.id,
+            runId: input.executionInput.runId,
+            runTrigger: input.executionInput.runTrigger
+          }),
           title: 'Yachiyo needs your input',
           body: question.slice(0, 100)
         })
@@ -217,9 +220,11 @@ function handleSubagentStarted(
   input.subagentStartedAtByDelegationId.set(event.delegationId, input.deps.timestamp())
   input.deps.emit<SubagentStartedEvent>({
     type: 'subagent.started',
-    threadId: input.executionInput.thread.id,
-    runId: input.executionInput.runId,
-    runTrigger: input.executionInput.runTrigger,
+    ...createRunEventMetadata({
+      threadId: input.executionInput.thread.id,
+      runId: input.executionInput.runId,
+      runTrigger: input.executionInput.runTrigger
+    }),
     delegationId: event.delegationId,
     agentName: event.agentName,
     workspacePath: event.workspacePath
@@ -236,9 +241,11 @@ function handleSubagentFinished(
   }
   input.deps.emit<SubagentFinishedEvent>({
     type: 'subagent.finished',
-    threadId: input.executionInput.thread.id,
-    runId: input.executionInput.runId,
-    runTrigger: input.executionInput.runTrigger,
+    ...createRunEventMetadata({
+      threadId: input.executionInput.thread.id,
+      runId: input.executionInput.runId,
+      runTrigger: input.executionInput.runTrigger
+    }),
     delegationId: event.delegationId,
     agentName: event.agentName,
     status: event.status,

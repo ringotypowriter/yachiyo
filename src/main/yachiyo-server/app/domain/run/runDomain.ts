@@ -39,6 +39,7 @@ import { SnapshotTracker } from '../../../services/fileSnapshot/snapshotTracker.
 import { runAcpChatThread } from '../../../runtime/acp/acpChatRuntime.ts'
 import { resolveRetryRequest } from '../threads/threadDomain.ts'
 import { sleep } from '../../../channels/shared/connectionRetry.ts'
+import { createRunEventMetadata } from '../shared/runEventMetadata.ts'
 import { INTERRUPTED_RUN_ERROR, SHUTDOWN_RUN_ERROR, isAbortError } from '../shared/shared.ts'
 import { type BackgroundTaskRunContext, type RunDomainDeps, type RunState } from './runTypes.ts'
 import { createEphemeralStorageProxy, type EphemeralStorage } from './chat/ephemeralStorage.ts'
@@ -424,10 +425,12 @@ export class YachiyoServerRunDomain {
     })
     this.deps.emit<RunCreatedEvent>({
       type: 'run.created',
-      threadId: accepted.thread.id,
-      runId: accepted.runId,
-      requestMessageId: requestMessage.id,
-      runTrigger: 'local'
+      ...createRunEventMetadata({
+        threadId: accepted.thread.id,
+        runId: accepted.runId,
+        requestMessageId: requestMessage.id,
+        runTrigger: 'local'
+      })
     })
 
     startActiveRun(this.createActiveRunStartContext(), {
@@ -467,9 +470,11 @@ export class YachiyoServerRunDomain {
 
     this.deps.emit<RunCreatedEvent>({
       type: 'run.created',
-      threadId: input.destinationThread.id,
-      runId,
-      runTrigger: 'local'
+      ...createRunEventMetadata({
+        threadId: input.destinationThread.id,
+        runId,
+        runTrigger: 'local'
+      })
     })
 
     startAssistantOnlyRun(this.createActiveRunStartContext(), {
@@ -758,10 +763,12 @@ export class YachiyoServerRunDomain {
             activeRun!.recapResolve = undefined
             this.deps.emit<RunCompletedEvent>({
               type: 'run.completed',
-              threadId: input.thread.id,
-              runId: input.runId,
-              requestMessageId: currentRequestMessageId,
-              runTrigger: activeRun?.runTrigger ?? input.runTrigger,
+              ...createRunEventMetadata({
+                threadId: input.thread.id,
+                runId: input.runId,
+                requestMessageId: currentRequestMessageId,
+                runTrigger: activeRun?.runTrigger ?? input.runTrigger
+              }),
               recap: true
             })
             break
