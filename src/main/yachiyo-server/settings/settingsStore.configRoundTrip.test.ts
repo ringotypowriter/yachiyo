@@ -123,17 +123,17 @@ notifyRunCompleted = true
 
 test('general theme preferences round-trip through parse → normalize → stringify → parse', () => {
   const toml = `[general]
-themeId = "mizu"
+themeId = "ume"
 themeAppearance = "dark"
 `
 
   const config = parseSettingsToml(toml)
-  assert.equal(config.general?.themeId, 'mizu')
+  assert.equal(config.general?.themeId, 'ume')
   assert.equal(config.general?.themeAppearance, 'dark')
 
   const serialized = stringifySettingsToml(config)
   const reloaded = parseSettingsToml(serialized)
-  assert.equal(reloaded.general?.themeId, 'mizu')
+  assert.equal(reloaded.general?.themeId, 'ume')
   assert.equal(reloaded.general?.themeAppearance, 'dark')
 })
 

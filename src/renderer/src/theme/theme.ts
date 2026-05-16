@@ -7,8 +7,24 @@ import {
   type ThemeAppearance,
   type ThemeId
 } from '../../../shared/yachiyo/protocol.ts'
+import { themeRgbTokenVars } from './themePalettes.ts'
 
 export { DEFAULT_THEME_APPEARANCE, DEFAULT_THEME_ID }
+export {
+  THEME_OPTIONS,
+  getThemeOption,
+  getThemePalette,
+  getThemePreviewSegments,
+  getThemeSchemePreviewSegments,
+  themeRgbTokenVars
+} from './themePalettes.ts'
+export type {
+  RgbToken,
+  ThemeOption,
+  ThemePalette,
+  ThemePreviewSegment,
+  ThemeSchemePreviewSegment
+} from './themePalettes.ts'
 export type { ThemeAppearance, ThemeId }
 
 export type ThemeVariant = 'light' | 'dark'
@@ -19,29 +35,7 @@ export interface ThemeAttributes {
   variant: ThemeVariant
 }
 
-const rgbTokenVars = {
-  ink: '--yachiyo-rgb-ink',
-  textSecondary: '--yachiyo-rgb-text-secondary',
-  textTertiary: '--yachiyo-rgb-text-tertiary',
-  textMuted: '--yachiyo-rgb-text-muted',
-  textPlaceholder: '--yachiyo-rgb-text-placeholder',
-  app: '--yachiyo-rgb-app',
-  canvas: '--yachiyo-rgb-canvas',
-  sidebar: '--yachiyo-rgb-sidebar',
-  surface: '--yachiyo-rgb-surface',
-  accent: '--yachiyo-rgb-accent',
-  accentStrong: '--yachiyo-rgb-accent-strong',
-  scrim: '--yachiyo-rgb-scrim',
-  onAccentOverlay: '--yachiyo-rgb-on-accent-overlay',
-  success: '--yachiyo-rgb-success',
-  successStrong: '--yachiyo-rgb-success-strong',
-  warning: '--yachiyo-rgb-warning',
-  danger: '--yachiyo-rgb-danger',
-  dangerStrong: '--yachiyo-rgb-danger-strong',
-  idle: '--yachiyo-rgb-idle'
-} as const
-
-type RgbToken = keyof typeof rgbTokenVars
+type RgbToken = keyof typeof themeRgbTokenVars
 
 export function resolveThemeVariant(
   appearance: ThemeAppearance,
@@ -74,11 +68,11 @@ function formatAlpha(alpha: number): string {
 }
 
 export function solid(token: RgbToken): string {
-  return `rgb(var(${rgbTokenVars[token]}))`
+  return `rgb(var(${themeRgbTokenVars[token]}))`
 }
 
 export function alpha(token: RgbToken, opacity: number): string {
-  return `rgb(var(${rgbTokenVars[token]}) / ${formatAlpha(opacity)})`
+  return `rgb(var(${themeRgbTokenVars[token]}) / ${formatAlpha(opacity)})`
 }
 
 export const theme = {

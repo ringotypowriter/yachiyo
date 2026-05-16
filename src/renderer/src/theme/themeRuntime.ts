@@ -2,7 +2,9 @@ import type { SettingsConfig, ThemeAppearance, ThemeId } from '../../../shared/y
 import {
   DEFAULT_THEME_APPEARANCE,
   DEFAULT_THEME_ID,
+  getThemePalette,
   resolveThemeAttributes,
+  themeRgbTokenVars,
   type ThemeAttributes
 } from './theme.ts'
 
@@ -43,6 +45,10 @@ function rememberThemePreference(attributes: ThemeAttributes): void {
 
 export function applyThemeAttributes(attributes: ThemeAttributes): void {
   const root = document.documentElement
+  const palette = getThemePalette(attributes.themeId, attributes.variant)
+  for (const token of Object.keys(themeRgbTokenVars) as Array<keyof typeof themeRgbTokenVars>) {
+    root.style.setProperty(themeRgbTokenVars[token], palette[token])
+  }
   root.dataset['yachiyoTheme'] = attributes.themeId
   root.dataset['yachiyoThemeAppearance'] = attributes.appearance
   root.dataset['yachiyoThemeVariant'] = attributes.variant

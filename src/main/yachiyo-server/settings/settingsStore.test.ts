@@ -986,9 +986,16 @@ test('normalizeSettingsConfig normalizes theme preferences', () => {
   })
 
   const normalized = normalizeSettingsConfig({
+    general: { themeId: 'sumi', themeAppearance: 'dark' },
+    providers: []
+  })
+  assert.equal(normalized.general?.themeId, 'sumi')
+  assert.equal(normalized.general?.themeAppearance, 'dark')
+
+  const fallback = normalizeSettingsConfig({
     general: { themeId: 'not-a-real-theme', themeAppearance: 'neon' },
     providers: []
   })
-  assert.equal(normalized.general?.themeId, DEFAULT_THEME_ID)
-  assert.equal(normalized.general?.themeAppearance, DEFAULT_THEME_APPEARANCE)
+  assert.equal(fallback.general?.themeId, DEFAULT_THEME_ID)
+  assert.equal(fallback.general?.themeAppearance, DEFAULT_THEME_APPEARANCE)
 })

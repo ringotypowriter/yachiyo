@@ -102,7 +102,8 @@ export type ProviderKind =
   | 'vercel-gateway'
 export type ActiveRunEnterBehavior = 'enter-steers' | 'enter-queues-follow-up'
 export type SidebarVisibility = 'expanded' | 'collapsed'
-export type ThemeId = 'mizu'
+export const THEME_IDS = ['mizu', 'sumi', 'ume', 'aoba'] as const
+export type ThemeId = (typeof THEME_IDS)[number]
 export type ThemeAppearance = 'system' | 'light' | 'dark'
 export type SendChatMode = 'normal' | 'steer' | 'follow-up'
 export type SendChatRunTrigger = 'local' | 'channel'
@@ -163,6 +164,7 @@ export type ToolCallStatus =
   | 'background'
 
 const coreToolNameSet = new Set<string>(CORE_TOOL_NAMES)
+const themeIdSet = new Set<string>(THEME_IDS)
 const runtimeManagedToolNameSet = new Set<ToolCallName>(['skillsRead'])
 const userManagedToolNames = CORE_TOOL_NAMES.filter(
   (toolName) => !runtimeManagedToolNameSet.has(toolName)
@@ -285,7 +287,7 @@ export function normalizeSidebarVisibility(
 }
 
 export function normalizeThemeId(value: unknown, fallback: ThemeId = DEFAULT_THEME_ID): ThemeId {
-  return value === 'mizu' ? value : fallback
+  return typeof value === 'string' && themeIdSet.has(value) ? (value as ThemeId) : fallback
 }
 
 export function normalizeThemeAppearance(

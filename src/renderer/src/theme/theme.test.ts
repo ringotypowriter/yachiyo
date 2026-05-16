@@ -4,7 +4,11 @@ import test from 'node:test'
 import {
   DEFAULT_THEME_APPEARANCE,
   DEFAULT_THEME_ID,
+  THEME_OPTIONS,
   alpha,
+  getThemePalette,
+  getThemePreviewSegments,
+  getThemeSchemePreviewSegments,
   resolveThemeAttributes,
   solid,
   theme
@@ -58,4 +62,52 @@ test('theme resolver lets explicit appearance override the system variant', () =
     appearance: 'light',
     variant: 'light'
   })
+})
+
+test('theme catalog exposes coordinated light and dark preview stripes', () => {
+  assert.deepEqual(
+    THEME_OPTIONS.map((option) => option.id),
+    ['mizu', 'sumi', 'ume', 'aoba']
+  )
+
+  for (const option of THEME_OPTIONS) {
+    const lightPalette = getThemePalette(option.id, 'light')
+    const darkPalette = getThemePalette(option.id, 'dark')
+    assert.notEqual(lightPalette.app, darkPalette.app)
+    assert.notEqual(lightPalette.accent, darkPalette.accent)
+
+    for (const variant of ['light', 'dark'] as const) {
+      const segments = getThemePreviewSegments(option.id, variant)
+      assert.equal(
+        segments.reduce((total, segment) => total + segment.weight, 0),
+        100
+      )
+      assert.deepEqual(
+        segments.map((segment) => segment.rgb),
+        [
+          getThemePalette(option.id, variant).app,
+          getThemePalette(option.id, variant).sidebar,
+          getThemePalette(option.id, variant).surface,
+          getThemePalette(option.id, variant).ink,
+          getThemePalette(option.id, variant).accent
+        ]
+      )
+    }
+  }
+})
+
+test('theme scheme preview uses one balanced line without text-color dominance', () => {
+  for (const option of THEME_OPTIONS) {
+    const segments = getThemeSchemePreviewSegments(option.id)
+    assert.equal(
+      segments.reduce((total, segment) => total + segment.weight, 0),
+      100
+    )
+    assert.equal(segments.map((segment) => segment.token as string).includes('ink'), false)
+    assert.ok(
+      segments
+        .filter((segment) => segment.variant === 'dark' && segment.token !== 'accent')
+        .reduce((total, segment) => total + segment.weight, 0) <= 24
+    )
+  }
 })

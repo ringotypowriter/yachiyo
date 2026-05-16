@@ -66,6 +66,7 @@ export function PlaceholderPane({ label }: PlaceholderPaneProps): React.ReactNod
 interface SimpleSelectOption<T extends string> {
   value: T
   label: string
+  preview?: React.ReactNode
 }
 
 interface SimpleSelectProps<T extends string> {
@@ -73,13 +74,15 @@ interface SimpleSelectProps<T extends string> {
   options: SimpleSelectOption<T>[]
   onChange: (value: T) => void
   width?: number | string
+  optionHeight?: number
 }
 
 export function SimpleSelect<T extends string>({
   value,
   options,
   onChange,
-  width = 200
+  width = 200,
+  optionHeight = 34
 }: SimpleSelectProps<T>): React.ReactNode {
   const [open, setOpen] = useState(false)
   const [openUpward, setOpenUpward] = useState(false)
@@ -95,7 +98,7 @@ export function SimpleSelect<T extends string>({
       setTriggerRect(rect)
       const gap = 6
       const margin = 16
-      const estimatedHeight = options.length * 34 + 12
+      const estimatedHeight = options.length * optionHeight + 12
       const spaceBelow = window.innerHeight - rect.bottom - gap - margin
       const spaceAbove = rect.top - gap - margin
       const shouldFlip = estimatedHeight > spaceBelow && spaceAbove > spaceBelow
@@ -117,7 +120,8 @@ export function SimpleSelect<T extends string>({
     return () => document.removeEventListener('pointerdown', handlePointerDown)
   }, [open])
 
-  const selectedLabel = options.find((o) => o.value === value)?.label ?? value
+  const selectedOption = options.find((o) => o.value === value)
+  const selectedLabel = selectedOption?.label ?? value
 
   return (
     <>
@@ -143,6 +147,9 @@ export function SimpleSelect<T extends string>({
       >
         <span
           style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 10,
             flex: 1,
             fontSize: 14,
             color: theme.text.primary,
@@ -153,7 +160,20 @@ export function SimpleSelect<T extends string>({
             minWidth: 0
           }}
         >
-          {selectedLabel}
+          <span
+            style={{
+              flex: 1,
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+              minWidth: 0
+            }}
+          >
+            {selectedLabel}
+          </span>
+          {selectedOption?.preview != null ? (
+            <span style={{ flexShrink: 0 }}>{selectedOption.preview}</span>
+          ) : null}
         </span>
         <ChevronDown
           size={13}
@@ -197,6 +217,7 @@ export function SimpleSelect<T extends string>({
                 <DropdownOption
                   key={option.value}
                   label={option.label}
+                  preview={option.preview}
                   selected={selected}
                   onSelect={() => {
                     onChange(option.value)
@@ -214,10 +235,12 @@ export function SimpleSelect<T extends string>({
 
 function DropdownOption({
   label,
+  preview,
   selected,
   onSelect
 }: {
   label: string
+  preview?: React.ReactNode
   selected: boolean
   onSelect: () => void
 }): React.JSX.Element {
@@ -255,6 +278,7 @@ function DropdownOption({
       >
         {label}
       </span>
+      {preview != null ? <span style={{ flexShrink: 0 }}>{preview}</span> : null}
       {selected && <Check size={12} strokeWidth={2.5} color={theme.text.accent} />}
     </div>
   )

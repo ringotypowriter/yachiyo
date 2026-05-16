@@ -4,8 +4,8 @@ import {
   DEFAULT_THEME_APPEARANCE,
   DEFAULT_THEME_ID
 } from '../../../shared/yachiyo/protocol.ts'
-import type { SettingsConfig, ThemeAppearance } from '../../../shared/yachiyo/protocol.ts'
-import { theme, alpha } from '@renderer/theme/theme'
+import type { SettingsConfig, ThemeAppearance, ThemeId } from '../../../shared/yachiyo/protocol.ts'
+import { THEME_OPTIONS, alpha, getThemeSchemePreviewSegments, theme } from '@renderer/theme/theme'
 import {
   SettingLabel,
   SettingRow,
@@ -34,6 +34,38 @@ interface UIPaneProps {
   draft: SettingsConfig
   onChange: (next: SettingsConfig) => void
 }
+
+function ThemeStripe({ themeId }: { themeId: ThemeId }): React.ReactNode {
+  return (
+    <div
+      aria-hidden="true"
+      style={{
+        display: 'flex',
+        width: 104,
+        height: 4,
+        overflow: 'hidden',
+        borderRadius: 999,
+        background: theme.border.subtle
+      }}
+    >
+      {getThemeSchemePreviewSegments(themeId).map((segment) => (
+        <span
+          key={`${segment.variant}-${segment.token}`}
+          style={{
+            flex: `${segment.weight} 0 0px`,
+            background: `rgb(${segment.rgb})`
+          }}
+        />
+      ))}
+    </div>
+  )
+}
+
+const THEME_SELECT_OPTIONS = THEME_OPTIONS.map((option) => ({
+  value: option.id,
+  label: option.label,
+  preview: <ThemeStripe themeId={option.id} />
+}))
 
 function FontSizeRow({
   label,
@@ -138,12 +170,27 @@ export function UIPane({ draft, onChange }: UIPaneProps): React.ReactNode {
               Theme
             </div>
             <div className="text-sm leading-5" style={{ color: theme.text.tertiary }}>
-              Mizu controls the app color system.
+              Choose the color family for both light and dark.
             </div>
           </div>
 
-          <div className="shrink-0 text-sm font-medium" style={{ color: theme.text.primary }}>
-            Mizu
+          <div className="shrink-0">
+            <SimpleSelect<ThemeId>
+              value={draft.general?.themeId ?? DEFAULT_THEME_ID}
+              options={THEME_SELECT_OPTIONS}
+              width={220}
+              optionHeight={40}
+              onChange={(next) =>
+                onChange({
+                  ...draft,
+                  general: {
+                    ...draft.general,
+                    themeId: next,
+                    themeAppearance: draft.general?.themeAppearance ?? DEFAULT_THEME_APPEARANCE
+                  }
+                })
+              }
+            />
           </div>
         </SettingRow>
 
