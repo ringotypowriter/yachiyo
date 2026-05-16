@@ -319,7 +319,7 @@ export function AboutPane({ draft, onChange }: AboutPaneProps): React.ReactNode 
         {/* Notices panel — slides up from footer */}
         {showNotices && (
           <div
-            className="overflow-y-auto px-7 pb-2"
+            className="content-selectable overflow-y-auto px-7 pb-2"
             style={{
               maxHeight: 280,
               background: theme.background.surface,
@@ -342,8 +342,7 @@ export function AboutPane({ draft, onChange }: AboutPaneProps): React.ReactNode 
                     style={{
                       color: theme.text.primary,
                       textDecoration: 'none',
-                      cursor: 'default',
-                      userSelect: 'auto'
+                      cursor: 'default'
                     }}
                     onMouseEnter={(e) => {
                       e.currentTarget.style.color = theme.text.accent

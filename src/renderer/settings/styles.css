@@ -65,3 +65,14 @@ textarea,
   user-select: text;
   -webkit-user-select: text;
 }
+
+.content-selectable,
+.content-selectable * {
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.content-selectable-all {
+  user-select: all;
+  -webkit-user-select: all;
+}

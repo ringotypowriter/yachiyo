@@ -72,12 +72,6 @@ body {
   background: rgb(var(--yachiyo-rgb-ink) / 0.25);
 }
 
-/* Allow text selection in message area */
-.message-selectable {
-  user-select: text;
-  -webkit-user-select: text;
-}
-
 /* Drag region for titlebar */
 .drag-region {
   -webkit-app-region: drag;
@@ -871,7 +865,14 @@ textarea,
 }
 
 .message-selectable,
-.message-selectable * {
+.message-selectable *,
+.content-selectable,
+.content-selectable * {
   user-select: text;
   -webkit-user-select: text;
+}
+
+.content-selectable-all {
+  user-select: all;
+  -webkit-user-select: all;
 }

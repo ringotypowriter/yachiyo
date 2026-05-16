@@ -43,7 +43,7 @@ export function ChangelogModal({ version, onClose }: ChangelogModalProps): React
         </p>
       ) : (
         <div
-          className="changelog-body text-[13px]"
+          className="changelog-body content-selectable text-[13px]"
           style={{ color: theme.text.primary, lineHeight: 1.6 }}
         >
           <Streamdown mode="static">{notes}</Streamdown>

@@ -441,7 +441,7 @@ export function WorkspacePane({ draft, onChange }: WorkspacePaneProps): React.Re
                   {workspacePath.split('/').filter(Boolean).at(-1) ?? workspacePath}
                 </div>
                 <div
-                  className="text-xs truncate"
+                  className="content-selectable text-xs truncate"
                   style={{ color: theme.text.tertiary, lineHeight: 1.5 }}
                 >
                   {workspacePath}

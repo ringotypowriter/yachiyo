@@ -149,7 +149,10 @@ export function GeneralPane({
               style, and long-term background here.
             </div>
             {userDocument?.filePath ? (
-              <div className="text-xs leading-5 break-all" style={{ color: theme.text.muted }}>
+              <div
+                className="content-selectable text-xs leading-5 break-all"
+                style={{ color: theme.text.muted }}
+              >
                 {userDocument.filePath}
               </div>
             ) : null}
@@ -213,7 +216,10 @@ export function GeneralPane({
             appended under today&apos;s date in the file.
           </div>
           {soulDocument?.filePath ? (
-            <div className="mt-0.5 text-xs leading-5 break-all" style={{ color: theme.text.muted }}>
+            <div
+              className="content-selectable mt-0.5 text-xs leading-5 break-all"
+              style={{ color: theme.text.muted }}
+            >
               {soulDocument.filePath}
             </div>
           ) : null}

@@ -46,6 +46,7 @@ export function LinkSafetyModal({
       onClose={onClose}
     >
       <div
+        className="content-selectable-all"
         style={{
           color: theme.text.muted,
           lineHeight: 1.55,
@@ -55,8 +56,7 @@ export function LinkSafetyModal({
           fontFamily: 'var(--font-mono, ui-monospace, monospace)',
           overflowX: 'auto',
           whiteSpace: 'nowrap',
-          scrollbarWidth: 'none',
-          userSelect: 'all'
+          scrollbarWidth: 'none'
         }}
       >
         {url}

@@ -164,7 +164,7 @@ export function MemoryPane({ draft, onChange }: MemoryPaneProps): React.JSX.Elem
 
                     <div className="mt-3 space-y-3">
                       {topic.entries.map((entry) => (
-                        <div key={entry.id} className="space-y-1">
+                        <div key={entry.id} className="content-selectable space-y-1">
                           <div
                             className="text-sm font-medium"
                             style={{ color: theme.text.primary }}

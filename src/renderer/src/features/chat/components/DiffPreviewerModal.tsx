@@ -255,7 +255,7 @@ export function DiffPreviewerModal({
             {selected ? (
               <div className="flex flex-col gap-2 min-h-0 flex-1">
                 <div className="flex items-center justify-between shrink-0">
-                  <span className="text-xs" style={{ color: theme.text.muted }}>
+                  <span className="content-selectable text-xs" style={{ color: theme.text.muted }}>
                     {selected.relativePath}
                   </span>
                   <div className="flex items-center gap-1.5">
