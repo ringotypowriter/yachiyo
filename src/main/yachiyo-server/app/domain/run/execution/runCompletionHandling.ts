@@ -175,6 +175,7 @@ async function persistCompletedRun(
     threadId: input.executionInput.thread.id,
     runId: input.executionInput.runId,
     requestMessageId: input.executionInput.requestMessageId,
+    runTrigger: input.executionInput.runTrigger,
     ...finalUsage
   })
   input.perfCollector.finish(input.executionInput.thread.id)

@@ -200,6 +200,7 @@ function createAskUserContext(input: CreateRunToolSetInput): {
           type: 'notification.requested',
           threadId: input.executionInput.thread.id,
           runId: input.executionInput.runId,
+          runTrigger: input.executionInput.runTrigger,
           title: 'Yachiyo needs your input',
           body: question.slice(0, 100)
         })
@@ -218,6 +219,7 @@ function handleSubagentStarted(
     type: 'subagent.started',
     threadId: input.executionInput.thread.id,
     runId: input.executionInput.runId,
+    runTrigger: input.executionInput.runTrigger,
     delegationId: event.delegationId,
     agentName: event.agentName,
     workspacePath: event.workspacePath
@@ -236,6 +238,7 @@ function handleSubagentFinished(
     type: 'subagent.finished',
     threadId: input.executionInput.thread.id,
     runId: input.executionInput.runId,
+    runTrigger: input.executionInput.runTrigger,
     delegationId: event.delegationId,
     agentName: event.agentName,
     status: event.status,

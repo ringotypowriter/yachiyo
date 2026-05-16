@@ -4,6 +4,7 @@ import type {
   ProviderSettings,
   RecallDecisionSnapshot,
   RunContextSourceSummary,
+  SendChatRunTrigger,
   SettingsConfig,
   ThreadRecord,
   ToolCallRecord
@@ -22,6 +23,7 @@ interface ThreadEvent extends BaseEvent {
 interface RunEvent extends ThreadEvent {
   runId: string
   requestMessageId?: string
+  runTrigger?: SendChatRunTrigger
 }
 
 export interface ThreadCreatedEvent extends ThreadEvent {

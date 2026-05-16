@@ -306,7 +306,8 @@ function startFreshRun(
     type: 'run.created',
     threadId: accepted.thread.id,
     runId: accepted.runId,
-    requestMessageId: userMessage.id
+    requestMessageId: userMessage.id,
+    runTrigger: input.runTrigger
   })
 
   if (!input.hidden && fallbackTitle && fallbackTitle !== DEFAULT_THREAD_TITLE && input.content) {

@@ -435,7 +435,8 @@ function activatePreparedQueuedFollowUp(
     type: 'run.created',
     threadId: prepared.thread.id,
     runId: prepared.runId,
-    requestMessageId: prepared.requestMessageId
+    requestMessageId: prepared.requestMessageId,
+    runTrigger: prepared.runTrigger
   })
 
   context.startActiveRun({

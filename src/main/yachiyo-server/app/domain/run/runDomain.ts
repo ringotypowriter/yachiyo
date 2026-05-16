@@ -426,7 +426,8 @@ export class YachiyoServerRunDomain {
       type: 'run.created',
       threadId: accepted.thread.id,
       runId: accepted.runId,
-      requestMessageId: requestMessage.id
+      requestMessageId: requestMessage.id,
+      runTrigger: 'local'
     })
 
     startActiveRun(this.createActiveRunStartContext(), {
@@ -467,7 +468,8 @@ export class YachiyoServerRunDomain {
     this.deps.emit<RunCreatedEvent>({
       type: 'run.created',
       threadId: input.destinationThread.id,
-      runId
+      runId,
+      runTrigger: 'local'
     })
 
     startAssistantOnlyRun(this.createActiveRunStartContext(), {
@@ -759,6 +761,7 @@ export class YachiyoServerRunDomain {
               threadId: input.thread.id,
               runId: input.runId,
               requestMessageId: currentRequestMessageId,
+              runTrigger: activeRun?.runTrigger ?? input.runTrigger,
               recap: true
             })
             break

@@ -15,6 +15,7 @@ function resetStore(): void {
     activeRequestMessageIdsByThread: {},
     activeRunThreadId: null,
     activeThreadId: null,
+    activeToasts: [],
     archivedThreads: [],
     composerDrafts: {},
     globalProcessingTasks: [],
@@ -39,6 +40,7 @@ function resetStore(): void {
     pendingModelOverride: null,
     pendingSteerMessages: {},
     pendingWorkspacePath: null,
+    queuedToasts: [],
     runPhase: 'idle',
     runPhasesByThread: {},
     runStatus: 'idle',
@@ -88,6 +90,33 @@ function withWindowApiMock(mock: YachiyoApiMock): () => void {
 
     Object.defineProperty(globalScope, 'window', {
       value: originalWindow,
+      configurable: true,
+      writable: true
+    })
+  }
+}
+
+function withDocumentFocusMock(input: { hidden: boolean; hasFocus: boolean }): () => void {
+  const globalScope = globalThis as typeof globalThis & { document?: Partial<Document> }
+  const originalDocument = globalScope.document
+
+  Object.defineProperty(globalScope, 'document', {
+    value: {
+      hidden: input.hidden,
+      hasFocus: () => input.hasFocus
+    },
+    configurable: true,
+    writable: true
+  })
+
+  return () => {
+    if (originalDocument === undefined) {
+      Reflect.deleteProperty(globalScope, 'document')
+      return
+    }
+
+    Object.defineProperty(globalScope, 'document', {
+      value: originalDocument,
       configurable: true,
       writable: true
     })
@@ -487,6 +516,132 @@ test('applyServerEvent treats owner DM threads as normal threads', () => {
     state.externalThreads.map((thread) => thread.id),
     ['guest-dm-thread']
   )
+})
+
+test('applyServerEvent does not notify for owner DM runs started from an external channel', () => {
+  resetStore()
+
+  const notifications: Array<{ title: string; body?: string }> = []
+  const restoreWindow = withWindowApiMock({
+    showNotification: (input) => {
+      notifications.push(input)
+    }
+  })
+  const restoreDocument = withDocumentFocusMock({ hidden: true, hasFocus: false })
+
+  try {
+    useAppStore.setState({
+      activeThreadId: 'local-thread',
+      config: {
+        enabledTools: DEFAULT_ENABLED_TOOL_NAMES,
+        general: {
+          notifyRunCompleted: true
+        },
+        providers: []
+      },
+      messages: {
+        'owner-dm-thread': [
+          {
+            id: 'assistant-1',
+            threadId: 'owner-dm-thread',
+            role: 'assistant',
+            content: 'Done from DM',
+            status: 'completed',
+            createdAt: TIMESTAMP
+          }
+        ]
+      },
+      threads: [
+        { id: 'local-thread', title: 'Local', updatedAt: TIMESTAMP },
+        {
+          id: 'owner-dm-thread',
+          title: 'Owner DM',
+          updatedAt: TIMESTAMP,
+          source: 'telegram',
+          channelUserId: 'tg-owner',
+          channelUserRole: 'owner'
+        }
+      ]
+    })
+
+    useAppStore.getState().applyServerEvent({
+      type: 'run.completed',
+      eventId: 'event-owner-dm-channel-run-completed',
+      timestamp: '2026-03-15T00:00:02.000Z',
+      threadId: 'owner-dm-thread',
+      runId: 'run-owner-dm-channel',
+      runTrigger: 'channel'
+    })
+
+    assert.deepEqual(notifications, [])
+    assert.deepEqual(useAppStore.getState().queuedToasts, [])
+  } finally {
+    restoreDocument()
+    restoreWindow()
+  }
+})
+
+test('applyServerEvent still notifies for owner DM runs started locally', () => {
+  resetStore()
+
+  const notifications: Array<{ title: string; body?: string }> = []
+  const restoreWindow = withWindowApiMock({
+    showNotification: (input) => {
+      notifications.push(input)
+    }
+  })
+  const restoreDocument = withDocumentFocusMock({ hidden: true, hasFocus: false })
+
+  try {
+    useAppStore.setState({
+      activeThreadId: 'local-thread',
+      config: {
+        enabledTools: DEFAULT_ENABLED_TOOL_NAMES,
+        general: {
+          notifyRunCompleted: true
+        },
+        providers: []
+      },
+      messages: {
+        'owner-dm-thread': [
+          {
+            id: 'assistant-1',
+            threadId: 'owner-dm-thread',
+            role: 'assistant',
+            content: 'Done locally',
+            status: 'completed',
+            createdAt: TIMESTAMP
+          }
+        ]
+      },
+      threads: [
+        { id: 'local-thread', title: 'Local', updatedAt: TIMESTAMP },
+        {
+          id: 'owner-dm-thread',
+          title: 'Owner DM',
+          updatedAt: TIMESTAMP,
+          source: 'telegram',
+          channelUserId: 'tg-owner',
+          channelUserRole: 'owner'
+        }
+      ]
+    })
+
+    useAppStore.getState().applyServerEvent({
+      type: 'run.completed',
+      eventId: 'event-owner-dm-local-run-completed',
+      timestamp: '2026-03-15T00:00:02.000Z',
+      threadId: 'owner-dm-thread',
+      runId: 'run-owner-dm-local',
+      runTrigger: 'local'
+    })
+
+    assert.deepEqual(notifications, [{ title: 'Owner DM', body: 'Done locally' }])
+    assert.equal(useAppStore.getState().queuedToasts.length, 1)
+  } finally {
+    restoreDocument()
+    restoreWindow()
+  }
 })
 
 test('applyServerEvent retargets the active request when an active thread head moves to a steer user', () => {

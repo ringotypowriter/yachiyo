@@ -321,7 +321,8 @@ export async function runAcpChatThread(
     deps.emit<RunCompletedEvent>({
       type: 'run.completed',
       threadId: input.thread.id,
-      runId: input.runId
+      runId: input.runId,
+      runTrigger: 'local'
     })
 
     if (pendingWarmSession) {

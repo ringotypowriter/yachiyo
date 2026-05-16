@@ -382,6 +382,7 @@ export async function streamCompactThreadHandoff(
       type: 'run.completed',
       threadId: input.thread.id,
       runId: input.runId,
+      runTrigger: 'local',
       ...(handoffUsage
         ? {
             promptTokens: handoffUsage.completionTokens,

@@ -22,10 +22,12 @@ import type {
 } from '../types.ts'
 import {
   DEFAULT_ENABLED_TOOL_NAMES,
+  type SendChatRunTrigger,
   type ThreadRuntimeBinding
 } from '../../../../shared/yachiyo/protocol.ts'
 import {
   canCompactThreadToAnotherThread,
+  isOwnerDmThread,
   isExternalThread
 } from '../../features/threads/lib/threadVisibility.ts'
 import { useBackgroundTasksStore } from '../../features/chat/state/useBackgroundTasksStore.ts'
@@ -72,6 +74,13 @@ export {
   getEffectiveModel,
   getThreadEffectiveModel,
   hasActiveMultiFilter
+}
+
+function shouldSuppressOwnerDmChannelNotification(
+  thread: Thread,
+  event: { runTrigger?: SendChatRunTrigger }
+): boolean {
+  return event.runTrigger === 'channel' && isOwnerDmThread(thread)
 }
 
 export interface SidebarFilter {
@@ -864,6 +873,9 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (event.type === 'notification.requested') {
       // OS notification is already handled by the gateway broadcast — only show
       // in-app toast here to avoid duplicate system notifications.
+      const thread = get().threads.find((t) => t.id === event.threadId)
+      if (thread && shouldSuppressOwnerDmChannelNotification(thread, event)) return
+
       const key = `notification.requested:${event.runId}`
       if (shouldShowNotification(key)) {
         const { activeThreadId } = get()
@@ -902,7 +914,12 @@ export const useAppStore = create<AppState>((set, get) => ({
       if (event.recap) return
       const { config, threads, messages } = get()
       const thread = threads.find((t) => t.id === event.threadId)
-      if (thread && !isExternalThread(thread) && config?.general?.notifyRunCompleted !== false) {
+      if (
+        thread &&
+        !isExternalThread(thread) &&
+        !shouldSuppressOwnerDmChannelNotification(thread, event) &&
+        config?.general?.notifyRunCompleted !== false
+      ) {
         const threadMessages = messages[event.threadId] ?? []
         const lastAssistantMessage = [...threadMessages]
           .reverse()
@@ -951,6 +968,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       if (
         thread &&
         !isExternalThread(thread) &&
+        !shouldSuppressOwnerDmChannelNotification(thread, event) &&
         config?.general?.notifyCodingTaskStarted !== false
       ) {
         notifyActivity(
@@ -968,6 +986,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       if (
         thread &&
         !isExternalThread(thread) &&
+        !shouldSuppressOwnerDmChannelNotification(thread, event) &&
         config?.general?.notifyCodingTaskFinished !== false
       ) {
         notifyActivity(
