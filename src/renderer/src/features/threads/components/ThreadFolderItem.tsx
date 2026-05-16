@@ -4,6 +4,7 @@ import { createPortal } from 'react-dom'
 import { FolderOpen, FolderClosed, PenLine, Trash2, Archive, RotateCcw } from 'lucide-react'
 import type { FolderColorTag, FolderRecord } from '@renderer/app/types'
 import { imeSafeEnter, isDismissEscapeKey } from '@renderer/lib/imeUtils'
+import { useRestoreFocusOnUnmount } from '@renderer/lib/focusRestore'
 import { theme } from '@renderer/theme/theme'
 import {
   THREAD_COLOR_FILTER_LABELS,
@@ -200,6 +201,7 @@ function FolderContextMenu({
   const menuRef = useRef<HTMLDivElement>(null)
   const [resolvedTop, setResolvedTop] = useState(y)
   const menuWidth = 220
+  useRestoreFocusOnUnmount()
 
   useEffect(() => {
     const handlePointerDown = (): void => onClose()

@@ -4,6 +4,7 @@ import { createPortal } from 'react-dom'
 import { theme, alpha } from '@renderer/theme/theme'
 import type { SettingsConfig } from '../../../shared/yachiyo/protocol.ts'
 import { SettingLabel, SettingSection } from '../components/primitives'
+import { useRestoreFocusOnUnmount } from '@renderer/lib/focusRestore'
 import { imeSafeEnter } from '@renderer/lib/imeUtils'
 
 interface DiscoveredApp {
@@ -143,6 +144,8 @@ function AppPicker({ value, options, placeholder, onChange }: AppPickerProps): R
   const triggerRef = useRef<HTMLButtonElement>(null)
   const dropdownRef = useRef<HTMLDivElement>(null)
   const [triggerHovered, setTriggerHovered] = useState(false)
+
+  useRestoreFocusOnUnmount(open)
 
   function handleOpen(): void {
     if (triggerRef.current) {

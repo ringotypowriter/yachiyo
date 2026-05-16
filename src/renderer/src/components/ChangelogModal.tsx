@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import { Streamdown } from 'streamdown'
 import { X } from 'lucide-react'
 import { theme, alpha } from '@renderer/theme/theme'
+import { useRestoreFocusOnUnmount } from '@renderer/lib/focusRestore'
 import { isDismissEscapeKey } from '@renderer/lib/imeUtils'
 
 interface ChangelogModalProps {
@@ -13,6 +14,8 @@ interface ChangelogModalProps {
 export function ChangelogModal({ version, onClose }: ChangelogModalProps): React.JSX.Element {
   const [notes, setNotes] = useState<string | null>(null)
   const [error, setError] = useState(false)
+
+  useRestoreFocusOnUnmount()
 
   useEffect(() => {
     window.api.appUpdate

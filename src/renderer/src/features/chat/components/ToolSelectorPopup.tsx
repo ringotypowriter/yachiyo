@@ -4,6 +4,7 @@ import { Check } from 'lucide-react'
 import type { ToolCallName } from '@renderer/app/types'
 import { theme } from '@renderer/theme/theme'
 import { isDismissEscapeKey } from '@renderer/lib/imeUtils'
+import { useRestoreFocusOnUnmount } from '@renderer/lib/focusRestore'
 import { USER_MANAGED_TOOL_NAMES } from '../../../../../shared/yachiyo/protocol.ts'
 
 const TOOL_COPY: Record<
@@ -70,6 +71,7 @@ export function ToolSelectorPopup({
 }): React.ReactNode {
   const [visible, setVisible] = useState(false)
   const enabledToolSet = new Set(enabledTools)
+  useRestoreFocusOnUnmount()
 
   useEffect(() => {
     requestAnimationFrame(() => setVisible(true))

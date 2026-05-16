@@ -2,6 +2,7 @@ import { useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import { Copy, ExternalLink } from 'lucide-react'
 import { theme, alpha } from '@renderer/theme/theme'
+import { useRestoreFocusOnUnmount } from '@renderer/lib/focusRestore'
 import { isDismissEscapeKey } from '@renderer/lib/imeUtils'
 import type { LinkSafetyModalProps } from 'streamdown'
 
@@ -11,6 +12,8 @@ export function LinkSafetyModal({
   onConfirm,
   url
 }: LinkSafetyModalProps): React.ReactNode {
+  useRestoreFocusOnUnmount(isOpen)
+
   useEffect(() => {
     if (!isOpen) return
     const handleEscape = (e: KeyboardEvent): void => {

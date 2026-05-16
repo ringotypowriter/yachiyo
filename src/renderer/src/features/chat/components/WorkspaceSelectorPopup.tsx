@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import { Check, Folder, Plus } from 'lucide-react'
 import { theme } from '@renderer/theme/theme'
 import { isDismissEscapeKey } from '@renderer/lib/imeUtils'
+import { useRestoreFocusOnUnmount } from '@renderer/lib/focusRestore'
 
 function WorkspaceOption({
   description,
@@ -101,6 +102,7 @@ export function WorkspaceSelectorPopup({
   savedPaths: string[]
 }): React.ReactNode {
   const [visible, setVisible] = useState(false)
+  useRestoreFocusOnUnmount()
 
   useEffect(() => {
     requestAnimationFrame(() => setVisible(true))

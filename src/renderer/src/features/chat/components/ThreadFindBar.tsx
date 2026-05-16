@@ -3,6 +3,7 @@ import { useEffect, useRef } from 'react'
 import { ChevronDown, ChevronUp, Search, X } from 'lucide-react'
 import { theme } from '@renderer/theme/theme'
 import { isDismissEscapeKey } from '@renderer/lib/imeUtils'
+import { useRestoreFocusOnUnmount } from '@renderer/lib/focusRestore'
 import type { FindMatch } from '../lib/threadFindBar'
 
 export interface ThreadFindBarProps {
@@ -25,6 +26,7 @@ export function ThreadFindBar({
   onClose
 }: ThreadFindBarProps): React.JSX.Element {
   const inputRef = useRef<HTMLInputElement>(null)
+  useRestoreFocusOnUnmount()
 
   useEffect(() => {
     inputRef.current?.focus()

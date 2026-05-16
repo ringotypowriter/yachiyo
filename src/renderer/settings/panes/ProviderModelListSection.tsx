@@ -12,6 +12,7 @@ import {
   X
 } from 'lucide-react'
 import { theme, alpha } from '@renderer/theme/theme'
+import { useRestoreFocusOnUnmount } from '@renderer/lib/focusRestore'
 import { imeSafeEnter, isDismissEscapeKey } from '@renderer/lib/imeUtils'
 import { SettingSwitch, SimpleSelect } from '../components/primitives'
 import {
@@ -179,6 +180,8 @@ function ReasoningSettingsModal({
   onClose,
   provider
 }: ReasoningModalProps): React.ReactNode {
+  useRestoreFocusOnUnmount()
+
   const choices = REASONING_CHOICES.filter(
     (choice) =>
       choice.value === 'off' ||

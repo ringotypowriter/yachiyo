@@ -4,6 +4,7 @@ import { Search, X } from 'lucide-react'
 import type { ThreadSearchResult } from '../../../../shared/yachiyo/protocol'
 import { theme } from '@renderer/theme/theme'
 import { isDismissEscapeKey } from '@renderer/lib/imeUtils'
+import { useRestoreFocusOnUnmount } from '@renderer/lib/focusRestore'
 
 interface Segment {
   text: string
@@ -91,6 +92,7 @@ export function SidebarSearch({
   const [focusedIndex, setFocusedIndex] = useState(-1)
   const inputRef = useRef<HTMLInputElement>(null)
   const itemRefs = useRef<Map<number, HTMLButtonElement>>(new Map())
+  useRestoreFocusOnUnmount()
 
   const flatItems = useMemo<SelectableItem[]>(() => {
     const items: SelectableItem[] = []

@@ -4,6 +4,7 @@ import { X, RotateCcw, FilePlus2, FileMinus2, FileEdit, SquareArrowOutUpRight } 
 import { theme, alpha } from '@renderer/theme/theme'
 import { useAppStore } from '@renderer/app/store/useAppStore'
 import { ConfirmDialog } from '@renderer/components/ConfirmDialog'
+import { useRestoreFocusOnUnmount } from '@renderer/lib/focusRestore'
 import { isDismissEscapeKey } from '@renderer/lib/imeUtils'
 import { ToolCodeBlock } from './ToolCodeBlock'
 import type {
@@ -47,6 +48,8 @@ export function DiffPreviewerModal({
   const [reverting, setReverting] = useState(false)
   const [confirmRevertMode, setConfirmRevertMode] = useState<'file' | 'all' | null>(null)
   const [confirmRevertPath, setConfirmRevertPath] = useState<string | null>(null)
+
+  useRestoreFocusOnUnmount()
 
   useEffect(() => {
     setChanges(null)

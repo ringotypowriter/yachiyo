@@ -23,6 +23,7 @@ import {
 } from '@renderer/features/threads/lib/threadColorPalette'
 import { Tooltip } from '@renderer/components/Tooltip'
 import { isDismissEscapeKey } from '@renderer/lib/imeUtils'
+import { useRestoreFocusOnUnmount } from '@renderer/lib/focusRestore'
 import {
   TEMPORARY_WORKSPACE_FILTER,
   resolveWorkspaceDisplayName,
@@ -258,6 +259,7 @@ function SidebarFilterDropdown({
   const toggleJustDone = useAppStore((s) => s.toggleSidebarFilterJustDone)
   const toggleFolderOnly = useAppStore((s) => s.toggleSidebarFilterFolderOnly)
   const clearFilter = useAppStore((s) => s.clearSidebarFilter)
+  useRestoreFocusOnUnmount()
   const unreadArchivedCount = useAppStore(
     (s) => s.archivedThreads.filter((t) => t.archivedAt && !t.readAt).length
   )

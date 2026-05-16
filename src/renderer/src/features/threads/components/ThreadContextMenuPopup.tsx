@@ -19,6 +19,7 @@ import {
 import { THREAD_COLOR_FILTER_LABELS } from '@renderer/features/threads/lib/threadColorPalette'
 import { theme } from '@renderer/theme/theme'
 import { isDismissEscapeKey } from '@renderer/lib/imeUtils'
+import { useRestoreFocusOnUnmount } from '@renderer/lib/focusRestore'
 import { ColorDotPicker } from './ColorDotPicker'
 
 export interface ThreadContextMenuPopupProps {
@@ -83,6 +84,7 @@ export function ThreadContextMenuPopup({
 }: ThreadContextMenuPopupProps): React.JSX.Element {
   const menuRef = useRef<HTMLDivElement>(null)
   const [resolvedTop, setResolvedTop] = useState(position.top)
+  useRestoreFocusOnUnmount()
   const colorOperations = operations.filter(
     (operation) => resolveThreadColorOperationTag(operation.key) !== undefined
   )

@@ -4,6 +4,7 @@ import { Check } from 'lucide-react'
 import { theme } from '@renderer/theme/theme'
 import type { ComposerReasoningSelection } from '@renderer/app/types'
 import { isDismissEscapeKey } from '@renderer/lib/imeUtils'
+import { useRestoreFocusOnUnmount } from '@renderer/lib/focusRestore'
 import { REASONING_SELECTION_COPY } from '../lib/reasoningSelectionLabel'
 
 export function ReasoningSelectorPopup({
@@ -18,6 +19,7 @@ export function ReasoningSelectorPopup({
   onClose: () => void
 }): React.ReactNode {
   const [visible, setVisible] = useState(false)
+  useRestoreFocusOnUnmount()
 
   useEffect(() => {
     requestAnimationFrame(() => setVisible(true))

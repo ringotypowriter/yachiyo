@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { ChevronDown, ChevronUp, Square, Terminal, X } from 'lucide-react'
 
 import { theme } from '@renderer/theme/theme'
+import { useRestoreFocusOnUnmount } from '@renderer/lib/focusRestore'
 import { useBackgroundTasksStore, type BackgroundTaskState } from '../state/useBackgroundTasksStore'
 import { BACKGROUND_TASK_LOG_DEFAULT_MAX_BYTES } from '../../../../../shared/yachiyo/protocol.ts'
 
@@ -147,6 +148,8 @@ function BackgroundTasksPanel({
   const ref = useRef<HTMLDivElement>(null)
   const hasRunning = tasks.some((t) => t.status === 'running')
   const now = useNowTick(1000, hasRunning)
+
+  useRestoreFocusOnUnmount()
 
   // Click outside to dismiss. The chip wrapper is treated as "inside" so the
   // toggle button doesn't trigger close-then-reopen on the same click.

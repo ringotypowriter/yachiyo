@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { CalendarClock, CalendarDays } from 'lucide-react'
 import { createPortal } from 'react-dom'
 import { theme, alpha } from '@renderer/theme/theme'
+import { useRestoreFocusOnUnmount } from '@renderer/lib/focusRestore'
 import { SimpleSelect } from '../components/primitives'
 import { DAY_LABELS } from './scheduleTimeFormat'
 
@@ -112,6 +113,7 @@ export function CronQuickPick({ value, onPick }: CronQuickPickProps): React.Reac
   const [popupRect, setPopupRect] = useState<DOMRect | null>(null)
   const btnRef = useRef<HTMLButtonElement>(null)
   const panelRef = useRef<HTMLDivElement>(null)
+  useRestoreFocusOnUnmount(open)
 
   const [mode, setMode] = useState<BuilderMode>('daily')
   const [hour, setHour] = useState('9')
@@ -386,6 +388,7 @@ export function DateTimePick({
   )
   const btnRef = useRef<HTMLButtonElement>(null)
   const panelRef = useRef<HTMLDivElement>(null)
+  useRestoreFocusOnUnmount(open)
 
   const [viewYear, setViewYear] = useState(new Date().getFullYear())
   const [viewMonth, setViewMonth] = useState(new Date().getMonth())

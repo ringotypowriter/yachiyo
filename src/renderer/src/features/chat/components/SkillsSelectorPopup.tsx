@@ -4,6 +4,7 @@ import { Check } from 'lucide-react'
 import type { SkillCatalogEntry } from '@renderer/app/types'
 import { theme } from '@renderer/theme/theme'
 import { isDismissEscapeKey } from '@renderer/lib/imeUtils'
+import { useRestoreFocusOnUnmount } from '@renderer/lib/focusRestore'
 
 const SKILL_LIST_MAX_HEIGHT = 320
 
@@ -29,6 +30,7 @@ export function SkillsSelectorPopup({
 }): React.ReactNode {
   const [visible, setVisible] = useState(false)
   const enabledSkillSet = new Set(effectiveEnabledSkillNames)
+  useRestoreFocusOnUnmount()
 
   useEffect(() => {
     requestAnimationFrame(() => setVisible(true))

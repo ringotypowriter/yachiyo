@@ -4,6 +4,7 @@ import { Languages, NotebookPen, Radio } from 'lucide-react'
 import type { ConnectionStatus } from '@renderer/app/types'
 import { theme } from '@renderer/theme/theme'
 import { isDismissEscapeKey } from '@renderer/lib/imeUtils'
+import { useRestoreFocusOnUnmount } from '@renderer/lib/focusRestore'
 
 export interface SidebarUtilityMenuProps {
   anchorRect: DOMRect
@@ -26,6 +27,7 @@ export function SidebarUtilityMenu({
 }: SidebarUtilityMenuProps): React.JSX.Element {
   const menuRef = useRef<HTMLDivElement>(null)
   const [visible, setVisible] = useState(false)
+  useRestoreFocusOnUnmount()
 
   useEffect(() => {
     requestAnimationFrame(() => setVisible(true))

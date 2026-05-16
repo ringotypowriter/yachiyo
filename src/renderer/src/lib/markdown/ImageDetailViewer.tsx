@@ -10,6 +10,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Check, Copy, FolderOpen, Maximize2, RotateCw, X, ZoomIn, ZoomOut } from 'lucide-react'
 import { Tooltip } from '@renderer/components/Tooltip'
+import { useRestoreFocusOnUnmount } from '@renderer/lib/focusRestore'
 import { isDismissEscapeKey } from '@renderer/lib/imeUtils'
 import { extractLocalPath } from './imageUrl'
 
@@ -134,6 +135,8 @@ function ImageDetailViewerBody({
   const [rotation, setRotation] = useState(0)
   const [isDragging, setIsDragging] = useState(false)
   const dragRef = useRef<{ startX: number; startY: number; ox: number; oy: number } | null>(null)
+
+  useRestoreFocusOnUnmount()
 
   // Escape key.
   useEffect(() => {

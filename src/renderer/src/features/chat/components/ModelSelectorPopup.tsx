@@ -6,6 +6,7 @@ import { ProviderIconAvatar } from '@renderer/lib/providerIcons'
 import type { SettingsConfig } from '@renderer/app/types'
 import { theme } from '@renderer/theme/theme'
 import { isDismissEscapeKey } from '@renderer/lib/imeUtils'
+import { useRestoreFocusOnUnmount } from '@renderer/lib/focusRestore'
 import { matchProviderPreset } from '../../../../../shared/yachiyo/providerPresets.ts'
 import {
   resolveModelSelectorState,
@@ -231,6 +232,7 @@ export function ModelSelectorPopup({
   const [selectionPending, setSelectionPending] = useState(false)
   const [visible, setVisible] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
+  useRestoreFocusOnUnmount()
 
   const handleSelection = (action: () => Promise<void> | void): void => {
     if (selectionPending) {

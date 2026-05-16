@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import { theme, alpha } from '@renderer/theme/theme'
+import { useRestoreFocusOnUnmount } from '@renderer/lib/focusRestore'
 import { isDismissEscapeKey } from '@renderer/lib/imeUtils'
 
 export interface ConfirmDialogAction {
@@ -24,6 +25,8 @@ export function ConfirmDialog({
   onSelect,
   onClose
 }: ConfirmDialogProps): React.JSX.Element {
+  useRestoreFocusOnUnmount()
+
   useEffect(() => {
     const handleEscape = (e: KeyboardEvent): void => {
       if (isDismissEscapeKey(e)) onClose()

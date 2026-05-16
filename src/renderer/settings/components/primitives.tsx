@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Check, ChevronDown } from 'lucide-react'
 import { theme, alpha } from '@renderer/theme/theme'
+import { useRestoreFocusOnUnmount } from '@renderer/lib/focusRestore'
 
 interface FieldProps {
   children: React.ReactNode
@@ -86,6 +87,7 @@ export function SimpleSelect<T extends string>({
   const [triggerRect, setTriggerRect] = useState<DOMRect | null>(null)
   const triggerRef = useRef<HTMLButtonElement>(null)
   const dropdownRef = useRef<HTMLDivElement>(null)
+  useRestoreFocusOnUnmount(open)
 
   function handleOpen(): void {
     if (triggerRef.current) {

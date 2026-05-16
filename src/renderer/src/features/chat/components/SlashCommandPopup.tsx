@@ -4,6 +4,7 @@ import { createPortal } from 'react-dom'
 import { Folder, Hash, NotebookPen, Sparkles, Zap } from 'lucide-react'
 import { theme } from '@renderer/theme/theme'
 import { isDismissEscapeKey } from '@renderer/lib/imeUtils'
+import { useRestoreFocusOnUnmount } from '@renderer/lib/focusRestore'
 
 export interface SlashCommand {
   key: string
@@ -112,6 +113,7 @@ export function SlashCommandPopup({
 }): React.ReactNode {
   const [visible, setVisible] = useState(false)
   const selectedOptionRef = useRef<HTMLButtonElement | null>(null)
+  useRestoreFocusOnUnmount()
 
   useEffect(() => {
     requestAnimationFrame(() => setVisible(true))
