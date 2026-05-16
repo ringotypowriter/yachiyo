@@ -264,7 +264,7 @@ const trackedToolNameSet = new Set<string>([
   'askUser',
   'delegateCodingTask',
   'remember',
-  'searchMemory',
+  'querySource',
   'updateProfile'
 ])
 

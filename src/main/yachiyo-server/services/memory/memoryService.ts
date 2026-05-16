@@ -42,7 +42,6 @@ import {
 
 export { sanitizeMemoryQueryText } from './memoryService/parsing.ts'
 
-export const HIDDEN_MEMORY_SEARCH_TOOL_NAME = 'searchMemory'
 const DEFAULT_CONTEXT_MEMORY_LIMIT = 4
 const DEFAULT_PROVIDER_SEARCH_LIMIT = 4
 

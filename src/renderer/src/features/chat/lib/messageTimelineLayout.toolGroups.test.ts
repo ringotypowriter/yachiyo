@@ -963,7 +963,7 @@ test('buildConversationGroupTimelineItems groups bash search commands with nativ
   ])
 })
 
-test('buildConversationGroupTimelineItems groups consecutive searchMemory tool calls', () => {
+test('buildConversationGroupTimelineItems groups consecutive querySource tool calls', () => {
   const items = buildConversationGroupTimelineItems({
     hasMemoryRecall: false,
     replyCount: 1,
@@ -975,7 +975,7 @@ test('buildConversationGroupTimelineItems groups consecutive searchMemory tool c
         id: 'tool-1',
         runId: 'run-1',
         threadId: 'thread-1',
-        toolName: 'searchMemory',
+        toolName: 'querySource',
         status: 'completed',
         inputSummary: 'preferences',
         startedAt: '2026-03-22T00:00:01.000Z'
@@ -984,7 +984,7 @@ test('buildConversationGroupTimelineItems groups consecutive searchMemory tool c
         id: 'tool-2',
         runId: 'run-1',
         threadId: 'thread-1',
-        toolName: 'searchMemory',
+        toolName: 'querySource',
         status: 'completed',
         inputSummary: 'decisions',
         startedAt: '2026-03-22T00:00:02.000Z'
@@ -993,7 +993,7 @@ test('buildConversationGroupTimelineItems groups consecutive searchMemory tool c
         id: 'tool-3',
         runId: 'run-1',
         threadId: 'thread-1',
-        toolName: 'searchMemory',
+        toolName: 'querySource',
         status: 'completed',
         inputSummary: 'workflows',
         startedAt: '2026-03-22T00:00:03.000Z'
@@ -1005,7 +1005,7 @@ test('buildConversationGroupTimelineItems groups consecutive searchMemory tool c
     {
       kind: 'tool-call-group',
       key: 'tool-group:tool-1',
-      group: 'search-memory',
+      group: 'query-sources',
       toolCallIds: ['tool-1', 'tool-2', 'tool-3']
     }
   ])

@@ -21,7 +21,7 @@ import {
 } from './agentTools.ts'
 import { resolveGlobInput } from './agentTools/globTool.ts'
 import type { MemoryService } from '../services/memory/memoryService.ts'
-import { createTool as createSearchMemoryTool } from './agentTools/searchMemoryTool.ts'
+import { createInMemoryYachiyoStorage } from '../storage/memoryStorage.ts'
 
 async function withWorkspace(fn: (workspacePath: string) => Promise<void> | void): Promise<void> {
   const workspacePath = await mkdtemp(join(tmpdir(), 'yachiyo-agent-tools-'))
@@ -77,7 +77,7 @@ test('runReadTool uses 1-based offset/limit continuation semantics and returns t
   })
 })
 
-test('createAgentToolSet adds searchMemory only when memory is configured', () => {
+test('createAgentToolSet adds querySource when source query storage is provided', () => {
   const baseMemoryService: MemoryService = {
     hasHiddenSearchCapability: () => true,
     isConfigured: () => true,
@@ -103,16 +103,17 @@ test('createAgentToolSet adds searchMemory only when memory is configured', () =
     saveThread: async () => ({ savedCount: 0 })
   }
 
-  const withMemory = createAgentToolSet(
+  const withSourceStorage = createAgentToolSet(
     {
       enabledTools: ['read', 'bash'],
       workspacePath: '/tmp/yachiyo'
     },
     {
-      memoryService: baseMemoryService
+      memoryService: baseMemoryService,
+      sourceQueryStorage: createInMemoryYachiyoStorage()
     }
   )
-  const withoutMemory = createAgentToolSet(
+  const withoutSourceStorage = createAgentToolSet(
     {
       enabledTools: ['read', 'bash'],
       workspacePath: '/tmp/yachiyo'
@@ -125,13 +126,24 @@ test('createAgentToolSet adds searchMemory only when memory is configured', () =
       }
     }
   )
+  const withSourceExecutor = createAgentToolSet(
+    {
+      enabledTools: ['read', 'bash'],
+      workspacePath: '/tmp/yachiyo'
+    },
+    {
+      sourceQueryExecutor: {
+        query: async () => ({ rows: [] })
+      }
+    }
+  )
 
-  assert.ok(withMemory)
-  assert.ok(withoutMemory)
-  assert.equal('searchMemory' in withMemory, true)
-  assert.equal('searchMemory' in withoutMemory, false)
-  assert.equal('searchMemory' in (withMemory ?? {}), true)
-  assert.equal('searchMemory' in (withoutMemory ?? {}), false)
+  assert.ok(withSourceStorage)
+  assert.ok(withoutSourceStorage)
+  assert.ok(withSourceExecutor)
+  assert.equal('querySource' in withSourceStorage, true)
+  assert.equal('querySource' in withSourceExecutor, true)
+  assert.equal('querySource' in withoutSourceStorage, false)
 })
 
 test('createAgentToolSet passes configured fetch into jsRepl', async () => {
@@ -174,195 +186,6 @@ return JSON.stringify({
       await jsRepl.dispose()
     }
   })
-})
-
-test('searchMemory forwards the abort signal to memory service lookups', async () => {
-  const abortController = new AbortController()
-  let receivedSignal: AbortSignal | undefined
-  const searchMemoryTool = createSearchMemoryTool({
-    memoryService: {
-      hasHiddenSearchCapability: () => true,
-      isConfigured: () => true,
-      searchMemories: async ({ signal }) => {
-        receivedSignal = signal
-        return []
-      },
-      testConnection: async () => ({ ok: true, message: 'Nowledge Mem is reachable.' }),
-      recallForContext: async ({ thread }) => ({
-        decision: {
-          shouldRecall: false,
-          score: 0,
-          reasons: [],
-          messagesSinceLastRecall: 0,
-          charsSinceLastRecall: 0,
-          idleMs: 0,
-          noveltyScore: 0,
-          novelTerms: []
-        },
-        entries: [],
-        thread
-      }),
-      createMemory: async () => ({ savedCount: 0 }),
-      validateAndCreateMemory: async () => ({ savedCount: 0 }),
-      distillCompletedRun: async () => ({ savedCount: 0 }),
-      saveThread: async () => ({ savedCount: 0 })
-    }
-  })
-
-  assert.equal(typeof searchMemoryTool.execute, 'function')
-  const executeOptions: Parameters<NonNullable<typeof searchMemoryTool.execute>>[1] = {
-    abortSignal: abortController.signal,
-    toolCallId: 'search-memory-tool-call',
-    messages: []
-  }
-
-  await searchMemoryTool.execute!(
-    {
-      query: 'deploy workflow'
-    },
-    executeOptions
-  )
-
-  assert.equal(receivedSignal, abortController.signal)
-})
-
-test('searchMemory cross-thread domain calls crossThreadSearch', async () => {
-  let capturedQuery = ''
-  const searchMemoryTool = createSearchMemoryTool({
-    memoryService: {
-      hasHiddenSearchCapability: () => false,
-      isConfigured: () => true,
-      searchMemories: async () => [],
-      testConnection: async () => ({ ok: true, message: '' }),
-      recallForContext: async ({ thread }) => ({
-        decision: {
-          shouldRecall: false,
-          score: 0,
-          reasons: [],
-          messagesSinceLastRecall: 0,
-          charsSinceLastRecall: 0,
-          idleMs: 0,
-          noveltyScore: 0,
-          novelTerms: []
-        },
-        entries: [],
-        thread
-      }),
-      createMemory: async () => ({ savedCount: 0 }),
-      validateAndCreateMemory: async () => ({ savedCount: 0 }),
-      distillCompletedRun: async () => ({ savedCount: 0 }),
-      saveThread: async () => ({ savedCount: 0 })
-    },
-    crossThreadSearch: ({ query }) => {
-      capturedQuery = query
-      return [
-        {
-          threadId: 't1',
-          threadTitle: 'Test thread',
-          threadUpdatedAt: '2026-04-10',
-          titleMatched: true,
-          messageMatches: [{ messageId: 'm1', snippet: 'found it' }]
-        }
-      ]
-    }
-  })
-
-  const result = (await searchMemoryTool.execute!(
-    { query: 'test query', domain: 'cross-thread' },
-    { abortSignal: new AbortController().signal, toolCallId: 'tc1', messages: [] }
-  )) as { content: Array<{ type: string; text: string }> }
-
-  assert.equal(capturedQuery, 'test query')
-  assert.ok(result.content[0].text.includes('Test thread'))
-  assert.ok(result.content[0].text.includes('found it'))
-})
-
-test('searchMemory without crossThreadSearch falls through to memory search when domain is passed', async () => {
-  let memorySearchCalled = false
-  const searchMemoryTool = createSearchMemoryTool({
-    memoryService: {
-      hasHiddenSearchCapability: () => false,
-      isConfigured: () => true,
-      searchMemories: async () => {
-        memorySearchCalled = true
-        return []
-      },
-      testConnection: async () => ({ ok: true, message: '' }),
-      recallForContext: async ({ thread }) => ({
-        decision: {
-          shouldRecall: false,
-          score: 0,
-          reasons: [],
-          messagesSinceLastRecall: 0,
-          charsSinceLastRecall: 0,
-          idleMs: 0,
-          noveltyScore: 0,
-          novelTerms: []
-        },
-        entries: [],
-        thread
-      }),
-      createMemory: async () => ({ savedCount: 0 }),
-      validateAndCreateMemory: async () => ({ savedCount: 0 }),
-      distillCompletedRun: async () => ({ savedCount: 0 }),
-      saveThread: async () => ({ savedCount: 0 })
-    }
-    // no crossThreadSearch provided — schema won't include domain enum
-  })
-
-  // Even if domain is somehow passed, Zod strips it since the schema
-  // doesn't include the field. The handler falls through to memory search.
-  await searchMemoryTool.execute!({ query: 'test', domain: 'cross-thread' } as { query: string }, {
-    abortSignal: new AbortController().signal,
-    toolCallId: 'tc2',
-    messages: []
-  })
-
-  assert.ok(
-    memorySearchCalled,
-    'should fall through to memory search when crossThreadSearch is absent'
-  )
-})
-
-test('searchMemory defaults to memory search without domain', async () => {
-  let memorySearchCalled = false
-  const searchMemoryTool = createSearchMemoryTool({
-    memoryService: {
-      hasHiddenSearchCapability: () => false,
-      isConfigured: () => true,
-      searchMemories: async () => {
-        memorySearchCalled = true
-        return []
-      },
-      testConnection: async () => ({ ok: true, message: '' }),
-      recallForContext: async ({ thread }) => ({
-        decision: {
-          shouldRecall: false,
-          score: 0,
-          reasons: [],
-          messagesSinceLastRecall: 0,
-          charsSinceLastRecall: 0,
-          idleMs: 0,
-          noveltyScore: 0,
-          novelTerms: []
-        },
-        entries: [],
-        thread
-      }),
-      createMemory: async () => ({ savedCount: 0 }),
-      validateAndCreateMemory: async () => ({ savedCount: 0 }),
-      distillCompletedRun: async () => ({ savedCount: 0 }),
-      saveThread: async () => ({ savedCount: 0 })
-    },
-    crossThreadSearch: () => []
-  })
-
-  await searchMemoryTool.execute!(
-    { query: 'test' },
-    { abortSignal: new AbortController().signal, toolCallId: 'tc3', messages: [] }
-  )
-
-  assert.ok(memorySearchCalled, 'should call memory search when domain is default/omitted')
 })
 
 test('runWriteTool overwrites existing files by default and reports bytes plus overwrite state', async () => {

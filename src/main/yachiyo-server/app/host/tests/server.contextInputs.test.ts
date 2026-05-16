@@ -381,7 +381,7 @@ test('YachiyoServer injects only active skill summaries into runtime context and
       'glob',
       'webSearch',
       'skillsRead',
-      'searchMemory',
+      'querySource',
       'remember',
       'updateProfile',
       'askUser'

@@ -6,6 +6,7 @@ import { readBuiltinMemoryTermDocument } from '../../services/memory/builtinMemo
 import { createMemoryProviderFactory } from '../../services/memory/createMemoryProvider.ts'
 import { createSettingsStore } from '../../settings/settingsStore.ts'
 import { createSqliteYachiyoStorage } from '../../storage/sqlite/database.ts'
+import { createSqliteSourceQueryExecutor } from '../../tools/agentTools/querySourceSqliteExecutor.ts'
 import type { SqliteYachiyoServerOptions, YachiyoServerOptions } from './options.ts'
 
 export function createSqliteYachiyoServerOptions(
@@ -31,6 +32,11 @@ export function createSqliteYachiyoServerOptions(
     createMemoryProvider: createMemoryProviderFactory({
       builtinDbPath: builtinMemoryDbPath
     }),
+    sourceQueryExecutor:
+      options.sourceQueryExecutor ??
+      (shouldUseDemoStorage
+        ? undefined
+        : createSqliteSourceQueryExecutor({ dbPath: options.dbPath })),
     readMemoryTermDocument: async () =>
       readBuiltinMemoryTermDocument({
         dbPath: builtinMemoryDbPath

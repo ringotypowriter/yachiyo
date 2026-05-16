@@ -24,6 +24,7 @@ import type { ModelRuntime, ModelUsage } from '../../../../runtime/models/types.
 import type { SoulDocument } from '../../../../runtime/profiles/soul.ts'
 import type { UserDocument } from '../../../../runtime/profiles/user.ts'
 import type { RunRecoveryCheckpoint, YachiyoStorage } from '../../../../storage/storage.ts'
+import type { QuerySourceExecutor } from '../../../../tools/agentTools/querySourceTool.ts'
 import type { RunExecutionPhase } from '../runTypes.ts'
 import type {
   DelegateCodingTaskFinishedEvent,
@@ -137,6 +138,7 @@ export interface RunExecutionDeps {
   webExternalFetchImpl?: typeof globalThis.fetch
   loadBrowserSnapshot?: BrowserWebPageSnapshotLoader
   memoryService: MemoryService
+  sourceQueryExecutor?: QuerySourceExecutor
   searchService?: SearchService
   webSearchService?: WebSearchService
   readSoulDocument?: () => Promise<SoulDocument | null>

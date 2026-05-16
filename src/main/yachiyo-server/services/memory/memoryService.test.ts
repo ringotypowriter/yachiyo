@@ -8,7 +8,6 @@ import type {
 } from '../../runtime/models/auxiliaryGeneration.ts'
 import type { ModelStreamRequest, ModelRuntime } from '../../runtime/models/types.ts'
 import {
-  HIDDEN_MEMORY_SEARCH_TOOL_NAME,
   createMemoryService,
   sanitizeMemoryQueryText,
   type MemoryCandidate,
@@ -129,7 +128,7 @@ function createConfiguredService(input: {
   })
 }
 
-test('memory service exposes the hidden memory-search capability only when memory is configured', () => {
+test('memory service exposes source query memory capability only when memory is configured', () => {
   const provider: MemoryProvider = {
     async createMemories() {
       return { savedCount: 0 }
@@ -149,7 +148,6 @@ test('memory service exposes the hidden memory-search capability only when memor
 
   assert.equal(configured.isConfigured(), true)
   assert.equal(configured.hasHiddenSearchCapability(), true)
-  assert.equal(HIDDEN_MEMORY_SEARCH_TOOL_NAME, 'searchMemory')
 
   const disabled = createMemoryService({
     auxiliaryGeneration: createAuxiliaryGenerationStub({ text: '{"queries":[]}' }),

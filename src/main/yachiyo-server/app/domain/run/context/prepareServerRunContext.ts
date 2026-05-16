@@ -445,8 +445,11 @@ export async function prepareServerRunContext(
                 workspaceLabel: config.workspace?.pathLabels?.[workspacePath],
                 enabledTools: modelEnabledTools,
                 activeSkills,
-                hasHiddenMemorySearch:
-                  !input.thread.privacyMode && deps.memoryService.hasHiddenSearchCapability(),
+                hasSourceQuery:
+                  !input.thread.privacyMode &&
+                  (!isExternalChannel ||
+                    isOwnerDm ||
+                    deps.memoryService.hasHiddenSearchCapability()),
                 hasUpdateProfile: true,
                 hasRemember:
                   !input.thread.privacyMode &&

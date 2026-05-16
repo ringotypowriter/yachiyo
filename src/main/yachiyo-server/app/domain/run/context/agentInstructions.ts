@@ -114,7 +114,7 @@ export function buildAgentInstructions(input: {
   workspaceLabel?: string
   enabledTools: ToolCallName[]
   activeSkills: SkillSummary[]
-  hasHiddenMemorySearch: boolean
+  hasSourceQuery: boolean
   hasUpdateProfile?: boolean
   hasRemember?: boolean
   soulDocumentPath?: string
@@ -159,7 +159,7 @@ export function buildAgentInstructions(input: {
 
   if (
     input.enabledTools.length === 0 &&
-    !input.hasHiddenMemorySearch &&
+    !input.hasSourceQuery &&
     !input.hasUpdateProfile &&
     !input.hasRemember
   ) {
@@ -216,9 +216,9 @@ export function buildAgentInstructions(input: {
     )
   }
 
-  if (input.hasHiddenMemorySearch) {
+  if (input.hasSourceQuery) {
     instructions.push(
-      'Long-term memory search is available internally. Use it for durable preferences, decisions, workflows, constraints, bugs, and project facts instead of guessing.'
+      'querySource is available internally. Use it to query durable source data, including memories when configured, local thread records, and activity records when source storage is available. In user-facing answers, describe thread records as conversations unless naming a table or field.'
     )
   }
 

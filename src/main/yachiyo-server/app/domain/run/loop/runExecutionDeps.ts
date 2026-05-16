@@ -75,6 +75,7 @@ export function buildRunExecutionDeps(
     webExternalFetchImpl: deps.webExternalFetchImpl,
     loadBrowserSnapshot: deps.loadBrowserSnapshot,
     memoryService: deps.memoryService,
+    sourceQueryExecutor: deps.sourceQueryExecutor,
     searchService: deps.searchService,
     webSearchService: deps.webSearchService,
     readSoulDocument: deps.readSoulDocument,

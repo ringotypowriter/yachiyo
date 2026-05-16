@@ -18,6 +18,7 @@ import type { SearchService } from '../../../services/search/searchService.ts'
 import type { WebSearchService } from '../../../services/webSearch/webSearchService.ts'
 import type { ModelRuntime } from '../../../runtime/models/types.ts'
 import type { RunRecoveryCheckpoint, YachiyoStorage } from '../../../storage/storage.ts'
+import type { QuerySourceExecutor } from '../../../tools/agentTools/querySourceTool.ts'
 import type { SoulDocument } from '../../../runtime/profiles/soul.ts'
 import type { UserDocument } from '../../../runtime/profiles/user.ts'
 import type { CreateId, EmitServerEvent, Timestamp } from '../shared/shared.ts'
@@ -69,6 +70,7 @@ export interface RunDomainDeps {
   webExternalFetchImpl?: typeof globalThis.fetch
   loadBrowserSnapshot?: BrowserWebPageSnapshotLoader
   memoryService: MemoryService
+  sourceQueryExecutor?: QuerySourceExecutor
   searchService?: SearchService
   webSearchService?: WebSearchService
   readSoulDocument?: () => Promise<SoulDocument | null>

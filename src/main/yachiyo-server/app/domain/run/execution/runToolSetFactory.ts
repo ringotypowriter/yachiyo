@@ -109,11 +109,8 @@ export function createRunToolSet(input: CreateRunToolSetInput): ToolSet | undefi
         : {}),
       ...(!executionInput.thread.privacyMode && (!isExternalChannel || isOwnerDm)
         ? {
-            crossThreadSearch: (searchInput: {
-              query: string
-              limit?: number
-              includePrivate?: boolean
-            }) => deps.storage.searchThreadsAndMessagesFts(searchInput)
+            sourceQueryExecutor: deps.sourceQueryExecutor,
+            sourceQueryStorage: deps.storage
           }
         : {}),
       ...(isLocalRunTrigger ? { askUserContext: createAskUserContext(input) } : {}),

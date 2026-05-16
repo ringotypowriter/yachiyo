@@ -25,9 +25,9 @@ import {
   type RememberToolDeps
 } from './agentTools/rememberTool.ts'
 import {
-  createTool as createSearchMemoryTool,
-  type CrossThreadSearchFn
-} from './agentTools/searchMemoryTool.ts'
+  createTool as createQuerySourceTool,
+  type QuerySourceExecutor
+} from './agentTools/querySourceTool.ts'
 import { createTool as createReadTool } from './agentTools/readTool.ts'
 import { createTool as createSkillsReadTool } from './agentTools/skillsReadTool.ts'
 import {
@@ -61,6 +61,7 @@ import {
   type UpdateProfileDeps
 } from './agentTools/updateProfileTool.ts'
 import { createAskUserTool, type AskUserToolContext } from './agentTools/askUserTool.ts'
+import type { YachiyoStorage } from '../storage/storage.ts'
 
 export type {
   AgentToolMetadata,
@@ -117,8 +118,9 @@ export interface AgentToolDependencies {
   updateProfileDeps?: UpdateProfileDeps
   /** When provided, the remember tool is injected (local + owner DM contexts only). */
   rememberDeps?: RememberToolDeps
-  /** When provided, searchMemory gains a "cross-thread" domain for FTS5/BM25 thread search. */
-  crossThreadSearch?: CrossThreadSearchFn
+  /** When provided, querySource exposes the local virtual source database. */
+  sourceQueryExecutor?: QuerySourceExecutor
+  sourceQueryStorage?: YachiyoStorage
   subagentProfiles?: SubagentProfile[]
   /** Workspace paths the coding agent is allowed to operate in (from config savedPaths). */
   availableWorkspaces?: string[]
@@ -263,11 +265,17 @@ export function summarizeToolInput(toolName: ToolCallName | string, input: unkno
       : toolName
   }
 
-  if (toolName === 'searchMemory') {
-    const query = typeof input === 'object' && input !== null && 'query' in input ? input.query : ''
-    return typeof query === 'string' && query.trim().length > 0
-      ? takeTail(query, 160).text
-      : toolName
+  if (toolName === 'querySource') {
+    if (typeof input === 'object' && input !== null && 'from' in input) {
+      const from = input.from
+      const where = 'where' in input ? input.where : undefined
+      const text =
+        typeof where === 'object' && where !== null && 'text' in where ? where.text : undefined
+      return typeof text === 'string' && text.trim().length > 0
+        ? `${String(from)}: ${takeTail(text, 120).text}`
+        : String(from)
+    }
+    return toolName
   }
 
   if (toolName === 'delegateCodingTask') {
@@ -372,7 +380,7 @@ export function summarizeToolOutput(
     return details.truncated ? `${summary} (truncated)` : summary
   }
 
-  if (toolName === 'remember' || toolName === 'searchMemory' || toolName === 'updateProfile') {
+  if (toolName === 'remember' || toolName === 'querySource' || toolName === 'updateProfile') {
     const typed = output as { content?: Array<{ type: string; text?: string }>; error?: string }
     if (typed.error) return typed.error
     const text = typed.content
@@ -547,10 +555,17 @@ export function createAgentToolSet(
     )
   }
 
-  if (dependencies.memoryService?.isConfigured() || dependencies.crossThreadSearch) {
-    tools.searchMemory = createSearchMemoryTool({
-      memoryService: dependencies.memoryService,
-      crossThreadSearch: dependencies.crossThreadSearch
+  if (
+    dependencies.sourceQueryExecutor ||
+    dependencies.sourceQueryStorage ||
+    dependencies.memoryService?.isConfigured()
+  ) {
+    tools.querySource = createQuerySourceTool({
+      ...(dependencies.sourceQueryStorage ? { storage: dependencies.sourceQueryStorage } : {}),
+      ...(dependencies.sourceQueryExecutor
+        ? { sourceQueryExecutor: dependencies.sourceQueryExecutor }
+        : {}),
+      memoryService: dependencies.memoryService
     })
   }
 

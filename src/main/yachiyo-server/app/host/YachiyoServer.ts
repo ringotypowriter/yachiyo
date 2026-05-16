@@ -324,6 +324,7 @@ export class YachiyoServer {
       searchService,
       webSearchService,
       memoryService,
+      sourceQueryExecutor: options.sourceQueryExecutor,
       readSoulDocument: this.readSoulDocumentFile,
       readUserDocument: this.readUserDocumentFile,
       readConfig: () => this.configDomain.readConfig(),

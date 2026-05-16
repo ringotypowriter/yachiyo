@@ -452,7 +452,7 @@ test('YachiyoServer bases recall history on the active branch during retry', asy
   )
 })
 
-test('YachiyoServer injects searchMemory for configured memory and cross-thread search', async () => {
+test('YachiyoServer injects querySource for durable source queries', async () => {
   const configuredRequests: ModelStreamRequest[] = []
   const disabledRequests: ModelStreamRequest[] = []
 
@@ -552,13 +552,11 @@ test('YachiyoServer injects searchMemory for configured memory and cross-thread 
   )
 
   assert.ok(configuredMainRequest?.tools)
-  assert.equal('searchMemory' in (configuredMainRequest?.tools ?? {}), true)
-  // searchMemory is still registered for local threads even without memory
-  // configured, because cross-thread FTS search is always available.
-  assert.equal('searchMemory' in (disabledMainRequest?.tools ?? {}), true)
+  assert.equal('querySource' in (configuredMainRequest?.tools ?? {}), true)
+  assert.equal('querySource' in (disabledMainRequest?.tools ?? {}), true)
 })
 
-test('YachiyoServer does not claim there are no tools when hidden memory search is the only tool', async () => {
+test('YachiyoServer does not claim there are no tools when querySource is the only source tool', async () => {
   const modelRequests: ModelStreamRequest[] = []
 
   await withServer(
@@ -617,15 +615,13 @@ test('YachiyoServer does not claim there are no tools when hidden memory search 
   )
 
   assert.ok(mainRequest?.tools)
-  assert.equal('searchMemory' in (mainRequest?.tools ?? {}), true)
+  assert.equal('querySource' in (mainRequest?.tools ?? {}), true)
   assert.equal(
     systemMessages.some((message) => /No tools are available for this run/u.test(message.content)),
     false
   )
   assert.equal(
-    systemMessages.some((message) =>
-      /Long-term memory search is available internally/u.test(message.content)
-    ),
+    systemMessages.some((message) => /querySource is available internally/u.test(message.content)),
     true
   )
 })

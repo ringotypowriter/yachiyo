@@ -203,11 +203,8 @@ export async function streamCompactThreadHandoff(
           ...(!sourceThread.privacyMode &&
           (!preparedContext.isExternalChannel || preparedContext.isOwnerDm)
             ? {
-                crossThreadSearch: (searchInput: {
-                  query: string
-                  limit?: number
-                  includePrivate?: boolean
-                }) => deps.storage.searchThreadsAndMessagesFts(searchInput)
+                sourceQueryExecutor: deps.sourceQueryExecutor,
+                sourceQueryStorage: deps.storage
               }
             : {}),
           ...(preparedContext.isLocalRunTrigger
