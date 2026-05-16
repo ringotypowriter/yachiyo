@@ -36,9 +36,13 @@ body {
   -webkit-user-select: none;
 }
 
-:focus,
-:focus-visible {
+:focus {
   outline: none;
+}
+
+:focus-visible {
+  outline: 2px solid rgb(var(--yachiyo-rgb-accent) / 0.62) !important;
+  outline-offset: 2px;
 }
 
 .drag-region {
