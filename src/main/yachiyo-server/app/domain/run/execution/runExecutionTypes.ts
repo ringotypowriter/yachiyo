@@ -151,6 +151,8 @@ export interface RunExecutionDeps {
   listSkills: (workspacePaths?: string[]) => Promise<SkillCatalogEntry[]>
   onEnabledToolsUsed: (enabledTools: ToolCallName[]) => void
   onExecutionPhaseChange?: (phase: RunExecutionPhase) => void
+  onSnapshotTrackerReady?: (snapshotTracker: SnapshotTracker) => void
+  onAssistantMessagePersisted?: (messageId: string) => Promise<void>
   hasPendingSteer?: () => boolean
   /** Called by execution to inject a system steer that breaks loops or redirects the model. */
   injectPendingSteer?: (input: { content: string }) => void

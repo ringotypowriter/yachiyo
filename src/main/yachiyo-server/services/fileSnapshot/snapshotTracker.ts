@@ -1,13 +1,13 @@
-import { access, readFile, stat } from 'node:fs/promises'
+import { access, lstat, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { homedir, tmpdir } from 'node:os'
-import { dirname, join, relative, resolve } from 'node:path'
+import { dirname, isAbsolute, join, relative, resolve } from 'node:path'
 
 import type {
   FileSnapshotEntry,
   RunSnapshot,
   SnapshotSummary
 } from '../../../../shared/yachiyo/fileSnapshot.ts'
-import { hashContent, hashWorkspacePath, storeBlob } from './casStore.ts'
+import { hashContent, hashWorkspacePath, readBlob, storeBlob } from './casStore.ts'
 import {
   countSnapshots,
   loadSnapshotIndex,
@@ -105,11 +105,88 @@ async function loadGitignoreFilter(
   }
 }
 
-interface TrackedEntry {
+interface FileContentState {
   hash: string
   size: number
+}
+
+interface TrackedEntry extends FileContentState {
   /** 'tool' = captured by Layer 1/2, 'baseline' = captured by background scan. */
   source: 'tool' | 'baseline'
+}
+
+type RestorePointEntry = FileContentState | null
+
+function isErrnoCode(error: unknown, code: string): boolean {
+  return (
+    error !== null &&
+    typeof error === 'object' &&
+    'code' in error &&
+    (error as NodeJS.ErrnoException).code === code
+  )
+}
+
+function isRestorableRelativePath(relativePath: string): boolean {
+  if (relativePath === '' || isAbsolute(relativePath)) {
+    return false
+  }
+
+  const parts = relativePath.split(/[\\/]+/)
+  return parts.length > 0 && parts.every((part) => part !== '' && part !== '..')
+}
+
+async function ensureMaterializedDirectory(path: string): Promise<void> {
+  try {
+    const info = await lstat(path)
+    if (info.isDirectory() && !info.isSymbolicLink()) {
+      return
+    }
+    await rm(path, { recursive: true, force: true })
+  } catch (error) {
+    if (!isErrnoCode(error, 'ENOENT')) {
+      throw error
+    }
+  }
+
+  await mkdir(path, { recursive: true })
+}
+
+async function resolveBranchTargetPath(targetRoot: string, relativePath: string): Promise<string> {
+  const parts = relativePath.split(/[\\/]+/)
+  let current = targetRoot
+
+  for (const part of parts.slice(0, -1)) {
+    current = join(current, part)
+    await ensureMaterializedDirectory(current)
+  }
+
+  return join(targetRoot, ...parts)
+}
+
+async function writeBranchFile(
+  targetRoot: string,
+  relativePath: string,
+  content: Buffer
+): Promise<void> {
+  const targetPath = await resolveBranchTargetPath(targetRoot, relativePath)
+
+  try {
+    const info = await lstat(targetPath)
+    if (info.isSymbolicLink() || info.isDirectory()) {
+      await rm(targetPath, { recursive: true, force: true })
+    }
+  } catch (error) {
+    if (!isErrnoCode(error, 'ENOENT')) {
+      throw error
+    }
+  }
+
+  await writeFile(targetPath, content)
+}
+
+async function removeBranchPath(targetRoot: string, relativePath: string): Promise<void> {
+  const targetPath = await resolveBranchTargetPath(targetRoot, relativePath)
+  await rm(targetPath, { recursive: true, force: true })
 }
 
 /**
@@ -143,6 +220,8 @@ export class SnapshotTracker {
    * Entries with source='tool' are authoritative and never overwritten.
    */
   private readonly trackedFiles = new Map<string, TrackedEntry | null>()
+
+  private readonly restorePoints = new Map<string, Map<string, RestorePointEntry>>()
 
   /** Signals the background baseline scan to stop early. */
   private readonly abortController = new AbortController()
@@ -300,6 +379,73 @@ export class SnapshotTracker {
       } catch (err) {
         console.error(`[snapshot] External scan failed for ${dir}:`, err)
       }
+    }
+  }
+
+  async markRestorePoint(id: string): Promise<void> {
+    await this.scanWorkspace()
+
+    const restorePoint = new Map<string, RestorePointEntry>()
+    for (const [absolutePath, tracked] of this.trackedFiles) {
+      const relativePath = relative(this.workspacePath, absolutePath)
+      if (!isRestorableRelativePath(relativePath)) {
+        continue
+      }
+
+      try {
+        const content = await readFile(absolutePath)
+        const hash = await storeBlob(this.workspaceHash, content)
+        if (tracked === null || hash !== tracked.hash) {
+          restorePoint.set(absolutePath, { hash, size: content.length })
+        }
+      } catch (error) {
+        if (isErrnoCode(error, 'ENOENT') && tracked !== null) {
+          restorePoint.set(absolutePath, null)
+        }
+      }
+    }
+
+    this.restorePoints.set(id, restorePoint)
+  }
+
+  async restoreRunStartStateTo(targetWorkspacePath: string): Promise<void> {
+    await this.restoreTrackedStateTo(targetWorkspacePath, null)
+  }
+
+  async restorePointStateTo(targetWorkspacePath: string, restorePointId: string): Promise<void> {
+    const restorePoint = this.restorePoints.get(restorePointId)
+    if (!restorePoint) {
+      throw new Error(`Unknown snapshot restore point: ${restorePointId}`)
+    }
+
+    await this.restoreTrackedStateTo(targetWorkspacePath, restorePoint)
+  }
+
+  private async restoreTrackedStateTo(
+    targetWorkspacePath: string,
+    restorePoint: Map<string, RestorePointEntry> | null
+  ): Promise<void> {
+    await this.scanWorkspace()
+
+    const targetRoot = resolve(targetWorkspacePath)
+    for (const [absolutePath, tracked] of this.trackedFiles) {
+      const relativePath = relative(this.workspacePath, absolutePath)
+      if (!isRestorableRelativePath(relativePath)) {
+        continue
+      }
+
+      const targetState =
+        restorePoint && restorePoint.has(absolutePath) ? restorePoint.get(absolutePath)! : tracked
+      if (targetState === null) {
+        await removeBranchPath(targetRoot, relativePath)
+        continue
+      }
+
+      await writeBranchFile(
+        targetRoot,
+        relativePath,
+        await readBlob(this.workspaceHash, targetState.hash)
+      )
     }
   }
 

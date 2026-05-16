@@ -164,6 +164,32 @@ export class YachiyoServerRunDomain {
     return this.hasNonRecapActiveRun(threadId)
   }
 
+  async restoreActiveRunBranchWorkspace(input: {
+    threadId: string
+    branchMessageIds: string[]
+    branchWorkspacePath: string
+  }): Promise<void> {
+    const runId = this.activeRunByThread.get(input.threadId)
+    if (!runId) {
+      return
+    }
+
+    const run = this.activeRuns.get(runId)
+    if (!run?.snapshotTracker || run.recap) {
+      return
+    }
+
+    for (let index = input.branchMessageIds.length - 1; index >= 0; index -= 1) {
+      const messageId = input.branchMessageIds[index]!
+      if (run.workspaceRestorePointMessageIds?.has(messageId)) {
+        await run.snapshotTracker.restorePointStateTo(input.branchWorkspacePath, messageId)
+        return
+      }
+    }
+
+    await run.snapshotTracker.restoreRunStartStateTo(input.branchWorkspacePath)
+  }
+
   listActiveRunIds(): string[] {
     const runIds: string[] = []
     for (const [runId, run] of this.activeRuns) {
@@ -714,6 +740,11 @@ export class YachiyoServerRunDomain {
                 updatedThread,
                 message: stoppedMessage
               })
+              if (activeRun.snapshotTracker) {
+                await activeRun.snapshotTracker.markRestorePoint(stoppedMessage.id)
+                activeRun.workspaceRestorePointMessageIds ??= new Set<string>()
+                activeRun.workspaceRestorePointMessageIds.add(stoppedMessage.id)
+              }
               this.bindTerminalToolCallsToAssistant({
                 threadId: checkpoint.threadId,
                 runId: input.runId,
@@ -782,7 +813,7 @@ export class YachiyoServerRunDomain {
         }
 
         if (result.kind === 'steer-pending') {
-          const steerResult = handleSteerPendingResult(this.createRunLoopSteerContext(), {
+          const steerResult = await handleSteerPendingResult(this.createRunLoopSteerContext(), {
             accumulatedUsage,
             activeRun,
             carriedToolFailLoopSteers,

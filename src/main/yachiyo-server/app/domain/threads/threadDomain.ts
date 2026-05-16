@@ -60,6 +60,11 @@ interface ThreadDomainDeps {
   loadThreadMessages: (threadId: string) => MessageRecord[]
   requireThread: (threadId: string) => ThreadRecord
   isThreadRunning: (threadId: string) => boolean
+  restoreActiveRunBranchWorkspace?: (input: {
+    threadId: string
+    branchMessageIds: string[]
+    branchWorkspacePath: string
+  }) => Promise<void>
   auxiliaryGeneration: AuxiliaryGenerationService
   evictAcpIdleThread: (threadId: string) => Promise<void>
   cancelMemoryDistillation?: (threadId: string) => void
@@ -605,9 +610,7 @@ export class YachiyoServerThreadDomain {
     if (!getThreadCapabilities(thread).canCreateBranch) {
       throw new Error('ACP threads do not support branching.')
     }
-    if (this.deps.isThreadRunning(thread.id)) {
-      throw new Error('Cannot branch a thread with an active run.')
-    }
+    const sourceHasActiveRun = this.deps.isThreadRunning(thread.id)
 
     const messages = this.loadThreadMessages(thread.id)
     const branchPoint = messages.find((message) => message.id === input.messageId)
@@ -654,7 +657,14 @@ export class YachiyoServerThreadDomain {
     })
 
     if (!thread.workspacePath) {
-      await this.deps.cloneThreadWorkspace(thread.id, branchThread.id)
+      const branchWorkspacePath = await this.deps.cloneThreadWorkspace(thread.id, branchThread.id)
+      if (sourceHasActiveRun) {
+        await this.deps.restoreActiveRunBranchWorkspace?.({
+          branchWorkspacePath,
+          branchMessageIds: path.map((message) => message.id),
+          threadId: thread.id
+        })
+      }
     }
     this.deps.storage.createThread({
       thread: branchThread,

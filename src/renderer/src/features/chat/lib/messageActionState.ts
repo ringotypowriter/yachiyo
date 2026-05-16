@@ -23,12 +23,15 @@ export function canRetryUserMessage(input: {
 }
 
 export function canCreateBranch(input: {
+  messageStatus?: Message['status']
   threadCapabilities: NonNullable<Thread['capabilities']>
   threadHasActiveRun: boolean
   threadIsSaving?: boolean
 }): boolean {
   return (
-    input.threadCapabilities.canCreateBranch && !input.threadHasActiveRun && !input.threadIsSaving
+    input.threadCapabilities.canCreateBranch &&
+    input.messageStatus !== 'streaming' &&
+    !input.threadIsSaving
   )
 }
 

@@ -561,6 +561,273 @@ test('YachiyoServer copies the source workspace when creating a branch thread', 
   })
 })
 
+test('YachiyoServer creates a branch while the source thread has an active run', async () => {
+  let requestCount = 0
+  let releaseActiveRun: (() => void) | null = null
+
+  await withServer(
+    async ({ server, completeRun, workspacePathForThread }) => {
+      await server.upsertProvider({
+        name: 'work',
+        type: 'openai',
+        apiKey: 'sk-test',
+        baseUrl: 'https://api.openai.com/v1',
+        modelList: {
+          enabled: ['gpt-5'],
+          disabled: []
+        }
+      })
+
+      const thread = await server.createThread()
+      const firstRun = await server.sendChat({
+        threadId: thread.id,
+        content: 'Seed this branch'
+      })
+      await completeRun(firstRun.runId)
+
+      const sourceWorkspacePath = workspacePathForThread(thread.id)
+      const stableFilePath = join(sourceWorkspacePath, 'notes.txt')
+      await mkdir(sourceWorkspacePath, { recursive: true })
+      await writeFile(stableFilePath, 'before active run', 'utf8')
+
+      const secondRun = await server.sendChat({
+        threadId: thread.id,
+        content: 'Keep running'
+      })
+
+      for (let attempt = 0; attempt < 50 && !releaseActiveRun; attempt++) {
+        await new Promise((resolve) => setTimeout(resolve, 0))
+      }
+      const release = releaseActiveRun
+      assert.ok(release, 'active run should reach the model stream before branching')
+
+      try {
+        const bootstrap = await server.bootstrap()
+        const firstAssistant = bootstrap.messagesByThread[thread.id]?.find(
+          (message) => message.role === 'assistant'
+        )
+        assert.ok(firstAssistant)
+
+        const branch = await server.createBranch({
+          threadId: thread.id,
+          messageId: firstAssistant.id
+        })
+
+        assert.equal(branch.thread.branchFromThreadId, thread.id)
+        assert.equal(branch.thread.branchFromMessageId, firstAssistant.id)
+        assert.deepEqual(
+          branch.messages.map((message) => message.content),
+          ['Seed this branch', 'Seed answer']
+        )
+
+        const branchWorkspacePath = workspacePathForThread(branch.thread.id)
+        assert.equal(
+          await readFile(join(branchWorkspacePath, 'notes.txt'), 'utf8'),
+          'before active run'
+        )
+        await assert.rejects(access(join(branchWorkspacePath, 'during-run.txt')))
+      } finally {
+        release()
+        await completeRun(secondRun.runId)
+      }
+    },
+    {
+      createModelRuntime: () => ({
+        async *streamReply(request: ModelStreamRequest): AsyncIterable<string> {
+          requestCount += 1
+          if (requestCount === 1) {
+            yield 'Seed answer'
+            return
+          }
+
+          yield 'Active answer'
+          const tools = request.tools as
+            | Record<
+                string,
+                {
+                  execute: (
+                    input: unknown,
+                    options?: { abortSignal?: AbortSignal }
+                  ) => Promise<unknown>
+                }
+              >
+            | undefined
+          if (!tools?.read || !tools.write) {
+            throw new Error('Expected read and write tools')
+          }
+
+          await tools.read.execute({ path: 'notes.txt' }, { abortSignal: request.signal })
+          await tools.write.execute(
+            { path: 'notes.txt', content: 'during active run' },
+            { abortSignal: request.signal }
+          )
+          await tools.write.execute(
+            { path: 'during-run.txt', content: 'created during active run' },
+            { abortSignal: request.signal }
+          )
+
+          await new Promise<void>((resolve) => {
+            releaseActiveRun = resolve
+          })
+          yield ' done'
+        }
+      })
+    }
+  )
+})
+
+test('YachiyoServer keeps active-run reply workspace changes when branching from that reply', async () => {
+  let requestCount = 0
+  let finishFirstLeg: (() => void) | null = null
+  let finishSecondLeg: (() => void) | null = null
+
+  await withServer(
+    async ({ server, completeRun, workspacePathForThread }) => {
+      await server.upsertProvider({
+        name: 'work',
+        type: 'openai',
+        apiKey: 'sk-test',
+        baseUrl: 'https://api.openai.com/v1',
+        modelList: {
+          enabled: ['gpt-5'],
+          disabled: []
+        }
+      })
+
+      const thread = await server.createThread()
+      const sourceWorkspacePath = workspacePathForThread(thread.id)
+      await mkdir(sourceWorkspacePath, { recursive: true })
+      await writeFile(join(sourceWorkspacePath, 'notes.txt'), 'before active run', 'utf8')
+
+      const activeRun = await server.sendChat({
+        threadId: thread.id,
+        content: 'Produce active reply'
+      })
+
+      for (let attempt = 0; attempt < 50 && !finishFirstLeg; attempt++) {
+        await new Promise((resolve) => setTimeout(resolve, 0))
+      }
+      const releaseFirst = finishFirstLeg
+      assert.ok(releaseFirst, 'first active run leg should reach the model stream')
+
+      await server.sendChat({
+        threadId: thread.id,
+        content: 'Continue this same run',
+        mode: 'steer'
+      })
+      releaseFirst()
+
+      for (let attempt = 0; attempt < 50 && !finishSecondLeg; attempt++) {
+        await new Promise((resolve) => setTimeout(resolve, 0))
+      }
+      const releaseSecond = finishSecondLeg
+      assert.ok(releaseSecond, 'second active run leg should keep the run active')
+
+      try {
+        const bootstrap = await server.bootstrap()
+        const activeAssistant = bootstrap.messagesByThread[thread.id]?.find(
+          (message) => message.role === 'assistant' && message.content === 'Active answer'
+        )
+        assert.ok(activeAssistant)
+
+        const branch = await server.createBranch({
+          threadId: thread.id,
+          messageId: activeAssistant.id
+        })
+
+        assert.deepEqual(
+          branch.messages.map((message) => message.content),
+          ['Produce active reply', 'Active answer']
+        )
+
+        const branchWorkspacePath = workspacePathForThread(branch.thread.id)
+        assert.equal(
+          await readFile(join(branchWorkspacePath, 'notes.txt'), 'utf8'),
+          'during active run'
+        )
+        assert.equal(
+          await readFile(join(branchWorkspacePath, 'during-run.txt'), 'utf8'),
+          'created during active run'
+        )
+        await assert.rejects(access(join(branchWorkspacePath, 'later-run.txt')))
+      } finally {
+        releaseSecond()
+        await completeRun(activeRun.runId)
+      }
+    },
+    {
+      createModelRuntime: () => ({
+        async *streamReply(request: ModelStreamRequest): AsyncIterable<string> {
+          requestCount += 1
+
+          if (requestCount === 1) {
+            yield 'Active answer'
+            const tools = request.tools as
+              | Record<
+                  string,
+                  {
+                    execute: (
+                      input: unknown,
+                      options?: { abortSignal?: AbortSignal }
+                    ) => Promise<unknown>
+                  }
+                >
+              | undefined
+            if (!tools?.read || !tools.write) {
+              throw new Error('Expected read and write tools')
+            }
+
+            await tools.read.execute({ path: 'notes.txt' }, { abortSignal: request.signal })
+            await tools.write.execute(
+              { path: 'notes.txt', content: 'during active run' },
+              { abortSignal: request.signal }
+            )
+            await tools.write.execute(
+              { path: 'during-run.txt', content: 'created during active run' },
+              { abortSignal: request.signal }
+            )
+
+            await new Promise<void>((resolve) => {
+              finishFirstLeg = resolve
+            })
+            return
+          }
+
+          const tools = request.tools as
+            | Record<
+                string,
+                {
+                  execute: (
+                    input: unknown,
+                    options?: { abortSignal?: AbortSignal }
+                  ) => Promise<unknown>
+                }
+              >
+            | undefined
+          if (!tools?.read || !tools.write) {
+            throw new Error('Expected read and write tools')
+          }
+
+          await tools.read.execute({ path: 'notes.txt' }, { abortSignal: request.signal })
+          await tools.write.execute(
+            { path: 'notes.txt', content: 'later active run' },
+            { abortSignal: request.signal }
+          )
+          await tools.write.execute(
+            { path: 'later-run.txt', content: 'created by later active run' },
+            { abortSignal: request.signal }
+          )
+
+          await new Promise<void>((resolve) => {
+            finishSecondLeg = resolve
+          })
+          yield ' done'
+        }
+      })
+    }
+  )
+})
+
 test('YachiyoServer allows changing a fresh branch workspace before the first new message', async () => {
   await withServer(
     async ({ server, completeRun }) => {

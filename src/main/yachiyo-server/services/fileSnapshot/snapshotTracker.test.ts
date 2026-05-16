@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from 'node:fs/promises'
+import { lstat, mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
@@ -386,6 +386,33 @@ test('SnapshotTracker', async (t) => {
 
     const blob = await readBlob(tracker.workspaceHash, entry.backupHash!)
     assert.equal(blob.toString('utf8'), 'symlink-original\n')
+
+    tracker.dispose()
+  })
+
+  await t.test('restoreRunStartStateTo does not write through branch symlinks', async () => {
+    const externalDir = join(tempDir, 'external-restore')
+    await mkdir(externalDir, { recursive: true })
+    const target = join(externalDir, 'shared.txt')
+    await writeFile(target, 'original\n')
+
+    const link = join(workspaceDir, 'linked.txt')
+    await symlink(target, link)
+
+    const tracker = new SnapshotTracker(workspaceDir, 'run-1', 'thread-1')
+    await tracker.trackBeforeWrite(link)
+    await writeFile(link, 'modified\n')
+
+    const branchDir = join(tempDir, 'branch')
+    await mkdir(branchDir, { recursive: true })
+    const branchLink = join(branchDir, 'linked.txt')
+    await symlink(target, branchLink)
+
+    await tracker.restoreRunStartStateTo(branchDir)
+
+    assert.equal(await readFile(target, 'utf8'), 'modified\n')
+    assert.equal(await readFile(branchLink, 'utf8'), 'original\n')
+    assert.equal((await lstat(branchLink)).isSymbolicLink(), false)
 
     tracker.dispose()
   })

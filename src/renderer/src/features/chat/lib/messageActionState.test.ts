@@ -77,6 +77,25 @@ test('canRetryUserMessage only depends on whether the thread is already running'
   )
 })
 
+test('canCreateBranch stays available during active runs but not for streaming replies', () => {
+  assert.equal(
+    canCreateBranch({
+      threadCapabilities: interactiveThreadCapabilities,
+      threadHasActiveRun: true
+    }),
+    true
+  )
+
+  assert.equal(
+    canCreateBranch({
+      messageStatus: 'streaming',
+      threadCapabilities: interactiveThreadCapabilities,
+      threadHasActiveRun: true
+    }),
+    false
+  )
+})
+
 test('canRetryAssistantMessage disables retry while the thread is saving', () => {
   assert.equal(
     canRetryAssistantMessage({

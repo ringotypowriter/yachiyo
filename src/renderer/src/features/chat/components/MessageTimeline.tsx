@@ -414,7 +414,14 @@ function renderTimelineItem(
             threadCapabilities.canRetry ? () => onRetry(item.assistantMessage.id) : undefined
           }
           onCreateBranch={
-            canBranchMessages ? () => onCreateBranch(item.assistantMessage.id) : undefined
+            canCreateBranch({
+              messageStatus: item.assistantMessage.status,
+              threadCapabilities,
+              threadHasActiveRun,
+              threadIsSaving
+            })
+              ? () => onCreateBranch(item.assistantMessage.id)
+              : undefined
           }
           onDelete={canDeleteMessages ? () => onDelete(item.assistantMessage.id) : undefined}
         />

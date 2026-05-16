@@ -112,6 +112,22 @@ export function buildRunExecutionDeps(
 
       currentRun.executionPhase = phase
     },
+    onSnapshotTrackerReady: (snapshotTracker) => {
+      const currentRun = context.activeRuns.get(input.loopInput.runId)
+      if (currentRun) {
+        currentRun.snapshotTracker = snapshotTracker
+      }
+    },
+    onAssistantMessagePersisted: async (messageId) => {
+      const currentRun = context.activeRuns.get(input.loopInput.runId)
+      if (!currentRun?.snapshotTracker) {
+        return
+      }
+
+      await currentRun.snapshotTracker.markRestorePoint(messageId)
+      currentRun.workspaceRestorePointMessageIds ??= new Set<string>()
+      currentRun.workspaceRestorePointMessageIds.add(messageId)
+    },
     onAskUserHandlerReady: (handler) => {
       const currentRun = context.activeRuns.get(input.loopInput.runId)
       if (currentRun) {

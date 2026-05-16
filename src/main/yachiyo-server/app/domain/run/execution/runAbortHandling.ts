@@ -90,11 +90,11 @@ export async function handleAbortedRun(
   return handleCancelledRun(input, timestamp, { kind: 'cancelled' })
 }
 
-function handleRestartRunAbort(
+async function handleRestartRunAbort(
   input: HandleAbortedRunInput,
   reason: RestartRunReason,
   timestamp: string
-): ExecuteRunResult {
+): Promise<ExecuteRunResult> {
   input.flushDeltas()
   finishInterruptedToolCalls(input, timestamp, 'Run cancelled before the tool call finished.')
 
@@ -124,6 +124,7 @@ function handleRestartRunAbort(
         resolveUpdatedThread: (thread) => thread
       }
     )
+    await input.deps.onAssistantMessagePersisted?.(partialAssistantMessage.id)
     input.deps.emit<MessageCompletedEvent>({
       type: 'message.completed',
       threadId: input.executionInput.thread.id,
@@ -179,6 +180,7 @@ async function handleCancelledRun(
         })
       }
     )
+    await input.deps.onAssistantMessagePersisted?.(stoppedMessage.id)
     input.deps.emit<MessageCompletedEvent>({
       type: 'message.completed',
       threadId: input.executionInput.thread.id,

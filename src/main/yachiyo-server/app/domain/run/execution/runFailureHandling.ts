@@ -126,7 +126,7 @@ async function failRun(input: HandleRunFailureInput, message: string): Promise<E
   finishInterruptedToolCalls(input, timestamp, { error: message })
 
   if (input.executionInput.requestMessageId) {
-    persistFailedAssistantMessage(input, timestamp)
+    await persistFailedAssistantMessage(input, timestamp)
   }
 
   const failUsage = mergeRunUsage(input.executionInput.priorUsage, input.lastUsage)
@@ -158,7 +158,10 @@ async function failRun(input: HandleRunFailureInput, message: string): Promise<E
   return { kind: 'failed', usage: failUsage }
 }
 
-function persistFailedAssistantMessage(input: HandleRunFailureInput, timestamp: string): void {
+async function persistFailedAssistantMessage(
+  input: HandleRunFailureInput,
+  timestamp: string
+): Promise<void> {
   const snapshot = input.getOutputSnapshot()
   const failedResponseMessages =
     snapshot.recoveryResponseMessages.length > 0
@@ -181,6 +184,7 @@ function persistFailedAssistantMessage(input: HandleRunFailureInput, timestamp: 
     ...(failedResponseMessages.length > 0 ? { responseMessages: failedResponseMessages } : {})
   })
   input.bindCurrentRunToolCallsToAssistant(input.messageId)
+  await input.deps.onAssistantMessagePersisted?.(failedMessage.id)
   input.deps.emit<MessageCompletedEvent>({
     type: 'message.completed',
     threadId: input.executionInput.thread.id,

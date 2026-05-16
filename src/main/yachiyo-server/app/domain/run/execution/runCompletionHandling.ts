@@ -53,10 +53,10 @@ export async function handleCompletedRun(
   return persistCompletedRun(input, snapshot)
 }
 
-function persistSteerPendingRun(
+async function persistSteerPendingRun(
   input: HandleCompletedRunInput,
   snapshot: RunCompletionOutputSnapshot
-): ExecuteRunResult {
+): Promise<ExecuteRunResult> {
   const timestamp = input.deps.timestamp()
   const rawResponseMessages =
     input.lastUsage?.responseMessages ??
@@ -77,6 +77,7 @@ function persistSteerPendingRun(
     ...(responseMessages ? { responseMessages } : {}),
     resolveUpdatedThread: (thread) => thread
   })
+  await input.deps.onAssistantMessagePersisted?.(assistantMessage.id)
   input.deps.emit<MessageCompletedEvent>({
     type: 'message.completed',
     threadId: input.executionInput.thread.id,
@@ -142,6 +143,7 @@ async function persistCompletedRun(
     modelId: input.settings.model,
     providerName: input.settings.providerName
   })
+  await input.deps.onAssistantMessagePersisted?.(assistantMessage.id)
 
   input.deps.emit<MessageCompletedEvent>({
     type: 'message.completed',

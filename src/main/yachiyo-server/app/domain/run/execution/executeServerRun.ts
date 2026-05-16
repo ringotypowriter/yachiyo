@@ -266,6 +266,7 @@ export async function executeServerRun(
       snapshotTracker = new SnapshotTracker(workspacePath, input.runId, input.thread.id)
       snapshotTracker.startBaselineScan()
     }
+    deps.onSnapshotTrackerReady?.(snapshotTracker)
     const runtime = deps.createModelRuntime()
     tools = createRunToolSet({
       createToolCall: instrumentedCreateToolCall,

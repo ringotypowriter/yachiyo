@@ -349,6 +349,8 @@ export class YachiyoServer {
       requireThread: this.requireThread.bind(this),
       loadThreadMessages: (threadId) => this.storage.listThreadMessages(threadId),
       isThreadRunning: (threadId) => this.runDomain.hasActiveThread(threadId),
+      restoreActiveRunBranchWorkspace: (input) =>
+        this.runDomain.restoreActiveRunBranchWorkspace(input),
       auxiliaryGeneration,
       evictAcpIdleThread: (threadId) => acpProcessPool.evictThread(threadId),
       cancelMemoryDistillation: (threadId) => this.runDomain.cancelMemoryDistillation(threadId),

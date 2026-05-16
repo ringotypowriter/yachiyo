@@ -33,7 +33,7 @@ export type HandleSteerPendingResult =
       currentThread: ThreadRecord
     }
 
-export function handleSteerPendingResult(
+export async function handleSteerPendingResult(
   context: RunLoopSteerContext,
   input: {
     accumulatedUsage: ExecuteRunInput['priorUsage'] | undefined
@@ -43,7 +43,7 @@ export function handleSteerPendingResult(
     loopInput: ActiveRunLoopInput
     result: SteerPendingRunResult
   }
-): HandleSteerPendingResult {
+): Promise<HandleSteerPendingResult> {
   const steerInput = input.activeRun.pendingSteerInput
 
   if (!steerInput) {
@@ -83,6 +83,7 @@ export function handleSteerPendingResult(
     timestamp: steerInput.timestamp,
     hidden: steerInput.hidden
   })
+  await markWorkspaceRestorePoint(input.activeRun, userMessage.id)
 
   emitThreadStateReplaced(context.createFollowUpQueueContext(), input.loopInput.thread.id)
   input.activeRun.pendingSteerInput = undefined
@@ -100,6 +101,16 @@ export function handleSteerPendingResult(
     currentRequestMessageId: userMessage.id,
     currentThread: context.deps.requireThread(input.loopInput.thread.id)
   }
+}
+
+async function markWorkspaceRestorePoint(runState: RunState, messageId: string): Promise<void> {
+  if (!runState.snapshotTracker) {
+    return
+  }
+
+  await runState.snapshotTracker.markRestorePoint(messageId)
+  runState.workspaceRestorePointMessageIds ??= new Set<string>()
+  runState.workspaceRestorePointMessageIds.add(messageId)
 }
 
 export function handleCancelledWithSteerResult(

@@ -17,6 +17,7 @@ import type { MemoryService } from '../../../services/memory/memoryService.ts'
 import type { SearchService } from '../../../services/search/searchService.ts'
 import type { WebSearchService } from '../../../services/webSearch/webSearchService.ts'
 import type { ModelRuntime } from '../../../runtime/models/types.ts'
+import type { SnapshotTracker } from '../../../services/fileSnapshot/snapshotTracker.ts'
 import type { RunRecoveryCheckpoint, YachiyoStorage } from '../../../storage/storage.ts'
 import type { QuerySourceExecutor } from '../../../tools/agentTools/querySourceTool.ts'
 import type { SoulDocument } from '../../../runtime/profiles/soul.ts'
@@ -48,6 +49,8 @@ export interface RunState {
     previousRunTrigger?: SendChatRunTrigger
   }
   executionPhase: RunExecutionPhase
+  snapshotTracker?: SnapshotTracker
+  workspaceRestorePointMessageIds?: Set<string>
   updateHeadOnComplete: boolean
   /** Resolves a pending askUser tool call with the user's answer. Set by execution. */
   answerToolQuestion?: (toolCallId: string, answer: string) => void
