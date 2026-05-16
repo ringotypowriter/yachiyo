@@ -23,13 +23,14 @@ import type {
   CreateScheduleInput,
   EditMessageInput,
   GetMemoryTermDocumentInput,
-  SearchWorkspaceFilesInput,
   ImportWebSearchBrowserSessionInput,
+  ListActivitySourceRecordsInput,
   ListSkillsInput,
   ProviderConfig,
   ProviderSettings,
   RetryInput,
   SaveThreadInput,
+  SearchWorkspaceFilesInput,
   SettingsConfig,
   SendChatInput,
   MemoryTermDocument,
@@ -814,6 +815,10 @@ export function registerYachiyoGateway(): YachiyoServer {
     IPC_CHANNELS.getMemoryTermDocument,
     (input?: GetMemoryTermDocumentInput): Promise<MemoryTermDocument> =>
       server!.getMemoryTermDocument(input)
+  )
+  handleYachiyoIpc(
+    IPC_CHANNELS.listActivitySourceRecords,
+    (input?: ListActivitySourceRecordsInput) => server!.listActivitySourceRecords(input)
   )
   handleYachiyoIpc(IPC_CHANNELS.getUserDocument, () => server!.getUserDocument())
   handleYachiyoIpc(IPC_CHANNELS.testMemoryConnection, (input: TestMemoryConnectionInput) =>

@@ -332,12 +332,31 @@ export async function prepareServerRunContext(
     gitValidatedWorkspaces
   )
 
-  // Fetch activity summary - only for local / owner-DM runs, never for guests
+  // Fetch activity summary - only for local / owner-DM runs, never for guests.
   const activitySummary =
     !isExternalChannel || isOwnerDm
       ? (deps.activityTracker ?? getActivityTracker('simple')).finalizeAndConsume()
       : null
   const activityText = activitySummary?.text
+
+  if (activitySummary && input.persistTurnContext !== false) {
+    deps.storage.saveActivitySourceRecord({
+      id: deps.createId(),
+      threadId: input.thread.id,
+      runId: input.runId,
+      requestMessageId: input.requestMessageId,
+      startedAt: activitySummary.startedAt,
+      endedAt: activitySummary.endedAt,
+      totalDurationMs: activitySummary.totalDurationMs,
+      uniqueApps: activitySummary.uniqueApps,
+      ...(activitySummary.afkDurationMs !== undefined
+        ? { afkDurationMs: activitySummary.afkDurationMs }
+        : {}),
+      summaryText: activitySummary.text,
+      entries: activitySummary.entries,
+      createdAt: deps.timestamp()
+    })
+  }
 
   if (input.persistTurnContext !== false && requestMessage) {
     const turnContext: MessageTurnContext = {

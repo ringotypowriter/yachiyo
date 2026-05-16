@@ -236,6 +236,33 @@ export const toolCallsTable = sqliteTable(
   ]
 )
 
+export const activitySourceRecordsTable = sqliteTable(
+  'activity_source_records',
+  {
+    id: text('id').primaryKey(),
+    threadId: text('thread_id').notNull(),
+    runId: text('run_id')
+      .notNull()
+      .references(() => runsTable.id, { onDelete: 'cascade' }),
+    requestMessageId: text('request_message_id').notNull(),
+    startedAt: text('started_at').notNull(),
+    endedAt: text('ended_at').notNull(),
+    totalDurationMs: integer('total_duration_ms').notNull(),
+    uniqueApps: integer('unique_apps').notNull(),
+    afkDurationMs: integer('afk_duration_ms'),
+    payloadAlgorithm: text('payload_algorithm').notNull(),
+    payloadKeyVersion: integer('payload_key_version').notNull(),
+    payloadNonce: text('payload_nonce').notNull(),
+    payloadAuthTag: text('payload_auth_tag').notNull(),
+    payloadCiphertext: text('payload_ciphertext').notNull(),
+    createdAt: text('created_at').notNull()
+  },
+  (table) => [
+    index('activity_source_records_started_at_idx').on(table.startedAt),
+    index('activity_source_records_run_id_idx').on(table.runId)
+  ]
+)
+
 export const imageAltTextsTable = sqliteTable('image_alt_texts', {
   imageHash: text('image_hash').primaryKey(),
   altText: text('alt_text').notNull(),

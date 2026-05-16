@@ -1,6 +1,7 @@
 import type {
   ChannelGroupRecord,
   ChannelUserRecord,
+  ActivitySourceRecord,
   FolderRecord,
   GroupMessageEntry,
   MessageRecord,
@@ -45,6 +46,7 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
   const runs = new Map<string, StoredRunRow>()
   const runRecoveryCheckpoints = new Map<string, StoredRunRecoveryCheckpointRow>()
   const toolCalls = new Map<string, StoredToolCallRow>()
+  const activitySourceRecords: ActivitySourceRecord[] = []
   const imageAltTexts = new Map<string, { imageHash: string; altText: string }>()
   const groupMonitorBuffers = new Map<
     string,
@@ -111,6 +113,13 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
   const sortToolCalls = (items: ToolCallRecord[]): ToolCallRecord[] =>
     sortToolCallsChronologically(items)
   const toToolCallRecordWithRun = (row: StoredToolCallRow): ToolCallRecord => toToolCallRecord(row)
+  const deleteActivitySourceRecordsForRuns = (runIds: Set<string>): void => {
+    if (runIds.size === 0) return
+
+    const nextRecords = activitySourceRecords.filter((record) => !runIds.has(record.runId))
+    activitySourceRecords.length = 0
+    activitySourceRecords.push(...nextRecords)
+  }
 
   return {
     close() {
@@ -349,6 +358,7 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
         runs.delete(runId)
         runRecoveryCheckpoints.delete(runId)
       }
+      deleteActivitySourceRecordsForRuns(deletedRunIds)
 
       for (const [toolCallId, toolCall] of toolCalls.entries()) {
         if (
@@ -377,6 +387,7 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
         runs.delete(runId)
         runRecoveryCheckpoints.delete(runId)
       }
+      deleteActivitySourceRecordsForRuns(deletedRunIds)
 
       for (const [toolCallId, toolCall] of toolCalls.entries()) {
         if (toolCall.threadId === threadId) {
@@ -414,6 +425,7 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
         runs.delete(runId)
         runRecoveryCheckpoints.delete(runId)
       }
+      deleteActivitySourceRecordsForRuns(deletedRunIds)
 
       for (const [toolCallId, toolCall] of toolCalls.entries()) {
         if (threadIdSet.has(toolCall.threadId)) {
@@ -773,6 +785,7 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
       for (const runId of deletedRunIds) {
         runs.delete(runId)
       }
+      deleteActivitySourceRecordsForRuns(deletedRunIds)
 
       for (const toolCall of [...toolCalls.values()]) {
         if (toolCall.assistantMessageId && deletedIds.has(toolCall.assistantMessageId)) {
@@ -1127,6 +1140,17 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
 
     getUsageStats(input) {
       return getInMemoryUsageStats(input, runs.values(), threads)
+    },
+
+    saveActivitySourceRecord(record) {
+      activitySourceRecords.push(structuredClone(record))
+    },
+
+    listActivitySourceRecords(input) {
+      const sorted = [...activitySourceRecords].sort((left, right) =>
+        right.startedAt.localeCompare(left.startedAt)
+      )
+      return sorted.slice(0, input?.limit).map((record) => structuredClone(record))
     },
 
     // Group monitor buffer persistence

@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import type {
   AnswerToolQuestionInput,
+  ActivitySourceRecord,
   ChannelGroupRecord,
   ChannelsConfig,
   ChannelUserRecord,
@@ -12,6 +13,7 @@ import type {
   GetMemoryTermDocumentInput,
   SearchWorkspaceFilesInput,
   ImportWebSearchBrowserSessionInput,
+  ListActivitySourceRecordsInput,
   ListSkillsInput,
   ProviderConfig,
   ProviderSettings,
@@ -221,6 +223,10 @@ const api = {
       ipcRenderer.invoke('yachiyo:delete-soul-trait', input),
     getMemoryTermDocument: (input?: GetMemoryTermDocumentInput): Promise<MemoryTermDocument> =>
       ipcRenderer.invoke('yachiyo:get-memory-term-document', input),
+    listActivitySourceRecords: (
+      input?: ListActivitySourceRecordsInput
+    ): Promise<ActivitySourceRecord[]> =>
+      ipcRenderer.invoke('yachiyo:list-activity-source-records', input),
     getUserDocument: (): Promise<UserDocument> => ipcRenderer.invoke('yachiyo:get-user-document'),
     testMemoryConnection: (input: TestMemoryConnectionInput) =>
       ipcRenderer.invoke('yachiyo:test-memory-connection', input),

@@ -2,6 +2,8 @@ import type {
   ChannelGroupRecord,
   ChannelGroupStatus,
   ChannelPlatform,
+  ActivitySourceRecord,
+  ListActivitySourceRecordsInput,
   ComposerReasoningSelection,
   FolderColorTag,
   FolderRecord,
@@ -259,6 +261,24 @@ export interface StoredRunRecoveryCheckpointRow {
   lastError: string | null
 }
 
+export interface StoredActivitySourceRecordRow {
+  id: string
+  threadId: string
+  runId: string
+  requestMessageId: string
+  startedAt: string
+  endedAt: string
+  totalDurationMs: number
+  uniqueApps: number
+  afkDurationMs: number | null
+  payloadAlgorithm: string
+  payloadKeyVersion: number
+  payloadNonce: string
+  payloadAuthTag: string
+  payloadCiphertext: string
+  createdAt: string
+}
+
 export interface YachiyoStorage {
   close(): void
   flushBackgroundTasks?(): Promise<void>
@@ -406,6 +426,10 @@ export interface YachiyoStorage {
     groupId: string
   ): { phase: string; buffer: GroupMessageEntry[]; savedAt: string } | undefined
   deleteGroupMonitorBuffer(groupId: string): void
+
+  // Activity source
+  saveActivitySourceRecord(record: ActivitySourceRecord): void
+  listActivitySourceRecords(input?: ListActivitySourceRecordsInput): ActivitySourceRecord[]
 }
 
 export function toThreadRecord(

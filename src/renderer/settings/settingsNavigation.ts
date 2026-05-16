@@ -58,7 +58,8 @@ export const SETTINGS_TABS: readonly SettingsTab[] = [
     label: 'Source',
     subTabs: [
       { id: 'memory', label: 'Memory' },
-      { id: 'search', label: 'Search' }
+      { id: 'search', label: 'Search' },
+      { id: 'activity', label: 'Activity' }
     ]
   },
   {
@@ -101,7 +102,8 @@ const routeAliases: Record<string, SettingsRoute> = {
   prompts: { tab: 'capabilities', subTab: 'prompts' },
   workspace: { tab: 'capabilities', subTab: 'workspace' },
   memory: { tab: 'source', subTab: 'memory' },
-  search: { tab: 'source', subTab: 'search' }
+  search: { tab: 'source', subTab: 'search' },
+  activity: { tab: 'source', subTab: 'activity' }
 }
 
 export function getInitialSettingsSubTabs(): Record<string, string> {

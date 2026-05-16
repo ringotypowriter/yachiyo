@@ -48,6 +48,7 @@ test('settings navigation maps old pane ids into their new grouped tabs', () => 
   assert.deepEqual(resolveSettingsRoute('workspace'), { tab: 'capabilities', subTab: 'workspace' })
   assert.deepEqual(resolveSettingsRoute('memory'), { tab: 'source', subTab: 'memory' })
   assert.deepEqual(resolveSettingsRoute('search'), { tab: 'source', subTab: 'search' })
+  assert.deepEqual(resolveSettingsRoute('activity'), { tab: 'source', subTab: 'activity' })
 })
 
 test('settings navigation accepts grouped tab routes from external entry points', () => {
@@ -62,6 +63,7 @@ test('settings navigation accepts grouped tab routes from external entry points'
     subTab: 'workspace'
   })
   assert.deepEqual(resolveSettingsRoute('source/search'), { tab: 'source', subTab: 'search' })
+  assert.deepEqual(resolveSettingsRoute('source/activity'), { tab: 'source', subTab: 'activity' })
 })
 
 test('settings navigation falls back to general for unknown routes', () => {

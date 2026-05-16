@@ -7,17 +7,28 @@ interface Span {
   durationMs: number
 }
 
+export interface ActivitySummaryEntry {
+  appName: string
+  bundleId: string
+  windowTitle?: string
+  durationMs: number
+}
+
 export interface ActivitySummary {
   /** Human-readable summary for injection into the LLM turn context. */
   text: string
   /** Start of tracking session (ISO). */
   startedAt: string
+  /** End of tracking session (ISO). */
+  endedAt: string
   /** Duration in milliseconds. */
   totalDurationMs: number
   /** Number of unique apps visited. */
   uniqueApps: number
   /** Time where user input was idle long enough to treat foreground activity as AFK. */
   afkDurationMs?: number
+  /** Aggregated activity entries, sorted by duration descending. */
+  entries: ActivitySummaryEntry[]
 }
 
 /** Max distinct entries in the summary text. Remaining entries are collapsed. */
@@ -76,6 +87,12 @@ export function summarizeSpans(
 
   const entries = aggregated.slice(0, MAX_OUTPUT_ENTRIES)
   const truncated = aggregated.length - MAX_OUTPUT_ENTRIES
+  const summaryEntries = entries.map((entry) => ({
+    appName: entry.appName,
+    bundleId: entry.bundleId,
+    ...(entry.windowTitle ? { windowTitle: entry.windowTitle } : {}),
+    durationMs: entry.durationMs
+  }))
 
   const lines: string[] = []
   lines.push(
@@ -114,8 +131,10 @@ export function summarizeSpans(
   return {
     text: lines.join('\n'),
     startedAt: new Date(trackingStartMs).toISOString(),
+    endedAt: new Date(trackingEndMs).toISOString(),
     totalDurationMs,
     uniqueApps,
+    entries: summaryEntries,
     ...(afkDurationMs !== undefined && afkDurationMs > 0 ? { afkDurationMs } : {})
   }
 }

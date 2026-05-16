@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import test from 'node:test'
 
 import { DEFAULT_SETTINGS_CONFIG } from '../../../../settings/settingsStore.ts'
+import { createEphemeralStorageProxy } from '../chat/ephemeralStorage.ts'
 import { prepareServerRunContext } from '../context/prepareServerRunContext.ts'
 import { executeServerRun } from '../execution/executeServerRun.ts'
 import { mergeRunUsage } from '../execution/runUsage.ts'
@@ -50,6 +51,7 @@ function createRunContextDeps(input: {
   messages: MessageRecord[]
   workspacePath: string
   updatedMessages?: MessageRecord[]
+  activitySourceRecords?: unknown[]
   imageToTextService?: RunExecutionDeps['imageToTextService']
   isModelImageCapable?: boolean
 }): RunExecutionDeps {
@@ -101,7 +103,10 @@ function createRunContextDeps(input: {
       },
       getChannelUser: () => undefined,
       persistResponseMessagesRepairInBackground: () => {},
-      listThreadRuns: () => []
+      listThreadRuns: () => [],
+      saveActivitySourceRecord: (record: unknown) => {
+        input.activitySourceRecords?.push(record)
+      }
     } as unknown as RunExecutionDeps['storage'],
     createId: () => 'id',
     timestamp: () => '2026-04-28T00:00:00.000Z',
@@ -132,8 +137,17 @@ function createRunContextDeps(input: {
       finalizeAndConsume: () => ({
         text: 'ACTIVITY BLOCK',
         startedAt: '2026-04-28T00:00:00.000Z',
+        endedAt: '2026-04-28T00:00:01.000Z',
         totalDurationMs: 1_000,
-        uniqueApps: 2
+        uniqueApps: 2,
+        entries: [
+          {
+            appName: 'Browser',
+            bundleId: 'com.example.browser',
+            windowTitle: 'Issue tracker',
+            durationMs: 1_000
+          }
+        ]
       })
     }
   }
@@ -249,6 +263,104 @@ test('prepareServerRunContext persists consumed activity for replay', async () =
   } finally {
     await rm(root, { recursive: true, force: true })
   }
+})
+
+test('prepareServerRunContext persists consumed activity as a durable source record', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'yachiyo-run-context-'))
+  const thread: ThreadRecord = {
+    id: 'thread-1',
+    title: 'Thread',
+    workspacePath: root,
+    updatedAt: '2026-04-28T00:00:00.000Z'
+  }
+  const requestMessage: MessageRecord = {
+    id: 'msg-1',
+    threadId: thread.id,
+    role: 'user',
+    content: 'What changed?',
+    status: 'completed',
+    createdAt: '2026-04-28T00:00:00.000Z'
+  }
+  const activitySourceRecords: unknown[] = []
+
+  try {
+    await prepareServerRunContext(
+      createRunContextDeps({
+        events: [],
+        messages: [requestMessage],
+        workspacePath: root,
+        activitySourceRecords
+      }),
+      {
+        runId: 'run-1',
+        thread,
+        requestMessageId: requestMessage.id,
+        enabledTools: [],
+        runTrigger: 'local',
+        abortController: new AbortController(),
+        requestMessage,
+        historyMessages: [requestMessage],
+        includeMemoryRecall: false,
+        applyStripCompact: false
+      }
+    )
+
+    assert.deepEqual(activitySourceRecords, [
+      {
+        id: 'id',
+        threadId: 'thread-1',
+        runId: 'run-1',
+        requestMessageId: 'msg-1',
+        startedAt: '2026-04-28T00:00:00.000Z',
+        endedAt: '2026-04-28T00:00:01.000Z',
+        totalDurationMs: 1_000,
+        uniqueApps: 2,
+        createdAt: '2026-04-28T00:00:00.000Z',
+        summaryText: 'ACTIVITY BLOCK',
+        entries: [
+          {
+            appName: 'Browser',
+            bundleId: 'com.example.browser',
+            windowTitle: 'Issue tracker',
+            durationMs: 1_000
+          }
+        ]
+      }
+    ])
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('ephemeral recap storage does not persist activity source records', () => {
+  let calls = 0
+  const storage = createEphemeralStorageProxy({
+    saveActivitySourceRecord: () => {
+      calls += 1
+    }
+  } as unknown as RunExecutionDeps['storage'])
+
+  storage.saveActivitySourceRecord({
+    id: 'activity-1',
+    threadId: 'thread-1',
+    runId: 'run-recap',
+    requestMessageId: 'msg-recap',
+    startedAt: '2026-04-28T00:00:00.000Z',
+    endedAt: '2026-04-28T00:00:01.000Z',
+    totalDurationMs: 1_000,
+    uniqueApps: 1,
+    summaryText: 'ACTIVITY BLOCK',
+    entries: [
+      {
+        appName: 'Browser',
+        bundleId: 'com.example.browser',
+        durationMs: 1_000
+      }
+    ],
+    createdAt: '2026-04-28T00:00:00.000Z'
+  })
+
+  assert.equal(calls, 0)
 })
 
 test('prepareServerRunContext persists I2T image replay markers when non-vision models consume images', async () => {

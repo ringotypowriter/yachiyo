@@ -556,6 +556,32 @@ export interface ActivityTrackingConfig {
   accessibilityDenied?: boolean
 }
 
+export interface ActivitySourceEntry {
+  appName: string
+  bundleId: string
+  windowTitle?: string
+  durationMs: number
+}
+
+export interface ActivitySourceRecord {
+  id: string
+  threadId: string
+  runId: string
+  requestMessageId: string
+  startedAt: string
+  endedAt: string
+  totalDurationMs: number
+  uniqueApps: number
+  afkDurationMs?: number
+  summaryText: string
+  entries: ActivitySourceEntry[]
+  createdAt: string
+}
+
+export interface ListActivitySourceRecordsInput {
+  limit?: number
+}
+
 export interface GeneralConfig {
   sidebarVisibility?: SidebarVisibility
   sidebarPreview?: boolean

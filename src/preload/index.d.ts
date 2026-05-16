@@ -1,5 +1,6 @@
 import type {
   AnswerToolQuestionInput,
+  ActivitySourceRecord,
   BootstrapPayload,
   ChannelGroupRecord,
   ChannelsConfig,
@@ -14,6 +15,7 @@ import type {
   GetMemoryTermDocumentInput,
   FileMentionCandidate,
   ImportWebSearchBrowserSessionInput,
+  ListActivitySourceRecordsInput,
   ListSkillsInput,
   ProviderConfig,
   ProviderSettings,
@@ -172,6 +174,9 @@ declare global {
         addSoulTrait: (input: { trait: string }) => Promise<SoulDocument>
         deleteSoulTrait: (input: { trait: string }) => Promise<SoulDocument>
         getMemoryTermDocument: (input?: GetMemoryTermDocumentInput) => Promise<MemoryTermDocument>
+        listActivitySourceRecords: (
+          input?: ListActivitySourceRecordsInput
+        ) => Promise<ActivitySourceRecord[]>
         getUserDocument: () => Promise<UserDocument>
         testMemoryConnection: (
           input: TestMemoryConnectionInput

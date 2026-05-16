@@ -7,6 +7,7 @@ export const YACHIYO_SETTINGS_FILE_NAME = 'config.toml'
 export const YACHIYO_SOUL_FILE_NAME = 'SOUL.md'
 export const YACHIYO_USER_FILE_NAME = 'USER.md'
 export const YACHIYO_CHANNELS_FILE_NAME = 'channels.toml'
+export const YACHIYO_ACTIVITY_SOURCE_KEY_FILE_NAME = 'activity-source.key'
 export const YACHIYO_SOCKET_FILE_NAME = 'yachiyo.sock'
 export const YACHIYO_TEMP_WORKSPACE_DIR_NAME = 'temp-workspace'
 export const YACHIYO_WEB_SEARCH_DIR_NAME = 'web-search'
@@ -35,6 +36,10 @@ export function resolveYachiyoUserPath(baseDir = resolveYachiyoDataDir()): strin
 
 export function resolveYachiyoChannelsPath(baseDir = resolveYachiyoDataDir()): string {
   return join(baseDir, YACHIYO_CHANNELS_FILE_NAME)
+}
+
+export function resolveYachiyoActivitySourceKeyPath(baseDir = resolveYachiyoDataDir()): string {
+  return join(baseDir, YACHIYO_ACTIVITY_SOURCE_KEY_FILE_NAME)
 }
 
 export function resolveYachiyoSocketPath(): string {

@@ -1,6 +1,7 @@
 import { and, asc, desc, eq, inArray, isNotNull, isNull, or } from 'drizzle-orm'
 
 import { createSqliteAuxiliaryStorageMethods } from './auxiliaryStorage.ts'
+import { createSqliteActivitySourceStorageMethods } from './activitySourceStorage.ts'
 import { createBackgroundResponseMessagesRepairQueue } from './backgroundResponseMessagesRepair.ts'
 import { createSqliteBootstrapStorageMethods } from './bootstrapStorage.ts'
 import { toChannelGroupRecord, toChannelUserRecord } from './channelRecords.ts'
@@ -1158,6 +1159,8 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
       // Last step's prompt tokens = actual context window size.
       return row.promptTokens ?? 0
     },
+
+    ...createSqliteActivitySourceStorageMethods({ db }),
 
     ...createSqliteAuxiliaryStorageMethods({
       db,

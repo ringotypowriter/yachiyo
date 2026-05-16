@@ -16,6 +16,7 @@ import type {
   FolderRecord,
   GetMemoryTermDocumentInput,
   ImportWebSearchBrowserSessionInput,
+  ListActivitySourceRecordsInput,
   ListSkillsInput,
   ProviderConfig,
   ProviderSettings,
@@ -58,6 +59,7 @@ import type {
   SoulDocument as ProtocolSoulDocument,
   UsageStatsInput,
   UsageStatsResponse,
+  ActivitySourceRecord,
   WebSearchBrowserImportSource,
   YachiyoServerEvent
 } from '../../../../shared/yachiyo/protocol.ts'
@@ -494,6 +496,14 @@ export class YachiyoServer {
     }
 
     return this.readMemoryTermDocumentFile()
+  }
+
+  listActivitySourceRecords(input?: ListActivitySourceRecordsInput): ActivitySourceRecord[] {
+    const limit =
+      typeof input?.limit === 'number' && Number.isFinite(input.limit)
+        ? Math.min(Math.max(Math.floor(input.limit), 1), 200)
+        : 50
+    return this.storage.listActivitySourceRecords({ limit })
   }
 
   async testMemoryConnection(config: SettingsConfig): Promise<TestMemoryConnectionResult> {

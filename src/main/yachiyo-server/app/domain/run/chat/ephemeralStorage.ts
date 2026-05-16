@@ -18,6 +18,7 @@ export function createEphemeralStorageProxy(real: YachiyoStorage): EphemeralStor
         prop === 'persistResponseMessagesRepairInBackground' ||
         prop === 'createToolCall' ||
         prop === 'updateToolCall' ||
+        prop === 'saveActivitySourceRecord' ||
         prop === 'upsertRunRecoveryCheckpoint' ||
         prop === 'deleteRunRecoveryCheckpoint' ||
         prop === 'updateRunSnapshot'

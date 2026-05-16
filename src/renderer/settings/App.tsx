@@ -38,6 +38,7 @@ import { SkillsPane } from './panes/SkillsPane'
 import { UIPane } from './panes/UIPane'
 import { WorkspacePane } from './panes/WorkspacePane'
 import { AboutPane } from './panes/AboutPane'
+import { ActivityPane } from './panes/ActivityPane'
 import { ChannelsPane } from './panes/ChannelsPane'
 import { EssentialsPane } from './panes/EssentialsPane'
 import { SchedulePane } from './panes/SchedulePane'
@@ -623,12 +624,14 @@ function SettingsApp(): React.ReactNode {
         body = <SkillsPane availableSkills={availableSkills} draft={draft} onChange={setDraft} />
       }
     } else if (activeTab === 'source') {
-      body =
-        (activeSubTab['source'] ?? 'memory') === 'search' ? (
-          <SearchPane draft={draft} onChange={setDraft} />
-        ) : (
-          <MemoryPane draft={draft} onChange={setDraft} />
-        )
+      const tab = activeSubTab['source'] ?? 'memory'
+      if (tab === 'activity') {
+        body = <ActivityPane draft={draft} onChange={setDraft} />
+      } else if (tab === 'search') {
+        body = <SearchPane draft={draft} onChange={setDraft} />
+      } else {
+        body = <MemoryPane draft={draft} onChange={setDraft} />
+      }
     } else if (activeTab === 'channels') {
       if (isLoadingChannelsConfig) {
         body = (
