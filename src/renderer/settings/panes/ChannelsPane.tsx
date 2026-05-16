@@ -298,7 +298,7 @@ export function ChannelsPane({
                   color: theme.text.secondary,
                   background: 'none',
                   border: 'none',
-                  cursor: 'pointer'
+                  cursor: 'default'
                 }}
               >
                 {showTelegramToken ? 'Hide' : 'Show'}
@@ -455,7 +455,7 @@ export function ChannelsPane({
                   color: theme.text.secondary,
                   background: 'none',
                   border: 'none',
-                  cursor: 'pointer'
+                  cursor: 'default'
                 }}
               >
                 {showQQToken ? 'Hide' : 'Show'}
@@ -610,7 +610,7 @@ export function ChannelsPane({
                   color: theme.text.secondary,
                   background: 'none',
                   border: 'none',
-                  cursor: 'pointer'
+                  cursor: 'default'
                 }}
               >
                 {showQQBotSecret ? 'Hide' : 'Show'}
@@ -699,7 +699,7 @@ export function ChannelsPane({
                   color: theme.text.secondary,
                   background: 'none',
                   border: 'none',
-                  cursor: 'pointer'
+                  cursor: 'default'
                 }}
               >
                 {showDiscordToken ? 'Hide' : 'Show'}

@@ -526,7 +526,7 @@ function ThreadListEmpty({
             color: theme.text.accent,
             background: 'none',
             border: 'none',
-            cursor: 'pointer',
+            cursor: 'default',
             padding: 0,
             fontSize: 'inherit'
           }}

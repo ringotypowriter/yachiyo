@@ -361,7 +361,7 @@ export function GeneralPane({
         <SettingLabel
           action={
             <button
-              className="text-[11px] font-medium hover:underline cursor-pointer"
+              className="text-[11px] font-medium hover:underline "
               style={{ color: theme.text.secondary }}
               onClick={() =>
                 window.open(
@@ -488,7 +488,7 @@ export function GeneralPane({
           action={
             isMac ? (
               <button
-                className="text-[11px] font-medium hover:underline cursor-pointer"
+                className="text-[11px] font-medium hover:underline "
                 style={{ color: theme.text.secondary }}
                 onClick={openAccessibilitySettings}
               >

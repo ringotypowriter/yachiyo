@@ -200,7 +200,7 @@ export function AppSidebar({
                   background: alpha('accent', 0.12),
                   color: theme.text.accent,
                   border: 'none',
-                  cursor: 'pointer'
+                  cursor: 'default'
                 }}
                 aria-label="Install update"
               >

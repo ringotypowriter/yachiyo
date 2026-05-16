@@ -127,7 +127,7 @@ export function AboutPane({ draft, onChange }: AboutPaneProps): React.ReactNode 
             color: theme.text.primary,
             letterSpacing: '-0.4px',
             textDecoration: 'none',
-            cursor: 'pointer'
+            cursor: 'default'
           }}
           onMouseEnter={(e) => {
             e.currentTarget.style.color = theme.text.accent
@@ -175,7 +175,7 @@ export function AboutPane({ draft, onChange }: AboutPaneProps): React.ReactNode 
                   background: alpha('ink', 0.05),
                   color: theme.text.secondary,
                   border: 'none',
-                  cursor: 'pointer'
+                  cursor: 'default'
                 }}
               >
                 {updateState.state === 'error' ? 'Retry update check' : 'Check for updates'}
@@ -209,7 +209,7 @@ export function AboutPane({ draft, onChange }: AboutPaneProps): React.ReactNode 
                   background: alpha('accent', 0.12),
                   color: theme.text.accent,
                   border: 'none',
-                  cursor: 'pointer'
+                  cursor: 'default'
                 }}
               >
                 v{updateState.version} available — download
@@ -223,7 +223,7 @@ export function AboutPane({ draft, onChange }: AboutPaneProps): React.ReactNode 
                     color: theme.text.muted,
                     background: 'none',
                     border: 'none',
-                    cursor: 'pointer'
+                    cursor: 'default'
                   }}
                   onMouseEnter={(e) => {
                     e.currentTarget.style.color = theme.text.secondary
@@ -245,7 +245,7 @@ export function AboutPane({ draft, onChange }: AboutPaneProps): React.ReactNode 
                     color: theme.text.muted,
                     background: 'none',
                     border: 'none',
-                    cursor: 'pointer'
+                    cursor: 'default'
                   }}
                   onMouseEnter={(e) => {
                     e.currentTarget.style.color = theme.text.secondary
@@ -277,7 +277,7 @@ export function AboutPane({ draft, onChange }: AboutPaneProps): React.ReactNode 
                   background: alpha('accent', 0.12),
                   color: theme.text.accent,
                   border: 'none',
-                  cursor: 'pointer'
+                  cursor: 'default'
                 }}
               >
                 Restart to install v{updateState.version}
@@ -290,7 +290,7 @@ export function AboutPane({ draft, onChange }: AboutPaneProps): React.ReactNode 
                   color: theme.text.muted,
                   background: 'none',
                   border: 'none',
-                  cursor: 'pointer'
+                  cursor: 'default'
                 }}
                 onMouseEnter={(e) => {
                   e.currentTarget.style.color = theme.text.secondary
@@ -342,7 +342,7 @@ export function AboutPane({ draft, onChange }: AboutPaneProps): React.ReactNode 
                     style={{
                       color: theme.text.primary,
                       textDecoration: 'none',
-                      cursor: 'pointer',
+                      cursor: 'default',
                       userSelect: 'auto'
                     }}
                     onMouseEnter={(e) => {
@@ -421,7 +421,7 @@ export function AboutPane({ draft, onChange }: AboutPaneProps): React.ReactNode 
               background: 'none',
               border: 'none',
               padding: '4px 12px',
-              cursor: 'pointer',
+              cursor: 'default',
               display: 'flex',
               alignItems: 'center',
               gap: 6,

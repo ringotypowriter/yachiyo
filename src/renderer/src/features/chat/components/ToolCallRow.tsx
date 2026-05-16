@@ -113,7 +113,7 @@ export function ToolCallRow({ toolCall, workspacePath }: ToolCallRowProps): Reac
           background: 'transparent',
           border: 0,
           color: 'inherit',
-          cursor: 'pointer',
+          cursor: 'default',
           margin: 0,
           padding: 0
         }}
@@ -246,7 +246,7 @@ function SearchResultsList({ results }: { results: WebSearchResultItem[] }): Rea
           className="group flex items-start gap-2 py-1.5 no-underline"
           style={{
             borderTop: i > 0 ? `1px solid ${theme.border.subtle}` : undefined,
-            cursor: 'pointer'
+            cursor: 'default'
           }}
           onMouseEnter={(e) => {
             e.currentTarget.style.background = theme.background.hover

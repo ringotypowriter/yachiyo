@@ -62,7 +62,7 @@ export function ToolCallGroupRow({
           background: 'transparent',
           border: 0,
           color: theme.text.secondary,
-          cursor: 'pointer',
+          cursor: 'default',
           fontWeight: 500,
           margin: 0,
           padding: '2px 24px'

@@ -163,7 +163,7 @@ export function CronQuickPick({ value, onPick }: CronQuickPickProps): React.Reac
         ref={btnRef}
         type="button"
         title="Schedule builder"
-        className="flex items-center justify-center rounded-md cursor-pointer shrink-0"
+        className="flex items-center justify-center rounded-md shrink-0"
         style={{
           width: 32,
           height: 32,
@@ -201,7 +201,7 @@ export function CronQuickPick({ value, onPick }: CronQuickPickProps): React.Reac
                 <button
                   key={m.value}
                   type="button"
-                  className="flex-1 py-1.5 rounded-md text-[11px] font-medium cursor-pointer transition-all"
+                  className="flex-1 py-1.5 rounded-md text-[11px] font-medium transition-all"
                   style={{
                     background: mode === m.value ? theme.background.surface : 'transparent',
                     color: mode === m.value ? theme.text.primary : theme.text.tertiary,
@@ -228,7 +228,7 @@ export function CronQuickPick({ value, onPick }: CronQuickPickProps): React.Reac
                       <button
                         key={n}
                         type="button"
-                        className="flex-1 py-1.5 rounded-md text-[11px] font-medium cursor-pointer"
+                        className="flex-1 py-1.5 rounded-md text-[11px] font-medium "
                         style={{
                           background: interval === n ? alpha('accent', 0.14) : alpha('ink', 0.04),
                           color: interval === n ? theme.text.accent : theme.text.secondary,
@@ -299,7 +299,7 @@ export function CronQuickPick({ value, onPick }: CronQuickPickProps): React.Reac
                           <button
                             key={i}
                             type="button"
-                            className="flex-1 py-1.5 rounded-md text-[11px] font-medium cursor-pointer"
+                            className="flex-1 py-1.5 rounded-md text-[11px] font-medium "
                             style={{
                               background: active ? alpha('accent', 0.14) : alpha('ink', 0.04),
                               color: active ? theme.text.accent : theme.text.tertiary,
@@ -327,7 +327,7 @@ export function CronQuickPick({ value, onPick }: CronQuickPickProps): React.Reac
               </code>
               <button
                 type="button"
-                className="px-3 py-1 rounded-md text-xs font-medium cursor-pointer"
+                className="px-3 py-1 rounded-md text-xs font-medium "
                 style={{
                   background: alpha('accent', 0.12),
                   color: theme.text.accent,
@@ -477,7 +477,7 @@ export function DateTimePick({
       style={{
         background: 'none',
         border: 'none',
-        cursor: 'pointer',
+        cursor: 'default',
         color: theme.text.secondary,
         borderRadius: 6,
         width: 24,
@@ -499,7 +499,7 @@ export function DateTimePick({
       style={{
         background: alpha('ink', 0.05),
         border: 'none',
-        cursor: 'pointer',
+        cursor: 'default',
         color: theme.text.secondary,
         borderRadius: 5,
         width: 22,
@@ -522,7 +522,7 @@ export function DateTimePick({
         ref={btnRef}
         type="button"
         title="Date & time picker"
-        className="flex items-center justify-center rounded-md cursor-pointer shrink-0"
+        className="flex items-center justify-center rounded-md shrink-0"
         style={{
           width: 32,
           height: 32,
@@ -585,7 +585,7 @@ export function DateTimePick({
                   <button
                     key={i}
                     type="button"
-                    className="rounded-md text-[12px] py-1 cursor-pointer"
+                    className="rounded-md text-[12px] py-1 "
                     style={{
                       background: isSelected(day) ? alpha('accent', 0.16) : 'transparent',
                       color: isSelected(day)
@@ -654,7 +654,7 @@ export function DateTimePick({
               </code>
               <button
                 type="button"
-                className="px-3 py-1 rounded-md text-xs font-medium cursor-pointer"
+                className="px-3 py-1 rounded-md text-xs font-medium "
                 style={{
                   background: selDay != null ? alpha('accent', 0.12) : alpha('ink', 0.06),
                   color: selDay != null ? theme.text.accent : theme.text.tertiary,

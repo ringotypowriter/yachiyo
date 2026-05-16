@@ -123,7 +123,7 @@ export function ShortcutRecorder({
         tabIndex={0}
         role="button"
         aria-label="Record shortcut"
-        className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm transition-colors select-none cursor-pointer w-52"
+        className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm transition-colors select-none w-52"
         style={{
           background: isRecording ? 'rgba(150,210,240,0.25)' : 'rgba(0,0,0,0.04)',
           color: isRecording ? theme.text.accent : theme.text.primary,

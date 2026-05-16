@@ -116,7 +116,7 @@ export function SkillsSelectorPopup({
             background: 'transparent',
             border: 'none',
             padding: 0,
-            cursor: 'pointer',
+            cursor: 'default',
             color: theme.text.primary,
             textAlign: 'left'
           }}
@@ -182,7 +182,7 @@ export function SkillsSelectorPopup({
                   padding: '8px 14px',
                   background: 'transparent',
                   border: 'none',
-                  cursor: 'pointer',
+                  cursor: 'default',
                   textAlign: 'left',
                   transition: 'background 0.12s ease'
                 }}

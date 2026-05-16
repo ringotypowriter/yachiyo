@@ -54,8 +54,7 @@ body {
 }
 
 button,
-[role='button'],
-.cursor-pointer {
+[role='button'] {
   cursor: default !important;
 }
 

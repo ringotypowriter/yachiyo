@@ -82,7 +82,7 @@ export function ThreadFolderItem({
   return (
     <div>
       <div
-        className="flex items-center gap-2 rounded-lg px-2.5 py-2 cursor-pointer select-none"
+        className="flex items-center gap-2 rounded-lg px-2.5 py-2 select-none"
         style={{ color: theme.text.primary }}
         onClick={onToggle}
         onDoubleClick={handleDoubleClick}

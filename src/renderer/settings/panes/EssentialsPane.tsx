@@ -170,7 +170,7 @@ function EssentialEditor({
               tabIndex={-1}
               defaultValue=""
               onInput={handleEmojiInputEvent}
-              className="absolute inset-0 opacity-0 cursor-pointer"
+              className="absolute inset-0 opacity-0 "
               style={{ fontSize: 'inherit', width: '100%', height: '100%' }}
             />
           </div>
@@ -394,7 +394,7 @@ export function EssentialsPane({ draft, onChange }: EssentialsPaneProps): React.
             background: alpha('accent', 0.1),
             color: theme.text.accent,
             border: 'none',
-            cursor: 'pointer'
+            cursor: 'default'
           }}
         >
           <Plus size={12} strokeWidth={2} />

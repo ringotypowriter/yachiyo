@@ -559,7 +559,7 @@ export function AppMainPanel({
               <Tooltip content="Continue chat">
                 <button
                   onClick={() => void handleRestoreThread(activeArchivedThread)}
-                  className="p-1.5 rounded-md cursor-pointer transition-opacity hover:opacity-70"
+                  className="p-1.5 rounded-md transition-opacity hover:opacity-70"
                   style={{ color: theme.icon.default }}
                 >
                   <MessageSquare size={15} strokeWidth={1.5} />
@@ -568,7 +568,7 @@ export function AppMainPanel({
               <Tooltip content="Delete permanently">
                 <button
                   onClick={() => void handleDeleteThread(activeArchivedThread)}
-                  className="p-1.5 rounded-md cursor-pointer transition-opacity hover:opacity-70"
+                  className="p-1.5 rounded-md transition-opacity hover:opacity-70"
                   style={{ color: theme.text.danger }}
                 >
                   <Trash2 size={15} strokeWidth={1.5} />

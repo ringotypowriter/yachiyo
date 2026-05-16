@@ -271,7 +271,7 @@ export function ThreadListItem({
               </span>
             ) : thread.icon ? (
               <span
-                className="relative shrink-0 flex items-center cursor-pointer select-none leading-none"
+                className="relative shrink-0 flex items-center select-none leading-none"
                 style={{ fontSize: showPreview ? '1.45em' : '1.15em' }}
                 title="Click to change icon"
               >
@@ -285,7 +285,7 @@ export function ThreadListItem({
                   onKeyDown={handleIconInputKeyDown}
                   onClick={handleIconClick}
                   onMouseDown={(e) => e.stopPropagation()}
-                  className="absolute inset-0 opacity-0 cursor-pointer"
+                  className="absolute inset-0 opacity-0 "
                   style={{ fontSize: 'inherit', width: '100%', height: '100%' }}
                 />
               </span>

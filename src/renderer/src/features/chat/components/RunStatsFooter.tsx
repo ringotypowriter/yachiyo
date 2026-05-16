@@ -101,7 +101,7 @@ export function RunStatsFooter({
               color: theme.text.accent,
               background: alpha('accent', 0.08),
               border: 'none',
-              cursor: 'pointer',
+              cursor: 'default',
               fontSize: 'inherit',
               lineHeight: 'inherit'
             }}

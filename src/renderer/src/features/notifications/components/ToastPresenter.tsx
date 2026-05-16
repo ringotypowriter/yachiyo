@@ -32,7 +32,7 @@ function Toast({ toast }: { toast: AppToast }): React.JSX.Element {
 
   return (
     <div
-      className="flex flex-col gap-1 w-72 rounded-xl px-4 py-3 cursor-pointer select-none"
+      className="flex flex-col gap-1 w-72 rounded-xl px-4 py-3 select-none"
       style={{
         background: theme.background.surfaceFrosted,
         backdropFilter: 'blur(16px)',

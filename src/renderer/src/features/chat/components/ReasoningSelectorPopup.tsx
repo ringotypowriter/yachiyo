@@ -92,7 +92,7 @@ export function ReasoningSelectorPopup({
                 padding: '8px 14px',
                 background: 'transparent',
                 border: 'none',
-                cursor: 'pointer',
+                cursor: 'default',
                 textAlign: 'left',
                 transition: 'background 0.12s ease'
               }}

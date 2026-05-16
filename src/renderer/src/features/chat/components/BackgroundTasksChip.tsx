@@ -91,7 +91,7 @@ export function BackgroundTasksChip({
         <button
           type="button"
           onClick={() => setOpen((v) => !v)}
-          className="flex items-center gap-2 px-3 py-1.5 text-xs font-medium rounded-full cursor-pointer transition-opacity hover:opacity-90"
+          className="flex items-center gap-2 px-3 py-1.5 text-xs font-medium rounded-full transition-opacity hover:opacity-90"
           style={{
             background: theme.background.surfaceFrosted,
             color: theme.text.primary,
@@ -202,7 +202,7 @@ function BackgroundTasksPanel({
             <button
               type="button"
               onClick={() => dismissAllFinished(threadId)}
-              className="text-[10px] cursor-pointer hover:opacity-70"
+              className="text-[10px] hover:opacity-70"
               style={{ color: theme.text.muted }}
             >
               Clear {finishedCount} done
@@ -212,7 +212,7 @@ function BackgroundTasksPanel({
             type="button"
             onClick={onClose}
             title="Collapse"
-            className="p-1 rounded cursor-pointer hover:opacity-70"
+            className="p-1 rounded hover:opacity-70"
             style={{ color: theme.icon.default }}
           >
             <ChevronDown size={12} strokeWidth={1.75} />
@@ -275,7 +275,7 @@ function BackgroundTaskRow({
         <button
           type="button"
           onClick={onToggleExpand}
-          className="flex-1 flex items-center gap-2 min-w-0 text-left cursor-pointer hover:opacity-80"
+          className="flex-1 flex items-center gap-2 min-w-0 text-left hover:opacity-80"
         >
           <span
             className="inline-block w-1.5 h-1.5 rounded-full shrink-0"
@@ -300,7 +300,7 @@ function BackgroundTaskRow({
             type="button"
             onClick={onCancel}
             title="Cancel task"
-            className="p-1 rounded cursor-pointer hover:opacity-70 shrink-0"
+            className="p-1 rounded hover:opacity-70 shrink-0"
             style={{ color: theme.text.danger }}
           >
             <Square size={10} strokeWidth={2} fill="currentColor" />
@@ -310,7 +310,7 @@ function BackgroundTaskRow({
             type="button"
             onClick={onDismiss}
             title="Dismiss"
-            className="p-1 rounded cursor-pointer hover:opacity-70 shrink-0"
+            className="p-1 rounded hover:opacity-70 shrink-0"
             style={{ color: theme.icon.default }}
           >
             <X size={11} strokeWidth={1.75} />

@@ -249,7 +249,7 @@ export function TimelineScrollbar({
       {/* Up arrow */}
       <button
         onClick={() => navigateMessage('prev')}
-        className="flex items-center justify-center cursor-pointer shrink-0"
+        className="flex items-center justify-center shrink-0"
         style={{
           width: 16,
           height: 16,
@@ -285,7 +285,7 @@ export function TimelineScrollbar({
               onMouseEnter={(e) => handleBarMouseEnter(bar, e)}
               onMouseLeave={handleBarMouseLeave}
               onClick={() => handleBarClick(bar)}
-              className="shrink-0 cursor-pointer"
+              className="shrink-0 "
               style={{
                 width: bar.width,
                 height: LINE_HEIGHT,
@@ -302,7 +302,7 @@ export function TimelineScrollbar({
       {/* Down arrow */}
       <button
         onClick={() => navigateMessage('next')}
-        className="flex items-center justify-center cursor-pointer shrink-0"
+        className="flex items-center justify-center shrink-0"
         style={{
           width: 16,
           height: 16,

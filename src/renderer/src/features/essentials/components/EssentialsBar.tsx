@@ -63,7 +63,7 @@ export function EssentialsBar(): React.JSX.Element | null {
                     height: ITEM_HEIGHT,
                     background: alpha('ink', 0.05),
                     border: 'none',
-                    cursor: 'pointer'
+                    cursor: 'default'
                   }}
                   aria-label={essential.label || 'New chat from essential'}
                 >

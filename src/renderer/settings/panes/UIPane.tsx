@@ -63,7 +63,7 @@ function FontSizeRow({
             background: 'none',
             border: 'none',
             color: theme.text.primary,
-            cursor: 'pointer'
+            cursor: 'default'
           }}
           aria-label={`Decrease ${label.toLowerCase()}`}
         >
@@ -86,7 +86,7 @@ function FontSizeRow({
             background: 'none',
             border: 'none',
             color: theme.text.primary,
-            cursor: 'pointer'
+            cursor: 'default'
           }}
           aria-label={`Increase ${label.toLowerCase()}`}
         >
@@ -226,7 +226,7 @@ export function UIPane({ draft, onChange }: UIPaneProps): React.ReactNode {
                   width: '100%',
                   height: '100%',
                   opacity: 0,
-                  cursor: 'pointer',
+                  cursor: 'default',
                   margin: 0
                 }}
               />

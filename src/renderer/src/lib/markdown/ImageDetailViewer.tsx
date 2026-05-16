@@ -59,7 +59,7 @@ const toolbarBtnStyle: React.CSSProperties = {
   border: 'none',
   background: 'transparent',
   color: 'rgba(255, 255, 255, 0.85)',
-  cursor: 'pointer',
+  cursor: 'default',
   transition: 'background 120ms ease'
 }
 

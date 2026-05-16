@@ -57,7 +57,7 @@ export function MemoryFilterKeywords({
             color: theme.text.accent,
             background: `${theme.text.accent}14`,
             border: 'none',
-            cursor: 'pointer'
+            cursor: 'default'
           }}
         >
           Add
@@ -80,7 +80,7 @@ export function MemoryFilterKeywords({
                 style={{
                   background: 'none',
                   border: 'none',
-                  cursor: 'pointer',
+                  cursor: 'default',
                   color: 'inherit',
                   padding: 0,
                   lineHeight: 1
@@ -378,7 +378,7 @@ function ActionButton({
       type="button"
       onClick={onClick}
       className="text-xs font-medium px-2.5 py-1 rounded-md transition-opacity opacity-75 hover:opacity-100"
-      style={{ color, background: `${color}14`, border: 'none', cursor: 'pointer' }}
+      style={{ color, background: `${color}14`, border: 'none', cursor: 'default' }}
     >
       {label}
     </button>
@@ -447,7 +447,7 @@ export function SettingSlider({
           width: '100%',
           height: '100%',
           opacity: 0,
-          cursor: 'pointer',
+          cursor: 'default',
           margin: 0
         }}
       />

@@ -118,7 +118,7 @@ function ScheduleListSubTab({
           Schedules
         </span>
         <button
-          className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium cursor-pointer"
+          className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium "
           style={{
             background: alpha('ink', 0.06),
             color: theme.text.primary
@@ -184,7 +184,7 @@ function ScheduleRow({
 }): React.ReactNode {
   return (
     <div
-      className="flex items-center gap-3 px-3 py-2.5 rounded-lg cursor-pointer"
+      className="flex items-center gap-3 px-3 py-2.5 rounded-lg "
       style={{ background: alpha('ink', 0.02) }}
       onClick={onEdit}
     >
@@ -221,7 +221,7 @@ function ScheduleRow({
         />
       </span>
       <button
-        className="p-1 rounded cursor-pointer"
+        className="p-1 rounded "
         style={{ color: theme.text.muted }}
         onClick={(e) => {
           e.stopPropagation()
@@ -339,7 +339,7 @@ function ScheduleForm({
           {(['recurring', 'one-off'] as const).map((m) => (
             <button
               key={m}
-              className="flex-1 py-1 rounded cursor-pointer"
+              className="flex-1 py-1 rounded "
               style={{
                 background: mode === m ? alpha('ink', 0.12) : 'transparent',
                 color: mode === m ? theme.text.primary : theme.text.secondary,
@@ -439,7 +439,7 @@ function ScheduleForm({
           </div>
           {onNavigateToTab && (
             <button
-              className="text-xs mt-1 cursor-pointer"
+              className="text-xs mt-1 "
               style={{ color: theme.text.accent, background: 'none', border: 'none', padding: 0 }}
               onClick={() => onNavigateToTab('workspace')}
             >
@@ -455,14 +455,14 @@ function ScheduleForm({
       )}
       <div className="flex justify-end gap-2">
         <button
-          className="px-3 py-1 rounded-md text-xs font-medium cursor-pointer"
+          className="px-3 py-1 rounded-md text-xs font-medium "
           style={{ color: theme.text.secondary }}
           onClick={onCancel}
         >
           Cancel
         </button>
         <button
-          className="px-3 py-1.5 rounded-md text-xs font-medium cursor-pointer"
+          className="px-3 py-1.5 rounded-md text-xs font-medium "
           style={{
             background: theme.text.accent,
             color: theme.text.inverse,
@@ -591,7 +591,7 @@ function RunRow({
 
   return (
     <div
-      className={`flex items-center gap-3 px-3 py-2.5 rounded-lg${canNavigate ? ' cursor-pointer' : ''}`}
+      className="flex items-center gap-3 px-3 py-2.5 rounded-lg"
       style={{ background: alpha('ink', 0.02) }}
       onClick={canNavigate ? () => window.api.navigateToArchivedThread(run.threadId!) : undefined}
     >

@@ -225,7 +225,7 @@ export function SlashCommandPopup({
                   padding: '9px 14px',
                   background: isSelected ? theme.background.hoverStrong : 'transparent',
                   border: 'none',
-                  cursor: 'pointer',
+                  cursor: 'default',
                   textAlign: 'left',
                   width: '100%',
                   transition: 'background 0.1s ease'

@@ -279,7 +279,7 @@ body > div:not(#root) {
   border-radius: 999px;
   background: rgb(var(--yachiyo-rgb-ink) / 0.72);
   color: white;
-  cursor: pointer;
+  cursor: default;
 }
 
 .composer-image-card__frame {
@@ -542,7 +542,7 @@ body > div:not(#root) {
   border-radius: 0;
   background: transparent;
   color: rgb(var(--yachiyo-rgb-text-tertiary) / 0.82);
-  cursor: pointer;
+  cursor: default;
   transition:
     color 0.15s ease,
     opacity 0.15s ease,
@@ -610,7 +610,7 @@ body > div:not(#root) {
   border-radius: 0;
   background: transparent;
   box-shadow: none;
-  cursor: pointer;
+  cursor: default;
   opacity: 0.58;
   transition:
     color 0.15s ease,
@@ -858,8 +858,7 @@ body > div:not(#root) {
 }
 
 button,
-[role='button'],
-.cursor-pointer {
+[role='button'] {
   cursor: default !important;
 }
 

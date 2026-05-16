@@ -151,7 +151,7 @@ function RunHistoryItem({
                 color: theme.text.accent,
                 background: alpha('accent', 0.08),
                 border: 'none',
-                cursor: 'pointer'
+                cursor: 'default'
               }}
               onMouseEnter={(e) => {
                 e.currentTarget.style.background = alpha('accent', 0.14)
@@ -173,7 +173,7 @@ function RunHistoryItem({
                 color: theme.text.danger,
                 background: alpha('danger', 0.06),
                 border: 'none',
-                cursor: 'pointer'
+                cursor: 'default'
               }}
               onMouseEnter={(e) => {
                 e.currentTarget.style.background = alpha('danger', 0.12)

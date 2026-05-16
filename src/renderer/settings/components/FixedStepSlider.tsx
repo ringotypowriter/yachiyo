@@ -88,7 +88,7 @@ export function FixedStepSlider({
                 height: 28,
                 border: 'none',
                 background: 'transparent',
-                cursor: 'pointer',
+                cursor: 'default',
                 padding: 0
               }}
             />

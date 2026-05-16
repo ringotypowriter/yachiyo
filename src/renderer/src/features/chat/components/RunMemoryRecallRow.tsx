@@ -48,7 +48,7 @@ export function RunMemoryRecallRow({
           background: 'transparent',
           border: 'none',
           color: theme.text.placeholder,
-          cursor: 'pointer',
+          cursor: 'default',
           padding: 0,
           textDecoration: 'underline',
           textUnderlineOffset: '3px',

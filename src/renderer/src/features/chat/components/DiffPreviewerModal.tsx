@@ -219,7 +219,7 @@ export function DiffPreviewerModal({
                     style={{
                       background: isSelected ? alpha('ink', 0.06) : 'transparent',
                       border: 'none',
-                      cursor: 'pointer',
+                      cursor: 'default',
                       borderBottom: `1px solid ${alpha('ink', 0.04)}`,
                       opacity: change.reverted ? 0.5 : 1
                     }}
@@ -272,7 +272,7 @@ export function DiffPreviewerModal({
                                 color: theme.text.accent,
                                 background: alpha('ink', 0.05),
                                 border: 'none',
-                                cursor: 'pointer'
+                                cursor: 'default'
                               }}
                             >
                               <SquareArrowOutUpRight size={10} strokeWidth={2} />

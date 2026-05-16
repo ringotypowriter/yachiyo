@@ -39,7 +39,7 @@ function WorkspaceOption({
           : hovered
             ? theme.background.hover
             : 'transparent',
-        cursor: 'pointer',
+        cursor: 'default',
         transition: 'background 0.12s ease'
       }}
     >
@@ -228,7 +228,7 @@ export function WorkspaceSelectorPopup({
             color: theme.text.primary,
             fontSize: 13,
             fontWeight: 600,
-            cursor: 'pointer'
+            cursor: 'default'
           }}
         >
           <Plus size={14} strokeWidth={2} />

@@ -75,7 +75,7 @@ export function SubagentRunningIndicator({
               color: theme.text.muted,
               background: 'none',
               border: 'none',
-              cursor: 'pointer',
+              cursor: 'default',
               padding: 0,
               fontFamily: theme.font.ui
             }}
@@ -115,7 +115,7 @@ export function SubagentRunningIndicator({
                   background: theme.background.dangerSurface,
                   color: theme.text.danger,
                   border: `1px solid ${theme.border.danger}`,
-                  cursor: 'pointer'
+                  cursor: 'default'
                 }}
               >
                 Stop
@@ -127,7 +127,7 @@ export function SubagentRunningIndicator({
                   background: theme.background.surface,
                   color: theme.text.secondary,
                   border: `1px solid ${theme.border.contrast}`,
-                  cursor: 'pointer'
+                  cursor: 'default'
                 }}
               >
                 Continue
@@ -146,7 +146,7 @@ export function SubagentRunningIndicator({
                 background: theme.background.surface,
                 color: theme.text.muted,
                 border: `1px solid ${theme.border.default}`,
-                cursor: 'pointer'
+                cursor: 'default'
               }}
             >
               Cancel

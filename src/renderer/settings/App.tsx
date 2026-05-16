@@ -852,7 +852,7 @@ function SettingsApp(): React.ReactNode {
                 background: 'transparent',
                 border: 'none',
                 color: theme.text.secondary,
-                cursor: 'pointer'
+                cursor: 'default'
               }}
             >
               Close
@@ -874,7 +874,7 @@ function SettingsApp(): React.ReactNode {
                   : {
                       background: theme.text.accent,
                       color: theme.text.inverse,
-                      cursor: 'pointer'
+                      cursor: 'default'
                     })
               }}
             >
