@@ -550,10 +550,16 @@ export type UpdateChannel = 'stable' | 'beta'
 
 export type ActivityTrackingMode = 'off' | 'simple' | 'full'
 
+export interface ActivityOcrConfig {
+  enabled: boolean
+  excludedApps?: string[]
+}
+
 export interface ActivityTrackingConfig {
   mode: ActivityTrackingMode
   /** Whether the user has explicitly denied accessibility for full mode. */
   accessibilityDenied?: boolean
+  ocr?: ActivityOcrConfig
 }
 
 export interface ActivitySourceEntry {

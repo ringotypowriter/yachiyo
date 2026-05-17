@@ -96,20 +96,22 @@ test('general shortcut fields round-trip through TOML serialization', async () =
 
 test('general activity tracking round-trips through parse → normalize → stringify → parse', () => {
   const toml = `[general]
-activityTracking = { mode = "full", accessibilityDenied = true }
+activityTracking = { mode = "full", accessibilityDenied = true, ocr = { enabled = true, excludedApps = ["Example Chat", "com.example.chat"] } }
 `
 
   const config = parseSettingsToml(toml)
   assert.deepEqual(config.general?.activityTracking, {
     mode: 'full',
-    accessibilityDenied: true
+    accessibilityDenied: true,
+    ocr: { enabled: true, excludedApps: ['Example Chat', 'com.example.chat'] }
   })
 
   const serialized = stringifySettingsToml(config)
   const reloaded = parseSettingsToml(serialized)
   assert.deepEqual(reloaded.general?.activityTracking, {
     mode: 'full',
-    accessibilityDenied: true
+    accessibilityDenied: true,
+    ocr: { enabled: true, excludedApps: ['Example Chat', 'com.example.chat'] }
   })
 })
 
@@ -118,7 +120,10 @@ test('general activity tracking defaults to simple when missing from legacy TOML
 notifyRunCompleted = true
 `)
 
-  assert.deepEqual(config.general?.activityTracking, { mode: 'simple' })
+  assert.deepEqual(config.general?.activityTracking, {
+    mode: 'simple',
+    ocr: { enabled: false, excludedApps: [] }
+  })
 })
 
 test('general theme preferences round-trip through parse → normalize → stringify → parse', () => {
@@ -456,7 +461,11 @@ test('normalization preserves every GeneralConfig key', () => {
     notifyCodingTaskFinished: false,
     translatorShortcut: 'Alt+T',
     jotdownShortcut: 'Alt+J',
-    activityTracking: { mode: 'full', accessibilityDenied: true },
+    activityTracking: {
+      mode: 'full',
+      accessibilityDenied: true,
+      ocr: { enabled: true, excludedApps: ['Example Chat'] }
+    },
     themeId: 'mizu',
     themeAppearance: 'dark'
   }
@@ -482,9 +491,9 @@ test('normalization preserves every WorkspaceConfig key', () => {
   const sentinel: Required<WorkspaceConfig> = {
     savedPaths: ['/tmp/test'],
     pathLabels: { '/tmp/test': 'Test' },
-    editorApp: 'zed',
-    terminalApp: 'wezterm',
-    markdownApp: 'obsidian'
+    editorApp: 'example-editor',
+    terminalApp: 'example-terminal',
+    markdownApp: 'example-markdown'
   }
   const result = normalizeSettingsConfig({ providers: [], workspace: sentinel })
   assertKeysPreserved(result.workspace, sentinel, 'WorkspaceConfig')

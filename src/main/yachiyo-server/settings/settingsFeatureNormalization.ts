@@ -87,6 +87,21 @@ export function normalizeGeneralConfig(value: unknown): GeneralConfig {
   return result
 }
 
+function cloneActivityTrackingConfig(config: ActivityTrackingConfig): ActivityTrackingConfig {
+  return {
+    mode: config.mode,
+    ...(config.accessibilityDenied === true ? { accessibilityDenied: true } : {}),
+    ...(config.ocr
+      ? {
+          ocr: {
+            enabled: config.ocr.enabled === true,
+            excludedApps: [...(config.ocr.excludedApps ?? [])]
+          }
+        }
+      : {})
+  }
+}
+
 function normalizeActivityTrackingConfig(
   value: unknown,
   fallback?: ActivityTrackingConfig
@@ -95,15 +110,23 @@ function normalizeActivityTrackingConfig(
   const rawMode = input['mode']
   if (rawMode !== 'off' && rawMode !== 'simple' && rawMode !== 'full') {
     // Input missing or invalid — apply the default if available
-    return fallback ? { ...fallback } : undefined
+    return fallback ? cloneActivityTrackingConfig(fallback) : undefined
   }
-  const result: ActivityTrackingConfig = { mode: rawMode }
+  const fallbackOcr = fallback?.ocr
+  const ocrInput = asRecord(input['ocr'])
+  const excludedApps = normalizeStringList(ocrInput['excludedApps'])
+  const result: ActivityTrackingConfig = {
+    mode: rawMode,
+    ocr: {
+      enabled: normalizeOptionalBool(ocrInput['enabled'], fallbackOcr?.enabled ?? false),
+      excludedApps: excludedApps.length > 0 ? excludedApps : [...(fallbackOcr?.excludedApps ?? [])]
+    }
+  }
   if (input['accessibilityDenied'] === true) {
     result.accessibilityDenied = true
   }
   return result
 }
-
 export function normalizeChatConfig(value: unknown): ChatConfig {
   const input = asRecord(value)
 

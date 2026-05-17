@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
+import type { ActivitySnapshot } from '../../../shared/yachiyo/protocol.ts'
 import { ActivityTracker, type ActivityTrackerDeps } from './ActivityTracker.ts'
 
 function createTrackerDeps(): ActivityTrackerDeps & {
@@ -26,8 +27,8 @@ function createTrackerDeps(): ActivityTrackerDeps & {
     now: () => now,
     getIdleTimeMs: () => idleTimeMs,
     sampleActivity: async () => ({
-      appName: 'Zed',
-      bundleId: 'dev.zed.Zed'
+      appName: 'Example Editor',
+      bundleId: 'com.example.editor'
     }),
     checkAccessibilityPermission: async () => true,
     setInterval(callback, ms) {
@@ -51,6 +52,34 @@ function createTrackerDeps(): ActivityTrackerDeps & {
 
 async function flushAsyncWork(): Promise<void> {
   await new Promise((resolve) => setImmediate(resolve))
+}
+
+type OcrCaptureProvider = NonNullable<ActivityTrackerDeps['captureOcrSnapshot']>
+type OcrCaptureSample = Parameters<OcrCaptureProvider>[0]
+type OcrCaptureTrigger = Parameters<OcrCaptureProvider>[1]
+
+function makeOcrSnapshot(
+  sample: OcrCaptureSample,
+  trigger: OcrCaptureTrigger,
+  id: string
+): ActivitySnapshot {
+  return {
+    id,
+    capturedAt: '2026-05-17T04:30:00.000Z',
+    appName: sample.appName,
+    bundleId: sample.bundleId,
+    source: 'screen' as const,
+    trigger,
+    ocr: {
+      engine: 'apple-vision' as const,
+      revision: 3,
+      confidence: 0.9,
+      lineCount: 1,
+      contentHash: `sha256:${id}`,
+      excerpt: 'Example OCR context',
+      text: 'Example OCR context'
+    }
+  }
 }
 
 test('ActivityTracker resets an empty tracking session when consumed', async () => {
@@ -137,7 +166,7 @@ test('ActivityTracker closes the open span at the current time before summarizin
     tracker.handleWindowFocus()
 
     const summary = tracker.finalizeAndConsume()
-    assert.match(summary?.text ?? '', /Zed.*3s/)
+    assert.match(summary?.text ?? '', /Example Editor.*3s/)
   } finally {
     tracker.finalizeAndConsume()
   }
@@ -164,7 +193,7 @@ test('ActivityTracker allows only one in-flight sample at a time', async () => {
 
     assert.equal(sampleCalls, 1)
 
-    resolveSample({ appName: 'Zed', bundleId: 'dev.zed.Zed' })
+    resolveSample({ appName: 'Example Editor', bundleId: 'com.example.editor' })
     await flushAsyncWork()
     deps.intervals[0].callback()
 
@@ -193,7 +222,7 @@ test('ActivityTracker stops attributing the focused app once the user is AFK', a
     const summary = tracker.finalizeAndConsume()
 
     assert.equal(summary?.afkDurationMs, 56 * 60_000)
-    assert.match(summary?.text ?? '', /"appName":"Zed".*"duration":"4min"/)
+    assert.match(summary?.text ?? '', /"appName":"Example Editor".*"duration":"4min"/)
     assert.match(summary?.text ?? '', /"status":"afk".*"duration":"56min"/)
   } finally {
     tracker.finalizeAndConsume()
@@ -215,6 +244,51 @@ test('ActivityTracker returns no activity summary for an AFK-only session', asyn
 
     deps.setNow(60 * 60_000)
     assert.equal(tracker.finalizeAndConsume(), null)
+  } finally {
+    tracker.finalizeAndConsume()
+  }
+})
+
+test('ActivityTracker does not OCR unless activity OCR is enabled', async () => {
+  const deps = createTrackerDeps()
+  let captureCalls = 0
+  deps.captureOcrSnapshot = async () => {
+    captureCalls += 1
+    return null
+  }
+  const tracker = new ActivityTracker('simple', deps)
+
+  try {
+    tracker.handleWindowBlur()
+    deps.setNow(31_000)
+    deps.timeouts[0]?.callback()
+    await flushAsyncWork()
+
+    assert.equal(captureCalls, 0)
+    assert.equal(deps.timeouts.length, 0)
+  } finally {
+    tracker.finalizeAndConsume()
+  }
+})
+
+test('ActivityTracker skips OCR for apps excluded by the user', async () => {
+  const deps = createTrackerDeps()
+  let captureCalls = 0
+  deps.sampleActivity = async () => ({ appName: 'Example Chat', bundleId: 'com.example.chat' })
+  deps.captureOcrSnapshot = async () => {
+    captureCalls += 1
+    return null
+  }
+  const tracker = new ActivityTracker('simple', deps)
+  tracker.setOcrConfig({ enabled: true, excludedApps: ['Example Chat'] })
+
+  try {
+    tracker.handleWindowBlur()
+    deps.setNow(31_000)
+    deps.timeouts[0]?.callback()
+    await flushAsyncWork()
+
+    assert.equal(captureCalls, 0)
   } finally {
     tracker.finalizeAndConsume()
   }
@@ -244,6 +318,7 @@ test('ActivityTracker captures an initial OCR snapshot while Yachiyo stays blurr
     }
   }
   const tracker = new ActivityTracker('simple', deps)
+  tracker.setOcrConfig({ enabled: true, excludedApps: [] })
 
   try {
     tracker.handleWindowBlur()
@@ -275,6 +350,7 @@ test('ActivityTracker cancels pending initial OCR when Yachiyo regains focus', a
     return null
   }
   const tracker = new ActivityTracker('simple', deps)
+  tracker.setOcrConfig({ enabled: true, excludedApps: [] })
 
   try {
     tracker.handleWindowBlur()
@@ -318,6 +394,7 @@ test('ActivityTracker drops an OCR snapshot that finishes after Yachiyo regains 
     }
   }
   const tracker = new ActivityTracker('simple', deps)
+  tracker.setOcrConfig({ enabled: true, excludedApps: [] })
 
   try {
     tracker.handleWindowBlur()
@@ -342,15 +419,128 @@ test('ActivityTracker drops an OCR snapshot that finishes after Yachiyo regains 
   }
 })
 
-test('ActivityTracker skips OCR for private foreground apps', async () => {
+test('ActivityTracker skips OCR if it is disabled while sampleActivity is pending', async () => {
   const deps = createTrackerDeps()
+  let resolveSample: ((sample: OcrCaptureSample) => void) | undefined
+  let sampleStarted = false
   let captureCalls = 0
-  deps.sampleActivity = async () => ({ appName: '1Password', bundleId: 'com.1password.1password' })
+  deps.sampleActivity = async () => {
+    sampleStarted = true
+    return new Promise((resolve) => {
+      resolveSample = resolve
+    })
+  }
   deps.captureOcrSnapshot = async () => {
     captureCalls += 1
     return null
   }
   const tracker = new ActivityTracker('simple', deps)
+  tracker.setOcrConfig({ enabled: true, excludedApps: [] })
+
+  try {
+    tracker.handleWindowBlur()
+    deps.setNow(31_000)
+    deps.timeouts[0].callback()
+    await flushAsyncWork()
+
+    assert.equal(sampleStarted, true)
+    tracker.setOcrConfig({ enabled: false, excludedApps: [] })
+    resolveSample?.({ appName: 'Example Editor', bundleId: 'com.example.editor' })
+    await flushAsyncWork()
+
+    assert.equal(captureCalls, 0)
+  } finally {
+    tracker.finalizeAndConsume()
+  }
+})
+
+test('ActivityTracker drops an OCR snapshot if OCR is disabled while capture is pending', async () => {
+  const deps = createTrackerDeps()
+  let resolveCapture: (() => void) | undefined
+  let captureStarted = false
+  deps.captureOcrSnapshot = async (sample, trigger) => {
+    captureStarted = true
+    await new Promise<void>((resolve) => {
+      resolveCapture = resolve
+    })
+    return makeOcrSnapshot(sample, trigger, 'snapshot-disabled-during-capture')
+  }
+  const tracker = new ActivityTracker('simple', deps)
+  tracker.setOcrConfig({ enabled: true, excludedApps: [] })
+
+  try {
+    tracker.handleWindowBlur()
+    deps.intervals[0].callback()
+    await flushAsyncWork()
+
+    deps.setNow(31_000)
+    deps.timeouts[0].callback()
+    await flushAsyncWork()
+
+    assert.equal(captureStarted, true)
+    tracker.setOcrConfig({ enabled: false, excludedApps: [] })
+    resolveCapture?.()
+    await flushAsyncWork()
+
+    deps.setNow(35_000)
+    const summary = tracker.finalizeAndConsume()
+
+    assert.equal(summary?.snapshots, undefined)
+  } finally {
+    tracker.finalizeAndConsume()
+  }
+})
+
+test('ActivityTracker drops an OCR snapshot if the app is excluded while capture is pending', async () => {
+  const deps = createTrackerDeps()
+  let resolveCapture: (() => void) | undefined
+  let captureStarted = false
+  deps.captureOcrSnapshot = async (sample, trigger) => {
+    captureStarted = true
+    await new Promise<void>((resolve) => {
+      resolveCapture = resolve
+    })
+    return makeOcrSnapshot(sample, trigger, 'snapshot-excluded-during-capture')
+  }
+  const tracker = new ActivityTracker('simple', deps)
+  tracker.setOcrConfig({ enabled: true, excludedApps: [] })
+
+  try {
+    tracker.handleWindowBlur()
+    deps.intervals[0].callback()
+    await flushAsyncWork()
+
+    deps.setNow(31_000)
+    deps.timeouts[0].callback()
+    await flushAsyncWork()
+
+    assert.equal(captureStarted, true)
+    tracker.setOcrConfig({ enabled: true, excludedApps: ['Example Editor'] })
+    resolveCapture?.()
+    await flushAsyncWork()
+
+    deps.setNow(35_000)
+    const summary = tracker.finalizeAndConsume()
+
+    assert.equal(summary?.snapshots, undefined)
+  } finally {
+    tracker.finalizeAndConsume()
+  }
+})
+
+test('ActivityTracker skips OCR for private foreground apps', async () => {
+  const deps = createTrackerDeps()
+  let captureCalls = 0
+  deps.sampleActivity = async () => ({
+    appName: 'Example Password Manager',
+    bundleId: 'com.example.password-manager'
+  })
+  deps.captureOcrSnapshot = async () => {
+    captureCalls += 1
+    return null
+  }
+  const tracker = new ActivityTracker('simple', deps)
+  tracker.setOcrConfig({ enabled: true, excludedApps: [] })
 
   try {
     tracker.handleWindowBlur()
@@ -372,6 +562,7 @@ test('ActivityTracker does not OCR while the user is AFK', async () => {
     return null
   }
   const tracker = new ActivityTracker('simple', deps)
+  tracker.setOcrConfig({ enabled: true, excludedApps: [] })
 
   try {
     tracker.handleWindowBlur()

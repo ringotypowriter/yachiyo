@@ -7,7 +7,7 @@ export interface ActivityOcrCaptureAllowed {
 
 export interface ActivityOcrCaptureBlocked {
   allow: false
-  reason: 'yachiyo' | 'private-app' | 'low-value-app'
+  reason: 'yachiyo' | 'user-excluded-app' | 'private-app' | 'low-value-app'
 }
 
 export type ActivityOcrCaptureDecision = ActivityOcrCaptureAllowed | ActivityOcrCaptureBlocked
@@ -56,9 +56,29 @@ function sampleText(sample: SampleResult): string {
     .join(' ')
 }
 
-export function shouldCaptureOcrForSample(sample: SampleResult): ActivityOcrCaptureDecision {
+function normalizeAppIdentifier(value: string): string {
+  return value.trim().toLocaleLowerCase()
+}
+
+function matchesUserExcludedApp(sample: SampleResult, excludedApps: string[]): boolean {
+  const appName = normalizeAppIdentifier(sample.appName)
+  const bundleId = normalizeAppIdentifier(sample.bundleId)
+  return excludedApps.some((candidate) => {
+    const normalized = normalizeAppIdentifier(candidate)
+    return normalized.length > 0 && (normalized === appName || normalized === bundleId)
+  })
+}
+
+export function shouldCaptureOcrForSample(
+  sample: SampleResult,
+  excludedApps: string[] = []
+): ActivityOcrCaptureDecision {
   const bundleId = sample.bundleId.toLocaleLowerCase()
   const text = sampleText(sample)
+
+  if (matchesUserExcludedApp(sample, excludedApps)) {
+    return { allow: false, reason: 'user-excluded-app' }
+  }
 
   if (bundleId === 'sh.ringo.yachiyo' || sample.appName.toLocaleLowerCase() === 'yachiyo') {
     return { allow: false, reason: 'yachiyo' }

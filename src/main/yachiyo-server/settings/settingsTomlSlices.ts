@@ -64,6 +64,14 @@ export const settingsTomlSlices: readonly TomlConfigSlice<SettingsConfig, TomlDo
                   mode: config.general.activityTracking.mode,
                   ...(config.general.activityTracking.accessibilityDenied === true
                     ? { accessibilityDenied: true }
+                    : {}),
+                  ...(config.general.activityTracking.ocr
+                    ? {
+                        ocr: {
+                          enabled: config.general.activityTracking.ocr.enabled === true,
+                          excludedApps: config.general.activityTracking.ocr.excludedApps ?? []
+                        }
+                      }
                     : {})
                 }
               }

@@ -3,10 +3,8 @@ import { existsSync } from 'node:fs'
 import { rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { app, BrowserWindow, powerMonitor } from 'electron'
-import {
-  getActivityTracker,
-  type ActivityTrackingMode
-} from '../yachiyo-server/activity/ActivityTracker.ts'
+import type { ActivityTrackingConfig } from '../../shared/yachiyo/protocol.ts'
+import { getActivityTracker } from '../yachiyo-server/activity/ActivityTracker.ts'
 import { recognizeActivityScreenshot } from '../yachiyo-server/activity/visionOcr.ts'
 import { captureActivityScreenshot } from './activityScreenshot.ts'
 
@@ -17,9 +15,10 @@ import { captureActivityScreenshot } from './activityScreenshot.ts'
  * Call installActivityTrackerHost() once during app startup
  * (after the Yachiyo server is initialized).
  */
-export function installActivityTrackerHost(initialMode: ActivityTrackingMode): void {
-  const tracker = getActivityTracker(initialMode)
+export function installActivityTrackerHost(initialConfig: ActivityTrackingConfig): void {
+  const tracker = getActivityTracker(initialConfig.mode)
   tracker.setIdleTimeProvider(() => powerMonitor.getSystemIdleTime() * 1000)
+  tracker.setOcrConfig(initialConfig.ocr)
 
   const helperPath = resolveVisionOcrHelperPath()
   if (helperPath) {

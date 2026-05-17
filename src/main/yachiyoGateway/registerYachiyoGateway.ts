@@ -841,14 +841,19 @@ export function registerYachiyoGateway(): YachiyoServer {
       }, 0)
     }
 
-    // Sync activity tracking mode
-    const trackingMode = saved.general?.activityTracking?.mode ?? 'simple'
-    getActivityTracker(trackingMode).setMode(
-      trackingMode,
-      trackingMode === 'full'
-        ? { fullModeAvailable: saved.general?.activityTracking?.accessibilityDenied !== true }
+    // Sync activity tracking settings
+    const activityTracking = saved.general?.activityTracking ?? {
+      mode: 'simple' as const,
+      ocr: { enabled: false, excludedApps: [] }
+    }
+    const tracker = getActivityTracker(activityTracking.mode)
+    tracker.setMode(
+      activityTracking.mode,
+      activityTracking.mode === 'full'
+        ? { fullModeAvailable: activityTracking.accessibilityDenied !== true }
         : undefined
     )
+    tracker.setOcrConfig(activityTracking.ocr)
 
     return saved
   })

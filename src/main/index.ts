@@ -359,9 +359,12 @@ app.whenReady().then(async () => {
   // Initialize activity tracker (macOS only — relies on osascript)
   if (process.platform === 'darwin') {
     void server.getConfig().then((cfg) => {
-      const mode = cfg.general?.activityTracking?.mode ?? 'simple'
+      const activityTracking = cfg.general?.activityTracking ?? {
+        mode: 'simple' as const,
+        ocr: { enabled: false, excludedApps: [] }
+      }
       void import('./electron/activityTrackerHost.ts').then(({ installActivityTrackerHost }) => {
-        installActivityTrackerHost(mode)
+        installActivityTrackerHost(activityTracking)
       })
     })
   }

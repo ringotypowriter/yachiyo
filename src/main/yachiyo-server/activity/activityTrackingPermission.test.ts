@@ -70,6 +70,31 @@ test('resolveActivityTrackingPermissionForSave denies Full back to Off when Off 
   })
 })
 
+test('resolveActivityTrackingPermissionForSave preserves OCR settings when resolving Full', async () => {
+  const result = await resolveActivityTrackingPermissionForSave(
+    {
+      ...baseConfig('full'),
+      general: {
+        activityTracking: {
+          mode: 'full',
+          ocr: { enabled: true, excludedApps: ['Example Chat'] }
+        }
+      }
+    },
+    baseConfig('simple'),
+    {
+      platform: 'darwin',
+      requestAccessibilityTrust: () => true,
+      probeFullActivityAccess: async () => true
+    }
+  )
+
+  assert.deepEqual(result.general?.activityTracking, {
+    mode: 'full',
+    ocr: { enabled: true, excludedApps: ['Example Chat'] }
+  })
+})
+
 test('resolveActivityTrackingPermissionForSave leaves non-Full requests unchanged', async () => {
   const input = {
     ...baseConfig('simple'),

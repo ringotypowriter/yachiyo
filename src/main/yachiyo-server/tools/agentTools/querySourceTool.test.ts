@@ -53,12 +53,12 @@ function makeActivityRecord(overrides: Partial<ActivitySourceRecord> = {}): Acti
     endedAt: '2026-05-16T09:30:00.000Z',
     totalDurationMs: 600_000,
     uniqueApps: 1,
-    summaryText: 'Worked in Zed on querySource source database design.',
+    summaryText: 'Worked in Example Editor on source database design.',
     entries: [
       {
-        appName: 'Zed',
-        bundleId: 'dev.zed.Zed',
-        windowTitle: 'querySourceTool.ts',
+        appName: 'Example Editor',
+        bundleId: 'com.example.editor',
+        windowTitle: 'source-query.ts',
         durationMs: 600_000
       }
     ],
@@ -346,7 +346,7 @@ test('querySource auto orders source events by timeline time across sources', as
       threadId: 'thread-source',
       startedAt: '2026-05-16T09:50:00.000Z',
       endedAt: '2026-05-16T09:55:00.000Z',
-      summaryText: 'Later Zed activity.'
+      summaryText: 'Later editor activity.'
     })
   )
 
@@ -390,9 +390,9 @@ test('querySource keeps OCR snapshots quiet unless the activity view or text mat
         {
           id: 'snapshot-1',
           capturedAt: '2026-05-16T09:25:00.000Z',
-          appName: 'Zed',
-          bundleId: 'dev.zed.Zed',
-          windowTitle: 'querySourceTool.ts',
+          appName: 'Example Editor',
+          bundleId: 'com.example.editor',
+          windowTitle: 'source-query.ts',
           source: 'screen',
           trigger: 'initial-blur',
           ocr: {
@@ -505,7 +505,7 @@ test('querySource rejects match ordering for non-match-ranked tables', async () 
     await tool.execute!(
       {
         from: 'activity_records',
-        where: { text: 'Zed' },
+        where: { text: 'Example Editor' },
         orderBy: 'match',
         view: 'index'
       },

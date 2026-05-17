@@ -27,7 +27,8 @@ export const DEFAULT_SETTINGS_CONFIG: SettingsConfig = {
     translatorShortcut: 'CommandOrControl+Shift+T',
     jotdownShortcut: 'CommandOrControl+Shift+J',
     activityTracking: {
-      mode: 'simple'
+      mode: 'simple',
+      ocr: { enabled: false, excludedApps: [] }
     }
   },
   chat: {

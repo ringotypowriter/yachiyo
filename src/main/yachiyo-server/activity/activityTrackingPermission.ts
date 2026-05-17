@@ -6,11 +6,37 @@ export interface ActivityTrackingPermissionDeps {
   probeFullActivityAccess: () => Promise<boolean>
 }
 
-function deniedActivityTrackingConfig(currentConfig: SettingsConfig): ActivityTrackingConfig {
+function cloneActivityOcrConfig(
+  config: ActivityTrackingConfig['ocr']
+): ActivityTrackingConfig['ocr'] {
+  return config
+    ? {
+        enabled: config.enabled === true,
+        excludedApps: [...(config.excludedApps ?? [])]
+      }
+    : undefined
+}
+
+function deniedActivityTrackingConfig(
+  inputConfig: SettingsConfig,
+  currentConfig: SettingsConfig
+): ActivityTrackingConfig {
   const previousMode = currentConfig.general?.activityTracking?.mode
+  const ocr = cloneActivityOcrConfig(
+    inputConfig.general?.activityTracking?.ocr ?? currentConfig.general?.activityTracking?.ocr
+  )
   return {
     mode: previousMode === 'off' ? 'off' : 'simple',
-    accessibilityDenied: true
+    accessibilityDenied: true,
+    ...(ocr ? { ocr } : {})
+  }
+}
+
+function allowedFullActivityTrackingConfig(inputConfig: SettingsConfig): ActivityTrackingConfig {
+  const ocr = cloneActivityOcrConfig(inputConfig.general?.activityTracking?.ocr)
+  return {
+    mode: 'full',
+    ...(ocr ? { ocr } : {})
   }
 }
 
@@ -28,7 +54,7 @@ export async function resolveActivityTrackingPermissionForSave(
       ...input,
       general: {
         ...input.general,
-        activityTracking: deniedActivityTrackingConfig(currentConfig)
+        activityTracking: deniedActivityTrackingConfig(input, currentConfig)
       }
     }
   }
@@ -41,8 +67,8 @@ export async function resolveActivityTrackingPermissionForSave(
     general: {
       ...input.general,
       activityTracking: fullSamplerAvailable
-        ? { mode: 'full' }
-        : deniedActivityTrackingConfig(currentConfig)
+        ? allowedFullActivityTrackingConfig(input)
+        : deniedActivityTrackingConfig(input, currentConfig)
     }
   }
 }

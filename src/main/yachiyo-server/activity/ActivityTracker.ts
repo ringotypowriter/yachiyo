@@ -1,4 +1,8 @@
-import type { ActivitySnapshot, ActivitySnapshotTrigger } from '../../../shared/yachiyo/protocol.ts'
+import type {
+  ActivityOcrConfig,
+  ActivitySnapshot,
+  ActivitySnapshotTrigger
+} from '../../../shared/yachiyo/protocol.ts'
 import { shouldCaptureOcrForSample } from './ActivityOcrPolicy.ts'
 import { summarizeSpans, type ActivitySummary } from './ActivitySummarizer.ts'
 import { sampleActivity, probeFullActivityAccess, type SampleResult } from './osascript.ts'
@@ -85,6 +89,7 @@ export class ActivityTracker {
   private readonly deps: ActivityTrackerDeps
   private getIdleTimeMs: () => number
   private captureOcrSnapshot?: ActivityTrackerDeps['captureOcrSnapshot']
+  private ocrConfig: ActivityOcrConfig = { enabled: false, excludedApps: [] }
 
   constructor(initialMode: ActivityTrackingMode, deps: ActivityTrackerDeps = DEFAULT_DEPS) {
     this.mode = initialMode
@@ -121,6 +126,20 @@ export class ActivityTracker {
 
   setOcrSnapshotProvider(provider: ActivityTrackerDeps['captureOcrSnapshot']): void {
     this.captureOcrSnapshot = provider
+  }
+
+  setOcrConfig(config: ActivityOcrConfig | undefined): void {
+    this.ocrConfig = {
+      enabled: config?.enabled === true,
+      excludedApps: [...(config?.excludedApps ?? [])]
+    }
+    if (!this.ocrConfig.enabled) {
+      this.cancelInitialOcr()
+      return
+    }
+    if (this.isWindowBlurred) {
+      this.scheduleInitialOcr()
+    }
   }
 
   /** Call when ALL Yachiyo windows have lost focus. */
@@ -213,6 +232,7 @@ export class ActivityTracker {
   }
 
   private scheduleInitialOcr(): void {
+    if (!this.ocrConfig.enabled) return
     if (!this.captureOcrSnapshot) return
     if (this.initialOcrTimer) return
     this.initialOcrTimer = this.deps.setTimeout(() => {
@@ -364,7 +384,14 @@ export class ActivityTracker {
     this.windowDwellStartMs = now
   }
 
+  private canCaptureOcrSample(sample: SampleResult): boolean {
+    return (
+      this.ocrConfig.enabled && shouldCaptureOcrForSample(sample, this.ocrConfig.excludedApps).allow
+    )
+  }
+
   private maybeCaptureLongSessionOcr(sample: SampleResult, now: number): void {
+    if (!this.ocrConfig.enabled) return
     if (!this.captureOcrSnapshot) return
     if (this.trackingStartTime == null) return
     if (this.snapshots.length >= OCR_MAX_PER_ACTIVITY_RECORD) return
@@ -379,6 +406,7 @@ export class ActivityTracker {
     trigger: ActivitySnapshotTrigger,
     knownSample?: SampleResult
   ): Promise<void> {
+    if (!this.ocrConfig.enabled) return
     if (!this.captureOcrSnapshot) return
     if (this.isCapturingOcr) return
     if (!this.isWindowBlurred) return
@@ -391,9 +419,10 @@ export class ActivityTracker {
     this.lastOcrAt = now
     try {
       const sample = knownSample ?? (await this.deps.sampleActivity(this.getEffectiveMode()))
-      if (!sample || !shouldCaptureOcrForSample(sample).allow) return
+      if (!sample || !this.canCaptureOcrSample(sample)) return
       const snapshot = await this.captureOcrSnapshot(sample, trigger)
       if (!this.isWindowBlurred || (this.mode as ActivityTrackingMode) === 'off') return
+      if (!this.canCaptureOcrSample(sample)) return
       if (!snapshot) return
       const contentHash = snapshot.ocr?.contentHash
       if (

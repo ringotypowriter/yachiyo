@@ -30,9 +30,9 @@ test('summarizeSpans reports OCR snapshot availability without injecting OCR tex
   const summary = summarizeSpans(
     [
       {
-        appName: 'Zed',
-        bundleId: 'dev.zed.Zed',
-        windowTitle: 'yachiyo',
+        appName: 'Example Editor',
+        bundleId: 'com.example.editor',
+        windowTitle: 'example-workspace',
         startMs: 0,
         endMs: 60_000,
         durationMs: 60_000
@@ -45,9 +45,9 @@ test('summarizeSpans reports OCR snapshot availability without injecting OCR tex
         {
           id: 'snapshot-1',
           capturedAt: '2026-05-17T04:30:00.000Z',
-          appName: 'Zed',
-          bundleId: 'dev.zed.Zed',
-          windowTitle: 'yachiyo',
+          appName: 'Example Editor',
+          bundleId: 'com.example.editor',
+          windowTitle: 'example-workspace',
           source: 'screen',
           trigger: 'initial-blur',
           ocr: {
@@ -75,8 +75,8 @@ test('summarizeSpans includes AFK time as generic status data only when app span
   const summary = summarizeSpans(
     [
       {
-        appName: 'Zed',
-        bundleId: 'dev.zed.Zed',
+        appName: 'Example Editor',
+        bundleId: 'com.example.editor',
         startMs: 0,
         endMs: 4 * 60_000,
         durationMs: 4 * 60_000
@@ -89,7 +89,7 @@ test('summarizeSpans includes AFK time as generic status data only when app span
 
   assert.ok(summary)
   assert.equal(summary.afkDurationMs, 56 * 60_000)
-  assert.match(summary.text, /"appName":"Zed".*"duration":"4min"/)
+  assert.match(summary.text, /"appName":"Example Editor".*"duration":"4min"/)
   assert.match(summary.text, /"status":"afk".*"duration":"56min"/)
 
   assert.equal(summarizeSpans([], 0, 60 * 60_000, { afkDurationMs: 60 * 60_000 }), null)
