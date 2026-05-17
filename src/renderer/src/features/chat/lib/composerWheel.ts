@@ -43,6 +43,7 @@ export function resolveComposerWheelDestination(input: {
   attachmentStrip: ComposerWheelScrollMetrics | null
   deltaX: number
   deltaY: number
+  localScroll?: ComposerWheelScrollMetrics | null
   overAttachmentStrip: boolean
   overTextarea: boolean
   popupOpen: boolean
@@ -50,6 +51,10 @@ export function resolveComposerWheelDestination(input: {
 }): ComposerWheelDestination {
   if (input.popupOpen || !isVerticalWheel(input.deltaX, input.deltaY)) {
     return 'none'
+  }
+
+  if (input.localScroll) {
+    return canScrollInWheelDirection(input.localScroll, input.deltaY) ? 'local' : 'none'
   }
 
   if (

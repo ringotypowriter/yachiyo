@@ -788,6 +788,10 @@ export function Composer({
     const targetNode = eventTarget instanceof Node ? eventTarget : null
     const textarea = textareaRef.current
     const attachmentStrip = attachmentStripRef.current
+    const localScrollElement =
+      targetNode instanceof Element
+        ? targetNode.closest<HTMLElement>('[data-composer-wheel-local-scroll]')
+        : null
     const overTextarea = Boolean(textarea && targetNode && textarea.contains(targetNode))
     const overAttachmentStrip = Boolean(
       attachmentStrip && targetNode && attachmentStrip.contains(targetNode)
@@ -796,6 +800,13 @@ export function Composer({
     const destination = resolveComposerWheelDestination({
       deltaX: event.deltaX,
       deltaY: event.deltaY,
+      localScroll: localScrollElement
+        ? {
+            scrollOffset: localScrollElement.scrollTop,
+            viewportSize: localScrollElement.clientHeight,
+            contentSize: localScrollElement.scrollHeight
+          }
+        : null,
       overAttachmentStrip,
       overTextarea,
       popupOpen: anyPopupOpenRef.current,

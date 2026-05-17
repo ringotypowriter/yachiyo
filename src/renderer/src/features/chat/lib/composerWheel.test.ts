@@ -32,6 +32,36 @@ test('composer wheel forwards textarea boundary scroll to the timeline', () => {
   )
 })
 
+test('composer wheel stays inside local scroll regions such as queued follow-up content', () => {
+  assert.equal(
+    resolveComposerWheelDestination({
+      deltaX: 0,
+      deltaY: 24,
+      overAttachmentStrip: false,
+      overTextarea: false,
+      popupOpen: false,
+      textarea: null,
+      localScroll: { scrollOffset: 10, viewportSize: 80, contentSize: 200 },
+      attachmentStrip: null
+    }),
+    'local'
+  )
+
+  assert.equal(
+    resolveComposerWheelDestination({
+      deltaX: 0,
+      deltaY: 24,
+      overAttachmentStrip: false,
+      overTextarea: false,
+      popupOpen: false,
+      textarea: null,
+      localScroll: { scrollOffset: 120, viewportSize: 80, contentSize: 200 },
+      attachmentStrip: null
+    }),
+    'none'
+  )
+})
+
 test('composer wheel turns vertical wheel over attachments into horizontal attachment scrolling', () => {
   assert.equal(
     resolveComposerWheelDestination({

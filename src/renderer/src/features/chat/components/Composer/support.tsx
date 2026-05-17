@@ -470,11 +470,13 @@ export function StagedInputBufferBubble({
         {staged.content.length > 0 ? (
           <div
             ref={contentRef}
+            data-composer-wheel-local-scroll
             className="text-sm whitespace-pre-wrap wrap-break-word"
             style={{
               color: theme.text.primary,
               maxHeight: 80,
-              overflowY: 'auto'
+              overflowY: 'auto',
+              overscrollBehavior: 'contain'
             }}
           >
             {staged.content}
@@ -571,11 +573,13 @@ export function QueuedFollowUpBufferBubble({
         {message.content.length > 0 ? (
           <div
             ref={contentRef}
+            data-composer-wheel-local-scroll
             className="text-sm whitespace-pre-wrap wrap-break-word"
             style={{
               color: theme.text.primary,
               maxHeight: 80,
-              overflowY: 'auto'
+              overflowY: 'auto',
+              overscrollBehavior: 'contain'
             }}
           >
             {message.content}
