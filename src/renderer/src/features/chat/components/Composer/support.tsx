@@ -19,7 +19,7 @@ export const MAX_COMPOSER_FILES = 10
 export const FILE_MENTION_PAGE_SIZE = 24
 export const FILE_MENTION_MAX_RESULTS = 120
 /** Text stack cap; inner wrapper uses hard clip so grid min-content cannot paint into the toolbar. */
-export const COMPOSER_TEXT_FIELD_MAX_HEIGHT_PX = 160
+export const COMPOSER_TEXT_FIELD_MAX_HEIGHT_PX = 220
 
 export const ACCEPTED_FILE_TYPES = [...ACCEPTED_ATTACHMENT_MEDIA_TYPES]
 

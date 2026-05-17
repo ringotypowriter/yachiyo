@@ -5,7 +5,6 @@ import { useAppStore } from '@renderer/app/store/useAppStore'
 import { ThreadFindBar } from '@renderer/features/chat/components/ThreadFindBar'
 import { buildFindMatches } from '@renderer/features/chat/lib/threadFindBar'
 import type { FindMatch } from '@renderer/features/chat/lib/threadFindBar'
-import { BackgroundTasksChip } from '@renderer/features/chat/components/BackgroundTasksChip'
 import {
   useBackgroundTasksStore,
   selectThreadRunningCount
@@ -690,7 +689,6 @@ export function AppMainPanel({
         </div>
         <RunStatusStrip />
         <div className="relative">
-          <BackgroundTasksChip threadId={activeThreadId} />
           <Composer onSelectThreadOperation={handleSelectThreadOperation} />
         </div>
         {threadIsSaving && (

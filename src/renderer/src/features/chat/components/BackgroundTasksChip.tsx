@@ -60,11 +60,7 @@ export function BackgroundTasksChip({
       : `${tasks.length} background task${tasks.length === 1 ? '' : 's'}`
 
   return (
-    <div
-      ref={wrapperRef}
-      className="absolute z-20"
-      style={{ bottom: '100%', left: 16, right: 16, marginBottom: 8, pointerEvents: 'none' }}
-    >
+    <div ref={wrapperRef} className="composer-task-chip-host">
       <AnimatePresence>
         {open && (
           <motion.div
@@ -74,7 +70,15 @@ export function BackgroundTasksChip({
             exit={{ opacity: 0, scale: 0.95, y: 4 }}
             transition={{ duration: 0.15, ease: 'easeOut' }}
             className="absolute right-0"
-            style={{ bottom: '100%', marginBottom: 8, maxWidth: '100%', pointerEvents: 'auto' }}
+            style={{
+              bottom: '100%',
+              display: 'flex',
+              justifyContent: 'flex-end',
+              marginBottom: 8,
+              maxWidth: '100%',
+              pointerEvents: 'auto',
+              width: '100%'
+            }}
           >
             <BackgroundTasksPanel
               threadId={threadId ?? ''}
@@ -91,24 +95,14 @@ export function BackgroundTasksChip({
         <button
           type="button"
           onClick={() => setOpen((v) => !v)}
-          className="flex items-center gap-2 px-3 py-1.5 text-xs font-medium rounded-full transition-opacity hover:opacity-90"
-          style={{
-            background: theme.background.surfaceFrosted,
-            color: theme.text.primary,
-            border: `1px solid ${theme.border.default}`,
-            boxShadow: theme.shadow.card,
-            backdropFilter: 'blur(8px)',
-            WebkitBackdropFilter: 'blur(8px)',
-            pointerEvents: 'auto'
-          }}
+          className="composer-task-chip-button"
+          data-open={open ? 'true' : undefined}
+          data-running={runningCount > 0 ? 'true' : undefined}
         >
           {runningCount > 0 ? (
             <span
-              className="inline-block w-2 h-2 rounded-full"
-              style={{
-                background: theme.text.accent,
-                animation: 'yachiyo-preparing-pulse 1.2s ease-in-out infinite'
-              }}
+              className="composer-task-chip-button__dot"
+              style={{ background: theme.text.accent }}
             />
           ) : (
             <Terminal size={12} strokeWidth={1.75} />

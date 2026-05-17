@@ -28,6 +28,7 @@ import { ReasoningSelectorPopup } from '../ReasoningSelectorPopup'
 import { RunArrowIndicator } from '../RunArrowIndicator'
 import { WorkspaceSelectorPopup } from '../WorkspaceSelectorPopup'
 import { SmoothCaretOverlay } from '../SmoothCaretOverlay'
+import { BackgroundTasksChip } from '../BackgroundTasksChip'
 import type { AcpAgentEntry } from '../../lib/modelSelectorState'
 import { clearGoalX } from '@renderer/features/chat/lib/pretextSync'
 import { selectComposerPlaceholder } from '@renderer/features/chat/lib/composerPlaceholder'
@@ -184,7 +185,7 @@ export function ComposerView(props: any): React.JSX.Element {
   return (
     <div
       ref={composerRootRef}
-      className="flex flex-col"
+      className="composer-shell flex flex-col"
       style={{ borderTop: `1px solid ${theme.border.panel}`, position: 'relative' }}
       onDragEnter={handleDragEnter}
       onDragOver={handleDragOver}
@@ -262,6 +263,182 @@ export function ComposerView(props: any): React.JSX.Element {
           }}
         />
       ) : null}
+
+      <div className="composer-widget-shelf no-drag">
+        <div className="composer-widget-shelf__left">
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept={ACCEPT_ATTRIBUTE}
+            multiple
+            className="hidden"
+            onChange={(event) => {
+              const files = Array.from(event.target.files ?? [])
+              const images = files.filter((f) => f.type.startsWith('image/'))
+              const docs = files.filter((f) => !f.type.startsWith('image/'))
+              if (images.length > 0) void queueImageFiles(images)
+              if (docs.length > 0) void queueDocumentFiles(docs)
+              event.currentTarget.value = ''
+            }}
+          />
+
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={!canAddImages && !canAddFiles}
+            className="composer-shelf-icon-button"
+            aria-label="Attach"
+          >
+            <Paperclip size={15} strokeWidth={1.5} color={theme.icon.muted} />
+          </button>
+
+          <div
+            ref={workspaceSelectorRef}
+            style={{ position: 'relative' }}
+            onMouseEnter={() => setWorkspaceHintHovered(true)}
+            onMouseLeave={() => setWorkspaceHintHovered(false)}
+          >
+            <button
+              type="button"
+              onClick={() => {
+                if (isWorkspaceLocked) {
+                  setWorkspaceHintPinned(true)
+                  return
+                }
+
+                setModelSelectorOpen(false)
+                setReasoningSelectorOpen(false)
+                setSkillsSelectorOpen(false)
+                setToolSelectorOpen(false)
+                setWorkspaceSelectorOpen((open) => !open)
+              }}
+              className="composer-shelf-icon-button composer-shelf-icon-button--workspace"
+              style={{
+                color: theme.text.primary,
+                opacity: workspaceSelectorOpen ? 1 : undefined
+              }}
+              aria-label="Workspace selection"
+              aria-expanded={workspaceSelectorOpen}
+              aria-haspopup="menu"
+              disabled={isWorkspaceLocked}
+            >
+              <Folder
+                size={14}
+                strokeWidth={1.5}
+                color={currentWorkspacePath ? theme.icon.accent : theme.icon.muted}
+              />
+              <ChevronDown
+                size={10}
+                strokeWidth={1.5}
+                color={theme.icon.muted}
+                style={{
+                  transform: workspaceSelectorOpen ? 'rotate(180deg)' : 'rotate(0deg)',
+                  transition: 'transform 0.15s ease'
+                }}
+              />
+            </button>
+
+            {showWorkspaceHint ? (
+              <div
+                style={{
+                  position: 'absolute',
+                  bottom: 'calc(100% + 8px)',
+                  left: 0,
+                  width: 260,
+                  padding: '10px 11px',
+                  borderRadius: 12,
+                  background: theme.background.surfaceFrosted,
+                  backdropFilter: 'blur(18px)',
+                  WebkitBackdropFilter: 'blur(18px)',
+                  border: `1px solid ${theme.border.strong}`,
+                  boxShadow: theme.shadow.overlay,
+                  zIndex: 45
+                }}
+              >
+                <div
+                  style={{
+                    fontSize: 12,
+                    fontWeight: 600,
+                    color: theme.text.primary,
+                    lineHeight: 1.35
+                  }}
+                >
+                  {workspaceHint.title}
+                </div>
+                <div
+                  style={{
+                    marginTop: 4,
+                    fontSize: 12,
+                    color: theme.text.muted,
+                    lineHeight: 1.45,
+                    whiteSpace: 'pre-wrap',
+                    wordBreak: 'break-word'
+                  }}
+                >
+                  {workspaceHint.detail}
+                </div>
+              </div>
+            ) : null}
+
+            {workspaceSelectorOpen && !isWorkspaceLocked ? (
+              <WorkspaceSelectorPopup
+                currentWorkspacePath={currentWorkspacePath}
+                savedPaths={savedWorkspacePaths}
+                onSelectWorkspace={(workspacePath) => {
+                  requestWorkspaceSelection({
+                    threadId: activeThreadId,
+                    currentWorkspacePath,
+                    nextWorkspacePath: workspacePath
+                  })
+                }}
+                onChooseDirectory={() => {
+                  void (async () => {
+                    const pickedPath = await window.api.yachiyo.pickWorkspaceDirectory()
+                    if (!pickedPath) {
+                      return
+                    }
+
+                    requestWorkspaceSelection({
+                      threadId: activeThreadId,
+                      currentWorkspacePath,
+                      nextWorkspacePath: pickedPath,
+                      saveWorkspacePath: pickedPath
+                    })
+                  })()
+                }}
+                onClose={() => setWorkspaceSelectorOpen(false)}
+              />
+            ) : null}
+          </div>
+        </div>
+
+        <div className="composer-widget-shelf__right">
+          <BackgroundTasksChip threadId={activeThreadId} />
+        </div>
+      </div>
+
+      {pendingWorkspaceChangeConfirmation ? (
+        <ConfirmDialog
+          title="Switch this handoff thread to a different workspace?"
+          description="This thread started from a handoff and inherited the previous workspace. Changing it now will detach the handoff from that inherited folder."
+          actions={[
+            { key: 'keep', label: 'Keep inherited workspace' },
+            { key: 'switch', label: 'Switch workspace', tone: 'accent' }
+          ]}
+          onClose={() => setPendingWorkspaceChangeConfirmation(null)}
+          onSelect={(key) => {
+            if (key !== 'switch') {
+              setPendingWorkspaceChangeConfirmation(null)
+              return
+            }
+
+            const selection = pendingWorkspaceChangeConfirmation
+            setPendingWorkspaceChangeConfirmation(null)
+            void commitWorkspaceSelection(selection)
+          }}
+        />
+      ) : null}
+
       {draftImages.length > 0 || draftFiles.length > 0 ? (
         <div ref={attachmentStripRef} className="composer-image-strip">
           {draftImages.map((image) => (
@@ -385,7 +562,7 @@ export function ComposerView(props: any): React.JSX.Element {
             ))}
           </div>
         ) : null}
-        <div ref={composerInputRef} className="px-4 pt-3 pb-1">
+        <div ref={composerInputRef} className="composer-input-zone px-4">
           {/*
             Input stack (same grid cell):
             - Highlight div: real text paint for @mentions etc. pointer-events:none; scrollTop synced
@@ -402,7 +579,7 @@ export function ComposerView(props: any): React.JSX.Element {
               display: 'grid',
               position: 'relative',
               maxHeight: `${COMPOSER_TEXT_FIELD_MAX_HEIGHT_PX}px`,
-              minHeight: 0,
+              minHeight: '92px',
               overflow: 'hidden'
             }}
           >
@@ -419,7 +596,7 @@ export function ComposerView(props: any): React.JSX.Element {
                 whiteSpace: 'pre',
                 overflowY: 'auto',
                 pointerEvents: 'none',
-                minHeight: 0,
+                minHeight: '92px',
                 maxHeight: `${COMPOSER_TEXT_FIELD_MAX_HEIGHT_PX}px`,
                 letterSpacing: '0.04em'
               }}
@@ -504,7 +681,7 @@ export function ComposerView(props: any): React.JSX.Element {
                 color: 'transparent',
                 caretColor: 'transparent',
                 padding: 0,
-                minHeight: '22px',
+                minHeight: '92px',
                 maxHeight: `${COMPOSER_TEXT_FIELD_MAX_HEIGHT_PX}px`,
                 letterSpacing: '0.04em',
                 wordBreak: 'break-word',
@@ -529,32 +706,6 @@ export function ComposerView(props: any): React.JSX.Element {
       ) : null}
 
       <div className="flex items-center gap-2 px-3 pb-3 no-drag">
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept={ACCEPT_ATTRIBUTE}
-          multiple
-          className="hidden"
-          onChange={(event) => {
-            const files = Array.from(event.target.files ?? [])
-            const images = files.filter((f) => f.type.startsWith('image/'))
-            const docs = files.filter((f) => !f.type.startsWith('image/'))
-            if (images.length > 0) void queueImageFiles(images)
-            if (docs.length > 0) void queueDocumentFiles(docs)
-            event.currentTarget.value = ''
-          }}
-        />
-
-        <button
-          type="button"
-          onClick={() => fileInputRef.current?.click()}
-          disabled={!canAddImages && !canAddFiles}
-          className="p-1.5 rounded-lg opacity-60 hover:opacity-85 transition-opacity disabled:opacity-30"
-          aria-label="Attach"
-        >
-          <Paperclip size={16} strokeWidth={1.5} color={theme.icon.muted} />
-        </button>
-
         {!effectiveAcpBinding && (
           <div ref={toolSelectorRef} style={{ position: 'relative' }}>
             <button
@@ -680,147 +831,6 @@ export function ComposerView(props: any): React.JSX.Element {
               />
             </button>
           </Tooltip>
-        ) : null}
-
-        <div
-          ref={workspaceSelectorRef}
-          style={{ position: 'relative' }}
-          onMouseEnter={() => setWorkspaceHintHovered(true)}
-          onMouseLeave={() => setWorkspaceHintHovered(false)}
-        >
-          <button
-            type="button"
-            onClick={() => {
-              if (isWorkspaceLocked) {
-                setWorkspaceHintPinned(true)
-                return
-              }
-
-              setModelSelectorOpen(false)
-              setReasoningSelectorOpen(false)
-              setSkillsSelectorOpen(false)
-              setToolSelectorOpen(false)
-              setWorkspaceSelectorOpen((open) => !open)
-            }}
-            className="flex items-center gap-0.5 px-1 py-1 rounded-lg text-xs font-medium transition-opacity"
-            style={{
-              color: theme.text.primary,
-              opacity: workspaceSelectorOpen ? 1 : 0.6
-            }}
-            aria-label="Workspace selection"
-            aria-expanded={workspaceSelectorOpen}
-            aria-haspopup="menu"
-            disabled={isWorkspaceLocked}
-          >
-            <Folder
-              size={12}
-              strokeWidth={1.5}
-              color={currentWorkspacePath ? theme.icon.accent : theme.icon.muted}
-            />
-            <ChevronDown
-              size={10}
-              strokeWidth={1.5}
-              color={theme.icon.muted}
-              style={{
-                transform: workspaceSelectorOpen ? 'rotate(180deg)' : 'rotate(0deg)',
-                transition: 'transform 0.15s ease'
-              }}
-            />
-          </button>
-
-          {showWorkspaceHint ? (
-            <div
-              style={{
-                position: 'absolute',
-                bottom: 'calc(100% + 8px)',
-                left: 0,
-                width: 260,
-                padding: '10px 11px',
-                borderRadius: 12,
-                background: theme.background.surfaceFrosted,
-                backdropFilter: 'blur(18px)',
-                WebkitBackdropFilter: 'blur(18px)',
-                border: `1px solid ${theme.border.strong}`,
-                boxShadow: theme.shadow.overlay,
-                zIndex: 45
-              }}
-            >
-              <div
-                style={{
-                  fontSize: 12,
-                  fontWeight: 600,
-                  color: theme.text.primary,
-                  lineHeight: 1.35
-                }}
-              >
-                {workspaceHint.title}
-              </div>
-              <div
-                style={{
-                  marginTop: 4,
-                  fontSize: 12,
-                  color: theme.text.muted,
-                  lineHeight: 1.45,
-                  whiteSpace: 'pre-wrap',
-                  wordBreak: 'break-word'
-                }}
-              >
-                {workspaceHint.detail}
-              </div>
-            </div>
-          ) : null}
-
-          {workspaceSelectorOpen && !isWorkspaceLocked ? (
-            <WorkspaceSelectorPopup
-              currentWorkspacePath={currentWorkspacePath}
-              savedPaths={savedWorkspacePaths}
-              onSelectWorkspace={(workspacePath) => {
-                requestWorkspaceSelection({
-                  threadId: activeThreadId,
-                  currentWorkspacePath,
-                  nextWorkspacePath: workspacePath
-                })
-              }}
-              onChooseDirectory={() => {
-                void (async () => {
-                  const pickedPath = await window.api.yachiyo.pickWorkspaceDirectory()
-                  if (!pickedPath) {
-                    return
-                  }
-
-                  requestWorkspaceSelection({
-                    threadId: activeThreadId,
-                    currentWorkspacePath,
-                    nextWorkspacePath: pickedPath,
-                    saveWorkspacePath: pickedPath
-                  })
-                })()
-              }}
-              onClose={() => setWorkspaceSelectorOpen(false)}
-            />
-          ) : null}
-        </div>
-
-        {pendingWorkspaceChangeConfirmation ? (
-          <ConfirmDialog
-            title="Switch this handoff thread to a different workspace?"
-            description="This thread started from a handoff and inherited the previous workspace. Changing it now will detach the handoff from that inherited folder."
-            actions={[
-              { key: 'keep', label: 'Keep inherited workspace' },
-              { key: 'switch', label: 'Switch workspace', tone: 'accent' }
-            ]}
-            onClose={() => setPendingWorkspaceChangeConfirmation(null)}
-            onSelect={(key) => {
-              if (key !== 'switch') {
-                setPendingWorkspaceChangeConfirmation(null)
-                return
-              }
-
-              const selection = pendingWorkspaceChangeConfirmation
-              setPendingWorkspaceChangeConfirmation(null)
-              void commitWorkspaceSelection(selection)
-            }}
-          />
         ) : null}
 
         <div ref={modelSelectorRef} style={{ position: 'relative' }}>

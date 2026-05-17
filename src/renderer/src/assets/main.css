@@ -251,6 +251,118 @@ body > div:not(#root) {
   object-fit: cover;
 }
 
+.composer-shell {
+  background: rgb(var(--yachiyo-rgb-surface) / 0.74);
+}
+
+.composer-widget-shelf {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  height: 36px;
+  padding: 4px 16px;
+  overflow: visible;
+}
+
+.composer-widget-shelf__left,
+.composer-widget-shelf__right {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.composer-widget-shelf__left {
+  flex: 0 0 auto;
+  gap: 4px;
+}
+
+.composer-widget-shelf__right {
+  flex: 1 1 auto;
+  justify-content: flex-end;
+  pointer-events: none;
+}
+
+.composer-shelf-icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 28px;
+  height: 28px;
+  gap: 2px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  opacity: 0.62;
+  transition:
+    background 0.15s ease,
+    opacity 0.15s ease;
+}
+
+.composer-shelf-icon-button:hover,
+.composer-shelf-icon-button[aria-expanded='true'] {
+  background: rgb(var(--yachiyo-rgb-ink) / 0.045);
+  opacity: 0.92;
+}
+
+.composer-shelf-icon-button:disabled {
+  opacity: 0.28;
+}
+
+.composer-task-chip-host {
+  position: relative;
+  z-index: 20;
+  width: 100%;
+  pointer-events: none;
+}
+
+.composer-task-chip-button {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  max-width: min(100%, 360px);
+  gap: 7px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: rgb(var(--yachiyo-rgb-text-muted));
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1;
+  pointer-events: auto;
+  transition:
+    background 0.15s ease,
+    color 0.15s ease,
+    opacity 0.15s ease;
+}
+
+.composer-task-chip-button:hover,
+.composer-task-chip-button[data-open='true'] {
+  background: rgb(var(--yachiyo-rgb-ink) / 0.045);
+  color: rgb(var(--yachiyo-rgb-ink) / 0.86);
+}
+
+.composer-task-chip-button[data-running='true'] {
+  color: rgb(var(--yachiyo-rgb-ink) / 0.9);
+}
+
+.composer-task-chip-button__dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  animation: yachiyo-preparing-pulse 1.2s ease-in-out infinite;
+}
+
+.composer-input-zone {
+  padding-top: 6px;
+  padding-bottom: 8px;
+}
+
 .composer-image-strip {
   display: flex;
   gap: 10px;
