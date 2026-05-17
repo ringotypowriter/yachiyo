@@ -1,4 +1,5 @@
 import { Worker } from 'node:worker_threads'
+import { createRequire } from 'node:module'
 
 import { resolveYachiyoActivitySourceKeyPath } from '../../config/paths.ts'
 import type {
@@ -13,11 +14,13 @@ interface WorkerMessage {
   result?: QueryRowsResult
 }
 
+const appRequire = createRequire(import.meta.url)
+
 const SQLITE_SOURCE_QUERY_WORKER_SCRIPT = `
 const { parentPort, workerData } = require('node:worker_threads')
 const { createDecipheriv } = require('node:crypto')
 const { readFileSync } = require('node:fs')
-const BetterSqlite3Module = require('better-sqlite3')
+const BetterSqlite3Module = require(workerData.betterSqlite3ModulePath)
 const BetterSqlite3 =
   typeof BetterSqlite3Module === 'function' ? BetterSqlite3Module : BetterSqlite3Module.default
 
@@ -1204,6 +1207,7 @@ function runSqliteSourceQueryWorker(input: {
     eval: true,
     workerData: {
       activitySourceKeyPath: input.activitySourceKeyPath,
+      betterSqlite3ModulePath: appRequire.resolve('better-sqlite3'),
       dbPath: input.dbPath,
       input: normalizeQuerySourceInput(input.queryInput)
     }
