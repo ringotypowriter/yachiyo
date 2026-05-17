@@ -96,8 +96,18 @@ export interface QuerySourceToolDeps {
 const whereSchema = z
   .object({
     text: z.string().optional().describe('Text query for semantic or full-text matching.'),
-    since: z.string().optional().describe('Inclusive ISO timestamp lower bound.'),
-    until: z.string().optional().describe('Inclusive ISO timestamp upper bound.'),
+    since: z
+      .string()
+      .optional()
+      .describe(
+        'Inclusive ISO 8601 timestamp lower bound. Prefer UTC with Z, e.g. 2026-05-17T04:00:00.000Z. If using local clock time, include an explicit offset, e.g. 2026-05-17T12:00:00+08:00.'
+      ),
+    until: z
+      .string()
+      .optional()
+      .describe(
+        'Inclusive ISO 8601 timestamp upper bound. Prefer UTC with Z, e.g. 2026-05-17T09:07:00.000Z. If using local clock time, include an explicit offset, e.g. 2026-05-17T17:07:00+08:00.'
+      ),
     rowId: z.string().optional().describe('Open one row returned by a previous query.'),
     parentRowId: z
       .string()
@@ -128,7 +138,7 @@ function buildDescription(input: { activityOcrEnabled: boolean }): string {
     : `  Includes conversation activity and foreground app/window activity records. Does not include memories.`
 
   const activityRecordsDescription = input.activityOcrEnabled
-    ? `  Durable foreground app/window activity records. Rows include app names, bundle IDs, window titles, and window text snapshot previews when present.\n  Use this to inspect what the user was doing during a time range, search activity summaries, or search text visible in active windows.`
+    ? `  Durable foreground app/window activity records. Rows include app names, bundle IDs, window titles, and window text snapshot previews when present.\n  Use this to inspect what the user was doing during a time range, search activity summaries, or search text visible in active windows.\n  Format: index rows include windowTextSnapshotCount only. content rows include windowTextPreviews: [{ capturedAt, appName, bundleId, windowTitle?, textPreview }]. detail rows include windowTextSnapshots: [{ capturedAt, appName, bundleId, windowTitle?, text }] for the full captured window text.`
     : `  Durable foreground app/window activity records. Rows include app names, bundle IDs, and window titles.\n  Use this to inspect what the user was doing during a time range or search activity summaries.`
 
   const contentDescription = input.activityOcrEnabled
@@ -182,6 +192,12 @@ ${activitySourceEventsDescription}
 
 - activity_records
 ${activityRecordsDescription}
+
+Time Filters:
+
+- where.since and where.until must be ISO 8601 timestamps, not natural-language times.
+- Prefer UTC timestamps ending in Z. Local clock times are valid only when they include an explicit offset, such as +08:00.
+- Examples: {"since":"2026-05-17T04:00:00.000Z","until":"2026-05-17T09:07:00.000Z"} or {"since":"2026-05-17T12:00:00+08:00","until":"2026-05-17T17:07:00+08:00"}.
 
 Views:
 
@@ -238,6 +254,29 @@ function toError(message: string, input: QuerySourceToolInput): QuerySourceToolO
 function normalizeText(value: string | undefined): string | undefined {
   const trimmed = value?.replace(/\s+/gu, ' ').trim()
   return trimmed ? trimmed : undefined
+}
+
+function normalizeIsoTimestamp(value: string | undefined): string | undefined {
+  if (!value) return undefined
+  const timestamp = Date.parse(value)
+  return Number.isFinite(timestamp) ? new Date(timestamp).toISOString() : value
+}
+
+function normalizeQuerySourceInput(input: QuerySourceToolInput): QuerySourceToolInput {
+  if (!input.where) return input
+
+  const since = normalizeIsoTimestamp(input.where.since)
+  const until = normalizeIsoTimestamp(input.where.until)
+  if (since === input.where.since && until === input.where.until) return input
+
+  return {
+    ...input,
+    where: {
+      ...input.where,
+      ...(since !== undefined ? { since } : {}),
+      ...(until !== undefined ? { until } : {})
+    }
+  }
 }
 
 function includesText(value: string | undefined, text: string): boolean {
@@ -1156,21 +1195,22 @@ export function createTool(
         ? { type: 'error-text', value: output.error }
         : { type: 'content', value: output.content },
     execute: async (input, options) => {
+      const normalizedInput = normalizeQuerySourceInput(input)
       try {
-        const result = await executeQuery(deps, input, options.abortSignal)
+        const result = await executeQuery(deps, normalizedInput, options.abortSignal)
         if (isToolOutput(result)) {
           return result
         }
 
         return toResponse({
-          table: input.from,
-          view: input.view ?? 'index',
+          table: normalizedInput.from,
+          view: normalizedInput.view ?? 'index',
           rows: result.rows,
           ...(result.nextCursor ? { nextCursor: result.nextCursor } : {})
         })
       } catch (error) {
         const message = error instanceof Error ? error.message : 'querySource failed.'
-        return toError(message, input)
+        return toError(message, normalizedInput)
       }
     }
   })

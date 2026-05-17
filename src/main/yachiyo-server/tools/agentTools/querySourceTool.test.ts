@@ -706,6 +706,48 @@ test('querySource source_events returns event-like sources for a time range with
   )
 })
 
+test('querySource normalizes offset timestamps before filtering activity records', async () => {
+  const storage = createInMemoryYachiyoStorage()
+  storage.createThread({
+    thread: makeThread({
+      id: 'thread-source',
+      title: 'Source database design',
+      updatedAt: '2026-05-16T09:40:00.000Z'
+    }),
+    createdAt: BASE_TIME,
+    messages: [
+      makeMessage({
+        id: 'msg-1',
+        threadId: 'thread-source',
+        content: 'Timeline should show activity events.',
+        createdAt: '2026-05-16T09:05:00.000Z'
+      })
+    ]
+  })
+  storage.saveActivitySourceRecord(makeActivityRecord())
+
+  const tool = createQuerySourceTool({ storage, memoryService: createMemoryService() })
+  const result = parseToolJson(
+    await tool.execute!(
+      {
+        from: 'activity_records',
+        where: {
+          since: '2026-05-16T17:00:00+08:00',
+          until: '2026-05-16T18:00:00+08:00'
+        },
+        view: 'index'
+      },
+      { abortSignal: new AbortController().signal, toolCallId: 'tc-offset-time', messages: [] }
+    )
+  )
+
+  assert.equal(result.error, undefined)
+  assert.deepEqual(
+    result.rows?.map((row) => row['activityId']),
+    ['activity-1']
+  )
+})
+
 test('querySource source_events applies text filters to thread events', async () => {
   const storage = createInMemoryYachiyoStorage()
   storage.createThread({
