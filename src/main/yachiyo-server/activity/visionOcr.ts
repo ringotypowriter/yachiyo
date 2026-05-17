@@ -10,7 +10,7 @@ import type { SampleResult } from './osascript.ts'
 import { cleanActivityOcrLines } from './ActivityOcrCleaner.ts'
 
 const execFileAsync = promisify(execFile)
-const DEFAULT_TIMEOUT_MS = 5_000
+const DEFAULT_TIMEOUT_MS = 12_000
 const DEFAULT_MAX_BUFFER = 2 * 1024 * 1024
 
 interface VisionOcrLineOutput {
@@ -37,11 +37,15 @@ export interface RecognizeActivityScreenshotInput {
 export async function recognizeActivityScreenshot(
   input: RecognizeActivityScreenshotInput
 ): Promise<ActivitySnapshot | null> {
-  const { stdout } = await execFileAsync(input.helperPath, [input.imagePath], {
-    encoding: 'utf8',
-    timeout: input.timeoutMs ?? DEFAULT_TIMEOUT_MS,
-    maxBuffer: DEFAULT_MAX_BUFFER
-  })
+  const { stdout } = await execFileAsync(
+    input.helperPath,
+    ['--recognition-level', 'fast', '--languages', 'system', input.imagePath],
+    {
+      encoding: 'utf8',
+      timeout: input.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+      maxBuffer: DEFAULT_MAX_BUFFER
+    }
+  )
   const parsed = JSON.parse(stdout.trim()) as VisionOcrOutput
   const cleaned = cleanActivityOcrLines({
     lines: (parsed.lines ?? []).flatMap((line) =>

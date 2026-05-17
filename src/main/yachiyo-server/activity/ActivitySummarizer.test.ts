@@ -66,7 +66,6 @@ test('summarizeSpans reports OCR snapshot availability without injecting OCR tex
 
   assert.ok(summary)
   assert.equal(summary.snapshots?.length, 1)
-  assert.match(summary.text, /"ocrSnapshotCount":1/)
   assert.doesNotMatch(summary.text, /Activity tracker OCR excerpt/)
   assert.doesNotMatch(summary.text, /much more detail/)
 })

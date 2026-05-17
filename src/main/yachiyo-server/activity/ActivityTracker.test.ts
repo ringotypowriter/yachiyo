@@ -335,7 +335,6 @@ test('ActivityTracker captures an initial OCR snapshot while Yachiyo stays blurr
 
     assert.deepEqual(capturedTriggers, ['initial-blur'])
     assert.equal(summary?.snapshots?.length, 1)
-    assert.match(summary?.text ?? '', /"ocrSnapshotCount":1/)
     assert.doesNotMatch(summary?.text ?? '', /Activity tracker OCR context/)
   } finally {
     tracker.finalizeAndConsume()

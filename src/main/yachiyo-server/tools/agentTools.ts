@@ -118,7 +118,8 @@ export interface AgentToolDependencies {
   updateProfileDeps?: UpdateProfileDeps
   /** When provided, the remember tool is injected (local + owner DM contexts only). */
   rememberDeps?: RememberToolDeps
-  /** When provided, querySource exposes the local virtual source database. */
+  /** When provided, querySource exposes local context sources. */
+  activityOcrEnabled?: boolean
   sourceQueryExecutor?: QuerySourceExecutor
   sourceQueryStorage?: YachiyoStorage
   subagentProfiles?: SubagentProfile[]
@@ -561,6 +562,7 @@ export function createAgentToolSet(
     dependencies.memoryService?.isConfigured()
   ) {
     tools.querySource = createQuerySourceTool({
+      activityOcrEnabled: dependencies.activityOcrEnabled === true,
       ...(dependencies.sourceQueryStorage ? { storage: dependencies.sourceQueryStorage } : {}),
       ...(dependencies.sourceQueryExecutor
         ? { sourceQueryExecutor: dependencies.sourceQueryExecutor }

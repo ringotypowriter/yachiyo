@@ -373,7 +373,7 @@ test('querySource auto orders source events by timeline time across sources', as
   )
 })
 
-test('querySource keeps OCR snapshots quiet unless the activity view or text match needs them', async () => {
+test('querySource exposes window text previews without raw snapshot payloads', async () => {
   const storage = createInMemoryYachiyoStorage()
   storage.createThread({
     thread: makeThread({
@@ -402,7 +402,7 @@ test('querySource keeps OCR snapshots quiet unless the activity view or text mat
             lineCount: 2,
             contentHash: 'sha256:rare',
             excerpt: 'rare oscilloscope calibration note',
-            text: 'rare oscilloscope calibration note with full OCR detail'
+            text: 'rare oscilloscope calibration note with full captured-window detail'
           }
         }
       ]
@@ -413,13 +413,21 @@ test('querySource keeps OCR snapshots quiet unless the activity view or text mat
   const quietIndexResult = parseToolJson(
     await tool.execute!(
       { from: 'activity_records', view: 'index' },
-      { abortSignal: new AbortController().signal, toolCallId: 'tc-ocr-quiet-index', messages: [] }
+      {
+        abortSignal: new AbortController().signal,
+        toolCallId: 'tc-window-text-quiet-index',
+        messages: []
+      }
     )
   )
   const indexResult = parseToolJson(
     await tool.execute!(
       { from: 'activity_records', where: { text: 'oscilloscope' }, view: 'index' },
-      { abortSignal: new AbortController().signal, toolCallId: 'tc-ocr-index', messages: [] }
+      {
+        abortSignal: new AbortController().signal,
+        toolCallId: 'tc-window-text-index',
+        messages: []
+      }
     )
   )
   const contentResult = parseToolJson(
@@ -429,7 +437,11 @@ test('querySource keeps OCR snapshots quiet unless the activity view or text mat
         where: { rowId: 'activity_record:activity-1' },
         view: 'content'
       },
-      { abortSignal: new AbortController().signal, toolCallId: 'tc-ocr-content', messages: [] }
+      {
+        abortSignal: new AbortController().signal,
+        toolCallId: 'tc-window-text-content',
+        messages: []
+      }
     )
   )
   const detailResult = parseToolJson(
@@ -439,7 +451,11 @@ test('querySource keeps OCR snapshots quiet unless the activity view or text mat
         where: { rowId: 'activity_record:activity-1' },
         view: 'detail'
       },
-      { abortSignal: new AbortController().signal, toolCallId: 'tc-ocr-detail', messages: [] }
+      {
+        abortSignal: new AbortController().signal,
+        toolCallId: 'tc-window-text-detail',
+        messages: []
+      }
     )
   )
   const sourceEventsResult = parseToolJson(
@@ -447,37 +463,53 @@ test('querySource keeps OCR snapshots quiet unless the activity view or text mat
       { from: 'source_events', where: { text: 'oscilloscope' }, view: 'index' },
       {
         abortSignal: new AbortController().signal,
-        toolCallId: 'tc-ocr-source-events',
+        toolCallId: 'tc-window-text-source-events',
         messages: []
       }
     )
   )
 
   assert.equal(quietIndexResult.rows?.length, 1)
-  assert.equal(quietIndexResult.rows?.[0]['snapshotCount'], 1)
+  assert.equal(quietIndexResult.rows?.[0]['windowTextSnapshotCount'], 1)
   assert.equal(quietIndexResult.rows?.[0]['matchedEvidence'], undefined)
+  assert.equal(quietIndexResult.rows?.[0]['windowTextPreviews'], undefined)
+  assert.equal(quietIndexResult.rows?.[0]['snapshotCount'], undefined)
   assert.equal(quietIndexResult.rows?.[0]['snapshotExcerpts'], undefined)
+  assert.equal(quietIndexResult.rows?.[0]['snapshots'], undefined)
   assert.doesNotMatch(String(quietIndexResult.rows?.[0]['summary'] ?? ''), /oscilloscope/)
 
   assert.equal(indexResult.rows?.length, 1)
-  assert.equal(indexResult.rows?.[0]['snapshotCount'], 1)
+  assert.equal(indexResult.rows?.[0]['windowTextSnapshotCount'], 1)
   assert.match(String(indexResult.rows?.[0]['matchedEvidence'] ?? ''), /oscilloscope/)
-  assert.equal(indexResult.rows?.[0]['snapshotExcerpts'], undefined)
+  assert.equal(indexResult.rows?.[0]['windowTextPreviews'], undefined)
 
   assert.equal(sourceEventsResult.rows?.length, 1)
   assert.equal(sourceEventsResult.rows?.[0]['sourceKind'], 'activity')
-  assert.equal(sourceEventsResult.rows?.[0]['snapshotCount'], 1)
+  assert.equal(sourceEventsResult.rows?.[0]['windowTextSnapshotCount'], 1)
   assert.match(String(sourceEventsResult.rows?.[0]['matchedEvidence'] ?? ''), /oscilloscope/)
 
-  assert.deepEqual(contentResult.rows?.[0]['snapshotExcerpts'], [
-    'rare oscilloscope calibration note'
+  assert.deepEqual(contentResult.rows?.[0]['windowTextPreviews'], [
+    {
+      capturedAt: '2026-05-16T09:25:00.000Z',
+      appName: 'Example Editor',
+      bundleId: 'com.example.editor',
+      windowTitle: 'source-query.ts',
+      textPreview: 'rare oscilloscope calibration note'
+    }
   ])
   assert.equal(contentResult.rows?.[0]['snapshots'], undefined)
+  assert.equal(contentResult.rows?.[0]['snapshotExcerpts'], undefined)
 
-  const detailSnapshots = detailResult.rows?.[0]['snapshots'] as Array<{
-    ocr?: { text?: string }
-  }>
-  assert.match(detailSnapshots[0].ocr?.text ?? '', /full OCR detail/)
+  assert.deepEqual(detailResult.rows?.[0]['windowTextSnapshots'], [
+    {
+      capturedAt: '2026-05-16T09:25:00.000Z',
+      appName: 'Example Editor',
+      bundleId: 'com.example.editor',
+      windowTitle: 'source-query.ts',
+      text: 'rare oscilloscope calibration note with full captured-window detail'
+    }
+  ])
+  assert.equal(detailResult.rows?.[0]['snapshots'], undefined)
 })
 
 test('querySource rejects match ordering for non-match-ranked tables', async () => {

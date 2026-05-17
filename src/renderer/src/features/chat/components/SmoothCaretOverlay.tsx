@@ -38,6 +38,11 @@ function flushTextareaLayout(textarea: HTMLTextAreaElement): void {
   void textarea.offsetHeight
 }
 
+function isUserScrollingComposer(textarea: HTMLTextAreaElement): boolean {
+  const until = Number(textarea.dataset.composerUserScrollUntil ?? 0)
+  return Number.isFinite(until) && Date.now() < until
+}
+
 /**
  * Native caret is hidden, so the browser may not scroll the textarea on input. We still clamp
  * to [0, maxScroll]: an uncapped target fights the browser at maxHeight and desyncs highlight
@@ -467,14 +472,25 @@ export function SmoothCaretOverlay({
     // Mirror x/y are in full content coordinates; map into the highlight viewport with the
     // textarea's scrollTop (source of truth). Flush layout first so scrollHeight/clientHeight
     // match the latest value/height after React/layout effects (maxHeight composer).
-    ensureCaretVisibleInTextarea(textarea, caretPos.y, height)
+    const userScrolling = isUserScrollingComposer(textarea)
+    if (!userScrolling) {
+      ensureCaretVisibleInTextarea(textarea, caretPos.y, height)
+    }
     flushTextareaLayout(textarea)
-    highlight.scrollTop = textarea.scrollTop
+    if (userScrolling) {
+      const overlayScrollTop = Number(textarea.dataset.composerOverlayScrollTop ?? NaN)
+      highlight.scrollTop = Number.isFinite(overlayScrollTop)
+        ? overlayScrollTop
+        : textarea.scrollTop
+    } else {
+      highlight.scrollTop = textarea.scrollTop
+      delete textarea.dataset.composerOverlayScrollTop
+    }
 
     // Overlay content includes a trailing-newline sentinel so its scrollHeight may exceed
     // the textarea's. If the caret is still below the overlay viewport, scroll it further.
     const hlCh = highlight.clientHeight
-    if (hlCh > 0) {
+    if (hlCh > 0 && !userScrolling) {
       const caretBottom = caretPos.y + height
       if (caretBottom > highlight.scrollTop + hlCh) {
         const hlMax = Math.max(0, highlight.scrollHeight - hlCh)

@@ -109,6 +109,8 @@ export function createRunToolSet(input: CreateRunToolSetInput): ToolSet | undefi
         : {}),
       ...(!executionInput.thread.privacyMode && (!isExternalChannel || isOwnerDm)
         ? {
+            activityOcrEnabled:
+              input.preparedContext.config.general?.activityTracking?.ocr?.enabled === true,
             sourceQueryExecutor: deps.sourceQueryExecutor,
             sourceQueryStorage: deps.storage
           }

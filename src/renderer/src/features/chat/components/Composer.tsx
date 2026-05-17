@@ -801,6 +801,49 @@ export function Composer({
       attachmentStrip && targetNode && attachmentStrip.contains(targetNode)
     )
 
+    if (
+      overComposerInput &&
+      textarea &&
+      !localScrollElement &&
+      Math.abs(event.deltaY) > Math.abs(event.deltaX) &&
+      Math.abs(event.deltaY) > 0
+    ) {
+      event.preventDefault()
+      event.stopPropagation()
+      const deltaY =
+        event.deltaMode === WheelEvent.DOM_DELTA_LINE
+          ? event.deltaY * 16
+          : event.deltaMode === WheelEvent.DOM_DELTA_PAGE
+            ? event.deltaY * textarea.clientHeight
+            : event.deltaY
+      textarea.dataset.composerUserScrollUntil = String(Date.now() + 800)
+      if (overlayRef.current) {
+        const overlayScrollTop = resolveWheelScrollOffset(
+          {
+            scrollOffset: overlayRef.current.scrollTop,
+            viewportSize: overlayRef.current.clientHeight,
+            contentSize: overlayRef.current.scrollHeight
+          },
+          deltaY
+        )
+        const textareaMax = Math.max(0, textarea.scrollHeight - textarea.clientHeight)
+        overlayRef.current.scrollTop = overlayScrollTop
+        textarea.scrollTop = Math.min(overlayScrollTop, textareaMax)
+        textarea.dataset.composerOverlayScrollTop = String(overlayScrollTop)
+      } else {
+        textarea.scrollTop = resolveWheelScrollOffset(
+          {
+            scrollOffset: textarea.scrollTop,
+            viewportSize: textarea.clientHeight,
+            contentSize: textarea.scrollHeight
+          },
+          deltaY
+        )
+        textarea.dataset.composerOverlayScrollTop = String(textarea.scrollTop)
+      }
+      return
+    }
+
     const destination = resolveComposerWheelDestination({
       deltaX: event.deltaX,
       deltaY: event.deltaY,
@@ -833,28 +876,6 @@ export function Composer({
     if (destination === 'attachments') {
       event.preventDefault()
       attachmentStrip?.scrollBy({ left: event.deltaY })
-      return
-    }
-
-    if (destination === 'local' && overComposerInput && textarea && !localScrollElement) {
-      event.preventDefault()
-      textarea.scrollTop = resolveWheelScrollOffset(
-        {
-          scrollOffset: textarea.scrollTop,
-          viewportSize: textarea.clientHeight,
-          contentSize: textarea.scrollHeight
-        },
-        event.deltaY
-      )
-      if (overlayRef.current) {
-        const textareaMax = Math.max(0, textarea.scrollHeight - textarea.clientHeight)
-        const overlayMax = Math.max(
-          0,
-          overlayRef.current.scrollHeight - overlayRef.current.clientHeight
-        )
-        overlayRef.current.scrollTop =
-          textarea.scrollTop >= textareaMax - 1 ? overlayMax : textarea.scrollTop
-      }
       return
     }
 

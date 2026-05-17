@@ -87,6 +87,7 @@ export interface QuerySourceExecutor {
 }
 
 export interface QuerySourceToolDeps {
+  activityOcrEnabled?: boolean
   memoryService?: MemoryService
   sourceQueryExecutor?: QuerySourceExecutor
   storage?: YachiyoStorage
@@ -121,10 +122,27 @@ const inputSchema = z.object({
   cursor: z.string().optional().describe('Pagination cursor returned by a previous query.')
 })
 
-const DESCRIPTION = `
-Query a read-only local source database built from durable user data.
+function buildDescription(input: { activityOcrEnabled: boolean }): string {
+  const activitySourceEventsDescription = input.activityOcrEnabled
+    ? `  Includes conversation activity and foreground app/window activity records. Activity rows can include window text snapshot previews when present. Does not include memories.`
+    : `  Includes conversation activity and foreground app/window activity records. Does not include memories.`
 
-The data is exposed as virtual tables. This tool does not execute raw SQL.
+  const activityRecordsDescription = input.activityOcrEnabled
+    ? `  Durable foreground app/window activity records. Rows include app names, bundle IDs, window titles, and window text snapshot previews when present.\n  Use this to inspect what the user was doing during a time range, search activity summaries, or search text visible in active windows.`
+    : `  Durable foreground app/window activity records. Rows include app names, bundle IDs, and window titles.\n  Use this to inspect what the user was doing during a time range or search activity summaries.`
+
+  const contentDescription = input.activityOcrEnabled
+    ? `  Return the main content for matching rows. For activity records, rows with captured window text include windowTextPreviews.`
+    : `  Return the main content for matching rows.`
+
+  const detailDescription = input.activityOcrEnabled
+    ? `  Return fuller surrounding context. For activity records, rows with captured window text include full windowTextSnapshots. Use this only after narrowing results with a rowId, parentRowId, threadId, folderId, or tight time range.`
+    : `  Return fuller surrounding context. Use this only after narrowing results with a rowId, parentRowId, threadId, folderId, or tight time range.`
+
+  return `
+Query read-only local context sources saved by Yachiyo.
+
+The sources are exposed as virtual tables. This tool does not execute raw SQL.
 Use \`from\` to choose one table, \`where\` to filter rows, and \`view\` to choose how much content to return.
 Rows are semantic records, not just search snippets. Each row may include a \`rowId\` for follow-up queries; \`rowId\` is only a join key, not the useful content.
 
@@ -138,7 +156,7 @@ Tables:
 
 - source_events
   A timeline view over event-like sources. Use this when you need to know what happened during a time range.
-  Includes thread activity and computer activity. Does not include memories.
+${activitySourceEventsDescription}
 
 - memories
   Long-term extracted facts, preferences, decisions, plans, and user context.
@@ -163,8 +181,7 @@ Tables:
   Use this to read fuller context from a past thread.
 
 - activity_records
-  Durable user activity records from apps/windows.
-  Use this to inspect what the user was doing during a time range, or to search activity summaries.
+${activityRecordsDescription}
 
 Views:
 
@@ -173,10 +190,10 @@ Views:
   Use this first when discovering data.
 
 - content
-  Return the main content for matching rows.
+${contentDescription}
 
 - detail
-  Return fuller surrounding context. Use this only after narrowing results with a rowId, parentRowId, threadId, folderId, or tight time range.
+${detailDescription}
 
 Ordering:
 
@@ -197,6 +214,7 @@ Rules:
 - Use thread_spans to discover past discussions, then thread_messages to read fuller dialogue.
 - Same-folder threads are a strong community signal, but they are not expanded unless you query by folderId or follow an available folder view.
 `
+}
 
 function toResponse(payload: Record<string, unknown>, error?: string): QuerySourceToolOutput {
   return {
@@ -834,7 +852,7 @@ function queryThreadFolders(input: QuerySourceToolInput, catalog: SourceCatalog)
   return paginate(sortByOrder(rows, resolveOrder(input, 'timeDesc')), input)
 }
 
-function activitySnapshotSearchText(snapshot: ActivitySnapshot): string {
+function activityWindowTextSearchText(snapshot: ActivitySnapshot): string {
   return [
     snapshot.appName,
     snapshot.bundleId,
@@ -846,8 +864,34 @@ function activitySnapshotSearchText(snapshot: ActivitySnapshot): string {
     .join('\n')
 }
 
-function activitySnapshotExcerpt(snapshot: ActivitySnapshot): string | undefined {
-  return snapshot.ocr?.excerpt || snapshot.error
+function activityWindowTextPreview(snapshot: ActivitySnapshot): string | undefined {
+  return snapshot.ocr?.excerpt
+}
+
+function toWindowTextPreview(snapshot: ActivitySnapshot): Record<string, unknown> | undefined {
+  const textPreview = activityWindowTextPreview(snapshot)
+  if (!textPreview) return undefined
+
+  return {
+    capturedAt: snapshot.capturedAt,
+    appName: snapshot.appName,
+    bundleId: snapshot.bundleId,
+    ...(snapshot.windowTitle ? { windowTitle: snapshot.windowTitle } : {}),
+    textPreview
+  }
+}
+
+function toWindowTextSnapshot(snapshot: ActivitySnapshot): Record<string, unknown> | undefined {
+  const text = snapshot.ocr?.text ?? snapshot.ocr?.excerpt
+  if (!text) return undefined
+
+  return {
+    capturedAt: snapshot.capturedAt,
+    appName: snapshot.appName,
+    bundleId: snapshot.bundleId,
+    ...(snapshot.windowTitle ? { windowTitle: snapshot.windowTitle } : {}),
+    text
+  }
 }
 
 function findActivityMatchedEvidence(
@@ -872,7 +916,7 @@ function findActivityMatchedEvidence(
   }
 
   const snapshot = record.snapshots?.find((candidate) =>
-    includesText(activitySnapshotSearchText(candidate), text)
+    includesText(activityWindowTextSearchText(candidate), text)
   )
   const snapshotText = snapshot?.ocr?.text ?? snapshot?.ocr?.excerpt
   return snapshotText ? truncate(snapshotText) : undefined
@@ -908,10 +952,12 @@ function toActivityRecordRow(
   const thread = catalog.threadById.get(record.threadId)
   const folder = thread ? toFolderReference(thread, catalog.foldersById) : undefined
   const apps = [...new Set(record.entries.map((entry) => entry.appName))]
-  const snapshots = record.snapshots ?? []
-  const snapshotExcerpts = snapshots
-    .map(activitySnapshotExcerpt)
-    .filter((value): value is string => typeof value === 'string' && value.length > 0)
+  const windowTextPreviews = (record.snapshots ?? [])
+    .map(toWindowTextPreview)
+    .filter((value): value is Record<string, unknown> => value !== undefined)
+  const windowTextSnapshots = (record.snapshots ?? [])
+    .map(toWindowTextSnapshot)
+    .filter((value): value is Record<string, unknown> => value !== undefined)
   const matchedEvidence = findActivityMatchedEvidence(record, normalizeText(where?.text))
   return {
     table: 'activity_records',
@@ -932,12 +978,13 @@ function toActivityRecordRow(
     uniqueApps: record.uniqueApps,
     summary: record.summaryText,
     apps,
-    ...(snapshots.length > 0 ? { snapshotCount: snapshots.length } : {}),
+    ...(windowTextPreviews.length > 0
+      ? { windowTextSnapshotCount: windowTextPreviews.length }
+      : {}),
     ...(matchedEvidence ? { matchedEvidence } : {}),
     ...(view !== 'index' ? { entries: record.entries } : {}),
-    ...(view === 'content' && snapshotExcerpts.length > 0 ? { snapshotExcerpts } : {}),
-    ...(view === 'detail' && snapshotExcerpts.length > 0 ? { snapshotExcerpts } : {}),
-    ...(view === 'detail' && snapshots.length > 0 ? { snapshots } : {}),
+    ...(view === 'content' && windowTextPreviews.length > 0 ? { windowTextPreviews } : {}),
+    ...(view === 'detail' && windowTextSnapshots.length > 0 ? { windowTextSnapshots } : {}),
     availableViews: ['content', 'detail']
   }
 }
@@ -1039,7 +1086,9 @@ function querySourceEvents(
         endedAt: row['endedAt'],
         timeRange: row['timeRange'],
         summary: row['summary'],
-        ...(row['snapshotCount'] ? { snapshotCount: row['snapshotCount'] } : {}),
+        ...(row['windowTextSnapshotCount']
+          ? { windowTextSnapshotCount: row['windowTextSnapshotCount'] }
+          : {}),
         ...(row['matchedEvidence'] ? { matchedEvidence: row['matchedEvidence'] } : {}),
         availableViews: ['activityRecord']
       }
@@ -1100,7 +1149,7 @@ export function createTool(
   deps: QuerySourceToolDeps
 ): Tool<QuerySourceToolInput, QuerySourceToolOutput> {
   return tool({
-    description: DESCRIPTION.trim(),
+    description: buildDescription({ activityOcrEnabled: deps.activityOcrEnabled === true }).trim(),
     inputSchema,
     toModelOutput: ({ output }) =>
       output.error

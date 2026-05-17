@@ -860,7 +860,7 @@ function decryptActivityPayload(row) {
   return JSON.parse(plaintext)
 }
 
-function activitySnapshotSearchText(snapshot) {
+function activityWindowTextSearchText(snapshot) {
   return [
     snapshot.appName,
     snapshot.bundleId,
@@ -872,8 +872,34 @@ function activitySnapshotSearchText(snapshot) {
     .join('\\n')
 }
 
-function activitySnapshotExcerpt(snapshot) {
-  return snapshot.ocr?.excerpt || snapshot.error
+function activityWindowTextPreview(snapshot) {
+  return snapshot.ocr?.excerpt
+}
+
+function toWindowTextPreview(snapshot) {
+  const textPreview = activityWindowTextPreview(snapshot)
+  if (!textPreview) return undefined
+
+  return {
+    capturedAt: snapshot.capturedAt,
+    appName: snapshot.appName,
+    bundleId: snapshot.bundleId,
+    ...(snapshot.windowTitle ? { windowTitle: snapshot.windowTitle } : {}),
+    textPreview
+  }
+}
+
+function toWindowTextSnapshot(snapshot) {
+  const text = snapshot.ocr?.text ?? snapshot.ocr?.excerpt
+  if (!text) return undefined
+
+  return {
+    capturedAt: snapshot.capturedAt,
+    appName: snapshot.appName,
+    bundleId: snapshot.bundleId,
+    ...(snapshot.windowTitle ? { windowTitle: snapshot.windowTitle } : {}),
+    text
+  }
 }
 
 function findActivityMatchedEvidence(record, text) {
@@ -895,7 +921,7 @@ function findActivityMatchedEvidence(record, text) {
   }
 
   const snapshot = record.snapshots?.find((candidate) =>
-    includesText(activitySnapshotSearchText(candidate), text)
+    includesText(activityWindowTextSearchText(candidate), text)
   )
   const snapshotText = snapshot?.ocr?.text ?? snapshot?.ocr?.excerpt
   return snapshotText ? truncate(snapshotText) : undefined
@@ -937,10 +963,12 @@ function toActivityRecord(row) {
 function toActivityRecordRow(record, row, view, where) {
   const folder = toFolderReference(row)
   const apps = [...new Set(record.entries.map((entry) => entry.appName))]
-  const snapshots = record.snapshots ?? []
-  const snapshotExcerpts = snapshots
-    .map(activitySnapshotExcerpt)
-    .filter((value) => typeof value === 'string' && value.length > 0)
+  const windowTextPreviews = (record.snapshots ?? [])
+    .map(toWindowTextPreview)
+    .filter((value) => value !== undefined)
+  const windowTextSnapshots = (record.snapshots ?? [])
+    .map(toWindowTextSnapshot)
+    .filter((value) => value !== undefined)
   const matchedEvidence = findActivityMatchedEvidence(record, normalizeText(where?.text))
   return {
     table: 'activity_records',
@@ -961,12 +989,11 @@ function toActivityRecordRow(record, row, view, where) {
     uniqueApps: record.uniqueApps,
     summary: record.summaryText,
     apps,
-    ...(snapshots.length > 0 ? { snapshotCount: snapshots.length } : {}),
+    ...(windowTextPreviews.length > 0 ? { windowTextSnapshotCount: windowTextPreviews.length } : {}),
     ...(matchedEvidence ? { matchedEvidence } : {}),
     ...(view !== 'index' ? { entries: record.entries } : {}),
-    ...(view === 'content' && snapshotExcerpts.length > 0 ? { snapshotExcerpts } : {}),
-    ...(view === 'detail' && snapshotExcerpts.length > 0 ? { snapshotExcerpts } : {}),
-    ...(view === 'detail' && snapshots.length > 0 ? { snapshots } : {}),
+    ...(view === 'content' && windowTextPreviews.length > 0 ? { windowTextPreviews } : {}),
+    ...(view === 'detail' && windowTextSnapshots.length > 0 ? { windowTextSnapshots } : {}),
     availableViews: ['content', 'detail']
   }
 }
@@ -1073,7 +1100,9 @@ function querySourceEvents(db, input) {
       endedAt: activity.endedAt,
       timeRange: activity.timeRange,
       summary: activity.summary,
-      ...(activity.snapshotCount ? { snapshotCount: activity.snapshotCount } : {}),
+      ...(activity.windowTextSnapshotCount
+        ? { windowTextSnapshotCount: activity.windowTextSnapshotCount }
+        : {}),
       ...(activity.matchedEvidence ? { matchedEvidence: activity.matchedEvidence } : {}),
       availableViews: ['activityRecord']
     })

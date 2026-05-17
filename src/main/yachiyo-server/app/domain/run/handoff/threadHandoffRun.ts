@@ -203,6 +203,7 @@ export async function streamCompactThreadHandoff(
           ...(!sourceThread.privacyMode &&
           (!preparedContext.isExternalChannel || preparedContext.isOwnerDm)
             ? {
+                activityOcrEnabled: config.general?.activityTracking?.ocr?.enabled === true,
                 sourceQueryExecutor: deps.sourceQueryExecutor,
                 sourceQueryStorage: deps.storage
               }

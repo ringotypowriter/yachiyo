@@ -31,7 +31,7 @@ export interface ActivitySummary {
   afkDurationMs?: number
   /** Aggregated activity entries, sorted by duration descending. */
   entries: ActivitySummaryEntry[]
-  /** Low-frequency OCR snapshots captured while Yachiyo was blurred. */
+  /** Low-frequency window text snapshots captured while Yachiyo was blurred. */
   snapshots?: ActivitySnapshot[]
 }
 
@@ -126,7 +126,7 @@ export function summarizeSpans(
   }
 
   if (snapshots.length > 0) {
-    lines.push(JSON.stringify({ ocrSnapshotCount: snapshots.length }))
+    lines.push(JSON.stringify({ windowTextSnapshotCount: snapshots.length }))
   }
 
   if (truncated > 0) {

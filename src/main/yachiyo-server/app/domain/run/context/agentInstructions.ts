@@ -218,7 +218,7 @@ export function buildAgentInstructions(input: {
 
   if (input.hasSourceQuery) {
     instructions.push(
-      'querySource is available internally. Use it to query durable source data, including memories when configured, local thread records, and activity records when source storage is available. In user-facing answers, describe thread records as conversations unless naming a table or field.'
+      'querySource is available internally. Use it to look up local context sources, including memories when configured, past conversations, and activity records when source storage is available. In user-facing answers, describe thread records as conversations unless naming a table or field.'
     )
   }
 
