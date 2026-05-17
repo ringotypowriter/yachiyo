@@ -132,7 +132,7 @@ For each reviewed thread, produce:
   * A **default behavior** to adopt always (likely a trait):
     "Before recommending a file path, verify it with Read/Glob" ✓
   * A **methodology** for this *class* of task (likely a skill):
-    "For finding anime resources: try the site's RSS feed first, fall back
+    "For finding media resources: try the site's RSS feed first, fall back
     to scraping only if no feed exists" ✓
   Both shapes are valid. Don't force domain-specific procedural know-how
   into behavioral shape — if the lesson only fires when facing this kind
@@ -195,15 +195,15 @@ For each insight, answer:
   background) that isn't already in USER.md and would concretely change
   how I respond to this person
   → **profile update**. Call \`updateProfile\`.
-- **A durable fact** about the leader, project, or world (not behavior,
+- **A durable fact** about the user, project, or world (not behavior,
   not procedure)
   → **memory**. Save with \`remember\`.
 
 Worked examples:
 - "I verify before claiming" — fires in every conversation → **trait**
-- "For anime/donghua resources, try the site's RSS feed first" — only
-  fires when the task is finding anime → **skill**
-- "User said they prefer bun over npm" — stable user preference → **profile update**
+- "For media resources, try the site's RSS feed first" — only
+  fires when the task is finding media → **skill**
+- "User said they prefer pnpm over npm" — stable user preference → **profile update**
 - "Yachiyo's settings live at ~/.yachiyo" — static fact → **memory**
 
 Litmus test: would future-me, facing the SAME class of task with no memory
@@ -217,7 +217,7 @@ Behavioral rules, default stances, tone adjustments, and "always / never"
 principles. Written in first person, one sentence each. Examples:
 - "I verify file paths before recommending them, every time."
 - "I answer terse questions tersely; I don't pad with preamble."
-- "When the leader sounds tired, I drop the cheerleader voice."
+- "When the user sounds tired, I drop the cheerleader voice."
 
 One trait per distinct lesson. Don't bundle.
 
@@ -226,7 +226,7 @@ One trait per distinct lesson. Don't bundle.
 A skill encodes a **methodology for a class of tasks** — judgment about HOW
 to approach problems of a specific shape. Future-you, facing the same task
 class again, should benefit from following the skill instead of re-deriving
-the approach. Skills CAN be domain-specific — "how to find anime sources"
+the approach. Skills CAN be domain-specific — "how to find media sources"
 is a perfectly good skill, even though it doesn't fire in most conversations.
 
 **Decide refine vs. create using Step 5a's map — invoked evidence only:**
@@ -240,7 +240,7 @@ that a specific skill was in play.
   incident. The non-bundled origin values (\`custom\`, \`workspace\`,
   \`external\`) all permit direct file edits.
 - **Invoked + \`origin === "bundled"\` + run went sideways** → **do not
-  edit**. Record under \`## Bundled skill suggestions\` so the leader can
+  edit**. Record under \`## Bundled skill suggestions\` so the user can
   upstream.
 - **No \`skillsRead\` evidence for the failing task class**, and the
   lesson is a real methodology (not just a one-line rule) → go to
@@ -269,7 +269,7 @@ purpose only:
    b. If its body genuinely covers the failing case → **do NOT create**
       a duplicate. Either fall through to a trait / memory, or if the
       existing skill's \`origin\` is \`"bundled"\`, record the gap under
-      \`## Bundled skill suggestions\` for the leader to upstream.
+      \`## Bundled skill suggestions\` for the user to upstream.
       (Remember: you still cannot refine a bundled skill, and you still
       cannot refine a non-bundled ambient skill either, because you have
       no direct evidence it was in play for the reviewed run.)
@@ -333,8 +333,8 @@ class. New skills go to \`~/.yachiyo/skills/custom/\` by default.
   A skill that hides the specifics is just a vague trait.
 
 Good skill examples:
-- "How to find anime / manga / donghua sources" — try RSS feeds for known
-  trackers (dmhy, nyaa, …) first, fall back to scraping; decision tree for
+- "How to find media sources" — try RSS feeds for known trackers first,
+  fall back to scraping; decision tree for
   site choice; legality flag.
 - "How to decompose an ambiguous feature request into testable increments"
 - "How to diagnose a user's real intent when their first message is vague"
@@ -368,7 +368,7 @@ Write to the appropriate section via \`updateProfile\`:
 Cap: at most **1 profile update** per run.
 
 ### → Memory  (use \`remember\` — only if none of the above fits)
-Durable facts about the leader, the project, or the world that aren't
+Durable facts about the user, the project, or the world that aren't
 behavior and aren't procedures. Most self-review insights are NOT this
 shape — prefer trait or skill first.
 
@@ -387,14 +387,14 @@ shape — prefer trait or skill first.
   local edit is silently destroyed. If a lesson implicates a bundled
   skill, record it in the final report under \`## Bundled skill suggestions\`
   with: the skill name, the reviewed thread id, and the concrete delta you
-  would have applied. The leader will decide whether to upstream it manually.
+  would have applied. The user will decide whether to upstream it manually.
 - **Don't avoid skills.** If a correction revealed a domain methodology
   you'd re-fail at next time, write the skill. The bar is "would I
   re-derive this from scratch?", not "is this a perfect, universal
   formalization?". A 0-skill run is fine if no methodology came up — but
   don't crush domain-specific procedural lessons into trait shape just to
-  keep the skill count at zero. The dmhy/RSS lesson, the GUM 8-step
-  framework, "uv over pip for Python setup" — these are skills, not traits.
+  keep the skill count at zero. The RSS feed lesson, a metrology
+  framework, "a modern package manager over the default for Python setup" — these are skills, not traits.
 - When in doubt between trait and skill, ask: "would this fire in EVERY
   future conversation, or only when I face this task class?" Every →
   trait. Only this class → skill.
