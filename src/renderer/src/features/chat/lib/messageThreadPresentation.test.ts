@@ -6,7 +6,8 @@ import {
   getQueuedFollowUpMessage,
   getRootAssistantMessages,
   getTimelineMessages,
-  getVisibleToolCallsForGroup
+  getVisibleToolCallsForGroup,
+  partitionToolCallsForGroups
 } from './messageThreadPresentation.ts'
 
 const TIMESTAMP = '2026-03-15T00:00:00.000Z'
@@ -187,6 +188,347 @@ test('getTimelineMessages excludes a queued follow-up until the thread starts th
     }).map((message) => message.id),
     ['user-1', 'user-follow-up', 'background-note']
   )
+})
+
+test('getTimelineMessages preserves hidden path records for visible grouping', () => {
+  const messages = [
+    {
+      id: 'user-1',
+      threadId: 'thread-1',
+      role: 'user' as const,
+      content: 'Visible request',
+      status: 'completed' as const,
+      createdAt: TIMESTAMP
+    },
+    {
+      id: 'assistant-before-hidden',
+      threadId: 'thread-1',
+      role: 'assistant' as const,
+      parentMessageId: 'user-1',
+      content: 'Initial visible answer',
+      status: 'completed' as const,
+      createdAt: '2026-03-15T00:00:01.000Z'
+    },
+    {
+      id: 'hidden-background-notice',
+      threadId: 'thread-1',
+      role: 'user' as const,
+      parentMessageId: 'assistant-before-hidden',
+      content: '[Background task completed]',
+      hidden: true,
+      status: 'completed' as const,
+      createdAt: '2026-03-15T00:00:02.000Z'
+    },
+    {
+      id: 'assistant-after-hidden',
+      threadId: 'thread-1',
+      role: 'assistant' as const,
+      parentMessageId: 'hidden-background-notice',
+      content: 'Continued visible answer',
+      status: 'completed' as const,
+      createdAt: '2026-03-15T00:00:03.000Z'
+    }
+  ]
+
+  const timelineMessages = getTimelineMessages({
+    thread: {
+      id: 'thread-1',
+      title: 'Thread',
+      updatedAt: TIMESTAMP,
+      headMessageId: 'assistant-after-hidden'
+    },
+    messages
+  })
+  const [group] = buildMessageGroups({
+    thread: {
+      id: 'thread-1',
+      title: 'Thread',
+      updatedAt: TIMESTAMP,
+      headMessageId: 'assistant-after-hidden'
+    },
+    messages: timelineMessages,
+    runPhase: 'idle',
+    activeRequestMessageId: null
+  })
+
+  assert.deepEqual(
+    timelineMessages.map((message) => message.id),
+    ['user-1', 'assistant-before-hidden', 'hidden-background-notice', 'assistant-after-hidden']
+  )
+  assert.deepEqual(
+    group?.activeAssistantMessages.map((message) => message.id),
+    ['assistant-before-hidden', 'assistant-after-hidden']
+  )
+  assert.deepEqual(group?.hiddenRequestMessageIds, ['hidden-background-notice'])
+})
+
+test('getTimelineMessages keeps queued follow-up drafts out of grouping input', () => {
+  const messages = [
+    {
+      id: 'user-1',
+      threadId: 'thread-1',
+      role: 'user' as const,
+      content: 'Visible request',
+      status: 'completed' as const,
+      createdAt: TIMESTAMP
+    },
+    {
+      id: 'queued-hidden-follow-up',
+      threadId: 'thread-1',
+      role: 'user' as const,
+      parentMessageId: 'user-1',
+      content: '[Background task completed]',
+      hidden: true,
+      status: 'completed' as const,
+      createdAt: '2026-03-15T00:00:01.000Z'
+    }
+  ]
+
+  assert.deepEqual(
+    getTimelineMessages({
+      thread: {
+        id: 'thread-1',
+        title: 'Thread',
+        updatedAt: TIMESTAMP,
+        headMessageId: 'user-1',
+        queuedFollowUpMessageId: 'queued-hidden-follow-up'
+      },
+      messages
+    }).map((message) => message.id),
+    ['user-1']
+  )
+})
+
+test('buildMessageGroups ignores hidden user messages on the visible head path', () => {
+  const groups = buildMessageGroups({
+    thread: {
+      id: 'thread-1',
+      title: 'Thread',
+      updatedAt: TIMESTAMP,
+      headMessageId: 'hidden-background-notice'
+    },
+    messages: [
+      {
+        id: 'user-1',
+        threadId: 'thread-1',
+        role: 'user',
+        content: 'Visible request',
+        status: 'completed',
+        createdAt: TIMESTAMP
+      },
+      {
+        id: 'hidden-background-notice',
+        threadId: 'thread-1',
+        role: 'user',
+        parentMessageId: 'user-1',
+        content: '[Background task completed]',
+        hidden: true,
+        status: 'completed',
+        createdAt: '2026-03-15T00:00:01.000Z'
+      }
+    ],
+    runPhase: 'idle',
+    activeRequestMessageId: null
+  })
+
+  assert.deepEqual(
+    groups.map((group) => group.userMessage.id),
+    ['user-1']
+  )
+})
+
+test('buildMessageGroups attaches hidden steer continuations to the previous visible assistant group', () => {
+  const [group] = buildMessageGroups({
+    thread: {
+      id: 'thread-1',
+      title: 'Thread',
+      updatedAt: TIMESTAMP,
+      headMessageId: 'assistant-after-hidden'
+    },
+    messages: [
+      {
+        id: 'user-1',
+        threadId: 'thread-1',
+        role: 'user',
+        content: 'Visible request',
+        status: 'completed',
+        createdAt: TIMESTAMP
+      },
+      {
+        id: 'assistant-before-hidden',
+        threadId: 'thread-1',
+        role: 'assistant',
+        parentMessageId: 'user-1',
+        content: 'Initial visible answer',
+        status: 'completed',
+        createdAt: '2026-03-15T00:00:01.000Z'
+      },
+      {
+        id: 'hidden-background-notice',
+        threadId: 'thread-1',
+        role: 'user',
+        parentMessageId: 'assistant-before-hidden',
+        content: '[Background task completed]',
+        hidden: true,
+        status: 'completed',
+        createdAt: '2026-03-15T00:00:02.000Z'
+      },
+      {
+        id: 'assistant-after-hidden',
+        threadId: 'thread-1',
+        role: 'assistant',
+        parentMessageId: 'hidden-background-notice',
+        content: 'Continued visible answer',
+        status: 'completed',
+        createdAt: '2026-03-15T00:00:03.000Z'
+      }
+    ],
+    runPhase: 'idle',
+    activeRequestMessageId: null
+  })
+
+  assert.equal(group?.userMessage.id, 'user-1')
+  assert.deepEqual(
+    group?.assistantBranches.map((branch) => branch.message.id),
+    ['assistant-before-hidden']
+  )
+  assert.deepEqual(
+    group?.activeAssistantMessages.map((message) => message.id),
+    ['assistant-before-hidden', 'assistant-after-hidden']
+  )
+  assert.deepEqual(group?.hiddenRequestMessageIds, ['hidden-background-notice'])
+})
+
+test('buildMessageGroups includes streaming assistant output for an active hidden steer', () => {
+  const [group] = buildMessageGroups({
+    thread: {
+      id: 'thread-1',
+      title: 'Thread',
+      updatedAt: TIMESTAMP,
+      headMessageId: 'hidden-background-notice'
+    },
+    messages: [
+      {
+        id: 'user-1',
+        threadId: 'thread-1',
+        role: 'user',
+        content: 'Visible request',
+        status: 'completed',
+        createdAt: TIMESTAMP
+      },
+      {
+        id: 'assistant-before-hidden',
+        threadId: 'thread-1',
+        role: 'assistant',
+        parentMessageId: 'user-1',
+        content: 'Initial visible answer',
+        status: 'completed',
+        createdAt: '2026-03-15T00:00:01.000Z'
+      },
+      {
+        id: 'hidden-background-notice',
+        threadId: 'thread-1',
+        role: 'user',
+        parentMessageId: 'assistant-before-hidden',
+        content: '[Background task completed]',
+        hidden: true,
+        status: 'completed',
+        createdAt: '2026-03-15T00:00:02.000Z'
+      },
+      {
+        id: 'assistant-after-hidden',
+        threadId: 'thread-1',
+        role: 'assistant',
+        parentMessageId: 'hidden-background-notice',
+        content: 'Streaming hidden continuation',
+        status: 'streaming',
+        createdAt: '2026-03-15T00:00:03.000Z'
+      }
+    ],
+    runPhase: 'streaming',
+    activeRequestMessageId: 'hidden-background-notice'
+  })
+
+  assert.equal(group?.userMessage.id, 'user-1')
+  assert.deepEqual(
+    group?.activeAssistantMessages.map((message) => message.id),
+    ['assistant-before-hidden', 'assistant-after-hidden']
+  )
+  assert.deepEqual(group?.hiddenRequestMessageIds, ['hidden-background-notice'])
+})
+
+test('partitionToolCallsForGroups attaches hidden-steer tool calls to the visible group', () => {
+  const [group] = buildMessageGroups({
+    thread: {
+      id: 'thread-1',
+      title: 'Thread',
+      updatedAt: TIMESTAMP,
+      headMessageId: 'assistant-after-hidden'
+    },
+    messages: [
+      {
+        id: 'user-1',
+        threadId: 'thread-1',
+        role: 'user',
+        content: 'Visible request',
+        status: 'completed',
+        createdAt: TIMESTAMP
+      },
+      {
+        id: 'assistant-before-hidden',
+        threadId: 'thread-1',
+        role: 'assistant',
+        parentMessageId: 'user-1',
+        content: 'Initial visible answer',
+        status: 'completed',
+        createdAt: '2026-03-15T00:00:01.000Z'
+      },
+      {
+        id: 'hidden-background-notice',
+        threadId: 'thread-1',
+        role: 'user',
+        parentMessageId: 'assistant-before-hidden',
+        content: '[Background task completed]',
+        hidden: true,
+        status: 'completed',
+        createdAt: '2026-03-15T00:00:02.000Z'
+      },
+      {
+        id: 'assistant-after-hidden',
+        threadId: 'thread-1',
+        role: 'assistant',
+        parentMessageId: 'hidden-background-notice',
+        content: 'Continued visible answer',
+        status: 'completed',
+        createdAt: '2026-03-15T00:00:03.000Z'
+      }
+    ],
+    runPhase: 'idle',
+    activeRequestMessageId: null
+  })
+
+  const { inlineToolCalls, orphanToolCalls } = partitionToolCallsForGroups({
+    groups: group ? [group] : [],
+    toolCalls: [
+      {
+        id: 'tool-hidden-leg',
+        runId: 'run-1',
+        threadId: 'thread-1',
+        toolName: 'read',
+        status: 'completed',
+        inputSummary: 'result.txt',
+        requestMessageId: 'hidden-background-notice',
+        assistantMessageId: 'assistant-after-hidden',
+        startedAt: '2026-03-15T00:00:02.500Z'
+      }
+    ]
+  })
+
+  assert.deepEqual(
+    inlineToolCalls.map((toolCall) => toolCall.id),
+    ['tool-hidden-leg']
+  )
+  assert.deepEqual(orphanToolCalls, [])
 })
 
 test('buildMessageGroups shows a preparing slot on the retried historical request before the first token arrives', () => {

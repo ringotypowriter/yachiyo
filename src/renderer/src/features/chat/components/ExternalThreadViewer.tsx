@@ -15,6 +15,7 @@ import { MessageMarkdown } from '@renderer/lib/markdown/MessageMarkdown'
 import type { MarkdownImageContextValue } from '@renderer/lib/markdown/MarkdownImage'
 import { ToolCallRow } from './ToolCallRow.tsx'
 import { getNativeScrollIntoViewOptions } from '../lib/messageTimelineScroll.ts'
+import { isVisibleTimelineMessage } from '../lib/messageThreadPresentation.ts'
 
 function ExternalUserBubble({ message }: { message: Message }): React.JSX.Element {
   return (
@@ -147,7 +148,9 @@ export function ExternalThreadViewer({ threadId }: { threadId: string | null }):
     )
   }
 
-  const visibleMessages = messages.filter((m) => m.role === 'user' || m.role === 'assistant')
+  const visibleMessages = messages.filter(
+    (m) => isVisibleTimelineMessage(m) && (m.role === 'user' || m.role === 'assistant')
+  )
 
   if (visibleMessages.length === 0) {
     return (

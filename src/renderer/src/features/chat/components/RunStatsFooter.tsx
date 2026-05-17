@@ -5,12 +5,12 @@ import type { RunRecord, ToolCall } from '@renderer/app/types'
 import { useAppStore } from '@renderer/app/store/useAppStore'
 import { theme, alpha } from '@renderer/theme/theme'
 import { DiffPreviewerModal } from './DiffPreviewerModal'
-import { countToolCallsForRun, findLatestRunForRequest } from '../lib/runMemoryPresentation.ts'
+import { countToolCallsForRun, findLatestRunForRequests } from '../lib/runMemoryPresentation.ts'
 
 interface RunStatsFooterProps {
   runs: RunRecord[]
   toolCalls: ToolCall[]
-  requestMessageId: string
+  requestMessageIds: readonly string[]
 }
 
 /** Minimum elapsed seconds before the footer is shown. */
@@ -28,7 +28,7 @@ function formatElapsed(ms: number): string {
 export function RunStatsFooter({
   runs,
   toolCalls,
-  requestMessageId
+  requestMessageIds
 }: RunStatsFooterProps): React.JSX.Element | null {
   const [showDiffModal, setShowDiffModal] = useState(false)
 
@@ -38,7 +38,7 @@ export function RunStatsFooter({
   const snapshotReviewByRun = useAppStore((s) => s.snapshotReviewByRun)
 
   const runInfo = useMemo(() => {
-    const run = findLatestRunForRequest(runs, requestMessageId, (candidate) => {
+    const run = findLatestRunForRequests(runs, requestMessageIds, (candidate) => {
       return candidate.completedAt != null
     })
     if (!run || !run.completedAt) return null
@@ -57,7 +57,7 @@ export function RunStatsFooter({
       toolCallCount,
       workspacePath: run.workspacePath ?? snapshotReviewByRun[run.id]?.workspacePath ?? ''
     }
-  }, [runs, toolCalls, requestMessageId, snapshotReviewByRun])
+  }, [runs, toolCalls, requestMessageIds, snapshotReviewByRun])
 
   const handleOpenDiff = useCallback(() => {
     setShowDiffModal(true)

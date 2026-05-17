@@ -137,8 +137,21 @@ export function findLatestRunForRequest(
   requestMessageId: string,
   predicate: (run: RunRecord) => boolean = () => true
 ): RunRecord | null {
+  return findLatestRunForRequests(runs, [requestMessageId], predicate)
+}
+
+export function findLatestRunForRequests(
+  runs: RunRecord[],
+  requestMessageIds: readonly string[],
+  predicate: (run: RunRecord) => boolean = () => true
+): RunRecord | null {
+  const requestMessageIdSet = new Set(requestMessageIds)
   for (const run of [...runs].sort(compareRunsNewestFirst)) {
-    if (run.requestMessageId !== requestMessageId || !predicate(run)) {
+    if (
+      !run.requestMessageId ||
+      !requestMessageIdSet.has(run.requestMessageId) ||
+      !predicate(run)
+    ) {
       continue
     }
 
@@ -152,7 +165,14 @@ export function findRunMemorySummary(
   runs: RunRecord[],
   requestMessageId: string
 ): RunMemorySummary | null {
-  const run = findLatestRunForRequest(runs, requestMessageId)
+  return findRunMemorySummaryForRequests(runs, [requestMessageId])
+}
+
+export function findRunMemorySummaryForRequests(
+  runs: RunRecord[],
+  requestMessageIds: readonly string[]
+): RunMemorySummary | null {
+  const run = findLatestRunForRequests(runs, requestMessageIds)
   if (!run) {
     return null
   }

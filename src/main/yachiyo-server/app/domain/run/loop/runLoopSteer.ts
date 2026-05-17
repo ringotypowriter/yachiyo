@@ -1,7 +1,11 @@
 import type { RunCancelledEvent, ThreadRecord } from '../../../../../../shared/yachiyo/protocol.ts'
 import type { SnapshotTracker } from '../../../../services/fileSnapshot/snapshotTracker.ts'
 import type { ActiveRunLoopInput } from '../active/activeRunStart.ts'
-import { persistSteerMessage, type SendChatFlowContext } from '../chat/sendChatFlow.ts'
+import {
+  clearPendingSteerInputs,
+  getPendingSteerInputsForPersistence
+} from '../active/pendingSteerQueue.ts'
+import { persistSteerMessages, type SendChatFlowContext } from '../chat/sendChatFlow.ts'
 import type { ExecuteRunInput, ExecuteRunResult } from '../execution/runExecutionTypes.ts'
 import { usageFieldsFrom } from '../runUsageFields.ts'
 import type { RunDomainDeps, RunState } from '../runTypes.ts'
@@ -44,9 +48,9 @@ export async function handleSteerPendingResult(
     result: SteerPendingRunResult
   }
 ): Promise<HandleSteerPendingResult> {
-  const steerInput = input.activeRun.pendingSteerInput
+  const steerInputs = getPendingSteerInputsForPersistence(input.activeRun)
 
-  if (!steerInput) {
+  if (steerInputs.length === 0) {
     // The steer was withdrawn after execution finished at a safe turn boundary.
     input.result.snapshotTracker?.dispose()
     const steerPendingUsage = mergeUsageForTerminal(input.accumulatedUsage, input.result.usage)
@@ -72,25 +76,23 @@ export async function handleSteerPendingResult(
   input.activeRun.requestMessageId = input.result.assistantMessageId
 
   const steerThread = context.deps.requireThread(input.loopInput.thread.id)
-  const { userMessage } = persistSteerMessage(context.createSendChatFlowContext(), {
-    content: steerInput.content,
-    images: steerInput.images,
-    attachments: steerInput.attachments,
-    messageId: steerInput.messageId,
+  const { userMessages } = persistSteerMessages(context.createSendChatFlowContext(), {
+    steerInputs,
     runId: input.loopInput.runId,
     runState: input.activeRun,
-    thread: steerThread,
-    timestamp: steerInput.timestamp,
-    hidden: steerInput.hidden
+    thread: steerThread
   })
-  await markWorkspaceRestorePoint(input.activeRun, userMessage.id)
+  const requestMessage = userMessages.at(-1)
+  if (!requestMessage) {
+    throw new Error('Pending steer persistence did not create a request message.')
+  }
+  await markWorkspaceRestorePoint(input.activeRun, requestMessage.id)
 
   emitThreadStateReplaced(context.createFollowUpQueueContext(), input.loopInput.thread.id)
-  input.activeRun.pendingSteerInput = undefined
-  input.activeRun.pendingSteerMessageId = undefined
+  clearPendingSteerInputs(input.activeRun)
   input.activeRun.executionPhase = 'generating'
-  input.activeRun.requestMessageId = userMessage.id
-  context.deps.storage.updateRunRequestMessageId(input.loopInput.runId, userMessage.id)
+  input.activeRun.requestMessageId = requestMessage.id
+  context.deps.storage.updateRunRequestMessageId(input.loopInput.runId, requestMessage.id)
 
   return {
     kind: 'continue',
@@ -98,7 +100,7 @@ export async function handleSteerPendingResult(
     carriedSnapshotTracker: input.result.snapshotTracker,
     carriedToolFailLoopSteers:
       input.result.toolFailLoopSteersInjected ?? input.carriedToolFailLoopSteers,
-    currentRequestMessageId: userMessage.id,
+    currentRequestMessageId: requestMessage.id,
     currentThread: context.deps.requireThread(input.loopInput.thread.id)
   }
 }
@@ -121,35 +123,39 @@ export function handleCancelledWithSteerResult(
     result: CancelledWithSteerRunResult
   }
 ): CancelledRunResult {
-  const steerInput = input.activeRun.pendingSteerInput
+  const steerInputs = getPendingSteerInputsForPersistence(input.activeRun)
 
   // If a prior safe-steer branch already consumed it, there is nothing left to persist.
-  if (steerInput) {
+  if (steerInputs.length > 0) {
     const steerThread = context.deps.requireThread(input.loopInput.thread.id)
-    const { updatedThread, userMessage } = persistSteerMessage(
+    const { updatedThread, userMessages } = persistSteerMessages(
       context.createSendChatFlowContext(),
       {
-        content: input.result.steerInput.content,
-        images: input.result.steerInput.images,
-        attachments: input.result.steerInput.attachments,
-        messageId: input.result.steerInput.messageId,
+        steerInputs,
         runId: input.loopInput.runId,
         runState: { ...input.activeRun, requestMessageId: input.result.stoppedMessageId },
-        thread: steerThread,
-        timestamp: input.result.steerInput.timestamp,
-        hidden: input.result.steerInput.hidden
+        thread: steerThread
       }
     )
-    const queuedThread: ThreadRecord = {
-      ...updatedThread,
-      queuedFollowUpMessageId: userMessage.id
+    if (userMessages.length === 0) {
+      throw new Error('Pending steer persistence did not create a queued message.')
     }
-    if (steerInput.reasoningEffort !== undefined) {
-      queuedThread.queuedFollowUpReasoningEffort = steerInput.reasoningEffort
+    const queuedRequestMessage = userMessages.findLast((message) => message.hidden !== true)
+    if (queuedRequestMessage) {
+      const queuedThread: ThreadRecord = {
+        ...updatedThread,
+        queuedFollowUpMessageId: queuedRequestMessage.id
+      }
+      const queuedSteerInput = steerInputs.find(
+        (steerInput) => steerInput.messageId === queuedRequestMessage.id
+      )
+      if (queuedSteerInput?.reasoningEffort !== undefined) {
+        queuedThread.queuedFollowUpReasoningEffort = queuedSteerInput.reasoningEffort
+      }
+      context.deps.storage.updateThread(queuedThread)
     }
-    context.deps.storage.updateThread(queuedThread)
     emitThreadStateReplaced(context.createFollowUpQueueContext(), input.loopInput.thread.id)
-    input.activeRun.pendingSteerInput = undefined
+    clearPendingSteerInputs(input.activeRun)
   }
 
   return {

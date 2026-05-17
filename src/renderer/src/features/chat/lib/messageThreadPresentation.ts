@@ -15,14 +15,36 @@ export interface MessageGroupBranch {
 export interface MessageGroup {
   userMessage: Message
   assistantBranches: MessageGroupBranch[]
+  activeAssistantMessages: Message[]
+  hiddenRequestMessageIds: string[]
   activeBranchIndex: number
   hideActiveBranchWhilePreparing: boolean
   showPreparing: boolean
 }
 
+export function isVisibleTimelineMessage(message: Message): boolean {
+  return message.hidden !== true
+}
+
+export function isActiveRequestForGroup(
+  group: MessageGroup,
+  activeRequestMessageId: string | null
+): boolean {
+  return (
+    activeRequestMessageId !== null &&
+    (group.userMessage.id === activeRequestMessageId ||
+      group.hiddenRequestMessageIds.includes(activeRequestMessageId))
+  )
+}
+
 export function getRootAssistantMessages(messages: Message[]): Message[] {
   return sortMessagesByCreatedAt(
-    messages.filter((message) => message.role === 'assistant' && !message.parentMessageId)
+    messages.filter(
+      (message) =>
+        isVisibleTimelineMessage(message) &&
+        message.role === 'assistant' &&
+        !message.parentMessageId
+    )
   )
 }
 
@@ -33,7 +55,11 @@ export function getQueuedFollowUpMessage(input: {
   const queuedMessageId = input.thread.queuedFollowUpMessageId
   if (!queuedMessageId) return null
 
-  return input.messages.find((message) => message.id === queuedMessageId) ?? null
+  return (
+    input.messages.find(
+      (message) => message.id === queuedMessageId && isVisibleTimelineMessage(message)
+    ) ?? null
+  )
 }
 
 export function getTimelineMessages(input: { thread: Thread; messages: Message[] }): Message[] {
@@ -94,24 +120,30 @@ export function getVisibleToolCallsForGroup(input: {
   toolCalls: ToolCall[]
   activeRunId?: string | null
 }): ToolCall[] {
-  const requestMessageId = input.group.userMessage.id
+  const requestMessageIds = new Set([
+    input.group.userMessage.id,
+    ...input.group.hiddenRequestMessageIds
+  ])
   const activeAssistantMessage =
-    input.group.activeBranchIndex >= 0
+    input.group.activeAssistantMessages.at(-1) ??
+    (input.group.activeBranchIndex >= 0
       ? input.group.assistantBranches[input.group.activeBranchIndex]?.message
-      : undefined
+      : undefined)
   const hiddenActiveAssistantId =
     input.group.hideActiveBranchWhilePreparing && input.group.activeBranchIndex >= 0
       ? input.group.assistantBranches[input.group.activeBranchIndex]?.message.id
       : undefined
-  const knownAssistantIds = new Set(
-    input.group.assistantBranches.map((branch) => branch.message.id)
-  )
+  const knownAssistantIds = new Set([
+    ...input.group.assistantBranches.map((branch) => branch.message.id),
+    ...input.group.activeAssistantMessages.map((message) => message.id)
+  ])
   // Keep failed / stopped branches visible so their anchored tool calls
   // stay inspectable even when the user has pinned the group to an older
   // successful reply. Without this, the retry's tool trace would vanish
   // after the user navigates back to the original answer.
-  const visibleAssistantIds = new Set(
-    input.group.assistantBranches
+  const visibleAssistantIds = new Set([
+    ...input.group.activeAssistantMessages.map((message) => message.id),
+    ...input.group.assistantBranches
       .filter(
         (branch) =>
           (!input.group.hideActiveBranchWhilePreparing && branch.isActive) ||
@@ -120,14 +152,14 @@ export function getVisibleToolCallsForGroup(input: {
           branch.message.status === 'stopped'
       )
       .map((branch) => branch.message.id)
-  )
+  ])
   const responseMessageToolOrder = collectResponseMessageToolOrder(
     activeAssistantMessage?.responseMessages
   )
 
   return input.toolCalls
     .filter((toolCall) => {
-      if (toolCall.requestMessageId !== requestMessageId) {
+      if (!toolCall.requestMessageId || !requestMessageIds.has(toolCall.requestMessageId)) {
         return false
       }
 
@@ -155,10 +187,15 @@ export function getVisibleToolCallsForGroup(input: {
 
       if (input.activeRunId && toolCall.runId && toolCall.runId !== input.activeRunId) {
         const activeBranchMessageId =
-          input.group.activeBranchIndex >= 0
+          input.group.activeAssistantMessages.at(-1)?.id ??
+          (input.group.activeBranchIndex >= 0
             ? input.group.assistantBranches[input.group.activeBranchIndex]?.message.id
-            : undefined
-        if (toolCall.assistantMessageId !== activeBranchMessageId) {
+            : undefined)
+        const activeAssistantIds = new Set([
+          ...input.group.activeAssistantMessages.map((message) => message.id),
+          ...(activeBranchMessageId ? [activeBranchMessageId] : [])
+        ])
+        if (!toolCall.assistantMessageId || !activeAssistantIds.has(toolCall.assistantMessageId)) {
           return false
         }
       }
@@ -181,7 +218,9 @@ export function partitionToolCallsForGroups(input: {
   groups: MessageGroup[]
   toolCalls: ToolCall[]
 }): { inlineToolCalls: ToolCall[]; orphanToolCalls: ToolCall[] } {
-  const visibleRequestIds = new Set(input.groups.map((group) => group.userMessage.id))
+  const visibleRequestIds = new Set(
+    input.groups.flatMap((group) => [group.userMessage.id, ...group.hiddenRequestMessageIds])
+  )
 
   return {
     inlineToolCalls: input.toolCalls.filter(
@@ -201,9 +240,48 @@ function truncatePathAtRequest(path: Message[], requestMessageId: string | null)
   return endIndex >= 0 ? path.slice(0, endIndex + 1) : path
 }
 
+function includeStreamingHiddenAssistantInPath(input: {
+  path: Message[]
+  messagesById: Map<string, Message>
+  childrenByParent: Map<string | null, Message[]>
+  runPhase: 'idle' | 'preparing' | 'streaming'
+  activeRequestMessageId: string | null
+}): Message[] {
+  if (input.runPhase !== 'streaming' || !input.activeRequestMessageId) {
+    return input.path
+  }
+
+  const activeRequest = input.messagesById.get(input.activeRequestMessageId)
+  if (
+    !activeRequest ||
+    activeRequest.role !== 'user' ||
+    activeRequest.hidden !== true ||
+    !input.path.some((message) => message.id === activeRequest.id)
+  ) {
+    return input.path
+  }
+
+  const streamingAssistant = (input.childrenByParent.get(activeRequest.id) ?? [])
+    .filter(
+      (message): message is Message =>
+        message.role === 'assistant' &&
+        message.status === 'streaming' &&
+        isVisibleTimelineMessage(message)
+    )
+    .at(-1)
+
+  if (!streamingAssistant || input.path.some((message) => message.id === streamingAssistant.id)) {
+    return input.path
+  }
+
+  return [...input.path, streamingAssistant]
+}
+
 interface CachedGroup {
   userMessage: Message
   assistantMessages: readonly Message[]
+  activeAssistantMessages: readonly Message[]
+  hiddenRequestMessageIds: readonly string[]
   activeBranchIndex: number
   hideActiveBranchWhilePreparing: boolean
   showPreparing: boolean
@@ -231,6 +309,114 @@ function sameAssistantMessages(a: readonly Message[], b: readonly Message[]): bo
   return true
 }
 
+function sameStringArray(a: readonly string[], b: readonly string[]): boolean {
+  if (a === b) return true
+  if (a.length !== b.length) return false
+  for (let i = 0; i < a.length; i += 1) {
+    if (a[i] !== b[i]) return false
+  }
+  return true
+}
+
+function getFirstVisibleAssistantIdAfterUser(input: {
+  fullPath: Message[]
+  userMessageId: string
+}): string | undefined {
+  const userIndex = input.fullPath.findIndex((message) => message.id === input.userMessageId)
+  if (userIndex < 0) {
+    return undefined
+  }
+
+  for (let index = userIndex + 1; index < input.fullPath.length; index += 1) {
+    const message = input.fullPath[index]!
+    if (message.role === 'user' && isVisibleTimelineMessage(message)) {
+      return undefined
+    }
+    if (message.role === 'assistant' && isVisibleTimelineMessage(message)) {
+      return message.id
+    }
+  }
+
+  return undefined
+}
+
+function collectHiddenRequestMessageIdsForGroup(input: {
+  fullPath: Message[]
+  userMessageId: string
+}): string[] {
+  const userIndex = input.fullPath.findIndex((message) => message.id === input.userMessageId)
+  if (userIndex < 0) {
+    return []
+  }
+
+  const hiddenRequestMessageIds: string[] = []
+  for (let index = userIndex + 1; index < input.fullPath.length; index += 1) {
+    const message = input.fullPath[index]!
+    if (message.role === 'user' && isVisibleTimelineMessage(message)) {
+      break
+    }
+    if (message.role === 'user' && message.hidden === true) {
+      hiddenRequestMessageIds.push(message.id)
+    }
+  }
+
+  return hiddenRequestMessageIds
+}
+
+function collectActiveAssistantMessagesForGroup(input: {
+  allMessages: Message[]
+  fullPath: Message[]
+  selectedAssistantId?: string
+  userMessageId: string
+}): Message[] {
+  if (!input.selectedAssistantId) {
+    return []
+  }
+
+  const selectedAssistant = input.allMessages.find(
+    (message) => message.id === input.selectedAssistantId && message.role === 'assistant'
+  )
+  if (!selectedAssistant || !isVisibleTimelineMessage(selectedAssistant)) {
+    return []
+  }
+
+  const selectedIndex = input.fullPath.findIndex((message) => message.id === selectedAssistant.id)
+  if (selectedIndex < 0) {
+    return [selectedAssistant]
+  }
+
+  const activeAssistantMessages: Message[] = []
+  for (let index = selectedIndex; index < input.fullPath.length; index += 1) {
+    const message = input.fullPath[index]!
+    if (index > selectedIndex && message.role === 'user' && isVisibleTimelineMessage(message)) {
+      break
+    }
+    if (message.role === 'assistant' && isVisibleTimelineMessage(message)) {
+      activeAssistantMessages.push(message)
+    }
+  }
+
+  return activeAssistantMessages.length > 0 ? activeAssistantMessages : [selectedAssistant]
+}
+
+function getVisibleUserAncestorId(input: {
+  messagesById: Map<string, Message>
+  messageId: string
+}): string | undefined {
+  let current = input.messagesById.get(input.messageId)
+  const visited = new Set<string>()
+
+  while (current && !visited.has(current.id)) {
+    visited.add(current.id)
+    if (current.role === 'user' && isVisibleTimelineMessage(current)) {
+      return current.id
+    }
+    current = current.parentMessageId ? input.messagesById.get(current.parentMessageId) : undefined
+  }
+
+  return undefined
+}
+
 function sameGroupArray(a: MessageGroup[], b: MessageGroup[]): boolean {
   if (a === b) return true
   if (a.length !== b.length) return false
@@ -246,23 +432,39 @@ export function buildMessageGroups(input: {
   runPhase: 'idle' | 'preparing' | 'streaming'
   activeRequestMessageId: string | null
 }): MessageGroup[] {
-  const messages = sortMessagesByCreatedAt(input.messages)
-  const maps = buildMessageTreeMaps(messages)
+  const allMessages = sortMessagesByCreatedAt(input.messages)
+  const maps = buildMessageTreeMaps(allMessages)
+  const visibleMessages = allMessages.filter(isVisibleTimelineMessage)
+  const visibleMaps = buildMessageTreeMaps(visibleMessages)
   const resolvedHeadMessageId =
     input.thread.headMessageId && maps.byId.has(input.thread.headMessageId)
       ? input.thread.headMessageId
-      : messages.at(-1)?.id
+      : allMessages.at(-1)?.id
 
   if (!resolvedHeadMessageId) {
     return []
   }
 
-  const fullPath = collectMessagePath(messages, resolvedHeadMessageId)
+  const fullPath = includeStreamingHiddenAssistantInPath({
+    path: collectMessagePath(allMessages, resolvedHeadMessageId),
+    messagesById: maps.byId,
+    childrenByParent: maps.childrenByParent,
+    runPhase: input.runPhase,
+    activeRequestMessageId: input.activeRequestMessageId
+  })
   const visiblePath =
     input.runPhase === 'idle'
-      ? fullPath
-      : truncatePathAtRequest(fullPath, input.activeRequestMessageId)
+      ? fullPath.filter(isVisibleTimelineMessage)
+      : truncatePathAtRequest(fullPath, input.activeRequestMessageId).filter(
+          isVisibleTimelineMessage
+        )
   const activeAssistantIdsByRequest = new Map<string, string>()
+  const activeHiddenRequestUserId = input.activeRequestMessageId
+    ? getVisibleUserAncestorId({
+        messagesById: maps.byId,
+        messageId: input.activeRequestMessageId
+      })
+    : undefined
 
   for (let index = 0; index < fullPath.length - 1; index += 1) {
     const current = fullPath[index]
@@ -286,10 +488,12 @@ export function buildMessageGroups(input: {
     if (message.role !== 'user') continue
     const userMessage = message
 
-    const assistantMessages = (maps.childrenByParent.get(userMessage.id) ?? []).filter(
+    const assistantMessages = (visibleMaps.childrenByParent.get(userMessage.id) ?? []).filter(
       (m): m is Message => m.role === 'assistant'
     )
-    const activeAssistantIdFromPath = activeAssistantIdsByRequest.get(userMessage.id)
+    const activeAssistantIdFromPath =
+      activeAssistantIdsByRequest.get(userMessage.id) ??
+      getFirstVisibleAssistantIdAfterUser({ fullPath, userMessageId: userMessage.id })
     const activeAssistantFromPath = assistantMessages.find(
       (m) => m.id === activeAssistantIdFromPath
     )
@@ -304,13 +508,25 @@ export function buildMessageGroups(input: {
     const selectedAssistantId = shouldPreferNewestAssistant
       ? newestAssistant?.id
       : (activeAssistantIdFromPath ?? newestAssistant?.id)
+    const activeAssistantMessages = collectActiveAssistantMessagesForGroup({
+      allMessages,
+      fullPath,
+      selectedAssistantId,
+      userMessageId: userMessage.id
+    })
+    const hiddenRequestMessageIds = collectHiddenRequestMessageIdsForGroup({
+      fullPath,
+      userMessageId: userMessage.id
+    })
     const activeBranchIndex = assistantMessages.findIndex((m) => m.id === selectedAssistantId)
     const hideActiveBranchWhilePreparing =
       input.runPhase === 'preparing' &&
       input.activeRequestMessageId === userMessage.id &&
       assistantMessages.length > 0
     const showPreparing =
-      input.runPhase === 'preparing' && input.activeRequestMessageId === userMessage.id
+      input.runPhase === 'preparing' &&
+      (input.activeRequestMessageId === userMessage.id ||
+        activeHiddenRequestUserId === userMessage.id)
 
     const prev = prevCache?.byUserMessageId.get(userMessage.id)
     if (
@@ -319,7 +535,9 @@ export function buildMessageGroups(input: {
       prev.activeBranchIndex === activeBranchIndex &&
       prev.hideActiveBranchWhilePreparing === hideActiveBranchWhilePreparing &&
       prev.showPreparing === showPreparing &&
-      sameAssistantMessages(prev.assistantMessages, assistantMessages)
+      sameAssistantMessages(prev.assistantMessages, assistantMessages) &&
+      sameAssistantMessages(prev.activeAssistantMessages, activeAssistantMessages) &&
+      sameStringArray(prev.hiddenRequestMessageIds, hiddenRequestMessageIds)
     ) {
       nextByUserMessageId.set(userMessage.id, prev)
       nextGroups.push(prev.group)
@@ -332,6 +550,8 @@ export function buildMessageGroups(input: {
         message: m,
         isActive: index === activeBranchIndex
       })),
+      activeAssistantMessages,
+      hiddenRequestMessageIds,
       activeBranchIndex,
       hideActiveBranchWhilePreparing,
       showPreparing
@@ -340,6 +560,8 @@ export function buildMessageGroups(input: {
     nextByUserMessageId.set(userMessage.id, {
       userMessage,
       assistantMessages,
+      activeAssistantMessages,
+      hiddenRequestMessageIds,
       activeBranchIndex,
       hideActiveBranchWhilePreparing,
       showPreparing,

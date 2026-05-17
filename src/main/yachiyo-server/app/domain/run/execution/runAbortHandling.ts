@@ -62,7 +62,7 @@ export function isCancelWithSteerReason(value: unknown): value is CancelWithStee
     value !== null &&
     typeof value === 'object' &&
     (value as { type?: unknown }).type === 'cancel-with-steer' &&
-    (value as { steerInput?: unknown }).steerInput != null
+    Array.isArray((value as { steerInputs?: unknown }).steerInputs)
   )
 }
 
@@ -83,7 +83,7 @@ export async function handleAbortedRun(
   if (isCancelWithSteerReason(reason)) {
     return handleCancelledRun(input, timestamp, {
       kind: 'cancelled-with-steer',
-      steerInput: reason.steerInput
+      steerInputs: reason.steerInputs
     })
   }
 
@@ -149,7 +149,7 @@ async function handleCancelledRun(
   timestamp: string,
   result:
     | { kind: 'cancelled' }
-    | { kind: 'cancelled-with-steer'; steerInput: CancelWithSteerReason['steerInput'] }
+    | { kind: 'cancelled-with-steer'; steerInputs: CancelWithSteerReason['steerInputs'] }
 ): Promise<ExecuteRunResult> {
   input.flushDeltas()
   finishInterruptedToolCalls(input, timestamp, 'Run cancelled before the tool call finished.')
@@ -224,7 +224,7 @@ async function handleCancelledRun(
     return {
       kind: 'cancelled-with-steer',
       stoppedMessageId: input.messageId,
-      steerInput: result.steerInput,
+      steerInputs: result.steerInputs,
       usage: cancelUsage
     }
   }

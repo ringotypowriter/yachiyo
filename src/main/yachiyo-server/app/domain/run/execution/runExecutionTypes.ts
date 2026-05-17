@@ -38,6 +38,7 @@ import type {
 } from '../../../../tools/agentTools/shared.ts'
 import type { BackgroundBashTaskResult } from '../../background/backgroundBashManager.ts'
 import type { CreateId, EmitServerEvent, Timestamp } from '../../shared/shared.ts'
+import type { PendingSteerInput } from '../runTypes.ts'
 
 export interface ExecuteRunInput {
   enabledTools: ToolCallName[]
@@ -83,14 +84,7 @@ export interface RestartRunReason {
 
 export interface CancelWithSteerReason {
   type: 'cancel-with-steer'
-  steerInput: {
-    content: string
-    images: MessageRecord['images']
-    attachments: NonNullable<MessageRecord['attachments']>
-    messageId: string
-    timestamp: string
-    hidden?: boolean
-  }
+  steerInputs: PendingSteerInput[]
 }
 
 export type ExecuteRunResult =
@@ -113,7 +107,7 @@ export type ExecuteRunResult =
   | {
       kind: 'cancelled-with-steer'
       stoppedMessageId: string
-      steerInput: CancelWithSteerReason['steerInput']
+      steerInputs: CancelWithSteerReason['steerInputs']
       usage?: ModelUsage
     }
   | { kind: 'recovering'; checkpoint: RunRecoveryCheckpoint }

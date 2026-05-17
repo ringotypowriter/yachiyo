@@ -9,6 +9,7 @@ import { collectMessagePath } from '../../../../../../shared/yachiyo/threadTree.
 import { toEffectiveProviderSettings } from '../../../../settings/settingsStore.ts'
 import type { BackgroundBashManager } from '../../background/backgroundBashManager.ts'
 import type { ActiveRunLoopInput } from '../active/activeRunStart.ts'
+import { hasPendingSteerInputs } from '../active/pendingSteerQueue.ts'
 import { sendActiveRunSteer, type SendChatFlowContext } from '../chat/sendChatFlow.ts'
 import type { RunExecutionDeps } from '../execution/runExecutionTypes.ts'
 import type { BackgroundTaskRunContext, RunDomainDeps, RunState } from '../runTypes.ts'
@@ -136,7 +137,7 @@ export function buildRunExecutionDeps(
     },
     hasPendingSteer: () => {
       const currentRun = context.activeRuns.get(input.loopInput.runId)
-      return currentRun?.pendingSteerInput != null
+      return currentRun ? hasPendingSteerInputs(currentRun) : false
     },
     injectPendingSteer: (steerInput) => {
       const activeRun = context.activeRuns.get(input.loopInput.runId)
@@ -151,7 +152,8 @@ export function buildRunExecutionDeps(
         images: [],
         attachments: [],
         messageId: deps.createId(),
-        thread: input.currentThread
+        thread: input.currentThread,
+        hidden: true
       })
     },
     onSubagentProgress: (event) => {

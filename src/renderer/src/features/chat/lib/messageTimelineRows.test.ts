@@ -51,6 +51,8 @@ function createGroup(input: {
   showPreparing?: boolean
   hideActiveBranchWhilePreparing?: boolean
   activeAssistant: Message
+  activeAssistantMessages?: Message[]
+  hiddenRequestMessageIds?: string[]
   inactiveAssistant?: Message
 }): MessageGroup {
   const branches = [
@@ -63,6 +65,10 @@ function createGroup(input: {
   return {
     userMessage: createUserMessage('user-1', 'Question'),
     assistantBranches: branches,
+    activeAssistantMessages: input.activeAssistantMessages ?? [
+      branches[branches.length - 1]!.message
+    ],
+    hiddenRequestMessageIds: input.hiddenRequestMessageIds ?? [],
     activeBranchIndex: input.activeBranchIndex ?? branches.length - 1,
     hideActiveBranchWhilePreparing: input.hideActiveBranchWhilePreparing ?? false,
     showPreparing: input.showPreparing ?? false
@@ -191,6 +197,95 @@ test('buildConversationGroupRows displays channel visible replies instead of raw
   )
 })
 
+test('buildConversationGroupRows renders hidden-steer continuation output inside the same group', () => {
+  const assistantBeforeHidden = createAssistantMessage({
+    id: 'assistant-before-hidden',
+    content: 'Initial visible answer',
+    status: 'completed',
+    createdAt: '2026-04-18T00:00:01.000Z'
+  })
+  const assistantAfterHidden = createAssistantMessage({
+    id: 'assistant-after-hidden',
+    content: 'Continued visible answer',
+    status: 'completed',
+    createdAt: '2026-04-18T00:00:03.000Z'
+  })
+  const group = createGroup({
+    activeAssistant: assistantBeforeHidden,
+    activeAssistantMessages: [assistantBeforeHidden, assistantAfterHidden]
+  })
+
+  const rows = buildConversationGroupRows({
+    group,
+    inlineToolCalls: [],
+    runs: [],
+    activeRunId: null,
+    isActiveGroup: false,
+    subagentActive: false
+  })
+
+  assert.deepEqual(rowKinds(rows), [
+    'group-user',
+    'group-assistant-text-block',
+    'group-assistant-text-block',
+    'group-footer'
+  ])
+  assert.deepEqual(
+    rows
+      .filter((row) => row.kind === 'group-assistant-text-block')
+      .map((row) => ({
+        assistantMessageId: row.assistantMessage.id,
+        content: row.textBlock.content
+      })),
+    [
+      {
+        assistantMessageId: 'assistant-before-hidden',
+        content: 'Initial visible answer'
+      },
+      {
+        assistantMessageId: 'assistant-after-hidden',
+        content: 'Continued visible answer'
+      }
+    ]
+  )
+  assert.equal(
+    rows.find((row) => row.kind === 'group-footer')?.assistantMessage.id,
+    'assistant-after-hidden'
+  )
+})
+
+test('buildConversationGroupRows uses hidden-steer run metadata for the merged footer', () => {
+  const group = createGroup({
+    activeAssistant: createAssistantMessage({
+      id: 'assistant-after-hidden',
+      content: 'Could not continue',
+      status: 'failed',
+      createdAt: '2026-04-18T00:00:03.000Z'
+    }),
+    hiddenRequestMessageIds: ['hidden-background-notice']
+  })
+
+  const rows = buildConversationGroupRows({
+    group,
+    inlineToolCalls: [],
+    runs: [
+      {
+        id: 'run-hidden',
+        threadId: 'thread-1',
+        status: 'failed',
+        error: 'hidden run failed',
+        createdAt: '2026-04-18T00:00:02.000Z',
+        requestMessageId: 'hidden-background-notice'
+      }
+    ],
+    activeRunId: null,
+    isActiveGroup: false,
+    subagentActive: false
+  })
+
+  assert.equal(rows.find((row) => row.kind === 'group-footer')?.failedRunError, 'hidden run failed')
+})
+
 test('buildConversationGroupRows only marks the active appended text block as streaming', () => {
   const group = createGroup({
     activeAssistant: createAssistantMessage({
@@ -226,6 +321,39 @@ test('buildConversationGroupRows only marks the active appended text block as st
     textRows.map((row) => row.isStreaming),
     [false, true]
   )
+})
+
+test('buildMessageTimelineRows treats hidden request ids as the active group', () => {
+  const group = createGroup({
+    activeAssistant: createAssistantMessage({
+      id: 'assistant-after-hidden',
+      content: '',
+      status: 'streaming',
+      textBlocks: [
+        {
+          id: 'text-after-hidden',
+          content: 'Still appending',
+          createdAt: '2026-04-18T00:00:03.000Z'
+        }
+      ]
+    }),
+    hiddenRequestMessageIds: ['hidden-background-notice']
+  })
+
+  const rows = buildMessageTimelineRows({
+    messageGroups: [group],
+    rootAssistantMessages: [],
+    orphanToolCalls: [],
+    pendingSteerMessage: null,
+    inlineToolCalls: [],
+    runs: [],
+    activeRunId: 'run-hidden',
+    activeRequestMessageId: 'hidden-background-notice',
+    subagentActive: false
+  })
+
+  const textRow = rows.find((row) => row.kind === 'group-assistant-text-block')
+  assert.equal(textRow?.isStreaming, true)
 })
 
 test('buildMessageTimelineRows keeps each conversation flattened into separate virtual rows', () => {

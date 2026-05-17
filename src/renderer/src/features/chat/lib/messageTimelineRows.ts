@@ -3,8 +3,15 @@ import {
   buildConversationGroupTimelineItems,
   type ToolCallSemanticGroup
 } from './messageTimelineLayout.ts'
-import { getVisibleToolCallsForGroup, type MessageGroup } from './messageThreadPresentation.ts'
-import { findLatestRunForRequest, findRunMemorySummary } from './runMemoryPresentation.ts'
+import {
+  getVisibleToolCallsForGroup,
+  isActiveRequestForGroup,
+  type MessageGroup
+} from './messageThreadPresentation.ts'
+import {
+  findLatestRunForRequests,
+  findRunMemorySummaryForRequests
+} from './runMemoryPresentation.ts'
 
 type GroupTimelineRowBase = {
   key: string
@@ -153,6 +160,16 @@ function resolveAssistantTextBlocks(message: Message): MessageTextBlockRecord[] 
   return []
 }
 
+function getActiveAssistantMessages(group: MessageGroup): Message[] {
+  if (group.activeAssistantMessages.length > 0) {
+    return group.activeAssistantMessages
+  }
+
+  const activeBranch =
+    group.activeBranchIndex >= 0 ? group.assistantBranches[group.activeBranchIndex] : null
+  return activeBranch ? [activeBranch.message] : []
+}
+
 export function collectInlineCodeMarkdownDocumentsFromRows(
   rows: readonly MessageTimelineRow[]
 ): string[] {
@@ -188,25 +205,40 @@ export function buildConversationGroupRows(
   const responseCount = group.assistantBranches.length
   const activeBranch =
     group.activeBranchIndex >= 0 ? group.assistantBranches[group.activeBranchIndex] : null
+  const activeAssistantMessages = getActiveAssistantMessages(group)
+  const activeAssistantMessage = activeAssistantMessages.at(-1) ?? null
   const requestMessageId = group.userMessage.id
+  const groupRequestMessageIds = [requestMessageId, ...group.hiddenRequestMessageIds]
   const visibleToolCalls = getVisibleToolCallsForGroup({
     group,
     toolCalls: input.inlineToolCalls,
     activeRunId: input.activeRunId
   })
-  const memorySummary = findRunMemorySummary(input.runs, requestMessageId)
+  const memorySummary = findRunMemorySummaryForRequests(input.runs, groupRequestMessageIds)
   const savedMemoryCount = visibleToolCalls.filter(
     (toolCall) => toolCall.toolName === 'remember' && toolCall.status === 'completed'
   ).length
   const failedRunError =
-    activeBranch?.message.status === 'failed'
-      ? (findLatestRunForRequest(input.runs, requestMessageId, (run) => run.status === 'failed')
-          ?.error ?? null)
+    activeAssistantMessage?.status === 'failed'
+      ? (findLatestRunForRequests(
+          input.runs,
+          groupRequestMessageIds,
+          (run) => run.status === 'failed'
+        )?.error ?? null)
       : null
 
+  const assistantMessageByTextBlockId = new Map<string, Message>()
   const activeAssistantTextBlocks: MessageTextBlockRecord[] = (() => {
-    if (!activeBranch || group.hideActiveBranchWhilePreparing) return []
-    return resolveAssistantTextBlocks(activeBranch.message)
+    if (activeAssistantMessages.length === 0 || group.hideActiveBranchWhilePreparing) return []
+
+    const textBlocks: MessageTextBlockRecord[] = []
+    for (const assistantMessage of activeAssistantMessages) {
+      for (const textBlock of resolveAssistantTextBlocks(assistantMessage)) {
+        assistantMessageByTextBlockId.set(textBlock.id, assistantMessage)
+        textBlocks.push(textBlock)
+      }
+    }
+    return textBlocks
   })()
 
   const hasRunningToolCall = visibleToolCalls.some(
@@ -240,16 +272,17 @@ export function buildConversationGroupRows(
     })
   }
 
-  if (activeBranch?.message.reasoning) {
+  for (const assistantMessage of activeAssistantMessages) {
+    if (!assistantMessage.reasoning) continue
     rows.push({
       kind: 'group-thinking',
-      key: `thinking:${activeBranch.message.id}`,
-      time: group.userMessage.createdAt,
+      key: `thinking:${assistantMessage.id}`,
+      time: assistantMessage.createdAt,
       requestMessageId,
-      scrollMessageId: activeAssistantTextBlocks.length === 0 ? activeBranch.message.id : undefined,
-      assistantMessageId: activeBranch.message.id,
+      scrollMessageId: activeAssistantTextBlocks.length === 0 ? assistantMessage.id : undefined,
+      assistantMessageId: assistantMessage.id,
       group,
-      assistantMessage: activeBranch.message
+      assistantMessage
     })
   }
 
@@ -258,7 +291,7 @@ export function buildConversationGroupRows(
     replyCount: responseCount,
     showPreparing: group.showPreparing && !input.subagentActive,
     showGenerating:
-      activeBranch?.message.status === 'streaming' &&
+      activeAssistantMessage?.status === 'streaming' &&
       activeAssistantTextBlocks.length > 0 &&
       !hasRunningToolCall &&
       !input.subagentActive,
@@ -279,7 +312,7 @@ export function buildConversationGroupRows(
         key: `memory-recall:${requestMessageId}`,
         time: group.userMessage.createdAt,
         requestMessageId,
-        ...(activeBranch ? { assistantMessageId: activeBranch.message.id } : {}),
+        ...(activeAssistantMessage ? { assistantMessageId: activeAssistantMessage.id } : {}),
         group,
         entries: memorySummary.entries,
         recallDecision: memorySummary.recallDecision
@@ -297,8 +330,8 @@ export function buildConversationGroupRows(
         requestMessageId,
         ...(toolCall.assistantMessageId
           ? { assistantMessageId: toolCall.assistantMessageId }
-          : activeBranch
-            ? { assistantMessageId: activeBranch.message.id }
+          : activeAssistantMessage
+            ? { assistantMessageId: activeAssistantMessage.id }
             : {}),
         group,
         toolCall
@@ -316,7 +349,7 @@ export function buildConversationGroupRows(
         key: `tool-group:${requestMessageId}:${item.key}`,
         time: group.userMessage.createdAt,
         requestMessageId,
-        ...(activeBranch ? { assistantMessageId: activeBranch.message.id } : {}),
+        ...(activeAssistantMessage ? { assistantMessageId: activeAssistantMessage.id } : {}),
         group,
         toolGroup: item.group,
         toolCalls
@@ -324,9 +357,11 @@ export function buildConversationGroupRows(
       continue
     }
 
-    if (item.kind === 'assistant-text-block' && activeBranch) {
+    if (item.kind === 'assistant-text-block' && activeAssistantMessage) {
       const textBlock = textBlocksById.get(item.textBlockId)
       if (!textBlock || !textBlock.content.trim()) continue
+      const assistantMessage = assistantMessageByTextBlockId.get(item.textBlockId)
+      if (!assistantMessage) continue
       const isLastTextBlock = activeAssistantTextBlocks.at(-1)?.id === item.textBlockId
       const nextToolCall =
         nextItem?.kind === 'tool-call'
@@ -340,19 +375,20 @@ export function buildConversationGroupRows(
         })
       const isStreaming =
         input.isActiveGroup &&
-        activeBranch.message.status === 'streaming' &&
+        assistantMessage.id === activeAssistantMessage.id &&
+        activeAssistantMessage.status === 'streaming' &&
         isLastTextBlock &&
         !hasRunningToolCall &&
         !input.subagentActive
       rows.push({
         kind: 'group-assistant-text-block',
-        key: `assistant-text:${activeBranch.message.id}:${textBlock.id}`,
+        key: `assistant-text:${assistantMessage.id}:${textBlock.id}`,
         time: group.userMessage.createdAt,
         requestMessageId,
-        scrollMessageId: activeBranch.message.id,
-        assistantMessageId: activeBranch.message.id,
+        scrollMessageId: assistantMessage.id,
+        assistantMessageId: assistantMessage.id,
         group,
-        assistantMessage: activeBranch.message,
+        assistantMessage,
         textBlock,
         hasRunningToolCall,
         isLastTextBlock,
@@ -371,7 +407,7 @@ export function buildConversationGroupRows(
         key: `generating:${requestMessageId}`,
         time: group.userMessage.createdAt,
         requestMessageId,
-        ...(activeBranch ? { assistantMessageId: activeBranch.message.id } : {}),
+        ...(activeAssistantMessage ? { assistantMessageId: activeAssistantMessage.id } : {}),
         group
       })
       continue
@@ -384,26 +420,26 @@ export function buildConversationGroupRows(
         time: group.userMessage.createdAt,
         requestMessageId,
         scrollMessageId: requestMessageId,
-        ...(activeBranch ? { assistantMessageId: activeBranch.message.id } : {}),
+        ...(activeAssistantMessage ? { assistantMessageId: activeAssistantMessage.id } : {}),
         group
       })
     }
   }
 
   if (
-    activeBranch &&
+    activeAssistantMessage &&
     activeAssistantTextBlocks.length > 0 &&
-    activeBranch.message.status !== 'streaming' &&
+    activeAssistantMessage.status !== 'streaming' &&
     !input.subagentActive
   ) {
     rows.push({
       kind: 'group-footer',
-      key: `footer:${activeBranch.message.id}`,
+      key: `footer:${activeAssistantMessage.id}`,
       time: group.userMessage.createdAt,
       requestMessageId,
-      assistantMessageId: activeBranch.message.id,
+      assistantMessageId: activeAssistantMessage.id,
       group,
-      assistantMessage: activeBranch.message,
+      assistantMessage: activeAssistantMessage,
       savedMemoryCount,
       failedRunError
     })
@@ -415,7 +451,7 @@ export function buildConversationGroupRows(
       key: `subagent:${requestMessageId}`,
       time: group.userMessage.createdAt,
       requestMessageId,
-      ...(activeBranch ? { assistantMessageId: activeBranch.message.id } : {}),
+      ...(activeAssistantMessage ? { assistantMessageId: activeAssistantMessage.id } : {}),
       group
     })
   }
@@ -427,18 +463,20 @@ export function buildMessageTimelineRows(
   input: BuildMessageTimelineRowsInput
 ): MessageTimelineRow[] {
   const blocks: Array<{ time: string; rows: MessageTimelineRow[] }> = [
-    ...input.messageGroups.map((group) => ({
-      time: group.userMessage.createdAt,
-      rows: buildConversationGroupRows({
-        group,
-        inlineToolCalls: input.inlineToolCalls,
-        runs: input.runs,
-        activeRunId: input.activeRunId,
-        isActiveGroup: group.userMessage.id === input.activeRequestMessageId,
-        subagentActive:
-          input.subagentActive && group.userMessage.id === input.activeRequestMessageId
-      })
-    })),
+    ...input.messageGroups.map((group) => {
+      const isActiveGroup = isActiveRequestForGroup(group, input.activeRequestMessageId)
+      return {
+        time: group.userMessage.createdAt,
+        rows: buildConversationGroupRows({
+          group,
+          inlineToolCalls: input.inlineToolCalls,
+          runs: input.runs,
+          activeRunId: input.activeRunId,
+          isActiveGroup,
+          subagentActive: input.subagentActive && isActiveGroup
+        })
+      }
+    }),
     ...input.rootAssistantMessages.map((message) => ({
       time: message.createdAt,
       rows: [

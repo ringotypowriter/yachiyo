@@ -30,7 +30,12 @@ import { createRunEventMetadata } from '../../shared/runEventMetadata.ts'
 import { DEFAULT_THREAD_TITLE } from '../../shared/shared.ts'
 import { buildTitleQuery, deriveThreadTitleFallback } from '../../threads/threadTitle.ts'
 import type { RunDomainDeps, RunState } from '../runTypes.ts'
-import type { QueuedFollowUpDraft } from '../queue/followUpQueue.ts'
+import type { QueuedFollowUpDraft, QueuedFollowUpRequestDraft } from '../queue/followUpQueue.ts'
+import {
+  addPendingSteerInput,
+  applyFinalPendingSteerOptions,
+  getPendingSteerInputs
+} from '../active/pendingSteerQueue.ts'
 import type { ThreadTitleGenerationRunner } from '../title/threadTitleGeneration.ts'
 import {
   createDebouncedSendChatKey,
@@ -87,6 +92,7 @@ export async function sendChatFlow(
     enabledSkillNames,
     enabledTools,
     extraTools: input.extraTools,
+    hidden: input.hidden,
     images,
     mode,
     reasoningEffort,
@@ -144,6 +150,7 @@ export async function sendChatFlow(
         reasoningEffort,
         images: enrichedImages,
         attachments: fileAttachments,
+        hidden: input.hidden,
         messageId,
         thread
       })
@@ -163,12 +170,13 @@ export async function sendChatFlow(
           reasoningEffort,
           images: enrichedImages,
           attachments: fileAttachments,
+          hidden: input.hidden,
           messageId,
           thread
         })
       }
       // Race guard: stop was already clicked, but the tool's long-running
-      // interval hasn't observed the abort yet. Writing pendingSteerInput now
+      // interval hasn't observed the abort yet. Writing pending steer state now
       // would attach it to a run heading down the plain-cancelled path, where
       // it gets wiped when activeRuns is cleared. Route the steer through the
       // follow-up queue so startQueuedFollowUpIfPresent picks it up.
@@ -181,6 +189,7 @@ export async function sendChatFlow(
           reasoningEffort,
           images: enrichedImages,
           attachments: fileAttachments,
+          hidden: input.hidden,
           messageId,
           thread
         })
@@ -193,6 +202,7 @@ export async function sendChatFlow(
         reasoningEffort,
         images: enrichedImages,
         attachments: fileAttachments,
+        hidden: input.hidden,
         messageId,
         thread
       })
@@ -210,6 +220,7 @@ export async function sendChatFlow(
         reasoningEffort,
         images: enrichedImages,
         attachments: fileAttachments,
+        hidden: input.hidden,
         messageId,
         thread
       })
@@ -370,35 +381,23 @@ export function sendActiveRunSteer(
     activeRun.reasoningEffort = input.reasoningEffort
   }
 
-  if (activeRun.pendingSteerInput) {
-    activeRun.pendingSteerInput = {
-      content: [activeRun.pendingSteerInput.content, input.content]
-        .filter((part) => part.length > 0)
-        .join('\n'),
-      images: [...(activeRun.pendingSteerInput.images ?? []), ...(input.images ?? [])],
-      attachments: [...activeRun.pendingSteerInput.attachments, ...(input.attachments ?? [])],
-      messageId: activeRun.pendingSteerInput.messageId,
-      timestamp: activeRun.pendingSteerInput.timestamp,
-      previousEnabledSkillNames: activeRun.pendingSteerInput.previousEnabledSkillNames,
-      previousReasoningEffort: activeRun.pendingSteerInput.previousReasoningEffort,
-      previousRunTrigger: activeRun.pendingSteerInput.previousRunTrigger,
-      reasoningEffort: input.reasoningEffort ?? activeRun.pendingSteerInput.reasoningEffort,
-      hidden: activeRun.pendingSteerInput.hidden
-    }
-  } else {
-    activeRun.pendingSteerInput = {
-      content: input.content,
-      images: input.images,
-      attachments: input.attachments,
-      messageId: input.messageId,
-      timestamp: context.deps.timestamp(),
-      ...(input.reasoningEffort !== undefined ? { reasoningEffort: input.reasoningEffort } : {}),
-      previousEnabledSkillNames,
-      ...(previousReasoningEffort !== undefined ? { previousReasoningEffort } : {}),
-      ...(previousRunTrigger !== undefined ? { previousRunTrigger } : {}),
-      hidden: input.hidden
-    }
-  }
+  addPendingSteerInput(activeRun, {
+    content: input.content,
+    images: input.images,
+    attachments: input.attachments,
+    messageId: input.messageId,
+    timestamp: context.deps.timestamp(),
+    ...(input.enabledSkillNames !== undefined
+      ? { enabledSkillNames: [...input.enabledSkillNames] }
+      : {}),
+    ...(input.reasoningEffort !== undefined ? { reasoningEffort: input.reasoningEffort } : {}),
+    runTrigger: input.runTrigger,
+    previousEnabledSkillNames,
+    ...(previousReasoningEffort !== undefined ? { previousReasoningEffort } : {}),
+    ...(previousRunTrigger !== undefined ? { previousRunTrigger } : {}),
+    hidden: input.hidden
+  })
+  applyFinalPendingSteerOptions(activeRun)
 
   return {
     kind: 'active-run-steer-pending',
@@ -417,6 +416,7 @@ function queueFollowUp(
     reasoningEffort?: ComposerReasoningSelection
     images: MessageRecord['images']
     attachments: MessageFileAttachment[]
+    hidden?: boolean
     messageId: string
     thread: ThreadRecord
   }
@@ -430,52 +430,120 @@ function queueFollowUp(
 
   const timestamp = deps.timestamp()
   const previousQueuedDraft = context.queuedFollowUpDrafts.get(input.thread.id)
-  const replacedMessageId = previousQueuedDraft?.userMessage.id
-  const mergedContent = previousQueuedDraft
-    ? [previousQueuedDraft.userMessage.content, input.content]
-        .filter((part) => part.length > 0)
-        .join('\n')
-    : input.content
-  const mergedImages = previousQueuedDraft
-    ? [...(previousQueuedDraft.userMessage.images ?? []), ...(input.images ?? [])]
-    : input.images
-  const mergedAttachments = previousQueuedDraft
-    ? [...(previousQueuedDraft.userMessage.attachments ?? []), ...input.attachments]
-    : input.attachments
-  const userMessage = createUserMessage({
-    id: input.messageId,
-    content: mergedContent,
-    images: mergedImages,
-    attachments: mergedAttachments,
-    parentMessageId: activeRun.pendingSteerMessageId ?? activeRun.requestMessageId,
-    threadId: input.thread.id,
-    timestamp
-  })
+  const inputHidden = input.hidden === true
+  const previousHidden = previousQueuedDraft?.userMessage.hidden === true
+  const canMergeWithPrevious = previousQueuedDraft !== undefined && previousHidden === inputHidden
+  const hiddenDrafts = previousQueuedDraft?.hiddenDrafts
+    ? previousQueuedDraft.hiddenDrafts.map(createQueuedFollowUpRequestDraft)
+    : []
+  let replacedMessageId: string | undefined
+  let acceptedUserMessage: MessageRecord
+  let queuedUserMessage: MessageRecord
+  let queuedEnabledTools = input.enabledTools
+  let queuedEnabledSkillNames = input.enabledSkillNames
+  let queuedRunTrigger = input.runTrigger
+  let queuedReasoningEffort = input.reasoningEffort
+
+  if (!previousQueuedDraft || canMergeWithPrevious) {
+    replacedMessageId = previousQueuedDraft?.userMessage.id
+    const mergedContent = previousQueuedDraft
+      ? [previousQueuedDraft.userMessage.content, input.content]
+          .filter((part) => part.length > 0)
+          .join('\n')
+      : input.content
+    const mergedImages = previousQueuedDraft
+      ? [...(previousQueuedDraft.userMessage.images ?? []), ...(input.images ?? [])]
+      : input.images
+    const mergedAttachments = previousQueuedDraft
+      ? [...(previousQueuedDraft.userMessage.attachments ?? []), ...input.attachments]
+      : input.attachments
+    queuedUserMessage = createUserMessage({
+      id: input.messageId,
+      content: mergedContent,
+      images: mergedImages,
+      attachments: mergedAttachments,
+      hidden: input.hidden,
+      parentMessageId: activeRun.pendingSteerMessageId ?? activeRun.requestMessageId,
+      threadId: input.thread.id,
+      timestamp
+    })
+    acceptedUserMessage = queuedUserMessage
+  } else if (inputHidden) {
+    const hiddenMessage = createUserMessage({
+      id: input.messageId,
+      content: input.content,
+      images: input.images,
+      attachments: input.attachments,
+      hidden: true,
+      parentMessageId: activeRun.pendingSteerMessageId ?? activeRun.requestMessageId,
+      threadId: input.thread.id,
+      timestamp
+    })
+    hiddenDrafts.push(
+      createQueuedFollowUpRequestDraft({
+        enabledTools: input.enabledTools,
+        ...(input.enabledSkillNames !== undefined
+          ? { enabledSkillNames: input.enabledSkillNames }
+          : {}),
+        runTrigger: input.runTrigger,
+        ...(input.reasoningEffort !== undefined ? { reasoningEffort: input.reasoningEffort } : {}),
+        userMessage: hiddenMessage
+      })
+    )
+    acceptedUserMessage = hiddenMessage
+    queuedUserMessage = previousQueuedDraft.userMessage
+    queuedEnabledTools = previousQueuedDraft.enabledTools
+    queuedEnabledSkillNames = previousQueuedDraft.enabledSkillNames
+    queuedRunTrigger = previousQueuedDraft.runTrigger
+    queuedReasoningEffort = previousQueuedDraft.reasoningEffort
+  } else {
+    hiddenDrafts.push(createQueuedFollowUpRequestDraft(previousQueuedDraft))
+    queuedUserMessage = createUserMessage({
+      id: input.messageId,
+      content: input.content,
+      images: input.images,
+      attachments: input.attachments,
+      parentMessageId: activeRun.pendingSteerMessageId ?? activeRun.requestMessageId,
+      threadId: input.thread.id,
+      timestamp
+    })
+    acceptedUserMessage = queuedUserMessage
+  }
+
+  const exposeQueuedFollowUp = queuedUserMessage.hidden !== true
   const updatedThread: ThreadRecord = {
     ...input.thread,
-    queuedFollowUpEnabledTools: [...input.enabledTools],
-    queuedFollowUpMessageId: userMessage.id,
     updatedAt: timestamp
   }
-  if (input.reasoningEffort !== undefined) {
-    updatedThread.queuedFollowUpReasoningEffort = input.reasoningEffort
+  if (exposeQueuedFollowUp) {
+    updatedThread.queuedFollowUpEnabledTools = [...queuedEnabledTools]
+    updatedThread.queuedFollowUpMessageId = queuedUserMessage.id
+  } else {
+    delete updatedThread.queuedFollowUpEnabledTools
+    delete updatedThread.queuedFollowUpMessageId
+  }
+  if (exposeQueuedFollowUp && queuedReasoningEffort !== undefined) {
+    updatedThread.queuedFollowUpReasoningEffort = queuedReasoningEffort
   } else {
     delete updatedThread.queuedFollowUpReasoningEffort
   }
-  if (input.enabledSkillNames !== undefined) {
-    updatedThread.queuedFollowUpEnabledSkillNames = [...input.enabledSkillNames]
+  if (exposeQueuedFollowUp && queuedEnabledSkillNames !== undefined) {
+    updatedThread.queuedFollowUpEnabledSkillNames = [...queuedEnabledSkillNames]
   } else {
     delete updatedThread.queuedFollowUpEnabledSkillNames
   }
 
   context.queuedFollowUpDrafts.set(input.thread.id, {
-    enabledTools: [...input.enabledTools],
-    ...(input.enabledSkillNames !== undefined
-      ? { enabledSkillNames: [...input.enabledSkillNames] }
-      : {}),
-    runTrigger: input.runTrigger,
-    ...(input.reasoningEffort !== undefined ? { reasoningEffort: input.reasoningEffort } : {}),
-    userMessage
+    ...createQueuedFollowUpRequestDraft({
+      enabledTools: queuedEnabledTools,
+      ...(queuedEnabledSkillNames !== undefined
+        ? { enabledSkillNames: queuedEnabledSkillNames }
+        : {}),
+      runTrigger: queuedRunTrigger,
+      ...(queuedReasoningEffort !== undefined ? { reasoningEffort: queuedReasoningEffort } : {}),
+      userMessage: queuedUserMessage
+    }),
+    ...(hiddenDrafts.length > 0 ? { hiddenDrafts } : {})
   })
   deps.emit<ThreadUpdatedEvent>({
     type: 'thread.updated',
@@ -486,15 +554,29 @@ function queueFollowUp(
     type: 'message.completed',
     threadId: updatedThread.id,
     runId: activeRunId,
-    message: userMessage
+    message: acceptedUserMessage
   })
 
   return {
     kind: 'active-run-follow-up',
     runId: activeRunId,
     thread: updatedThread,
-    userMessage,
+    userMessage: acceptedUserMessage,
     ...(replacedMessageId ? { replacedMessageId } : {})
+  }
+}
+
+function createQueuedFollowUpRequestDraft(
+  input: QueuedFollowUpRequestDraft
+): QueuedFollowUpRequestDraft {
+  return {
+    enabledTools: [...input.enabledTools],
+    ...(input.enabledSkillNames !== undefined
+      ? { enabledSkillNames: [...input.enabledSkillNames] }
+      : {}),
+    runTrigger: input.runTrigger,
+    ...(input.reasoningEffort !== undefined ? { reasoningEffort: input.reasoningEffort } : {}),
+    userMessage: input.userMessage
   }
 }
 
@@ -593,6 +675,16 @@ function createDebouncedSendChatStateSignature(
     activeRunId,
     executionPhase: activeRun?.executionPhase ?? null,
     headMessageId: thread.headMessageId ?? null,
+    pendingSteerInputs: activeRun
+      ? getPendingSteerInputs(activeRun).map((steerInput) => ({
+          content: steerInput.content,
+          createdAt: steerInput.timestamp,
+          hidden: steerInput.hidden === true,
+          id: steerInput.messageId,
+          parentMessageId: activeRun.pendingSteerMessageId ?? activeRun.requestMessageId ?? null,
+          reasoningEffort: steerInput.reasoningEffort ?? null
+        }))
+      : [],
     pendingSteerMessageId: activeRun?.pendingSteerMessageId ?? null,
     queuedFollowUpDraft: queuedFollowUpDraft
       ? {
@@ -600,9 +692,22 @@ function createDebouncedSendChatStateSignature(
           createdAt: queuedFollowUpDraft.userMessage.createdAt,
           enabledSkillNames: queuedFollowUpDraft.enabledSkillNames ?? null,
           enabledTools: queuedFollowUpDraft.enabledTools,
+          hidden: queuedFollowUpDraft.userMessage.hidden === true,
+          hiddenDrafts:
+            queuedFollowUpDraft.hiddenDrafts?.map((draft) => ({
+              content: draft.userMessage.content,
+              createdAt: draft.userMessage.createdAt,
+              enabledSkillNames: draft.enabledSkillNames ?? null,
+              enabledTools: draft.enabledTools,
+              id: draft.userMessage.id,
+              parentMessageId: draft.userMessage.parentMessageId ?? null,
+              reasoningEffort: draft.reasoningEffort ?? null,
+              runTrigger: draft.runTrigger
+            })) ?? [],
           id: queuedFollowUpDraft.userMessage.id,
           parentMessageId: queuedFollowUpDraft.userMessage.parentMessageId ?? null,
-          reasoningEffort: queuedFollowUpDraft.reasoningEffort ?? null
+          reasoningEffort: queuedFollowUpDraft.reasoningEffort ?? null,
+          runTrigger: queuedFollowUpDraft.runTrigger
         }
       : null,
     queuedFollowUpMessageId: thread.queuedFollowUpMessageId ?? null,
@@ -639,6 +744,7 @@ export function persistSteerMessage(
     thread: ThreadRecord
     timestamp: string
     hidden?: boolean
+    parentMessageId?: string
   }
 ): { updatedThread: ThreadRecord; userMessage: MessageRecord } {
   const { deps } = context
@@ -648,7 +754,10 @@ export function persistSteerMessage(
     content: input.content,
     images: input.images,
     attachments: input.attachments,
-    parentMessageId: input.runState.pendingSteerMessageId ?? input.runState.requestMessageId,
+    parentMessageId:
+      input.parentMessageId ??
+      input.runState.pendingSteerMessageId ??
+      input.runState.requestMessageId,
     threadId: input.thread.id,
     timestamp: persistedAt,
     hidden: input.hidden
@@ -679,5 +788,49 @@ export function persistSteerMessage(
   return {
     updatedThread,
     userMessage
+  }
+}
+
+export function persistSteerMessages(
+  context: SendChatFlowContext,
+  input: {
+    steerInputs: Array<{
+      content: string
+      images: MessageRecord['images']
+      attachments: MessageFileAttachment[]
+      messageId: string
+      timestamp: string
+      hidden?: boolean
+    }>
+    runId: string
+    runState: RunState
+    thread: ThreadRecord
+  }
+): { updatedThread: ThreadRecord; userMessages: MessageRecord[] } {
+  let currentThread = input.thread
+  let parentMessageId = input.runState.pendingSteerMessageId ?? input.runState.requestMessageId
+  const userMessages: MessageRecord[] = []
+
+  for (const steerInput of input.steerInputs) {
+    const { updatedThread, userMessage } = persistSteerMessage(context, {
+      content: steerInput.content,
+      images: steerInput.images,
+      attachments: steerInput.attachments,
+      messageId: steerInput.messageId,
+      runId: input.runId,
+      runState: input.runState,
+      thread: currentThread,
+      timestamp: steerInput.timestamp,
+      hidden: steerInput.hidden,
+      parentMessageId
+    })
+    currentThread = updatedThread
+    parentMessageId = userMessage.id
+    userMessages.push(userMessage)
+  }
+
+  return {
+    updatedThread: currentThread,
+    userMessages
   }
 }

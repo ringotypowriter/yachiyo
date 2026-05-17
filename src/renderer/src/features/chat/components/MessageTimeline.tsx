@@ -16,6 +16,7 @@ import {
   buildMessageGroups,
   getRootAssistantMessages,
   getTimelineMessages,
+  isActiveRequestForGroup,
   partitionToolCallsForGroups
 } from '../lib/messageThreadPresentation'
 import {
@@ -257,7 +258,8 @@ function renderTimelineItem(
     threadHasActiveRun,
     threadIsSaving
   })
-  const isActiveGroup = item.requestMessageId === activeRequestMessageId
+  const isActiveGroup =
+    'group' in item && isActiveRequestForGroup(item.group, activeRequestMessageId)
   const groupRetryInfo = isActiveGroup ? retryInfo : undefined
   const cancelSubagent =
     isActiveGroup && activeSubagents.length === 1 && threadId
@@ -399,7 +401,7 @@ function renderTimelineItem(
         <RunStatsFooter
           runs={runs}
           toolCalls={toolCalls}
-          requestMessageId={item.requestMessageId}
+          requestMessageIds={[item.requestMessageId, ...item.group.hiddenRequestMessageIds]}
         />
         <MessageActionBar
           align="start"

@@ -117,7 +117,7 @@ export function handleBackgroundBashCompleted(
       ...(cancelled ? { cancelledByUser: true } : {})
     })
 
-    // 3. Auto-deliver the completion notice as a regular user message via sendChat,
+    // 3. Auto-deliver the completion notice as a hidden system steer via sendChat,
     // for local threads and owner DMs. Skip when the user manually cancelled —
     // they already know, and triggering a model run would be noise.
     const ctx = context.backgroundTaskRunContext.get(result.taskId)
@@ -160,6 +160,7 @@ async function autoDeliverBackgroundCompletion(
   const chatOptions = {
     threadId: thread.id,
     content,
+    hidden: true,
     ...(ctx?.enabledTools ? { enabledTools: ctx.enabledTools } : {}),
     ...(ctx?.enabledSkillNames ? { enabledSkillNames: ctx.enabledSkillNames } : {}),
     ...(ctx?.reasoningEffort !== undefined ? { reasoningEffort: ctx.reasoningEffort } : {}),

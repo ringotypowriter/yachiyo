@@ -7,7 +7,9 @@ import {
   compactNovelTermsForDisplay,
   countToolCallsForRun,
   findLatestRunForRequest,
-  findRunMemorySummary
+  findLatestRunForRequests,
+  findRunMemorySummary,
+  findRunMemorySummaryForRequests
 } from './runMemoryPresentation.ts'
 
 test('findRunMemorySummary returns the latest recalled memory for a request', () => {
@@ -121,6 +123,60 @@ test('findLatestRunForRequest prefers the newest matching retry for a request', 
     requestMessageId: 'user-1',
     snapshotFileCount: 4,
     workspacePath: '/tmp/external-workspace'
+  })
+})
+
+test('findLatestRunForRequests prefers the newest run across merged request anchors', () => {
+  const run = findLatestRunForRequests(
+    [
+      {
+        id: 'run-visible',
+        threadId: 'thread-1',
+        status: 'completed',
+        createdAt: '2026-03-22T00:00:00.000Z',
+        requestMessageId: 'user-1'
+      },
+      {
+        id: 'run-hidden',
+        threadId: 'thread-1',
+        status: 'failed',
+        error: 'hidden failed',
+        createdAt: '2026-03-22T00:00:05.000Z',
+        requestMessageId: 'hidden-background-notice'
+      },
+      {
+        id: 'run-other',
+        threadId: 'thread-1',
+        status: 'completed',
+        createdAt: '2026-03-22T00:00:10.000Z',
+        requestMessageId: 'user-2'
+      }
+    ],
+    ['user-1', 'hidden-background-notice']
+  )
+
+  assert.equal(run?.id, 'run-hidden')
+})
+
+test('findRunMemorySummaryForRequests reads memory from merged hidden request anchors', () => {
+  const summary = findRunMemorySummaryForRequests(
+    [
+      {
+        id: 'run-hidden',
+        threadId: 'thread-1',
+        status: 'completed',
+        createdAt: '2026-03-22T00:00:05.000Z',
+        requestMessageId: 'hidden-background-notice',
+        recalledMemoryEntries: ['background context']
+      }
+    ],
+    ['user-1', 'hidden-background-notice']
+  )
+
+  assert.deepEqual(summary, {
+    runId: 'run-hidden',
+    entries: ['background context'],
+    recallDecision: undefined
   })
 })
 

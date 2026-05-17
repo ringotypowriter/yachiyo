@@ -26,6 +26,21 @@ import type { CreateId, EmitServerEvent, Timestamp } from '../shared/shared.ts'
 
 export type RunExecutionPhase = 'generating' | 'tool-running' | 'waiting-for-user' | 'terminal'
 
+export interface PendingSteerInput {
+  content: string
+  images: MessageRecord['images']
+  attachments: MessageFileAttachment[]
+  messageId: string
+  timestamp: string
+  enabledSkillNames?: string[]
+  reasoningEffort?: ComposerReasoningSelection
+  runTrigger?: SendChatRunTrigger
+  hidden?: boolean
+  previousEnabledSkillNames?: string[]
+  previousReasoningEffort?: ComposerReasoningSelection
+  previousRunTrigger?: SendChatRunTrigger
+}
+
 export interface RunState {
   threadId: string
   requestMessageId?: string
@@ -36,18 +51,7 @@ export interface RunState {
   recoveryCheckpoint?: RunRecoveryCheckpoint
   abortController: AbortController
   pendingSteerMessageId?: string
-  pendingSteerInput?: {
-    content: string
-    images: MessageRecord['images']
-    attachments: MessageFileAttachment[]
-    messageId: string
-    timestamp: string
-    reasoningEffort?: ComposerReasoningSelection
-    hidden?: boolean
-    previousEnabledSkillNames?: string[]
-    previousReasoningEffort?: ComposerReasoningSelection
-    previousRunTrigger?: SendChatRunTrigger
-  }
+  pendingSteerInputs?: PendingSteerInput[]
   executionPhase: RunExecutionPhase
   snapshotTracker?: SnapshotTracker
   workspaceRestorePointMessageIds?: Set<string>

@@ -23,6 +23,7 @@ export function createDebouncedSendChatKey(input: {
   enabledSkillNames?: string[]
   enabledTools: ToolCallName[]
   extraTools?: SendChatInput['extraTools']
+  hidden?: boolean
   images: MessageRecord['images']
   mode: SendChatMode
   reasoningEffort?: ComposerReasoningSelection
@@ -44,6 +45,7 @@ export function createDebouncedSendChatKey(input: {
     content: input.content,
     enabledSkillNames: input.enabledSkillNames ?? [],
     enabledTools: input.enabledTools,
+    hidden: input.hidden === true,
     images: (input.images ?? []).map((image) => ({
       dataUrl: image.dataUrl,
       filename: image.filename ?? null,

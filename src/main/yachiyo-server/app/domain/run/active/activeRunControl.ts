@@ -1,5 +1,12 @@
 import type { RunCancelledEvent } from '../../../../../../shared/yachiyo/protocol.ts'
 import type { RunDomainDeps, RunState } from '../runTypes.ts'
+import {
+  applyFinalPendingSteerOptions,
+  clearPendingSteerInputs,
+  getPendingSteerInputsForPersistence,
+  hasPendingSteerInputs,
+  removeVisiblePendingSteerInputs
+} from './pendingSteerQueue.ts'
 
 export interface CancelRunInput {
   runId: string
@@ -25,20 +32,15 @@ export function cancelRun(context: ActiveRunControlContext, input: CancelRunInpu
     // message first, then the run loop parents the steer under it — keeping
     // the ancestor chain intact for future LLM context assembly.
     //
-    // Do NOT clear pendingSteerInput here — it must survive as a fallback
+    // Do NOT clear pending steer state here — it must survive as a fallback
     // for race conditions where executeServerRun returns 'steer-pending'
     // (model finished before observing the abort). The steer-pending handler
     // and the cancelled-with-steer handler each clear it after persisting.
-    if (activeRun.pendingSteerInput) {
-      const steerInput = {
-        content: activeRun.pendingSteerInput.content,
-        images: activeRun.pendingSteerInput.images,
-        attachments: activeRun.pendingSteerInput.attachments,
-        messageId: activeRun.pendingSteerInput.messageId,
-        timestamp: activeRun.pendingSteerInput.timestamp,
-        hidden: activeRun.pendingSteerInput.hidden
-      }
-      activeRun.abortController.abort({ type: 'cancel-with-steer', steerInput })
+    if (hasPendingSteerInputs(activeRun)) {
+      activeRun.abortController.abort({
+        type: 'cancel-with-steer',
+        steerInputs: getPendingSteerInputsForPersistence(activeRun)
+      })
       return
     }
 
@@ -75,22 +77,27 @@ export function withdrawPendingSteer(context: ActiveRunControlContext, threadId:
   const runId = context.activeRunByThread.get(threadId)
   if (!runId) return
   const activeRun = context.activeRuns.get(runId)
-  if (!activeRun?.pendingSteerInput) return
+  if (!activeRun) return
+  const visibleSteer = removeVisiblePendingSteerInputs(activeRun)
+  if (!visibleSteer) return
+  if (hasPendingSteerInputs(activeRun)) {
+    applyFinalPendingSteerOptions(activeRun)
+    return
+  }
   // Restore the skill override the steer replaced so the live run
   // continues with its original configuration.
-  activeRun.enabledSkillNames = activeRun.pendingSteerInput.previousEnabledSkillNames
-  if (activeRun.pendingSteerInput.previousReasoningEffort !== undefined) {
-    activeRun.reasoningEffort = activeRun.pendingSteerInput.previousReasoningEffort
+  activeRun.enabledSkillNames = visibleSteer.previousEnabledSkillNames
+  if (visibleSteer.previousReasoningEffort !== undefined) {
+    activeRun.reasoningEffort = visibleSteer.previousReasoningEffort
   } else {
     delete activeRun.reasoningEffort
   }
-  if (activeRun.pendingSteerInput.previousRunTrigger !== undefined) {
-    activeRun.runTrigger = activeRun.pendingSteerInput.previousRunTrigger
+  if (visibleSteer.previousRunTrigger !== undefined) {
+    activeRun.runTrigger = visibleSteer.previousRunTrigger
   } else {
     delete activeRun.runTrigger
   }
-  activeRun.pendingSteerInput = undefined
-  activeRun.pendingSteerMessageId = undefined
+  clearPendingSteerInputs(activeRun)
 }
 
 export function cancelRunForChannelUser(

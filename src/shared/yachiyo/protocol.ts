@@ -1129,6 +1129,11 @@ export interface SendChatInput {
   mode?: SendChatMode
   runTrigger?: SendChatRunTrigger
   /**
+   * Hide the submitted user message from the timeline while keeping it in model context.
+   * Used for system-initiated delivery such as background task completion notices.
+   */
+  hidden?: boolean
+  /**
    * Optional per-turn hint injected into the hint layer before the model sees
    * the user message. Used by channel integrations (e.g. Telegram) to enforce
    * reply-format instructions without polluting stored message content.

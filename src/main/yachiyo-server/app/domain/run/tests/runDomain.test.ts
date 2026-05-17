@@ -7,8 +7,16 @@ import type {
 } from '../../../../../../shared/yachiyo/protocol.ts'
 import type { RunRecoveryCheckpoint } from '../../../../storage/storage.ts'
 import { startRecoveredRun } from '../active/activeRunStart.ts'
-import { sendActiveRunSteer, type SendChatFlowContext } from '../chat/sendChatFlow.ts'
+import { sendActiveRunSteer, sendChatFlow, type SendChatFlowContext } from '../chat/sendChatFlow.ts'
+import {
+  deleteQueuedFollowUpDraft,
+  projectQueuedFollowUpDraftSnapshot,
+  startQueuedFollowUpIfPresent,
+  type FollowUpQueueContext,
+  type QueuedFollowUpDraft
+} from '../queue/followUpQueue.ts'
 import { YachiyoServerRunDomain } from '../runDomain.ts'
+import type { RunState } from '../runTypes.ts'
 
 function createDomain(cancelledRunIds: string[] = []): YachiyoServerRunDomain {
   return new YachiyoServerRunDomain({
@@ -105,6 +113,465 @@ test('withdrawPendingSteer restores the reasoning effort replaced by the steer',
   assert.deepEqual(activeRun.enabledSkillNames, ['original-skill'])
   assert.equal(activeRun.reasoningEffort, 'medium')
   assert.equal(activeRun.runTrigger, 'channel')
+})
+
+test('sendActiveRunSteer keeps hidden and visible pending steers separate', () => {
+  const domain = createDomain()
+  const thread: ThreadRecord = {
+    id: 'thread-1',
+    title: 'Thread',
+    updatedAt: '2026-05-02T00:00:00.000Z'
+  }
+  const activeRun: RunState = {
+    threadId: thread.id,
+    requestMessageId: 'user-1',
+    abortController: new AbortController(),
+    executionPhase: 'generating' as const,
+    updateHeadOnComplete: true
+  }
+  const domainState = domain as unknown as {
+    activeRuns: Map<string, typeof activeRun>
+    activeRunByThread: Map<string, string>
+  }
+  const context: SendChatFlowContext = {
+    deps: { timestamp: () => '2026-05-02T00:00:00.000Z' } as SendChatFlowContext['deps'],
+    activeRuns: domainState.activeRuns as SendChatFlowContext['activeRuns'],
+    activeRunByThread: domainState.activeRunByThread,
+    debouncedSendChats: new Map(),
+    queuedFollowUpDrafts: new Map(),
+    threadTitleRunner: {
+      schedule: () => {}
+    } as unknown as SendChatFlowContext['threadTitleRunner'],
+    startActiveRun: () => {}
+  }
+
+  domainState.activeRuns.set('run-1', activeRun)
+  domainState.activeRunByThread.set(thread.id, 'run-1')
+
+  sendActiveRunSteer(context, {
+    activeRunId: 'run-1',
+    content: 'system notice',
+    runTrigger: 'local',
+    images: [],
+    attachments: [],
+    messageId: 'hidden-steer',
+    thread,
+    hidden: true
+  })
+  sendActiveRunSteer(context, {
+    activeRunId: 'run-1',
+    content: 'user steer',
+    runTrigger: 'local',
+    images: [],
+    attachments: [],
+    messageId: 'visible-steer',
+    thread
+  })
+
+  const pending = (
+    activeRun as {
+      pendingSteerInputs?: Array<{
+        id?: string
+        messageId: string
+        hidden?: boolean
+        content: string
+      }>
+    }
+  ).pendingSteerInputs
+  assert.deepEqual(
+    pending?.map((steer) => ({
+      content: steer.content,
+      hidden: steer.hidden === true,
+      messageId: steer.messageId
+    })),
+    [
+      { content: 'system notice', hidden: true, messageId: 'hidden-steer' },
+      { content: 'user steer', hidden: false, messageId: 'visible-steer' }
+    ]
+  )
+})
+
+test('sendActiveRunSteer keeps visible steers as the final anchor when hidden arrives later', () => {
+  const domain = createDomain()
+  const thread: ThreadRecord = {
+    id: 'thread-1',
+    title: 'Thread',
+    updatedAt: '2026-05-02T00:00:00.000Z'
+  }
+  const activeRun: RunState = {
+    threadId: thread.id,
+    requestMessageId: 'user-1',
+    abortController: new AbortController(),
+    executionPhase: 'generating' as const,
+    updateHeadOnComplete: true
+  }
+  const domainState = domain as unknown as {
+    activeRuns: Map<string, typeof activeRun>
+    activeRunByThread: Map<string, string>
+  }
+  const context: SendChatFlowContext = {
+    deps: { timestamp: () => '2026-05-02T00:00:00.000Z' } as SendChatFlowContext['deps'],
+    activeRuns: domainState.activeRuns as SendChatFlowContext['activeRuns'],
+    activeRunByThread: domainState.activeRunByThread,
+    debouncedSendChats: new Map(),
+    queuedFollowUpDrafts: new Map(),
+    threadTitleRunner: {
+      schedule: () => {}
+    } as unknown as SendChatFlowContext['threadTitleRunner'],
+    startActiveRun: () => {}
+  }
+
+  domainState.activeRuns.set('run-1', activeRun)
+  domainState.activeRunByThread.set(thread.id, 'run-1')
+
+  sendActiveRunSteer(context, {
+    activeRunId: 'run-1',
+    content: 'user steer',
+    enabledSkillNames: ['visible-skill'],
+    reasoningEffort: 'low',
+    runTrigger: 'local',
+    images: [],
+    attachments: [],
+    messageId: 'visible-steer',
+    thread
+  })
+  sendActiveRunSteer(context, {
+    activeRunId: 'run-1',
+    content: 'system notice',
+    enabledSkillNames: ['hidden-skill'],
+    reasoningEffort: 'high',
+    runTrigger: 'channel',
+    images: [],
+    attachments: [],
+    messageId: 'hidden-steer',
+    thread,
+    hidden: true
+  })
+
+  const pending = (
+    activeRun as {
+      pendingSteerInputs?: Array<{
+        messageId: string
+        hidden?: boolean
+        content: string
+      }>
+    }
+  ).pendingSteerInputs
+  assert.deepEqual(
+    pending?.map((steer) => ({
+      content: steer.content,
+      hidden: steer.hidden === true,
+      messageId: steer.messageId
+    })),
+    [
+      { content: 'system notice', hidden: true, messageId: 'hidden-steer' },
+      { content: 'user steer', hidden: false, messageId: 'visible-steer' }
+    ]
+  )
+  assert.deepEqual(activeRun.enabledSkillNames, ['visible-skill'])
+  assert.equal(activeRun.reasoningEffort, 'low')
+  assert.equal(activeRun.runTrigger, 'local')
+})
+
+test('sendChatFlow keeps hidden follow-ups separate from a visible queued draft', async () => {
+  const thread: ThreadRecord = {
+    id: 'thread-1',
+    title: 'Thread',
+    updatedAt: '2026-05-02T00:00:00.000Z'
+  }
+  let id = 0
+  const activeRun = {
+    threadId: thread.id,
+    requestMessageId: 'user-1',
+    abortController: new AbortController(),
+    executionPhase: 'generating' as const,
+    updateHeadOnComplete: true
+  }
+  const context: SendChatFlowContext = {
+    deps: {
+      createId: () => `message-${++id}`,
+      timestamp: () => '2026-05-02T00:00:00.000Z',
+      requireThread: () => thread,
+      readConfig: () => ({ enabledTools: [] }),
+      emit: () => {}
+    } as unknown as SendChatFlowContext['deps'],
+    activeRuns: new Map([['run-1', activeRun]]) as SendChatFlowContext['activeRuns'],
+    activeRunByThread: new Map([[thread.id, 'run-1']]),
+    debouncedSendChats: new Map(),
+    queuedFollowUpDrafts: new Map(),
+    threadTitleRunner: {
+      schedule: () => {}
+    } as unknown as SendChatFlowContext['threadTitleRunner'],
+    startActiveRun: () => {}
+  }
+
+  const visible = await sendChatFlow(context, {
+    threadId: thread.id,
+    content: 'visible follow-up',
+    mode: 'follow-up'
+  })
+  const hidden = await sendChatFlow(context, {
+    threadId: thread.id,
+    content: 'hidden notice',
+    mode: 'follow-up',
+    hidden: true
+  })
+
+  const draft = context.queuedFollowUpDrafts.get(thread.id)
+  assert.equal(visible.kind, 'active-run-follow-up')
+  assert.equal(hidden.kind, 'active-run-follow-up')
+  assert.equal(draft?.userMessage.id, visible.userMessage.id)
+  assert.equal(draft?.userMessage.hidden, undefined)
+  assert.equal(draft?.userMessage.content, 'visible follow-up')
+  assert.deepEqual(
+    draft?.hiddenDrafts?.map((hiddenDraft) => ({
+      content: hiddenDraft.userMessage.content,
+      hidden: hiddenDraft.userMessage.hidden === true
+    })),
+    [{ content: 'hidden notice', hidden: true }]
+  )
+})
+
+test('sendChatFlow keeps an earlier hidden follow-up hidden when a visible draft arrives', async () => {
+  const thread: ThreadRecord = {
+    id: 'thread-1',
+    title: 'Thread',
+    updatedAt: '2026-05-02T00:00:00.000Z'
+  }
+  let id = 0
+  const activeRun = {
+    threadId: thread.id,
+    requestMessageId: 'user-1',
+    abortController: new AbortController(),
+    executionPhase: 'generating' as const,
+    updateHeadOnComplete: true
+  }
+  const context: SendChatFlowContext = {
+    deps: {
+      createId: () => `message-${++id}`,
+      timestamp: () => '2026-05-02T00:00:00.000Z',
+      requireThread: () => thread,
+      readConfig: () => ({ enabledTools: [] }),
+      emit: () => {}
+    } as unknown as SendChatFlowContext['deps'],
+    activeRuns: new Map([['run-1', activeRun]]) as SendChatFlowContext['activeRuns'],
+    activeRunByThread: new Map([[thread.id, 'run-1']]),
+    debouncedSendChats: new Map(),
+    queuedFollowUpDrafts: new Map(),
+    threadTitleRunner: {
+      schedule: () => {}
+    } as unknown as SendChatFlowContext['threadTitleRunner'],
+    startActiveRun: () => {}
+  }
+
+  const hidden = await sendChatFlow(context, {
+    threadId: thread.id,
+    content: 'hidden notice',
+    mode: 'follow-up',
+    hidden: true
+  })
+  const visible = await sendChatFlow(context, {
+    threadId: thread.id,
+    content: 'visible follow-up',
+    mode: 'follow-up'
+  })
+
+  const draft = context.queuedFollowUpDrafts.get(thread.id)
+  assert.equal(hidden.kind, 'active-run-follow-up')
+  assert.equal(visible.kind, 'active-run-follow-up')
+  assert.equal(draft?.userMessage.id, visible.userMessage.id)
+  assert.equal(draft?.userMessage.hidden, undefined)
+  assert.equal(draft?.userMessage.content, 'visible follow-up')
+  assert.deepEqual(
+    draft?.hiddenDrafts?.map((hiddenDraft) => ({
+      content: hiddenDraft.userMessage.content,
+      hidden: hiddenDraft.userMessage.hidden === true
+    })),
+    [{ content: 'hidden notice', hidden: true }]
+  )
+})
+
+test('sendChatFlow does not expose hidden-only follow-up drafts as visible queued messages', async () => {
+  const thread: ThreadRecord = {
+    id: 'thread-1',
+    title: 'Thread',
+    updatedAt: '2026-05-02T00:00:00.000Z'
+  }
+  let id = 0
+  const threadUpdates: ThreadRecord[] = []
+  const activeRun = {
+    threadId: thread.id,
+    requestMessageId: 'user-1',
+    abortController: new AbortController(),
+    executionPhase: 'generating' as const,
+    updateHeadOnComplete: true
+  }
+  const context: SendChatFlowContext = {
+    deps: {
+      createId: () => `message-${++id}`,
+      timestamp: () => '2026-05-02T00:00:00.000Z',
+      requireThread: () => thread,
+      readConfig: () => ({ enabledTools: [] }),
+      emit: (event: { type: string; thread?: ThreadRecord }) => {
+        if (event.type === 'thread.updated' && event.thread) {
+          threadUpdates.push(event.thread)
+        }
+      }
+    } as unknown as SendChatFlowContext['deps'],
+    activeRuns: new Map([['run-1', activeRun]]) as SendChatFlowContext['activeRuns'],
+    activeRunByThread: new Map([[thread.id, 'run-1']]),
+    debouncedSendChats: new Map(),
+    queuedFollowUpDrafts: new Map(),
+    threadTitleRunner: {
+      schedule: () => {}
+    } as unknown as SendChatFlowContext['threadTitleRunner'],
+    startActiveRun: () => {}
+  }
+
+  const hidden = await sendChatFlow(context, {
+    threadId: thread.id,
+    content: 'hidden notice',
+    mode: 'follow-up',
+    hidden: true
+  })
+  const projectedSnapshot = projectQueuedFollowUpDraftSnapshot(context.queuedFollowUpDrafts, {
+    thread,
+    messages: [],
+    toolCalls: []
+  })
+
+  assert.equal(hidden.kind, 'active-run-follow-up')
+  assert.equal(hidden.thread.queuedFollowUpMessageId, undefined)
+  assert.equal(threadUpdates.at(-1)?.queuedFollowUpMessageId, undefined)
+  assert.equal(projectedSnapshot.thread.queuedFollowUpMessageId, undefined)
+  assert.deepEqual(projectedSnapshot.messages, [])
+  assert.equal(context.queuedFollowUpDrafts.get(thread.id)?.userMessage.hidden, true)
+})
+
+test('deleteQueuedFollowUpDraft preserves hidden notices attached to a visible draft', async () => {
+  let currentThread: ThreadRecord = {
+    id: 'thread-1',
+    title: 'Thread',
+    updatedAt: '2026-05-02T00:00:00.000Z'
+  }
+  let id = 0
+  const activeRun = {
+    threadId: currentThread.id,
+    requestMessageId: 'user-1',
+    abortController: new AbortController(),
+    executionPhase: 'generating' as const,
+    updateHeadOnComplete: true
+  }
+  const activeRunByThread = new Map([[currentThread.id, 'run-1']])
+  const queuedFollowUpDrafts = new Map<string, QueuedFollowUpDraft>()
+  const sendContext: SendChatFlowContext = {
+    deps: {
+      createId: () => `message-${++id}`,
+      timestamp: () => '2026-05-02T00:00:00.000Z',
+      requireThread: () => currentThread,
+      readConfig: () => ({ enabledTools: [] }),
+      emit: () => {}
+    } as unknown as SendChatFlowContext['deps'],
+    activeRuns: new Map([['run-1', activeRun]]) as SendChatFlowContext['activeRuns'],
+    activeRunByThread,
+    debouncedSendChats: new Map(),
+    queuedFollowUpDrafts: queuedFollowUpDrafts as SendChatFlowContext['queuedFollowUpDrafts'],
+    threadTitleRunner: {
+      schedule: () => {}
+    } as unknown as SendChatFlowContext['threadTitleRunner'],
+    startActiveRun: () => {}
+  }
+
+  const visible = await sendChatFlow(sendContext, {
+    threadId: currentThread.id,
+    content: 'visible follow-up',
+    mode: 'follow-up',
+    enabledTools: ['read'],
+    enabledSkillNames: ['visible-skill'],
+    runTrigger: 'local',
+    reasoningEffort: 'low'
+  })
+  assert.equal(visible.kind, 'active-run-follow-up')
+  await sendChatFlow(sendContext, {
+    threadId: currentThread.id,
+    content: 'hidden notice',
+    mode: 'follow-up',
+    hidden: true,
+    enabledTools: ['bash'],
+    enabledSkillNames: ['hidden-skill'],
+    runTrigger: 'channel',
+    reasoningEffort: 'high'
+  })
+
+  const startRunInputs: Array<{ userMessage?: { content: string; hidden?: boolean } }> = []
+  const startActiveRunInputs: Array<{
+    enabledSkillNames?: string[]
+    enabledTools: string[]
+    reasoningEffort?: string
+    runTrigger: string
+  }> = []
+  const followUpContext: FollowUpQueueContext = {
+    deps: {
+      createId: () => `run-${++id}`,
+      timestamp: () => '2026-05-02T00:00:01.000Z',
+      requireThread: () => currentThread,
+      loadThreadMessages: () => [],
+      loadThreadToolCalls: () => [],
+      readConfig: () => ({ enabledTools: [] }),
+      storage: {
+        getThread: () => currentThread,
+        updateThread: (thread: ThreadRecord) => {
+          currentThread = thread
+        },
+        updateMessage: () => {},
+        startRun: (input: { userMessage?: { content: string; hidden?: boolean } }) => {
+          startRunInputs.push(input)
+        }
+      },
+      emit: () => {}
+    } as unknown as FollowUpQueueContext['deps'],
+    activeRunByThread,
+    queuedFollowUpDrafts: sendContext.queuedFollowUpDrafts,
+    isClosing: () => false,
+    startActiveRun: (input) => {
+      startActiveRunInputs.push({
+        enabledTools: input.enabledTools,
+        enabledSkillNames: input.enabledSkillNames,
+        runTrigger: input.runTrigger,
+        reasoningEffort: input.reasoningEffort
+      })
+    },
+    startRecoveredRun: () => {}
+  }
+
+  deleteQueuedFollowUpDraft(followUpContext, {
+    threadId: currentThread.id,
+    messageId: visible.userMessage.id
+  })
+  const remainingDraft = sendContext.queuedFollowUpDrafts.get(currentThread.id)
+
+  assert.equal(currentThread.queuedFollowUpMessageId, undefined)
+  assert.equal(remainingDraft?.userMessage.content, 'hidden notice')
+  assert.equal(remainingDraft?.userMessage.hidden, true)
+
+  activeRunByThread.clear()
+  startQueuedFollowUpIfPresent(followUpContext, currentThread.id)
+
+  assert.deepEqual(
+    startRunInputs.map((input) => ({
+      content: input.userMessage?.content,
+      hidden: input.userMessage?.hidden === true
+    })),
+    [{ content: 'hidden notice', hidden: true }]
+  )
+  assert.deepEqual(startActiveRunInputs, [
+    {
+      enabledTools: ['bash'],
+      enabledSkillNames: ['hidden-skill'],
+      runTrigger: 'channel',
+      reasoningEffort: 'high'
+    }
+  ])
 })
 
 test('listActiveRunIds returns user-visible active runs only', () => {

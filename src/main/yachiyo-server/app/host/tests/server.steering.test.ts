@@ -524,16 +524,16 @@ test('withdrawing a pending steer restores the active run skill override before 
               string,
               {
                 enabledSkillNames?: string[]
-                pendingSteerInput?: {
+                pendingSteerInputs?: Array<{
                   previousEnabledSkillNames?: string[]
-                }
+                }>
               }
             >
           }
         }
       ).runDomain.activeRuns.get(accepted.runId)
       assert.deepEqual(beforeWithdraw?.enabledSkillNames, ['workspace-refactor'])
-      assert.equal(beforeWithdraw?.pendingSteerInput?.previousEnabledSkillNames, undefined)
+      assert.equal(beforeWithdraw?.pendingSteerInputs?.[0]?.previousEnabledSkillNames, undefined)
 
       server.withdrawPendingSteer({ threadId: thread.id })
 
@@ -544,13 +544,13 @@ test('withdrawing a pending steer restores the active run skill override before 
               string,
               {
                 enabledSkillNames?: string[]
-                pendingSteerInput?: unknown
+                pendingSteerInputs?: unknown
               }
             >
           }
         }
       ).runDomain.activeRuns.get(accepted.runId)
-      assert.equal(afterWithdraw?.pendingSteerInput, undefined)
+      assert.equal(afterWithdraw?.pendingSteerInputs, undefined)
       assert.equal(afterWithdraw?.enabledSkillNames, undefined)
 
       releaseFirstRun!()

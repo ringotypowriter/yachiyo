@@ -869,7 +869,7 @@ export class YachiyoServerRunDomain {
         const nextRequestMessageId = activeRun.pendingSteerMessageId ?? result.nextRequestMessageId
 
         activeRun.pendingSteerMessageId = undefined
-        activeRun.pendingSteerInput = undefined
+        activeRun.pendingSteerInputs = undefined
         activeRun.executionPhase = 'generating'
         activeRun.requestMessageId = nextRequestMessageId
         currentRequestMessageId = nextRequestMessageId
