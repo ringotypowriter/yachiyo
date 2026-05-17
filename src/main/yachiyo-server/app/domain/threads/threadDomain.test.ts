@@ -44,6 +44,7 @@ function createThreadDomainHarness(
     emit: (event) => {
       events.push(event)
     },
+    resolveThreadWorkspacePath: () => '/tmp/thread-1',
     ensureThreadWorkspace: async () => '/tmp/thread-1',
     cloneThreadWorkspace: async () => '/tmp/thread-1',
     deleteThreadWorkspace: async (threadId) => {

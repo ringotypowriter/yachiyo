@@ -1,5 +1,5 @@
 import { mkdir } from 'node:fs/promises'
-import { resolve } from 'node:path'
+import { basename, resolve } from 'node:path'
 
 import type {
   ComposerReasoningSelection,
@@ -53,6 +53,7 @@ interface ThreadDomainDeps {
   createId: CreateId
   timestamp: Timestamp
   emit: EmitServerEvent
+  resolveThreadWorkspacePath: (threadId: string) => string
   ensureThreadWorkspace: (threadId: string) => Promise<string>
   cloneThreadWorkspace: (sourceThreadId: string, targetThreadId: string) => Promise<string>
   deleteThreadWorkspace: (threadId: string) => Promise<void>
@@ -549,12 +550,57 @@ export class YachiyoServerThreadDomain {
       await this.deps.evictAcpIdleThread(thread.id)
     }
     if (!thread.workspacePath) {
-      await this.deps.deleteThreadWorkspace(thread.id)
+      const workspacePath = this.deps.resolveThreadWorkspacePath(thread.id)
+      if (!this.isWorkspacePathReferencedByAnotherThread(thread.id, workspacePath)) {
+        await this.deps.deleteThreadWorkspace(thread.id)
+      }
+    } else {
+      const temporaryWorkspaceOwnerId = this.getTemporaryWorkspaceOwnerId(thread.workspacePath)
+      if (
+        temporaryWorkspaceOwnerId &&
+        !this.hasStoredThread(temporaryWorkspaceOwnerId, thread.id) &&
+        !this.isWorkspacePathReferencedByAnotherThread(thread.id, thread.workspacePath)
+      ) {
+        await this.deps.deleteThreadWorkspace(temporaryWorkspaceOwnerId)
+      }
     }
     this.deps.storage.deleteThread({ threadId: thread.id })
     this.deps.emit<ThreadDeletedEvent>({
       type: 'thread.deleted',
       threadId: thread.id
+    })
+  }
+
+  private hasStoredThread(threadId: string, deletingThreadId: string): boolean {
+    if (threadId === deletingThreadId) {
+      return false
+    }
+
+    return Boolean(
+      this.deps.storage.getThread(threadId) ?? this.deps.storage.getArchivedThread(threadId)
+    )
+  }
+
+  private getTemporaryWorkspaceOwnerId(workspacePath: string): string | null {
+    const ownerId = basename(workspacePath)
+    return resolve(this.deps.resolveThreadWorkspacePath(ownerId)) === resolve(workspacePath)
+      ? ownerId
+      : null
+  }
+
+  private isWorkspacePathReferencedByAnotherThread(
+    threadId: string,
+    workspacePath: string
+  ): boolean {
+    const resolvedWorkspacePath = resolve(workspacePath)
+    const { archivedThreads, threads } = this.deps.storage.bootstrap()
+
+    return [...threads, ...archivedThreads].some((thread) => {
+      if (thread.id === threadId || !thread.workspacePath?.trim()) {
+        return false
+      }
+
+      return resolve(thread.workspacePath) === resolvedWorkspacePath
     })
   }
 

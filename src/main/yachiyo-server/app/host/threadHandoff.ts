@@ -8,9 +8,17 @@ import type { FolderDomain } from '../domain/folders/folderDomain.ts'
 import type { YachiyoServerRunDomain } from '../domain/run/runDomain.ts'
 import type { YachiyoServerThreadDomain } from '../domain/threads/threadDomain.ts'
 
+function resolveHandoffWorkspacePath(
+  sourceThread: ThreadRecord,
+  resolveThreadWorkspacePath: (threadId: string) => string
+): string {
+  return sourceThread.workspacePath?.trim()
+    ? sourceThread.workspacePath
+    : resolveThreadWorkspacePath(sourceThread.id)
+}
+
 export async function createThreadWithHandoffWorkspace(input: {
   createId: () => string
-  cloneThreadWorkspace: (sourceThreadId: string, targetThreadId: string) => Promise<string>
   payload: {
     workspacePath?: string
     source?: ThreadRecord['source']
@@ -24,26 +32,27 @@ export async function createThreadWithHandoffWorkspace(input: {
     reasoningEffort?: ComposerReasoningSelection
   }
   requireThread: (threadId: string) => ThreadRecord
+  resolveThreadWorkspacePath: (threadId: string) => string
   threadDomain: YachiyoServerThreadDomain
 }): Promise<ThreadRecord> {
   if (input.payload.handoffFromThreadId && !input.payload.workspacePath?.trim()) {
     const sourceThread = input.requireThread(input.payload.handoffFromThreadId)
-    if (!sourceThread.workspacePath) {
-      const threadId = input.createId()
-      await input.cloneThreadWorkspace(sourceThread.id, threadId)
-      return input.threadDomain.createThread({ ...input.payload, threadId })
-    }
+    return input.threadDomain.createThread({
+      ...input.payload,
+      threadId: input.createId(),
+      workspacePath: resolveHandoffWorkspacePath(sourceThread, input.resolveThreadWorkspacePath)
+    })
   }
 
   return input.threadDomain.createThread(input.payload)
 }
 
 export async function compactThreadWithHandoff(input: {
-  cloneThreadWorkspace: (sourceThreadId: string, targetThreadId: string) => Promise<string>
   createId: () => string
   folderDomain: FolderDomain
   payload: CompactThreadInput
   requireThread: (threadId: string) => ThreadRecord
+  resolveThreadWorkspacePath: (threadId: string) => string
   runDomain: YachiyoServerRunDomain
   threadDomain: YachiyoServerThreadDomain
 }): Promise<CompactThreadAccepted> {
@@ -58,14 +67,11 @@ export async function compactThreadWithHandoff(input: {
   }
 
   const destinationThreadId = input.createId()
-  if (!sourceThread.workspacePath) {
-    await input.cloneThreadWorkspace(sourceThread.id, destinationThreadId)
-  }
 
   const destinationThread = await input.threadDomain.createThread({
     threadId: destinationThreadId,
     handoffFromThreadId: sourceThread.id,
-    ...(sourceThread.workspacePath ? { workspacePath: sourceThread.workspacePath } : {}),
+    workspacePath: resolveHandoffWorkspacePath(sourceThread, input.resolveThreadWorkspacePath),
     ...(sourceThread.modelOverride ? { modelOverride: sourceThread.modelOverride } : {}),
     ...(sourceThread.reasoningEffort ? { reasoningEffort: sourceThread.reasoningEffort } : {})
   })

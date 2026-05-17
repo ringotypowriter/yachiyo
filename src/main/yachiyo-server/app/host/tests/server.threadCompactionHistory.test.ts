@@ -128,6 +128,7 @@ async function withServer(
     storage,
     settingsPath,
     now: options.now,
+    resolveThreadWorkspacePath: workspacePathForThread,
     ensureThreadWorkspace:
       (options.ensureThreadWorkspace
         ? (threadId) => options.ensureThreadWorkspace!(threadId, workspacePathForThread)

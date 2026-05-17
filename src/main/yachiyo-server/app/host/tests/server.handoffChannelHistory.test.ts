@@ -127,6 +127,7 @@ async function withServer(
     storage,
     settingsPath,
     now: options.now,
+    resolveThreadWorkspacePath: workspacePathForThread,
     ensureThreadWorkspace:
       (options.ensureThreadWorkspace
         ? (threadId) => options.ensureThreadWorkspace!(threadId, workspacePathForThread)
@@ -761,27 +762,28 @@ test('YachiyoServer background clear does not wipe post-clear group probe traffi
   })
 })
 
-test('YachiyoServer does not create a destination thread when compact workspace cloning fails', async () => {
+test('YachiyoServer compact handoff reuses the implicit source workspace without cloning', async () => {
   await withServer(
-    async ({ server, completeRun }) => {
+    async ({ server, completeRun, workspacePathForThread }) => {
       const sourceThread = await server.createThread()
       const accepted = await server.sendChat({
         threadId: sourceThread.id,
-        content: 'Keep this thread intact if compact setup fails.'
+        content: 'Keep this workspace when compacting.'
       })
       await completeRun(accepted.runId)
 
-      await assert.rejects(
-        () =>
-          server.compactThreadToAnotherThread({
-            threadId: sourceThread.id
-          }),
-        /workspace clone failed/
-      )
+      const compacted = await server.compactThreadToAnotherThread({
+        threadId: sourceThread.id
+      })
+      await completeRun(compacted.runId)
 
       const bootstrap = await server.bootstrap()
-      assert.equal(bootstrap.threads.length, 1)
-      assert.equal(bootstrap.threads[0]?.id, sourceThread.id)
+      assert.equal(bootstrap.threads.length, 2)
+      assert.equal(
+        bootstrap.threads.some((thread) => thread.id === sourceThread.id),
+        true
+      )
+      assert.equal(compacted.thread.workspacePath, workspacePathForThread(sourceThread.id))
     },
     {
       cloneThreadWorkspace: async () => {

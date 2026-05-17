@@ -68,6 +68,7 @@ import {
   withThreadCapabilities
 } from '../../../../shared/yachiyo/protocol.ts'
 import {
+  resolveThreadWorkspacePath as defaultResolveThreadWorkspacePath,
   resolveYachiyoSettingsPath,
   resolveYachiyoTempWorkspaceRoot,
   resolveYachiyoWebSearchBrowserSessionPath
@@ -173,11 +174,8 @@ export class YachiyoServer {
   private readonly runDomain: YachiyoServerRunDomain
   private readonly threadDomain: YachiyoServerThreadDomain
   private readonly browserSearchSession: BrowserSearchSession
+  private readonly resolveThreadWorkspacePath: (threadId: string) => string
   private readonly ensureThreadWorkspacePath: (threadId: string) => Promise<string>
-  private readonly cloneThreadWorkspace: (
-    sourceThreadId: string,
-    targetThreadId: string
-  ) => Promise<string>
   private readonly searchService: SearchService
   private readonly webSearchServiceInstance: import('../../services/webSearch/webSearchService.ts').WebSearchService
   private readonly imageToTextServiceInstance: ImageToTextService
@@ -234,6 +232,8 @@ export class YachiyoServer {
       options.searchService ??
       createSearchService({ rgPath: searchBinaries.rg, fdPath: searchBinaries.fd })
     const ensureThreadWorkspace = options.ensureThreadWorkspace ?? defaultEnsureThreadWorkspace
+    const resolveThreadWorkspacePath =
+      options.resolveThreadWorkspacePath ?? defaultResolveThreadWorkspacePath
     const cloneThreadWorkspace = options.cloneThreadWorkspace ?? defaultCloneThreadWorkspace
     const deleteThreadWorkspace = options.deleteThreadWorkspace ?? defaultDeleteThreadWorkspace
     this.browserSearchSession = new BrowserSearchSession({
@@ -305,8 +305,8 @@ export class YachiyoServer {
         readSettings: () => this.configDomain.readSettings()
       })
     this.memoryService = memoryService
+    this.resolveThreadWorkspacePath = resolveThreadWorkspacePath
     this.ensureThreadWorkspacePath = ensureThreadWorkspace
-    this.cloneThreadWorkspace = cloneThreadWorkspace
     this.searchService = searchService
     this.webSearchServiceInstance = webSearchService
     this.jotdownStore = options.jotdownStore ?? null
@@ -342,6 +342,7 @@ export class YachiyoServer {
       createId: this.createId,
       timestamp: this.timestamp.bind(this),
       emit: this.emit.bind(this),
+      resolveThreadWorkspacePath,
       ensureThreadWorkspace,
       cloneThreadWorkspace,
       deleteThreadWorkspace,
@@ -596,21 +597,21 @@ export class YachiyoServer {
     } = {}
   ): Promise<ThreadRecord> {
     return createThreadWithHandoffWorkspace({
-      cloneThreadWorkspace: this.cloneThreadWorkspace,
       createId: this.createId,
       payload: input,
       requireThread: this.requireThread.bind(this),
+      resolveThreadWorkspacePath: this.resolveThreadWorkspacePath,
       threadDomain: this.threadDomain
     })
   }
 
   async compactThreadToAnotherThread(input: CompactThreadInput): Promise<CompactThreadAccepted> {
     return compactThreadWithHandoff({
-      cloneThreadWorkspace: this.cloneThreadWorkspace,
       createId: this.createId,
       folderDomain: this.folderDomain,
       payload: input,
       requireThread: this.requireThread.bind(this),
+      resolveThreadWorkspacePath: this.resolveThreadWorkspacePath,
       runDomain: this.runDomain,
       threadDomain: this.threadDomain
     })

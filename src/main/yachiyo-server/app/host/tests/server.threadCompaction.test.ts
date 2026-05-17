@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { access, cp, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { access, cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import test from 'node:test'
@@ -137,6 +137,7 @@ async function withServer(
     storage,
     settingsPath,
     now: options.now,
+    resolveThreadWorkspacePath: workspacePathForThread,
     ensureThreadWorkspace:
       (options.ensureThreadWorkspace
         ? (threadId) => options.ensureThreadWorkspace!(threadId, workspacePathForThread)
@@ -474,6 +475,34 @@ test('YachiyoServer compacts a thread into a new assistant-first thread and allo
       })
     }
   )
+})
+
+test('YachiyoServer.compactThreadToAnotherThread reuses the implicit source workspace', async () => {
+  await withServer(async ({ server, completeRun, workspacePathForThread }) => {
+    const sourceThread = await server.createThread()
+    const sourceWorkspacePath = workspacePathForThread(sourceThread.id)
+    const skillDir = join(sourceWorkspacePath, '.yachiyo', 'skills', 'repo-guide')
+    const skillPath = join(skillDir, 'SKILL.md')
+    await mkdir(skillDir, { recursive: true })
+    await writeFile(skillPath, '# Repo Guide\n', 'utf8')
+
+    const sourceAccepted = await server.sendChat({
+      threadId: sourceThread.id,
+      content: 'Prepare a workspace handoff.'
+    })
+    await completeRun(sourceAccepted.runId)
+
+    const compacted = await server.compactThreadToAnotherThread({
+      threadId: sourceThread.id
+    })
+    assert.equal(compacted.thread.workspacePath, sourceWorkspacePath)
+    await completeRun(compacted.runId)
+
+    assert.equal(await readFile(skillPath, 'utf8'), '# Repo Guide\n')
+
+    await server.deleteThread({ threadId: sourceThread.id })
+    assert.equal(await readFile(skillPath, 'utf8'), '# Repo Guide\n')
+  })
 })
 
 test('YachiyoServer.compactThreadToAnotherThread keeps handoff running after refusing tool execution', async () => {

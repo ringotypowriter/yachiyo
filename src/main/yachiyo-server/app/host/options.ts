@@ -31,6 +31,7 @@ export interface YachiyoServerOptions {
   readUserDocument?: () => Promise<UserDocument | null>
   saveUserDocument?: (content: string) => Promise<UserDocument | null>
   readMemoryTermDocument?: () => Promise<MemoryTermDocument>
+  resolveThreadWorkspacePath?: (threadId: string) => string
   ensureThreadWorkspace?: (threadId: string) => Promise<string>
   cloneThreadWorkspace?: (sourceThreadId: string, targetThreadId: string) => Promise<string>
   deleteThreadWorkspace?: (threadId: string) => Promise<void>
