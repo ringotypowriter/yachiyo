@@ -1,8 +1,14 @@
+import { randomUUID } from 'node:crypto'
+import { existsSync } from 'node:fs'
+import { rm } from 'node:fs/promises'
+import { join } from 'node:path'
 import { app, BrowserWindow, powerMonitor } from 'electron'
 import {
   getActivityTracker,
   type ActivityTrackingMode
 } from '../yachiyo-server/activity/ActivityTracker.ts'
+import { recognizeActivityScreenshot } from '../yachiyo-server/activity/visionOcr.ts'
+import { captureActivityScreenshot } from './activityScreenshot.ts'
 
 /**
  * Wires Electron window blur/focus events to the ActivityTracker singleton.
@@ -14,6 +20,28 @@ import {
 export function installActivityTrackerHost(initialMode: ActivityTrackingMode): void {
   const tracker = getActivityTracker(initialMode)
   tracker.setIdleTimeProvider(() => powerMonitor.getSystemIdleTime() * 1000)
+
+  const helperPath = resolveVisionOcrHelperPath()
+  if (helperPath) {
+    tracker.setOcrSnapshotProvider(async (sample, trigger) => {
+      const screenshot = await captureActivityScreenshot(sample)
+      if (!screenshot) return null
+
+      try {
+        return await recognizeActivityScreenshot({
+          helperPath,
+          imagePath: screenshot.imagePath,
+          sample,
+          trigger,
+          display: screenshot.display,
+          createId: () => randomUUID(),
+          timestamp: () => new Date().toISOString()
+        })
+      } finally {
+        await rm(screenshot.imagePath, { force: true })
+      }
+    })
+  }
 
   const handleBlur = (): void => {
     // Blur fires before focus moves to the other app — wait a tick
@@ -40,6 +68,17 @@ export function installActivityTrackerHost(initialMode: ActivityTrackingMode): v
     w.on('blur', handleBlur)
     w.on('focus', handleFocus)
   })
+}
+
+function resolveVisionOcrHelperPath(): string | undefined {
+  if (process.platform !== 'darwin') return undefined
+
+  const candidates = [
+    join(process.resourcesPath, 'external-hooks', 'vision-ocr'),
+    join(app.getAppPath(), 'external-hooks', 'vision-ocr', '.build', 'release', 'vision-ocr')
+  ]
+
+  return candidates.find((candidate) => existsSync(candidate))
 }
 
 function isAnyWindowFocused(): boolean {

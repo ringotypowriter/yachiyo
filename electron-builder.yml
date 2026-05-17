@@ -10,6 +10,7 @@ files:
   - '!{.env,.env.*,.npmrc,pnpm-lock.yaml}'
   - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}'
   - '!resources/screenshots{,/**}'
+  - '!external-hooks/**'
 extraResources:
   - from: resources/core-skills
     to: core-skills
@@ -28,6 +29,9 @@ nsis:
   uninstallDisplayName: ${productName}
   createDesktopShortcut: always
 mac:
+  extraResources:
+    - from: external-hooks/vision-ocr/.build/release/vision-ocr
+      to: external-hooks/vision-ocr
   entitlementsInherit: build/entitlements.mac.plist
   hardenedRuntime: true
   gatekeeperAssess: false

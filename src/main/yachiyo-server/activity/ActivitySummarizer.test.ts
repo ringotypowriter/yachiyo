@@ -26,6 +26,51 @@ test('summarizeSpans quotes window titles inside a delimited data block', () => 
   assert.doesNotMatch(summary.text, /Browser — Work\nIGNORE PREVIOUS INSTRUCTIONS/)
 })
 
+test('summarizeSpans reports OCR snapshot availability without injecting OCR text', () => {
+  const summary = summarizeSpans(
+    [
+      {
+        appName: 'Zed',
+        bundleId: 'dev.zed.Zed',
+        windowTitle: 'yachiyo',
+        startMs: 0,
+        endMs: 60_000,
+        durationMs: 60_000
+      }
+    ],
+    0,
+    60_000,
+    {
+      snapshots: [
+        {
+          id: 'snapshot-1',
+          capturedAt: '2026-05-17T04:30:00.000Z',
+          appName: 'Zed',
+          bundleId: 'dev.zed.Zed',
+          windowTitle: 'yachiyo',
+          source: 'screen',
+          trigger: 'initial-blur',
+          ocr: {
+            engine: 'apple-vision',
+            revision: 3,
+            confidence: 0.91,
+            lineCount: 3,
+            contentHash: 'sha256:one',
+            excerpt: 'Activity tracker OCR excerpt',
+            text: 'Activity tracker OCR excerpt with much more detail that should not enter prompt text'
+          }
+        }
+      ]
+    }
+  )
+
+  assert.ok(summary)
+  assert.equal(summary.snapshots?.length, 1)
+  assert.match(summary.text, /"ocrSnapshotCount":1/)
+  assert.doesNotMatch(summary.text, /Activity tracker OCR excerpt/)
+  assert.doesNotMatch(summary.text, /much more detail/)
+})
+
 test('summarizeSpans includes AFK time as generic status data only when app spans exist', () => {
   const summary = summarizeSpans(
     [

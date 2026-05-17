@@ -1,5 +1,7 @@
-import { sampleActivity, probeFullActivityAccess, type SampleResult } from './osascript.ts'
+import type { ActivitySnapshot, ActivitySnapshotTrigger } from '../../../shared/yachiyo/protocol.ts'
+import { shouldCaptureOcrForSample } from './ActivityOcrPolicy.ts'
 import { summarizeSpans, type ActivitySummary } from './ActivitySummarizer.ts'
+import { sampleActivity, probeFullActivityAccess, type SampleResult } from './osascript.ts'
 
 export type { ActivitySummary } from './ActivitySummarizer.ts'
 
@@ -8,8 +10,14 @@ export type ActivityTrackingMode = 'off' | 'simple' | 'full'
 export interface ActivityTrackerDeps {
   sampleActivity: (mode: 'simple' | 'full') => Promise<SampleResult | null>
   checkAccessibilityPermission: () => Promise<boolean>
+  captureOcrSnapshot?: (
+    sample: SampleResult,
+    trigger: ActivitySnapshotTrigger
+  ) => Promise<ActivitySnapshot | null>
   setInterval: (callback: () => void, ms: number) => ReturnType<typeof setInterval>
   clearInterval: (timer: ReturnType<typeof setInterval>) => void
+  setTimeout: (callback: () => void, ms: number) => ReturnType<typeof setTimeout>
+  clearTimeout: (timer: ReturnType<typeof setTimeout>) => void
   now: () => number
   getIdleTimeMs: () => number
 }
@@ -25,14 +33,24 @@ interface Span {
 
 const POLL_INTERVAL_MS = 1000
 const AFK_IDLE_THRESHOLD_MS = 5 * 60_000
+const OCR_INITIAL_DELAY_MS = 30_000
+const OCR_LONG_SESSION_INTERVAL_MS = 10 * 60_000
+const OCR_MIN_WINDOW_DWELL_MS = 3 * 60_000
+const OCR_MAX_PER_ACTIVITY_RECORD = 2
 
 const DEFAULT_DEPS: ActivityTrackerDeps = {
   sampleActivity,
   checkAccessibilityPermission: probeFullActivityAccess,
   setInterval: (callback, ms) => setInterval(callback, ms),
   clearInterval: (timer) => clearInterval(timer),
+  setTimeout: (callback, ms) => setTimeout(callback, ms),
+  clearTimeout: (timer) => clearTimeout(timer),
   now: () => Date.now(),
   getIdleTimeMs: () => 0
+}
+
+function sampleWindowKey(sample: SampleResult): string {
+  return `${sample.bundleId}|${sample.windowTitle ?? ''}`
 }
 
 /**
@@ -48,8 +66,10 @@ const DEFAULT_DEPS: ActivityTrackerDeps = {
 export class ActivityTracker {
   private mode: ActivityTrackingMode
   private pollTimer: ReturnType<typeof setInterval> | null = null
+  private initialOcrTimer: ReturnType<typeof setTimeout> | null = null
   private spans: Span[] = []
   private currentSpan: Span | null = null
+  private snapshots: ActivitySnapshot[] = []
   private latestSummary: ActivitySummary | null = null
   /** Accumulated session start. Reset only when consumed or mode turned off. */
   private trackingStartTime: number | null = null
@@ -58,13 +78,19 @@ export class ActivityTracker {
   private fullModeAvailable: boolean | null = null
   private isWindowBlurred = false
   private isPolling = false
+  private isCapturingOcr = false
+  private lastOcrAt: number | null = null
+  private currentWindowKey: string | null = null
+  private windowDwellStartMs: number | null = null
   private readonly deps: ActivityTrackerDeps
   private getIdleTimeMs: () => number
+  private captureOcrSnapshot?: ActivityTrackerDeps['captureOcrSnapshot']
 
   constructor(initialMode: ActivityTrackingMode, deps: ActivityTrackerDeps = DEFAULT_DEPS) {
     this.mode = initialMode
     this.deps = deps
     this.getIdleTimeMs = deps.getIdleTimeMs
+    this.captureOcrSnapshot = deps.captureOcrSnapshot
   }
 
   /** Update the tracking mode at runtime. */
@@ -93,10 +119,15 @@ export class ActivityTracker {
     this.getIdleTimeMs = getIdleTimeMs
   }
 
+  setOcrSnapshotProvider(provider: ActivityTrackerDeps['captureOcrSnapshot']): void {
+    this.captureOcrSnapshot = provider
+  }
+
   /** Call when ALL Yachiyo windows have lost focus. */
   handleWindowBlur(): void {
     this.isWindowBlurred = true
     if ((this.mode as ActivityTrackingMode) === 'off') return
+    this.scheduleInitialOcr()
     if (this.pollTimer) return
     void this.startPolling()
   }
@@ -104,6 +135,7 @@ export class ActivityTracker {
   /** Call when ANY Yachiyo window regains focus. */
   handleWindowFocus(): void {
     this.isWindowBlurred = false
+    this.cancelInitialOcr()
     if (this.trackingStartTime != null) {
       this.syncAfkState(this.deps.now())
     }
@@ -117,6 +149,7 @@ export class ActivityTracker {
    */
   finalizeAndConsume(): ActivitySummary | null {
     const now = this.deps.now()
+    this.cancelInitialOcr()
     if (this.trackingStartTime != null) {
       this.syncAfkState(now)
       this.closeAfkPeriod(now)
@@ -130,24 +163,17 @@ export class ActivityTracker {
     if (this.spans.length === 0 || this.trackingStartTime == null) {
       // No data collected — reset stale state so a later session
       // doesn't report an inflated duration.
-      this.spans = []
-      this.currentSpan = null
-      this.trackingStartTime = null
-      this.afkStartTime = null
-      this.afkDurationMs = 0
+      this.clearAccumulatedState()
       this.latestSummary = null
       return null
     }
 
     const summary = summarizeSpans(this.spans, this.trackingStartTime, now, {
-      afkDurationMs: this.afkDurationMs
+      afkDurationMs: this.afkDurationMs,
+      snapshots: this.snapshots
     })
     this.latestSummary = summary
-    this.spans = []
-    this.currentSpan = null
-    this.trackingStartTime = null
-    this.afkStartTime = null
-    this.afkDurationMs = 0
+    this.clearAccumulatedState()
     return summary
   }
 
@@ -159,16 +185,40 @@ export class ActivityTracker {
   // ---- internals ----
 
   private resetState(): void {
+    this.cancelInitialOcr()
     if (this.pollTimer) {
       this.deps.clearInterval(this.pollTimer)
       this.pollTimer = null
     }
+    this.clearAccumulatedState()
+    this.latestSummary = null
+  }
+
+  private clearAccumulatedState(): void {
     this.spans = []
     this.currentSpan = null
-    this.latestSummary = null
+    this.snapshots = []
     this.trackingStartTime = null
     this.afkStartTime = null
     this.afkDurationMs = 0
+    this.lastOcrAt = null
+    this.currentWindowKey = null
+    this.windowDwellStartMs = null
+  }
+
+  private cancelInitialOcr(): void {
+    if (!this.initialOcrTimer) return
+    this.deps.clearTimeout(this.initialOcrTimer)
+    this.initialOcrTimer = null
+  }
+
+  private scheduleInitialOcr(): void {
+    if (!this.captureOcrSnapshot) return
+    if (this.initialOcrTimer) return
+    this.initialOcrTimer = this.deps.setTimeout(() => {
+      this.initialOcrTimer = null
+      void this.tryCaptureOcrSnapshot('initial-blur')
+    }, OCR_INITIAL_DELAY_MS)
   }
 
   private pausePolling(): void {
@@ -230,6 +280,10 @@ export class ActivityTracker {
     this.afkStartTime = null
   }
 
+  private getEffectiveMode(): 'simple' | 'full' {
+    return this.mode === 'full' && this.fullModeAvailable === true ? 'full' : 'simple'
+  }
+
   private async startPolling(): Promise<void> {
     if ((this.mode as ActivityTrackingMode) === 'off') return
     if (!this.isWindowBlurred) return
@@ -246,8 +300,7 @@ export class ActivityTracker {
       }
     }
 
-    const effectiveMode: 'simple' | 'full' =
-      this.mode === 'full' && this.fullModeAvailable === true ? 'full' : 'simple'
+    const effectiveMode = this.getEffectiveMode()
 
     // First poll in the session? Record the start time.
     if (this.trackingStartTime == null) {
@@ -280,13 +333,15 @@ export class ActivityTracker {
 
     const now = this.deps.now()
     if (this.syncAfkState(now)) return
-    const key = `${sample.bundleId}|${sample.windowTitle ?? ''}`
+    const key = sampleWindowKey(sample)
+    this.updateWindowDwell(key, now)
 
     if (this.currentSpan) {
       const currentKey = `${this.currentSpan.bundleId}|${this.currentSpan.windowTitle ?? ''}`
       if (key === currentKey) {
         this.currentSpan.endMs = now
         this.currentSpan.durationMs = now - this.currentSpan.startMs
+        this.maybeCaptureLongSessionOcr(sample, now)
         return
       }
       this.pushCurrentSpan(now)
@@ -299,6 +354,59 @@ export class ActivityTracker {
       startMs: now,
       endMs: now,
       durationMs: 0
+    }
+    this.maybeCaptureLongSessionOcr(sample, now)
+  }
+
+  private updateWindowDwell(key: string, now: number): void {
+    if (this.currentWindowKey === key) return
+    this.currentWindowKey = key
+    this.windowDwellStartMs = now
+  }
+
+  private maybeCaptureLongSessionOcr(sample: SampleResult, now: number): void {
+    if (!this.captureOcrSnapshot) return
+    if (this.trackingStartTime == null) return
+    if (this.snapshots.length >= OCR_MAX_PER_ACTIVITY_RECORD) return
+    if (now - this.trackingStartTime < OCR_LONG_SESSION_INTERVAL_MS) return
+    if (this.windowDwellStartMs == null) return
+    if (now - this.windowDwellStartMs < OCR_MIN_WINDOW_DWELL_MS) return
+    if (this.lastOcrAt != null && now - this.lastOcrAt < OCR_LONG_SESSION_INTERVAL_MS) return
+    void this.tryCaptureOcrSnapshot('long-session', sample)
+  }
+
+  private async tryCaptureOcrSnapshot(
+    trigger: ActivitySnapshotTrigger,
+    knownSample?: SampleResult
+  ): Promise<void> {
+    if (!this.captureOcrSnapshot) return
+    if (this.isCapturingOcr) return
+    if (!this.isWindowBlurred) return
+    if ((this.mode as ActivityTrackingMode) === 'off') return
+    if (this.snapshots.length >= OCR_MAX_PER_ACTIVITY_RECORD) return
+    const now = this.deps.now()
+    if (this.syncAfkState(now)) return
+
+    this.isCapturingOcr = true
+    this.lastOcrAt = now
+    try {
+      const sample = knownSample ?? (await this.deps.sampleActivity(this.getEffectiveMode()))
+      if (!sample || !shouldCaptureOcrForSample(sample).allow) return
+      const snapshot = await this.captureOcrSnapshot(sample, trigger)
+      if (!this.isWindowBlurred || (this.mode as ActivityTrackingMode) === 'off') return
+      if (!snapshot) return
+      const contentHash = snapshot.ocr?.contentHash
+      if (
+        contentHash &&
+        this.snapshots.some((existing) => existing.ocr?.contentHash === contentHash)
+      ) {
+        return
+      }
+      this.snapshots.push(snapshot)
+    } catch {
+      return
+    } finally {
+      this.isCapturingOcr = false
     }
   }
 }

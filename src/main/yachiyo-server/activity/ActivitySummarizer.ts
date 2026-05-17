@@ -1,3 +1,5 @@
+import type { ActivitySnapshot } from '../../../shared/yachiyo/protocol.ts'
+
 interface Span {
   appName: string
   bundleId: string
@@ -29,6 +31,8 @@ export interface ActivitySummary {
   afkDurationMs?: number
   /** Aggregated activity entries, sorted by duration descending. */
   entries: ActivitySummaryEntry[]
+  /** Low-frequency OCR snapshots captured while Yachiyo was blurred. */
+  snapshots?: ActivitySnapshot[]
 }
 
 /** Max distinct entries in the summary text. Remaining entries are collapsed. */
@@ -76,7 +80,7 @@ export function summarizeSpans(
   spans: Span[],
   trackingStartMs: number,
   trackingEndMs: number,
-  options?: { afkDurationMs?: number }
+  options?: { afkDurationMs?: number; snapshots?: ActivitySnapshot[] }
 ): ActivitySummary | null {
   if (spans.length === 0) return null
 
@@ -84,6 +88,7 @@ export function summarizeSpans(
   const totalDurationMs = trackingEndMs - trackingStartMs
   const uniqueApps = new Set(spans.map((s) => s.bundleId)).size
   const afkDurationMs = options?.afkDurationMs
+  const snapshots = (options?.snapshots ?? []).filter((snapshot) => snapshot.ocr?.excerpt)
 
   const entries = aggregated.slice(0, MAX_OUTPUT_ENTRIES)
   const truncated = aggregated.length - MAX_OUTPUT_ENTRIES
@@ -120,6 +125,10 @@ export function summarizeSpans(
     )
   }
 
+  if (snapshots.length > 0) {
+    lines.push(JSON.stringify({ ocrSnapshotCount: snapshots.length }))
+  }
+
   if (truncated > 0) {
     lines.push(JSON.stringify({ omittedEntries: truncated }))
   }
@@ -135,6 +144,7 @@ export function summarizeSpans(
     totalDurationMs,
     uniqueApps,
     entries: summaryEntries,
+    ...(snapshots.length > 0 ? { snapshots } : {}),
     ...(afkDurationMs !== undefined && afkDurationMs > 0 ? { afkDurationMs } : {})
   }
 }

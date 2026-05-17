@@ -860,21 +860,52 @@ function decryptActivityPayload(row) {
   return JSON.parse(plaintext)
 }
 
+function activitySnapshotSearchText(snapshot) {
+  return [
+    snapshot.appName,
+    snapshot.bundleId,
+    snapshot.windowTitle,
+    snapshot.ocr?.excerpt,
+    snapshot.ocr?.text
+  ]
+    .filter((value) => typeof value === 'string' && value.length > 0)
+    .join('\n')
+}
+
+function activitySnapshotExcerpt(snapshot) {
+  return snapshot.ocr?.excerpt || snapshot.error
+}
+
+function findActivityMatchedEvidence(record, text) {
+  if (!text) return undefined
+  if (includesText(record.summaryText, text)) return truncate(record.summaryText)
+
+  const entry = record.entries.find(
+    (candidate) =>
+      includesText(candidate.appName, text) ||
+      includesText(candidate.windowTitle, text) ||
+      includesText(candidate.bundleId, text)
+  )
+  if (entry) {
+    return truncate(
+      [entry.appName, entry.windowTitle, entry.bundleId]
+        .filter((value) => typeof value === 'string' && value.length > 0)
+        .join(' — ')
+    )
+  }
+
+  const snapshot = record.snapshots?.find((candidate) =>
+    includesText(activitySnapshotSearchText(candidate), text)
+  )
+  const snapshotText = snapshot?.ocr?.text ?? snapshot?.ocr?.excerpt
+  return snapshotText ? truncate(snapshotText) : undefined
+}
+
 function matchesActivityRecord(record, where) {
   if (!overlapsTimeRange(record.startedAt, record.endedAt, where)) return false
 
   const text = normalizeText(where?.text)
-  if (text) {
-    const matched =
-      includesText(record.summaryText, text) ||
-      record.entries.some(
-        (entry) =>
-          includesText(entry.appName, text) ||
-          includesText(entry.windowTitle, text) ||
-          includesText(entry.bundleId, text)
-      )
-    if (!matched) return false
-  }
+  if (text && !findActivityMatchedEvidence(record, text)) return false
 
   const appName = normalizeText(where?.appName)
   if (appName && !record.entries.some((entry) => includesText(entry.appName, appName))) {
@@ -898,13 +929,19 @@ function toActivityRecord(row) {
     ...(row.afkDurationMs !== null ? { afkDurationMs: row.afkDurationMs } : {}),
     summaryText: payload.summaryText,
     entries: payload.entries,
+    ...(payload.snapshots ? { snapshots: payload.snapshots } : {}),
     createdAt: row.createdAt
   }
 }
 
-function toActivityRecordRow(record, row, view) {
+function toActivityRecordRow(record, row, view, where) {
   const folder = toFolderReference(row)
   const apps = [...new Set(record.entries.map((entry) => entry.appName))]
+  const snapshots = record.snapshots ?? []
+  const snapshotExcerpts = snapshots
+    .map(activitySnapshotExcerpt)
+    .filter((value) => typeof value === 'string' && value.length > 0)
+  const matchedEvidence = findActivityMatchedEvidence(record, normalizeText(where?.text))
   return {
     table: 'activity_records',
     rowId: activityRowId(record.id),
@@ -924,7 +961,12 @@ function toActivityRecordRow(record, row, view) {
     uniqueApps: record.uniqueApps,
     summary: record.summaryText,
     apps,
+    ...(snapshots.length > 0 ? { snapshotCount: snapshots.length } : {}),
+    ...(matchedEvidence ? { matchedEvidence } : {}),
     ...(view !== 'index' ? { entries: record.entries } : {}),
+    ...(view === 'content' && snapshotExcerpts.length > 0 ? { snapshotExcerpts } : {}),
+    ...(view === 'detail' && snapshotExcerpts.length > 0 ? { snapshotExcerpts } : {}),
+    ...(view === 'detail' && snapshots.length > 0 ? { snapshots } : {}),
     availableViews: ['content', 'detail']
   }
 }
@@ -984,7 +1026,7 @@ function queryActivityRecords(db, input) {
       return { record, row }
     })
     .filter(({ record }) => matchesActivityRecord(record, where))
-    .map(({ record, row }) => toActivityRecordRow(record, row, input.view ?? 'index'))
+    .map(({ record, row }) => toActivityRecordRow(record, row, input.view ?? 'index', where))
 
   return paginate(sortRows(rows, resolveTimeOrder(input)), input)
 }
@@ -1031,6 +1073,8 @@ function querySourceEvents(db, input) {
       endedAt: activity.endedAt,
       timeRange: activity.timeRange,
       summary: activity.summary,
+      ...(activity.snapshotCount ? { snapshotCount: activity.snapshotCount } : {}),
+      ...(activity.matchedEvidence ? { matchedEvidence: activity.matchedEvidence } : {}),
       availableViews: ['activityRecord']
     })
   )

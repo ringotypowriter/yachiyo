@@ -4,10 +4,18 @@ import { promisify } from 'node:util'
 const execFileAsync = promisify(execFile)
 const OSA_SCRIPT_PATH = '/usr/bin/osascript'
 
+export interface SampleWindowBounds {
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
 export interface SampleResult {
   appName: string
   bundleId: string
   windowTitle?: string
+  windowBounds?: SampleWindowBounds
 }
 
 /**
@@ -52,8 +60,14 @@ ObjC.import('stdlib')
 var se = Application('System Events')
 var proc = se.processes.whose({ frontmost: true })[0]
 if (!proc) { $.exit(1) }
-var winTitle = proc.windows[0].name()
-JSON.stringify({ appName: proc.name(), bundleId: proc.bundleIdentifier(), windowTitle: winTitle })
+var win = proc.windows[0]
+var payload = { appName: proc.name(), bundleId: proc.bundleIdentifier(), windowTitle: win.name() }
+try {
+  var position = win.position()
+  var size = win.size()
+  payload.windowBounds = { x: position[0], y: position[1], width: size[0], height: size[1] }
+} catch (e) {}
+JSON.stringify(payload)
 `.trim()
 
   try {
@@ -68,7 +82,8 @@ JSON.stringify({ appName: proc.name(), bundleId: proc.bundleIdentifier(), window
     return {
       appName: parsed.appName || '',
       bundleId: parsed.bundleId || '',
-      windowTitle: parsed.windowTitle || undefined
+      windowTitle: parsed.windowTitle || undefined,
+      windowBounds: parsed.windowBounds || undefined
     }
   } catch {
     return null

@@ -3,12 +3,13 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
 
 import { resolveYachiyoActivitySourceKeyPath } from '../../config/paths.ts'
-import type { ActivitySourceEntry } from '../../../../shared/yachiyo/protocol.ts'
+import type { ActivitySnapshot, ActivitySourceEntry } from '../../../../shared/yachiyo/protocol.ts'
 
 export interface ActivitySourcePayload {
-  version: 1
+  version: 1 | 2
   summaryText: string
   entries: ActivitySourceEntry[]
+  snapshots?: ActivitySnapshot[]
 }
 
 export interface EncryptedActivitySourcePayload {

@@ -373,6 +373,113 @@ test('querySource auto orders source events by timeline time across sources', as
   )
 })
 
+test('querySource keeps OCR snapshots quiet unless the activity view or text match needs them', async () => {
+  const storage = createInMemoryYachiyoStorage()
+  storage.createThread({
+    thread: makeThread({
+      id: 'thread-source',
+      title: 'Source database design',
+      updatedAt: '2026-05-16T09:40:00.000Z'
+    }),
+    createdAt: BASE_TIME,
+    messages: [makeMessage({ id: 'msg-1', threadId: 'thread-source', content: 'Owner message.' })]
+  })
+  storage.saveActivitySourceRecord(
+    makeActivityRecord({
+      snapshots: [
+        {
+          id: 'snapshot-1',
+          capturedAt: '2026-05-16T09:25:00.000Z',
+          appName: 'Zed',
+          bundleId: 'dev.zed.Zed',
+          windowTitle: 'querySourceTool.ts',
+          source: 'screen',
+          trigger: 'initial-blur',
+          ocr: {
+            engine: 'apple-vision',
+            revision: 3,
+            confidence: 0.9,
+            lineCount: 2,
+            contentHash: 'sha256:rare',
+            excerpt: 'rare oscilloscope calibration note',
+            text: 'rare oscilloscope calibration note with full OCR detail'
+          }
+        }
+      ]
+    })
+  )
+
+  const tool = createQuerySourceTool({ storage, memoryService: createMemoryService() })
+  const quietIndexResult = parseToolJson(
+    await tool.execute!(
+      { from: 'activity_records', view: 'index' },
+      { abortSignal: new AbortController().signal, toolCallId: 'tc-ocr-quiet-index', messages: [] }
+    )
+  )
+  const indexResult = parseToolJson(
+    await tool.execute!(
+      { from: 'activity_records', where: { text: 'oscilloscope' }, view: 'index' },
+      { abortSignal: new AbortController().signal, toolCallId: 'tc-ocr-index', messages: [] }
+    )
+  )
+  const contentResult = parseToolJson(
+    await tool.execute!(
+      {
+        from: 'activity_records',
+        where: { rowId: 'activity_record:activity-1' },
+        view: 'content'
+      },
+      { abortSignal: new AbortController().signal, toolCallId: 'tc-ocr-content', messages: [] }
+    )
+  )
+  const detailResult = parseToolJson(
+    await tool.execute!(
+      {
+        from: 'activity_records',
+        where: { rowId: 'activity_record:activity-1' },
+        view: 'detail'
+      },
+      { abortSignal: new AbortController().signal, toolCallId: 'tc-ocr-detail', messages: [] }
+    )
+  )
+  const sourceEventsResult = parseToolJson(
+    await tool.execute!(
+      { from: 'source_events', where: { text: 'oscilloscope' }, view: 'index' },
+      {
+        abortSignal: new AbortController().signal,
+        toolCallId: 'tc-ocr-source-events',
+        messages: []
+      }
+    )
+  )
+
+  assert.equal(quietIndexResult.rows?.length, 1)
+  assert.equal(quietIndexResult.rows?.[0]['snapshotCount'], 1)
+  assert.equal(quietIndexResult.rows?.[0]['matchedEvidence'], undefined)
+  assert.equal(quietIndexResult.rows?.[0]['snapshotExcerpts'], undefined)
+  assert.doesNotMatch(String(quietIndexResult.rows?.[0]['summary'] ?? ''), /oscilloscope/)
+
+  assert.equal(indexResult.rows?.length, 1)
+  assert.equal(indexResult.rows?.[0]['snapshotCount'], 1)
+  assert.match(String(indexResult.rows?.[0]['matchedEvidence'] ?? ''), /oscilloscope/)
+  assert.equal(indexResult.rows?.[0]['snapshotExcerpts'], undefined)
+
+  assert.equal(sourceEventsResult.rows?.length, 1)
+  assert.equal(sourceEventsResult.rows?.[0]['sourceKind'], 'activity')
+  assert.equal(sourceEventsResult.rows?.[0]['snapshotCount'], 1)
+  assert.match(String(sourceEventsResult.rows?.[0]['matchedEvidence'] ?? ''), /oscilloscope/)
+
+  assert.deepEqual(contentResult.rows?.[0]['snapshotExcerpts'], [
+    'rare oscilloscope calibration note'
+  ])
+  assert.equal(contentResult.rows?.[0]['snapshots'], undefined)
+
+  const detailSnapshots = detailResult.rows?.[0]['snapshots'] as Array<{
+    ocr?: { text?: string }
+  }>
+  assert.match(detailSnapshots[0].ocr?.text ?? '', /full OCR detail/)
+})
+
 test('querySource rejects match ordering for non-match-ranked tables', async () => {
   const storage = createInMemoryYachiyoStorage()
   storage.createThread({

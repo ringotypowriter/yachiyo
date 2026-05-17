@@ -2,6 +2,7 @@ import { tool, type Tool } from 'ai'
 import { z } from 'zod'
 
 import type {
+  ActivitySnapshot,
   ActivitySourceRecord,
   FolderRecord,
   MessageRecord,
@@ -833,6 +834,50 @@ function queryThreadFolders(input: QuerySourceToolInput, catalog: SourceCatalog)
   return paginate(sortByOrder(rows, resolveOrder(input, 'timeDesc')), input)
 }
 
+function activitySnapshotSearchText(snapshot: ActivitySnapshot): string {
+  return [
+    snapshot.appName,
+    snapshot.bundleId,
+    snapshot.windowTitle,
+    snapshot.ocr?.excerpt,
+    snapshot.ocr?.text
+  ]
+    .filter((value): value is string => typeof value === 'string' && value.length > 0)
+    .join('\n')
+}
+
+function activitySnapshotExcerpt(snapshot: ActivitySnapshot): string | undefined {
+  return snapshot.ocr?.excerpt || snapshot.error
+}
+
+function findActivityMatchedEvidence(
+  record: ActivitySourceRecord,
+  text: string | undefined
+): string | undefined {
+  if (!text) return undefined
+  if (includesText(record.summaryText, text)) return truncate(record.summaryText)
+
+  const entry = record.entries.find(
+    (candidate) =>
+      includesText(candidate.appName, text) ||
+      includesText(candidate.windowTitle, text) ||
+      includesText(candidate.bundleId, text)
+  )
+  if (entry) {
+    return truncate(
+      [entry.appName, entry.windowTitle, entry.bundleId]
+        .filter((value): value is string => typeof value === 'string' && value.length > 0)
+        .join(' — ')
+    )
+  }
+
+  const snapshot = record.snapshots?.find((candidate) =>
+    includesText(activitySnapshotSearchText(candidate), text)
+  )
+  const snapshotText = snapshot?.ocr?.text ?? snapshot?.ocr?.excerpt
+  return snapshotText ? truncate(snapshotText) : undefined
+}
+
 function matchesActivityRecord(
   record: ActivitySourceRecord,
   where: QuerySourceWhere | undefined
@@ -842,18 +887,8 @@ function matchesActivityRecord(
   }
 
   const text = normalizeText(where?.text)
-  if (text) {
-    const matched =
-      includesText(record.summaryText, text) ||
-      record.entries.some(
-        (entry) =>
-          includesText(entry.appName, text) ||
-          includesText(entry.windowTitle, text) ||
-          includesText(entry.bundleId, text)
-      )
-    if (!matched) {
-      return false
-    }
+  if (text && !findActivityMatchedEvidence(record, text)) {
+    return false
   }
 
   const appName = normalizeText(where?.appName)
@@ -867,11 +902,17 @@ function matchesActivityRecord(
 function toActivityRecordRow(
   record: ActivitySourceRecord,
   catalog: SourceCatalog,
-  view: SourceView
+  view: SourceView,
+  where?: QuerySourceWhere
 ): Record<string, unknown> {
   const thread = catalog.threadById.get(record.threadId)
   const folder = thread ? toFolderReference(thread, catalog.foldersById) : undefined
   const apps = [...new Set(record.entries.map((entry) => entry.appName))]
+  const snapshots = record.snapshots ?? []
+  const snapshotExcerpts = snapshots
+    .map(activitySnapshotExcerpt)
+    .filter((value): value is string => typeof value === 'string' && value.length > 0)
+  const matchedEvidence = findActivityMatchedEvidence(record, normalizeText(where?.text))
   return {
     table: 'activity_records',
     rowId: activityRowId(record.id),
@@ -891,7 +932,12 @@ function toActivityRecordRow(
     uniqueApps: record.uniqueApps,
     summary: record.summaryText,
     apps,
+    ...(snapshots.length > 0 ? { snapshotCount: snapshots.length } : {}),
+    ...(matchedEvidence ? { matchedEvidence } : {}),
     ...(view !== 'index' ? { entries: record.entries } : {}),
+    ...(view === 'content' && snapshotExcerpts.length > 0 ? { snapshotExcerpts } : {}),
+    ...(view === 'detail' && snapshotExcerpts.length > 0 ? { snapshotExcerpts } : {}),
+    ...(view === 'detail' && snapshots.length > 0 ? { snapshots } : {}),
     availableViews: ['content', 'detail']
   }
 }
@@ -906,7 +952,7 @@ function queryActivityRecords(
     .listActivitySourceRecords()
     .filter((record) => catalog.threadById.has(record.threadId))
     .filter((record) => matchesActivityRecord(record, input.where))
-    .map((record) => toActivityRecordRow(record, catalog, view))
+    .map((record) => toActivityRecordRow(record, catalog, view, input.where))
 
   return paginate(sortByOrder(rows, resolveOrder(input, 'timeDesc')), input)
 }
@@ -980,7 +1026,7 @@ function querySourceEvents(
     .filter((record) => catalog.threadById.has(record.threadId))
     .filter((record) => matchesActivityRecord(record, input.where))
     .map((record) => {
-      const row = toActivityRecordRow(record, catalog, 'index')
+      const row = toActivityRecordRow(record, catalog, 'index', input.where)
       return {
         table: 'source_events',
         rowId: `source_event:${row['rowId']}`,
@@ -993,6 +1039,8 @@ function querySourceEvents(
         endedAt: row['endedAt'],
         timeRange: row['timeRange'],
         summary: row['summary'],
+        ...(row['snapshotCount'] ? { snapshotCount: row['snapshotCount'] } : {}),
+        ...(row['matchedEvidence'] ? { matchedEvidence: row['matchedEvidence'] } : {}),
         availableViews: ['activityRecord']
       }
     })

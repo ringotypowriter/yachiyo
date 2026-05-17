@@ -563,6 +563,47 @@ export interface ActivitySourceEntry {
   durationMs: number
 }
 
+export type ActivitySnapshotTrigger = 'initial-blur' | 'long-session'
+export type ActivitySnapshotSource = 'screen'
+export type ActivitySnapshotDisplaySelection = 'window-overlap' | 'cursor' | 'primary'
+
+export interface ActivitySnapshotRect {
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
+export interface ActivitySnapshotDisplay {
+  displayId: number
+  selection: ActivitySnapshotDisplaySelection
+  bounds: ActivitySnapshotRect
+  captureBounds?: ActivitySnapshotRect
+}
+
+export interface ActivityOcrSnapshot {
+  engine: 'apple-vision'
+  revision: number
+  confidence: number
+  lineCount: number
+  contentHash: string
+  excerpt: string
+  text: string
+}
+
+export interface ActivitySnapshot {
+  id: string
+  capturedAt: string
+  appName: string
+  bundleId: string
+  windowTitle?: string
+  source: ActivitySnapshotSource
+  trigger: ActivitySnapshotTrigger
+  display?: ActivitySnapshotDisplay
+  ocr?: ActivityOcrSnapshot
+  error?: string
+}
+
 export interface ActivitySourceRecord {
   id: string
   threadId: string
@@ -575,6 +616,7 @@ export interface ActivitySourceRecord {
   afkDurationMs?: number
   summaryText: string
   entries: ActivitySourceEntry[]
+  snapshots?: ActivitySnapshot[]
   createdAt: string
 }
 

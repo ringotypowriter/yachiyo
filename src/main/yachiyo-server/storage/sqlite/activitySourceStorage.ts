@@ -38,6 +38,7 @@ function toActivitySourceRecord(
     ...(row.afkDurationMs !== null ? { afkDurationMs: row.afkDurationMs } : {}),
     summaryText: payload.summaryText,
     entries: payload.entries,
+    ...(payload.snapshots ? { snapshots: payload.snapshots } : {}),
     createdAt: row.createdAt
   }
 }
@@ -51,9 +52,10 @@ export function createSqliteActivitySourceStorageMethods(input: {
   return {
     saveActivitySourceRecord(record) {
       const payload = cipher.encrypt({
-        version: 1,
+        version: 2,
         summaryText: record.summaryText,
-        entries: record.entries
+        entries: record.entries,
+        ...(record.snapshots ? { snapshots: record.snapshots } : {})
       })
 
       db.insert(activitySourceRecordsTable)

@@ -36,6 +36,7 @@
     "native:abi": "node -p \"'node=' + process.version + ' modules=' + process.versions.modules\" && ELECTRON_RUN_AS_NODE=1 electron -p \"'electron=' + process.versions.electron + ' node=' + process.versions.node + ' modules=' + process.versions.modules\"",
     "native:prepare": "node scripts/ensure-electron-native-deps.mjs",
     "native:rebuild": "pnpm exec electron-rebuild -f -w better-sqlite3",
+    "external-hooks:build": "node scripts/build-external-hooks.mjs",
     "search:download": "node scripts/download-search-binaries.mjs",
     "skills:sync": "node scripts/sync-upstream-skill.mjs",
     "skills:check": "node scripts/sync-upstream-skill.mjs --check",
@@ -50,11 +51,11 @@
     "dev:schedules": "pnpm run native:prepare && (YACHIYO_DEV_SCHEDULES=1 electron-vite dev; tput reset)",
     "build": "pnpm run native:prepare && pnpm run search:download && pnpm run typecheck && electron-vite build",
     "postinstall": "node -e \"console.log('Skipping Electron native rebuild on install. Run pnpm run native:prepare before Electron runtime or native sqlite tests, or pnpm run native:rebuild to force a rebuild.')\"",
-    "build:unpack": "pnpm run build && CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --dir",
+    "build:unpack": "pnpm run external-hooks:build && pnpm run build && CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --dir",
     "build:win": "pnpm run build && electron-builder --win",
     "changeset": "changeset",
     "changeset:version": "changeset version",
-    "build:mac": "pnpm run build && CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac zip",
+    "build:mac": "pnpm run external-hooks:build && pnpm run build && CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac zip",
     "build:linux": "pnpm run build && electron-builder --linux"
   },
   "dependencies": {

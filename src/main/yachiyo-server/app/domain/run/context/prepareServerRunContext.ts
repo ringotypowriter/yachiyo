@@ -354,6 +354,7 @@ export async function prepareServerRunContext(
         : {}),
       summaryText: activitySummary.text,
       entries: activitySummary.entries,
+      ...(activitySummary.snapshots ? { snapshots: activitySummary.snapshots } : {}),
       createdAt: deps.timestamp()
     })
   }
