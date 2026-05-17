@@ -15,7 +15,8 @@ import { useChatInputBuffer } from '@renderer/features/chat/hooks/useChatInputBu
 import { computePretextLines } from '@renderer/features/chat/lib/pretextSync'
 import {
   forwardComposerWheelToTimeline,
-  resolveComposerWheelDestination
+  resolveComposerWheelDestination,
+  resolveWheelScrollOffset
 } from '@renderer/features/chat/lib/composerWheel'
 import {
   DEFAULT_ACTIVE_RUN_ENTER_BEHAVIOR,
@@ -792,6 +793,9 @@ export function Composer({
       targetNode instanceof Element
         ? targetNode.closest<HTMLElement>('[data-composer-wheel-local-scroll]')
         : null
+    const overComposerInput = Boolean(
+      composerInputRef.current && targetNode && composerInputRef.current.contains(targetNode)
+    )
     const overTextarea = Boolean(textarea && targetNode && textarea.contains(targetNode))
     const overAttachmentStrip = Boolean(
       attachmentStrip && targetNode && attachmentStrip.contains(targetNode)
@@ -808,7 +812,7 @@ export function Composer({
           }
         : null,
       overAttachmentStrip,
-      overTextarea,
+      overTextarea: overTextarea || overComposerInput,
       popupOpen: anyPopupOpenRef.current,
       textarea: textarea
         ? {
@@ -829,6 +833,28 @@ export function Composer({
     if (destination === 'attachments') {
       event.preventDefault()
       attachmentStrip?.scrollBy({ left: event.deltaY })
+      return
+    }
+
+    if (destination === 'local' && overComposerInput && textarea && !localScrollElement) {
+      event.preventDefault()
+      textarea.scrollTop = resolveWheelScrollOffset(
+        {
+          scrollOffset: textarea.scrollTop,
+          viewportSize: textarea.clientHeight,
+          contentSize: textarea.scrollHeight
+        },
+        event.deltaY
+      )
+      if (overlayRef.current) {
+        const textareaMax = Math.max(0, textarea.scrollHeight - textarea.clientHeight)
+        const overlayMax = Math.max(
+          0,
+          overlayRef.current.scrollHeight - overlayRef.current.clientHeight
+        )
+        overlayRef.current.scrollTop =
+          textarea.scrollTop >= textareaMax - 1 ? overlayMax : textarea.scrollTop
+      }
       return
     }
 

@@ -869,7 +869,7 @@ function activitySnapshotSearchText(snapshot) {
     snapshot.ocr?.text
   ]
     .filter((value) => typeof value === 'string' && value.length > 0)
-    .join('\n')
+    .join('\\n')
 }
 
 function activitySnapshotExcerpt(snapshot) {

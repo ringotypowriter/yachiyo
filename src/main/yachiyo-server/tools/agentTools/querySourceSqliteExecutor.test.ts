@@ -30,6 +30,21 @@ test('sqlite querySource executor sends every local source table to the worker',
   }
 })
 
+test('sqlite querySource worker parses before opening the database', async () => {
+  const executor = createSqliteSourceQueryExecutor({
+    dbPath: join(tmpdir(), 'missing-yachiyo-source-query.sqlite')
+  })
+
+  await assert.rejects(
+    () => executor.query({ from: 'source_events', view: 'index' }, new AbortController().signal),
+    (error) => {
+      assert.ok(error instanceof Error)
+      assert.doesNotMatch(error.message, /Invalid or unexpected token/u)
+      return true
+    }
+  )
+})
+
 test('sqlite querySource executor leaves memory queries to the configured memory service', async () => {
   const executor = createSqliteSourceQueryExecutor({
     dbPath: join(tmpdir(), 'missing-yachiyo-source-query.sqlite')

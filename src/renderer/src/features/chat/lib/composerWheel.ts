@@ -39,6 +39,14 @@ function canScrollInWheelDirection(metrics: ComposerWheelScrollMetrics, delta: n
   return false
 }
 
+export function resolveWheelScrollOffset(
+  metrics: ComposerWheelScrollMetrics,
+  delta: number
+): number {
+  const maxScroll = Math.max(0, metrics.contentSize - metrics.viewportSize)
+  return Math.min(maxScroll, Math.max(0, metrics.scrollOffset + delta))
+}
+
 export function resolveComposerWheelDestination(input: {
   attachmentStrip: ComposerWheelScrollMetrics | null
   deltaX: number

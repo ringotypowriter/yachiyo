@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { forwardComposerWheelToTimeline, resolveComposerWheelDestination } from './composerWheel.ts'
+import {
+  forwardComposerWheelToTimeline,
+  resolveComposerWheelDestination,
+  resolveWheelScrollOffset
+} from './composerWheel.ts'
 
 test('composer wheel stays local while the textarea can scroll vertically', () => {
   assert.equal(
@@ -14,6 +18,17 @@ test('composer wheel stays local while the textarea can scroll vertically', () =
       attachmentStrip: null
     }),
     'local'
+  )
+})
+
+test('composer wheel clamps manual textarea wheel scrolling to its scroll range', () => {
+  assert.equal(
+    resolveWheelScrollOffset({ scrollOffset: 90, viewportSize: 100, contentSize: 200 }, 24),
+    100
+  )
+  assert.equal(
+    resolveWheelScrollOffset({ scrollOffset: 4, viewportSize: 100, contentSize: 200 }, -24),
+    0
   )
 })
 
