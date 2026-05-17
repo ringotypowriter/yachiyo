@@ -1,4 +1,5 @@
 @import 'tailwindcss';
+@custom-variant dark (&:where(.dark, .dark *));
 @source "../../../../node_modules/streamdown/dist/*.js";
 @import 'streamdown/styles.css';
 @import '../src/theme/theme.css';

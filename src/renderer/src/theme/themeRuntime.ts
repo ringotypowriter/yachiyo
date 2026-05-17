@@ -52,6 +52,7 @@ export function applyThemeAttributes(attributes: ThemeAttributes): void {
   root.dataset['yachiyoTheme'] = attributes.themeId
   root.dataset['yachiyoThemeAppearance'] = attributes.appearance
   root.dataset['yachiyoThemeVariant'] = attributes.variant
+  root.classList.toggle('dark', attributes.variant === 'dark')
   root.style.colorScheme = attributes.variant
 }
 

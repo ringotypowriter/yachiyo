@@ -6,6 +6,11 @@ import { code as codePlugin } from '@streamdown/code'
 import { useAppStore } from '@renderer/app/store/useAppStore'
 import { useAppDialog } from '@renderer/components/AppDialogContext'
 import { detectLanguage } from '../lib/detectLanguage'
+import {
+  codeHighlightTokenStyle,
+  readCodeHighlightTokenTheme,
+  type CodeHighlightTokenTheme
+} from '../lib/codeHighlightTheme'
 
 interface ToolCodeBlockProps {
   value: string
@@ -19,9 +24,8 @@ interface ToolCodeBlockProps {
 // Shared types
 // ---------------------------------------------------------------------------
 
-interface HighlightToken {
+interface HighlightToken extends CodeHighlightTokenTheme {
   content: string
-  color?: string
 }
 
 // ---------------------------------------------------------------------------
@@ -99,7 +103,7 @@ function useHighlight(
         result.tokens.map((lineTokens) =>
           lineTokens.map((t) => ({
             content: t.content,
-            color: (t.htmlStyle as Record<string, string> | undefined)?.color
+            ...readCodeHighlightTokenTheme(t.htmlStyle as Record<string, string> | undefined)
           }))
         )
       )
@@ -133,7 +137,11 @@ const gutterColor = alpha('ink', 0.25)
 
 function renderTokens(tokens: HighlightToken[]): React.JSX.Element[] {
   return tokens.map((token, i) => (
-    <span key={i} style={{ color: token.color }}>
+    <span
+      key={i}
+      className="yachiyo-code-token"
+      style={codeHighlightTokenStyle(token) as React.CSSProperties | undefined}
+    >
       {token.content}
     </span>
   ))

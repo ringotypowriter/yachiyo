@@ -1,4 +1,5 @@
 @import 'tailwindcss';
+@custom-variant dark (&:where(.dark, .dark *));
 @source "../../../../node_modules/streamdown/dist/*.js";
 @source "../../../../node_modules/@streamdown/mermaid/dist/*.js";
 @import 'streamdown/styles.css';
@@ -158,6 +159,15 @@ body > div:not(#root) {
 .streamdown-content [data-streamdown='code-block-body'] pre {
   white-space: pre-wrap;
   word-break: break-all;
+}
+
+.yachiyo-code-token {
+  color: var(--yachiyo-code-token-color, inherit);
+}
+
+:root[data-yachiyo-theme-variant='dark'] .yachiyo-code-token,
+.dark .yachiyo-code-token {
+  color: var(--yachiyo-code-token-color-dark, var(--yachiyo-code-token-color, inherit));
 }
 
 /* Table card: remove outer border, keep inner table border only */
