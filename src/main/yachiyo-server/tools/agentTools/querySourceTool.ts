@@ -6,10 +6,30 @@ import type {
   ActivitySourceRecord,
   FolderRecord,
   MessageRecord,
+  ThreadSearchMessageMatch,
   ThreadRecord
 } from '../../../../shared/yachiyo/protocol.ts'
 import type { MemorySearchResult, MemoryService } from '../../services/memory/memoryService.ts'
 import type { YachiyoStorage } from '../../storage/storage.ts'
+import {
+  activityRowId,
+  folderRowId,
+  getFolderIdFromRowId,
+  getThreadIdFromRowId,
+  memoryRowId,
+  messageRowId,
+  parseRowId,
+  parseSourceEventSourceRowId,
+  parseSpanRowId,
+  spanRowId,
+  threadRowId
+} from './querySourceRowIds.ts'
+import {
+  buildSpanSearchText,
+  rankThreadSpanCandidates,
+  type ThreadSpanRankingCandidate,
+  tokenizeQuery
+} from './querySourceThreadSpanRanking.ts'
 
 const SOURCE_TABLES = [
   'source_events',
@@ -25,7 +45,8 @@ const SOURCE_VIEWS = ['index', 'content', 'detail'] as const
 const SOURCE_ORDER = ['auto', 'match', 'timeAsc', 'timeDesc'] as const
 const DEFAULT_LIMIT = 10
 const MAX_LIMIT = 50
-const SPAN_CONTEXT_RADIUS = 2
+const CONTENT_CONTEXT_RADIUS = 1
+const SPAN_CLUSTER_MAX_GAP = CONTENT_CONTEXT_RADIUS * 2 + 1
 const DETAIL_CONTEXT_RADIUS = 4
 const MATCH_ORDER_ERROR =
   'orderBy.match is only supported for memories and text-filtered thread_spans.'
@@ -122,7 +143,10 @@ const whereSchema = z
 
 const inputSchema = z.object({
   from: z.enum(SOURCE_TABLES).describe('Virtual source table to query.'),
-  view: z.enum(SOURCE_VIEWS).optional().describe('Return size: index, content, or detail.'),
+  view: z
+    .enum(SOURCE_VIEWS)
+    .optional()
+    .describe('Table-specific depth: index, content, or detail.'),
   where: whereSchema,
   orderBy: z
     .enum(SOURCE_ORDER)
@@ -134,27 +158,20 @@ const inputSchema = z.object({
 
 function buildDescription(input: { activityOcrEnabled: boolean }): string {
   const activitySourceEventsDescription = input.activityOcrEnabled
-    ? `  Includes conversation activity and foreground app/window activity records. Activity rows can include window text snapshot previews when present. Does not include memories.`
+    ? `  Includes conversation activity and foreground app/window activity records. Activity rows can include window text snapshots when present. Does not include memories.`
     : `  Includes conversation activity and foreground app/window activity records. Does not include memories.`
 
   const activityRecordsDescription = input.activityOcrEnabled
-    ? `  Durable foreground app/window activity records. Rows include app names, bundle IDs, window titles, and window text snapshot previews when present.\n  Use this to inspect what the user was doing during a time range, search activity summaries, or search text visible in active windows.\n  Format: index rows include windowTextSnapshotCount only. content rows include windowTextPreviews: [{ capturedAt, appName, bundleId, windowTitle?, textPreview }]. detail rows include windowTextSnapshots: [{ capturedAt, appName, bundleId, windowTitle?, text }] for the full captured window text.`
+    ? `  Durable foreground app/window activity records. Rows include app names, bundle IDs, window titles, and window text snapshots when present.\n  Use this to inspect what the user was doing during a time range, search activity summaries, or search text visible in active windows.`
     : `  Durable foreground app/window activity records. Rows include app names, bundle IDs, and window titles.\n  Use this to inspect what the user was doing during a time range or search activity summaries.`
-
-  const contentDescription = input.activityOcrEnabled
-    ? `  Return the main content for matching rows. For activity records, rows with captured window text include windowTextPreviews.`
-    : `  Return the main content for matching rows.`
-
-  const detailDescription = input.activityOcrEnabled
-    ? `  Return fuller surrounding context. For activity records, rows with captured window text include full windowTextSnapshots. Use this only after narrowing results with a rowId, parentRowId, threadId, folderId, or tight time range.`
-    : `  Return fuller surrounding context. Use this only after narrowing results with a rowId, parentRowId, threadId, folderId, or tight time range.`
 
   return `
 Query read-only local context sources saved by Yachiyo.
 
 The sources are exposed as virtual tables. This tool does not execute raw SQL.
-Use \`from\` to choose one table, \`where\` to filter rows, and \`view\` to choose how much content to return.
-Rows are semantic records, not just search snippets. Each row may include a \`rowId\` for follow-up queries; \`rowId\` is only a join key, not the useful content.
+Use \`from\` to choose one table, \`where\` to filter rows, and \`view\` to choose the table-specific depth.
+\`limit\` and \`cursor\` paginate the returned top-level rows.
+Rows may include a \`rowId\` for exact follow-up queries on tables that support row opening.
 
 Terminology:
 
@@ -162,54 +179,62 @@ Terminology:
 - Use thread table names, threadId, and thread rowIds when querying this tool.
 - When answering the user, say "conversation" instead of "thread" unless you are quoting a table name, field name, rowId, or the user used "thread" first.
 
-Tables:
+View Contract:
+
+- index queries the selected table's index view.
+- content queries the selected table's content view.
+- detail queries the selected table's detail view.
+- Each table maps these views to concrete row tables below.
+
+Table Map:
 
 - source_events
   A timeline view over event-like sources. Use this when you need to know what happened during a time range.
+  index: source_events timeline rows.
+  content: source row for the event, such as thread_spans or activity_records.
+  detail: concrete detail rows for the source, such as thread_messages for a conversation span or activity_records detail rows.
 ${activitySourceEventsDescription}
 
 - memories
   Long-term extracted facts, preferences, decisions, plans, and user context.
-  Use this only with a text query or topic. Do not use memories to browse a time range.
+  index/content/detail: memories rows ranked by text match.
+  Requires where.text; where.topic narrows the search.
 
 - thread_folders
   User-curated thread communities. Threads in the same folder usually share a goal, project, or problem area.
-  Use this to discover or browse a folder of related conversations.
+  index: thread_folders rows.
+  content: threads rows in the folder.
+  detail: thread_spans rows in the folder.
 
 - threads
   Thread-level rows. Each row includes folder/community metadata when available.
-  Use this when you already know a folder or thread, or want a thread list.
+  index: threads rows.
+  content: thread_spans rows for the thread.
+  detail: thread_messages rows for the thread.
 
 - thread_spans
   Searchable or time-bounded thread segments.
-  Use this to find prior discussions and get enough context to decide whether to open more messages.
-  Prefer this table over thread_messages when starting from a vague question.
+  index/content: span locator rows with metadata, summary, and matchedEvidence.
+  detail with where.rowId: thread_messages rows for the span.
+  Prefer this table when starting from a vague question about prior discussions.
 
 - thread_messages
   Actual messages from threads.
+  index/content/detail: thread_messages rows.
+  where.parentRowId accepts a thread rowId or span rowId.
   Use this after finding a thread span, or when you already know a threadId, rowId, or parentRowId.
-  Use this to read fuller context from a past thread.
 
 - activity_records
 ${activityRecordsDescription}
+  index: activity_records summary rows.
+  content: activity_records rows with entries and window text snapshot snippets when enabled.
+  detail: activity_records rows with entries and full window text snapshots when enabled.
 
 Time Filters:
 
 - where.since and where.until must be ISO 8601 timestamps, not natural-language times.
 - Prefer UTC timestamps ending in Z. Local clock times are valid only when they include an explicit offset, such as +08:00.
 - Examples: {"since":"2026-05-17T04:00:00.000Z","until":"2026-05-17T09:07:00.000Z"} or {"since":"2026-05-17T12:00:00+08:00","until":"2026-05-17T17:07:00+08:00"}.
-
-Views:
-
-- index
-  Return compact but meaningful rows: title, time range, source kind, summary, matched evidence, folder/community data, and available follow-up views.
-  Use this first when discovering data.
-
-- content
-${contentDescription}
-
-- detail
-${detailDescription}
 
 Ordering:
 
@@ -227,7 +252,8 @@ Rules:
 - Start with index unless you already know the exact row to open.
 - Use the narrowest useful filters.
 - Do not use memories for timeline browsing.
-- Use thread_spans to discover past discussions, then thread_messages to read fuller dialogue.
+- Use thread_spans to discover past discussions, then use thread_messages to read dialogue.
+- Use exact rowId, threadId, folderId, or parentRowId before content/detail when available.
 - Same-folder threads are a strong community signal, but they are not expanded unless you query by folderId or follow an available folder view.
 `
 }
@@ -286,46 +312,6 @@ function includesText(value: string | undefined, text: string): boolean {
 function truncate(value: string, maxLength = 180): string {
   const compact = value.replace(/\s+/gu, ' ').trim()
   return compact.length > maxLength ? `${compact.slice(0, maxLength - 1)}…` : compact
-}
-
-function encodeSegment(value: string): string {
-  return encodeURIComponent(value)
-}
-
-function decodeSegment(value: string): string {
-  return decodeURIComponent(value)
-}
-
-function folderRowId(folderId: string): string {
-  return `thread_folder:${encodeSegment(folderId)}`
-}
-
-function threadRowId(threadId: string): string {
-  return `thread:${encodeSegment(threadId)}`
-}
-
-function messageRowId(threadId: string, messageId: string): string {
-  return `thread_message:${encodeSegment(threadId)}:${encodeSegment(messageId)}`
-}
-
-function spanRowId(threadId: string, startMessageId: string, endMessageId: string): string {
-  return `thread_span:${encodeSegment(threadId)}:${encodeSegment(startMessageId)}:${encodeSegment(endMessageId)}`
-}
-
-function activityRowId(activityId: string): string {
-  return `activity_record:${encodeSegment(activityId)}`
-}
-
-function memoryRowId(memoryId: string): string {
-  return `memory:${encodeSegment(memoryId)}`
-}
-
-function parseRowId(rowId: string): { kind: string; parts: string[] } {
-  const [kind, ...encodedParts] = rowId.split(':')
-  return {
-    kind,
-    parts: encodedParts.map(decodeSegment)
-  }
 }
 
 function readCatalog(storage: YachiyoStorage): SourceCatalog {
@@ -530,7 +516,6 @@ function buildThreadSpanRow(input: {
   matchedEvidence?: string[]
   messages: MessageRecord[]
   thread: ThreadRecord
-  view: SourceView
 }): ThreadSpanRow | undefined {
   const messages = input.messages.filter((message) => !message.hidden)
   if (messages.length === 0) {
@@ -567,13 +552,7 @@ function buildThreadSpanRow(input: {
     messageCount: messages.length,
     summary: summarizeMessages(messages),
     matchedEvidence,
-    availableViews: ['messages', 'surroundingContext', 'fullThread', 'folderThreads', 'folderSpans']
-  }
-
-  if (input.view !== 'index') {
-    row['messages'] = messages.map((message) =>
-      toThreadMessageRow(input.catalog, input.thread, message)
-    )
+    availableViews: ['content', 'detail']
   }
 
   return row
@@ -614,6 +593,64 @@ function getThreadMessages(catalog: SourceCatalog, threadId: string): MessageRec
   return (catalog.messagesByThread.get(threadId) ?? []).filter((message) => !message.hidden)
 }
 
+function readMatchBm25(match: ThreadSearchMessageMatch, fallback: number): number {
+  const record = match as unknown as Record<string, unknown>
+  const value = record['bm25'] ?? record['bm25Score'] ?? record['rank']
+  return typeof value === 'number' && Number.isFinite(value) ? value : fallback
+}
+
+function clusterMatchedIndexes(indexes: number[]): number[][] {
+  const sorted = [...new Set(indexes)].sort((left, right) => left - right)
+  const clusters: number[][] = []
+
+  for (const index of sorted) {
+    const current = clusters.at(-1)
+    const previous = current?.at(-1)
+    if (!current || previous === undefined || index - previous > SPAN_CLUSTER_MAX_GAP) {
+      clusters.push([index])
+    } else {
+      current.push(index)
+    }
+  }
+
+  return clusters
+}
+
+function createThreadSpanCandidate(input: {
+  bm25: number
+  catalog: SourceCatalog
+  matchedEvidence: string[]
+  messages: MessageRecord[]
+  ordinal: number
+  thread: ThreadRecord
+}): ThreadSpanRankingCandidate<ThreadSpanRow> | undefined {
+  const row = buildThreadSpanRow({
+    catalog: input.catalog,
+    matchedEvidence: input.matchedEvidence,
+    messages: input.messages,
+    thread: input.thread
+  })
+  if (!row) {
+    return undefined
+  }
+
+  return {
+    bm25: input.bm25,
+    messages: input.messages,
+    ordinal: input.ordinal,
+    row,
+    searchText: buildSpanSearchText({
+      matchedEvidence: input.matchedEvidence,
+      messages: input.messages,
+      thread: input.thread
+    })
+  }
+}
+
+function getThreadSpanContextRadius(view: SourceView): number {
+  return view === 'detail' ? DETAIL_CONTEXT_RADIUS : CONTENT_CONTEXT_RADIUS
+}
+
 function buildTextThreadSpans(input: {
   catalog: SourceCatalog
   limit: number
@@ -626,9 +663,12 @@ function buildTextThreadSpans(input: {
     query: input.text,
     limit: Math.max(input.limit, DEFAULT_LIMIT)
   })
-  const spans: ThreadSpanRow[] = []
+  const queryTerms = tokenizeQuery(input.text)
+  const candidates: Array<ThreadSpanRankingCandidate<ThreadSpanRow>> = []
+  const contextRadius = getThreadSpanContextRadius(input.view)
+  let ordinal = 0
 
-  for (const result of results) {
+  for (const [resultIndex, result] of results.entries()) {
     const thread = input.catalog.threadById.get(result.threadId)
     if (!thread || !matchesThreadFilters(thread, input.where)) {
       continue
@@ -639,38 +679,100 @@ function buildTextThreadSpans(input: {
       continue
     }
 
-    const matchIds = new Set(result.messageMatches.map((match) => match.messageId))
-    const matchedIndexes = messages
+    const matchesByMessageId = new Map<string, ThreadSearchMessageMatch[]>()
+    for (const match of result.messageMatches) {
+      const existing = matchesByMessageId.get(match.messageId) ?? []
+      existing.push(match)
+      matchesByMessageId.set(match.messageId, existing)
+    }
+    const matchedIndexEntries = messages
       .map((message, index) => ({ message, index }))
       .filter(
         ({ message }) =>
-          matchIds.has(message.id) && isTimestampInRange(message.createdAt, input.where)
+          matchesByMessageId.has(message.id) && isTimestampInRange(message.createdAt, input.where)
       )
-      .map(({ index }) => index)
+    const matchedIndexes = matchedIndexEntries.map(({ index }) => index)
 
-    const rangeMessages =
-      matchedIndexes.length > 0
-        ? messages.slice(
-            Math.max(0, Math.min(...matchedIndexes) - SPAN_CONTEXT_RADIUS),
-            Math.min(messages.length, Math.max(...matchedIndexes) + SPAN_CONTEXT_RADIUS + 1)
+    if (matchedIndexes.length > 0) {
+      for (const cluster of clusterMatchedIndexes(matchedIndexes)) {
+        const firstMatchIndex = cluster[0]!
+        const lastMatchIndex = cluster.at(-1)!
+        const rangeMessages = messages.slice(
+          Math.max(0, firstMatchIndex - contextRadius),
+          Math.min(messages.length, lastMatchIndex + contextRadius + 1)
+        )
+        const clusterMessageIds = new Set(cluster.map((index) => messages[index]!.id))
+        const clusterMatches = result.messageMatches.filter((match) =>
+          clusterMessageIds.has(match.messageId)
+        )
+        const bm25 = Math.min(
+          ...clusterMatches.map((match, matchIndex) =>
+            readMatchBm25(match, resultIndex + matchIndex / 100)
           )
-        : messages
-            .filter((message) => isTimestampInRange(message.createdAt, input.where))
-            .slice(0, 5)
-
-    const row = buildThreadSpanRow({
-      catalog: input.catalog,
-      matchedEvidence: result.messageMatches.map((match) => match.snippet),
-      messages: rangeMessages,
-      thread,
-      view: input.view
-    })
-    if (row) {
-      spans.push(row)
+        )
+        const candidate = createThreadSpanCandidate({
+          bm25,
+          catalog: input.catalog,
+          matchedEvidence: clusterMatches.map((match) => match.snippet),
+          messages: rangeMessages,
+          ordinal,
+          thread
+        })
+        ordinal += 1
+        if (candidate) {
+          candidates.push(candidate)
+        }
+      }
+    } else {
+      const rangeMessages = messages
+        .filter((message) => isTimestampInRange(message.createdAt, input.where))
+        .slice(0, contextRadius * 2 + 1)
+      const candidate = createThreadSpanCandidate({
+        bm25: resultIndex,
+        catalog: input.catalog,
+        matchedEvidence: [],
+        messages: rangeMessages,
+        ordinal,
+        thread
+      })
+      ordinal += 1
+      if (candidate) {
+        candidates.push(candidate)
+      }
     }
   }
 
-  return spans
+  return rankThreadSpanCandidates(candidates, queryTerms)
+}
+
+function buildRowIdThreadSpan(input: {
+  catalog: SourceCatalog
+  rowId: string
+  view: SourceView
+  where?: QuerySourceWhere
+}): ThreadSpanRow | undefined {
+  const span = parseSpanRowId(input.rowId)
+  if (!span) {
+    return undefined
+  }
+
+  const thread = input.catalog.threadById.get(span.threadId)
+  if (!thread || !matchesThreadFilters(thread, input.where)) {
+    return undefined
+  }
+
+  const messages = findMessageRange(
+    getThreadMessages(input.catalog, thread.id),
+    span.startMessageId,
+    span.endMessageId,
+    input.view === 'detail' ? DETAIL_CONTEXT_RADIUS : 0
+  )
+
+  return buildThreadSpanRow({
+    catalog: input.catalog,
+    messages,
+    thread
+  })
 }
 
 function buildRangeThreadSpans(input: {
@@ -694,8 +796,7 @@ function buildRangeThreadSpans(input: {
     const row = buildThreadSpanRow({
       catalog: input.catalog,
       messages,
-      thread,
-      view: input.view
+      thread
     })
     if (row) {
       rows.push(row)
@@ -710,6 +811,20 @@ function queryThreadSpans(
   catalog: SourceCatalog
 ): QueryRowsResult {
   const view = input.view ?? 'index'
+  if (view === 'detail' && input.where?.rowId) {
+    return queryThreadMessages(
+      {
+        ...input,
+        from: 'thread_messages',
+        view: 'index',
+        where: {
+          parentRowId: input.where.rowId
+        }
+      },
+      catalog
+    )
+  }
+
   const rows = buildThreadSpans(storage, input, catalog, view)
   const order = resolveOrder(input, normalizeText(input.where?.text) ? 'match' : 'timeDesc')
 
@@ -722,6 +837,16 @@ function buildThreadSpans(
   catalog: SourceCatalog,
   view: SourceView
 ): ThreadSpanRow[] {
+  if (input.where?.rowId) {
+    const row = buildRowIdThreadSpan({
+      catalog,
+      rowId: input.where.rowId,
+      view,
+      where: input.where
+    })
+    return row ? [row] : []
+  }
+
   const text = normalizeText(input.where?.text)
   return text
     ? buildTextThreadSpans({
@@ -737,20 +862,6 @@ function buildThreadSpans(
         view,
         where: input.where
       })
-}
-
-function parseSpanRowId(
-  rowId: string
-): { threadId: string; startMessageId: string; endMessageId: string } | null {
-  const parsed = parseRowId(rowId)
-  if (parsed.kind !== 'thread_span' || parsed.parts.length !== 3) {
-    return null
-  }
-  return {
-    threadId: parsed.parts[0]!,
-    startMessageId: parsed.parts[1]!,
-    endMessageId: parsed.parts[2]!
-  }
 }
 
 function findMessageRange(
@@ -832,7 +943,43 @@ function queryThreadMessages(input: QuerySourceToolInput, catalog: SourceCatalog
   return paginate(sortByOrder(rows, resolveOrder(input, 'timeAsc')), input)
 }
 
-function queryThreads(input: QuerySourceToolInput, catalog: SourceCatalog): QueryRowsResult {
+function queryThreads(
+  storage: YachiyoStorage,
+  input: QuerySourceToolInput,
+  catalog: SourceCatalog
+): QueryRowsResult {
+  const view = input.view ?? 'index'
+  const threadId = input.where?.threadId ?? getThreadIdFromRowId(input.where?.rowId)
+  if (threadId && view === 'content') {
+    return queryThreadSpans(
+      storage,
+      {
+        ...input,
+        from: 'thread_spans',
+        view: 'content',
+        where: {
+          ...input.where,
+          rowId: undefined,
+          threadId
+        }
+      },
+      catalog
+    )
+  }
+  if (threadId && view === 'detail') {
+    return queryThreadMessages(
+      {
+        ...input,
+        from: 'thread_messages',
+        view: 'index',
+        where: {
+          parentRowId: threadRowId(threadId)
+        }
+      },
+      catalog
+    )
+  }
+
   const text = normalizeText(input.where?.text)
   const rows = catalog.threads
     .filter((thread) => matchesThreadFilters(thread, input.where))
@@ -857,14 +1004,53 @@ function queryThreads(input: QuerySourceToolInput, catalog: SourceCatalog): Quer
           : {}),
         updatedAt: thread.updatedAt,
         messageCount: getThreadMessages(catalog, thread.id).length,
-        availableViews: ['messages', 'spans', 'folderThreads', 'folderSpans']
+        availableViews: ['content', 'detail']
       }
     })
 
   return paginate(sortByOrder(rows, resolveOrder(input, 'timeDesc')), input)
 }
 
-function queryThreadFolders(input: QuerySourceToolInput, catalog: SourceCatalog): QueryRowsResult {
+function queryThreadFolders(
+  storage: YachiyoStorage,
+  input: QuerySourceToolInput,
+  catalog: SourceCatalog
+): QueryRowsResult {
+  const view = input.view ?? 'index'
+  const folderId = input.where?.folderId ?? getFolderIdFromRowId(input.where?.rowId)
+  if (folderId && view === 'content') {
+    return queryThreads(
+      storage,
+      {
+        ...input,
+        from: 'threads',
+        view: 'index',
+        where: {
+          ...input.where,
+          rowId: undefined,
+          folderId
+        }
+      },
+      catalog
+    )
+  }
+  if (folderId && view === 'detail') {
+    return queryThreadSpans(
+      storage,
+      {
+        ...input,
+        from: 'thread_spans',
+        view: 'content',
+        where: {
+          ...input.where,
+          rowId: undefined,
+          folderId
+        }
+      },
+      catalog
+    )
+  }
+
   const text = normalizeText(input.where?.text)
   const rows = [...catalog.foldersById.values()]
     .filter((folder) => !input.where?.folderId || folder.id === input.where.folderId)
@@ -884,7 +1070,7 @@ function queryThreadFolders(input: QuerySourceToolInput, catalog: SourceCatalog)
         updatedAt: folder.updatedAt,
         threadCount: threads.length,
         recentThreadTitles: threads.slice(0, 5).map((thread) => thread.title),
-        availableViews: ['folderThreads', 'folderSpans']
+        availableViews: ['content', 'detail']
       }
     })
 
@@ -1092,6 +1278,59 @@ function querySourceEvents(
   input: QuerySourceToolInput,
   catalog: SourceCatalog
 ): QueryRowsResult {
+  if (input.where?.rowId && input.view && input.view !== 'index') {
+    const sourceRowId = parseSourceEventSourceRowId(input.where.rowId)
+    if (!sourceRowId) {
+      return { rows: [] }
+    }
+
+    const parsed = parseRowId(sourceRowId)
+    if (parsed.kind === 'thread_span') {
+      if (input.view === 'detail') {
+        return queryThreadMessages(
+          {
+            ...input,
+            from: 'thread_messages',
+            view: 'index',
+            where: {
+              parentRowId: sourceRowId
+            }
+          },
+          catalog
+        )
+      }
+
+      return queryThreadSpans(
+        storage,
+        {
+          ...input,
+          from: 'thread_spans',
+          view: 'content',
+          where: {
+            rowId: sourceRowId
+          }
+        },
+        catalog
+      )
+    }
+
+    if (parsed.kind === 'activity_record') {
+      return queryActivityRecords(
+        storage,
+        {
+          ...input,
+          from: 'activity_records',
+          where: {
+            rowId: sourceRowId
+          }
+        },
+        catalog
+      )
+    }
+
+    return { rows: [] }
+  }
+
   const threadRows = buildThreadSpans(storage, input, catalog, 'index').map((span) => ({
     table: 'source_events',
     rowId: `source_event:${span.rowId}`,
@@ -1104,7 +1343,7 @@ function querySourceEvents(
     endedAt: span.endedAt,
     timeRange: span.timeRange,
     summary: span.summary,
-    availableViews: ['threadSpan', 'messages']
+    availableViews: ['content', 'detail']
   }))
 
   const activityRows = storage
@@ -1129,7 +1368,7 @@ function querySourceEvents(
           ? { windowTextSnapshotCount: row['windowTextSnapshotCount'] }
           : {}),
         ...(row['matchedEvidence'] ? { matchedEvidence: row['matchedEvidence'] } : {}),
-        availableViews: ['activityRecord']
+        availableViews: ['content', 'detail']
       }
     })
 
@@ -1166,9 +1405,9 @@ async function executeQuery(
     case 'source_events':
       return querySourceEvents(storage, input, catalog)
     case 'thread_folders':
-      return queryThreadFolders(input, catalog)
+      return queryThreadFolders(storage, input, catalog)
     case 'threads':
-      return queryThreads(input, catalog)
+      return queryThreads(storage, input, catalog)
     case 'thread_spans':
       return queryThreadSpans(storage, input, catalog)
     case 'thread_messages':

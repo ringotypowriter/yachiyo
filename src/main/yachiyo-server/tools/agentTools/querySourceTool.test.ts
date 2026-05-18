@@ -176,13 +176,7 @@ test('querySource discovers thread spans with folder community and expands messa
     title: 'Source System',
     colorTag: 'azure'
   })
-  assert.deepEqual(row['availableViews'], [
-    'messages',
-    'surroundingContext',
-    'fullThread',
-    'folderThreads',
-    'folderSpans'
-  ])
+  assert.deepEqual(row['availableViews'], ['content', 'detail'])
 
   const messagesResult = parseToolJson(
     await tool.execute!(
@@ -262,6 +256,430 @@ test('querySource delegates thread span text search without bootstrapping storag
     view: 'index',
     limit: 3
   })
+})
+
+test('querySource reranks text spans by normalized bm25 coverage and density', async () => {
+  const storage = createInMemoryYachiyoStorage()
+  storage.createThread({
+    thread: makeThread({
+      id: 'thread-partial',
+      title: 'Partial sample notes',
+      updatedAt: '2026-05-16T09:40:00.000Z'
+    }),
+    createdAt: BASE_TIME,
+    messages: [
+      makeMessage({
+        id: 'partial-1',
+        threadId: 'thread-partial',
+        content: 'Alpha appears in the sample notes.',
+        createdAt: '2026-05-16T09:10:00.000Z'
+      })
+    ]
+  })
+  storage.createThread({
+    thread: makeThread({
+      id: 'thread-focused',
+      title: 'Focused sample notes',
+      updatedAt: '2026-05-16T09:30:00.000Z'
+    }),
+    createdAt: BASE_TIME,
+    messages: [
+      makeMessage({
+        id: 'focused-1',
+        threadId: 'thread-focused',
+        content: 'Alpha beta gamma delta use compact sample spans.',
+        createdAt: '2026-05-16T09:20:00.000Z'
+      })
+    ]
+  })
+  storage.searchThreadsAndMessagesFts = () => [
+    {
+      threadId: 'thread-partial',
+      threadTitle: 'Partial sample notes',
+      threadUpdatedAt: '2026-05-16T09:40:00.000Z',
+      titleMatched: true,
+      messageMatches: [{ messageId: 'partial-1', snippet: 'Alpha appears in the sample notes.' }]
+    },
+    {
+      threadId: 'thread-focused',
+      threadTitle: 'Focused sample notes',
+      threadUpdatedAt: '2026-05-16T09:30:00.000Z',
+      titleMatched: false,
+      messageMatches: [
+        {
+          messageId: 'focused-1',
+          snippet: 'Alpha beta gamma delta use compact sample spans.'
+        }
+      ]
+    }
+  ]
+
+  const tool = createQuerySourceTool({ storage, memoryService: createMemoryService() })
+  const result = parseToolJson(
+    await tool.execute!(
+      {
+        from: 'thread_spans',
+        where: { text: 'alpha beta gamma delta' },
+        view: 'index',
+        limit: 2
+      },
+      { abortSignal: new AbortController().signal, toolCallId: 'tc-span-rerank', messages: [] }
+    )
+  )
+
+  assert.equal(result.error, undefined)
+  assert.deepEqual(
+    result.rows?.map((row) => row['threadId']),
+    ['thread-focused', 'thread-partial']
+  )
+})
+
+test('querySource splits distant text hits into granular content spans', async () => {
+  const storage = createInMemoryYachiyoStorage()
+  storage.createThread({
+    thread: makeThread({
+      id: 'thread-wide',
+      title: 'Wide sample discussion',
+      updatedAt: '2026-05-16T09:40:00.000Z'
+    }),
+    createdAt: BASE_TIME,
+    messages: [
+      makeMessage({
+        id: 'wide-1',
+        threadId: 'thread-wide',
+        content: 'Alpha draft note.',
+        createdAt: '2026-05-16T09:01:00.000Z'
+      }),
+      makeMessage({
+        id: 'wide-2',
+        threadId: 'thread-wide',
+        content: 'Filler two.',
+        createdAt: '2026-05-16T09:02:00.000Z'
+      }),
+      makeMessage({
+        id: 'wide-3',
+        threadId: 'thread-wide',
+        content: 'Filler three.',
+        createdAt: '2026-05-16T09:03:00.000Z'
+      }),
+      makeMessage({
+        id: 'wide-4',
+        threadId: 'thread-wide',
+        content: 'Filler four.',
+        createdAt: '2026-05-16T09:04:00.000Z'
+      }),
+      makeMessage({
+        id: 'wide-5',
+        threadId: 'thread-wide',
+        content: 'Beta gamma delta draft.',
+        createdAt: '2026-05-16T09:05:00.000Z'
+      }),
+      makeMessage({
+        id: 'wide-6',
+        threadId: 'thread-wide',
+        content: 'Filler six.',
+        createdAt: '2026-05-16T09:06:00.000Z'
+      }),
+      makeMessage({
+        id: 'wide-7',
+        threadId: 'thread-wide',
+        content: 'Filler seven.',
+        createdAt: '2026-05-16T09:07:00.000Z'
+      }),
+      makeMessage({
+        id: 'wide-8',
+        threadId: 'thread-wide',
+        content: 'Filler eight.',
+        createdAt: '2026-05-16T09:08:00.000Z'
+      }),
+      makeMessage({
+        id: 'wide-9',
+        threadId: 'thread-wide',
+        content: 'Alpha beta gamma delta final.',
+        createdAt: '2026-05-16T09:09:00.000Z'
+      })
+    ]
+  })
+  storage.searchThreadsAndMessagesFts = () => [
+    {
+      threadId: 'thread-wide',
+      threadTitle: 'Wide sample discussion',
+      threadUpdatedAt: '2026-05-16T09:40:00.000Z',
+      titleMatched: false,
+      messageMatches: [
+        { messageId: 'wide-1', snippet: 'Alpha draft note.' },
+        { messageId: 'wide-5', snippet: 'Beta gamma delta draft.' },
+        { messageId: 'wide-9', snippet: 'Alpha beta gamma delta final.' }
+      ]
+    }
+  ]
+
+  const tool = createQuerySourceTool({ storage, memoryService: createMemoryService() })
+  const result = parseToolJson(
+    await tool.execute!(
+      {
+        from: 'thread_spans',
+        where: { text: 'alpha beta gamma delta' },
+        view: 'content',
+        limit: 5
+      },
+      { abortSignal: new AbortController().signal, toolCallId: 'tc-span-split', messages: [] }
+    )
+  )
+
+  assert.equal(result.error, undefined)
+  assert.deepEqual(
+    result.rows?.map((row) => row['messageCount']),
+    [2, 3, 2]
+  )
+  assert.equal(result.rows?.[0]?.['messages'], undefined)
+})
+
+test('querySource opens only the requested thread span rowId', async () => {
+  const storage = createInMemoryYachiyoStorage()
+  storage.createThread({
+    thread: makeThread({
+      id: 'thread-target',
+      title: 'Target sample discussion',
+      updatedAt: '2026-05-16T09:20:00.000Z'
+    }),
+    createdAt: BASE_TIME,
+    messages: [
+      makeMessage({
+        id: 'target-1',
+        threadId: 'thread-target',
+        content: 'Alpha setup note.',
+        createdAt: '2026-05-16T09:01:00.000Z'
+      }),
+      makeMessage({
+        id: 'target-2',
+        threadId: 'thread-target',
+        content: 'Alpha beta gamma delta target note.',
+        createdAt: '2026-05-16T09:02:00.000Z'
+      }),
+      makeMessage({
+        id: 'target-3',
+        threadId: 'thread-target',
+        content: 'Target follow-up note.',
+        createdAt: '2026-05-16T09:03:00.000Z'
+      })
+    ]
+  })
+  storage.createThread({
+    thread: makeThread({
+      id: 'thread-current',
+      title: 'Current unrelated discussion',
+      updatedAt: '2026-05-16T10:00:00.000Z'
+    }),
+    createdAt: BASE_TIME,
+    messages: [
+      makeMessage({
+        id: 'current-1',
+        threadId: 'thread-current',
+        content: 'Current unrelated note.',
+        createdAt: '2026-05-16T10:00:00.000Z'
+      })
+    ]
+  })
+  storage.searchThreadsAndMessagesFts = () => [
+    {
+      threadId: 'thread-target',
+      threadTitle: 'Target sample discussion',
+      threadUpdatedAt: '2026-05-16T09:20:00.000Z',
+      titleMatched: false,
+      messageMatches: [{ messageId: 'target-2', snippet: 'Alpha beta gamma delta target note.' }]
+    }
+  ]
+
+  const tool = createQuerySourceTool({ storage, memoryService: createMemoryService() })
+  const indexResult = parseToolJson(
+    await tool.execute!(
+      {
+        from: 'thread_spans',
+        where: { text: 'alpha beta gamma delta' },
+        view: 'index',
+        limit: 1
+      },
+      { abortSignal: new AbortController().signal, toolCallId: 'tc-rowid-index', messages: [] }
+    )
+  )
+  const rowId = String(indexResult.rows?.[0]?.['rowId'])
+
+  const contentResult = parseToolJson(
+    await tool.execute!(
+      {
+        from: 'thread_spans',
+        where: { rowId },
+        view: 'content',
+        limit: 1
+      },
+      { abortSignal: new AbortController().signal, toolCallId: 'tc-rowid-content', messages: [] }
+    )
+  )
+  const detailResult = parseToolJson(
+    await tool.execute!(
+      {
+        from: 'thread_spans',
+        where: { rowId },
+        view: 'detail',
+        limit: 2
+      },
+      { abortSignal: new AbortController().signal, toolCallId: 'tc-rowid-detail', messages: [] }
+    )
+  )
+  const invalidResult = parseToolJson(
+    await tool.execute!(
+      {
+        from: 'thread_spans',
+        where: { rowId: 'thread_span:missing:missing:missing' },
+        view: 'content',
+        limit: 1
+      },
+      { abortSignal: new AbortController().signal, toolCallId: 'tc-rowid-invalid', messages: [] }
+    )
+  )
+
+  assert.equal(contentResult.error, undefined)
+  assert.equal(contentResult.rows?.length, 1)
+  assert.equal(contentResult.rows?.[0]?.['threadId'], 'thread-target')
+  assert.equal(contentResult.rows?.[0]?.['messages'], undefined)
+  assert.deepEqual(
+    detailResult.rows?.map((message) => message['messageId']),
+    ['target-1', 'target-2']
+  )
+  assert.equal(detailResult.rows?.[0]?.['table'], 'thread_messages')
+  assert.deepEqual(invalidResult.rows, [])
+})
+
+test('querySource maps thread views to span and message child tables', async () => {
+  const storage = createInMemoryYachiyoStorage()
+  storage.createThread({
+    thread: makeThread({
+      id: 'thread-drilldown',
+      title: 'Thread drilldown sample',
+      updatedAt: '2026-05-16T09:20:00.000Z'
+    }),
+    createdAt: BASE_TIME,
+    messages: [
+      makeMessage({
+        id: 'drill-1',
+        threadId: 'thread-drilldown',
+        content: 'First drilldown message.',
+        createdAt: '2026-05-16T09:01:00.000Z'
+      }),
+      makeMessage({
+        id: 'drill-2',
+        threadId: 'thread-drilldown',
+        content: 'Second drilldown message.',
+        createdAt: '2026-05-16T09:02:00.000Z'
+      })
+    ]
+  })
+
+  const tool = createQuerySourceTool({ storage, memoryService: createMemoryService() })
+  const contentResult = parseToolJson(
+    await tool.execute!(
+      {
+        from: 'threads',
+        where: { rowId: 'thread:thread-drilldown' },
+        view: 'content',
+        limit: 1
+      },
+      { abortSignal: new AbortController().signal, toolCallId: 'tc-thread-content', messages: [] }
+    )
+  )
+  const detailResult = parseToolJson(
+    await tool.execute!(
+      {
+        from: 'threads',
+        where: { rowId: 'thread:thread-drilldown' },
+        view: 'detail',
+        limit: 1
+      },
+      { abortSignal: new AbortController().signal, toolCallId: 'tc-thread-detail', messages: [] }
+    )
+  )
+
+  assert.equal(contentResult.rows?.[0]?.['table'], 'thread_spans')
+  assert.equal(contentResult.rows?.[0]?.['messages'], undefined)
+  assert.deepEqual(
+    detailResult.rows?.map((message) => message['messageId']),
+    ['drill-1']
+  )
+  assert.equal(detailResult.rows?.[0]?.['table'], 'thread_messages')
+})
+
+test('querySource maps source event views to their source rows', async () => {
+  const storage = createInMemoryYachiyoStorage()
+  storage.createThread({
+    thread: makeThread({
+      id: 'thread-source-drilldown',
+      title: 'Source event drilldown sample',
+      updatedAt: '2026-05-16T09:20:00.000Z'
+    }),
+    createdAt: BASE_TIME,
+    messages: [
+      makeMessage({
+        id: 'source-drill-1',
+        threadId: 'thread-source-drilldown',
+        content: 'Source event first message.',
+        createdAt: '2026-05-16T09:01:00.000Z'
+      }),
+      makeMessage({
+        id: 'source-drill-2',
+        threadId: 'thread-source-drilldown',
+        content: 'Source event second message.',
+        createdAt: '2026-05-16T09:02:00.000Z'
+      })
+    ]
+  })
+
+  const tool = createQuerySourceTool({ storage, memoryService: createMemoryService() })
+  const indexResult = parseToolJson(
+    await tool.execute!(
+      {
+        from: 'source_events',
+        where: {
+          since: '2026-05-16T09:00:00.000Z',
+          until: '2026-05-16T09:10:00.000Z'
+        },
+        view: 'index',
+        limit: 1
+      },
+      { abortSignal: new AbortController().signal, toolCallId: 'tc-source-index', messages: [] }
+    )
+  )
+  const eventRowId = String(indexResult.rows?.[0]?.['rowId'])
+  const contentResult = parseToolJson(
+    await tool.execute!(
+      {
+        from: 'source_events',
+        where: { rowId: eventRowId },
+        view: 'content',
+        limit: 1
+      },
+      { abortSignal: new AbortController().signal, toolCallId: 'tc-source-content', messages: [] }
+    )
+  )
+  const detailResult = parseToolJson(
+    await tool.execute!(
+      {
+        from: 'source_events',
+        where: { rowId: eventRowId },
+        view: 'detail',
+        limit: 1
+      },
+      { abortSignal: new AbortController().signal, toolCallId: 'tc-source-detail', messages: [] }
+    )
+  )
+
+  assert.equal(contentResult.rows?.[0]?.['table'], 'thread_spans')
+  assert.equal(contentResult.rows?.[0]?.['messages'], undefined)
+  assert.deepEqual(
+    detailResult.rows?.map((message) => message['messageId']),
+    ['source-drill-1']
+  )
+  assert.equal(detailResult.rows?.[0]?.['table'], 'thread_messages')
 })
 
 test('querySource auto orders range thread spans by event time, not thread list order', async () => {
