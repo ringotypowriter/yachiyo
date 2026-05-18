@@ -35,6 +35,9 @@ export type MessageTimelineRow =
       kind: 'group-thinking'
       group: MessageGroup
       assistantMessage: Message
+      reasoning: string
+      isActive: boolean
+      startedAt: string
     } & GroupTimelineRowBase)
   | ({
       kind: 'group-memory-recall'
@@ -170,19 +173,50 @@ function getActiveAssistantMessages(group: MessageGroup): Message[] {
   return activeBranch ? [activeBranch.message] : []
 }
 
-function getThinkingAssistantMessages(
-  group: MessageGroup,
+interface ThinkingTimelineBlock {
+  keyId: string
+  assistantMessage: Message
+  reasoning: string
+  isActive: boolean
+  startedAt: string
+}
+
+function getThinkingTimelineBlocks(input: {
+  group: MessageGroup
   activeAssistantMessages: readonly Message[]
-): Message[] {
+  isActiveGroup: boolean
+}): ThinkingTimelineBlock[] {
+  const { group, activeAssistantMessages } = input
   const assistantMessagesWithReasoning = activeAssistantMessages.filter(
-    (assistantMessage) => assistantMessage.reasoning
+    (assistantMessage): assistantMessage is Message & { reasoning: string } =>
+      Boolean(assistantMessage.reasoning)
   )
+
   if (group.hiddenRequestMessageIds.length === 0) {
-    return assistantMessagesWithReasoning
+    return assistantMessagesWithReasoning.map((assistantMessage) => ({
+      keyId: assistantMessage.id,
+      assistantMessage,
+      reasoning: assistantMessage.reasoning,
+      isActive: assistantMessage.status === 'streaming',
+      startedAt: assistantMessage.createdAt
+    }))
   }
 
   const latestAssistantMessage = assistantMessagesWithReasoning.at(-1)
-  return latestAssistantMessage ? [latestAssistantMessage] : []
+  const firstAssistantMessage = assistantMessagesWithReasoning[0]
+  if (!latestAssistantMessage || !firstAssistantMessage) {
+    return []
+  }
+
+  return [
+    {
+      keyId: group.userMessage.id,
+      assistantMessage: latestAssistantMessage,
+      reasoning: assistantMessagesWithReasoning.map((message) => message.reasoning).join('\n\n'),
+      isActive: input.isActiveGroup && activeAssistantMessages.at(-1)?.status === 'streaming',
+      startedAt: firstAssistantMessage.createdAt
+    }
+  ]
 }
 
 export function collectInlineCodeMarkdownDocumentsFromRows(
@@ -287,16 +321,24 @@ export function buildConversationGroupRows(
     })
   }
 
-  for (const assistantMessage of getThinkingAssistantMessages(group, activeAssistantMessages)) {
+  for (const thinkingBlock of getThinkingTimelineBlocks({
+    group,
+    activeAssistantMessages,
+    isActiveGroup: input.isActiveGroup
+  })) {
     rows.push({
       kind: 'group-thinking',
-      key: `thinking:${assistantMessage.id}`,
-      time: assistantMessage.createdAt,
+      key: `thinking:${thinkingBlock.keyId}`,
+      time: thinkingBlock.startedAt,
       requestMessageId,
-      scrollMessageId: activeAssistantTextBlocks.length === 0 ? assistantMessage.id : undefined,
-      assistantMessageId: assistantMessage.id,
+      scrollMessageId:
+        activeAssistantTextBlocks.length === 0 ? thinkingBlock.assistantMessage.id : undefined,
+      assistantMessageId: thinkingBlock.assistantMessage.id,
       group,
-      assistantMessage
+      assistantMessage: thinkingBlock.assistantMessage,
+      reasoning: thinkingBlock.reasoning,
+      isActive: thinkingBlock.isActive,
+      startedAt: thinkingBlock.startedAt
     })
   }
 

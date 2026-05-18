@@ -5,7 +5,14 @@ import { normalizeStoredResponseMessages } from './messagePrepare.ts'
 
 export type ReplayHistoryMessage = Pick<
   MessageRecord,
-  'id' | 'role' | 'content' | 'images' | 'attachments' | 'responseMessages' | 'turnContext'
+  | 'id'
+  | 'role'
+  | 'content'
+  | 'images'
+  | 'attachments'
+  | 'responseMessages'
+  | 'turnContext'
+  | 'hidden'
 >
 
 export interface RepairReplayHistoryMessagesInput {

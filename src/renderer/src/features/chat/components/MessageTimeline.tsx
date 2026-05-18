@@ -311,9 +311,9 @@ function renderTimelineItem(
     return (
       <div {...(item.scrollMessageId ? { 'data-message-id': item.scrollMessageId } : {})}>
         <ThinkingBlock
-          reasoning={item.assistantMessage.reasoning ?? ''}
-          isActive={item.assistantMessage.status === 'streaming'}
-          startedAt={item.assistantMessage.createdAt}
+          reasoning={item.reasoning}
+          isActive={item.isActive}
+          startedAt={item.startedAt}
         />
       </div>
     )
@@ -697,7 +697,7 @@ export function MessageTimeline({ threadId, recapText }: MessageTimelineProps): 
         case 'group-branch-navigation':
           return 36
         case 'group-thinking':
-          return item.assistantMessage.status === 'streaming' ? 120 : 56
+          return item.isActive ? 120 : 56
         case 'group-memory-recall':
           return 44
         case 'group-tool-call':

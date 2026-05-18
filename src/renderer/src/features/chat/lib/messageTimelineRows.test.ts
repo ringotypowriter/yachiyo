@@ -286,8 +286,66 @@ test('buildConversationGroupRows renders one thinking block for hidden-steer con
   const thinkingRows = rows.filter((row) => row.kind === 'group-thinking')
 
   assert.deepEqual(
-    thinkingRows.map((row) => row.assistantMessage.id),
-    ['assistant-after-hidden']
+    thinkingRows.map((row) => ({
+      assistantMessageId: row.assistantMessage.id,
+      isActive: row.isActive,
+      reasoning: row.reasoning,
+      startedAt: row.startedAt
+    })),
+    [
+      {
+        assistantMessageId: 'assistant-after-hidden',
+        isActive: true,
+        reasoning: 'Initial thought\n\nContinuation thought',
+        startedAt: '2026-04-18T00:00:01.000Z'
+      }
+    ]
+  )
+})
+
+test('buildConversationGroupRows keeps hidden-steer thinking active before the next reasoning delta', () => {
+  const assistantBeforeHidden = createAssistantMessage({
+    id: 'assistant-before-hidden',
+    content: 'Initial visible answer',
+    status: 'completed',
+    reasoning: 'Initial thought',
+    createdAt: '2026-04-18T00:00:01.000Z'
+  })
+  const assistantAfterHidden = createAssistantMessage({
+    id: 'assistant-after-hidden',
+    content: '',
+    status: 'streaming',
+    createdAt: '2026-04-18T00:00:03.000Z'
+  })
+  const group = createGroup({
+    activeAssistant: assistantBeforeHidden,
+    activeAssistantMessages: [assistantBeforeHidden, assistantAfterHidden],
+    hiddenRequestMessageIds: ['hidden-background-notice']
+  })
+
+  const rows = buildConversationGroupRows({
+    group,
+    inlineToolCalls: [],
+    runs: [],
+    activeRunId: 'run-hidden',
+    isActiveGroup: true,
+    subagentActive: false
+  })
+  const thinkingRows = rows.filter((row) => row.kind === 'group-thinking')
+
+  assert.deepEqual(
+    thinkingRows.map((row) => ({
+      assistantMessageId: row.assistantMessage.id,
+      isActive: row.isActive,
+      reasoning: row.reasoning
+    })),
+    [
+      {
+        assistantMessageId: 'assistant-before-hidden',
+        isActive: true,
+        reasoning: 'Initial thought'
+      }
+    ]
   )
 })
 

@@ -79,7 +79,14 @@ export function balanceResponseMessages(messages: unknown[]): unknown[] {
 
 export type RunHistoryMessage = Pick<
   MessageRecord,
-  'id' | 'content' | 'images' | 'attachments' | 'role' | 'responseMessages' | 'turnContext'
+  | 'id'
+  | 'content'
+  | 'images'
+  | 'attachments'
+  | 'role'
+  | 'responseMessages'
+  | 'turnContext'
+  | 'hidden'
 >
 
 export function toRunHistoryMessages(
@@ -99,11 +106,12 @@ export function toRunHistoryMessages(
   }
 
   return effectivePath.map(
-    ({ content, id, images, attachments, role, responseMessages, turnContext }) => {
+    ({ content, hidden, id, images, attachments, role, responseMessages, turnContext }) => {
       const isCurrentRequest = id === requestMessageId
       return {
         id,
         content: isCurrentRequest ? (requestMessageContentOverride ?? content) : content,
+        ...(hidden ? { hidden: true } : {}),
         ...(images ? { images } : {}),
         ...(attachments ? { attachments } : {}),
         ...(responseMessages ? { responseMessages } : {}),
