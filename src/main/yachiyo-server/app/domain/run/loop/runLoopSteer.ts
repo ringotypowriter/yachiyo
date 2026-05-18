@@ -49,10 +49,11 @@ export async function handleSteerPendingResult(
   }
 ): Promise<HandleSteerPendingResult> {
   const steerInputs = getPendingSteerInputsForPersistence(input.activeRun)
+  const snapshotTracker = input.result.snapshotTracker ?? input.activeRun.snapshotTracker
 
   if (steerInputs.length === 0) {
     // The steer was withdrawn after execution finished at a safe turn boundary.
-    input.result.snapshotTracker?.dispose()
+    snapshotTracker?.dispose()
     const steerPendingUsage = mergeUsageForTerminal(input.accumulatedUsage, input.result.usage)
     context.deps.storage.cancelRun({
       runId: input.loopInput.runId,
@@ -97,7 +98,7 @@ export async function handleSteerPendingResult(
   return {
     kind: 'continue',
     accumulatedUsage: accumulateRunLoopUsage(input.accumulatedUsage, input.result.usage),
-    carriedSnapshotTracker: input.result.snapshotTracker,
+    carriedSnapshotTracker: snapshotTracker,
     carriedToolFailLoopSteers:
       input.result.toolFailLoopSteersInjected ?? input.carriedToolFailLoopSteers,
     currentRequestMessageId: requestMessage.id,

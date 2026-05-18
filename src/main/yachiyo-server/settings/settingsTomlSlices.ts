@@ -28,6 +28,19 @@ export const settingsTomlSlices: readonly TomlConfigSlice<SettingsConfig, TomlDo
     }
   },
   {
+    key: 'runMode',
+    read(doc) {
+      return typeof doc['runMode'] === 'string'
+        ? { runMode: doc['runMode'] as SettingsConfig['runMode'] }
+        : {}
+    },
+    write(config) {
+      return {
+        runMode: config.runMode ?? DEFAULT_SETTINGS_CONFIG.runMode
+      }
+    }
+  },
+  {
     key: 'general',
     read(doc) {
       const general = readTomlTable(doc['general'])

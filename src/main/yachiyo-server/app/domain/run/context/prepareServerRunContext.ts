@@ -8,6 +8,7 @@ import type {
   MessageTurnContext,
   RecallDecisionSnapshot,
   RunContextCompiledEvent,
+  RunModeId,
   RunMemoryRecalledEvent,
   SendChatRunTrigger,
   SettingsConfig,
@@ -32,6 +33,7 @@ import { EXTERNAL_SYSTEM_PROMPT, SYSTEM_PROMPT } from '../../../../runtime/conte
 import {
   buildCurrentTimeSection,
   buildDisabledToolsReminderSection,
+  buildRunModeChangedReminderSection,
   buildToolAvailabilityReminderSection,
   buildSteerReminderSection,
   formatDateLine,
@@ -148,6 +150,8 @@ export interface PrepareServerRunContextInput {
   recoveryCheckpoint?: RunRecoveryCheckpoint
   isSteerLeg?: boolean
   previousEnabledTools?: ToolCallName[] | null
+  previousRunMode?: RunModeId | null
+  runMode: RunModeId
   priorUsage?: ExecuteRunInput['priorUsage']
   maxToolStepsOverride?: number
   requestMessage?: MessageRecord
@@ -207,12 +211,14 @@ export async function prepareServerRunContext(
     deps
       .loadThreadMessages(input.thread.id)
       .find((message) => message.id === input.requestMessageId && message.role === 'user')
+  const requestIsHidden = requestMessage?.hidden === true
   const now = new Date()
   // Freeze the hint-layer timestamp to the request message's creation time so
   // retries and multi-step continuations produce byte-identical reminder text,
   // keeping the cached prefix stable within a turn.
   const hintTime = requestMessage?.createdAt ? new Date(requestMessage.createdAt) : now
   const isSteerLeg = input.isSteerLeg === true || input.priorUsage != null
+  const isVisibleSteerLeg = isSteerLeg && !requestIsHidden
   const hiddenQueryReminder = formatQueryReminder(
     [
       input.previousEnabledTools
@@ -221,9 +227,15 @@ export async function prepareServerRunContext(
             enabledTools: modelEnabledTools
           })
         : null,
+      input.previousRunMode
+        ? buildRunModeChangedReminderSection({
+            previousRunMode: input.previousRunMode,
+            runMode: input.runMode
+          })
+        : null,
       buildDisabledToolsReminderSection({ enabledTools: modelEnabledTools }),
       buildCurrentTimeSection(hintTime, { includeDate: !isLocalOrOwnerDm }),
-      isSteerLeg ? buildSteerReminderSection() : null
+      isVisibleSteerLeg ? buildSteerReminderSection() : null
     ].flatMap((section) => (section ? [section] : []))
   )
   const sessionHint = input.thread.lastDelegatedSession
@@ -341,10 +353,10 @@ export async function prepareServerRunContext(
   )
 
   // Fetch activity summary - only for local / owner-DM runs, never for guests.
-  const activitySummary =
-    !isExternalChannel || isOwnerDm
-      ? (deps.activityTracker ?? getActivityTracker('simple')).finalizeAndConsume()
-      : null
+  const shouldIncludeActivity = (!isExternalChannel || isOwnerDm) && !requestIsHidden
+  const activitySummary = shouldIncludeActivity
+    ? (deps.activityTracker ?? getActivityTracker('simple')).finalizeAndConsume()
+    : null
   const activityText = activitySummary?.text
 
   if (activitySummary && input.persistTurnContext !== false) {
@@ -373,7 +385,8 @@ export async function prepareServerRunContext(
       ...(memoryEntries.length > 0 ? { memoryEntries } : {}),
       ...(activityText ? { activityText } : {}),
       enabledTools: [...input.enabledTools],
-      enabledSkillNames: activeSkills.map((skill) => skill.name)
+      enabledSkillNames: activeSkills.map((skill) => skill.name),
+      runMode: input.runMode
     }
     deps.storage.updateMessage({ ...requestMessage, turnContext })
   }

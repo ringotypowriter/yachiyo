@@ -8,6 +8,7 @@ import type {
   MessageFileAttachment,
   MessageRecord,
   RunCreatedEvent,
+  RunModeId,
   SendChatInput,
   SendChatMode,
   SendChatRunTrigger,
@@ -25,7 +26,11 @@ import {
   saveFileAttachmentsToWorkspace,
   saveImageFilesToWorkspace
 } from '../../attachments/attachmentDomain.ts'
-import { assertSupportedImages, resolveEnabledTools } from '../../config/configDomain.ts'
+import {
+  assertSupportedImages,
+  resolveRunModeEnabledToolsForInput
+} from '../../config/configDomain.ts'
+import { resolveRunModeId } from '../../../../../../shared/yachiyo/toolModes.ts'
 import { createRunEventMetadata } from '../../shared/runEventMetadata.ts'
 import { DEFAULT_THREAD_TITLE } from '../../shared/shared.ts'
 import { buildTitleQuery, deriveThreadTitleFallback } from '../../threads/threadTitle.ts'
@@ -46,6 +51,7 @@ import {
 interface StartActiveRunInput {
   enabledTools: ToolCallName[]
   enabledSkillNames?: string[]
+  runMode: RunModeId
   reasoningEffort?: ComposerReasoningSelection
   channelHint?: string
   extraTools?: ToolSet
@@ -73,7 +79,18 @@ export async function sendChatFlow(
   const { deps } = context
   const rawContent = input.content.trim()
   const images = normalizeMessageImages(input.images)
-  const enabledTools = resolveEnabledTools(input.enabledTools, deps.readConfig().enabledTools)
+  const config = deps.readConfig()
+  const runMode = resolveRunModeId({
+    enabledTools: input.enabledTools,
+    runMode: input.runMode,
+    fallbackEnabledTools: config.enabledTools,
+    fallbackRunMode: config.runMode
+  })
+  const enabledTools = resolveRunModeEnabledToolsForInput({
+    enabledTools: input.enabledTools,
+    runMode,
+    fallbackEnabledTools: config.enabledTools
+  })
   const enabledSkillNames =
     input.enabledSkillNames === undefined ? undefined : normalizeSkillNames(input.enabledSkillNames)
 
@@ -91,6 +108,7 @@ export async function sendChatFlow(
     content,
     enabledSkillNames,
     enabledTools,
+    runMode,
     extraTools: input.extraTools,
     hidden: input.hidden,
     images,
@@ -144,6 +162,7 @@ export async function sendChatFlow(
         content,
         enabledTools,
         enabledSkillNames,
+        runMode,
         channelHint: input.channelHint,
         extraTools: input.extraTools as ToolSet | undefined,
         runTrigger,
@@ -166,6 +185,7 @@ export async function sendChatFlow(
           content,
           enabledTools,
           enabledSkillNames,
+          runMode,
           runTrigger,
           reasoningEffort,
           images: enrichedImages,
@@ -185,6 +205,7 @@ export async function sendChatFlow(
           content,
           enabledTools,
           enabledSkillNames,
+          runMode,
           runTrigger,
           reasoningEffort,
           images: enrichedImages,
@@ -197,7 +218,9 @@ export async function sendChatFlow(
       return sendActiveRunSteer(context, {
         activeRunId,
         content,
+        enabledTools,
         enabledSkillNames,
+        runMode,
         runTrigger,
         reasoningEffort,
         images: enrichedImages,
@@ -216,6 +239,7 @@ export async function sendChatFlow(
         content,
         enabledTools,
         enabledSkillNames,
+        runMode,
         runTrigger,
         reasoningEffort,
         images: enrichedImages,
@@ -236,6 +260,7 @@ function startFreshRun(
     content: string
     enabledTools: ToolCallName[]
     enabledSkillNames?: string[]
+    runMode: RunModeId
     reasoningEffort?: ComposerReasoningSelection
     channelHint?: string
     extraTools?: ToolSet
@@ -336,6 +361,7 @@ function startFreshRun(
   context.startActiveRun({
     enabledTools: input.enabledTools,
     enabledSkillNames: input.enabledSkillNames,
+    runMode: input.runMode,
     channelHint: input.channelHint,
     extraTools: input.extraTools,
     runTrigger: input.runTrigger,
@@ -354,7 +380,9 @@ export function sendActiveRunSteer(
   input: {
     activeRunId: string
     content: string
+    enabledTools?: ToolCallName[]
     enabledSkillNames?: string[]
+    runMode: RunModeId
     runTrigger: SendChatRunTrigger
     reasoningEffort?: ComposerReasoningSelection
     images: MessageRecord['images']
@@ -372,10 +400,16 @@ export function sendActiveRunSteer(
   // Always queue the steer - it will be applied at the next turn boundary
   // (step boundary via stopWhen, or after the assistant message completes).
   // Never abort the current generation for a steer.
+  const previousEnabledTools = activeRun.enabledTools
   const previousEnabledSkillNames = activeRun.enabledSkillNames
   const previousReasoningEffort = activeRun.reasoningEffort
+  const previousRunMode = activeRun.runMode
   const previousRunTrigger = activeRun.runTrigger
+  if (input.enabledTools !== undefined) {
+    activeRun.enabledTools = [...input.enabledTools]
+  }
   activeRun.enabledSkillNames = input.enabledSkillNames ? [...input.enabledSkillNames] : undefined
+  activeRun.runMode = input.runMode
   activeRun.runTrigger = input.runTrigger
   if (input.reasoningEffort !== undefined) {
     activeRun.reasoningEffort = input.reasoningEffort
@@ -387,12 +421,16 @@ export function sendActiveRunSteer(
     attachments: input.attachments,
     messageId: input.messageId,
     timestamp: context.deps.timestamp(),
+    ...(input.enabledTools !== undefined ? { enabledTools: [...input.enabledTools] } : {}),
     ...(input.enabledSkillNames !== undefined
       ? { enabledSkillNames: [...input.enabledSkillNames] }
       : {}),
     ...(input.reasoningEffort !== undefined ? { reasoningEffort: input.reasoningEffort } : {}),
+    runMode: input.runMode,
     runTrigger: input.runTrigger,
+    ...(previousEnabledTools !== undefined ? { previousEnabledTools } : {}),
     previousEnabledSkillNames,
+    previousRunMode,
     ...(previousReasoningEffort !== undefined ? { previousReasoningEffort } : {}),
     ...(previousRunTrigger !== undefined ? { previousRunTrigger } : {}),
     hidden: input.hidden
@@ -412,6 +450,7 @@ function queueFollowUp(
     content: string
     enabledTools: ToolCallName[]
     enabledSkillNames?: string[]
+    runMode: RunModeId
     runTrigger: SendChatRunTrigger
     reasoningEffort?: ComposerReasoningSelection
     images: MessageRecord['images']
@@ -441,6 +480,7 @@ function queueFollowUp(
   let queuedUserMessage: MessageRecord
   let queuedEnabledTools = input.enabledTools
   let queuedEnabledSkillNames = input.enabledSkillNames
+  let queuedRunMode = input.runMode
   let queuedRunTrigger = input.runTrigger
   let queuedReasoningEffort = input.reasoningEffort
 
@@ -485,6 +525,7 @@ function queueFollowUp(
         ...(input.enabledSkillNames !== undefined
           ? { enabledSkillNames: input.enabledSkillNames }
           : {}),
+        runMode: input.runMode,
         runTrigger: input.runTrigger,
         ...(input.reasoningEffort !== undefined ? { reasoningEffort: input.reasoningEffort } : {}),
         userMessage: hiddenMessage
@@ -494,6 +535,7 @@ function queueFollowUp(
     queuedUserMessage = previousQueuedDraft.userMessage
     queuedEnabledTools = previousQueuedDraft.enabledTools
     queuedEnabledSkillNames = previousQueuedDraft.enabledSkillNames
+    queuedRunMode = previousQueuedDraft.runMode
     queuedRunTrigger = previousQueuedDraft.runTrigger
     queuedReasoningEffort = previousQueuedDraft.reasoningEffort
   } else {
@@ -536,6 +578,7 @@ function queueFollowUp(
   context.queuedFollowUpDrafts.set(input.thread.id, {
     ...createQueuedFollowUpRequestDraft({
       enabledTools: queuedEnabledTools,
+      runMode: queuedRunMode,
       ...(queuedEnabledSkillNames !== undefined
         ? { enabledSkillNames: queuedEnabledSkillNames }
         : {}),
@@ -571,6 +614,7 @@ function createQueuedFollowUpRequestDraft(
 ): QueuedFollowUpRequestDraft {
   return {
     enabledTools: [...input.enabledTools],
+    runMode: input.runMode,
     ...(input.enabledSkillNames !== undefined
       ? { enabledSkillNames: [...input.enabledSkillNames] }
       : {}),

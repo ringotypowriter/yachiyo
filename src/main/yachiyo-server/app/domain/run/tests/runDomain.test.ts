@@ -65,7 +65,19 @@ test('withdrawPendingSteer restores the reasoning effort replaced by the steer',
   const activeRun = {
     threadId: thread.id,
     requestMessageId: 'user-1',
+    enabledTools: [
+      'read',
+      'write',
+      'edit',
+      'bash',
+      'jsRepl',
+      'grep',
+      'glob',
+      'webRead',
+      'webSearch'
+    ],
     enabledSkillNames: ['original-skill'],
+    runMode: 'auto',
     reasoningEffort: 'medium' as ComposerReasoningSelection,
     runTrigger: 'channel' as const,
     abortController: new AbortController(),
@@ -95,7 +107,9 @@ test('withdrawPendingSteer restores the reasoning effort replaced by the steer',
     {
       activeRunId: 'run-1',
       content: 'steer',
+      enabledTools: [],
       enabledSkillNames: ['steer-skill'],
+      runMode: 'chat',
       reasoningEffort: 'high',
       runTrigger: 'local',
       images: [],
@@ -106,11 +120,25 @@ test('withdrawPendingSteer restores the reasoning effort replaced by the steer',
   )
 
   assert.equal(activeRun.reasoningEffort, 'high')
+  assert.deepEqual(activeRun.enabledTools, [])
+  assert.equal(activeRun.runMode, 'chat')
   assert.equal(activeRun.runTrigger, 'local')
 
   domain.withdrawPendingSteer(thread.id)
 
+  assert.deepEqual(activeRun.enabledTools, [
+    'read',
+    'write',
+    'edit',
+    'bash',
+    'jsRepl',
+    'grep',
+    'glob',
+    'webRead',
+    'webSearch'
+  ])
   assert.deepEqual(activeRun.enabledSkillNames, ['original-skill'])
+  assert.equal(activeRun.runMode, 'auto')
   assert.equal(activeRun.reasoningEffort, 'medium')
   assert.equal(activeRun.runTrigger, 'channel')
 })
@@ -151,6 +179,7 @@ test('sendActiveRunSteer keeps hidden and visible pending steers separate', () =
   sendActiveRunSteer(context, {
     activeRunId: 'run-1',
     content: 'system notice',
+    runMode: 'auto',
     runTrigger: 'local',
     images: [],
     attachments: [],
@@ -161,6 +190,7 @@ test('sendActiveRunSteer keeps hidden and visible pending steers separate', () =
   sendActiveRunSteer(context, {
     activeRunId: 'run-1',
     content: 'user steer',
+    runMode: 'auto',
     runTrigger: 'local',
     images: [],
     attachments: [],
@@ -189,6 +219,62 @@ test('sendActiveRunSteer keeps hidden and visible pending steers separate', () =
       { content: 'user steer', hidden: false, messageId: 'visible-steer' }
     ]
   )
+})
+
+test('sendActiveRunSteer keeps steered run mode and enabled tools in sync', () => {
+  const thread: ThreadRecord = {
+    id: 'thread-1',
+    title: 'Thread',
+    updatedAt: '2026-05-02T00:00:00.000Z'
+  }
+  const activeRun: RunState = {
+    threadId: thread.id,
+    requestMessageId: 'user-1',
+    enabledTools: [
+      'read',
+      'write',
+      'edit',
+      'bash',
+      'jsRepl',
+      'grep',
+      'glob',
+      'webRead',
+      'webSearch'
+    ],
+    runMode: 'auto',
+    abortController: new AbortController(),
+    executionPhase: 'generating',
+    updateHeadOnComplete: true
+  }
+
+  sendActiveRunSteer(
+    {
+      deps: { timestamp: () => '2026-05-02T00:00:00.000Z' } as SendChatFlowContext['deps'],
+      activeRuns: new Map([['run-1', activeRun]]),
+      activeRunByThread: new Map([[thread.id, 'run-1']]),
+      debouncedSendChats: new Map(),
+      queuedFollowUpDrafts: new Map(),
+      threadTitleRunner: {
+        schedule: () => {}
+      } as unknown as SendChatFlowContext['threadTitleRunner'],
+      startActiveRun: () => {}
+    },
+    {
+      activeRunId: 'run-1',
+      content: 'switch to chat',
+      enabledTools: [],
+      runMode: 'chat',
+      runTrigger: 'local',
+      images: [],
+      attachments: [],
+      messageId: 'steer-chat',
+      thread
+    }
+  )
+
+  assert.equal(activeRun.runMode, 'chat')
+  assert.deepEqual(activeRun.enabledTools, [])
+  assert.deepEqual(activeRun.pendingSteerInputs?.[0]?.enabledTools, [])
 })
 
 test('sendActiveRunSteer keeps visible steers as the final anchor when hidden arrives later', () => {
@@ -228,6 +314,7 @@ test('sendActiveRunSteer keeps visible steers as the final anchor when hidden ar
     activeRunId: 'run-1',
     content: 'user steer',
     enabledSkillNames: ['visible-skill'],
+    runMode: 'auto',
     reasoningEffort: 'low',
     runTrigger: 'local',
     images: [],
@@ -239,6 +326,7 @@ test('sendActiveRunSteer keeps visible steers as the final anchor when hidden ar
     activeRunId: 'run-1',
     content: 'system notice',
     enabledSkillNames: ['hidden-skill'],
+    runMode: 'auto',
     reasoningEffort: 'high',
     runTrigger: 'channel',
     images: [],
@@ -487,7 +575,9 @@ test('deleteQueuedFollowUpDraft preserves hidden notices attached to a visible d
     content: 'visible follow-up',
     mode: 'follow-up',
     enabledTools: ['read'],
+    runMode: 'auto',
     enabledSkillNames: ['visible-skill'],
+
     runTrigger: 'local',
     reasoningEffort: 'low'
   })
@@ -498,7 +588,9 @@ test('deleteQueuedFollowUpDraft preserves hidden notices attached to a visible d
     mode: 'follow-up',
     hidden: true,
     enabledTools: ['bash'],
+    runMode: 'custom',
     enabledSkillNames: ['hidden-skill'],
+
     runTrigger: 'channel',
     reasoningEffort: 'high'
   })
@@ -507,6 +599,7 @@ test('deleteQueuedFollowUpDraft preserves hidden notices attached to a visible d
   const startActiveRunInputs: Array<{
     enabledSkillNames?: string[]
     enabledTools: string[]
+    runMode: string
     reasoningEffort?: string
     runTrigger: string
   }> = []
@@ -537,6 +630,7 @@ test('deleteQueuedFollowUpDraft preserves hidden notices attached to a visible d
       startActiveRunInputs.push({
         enabledTools: input.enabledTools,
         enabledSkillNames: input.enabledSkillNames,
+        runMode: input.runMode,
         runTrigger: input.runTrigger,
         reasoningEffort: input.reasoningEffort
       })
@@ -567,7 +661,9 @@ test('deleteQueuedFollowUpDraft preserves hidden notices attached to a visible d
   assert.deepEqual(startActiveRunInputs, [
     {
       enabledTools: ['bash'],
+      runMode: 'custom',
       enabledSkillNames: ['hidden-skill'],
+
       runTrigger: 'channel',
       reasoningEffort: 'high'
     }
@@ -659,6 +755,7 @@ test('startRecoveredRun restores the persisted run trigger instead of deriving f
     assistantMessageId: 'assistant-recovered',
     content: 'partial',
     enabledTools: ['read'],
+    runMode: 'auto',
     runTrigger: 'local',
     channelHint: '<channel_reply_instruction>reply outside local app</channel_reply_instruction>',
     updateHeadOnComplete: true,
@@ -690,4 +787,52 @@ test('startRecoveredRun restores the persisted run trigger instead of deriving f
 
   assert.equal(activeRuns.get('run-recovered')?.runTrigger, 'local')
   assert.equal(runLoopInputs[0]?.runTrigger, 'local')
+})
+
+test('startRecoveredRun derives missing run mode from checkpoint tools', () => {
+  const thread: ThreadRecord = {
+    id: 'thread-recovered',
+    title: 'Recovered',
+    updatedAt: '2026-05-02T00:00:00.000Z'
+  }
+  const activeRuns = new Map()
+  const activeRunByThread = new Map<string, string>()
+  const runLoopInputs: Array<{ runMode?: string }> = []
+  const checkpoint = {
+    runId: 'run-recovered',
+    threadId: thread.id,
+    requestMessageId: 'user-recovered',
+    assistantMessageId: 'assistant-recovered',
+    content: 'partial',
+    enabledTools: ['read', 'grep', 'glob', 'webRead', 'webSearch'],
+    runTrigger: 'local',
+    updateHeadOnComplete: true,
+    createdAt: '2026-05-02T00:00:00.000Z',
+    updatedAt: '2026-05-02T00:00:01.000Z',
+    recoveryAttempts: 1
+  } as unknown as RunRecoveryCheckpoint
+
+  startRecoveredRun(
+    {
+      deps: {
+        requireThread: () => thread,
+        loadThreadToolCalls: () => [],
+        emit: () => {}
+      } as unknown as Parameters<typeof startRecoveredRun>[0]['deps'],
+      activeRuns,
+      activeRunByThread,
+      activeRunTasks: new Map(),
+      isClosing: () => false,
+      runLoop: async (input) => {
+        runLoopInputs.push({ runMode: input.runMode })
+      },
+      threadTitleRunner: { schedule: () => {} } as unknown as Parameters<
+        typeof startRecoveredRun
+      >[0]['threadTitleRunner']
+    },
+    checkpoint
+  )
+
+  assert.equal(activeRuns.get('run-recovered')?.runMode, 'explore')
+  assert.equal(runLoopInputs[0]?.runMode, 'explore')
 })

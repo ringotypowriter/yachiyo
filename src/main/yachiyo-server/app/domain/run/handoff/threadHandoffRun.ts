@@ -155,6 +155,7 @@ export async function streamCompactThreadHandoff(
         requestMessage: handoffRequestMessage,
         historyMessages: [...input.sourceMessages, handoffRequestMessage],
         enabledTools: sourceEnabledTools,
+        runMode: sourceTurnContext?.runMode ?? 'auto',
         runTrigger: 'local',
         ...(sourceTurnContext?.enabledSkillNames !== undefined
           ? { enabledSkillNames: sourceTurnContext.enabledSkillNames }

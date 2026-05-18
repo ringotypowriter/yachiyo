@@ -3,6 +3,7 @@ import type {
   ComposerReasoningSelection,
   MessageRecord,
   SendChatInput,
+  RunModeId,
   SendChatMode,
   SendChatRunTrigger,
   ToolCallName
@@ -22,6 +23,7 @@ export function createDebouncedSendChatKey(input: {
   content: string
   enabledSkillNames?: string[]
   enabledTools: ToolCallName[]
+  runMode: RunModeId
   extraTools?: SendChatInput['extraTools']
   hidden?: boolean
   images: MessageRecord['images']
@@ -45,6 +47,7 @@ export function createDebouncedSendChatKey(input: {
     content: input.content,
     enabledSkillNames: input.enabledSkillNames ?? [],
     enabledTools: input.enabledTools,
+    runMode: input.runMode,
     hidden: input.hidden === true,
     images: (input.images ?? []).map((image) => ({
       dataUrl: image.dataUrl,

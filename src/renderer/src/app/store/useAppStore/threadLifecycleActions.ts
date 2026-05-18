@@ -1,4 +1,7 @@
-import { normalizeUserEnabledTools } from '../../../../../shared/yachiyo/protocol.ts'
+import {
+  DEFAULT_RUN_MODE_ID,
+  normalizeUserEnabledTools
+} from '../../../../../shared/yachiyo/protocol.ts'
 import { isModelImageCapable } from '../../../../../shared/yachiyo/providerConfig.ts'
 import { createServerEventBatcher } from '../serverEventBatcher.ts'
 import type { AppState } from '../useAppStore.ts'
@@ -272,6 +275,7 @@ export function createThreadLifecycleActions(input: {
               payload.config?.enabledTools,
               state.enabledTools
             ),
+            runMode: payload.config?.runMode ?? state.runMode ?? DEFAULT_RUN_MODE_ID,
             initialized: true,
             isBootstrapping: false,
             lastError: null,
@@ -397,7 +401,7 @@ export function createThreadLifecycleActions(input: {
 
     retryMessage: async (messageId) => {
       const currentState = get()
-      const { activeThreadId: threadId, enabledTools } = currentState
+      const { activeThreadId: threadId, enabledTools, runMode } = currentState
       if (!threadId) {
         return
       }
@@ -414,6 +418,7 @@ export function createThreadLifecycleActions(input: {
           threadId,
           messageId,
           enabledTools,
+          runMode,
           enabledSkillNames,
           reasoningEffort
         })

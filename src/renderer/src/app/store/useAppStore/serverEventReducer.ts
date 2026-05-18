@@ -1,6 +1,9 @@
 import type { AppState } from '../useAppStore.ts'
 import type { Message, YachiyoServerEvent } from '../../types.ts'
-import { normalizeUserEnabledTools } from '../../../../../shared/yachiyo/protocol.ts'
+import {
+  DEFAULT_RUN_MODE_ID,
+  normalizeUserEnabledTools
+} from '../../../../../shared/yachiyo/protocol.ts'
 import { isVisibleExternalThread } from '../../../features/threads/lib/threadVisibility.ts'
 import {
   DEFAULT_SETTINGS,
@@ -289,6 +292,7 @@ export function reduceServerEvent(state: AppState, event: YachiyoServerEvent): P
     return {
       config: event.config ?? state.config,
       enabledTools: normalizeUserEnabledTools(event.config?.enabledTools, state.enabledTools),
+      runMode: event.config?.runMode ?? state.runMode ?? DEFAULT_RUN_MODE_ID,
       lastError: null,
       settings: event.settings ?? state.settings ?? DEFAULT_SETTINGS
     }

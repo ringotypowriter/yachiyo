@@ -1,76 +1,29 @@
 import type React from 'react'
 import { useEffect, useState } from 'react'
 import { Check } from 'lucide-react'
-import type { ToolCallName } from '@renderer/app/types'
 import { theme } from '@renderer/theme/theme'
 import { isDismissEscapeKey } from '@renderer/lib/imeUtils'
 import { useRestoreFocusOnUnmount } from '@renderer/lib/focusRestore'
-import { USER_MANAGED_TOOL_NAMES } from '../../../../../shared/yachiyo/protocol.ts'
+import type { RunModeId, SelectableRunModeId } from '../../../../../shared/yachiyo/protocol.ts'
+import {
+  RUN_MODE_DEFINITIONS,
+  SELECTABLE_RUN_MODE_IDS
+} from '../../../../../shared/yachiyo/toolModes.ts'
 
-const TOOL_COPY: Record<
-  ToolCallName,
-  {
-    description: string
-    label: string
-  }
-> = {
-  read: {
-    label: 'read',
-    description: 'Open files from the workspace'
-  },
-  write: {
-    label: 'write',
-    description: 'Create or replace files directly'
-  },
-  edit: {
-    label: 'edit',
-    description: 'Make targeted text replacements'
-  },
-  bash: {
-    label: 'bash',
-    description: 'Run shell commands in the workspace'
-  },
-  jsRepl: {
-    label: 'jsRepl',
-    description: 'Run JavaScript in a persistent REPL session'
-  },
-  grep: {
-    label: 'grep',
-    description: 'Search file contents with the fastest local backend'
-  },
-  glob: {
-    label: 'glob',
-    description: 'Find files by pattern with the fastest local backend'
-  },
-  webRead: {
-    label: 'webRead',
-    description: 'Read static web pages as clean content'
-  },
-  webSearch: {
-    label: 'webSearch',
-    description: 'Search the web and return normalized results'
-  },
-  skillsRead: {
-    label: 'skillsRead',
-    description: 'Open discovered SKILL.md files by skill name'
-  }
-}
-
-const TOOL_LIST_MAX_HEIGHT = 320
+const MODE_LIST_MAX_HEIGHT = 320
 
 export function ToolSelectorPopup({
-  enabledTools,
+  runMode,
   hasActiveRun,
-  onToggle,
+  onSelectMode,
   onClose
 }: {
-  enabledTools: ToolCallName[]
+  runMode: RunModeId
   hasActiveRun: boolean
-  onToggle: (toolName: ToolCallName) => void
+  onSelectMode: (runMode: SelectableRunModeId) => void
   onClose: () => void
 }): React.ReactNode {
   const [visible, setVisible] = useState(false)
-  const enabledToolSet = new Set(enabledTools)
   useRestoreFocusOnUnmount()
 
   useEffect(() => {
@@ -91,12 +44,12 @@ export function ToolSelectorPopup({
   return (
     <div
       role="menu"
-      aria-label="Tool availability"
+      aria-label="Run mode"
       style={{
         position: 'absolute',
         bottom: 'calc(100% + 8px)',
         left: 0,
-        width: 280,
+        width: 300,
         background: theme.background.surfaceFrosted,
         backdropFilter: 'blur(24px)',
         WebkitBackdropFilter: 'blur(24px)',
@@ -126,7 +79,7 @@ export function ToolSelectorPopup({
             letterSpacing: '-0.1px'
           }}
         >
-          Tools
+          Mode
         </div>
         <div
           style={{
@@ -136,35 +89,38 @@ export function ToolSelectorPopup({
             lineHeight: 1.45
           }}
         >
-          This changes tool availability, not your message content.
+          Choose how Yachiyo should use tools and context for the next turn.
         </div>
       </div>
 
       <div
         style={{
           padding: '6px 0',
-          maxHeight: TOOL_LIST_MAX_HEIGHT,
+          maxHeight: MODE_LIST_MAX_HEIGHT,
           overflowY: 'auto',
           overscrollBehavior: 'contain'
         }}
       >
-        {USER_MANAGED_TOOL_NAMES.map((toolName) => {
-          const enabled = enabledToolSet.has(toolName)
-          const copy = TOOL_COPY[toolName]
+        {SELECTABLE_RUN_MODE_IDS.map((modeId) => {
+          const selected = runMode === modeId
+          const mode = RUN_MODE_DEFINITIONS[modeId]
 
           return (
             <button
-              key={toolName}
+              key={modeId}
               type="button"
-              role="menuitemcheckbox"
-              aria-checked={enabled}
-              onClick={() => onToggle(toolName)}
+              role="menuitemradio"
+              aria-checked={selected}
+              onClick={() => {
+                onSelectMode(modeId)
+                onClose()
+              }}
               style={{
                 display: 'flex',
                 alignItems: 'center',
                 width: '100%',
                 gap: 10,
-                padding: '8px 14px',
+                padding: '9px 14px',
                 background: 'transparent',
                 border: 'none',
                 cursor: 'default',
@@ -185,29 +141,29 @@ export function ToolSelectorPopup({
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  borderRadius: 5,
-                  border: enabled
+                  borderRadius: 999,
+                  border: selected
                     ? `1px solid ${theme.border.accent}`
                     : `1px solid ${theme.border.input}`,
-                  background: enabled ? theme.background.accentSurface : 'transparent',
-                  color: enabled ? theme.text.accent : theme.text.placeholder,
+                  background: selected ? theme.background.accentSurface : 'transparent',
+                  color: selected ? theme.text.accent : theme.text.placeholder,
                   flexShrink: 0
                 }}
               >
-                {enabled ? <Check size={11} strokeWidth={2.5} /> : null}
+                {selected ? <Check size={11} strokeWidth={2.5} /> : null}
               </span>
 
               <span style={{ flex: 1, minWidth: 0 }}>
                 <span
                   style={{
                     display: 'block',
-                    fontFamily: '"SF Mono", "Monaco", monospace',
-                    fontSize: 12,
+                    fontSize: 12.5,
+                    fontWeight: 600,
                     color: theme.text.primary,
                     letterSpacing: '-0.05px'
                   }}
                 >
-                  {copy.label}
+                  {mode.label}
                 </span>
                 <span
                   style={{
@@ -218,25 +174,28 @@ export function ToolSelectorPopup({
                     lineHeight: 1.4
                   }}
                 >
-                  {copy.description}
+                  {mode.description}
                 </span>
-              </span>
-
-              <span
-                style={{
-                  flexShrink: 0,
-                  fontSize: 11,
-                  fontWeight: 600,
-                  color: enabled ? theme.text.success : theme.text.placeholder,
-                  textTransform: 'uppercase',
-                  letterSpacing: '0.06em'
-                }}
-              >
-                {enabled ? 'On' : 'Off'}
               </span>
             </button>
           )
         })}
+
+        {runMode === 'custom' ? (
+          <div
+            style={{
+              margin: '6px 14px 2px',
+              padding: '9px 10px',
+              borderRadius: 10,
+              background: theme.background.surfaceMuted,
+              color: theme.text.muted,
+              fontSize: 12,
+              lineHeight: 1.45
+            }}
+          >
+            Custom legacy tool set is active. Choose a mode to replace it.
+          </div>
+        ) : null}
       </div>
 
       <div
@@ -249,8 +208,8 @@ export function ToolSelectorPopup({
         }}
       >
         {hasActiveRun
-          ? 'The current run keeps its existing tool set. Your changes apply to the next send.'
-          : 'Your next send uses exactly the tools enabled here.'}
+          ? 'The current run keeps its existing mode. Your change applies to the next send.'
+          : 'Your next send uses this mode.'}
       </div>
     </div>
   )

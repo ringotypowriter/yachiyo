@@ -3,6 +3,7 @@ import type {
   MessageFileAttachment,
   MessageRecord,
   ProviderSettings,
+  RunModeId,
   SendChatRunTrigger,
   SkillCatalogEntry,
   SettingsConfig,
@@ -33,11 +34,15 @@ export interface PendingSteerInput {
   attachments: MessageFileAttachment[]
   messageId: string
   timestamp: string
+  enabledTools?: ToolCallName[]
   enabledSkillNames?: string[]
+  runMode?: RunModeId
   reasoningEffort?: ComposerReasoningSelection
   runTrigger?: SendChatRunTrigger
   hidden?: boolean
+  previousEnabledTools?: ToolCallName[]
   previousEnabledSkillNames?: string[]
+  previousRunMode?: RunModeId
   previousReasoningEffort?: ComposerReasoningSelection
   previousRunTrigger?: SendChatRunTrigger
 }
@@ -45,7 +50,9 @@ export interface PendingSteerInput {
 export interface RunState {
   threadId: string
   requestMessageId?: string
+  enabledTools?: ToolCallName[]
   enabledSkillNames?: string[]
+  runMode?: RunModeId
   reasoningEffort?: ComposerReasoningSelection
   runTrigger?: SendChatRunTrigger
   channelHint?: string
@@ -97,6 +104,7 @@ export interface RunDomainDeps {
 
 export interface BackgroundTaskRunContext {
   enabledTools: ToolCallName[]
+  runMode: RunModeId
   enabledSkillNames?: string[]
   reasoningEffort?: ComposerReasoningSelection
   runTrigger: SendChatRunTrigger

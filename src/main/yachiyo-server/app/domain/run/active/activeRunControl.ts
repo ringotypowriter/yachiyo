@@ -86,7 +86,15 @@ export function withdrawPendingSteer(context: ActiveRunControlContext, threadId:
   }
   // Restore the skill override the steer replaced so the live run
   // continues with its original configuration.
+  activeRun.enabledTools = visibleSteer.previousEnabledTools
+    ? [...visibleSteer.previousEnabledTools]
+    : undefined
   activeRun.enabledSkillNames = visibleSteer.previousEnabledSkillNames
+  if (visibleSteer.previousRunMode !== undefined) {
+    activeRun.runMode = visibleSteer.previousRunMode
+  } else {
+    delete activeRun.runMode
+  }
   if (visibleSteer.previousReasoningEffort !== undefined) {
     activeRun.reasoningEffort = visibleSteer.previousReasoningEffort
   } else {

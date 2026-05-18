@@ -2,6 +2,7 @@ import type {
   BootstrapPayload,
   MessageRecord,
   RunCreatedEvent,
+  RunModeId,
   SendChatRunTrigger,
   ThreadSnapshot,
   ThreadRecord,
@@ -15,6 +16,7 @@ import { summarizeMessageInput } from '../../../../../../shared/yachiyo/messageC
 import { wouldCreateParentCycle } from '../../../../../../shared/yachiyo/threadTree.ts'
 import type { BootstrapState, RunRecoveryCheckpoint } from '../../../../storage/storage.ts'
 import { resolveEnabledTools } from '../../config/configDomain.ts'
+import { deriveRunModeId } from '../../../../../../shared/yachiyo/toolModes.ts'
 import { createRunEventMetadata } from '../../shared/runEventMetadata.ts'
 import type { StartActiveRunInput } from '../active/activeRunStart.ts'
 import { withParentMessageId } from '../chat/threadMessages.ts'
@@ -24,6 +26,7 @@ interface PreparedQueuedFollowUpStart {
   createdAt: string
   enabledTools: ToolCallName[]
   enabledSkillNames?: string[]
+  runMode: RunModeId
   runTrigger: SendChatRunTrigger
   reasoningEffort?: ThreadRecord['queuedFollowUpReasoningEffort']
   requestMessageId: string
@@ -37,6 +40,7 @@ interface PreparedQueuedFollowUpStart {
 export interface QueuedFollowUpRequestDraft {
   enabledTools: ToolCallName[]
   enabledSkillNames?: string[]
+  runMode: RunModeId
   runTrigger: SendChatRunTrigger
   reasoningEffort?: ThreadRecord['queuedFollowUpReasoningEffort']
   userMessage: MessageRecord
@@ -365,6 +369,7 @@ function cloneQueuedFollowUpRequestDraft(
     ...(draft.enabledSkillNames !== undefined
       ? { enabledSkillNames: [...draft.enabledSkillNames] }
       : {}),
+    runMode: draft.runMode,
     runTrigger: draft.runTrigger,
     ...(draft.reasoningEffort !== undefined ? { reasoningEffort: draft.reasoningEffort } : {}),
     userMessage: draft.userMessage
@@ -477,6 +482,7 @@ function prepareQueuedFollowUpStart(
     : thread.queuedFollowUpEnabledTools
       ? [...thread.queuedFollowUpEnabledTools]
       : resolveEnabledTools(undefined, context.deps.readConfig().enabledTools)
+  const runMode = draft?.runMode ?? deriveRunModeId(enabledTools)
   const enabledSkillNames = draft
     ? draft.enabledSkillNames
     : thread.queuedFollowUpEnabledSkillNames === undefined
@@ -488,6 +494,7 @@ function prepareQueuedFollowUpStart(
     createdAt: timestamp,
     enabledTools,
     enabledSkillNames,
+    runMode,
     runTrigger,
     ...(reasoningEffort !== undefined ? { reasoningEffort } : {}),
     requestMessageId: queuedMessage.id,
@@ -567,6 +574,7 @@ function activatePreparedQueuedFollowUp(
   context.startActiveRun({
     enabledTools: prepared.enabledTools,
     enabledSkillNames: prepared.enabledSkillNames,
+    runMode: prepared.runMode,
     runTrigger: prepared.runTrigger,
     reasoningEffort: prepared.reasoningEffort,
     runId: prepared.runId,

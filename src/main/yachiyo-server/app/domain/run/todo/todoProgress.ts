@@ -1,6 +1,6 @@
 import type { TodoItemRecord } from '../../../../../../shared/yachiyo/protocol.ts'
 
-export const TODO_REMINDER_STEP_INTERVAL = 10
+export const TODO_REMINDER_STEP_INTERVAL = 50
 
 export interface TodoProgressState {
   items: TodoItemRecord[]

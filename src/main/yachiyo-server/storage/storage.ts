@@ -22,6 +22,7 @@ import type {
   ScheduleResultStatus,
   ScheduleRunRecord,
   ScheduleRunStatus,
+  RunModeId,
   SendChatRunTrigger,
   ThreadModelOverride,
   ThreadColorTag,
@@ -232,6 +233,7 @@ export interface RunRecoveryCheckpoint {
   responseMessages?: unknown[]
   enabledTools: ToolCallName[]
   enabledSkillNames?: string[]
+  runMode?: RunModeId
   reasoningEffort?: ComposerReasoningSelection
   runTrigger: SendChatRunTrigger
   channelHint?: string
@@ -253,6 +255,7 @@ export interface StoredRunRecoveryCheckpointRow {
   responseMessages: string | null
   enabledTools: string
   enabledSkillNames: string | null
+  runMode: string | null
   reasoningEffort: string | null
   runTrigger: string | null
   channelHint: string | null
@@ -930,6 +933,7 @@ export function toRunRecoveryCheckpoint(
   const responseMessages = parseResponseMessages(row.responseMessages)
   const enabledTools = parseEnabledTools(row.enabledTools) ?? []
   const enabledSkillNames = parseSkillNames(row.enabledSkillNames)
+  const runMode = parseRunMode(row.runMode)
   const reasoningEffort = parseReasoningSelection(row.reasoningEffort)
   const runTrigger = parseRunTrigger(row.runTrigger, row.channelHint)
 
@@ -944,6 +948,7 @@ export function toRunRecoveryCheckpoint(
     ...(responseMessages ? { responseMessages } : {}),
     enabledTools,
     ...(enabledSkillNames ? { enabledSkillNames } : {}),
+    ...(runMode ? { runMode } : {}),
     ...(reasoningEffort ? { reasoningEffort } : {}),
     runTrigger,
     ...(row.channelHint ? { channelHint: row.channelHint } : {}),
@@ -971,6 +976,7 @@ export function toStoredRunRecoveryCheckpointRow(
     enabledSkillNames: checkpoint.enabledSkillNames
       ? JSON.stringify(checkpoint.enabledSkillNames)
       : null,
+    runMode: checkpoint.runMode ?? null,
     reasoningEffort: serializeReasoningSelection(checkpoint.reasoningEffort),
     runTrigger: checkpoint.runTrigger,
     channelHint: checkpoint.channelHint ?? null,
@@ -1012,8 +1018,9 @@ export function serializeTurnContext(turnContext?: MessageTurnContext): string |
   const hasMemory = turnContext.memoryEntries && turnContext.memoryEntries.length > 0
   const hasEnabledTools = turnContext.enabledTools !== undefined
   const hasEnabledSkillNames = turnContext.enabledSkillNames !== undefined
+  const hasRunMode = turnContext.runMode !== undefined
 
-  if (!hasReminder && !hasMemory && !hasEnabledTools && !hasEnabledSkillNames) {
+  if (!hasReminder && !hasMemory && !hasEnabledTools && !hasEnabledSkillNames && !hasRunMode) {
     return null
   }
 
@@ -1025,7 +1032,8 @@ export function serializeTurnContext(turnContext?: MessageTurnContext): string |
       : {}),
     ...(hasEnabledSkillNames
       ? { enabledSkillNames: normalizeSkillNames(turnContext.enabledSkillNames, []) }
-      : {})
+      : {}),
+    ...(hasRunMode ? { runMode: turnContext.runMode } : {})
   })
 }
 
@@ -1049,11 +1057,13 @@ export function parseTurnContext(value: string | null): MessageTurnContext | und
     const enabledSkillNames: string[] | undefined = Array.isArray(parsed.enabledSkillNames)
       ? normalizeSkillNames(parsed.enabledSkillNames, [])
       : undefined
+    const runMode = parseRunMode(parsed.runMode)
     if (
       reminder === undefined &&
       memoryEntries.length === 0 &&
       enabledTools === undefined &&
-      enabledSkillNames === undefined
+      enabledSkillNames === undefined &&
+      runMode === undefined
     ) {
       return undefined
     }
@@ -1061,11 +1071,18 @@ export function parseTurnContext(value: string | null): MessageTurnContext | und
       ...(reminder !== undefined ? { reminder } : {}),
       ...(memoryEntries.length > 0 ? { memoryEntries } : {}),
       ...(enabledTools !== undefined ? { enabledTools } : {}),
-      ...(enabledSkillNames !== undefined ? { enabledSkillNames } : {})
+      ...(enabledSkillNames !== undefined ? { enabledSkillNames } : {}),
+      ...(runMode !== undefined ? { runMode } : {})
     }
   } catch {
     return undefined
   }
+}
+
+function parseRunMode(value: unknown): RunModeId | undefined {
+  return value === 'auto' || value === 'explore' || value === 'chat' || value === 'custom'
+    ? value
+    : undefined
 }
 
 export function serializeMessageImages(images?: MessageImageRecord[]): string | null {

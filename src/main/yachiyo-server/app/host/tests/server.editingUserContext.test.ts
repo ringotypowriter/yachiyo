@@ -473,6 +473,40 @@ test('YachiyoServer.editMessage replaces the user message and dependent history 
   })
 })
 
+test('YachiyoServer.editMessage forwards an explicit run mode', async () => {
+  await withServer(async ({ server, completeRun, storage }) => {
+    await server.upsertProvider({
+      name: 'work',
+      type: 'openai',
+      apiKey: 'sk-test',
+      baseUrl: 'https://api.openai.com/v1',
+      modelList: { enabled: ['gpt-5'], disabled: [] }
+    })
+
+    const thread = await server.createThread()
+    const firstAccepted = await server.sendChat({ threadId: thread.id, content: 'First question' })
+    assertAcceptedHasUserMessage(firstAccepted)
+    await completeRun(firstAccepted.runId)
+
+    const editAccepted = await server.editMessage({
+      threadId: thread.id,
+      messageId: firstAccepted.userMessage.id,
+      content: 'Revised question',
+      enabledTools: ['bash'],
+      runMode: 'chat'
+    })
+    assertAcceptedHasUserMessage(editAccepted)
+
+    await completeRun(editAccepted.runId)
+
+    const editedUserMessage = storage.listThreadMessages(thread.id).find((message) => {
+      return message.id === editAccepted.userMessage.id
+    })
+    assert.equal(editedUserMessage?.turnContext?.runMode, 'chat')
+    assert.deepEqual(editedUserMessage?.turnContext?.enabledTools, [])
+  })
+})
+
 test('YachiyoServer.editMessage throws when the thread has an active run', async () => {
   let releaseRun: (() => void) | null = null
   const runGate = new Promise<void>((resolve) => {

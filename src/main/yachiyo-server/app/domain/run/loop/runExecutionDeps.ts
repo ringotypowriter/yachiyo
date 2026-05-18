@@ -1,5 +1,6 @@
 import type {
   BackgroundTaskStartedEvent,
+  RunModeId,
   SubagentProgressEvent,
   ThreadRecord,
   TodoUpdatedEvent,
@@ -31,12 +32,15 @@ export interface RunExecutionDepsContext {
   backgroundBashManager: BackgroundBashManager
   createSendChatFlowContext: () => SendChatFlowContext
   setLastRunEnabledTools: (enabledTools: ToolCallName[]) => void
+  setLastRunMode: (runMode: RunModeId) => void
 }
 
 export interface BuildRunExecutionDepsInput {
   loopInput: ActiveRunLoopInput
   currentThread: ThreadRecord
   activeRun: RunState
+  executionEnabledTools: ToolCallName[]
+  executionRunMode: RunModeId
   isRecapRun: boolean
   storage: RunExecutionDeps['storage']
   emit: RunExecutionDeps['emit']
@@ -112,6 +116,7 @@ export function buildRunExecutionDeps(
     isModelImageCapable: resolveCurrentModelImageCapability(deps, input.currentThread),
     onEnabledToolsUsed: (enabledTools) => {
       context.setLastRunEnabledTools(enabledTools)
+      context.setLastRunMode(input.activeRun.runMode ?? input.loopInput.runMode)
     },
     onExecutionPhaseChange: (phase) => {
       const currentRun = context.activeRuns.get(input.loopInput.runId)
@@ -220,10 +225,7 @@ export function buildRunExecutionDeps(
       })
     },
     onBackgroundBashStarted: async (task) => {
-      context.backgroundTaskRunContext.set(
-        task.taskId,
-        buildBackgroundTaskRunContext(input.loopInput)
-      )
+      context.backgroundTaskRunContext.set(task.taskId, buildBackgroundTaskRunContext(input))
       try {
         await context.backgroundBashManager.startTask({
           ...task,
@@ -242,10 +244,7 @@ export function buildRunExecutionDeps(
       }
     },
     onBackgroundBashAdopted: async (task) => {
-      context.backgroundTaskRunContext.set(
-        task.taskId,
-        buildBackgroundTaskRunContext(input.loopInput)
-      )
+      context.backgroundTaskRunContext.set(task.taskId, buildBackgroundTaskRunContext(input))
       try {
         await context.backgroundBashManager.adoptTask({
           taskId: task.taskId,
@@ -291,7 +290,9 @@ function injectHiddenRunSteer(
   sendActiveRunSteer(context.createSendChatFlowContext(), {
     activeRunId: input.loopInput.runId,
     content,
+    enabledTools: activeRun.enabledTools ?? input.loopInput.enabledTools,
     enabledSkillNames: activeRun.enabledSkillNames,
+    runMode: activeRun.runMode ?? input.loopInput.runMode,
     runTrigger: input.loopInput.runTrigger,
     images: [],
     attachments: [],
@@ -301,14 +302,21 @@ function injectHiddenRunSteer(
   })
 }
 
-function buildBackgroundTaskRunContext(input: ActiveRunLoopInput): BackgroundTaskRunContext {
+function buildBackgroundTaskRunContext(
+  input: BuildRunExecutionDepsInput
+): BackgroundTaskRunContext {
   return {
-    enabledTools: input.enabledTools,
-    ...(input.enabledSkillNames ? { enabledSkillNames: input.enabledSkillNames } : {}),
-    ...(input.reasoningEffort !== undefined ? { reasoningEffort: input.reasoningEffort } : {}),
-    runTrigger: input.runTrigger,
-    ...(input.channelHint ? { channelHint: input.channelHint } : {}),
-    ...(input.extraTools ? { extraTools: input.extraTools } : {})
+    enabledTools: input.executionEnabledTools,
+    runMode: input.executionRunMode,
+    ...(input.loopInput.enabledSkillNames
+      ? { enabledSkillNames: input.loopInput.enabledSkillNames }
+      : {}),
+    ...(input.loopInput.reasoningEffort !== undefined
+      ? { reasoningEffort: input.loopInput.reasoningEffort }
+      : {}),
+    runTrigger: input.loopInput.runTrigger,
+    ...(input.loopInput.channelHint ? { channelHint: input.loopInput.channelHint } : {}),
+    ...(input.loopInput.extraTools ? { extraTools: input.loopInput.extraTools } : {})
   }
 }
 

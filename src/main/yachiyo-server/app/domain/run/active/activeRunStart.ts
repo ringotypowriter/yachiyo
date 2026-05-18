@@ -1,17 +1,19 @@
 import type { ToolSet } from 'ai'
 
-import type {
-  ComposerReasoningSelection,
-  MessageDeltaEvent,
-  MessageReasoningDeltaEvent,
-  MessageRecord,
-  MessageStartedEvent,
-  RunCreatedEvent,
-  SendChatRunTrigger,
-  ThreadRecord,
-  ToolCallUpdatedEvent,
-  ToolCallName
+import {
+  type ComposerReasoningSelection,
+  type MessageDeltaEvent,
+  type MessageReasoningDeltaEvent,
+  type MessageRecord,
+  type MessageStartedEvent,
+  type RunCreatedEvent,
+  type RunModeId,
+  type SendChatRunTrigger,
+  type ThreadRecord,
+  type ToolCallUpdatedEvent,
+  type ToolCallName
 } from '../../../../../../shared/yachiyo/protocol.ts'
+import { deriveRunModeId } from '../../../../../../shared/yachiyo/toolModes.ts'
 import type { RunRecoveryCheckpoint } from '../../../../storage/storage.ts'
 import { createRunEventMetadata } from '../../shared/runEventMetadata.ts'
 import { streamCompactThreadHandoff } from '../handoff/threadHandoffRun.ts'
@@ -22,6 +24,7 @@ import { createTodoProgressState } from '../todo/todoProgress.ts'
 export interface ActiveRunLoopInput {
   enabledTools: ToolCallName[]
   enabledSkillNames?: string[]
+  runMode: RunModeId
   reasoningEffort?: ComposerReasoningSelection
   runTrigger: SendChatRunTrigger
   channelHint?: string
@@ -42,6 +45,7 @@ export interface StartAssistantOnlyRunInput {
   thread: ThreadRecord
   sourceThreadId: string
   sourceMessages: MessageRecord[]
+  runMode: RunModeId
   reasoningEffort?: ComposerReasoningSelection
 }
 
@@ -59,6 +63,7 @@ export function startActiveRun(context: ActiveRunStartContext, input: StartActiv
   context.activeRuns.set(input.runId, {
     threadId: input.thread.id,
     requestMessageId: input.requestMessageId,
+    enabledTools: [...input.enabledTools],
     ...(input.enabledSkillNames ? { enabledSkillNames: [...input.enabledSkillNames] } : {}),
     ...(input.reasoningEffort !== undefined ? { reasoningEffort: input.reasoningEffort } : {}),
     runTrigger: input.runTrigger,
@@ -70,6 +75,7 @@ export function startActiveRun(context: ActiveRunStartContext, input: StartActiv
     ...(input.thread.todoItems
       ? { todoProgress: createTodoProgressState({ items: input.thread.todoItems, step: 0 }) }
       : {}),
+    runMode: input.runMode,
     ...(input.recap ? { recap: true } : {})
   })
   context.activeRunByThread.set(input.thread.id, input.runId)
@@ -77,6 +83,7 @@ export function startActiveRun(context: ActiveRunStartContext, input: StartActiv
   const runTask = context.runLoop({
     enabledTools: input.enabledTools,
     enabledSkillNames: input.enabledSkillNames,
+    runMode: input.runMode,
     reasoningEffort: input.reasoningEffort,
     runTrigger: input.runTrigger,
     channelHint: input.channelHint,
@@ -100,6 +107,7 @@ export function startRecoveredRun(
   }
 
   const thread = context.deps.requireThread(checkpoint.threadId)
+  const runMode = checkpoint.runMode ?? deriveRunModeId(checkpoint.enabledTools)
   const toolCalls = context.deps
     .loadThreadToolCalls(thread.id)
     .filter((toolCall) => toolCall.runId === checkpoint.runId)
@@ -150,12 +158,14 @@ export function startRecoveredRun(
   context.activeRuns.set(checkpoint.runId, {
     threadId: checkpoint.threadId,
     requestMessageId: checkpoint.requestMessageId,
+    enabledTools: [...checkpoint.enabledTools],
     ...(checkpoint.enabledSkillNames
       ? { enabledSkillNames: [...checkpoint.enabledSkillNames] }
       : {}),
     ...(checkpoint.reasoningEffort !== undefined
       ? { reasoningEffort: checkpoint.reasoningEffort }
       : {}),
+    runMode,
     runTrigger: checkpoint.runTrigger,
     ...(checkpoint.channelHint ? { channelHint: checkpoint.channelHint } : {}),
     recoveryCheckpoint: checkpoint,
@@ -171,6 +181,7 @@ export function startRecoveredRun(
   const runTask = context.runLoop({
     enabledTools: checkpoint.enabledTools,
     enabledSkillNames: checkpoint.enabledSkillNames,
+    runMode,
     reasoningEffort: checkpoint.reasoningEffort,
     runTrigger: checkpoint.runTrigger,
     channelHint: checkpoint.channelHint,
@@ -190,6 +201,7 @@ export function startAssistantOnlyRun(
 ): void {
   context.activeRuns.set(input.runId, {
     threadId: input.thread.id,
+    runMode: input.runMode,
     ...(input.reasoningEffort !== undefined ? { reasoningEffort: input.reasoningEffort } : {}),
     abortController: new AbortController(),
     executionPhase: 'generating',

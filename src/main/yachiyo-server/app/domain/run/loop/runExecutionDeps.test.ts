@@ -5,10 +5,12 @@ import { DEFAULT_SETTINGS_CONFIG } from '../../../../settings/settingsStore.ts'
 import type { MemoryService } from '../../../../services/memory/memoryService.ts'
 import type {
   ProviderSettings,
+  RunModeId,
   ThreadRecord,
-  TodoItemRecord
+  TodoItemRecord,
+  ToolCallName
 } from '../../../../../../shared/yachiyo/protocol.ts'
-import type { RunState } from '../runTypes.ts'
+import type { BackgroundTaskRunContext, RunState } from '../runTypes.ts'
 import { buildRunExecutionDeps, type RunExecutionDepsContext } from './runExecutionDeps.ts'
 
 const NOW = '2026-05-18T00:00:00.000Z'
@@ -108,6 +110,58 @@ test('run execution deps route todo updates through the scoped run storage and e
   ])
 })
 
+test('run execution deps records the active run mode for background bash completion delivery', async () => {
+  const thread: ThreadRecord = {
+    id: 'thread-1',
+    title: 'Thread',
+    updatedAt: NOW
+  }
+  const { backgroundTaskRunContext, executionDeps } = setupRunExecutionDeps(thread, {
+    loopInput: {
+      enabledTools: ['read', 'grep', 'glob', 'webRead', 'webSearch'],
+      runMode: 'explore'
+    },
+    executionInput: {
+      enabledTools: [
+        'read',
+        'write',
+        'edit',
+        'bash',
+        'jsRepl',
+        'grep',
+        'glob',
+        'webRead',
+        'webSearch'
+      ],
+      runMode: 'auto'
+    }
+  })
+
+  await executionDeps.onBackgroundBashStarted?.({
+    taskId: 'task-1',
+    command: 'pnpm test',
+    cwd: '/tmp/yachiyo',
+    logPath: '/tmp/yachiyo/task-1.log',
+    threadId: thread.id
+  })
+
+  assert.deepEqual(backgroundTaskRunContext.get('task-1'), {
+    enabledTools: [
+      'read',
+      'write',
+      'edit',
+      'bash',
+      'jsRepl',
+      'grep',
+      'glob',
+      'webRead',
+      'webSearch'
+    ],
+    runMode: 'auto',
+    runTrigger: 'local'
+  })
+})
+
 function setupRunExecutionDeps(
   initialThread: ThreadRecord,
   overrides: {
@@ -118,9 +172,18 @@ function setupRunExecutionDeps(
       getThread?: (threadId: string) => ThreadRecord | undefined
       updateThread?: (thread: ThreadRecord) => void
     }
+    loopInput?: {
+      enabledTools?: ToolCallName[]
+      runMode?: RunModeId
+    }
+    executionInput?: {
+      enabledTools?: ToolCallName[]
+      runMode?: RunModeId
+    }
   } = {}
 ): {
   activeRun: RunState
+  backgroundTaskRunContext: Map<string, BackgroundTaskRunContext>
   emittedEvents: unknown[]
   executionDeps: ReturnType<typeof buildRunExecutionDeps>
 } {
@@ -133,6 +196,7 @@ function setupRunExecutionDeps(
     updateHeadOnComplete: true
   }
   const activeRuns = new Map<string, RunState>([['run-1', activeRun]])
+  const backgroundTaskRunContext = new Map<string, BackgroundTaskRunContext>()
   const emittedEvents: unknown[] = []
   const settings: ProviderSettings = {
     providerName: 'test',
@@ -179,8 +243,10 @@ function setupRunExecutionDeps(
     activeRuns,
     activeRunByThread: new Map([[initialThread.id, 'run-1']]),
     activeRunTasks: new Map(),
-    backgroundTaskRunContext: new Map(),
+    backgroundTaskRunContext,
     backgroundBashManager: {
+      startTask: async () => {},
+      adoptTask: async () => {},
       getCompletedTask: () => undefined
     },
     createSendChatFlowContext: () => ({}),
@@ -189,10 +255,12 @@ function setupRunExecutionDeps(
 
   return {
     activeRun,
+    backgroundTaskRunContext,
     emittedEvents,
     executionDeps: buildRunExecutionDeps(context, {
       loopInput: {
-        enabledTools: [],
+        enabledTools: overrides.loopInput?.enabledTools ?? [],
+        runMode: overrides.loopInput?.runMode ?? 'auto',
         runTrigger: 'local',
         runId: 'run-1',
         thread: initialThread,
@@ -201,6 +269,9 @@ function setupRunExecutionDeps(
       },
       currentThread: initialThread,
       activeRun,
+      executionEnabledTools:
+        overrides.executionInput?.enabledTools ?? overrides.loopInput?.enabledTools ?? [],
+      executionRunMode: overrides.executionInput?.runMode ?? overrides.loopInput?.runMode ?? 'auto',
       isRecapRun: false,
       storage: {
         ...context.deps.storage,

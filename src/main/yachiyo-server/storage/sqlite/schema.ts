@@ -188,6 +188,7 @@ export const runRecoveryCheckpointsTable = sqliteTable(
     responseMessages: text('response_messages'),
     enabledTools: text('enabled_tools').notNull(),
     enabledSkillNames: text('enabled_skill_names'),
+    runMode: text('run_mode'),
     reasoningEffort: text('reasoning_effort'),
     runTrigger: text('run_trigger'),
     channelHint: text('channel_hint'),

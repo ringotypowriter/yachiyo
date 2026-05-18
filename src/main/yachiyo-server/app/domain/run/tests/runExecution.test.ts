@@ -179,6 +179,7 @@ test('prepareServerRunContext injects consumed activity and reports it as a cont
         thread,
         requestMessageId: requestMessage.id,
         enabledTools: [],
+        runMode: 'auto',
         runTrigger: 'local',
         abortController: new AbortController(),
         requestMessage,
@@ -217,6 +218,80 @@ test('prepareServerRunContext injects consumed activity and reports it as a cont
   }
 })
 
+test('prepareServerRunContext skips foreground activity for hidden steer requests', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'yachiyo-hidden-steer-context-'))
+  const thread: ThreadRecord = {
+    id: 'thread-1',
+    title: 'Thread',
+    workspacePath: root,
+    updatedAt: '2026-04-28T00:00:00.000Z'
+  }
+  const requestMessage: MessageRecord = {
+    id: 'msg-hidden',
+    threadId: thread.id,
+    role: 'user',
+    content: 'internal continuation note',
+    hidden: true,
+    status: 'completed',
+    createdAt: '2026-04-28T00:00:00.000Z'
+  }
+  const events: unknown[] = []
+  const updatedMessages: MessageRecord[] = []
+  const activitySourceRecords: unknown[] = []
+
+  try {
+    const context = await prepareServerRunContext(
+      createRunContextDeps({
+        events,
+        messages: [requestMessage],
+        workspacePath: root,
+        updatedMessages,
+        activitySourceRecords
+      }),
+      {
+        runId: 'run-hidden',
+        thread,
+        requestMessageId: requestMessage.id,
+        enabledTools: [],
+        runMode: 'auto',
+        runTrigger: 'local',
+        abortController: new AbortController(),
+        requestMessage,
+        historyMessages: [requestMessage],
+        isSteerLeg: true,
+        includeMemoryRecall: false,
+        applyStripCompact: false
+      }
+    )
+
+    const userContent = context.messages
+      .filter((message) => message.role === 'user')
+      .map((message) => message.content)
+      .filter((content): content is string => typeof content === 'string')
+      .join('\n')
+    assert.equal(userContent.includes('ACTIVITY BLOCK'), false)
+    assert.equal(userContent.includes('Mid-run steer'), false)
+    assert.deepEqual(activitySourceRecords, [])
+    assert.equal(updatedMessages.length, 1)
+    assert.equal(updatedMessages[0].turnContext?.activityText, undefined)
+
+    const compiled = events.find(
+      (
+        event
+      ): event is { type: string; contextSources: Array<{ kind: string; summary?: string }> } =>
+        typeof event === 'object' &&
+        event !== null &&
+        (event as { type?: unknown }).type === 'run.context.compiled'
+    )
+    assert.equal(
+      compiled?.contextSources.some((source) => source.kind === 'activity'),
+      false
+    )
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
 test('prepareServerRunContext injects tool availability changes into the current turn reminder', async () => {
   const root = await mkdtemp(join(tmpdir(), 'yachiyo-tool-reminder-'))
   const thread: ThreadRecord = {
@@ -249,7 +324,9 @@ test('prepareServerRunContext injects tool availability changes into the current
         thread,
         requestMessageId: requestMessage.id,
         enabledTools: ['read', 'write', 'bash'],
+        runMode: 'auto',
         previousEnabledTools: ['read', 'bash'],
+        previousRunMode: 'auto',
         runTrigger: 'local',
         abortController: new AbortController(),
         requestMessage,
@@ -305,6 +382,7 @@ test('prepareServerRunContext persists consumed activity for replay', async () =
         thread,
         requestMessageId: requestMessage.id,
         enabledTools: [],
+        runMode: 'auto',
         runTrigger: 'local',
         abortController: new AbortController(),
         requestMessage,
@@ -352,6 +430,7 @@ test('prepareServerRunContext persists consumed activity as a durable source rec
         thread,
         requestMessageId: requestMessage.id,
         enabledTools: [],
+        runMode: 'auto',
         runTrigger: 'local',
         abortController: new AbortController(),
         requestMessage,
@@ -463,6 +542,7 @@ test('prepareServerRunContext persists I2T image replay markers when non-vision 
         thread,
         requestMessageId: requestMessage.id,
         enabledTools: [],
+        runMode: 'auto',
         runTrigger: 'local',
         abortController: new AbortController(),
         requestMessage,
@@ -542,6 +622,7 @@ test('prepareServerRunContext can use I2T without persisting replay markers', as
         thread,
         requestMessageId: requestMessage.id,
         enabledTools: [],
+        runMode: 'auto',
         runTrigger: 'local',
         abortController: new AbortController(),
         requestMessage,
@@ -671,6 +752,7 @@ test('executeServerRun completes the launch tool call when background bash start
   try {
     const result = await executeServerRun(deps, {
       enabledTools: ['bash'],
+      runMode: 'auto',
       inactivityTimeoutMs: 30_000,
       runTrigger: 'local',
       runId: 'run-bg-launch',
@@ -678,7 +760,8 @@ test('executeServerRun completes the launch tool call when background bash start
       requestMessageId: requestMessage.id,
       abortController: new AbortController(),
       updateHeadOnComplete: true,
-      previousEnabledTools: null
+      previousEnabledTools: null,
+      previousRunMode: null
     })
 
     assert.equal(result.kind, 'completed')
@@ -816,6 +899,7 @@ test('executeServerRun keeps background bash launch completion separate from tas
   try {
     const result = await executeServerRun(deps, {
       enabledTools: ['bash'],
+      runMode: 'auto',
       inactivityTimeoutMs: 30_000,
       runTrigger: 'local',
       runId: 'run-bg-race',
@@ -823,7 +907,8 @@ test('executeServerRun keeps background bash launch completion separate from tas
       requestMessageId: requestMessage.id,
       abortController: new AbortController(),
       updateHeadOnComplete: true,
-      previousEnabledTools: null
+      previousEnabledTools: null,
+      previousRunMode: null
     })
 
     assert.equal(result.kind, 'completed')
@@ -936,6 +1021,7 @@ test('executeServerRun continues agent step count from prior run legs', async ()
   try {
     const result = await executeServerRun(deps, {
       enabledTools: ['bash'],
+      runMode: 'auto',
       inactivityTimeoutMs: 30_000,
       runTrigger: 'local',
       runId: 'run-step-carry',
@@ -944,6 +1030,7 @@ test('executeServerRun continues agent step count from prior run legs', async ()
       abortController: new AbortController(),
       updateHeadOnComplete: true,
       previousEnabledTools: null,
+      previousRunMode: null,
       priorAgentStepCount: 10
     })
 
@@ -1075,6 +1162,7 @@ test('executeServerRun ignores completed background task snapshots for launch to
   try {
     const result = await executeServerRun(deps, {
       enabledTools: ['bash'],
+      runMode: 'auto',
       inactivityTimeoutMs: 30_000,
       runTrigger: 'local',
       runId: 'run-bg-snapshot',
@@ -1082,7 +1170,8 @@ test('executeServerRun ignores completed background task snapshots for launch to
       requestMessageId: requestMessage.id,
       abortController: new AbortController(),
       updateHeadOnComplete: true,
-      previousEnabledTools: null
+      previousEnabledTools: null,
+      previousRunMode: null
     })
 
     assert.equal(result.kind, 'completed')
@@ -1151,6 +1240,7 @@ test('executeServerRun persists reasoning effort in recovery checkpoints', async
   try {
     const result = await executeServerRun(deps, {
       enabledTools: ['read'],
+      runMode: 'auto',
       inactivityTimeoutMs: 30_000,
       reasoningEffort: 'high',
       runTrigger: 'local',
@@ -1160,7 +1250,8 @@ test('executeServerRun persists reasoning effort in recovery checkpoints', async
       requestMessageId: requestMessage.id,
       abortController: new AbortController(),
       updateHeadOnComplete: true,
-      previousEnabledTools: null
+      previousEnabledTools: null,
+      previousRunMode: null
     })
 
     assert.equal(result.kind, 'recovering')

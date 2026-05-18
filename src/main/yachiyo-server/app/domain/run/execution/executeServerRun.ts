@@ -252,6 +252,7 @@ export async function executeServerRun(
       thread: input.thread,
       requestMessageId: input.requestMessageId,
       enabledTools: input.enabledTools,
+      runMode: input.runMode,
       ...(input.enabledSkillNames !== undefined
         ? { enabledSkillNames: input.enabledSkillNames }
         : {}),
@@ -264,6 +265,7 @@ export async function executeServerRun(
       ...(input.previousEnabledTools !== null
         ? { previousEnabledTools: input.previousEnabledTools }
         : {}),
+      ...(input.previousRunMode !== null ? { previousRunMode: input.previousRunMode } : {}),
       ...(input.priorUsage ? { priorUsage: input.priorUsage } : {}),
       ...(input.maxToolStepsOverride !== undefined
         ? { maxToolStepsOverride: input.maxToolStepsOverride }

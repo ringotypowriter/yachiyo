@@ -24,6 +24,7 @@ import { ModelSelectorPopup } from '../ModelSelectorPopup'
 import { SlashCommandPopup } from '../SlashCommandPopup'
 import { SkillsSelectorPopup } from '../SkillsSelectorPopup'
 import { ToolSelectorPopup } from '../ToolSelectorPopup'
+import { RUN_MODE_DEFINITIONS } from '../../../../../../shared/yachiyo/toolModes.ts'
 import { ReasoningSelectorPopup } from '../ReasoningSelectorPopup'
 import { RunArrowIndicator } from '../RunArrowIndicator'
 import { WorkspaceSelectorPopup } from '../WorkspaceSelectorPopup'
@@ -114,9 +115,9 @@ export function ComposerView(props: any): React.JSX.Element {
     setWorkspaceSelectorOpen,
     setToolSelectorOpen,
     toolSelectorOpen,
-    enabledTools,
+    runMode,
     hasActiveRun,
-    toggleEnabledTool,
+    setRunMode,
     skillsSelectorRef,
     skillsSelectorOpen,
     enabledSkillCount,
@@ -720,34 +721,38 @@ export function ComposerView(props: any): React.JSX.Element {
                 setToolSelectorOpen((open) => !open)
               }}
               className="relative p-1.5 rounded-lg opacity-60 hover:opacity-85 transition-opacity"
-              aria-label="Tools"
+              aria-label={`Mode: ${runMode === 'custom' ? 'Custom' : RUN_MODE_DEFINITIONS[runMode].label}`}
               aria-expanded={toolSelectorOpen}
               aria-haspopup="menu"
             >
               <Wrench
                 size={16}
                 strokeWidth={1.5}
-                color={enabledTools.length > 0 ? theme.icon.accent : theme.icon.muted}
+                color={runMode !== 'chat' ? theme.icon.accent : theme.icon.muted}
               />
-              {enabledTools.length > 0 ? (
-                <span
-                  className="absolute -top-0.5 -right-0.5 w-3.5 h-3.5 rounded-full flex items-center justify-center"
-                  style={{
-                    fontSize: '8px',
-                    background: theme.text.accent,
-                    color: theme.text.inverse
-                  }}
-                >
-                  {enabledTools.length}
-                </span>
-              ) : null}
+              <span
+                className="absolute -top-1 -right-1 rounded-full px-1"
+                style={{
+                  minWidth: 16,
+                  height: 14,
+                  background:
+                    runMode === 'chat' ? theme.background.surfaceMuted : theme.text.accent,
+                  color: theme.text.inverse,
+                  fontSize: 8,
+                  lineHeight: '14px',
+                  fontWeight: 700,
+                  textAlign: 'center'
+                }}
+              >
+                {runMode === 'custom' ? 'C' : RUN_MODE_DEFINITIONS[runMode].shortLabel.slice(0, 1)}
+              </span>
             </button>
 
             {toolSelectorOpen ? (
               <ToolSelectorPopup
-                enabledTools={enabledTools}
+                runMode={runMode}
                 hasActiveRun={hasActiveRun}
-                onToggle={(toolName) => void toggleEnabledTool(toolName)}
+                onSelectMode={(mode) => void setRunMode(mode)}
                 onClose={() => setToolSelectorOpen(false)}
               />
             ) : null}

@@ -5,6 +5,10 @@ import type {
   SubagentProfile,
   ToolCallName
 } from '../../../../../../shared/yachiyo/protocol.ts'
+import {
+  RUN_MODE_DEFINITIONS,
+  SELECTABLE_RUN_MODE_IDS
+} from '../../../../../../shared/yachiyo/toolModes.ts'
 import type { GitContext } from './gitContext.ts'
 
 export function resolveModelEnabledTools(input: {
@@ -127,9 +131,16 @@ export function buildAgentInstructions(input: {
     ? `The current thread workspace is ${input.workspacePath} (${input.workspaceLabel}).`
     : `The current thread workspace is ${input.workspacePath}.`
   const systemLine = `System Platform: ${platform()} ${release()}`
+  const runModeLines = SELECTABLE_RUN_MODE_IDS.map((modeId) => {
+    const mode = RUN_MODE_DEFINITIONS[modeId]
+    return `- ${mode.label}: ${mode.description}`
+  })
   const instructions = [
     'You are operating as a tool-using local agent.',
     'Default execution mode is YOLO: use tools directly for normal local work instead of asking for per-step confirmation.',
+    'Available run modes:',
+    ...runModeLines,
+    'The active mode is Auto Mode unless the turn reminder states otherwise.',
     workspaceLine,
     systemLine,
     'Relative paths should resolve from that workspace unless you intentionally use an absolute path.'

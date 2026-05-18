@@ -59,6 +59,7 @@ export function createRecoveryCheckpointManager(input: {
       ...(input.executionInput.enabledSkillNames
         ? { enabledSkillNames: [...input.executionInput.enabledSkillNames] }
         : {}),
+      runMode: input.executionInput.runMode,
       ...(input.executionInput.reasoningEffort !== undefined
         ? { reasoningEffort: input.executionInput.reasoningEffort }
         : {}),

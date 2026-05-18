@@ -9,6 +9,7 @@ import type {
   MessageRecord,
   RunCancelledEvent,
   RunCompletedEvent,
+  RunModeId,
   RetryAccepted,
   RetryInput,
   RunFailedEvent,
@@ -32,7 +33,8 @@ import {
 } from '../../../services/memory/memoryDistillationScheduler.ts'
 import type { BootstrapState, RunRecoveryCheckpoint } from '../../../storage/storage.ts'
 import { BackgroundBashManager } from '../background/backgroundBashManager.ts'
-import { resolveEnabledTools } from '../config/configDomain.ts'
+import { resolveRunModeEnabledToolsForInput } from '../config/configDomain.ts'
+import { resolveRunModeId } from '../../../../../shared/yachiyo/toolModes.ts'
 import { executeServerRun } from './execution/executeServerRun.ts'
 import type { ExecuteRunInput, ExecuteRunResult } from './execution/runExecutionTypes.ts'
 import { ReadRecordCache } from '../../../tools/agentTools.ts'
@@ -111,11 +113,13 @@ export class YachiyoServerRunDomain {
   private readonly memoryScheduler: MemoryDistillationScheduler
   private readonly readRecordCaches = new Map<string, ReadRecordCache>()
   private lastRunEnabledTools: ToolCallName[] | null
+  private lastRunMode: RunModeId | null
   private isClosing = false
 
   constructor(deps: RunDomainDeps) {
     this.deps = deps
     this.lastRunEnabledTools = null
+    this.lastRunMode = null
     this.threadTitleRunner = new ThreadTitleGenerationRunner(deps)
     this.memoryScheduler = createMemoryDistillationScheduler({
       memoryService: deps.memoryService,
@@ -287,6 +291,9 @@ export class YachiyoServerRunDomain {
       createSendChatFlowContext: () => this.createSendChatFlowContext(),
       setLastRunEnabledTools: (enabledTools) => {
         this.lastRunEnabledTools = [...enabledTools]
+      },
+      setLastRunMode: (runMode) => {
+        this.lastRunMode = runMode
       }
     }
   }
@@ -410,10 +417,18 @@ export class YachiyoServerRunDomain {
       throw new Error('This thread already has an active run.')
     }
 
-    const enabledTools = resolveEnabledTools(
-      input.enabledTools,
-      this.deps.readConfig().enabledTools
-    )
+    const config = this.deps.readConfig()
+    const runMode = resolveRunModeId({
+      enabledTools: input.enabledTools,
+      runMode: input.runMode,
+      fallbackEnabledTools: config.enabledTools,
+      fallbackRunMode: config.runMode
+    })
+    const enabledTools = resolveRunModeEnabledToolsForInput({
+      enabledTools: input.enabledTools,
+      runMode,
+      fallbackEnabledTools: config.enabledTools
+    })
     const enabledSkillNames =
       input.enabledSkillNames === undefined
         ? undefined
@@ -463,6 +478,7 @@ export class YachiyoServerRunDomain {
     startActiveRun(this.createActiveRunStartContext(), {
       enabledTools,
       enabledSkillNames,
+      runMode,
       reasoningEffort: input.reasoningEffort,
       runTrigger: 'local',
       runId: accepted.runId,
@@ -509,6 +525,7 @@ export class YachiyoServerRunDomain {
       thread: input.destinationThread,
       sourceThreadId: input.sourceThread.id,
       sourceMessages: effectiveMessages,
+      runMode: 'auto',
       reasoningEffort: input.reasoningEffort
     })
 
@@ -545,11 +562,20 @@ export class YachiyoServerRunDomain {
         createdAt: timestamp
       }
 
-      const enabledTools = resolveEnabledTools(undefined, this.deps.readConfig().enabledTools)
+      const config = this.deps.readConfig()
+      const runMode = resolveRunModeId({
+        enabledTools: config.enabledTools,
+        runMode: config.runMode
+      })
+      const enabledTools = resolveRunModeEnabledToolsForInput({
+        runMode,
+        fallbackEnabledTools: config.enabledTools
+      })
 
       return new Promise<string | null>((resolve) => {
         startActiveRun(this.createActiveRunStartContext(), {
           enabledTools,
+          runMode,
           runTrigger: 'local',
           runId,
           thread,
@@ -598,6 +624,7 @@ export class YachiyoServerRunDomain {
     let currentThread = input.thread
     let currentRequestMessageId = input.requestMessageId
     let previousEnabledTools = this.lastRunEnabledTools
+    let previousRunMode = this.lastRunMode
     let result: ExecuteRunResult = { kind: 'cancelled' }
     let accumulatedUsage: ExecuteRunInput['priorUsage'] | undefined
     let carriedSnapshotTracker: SnapshotTracker | undefined
@@ -660,26 +687,32 @@ export class YachiyoServerRunDomain {
           ? createEphemeralStorageProxy(this.deps.storage)
           : this.deps.storage
         const recapEmit: typeof this.deps.emit = isRecapRun ? () => {} : this.deps.emit
+        const executionEnabledTools = activeRun.enabledTools ?? input.enabledTools
+        const executionRunMode = activeRun.runMode ?? input.runMode
 
         result = await executeServerRun(
           buildRunExecutionDeps(this.createRunExecutionDepsContext(), {
             loopInput: input,
             currentThread,
             activeRun,
+            executionEnabledTools,
+            executionRunMode,
             isRecapRun,
             storage: recapStorage,
             emit: recapEmit
           }),
           {
             abortController,
-            enabledTools: input.enabledTools,
+            enabledTools: executionEnabledTools,
             enabledSkillNames: activeRun.enabledSkillNames ?? input.enabledSkillNames,
+            runMode: executionRunMode,
             reasoningEffort: activeRun.reasoningEffort ?? input.reasoningEffort,
             runTrigger: activeRun.runTrigger ?? input.runTrigger,
             inactivityTimeoutMs: this.deps.runInactivityTimeoutMs,
             channelHint: activeRun.channelHint ?? input.channelHint,
             extraTools: input.extraTools,
             previousEnabledTools,
+            previousRunMode,
             recoveryCheckpoint: activeRun.recoveryCheckpoint ?? input.recoveryCheckpoint,
             requestMessageId: currentRequestMessageId,
             runId: input.runId,
@@ -699,7 +732,9 @@ export class YachiyoServerRunDomain {
           }
         )
 
-        previousEnabledTools = input.enabledTools
+        previousEnabledTools = executionEnabledTools
+        previousRunMode = executionRunMode
+        this.lastRunMode = previousRunMode
 
         if (result.kind === 'recovering') {
           activeRun.recoveryCheckpoint = result.checkpoint

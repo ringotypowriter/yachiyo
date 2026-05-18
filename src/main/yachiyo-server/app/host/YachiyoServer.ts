@@ -817,6 +817,7 @@ export class YachiyoServer {
       attachments: input.attachments,
       enabledTools: input.enabledTools,
       enabledSkillNames: input.enabledSkillNames,
+      runMode: input.runMode,
       reasoningEffort: input.reasoningEffort
     })
     if ('userMessage' in accepted) {

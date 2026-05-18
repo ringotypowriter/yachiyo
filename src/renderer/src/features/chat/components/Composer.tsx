@@ -113,7 +113,7 @@ export function Composer({
   const activeThreadRuns = useAppStore((s) =>
     s.activeThreadId ? (s.runsByThread[s.activeThreadId] ?? EMPTY_RUNS) : EMPTY_RUNS
   )
-  const enabledTools = useAppStore((s) => s.enabledTools)
+  const runMode = useAppStore((s) => s.runMode)
   const editingMessage = useAppStore((s) => (s.activeThreadId ? s.editingMessage : null))
   const cancelEditMessage = useAppStore((s) => s.cancelEditMessage)
   const removeComposerImage = useAppStore((s) => s.removeComposerImage)
@@ -132,7 +132,7 @@ export function Composer({
   const mergeBufferedPayloadIntoDraft = useAppStore((s) => s.mergeBufferedPayloadIntoDraft)
   const setComposerValue = useAppStore((s) => s.setComposerValue)
   const setThreadWorkspace = useAppStore((s) => s.setThreadWorkspace)
-  const toggleEnabledTool = useAppStore((s) => s.toggleEnabledTool)
+  const setRunMode = useAppStore((s) => s.setRunMode)
   const threads = useAppStore((s) => s.threads)
   const upsertComposerImage = useAppStore((s) => s.upsertComposerImage)
   const upsertComposerFile = useAppStore((s) => s.upsertComposerFile)
@@ -1191,9 +1191,9 @@ export function Composer({
       setWorkspaceSelectorOpen={setWorkspaceSelectorOpen}
       setToolSelectorOpen={setToolSelectorOpen}
       toolSelectorOpen={toolSelectorOpen}
-      enabledTools={enabledTools}
+      runMode={runMode}
       hasActiveRun={hasActiveRun}
-      toggleEnabledTool={toggleEnabledTool}
+      setRunMode={setRunMode}
       skillsSelectorRef={skillsSelectorRef}
       skillsSelectorOpen={skillsSelectorOpen}
       enabledSkillCount={enabledSkillCount}

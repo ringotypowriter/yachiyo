@@ -20,11 +20,12 @@ test('todo reminder counts the todo update call as the first interval step', () 
     step: 1
   })
 
-  assert.equal(shouldInjectTodoReminder(state, 9), false)
-  assert.equal(shouldInjectTodoReminder(state, 10), true)
+  assert.equal(TODO_REMINDER_STEP_INTERVAL, 50)
+  assert.equal(shouldInjectTodoReminder(state, 49), false)
+  assert.equal(shouldInjectTodoReminder(state, 50), true)
 })
 
-test('todo reminder repeats every ten steps until the list is completed or updated', () => {
+test('todo reminder repeats every fifty steps until the list is completed or updated', () => {
   let state = createTodoProgressState({
     items: incompleteItems,
     step: 0

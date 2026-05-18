@@ -82,11 +82,12 @@ test('handleSteerPendingResult persists hidden steers before the visible steer a
 
   const result = await handleSteerPendingResult(context, {
     accumulatedUsage: undefined,
-    activeRun,
+    activeRun: activeRun as unknown as Parameters<typeof handleSteerPendingResult>[1]['activeRun'],
     carriedToolFailLoopSteers: 0,
     currentRequestMessageId: 'user-start',
     loopInput: {
       enabledTools: [],
+      runMode: 'auto',
       requestMessageId: 'user-start',
       runId: 'run-1',
       runTrigger: 'local',
@@ -124,6 +125,102 @@ test('handleSteerPendingResult persists hidden steers before the visible steer a
   )
   assert.equal(result.currentRequestMessageId, 'visible-steer')
   assert.equal(runRequestMessageId, 'visible-steer')
+})
+
+test('handleSteerPendingResult carries the active snapshot tracker through hidden system steers', async () => {
+  let currentThread: ThreadRecord = {
+    id: 'thread-1',
+    title: 'Thread',
+    headMessageId: 'assistant-before-steer',
+    updatedAt: '2026-05-02T00:00:00.000Z'
+  }
+  const savedMessages: MessageRecord[] = []
+  const markedRestorePoints: string[] = []
+  const snapshotTracker = {
+    markRestorePoint: async (messageId: string) => {
+      markedRestorePoints.push(messageId)
+    }
+  }
+
+  const context: RunLoopSteerContext = {
+    deps: {
+      createId: () => 'id',
+      timestamp: () => '2026-05-02T00:00:01.000Z',
+      requireThread: () => currentThread,
+      emit: () => {},
+      storage: {
+        saveThreadMessage: ({
+          message,
+          updatedThread
+        }: {
+          message: MessageRecord
+          updatedThread: ThreadRecord
+        }) => {
+          savedMessages.push(message)
+          currentThread = updatedThread
+        },
+        updateRunRequestMessageId: () => {}
+      }
+    } as unknown as RunLoopSteerContext['deps'],
+    createSendChatFlowContext: () =>
+      ({
+        deps: context.deps
+      }) as ReturnType<RunLoopSteerContext['createSendChatFlowContext']>,
+    createFollowUpQueueContext: () =>
+      ({
+        deps: {
+          requireThread: () => currentThread,
+          loadThreadMessages: () => savedMessages,
+          loadThreadToolCalls: () => [],
+          emit: () => {}
+        }
+      }) as unknown as ReturnType<RunLoopSteerContext['createFollowUpQueueContext']>
+  }
+
+  const activeRun = {
+    threadId: 'thread-1',
+    requestMessageId: 'user-start',
+    abortController: new AbortController(),
+    executionPhase: 'generating' as const,
+    updateHeadOnComplete: true,
+    snapshotTracker,
+    pendingSteerInputs: [
+      {
+        content: 'system reminder',
+        images: [],
+        attachments: [],
+        messageId: 'hidden-steer',
+        timestamp: '2026-05-02T00:00:00.250Z',
+        hidden: true
+      }
+    ]
+  }
+
+  const result = await handleSteerPendingResult(context, {
+    accumulatedUsage: undefined,
+    activeRun: activeRun as unknown as Parameters<typeof handleSteerPendingResult>[1]['activeRun'],
+    carriedToolFailLoopSteers: 0,
+    currentRequestMessageId: 'user-start',
+    loopInput: {
+      enabledTools: [],
+      runMode: 'auto',
+      requestMessageId: 'user-start',
+      runId: 'run-1',
+      runTrigger: 'local',
+      thread: currentThread,
+      updateHeadOnComplete: true
+    } as Parameters<typeof handleSteerPendingResult>[1]['loopInput'],
+    result: {
+      kind: 'steer-pending',
+      assistantMessageId: 'assistant-before-steer'
+    }
+  })
+
+  assert.equal(result.kind, 'continue')
+  if (result.kind === 'continue') {
+    assert.equal(result.carriedSnapshotTracker, snapshotTracker)
+  }
+  assert.deepEqual(markedRestorePoints, ['hidden-steer'])
 })
 
 test('handleCancelledWithSteerResult does not queue hidden-only steers as follow-ups', () => {
@@ -193,9 +290,10 @@ test('handleCancelledWithSteerResult does not queue hidden-only steers as follow
   }
 
   const result = handleCancelledWithSteerResult(context, {
-    activeRun,
+    activeRun: activeRun as Parameters<typeof handleCancelledWithSteerResult>[1]['activeRun'],
     loopInput: {
       enabledTools: [],
+      runMode: 'auto',
       requestMessageId: 'user-start',
       runId: 'run-1',
       runTrigger: 'local',

@@ -60,6 +60,7 @@ test('completed run preview uses the last assistant text block', async () => {
     deps,
     executionInput: {
       enabledTools: [],
+      runMode: 'auto',
       runTrigger: 'local',
       inactivityTimeoutMs: 0,
       runId: 'run-1',
@@ -67,7 +68,8 @@ test('completed run preview uses the last assistant text block', async () => {
       requestMessageId: 'message-user',
       abortController: new AbortController(),
       updateHeadOnComplete: true,
-      previousEnabledTools: null
+      previousEnabledTools: null,
+      previousRunMode: null
     },
     getOutputSnapshot: () => ({
       content: 'First block\nSecond block',

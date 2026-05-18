@@ -162,6 +162,7 @@ async function autoDeliverBackgroundCompletion(
     content,
     hidden: true,
     ...(ctx?.enabledTools ? { enabledTools: ctx.enabledTools } : {}),
+    ...(ctx?.runMode ? { runMode: ctx.runMode } : {}),
     ...(ctx?.enabledSkillNames ? { enabledSkillNames: ctx.enabledSkillNames } : {}),
     ...(ctx?.reasoningEffort !== undefined ? { reasoningEffort: ctx.reasoningEffort } : {}),
     ...(ctx?.runTrigger ? { runTrigger: ctx.runTrigger } : {}),

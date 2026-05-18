@@ -1,4 +1,9 @@
-import { USER_MANAGED_TOOL_NAMES, type ToolCallName } from '../../../../shared/yachiyo/protocol.ts'
+import {
+  USER_MANAGED_TOOL_NAMES,
+  type RunModeId,
+  type ToolCallName
+} from '../../../../shared/yachiyo/protocol.ts'
+import { RUN_MODE_DEFINITIONS } from '../../../../shared/yachiyo/toolModes.ts'
 
 export interface QueryReminderSection {
   key: string
@@ -30,6 +35,22 @@ export function buildToolAvailabilityReminderSection(input: {
       ...(addedTools.length > 0 ? [`Enabled: ${addedTools.join(', ')}.`] : []),
       ...(removedTools.length > 0 ? [`Disabled: ${removedTools.join(', ')}.`] : [])
     ]
+  }
+}
+
+export function buildRunModeChangedReminderSection(input: {
+  previousRunMode: RunModeId
+  runMode: RunModeId
+}): QueryReminderSection | null {
+  if (input.previousRunMode === input.runMode || input.runMode === 'custom') {
+    return null
+  }
+
+  const mode = RUN_MODE_DEFINITIONS[input.runMode]
+  return {
+    key: 'run-mode',
+    title: `Mode changed to ${mode.label} for this turn`,
+    lines: [mode.description]
   }
 }
 

@@ -31,6 +31,7 @@ test('settings store persists multi-provider config as TOML', async () => {
   try {
     const config: Parameters<typeof store.write>[0] = {
       enabledTools: ['read', 'bash'],
+      runMode: 'custom',
       general: {
         sidebarVisibility: 'collapsed',
         sidebarPreview: true,
@@ -127,6 +128,7 @@ test('settings store persists multi-provider config as TOML', async () => {
 
     const toml = await readFile(settingsPath, 'utf8')
     assert.match(toml, /enabledTools = \[.*"read".*"bash".*\]/)
+    assert.match(toml, /runMode = "custom"/)
     assert.match(toml, /\[general\]/)
     assert.match(toml, /sidebarVisibility = "collapsed"/)
     assert.match(toml, /themeId = "mizu"/)

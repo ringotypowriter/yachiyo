@@ -101,6 +101,7 @@ test('run recovery checkpoint conversion preserves reasoning effort', () => {
     responseMessages: null,
     enabledTools: '["read"]',
     enabledSkillNames: null,
+    runMode: 'custom',
     reasoningEffort: 'off',
     runTrigger: 'channel',
     channelHint: null,
@@ -112,7 +113,9 @@ test('run recovery checkpoint conversion preserves reasoning effort', () => {
   })
 
   assert.equal(checkpoint.reasoningEffort, 'off')
+  assert.equal(checkpoint.runMode, 'custom')
   assert.equal(checkpoint.runTrigger, 'channel')
+  assert.equal(toStoredRunRecoveryCheckpointRow({ ...checkpoint, runMode: 'chat' }).runMode, 'chat')
   assert.equal(
     toStoredRunRecoveryCheckpointRow({ ...checkpoint, reasoningEffort: 'high' }).reasoningEffort,
     'high'

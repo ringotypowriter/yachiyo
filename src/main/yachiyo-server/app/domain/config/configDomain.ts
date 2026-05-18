@@ -1,9 +1,11 @@
 import {
   DEFAULT_ENABLED_TOOL_NAMES,
+  DEFAULT_RUN_MODE_ID,
   type ImportWebSearchBrowserSessionInput,
   normalizeUserEnabledTools,
   type SettingsConfig,
   type SettingsUpdatedEvent,
+  type SelectableRunModeId,
   type ToolCallName,
   type ToolPreferencesInput,
   type WebSearchBrowserImportSource,
@@ -12,6 +14,11 @@ import {
   type ProviderConfig,
   type ProviderSettings
 } from '../../../../../shared/yachiyo/protocol.ts'
+import {
+  deriveRunModeId,
+  normalizeRunModeId,
+  resolveRunModeEnabledTools
+} from '../../../../../shared/yachiyo/toolModes.ts'
 import {
   createProviderId,
   providerMatchesReference,
@@ -55,6 +62,19 @@ export function resolveEnabledTools(
   fallback: readonly ToolCallName[] = DEFAULT_ENABLED_TOOL_NAMES
 ): ToolCallName[] {
   return normalizeUserEnabledTools(value, fallback)
+}
+
+export function resolveRunModeEnabledToolsForInput(input: {
+  enabledTools?: unknown
+  runMode?: unknown
+  fallbackEnabledTools?: readonly ToolCallName[]
+}): ToolCallName[] {
+  const runMode = normalizeRunModeId(input.runMode, 'custom')
+  if (runMode !== 'custom') {
+    return resolveRunModeEnabledTools(runMode as SelectableRunModeId)
+  }
+
+  return resolveEnabledTools(input.enabledTools, input.fallbackEnabledTools)
 }
 
 function upsertProviderConfig(config: SettingsConfig, provider: ProviderConfig): SettingsConfig {
@@ -224,9 +244,23 @@ export class YachiyoServerConfigDomain {
 
   saveToolPreferences(input: ToolPreferencesInput): SettingsConfig {
     const current = this.readConfig()
+    if (input.runMode === undefined) {
+      const enabledTools = resolveEnabledTools(input.enabledTools, current.enabledTools)
+      return this.persistConfig({
+        ...current,
+        enabledTools,
+        runMode: deriveRunModeId(enabledTools)
+      })
+    }
+
+    const runMode = normalizeRunModeId(input.runMode, current.runMode ?? DEFAULT_RUN_MODE_ID)
     return this.persistConfig({
       ...current,
-      enabledTools: resolveEnabledTools(input.enabledTools, current.enabledTools)
+      enabledTools:
+        runMode === 'custom'
+          ? resolveEnabledTools(input.enabledTools, current.enabledTools)
+          : resolveRunModeEnabledTools(runMode),
+      runMode
     })
   }
 

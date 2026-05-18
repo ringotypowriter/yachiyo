@@ -4,6 +4,7 @@ import test from 'node:test'
 import {
   buildCurrentTimeSection,
   buildDisabledToolsReminderSection,
+  buildRunModeChangedReminderSection,
   buildToolAvailabilityReminderSection,
   formatDateLine,
   formatQueryReminder
@@ -55,6 +56,22 @@ test('buildToolAvailabilityReminderSection only emits changed tools', () => {
       previousEnabledTools: ['read', 'bash'],
       enabledTools: ['read', 'bash']
     }),
+    null
+  )
+})
+
+test('buildRunModeChangedReminderSection emits only when mode changes', () => {
+  assert.deepEqual(
+    buildRunModeChangedReminderSection({ previousRunMode: 'auto', runMode: 'explore' }),
+    {
+      key: 'run-mode',
+      title: 'Mode changed to Explore Mode for this turn',
+      lines: ['Read, search, inspect files, and use web sources without changing work.']
+    }
+  )
+
+  assert.equal(
+    buildRunModeChangedReminderSection({ previousRunMode: 'explore', runMode: 'explore' }),
     null
   )
 })

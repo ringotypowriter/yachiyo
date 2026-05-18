@@ -92,6 +92,7 @@ export function createSendMessageActions(input: {
       }
       try {
         const enabledTools = currentState.enabledTools
+        const runMode = currentState.runMode
         const enabledSkillNames = override
           ? normalizeSkillNames(override.enabledSkillNames ?? currentState.config?.skills?.enabled)
           : resolveEffectiveEnabledSkillNames({
@@ -214,6 +215,7 @@ export function createSendMessageActions(input: {
                 messageId: editingMessage.messageId,
                 content: trimmed,
                 enabledTools,
+                runMode,
                 enabledSkillNames: draft.enabledSkillNames !== null ? enabledSkillNames : undefined,
                 reasoningEffort,
                 ...(images.length > 0 ? { images } : {}),
@@ -222,6 +224,7 @@ export function createSendMessageActions(input: {
             : await window.api.yachiyo.sendChat({
                 content: trimmed,
                 enabledTools,
+                runMode,
                 enabledSkillNames:
                   mode === 'follow-up' || hasExplicitSkillNames ? enabledSkillNames : undefined,
                 reasoningEffort,

@@ -1,0 +1,1 @@
+ALTER TABLE `run_recovery_checkpoints` ADD `run_mode` text;

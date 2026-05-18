@@ -23,6 +23,8 @@ import type {
 } from '../types.ts'
 import {
   DEFAULT_ENABLED_TOOL_NAMES,
+  DEFAULT_RUN_MODE_ID,
+  type RunModeId,
   type SendChatRunTrigger,
   type ThreadRuntimeBinding
 } from '../../../../shared/yachiyo/protocol.ts'
@@ -217,6 +219,7 @@ export interface AppState {
   connectionStatus: ConnectionStatus
   deleteThread: (threadId: string) => Promise<void>
   enabledTools: ToolCallName[]
+  runMode: RunModeId
   subagentActiveIdsByThread: Record<string, string[]>
   subagentProgressTimelineByThread: Record<string, SubagentProgressEntry[]>
   subagentStateById: Record<string, ActiveSubagentState>
@@ -307,6 +310,7 @@ export interface AppState {
     targetThreadId?: string | null
   ) => void
   setEnabledTools: (enabledTools: ToolCallName[]) => Promise<void>
+  setRunMode: (runMode: RunModeId) => Promise<void>
   recapByThread: Record<string, string>
   scrollToMessageId: string | null
   setScrollToMessageId: (messageId: string) => void
@@ -500,6 +504,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
   },
   enabledTools: DEFAULT_ENABLED_TOOL_NAMES,
+  runMode: DEFAULT_RUN_MODE_ID,
   subagentActiveIdsByThread: {},
   subagentProgressTimelineByThread: {},
   subagentStateById: {},

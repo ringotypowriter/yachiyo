@@ -5,6 +5,7 @@ import type {
   MessageRecord,
   ProviderSettings,
   RecallDecisionSnapshot,
+  RunModeId,
   SettingsConfig,
   SkillCatalogEntry,
   SendChatRunTrigger,
@@ -44,6 +45,7 @@ import type { PendingSteerInput } from '../runTypes.ts'
 export interface ExecuteRunInput {
   enabledTools: ToolCallName[]
   enabledSkillNames?: string[]
+  runMode: RunModeId
   reasoningEffort?: ComposerReasoningSelection
   runTrigger: SendChatRunTrigger
   channelHint?: string
@@ -56,6 +58,7 @@ export interface ExecuteRunInput {
   abortController: AbortController
   updateHeadOnComplete: boolean
   previousEnabledTools: ToolCallName[] | null
+  previousRunMode: RunModeId | null
   /** Accumulated usage from prior steer legs of the same run. */
   priorUsage?: Pick<
     ModelUsage,

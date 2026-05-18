@@ -156,6 +156,8 @@ export const CORE_TOOL_NAMES = [
   'skillsRead'
 ] as const
 export type ToolCallName = (typeof CORE_TOOL_NAMES)[number]
+export type SelectableRunModeId = 'auto' | 'explore' | 'chat'
+export type RunModeId = SelectableRunModeId | 'custom'
 export type ToolCallStatus =
   | 'preparing'
   | 'running'
@@ -176,6 +178,7 @@ const defaultDisabledToolNameSet = new Set<ToolCallName>()
 export const DEFAULT_ENABLED_TOOL_NAMES = USER_MANAGED_TOOL_NAMES.filter(
   (name) => !defaultDisabledToolNameSet.has(name)
 ) as ToolCallName[]
+export const DEFAULT_RUN_MODE_ID: RunModeId = 'auto'
 export const DEFAULT_ACTIVE_RUN_ENTER_BEHAVIOR: ActiveRunEnterBehavior = 'enter-steers'
 export const DEFAULT_SIDEBAR_VISIBILITY: SidebarVisibility = 'expanded'
 export const DEFAULT_THEME_ID: ThemeId = 'mizu'
@@ -442,6 +445,7 @@ export interface MessageTurnContext {
   activityText?: string
   enabledTools?: ToolCallName[]
   enabledSkillNames?: string[]
+  runMode?: RunModeId
 }
 
 export interface MessageRecord {
@@ -976,6 +980,7 @@ export interface SettingsConfig {
   providers: ProviderConfig[]
   defaultModel?: ThreadModelOverride
   enabledTools?: ToolCallName[]
+  runMode?: RunModeId
   general?: GeneralConfig
   chat?: ChatConfig
   workspace?: WorkspaceConfig
@@ -1097,6 +1102,7 @@ export type ChatAccepted = ChatAcceptedWithUserMessage | ChatAcceptedPendingStee
 
 export interface ToolPreferencesInput {
   enabledTools?: ToolCallName[]
+  runMode?: RunModeId
 }
 
 export interface ListSkillsInput {
@@ -1128,6 +1134,7 @@ export interface SendChatInput {
   attachments?: SendChatAttachment[]
   enabledTools?: ToolCallName[]
   enabledSkillNames?: string[]
+  runMode?: RunModeId
   reasoningEffort?: ComposerReasoningSelection
   mode?: SendChatMode
   runTrigger?: SendChatRunTrigger
@@ -1162,6 +1169,7 @@ export interface RetryInput {
   messageId: string
   enabledTools?: ToolCallName[]
   enabledSkillNames?: string[]
+  runMode?: RunModeId
   reasoningEffort?: ComposerReasoningSelection
 }
 
@@ -1173,6 +1181,7 @@ export interface EditMessageInput {
   attachments?: SendChatAttachment[]
   enabledTools?: ToolCallName[]
   enabledSkillNames?: string[]
+  runMode?: RunModeId
   reasoningEffort?: ComposerReasoningSelection
 }
 

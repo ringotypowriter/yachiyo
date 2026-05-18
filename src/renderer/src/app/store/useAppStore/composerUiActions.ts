@@ -1,7 +1,12 @@
 import {
   normalizeUserEnabledTools,
-  normalizeSkillNames
+  normalizeSkillNames,
+  type RunModeId
 } from '../../../../../shared/yachiyo/protocol.ts'
+import {
+  deriveRunModeId,
+  resolveRunModeEnabledTools
+} from '../../../../../shared/yachiyo/toolModes.ts'
 import { isComposerReasoningSelection } from '../../../../../shared/yachiyo/reasoningEffort.ts'
 import { isExternalThread } from '../../../features/threads/lib/threadVisibility.ts'
 import type { AppState, ComposerFileDraft, ComposerImageDraft } from '../useAppStore.ts'
@@ -31,6 +36,7 @@ export function createComposerUiActions(input: {
 }): Pick<
   AppState,
   | 'setEnabledTools'
+  | 'setRunMode'
   | 'setActiveThread'
   | 'setScrollToMessageId'
   | 'clearScrollToMessageId'
@@ -61,25 +67,35 @@ export function createComposerUiActions(input: {
   return {
     setEnabledTools: async (enabledTools) => {
       const previousEnabledTools = get().enabledTools
+      const previousRunMode = get().runMode
       const nextEnabledTools = normalizeUserEnabledTools(enabledTools, previousEnabledTools)
+      const nextRunMode = deriveRunModeId(nextEnabledTools)
 
-      if (areEnabledToolsEqual(previousEnabledTools, nextEnabledTools)) {
+      if (
+        areEnabledToolsEqual(previousEnabledTools, nextEnabledTools) &&
+        previousRunMode === nextRunMode
+      ) {
         return
       }
 
       set((state) => ({
-        config: state.config ? { ...state.config, enabledTools: nextEnabledTools } : state.config,
+        config: state.config
+          ? { ...state.config, enabledTools: nextEnabledTools, runMode: nextRunMode }
+          : state.config,
         enabledTools: nextEnabledTools,
+        runMode: nextRunMode,
         lastError: null
       }))
 
       try {
         const config = await window.api.yachiyo.saveToolPreferences({
-          enabledTools: nextEnabledTools
+          enabledTools: nextEnabledTools,
+          runMode: nextRunMode
         })
         set({
           config,
           enabledTools: normalizeUserEnabledTools(config.enabledTools, nextEnabledTools),
+          runMode: config.runMode ?? nextRunMode,
           lastError: null
         })
       } catch (error) {
@@ -87,13 +103,19 @@ export function createComposerUiActions(input: {
           error instanceof Error ? error.message : 'Unable to update tool availability.'
         set((state) => ({
           config: state.config
-            ? { ...state.config, enabledTools: previousEnabledTools }
+            ? { ...state.config, enabledTools: previousEnabledTools, runMode: previousRunMode }
             : state.config,
           enabledTools: previousEnabledTools,
+          runMode: previousRunMode,
           lastError: message
         }))
         throw error
       }
+    },
+
+    setRunMode: async (runMode: RunModeId) => {
+      if (runMode === 'custom') return
+      await get().setEnabledTools(resolveRunModeEnabledTools(runMode))
     },
 
     setActiveThread: (id, scrollToMessageId) => {
