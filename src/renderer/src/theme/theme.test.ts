@@ -67,7 +67,7 @@ test('theme resolver lets explicit appearance override the system variant', () =
 test('theme catalog exposes coordinated light and dark preview stripes', () => {
   assert.deepEqual(
     THEME_OPTIONS.map((option) => option.id),
-    ['mizu', 'sumi', 'ume', 'aoba', 'mint', 'fuji']
+    ['mizu', 'sumi', 'ume', 'aoba', 'mint', 'fuji', 'yamabuki']
   )
 
   for (const option of THEME_OPTIONS) {

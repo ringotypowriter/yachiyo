@@ -295,6 +295,39 @@ export const THEME_OPTIONS: readonly ThemeOption[] = [
         accentStrong: '212 188 232'
       })
     }
+  },
+  {
+    id: 'yamabuki',
+    label: 'Yamabuki',
+    description: 'Golden kerria bloom.',
+    palettes: {
+      light: lightPalette({
+        ink: '46 44 40',
+        textSecondary: '92 88 82',
+        textTertiary: '109 104 96',
+        textMuted: '145 139 130',
+        textPlaceholder: '172 166 156',
+        app: '247 245 238',
+        canvas: '252 250 244',
+        sidebar: '239 233 218',
+        surface: '255 255 255',
+        accent: '202 156 72',
+        accentStrong: '168 126 48'
+      }),
+      dark: darkPalette({
+        ink: '242 240 236',
+        textSecondary: '210 206 198',
+        textTertiary: '166 160 150',
+        textMuted: '131 126 116',
+        textPlaceholder: '101 96 86',
+        app: '30 28 23',
+        canvas: '35 33 27',
+        sidebar: '42 38 30',
+        surface: '48 44 36',
+        accent: '220 180 100',
+        accentStrong: '236 200 128'
+      })
+    }
   }
 ]
 
@@ -304,7 +337,8 @@ const themeOptionsById: Record<ThemeId, ThemeOption> = {
   ume: THEME_OPTIONS[2],
   aoba: THEME_OPTIONS[3],
   mint: THEME_OPTIONS[4],
-  fuji: THEME_OPTIONS[5]
+  fuji: THEME_OPTIONS[5],
+  yamabuki: THEME_OPTIONS[6]
 }
 
 export function getThemeOption(themeId: ThemeId): ThemeOption {
