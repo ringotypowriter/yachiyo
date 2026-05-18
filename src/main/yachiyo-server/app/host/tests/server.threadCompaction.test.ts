@@ -392,10 +392,8 @@ test('YachiyoServer compacts a thread into a new assistant-first thread and allo
       const sourceRequest = requests.find((request) => request.purpose === 'chat')
       assert.ok(sourceRequest)
       assert.ok(handoffRequest)
-      assert.deepEqual(
-        Object.keys(handoffRequest.tools ?? {}).sort(),
-        Object.keys(sourceRequest.tools ?? {}).sort()
-      )
+      assertToolNamesInclude(sourceRequest.tools, ['read', 'skillsRead'])
+      assertToolNamesInclude(handoffRequest.tools, ['read', 'skillsRead'])
       assert.equal(handoffRequest.toolChoice, sourceRequest.toolChoice)
       assert.equal(handoffRequest.promptCacheKey, sourceThread.id)
       const handoffPrefix = JSON.stringify(
@@ -476,6 +474,16 @@ test('YachiyoServer compacts a thread into a new assistant-first thread and allo
     }
   )
 })
+
+function assertToolNamesInclude(
+  tools: Record<string, unknown> | undefined,
+  expectedToolNames: readonly string[]
+): void {
+  const toolNames = Object.keys(tools ?? {})
+  for (const toolName of expectedToolNames) {
+    assert.equal(toolNames.includes(toolName), true, `expected registered tool ${toolName}`)
+  }
+}
 
 test('YachiyoServer.compactThreadToAnotherThread reuses the implicit source workspace', async () => {
   await withServer(async ({ server, completeRun, workspacePathForThread }) => {

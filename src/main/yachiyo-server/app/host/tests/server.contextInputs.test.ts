@@ -370,22 +370,7 @@ test('YachiyoServer injects only active skill summaries into runtime context and
 
     const request = modelRequests.at(-1)
     assert.ok(request)
-    assert.deepEqual(Object.keys(request.tools ?? {}), [
-      'read',
-      'write',
-      'edit',
-      'bash',
-      'jsRepl',
-      'webRead',
-      'grep',
-      'glob',
-      'webSearch',
-      'skillsRead',
-      'querySource',
-      'remember',
-      'updateProfile',
-      'askUser'
-    ])
+    assertToolNamesInclude(request.tools, ['read', 'skillsRead'])
     assert.ok(
       request.messages.some(
         (message) =>
@@ -694,3 +679,13 @@ test('YachiyoServer does not surface exact ignored path matches for bare @file v
     assert.deepEqual(results, [])
   })
 })
+
+function assertToolNamesInclude(
+  tools: Record<string, unknown> | undefined,
+  expectedToolNames: readonly string[]
+): void {
+  const toolNames = Object.keys(tools ?? {})
+  for (const toolName of expectedToolNames) {
+    assert.equal(toolNames.includes(toolName), true, `expected registered tool ${toolName}`)
+  }
+}

@@ -17,6 +17,7 @@ import { createRunEventMetadata } from '../../shared/runEventMetadata.ts'
 import { streamCompactThreadHandoff } from '../handoff/threadHandoffRun.ts'
 import type { RunDomainDeps, RunState } from '../runTypes.ts'
 import type { ThreadTitleGenerationRunner } from '../title/threadTitleGeneration.ts'
+import { createTodoProgressState } from '../todo/todoProgress.ts'
 
 export interface ActiveRunLoopInput {
   enabledTools: ToolCallName[]
@@ -66,6 +67,9 @@ export function startActiveRun(context: ActiveRunStartContext, input: StartActiv
     abortController: new AbortController(),
     executionPhase: 'generating',
     updateHeadOnComplete: input.updateHeadOnComplete,
+    ...(input.thread.todoItems
+      ? { todoProgress: createTodoProgressState({ items: input.thread.todoItems, step: 0 }) }
+      : {}),
     ...(input.recap ? { recap: true } : {})
   })
   context.activeRunByThread.set(input.thread.id, input.runId)
@@ -157,7 +161,10 @@ export function startRecoveredRun(
     recoveryCheckpoint: checkpoint,
     abortController: new AbortController(),
     executionPhase: 'generating',
-    updateHeadOnComplete: checkpoint.updateHeadOnComplete
+    updateHeadOnComplete: checkpoint.updateHeadOnComplete,
+    ...(thread.todoItems
+      ? { todoProgress: createTodoProgressState({ items: thread.todoItems, step: 0 }) }
+      : {})
   })
   context.activeRunByThread.set(checkpoint.threadId, checkpoint.runId)
 

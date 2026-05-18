@@ -168,6 +168,37 @@ test('updateTodoList keeps an existing id when the item text changes in place', 
   ])
 })
 
+test('updateTodoList gives new ids to a new list after the previous list completed', async () => {
+  const emitted: TodoItemRecord[][] = []
+  const tool = createUpdateTodoListTool({
+    getCurrentItems: () => [
+      { id: 'old-1', content: 'Inspect the existing flow', status: 'completed' },
+      { id: 'old-2', content: 'Verify the result', status: 'completed' }
+    ],
+    createId: createSequentialId(),
+    onUpdate: (items) => {
+      emitted.push(items)
+    }
+  })
+
+  await tool.execute!(
+    {
+      items: [
+        { content: 'Plan the next feature', status: 'in_progress' },
+        { content: 'Implement the next feature', status: 'pending' }
+      ]
+    },
+    { abortSignal: AbortSignal.timeout(5000), toolCallId: 'todo-5', messages: [] }
+  )
+
+  assert.deepEqual(emitted, [
+    [
+      { id: 'todo-1', content: 'Plan the next feature', status: 'in_progress' },
+      { id: 'todo-2', content: 'Implement the next feature', status: 'pending' }
+    ]
+  ])
+})
+
 function createSequentialId(): () => string {
   let nextId = 1
   return () => `todo-${nextId++}`

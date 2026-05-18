@@ -292,6 +292,10 @@ export function createThreadLifecycleActions(input: {
               ...collectThreadReasoningEfforts([...payload.threads, ...payload.archivedThreads])
             },
             settings: payload.settings ?? state.settings ?? DEFAULT_SETTINGS,
+            todoListsByThread: collectThreadTodoLists([
+              ...payload.threads,
+              ...payload.archivedThreads
+            ]),
             threads: sortThreads(payload.threads),
             folders: payload.folders ?? [],
             toolCalls: payload.toolCallsByThread
@@ -531,4 +535,18 @@ export function createThreadLifecycleActions(input: {
       set((s) => ({ threads: upsertThread(s.threads, updatedThread) }))
     }
   }
+}
+
+function collectThreadTodoLists(threads: AppState['threads']): AppState['todoListsByThread'] {
+  return Object.fromEntries(
+    threads
+      .filter((thread) => thread.todoItems && thread.todoItems.length > 0)
+      .map((thread) => [
+        thread.id,
+        {
+          items: thread.todoItems!.map((item) => ({ ...item })),
+          updatedAt: thread.updatedAt
+        }
+      ])
+  )
 }

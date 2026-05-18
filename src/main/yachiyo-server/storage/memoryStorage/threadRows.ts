@@ -4,6 +4,7 @@ import {
   serializeModelOverride,
   serializeReasoningSelection,
   serializeRuntimeBinding,
+  serializeTodoItems,
   serializeThreadMemoryRecallState,
   toThreadRecord,
   type StoredThreadRow
@@ -49,6 +50,7 @@ export function createStoredThreadRow(thread: ThreadRecord, createdAt: string): 
     createdFromScheduleId: thread.createdFromScheduleId ?? null,
     runtimeBinding: serializeRuntimeBinding(thread.runtimeBinding),
     lastDelegatedSession: serializeLastDelegatedSession(thread.lastDelegatedSession),
+    todoItems: serializeTodoItems(thread.todoItems),
     recapText: thread.recapText ?? null,
     updatedAt: thread.updatedAt,
     createdAt
@@ -88,6 +90,7 @@ export function applyThreadSnapshot(
   storedThread.summaryWatermarkMessageId = nextThread.summaryWatermarkMessageId ?? null
   storedThread.runtimeBinding = serializeRuntimeBinding(nextThread.runtimeBinding)
   storedThread.lastDelegatedSession = serializeLastDelegatedSession(nextThread.lastDelegatedSession)
+  storedThread.todoItems = serializeTodoItems(nextThread.todoItems)
   storedThread.recapText = nextThread.recapText ?? null
   storedThread.starredAt = nextThread.starredAt ?? null
   storedThread.title = nextThread.title

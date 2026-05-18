@@ -1,0 +1,1 @@
+ALTER TABLE `threads` ADD `todo_items` text;

@@ -28,6 +28,7 @@ import type {
   ThreadRuntimeBinding,
   ThreadRecord,
   ThreadSearchResult,
+  TodoItemRecord,
   ToolCallDetailsSnapshot,
   ToolCallName,
   ToolCallRecord,
@@ -75,6 +76,7 @@ export interface StoredThreadRow {
   createdFromScheduleId: string | null
   runtimeBinding: string | null
   lastDelegatedSession: string | null
+  todoItems: string | null
   recapText: string | null
   updatedAt: string
   createdAt: string
@@ -464,6 +466,7 @@ export function toThreadRecord(
     | 'createdFromScheduleId'
     | 'runtimeBinding'
     | 'lastDelegatedSession'
+    | 'todoItems'
     | 'recapText'
     | 'title'
     | 'updatedAt'
@@ -478,6 +481,7 @@ export function toThreadRecord(
   const modelOverride = parseModelOverride(row.modelOverride)
   const runtimeBinding = parseRuntimeBinding(row.runtimeBinding)
   const lastDelegatedSession = parseLastDelegatedSession(row.lastDelegatedSession)
+  const todoItems = parseTodoItems(row.todoItems)
   const source = parseThreadSource(row.source)
 
   if (row.preview === null) {
@@ -519,6 +523,7 @@ export function toThreadRecord(
         : { createdFromScheduleId: row.createdFromScheduleId }),
       ...(runtimeBinding ? { runtimeBinding } : {}),
       ...(lastDelegatedSession ? { lastDelegatedSession } : {}),
+      ...(todoItems ? { todoItems } : {}),
       ...(row.recapText === null ? {} : { recapText: row.recapText }),
       id: row.id,
       title: row.title,
@@ -561,6 +566,7 @@ export function toThreadRecord(
       : { createdFromScheduleId: row.createdFromScheduleId }),
     ...(runtimeBinding ? { runtimeBinding } : {}),
     ...(lastDelegatedSession ? { lastDelegatedSession } : {}),
+    ...(todoItems ? { todoItems } : {}),
     ...(row.recapText === null ? {} : { recapText: row.recapText }),
     id: row.id,
     preview: row.preview,
@@ -609,6 +615,10 @@ export function serializeLastDelegatedSession(
   return session ? JSON.stringify(session) : null
 }
 
+export function serializeTodoItems(items?: readonly TodoItemRecord[]): string | null {
+  return items && items.length > 0 ? JSON.stringify(items.map((item) => ({ ...item }))) : null
+}
+
 export function parseLastDelegatedSession(
   value: string | null
 ): ThreadRecord['lastDelegatedSession'] {
@@ -632,6 +642,37 @@ export function parseLastDelegatedSession(
   } catch {
     return undefined
   }
+}
+
+export function parseTodoItems(value: string | null): TodoItemRecord[] | undefined {
+  if (!value) return undefined
+  try {
+    const parsed = JSON.parse(value) as unknown
+    if (!Array.isArray(parsed)) return undefined
+
+    const items: TodoItemRecord[] = []
+    for (const item of parsed) {
+      if (!isTodoItemRecord(item)) return undefined
+      items.push({ ...item })
+    }
+    return items.length > 0 ? items : undefined
+  } catch {
+    return undefined
+  }
+}
+
+function isTodoItemRecord(value: unknown): value is TodoItemRecord {
+  if (typeof value !== 'object' || value === null) return false
+  const candidate = value as Record<string, unknown>
+  return (
+    typeof candidate.id === 'string' &&
+    candidate.id.trim().length > 0 &&
+    typeof candidate.content === 'string' &&
+    candidate.content.trim().length > 0 &&
+    (candidate.status === 'pending' ||
+      candidate.status === 'in_progress' ||
+      candidate.status === 'completed')
+  )
 }
 
 export function toMessageRecord(row: StoredMessageRow): MessageRecord {

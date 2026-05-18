@@ -64,6 +64,7 @@ function resetStore(): void {
     },
     threadListMode: 'active',
     threads: [],
+    todoListsByThread: {},
     toolCalls: {}
   })
 }
@@ -212,6 +213,10 @@ test('initialize hydrates the active thread run history after bootstrap', async 
           id: 'thread-1',
           title: 'Thread 1',
           reasoningEffort: 'high',
+          todoItems: [
+            { id: 'todo-1', content: 'Inspect the flow', status: 'completed' },
+            { id: 'todo-2', content: 'Persist the widget', status: 'in_progress' }
+          ],
           updatedAt: TIMESTAMP
         },
         {
@@ -311,6 +316,13 @@ test('initialize hydrates the active thread run history after bootstrap', async 
     assert.equal(state.activeThreadId, 'thread-1')
     assert.equal(state.reasoningEffortByThread['thread-1'], 'high')
     assert.equal(getComposerReasoningEffort(state, 'thread-1'), 'high')
+    assert.deepEqual(state.todoListsByThread['thread-1'], {
+      items: [
+        { id: 'todo-1', content: 'Inspect the flow', status: 'completed' },
+        { id: 'todo-2', content: 'Persist the widget', status: 'in_progress' }
+      ],
+      updatedAt: TIMESTAMP
+    })
     assert.deepEqual(state.runsByThread['thread-1'], [
       {
         id: 'run-older',

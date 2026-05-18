@@ -76,9 +76,17 @@ function assignTodoItemIds(
 ): TodoItemRecord[] {
   const usedCurrentIndexes = new Set<number>()
   const usedIds = new Set<string>()
+  const allowIndexFallback = currentItems.some((item) => item.status !== 'completed')
 
   return inputItems.map((item, index) => {
-    const existing = findExistingTodoItem(currentItems, item, index, usedCurrentIndexes, usedIds)
+    const existing = findExistingTodoItem(
+      currentItems,
+      item,
+      index,
+      usedCurrentIndexes,
+      usedIds,
+      allowIndexFallback
+    )
     const id = existing ? existing.item.id : createUniqueTodoItemId(createId, usedIds)
 
     if (existing) {
@@ -99,7 +107,8 @@ function findExistingTodoItem(
   inputItem: UpdateTodoListToolInputItem,
   inputIndex: number,
   usedCurrentIndexes: ReadonlySet<number>,
-  usedIds: ReadonlySet<string>
+  usedIds: ReadonlySet<string>,
+  allowIndexFallback: boolean
 ): { index: number; item: TodoItemRecord } | undefined {
   const contentMatchIndex = currentItems.findIndex(
     (item, index) =>
@@ -109,7 +118,7 @@ function findExistingTodoItem(
     return { index: contentMatchIndex, item: currentItems[contentMatchIndex]! }
   }
 
-  const itemAtSameIndex = currentItems[inputIndex]
+  const itemAtSameIndex = allowIndexFallback ? currentItems[inputIndex] : undefined
   if (itemAtSameIndex && !usedCurrentIndexes.has(inputIndex) && !usedIds.has(itemAtSameIndex.id)) {
     return { index: inputIndex, item: itemAtSameIndex }
   }

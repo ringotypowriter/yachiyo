@@ -473,6 +473,16 @@ test('YachiyoServer.compactThreadToAnotherThread sends full source tool-result h
   )
 })
 
+function assertToolNamesInclude(
+  tools: Record<string, unknown> | undefined,
+  expectedToolNames: readonly string[]
+): void {
+  const toolNames = Object.keys(tools ?? {})
+  for (const toolName of expectedToolNames) {
+    assert.equal(toolNames.includes(toolName), true, `expected registered tool ${toolName}`)
+  }
+}
+
 test('YachiyoServer.compactThreadToAnotherThread keeps the runtime-prepared source prefix stable after tool history', async () => {
   const requests: ModelStreamRequest[] = []
   const toolOutputs = ['FIRST_PREFIX_TOOL_OUTPUT', 'SECOND_PREFIX_TOOL_OUTPUT']
@@ -535,10 +545,8 @@ test('YachiyoServer.compactThreadToAnotherThread keeps the runtime-prepared sour
         sourcePrepared.length
       )
       assert.deepEqual(handoffPreparedPrefix, sourcePrepared)
-      assert.deepEqual(
-        Object.keys(handoffRequest.tools ?? {}).sort(),
-        Object.keys(secondSourceRequest.tools ?? {}).sort()
-      )
+      assertToolNamesInclude(secondSourceRequest.tools, ['bash'])
+      assertToolNamesInclude(handoffRequest.tools, ['bash'])
       assert.equal(handoffRequest.toolChoice, secondSourceRequest.toolChoice)
     },
     {

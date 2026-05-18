@@ -1,4 +1,5 @@
 import type { ToolCallDetailsSnapshot } from './protocol/toolDetails.ts'
+import type { TodoItemRecord } from './protocol/events.ts'
 
 export * from './protocol/toolDetails.ts'
 export * from './protocol/usageStats.ts'
@@ -397,6 +398,8 @@ export interface ThreadRecord {
     workspacePath: string
     timestamp: string
   }
+  /** Current persistent todo widget snapshot for this thread. */
+  todoItems?: TodoItemRecord[]
   recapText?: string
 }
 

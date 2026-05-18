@@ -90,6 +90,7 @@ export function createSqliteBootstrapStorageMethods(input: {
           createdFromScheduleId: threadsTable.createdFromScheduleId,
           runtimeBinding: threadsTable.runtimeBinding,
           lastDelegatedSession: threadsTable.lastDelegatedSession,
+          todoItems: threadsTable.todoItems,
           recapText: threadsTable.recapText,
           title: threadsTable.title,
           updatedAt: threadsTable.updatedAt,

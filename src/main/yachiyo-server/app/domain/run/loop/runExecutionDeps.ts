@@ -155,7 +155,13 @@ export function buildRunExecutionDeps(
       injectHiddenRunSteer(context, input, activeRun, steerInput.content)
     },
     getTodoItems: () => {
-      return context.activeRuns.get(input.loopInput.runId)?.todoProgress?.items ?? []
+      const currentRun = context.activeRuns.get(input.loopInput.runId)
+      return (
+        currentRun?.todoProgress?.items ??
+        input.storage.getThread(input.loopInput.thread.id)?.todoItems ??
+        deps.requireThread(input.loopInput.thread.id).todoItems ??
+        []
+      )
     },
     onTodoListUpdated: ({ items, step }) => {
       const currentRun = context.activeRuns.get(input.loopInput.runId)
@@ -163,9 +169,19 @@ export function buildRunExecutionDeps(
         return
       }
 
+      const updatedThread = {
+        ...(input.storage.getThread(input.loopInput.thread.id) ??
+          deps.requireThread(input.loopInput.thread.id))
+      }
+      if (items.length > 0) {
+        updatedThread.todoItems = items.map((item) => ({ ...item }))
+      } else {
+        delete updatedThread.todoItems
+      }
+      input.storage.updateThread(updatedThread)
       currentRun.agentStepCount = step
       currentRun.todoProgress = createTodoProgressState({ items, step })
-      deps.emit<TodoUpdatedEvent>({
+      input.emit<TodoUpdatedEvent>({
         type: 'todo.updated',
         ...createRunEventMetadata({
           threadId: input.loopInput.thread.id,
