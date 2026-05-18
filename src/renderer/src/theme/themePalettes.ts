@@ -262,6 +262,39 @@ export const THEME_OPTIONS: readonly ThemeOption[] = [
         accentStrong: '194 246 237'
       })
     }
+  },
+  {
+    id: 'fuji',
+    label: 'Fuji',
+    description: 'Soft wisteria fields.',
+    palettes: {
+      light: lightPalette({
+        ink: '46 42 48',
+        textSecondary: '92 86 96',
+        textTertiary: '109 102 114',
+        textMuted: '144 136 152',
+        textPlaceholder: '172 164 180',
+        app: '242 238 247',
+        canvas: '248 245 252',
+        sidebar: '231 224 241',
+        surface: '255 255 255',
+        accent: '172 142 202',
+        accentStrong: '138 108 168'
+      }),
+      dark: darkPalette({
+        ink: '241 238 245',
+        textSecondary: '209 204 217',
+        textTertiary: '165 158 178',
+        textMuted: '130 123 145',
+        textPlaceholder: '100 93 115',
+        app: '27 24 31',
+        canvas: '32 28 36',
+        sidebar: '38 33 45',
+        surface: '44 39 51',
+        accent: '192 168 220',
+        accentStrong: '212 188 232'
+      })
+    }
   }
 ]
 
@@ -270,7 +303,8 @@ const themeOptionsById: Record<ThemeId, ThemeOption> = {
   sumi: THEME_OPTIONS[1],
   ume: THEME_OPTIONS[2],
   aoba: THEME_OPTIONS[3],
-  mint: THEME_OPTIONS[4]
+  mint: THEME_OPTIONS[4],
+  fuji: THEME_OPTIONS[5]
 }
 
 export function getThemeOption(themeId: ThemeId): ThemeOption {
