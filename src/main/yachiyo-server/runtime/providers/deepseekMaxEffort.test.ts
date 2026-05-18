@@ -268,12 +268,17 @@ test('createAnthropicLanguageModel installs max-effort fetch for deepseek-v4-pro
   assert.deepEqual(capturedBody?.output_config, { effort: 'max' })
 })
 
-test('createAnthropicLanguageModel skips max-effort fetch when thinking is disabled', () => {
+test('createAnthropicLanguageModel skips max-effort fetch when thinking is disabled', async () => {
   let anthropicOptions:
     | {
         fetch?: typeof globalThis.fetch
       }
     | undefined
+  let capturedBody: Record<string, unknown> | undefined
+  const transport = async (_input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+    capturedBody = JSON.parse(init?.body as string) as Record<string, unknown>
+    return new Response('{}')
+  }
 
   createAnthropicLanguageModel(
     {
@@ -289,9 +294,14 @@ test('createAnthropicLanguageModel skips max-effort fetch when thinking is disab
         anthropicOptions = options
         return ((modelId: string) => ({ modelId, provider: 'anthropic' })) as never
       },
-      fetchImpl: async (): Promise<Response> => new Response('{}')
+      fetchImpl: transport
     } as never
   )
 
-  assert.equal(anthropicOptions?.fetch, undefined)
+  assert.ok(anthropicOptions?.fetch)
+  await anthropicOptions.fetch('https://api.deepseek.com/anthropic/messages', {
+    method: 'POST',
+    body: JSON.stringify({ model: 'deepseek-v4-pro', messages: [] })
+  })
+  assert.deepEqual(capturedBody, { model: 'deepseek-v4-pro', messages: [] })
 })
