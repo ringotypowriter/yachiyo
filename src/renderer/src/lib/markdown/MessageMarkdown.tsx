@@ -1,6 +1,12 @@
 import type React from 'react'
 import { memo, useCallback, useMemo } from 'react'
-import type { Components, LinkSafetyConfig, PluginConfig, UrlTransform } from 'streamdown'
+import type {
+  Components,
+  LinkSafetyConfig,
+  MermaidOptions,
+  PluginConfig,
+  UrlTransform
+} from 'streamdown'
 import { Streamdown } from 'streamdown'
 import type { PluggableList } from 'unified'
 import { MarkdownErrorBoundary } from './MarkdownErrorBoundary'
@@ -24,6 +30,8 @@ import {
 import { getMessageMarkdownAnimation } from './messageMarkdownAnimation'
 import type { InlineCodeFileLinkSnapshot } from './inlineCodeFileLinkSnapshot'
 import { splitStreamingMarkdownSegments } from './streamingMarkdownSegments'
+import { createMermaidOptions, useDocumentThemeVariant } from './mermaidTheme'
+import type { ThemeVariant } from '../../theme/theme'
 
 function waitForNextPaint(): Promise<void> {
   return new Promise((resolve) => {
@@ -52,6 +60,8 @@ interface MarkdownStreamdownProps {
   linkSafety: LinkSafetyConfig
   components: Components
   plugins: PluginConfig
+  mermaidOptions: MermaidOptions
+  mermaidThemeKey: ThemeVariant
   rehypePlugins: PluggableList
   urlTransform?: UrlTransform
 }
@@ -62,6 +72,8 @@ const MarkdownStreamdown = memo(function MarkdownStreamdown({
   linkSafety,
   components,
   plugins,
+  mermaidOptions,
+  mermaidThemeKey,
   rehypePlugins,
   urlTransform
 }: MarkdownStreamdownProps): React.JSX.Element {
@@ -69,12 +81,14 @@ const MarkdownStreamdown = memo(function MarkdownStreamdown({
 
   return (
     <Streamdown
+      key={mermaidThemeKey}
       isAnimating={isStreaming}
       animated={animated}
       caret={isStreaming ? 'circle' : undefined}
       mode={isStreaming ? 'streaming' : 'static'}
       controls={true}
       plugins={plugins}
+      mermaid={mermaidOptions}
       rehypePlugins={rehypePlugins}
       linkSafety={linkSafety}
       components={components}
@@ -141,6 +155,11 @@ export function MessageMarkdown({
   }, [imageTransformOptions, imagesEnabled])
 
   const plugins = useMemo<PluginConfig>(() => ({ math: mathPlugin, mermaid, code }), [])
+  const themeVariant = useDocumentThemeVariant()
+  const mermaidOptions = useMemo<MermaidOptions>(
+    () => createMermaidOptions(themeVariant),
+    [themeVariant]
+  )
   const handleClickCapture = useCallback((event: React.MouseEvent<HTMLDivElement>): void => {
     const svg = findMermaidPngExportSvg(event.target)
     if (!svg) return
@@ -182,6 +201,8 @@ export function MessageMarkdown({
                     linkSafety={linkSafety}
                     components={components}
                     plugins={plugins}
+                    mermaidOptions={mermaidOptions}
+                    mermaidThemeKey={themeVariant}
                     rehypePlugins={rehypePlugins}
                     urlTransform={urlTransform}
                   />
@@ -197,6 +218,8 @@ export function MessageMarkdown({
                   linkSafety={linkSafety}
                   components={components}
                   plugins={plugins}
+                  mermaidOptions={mermaidOptions}
+                  mermaidThemeKey={themeVariant}
                   rehypePlugins={rehypePlugins}
                   urlTransform={urlTransform}
                 />
@@ -210,6 +233,8 @@ export function MessageMarkdown({
               linkSafety={linkSafety}
               components={components}
               plugins={plugins}
+              mermaidOptions={mermaidOptions}
+              mermaidThemeKey={themeVariant}
               rehypePlugins={rehypePlugins}
               urlTransform={urlTransform}
             />
