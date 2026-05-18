@@ -1,5 +1,11 @@
 # yachiyo
 
+## 1.1.7
+
+### Patch Changes
+
+- [`579f9c4`](https://github.com/ringotypowriter/yachiyo/commit/579f9c4bdc497b2a216931458eaceb89fe1edd18) Thanks [@ringotypowriter](https://github.com/ringotypowriter)! - Brand New Activity System & Working Summary & Query Source for Universal Context
+
 ## 1.1.6
 
 ### Patch Changes
