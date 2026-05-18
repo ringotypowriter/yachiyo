@@ -123,10 +123,7 @@ export function summarizeMessageInput(input: MessagePayloadLike): string {
 
 export function summarizeMessagePreview(input: MessagePayloadLike): string {
   if (input.role === 'assistant' && input.textBlocks && input.textBlocks.length > 0) {
-    for (let index = input.textBlocks.length - 1; index >= 0; index -= 1) {
-      const text = input.textBlocks[index]?.content.trim()
-      if (text) return text
-    }
+    return input.textBlocks.at(-1)!.content.trim()
   }
 
   return summarizeMessageInput(input)

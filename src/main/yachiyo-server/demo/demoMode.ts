@@ -6,6 +6,7 @@ import type {
   ThreadRecord,
   ToolCallRecord
 } from '../../../shared/yachiyo/protocol.ts'
+import { summarizeMessagePreview } from '../../../shared/yachiyo/messageContent.ts'
 import { withThreadCapabilities } from '../../../shared/yachiyo/protocol.ts'
 import { createInMemoryYachiyoStorage } from '../storage/memoryStorage.ts'
 import type { YachiyoStorage } from '../storage/storage.ts'
@@ -250,7 +251,7 @@ function createAgenticChatThread(storage: YachiyoStorage): ThreadRecord {
     icon: '🌐',
     title: 'Update pricing docs from live source',
     workspacePath: DEMO_WORKSPACE_PATH,
-    preview: assistantMessage.content,
+    preview: summarizeMessagePreview(assistantMessage),
     updatedAt: assistantMessage.createdAt,
     rollingSummary:
       'Earlier turns compared provider docs and concluded Gemini was the only page still mixing current rates with historical launch-era copy.',
@@ -303,7 +304,7 @@ function createAgenticChatThread(storage: YachiyoStorage): ThreadRecord {
     updatedThread: withThreadCapabilities({
       ...thread,
       headMessageId: userMessage.id,
-      preview: userMessage.content,
+      preview: summarizeMessagePreview(userMessage),
       updatedAt: userMessage.createdAt
     }),
     requestMessageId: userMessage.id,
@@ -624,7 +625,7 @@ function createCodingDispatchThread(storage: YachiyoStorage): ThreadRecord {
     icon: '🧪',
     title: 'Delegate auth review to coding agents',
     workspacePath: DEMO_WORKSPACE_PATH,
-    preview: assistantMessage.content,
+    preview: summarizeMessagePreview(assistantMessage),
     updatedAt: assistantMessage.createdAt,
     runtimeBinding: {
       kind: 'acp',
@@ -662,7 +663,7 @@ function createCodingDispatchThread(storage: YachiyoStorage): ThreadRecord {
     updatedThread: withThreadCapabilities({
       ...thread,
       headMessageId: userMessage.id,
-      preview: userMessage.content,
+      preview: summarizeMessagePreview(userMessage),
       updatedAt: userMessage.createdAt
     }),
     requestMessageId: userMessage.id,
@@ -838,13 +839,13 @@ function createReplyBranchingThread(storage: YachiyoStorage): ThreadRecord {
     icon: '🌿',
     title: 'Choose release note tone',
     workspacePath: DEMO_WORKSPACE_PATH,
-    preview: selectedReply.content,
+    preview: summarizeMessagePreview(selectedReply),
     updatedAt: selectedReply.createdAt,
     headMessageId: selectedReply.id
   })
   const completedThread = withThreadCapabilities({
     ...initialThread,
-    preview: completedReply.content,
+    preview: summarizeMessagePreview(completedReply),
     updatedAt: completedReply.createdAt,
     headMessageId: completedReply.id,
     createdFromEssentialId: 'launch-ops',
@@ -867,7 +868,7 @@ function createReplyBranchingThread(storage: YachiyoStorage): ThreadRecord {
     thread: initialThread,
     updatedThread: withThreadCapabilities({
       ...completedThread,
-      preview: queuedFollowUp.content,
+      preview: summarizeMessagePreview(queuedFollowUp),
       updatedAt: queuedFollowUp.createdAt,
       headMessageId: queuedFollowUp.id
     }),
@@ -993,7 +994,7 @@ function createArchivedHandoffThread(storage: YachiyoStorage): ThreadRecord {
     id: 'demo-thread-archived-handoff',
     title: 'Archive launch ops handoff',
     workspacePath: DEMO_WORKSPACE_PATH,
-    preview: assistantMessage.content,
+    preview: summarizeMessagePreview(assistantMessage),
     updatedAt: assistantMessage.createdAt,
     headMessageId: assistantMessage.id,
     privacyMode: true,

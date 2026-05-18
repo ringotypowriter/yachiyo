@@ -21,6 +21,7 @@ import type {
   ToolCallRecord,
   ToolCallUpdatedEvent
 } from '../../../../shared/yachiyo/protocol.ts'
+import { summarizeMessagePreview } from '../../../../shared/yachiyo/messageContent.ts'
 import type { YachiyoStorage } from '../../storage/storage.ts'
 import {
   createDeltaBatcher,
@@ -294,7 +295,10 @@ export async function runAcpChatThread(
       runtimeBinding: updatedBinding,
       updatedAt: timestamp,
       ...(input.updateHeadOnComplete
-        ? { headMessageId: assistantMessage.id, preview: finalContent.slice(0, 240) }
+        ? {
+            headMessageId: assistantMessage.id,
+            preview: summarizeMessagePreview(assistantMessage).slice(0, 240)
+          }
         : {})
     }
 
@@ -498,7 +502,7 @@ function emitCancelledAndReturn(
       ...currentThread,
       updatedAt: timestamp,
       ...(input.updateHeadOnComplete ? { headMessageId: options.messageId } : {}),
-      preview: options.buffer.slice(0, 240)
+      preview: summarizeMessagePreview(stoppedMessage).slice(0, 240)
     }
     deps.storage.saveThreadMessage({
       thread: currentThread,

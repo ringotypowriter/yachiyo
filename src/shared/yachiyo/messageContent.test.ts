@@ -184,3 +184,17 @@ test('summarizeMessagePreview uses the last assistant text block', () => {
     'Second answer'
   )
 })
+
+test('summarizeMessagePreview does not skip the final assistant text block', () => {
+  assert.equal(
+    summarizeMessagePreview({
+      role: 'assistant',
+      content: 'First answer',
+      textBlocks: [
+        { id: 'block-1', content: 'First answer', createdAt: '2026-05-18T00:00:00.000Z' },
+        { id: 'block-2', content: '   ', createdAt: '2026-05-18T00:00:01.000Z' }
+      ]
+    }),
+    ''
+  )
+})
