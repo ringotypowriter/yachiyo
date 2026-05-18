@@ -197,30 +197,3 @@ test('runReadTool does not record a read when offset is past EOF', async () => {
     )
   })
 })
-
-test('runReadTool does not record a byte-truncated partial first line as read', async () => {
-  await withWorkspace(async (workspacePath) => {
-    const filePath = join(workspacePath, 'huge-line.txt')
-    // Create a single line longer than the 16 KB byte limit
-    const hugeLine = 'x'.repeat(20_000)
-    await writeFile(filePath, hugeLine, 'utf8')
-
-    const cache = new ReadRecordCache()
-    const result = await runReadTool(readInput({ path: filePath }), {
-      workspacePath,
-      readRecordCache: cache
-    })
-
-    // The read should succeed with truncated content
-    assert.equal(result.error, undefined)
-    assert.equal(result.details.truncated, true)
-
-    // But the cache should NOT record line 1 as read — only a fragment was returned
-    assert.equal(
-      cache.hasRecentRead(filePath),
-      false,
-      'byte-truncated partial line should not authorize edits'
-    )
-    assert.equal(cache.coversLine(filePath, 1), false)
-  })
-})

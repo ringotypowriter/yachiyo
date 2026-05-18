@@ -104,29 +104,20 @@ export async function runGrepTool(
       ? formatGrepFilesOnly(matches, result.truncated)
       : formatGrepContent(matches, result.truncated)
 
-    // Record reads for the line ranges the model actually saw.
+    // Record files whose matching content the model actually saw.
     // Only when content is inlined (not spilled to file) and not files-only.
     if (!input.filesOnly && content.length <= INLINE_CONTENT_LIMIT && context.readRecordCache) {
-      const fileRanges = new Map<string, Array<{ startLine: number; endLine: number }>>()
+      const files = new Set<string>()
       for (const match of result.matches) {
         const absPath = isAbsolute(match.path) ? match.path : resolve(result.rootPath, match.path)
-        const startLine = Math.max(1, match.line - (match.contextBefore?.length ?? 0))
-        const endLine = match.line + (match.contextAfter?.length ?? 0)
-        const existing = fileRanges.get(absPath)
-        if (existing) {
-          existing.push({ startLine, endLine })
-        } else {
-          fileRanges.set(absPath, [{ startLine, endLine }])
-        }
+        files.add(absPath)
       }
-      for (const [absPath, ranges] of fileRanges) {
+      for (const absPath of files) {
         const mtimeMs = await stat(absPath).then(
           (s) => s.mtimeMs,
           () => undefined
         )
-        for (const range of ranges) {
-          context.readRecordCache.recordRead(absPath, range.startLine, range.endLine, mtimeMs)
-        }
+        context.readRecordCache.recordRead(absPath, 1, 1, mtimeMs)
       }
     }
 

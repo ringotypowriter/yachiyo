@@ -26,7 +26,7 @@ describe('grepTool', () => {
     return mkdtemp(join(tmpdir(), 'grep-tool-test-'))
   }
 
-  it('records read ranges for matched lines including context', async () => {
+  it('records a file read when matched content is shown', async () => {
     const workspace = await makeWorkspace()
     const filePath = join(workspace, 'file.txt')
     await writeFile(filePath, 'one\ntwo\nthree\nfour\nfive\n', 'utf8')
@@ -39,11 +39,7 @@ describe('grepTool', () => {
       { searchService }
     )
 
-    assert.strictEqual(cache.coversLine(filePath, 2), true, 'context before should be covered')
-    assert.strictEqual(cache.coversLine(filePath, 3), true, 'match line should be covered')
-    assert.strictEqual(cache.coversLine(filePath, 4), true, 'context after should be covered')
-    assert.strictEqual(cache.coversLine(filePath, 1), false, 'line 1 should not be covered')
-    assert.strictEqual(cache.coversLine(filePath, 5), false, 'line 5 should not be covered')
+    assert.strictEqual(cache.hasRecentRead(filePath), true)
   })
 
   it('does not record reads for filesOnly mode', async () => {
@@ -77,11 +73,11 @@ describe('grepTool', () => {
       { searchService }
     )
 
-    assert.strictEqual(cache.coversLine(fileA, 1), true)
-    assert.strictEqual(cache.coversLine(fileB, 2), true)
+    assert.strictEqual(cache.hasRecentRead(fileA), true)
+    assert.strictEqual(cache.hasRecentRead(fileB), true)
   })
 
-  it('preserves disjoint line ranges per file across multiple matches', async () => {
+  it('records one file read across multiple matches in the same file', async () => {
     const workspace = await makeWorkspace()
     const filePath = join(workspace, 'file.txt')
     await writeFile(filePath, 'one\ntwo\nthree\nfour\nfive\nsix\nseven\n', 'utf8')
@@ -94,11 +90,6 @@ describe('grepTool', () => {
       { searchService }
     )
 
-    assert.strictEqual(cache.coversLine(filePath, 1), true, 'context around line 2 covers line 1')
-    assert.strictEqual(cache.coversLine(filePath, 3), true, 'context around line 2 covers line 3')
-    assert.strictEqual(cache.coversLine(filePath, 5), true, 'context around line 6 covers line 5')
-    assert.strictEqual(cache.coversLine(filePath, 7), true, 'context around line 6 covers line 7')
-    // Line 4 lies in the gap between the two match contexts and must NOT be covered
-    assert.strictEqual(cache.coversLine(filePath, 4), false, 'gap line 4 must not be covered')
+    assert.strictEqual(cache.hasRecentRead(filePath), true)
   })
 })

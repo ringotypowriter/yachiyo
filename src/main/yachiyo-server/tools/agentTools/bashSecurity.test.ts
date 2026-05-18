@@ -334,6 +334,61 @@ echo "test
       it('allows JSON-like dict passed to python -c', () => {
         expectAllowed(`python -c "d = {'key': 'value', 'other': 42}"`)
       })
+
+      it('allows brace-looking Python content inside a generic heredoc body', () => {
+        expectAllowed(`cat > script.py <<'PY'
+values = {1, 2}
+section_data = {}
+print(values)
+PY
+python3 script.py`)
+      })
+
+      it('allows Node object shorthand inside a heredoc body', () => {
+        expectAllowed(`node <<'JS'
+const alpha = 1
+const beta = 2
+const values = {alpha,beta}
+console.log(values)
+JS`)
+      })
+
+      it('still blocks brace expansion after a heredoc body ends', () => {
+        expectBlocked(
+          `cat <<'EOF'
+{a,b}
+EOF
+echo {a,b}`,
+          'brace expansion'
+        )
+      })
+
+      it('does not treat quoted heredoc-looking text as a heredoc opener', () => {
+        expectBlocked(
+          `echo "<<EOF"
+{a,b}
+EOF`,
+          'brace expansion'
+        )
+      })
+
+      it('blocks brace expansion inside command substitution in unquoted heredoc bodies', () => {
+        expectBlocked(
+          `cat <<EOF
+$(echo {a,b})
+EOF`,
+          'brace expansion'
+        )
+      })
+
+      it('does not strip command arguments on continued heredoc opener lines', () => {
+        expectBlocked(
+          `cat <<'EOF' \\
+{a,b}
+EOF`,
+          'brace expansion'
+        )
+      })
     })
 
     // --- Huge search root (scope block) ---

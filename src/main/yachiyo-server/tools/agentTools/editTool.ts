@@ -25,18 +25,6 @@ interface NormalizedEditSpec {
   replace_all: boolean
 }
 
-/** Return the byte offset of every occurrence of `needle` in `haystack`. */
-function findAllMatchPositions(haystack: string, needle: string): number[] {
-  const positions: number[] = []
-  let index = 0
-  while (true) {
-    const found = haystack.indexOf(needle, index)
-    if (found === -1) return positions
-    positions.push(found)
-    index = found + needle.length
-  }
-}
-
 function hasEscapedLineBreak(value: string): boolean {
   return value.includes('\\n') || value.includes('\\r')
 }
@@ -72,7 +60,7 @@ function resolveEscapedLineBreakEdit(
 
 export function createTool(context: AgentToolContext): Tool<EditToolInput, EditToolOutput> {
   return tool({
-    description: `Edit an existing text file. You must choose one explicit mode. (1) Inline replacement: \`{ mode: 'inline', oldText, newText, replace_all? }\` — best for short surgical edits where the match is stable. (2) Line-range replacement: \`{ mode: 'range', replaceLines: { start, end }, newText }\` — addresses lines by position (1-indexed, inclusive) using the same coordinates the read tool returned. Prefer this for multi-line block rewrites where reproducing exact whitespace via oldText is error-prone. (3) Batched inline edits: \`{ mode: 'batch', edits: [{ oldText, newText, replace_all? }, ...] }\` — applies multiple inline edits to the same file atomically. Use LF inside oldText/newText for multiline snippets. Relative paths resolve from ${context.workspacePath}; files outside the workspace require an absolute path. Every shape requires you to have read the target region first.`,
+    description: `Edit an existing text file. You must choose one explicit mode. (1) Inline replacement: \`{ mode: 'inline', oldText, newText, replace_all? }\` — best for short surgical edits where the match is stable. (2) Line-range replacement: \`{ mode: 'range', replaceLines: { start, end }, newText }\` — addresses lines by position (1-indexed, inclusive) using the same coordinates the read tool returned. Prefer this for multi-line block rewrites where reproducing exact whitespace via oldText is error-prone. (3) Batched inline edits: \`{ mode: 'batch', edits: [{ oldText, newText, replace_all? }, ...] }\` — applies multiple inline edits to the same file atomically. Use LF inside oldText/newText for multiline snippets. Relative paths resolve from ${context.workspacePath}; files outside the workspace require an absolute path. Every shape requires you to have read the target file first.`,
     inputSchema: editToolInputSchema,
     toModelOutput: ({ output }) => toToolModelOutput(output),
     execute: (input, options) => runEditTool(input, context, options)
@@ -304,48 +292,6 @@ export async function runEditTool(
           'You must read the file with the read tool before editing it. Read the file first, then retry.'
         )
       }
-      // Coverage requirements are derived from the ORIGINAL content: that's what the model
-      // actually saw when planning the batch. If an edit's oldText does not appear in the
-      // original at all (e.g., it targets content synthesized by an earlier edit), skip its
-      // coverage requirement here; the per-edit apply step will catch it cleanly.
-      const uncoveredLines = new Set<number>()
-      let coverageContent = original
-      for (const rawEdit of edits) {
-        const edit = resolveEscapedLineBreakEdit(coverageContent, rawEdit)
-        const occurrences = countOccurrences(coverageContent, edit.oldText)
-        if (occurrences === 0) break
-
-        const positions = findAllMatchPositions(original, edit.oldText)
-        if (edit.newText !== '' && positions.length > 0) {
-          const requireAll = edit.replace_all || batched
-          const targets = requireAll ? positions : positions.slice(0, 1)
-          const span = countNewlines(edit.oldText)
-          for (const pos of targets) {
-            const startLine = countNewlines(original.slice(0, pos)) + 1
-            for (let line = startLine; line <= startLine + span; line++) {
-              if (!context.readRecordCache.coversLine(resolvedPath, line, currentMtimeMs)) {
-                uncoveredLines.add(line)
-              }
-            }
-          }
-        }
-        if (occurrences > 1 && !edit.replace_all) break
-        coverageContent = edit.replace_all
-          ? coverageContent.replaceAll(edit.oldText, edit.newText)
-          : coverageContent.replace(edit.oldText, edit.newText)
-      }
-      if (uncoveredLines.size > 0) {
-        const unique = [...uncoveredLines].sort((a, b) => a - b)
-        const lineList =
-          unique.length <= 5
-            ? unique.join(', ')
-            : `${unique.slice(0, 5).join(', ')} and ${unique.length - 5} more`
-        return createEditResult(
-          resolvedPath,
-          emptyDetails,
-          `The edit targets line${unique.length > 1 ? 's' : ''} ${lineList}, but your most recent read did not cover that region. Read the relevant section first (use offset), then retry.`
-        )
-      }
     }
 
     if (context.snapshotTracker) {
@@ -416,19 +362,7 @@ export async function runEditTool(
         () => undefined
       )
       if (newMtimeMs !== undefined) {
-        const originalLineCount = (original.length === 0 ? [] : original.split(/\r?\n/)).length
-        const newLineCount = (content.length === 0 ? [] : content.split(/\r?\n/)).length
-        const delta = newLineCount - originalLineCount
-        if (delta !== 0 && firstChangedLineOverall !== undefined) {
-          context.readRecordCache.shiftRangesAfterLine(
-            resolvedPath,
-            firstChangedLineOverall,
-            delta,
-            newMtimeMs
-          )
-        } else {
-          context.readRecordCache.refreshMtime(resolvedPath, newMtimeMs)
-        }
+        context.readRecordCache.refreshMtime(resolvedPath, newMtimeMs)
       }
     }
 
@@ -501,7 +435,7 @@ async function runRangedEdit(
       )
     }
 
-    // --- Read-before-edit guard (range-aware) ---
+    // --- Read-before-edit guard ---
     // Pure deletions (empty newText) are exempt — same rationale as inline mode.
     const isDeletion = replacementText === ''
     if (context.readRecordCache && !isDeletion) {
@@ -514,23 +448,6 @@ async function runRangedEdit(
           resolvedPath,
           emptyDetails,
           'You must read the file with the read tool before editing it. Read the file first, then retry.'
-        )
-      }
-      const uncoveredLines: number[] = []
-      for (let line = start; line <= end; line++) {
-        if (!context.readRecordCache.coversLine(resolvedPath, line, currentMtimeMs)) {
-          uncoveredLines.push(line)
-        }
-      }
-      if (uncoveredLines.length > 0) {
-        const lineList =
-          uncoveredLines.length <= 5
-            ? uncoveredLines.join(', ')
-            : `${uncoveredLines.slice(0, 5).join(', ')} and ${uncoveredLines.length - 5} more`
-        return createEditResult(
-          resolvedPath,
-          emptyDetails,
-          `The edit targets line${uncoveredLines.length > 1 ? 's' : ''} ${lineList}, but your most recent read did not cover that region. Read the relevant section first (use offset), then retry.`
         )
       }
     }
@@ -573,14 +490,7 @@ async function runRangedEdit(
         () => undefined
       )
       if (newMtimeMs !== undefined) {
-        const oldSpan = end - start + 1
-        const newSpan = newLines.length
-        const delta = newSpan - oldSpan
-        if (delta !== 0) {
-          context.readRecordCache.shiftRangesAfterLine(resolvedPath, start, delta, newMtimeMs)
-        } else {
-          context.readRecordCache.refreshMtime(resolvedPath, newMtimeMs)
-        }
+        context.readRecordCache.refreshMtime(resolvedPath, newMtimeMs)
       }
     }
 

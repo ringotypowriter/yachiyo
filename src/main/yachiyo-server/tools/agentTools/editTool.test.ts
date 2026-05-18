@@ -110,13 +110,13 @@ describe('editTool', () => {
     assert.strictEqual(content, 'hello world')
   })
 
-  it('allows edit after the target region was read', async () => {
+  it('allows edit after the file was read', async () => {
     const workspace = await makeWorkspace()
     const filePath = join(workspace, 'file.txt')
     await writeFile(filePath, 'hello world', 'utf8')
 
     const cache = new ReadRecordCache()
-    cache.recordRead(join(workspace, 'file.txt'), 1, 1) // read line 1
+    cache.recordRead(join(workspace, 'file.txt'), 1, 1)
 
     const result = await runEditTool(
       { mode: 'inline', path: 'file.txt', oldText: 'hello', newText: 'hi' },
@@ -129,27 +129,24 @@ describe('editTool', () => {
     assert.strictEqual(content, 'hi world')
   })
 
-  it('rejects edit when only a different region was read', async () => {
+  it('rejects edit when the file changed after the read record', async () => {
     const workspace = await makeWorkspace()
     const filePath = join(workspace, 'file.txt')
-    // 5 lines: target text is on line 5
-    await writeFile(filePath, 'a\nb\nc\nd\ntarget text', 'utf8')
+    await writeFile(filePath, 'hello world', 'utf8')
 
     const cache = new ReadRecordCache()
-    cache.recordRead(join(workspace, 'file.txt'), 1, 3) // only read lines 1-3
+    cache.recordRead(filePath, 1, 1, 1)
 
     const result = await runEditTool(
-      { mode: 'inline', path: 'file.txt', oldText: 'target text', newText: 'replaced' },
+      { mode: 'inline', path: 'file.txt', oldText: 'hello', newText: 'hi' },
       { workspacePath: workspace, readRecordCache: cache }
     )
 
     assert.ok(result.error)
-    assert.match(result.error, /line 5/)
-    assert.match(result.error, /did not cover/)
+    assert.match(result.error, /read the file/)
     assert.strictEqual(result.details.replacements, 0)
-    // File must remain unchanged
     const content = await readFile(filePath, 'utf8')
-    assert.strictEqual(content, 'a\nb\nc\nd\ntarget text')
+    assert.strictEqual(content, 'hello world')
   })
 
   it('allows deletion (empty newText) without any prior read', async () => {
@@ -167,25 +164,6 @@ describe('editTool', () => {
     assert.strictEqual(result.details.replacements, 1)
     const content = await readFile(filePath, 'utf8')
     assert.strictEqual(content, 'keep this')
-  })
-
-  it('allows deletion even when the target region was not read', async () => {
-    const workspace = await makeWorkspace()
-    const filePath = join(workspace, 'file.txt')
-    await writeFile(filePath, 'a\nb\nc\nd\ntarget text', 'utf8')
-
-    const cache = new ReadRecordCache()
-    cache.recordRead(join(workspace, 'file.txt'), 1, 3) // only read lines 1-3
-
-    const result = await runEditTool(
-      { mode: 'inline', path: 'file.txt', oldText: 'target text', newText: '' },
-      { workspacePath: workspace, readRecordCache: cache }
-    )
-
-    assert.strictEqual(result.error, undefined)
-    assert.strictEqual(result.details.replacements, 1)
-    const content = await readFile(filePath, 'utf8')
-    assert.strictEqual(content, 'a\nb\nc\nd\n')
   })
 
   it('recovers from an over-escaped multiline inline search when the literal search misses', async () => {
@@ -290,135 +268,13 @@ describe('editTool', () => {
     assert.strictEqual(content, 'beta\n')
   })
 
-  it('shifts cached ranges after an edit that adds lines', async () => {
-    const workspace = await makeWorkspace()
-    const filePath = join(workspace, 'file.txt')
-    await writeFile(filePath, 'a\nb\nc\nd\ne', 'utf8')
-
-    const cache = new ReadRecordCache()
-    cache.recordRead(filePath, 1, 5) // read all 5 lines
-
-    // Edit line 2: replace 'b' with 'b1\nb2\nb3' (adds 2 lines, delta=+2)
-    const r1 = await runEditTool(
-      { mode: 'inline', path: 'file.txt', oldText: 'b', newText: 'b1\nb2\nb3' },
-      { workspacePath: workspace, readRecordCache: cache }
-    )
-    assert.strictEqual(r1.error, undefined)
-
-    // Now 'e' is on line 7 (was line 5, shifted by +2). The guard should allow editing it.
-    const r2 = await runEditTool(
-      { mode: 'inline', path: 'file.txt', oldText: 'e', newText: 'E' },
-      { workspacePath: workspace, readRecordCache: cache }
-    )
-    assert.strictEqual(r2.error, undefined, 'guard must not block after line-adding edit')
-    const content = await readFile(filePath, 'utf8')
-    assert.strictEqual(content, 'a\nb1\nb2\nb3\nc\nd\nE')
-  })
-
-  it('shifts cached ranges after an edit that removes lines', async () => {
-    const workspace = await makeWorkspace()
-    const filePath = join(workspace, 'file.txt')
-    await writeFile(filePath, 'a\nb\nc\nd\ne\nf\ng', 'utf8')
-
-    const cache = new ReadRecordCache()
-    cache.recordRead(filePath, 1, 7) // all 7 lines
-
-    // Remove lines 2-4 by replacing 'b\nc\nd' with 'X' (delta=-2)
-    const r1 = await runEditTool(
-      { mode: 'inline', path: 'file.txt', oldText: 'b\nc\nd', newText: 'X' },
-      { workspacePath: workspace, readRecordCache: cache }
-    )
-    assert.strictEqual(r1.error, undefined)
-
-    // 'g' was on line 7, now on line 5. Guard should allow it.
-    const r2 = await runEditTool(
-      { mode: 'inline', path: 'file.txt', oldText: 'g', newText: 'G' },
-      { workspacePath: workspace, readRecordCache: cache }
-    )
-    assert.strictEqual(r2.error, undefined, 'guard must not block after line-removing edit')
-    const content = await readFile(filePath, 'utf8')
-    assert.strictEqual(content, 'a\nX\ne\nf\nG')
-  })
-
-  it('does not extend coverage beyond original read after line-adding edit', async () => {
-    const workspace = await makeWorkspace()
-    const filePath = join(workspace, 'file.txt')
-    // 10 lines: model only reads 1-5
-    await writeFile(filePath, '1\n2\n3\n4\n5\n6\n7\n8\n9\n10', 'utf8')
-
-    const cache = new ReadRecordCache()
-    cache.recordRead(filePath, 1, 5) // only lines 1-5
-
-    // Edit line 2: 'b' → 'x\ny' (adds 1 line, delta=+1)
-    const r1 = await runEditTool(
-      { mode: 'inline', path: 'file.txt', oldText: '2', newText: '2a\n2b' },
-      { workspacePath: workspace, readRecordCache: cache }
-    )
-    assert.strictEqual(r1.error, undefined)
-
-    // Original line 5 ('5') is now at line 6. Should be allowed (was within original read).
-    const r2 = await runEditTool(
-      { mode: 'inline', path: 'file.txt', oldText: '5', newText: 'FIVE' },
-      { workspacePath: workspace, readRecordCache: cache }
-    )
-    assert.strictEqual(r2.error, undefined)
-
-    // Original line 7 ('7') is now at line 8. Was NEVER read. Should be blocked.
-    const r3 = await runEditTool(
-      { mode: 'inline', path: 'file.txt', oldText: '7', newText: 'SEVEN' },
-      { workspacePath: workspace, readRecordCache: cache }
-    )
-    assert.ok(r3.error, 'lines beyond original read range must still be blocked after shift')
-    assert.match(r3.error!, /did not cover/)
-  })
-
-  it('allows edit after multiple reads that together cover the target line', async () => {
-    const workspace = await makeWorkspace()
-    const filePath = join(workspace, 'file.txt')
-    await writeFile(filePath, 'a\nb\nc\nd\ntarget text', 'utf8')
-
-    const cache = new ReadRecordCache()
-    cache.recordRead(join(workspace, 'file.txt'), 1, 3)
-    cache.recordRead(join(workspace, 'file.txt'), 4, 6) // now lines 1-6 covered
-
-    const result = await runEditTool(
-      { mode: 'inline', path: 'file.txt', oldText: 'target text', newText: 'replaced' },
-      { workspacePath: workspace, readRecordCache: cache }
-    )
-
-    assert.strictEqual(result.error, undefined)
-    assert.strictEqual(result.details.replacements, 1)
-  })
-
-  it('rejects multiline edit when only the start line was read', async () => {
-    const workspace = await makeWorkspace()
-    const filePath = join(workspace, 'file.txt')
-    // oldText "b\nc" spans lines 2–3
-    await writeFile(filePath, 'a\nb\nc\nd', 'utf8')
-
-    const cache = new ReadRecordCache()
-    cache.recordRead(filePath, 1, 2) // only read lines 1-2; line 3 not covered
-
-    const result = await runEditTool(
-      { mode: 'inline', path: 'file.txt', oldText: 'b\nc', newText: 'X' },
-      { workspacePath: workspace, readRecordCache: cache }
-    )
-
-    assert.ok(result.error)
-    assert.match(result.error, /line/)
-    assert.match(result.error, /did not cover/)
-    assert.strictEqual(result.details.replacements, 0)
-    const content = await readFile(filePath, 'utf8')
-    assert.strictEqual(content, 'a\nb\nc\nd')
-  })
-
-  it('allows multiline edit when all spanned lines were read', async () => {
+  it('allows multiline edit after the file was read', async () => {
     const workspace = await makeWorkspace()
     const filePath = join(workspace, 'file.txt')
     await writeFile(filePath, 'a\nb\nc\nd', 'utf8')
 
     const cache = new ReadRecordCache()
-    cache.recordRead(filePath, 1, 4) // all lines read
+    cache.recordRead(filePath, 1, 1)
 
     const result = await runEditTool(
       { mode: 'inline', path: 'file.txt', oldText: 'b\nc', newText: 'X' },
@@ -431,35 +287,13 @@ describe('editTool', () => {
     assert.strictEqual(content, 'a\nX\nd')
   })
 
-  it('rejects replace_all when some match lines were not read', async () => {
-    const workspace = await makeWorkspace()
-    const filePath = join(workspace, 'file.txt')
-    // "hello" appears on lines 1, 3, and 5
-    await writeFile(filePath, 'hello\nworld\nhello\nworld\nhello', 'utf8')
-
-    const cache = new ReadRecordCache()
-    cache.recordRead(filePath, 1, 2) // only read lines 1-2
-
-    const result = await runEditTool(
-      { mode: 'inline', path: 'file.txt', oldText: 'hello', newText: 'hi', replace_all: true },
-      { workspacePath: workspace, readRecordCache: cache }
-    )
-
-    assert.ok(result.error)
-    assert.match(result.error, /did not cover/)
-    assert.strictEqual(result.details.replacements, 0)
-    // File must remain unchanged
-    const content = await readFile(filePath, 'utf8')
-    assert.strictEqual(content, 'hello\nworld\nhello\nworld\nhello')
-  })
-
-  it('allows replace_all when all match lines were read', async () => {
+  it('allows replace_all after the file was read', async () => {
     const workspace = await makeWorkspace()
     const filePath = join(workspace, 'file.txt')
     await writeFile(filePath, 'hello\nworld\nhello\nworld\nhello', 'utf8')
 
     const cache = new ReadRecordCache()
-    cache.recordRead(filePath, 1, 5) // read all 5 lines
+    cache.recordRead(filePath, 1, 1)
 
     const result = await runEditTool(
       { mode: 'inline', path: 'file.txt', oldText: 'hello', newText: 'hi', replace_all: true },
@@ -472,14 +306,13 @@ describe('editTool', () => {
     assert.strictEqual(content, 'hi\nworld\nhi\nworld\nhi')
   })
 
-  it('allows edit after grep tool covered the target line', async () => {
+  it('allows edit after grep tool showed the file content', async () => {
     const workspace = await makeWorkspace()
     const filePath = join(workspace, 'file.txt')
     await writeFile(filePath, 'a\nb\nc\nd\ne\n', 'utf8')
 
     const cache = new ReadRecordCache()
     const searchService = createSearchService()
-    // Grep line 3 with context 1 → covers lines 2-4
     await runGrepTool(
       grepInput({ pattern: 'c', path: workspace, context: 1 }),
       { workspacePath: workspace, readRecordCache: cache },
@@ -512,7 +345,7 @@ describe('editTool', () => {
     assert.strictEqual(result.details.replacements, 1)
   })
 
-  it('allows edit after a read-only bash command covered the target line', async () => {
+  it('allows edit after a read-only bash command showed the file content', async () => {
     const workspace = await makeWorkspace()
     const filePath = join(workspace, 'file.txt')
     await writeFile(filePath, 'a\nb\nc\nd\ne\n', 'utf8')
@@ -532,29 +365,6 @@ describe('editTool', () => {
     assert.strictEqual(result.details.replacements, 1)
     const content = await readFile(filePath, 'utf8')
     assert.strictEqual(content, 'a\nb\nC\nd\ne\n')
-  })
-
-  it('rejects edit when bash command only covered a different region', async () => {
-    const workspace = await makeWorkspace()
-    const filePath = join(workspace, 'file.txt')
-    await writeFile(filePath, 'a\nb\nc\nd\ne\n', 'utf8')
-
-    const cache = new ReadRecordCache()
-    await runBashTool(
-      { command: "sed -n '1,2p' file.txt", timeout: 30, background: false },
-      { workspacePath: workspace, readRecordCache: cache }
-    )
-
-    const result = await runEditTool(
-      { mode: 'inline', path: 'file.txt', oldText: 'c', newText: 'C' },
-      { workspacePath: workspace, readRecordCache: cache }
-    )
-
-    assert.ok(result.error)
-    assert.match(result.error, /did not cover/)
-    assert.strictEqual(result.details.replacements, 0)
-    const content = await readFile(filePath, 'utf8')
-    assert.strictEqual(content, 'a\nb\nc\nd\ne\n')
   })
 
   it('returns a clean "File not found" brief when the target does not exist', async () => {
@@ -653,7 +463,7 @@ describe('editTool', () => {
       await writeFile(filePath, 'alpha\nbeta\ngamma\ndelta\n', 'utf8')
 
       const cache = new ReadRecordCache()
-      cache.recordRead(filePath, 1, 5) // covers the phantom trailing line as well
+      cache.recordRead(filePath, 1, 5)
 
       const result = await runEditTool(
         {
@@ -781,26 +591,6 @@ describe('editTool', () => {
       assert.ok(result.error)
       assert.match(result.error, /Invalid range/)
       assert.strictEqual(result.details.replacements, 0)
-    })
-
-    it('rejects when the target range was not covered by a recent read', async () => {
-      const workspace = await makeWorkspace()
-      const filePath = join(workspace, 'file.txt')
-      await writeFile(filePath, 'a\nb\nc\nd\ne\n', 'utf8')
-
-      const cache = new ReadRecordCache()
-      cache.recordRead(filePath, 1, 2) // only lines 1-2 read
-
-      const result = await runEditTool(
-        { mode: 'range', path: 'file.txt', replaceLines: { start: 4, end: 5 }, newText: 'X' },
-        { workspacePath: workspace, readRecordCache: cache }
-      )
-      assert.ok(result.error)
-      assert.match(result.error, /lines 4, 5/)
-      assert.match(result.error, /did not cover/)
-      assert.strictEqual(result.details.replacements, 0)
-      const content = await readFile(filePath, 'utf8')
-      assert.strictEqual(content, 'a\nb\nc\nd\ne\n')
     })
 
     it('allows ranged deletion (empty newText) without any prior read', async () => {

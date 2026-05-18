@@ -701,12 +701,7 @@ export async function* streamBashTool(
             if (read.endLine === 0) {
               context.readRecordCache.recordEmptyFileRead(read.resolvedPath, mtimeMs)
             } else {
-              context.readRecordCache.recordRead(
-                read.resolvedPath,
-                read.startLine,
-                read.endLine,
-                mtimeMs
-              )
+              context.readRecordCache.recordRead(read.resolvedPath, 1, 1, mtimeMs)
             }
           }
         } catch {

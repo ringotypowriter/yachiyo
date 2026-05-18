@@ -1,14 +1,12 @@
 /**
- * Runtime-only LRU cache tracking which file paths (and line ranges) have
- * been read recently.
+ * Runtime-only LRU cache tracking which file paths have been read recently.
  *
  * Used by the edit and write tools to enforce a "read-before-modify" guard:
  * the model must read a file before editing or overwriting it, ensuring it
  * has seen the current contents and does not blindly clobber data.
  *
- * The cache is range-aware: partial reads (offset/limit pagination) record
- * only the lines actually returned, and the edit guard verifies that the
- * target edit line falls within a recently-read range.
+ * The cache is file-aware: any successful file read authorizes future edits
+ * until the record gets stale or the file mtime changes.
  */
 
 /** How long a read record stays valid before the model must re-read. */
@@ -17,17 +15,9 @@ export const READ_RECORD_STALENESS_MS = 10 * 60 * 1000 // 10 minutes
 /** Maximum number of paths tracked. Oldest entries are evicted first. */
 export const READ_RECORD_MAX_ENTRIES = 256
 
-interface ReadRange {
-  /** 1-based inclusive start line. */
-  startLine: number
-  /** 1-based inclusive end line. */
-  endLine: number
-  timestamp: number
-}
-
 interface FileEntry {
-  ranges: ReadRange[]
-  /** File mtime (ms) captured at read time. A later mtime invalidates all ranges. */
+  timestamp: number
+  /** File mtime (ms) captured at read time. A later mtime invalidates the record. */
   mtimeMs: number | undefined
 }
 
@@ -46,67 +36,31 @@ export class ReadRecordCache {
 
   /**
    * Record that lines [startLine, endLine] (1-based inclusive) of a file
-   * were just read. Overlapping or adjacent ranges are merged automatically.
-   * If `mtimeMs` is provided, a later mtime will invalidate all prior ranges.
+   * were just read. Line arguments are kept for call-site compatibility; any
+   * non-empty range records the file as read. If `mtimeMs` is provided, a
+   * later mtime will invalidate the record.
    */
   recordRead(path: string, startLine: number, endLine: number, mtimeMs?: number): void {
     if (startLine > endLine) return
 
-    const existing = this.entries.get(path)
     this.entries.delete(path)
-
-    const now = Date.now()
-    const newRange: ReadRange = { startLine, endLine, timestamp: now }
-
-    if (
-      !existing ||
-      (mtimeMs !== undefined && existing.mtimeMs !== undefined && mtimeMs !== existing.mtimeMs)
-    ) {
-      this.entries.set(path, { ranges: [newRange], mtimeMs })
-    } else {
-      const fresh = existing.ranges.filter((r) => now - r.timestamp < this.stalenessMs)
-      fresh.push(newRange)
-      this.entries.set(path, { ranges: mergeRanges(fresh), mtimeMs: mtimeMs ?? existing.mtimeMs })
-    }
-
+    this.entries.set(path, { timestamp: Date.now(), mtimeMs })
     this.evict()
   }
 
   /**
    * Record that a file was read and found to be empty (zero lines).
-   * This satisfies `hasRecentRead` so the write-overwrite guard passes,
-   * but `coversLine` will still return false for any line number since
-   * there are no lines to cover.
+   * This satisfies `hasRecentRead` so the write-overwrite guard passes.
    */
   recordEmptyFileRead(path: string, mtimeMs?: number): void {
     this.entries.delete(path)
-    this.entries.set(path, {
-      ranges: [{ startLine: 0, endLine: 0, timestamp: Date.now() }],
-      mtimeMs
-    })
+    this.entries.set(path, { timestamp: Date.now(), mtimeMs })
     this.evict()
   }
 
   /**
-   * Returns true if the given 1-based line number falls within a
-   * recently-read range for this path.
-   * If `currentMtimeMs` is provided and differs from the recorded mtime,
-   * the file has been modified since the read — returns false.
-   */
-  coversLine(path: string, line: number, currentMtimeMs?: number): boolean {
-    const ranges = this.getFreshRanges(path, currentMtimeMs)
-    if (!ranges) return false
-    return ranges.some((r) => line >= r.startLine && line <= r.endLine)
-  }
-
-  /**
-   * Returns true if the path has any recent read record at all.
-   * If `currentMtimeMs` is provided and differs from the recorded mtime,
-   * the file has been modified since the read — returns false.
-   */
-  /**
    * Update the stored mtime for a path after a successful self-modification
-   * (edit/write), keeping existing ranges valid for the next mutation.
+   * (edit/write), keeping the read record valid for the next mutation.
    */
   refreshMtime(path: string, newMtimeMs: number): void {
     const entry = this.entries.get(path)
@@ -116,64 +70,21 @@ export class ReadRecordCache {
   }
 
   /**
-   * Shift cached line ranges after a successful edit that changed line count.
-   *
-   * - Ranges ending before `lineThreshold`: untouched.
-   * - Ranges starting at or after `lineThreshold`: both endpoints shift by `delta`.
-   * - Ranges straddling `lineThreshold`: endLine shifts by `delta`, floored at
-   *   `lineThreshold - 1` (the pre-edit portion is still valid).
+   * Returns true if the path has a recent read record.
+   * If `currentMtimeMs` is provided and differs from the recorded mtime,
+   * the file has been modified since the read and the record is invalid.
    */
-  shiftRangesAfterLine(
-    path: string,
-    lineThreshold: number,
-    delta: number,
-    newMtimeMs: number
-  ): void {
-    const entry = this.entries.get(path)
-    if (!entry) return
-
-    entry.mtimeMs = newMtimeMs
-    if (delta === 0) return
-
-    const adjusted: ReadRange[] = []
-    for (const range of entry.ranges) {
-      if (range.endLine < lineThreshold) {
-        adjusted.push(range)
-      } else if (range.startLine >= lineThreshold) {
-        adjusted.push({
-          ...range,
-          startLine: Math.max(1, range.startLine + delta),
-          endLine: range.endLine + delta
-        })
-      } else {
-        adjusted.push({
-          ...range,
-          endLine: Math.max(lineThreshold - 1, range.endLine + delta)
-        })
-      }
-    }
-
-    entry.ranges = adjusted.filter((r) => r.endLine >= r.startLine)
-  }
-
   hasRecentRead(path: string, currentMtimeMs?: number): boolean {
-    const ranges = this.getFreshRanges(path, currentMtimeMs)
-    return ranges !== undefined && ranges.length > 0
-  }
-
-  private getFreshRanges(path: string, currentMtimeMs?: number): ReadRange[] | undefined {
     const entry = this.entries.get(path)
-    if (!entry) return undefined
+    if (!entry) return false
     if (
       currentMtimeMs !== undefined &&
       entry.mtimeMs !== undefined &&
       currentMtimeMs !== entry.mtimeMs
     ) {
-      return undefined
+      return false
     }
-    const now = Date.now()
-    const fresh = entry.ranges.filter((r) => now - r.timestamp < this.stalenessMs)
-    return fresh.length > 0 ? fresh : undefined
+    return Date.now() - entry.timestamp < this.stalenessMs
   }
 
   private evict(): void {
@@ -182,28 +93,4 @@ export class ReadRecordCache {
       if (oldest !== undefined) this.entries.delete(oldest)
     }
   }
-}
-
-/**
- * Sort ranges by startLine and merge any that overlap or are adjacent.
- * Merged ranges inherit the latest timestamp.
- */
-function mergeRanges(ranges: ReadRange[]): ReadRange[] {
-  if (ranges.length <= 1) return ranges
-  const sorted = ranges.slice().sort((a, b) => a.startLine - b.startLine)
-  const merged: ReadRange[] = [sorted[0]]
-
-  for (let i = 1; i < sorted.length; i++) {
-    const current = sorted[i]
-    const last = merged[merged.length - 1]
-    // Adjacent (endLine + 1 >= nextStart) or overlapping — merge.
-    if (current.startLine <= last.endLine + 1) {
-      last.endLine = Math.max(last.endLine, current.endLine)
-      last.timestamp = Math.max(last.timestamp, current.timestamp)
-    } else {
-      merged.push(current)
-    }
-  }
-
-  return merged
 }

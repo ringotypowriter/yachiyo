@@ -154,7 +154,7 @@ describe('editTool', () => {
       assert.strictEqual(content, 'baz\n')
     })
 
-    it('preserves synthesized literal backslash-n matches during coverage checks', async () => {
+    it('preserves synthesized literal backslash-n matches during batch edits', async () => {
       const workspace = await makeWorkspace()
       const filePath = join(workspace, 'file.txt')
       await writeFile(filePath, 'seed\nsafe\noutside\nalpha\nbeta\n', 'utf8')
@@ -204,41 +204,6 @@ describe('editTool', () => {
       assert.strictEqual(content, 'foo\n', 'file must remain unchanged when batch is a no-op')
     })
 
-    it('rejects batch when an earlier edit disambiguates a later oldText into an unread line', async () => {
-      // Regression for P1: in a batch, each edit's coverage must be validated against
-      // ALL its occurrences in the original, not just the first one — because an earlier
-      // batched edit can consume one occurrence, causing a later edit's "first match"
-      // at apply time to fall on an unread line.
-      const workspace = await makeWorkspace()
-      const filePath = join(workspace, 'file.txt')
-      // 'foo' appears on line 1 and line 5; only lines 1-4 are read.
-      await writeFile(filePath, 'foo\na\nb\nc\nfoo\n', 'utf8')
-
-      const cache = new ReadRecordCache()
-      cache.recordRead(filePath, 1, 4)
-
-      const result = await runEditTool(
-        {
-          mode: 'batch',
-          path: 'file.txt',
-          edits: [
-            // Edit 1 uniquely matches line 1's "foo" (via the "\na" context)
-            { oldText: 'foo\na', newText: 'FOO\na', replace_all: false },
-            // Edit 2 would now match only line 5's "foo" at apply time, but line 5 was never read
-            { oldText: 'foo', newText: 'bar', replace_all: false }
-          ]
-        },
-        { workspacePath: workspace, readRecordCache: cache }
-      )
-
-      assert.ok(result.error, 'expected batch to be rejected')
-      assert.match(result.error, /line 5/)
-      assert.match(result.error, /did not cover/)
-      assert.strictEqual(result.details.replacements, 0)
-      const content = await readFile(filePath, 'utf8')
-      assert.strictEqual(content, 'foo\na\nb\nc\nfoo\n', 'file must not be edited')
-    })
-
     it('allows batch of pure deletions without any prior read', async () => {
       const workspace = await makeWorkspace()
       const filePath = join(workspace, 'file.txt')
@@ -285,34 +250,6 @@ describe('editTool', () => {
       assert.ok(result.error)
       assert.match(result.error, /read the file/)
       assert.strictEqual(result.details.replacements, 0)
-    })
-
-    it('read-coverage guard accumulates line requirements across all edits', async () => {
-      const workspace = await makeWorkspace()
-      const filePath = join(workspace, 'file.txt')
-      await writeFile(filePath, 'one\ntwo\nthree\nfour\nfive\n', 'utf8')
-
-      const cache = new ReadRecordCache()
-      cache.recordRead(filePath, 1, 2) // only lines 1-2 covered
-
-      const result = await runEditTool(
-        {
-          mode: 'batch',
-          path: 'file.txt',
-          edits: [
-            { oldText: 'one', newText: '1', replace_all: false }, // line 1 — covered
-            { oldText: 'five', newText: '5', replace_all: false } // line 5 — NOT covered
-          ]
-        },
-        { workspacePath: workspace, readRecordCache: cache }
-      )
-
-      assert.ok(result.error)
-      assert.match(result.error, /line 5/)
-      assert.match(result.error, /did not cover/)
-      assert.strictEqual(result.details.replacements, 0)
-      const content = await readFile(filePath, 'utf8')
-      assert.strictEqual(content, 'one\ntwo\nthree\nfour\nfive\n')
     })
   })
 

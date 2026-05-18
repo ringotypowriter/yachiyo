@@ -416,8 +416,12 @@ export async function runReadTool(
       if (lines.length === 0) {
         context.readRecordCache.recordEmptyFileRead(resolvedPath, mtimeMs)
       } else {
-        const guardEndLine = excerpt.byteTruncatedFirstLine ? details.endLine - 1 : details.endLine
-        context.readRecordCache.recordRead(resolvedPath, details.startLine, guardEndLine, mtimeMs)
+        context.readRecordCache.recordRead(
+          resolvedPath,
+          details.startLine,
+          details.endLine,
+          mtimeMs
+        )
       }
     }
     return {

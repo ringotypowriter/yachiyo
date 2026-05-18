@@ -16,6 +16,7 @@
 
 import { homedir } from 'os'
 import { resolve } from 'path'
+import { findHeredocBodyRanges as findShellHeredocBodyRanges } from './bashHeredocBodyRanges.ts'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -397,94 +398,20 @@ function findInlineScriptArgumentRanges(command: string): TextRange[] {
   return ranges
 }
 
-interface HeredocSpec {
-  delimiter: string
-  allowLeadingTabs: boolean
-}
-
-interface HeredocEnd {
-  bodyEnd: number
-  nextStart: number
-}
-
-function parseHeredocToken(token: string, nextToken?: string): HeredocSpec | undefined {
-  const match = /^(?:\d*)<<(-?)(.+)?$/.exec(token)
-  if (!match || token.startsWith('<<<')) return undefined
-
-  const delimiter = match[2] || nextToken
-  if (!delimiter) return undefined
-
-  return {
-    delimiter,
-    allowLeadingTabs: match[1] === '-'
-  }
-}
-
-function findHeredocEnd(command: string, bodyStart: number, spec: HeredocSpec): HeredocEnd {
-  let lineStart = bodyStart
-
-  while (lineStart <= command.length) {
-    const newlineIndex = command.indexOf('\n', lineStart)
-    const lineEnd = newlineIndex === -1 ? command.length : newlineIndex
-    const line = command.slice(lineStart, lineEnd)
-    const candidate = spec.allowLeadingTabs ? line.replace(/^\t+/, '') : line
-
-    if (candidate === spec.delimiter) {
-      return {
-        bodyEnd: lineStart,
-        nextStart: newlineIndex === -1 ? command.length : newlineIndex + 1
-      }
-    }
-
-    if (newlineIndex === -1) break
-    lineStart = newlineIndex + 1
-  }
-
-  return {
-    bodyEnd: command.length,
-    nextStart: command.length
-  }
+function findHeredocBodyRanges(
+  command: string,
+  options: { filter?: (command: string) => boolean; requireQuotedDelimiter?: boolean } = {}
+): TextRange[] {
+  return findShellHeredocBodyRanges(command, {
+    tokenize: tokenizeShellLike,
+    skipCommandPrefixes: skipShellCommandPrefixes,
+    filter: options.filter,
+    requireQuotedDelimiter: options.requireQuotedDelimiter
+  })
 }
 
 function findInterpreterHeredocBodyRanges(command: string): TextRange[] {
-  const ranges: TextRange[] = []
-  let lineStart = 0
-
-  while (lineStart < command.length) {
-    const newlineIndex = command.indexOf('\n', lineStart)
-    if (newlineIndex === -1) break
-
-    const line = command.slice(lineStart, newlineIndex)
-    const lineTokens = tokenizeShellLike(line).filter((token) => !token.operator)
-    const commandIndex = skipShellCommandPrefixes(lineTokens)
-    const commandToken = lineTokens[commandIndex]
-
-    if (!commandToken || !isInlineScriptInterpreter(commandToken.text)) {
-      lineStart = newlineIndex + 1
-      continue
-    }
-
-    const specs: HeredocSpec[] = []
-    for (let i = commandIndex + 1; i < lineTokens.length; i++) {
-      const spec = parseHeredocToken(lineTokens[i]!.text, lineTokens[i + 1]?.text)
-      if (spec) specs.push(spec)
-    }
-
-    if (specs.length === 0) {
-      lineStart = newlineIndex + 1
-      continue
-    }
-
-    let bodyStart = newlineIndex + 1
-    for (const spec of specs) {
-      const end = findHeredocEnd(command, bodyStart, spec)
-      ranges.push({ start: bodyStart, end: end.bodyEnd })
-      bodyStart = end.nextStart
-    }
-    lineStart = bodyStart
-  }
-
-  return ranges
+  return findHeredocBodyRanges(command, { filter: isInlineScriptInterpreter })
 }
 
 function isInTextRange(index: number, ranges: TextRange[]): boolean {
@@ -493,6 +420,16 @@ function isInTextRange(index: number, ranges: TextRange[]): boolean {
 
 function findContainingTextRange(index: number, ranges: TextRange[]): TextRange | undefined {
   return ranges.find((range) => index >= range.start && index < range.end)
+}
+
+function removeTextRanges(content: string, ranges: TextRange[]): string {
+  let result = ''
+  let cursor = 0
+  for (const range of ranges) {
+    result += content.slice(cursor, range.start)
+    cursor = Math.max(cursor, range.end)
+  }
+  return result + content.slice(cursor)
 }
 
 function stripSafeRedirections(content: string): string {
@@ -777,7 +714,15 @@ function validateQuotedNewline(ctx: ValidationContext): SecurityResult {
  * Bash expands `{a,b}` and `{1..5}` but regex parsers treat them as literal.
  */
 function validateBraceExpansion(ctx: ValidationContext): SecurityResult {
-  const content = ctx.fullyUnquotedPreStrip
+  const heredocBodyRanges = findHeredocBodyRanges(ctx.originalCommand, {
+    requireQuotedDelimiter: true
+  })
+  let originalCommand = ctx.originalCommand
+  let content = ctx.fullyUnquotedPreStrip
+  if (heredocBodyRanges.length > 0) {
+    originalCommand = removeTextRanges(ctx.originalCommand, heredocBodyRanges)
+    content = extractQuotedContent(originalCommand, ctx.baseCommand === 'jq').fullyUnquoted
+  }
 
   let unescapedOpenBraces = 0
   let unescapedCloseBraces = 0
@@ -794,7 +739,7 @@ function validateBraceExpansion(ctx: ValidationContext): SecurityResult {
   }
 
   // Quoted brace inside an unquoted brace context
-  if (unescapedOpenBraces > 0 && /['"][{}]['"]/.test(ctx.originalCommand)) {
+  if (unescapedOpenBraces > 0 && /['"][{}]['"]/.test(originalCommand)) {
     return refused(
       'Command contains quoted brace character inside brace context (potential obfuscation).'
     )
