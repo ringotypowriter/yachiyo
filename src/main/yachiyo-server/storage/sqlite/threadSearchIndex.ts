@@ -10,6 +10,15 @@ import type { BetterSqlite3Client } from './sqliteRuntime.ts'
 // COALESCE or other transforms.  A mismatch (e.g. NULL vs '') between the
 // stored FTS entry and the trigger's 'delete' payload corrupts the shadow
 // tables and causes "database disk image is malformed" on the next write.
+const FTS_TRIGGER_DROP_DDL = `
+  DROP TRIGGER IF EXISTS threads_fts_ai;
+  DROP TRIGGER IF EXISTS threads_fts_ad;
+  DROP TRIGGER IF EXISTS threads_fts_au;
+  DROP TRIGGER IF EXISTS messages_fts_ai;
+  DROP TRIGGER IF EXISTS messages_fts_ad;
+  DROP TRIGGER IF EXISTS messages_fts_au;
+`
+
 const FTS_DDL = `
   CREATE VIRTUAL TABLE IF NOT EXISTS threads_fts USING fts5(
     title,
@@ -29,7 +38,7 @@ const FTS_DDL = `
     VALUES ('delete', old.rowid, old.title, old.preview);
   END;
 
-  CREATE TRIGGER IF NOT EXISTS threads_fts_au AFTER UPDATE ON threads BEGIN
+  CREATE TRIGGER IF NOT EXISTS threads_fts_au AFTER UPDATE OF title, preview ON threads BEGIN
     INSERT INTO threads_fts(threads_fts, rowid, title, preview)
     VALUES ('delete', old.rowid, old.title, old.preview);
     INSERT INTO threads_fts(rowid, title, preview)
@@ -53,7 +62,7 @@ const FTS_DDL = `
     VALUES ('delete', old.rowid, old.content);
   END;
 
-  CREATE TRIGGER IF NOT EXISTS messages_fts_au AFTER UPDATE ON messages BEGIN
+  CREATE TRIGGER IF NOT EXISTS messages_fts_au AFTER UPDATE OF content ON messages BEGIN
     INSERT INTO messages_fts(messages_fts, rowid, content)
     VALUES ('delete', old.rowid, old.content);
     INSERT INTO messages_fts(rowid, content)
@@ -64,16 +73,11 @@ const FTS_DDL = `
 /**
  * Drop all FTS tables and triggers, then recreate from scratch.
  * Used when the FTS index is detected as corrupt to avoid blocking
- * all subsequent writes (the triggers fire on every INSERT/UPDATE).
+ * subsequent writes that maintain the search index.
  */
 function resetThreadSearchIndex(client: BetterSqlite3Client): void {
   client.exec(`
-    DROP TRIGGER IF EXISTS threads_fts_ai;
-    DROP TRIGGER IF EXISTS threads_fts_ad;
-    DROP TRIGGER IF EXISTS threads_fts_au;
-    DROP TRIGGER IF EXISTS messages_fts_ai;
-    DROP TRIGGER IF EXISTS messages_fts_ad;
-    DROP TRIGGER IF EXISTS messages_fts_au;
+    ${FTS_TRIGGER_DROP_DDL}
     DROP TABLE IF EXISTS threads_fts;
     DROP TABLE IF EXISTS messages_fts;
   `)
@@ -119,6 +123,7 @@ export function repairRunRequestMessageIds(client: BetterSqlite3Client): void {
 }
 
 export function ensureThreadSearchIndex(client: BetterSqlite3Client): void {
+  client.exec(FTS_TRIGGER_DROP_DDL)
   client.exec(FTS_DDL)
 
   try {
