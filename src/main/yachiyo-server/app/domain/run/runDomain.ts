@@ -25,6 +25,7 @@ import {
   getThreadCapabilities,
   normalizeSkillNames
 } from '../../../../../shared/yachiyo/protocol.ts'
+import { summarizeMessagePreview } from '../../../../../shared/yachiyo/messageContent.ts'
 import {
   createMemoryDistillationScheduler,
   type MemoryDistillationScheduler
@@ -691,6 +692,9 @@ export class YachiyoServerRunDomain {
               : {}),
             ...(passTracker ? { snapshotTracker: passTracker } : {}),
             ...(isRecapRun ? { maxToolStepsOverride: 0 } : {}),
+            ...(activeRun.agentStepCount !== undefined
+              ? { priorAgentStepCount: activeRun.agentStepCount }
+              : {}),
             readRecordCache
           }
         )
@@ -727,13 +731,14 @@ export class YachiyoServerRunDomain {
                 createdAt: timestamp
               }
               const latestThread = this.deps.requireThread(checkpoint.threadId)
+              const stoppedPreview = summarizeMessagePreview(stoppedMessage)
               const updatedThread: ThreadRecord = {
                 ...latestThread,
                 updatedAt: timestamp,
                 ...(checkpoint.updateHeadOnComplete
                   ? { headMessageId: checkpoint.assistantMessageId }
                   : {}),
-                ...(checkpoint.content ? { preview: checkpoint.content.slice(0, 240) } : {})
+                ...(stoppedPreview ? { preview: stoppedPreview.slice(0, 240) } : {})
               }
               this.deps.storage.saveThreadMessage({
                 thread: latestThread,

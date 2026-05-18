@@ -117,6 +117,7 @@ export function buildAgentInstructions(input: {
   hasSourceQuery: boolean
   hasUpdateProfile?: boolean
   hasRemember?: boolean
+  hasTodoTool?: boolean
   soulDocumentPath?: string
   userDocumentPath?: string
   subagentContextBlock?: string
@@ -161,7 +162,8 @@ export function buildAgentInstructions(input: {
     input.enabledTools.length === 0 &&
     !input.hasSourceQuery &&
     !input.hasUpdateProfile &&
-    !input.hasRemember
+    !input.hasRemember &&
+    !input.hasTodoTool
   ) {
     instructions.push('No tools are available for this run. Respond without tool calls.')
     return instructions.join('\n')
@@ -219,6 +221,24 @@ export function buildAgentInstructions(input: {
   if (input.hasSourceQuery) {
     instructions.push(
       'querySource is available internally. Use it to look up local context sources, including memories when configured, past conversations, and activity records when source storage is available. In user-facing answers, describe thread records as conversations unless naming a table or field.'
+    )
+  }
+
+  if (input.hasTodoTool) {
+    instructions.push(
+      [
+        'updateTodoList is available internally to maintain the persistent todo widget for the user.',
+        'Use updateTodoList only when the user asks for work with three or more independent steps; do not use it for single-step tasks, pure information answers, or trivial operations.',
+        'Each call must send the full current list with statuses pending, in_progress, or completed. Prefer one in_progress item for strictly sequential work, but preserve multiple in_progress items when that is the honest state.',
+        'A good todo entry is user-visible, outcome-oriented, independently actionable, and verifiable as done. Keep entries at the same abstraction level.',
+        'Do not make todo entries for internal tool usage, thinking, reading context, reporting back, or vague phases like "investigate", "implement", or "test" unless the concrete outcome is named.',
+        'Todo entry few-shots:',
+        'Bad: "Investigate code", "Implement changes", "Test". Good: "Identify the renderer path exposing hidden messages", "Separate hidden and visible follow-up drafts", "Verify hidden-message grouping and streaming behavior".',
+        'Bad: "Research options", "Write plan", "Finalize". Good: "Compare candidate options against the user constraints", "Draft the selected plan with concrete steps", "List unresolved decisions and recommended defaults".',
+        'Before starting a step, mark it in_progress. Immediately after finishing a step, mark it completed.',
+        'If blocked by an external dependency or error, keep the current item in_progress and include the blocker in that item description.',
+        'Remove items that are no longer relevant. When all work is finished, send the full list with every item completed; do not clear the list.'
+      ].join('\n')
     )
   }
 

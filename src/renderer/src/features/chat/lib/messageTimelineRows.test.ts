@@ -254,6 +254,43 @@ test('buildConversationGroupRows renders hidden-steer continuation output inside
   )
 })
 
+test('buildConversationGroupRows renders one thinking block for hidden-steer continuations', () => {
+  const assistantBeforeHidden = createAssistantMessage({
+    id: 'assistant-before-hidden',
+    content: 'Initial visible answer',
+    status: 'completed',
+    reasoning: 'Initial thought',
+    createdAt: '2026-04-18T00:00:01.000Z'
+  })
+  const assistantAfterHidden = createAssistantMessage({
+    id: 'assistant-after-hidden',
+    content: 'Continued visible answer',
+    status: 'streaming',
+    reasoning: 'Continuation thought',
+    createdAt: '2026-04-18T00:00:03.000Z'
+  })
+  const group = createGroup({
+    activeAssistant: assistantBeforeHidden,
+    activeAssistantMessages: [assistantBeforeHidden, assistantAfterHidden],
+    hiddenRequestMessageIds: ['hidden-background-notice']
+  })
+
+  const rows = buildConversationGroupRows({
+    group,
+    inlineToolCalls: [],
+    runs: [],
+    activeRunId: 'run-hidden',
+    isActiveGroup: true,
+    subagentActive: false
+  })
+  const thinkingRows = rows.filter((row) => row.kind === 'group-thinking')
+
+  assert.deepEqual(
+    thinkingRows.map((row) => row.assistantMessage.id),
+    ['assistant-after-hidden']
+  )
+})
+
 test('buildConversationGroupRows uses hidden-steer run metadata for the merged footer', () => {
   const group = createGroup({
     activeAssistant: createAssistantMessage({

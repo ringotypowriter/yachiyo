@@ -14,6 +14,7 @@ import type {
   ThreadRecord,
   ThreadUpdatedEvent
 } from '../../../../../../shared/yachiyo/protocol.ts'
+import { summarizeMessagePreview } from '../../../../../../shared/yachiyo/messageContent.ts'
 import { isModelImageCapable } from '../../../../../../shared/yachiyo/providerConfig.ts'
 import { resolveYachiyoUserPath } from '../../../../config/paths.ts'
 import { buildThreadHandoffPrompt } from '../../../../runtime/context/threadHandoff.ts'
@@ -327,7 +328,7 @@ export async function streamCompactThreadHandoff(
     const updatedThread: ThreadRecord = {
       ...currentThread,
       headMessageId: assistantMessage.id,
-      preview: assistantMessage.content.slice(0, 240),
+      preview: summarizeMessagePreview(assistantMessage).slice(0, 240),
       ...(handoffFallbackTitle ? { title: handoffFallbackTitle } : {}),
       updatedAt: timestamp
     }

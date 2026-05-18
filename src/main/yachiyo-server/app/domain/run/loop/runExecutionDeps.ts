@@ -2,6 +2,7 @@ import type {
   BackgroundTaskStartedEvent,
   SubagentProgressEvent,
   ThreadRecord,
+  TodoUpdatedEvent,
   ToolCallName
 } from '../../../../../../shared/yachiyo/protocol.ts'
 import { isModelImageCapable } from '../../../../../../shared/yachiyo/providerConfig.ts'
@@ -13,6 +14,13 @@ import { hasPendingSteerInputs } from '../active/pendingSteerQueue.ts'
 import { sendActiveRunSteer, type SendChatFlowContext } from '../chat/sendChatFlow.ts'
 import type { RunExecutionDeps } from '../execution/runExecutionTypes.ts'
 import type { BackgroundTaskRunContext, RunDomainDeps, RunState } from '../runTypes.ts'
+import { createRunEventMetadata } from '../../shared/runEventMetadata.ts'
+import {
+  buildTodoReminderSteer,
+  createTodoProgressState,
+  markTodoReminderInjected,
+  shouldInjectTodoReminder
+} from '../todo/todoProgress.ts'
 
 export interface RunExecutionDepsContext {
   deps: RunDomainDeps
@@ -144,17 +152,47 @@ export function buildRunExecutionDeps(
       if (!activeRun) {
         return
       }
-      sendActiveRunSteer(context.createSendChatFlowContext(), {
-        activeRunId: input.loopInput.runId,
-        content: steerInput.content,
-        enabledSkillNames: activeRun.enabledSkillNames,
-        runTrigger: input.loopInput.runTrigger,
-        images: [],
-        attachments: [],
-        messageId: deps.createId(),
-        thread: input.currentThread,
-        hidden: true
+      injectHiddenRunSteer(context, input, activeRun, steerInput.content)
+    },
+    getTodoItems: () => {
+      return context.activeRuns.get(input.loopInput.runId)?.todoProgress?.items ?? []
+    },
+    onTodoListUpdated: ({ items, step }) => {
+      const currentRun = context.activeRuns.get(input.loopInput.runId)
+      if (!currentRun) {
+        return
+      }
+
+      currentRun.agentStepCount = step
+      currentRun.todoProgress = createTodoProgressState({ items, step })
+      deps.emit<TodoUpdatedEvent>({
+        type: 'todo.updated',
+        ...createRunEventMetadata({
+          threadId: input.loopInput.thread.id,
+          runId: input.loopInput.runId,
+          requestMessageId: currentRun.requestMessageId,
+          runTrigger: currentRun.runTrigger ?? input.loopInput.runTrigger
+        }),
+        items
       })
+    },
+    onAgentStepAdvanced: (step) => {
+      const currentRun = context.activeRuns.get(input.loopInput.runId)
+      if (currentRun) {
+        currentRun.agentStepCount = step
+      }
+      const todoProgress = currentRun?.todoProgress
+      if (
+        !currentRun ||
+        !todoProgress ||
+        hasPendingSteerInputs(currentRun) ||
+        !shouldInjectTodoReminder(todoProgress, step)
+      ) {
+        return
+      }
+
+      injectHiddenRunSteer(context, input, currentRun, buildTodoReminderSteer(todoProgress.items))
+      currentRun.todoProgress = markTodoReminderInjected(todoProgress, step)
     },
     onSubagentProgress: (event) => {
       deps.emit<SubagentProgressEvent>({
@@ -226,6 +264,25 @@ export function buildRunExecutionDeps(
       context.activeRunTasks.delete(input.loopInput.runId)
     }
   }
+}
+
+function injectHiddenRunSteer(
+  context: RunExecutionDepsContext,
+  input: BuildRunExecutionDepsInput,
+  activeRun: RunState,
+  content: string
+): void {
+  sendActiveRunSteer(context.createSendChatFlowContext(), {
+    activeRunId: input.loopInput.runId,
+    content,
+    enabledSkillNames: activeRun.enabledSkillNames,
+    runTrigger: input.loopInput.runTrigger,
+    images: [],
+    attachments: [],
+    messageId: context.deps.createId(),
+    thread: input.currentThread,
+    hidden: true
+  })
 }
 
 function buildBackgroundTaskRunContext(input: ActiveRunLoopInput): BackgroundTaskRunContext {

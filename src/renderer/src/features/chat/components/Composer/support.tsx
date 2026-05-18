@@ -1,10 +1,23 @@
 /* eslint-disable react-refresh/only-export-components */
 import type React from 'react'
-import { useEffect, useRef } from 'react'
-import { AlertCircle, Brain, FileText, LoaderCircle, Timer, X } from 'lucide-react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import {
+  AlertCircle,
+  Brain,
+  ChevronDown,
+  CheckCircle2,
+  Circle,
+  CircleDot,
+  FileText,
+  ListChecks,
+  LoaderCircle,
+  Timer,
+  X
+} from 'lucide-react'
 import type { ComposerFileDraft, ComposerImageDraft } from '@renderer/app/store/useAppStore'
-import type { Message, RunRecord } from '@renderer/app/types'
+import type { Message, RunRecord, TodoItemRecord } from '@renderer/app/types'
 import type { ChatInputBufferPayload } from '@renderer/features/chat/lib/chatInputBuffer'
+import { getTodoProgressCount } from '@renderer/features/chat/lib/todoProgressPresentation'
 import { theme } from '@renderer/theme/theme'
 import {
   ACCEPTED_ATTACHMENT_FILE_EXTENSIONS,
@@ -514,6 +527,204 @@ export function StagedInputBufferBubble({
       </div>
     </div>
   )
+}
+
+export function TodoProgressWidget({
+  items
+}: {
+  items: TodoItemRecord[]
+}): React.JSX.Element | null {
+  const [expanded, setExpanded] = useState(false)
+  const [panelOffsetX, setPanelOffsetX] = useState(0)
+  const wrapperRef = useRef<HTMLDivElement>(null)
+  const panelRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!expanded) {
+      return undefined
+    }
+
+    const handler = (event: MouseEvent): void => {
+      const target = event.target
+      if (!(target instanceof Node)) {
+        return
+      }
+      if (wrapperRef.current?.contains(target)) {
+        return
+      }
+      setPanelOffsetX(0)
+      setExpanded(false)
+    }
+
+    const id = setTimeout(() => document.addEventListener('mousedown', handler), 0)
+    return () => {
+      clearTimeout(id)
+      document.removeEventListener('mousedown', handler)
+    }
+  }, [expanded])
+
+  useLayoutEffect(() => {
+    if (!expanded) {
+      return undefined
+    }
+
+    const updateOffset = (): void => {
+      const panel = panelRef.current
+      if (!panel) {
+        return
+      }
+
+      const shell = wrapperRef.current?.closest('.composer-shell')
+      const boundary =
+        shell instanceof HTMLElement
+          ? shell.getBoundingClientRect()
+          : {
+              left: 16,
+              right: window.innerWidth - 16
+            }
+      const rect = panel.getBoundingClientRect()
+      const baseLeft = rect.left - panelOffsetX
+      const baseRight = rect.right - panelOffsetX
+      const padding = 8
+      let nextOffset = 0
+      if (baseLeft < boundary.left + padding) {
+        nextOffset = boundary.left + padding - baseLeft
+      } else if (baseRight > boundary.right - padding) {
+        nextOffset = boundary.right - padding - baseRight
+      }
+      setPanelOffsetX((current) => (current === nextOffset ? current : nextOffset))
+    }
+
+    updateOffset()
+    window.addEventListener('resize', updateOffset)
+    return () => window.removeEventListener('resize', updateOffset)
+  }, [expanded, items.length, panelOffsetX])
+
+  if (items.length === 0) {
+    return null
+  }
+
+  const progress = getTodoProgressCount(items)
+  const allCompleted = progress.completed === progress.total
+
+  return (
+    <div ref={wrapperRef} className="relative" style={{ pointerEvents: 'auto' }}>
+      <button
+        type="button"
+        className="composer-task-chip-button"
+        onClick={() =>
+          setExpanded((value) => {
+            if (!value) {
+              setPanelOffsetX(0)
+            }
+            return !value
+          })
+        }
+        data-open={expanded ? 'true' : undefined}
+        data-running={!allCompleted ? 'true' : undefined}
+        aria-expanded={expanded}
+        aria-label="Toggle task progress details"
+      >
+        <ListChecks
+          size={13}
+          strokeWidth={1.8}
+          className={allCompleted ? 'shrink-0' : 'shrink-0 animate-pulse'}
+          color={allCompleted ? theme.icon.muted : theme.icon.accent}
+        />
+        <span style={{ color: allCompleted ? theme.text.secondary : theme.text.accent }}>
+          Task progress
+        </span>
+        <span style={{ color: theme.text.muted }}>
+          {progress.completed}/{progress.total} Step
+        </span>
+        <ChevronDown
+          size={12}
+          strokeWidth={1.7}
+          className="shrink-0"
+          color={theme.icon.muted}
+          style={{
+            transform: expanded ? 'rotate(180deg)' : 'rotate(0deg)',
+            transition: 'transform 0.15s ease'
+          }}
+        />
+      </button>
+      {expanded ? (
+        <div
+          ref={panelRef}
+          className="absolute left-0"
+          style={{
+            bottom: 'calc(100% + 8px)',
+            width: 320,
+            maxWidth: 'calc(100vw - 32px)',
+            padding: '10px 11px',
+            borderRadius: 12,
+            background: theme.background.surfaceFrosted,
+            backdropFilter: 'blur(18px)',
+            WebkitBackdropFilter: 'blur(18px)',
+            border: `1px solid ${theme.border.strong}`,
+            boxShadow: theme.shadow.overlay,
+            transform: `translateX(${panelOffsetX}px)`,
+            zIndex: 55
+          }}
+        >
+          <div className="text-[11px] font-medium mb-2" style={{ color: theme.text.accent }}>
+            Task progress
+          </div>
+          <div className="flex flex-col gap-1.5">
+            {items.map((item) => {
+              const active = item.status === 'in_progress'
+              const completed = item.status === 'completed'
+              return (
+                <div
+                  key={item.id}
+                  className="flex items-start gap-2 min-w-0"
+                  style={{ opacity: completed ? 0.55 : 1 }}
+                >
+                  <TodoStatusIcon status={item.status} />
+                  <div
+                    className="text-xs leading-5 wrap-break-word min-w-0"
+                    style={{
+                      color: active ? theme.text.primary : theme.text.secondary,
+                      fontWeight: active ? 600 : 400,
+                      textDecoration: completed ? 'line-through' : 'none'
+                    }}
+                  >
+                    {item.content}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+function TodoStatusIcon({ status }: { status: TodoItemRecord['status'] }): React.JSX.Element {
+  if (status === 'completed') {
+    return (
+      <CheckCircle2
+        size={14}
+        strokeWidth={1.8}
+        className="mt-0.5 shrink-0"
+        color={theme.icon.muted}
+      />
+    )
+  }
+
+  if (status === 'in_progress') {
+    return (
+      <CircleDot
+        size={14}
+        strokeWidth={1.9}
+        className="mt-0.5 shrink-0 animate-pulse"
+        color={theme.icon.accent}
+      />
+    )
+  }
+
+  return <Circle size={14} strokeWidth={1.7} className="mt-0.5 shrink-0" color={theme.icon.muted} />
 }
 
 export function QueuedFollowUpBufferBubble({

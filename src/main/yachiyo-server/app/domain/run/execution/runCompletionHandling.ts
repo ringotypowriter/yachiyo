@@ -6,6 +6,7 @@ import type {
   ThreadRecord,
   ThreadUpdatedEvent
 } from '../../../../../../shared/yachiyo/protocol.ts'
+import { summarizeMessagePreview } from '../../../../../../shared/yachiyo/messageContent.ts'
 import type { ModelUsage } from '../../../../runtime/models/types.ts'
 import type { SnapshotTracker } from '../../../../services/fileSnapshot/snapshotTracker.ts'
 import type { RunPerfCollector } from '../../../../services/perfMonitor.ts'
@@ -122,7 +123,7 @@ async function persistCompletedRun(
     ...currentThread,
     updatedAt: timestamp,
     ...(input.executionInput.updateHeadOnComplete
-      ? { preview: assistantMessage.content.slice(0, 240) }
+      ? { preview: summarizeMessagePreview(assistantMessage).slice(0, 240) }
       : currentThread.preview
         ? { preview: currentThread.preview }
         : {}),

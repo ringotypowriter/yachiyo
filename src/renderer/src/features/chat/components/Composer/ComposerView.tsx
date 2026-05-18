@@ -42,6 +42,7 @@ import {
   ComposerImagePreview,
   QueuedFollowUpBufferBubble,
   StagedInputBufferBubble,
+  TodoProgressWidget,
   renderComposerTextHighlights,
   renderPretextLine
 } from './support.tsx'
@@ -62,6 +63,7 @@ export function ComposerView(props: any): React.JSX.Element {
     queuedFollowUpCanRemove,
     handleRemoveQueuedFollowUp,
     inputBuffer,
+    todoList,
     mergeBufferedPayloadIntoDraft,
     draftImages,
     draftFiles,
@@ -263,7 +265,6 @@ export function ComposerView(props: any): React.JSX.Element {
           }}
         />
       ) : null}
-
       <div className="composer-widget-shelf no-drag">
         <div className="composer-widget-shelf__left">
           <input
@@ -291,7 +292,6 @@ export function ComposerView(props: any): React.JSX.Element {
           >
             <Paperclip size={15} strokeWidth={1.5} color={theme.icon.muted} />
           </button>
-
           <div
             ref={workspaceSelectorRef}
             style={{ position: 'relative' }}
@@ -410,6 +410,8 @@ export function ComposerView(props: any): React.JSX.Element {
               />
             ) : null}
           </div>
+
+          {todoList ? <TodoProgressWidget items={todoList.items} /> : null}
         </div>
 
         <div className="composer-widget-shelf__right">

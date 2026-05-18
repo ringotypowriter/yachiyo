@@ -6,6 +6,7 @@ import type {
   RunCancelledEvent,
   ThreadUpdatedEvent
 } from '../../../../../../shared/yachiyo/protocol.ts'
+import { summarizeMessagePreview } from '../../../../../../shared/yachiyo/messageContent.ts'
 import { wouldCreateParentCycle } from '../../../../../../shared/yachiyo/threadTree.ts'
 import type { ModelUsage } from '../../../../runtime/models/types.ts'
 import type { SnapshotTracker } from '../../../../services/fileSnapshot/snapshotTracker.ts'
@@ -172,10 +173,12 @@ async function handleCancelledRun(
         ...(cancelledResponseMessages.length > 0
           ? { responseMessages: cancelledResponseMessages }
           : {}),
-        resolveUpdatedThread: (thread) => ({
+        resolveUpdatedThread: (thread, assistantMessage) => ({
           ...thread,
           updatedAt: timestamp,
-          ...(snapshot.bufferLength > 0 ? { preview: snapshot.content.slice(0, 240) } : {}),
+          ...(snapshot.bufferLength > 0
+            ? { preview: summarizeMessagePreview(assistantMessage).slice(0, 240) }
+            : {}),
           ...(input.executionInput.updateHeadOnComplete ? { headMessageId: input.messageId } : {})
         })
       }

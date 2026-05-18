@@ -6,6 +6,7 @@ import type {
   SubagentStartedEvent,
   ThreadRecord,
   ThreadUpdatedEvent,
+  TodoItemRecord,
   ToolCallRecord,
   ToolCallUpdatedEvent
 } from '../../../../../../shared/yachiyo/protocol.ts'
@@ -32,6 +33,7 @@ interface PendingUserAnswer {
 }
 
 export interface CreateRunToolSetInput {
+  advanceAgentStep: (options?: { notifyTodoReminder?: boolean }) => number
   createToolCall: (toolCall: ToolCallRecord) => void
   deps: RunExecutionDeps
   executionInput: ExecuteRunInput
@@ -116,6 +118,7 @@ export function createRunToolSet(input: CreateRunToolSetInput): ToolSet | undefi
           }
         : {}),
       ...(isLocalRunTrigger ? { askUserContext: createAskUserContext(input) } : {}),
+      ...(isLocalRunTrigger ? { todoContext: createTodoContext(input) } : {}),
       ...((gitCtx.hasGit || gitValidatedWorkspaces.length > 0) && enabledSubagentProfiles.length > 0
         ? {
             subagentProfiles: enabledSubagentProfiles,
@@ -135,6 +138,24 @@ export function createRunToolSet(input: CreateRunToolSetInput): ToolSet | undefi
       ...(executionInput.extraTools ? { extraTools: executionInput.extraTools } : {})
     }
   )
+}
+
+function createTodoContext(input: CreateRunToolSetInput): {
+  getCurrentItems: () => readonly TodoItemRecord[]
+  createId: () => string
+  onUpdate: (items: TodoItemRecord[]) => void
+} {
+  return {
+    getCurrentItems: () => input.deps.getTodoItems?.() ?? [],
+    createId: input.deps.createId,
+    onUpdate: (items) => {
+      const step = input.advanceAgentStep({ notifyTodoReminder: false })
+      input.deps.onTodoListUpdated?.({
+        items,
+        step
+      })
+    }
+  }
 }
 
 function resolveToolMemoryService(

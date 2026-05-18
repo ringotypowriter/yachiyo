@@ -61,6 +61,10 @@ import {
   type UpdateProfileDeps
 } from './agentTools/updateProfileTool.ts'
 import { createAskUserTool, type AskUserToolContext } from './agentTools/askUserTool.ts'
+import {
+  createUpdateTodoListTool,
+  type UpdateTodoListToolContext
+} from './agentTools/updateTodoListTool.ts'
 import type { YachiyoStorage } from '../storage/storage.ts'
 
 export type {
@@ -83,6 +87,10 @@ export type {
 export { ReadRecordCache } from './agentTools/readRecordCache.ts'
 
 export { createAskUserTool, type AskUserToolContext } from './agentTools/askUserTool.ts'
+export {
+  createUpdateTodoListTool,
+  type UpdateTodoListToolContext
+} from './agentTools/updateTodoListTool.ts'
 
 export {
   createTool as createBashTool,
@@ -130,6 +138,8 @@ export interface AgentToolDependencies {
   onSubagentFinished?: (event: DelegateCodingTaskFinishedEvent) => void
   /** When provided, the askUser tool is injected into the tool set. */
   askUserContext?: AskUserToolContext
+  /** When provided, updateTodoList drives the persistent composer todo widget. */
+  todoContext?: UpdateTodoListToolContext
   /** Extra tools merged into the tool set (e.g. schedule-only tools). */
   extraTools?: ToolSet
 }
@@ -594,6 +604,10 @@ export function createAgentToolSet(
 
   if (dependencies.askUserContext) {
     tools.askUser = createAskUserTool(dependencies.askUserContext)
+  }
+
+  if (dependencies.todoContext) {
+    tools.updateTodoList = createUpdateTodoListTool(dependencies.todoContext)
   }
 
   if (dependencies.extraTools) {

@@ -6,6 +6,7 @@ import {
   hasMessagePayload,
   normalizeMessageImages,
   stripMarkdown,
+  summarizeMessagePreview,
   summarizeMessageInput
 } from './messageContent.ts'
 
@@ -168,4 +169,18 @@ test('summarizeMessageInput returns text or image summary', () => {
     'Shared 2 images'
   )
   assert.equal(summarizeMessageInput({ content: '' }), '')
+})
+
+test('summarizeMessagePreview uses the last assistant text block', () => {
+  assert.equal(
+    summarizeMessagePreview({
+      role: 'assistant',
+      content: 'First answer\nSecond answer',
+      textBlocks: [
+        { id: 'block-1', content: 'First answer', createdAt: '2026-05-18T00:00:00.000Z' },
+        { id: 'block-2', content: 'Second answer', createdAt: '2026-05-18T00:00:01.000Z' }
+      ]
+    }),
+    'Second answer'
+  )
 })

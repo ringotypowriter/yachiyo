@@ -57,6 +57,9 @@ export function Composer({
 }): React.JSX.Element {
   const dialog = useAppDialog()
   const activeThreadId = useAppStore((s) => s.activeThreadId)
+  const todoList = useAppStore((s) =>
+    s.activeThreadId ? (s.todoListsByThread[s.activeThreadId] ?? null) : null
+  )
   const composerDraft = useAppStore(
     (s) => s.composerDrafts[s.activeThreadId ?? NEW_THREAD_DRAFT_KEY] ?? EMPTY_COMPOSER_DRAFT
   )
@@ -1136,6 +1139,7 @@ export function Composer({
       queuedFollowUpCanRemove={queuedFollowUpCanRemove}
       handleRemoveQueuedFollowUp={handleRemoveQueuedFollowUp}
       inputBuffer={inputBuffer}
+      todoList={todoList}
       mergeBufferedPayloadIntoDraft={mergeBufferedPayloadIntoDraft}
       attachmentStripRef={attachmentStripRef}
       draftImages={draftImages}

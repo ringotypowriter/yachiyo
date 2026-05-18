@@ -30,6 +30,8 @@ export type {
   ThreadModelOverride,
   ThreadColorTag,
   ThreadRecord as Thread,
+  TodoItemRecord,
+  TodoItemStatus,
   ToolCallName,
   ToolCallRecord as ToolCall,
   ToolCallDetailsSnapshot,

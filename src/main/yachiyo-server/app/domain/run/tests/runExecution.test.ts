@@ -781,6 +781,123 @@ test('executeServerRun keeps background bash launch completion separate from tas
   }
 })
 
+test('executeServerRun continues agent step count from prior run legs', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'yachiyo-step-carry-'))
+  const thread: ThreadRecord = {
+    id: 'thread-step-carry',
+    title: 'Thread',
+    workspacePath: root,
+    updatedAt: '2026-04-28T00:00:00.000Z'
+  }
+  const requestMessage: MessageRecord = {
+    id: 'msg-step-carry',
+    threadId: thread.id,
+    role: 'user',
+    content: 'continue work',
+    status: 'completed',
+    createdAt: '2026-04-28T00:00:00.000Z'
+  }
+  const events: unknown[] = []
+  const toolCalls = new Map<string, ToolCallRecord>()
+  const observedSteps: number[] = []
+  const baseDeps = createRunContextDeps({
+    events,
+    messages: [requestMessage],
+    workspacePath: root
+  })
+  const storage: RunExecutionDeps['storage'] = {
+    ...baseDeps.storage,
+    updateMessage: () => {},
+    getChannelUser: () => undefined,
+    persistResponseMessagesRepairInBackground: () => {},
+    listThreadRuns: () => [],
+    upsertRunRecoveryCheckpoint: () => {},
+    deleteRunRecoveryCheckpoint: () => {},
+    createToolCall: (toolCall: ToolCallRecord) => {
+      toolCalls.set(toolCall.id, toolCall)
+    },
+    updateToolCall: (toolCall: ToolCallRecord) => {
+      toolCalls.set(toolCall.id, toolCall)
+    },
+    listThreadToolCalls: () => [...toolCalls.values()],
+    completeRun: () => {},
+    cancelRun: () => {},
+    failRun: () => {},
+    saveThreadMessage: () => {},
+    updateRunSnapshot: () => {}
+  }
+  const deps: RunExecutionDeps = {
+    ...baseDeps,
+    storage,
+    loadThreadToolCalls: () => [...toolCalls.values()],
+    onAgentStepAdvanced: (step) => {
+      observedSteps.push(step)
+    },
+    createModelRuntime: () => ({
+      streamReply: async function* (request) {
+        const toolCall = {
+          type: 'tool-call',
+          dynamic: true,
+          toolCallId: 'tc-step-carry',
+          toolName: 'bash',
+          input: { command: 'echo ok' }
+        }
+
+        request.onToolCallStart?.({
+          abortSignal: request.signal,
+          messages: request.messages,
+          toolCall
+        } as never)
+
+        request.onToolCallFinish?.({
+          abortSignal: request.signal,
+          durationMs: 0,
+          experimental_context: undefined,
+          functionId: undefined,
+          metadata: undefined,
+          model: undefined,
+          messages: request.messages,
+          output: {
+            content: [{ type: 'text' as const, text: 'ok' }],
+            metadata: { cwd: root }
+          },
+          stepNumber: undefined,
+          success: true,
+          toolCall
+        } as never)
+
+        yield 'Done.'
+        request.onFinish?.({
+          promptTokens: 1,
+          completionTokens: 1,
+          totalPromptTokens: 1,
+          totalCompletionTokens: 1
+        })
+      }
+    })
+  }
+
+  try {
+    const result = await executeServerRun(deps, {
+      enabledTools: ['bash'],
+      inactivityTimeoutMs: 30_000,
+      runTrigger: 'local',
+      runId: 'run-step-carry',
+      thread,
+      requestMessageId: requestMessage.id,
+      abortController: new AbortController(),
+      updateHeadOnComplete: true,
+      previousEnabledTools: null,
+      priorAgentStepCount: 10
+    })
+
+    assert.equal(result.kind, 'completed')
+    assert.deepEqual(observedSteps, [11])
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
 test('executeServerRun ignores completed background task snapshots for launch tool calls', async () => {
   const root = await mkdtemp(join(tmpdir(), 'yachiyo-bg-snapshot-'))
   const thread: ThreadRecord = {

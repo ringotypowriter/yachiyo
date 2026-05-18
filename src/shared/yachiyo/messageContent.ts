@@ -1,4 +1,4 @@
-import type { MessageImageRecord } from './protocol'
+import type { MessageImageRecord, MessageRole, MessageTextBlockRecord } from './protocol'
 
 interface MessageAttachmentLike {
   filename: string
@@ -7,6 +7,8 @@ interface MessageAttachmentLike {
 
 interface MessagePayloadLike {
   content: string
+  role?: MessageRole
+  textBlocks?: MessageTextBlockRecord[]
   images?: MessageImageRecord[]
   attachments?: MessageAttachmentLike[]
 }
@@ -117,4 +119,15 @@ export function summarizeMessageInput(input: MessagePayloadLike): string {
   }
 
   return ''
+}
+
+export function summarizeMessagePreview(input: MessagePayloadLike): string {
+  if (input.role === 'assistant' && input.textBlocks && input.textBlocks.length > 0) {
+    for (let index = input.textBlocks.length - 1; index >= 0; index -= 1) {
+      const text = input.textBlocks[index]?.content.trim()
+      if (text) return text
+    }
+  }
+
+  return summarizeMessageInput(input)
 }

@@ -23,7 +23,10 @@ import {
   getThreadCapabilities,
   withThreadCapabilities
 } from '../../../../../shared/yachiyo/protocol.ts'
-import { summarizeMessageInput } from '../../../../../shared/yachiyo/messageContent.ts'
+import {
+  summarizeMessageInput,
+  summarizeMessagePreview
+} from '../../../../../shared/yachiyo/messageContent.ts'
 import {
   collectDescendantIds,
   collectMessagePath,
@@ -622,7 +625,7 @@ export class YachiyoServerThreadDomain {
     if (target) {
       nextHeadMessageId = pickLatestLeafId(messages, target.id) ?? target.id
       const previewSource = messages.find((message) => message.id === nextHeadMessageId)
-      preview = previewSource ? summarizeMessageInput(previewSource) : ''
+      preview = previewSource ? summarizeMessagePreview(previewSource) : ''
     } else {
       // The assistant message exists only in the frontend (e.g. cancelled run
       // that was never persisted). Accept the ID so the frontend can still
@@ -687,7 +690,7 @@ export class YachiyoServerThreadDomain {
       }
     })
     const previewSource = clonedMessages.at(-1)
-    const preview = previewSource ? summarizeMessageInput(previewSource) : ''
+    const preview = previewSource ? summarizeMessagePreview(previewSource) : ''
     const branchThread = withThreadCapabilities({
       id: threadId,
       title: deriveBranchTitle(thread, branchPoint),
@@ -772,7 +775,7 @@ export class YachiyoServerThreadDomain {
     const previewSource = nextHeadMessageId
       ? remainingMessages.find((message) => message.id === nextHeadMessageId)
       : undefined
-    const preview = previewSource ? summarizeMessageInput(previewSource) : ''
+    const preview = previewSource ? summarizeMessagePreview(previewSource) : ''
     const updatedThread: ThreadRecord = {
       ...thread,
       title: remainingMessages.length === 0 ? DEFAULT_THREAD_TITLE : thread.title,

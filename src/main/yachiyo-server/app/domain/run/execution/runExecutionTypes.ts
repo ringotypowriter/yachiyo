@@ -9,6 +9,7 @@ import type {
   SkillCatalogEntry,
   SendChatRunTrigger,
   ThreadRecord,
+  TodoItemRecord,
   ToolCallName,
   ToolCallRecord
 } from '../../../../../../shared/yachiyo/protocol.ts'
@@ -75,6 +76,8 @@ export interface ExecuteRunInput {
   readRecordCache?: ReadRecordCache
   /** Number of tool-fail loop steers already injected in prior legs of this run. */
   priorToolFailLoopSteers?: number
+  /** Monotonic agent tool-step count carried across steer/restart legs of the same run. */
+  priorAgentStepCount?: number
 }
 
 export interface RestartRunReason {
@@ -150,6 +153,12 @@ export interface RunExecutionDeps {
   hasPendingSteer?: () => boolean
   /** Called by execution to inject a system steer that breaks loops or redirects the model. */
   injectPendingSteer?: (input: { content: string }) => void
+  /** Returns the latest todo widget items for id preservation across full-list updates. */
+  getTodoItems?: () => readonly TodoItemRecord[]
+  /** Called when the model updates the persistent todo widget. */
+  onTodoListUpdated?: (input: { items: TodoItemRecord[]; step: number }) => void
+  /** Called whenever the monotonic agent tool-step counter advances. */
+  onAgentStepAdvanced?: (step: number) => void
   /** Called by execution to register the askUser answer handler. */
   onAskUserHandlerReady?: (handler: (toolCallId: string, answer: string) => void) => void
   onTerminalState?: () => void

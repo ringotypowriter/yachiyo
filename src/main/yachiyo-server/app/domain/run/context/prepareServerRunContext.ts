@@ -456,6 +456,7 @@ export async function prepareServerRunContext(
                   !input.thread.privacyMode &&
                   (!isExternalChannel || isOwnerDm) &&
                   deps.memoryService.isConfigured(),
+                hasTodoTool: isLocalRunTrigger,
                 soulDocumentPath: soulDocument?.filePath,
                 userDocumentPath: userDocument?.filePath,
                 subagentContextBlock: subagentContextBlock || undefined,

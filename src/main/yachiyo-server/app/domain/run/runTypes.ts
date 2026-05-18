@@ -23,6 +23,7 @@ import type { QuerySourceExecutor } from '../../../tools/agentTools/querySourceT
 import type { SoulDocument } from '../../../runtime/profiles/soul.ts'
 import type { UserDocument } from '../../../runtime/profiles/user.ts'
 import type { CreateId, EmitServerEvent, Timestamp } from '../shared/shared.ts'
+import type { TodoProgressState } from './todo/todoProgress.ts'
 
 export type RunExecutionPhase = 'generating' | 'tool-running' | 'waiting-for-user' | 'terminal'
 
@@ -62,6 +63,8 @@ export interface RunState {
   recap?: boolean
   recapResolve?: (text: string | null) => void
   recapUserMessage?: MessageRecord
+  agentStepCount?: number
+  todoProgress?: TodoProgressState
 }
 
 export interface RunDomainDeps {

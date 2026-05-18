@@ -26,6 +26,14 @@ interface RunEvent extends ThreadEvent {
   runTrigger?: SendChatRunTrigger
 }
 
+export type TodoItemStatus = 'pending' | 'in_progress' | 'completed'
+
+export interface TodoItemRecord {
+  id: string
+  content: string
+  status: TodoItemStatus
+}
+
 export interface ThreadCreatedEvent extends ThreadEvent {
   type: 'thread.created'
   thread: ThreadRecord
@@ -193,6 +201,11 @@ export interface ToolCallUpdatedEvent extends ThreadEvent {
   toolCall: ToolCallRecord
 }
 
+export interface TodoUpdatedEvent extends RunEvent {
+  type: 'todo.updated'
+  items: TodoItemRecord[]
+}
+
 export interface SettingsUpdatedEvent extends BaseEvent {
   type: 'settings.updated'
   config: SettingsConfig
@@ -284,6 +297,7 @@ export type YachiyoServerEvent =
   | MessageReasoningDeltaEvent
   | MessageCompletedEvent
   | ToolCallUpdatedEvent
+  | TodoUpdatedEvent
   | SettingsUpdatedEvent
   | SubagentStartedEvent
   | SubagentFinishedEvent

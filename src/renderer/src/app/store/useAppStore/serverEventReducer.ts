@@ -109,6 +109,8 @@ export function reduceServerEvent(state: AppState, event: YachiyoServerEvent): P
     delete runStatusesByThread[event.threadId]
     const toolCalls = { ...state.toolCalls }
     delete toolCalls[event.threadId]
+    const todoListsByThread = { ...state.todoListsByThread }
+    delete todoListsByThread[event.threadId]
     const subagentActiveIdsByThread = { ...state.subagentActiveIdsByThread }
     delete subagentActiveIdsByThread[event.threadId]
     const subagentProgressTimelineByThread = { ...state.subagentProgressTimelineByThread }
@@ -152,6 +154,7 @@ export function reduceServerEvent(state: AppState, event: YachiyoServerEvent): P
       subagentProgressTimelineByThread,
       subagentStateById,
       externalThreads,
+      todoListsByThread,
       toolCalls,
       threads
     }
@@ -579,6 +582,20 @@ export function reduceServerEvent(state: AppState, event: YachiyoServerEvent): P
       ...nextState,
       ...deriveActiveThreadRunState(nextState)
     }
+  }
+
+  if (event.type === 'todo.updated') {
+    const todoListsByThread = { ...state.todoListsByThread }
+    if (event.items.length === 0) {
+      delete todoListsByThread[event.threadId]
+    } else {
+      todoListsByThread[event.threadId] = {
+        items: event.items.map((item) => ({ ...item })),
+        updatedAt: event.timestamp
+      }
+    }
+
+    return { todoListsByThread }
   }
 
   if (event.type === 'run.usage.updated') {

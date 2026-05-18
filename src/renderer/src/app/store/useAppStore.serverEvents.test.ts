@@ -53,6 +53,7 @@ function resetStore(): void {
     },
     threadListMode: 'active',
     threads: [],
+    todoListsByThread: {},
     toolCalls: {}
   })
 }
@@ -220,6 +221,53 @@ test('applyServerEvent replaces a thread snapshot after branch-aware history edi
   assert.equal(state.toolCalls['thread-1']?.length, 1)
   assert.equal(state.toolCalls['thread-1']?.[0]?.toolName, 'bash')
   assert.equal(state.toolCalls['thread-1']?.[0]?.cwd, '/tmp/thread-1')
+})
+
+test('applyServerEvent keeps a completed todo list visible', () => {
+  resetStore()
+
+  useAppStore.getState().applyServerEvent({
+    eventId: 'event-todo-1',
+    timestamp: TIMESTAMP,
+    type: 'todo.updated',
+    threadId: 'thread-1',
+    runId: 'run-1',
+    items: [
+      { id: 'inspect', content: 'Inspect the existing flow', status: 'completed' },
+      { id: 'server', content: 'Wire the server event', status: 'completed' }
+    ]
+  })
+
+  assert.deepEqual(useAppStore.getState().todoListsByThread['thread-1'], {
+    items: [
+      { id: 'inspect', content: 'Inspect the existing flow', status: 'completed' },
+      { id: 'server', content: 'Wire the server event', status: 'completed' }
+    ],
+    updatedAt: TIMESTAMP
+  })
+})
+
+test('applyServerEvent clears todo state only when the server sends an empty list', () => {
+  resetStore()
+
+  useAppStore.getState().applyServerEvent({
+    eventId: 'event-todo-1',
+    timestamp: TIMESTAMP,
+    type: 'todo.updated',
+    threadId: 'thread-1',
+    runId: 'run-1',
+    items: [{ id: 'server', content: 'Wire the server event', status: 'in_progress' }]
+  })
+  useAppStore.getState().applyServerEvent({
+    eventId: 'event-todo-2',
+    timestamp: TIMESTAMP,
+    type: 'todo.updated',
+    threadId: 'thread-1',
+    runId: 'run-1',
+    items: []
+  })
+
+  assert.equal(useAppStore.getState().todoListsByThread['thread-1'], undefined)
 })
 
 test('applyServerEvent moves archived threads between active and archived collections', () => {

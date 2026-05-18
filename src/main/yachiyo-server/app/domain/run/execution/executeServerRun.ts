@@ -75,6 +75,19 @@ export async function executeServerRun(
     initialToolCalls: restoredToolCalls,
     priorToolFailLoopSteers: input.priorToolFailLoopSteers
   })
+  let agentStepCount = Math.max(input.priorAgentStepCount ?? 0, toolLifecycle.getStepCount())
+  const advanceAgentStep = (options?: { notifyTodoReminder?: boolean }): number => {
+    agentStepCount++
+    if (options?.notifyTodoReminder !== false) {
+      deps.onAgentStepAdvanced?.(agentStepCount)
+    }
+    return agentStepCount
+  }
+  const advanceTrackedToolStep = (): number => {
+    const stepIndex = toolLifecycle.advanceStep()
+    advanceAgentStep()
+    return stepIndex
+  }
   const bindCurrentRunToolCallsToAssistant = (assistantMessageId: string): void => {
     bindRunToolCallsToAssistant(
       { emit: deps.emit, updateToolCall: instrumentedUpdateToolCall },
@@ -269,6 +282,7 @@ export async function executeServerRun(
     deps.onSnapshotTrackerReady?.(snapshotTracker)
     const runtime = deps.createModelRuntime()
     tools = createRunToolSet({
+      advanceAgentStep,
       createToolCall: instrumentedCreateToolCall,
       deps,
       executionInput: input,
@@ -390,7 +404,7 @@ export async function executeServerRun(
         toolLifecycle.markRunningToolCall(event.toolCall.toolCallId)
         outputState.markNextTextBlock()
         setExecutionPhase('tool-running')
-        const stepIndex = toolLifecycle.advanceStep()
+        const stepIndex = advanceTrackedToolStep()
 
         // Upgrade from 'preparing' if the early record exists, otherwise create fresh.
         // The preparing record may have been stored under a different key if
@@ -504,7 +518,7 @@ export async function executeServerRun(
         textDeltaBatcher.flush()
         reasoningDeltaBatcher.flush()
         setExecutionPhase('tool-running')
-        const stepIndex = toolLifecycle.advanceStep()
+        const stepIndex = advanceTrackedToolStep()
 
         const finishedAt = deps.timestamp()
         const existingToolCall = toolLifecycle.getToolCall(event.toolCall.toolCallId)
@@ -655,7 +669,7 @@ export async function executeServerRun(
                 ...(mergedBackgroundDetails ? { details: mergedBackgroundDetails } : {}),
                 ...(errorMessage ? { error: errorMessage } : {}),
                 startedAt: finishedAt,
-                stepIndex: toolLifecycle.advanceStep(),
+                stepIndex: advanceTrackedToolStep(),
                 stepBudget: maxToolSteps,
                 finishedAt: terminalBackgroundToolCall?.finishedAt ?? finishedAt
               }

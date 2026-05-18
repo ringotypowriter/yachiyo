@@ -170,6 +170,21 @@ function getActiveAssistantMessages(group: MessageGroup): Message[] {
   return activeBranch ? [activeBranch.message] : []
 }
 
+function getThinkingAssistantMessages(
+  group: MessageGroup,
+  activeAssistantMessages: readonly Message[]
+): Message[] {
+  const assistantMessagesWithReasoning = activeAssistantMessages.filter(
+    (assistantMessage) => assistantMessage.reasoning
+  )
+  if (group.hiddenRequestMessageIds.length === 0) {
+    return assistantMessagesWithReasoning
+  }
+
+  const latestAssistantMessage = assistantMessagesWithReasoning.at(-1)
+  return latestAssistantMessage ? [latestAssistantMessage] : []
+}
+
 export function collectInlineCodeMarkdownDocumentsFromRows(
   rows: readonly MessageTimelineRow[]
 ): string[] {
@@ -272,8 +287,7 @@ export function buildConversationGroupRows(
     })
   }
 
-  for (const assistantMessage of activeAssistantMessages) {
-    if (!assistantMessage.reasoning) continue
+  for (const assistantMessage of getThinkingAssistantMessages(group, activeAssistantMessages)) {
     rows.push({
       kind: 'group-thinking',
       key: `thinking:${assistantMessage.id}`,

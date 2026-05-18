@@ -16,6 +16,7 @@ import type {
   Thread,
   ThreadColorTag,
   ThreadModelOverride,
+  TodoItemRecord,
   ToolCallName,
   ToolCall,
   YachiyoServerEvent
@@ -182,6 +183,11 @@ export interface GlobalProcessingTask {
   label: string
 }
 
+export interface TodoListState {
+  items: TodoItemRecord[]
+  updatedAt: string
+}
+
 export interface AppState {
   activeToasts: AppToast[]
   queuedToasts: AppToast[]
@@ -273,6 +279,7 @@ export interface AppState {
   toggleSidebarFilterJustDone: () => void
   toggleSidebarFilterFolderOnly: () => void
   clearSidebarFilter: () => void
+  todoListsByThread: Record<string, TodoListState>
   toolCalls: Record<string, ToolCall[]>
   /** Snapshot review info per run, set by snapshot.ready events. */
   snapshotReviewByRun: Record<
@@ -808,6 +815,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   showExternalThreads: false,
   threadListMode: deriveThreadListMode(loadSidebarFilter()),
   sidebarFilter: loadSidebarFilter(),
+  todoListsByThread: {},
   toolCalls: {},
   snapshotReviewByRun: {},
   clearSnapshotReview: (runId) =>
