@@ -261,6 +261,9 @@ export async function executeServerRun(
       abortController: input.abortController,
       ...(input.recoveryCheckpoint ? { recoveryCheckpoint: input.recoveryCheckpoint } : {}),
       ...(input.isSteerLeg !== undefined ? { isSteerLeg: input.isSteerLeg } : {}),
+      ...(input.previousEnabledTools !== null
+        ? { previousEnabledTools: input.previousEnabledTools }
+        : {}),
       ...(input.priorUsage ? { priorUsage: input.priorUsage } : {}),
       ...(input.maxToolStepsOverride !== undefined
         ? { maxToolStepsOverride: input.maxToolStepsOverride }

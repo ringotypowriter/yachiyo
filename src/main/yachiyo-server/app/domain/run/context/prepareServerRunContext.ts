@@ -32,6 +32,7 @@ import { EXTERNAL_SYSTEM_PROMPT, SYSTEM_PROMPT } from '../../../../runtime/conte
 import {
   buildCurrentTimeSection,
   buildDisabledToolsReminderSection,
+  buildToolAvailabilityReminderSection,
   buildSteerReminderSection,
   formatDateLine,
   formatQueryReminder
@@ -146,6 +147,7 @@ export interface PrepareServerRunContextInput {
   abortController: AbortController
   recoveryCheckpoint?: RunRecoveryCheckpoint
   isSteerLeg?: boolean
+  previousEnabledTools?: ToolCallName[] | null
   priorUsage?: ExecuteRunInput['priorUsage']
   maxToolStepsOverride?: number
   requestMessage?: MessageRecord
@@ -213,6 +215,12 @@ export async function prepareServerRunContext(
   const isSteerLeg = input.isSteerLeg === true || input.priorUsage != null
   const hiddenQueryReminder = formatQueryReminder(
     [
+      input.previousEnabledTools
+        ? buildToolAvailabilityReminderSection({
+            previousEnabledTools: input.previousEnabledTools,
+            enabledTools: modelEnabledTools
+          })
+        : null,
       buildDisabledToolsReminderSection({ enabledTools: modelEnabledTools }),
       buildCurrentTimeSection(hintTime, { includeDate: !isLocalOrOwnerDm }),
       isSteerLeg ? buildSteerReminderSection() : null

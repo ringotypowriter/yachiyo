@@ -217,6 +217,62 @@ test('prepareServerRunContext injects consumed activity and reports it as a cont
   }
 })
 
+test('prepareServerRunContext injects tool availability changes into the current turn reminder', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'yachiyo-tool-reminder-'))
+  const thread: ThreadRecord = {
+    id: 'thread-tool-reminder',
+    title: 'Thread',
+    workspacePath: root,
+    updatedAt: '2026-04-28T00:00:00.000Z'
+  }
+  const requestMessage: MessageRecord = {
+    id: 'msg-tool-reminder',
+    threadId: thread.id,
+    role: 'user',
+    content: 'continue',
+    status: 'completed',
+    createdAt: '2026-04-28T00:00:00.000Z'
+  }
+  const events: unknown[] = []
+  const updatedMessages: MessageRecord[] = []
+
+  try {
+    const context = await prepareServerRunContext(
+      createRunContextDeps({
+        events,
+        messages: [requestMessage],
+        updatedMessages,
+        workspacePath: root
+      }),
+      {
+        runId: 'run-tool-reminder',
+        thread,
+        requestMessageId: requestMessage.id,
+        enabledTools: ['read', 'write', 'bash'],
+        previousEnabledTools: ['read', 'bash'],
+        runTrigger: 'local',
+        abortController: new AbortController(),
+        requestMessage,
+        historyMessages: [requestMessage],
+        includeMemoryRecall: false,
+        applyStripCompact: false
+      }
+    )
+
+    const userContent = context.messages
+      .filter((message) => message.role === 'user')
+      .map((message) => message.content)
+      .filter((content): content is string => typeof content === 'string')
+      .join('\n')
+
+    assert.match(userContent, /Tool availability changed for this turn/)
+    assert.match(userContent, /Enabled: write\./)
+    assert.match(updatedMessages[0]?.turnContext?.reminder ?? '', /Enabled: write\./)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
 test('prepareServerRunContext persists consumed activity for replay', async () => {
   const root = await mkdtemp(join(tmpdir(), 'yachiyo-run-context-'))
   const thread: ThreadRecord = {
