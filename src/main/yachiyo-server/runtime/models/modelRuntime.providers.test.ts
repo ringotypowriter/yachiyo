@@ -779,30 +779,6 @@ test('streamReply does not double-inject reasoning_content when it already exist
   assert.equal(responseMessages[0].reasoning_content, 'Already captured')
 })
 
-test('patchReasoningSignatures strips synthetic anthropic signatures for openai provider', () => {
-  const messages = [
-    {
-      role: 'assistant',
-      content: [
-        {
-          type: 'reasoning',
-          text: 'Thinking...',
-          providerOptions: { anthropic: { signature: 'yachiyo-passthrough' } }
-        }
-      ]
-    }
-  ]
-
-  const result = patchReasoningSignatures(messages, 'openai')
-
-  assert.deepEqual(result, [
-    {
-      role: 'assistant',
-      content: [{ type: 'reasoning', text: 'Thinking...' }]
-    }
-  ])
-})
-
 test('patchReasoningSignatures drops non-openai reasoning parts for openai-responses provider', () => {
   const messages = [
     {
@@ -811,7 +787,7 @@ test('patchReasoningSignatures drops non-openai reasoning parts for openai-respo
         {
           type: 'reasoning',
           text: 'Thinking...',
-          providerMetadata: { anthropic: { signature: 'yachiyo-passthrough' } }
+          providerMetadata: { anthropic: { signature: 'real-signature' } }
         }
       ]
     }
@@ -846,7 +822,7 @@ test('patchReasoningSignatures preserves real anthropic signatures for non-anthr
   assert.deepEqual(result, messages)
 })
 
-test('patchReasoningSignatures injects synthetic signature for anthropic provider', () => {
+test('patchReasoningSignatures leaves unsigned reasoning unsigned for anthropic provider', () => {
   const messages = [
     {
       role: 'assistant',
@@ -856,19 +832,7 @@ test('patchReasoningSignatures injects synthetic signature for anthropic provide
 
   const result = patchReasoningSignatures(messages, 'anthropic')
 
-  assert.deepEqual(result, [
-    {
-      role: 'assistant',
-      content: [
-        {
-          type: 'reasoning',
-          text: 'Thinking...',
-          providerOptions: { anthropic: { signature: 'yachiyo-passthrough' } },
-          providerMetadata: { anthropic: { signature: 'yachiyo-passthrough' } }
-        }
-      ]
-    }
-  ])
+  assert.deepEqual(result, messages)
 })
 
 test('patchReasoningSignatures does not synthesize anthropic signature for OpenAI reasoning metadata', () => {

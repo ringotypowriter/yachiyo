@@ -324,9 +324,7 @@ test('responseMessages with interleaved reasoning are preserved in replay', () =
     ]
   })
 
-  // Reasoning parts must be preserved — many models use interleaved thinking.
-  // Reasoning blocks without Anthropic signatures get a synthetic passthrough
-  // signature so the adapter doesn't drop them.
+  // Reasoning parts must be preserved; provider-specific replay happens later.
   const firstAssistant = compiled[2] as { content: Array<{ type: string }> }
   assert.equal(firstAssistant.content[0].type, 'reasoning')
   assert.equal(firstAssistant.content.length, 3)
@@ -373,7 +371,7 @@ test('responseMessages with OpenAI-native reasoning are not patched with Anthrop
   assert.equal(
     (assistant.content[0].providerOptions as Record<string, unknown> | undefined)?.anthropic,
     undefined,
-    'should not inject synthetic anthropic signature into OpenAI-native reasoning'
+    'should not inject Anthropic metadata into OpenAI-native reasoning'
   )
 })
 

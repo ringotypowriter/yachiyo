@@ -184,18 +184,8 @@ function stripImageDataFromResponseMessages(messages: ModelMessage[]): ModelMess
 }
 
 /**
- * Ensure reasoning blocks in replayed responseMessages carry a provider
- * signature so the Anthropic adapter doesn't silently drop them. Non-Anthropic
- * providers (e.g. Kimi) emit reasoning without signatures; we inject a
- * synthetic one so the content survives across turns.
- *
- * We skip injection when the block already has an Anthropic signature in
- * providerOptions or metadata from any non-Anthropic provider (OpenAI, Google,
- * etc.) so we don't pile provider-specific metadata on top of each other.
- *
- * If the signature only lives in providerMetadata (as the AI SDK stores it
- * after an Anthropic response), we copy it into providerOptions because the
- * Anthropic adapter reads from providerOptions when building the prompt.
+ * Copy real Anthropic reasoning metadata to the field the Anthropic adapter
+ * reads when replaying stored responseMessages.
  */
 function patchReasoningSignatures(messages: ModelMessage[]): ModelMessage[] {
   let patched = false
@@ -228,28 +218,7 @@ function patchReasoningSignatures(messages: ModelMessage[]): ModelMessage[] {
         }
       }
 
-      // Skip injection for any non-Anthropic provider metadata.
-      const nonAnthropicEntries = [
-        ...Object.entries(providerOptions ?? {}).filter(([key]) => key !== 'anthropic'),
-        ...Object.entries(providerMetadata ?? {}).filter(([key]) => key !== 'anthropic')
-      ]
-      const hasNonAnthropicMeta = nonAnthropicEntries.some(
-        ([, value]) => value != null && typeof value === 'object' && Object.keys(value).length > 0
-      )
-      if (hasNonAnthropicMeta) return part
-
-      // Bare reasoning block — inject synthetic signature for Anthropic compatibility.
-      contentPatched = true
-      const syntheticMeta = {
-        ...(anthropicOptions as Record<string, unknown> | undefined),
-        ...(anthropicMetadata as Record<string, unknown> | undefined),
-        signature: 'yachiyo-passthrough'
-      }
-      return {
-        ...part,
-        providerOptions: { ...providerOptions, anthropic: syntheticMeta },
-        providerMetadata: { ...providerMetadata, anthropic: syntheticMeta }
-      }
+      return part
     })
 
     if (!contentPatched) return msg

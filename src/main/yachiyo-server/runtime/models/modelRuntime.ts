@@ -223,22 +223,9 @@ function measurePromptPayload(messages: ModelMessage[]): number {
 }
 
 /**
- * Ensure every reasoning block in responseMessages has the provider metadata
- * (signature) needed for the Anthropic adapter to round-trip it. Non-Anthropic
- * providers (e.g. Kimi) emit reasoning blocks without Anthropic signatures,
- * causing the adapter to silently drop them on the next request. We patch in a
- * synthetic signature so the content survives across steer/restart legs.
- *
- * We skip injection when the block already has an Anthropic signature in
- * providerOptions or metadata from any non-Anthropic provider (OpenAI, Google,
- * etc.) so we don't pile provider-specific metadata on top of each other.
- *
- * If the signature only lives in providerMetadata (as the AI SDK stores it
- * after an Anthropic response), we copy it into providerOptions because the
- * Anthropic adapter reads from providerOptions when building the prompt.
- *
- * For non-Anthropic providers we strip any previously-injected synthetic
- * `yachiyo-passthrough` signatures so they don't confuse the target adapter.
+ * Keep provider-native reasoning metadata in the field read by the target
+ * adapter. Real Anthropic signatures are copied from providerMetadata to
+ * providerOptions for replay.
  */
 export function patchReasoningSignatures(
   messages: unknown[],
@@ -258,9 +245,7 @@ export function patchReasoningSignatures(
     return sanitizeForOpenaiResponses(messages)
   }
 
-  // For all other providers (openai chat-completions, google, etc.), strip
-  // synthetic signatures and let the SDK converter handle reasoning as it sees fit.
-  return stripSyntheticAnthropicSignatures(messages)
+  return messages
 }
 
 function patchAnthropicReasoningSignatures(messages: unknown[]): unknown[] {
@@ -297,36 +282,7 @@ function patchAnthropicReasoningSignatures(messages: unknown[]): unknown[] {
         }
       }
 
-      // Provider-native reasoning from other adapters cannot be replayed as
-      // Anthropic thinking, so leave it unpatched and let the adapter skip it.
-      const hasOtherProviderMetadata = [
-        ...Object.entries(p.providerOptions ?? {}).filter(([provider]) => provider !== 'anthropic'),
-        ...Object.entries(p.providerMetadata ?? {}).filter(([provider]) => provider !== 'anthropic')
-      ].some(
-        ([, value]) => value != null && typeof value === 'object' && Object.keys(value).length > 0
-      )
-
-      if (hasOtherProviderMetadata) return part
-
-      // Bare reasoning block — inject synthetic signature into both fields
-      // for Anthropic compatibility.
-      contentPatched = true
-      const syntheticMeta = {
-        ...(anthropicOptions as Record<string, unknown> | undefined),
-        ...(anthropicMetadata as Record<string, unknown> | undefined),
-        signature: 'yachiyo-passthrough'
-      }
-      return {
-        ...p,
-        providerOptions: {
-          ...p.providerOptions,
-          anthropic: syntheticMeta
-        },
-        providerMetadata: {
-          ...p.providerMetadata,
-          anthropic: syntheticMeta
-        }
-      }
+      return part
     })
 
     if (!contentPatched) return msg
@@ -388,65 +344,6 @@ function sanitizeForOpenaiResponses(messages: unknown[]): unknown[] {
 
       contentPatched = true
     }
-
-    if (!contentPatched) return msg
-    patched = true
-    return { ...m, content }
-  })
-
-  return patched ? result : messages
-}
-
-function stripSyntheticAnthropicSignatures(messages: unknown[]): unknown[] {
-  let patched = false
-  const result = messages.map((msg) => {
-    const m = msg as { role?: string; content?: unknown[] }
-    if (m.role !== 'assistant' || !Array.isArray(m.content)) return msg
-
-    let contentPatched = false
-    const content = m.content.map((part) => {
-      const p = part as {
-        type?: string
-        providerOptions?: Record<string, unknown>
-        providerMetadata?: Record<string, unknown>
-      }
-      if (p.type !== 'reasoning') return part
-
-      const anthropicOptions = p.providerOptions?.anthropic as Record<string, unknown> | undefined
-      const anthropicMetadata = p.providerMetadata?.anthropic as Record<string, unknown> | undefined
-
-      const isSyntheticOptions = anthropicOptions?.signature === 'yachiyo-passthrough'
-      const isSyntheticMetadata = anthropicMetadata?.signature === 'yachiyo-passthrough'
-
-      if (!isSyntheticOptions && !isSyntheticMetadata) return part
-
-      contentPatched = true
-      const newPart: Record<string, unknown> = { ...p }
-
-      if (isSyntheticOptions) {
-        const remaining = Object.fromEntries(
-          Object.entries(p.providerOptions!).filter(([k]) => k !== 'anthropic')
-        )
-        if (Object.keys(remaining).length > 0) {
-          newPart.providerOptions = remaining
-        } else {
-          delete newPart.providerOptions
-        }
-      }
-
-      if (isSyntheticMetadata) {
-        const remaining = Object.fromEntries(
-          Object.entries(p.providerMetadata!).filter(([k]) => k !== 'anthropic')
-        )
-        if (Object.keys(remaining).length > 0) {
-          newPart.providerMetadata = remaining
-        } else {
-          delete newPart.providerMetadata
-        }
-      }
-
-      return newPart
-    })
 
     if (!contentPatched) return msg
     patched = true
