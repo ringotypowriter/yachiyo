@@ -418,6 +418,317 @@ test('buildConversationGroupRows only marks the active appended text block as st
   )
 })
 
+test('buildConversationGroupRows summarizes completed agent work before the final text block', () => {
+  const group = createGroup({
+    activeAssistant: createAssistantMessage({
+      id: 'assistant-1',
+      content: '',
+      status: 'completed',
+      reasoning: 'I should inspect first',
+      textBlocks: [
+        {
+          id: 'text-1',
+          content: 'I will inspect the files first.',
+          createdAt: '2026-04-18T00:00:01.000Z'
+        },
+        {
+          id: 'text-2',
+          content: 'Final handoff',
+          createdAt: '2026-04-18T00:00:03.000Z'
+        }
+      ]
+    })
+  })
+
+  const rows = buildConversationGroupRows({
+    group,
+    inlineToolCalls: [
+      {
+        id: 'tool-1',
+        runId: 'run-1',
+        threadId: 'thread-1',
+        requestMessageId: 'user-1',
+        assistantMessageId: 'assistant-1',
+        toolName: 'read',
+        status: 'completed',
+        inputSummary: 'file.ts',
+        startedAt: '2026-04-18T00:00:02.000Z',
+        finishedAt: '2026-04-18T00:00:02.500Z'
+      }
+    ],
+    runs: [],
+    activeRunId: null,
+    isActiveGroup: false,
+    subagentActive: false
+  })
+
+  assert.deepEqual(rowKinds(rows), [
+    'group-user',
+    'group-work-summary',
+    'group-assistant-text-block',
+    'group-footer'
+  ])
+
+  const summary = rows.find((row) => row.kind === 'group-work-summary')
+  assert.equal(summary?.assistantMessage.id, 'assistant-1')
+  assert.deepEqual(
+    summary?.items.map((item) => item.kind),
+    ['thought', 'note', 'tool-call']
+  )
+  assert.equal(
+    summary?.items[0]?.kind === 'thought' ? summary.items[0].reasoning : null,
+    'I should inspect first'
+  )
+  assert.equal(
+    summary?.items[1]?.kind === 'note' ? summary.items[1].textBlock.content : null,
+    'I will inspect the files first.'
+  )
+  assert.equal(
+    summary?.items[2]?.kind === 'tool-call' ? summary.items[2].toolCall.id : null,
+    'tool-1'
+  )
+
+  const finalText = rows.find((row) => row.kind === 'group-assistant-text-block')
+  assert.equal(finalText?.key, 'assistant-text:assistant-1:text-2')
+  assert.equal(finalText?.textBlock.content, 'Final handoff')
+})
+
+test('buildConversationGroupRows summarizes completed hidden-steer tool work before the final text block', () => {
+  const assistantBeforeHidden = createAssistantMessage({
+    id: 'assistant-before-hidden',
+    content: 'Intermediate note',
+    status: 'completed',
+    reasoning: 'Initial thought',
+    createdAt: '2026-04-18T00:00:01.000Z'
+  })
+  const assistantAfterHidden = createAssistantMessage({
+    id: 'assistant-after-hidden',
+    content: 'Final handoff',
+    status: 'completed',
+    createdAt: '2026-04-18T00:00:04.000Z'
+  })
+  const group = createGroup({
+    activeAssistant: assistantBeforeHidden,
+    activeAssistantMessages: [assistantBeforeHidden, assistantAfterHidden],
+    hiddenRequestMessageIds: ['hidden-background-notice']
+  })
+
+  const rows = buildConversationGroupRows({
+    group,
+    inlineToolCalls: [
+      {
+        id: 'tool-hidden',
+        runId: 'run-hidden',
+        threadId: 'thread-1',
+        requestMessageId: 'hidden-background-notice',
+        assistantMessageId: 'assistant-after-hidden',
+        toolName: 'bash',
+        status: 'completed',
+        inputSummary: 'python3 check.py',
+        startedAt: '2026-04-18T00:00:02.000Z',
+        finishedAt: '2026-04-18T00:00:03.000Z'
+      }
+    ],
+    runs: [],
+    activeRunId: null,
+    isActiveGroup: false,
+    subagentActive: false
+  })
+
+  assert.deepEqual(rowKinds(rows), [
+    'group-user',
+    'group-work-summary',
+    'group-assistant-text-block',
+    'group-footer'
+  ])
+  assert.deepEqual(
+    rows
+      .filter((row) => row.kind === 'group-assistant-text-block')
+      .map((row) => row.textBlock.content),
+    ['Final handoff']
+  )
+})
+
+test('buildConversationGroupRows preserves chronological work trajectory inside the summary', () => {
+  const group = createGroup({
+    activeAssistant: createAssistantMessage({
+      id: 'assistant-1',
+      content: '',
+      status: 'completed',
+      reasoning: 'Plan with **markdown**',
+      textBlocks: [
+        {
+          id: 'text-1',
+          content: 'First note',
+          createdAt: '2026-04-18T00:00:02.000Z'
+        },
+        {
+          id: 'text-2',
+          content: 'Second note',
+          createdAt: '2026-04-18T00:00:05.000Z'
+        },
+        {
+          id: 'text-3',
+          content: 'Final handoff',
+          createdAt: '2026-04-18T00:00:06.000Z'
+        }
+      ]
+    })
+  })
+
+  const rows = buildConversationGroupRows({
+    group,
+    inlineToolCalls: [
+      {
+        id: 'tool-read-1',
+        runId: 'run-1',
+        threadId: 'thread-1',
+        requestMessageId: 'user-1',
+        assistantMessageId: 'assistant-1',
+        toolName: 'read',
+        status: 'completed',
+        inputSummary: 'src/a.ts',
+        startedAt: '2026-04-18T00:00:03.000Z'
+      },
+      {
+        id: 'tool-read-2',
+        runId: 'run-1',
+        threadId: 'thread-1',
+        requestMessageId: 'user-1',
+        assistantMessageId: 'assistant-1',
+        toolName: 'read',
+        status: 'completed',
+        inputSummary: 'src/b.ts',
+        startedAt: '2026-04-18T00:00:04.000Z'
+      }
+    ],
+    runs: [],
+    activeRunId: null,
+    isActiveGroup: false,
+    subagentActive: false
+  })
+
+  const summary = rows.find((row) => row.kind === 'group-work-summary')
+
+  assert.deepEqual(
+    summary?.items.map((item) => item.kind),
+    ['thought', 'note', 'tool-call-group', 'note']
+  )
+  assert.deepEqual(
+    summary?.items.map((item) => item.key),
+    ['thought:assistant-1', 'note:text-1', 'tool-group:tool-read-1', 'note:text-2']
+  )
+
+  const toolGroup = summary?.items.find((item) => item.kind === 'tool-call-group')
+  assert.equal(toolGroup?.toolGroup, 'read-files')
+  assert.deepEqual(
+    toolGroup?.toolCalls.map((toolCall) => toolCall.id),
+    ['tool-read-1', 'tool-read-2']
+  )
+})
+
+test('buildConversationGroupRows keeps unfinished tool work visible instead of summarizing it', () => {
+  const group = createGroup({
+    activeAssistant: createAssistantMessage({
+      id: 'assistant-1',
+      content: '',
+      status: 'completed',
+      textBlocks: [
+        {
+          id: 'text-1',
+          content: 'Checking now.',
+          createdAt: '2026-04-18T00:00:01.000Z'
+        },
+        {
+          id: 'text-2',
+          content: 'Partial handoff',
+          createdAt: '2026-04-18T00:00:03.000Z'
+        }
+      ]
+    })
+  })
+
+  const rows = buildConversationGroupRows({
+    group,
+    inlineToolCalls: [
+      {
+        id: 'tool-running',
+        runId: 'run-1',
+        threadId: 'thread-1',
+        requestMessageId: 'user-1',
+        assistantMessageId: 'assistant-1',
+        toolName: 'bash',
+        status: 'running',
+        inputSummary: 'pnpm test',
+        startedAt: '2026-04-18T00:00:02.000Z'
+      }
+    ],
+    runs: [],
+    activeRunId: 'run-1',
+    isActiveGroup: false,
+    subagentActive: false
+  })
+
+  assert.deepEqual(rowKinds(rows), [
+    'group-user',
+    'group-assistant-text-block',
+    'group-tool-call',
+    'group-assistant-text-block',
+    'group-footer'
+  ])
+})
+
+test('buildConversationGroupRows keeps failed responses visible instead of packaging them as completed work', () => {
+  const group = createGroup({
+    activeAssistant: createAssistantMessage({
+      id: 'assistant-1',
+      content: '',
+      status: 'failed',
+      textBlocks: [
+        {
+          id: 'text-1',
+          content: 'I tried to inspect this.',
+          createdAt: '2026-04-18T00:00:01.000Z'
+        },
+        {
+          id: 'text-2',
+          content: 'This failed.',
+          createdAt: '2026-04-18T00:00:03.000Z'
+        }
+      ]
+    })
+  })
+
+  const rows = buildConversationGroupRows({
+    group,
+    inlineToolCalls: [
+      {
+        id: 'tool-failed',
+        runId: 'run-1',
+        threadId: 'thread-1',
+        requestMessageId: 'user-1',
+        assistantMessageId: 'assistant-1',
+        toolName: 'bash',
+        status: 'failed',
+        inputSummary: 'pnpm test',
+        startedAt: '2026-04-18T00:00:02.000Z'
+      }
+    ],
+    runs: [],
+    activeRunId: null,
+    isActiveGroup: false,
+    subagentActive: false
+  })
+
+  assert.deepEqual(rowKinds(rows), [
+    'group-user',
+    'group-assistant-text-block',
+    'group-tool-call',
+    'group-assistant-text-block',
+    'group-footer'
+  ])
+})
+
 test('buildMessageTimelineRows treats hidden request ids as the active group', () => {
   const group = createGroup({
     activeAssistant: createAssistantMessage({

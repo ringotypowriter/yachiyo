@@ -1,6 +1,7 @@
 import type { Message, MessageTextBlockRecord, RunRecord, ToolCall } from '@renderer/app/types'
 import {
   buildConversationGroupTimelineItems,
+  type ConversationGroupTimelineItem,
   type ToolCallSemanticGroup
 } from './messageTimelineLayout.ts'
 import {
@@ -20,6 +21,36 @@ type GroupTimelineRowBase = {
   scrollMessageId?: string
   assistantMessageId?: string
 }
+
+export type WorkTrajectoryItem =
+  | {
+      kind: 'memory'
+      key: string
+      entries: string[]
+      recallDecision?: RunRecord['recallDecision']
+    }
+  | {
+      kind: 'thought'
+      key: string
+      reasoning: string
+      startedAt: string
+    }
+  | {
+      kind: 'note'
+      key: string
+      textBlock: MessageTextBlockRecord
+    }
+  | {
+      kind: 'tool-call'
+      key: string
+      toolCall: ToolCall
+    }
+  | {
+      kind: 'tool-call-group'
+      key: string
+      toolGroup: ToolCallSemanticGroup
+      toolCalls: ToolCall[]
+    }
 
 export type MessageTimelineRow =
   | ({
@@ -44,6 +75,13 @@ export type MessageTimelineRow =
       group: MessageGroup
       entries: string[]
       recallDecision?: RunRecord['recallDecision']
+    } & GroupTimelineRowBase)
+  | ({
+      kind: 'group-work-summary'
+      group: MessageGroup
+      assistantMessage: Message
+      items: WorkTrajectoryItem[]
+      requestMessageIds: string[]
     } & GroupTimelineRowBase)
   | ({
       kind: 'group-tool-call'
@@ -80,6 +118,7 @@ export type MessageTimelineRow =
       assistantMessage: Message
       savedMemoryCount: number
       failedRunError: string | null
+      showRunStats: boolean
     } & GroupTimelineRowBase)
   | ({
       kind: 'group-subagent'
@@ -219,6 +258,125 @@ function getThinkingTimelineBlocks(input: {
   ]
 }
 
+function compareWorkTrajectoryEntries(
+  left: { time: string; priority: number },
+  right: { time: string; priority: number }
+): number {
+  const timeDifference = left.time.localeCompare(right.time)
+  if (timeDifference !== 0) return timeDifference
+  return left.priority - right.priority
+}
+
+function buildWorkTrajectoryItems(input: {
+  group: MessageGroup
+  memorySummary: ReturnType<typeof findRunMemorySummaryForRequests>
+  thinkingBlocks: readonly ThinkingTimelineBlock[]
+  textBlocks: readonly MessageTextBlockRecord[]
+  toolCalls: readonly ToolCall[]
+}): WorkTrajectoryItem[] {
+  const items: WorkTrajectoryItem[] = []
+
+  if (input.memorySummary) {
+    items.push({
+      kind: 'memory',
+      key: `memory:${input.group.userMessage.id}`,
+      entries: input.memorySummary.entries,
+      recallDecision: input.memorySummary.recallDecision
+    })
+  }
+
+  const chronologicalEntries: Array<{
+    item: WorkTrajectoryItem
+    time: string
+    priority: number
+  }> = []
+
+  for (const thinkingBlock of input.thinkingBlocks) {
+    chronologicalEntries.push({
+      item: {
+        kind: 'thought',
+        key: `thought:${thinkingBlock.keyId}`,
+        reasoning: thinkingBlock.reasoning,
+        startedAt: thinkingBlock.startedAt
+      },
+      time: thinkingBlock.startedAt,
+      priority: 0
+    })
+  }
+
+  const timelineItems = buildConversationGroupTimelineItems({
+    hasMemoryRecall: false,
+    replyCount: input.group.assistantBranches.length,
+    showPreparing: false,
+    showGenerating: false,
+    activeAssistantTextBlocks: [...input.textBlocks],
+    visibleToolCalls: [...input.toolCalls]
+  })
+  const textBlockById = new Map(input.textBlocks.map((textBlock) => [textBlock.id, textBlock]))
+  const toolCallById = new Map(input.toolCalls.map((toolCall) => [toolCall.id, toolCall]))
+
+  for (const timelineItem of timelineItems) {
+    const entry = resolveWorkTrajectoryTimelineEntry(timelineItem, textBlockById, toolCallById)
+    if (entry) chronologicalEntries.push(entry)
+  }
+
+  items.push(...chronologicalEntries.sort(compareWorkTrajectoryEntries).map((entry) => entry.item))
+  return items
+}
+
+function resolveWorkTrajectoryTimelineEntry(
+  timelineItem: ConversationGroupTimelineItem,
+  textBlockById: ReadonlyMap<string, MessageTextBlockRecord>,
+  toolCallById: ReadonlyMap<string, ToolCall>
+): { item: WorkTrajectoryItem; time: string; priority: number } | null {
+  if (timelineItem.kind === 'assistant-text-block') {
+    const textBlock = textBlockById.get(timelineItem.textBlockId)
+    if (!textBlock || !textBlock.content.trim()) return null
+    return {
+      item: {
+        kind: 'note',
+        key: `note:${textBlock.id}`,
+        textBlock
+      },
+      time: textBlock.createdAt,
+      priority: 1
+    }
+  }
+
+  if (timelineItem.kind === 'tool-call') {
+    const toolCall = toolCallById.get(timelineItem.toolCallId)
+    if (!toolCall) return null
+    return {
+      item: {
+        kind: 'tool-call',
+        key: `tool:${toolCall.id}`,
+        toolCall
+      },
+      time: toolCall.startedAt,
+      priority: 2
+    }
+  }
+
+  if (timelineItem.kind === 'tool-call-group') {
+    const toolCalls = timelineItem.toolCallIds
+      .map((id) => toolCallById.get(id))
+      .filter((toolCall): toolCall is ToolCall => toolCall != null)
+    if (toolCalls.length === 0) return null
+    return {
+      item: {
+        kind: 'tool-call-group',
+        key: timelineItem.key,
+        toolGroup: timelineItem.group,
+        toolCalls
+      },
+      time: toolCalls[0]!.startedAt,
+      priority: 2
+    }
+  }
+
+  return null
+}
+
 export function collectInlineCodeMarkdownDocumentsFromRows(
   rows: readonly MessageTimelineRow[]
 ): string[] {
@@ -293,6 +451,31 @@ export function buildConversationGroupRows(
   const hasRunningToolCall = visibleToolCalls.some(
     (toolCall) => toolCall.status === 'preparing' || toolCall.status === 'running'
   )
+  const thinkingBlocks = getThinkingTimelineBlocks({
+    group,
+    activeAssistantMessages,
+    isActiveGroup: input.isActiveGroup
+  })
+  const renderableTextBlocks = activeAssistantTextBlocks.filter(
+    (textBlock) => textBlock.content.trim().length > 0
+  )
+  const shouldSummarizeCompletedWork =
+    activeAssistantMessage != null &&
+    activeAssistantMessage.status === 'completed' &&
+    visibleToolCalls.every(
+      (toolCall) => toolCall.status !== 'preparing' && toolCall.status !== 'running'
+    ) &&
+    !input.subagentActive &&
+    renderableTextBlocks.length > 0 &&
+    (visibleToolCalls.length > 0 ||
+      (activeAssistantMessages.length === 1 && renderableTextBlocks.length > 1))
+  const summarizedFinalTextBlock = shouldSummarizeCompletedWork
+    ? renderableTextBlocks.at(-1)
+    : undefined
+  const summarizedTextBlocks =
+    shouldSummarizeCompletedWork && summarizedFinalTextBlock
+      ? renderableTextBlocks.slice(0, -1)
+      : []
 
   if (!group.userMessage.hidden) {
     rows.push({
@@ -321,29 +504,45 @@ export function buildConversationGroupRows(
     })
   }
 
-  for (const thinkingBlock of getThinkingTimelineBlocks({
-    group,
-    activeAssistantMessages,
-    isActiveGroup: input.isActiveGroup
-  })) {
+  if (shouldSummarizeCompletedWork && activeAssistantMessage && summarizedFinalTextBlock) {
     rows.push({
-      kind: 'group-thinking',
-      key: `thinking:${thinkingBlock.keyId}`,
-      time: thinkingBlock.startedAt,
+      kind: 'group-work-summary',
+      key: `work-summary:${activeAssistantMessage.id}`,
+      time: group.userMessage.createdAt,
       requestMessageId,
-      scrollMessageId:
-        activeAssistantTextBlocks.length === 0 ? thinkingBlock.assistantMessage.id : undefined,
-      assistantMessageId: thinkingBlock.assistantMessage.id,
+      assistantMessageId: activeAssistantMessage.id,
       group,
-      assistantMessage: thinkingBlock.assistantMessage,
-      reasoning: thinkingBlock.reasoning,
-      isActive: thinkingBlock.isActive,
-      startedAt: thinkingBlock.startedAt
+      assistantMessage: activeAssistantMessage,
+      items: buildWorkTrajectoryItems({
+        group,
+        memorySummary,
+        thinkingBlocks,
+        textBlocks: summarizedTextBlocks,
+        toolCalls: visibleToolCalls
+      }),
+      requestMessageIds: groupRequestMessageIds
     })
+  } else {
+    for (const thinkingBlock of thinkingBlocks) {
+      rows.push({
+        kind: 'group-thinking',
+        key: `thinking:${thinkingBlock.keyId}`,
+        time: thinkingBlock.startedAt,
+        requestMessageId,
+        scrollMessageId:
+          activeAssistantTextBlocks.length === 0 ? thinkingBlock.assistantMessage.id : undefined,
+        assistantMessageId: thinkingBlock.assistantMessage.id,
+        group,
+        assistantMessage: thinkingBlock.assistantMessage,
+        reasoning: thinkingBlock.reasoning,
+        isActive: thinkingBlock.isActive,
+        startedAt: thinkingBlock.startedAt
+      })
+    }
   }
 
   const timelineItems = buildConversationGroupTimelineItems({
-    hasMemoryRecall: Boolean(memorySummary),
+    hasMemoryRecall: Boolean(memorySummary) && !shouldSummarizeCompletedWork,
     replyCount: responseCount,
     showPreparing: group.showPreparing && !input.subagentActive,
     showGenerating:
@@ -351,8 +550,11 @@ export function buildConversationGroupRows(
       activeAssistantTextBlocks.length > 0 &&
       !hasRunningToolCall &&
       !input.subagentActive,
-    activeAssistantTextBlocks,
-    visibleToolCalls
+    activeAssistantTextBlocks:
+      shouldSummarizeCompletedWork && summarizedFinalTextBlock
+        ? [summarizedFinalTextBlock]
+        : activeAssistantTextBlocks,
+    visibleToolCalls: shouldSummarizeCompletedWork ? [] : visibleToolCalls
   })
   const textBlocksById = new Map(
     activeAssistantTextBlocks.map((textBlock) => [textBlock.id, textBlock])
@@ -497,7 +699,8 @@ export function buildConversationGroupRows(
       group,
       assistantMessage: activeAssistantMessage,
       savedMemoryCount,
-      failedRunError
+      failedRunError,
+      showRunStats: !shouldSummarizeCompletedWork
     })
   }
 

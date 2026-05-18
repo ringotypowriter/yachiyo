@@ -39,6 +39,7 @@ import { ReplyBranchNavigation } from './ReplyBranchNavigation'
 import { ToolCallRow } from './ToolCallRow'
 import { ToolCallGroupRow } from './ToolCallGroupRow'
 import { ThinkingBlock } from './ThinkingBlock'
+import { AgentWorkSummaryRow } from './AgentWorkSummaryRow'
 import {
   canCreateBranch,
   canDeleteMessage,
@@ -102,6 +103,77 @@ const EMPTY_SUBAGENT_PROGRESS_ENTRIES: Array<{
 
 const useIsomorphicLayoutEffect = typeof document !== 'undefined' ? useLayoutEffect : useEffect
 const useMessageTimelineVirtualizer = useTanStackVirtualizer
+
+function estimateTimelineRowSize(item: MessageTimelineRow): number {
+  switch (item.kind) {
+    case 'tool':
+      return 72
+    case 'pending-steer':
+      return 120
+    case 'assistant-root': {
+      const msg = item.data
+      const lines = Math.max(1, Math.ceil(msg.content.length / 80))
+      let height = lines * 22 + 64
+      if (msg.reasoning) height += 56
+      return height
+    }
+    case 'group-user':
+      return Math.max(70, Math.ceil(item.group.userMessage.content.length / 60) * 22 + 48)
+    case 'group-branch-navigation':
+      return 36
+    case 'group-thinking':
+      return item.isActive ? 120 : 56
+    case 'group-memory-recall':
+      return 44
+    case 'group-work-summary':
+      return 56
+    case 'group-tool-call':
+    case 'group-tool-call-group':
+      return 48
+    case 'group-assistant-text-block':
+      return Math.max(48, Math.ceil(item.textBlock.content.length / 80) * 22 + 16)
+    case 'group-generating':
+    case 'group-preparing':
+      return 40
+    case 'group-footer':
+      return 84
+    case 'group-subagent':
+      return 96
+  }
+}
+
+function resolveTimelineRowOffset(input: {
+  key: string
+  measuredSizeCache: ReadonlyMap<string, number>
+  rows: readonly MessageTimelineRow[]
+}): number | null {
+  let offset = 0
+  for (const row of input.rows) {
+    if (row.key === input.key) return offset
+    offset += input.measuredSizeCache.get(row.key) ?? estimateTimelineRowSize(row)
+  }
+  return null
+}
+
+function findScrollAnchorRowKey(input: {
+  measuredSizeCache: ReadonlyMap<string, number>
+  nextRows: readonly MessageTimelineRow[]
+  previousRows: readonly MessageTimelineRow[]
+  scrollTop: number
+}): string | null {
+  const nextKeys = new Set(input.nextRows.map((row) => row.key))
+  let offset = 0
+
+  for (const row of input.previousRows) {
+    const size = input.measuredSizeCache.get(row.key) ?? estimateTimelineRowSize(row)
+    if (offset + size >= input.scrollTop + 8 && nextKeys.has(row.key)) {
+      return row.key
+    }
+    offset += size
+  }
+
+  return null
+}
 
 function resolveMessageTimelineWorkspacePath(
   threadWorkspacePath: string | null | undefined,
@@ -323,6 +395,22 @@ function renderTimelineItem(
     return <RunMemoryRecallRow entries={item.entries} recallDecision={item.recallDecision} />
   }
 
+  if (item.kind === 'group-work-summary') {
+    return (
+      <AgentWorkSummaryRow
+        items={item.items}
+        requestMessageIds={item.requestMessageIds}
+        runs={runs}
+        toolCalls={item.items.flatMap((trajectoryItem) => {
+          if (trajectoryItem.kind === 'tool-call') return [trajectoryItem.toolCall]
+          if (trajectoryItem.kind === 'tool-call-group') return trajectoryItem.toolCalls
+          return []
+        })}
+        workspacePath={workspacePath}
+      />
+    )
+  }
+
   if (item.kind === 'group-tool-call') {
     return <ToolCallRow toolCall={item.toolCall} workspacePath={workspacePath} />
   }
@@ -398,11 +486,13 @@ function renderTimelineItem(
               : `${item.savedMemoryCount} memories saved`}
           </div>
         ) : null}
-        <RunStatsFooter
-          runs={runs}
-          toolCalls={toolCalls}
-          requestMessageIds={[item.requestMessageId, ...item.group.hiddenRequestMessageIds]}
-        />
+        {item.showRunStats ? (
+          <RunStatsFooter
+            runs={runs}
+            toolCalls={toolCalls}
+            requestMessageIds={[item.requestMessageId, ...item.group.hiddenRequestMessageIds]}
+          />
+        ) : null}
         <MessageActionBar
           align="start"
           content={item.assistantMessage.content}
@@ -640,6 +730,7 @@ export function MessageTimeline({ threadId, recapText }: MessageTimelineProps): 
   const pendingThreadSwitchScrollRef = useRef<string | null>(threadId)
   const programmaticScrollUntilRef = useRef(0)
   const timelineRowsRef = useRef(timelineRows)
+  const previousTimelineRowsRef = useRef(timelineRows)
   const lastScrollTopRef = useRef(0)
   const lastTouchYRef = useRef<number | null>(null)
   const streamingScrollRafRef = useRef<number | null>(null)
@@ -680,41 +771,7 @@ export function MessageTimeline({ threadId, recapText }: MessageTimelineProps): 
       if (!item) return 200
       const cached = measuredSizeCache.current.get(item.key)
       if (cached != null && cached > 0) return cached
-      switch (item.kind) {
-        case 'tool':
-          return 72
-        case 'pending-steer':
-          return 120
-        case 'assistant-root': {
-          const msg = item.data
-          const lines = Math.max(1, Math.ceil(msg.content.length / 80))
-          let height = lines * 22 + 64
-          if (msg.reasoning) height += 56
-          return height
-        }
-        case 'group-user':
-          return Math.max(70, Math.ceil(item.group.userMessage.content.length / 60) * 22 + 48)
-        case 'group-branch-navigation':
-          return 36
-        case 'group-thinking':
-          return item.isActive ? 120 : 56
-        case 'group-memory-recall':
-          return 44
-        case 'group-tool-call':
-        case 'group-tool-call-group':
-          return 48
-        case 'group-assistant-text-block':
-          return Math.max(48, Math.ceil(item.textBlock.content.length / 80) * 22 + 16)
-        case 'group-generating':
-        case 'group-preparing':
-          return 40
-        case 'group-footer':
-          return 84
-        case 'group-subagent':
-          return 96
-        default:
-          return 240
-      }
+      return estimateTimelineRowSize(item)
     },
     [timelineRows]
   )
@@ -729,6 +786,46 @@ export function MessageTimeline({ threadId, recapText }: MessageTimelineProps): 
     paddingStart: 16,
     paddingEnd: 16
   })
+
+  useIsomorphicLayoutEffect(() => {
+    const previousRows = previousTimelineRowsRef.current
+    if (previousRows === timelineRows) return
+
+    const container = scrollContainerRef.current
+    if (
+      container &&
+      !stickToBottomRef.current &&
+      Date.now() >= programmaticScrollUntilRef.current
+    ) {
+      const anchorKey = findScrollAnchorRowKey({
+        measuredSizeCache: measuredSizeCache.current,
+        nextRows: timelineRows,
+        previousRows,
+        scrollTop: container.scrollTop
+      })
+
+      if (anchorKey) {
+        const previousOffset = resolveTimelineRowOffset({
+          key: anchorKey,
+          measuredSizeCache: measuredSizeCache.current,
+          rows: previousRows
+        })
+        const nextOffset = resolveTimelineRowOffset({
+          key: anchorKey,
+          measuredSizeCache: measuredSizeCache.current,
+          rows: timelineRows
+        })
+
+        if (previousOffset != null && nextOffset != null && previousOffset !== nextOffset) {
+          container.scrollTop += nextOffset - previousOffset
+          lastScrollTopRef.current = container.scrollTop
+          programmaticScrollUntilRef.current = Date.now() + 120
+        }
+      }
+    }
+
+    previousTimelineRowsRef.current = timelineRows
+  }, [timelineRows])
   // Sync measuredSizeCache from virtualizer's own measurements on every render.
   // getVirtualItems().size reflects the current ResizeObserver-driven size, so
   // post-mount growth (streaming text, tool group expansion, footer appearing)
