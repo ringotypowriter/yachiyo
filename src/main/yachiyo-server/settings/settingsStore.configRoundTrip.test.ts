@@ -452,6 +452,7 @@ test('normalization preserves every GeneralConfig key', () => {
   const sentinel: Required<GeneralConfig> = {
     sidebarVisibility: 'collapsed',
     sidebarPreview: false,
+    workSummary: false,
     uiFontSize: 16,
     chatFontSize: 18,
     updateChannel: 'beta',

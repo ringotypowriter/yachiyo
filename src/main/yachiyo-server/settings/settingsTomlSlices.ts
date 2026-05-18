@@ -52,6 +52,7 @@ export const settingsTomlSlices: readonly TomlConfigSlice<SettingsConfig, TomlDo
           sidebarVisibility:
             config.general?.sidebarVisibility ?? DEFAULT_SETTINGS_CONFIG.general?.sidebarVisibility,
           sidebarPreview: config.general?.sidebarPreview !== false,
+          workSummary: config.general?.workSummary !== false,
           themeId: config.general?.themeId ?? DEFAULT_THEME_ID,
           themeAppearance: config.general?.themeAppearance ?? DEFAULT_THEME_APPEARANCE,
           demoMode: config.general?.demoMode === true,

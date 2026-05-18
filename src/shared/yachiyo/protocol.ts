@@ -640,6 +640,7 @@ export interface ListActivitySourceRecordsInput {
 export interface GeneralConfig {
   sidebarVisibility?: SidebarVisibility
   sidebarPreview?: boolean
+  workSummary?: boolean
   themeId?: ThemeId
   themeAppearance?: ThemeAppearance
   uiFontSize?: number

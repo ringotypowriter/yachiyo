@@ -20,6 +20,7 @@ export const DEFAULT_SETTINGS_CONFIG: SettingsConfig = {
   general: {
     sidebarVisibility: DEFAULT_SIDEBAR_VISIBILITY,
     sidebarPreview: true,
+    workSummary: true,
     themeId: DEFAULT_THEME_ID,
     themeAppearance: DEFAULT_THEME_APPEARANCE,
     demoMode: false,

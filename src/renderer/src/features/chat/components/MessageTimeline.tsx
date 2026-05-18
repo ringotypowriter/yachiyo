@@ -573,7 +573,8 @@ export function MessageTimeline({ threadId, recapText }: MessageTimelineProps): 
     scrollToMessageId,
     clearScrollToMessageId,
     activeEssentialId,
-    essentials
+    essentials,
+    workSummaryEnabled
   } = useAppStore(
     useShallow((state) => ({
       thread: threadId
@@ -612,7 +613,8 @@ export function MessageTimeline({ threadId, recapText }: MessageTimelineProps): 
       scrollToMessageId: state.scrollToMessageId,
       clearScrollToMessageId: state.clearScrollToMessageId,
       activeEssentialId: state.activeEssentialId,
-      essentials: state.config?.essentials
+      essentials: state.config?.essentials,
+      workSummaryEnabled: state.config?.general?.workSummary !== false
     }))
   )
   const scrollContainerRef = useRef<HTMLDivElement>(null)
@@ -688,7 +690,8 @@ export function MessageTimeline({ threadId, recapText }: MessageTimelineProps): 
         runs,
         activeRunId,
         activeRequestMessageId,
-        subagentActive
+        subagentActive,
+        workSummaryEnabled
       }),
     [
       messageGroups,
@@ -699,7 +702,8 @@ export function MessageTimeline({ threadId, recapText }: MessageTimelineProps): 
       runs,
       activeRunId,
       activeRequestMessageId,
-      subagentActive
+      subagentActive,
+      workSummaryEnabled
     ]
   )
 

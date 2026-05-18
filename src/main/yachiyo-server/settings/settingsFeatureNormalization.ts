@@ -45,6 +45,7 @@ export function normalizeGeneralConfig(value: unknown): GeneralConfig {
       DEFAULT_SETTINGS_CONFIG.general?.sidebarVisibility
     ),
     sidebarPreview: normalizeOptionalBool(input['sidebarPreview'], true),
+    workSummary: normalizeOptionalBool(input['workSummary'], true),
     themeId: normalizeThemeId(input['themeId'], DEFAULT_SETTINGS_CONFIG.general?.themeId),
     themeAppearance: normalizeThemeAppearance(
       input['themeAppearance'],

@@ -152,6 +152,7 @@ interface BuildConversationGroupRowsInput {
   activeRunId: string | null
   isActiveGroup: boolean
   subagentActive: boolean
+  workSummaryEnabled?: boolean
 }
 
 interface BuildMessageTimelineRowsInput {
@@ -164,6 +165,7 @@ interface BuildMessageTimelineRowsInput {
   activeRunId: string | null
   activeRequestMessageId: string | null
   subagentActive: boolean
+  workSummaryEnabled?: boolean
 }
 
 function compareBlocks(
@@ -460,6 +462,7 @@ export function buildConversationGroupRows(
     (textBlock) => textBlock.content.trim().length > 0
   )
   const shouldSummarizeCompletedWork =
+    input.workSummaryEnabled !== false &&
     activeAssistantMessage != null &&
     activeAssistantMessage.status === 'completed' &&
     visibleToolCalls.every(
@@ -732,7 +735,8 @@ export function buildMessageTimelineRows(
           runs: input.runs,
           activeRunId: input.activeRunId,
           isActiveGroup,
-          subagentActive: input.subagentActive && isActiveGroup
+          subagentActive: input.subagentActive && isActiveGroup,
+          workSummaryEnabled: input.workSummaryEnabled
         })
       }
     }),

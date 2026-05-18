@@ -35,6 +35,7 @@ test('settings store persists multi-provider config as TOML', async () => {
       general: {
         sidebarVisibility: 'collapsed',
         sidebarPreview: true,
+        workSummary: true,
         themeId: DEFAULT_THEME_ID,
         themeAppearance: DEFAULT_THEME_APPEARANCE,
         demoMode: true,
@@ -131,6 +132,7 @@ test('settings store persists multi-provider config as TOML', async () => {
     assert.match(toml, /runMode = "custom"/)
     assert.match(toml, /\[general\]/)
     assert.match(toml, /sidebarVisibility = "collapsed"/)
+    assert.match(toml, /workSummary = true/)
     assert.match(toml, /themeId = "mizu"/)
     assert.match(toml, /themeAppearance = "system"/)
     assert.match(toml, /demoMode = true/)
@@ -941,6 +943,7 @@ test('normalizeSettingsConfig falls back to the default sidebar visibility', () 
     notifyRunCompleted: true,
     notifyCodingTaskStarted: true,
     sidebarPreview: true,
+    workSummary: true,
     notifyCodingTaskFinished: true,
     translatorShortcut: 'CommandOrControl+Shift+T',
     jotdownShortcut: 'CommandOrControl+Shift+J',
@@ -959,6 +962,7 @@ test('normalizeSettingsConfig falls back to the default sidebar visibility', () 
     {
       sidebarVisibility: DEFAULT_SIDEBAR_VISIBILITY,
       sidebarPreview: true,
+      workSummary: true,
       demoMode: false,
       notifyRunCompleted: true,
       notifyCodingTaskStarted: true,
@@ -976,6 +980,7 @@ test('normalizeSettingsConfig normalizes theme preferences', () => {
   assert.deepEqual(normalizeSettingsConfig({ providers: [] }).general, {
     sidebarVisibility: DEFAULT_SIDEBAR_VISIBILITY,
     sidebarPreview: true,
+    workSummary: true,
     demoMode: false,
     notifyRunCompleted: true,
     notifyCodingTaskStarted: true,

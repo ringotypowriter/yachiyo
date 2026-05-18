@@ -376,6 +376,33 @@ export function UIPane({ draft, onChange }: UIPaneProps): React.ReactNode {
             />
           </div>
         </SettingRow>
+
+        <SettingRow>
+          <div className="min-w-0 space-y-0.5">
+            <div className="text-sm font-medium" style={{ color: theme.text.primary }}>
+              Work Summary
+            </div>
+            <div className="text-sm leading-5" style={{ color: theme.text.tertiary }}>
+              Collapse completed tool activity into a compact summary above the final response.
+            </div>
+          </div>
+
+          <div className="shrink-0">
+            <SettingSwitch
+              checked={draft.general?.workSummary !== false}
+              onChange={() =>
+                onChange({
+                  ...draft,
+                  general: {
+                    ...draft.general,
+                    workSummary: draft.general?.workSummary === false
+                  }
+                })
+              }
+              ariaLabel="Toggle Work Summary in conversations"
+            />
+          </div>
+        </SettingRow>
       </SettingSection>
     </div>
   )

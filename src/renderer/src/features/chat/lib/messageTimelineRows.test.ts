@@ -729,6 +729,58 @@ test('buildConversationGroupRows keeps failed responses visible instead of packa
   ])
 })
 
+test('buildConversationGroupRows keeps completed work expanded when work summary is disabled', () => {
+  const group = createGroup({
+    activeAssistant: createAssistantMessage({
+      id: 'assistant-1',
+      content: '',
+      status: 'completed',
+      textBlocks: [
+        {
+          id: 'text-1',
+          content: 'I will inspect this.',
+          createdAt: '2026-04-18T00:00:01.000Z'
+        },
+        {
+          id: 'text-2',
+          content: 'Final handoff',
+          createdAt: '2026-04-18T00:00:03.000Z'
+        }
+      ]
+    })
+  })
+
+  const rows = buildConversationGroupRows({
+    group,
+    inlineToolCalls: [
+      {
+        id: 'tool-1',
+        runId: 'run-1',
+        threadId: 'thread-1',
+        requestMessageId: 'user-1',
+        assistantMessageId: 'assistant-1',
+        toolName: 'read',
+        status: 'completed',
+        inputSummary: 'file.ts',
+        startedAt: '2026-04-18T00:00:02.000Z'
+      }
+    ],
+    runs: [],
+    activeRunId: null,
+    isActiveGroup: false,
+    subagentActive: false,
+    workSummaryEnabled: false
+  })
+
+  assert.deepEqual(rowKinds(rows), [
+    'group-user',
+    'group-assistant-text-block',
+    'group-tool-call',
+    'group-assistant-text-block',
+    'group-footer'
+  ])
+})
+
 test('buildMessageTimelineRows treats hidden request ids as the active group', () => {
   const group = createGroup({
     activeAssistant: createAssistantMessage({
