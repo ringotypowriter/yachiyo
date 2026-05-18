@@ -1,6 +1,6 @@
 import { describe, it, mock } from 'node:test'
 import assert from 'node:assert'
-import { ReadRecordCache, READ_RECORD_STALENESS_MS } from './readRecordCache.ts'
+import { ReadRecordCache } from './readRecordCache.ts'
 
 describe('ReadRecordCache', () => {
   it('reports false for a path never read', () => {
@@ -38,14 +38,14 @@ describe('ReadRecordCache', () => {
     }
   })
 
-  it('reports false after staleness window expires', () => {
-    const cache = new ReadRecordCache(256, 100)
-    cache.recordRead('/stale.ts', 1, 50)
+  it('keeps a read record valid over time when mtime is unchanged', () => {
+    const cache = new ReadRecordCache()
+    cache.recordRead('/old.ts', 1, 50, 1000)
 
     const original = Date.now
-    mock.method(Date, 'now', () => original.call(Date) + 200)
+    mock.method(Date, 'now', () => original.call(Date) + 24 * 60 * 60 * 1000)
     try {
-      assert.strictEqual(cache.hasRecentRead('/stale.ts'), false)
+      assert.strictEqual(cache.hasRecentRead('/old.ts', 1000), true)
     } finally {
       mock.method(Date, 'now', original)
     }
@@ -89,10 +89,6 @@ describe('ReadRecordCache', () => {
     const cache = new ReadRecordCache()
     cache.recordRead('/a.ts', 5, 4)
     assert.strictEqual(cache.hasRecentRead('/a.ts'), false)
-  })
-
-  it('exports the default staleness constant', () => {
-    assert.strictEqual(READ_RECORD_STALENESS_MS, 10 * 60 * 1000)
   })
 
   it('invalidates when current mtime differs from recorded mtime', () => {

@@ -6,17 +6,13 @@
  * has seen the current contents and does not blindly clobber data.
  *
  * The cache is file-aware: any successful file read authorizes future edits
- * until the record gets stale or the file mtime changes.
+ * until the record is evicted or the file mtime changes.
  */
-
-/** How long a read record stays valid before the model must re-read. */
-export const READ_RECORD_STALENESS_MS = 10 * 60 * 1000 // 10 minutes
 
 /** Maximum number of paths tracked. Oldest entries are evicted first. */
 export const READ_RECORD_MAX_ENTRIES = 256
 
 interface FileEntry {
-  timestamp: number
   /** File mtime (ms) captured at read time. A later mtime invalidates the record. */
   mtimeMs: number | undefined
 }
@@ -24,14 +20,9 @@ interface FileEntry {
 export class ReadRecordCache {
   private entries = new Map<string, FileEntry>()
   private readonly maxEntries: number
-  private readonly stalenessMs: number
 
-  constructor(
-    maxEntries: number = READ_RECORD_MAX_ENTRIES,
-    stalenessMs: number = READ_RECORD_STALENESS_MS
-  ) {
+  constructor(maxEntries: number = READ_RECORD_MAX_ENTRIES) {
     this.maxEntries = maxEntries
-    this.stalenessMs = stalenessMs
   }
 
   /**
@@ -44,7 +35,7 @@ export class ReadRecordCache {
     if (startLine > endLine) return
 
     this.entries.delete(path)
-    this.entries.set(path, { timestamp: Date.now(), mtimeMs })
+    this.entries.set(path, { mtimeMs })
     this.evict()
   }
 
@@ -54,7 +45,7 @@ export class ReadRecordCache {
    */
   recordEmptyFileRead(path: string, mtimeMs?: number): void {
     this.entries.delete(path)
-    this.entries.set(path, { timestamp: Date.now(), mtimeMs })
+    this.entries.set(path, { mtimeMs })
     this.evict()
   }
 
@@ -70,7 +61,7 @@ export class ReadRecordCache {
   }
 
   /**
-   * Returns true if the path has a recent read record.
+   * Returns true if the path has a read record.
    * If `currentMtimeMs` is provided and differs from the recorded mtime,
    * the file has been modified since the read and the record is invalid.
    */
@@ -84,7 +75,7 @@ export class ReadRecordCache {
     ) {
       return false
     }
-    return Date.now() - entry.timestamp < this.stalenessMs
+    return true
   }
 
   private evict(): void {
