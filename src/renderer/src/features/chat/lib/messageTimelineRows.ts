@@ -272,7 +272,6 @@ function compareWorkTrajectoryEntries(
 function buildWorkTrajectoryItems(input: {
   group: MessageGroup
   memorySummary: ReturnType<typeof findRunMemorySummaryForRequests>
-  thinkingBlocks: readonly ThinkingTimelineBlock[]
   textBlocks: readonly MessageTextBlockRecord[]
   toolCalls: readonly ToolCall[]
 }): WorkTrajectoryItem[] {
@@ -292,19 +291,6 @@ function buildWorkTrajectoryItems(input: {
     time: string
     priority: number
   }> = []
-
-  for (const thinkingBlock of input.thinkingBlocks) {
-    chronologicalEntries.push({
-      item: {
-        kind: 'thought',
-        key: `thought:${thinkingBlock.keyId}`,
-        reasoning: thinkingBlock.reasoning,
-        startedAt: thinkingBlock.startedAt
-      },
-      time: thinkingBlock.startedAt,
-      priority: 0
-    })
-  }
 
   const timelineItems = buildConversationGroupTimelineItems({
     hasMemoryRecall: false,
@@ -507,6 +493,23 @@ export function buildConversationGroupRows(
     })
   }
 
+  for (const thinkingBlock of thinkingBlocks) {
+    rows.push({
+      kind: 'group-thinking',
+      key: `thinking:${thinkingBlock.keyId}`,
+      time: thinkingBlock.startedAt,
+      requestMessageId,
+      scrollMessageId:
+        activeAssistantTextBlocks.length === 0 ? thinkingBlock.assistantMessage.id : undefined,
+      assistantMessageId: thinkingBlock.assistantMessage.id,
+      group,
+      assistantMessage: thinkingBlock.assistantMessage,
+      reasoning: thinkingBlock.reasoning,
+      isActive: thinkingBlock.isActive,
+      startedAt: thinkingBlock.startedAt
+    })
+  }
+
   if (shouldSummarizeCompletedWork && activeAssistantMessage && summarizedFinalTextBlock) {
     rows.push({
       kind: 'group-work-summary',
@@ -519,29 +522,11 @@ export function buildConversationGroupRows(
       items: buildWorkTrajectoryItems({
         group,
         memorySummary,
-        thinkingBlocks,
         textBlocks: summarizedTextBlocks,
         toolCalls: visibleToolCalls
       }),
       requestMessageIds: groupRequestMessageIds
     })
-  } else {
-    for (const thinkingBlock of thinkingBlocks) {
-      rows.push({
-        kind: 'group-thinking',
-        key: `thinking:${thinkingBlock.keyId}`,
-        time: thinkingBlock.startedAt,
-        requestMessageId,
-        scrollMessageId:
-          activeAssistantTextBlocks.length === 0 ? thinkingBlock.assistantMessage.id : undefined,
-        assistantMessageId: thinkingBlock.assistantMessage.id,
-        group,
-        assistantMessage: thinkingBlock.assistantMessage,
-        reasoning: thinkingBlock.reasoning,
-        isActive: thinkingBlock.isActive,
-        startedAt: thinkingBlock.startedAt
-      })
-    }
   }
 
   const timelineItems = buildConversationGroupTimelineItems({
@@ -559,6 +544,7 @@ export function buildConversationGroupRows(
         : activeAssistantTextBlocks,
     visibleToolCalls: shouldSummarizeCompletedWork ? [] : visibleToolCalls
   })
+
   const textBlocksById = new Map(
     activeAssistantTextBlocks.map((textBlock) => [textBlock.id, textBlock])
   )

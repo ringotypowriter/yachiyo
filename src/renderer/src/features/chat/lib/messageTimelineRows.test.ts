@@ -512,6 +512,7 @@ test('buildConversationGroupRows summarizes completed agent work before the fina
 
   assert.deepEqual(rowKinds(rows), [
     'group-user',
+    'group-thinking',
     'group-work-summary',
     'group-assistant-text-block',
     'group-footer'
@@ -521,18 +522,14 @@ test('buildConversationGroupRows summarizes completed agent work before the fina
   assert.equal(summary?.assistantMessage.id, 'assistant-1')
   assert.deepEqual(
     summary?.items.map((item) => item.kind),
-    ['thought', 'note', 'tool-call']
+    ['note', 'tool-call']
   )
   assert.equal(
-    summary?.items[0]?.kind === 'thought' ? summary.items[0].reasoning : null,
-    'I should inspect first'
-  )
-  assert.equal(
-    summary?.items[1]?.kind === 'note' ? summary.items[1].textBlock.content : null,
+    summary?.items[0]?.kind === 'note' ? summary.items[0].textBlock.content : null,
     'I will inspect the files first.'
   )
   assert.equal(
-    summary?.items[2]?.kind === 'tool-call' ? summary.items[2].toolCall.id : null,
+    summary?.items[1]?.kind === 'tool-call' ? summary.items[1].toolCall.id : null,
     'tool-1'
   )
 
@@ -585,10 +582,12 @@ test('buildConversationGroupRows summarizes completed hidden-steer tool work bef
 
   assert.deepEqual(rowKinds(rows), [
     'group-user',
+    'group-thinking',
     'group-work-summary',
     'group-assistant-text-block',
     'group-footer'
   ])
+
   assert.deepEqual(
     rows
       .filter((row) => row.kind === 'group-assistant-text-block')
@@ -660,11 +659,11 @@ test('buildConversationGroupRows preserves chronological work trajectory inside 
 
   assert.deepEqual(
     summary?.items.map((item) => item.kind),
-    ['thought', 'note', 'tool-call-group', 'note']
+    ['note', 'tool-call-group', 'note']
   )
   assert.deepEqual(
     summary?.items.map((item) => item.key),
-    ['thought:assistant-1', 'note:text-1', 'tool-group:tool-read-1', 'note:text-2']
+    ['note:text-1', 'tool-group:tool-read-1', 'note:text-2']
   )
 
   const toolGroup = summary?.items.find((item) => item.kind === 'tool-call-group')
