@@ -29,6 +29,9 @@ Flat bullet list. Carry all tasks forward from the prior handoff. Mark each item
 ### Standing decisions
 Decisions and constraints that still gate future work. Carry forward from the prior handoff, pruning only what has been explicitly superseded. Include rejection reasons so closed decisions are not re-litigated.
 
+### Key facts
+Verified findings, confirmed states, and concrete details that remain relevant. Carry forward from the prior handoff; update or drop anything invalidated. Quote exact paths, values, commands, and error text where precision matters.
+
 ## Thread-local sections — new content from this thread only
 
 Do not copy from the prior handoff into these sections.
