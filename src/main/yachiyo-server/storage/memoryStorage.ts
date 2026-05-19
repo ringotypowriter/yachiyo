@@ -112,6 +112,12 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
     [...items].sort((left, right) => left.createdAt.localeCompare(right.createdAt))
   const sortToolCalls = (items: ToolCallRecord[]): ToolCallRecord[] =>
     sortToolCallsChronologically(items)
+  const hasVisibleMessageContent = (message: MessageRecord): boolean => {
+    if (message.hidden) return false
+    if (message.role !== 'user' && message.role !== 'assistant') return false
+    if ((message.visibleReply ?? message.content).trim().length > 0) return true
+    return message.textBlocks?.some((block) => block.content.trim().length > 0) ?? false
+  }
   const toToolCallRecordWithRun = (row: StoredToolCallRow): ToolCallRecord => toToolCallRecord(row)
   const deleteActivitySourceRecordsForRuns = (runIds: Set<string>): void => {
     if (runIds.size === 0) return
@@ -913,6 +919,19 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
         )
         .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
         .map(toThreadRecordWithChannelUserRole)
+    },
+
+    listOwnerDmTakeoverThreadCandidates() {
+      return [...threads.values()]
+        .filter((thread) => thread.archivedAt === null && isBootstrapThread(thread))
+        .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+        .map(toThreadRecordWithChannelUserRole)
+    },
+
+    hasVisibleThreadMessages(threadId) {
+      return messages.some(
+        (message) => message.threadId === threadId && hasVisibleMessageContent(message)
+      )
     },
 
     listChannelUsers() {

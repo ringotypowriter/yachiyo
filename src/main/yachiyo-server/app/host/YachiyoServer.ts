@@ -138,7 +138,7 @@ import {
   TAKEOVER_SECTION_DIVIDER,
   formatTakeoverTokens,
   formatTakeoverWorkspace,
-  isBlankNewChatThread,
+  isDefaultNewChatThread,
   isOwnerDmTakeoverCandidate
 } from './takeoverContext.ts'
 import {
@@ -902,16 +902,27 @@ export class YachiyoServer {
     return readBackgroundTaskLogSnapshot(target, input.maxBytes)
   }
 
-  loadThreadData(threadId: string): {
+  loadThreadData(
+    threadId: string,
+    options: { includeMessages?: boolean } = {}
+  ): {
     messages: MessageRecord[]
     toolCalls: ToolCallRecord[]
     runs: RunRecord[]
     scheduleRun?: ScheduleRunRecord
   } {
+    const includeMessages = options.includeMessages !== false
     const scheduleRun = this.storage.getScheduleRunByThreadId(threadId)
+    const messages = includeMessages ? this.storage.listThreadMessages(threadId) : []
+    const toolCalls = includeMessages ? this.storage.listThreadToolCalls(threadId) : []
+    const thread = includeMessages ? this.storage.getThread(threadId) : undefined
+    const snapshot = thread
+      ? this.runDomain.withQueuedFollowUpDraftSnapshot({ thread, messages, toolCalls })
+      : { messages, toolCalls }
+
     return {
-      messages: this.storage.listThreadMessages(threadId),
-      toolCalls: this.storage.listThreadToolCalls(threadId),
+      messages: snapshot.messages,
+      toolCalls: snapshot.toolCalls,
       runs: this.storage.listThreadRuns(threadId),
       ...(scheduleRun ? { scheduleRun } : {})
     }
@@ -922,12 +933,12 @@ export class YachiyoServer {
   }
 
   listOwnerDmTakeoverThreads(input: { channelUserId: string; limit: number }): ThreadRecord[] {
-    const { threads, messagesByThread } = this.storage.bootstrap()
-    return threads
+    return this.storage
+      .listOwnerDmTakeoverThreadCandidates()
       .filter(
         (thread) =>
           isOwnerDmTakeoverCandidate(thread) &&
-          !isBlankNewChatThread(thread, messagesByThread[thread.id] ?? [])
+          (!isDefaultNewChatThread(thread) || this.storage.hasVisibleThreadMessages(thread.id))
       )
       .slice(0, Math.max(0, input.limit))
   }

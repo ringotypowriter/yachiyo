@@ -342,6 +342,8 @@ export interface YachiyoStorage {
     includePrivate?: boolean
   }): ThreadSearchResult[]
   listExternalThreads(): ThreadRecord[]
+  listOwnerDmTakeoverThreadCandidates(): ThreadRecord[]
+  hasVisibleThreadMessages(threadId: string): boolean
   findActiveChannelThread(channelUserId: string, maxAgeMs: number): ThreadRecord | undefined
   getThreadTotalTokens(threadId: string): number
   listChannelUsers(): ChannelUserRecord[]

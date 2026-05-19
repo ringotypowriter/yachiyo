@@ -56,6 +56,7 @@ export const EMPTY_COMPOSER_DRAFT: ComposerDraft = {
 }
 
 const NOTIFICATION_DEDUPE_WINDOW_MS = 10_000
+const MAX_LOADED_THREAD_DATA = 6
 export const DEFAULT_GLOBAL_PROCESSING_LABEL = 'Please wait...'
 const recentNotificationKeys = new Map<string, number>()
 let globalProcessingTaskSequence = 0
@@ -303,6 +304,29 @@ export function toggleEnabledTools(
 
 export function sortThreads(threads: Thread[]): Thread[] {
   return [...threads].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
+}
+
+export function limitLoadedThreadData<T>(
+  records: Record<string, T[]>,
+  threadId: string,
+  items: T[],
+  keepThreadIds: Array<string | null | undefined> = []
+): Record<string, T[]> {
+  const protectedIds = new Set(
+    [threadId, ...keepThreadIds].filter(
+      (id): id is string => typeof id === 'string' && id.length > 0
+    )
+  )
+  const entries = Object.entries(records).filter(([id]) => id !== threadId)
+  entries.push([threadId, items])
+
+  while (entries.length > MAX_LOADED_THREAD_DATA) {
+    const removableIndex = entries.findIndex(([id]) => !protectedIds.has(id))
+    if (removableIndex < 0) break
+    entries.splice(removableIndex, 1)
+  }
+
+  return Object.fromEntries(entries) as Record<string, T[]>
 }
 
 /** Find a thread by ID across both local and external thread lists. */

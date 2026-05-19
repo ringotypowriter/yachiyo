@@ -17,7 +17,9 @@ import {
   deriveActiveThreadRunState,
   deriveSubagentStateFromToolCalls,
   deriveThreadListMode,
+  findThread,
   getComposerDraftKey,
+  limitLoadedThreadData,
   normalizeWorkspacePath,
   refreshAvailableSkills,
   saveSidebarFilter,
@@ -147,27 +149,33 @@ export function createComposerUiActions(input: {
       // not yet in memory; runs are always refreshed so the run history sidebar
       // shows the full list from the database.
       if (typeof window !== 'undefined' && window.api?.yachiyo?.loadThreadData) {
-        const needsMessages = !messages[id]?.length
-        if (needsMessages) {
-          console.log(`[setActiveThread] loading thread data for ${id}`)
-        }
-        void window.api.yachiyo.loadThreadData({ threadId: id }).then((data) => {
-          set((state) => {
-            const toolCalls = needsMessages
-              ? { ...state.toolCalls, [id]: data.toolCalls }
-              : state.toolCalls
-            return {
-              ...(needsMessages ? { messages: { ...state.messages, [id]: data.messages } } : {}),
-              toolCalls,
-              ...(data.runs ? { runsByThread: { ...state.runsByThread, [id]: data.runs } } : {}),
-              ...deriveSubagentStateFromToolCalls(
+        const needsMessages =
+          !messages[id]?.length || Boolean(findThread(get(), id)?.queuedFollowUpMessageId)
+        void window.api.yachiyo
+          .loadThreadData({ threadId: id, includeMessages: needsMessages })
+          .then((data) => {
+            set((state) => {
+              const toolCalls = needsMessages
+                ? limitLoadedThreadData(state.toolCalls, id, data.toolCalls, [state.activeThreadId])
+                : state.toolCalls
+              return {
+                ...(needsMessages
+                  ? {
+                      messages: limitLoadedThreadData(state.messages, id, data.messages, [
+                        state.activeThreadId
+                      ])
+                    }
+                  : {}),
                 toolCalls,
-                state.subagentStateById,
-                state.subagentProgressTimelineByThread
-              )
-            }
+                ...(data.runs ? { runsByThread: { ...state.runsByThread, [id]: data.runs } } : {}),
+                ...deriveSubagentStateFromToolCalls(
+                  toolCalls,
+                  state.subagentStateById,
+                  state.subagentProgressTimelineByThread
+                )
+              }
+            })
           })
-        })
       }
     },
     setScrollToMessageId: (messageId) => set({ scrollToMessageId: messageId }),

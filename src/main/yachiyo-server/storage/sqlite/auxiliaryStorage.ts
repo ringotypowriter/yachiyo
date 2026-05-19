@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, isNotNull, isNull, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, inArray, isNotNull, isNull, or, sql } from 'drizzle-orm'
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3'
 
 import type {
@@ -10,6 +10,7 @@ import type {
 } from '../../../../shared/yachiyo/protocol.ts'
 import {
   parseGroupMonitorBuffer,
+  parseMessageTextBlocks,
   serializeEnabledTools,
   serializeGroupMonitorBuffer,
   serializeModelOverride,
@@ -24,6 +25,7 @@ import {
   channelUsersTable,
   groupMonitorBuffersTable,
   imageAltTextsTable,
+  messagesTable,
   runsTable,
   scheduleRunsTable,
   schedulesTable,
@@ -36,6 +38,8 @@ type SqliteDb = BetterSQLite3Database<typeof schema>
 type SqliteAuxiliaryStorageMethods = Pick<
   YachiyoStorage,
   | 'listExternalThreads'
+  | 'listOwnerDmTakeoverThreadCandidates'
+  | 'hasVisibleThreadMessages'
   | 'listChannelUsers'
   | 'findChannelUser'
   | 'createChannelUser'
@@ -101,6 +105,20 @@ export function createSqliteAuxiliaryStorageMethods(input: {
     toThreadRecordWithChannelUserRole
   } = input
 
+  const hasVisibleMessageText = (row: {
+    content: string
+    textBlocks: string | null
+    visibleReply: string | null
+  }): boolean => {
+    if ((row.visibleReply ?? row.content).trim().length > 0) {
+      return true
+    }
+    return (
+      parseMessageTextBlocks(row.textBlocks)?.some((block) => block.content.trim().length > 0) ??
+      false
+    )
+  }
+
   return {
     listExternalThreads() {
       return db
@@ -117,6 +135,36 @@ export function createSqliteAuxiliaryStorageMethods(input: {
         .all()
         .filter((row) => row.source !== 'local' && !isOwnerDmThread(row))
         .map(toThreadRecordWithChannelUserRole)
+    },
+
+    listOwnerDmTakeoverThreadCandidates() {
+      return db
+        .select()
+        .from(threadsTable)
+        .where(isNull(threadsTable.archivedAt))
+        .orderBy(desc(threadsTable.updatedAt))
+        .all()
+        .filter(isBootstrapThread)
+        .map(toThreadRecordWithChannelUserRole)
+    },
+
+    hasVisibleThreadMessages(threadId) {
+      return db
+        .select({
+          content: messagesTable.content,
+          textBlocks: messagesTable.textBlocks,
+          visibleReply: messagesTable.visibleReply
+        })
+        .from(messagesTable)
+        .where(
+          and(
+            eq(messagesTable.threadId, threadId),
+            inArray(messagesTable.role, ['user', 'assistant']),
+            or(isNull(messagesTable.hidden), eq(messagesTable.hidden, false))
+          )
+        )
+        .all()
+        .some(hasVisibleMessageText)
     },
 
     listChannelUsers() {

@@ -9,6 +9,7 @@
 import type React from 'react'
 import { useEffect, useMemo, useRef } from 'react'
 import { useAppStore } from '@renderer/app/store/useAppStore'
+import { limitLoadedThreadData } from '@renderer/app/store/useAppStore/helpers'
 import type { Message, ToolCall } from '@renderer/app/types'
 import { theme } from '@renderer/theme/theme'
 import { MessageMarkdown } from '@renderer/lib/markdown/MessageMarkdown'
@@ -106,8 +107,12 @@ export function ExternalThreadViewer({ threadId }: { threadId: string | null }):
 
     void window.api.yachiyo.loadThreadData({ threadId }).then((data) => {
       useAppStore.setState((state) => ({
-        messages: { ...state.messages, [threadId]: data.messages },
-        toolCalls: { ...state.toolCalls, [threadId]: data.toolCalls }
+        messages: limitLoadedThreadData(state.messages, threadId, data.messages, [
+          state.activeThreadId
+        ]),
+        toolCalls: limitLoadedThreadData(state.toolCalls, threadId, data.toolCalls, [
+          state.activeThreadId
+        ])
       }))
     })
   }, [threadId, messages.length])

@@ -20,6 +20,7 @@ import {
   getThreadRunStatus,
   isBlankNewChat,
   isThreadReusableNewChat,
+  limitLoadedThreadData,
   moveComposerDraft,
   moveReasoningEffort,
   normalizeWorkspacePath,
@@ -221,7 +222,7 @@ export function createThreadLifecycleActions(input: {
     },
 
     initialize: async () => {
-      if (bootstrapPromise) {
+      if (bootstrapPromise && (get().initialized || get().isBootstrapping)) {
         return bootstrapPromise
       }
 
@@ -311,11 +312,31 @@ export function createThreadLifecycleActions(input: {
             const data = await window.api.yachiyo.loadThreadData({
               threadId: initialActiveThreadId
             })
-            set((state) => ({
-              ...(data.runs
-                ? { runsByThread: { ...state.runsByThread, [initialActiveThreadId]: data.runs } }
-                : {})
-            }))
+            set((state) => {
+              const toolCalls = limitLoadedThreadData(
+                state.toolCalls,
+                initialActiveThreadId,
+                data.toolCalls,
+                [state.activeThreadId]
+              )
+              return {
+                messages: limitLoadedThreadData(
+                  state.messages,
+                  initialActiveThreadId,
+                  data.messages,
+                  [state.activeThreadId]
+                ),
+                toolCalls,
+                ...(data.runs
+                  ? { runsByThread: { ...state.runsByThread, [initialActiveThreadId]: data.runs } }
+                  : {}),
+                ...deriveSubagentStateFromToolCalls(
+                  toolCalls,
+                  state.subagentStateById,
+                  state.subagentProgressTimelineByThread
+                )
+              }
+            })
           }
 
           await refreshAvailableSkills(set, get)

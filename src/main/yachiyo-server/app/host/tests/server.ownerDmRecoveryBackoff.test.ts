@@ -705,6 +705,38 @@ test('YachiyoServer lists only owner-visible threads for owner DM takeover', asy
   })
 })
 
+test('YachiyoServer lists owner DM takeover candidates without full bootstrap', async () => {
+  await withServer(async ({ server, storage }) => {
+    const owner = server.createChannelUser({
+      id: 'tg-owner-1',
+      platform: 'telegram',
+      externalUserId: '123',
+      username: 'owner',
+      label: '',
+      status: 'allowed',
+      role: 'owner',
+      usageLimitKTokens: null,
+      workspacePath: '/tmp/tg-owner'
+    })
+    const thread = await server.createThread({ title: 'Local work' })
+    const bootstrap = storage.bootstrap
+    storage.bootstrap = () => {
+      throw new Error('listOwnerDmTakeoverThreads should not load full bootstrap state')
+    }
+
+    try {
+      const candidates = server.listOwnerDmTakeoverThreads({
+        channelUserId: owner.id,
+        limit: 10
+      })
+
+      assert.ok(candidates.some((candidate) => candidate.id === thread.id))
+    } finally {
+      storage.bootstrap = bootstrap
+    }
+  })
+})
+
 test('YachiyoServer takes over a local thread for the owner DM channel', async () => {
   await withServer(async ({ server }) => {
     const owner = server.createChannelUser({

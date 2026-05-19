@@ -1,24 +1,12 @@
-import { and, asc, desc, eq, inArray, isNull, like } from 'drizzle-orm'
+import { and, desc, eq, inArray, isNull, like } from 'drizzle-orm'
 
-import { sortToolCallsChronologically } from '../../../../shared/yachiyo/toolCallOrder.ts'
 import {
   groupLatestRunsByThread,
-  groupMessagesByThread,
-  groupToolCallsByThread,
-  toMessageRecord,
   toRunRecord,
   toThreadRecord,
-  toToolCallRecord,
   type YachiyoStorage
 } from '../storage.ts'
-import {
-  channelUsersTable,
-  messagesTable,
-  runsTable,
-  threadFoldersTable,
-  threadsTable,
-  toolCallsTable
-} from './schema.ts'
+import { channelUsersTable, runsTable, threadFoldersTable, threadsTable } from './schema.ts'
 import type { SqliteDb } from './sqliteRuntime.ts'
 
 export function createSqliteBootstrapStorageMethods(input: {
@@ -107,64 +95,6 @@ export function createSqliteBootstrapStorageMethods(input: {
         .filter((thread) => thread.archivedAt !== null)
         .map(toThreadRecordWithChannelUserRole)
       const threadIds = localThreads.map((thread) => thread.id)
-      const messages =
-        threadIds.length === 0
-          ? []
-          : db
-              .select({
-                attachments: messagesTable.attachments,
-                content: messagesTable.content,
-                createdAt: messagesTable.createdAt,
-                id: messagesTable.id,
-                images: messagesTable.images,
-                modelId: messagesTable.modelId,
-                parentMessageId: messagesTable.parentMessageId,
-                providerName: messagesTable.providerName,
-                reasoning: messagesTable.reasoning,
-                responseMessages: messagesTable.responseMessages,
-                turnContext: messagesTable.turnContext,
-                visibleReply: messagesTable.visibleReply,
-                senderName: messagesTable.senderName,
-                senderExternalUserId: messagesTable.senderExternalUserId,
-                hidden: messagesTable.hidden,
-                role: messagesTable.role,
-                status: messagesTable.status,
-                textBlocks: messagesTable.textBlocks,
-                threadId: messagesTable.threadId
-              })
-              .from(messagesTable)
-              .where(inArray(messagesTable.threadId, threadIds))
-              .orderBy(asc(messagesTable.createdAt))
-              .all()
-              .map(toMessageRecord)
-      const toolCalls = sortToolCallsChronologically(
-        threadIds.length === 0
-          ? []
-          : db
-              .select({
-                assistantMessageId: toolCallsTable.assistantMessageId,
-                cwd: toolCallsTable.cwd,
-                details: toolCallsTable.details,
-                error: toolCallsTable.error,
-                finishedAt: toolCallsTable.finishedAt,
-                id: toolCallsTable.id,
-                inputSummary: toolCallsTable.inputSummary,
-                outputSummary: toolCallsTable.outputSummary,
-                requestMessageId: toolCallsTable.requestMessageId,
-                runId: toolCallsTable.runId,
-                startedAt: toolCallsTable.startedAt,
-                stepBudget: toolCallsTable.stepBudget,
-                stepIndex: toolCallsTable.stepIndex,
-                status: toolCallsTable.status,
-                threadId: toolCallsTable.threadId,
-                toolName: toolCallsTable.toolName
-              })
-              .from(toolCallsTable)
-              .where(inArray(toolCallsTable.threadId, threadIds))
-              .orderBy(asc(toolCallsTable.startedAt))
-              .all()
-              .map(toToolCallRecord)
-      )
       const latestRunsByThread =
         threadIds.length === 0
           ? {}
@@ -208,8 +138,8 @@ export function createSqliteBootstrapStorageMethods(input: {
         folders,
         latestRunsByThread,
         threads,
-        messagesByThread: groupMessagesByThread(messages),
-        toolCallsByThread: groupToolCallsByThread(toolCalls)
+        messagesByThread: {},
+        toolCallsByThread: {}
       }
     }
   }

@@ -104,10 +104,12 @@ function visibleTakeoverMessages(thread: ThreadRecord, messages: MessageRecord[]
   })
 }
 
+export function isDefaultNewChatThread(thread: Pick<ThreadRecord, 'title'>): boolean {
+  return thread.title === DEFAULT_THREAD_TITLE
+}
+
 export function isBlankNewChatThread(thread: ThreadRecord, messages: MessageRecord[]): boolean {
-  return (
-    thread.title === DEFAULT_THREAD_TITLE && visibleTakeoverMessages(thread, messages).length === 0
-  )
+  return isDefaultNewChatThread(thread) && visibleTakeoverMessages(thread, messages).length === 0
 }
 
 function messagesAfterWatermark(

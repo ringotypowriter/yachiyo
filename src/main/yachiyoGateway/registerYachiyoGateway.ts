@@ -915,8 +915,10 @@ export function registerYachiyoGateway(): YachiyoServer {
   handleYachiyoIpc(IPC_CHANNELS.starThread, (input: { threadId: string; starred: boolean }) =>
     server!.starThread(input)
   )
-  handleYachiyoIpc(IPC_CHANNELS.loadThreadData, (input: { threadId: string }) =>
-    server!.loadThreadData(input.threadId)
+  handleYachiyoIpc(
+    IPC_CHANNELS.loadThreadData,
+    (input: { threadId: string; includeMessages?: boolean }) =>
+      server!.loadThreadData(input.threadId, { includeMessages: input.includeMessages })
   )
   handleYachiyoIpc(IPC_CHANNELS.listBackgroundTasks, (input?: { threadId?: string }) =>
     server!.listBackgroundTasks(input)

@@ -236,7 +236,7 @@ declare global {
           markdownEditors: { name: string; iconDataUrl?: string }[]
         }>
         openWorkspaceWithApp: (input: { threadId: string; appName: string }) => Promise<void>
-        loadThreadData: (input: { threadId: string }) => Promise<{
+        loadThreadData: (input: { threadId: string; includeMessages?: boolean }) => Promise<{
           messages: import('../shared/yachiyo/protocol').MessageRecord[]
           toolCalls: import('../shared/yachiyo/protocol').ToolCallRecord[]
           runs: import('../shared/yachiyo/protocol').RunRecord[]

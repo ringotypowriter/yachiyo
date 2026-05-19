@@ -351,6 +351,118 @@ test('initialize hydrates the active thread run history after bootstrap', async 
   }
 })
 
+test('initialize loads the active thread messages after lightweight bootstrap', async () => {
+  resetStore()
+
+  const restoreWindow = withWindowApiMock({
+    bootstrap: async () => ({
+      threads: [{ id: 'thread-1', title: 'Thread 1', updatedAt: TIMESTAMP }],
+      archivedThreads: [],
+      folders: [],
+      messagesByThread: {},
+      toolCallsByThread: {},
+      latestRunsByThread: {},
+      recoveredInterruptedSaveThreadIds: [],
+      config: {
+        enabledTools: DEFAULT_ENABLED_TOOL_NAMES,
+        providers: []
+      },
+      settings: READY_SETTINGS
+    }),
+    subscribe: () => () => undefined,
+    loadThreadData: async ({ threadId }) => {
+      assert.equal(threadId, 'thread-1')
+      return {
+        messages: [
+          {
+            id: 'message-1',
+            threadId,
+            role: 'user',
+            content: 'Loaded on demand',
+            status: 'completed',
+            createdAt: TIMESTAMP
+          }
+        ],
+        toolCalls: [
+          {
+            id: 'tool-call-1',
+            threadId,
+            toolName: 'read',
+            status: 'completed',
+            inputSummary: 'read file',
+            startedAt: TIMESTAMP
+          }
+        ],
+        runs: []
+      }
+    }
+  })
+
+  try {
+    await useAppStore.getState().initialize()
+
+    const state = useAppStore.getState()
+    assert.equal(state.messages['thread-1']?.[0]?.content, 'Loaded on demand')
+    assert.equal(state.toolCalls['thread-1']?.[0]?.id, 'tool-call-1')
+  } finally {
+    restoreWindow()
+  }
+})
+
+test('setActiveThread keeps only the recent loaded thread data in memory', async () => {
+  resetStore()
+
+  const restoreWindow = withWindowApiMock({
+    loadThreadData: async ({ threadId }) => ({
+      messages: [
+        {
+          id: `${threadId}-message`,
+          threadId,
+          role: 'user',
+          content: threadId,
+          status: 'completed',
+          createdAt: TIMESTAMP
+        }
+      ],
+      toolCalls: [],
+      runs: []
+    })
+  })
+
+  useAppStore.setState({
+    activeThreadId: 'thread-6',
+    messages: {
+      'thread-1': [],
+      'thread-2': [],
+      'thread-3': [],
+      'thread-4': [],
+      'thread-5': [],
+      'thread-6': []
+    },
+    toolCalls: {
+      'thread-1': [],
+      'thread-2': [],
+      'thread-3': [],
+      'thread-4': [],
+      'thread-5': [],
+      'thread-6': []
+    }
+  })
+
+  try {
+    useAppStore.getState().setActiveThread('thread-7')
+    await new Promise<void>((resolve) => setImmediate(resolve))
+
+    const state = useAppStore.getState()
+    assert.equal(Object.keys(state.messages).length <= 6, true)
+    assert.equal(Object.keys(state.toolCalls).length <= 6, true)
+    assert.equal(state.messages['thread-1'], undefined)
+    assert.equal(state.messages['thread-7']?.[0]?.content, 'thread-7')
+  } finally {
+    restoreWindow()
+  }
+})
+
 test('applyServerEvent keeps a stopped placeholder when a run is cancelled before the first token', () => {
   resetStore()
   useAppStore.setState({ activeThreadId: 'thread-1' })

@@ -302,6 +302,7 @@ const api = {
       ipcRenderer.invoke('yachiyo:open-workspace-with-app', input),
     loadThreadData: (input: {
       threadId: string
+      includeMessages?: boolean
     }): Promise<{
       messages: import('../shared/yachiyo/protocol').MessageRecord[]
       toolCalls: import('../shared/yachiyo/protocol').ToolCallRecord[]
