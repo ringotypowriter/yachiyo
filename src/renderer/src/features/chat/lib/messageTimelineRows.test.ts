@@ -303,6 +303,54 @@ test('buildConversationGroupRows renders one thinking block for hidden-steer con
   )
 })
 
+test('buildConversationGroupRows keeps the thinking row key stable when hidden steer appends', () => {
+  const assistantBeforeHidden = createAssistantMessage({
+    id: 'assistant-before-hidden',
+    content: 'Initial visible answer',
+    status: 'streaming',
+    reasoning: 'Initial thought',
+    createdAt: '2026-04-18T00:00:01.000Z'
+  })
+  const visibleRows = buildConversationGroupRows({
+    group: createGroup({
+      activeAssistant: assistantBeforeHidden,
+      activeAssistantMessages: [assistantBeforeHidden]
+    }),
+    inlineToolCalls: [],
+    runs: [],
+    activeRunId: 'run-visible',
+    isActiveGroup: true,
+    subagentActive: false
+  })
+  const assistantAfterHidden = createAssistantMessage({
+    id: 'assistant-after-hidden',
+    content: 'Continued visible answer',
+    status: 'streaming',
+    reasoning: 'Continuation thought',
+    createdAt: '2026-04-18T00:00:03.000Z'
+  })
+  const hiddenRows = buildConversationGroupRows({
+    group: createGroup({
+      activeAssistant: assistantBeforeHidden,
+      activeAssistantMessages: [
+        { ...assistantBeforeHidden, status: 'completed' },
+        assistantAfterHidden
+      ],
+      hiddenRequestMessageIds: ['hidden-background-notice']
+    }),
+    inlineToolCalls: [],
+    runs: [],
+    activeRunId: 'run-hidden',
+    isActiveGroup: true,
+    subagentActive: false
+  })
+
+  assert.equal(
+    hiddenRows.find((row) => row.kind === 'group-thinking')?.key,
+    visibleRows.find((row) => row.kind === 'group-thinking')?.key
+  )
+})
+
 test('buildConversationGroupRows keeps hidden-steer thinking active before the next reasoning delta', () => {
   const assistantBeforeHidden = createAssistantMessage({
     id: 'assistant-before-hidden',

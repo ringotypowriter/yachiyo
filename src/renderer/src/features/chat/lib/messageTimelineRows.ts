@@ -251,7 +251,7 @@ function getThinkingTimelineBlocks(input: {
 
   return [
     {
-      keyId: group.userMessage.id,
+      keyId: firstAssistantMessage.id,
       assistantMessage: latestAssistantMessage,
       reasoning: assistantMessagesWithReasoning.map((message) => message.reasoning).join('\n\n'),
       isActive: input.isActiveGroup && activeAssistantMessages.at(-1)?.status === 'streaming',
