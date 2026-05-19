@@ -367,7 +367,7 @@ test('YachiyoServer keeps the compile pipeline working when recall is gated off'
         hasHiddenSearchCapability: () => true,
         isConfigured: () => true,
         searchMemories: async () => [],
-        testConnection: async () => ({ ok: true, message: 'Nowledge Mem is reachable.' }),
+        testConnection: async () => ({ ok: true, message: 'Built-in memory is ready.' }),
         recallForContext: async ({ thread }) => ({
           decision: {
             shouldRecall: false,
@@ -422,7 +422,7 @@ test('YachiyoServer bases recall history on the active branch during retry', asy
         hasHiddenSearchCapability: () => true,
         isConfigured: () => true,
         searchMemories: async () => [],
-        testConnection: async () => ({ ok: true, message: 'Nowledge Mem is reachable.' }),
+        testConnection: async () => ({ ok: true, message: 'Built-in memory is ready.' }),
         recallForContext: async ({ history, thread }) => {
           recalledHistoryIds.push(history.map((message) => message.id))
           return {
@@ -477,7 +477,7 @@ test('YachiyoServer injects querySource for durable source queries', async () =>
         hasHiddenSearchCapability: () => true,
         isConfigured: () => true,
         searchMemories: async () => [],
-        testConnection: async () => ({ ok: true, message: 'Nowledge Mem is reachable.' }),
+        testConnection: async () => ({ ok: true, message: 'Built-in memory is ready.' }),
         recallForContext: async ({ thread }) => ({
           decision: {
             shouldRecall: false,
@@ -585,7 +585,7 @@ test('YachiyoServer does not claim there are no tools when querySource is the on
         hasHiddenSearchCapability: () => true,
         isConfigured: () => true,
         searchMemories: async () => [],
-        testConnection: async () => ({ ok: true, message: 'Nowledge Mem is reachable.' }),
+        testConnection: async () => ({ ok: true, message: 'Built-in memory is ready.' }),
         recallForContext: async ({ thread }) => ({
           decision: {
             shouldRecall: false,
@@ -655,9 +655,9 @@ test('YachiyoServer continues the run when memory recall fails', async () => {
         hasHiddenSearchCapability: () => true,
         isConfigured: () => true,
         searchMemories: async () => [],
-        testConnection: async () => ({ ok: false, message: 'Cannot connect to Nowledge Mem' }),
+        testConnection: async () => ({ ok: false, message: 'Cannot connect to memory' }),
         recallForContext: async () => {
-          throw new Error('Cannot connect to Nowledge Mem')
+          throw new Error('Cannot connect to memory')
         },
         createMemory: async () => ({ savedCount: 0 }),
         validateAndCreateMemory: async () => ({ savedCount: 0 }),
@@ -699,7 +699,7 @@ test('YachiyoServer saveThread uses the explicit memory service and can archive 
         hasHiddenSearchCapability: () => true,
         isConfigured: () => true,
         searchMemories: async () => [],
-        testConnection: async () => ({ ok: true, message: 'Nowledge Mem is reachable.' }),
+        testConnection: async () => ({ ok: true, message: 'Built-in memory is ready.' }),
         recallForContext: async ({ thread }) => ({
           decision: {
             shouldRecall: false,

@@ -1,6 +1,7 @@
 import {
   index,
   integer,
+  uniqueIndex,
   real,
   sqliteTable,
   text,
@@ -326,3 +327,51 @@ export const builtinMemoriesTable = sqliteTable('builtin_memories', {
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull()
 })
+
+export const cognitiveRelationsTable = sqliteTable(
+  'cognitive_relations',
+  {
+    id: text('id').primaryKey(),
+    name: text('name').notNull(),
+    purpose: text('purpose').notNull().default(''),
+    columns: text('columns').notNull().default('[]'),
+    createdAt: text('created_at').notNull(),
+    updatedAt: text('updated_at').notNull()
+  },
+  (table) => [uniqueIndex('cognitive_relations_name_idx').on(table.name)]
+)
+
+export const cognitiveRowsTable = sqliteTable(
+  'cognitive_rows',
+  {
+    id: text('id').primaryKey(),
+    relation: text('relation').notNull(),
+    key: text('key').notNull(),
+    values: text('values').notNull().default('{}'),
+    subjects: text('subjects').notNull().default('[]'),
+    aliases: text('aliases').notNull().default('[]'),
+    triggers: text('triggers').notNull().default('[]'),
+    scope: text('scope').notNull().default('{}'),
+    evidence: text('evidence').notNull().default('[]'),
+    confidence: real('confidence').notNull().default(0.6),
+    status: text('status').notNull().default('active'),
+    activationText: text('activation_text').notNull().default(''),
+    createdAt: text('created_at').notNull(),
+    updatedAt: text('updated_at').notNull()
+  },
+  (table) => [
+    uniqueIndex('cognitive_rows_relation_key_idx').on(table.relation, table.key),
+    index('cognitive_rows_relation_idx').on(table.relation),
+    index('cognitive_rows_status_idx').on(table.status)
+  ]
+)
+
+export const cognitiveEventsTable = sqliteTable(
+  'cognitive_events',
+  {
+    id: text('id').primaryKey(),
+    operation: text('operation').notNull(),
+    createdAt: text('created_at').notNull()
+  },
+  (table) => [index('cognitive_events_created_at_idx').on(table.createdAt)]
+)

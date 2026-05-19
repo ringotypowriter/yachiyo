@@ -25,12 +25,11 @@ interface ThreadEntry {
   timer: ReturnType<typeof setTimeout>
   abortController: AbortController
   runCount: number
-  rememberToolRunCount: number
 }
 
 export interface MemoryDistillationScheduler {
   /** Called after a run completes on a thread. Debounces/batches distillation. */
-  onRunCompleted(thread: ThreadRecord, usedRememberTool?: boolean): void
+  onRunCompleted(thread: ThreadRecord): void
   /** Cancel pending distillation for a thread (e.g. on delete/archive). */
   cancelThread(threadId: string): void
   /** Await all pending distillation tasks and clean up. */
@@ -140,20 +139,8 @@ export function createMemoryDistillationScheduler(
     if (!entry) return
 
     clearTimeout(entry.timer)
-    const { abortController, runCount, rememberToolRunCount } = entry
+    const { abortController, runCount } = entry
     entries.delete(threadId)
-
-    // When every run in the batch already saved memories via the remember
-    // tool, skip automatic distillation to avoid duplicate or conflicting
-    // writes — same intent as the original per-run guard.
-    if (rememberToolRunCount > 0 && rememberToolRunCount >= runCount) {
-      console.log(LOG_PREFIX, 'skipped (all runs used remember tool)', {
-        threadId,
-        runCount,
-        rememberToolRunCount
-      })
-      return
-    }
 
     console.log(LOG_PREFIX, 'flushing thread', { threadId, runCount })
 
@@ -188,7 +175,7 @@ export function createMemoryDistillationScheduler(
   }
 
   return {
-    onRunCompleted(thread: ThreadRecord, usedRememberTool?: boolean): void {
+    onRunCompleted(thread: ThreadRecord): void {
       if (closed) return
 
       if (!deps.memoryService.isConfigured()) return
@@ -200,7 +187,6 @@ export function createMemoryDistillationScheduler(
 
       if (existing) {
         existing.runCount += 1
-        if (usedRememberTool) existing.rememberToolRunCount += 1
 
         if (existing.runCount >= RUN_THRESHOLD) {
           console.log(LOG_PREFIX, 'run threshold reached', {
@@ -224,8 +210,7 @@ export function createMemoryDistillationScheduler(
       entries.set(thread.id, {
         timer: setTimeout(() => flushThread(thread.id), IDLE_DEBOUNCE_MS),
         abortController,
-        runCount: 1,
-        rememberToolRunCount: usedRememberTool ? 1 : 0
+        runCount: 1
       })
     },
 

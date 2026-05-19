@@ -5,6 +5,7 @@ import type {
 } from '../../../../shared/yachiyo/protocol.ts'
 import type { ModelRuntime } from '../../runtime/models/types.ts'
 import type { JotdownStore } from '../../services/jotdownStore.ts'
+import type { CognitiveMemoryStore } from '../../services/memory/cognitiveMemoryStore.ts'
 import type { MemoryProvider, MemoryService } from '../../services/memory/memoryService.ts'
 import type { SearchService } from '../../services/search/searchService.ts'
 import type { QuerySourceExecutor } from '../../tools/agentTools/querySourceTool.ts'
@@ -35,6 +36,7 @@ export interface YachiyoServerOptions {
   ensureThreadWorkspace?: (threadId: string) => Promise<string>
   cloneThreadWorkspace?: (sourceThreadId: string, targetThreadId: string) => Promise<string>
   deleteThreadWorkspace?: (threadId: string) => Promise<void>
+  cognitiveMemoryStore?: CognitiveMemoryStore
   memoryService?: MemoryService
   sourceQueryExecutor?: QuerySourceExecutor
   createMemoryProvider?: (config: SettingsConfig) => MemoryProvider

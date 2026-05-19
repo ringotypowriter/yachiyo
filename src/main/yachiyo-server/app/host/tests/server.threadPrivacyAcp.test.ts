@@ -597,7 +597,7 @@ test('YachiyoServer tests memory connectivity against the provided draft config'
         providers: [],
         memory: {
           enabled: true,
-          provider: 'nowledge-mem',
+          provider: 'builtin-memory',
           baseUrl: 'http://127.0.0.1:14242'
         }
       })
@@ -606,13 +606,13 @@ test('YachiyoServer tests memory connectivity against the provided draft config'
         providers: [],
         memory: {
           enabled: true,
-          provider: 'nowledge-mem',
+          provider: 'builtin-memory',
           baseUrl: 'http://127.0.0.1:14242'
         }
       })
       assert.deepEqual(result, {
         ok: true,
-        message: 'Nowledge Mem is reachable.'
+        message: 'Built-in memory is ready.'
       })
     },
     {
@@ -622,7 +622,7 @@ test('YachiyoServer tests memory connectivity against the provided draft config'
         searchMemories: async () => [],
         testConnection: async (config) => {
           receivedConfig = config
-          return { ok: true, message: 'Nowledge Mem is reachable.' }
+          return { ok: true, message: 'Built-in memory is ready.' }
         },
         recallForContext: async ({ thread }) => ({
           decision: {

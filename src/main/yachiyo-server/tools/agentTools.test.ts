@@ -82,7 +82,7 @@ test('createAgentToolSet adds querySource when source query storage is provided'
     hasHiddenSearchCapability: () => true,
     isConfigured: () => true,
     searchMemories: async () => [],
-    testConnection: async () => ({ ok: true, message: 'Nowledge Mem is reachable.' }),
+    testConnection: async () => ({ ok: true, message: 'Built-in memory is ready.' }),
     recallForContext: async ({ thread }) => ({
       decision: {
         shouldRecall: false,

@@ -7,6 +7,7 @@ import type {
   AuxiliaryTextGenerationRequest
 } from '../../runtime/models/auxiliaryGeneration.ts'
 import type { ModelStreamRequest, ModelRuntime } from '../../runtime/models/types.ts'
+import { createInMemoryCognitiveMemoryStore } from './cognitiveMemoryStore.ts'
 import {
   createMemoryService,
   sanitizeMemoryQueryText,
@@ -97,7 +98,7 @@ const MEMORY_CONFIG: SettingsConfig = {
   providers: [],
   memory: {
     enabled: true,
-    provider: 'nowledge-mem',
+    provider: 'builtin-memory',
     baseUrl: 'http://127.0.0.1:14242'
   }
 }
@@ -168,6 +169,129 @@ test('memory service exposes source query memory capability only when memory is 
   })
 
   assert.equal(disabled.hasHiddenSearchCapability(), false)
+})
+
+test('memory service uses cognitive activation without model query planning when a cognitive store is present', async () => {
+  const auxiliaryRequests: AuxiliaryTextGenerationRequest[] = []
+  const cognitiveStore = createInMemoryCognitiveMemoryStore()
+  const service = createMemoryService({
+    auxiliaryGeneration: createAuxiliaryGenerationStub(
+      { text: '{"queries":[]}' },
+      auxiliaryRequests
+    ),
+    cognitiveStore,
+    createModelRuntime: () => ({
+      async *streamReply() {
+        yield ''
+      }
+    }),
+    createProvider: () => {
+      throw new Error('provider should not be used')
+    },
+    readConfig: () => MEMORY_CONFIG,
+    readSettings: () => ({
+      providerName: 'main',
+      provider: 'openai',
+      model: 'gpt-5',
+      apiKey: 'sk-main',
+      baseUrl: ''
+    })
+  })
+
+  await service.validateAndCreateMemory({
+    key: 'agent_workflow_roles',
+    facts: { role: 'Codex produces dense context artifacts before implementation handoff.' },
+    subjects: ['Codex', 'context artifact', 'explorer role'],
+    unitType: 'procedure',
+    importance: 0.9
+  })
+
+  const result = await service.recallForContext({
+    thread: {
+      id: 'thread-1',
+      title: 'Agent workflow',
+      updatedAt: '2026-05-19T00:00:00.000Z'
+    },
+    now: '2026-05-19T00:00:00.000Z',
+    userQuery: 'Codex 和 context artifact 的分工是什么？',
+    history: []
+  })
+
+  assert.equal(auxiliaryRequests.length, 0)
+  assert.deepEqual(result.decision.reasons, ['cognitive-activation'])
+  assert.equal(result.entries.length, 1)
+  assert.match(result.entries[0] ?? '', /Codex produces dense context artifacts/)
+})
+
+test('memory service saves thread transcripts as cognitive patches', async () => {
+  const cognitiveStore = createInMemoryCognitiveMemoryStore()
+  const requests: ModelStreamRequest[] = []
+  const service = createMemoryService({
+    auxiliaryGeneration: createAuxiliaryGenerationStub({ text: '{"operations":[]}' }),
+    cognitiveStore,
+    createModelRuntime: () => ({
+      async *streamReply(request) {
+        requests.push(request)
+        yield JSON.stringify({
+          operations: [
+            {
+              type: 'upsertRelation',
+              relation: 'agent_workflow_roles',
+              purpose: 'Track agent handoff rules.',
+              columns: ['agent', 'role'],
+              evidence: []
+            },
+            {
+              type: 'upsertRow',
+              relation: 'agent_workflow_roles',
+              key: 'codex',
+              values: { agent: 'Codex', role: 'Explorer' },
+              subjects: ['Codex'],
+              triggers: ['context artifact'],
+              confidence: 0.9,
+              evidence: []
+            }
+          ]
+        })
+      }
+    }),
+    createProvider: () => {
+      throw new Error('provider should not be used')
+    },
+    readConfig: () => MEMORY_CONFIG,
+    readSettings: () => ({
+      providerName: 'main',
+      provider: 'openai',
+      model: 'gpt-5',
+      apiKey: 'sk-main',
+      baseUrl: ''
+    })
+  })
+
+  const saved = await service.saveThread({
+    thread: {
+      id: 'thread-1',
+      title: 'Agent workflow',
+      updatedAt: '2026-05-19T00:00:00.000Z'
+    },
+    messages: [
+      {
+        id: 'msg-1',
+        threadId: 'thread-1',
+        role: 'user',
+        content: 'Codex should create context artifacts.',
+        status: 'completed',
+        createdAt: '2026-05-19T00:00:00.000Z'
+      }
+    ]
+  })
+
+  const state = await cognitiveStore.readState()
+  assert.equal(saved.savedCount, 2)
+  assert.equal(requests.length, 1)
+  assert.equal(state.relations[0]?.name, 'agent_workflow_roles')
+  assert.equal(state.rows[0]?.key, 'codex')
+  assert.equal(state.rows[0]?.evidence[0]?.messageId, 'msg-1')
 })
 
 test('memory service derives stricter retrieval plans and ranks recalled context', async () => {
@@ -419,7 +543,7 @@ test('memory service does not advance lastRecall markers when recall is gated on
   assert.equal(result.thread.memoryRecall?.lastRecallCharCount, 20)
 })
 
-test('memory service can test Nowledge Mem connectivity and report missing CLI clearly', async () => {
+test('memory service can test builtin memory connectivity failures clearly', async () => {
   const service = createConfiguredService({
     auxiliaryGeneration: createAuxiliaryGenerationStub({ text: '{"queries":[]}' }),
     provider: {
@@ -427,9 +551,7 @@ test('memory service can test Nowledge Mem connectivity and report missing CLI c
         return { savedCount: 0 }
       },
       async searchMemories() {
-        const error = new Error('spawn nmem ENOENT') as Error & { code?: string }
-        error.code = 'ENOENT'
-        throw error
+        throw new Error('Built-in memory unavailable')
       },
       async updateMemory() {
         return undefined
@@ -441,7 +563,7 @@ test('memory service can test Nowledge Mem connectivity and report missing CLI c
 
   assert.deepEqual(result, {
     ok: false,
-    message: 'Nowledge Mem CLI not found. Install `nmem` on this Mac first.'
+    message: 'Built-in memory unavailable'
   })
 })
 

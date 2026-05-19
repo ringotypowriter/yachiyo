@@ -8,9 +8,8 @@ import {
   normalizeMemoryProviderId
 } from './protocol.ts'
 
-test('normalizeMemoryProviderId accepts the builtin memory provider', () => {
+test('normalizeMemoryProviderId accepts builtin memory and falls back for unknown values', () => {
   assert.equal(normalizeMemoryProviderId('builtin-memory'), 'builtin-memory')
-  assert.equal(normalizeMemoryProviderId('nowledge-mem'), 'nowledge-mem')
   assert.equal(normalizeMemoryProviderId('unknown-provider'), 'builtin-memory')
 })
 
@@ -29,11 +28,11 @@ test('isMemoryConfigured allows builtin memory without a base URL', () => {
     isMemoryConfigured({
       memory: {
         enabled: true,
-        provider: 'nowledge-mem',
+        provider: 'builtin-memory',
         baseUrl: ''
       }
     }),
-    false
+    true
   )
 })
 

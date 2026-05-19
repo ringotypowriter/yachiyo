@@ -848,7 +848,7 @@ export class YachiyoServerRunDomain {
           // assistant reply, not the pre-run snapshot.
           const persistedThread = this.deps.storage.getThread(currentThread.id)
           if (persistedThread) {
-            this.memoryScheduler.onRunCompleted(persistedThread, result.usedRememberTool)
+            this.memoryScheduler.onRunCompleted(persistedThread)
           }
         }
 

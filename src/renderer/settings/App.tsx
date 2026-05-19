@@ -128,14 +128,6 @@ function validateConfig(config: SettingsConfig | null): string | null {
     }
   }
 
-  if (
-    config.memory?.enabled &&
-    config.memory.provider === 'nowledge-mem' &&
-    !config.memory.baseUrl?.trim()
-  ) {
-    return 'Choose a Nowledge Mem backend URL before enabling Memory.'
-  }
-
   const translatorShortcut = config.general?.translatorShortcut?.trim() ?? ''
   const jotdownShortcut = config.general?.jotdownShortcut?.trim() ?? ''
   if (

@@ -299,6 +299,7 @@ export class YachiyoServer {
       options.memoryService ??
       createMemoryService({
         auxiliaryGeneration,
+        cognitiveStore: options.cognitiveMemoryStore,
         createModelRuntime,
         createProvider: options.createMemoryProvider ?? createMemoryProviderFactory(),
         readConfig: () => this.configDomain.readConfig(),

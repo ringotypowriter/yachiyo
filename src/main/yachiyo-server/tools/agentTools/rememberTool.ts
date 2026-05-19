@@ -15,23 +15,34 @@ const MEMORY_UNIT_TYPES = [
 ] as const
 
 const rememberToolInputSchema = z.object({
-  title: z.string().min(3).max(80).describe('Short, stable title for this memory'),
-  content: z
-    .string()
-    .min(20)
-    .max(320)
-    .describe('The fact, preference, or observation to remember (20-320 chars)'),
-  topic: z
+  key: z
     .string()
     .min(3)
-    .max(64)
-    .optional()
-    .describe('Canonical topic key (auto-derived from title if omitted)'),
+    .max(80)
+    .describe('Stable canonical identifier for this memory (snake_case, e.g. "database_choice")'),
+  facts: z
+    .record(z.string(), z.string())
+    .describe(
+      'Structured key-value facts about this memory. Use compact field names, e.g. { "preference": "dark mode", "scope": "all interfaces" }'
+    ),
+  subjects: z
+    .array(z.string())
+    .min(1)
+    .max(8)
+    .describe(
+      '3-8 activation keywords that help future recall. Include domain terms, variants, and likely user phrasings.'
+    ),
   unitType: z
     .enum(MEMORY_UNIT_TYPES)
     .optional()
     .describe('Memory classification (defaults to fact)'),
-  importance: z.number().min(0).max(1).optional().describe('Weight 0.0-1.0 (defaults to 0.5)')
+  importance: z.number().min(0).max(1).optional().describe('Weight 0.0-1.0 (defaults to 0.5)'),
+  scope: z
+    .union([z.literal('global'), z.literal('workspace'), z.literal('thread')])
+    .optional()
+    .describe(
+      'Scope of applicability. global = everywhere, workspace = current project only, thread = this conversation only (defaults to global)'
+    )
 })
 
 type RememberToolInput = z.infer<typeof rememberToolInputSchema>
@@ -43,12 +54,14 @@ interface RememberToolOutput {
 
 export interface RememberToolDeps {
   memoryService: MemoryService
+  workspacePath?: string
+  threadId?: string
 }
 
 export function createTool(deps: RememberToolDeps): Tool<RememberToolInput, RememberToolOutput> {
   return tool({
     description:
-      'Save a durable memory for the user. Use when the user explicitly asks you to remember something — a preference, decision, fact, workflow, or constraint. Memories must be stated as timeless observations (no "this time", "we discussed", pronouns). The title should be a short stable label; the content should be a self-contained statement (20-320 chars).',
+      'Save a durable memory for the user. Use when the user explicitly asks you to remember something — a preference, decision, fact, workflow, or constraint. Write structured facts (not a narrative), provide generous activation subjects for future recall, and use a stable key that will still make sense months from now.',
     inputSchema: rememberToolInputSchema,
     toModelOutput: ({ output }) =>
       output.error
@@ -58,13 +71,18 @@ export function createTool(deps: RememberToolDeps): Tool<RememberToolInput, Reme
       try {
         const result = await deps.memoryService.validateAndCreateMemory(
           {
-            title: input.title,
-            content: input.content,
-            topic: input.topic,
+            key: input.key,
+            facts: input.facts,
+            subjects: input.subjects,
             unitType: input.unitType,
-            importance: input.importance
+            importance: input.importance,
+            scope: input.scope
           },
-          options.abortSignal
+          options.abortSignal,
+          {
+            workspacePath: deps.workspacePath,
+            threadId: deps.threadId
+          }
         )
 
         if (result.rejected) {
@@ -84,7 +102,7 @@ export function createTool(deps: RememberToolDeps): Tool<RememberToolInput, Reme
         }
 
         return {
-          content: [{ type: 'text', text: `Memory saved: "${input.title}"` }]
+          content: [{ type: 'text', text: `Memory saved: "${input.key}"` }]
         }
       } catch (error) {
         const message = error instanceof Error ? error.message : 'remember failed.'

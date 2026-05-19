@@ -109,7 +109,7 @@ export type ThemeAppearance = 'system' | 'light' | 'dark'
 export type SendChatMode = 'normal' | 'steer' | 'follow-up'
 export type SendChatRunTrigger = 'local' | 'channel'
 export type ToolModelMode = 'disabled' | 'default' | 'custom'
-export type MemoryProviderId = 'builtin-memory' | 'nowledge-mem'
+export type MemoryProviderId = 'builtin-memory'
 export type WebReadRequestFormat = 'markdown' | 'html'
 export type WebReadContentFormat = WebReadRequestFormat | 'raw'
 export type WebReadExtractor = 'defuddle' | 'linkedom-fallback' | 'none'
@@ -189,7 +189,7 @@ export function normalizeMemoryProviderId(
   value: unknown,
   fallback: MemoryProviderId = DEFAULT_MEMORY_PROVIDER
 ): MemoryProviderId {
-  return value === 'builtin-memory' || value === 'nowledge-mem' ? value : fallback
+  return value === 'builtin-memory' ? value : fallback
 }
 
 export function normalizeEnabledTools(
@@ -1001,13 +1001,7 @@ export function isMemoryConfigured(
     return false
   }
 
-  const provider = normalizeMemoryProviderId(config.memory.provider)
-  if (provider === 'builtin-memory') {
-    return true
-  }
-
-  const baseUrl = config.memory.baseUrl?.trim() ?? ''
-  return provider === 'nowledge-mem' && baseUrl.length > 0
+  return normalizeMemoryProviderId(config.memory.provider) === 'builtin-memory'
 }
 
 export interface ProviderSettings {

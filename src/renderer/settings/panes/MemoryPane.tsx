@@ -2,14 +2,7 @@ import { Loader2 } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import type { MemoryTermDocument, SettingsConfig } from '../../../shared/yachiyo/protocol.ts'
 import { theme } from '@renderer/theme/theme'
-import {
-  SettingLabel,
-  SettingRow,
-  SettingSection,
-  SettingSwitch,
-  SimpleSelect
-} from '../components/primitives'
-import { inputStyle } from '../components/styles'
+import { SettingLabel, SettingRow, SettingSection, SettingSwitch } from '../components/primitives'
 import { loadMemoryTermDocument } from './memoryTermDocumentModel'
 
 export interface MemoryPaneProps {
@@ -33,7 +26,6 @@ export function MemoryPane({ draft, onChange }: MemoryPaneProps): React.JSX.Elem
   }
   const provider = memory.provider ?? 'builtin-memory'
   const showsBuiltinTerms = provider === 'builtin-memory'
-  const showsNowledgeSettings = provider === 'nowledge-mem'
 
   useEffect(() => {
     setTestResult(null)
@@ -232,17 +224,12 @@ export function MemoryPane({ draft, onChange }: MemoryPaneProps): React.JSX.Elem
               Provider
             </div>
             <div className="text-sm leading-5" style={{ color: theme.text.tertiary }}>
-              Memory backend for recall, distillation, and thread saves.
+              Built-in cognitive memory stores recall, distillation, and thread saves locally.
             </div>
           </div>
-          <SimpleSelect
-            value={memory.provider ?? 'builtin-memory'}
-            options={[
-              { value: 'builtin-memory', label: 'Built-in SQLite' },
-              { value: 'nowledge-mem', label: 'Nowledge Mem' }
-            ]}
-            onChange={(v) => onChange({ ...draft, memory: { ...memory, provider: v } })}
-          />
+          <div className="text-sm" style={{ color: theme.text.secondary }}>
+            Built-in
+          </div>
         </SettingRow>
 
         {showsBuiltinTerms ? (
@@ -368,71 +355,6 @@ export function MemoryPane({ draft, onChange }: MemoryPaneProps): React.JSX.Elem
 
             <div className="text-sm leading-5" style={{ color: theme.text.tertiary }}>
               Auto-recall and post-run distillation still use the tool model configured in Chat
-              settings.
-            </div>
-          </div>
-        </SettingSection>
-      ) : null}
-
-      {showsNowledgeSettings ? (
-        <SettingSection>
-          <div className="px-7 pt-5 pb-3">
-            <div
-              className="text-[11px] font-semibold uppercase tracking-[0.12em] mb-2"
-              style={{ color: theme.text.secondary }}
-            >
-              Nowledge Mem
-            </div>
-            <div className="text-sm leading-5" style={{ color: theme.text.tertiary }}>
-              Install the{' '}
-              <code
-                className="rounded px-1 py-0.5 text-xs font-mono"
-                style={{ background: theme.background.code }}
-              >
-                nmem
-              </code>{' '}
-              CLI on this Mac. Yachiyo uses it to talk to the memory backend.
-            </div>
-          </div>
-
-          <div
-            className="px-7 pb-4 space-y-3"
-            style={{ borderTop: `1px solid ${theme.border.subtle}` }}
-          >
-            <div className="flex items-center gap-3 pt-4">
-              <input
-                value={memory.baseUrl ?? ''}
-                onChange={(e) =>
-                  onChange({ ...draft, memory: { ...memory, baseUrl: e.target.value } })
-                }
-                className="min-w-0 flex-1 rounded-xl px-3 py-2 text-sm outline-none"
-                style={inputStyle()}
-                placeholder="http://127.0.0.1:14242"
-                aria-label="Backend URL"
-              />
-              <button
-                type="button"
-                onClick={() => void handleTest()}
-                disabled={testing || !memory.baseUrl?.trim()}
-                className="inline-flex items-center gap-2 text-sm font-medium shrink-0 transition-opacity opacity-60 hover:opacity-100 disabled:opacity-20"
-                style={{ color: theme.text.accent }}
-              >
-                {testing ? <Loader2 size={14} className="animate-spin" /> : null}
-                Test
-              </button>
-            </div>
-
-            {testResult ? (
-              <div
-                className="text-sm leading-5"
-                style={{ color: testResult.ok ? theme.text.secondary : theme.text.warning }}
-              >
-                {testResult.message}
-              </div>
-            ) : null}
-
-            <div className="text-sm leading-5" style={{ color: theme.text.tertiary }}>
-              Auto-recall and post-run distillation also rely on the tool model configured in Chat
               settings.
             </div>
           </div>

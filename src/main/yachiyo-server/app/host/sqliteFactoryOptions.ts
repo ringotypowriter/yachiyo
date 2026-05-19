@@ -2,7 +2,10 @@ import { randomUUID } from 'node:crypto'
 
 import { resolveYachiyoDbPath, resolveYachiyoSettingsPath } from '../../config/paths.ts'
 import { createDemoYachiyoStorage, isDevelopmentDemoModeEnabled } from '../../demo/demoMode.ts'
-import { readBuiltinMemoryTermDocument } from '../../services/memory/builtinMemoryProvider.ts'
+import {
+  createSqliteCognitiveMemoryStore,
+  readCognitiveMemoryTermDocument
+} from '../../services/memory/cognitiveMemoryStore.ts'
 import { createMemoryProviderFactory } from '../../services/memory/createMemoryProvider.ts'
 import { createSettingsStore } from '../../settings/settingsStore.ts'
 import { createSqliteYachiyoStorage } from '../../storage/sqlite/database.ts'
@@ -29,6 +32,7 @@ export function createSqliteYachiyoServerOptions(
   return {
     ...options,
     settingsPath,
+    cognitiveMemoryStore: createSqliteCognitiveMemoryStore({ dbPath: builtinMemoryDbPath }),
     createMemoryProvider: createMemoryProviderFactory({
       builtinDbPath: builtinMemoryDbPath
     }),
@@ -38,8 +42,8 @@ export function createSqliteYachiyoServerOptions(
         ? undefined
         : createSqliteSourceQueryExecutor({ dbPath: options.dbPath })),
     readMemoryTermDocument: async () =>
-      readBuiltinMemoryTermDocument({
-        dbPath: builtinMemoryDbPath
+      readCognitiveMemoryTermDocument({
+        store: createSqliteCognitiveMemoryStore({ dbPath: builtinMemoryDbPath })
       }),
     storage: shouldUseDemoStorage
       ? createDemoYachiyoStorage()

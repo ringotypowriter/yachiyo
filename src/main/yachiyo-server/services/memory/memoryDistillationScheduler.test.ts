@@ -447,33 +447,28 @@ test('scheduler reads current thread at flush time, not the stale snapshot', asy
   await scheduler.close()
 })
 
-test('scheduler skips distillation when all runs in the batch used the remember tool', async () => {
+test('scheduler still distills when every run in the batch used the remember tool', async () => {
   const { memoryService, deps } = createDeps()
   const scheduler = createMemoryDistillationScheduler(deps)
 
   const thread = makeThread('t1')
   for (let i = 0; i < 8; i++) {
-    scheduler.onRunCompleted(thread, true) // all runs used remember tool
+    scheduler.onRunCompleted(thread)
   }
 
   await new Promise((resolve) => setTimeout(resolve, 50))
-  assert.equal(memoryService.saveThreadCalls.length, 0)
+  assert.equal(memoryService.saveThreadCalls.length, 1)
 
   await scheduler.close()
-  assert.equal(memoryService.saveThreadCalls.length, 0)
 })
 
-test('scheduler still distills when only some runs used the remember tool', async () => {
+test('scheduler distills mixed explicit-memory and normal runs through the same path', async () => {
   const { memoryService, deps } = createDeps()
   const scheduler = createMemoryDistillationScheduler(deps)
 
   const thread = makeThread('t1')
-  // 5 runs with remember, 3 without → mixed batch
-  for (let i = 0; i < 5; i++) {
-    scheduler.onRunCompleted(thread, true)
-  }
-  for (let i = 0; i < 3; i++) {
-    scheduler.onRunCompleted(thread, false)
+  for (let i = 0; i < 8; i++) {
+    scheduler.onRunCompleted(thread)
   }
 
   await new Promise((resolve) => setTimeout(resolve, 50))

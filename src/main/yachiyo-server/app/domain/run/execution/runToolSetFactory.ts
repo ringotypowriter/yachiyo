@@ -107,7 +107,13 @@ export function createRunToolSet(input: CreateRunToolSetInput): ToolSet | undefi
       ...(!executionInput.thread.privacyMode &&
       (!isExternalChannel || isOwnerDm) &&
       deps.memoryService.isConfigured()
-        ? { rememberDeps: { memoryService: deps.memoryService } }
+        ? {
+            rememberDeps: {
+              memoryService: deps.memoryService,
+              workspacePath,
+              threadId: executionInput.thread.id
+            }
+          }
         : {}),
       ...(!executionInput.thread.privacyMode && (!isExternalChannel || isOwnerDm)
         ? {

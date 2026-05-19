@@ -68,7 +68,7 @@ test('settings store persists multi-provider config as TOML', async () => {
       },
       memory: {
         enabled: true,
-        provider: 'nowledge-mem',
+        provider: 'builtin-memory',
         baseUrl: 'http://127.0.0.1:14242',
         autoRecall: false
       },
@@ -153,7 +153,7 @@ test('settings store persists multi-provider config as TOML', async () => {
     assert.match(toml, /\[webSearch\]/)
     assert.match(toml, /\[memory\]/)
     assert.match(toml, /enabled = true/)
-    assert.match(toml, /provider = "nowledge-mem"/)
+    assert.match(toml, /provider = "builtin-memory"/)
     assert.match(toml, /baseUrl = "http:\/\/127\.0\.0\.1:14242"/)
     assert.match(toml, /autoRecall = false/)
     assert.match(toml, /defaultProvider = "google-browser"/)
@@ -634,7 +634,7 @@ test('normalizeSettingsConfig fills memory defaults and preserves a valid config
     providers: [],
     memory: {
       enabled: true,
-      provider: 'nowledge-mem',
+      provider: 'builtin-memory',
       baseUrl: 'http://mem.local:14242',
       autoRecall: false
     }
@@ -642,7 +642,7 @@ test('normalizeSettingsConfig fills memory defaults and preserves a valid config
 
   assert.deepEqual(configured.memory, {
     enabled: true,
-    provider: 'nowledge-mem',
+    provider: 'builtin-memory',
     baseUrl: 'http://mem.local:14242',
     autoRecall: false
   })

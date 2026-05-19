@@ -771,7 +771,7 @@ test('YachiyoServer injects recalled memory into the compiled context before the
         hasHiddenSearchCapability: () => true,
         isConfigured: () => true,
         searchMemories: async () => [],
-        testConnection: async () => ({ ok: true, message: 'Nowledge Mem is reachable.' }),
+        testConnection: async () => ({ ok: true, message: 'Built-in memory is ready.' }),
         recallForContext: async ({ thread, userQuery }) => {
           recalledQueries.push(userQuery)
           return {
@@ -841,7 +841,7 @@ test('YachiyoServer skips automatic memory recall when disabled', async () => {
         hasHiddenSearchCapability: () => true,
         isConfigured: () => true,
         searchMemories: async () => [],
-        testConnection: async () => ({ ok: true, message: 'Nowledge Mem is reachable.' }),
+        testConnection: async () => ({ ok: true, message: 'Built-in memory is ready.' }),
         recallForContext: async ({ thread }) => {
           recallCalls++
           return {
