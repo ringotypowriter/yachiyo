@@ -242,14 +242,14 @@ function isCjkPhraseWord(word: TaggedWord): boolean {
     return false
   }
 
-  return word.tag.startsWith('n') || word.tag === 'v' || word.tag === 'd'
+  return word.tag.startsWith('n') || word.tag === 'v'
 }
 
 function isCjkPhrasePair(left: TaggedWord, right: TaggedWord): boolean {
   const leftIsNoun = left.tag.startsWith('n')
   const rightIsNoun = right.tag.startsWith('n')
 
-  return (leftIsNoun && (rightIsNoun || right.tag === 'd')) || (left.tag === 'v' && rightIsNoun)
+  return (leftIsNoun && rightIsNoun) || (left.tag === 'v' && rightIsNoun)
 }
 
 function addCjkPhraseTermCandidates(
@@ -483,6 +483,21 @@ function parseTimestamp(value?: string): number | null {
   return Number.isNaN(timestamp) ? null : timestamp
 }
 
+function hasStrongNoveltyTerm(terms: string[]): boolean {
+  return terms.some((term) => !isPureCjkTerm(term))
+}
+
+function hasEnoughNoveltyEvidence(input: {
+  novelty: RecallNoveltySignal
+  strongNovelty: boolean
+}): boolean {
+  if (input.novelty.novelTerms.length < NOVELTY_TERM_THRESHOLD) {
+    return false
+  }
+
+  return input.strongNovelty || input.novelty.novelTerms.length >= 2
+}
+
 export function shouldRecallBeforeRun(input: RecallDecisionInput): RecallDecisionSnapshot {
   const metrics = buildRecallThreadMetrics(input.history)
   const novelty =
@@ -505,10 +520,12 @@ export function shouldRecallBeforeRun(input: RecallDecisionInput): RecallDecisio
   const reasons: string[] = []
   let score = 0
 
-  if (
+  const strongNovelty = hasStrongNoveltyTerm(novelty.novelTerms)
+  const hasTopicNovelty =
     novelty.noveltyScore >= NOVELTY_SCORE_THRESHOLD &&
-    novelty.novelTerms.length >= NOVELTY_TERM_THRESHOLD
-  ) {
+    hasEnoughNoveltyEvidence({ novelty, strongNovelty })
+
+  if (hasTopicNovelty) {
     reasons.push('topic-novelty')
     score = novelty.noveltyScore
   }

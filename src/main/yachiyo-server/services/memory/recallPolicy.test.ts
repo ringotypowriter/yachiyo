@@ -101,7 +101,7 @@ test('detectNoveltySignal segments Chinese terms and ranks them ahead of loose w
   })
 
   assert.equal(novelty.noveltyScore >= 0.7, true)
-  assert.deepEqual(novelty.novelTerms.slice(0, 4), ['向量索引', '召回策略', '用户画像', '画像同步'])
+  assert.deepEqual(novelty.novelTerms.slice(0, 3), ['向量索引', '召回策略', '用户画像'])
 })
 
 test('detectNoveltySignal treats repeated recent Chinese terms as known context', () => {
@@ -125,6 +125,56 @@ test('detectNoveltySignal treats repeated recent Chinese terms as known context'
   assert.equal(novelty.novelTerms.includes('向量索引'), false)
   assert.equal(novelty.novelTerms.includes('召回策略'), true)
   assert.equal(novelty.novelTerms.includes('用户画像'), true)
+})
+
+test('detectNoveltySignal suppresses Chinese noun-adverb filler pairs', () => {
+  const novelty = detectNoveltySignal({
+    history: [
+      createMessage({
+        id: 'm1',
+        createdAt: '2026-03-23T00:00:00.000Z',
+        content: '我们刚刚在聊 recall policy'
+      }),
+      createMessage({
+        id: 'm2',
+        createdAt: '2026-03-23T00:01:00.000Z',
+        content: '仓库其实'
+      })
+    ],
+    userQuery: '仓库其实'
+  })
+
+  assert.deepEqual(novelty.novelTerms, [])
+})
+
+test('shouldRecallBeforeRun requires more evidence for unmarked pure Chinese novelty', () => {
+  const decision = shouldRecallBeforeRun({
+    history: [
+      createMessage({
+        id: 'm1',
+        createdAt: '2026-03-23T00:00:00.000Z',
+        content: '我们刚刚在聊数据库迁移'
+      }),
+      createMessage({
+        id: 'm2',
+        createdAt: '2026-03-23T00:01:00.000Z',
+        content: '继续看数据库就好',
+        role: 'assistant'
+      }),
+      createMessage({
+        id: 'm3',
+        createdAt: '2026-03-23T00:02:00.000Z',
+        content: '现在改看用户画像'
+      })
+    ],
+    now: '2026-03-23T00:02:00.000Z',
+    thread: createThread(),
+    userQuery: '现在改看用户画像'
+  })
+
+  assert.deepEqual(decision.novelTerms, ['用户画像'])
+  assert.equal(decision.shouldRecall, false)
+  assert.deepEqual(decision.reasons, [])
 })
 
 test('shouldRecallBeforeRun recalls when one strong new topic appears', () => {
