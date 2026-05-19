@@ -520,10 +520,102 @@ export function isForbiddenHugeSearchRoot(resolvedPath: string, workspacePath: s
 }
 
 export function resolveToolPath(workspacePath: string, targetPath: string): string {
-  // Strip surrounding quotes that models sometimes add for paths containing spaces.
-  const unquoted = targetPath.trim().replace(/^(['"`])(.*)\1$/, '$2')
-  const expanded = expandTilde(unquoted)
+  const expanded = expandTilde(normalizeModelPathToken(targetPath))
   return isAbsolute(expanded) ? resolve(expanded) : resolve(workspacePath, expanded)
+}
+
+export interface SearchToolTarget {
+  searchPath: string
+  resolvedPath: string
+}
+
+export async function resolveSearchToolTargets(
+  workspacePath: string,
+  targetPath: string
+): Promise<SearchToolTarget[]> {
+  const rawPath = targetPath.trim() || '.'
+  const singleSearchPath = expandTilde(normalizeModelPathToken(rawPath))
+  const singleTarget = {
+    searchPath: singleSearchPath,
+    resolvedPath: resolveToolPath(workspacePath, rawPath)
+  }
+
+  // Real paths with spaces should remain one path. Only reinterpret whitespace as a
+  // model-authored path list after the literal path fails to resolve.
+  if (await hasAccess(singleTarget.resolvedPath)) {
+    return [singleTarget]
+  }
+
+  const tokens = splitModelPathList(rawPath)
+  if (tokens.length <= 1) {
+    return [singleTarget]
+  }
+
+  const targets = tokens.map((token) => ({
+    searchPath: expandTilde(normalizeModelPathToken(token)),
+    resolvedPath: resolveToolPath(workspacePath, token)
+  }))
+  const existing = await Promise.all(targets.map((target) => hasAccess(target.resolvedPath)))
+
+  return existing.every(Boolean) ? targets : [singleTarget]
+}
+
+function normalizeModelPathToken(targetPath: string): string {
+  // Strip surrounding quotes that models sometimes add for paths containing spaces.
+  return targetPath.trim().replace(/^(['"`])(.*)\1$/, '$2')
+}
+
+function splitModelPathList(value: string): string[] {
+  const tokens: string[] = []
+  let current = ''
+  let quote: '"' | "'" | '`' | undefined
+  let escaped = false
+
+  for (const char of value.trim()) {
+    if (escaped) {
+      current += char
+      escaped = false
+      continue
+    }
+
+    if (char === '\\') {
+      escaped = true
+      continue
+    }
+
+    if (quote) {
+      if (char === quote) {
+        quote = undefined
+      } else {
+        current += char
+      }
+      continue
+    }
+
+    if (char === '"' || char === "'" || char === '`') {
+      quote = char
+      continue
+    }
+
+    if (/\s/.test(char)) {
+      if (current) {
+        tokens.push(current)
+        current = ''
+      }
+      continue
+    }
+
+    current += char
+  }
+
+  if (escaped) {
+    current += '\\'
+  }
+  if (current) {
+    tokens.push(current)
+  }
+
+  return tokens
 }
 
 // LLMs normalize U+202F (NARROW NO-BREAK SPACE, used in macOS time-format filenames)

@@ -11,6 +11,7 @@ import {
   FORBIDDEN_HUGE_SEARCH_ROOT_MESSAGE,
   globToolInputSchema,
   isForbiddenHugeSearchRoot,
+  resolveSearchToolTargets,
   type AgentToolContext,
   type GlobToolInput,
   type GlobToolOutput,
@@ -29,7 +30,7 @@ export const GLOB_TOOL_DESCRIPTION =
   '  - find all TypeScript files anywhere: `**/*.ts`\n' +
   '  - find tests under src: `src/**/*.test.ts`\n' +
   '• `pattern`: glob pattern.\n' +
-  '• `path`: directory to search in (defaults to workspace root).\n' +
+  '• `path`: directory to search in. Multiple existing roots may be separated by spaces; an existing path containing spaces stays one root.\n' +
   '• `limit`: max files returned (default 50, max 200).'
 
 export function createTool(
@@ -61,7 +62,8 @@ export async function runGlobTool(
     input.path?.trim(),
     context.workspacePath
   )
-  const resolvedPath = resolveToolTarget(context.workspacePath, searchPath)
+  const targets = await resolveSearchToolTargets(context.workspacePath, searchPath)
+  const resolvedPath = formatResolvedTargetPath(targets.map((target) => target.resolvedPath))
   const fallbackDetails: GlobToolCallDetails = {
     backend: dependencies.searchService.capabilities.fileDiscovery.available,
     pattern: input.pattern,
@@ -71,7 +73,9 @@ export async function runGlobTool(
     matches: []
   }
 
-  if (isForbiddenHugeSearchRoot(resolvedPath, context.workspacePath)) {
+  if (
+    targets.some((target) => isForbiddenHugeSearchRoot(target.resolvedPath, context.workspacePath))
+  ) {
     return {
       content: textContent(FORBIDDEN_HUGE_SEARCH_ROOT_MESSAGE),
       details: fallbackDetails,
@@ -81,27 +85,49 @@ export async function runGlobTool(
   }
 
   try {
-    const result = await dependencies.searchService.glob({
-      cwd: context.workspacePath,
-      pattern,
-      path: searchPath,
-      limit: input.limit ?? DEFAULT_SEARCH_LIMIT,
-      signal: dependencies.abortSignal
-    })
+    const limit = input.limit ?? DEFAULT_SEARCH_LIMIT
+    const matches: string[] = []
+    let backend = dependencies.searchService.capabilities.fileDiscovery.available
+    let truncated = false
 
-    const matches = result.paths.map((path) =>
-      toWorkspaceDisplayPath(context.workspacePath, result.rootPath, path)
-    )
+    for (let index = 0; index < targets.length; index += 1) {
+      const target = targets[index]!
+      const remaining = limit - matches.length
+      if (remaining <= 0) {
+        truncated = true
+        break
+      }
+
+      const result = await dependencies.searchService.glob({
+        cwd: context.workspacePath,
+        pattern,
+        path: target.searchPath,
+        limit: remaining,
+        signal: dependencies.abortSignal
+      })
+      backend = result.backend
+      truncated =
+        truncated ||
+        result.truncated ||
+        (matches.length + result.paths.length >= limit && index < targets.length - 1)
+
+      matches.push(
+        ...result.paths.map((path) =>
+          toWorkspaceDisplayPath(context.workspacePath, result.rootPath, path)
+        )
+      )
+    }
+
     const details: GlobToolCallDetails = {
-      backend: result.backend,
+      backend,
       pattern: input.pattern,
       path: resolvedPath,
       resultCount: matches.length,
-      truncated: result.truncated,
+      truncated,
       matches
     }
 
-    const content = formatGlobContent(matches, result.truncated)
+    const content = formatGlobContent(matches, truncated)
 
     if (content.length > INLINE_CONTENT_LIMIT) {
       const saved = await spillToFile(context.workspacePath, content)
@@ -176,9 +202,8 @@ async function spillToFile(
   return { relativePath, absolutePath }
 }
 
-function resolveToolTarget(workspacePath: string, targetPath: string): string {
-  const expanded = expandTilde(targetPath)
-  return isAbsolute(expanded) ? resolve(expanded) : resolve(workspacePath, expanded)
+function formatResolvedTargetPath(paths: string[]): string {
+  return paths.join('\n')
 }
 
 function toWorkspaceDisplayPath(

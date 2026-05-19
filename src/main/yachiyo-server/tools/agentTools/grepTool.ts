@@ -7,10 +7,10 @@ import type { GrepToolCallDetails } from '../../../../shared/yachiyo/protocol.ts
 import type { SearchService } from '../../services/search/searchService.ts'
 import {
   DEFAULT_SEARCH_LIMIT,
-  expandTilde,
   FORBIDDEN_HUGE_SEARCH_ROOT_MESSAGE,
   grepToolInputSchema,
   isForbiddenHugeSearchRoot,
+  resolveSearchToolTargets,
   type AgentToolContext,
   type GrepToolInput,
   type GrepToolOutput,
@@ -24,6 +24,7 @@ const INLINE_CONTENT_LIMIT = 32_000
 export const GREP_TOOL_DESCRIPTION =
   'Search file contents by regular expression (or literal string). Prefer this over bash (grep/rg/ag) for all code search. If output is too large it is auto-saved to a workspace file.\n' +
   '• `pattern`: Rust regex syntax when ripgrep is available, otherwise POSIX ERE (e.g. "function\\s+\\w+", "import.*from"). No lookaheads or backreferences. Use `literal: true` for exact fixed-string matching.\n' +
+  '• `path`: file/directory to search. Multiple existing roots may be separated by spaces; an existing path containing spaces stays one root.\n' +
   '• `caseSensitive`: defaults to true.\n' +
   '• `include`: glob to filter files (e.g. "*.ts", "*.{ts,tsx}"). Highly recommended for large repos.\n' +
   '• `context`: number of lines before/after each match (0-30).\n' +
@@ -54,8 +55,8 @@ export async function runGrepTool(
     searchService: SearchService
   }
 ): Promise<GrepToolOutput> {
-  const searchPath = expandTilde(input.path?.trim() || '.')
-  const resolvedPath = resolveToolTarget(context.workspacePath, searchPath)
+  const targets = await resolveSearchToolTargets(context.workspacePath, input.path?.trim() || '.')
+  const resolvedPath = formatResolvedTargetPath(targets.map((target) => target.resolvedPath))
   const fallbackDetails: GrepToolCallDetails = {
     backend: dependencies.searchService.capabilities.grep.available,
     pattern: input.pattern,
@@ -65,7 +66,9 @@ export async function runGrepTool(
     matches: []
   }
 
-  if (isForbiddenHugeSearchRoot(resolvedPath, context.workspacePath)) {
+  if (
+    targets.some((target) => isForbiddenHugeSearchRoot(target.resolvedPath, context.workspacePath))
+  ) {
     return {
       content: textContent(FORBIDDEN_HUGE_SEARCH_ROOT_MESSAGE),
       details: fallbackDetails,
@@ -75,44 +78,64 @@ export async function runGrepTool(
   }
 
   try {
-    const result = await dependencies.searchService.grep({
-      cwd: context.workspacePath,
-      pattern: input.pattern,
-      path: searchPath,
-      limit: input.limit ?? DEFAULT_SEARCH_LIMIT,
-      literal: input.literal,
-      caseSensitive: input.caseSensitive,
-      include: input.include,
-      context: input.context,
-      signal: dependencies.abortSignal
-    })
+    const limit = input.limit ?? DEFAULT_SEARCH_LIMIT
+    const matches: GrepToolCallDetails['matches'] = []
+    const readPaths = new Set<string>()
+    let backend = dependencies.searchService.capabilities.grep.available
+    let truncated = false
 
-    const matches = result.matches.map((match) => ({
-      ...match,
-      path: toWorkspaceDisplayPath(context.workspacePath, result.rootPath, match.path)
-    }))
+    for (let index = 0; index < targets.length; index += 1) {
+      const target = targets[index]!
+      const remaining = limit - matches.length
+      if (remaining <= 0) {
+        truncated = true
+        break
+      }
+
+      const result = await dependencies.searchService.grep({
+        cwd: context.workspacePath,
+        pattern: input.pattern,
+        path: target.searchPath,
+        limit: remaining,
+        literal: input.literal,
+        caseSensitive: input.caseSensitive,
+        include: input.include,
+        context: input.context,
+        signal: dependencies.abortSignal
+      })
+      backend = result.backend
+      truncated =
+        truncated ||
+        result.truncated ||
+        (matches.length + result.matches.length >= limit && index < targets.length - 1)
+
+      for (const match of result.matches) {
+        matches.push({
+          ...match,
+          path: toWorkspaceDisplayPath(context.workspacePath, result.rootPath, match.path)
+        })
+        const absPath = isAbsolute(match.path) ? match.path : resolve(result.rootPath, match.path)
+        readPaths.add(absPath)
+      }
+    }
+
     const details: GrepToolCallDetails = {
-      backend: result.backend,
+      backend,
       pattern: input.pattern,
       path: resolvedPath,
       resultCount: matches.length,
-      truncated: result.truncated,
+      truncated,
       matches
     }
 
     const content = input.filesOnly
-      ? formatGrepFilesOnly(matches, result.truncated)
-      : formatGrepContent(matches, result.truncated)
+      ? formatGrepFilesOnly(matches, truncated)
+      : formatGrepContent(matches, truncated)
 
     // Record files whose matching content the model actually saw.
     // Only when content is inlined (not spilled to file) and not files-only.
     if (!input.filesOnly && content.length <= INLINE_CONTENT_LIMIT && context.readRecordCache) {
-      const files = new Set<string>()
-      for (const match of result.matches) {
-        const absPath = isAbsolute(match.path) ? match.path : resolve(result.rootPath, match.path)
-        files.add(absPath)
-      }
-      for (const absPath of files) {
+      for (const absPath of readPaths) {
         const mtimeMs = await stat(absPath).then(
           (s) => s.mtimeMs,
           () => undefined
@@ -218,9 +241,8 @@ async function spillToFile(
   return { relativePath, absolutePath }
 }
 
-function resolveToolTarget(workspacePath: string, targetPath: string): string {
-  const expanded = expandTilde(targetPath)
-  return isAbsolute(expanded) ? resolve(expanded) : resolve(workspacePath, expanded)
+function formatResolvedTargetPath(paths: string[]): string {
+  return paths.join('\n')
 }
 
 function toWorkspaceDisplayPath(
