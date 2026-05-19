@@ -4,9 +4,8 @@ import { useAppDialog } from '@renderer/components/AppDialogContext'
 import { LinkSafetyModal } from './LinkSafetyModal'
 import { getLinkableCodeFileAction } from './linkableCodeFileAction'
 import type { InlineCodeFileLinkSnapshot } from './inlineCodeFileLinkSnapshot'
+import { splitAutolinkCandidate } from './autolinkTextBoundary'
 import { toInlineCodeFileReferenceCandidate } from '../../../../shared/yachiyo/inlineCodeFileReferences.ts'
-
-const URL_RE = /^https?:\/\/\S+$/
 const LINK_STYLE = { textDecoration: 'underline', textUnderlineOffset: 2 }
 
 /**
@@ -29,7 +28,9 @@ export function LinkableCode({
   const [modalOpen, setModalOpen] = useState(false)
 
   const text = typeof children === 'string' ? children : ''
-  const isUrl = URL_RE.test(text)
+  const urlSplit = splitAutolinkCandidate(text)
+  const url = urlSplit?.url ?? ''
+  const isUrl = Boolean(urlSplit)
   const fileReference = toInlineCodeFileReferenceCandidate(text)
   const filePath = fileReference ? fileLinks?.get(fileReference) : undefined
 
@@ -39,10 +40,10 @@ export function LinkableCode({
       if (linkSafety?.enabled) {
         setModalOpen(true)
       } else {
-        window.open(text, '_blank', 'noreferrer')
+        window.open(url, '_blank', 'noreferrer')
       }
     },
-    [linkSafety, text]
+    [linkSafety, url]
   )
 
   const handleFileClick = useCallback(
@@ -67,8 +68,8 @@ export function LinkableCode({
   )
 
   const handleConfirm = useCallback(() => {
-    window.open(text, '_blank', 'noreferrer')
-  }, [text])
+    window.open(url, '_blank', 'noreferrer')
+  }, [url])
 
   if (filePath) {
     return (
@@ -101,13 +102,14 @@ export function LinkableCode({
         }}
         style={LINK_STYLE}
       >
-        {children}
+        {url}
       </code>
+      {urlSplit?.trailingText ? <code {...rest}>{urlSplit.trailingText}</code> : null}
       <LinkSafetyModal
         isOpen={modalOpen}
         onClose={() => setModalOpen(false)}
         onConfirm={handleConfirm}
-        url={text}
+        url={url}
       />
     </>
   )

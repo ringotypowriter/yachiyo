@@ -31,6 +31,7 @@ import { getMessageMarkdownAnimation } from './messageMarkdownAnimation'
 import type { InlineCodeFileLinkSnapshot } from './inlineCodeFileLinkSnapshot'
 import { splitStreamingMarkdownSegments } from './streamingMarkdownSegments'
 import { createMermaidOptions, useDocumentThemeVariant } from './mermaidTheme'
+import { remarkAutolinkTextBoundary } from './remarkAutolinkTextBoundary'
 import type { ThemeVariant } from '../../theme/theme'
 
 function waitForNextPaint(): Promise<void> {
@@ -154,7 +155,21 @@ export function MessageMarkdown({
     }
   }, [imageTransformOptions, imagesEnabled])
 
-  const plugins = useMemo<PluginConfig>(() => ({ math: mathPlugin, mermaid, code }), [])
+  const plugins = useMemo<PluginConfig>(
+    () => ({
+      cjk: {
+        name: 'cjk',
+        type: 'cjk',
+        remarkPlugins: [remarkAutolinkTextBoundary],
+        remarkPluginsBefore: [],
+        remarkPluginsAfter: [remarkAutolinkTextBoundary]
+      },
+      math: mathPlugin,
+      mermaid,
+      code
+    }),
+    []
+  )
   const themeVariant = useDocumentThemeVariant()
   const mermaidOptions = useMemo<MermaidOptions>(
     () => createMermaidOptions(themeVariant),
