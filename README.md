@@ -30,15 +30,17 @@ No MCP. No telemetry. No plugin marketplace. Just what's necessary for a cyber-a
 
 ## Features
 
-- **Fully agentic runtime** — Yachiyo can search, read, edit, browse, recall memory, ask follow-up questions, and act on your local workspace instead of staying a pure chat box.
+- **Fully agentic runtime** — Yachiyo can search, read, edit, browse, recall memory, ask follow-up questions, run background shell tasks, and act on your local workspace with file attachments instead of staying a pure chat box.
 - **Built-in general-purpose skills** — Core capabilities like browser work, document handling, spreadsheets, Zotero, terminal control, and CLI self-management ship as reusable skill modules.
-- **Coding agent dispatch** — Delegate implementation work to Claude Code or Codex through ACP, then bring the result back into the same thread.
+- **Coding agent dispatch** — Delegate implementation work to Claude Code, Kimi, or Codex through ACP, then bring the result back into the same thread.
 - **Scheduled runs** — Create one-off or cron-based tasks, keep run history, and let Yachiyo execute prompts on its own.
 - **Reply branching** — Messages form a tree. Branch from any turn and navigate alternate replies instead of flattening everything into one timeline.
-- **Channel multiplexing** — Serve Telegram, QQ (OneBot), and Discord from one local instance with shared context, access control, and per-user limits.
+- **Channel multiplexing** — Serve Telegram, QQ (OneBot / QQBot), and Discord from one local instance with shared context, access control, and per-user limits.
 - **Group discussion mode** — Built-in lurk/active/engaged state machine for group chats, with buffered context and autonomous participation.
 - **Browser-backed web research** — Search with Google browser sessions or Exa, then read pages into Markdown/HTML with extraction fallbacks.
 - **Local memory & profile** — Store durable memory, recall it into future runs, and keep `SOUL.md` / `USER.md` as first-class context.
+- **Workspace file snapshots** — Automatically track file changes across every run, with built-in diff review so you can see exactly what happened.
+- **Rich composer input** — Send images, file attachments, and steer an active reply in real time or queue a follow-up without interrupting the current run.
 - **Multi-provider runtime** — Anthropic, OpenAI, Gemini, Vertex AI, or custom gateway, with model selection inside the app.
 - **Local-first storage** — SQLite + Drizzle ORM under `~/.yachiyo/`, with no hosted backend required.
 
