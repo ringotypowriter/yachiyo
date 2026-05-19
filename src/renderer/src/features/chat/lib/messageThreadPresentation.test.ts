@@ -936,7 +936,7 @@ test('buildMessageGroups treats the newest assistant branch as active while a re
   )
 })
 
-test('buildMessageGroups keeps a steer user visible while an active run restarts on a consecutive user path', () => {
+test('buildMessageGroups folds a user steer into the active request group', () => {
   const groups = buildMessageGroups({
     thread: {
       id: 'thread-1',
@@ -966,18 +966,17 @@ test('buildMessageGroups keeps a steer user visible while an active run restarts
     runPhase: 'preparing',
     activeRequestMessageId: 'user-steer'
   })
-
   assert.deepEqual(
     groups.map((group) => ({
+      userMessageId: group.userMessage.id,
+      userSteerMessageIds: group.userSteerMessages.map((message) => message.id),
       hideActiveBranchWhilePreparing: group.hideActiveBranchWhilePreparing,
       showPreparing: group.showPreparing
     })),
     [
       {
-        hideActiveBranchWhilePreparing: false,
-        showPreparing: false
-      },
-      {
+        userMessageId: 'user-1',
+        userSteerMessageIds: ['user-steer'],
         hideActiveBranchWhilePreparing: false,
         showPreparing: true
       }

@@ -41,6 +41,11 @@ export type WorkTrajectoryItem =
       textBlock: MessageTextBlockRecord
     }
   | {
+      kind: 'user-steer'
+      key: string
+      message: Message
+    }
+  | {
       kind: 'tool-call'
       key: string
       toolCall: ToolCall
@@ -273,6 +278,7 @@ function buildWorkTrajectoryItems(input: {
   group: MessageGroup
   memorySummary: ReturnType<typeof findRunMemorySummaryForRequests>
   textBlocks: readonly MessageTextBlockRecord[]
+  userSteerMessages: readonly Message[]
   toolCalls: readonly ToolCall[]
 }): WorkTrajectoryItem[] {
   const items: WorkTrajectoryItem[] = []
@@ -291,6 +297,20 @@ function buildWorkTrajectoryItems(input: {
     time: string
     priority: number
   }> = []
+
+  chronologicalEntries.push(
+    ...input.userSteerMessages
+      .filter((message) => message.content.trim().length > 0)
+      .map((message) => ({
+        item: {
+          kind: 'user-steer' as const,
+          key: `user-steer:${message.id}`,
+          message
+        },
+        time: message.createdAt,
+        priority: 0
+      }))
+  )
 
   const timelineItems = buildConversationGroupTimelineItems({
     hasMemoryRecall: false,
@@ -403,7 +423,11 @@ export function buildConversationGroupRows(
   const activeAssistantMessages = getActiveAssistantMessages(group)
   const activeAssistantMessage = activeAssistantMessages.at(-1) ?? null
   const requestMessageId = group.userMessage.id
-  const groupRequestMessageIds = [requestMessageId, ...group.hiddenRequestMessageIds]
+  const groupRequestMessageIds = [
+    requestMessageId,
+    ...group.hiddenRequestMessageIds,
+    ...group.userSteerMessages.map((message) => message.id)
+  ]
   const visibleToolCalls = getVisibleToolCallsForGroup({
     group,
     toolCalls: input.inlineToolCalls,
@@ -523,6 +547,7 @@ export function buildConversationGroupRows(
         group,
         memorySummary,
         textBlocks: summarizedTextBlocks,
+        userSteerMessages: group.userSteerMessages,
         toolCalls: visibleToolCalls
       }),
       requestMessageIds: groupRequestMessageIds

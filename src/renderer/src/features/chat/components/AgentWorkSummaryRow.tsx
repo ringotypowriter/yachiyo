@@ -65,6 +65,8 @@ function getItemLabel(item: WorkTrajectoryItem): string {
       return 'Thought'
     case 'note':
       return 'Note'
+    case 'user-steer':
+      return 'User steer'
     case 'tool-call':
     case 'tool-call-group':
       return 'Action'
@@ -78,6 +80,7 @@ function getItemIcon(item: WorkTrajectoryItem): React.ReactNode {
     case 'thought':
       return <BrainCircuit size={12} strokeWidth={1.7} />
     case 'note':
+    case 'user-steer':
       return <MessageSquareText size={12} strokeWidth={1.7} />
     case 'tool-call':
     case 'tool-call-group':
@@ -94,6 +97,8 @@ function getItemDotColor(item: WorkTrajectoryItem): string {
     const failed = item.toolCalls.some((toolCall) => toolCall.status === 'failed')
     return failed ? theme.status.danger : theme.status.success
   }
+
+  if (item.kind === 'user-steer') return theme.text.muted
 
   return theme.text.accent
 }
@@ -413,6 +418,8 @@ function TrajectoryItemContent({
       return <ScrollableMarkdown value={item.reasoning} tone="thought" />
     case 'note':
       return <ScrollableMarkdown value={item.textBlock.content} tone="note" />
+    case 'user-steer':
+      return <ScrollableMarkdown value={item.message.content} tone="steer" />
     case 'tool-call':
       return (
         <div className="-mx-6">
@@ -437,7 +444,7 @@ function ScrollableMarkdown({
   tone
 }: {
   value: string
-  tone: 'thought' | 'note'
+  tone: 'thought' | 'note' | 'steer'
 }): React.JSX.Element {
   const contentRef = useRef<HTMLDivElement>(null)
   const plugins = useMemo(() => ({ math: mathPlugin, code }), [])
@@ -454,7 +461,7 @@ function ScrollableMarkdown({
       className="overflow-y-auto message-selectable"
       style={{
         color: tone === 'thought' ? theme.text.tertiary : theme.text.muted,
-        maxHeight: tone === 'thought' ? '240px' : '180px',
+        maxHeight: tone === 'thought' ? '240px' : tone === 'steer' ? '120px' : '180px',
         padding: 0
       }}
     >

@@ -17,6 +17,7 @@ export interface MessageGroup {
   assistantBranches: MessageGroupBranch[]
   activeAssistantMessages: Message[]
   hiddenRequestMessageIds: string[]
+  userSteerMessages: Message[]
   activeBranchIndex: number
   hideActiveBranchWhilePreparing: boolean
   showPreparing: boolean
@@ -33,7 +34,8 @@ export function isActiveRequestForGroup(
   return (
     activeRequestMessageId !== null &&
     (group.userMessage.id === activeRequestMessageId ||
-      group.hiddenRequestMessageIds.includes(activeRequestMessageId))
+      group.hiddenRequestMessageIds.includes(activeRequestMessageId) ||
+      group.userSteerMessages.some((message) => message.id === activeRequestMessageId))
   )
 }
 
@@ -122,7 +124,8 @@ export function getVisibleToolCallsForGroup(input: {
 }): ToolCall[] {
   const requestMessageIds = new Set([
     input.group.userMessage.id,
-    ...input.group.hiddenRequestMessageIds
+    ...input.group.hiddenRequestMessageIds,
+    ...input.group.userSteerMessages.map((message) => message.id)
   ])
   const activeAssistantMessage =
     input.group.activeAssistantMessages.at(-1) ??
@@ -219,7 +222,11 @@ export function partitionToolCallsForGroups(input: {
   toolCalls: ToolCall[]
 }): { inlineToolCalls: ToolCall[]; orphanToolCalls: ToolCall[] } {
   const visibleRequestIds = new Set(
-    input.groups.flatMap((group) => [group.userMessage.id, ...group.hiddenRequestMessageIds])
+    input.groups.flatMap((group) => [
+      group.userMessage.id,
+      ...group.hiddenRequestMessageIds,
+      ...group.userSteerMessages.map((message) => message.id)
+    ])
   )
 
   return {
@@ -282,6 +289,7 @@ interface CachedGroup {
   assistantMessages: readonly Message[]
   activeAssistantMessages: readonly Message[]
   hiddenRequestMessageIds: readonly string[]
+  userSteerMessages: readonly Message[]
   activeBranchIndex: number
   hideActiveBranchWhilePreparing: boolean
   showPreparing: boolean
@@ -318,8 +326,30 @@ function sameStringArray(a: readonly string[], b: readonly string[]): boolean {
   return true
 }
 
+function isUserSteerMessage(input: {
+  message: Message
+  messagesById: ReadonlyMap<string, Message>
+  rootUserMessageId?: string
+}): boolean {
+  if (input.message.role !== 'user' || !isVisibleTimelineMessage(input.message)) return false
+
+  let parent = input.message.parentMessageId
+    ? input.messagesById.get(input.message.parentMessageId)
+    : undefined
+  if (!parent || parent.role !== 'user' || !isVisibleTimelineMessage(parent)) return false
+  if (!input.rootUserMessageId) return true
+
+  while (parent && parent.role === 'user' && isVisibleTimelineMessage(parent)) {
+    if (parent.id === input.rootUserMessageId) return true
+    parent = parent.parentMessageId ? input.messagesById.get(parent.parentMessageId) : undefined
+  }
+
+  return false
+}
+
 function getFirstVisibleAssistantIdAfterUser(input: {
   fullPath: Message[]
+  messagesById: ReadonlyMap<string, Message>
   userMessageId: string
 }): string | undefined {
   const userIndex = input.fullPath.findIndex((message) => message.id === input.userMessageId)
@@ -329,6 +359,15 @@ function getFirstVisibleAssistantIdAfterUser(input: {
 
   for (let index = userIndex + 1; index < input.fullPath.length; index += 1) {
     const message = input.fullPath[index]!
+    if (
+      isUserSteerMessage({
+        message,
+        messagesById: input.messagesById,
+        rootUserMessageId: input.userMessageId
+      })
+    ) {
+      continue
+    }
     if (message.role === 'user' && isVisibleTimelineMessage(message)) {
       return undefined
     }
@@ -338,6 +377,34 @@ function getFirstVisibleAssistantIdAfterUser(input: {
   }
 
   return undefined
+}
+
+function collectUserSteerMessagesForGroup(input: {
+  fullPath: Message[]
+  messagesById: ReadonlyMap<string, Message>
+  userMessageId: string
+}): Message[] {
+  const userIndex = input.fullPath.findIndex((message) => message.id === input.userMessageId)
+  if (userIndex < 0) {
+    return []
+  }
+
+  const userSteerMessages: Message[] = []
+  for (let index = userIndex + 1; index < input.fullPath.length; index += 1) {
+    const message = input.fullPath[index]!
+    if (
+      !isUserSteerMessage({
+        message,
+        messagesById: input.messagesById,
+        rootUserMessageId: input.userMessageId
+      })
+    ) {
+      break
+    }
+    userSteerMessages.push(message)
+  }
+
+  return userSteerMessages
 }
 
 function collectHiddenRequestMessageIdsForGroup(input: {
@@ -486,14 +553,24 @@ export function buildMessageGroups(input: {
 
   for (const message of visiblePath) {
     if (message.role !== 'user') continue
+    if (isUserSteerMessage({ message, messagesById: maps.byId })) continue
     const userMessage = message
+    const userSteerMessages = collectUserSteerMessagesForGroup({
+      fullPath,
+      messagesById: maps.byId,
+      userMessageId: userMessage.id
+    })
 
     const assistantMessages = (visibleMaps.childrenByParent.get(userMessage.id) ?? []).filter(
       (m): m is Message => m.role === 'assistant'
     )
     const activeAssistantIdFromPath =
       activeAssistantIdsByRequest.get(userMessage.id) ??
-      getFirstVisibleAssistantIdAfterUser({ fullPath, userMessageId: userMessage.id })
+      getFirstVisibleAssistantIdAfterUser({
+        fullPath,
+        messagesById: maps.byId,
+        userMessageId: userMessage.id
+      })
     const activeAssistantFromPath = assistantMessages.find(
       (m) => m.id === activeAssistantIdFromPath
     )
@@ -526,7 +603,8 @@ export function buildMessageGroups(input: {
     const showPreparing =
       input.runPhase === 'preparing' &&
       (input.activeRequestMessageId === userMessage.id ||
-        activeHiddenRequestUserId === userMessage.id)
+        activeHiddenRequestUserId === userMessage.id ||
+        userSteerMessages.some((steerMessage) => steerMessage.id === input.activeRequestMessageId))
 
     const prev = prevCache?.byUserMessageId.get(userMessage.id)
     if (
@@ -537,7 +615,8 @@ export function buildMessageGroups(input: {
       prev.showPreparing === showPreparing &&
       sameAssistantMessages(prev.assistantMessages, assistantMessages) &&
       sameAssistantMessages(prev.activeAssistantMessages, activeAssistantMessages) &&
-      sameStringArray(prev.hiddenRequestMessageIds, hiddenRequestMessageIds)
+      sameStringArray(prev.hiddenRequestMessageIds, hiddenRequestMessageIds) &&
+      sameAssistantMessages(prev.userSteerMessages, userSteerMessages)
     ) {
       nextByUserMessageId.set(userMessage.id, prev)
       nextGroups.push(prev.group)
@@ -552,6 +631,7 @@ export function buildMessageGroups(input: {
       })),
       activeAssistantMessages,
       hiddenRequestMessageIds,
+      userSteerMessages,
       activeBranchIndex,
       hideActiveBranchWhilePreparing,
       showPreparing
@@ -562,6 +642,7 @@ export function buildMessageGroups(input: {
       assistantMessages,
       activeAssistantMessages,
       hiddenRequestMessageIds,
+      userSteerMessages,
       activeBranchIndex,
       hideActiveBranchWhilePreparing,
       showPreparing,

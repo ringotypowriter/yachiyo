@@ -53,6 +53,7 @@ function createGroup(input: {
   activeAssistant: Message
   activeAssistantMessages?: Message[]
   hiddenRequestMessageIds?: string[]
+  userSteerMessages?: Message[]
   inactiveAssistant?: Message
 }): MessageGroup {
   const branches = [
@@ -69,6 +70,7 @@ function createGroup(input: {
       branches[branches.length - 1]!.message
     ],
     hiddenRequestMessageIds: input.hiddenRequestMessageIds ?? [],
+    userSteerMessages: input.userSteerMessages ?? [],
     activeBranchIndex: input.activeBranchIndex ?? branches.length - 1,
     hideActiveBranchWhilePreparing: input.hideActiveBranchWhilePreparing ?? false,
     showPreparing: input.showPreparing ?? false
@@ -593,6 +595,65 @@ test('buildConversationGroupRows summarizes completed hidden-steer tool work bef
       .filter((row) => row.kind === 'group-assistant-text-block')
       .map((row) => row.textBlock.content),
     ['Final handoff']
+  )
+})
+
+test('buildConversationGroupRows summarizes user steers as degraded work items', () => {
+  const assistantBeforeSteer = createAssistantMessage({
+    id: 'assistant-before-steer',
+    content: 'Intermediate note',
+    status: 'completed',
+    reasoning: 'Initial thought',
+    createdAt: '2026-04-18T00:00:01.000Z'
+  })
+  const assistantAfterSteer = createAssistantMessage({
+    id: 'assistant-after-steer',
+    content: 'Final handoff',
+    status: 'completed',
+    createdAt: '2026-04-18T00:00:04.000Z'
+  })
+  const group = createGroup({
+    activeAssistant: assistantBeforeSteer,
+    activeAssistantMessages: [assistantBeforeSteer, assistantAfterSteer],
+    userSteerMessages: [
+      {
+        ...createUserMessage('user-steer', 'Actually, keep this narrower.'),
+        parentMessageId: 'user-1',
+        createdAt: '2026-04-18T00:00:01.500Z'
+      }
+    ]
+  })
+
+  const rows = buildConversationGroupRows({
+    group,
+    inlineToolCalls: [
+      {
+        id: 'tool-steer',
+        runId: 'run-steer',
+        threadId: 'thread-1',
+        requestMessageId: 'user-steer',
+        assistantMessageId: 'assistant-after-steer',
+        toolName: 'bash',
+        status: 'completed',
+        inputSummary: 'python3 check.py',
+        startedAt: '2026-04-18T00:00:02.000Z',
+        finishedAt: '2026-04-18T00:00:03.000Z'
+      }
+    ],
+    runs: [],
+    activeRunId: null,
+    isActiveGroup: false,
+    subagentActive: false
+  })
+
+  const summary = rows.find((row) => row.kind === 'group-work-summary')
+  assert.deepEqual(
+    summary?.items.map((item) => item.kind),
+    ['note', 'user-steer', 'tool-call']
+  )
+  assert.equal(
+    summary?.items[1]?.kind === 'user-steer' ? summary.items[1].message.content : null,
+    'Actually, keep this narrower.'
   )
 })
 

@@ -45,6 +45,7 @@ function createGroup(assistantMessage: Message): MessageGroup {
     assistantBranches: [{ message: assistantMessage, isActive: true }],
     activeAssistantMessages: [assistantMessage],
     hiddenRequestMessageIds: [],
+    userSteerMessages: [],
     activeBranchIndex: 0,
     hideActiveBranchWhilePreparing: false,
     showPreparing: false
