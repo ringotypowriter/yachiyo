@@ -23,6 +23,7 @@ import type {
   SaveThreadInput,
   SettingsConfig,
   SendChatInput,
+  ShowNotificationInput,
   TestMemoryConnectionInput,
   TestSubagentProfileInput,
   ThreadColorTag,
@@ -73,6 +74,13 @@ const api = {
     }
     ipcRenderer.on('navigate-to-archived-thread', handler)
     return () => ipcRenderer.off('navigate-to-archived-thread', handler)
+  },
+  onNavigateToThread: (listener: (threadId: string) => void): (() => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, threadId: string): void => {
+      listener(threadId)
+    }
+    ipcRenderer.on('navigate-to-thread', handler)
+    return () => ipcRenderer.off('navigate-to-thread', handler)
   },
   setVibrancy: (enabled: boolean) => ipcRenderer.send('set-vibrancy', enabled),
   appUpdate: {
@@ -386,7 +394,7 @@ const api = {
     restoreToCheckpoint: (input: { runId: string; workspacePath: string }): Promise<string[]> =>
       ipcRenderer.invoke('yachiyo:restore-to-checkpoint', input),
 
-    showNotification: (input: { title: string; body?: string }): void =>
+    showNotification: (input: ShowNotificationInput): void =>
       ipcRenderer.send('yachiyo:show-notification', input),
     beep: (): void => ipcRenderer.send('yachiyo:beep'),
     subscribe: (listener: (event: YachiyoServerEvent) => void): (() => void) => {

@@ -400,6 +400,68 @@ test('setActiveArchivedThread forces archived view while multi filters are activ
   }
 })
 
+test('openThreadFromNotification can preselect a soon-to-be archived schedule thread', async () => {
+  resetStore()
+
+  const restoreWindow = withWindowApiMock({
+    markThreadAsRead: async ({ threadId }) => ({
+      id: threadId,
+      title: 'Schedule: One-off',
+      updatedAt: TIMESTAMP,
+      archivedAt: TIMESTAMP,
+      readAt: TIMESTAMP
+    })
+  })
+
+  try {
+    useAppStore.setState({
+      activeThreadId: 'thread-1',
+      activeArchivedThreadId: null,
+      threads: [
+        {
+          id: 'thread-1',
+          title: 'Thread one',
+          updatedAt: TIMESTAMP
+        },
+        {
+          id: 'schedule-thread',
+          title: 'Schedule: One-off',
+          updatedAt: TIMESTAMP
+        }
+      ],
+      archivedThreads: [],
+      threadListMode: 'active'
+    })
+
+    useAppStore.getState().openThreadFromNotification('schedule-thread', 'archivedThread')
+
+    let state = useAppStore.getState()
+    assert.equal(state.activeArchivedThreadId, 'schedule-thread')
+    assert.equal(state.threadListMode, 'archived')
+
+    useAppStore.getState().applyServerEvent({
+      type: 'thread.archived',
+      eventId: 'event-schedule-archived',
+      timestamp: '2026-03-15T00:00:02.000Z',
+      threadId: 'schedule-thread',
+      thread: {
+        id: 'schedule-thread',
+        title: 'Schedule: One-off',
+        updatedAt: '2026-03-15T00:00:02.000Z',
+        archivedAt: '2026-03-15T00:00:02.000Z'
+      }
+    })
+
+    state = useAppStore.getState()
+    assert.equal(state.activeArchivedThreadId, 'schedule-thread')
+    assert.equal(state.threadListMode, 'archived')
+    assert.equal(state.archivedThreads[0]?.id, 'schedule-thread')
+    await Promise.resolve()
+  } finally {
+    restoreWindow()
+  }
+})
+
 test('applyServerEvent removes deleted external threads from the cached sidebar list', () => {
   resetStore()
 
@@ -684,7 +746,9 @@ test('applyServerEvent still notifies for owner DM runs started locally', () => 
       runTrigger: 'local'
     })
 
-    assert.deepEqual(notifications, [{ title: 'Owner DM', body: 'Done locally' }])
+    assert.deepEqual(notifications, [
+      { title: 'Owner DM', body: 'Done locally', threadId: 'owner-dm-thread', target: 'thread' }
+    ])
     assert.equal(useAppStore.getState().queuedToasts.length, 1)
   } finally {
     restoreDocument()

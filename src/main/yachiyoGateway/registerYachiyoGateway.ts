@@ -3,7 +3,6 @@ import {
   BrowserWindow,
   ipcMain,
   net,
-  Notification,
   powerMonitor,
   session,
   systemPreferences
@@ -33,6 +32,7 @@ import type {
   SearchWorkspaceFilesInput,
   SettingsConfig,
   SendChatInput,
+  ShowNotificationInput,
   MemoryTermDocument,
   TestMemoryConnectionInput,
   TestSubagentProfileInput,
@@ -102,7 +102,7 @@ import {
 import { hashWorkspacePath } from '../yachiyo-server/services/fileSnapshot/casStore.ts'
 import { listSnapshotRuns } from '../yachiyo-server/services/fileSnapshot/snapshotIndex.ts'
 import { registerGatewayFileHandlers } from './fileHandlers.ts'
-import { broadcastYachiyoEvent, handleYachiyoIpc } from './ipc.ts'
+import { broadcastYachiyoEvent, handleYachiyoIpc, showYachiyoNotification } from './ipc.ts'
 import { IPC_CHANNELS } from './ipcChannels.ts'
 import { normalizePngBytes, normalizePngFilename, type SavePngFileInput } from './pngFile.ts'
 
@@ -125,10 +125,7 @@ const COMMAND_SOCKET_HEALTH_TIMEOUT_MS = 1_000
 function createCommandSocketHandle(): CommandSocketHandle {
   return startCommandSocket({
     socketPath: resolveYachiyoSocketPath(),
-    onNotification: (input) => {
-      if (!Notification.isSupported()) return
-      new Notification({ title: input.title, body: input.body ?? '' }).show()
-    },
+    onNotification: (input) => showYachiyoNotification(input),
     onSendChannel: (input) => handleSendChannel(input),
     onUpdateChannelGroupStatus: (input) => {
       if (!server) {
@@ -538,10 +535,7 @@ async function startLiveServices(): Promise<void> {
       setThreadIcon: (input) => server!.setThreadIcon(input),
       sendChat: (input) => server!.sendChat(input as never),
       archiveThread: (input) => server!.archiveThread(input),
-      showNotification: (input) => {
-        if (!Notification.isSupported()) return
-        new Notification({ title: input.title, body: input.body ?? '' }).show()
-      },
+      showNotification: (input) => showYachiyoNotification(input),
       subscribe: (listener) => server!.subscribe(listener)
     },
     storage: server.getStorage(),
@@ -645,9 +639,8 @@ export function registerYachiyoGateway(): YachiyoServer {
   void startLiveServices()
 
   ipcMain.removeAllListeners(IPC_CHANNELS.showNotification)
-  ipcMain.on(IPC_CHANNELS.showNotification, (_event, input: { title: string; body?: string }) => {
-    if (!Notification.isSupported()) return
-    new Notification({ title: input.title, body: input.body ?? '' }).show()
+  ipcMain.on(IPC_CHANNELS.showNotification, (_event, input: ShowNotificationInput) => {
+    showYachiyoNotification(input)
   })
 
   ipcMain.removeAllListeners(IPC_CHANNELS.beep)

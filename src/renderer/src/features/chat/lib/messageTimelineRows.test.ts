@@ -126,6 +126,40 @@ test('buildConversationGroupRows splits a streaming conversation into user, cont
   ])
 })
 
+test('buildConversationGroupRows keeps generating after a completed tool call even before text arrives', () => {
+  const group = createGroup({
+    activeAssistant: createAssistantMessage({
+      id: 'assistant-1',
+      content: '',
+      status: 'streaming',
+      textBlocks: []
+    })
+  })
+
+  const rows = buildConversationGroupRows({
+    group,
+    inlineToolCalls: [
+      {
+        id: 'tool-1',
+        runId: 'run-1',
+        threadId: 'thread-1',
+        requestMessageId: 'user-1',
+        assistantMessageId: 'assistant-1',
+        toolName: 'read',
+        status: 'completed',
+        inputSummary: 'file.ts',
+        startedAt: '2026-04-18T00:00:01.000Z'
+      }
+    ],
+    runs: [],
+    activeRunId: 'run-1',
+    isActiveGroup: true,
+    subagentActive: false
+  })
+
+  assert.deepEqual(rowKinds(rows), ['group-user', 'group-tool-call', 'group-generating'])
+})
+
 test('buildConversationGroupRows keeps branch navigation, thinking, and footer as separate rows', () => {
   const inactiveAssistant = createAssistantMessage({
     id: 'assistant-old',

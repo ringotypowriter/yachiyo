@@ -30,6 +30,7 @@ import type {
   SearchWorkspaceFilesInput,
   SettingsConfig,
   SendChatInput,
+  ShowNotificationInput,
   TestMemoryConnectionInput,
   TestMemoryConnectionResult,
   TestSubagentProfileInput,
@@ -77,6 +78,7 @@ declare global {
       resumeGlobalShortcuts: () => void
       navigateToArchivedThread: (threadId: string) => void
       onNavigateToArchivedThread: (listener: (threadId: string) => void) => () => void
+      onNavigateToThread: (listener: (threadId: string) => void) => () => void
       setVibrancy: (enabled: boolean) => void
       appUpdate: {
         getStatus: () => Promise<{ state: string; version?: string; error?: string }>
@@ -292,7 +294,7 @@ declare global {
         }) => Promise<import('../shared/yachiyo/fileSnapshot').SnapshotSummary[]>
         restoreToCheckpoint: (input: { runId: string; workspacePath: string }) => Promise<string[]>
 
-        showNotification: (input: { title: string; body?: string }) => void
+        showNotification: (input: ShowNotificationInput) => void
         beep: () => void
         subscribe: (listener: (event: YachiyoServerEvent) => void) => () => void
       }

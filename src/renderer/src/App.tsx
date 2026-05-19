@@ -125,14 +125,21 @@ function App(): React.JSX.Element {
   const config = useAppStore((s) => s.config)
   useApplyThemeConfig(config)
   const createNewThread = useAppStore((s) => s.createNewThread)
-  const setActiveArchivedThread = useAppStore((s) => s.setActiveArchivedThread)
+  const openThreadFromNotification = useAppStore((s) => s.openThreadFromNotification)
   const [isSidebarSearchOpen, setIsSidebarSearchOpen] = useState(false)
 
   useEffect(() => {
-    return window.api.onNavigateToArchivedThread((threadId) => {
-      setActiveArchivedThread(threadId)
+    const unsubscribeThread = window.api.onNavigateToThread((threadId) => {
+      openThreadFromNotification(threadId)
     })
-  }, [setActiveArchivedThread])
+    const unsubscribeArchivedThread = window.api.onNavigateToArchivedThread((threadId) => {
+      openThreadFromNotification(threadId, 'archivedThread')
+    })
+    return () => {
+      unsubscribeThread()
+      unsubscribeArchivedThread()
+    }
+  }, [openThreadFromNotification])
   const [pendingFindQuery, setPendingFindQuery] = useState<string | null>(null)
 
   useEffect(() => {

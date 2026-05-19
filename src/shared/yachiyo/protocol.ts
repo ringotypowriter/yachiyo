@@ -12,6 +12,14 @@ export * from './protocol/perf.ts'
 export type ChannelUserStatus = 'pending' | 'allowed' | 'blocked'
 export type ChannelUserRole = 'owner' | 'guest'
 export type ChannelPlatform = 'telegram' | 'qq' | 'discord' | 'qqbot'
+export type NotificationThreadTarget = 'thread' | 'archivedThread'
+
+export interface ShowNotificationInput {
+  title: string
+  body?: string
+  threadId?: string
+  target?: NotificationThreadTarget
+}
 
 export interface ChannelUserRecord {
   id: string

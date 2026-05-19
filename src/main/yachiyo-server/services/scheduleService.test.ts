@@ -88,6 +88,13 @@ function createMockStorage(schedule = createSchedule()): MockStorage {
   }
 }
 
+interface MockNotification {
+  title: string
+  body?: string
+  threadId?: string
+  target?: 'thread' | 'archivedThread'
+}
+
 function createMockServer(): {
   server: {
     createThread: (input: {
@@ -101,14 +108,14 @@ function createMockServer(): {
     }>
     setThreadIcon: () => Promise<ThreadRecord>
     archiveThread: () => Promise<void>
-    showNotification: (input: { title: string; body?: string }) => void
+    showNotification: (input: MockNotification) => void
     subscribe: (listener: (event: YachiyoServerEvent) => void) => () => void
   }
-  notifications: Array<{ title: string; body?: string }>
+  notifications: MockNotification[]
   sentChats: Array<{ threadId: string; content: string; runTrigger?: string }>
 } {
   const listeners = new Set<(event: YachiyoServerEvent) => void>()
-  const notifications: Array<{ title: string; body?: string }> = []
+  const notifications: MockNotification[] = []
   const sentChats: Array<{ threadId: string; content: string; runTrigger?: string }> = []
 
   return {
@@ -274,6 +281,8 @@ describe('createScheduleService', () => {
       assert.equal(storage.schedules.get('schedule-1')?.enabled, false)
       assert.deepEqual(storage.deletedScheduleIds, [])
       assert.equal(notifications.length, 1)
+      assert.equal(notifications[0]?.threadId, 'thread-1')
+      assert.equal(notifications[0]?.target, 'archivedThread')
       assert.equal(sentChats[0]?.runTrigger, 'local')
     } finally {
       fetchRestore.mock.restore()

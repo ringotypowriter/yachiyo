@@ -24,6 +24,7 @@ import type {
 import {
   DEFAULT_ENABLED_TOOL_NAMES,
   DEFAULT_RUN_MODE_ID,
+  type NotificationThreadTarget,
   type RunModeId,
   type SendChatRunTrigger,
   type ThreadRuntimeBinding
@@ -317,6 +318,7 @@ export interface AppState {
   clearScrollToMessageId: () => void
   setActiveThread: (id: string, scrollToMessageId?: string) => void
   setActiveArchivedThread: (id: string) => void
+  openThreadFromNotification: (id: string, target?: NotificationThreadTarget) => void
   setComposerValue: (value: string) => void
   setComposerEnabledSkillNames: (enabledSkillNames: string[] | null) => void
   setComposerReasoningEffort: (reasoningEffort: ComposerReasoningSelection) => void
@@ -861,7 +863,7 @@ export const useAppStore = create<AppState>((set, get) => ({
           }))
         }
       } else {
-        window.api.yachiyo.showNotification({ title, body })
+        window.api.yachiyo.showNotification({ title, body, threadId, target: 'thread' })
         set((s) => ({
           queuedToasts: [
             ...s.queuedToasts,

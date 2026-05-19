@@ -8,6 +8,7 @@ import type {
   ScheduleRecord,
   ScheduleResultStatus,
   SendChatRunTrigger,
+  ShowNotificationInput,
   ThreadRecord,
   YachiyoServerEvent
 } from '../../../shared/yachiyo/protocol.ts'
@@ -34,7 +35,7 @@ export interface ScheduleServerApi {
   }): Promise<{ runId: string }>
   setThreadIcon(input: { threadId: string; icon: string }): Promise<ThreadRecord>
   archiveThread(input: { threadId: string; unread?: boolean }): Promise<void>
-  showNotification(input: { title: string; body?: string }): void
+  showNotification(input: ShowNotificationInput): void
   subscribe(listener: (event: YachiyoServerEvent) => void): () => void
 }
 
@@ -433,7 +434,9 @@ export function createScheduleService(deps: ScheduleServiceDeps): ScheduleServic
 
       deps.server.showNotification({
         title: `${schedule.name} — ${resultLabel}`,
-        body: capturedResult?.summary ?? (result.error ? `Error: ${result.error}` : undefined)
+        body: capturedResult?.summary ?? (result.error ? `Error: ${result.error}` : undefined),
+        threadId,
+        target: 'archivedThread'
       })
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : String(err)
@@ -448,7 +451,8 @@ export function createScheduleService(deps: ScheduleServiceDeps): ScheduleServic
 
       deps.server.showNotification({
         title: `${schedule.name} — failed`,
-        body: errorMessage
+        body: errorMessage,
+        ...(threadId ? { threadId, target: 'archivedThread' as const } : {})
       })
     } finally {
       // Auto-archive the schedule thread to keep the sidebar clean.

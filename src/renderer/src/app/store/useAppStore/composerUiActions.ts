@@ -43,6 +43,7 @@ export function createComposerUiActions(input: {
   | 'setComposerEnabledSkillNames'
   | 'setComposerReasoningEffort'
   | 'setActiveArchivedThread'
+  | 'openThreadFromNotification'
   | 'setThreadListMode'
   | 'setSidebarFilterBase'
   | 'toggleSidebarFilterColor'
@@ -235,6 +236,16 @@ export function createComposerUiActions(input: {
           archivedThreads: state.archivedThreads.map((t) => (t.id === id ? updated : t))
         }))
       })
+    },
+
+    openThreadFromNotification: (id, target = 'thread') => {
+      const isArchived =
+        target === 'archivedThread' || get().archivedThreads.some((t) => t.id === id)
+      if (isArchived) {
+        get().setActiveArchivedThread(id)
+      } else {
+        get().setActiveThread(id)
+      }
     },
 
     setThreadListMode: (mode) =>

@@ -560,7 +560,7 @@ export function buildConversationGroupRows(
     showPreparing: group.showPreparing && !input.subagentActive,
     showGenerating:
       activeAssistantMessage?.status === 'streaming' &&
-      activeAssistantTextBlocks.length > 0 &&
+      (activeAssistantTextBlocks.length > 0 || visibleToolCalls.length > 0) &&
       !hasRunningToolCall &&
       !input.subagentActive,
     activeAssistantTextBlocks:

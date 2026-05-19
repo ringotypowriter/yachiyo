@@ -11,21 +11,14 @@ const MAX_VISIBLE_TOASTS = 4
 
 function Toast({ toast }: { toast: AppToast }): React.JSX.Element {
   const dismissToast = useAppStore((s) => s.dismissToast)
-  const setActiveThread = useAppStore((s) => s.setActiveThread)
-  const setActiveArchivedThread = useAppStore((s) => s.setActiveArchivedThread)
+  const openThreadFromNotification = useAppStore((s) => s.openThreadFromNotification)
   const activeThreadId = useAppStore((s) => s.activeThreadId)
-  const archivedThreads = useAppStore((s) => s.archivedThreads)
 
   const handleClick = (): void => {
     if (toast.threadId === activeThreadId) {
       dismissToast(toast.id)
     } else {
-      const isArchived = archivedThreads.some((t) => t.id === toast.threadId)
-      if (isArchived) {
-        setActiveArchivedThread(toast.threadId)
-      } else {
-        setActiveThread(toast.threadId)
-      }
+      openThreadFromNotification(toast.threadId)
       dismissToast(toast.id)
     }
   }
