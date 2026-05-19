@@ -17,6 +17,7 @@ import type {
   GetMemoryTermDocumentInput,
   ImportWebSearchBrowserSessionInput,
   ListActivitySourceRecordsInput,
+  ListActivitySourceRecordsResult,
   ListSkillsInput,
   ProviderConfig,
   ProviderSettings,
@@ -59,7 +60,6 @@ import type {
   SoulDocument as ProtocolSoulDocument,
   UsageStatsInput,
   UsageStatsResponse,
-  ActivitySourceRecord,
   WebSearchBrowserImportSource,
   YachiyoServerEvent
 } from '../../../../shared/yachiyo/protocol.ts'
@@ -181,7 +181,11 @@ export class YachiyoServer {
   private readonly imageToTextServiceInstance: ImageToTextService
   private readonly readUserDocumentFile: () => Promise<UserDocument | null>
   private readonly saveUserDocumentFile: (content: string) => Promise<UserDocument | null>
-  private readonly readMemoryTermDocumentFile: (() => Promise<MemoryTermDocument>) | null
+  private readonly readMemoryTermDocumentFile:
+    | ((
+        input?: Pick<GetMemoryTermDocumentInput, 'limit' | 'offset'>
+      ) => Promise<MemoryTermDocument>)
+    | null
   private readonly readSoulDocumentFile: () => Promise<SoulDocument | null>
   private readonly addSoulTraitFile: (trait: string) => Promise<SoulDocument | null>
   private readonly removeSoulTraitFile: (trait: string) => Promise<SoulDocument | null>
@@ -500,15 +504,35 @@ export class YachiyoServer {
       throw new Error('Built-in memory terms are unavailable.')
     }
 
-    return this.readMemoryTermDocumentFile()
+    const limit =
+      typeof input?.limit === 'number' && Number.isFinite(input.limit)
+        ? Math.min(Math.max(Math.floor(input.limit), 1), 200)
+        : undefined
+    const offset =
+      typeof input?.offset === 'number' && Number.isFinite(input.offset)
+        ? Math.max(Math.floor(input.offset), 0)
+        : 0
+
+    return this.readMemoryTermDocumentFile({ limit, offset })
   }
 
-  listActivitySourceRecords(input?: ListActivitySourceRecordsInput): ActivitySourceRecord[] {
+  listActivitySourceRecords(
+    input?: ListActivitySourceRecordsInput
+  ): ListActivitySourceRecordsResult {
     const limit =
       typeof input?.limit === 'number' && Number.isFinite(input.limit)
         ? Math.min(Math.max(Math.floor(input.limit), 1), 200)
         : 50
-    return this.storage.listActivitySourceRecords({ limit })
+    const offset =
+      typeof input?.offset === 'number' && Number.isFinite(input.offset)
+        ? Math.max(Math.floor(input.offset), 0)
+        : 0
+    return {
+      records: this.storage.listActivitySourceRecords({ limit, offset }),
+      totalCount: this.storage.countActivitySourceRecords(),
+      limit,
+      offset
+    }
   }
 
   async testMemoryConnection(config: SettingsConfig): Promise<TestMemoryConnectionResult> {

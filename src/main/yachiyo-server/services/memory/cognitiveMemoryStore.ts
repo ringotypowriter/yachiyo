@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 
-import { asc } from 'drizzle-orm'
+import { asc, eq, sql } from 'drizzle-orm'
 
 import type { MemoryTermDocument, MemoryTermEntry } from '../../../../shared/yachiyo/protocol.ts'
 import { openMigratedSqliteDatabase, type SqliteDb } from '../../storage/sqlite/sqliteRuntime.ts'
@@ -27,10 +27,27 @@ import {
   type SearchCognitiveRowsInput
 } from './cognitiveMemory.ts'
 
+export interface CognitiveMemoryTermTopicCount {
+  topic: string
+  entryCount: number
+}
+
+export interface CognitiveMemoryTermPageInput {
+  limit?: number
+  offset?: number
+}
+
+export interface CognitiveMemoryTermPage {
+  rows: CognitiveRow[]
+  topicCounts: CognitiveMemoryTermTopicCount[]
+  memoryCount: number
+}
+
 export interface CognitiveMemoryStore {
   applyPatch(patch: CognitivePatch, input?: { now?: string }): Promise<{ savedCount: number }>
   activateRows(input: ActivateCognitiveRowsInput): Promise<CognitiveRow[]>
   readState(): Promise<CognitiveMemoryState>
+  listTermRows(input?: CognitiveMemoryTermPageInput): Promise<CognitiveMemoryTermPage>
   searchRows(input: SearchCognitiveRowsInput): Promise<CognitiveRow[]>
 }
 
@@ -96,6 +113,36 @@ function toEvent(row: typeof cognitiveEventsTable.$inferSelect): CognitiveEvent 
   }
 }
 
+function sortTermRows(rows: readonly CognitiveRow[]): CognitiveRow[] {
+  return rows
+    .filter((row) => row.status === 'active')
+    .slice()
+    .sort((left, right) => {
+      const relationOrder = left.relation.localeCompare(right.relation)
+      return relationOrder === 0 ? left.key.localeCompare(right.key) : relationOrder
+    })
+}
+
+function countTermTopics(rows: readonly CognitiveRow[]): CognitiveMemoryTermTopicCount[] {
+  const counts = new Map<string, number>()
+  for (const row of rows) {
+    if (row.status !== 'active') continue
+    counts.set(row.relation, (counts.get(row.relation) ?? 0) + 1)
+  }
+  return [...counts.entries()]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([topic, entryCount]) => ({ topic, entryCount }))
+}
+
+function paginateTermRows(
+  rows: readonly CognitiveRow[],
+  input?: CognitiveMemoryTermPageInput
+): CognitiveRow[] {
+  const offset = input?.offset ?? 0
+  const limit = input?.limit
+  return typeof limit === 'number' ? rows.slice(offset, offset + limit) : rows.slice(offset)
+}
+
 function readStateFromDb(db: SqliteDb): CognitiveMemoryState {
   return {
     events: db
@@ -116,6 +163,39 @@ function readStateFromDb(db: SqliteDb): CognitiveMemoryState {
       .orderBy(asc(cognitiveRowsTable.relation), asc(cognitiveRowsTable.key))
       .all()
       .map(toRow)
+  }
+}
+
+function readTermPageFromDb(
+  db: SqliteDb,
+  input?: CognitiveMemoryTermPageInput
+): CognitiveMemoryTermPage {
+  const offset = input?.offset ?? 0
+  const limit = input?.limit
+  const topicCounts = db
+    .select({ topic: cognitiveRowsTable.relation, entryCount: sql<number>`count(*)` })
+    .from(cognitiveRowsTable)
+    .where(eq(cognitiveRowsTable.status, 'active'))
+    .groupBy(cognitiveRowsTable.relation)
+    .orderBy(asc(cognitiveRowsTable.relation))
+    .all()
+  const memoryCount = topicCounts.reduce((total, topic) => total + topic.entryCount, 0)
+  const query = db
+    .select()
+    .from(cognitiveRowsTable)
+    .where(eq(cognitiveRowsTable.status, 'active'))
+    .orderBy(asc(cognitiveRowsTable.relation), asc(cognitiveRowsTable.key))
+  const rows =
+    typeof limit === 'number'
+      ? query.limit(limit).offset(offset).all()
+      : offset > 0
+        ? query.limit(-1).offset(offset).all()
+        : query.all()
+
+  return {
+    rows: rows.map(toRow),
+    topicCounts,
+    memoryCount
   }
 }
 
@@ -229,6 +309,14 @@ export function createInMemoryCognitiveMemoryStore(
     async readState() {
       return state
     },
+    async listTermRows(input) {
+      const rows = sortTermRows(state.rows)
+      return {
+        rows: paginateTermRows(rows, input),
+        topicCounts: countTermTopics(state.rows),
+        memoryCount: rows.length
+      }
+    },
     async searchRows(input) {
       return searchCognitiveRows(state, input)
     }
@@ -255,6 +343,9 @@ export function createSqliteCognitiveMemoryStore(
     async readState() {
       return withDatabase(options.dbPath, readStateFromDb)
     },
+    async listTermRows(input) {
+      return withDatabase(options.dbPath, (db) => readTermPageFromDb(db, input))
+    },
     async searchRows(input) {
       return withDatabase(options.dbPath, (db) => searchCognitiveRows(readStateFromDb(db), input))
     }
@@ -276,24 +367,32 @@ function toMemoryTermEntry(row: CognitiveRow): MemoryTermEntry {
 
 export function readCognitiveMemoryTermDocument(options: {
   store: CognitiveMemoryStore
+  limit?: number
+  offset?: number
 }): Promise<MemoryTermDocument> {
-  return options.store.readState().then((state) => {
-    const topics = state.relations.map((relation) => {
-      const entries = state.rows
-        .filter((row) => row.relation === relation.name && row.status === 'active')
-        .map(toMemoryTermEntry)
+  return options.store
+    .listTermRows({ limit: options.limit, offset: options.offset })
+    .then((page) => {
+      const topicEntryCountByName = new Map(
+        page.topicCounts.map((topic) => [topic.topic, topic.entryCount])
+      )
+      const pageTopics = new Map<string, MemoryTermEntry[]>()
+
+      for (const row of page.rows) {
+        const entries = pageTopics.get(row.relation) ?? []
+        entries.push(toMemoryTermEntry(row))
+        pageTopics.set(row.relation, entries)
+      }
+
       return {
-        topic: relation.name,
-        entryCount: entries.length,
-        entries
+        provider: 'builtin-memory',
+        topicCount: page.topicCounts.length,
+        memoryCount: page.memoryCount,
+        topics: [...pageTopics.entries()].map(([topic, entries]) => ({
+          topic,
+          entryCount: topicEntryCountByName.get(topic) ?? entries.length,
+          entries
+        }))
       }
     })
-
-    return {
-      provider: 'builtin-memory',
-      topicCount: topics.length,
-      memoryCount: topics.reduce((total, topic) => total + topic.entryCount, 0),
-      topics
-    }
-  })
 }

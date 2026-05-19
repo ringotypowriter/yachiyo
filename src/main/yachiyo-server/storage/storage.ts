@@ -437,6 +437,7 @@ export interface YachiyoStorage {
   // Activity source
   saveActivitySourceRecord(record: ActivitySourceRecord): void
   listActivitySourceRecords(input?: ListActivitySourceRecordsInput): ActivitySourceRecord[]
+  countActivitySourceRecords(): number
 }
 
 export function toThreadRecord(

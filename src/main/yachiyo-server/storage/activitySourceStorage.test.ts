@@ -33,13 +33,15 @@ function makeActivityRecord(input: {
   threadId: string
   runId: string
   requestMessageId: string
+  id?: string
+  startedAt?: string
 }): ActivitySourceRecord {
   return {
-    id: 'activity-1',
+    id: input.id ?? 'activity-1',
     threadId: input.threadId,
     runId: input.runId,
     requestMessageId: input.requestMessageId,
-    startedAt: TIMESTAMP,
+    startedAt: input.startedAt ?? TIMESTAMP,
     endedAt: '2026-04-28T00:00:01.000Z',
     totalDurationMs: 1_000,
     uniqueApps: 1,
@@ -55,6 +57,30 @@ function makeActivityRecord(input: {
     createdAt: TIMESTAMP
   }
 }
+
+test('in-memory storage paginates activity source records in newest-first order', () => {
+  const storage = createInMemoryYachiyoStorage()
+
+  for (let index = 0; index < 5; index += 1) {
+    storage.saveActivitySourceRecord(
+      makeActivityRecord({
+        id: `activity-${index}`,
+        threadId: 'thread-1',
+        runId: `run-${index}`,
+        requestMessageId: `msg-${index}`,
+        startedAt: `2026-04-28T00:00:0${index}.000Z`
+      })
+    )
+  }
+
+  const records = storage.listActivitySourceRecords({ offset: 2, limit: 2 })
+
+  assert.equal(storage.countActivitySourceRecords(), 5)
+  assert.deepEqual(
+    records.map((record) => record.id),
+    ['activity-2', 'activity-1']
+  )
+})
 
 test('in-memory storage removes activity source records when thread history is reset', () => {
   const storage = createInMemoryYachiyoStorage()

@@ -1,7 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import type {
   AnswerToolQuestionInput,
-  ActivitySourceRecord,
   ChannelGroupRecord,
   ChannelsConfig,
   ChannelUserRecord,
@@ -14,6 +13,7 @@ import type {
   SearchWorkspaceFilesInput,
   ImportWebSearchBrowserSessionInput,
   ListActivitySourceRecordsInput,
+  ListActivitySourceRecordsResult,
   ListSkillsInput,
   ProviderConfig,
   ProviderSettings,
@@ -233,7 +233,7 @@ const api = {
       ipcRenderer.invoke('yachiyo:get-memory-term-document', input),
     listActivitySourceRecords: (
       input?: ListActivitySourceRecordsInput
-    ): Promise<ActivitySourceRecord[]> =>
+    ): Promise<ListActivitySourceRecordsResult> =>
       ipcRenderer.invoke('yachiyo:list-activity-source-records', input),
     getUserDocument: (): Promise<UserDocument> => ipcRenderer.invoke('yachiyo:get-user-document'),
     testMemoryConnection: (input: TestMemoryConnectionInput) =>

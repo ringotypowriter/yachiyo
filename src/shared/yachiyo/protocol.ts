@@ -643,6 +643,14 @@ export interface ActivitySourceRecord {
 
 export interface ListActivitySourceRecordsInput {
   limit?: number
+  offset?: number
+}
+
+export interface ListActivitySourceRecordsResult {
+  records: ActivitySourceRecord[]
+  totalCount: number
+  limit: number
+  offset: number
 }
 
 export interface GeneralConfig {
@@ -1219,6 +1227,8 @@ export interface SaveThreadResult {
 
 export interface GetMemoryTermDocumentInput {
   config?: SettingsConfig
+  limit?: number
+  offset?: number
 }
 
 export interface TestMemoryConnectionInput {

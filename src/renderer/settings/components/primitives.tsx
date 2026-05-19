@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { Check, ChevronDown } from 'lucide-react'
+import { Check, ChevronDown, ChevronLeft, ChevronRight } from 'lucide-react'
 import { theme, alpha } from '@renderer/theme/theme'
 import { useRestoreFocusOnUnmount } from '@renderer/lib/focusRestore'
 
@@ -23,6 +23,16 @@ interface SettingSwitchProps {
 interface SettingLabelProps {
   children: React.ReactNode
   action?: React.ReactNode
+}
+
+interface ListPaginationProps {
+  page: number
+  pageCount: number
+  startIndex: number
+  endIndex: number
+  totalCount: number
+  itemLabel: string
+  onPageChange: (page: number) => void
 }
 
 export function Field({ label, children }: FieldProps): React.ReactNode {
@@ -309,6 +319,68 @@ export function SettingLabel({ children, action }: SettingLabelProps): React.Rea
       style={{ color: theme.text.secondary }}
     >
       {children}
+    </div>
+  )
+}
+
+export function ListPagination({
+  page,
+  pageCount,
+  startIndex,
+  endIndex,
+  totalCount,
+  itemLabel,
+  onPageChange
+}: ListPaginationProps): React.ReactNode {
+  const canGoBackward = page > 1
+  const canGoForward = page < pageCount
+  const rangeLabel = totalCount === 0 ? '0' : `${startIndex + 1}–${endIndex}`
+
+  return (
+    <div
+      className="flex items-center justify-between gap-3 px-7 py-2.5 text-xs"
+      style={{
+        color: theme.text.muted,
+        borderTop: `1px solid ${theme.border.subtle}`,
+        background: theme.background.surfaceMuted
+      }}
+    >
+      <div className="tabular-nums">
+        {rangeLabel} of {totalCount} {itemLabel}
+      </div>
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          className="inline-flex h-7 w-7 items-center justify-center rounded-lg transition-opacity disabled:opacity-30"
+          style={{
+            color: theme.text.secondary,
+            border: `1px solid ${theme.border.subtle}`,
+            background: theme.background.surface
+          }}
+          disabled={!canGoBackward}
+          aria-label="Previous page"
+          onClick={() => onPageChange(page - 1)}
+        >
+          <ChevronLeft size={13} />
+        </button>
+        <span className="min-w-12 text-center tabular-nums" style={{ color: theme.text.secondary }}>
+          {page} / {pageCount}
+        </span>
+        <button
+          type="button"
+          className="inline-flex h-7 w-7 items-center justify-center rounded-lg transition-opacity disabled:opacity-30"
+          style={{
+            color: theme.text.secondary,
+            border: `1px solid ${theme.border.subtle}`,
+            background: theme.background.surface
+          }}
+          disabled={!canGoForward}
+          aria-label="Next page"
+          onClick={() => onPageChange(page + 1)}
+        >
+          <ChevronRight size={13} />
+        </button>
+      </div>
     </div>
   )
 }

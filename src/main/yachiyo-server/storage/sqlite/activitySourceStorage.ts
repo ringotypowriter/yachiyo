@@ -1,4 +1,4 @@
-import { desc } from 'drizzle-orm'
+import { desc, sql } from 'drizzle-orm'
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3'
 
 import type { ActivitySourceRecord } from '../../../../shared/yachiyo/protocol.ts'
@@ -11,7 +11,7 @@ type SqliteDb = BetterSQLite3Database<typeof schema>
 
 type SqliteActivitySourceStorageMethods = Pick<
   YachiyoStorage,
-  'saveActivitySourceRecord' | 'listActivitySourceRecords'
+  'saveActivitySourceRecord' | 'listActivitySourceRecords' | 'countActivitySourceRecords'
 >
 
 function toActivitySourceRecord(
@@ -80,15 +80,29 @@ export function createSqliteActivitySourceStorageMethods(input: {
     },
 
     listActivitySourceRecords(input) {
+      const offset = input?.offset ?? 0
       const limit = input?.limit
       const query = db
         .select()
         .from(activitySourceRecordsTable)
         .orderBy(desc(activitySourceRecordsTable.startedAt))
 
-      const rows = typeof limit === 'number' ? query.limit(limit).all() : query.all()
+      const rows =
+        typeof limit === 'number'
+          ? query.limit(limit).offset(offset).all()
+          : offset > 0
+            ? query.limit(-1).offset(offset).all()
+            : query.all()
 
       return rows.map((row) => toActivitySourceRecord(row, cipher))
+    },
+
+    countActivitySourceRecords() {
+      const row = db
+        .select({ count: sql<number>`count(*)` })
+        .from(activitySourceRecordsTable)
+        .get()
+      return row?.count ?? 0
     }
   }
 }

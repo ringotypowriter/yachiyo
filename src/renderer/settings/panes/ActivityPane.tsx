@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react'
 import type { ActivitySourceRecord, SettingsConfig } from '../../../shared/yachiyo/protocol.ts'
 import { theme } from '@renderer/theme/theme'
 import {
+  ListPagination,
   SettingLabel,
   SettingRow,
   SettingSection,
@@ -16,6 +17,8 @@ import {
   parseExcludedAppTokens,
   removeExcludedApp
 } from './activityExcludedApps.ts'
+
+const ACTIVITY_RECORDS_PAGE_SIZE = 12
 
 interface ActivityPaneProps {
   draft: SettingsConfig
@@ -40,21 +43,53 @@ function formatTimestamp(iso: string): string {
   })
 }
 
+function formatTimeOnly(iso: string): string {
+  return new Date(iso).toLocaleTimeString([], {
+    hour: '2-digit',
+    minute: '2-digit'
+  })
+}
+
+function formatDateOnly(iso: string): string {
+  return new Date(iso).toLocaleDateString([], {
+    month: 'short',
+    day: 'numeric'
+  })
+}
+
+function formatActivityRange(record: ActivitySourceRecord): string {
+  const started = new Date(record.startedAt)
+  const ended = new Date(record.endedAt)
+  if (started.toDateString() === ended.toDateString()) {
+    return `${formatDateOnly(record.startedAt)} · ${formatTimeOnly(record.startedAt)}–${formatTimeOnly(record.endedAt)}`
+  }
+  return `${formatTimestamp(record.startedAt)} → ${formatTimestamp(record.endedAt)}`
+}
+
 function summarizeEntries(record: ActivitySourceRecord): string {
   if (record.entries.length === 0) return 'No app entries.'
 
-  return record.entries
-    .slice(0, 3)
+  const shownEntries = record.entries
+    .slice(0, 4)
     .map((entry) =>
-      [entry.appName, entry.windowTitle ? `“${entry.windowTitle}”` : null]
-        .filter((part): part is string => part !== null)
-        .join(' · ')
+      entry.windowTitle && entry.windowTitle !== entry.appName
+        ? `${entry.appName} “${entry.windowTitle}”`
+        : entry.appName
     )
-    .join(' / ')
+    .join(' · ')
+  const hiddenEntryCount = record.entries.length - 4
+
+  return hiddenEntryCount > 0 ? `${shownEntries} · +${hiddenEntryCount} more` : shownEntries
+}
+
+function countOcrSnapshots(record: ActivitySourceRecord): number {
+  return record.snapshots?.filter((snapshot) => snapshot.ocr).length ?? 0
 }
 
 export function ActivityPane({ draft, onChange }: ActivityPaneProps): React.JSX.Element {
   const [records, setRecords] = useState<ActivitySourceRecord[]>([])
+  const [activityPage, setActivityPage] = useState(1)
+  const [activityTotalCount, setActivityTotalCount] = useState(0)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const isMac = window.api.process.platform === 'darwin'
@@ -70,6 +105,10 @@ export function ActivityPane({ draft, onChange }: ActivityPaneProps): React.JSX.
   const excludedApps = activityOcr.excludedApps ?? []
   const [manualExcludedApp, setManualExcludedApp] = useState('')
   const recentAppOptions = buildRecentActivityAppOptions(records, excludedApps).slice(0, 6)
+  const activityPageCount = Math.max(1, Math.ceil(activityTotalCount / ACTIVITY_RECORDS_PAGE_SIZE))
+  const activityStartIndex =
+    activityTotalCount === 0 ? 0 : (activityPage - 1) * ACTIVITY_RECORDS_PAGE_SIZE
+  const activityEndIndex = Math.min(activityStartIndex + records.length, activityTotalCount)
 
   const updateActivityTracking = (
     next: NonNullable<SettingsConfig['general']>['activityTracking']
@@ -104,23 +143,39 @@ export function ActivityPane({ draft, onChange }: ActivityPaneProps): React.JSX.
     setManualExcludedApp('')
   }
 
-  const loadRecords = useCallback(async (): Promise<void> => {
+  const loadRecords = useCallback(async (page: number): Promise<void> => {
+    let redirecting = false
     setLoading(true)
     setError(null)
 
     try {
-      const nextRecords = await window.api.yachiyo.listActivitySourceRecords({ limit: 50 })
-      setRecords(nextRecords)
+      const offset = (page - 1) * ACTIVITY_RECORDS_PAGE_SIZE
+      const result = await window.api.yachiyo.listActivitySourceRecords({
+        limit: ACTIVITY_RECORDS_PAGE_SIZE,
+        offset
+      })
+      setActivityTotalCount(result.totalCount)
+
+      if (result.totalCount > 0 && result.records.length === 0 && page > 1) {
+        redirecting = true
+        setRecords([])
+        setActivityPage(Math.max(1, Math.ceil(result.totalCount / ACTIVITY_RECORDS_PAGE_SIZE)))
+        return
+      }
+
+      setRecords(result.records)
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Failed to load activity source.')
     } finally {
-      setLoading(false)
+      if (!redirecting) {
+        setLoading(false)
+      }
     }
   }, [])
 
   useEffect(() => {
-    void loadRecords()
-  }, [loadRecords])
+    void loadRecords(activityPage)
+  }, [activityPage, loadRecords])
 
   const openAccessibilitySettings = (): void => {
     window.open('x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility')
@@ -335,7 +390,7 @@ export function ActivityPane({ draft, onChange }: ActivityPaneProps): React.JSX.
               type="button"
               className="inline-flex items-center gap-1 text-[11px] font-medium transition-opacity opacity-60 hover:opacity-100"
               style={{ color: theme.text.secondary }}
-              onClick={() => void loadRecords()}
+              onClick={() => void loadRecords(activityPage)}
               disabled={loading}
             >
               {loading ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
@@ -357,7 +412,7 @@ export function ActivityPane({ draft, onChange }: ActivityPaneProps): React.JSX.
             </div>
           </div>
           <div className="shrink-0 text-sm" style={{ color: theme.text.muted }}>
-            {records.length} shown
+            {activityTotalCount} total
           </div>
         </SettingRow>
 
@@ -366,31 +421,88 @@ export function ActivityPane({ draft, onChange }: ActivityPaneProps): React.JSX.
             Loading activity source...
           </div>
         ) : records.length > 0 ? (
-          <div style={{ borderTop: `1px solid ${theme.border.subtle}` }}>
-            {records.map((record) => (
-              <div
-                key={record.id}
-                className="content-selectable px-7 py-3.5"
-                style={{ borderBottom: `1px solid ${theme.border.subtle}` }}
-              >
-                <div className="flex items-baseline justify-between gap-4">
-                  <div className="text-sm font-medium" style={{ color: theme.text.primary }}>
-                    {formatTimestamp(record.startedAt)}
+          <>
+            <div style={{ borderTop: `1px solid ${theme.border.subtle}` }}>
+              {records.map((record, index) => {
+                const entrySummary = summarizeEntries(record)
+                const snapshotCount = record.snapshots?.length ?? 0
+                const ocrSnapshotCount = countOcrSnapshots(record)
+
+                return (
+                  <div
+                    key={record.id}
+                    className="content-selectable px-7 py-2"
+                    style={{ borderBottom: `1px solid ${theme.border.subtle}` }}
+                  >
+                    <div className="flex gap-3">
+                      <div
+                        className="w-8 shrink-0 pt-0.5 text-xs tabular-nums"
+                        style={{ color: theme.text.muted }}
+                      >
+                        #{activityStartIndex + index + 1}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-baseline gap-3">
+                          <div
+                            className="min-w-0 text-sm font-medium"
+                            style={{ color: theme.text.primary }}
+                          >
+                            {formatActivityRange(record)}
+                          </div>
+                          <div className="shrink-0 text-xs" style={{ color: theme.text.muted }}>
+                            {formatDuration(record.totalDurationMs)}
+                          </div>
+                        </div>
+                        <div
+                          className="mt-0.5 truncate text-sm leading-5"
+                          style={{ color: theme.text.tertiary }}
+                          title={entrySummary}
+                        >
+                          {entrySummary}
+                        </div>
+                        <div
+                          className="mt-0.5 flex flex-wrap gap-x-2 gap-y-0.5 text-xs leading-5"
+                          style={{ color: theme.text.muted }}
+                        >
+                          <span>
+                            {record.uniqueApps} {record.uniqueApps === 1 ? 'app' : 'apps'}
+                          </span>
+                          <span>
+                            · {record.entries.length}{' '}
+                            {record.entries.length === 1 ? 'entry' : 'entries'}
+                          </span>
+                          {snapshotCount > 0 ? (
+                            <span>
+                              · {snapshotCount} {snapshotCount === 1 ? 'snapshot' : 'snapshots'}
+                              {ocrSnapshotCount > 0 ? ` / ${ocrSnapshotCount} OCR` : ''}
+                            </span>
+                          ) : null}
+                          {record.afkDurationMs ? (
+                            <span>· AFK {formatDuration(record.afkDurationMs)}</span>
+                          ) : null}
+                          <span>
+                            · created{' '}
+                            <time dateTime={record.createdAt}>
+                              {formatTimestamp(record.createdAt)}
+                            </time>
+                          </span>
+                        </div>
+                      </div>
+                    </div>
                   </div>
-                  <div className="shrink-0 text-xs" style={{ color: theme.text.muted }}>
-                    {formatDuration(record.totalDurationMs)}
-                  </div>
-                </div>
-                <div className="mt-1 text-sm leading-5" style={{ color: theme.text.tertiary }}>
-                  {summarizeEntries(record)}
-                </div>
-                <div className="mt-1 text-xs leading-5" style={{ color: theme.text.muted }}>
-                  {record.uniqueApps} {record.uniqueApps === 1 ? 'app' : 'apps'}
-                  {record.afkDurationMs ? ` · AFK ${formatDuration(record.afkDurationMs)}` : ''}
-                </div>
-              </div>
-            ))}
-          </div>
+                )
+              })}
+            </div>
+            <ListPagination
+              page={activityPage}
+              pageCount={activityPageCount}
+              startIndex={activityStartIndex}
+              endIndex={activityEndIndex}
+              totalCount={activityTotalCount}
+              itemLabel={activityTotalCount === 1 ? 'record' : 'records'}
+              onPageChange={setActivityPage}
+            />
+          </>
         ) : (
           <div className="px-7 py-4 text-sm" style={{ color: theme.text.muted }}>
             No activity records yet.

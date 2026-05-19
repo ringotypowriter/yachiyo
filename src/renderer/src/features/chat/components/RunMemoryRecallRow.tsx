@@ -52,37 +52,21 @@ function MemoryEntryCard({ entry }: MemoryEntryCardProps): React.JSX.Element {
   }
 
   return (
-    <div
-      className="rounded-xl px-3 py-2"
-      style={{
-        background: theme.background.surface,
-        border: `1px solid ${theme.border.subtle}`,
-        fontSize: '12px',
-        lineHeight: 1.5
-      }}
-    >
-      <div className="mb-1.5 flex items-center gap-2">
-        <span
-          className="inline-flex rounded px-1.5 py-0.5 text-[10px] font-medium"
-          style={{
-            background: theme.background.surfaceSoft,
-            color: theme.text.accent,
-            letterSpacing: '0.02em'
-          }}
-        >
-          {parsed.relation}
-        </span>
-        <span className="font-medium" style={{ color: theme.text.primary, fontSize: '12px' }}>
-          {parsed.key}
-        </span>
+    <div style={{ fontSize: '12px', lineHeight: 1.5 }}>
+      <div className="message-selectable" style={{ color: theme.text.primary }}>
+        <span style={{ color: theme.text.accent }}>{parsed.relation}</span>{' '}
+        <span className="font-medium">{parsed.key}</span>
       </div>
-      <div className="flex flex-col gap-0.5">
+      <div
+        className="message-selectable flex flex-col"
+        style={{ color: theme.text.secondary, gap: '1px' }}
+      >
         {Object.entries(parsed.fields).map(([fieldKey, fieldValue]) => (
-          <div key={fieldKey} className="flex gap-1.5">
-            <span style={{ color: theme.text.placeholder, minWidth: '4em' }}>{fieldKey}</span>
+          <div key={fieldKey} className="flex gap-1">
+            <span style={{ color: theme.text.placeholder }}>{fieldKey}</span>
             <span
-              className="message-selectable whitespace-pre-wrap wrap-break-words"
-              style={{ color: theme.text.secondary }}
+              className="whitespace-pre-wrap wrap-break-words"
+              style={{ maxHeight: '4em', overflowY: 'auto' }}
             >
               {fieldValue}
             </span>
@@ -162,38 +146,23 @@ export function RunMemoryRecallRow({
       {isExpanded ? (
         <div
           id={detailsId}
-          className="mt-2 max-w-lg rounded-2xl px-4 py-3"
+          className="mt-2 max-w-lg pl-3"
           style={{
-            background: theme.background.surfaceSoft,
-            border: `1px solid ${theme.border.panel}`,
+            borderLeft: `1px solid ${theme.border.subtle}`,
             color: theme.text.secondary
           }}
         >
-          <div
-            className="mb-2"
-            style={{
-              color: theme.text.placeholder,
-              fontSize: '10px',
-              letterSpacing: '0.04em',
-              textTransform: 'uppercase'
-            }}
-          >
-            Memory used for this run
-          </div>
-          <div
-            className="mb-3 text-[11px]"
-            style={{ color: theme.text.placeholder, lineHeight: 1.5 }}
-          >
+          <div className="mb-1" style={{ color: theme.text.placeholder, fontSize: '11px' }}>
             Reason: {debugLabel}
           </div>
-          <div className="flex flex-col gap-2">
+          <div className="flex flex-col gap-3">
             {entries.map((entry, index) => (
               <MemoryEntryCard key={`${index}:${entry.slice(0, 40)}`} entry={entry} />
             ))}
           </div>
           {novelTerms.length > 0 ? (
             <div
-              className="mt-3 text-[11px]"
+              className="mt-2 text-[11px]"
               style={{ color: theme.text.placeholder, lineHeight: 1.5 }}
             >
               Novel terms: {novelTerms.join(' · ')}

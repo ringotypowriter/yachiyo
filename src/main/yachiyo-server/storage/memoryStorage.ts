@@ -1166,10 +1166,18 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
     },
 
     listActivitySourceRecords(input) {
+      const offset = input?.offset ?? 0
+      const limit = input?.limit
       const sorted = [...activitySourceRecords].sort((left, right) =>
         right.startedAt.localeCompare(left.startedAt)
       )
-      return sorted.slice(0, input?.limit).map((record) => structuredClone(record))
+      const records =
+        typeof limit === 'number' ? sorted.slice(offset, offset + limit) : sorted.slice(offset)
+      return records.map((record) => structuredClone(record))
+    },
+
+    countActivitySourceRecords() {
+      return activitySourceRecords.length
     },
 
     // Group monitor buffer persistence

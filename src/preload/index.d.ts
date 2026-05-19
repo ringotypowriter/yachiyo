@@ -1,6 +1,5 @@
 import type {
   AnswerToolQuestionInput,
-  ActivitySourceRecord,
   BootstrapPayload,
   ChannelGroupRecord,
   ChannelsConfig,
@@ -16,6 +15,7 @@ import type {
   FileMentionCandidate,
   ImportWebSearchBrowserSessionInput,
   ListActivitySourceRecordsInput,
+  ListActivitySourceRecordsResult,
   ListSkillsInput,
   ProviderConfig,
   ProviderSettings,
@@ -178,7 +178,7 @@ declare global {
         getMemoryTermDocument: (input?: GetMemoryTermDocumentInput) => Promise<MemoryTermDocument>
         listActivitySourceRecords: (
           input?: ListActivitySourceRecordsInput
-        ) => Promise<ActivitySourceRecord[]>
+        ) => Promise<ListActivitySourceRecordsResult>
         getUserDocument: () => Promise<UserDocument>
         testMemoryConnection: (
           input: TestMemoryConnectionInput

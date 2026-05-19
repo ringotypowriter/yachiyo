@@ -1,4 +1,5 @@
 import type {
+  GetMemoryTermDocumentInput,
   MemoryTermDocument,
   SettingsConfig,
   UserDocument
@@ -31,7 +32,9 @@ export interface YachiyoServerOptions {
   removeSoulTrait?: (trait: string) => Promise<SoulDocument | null>
   readUserDocument?: () => Promise<UserDocument | null>
   saveUserDocument?: (content: string) => Promise<UserDocument | null>
-  readMemoryTermDocument?: () => Promise<MemoryTermDocument>
+  readMemoryTermDocument?: (
+    input?: Pick<GetMemoryTermDocumentInput, 'limit' | 'offset'>
+  ) => Promise<MemoryTermDocument>
   resolveThreadWorkspacePath?: (threadId: string) => string
   ensureThreadWorkspace?: (threadId: string) => Promise<string>
   cloneThreadWorkspace?: (sourceThreadId: string, targetThreadId: string) => Promise<string>

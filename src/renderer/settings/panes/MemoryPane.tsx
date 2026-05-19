@@ -1,9 +1,17 @@
 import { Loader2 } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { MemoryTermDocument, SettingsConfig } from '../../../shared/yachiyo/protocol.ts'
 import { theme } from '@renderer/theme/theme'
-import { SettingLabel, SettingRow, SettingSection, SettingSwitch } from '../components/primitives'
-import { loadMemoryTermDocument } from './memoryTermDocumentModel'
+import {
+  ListPagination,
+  SettingLabel,
+  SettingRow,
+  SettingSection,
+  SettingSwitch
+} from '../components/primitives'
+import { flattenMemoryTermTopics, loadMemoryTermDocument } from './memoryTermDocumentModel'
+
+const MEMORY_TERMS_PAGE_SIZE = 10
 
 export interface MemoryPaneProps {
   draft: SettingsConfig
@@ -14,9 +22,9 @@ export function MemoryPane({ draft, onChange }: MemoryPaneProps): React.JSX.Elem
   const [testing, setTesting] = useState(false)
   const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null)
   const [view, setView] = useState<'overview' | 'terms'>('overview')
+  const [memoryTermsPage, setMemoryTermsPage] = useState(1)
   const [memoryTermDocument, setMemoryTermDocument] = useState<MemoryTermDocument | null>(null)
   const [isLoadingTerms, setIsLoadingTerms] = useState(false)
-  const [hasAttemptedTermsLoad, setHasAttemptedTermsLoad] = useState(false)
   const [termsError, setTermsError] = useState<string | null>(null)
   const memory = draft.memory ?? {
     enabled: true,
@@ -26,6 +34,20 @@ export function MemoryPane({ draft, onChange }: MemoryPaneProps): React.JSX.Elem
   }
   const provider = memory.provider ?? 'builtin-memory'
   const showsBuiltinTerms = provider === 'builtin-memory'
+  const memoryTermRows = useMemo(
+    () => flattenMemoryTermTopics(memoryTermDocument?.topics ?? []),
+    [memoryTermDocument]
+  )
+  const memoryTermTotalCount = memoryTermDocument?.memoryCount ?? 0
+  const memoryTermPageCount = Math.max(1, Math.ceil(memoryTermTotalCount / MEMORY_TERMS_PAGE_SIZE))
+  const currentMemoryTermsPage = Math.min(memoryTermsPage, memoryTermPageCount)
+  const memoryTermStartIndex =
+    memoryTermTotalCount === 0 ? 0 : (currentMemoryTermsPage - 1) * MEMORY_TERMS_PAGE_SIZE
+  const memoryTermEndIndex = Math.min(
+    memoryTermStartIndex + memoryTermRows.length,
+    memoryTermTotalCount
+  )
+  const memoryTermItems = memoryTermRows
 
   useEffect(() => {
     setTestResult(null)
@@ -37,30 +59,39 @@ export function MemoryPane({ draft, onChange }: MemoryPaneProps): React.JSX.Elem
     }
 
     setView('overview')
+    setMemoryTermsPage(1)
     setMemoryTermDocument(null)
-    setHasAttemptedTermsLoad(false)
     setTermsError(null)
   }, [provider])
 
   useEffect(() => {
-    if (
-      view !== 'terms' ||
-      provider !== 'builtin-memory' ||
-      memoryTermDocument ||
-      isLoadingTerms ||
-      hasAttemptedTermsLoad
-    ) {
+    if (view !== 'terms' || provider !== 'builtin-memory') {
       return
     }
 
     let cancelled = false
+    let redirecting = false
     setIsLoadingTerms(true)
-    setHasAttemptedTermsLoad(true)
     setTermsError(null)
 
-    void loadMemoryTermDocument(draft)
+    void loadMemoryTermDocument(draft, {
+      limit: MEMORY_TERMS_PAGE_SIZE,
+      offset: (memoryTermsPage - 1) * MEMORY_TERMS_PAGE_SIZE
+    })
       .then((document) => {
         if (!cancelled) {
+          if (
+            document.memoryCount > 0 &&
+            flattenMemoryTermTopics(document.topics).length === 0 &&
+            memoryTermsPage > 1
+          ) {
+            redirecting = true
+            setMemoryTermDocument(document)
+            setMemoryTermsPage(
+              Math.max(1, Math.ceil(document.memoryCount / MEMORY_TERMS_PAGE_SIZE))
+            )
+            return
+          }
           setMemoryTermDocument(document)
         }
       })
@@ -72,7 +103,7 @@ export function MemoryPane({ draft, onChange }: MemoryPaneProps): React.JSX.Elem
         }
       })
       .finally(() => {
-        if (!cancelled) {
+        if (!cancelled && !redirecting) {
           setIsLoadingTerms(false)
         }
       })
@@ -80,7 +111,7 @@ export function MemoryPane({ draft, onChange }: MemoryPaneProps): React.JSX.Elem
     return () => {
       cancelled = true
     }
-  }, [draft, hasAttemptedTermsLoad, isLoadingTerms, memoryTermDocument, provider, view])
+  }, [draft, memoryTermsPage, provider, view])
 
   const handleTest = async (): Promise<void> => {
     setTesting(true)
@@ -100,8 +131,6 @@ export function MemoryPane({ draft, onChange }: MemoryPaneProps): React.JSX.Elem
   }
 
   if (view === 'terms') {
-    const topics = memoryTermDocument?.topics ?? []
-
     return (
       <div className="flex-1 overflow-y-auto">
         <div className="px-7 pt-5 pb-4">
@@ -111,7 +140,7 @@ export function MemoryPane({ draft, onChange }: MemoryPaneProps): React.JSX.Elem
             style={{ color: theme.text.accent }}
             onClick={() => {
               setView('overview')
-              setHasAttemptedTermsLoad(false)
+              setMemoryTermsPage(1)
               setMemoryTermDocument(null)
             }}
           >
@@ -121,8 +150,8 @@ export function MemoryPane({ draft, onChange }: MemoryPaneProps): React.JSX.Elem
             Memory terms
           </div>
           <div className="mt-0.5 text-sm leading-5" style={{ color: theme.text.tertiary }}>
-            Built-in memory grouped by topic. This is a read-only view of what long-term memory has
-            already stored.
+            Built-in memory as a compact indexed list. Each row keeps the topic, type, content, and
+            update metadata visible.
           </div>
           {memoryTermDocument ? (
             <div className="mt-0.5 text-xs leading-5" style={{ color: theme.text.muted }}>
@@ -137,47 +166,71 @@ export function MemoryPane({ draft, onChange }: MemoryPaneProps): React.JSX.Elem
           </div>
         ) : (
           <>
-            {topics.length > 0 ? (
-              <div style={{ borderTop: `1px solid ${theme.border.subtle}` }}>
-                {topics.map((topic) => (
-                  <div
-                    key={topic.topic}
-                    className="px-7 py-4"
-                    style={{ borderBottom: `1px solid ${theme.border.subtle}` }}
-                  >
-                    <div className="flex items-baseline justify-between gap-4">
-                      <div className="text-sm font-medium" style={{ color: theme.text.primary }}>
-                        {topic.topic}
-                      </div>
-                      <div className="text-xs" style={{ color: theme.text.muted }}>
-                        {topic.entryCount} {topic.entryCount === 1 ? 'term' : 'terms'}
-                      </div>
-                    </div>
-
-                    <div className="mt-3 space-y-3">
-                      {topic.entries.map((entry) => (
-                        <div key={entry.id} className="content-selectable space-y-1">
-                          <div
-                            className="text-sm font-medium"
-                            style={{ color: theme.text.primary }}
-                          >
-                            {entry.title}
+            {memoryTermRows.length > 0 ? (
+              <>
+                <div style={{ borderTop: `1px solid ${theme.border.subtle}` }}>
+                  {memoryTermItems.map(({ topic, topicEntryCount, entry }, index) => (
+                    <div
+                      key={entry.id}
+                      className="content-selectable px-7 py-2.5"
+                      style={{ borderBottom: `1px solid ${theme.border.subtle}` }}
+                    >
+                      <div className="flex gap-3">
+                        <div
+                          className="w-9 shrink-0 pt-0.5 text-xs tabular-nums"
+                          style={{ color: theme.text.muted }}
+                        >
+                          #{memoryTermStartIndex + index + 1}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+                            <div
+                              className="text-sm font-medium"
+                              style={{ color: theme.text.primary }}
+                            >
+                              {entry.title}
+                            </div>
+                            <div className="text-xs" style={{ color: theme.text.muted }}>
+                              {entry.unitType}
+                            </div>
                           </div>
-                          <div className="text-sm leading-5" style={{ color: theme.text.tertiary }}>
+                          <div
+                            className="mt-0.5 text-sm leading-5"
+                            style={{ color: theme.text.tertiary }}
+                          >
                             {entry.content}
                           </div>
-                          <div className="text-xs leading-5" style={{ color: theme.text.muted }}>
-                            {entry.unitType}
-                            {typeof entry.importance === 'number'
-                              ? ` · importance ${entry.importance}`
-                              : ''}
+                          <div
+                            className="mt-0.5 flex flex-wrap gap-x-2 gap-y-0.5 text-xs leading-5"
+                            style={{ color: theme.text.muted }}
+                          >
+                            <span>{topic}</span>
+                            <span>
+                              · {topicEntryCount} {topicEntryCount === 1 ? 'term' : 'terms'} in
+                              topic
+                            </span>
+                            {typeof entry.importance === 'number' ? (
+                              <span>· importance {entry.importance}</span>
+                            ) : null}
+                            <span>
+                              · updated <time dateTime={entry.updatedAt}>{entry.updatedAt}</time>
+                            </span>
                           </div>
                         </div>
-                      ))}
+                      </div>
                     </div>
-                  </div>
-                ))}
-              </div>
+                  ))}
+                </div>
+                <ListPagination
+                  page={currentMemoryTermsPage}
+                  pageCount={memoryTermPageCount}
+                  startIndex={memoryTermStartIndex}
+                  endIndex={memoryTermEndIndex}
+                  totalCount={memoryTermTotalCount}
+                  itemLabel={memoryTermTotalCount === 1 ? 'term' : 'terms'}
+                  onPageChange={setMemoryTermsPage}
+                />
+              </>
             ) : (
               <div className="px-7 py-3 text-sm" style={{ color: theme.text.muted }}>
                 No built-in memory terms yet.
@@ -246,7 +299,10 @@ export function MemoryPane({ draft, onChange }: MemoryPaneProps): React.JSX.Elem
               type="button"
               className="shrink-0 text-sm font-medium transition-opacity opacity-60 hover:opacity-100"
               style={{ color: theme.text.accent }}
-              onClick={() => setView('terms')}
+              onClick={() => {
+                setMemoryTermsPage(1)
+                setView('terms')
+              }}
             >
               View terms →
             </button>
