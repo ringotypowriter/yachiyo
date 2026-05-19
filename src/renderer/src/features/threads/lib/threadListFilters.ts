@@ -81,13 +81,19 @@ export function resolveVisibleSidebarThreads({
       )
     })
   }
-  if (sidebarFilter.running) {
-    filtered = filtered.filter((thread) =>
-      isThreadRunning(thread.id, runStatusesByThread, backgroundTaskRunningThreadIds)
-    )
-  }
-  if (sidebarFilter.justDone) {
-    filtered = filtered.filter((thread) => Boolean(justDoneRunIdsByThread[thread.id]))
+  if (sidebarFilter.running || sidebarFilter.justDone) {
+    filtered = filtered.filter((thread) => {
+      if (
+        sidebarFilter.running &&
+        isThreadRunning(thread.id, runStatusesByThread, backgroundTaskRunningThreadIds)
+      ) {
+        return true
+      }
+      if (sidebarFilter.justDone && justDoneRunIdsByThread[thread.id]) {
+        return true
+      }
+      return false
+    })
   }
   if (sidebarFilter.folderOnly) {
     filtered = filtered.filter((thread) => Boolean(thread.folderId))
