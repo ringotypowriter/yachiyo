@@ -5,6 +5,94 @@ import type { RecallDecisionSnapshot } from '@renderer/app/types'
 import { theme } from '@renderer/theme/theme'
 import { compactNovelTermsForDisplay } from '../lib/runMemoryPresentation.ts'
 
+interface ParsedCognitiveEntry {
+  relation: string
+  key: string
+  fields: Record<string, string>
+}
+
+function tryParseCognitiveEntry(text: string): ParsedCognitiveEntry | null {
+  const match = /^\[([^\]]+)\]\s+([^:]+):\s+(.+)$/.exec(text)
+  if (!match) return null
+
+  const relation = match[1]!.trim()
+  const key = match[2]!.trim()
+  const fieldsText = match[3]!.trim()
+  if (!relation || !key || !fieldsText) return null
+
+  const fields: Record<string, string> = {}
+  for (const part of fieldsText.split(';')) {
+    const trimmed = part.trim()
+    if (!trimmed) continue
+    const eqIndex = trimmed.indexOf('=')
+    if (eqIndex <= 0) continue
+    const fieldKey = trimmed.slice(0, eqIndex).trim()
+    const fieldValue = trimmed.slice(eqIndex + 1).trim()
+    if (fieldKey) fields[fieldKey] = fieldValue
+  }
+
+  if (Object.keys(fields).length === 0) return null
+  return { relation, key, fields }
+}
+
+interface MemoryEntryCardProps {
+  entry: string
+}
+
+function MemoryEntryCard({ entry }: MemoryEntryCardProps): React.JSX.Element {
+  const parsed = tryParseCognitiveEntry(entry)
+
+  if (!parsed) {
+    return (
+      <div className="flex gap-2" style={{ fontSize: '12px', lineHeight: 1.5 }}>
+        <span style={{ color: theme.text.accent }}>•</span>
+        <span className="message-selectable whitespace-pre-wrap wrap-break-words">{entry}</span>
+      </div>
+    )
+  }
+
+  return (
+    <div
+      className="rounded-xl px-3 py-2"
+      style={{
+        background: theme.background.surface,
+        border: `1px solid ${theme.border.subtle}`,
+        fontSize: '12px',
+        lineHeight: 1.5
+      }}
+    >
+      <div className="mb-1.5 flex items-center gap-2">
+        <span
+          className="inline-flex rounded px-1.5 py-0.5 text-[10px] font-medium"
+          style={{
+            background: theme.background.surfaceSoft,
+            color: theme.text.accent,
+            letterSpacing: '0.02em'
+          }}
+        >
+          {parsed.relation}
+        </span>
+        <span className="font-medium" style={{ color: theme.text.primary, fontSize: '12px' }}>
+          {parsed.key}
+        </span>
+      </div>
+      <div className="flex flex-col gap-0.5">
+        {Object.entries(parsed.fields).map(([fieldKey, fieldValue]) => (
+          <div key={fieldKey} className="flex gap-1.5">
+            <span style={{ color: theme.text.placeholder, minWidth: '4em' }}>{fieldKey}</span>
+            <span
+              className="message-selectable whitespace-pre-wrap wrap-break-words"
+              style={{ color: theme.text.secondary }}
+            >
+              {fieldValue}
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 interface RunMemoryRecallRowProps {
   entries: string[]
   recallDecision?: RecallDecisionSnapshot
@@ -99,13 +187,8 @@ export function RunMemoryRecallRow({
             Reason: {debugLabel}
           </div>
           <div className="flex flex-col gap-2">
-            {entries.map((entry) => (
-              <div key={entry} className="flex gap-2" style={{ fontSize: '12px', lineHeight: 1.5 }}>
-                <span style={{ color: theme.text.accent }}>•</span>
-                <span className="message-selectable whitespace-pre-wrap wrap-break-words">
-                  {entry}
-                </span>
-              </div>
+            {entries.map((entry, index) => (
+              <MemoryEntryCard key={`${index}:${entry.slice(0, 40)}`} entry={entry} />
             ))}
           </div>
           {novelTerms.length > 0 ? (
