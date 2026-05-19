@@ -54,7 +54,7 @@ const MAX_RECENT_INJECTIONS = 16
 const MAX_NOVEL_TERMS = 8
 const RECENT_CONTEXT_MESSAGE_LIMIT = 8
 const NOVELTY_SCORE_THRESHOLD = 0.7
-const NOVELTY_TERM_THRESHOLD = 1
+const NOVELTY_TERM_THRESHOLD = 3
 const MAX_MARKED_TERM_LENGTH = 64
 const MIN_NOVEL_TERM_STRENGTH = 0.35
 const MARKER_TERM_SCORE = 1
@@ -483,19 +483,8 @@ function parseTimestamp(value?: string): number | null {
   return Number.isNaN(timestamp) ? null : timestamp
 }
 
-function hasStrongNoveltyTerm(terms: string[]): boolean {
-  return terms.some((term) => !isPureCjkTerm(term))
-}
-
-function hasEnoughNoveltyEvidence(input: {
-  novelty: RecallNoveltySignal
-  strongNovelty: boolean
-}): boolean {
-  if (input.novelty.novelTerms.length < NOVELTY_TERM_THRESHOLD) {
-    return false
-  }
-
-  return input.strongNovelty || input.novelty.novelTerms.length >= 2
+function hasEnoughNoveltyEvidence(novelty: RecallNoveltySignal): boolean {
+  return novelty.novelTerms.length >= NOVELTY_TERM_THRESHOLD
 }
 
 export function shouldRecallBeforeRun(input: RecallDecisionInput): RecallDecisionSnapshot {
@@ -520,10 +509,8 @@ export function shouldRecallBeforeRun(input: RecallDecisionInput): RecallDecisio
   const reasons: string[] = []
   let score = 0
 
-  const strongNovelty = hasStrongNoveltyTerm(novelty.novelTerms)
   const hasTopicNovelty =
-    novelty.noveltyScore >= NOVELTY_SCORE_THRESHOLD &&
-    hasEnoughNoveltyEvidence({ novelty, strongNovelty })
+    novelty.noveltyScore >= NOVELTY_SCORE_THRESHOLD && hasEnoughNoveltyEvidence(novelty)
 
   if (hasTopicNovelty) {
     reasons.push('topic-novelty')

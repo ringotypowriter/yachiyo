@@ -361,13 +361,15 @@ test('memory service derives stricter retrieval plans and ranks recalled context
       updatedAt: '2026-03-22T00:00:00.000Z'
     },
     now: '2026-03-22T00:00:00.000Z',
-    userQuery: 'How should I handle the deployment checklist validation?',
+    userQuery:
+      'How should I handle `deploymentChecklist`, `stagingValidation`, and `repoRootPreference`?',
     history: [
       {
         id: 'user-1',
         threadId: 'thread-1',
         role: 'user',
-        content: 'We are preparing a deploy.',
+        content:
+          'How should I handle `deploymentChecklist`, `stagingValidation`, and `repoRootPreference`?',
         status: 'completed',
         createdAt: '2026-03-22T00:00:00.000Z'
       }
@@ -507,7 +509,7 @@ test('memory service does not advance lastRecall markers when recall is gated on
       }
     },
     now: '2026-03-23T09:00:00.000Z',
-    userQuery: '现在排查向量索引召回策略',
+    userQuery: '现在排查向量索引、召回策略和用户画像',
     history: [
       {
         id: 'm1',
@@ -529,7 +531,7 @@ test('memory service does not advance lastRecall markers when recall is gated on
         id: 'm3',
         threadId: 'thread-1',
         role: 'user',
-        content: '现在排查向量索引召回策略',
+        content: '现在排查向量索引、召回策略和用户画像',
         status: 'completed',
         createdAt: '2026-03-23T09:00:00.000Z'
       }
@@ -980,7 +982,7 @@ test('memory service lets the query model skip recall for general questions unre
       }
     },
     now: '2026-03-22T00:00:00.000Z',
-    userQuery: 'What is the capital of France?',
+    userQuery: 'What are `France`, `Paris`, and `Europe`?',
     history: [
       {
         id: 'm1',
@@ -1002,7 +1004,7 @@ test('memory service lets the query model skip recall for general questions unre
         id: 'm3',
         threadId: 'thread-1',
         role: 'user',
-        content: 'What is the capital of France?',
+        content: 'What are `France`, `Paris`, and `Europe`?',
         status: 'completed',
         createdAt: '2026-03-22T00:00:00.000Z'
       }

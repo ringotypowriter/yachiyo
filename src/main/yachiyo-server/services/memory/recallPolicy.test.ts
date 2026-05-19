@@ -34,23 +34,23 @@ function createThread(overrides: Partial<ThreadRecord> = {}): ThreadRecord {
   }
 }
 
-test('shouldRecallBeforeRun recalls for segmented Chinese new-topic terms', () => {
+test('shouldRecallBeforeRun recalls for three segmented Chinese new-topic terms', () => {
   const decision = shouldRecallBeforeRun({
     history: [
       createMessage({
         id: 'user-1',
         createdAt: '2026-03-23T00:00:00.000Z',
-        content: '帮我分析向量索引的召回策略'
+        content: '帮我分析向量索引、召回策略和用户画像'
       })
     ],
     now: '2026-03-23T00:00:00.000Z',
     thread: createThread(),
-    userQuery: '帮我分析向量索引的召回策略'
+    userQuery: '帮我分析向量索引、召回策略和用户画像'
   })
 
   assert.equal(decision.shouldRecall, true)
   assert.deepEqual(decision.reasons, ['topic-novelty'])
-  assert.deepEqual(decision.novelTerms.slice(0, 2), ['向量索引', '召回策略'])
+  assert.deepEqual(decision.novelTerms.slice(0, 3), ['向量索引', '召回策略', '用户画像'])
 })
 
 test('detectNoveltySignal boosts emphasized, syntax-heavy, and acronym terms', () => {
@@ -147,7 +147,7 @@ test('detectNoveltySignal suppresses Chinese noun-adverb filler pairs', () => {
   assert.deepEqual(novelty.novelTerms, [])
 })
 
-test('shouldRecallBeforeRun requires more evidence for unmarked pure Chinese novelty', () => {
+test('shouldRecallBeforeRun requires three terms for unmarked pure Chinese novelty', () => {
   const decision = shouldRecallBeforeRun({
     history: [
       createMessage({
@@ -177,7 +177,7 @@ test('shouldRecallBeforeRun requires more evidence for unmarked pure Chinese nov
   assert.deepEqual(decision.reasons, [])
 })
 
-test('shouldRecallBeforeRun recalls when one strong new topic appears', () => {
+test('shouldRecallBeforeRun requires three terms even when one strong new topic appears', () => {
   const decision = shouldRecallBeforeRun({
     history: [
       createMessage({
@@ -211,11 +211,11 @@ test('shouldRecallBeforeRun recalls when one strong new topic appears', () => {
 
   assert.equal(decision.noveltyScore >= 0.7, true)
   assert.deepEqual(decision.novelTerms, ['mcp'])
-  assert.equal(decision.shouldRecall, true)
-  assert.equal(decision.reasons.includes('topic-novelty'), true)
+  assert.equal(decision.shouldRecall, false)
+  assert.deepEqual(decision.reasons, [])
 })
 
-test('shouldRecallBeforeRun uses the supplied novelty signal for recall decisions', () => {
+test('shouldRecallBeforeRun requires three terms for supplied novelty signals', () => {
   const decision = shouldRecallBeforeRun({
     history: [
       createMessage({
@@ -251,8 +251,22 @@ test('shouldRecallBeforeRun uses the supplied novelty signal for recall decision
     }
   })
 
-  assert.equal(decision.shouldRecall, true)
-  assert.equal(decision.reasons.includes('topic-novelty'), true)
+  assert.equal(decision.shouldRecall, false)
+  assert.deepEqual(decision.reasons, [])
+
+  const enoughTerms = shouldRecallBeforeRun({
+    history: [],
+    now: '2026-03-23T00:02:00.000Z',
+    thread: createThread(),
+    userQuery: '新的问题来了',
+    novelty: {
+      noveltyScore: 0.9,
+      novelTerms: ['vector index', 'tooltimeout', 'mcp']
+    }
+  })
+
+  assert.equal(enoughTerms.shouldRecall, true)
+  assert.deepEqual(enoughTerms.reasons, ['topic-novelty'])
 })
 
 test('detectNoveltySignal suppresses unmarked pure Chinese filler', () => {
