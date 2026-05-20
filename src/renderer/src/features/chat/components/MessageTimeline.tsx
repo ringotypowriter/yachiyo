@@ -735,11 +735,12 @@ export function MessageTimeline({ threadId, recapText }: MessageTimelineProps): 
         ? buildMessageGroups({
             thread,
             messages: timelineMessages,
+            runs,
             runPhase,
             activeRequestMessageId
           })
         : [],
-    [thread, timelineMessages, runPhase, activeRequestMessageId]
+    [thread, timelineMessages, runs, runPhase, activeRequestMessageId]
   )
   const pendingSteerMessage = useMemo(
     () =>
@@ -969,33 +970,16 @@ export function MessageTimeline({ threadId, recapText }: MessageTimelineProps): 
     [cancelInitialBottomScroll, findTimelineIndex, virtualizer]
   )
 
-  // Track user scroll to detect manual scroll-away
-  useEffect(() => {
-    if (recapText && recapRef.current && stickToBottomRef.current) {
-      recapRef.current.scrollIntoView(getNativeScrollIntoViewOptions('end'))
-    }
-  }, [recapText])
-
   const unpinFromBottom = useCallback((): void => {
     stickToBottomRef.current = false
-    pendingThreadSwitchScrollRef.current = null
-    programmaticScrollUntilRef.current = 0
-    cancelInitialBottomScroll()
-    if (streamingScrollRafRef.current !== null) {
-      cancelAnimationFrame(streamingScrollRafRef.current)
-      streamingScrollRafRef.current = null
-    }
-  }, [cancelInitialBottomScroll])
+  }, [])
 
-  // Deps include threadId and timeline.length so the listener reattaches
-  // when the scroll container first appears (empty thread → first message)
   useEffect(() => {
     const container = scrollContainerRef.current
     if (!container) return
-    lastScrollTopRef.current = container.scrollTop
 
     const handleWheel = (event: WheelEvent): void => {
-      if (event.deltaY < 0) {
+      if (event.deltaY < -2) {
         unpinFromBottom()
       }
     }

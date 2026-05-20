@@ -1,4 +1,4 @@
-import type { Message, Thread, ToolCall } from '@renderer/app/types'
+import type { Message, RunRecord, Thread, ToolCall } from '@renderer/app/types'
 import {
   buildMessageTreeMaps,
   collectMessagePath,
@@ -27,20 +27,77 @@ export function isVisibleTimelineMessage(message: Message): boolean {
   return message.hidden !== true
 }
 
-function isHiddenFollowUpMessage(message: Message): boolean {
+function isLegacyHiddenFollowUpMessage(input: {
+  message: Message
+  messagesById: ReadonlyMap<string, Message>
+  runByRequestMessageId: ReadonlyMap<string, RunRecord>
+}): boolean {
+  const parent = input.message.parentMessageId
+    ? input.messagesById.get(input.message.parentMessageId)
+    : undefined
+  if (!parent || parent.role !== 'assistant' || !isVisibleTimelineMessage(parent)) return false
+
+  const run = input.runByRequestMessageId.get(input.message.id)
+  if (!run) return false
+
+  // Legacy hidden steers update the original run's request id, so the run
+  // still predates the assistant message that they branch from. Legacy hidden
+  // follow-ups start a new run after that completed assistant message.
+  return run.createdAt.localeCompare(parent.createdAt) > 0
+}
+
+function collectHiddenFollowUpMessageIds(input: {
+  messages: readonly Message[]
+  messagesById: ReadonlyMap<string, Message>
+  runs: readonly RunRecord[]
+}): Set<string> {
+  const runByRequestMessageId = new Map<string, RunRecord>()
+  for (const run of input.runs) {
+    if (run.requestMessageId) runByRequestMessageId.set(run.requestMessageId, run)
+  }
+
+  const hiddenFollowUpMessageIds = new Set<string>()
+  for (const message of input.messages) {
+    if (message.role !== 'user' || message.hidden !== true) continue
+    if (message.turnContext?.hiddenRequestKind === 'steer') continue
+    if (
+      message.turnContext?.hiddenRequestKind === 'follow-up' ||
+      isLegacyHiddenFollowUpMessage({
+        message,
+        messagesById: input.messagesById,
+        runByRequestMessageId
+      })
+    ) {
+      hiddenFollowUpMessageIds.add(message.id)
+    }
+  }
+
+  return hiddenFollowUpMessageIds
+}
+
+function isHiddenFollowUpMessage(
+  message: Message,
+  hiddenFollowUpMessageIds: ReadonlySet<string>
+): boolean {
   return (
-    message.role === 'user' &&
-    message.hidden === true &&
-    message.turnContext?.hiddenRequestKind === 'follow-up'
+    message.role === 'user' && message.hidden === true && hiddenFollowUpMessageIds.has(message.id)
   )
 }
 
-function isTimelineGroupPathMessage(message: Message): boolean {
-  return isVisibleTimelineMessage(message) || isHiddenFollowUpMessage(message)
+function isTimelineGroupPathMessage(
+  message: Message,
+  hiddenFollowUpMessageIds: ReadonlySet<string>
+): boolean {
+  return (
+    isVisibleTimelineMessage(message) || isHiddenFollowUpMessage(message, hiddenFollowUpMessageIds)
+  )
 }
 
-function isRequestBoundaryMessage(message: Message): boolean {
-  return message.role === 'user' && isTimelineGroupPathMessage(message)
+function isRequestBoundaryMessage(
+  message: Message,
+  hiddenFollowUpMessageIds: ReadonlySet<string>
+): boolean {
+  return message.role === 'user' && isTimelineGroupPathMessage(message, hiddenFollowUpMessageIds)
 }
 
 export function isActiveRequestForGroup(
@@ -366,6 +423,7 @@ function isUserSteerMessage(input: {
 function getFirstVisibleAssistantIdAfterUser(input: {
   fullPath: Message[]
   messagesById: ReadonlyMap<string, Message>
+  hiddenFollowUpMessageIds: ReadonlySet<string>
   userMessageId: string
 }): string | undefined {
   const userIndex = input.fullPath.findIndex((message) => message.id === input.userMessageId)
@@ -384,7 +442,7 @@ function getFirstVisibleAssistantIdAfterUser(input: {
     ) {
       continue
     }
-    if (message.role === 'user' && isVisibleTimelineMessage(message)) {
+    if (isRequestBoundaryMessage(message, input.hiddenFollowUpMessageIds)) {
       return undefined
     }
     if (message.role === 'assistant' && isVisibleTimelineMessage(message)) {
@@ -425,6 +483,7 @@ function collectUserSteerMessagesForGroup(input: {
 
 function collectHiddenRequestMessageIdsForGroup(input: {
   fullPath: Message[]
+  hiddenFollowUpMessageIds: ReadonlySet<string>
   userMessageId: string
 }): string[] {
   const userIndex = input.fullPath.findIndex((message) => message.id === input.userMessageId)
@@ -435,7 +494,7 @@ function collectHiddenRequestMessageIdsForGroup(input: {
   const hiddenRequestMessageIds: string[] = []
   for (let index = userIndex + 1; index < input.fullPath.length; index += 1) {
     const message = input.fullPath[index]!
-    if (isRequestBoundaryMessage(message)) {
+    if (isRequestBoundaryMessage(message, input.hiddenFollowUpMessageIds)) {
       break
     }
     if (message.role === 'user' && message.hidden === true) {
@@ -449,6 +508,7 @@ function collectHiddenRequestMessageIdsForGroup(input: {
 function collectActiveAssistantMessagesForGroup(input: {
   allMessages: Message[]
   fullPath: Message[]
+  hiddenFollowUpMessageIds: ReadonlySet<string>
   selectedAssistantId?: string
   userMessageId: string
 }): Message[] {
@@ -471,7 +531,10 @@ function collectActiveAssistantMessagesForGroup(input: {
   const activeAssistantMessages: Message[] = []
   for (let index = selectedIndex; index < input.fullPath.length; index += 1) {
     const message = input.fullPath[index]!
-    if (index > selectedIndex && isRequestBoundaryMessage(message)) {
+    if (
+      index > selectedIndex &&
+      isRequestBoundaryMessage(message, input.hiddenFollowUpMessageIds)
+    ) {
       break
     }
     if (message.role === 'assistant' && isVisibleTimelineMessage(message)) {
@@ -512,11 +575,17 @@ function sameGroupArray(a: MessageGroup[], b: MessageGroup[]): boolean {
 export function buildMessageGroups(input: {
   thread: Thread
   messages: Message[]
+  runs?: RunRecord[]
   runPhase: 'idle' | 'preparing' | 'streaming'
   activeRequestMessageId: string | null
 }): MessageGroup[] {
   const allMessages = sortMessagesByCreatedAt(input.messages)
   const maps = buildMessageTreeMaps(allMessages)
+  const hiddenFollowUpMessageIds = collectHiddenFollowUpMessageIds({
+    messages: allMessages,
+    messagesById: maps.byId,
+    runs: input.runs ?? []
+  })
   const visibleMessages = allMessages.filter(isVisibleTimelineMessage)
   const visibleMaps = buildMessageTreeMaps(visibleMessages)
   const resolvedHeadMessageId =
@@ -537,16 +606,17 @@ export function buildMessageGroups(input: {
   })
   const visiblePath =
     input.runPhase === 'idle'
-      ? fullPath.filter(isTimelineGroupPathMessage)
-      : truncatePathAtRequest(fullPath, input.activeRequestMessageId).filter(
-          isTimelineGroupPathMessage
+      ? fullPath.filter((message) => isTimelineGroupPathMessage(message, hiddenFollowUpMessageIds))
+      : truncatePathAtRequest(fullPath, input.activeRequestMessageId).filter((message) =>
+          isTimelineGroupPathMessage(message, hiddenFollowUpMessageIds)
         )
   const activeAssistantIdsByRequest = new Map<string, string>()
   const activeRequestMessage = input.activeRequestMessageId
     ? maps.byId.get(input.activeRequestMessageId)
     : undefined
   const activeHiddenRequestUserId =
-    activeRequestMessage?.hidden === true && !isHiddenFollowUpMessage(activeRequestMessage)
+    activeRequestMessage?.hidden === true &&
+    !isHiddenFollowUpMessage(activeRequestMessage, hiddenFollowUpMessageIds)
       ? getVisibleUserAncestorId({
           messagesById: maps.byId,
           messageId: input.activeRequestMessageId!
@@ -589,6 +659,7 @@ export function buildMessageGroups(input: {
       getFirstVisibleAssistantIdAfterUser({
         fullPath,
         messagesById: maps.byId,
+        hiddenFollowUpMessageIds,
         userMessageId: userMessage.id
       })
     const activeAssistantFromPath = assistantMessages.find(
@@ -608,11 +679,13 @@ export function buildMessageGroups(input: {
     const activeAssistantMessages = collectActiveAssistantMessagesForGroup({
       allMessages,
       fullPath,
+      hiddenFollowUpMessageIds,
       selectedAssistantId,
       userMessageId: userMessage.id
     })
     const hiddenRequestMessageIds = collectHiddenRequestMessageIdsForGroup({
       fullPath,
+      hiddenFollowUpMessageIds,
       userMessageId: userMessage.id
     })
     const activeBranchIndex = assistantMessages.findIndex((m) => m.id === selectedAssistantId)
