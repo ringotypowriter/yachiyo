@@ -62,8 +62,17 @@ export async function runWriteTool(
   const resolvedPath = await resolveUnicodeSpacePath(
     resolveToolPath(context.workspacePath, input.path)
   )
+  const restriction = context.writeRestriction
 
   try {
+    if (restriction && resolvedPath !== restriction.absolutePath) {
+      return createWriteResult(
+        resolvedPath,
+        { path: resolvedPath, bytesWritten: 0, created: false, overwritten: false },
+        `Plan Mode only allows writing to ${restriction.relativePath}. Requested: ${input.path}`
+      )
+    }
+
     const exists = await hasAccess(resolvedPath)
 
     const currentMtimeMs = exists
@@ -75,6 +84,7 @@ export async function runWriteTool(
     if (
       exists &&
       context.readRecordCache &&
+      !restriction?.skipReadBeforeOverwrite &&
       !context.readRecordCache.hasRecentRead(resolvedPath, currentMtimeMs)
     ) {
       return createWriteResult(

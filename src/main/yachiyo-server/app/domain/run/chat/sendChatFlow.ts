@@ -48,6 +48,11 @@ import {
   type DebouncedSendChatEntry
 } from './sendChatDebounce.ts'
 
+type HiddenRequestKind = Exclude<
+  NonNullable<MessageRecord['turnContext']>['hiddenRequestKind'],
+  undefined
+>
+
 interface StartActiveRunInput {
   enabledTools: ToolCallName[]
   enabledSkillNames?: string[]
@@ -218,9 +223,10 @@ export async function sendChatFlow(
       return sendActiveRunSteer(context, {
         activeRunId,
         content,
-        enabledTools,
-        enabledSkillNames,
-        runMode,
+        enabledTools: activeRun.enabledTools ?? enabledTools,
+        enabledSkillNames:
+          input.enabledSkillNames === undefined ? activeRun.enabledSkillNames : enabledSkillNames,
+        runMode: activeRun.runMode ?? runMode,
         runTrigger,
         reasoningEffort,
         images: enrichedImages,
@@ -298,7 +304,8 @@ function startFreshRun(
     parentMessageId: input.parentMessageId ?? input.thread.headMessageId,
     threadId: input.thread.id,
     timestamp,
-    hidden: input.hidden
+    hidden: input.hidden,
+    turnContext: createHiddenRequestTurnContext(input.hidden ? 'follow-up' : undefined)
   })
   const threadWithoutRecap = { ...input.thread }
   if (!input.hidden) delete threadWithoutRecap.recapText
@@ -346,7 +353,8 @@ function startFreshRun(
       runId: accepted.runId,
       requestMessageId: userMessage.id,
       runTrigger: input.runTrigger
-    })
+    }),
+    runMode: input.runMode
   })
 
   if (!input.hidden && fallbackTitle && fallbackTitle !== DEFAULT_THREAD_TITLE && input.content) {
@@ -505,7 +513,8 @@ function queueFollowUp(
       hidden: input.hidden,
       parentMessageId: activeRun.pendingSteerMessageId ?? activeRun.requestMessageId,
       threadId: input.thread.id,
-      timestamp
+      timestamp,
+      turnContext: createHiddenRequestTurnContext(input.hidden ? 'follow-up' : undefined)
     })
     acceptedUserMessage = queuedUserMessage
   } else if (inputHidden) {
@@ -517,7 +526,8 @@ function queueFollowUp(
       hidden: true,
       parentMessageId: activeRun.pendingSteerMessageId ?? activeRun.requestMessageId,
       threadId: input.thread.id,
-      timestamp
+      timestamp,
+      turnContext: createHiddenRequestTurnContext('follow-up')
     })
     hiddenDrafts.push(
       createQueuedFollowUpRequestDraft({
@@ -633,6 +643,7 @@ function createUserMessage(input: {
   threadId: string
   timestamp: string
   hidden?: boolean
+  turnContext?: MessageRecord['turnContext']
 }): MessageRecord {
   return {
     id: input.id,
@@ -643,9 +654,16 @@ function createUserMessage(input: {
     ...(input.images && input.images.length > 0 ? { images: input.images } : {}),
     ...(input.attachments.length > 0 ? { attachments: input.attachments } : {}),
     ...(input.hidden ? { hidden: true } : {}),
+    ...(input.turnContext ? { turnContext: input.turnContext } : {}),
     status: 'completed',
     createdAt: input.timestamp
   }
+}
+
+function createHiddenRequestTurnContext(
+  hiddenRequestKind: HiddenRequestKind | undefined
+): MessageRecord['turnContext'] | undefined {
+  return hiddenRequestKind ? { hiddenRequestKind } : undefined
 }
 
 function runDebouncedSendChat(
@@ -804,7 +822,8 @@ export function persistSteerMessage(
       input.runState.requestMessageId,
     threadId: input.thread.id,
     timestamp: persistedAt,
-    hidden: input.hidden
+    hidden: input.hidden,
+    turnContext: createHiddenRequestTurnContext(input.hidden ? 'steer' : undefined)
   })
   const updatedThread: ThreadRecord = {
     ...input.thread,

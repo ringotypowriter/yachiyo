@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import type {
-  ComposerReasoningSelection,
-  ThreadRecord
+import {
+  DEFAULT_ENABLED_TOOL_NAMES,
+  type ComposerReasoningSelection,
+  type ThreadRecord
 } from '../../../../../../shared/yachiyo/protocol.ts'
 import type { RunRecoveryCheckpoint } from '../../../../storage/storage.ts'
 import { startRecoveredRun } from '../active/activeRunStart.ts'
@@ -277,6 +278,53 @@ test('sendActiveRunSteer keeps steered run mode and enabled tools in sync', () =
   assert.deepEqual(activeRun.pendingSteerInputs?.[0]?.enabledTools, [])
 })
 
+test('sendChatFlow keeps active-run steer on the running tool mode', async () => {
+  const thread: ThreadRecord = {
+    id: 'thread-1',
+    title: 'Thread',
+    updatedAt: '2026-05-02T00:00:00.000Z'
+  }
+  const activeRun: RunState = {
+    threadId: thread.id,
+    requestMessageId: 'user-1',
+    enabledTools: [...DEFAULT_ENABLED_TOOL_NAMES],
+    runMode: 'auto',
+    abortController: new AbortController(),
+    executionPhase: 'generating',
+    updateHeadOnComplete: true
+  }
+  const context: SendChatFlowContext = {
+    deps: {
+      createId: () => 'steer-1',
+      timestamp: () => '2026-05-02T00:00:00.000Z',
+      requireThread: () => thread,
+      readConfig: () => ({ enabledTools: DEFAULT_ENABLED_TOOL_NAMES, runMode: 'auto' }),
+      emit: () => {}
+    } as unknown as SendChatFlowContext['deps'],
+    activeRuns: new Map([['run-1', activeRun]]),
+    activeRunByThread: new Map([[thread.id, 'run-1']]),
+    debouncedSendChats: new Map(),
+    queuedFollowUpDrafts: new Map(),
+    threadTitleRunner: {
+      schedule: () => {}
+    } as unknown as SendChatFlowContext['threadTitleRunner'],
+    startActiveRun: () => {}
+  }
+
+  const accepted = await sendChatFlow(context, {
+    threadId: thread.id,
+    content: 'keep going',
+    mode: 'steer',
+    runMode: 'plan'
+  })
+
+  assert.equal(accepted.kind, 'active-run-steer-pending')
+  assert.equal(activeRun.runMode, 'auto')
+  assert.deepEqual(activeRun.enabledTools, DEFAULT_ENABLED_TOOL_NAMES)
+  assert.equal(activeRun.pendingSteerInputs?.[0]?.runMode, 'auto')
+  assert.deepEqual(activeRun.pendingSteerInputs?.[0]?.enabledTools, DEFAULT_ENABLED_TOOL_NAMES)
+})
+
 test('sendActiveRunSteer keeps visible steers as the final anchor when hidden arrives later', () => {
   const domain = createDomain()
   const thread: ThreadRecord = {
@@ -414,9 +462,10 @@ test('sendChatFlow keeps hidden follow-ups separate from a visible queued draft'
   assert.deepEqual(
     draft?.hiddenDrafts?.map((hiddenDraft) => ({
       content: hiddenDraft.userMessage.content,
-      hidden: hiddenDraft.userMessage.hidden === true
+      hidden: hiddenDraft.userMessage.hidden === true,
+      hiddenRequestKind: hiddenDraft.userMessage.turnContext?.hiddenRequestKind
     })),
-    [{ content: 'hidden notice', hidden: true }]
+    [{ content: 'hidden notice', hidden: true, hiddenRequestKind: 'follow-up' }]
   )
 })
 
@@ -473,9 +522,10 @@ test('sendChatFlow keeps an earlier hidden follow-up hidden when a visible draft
   assert.deepEqual(
     draft?.hiddenDrafts?.map((hiddenDraft) => ({
       content: hiddenDraft.userMessage.content,
-      hidden: hiddenDraft.userMessage.hidden === true
+      hidden: hiddenDraft.userMessage.hidden === true,
+      hiddenRequestKind: hiddenDraft.userMessage.turnContext?.hiddenRequestKind
     })),
-    [{ content: 'hidden notice', hidden: true }]
+    [{ content: 'hidden notice', hidden: true, hiddenRequestKind: 'follow-up' }]
   )
 })
 
@@ -534,6 +584,10 @@ test('sendChatFlow does not expose hidden-only follow-up drafts as visible queue
   assert.equal(projectedSnapshot.thread.queuedFollowUpMessageId, undefined)
   assert.deepEqual(projectedSnapshot.messages, [])
   assert.equal(context.queuedFollowUpDrafts.get(thread.id)?.userMessage.hidden, true)
+  assert.equal(
+    context.queuedFollowUpDrafts.get(thread.id)?.userMessage.turnContext?.hiddenRequestKind,
+    'follow-up'
+  )
 })
 
 test('deleteQueuedFollowUpDraft preserves hidden notices attached to a visible draft', async () => {
@@ -737,6 +791,57 @@ test('cancelActiveRuns stops every user-visible active run', () => {
   assert.equal(runOneController.signal.aborted, true)
   assert.equal(runTwoController.signal.aborted, true)
   assert.equal(recapController.signal.aborted, false)
+})
+
+test('requestRecap skips when the latest run used plan mode', async () => {
+  let startRunCalled = false
+  const domain = new YachiyoServerRunDomain({
+    storage: {
+      listThreadRuns: () => [{ requestMessageId: 'user-plan' }],
+      startRun: () => {
+        startRunCalled = true
+      }
+    },
+    createId: () => 'id',
+    timestamp: () => '2026-05-02T00:00:00.000Z',
+    emit: () => {},
+    runInactivityTimeoutMs: 30_000,
+    auxiliaryGeneration: {},
+    createModelRuntime: () => ({}),
+    ensureThreadWorkspace: async () => '/tmp/yachiyo-test',
+    memoryService: {
+      hasHiddenSearchCapability: () => false,
+      isConfigured: () => false
+    },
+    readConfig: () => ({ enabledTools: [] }),
+    readSettings: () => ({
+      providerName: 'work',
+      provider: 'openai',
+      model: 'gpt-5',
+      apiKey: 'sk-test',
+      baseUrl: 'https://api.openai.com/v1'
+    }),
+    listSkills: async () => [],
+    requireThread: (threadId: string) => ({
+      id: threadId,
+      title: 'Thread',
+      updatedAt: '2026-05-02T00:00:00.000Z'
+    }),
+    loadThreadMessages: () => [
+      { id: 'user-plan', turnContext: { runMode: 'plan' } },
+      { id: 'message-2' },
+      { id: 'message-3' },
+      { id: 'message-4' },
+      { id: 'message-5' },
+      { id: 'message-6' }
+    ],
+    loadThreadToolCalls: () => []
+  } as unknown as ConstructorParameters<typeof YachiyoServerRunDomain>[0])
+
+  const result = await domain.requestRecap({ threadId: 'thread-1' })
+
+  assert.equal(result, null)
+  assert.equal(startRunCalled, false)
 })
 
 test('startRecoveredRun restores the persisted run trigger instead of deriving from channel hint', () => {

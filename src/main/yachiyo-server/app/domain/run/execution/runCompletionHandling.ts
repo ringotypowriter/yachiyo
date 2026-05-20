@@ -42,6 +42,57 @@ interface HandleCompletedRunInput {
   toolLifecycle: RunToolLifecycleState
 }
 
+function collectToolResultIds(messages?: unknown[]): Set<string> {
+  const ids = new Set<string>()
+  if (!messages) return ids
+
+  for (const message of messages) {
+    const content = (message as { content?: unknown }).content
+    if (!Array.isArray(content)) continue
+    for (const part of content) {
+      const typed = part as { type?: string; toolCallId?: string }
+      if ((typed.type === 'tool-result' || typed.type === 'tool-error') && typed.toolCallId) {
+        ids.add(typed.toolCallId)
+      }
+    }
+  }
+
+  return ids
+}
+
+function sdkResponseMessagesIncludeFallbackToolResults(input: {
+  sdkResponseMessages?: unknown[]
+  fallbackResponseMessages?: unknown[]
+}): boolean {
+  const fallbackToolResultIds = collectToolResultIds(input.fallbackResponseMessages)
+  if (fallbackToolResultIds.size === 0) return true
+
+  const sdkToolResultIds = collectToolResultIds(input.sdkResponseMessages)
+  return [...fallbackToolResultIds].every((toolCallId) => sdkToolResultIds.has(toolCallId))
+}
+
+function selectCompletedResponseMessages(input: {
+  recoveredFromCheckpoint: boolean
+  sdkResponseMessages?: unknown[]
+  fallbackResponseMessages?: unknown[]
+}): unknown[] | undefined {
+  if (input.recoveredFromCheckpoint) {
+    return input.fallbackResponseMessages
+  }
+
+  if (
+    input.sdkResponseMessages &&
+    sdkResponseMessagesIncludeFallbackToolResults({
+      sdkResponseMessages: input.sdkResponseMessages,
+      fallbackResponseMessages: input.fallbackResponseMessages
+    })
+  ) {
+    return input.sdkResponseMessages
+  }
+
+  return input.fallbackResponseMessages ?? input.sdkResponseMessages
+}
+
 export async function handleCompletedRun(
   input: HandleCompletedRunInput
 ): Promise<ExecuteRunResult> {
@@ -101,11 +152,15 @@ async function persistCompletedRun(
   snapshot: RunCompletionOutputSnapshot
 ): Promise<ExecuteRunResult> {
   const timestamp = input.deps.timestamp()
-  const responseMessages = input.recoveredFromCheckpoint
-    ? snapshot.recoveryResponseMessages.length > 0
-      ? snapshot.recoveryResponseMessages
-      : undefined
-    : input.lastUsage?.responseMessages
+  const rawResponseMessages = selectCompletedResponseMessages({
+    recoveredFromCheckpoint: input.recoveredFromCheckpoint,
+    sdkResponseMessages: input.lastUsage?.responseMessages,
+    fallbackResponseMessages:
+      snapshot.recoveryResponseMessages.length > 0 ? snapshot.recoveryResponseMessages : undefined
+  })
+  const responseMessages = rawResponseMessages
+    ? balanceResponseMessages(rawResponseMessages)
+    : rawResponseMessages
   const assistantMessage = buildAssistantMessage({
     threadId: input.executionInput.thread.id,
     messageId: input.messageId,

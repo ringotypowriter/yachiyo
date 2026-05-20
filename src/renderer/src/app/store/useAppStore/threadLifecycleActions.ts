@@ -3,6 +3,10 @@ import {
   normalizeUserEnabledTools
 } from '../../../../../shared/yachiyo/protocol.ts'
 import { isModelImageCapable } from '../../../../../shared/yachiyo/providerConfig.ts'
+import {
+  isPlanModeExitRecord,
+  PLAN_MODE_EXIT_TOOL_NAME
+} from '../../../../../shared/yachiyo/planMode.ts'
 import { createServerEventBatcher } from '../serverEventBatcher.ts'
 import type { AppState } from '../useAppStore.ts'
 import {
@@ -306,6 +310,43 @@ export function createThreadLifecycleActions(input: {
             toolCalls: payload.toolCallsByThread
           }))
           set((state) => deriveActiveThreadRunState(state))
+
+          const planThreadIds = new Set([
+            ...Object.entries(payload.messagesByThread)
+              .filter(([, messages]) =>
+                messages.some(
+                  (message) => message.role === 'assistant' && isPlanModeExitRecord(message)
+                )
+              )
+              .map(([threadId]) => threadId),
+            ...Object.entries(payload.toolCallsByThread)
+              .filter(([, toolCalls]) =>
+                toolCalls.some(
+                  (toolCall) =>
+                    toolCall.toolName === PLAN_MODE_EXIT_TOOL_NAME &&
+                    toolCall.status === 'completed'
+                )
+              )
+              .map(([threadId]) => threadId)
+          ])
+          if (planThreadIds.size > 0) {
+            const entries = await Promise.all(
+              [...planThreadIds].map(async (threadId) => {
+                try {
+                  const plan = await window.api.yachiyo.readThreadPlanDocument({ threadId })
+                  return [threadId, { ...plan, updatedAt: new Date().toISOString() }] as const
+                } catch {
+                  return null
+                }
+              })
+            )
+            set((state) => ({
+              planDocumentsByThread: {
+                ...state.planDocumentsByThread,
+                ...Object.fromEntries(entries.filter((entry) => entry !== null))
+              }
+            }))
+          }
 
           const initialActiveThreadId = get().activeThreadId
           if (initialActiveThreadId && window.api?.yachiyo?.loadThreadData) {

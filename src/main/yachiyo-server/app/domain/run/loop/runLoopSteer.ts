@@ -143,15 +143,31 @@ export function handleCancelledWithSteerResult(
     }
     const queuedRequestMessage = userMessages.findLast((message) => message.hidden !== true)
     if (queuedRequestMessage) {
-      const queuedThread: ThreadRecord = {
-        ...updatedThread,
-        queuedFollowUpMessageId: queuedRequestMessage.id
-      }
       const queuedSteerInput = steerInputs.find(
         (steerInput) => steerInput.messageId === queuedRequestMessage.id
       )
+      const queuedEnabledTools =
+        queuedSteerInput?.enabledTools ??
+        input.activeRun.enabledTools ??
+        input.loopInput.enabledTools
+      const queuedEnabledSkillNames =
+        queuedSteerInput?.enabledSkillNames ??
+        input.activeRun.enabledSkillNames ??
+        input.loopInput.enabledSkillNames
+      const queuedThread: ThreadRecord = {
+        ...updatedThread,
+        queuedFollowUpEnabledTools: [...queuedEnabledTools],
+        queuedFollowUpMessageId: queuedRequestMessage.id
+      }
+      if (queuedEnabledSkillNames !== undefined) {
+        queuedThread.queuedFollowUpEnabledSkillNames = [...queuedEnabledSkillNames]
+      } else {
+        delete queuedThread.queuedFollowUpEnabledSkillNames
+      }
       if (queuedSteerInput?.reasoningEffort !== undefined) {
         queuedThread.queuedFollowUpReasoningEffort = queuedSteerInput.reasoningEffort
+      } else {
+        delete queuedThread.queuedFollowUpReasoningEffort
       }
       context.deps.storage.updateThread(queuedThread)
     }

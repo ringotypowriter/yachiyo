@@ -399,6 +399,72 @@ test('buildMessageGroups attaches hidden steer continuations to the previous vis
   assert.deepEqual(group?.hiddenRequestMessageIds, ['hidden-background-notice'])
 })
 
+test('buildMessageGroups treats hidden follow-up continuations as a separate assistant group', () => {
+  const groups = buildMessageGroups({
+    thread: {
+      id: 'thread-1',
+      title: 'Thread',
+      updatedAt: TIMESTAMP,
+      headMessageId: 'assistant-after-hidden-follow-up'
+    },
+    messages: [
+      {
+        id: 'user-1',
+        threadId: 'thread-1',
+        role: 'user',
+        content: 'Visible request',
+        status: 'completed',
+        createdAt: TIMESTAMP
+      },
+      {
+        id: 'assistant-before-hidden-follow-up',
+        threadId: 'thread-1',
+        role: 'assistant',
+        parentMessageId: 'user-1',
+        content: 'Initial visible answer',
+        status: 'completed',
+        createdAt: '2026-03-15T00:00:01.000Z'
+      },
+      {
+        id: 'hidden-follow-up',
+        threadId: 'thread-1',
+        role: 'user',
+        parentMessageId: 'assistant-before-hidden-follow-up',
+        content: '[Background task completed]',
+        hidden: true,
+        turnContext: { hiddenRequestKind: 'follow-up' },
+        status: 'completed',
+        createdAt: '2026-03-15T00:00:02.000Z'
+      },
+      {
+        id: 'assistant-after-hidden-follow-up',
+        threadId: 'thread-1',
+        role: 'assistant',
+        parentMessageId: 'hidden-follow-up',
+        content: 'Follow-up visible answer',
+        status: 'completed',
+        createdAt: '2026-03-15T00:00:03.000Z'
+      }
+    ],
+    runPhase: 'idle',
+    activeRequestMessageId: null
+  })
+
+  assert.equal(groups.length, 2)
+  assert.equal(groups[0]?.userMessage.id, 'user-1')
+  assert.deepEqual(
+    groups[0]?.activeAssistantMessages.map((message) => message.id),
+    ['assistant-before-hidden-follow-up']
+  )
+  assert.deepEqual(groups[0]?.hiddenRequestMessageIds, [])
+  assert.equal(groups[1]?.userMessage.id, 'hidden-follow-up')
+  assert.equal(groups[1]?.userMessage.hidden, true)
+  assert.deepEqual(
+    groups[1]?.activeAssistantMessages.map((message) => message.id),
+    ['assistant-after-hidden-follow-up']
+  )
+})
+
 test('buildMessageGroups includes streaming assistant output for an active hidden steer', () => {
   const [group] = buildMessageGroups({
     thread: {

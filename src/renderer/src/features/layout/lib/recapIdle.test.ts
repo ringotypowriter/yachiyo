@@ -19,6 +19,7 @@ function baseInput(overrides: Partial<RecapEligibilityInput> = {}): RecapEligibi
     isExternalThread: false,
     isAcpThread: false,
     hasActiveRun: false,
+    latestRunIsPlanMode: false,
     isEditingMessage: false,
     messageCount: 10,
     lastPromptTokens: 0,
@@ -83,6 +84,11 @@ test('skips for acp threads', () => {
 
 test('skips when a run is active', () => {
   const decision = computeRecapDecision(baseInput({ hasActiveRun: true }))
+  assert.deepEqual(decision, { action: 'skip' })
+})
+
+test('skips when the latest run used plan mode', () => {
+  const decision = computeRecapDecision(baseInput({ latestRunIsPlanMode: true }))
   assert.deepEqual(decision, { action: 'skip' })
 })
 

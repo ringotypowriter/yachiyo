@@ -66,6 +66,7 @@ import {
   type UpdateTodoListToolContext
 } from './agentTools/updateTodoListTool.ts'
 import type { YachiyoStorage } from '../storage/storage.ts'
+import { createPlanExitTool } from '../app/domain/run/plan/planWriteTool.ts'
 
 export type {
   AgentToolMetadata,
@@ -140,6 +141,8 @@ export interface AgentToolDependencies {
   askUserContext?: AskUserToolContext
   /** When provided, updateTodoList drives the persistent composer todo widget. */
   todoContext?: UpdateTodoListToolContext
+  /** Internal gate for Plan Mode's exit tool; the schema stays registered either way. */
+  planModeExitEnabled?: boolean
   /** Extra tools merged into the tool set (e.g. schedule-only tools). */
   extraTools?: ToolSet
 }
@@ -454,29 +457,38 @@ export function normalizeToolResult(
  * short-circuits with a "disabled" error. The schema stays registered in
  * the API request regardless, keeping the prompt cache prefix stable.
  */
+function disabledToolExecute<TOutput>(toolName: string): () => Promise<TOutput> {
+  return async () =>
+    ({
+      content: [
+        {
+          type: 'text',
+          text: `Tool "${toolName}" is currently disabled. Do not retry this tool until told it is re-enabled.`
+        }
+      ],
+      details: {},
+      metadata: { blocked: true },
+      error: `Tool "${toolName}" is disabled.`
+    }) as unknown as TOutput
+}
+
+function wrapToolEnabled<TInput, TOutput>(
+  realTool: Tool<TInput, TOutput>,
+  toolName: string,
+  enabled: boolean
+): Tool<TInput, TOutput> {
+  if (enabled) return realTool
+  return Object.assign(Object.create(null), realTool, {
+    execute: disabledToolExecute<TOutput>(toolName)
+  }) as Tool<TInput, TOutput>
+}
+
 function wrapDisabledTool<TInput, TOutput>(
   realTool: Tool<TInput, TOutput>,
   toolName: string,
   enabledTools: Set<ToolCallName>
 ): Tool<TInput, TOutput> {
-  if (enabledTools.has(toolName as ToolCallName)) {
-    return realTool
-  }
-  const disabledExecute = async (): Promise<TOutput> =>
-    ({
-      content: [
-        {
-          type: 'text',
-          text: `Tool "${toolName}" is currently disabled by the user. Do not retry this tool until told it is re-enabled.`
-        }
-      ],
-      details: {},
-      metadata: { blocked: true },
-      error: `Tool "${toolName}" is disabled by the user.`
-    }) as unknown as TOutput
-  return Object.assign(Object.create(null), realTool, {
-    execute: disabledExecute
-  }) as Tool<TInput, TOutput>
+  return wrapToolEnabled(realTool, toolName, enabledTools.has(toolName as ToolCallName))
 }
 
 export function createAgentToolSet(
@@ -609,6 +621,12 @@ export function createAgentToolSet(
   if (dependencies.todoContext) {
     tools.updateTodoList = createUpdateTodoListTool(dependencies.todoContext)
   }
+
+  tools.exitPlanMode = wrapToolEnabled(
+    createPlanExitTool(),
+    'exitPlanMode',
+    dependencies.planModeExitEnabled === true
+  )
 
   if (dependencies.extraTools) {
     Object.assign(tools, dependencies.extraTools)

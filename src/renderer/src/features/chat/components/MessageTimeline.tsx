@@ -2,7 +2,7 @@ import React, { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef }
 import { useVirtualizer as useTanStackVirtualizer } from '@tanstack/react-virtual'
 import { useShallow } from 'zustand/react/shallow'
 import { Waypoints } from 'lucide-react'
-import { useAppStore } from '@renderer/app/store/useAppStore'
+import { useAppStore, type PlanDocumentState } from '@renderer/app/store/useAppStore'
 import type { Message, RunRecord, ToolCall } from '@renderer/app/types'
 import { useAppDialog, type AppConfirmOptions } from '@renderer/components/AppDialogContext'
 import { theme } from '@renderer/theme/theme'
@@ -11,6 +11,13 @@ import {
   type InlineCodeFileLinkSnapshot
 } from '@renderer/lib/markdown/inlineCodeFileLinkSnapshot'
 import { getThreadCapabilities } from '../../../../../shared/yachiyo/protocol.ts'
+import {
+  isPlanDocumentMessage,
+  isPlanModeExitRecord,
+  PLAN_MODE_EXIT_PHRASE,
+  PLAN_MODE_EXIT_TOOL_NAME,
+  stripPlanDocumentMarker
+} from '../../../../../shared/yachiyo/planMode.ts'
 import { TimelineScrollbar } from './TimelineScrollbar'
 import {
   buildMessageGroups,
@@ -50,6 +57,7 @@ import {
 } from '../lib/messageActionState'
 import { MessageActionBar } from './MessageActionBar'
 import { RunStatsFooter } from './RunStatsFooter'
+import { PlanDocumentCard } from './PlanDocumentCard'
 
 interface MessageTimelineProps {
   threadId: string | null
@@ -74,11 +82,14 @@ interface TimelineItemRenderContext {
   retryInfo?: { attempt: number; maxAttempts: number; error: string }
   runs: RunRecord[]
   toolCalls: ToolCall[]
+  planDocument: PlanDocumentState | null
   threadId: string | null
   workspacePath?: string
   inlineCodeFileLinks: InlineCodeFileLinkSnapshot
   cancelRunForThread: (threadId: string) => Promise<void>
   revertPendingSteer: () => Promise<void>
+  acceptPlanDocument: (threadId: string) => Promise<void>
+  rejectPlanDocument: (threadId: string) => Promise<void>
   onEdit: (messageId: string) => void
   onCreateBranch: (messageId: string) => Promise<void>
   onRetry: (messageId: string) => Promise<void>
@@ -226,6 +237,8 @@ function renderTimelineItem(
     inlineCodeFileLinks,
     cancelRunForThread,
     revertPendingSteer,
+    acceptPlanDocument,
+    rejectPlanDocument,
     onEdit,
     onCreateBranch,
     onRetry,
@@ -253,6 +266,10 @@ function renderTimelineItem(
   }
 
   if (item.kind === 'tool') {
+    if (item.data.toolName === PLAN_MODE_EXIT_TOOL_NAME) {
+      return renderPlanDocumentCard()
+    }
+
     return <ToolCallRow toolCall={item.data} workspacePath={workspacePath} />
   }
 
@@ -276,6 +293,10 @@ function renderTimelineItem(
       )
     }
 
+    if (isPlanModeExitRecord(item.data)) {
+      return renderPlanDocumentCard()
+    }
+
     return (
       <div data-message-id={item.key}>
         {item.data.reasoning ? (
@@ -285,11 +306,19 @@ function renderTimelineItem(
             startedAt={item.data.createdAt}
           />
         ) : null}
-        <AssistantMessageBubble
-          message={item.data}
-          inlineCodeFileLinks={inlineCodeFileLinks}
-          workspacePath={workspacePath}
-        />
+        {isPlanDocumentMessage(item.data.content) ? (
+          <PlanDocumentCard
+            content={stripPlanDocumentMarker(item.data.content)}
+            decision="accepted"
+            inlineCodeFileLinks={inlineCodeFileLinks}
+          />
+        ) : (
+          <AssistantMessageBubble
+            message={item.data}
+            inlineCodeFileLinks={inlineCodeFileLinks}
+            workspacePath={workspacePath}
+          />
+        )}
       </div>
     )
   }
@@ -337,6 +366,52 @@ function renderTimelineItem(
     isActiveGroup && activeSubagents.length === 1 && threadId
       ? () => void cancelRunForThread(threadId)
       : undefined
+
+  function renderPlanDocumentCard(): React.JSX.Element | null {
+    if (!context.planDocument) return null
+
+    if (context.planDocument.decision === 'rejected') {
+      return (
+        <div className="px-6 py-1">
+          <div
+            className="text-[11px]"
+            style={{
+              color: theme.text.muted,
+              background: theme.background.surfaceMuted,
+              border: `1px solid ${theme.border.subtle}`,
+              borderRadius: 10,
+              padding: '8px 10px'
+            }}
+          >
+            Plan rejected. Send revision notes to continue.
+          </div>
+        </div>
+      )
+    }
+
+    return (
+      <PlanDocumentCard
+        path={context.planDocument.path}
+        content={context.planDocument.content}
+        decision={context.planDocument.decision ?? 'pending'}
+        inlineCodeFileLinks={inlineCodeFileLinks}
+        onAccept={
+          threadId
+            ? () => {
+                void acceptPlanDocument(threadId)
+              }
+            : undefined
+        }
+        onReject={
+          threadId
+            ? () => {
+                void rejectPlanDocument(threadId)
+              }
+            : undefined
+        }
+      />
+    )
+  }
 
   if (item.kind === 'group-user') {
     return (
@@ -410,11 +485,14 @@ function renderTimelineItem(
       />
     )
   }
-
   if (item.kind === 'group-tool-call') {
+    if (item.toolCall.toolName === PLAN_MODE_EXIT_TOOL_NAME) {
+      const planCard = renderPlanDocumentCard()
+      if (planCard) return planCard
+    }
+
     return <ToolCallRow toolCall={item.toolCall} workspacePath={workspacePath} />
   }
-
   if (item.kind === 'group-tool-call-group') {
     return (
       <ToolCallGroupRow
@@ -426,6 +504,14 @@ function renderTimelineItem(
   }
 
   if (item.kind === 'group-assistant-text-block') {
+    if (item.textBlock.content.trim() === PLAN_MODE_EXIT_PHRASE && context.planDocument) {
+      return (
+        <div className="message-response-cluster" data-message-id={item.assistantMessage.id}>
+          {renderPlanDocumentCard()}
+        </div>
+      )
+    }
+
     return (
       <div className="message-response-cluster" data-message-id={item.assistantMessage.id}>
         <AssistantMessageBubble
@@ -553,6 +639,7 @@ export function MessageTimeline({ threadId, recapText }: MessageTimelineProps): 
     messages,
     pendingSteerEntry,
     toolCalls,
+    planDocument,
     runs,
     activeRunId,
     threadIsSaving,
@@ -567,6 +654,8 @@ export function MessageTimeline({ threadId, recapText }: MessageTimelineProps): 
     createBranch,
     deleteMessage,
     revertPendingSteer,
+    acceptPlanDocument,
+    rejectPlanDocument,
     retryMessage,
     selectReplyBranch,
     runPhase,
@@ -585,6 +674,7 @@ export function MessageTimeline({ threadId, recapText }: MessageTimelineProps): 
       messages: threadId ? (state.messages[threadId] ?? EMPTY_MESSAGES) : EMPTY_MESSAGES,
       pendingSteerEntry: threadId ? (state.pendingSteerMessages[threadId] ?? null) : null,
       toolCalls: threadId ? (state.toolCalls[threadId] ?? EMPTY_TOOL_CALLS) : EMPTY_TOOL_CALLS,
+      planDocument: threadId ? (state.planDocumentsByThread[threadId] ?? null) : null,
       runs: threadId ? (state.runsByThread[threadId] ?? EMPTY_RUNS) : EMPTY_RUNS,
       activeRunId: threadId ? (state.activeRunIdsByThread[threadId] ?? null) : null,
       threadIsSaving: threadId ? state.savingThreadIds.has(threadId) : false,
@@ -607,6 +697,8 @@ export function MessageTimeline({ threadId, recapText }: MessageTimelineProps): 
       createBranch: state.createBranch,
       deleteMessage: state.deleteMessage,
       revertPendingSteer: state.revertPendingSteer,
+      acceptPlanDocument: state.acceptPlanDocument,
+      rejectPlanDocument: state.rejectPlanDocument,
       retryMessage: state.retryMessage,
       selectReplyBranch: state.selectReplyBranch,
       runPhase: threadId ? (state.runPhasesByThread[threadId] ?? 'idle') : 'idle',
@@ -1185,11 +1277,14 @@ export function MessageTimeline({ threadId, recapText }: MessageTimelineProps): 
       retryInfo,
       runs,
       toolCalls,
+      planDocument,
       threadId,
       workspacePath,
       inlineCodeFileLinks,
       cancelRunForThread,
       revertPendingSteer,
+      acceptPlanDocument,
+      rejectPlanDocument,
       onEdit: handleEdit,
       onCreateBranch: handleCreateBranch,
       onRetry: handleRetry,
@@ -1206,11 +1301,14 @@ export function MessageTimeline({ threadId, recapText }: MessageTimelineProps): 
       retryInfo,
       runs,
       toolCalls,
+      planDocument,
       threadId,
       workspacePath,
       inlineCodeFileLinks,
       cancelRunForThread,
       revertPendingSteer,
+      acceptPlanDocument,
+      rejectPlanDocument,
       handleEdit,
       handleCreateBranch,
       handleRetry,

@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import type { MessageRecord, ThreadRecord } from '../../../../../../shared/yachiyo/protocol.ts'
+import {
+  DEFAULT_ENABLED_TOOL_NAMES,
+  type MessageRecord,
+  type ThreadRecord
+} from '../../../../../../shared/yachiyo/protocol.ts'
 import {
   handleCancelledWithSteerResult,
   handleSteerPendingResult,
@@ -221,6 +225,117 @@ test('handleSteerPendingResult carries the active snapshot tracker through hidde
     assert.equal(result.carriedSnapshotTracker, snapshotTracker)
   }
   assert.deepEqual(markedRestorePoints, ['hidden-steer'])
+})
+
+test('handleCancelledWithSteerResult preserves queued visible steer tools after stop', () => {
+  let currentThread: ThreadRecord = {
+    id: 'thread-1',
+    title: 'Thread',
+    headMessageId: 'stopped-assistant',
+    updatedAt: '2026-05-02T00:00:00.000Z'
+  }
+  const savedMessages: MessageRecord[] = []
+  const updatedThreads: ThreadRecord[] = []
+
+  const context: RunLoopSteerContext = {
+    deps: {
+      createId: () => 'id',
+      timestamp: () => '2026-05-02T00:00:01.000Z',
+      requireThread: () => currentThread,
+      emit: () => {},
+      storage: {
+        saveThreadMessage: ({
+          message,
+          updatedThread
+        }: {
+          message: MessageRecord
+          updatedThread: ThreadRecord
+        }) => {
+          savedMessages.push(message)
+          currentThread = updatedThread
+        },
+        updateThread: (thread: ThreadRecord) => {
+          updatedThreads.push(thread)
+          currentThread = thread
+        }
+      }
+    } as unknown as RunLoopSteerContext['deps'],
+    createSendChatFlowContext: () =>
+      ({
+        deps: context.deps
+      }) as ReturnType<RunLoopSteerContext['createSendChatFlowContext']>,
+    createFollowUpQueueContext: () =>
+      ({
+        deps: {
+          requireThread: () => currentThread,
+          loadThreadMessages: () => savedMessages,
+          loadThreadToolCalls: () => [],
+          emit: () => {}
+        }
+      }) as unknown as ReturnType<RunLoopSteerContext['createFollowUpQueueContext']>
+  }
+
+  const activeRun = {
+    threadId: 'thread-1',
+    requestMessageId: 'user-start',
+    abortController: new AbortController(),
+    executionPhase: 'generating' as const,
+    updateHeadOnComplete: true,
+    pendingSteerInputs: [
+      {
+        content: 'continue with tools',
+        images: [],
+        attachments: [],
+        messageId: 'visible-steer',
+        timestamp: '2026-05-02T00:00:00.500Z',
+        enabledTools: DEFAULT_ENABLED_TOOL_NAMES,
+        enabledSkillNames: ['workspace-refactor'],
+        runMode: 'auto' as const,
+        reasoningEffort: 'high' as const
+      }
+    ]
+  }
+
+  const result = handleCancelledWithSteerResult(context, {
+    activeRun: activeRun as Parameters<typeof handleCancelledWithSteerResult>[1]['activeRun'],
+    loopInput: {
+      enabledTools: [],
+      runMode: 'chat',
+      requestMessageId: 'user-start',
+      runId: 'run-1',
+      runTrigger: 'local',
+      thread: currentThread,
+      updateHeadOnComplete: true
+    } as Parameters<typeof handleCancelledWithSteerResult>[1]['loopInput'],
+    result: {
+      kind: 'cancelled-with-steer',
+      stoppedMessageId: 'stopped-assistant',
+      steerInputs: [],
+      usage: undefined
+    }
+  })
+
+  assert.deepEqual(result, { kind: 'cancelled' })
+  assert.equal(currentThread.queuedFollowUpMessageId, 'visible-steer')
+  assert.deepEqual(currentThread.queuedFollowUpEnabledTools, DEFAULT_ENABLED_TOOL_NAMES)
+  assert.deepEqual(currentThread.queuedFollowUpEnabledSkillNames, ['workspace-refactor'])
+  assert.equal(currentThread.queuedFollowUpReasoningEffort, 'high')
+  assert.deepEqual(
+    updatedThreads.map((thread) => ({
+      queuedFollowUpEnabledSkillNames: thread.queuedFollowUpEnabledSkillNames,
+      queuedFollowUpEnabledTools: thread.queuedFollowUpEnabledTools,
+      queuedFollowUpMessageId: thread.queuedFollowUpMessageId,
+      queuedFollowUpReasoningEffort: thread.queuedFollowUpReasoningEffort
+    })),
+    [
+      {
+        queuedFollowUpEnabledSkillNames: ['workspace-refactor'],
+        queuedFollowUpEnabledTools: DEFAULT_ENABLED_TOOL_NAMES,
+        queuedFollowUpMessageId: 'visible-steer',
+        queuedFollowUpReasoningEffort: 'high'
+      }
+    ]
+  )
 })
 
 test('handleCancelledWithSteerResult does not queue hidden-only steers as follow-ups', () => {

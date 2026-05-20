@@ -114,6 +114,8 @@ export function reduceServerEvent(state: AppState, event: YachiyoServerEvent): P
     delete toolCalls[event.threadId]
     const todoListsByThread = { ...state.todoListsByThread }
     delete todoListsByThread[event.threadId]
+    const planDocumentsByThread = { ...state.planDocumentsByThread }
+    delete planDocumentsByThread[event.threadId]
     const subagentActiveIdsByThread = { ...state.subagentActiveIdsByThread }
     delete subagentActiveIdsByThread[event.threadId]
     const subagentProgressTimelineByThread = { ...state.subagentProgressTimelineByThread }
@@ -158,6 +160,7 @@ export function reduceServerEvent(state: AppState, event: YachiyoServerEvent): P
       subagentStateById,
       externalThreads,
       todoListsByThread,
+      planDocumentsByThread,
       toolCalls,
       threads
     }
@@ -324,6 +327,7 @@ export function reduceServerEvent(state: AppState, event: YachiyoServerEvent): P
         status: 'running',
         createdAt: event.timestamp,
         ...(event.requestMessageId ? { requestMessageId: event.requestMessageId } : {}),
+        ...(event.runMode ? { runMode: event.runMode } : {}),
         ...(prevRun?.promptTokens != null ? { promptTokens: prevRun.promptTokens } : {}),
         ...(prevRun?.completionTokens != null ? { completionTokens: prevRun.completionTokens } : {})
       }),
@@ -334,6 +338,7 @@ export function reduceServerEvent(state: AppState, event: YachiyoServerEvent): P
         status: 'running',
         createdAt: run?.createdAt ?? event.timestamp,
         ...(event.requestMessageId ? { requestMessageId: event.requestMessageId } : {}),
+        ...(event.runMode ? { runMode: event.runMode } : {}),
         recalledMemoryEntries: run?.recalledMemoryEntries,
         recallDecision: run?.recallDecision
       })),
@@ -682,6 +687,7 @@ export function reduceServerEvent(state: AppState, event: YachiyoServerEvent): P
         recalledMemoryEntries: existingLatestRun?.recalledMemoryEntries,
         recallDecision: existingLatestRun?.recallDecision,
         contextSources: existingLatestRun?.contextSources,
+        runMode: existingLatestRun?.runMode,
         completedAt: event.timestamp,
         ...(event.promptTokens !== undefined ? { promptTokens: event.promptTokens } : {}),
         ...(event.completionTokens !== undefined
@@ -704,6 +710,7 @@ export function reduceServerEvent(state: AppState, event: YachiyoServerEvent): P
         recalledMemoryEntries: run?.recalledMemoryEntries,
         recallDecision: run?.recallDecision,
         contextSources: run?.contextSources,
+        runMode: run?.runMode,
         completedAt: event.timestamp,
         ...(event.promptTokens !== undefined ? { promptTokens: event.promptTokens } : {}),
         ...(event.completionTokens !== undefined
@@ -776,6 +783,7 @@ export function reduceServerEvent(state: AppState, event: YachiyoServerEvent): P
         recalledMemoryEntries: existingLatestRun?.recalledMemoryEntries,
         recallDecision: existingLatestRun?.recallDecision,
         contextSources: existingLatestRun?.contextSources,
+        runMode: existingLatestRun?.runMode,
         completedAt: event.timestamp,
         ...(existingLatestRun?.promptTokens !== undefined
           ? { promptTokens: existingLatestRun.promptTokens }
@@ -801,6 +809,7 @@ export function reduceServerEvent(state: AppState, event: YachiyoServerEvent): P
         recalledMemoryEntries: run?.recalledMemoryEntries,
         recallDecision: run?.recallDecision,
         contextSources: run?.contextSources,
+        runMode: run?.runMode,
         completedAt: event.timestamp
       })),
       messages: pending
@@ -873,6 +882,7 @@ export function reduceServerEvent(state: AppState, event: YachiyoServerEvent): P
         recalledMemoryEntries: existingLatestRun?.recalledMemoryEntries,
         recallDecision: existingLatestRun?.recallDecision,
         contextSources: existingLatestRun?.contextSources,
+        runMode: existingLatestRun?.runMode,
         completedAt: event.timestamp,
         ...(existingLatestRun?.promptTokens !== undefined
           ? { promptTokens: existingLatestRun.promptTokens }
@@ -897,6 +907,7 @@ export function reduceServerEvent(state: AppState, event: YachiyoServerEvent): P
         recalledMemoryEntries: run?.recalledMemoryEntries,
         recallDecision: run?.recallDecision,
         contextSources: run?.contextSources,
+        runMode: run?.runMode,
         completedAt: event.timestamp
       })),
       messages: pending

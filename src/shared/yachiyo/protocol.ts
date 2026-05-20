@@ -164,7 +164,7 @@ export const CORE_TOOL_NAMES = [
   'skillsRead'
 ] as const
 export type ToolCallName = (typeof CORE_TOOL_NAMES)[number]
-export type SelectableRunModeId = 'auto' | 'explore' | 'chat'
+export type SelectableRunModeId = 'auto' | 'explore' | 'plan' | 'chat'
 export type RunModeId = SelectableRunModeId | 'custom'
 export type ToolCallStatus =
   | 'preparing'
@@ -277,7 +277,8 @@ const trackedToolNameSet = new Set<string>([
   'delegateCodingTask',
   'remember',
   'querySource',
-  'updateProfile'
+  'updateProfile',
+  'exitPlanMode'
 ])
 
 export function isTrackedToolName(value: string): boolean {
@@ -454,6 +455,8 @@ export interface MessageTurnContext {
   enabledTools?: ToolCallName[]
   enabledSkillNames?: string[]
   runMode?: RunModeId
+  /** Hidden user-message origin for timeline grouping. */
+  hiddenRequestKind?: 'steer' | 'follow-up'
 }
 
 export interface MessageRecord {
@@ -1086,6 +1089,7 @@ export interface RunRecord {
   cacheWriteTokens?: number
   modelId?: string
   providerName?: string
+  runMode?: RunModeId
   /** Number of files changed in this run's snapshot (0 or absent = no snapshot). */
   snapshotFileCount?: number
   /** Workspace path used for this run's snapshot. */
@@ -1206,6 +1210,19 @@ export interface CompactThreadInput {
 export interface SaveThreadInput {
   threadId: string
   archiveAfterSave?: boolean
+}
+
+export interface ReadThreadPlanDocumentInput {
+  threadId: string
+}
+
+export interface ReadThreadPlanDocumentResult {
+  path: string
+  content: string
+}
+
+export interface AcceptThreadPlanDocumentInput {
+  threadId: string
 }
 
 export interface RetryAccepted {

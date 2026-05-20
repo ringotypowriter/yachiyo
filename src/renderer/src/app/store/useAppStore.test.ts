@@ -65,6 +65,7 @@ function resetStore(): void {
     threadListMode: 'active',
     threads: [],
     todoListsByThread: {},
+    planDocumentsByThread: {},
     toolCalls: {}
   })
 }
@@ -129,6 +130,102 @@ function installAnimationFrameMock(): void {
     callback(0)
   }
 }
+
+test('rejectPlanDocument only marks the plan rejected', async () => {
+  resetStore()
+
+  const sendChatInputs: unknown[] = []
+  const restoreWindow = withWindowApiMock({
+    sendChat: async (input) => {
+      sendChatInputs.push(input)
+      throw new Error('reject should not send chat')
+    }
+  })
+
+  try {
+    useAppStore.setState({
+      planDocumentsByThread: {
+        'thread-plan': {
+          path: '.yachiyo/plan-abcxyz.md',
+          content: '# Execution Plan',
+          updatedAt: TIMESTAMP,
+          decision: 'pending'
+        }
+      }
+    })
+
+    await useAppStore.getState().rejectPlanDocument('thread-plan')
+
+    assert.equal(useAppStore.getState().planDocumentsByThread['thread-plan']?.decision, 'rejected')
+    assert.deepEqual(sendChatInputs, [])
+  } finally {
+    restoreWindow()
+  }
+})
+
+test('sendMessage with a pending plan sends visible revision feedback in plan mode', async () => {
+  resetStore()
+
+  const sendChatInputs: Array<{ content?: string; hidden?: boolean; runMode?: string }> = []
+  const restoreWindow = withWindowApiMock({
+    sendChat: async (input) => {
+      sendChatInputs.push(input)
+      return {
+        kind: 'run-started',
+        runId: 'run-revise',
+        thread: {
+          id: 'thread-plan',
+          title: 'Plan thread',
+          updatedAt: TIMESTAMP
+        },
+        userMessage: {
+          id: 'user-revise',
+          threadId: 'thread-plan',
+          role: 'user',
+          content: input.content,
+          status: 'completed',
+          createdAt: TIMESTAMP
+        }
+      }
+    }
+  })
+
+  try {
+    useAppStore.setState({
+      activeThreadId: 'thread-plan',
+      runMode: 'auto',
+      threads: [{ id: 'thread-plan', title: 'Plan thread', updatedAt: TIMESTAMP }],
+      composerDrafts: {
+        'thread-plan': {
+          text: 'Please tighten validation steps.',
+          images: [],
+          files: [],
+          enabledSkillNames: null
+        }
+      },
+      planDocumentsByThread: {
+        'thread-plan': {
+          path: '.yachiyo/plan-abcxyz.md',
+          content: '# Execution Plan',
+          updatedAt: TIMESTAMP,
+          decision: 'pending'
+        }
+      }
+    })
+
+    const sent = await useAppStore.getState().sendMessage()
+
+    assert.equal(sent, true)
+    assert.equal(sendChatInputs.length, 1)
+    assert.equal(sendChatInputs[0]?.content, 'Please tighten validation steps.')
+    assert.equal(sendChatInputs[0]?.hidden, undefined)
+    assert.equal(sendChatInputs[0]?.runMode, 'plan')
+    assert.equal(useAppStore.getState().planDocumentsByThread['thread-plan']?.decision, 'rejected')
+    assert.equal(useAppStore.getState().composerDrafts['thread-plan'], undefined)
+  } finally {
+    restoreWindow()
+  }
+})
 
 test('deleteThread shows global processing before invoking the database action', async () => {
   resetStore()

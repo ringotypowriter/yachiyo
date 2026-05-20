@@ -783,6 +783,243 @@ test('executeServerRun completes the launch tool call when background bash start
   }
 })
 
+test('executeServerRun persists exitPlanMode as a complete tool-call pair', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'yachiyo-plan-exit-pair-'))
+  const thread: ThreadRecord = {
+    id: 'thread-plan-exit',
+    title: 'Thread',
+    workspacePath: root,
+    updatedAt: '2026-04-28T00:00:00.000Z'
+  }
+  const requestMessage: MessageRecord = {
+    id: 'msg-plan-exit',
+    threadId: thread.id,
+    role: 'user',
+    content: 'plan it',
+    status: 'completed',
+    createdAt: '2026-04-28T00:00:00.000Z'
+  }
+  const events: unknown[] = []
+  const toolCalls = new Map<string, ToolCallRecord>()
+  let completedAssistantMessage: MessageRecord | undefined
+  const baseDeps = createRunContextDeps({
+    events,
+    messages: [requestMessage],
+    workspacePath: root
+  })
+  const storage: RunExecutionDeps['storage'] = {
+    ...baseDeps.storage,
+    updateMessage: () => {},
+    getChannelUser: () => undefined,
+    persistResponseMessagesRepairInBackground: () => {},
+    listThreadRuns: () => [],
+    upsertRunRecoveryCheckpoint: () => {},
+    deleteRunRecoveryCheckpoint: () => {},
+    createToolCall: (toolCall: ToolCallRecord) => {
+      toolCalls.set(toolCall.id, toolCall)
+    },
+    updateToolCall: (toolCall: ToolCallRecord) => {
+      toolCalls.set(toolCall.id, toolCall)
+    },
+    listThreadToolCalls: () => [...toolCalls.values()],
+    completeRun: (input: { assistantMessage: MessageRecord }) => {
+      completedAssistantMessage = input.assistantMessage
+    },
+    cancelRun: () => {},
+    failRun: () => {},
+    saveThreadMessage: () => {},
+    updateRunSnapshot: () => {}
+  }
+  const deps: RunExecutionDeps = {
+    ...baseDeps,
+    storage,
+    loadThreadToolCalls: () => [...toolCalls.values()],
+    createModelRuntime: () => ({
+      streamReply: async function* (request) {
+        const toolCall = {
+          type: 'tool-call',
+          dynamic: true,
+          toolCallId: 'tc-exit-plan',
+          toolName: 'exitPlanMode',
+          input: { ready: true }
+        }
+
+        request.onToolCallStart?.({
+          abortSignal: request.signal,
+          messages: request.messages,
+          toolCall
+        } as never)
+
+        request.onToolCallFinish?.({
+          abortSignal: request.signal,
+          durationMs: 0,
+          experimental_context: undefined,
+          functionId: undefined,
+          metadata: undefined,
+          model: undefined,
+          messages: request.messages,
+          output: {
+            content: [
+              {
+                type: 'text' as const,
+                text: 'Plan Mode exited. The UI will display the current plan document.'
+              }
+            ]
+          },
+          stepNumber: undefined,
+          success: true,
+          toolCall
+        } as never)
+
+        yield ''
+        request.onFinish?.({
+          promptTokens: 1,
+          completionTokens: 1,
+          totalPromptTokens: 1,
+          totalCompletionTokens: 1
+        })
+      }
+    })
+  }
+
+  try {
+    const result = await executeServerRun(deps, {
+      enabledTools: [],
+      runMode: 'plan',
+      inactivityTimeoutMs: 30_000,
+      runTrigger: 'local',
+      runId: 'run-plan-exit',
+      thread,
+      requestMessageId: requestMessage.id,
+      abortController: new AbortController(),
+      updateHeadOnComplete: true,
+      previousEnabledTools: null,
+      previousRunMode: null
+    })
+
+    assert.equal(result.kind, 'completed')
+    const responseMessages = completedAssistantMessage?.responseMessages as
+      | Array<{
+          role: string
+          content: Array<{ type: string; toolCallId?: string; toolName?: string }>
+        }>
+      | undefined
+    assert.ok(responseMessages, 'responseMessages should be persisted')
+    assert.equal(responseMessages[0]?.role, 'assistant')
+    assert.deepEqual(responseMessages[0]?.content[0], {
+      type: 'tool-call',
+      toolCallId: 'tc-exit-plan',
+      toolName: 'exitPlanMode',
+      input: { ready: true }
+    })
+    assert.equal(responseMessages[1]?.role, 'tool')
+    assert.equal(responseMessages[1]?.content[0]?.type, 'tool-result')
+    assert.equal(responseMessages[1]?.content[0]?.toolCallId, 'tc-exit-plan')
+    assert.equal(responseMessages[1]?.content[0]?.toolName, 'exitPlanMode')
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('executeServerRun lets auto runs recover from disabled exitPlanMode results', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'yachiyo-disabled-plan-exit-'))
+  const thread: ThreadRecord = {
+    id: 'thread-disabled-plan-exit',
+    title: 'Thread',
+    workspacePath: root,
+    updatedAt: '2026-04-28T00:00:00.000Z'
+  }
+  const requestMessage: MessageRecord = {
+    id: 'msg-disabled-plan-exit',
+    threadId: thread.id,
+    role: 'user',
+    content: 'answer normally',
+    status: 'completed',
+    createdAt: '2026-04-28T00:00:00.000Z'
+  }
+  let completedAssistantMessage: MessageRecord | undefined
+  const baseDeps = createRunContextDeps({
+    events: [],
+    messages: [requestMessage],
+    workspacePath: root
+  })
+  const storage: RunExecutionDeps['storage'] = {
+    ...baseDeps.storage,
+    upsertRunRecoveryCheckpoint: () => {},
+    deleteRunRecoveryCheckpoint: () => {},
+    createToolCall: () => {},
+    updateToolCall: () => {},
+    listThreadToolCalls: () => [],
+    completeRun: (input: { assistantMessage: MessageRecord }) => {
+      completedAssistantMessage = input.assistantMessage
+    },
+    cancelRun: () => {},
+    failRun: () => {},
+    saveThreadMessage: () => {},
+    updateRunSnapshot: () => {}
+  }
+  const deps: RunExecutionDeps = {
+    ...baseDeps,
+    storage,
+    loadThreadToolCalls: () => [],
+    createModelRuntime: () => ({
+      streamReply: async function* (request) {
+        const disabledOutput = { error: 'disabled', metadata: { blocked: true } }
+        const conditions = Array.isArray(request.stopWhen)
+          ? request.stopWhen
+          : request.stopWhen
+            ? [request.stopWhen]
+            : []
+        const stopResults = await Promise.all(
+          conditions.map((condition) =>
+            condition({
+              steps: [
+                {
+                  toolResults: [
+                    {
+                      toolName: 'exitPlanMode',
+                      output: disabledOutput
+                    }
+                  ]
+                }
+              ]
+            } as never)
+          )
+        )
+        if (stopResults.some(Boolean)) return
+
+        yield 'Recovered answer'
+        request.onFinish?.({
+          promptTokens: 1,
+          completionTokens: 1,
+          totalPromptTokens: 1,
+          totalCompletionTokens: 1
+        })
+      }
+    })
+  }
+
+  try {
+    await executeServerRun(deps, {
+      enabledTools: [],
+      runMode: 'auto',
+      inactivityTimeoutMs: 30_000,
+      runTrigger: 'local',
+      runId: 'run-disabled-plan-exit',
+      thread,
+      requestMessageId: requestMessage.id,
+      abortController: new AbortController(),
+      updateHeadOnComplete: true,
+      previousEnabledTools: null,
+      previousRunMode: null
+    })
+
+    assert.equal(completedAssistantMessage?.content, 'Recovered answer')
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
 test('executeServerRun keeps background bash launch completion separate from task exit race', async () => {
   const root = await mkdtemp(join(tmpdir(), 'yachiyo-bg-race-'))
   const thread: ThreadRecord = {

@@ -13,6 +13,7 @@ import type {
   ToolCallUpdatedEvent
 } from '../../../../../../shared/yachiyo/protocol.ts'
 import { isTrackedToolName } from '../../../../../../shared/yachiyo/protocol.ts'
+import { PLAN_MODE_EXIT_TOOL_NAME } from '../../../../../../shared/yachiyo/planMode.ts'
 import { createRunPerfCollector } from '../../../../services/perfMonitor.ts'
 import type { ModelUsage } from '../../../../runtime/models/types.ts'
 import { RetryableRunError } from '../../../../runtime/models/runtimeErrors.ts'
@@ -48,6 +49,47 @@ function throwIfAborted(signal: AbortSignal): void {
   const error = new Error('Aborted')
   error.name = 'AbortError'
   throw error
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null
+}
+
+function hasToolFailureMarker(value: unknown): boolean {
+  if (!isRecord(value)) {
+    return false
+  }
+
+  if (value.type === 'tool-error') {
+    return true
+  }
+
+  if (value.error) {
+    return true
+  }
+
+  const metadata = value.metadata
+  return isRecord(metadata) && metadata.blocked === true
+}
+
+function getToolResultOutput(toolResult: Record<string, unknown>): unknown {
+  if ('output' in toolResult) {
+    return toolResult.output
+  }
+
+  if ('result' in toolResult) {
+    return toolResult.result
+  }
+
+  return undefined
+}
+
+function isSuccessfulPlanModeExitToolResult(toolResult: unknown): boolean {
+  if (!isRecord(toolResult) || toolResult.toolName !== PLAN_MODE_EXIT_TOOL_NAME) {
+    return false
+  }
+
+  return !hasToolFailureMarker(toolResult) && !hasToolFailureMarker(getToolResultOutput(toolResult))
 }
 
 export async function executeServerRun(
@@ -312,11 +354,19 @@ export async function executeServerRun(
       ? [
           stepCountIs(maxToolSteps),
           ({ steps }) => {
+            const latestToolResults = steps.at(-1)?.toolResults ?? []
+            if (
+              input.runMode === 'plan' &&
+              latestToolResults.some(isSuccessfulPlanModeExitToolResult)
+            ) {
+              return true
+            }
+
             if (!hasPendingSteer?.()) {
               return false
             }
 
-            return (steps.at(-1)?.toolResults.length ?? 0) > 0
+            return latestToolResults.length > 0
           }
         ]
       : undefined

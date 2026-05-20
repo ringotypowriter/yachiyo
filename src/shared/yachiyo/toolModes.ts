@@ -24,6 +24,15 @@ const EXPLORE_MODE_TOOL_NAMES: readonly ToolCallName[] = [
   'webSearch'
 ]
 
+const PLAN_MODE_TOOL_NAMES: readonly ToolCallName[] = [
+  'read',
+  'grep',
+  'glob',
+  'webRead',
+  'webSearch',
+  'write'
+]
+
 export const RUN_MODE_DEFINITIONS: Record<SelectableRunModeId, RunModeDefinition> = {
   auto: {
     id: 'auto',
@@ -41,6 +50,15 @@ export const RUN_MODE_DEFINITIONS: Record<SelectableRunModeId, RunModeDefinition
     enabledTools: EXPLORE_MODE_TOOL_NAMES,
     seasoningKey: 'explore'
   },
+  plan: {
+    id: 'plan',
+    label: 'Plan Mode',
+    shortLabel: 'Plan',
+    description:
+      'Draft a concrete plan first. I’ll explore, ask questions, and write it into a plan document you can accept or reject.',
+    enabledTools: PLAN_MODE_TOOL_NAMES,
+    seasoningKey: 'plan'
+  },
   chat: {
     id: 'chat',
     label: 'Chat Mode',
@@ -51,7 +69,12 @@ export const RUN_MODE_DEFINITIONS: Record<SelectableRunModeId, RunModeDefinition
   }
 }
 
-export const SELECTABLE_RUN_MODE_IDS: readonly SelectableRunModeId[] = ['auto', 'explore', 'chat']
+export const SELECTABLE_RUN_MODE_IDS: readonly SelectableRunModeId[] = [
+  'auto',
+  'explore',
+  'plan',
+  'chat'
+]
 
 function sameToolSet(left: readonly ToolCallName[], right: readonly ToolCallName[]): boolean {
   if (left.length !== right.length) return false
@@ -76,7 +99,11 @@ export function deriveRunModeId(enabledTools: unknown): RunModeId {
 }
 
 export function normalizeRunModeId(value: unknown, fallback: RunModeId = 'auto'): RunModeId {
-  return value === 'auto' || value === 'explore' || value === 'chat' || value === 'custom'
+  return value === 'auto' ||
+    value === 'explore' ||
+    value === 'plan' ||
+    value === 'chat' ||
+    value === 'custom'
     ? value
     : fallback
 }
@@ -87,7 +114,12 @@ export function resolveRunModeId(input: {
   fallbackEnabledTools?: readonly ToolCallName[]
   fallbackRunMode?: RunModeId
 }): RunModeId {
-  if (input.runMode === 'auto' || input.runMode === 'explore' || input.runMode === 'chat') {
+  if (
+    input.runMode === 'auto' ||
+    input.runMode === 'explore' ||
+    input.runMode === 'plan' ||
+    input.runMode === 'chat'
+  ) {
     return input.runMode
   }
 

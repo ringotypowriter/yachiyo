@@ -719,6 +719,12 @@ export function registerYachiyoGateway(): YachiyoServer {
       .openThreadWorkspace(input)
       .then((workspacePath) => openThreadWorkspace(input.threadId, workspacePath))
   )
+  handleYachiyoIpc(IPC_CHANNELS.readThreadPlanDocument, (input: { threadId: string }) =>
+    server!.readThreadPlanDocument(input)
+  )
+  handleYachiyoIpc(IPC_CHANNELS.acceptThreadPlanDocument, (input: { threadId: string }) =>
+    server!.acceptThreadPlanDocument(input)
+  )
   handleYachiyoIpc(IPC_CHANNELS.listDiscoveredApps, () => discoverApps())
   handleYachiyoIpc(
     IPC_CHANNELS.openWorkspaceWithApp,

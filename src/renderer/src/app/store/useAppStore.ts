@@ -30,6 +30,10 @@ import {
   type ThreadRuntimeBinding
 } from '../../../../shared/yachiyo/protocol.ts'
 import {
+  isPlanModeExitRecord,
+  PLAN_MODE_EXIT_TOOL_NAME
+} from '../../../../shared/yachiyo/planMode.ts'
+import {
   canCompactThreadToAnotherThread,
   isOwnerDmThread,
   isExternalThread
@@ -54,6 +58,7 @@ import {
   loadCollapsedFolderIds,
   loadSidebarFilter,
   removePendingSteerMessage,
+  replaceMessage,
   setThreadRunPhaseValue,
   setThreadRunStatusValue,
   shouldShowNotification,
@@ -191,6 +196,13 @@ export interface TodoListState {
   updatedAt: string
 }
 
+export interface PlanDocumentState {
+  path: string
+  content: string
+  updatedAt: string
+  decision?: 'pending' | 'rejected' | 'accepted'
+}
+
 export interface AppState {
   activeToasts: AppToast[]
   queuedToasts: AppToast[]
@@ -213,6 +225,8 @@ export interface AppState {
   availableSkills: SkillCatalogEntry[]
   cancelRunForThread: (threadId: string) => Promise<void>
   compactThreadToAnotherThread: () => Promise<void>
+  acceptPlanDocument: (threadId: string) => Promise<void>
+  rejectPlanDocument: (threadId: string) => Promise<void>
   composerDrafts: Record<string, ComposerDraft>
   reasoningEffortByThread: Record<string, ComposerReasoningSelection>
   createBranch: (messageId: string) => Promise<void>
@@ -284,6 +298,7 @@ export interface AppState {
   toggleSidebarFilterFolderOnly: () => void
   clearSidebarFilter: () => void
   todoListsByThread: Record<string, TodoListState>
+  planDocumentsByThread: Record<string, PlanDocumentState>
   toolCalls: Record<string, ToolCall[]>
   /** Snapshot review info per run, set by snapshot.ready events. */
   snapshotReviewByRun: Record<
@@ -437,6 +452,107 @@ export const useAppStore = create<AppState>((set, get) => ({
       set({ lastError: message })
       throw new Error(message)
     }
+  },
+  acceptPlanDocument: async (threadId) => {
+    const currentState = get()
+    const planDocument = currentState.planDocumentsByThread[threadId]
+    if (!planDocument) {
+      const message = 'No plan document is available for this thread yet.'
+      set({ lastError: message })
+      throw new Error(message)
+    }
+
+    try {
+      const accepted = await window.api.yachiyo.acceptThreadPlanDocument({ threadId })
+      if (!accepted.runId) {
+        throw new Error('Plan acceptance did not start a run.')
+      }
+      if (!('userMessage' in accepted)) {
+        throw new Error('Plan acceptance did not create an execution message.')
+      }
+      const acceptedUserMessage = accepted.userMessage
+
+      set((state) => {
+        const planDocumentsByThread = {
+          ...state.planDocumentsByThread,
+          [threadId]: {
+            ...planDocument,
+            decision: 'accepted' as const
+          }
+        }
+
+        const nextState = {
+          ...state,
+          planDocumentsByThread,
+          activeRequestMessageIdsByThread: {
+            ...state.activeRequestMessageIdsByThread,
+            [accepted.thread.id]: acceptedUserMessage.id
+          },
+          activeRunIdsByThread: {
+            ...state.activeRunIdsByThread,
+            [accepted.thread.id]: accepted.runId
+          },
+          activeThreadId: accepted.thread.id,
+          lastError: null,
+          runPhasesByThread: setThreadRunPhaseValue(
+            state.runPhasesByThread,
+            accepted.thread.id,
+            'preparing'
+          ),
+          runStatusesByThread: setThreadRunStatusValue(
+            state.runStatusesByThread,
+            accepted.thread.id,
+            'running'
+          ),
+          ...withFilterBase(state.sidebarFilter, 'all'),
+          messages: {
+            ...state.messages,
+            [accepted.thread.id]: replaceMessage(
+              state.messages[accepted.thread.id] ?? [],
+              acceptedUserMessage
+            )
+          },
+          toolCalls: {
+            ...state.toolCalls,
+            [accepted.thread.id]: state.toolCalls[accepted.thread.id] ?? []
+          },
+          threads: upsertThread(state.threads, accepted.thread)
+        }
+
+        return {
+          ...nextState,
+          ...deriveActiveThreadRunState(nextState)
+        }
+      })
+    } catch (error) {
+      const rawMessage = error instanceof Error ? error.message : 'Unable to accept this plan.'
+      const message = rawMessage.replace(
+        /^Error invoking remote method 'yachiyo:accept-thread-plan-document': Error: /,
+        ''
+      )
+      set({ lastError: message })
+      throw new Error(message)
+    }
+  },
+  rejectPlanDocument: async (threadId) => {
+    const currentState = get()
+    const planDocument = currentState.planDocumentsByThread[threadId]
+    if (!planDocument) {
+      const message = 'No plan document is available for this thread yet.'
+      set({ lastError: message })
+      throw new Error(message)
+    }
+
+    set((state) => ({
+      lastError: null,
+      planDocumentsByThread: {
+        ...state.planDocumentsByThread,
+        [threadId]: {
+          ...planDocument,
+          decision: 'rejected' as const
+        }
+      }
+    }))
   },
   createBranch: async (messageId) => {
     const threadId = get().activeThreadId
@@ -823,6 +939,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   threadListMode: deriveThreadListMode(loadSidebarFilter()),
   sidebarFilter: loadSidebarFilter(),
   todoListsByThread: {},
+  planDocumentsByThread: {},
   toolCalls: {},
   snapshotReviewByRun: {},
   clearSnapshotReview: (runId) =>
@@ -1013,6 +1130,54 @@ export const useAppStore = create<AppState>((set, get) => ({
             : `${event.agentName} finished`
         )
       }
+    }
+
+    if (
+      event.type === 'tool.updated' &&
+      event.toolCall.toolName === PLAN_MODE_EXIT_TOOL_NAME &&
+      event.toolCall.status === 'completed'
+    ) {
+      void (async () => {
+        try {
+          const plan = await window.api.yachiyo.readThreadPlanDocument({ threadId: event.threadId })
+          set((state) => ({
+            planDocumentsByThread: {
+              ...state.planDocumentsByThread,
+              [event.threadId]: {
+                ...plan,
+                updatedAt: event.timestamp,
+                decision: 'pending' as const
+              }
+            }
+          }))
+        } catch {
+          // Ignore missing plan files or read errors.
+        }
+      })()
+    }
+
+    if (
+      event.type === 'message.completed' &&
+      event.message.role === 'assistant' &&
+      isPlanModeExitRecord(event.message)
+    ) {
+      void (async () => {
+        try {
+          const plan = await window.api.yachiyo.readThreadPlanDocument({ threadId: event.threadId })
+          set((state) => ({
+            planDocumentsByThread: {
+              ...state.planDocumentsByThread,
+              [event.threadId]: {
+                ...plan,
+                updatedAt: event.timestamp,
+                decision: 'pending' as const
+              }
+            }
+          }))
+        } catch {
+          // Ignore missing plan files or read errors.
+        }
+      })()
     }
 
     set((state) => reduceServerEvent(state, event))

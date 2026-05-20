@@ -27,6 +27,9 @@ import type {
   ResolvedFileReference,
   SaveThreadInput,
   SaveThreadResult,
+  ReadThreadPlanDocumentInput,
+  ReadThreadPlanDocumentResult,
+  AcceptThreadPlanDocumentInput,
   ScheduleRecord,
   ScheduleRunRecord,
   SearchWorkspaceFilesInput,
@@ -111,6 +114,10 @@ declare global {
         deleteMessage: (input: { threadId: string; messageId: string }) => Promise<ThreadSnapshot>
         editMessage: (input: EditMessageInput) => Promise<ChatAccepted>
         openThreadWorkspace: (input: { threadId: string }) => Promise<void>
+        readThreadPlanDocument: (
+          input: ReadThreadPlanDocumentInput
+        ) => Promise<ReadThreadPlanDocumentResult>
+        acceptThreadPlanDocument: (input: AcceptThreadPlanDocumentInput) => Promise<ChatAccepted>
         pickCodexSessionFile: () => Promise<string | null>
         pickWorkspaceDirectory: () => Promise<string | null>
         createFolderForThreads: (input: { threadIds: string[] }) => Promise<FolderRecord>

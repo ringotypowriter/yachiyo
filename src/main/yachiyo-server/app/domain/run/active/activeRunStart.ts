@@ -119,7 +119,8 @@ export function startRecoveredRun(
       runId: checkpoint.runId,
       requestMessageId: checkpoint.requestMessageId,
       runTrigger: checkpoint.runTrigger
-    })
+    }),
+    runMode
   })
   context.deps.emit<MessageStartedEvent>({
     type: 'message.started',

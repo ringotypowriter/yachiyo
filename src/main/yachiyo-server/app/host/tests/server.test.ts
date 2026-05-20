@@ -15,6 +15,7 @@ import type {
   UserDocument,
   YachiyoServerEvent
 } from '../../../../../shared/yachiyo/protocol.ts'
+import { PLAN_DOCUMENT_MARKER } from '../../../../../shared/yachiyo/planMode.ts'
 
 function assertAcceptedHasUserMessage(
   accepted: ChatAccepted
@@ -866,4 +867,73 @@ test('YachiyoServer skips automatic memory recall when disabled', async () => {
       }
     }
   )
+})
+
+test('YachiyoServer.acceptThreadPlanDocument creates an execution thread seeded with the plan document', async () => {
+  await withServer(async ({ server, storage, completeRun, workspacePathForThread }) => {
+    const sourceThread = await server.createThread()
+    const sourceThreadWithIcon = await server.setThreadIcon({
+      threadId: sourceThread.id,
+      icon: '🧪'
+    })
+
+    const workspacePath = workspacePathForThread(sourceThread.id)
+    await mkdir(join(workspacePath, '.yachiyo'), { recursive: true })
+
+    const planFilename = 'plan-abcdef.md'
+    const planPath = join(workspacePath, '.yachiyo', planFilename)
+    const planCurrentPath = join(workspacePath, '.yachiyo', 'plan.current')
+
+    const planContent = ['# Build Blog Generator', '', '## Goal', 'Ship it.', ''].join('\n')
+    await writeFile(planCurrentPath, `${planFilename}\n`, 'utf8')
+    await writeFile(planPath, planContent, 'utf8')
+
+    const accepted = await server.acceptThreadPlanDocument({ threadId: sourceThread.id })
+    assertAcceptedHasUserMessage(accepted)
+
+    await completeRun(accepted.runId)
+
+    const destinationMessages = storage.listThreadMessages(accepted.thread.id)
+    const planMessage = destinationMessages.find(
+      (message) => message.role === 'assistant' && message.content.startsWith(PLAN_DOCUMENT_MARKER)
+    )
+    assert.ok(planMessage)
+    assert.ok(planMessage.content.includes(planContent))
+
+    assert.equal(accepted.thread.handoffFromThreadId, sourceThread.id)
+    assert.equal(accepted.thread.workspacePath, workspacePath)
+    assert.equal(accepted.thread.title, 'Build Blog Generator')
+    assert.equal(accepted.thread.icon, sourceThreadWithIcon.icon)
+    assert.equal(accepted.userMessage.parentMessageId, planMessage.id)
+    assert.notEqual(accepted.userMessage.hidden, true)
+    assert.equal(accepted.userMessage.content, 'Execute the accepted plan.')
+  })
+})
+
+test('YachiyoServer.acceptThreadPlanDocument returns the existing handoff for concurrent accepts', async () => {
+  await withServer(async ({ server, storage, workspacePathForThread }) => {
+    const sourceThread = await server.createThread()
+    const workspacePath = workspacePathForThread(sourceThread.id)
+    await mkdir(join(workspacePath, '.yachiyo'), { recursive: true })
+
+    const planFilename = 'plan-abcdef.md'
+    await writeFile(join(workspacePath, '.yachiyo', 'plan.current'), `${planFilename}\n`, 'utf8')
+    await writeFile(join(workspacePath, '.yachiyo', planFilename), '# Execution Plan\n', 'utf8')
+
+    const [firstAccepted, secondAccepted] = await Promise.all([
+      server.acceptThreadPlanDocument({ threadId: sourceThread.id }),
+      server.acceptThreadPlanDocument({ threadId: sourceThread.id })
+    ])
+    assertAcceptedHasUserMessage(firstAccepted)
+    assertAcceptedHasUserMessage(secondAccepted)
+
+    const destinationThreads = storage
+      .bootstrap()
+      .threads.filter((thread) => thread.handoffFromThreadId === sourceThread.id)
+
+    assert.equal(destinationThreads.length, 1)
+    assert.equal(secondAccepted.thread.id, firstAccepted.thread.id)
+    assert.equal(secondAccepted.runId, firstAccepted.runId)
+    assert.equal(secondAccepted.userMessage.id, firstAccepted.userMessage.id)
+  })
 })

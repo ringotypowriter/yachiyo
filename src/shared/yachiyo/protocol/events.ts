@@ -4,6 +4,7 @@ import type {
   ProviderSettings,
   RecallDecisionSnapshot,
   RunContextSourceSummary,
+  RunModeId,
   SendChatRunTrigger,
   SettingsConfig,
   ThreadRecord,
@@ -67,6 +68,7 @@ export interface ThreadDeletedEvent extends ThreadEvent {
 
 export interface RunCreatedEvent extends RunEvent {
   type: 'run.created'
+  runMode?: RunModeId
 }
 
 export interface RunMemoryRecalledEvent extends RunEvent {

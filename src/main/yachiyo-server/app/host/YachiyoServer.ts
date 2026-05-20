@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
-import { join } from 'node:path'
+import { readFile } from 'node:fs/promises'
+import { join, resolve } from 'node:path'
 
 import type {
   BootstrapPayload,
@@ -28,6 +29,9 @@ import type {
   RunRecord,
   SaveThreadInput,
   SaveThreadResult,
+  ReadThreadPlanDocumentInput,
+  ReadThreadPlanDocumentResult,
+  AcceptThreadPlanDocumentInput,
   ScheduleRecord,
   ScheduleRunRecord,
   SearchWorkspaceFilesInput,
@@ -47,6 +51,7 @@ import type {
   ThreadSnapshot,
   ThreadStateReplacedEvent,
   ThreadUpdatedEvent,
+  MessageCompletedEvent,
   ChannelsConfig,
   ChannelGroupHistoryClearCompletedEvent,
   ChannelGroupHistoryClearFailedEvent,
@@ -132,8 +137,10 @@ import {
 } from '../domain/images/remoteImageDomain.ts'
 import {
   hasMessagePayload,
-  normalizeMessageImages
+  normalizeMessageImages,
+  summarizeMessagePreview
 } from '../../../../shared/yachiyo/messageContent.ts'
+import { PLAN_DOCUMENT_MARKER } from '../../../../shared/yachiyo/planMode.ts'
 import {
   formatConversationSummary,
   formatOwnerDmTakeoverContext,
@@ -162,11 +169,43 @@ import { projectVisibleRunEvent, type YachiyoServerEventPayload } from './runEve
 import { createSqliteYachiyoServerOptions } from './sqliteFactoryOptions.ts'
 import type { SqliteYachiyoServerOptions, YachiyoServerOptions } from './options.ts'
 
+const PLAN_EXECUTION_USER_MESSAGE = 'Execute the accepted plan.'
+
+function stripMarkdownInline(value: string): string {
+  return value
+    .replace(/[`*_~]/g, '')
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
+    .trim()
+}
+
+function derivePlanExecutionThreadTitle(planContent: string, sourceThread: ThreadRecord): string {
+  const heading = planContent
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .find((line) => /^#{1,3}\s+\S/.test(line))
+
+  const planTitle = heading ? stripMarkdownInline(heading.replace(/^#{1,3}\s+/, '')) : ''
+  if (planTitle) return planTitle.slice(0, 80)
+
+  const sourceTitle = sourceThread.title.trim()
+  if (sourceTitle && !isDefaultNewChatThread(sourceThread)) return sourceTitle.slice(0, 80)
+
+  return 'Accepted Plan'
+}
+
+function getPlanAcceptanceKey(plan: ReadThreadPlanDocumentResult): string {
+  return `${plan.path}\u0000${plan.content}`
+}
+
 export class YachiyoServer {
   private readonly storage: YachiyoStorage
   private readonly now: () => Date
   private readonly createId: () => string
   private readonly listeners = new Set<(event: YachiyoServerEvent) => void>()
+  private readonly planAcceptancesBySourceThreadId = new Map<
+    string,
+    { key: string; promise: Promise<ChatAccepted> }
+  >()
   private readonly activeChannelGroupHistoryClears = new Set<string>()
   private readonly retiredGroupProbeThreadIdsByGroup = new Map<string, Set<string>>()
   private readonly auxiliaryGeneration: import('../../runtime/models/auxiliaryGeneration.ts').AuxiliaryGenerationService
@@ -680,6 +719,124 @@ export class YachiyoServer {
     return openThreadWorkspacePath({
       ensureThreadWorkspace: defaultEnsureThreadWorkspace,
       thread: this.requireThread(input.threadId)
+    })
+  }
+
+  async readThreadPlanDocument(
+    input: ReadThreadPlanDocumentInput
+  ): Promise<ReadThreadPlanDocumentResult> {
+    const thread = this.requireThread(input.threadId)
+    const workspacePath = thread.workspacePath?.trim()
+      ? resolve(thread.workspacePath)
+      : await this.ensureThreadWorkspacePath(thread.id)
+
+    const planDir = join(workspacePath, '.yachiyo')
+    const current = await readFile(join(planDir, 'plan.current'), 'utf8').catch(() => null)
+    const filename = current?.trim() ?? ''
+
+    if (!/^plan-[a-z]{6,12}\.md$/i.test(filename)) {
+      throw new Error('No Plan Mode document is available for this thread yet.')
+    }
+
+    const path = join(planDir, filename)
+    const content = await readFile(path, 'utf8')
+    return { path, content }
+  }
+
+  async acceptThreadPlanDocument(input: AcceptThreadPlanDocumentInput): Promise<ChatAccepted> {
+    const sourceThread = this.requireThread(input.threadId)
+
+    if (sourceThread.source && sourceThread.source !== 'local') {
+      throw new Error('Plan acceptance is only supported for local threads.')
+    }
+
+    if (this.runDomain.hasActiveThread(sourceThread.id)) {
+      throw new Error('Cannot accept a plan while the source thread has an active run.')
+    }
+
+    const plan = await this.readThreadPlanDocument({ threadId: sourceThread.id })
+    const key = getPlanAcceptanceKey(plan)
+    const existingAcceptance = this.planAcceptancesBySourceThreadId.get(sourceThread.id)
+    if (existingAcceptance?.key === key) {
+      return existingAcceptance.promise
+    }
+
+    const promise = this.startPlanAcceptance(sourceThread, plan)
+    this.planAcceptancesBySourceThreadId.set(sourceThread.id, { key, promise })
+
+    try {
+      return await promise
+    } catch (error) {
+      if (this.planAcceptancesBySourceThreadId.get(sourceThread.id)?.promise === promise) {
+        this.planAcceptancesBySourceThreadId.delete(sourceThread.id)
+      }
+      throw error
+    }
+  }
+
+  private async startPlanAcceptance(
+    sourceThread: ThreadRecord,
+    plan: ReadThreadPlanDocumentResult
+  ): Promise<ChatAccepted> {
+    const destinationThreadId = this.createId()
+    const destinationThread = await this.threadDomain.createThread({
+      threadId: destinationThreadId,
+      title: derivePlanExecutionThreadTitle(plan.content, sourceThread),
+      ...(sourceThread.icon ? { icon: sourceThread.icon } : {}),
+      handoffFromThreadId: sourceThread.id,
+      workspacePath: sourceThread.workspacePath?.trim()
+        ? resolve(sourceThread.workspacePath)
+        : this.resolveThreadWorkspacePath(sourceThread.id),
+      ...(sourceThread.modelOverride ? { modelOverride: sourceThread.modelOverride } : {}),
+      ...(sourceThread.reasoningEffort ? { reasoningEffort: sourceThread.reasoningEffort } : {})
+    })
+
+    this.folderDomain.ensureFolderForDerivedThread({
+      sourceThread,
+      derivedThread: destinationThread
+    })
+
+    const timestamp = this.timestamp()
+    const planMessage: MessageRecord = {
+      id: this.createId(),
+      threadId: destinationThread.id,
+      role: 'assistant',
+      content: `${PLAN_DOCUMENT_MARKER}\n${plan.content}`,
+      status: 'completed',
+      createdAt: timestamp
+    }
+
+    const updatedThread: ThreadRecord = {
+      ...destinationThread,
+      headMessageId: planMessage.id,
+      preview: summarizeMessagePreview({ ...planMessage, content: plan.content }).slice(0, 240),
+      updatedAt: timestamp
+    }
+
+    this.storage.saveThreadMessage({
+      thread: destinationThread,
+      updatedThread,
+      message: planMessage
+    })
+
+    this.emit<MessageCompletedEvent>({
+      type: 'message.completed',
+      threadId: destinationThread.id,
+      runId: planMessage.id,
+      message: planMessage
+    })
+
+    this.emit<ThreadUpdatedEvent>({
+      type: 'thread.updated',
+      threadId: destinationThread.id,
+      thread: updatedThread
+    })
+
+    return this.runDomain.sendChat({
+      threadId: destinationThread.id,
+      runMode: 'auto',
+      hidden: false,
+      content: PLAN_EXECUTION_USER_MESSAGE
     })
   }
 

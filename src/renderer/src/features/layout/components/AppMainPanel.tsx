@@ -27,6 +27,7 @@ import { useAppDialog } from '@renderer/components/AppDialogContext'
 import { Tooltip } from '@renderer/components/Tooltip'
 import { theme } from '@renderer/theme/theme'
 import { isMemoryConfigured } from '../../../../../shared/yachiyo/protocol.ts'
+import { isLatestRunPlanMode } from '../../../../../shared/yachiyo/planMode.ts'
 
 const EMPTY: Message[] = []
 const EMPTY_FIND_MATCHES: FindMatch[] = []
@@ -93,17 +94,16 @@ export function AppMainPanel({
   const [findQuery, setFindQuery] = useState('')
   const [findCurrentIndex, setFindCurrentIndex] = useState(0)
   const shouldReadFindDocuments = findOpen && findQuery.trim().length >= 2
-  const messages = useAppStore((s) =>
-    shouldReadFindDocuments && activeThreadId ? (s.messages[activeThreadId] ?? EMPTY) : EMPTY
+  const threadMessages = useAppStore((s) =>
+    activeThreadId ? (s.messages[activeThreadId] ?? EMPTY) : EMPTY
   )
+  const messages = shouldReadFindDocuments ? threadMessages : EMPTY
   const renameThread = useAppStore((s) => s.renameThread)
   const restoreThread = useAppStore((s) => s.restoreThread)
   const threadListMode = useAppStore((s) => s.threadListMode)
   const threads = useAppStore((s) => s.threads)
   const isBootstrapping = useAppStore((s) => s.isBootstrapping)
-  const messageCount = useAppStore((s) =>
-    activeThreadId ? (s.messages[activeThreadId]?.length ?? 0) : 0
-  )
+  const messageCount = threadMessages.length
   const externalThreads = useAppStore((s) => s.externalThreads)
   const activeThread =
     threads.find((t) => t.id === activeThreadId) ??
@@ -111,6 +111,10 @@ export function AppMainPanel({
     null
   const config = useAppStore((s) => s.config)
   const latestRunsByThread = useAppStore((s) => s.latestRunsByThread)
+  const latestRunIsPlanMode = isLatestRunPlanMode({
+    latestRun: activeThreadId ? latestRunsByThread[activeThreadId] : null,
+    messages: threadMessages
+  })
   const contextPromptTokens = useAppStore((s) =>
     activeThreadId
       ? selectContextPromptTokens({
@@ -255,7 +259,7 @@ export function AppMainPanel({
 
   const recapText = useAppStore((s) => {
     if (!activeThreadId) return undefined
-    if (hasActiveRun) return undefined
+    if (hasActiveRun || latestRunIsPlanMode) return undefined
     return s.recapByThread[activeThreadId] ?? activeThread?.recapText
   })
   const isEditingMessage = useAppStore((s) => s.editingMessage != null)
@@ -267,6 +271,7 @@ export function AppMainPanel({
       isExternalThread: isExternalThread(activeThread),
       isAcpThread: activeThread.runtimeBinding?.kind === 'acp',
       hasActiveRun,
+      latestRunIsPlanMode,
       isEditingMessage,
       messageCount,
       lastPromptTokens: contextPromptTokens ?? 0,
@@ -285,13 +290,26 @@ export function AppMainPanel({
       if (s.config?.chat?.recapEnabled === false) return
       if (isExternalThread(thread)) return
       if (thread.runtimeBinding?.kind === 'acp') return
+      if (
+        isLatestRunPlanMode({
+          latestRun: s.latestRunsByThread[activeThreadId],
+          messages: s.messages[activeThreadId] ?? []
+        })
+      )
+        return
       if (s.recapByThread[activeThreadId] || thread.recapText) return
       void window.api.yachiyo
         .requestRecap({ threadId: activeThreadId })
         .then((text) => {
-          const currentHasActiveRun =
-            useAppStore.getState().runStatusesByThread[activeThreadId] === 'running'
-          if (currentHasActiveRun) return
+          const state = useAppStore.getState()
+          if (state.runStatusesByThread[activeThreadId] === 'running') return
+          if (
+            isLatestRunPlanMode({
+              latestRun: state.latestRunsByThread[activeThreadId],
+              messages: state.messages[activeThreadId] ?? []
+            })
+          )
+            return
           if (text) {
             useAppStore.setState((s) => ({
               recapByThread: { ...s.recapByThread, [activeThreadId]: text }
@@ -314,6 +332,7 @@ export function AppMainPanel({
     config?.chat?.recapEnabled,
     messageCount,
     hasActiveRun,
+    latestRunIsPlanMode,
     isEditingMessage,
     contextPromptTokens
   ])

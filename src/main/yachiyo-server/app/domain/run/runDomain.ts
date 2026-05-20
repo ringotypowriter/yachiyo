@@ -35,6 +35,7 @@ import type { BootstrapState, RunRecoveryCheckpoint } from '../../../storage/sto
 import { BackgroundBashManager } from '../background/backgroundBashManager.ts'
 import { resolveRunModeEnabledToolsForInput } from '../config/configDomain.ts'
 import { resolveRunModeId } from '../../../../../shared/yachiyo/toolModes.ts'
+import { isLatestRunPlanMode } from '../../../../../shared/yachiyo/planMode.ts'
 import { executeServerRun } from './execution/executeServerRun.ts'
 import type { ExecuteRunInput, ExecuteRunResult } from './execution/runExecutionTypes.ts'
 import { ReadRecordCache } from '../../../tools/agentTools.ts'
@@ -472,7 +473,8 @@ export class YachiyoServerRunDomain {
         runId: accepted.runId,
         requestMessageId: requestMessage.id,
         runTrigger: 'local'
-      })
+      }),
+      runMode
     })
 
     startActiveRun(this.createActiveRunStartContext(), {
@@ -517,7 +519,8 @@ export class YachiyoServerRunDomain {
         threadId: input.destinationThread.id,
         runId,
         runTrigger: 'local'
-      })
+      }),
+      runMode: 'auto'
     })
 
     startAssistantOnlyRun(this.createActiveRunStartContext(), {
@@ -542,8 +545,9 @@ export class YachiyoServerRunDomain {
       if (this.activeRunByThread.has(input.threadId)) return null
 
       const messages = this.deps.loadThreadMessages(input.threadId)
-      const lastPromptTokens =
-        this.deps.storage.listThreadRuns(input.threadId)[0]?.promptTokens ?? 0
+      const latestRun = this.deps.storage.listThreadRuns(input.threadId)[0]
+      if (isLatestRunPlanMode({ latestRun, messages })) return null
+      const lastPromptTokens = latestRun?.promptTokens ?? 0
       if (messages.length <= 5 && lastPromptTokens <= 32_000) return null
 
       const runId = this.deps.createId()

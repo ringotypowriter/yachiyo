@@ -15,6 +15,7 @@ export interface RecapEligibilityInput {
   isExternalThread: boolean
   isAcpThread: boolean
   hasActiveRun: boolean
+  latestRunIsPlanMode: boolean
   isEditingMessage: boolean
   messageCount: number
   lastPromptTokens: number
@@ -33,6 +34,7 @@ export function computeRecapDecision(input: RecapEligibilityInput): RecapDecisio
   if (input.isExternalThread) return { action: 'skip' }
   if (input.isAcpThread) return { action: 'skip' }
   if (input.hasActiveRun) return { action: 'skip' }
+  if (input.latestRunIsPlanMode) return { action: 'skip' }
   if (input.isEditingMessage) return { action: 'skip' }
   if (
     input.messageCount <= RECAP_MESSAGE_THRESHOLD &&

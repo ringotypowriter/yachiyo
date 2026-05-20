@@ -27,11 +27,20 @@ test('run mode definitions expose expected tool sets', () => {
     'webRead',
     'webSearch'
   ])
+  assert.deepEqual(resolveRunModeEnabledTools('plan'), [
+    'read',
+    'grep',
+    'glob',
+    'webRead',
+    'webSearch',
+    'write'
+  ])
   assert.deepEqual(resolveRunModeEnabledTools('chat'), [])
 })
 
 test('deriveRunModeId recognizes standard modes independent of tool order', () => {
   assert.equal(deriveRunModeId(['webSearch', 'glob', 'read', 'webRead', 'grep']), 'explore')
+  assert.equal(deriveRunModeId(['write', 'webSearch', 'glob', 'read', 'webRead', 'grep']), 'plan')
   assert.equal(deriveRunModeId(resolveRunModeEnabledTools('auto')), 'auto')
   assert.equal(deriveRunModeId([]), 'chat')
 })
@@ -43,7 +52,7 @@ test('deriveRunModeId preserves legacy custom tool sets', () => {
 test('normalizeRunModeId accepts only selectable run modes plus custom fallback', () => {
   assert.equal(normalizeRunModeId('explore'), 'explore')
   assert.equal(normalizeRunModeId('custom'), 'custom')
-  assert.equal(normalizeRunModeId('plan', 'chat'), 'chat')
+  assert.equal(normalizeRunModeId('plan', 'chat'), 'plan')
 })
 
 test('run mode definitions keep seasoning separate from tool availability', () => {

@@ -180,6 +180,7 @@ export class YachiyoServerThreadDomain {
       createdFromEssentialId?: string
       createdFromScheduleId?: string
       handoffFromThreadId?: string
+      icon?: string
       privacyMode?: boolean
       modelOverride?: ThreadModelOverride
       reasoningEffort?: ComposerReasoningSelection
@@ -195,7 +196,7 @@ export class YachiyoServerThreadDomain {
       id: input.threadId ?? this.deps.createId(),
       title: input.title ?? DEFAULT_THREAD_TITLE,
       updatedAt: timestamp,
-      ...(defaultIcon ? { icon: defaultIcon } : {}),
+      ...((input.icon ?? defaultIcon) ? { icon: input.icon ?? defaultIcon } : {}),
       ...(workspacePath ? { workspacePath } : {}),
       ...(input.source ? { source: input.source } : {}),
       ...(input.channelUserId ? { channelUserId: input.channelUserId } : {}),

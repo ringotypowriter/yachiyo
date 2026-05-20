@@ -40,6 +40,8 @@ export const IPC_CHANNELS = {
   listWebSearchBrowserImportSources: 'yachiyo:list-web-search-browser-import-sources',
   listSkills: 'yachiyo:list-skills',
   openThreadWorkspace: 'yachiyo:open-thread-workspace',
+  readThreadPlanDocument: 'yachiyo:read-thread-plan-document',
+  acceptThreadPlanDocument: 'yachiyo:accept-thread-plan-document',
   pickCodexSessionFile: 'yachiyo:pick-codex-session-file',
   pickWorkspaceDirectory: 'yachiyo:pick-workspace-directory',
   restoreThread: 'yachiyo:restore-thread',

@@ -60,90 +60,102 @@ export function createRunToolSet(input: CreateRunToolSetInput): ToolSet | undefi
     isLocalRunTrigger,
     isOwnerDm,
     modelEnabledTools,
-    workspacePath
+    workspacePath,
+    planModeDocument
   } = input.preparedContext
   const deps = input.deps
   const executionInput = input.executionInput
+  const toolContext = {
+    enabledTools: modelEnabledTools,
+    workspacePath,
+    sandboxed: isExternalChannel && !isOwnerDm,
+    snapshotTracker: input.snapshotTracker,
+    readRecordCache: executionInput.readRecordCache,
+    imageToTextService: deps.imageToTextService,
+    isModelImageCapable: deps.isModelImageCapable,
+    ...(planModeDocument
+      ? {
+          writeRestriction: {
+            absolutePath: planModeDocument.planAbsolutePath,
+            relativePath: planModeDocument.planRelativePath,
+            skipReadBeforeOverwrite: true
+          }
+        }
+      : {}),
+    ...(deps.onBackgroundBashStarted
+      ? {
+          onBackgroundBashStarted: async (task) => {
+            await deps.onBackgroundBashStarted?.({ ...task, threadId: executionInput.thread.id })
+          }
+        }
+      : {}),
+    ...(deps.onBackgroundBashAdopted
+      ? {
+          onBackgroundBashAdopted: async (task) => {
+            await deps.onBackgroundBashAdopted?.({ ...task, threadId: executionInput.thread.id })
+          }
+        }
+      : {})
+  }
 
-  return createAgentToolSet(
-    {
-      enabledTools: modelEnabledTools,
-      workspacePath,
-      sandboxed: isExternalChannel && !isOwnerDm,
-      snapshotTracker: input.snapshotTracker,
-      readRecordCache: executionInput.readRecordCache,
-      imageToTextService: deps.imageToTextService,
-      isModelImageCapable: deps.isModelImageCapable,
-      ...(deps.onBackgroundBashStarted
-        ? {
-            onBackgroundBashStarted: async (task) => {
-              await deps.onBackgroundBashStarted?.({ ...task, threadId: executionInput.thread.id })
-            }
-          }
-        : {}),
-      ...(deps.onBackgroundBashAdopted
-        ? {
-            onBackgroundBashAdopted: async (task) => {
-              await deps.onBackgroundBashAdopted?.({ ...task, threadId: executionInput.thread.id })
-            }
-          }
+  const extraTools: ToolSet | undefined = (() => {
+    const next = { ...((executionInput.extraTools as ToolSet | undefined) ?? {}) } as ToolSet
+    return Object.keys(next).length > 0 ? next : undefined
+  })()
+
+  return createAgentToolSet(toolContext, {
+    availableSkills,
+    fetchImpl: deps.webExternalFetchImpl ?? deps.fetchImpl,
+    loadBrowserSnapshot: deps.loadBrowserSnapshot,
+    searchService: deps.searchService,
+    memoryService: resolveToolMemoryService(input),
+    webSearchService: deps.webSearchService,
+    updateProfileDeps: {
+      userDocumentPath: isGuest ? resolveYachiyoUserPath(workspacePath) : resolveYachiyoUserPath(),
+      ...(isExternalChannel
+        ? { userDocumentMode: isGuest ? ('guest' as const) : ('owner' as const) }
         : {})
     },
-    {
-      availableSkills,
-      fetchImpl: deps.webExternalFetchImpl ?? deps.fetchImpl,
-      loadBrowserSnapshot: deps.loadBrowserSnapshot,
-      searchService: deps.searchService,
-      memoryService: resolveToolMemoryService(input),
-      webSearchService: deps.webSearchService,
-      updateProfileDeps: {
-        userDocumentPath: isGuest
-          ? resolveYachiyoUserPath(workspacePath)
-          : resolveYachiyoUserPath(),
-        ...(isExternalChannel
-          ? { userDocumentMode: isGuest ? ('guest' as const) : ('owner' as const) }
-          : {})
-      },
-      ...(!executionInput.thread.privacyMode &&
-      (!isExternalChannel || isOwnerDm) &&
-      deps.memoryService.isConfigured()
-        ? {
-            rememberDeps: {
-              memoryService: deps.memoryService,
-              workspacePath,
-              threadId: executionInput.thread.id
-            }
+    ...(!executionInput.thread.privacyMode &&
+    (!isExternalChannel || isOwnerDm) &&
+    deps.memoryService.isConfigured()
+      ? {
+          rememberDeps: {
+            memoryService: deps.memoryService,
+            workspacePath,
+            threadId: executionInput.thread.id
           }
-        : {}),
-      ...(!executionInput.thread.privacyMode && (!isExternalChannel || isOwnerDm)
-        ? {
-            activityOcrEnabled:
-              input.preparedContext.config.general?.activityTracking?.ocr?.enabled === true,
-            sourceQueryExecutor: deps.sourceQueryExecutor,
-            sourceQueryStorage: deps.storage
+        }
+      : {}),
+    ...(!executionInput.thread.privacyMode && (!isExternalChannel || isOwnerDm)
+      ? {
+          activityOcrEnabled:
+            input.preparedContext.config.general?.activityTracking?.ocr?.enabled === true,
+          sourceQueryExecutor: deps.sourceQueryExecutor,
+          sourceQueryStorage: deps.storage
+        }
+      : {}),
+    ...(isLocalRunTrigger ? { askUserContext: createAskUserContext(input) } : {}),
+    ...(isLocalRunTrigger ? { todoContext: createTodoContext(input) } : {}),
+    ...((gitCtx.hasGit || gitValidatedWorkspaces.length > 0) && enabledSubagentProfiles.length > 0
+      ? {
+          subagentProfiles: enabledSubagentProfiles,
+          availableWorkspaces: gitValidatedWorkspaces,
+          onSubagentProgress: (event: DelegateCodingTaskProgressEvent) => {
+            input.markProgress()
+            deps.onSubagentProgress?.(event)
+          },
+          onSubagentStarted: (event: DelegateCodingTaskStartedEvent) => {
+            handleSubagentStarted(input, event)
+          },
+          onSubagentFinished: (event: DelegateCodingTaskFinishedEvent) => {
+            handleSubagentFinished(input, event)
           }
-        : {}),
-      ...(isLocalRunTrigger ? { askUserContext: createAskUserContext(input) } : {}),
-      ...(isLocalRunTrigger ? { todoContext: createTodoContext(input) } : {}),
-      ...((gitCtx.hasGit || gitValidatedWorkspaces.length > 0) && enabledSubagentProfiles.length > 0
-        ? {
-            subagentProfiles: enabledSubagentProfiles,
-            availableWorkspaces: gitValidatedWorkspaces,
-            onSubagentProgress: (event: DelegateCodingTaskProgressEvent) => {
-              input.markProgress()
-              deps.onSubagentProgress?.(event)
-            },
-            onSubagentStarted: (event: DelegateCodingTaskStartedEvent) => {
-              handleSubagentStarted(input, event)
-            },
-            onSubagentFinished: (event: DelegateCodingTaskFinishedEvent) => {
-              handleSubagentFinished(input, event)
-            }
-          }
-        : {}),
-      ...(executionInput.extraTools ? { extraTools: executionInput.extraTools } : {})
-    }
-  )
+        }
+      : {}),
+    planModeExitEnabled: Boolean(planModeDocument),
+    ...(extraTools ? { extraTools } : {})
+  })
 }
 
 function createTodoContext(input: CreateRunToolSetInput): {

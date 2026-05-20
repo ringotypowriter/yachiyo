@@ -23,6 +23,10 @@ import type {
   ResolveFileReferencesInput,
   ResolvedFileReference,
   SaveThreadInput,
+  ReadThreadPlanDocumentInput,
+  ReadThreadPlanDocumentResult,
+  AcceptThreadPlanDocumentInput,
+  ChatAccepted,
   SettingsConfig,
   SendChatInput,
   ShowNotificationInput,
@@ -135,6 +139,12 @@ const api = {
     editMessage: (input: EditMessageInput) => ipcRenderer.invoke('yachiyo:edit-message', input),
     openThreadWorkspace: (input: { threadId: string }) =>
       ipcRenderer.invoke('yachiyo:open-thread-workspace', input),
+    readThreadPlanDocument: (
+      input: ReadThreadPlanDocumentInput
+    ): Promise<ReadThreadPlanDocumentResult> =>
+      ipcRenderer.invoke('yachiyo:read-thread-plan-document', input),
+    acceptThreadPlanDocument: (input: AcceptThreadPlanDocumentInput): Promise<ChatAccepted> =>
+      ipcRenderer.invoke('yachiyo:accept-thread-plan-document', input),
     pickCodexSessionFile: () => ipcRenderer.invoke('yachiyo:pick-codex-session-file'),
     pickWorkspaceDirectory: () => ipcRenderer.invoke('yachiyo:pick-workspace-directory'),
     createFolderForThreads: (input: { threadIds: string[] }): Promise<FolderRecord> =>

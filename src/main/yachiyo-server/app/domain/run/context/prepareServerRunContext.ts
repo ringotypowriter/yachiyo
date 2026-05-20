@@ -40,6 +40,7 @@ import {
   formatQueryReminder
 } from '../../../../runtime/context/queryReminder.ts'
 import { readChannelsConfig } from '../../../../runtime/config/channelsConfig.ts'
+import { buildPlanModeReminderSection, ensurePlanDocument } from '../plan/planModeContext.ts'
 import { preprocessImagesForNonVisionModel } from '../../../../runtime/context/contextLayers.ts'
 import { applyStripCompact } from '../../../../runtime/context/contextStripCompact.ts'
 import type { ModelMessage } from '../../../../runtime/models/types.ts'
@@ -119,6 +120,10 @@ export interface PreparedServerRunContext {
   messages: ModelMessage[]
   modelEnabledTools: ToolCallName[]
   maxToolSteps: number
+  planModeDocument?: {
+    planRelativePath: string
+    planAbsolutePath: string
+  }
   availableSkills: SkillCatalogEntry[]
   activeSkills: SkillSummary[]
   soulDocument: SoulDocument | null
@@ -212,6 +217,12 @@ export async function prepareServerRunContext(
       .loadThreadMessages(input.thread.id)
       .find((message) => message.id === input.requestMessageId && message.role === 'user')
   const requestIsHidden = requestMessage?.hidden === true
+
+  const planModeDocument =
+    input.runMode === 'plan' && requestMessage
+      ? await ensurePlanDocument({ workspacePath, goal: requestMessage.content })
+      : null
+
   const now = new Date()
   // Freeze the hint-layer timestamp to the request message's creation time so
   // retries and multi-step continuations produce byte-identical reminder text,
@@ -235,6 +246,7 @@ export async function prepareServerRunContext(
         : null,
       buildDisabledToolsReminderSection({ enabledTools: modelEnabledTools }),
       buildCurrentTimeSection(hintTime, { includeDate: !isLocalOrOwnerDm }),
+      planModeDocument ? buildPlanModeReminderSection(planModeDocument) : null,
       isVisibleSteerLeg ? buildSteerReminderSection() : null
     ].flatMap((section) => (section ? [section] : []))
   )
@@ -381,6 +393,7 @@ export async function prepareServerRunContext(
 
   if (input.persistTurnContext !== false && requestMessage) {
     const turnContext: MessageTurnContext = {
+      ...requestMessage.turnContext,
       ...(hiddenQueryReminder ? { reminder: hiddenQueryReminder } : {}),
       ...(memoryEntries.length > 0 ? { memoryEntries } : {}),
       ...(activityText ? { activityText } : {}),
@@ -570,6 +583,7 @@ export async function prepareServerRunContext(
     isOwnerDm,
     isLocalRunTrigger,
     hiddenQueryReminder,
+    ...(planModeDocument ? { planModeDocument } : {}),
     memoryEntries,
     ...(recallDecision ? { recallDecision } : {}),
     fileMentionCount: fileMentionResolution.mentions.length,

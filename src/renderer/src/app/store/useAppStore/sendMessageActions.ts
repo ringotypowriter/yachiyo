@@ -69,6 +69,20 @@ export function createSendMessageActions(input: {
         return false
       }
 
+      const planRevisionThreadId = (() => {
+        if (override || mode !== 'normal' || !currentState.activeThreadId) return null
+        const planDocument = currentState.planDocumentsByThread[currentState.activeThreadId]
+        return planDocument?.decision === 'pending' || planDocument?.decision === 'rejected'
+          ? currentState.activeThreadId
+          : null
+      })()
+      if (
+        planRevisionThreadId &&
+        currentState.planDocumentsByThread[planRevisionThreadId]?.decision === 'pending'
+      ) {
+        await get().rejectPlanDocument(planRevisionThreadId)
+      }
+
       const fingerprint = JSON.stringify({
         t: currentState.activeThreadId,
         m: mode,
@@ -92,7 +106,7 @@ export function createSendMessageActions(input: {
       }
       try {
         const enabledTools = currentState.enabledTools
-        const runMode = currentState.runMode
+        const runMode = planRevisionThreadId ? 'plan' : currentState.runMode
         const enabledSkillNames = override
           ? normalizeSkillNames(override.enabledSkillNames ?? currentState.config?.skills?.enabled)
           : resolveEffectiveEnabledSkillNames({
