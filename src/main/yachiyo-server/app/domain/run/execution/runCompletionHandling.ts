@@ -71,6 +71,26 @@ function sdkResponseMessagesIncludeFallbackToolResults(input: {
   return [...fallbackToolResultIds].every((toolCallId) => sdkToolResultIds.has(toolCallId))
 }
 
+function hasToolResponseParts(messages?: unknown[]): boolean {
+  if (!messages) return false
+
+  for (const message of messages) {
+    const role = (message as { role?: unknown }).role
+    if (role === 'tool') return true
+
+    const content = (message as { content?: unknown }).content
+    if (!Array.isArray(content)) continue
+    for (const part of content) {
+      const type = (part as { type?: unknown }).type
+      if (type === 'tool-call' || type === 'tool-result' || type === 'tool-error') {
+        return true
+      }
+    }
+  }
+
+  return false
+}
+
 function selectCompletedResponseMessages(input: {
   recoveredFromCheckpoint: boolean
   sdkResponseMessages?: unknown[]
@@ -80,17 +100,19 @@ function selectCompletedResponseMessages(input: {
     return input.fallbackResponseMessages
   }
 
+  const fallbackHasToolParts = hasToolResponseParts(input.fallbackResponseMessages)
   if (
     input.sdkResponseMessages &&
-    sdkResponseMessagesIncludeFallbackToolResults({
-      sdkResponseMessages: input.sdkResponseMessages,
-      fallbackResponseMessages: input.fallbackResponseMessages
-    })
+    (!fallbackHasToolParts ||
+      sdkResponseMessagesIncludeFallbackToolResults({
+        sdkResponseMessages: input.sdkResponseMessages,
+        fallbackResponseMessages: input.fallbackResponseMessages
+      }))
   ) {
     return input.sdkResponseMessages
   }
 
-  return input.fallbackResponseMessages ?? input.sdkResponseMessages
+  return fallbackHasToolParts ? input.fallbackResponseMessages : input.sdkResponseMessages
 }
 
 export async function handleCompletedRun(
