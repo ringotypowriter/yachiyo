@@ -55,7 +55,7 @@ export const SETTINGS_TABS: readonly SettingsTab[] = [
   },
   {
     id: 'source',
-    label: 'Source',
+    label: 'Sources',
     subTabs: [
       { id: 'memory', label: 'Memory' },
       { id: 'search', label: 'Search' },
