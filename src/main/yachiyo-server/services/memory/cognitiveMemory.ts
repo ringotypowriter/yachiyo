@@ -392,14 +392,8 @@ function tokenize(value: string): string[] {
   )
 }
 
-function buildQueryTerms(input: ActivateCognitiveRowsInput): string[] {
-  const base = [
-    input.userQuery,
-    input.thread.title,
-    input.thread.workspacePath ?? '',
-    ...input.history.slice(-2).map((message) => message.content)
-  ].join(' ')
-  const tokens = tokenize(base)
+function buildTextTerms(value: string): string[] {
+  const tokens = tokenize(value)
   const terms = new Set(tokens)
 
   for (let index = 0; index < tokens.length - 1; index += 1) {
@@ -407,6 +401,21 @@ function buildQueryTerms(input: ActivateCognitiveRowsInput): string[] {
   }
 
   return [...terms]
+}
+
+function buildQueryTerms(input: ActivateCognitiveRowsInput): string[] {
+  return buildTextTerms(
+    [
+      input.userQuery,
+      input.thread.title,
+      input.thread.workspacePath ?? '',
+      ...input.history.slice(-2).map((message) => message.content)
+    ].join(' ')
+  )
+}
+
+function scoreTermMatches(activationText: string, terms: string[]): number {
+  return terms.reduce((score, term) => score + (activationText.includes(term) ? 0.45 : 0), 0)
 }
 
 function scorePhraseMatches(row: CognitiveRow, queryText: string): number {
@@ -434,6 +443,8 @@ export function activateCognitiveRows(
   input: ActivateCognitiveRowsInput
 ): CognitiveRow[] {
   const terms = buildQueryTerms(input)
+  const directTerms = buildTextTerms(input.userQuery)
+  const directQueryText = normalizeLooseText(input.userQuery)
   const queryText = normalizeLooseText(
     [
       input.userQuery,
@@ -446,11 +457,11 @@ export function activateCognitiveRows(
     .filter((row) => row.status === 'active')
     .map((row) => {
       const activationText = row.activationText || buildActivationText(row)
-      const overlapScore = terms.reduce(
-        (score, term) => score + (activationText.includes(term) ? 0.45 : 0),
-        0
-      )
+      const directScore =
+        scoreTermMatches(activationText, directTerms) + scorePhraseMatches(row, directQueryText)
+      const overlapScore = scoreTermMatches(activationText, terms)
       return {
+        directScore,
         row,
         score:
           overlapScore +
@@ -459,7 +470,7 @@ export function activateCognitiveRows(
           row.confidence * 0.25
       }
     })
-    .filter((entry) => entry.score > 0.65)
+    .filter((entry) => entry.directScore > 0 && entry.score > 0.65)
     .sort(
       (left, right) =>
         right.score - left.score || left.row.updatedAt.localeCompare(right.row.updatedAt)

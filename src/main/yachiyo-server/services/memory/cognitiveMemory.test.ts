@@ -69,6 +69,73 @@ test('cognitive patches materialize relation rows with activation surfaces and e
   assert.match(next.rows[0]?.activationText ?? '', /context artifact/)
 })
 
+test('cognitive row activation ignores stale history when the current query has no direct match', () => {
+  const state = applyCognitivePatchToState(
+    createEmptyCognitiveMemoryState(),
+    {
+      operations: [
+        {
+          type: 'upsertRelation',
+          relation: 'external_repositories',
+          purpose: 'Track upstream repository maintenance.',
+          columns: ['local_path', 'upstream_remote', 'tracking_status', 'notes'],
+          evidence: evidence('m1')
+        },
+        {
+          type: 'upsertRow',
+          relation: 'external_repositories',
+          key: 'sample_upstream',
+          values: {
+            local_path: 'sample-project',
+            upstream_remote: 'example/sample-project',
+            tracking_status: 'active via Upstream Watch schedule',
+            notes: 'Local HEAD lags behind upstream by 5 commits'
+          },
+          subjects: ['sample upstream'],
+          triggers: ['Upstream Watch', 'example/sample-project'],
+          confidence: 0.95,
+          evidence: evidence('m2')
+        }
+      ]
+    },
+    {
+      createId: () => 'event-1',
+      now: NOW
+    }
+  )
+
+  const activated = activateCognitiveRows(state, {
+    history: [
+      {
+        id: 'm1',
+        threadId: 'thread-1',
+        role: 'user',
+        content: 'sample upstream watch 的状态是什么？',
+        status: 'completed',
+        createdAt: NOW
+      },
+      {
+        id: 'm2',
+        threadId: 'thread-1',
+        role: 'assistant',
+        content: 'sample-project lags behind upstream by 5 commits.',
+        status: 'completed',
+        createdAt: NOW
+      }
+    ],
+    limit: 4,
+    now: NOW,
+    thread: {
+      id: 'thread-1',
+      title: 'General chat',
+      updatedAt: NOW
+    },
+    userQuery: '这个甚至不是主要结果，你到底看懂了什么'
+  })
+
+  assert.deepEqual(activated, [])
+})
+
 test('cognitive row activation is deterministic and excludes deprecated rows', () => {
   const state = applyCognitivePatchToState(
     createEmptyCognitiveMemoryState(),
