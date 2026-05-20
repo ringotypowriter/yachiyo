@@ -9,6 +9,8 @@ import type {
   CompactThreadInput,
   ComposerReasoningSelection,
   CreateScheduleInput,
+  DeleteMemoryTermInput,
+  DeleteMemoryTermResult,
   EditMessageInput,
   FolderRecord,
   GetMemoryTermDocumentInput,
@@ -176,6 +178,7 @@ declare global {
         addSoulTrait: (input: { trait: string }) => Promise<SoulDocument>
         deleteSoulTrait: (input: { trait: string }) => Promise<SoulDocument>
         getMemoryTermDocument: (input?: GetMemoryTermDocumentInput) => Promise<MemoryTermDocument>
+        deleteMemoryTerm: (input: DeleteMemoryTermInput) => Promise<DeleteMemoryTermResult>
         listActivitySourceRecords: (
           input?: ListActivitySourceRecordsInput
         ) => Promise<ListActivitySourceRecordsResult>

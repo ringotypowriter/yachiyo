@@ -696,6 +696,8 @@ export interface MemoryTermEntry {
     | 'context'
     | 'event'
   importance?: number
+  activationCount?: number
+  lastActivatedAt?: string
   updatedAt: string
 }
 
@@ -1229,6 +1231,14 @@ export interface GetMemoryTermDocumentInput {
   config?: SettingsConfig
   limit?: number
   offset?: number
+}
+
+export interface DeleteMemoryTermInput {
+  id: string
+}
+
+export interface DeleteMemoryTermResult {
+  deleted: boolean
 }
 
 export interface TestMemoryConnectionInput {

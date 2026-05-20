@@ -1,4 +1,5 @@
 import type {
+  DeleteMemoryTermResult,
   GetMemoryTermDocumentInput,
   MemoryTermDocument,
   MemoryTermEntry,
@@ -30,4 +31,8 @@ export async function loadMemoryTermDocument(
     ...(config ? { config } : {}),
     ...(page ?? {})
   })
+}
+
+export async function deleteMemoryTerm(id: string): Promise<DeleteMemoryTermResult> {
+  return window.api.yachiyo.deleteMemoryTerm({ id })
 }

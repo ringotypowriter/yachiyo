@@ -23,6 +23,7 @@ export const IPC_CHANNELS = {
   addSoulTrait: 'yachiyo:add-soul-trait',
   deleteSoulTrait: 'yachiyo:delete-soul-trait',
   getMemoryTermDocument: 'yachiyo:get-memory-term-document',
+  deleteMemoryTerm: 'yachiyo:delete-memory-term',
   listActivitySourceRecords: 'yachiyo:list-activity-source-records',
   getUserDocument: 'yachiyo:get-user-document',
   getSettings: 'yachiyo:get-settings',

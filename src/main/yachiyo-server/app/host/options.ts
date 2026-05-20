@@ -1,4 +1,6 @@
 import type {
+  DeleteMemoryTermInput,
+  DeleteMemoryTermResult,
   GetMemoryTermDocumentInput,
   MemoryTermDocument,
   SettingsConfig,
@@ -35,6 +37,7 @@ export interface YachiyoServerOptions {
   readMemoryTermDocument?: (
     input?: Pick<GetMemoryTermDocumentInput, 'limit' | 'offset'>
   ) => Promise<MemoryTermDocument>
+  deleteMemoryTerm?: (input: DeleteMemoryTermInput) => Promise<DeleteMemoryTermResult>
   resolveThreadWorkspacePath?: (threadId: string) => string
   ensureThreadWorkspace?: (threadId: string) => Promise<string>
   cloneThreadWorkspace?: (sourceThreadId: string, targetThreadId: string) => Promise<string>

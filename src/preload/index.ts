@@ -7,6 +7,8 @@ import type {
   CompactThreadInput,
   CompactThreadAccepted,
   ComposerReasoningSelection,
+  DeleteMemoryTermInput,
+  DeleteMemoryTermResult,
   EditMessageInput,
   FolderRecord,
   GetMemoryTermDocumentInput,
@@ -231,6 +233,8 @@ const api = {
       ipcRenderer.invoke('yachiyo:delete-soul-trait', input),
     getMemoryTermDocument: (input?: GetMemoryTermDocumentInput): Promise<MemoryTermDocument> =>
       ipcRenderer.invoke('yachiyo:get-memory-term-document', input),
+    deleteMemoryTerm: (input: DeleteMemoryTermInput): Promise<DeleteMemoryTermResult> =>
+      ipcRenderer.invoke('yachiyo:delete-memory-term', input),
     listActivitySourceRecords: (
       input?: ListActivitySourceRecordsInput
     ): Promise<ListActivitySourceRecordsResult> =>

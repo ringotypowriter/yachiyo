@@ -13,6 +13,7 @@ import {
   activateCognitiveRows,
   applyCognitivePatchToState,
   createEmptyCognitiveMemoryState,
+  markCognitiveRowsActivated,
   searchCognitiveRows,
   type ActivateCognitiveRowsInput,
   type CognitiveColumn,
@@ -46,6 +47,7 @@ export interface CognitiveMemoryTermPage {
 export interface CognitiveMemoryStore {
   applyPatch(patch: CognitivePatch, input?: { now?: string }): Promise<{ savedCount: number }>
   activateRows(input: ActivateCognitiveRowsInput): Promise<CognitiveRow[]>
+  deleteRow(input: { id: string }): Promise<{ deleted: boolean }>
   readState(): Promise<CognitiveMemoryState>
   listTermRows(input?: CognitiveMemoryTermPageInput): Promise<CognitiveMemoryTermPage>
   searchRows(input: SearchCognitiveRowsInput): Promise<CognitiveRow[]>
@@ -96,6 +98,8 @@ function toRow(row: typeof cognitiveRowsTable.$inferSelect): CognitiveRow {
     confidence: row.confidence,
     status: isCognitiveRowStatus(row.status) ? row.status : 'active',
     activationText: row.activationText,
+    activationCount: row.activationCount ?? 0,
+    ...(row.lastActivatedAt ? { lastActivatedAt: row.lastActivatedAt } : {}),
     createdAt: row.createdAt,
     updatedAt: row.updatedAt
   }
@@ -242,6 +246,8 @@ function writeStateDiff(input: {
         confidence: row.confidence,
         status: row.status,
         activationText: row.activationText,
+        activationCount: row.activationCount ?? 0,
+        lastActivatedAt: row.lastActivatedAt ?? null,
         createdAt: row.createdAt,
         updatedAt: row.updatedAt
       })
@@ -257,6 +263,8 @@ function writeStateDiff(input: {
           confidence: row.confidence,
           status: row.status,
           activationText: row.activationText,
+          activationCount: row.activationCount ?? 0,
+          lastActivatedAt: row.lastActivatedAt ?? null,
           updatedAt: row.updatedAt
         }
       })
@@ -304,7 +312,17 @@ export function createInMemoryCognitiveMemoryStore(
       return { savedCount }
     },
     async activateRows(input) {
-      return activateCognitiveRows(state, input)
+      const rows = activateCognitiveRows(state, input)
+      state = markCognitiveRowsActivated(state, {
+        now: input.now,
+        rowIds: rows.map((row) => row.id)
+      })
+      return rows
+    },
+    async deleteRow(input) {
+      const initialCount = state.rows.length
+      state = { ...state, rows: state.rows.filter((row) => row.id !== input.id) }
+      return { deleted: state.rows.length !== initialCount }
     },
     async readState() {
       return state
@@ -338,7 +356,25 @@ export function createSqliteCognitiveMemoryStore(
       })
     },
     async activateRows(input) {
-      return withDatabase(options.dbPath, (db) => activateCognitiveRows(readStateFromDb(db), input))
+      return withDatabase(options.dbPath, (db) => {
+        const state = readStateFromDb(db)
+        const rows = activateCognitiveRows(state, input)
+        const next = markCognitiveRowsActivated(state, {
+          now: input.now,
+          rowIds: rows.map((row) => row.id)
+        })
+        writeStateDiff({ db, next, previousEventCount: state.events.length })
+        return rows
+      })
+    },
+    async deleteRow(input) {
+      return withDatabase(options.dbPath, (db) => {
+        const result = db
+          .delete(cognitiveRowsTable)
+          .where(eq(cognitiveRowsTable.id, input.id))
+          .run()
+        return { deleted: result.changes > 0 }
+      })
     },
     async readState() {
       return withDatabase(options.dbPath, readStateFromDb)
@@ -361,6 +397,8 @@ function toMemoryTermEntry(row: CognitiveRow): MemoryTermEntry {
       .join('\n'),
     importance: row.confidence,
     unitType: 'context',
+    activationCount: row.activationCount ?? 0,
+    ...(row.lastActivatedAt ? { lastActivatedAt: row.lastActivatedAt } : {}),
     updatedAt: row.updatedAt
   }
 }

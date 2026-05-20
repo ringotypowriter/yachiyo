@@ -20,6 +20,8 @@ import type {
   CompactThreadInput,
   ComposerReasoningSelection,
   CreateScheduleInput,
+  DeleteMemoryTermInput,
+  DeleteMemoryTermResult,
   EditMessageInput,
   GetMemoryTermDocumentInput,
   ImportWebSearchBrowserSessionInput,
@@ -808,6 +810,11 @@ export function registerYachiyoGateway(): YachiyoServer {
     IPC_CHANNELS.getMemoryTermDocument,
     (input?: GetMemoryTermDocumentInput): Promise<MemoryTermDocument> =>
       server!.getMemoryTermDocument(input)
+  )
+  handleYachiyoIpc(
+    IPC_CHANNELS.deleteMemoryTerm,
+    (input: DeleteMemoryTermInput): Promise<DeleteMemoryTermResult> =>
+      server!.deleteMemoryTerm(input)
   )
   handleYachiyoIpc(
     IPC_CHANNELS.listActivitySourceRecords,

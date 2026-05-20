@@ -10,6 +10,8 @@ import type {
   CompactThreadInput,
   ComposerReasoningSelection,
   CreateScheduleInput,
+  DeleteMemoryTermInput,
+  DeleteMemoryTermResult,
   EditMessageInput,
   FileMentionCandidate,
   FolderColorTag,
@@ -186,6 +188,9 @@ export class YachiyoServer {
         input?: Pick<GetMemoryTermDocumentInput, 'limit' | 'offset'>
       ) => Promise<MemoryTermDocument>)
     | null
+  private readonly deleteMemoryTermFile:
+    | ((input: DeleteMemoryTermInput) => Promise<DeleteMemoryTermResult>)
+    | null
   private readonly readSoulDocumentFile: () => Promise<SoulDocument | null>
   private readonly addSoulTraitFile: (trait: string) => Promise<SoulDocument | null>
   private readonly removeSoulTraitFile: (trait: string) => Promise<SoulDocument | null>
@@ -231,6 +236,11 @@ export class YachiyoServer {
     this.saveUserDocumentFile =
       options.saveUserDocument ?? ((content) => writeUserDocument({ content }))
     this.readMemoryTermDocumentFile = options.readMemoryTermDocument ?? null
+    this.deleteMemoryTermFile =
+      options.deleteMemoryTerm ??
+      (options.cognitiveMemoryStore
+        ? (input) => options.cognitiveMemoryStore!.deleteRow(input)
+        : null)
     const searchBinaries = resolveSearchBinaries()
     const searchService =
       options.searchService ??
@@ -514,6 +524,19 @@ export class YachiyoServer {
         : 0
 
     return this.readMemoryTermDocumentFile({ limit, offset })
+  }
+
+  async deleteMemoryTerm(input: DeleteMemoryTermInput): Promise<DeleteMemoryTermResult> {
+    if (!this.deleteMemoryTermFile) {
+      throw new Error('Built-in memory terms are unavailable.')
+    }
+
+    const id = typeof input.id === 'string' ? input.id.trim() : ''
+    if (!id) {
+      throw new Error('Memory term id is required.')
+    }
+
+    return this.deleteMemoryTermFile({ id })
   }
 
   listActivitySourceRecords(

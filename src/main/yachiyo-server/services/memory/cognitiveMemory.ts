@@ -38,6 +38,8 @@ export interface CognitiveRow {
   confidence: number
   status: CognitiveRowStatus
   activationText: string
+  activationCount: number
+  lastActivatedAt?: string
   createdAt: string
   updatedAt: string
 }
@@ -115,6 +117,13 @@ export interface SearchCognitiveRowsInput {
 
 const DEFAULT_CONFIDENCE = 0.6
 const MAX_RENDERED_FIELDS = 4
+const AUTO_FORGET_AFTER_MS = 30 * 24 * 60 * 60 * 1000
+const AUTO_FORGET_PROTECTED_RELATIONS = new Set([
+  'user_preferences',
+  'key_decisions',
+  'workflow_procedures',
+  'active_plans'
+])
 
 export function createEmptyCognitiveMemoryState(): CognitiveMemoryState {
   return { events: [], relations: [], rows: [] }
@@ -319,6 +328,7 @@ function upsertRow(
   state.rows.push({
     id: options.createId(),
     ...next,
+    activationCount: 0,
     createdAt: options.now,
     updatedAt: options.now
   })
@@ -345,19 +355,22 @@ function deprecateRow(
   }
 }
 
-export function applyCognitivePatchToState(
-  state: CognitiveMemoryState,
-  patch: CognitivePatch,
-  options: ApplyCognitivePatchOptions
-): CognitiveMemoryState {
-  const next: CognitiveMemoryState = {
-    events: [...state.events],
+function cloneCognitiveMemoryState(state: CognitiveMemoryState): CognitiveMemoryState {
+  return {
+    events: state.events.map((event) => ({
+      ...event,
+      operation: {
+        ...event.operation,
+        evidence: event.operation.evidence.map((entry) => ({ ...entry }))
+      }
+    })),
     relations: state.relations.map((relation) => ({
       ...relation,
       columns: relation.columns.map((column) => ({ ...column }))
     })),
     rows: state.rows.map((row) => ({
       ...row,
+      activationCount: row.activationCount ?? 0,
       aliases: [...row.aliases],
       evidence: row.evidence.map((entry) => ({ ...entry })),
       scope: { ...row.scope },
@@ -366,6 +379,75 @@ export function applyCognitivePatchToState(
       values: { ...row.values }
     }))
   }
+}
+
+function parseTimestamp(value: string | undefined): number | null {
+  if (!value) return null
+  const timestamp = Date.parse(value)
+  return Number.isFinite(timestamp) ? timestamp : null
+}
+
+function hasManualEvidence(row: CognitiveRow): boolean {
+  return row.evidence.some((entry) => entry.kind === 'manual')
+}
+
+function hasWeakEvidence(row: CognitiveRow): boolean {
+  const nonManualEvidence = row.evidence.filter((entry) => entry.kind !== 'manual')
+  if (nonManualEvidence.length <= 2) return true
+
+  const threadIds = new Set(
+    nonManualEvidence
+      .map((entry) => entry.threadId)
+      .filter((threadId): threadId is string => typeof threadId === 'string' && threadId.length > 0)
+  )
+  return threadIds.size === 1
+}
+
+function shouldAutoForgetRow(row: CognitiveRow, now: string): boolean {
+  if (row.status !== 'active') return false
+  if (AUTO_FORGET_PROTECTED_RELATIONS.has(row.relation)) return false
+  if (hasManualEvidence(row)) return false
+  if ((row.activationCount ?? 0) > 1) return false
+  if (!hasWeakEvidence(row)) return false
+
+  const updatedAt = parseTimestamp(row.updatedAt)
+  const lastActivatedAt = parseTimestamp(row.lastActivatedAt)
+  const lastTouchedAt = Math.max(
+    updatedAt ?? Number.NEGATIVE_INFINITY,
+    lastActivatedAt ?? Number.NEGATIVE_INFINITY
+  )
+  const nowTimestamp = parseTimestamp(now)
+  if (!Number.isFinite(lastTouchedAt) || nowTimestamp === null) return false
+
+  return nowTimestamp - lastTouchedAt >= AUTO_FORGET_AFTER_MS
+}
+
+function autoForgetRows(state: CognitiveMemoryState, options: ApplyCognitivePatchOptions): void {
+  for (const row of state.rows) {
+    if (!shouldAutoForgetRow(row, options.now)) continue
+
+    const operation: DeprecateCognitiveRowOperation = {
+      type: 'deprecateRow',
+      relation: row.relation,
+      key: row.key,
+      reason: 'Automatic forgetting: inactive low-frequency memory older than 30 days.',
+      evidence: [{ kind: 'manual', note: 'Automatic forgetting.' }]
+    }
+    deprecateRow(state, operation, options)
+    state.events.push({
+      id: options.createId(),
+      operation,
+      createdAt: options.now
+    })
+  }
+}
+
+export function applyCognitivePatchToState(
+  state: CognitiveMemoryState,
+  patch: CognitivePatch,
+  options: ApplyCognitivePatchOptions
+): CognitiveMemoryState {
+  const next = cloneCognitiveMemoryState(state)
 
   for (const operation of patch.operations) {
     if (operation.evidence.length === 0) continue
@@ -381,6 +463,23 @@ export function applyCognitivePatchToState(
     })
   }
 
+  autoForgetRows(next, options)
+  return next
+}
+
+export function markCognitiveRowsActivated(
+  state: CognitiveMemoryState,
+  input: { now: string; rowIds: string[] }
+): CognitiveMemoryState {
+  if (input.rowIds.length === 0) return state
+
+  const rowIds = new Set(input.rowIds)
+  const next = cloneCognitiveMemoryState(state)
+  for (const row of next.rows) {
+    if (!rowIds.has(row.id)) continue
+    row.activationCount = (row.activationCount ?? 0) + 1
+    row.lastActivatedAt = input.now
+  }
   return next
 }
 

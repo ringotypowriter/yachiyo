@@ -69,6 +69,135 @@ test('cognitive patches materialize relation rows with activation surfaces and e
   assert.match(next.rows[0]?.activationText ?? '', /context artifact/)
 })
 
+test('cognitive patches soft-forget old low-frequency weakly evidenced rows', () => {
+  const oldState = applyCognitivePatchToState(
+    createEmptyCognitiveMemoryState(),
+    {
+      operations: [
+        {
+          type: 'upsertRelation',
+          relation: 'project_context',
+          purpose: 'Track project context.',
+          columns: ['note'],
+          evidence: evidence('m1')
+        },
+        {
+          type: 'upsertRow',
+          relation: 'project_context',
+          key: 'minor_observation',
+          values: { note: 'A one-off low-value detail.' },
+          subjects: ['minor observation'],
+          confidence: 0.95,
+          evidence: evidence('m2')
+        }
+      ]
+    },
+    {
+      createId: () => 'old-event',
+      now: '2026-04-01T00:00:00.000Z'
+    }
+  )
+
+  const next = applyCognitivePatchToState(
+    oldState,
+    { operations: [] },
+    {
+      createId: () => 'forget-event',
+      now: NOW
+    }
+  )
+
+  const row = next.rows.find((candidate) => candidate.key === 'minor_observation')
+  assert.equal(row?.status, 'deprecated')
+  assert.match(row?.triggers.join(' ') ?? '', /Automatic forgetting/)
+  assert.equal(next.events.at(-1)?.operation.type, 'deprecateRow')
+})
+
+test('cognitive forgetting preserves protected, manual, active, or cross-thread rows', () => {
+  const oldState = applyCognitivePatchToState(
+    createEmptyCognitiveMemoryState(),
+    {
+      operations: [
+        {
+          type: 'upsertRelation',
+          relation: 'user_preferences',
+          purpose: 'Track user preferences.',
+          columns: ['preference'],
+          evidence: evidence('m1')
+        },
+        {
+          type: 'upsertRelation',
+          relation: 'project_context',
+          purpose: 'Track project context.',
+          columns: ['note'],
+          evidence: evidence('m2')
+        },
+        {
+          type: 'upsertRow',
+          relation: 'user_preferences',
+          key: 'protected_preference',
+          values: { preference: 'Protected even if old.' },
+          subjects: ['protected preference'],
+          confidence: 0.7,
+          evidence: evidence('m3')
+        },
+        {
+          type: 'upsertRow',
+          relation: 'project_context',
+          key: 'manual_note',
+          values: { note: 'Manual memories are user-intended.' },
+          subjects: ['manual note'],
+          confidence: 0.7,
+          evidence: [{ kind: 'manual', note: 'Explicit remember tool write.' }]
+        },
+        {
+          type: 'upsertRow',
+          relation: 'project_context',
+          key: 'active_note',
+          values: { note: 'Activated more than once.' },
+          subjects: ['active note'],
+          confidence: 0.7,
+          evidence: evidence('m4')
+        },
+        {
+          type: 'upsertRow',
+          relation: 'project_context',
+          key: 'cross_thread_note',
+          values: { note: 'Supported by more than one conversation.' },
+          subjects: ['cross thread note'],
+          confidence: 0.7,
+          evidence: [
+            { kind: 'message', threadId: 'thread-1', messageId: 'm5' },
+            { kind: 'message', threadId: 'thread-1', messageId: 'm6' },
+            { kind: 'message', threadId: 'thread-2', messageId: 'm7' }
+          ]
+        }
+      ]
+    },
+    {
+      createId: () => 'old-event',
+      now: '2026-04-01T00:00:00.000Z'
+    }
+  )
+  const activeRow = oldState.rows.find((row) => row.key === 'active_note')
+  if (activeRow) activeRow.activationCount = 2
+
+  const next = applyCognitivePatchToState(
+    oldState,
+    { operations: [] },
+    {
+      createId: () => 'forget-event',
+      now: NOW
+    }
+  )
+
+  assert.equal(next.rows.find((row) => row.key === 'protected_preference')?.status, 'active')
+  assert.equal(next.rows.find((row) => row.key === 'manual_note')?.status, 'active')
+  assert.equal(next.rows.find((row) => row.key === 'active_note')?.status, 'active')
+  assert.equal(next.rows.find((row) => row.key === 'cross_thread_note')?.status, 'active')
+  assert.equal(next.events.length, oldState.events.length)
+})
+
 test('cognitive row activation ignores stale history when the current query has no direct match', () => {
   const state = applyCognitivePatchToState(
     createEmptyCognitiveMemoryState(),

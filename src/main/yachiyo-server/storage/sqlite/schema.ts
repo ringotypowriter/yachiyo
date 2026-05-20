@@ -356,6 +356,8 @@ export const cognitiveRowsTable = sqliteTable(
     confidence: real('confidence').notNull().default(0.6),
     status: text('status').notNull().default('active'),
     activationText: text('activation_text').notNull().default(''),
+    activationCount: integer('activation_count').notNull().default(0),
+    lastActivatedAt: text('last_activated_at'),
     createdAt: text('created_at').notNull(),
     updatedAt: text('updated_at').notNull()
   },

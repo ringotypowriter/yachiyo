@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { flattenMemoryTermTopics, loadMemoryTermDocument } from './memoryTermDocumentModel.ts'
+import {
+  deleteMemoryTerm,
+  flattenMemoryTermTopics,
+  loadMemoryTermDocument
+} from './memoryTermDocumentModel.ts'
 import type { GetMemoryTermDocumentInput } from '../../../shared/yachiyo/protocol.ts'
 
 function withWindowApiMock(mock: Partial<Window['api']['yachiyo']>): () => void {
@@ -68,6 +72,24 @@ test('flattenMemoryTermTopics keeps topic metadata for compact list rows', () =>
   assert.equal(rows[0]?.topicEntryCount, 2)
   assert.equal(rows[1]?.entry.id, 'mem-2')
   assert.equal(rows[1]?.entry.importance, 0.9)
+})
+
+test('memory term document model hard-deletes terms through the settings bridge', async () => {
+  let receivedInput: { id: string } | undefined
+  const restore = withWindowApiMock({
+    deleteMemoryTerm: async (input) => {
+      receivedInput = input
+      return { deleted: true }
+    }
+  })
+
+  try {
+    const result = await deleteMemoryTerm('mem-1')
+    assert.deepEqual(receivedInput, { id: 'mem-1' })
+    assert.deepEqual(result, { deleted: true })
+  } finally {
+    restore()
+  }
 })
 
 test('memory term document model passes pagination through the settings bridge', async () => {

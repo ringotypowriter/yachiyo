@@ -1,6 +1,11 @@
 import { Loader2 } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
-import type { MemoryTermDocument, SettingsConfig } from '../../../shared/yachiyo/protocol.ts'
+import type {
+  MemoryTermDocument,
+  MemoryTermEntry,
+  SettingsConfig
+} from '../../../shared/yachiyo/protocol.ts'
+import { useAppDialog } from '@renderer/components/AppDialogContext'
 import { theme } from '@renderer/theme/theme'
 import {
   ListPagination,
@@ -9,7 +14,11 @@ import {
   SettingSection,
   SettingSwitch
 } from '../components/primitives'
-import { flattenMemoryTermTopics, loadMemoryTermDocument } from './memoryTermDocumentModel'
+import {
+  deleteMemoryTerm,
+  flattenMemoryTermTopics,
+  loadMemoryTermDocument
+} from './memoryTermDocumentModel'
 
 const MEMORY_TERMS_PAGE_SIZE = 10
 
@@ -25,7 +34,10 @@ export function MemoryPane({ draft, onChange }: MemoryPaneProps): React.JSX.Elem
   const [memoryTermsPage, setMemoryTermsPage] = useState(1)
   const [memoryTermDocument, setMemoryTermDocument] = useState<MemoryTermDocument | null>(null)
   const [isLoadingTerms, setIsLoadingTerms] = useState(false)
+  const [deletingTermId, setDeletingTermId] = useState<string | null>(null)
+  const [memoryTermsReloadKey, setMemoryTermsReloadKey] = useState(0)
   const [termsError, setTermsError] = useState<string | null>(null)
+  const dialog = useAppDialog()
   const memory = draft.memory ?? {
     enabled: true,
     provider: 'builtin-memory',
@@ -111,7 +123,28 @@ export function MemoryPane({ draft, onChange }: MemoryPaneProps): React.JSX.Elem
     return () => {
       cancelled = true
     }
-  }, [draft, memoryTermsPage, provider, view])
+  }, [draft, memoryTermsPage, memoryTermsReloadKey, provider, view])
+
+  const handleDeleteMemoryTerm = async (entry: MemoryTermEntry): Promise<void> => {
+    const confirmed = await dialog.confirm({
+      title: `Forget "${entry.title}" permanently?`,
+      message: 'This deletes the memory row from local built-in memory. It cannot be undone.',
+      confirmLabel: 'Forget',
+      tone: 'danger'
+    })
+    if (!confirmed) return
+
+    setDeletingTermId(entry.id)
+    setTermsError(null)
+    try {
+      await deleteMemoryTerm(entry.id)
+      setMemoryTermsReloadKey((key) => key + 1)
+    } catch (error) {
+      setTermsError(error instanceof Error ? error.message : 'Failed to forget memory term.')
+    } finally {
+      setDeletingTermId(null)
+    }
+  }
 
   const handleTest = async (): Promise<void> => {
     setTesting(true)
@@ -212,11 +245,31 @@ export function MemoryPane({ draft, onChange }: MemoryPaneProps): React.JSX.Elem
                             {typeof entry.importance === 'number' ? (
                               <span>· importance {entry.importance}</span>
                             ) : null}
+                            {typeof entry.activationCount === 'number' ? (
+                              <span>· activated {entry.activationCount}</span>
+                            ) : null}
                             <span>
                               · updated <time dateTime={entry.updatedAt}>{entry.updatedAt}</time>
                             </span>
+                            {entry.lastActivatedAt ? (
+                              <span>
+                                · last used{' '}
+                                <time dateTime={entry.lastActivatedAt}>
+                                  {entry.lastActivatedAt}
+                                </time>
+                              </span>
+                            ) : null}
                           </div>
                         </div>
+                        <button
+                          type="button"
+                          className="shrink-0 pt-0.5 text-xs font-medium transition-opacity opacity-60 hover:opacity-100 disabled:opacity-20"
+                          style={{ color: theme.text.dangerStrong }}
+                          disabled={deletingTermId === entry.id}
+                          onClick={() => void handleDeleteMemoryTerm(entry)}
+                        >
+                          {deletingTermId === entry.id ? 'Forgetting...' : 'Forget'}
+                        </button>
                       </div>
                     </div>
                   ))}

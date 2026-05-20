@@ -23,10 +23,42 @@ function row(relation: string, key: string): CognitiveRow {
     confidence: 0.8,
     status: 'active',
     activationText: key,
+    activationCount: 0,
     createdAt: NOW,
     updatedAt: NOW
   }
 }
+
+test('in-memory cognitive store tracks activated rows and supports hard deletion', async () => {
+  const store = createInMemoryCognitiveMemoryStore({
+    events: [],
+    relations: [],
+    rows: [
+      {
+        ...row('agent_workflow_roles', 'codex'),
+        subjects: ['Codex'],
+        triggers: ['context artifact'],
+        activationText: 'agent workflow roles codex context artifact'
+      }
+    ]
+  })
+
+  await store.activateRows({
+    history: [],
+    limit: 4,
+    now: '2026-05-20T00:00:00.000Z',
+    thread: { id: 'thread-1', title: 'Agent workflow', updatedAt: NOW },
+    userQuery: 'Codex context artifact'
+  })
+
+  const activatedState = await store.readState()
+  assert.equal(activatedState.rows[0]?.activationCount, 1)
+  assert.equal(activatedState.rows[0]?.lastActivatedAt, '2026-05-20T00:00:00.000Z')
+
+  const deleted = await store.deleteRow({ id: 'agent_workflow_roles-codex' })
+  assert.equal(deleted.deleted, true)
+  assert.equal((await store.readState()).rows.length, 0)
+})
 
 test('readCognitiveMemoryTermDocument returns a paginated term document with total counts', async () => {
   const state: CognitiveMemoryState = {
