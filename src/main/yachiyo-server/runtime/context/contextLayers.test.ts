@@ -457,8 +457,11 @@ test('turn context is merged into current query after tool-history replay', () =
 
   const memoryBlock = [
     '<memory>',
-    "Background context from past conversations. Focus on the user's query first;",
-    'overlapping terms do not make an entry relevant — judge by actual applicability.',
+    "Yachiyo's durable memory — understanding built through working with the user.",
+    'These entries capture accumulated observations about preferences, decisions, workflows,',
+    "and project context from prior collaboration. They are not the user's own knowledge or",
+    "self-statements. Focus on the user's current query first; overlapping terms do not make",
+    'an entry relevant — judge by actual applicability.',
     '- user likes tests',
     '</memory>'
   ].join('\n')
@@ -521,8 +524,11 @@ test('no turn context leaves system layers and history unchanged', () => {
 test('first message in thread: turn context is merged into the only user message', () => {
   const memoryBlock = [
     '<memory>',
-    "Background context from past conversations. Focus on the user's query first;",
-    'overlapping terms do not make an entry relevant — judge by actual applicability.',
+    "Yachiyo's durable memory — understanding built through working with the user.",
+    'These entries capture accumulated observations about preferences, decisions, workflows,',
+    "and project context from prior collaboration. They are not the user's own knowledge or",
+    "self-statements. Focus on the user's current query first; overlapping terms do not make",
+    'an entry relevant — judge by actual applicability.',
     '- mem1',
     '</memory>'
   ].join('\n')

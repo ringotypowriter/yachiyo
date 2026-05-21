@@ -399,6 +399,46 @@ test('cognitive row activation is deterministic and excludes deprecated rows', (
   )
   assert.equal(
     renderCognitiveRowMemoryEntry(activated[0]!),
-    '[agent_workflow_roles] codex: agent=Codex; role=Explorer'
+    '[agent_workflow_roles] codex: agent=Codex; role=Explorer; source_threads=thread:thread-1; source_messages=thread_message:thread-1:m2'
+  )
+})
+
+test('cognitive row memory entries expose source conversation row ids from evidence', () => {
+  const state = applyCognitivePatchToState(
+    createEmptyCognitiveMemoryState(),
+    {
+      operations: [
+        {
+          type: 'upsertRelation',
+          relation: 'project_context',
+          purpose: 'Track project context.',
+          columns: ['note'],
+          evidence: [{ kind: 'thread', threadId: 'thread-a' }]
+        },
+        {
+          type: 'upsertRow',
+          relation: 'project_context',
+          key: 'memory_source_bridge',
+          values: { note: 'Memory recall should point back to its source conversation.' },
+          subjects: ['memory source bridge'],
+          confidence: 0.9,
+          evidence: [
+            { kind: 'message', threadId: 'thread-a', messageId: 'msg-1' },
+            { kind: 'message', threadId: 'thread-a', messageId: 'msg-2' },
+            { kind: 'thread', threadId: 'thread-b' },
+            { kind: 'message', threadId: 'thread-a', messageId: 'msg-1' }
+          ]
+        }
+      ]
+    },
+    {
+      createId: () => 'event-1',
+      now: NOW
+    }
+  )
+
+  assert.equal(
+    renderCognitiveRowMemoryEntry(state.rows[0]!),
+    '[project_context] memory_source_bridge: note=Memory recall should point back to its source conversation.; source_threads=thread:thread-a, thread:thread-b; source_messages=thread_message:thread-a:msg-1, thread_message:thread-a:msg-2'
   )
 })

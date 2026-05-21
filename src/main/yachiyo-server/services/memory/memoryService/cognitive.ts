@@ -1,6 +1,7 @@
 import type { MessageRecord } from '../../../../../shared/yachiyo/protocol.ts'
 import type { ModelMessage } from '../../../runtime/models/types.ts'
 import {
+  collectCognitiveEvidenceSourceRefs,
   parseCognitivePatch,
   renderCognitiveRowMemoryEntry,
   type CognitiveEvidenceRef,
@@ -105,19 +106,19 @@ export function buildCognitiveStateExcerpt(state: CognitiveMemoryState): string 
 
 export function buildCognitivePatchSystemPrompt(): string {
   return [
-    "You maintain Yachiyo's cognitive memory: a relational knowledge graph that persists durable facts, preferences, decisions, plans, procedures, and lessons across sessions.",
+    "You maintain Yachiyo's durable memory: a relational knowledge graph that persists facts, preferences, decisions, plans, procedures, and lessons across sessions.",
     '',
-    '## How cognitive paths work',
+    '## How memory paths work',
     '',
-    'Relations are cognitive frames — stable tables that group similar durable knowledge.',
-    'Rows are individual durable cognitions within a frame.',
-    'Together they form a "cognitive path": when the user mentions a topic, relevant rows activate through their subjects, aliases, and triggers, bringing the right context back into future sessions.',
+    'Relations are memory frames — stable tables that group similar durable knowledge.',
+    'Rows are individual durable entries within a frame.',
+    'Together they form a "memory path": when the user mentions a topic, relevant rows activate through their subjects, aliases, and triggers, bringing the right context back into future sessions.',
     '',
     '## Operations',
     '',
-    '- upsertRelation: create or evolve a cognitive frame. Define its purpose and columns clearly.',
-    '- upsertRow: add or update durable cognition. Use stable row keys. Populate subjects, aliases, and triggers generously so future recall is deterministic.',
-    '- deprecateRow: mark outdated cognition as deprecated when new information contradicts it.',
+    '- upsertRelation: create or evolve a memory frame. Define its purpose and columns clearly.',
+    '- upsertRow: add or update durable memory. Use stable row keys. Populate subjects, aliases, and triggers generously so future recall is deterministic.',
+    '- deprecateRow: mark outdated memory as deprecated when new information contradicts it.',
     '',
     '## Design rules',
     '',
@@ -125,13 +126,13 @@ export function buildCognitivePatchSystemPrompt(): string {
     '2. Row keys: use stable, canonical identifiers. A key should still make sense six months from now. Use snake_case.',
     '3. Values: keep fields compact and factual. One row should capture one durable insight, not a transcript summary.',
     '4. Activation surface (critical): subjects, aliases, and triggers are how future queries find this row. Include natural language variants, domain terms, and likely user phrasings. Think: what words would the user actually type or say to surface this?',
-    '5. Scope: use workspacePath or threadId when a cognition is tightly bound to a specific project or thread. Omit when broadly applicable.',
+    '5. Scope: use workspacePath or threadId when an entry is tightly bound to a specific project or thread. Omit when broadly applicable.',
     '6. Confidence: 0.8–1.0 for major decisions or durable facts, 0.5–0.7 for useful patterns, 0.3–0.4 for minor notes.',
     '7. Evidence: every operation must include evidence. If exact source IDs are unknown, leave evidence empty and the runtime will fill it in.',
     '',
     '## Content rules',
     '',
-    '- Rows are durable cognition, not summaries of this chat.',
+    '- Rows are durable memory, not summaries of this chat.',
     '- Do not use phrases like "this time", "just now", "currently", "we discussed", "it seems", or "maybe".',
     '- Do not write conversational summaries like "the user asked", "we talked about", or "the assistant said".',
     '- When the memory is about the user, prefer "<username> + objective description" if the username is explicitly known from context.',
@@ -169,7 +170,7 @@ export function buildRunCognitivePatchMessages(input: {
     {
       role: 'user',
       content: [
-        `Existing cognitive memory:\n${buildCognitiveStateExcerpt(input.state)}`,
+        `Existing durable memory:\n${buildCognitiveStateExcerpt(input.state)}`,
         '',
         `User query:\n${input.userQuery}`,
         '',
@@ -192,7 +193,7 @@ export function buildSaveThreadCognitivePatchMessages(input: {
     {
       role: 'user',
       content: [
-        `Existing cognitive memory:\n${buildCognitiveStateExcerpt(input.state)}`,
+        `Existing durable memory:\n${buildCognitiveStateExcerpt(input.state)}`,
         '',
         `Conversation transcript:\n${transcript}`
       ].join('\n')
@@ -231,12 +232,25 @@ export function parsePatchOrCandidateFallback(
 export function toCognitiveSearchResult(
   row: Awaited<ReturnType<CognitiveMemoryStore['searchRows']>>[number]
 ): MemorySearchResult {
+  const sourceRefs = collectCognitiveEvidenceSourceRefs(row)
+  const sourceThreadId = sourceRefs.sourceThreadIds[0]
+
   return {
     id: row.id,
     title: row.key,
     content: renderCognitiveRowMemoryEntry(row),
     labels: [`topic:${row.relation}`],
     importance: row.confidence,
-    unitType: 'context'
+    unitType: 'context',
+    ...(sourceThreadId ? { sourceThreadId } : {}),
+    ...(sourceRefs.sourceThreadIds.length > 0
+      ? { sourceThreadIds: sourceRefs.sourceThreadIds }
+      : {}),
+    ...(sourceRefs.sourceThreadRowIds.length > 0
+      ? { sourceThreadRowIds: sourceRefs.sourceThreadRowIds }
+      : {}),
+    ...(sourceRefs.sourceMessageRowIds.length > 0
+      ? { sourceMessageRowIds: sourceRefs.sourceMessageRowIds }
+      : {})
   }
 }

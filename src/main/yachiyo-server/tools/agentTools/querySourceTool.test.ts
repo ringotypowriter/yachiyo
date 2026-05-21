@@ -79,7 +79,11 @@ function createMemoryService(): MemoryService {
         labels: topic ? [`topic:${topic}`] : ['topic:source-system'],
         importance: 0.8,
         unitType: 'preference',
-        score: 0.91
+        score: 0.91,
+        sourceThreadId: 'thread-source',
+        sourceThreadIds: ['thread-source'],
+        sourceThreadRowIds: ['thread:thread-source'],
+        sourceMessageRowIds: ['thread_message:thread-source:msg-1']
       }
     ],
     recallForContext: async ({ thread }) => ({
@@ -1266,6 +1270,10 @@ test('querySource memories require text and return semantic memory rows', async 
       unitType: 'preference',
       importance: 0.8,
       score: 0.91,
+      sourceThreadId: 'thread-source',
+      sourceThreadIds: ['thread-source'],
+      sourceThreadRowIds: ['thread:thread-source'],
+      sourceMessageRowIds: ['thread_message:thread-source:msg-1'],
       summary: 'User prefers durable source to stay queryable as source data.',
       availableViews: ['content']
     }

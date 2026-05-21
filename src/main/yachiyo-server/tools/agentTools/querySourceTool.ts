@@ -198,6 +198,7 @@ ${activitySourceEventsDescription}
 - memories
   Long-term extracted facts, preferences, decisions, plans, and user context.
   index/content/detail: memories rows ranked by text match.
+  Rows can include sourceThreadRowIds and sourceMessageRowIds that can be opened through thread tables.
   Requires where.text; where.topic narrows the search.
 
 - thread_folders
@@ -1268,6 +1269,16 @@ function toMemoryRow(result: MemorySearchResult): Record<string, unknown> {
     ...(result.unitType ? { unitType: result.unitType } : {}),
     ...(typeof result.importance === 'number' ? { importance: result.importance } : {}),
     ...(typeof result.score === 'number' ? { score: result.score } : {}),
+    ...(result.sourceThreadId ? { sourceThreadId: result.sourceThreadId } : {}),
+    ...(result.sourceThreadIds && result.sourceThreadIds.length > 0
+      ? { sourceThreadIds: result.sourceThreadIds }
+      : {}),
+    ...(result.sourceThreadRowIds && result.sourceThreadRowIds.length > 0
+      ? { sourceThreadRowIds: result.sourceThreadRowIds }
+      : {}),
+    ...(result.sourceMessageRowIds && result.sourceMessageRowIds.length > 0
+      ? { sourceMessageRowIds: result.sourceMessageRowIds }
+      : {}),
     summary: result.content.trim(),
     availableViews: ['content']
   }

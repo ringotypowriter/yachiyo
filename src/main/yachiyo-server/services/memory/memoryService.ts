@@ -63,6 +63,9 @@ export interface MemorySearchResult {
   content: string
   score?: number
   sourceThreadId?: string
+  sourceThreadIds?: string[]
+  sourceThreadRowIds?: string[]
+  sourceMessageRowIds?: string[]
   labels?: string[]
   importance?: number
   unitType?: MemoryUnitType

@@ -1,4 +1,5 @@
 import type { MessageRecord, ThreadRecord } from '../../../../shared/yachiyo/protocol.ts'
+import { messageRowId, threadRowId } from '../../../../shared/yachiyo/sourceRowIds.ts'
 
 export type CognitiveRowStatus = 'active' | 'deprecated' | 'conflicted'
 
@@ -117,6 +118,7 @@ export interface SearchCognitiveRowsInput {
 
 const DEFAULT_CONFIDENCE = 0.6
 const MAX_RENDERED_FIELDS = 4
+const MAX_RENDERED_SOURCE_REFS = 3
 const MIN_ACTIVATION_CUE_SCORE = 0.75
 const AUTO_FORGET_AFTER_MS = 30 * 24 * 60 * 60 * 1000
 const AUTO_FORGET_PROTECTED_RELATIONS = new Set([
@@ -126,8 +128,55 @@ const AUTO_FORGET_PROTECTED_RELATIONS = new Set([
   'active_plans'
 ])
 
+export interface CognitiveEvidenceSourceRefs {
+  sourceThreadIds: string[]
+  sourceThreadRowIds: string[]
+  sourceMessageRowIds: string[]
+}
+
 export function createEmptyCognitiveMemoryState(): CognitiveMemoryState {
   return { events: [], relations: [], rows: [] }
+}
+
+function pushUnique(values: string[], value: string): void {
+  if (!values.includes(value)) values.push(value)
+}
+
+export function collectCognitiveEvidenceSourceRefs(input: {
+  evidence: CognitiveEvidenceRef[]
+}): CognitiveEvidenceSourceRefs {
+  const sourceThreadIds: string[] = []
+  const sourceMessageRowIds: string[] = []
+
+  for (const ref of input.evidence) {
+    if (ref.threadId) {
+      pushUnique(sourceThreadIds, ref.threadId)
+    }
+    if (ref.kind === 'message' && ref.threadId && ref.messageId) {
+      pushUnique(sourceMessageRowIds, messageRowId(ref.threadId, ref.messageId))
+    }
+  }
+
+  return {
+    sourceThreadIds,
+    sourceThreadRowIds: sourceThreadIds.map(threadRowId),
+    sourceMessageRowIds
+  }
+}
+
+function renderSourceRefs(row: CognitiveRow): string[] {
+  const refs = collectCognitiveEvidenceSourceRefs(row)
+  const fields: string[] = []
+  const threadRows = refs.sourceThreadRowIds.slice(0, MAX_RENDERED_SOURCE_REFS)
+  const messageRows = refs.sourceMessageRowIds.slice(0, MAX_RENDERED_SOURCE_REFS)
+
+  if (threadRows.length > 0) {
+    fields.push(`source_threads=${threadRows.join(', ')}`)
+  }
+  if (messageRows.length > 0) {
+    fields.push(`source_messages=${messageRows.join(', ')}`)
+  }
+  return fields
 }
 
 function normalizeWhitespace(value: string): string {
@@ -773,10 +822,12 @@ export function parseCognitivePatch(
 }
 
 export function renderCognitiveRowMemoryEntry(row: CognitiveRow): string {
-  const fields = Object.entries(row.values)
-    .slice(0, MAX_RENDERED_FIELDS)
-    .map(([key, value]) => `${key}=${value}`)
-    .join('; ')
+  const fields = [
+    ...Object.entries(row.values)
+      .slice(0, MAX_RENDERED_FIELDS)
+      .map(([key, value]) => `${key}=${value}`),
+    ...renderSourceRefs(row)
+  ].join('; ')
 
   return `[${row.relation}] ${row.key}: ${fields}`
 }

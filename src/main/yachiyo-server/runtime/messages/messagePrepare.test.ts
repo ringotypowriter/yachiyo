@@ -232,7 +232,7 @@ test('message prepare replays historical turn context inline on older user messa
       content: [
         'Check the news',
         turn1Reminder,
-        "<memory>\nBackground context from past conversations. Focus on the user's query first;\noverlapping terms do not make an entry relevant — judge by actual applicability.\n- User cares about Apex coverage\n</memory>",
+        "<memory>\nYachiyo's durable memory — understanding built through working with the user.\nThese entries capture accumulated observations about preferences, decisions, workflows,\nand project context from prior collaboration. They are not the user's own knowledge or\nself-statements. Focus on the user's current query first; overlapping terms do not make\nan entry relevant — judge by actual applicability.\n- User cares about Apex coverage\n</memory>",
         '<activity_summary>\n{"appName":"Browser","duration":"2s"}\n</activity_summary>'
       ].join('\n\n')
     },
@@ -242,7 +242,7 @@ test('message prepare replays historical turn context inline on older user messa
       content: [
         'Now check the weather',
         turn2Reminder,
-        "<memory>\nBackground context from past conversations. Focus on the user's query first;\noverlapping terms do not make an entry relevant — judge by actual applicability.\n- User prefers metric units\n</memory>"
+        "<memory>\nYachiyo's durable memory — understanding built through working with the user.\nThese entries capture accumulated observations about preferences, decisions, workflows,\nand project context from prior collaboration. They are not the user's own knowledge or\nself-statements. Focus on the user's current query first; overlapping terms do not make\nan entry relevant — judge by actual applicability.\n- User prefers metric units\n</memory>"
       ].join('\n\n')
     }
   ])
@@ -291,7 +291,7 @@ test('message prepare emits historical multimodal turn context as separate text 
         { type: 'text', text: turn1Reminder },
         {
           type: 'text',
-          text: "<memory>\nBackground context from past conversations. Focus on the user's query first;\noverlapping terms do not make an entry relevant — judge by actual applicability.\n- User likes cats\n</memory>"
+          text: "<memory>\nYachiyo's durable memory — understanding built through working with the user.\nThese entries capture accumulated observations about preferences, decisions, workflows,\nand project context from prior collaboration. They are not the user's own knowledge or\nself-statements. Focus on the user's current query first; overlapping terms do not make\nan entry relevant — judge by actual applicability.\n- User likes cats\n</memory>"
         }
       ]
     },

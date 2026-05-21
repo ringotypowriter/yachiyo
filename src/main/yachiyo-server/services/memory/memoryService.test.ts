@@ -184,6 +184,78 @@ test('memory service uses cognitive activation without model query planning', as
   assert.match(result.entries[0] ?? '', /Codex produces dense context artifacts/)
 })
 
+test('memory service includes source row ids in recalled entries from saved thread evidence', async () => {
+  const cognitiveStore = createInMemoryCognitiveMemoryStore()
+  const service = createConfiguredService({
+    cognitiveStore,
+    runtime: {
+      async *streamReply() {
+        yield JSON.stringify({
+          operations: [
+            {
+              type: 'upsertRelation',
+              relation: 'project_context',
+              purpose: 'Track project context.',
+              columns: ['note'],
+              evidence: []
+            },
+            {
+              type: 'upsertRow',
+              relation: 'project_context',
+              key: 'memory_source_bridge',
+              values: { note: 'Recall entries should expose their source conversation.' },
+              subjects: ['memory source bridge'],
+              confidence: 0.9,
+              evidence: []
+            }
+          ]
+        })
+      }
+    }
+  })
+
+  await service.saveThread({
+    thread: {
+      id: 'thread-source',
+      title: 'Memory source bridge',
+      updatedAt: '2026-05-19T00:00:00.000Z'
+    },
+    messages: [
+      {
+        id: 'msg-1',
+        threadId: 'thread-source',
+        role: 'user',
+        content: 'Memory recall needs source conversation references.',
+        status: 'completed',
+        createdAt: '2026-05-19T00:00:00.000Z'
+      },
+      {
+        id: 'msg-2',
+        threadId: 'thread-source',
+        role: 'assistant',
+        content: 'Expose querySource row ids in the recalled memory entry.',
+        status: 'completed',
+        createdAt: '2026-05-19T00:01:00.000Z'
+      }
+    ]
+  })
+
+  const result = await service.recallForContext({
+    thread: {
+      id: 'thread-current',
+      title: 'Current chat',
+      updatedAt: '2026-05-19T00:02:00.000Z'
+    },
+    now: '2026-05-19T00:02:00.000Z',
+    userQuery: 'memory source bridge 的来源是什么？',
+    history: []
+  })
+
+  assert.equal(result.entries.length, 1)
+  assert.match(result.entries[0] ?? '', /source_threads=thread:thread-source/)
+  assert.match(result.entries[0] ?? '', /source_messages=thread_message:thread-source:msg-1/)
+})
+
 test('memory service does not advance lastRecall markers when cognitive activation misses', async () => {
   const service = createConfiguredService({})
 
