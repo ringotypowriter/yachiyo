@@ -102,7 +102,6 @@ test('memory term document model passes pagination through the settings bridge',
     getMemoryTermDocument: async (input) => {
       receivedInput = input
       return {
-        provider: 'builtin-memory',
         topicCount: 0,
         memoryCount: 0,
         topics: []
@@ -118,7 +117,7 @@ test('memory term document model passes pagination through the settings bridge',
   }
 })
 
-test('memory term document model loads builtin memory hierarchy through the settings bridge', async () => {
+test('memory term document model loads cognitive memory hierarchy through the settings bridge', async () => {
   let calls = 0
   let receivedInput: GetMemoryTermDocumentInput | undefined
   const restore = withWindowApiMock({
@@ -126,7 +125,6 @@ test('memory term document model loads builtin memory hierarchy through the sett
       calls += 1
       receivedInput = input
       return {
-        provider: 'builtin-memory',
         topicCount: 1,
         memoryCount: 1,
         topics: [
@@ -152,8 +150,7 @@ test('memory term document model loads builtin memory hierarchy through the sett
     const document = await loadMemoryTermDocument({
       providers: [],
       memory: {
-        enabled: true,
-        provider: 'builtin-memory'
+        enabled: true
       }
     })
     assert.equal(calls, 1)
@@ -161,12 +158,10 @@ test('memory term document model loads builtin memory hierarchy through the sett
       config: {
         providers: [],
         memory: {
-          enabled: true,
-          provider: 'builtin-memory'
+          enabled: true
         }
       }
     })
-    assert.equal(document.provider, 'builtin-memory')
     assert.equal(document.topics[0]?.topic, 'repo-preference')
     assert.equal(document.topics[0]?.entries[0]?.title, 'Repo root')
   } finally {

@@ -47,7 +47,6 @@ export const IPC_CHANNELS = {
   restoreThread: 'yachiyo:restore-thread',
   retryMessage: 'yachiyo:retry-message',
   saveThread: 'yachiyo:save-thread',
-  testMemoryConnection: 'yachiyo:test-memory-connection',
   testSubagentProfile: 'yachiyo:test-subagent-profile',
   saveConfig: 'yachiyo:save-config',
   saveUserDocument: 'yachiyo:save-user-document',

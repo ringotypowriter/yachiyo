@@ -423,7 +423,6 @@ export function readCognitiveMemoryTermDocument(options: {
       }
 
       return {
-        provider: 'builtin-memory',
         topicCount: page.topicCounts.length,
         memoryCount: page.memoryCount,
         topics: [...pageTopics.entries()].map(([topic, entries]) => ({

@@ -1,8 +1,6 @@
 import {
   DEFAULT_ACTIVE_RUN_ENTER_BEHAVIOR,
   DEFAULT_ENABLED_TOOL_NAMES,
-  DEFAULT_MEMORY_BASE_URL,
-  DEFAULT_MEMORY_PROVIDER,
   DEFAULT_RUN_MODE_ID,
   DEFAULT_SIDEBAR_VISIBILITY,
   DEFAULT_STRIP_COMPACT_TOKEN_THRESHOLD,
@@ -56,8 +54,6 @@ export const DEFAULT_SETTINGS_CONFIG: SettingsConfig = {
   },
   memory: {
     enabled: true,
-    provider: DEFAULT_MEMORY_PROVIDER,
-    baseUrl: DEFAULT_MEMORY_BASE_URL,
     autoRecall: true
   },
   prompts: [],

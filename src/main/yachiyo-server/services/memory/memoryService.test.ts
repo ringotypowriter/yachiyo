@@ -8,12 +8,76 @@ import type {
 } from '../../runtime/models/auxiliaryGeneration.ts'
 import type { ModelStreamRequest, ModelRuntime } from '../../runtime/models/types.ts'
 import { createInMemoryCognitiveMemoryStore } from './cognitiveMemoryStore.ts'
-import {
-  createMemoryService,
-  sanitizeMemoryQueryText,
-  type MemoryCandidate,
-  type MemoryProvider
-} from './memoryService.ts'
+import { createMemoryService, sanitizeMemoryQueryText } from './memoryService.ts'
+
+const MEMORY_CONFIG: SettingsConfig = {
+  providers: [],
+  memory: { enabled: true }
+}
+
+function createAuxiliaryGenerationStub(
+  options: { text: string; status?: 'success' | 'failed' },
+  requests: AuxiliaryTextGenerationRequest[] = []
+): AuxiliaryGenerationService {
+  return {
+    async generateText(request) {
+      requests.push(request)
+
+      if (options.status === 'failed') {
+        return {
+          status: 'failed',
+          error: 'auxiliary failed',
+          settings: {
+            providerName: 'tool',
+            provider: 'openai',
+            model: 'gpt-5-mini',
+            apiKey: 'sk-tool',
+            baseUrl: ''
+          }
+        }
+      }
+
+      return {
+        status: 'success',
+        settings: {
+          providerName: 'tool',
+          provider: 'openai',
+          model: 'gpt-5-mini',
+          apiKey: 'sk-tool',
+          baseUrl: ''
+        },
+        text: options.text
+      }
+    }
+  }
+}
+
+function createConfiguredService(input: {
+  auxiliaryGeneration?: AuxiliaryGenerationService
+  runtime?: ModelRuntime
+  config?: SettingsConfig
+  cognitiveStore?: ReturnType<typeof createInMemoryCognitiveMemoryStore>
+}): ReturnType<typeof createMemoryService> {
+  return createMemoryService({
+    auxiliaryGeneration:
+      input.auxiliaryGeneration ?? createAuxiliaryGenerationStub({ text: '{"operations":[]}' }),
+    cognitiveStore: input.cognitiveStore ?? createInMemoryCognitiveMemoryStore(),
+    createModelRuntime: () =>
+      input.runtime ?? {
+        async *streamReply() {
+          yield ''
+        }
+      },
+    readConfig: () => input.config ?? MEMORY_CONFIG,
+    readSettings: () => ({
+      providerName: 'main',
+      provider: 'openai',
+      model: 'gpt-5',
+      apiKey: 'sk-main',
+      baseUrl: ''
+    })
+  })
+}
 
 test('sanitizeMemoryQueryText strips embedded document blocks', () => {
   const big = 'x'.repeat(50_000)
@@ -52,150 +116,47 @@ test('sanitizeMemoryQueryText strips attached_files and referenced_jotdown block
   assert.equal(sanitizeMemoryQueryText(raw), 'Hi thanks')
 })
 
-interface AuxiliaryStubOptions {
-  text: string
-  status?: 'success' | 'failed'
-}
-
-function createAuxiliaryGenerationStub(
-  options: AuxiliaryStubOptions,
-  requests: AuxiliaryTextGenerationRequest[] = []
-): AuxiliaryGenerationService {
-  return {
-    async generateText(request) {
-      requests.push(request)
-
-      if (options.status === 'failed') {
-        return {
-          status: 'failed',
-          error: 'auxiliary failed',
-          settings: {
-            providerName: 'tool',
-            provider: 'openai',
-            model: 'gpt-5-mini',
-            apiKey: 'sk-tool',
-            baseUrl: ''
-          }
-        }
-      }
-
-      return {
-        status: 'success',
-        settings: {
-          providerName: 'tool',
-          provider: 'openai',
-          model: 'gpt-5-mini',
-          apiKey: 'sk-tool',
-          baseUrl: ''
-        },
-        text: options.text
-      }
-    }
-  }
-}
-
-const MEMORY_CONFIG: SettingsConfig = {
-  providers: [],
-  memory: {
-    enabled: true,
-    provider: 'builtin-memory',
-    baseUrl: 'http://127.0.0.1:14242'
-  }
-}
-
-function createConfiguredService(input: {
-  auxiliaryGeneration: AuxiliaryGenerationService
-  provider: MemoryProvider
-  runtime?: ModelRuntime
-  config?: SettingsConfig
-}): ReturnType<typeof createMemoryService> {
-  return createMemoryService({
-    auxiliaryGeneration: input.auxiliaryGeneration,
-    createModelRuntime: () =>
-      input.runtime ?? {
-        async *streamReply() {
-          yield ''
-        }
-      },
-    createProvider: () => input.provider,
-    readConfig: () => input.config ?? MEMORY_CONFIG,
-    readSettings: () => ({
-      providerName: 'main',
-      provider: 'openai',
-      model: 'gpt-5',
-      apiKey: 'sk-main',
-      baseUrl: ''
-    })
-  })
-}
-
 test('memory service exposes source query memory capability only when memory is configured', () => {
-  const provider: MemoryProvider = {
-    async createMemories() {
-      return { savedCount: 0 }
-    },
-    async searchMemories() {
-      return []
-    },
-    async updateMemory() {
-      return undefined
-    }
-  }
-
-  const configured = createConfiguredService({
-    auxiliaryGeneration: createAuxiliaryGenerationStub({ text: '{"queries":[]}' }),
-    provider
-  })
-
+  const configured = createConfiguredService({})
   assert.equal(configured.isConfigured(), true)
   assert.equal(configured.hasHiddenSearchCapability(), true)
 
-  const disabled = createMemoryService({
-    auxiliaryGeneration: createAuxiliaryGenerationStub({ text: '{"queries":[]}' }),
-    createModelRuntime: () => ({
-      async *streamReply() {
-        yield ''
-      }
-    }),
-    createProvider: () => provider,
-    readConfig: () => ({ providers: [] }),
-    readSettings: () => ({
-      providerName: 'main',
-      provider: 'openai',
-      model: 'gpt-5',
-      apiKey: 'sk-main',
-      baseUrl: ''
-    })
+  const disabled = createConfiguredService({
+    config: { providers: [], memory: { enabled: false } }
   })
-
   assert.equal(disabled.hasHiddenSearchCapability(), false)
 })
 
-test('memory service uses cognitive activation without model query planning when a cognitive store is present', async () => {
+test('memory service searches the cognitive store directly', async () => {
+  const cognitiveStore = createInMemoryCognitiveMemoryStore()
+  const service = createConfiguredService({ cognitiveStore })
+
+  await service.validateAndCreateMemory({
+    key: 'repo_preference',
+    facts: { root: 'Use the repository root for Yachiyo commands.' },
+    subjects: ['repo root', 'Yachiyo commands'],
+    unitType: 'preference',
+    importance: 0.8
+  })
+
+  const results = await service.searchMemories({
+    query: 'Yachiyo commands',
+    topic: 'user_preferences'
+  })
+  assert.equal(results.length, 1)
+  assert.equal(results[0]?.title, 'repo_preference')
+  assert.match(results[0]?.content ?? '', /repository root/)
+})
+
+test('memory service uses cognitive activation without model query planning', async () => {
   const auxiliaryRequests: AuxiliaryTextGenerationRequest[] = []
   const cognitiveStore = createInMemoryCognitiveMemoryStore()
-  const service = createMemoryService({
+  const service = createConfiguredService({
     auxiliaryGeneration: createAuxiliaryGenerationStub(
-      { text: '{"queries":[]}' },
+      { text: '{"operations":[]}' },
       auxiliaryRequests
     ),
-    cognitiveStore,
-    createModelRuntime: () => ({
-      async *streamReply() {
-        yield ''
-      }
-    }),
-    createProvider: () => {
-      throw new Error('provider should not be used')
-    },
-    readConfig: () => MEMORY_CONFIG,
-    readSettings: () => ({
-      providerName: 'main',
-      provider: 'openai',
-      model: 'gpt-5',
-      apiKey: 'sk-main',
-      baseUrl: ''
-    })
+    cognitiveStore
   })
 
   await service.validateAndCreateMemory({
@@ -223,280 +184,10 @@ test('memory service uses cognitive activation without model query planning when
   assert.match(result.entries[0] ?? '', /Codex produces dense context artifacts/)
 })
 
-test('memory service saves thread transcripts as cognitive patches', async () => {
-  const cognitiveStore = createInMemoryCognitiveMemoryStore()
-  const requests: ModelStreamRequest[] = []
-  const service = createMemoryService({
-    auxiliaryGeneration: createAuxiliaryGenerationStub({ text: '{"operations":[]}' }),
-    cognitiveStore,
-    createModelRuntime: () => ({
-      async *streamReply(request) {
-        requests.push(request)
-        yield JSON.stringify({
-          operations: [
-            {
-              type: 'upsertRelation',
-              relation: 'agent_workflow_roles',
-              purpose: 'Track agent handoff rules.',
-              columns: ['agent', 'role'],
-              evidence: []
-            },
-            {
-              type: 'upsertRow',
-              relation: 'agent_workflow_roles',
-              key: 'codex',
-              values: { agent: 'Codex', role: 'Explorer' },
-              subjects: ['Codex'],
-              triggers: ['context artifact'],
-              confidence: 0.9,
-              evidence: []
-            }
-          ]
-        })
-      }
-    }),
-    createProvider: () => {
-      throw new Error('provider should not be used')
-    },
-    readConfig: () => MEMORY_CONFIG,
-    readSettings: () => ({
-      providerName: 'main',
-      provider: 'openai',
-      model: 'gpt-5',
-      apiKey: 'sk-main',
-      baseUrl: ''
-    })
-  })
-
-  const saved = await service.saveThread({
-    thread: {
-      id: 'thread-1',
-      title: 'Agent workflow',
-      updatedAt: '2026-05-19T00:00:00.000Z'
-    },
-    messages: [
-      {
-        id: 'msg-1',
-        threadId: 'thread-1',
-        role: 'user',
-        content: 'Codex should create context artifacts.',
-        status: 'completed',
-        createdAt: '2026-05-19T00:00:00.000Z'
-      }
-    ]
-  })
-
-  const state = await cognitiveStore.readState()
-  assert.equal(saved.savedCount, 2)
-  assert.equal(requests.length, 1)
-  assert.equal(state.relations[0]?.name, 'agent_workflow_roles')
-  assert.equal(state.rows[0]?.key, 'codex')
-  assert.equal(state.rows[0]?.evidence[0]?.messageId, 'msg-1')
-})
-
-test('memory service derives stricter retrieval plans and ranks recalled context', async () => {
-  const auxiliaryRequests: AuxiliaryTextGenerationRequest[] = []
-  const searchCalls: Array<{ query: string; label?: string }> = []
-  const provider: MemoryProvider = {
-    async createMemories() {
-      return { savedCount: 0 }
-    },
-    async searchMemories({ query, label }) {
-      searchCalls.push({ query, label })
-
-      if (query.includes('deployment')) {
-        return [
-          {
-            id: 'mem-1',
-            title: 'Deploy workflow',
-            content: 'Always run the staging smoke test before production-adjacent deploy review.',
-            score: 0.95
-          }
-        ]
-      }
-
-      return [
-        {
-          id: 'mem-2',
-          title: 'Repo preference',
-          content: 'Use the repo root for Yachiyo commands.',
-          score: 0.82
-        }
-      ]
-    },
-    async updateMemory() {
-      return undefined
-    }
-  }
-
-  const service = createConfiguredService({
-    auxiliaryGeneration: createAuxiliaryGenerationStub(
-      {
-        text: JSON.stringify({
-          queries: [
-            {
-              topic: 'deploy-workflow',
-              query: 'deployment checklist and staging validation',
-              reason: 'The user is asking about release behavior.',
-              weight: 0.9
-            },
-            {
-              topic: 'repo-preference',
-              query: 'repo root preference for Yachiyo work',
-              reason: 'Workspace conventions may matter.',
-              weight: 0.6
-            }
-          ]
-        })
-      },
-      auxiliaryRequests
-    ),
-    provider
-  })
+test('memory service does not advance lastRecall markers when cognitive activation misses', async () => {
+  const service = createConfiguredService({})
 
   const result = await service.recallForContext({
-    thread: {
-      id: 'thread-1',
-      title: 'Deploy thread',
-      updatedAt: '2026-03-22T00:00:00.000Z'
-    },
-    now: '2026-03-22T00:00:00.000Z',
-    userQuery:
-      'How should I handle `deploymentChecklist`, `stagingValidation`, and `repoRootPreference`?',
-    history: [
-      {
-        id: 'user-1',
-        threadId: 'thread-1',
-        role: 'user',
-        content:
-          'How should I handle `deploymentChecklist`, `stagingValidation`, and `repoRootPreference`?',
-        status: 'completed',
-        createdAt: '2026-03-22T00:00:00.000Z'
-      }
-    ]
-  })
-
-  assert.deepEqual(searchCalls, [
-    {
-      query: 'deployment checklist and staging validation',
-      label: undefined
-    },
-    {
-      query: 'repo root preference for Yachiyo work',
-      label: undefined
-    }
-  ])
-  assert.deepEqual(result.entries, [
-    'Deploy workflow: Always run the staging smoke test before production-adjacent deploy review.',
-    'Repo preference: Use the repo root for Yachiyo commands.'
-  ])
-  assert.equal(result.decision.shouldRecall, true)
-})
-
-test('memory service skips provider recall when gating says the thread barely changed', async () => {
-  const searchCalls: string[] = []
-  const provider: MemoryProvider = {
-    async createMemories() {
-      return { savedCount: 0 }
-    },
-    async searchMemories({ query }) {
-      searchCalls.push(query)
-      return []
-    },
-    async updateMemory() {
-      return undefined
-    }
-  }
-  const service = createConfiguredService({
-    auxiliaryGeneration: createAuxiliaryGenerationStub({ text: '{"queries":[]}' }),
-    provider
-  })
-
-  const result = await service.recallForContext({
-    thread: {
-      id: 'thread-1',
-      title: 'Deploy thread',
-      updatedAt: '2026-03-22T00:06:00.000Z',
-      memoryRecall: {
-        lastRunAt: '2026-03-22T00:05:00.000Z',
-        lastRecallAt: '2026-03-22T00:05:00.000Z',
-        lastRecallMessageCount: 4,
-        lastRecallCharCount: 76
-      }
-    },
-    now: '2026-03-22T00:06:00.000Z',
-    userQuery: 'ok continue',
-    history: [
-      {
-        id: 'm1',
-        threadId: 'thread-1',
-        role: 'user',
-        content: 'Deploy checklist',
-        status: 'completed',
-        createdAt: '2026-03-22T00:00:00.000Z'
-      },
-      {
-        id: 'm2',
-        threadId: 'thread-1',
-        role: 'assistant',
-        content: 'Smoke test first',
-        status: 'completed',
-        createdAt: '2026-03-22T00:01:00.000Z'
-      },
-      {
-        id: 'm3',
-        threadId: 'thread-1',
-        role: 'user',
-        content: 'staging first',
-        status: 'completed',
-        createdAt: '2026-03-22T00:02:00.000Z'
-      },
-      {
-        id: 'm4',
-        threadId: 'thread-1',
-        role: 'assistant',
-        content: 'yes',
-        status: 'completed',
-        createdAt: '2026-03-22T00:03:00.000Z'
-      },
-      {
-        id: 'm5',
-        threadId: 'thread-1',
-        role: 'user',
-        content: 'ok continue',
-        status: 'completed',
-        createdAt: '2026-03-22T00:06:00.000Z'
-      }
-    ]
-  })
-
-  assert.deepEqual(searchCalls, [])
-  assert.deepEqual(result.entries, [])
-  assert.equal(result.decision.shouldRecall, false)
-})
-
-test('memory service does not advance lastRecall markers when recall is gated on but no provider is available', async () => {
-  const disabled = createMemoryService({
-    auxiliaryGeneration: createAuxiliaryGenerationStub({ text: '{"queries":[]}' }),
-    createModelRuntime: () => ({
-      async *streamReply() {
-        yield ''
-      }
-    }),
-    createProvider: () => {
-      throw new Error('should not construct provider while disabled')
-    },
-    readConfig: () => ({ providers: [] }),
-    readSettings: () => ({
-      providerName: 'main',
-      provider: 'openai',
-      model: 'gpt-5',
-      apiKey: 'sk-main',
-      baseUrl: ''
-    })
-  })
-
-  const result = await disabled.recallForContext({
     thread: {
       id: 'thread-1',
       title: 'Thread',
@@ -545,94 +236,9 @@ test('memory service does not advance lastRecall markers when recall is gated on
   assert.equal(result.thread.memoryRecall?.lastRecallCharCount, 20)
 })
 
-test('memory service can test builtin memory connectivity failures clearly', async () => {
-  const service = createConfiguredService({
-    auxiliaryGeneration: createAuxiliaryGenerationStub({ text: '{"queries":[]}' }),
-    provider: {
-      async createMemories() {
-        return { savedCount: 0 }
-      },
-      async searchMemories() {
-        throw new Error('Built-in memory unavailable')
-      },
-      async updateMemory() {
-        return undefined
-      }
-    }
-  })
-
-  const result = await service.testConnection()
-
-  assert.deepEqual(result, {
-    ok: false,
-    message: 'Built-in memory unavailable'
-  })
-})
-
-test('memory service can test builtin sqlite memory connectivity without an external base URL', async () => {
-  const service = createConfiguredService({
-    auxiliaryGeneration: createAuxiliaryGenerationStub({ text: '{"queries":[]}' }),
-    provider: {
-      async createMemories() {
-        return { savedCount: 0 }
-      },
-      async searchMemories() {
-        return []
-      },
-      async updateMemory() {
-        return undefined
-      }
-    },
-    config: {
-      providers: [],
-      memory: {
-        enabled: true,
-        provider: 'builtin-memory'
-      }
-    }
-  })
-
-  const result = await service.testConnection()
-
-  assert.deepEqual(result, {
-    ok: true,
-    message: 'Built-in memory is ready.'
-  })
-})
-
-test('memory service distills completed runs into canonical topic-aware updates instead of appending duplicates', async () => {
+test('memory service distills completed runs into cognitive patches', async () => {
   const auxiliaryRequests: AuxiliaryTextGenerationRequest[] = []
-  const created: MemoryCandidate[] = []
-  const updated: Array<{ id: string; item: MemoryCandidate }> = []
-  const searchCalls: Array<{ query: string; label?: string }> = []
-  const provider: MemoryProvider = {
-    async createMemories({ items }) {
-      created.push(...items)
-      return { savedCount: items.length }
-    },
-    async searchMemories({ query, label }) {
-      searchCalls.push({ query, label })
-
-      if (label === 'topic:repo-preference') {
-        return [
-          {
-            id: 'existing-1',
-            title: 'Repo preference',
-            content: 'Use the Yachiyo repo root for commands.',
-            labels: ['topic:repo-preference'],
-            importance: 0.55,
-            unitType: 'preference'
-          }
-        ]
-      }
-
-      return []
-    },
-    async updateMemory(input) {
-      updated.push(input)
-    }
-  }
-
+  const cognitiveStore = createInMemoryCognitiveMemoryStore()
   const service = createConfiguredService({
     auxiliaryGeneration: createAuxiliaryGenerationStub(
       {
@@ -641,138 +247,23 @@ test('memory service distills completed runs into canonical topic-aware updates 
             {
               topic: 'repo-preference',
               title: 'Repo preference',
-              content: 'Use the Yachiyo repo root for commands and run work from that root.',
+              content: 'Use the Yachiyo repo root for commands.',
               unitType: 'preference',
               importance: 0.8
             },
             {
-              topic: 'repo-preference',
-              title: 'Repo root preference',
-              content: 'Use the Yachiyo repo root for commands.',
-              unitType: 'preference',
-              importance: 0.6
-            },
-            {
-              topic: 'testing-workflow',
-              title: 'Testing workflow',
-              content: 'Run the targeted server tests before shipping memory changes.',
-              unitType: 'procedure',
-              importance: 0.74
+              topic: 'weak-memory',
+              title: 'Weak memory',
+              content: 'Maybe.',
+              unitType: 'fact',
+              importance: 0.2
             }
           ]
         })
       },
       auxiliaryRequests
     ),
-    provider
-  })
-
-  const result = await service.distillCompletedRun({
-    thread: {
-      id: 'thread-1',
-      title: 'Memory run',
-      updatedAt: '2026-03-22T00:00:00.000Z'
-    },
-    userQuery: 'What should we remember?',
-    assistantResponse: 'Remember the repo root and the testing flow.'
-  })
-
-  assert.equal(result.savedCount, 2)
-  assert.deepEqual(searchCalls, [
-    {
-      query: 'Repo preference',
-      label: 'topic:repo-preference'
-    },
-    {
-      query: 'Repo preference Repo Preference',
-      label: undefined
-    },
-    {
-      query: 'Repo Preference Use the Yachiyo repo root for commands and run work from that root.',
-      label: undefined
-    },
-    {
-      query: 'Testing workflow',
-      label: 'topic:testing-workflow'
-    },
-    {
-      query: 'Testing workflow Testing Workflow',
-      label: undefined
-    },
-    {
-      query: 'Testing Workflow Run the targeted server tests before shipping memory changes.',
-      label: undefined
-    }
-  ])
-  assert.deepEqual(updated, [
-    {
-      id: 'existing-1',
-      item: {
-        topic: 'repo-preference',
-        title: 'Repo preference',
-        content: 'Use the Yachiyo repo root for commands and run work from that root.',
-        importance: 0.8,
-        unitType: 'preference'
-      },
-      signal: undefined
-    }
-  ])
-  assert.deepEqual(created, [
-    {
-      topic: 'testing-workflow',
-      title: 'Testing workflow',
-      content: 'Run the targeted server tests before shipping memory changes.',
-      importance: 0.74,
-      unitType: 'procedure'
-    }
-  ])
-})
-
-test('memory service rejects malformed or weak memory candidates before persistence', async () => {
-  const created: MemoryCandidate[] = []
-  const updated: Array<{ id: string; item: MemoryCandidate }> = []
-  const provider: MemoryProvider = {
-    async createMemories({ items }) {
-      created.push(...items)
-      return { savedCount: items.length }
-    },
-    async searchMemories() {
-      return []
-    },
-    async updateMemory(input) {
-      updated.push(input)
-    }
-  }
-
-  const service = createConfiguredService({
-    auxiliaryGeneration: createAuxiliaryGenerationStub({
-      text: JSON.stringify({
-        candidates: [
-          {
-            topic: 'repo-preference',
-            title: 'Repo preference.',
-            content: 'Use the Yachiyo repo root for commands.',
-            unitType: 'preference',
-            importance: 0.8
-          },
-          {
-            topic: 'chat-summary',
-            title: 'We discussed the deploy',
-            content: 'We discussed what to do this time.',
-            unitType: 'fact',
-            importance: 0.4
-          },
-          {
-            topic: 'weak-memory',
-            title: 'Weak memory',
-            content: 'Maybe.',
-            unitType: 'fact',
-            importance: 0.2
-          }
-        ]
-      })
-    }),
-    provider
+    cognitiveStore
   })
 
   const result = await service.distillCompletedRun({
@@ -785,242 +276,71 @@ test('memory service rejects malformed or weak memory candidates before persiste
     assistantResponse: 'Remember the repo root.'
   })
 
-  assert.equal(result.savedCount, 1)
-  assert.deepEqual(updated, [])
-  assert.deepEqual(created, [
-    {
-      topic: 'repo-preference',
-      title: 'Repo preference',
-      content: 'Use the Yachiyo repo root for commands.',
-      importance: 0.8,
-      unitType: 'preference'
-    }
-  ])
-})
-
-test('memory service keeps durable candidates that legitimately mention thread or chat', async () => {
-  const created: MemoryCandidate[] = []
-  const provider: MemoryProvider = {
-    async createMemories({ items }) {
-      created.push(...items)
-      return { savedCount: items.length }
-    },
-    async searchMemories() {
-      return []
-    },
-    async updateMemory() {
-      return undefined
-    }
-  }
-
-  const service = createConfiguredService({
-    auxiliaryGeneration: createAuxiliaryGenerationStub({
-      text: JSON.stringify({
-        candidates: [
-          {
-            topic: 'release-coordination',
-            title: 'Release coordination',
-            content: 'Use a Slack thread for release coordination and status handoff.',
-            unitType: 'procedure',
-            importance: 0.72
-          },
-          {
-            topic: 'chat-model-selection',
-            title: 'Chat model selection',
-            content: 'The chat model is gpt-5 for the main assistant run path.',
-            unitType: 'fact',
-            importance: 0.68
-          }
-        ]
-      })
-    }),
-    provider
-  })
-
-  const result = await service.distillCompletedRun({
-    thread: {
-      id: 'thread-1',
-      title: 'Memory run',
-      updatedAt: '2026-03-22T00:00:00.000Z'
-    },
-    userQuery: 'What should we remember?',
-    assistantResponse: 'Remember the release coordination and model choice.'
-  })
-
+  const state = await cognitiveStore.readState()
   assert.equal(result.savedCount, 2)
-  assert.deepEqual(created, [
-    {
-      topic: 'release-coordination',
-      title: 'Release coordination',
-      content: 'Use a Slack thread for release coordination and status handoff.',
-      importance: 0.72,
-      unitType: 'procedure'
-    },
-    {
-      topic: 'chat-model-selection',
-      title: 'Chat model selection',
-      content: 'The chat model is gpt-5 for the main assistant run path.',
-      importance: 0.68,
-      unitType: 'fact'
-    }
-  ])
+  assert.equal(auxiliaryRequests[0]?.purpose, 'memory-distill')
+  assert.equal(state.rows.length, 1)
+  assert.equal(state.rows[0]?.relation, 'user_preferences')
+  assert.match(state.rows[0]?.values['content'] ?? '', /Yachiyo repo root/)
 })
 
-test('memory service uses the main model for explicit Save Thread extraction with the stricter schema', async () => {
+test('memory service saves thread transcripts as cognitive patches', async () => {
+  const cognitiveStore = createInMemoryCognitiveMemoryStore()
   const requests: ModelStreamRequest[] = []
-  const saved: MemoryCandidate[] = []
-  const provider: MemoryProvider = {
-    async createMemories({ items }) {
-      saved.push(...items)
-      return { savedCount: items.length }
-    },
-    async searchMemories() {
-      return []
-    },
-    async updateMemory() {
-      return undefined
-    }
-  }
-  const runtime: ModelRuntime = {
-    async *streamReply(request) {
-      requests.push(request)
-      yield JSON.stringify({
-        candidates: [
-          {
-            topic: 'code-review-policy',
-            title: 'Code review policy',
-            content: 'Present findings first, then summaries.',
-            unitType: 'procedure',
-            importance: 0.9
-          }
-        ]
-      })
-    }
-  }
-
   const service = createConfiguredService({
-    auxiliaryGeneration: createAuxiliaryGenerationStub({ text: '{"queries":[]}' }),
-    provider,
-    runtime
+    cognitiveStore,
+    runtime: {
+      async *streamReply(request) {
+        requests.push(request)
+        yield JSON.stringify({
+          operations: [
+            {
+              type: 'upsertRelation',
+              relation: 'agent_workflow_roles',
+              purpose: 'Track agent handoff rules.',
+              columns: ['agent', 'role'],
+              evidence: []
+            },
+            {
+              type: 'upsertRow',
+              relation: 'agent_workflow_roles',
+              key: 'codex',
+              values: { agent: 'Codex', role: 'Explorer' },
+              subjects: ['Codex'],
+              triggers: ['context artifact'],
+              confidence: 0.9,
+              evidence: []
+            }
+          ]
+        })
+      }
+    }
   })
 
-  const result = await service.saveThread({
+  const saved = await service.saveThread({
     thread: {
       id: 'thread-1',
-      title: 'Saved thread',
-      updatedAt: '2026-03-22T00:00:00.000Z'
+      title: 'Agent workflow',
+      updatedAt: '2026-05-19T00:00:00.000Z'
     },
     messages: [
       {
-        id: 'user-1',
+        id: 'msg-1',
         threadId: 'thread-1',
         role: 'user',
-        content: 'Review this patch.',
+        content: 'Codex should create context artifacts.',
         status: 'completed',
-        createdAt: '2026-03-22T00:00:00.000Z'
-      },
-      {
-        id: 'assistant-1',
-        threadId: 'thread-1',
-        role: 'assistant',
-        content: 'Lead with concrete findings.',
-        status: 'completed',
-        createdAt: '2026-03-22T00:00:05.000Z'
+        createdAt: '2026-05-19T00:00:00.000Z'
       }
     ]
   })
 
-  assert.equal(result.savedCount, 1)
+  const state = await cognitiveStore.readState()
+  assert.equal(saved.savedCount, 2)
+  assert.equal(requests.length, 1)
   assert.equal(requests[0]?.providerOptionsMode, undefined)
   assert.equal(requests[0]?.settings.model, 'gpt-5')
-  assert.deepEqual(saved, [
-    {
-      topic: 'code-review-policy',
-      title: 'Code review policy',
-      content: 'Present findings first, then summaries.',
-      importance: 0.9,
-      unitType: 'procedure'
-    }
-  ])
-})
-
-test('memory service lets the query model skip recall for general questions unrelated to memory', async () => {
-  const searchCalls: string[] = []
-  const provider: MemoryProvider = {
-    async createMemories() {
-      return { savedCount: 0 }
-    },
-    async searchMemories({ query }) {
-      searchCalls.push(query)
-      return []
-    },
-    async updateMemory() {
-      return undefined
-    }
-  }
-  const service = createConfiguredService({
-    auxiliaryGeneration: createAuxiliaryGenerationStub({
-      text: JSON.stringify({
-        skip: true,
-        skipReason:
-          'The user is asking a general factual question with no relation to durable memories.'
-      })
-    }),
-    provider
-  })
-
-  const result = await service.recallForContext({
-    thread: {
-      id: 'thread-1',
-      title: 'General question',
-      updatedAt: '2026-03-22T00:00:00.000Z',
-      memoryRecall: {
-        lastRunAt: '2026-03-21T00:00:00.000Z',
-        lastRecallAt: '2026-03-21T00:00:00.000Z',
-        lastRecallMessageCount: 2,
-        lastRecallCharCount: 40
-      }
-    },
-    now: '2026-03-22T00:00:00.000Z',
-    userQuery: 'What are `France`, `Paris`, and `Europe`?',
-    history: [
-      {
-        id: 'm1',
-        threadId: 'thread-1',
-        role: 'user',
-        content: 'Hello',
-        status: 'completed',
-        createdAt: '2026-03-21T00:00:00.000Z'
-      },
-      {
-        id: 'm2',
-        threadId: 'thread-1',
-        role: 'assistant',
-        content: 'Hi there',
-        status: 'completed',
-        createdAt: '2026-03-21T00:00:01.000Z'
-      },
-      {
-        id: 'm3',
-        threadId: 'thread-1',
-        role: 'user',
-        content: 'What are `France`, `Paris`, and `Europe`?',
-        status: 'completed',
-        createdAt: '2026-03-22T00:00:00.000Z'
-      }
-    ]
-  })
-
-  assert.deepEqual(searchCalls, [])
-  assert.deepEqual(result.entries, [])
-  assert.equal(result.decision.shouldRecall, true)
-  assert.equal(result.decision.modelSkipped, true)
-  assert.equal(
-    result.decision.modelSkipReason,
-    'The user is asking a general factual question with no relation to durable memories.'
-  )
-  assert.equal(result.thread.memoryRecall?.lastRunAt, '2026-03-22T00:00:00.000Z')
-  assert.equal(result.thread.memoryRecall?.lastRecallAt, '2026-03-21T00:00:00.000Z')
-  assert.equal(result.thread.memoryRecall?.lastRecallMessageCount, 2)
-  assert.equal(result.thread.memoryRecall?.lastRecallCharCount, 40)
+  assert.equal(state.relations[0]?.name, 'agent_workflow_roles')
+  assert.equal(state.rows[0]?.key, 'codex')
+  assert.equal(state.rows[0]?.evidence[0]?.messageId, 'msg-1')
 })

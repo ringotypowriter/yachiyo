@@ -1,11 +1,8 @@
 import {
   DEFAULT_ACTIVE_RUN_ENTER_BEHAVIOR,
-  DEFAULT_MEMORY_BASE_URL,
-  DEFAULT_MEMORY_PROVIDER,
   DEFAULT_STRIP_COMPACT_TOKEN_THRESHOLD,
   DEFAULT_WEB_SEARCH_PROVIDER,
   normalizeActiveRunEnterBehavior,
-  normalizeMemoryProviderId,
   normalizeSidebarVisibility,
   normalizeThemeAppearance,
   normalizeThemeId,
@@ -221,11 +218,6 @@ export function normalizeMemoryConfig(
 
   return {
     enabled: normalizeOptionalBool(input['enabled'], fallback.enabled ?? true),
-    provider: normalizeMemoryProviderId(
-      input['provider'],
-      fallback.provider ?? DEFAULT_MEMORY_PROVIDER
-    ),
-    baseUrl: normalizeString(input['baseUrl'], fallback.baseUrl ?? DEFAULT_MEMORY_BASE_URL),
     autoRecall: normalizeOptionalBool(input['autoRecall'], fallback.autoRecall ?? true)
   }
 }

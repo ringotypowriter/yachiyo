@@ -126,7 +126,6 @@ export type ThemeAppearance = 'system' | 'light' | 'dark'
 export type SendChatMode = 'normal' | 'steer' | 'follow-up'
 export type SendChatRunTrigger = 'local' | 'channel'
 export type ToolModelMode = 'disabled' | 'default' | 'custom'
-export type MemoryProviderId = 'builtin-memory'
 export type WebReadRequestFormat = 'markdown' | 'html'
 export type WebReadContentFormat = WebReadRequestFormat | 'raw'
 export type WebReadExtractor = 'defuddle' | 'linkedom-fallback' | 'none'
@@ -157,8 +156,6 @@ export type WebSearchFailureCode =
 
 export const DEFAULT_STRIP_COMPACT_TOKEN_THRESHOLD = 200_000
 export const DEFAULT_WEB_READ_CONTENT_FORMAT: WebReadRequestFormat = 'markdown'
-export const DEFAULT_MEMORY_PROVIDER: MemoryProviderId = 'builtin-memory'
-export const DEFAULT_MEMORY_BASE_URL = 'http://127.0.0.1:14242'
 export const DEFAULT_WEB_SEARCH_PROVIDER: WebSearchProviderId = 'google-browser'
 export const CORE_TOOL_NAMES = [
   'read',
@@ -201,13 +198,6 @@ export const DEFAULT_SIDEBAR_VISIBILITY: SidebarVisibility = 'expanded'
 export const DEFAULT_THEME_ID: ThemeId = 'mizu'
 export const DEFAULT_THEME_APPEARANCE: ThemeAppearance = 'system'
 export const DEFAULT_TOOL_MODEL_MODE: ToolModelMode = 'default'
-
-export function normalizeMemoryProviderId(
-  value: unknown,
-  fallback: MemoryProviderId = DEFAULT_MEMORY_PROVIDER
-): MemoryProviderId {
-  return value === 'builtin-memory' ? value : fallback
-}
 
 export function normalizeEnabledTools(
   value: unknown,
@@ -722,7 +712,6 @@ export interface MemoryTermTopic {
 }
 
 export interface MemoryTermDocument {
-  provider: MemoryProviderId
   topicCount: number
   memoryCount: number
   topics: MemoryTermTopic[]
@@ -750,8 +739,6 @@ export interface SkillsConfig {
 
 export interface MemoryConfig {
   enabled?: boolean
-  provider?: MemoryProviderId
-  baseUrl?: string
   autoRecall?: boolean
 }
 
@@ -1029,11 +1016,7 @@ export interface SettingsConfig {
 export function isMemoryConfigured(
   config: Pick<SettingsConfig, 'memory'> | null | undefined
 ): boolean {
-  if (!config?.memory?.enabled) {
-    return false
-  }
-
-  return normalizeMemoryProviderId(config.memory.provider) === 'builtin-memory'
+  return config?.memory?.enabled === true
 }
 
 export interface ProviderSettings {
@@ -1270,15 +1253,6 @@ export interface DeleteMemoryTermInput {
 
 export interface DeleteMemoryTermResult {
   deleted: boolean
-}
-
-export interface TestMemoryConnectionInput {
-  config: SettingsConfig
-}
-
-export interface TestMemoryConnectionResult {
-  message: string
-  ok: boolean
 }
 
 export interface TestSubagentProfileInput {

@@ -709,14 +709,20 @@ test('config set - string value persists', async () => {
     await runCmd([
       'config',
       'set',
-      'memory.baseUrl',
-      '"http://localhost:14242"',
+      'webSearch.exa.baseUrl',
+      '"https://api.exa.ai"',
       '--settings',
       settingsPath
     ])
 
-    const value = await runCmd(['config', 'get', 'memory.baseUrl', '--settings', settingsPath])
-    assert.equal(value, 'http://localhost:14242')
+    const value = await runCmd([
+      'config',
+      'get',
+      'webSearch.exa.baseUrl',
+      '--settings',
+      settingsPath
+    ])
+    assert.equal(value, 'https://api.exa.ai')
   } finally {
     await rm(root, { recursive: true, force: true })
   }

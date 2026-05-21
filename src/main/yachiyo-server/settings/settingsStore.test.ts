@@ -4,7 +4,6 @@ import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import test from 'node:test'
 import {
-  DEFAULT_MEMORY_BASE_URL,
   DEFAULT_ENABLED_TOOL_NAMES,
   DEFAULT_TOOL_MODEL_MODE,
   DEFAULT_SIDEBAR_VISIBILITY,
@@ -68,8 +67,6 @@ test('settings store persists multi-provider config as TOML', async () => {
       },
       memory: {
         enabled: true,
-        provider: 'builtin-memory',
-        baseUrl: 'http://127.0.0.1:14242',
         autoRecall: false
       },
       webSearch: {
@@ -153,8 +150,6 @@ test('settings store persists multi-provider config as TOML', async () => {
     assert.match(toml, /\[webSearch\]/)
     assert.match(toml, /\[memory\]/)
     assert.match(toml, /enabled = true/)
-    assert.match(toml, /provider = "builtin-memory"/)
-    assert.match(toml, /baseUrl = "http:\/\/127\.0\.0\.1:14242"/)
     assert.match(toml, /autoRecall = false/)
     assert.match(toml, /defaultProvider = "google-browser"/)
     assert.match(toml, /\[webSearch\.browserSession\]/)
@@ -625,8 +620,6 @@ test('normalizeSettingsConfig fills memory defaults and preserves a valid config
   const defaults = normalizeSettingsConfig({ providers: [] })
   assert.deepEqual(defaults.memory, {
     enabled: true,
-    provider: 'builtin-memory',
-    baseUrl: DEFAULT_MEMORY_BASE_URL,
     autoRecall: true
   })
 
@@ -634,16 +627,12 @@ test('normalizeSettingsConfig fills memory defaults and preserves a valid config
     providers: [],
     memory: {
       enabled: true,
-      provider: 'builtin-memory',
-      baseUrl: 'http://mem.local:14242',
       autoRecall: false
     }
   })
 
   assert.deepEqual(configured.memory, {
     enabled: true,
-    provider: 'builtin-memory',
-    baseUrl: 'http://mem.local:14242',
     autoRecall: false
   })
 })

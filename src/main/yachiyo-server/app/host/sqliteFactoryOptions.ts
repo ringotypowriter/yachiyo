@@ -6,7 +6,6 @@ import {
   createSqliteCognitiveMemoryStore,
   readCognitiveMemoryTermDocument
 } from '../../services/memory/cognitiveMemoryStore.ts'
-import { createMemoryProviderFactory } from '../../services/memory/createMemoryProvider.ts'
 import { createSettingsStore } from '../../settings/settingsStore.ts'
 import { createSqliteYachiyoStorage } from '../../storage/sqlite/database.ts'
 import { createSqliteSourceQueryExecutor } from '../../tools/agentTools/querySourceSqliteExecutor.ts'
@@ -33,9 +32,6 @@ export function createSqliteYachiyoServerOptions(
     ...options,
     settingsPath,
     cognitiveMemoryStore: createSqliteCognitiveMemoryStore({ dbPath: builtinMemoryDbPath }),
-    createMemoryProvider: createMemoryProviderFactory({
-      builtinDbPath: builtinMemoryDbPath
-    }),
     sourceQueryExecutor:
       options.sourceQueryExecutor ??
       (shouldUseDemoStorage

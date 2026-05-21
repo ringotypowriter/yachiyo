@@ -1,39 +1,12 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import {
-  deriveThreadCapabilities,
-  getThreadCapabilities,
-  isMemoryConfigured,
-  normalizeMemoryProviderId
-} from './protocol.ts'
+import { deriveThreadCapabilities, getThreadCapabilities, isMemoryConfigured } from './protocol.ts'
 
-test('normalizeMemoryProviderId accepts builtin memory and falls back for unknown values', () => {
-  assert.equal(normalizeMemoryProviderId('builtin-memory'), 'builtin-memory')
-  assert.equal(normalizeMemoryProviderId('unknown-provider'), 'builtin-memory')
-})
-
-test('isMemoryConfigured allows builtin memory without a base URL', () => {
-  assert.equal(
-    isMemoryConfigured({
-      memory: {
-        enabled: true,
-        provider: 'builtin-memory'
-      }
-    }),
-    true
-  )
-
-  assert.equal(
-    isMemoryConfigured({
-      memory: {
-        enabled: true,
-        provider: 'builtin-memory',
-        baseUrl: ''
-      }
-    }),
-    true
-  )
+test('isMemoryConfigured follows the memory enabled flag', () => {
+  assert.equal(isMemoryConfigured({ memory: { enabled: true } }), true)
+  assert.equal(isMemoryConfigured({ memory: { enabled: false } }), false)
+  assert.equal(isMemoryConfigured({}), false)
 })
 
 test('deriveThreadCapabilities disables retry and branch actions for ACP threads', () => {

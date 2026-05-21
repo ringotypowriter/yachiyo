@@ -1,4 +1,3 @@
-import { Loader2 } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import type {
   MemoryTermDocument,
@@ -28,8 +27,6 @@ export interface MemoryPaneProps {
 }
 
 export function MemoryPane({ draft, onChange }: MemoryPaneProps): React.JSX.Element {
-  const [testing, setTesting] = useState(false)
-  const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null)
   const [view, setView] = useState<'overview' | 'terms'>('overview')
   const [memoryTermsPage, setMemoryTermsPage] = useState(1)
   const [memoryTermDocument, setMemoryTermDocument] = useState<MemoryTermDocument | null>(null)
@@ -40,12 +37,8 @@ export function MemoryPane({ draft, onChange }: MemoryPaneProps): React.JSX.Elem
   const dialog = useAppDialog()
   const memory = draft.memory ?? {
     enabled: true,
-    provider: 'builtin-memory',
-    baseUrl: 'http://127.0.0.1:14242',
     autoRecall: true
   }
-  const provider = memory.provider ?? 'builtin-memory'
-  const showsBuiltinTerms = provider === 'builtin-memory'
   const memoryTermRows = useMemo(
     () => flattenMemoryTermTopics(memoryTermDocument?.topics ?? []),
     [memoryTermDocument]
@@ -62,22 +55,7 @@ export function MemoryPane({ draft, onChange }: MemoryPaneProps): React.JSX.Elem
   const memoryTermItems = memoryTermRows
 
   useEffect(() => {
-    setTestResult(null)
-  }, [draft])
-
-  useEffect(() => {
-    if (provider === 'builtin-memory') {
-      return
-    }
-
-    setView('overview')
-    setMemoryTermsPage(1)
-    setMemoryTermDocument(null)
-    setTermsError(null)
-  }, [provider])
-
-  useEffect(() => {
-    if (view !== 'terms' || provider !== 'builtin-memory') {
+    if (view !== 'terms') {
       return
     }
 
@@ -109,9 +87,7 @@ export function MemoryPane({ draft, onChange }: MemoryPaneProps): React.JSX.Elem
       })
       .catch((reason) => {
         if (!cancelled) {
-          setTermsError(
-            reason instanceof Error ? reason.message : 'Failed to load built-in memory terms.'
-          )
+          setTermsError(reason instanceof Error ? reason.message : 'Failed to load memory terms.')
         }
       })
       .finally(() => {
@@ -123,12 +99,12 @@ export function MemoryPane({ draft, onChange }: MemoryPaneProps): React.JSX.Elem
     return () => {
       cancelled = true
     }
-  }, [draft, memoryTermsPage, memoryTermsReloadKey, provider, view])
+  }, [draft, memoryTermsPage, memoryTermsReloadKey, view])
 
   const handleDeleteMemoryTerm = async (entry: MemoryTermEntry): Promise<void> => {
     const confirmed = await dialog.confirm({
       title: `Forget "${entry.title}" permanently?`,
-      message: 'This deletes the memory row from local built-in memory. It cannot be undone.',
+      message: 'This deletes the memory row from local cognitive memory. It cannot be undone.',
       confirmLabel: 'Forget',
       tone: 'danger'
     })
@@ -143,23 +119,6 @@ export function MemoryPane({ draft, onChange }: MemoryPaneProps): React.JSX.Elem
       setTermsError(error instanceof Error ? error.message : 'Failed to forget memory term.')
     } finally {
       setDeletingTermId(null)
-    }
-  }
-
-  const handleTest = async (): Promise<void> => {
-    setTesting(true)
-    setTestResult(null)
-
-    try {
-      const result = await window.api.yachiyo.testMemoryConnection({ config: draft })
-      setTestResult(result)
-    } catch (error) {
-      setTestResult({
-        ok: false,
-        message: error instanceof Error ? error.message : 'Memory connection test failed.'
-      })
-    } finally {
-      setTesting(false)
     }
   }
 
@@ -183,7 +142,7 @@ export function MemoryPane({ draft, onChange }: MemoryPaneProps): React.JSX.Elem
             Memory terms
           </div>
           <div className="mt-0.5 text-sm leading-5" style={{ color: theme.text.tertiary }}>
-            Built-in memory as a compact indexed list. Each row keeps the topic, type, content, and
+            Cognitive memory as a compact indexed list. Each row keeps the topic, type, content, and
             update metadata visible.
           </div>
           {memoryTermDocument ? (
@@ -286,7 +245,7 @@ export function MemoryPane({ draft, onChange }: MemoryPaneProps): React.JSX.Elem
               </>
             ) : (
               <div className="px-7 py-3 text-sm" style={{ color: theme.text.muted }}>
-                No built-in memory terms yet.
+                No memory terms yet.
               </div>
             )}
 
@@ -327,40 +286,24 @@ export function MemoryPane({ draft, onChange }: MemoryPaneProps): React.JSX.Elem
         <SettingRow>
           <div className="min-w-0 space-y-0.5">
             <div className="text-sm font-medium" style={{ color: theme.text.primary }}>
-              Provider
+              Memory terms
             </div>
             <div className="text-sm leading-5" style={{ color: theme.text.tertiary }}>
-              Built-in cognitive memory stores recall, distillation, and thread saves locally.
+              View the memory hierarchy grouped by stored topic.
             </div>
           </div>
-          <div className="text-sm" style={{ color: theme.text.secondary }}>
-            Built-in
-          </div>
+          <button
+            type="button"
+            className="shrink-0 text-sm font-medium transition-opacity opacity-60 hover:opacity-100"
+            style={{ color: theme.text.accent }}
+            onClick={() => {
+              setMemoryTermsPage(1)
+              setView('terms')
+            }}
+          >
+            View terms →
+          </button>
         </SettingRow>
-
-        {showsBuiltinTerms ? (
-          <SettingRow>
-            <div className="min-w-0 space-y-0.5">
-              <div className="text-sm font-medium" style={{ color: theme.text.primary }}>
-                Memory terms
-              </div>
-              <div className="text-sm leading-5" style={{ color: theme.text.tertiary }}>
-                View the built-in memory hierarchy grouped by stored topic.
-              </div>
-            </div>
-            <button
-              type="button"
-              className="shrink-0 text-sm font-medium transition-opacity opacity-60 hover:opacity-100"
-              style={{ color: theme.text.accent }}
-              onClick={() => {
-                setMemoryTermsPage(1)
-                setView('terms')
-              }}
-            >
-              View terms →
-            </button>
-          </SettingRow>
-        ) : null}
       </SettingSection>
 
       <SettingSection>
@@ -421,54 +364,11 @@ export function MemoryPane({ draft, onChange }: MemoryPaneProps): React.JSX.Elem
         </SettingRow>
       </SettingSection>
 
-      {showsBuiltinTerms ? (
-        <SettingSection>
-          <div className="px-7 pt-5 pb-3">
-            <div
-              className="text-[11px] font-semibold uppercase tracking-[0.12em] mb-2"
-              style={{ color: theme.text.secondary }}
-            >
-              Built-in SQLite
-            </div>
-            <div className="text-sm leading-5" style={{ color: theme.text.tertiary }}>
-              Stores long-term memory inside Yachiyo&apos;s local sqlite database and searches it
-              with FTS5 ranking.
-            </div>
-          </div>
-
-          <div
-            className="px-7 pb-4 space-y-3"
-            style={{ borderTop: `1px solid ${theme.border.subtle}` }}
-          >
-            <div className="flex items-center gap-3 pt-4">
-              <button
-                type="button"
-                onClick={() => void handleTest()}
-                disabled={testing}
-                className="inline-flex items-center gap-2 text-sm font-medium shrink-0 transition-opacity opacity-60 hover:opacity-100 disabled:opacity-20"
-                style={{ color: theme.text.accent }}
-              >
-                {testing ? <Loader2 size={14} className="animate-spin" /> : null}
-                Test
-              </button>
-            </div>
-
-            {testResult ? (
-              <div
-                className="text-sm leading-5"
-                style={{ color: testResult.ok ? theme.text.secondary : theme.text.warning }}
-              >
-                {testResult.message}
-              </div>
-            ) : null}
-
-            <div className="text-sm leading-5" style={{ color: theme.text.tertiary }}>
-              Auto-recall and post-run distillation still use the tool model configured in Chat
-              settings.
-            </div>
-          </div>
-        </SettingSection>
-      ) : null}
+      <SettingSection>
+        <div className="px-7 py-4 text-sm leading-5" style={{ color: theme.text.tertiary }}>
+          Auto-recall and post-run distillation use the tool model configured in Chat settings.
+        </div>
+      </SettingSection>
     </div>
   )
 }

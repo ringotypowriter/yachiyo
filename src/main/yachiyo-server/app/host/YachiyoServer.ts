@@ -40,7 +40,6 @@ import type {
   SkillCatalogEntry,
   MessageRecord,
   MemoryTermDocument,
-  TestMemoryConnectionResult,
   TestSubagentProfileInput,
   TestSubagentProfileResult,
   ThreadColorTag,
@@ -101,8 +100,11 @@ import {
   createImageToTextService,
   type ImageToTextService
 } from '../../services/imageToText/imageToTextService.ts'
+import {
+  createInMemoryCognitiveMemoryStore,
+  type CognitiveMemoryStore
+} from '../../services/memory/cognitiveMemoryStore.ts'
 import { createMemoryService, type MemoryService } from '../../services/memory/memoryService.ts'
-import { createMemoryProviderFactory } from '../../services/memory/createMemoryProvider.ts'
 import { discoverSkills } from '../../services/skills/skillDiscovery.ts'
 import { buildSkillRegistry } from '../../services/skills/skillRegistry.ts'
 import { createBrowserWebPageSnapshotLoader } from '../../services/webRead/browserWebPageSnapshot.ts'
@@ -176,6 +178,12 @@ import { downloadRemoteImageAndBuildReplacementEvent } from './remoteImages.ts'
 import { projectVisibleRunEvent, type YachiyoServerEventPayload } from './runEventProjection.ts'
 import { createSqliteYachiyoServerOptions } from './sqliteFactoryOptions.ts'
 import type { SqliteYachiyoServerOptions, YachiyoServerOptions } from './options.ts'
+
+function resolveCognitiveMemoryStore(
+  store: CognitiveMemoryStore | undefined
+): CognitiveMemoryStore {
+  return store ?? createInMemoryCognitiveMemoryStore()
+}
 
 export class YachiyoServer {
   private readonly storage: YachiyoStorage
@@ -332,12 +340,12 @@ export class YachiyoServer {
       options.memoryService ??
       createMemoryService({
         auxiliaryGeneration,
-        cognitiveStore: options.cognitiveMemoryStore,
+        cognitiveStore: resolveCognitiveMemoryStore(options.cognitiveMemoryStore),
         createModelRuntime,
-        createProvider: options.createMemoryProvider ?? createMemoryProviderFactory(),
         readConfig: () => this.configDomain.readConfig(),
         readSettings: () => this.configDomain.readSettings()
       })
+
     this.memoryService = memoryService
     this.resolveThreadWorkspacePath = resolveThreadWorkspacePath
     this.ensureThreadWorkspacePath = ensureThreadWorkspace
@@ -528,9 +536,8 @@ export class YachiyoServer {
   }
 
   async getMemoryTermDocument(input?: GetMemoryTermDocumentInput): Promise<MemoryTermDocument> {
-    const provider = (input?.config ?? this.configDomain.readConfig()).memory?.provider
-    if (provider !== 'builtin-memory' || !this.readMemoryTermDocumentFile) {
-      throw new Error('Built-in memory terms are unavailable.')
+    if (!this.readMemoryTermDocumentFile) {
+      throw new Error('Memory terms are unavailable.')
     }
 
     const limit =
@@ -547,7 +554,7 @@ export class YachiyoServer {
 
   async deleteMemoryTerm(input: DeleteMemoryTermInput): Promise<DeleteMemoryTermResult> {
     if (!this.deleteMemoryTermFile) {
-      throw new Error('Built-in memory terms are unavailable.')
+      throw new Error('Memory terms are unavailable.')
     }
 
     const id = typeof input.id === 'string' ? input.id.trim() : ''
@@ -575,10 +582,6 @@ export class YachiyoServer {
       limit,
       offset
     }
-  }
-
-  async testMemoryConnection(config: SettingsConfig): Promise<TestMemoryConnectionResult> {
-    return this.memoryService.testConnection(config)
   }
 
   async testSubagentProfile(input: TestSubagentProfileInput): Promise<TestSubagentProfileResult> {

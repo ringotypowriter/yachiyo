@@ -7,7 +7,7 @@ import test from 'node:test'
 
 import { createSqliteYachiyoStorage } from './database.ts'
 import { createSqliteYachiyoServer } from '../../app/host/YachiyoServer.ts'
-import { createBuiltinMemoryProvider } from '../../services/memory/builtinMemoryProvider.ts'
+import { createSqliteCognitiveMemoryStore } from '../../services/memory/cognitiveMemoryStore.ts'
 
 const require = createRequire(import.meta.url)
 const BetterSqlite3 = require('better-sqlite3') as
@@ -384,98 +384,58 @@ test('0034 migration preserves recurring schedules without inventing run_at valu
   }
 })
 
-test('builtin memory provider stores, updates, and ranks sqlite FTS memories', async () => {
+test('sqlite cognitive memory store persists and searches rows', async () => {
   const root = await mkdtemp(join(tmpdir(), 'yachiyo-sqlite-native-'))
-  const dbPath = join(root, 'builtin-memory.sqlite')
+  const dbPath = join(root, 'cognitive-memory.sqlite')
 
   try {
-    const storage = createSqliteYachiyoStorage(dbPath)
-    storage.close()
-
-    const provider = createBuiltinMemoryProvider({ dbPath })
-
-    const created = await provider.createMemories({
-      items: [
+    const store = createSqliteCognitiveMemoryStore({ dbPath })
+    const created = await store.applyPatch({
+      operations: [
         {
-          topic: 'deploy-workflow',
-          title: 'Deploy workflow',
-          content: 'Run the staging smoke test before a production-adjacent deploy review.',
-          unitType: 'procedure',
-          importance: 0.8
+          type: 'upsertRelation',
+          relation: 'deploy-workflow',
+          purpose: 'Track deploy workflow memory.',
+          columns: ['rule'],
+          evidence: []
         },
         {
-          topic: 'branching',
-          title: 'Reply branching workflow',
-          content: 'Reply branching keeps alternate assistant responses attached to one turn.',
-          unitType: 'fact'
-        },
-        {
-          topic: 'branching-notes',
-          title: 'Branching notes',
-          content: 'Notes about threads and experiments.',
-          unitType: 'fact'
+          type: 'upsertRow',
+          relation: 'deploy-workflow',
+          key: 'staging-smoke-test',
+          values: {
+            rule: 'Run the staging smoke test before a production-adjacent deploy review.'
+          },
+          subjects: ['staging smoke test', 'deploy review'],
+          triggers: ['staging', 'deploy'],
+          confidence: 0.8,
+          evidence: []
         }
       ]
     })
 
-    assert.equal(created.savedCount, 3)
+    assert.equal(created.savedCount, 2)
 
-    const deployResults = await provider.searchMemories({
+    const reopened = createSqliteCognitiveMemoryStore({ dbPath })
+    const results = await reopened.searchRows({
       limit: 5,
       query: 'staging smoke test deploy review',
-      label: 'topic:deploy-workflow'
+      relation: 'deploy-workflow'
     })
 
-    assert.equal(deployResults.length, 1)
-    assert.equal(deployResults[0]?.title, 'Deploy workflow')
-    assert.equal(deployResults[0]?.unitType, 'procedure')
-    assert.equal(deployResults[0]?.importance, 0.8)
-    assert.deepEqual(deployResults[0]?.labels, ['topic:deploy-workflow'])
-
-    const branchResults = await provider.searchMemories({
-      limit: 5,
-      query: 'reply branching alternate assistant responses'
-    })
-
-    assert.equal(branchResults[0]?.title, 'Reply branching workflow')
-    assert.equal(branchResults[1]?.title, 'Branching notes')
-    assert.ok(
-      (branchResults[0]?.score ?? 0) > (branchResults[1]?.score ?? 0),
-      'expected stronger FTS hit to produce a higher score'
-    )
-
-    const memoryId = deployResults[0]?.id
-    assert.ok(memoryId, 'expected inserted deploy memory id')
-
-    await provider.updateMemory({
-      id: memoryId,
-      item: {
-        topic: 'deploy-workflow',
-        title: 'Deploy workflow',
-        content: 'Run the native sqlite memory tests before a production-adjacent deploy review.',
-        unitType: 'procedure',
-        importance: 0.9
-      }
-    })
-
-    const updatedResults = await provider.searchMemories({
-      limit: 5,
-      query: 'native sqlite memory tests'
-    })
-
-    assert.equal(updatedResults.length, 1)
-    assert.equal(updatedResults[0]?.id, memoryId)
+    assert.equal(results.length, 1)
+    assert.equal(results[0]?.key, 'staging-smoke-test')
+    assert.equal(results[0]?.confidence, 0.8)
     assert.equal(
-      updatedResults[0]?.content,
-      'Run the native sqlite memory tests before a production-adjacent deploy review.'
+      results[0]?.values['rule'],
+      'Run the staging smoke test before a production-adjacent deploy review.'
     )
-    assert.equal(updatedResults[0]?.importance, 0.9)
   } finally {
     await rm(root, { recursive: true, force: true })
   }
 })
 
-test('sqlite-backed server exposes builtin memory terms as a hierarchy document', async () => {
+test('sqlite-backed server exposes cognitive memory terms as a hierarchy document', async () => {
   const root = await mkdtemp(join(tmpdir(), 'yachiyo-sqlite-native-'))
   const dbPath = join(root, 'hierarchy.sqlite')
   const settingsPath = join(root, 'config.toml')
@@ -487,27 +447,54 @@ test('sqlite-backed server exposes builtin memory terms as a hierarchy document'
       settingsPath
     })
 
-    const provider = createBuiltinMemoryProvider({ dbPath })
-    await provider.createMemories({
-      items: [
+    const store = createSqliteCognitiveMemoryStore({ dbPath })
+    await store.applyPatch({
+      operations: [
         {
-          topic: 'deploy-workflow',
-          title: 'Staging smoke test',
-          content: 'Run the staging smoke test before any production-adjacent deploy review.',
-          unitType: 'procedure',
-          importance: 0.8
+          type: 'upsertRelation',
+          relation: 'deploy-workflow',
+          purpose: 'Track deploy workflow memory.',
+          columns: ['rule'],
+          evidence: []
         },
         {
-          topic: 'deploy-workflow',
-          title: 'Deploy owner',
-          content: 'The release owner signs off after the smoke test passes.',
-          unitType: 'fact'
+          type: 'upsertRow',
+          relation: 'deploy-workflow',
+          key: 'staging-smoke-test',
+          values: {
+            rule: 'Run the staging smoke test before any production-adjacent deploy review.'
+          },
+          subjects: ['staging smoke test'],
+          triggers: ['staging'],
+          confidence: 0.8,
+          evidence: []
         },
         {
-          topic: 'repo-preference',
-          title: 'Repo root',
-          content: 'Use the repository root for Yachiyo commands.',
-          unitType: 'preference'
+          type: 'upsertRow',
+          relation: 'deploy-workflow',
+          key: 'deploy-owner',
+          values: { rule: 'The release owner signs off after the smoke test passes.' },
+          subjects: ['release owner'],
+          triggers: ['owner'],
+          confidence: 0.7,
+          evidence: []
+        },
+        {
+          type: 'upsertRelation',
+          relation: 'repo-preference',
+          purpose: 'Track repository preferences.',
+          columns: ['rule'],
+          evidence: []
+        },
+        {
+          type: 'upsertRow',
+          relation: 'repo-preference',
+          key: 'repo-root',
+          values: { rule: 'Use the repository root for Yachiyo commands.' },
+          subjects: ['repo root'],
+          triggers: ['repository'],
+          confidence: 0.9,
+          evidence: []
         }
       ]
     })
@@ -515,22 +502,18 @@ test('sqlite-backed server exposes builtin memory terms as a hierarchy document'
     const hierarchy = await server.getMemoryTermDocument({
       config: {
         ...(await server.getConfig()),
-        memory: {
-          enabled: true,
-          provider: 'builtin-memory'
-        }
+        memory: { enabled: true }
       }
     })
 
-    assert.equal(hierarchy.provider, 'builtin-memory')
     assert.equal(hierarchy.topicCount, 2)
     assert.equal(hierarchy.memoryCount, 3)
     assert.equal(hierarchy.topics[0]?.topic, 'deploy-workflow')
     assert.equal(hierarchy.topics[0]?.entryCount, 2)
-    assert.equal(hierarchy.topics[0]?.entries[0]?.title, 'Deploy owner')
-    assert.equal(hierarchy.topics[0]?.entries[1]?.title, 'Staging smoke test')
+    assert.equal(hierarchy.topics[0]?.entries[0]?.title, 'deploy-owner')
+    assert.equal(hierarchy.topics[0]?.entries[1]?.title, 'staging-smoke-test')
     assert.equal(hierarchy.topics[1]?.topic, 'repo-preference')
-    assert.equal(hierarchy.topics[1]?.entries[0]?.title, 'Repo root')
+    assert.equal(hierarchy.topics[1]?.entries[0]?.title, 'repo-root')
   } finally {
     await server?.close()
     await rm(root, { recursive: true, force: true })

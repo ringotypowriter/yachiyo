@@ -71,7 +71,6 @@ function createRunContextDeps(input: {
     hasHiddenSearchCapability: () => false,
     isConfigured: () => false,
     searchMemories: async () => [],
-    testConnection: async () => ({ ok: true, message: 'ok' }),
     recallForContext: async () => ({
       decision: {
         shouldRecall: false,

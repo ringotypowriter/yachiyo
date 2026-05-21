@@ -3,13 +3,12 @@ import type {
   DeleteMemoryTermResult,
   GetMemoryTermDocumentInput,
   MemoryTermDocument,
-  SettingsConfig,
   UserDocument
 } from '../../../../shared/yachiyo/protocol.ts'
 import type { ModelRuntime } from '../../runtime/models/types.ts'
 import type { JotdownStore } from '../../services/jotdownStore.ts'
 import type { CognitiveMemoryStore } from '../../services/memory/cognitiveMemoryStore.ts'
-import type { MemoryProvider, MemoryService } from '../../services/memory/memoryService.ts'
+import type { MemoryService } from '../../services/memory/memoryService.ts'
 import type { SearchService } from '../../services/search/searchService.ts'
 import type { QuerySourceExecutor } from '../../tools/agentTools/querySourceTool.ts'
 import type { RemoteImageFetcher } from '../domain/images/remoteImageDomain.ts'
@@ -45,7 +44,6 @@ export interface YachiyoServerOptions {
   cognitiveMemoryStore?: CognitiveMemoryStore
   memoryService?: MemoryService
   sourceQueryExecutor?: QuerySourceExecutor
-  createMemoryProvider?: (config: SettingsConfig) => MemoryProvider
   jotdownStore?: JotdownStore
   /** Optional override for the remote image downloader. Defaults to `fetchImpl`. */
   remoteImageFetcher?: RemoteImageFetcher

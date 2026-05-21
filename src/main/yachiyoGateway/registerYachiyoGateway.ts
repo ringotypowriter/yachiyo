@@ -38,7 +38,6 @@ import type {
   SendChatInput,
   ShowNotificationInput,
   MemoryTermDocument,
-  TestMemoryConnectionInput,
   TestSubagentProfileInput,
   ThreadColorTag,
   ThreadModelOverride,
@@ -832,9 +831,6 @@ export function registerYachiyoGateway(): YachiyoServer {
     (input?: ListActivitySourceRecordsInput) => server!.listActivitySourceRecords(input)
   )
   handleYachiyoIpc(IPC_CHANNELS.getUserDocument, () => server!.getUserDocument())
-  handleYachiyoIpc(IPC_CHANNELS.testMemoryConnection, (input: TestMemoryConnectionInput) =>
-    server!.testMemoryConnection(input.config)
-  )
   handleYachiyoIpc(IPC_CHANNELS.testSubagentProfile, (input: TestSubagentProfileInput) =>
     server!.testSubagentProfile(input)
   )

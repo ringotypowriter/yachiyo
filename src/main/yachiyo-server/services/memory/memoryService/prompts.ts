@@ -81,7 +81,7 @@ export function buildRunDistillationMessages(input: {
         'If no durable long-term knowledge is present, return {"candidates":[]}. Do not invent weak observations to fill the array.',
         'Only keep durable preferences, decisions, workflows, stable facts, or reusable lessons.',
         'Emit at most one candidate per durable topic.',
-        'Topic must be a stable canonical topic identifier for dedupe, reconciliation, and later updates.',
+        'Topic must be a stable canonical topic identifier for dedupe and later updates.',
         'Title must be short, stable, canonical, topic-like, and noun-style when possible.',
         'Reuse the same topic key and title for repeated long-term topics instead of inventing variants.',
         'Content must be normalized durable wording, compact, factual, and easy to compare during future updates.',

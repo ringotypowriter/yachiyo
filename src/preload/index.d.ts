@@ -36,8 +36,6 @@ import type {
   SettingsConfig,
   SendChatInput,
   ShowNotificationInput,
-  TestMemoryConnectionInput,
-  TestMemoryConnectionResult,
   TestSubagentProfileInput,
   TestSubagentProfileResult,
   ThreadColorTag,
@@ -194,9 +192,6 @@ declare global {
           input?: ListActivitySourceRecordsInput
         ) => Promise<ListActivitySourceRecordsResult>
         getUserDocument: () => Promise<UserDocument>
-        testMemoryConnection: (
-          input: TestMemoryConnectionInput
-        ) => Promise<TestMemoryConnectionResult>
         testSubagentProfile: (input: TestSubagentProfileInput) => Promise<TestSubagentProfileResult>
         getSettings: () => Promise<ProviderSettings>
         saveConfig: (input: SettingsConfig) => Promise<SettingsConfig>

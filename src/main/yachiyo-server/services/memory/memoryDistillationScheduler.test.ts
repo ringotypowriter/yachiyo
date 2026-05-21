@@ -49,9 +49,6 @@ function createStubMemoryService(): StubMemoryService {
     async searchMemories() {
       return []
     },
-    async testConnection() {
-      return { ok: true, message: 'ok' }
-    },
     async recallForContext(input) {
       return {
         decision: {

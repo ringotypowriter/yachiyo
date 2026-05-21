@@ -30,7 +30,6 @@ import type {
   SettingsConfig,
   SendChatInput,
   ShowNotificationInput,
-  TestMemoryConnectionInput,
   TestSubagentProfileInput,
   ThreadColorTag,
   ThreadModelOverride,
@@ -254,8 +253,6 @@ const api = {
     ): Promise<ListActivitySourceRecordsResult> =>
       ipcRenderer.invoke('yachiyo:list-activity-source-records', input),
     getUserDocument: (): Promise<UserDocument> => ipcRenderer.invoke('yachiyo:get-user-document'),
-    testMemoryConnection: (input: TestMemoryConnectionInput) =>
-      ipcRenderer.invoke('yachiyo:test-memory-connection', input),
     testSubagentProfile: (input: TestSubagentProfileInput) =>
       ipcRenderer.invoke('yachiyo:test-subagent-profile', input),
     getSettings: () => ipcRenderer.invoke('yachiyo:get-settings'),

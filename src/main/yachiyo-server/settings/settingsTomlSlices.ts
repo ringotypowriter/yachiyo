@@ -1,7 +1,5 @@
 import {
   DEFAULT_ACTIVE_RUN_ENTER_BEHAVIOR,
-  DEFAULT_MEMORY_BASE_URL,
-  DEFAULT_MEMORY_PROVIDER,
   DEFAULT_STRIP_COMPACT_TOKEN_THRESHOLD,
   DEFAULT_THEME_APPEARANCE,
   DEFAULT_THEME_ID,
@@ -221,8 +219,6 @@ export const settingsTomlSlices: readonly TomlConfigSlice<SettingsConfig, TomlDo
       return {
         memory: {
           enabled: config.memory?.enabled === true,
-          provider: config.memory?.provider ?? DEFAULT_MEMORY_PROVIDER,
-          baseUrl: config.memory?.baseUrl ?? DEFAULT_MEMORY_BASE_URL,
           autoRecall: config.memory?.autoRecall !== false
         }
       }

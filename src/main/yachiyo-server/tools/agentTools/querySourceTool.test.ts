@@ -82,7 +82,6 @@ function createMemoryService(): MemoryService {
         score: 0.91
       }
     ],
-    testConnection: async () => ({ ok: true, message: 'ready' }),
     recallForContext: async ({ thread }) => ({
       decision: {
         shouldRecall: false,

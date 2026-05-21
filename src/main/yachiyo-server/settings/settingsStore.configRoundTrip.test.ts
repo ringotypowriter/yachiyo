@@ -261,8 +261,6 @@ model = ""
 
 [memory]
 enabled = true
-provider = "builtin-memory"
-baseUrl = "http://127.0.0.1:14242"
 
 [webSearch]
 defaultProvider = "google-browser"
@@ -314,8 +312,6 @@ model = ""
 
 [memory]
 enabled = true
-provider = "builtin-memory"
-baseUrl = "http://127.0.0.1:14242"
 
 [webSearch]
 defaultProvider = "google-browser"
@@ -512,8 +508,6 @@ test('normalization preserves every SkillsConfig key', () => {
 test('normalization preserves every MemoryConfig key', () => {
   const sentinel: Required<MemoryConfig> = {
     enabled: true,
-    provider: 'builtin-memory',
-    baseUrl: 'http://localhost:9999',
     autoRecall: false
   }
   const result = normalizeSettingsConfig({ providers: [], memory: sentinel })

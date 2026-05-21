@@ -738,7 +738,6 @@ test('YachiyoServer does not run memory recall on a steer leg', async () => {
         hasHiddenSearchCapability: () => true,
         isConfigured: () => true,
         searchMemories: async () => [],
-        testConnection: async () => ({ ok: true, message: 'Built-in memory is ready.' }),
         recallForContext: async ({ thread, userQuery }) => {
           recalledQueries.push(userQuery)
           return {

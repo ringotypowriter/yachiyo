@@ -588,65 +588,6 @@ test('YachiyoServer starThread preserves thread recency while persisting star st
   )
 })
 
-test('YachiyoServer tests memory connectivity against the provided draft config', async () => {
-  let receivedConfig: unknown = null
-
-  await withServer(
-    async ({ server }) => {
-      const result = await server.testMemoryConnection({
-        providers: [],
-        memory: {
-          enabled: true,
-          provider: 'builtin-memory',
-          baseUrl: 'http://127.0.0.1:14242'
-        }
-      })
-
-      assert.deepEqual(receivedConfig, {
-        providers: [],
-        memory: {
-          enabled: true,
-          provider: 'builtin-memory',
-          baseUrl: 'http://127.0.0.1:14242'
-        }
-      })
-      assert.deepEqual(result, {
-        ok: true,
-        message: 'Built-in memory is ready.'
-      })
-    },
-    {
-      memoryService: {
-        hasHiddenSearchCapability: () => true,
-        isConfigured: () => true,
-        searchMemories: async () => [],
-        testConnection: async (config) => {
-          receivedConfig = config
-          return { ok: true, message: 'Built-in memory is ready.' }
-        },
-        recallForContext: async ({ thread }) => ({
-          decision: {
-            shouldRecall: false,
-            score: 0,
-            reasons: [],
-            messagesSinceLastRecall: 0,
-            charsSinceLastRecall: 0,
-            idleMs: 0,
-            noveltyScore: 0,
-            novelTerms: []
-          },
-          entries: [],
-          thread
-        }),
-        createMemory: async () => ({ savedCount: 0 }),
-        validateAndCreateMemory: async () => ({ savedCount: 0 }),
-        distillCompletedRun: async () => ({ savedCount: 0 }),
-        saveThread: async () => ({ savedCount: 0 })
-      }
-    }
-  )
-})
-
 test('YachiyoServer keeps the simple fallback title when tool-model title generation fails', async () => {
   const requests: ModelStreamRequest[] = []
 

@@ -209,7 +209,6 @@ function setupRunExecutionDeps(
     hasHiddenSearchCapability: () => false,
     isConfigured: () => false,
     searchMemories: async () => [],
-    testConnection: async () => ({ ok: true, message: 'ok' }),
     recallForContext: async () => ({
       entries: [],
       thread: initialThread
