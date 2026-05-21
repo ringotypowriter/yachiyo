@@ -102,11 +102,11 @@ test('readWebPage sends browser-like document request headers', async () => {
   assert.equal(requestHeaders?.get('accept-language'), 'en-US,en;q=0.9')
   assert.equal(requestHeaders?.get('cache-control'), 'no-cache')
   assert.equal(requestHeaders?.get('pragma'), 'no-cache')
-  assert.equal(requestHeaders?.get('sec-fetch-dest'), 'document')
-  assert.equal(requestHeaders?.get('sec-fetch-mode'), 'navigate')
-  assert.equal(requestHeaders?.get('sec-fetch-site'), 'none')
-  assert.equal(requestHeaders?.get('sec-fetch-user'), '?1')
-  assert.equal(requestHeaders?.get('upgrade-insecure-requests'), '1')
+  assert.equal(requestHeaders?.get('sec-fetch-dest'), null)
+  assert.equal(requestHeaders?.get('sec-fetch-mode'), null)
+  assert.equal(requestHeaders?.get('sec-fetch-site'), null)
+  assert.equal(requestHeaders?.get('sec-fetch-user'), null)
+  assert.equal(requestHeaders?.get('upgrade-insecure-requests'), null)
   assert.match(requestHeaders?.get('user-agent') ?? '', /Mozilla\/5\.0/)
 })
 
@@ -149,12 +149,76 @@ test('readWebPage maps network failures into structured errors', async () => {
   assert.equal(result.extractor, 'none')
 })
 
-test('readWebPage falls back to a browser snapshot for X URLs when the static fetch fails', async () => {
+test('readWebPage falls back to browser snapshot on Cloudflare-blocked HTTP errors', async () => {
   let browserSnapshotCalls = 0
 
   const result = await readWebPage(
     {
-      url: 'https://x.com/HiTw93/article/2034627967926825175'
+      url: 'https://example.com/protected'
+    },
+    {
+      fetchImpl: async () =>
+        new Response('Forbidden', {
+          status: 403,
+          headers: { 'cf-ray': 'abc123-def456' }
+        }),
+      loadBrowserSnapshot: async ({ url }) => {
+        browserSnapshotCalls += 1
+        assert.equal(url, 'https://example.com/protected')
+
+        return {
+          finalUrl: url,
+          contentType: 'text/html; charset=utf-8',
+          html: `<!doctype html>
+            <html>
+              <head><title>CF Recovered</title></head>
+              <body><article><h1>CF Recovered</h1><p>Via browser.</p></article></body>
+            </html>`
+        }
+      },
+      extractReadableContent: async (document) => {
+        const htmlDocument = document as Document
+        return {
+          extractor: 'defuddle',
+          title: htmlDocument.querySelector('h1')?.textContent?.trim() ?? 'Untitled',
+          content: htmlDocument.querySelector('article')?.textContent?.trim() ?? ''
+        }
+      }
+    }
+  )
+
+  assert.equal(browserSnapshotCalls, 1)
+  assert.equal(result.error, undefined)
+  assert.equal(result.failureCode, undefined)
+  assert.equal(result.extractor, 'defuddle')
+  assert.equal(result.title, 'CF Recovered')
+  assert.match(result.content, /Via browser\./)
+})
+
+test('readWebPage returns HTTP error for non-Cloudflare error responses', async () => {
+  const result = await readWebPage(
+    {
+      url: 'https://example.com/not-found'
+    },
+    {
+      fetchImpl: async () =>
+        new Response('Not Found', {
+          status: 404
+        })
+    }
+  )
+
+  assert.equal(result.error, 'HTTP 404 while fetching https://example.com/not-found.')
+  assert.equal(result.failureCode, 'http-error')
+  assert.equal(result.extractor, 'none')
+})
+
+test('readWebPage falls back to a browser snapshot when the static fetch fails', async () => {
+  let browserSnapshotCalls = 0
+
+  const result = await readWebPage(
+    {
+      url: 'https://example.com/protected-article'
     },
     {
       fetchImpl: async () => {
@@ -162,7 +226,7 @@ test('readWebPage falls back to a browser snapshot for X URLs when the static fe
       },
       loadBrowserSnapshot: async ({ url }) => {
         browserSnapshotCalls += 1
-        assert.equal(url, 'https://x.com/HiTw93/article/2034627967926825175')
+        assert.equal(url, 'https://example.com/protected-article')
 
         return {
           finalUrl: url,
@@ -170,11 +234,11 @@ test('readWebPage falls back to a browser snapshot for X URLs when the static fe
           html: `<!doctype html>
             <html>
               <head>
-                <title>X article</title>
+                <title>Protected article</title>
               </head>
               <body>
                 <article>
-                  <h1>X article</h1>
+                  <h1>Protected article</h1>
                   <p>Loaded from the live browser DOM.</p>
                 </article>
               </body>
@@ -197,7 +261,7 @@ test('readWebPage falls back to a browser snapshot for X URLs when the static fe
   assert.equal(result.error, undefined)
   assert.equal(result.failureCode, undefined)
   assert.equal(result.extractor, 'defuddle')
-  assert.equal(result.title, 'X article')
+  assert.equal(result.title, 'Protected article')
   assert.match(result.content, /Loaded from the live browser DOM\./)
 })
 
@@ -310,20 +374,20 @@ test('readWebPage falls back to bounded linkedom extraction when the primary ext
   assert.doesNotMatch(result.content, /Ignore me/)
 })
 
-test('readWebPage retries X shell pages through the browser when static extraction is empty', async () => {
+test('readWebPage retries shell pages through the browser when static extraction is empty', async () => {
   let browserSnapshotCalls = 0
 
   const result = await readWebPage(
     {
-      url: 'https://x.com/HiTw93/article/2034627967926825175'
+      url: 'https://example.com/shell-app'
     },
     {
       fetchImpl: async () =>
         createHtmlResponse(
-          '<!doctype html><html><head><title>X</title></head><body><div id="react-root"></div></body></html>',
+          '<!doctype html><html><head><title>Shell</title></head><body><div id="app"></div></body></html>',
           {
             contentType: 'text/html; charset=utf-8',
-            url: 'https://x.com/HiTw93/article/2034627967926825175'
+            url: 'https://example.com/shell-app'
           }
         ),
       loadBrowserSnapshot: async ({ url }) => {
@@ -335,11 +399,11 @@ test('readWebPage retries X shell pages through the browser when static extracti
           html: `<!doctype html>
             <html>
               <head>
-                <title>X article</title>
+                <title>Recovered article</title>
               </head>
               <body>
                 <article>
-                  <h1>X article</h1>
+                  <h1>Recovered article</h1>
                   <p>Recovered after loading the live page.</p>
                 </article>
               </body>
@@ -351,7 +415,7 @@ test('readWebPage retries X shell pages through the browser when static extracti
 
         return {
           extractor: 'defuddle',
-          title: htmlDocument.querySelector('h1')?.textContent?.trim() ?? 'X',
+          title: htmlDocument.querySelector('h1')?.textContent?.trim() ?? 'Shell',
           content: htmlDocument.querySelector('article')?.textContent?.trim() ?? ''
         }
       }
@@ -362,7 +426,7 @@ test('readWebPage retries X shell pages through the browser when static extracti
   assert.equal(result.error, undefined)
   assert.equal(result.failureCode, undefined)
   assert.equal(result.extractor, 'defuddle')
-  assert.equal(result.title, 'X article')
+  assert.equal(result.title, 'Recovered article')
   assert.match(result.content, /Recovered after loading the live page\./)
 })
 

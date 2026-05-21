@@ -129,6 +129,13 @@ export function createTool(
   })
 }
 
+async function resolveFetchImpl(provided?: typeof fetch): Promise<typeof fetch> {
+  if (provided) return provided
+  const { net } = await import('electron')
+  return (input, init?) =>
+    net.fetch(input instanceof URL ? input.toString() : (input as string | Request), init)
+}
+
 export async function runWebReadTool(
   input: WebReadToolInput,
   context: AgentToolContext,
@@ -136,6 +143,7 @@ export async function runWebReadTool(
     signal?: AbortSignal
   } = {}
 ): Promise<WebReadToolOutput> {
+  const fetchImpl = await resolveFetchImpl(dependencies.fetchImpl)
   const result = await readWebPage(
     {
       url: input.url,
@@ -143,7 +151,11 @@ export async function runWebReadTool(
       maxContentChars: null,
       signal: dependencies.signal
     },
-    dependencies
+    {
+      fetchImpl,
+      loadBrowserSnapshot: dependencies.loadBrowserSnapshot,
+      extractReadableContent: dependencies.extractReadableContent
+    }
   )
 
   const baseDetails: WebReadToolCallDetails = {

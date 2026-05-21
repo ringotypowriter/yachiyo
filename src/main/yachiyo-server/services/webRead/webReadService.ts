@@ -24,7 +24,6 @@ const WEB_READ_USER_AGENT =
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36'
 const FALLBACK_STRIP_SELECTORS =
   'script, style, noscript, template, nav, footer, header, aside, form, button'
-const BROWSER_FALLBACK_HOSTS = ['x.com', 'twitter.com'] as const
 
 type LinkedomDocument = Document & {
   URL?: string
@@ -139,11 +138,6 @@ function buildDocumentRequestHeaders(): Headers {
     'Accept-Language': WEB_READ_ACCEPT_LANGUAGE_HEADER,
     'Cache-Control': 'no-cache',
     Pragma: 'no-cache',
-    'Sec-Fetch-Dest': 'document',
-    'Sec-Fetch-Mode': 'navigate',
-    'Sec-Fetch-Site': 'none',
-    'Sec-Fetch-User': '?1',
-    'Upgrade-Insecure-Requests': '1',
     'User-Agent': WEB_READ_USER_AGENT
   })
 }
@@ -340,17 +334,16 @@ function readMetaContent(document: LinkedomDocument, selector: string): string |
   return normalizeOptionalText(value)
 }
 
-function matchesBrowserFallbackHost(url: string): boolean {
-  try {
-    const hostname = new URL(url).hostname.toLowerCase()
-    return BROWSER_FALLBACK_HOSTS.some((host) => hostname === host || hostname.endsWith(`.${host}`))
-  } catch {
+function isCloudflareBlockResponse(response: Response): boolean {
+  if (response.status !== 403 && response.status !== 503) {
     return false
   }
+  const cfRay = response.headers.get('cf-ray')
+  return cfRay !== null && cfRay.length > 0
 }
 
-function shouldTryBrowserFallback(urls: Array<string | undefined>): boolean {
-  return urls.some((url) => (url ? matchesBrowserFallbackHost(url) : false))
+function shouldTryBrowserFallback(): boolean {
+  return true
 }
 
 function readDocumentMetadata(
@@ -664,7 +657,7 @@ async function tryBrowserFallback(input: {
   }
 
   const targetUrl = normalizeOptionalText(input.candidateUrl) ?? input.requestedUrl
-  if (!shouldTryBrowserFallback([input.requestedUrl, targetUrl])) {
+  if (!shouldTryBrowserFallback()) {
     return undefined
   }
 
@@ -754,17 +747,21 @@ export async function readWebPage(
   const contentType = getContentTypeHeader(response.headers)
 
   if (!response.ok) {
-    const browserFallback = await tryBrowserFallback({
-      requestedUrl,
-      candidateUrl: finalUrl,
-      format,
-      signal: request.signal,
-      extractReadableContent,
-      loadBrowserSnapshot: dependencies.loadBrowserSnapshot,
-      ...(request.maxContentChars === undefined ? {} : { maxContentChars: request.maxContentChars })
-    })
-    if (browserFallback && !browserFallback.error) {
-      return browserFallback
+    if (isCloudflareBlockResponse(response)) {
+      const browserFallback = await tryBrowserFallback({
+        requestedUrl,
+        candidateUrl: finalUrl,
+        format,
+        signal: request.signal,
+        extractReadableContent,
+        loadBrowserSnapshot: dependencies.loadBrowserSnapshot,
+        ...(request.maxContentChars === undefined
+          ? {}
+          : { maxContentChars: request.maxContentChars })
+      })
+      if (browserFallback && !browserFallback.error) {
+        return browserFallback
+      }
     }
 
     return createFailureResult({
