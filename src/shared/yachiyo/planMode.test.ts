@@ -4,8 +4,23 @@ import test from 'node:test'
 import {
   hasExitPlanModeToolCall,
   isLatestRunPlanMode,
+  normalizePlanDocumentFilename,
+  PLAN_DOCUMENT_DIR_NAME,
+  PLAN_CURRENT_FILENAME,
   PLAN_MODE_EXIT_TOOL_NAME
 } from './planMode.ts'
+
+test('normalizePlanDocumentFilename accepts only plan document filenames', () => {
+  assert.equal(normalizePlanDocumentFilename('plan-abcdef.md\n'), 'plan-abcdef.md')
+  assert.equal(normalizePlanDocumentFilename('PLAN-ABCDEF.md'), 'plan-abcdef.md')
+  assert.equal(normalizePlanDocumentFilename('plan-fixed.md'), null)
+  assert.equal(normalizePlanDocumentFilename('../plan-abcdef.md'), null)
+})
+
+test('plan document constants keep the thread-level plan pointer stable', () => {
+  assert.equal(PLAN_DOCUMENT_DIR_NAME, '.yachiyo')
+  assert.equal(PLAN_CURRENT_FILENAME, 'plan.current')
+})
 
 test('hasExitPlanModeToolCall detects nested AI SDK tool-call content', () => {
   assert.equal(

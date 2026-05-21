@@ -3,9 +3,11 @@ import { join } from 'node:path'
 import { randomBytes } from 'node:crypto'
 
 import type { QueryReminderSection } from '../../../../runtime/context/queryReminder.ts'
-
-const PLAN_DIR_NAME = '.yachiyo'
-const PLAN_CURRENT_FILE = 'plan.current'
+import {
+  normalizePlanDocumentFilename,
+  PLAN_CURRENT_FILENAME,
+  PLAN_DOCUMENT_DIR_NAME
+} from '../../../../../../shared/yachiyo/planMode.ts'
 
 function randomLetters(length: number): string {
   const bytes = randomBytes(length)
@@ -17,27 +19,20 @@ function randomLetters(length: number): string {
   return letters.join('')
 }
 
-function normalizePlanFilename(raw: string): string | null {
-  const trimmed = raw.trim()
-  if (!trimmed) return null
-  if (!/^plan-[a-z]{6,12}\.md$/i.test(trimmed)) return null
-  return trimmed.toLowerCase()
-}
-
 export async function ensurePlanDocument(input: {
   workspacePath: string
   goal: string
 }): Promise<{ planRelativePath: string; planAbsolutePath: string }> {
-  const planDir = join(input.workspacePath, PLAN_DIR_NAME)
+  const planDir = join(input.workspacePath, PLAN_DOCUMENT_DIR_NAME)
   await mkdir(planDir, { recursive: true })
 
-  const currentPath = join(planDir, PLAN_CURRENT_FILE)
+  const currentPath = join(planDir, PLAN_CURRENT_FILENAME)
   const existingCurrent = await readFile(currentPath, 'utf8').catch(() => null)
-  const existingFilename = existingCurrent ? normalizePlanFilename(existingCurrent) : null
+  const existingFilename = existingCurrent ? normalizePlanDocumentFilename(existingCurrent) : null
 
   const filename = existingFilename ?? `plan-${randomLetters(6)}.md`
   const planAbsolutePath = join(planDir, filename)
-  const planRelativePath = `${PLAN_DIR_NAME}/${filename}`
+  const planRelativePath = `${PLAN_DOCUMENT_DIR_NAME}/${filename}`
 
   if (!existingFilename) {
     await writeFile(currentPath, `${filename}\n`, 'utf8')

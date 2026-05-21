@@ -140,6 +140,11 @@ import {
   normalizeMessageImages
 } from '../../../../shared/yachiyo/messageContent.ts'
 import {
+  normalizePlanDocumentFilename,
+  PLAN_CURRENT_FILENAME,
+  PLAN_DOCUMENT_DIR_NAME
+} from '../../../../shared/yachiyo/planMode.ts'
+import {
   formatConversationSummary,
   formatOwnerDmTakeoverContext,
   TAKEOVER_SECTION_DIVIDER,
@@ -705,11 +710,11 @@ export class YachiyoServer {
       ? resolve(thread.workspacePath)
       : await this.ensureThreadWorkspacePath(thread.id)
 
-    const planDir = join(workspacePath, '.yachiyo')
-    const current = await readFile(join(planDir, 'plan.current'), 'utf8').catch(() => null)
-    const filename = current?.trim() ?? ''
+    const planDir = join(workspacePath, PLAN_DOCUMENT_DIR_NAME)
+    const current = await readFile(join(planDir, PLAN_CURRENT_FILENAME), 'utf8').catch(() => null)
+    const filename = current ? normalizePlanDocumentFilename(current) : null
 
-    if (!/^plan-[a-z]{6,12}\.md$/i.test(filename)) {
+    if (!filename) {
       throw new Error('No Plan Mode document is available for this thread yet.')
     }
 

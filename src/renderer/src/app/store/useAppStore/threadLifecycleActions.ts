@@ -5,6 +5,7 @@ import {
 } from '../../../../../shared/yachiyo/planMode.ts'
 import { createServerEventBatcher } from '../serverEventBatcher.ts'
 import type { AppState } from '../useAppStore.ts'
+import { hydratePlanDocumentForThread } from './planDocumentHydration.ts'
 import {
   DEFAULT_SETTINGS,
   bootstrapRunsByThread,
@@ -421,6 +422,13 @@ export function createThreadLifecycleActions(input: {
                   state.subagentProgressTimelineByThread
                 )
               }
+            })
+            hydratePlanDocumentForThread({
+              set,
+              get,
+              threadId: initialActiveThreadId,
+              messages: data.messages,
+              toolCalls: data.toolCalls
             })
           }
 

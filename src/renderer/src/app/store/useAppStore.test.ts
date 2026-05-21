@@ -1,3 +1,5 @@
+import type { YachiyoPreloadYachiyoApi } from '../../../../preload/index.ts'
+
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { DEFAULT_ENABLED_TOOL_NAMES } from '../../../../shared/yachiyo/protocol.ts'
@@ -72,7 +74,7 @@ function resetStore(): void {
   })
 }
 
-type YachiyoApiMock = Partial<Window['api']['yachiyo']>
+type YachiyoApiMock = Partial<YachiyoPreloadYachiyoApi>
 
 type MockedAnimationFrameWindow = Window & {
   __flushNextAnimationFrame: () => void
@@ -224,6 +226,54 @@ test('sendMessage with a pending plan sends visible revision feedback in plan mo
     assert.equal(sendChatInputs[0]?.runMode, 'plan')
     assert.equal(useAppStore.getState().planDocumentsByThread['thread-plan']?.decision, 'rejected')
     assert.equal(useAppStore.getState().composerDrafts['thread-plan'], undefined)
+  } finally {
+    restoreWindow()
+  }
+})
+
+test('applyServerEvent loads a pending plan document when exitPlanMode completes', async () => {
+  resetStore()
+
+  let readPlanCalls = 0
+  const restoreWindow = withWindowApiMock({
+    readThreadPlanDocument: async ({ threadId }) => {
+      readPlanCalls += 1
+      assert.equal(threadId, 'thread-plan')
+      return {
+        path: '.yachiyo/plan-abcdef.md',
+        content: '# Execution Plan\n\n- Do the thing.'
+      }
+    }
+  })
+
+  try {
+    useAppStore.getState().applyServerEvent({
+      type: 'tool.updated',
+      eventId: 'event-plan-exit',
+      timestamp: TIMESTAMP,
+      threadId: 'thread-plan',
+      runId: 'run-plan',
+      toolCall: {
+        id: 'tool-exit-plan',
+        runId: 'run-plan',
+        threadId: 'thread-plan',
+        toolName: 'exitPlanMode',
+        status: 'completed',
+        inputSummary: 'ready=true',
+        startedAt: TIMESTAMP,
+        finishedAt: TIMESTAMP
+      }
+    })
+
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    assert.equal(readPlanCalls, 1)
+    assert.deepEqual(useAppStore.getState().planDocumentsByThread['thread-plan'], {
+      path: '.yachiyo/plan-abcdef.md',
+      content: '# Execution Plan\n\n- Do the thing.',
+      updatedAt: TIMESTAMP,
+      decision: 'pending'
+    })
   } finally {
     restoreWindow()
   }
@@ -659,10 +709,10 @@ test('initialize hydrates the active thread run history after bootstrap', async 
     restoreWindow()
   }
 })
-
 test('initialize loads the active thread messages after lightweight bootstrap', async () => {
   resetStore()
 
+  let readPlanCalls = 0
   const restoreWindow = withWindowApiMock({
     bootstrap: async () => ({
       threads: [{ id: 'thread-1', title: 'Thread 1', updatedAt: TIMESTAMP }],
@@ -700,9 +750,27 @@ test('initialize loads the active thread messages after lightweight bootstrap', 
             status: 'completed',
             inputSummary: 'read file',
             startedAt: TIMESTAMP
+          },
+          {
+            id: 'tool-exit-plan',
+            runId: 'run-plan',
+            threadId,
+            toolName: 'exitPlanMode',
+            status: 'completed',
+            inputSummary: 'ready=true',
+            startedAt: TIMESTAMP,
+            finishedAt: TIMESTAMP
           }
         ],
         runs: []
+      }
+    },
+    readThreadPlanDocument: async ({ threadId }) => {
+      readPlanCalls += 1
+      assert.equal(threadId, 'thread-1')
+      return {
+        path: '.yachiyo/plan-abcdef.md',
+        content: '# Execution Plan\n\n- Do the active historical thing.'
       }
     }
   })
@@ -713,6 +781,90 @@ test('initialize loads the active thread messages after lightweight bootstrap', 
     const state = useAppStore.getState()
     assert.equal(state.messages['thread-1']?.[0]?.content, 'Loaded on demand')
     assert.equal(state.toolCalls['thread-1']?.[0]?.id, 'tool-call-1')
+    assert.equal(readPlanCalls, 1)
+    assert.deepEqual(state.planDocumentsByThread['thread-1'], {
+      path: '.yachiyo/plan-abcdef.md',
+      content: '# Execution Plan\n\n- Do the active historical thing.',
+      updatedAt: TIMESTAMP,
+      decision: 'pending'
+    })
+  } finally {
+    restoreWindow()
+  }
+})
+
+test('setActiveThread hydrates a pending plan document from historical exitPlanMode tools', async () => {
+  resetStore()
+
+  let readPlanCalls = 0
+  const restoreWindow = withWindowApiMock({
+    loadThreadData: async ({ threadId }) => ({
+      messages: [
+        {
+          id: 'message-plan',
+          threadId,
+          role: 'user',
+          content: 'Plan this change',
+          status: 'completed',
+          createdAt: TIMESTAMP
+        }
+      ],
+      toolCalls: [
+        {
+          id: 'tool-exit-plan',
+          runId: 'run-plan',
+          threadId,
+          toolName: 'exitPlanMode',
+          status: 'completed',
+          inputSummary: 'ready=true',
+          startedAt: TIMESTAMP,
+          finishedAt: TIMESTAMP
+        }
+      ],
+      runs: []
+    }),
+    readThreadPlanDocument: async ({ threadId }) => {
+      readPlanCalls += 1
+      assert.equal(threadId, 'thread-plan')
+      return {
+        path: '.yachiyo/plan-abcdef.md',
+        content: '# Execution Plan\n\n- Do the historical thing.'
+      }
+    }
+  })
+
+  try {
+    useAppStore.setState({
+      activeThreadId: 'thread-other',
+      threads: [
+        { id: 'thread-other', title: 'Other thread', updatedAt: TIMESTAMP },
+        { id: 'thread-plan', title: 'Plan thread', updatedAt: TIMESTAMP }
+      ],
+      messages: {
+        'thread-other': [
+          {
+            id: 'message-other',
+            threadId: 'thread-other',
+            role: 'user',
+            content: 'Other',
+            status: 'completed',
+            createdAt: TIMESTAMP
+          }
+        ]
+      }
+    })
+
+    useAppStore.getState().setActiveThread('thread-plan')
+    await new Promise<void>((resolve) => setImmediate(resolve))
+    await new Promise<void>((resolve) => setImmediate(resolve))
+
+    assert.equal(readPlanCalls, 1)
+    assert.deepEqual(useAppStore.getState().planDocumentsByThread['thread-plan'], {
+      path: '.yachiyo/plan-abcdef.md',
+      content: '# Execution Plan\n\n- Do the historical thing.',
+      updatedAt: TIMESTAMP,
+      decision: 'pending'
+    })
   } finally {
     restoreWindow()
   }

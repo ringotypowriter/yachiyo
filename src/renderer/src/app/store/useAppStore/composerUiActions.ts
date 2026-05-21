@@ -33,6 +33,7 @@ import {
   upsertThread,
   withFilterBase
 } from './helpers.ts'
+import { hydratePlanDocumentForThread } from './planDocumentHydration.ts'
 
 export function createComposerUiActions(input: {
   set: (partial: Partial<AppState> | ((state: AppState) => Partial<AppState>)) => void
@@ -180,6 +181,7 @@ export function createComposerUiActions(input: {
         }
       })
       void refreshAvailableSkills(set, get)
+      hydratePlanDocumentForThread({ set, get, threadId: id })
 
       // Load thread data on-demand. Messages and tool calls are loaded only when
       // not yet in memory; runs are always refreshed so the run history sidebar
@@ -210,6 +212,13 @@ export function createComposerUiActions(input: {
                   state.subagentProgressTimelineByThread
                 )
               }
+            })
+            hydratePlanDocumentForThread({
+              set,
+              get,
+              threadId: id,
+              messages: data.messages,
+              toolCalls: data.toolCalls
             })
           })
       }

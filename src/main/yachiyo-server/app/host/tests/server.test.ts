@@ -896,7 +896,7 @@ test('YachiyoServer.acceptThreadPlanDocument runs directly in the source thread 
     )
     assert.ok(planMessage)
     assert.ok(planMessage.content.includes(planContent))
-    assert.equal(planMessage.hidden, true)
+    assert.notEqual(planMessage.hidden, true)
 
     const handoffThreads = storage
       .bootstrap()

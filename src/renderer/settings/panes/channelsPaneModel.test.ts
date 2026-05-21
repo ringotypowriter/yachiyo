@@ -1,3 +1,5 @@
+import type { YachiyoPreloadYachiyoApi } from '../../../preload/index.ts'
+
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
@@ -16,12 +18,13 @@ import {
 } from './channelsPaneModel.ts'
 
 type CallRecord = string | UpdateChannelUserInput | UpdateChannelGroupInput
+type YachiyoApiMock = Partial<YachiyoPreloadYachiyoApi>
 
-function withWindowApiMock(mock: Partial<Window['api']['yachiyo']>): () => void {
+function withWindowApiMock(mock: YachiyoApiMock): () => void {
   const globalScope = globalThis as typeof globalThis & {
     window?: {
       api: {
-        yachiyo: Partial<Window['api']['yachiyo']>
+        yachiyo: YachiyoApiMock
       }
     }
   }

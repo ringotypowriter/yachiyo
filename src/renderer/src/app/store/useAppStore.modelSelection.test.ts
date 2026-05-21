@@ -1,3 +1,5 @@
+import type { YachiyoPreloadYachiyoApi } from '../../../../preload/index.ts'
+
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
@@ -69,7 +71,7 @@ function resetStore(): void {
   })
 }
 
-type YachiyoApiMock = Partial<Window['api']['yachiyo']>
+type YachiyoApiMock = Partial<YachiyoPreloadYachiyoApi>
 
 function withWindowApiMock(mock: YachiyoApiMock): () => void {
   const globalScope = globalThis as typeof globalThis & {

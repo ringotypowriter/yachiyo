@@ -17,7 +17,6 @@ import {
 import {
   isPlanDocumentMessage,
   isPlanModeExitRecord,
-  PLAN_MODE_EXIT_PHRASE,
   PLAN_MODE_EXIT_TOOL_NAME,
   stripPlanDocumentMarker
 } from '../../../../../shared/yachiyo/planMode.ts'
@@ -147,6 +146,8 @@ function estimateTimelineRowSize(item: MessageTimelineRow): number {
       return 48
     case 'group-assistant-text-block':
       return Math.max(48, Math.ceil(item.textBlock.content.length / 80) * 22 + 16)
+    case 'group-plan-document':
+      return 220
     case 'group-generating':
     case 'group-preparing':
       return 40
@@ -442,26 +443,23 @@ function renderTimelineItem(
   }
 
   if (item.kind === 'group-work-summary') {
+    const toolCallsInSummary = item.items.flatMap((trajectoryItem) => {
+      if (trajectoryItem.kind === 'tool-call') return [trajectoryItem.toolCall]
+      if (trajectoryItem.kind === 'tool-call-group') return trajectoryItem.toolCalls
+      return []
+    })
+
     return (
       <AgentWorkSummaryRow
         items={item.items}
         requestMessageIds={item.requestMessageIds}
         runs={runs}
-        toolCalls={item.items.flatMap((trajectoryItem) => {
-          if (trajectoryItem.kind === 'tool-call') return [trajectoryItem.toolCall]
-          if (trajectoryItem.kind === 'tool-call-group') return trajectoryItem.toolCalls
-          return []
-        })}
+        toolCalls={toolCallsInSummary}
         workspacePath={workspacePath}
       />
     )
   }
   if (item.kind === 'group-tool-call') {
-    if (item.toolCall.toolName === PLAN_MODE_EXIT_TOOL_NAME) {
-      const planCard = renderPlanDocumentCard()
-      if (planCard) return planCard
-    }
-
     return <ToolCallRow toolCall={item.toolCall} workspacePath={workspacePath} />
   }
   if (item.kind === 'group-tool-call-group') {
@@ -475,14 +473,6 @@ function renderTimelineItem(
   }
 
   if (item.kind === 'group-assistant-text-block') {
-    if (item.textBlock.content.trim() === PLAN_MODE_EXIT_PHRASE && context.planDocument) {
-      return (
-        <div className="message-response-cluster" data-message-id={item.assistantMessage.id}>
-          {renderPlanDocumentCard()}
-        </div>
-      )
-    }
-
     return (
       <div className="message-response-cluster" data-message-id={item.assistantMessage.id}>
         <AssistantMessageBubble
@@ -500,6 +490,10 @@ function renderTimelineItem(
         />
       </div>
     )
+  }
+
+  if (item.kind === 'group-plan-document') {
+    return renderPlanDocumentCard()
   }
 
   if (item.kind === 'group-generating') {

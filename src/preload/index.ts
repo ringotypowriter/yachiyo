@@ -433,6 +433,9 @@ const api = {
   }
 }
 
+export type YachiyoPreloadApi = typeof api
+export type YachiyoPreloadYachiyoApi = typeof api.yachiyo
+
 if (process.contextIsolated) {
   try {
     contextBridge.exposeInMainWorld('api', api)

@@ -1,3 +1,5 @@
+import type { YachiyoPreloadYachiyoApi } from '../../../preload/index.ts'
+
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
@@ -8,11 +10,13 @@ import {
 } from './memoryTermDocumentModel.ts'
 import type { GetMemoryTermDocumentInput } from '../../../shared/yachiyo/protocol.ts'
 
-function withWindowApiMock(mock: Partial<Window['api']['yachiyo']>): () => void {
+type YachiyoApiMock = Partial<YachiyoPreloadYachiyoApi>
+
+function withWindowApiMock(mock: YachiyoApiMock): () => void {
   const globalScope = globalThis as typeof globalThis & {
     window?: {
       api: {
-        yachiyo: Partial<Window['api']['yachiyo']>
+        yachiyo: YachiyoApiMock
       }
     }
   }

@@ -13,6 +13,10 @@ import {
   findLatestRunForRequests,
   findRunMemorySummaryForRequests
 } from './runMemoryPresentation.ts'
+import {
+  PLAN_MODE_EXIT_PHRASE,
+  PLAN_MODE_EXIT_TOOL_NAME
+} from '../../../../../shared/yachiyo/planMode.ts'
 
 type GroupTimelineRowBase = {
   key: string
@@ -108,6 +112,10 @@ export type MessageTimelineRow =
       isLastTextBlock: boolean
       isStreaming: boolean
       compactBottomSpacing: boolean
+    } & GroupTimelineRowBase)
+  | ({
+      kind: 'group-plan-document'
+      group: MessageGroup
     } & GroupTimelineRowBase)
   | ({
       kind: 'group-generating'
@@ -433,6 +441,9 @@ export function buildConversationGroupRows(
     toolCalls: input.inlineToolCalls,
     activeRunId: input.activeRunId
   })
+  const hasCompletedPlanExitToolCall = visibleToolCalls.some(
+    (toolCall) => toolCall.toolName === PLAN_MODE_EXIT_TOOL_NAME && toolCall.status === 'completed'
+  )
   const memorySummary = findRunMemorySummaryForRequests(input.runs, groupRequestMessageIds)
   const savedMemoryCount = visibleToolCalls.filter(
     (toolCall) => toolCall.toolName === 'remember' && toolCall.status === 'completed'
@@ -632,6 +643,7 @@ export function buildConversationGroupRows(
     if (item.kind === 'assistant-text-block' && activeAssistantMessage) {
       const textBlock = textBlocksById.get(item.textBlockId)
       if (!textBlock || !textBlock.content.trim()) continue
+      if (textBlock.content.trim() === PLAN_MODE_EXIT_PHRASE) continue
       const assistantMessage = assistantMessageByTextBlockId.get(item.textBlockId)
       if (!assistantMessage) continue
       const isLastTextBlock = activeAssistantTextBlocks.at(-1)?.id === item.textBlockId
@@ -696,6 +708,17 @@ export function buildConversationGroupRows(
         group
       })
     }
+  }
+
+  if (activeAssistantMessage && hasCompletedPlanExitToolCall) {
+    rows.push({
+      kind: 'group-plan-document',
+      key: `plan-document:${activeAssistantMessage.id}`,
+      time: group.userMessage.createdAt,
+      requestMessageId,
+      assistantMessageId: activeAssistantMessage.id,
+      group
+    })
   }
 
   if (

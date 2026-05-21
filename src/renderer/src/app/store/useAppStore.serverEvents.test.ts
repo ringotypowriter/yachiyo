@@ -1,3 +1,5 @@
+import type { YachiyoPreloadYachiyoApi } from '../../../../preload/index.ts'
+
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { DEFAULT_ENABLED_TOOL_NAMES } from '../../../../shared/yachiyo/protocol.ts'
@@ -58,7 +60,7 @@ function resetStore(): void {
   })
 }
 
-type YachiyoApiMock = Partial<Window['api']['yachiyo']>
+type YachiyoApiMock = Partial<YachiyoPreloadYachiyoApi>
 
 function withWindowApiMock(mock: YachiyoApiMock): () => void {
   const globalScope = globalThis as typeof globalThis & {
@@ -1135,19 +1137,26 @@ test('selectModel ignores changes while a run is active', async () => {
   }
 })
 
-test('setEnabledTools persists one shared tool preference across thread switches', async () => {
+test('setEnabledTools persists thread tool mode without leaking across thread switches', async () => {
   resetStore()
 
-  const calls: string[][] = []
+  const calls: Array<{ threadId: string; enabledTools: string[]; runMode?: string }> = []
+  let saveToolPreferencesCalled = false
   const restoreWindow = withWindowApiMock({
-    saveToolPreferences: async (input) => {
-      const enabledTools = input.enabledTools ?? []
-      calls.push(enabledTools)
+    setThreadToolMode: async (input) => {
+      calls.push(input)
 
       return {
-        enabledTools,
-        providers: []
+        id: input.threadId,
+        title: input.threadId === 'thread-1' ? 'Thread one' : 'Thread two',
+        enabledTools: input.enabledTools,
+        runMode: input.runMode,
+        updatedAt: TIMESTAMP
       }
+    },
+    saveToolPreferences: async () => {
+      saveToolPreferencesCalled = true
+      return { providers: [] }
     }
   })
 
@@ -1156,6 +1165,7 @@ test('setEnabledTools persists one shared tool preference across thread switches
       activeThreadId: 'thread-1',
       config: {
         enabledTools: DEFAULT_ENABLED_TOOL_NAMES,
+        runMode: 'auto',
         providers: []
       },
       threads: [
@@ -1175,13 +1185,22 @@ test('setEnabledTools persists one shared tool preference across thread switches
     await useAppStore.getState().setEnabledTools(['read', 'bash'])
 
     let state = useAppStore.getState()
-    assert.deepEqual(calls, [['read', 'bash']])
+    assert.deepEqual(calls, [
+      { threadId: 'thread-1', enabledTools: ['read', 'bash'], runMode: 'custom' }
+    ])
+    assert.equal(saveToolPreferencesCalled, false)
     assert.deepEqual(state.enabledTools, ['read', 'bash'])
+    assert.equal(state.runMode, 'custom')
+
+    const thread = state.threads.find((item) => item.id === 'thread-1')
+    assert.deepEqual(thread?.enabledTools, ['read', 'bash'])
+    assert.equal(thread?.runMode, 'custom')
 
     state.setActiveThread('thread-2')
     state = useAppStore.getState()
     assert.equal(state.activeThreadId, 'thread-2')
-    assert.deepEqual(state.enabledTools, ['read', 'bash'])
+    assert.deepEqual(state.enabledTools, DEFAULT_ENABLED_TOOL_NAMES)
+    assert.equal(state.runMode, 'auto')
   } finally {
     restoreWindow()
   }

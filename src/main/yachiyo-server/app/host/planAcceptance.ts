@@ -121,7 +121,7 @@ async function startPlanAcceptanceDirect(input: PlanAcceptanceInput): Promise<Ch
   })
   const seeded = seedAcceptedPlanMessage({
     ...input,
-    hidden: true,
+    hidden: false,
     thread: toolEnabledThread
   })
 
