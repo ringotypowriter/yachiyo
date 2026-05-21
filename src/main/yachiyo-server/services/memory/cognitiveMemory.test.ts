@@ -265,6 +265,73 @@ test('cognitive row activation ignores stale history when the current query has 
   assert.deepEqual(activated, [])
 })
 
+test('cognitive row activation requires a distinctive cue match', () => {
+  const state = applyCognitivePatchToState(
+    createEmptyCognitiveMemoryState(),
+    {
+      operations: [
+        {
+          type: 'upsertRelation',
+          relation: 'sample_behavior',
+          purpose: 'Track sample behavior.',
+          columns: ['note'],
+          evidence: evidence('m1')
+        },
+        {
+          type: 'upsertRow',
+          relation: 'sample_behavior',
+          key: 'alpha_bridge_rule',
+          values: { note: 'Use the sample bridge when the alpha path is requested.' },
+          subjects: ['sample alpha bridge'],
+          aliases: ['alpha bridge'],
+          triggers: ['bridge override'],
+          confidence: 0.85,
+          evidence: evidence('m2')
+        },
+        {
+          type: 'upsertRow',
+          relation: 'sample_behavior',
+          key: 'generic_shared_note',
+          values: { note: 'The alpha bridge wording appears in this body only.' },
+          subjects: ['shared cue'],
+          confidence: 1,
+          evidence: evidence('m3')
+        },
+        {
+          type: 'upsertRow',
+          relation: 'sample_behavior',
+          key: 'another_shared_note',
+          values: { note: 'Another row carries the same shared cue.' },
+          subjects: ['shared cue'],
+          confidence: 1,
+          evidence: evidence('m4')
+        }
+      ]
+    },
+    {
+      createId: () => 'event-1',
+      now: NOW
+    }
+  )
+
+  const activated = activateCognitiveRows(state, {
+    history: [],
+    limit: 4,
+    now: NOW,
+    thread: {
+      id: 'thread-1',
+      title: 'Sample thread',
+      updatedAt: NOW
+    },
+    userQuery: 'Should the sample alpha bridge keep the shared cue behavior?'
+  })
+
+  assert.deepEqual(
+    activated.map((row) => row.key),
+    ['alpha_bridge_rule']
+  )
+})
+
 test('cognitive row activation is deterministic and excludes deprecated rows', () => {
   const state = applyCognitivePatchToState(
     createEmptyCognitiveMemoryState(),

@@ -117,6 +117,7 @@ export interface SearchCognitiveRowsInput {
 
 const DEFAULT_CONFIDENCE = 0.6
 const MAX_RENDERED_FIELDS = 4
+const MIN_ACTIVATION_CUE_SCORE = 0.75
 const AUTO_FORGET_AFTER_MS = 30 * 24 * 60 * 60 * 1000
 const AUTO_FORGET_PROTECTED_RELATIONS = new Set([
   'user_preferences',
@@ -520,15 +521,98 @@ function scorePhraseMatches(row: CognitiveRow, queryText: string): number {
   return score
 }
 
+function normalizeCue(value: string): string {
+  return normalizeLooseText(value)
+    .replace(/[^a-z0-9\u3400-\u9fff]+/gu, ' ')
+    .replace(/\s+/gu, ' ')
+    .trim()
+}
+
+function buildActivationCues(row: CognitiveRow): string[] {
+  const cues = [row.relation, row.key, ...row.subjects, ...row.aliases, ...row.triggers]
+  const seen = new Set<string>()
+
+  for (const cue of cues) {
+    const normalized = normalizeCue(cue)
+    if (normalized) seen.add(normalized)
+  }
+
+  return [...seen]
+}
+
+function buildCueDocumentFrequencies(rows: CognitiveRow[]): Map<string, number> {
+  const frequencies = new Map<string, number>()
+
+  for (const row of rows) {
+    for (const cue of buildActivationCues(row)) {
+      frequencies.set(cue, (frequencies.get(cue) ?? 0) + 1)
+    }
+  }
+
+  return frequencies
+}
+
+function scoreActivationCue(input: {
+  activeRowCount: number
+  cue: string
+  frequencies: Map<string, number>
+  queryText: string
+}): number {
+  if (!input.queryText.includes(input.cue)) return 0
+
+  const documentFrequency = input.frequencies.get(input.cue) ?? input.activeRowCount
+  const maxIdf = Math.log1p(input.activeRowCount)
+  if (maxIdf <= 0) return 0
+
+  return Math.log1p(input.activeRowCount / documentFrequency) / maxIdf
+}
+
 export function activateCognitiveRows(
   state: CognitiveMemoryState,
   input: ActivateCognitiveRowsInput
 ): CognitiveRow[] {
-  const queryTerms = buildTextTerms(input.userQuery)
-  const queryText = normalizeLooseText(input.userQuery)
+  const activeRows = state.rows.filter((row) => row.status === 'active')
+  const frequencies = buildCueDocumentFrequencies(activeRows)
+  const queryText = normalizeCue(input.userQuery)
+
+  return activeRows
+    .map((row) => {
+      const cueScore = buildActivationCues(row).reduce(
+        (score, cue) =>
+          score +
+          scoreActivationCue({
+            activeRowCount: activeRows.length,
+            cue,
+            frequencies,
+            queryText
+          }),
+        0
+      )
+      return {
+        cueScore,
+        row,
+        score: cueScore + row.confidence * 0.05
+      }
+    })
+    .filter((entry) => entry.cueScore >= MIN_ACTIVATION_CUE_SCORE)
+    .sort(
+      (left, right) =>
+        right.score - left.score || left.row.updatedAt.localeCompare(right.row.updatedAt)
+    )
+    .slice(0, input.limit)
+    .map((entry) => entry.row)
+}
+
+export function searchCognitiveRows(
+  state: CognitiveMemoryState,
+  input: SearchCognitiveRowsInput
+): CognitiveRow[] {
+  const relation = input.relation ? normalizeCognitiveName(input.relation) : undefined
+  const queryTerms = buildTextTerms(input.query)
+  const queryText = normalizeLooseText(input.query)
 
   return state.rows
-    .filter((row) => row.status === 'active')
+    .filter((row) => row.status === 'active' && (!relation || row.relation === relation))
     .map((row) => {
       const activationText = row.activationText || buildActivationText(row)
       return {
@@ -546,26 +630,6 @@ export function activateCognitiveRows(
     )
     .slice(0, input.limit)
     .map((entry) => entry.row)
-}
-
-export function searchCognitiveRows(
-  state: CognitiveMemoryState,
-  input: SearchCognitiveRowsInput
-): CognitiveRow[] {
-  const relation = input.relation ? normalizeCognitiveName(input.relation) : undefined
-  const candidates = activateCognitiveRows(state, {
-    history: [],
-    limit: state.rows.length,
-    now: new Date(0).toISOString(),
-    thread: {
-      id: 'cognitive-search',
-      title: relation ?? '',
-      updatedAt: new Date(0).toISOString()
-    },
-    userQuery: input.query
-  })
-  const filtered = relation ? candidates.filter((row) => row.relation === relation) : candidates
-  return filtered.slice(0, input.limit)
 }
 
 function parseJsonObject(text: string): unknown {
