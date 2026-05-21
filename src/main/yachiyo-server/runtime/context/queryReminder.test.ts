@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
+import { RUN_MODE_DEFINITIONS } from '../../../../shared/yachiyo/toolModes.ts'
 import {
   buildCurrentTimeSection,
   buildDisabledToolsReminderSection,
@@ -66,7 +67,7 @@ test('buildRunModeChangedReminderSection emits only when mode changes', () => {
     {
       key: 'run-mode',
       title: 'Mode changed to Explore Mode for this turn',
-      lines: ['Read, search, inspect files, and use web sources without changing work.']
+      lines: [RUN_MODE_DEFINITIONS.explore.description]
     }
   )
 
