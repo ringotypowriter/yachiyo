@@ -7,14 +7,18 @@ import {
   Cpu,
   Folder,
   LoaderCircle,
+  Map,
+  MessageSquare,
   Paperclip,
   SendHorizonal,
   Sparkles,
   Square,
+  Telescope,
   Timer,
   TriangleAlert,
   Wrench,
-  X
+  X,
+  Zap
 } from 'lucide-react'
 import { theme } from '@renderer/theme/theme'
 import { Tooltip } from '@renderer/components/Tooltip'
@@ -47,6 +51,13 @@ import {
   renderComposerTextHighlights,
   renderPretextLine
 } from './support.tsx'
+
+const MODE_ICON_MAP: Record<string, React.ElementType> = {
+  auto: Zap,
+  explore: Telescope,
+  plan: Map,
+  chat: MessageSquare
+}
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function ComposerView(props: any): React.JSX.Element {
@@ -412,6 +423,63 @@ export function ComposerView(props: any): React.JSX.Element {
             ) : null}
           </div>
 
+          {!effectiveAcpBinding && (
+            <div ref={toolSelectorRef} style={{ position: 'relative' }}>
+              <button
+                type="button"
+                onClick={() => {
+                  setModelSelectorOpen(false)
+                  setReasoningSelectorOpen(false)
+                  setSkillsSelectorOpen(false)
+                  setWorkspaceSelectorOpen(false)
+                  setToolSelectorOpen((open) => !open)
+                }}
+                className="composer-shelf-icon-button"
+                style={{
+                  color: theme.text.primary,
+                  opacity: toolSelectorOpen ? 1 : undefined,
+                  gap: 4
+                }}
+                aria-label={`Mode: ${runMode === 'custom' ? 'Custom' : RUN_MODE_DEFINITIONS[runMode].label}`}
+                aria-expanded={toolSelectorOpen}
+                aria-haspopup="menu"
+              >
+                {(() => {
+                  const ModeIcon =
+                    runMode === 'custom' ? Wrench : (MODE_ICON_MAP[runMode] ?? Wrench)
+                  return (
+                    <ModeIcon
+                      size={14}
+                      strokeWidth={1.5}
+                      color={runMode !== 'chat' ? theme.icon.accent : theme.icon.muted}
+                    />
+                  )
+                })()}
+                <span style={{ fontSize: 11.5, fontWeight: 500 }}>
+                  {runMode === 'custom' ? 'Custom' : RUN_MODE_DEFINITIONS[runMode].shortLabel}
+                </span>
+                <ChevronDown
+                  size={10}
+                  strokeWidth={1.5}
+                  color={theme.icon.muted}
+                  style={{
+                    transform: toolSelectorOpen ? 'rotate(180deg)' : 'rotate(0deg)',
+                    transition: 'transform 0.15s ease'
+                  }}
+                />
+              </button>
+
+              {toolSelectorOpen ? (
+                <ToolSelectorPopup
+                  runMode={runMode}
+                  hasActiveRun={hasActiveRun}
+                  onSelectMode={(mode) => void setRunMode(mode)}
+                  onClose={() => setToolSelectorOpen(false)}
+                />
+              ) : null}
+            </div>
+          )}
+
           {todoList ? <TodoProgressWidget items={todoList.items} /> : null}
         </div>
 
@@ -709,56 +777,6 @@ export function ComposerView(props: any): React.JSX.Element {
       ) : null}
 
       <div className="flex items-center gap-2 px-3 pb-3 no-drag">
-        {!effectiveAcpBinding && (
-          <div ref={toolSelectorRef} style={{ position: 'relative' }}>
-            <button
-              type="button"
-              onClick={() => {
-                setModelSelectorOpen(false)
-                setReasoningSelectorOpen(false)
-                setSkillsSelectorOpen(false)
-                setWorkspaceSelectorOpen(false)
-                setToolSelectorOpen((open) => !open)
-              }}
-              className="relative p-1.5 rounded-lg opacity-60 hover:opacity-85 transition-opacity"
-              aria-label={`Mode: ${runMode === 'custom' ? 'Custom' : RUN_MODE_DEFINITIONS[runMode].label}`}
-              aria-expanded={toolSelectorOpen}
-              aria-haspopup="menu"
-            >
-              <Wrench
-                size={16}
-                strokeWidth={1.5}
-                color={runMode !== 'chat' ? theme.icon.accent : theme.icon.muted}
-              />
-              <span
-                className="absolute -top-1 -right-1 rounded-full px-1"
-                style={{
-                  minWidth: 16,
-                  height: 14,
-                  background:
-                    runMode === 'chat' ? theme.background.surfaceMuted : theme.text.accent,
-                  color: theme.text.inverse,
-                  fontSize: 8,
-                  lineHeight: '14px',
-                  fontWeight: 700,
-                  textAlign: 'center'
-                }}
-              >
-                {runMode === 'custom' ? 'C' : RUN_MODE_DEFINITIONS[runMode].shortLabel.slice(0, 1)}
-              </span>
-            </button>
-
-            {toolSelectorOpen ? (
-              <ToolSelectorPopup
-                runMode={runMode}
-                hasActiveRun={hasActiveRun}
-                onSelectMode={(mode) => void setRunMode(mode)}
-                onClose={() => setToolSelectorOpen(false)}
-              />
-            ) : null}
-          </div>
-        )}
-
         {!effectiveAcpBinding && (
           <div ref={skillsSelectorRef} style={{ position: 'relative' }}>
             <button

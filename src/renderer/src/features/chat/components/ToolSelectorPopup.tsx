@@ -1,5 +1,6 @@
 import type React from 'react'
 import { useEffect, useState } from 'react'
+import * as Icons from 'lucide-react'
 import { Check } from 'lucide-react'
 import { theme } from '@renderer/theme/theme'
 import { isDismissEscapeKey } from '@renderer/lib/imeUtils'
@@ -11,6 +12,10 @@ import {
 } from '../../../../../shared/yachiyo/toolModes.ts'
 
 const MODE_LIST_MAX_HEIGHT = 320
+
+function getModeIcon(iconName: string): React.ElementType {
+  return (Icons as unknown as Record<string, React.ElementType>)[iconName] ?? Icons.Wrench
+}
 
 export function ToolSelectorPopup({
   runMode,
@@ -67,7 +72,7 @@ export function ToolSelectorPopup({
     >
       <div
         style={{
-          padding: '11px 14px 10px',
+          padding: '10px 14px 8px',
           borderBottom: `1px solid ${theme.border.panel}`
         }}
       >
@@ -81,21 +86,11 @@ export function ToolSelectorPopup({
         >
           Mode
         </div>
-        <div
-          style={{
-            marginTop: 3,
-            fontSize: 12,
-            color: theme.text.muted,
-            lineHeight: 1.45
-          }}
-        >
-          Choose how Yachiyo should use tools and context for the next turn.
-        </div>
       </div>
 
       <div
         style={{
-          padding: '6px 0',
+          padding: '4px 0',
           maxHeight: MODE_LIST_MAX_HEIGHT,
           overflowY: 'auto',
           overscrollBehavior: 'contain'
@@ -104,6 +99,7 @@ export function ToolSelectorPopup({
         {SELECTABLE_RUN_MODE_IDS.map((modeId) => {
           const selected = runMode === modeId
           const mode = RUN_MODE_DEFINITIONS[modeId]
+          const ModeIcon = getModeIcon(mode.iconName)
 
           return (
             <button
@@ -117,10 +113,10 @@ export function ToolSelectorPopup({
               }}
               style={{
                 display: 'flex',
-                alignItems: 'center',
+                alignItems: 'flex-start',
                 width: '100%',
-                gap: 10,
-                padding: '9px 14px',
+                gap: 8,
+                padding: '8px 12px',
                 background: 'transparent',
                 border: 'none',
                 cursor: 'default',
@@ -134,24 +130,12 @@ export function ToolSelectorPopup({
                 event.currentTarget.style.background = 'transparent'
               }}
             >
-              <span
-                style={{
-                  width: 18,
-                  height: 18,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  borderRadius: 999,
-                  border: selected
-                    ? `1px solid ${theme.border.accent}`
-                    : `1px solid ${theme.border.input}`,
-                  background: selected ? theme.background.accentSurface : 'transparent',
-                  color: selected ? theme.text.accent : theme.text.placeholder,
-                  flexShrink: 0
-                }}
-              >
-                {selected ? <Check size={11} strokeWidth={2.5} /> : null}
-              </span>
+              <ModeIcon
+                size={14}
+                strokeWidth={1.5}
+                color={selected ? theme.text.accent : theme.text.muted}
+                style={{ flexShrink: 0, marginTop: 2 }}
+              />
 
               <span style={{ flex: 1, minWidth: 0 }}>
                 <span
@@ -159,7 +143,7 @@ export function ToolSelectorPopup({
                     display: 'block',
                     fontSize: 12.5,
                     fontWeight: 600,
-                    color: theme.text.primary,
+                    color: selected ? theme.text.accent : theme.text.primary,
                     letterSpacing: '-0.05px'
                   }}
                 >
@@ -177,6 +161,15 @@ export function ToolSelectorPopup({
                   {mode.description}
                 </span>
               </span>
+
+              {selected ? (
+                <Check
+                  size={14}
+                  strokeWidth={2.5}
+                  color={theme.text.accent}
+                  style={{ flexShrink: 0, marginTop: 2 }}
+                />
+              ) : null}
             </button>
           )
         })}
@@ -184,8 +177,8 @@ export function ToolSelectorPopup({
         {runMode === 'custom' ? (
           <div
             style={{
-              margin: '6px 14px 2px',
-              padding: '9px 10px',
+              margin: '4px 12px 2px',
+              padding: '8px 10px',
               borderRadius: 10,
               background: theme.background.surfaceMuted,
               color: theme.text.muted,
@@ -200,7 +193,7 @@ export function ToolSelectorPopup({
 
       <div
         style={{
-          padding: '10px 14px 12px',
+          padding: '8px 14px 10px',
           borderTop: `1px solid ${theme.border.default}`,
           fontSize: 11.5,
           color: theme.text.muted,

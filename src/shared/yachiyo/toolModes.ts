@@ -14,6 +14,7 @@ export interface RunModeDefinition {
   description: string
   enabledTools: readonly ToolCallName[]
   seasoningKey: SelectableRunModeId
+  iconName: string
 }
 
 const EXPLORE_MODE_TOOL_NAMES: readonly ToolCallName[] = [
@@ -38,34 +39,37 @@ export const RUN_MODE_DEFINITIONS: Record<SelectableRunModeId, RunModeDefinition
     id: 'auto',
     label: 'Auto Mode',
     shortLabel: 'Auto',
-    description: 'Use all workspace, shell, search, and web tools.',
+    description: 'Full tool access — workspace, shell, search, and web.',
     enabledTools: DEFAULT_ENABLED_TOOL_NAMES,
-    seasoningKey: 'auto'
+    seasoningKey: 'auto',
+    iconName: 'Zap'
   },
   explore: {
     id: 'explore',
     label: 'Explore Mode',
     shortLabel: 'Explore',
-    description: 'Read, search, inspect files, and use web sources without changing work.',
+    description: 'Read and search only. Nothing gets changed.',
     enabledTools: EXPLORE_MODE_TOOL_NAMES,
-    seasoningKey: 'explore'
+    seasoningKey: 'explore',
+    iconName: 'Telescope'
   },
   plan: {
     id: 'plan',
     label: 'Plan Mode',
     shortLabel: 'Plan',
-    description:
-      'Draft a concrete plan first. I’ll explore, ask questions, and write it into a plan document you can accept or reject.',
+    description: 'Draft a plan first. Accept to run it, or reject to revise.',
     enabledTools: PLAN_MODE_TOOL_NAMES,
-    seasoningKey: 'plan'
+    seasoningKey: 'plan',
+    iconName: 'Map'
   },
   chat: {
     id: 'chat',
     label: 'Chat Mode',
     shortLabel: 'Chat',
-    description: 'No user-managed tools; answer conversationally from available context.',
+    description: 'No tools. Replies from existing context only.',
     enabledTools: [],
-    seasoningKey: 'chat'
+    seasoningKey: 'chat',
+    iconName: 'MessageSquare'
   }
 }
 
