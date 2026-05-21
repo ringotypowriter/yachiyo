@@ -328,6 +328,39 @@ export const THEME_OPTIONS: readonly ThemeOption[] = [
         accentStrong: '236 200 128'
       })
     }
+  },
+  {
+    id: 'gobyou',
+    label: 'Gobyou',
+    description: 'Five seconds of midsummer.',
+    palettes: {
+      light: lightPalette({
+        ink: '43 40 39',
+        textSecondary: '90 85 82',
+        textTertiary: '108 102 98',
+        textMuted: '142 136 132',
+        textPlaceholder: '170 164 158',
+        app: '242 238 235',
+        canvas: '248 244 241',
+        sidebar: '232 224 218',
+        surface: '255 255 255',
+        accent: '225 72 62',
+        accentStrong: '188 50 42'
+      }),
+      dark: darkPalette({
+        ink: '242 238 235',
+        textSecondary: '210 204 198',
+        textTertiary: '165 158 150',
+        textMuted: '130 123 115',
+        textPlaceholder: '98 92 85',
+        app: '26 24 23',
+        canvas: '31 28 27',
+        sidebar: '36 32 30',
+        surface: '42 38 35',
+        accent: '245 130 118',
+        accentStrong: '255 162 150'
+      })
+    }
   }
 ]
 
@@ -338,7 +371,8 @@ const themeOptionsById: Record<ThemeId, ThemeOption> = {
   aoba: THEME_OPTIONS[3],
   mint: THEME_OPTIONS[4],
   fuji: THEME_OPTIONS[5],
-  yamabuki: THEME_OPTIONS[6]
+  yamabuki: THEME_OPTIONS[6],
+  gobyou: THEME_OPTIONS[7]
 }
 
 export function getThemeOption(themeId: ThemeId): ThemeOption {
