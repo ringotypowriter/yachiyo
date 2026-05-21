@@ -24,6 +24,7 @@ import type {
 import {
   DEFAULT_ENABLED_TOOL_NAMES,
   DEFAULT_RUN_MODE_ID,
+  type AcceptThreadPlanDocumentMode,
   type NotificationThreadTarget,
   type RunModeId,
   type SendChatRunTrigger,
@@ -227,7 +228,7 @@ export interface AppState {
   availableSkills: SkillCatalogEntry[]
   cancelRunForThread: (threadId: string) => Promise<void>
   compactThreadToAnotherThread: () => Promise<void>
-  acceptPlanDocument: (threadId: string) => Promise<void>
+  acceptPlanDocument: (threadId: string, mode: AcceptThreadPlanDocumentMode) => Promise<void>
   rejectPlanDocument: (threadId: string) => Promise<void>
   composerDrafts: Record<string, ComposerDraft>
   reasoningEffortByThread: Record<string, ComposerReasoningSelection>
@@ -460,7 +461,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       throw new Error(message)
     }
   },
-  acceptPlanDocument: async (threadId) => {
+  acceptPlanDocument: async (threadId, mode) => {
     const currentState = get()
     const planDocument = currentState.planDocumentsByThread[threadId]
     if (!planDocument) {
@@ -470,7 +471,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
 
     try {
-      const accepted = await window.api.yachiyo.acceptThreadPlanDocument({ threadId })
+      const accepted = await window.api.yachiyo.acceptThreadPlanDocument({ threadId, mode })
       if (!accepted.runId) {
         throw new Error('Plan acceptance did not start a run.')
       }

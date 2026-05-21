@@ -10,7 +10,10 @@ import {
   useInlineCodeFileLinkSnapshot,
   type InlineCodeFileLinkSnapshot
 } from '@renderer/lib/markdown/inlineCodeFileLinkSnapshot'
-import { getThreadCapabilities } from '../../../../../shared/yachiyo/protocol.ts'
+import {
+  getThreadCapabilities,
+  type AcceptThreadPlanDocumentMode
+} from '../../../../../shared/yachiyo/protocol.ts'
 import {
   isPlanDocumentMessage,
   isPlanModeExitRecord,
@@ -58,6 +61,7 @@ import {
 import { MessageActionBar } from './MessageActionBar'
 import { RunStatsFooter } from './RunStatsFooter'
 import { PlanDocumentCard } from './PlanDocumentCard'
+import { PlanDocumentTimelineCard } from './PlanDocumentTimelineCard'
 
 interface MessageTimelineProps {
   threadId: string | null
@@ -88,7 +92,7 @@ interface TimelineItemRenderContext {
   inlineCodeFileLinks: InlineCodeFileLinkSnapshot
   cancelRunForThread: (threadId: string) => Promise<void>
   revertPendingSteer: () => Promise<void>
-  acceptPlanDocument: (threadId: string) => Promise<void>
+  acceptPlanDocument: (threadId: string, mode: AcceptThreadPlanDocumentMode) => Promise<void>
   rejectPlanDocument: (threadId: string) => Promise<void>
   onEdit: (messageId: string) => void
   onCreateBranch: (messageId: string) => Promise<void>
@@ -310,6 +314,7 @@ function renderTimelineItem(
           <PlanDocumentCard
             content={stripPlanDocumentMarker(item.data.content)}
             decision="accepted"
+            defaultExpanded={false}
             inlineCodeFileLinks={inlineCodeFileLinks}
           />
         ) : (
@@ -368,47 +373,13 @@ function renderTimelineItem(
       : undefined
 
   function renderPlanDocumentCard(): React.JSX.Element | null {
-    if (!context.planDocument) return null
-
-    if (context.planDocument.decision === 'rejected') {
-      return (
-        <div className="px-6 py-1">
-          <div
-            className="text-[11px]"
-            style={{
-              color: theme.text.muted,
-              background: theme.background.surfaceMuted,
-              border: `1px solid ${theme.border.subtle}`,
-              borderRadius: 10,
-              padding: '8px 10px'
-            }}
-          >
-            Plan rejected. Send revision notes to continue.
-          </div>
-        </div>
-      )
-    }
-
     return (
-      <PlanDocumentCard
-        path={context.planDocument.path}
-        content={context.planDocument.content}
-        decision={context.planDocument.decision ?? 'pending'}
+      <PlanDocumentTimelineCard
+        planDocument={context.planDocument}
+        threadId={threadId}
         inlineCodeFileLinks={inlineCodeFileLinks}
-        onAccept={
-          threadId
-            ? () => {
-                void acceptPlanDocument(threadId)
-              }
-            : undefined
-        }
-        onReject={
-          threadId
-            ? () => {
-                void rejectPlanDocument(threadId)
-              }
-            : undefined
-        }
+        onAcceptPlanDocument={acceptPlanDocument}
+        onRejectPlanDocument={rejectPlanDocument}
       />
     )
   }

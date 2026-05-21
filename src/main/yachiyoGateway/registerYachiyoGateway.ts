@@ -15,6 +15,7 @@ import { resolveActivityTrackingPermissionForSave } from '../yachiyo-server/acti
 import { probeFullActivityAccess } from '../yachiyo-server/activity/osascript.ts'
 
 import type {
+  AcceptThreadPlanDocumentInput,
   AnswerToolQuestionInput,
   ChannelsConfig,
   CompactThreadInput,
@@ -726,7 +727,7 @@ export function registerYachiyoGateway(): YachiyoServer {
   handleYachiyoIpc(IPC_CHANNELS.readThreadPlanDocument, (input: { threadId: string }) =>
     server!.readThreadPlanDocument(input)
   )
-  handleYachiyoIpc(IPC_CHANNELS.acceptThreadPlanDocument, (input: { threadId: string }) =>
+  handleYachiyoIpc(IPC_CHANNELS.acceptThreadPlanDocument, (input: AcceptThreadPlanDocumentInput) =>
     server!.acceptThreadPlanDocument(input)
   )
   handleYachiyoIpc(IPC_CHANNELS.listDiscoveredApps, () => discoverApps())

@@ -1223,8 +1223,11 @@ export interface ReadThreadPlanDocumentResult {
   content: string
 }
 
+export type AcceptThreadPlanDocumentMode = 'direct' | 'handoff'
+
 export interface AcceptThreadPlanDocumentInput {
   threadId: string
+  mode?: AcceptThreadPlanDocumentMode
 }
 
 export interface RetryAccepted {

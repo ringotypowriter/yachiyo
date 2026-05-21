@@ -1,5 +1,5 @@
-import React, { memo, useMemo, useState } from 'react'
-import { CheckCircle2, FileText, XCircle } from 'lucide-react'
+import React, { memo, useEffect, useMemo, useState } from 'react'
+import { CheckCircle2, FileText, GitBranchPlus, XCircle } from 'lucide-react'
 import { MessageMarkdown } from '@renderer/lib/markdown/MessageMarkdown'
 import { theme, alpha } from '@renderer/theme/theme'
 import type { InlineCodeFileLinkSnapshot } from '@renderer/lib/markdown/inlineCodeFileLinkSnapshot'
@@ -9,8 +9,10 @@ export interface PlanDocumentCardProps {
   path?: string
   content: string
   decision?: 'pending' | 'rejected' | 'accepted'
+  defaultExpanded?: boolean
   inlineCodeFileLinks?: InlineCodeFileLinkSnapshot
-  onAccept?: () => void
+  onAcceptDirect?: () => void
+  onAcceptHandoff?: () => void
   onReject?: () => void
 }
 
@@ -19,11 +21,17 @@ export const PlanDocumentCard = memo(function PlanDocumentCard({
   path,
   content,
   decision = 'pending',
+  defaultExpanded = true,
   inlineCodeFileLinks,
-  onAccept,
+  onAcceptDirect,
+  onAcceptHandoff,
   onReject
 }: PlanDocumentCardProps): React.JSX.Element {
-  const [expanded, setExpanded] = useState(true)
+  const [expanded, setExpanded] = useState(defaultExpanded)
+
+  useEffect(() => {
+    setExpanded(defaultExpanded)
+  }, [defaultExpanded])
 
   const headerLabel = useMemo(() => {
     if (decision === 'accepted') return 'Accepted'
@@ -38,7 +46,7 @@ export const PlanDocumentCard = memo(function PlanDocumentCard({
         ? { bg: alpha('danger', 0.12), fg: theme.text.danger }
         : { bg: alpha('ink', 0.06), fg: theme.text.muted }
 
-  const showActions = decision === 'pending' && (onAccept || onReject)
+  const showActions = decision === 'pending' && (onAcceptDirect || onAcceptHandoff || onReject)
 
   return (
     <div className="px-6 py-1">
@@ -115,10 +123,10 @@ export const PlanDocumentCard = memo(function PlanDocumentCard({
                   Reject
                 </button>
               ) : null}
-              {onAccept ? (
+              {onAcceptDirect ? (
                 <button
                   type="button"
-                  onClick={onAccept}
+                  onClick={onAcceptDirect}
                   className="inline-flex items-center gap-1 rounded px-2 py-1 text-[11px] transition-colors"
                   style={{
                     color: theme.text.accent,
@@ -127,7 +135,22 @@ export const PlanDocumentCard = memo(function PlanDocumentCard({
                   }}
                 >
                   <CheckCircle2 size={12} strokeWidth={1.8} />
-                  Accept
+                  Accept directly
+                </button>
+              ) : null}
+              {onAcceptHandoff ? (
+                <button
+                  type="button"
+                  onClick={onAcceptHandoff}
+                  className="inline-flex items-center gap-1 rounded px-2 py-1 text-[11px] transition-colors"
+                  style={{
+                    color: theme.text.accent,
+                    background: alpha('accent', 0.08),
+                    border: `1px solid ${alpha('accent', 0.18)}`
+                  }}
+                >
+                  <GitBranchPlus size={12} strokeWidth={1.8} />
+                  Accept with handoff
                 </button>
               ) : null}
             </div>
