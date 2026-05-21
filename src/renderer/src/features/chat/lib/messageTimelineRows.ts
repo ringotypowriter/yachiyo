@@ -18,6 +18,8 @@ import {
   PLAN_MODE_EXIT_TOOL_NAME
 } from '../../../../../shared/yachiyo/planMode.ts'
 
+const TOOL_ONLY_WORK_SUMMARY_THRESHOLD = 5
+
 type GroupTimelineRowBase = {
   key: string
   time: string
@@ -482,6 +484,8 @@ export function buildConversationGroupRows(
   const renderableTextBlocks = activeAssistantTextBlocks.filter(
     (textBlock) => textBlock.content.trim().length > 0
   )
+  const hasOnlyManyToolCalls =
+    renderableTextBlocks.length === 0 && visibleToolCalls.length > TOOL_ONLY_WORK_SUMMARY_THRESHOLD
   const shouldSummarizeCompletedWork =
     input.workSummaryEnabled !== false &&
     activeAssistantMessage != null &&
@@ -490,12 +494,12 @@ export function buildConversationGroupRows(
       (toolCall) => toolCall.status !== 'preparing' && toolCall.status !== 'running'
     ) &&
     !input.subagentActive &&
-    renderableTextBlocks.length > 0 &&
-    (visibleToolCalls.length > 0 ||
-      (activeAssistantMessages.length === 1 && renderableTextBlocks.length > 1))
-  const summarizedFinalTextBlock = shouldSummarizeCompletedWork
-    ? renderableTextBlocks.at(-1)
-    : undefined
+    (hasOnlyManyToolCalls ||
+      (renderableTextBlocks.length > 0 &&
+        (visibleToolCalls.length > 0 ||
+          (activeAssistantMessages.length === 1 && renderableTextBlocks.length > 1))))
+  const summarizedFinalTextBlock =
+    shouldSummarizeCompletedWork && !hasOnlyManyToolCalls ? renderableTextBlocks.at(-1) : undefined
   const summarizedTextBlocks =
     shouldSummarizeCompletedWork && summarizedFinalTextBlock
       ? renderableTextBlocks.slice(0, -1)
@@ -545,7 +549,7 @@ export function buildConversationGroupRows(
     })
   }
 
-  if (shouldSummarizeCompletedWork && activeAssistantMessage && summarizedFinalTextBlock) {
+  if (shouldSummarizeCompletedWork && activeAssistantMessage) {
     rows.push({
       kind: 'group-work-summary',
       key: `work-summary:${activeAssistantMessage.id}`,
@@ -574,10 +578,11 @@ export function buildConversationGroupRows(
       (activeAssistantTextBlocks.length > 0 || visibleToolCalls.length > 0) &&
       !hasRunningToolCall &&
       !input.subagentActive,
-    activeAssistantTextBlocks:
-      shouldSummarizeCompletedWork && summarizedFinalTextBlock
+    activeAssistantTextBlocks: shouldSummarizeCompletedWork
+      ? summarizedFinalTextBlock
         ? [summarizedFinalTextBlock]
-        : activeAssistantTextBlocks,
+        : []
+      : activeAssistantTextBlocks,
     visibleToolCalls: shouldSummarizeCompletedWork ? [] : visibleToolCalls
   })
 

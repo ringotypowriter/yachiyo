@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import type { Message, MessageTextBlockRecord } from '@renderer/app/types'
+import type { Message, MessageTextBlockRecord } from '../../../app/types.ts'
 import {
   buildConversationGroupRows,
   buildMessageTimelineRows,
@@ -572,6 +572,84 @@ test('buildConversationGroupRows summarizes completed agent work before the fina
   const finalText = rows.find((row) => row.kind === 'group-assistant-text-block')
   assert.equal(finalText?.key, 'assistant-text:assistant-1:text-2')
   assert.equal(finalText?.textBlock.content, 'Final handoff')
+})
+
+test('buildConversationGroupRows summarizes completed tool-only work when many tool calls have no text block', () => {
+  const group = createGroup({
+    activeAssistant: createAssistantMessage({
+      id: 'assistant-1',
+      content: '',
+      status: 'completed',
+      createdAt: '2026-04-18T00:00:07.000Z'
+    })
+  })
+
+  const rows = buildConversationGroupRows({
+    group,
+    inlineToolCalls: Array.from({ length: 6 }, (_, index) => ({
+      id: `tool-read-${index + 1}`,
+      runId: 'run-1',
+      threadId: 'thread-1',
+      requestMessageId: 'user-1',
+      assistantMessageId: 'assistant-1',
+      toolName: 'read',
+      status: 'completed' as const,
+      inputSummary: `src/file-${index + 1}.ts`,
+      startedAt: `2026-04-18T00:00:0${index + 1}.000Z`
+    })),
+    runs: [],
+    activeRunId: null,
+    isActiveGroup: false,
+    subagentActive: false
+  })
+
+  assert.deepEqual(rowKinds(rows), ['group-user', 'group-work-summary'])
+
+  const summary = rows.find((row) => row.kind === 'group-work-summary')
+  assert.equal(summary?.assistantMessage.id, 'assistant-1')
+  assert.deepEqual(
+    summary?.items.map((item) => item.kind),
+    ['tool-call-group']
+  )
+  assert.deepEqual(
+    summary?.items[0]?.kind === 'tool-call-group'
+      ? summary.items[0].toolCalls.map((toolCall) => toolCall.id)
+      : [],
+    ['tool-read-1', 'tool-read-2', 'tool-read-3', 'tool-read-4', 'tool-read-5', 'tool-read-6']
+  )
+})
+
+test('buildConversationGroupRows keeps short tool-only work expanded', () => {
+  const group = createGroup({
+    activeAssistant: createAssistantMessage({
+      id: 'assistant-1',
+      content: '',
+      status: 'completed'
+    })
+  })
+
+  const rows = buildConversationGroupRows({
+    group,
+    inlineToolCalls: [
+      {
+        id: 'tool-1',
+        runId: 'run-1',
+        threadId: 'thread-1',
+        requestMessageId: 'user-1',
+        assistantMessageId: 'assistant-1',
+        toolName: 'read',
+        status: 'completed',
+        inputSummary: 'file.ts',
+        startedAt: '2026-04-18T00:00:01.000Z'
+      }
+    ],
+    runs: [],
+    activeRunId: null,
+    isActiveGroup: false,
+    subagentActive: false
+  })
+
+  assert.deepEqual(rowKinds(rows), ['group-user', 'group-tool-call'])
 })
 
 test('buildConversationGroupRows summarizes completed hidden-steer tool work before the final text block', () => {
