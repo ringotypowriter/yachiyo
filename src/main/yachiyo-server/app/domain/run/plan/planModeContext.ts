@@ -69,7 +69,7 @@ export function buildPlanModeReminderSection(input: {
     key: 'plan-mode',
     title: 'Plan Mode',
     lines: [
-      `Write and update the plan at ${input.planRelativePath} using the write tool (overwrite the full file each time).`,
+      `Treat the user's latest request as the goal for this Plan Mode turn; derive the concrete goal from it, then write and update the plan at ${input.planRelativePath} using the write tool (overwrite the full file each time).`,
       'Only write to that plan file. Do not write or edit any other files, and do not run execution commands.',
       'This plan is a self-contained handoff for another agent that will execute it in a new thread.',
       'Use this exact document shape: # Execution Plan, ## Goal, ## Context, ## Steps, ## Validation.',
