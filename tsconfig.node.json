@@ -6,10 +6,11 @@
     "src/preload/**/*",
     "src/shared/**/*"
   ],
+  "exclude": ["**/*.test.ts", "**/*.test.tsx", "**/*.spec.ts", "**/*.spec.tsx"],
   "compilerOptions": {
     "allowImportingTsExtensions": true,
     "composite": true,
     "noEmit": true,
-    "types": ["electron-vite/node"]
+    "types": ["node", "electron-vite/node"]
   }
 }
