@@ -1,7 +1,3 @@
-import {
-  DEFAULT_RUN_MODE_ID,
-  normalizeUserEnabledTools
-} from '../../../../../shared/yachiyo/protocol.ts'
 import { isModelImageCapable } from '../../../../../shared/yachiyo/providerConfig.ts'
 import {
   isPlanModeExitRecord,
@@ -14,12 +10,14 @@ import {
   bootstrapRunsByThread,
   clearRecapForThread,
   collectThreadReasoningEfforts,
+  collectThreadToolModes,
   deriveActiveThreadRunState,
   deriveSubagentStateFromToolCalls,
   findThread,
   getComposerDraft,
   getComposerDraftKey,
   getComposerReasoningEffort,
+  getComposerToolMode,
   getThreadRunPhase,
   getThreadRunStatus,
   isBlankNewChat,
@@ -27,6 +25,7 @@ import {
   limitLoadedThreadData,
   moveComposerDraft,
   moveReasoningEffort,
+  moveThreadToolMode,
   normalizeWorkspacePath,
   refreshAvailableSkills,
   resolveEffectiveEnabledSkillNames,
@@ -88,6 +87,7 @@ export function createThreadLifecycleActions(input: {
     createNewThread: async () => {
       const pendingWorkspacePath = normalizeWorkspacePath(get().pendingWorkspacePath)
       const stagedReasoningEffort = get().reasoningEffortByThread[getComposerDraftKey(null)]
+      const stagedToolMode = get().toolModeByThread[getComposerDraftKey(null)]
       const reusableThread = get().threads.find((thread) =>
         isThreadReusableNewChat(
           {
@@ -117,6 +117,14 @@ export function createThreadLifecycleActions(input: {
               getComposerDraftKey(null),
               getComposerDraftKey(reusableThread.id)
             ),
+            toolModeByThread: moveThreadToolMode(
+              state.toolModeByThread,
+              getComposerDraftKey(null),
+              getComposerDraftKey(reusableThread.id)
+            ),
+            ...(stagedToolMode
+              ? { enabledTools: stagedToolMode.enabledTools, runMode: stagedToolMode.runMode }
+              : {}),
             pendingWorkspacePath: null,
             ...withFilterBase(state.sidebarFilter, 'all')
           }
@@ -126,6 +134,26 @@ export function createThreadLifecycleActions(input: {
             ...deriveActiveThreadRunState(nextState)
           }
         })
+        if (
+          stagedToolMode &&
+          typeof window !== 'undefined' &&
+          window.api?.yachiyo?.setThreadToolMode
+        ) {
+          void window.api.yachiyo
+            .setThreadToolMode({
+              threadId: reusableThread.id,
+              enabledTools: stagedToolMode.enabledTools,
+              runMode: stagedToolMode.runMode
+            })
+            .then((updatedThread) => {
+              set((state) => ({ threads: upsertThread(state.threads, updatedThread) }))
+            })
+            .catch((error) => {
+              const message =
+                error instanceof Error ? error.message : 'Unable to save thread tool mode.'
+              set({ lastError: message })
+            })
+        }
         if (
           stagedReasoningEffort &&
           typeof window !== 'undefined' &&
@@ -151,6 +179,9 @@ export function createThreadLifecycleActions(input: {
 
       const createThreadInput = {
         ...(pendingWorkspacePath ? { workspacePath: pendingWorkspacePath } : {}),
+        ...(stagedToolMode
+          ? { enabledTools: stagedToolMode.enabledTools, runMode: stagedToolMode.runMode }
+          : {}),
         ...(stagedReasoningEffort ? { reasoningEffort: stagedReasoningEffort } : {})
       }
       const thread = await window.api.yachiyo.createThread(
@@ -174,6 +205,13 @@ export function createThreadLifecycleActions(input: {
             getComposerDraftKey(null),
             getComposerDraftKey(thread.id)
           ),
+          toolModeByThread: moveThreadToolMode(
+            state.toolModeByThread,
+            getComposerDraftKey(null),
+            getComposerDraftKey(thread.id)
+          ),
+          enabledTools: stagedToolMode?.enabledTools ?? state.enabledTools,
+          runMode: stagedToolMode?.runMode ?? state.runMode,
           pendingWorkspacePath: null,
           ...withFilterBase(state.sidebarFilter, 'all'),
           messages: {
@@ -276,11 +314,6 @@ export function createThreadLifecycleActions(input: {
             archivedThreads: sortThreads(payload.archivedThreads),
             config: payload.config ?? state.config,
             connectionStatus: 'connected',
-            enabledTools: normalizeUserEnabledTools(
-              payload.config?.enabledTools,
-              state.enabledTools
-            ),
-            runMode: payload.config?.runMode ?? state.runMode ?? DEFAULT_RUN_MODE_ID,
             initialized: true,
             isBootstrapping: false,
             lastError: null,
@@ -300,6 +333,10 @@ export function createThreadLifecycleActions(input: {
               ...state.reasoningEffortByThread,
               ...collectThreadReasoningEfforts([...payload.threads, ...payload.archivedThreads])
             },
+            toolModeByThread: {
+              ...state.toolModeByThread,
+              ...collectThreadToolModes([...payload.threads, ...payload.archivedThreads])
+            },
             settings: payload.settings ?? state.settings ?? DEFAULT_SETTINGS,
             todoListsByThread: collectThreadTodoLists([
               ...payload.threads,
@@ -309,7 +346,14 @@ export function createThreadLifecycleActions(input: {
             folders: payload.folders ?? [],
             toolCalls: payload.toolCallsByThread
           }))
-          set((state) => deriveActiveThreadRunState(state))
+          set((state) => {
+            const toolMode = getComposerToolMode(state, state.activeThreadId)
+            return {
+              ...deriveActiveThreadRunState(state),
+              enabledTools: toolMode.enabledTools,
+              runMode: toolMode.runMode
+            }
+          })
 
           const planThreadIds = new Set([
             ...Object.entries(payload.messagesByThread)
@@ -463,12 +507,13 @@ export function createThreadLifecycleActions(input: {
 
     retryMessage: async (messageId) => {
       const currentState = get()
-      const { activeThreadId: threadId, enabledTools, runMode } = currentState
+      const { activeThreadId: threadId } = currentState
       if (!threadId) {
         return
       }
       clearRecapForThread(set, get, threadId)
 
+      const toolMode = getComposerToolMode(currentState, threadId)
       const enabledSkillNames = resolveEffectiveEnabledSkillNames({
         config: currentState.config,
         draft: getComposerDraft(currentState)
@@ -479,8 +524,8 @@ export function createThreadLifecycleActions(input: {
         const accepted = await window.api.yachiyo.retryMessage({
           threadId,
           messageId,
-          enabledTools,
-          runMode,
+          enabledTools: toolMode.enabledTools,
+          runMode: toolMode.runMode,
           enabledSkillNames,
           reasoningEffort
         })

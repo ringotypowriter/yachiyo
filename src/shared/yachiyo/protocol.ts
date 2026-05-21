@@ -378,6 +378,8 @@ export interface ThreadRecord {
   queuedFollowUpEnabledTools?: ToolCallName[]
   queuedFollowUpEnabledSkillNames?: string[]
   queuedFollowUpReasoningEffort?: ComposerReasoningSelection
+  enabledTools?: ToolCallName[]
+  runMode?: RunModeId
   reasoningEffort?: ComposerReasoningSelection
   branchFromThreadId?: string
   branchFromMessageId?: string

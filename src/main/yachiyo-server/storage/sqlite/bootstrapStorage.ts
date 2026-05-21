@@ -67,6 +67,8 @@ export function createSqliteBootstrapStorageMethods(input: {
           queuedFollowUpEnabledSkillNames: threadsTable.queuedFollowUpEnabledSkillNames,
           queuedFollowUpMessageId: threadsTable.queuedFollowUpMessageId,
           queuedFollowUpReasoningEffort: threadsTable.queuedFollowUpReasoningEffort,
+          enabledTools: threadsTable.enabledTools,
+          runMode: threadsTable.runMode,
           reasoningEffort: threadsTable.reasoningEffort,
           source: threadsTable.source,
           channelUserId: threadsTable.channelUserId,

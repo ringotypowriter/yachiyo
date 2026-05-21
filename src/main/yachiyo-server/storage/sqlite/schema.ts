@@ -72,6 +72,8 @@ export const threadsTable = sqliteTable(
     queuedFollowUpEnabledTools: text('queued_follow_up_enabled_tools'),
     queuedFollowUpEnabledSkillNames: text('queued_follow_up_enabled_skill_names'),
     queuedFollowUpReasoningEffort: text('queued_follow_up_reasoning_effort'),
+    enabledTools: text('enabled_tools'),
+    runMode: text('run_mode'),
     reasoningEffort: text('reasoning_effort'),
     archivedAt: text('archived_at'),
     savingStartedAt: text('saving_started_at'),

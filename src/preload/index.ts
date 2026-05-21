@@ -42,8 +42,10 @@ import type {
   UpdateChannelUserInput,
   UserDocument,
   SoulDocument,
+  ToolCallName,
   ToolPreferencesInput,
   TranslateInput,
+  RunModeId,
   TranslateResult,
   JotdownSaveInput,
   YachiyoServerEvent
@@ -130,6 +132,8 @@ const api = {
       workspacePath?: string
       createdFromEssentialId?: string
       privacyMode?: boolean
+      enabledTools?: ToolCallName[]
+      runMode?: RunModeId
       reasoningEffort?: ComposerReasoningSelection
     }) => ipcRenderer.invoke('yachiyo:create-thread', input),
     deleteThread: (input: { threadId: string }) =>
@@ -285,6 +289,11 @@ const api = {
       threadId: string
       reasoningEffort: ComposerReasoningSelection | null
     }): Promise<ThreadRecord> => ipcRenderer.invoke('yachiyo:set-thread-reasoning-effort', input),
+    setThreadToolMode: (input: {
+      threadId: string
+      enabledTools: ToolCallName[]
+      runMode?: RunModeId
+    }): Promise<ThreadRecord> => ipcRenderer.invoke('yachiyo:set-thread-tool-mode', input),
     setThreadRuntimeBinding: (input: {
       threadId: string
       runtimeBinding: ThreadRuntimeBinding | null

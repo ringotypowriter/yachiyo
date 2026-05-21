@@ -274,6 +274,8 @@ test('sendMessage restores per-thread drafts and clears only the sent thread on 
         {
           id: 'thread-1',
           title: 'Thread one',
+          enabledTools: ['read', 'bash'],
+          runMode: 'custom',
           updatedAt: TIMESTAMP
         },
         {
@@ -400,6 +402,8 @@ test('sendMessage routes active-run steer through the ordinary message path with
         {
           id: 'thread-1',
           title: 'Thread one',
+          enabledTools: ['read', 'bash'],
+          runMode: 'custom',
           updatedAt: TIMESTAMP,
           headMessageId: 'user-1'
         }
@@ -799,6 +803,8 @@ test('retryMessage marks the accepted run as active immediately', async () => {
         {
           id: 'thread-1',
           title: 'Thread one',
+          enabledTools: ['read', 'edit'],
+          runMode: 'custom',
           updatedAt: TIMESTAMP
         }
       ]

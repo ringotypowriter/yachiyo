@@ -421,6 +421,13 @@
       "when": 1779246309239,
       "tag": "0059_tense_betty_brant",
       "breakpoints": true
+    },
+    {
+      "idx": 60,
+      "version": "6",
+      "when": 1779327972566,
+      "tag": "0060_slippery_hemingway",
+      "breakpoints": true
     }
   ]
 }

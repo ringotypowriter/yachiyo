@@ -16,7 +16,11 @@ function createThreadDomainHarness(
   } | null
 ): {
   domain: YachiyoServerThreadDomain
-  events: Array<{ type: string; threadId?: string; thread?: { colorTag?: string } }>
+  events: Array<{
+    type: string
+    threadId?: string
+    thread?: { colorTag?: string; enabledTools?: string[]; runMode?: string }
+  }>
   evictedThreadIds: string[]
   deletedWorkspaceThreadIds: string[]
   storage: ReturnType<typeof createInMemoryYachiyoStorage>
@@ -92,6 +96,25 @@ test('YachiyoServerThreadDomain sets and clears a thread title color', () => {
     type: 'thread.updated',
     threadId: 'thread-1',
     thread: defaultThread
+  })
+})
+
+test('YachiyoServerThreadDomain sets thread tool mode', () => {
+  const { domain, events, storage } = createThreadDomainHarness(null)
+
+  const updatedThread = domain.setThreadToolMode({
+    threadId: 'thread-1',
+    enabledTools: []
+  })
+
+  assert.deepEqual(updatedThread.enabledTools, [])
+  assert.equal(updatedThread.runMode, 'chat')
+  assert.deepEqual(storage.getThread('thread-1')?.enabledTools, [])
+  assert.equal(storage.getThread('thread-1')?.runMode, 'chat')
+  assert.deepEqual(events.at(-1), {
+    type: 'thread.updated',
+    threadId: 'thread-1',
+    thread: updatedThread
   })
 })
 

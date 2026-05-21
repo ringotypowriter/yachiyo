@@ -10,9 +10,11 @@ import {
   getComposerDraft,
   getComposerDraftKey,
   getComposerReasoningEffort,
+  getComposerToolMode,
   getThreadActiveRunId,
   moveComposerDraft,
   moveReasoningEffort,
+  moveThreadToolMode,
   normalizeWorkspacePath,
   removeComposerDraft,
   removePendingSteerMessage,
@@ -105,8 +107,12 @@ export function createSendMessageActions(input: {
         clearRecapForThread(set, get, currentState.activeThreadId)
       }
       try {
-        const enabledTools = currentState.enabledTools
-        const runMode = planRevisionThreadId ? 'plan' : currentState.runMode
+        const initialToolMode = getComposerToolMode(
+          currentState,
+          override ? override.threadId : currentState.activeThreadId
+        )
+        const enabledTools = initialToolMode.enabledTools
+        const runMode = planRevisionThreadId ? 'plan' : initialToolMode.runMode
         const enabledSkillNames = override
           ? normalizeSkillNames(override.enabledSkillNames ?? currentState.config?.skills?.enabled)
           : resolveEffectiveEnabledSkillNames({
@@ -144,16 +150,24 @@ export function createSendMessageActions(input: {
           const pendingAcp = currentState.pendingAcpBinding
           const pendingReasoningEffort =
             currentState.reasoningEffortByThread[getComposerDraftKey(null)]
+          const pendingToolMode = currentState.toolModeByThread[getComposerDraftKey(null)]
           const thread = await window.api.yachiyo.createThread({
             ...(workspacePath ? { workspacePath } : {}),
             ...(essentialId ? { createdFromEssentialId: essentialId } : {}),
             ...(essential?.privacyMode ? { privacyMode: true } : {}),
+            ...(pendingToolMode
+              ? { enabledTools: pendingToolMode.enabledTools, runMode: pendingToolMode.runMode }
+              : {}),
             ...(pendingReasoningEffort ? { reasoningEffort: pendingReasoningEffort } : {})
           })
 
           // Commit local state first so the thread is visible even if setup calls fail.
           if (pendingModel) thread.modelOverride = pendingModel
           if (pendingAcp) thread.runtimeBinding = pendingAcp
+          if (pendingToolMode) {
+            thread.enabledTools = pendingToolMode.enabledTools
+            thread.runMode = pendingToolMode.runMode
+          }
           if (pendingReasoningEffort) thread.reasoningEffort = pendingReasoningEffort
           if (essential?.privacyMode) {
             thread.privacyMode = true
@@ -179,6 +193,13 @@ export function createSendMessageActions(input: {
               getComposerDraftKey(null),
               getComposerDraftKey(thread.id)
             ),
+            toolModeByThread: moveThreadToolMode(
+              state.toolModeByThread,
+              getComposerDraftKey(null),
+              getComposerDraftKey(thread.id)
+            ),
+            enabledTools: pendingToolMode?.enabledTools ?? state.enabledTools,
+            runMode: pendingToolMode?.runMode ?? state.runMode,
             messages: {
               ...state.messages,
               [thread.id]: state.messages[thread.id] ?? []

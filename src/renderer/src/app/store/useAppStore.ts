@@ -52,6 +52,7 @@ import {
   findThread,
   getComposerDraftKey,
   getComposerReasoningEffort,
+  getComposerToolMode,
   getEffectiveModel,
   getThreadEffectiveModel,
   hasActiveMultiFilter,
@@ -80,6 +81,7 @@ export {
   EMPTY_COMPOSER_DRAFT,
   findThread,
   getComposerReasoningEffort,
+  getComposerToolMode,
   getEffectiveModel,
   getThreadEffectiveModel,
   hasActiveMultiFilter
@@ -229,6 +231,7 @@ export interface AppState {
   rejectPlanDocument: (threadId: string) => Promise<void>
   composerDrafts: Record<string, ComposerDraft>
   reasoningEffortByThread: Record<string, ComposerReasoningSelection>
+  toolModeByThread: Record<string, { enabledTools: ToolCallName[]; runMode: RunModeId }>
   createBranch: (messageId: string) => Promise<void>
   config: SettingsConfig | null
   connectionStatus: ConnectionStatus
@@ -437,9 +440,13 @@ export const useAppStore = create<AppState>((set, get) => ({
           threads: upsertThread(state.threads, accepted.thread)
         }
 
+        const toolMode = getComposerToolMode(nextState, accepted.thread.id)
+
         return {
           ...nextState,
-          ...deriveActiveThreadRunState(nextState)
+          ...deriveActiveThreadRunState(nextState),
+          enabledTools: toolMode.enabledTools,
+          runMode: toolMode.runMode
         }
       })
     } catch (error) {
@@ -516,12 +523,23 @@ export const useAppStore = create<AppState>((set, get) => ({
             ...state.toolCalls,
             [accepted.thread.id]: state.toolCalls[accepted.thread.id] ?? []
           },
+          toolModeByThread: {
+            ...state.toolModeByThread,
+            [accepted.thread.id]: {
+              enabledTools: accepted.thread.enabledTools ?? DEFAULT_ENABLED_TOOL_NAMES,
+              runMode: accepted.thread.runMode ?? 'auto'
+            }
+          },
           threads: upsertThread(state.threads, accepted.thread)
         }
 
+        const toolMode = getComposerToolMode(nextState, accepted.thread.id)
+
         return {
           ...nextState,
-          ...deriveActiveThreadRunState(nextState)
+          ...deriveActiveThreadRunState(nextState),
+          enabledTools: toolMode.enabledTools,
+          runMode: toolMode.runMode
         }
       })
     } catch (error) {
@@ -592,9 +610,13 @@ export const useAppStore = create<AppState>((set, get) => ({
           threads: upsertThread(state.threads, snapshot.thread)
         }
 
+        const toolMode = getComposerToolMode(nextState, snapshot.thread.id)
+
         return {
           ...nextState,
-          ...deriveActiveThreadRunState(nextState)
+          ...deriveActiveThreadRunState(nextState),
+          enabledTools: toolMode.enabledTools,
+          runMode: toolMode.runMode
         }
       })
     } catch (error) {
@@ -605,6 +627,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
   composerDrafts: {},
   reasoningEffortByThread: {},
+  toolModeByThread: {},
   config: null,
   connectionStatus: 'connecting',
   deleteThread: async (threadId) => {

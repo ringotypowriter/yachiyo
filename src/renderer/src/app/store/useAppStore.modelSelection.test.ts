@@ -2,12 +2,14 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
   DEFAULT_ENABLED_TOOL_NAMES,
+  DEFAULT_RUN_MODE_ID,
   type SettingsConfig
 } from '../../../../shared/yachiyo/protocol.ts'
 import {
   DEFAULT_SIDEBAR_FILTER,
   DEFAULT_SETTINGS,
   getComposerReasoningEffort,
+  getComposerToolMode,
   getEffectiveModel,
   getThreadEffectiveModel,
   useAppStore
@@ -29,9 +31,11 @@ function resetStore(): void {
     composerDrafts: {},
     globalProcessingTasks: [],
     reasoningEffortByThread: {},
+    toolModeByThread: {},
     config: null,
     connectionStatus: 'connected',
     enabledTools: DEFAULT_ENABLED_TOOL_NAMES,
+    runMode: DEFAULT_RUN_MODE_ID,
     subagentActiveIdsByThread: {},
     subagentProgressTimelineByThread: {},
     subagentStateById: {},
@@ -334,4 +338,130 @@ test('clearThreadModelOverride removes thread model override', async () => {
   } finally {
     restoreWindow()
   }
+})
+
+test('getComposerToolMode uses persisted thread tool mode by thread id', () => {
+  resetStore()
+
+  useAppStore.setState({
+    activeThreadId: 'thread-1',
+    config: { providers: [], enabledTools: ['read', 'bash'], runMode: 'custom' },
+    threads: [
+      {
+        id: 'thread-1',
+        title: 'Thread',
+        enabledTools: ['read'],
+        runMode: 'explore',
+        updatedAt: TIMESTAMP
+      }
+    ]
+  })
+
+  assert.deepEqual(getComposerToolMode(useAppStore.getState(), 'thread-1'), {
+    enabledTools: ['read'],
+    runMode: 'explore'
+  })
+})
+
+test('setRunMode persists mode on the active thread without saving global tool preferences', async () => {
+  resetStore()
+
+  const toolModeCalls: Array<{ threadId: string; enabledTools: string[]; runMode?: string }> = []
+  let saveToolPreferencesCalled = false
+  const restoreWindow = withWindowApiMock({
+    setThreadToolMode: async (input) => {
+      toolModeCalls.push(input)
+      return {
+        id: input.threadId,
+        title: 'Thread',
+        enabledTools: input.enabledTools,
+        runMode: 'chat',
+        updatedAt: TIMESTAMP
+      }
+    },
+    saveToolPreferences: async () => {
+      saveToolPreferencesCalled = true
+      return { providers: [] }
+    }
+  })
+
+  try {
+    useAppStore.setState({
+      activeThreadId: 'thread-1',
+      config: { providers: [], enabledTools: DEFAULT_ENABLED_TOOL_NAMES, runMode: 'auto' },
+      threads: [{ id: 'thread-1', title: 'Thread', updatedAt: TIMESTAMP }]
+    })
+
+    await useAppStore.getState().setRunMode('chat')
+
+    assert.deepEqual(toolModeCalls, [{ threadId: 'thread-1', enabledTools: [], runMode: 'chat' }])
+    assert.equal(saveToolPreferencesCalled, false)
+    const thread = useAppStore.getState().threads.find((t) => t.id === 'thread-1')
+    assert.deepEqual(thread?.enabledTools, [])
+    assert.equal(thread?.runMode, 'chat')
+    assert.equal(useAppStore.getState().runMode, 'chat')
+  } finally {
+    restoreWindow()
+  }
+})
+
+test('setRunMode stages mode for a new thread and createThread stores it', async () => {
+  resetStore()
+
+  const createThreadInputs: unknown[] = []
+  const restoreWindow = withWindowApiMock({
+    createThread: async (input) => {
+      createThreadInputs.push(input)
+      return {
+        id: 'thread-1',
+        title: 'Thread',
+        enabledTools: [],
+        runMode: 'chat',
+        updatedAt: TIMESTAMP
+      }
+    },
+    listSkills: async () => []
+  })
+
+  try {
+    await useAppStore.getState().setRunMode('chat')
+    await useAppStore.getState().createNewThread()
+
+    assert.deepEqual(createThreadInputs, [{ enabledTools: [], runMode: 'chat' }])
+    assert.equal(useAppStore.getState().activeThreadId, 'thread-1')
+    assert.equal(useAppStore.getState().runMode, 'chat')
+  } finally {
+    restoreWindow()
+  }
+})
+
+test('setActiveThread restores each thread tool mode independently', () => {
+  resetStore()
+
+  useAppStore.setState({
+    threads: [
+      {
+        id: 'thread-a',
+        title: 'Thread A',
+        enabledTools: [],
+        runMode: 'chat',
+        updatedAt: TIMESTAMP
+      },
+      {
+        id: 'thread-b',
+        title: 'Thread B',
+        enabledTools: ['read'],
+        runMode: 'explore',
+        updatedAt: TIMESTAMP
+      }
+    ]
+  })
+
+  useAppStore.getState().setActiveThread('thread-a')
+  assert.equal(useAppStore.getState().runMode, 'chat')
+  assert.deepEqual(useAppStore.getState().enabledTools, [])
+
+  useAppStore.getState().setActiveThread('thread-b')
+  assert.equal(useAppStore.getState().runMode, 'explore')
+  assert.deepEqual(useAppStore.getState().enabledTools, ['read'])
 })

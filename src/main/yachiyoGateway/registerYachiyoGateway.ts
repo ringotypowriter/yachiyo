@@ -30,6 +30,7 @@ import type {
   ProviderConfig,
   ProviderSettings,
   RetryInput,
+  RunModeId,
   SaveThreadInput,
   SearchWorkspaceFilesInput,
   SettingsConfig,
@@ -40,6 +41,7 @@ import type {
   TestSubagentProfileInput,
   ThreadColorTag,
   ThreadModelOverride,
+  ToolCallName,
   ToolPreferencesInput,
   TranslateInput,
   JotdownSaveInput,
@@ -669,6 +671,8 @@ export function registerYachiyoGateway(): YachiyoServer {
       workspacePath?: string
       createdFromEssentialId?: string
       privacyMode?: boolean
+      enabledTools?: ToolCallName[]
+      runMode?: RunModeId
       reasoningEffort?: ComposerReasoningSelection
     }) => server!.createThread(input)
   )
@@ -914,6 +918,11 @@ export function registerYachiyoGateway(): YachiyoServer {
     IPC_CHANNELS.setThreadReasoningEffort,
     (input: { threadId: string; reasoningEffort: ComposerReasoningSelection | null }) =>
       server!.setThreadReasoningEffort(input)
+  )
+  handleYachiyoIpc(
+    IPC_CHANNELS.setThreadToolMode,
+    (input: { threadId: string; enabledTools: ToolCallName[]; runMode?: RunModeId }) =>
+      server!.setThreadToolMode(input)
   )
   handleYachiyoIpc(
     IPC_CHANNELS.setThreadRuntimeBinding,

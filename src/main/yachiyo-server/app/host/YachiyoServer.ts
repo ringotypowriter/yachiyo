@@ -52,6 +52,7 @@ import type {
   ThreadStateReplacedEvent,
   ThreadUpdatedEvent,
   MessageCompletedEvent,
+  ToolCallName,
   ChannelsConfig,
   ChannelGroupHistoryClearCompletedEvent,
   ChannelGroupHistoryClearFailedEvent,
@@ -71,6 +72,7 @@ import type {
   YachiyoServerEvent
 } from '../../../../shared/yachiyo/protocol.ts'
 import {
+  DEFAULT_ENABLED_TOOL_NAMES,
   getThreadCapabilities,
   withThreadCapabilities
 } from '../../../../shared/yachiyo/protocol.ts'
@@ -784,6 +786,7 @@ export class YachiyoServer {
       title: derivePlanExecutionThreadTitle(plan.content, sourceThread),
       ...(sourceThread.icon ? { icon: sourceThread.icon } : {}),
       handoffFromThreadId: sourceThread.id,
+      enabledTools: DEFAULT_ENABLED_TOOL_NAMES,
       workspacePath: sourceThread.workspacePath?.trim()
         ? resolve(sourceThread.workspacePath)
         : this.resolveThreadWorkspacePath(sourceThread.id),
@@ -899,6 +902,13 @@ export class YachiyoServer {
     modelOverride: ThreadModelOverride | null
   }): Promise<ThreadRecord> {
     return this.threadDomain.setThreadModelOverride(input)
+  }
+
+  async setThreadToolMode(input: {
+    threadId: string
+    enabledTools: ToolCallName[]
+  }): Promise<ThreadRecord> {
+    return this.threadDomain.setThreadToolMode(input)
   }
 
   async setThreadReasoningEffort(input: {

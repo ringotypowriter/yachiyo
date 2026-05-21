@@ -34,6 +34,8 @@ function resetStore(): void {
     config: null,
     connectionStatus: 'connected',
     enabledTools: DEFAULT_ENABLED_TOOL_NAMES,
+    runMode: 'auto',
+    toolModeByThread: {},
     subagentActiveIdsByThread: {},
     subagentProgressTimelineByThread: {},
     subagentStateById: {},
@@ -222,6 +224,110 @@ test('sendMessage with a pending plan sends visible revision feedback in plan mo
     assert.equal(sendChatInputs[0]?.runMode, 'plan')
     assert.equal(useAppStore.getState().planDocumentsByThread['thread-plan']?.decision, 'rejected')
     assert.equal(useAppStore.getState().composerDrafts['thread-plan'], undefined)
+  } finally {
+    restoreWindow()
+  }
+})
+
+test('acceptPlanDocument switches the execution thread composer to auto mode', async () => {
+  resetStore()
+
+  const sendChatInputs: Array<{ content?: string; enabledTools?: string[]; runMode?: string }> = []
+  const restoreWindow = withWindowApiMock({
+    acceptThreadPlanDocument: async ({ threadId }) => {
+      assert.equal(threadId, 'thread-plan')
+      return {
+        kind: 'run-started',
+        runId: 'run-execute',
+        thread: {
+          id: 'thread-execute',
+          title: 'Execution thread',
+          updatedAt: TIMESTAMP,
+          enabledTools: DEFAULT_ENABLED_TOOL_NAMES,
+          runMode: 'auto'
+        },
+        userMessage: {
+          id: 'user-execute',
+          threadId: 'thread-execute',
+          role: 'user',
+          content: 'Execute the accepted plan.',
+          status: 'completed',
+          createdAt: TIMESTAMP
+        }
+      }
+    },
+    sendChat: async (input) => {
+      sendChatInputs.push(input)
+      return {
+        kind: 'run-started',
+        runId: 'run-follow-up',
+        thread: {
+          id: 'thread-execute',
+          title: 'Execution thread',
+          updatedAt: TIMESTAMP,
+          enabledTools: input.enabledTools,
+          runMode: input.runMode
+        },
+        userMessage: {
+          id: 'user-follow-up',
+          threadId: 'thread-execute',
+          role: 'user',
+          content: input.content,
+          status: 'completed',
+          createdAt: TIMESTAMP
+        }
+      }
+    }
+  })
+
+  try {
+    useAppStore.setState({
+      activeThreadId: 'thread-plan',
+      runMode: 'plan',
+      enabledTools: [],
+      toolModeByThread: {
+        'thread-plan': { enabledTools: [], runMode: 'plan' }
+      },
+      threads: [{ id: 'thread-plan', title: 'Plan thread', updatedAt: TIMESTAMP }],
+      planDocumentsByThread: {
+        'thread-plan': {
+          path: '.yachiyo/plan-abcxyz.md',
+          content: '# Execution Plan',
+          updatedAt: TIMESTAMP,
+          decision: 'pending'
+        }
+      }
+    })
+
+    await useAppStore.getState().acceptPlanDocument('thread-plan')
+
+    const state = useAppStore.getState()
+    assert.equal(state.activeThreadId, 'thread-execute')
+    assert.equal(state.runMode, 'auto')
+    assert.deepEqual(state.enabledTools, DEFAULT_ENABLED_TOOL_NAMES)
+    assert.deepEqual(state.toolModeByThread['thread-execute'], {
+      enabledTools: DEFAULT_ENABLED_TOOL_NAMES,
+      runMode: 'auto'
+    })
+
+    useAppStore.setState({
+      composerDrafts: {
+        'thread-execute': {
+          text: 'Continue with step one.',
+          images: [],
+          files: [],
+          enabledSkillNames: null
+        }
+      }
+    })
+
+    const sent = await useAppStore.getState().sendMessage()
+
+    assert.equal(sent, true)
+    assert.equal(sendChatInputs.length, 1)
+    assert.equal(sendChatInputs[0]?.content, 'Continue with step one.')
+    assert.equal(sendChatInputs[0]?.runMode, 'auto')
+    assert.deepEqual(sendChatInputs[0]?.enabledTools, DEFAULT_ENABLED_TOOL_NAMES)
   } finally {
     restoreWindow()
   }

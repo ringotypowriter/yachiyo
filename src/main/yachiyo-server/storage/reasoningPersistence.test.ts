@@ -27,6 +27,8 @@ test('thread conversion preserves queued follow-up reasoning effort', () => {
     queuedFollowUpEnabledSkillNames: '["workspace-refactor"]',
     queuedFollowUpMessageId: 'user-follow-up',
     queuedFollowUpReasoningEffort: 'high',
+    enabledTools: null,
+    runMode: null,
     reasoningEffort: null,
     source: 'local',
     channelUserId: null,
@@ -46,6 +48,50 @@ test('thread conversion preserves queued follow-up reasoning effort', () => {
   })
 
   assert.equal(thread.queuedFollowUpReasoningEffort, 'high')
+})
+
+test('thread conversion preserves composer tool mode', () => {
+  const thread = toThreadRecord({
+    archivedAt: null,
+    starredAt: null,
+    branchFromMessageId: null,
+    branchFromThreadId: null,
+    handoffFromThreadId: null,
+    folderId: null,
+    colorTag: null,
+    headMessageId: null,
+    icon: null,
+    id: 'thread-1',
+    memoryRecallState: null,
+    modelOverride: null,
+    preview: null,
+    privacyMode: null,
+    queuedFollowUpEnabledTools: null,
+    queuedFollowUpEnabledSkillNames: null,
+    queuedFollowUpMessageId: null,
+    queuedFollowUpReasoningEffort: null,
+    enabledTools: '["read"]',
+    runMode: 'explore',
+    reasoningEffort: null,
+    source: 'local',
+    channelUserId: null,
+    channelGroupId: null,
+    rollingSummary: null,
+    summaryWatermarkMessageId: null,
+    readAt: null,
+    createdFromEssentialId: null,
+    createdFromScheduleId: null,
+    runtimeBinding: null,
+    lastDelegatedSession: null,
+    todoItems: null,
+    recapText: null,
+    title: 'Thread',
+    updatedAt: '2026-05-02T00:00:00.000Z',
+    workspacePath: null
+  })
+
+  assert.deepEqual(thread.enabledTools, ['read'])
+  assert.equal(thread.runMode, 'explore')
 })
 
 test('thread conversion preserves composer reasoning effort', () => {
@@ -68,6 +114,8 @@ test('thread conversion preserves composer reasoning effort', () => {
     queuedFollowUpEnabledSkillNames: null,
     queuedFollowUpMessageId: null,
     queuedFollowUpReasoningEffort: null,
+    enabledTools: null,
+    runMode: null,
     reasoningEffort: 'high',
     source: 'local',
     channelUserId: null,

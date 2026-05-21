@@ -217,6 +217,8 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
           queuedFollowUpEnabledSkillNames: threadsTable.queuedFollowUpEnabledSkillNames,
           queuedFollowUpMessageId: threadsTable.queuedFollowUpMessageId,
           queuedFollowUpReasoningEffort: threadsTable.queuedFollowUpReasoningEffort,
+          enabledTools: threadsTable.enabledTools,
+          runMode: threadsTable.runMode,
           reasoningEffort: threadsTable.reasoningEffort,
           source: threadsTable.source,
           channelUserId: threadsTable.channelUserId,
@@ -262,6 +264,8 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
           queuedFollowUpEnabledSkillNames: threadsTable.queuedFollowUpEnabledSkillNames,
           queuedFollowUpMessageId: threadsTable.queuedFollowUpMessageId,
           queuedFollowUpReasoningEffort: threadsTable.queuedFollowUpReasoningEffort,
+          enabledTools: threadsTable.enabledTools,
+          runMode: threadsTable.runMode,
           reasoningEffort: threadsTable.reasoningEffort,
           source: threadsTable.source,
           channelUserId: threadsTable.channelUserId,
@@ -334,6 +338,8 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
             queuedFollowUpReasoningEffort: serializeReasoningSelection(
               thread.queuedFollowUpReasoningEffort
             ),
+            enabledTools: serializeEnabledTools(thread.enabledTools),
+            runMode: thread.runMode ?? null,
             reasoningEffort: serializeReasoningSelection(thread.reasoningEffort),
             source: thread.source ?? 'local',
             channelUserId: thread.channelUserId ?? null,
@@ -560,6 +566,8 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
           queuedFollowUpReasoningEffort: serializeReasoningSelection(
             thread.queuedFollowUpReasoningEffort
           ),
+          enabledTools: serializeEnabledTools(thread.enabledTools),
+          runMode: thread.runMode ?? null,
           reasoningEffort: serializeReasoningSelection(thread.reasoningEffort),
           source: thread.source ?? null,
           channelUserId: thread.channelUserId ?? null,

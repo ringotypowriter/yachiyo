@@ -61,6 +61,8 @@ export interface StoredThreadRow {
   queuedFollowUpEnabledTools: string | null
   queuedFollowUpEnabledSkillNames: string | null
   queuedFollowUpReasoningEffort: string | null
+  enabledTools: string | null
+  runMode: string | null
   reasoningEffort: string | null
   archivedAt: string | null
   savingStartedAt: string | null
@@ -477,11 +479,17 @@ export function toThreadRecord(
     | 'title'
     | 'updatedAt'
     | 'workspacePath'
-  > & { channelUserRole?: ChannelUserRole | null }
+  > & {
+    channelUserRole?: ChannelUserRole | null
+    enabledTools?: string | null
+    runMode?: string | null
+  }
 ): ThreadRecord {
   const queuedFollowUpEnabledTools = parseEnabledTools(row.queuedFollowUpEnabledTools)
   const queuedFollowUpEnabledSkillNames = parseSkillNames(row.queuedFollowUpEnabledSkillNames)
   const queuedFollowUpReasoningEffort = parseReasoningSelection(row.queuedFollowUpReasoningEffort)
+  const enabledTools = parseEnabledTools(row.enabledTools ?? null)
+  const runMode = parseRunMode(row.runMode ?? null)
   const reasoningEffort = parseReasoningSelection(row.reasoningEffort)
   const memoryRecall = parseThreadMemoryRecallState(row.memoryRecallState)
   const modelOverride = parseModelOverride(row.modelOverride)
@@ -507,6 +515,8 @@ export function toThreadRecord(
       ...(queuedFollowUpEnabledTools ? { queuedFollowUpEnabledTools } : {}),
       ...(queuedFollowUpEnabledSkillNames ? { queuedFollowUpEnabledSkillNames } : {}),
       ...(queuedFollowUpReasoningEffort ? { queuedFollowUpReasoningEffort } : {}),
+      ...(enabledTools ? { enabledTools } : {}),
+      ...(runMode ? { runMode } : {}),
       ...(reasoningEffort ? { reasoningEffort } : {}),
       ...(row.queuedFollowUpMessageId === null
         ? {}
@@ -553,6 +563,8 @@ export function toThreadRecord(
     ...(queuedFollowUpEnabledTools ? { queuedFollowUpEnabledTools } : {}),
     ...(queuedFollowUpEnabledSkillNames ? { queuedFollowUpEnabledSkillNames } : {}),
     ...(queuedFollowUpReasoningEffort ? { queuedFollowUpReasoningEffort } : {}),
+    ...(enabledTools ? { enabledTools } : {}),
+    ...(runMode ? { runMode } : {}),
     ...(reasoningEffort ? { reasoningEffort } : {}),
     ...(row.queuedFollowUpMessageId === null
       ? {}
@@ -1083,7 +1095,11 @@ export function parseTurnContext(value: string | null): MessageTurnContext | und
 }
 
 function parseRunMode(value: unknown): RunModeId | undefined {
-  return value === 'auto' || value === 'explore' || value === 'chat' || value === 'custom'
+  return value === 'auto' ||
+    value === 'explore' ||
+    value === 'plan' ||
+    value === 'chat' ||
+    value === 'custom'
     ? value
     : undefined
 }

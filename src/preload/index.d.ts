@@ -52,8 +52,10 @@ import type {
   SoulDocument,
   ThreadSnapshot,
   ThreadRecord,
+  ToolCallName,
   ToolPreferencesInput,
   TranslateInput,
+  RunModeId,
   TranslateResult,
   JotdownMeta,
   JotdownFull,
@@ -108,6 +110,8 @@ declare global {
           workspacePath?: string
           createdFromEssentialId?: string
           privacyMode?: boolean
+          enabledTools?: ToolCallName[]
+          runMode?: RunModeId
           reasoningEffort?: ComposerReasoningSelection
         }) => Promise<ThreadRecord>
         deleteThread: (input: { threadId: string }) => Promise<void>
@@ -220,6 +224,11 @@ declare global {
         setThreadReasoningEffort: (input: {
           threadId: string
           reasoningEffort: ComposerReasoningSelection | null
+        }) => Promise<ThreadRecord>
+        setThreadToolMode: (input: {
+          threadId: string
+          enabledTools: ToolCallName[]
+          runMode?: RunModeId
         }) => Promise<ThreadRecord>
         setThreadRuntimeBinding: (input: {
           threadId: string

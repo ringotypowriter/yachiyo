@@ -62,6 +62,7 @@ export const IPC_CHANNELS = {
   setThreadPrivacyMode: 'yachiyo:set-thread-privacy-mode',
   setThreadModelOverride: 'yachiyo:set-thread-model-override',
   setThreadReasoningEffort: 'yachiyo:set-thread-reasoning-effort',
+  setThreadToolMode: 'yachiyo:set-thread-tool-mode',
   setThreadRuntimeBinding: 'yachiyo:set-thread-runtime-binding',
   regenerateThreadTitle: 'yachiyo:regenerate-thread-title',
   starThread: 'yachiyo:star-thread',

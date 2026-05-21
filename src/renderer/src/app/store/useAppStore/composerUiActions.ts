@@ -19,11 +19,13 @@ import {
   deriveThreadListMode,
   findThread,
   getComposerDraftKey,
+  getComposerToolMode,
   limitLoadedThreadData,
   normalizeWorkspacePath,
   refreshAvailableSkills,
   saveSidebarFilter,
   setReasoningEffortValue,
+  setThreadToolModeValue,
   setThreadStringValue,
   sortThreads,
   toggleEnabledTools,
@@ -69,47 +71,79 @@ export function createComposerUiActions(input: {
 
   return {
     setEnabledTools: async (enabledTools) => {
-      const previousEnabledTools = get().enabledTools
-      const previousRunMode = get().runMode
-      const nextEnabledTools = normalizeUserEnabledTools(enabledTools, previousEnabledTools)
+      const currentState = get()
+      const threadId = currentState.activeThreadId
+      const draftKey = getComposerDraftKey(threadId)
+      const previousMode = getComposerToolMode(currentState, threadId)
+      const nextEnabledTools = normalizeUserEnabledTools(enabledTools, previousMode.enabledTools)
       const nextRunMode = deriveRunModeId(nextEnabledTools)
 
       if (
-        areEnabledToolsEqual(previousEnabledTools, nextEnabledTools) &&
-        previousRunMode === nextRunMode
+        areEnabledToolsEqual(previousMode.enabledTools, nextEnabledTools) &&
+        previousMode.runMode === nextRunMode
       ) {
         return
       }
 
       set((state) => ({
-        config: state.config
-          ? { ...state.config, enabledTools: nextEnabledTools, runMode: nextRunMode }
-          : state.config,
+        toolModeByThread: setThreadToolModeValue(state.toolModeByThread, draftKey, {
+          enabledTools: nextEnabledTools,
+          runMode: nextRunMode
+        }),
         enabledTools: nextEnabledTools,
         runMode: nextRunMode,
+        threads: threadId
+          ? state.threads.map((thread) =>
+              thread.id === threadId
+                ? { ...thread, enabledTools: nextEnabledTools, runMode: nextRunMode }
+                : thread
+            )
+          : state.threads,
         lastError: null
       }))
 
+      if (!threadId) return
+
       try {
-        const config = await window.api.yachiyo.saveToolPreferences({
+        const updatedThread = await window.api.yachiyo.setThreadToolMode({
+          threadId,
           enabledTools: nextEnabledTools,
           runMode: nextRunMode
         })
-        set({
-          config,
-          enabledTools: normalizeUserEnabledTools(config.enabledTools, nextEnabledTools),
-          runMode: config.runMode ?? nextRunMode,
+        const persistedEnabledTools = normalizeUserEnabledTools(
+          updatedThread.enabledTools,
+          nextEnabledTools
+        )
+        const persistedRunMode = updatedThread.runMode ?? nextRunMode
+        set((state) => ({
+          toolModeByThread: setThreadToolModeValue(state.toolModeByThread, updatedThread.id, {
+            enabledTools: persistedEnabledTools,
+            runMode: persistedRunMode
+          }),
+          enabledTools:
+            state.activeThreadId === updatedThread.id ? persistedEnabledTools : state.enabledTools,
+          runMode: state.activeThreadId === updatedThread.id ? persistedRunMode : state.runMode,
+          threads: upsertThread(state.threads, updatedThread),
           lastError: null
-        })
+        }))
       } catch (error) {
         const message =
           error instanceof Error ? error.message : 'Unable to update tool availability.'
         set((state) => ({
-          config: state.config
-            ? { ...state.config, enabledTools: previousEnabledTools, runMode: previousRunMode }
-            : state.config,
-          enabledTools: previousEnabledTools,
-          runMode: previousRunMode,
+          toolModeByThread: setThreadToolModeValue(state.toolModeByThread, draftKey, previousMode),
+          enabledTools: previousMode.enabledTools,
+          runMode: previousMode.runMode,
+          threads: threadId
+            ? state.threads.map((thread) =>
+                thread.id === threadId
+                  ? {
+                      ...thread,
+                      enabledTools: previousMode.enabledTools,
+                      runMode: previousMode.runMode
+                    }
+                  : thread
+              )
+            : state.threads,
           lastError: message
         }))
         throw error
@@ -135,7 +169,9 @@ export function createComposerUiActions(input: {
           editingMessage: state.editingMessage?.threadId === id ? state.editingMessage : null,
           justDoneRunIdsByThread: setThreadStringValue(state.justDoneRunIdsByThread, id, null),
           ...withFilterBase(state.sidebarFilter, 'all'),
-          scrollToMessageId: scrollToMessageId ?? null
+          scrollToMessageId: scrollToMessageId ?? null,
+          enabledTools: getComposerToolMode(state, id).enabledTools,
+          runMode: getComposerToolMode(state, id).runMode
         }
 
         return {
@@ -459,7 +495,8 @@ export function createComposerUiActions(input: {
     },
 
     toggleEnabledTool: async (toolName) => {
-      await get().setEnabledTools(toggleEnabledTools(get().enabledTools, toolName))
+      const toolMode = getComposerToolMode(get(), get().activeThreadId)
+      await get().setEnabledTools(toggleEnabledTools(toolMode.enabledTools, toolName))
     },
 
     upsertComposerImage: (image, threadId) =>

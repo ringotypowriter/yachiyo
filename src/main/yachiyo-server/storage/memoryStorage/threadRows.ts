@@ -1,5 +1,6 @@
 import type { ThreadRecord } from '../../../../shared/yachiyo/protocol'
 import {
+  serializeEnabledTools,
   serializeLastDelegatedSession,
   serializeModelOverride,
   serializeReasoningSelection,
@@ -34,6 +35,8 @@ export function createStoredThreadRow(thread: ThreadRecord, createdAt: string): 
     queuedFollowUpReasoningEffort: serializeReasoningSelection(
       thread.queuedFollowUpReasoningEffort
     ),
+    enabledTools: serializeEnabledTools(thread.enabledTools),
+    runMode: thread.runMode ?? null,
     reasoningEffort: serializeReasoningSelection(thread.reasoningEffort),
     archivedAt: null,
     savingStartedAt: null,
@@ -84,6 +87,8 @@ export function applyThreadSnapshot(
   storedThread.queuedFollowUpReasoningEffort = serializeReasoningSelection(
     nextThread.queuedFollowUpReasoningEffort
   )
+  storedThread.enabledTools = serializeEnabledTools(nextThread.enabledTools)
+  storedThread.runMode = nextThread.runMode ?? null
   storedThread.reasoningEffort = serializeReasoningSelection(nextThread.reasoningEffort)
   storedThread.modelOverride = serializeModelOverride(nextThread.modelOverride)
   storedThread.rollingSummary = nextThread.rollingSummary ?? null

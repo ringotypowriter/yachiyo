@@ -9,11 +9,12 @@ import type { SoulDocument } from '../../../runtime/profiles/soul.ts'
 import { readUserDocument, writeUserDocument } from '../../../runtime/profiles/user.ts'
 import { createInMemoryYachiyoStorage } from '../../../storage/memoryStorage.ts'
 import type { MemoryService } from '../../../services/memory/memoryService.ts'
-import type {
-  ChatAccepted,
-  ChatAcceptedWithUserMessage,
-  UserDocument,
-  YachiyoServerEvent
+import {
+  DEFAULT_ENABLED_TOOL_NAMES,
+  type ChatAccepted,
+  type ChatAcceptedWithUserMessage,
+  type UserDocument,
+  type YachiyoServerEvent
 } from '../../../../../shared/yachiyo/protocol.ts'
 import { PLAN_DOCUMENT_MARKER } from '../../../../../shared/yachiyo/planMode.ts'
 
@@ -904,6 +905,8 @@ test('YachiyoServer.acceptThreadPlanDocument creates an execution thread seeded 
     assert.equal(accepted.thread.workspacePath, workspacePath)
     assert.equal(accepted.thread.title, 'Build Blog Generator')
     assert.equal(accepted.thread.icon, sourceThreadWithIcon.icon)
+    assert.deepEqual(accepted.thread.enabledTools, DEFAULT_ENABLED_TOOL_NAMES)
+    assert.equal(accepted.thread.runMode, 'auto')
     assert.equal(accepted.userMessage.parentMessageId, planMessage.id)
     assert.notEqual(accepted.userMessage.hidden, true)
     assert.equal(accepted.userMessage.content, 'Execute the accepted plan.')
