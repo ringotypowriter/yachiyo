@@ -13,6 +13,7 @@ import type {
   GrepToolCallDetails,
   JsReplToolCallDetails,
   ReadToolCallDetails,
+  RunModeId,
   SkillsReadToolCallDetails,
   ToolCallDetailsSnapshot,
   ToolCallName,
@@ -428,6 +429,8 @@ export interface AgentToolContext {
   imageToTextService?: import('../../services/imageToText/imageToTextService.ts').ImageToTextService
   /** Whether the current thread model supports vision/image input. */
   isModelImageCapable?: boolean
+  /** Current run mode, used to enforce mode-specific tool restrictions. */
+  runMode?: RunModeId
 }
 
 export type ToolContentBlock =

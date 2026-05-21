@@ -8,6 +8,10 @@ import { mkdir, readFile, stat } from 'node:fs/promises'
 import { join } from 'node:path'
 
 import type { BashToolCallDetails } from '../../../../shared/yachiyo/protocol.ts'
+import {
+  isReadOnlyBashSemanticGroup,
+  resolveBashSemanticGroup
+} from '../../../../shared/yachiyo/bashSemanticAnalyzer.ts'
 
 import { killProcessTree } from '../../app/domain/processes/killProcessTree.ts'
 import { validateBashCommand } from './bashSecurity.ts'
@@ -410,6 +414,27 @@ export async function* streamBashTool(
   const timeoutSeconds = input.timeout ?? DEFAULT_BASH_TIMEOUT_SECONDS
 
   const securityCheck = validateBashCommand(command)
+
+  // Plan Mode: bash is restricted to read-only commands (search, read).
+  if (context.runMode === 'plan') {
+    const semanticGroup = resolveBashSemanticGroup(command)
+    if (!isReadOnlyBashSemanticGroup(semanticGroup)) {
+      queue.push(
+        createBashResult({
+          command,
+          combinedOutput: '',
+          cwd: context.workspacePath,
+          stdout: '',
+          stderr: '',
+          blocked: true,
+          error: `This bash command is classified as '${semanticGroup}' and is not allowed in Plan Mode. Only read-only commands (search-files, read-files) are permitted. Use the grep, glob, or read tools instead, or switch to Auto Mode to execute this command.`
+        })
+      )
+      queue.close()
+      yield* queue.iterate()
+      return
+    }
+  }
 
   // Background mode: spawn the detached process first, then return the handle
   if (input.background && !securityCheck.blocked) {

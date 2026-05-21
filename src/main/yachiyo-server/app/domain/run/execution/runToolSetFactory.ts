@@ -73,6 +73,7 @@ export function createRunToolSet(input: CreateRunToolSetInput): ToolSet | undefi
     readRecordCache: executionInput.readRecordCache,
     imageToTextService: deps.imageToTextService,
     isModelImageCapable: deps.isModelImageCapable,
+    runMode: input.preparedContext.runMode,
     ...(planModeDocument
       ? {
           writeRestriction: {

@@ -140,6 +140,7 @@ export interface PreparedServerRunContext {
   enabledSubagentProfiles: SubagentProfile[]
   gitCtx: GitContext
   gitValidatedWorkspaces: string[]
+  runMode: RunModeId
 }
 
 export interface PrepareServerRunContextInput {
@@ -590,7 +591,8 @@ export async function prepareServerRunContext(
     inlinedFileCount: (fileMentionResolution.inlinedPath ? 1 : 0) + (hasInlinedJotdown ? 1 : 0),
     enabledSubagentProfiles,
     gitCtx,
-    gitValidatedWorkspaces
+    gitValidatedWorkspaces,
+    runMode: input.runMode
   }
 }
 

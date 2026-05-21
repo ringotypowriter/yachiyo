@@ -652,6 +652,10 @@ function resolvePipelineGroup(stages: ParsedStage[]): BashSemanticGroup {
 // Public entry point
 // ------------------------------------------------------------------
 
+export function isReadOnlyBashSemanticGroup(group: BashSemanticGroup): boolean {
+  return group === 'search-files' || group === 'read-files'
+}
+
 export function resolveBashSemanticGroup(command: string): BashSemanticGroup {
   const tokens = tokenize(command)
   const groups = splitCommandList(tokens)

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { resolveBashSemanticGroup } from './bashSemanticAnalyzer.ts'
+import { isReadOnlyBashSemanticGroup, resolveBashSemanticGroup } from './bashSemanticAnalyzer.ts'
 
 // ------------------------------------------------------------------
 // Search
@@ -308,4 +308,28 @@ test('resolveBashSemanticGroup: cat with 2>&1 stays read', () => {
 
 test('resolveBashSemanticGroup: >& file redirect is write', () => {
   assert.equal(resolveBashSemanticGroup('echo hi >& out.txt'), 'write-files')
+})
+
+// ------------------------------------------------------------------
+// isReadOnlyBashSemanticGroup
+// ------------------------------------------------------------------
+
+test('isReadOnlyBashSemanticGroup: search-files is read-only', () => {
+  assert.equal(isReadOnlyBashSemanticGroup('search-files'), true)
+})
+
+test('isReadOnlyBashSemanticGroup: read-files is read-only', () => {
+  assert.equal(isReadOnlyBashSemanticGroup('read-files'), true)
+})
+
+test('isReadOnlyBashSemanticGroup: edit-files is not read-only', () => {
+  assert.equal(isReadOnlyBashSemanticGroup('edit-files'), false)
+})
+
+test('isReadOnlyBashSemanticGroup: write-files is not read-only', () => {
+  assert.equal(isReadOnlyBashSemanticGroup('write-files'), false)
+})
+
+test('isReadOnlyBashSemanticGroup: run-commands is not read-only', () => {
+  assert.equal(isReadOnlyBashSemanticGroup('run-commands'), false)
 })

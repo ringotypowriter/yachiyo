@@ -239,7 +239,7 @@ export function buildAgentInstructions(input: {
     instructions.push(
       [
         'updateTodoList is available internally to maintain the persistent todo widget for the user.',
-        'Use updateTodoList only when the user asks for work with three or more independent steps; do not use it for single-step tasks, pure information answers, or trivial operations.',
+        'Use updateTodoList when the user asks for work with three or more independent steps, or when executing a plan that has explicit sequential steps; do not use it for single-step tasks, pure information answers, or trivial operations.',
         'Each call must send the full current list with statuses pending, in_progress, or completed. Prefer one in_progress item for strictly sequential work, but preserve multiple in_progress items when that is the honest state.',
         'A good todo entry is user-visible, outcome-oriented, independently actionable, and verifiable as done. Keep entries at the same abstraction level.',
         'Do not make todo entries for internal tool usage, thinking, reading context, reporting back, or vague phases like "investigate", "implement", or "test" unless the concrete outcome is named.',
