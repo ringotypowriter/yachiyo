@@ -502,17 +502,6 @@ function buildTextTerms(value: string): string[] {
   return [...terms]
 }
 
-function buildQueryTerms(input: ActivateCognitiveRowsInput): string[] {
-  return buildTextTerms(
-    [
-      input.userQuery,
-      input.thread.title,
-      input.thread.workspacePath ?? '',
-      ...input.history.slice(-2).map((message) => message.content)
-    ].join(' ')
-  )
-}
-
 function scoreTermMatches(activationText: string, terms: string[]): number {
   return terms.reduce((score, term) => score + (activationText.includes(term) ? 0.45 : 0), 0)
 }
@@ -531,45 +520,26 @@ function scorePhraseMatches(row: CognitiveRow, queryText: string): number {
   return score
 }
 
-function scoreScope(row: CognitiveRow, thread: ThreadRecord): number {
-  if (row.scope.workspacepath && thread.workspacePath === row.scope.workspacepath) return 0.6
-  if (row.scope.threadid && thread.id === row.scope.threadid) return 0.8
-  return 0
-}
-
 export function activateCognitiveRows(
   state: CognitiveMemoryState,
   input: ActivateCognitiveRowsInput
 ): CognitiveRow[] {
-  const terms = buildQueryTerms(input)
-  const directTerms = buildTextTerms(input.userQuery)
-  const directQueryText = normalizeLooseText(input.userQuery)
-  const queryText = normalizeLooseText(
-    [
-      input.userQuery,
-      input.thread.title,
-      ...input.history.slice(-2).map((message) => message.content)
-    ].join(' ')
-  )
+  const queryTerms = buildTextTerms(input.userQuery)
+  const queryText = normalizeLooseText(input.userQuery)
 
   return state.rows
     .filter((row) => row.status === 'active')
     .map((row) => {
       const activationText = row.activationText || buildActivationText(row)
-      const directScore =
-        scoreTermMatches(activationText, directTerms) + scorePhraseMatches(row, directQueryText)
-      const overlapScore = scoreTermMatches(activationText, terms)
       return {
-        directScore,
         row,
         score:
-          overlapScore +
+          scoreTermMatches(activationText, queryTerms) +
           scorePhraseMatches(row, queryText) +
-          scoreScope(row, input.thread) +
           row.confidence * 0.25
       }
     })
-    .filter((entry) => entry.directScore > 0 && entry.score > 0.65)
+    .filter((entry) => entry.score > 0.65)
     .sort(
       (left, right) =>
         right.score - left.score || left.row.updatedAt.localeCompare(right.row.updatedAt)
