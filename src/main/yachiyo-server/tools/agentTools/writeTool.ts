@@ -59,16 +59,20 @@ export async function runWriteTool(
   options: { abortSignal?: AbortSignal } = {}
 ): Promise<WriteToolOutput> {
   const abortSignal = options.abortSignal
-  const resolvedPath = await resolveUnicodeSpacePath(
+  const requestedPath = await resolveUnicodeSpacePath(
     resolveToolPath(context.workspacePath, input.path)
   )
   const restriction = context.writeRestriction
+  const resolvedPath =
+    restriction?.fallbackAbsolutePaths?.includes(requestedPath) === true
+      ? restriction.absolutePath
+      : requestedPath
 
   try {
     if (restriction && resolvedPath !== restriction.absolutePath) {
       return createWriteResult(
-        resolvedPath,
-        { path: resolvedPath, bytesWritten: 0, created: false, overwritten: false },
+        requestedPath,
+        { path: requestedPath, bytesWritten: 0, created: false, overwritten: false },
         `Plan Mode only allows writing to ${restriction.relativePath}. Requested: ${input.path}`
       )
     }

@@ -79,6 +79,7 @@ export function createRunToolSet(input: CreateRunToolSetInput): ToolSet | undefi
           writeRestriction: {
             absolutePath: planModeDocument.planAbsolutePath,
             relativePath: planModeDocument.planRelativePath,
+            fallbackAbsolutePaths: planModeDocument.fallbackAbsolutePaths,
             skipReadBeforeOverwrite: true
           }
         }

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import {
+  getThreadPlanDocumentFilename,
   hasExitPlanModeToolCall,
   isLatestRunPlanMode,
   normalizePlanDocumentFilename,
@@ -13,8 +14,14 @@ import {
 test('normalizePlanDocumentFilename accepts only plan document filenames', () => {
   assert.equal(normalizePlanDocumentFilename('plan-abcdef.md\n'), 'plan-abcdef.md')
   assert.equal(normalizePlanDocumentFilename('PLAN-ABCDEF.md'), 'plan-abcdef.md')
-  assert.equal(normalizePlanDocumentFilename('plan-fixed.md'), null)
+  assert.equal(normalizePlanDocumentFilename('plan-thread_123.md'), 'plan-thread_123.md')
+  assert.equal(normalizePlanDocumentFilename('plan-fixed.md'), 'plan-fixed.md')
   assert.equal(normalizePlanDocumentFilename('../plan-abcdef.md'), null)
+})
+
+test('getThreadPlanDocumentFilename derives the plan filename from the thread id', () => {
+  assert.equal(getThreadPlanDocumentFilename('Thread_123'), 'plan-thread_123.md')
+  assert.equal(getThreadPlanDocumentFilename('thread:abc/def'), 'plan-thread-abc-def.md')
 })
 
 test('plan document constants keep the thread-level plan pointer stable', () => {

@@ -7,7 +7,15 @@ export const PLAN_MODE_EXIT_TOOL_NAME = 'exitPlanMode'
 export const PLAN_DOCUMENT_MARKER = '<!-- yachiyo:plan-document -->'
 export const PLAN_DOCUMENT_DIR_NAME = '.yachiyo'
 export const PLAN_CURRENT_FILENAME = 'plan.current'
-export const PLAN_DOCUMENT_FILENAME_PATTERN = /^plan-[a-z]{6,12}\.md$/i
+export const PLAN_DOCUMENT_FILENAME_PATTERN = /^plan-[a-z0-9_-]{1,128}\.md$/i
+
+export function getThreadPlanDocumentFilename(threadId: string): string {
+  const safeThreadId = threadId
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, '-')
+  return `plan-${safeThreadId || 'thread'}.md`
+}
 
 export function normalizePlanDocumentFilename(raw: string): string | null {
   const trimmed = raw.trim()

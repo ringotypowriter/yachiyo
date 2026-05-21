@@ -1,28 +1,24 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { homedir } from 'node:os'
 import { join } from 'node:path'
-import { randomBytes } from 'node:crypto'
 
 import type { QueryReminderSection } from '../../../../runtime/context/queryReminder.ts'
 import {
+  getThreadPlanDocumentFilename,
   normalizePlanDocumentFilename,
   PLAN_CURRENT_FILENAME,
   PLAN_DOCUMENT_DIR_NAME
 } from '../../../../../../shared/yachiyo/planMode.ts'
 
-function randomLetters(length: number): string {
-  const bytes = randomBytes(length)
-  const aCode = 'a'.charCodeAt(0)
-  const letters: string[] = []
-  for (let i = 0; i < length; i += 1) {
-    letters.push(String.fromCharCode(aCode + (bytes[i]! % 26)))
-  }
-  return letters.join('')
-}
-
 export async function ensurePlanDocument(input: {
   workspacePath: string
+  threadId: string
   goal: string
-}): Promise<{ planRelativePath: string; planAbsolutePath: string }> {
+}): Promise<{
+  planRelativePath: string
+  planAbsolutePath: string
+  fallbackAbsolutePaths: string[]
+}> {
   const planDir = join(input.workspacePath, PLAN_DOCUMENT_DIR_NAME)
   await mkdir(planDir, { recursive: true })
 
@@ -30,9 +26,10 @@ export async function ensurePlanDocument(input: {
   const existingCurrent = await readFile(currentPath, 'utf8').catch(() => null)
   const existingFilename = existingCurrent ? normalizePlanDocumentFilename(existingCurrent) : null
 
-  const filename = existingFilename ?? `plan-${randomLetters(6)}.md`
+  const filename = existingFilename ?? getThreadPlanDocumentFilename(input.threadId)
   const planAbsolutePath = join(planDir, filename)
   const planRelativePath = `${PLAN_DOCUMENT_DIR_NAME}/${filename}`
+  const fallbackAbsolutePaths = [join(homedir(), PLAN_DOCUMENT_DIR_NAME, filename)]
 
   if (!existingFilename) {
     await writeFile(currentPath, `${filename}\n`, 'utf8')
@@ -55,7 +52,7 @@ export async function ensurePlanDocument(input: {
     )
   }
 
-  return { planRelativePath, planAbsolutePath }
+  return { planRelativePath, planAbsolutePath, fallbackAbsolutePaths }
 }
 export function buildPlanModeReminderSection(input: {
   planRelativePath: string

@@ -123,6 +123,7 @@ export interface PreparedServerRunContext {
   planModeDocument?: {
     planRelativePath: string
     planAbsolutePath: string
+    fallbackAbsolutePaths: string[]
   }
   availableSkills: SkillCatalogEntry[]
   activeSkills: SkillSummary[]
@@ -221,7 +222,11 @@ export async function prepareServerRunContext(
 
   const planModeDocument =
     input.runMode === 'plan' && requestMessage
-      ? await ensurePlanDocument({ workspacePath, goal: requestMessage.content })
+      ? await ensurePlanDocument({
+          workspacePath,
+          threadId: input.thread.id,
+          goal: requestMessage.content
+        })
       : null
 
   const now = new Date()

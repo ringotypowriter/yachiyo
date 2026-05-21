@@ -135,4 +135,25 @@ describe('writeTool', () => {
     assert.strictEqual(result.error, undefined)
     assert.strictEqual(result.details.overwritten, true)
   })
+  it('redirects Plan Mode fallback paths to the restricted plan document', async () => {
+    const workspace = await makeWorkspace()
+    const planPath = join(workspace, '.yachiyo', 'plan-thread-1.md')
+    const mistakenHomePath = join(tmpdir(), '.yachiyo', 'plan-thread-1.md')
+
+    const result = await runWriteTool(
+      { path: mistakenHomePath, content: '# Execution Plan' },
+      {
+        workspacePath: workspace,
+        writeRestriction: {
+          absolutePath: planPath,
+          relativePath: '.yachiyo/plan-thread-1.md',
+          fallbackAbsolutePaths: [mistakenHomePath],
+          skipReadBeforeOverwrite: true
+        }
+      }
+    )
+
+    assert.strictEqual(result.error, undefined)
+    assert.strictEqual(await readFile(planPath, 'utf8'), '# Execution Plan')
+  })
 })

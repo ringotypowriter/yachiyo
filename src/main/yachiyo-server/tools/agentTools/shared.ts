@@ -418,6 +418,7 @@ export interface AgentToolContext {
   writeRestriction?: {
     absolutePath: string
     relativePath: string
+    fallbackAbsolutePaths?: string[]
     skipReadBeforeOverwrite?: boolean
   }
   /** Snapshot tracker for capturing file states before modifications. */
