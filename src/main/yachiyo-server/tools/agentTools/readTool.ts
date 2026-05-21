@@ -138,13 +138,21 @@ function buildReadExcerpt(
   let truncatedByBytes = false
   let returnedPartialFirstLine = false
 
-  for (const line of lines.slice(idx, idx + limit)) {
-    const addition = selectedLines.length === 0 ? line : `\n${line}`
+  for (let lineIndex = idx; lineIndex < Math.min(lines.length, idx + limit); lineIndex += 1) {
+    const lineNumber = lineIndex + 1
+    const linePrefix = `${lineNumber}➔`
+    const line = lines[lineIndex]
+    const numberedLine = `${linePrefix}${line}`
+    const addition = selectedLines.length === 0 ? numberedLine : `\n${numberedLine}`
     const additionBytes = Buffer.byteLength(addition, 'utf8')
 
     if (bytes + additionBytes > DEFAULT_READ_MAX_BYTES) {
       if (selectedLines.length === 0) {
-        selectedLines.push(truncateUtf8ByBytes(line, DEFAULT_READ_MAX_BYTES))
+        const lineBytes = Math.max(
+          DEFAULT_READ_MAX_BYTES - Buffer.byteLength(linePrefix, 'utf8'),
+          0
+        )
+        selectedLines.push(`${linePrefix}${truncateUtf8ByBytes(line, lineBytes)}`)
         returnedPartialFirstLine = true
       }
 
@@ -152,7 +160,7 @@ function buildReadExcerpt(
       break
     }
 
-    selectedLines.push(line)
+    selectedLines.push(numberedLine)
     bytes += additionBytes
     consumedLines += 1
   }

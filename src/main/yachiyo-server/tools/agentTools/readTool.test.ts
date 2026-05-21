@@ -120,6 +120,22 @@ test('runReadTool falls back to text for non-image extensions', async () => {
   })
 })
 
+test('runReadTool prefixes text lines with original file line numbers', async () => {
+  await withWorkspace(async (workspacePath) => {
+    const textPath = join(workspacePath, 'notes.txt')
+    await writeFile(textPath, 'alpha\n\nomega\nlast', 'utf8')
+
+    const result = await runReadTool(readInput({ path: textPath, offset: 2, limit: 3 }), {
+      workspacePath
+    })
+
+    assert.equal(result.error, undefined)
+    const textBlock = result.content.find((b) => b.type === 'text')
+    assert.ok(textBlock?.type === 'text')
+    assert.equal(textBlock.text, '2➔\n3➔omega\n4➔last')
+  })
+})
+
 test('runReadTool returns error result for missing image file', async () => {
   await withWorkspace(async (workspacePath) => {
     const result = await runReadTool(readInput({ path: join(workspacePath, 'missing.png') }), {

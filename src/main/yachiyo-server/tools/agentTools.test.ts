@@ -72,7 +72,7 @@ test('runReadTool uses 1-based offset/limit continuation semantics and returns t
     assert.equal(result.details.remainingLines, 3)
     assert.equal(
       flattenToolContent(result.content),
-      'one\ntwo\n\n[truncated: continue with offset 3]'
+      '1➔one\n2➔two\n\n[truncated: continue with offset 3]'
     )
   })
 })
