@@ -1,5 +1,6 @@
 import type { FolderRecord, Thread, ToolCall } from '../../../app/types.ts'
 import { stripMarkdown } from '../../../../../shared/yachiyo/messageContent.ts'
+import { PLAN_MODE_EXIT_TOOL_NAME } from '../../../../../shared/yachiyo/planMode.ts'
 
 export type FolderChild =
   | { kind: 'thread'; thread: Thread }
@@ -32,7 +33,7 @@ export type SidebarFolderDropRow = Extract<
   { kind: 'folder' | 'folder-date-header' | 'folder-thread' }
 >
 
-export type ThreadSidebarPreviewState = 'normal' | 'thinking' | 'working'
+export type ThreadSidebarPreviewState = 'normal' | 'thinking' | 'working' | 'plan'
 
 export interface ThreadSidebarPreview {
   state: ThreadSidebarPreviewState
@@ -306,12 +307,14 @@ export function resolveThreadSidebarPreview({
   activeRunId,
   hasBackgroundWork,
   isRunActive,
+  pendingPlanApproval,
   thread,
   toolCalls
 }: {
   activeRunId: string | null
   hasBackgroundWork: boolean
   isRunActive: boolean
+  pendingPlanApproval?: boolean
   thread: Pick<Thread, 'id' | 'preview'>
   toolCalls: ToolCall[]
 }): ThreadSidebarPreview {
@@ -339,11 +342,31 @@ export function resolveThreadSidebarPreview({
     }
   }
 
+  if (pendingPlanApproval === true && isLatestToolCallPlanExit(toolCalls)) {
+    return {
+      state: 'plan',
+      text: 'Pending approval'
+    }
+  }
+
   const preview = thread.preview?.trim()
   return {
     state: 'normal',
     text: preview ? stripMarkdown(preview) : 'No messages yet'
   }
+}
+
+function isLatestToolCallPlanExit(toolCalls: readonly ToolCall[]): boolean {
+  const latestToolCall = toolCalls.reduce<ToolCall | null>((latest, toolCall) => {
+    if (!latest) return toolCall
+    const latestAt = latest.finishedAt ?? latest.startedAt
+    const toolCallAt = toolCall.finishedAt ?? toolCall.startedAt
+    return toolCallAt > latestAt ? toolCall : latest
+  }, null)
+
+  return (
+    latestToolCall?.toolName === PLAN_MODE_EXIT_TOOL_NAME && latestToolCall.status === 'completed'
+  )
 }
 
 function formatSidebarDateLabel(updatedAt: string, today: Date): string {

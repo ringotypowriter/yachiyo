@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import type { FolderRecord, Thread } from '../../../app/types.ts'
+import type { FolderRecord, Thread, ToolCall } from '../../../app/types.ts'
 import {
   buildSidebarItems,
   buildSidebarRows,
@@ -27,6 +27,20 @@ function folder(id: string, overrides: Partial<FolderRecord> = {}): FolderRecord
     colorTag: null,
     createdAt: '2026-04-29T00:00:00.000Z',
     updatedAt: '2026-04-29T00:00:00.000Z',
+    ...overrides
+  }
+}
+
+function toolCall(overrides: Partial<ToolCall> = {}): ToolCall {
+  return {
+    id: 'tool-1',
+    runId: 'run-1',
+    threadId: 'thread-1',
+    toolName: 'bash',
+    status: 'completed',
+    inputSummary: 'done',
+    startedAt: '2026-04-29T10:01:00.000Z',
+    finishedAt: '2026-04-29T10:02:00.000Z',
     ...overrides
   }
 }
@@ -250,6 +264,64 @@ test('idle thread preview keeps the saved message preview', () => {
     isRunActive: false,
     thread: thread('thread-1', { preview: '**Saved** preview' }),
     toolCalls: []
+  })
+
+  assert.deepEqual(preview, {
+    state: 'normal',
+    text: 'Saved preview'
+  })
+})
+
+test('idle thread preview shows pending plan approval after the latest exitPlanMode tool', () => {
+  const preview = resolveThreadSidebarPreview({
+    activeRunId: null,
+    hasBackgroundWork: false,
+    isRunActive: false,
+    pendingPlanApproval: true,
+    thread: thread('thread-1', { preview: '' }),
+    toolCalls: [
+      toolCall({
+        id: 'tool-read',
+        toolName: 'read',
+        startedAt: '2026-04-29T10:01:00.000Z',
+        finishedAt: '2026-04-29T10:02:00.000Z'
+      }),
+      toolCall({
+        id: 'tool-exit-plan',
+        toolName: 'exitPlanMode',
+        startedAt: '2026-04-29T10:03:00.000Z',
+        finishedAt: '2026-04-29T10:04:00.000Z'
+      })
+    ]
+  })
+
+  assert.deepEqual(preview, {
+    state: 'plan',
+    text: 'Pending approval'
+  })
+})
+
+test('idle thread preview ignores pending plan approval when a later tool exists', () => {
+  const preview = resolveThreadSidebarPreview({
+    activeRunId: null,
+    hasBackgroundWork: false,
+    isRunActive: false,
+    pendingPlanApproval: true,
+    thread: thread('thread-1', { preview: 'Saved preview' }),
+    toolCalls: [
+      toolCall({
+        id: 'tool-exit-plan',
+        toolName: 'exitPlanMode',
+        startedAt: '2026-04-29T10:01:00.000Z',
+        finishedAt: '2026-04-29T10:02:00.000Z'
+      }),
+      toolCall({
+        id: 'tool-read',
+        toolName: 'read',
+        startedAt: '2026-04-29T10:03:00.000Z',
+        finishedAt: '2026-04-29T10:04:00.000Z'
+      })
+    ]
   })
 
   assert.deepEqual(preview, {

@@ -16,7 +16,8 @@ import {
 import {
   useAppStore,
   hasActiveMultiFilter,
-  type ComposerDraft
+  type ComposerDraft,
+  type PlanDocumentState
 } from '@renderer/app/store/useAppStore'
 import { isComposerDraftEmpty, NEW_THREAD_DRAFT_KEY } from '@renderer/app/store/useAppStore/helpers'
 import type { FolderRecord, RunRecord, Thread, ThreadColorTag, ToolCall } from '@renderer/app/types'
@@ -555,6 +556,7 @@ function ThreadListContent({
   deleteThread,
   draftThreadIds,
   latestRunsByThread,
+  planDocumentsByThread,
   memoryEnabled,
   regenerateThreadTitle,
   renameThread,
@@ -587,6 +589,7 @@ function ThreadListContent({
   deleteThread: (threadId: string) => Promise<void>
   draftThreadIds: ReadonlySet<string>
   latestRunsByThread: Record<string, RunRecord>
+  planDocumentsByThread: Record<string, PlanDocumentState>
   memoryEnabled: boolean
   regenerateThreadTitle: (threadId: string) => Promise<void>
   renameThread: (threadId: string, title: string) => Promise<void>
@@ -947,6 +950,7 @@ function ThreadListContent({
         hasJustDoneRun={threadListMode === 'active' && Boolean(justDoneRunIdsByThread[thread.id])}
         isRunActive={isRunActive}
         isSaving={savingThreadIds.has(thread.id)}
+        pendingPlanApproval={planDocumentsByThread[thread.id]?.decision === 'pending'}
         isSelectMode={selectMode}
         isSelected={selectedIds.has(thread.id)}
         isStarred={!!thread.starredAt}
@@ -1208,6 +1212,7 @@ export function ThreadList(): React.JSX.Element {
   const justDoneRunIdsByThread = useAppStore((s) => s.justDoneRunIdsByThread)
   const sidebarFilter = useAppStore((s) => s.sidebarFilter)
   const composerDrafts = useAppStore((s) => s.composerDrafts)
+  const planDocumentsByThread = useAppStore((s) => s.planDocumentsByThread)
   const config = useAppStore((s) => s.config)
   const savedWorkspacePaths = config?.workspace?.savedPaths ?? EMPTY_WORKSPACE_PATHS
   const backgroundTaskHydrationThreadIds = useMemo(
@@ -1304,6 +1309,7 @@ export function ThreadList(): React.JSX.Element {
       deleteThread={deleteThread}
       draftThreadIds={draftThreadIds}
       latestRunsByThread={latestRunsByThread}
+      planDocumentsByThread={planDocumentsByThread}
       memoryEnabled={memoryEnabled}
       regenerateThreadTitle={regenerateThreadTitle}
       renameThread={renameThread}

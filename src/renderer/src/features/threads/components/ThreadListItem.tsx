@@ -85,6 +85,7 @@ export function ThreadListItem({
   hasJustDoneRun,
   isRunActive,
   isSaving,
+  pendingPlanApproval,
   isSelectMode,
   isSelected,
   isStarred,
@@ -109,6 +110,7 @@ export function ThreadListItem({
   hasJustDoneRun: boolean
   isRunActive: boolean
   isSaving: boolean
+  pendingPlanApproval: boolean
   isSelectMode: boolean
   isSelected: boolean
   isStarred: boolean
@@ -129,6 +131,7 @@ export function ThreadListItem({
     activeRunId,
     hasBackgroundWork,
     isRunActive,
+    pendingPlanApproval,
     thread,
     toolCalls
   })
@@ -156,9 +159,9 @@ export function ThreadListItem({
   const isUnreadArchived =
     threadListMode === 'archived' && Boolean(thread.archivedAt) && !thread.readAt
   const previewClassName =
-    preview.state === 'normal'
-      ? 'mt-0.5 block truncate'
-      : 'mt-0.5 block truncate yachiyo-sidebar-run-preview-shimmer'
+    preview.state === 'thinking' || preview.state === 'working'
+      ? 'mt-0.5 block truncate yachiyo-sidebar-run-preview-shimmer'
+      : 'mt-0.5 block truncate'
 
   function handleIconClick(e: React.MouseEvent): void {
     e.stopPropagation()
@@ -355,6 +358,10 @@ export function ThreadListItem({
                     <>
                       <span style={{ color: theme.text.accent }}>[Draft]</span>
                       {draftText.length > 0 ? <> {draftText}</> : null}
+                    </>
+                  ) : preview.state === 'plan' ? (
+                    <>
+                      <span style={{ color: theme.text.accent }}>[Plan]</span> {preview.text}
                     </>
                   ) : (
                     preview.text
