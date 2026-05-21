@@ -145,10 +145,14 @@ function takeTextHead(
 function pushOutputTail(
   codeBlocks: ToolCallDetailCodeBlock[],
   label: string,
-  value: string,
+  value: string | undefined,
   tone?: ToolCallDetailTone,
   displayTier?: ToolCallDetailDisplayTier
 ): void {
+  if (value === undefined) {
+    return
+  }
+
   const tail = takeTextTail(value)
   if (!tail.text) {
     return
