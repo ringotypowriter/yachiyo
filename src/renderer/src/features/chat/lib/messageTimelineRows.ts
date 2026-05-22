@@ -15,6 +15,7 @@ import {
 } from './runMemoryPresentation.ts'
 import {
   isPlanModeExitRecord,
+  isPlanDocumentMessage,
   PLAN_MODE_EXIT_PHRASE,
   PLAN_MODE_EXIT_TOOL_NAME
 } from '../../../../../shared/yachiyo/planMode.ts'
@@ -487,6 +488,12 @@ export function buildConversationGroupRows(
 
     const textBlocks: MessageTextBlockRecord[] = []
     for (const assistantMessage of activeAssistantMessages) {
+      // Once the plan document has been persisted via exitPlanMode, the timeline should render
+      // the dedicated plan document card instead of duplicating the plan markdown as a normal
+      // assistant bubble.
+      if (hasCompletedPlanExitToolCall && isPlanDocumentMessage(assistantMessage.content)) {
+        continue
+      }
       for (const textBlock of resolveAssistantTextBlocks(assistantMessage)) {
         assistantMessageByTextBlockId.set(textBlock.id, assistantMessage)
         textBlocks.push(textBlock)

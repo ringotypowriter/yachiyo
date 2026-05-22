@@ -2,11 +2,23 @@ import type { MessageRecord, RunRecord } from './protocol.ts'
 
 export const PLAN_MODE_EXIT_PHRASE = 'Exit Plan Mode'
 
+export const PLAN_EXECUTION_USER_MESSAGE = 'Execute the accepted plan.'
+
 export const PLAN_MODE_EXIT_TOOL_NAME = 'exitPlanMode'
 
 export const PLAN_DOCUMENT_MARKER = '<!-- yachiyo:plan-document -->'
 export const PLAN_DOCUMENT_DIR_NAME = '.yachiyo'
 export const PLAN_DOCUMENT_FILENAME_PATTERN = /^plan-[a-z0-9_-]{1,128}\.md$/i
+
+export const PLAN_DOCUMENT_STATE_FILENAME_PATTERN = /^plan-[a-z0-9_-]{1,128}\.state\.json$/i
+
+export interface ThreadPlanDocumentStateFile {
+  decision: 'accepted'
+  acceptedAt: string
+  acceptedMode: 'direct' | 'handoff'
+  acceptedThreadId: string
+  planContentHash: string
+}
 
 export function getThreadPlanDocumentFilename(threadId: string): string {
   let hash = 2166136261
@@ -28,6 +40,10 @@ export function normalizePlanDocumentFilename(raw: string): string | null {
   const trimmed = raw.trim()
   if (!trimmed || !PLAN_DOCUMENT_FILENAME_PATTERN.test(trimmed)) return null
   return trimmed.toLowerCase()
+}
+
+export function getThreadPlanDocumentStateFilename(threadId: string): string {
+  return getThreadPlanDocumentFilename(threadId).replace(/\.md$/i, '.state.json')
 }
 
 export function isPlanModeExitMessage(content: string): boolean {

@@ -1,6 +1,6 @@
-import { randomUUID } from 'node:crypto'
-import { readFile } from 'node:fs/promises'
-import { join, resolve } from 'node:path'
+import { createHash, randomUUID } from 'node:crypto'
+import { readFile, writeFile } from 'node:fs/promises'
+import { dirname, join, resolve } from 'node:path'
 
 import type {
   BootstrapPayload,
@@ -143,6 +143,8 @@ import {
 } from '../../../../shared/yachiyo/messageContent.ts'
 import {
   getThreadPlanDocumentFilename,
+  getThreadPlanDocumentStateFilename,
+  type ThreadPlanDocumentStateFile,
   PLAN_DOCUMENT_DIR_NAME
 } from '../../../../shared/yachiyo/planMode.ts'
 import {
@@ -716,7 +718,21 @@ export class YachiyoServer {
     const filename = getThreadPlanDocumentFilename(thread.id)
     const path = join(planDir, filename)
     const content = await readFile(path, 'utf8')
-    return { path, content }
+
+    const stateFilename = getThreadPlanDocumentStateFilename(thread.id)
+    const statePath = join(planDir, stateFilename)
+    const decision = await readFile(statePath, 'utf8')
+      .then((raw) => {
+        const parsed = JSON.parse(raw) as ThreadPlanDocumentStateFile
+        if (parsed?.decision !== 'accepted') return undefined
+        if (typeof parsed.planContentHash !== 'string') return undefined
+        const contentHash = createHash('sha256').update(content, 'utf8').digest('hex')
+        if (contentHash !== parsed.planContentHash) return undefined
+        return 'accepted' as const
+      })
+      .catch(() => undefined)
+
+    return { path, content, ...(decision ? { decision } : {}) }
   }
 
   async acceptThreadPlanDocument(input: AcceptThreadPlanDocumentInput): Promise<ChatAccepted> {
@@ -750,6 +766,19 @@ export class YachiyoServer {
       storage: this.storage,
       threadDomain: this.threadDomain,
       timestamp: () => this.timestamp()
+    }).then(async (accepted) => {
+      const planDir = dirname(plan.path)
+      const statePath = join(planDir, getThreadPlanDocumentStateFilename(sourceThread.id))
+      const planContentHash = createHash('sha256').update(plan.content, 'utf8').digest('hex')
+      const state: ThreadPlanDocumentStateFile = {
+        decision: 'accepted',
+        acceptedAt: this.timestamp(),
+        acceptedMode: mode,
+        acceptedThreadId: accepted.thread.id,
+        planContentHash
+      }
+      await writeFile(statePath, JSON.stringify(state), 'utf8').catch(() => undefined)
+      return accepted
     })
     this.planAcceptancesBySourceThreadId.set(sourceThread.id, { key, promise })
 

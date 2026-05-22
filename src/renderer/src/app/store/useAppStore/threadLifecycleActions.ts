@@ -381,7 +381,11 @@ export function createThreadLifecycleActions(input: {
                   const plan = await window.api.yachiyo.readThreadPlanDocument({ threadId })
                   return [
                     threadId,
-                    { ...plan, updatedAt: new Date().toISOString(), decision: 'pending' as const }
+                    {
+                      ...plan,
+                      updatedAt: new Date().toISOString(),
+                      decision: plan.decision ?? 'pending'
+                    }
                   ] as const
                 } catch {
                   return null

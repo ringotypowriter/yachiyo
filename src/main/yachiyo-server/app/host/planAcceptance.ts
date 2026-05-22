@@ -11,14 +11,15 @@ import type {
 } from '../../../../shared/yachiyo/protocol.ts'
 import { DEFAULT_ENABLED_TOOL_NAMES } from '../../../../shared/yachiyo/protocol.ts'
 import { summarizeMessagePreview } from '../../../../shared/yachiyo/messageContent.ts'
-import { PLAN_DOCUMENT_MARKER } from '../../../../shared/yachiyo/planMode.ts'
+import {
+  PLAN_DOCUMENT_MARKER,
+  PLAN_EXECUTION_USER_MESSAGE
+} from '../../../../shared/yachiyo/planMode.ts'
 import type { YachiyoStorage } from '../../storage/storage.ts'
 import type { FolderDomain } from '../domain/folders/folderDomain.ts'
 import type { YachiyoServerRunDomain } from '../domain/run/runDomain.ts'
 import type { YachiyoServerThreadDomain } from '../domain/threads/threadDomain.ts'
 import { isDefaultNewChatThread } from './takeoverContext.ts'
-
-const PLAN_EXECUTION_USER_MESSAGE = 'Execute the accepted plan.'
 
 type PlanAcceptanceMode = NonNullable<AcceptThreadPlanDocumentInput['mode']>
 type PlanAcceptanceEvent = MessageCompletedEvent | ThreadUpdatedEvent

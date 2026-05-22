@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import type { Message, MessageTextBlockRecord } from '../../../app/types.ts'
+import { PLAN_DOCUMENT_MARKER } from '../../../../../shared/yachiyo/planMode.ts'
 import {
   buildConversationGroupRows,
   buildMessageTimelineRows,
@@ -1070,6 +1071,47 @@ test('buildMessageTimelineRows keeps only the latest plan document row', () => {
   const planRows = rows.filter((row) => row.kind === 'group-plan-document')
   assert.equal(planRows.length, 1)
   assert.equal(planRows[0]?.assistantMessageId, 'assistant-plan-2')
+})
+
+test('buildConversationGroupRows does not duplicate plan markdown when exitPlanMode has completed', () => {
+  const group = createGroup({
+    activeAssistant: createAssistantMessage({
+      id: 'assistant-plan-doc',
+      content: `${PLAN_DOCUMENT_MARKER}\n\n# Execution Plan\n\nGoal\n\n- Do the thing`,
+      status: 'completed'
+    })
+  })
+
+  const rows = buildConversationGroupRows({
+    group,
+    inlineToolCalls: [
+      {
+        id: 'tool-exit-plan',
+        runId: 'run-plan',
+        threadId: 'thread-1',
+        requestMessageId: 'user-1',
+        assistantMessageId: 'assistant-plan-doc',
+        toolName: 'exitPlanMode',
+        status: 'completed',
+        inputSummary: 'ready=true',
+        startedAt: '2026-04-18T00:00:01.000Z',
+        finishedAt: '2026-04-18T00:00:01.000Z'
+      }
+    ],
+    runs: [],
+    activeRunId: null,
+    isActiveGroup: false,
+    subagentActive: false
+  })
+
+  assert.equal(
+    rows.some((row) => row.kind === 'group-assistant-text-block'),
+    false
+  )
+  assert.equal(
+    rows.some((row) => row.kind === 'group-plan-document'),
+    true
+  )
 })
 
 test('buildMessageTimelineRows treats hidden request ids as the active group', () => {

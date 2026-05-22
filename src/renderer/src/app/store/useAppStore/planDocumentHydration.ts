@@ -1,13 +1,15 @@
 import type { Message, ToolCall } from '../../types.ts'
 import type { AppState } from '../useAppStore.ts'
 import {
+  isPlanDocumentMessage,
   isPlanModeExitRecord,
+  PLAN_EXECUTION_USER_MESSAGE,
   PLAN_MODE_EXIT_TOOL_NAME
 } from '../../../../../shared/yachiyo/planMode.ts'
 
 const hydratingPlanDocumentThreadIds = new Set<string>()
 
-function findPlanExitTimestamp(input: {
+export function findPlanExitTimestamp(input: {
   messages: readonly Message[]
   toolCalls: readonly ToolCall[]
 }): string | null {
@@ -28,6 +30,39 @@ function findPlanExitTimestamp(input: {
   return null
 }
 
+function findPlanAcceptanceTimestamp(input: {
+  messages: readonly Message[]
+  planExitTimestamp: string
+}): string | null {
+  const messagesById = new Map(input.messages.map((message) => [message.id, message]))
+
+  for (let i = input.messages.length - 1; i >= 0; i -= 1) {
+    const message = input.messages[i]
+    if (!message || message.role !== 'user') continue
+    if (message.content.trim() !== PLAN_EXECUTION_USER_MESSAGE) continue
+    if (!message.parentMessageId) continue
+
+    const parent = messagesById.get(message.parentMessageId)
+    if (!parent || parent.role !== 'assistant') continue
+    if (!isPlanDocumentMessage(parent.content)) continue
+
+    // If a newer plan was generated after this acceptance, the UI should show the latest plan
+    // as pending again.
+    if (message.createdAt.localeCompare(input.planExitTimestamp) < 0) continue
+
+    return message.createdAt
+  }
+
+  return null
+}
+
+export function derivePlanDocumentDecision(input: {
+  messages: readonly Message[]
+  planExitTimestamp: string
+}): 'pending' | 'accepted' {
+  return findPlanAcceptanceTimestamp(input) ? 'accepted' : 'pending'
+}
+
 export function hydratePlanDocumentForThread(input: {
   set: (partial: Partial<AppState> | ((state: AppState) => Partial<AppState>)) => void
   get: () => AppState
@@ -41,22 +76,31 @@ export function hydratePlanDocumentForThread(input: {
 
   const messages = input.messages ?? input.get().messages[input.threadId] ?? []
   const toolCalls = input.toolCalls ?? input.get().toolCalls[input.threadId] ?? []
-  const updatedAt = findPlanExitTimestamp({ messages, toolCalls })
-  if (!updatedAt) return
+  const planExitTimestamp = findPlanExitTimestamp({ messages, toolCalls })
+  if (!planExitTimestamp) return
+  const decision = derivePlanDocumentDecision({ messages, planExitTimestamp })
 
   hydratingPlanDocumentThreadIds.add(input.threadId)
   void window.api.yachiyo
     .readThreadPlanDocument({ threadId: input.threadId })
     .then((plan) => {
+      const resolvedDecision = plan.decision === 'accepted' ? 'accepted' : decision
       input.set((state) => {
-        if (state.planDocumentsByThread[input.threadId]) return {}
+        const existing = state.planDocumentsByThread[input.threadId]
+        if (
+          existing &&
+          existing.updatedAt === planExitTimestamp &&
+          (existing.decision === 'accepted' || existing.decision === resolvedDecision)
+        ) {
+          return {}
+        }
         return {
           planDocumentsByThread: {
             ...state.planDocumentsByThread,
             [input.threadId]: {
               ...plan,
-              updatedAt,
-              decision: 'pending' as const
+              updatedAt: planExitTimestamp,
+              decision: resolvedDecision
             }
           }
         }

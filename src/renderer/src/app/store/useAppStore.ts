@@ -1170,7 +1170,7 @@ export const useAppStore = create<AppState>((set, get) => ({
               [event.threadId]: {
                 ...plan,
                 updatedAt: event.timestamp,
-                decision: 'pending' as const
+                decision: plan.decision ?? 'pending'
               }
             }
           }))
@@ -1194,7 +1194,7 @@ export const useAppStore = create<AppState>((set, get) => ({
               [event.threadId]: {
                 ...plan,
                 updatedAt: event.timestamp,
-                decision: 'pending' as const
+                decision: plan.decision ?? 'pending'
               }
             }
           }))

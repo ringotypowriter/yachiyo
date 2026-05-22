@@ -1219,6 +1219,7 @@ export interface ReadThreadPlanDocumentInput {
 export interface ReadThreadPlanDocumentResult {
   path: string
   content: string
+  decision?: 'pending' | 'rejected' | 'accepted'
 }
 
 export type AcceptThreadPlanDocumentMode = 'direct' | 'handoff'
