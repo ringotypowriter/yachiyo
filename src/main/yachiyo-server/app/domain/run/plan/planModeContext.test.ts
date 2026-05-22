@@ -7,7 +7,7 @@ import { join } from 'node:path'
 
 import { ensurePlanDocument } from './planModeContext.ts'
 
-test('ensurePlanDocument creates plan.current + plan file once and reuses it', async () => {
+test('ensurePlanDocument creates the thread-derived plan file once and reuses it', async () => {
   const workspacePath = await mkdtemp(join(tmpdir(), 'yachiyo-plan-mode-'))
 
   const first = await ensurePlanDocument({
@@ -15,14 +15,14 @@ test('ensurePlanDocument creates plan.current + plan file once and reuses it', a
     threadId: 'thread-plan-mode',
     goal: 'Ship Plan Mode'
   })
-  assert.equal(first.planRelativePath, '.yachiyo/plan-thread-plan-mode.md')
+  assert.equal(first.planRelativePath, '.yachiyo/plan-vnfjnfxb.md')
   assert.ok(first.planAbsolutePath.endsWith(first.planRelativePath.replace(/^\.yachiyo\//, '')))
   assert.equal(first.fallbackAbsolutePaths.length, 1)
-  assert.ok(first.fallbackAbsolutePaths[0]?.endsWith('/.yachiyo/plan-thread-plan-mode.md'))
-
-  const currentPath = join(workspacePath, '.yachiyo', 'plan.current')
-  const current = await readFile(currentPath, 'utf8')
-  assert.equal(current.trim(), first.planRelativePath.split('/').at(-1))
+  assert.ok(
+    first.fallbackAbsolutePaths[0]?.endsWith(
+      `/.yachiyo/${first.planRelativePath.split('/').at(-1)}`
+    )
+  )
 
   const firstMtime = await stat(first.planAbsolutePath).then((s) => s.mtimeMs)
 
@@ -38,4 +38,25 @@ test('ensurePlanDocument creates plan.current + plan file once and reuses it', a
 
   const secondMtime = await stat(second.planAbsolutePath).then((s) => s.mtimeMs)
   assert.ok(secondMtime >= firstMtime)
+})
+
+test('ensurePlanDocument gives different threads in the same workspace separate plan files', async () => {
+  const workspacePath = await mkdtemp(join(tmpdir(), 'yachiyo-plan-mode-'))
+
+  const first = await ensurePlanDocument({
+    workspacePath,
+    threadId: 'thread-plan-mode',
+    goal: 'First plan'
+  })
+  const second = await ensurePlanDocument({
+    workspacePath,
+    threadId: 'thread-other',
+    goal: 'Second plan'
+  })
+
+  assert.equal(first.planRelativePath, '.yachiyo/plan-vnfjnfxb.md')
+  assert.equal(second.planRelativePath, '.yachiyo/plan-kwqkcoic.md')
+  assert.notEqual(second.planAbsolutePath, first.planAbsolutePath)
+  assert.match(await readFile(first.planAbsolutePath, 'utf8'), /First plan/)
+  assert.match(await readFile(second.planAbsolutePath, 'utf8'), /Second plan/)
 })

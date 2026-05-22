@@ -71,6 +71,7 @@ function seedAcceptedPlanMessage(input: {
   const planMessage: MessageRecord = {
     id: input.createId(),
     threadId: input.thread.id,
+    ...(input.thread.headMessageId ? { parentMessageId: input.thread.headMessageId } : {}),
     role: 'assistant',
     content: `${PLAN_DOCUMENT_MARKER}\n${input.plan.content}`,
     status: 'completed',

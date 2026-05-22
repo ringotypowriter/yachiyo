@@ -5,8 +5,6 @@ import { join } from 'node:path'
 import type { QueryReminderSection } from '../../../../runtime/context/queryReminder.ts'
 import {
   getThreadPlanDocumentFilename,
-  normalizePlanDocumentFilename,
-  PLAN_CURRENT_FILENAME,
   PLAN_DOCUMENT_DIR_NAME
 } from '../../../../../../shared/yachiyo/planMode.ts'
 
@@ -22,17 +20,13 @@ export async function ensurePlanDocument(input: {
   const planDir = join(input.workspacePath, PLAN_DOCUMENT_DIR_NAME)
   await mkdir(planDir, { recursive: true })
 
-  const currentPath = join(planDir, PLAN_CURRENT_FILENAME)
-  const existingCurrent = await readFile(currentPath, 'utf8').catch(() => null)
-  const existingFilename = existingCurrent ? normalizePlanDocumentFilename(existingCurrent) : null
-
-  const filename = existingFilename ?? getThreadPlanDocumentFilename(input.threadId)
+  const filename = getThreadPlanDocumentFilename(input.threadId)
   const planAbsolutePath = join(planDir, filename)
   const planRelativePath = `${PLAN_DOCUMENT_DIR_NAME}/${filename}`
   const fallbackAbsolutePaths = [join(homedir(), PLAN_DOCUMENT_DIR_NAME, filename)]
+  const existingPlan = await readFile(planAbsolutePath, 'utf8').catch(() => null)
 
-  if (!existingFilename) {
-    await writeFile(currentPath, `${filename}\n`, 'utf8')
+  if (existingPlan === null) {
     await writeFile(
       planAbsolutePath,
       [

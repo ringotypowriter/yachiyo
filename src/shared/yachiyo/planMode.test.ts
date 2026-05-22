@@ -7,7 +7,6 @@ import {
   isLatestRunPlanMode,
   normalizePlanDocumentFilename,
   PLAN_DOCUMENT_DIR_NAME,
-  PLAN_CURRENT_FILENAME,
   PLAN_MODE_EXIT_TOOL_NAME
 } from './planMode.ts'
 
@@ -19,14 +18,17 @@ test('normalizePlanDocumentFilename accepts only plan document filenames', () =>
   assert.equal(normalizePlanDocumentFilename('../plan-abcdef.md'), null)
 })
 
-test('getThreadPlanDocumentFilename derives the plan filename from the thread id', () => {
-  assert.equal(getThreadPlanDocumentFilename('Thread_123'), 'plan-thread_123.md')
-  assert.equal(getThreadPlanDocumentFilename('thread:abc/def'), 'plan-thread-abc-def.md')
+test('getThreadPlanDocumentFilename derives a stable random-looking filename from the thread id', () => {
+  assert.equal(getThreadPlanDocumentFilename('Thread_123'), 'plan-midkeavc.md')
+  assert.equal(getThreadPlanDocumentFilename('thread:abc/def'), 'plan-dzhsvrzk.md')
+  assert.equal(
+    getThreadPlanDocumentFilename('Thread_123'),
+    getThreadPlanDocumentFilename('thread_123')
+  )
 })
 
-test('plan document constants keep the thread-level plan pointer stable', () => {
+test('plan document constants keep plan files in the workspace metadata directory', () => {
   assert.equal(PLAN_DOCUMENT_DIR_NAME, '.yachiyo')
-  assert.equal(PLAN_CURRENT_FILENAME, 'plan.current')
 })
 
 test('hasExitPlanModeToolCall detects nested AI SDK tool-call content', () => {
