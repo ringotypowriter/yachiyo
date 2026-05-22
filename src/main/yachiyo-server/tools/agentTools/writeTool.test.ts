@@ -154,6 +154,10 @@ describe('writeTool', () => {
     )
 
     assert.strictEqual(result.error, undefined)
+    const resultText = result.content[0]?.type === 'text' ? result.content[0].text : ''
+    assert.match(resultText, /Plan Mode is still active/)
+    assert.match(resultText, /exitPlanMode/)
+    assert.match(resultText, /user approval/)
     assert.strictEqual(await readFile(planPath, 'utf8'), '# Execution Plan')
   })
 })

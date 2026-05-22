@@ -19,6 +19,8 @@ import {
 
 const PREVIEW_MAX_LINES = 120
 const PREVIEW_MAX_CHARS = 10000
+const PLAN_MODE_WRITE_REMINDER =
+  'Plan Mode is still active. Review the plan document for completeness now. If anything is missing, update the plan with another write; if it is complete, call exitPlanMode to request user approval before any execution. Do not assume the user has approved the plan.'
 
 function truncatePreview(content: string): string | undefined {
   if (!content) return undefined
@@ -40,10 +42,13 @@ export function createTool(context: AgentToolContext): Tool<WriteToolInput, Writ
 function createWriteResult(
   path: string,
   details: WriteToolCallDetails,
-  error?: string
+  error?: string,
+  reminder?: string
 ): WriteToolOutput {
   const action = details.overwritten ? 'Overwrote' : 'Wrote'
-  const message = error ?? `${action} ${details.bytesWritten} bytes to ${path}.`
+  const message = [error ?? `${action} ${details.bytesWritten} bytes to ${path}.`, reminder]
+    .filter(Boolean)
+    .join('\n\n')
 
   return {
     content: textContent(message),
@@ -116,13 +121,18 @@ export async function runWriteTool(
       }
     }
 
-    return createWriteResult(resolvedPath, {
-      path: resolvedPath,
-      bytesWritten: Buffer.byteLength(input.content, 'utf8'),
-      created: !exists,
-      overwritten: exists,
-      contentPreview: truncatePreview(input.content)
-    })
+    return createWriteResult(
+      resolvedPath,
+      {
+        path: resolvedPath,
+        bytesWritten: Buffer.byteLength(input.content, 'utf8'),
+        created: !exists,
+        overwritten: exists,
+        contentPreview: truncatePreview(input.content)
+      },
+      undefined,
+      restriction ? PLAN_MODE_WRITE_REMINDER : undefined
+    )
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unable to write file.'
     return createWriteResult(
