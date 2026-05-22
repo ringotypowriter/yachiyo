@@ -234,6 +234,30 @@ test('running thread preview shows a working placeholder after a current-run too
   assert.notEqual(preview.text, 'Half-written user request')
 })
 
+test('running thread preview returns to the thinking placeholder after current-run tools finish', () => {
+  const preview = resolveThreadSidebarPreview({
+    activeRunId: 'run-1',
+    hasBackgroundWork: false,
+    isRunActive: true,
+    thread: thread('thread-1', { preview: 'Half-written user request' }),
+    toolCalls: [
+      {
+        id: 'tool-1',
+        runId: 'run-1',
+        threadId: 'thread-1',
+        toolName: 'bash',
+        status: 'completed',
+        inputSummary: 'run tests',
+        startedAt: '2026-04-29T10:01:00.000Z',
+        finishedAt: '2026-04-29T10:02:00.000Z'
+      }
+    ]
+  })
+
+  assert.equal(preview.state, 'thinking')
+  assert.notEqual(preview.text, 'Half-written user request')
+})
+
 test('running thread preview ignores tool calls from previous runs', () => {
   const preview = resolveThreadSidebarPreview({
     activeRunId: 'run-2',

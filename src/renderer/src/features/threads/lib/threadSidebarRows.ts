@@ -222,7 +222,12 @@ export function resolveThreadSidebarPreview({
 
   if (isRunActive) {
     const hasCurrentRunToolCall =
-      activeRunId !== null && toolCalls.some((toolCall) => toolCall.runId === activeRunId)
+      activeRunId !== null &&
+      toolCalls.some(
+        (toolCall) =>
+          toolCall.runId === activeRunId &&
+          (toolCall.status === 'preparing' || toolCall.status === 'running')
+      )
     const state = hasCurrentRunToolCall ? 'working' : 'thinking'
     const placeholderSeed = makeRunningPlaceholderSeed(activeRunId, thread.id, state)
 
