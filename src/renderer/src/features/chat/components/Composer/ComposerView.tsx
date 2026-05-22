@@ -193,7 +193,8 @@ export function ComposerView(props: any): React.JSX.Element {
   const placeholderText = selectComposerPlaceholder({
     threadId: activeThreadId,
     runId: placeholderRunId,
-    runIndex: placeholderRunIndex
+    runIndex: placeholderRunIndex,
+    runMode
   })
 
   return (

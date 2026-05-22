@@ -57,3 +57,17 @@ test('selectComposerPlaceholder rejects an empty placeholder list', () => {
     /requires at least one candidate/
   )
 })
+
+test('selectComposerPlaceholder picks from plan candidates when runMode is plan', () => {
+  const planCandidate = selectComposerPlaceholder({ threadId: 'thread-42', runMode: 'plan' })
+  const autoCandidate = selectComposerPlaceholder({ threadId: 'thread-42', runMode: 'auto' })
+  assert.notEqual(planCandidate, autoCandidate)
+})
+
+test('selectComposerPlaceholder falls back to default candidates when runMode is not plan', () => {
+  const exploreCandidate = selectComposerPlaceholder({ threadId: 'thread-42', runMode: 'explore' })
+  const chatCandidate = selectComposerPlaceholder({ threadId: 'thread-42', runMode: 'chat' })
+  const defaultCandidate = selectComposerPlaceholder({ threadId: 'thread-42' })
+  assert.equal(exploreCandidate, defaultCandidate)
+  assert.equal(chatCandidate, defaultCandidate)
+})
