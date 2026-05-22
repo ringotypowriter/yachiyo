@@ -70,20 +70,8 @@ export function createSendMessageActions(input: {
       } else if (!hasMessagePayload({ content: trimmed, images, attachments })) {
         return false
       }
-
-      const planRevisionThreadId = (() => {
-        if (override || mode !== 'normal' || !currentState.activeThreadId) return null
-        const planDocument = currentState.planDocumentsByThread[currentState.activeThreadId]
-        return planDocument?.decision === 'pending' || planDocument?.decision === 'rejected'
-          ? currentState.activeThreadId
-          : null
-      })()
-      if (
-        planRevisionThreadId &&
-        currentState.planDocumentsByThread[planRevisionThreadId]?.decision === 'pending'
-      ) {
-        await get().rejectPlanDocument(planRevisionThreadId)
-      }
+      // Plan revisions should be explicit: only treat messages as plan revisions
+      // when the user is actually sending from Plan mode.
 
       const fingerprint = JSON.stringify({
         t: currentState.activeThreadId,
@@ -111,6 +99,23 @@ export function createSendMessageActions(input: {
           currentState,
           override ? override.threadId : currentState.activeThreadId
         )
+
+        const planRevisionThreadId = (() => {
+          if (override || mode !== 'normal' || !currentState.activeThreadId) return null
+          if (initialToolMode.runMode !== 'plan') return null
+          const planDocument = currentState.planDocumentsByThread[currentState.activeThreadId]
+          return planDocument?.decision === 'pending' || planDocument?.decision === 'rejected'
+            ? currentState.activeThreadId
+            : null
+        })()
+
+        if (
+          planRevisionThreadId &&
+          currentState.planDocumentsByThread[planRevisionThreadId]?.decision === 'pending'
+        ) {
+          await get().rejectPlanDocument(planRevisionThreadId)
+        }
+
         const enabledTools = initialToolMode.enabledTools
         const runMode = planRevisionThreadId ? 'plan' : initialToolMode.runMode
         const enabledSkillNames = override

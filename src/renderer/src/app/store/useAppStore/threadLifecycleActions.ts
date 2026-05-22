@@ -379,7 +379,10 @@ export function createThreadLifecycleActions(input: {
               [...planThreadIds].map(async (threadId) => {
                 try {
                   const plan = await window.api.yachiyo.readThreadPlanDocument({ threadId })
-                  return [threadId, { ...plan, updatedAt: new Date().toISOString() }] as const
+                  return [
+                    threadId,
+                    { ...plan, updatedAt: new Date().toISOString(), decision: 'pending' as const }
+                  ] as const
                 } catch {
                   return null
                 }

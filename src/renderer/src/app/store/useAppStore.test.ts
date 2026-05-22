@@ -197,8 +197,8 @@ test('sendMessage with a pending plan sends visible revision feedback in plan mo
   try {
     useAppStore.setState({
       activeThreadId: 'thread-plan',
-      runMode: 'auto',
-      threads: [{ id: 'thread-plan', title: 'Plan thread', updatedAt: TIMESTAMP }],
+      runMode: 'plan',
+      threads: [{ id: 'thread-plan', title: 'Plan thread', updatedAt: TIMESTAMP, runMode: 'plan' }],
       composerDrafts: {
         'thread-plan': {
           text: 'Please tighten validation steps.',
