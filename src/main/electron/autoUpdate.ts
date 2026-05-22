@@ -1,6 +1,7 @@
 import { app, BrowserWindow, ipcMain, net, shell } from 'electron'
 import { autoUpdater } from 'electron-updater'
 import { is } from '@electron-toolkit/utils'
+import log from 'electron-log'
 
 import { resolveYachiyoSettingsPath } from '../yachiyo-server/config/paths'
 import { createSettingsStore } from '../yachiyo-server/settings/settingsStore'
@@ -123,6 +124,7 @@ function summarizeUpdateError(err: Error): string {
 
 function setupProd(): void {
   const channel = readInitialChannel()
+  autoUpdater.logger = log
   autoUpdater.autoDownload = false
   autoUpdater.autoInstallOnAppQuit = false
   autoUpdater.allowPrerelease = channel === 'beta'

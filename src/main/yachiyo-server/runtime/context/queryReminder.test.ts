@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
+import {
+  DEFAULT_ENABLED_TOOL_NAMES,
+  USER_MANAGED_TOOL_NAMES
+} from '../../../../shared/yachiyo/protocol.ts'
 import { RUN_MODE_DEFINITIONS } from '../../../../shared/yachiyo/toolModes.ts'
 import {
   buildCurrentTimeSection,
@@ -94,19 +98,9 @@ test('buildDisabledToolsReminderSection lists disabled user-managed tools', () =
   assert.ok(!section.lines[0].includes('grep'))
 })
 
-test('buildDisabledToolsReminderSection returns null when all tools enabled', () => {
+test('buildDisabledToolsReminderSection returns null when all default tools are enabled', () => {
   const section = buildDisabledToolsReminderSection({
-    enabledTools: [
-      'read',
-      'write',
-      'edit',
-      'bash',
-      'jsRepl',
-      'grep',
-      'glob',
-      'webRead',
-      'webSearch'
-    ]
+    enabledTools: [...DEFAULT_ENABLED_TOOL_NAMES]
   })
   assert.equal(section, null)
 })
@@ -114,17 +108,7 @@ test('buildDisabledToolsReminderSection returns null when all tools enabled', ()
 test('buildDisabledToolsReminderSection excludes runtime-managed tools', () => {
   // Even if skillsRead is not in enabledTools, it should not appear (it's runtime-managed)
   const section = buildDisabledToolsReminderSection({
-    enabledTools: [
-      'read',
-      'write',
-      'edit',
-      'bash',
-      'jsRepl',
-      'grep',
-      'glob',
-      'webRead',
-      'webSearch'
-    ]
+    enabledTools: [...USER_MANAGED_TOOL_NAMES]
   })
   assert.equal(section, null)
 })
