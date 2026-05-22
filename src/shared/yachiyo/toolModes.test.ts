@@ -18,7 +18,8 @@ test('run mode definitions expose expected tool sets', () => {
     'grep',
     'glob',
     'webRead',
-    'webSearch'
+    'webSearch',
+    'applyPatch'
   ])
   assert.deepEqual(resolveRunModeEnabledTools('explore'), [
     'read',
