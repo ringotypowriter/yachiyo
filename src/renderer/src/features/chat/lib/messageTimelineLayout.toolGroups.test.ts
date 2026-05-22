@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import type { ToolCall } from '@renderer/app/types'
+import type { ToolCall } from '../../../app/types.ts'
 
 import {
   buildConversationGroupTimelineItems,
@@ -283,7 +283,7 @@ test('getToolCallGroupLabel omits zero counts for file groups without confirmed 
   assert.equal(getToolCallGroupLabel('write-files', 0), 'Writing files')
 })
 
-test('getToolCallGroupFilePaths returns up to five file targets in a file group', () => {
+test('getToolCallGroupFilePaths returns file targets in a file group', () => {
   assert.deepEqual(
     getToolCallGroupFilePaths('edit-files', [
       {
@@ -389,7 +389,7 @@ test('getToolCallGroupFilePaths returns up to five file targets in a file group'
   )
 })
 
-test('getToolCallGroupFilePaths omits groups with more than five file targets', () => {
+test('getToolCallGroupFilePaths returns every file target in a file group', () => {
   assert.deepEqual(
     getToolCallGroupFilePaths('edit-files', [
       {
@@ -483,7 +483,14 @@ test('getToolCallGroupFilePaths omits groups with more than five file targets', 
         }
       }
     ]),
-    []
+    [
+      '/workspace/src/file.ts',
+      '/workspace/src/other.ts',
+      '/workspace/src/third.ts',
+      '/workspace/src/fourth.ts',
+      '/workspace/src/fifth.ts',
+      '/workspace/src/sixth.ts'
+    ]
   )
 })
 

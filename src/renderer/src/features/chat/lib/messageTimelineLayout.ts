@@ -350,8 +350,7 @@ export function getToolCallGroupCount(group: ToolCallSemanticGroup, toolCalls: T
 
 export function getToolCallGroupFilePaths(
   group: ToolCallSemanticGroup,
-  toolCalls: ToolCall[],
-  maxCount: number = 5
+  toolCalls: ToolCall[]
 ): string[] {
   if (!shouldCountUniqueFilePaths(group)) {
     return []
@@ -366,10 +365,6 @@ export function getToolCallGroupFilePaths(
     for (const filePath of getToolCallFilePaths(toolCall)) {
       countedFiles.add(filePath)
     }
-  }
-
-  if (countedFiles.size === 0 || countedFiles.size > maxCount) {
-    return []
   }
 
   return [...countedFiles]
