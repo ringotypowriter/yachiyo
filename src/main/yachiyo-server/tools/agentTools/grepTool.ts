@@ -23,7 +23,7 @@ const INLINE_CONTENT_LIMIT = 32_000
 
 export const GREP_TOOL_DESCRIPTION =
   'Search file contents by regular expression (or literal string). Prefer this over bash (grep/rg/ag) for all code search. If output is too large it is auto-saved to a workspace file.\n' +
-  '• `pattern`: Rust regex syntax when ripgrep is available, otherwise POSIX ERE (e.g. "function\\s+\\w+", "import.*from"). No lookaheads or backreferences. Use `literal: true` for exact fixed-string matching.\n' +
+  '• `pattern`: Regular expression. Use `literal: true` for exact fixed-string matching.\n' +
   '• `path`: file/directory to search. Multiple existing roots may be separated by spaces; an existing path containing spaces stays one root.\n' +
   '• `caseSensitive`: defaults to true.\n' +
   '• `include`: glob to filter files (e.g. "*.ts", "*.{ts,tsx}"). Highly recommended for large repos.\n' +
