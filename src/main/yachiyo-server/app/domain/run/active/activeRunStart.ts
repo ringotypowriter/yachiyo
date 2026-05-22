@@ -25,6 +25,7 @@ export interface ActiveRunLoopInput {
   enabledTools: ToolCallName[]
   enabledSkillNames?: string[]
   runMode: RunModeId
+  previousRunMode?: RunModeId
   reasoningEffort?: ComposerReasoningSelection
   runTrigger: SendChatRunTrigger
   channelHint?: string
@@ -84,6 +85,7 @@ export function startActiveRun(context: ActiveRunStartContext, input: StartActiv
     enabledTools: input.enabledTools,
     enabledSkillNames: input.enabledSkillNames,
     runMode: input.runMode,
+    previousRunMode: input.previousRunMode,
     reasoningEffort: input.reasoningEffort,
     runTrigger: input.runTrigger,
     channelHint: input.channelHint,

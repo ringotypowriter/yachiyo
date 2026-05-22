@@ -24,6 +24,7 @@ export function createDebouncedSendChatKey(input: {
   enabledSkillNames?: string[]
   enabledTools: ToolCallName[]
   runMode: RunModeId
+  previousRunMode?: RunModeId
   extraTools?: SendChatInput['extraTools']
   hidden?: boolean
   images: MessageRecord['images']
@@ -48,6 +49,7 @@ export function createDebouncedSendChatKey(input: {
     enabledSkillNames: input.enabledSkillNames ?? [],
     enabledTools: input.enabledTools,
     runMode: input.runMode,
+    previousRunMode: input.previousRunMode ?? null,
     hidden: input.hidden === true,
     images: (input.images ?? []).map((image) => ({
       dataUrl: image.dataUrl,

@@ -1147,6 +1147,11 @@ export interface SendChatInput {
   enabledTools?: ToolCallName[]
   enabledSkillNames?: string[]
   runMode?: RunModeId
+  /**
+   * Optional previous mode to mention in the turn reminder when this request is
+   * system-started from a mode transition, such as accepting a Plan Mode plan.
+   */
+  previousRunMode?: RunModeId
   reasoningEffort?: ComposerReasoningSelection
   mode?: SendChatMode
   runTrigger?: SendChatRunTrigger

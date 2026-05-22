@@ -628,7 +628,7 @@ export class YachiyoServerRunDomain {
     let currentThread = input.thread
     let currentRequestMessageId = input.requestMessageId
     let previousEnabledTools = this.lastRunEnabledTools
-    let previousRunMode = this.lastRunMode
+    let previousRunMode = input.previousRunMode ?? this.lastRunMode
     let result: ExecuteRunResult = { kind: 'cancelled' }
     let accumulatedUsage: ExecuteRunInput['priorUsage'] | undefined
     let carriedSnapshotTracker: SnapshotTracker | undefined

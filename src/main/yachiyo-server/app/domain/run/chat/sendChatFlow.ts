@@ -57,6 +57,7 @@ interface StartActiveRunInput {
   enabledTools: ToolCallName[]
   enabledSkillNames?: string[]
   runMode: RunModeId
+  previousRunMode?: RunModeId
   reasoningEffort?: ComposerReasoningSelection
   channelHint?: string
   extraTools?: ToolSet
@@ -114,6 +115,7 @@ export async function sendChatFlow(
     enabledSkillNames,
     enabledTools,
     runMode,
+    previousRunMode: input.previousRunMode,
     extraTools: input.extraTools,
     hidden: input.hidden,
     images,
@@ -168,6 +170,7 @@ export async function sendChatFlow(
         enabledTools,
         enabledSkillNames,
         runMode,
+        previousRunMode: input.previousRunMode,
         channelHint: input.channelHint,
         extraTools: input.extraTools as ToolSet | undefined,
         runTrigger,
@@ -267,6 +270,7 @@ function startFreshRun(
     enabledTools: ToolCallName[]
     enabledSkillNames?: string[]
     runMode: RunModeId
+    previousRunMode?: RunModeId
     reasoningEffort?: ComposerReasoningSelection
     channelHint?: string
     extraTools?: ToolSet
@@ -370,6 +374,7 @@ function startFreshRun(
     enabledTools: input.enabledTools,
     enabledSkillNames: input.enabledSkillNames,
     runMode: input.runMode,
+    previousRunMode: input.previousRunMode,
     channelHint: input.channelHint,
     extraTools: input.extraTools,
     runTrigger: input.runTrigger,

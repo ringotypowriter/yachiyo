@@ -20,6 +20,7 @@ import {
   getThreadPlanDocumentFilename,
   PLAN_DOCUMENT_MARKER
 } from '../../../../../shared/yachiyo/planMode.ts'
+import { RUN_MODE_DEFINITIONS } from '../../../../../shared/yachiyo/toolModes.ts'
 
 function assertAcceptedHasUserMessage(
   accepted: ChatAccepted
@@ -946,6 +947,66 @@ test('YachiyoServer.acceptThreadPlanDocument runs directly in the source thread 
         .threads.find((thread) => thread.id === sourceThread.id)
       assert.deepEqual(updatedSourceThread?.enabledTools, DEFAULT_ENABLED_TOOL_NAMES)
       assert.equal(updatedSourceThread?.runMode, 'auto')
+    }
+  )
+})
+
+test('YachiyoServer.acceptThreadPlanDocument tells direct execution the accepted plan is now Auto Mode', async () => {
+  await withServer(
+    async ({ server, storage, completeRun, modelRequests, workspacePathForThread }) => {
+      const sourceThread = await server.createThread()
+      await server.setThreadToolMode({
+        threadId: sourceThread.id,
+        enabledTools: [...RUN_MODE_DEFINITIONS.plan.enabledTools]
+      })
+      const planRun = await server.sendChat({
+        threadId: sourceThread.id,
+        content: 'Draft a blog generator architecture first.',
+        runMode: 'plan'
+      })
+      assertAcceptedHasUserMessage(planRun)
+      await completeRun(planRun.runId)
+
+      const unrelatedThread = await server.createThread()
+      const unrelatedRun = await server.sendChat({
+        threadId: unrelatedThread.id,
+        content: 'Unrelated auto work.',
+        runMode: 'auto'
+      })
+      assertAcceptedHasUserMessage(unrelatedRun)
+      await completeRun(unrelatedRun.runId)
+
+      const workspacePath = workspacePathForThread(sourceThread.id)
+      await mkdir(join(workspacePath, '.yachiyo'), { recursive: true })
+      const planPath = join(
+        workspacePath,
+        '.yachiyo',
+        getThreadPlanDocumentFilename(sourceThread.id)
+      )
+      await writeFile(planPath, '# Build Blog Generator\n\n## Goal\nShip it.\n', 'utf8')
+
+      const accepted = await server.acceptThreadPlanDocument({
+        threadId: sourceThread.id,
+        mode: 'direct'
+      })
+      assertAcceptedHasUserMessage(accepted)
+      await completeRun(accepted.runId)
+
+      const sourceMessages = storage.listThreadMessages(sourceThread.id)
+      const planRequest = sourceMessages.find(
+        (message) => message.role === 'user' && message.content === planRun.userMessage.content
+      )
+      assert.ok(planRequest?.turnContext?.reminder?.includes('Plan Mode'))
+
+      const executionRequest = modelRequests.at(-1)
+      assert.ok(executionRequest)
+      const executionContextText = executionRequest.messages
+        .map((message) =>
+          typeof message.content === 'string' ? message.content : JSON.stringify(message.content)
+        )
+        .join('\n')
+      assert.ok(executionContextText.includes('Plan Mode'))
+      assert.ok(executionContextText.includes('Mode changed to Auto Mode for this turn'))
     }
   )
 })
