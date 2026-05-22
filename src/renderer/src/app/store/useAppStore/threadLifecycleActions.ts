@@ -421,7 +421,14 @@ export function createThreadLifecycleActions(input: {
                 ),
                 toolCalls,
                 ...(data.runs
-                  ? { runsByThread: { ...state.runsByThread, [initialActiveThreadId]: data.runs } }
+                  ? {
+                      runsByThread: limitLoadedThreadData(
+                        state.runsByThread,
+                        initialActiveThreadId,
+                        data.runs,
+                        [state.activeThreadId]
+                      )
+                    }
                   : {}),
                 ...deriveSubagentStateFromToolCalls(
                   toolCalls,

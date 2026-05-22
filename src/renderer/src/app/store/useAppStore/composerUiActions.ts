@@ -205,7 +205,13 @@ export function createComposerUiActions(input: {
                     }
                   : {}),
                 toolCalls,
-                ...(data.runs ? { runsByThread: { ...state.runsByThread, [id]: data.runs } } : {}),
+                ...(data.runs
+                  ? {
+                      runsByThread: limitLoadedThreadData(state.runsByThread, id, data.runs, [
+                        state.activeThreadId
+                      ])
+                    }
+                  : {}),
                 ...deriveSubagentStateFromToolCalls(
                   toolCalls,
                   state.subagentStateById,

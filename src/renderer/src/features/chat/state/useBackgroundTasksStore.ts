@@ -99,7 +99,7 @@ export const useBackgroundTasksStore = create<BackgroundTasksState>((set) => ({
         }
       }
 
-      const nextTasksByThread = { ...state.tasksByThread }
+      const nextTasksByThread: Record<string, Record<string, BackgroundTaskState>> = {}
       for (const threadId of targetThreadIds) {
         nextTasksByThread[threadId] = hydrateThreadTasks(
           state.tasksByThread[threadId] ?? {},

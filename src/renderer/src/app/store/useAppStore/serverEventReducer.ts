@@ -102,6 +102,10 @@ export function reduceServerEvent(state: AppState, event: YachiyoServerEvent): P
     delete messages[event.threadId]
     const justDoneRunIdsByThread = { ...state.justDoneRunIdsByThread }
     delete justDoneRunIdsByThread[event.threadId]
+    const recapByThread = { ...state.recapByThread }
+    delete recapByThread[event.threadId]
+    const reasoningEffortByThread = { ...state.reasoningEffortByThread }
+    delete reasoningEffortByThread[event.threadId]
     const latestRunsByThread = { ...state.latestRunsByThread }
     delete latestRunsByThread[event.threadId]
     const runsByThread = { ...state.runsByThread }
@@ -114,6 +118,13 @@ export function reduceServerEvent(state: AppState, event: YachiyoServerEvent): P
     delete runStatusesByThread[event.threadId]
     const toolCalls = { ...state.toolCalls }
     delete toolCalls[event.threadId]
+    const toolModeByThread = { ...state.toolModeByThread }
+    delete toolModeByThread[event.threadId]
+    const snapshotReviewByRun = Object.fromEntries(
+      Object.entries(state.snapshotReviewByRun).filter(
+        ([, snapshot]) => snapshot.threadId !== event.threadId
+      )
+    )
     const todoListsByThread = { ...state.todoListsByThread }
     delete todoListsByThread[event.threadId]
     const planDocumentsByThread = { ...state.planDocumentsByThread }
@@ -154,15 +165,19 @@ export function reduceServerEvent(state: AppState, event: YachiyoServerEvent): P
       runsByThread,
       messages,
       pendingSteerMessages: removePendingSteerMessage(state.pendingSteerMessages, event.threadId),
+      recapByThread,
       receivingModelOutputByThread,
+      reasoningEffortByThread,
       runPhasesByThread,
       runStatusesByThread,
+      snapshotReviewByRun,
       subagentActiveIdsByThread,
       subagentProgressTimelineByThread,
       subagentStateById,
       externalThreads,
       todoListsByThread,
       planDocumentsByThread,
+      toolModeByThread,
       toolCalls,
       threads
     }

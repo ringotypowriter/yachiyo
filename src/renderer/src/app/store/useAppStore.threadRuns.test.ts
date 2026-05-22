@@ -210,6 +210,48 @@ test('setActiveThread derives run state from the selected thread only', () => {
   assert.equal(state.runStatus, 'running')
 })
 
+test('setActiveThread caps loaded run history to recent threads', async () => {
+  resetStore()
+
+  const restoreWindow = withWindowApiMock({
+    loadThreadData: async ({ threadId }) => ({
+      messages: [],
+      toolCalls: [],
+      runs: [
+        {
+          id: `run-${threadId}`,
+          threadId,
+          status: 'completed',
+          createdAt: TIMESTAMP,
+          completedAt: TIMESTAMP
+        }
+      ]
+    })
+  })
+
+  try {
+    useAppStore.setState({
+      threads: Array.from({ length: 7 }, (_, index) => ({
+        id: `thread-${index + 1}`,
+        title: `Thread ${index + 1}`,
+        updatedAt: TIMESTAMP
+      }))
+    })
+
+    for (let index = 1; index <= 7; index++) {
+      useAppStore.getState().setActiveThread(`thread-${index}`)
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    }
+
+    const runsByThread = useAppStore.getState().runsByThread
+    assert.equal(Object.keys(runsByThread).length, 6)
+    assert.equal(runsByThread['thread-1'], undefined)
+    assert.equal(runsByThread['thread-7']?.[0]?.id, 'run-thread-7')
+  } finally {
+    restoreWindow()
+  }
+})
+
 test('sendMessage restores per-thread drafts and clears only the sent thread on success', async () => {
   resetStore()
 

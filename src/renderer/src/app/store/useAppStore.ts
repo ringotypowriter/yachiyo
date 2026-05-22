@@ -95,6 +95,16 @@ function shouldSuppressOwnerDmChannelNotification(
   return event.runTrigger === 'channel' && isOwnerDmThread(thread)
 }
 
+const MAX_SNAPSHOT_REVIEW_ENTRIES = 100
+
+function withSnapshotReviewLimit(
+  entries: AppState['snapshotReviewByRun']
+): AppState['snapshotReviewByRun'] {
+  const allEntries = Object.entries(entries)
+  if (allEntries.length <= MAX_SNAPSHOT_REVIEW_ENTRIES) return entries
+  return Object.fromEntries(allEntries.slice(allEntries.length - MAX_SNAPSHOT_REVIEW_ENTRIES))
+}
+
 export interface SidebarFilter {
   base: 'all' | 'archived'
   colorTags: Set<ThreadColorTag>
@@ -1026,6 +1036,10 @@ export const useAppStore = create<AppState>((set, get) => ({
       useBackgroundTasksStore.getState().onCompleted(event)
     }
 
+    if (event.type === 'thread.deleted') {
+      useBackgroundTasksStore.getState().clearThread(event.threadId)
+    }
+
     if (event.type === 'notification.requested') {
       // OS notification is already handled by the gateway broadcast — only show
       // in-app toast here to avoid duplicate system notifications.
@@ -1091,14 +1105,14 @@ export const useAppStore = create<AppState>((set, get) => ({
 
     if (event.type === 'snapshot.ready') {
       set((state) => ({
-        snapshotReviewByRun: {
+        snapshotReviewByRun: withSnapshotReviewLimit({
           ...state.snapshotReviewByRun,
           [event.runId]: {
             threadId: event.threadId,
             fileCount: event.fileCount,
             workspacePath: event.workspacePath
           }
-        },
+        }),
         runsByThread: updateRunRecord(state.runsByThread, event.threadId, event.runId, (run) => ({
           ...run!,
           snapshotFileCount: event.fileCount,

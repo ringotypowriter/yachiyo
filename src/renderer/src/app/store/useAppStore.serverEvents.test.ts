@@ -4,6 +4,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { DEFAULT_ENABLED_TOOL_NAMES } from '../../../../shared/yachiyo/protocol.ts'
 import { DEFAULT_SIDEBAR_FILTER, DEFAULT_SETTINGS, useAppStore } from './useAppStore.ts'
+import { useBackgroundTasksStore } from '../../features/chat/state/useBackgroundTasksStore.ts'
 
 const TIMESTAMP = '2026-03-15T00:00:00.000Z'
 
@@ -22,6 +23,7 @@ function resetStore(): void {
     composerDrafts: {},
     globalProcessingTasks: [],
     reasoningEffortByThread: {},
+    recapByThread: {},
     config: null,
     connectionStatus: 'connected',
     enabledTools: DEFAULT_ENABLED_TOOL_NAMES,
@@ -55,9 +57,12 @@ function resetStore(): void {
     },
     threadListMode: 'active',
     threads: [],
+    snapshotReviewByRun: {},
     todoListsByThread: {},
-    toolCalls: {}
+    toolCalls: {},
+    toolModeByThread: {}
   })
+  useBackgroundTasksStore.setState({ tasksByThread: {} })
 }
 
 type YachiyoApiMock = Partial<YachiyoPreloadYachiyoApi>
@@ -341,6 +346,28 @@ test('applyServerEvent moves archived threads between active and archived collec
   assert.equal(state.activeThreadId, 'thread-1')
   assert.equal(state.threadListMode, 'active')
 
+  useAppStore.setState({
+    recapByThread: { 'thread-1': 'Cached recap', 'thread-2': 'Other recap' },
+    reasoningEffortByThread: { 'thread-1': 'high', 'thread-2': 'medium' },
+    snapshotReviewByRun: {
+      'run-1': { threadId: 'thread-1', fileCount: 2, workspacePath: '/tmp/thread-1' },
+      'run-2': { threadId: 'thread-2', fileCount: 1, workspacePath: '/tmp/thread-2' }
+    },
+    toolModeByThread: {
+      'thread-1': { enabledTools: DEFAULT_ENABLED_TOOL_NAMES, runMode: 'auto' },
+      'thread-2': { enabledTools: DEFAULT_ENABLED_TOOL_NAMES, runMode: 'auto' }
+    }
+  })
+  useBackgroundTasksStore.getState().onStarted({
+    type: 'background-task.started',
+    eventId: 'evt-deleted-thread-task-started',
+    timestamp: TIMESTAMP,
+    threadId: 'thread-1',
+    taskId: 'task-1',
+    command: 'echo old',
+    startedAt: TIMESTAMP
+  })
+
   useAppStore.getState().applyServerEvent({
     type: 'thread.deleted',
     eventId: 'event-thread-deleted',
@@ -354,6 +381,13 @@ test('applyServerEvent moves archived threads between active and archived collec
     ['thread-2']
   )
   assert.equal(state.activeThreadId, 'thread-2')
+  assert.equal(state.recapByThread['thread-1'], undefined)
+  assert.equal(state.reasoningEffortByThread['thread-1'], undefined)
+  assert.equal(state.snapshotReviewByRun['run-1'], undefined)
+  assert.equal(state.toolModeByThread['thread-1'], undefined)
+  assert.equal(useBackgroundTasksStore.getState().tasksByThread['thread-1'], undefined)
+  assert.equal(state.recapByThread['thread-2'], 'Other recap')
+  assert.equal(state.snapshotReviewByRun['run-2']?.fileCount, 1)
 })
 
 test('setActiveArchivedThread forces archived view while multi filters are active', async () => {
@@ -944,6 +978,27 @@ test('applyServerEvent upserts live tool activity for the current thread', () =>
   assert.equal(state.toolCalls['thread-1']?.length, 1)
   assert.equal(state.toolCalls['thread-1']?.[0]?.status, 'completed')
   assert.equal(state.toolCalls['thread-1']?.[0]?.cwd, '/tmp/thread-1')
+})
+
+test('applyServerEvent caps snapshot review metadata to recent runs', () => {
+  resetStore()
+
+  for (let index = 1; index <= 105; index++) {
+    useAppStore.getState().applyServerEvent({
+      type: 'snapshot.ready',
+      eventId: `event-snapshot-${index}`,
+      timestamp: `2026-03-15T00:00:${String(index % 60).padStart(2, '0')}.000Z`,
+      threadId: 'thread-1',
+      runId: `run-${index}`,
+      fileCount: index,
+      workspacePath: '/tmp/thread-1'
+    })
+  }
+
+  const snapshotReviewByRun = useAppStore.getState().snapshotReviewByRun
+  assert.equal(Object.keys(snapshotReviewByRun).length, 100)
+  assert.equal(snapshotReviewByRun['run-1'], undefined)
+  assert.equal(snapshotReviewByRun['run-105']?.fileCount, 105)
 })
 
 test('applyServerEvent keeps same-timestamp tool calls stable across recovery-style updates', () => {

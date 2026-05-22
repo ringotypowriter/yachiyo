@@ -11,7 +11,6 @@ import { CheckCircle2, XCircle } from 'lucide-react'
 import { formatTokenCount } from '@renderer/lib/formatTokenCount'
 import type { Thread, Message, ToolCall, RunRecord } from '@renderer/app/types'
 import type { ScheduleRunRecord } from '../../../../../shared/yachiyo/protocol.ts'
-import { useAppStore } from '@renderer/app/store/useAppStore'
 import { theme, alpha } from '@renderer/theme/theme'
 import { MessageMarkdown } from '@renderer/lib/markdown/MessageMarkdown'
 import type { MarkdownImageContextValue } from '@renderer/lib/markdown/MarkdownImage'
@@ -63,8 +62,8 @@ function ArchivedTimeline({
   headMessageId?: string
   workspacePath?: string | null
 }): React.JSX.Element {
-  const messages = useAppStore((state) => state.messages[threadId] ?? EMPTY_MESSAGES)
-  const toolCalls = useAppStore((state) => state.toolCalls[threadId] ?? EMPTY_TOOL_CALLS)
+  const [messages, setMessages] = useState<Message[]>(EMPTY_MESSAGES)
+  const [toolCalls, setToolCalls] = useState<ToolCall[]>(EMPTY_TOOL_CALLS)
   const [scheduleRun, setScheduleRun] = useState<ScheduleRunRecord | null>(null)
   const [runs, setRuns] = useState<RunRecord[]>([])
   const bottomRef = useRef<HTMLDivElement>(null)
@@ -78,10 +77,8 @@ function ArchivedTimeline({
       if (cancelled) return
       setScheduleRun(data.scheduleRun ?? null)
       setRuns(data.runs)
-      useAppStore.setState((state) => ({
-        messages: { ...state.messages, [threadId]: data.messages },
-        toolCalls: { ...state.toolCalls, [threadId]: data.toolCalls }
-      }))
+      setMessages(data.messages)
+      setToolCalls(data.toolCalls)
     })
     return () => {
       cancelled = true

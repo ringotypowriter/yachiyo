@@ -177,4 +177,34 @@ describe('useBackgroundTasksStore hydrate', () => {
     assert.equal(tasksByThread['thread-known']?.['stale-running-task'], undefined)
     assert.equal(tasksByThread['thread-inactive']?.['inactive-running-task']?.status, 'running')
   })
+
+  it('drops task cache for threads absent from the hydrated thread list and snapshots', () => {
+    const store = useBackgroundTasksStore.getState()
+
+    store.onStarted({
+      type: 'background-task.started',
+      eventId: 'evt-start-orphan',
+      timestamp: '2026-04-12T10:00:00.000Z',
+      threadId: 'thread-orphan',
+      taskId: 'finished-orphan-task',
+      command: 'echo old',
+      startedAt: '2026-04-12T10:00:00.000Z'
+    })
+    store.onCompleted({
+      type: 'background-task.completed',
+      eventId: 'evt-complete-orphan',
+      timestamp: '2026-04-12T10:00:01.000Z',
+      threadId: 'thread-orphan',
+      taskId: 'finished-orphan-task',
+      command: 'echo old',
+      logPath: '/tmp/orphan.log',
+      exitCode: 0
+    })
+
+    useBackgroundTasksStore.getState().hydrateThreads(['thread-current'], [])
+
+    const tasksByThread = useBackgroundTasksStore.getState().tasksByThread
+    assert.equal(tasksByThread['thread-orphan'], undefined)
+    assert.deepEqual(tasksByThread['thread-current'], {})
+  })
 })
