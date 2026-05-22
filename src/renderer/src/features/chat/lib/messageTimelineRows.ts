@@ -14,6 +14,7 @@ import {
   findRunMemorySummaryForRequests
 } from './runMemoryPresentation.ts'
 import {
+  isPlanModeExitRecord,
   PLAN_MODE_EXIT_PHRASE,
   PLAN_MODE_EXIT_TOOL_NAME
 } from '../../../../../shared/yachiyo/planMode.ts'
@@ -188,6 +189,27 @@ function compareBlocks(
   right: { time: string; rows: MessageTimelineRow[] }
 ): number {
   return left.time.localeCompare(right.time)
+}
+
+function isPlanDocumentAnchorRow(row: MessageTimelineRow): boolean {
+  if (row.kind === 'group-plan-document') return true
+  if (row.kind === 'tool') return row.data.toolName === PLAN_MODE_EXIT_TOOL_NAME
+  if (row.kind === 'assistant-root') return isPlanModeExitRecord(row.data)
+  return false
+}
+
+function keepLatestPlanDocumentAnchorRow(rows: MessageTimelineRow[]): MessageTimelineRow[] {
+  let latestPlanDocumentIndex = -1
+
+  for (let index = 0; index < rows.length; index += 1) {
+    if (isPlanDocumentAnchorRow(rows[index]!)) latestPlanDocumentIndex = index
+  }
+
+  if (latestPlanDocumentIndex < 0) return rows
+
+  return rows.filter(
+    (row, index) => index === latestPlanDocumentIndex || !isPlanDocumentAnchorRow(row)
+  )
 }
 
 function resolveAssistantTextBlocks(message: Message): MessageTextBlockRecord[] {
@@ -820,5 +842,5 @@ export function buildMessageTimelineRows(
     }))
   ]
 
-  return blocks.sort(compareBlocks).flatMap((block) => block.rows)
+  return keepLatestPlanDocumentAnchorRow(blocks.sort(compareBlocks).flatMap((block) => block.rows))
 }

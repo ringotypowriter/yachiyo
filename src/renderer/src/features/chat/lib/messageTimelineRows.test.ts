@@ -1001,6 +1001,77 @@ test('buildConversationGroupRows keeps completed work expanded when work summary
   ])
 })
 
+test('buildMessageTimelineRows keeps only the latest plan document row', () => {
+  const firstGroup = createGroup({
+    activeAssistant: createAssistantMessage({
+      id: 'assistant-plan-1',
+      content: 'Exit Plan Mode',
+      status: 'completed',
+      createdAt: '2026-04-18T00:00:01.000Z'
+    })
+  })
+  firstGroup.userMessage = {
+    ...firstGroup.userMessage,
+    id: 'user-plan-1',
+    createdAt: '2026-04-18T00:00:00.000Z'
+  }
+
+  const secondGroup = createGroup({
+    activeAssistant: createAssistantMessage({
+      id: 'assistant-plan-2',
+      content: 'Exit Plan Mode',
+      status: 'completed',
+      createdAt: '2026-04-18T00:00:03.000Z'
+    })
+  })
+  secondGroup.userMessage = {
+    ...secondGroup.userMessage,
+    id: 'user-plan-2',
+    createdAt: '2026-04-18T00:00:02.000Z'
+  }
+
+  const rows = buildMessageTimelineRows({
+    messageGroups: [firstGroup, secondGroup],
+    rootAssistantMessages: [],
+    orphanToolCalls: [],
+    pendingSteerMessage: null,
+    inlineToolCalls: [
+      {
+        id: 'tool-exit-plan-1',
+        runId: 'run-plan-1',
+        threadId: 'thread-1',
+        requestMessageId: 'user-plan-1',
+        assistantMessageId: 'assistant-plan-1',
+        toolName: 'exitPlanMode',
+        status: 'completed',
+        inputSummary: 'ready=true',
+        startedAt: '2026-04-18T00:00:01.000Z',
+        finishedAt: '2026-04-18T00:00:01.000Z'
+      },
+      {
+        id: 'tool-exit-plan-2',
+        runId: 'run-plan-2',
+        threadId: 'thread-1',
+        requestMessageId: 'user-plan-2',
+        assistantMessageId: 'assistant-plan-2',
+        toolName: 'exitPlanMode',
+        status: 'completed',
+        inputSummary: 'ready=true',
+        startedAt: '2026-04-18T00:00:03.000Z',
+        finishedAt: '2026-04-18T00:00:03.000Z'
+      }
+    ],
+    runs: [],
+    activeRunId: null,
+    activeRequestMessageId: null,
+    subagentActive: false
+  })
+
+  const planRows = rows.filter((row) => row.kind === 'group-plan-document')
+  assert.equal(planRows.length, 1)
+  assert.equal(planRows[0]?.assistantMessageId, 'assistant-plan-2')
+})
+
 test('buildMessageTimelineRows treats hidden request ids as the active group', () => {
   const group = createGroup({
     activeAssistant: createAssistantMessage({
