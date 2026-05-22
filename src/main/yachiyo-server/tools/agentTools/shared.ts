@@ -6,6 +6,7 @@ import { isAbsolute, join, relative, resolve } from 'node:path'
 import { z } from 'zod'
 
 import type {
+  ApplyPatchToolCallDetails,
   AskUserToolCallDetails,
   BashToolCallDetails,
   EditToolCallDetails,
@@ -374,6 +375,10 @@ export const skillsReadToolInputSchema = z.object({
   names: z.array(z.string().min(1)).min(1).max(20)
 })
 
+export const applyPatchToolInputSchema = z.object({
+  patch: z.string().min(1).describe('The patch text to apply.')
+})
+
 export type ReadToolInput = z.infer<typeof readToolInputSchema>
 export type WriteToolInput = z.infer<typeof writeToolInputSchema>
 export type EditSpec = z.infer<typeof editSpecSchema>
@@ -385,6 +390,7 @@ export type GlobToolInput = z.infer<typeof globToolInputSchema>
 export type WebReadToolInput = z.infer<typeof webReadToolInputSchema>
 export type WebSearchToolInput = z.infer<typeof webSearchToolInputSchema>
 export type SkillsReadToolInput = z.infer<typeof skillsReadToolInputSchema>
+export type ApplyPatchToolInput = z.infer<typeof applyPatchToolInputSchema>
 
 export interface BackgroundBashTaskHandle {
   taskId: string
@@ -466,6 +472,7 @@ export type WebSearchToolOutput = AgentToolResult<WebSearchToolCallDetails>
 export type SkillsReadToolOutput = AgentToolResult<SkillsReadToolCallDetails>
 
 export type AskUserToolOutput = AgentToolResult<AskUserToolCallDetails>
+export type ApplyPatchToolOutput = AgentToolResult<ApplyPatchToolCallDetails>
 
 export type AgentToolOutput =
   | ReadToolOutput
@@ -479,6 +486,7 @@ export type AgentToolOutput =
   | WebSearchToolOutput
   | SkillsReadToolOutput
   | AskUserToolOutput
+  | ApplyPatchToolOutput
 
 export interface BashRunnerInput {
   command: string

@@ -167,7 +167,8 @@ export const CORE_TOOL_NAMES = [
   'glob',
   'webRead',
   'webSearch',
-  'skillsRead'
+  'skillsRead',
+  'applyPatch'
 ] as const
 export type ToolCallName = (typeof CORE_TOOL_NAMES)[number]
 export type SelectableRunModeId = 'auto' | 'explore' | 'plan' | 'chat'

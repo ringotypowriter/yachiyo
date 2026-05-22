@@ -167,6 +167,17 @@ export interface AskUserToolCallDetails {
   answer?: string
 }
 
+export interface ApplyPatchFileOperation {
+  path: string
+  operation: 'add' | 'delete' | 'update' | 'move'
+  movePath?: string
+  diff?: string
+}
+
+export interface ApplyPatchToolCallDetails {
+  operations: ApplyPatchFileOperation[]
+}
+
 export type ToolCallDetailsSnapshot =
   | ReadToolCallDetails
   | WriteToolCallDetails
@@ -179,3 +190,4 @@ export type ToolCallDetailsSnapshot =
   | WebSearchToolCallDetails
   | SkillsReadToolCallDetails
   | AskUserToolCallDetails
+  | ApplyPatchToolCallDetails

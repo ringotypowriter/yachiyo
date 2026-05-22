@@ -1,4 +1,8 @@
-import type { MessageTextBlockRecord, ToolCall } from '@renderer/app/types'
+import type {
+  ApplyPatchToolCallDetails,
+  MessageTextBlockRecord,
+  ToolCall
+} from '@renderer/app/types'
 import { resolveBashSemanticGroup } from '../../../../../shared/yachiyo/bashSemanticAnalyzer.ts'
 
 export type ToolCallSemanticGroup =
@@ -91,6 +95,7 @@ function getToolCallSemanticGroup(toolCall: ToolCall): ToolCallSemanticGroup | n
     case 'read':
       return 'read-files'
     case 'edit':
+    case 'applyPatch':
       return 'edit-files'
     case 'write':
       return 'write-files'
@@ -115,13 +120,28 @@ function getToolCallSemanticGroup(toolCall: ToolCall): ToolCallSemanticGroup | n
   }
 }
 
-function getToolCallFilePath(toolCall: ToolCall): string | null {
+function getApplyPatchFilePaths(details: ApplyPatchToolCallDetails | undefined): string[] {
+  if (!details) return []
+
+  const paths: string[] = []
+  for (const op of details.operations) {
+    paths.push(op.path)
+    if (op.movePath) paths.push(op.movePath)
+  }
+  return paths
+}
+
+function getToolCallFilePaths(toolCall: ToolCall): string[] {
+  if (toolCall.toolName === 'applyPatch') {
+    return getApplyPatchFilePaths(toolCall.details as ApplyPatchToolCallDetails | undefined)
+  }
+
   if (
     toolCall.toolName !== 'read' &&
     toolCall.toolName !== 'edit' &&
     toolCall.toolName !== 'write'
   ) {
-    return null
+    return []
   }
 
   const details = toolCall.details
@@ -131,14 +151,19 @@ function getToolCallFilePath(toolCall: ToolCall): string | null {
     'path' in details &&
     typeof details.path === 'string'
   ) {
-    return details.path
+    return [details.path]
   }
 
   if (toolCall.status === 'preparing') {
-    return null
+    return []
   }
 
-  return toolCall.inputSummary.trim() || null
+  const fallbackPath = toolCall.inputSummary.trim()
+  return fallbackPath ? [fallbackPath] : []
+}
+
+function getToolCallFilePath(toolCall: ToolCall): string | null {
+  return getToolCallFilePaths(toolCall)[0] ?? null
 }
 
 function isFileMutationGroup(group: ToolCallSemanticGroup): boolean {
@@ -151,12 +176,19 @@ function shouldCountUniqueFilePaths(group: ToolCallSemanticGroup): boolean {
 
 function isPathToolCall(toolCall: ToolCall): boolean {
   return (
-    toolCall.toolName === 'read' || toolCall.toolName === 'edit' || toolCall.toolName === 'write'
+    toolCall.toolName === 'read' ||
+    toolCall.toolName === 'edit' ||
+    toolCall.toolName === 'write' ||
+    toolCall.toolName === 'applyPatch'
   )
 }
 
 function isMutationToolCall(toolCall: ToolCall): boolean {
-  return toolCall.toolName === 'edit' || toolCall.toolName === 'write'
+  return (
+    toolCall.toolName === 'edit' ||
+    toolCall.toolName === 'write' ||
+    toolCall.toolName === 'applyPatch'
+  )
 }
 
 function isSuccessfulToolCall(toolCall: ToolCall): boolean {
@@ -185,9 +217,9 @@ function resolveCompatibleToolCallGroup(input: {
     (input.currentGroup === 'edit-files' || input.currentGroup === 'write-files') &&
     (input.nextGroup === 'edit-files' || input.nextGroup === 'write-files')
   ) {
-    const nextPath = getToolCallFilePath(input.nextToolCall)
-    if (nextPath) {
-      input.currentFilePaths.add(nextPath)
+    const nextPaths = getToolCallFilePaths(input.nextToolCall)
+    if (nextPaths.length > 0) {
+      for (const nextPath of nextPaths) input.currentFilePaths.add(nextPath)
       return input.currentGroup === 'write-files' || input.nextGroup === 'write-files'
         ? 'write-files'
         : 'edit-files'
@@ -199,9 +231,9 @@ function resolveCompatibleToolCallGroup(input: {
     input.nextGroup === 'read-files' &&
     input.nextReadWillBeEdited
   ) {
-    const nextPath = getToolCallFilePath(input.nextToolCall)
-    if (nextPath) {
-      input.currentFilePaths.add(nextPath)
+    const nextPaths = getToolCallFilePaths(input.nextToolCall)
+    if (nextPaths.length > 0) {
+      for (const nextPath of nextPaths) input.currentFilePaths.add(nextPath)
       return input.currentGroup
     }
   }
@@ -210,8 +242,7 @@ function resolveCompatibleToolCallGroup(input: {
     input.currentGroup === 'search-files' &&
     (input.nextGroup === 'edit-files' || input.nextGroup === 'write-files')
   ) {
-    const nextPath = getToolCallFilePath(input.nextToolCall)
-    if (nextPath) {
+    for (const nextPath of getToolCallFilePaths(input.nextToolCall)) {
       input.currentFilePaths.add(nextPath)
     }
     return input.nextGroup
@@ -237,8 +268,8 @@ function resolveCompatibleToolCallGroup(input: {
     return null
   }
 
-  const nextPath = getToolCallFilePath(input.nextToolCall)
-  if (!nextPath || !input.currentFilePaths.has(nextPath)) {
+  const nextPaths = getToolCallFilePaths(input.nextToolCall)
+  if (!nextPaths.some((nextPath) => input.currentFilePaths.has(nextPath))) {
     return null
   }
 
@@ -307,9 +338,9 @@ export function getToolCallGroupCount(group: ToolCallSemanticGroup, toolCalls: T
     if (isMutation && !isMutationToolCall(toolCall)) {
       continue
     }
-    const filePath = getToolCallFilePath(toolCall)
-    if (filePath) {
-      countedFiles.add(`path:${filePath}`)
+    const filePaths = getToolCallFilePaths(toolCall)
+    if (filePaths.length > 0) {
+      for (const filePath of filePaths) countedFiles.add(`path:${filePath}`)
     } else if (toolCall.status !== 'preparing') {
       countedFiles.add(`tool:${toolCall.id}`)
     }
@@ -332,8 +363,7 @@ export function getToolCallGroupFilePaths(
     if (isMutation && !isMutationToolCall(toolCall)) {
       continue
     }
-    const filePath = getToolCallFilePath(toolCall)
-    if (filePath) {
+    for (const filePath of getToolCallFilePaths(toolCall)) {
       countedFiles.add(filePath)
     }
   }
@@ -372,8 +402,8 @@ function isReadTargetEditedLater(input: {
       return false
     }
 
-    const filePath = getToolCallFilePath(toolCall)
-    if ((group === 'edit-files' || group === 'write-files') && filePath === input.path) {
+    const filePaths = getToolCallFilePaths(toolCall)
+    if ((group === 'edit-files' || group === 'write-files') && filePaths.includes(input.path)) {
       return true
     }
 
@@ -381,7 +411,7 @@ function isReadTargetEditedLater(input: {
       continue
     }
 
-    if (filePath === input.path && group === 'read-files') {
+    if (filePaths.includes(input.path) && group === 'read-files') {
       continue
     }
 
@@ -523,11 +553,7 @@ function mergeConsecutiveToolCalls(
       { index: i, toolCallId: item.toolCallId }
     ]
     let collectedGroup = group
-    const currentFilePaths = new Set<string>()
-    const firstFilePath = getToolCallFilePath(tc)
-    if (firstFilePath) {
-      currentFilePaths.add(firstFilePath)
-    }
+    const currentFilePaths = new Set<string>(getToolCallFilePaths(tc))
     let j = i + 1
 
     while (j < items.length) {
@@ -537,6 +563,7 @@ function mergeConsecutiveToolCalls(
         const nextTc = toolCallById.get(next.toolCallId)
         const nextGroup = nextTc ? getToolCallSemanticGroup(nextTc) : null
         const nextFilePath = nextTc ? getToolCallFilePath(nextTc) : null
+        const nextFilePaths = nextTc ? getToolCallFilePaths(nextTc) : []
         const nextReadWillBeEdited =
           nextGroup === 'read-files' && nextFilePath
             ? isReadTargetEditedLater({
@@ -559,9 +586,7 @@ function mergeConsecutiveToolCalls(
 
         if (compatibleGroup) {
           collectedGroup = compatibleGroup
-          if (nextFilePath) {
-            currentFilePaths.add(nextFilePath)
-          }
+          for (const nextPath of nextFilePaths) currentFilePaths.add(nextPath)
           collected.push({ index: j, toolCallId: next.toolCallId })
         } else {
           break

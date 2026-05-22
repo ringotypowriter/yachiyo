@@ -15,6 +15,7 @@ import type { WebSearchService } from '../services/webSearch/webSearchService.ts
 import type { MemoryService } from '../services/memory/memoryService.ts'
 import type { BrowserWebPageSnapshotLoader } from '../services/webRead/browserWebPageSnapshot.ts'
 
+import { createTool as createApplyPatchTool } from './agentTools/applyPatchTool.ts'
 import { createTool as createBashTool } from './agentTools/bashTool.ts'
 import { createTool as createEditTool } from './agentTools/editTool.ts'
 import { createTool as createGlobTool } from './agentTools/globTool.ts'
@@ -34,6 +35,7 @@ import {
   takeTail,
   type AgentToolContext,
   type AgentToolOutput,
+  type ApplyPatchToolOutput,
   type BashToolOutput,
   type EditToolOutput,
   type GlobToolOutput,
@@ -93,6 +95,11 @@ export {
   type UpdateTodoListToolContext
 } from './agentTools/updateTodoListTool.ts'
 
+export {
+  createTool as createApplyPatchTool,
+  parsePatchStreaming,
+  runApplyPatchTool
+} from './agentTools/applyPatchTool.ts'
 export {
   createTool as createBashTool,
   isBlockedBashCommand,
@@ -300,6 +307,13 @@ export function summarizeToolInput(toolName: ToolCallName | string, input: unkno
       : toolName
   }
 
+  if (toolName === 'applyPatch') {
+    const patch = typeof input === 'object' && input !== null && 'patch' in input ? input.patch : ''
+    return typeof patch === 'string' && patch.trim().length > 0
+      ? takeTail(patch, 160).text
+      : toolName
+  }
+
   const path = typeof input === 'object' && input !== null && 'path' in input ? input.path : ''
   return typeof path === 'string' && path.trim().length > 0 ? path : toolName
 }
@@ -349,6 +363,27 @@ export function summarizeToolOutput(
     return details.firstChangedLine === undefined
       ? `replaced ${details.replacements} occurrence${details.replacements === 1 ? '' : 's'}`
       : `replaced ${details.replacements} occurrence${details.replacements === 1 ? '' : 's'} at line ${details.firstChangedLine}`
+  }
+
+  if (toolName === 'applyPatch') {
+    const details = (output as ApplyPatchToolOutput).details
+    const opCount = details.operations.length
+    if (opCount === 0) return 'no changes applied'
+    const parts = details.operations.map((op) => {
+      switch (op.operation) {
+        case 'add':
+          return `+${op.path}`
+        case 'delete':
+          return `-${op.path}`
+        case 'move':
+          return `→ ${op.path}`
+        case 'update':
+          return `~${op.path}`
+        default:
+          return op.path
+      }
+    })
+    return `${opCount} file${opCount === 1 ? '' : 's'} (${parts.join(', ')})`
   }
 
   if (toolName === 'webRead') {
@@ -517,6 +552,7 @@ export function createAgentToolSet(
     tools.write = wrapDisabledTool(createWriteTool(context), 'write', enabledTools)
     tools.edit = wrapDisabledTool(createEditTool(context), 'edit', enabledTools)
     tools.bash = wrapDisabledTool(createBashTool(context), 'bash', enabledTools)
+    tools.applyPatch = wrapDisabledTool(createApplyPatchTool(context), 'applyPatch', enabledTools)
     tools.jsRepl = wrapDisabledTool(
       createJsReplTool(context, {
         ...(dependencies.fetchImpl ? { fetchImpl: dependencies.fetchImpl } : {}),

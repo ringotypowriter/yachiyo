@@ -32,7 +32,8 @@ const PLAN_MODE_TOOL_NAMES: readonly ToolCallName[] = [
   'webRead',
   'webSearch',
   'write',
-  'bash'
+  'bash',
+  'applyPatch'
 ]
 
 export const RUN_MODE_DEFINITIONS: Record<SelectableRunModeId, RunModeDefinition> = {

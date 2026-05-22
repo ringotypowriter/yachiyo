@@ -1,5 +1,6 @@
 export type {
   ActiveRunEnterBehavior,
+  ApplyPatchToolCallDetails,
   AskUserToolCallDetails,
   BashToolCallDetails,
   ComposerReasoningSelection,

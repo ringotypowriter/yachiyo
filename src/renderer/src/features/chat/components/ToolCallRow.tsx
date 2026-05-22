@@ -1,12 +1,7 @@
 import type React from 'react'
 import { Fragment, useId, useState } from 'react'
 import { ChevronRight, ExternalLink } from 'lucide-react'
-import type {
-  EditToolCallDetails,
-  ToolCall,
-  WebSearchResultItem,
-  WriteToolCallDetails
-} from '@renderer/app/types'
+import type { ToolCall, WebSearchResultItem, WriteToolCallDetails } from '@renderer/app/types'
 import { theme } from '@renderer/theme/theme'
 import {
   buildToolCallDetailsPresentation,
@@ -178,16 +173,14 @@ export function ToolCallRow({ toolCall, workspacePath }: ToolCallRowProps): Reac
               >
                 {block.label}
               </div>
-              {block.label === 'diff' ? (
-                <ToolCodeBlock
-                  value={block.value}
-                  filePath={(toolCall.details as EditToolCallDetails | undefined)?.path}
-                  variant="diff"
-                />
+              {block.label.startsWith('diff') ? (
+                <ToolCodeBlock value={block.value} filePath={block.filePath} variant="diff" />
               ) : block.label === 'preview' ? (
                 <ToolCodeBlock
                   value={block.value}
-                  filePath={(toolCall.details as WriteToolCallDetails | undefined)?.path}
+                  filePath={
+                    block.filePath ?? (toolCall.details as WriteToolCallDetails | undefined)?.path
+                  }
                 />
               ) : (
                 <pre

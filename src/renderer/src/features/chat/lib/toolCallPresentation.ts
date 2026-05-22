@@ -1,4 +1,5 @@
 import type {
+  ApplyPatchToolCallDetails,
   AskUserToolCallDetails,
   BashToolCallDetails,
   EditToolCallDetails,
@@ -33,6 +34,7 @@ export interface ToolCallDetailField {
 export interface ToolCallDetailCodeBlock {
   label: string
   value: string
+  filePath?: string
   tone?: ToolCallDetailTone
   displayTier?: ToolCallDetailDisplayTier
 }
@@ -68,7 +70,8 @@ function pushCodeBlock(
   label: string,
   value: string | undefined,
   tone?: ToolCallDetailTone,
-  displayTier?: ToolCallDetailDisplayTier
+  displayTier?: ToolCallDetailDisplayTier,
+  filePath?: string
 ): void {
   const normalizedValue = value?.trimEnd()
   if (!normalizedValue) {
@@ -78,6 +81,7 @@ function pushCodeBlock(
   codeBlocks.push({
     label,
     value: normalizedValue,
+    ...(filePath ? { filePath } : {}),
     ...(tone ? { tone } : {}),
     ...(displayTier ? { displayTier } : {})
   })
@@ -244,7 +248,7 @@ export function buildToolCallDetailsPresentation(toolCall: ToolCall): ToolCallDe
     pushField(fields, 'mode', details.mode)
     pushField(fields, 'replacements', details.replacements)
     pushField(fields, 'first changed line', details.firstChangedLine)
-    pushCodeBlock(codeBlocks, 'diff', details.diff)
+    pushCodeBlock(codeBlocks, 'diff', details.diff, undefined, undefined, details.path)
     return { fields, codeBlocks }
   }
 
@@ -257,7 +261,51 @@ export function buildToolCallDetailsPresentation(toolCall: ToolCall): ToolCallDe
     pushField(fields, 'bytes written', details.bytesWritten)
     pushField(fields, 'created', toYesNo(details.created))
     pushField(fields, 'overwritten', toYesNo(details.overwritten))
-    pushCodeBlock(codeBlocks, 'preview', details.contentPreview)
+    pushCodeBlock(codeBlocks, 'preview', details.contentPreview, undefined, undefined, details.path)
+    return { fields, codeBlocks }
+  }
+
+  if (toolCall.toolName === 'applyPatch') {
+    const details = toolCall.details as ApplyPatchToolCallDetails | undefined
+    if (!details) {
+      return { fields, codeBlocks }
+    }
+
+    pushField(fields, 'files', details.operations.length)
+    pushCodeBlock(
+      codeBlocks,
+      'operations',
+      details.operations
+        .map((op) => {
+          switch (op.operation) {
+            case 'add':
+              return 'added ' + op.path
+            case 'delete':
+              return 'deleted ' + op.path
+            case 'move':
+              return ('moved ' + op.path + ' → ' + (op.movePath ?? '')).trimEnd()
+            case 'update':
+              return 'updated ' + op.path
+            default:
+              return op.path
+          }
+        })
+        .join('\n')
+    )
+
+    for (const op of details.operations) {
+      pushCodeBlock(
+        codeBlocks,
+        op.operation === 'move'
+          ? ('diff · ' + op.path + ' → ' + (op.movePath ?? '')).trimEnd()
+          : 'diff · ' + op.path,
+        op.diff,
+        undefined,
+        undefined,
+        op.movePath ?? op.path
+      )
+    }
+
     return { fields, codeBlocks }
   }
 
