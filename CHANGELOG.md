@@ -1,5 +1,11 @@
 # yachiyo
 
+## 1.1.8
+
+### Patch Changes
+
+- [`e5103e3`](https://github.com/ringotypowriter/yachiyo/commit/e5103e3e3c01fe2de6018b92c613ce1daa4088d3) Thanks [@ringotypowriter](https://github.com/ringotypowriter)! - Plan Mode
+
 ## 1.1.7
 
 ### Patch Changes
