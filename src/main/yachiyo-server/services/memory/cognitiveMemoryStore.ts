@@ -13,6 +13,7 @@ import {
   activateCognitiveRows,
   applyCognitivePatchToState,
   createEmptyCognitiveMemoryState,
+  diffuseCognitiveRows,
   markCognitiveRowsActivated,
   searchCognitiveRows,
   type ActivateCognitiveRowsInput,
@@ -312,12 +313,24 @@ export function createInMemoryCognitiveMemoryStore(
       return { savedCount }
     },
     async activateRows(input) {
-      const rows = activateCognitiveRows(state, input)
+      const seeds = activateCognitiveRows(state, input)
+      const extraBudget = Math.max(0, input.limit - seeds.length)
+      const diffused =
+        extraBudget > 0 ? diffuseCognitiveRows(state, seeds, input.userQuery, extraBudget) : []
+
+      const seen = new Set<string>()
+      const allRows: CognitiveRow[] = []
+      for (const row of [...seeds, ...diffused]) {
+        if (seen.has(row.id)) continue
+        seen.add(row.id)
+        allRows.push(row)
+      }
+
       state = markCognitiveRowsActivated(state, {
         now: input.now,
-        rowIds: rows.map((row) => row.id)
+        rowIds: seeds.map((row) => row.id)
       })
-      return rows
+      return allRows
     },
     async deleteRow(input) {
       const initialCount = state.rows.length
@@ -358,13 +371,25 @@ export function createSqliteCognitiveMemoryStore(
     async activateRows(input) {
       return withDatabase(options.dbPath, (db) => {
         const state = readStateFromDb(db)
-        const rows = activateCognitiveRows(state, input)
+        const seeds = activateCognitiveRows(state, input)
+        const extraBudget = Math.max(0, input.limit - seeds.length)
+        const diffused =
+          extraBudget > 0 ? diffuseCognitiveRows(state, seeds, input.userQuery, extraBudget) : []
+
+        const seen = new Set<string>()
+        const allRows: CognitiveRow[] = []
+        for (const row of [...seeds, ...diffused]) {
+          if (seen.has(row.id)) continue
+          seen.add(row.id)
+          allRows.push(row)
+        }
+
         const next = markCognitiveRowsActivated(state, {
           now: input.now,
-          rowIds: rows.map((row) => row.id)
+          rowIds: seeds.map((row) => row.id)
         })
         writeStateDiff({ db, next, previousEventCount: state.events.length })
-        return rows
+        return allRows
       })
     },
     async deleteRow(input) {

@@ -60,6 +60,45 @@ test('in-memory cognitive store tracks activated rows and supports hard deletion
   assert.equal((await store.readState()).rows.length, 0)
 })
 
+test('activation diffusion stays within limit and does not increment diffused activation counts', async () => {
+  const store = createInMemoryCognitiveMemoryStore({
+    events: [],
+    relations: [],
+    rows: [
+      {
+        ...row('agent_roles', 'codex'),
+        subjects: ['Codex'],
+        triggers: ['config'],
+        activationText: 'agent roles codex config'
+      },
+      {
+        ...row('team_info', 'ringo'),
+        subjects: ['Codex'],
+        triggers: ['member'],
+        confidence: 0.9,
+        activationText: 'team info ringo codex member'
+      }
+    ]
+  })
+
+  const recalled = await store.activateRows({
+    history: [],
+    limit: 2,
+    now: '2026-05-20T00:00:00.000Z',
+    thread: { id: 'thread-1', title: 'Agent workflow', updatedAt: NOW },
+    userQuery: 'codex config'
+  })
+
+  assert.equal(recalled.length, 2)
+
+  const state = await store.readState()
+  const seed = state.rows.find((r) => r.id === 'agent_roles-codex')
+  const neighbor = state.rows.find((r) => r.id === 'team_info-ringo')
+
+  assert.equal(seed?.activationCount, 1)
+  assert.equal(neighbor?.activationCount, 0)
+})
+
 test('readCognitiveMemoryTermDocument returns a paginated term document with total counts', async () => {
   const state: CognitiveMemoryState = {
     events: [],

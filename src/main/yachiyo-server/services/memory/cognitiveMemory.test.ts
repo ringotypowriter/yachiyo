@@ -5,6 +5,7 @@ import {
   activateCognitiveRows,
   applyCognitivePatchToState,
   createEmptyCognitiveMemoryState,
+  diffuseCognitiveRows,
   renderCognitiveRowMemoryEntry,
   type CognitivePatch
 } from './cognitiveMemory.ts'
@@ -441,4 +442,340 @@ test('cognitive row memory entries expose source conversation row ids from evide
     renderCognitiveRowMemoryEntry(state.rows[0]!),
     '[project_context] memory_source_bridge: note=Memory recall should point back to its source conversation.; source_threads=thread:thread-a, thread:thread-b; source_messages=thread_message:thread-a:msg-1, thread_message:thread-a:msg-2'
   )
+})
+
+test('diffusion filters out neighbors unrelated to the query', () => {
+  let idCounter = 0
+  const state = applyCognitivePatchToState(
+    createEmptyCognitiveMemoryState(),
+    {
+      operations: [
+        {
+          type: 'upsertRelation',
+          relation: 'agent_config',
+          purpose: 'Track agent config.',
+          columns: ['setting'],
+          evidence: evidence('m1')
+        },
+        {
+          type: 'upsertRelation',
+          relation: 'fruit_prefs',
+          purpose: 'Track fruit preferences.',
+          columns: ['note'],
+          evidence: evidence('m1')
+        },
+        {
+          type: 'upsertRow',
+          relation: 'agent_config',
+          key: 'codex',
+          values: { setting: 'Explorer' },
+          subjects: ['Codex'],
+          triggers: ['agent config'],
+          confidence: 0.9,
+          evidence: evidence('m2')
+        },
+        {
+          type: 'upsertRow',
+          relation: 'fruit_prefs',
+          key: 'banana',
+          values: { note: 'Likes bananas.' },
+          subjects: ['banana'],
+          triggers: ['fruit'],
+          confidence: 0.9,
+          evidence: evidence('m3')
+        }
+      ]
+    },
+    {
+      createId: () => {
+        idCounter += 1
+        return `id-${idCounter}`
+      },
+      now: NOW
+    }
+  )
+
+  const seeds = state.rows.filter((r) => r.key === 'codex')
+  const diffused = diffuseCognitiveRows(state, seeds, 'agent config')
+
+  assert.deepEqual(
+    diffused.map((r) => r.key),
+    []
+  )
+})
+
+test('diffusion recalls neighbors that share subjects and match the query', () => {
+  let idCounter = 0
+  const state = applyCognitivePatchToState(
+    createEmptyCognitiveMemoryState(),
+    {
+      operations: [
+        {
+          type: 'upsertRelation',
+          relation: 'agent_roles',
+          purpose: 'Track agent roles.',
+          columns: ['role'],
+          evidence: evidence('m1')
+        },
+        {
+          type: 'upsertRelation',
+          relation: 'team_info',
+          purpose: 'Track team info.',
+          columns: ['member'],
+          evidence: evidence('m1')
+        },
+        {
+          type: 'upsertRow',
+          relation: 'agent_roles',
+          key: 'codex',
+          values: { role: 'Explorer' },
+          subjects: ['Codex', 'agent'],
+          triggers: ['config'],
+          confidence: 0.9,
+          evidence: evidence('m2')
+        },
+        {
+          type: 'upsertRow',
+          relation: 'team_info',
+          key: 'ringo_team',
+          values: { member: 'Ringo' },
+          subjects: ['Codex', 'team'],
+          triggers: ['member'],
+          confidence: 0.9,
+          evidence: evidence('m3')
+        }
+      ]
+    },
+    {
+      createId: () => {
+        idCounter += 1
+        return `id-${idCounter}`
+      },
+      now: NOW
+    }
+  )
+
+  const seeds = state.rows.filter((r) => r.key === 'codex')
+  const diffused = diffuseCognitiveRows(state, seeds, 'agent codex config')
+
+  assert.deepEqual(
+    diffused.map((r) => r.key),
+    ['ringo_team']
+  )
+})
+
+test('diffusion filters out low-confidence neighbors', () => {
+  let idCounter = 0
+  const state = applyCognitivePatchToState(
+    createEmptyCognitiveMemoryState(),
+    {
+      operations: [
+        {
+          type: 'upsertRelation',
+          relation: 'agent_roles',
+          purpose: 'Track agent roles.',
+          columns: ['role'],
+          evidence: evidence('m1')
+        },
+        {
+          type: 'upsertRow',
+          relation: 'agent_roles',
+          key: 'codex',
+          values: { role: 'Explorer' },
+          subjects: ['Codex'],
+          triggers: ['config'],
+          confidence: 0.9,
+          evidence: evidence('m2')
+        },
+        {
+          type: 'upsertRow',
+          relation: 'agent_roles',
+          key: 'low_confidence_note',
+          values: { role: 'Low' },
+          subjects: ['Codex'],
+          triggers: ['config'],
+          confidence: 0.3,
+          evidence: evidence('m3')
+        }
+      ]
+    },
+    {
+      createId: () => {
+        idCounter += 1
+        return `id-${idCounter}`
+      },
+      now: NOW
+    }
+  )
+
+  const seeds = state.rows.filter((r) => r.key === 'codex')
+  const diffused = diffuseCognitiveRows(state, seeds, 'agent codex config')
+
+  assert.deepEqual(
+    diffused.map((r) => r.key),
+    []
+  )
+})
+
+test('diffusion limits to one neighbor per relation', () => {
+  let idCounter = 0
+  const state = applyCognitivePatchToState(
+    createEmptyCognitiveMemoryState(),
+    {
+      operations: [
+        {
+          type: 'upsertRelation',
+          relation: 'agent_roles',
+          purpose: 'Track agent roles.',
+          columns: ['role'],
+          evidence: evidence('m1')
+        },
+        {
+          type: 'upsertRelation',
+          relation: 'tool_prefs',
+          purpose: 'Track tool preferences.',
+          columns: ['tool'],
+          evidence: evidence('m1')
+        },
+        {
+          type: 'upsertRow',
+          relation: 'agent_roles',
+          key: 'seed1',
+          values: { role: 'A' },
+          subjects: ['alpha'],
+          triggers: ['setup'],
+          confidence: 0.9,
+          evidence: evidence('m2')
+        },
+        {
+          type: 'upsertRow',
+          relation: 'agent_roles',
+          key: 'seed2',
+          values: { role: 'B' },
+          subjects: ['beta'],
+          triggers: ['setup'],
+          confidence: 0.9,
+          evidence: evidence('m3')
+        },
+        {
+          type: 'upsertRow',
+          relation: 'agent_roles',
+          key: 'neighbor_a1',
+          values: { role: 'C' },
+          subjects: ['alpha'],
+          triggers: ['setup'],
+          confidence: 0.9,
+          evidence: evidence('m4')
+        },
+        {
+          type: 'upsertRow',
+          relation: 'agent_roles',
+          key: 'neighbor_a2',
+          values: { role: 'D' },
+          subjects: ['beta'],
+          triggers: ['setup'],
+          confidence: 0.9,
+          evidence: evidence('m5')
+        },
+        {
+          type: 'upsertRow',
+          relation: 'tool_prefs',
+          key: 'neighbor_b1',
+          values: { tool: 'X' },
+          subjects: ['alpha'],
+          triggers: ['setup'],
+          confidence: 0.9,
+          evidence: evidence('m6')
+        }
+      ]
+    },
+    {
+      createId: () => {
+        idCounter += 1
+        return `id-${idCounter}`
+      },
+      now: NOW
+    }
+  )
+
+  const seeds = state.rows.filter((r) => r.key === 'seed1' || r.key === 'seed2')
+  const diffused = diffuseCognitiveRows(state, seeds, 'alpha beta setup', 2)
+
+  const keys = diffused.map((r) => r.key)
+  assert.equal(keys.length, 2)
+  assert.ok(keys.includes('neighbor_b1'), 'should include cross-relation neighbor')
+  const relationACount = diffused.filter((r) => r.relation === 'agent_roles').length
+  assert.equal(relationACount, 1, 'should include at most one neighbor from agent_roles')
+})
+
+test('diffusion depth-2 score is lower than depth-1 score', () => {
+  let idCounter = 0
+  const state = applyCognitivePatchToState(
+    createEmptyCognitiveMemoryState(),
+    {
+      operations: [
+        {
+          type: 'upsertRelation',
+          relation: 'chain_a',
+          purpose: 'Chain test A.',
+          columns: ['note'],
+          evidence: evidence('m1')
+        },
+        {
+          type: 'upsertRelation',
+          relation: 'chain_b',
+          purpose: 'Chain test B.',
+          columns: ['note'],
+          evidence: evidence('m1')
+        },
+        {
+          type: 'upsertRow',
+          relation: 'chain_a',
+          key: 'seed',
+          values: { note: 'Seed' },
+          subjects: ['alpha'],
+          triggers: ['setup'],
+          confidence: 0.9,
+          evidence: evidence('m2')
+        },
+        {
+          type: 'upsertRow',
+          relation: 'chain_a',
+          key: 'depth1',
+          values: { note: 'Depth 1' },
+          subjects: ['alpha', 'beta'],
+          triggers: ['setup'],
+          confidence: 0.9,
+          evidence: evidence('m3')
+        },
+        {
+          type: 'upsertRow',
+          relation: 'chain_b',
+          key: 'depth2',
+          values: { note: 'Depth 2' },
+          subjects: ['beta', 'gamma'],
+          triggers: ['config'],
+          confidence: 0.9,
+          evidence: evidence('m4')
+        }
+      ]
+    },
+    {
+      createId: () => {
+        idCounter += 1
+        return `id-${idCounter}`
+      },
+      now: NOW
+    }
+  )
+
+  const seeds = state.rows.filter((r) => r.key === 'seed')
+  const diffused = diffuseCognitiveRows(state, seeds, 'alpha beta gamma setup config', 3)
+
+  const keys = diffused.map((r) => r.key)
+  assert.ok(keys.includes('depth1'), 'depth1 should be diffused')
+  assert.ok(keys.includes('depth2'), 'depth2 should be diffused')
+
+  // depth1 has direct subject overlap with seed, so it should appear before depth2
+  assert.ok(keys.indexOf('depth1') < keys.indexOf('depth2'), 'depth1 should rank before depth2')
 })

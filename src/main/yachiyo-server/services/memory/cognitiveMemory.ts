@@ -681,6 +681,179 @@ export function searchCognitiveRows(
     .map((entry) => entry.row)
 }
 
+const DIFFUSE_DECAY = 0.5
+const DIFFUSE_MAX_DEPTH = 2
+const DIFFUSE_MIN_AFFINITY = 0.15
+const DIFFUSE_MIN_CONFIDENCE = 0.4
+const DIFFUSE_MAX_NEIGHBORS_PER_SEED = 3
+
+function normalizeStringSet(values: string[]): Set<string> {
+  const normalized = values
+    .map((value) => normalizeLooseText(value))
+    .filter((value) => value.length > 0)
+  return new Set(normalized)
+}
+
+function computeRowAffinity(a: CognitiveRow, b: CognitiveRow): number {
+  const subjectsA = normalizeStringSet(a.subjects)
+  const subjectsB = normalizeStringSet(b.subjects)
+  let sharedSubjects = 0
+  for (const s of subjectsA) {
+    if (subjectsB.has(s)) sharedSubjects += 1
+  }
+
+  const aliasesA = normalizeStringSet(a.aliases)
+  const aliasesB = normalizeStringSet(b.aliases)
+  let sharedAliases = 0
+  for (const s of aliasesA) {
+    if (aliasesB.has(s)) sharedAliases += 1
+  }
+
+  const triggersA = normalizeStringSet(a.triggers)
+  const triggersB = normalizeStringSet(b.triggers)
+  let sharedTriggers = 0
+  for (const s of triggersA) {
+    if (triggersB.has(s)) sharedTriggers += 1
+  }
+
+  const sharedScore = sharedSubjects * 0.3 + sharedAliases * 0.25 + sharedTriggers * 0.2
+  if (sharedScore <= 0) return 0
+
+  const sameWorkspace =
+    a.scope.workspacePath && a.scope.workspacePath === b.scope.workspacePath ? 0.15 : 0
+  const sameThread = a.scope.threadId && a.scope.threadId === b.scope.threadId ? 0.1 : 0
+  const sameRelation = a.relation === b.relation ? 0.05 : 0
+
+  return sharedScore + sameWorkspace + sameThread + sameRelation
+}
+
+export function diffuseCognitiveRows(
+  state: CognitiveMemoryState,
+  seedRows: CognitiveRow[],
+  userQuery: string,
+  maxExtra: number = Math.min(2, seedRows.length)
+): CognitiveRow[] {
+  if (seedRows.length === 0 || maxExtra <= 0) return []
+
+  const normalizedQuery = normalizeLooseText(userQuery)
+  const seedIds = new Set(seedRows.map((r) => r.id))
+  const activeRows = state.rows.filter((r) => r.status === 'active')
+
+  const rowById = new Map<string, CognitiveRow>()
+  for (const row of activeRows) rowById.set(row.id, row)
+
+  const featureToRowIds = new Map<string, Set<string>>()
+  const rowFeatures = new Map<string, string[]>()
+
+  for (const row of activeRows) {
+    const features = new Set<string>()
+    for (const value of [...row.subjects, ...row.aliases, ...row.triggers]) {
+      const normalized = normalizeLooseText(value)
+      if (normalized) features.add(normalized)
+    }
+    const featureList = [...features]
+    rowFeatures.set(row.id, featureList)
+    for (const feature of featureList) {
+      const ids = featureToRowIds.get(feature) ?? new Set<string>()
+      ids.add(row.id)
+      featureToRowIds.set(feature, ids)
+    }
+  }
+
+  function getNeighbors(rowId: string): Array<[string, number]> {
+    const row = rowById.get(rowId)
+    if (!row) return []
+
+    const candidates = new Set<string>()
+    for (const feature of rowFeatures.get(rowId) ?? []) {
+      for (const candidateId of featureToRowIds.get(feature) ?? []) {
+        if (candidateId !== rowId) candidates.add(candidateId)
+      }
+    }
+
+    const neighbors: Array<[string, number]> = []
+    for (const candidateId of candidates) {
+      const candidate = rowById.get(candidateId)
+      if (!candidate) continue
+      const affinity = computeRowAffinity(row, candidate)
+      if (affinity >= DIFFUSE_MIN_AFFINITY) neighbors.push([candidateId, affinity])
+    }
+
+    neighbors.sort((a, b) => b[1] - a[1])
+    return neighbors
+  }
+
+  const scores = new Map<string, number>()
+  const frontier: Array<{ rowId: string; accumulatedScore: number; depth: number }> = []
+
+  for (const seed of seedRows) {
+    const sorted = getNeighbors(seed.id)
+      .filter(([id]) => !seedIds.has(id))
+      .slice(0, DIFFUSE_MAX_NEIGHBORS_PER_SEED)
+
+    for (const [neighborId, affinity] of sorted) {
+      frontier.push({
+        rowId: neighborId,
+        accumulatedScore: affinity * DIFFUSE_DECAY,
+        depth: 1
+      })
+    }
+  }
+
+  while (frontier.length > 0) {
+    const current = frontier.shift()!
+    if (current.depth > DIFFUSE_MAX_DEPTH) continue
+
+    const row = rowById.get(current.rowId)
+    if (!row || seedIds.has(row.id)) continue
+    if (row.confidence < DIFFUSE_MIN_CONFIDENCE) continue
+    if (scorePhraseMatches(row, normalizedQuery) <= 0) continue
+
+    const existingScore = scores.get(current.rowId) ?? 0
+    if (current.accumulatedScore > existingScore) {
+      scores.set(current.rowId, current.accumulatedScore)
+    }
+
+    if (current.depth < DIFFUSE_MAX_DEPTH) {
+      for (const [neighborId, affinity] of getNeighbors(current.rowId)) {
+        if (seedIds.has(neighborId)) continue
+        const nextScore = current.accumulatedScore * affinity * DIFFUSE_DECAY
+        if (nextScore < 0.001) continue
+        frontier.push({
+          rowId: neighborId,
+          accumulatedScore: nextScore,
+          depth: current.depth + 1
+        })
+      }
+    }
+  }
+
+  const candidates = [...scores.entries()]
+    .map(([rowId, score]) => ({ row: rowById.get(rowId), score }))
+    .filter(
+      (entry): entry is { row: CognitiveRow; score: number } =>
+        !!entry.row && !seedIds.has(entry.row.id)
+    )
+    .sort((a, b) => {
+      if (b.score !== a.score) return b.score - a.score
+      if (b.row.confidence !== a.row.confidence) return b.row.confidence - a.row.confidence
+      return b.row.updatedAt.localeCompare(a.row.updatedAt)
+    })
+
+  const result: CognitiveRow[] = []
+  const relationCounts = new Map<string, number>()
+
+  for (const candidate of candidates) {
+    const relationCount = relationCounts.get(candidate.row.relation) ?? 0
+    if (relationCount >= 1) continue
+    result.push(candidate.row)
+    relationCounts.set(candidate.row.relation, relationCount + 1)
+    if (result.length >= maxExtra) break
+  }
+
+  return result
+}
+
 function parseJsonObject(text: string): unknown {
   try {
     return JSON.parse(text)
