@@ -124,6 +124,8 @@ export type MessageTimelineRow =
   | ({
       kind: 'group-generating'
       group: MessageGroup
+      state: 'thinking' | 'working'
+      activeRunId: string | null
     } & GroupTimelineRowBase)
   | ({
       kind: 'group-preparing'
@@ -726,7 +728,9 @@ export function buildConversationGroupRows(
         time: group.userMessage.createdAt,
         requestMessageId,
         ...(activeAssistantMessage ? { assistantMessageId: activeAssistantMessage.id } : {}),
-        group
+        group,
+        state: hasRunningToolCall ? 'working' : 'thinking',
+        activeRunId: input.activeRunId
       })
       continue
     }

@@ -61,6 +61,7 @@ import { MessageActionBar } from './MessageActionBar'
 import { RunStatsFooter } from './RunStatsFooter'
 import { PlanDocumentCard } from './PlanDocumentCard'
 import { PlanDocumentTimelineCard } from './PlanDocumentTimelineCard'
+import { makeRunningPlaceholderSeed } from '@renderer/lib/runningPlaceholders.ts'
 
 interface MessageTimelineProps {
   threadId: string | null
@@ -497,7 +498,8 @@ function renderTimelineItem(
   }
 
   if (item.kind === 'group-generating') {
-    return <GeneratingRow retryInfo={groupRetryInfo} />
+    const seed = makeRunningPlaceholderSeed(item.activeRunId, context.threadId ?? '', item.state)
+    return <GeneratingRow retryInfo={groupRetryInfo} state={item.state} seed={seed} />
   }
 
   if (item.kind === 'group-preparing') {

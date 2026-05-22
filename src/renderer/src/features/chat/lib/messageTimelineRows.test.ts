@@ -161,6 +161,40 @@ test('buildConversationGroupRows keeps generating after a completed tool call ev
   assert.deepEqual(rowKinds(rows), ['group-user', 'group-tool-call', 'group-generating'])
 })
 
+test('buildConversationGroupRows sets generating row state to thinking when no tool calls are running', () => {
+  const group = createGroup({
+    activeAssistant: createAssistantMessage({
+      id: 'assistant-1',
+      content: '',
+      status: 'streaming',
+      textBlocks: [
+        {
+          id: 'text-1',
+          content: 'hello',
+          createdAt: TIMESTAMP
+        }
+      ]
+    })
+  })
+
+  const rows = buildConversationGroupRows({
+    group,
+    inlineToolCalls: [],
+    runs: [],
+    activeRunId: 'run-1',
+    isActiveGroup: true,
+    subagentActive: false
+  })
+
+  const generatingRow = rows.find(
+    (row): row is MessageTimelineRow & { kind: 'group-generating' } =>
+      row.kind === 'group-generating'
+  )
+  assert.ok(generatingRow)
+  assert.equal(generatingRow.state, 'thinking')
+  assert.equal(generatingRow.activeRunId, 'run-1')
+})
+
 test('buildConversationGroupRows keeps branch navigation, thinking, and footer as separate rows', () => {
   const inactiveAssistant = createAssistantMessage({
     id: 'assistant-old',

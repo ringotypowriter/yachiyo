@@ -1,5 +1,10 @@
 import type React from 'react'
 import { theme } from '@renderer/theme/theme'
+import {
+  THINKING_SIDEBAR_PREVIEWS,
+  WORKING_SIDEBAR_PREVIEWS,
+  pickSidebarPlaceholder
+} from '@renderer/lib/runningPlaceholders.ts'
 
 export interface RetryInfo {
   attempt: number
@@ -7,7 +12,15 @@ export interface RetryInfo {
   error: string
 }
 
-export function GeneratingRow({ retryInfo }: { retryInfo?: RetryInfo }): React.JSX.Element {
+export function GeneratingRow({
+  retryInfo,
+  state,
+  seed
+}: {
+  retryInfo?: RetryInfo
+  state?: 'thinking' | 'working'
+  seed?: string
+}): React.JSX.Element {
   if (retryInfo) {
     return (
       <div className="px-6 py-0.5">
@@ -32,6 +45,14 @@ export function GeneratingRow({ retryInfo }: { retryInfo?: RetryInfo }): React.J
     )
   }
 
+  let label = 'Generating...'
+  if (state && seed) {
+    label = pickSidebarPlaceholder(
+      seed,
+      state === 'working' ? WORKING_SIDEBAR_PREVIEWS : THINKING_SIDEBAR_PREVIEWS
+    )
+  }
+
   return (
     <div className="px-6 py-0.5">
       <div
@@ -46,7 +67,7 @@ export function GeneratingRow({ retryInfo }: { retryInfo?: RetryInfo }): React.J
             animation: 'yachiyo-generating-pulse 1s ease-in-out infinite'
           }}
         />
-        <span>Generating...</span>
+        <span>{label}</span>
       </div>
     </div>
   )

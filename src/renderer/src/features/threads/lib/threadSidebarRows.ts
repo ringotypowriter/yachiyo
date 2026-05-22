@@ -1,7 +1,12 @@
 import type { FolderRecord, Thread, ToolCall } from '../../../app/types.ts'
 import { stripMarkdown } from '../../../../../shared/yachiyo/messageContent.ts'
 import { PLAN_MODE_EXIT_TOOL_NAME } from '../../../../../shared/yachiyo/planMode.ts'
-
+import {
+  THINKING_SIDEBAR_PREVIEWS,
+  WORKING_SIDEBAR_PREVIEWS,
+  pickSidebarPlaceholder,
+  makeRunningPlaceholderSeed
+} from '../../../lib/runningPlaceholders.ts'
 export type FolderChild =
   | { kind: 'thread'; thread: Thread }
   | { kind: 'folder-date-header'; label: string }
@@ -39,116 +44,6 @@ export interface ThreadSidebarPreview {
   state: ThreadSidebarPreviewState
   text: string
 }
-
-const THINKING_SIDEBAR_PREVIEWS: readonly [string, ...string[]] = [
-  'Thinking...',
-  'Brewing...',
-  'Cerebrating...',
-  'Cogitating...',
-  'Considering...',
-  'Contemplating...',
-  'Deciphering...',
-  'Deliberating...',
-  'Elucidating...',
-  'Envisioning...',
-  'Ideating...',
-  'Imagining...',
-  'Incubating...',
-  'Inferring...',
-  'Mulling...',
-  'Musing...',
-  'Noodling...',
-  'Perusing...',
-  'Philosophising...',
-  'Pondering...',
-  'Puzzling...',
-  'Ruminating...'
-]
-
-const WORKING_SIDEBAR_PREVIEWS: readonly [string, ...string[]] = [
-  'Accomplishing...',
-  'Actualizing...',
-  'Baking...',
-  'Beaming...',
-  'Billowing...',
-  'Boogieing...',
-  'Booping...',
-  'Caramelizing...',
-  'Cascading...',
-  'Channeling...',
-  'Choreographing...',
-  'Churning...',
-  'Coalescing...',
-  'Combobulating...',
-  'Composing...',
-  'Concocting...',
-  'Cooking...',
-  'Crafting...',
-  'Creating...',
-  'Crystallizing...',
-  'Cultivating...',
-  'Doodling...',
-  'Drizzling...',
-  'Ebbing...',
-  'Embellishing...',
-  'Enchanting...',
-  'Fermenting...',
-  'Flowing...',
-  'Fluttering...',
-  'Forming...',
-  'Frosting...',
-  'Garnishing...',
-  'Germinating...',
-  'Grooving...',
-  'Gusting...',
-  'Harmonizing...',
-  'Hatching...',
-  'Improvising...',
-  'Infusing...',
-  'Kneading...',
-  'Leavening...',
-  'Levitating...',
-  'Manifesting...',
-  'Marinating...',
-  'Metamorphosing...',
-  'Misting...',
-  'Orbiting...',
-  'Orchestrating...',
-  'Percolating...',
-  'Polishing...',
-  'Prestidigitating...',
-  'Proofing...',
-  'Propagating...',
-  'Recombobulating...',
-  'Seasoning...',
-  'Shaping...',
-  'Shimmying...',
-  'Simmering...',
-  'Sketching...',
-  'Smooshing...',
-  'Spinning...',
-  'Sprouting...',
-  'Stewing...',
-  'Swirling...',
-  'Tempering...',
-  'Tinkering...',
-  'Transfiguring...',
-  'Transmuting...',
-  'Twisting...',
-  'Undulating...',
-  'Unfurling...',
-  'Unravelling...',
-  'Vibing...',
-  'Wandering...',
-  'Warping...',
-  'Whirlpooling...',
-  'Whirring...',
-  'Whisking...',
-  'Working...',
-  'Wrangling...',
-  'Zesting...',
-  'Zigzagging...'
-]
 
 export function buildSidebarItems(
   threads: Thread[],
@@ -329,9 +224,7 @@ export function resolveThreadSidebarPreview({
     const hasCurrentRunToolCall =
       activeRunId !== null && toolCalls.some((toolCall) => toolCall.runId === activeRunId)
     const state = hasCurrentRunToolCall ? 'working' : 'thinking'
-    const placeholderSeed = activeRunId
-      ? `run:${activeRunId}:${state}`
-      : `thread:${thread.id}:${state}`
+    const placeholderSeed = makeRunningPlaceholderSeed(activeRunId, thread.id, state)
 
     return {
       state,
@@ -377,12 +270,4 @@ function formatSidebarDateLabel(updatedAt: string, today: Date): string {
   if (diffDays === 0) return 'Today'
   if (diffDays === 1) return 'Yesterday'
   return day.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
-}
-
-function pickSidebarPlaceholder(threadId: string, labels: readonly [string, ...string[]]): string {
-  let hash = 0
-  for (let index = 0; index < threadId.length; index += 1) {
-    hash = (hash * 31 + threadId.charCodeAt(index)) >>> 0
-  }
-  return labels[hash % labels.length]
 }
