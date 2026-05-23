@@ -11,7 +11,7 @@ Use `yachiyo-browser` for practical browser work with the `useBrowser` tool:
 - verify UI flows and page changes
 - work with authenticated sessions when needed
 
-The browser is a headful Electron BrowserWindow. Sessions are scoped to the current conversation, but cookies and local storage are shared via a single global browser profile.
+The browser is a headful Electron BrowserWindow. The user can see the browser window and interact with it directly. If you hit a blocking step the user can handle (e.g. CAPTCHA, login, 2FA, consent dialog), ask the user to perform it rather than failing. Sessions are scoped to the current conversation, but cookies and local storage are shared via a single global browser profile.
 
 ## Definition Of Done
 

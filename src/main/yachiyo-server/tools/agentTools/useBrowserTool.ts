@@ -63,7 +63,7 @@ export function createTool(
 ): Tool<UseBrowserToolInput, UseBrowserToolOutput> {
   return tool({
     description:
-      'Headful browser automation using an Electron BrowserWindow. Sessions are scoped to this conversation, but cookies/storage are shared via a single global browser profile. Start with action="open"; if you call loadUrl/snapshot/wait with a url before opening, the tool will auto-open the session.',
+      'Browser automation for opening pages, inspecting content, clicking, filling forms, scrolling, and capturing screenshots or PDFs. The browser window is visible to the user and they can interact with it directly. If a step requires human action (e.g. CAPTCHA, login, 2FA, consent dialog), ask the user to perform it rather than failing. Sessions are scoped to this conversation, but cookies and storage are shared globally. Start with action="open"; loadUrl, snapshot, and wait auto-open the session if needed.',
     inputSchema: useBrowserToolInputSchema,
     toModelOutput: ({ output }) => toToolModelOutput(output),
     execute: async (input) => {

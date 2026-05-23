@@ -1,6 +1,6 @@
 ---
 name: yachiyo-browser
-description: Use this skill for browser automation with the useBrowser tool — opening pages, taking snapshots, clicking and filling elements, handling page state, capturing screenshots, extracting page data, and verifying web flows. Re-snapshot after page changes, use isolated sessions when needed, and always close the browser session when done.
+description: Use this skill for browser automation with the useBrowser tool — opening pages, taking snapshots, clicking and filling elements, handling page state, capturing screenshots, extracting page data, and verifying web flows. The user can see and interact with the browser window directly, and you may ask them to handle blocking steps (e.g. CAPTCHA, login, 2FA). Re-snapshot after page changes, use isolated sessions when needed, and always close the browser session when done.
 ---
 
 # Yachiyo Browser
