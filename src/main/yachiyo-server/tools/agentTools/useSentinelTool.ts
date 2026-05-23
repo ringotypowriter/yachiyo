@@ -6,21 +6,43 @@ import type { ThreadSentinelManager } from '../../app/domain/sentinel/threadSent
 import { textContent, toToolModelOutput, type ToolContentBlock } from './shared.ts'
 import type { ThreadSentinelWakeContext } from '../../app/domain/sentinel/threadSentinelManager.ts'
 
-const inputSchema = z.discriminatedUnion('action', [
-  z.object({
-    action: z.literal('set'),
-    goal: z.string().min(1).describe('What you want to achieve or verify during each check.'),
-    stopCondition: z.string().min(1).describe('What you are waiting for or checking for.'),
+const inputSchema = z
+  .object({
+    action: z
+      .enum(['set', 'clear'])
+      .describe('"set" to start a recurring check, "clear" to stop it.'),
+    goal: z
+      .string()
+      .min(1)
+      .optional()
+      .describe(
+        'What you want to achieve or verify during each check. Required when action is "set".'
+      ),
+    stopCondition: z
+      .string()
+      .min(1)
+      .optional()
+      .describe('What you are waiting for or checking for. Required when action is "set".'),
     intervalMinutes: z
       .number()
       .int()
       .min(1)
-      .describe('Minutes to wait before the next check. Must be at least 1.')
-  }),
-  z.object({
-    action: z.literal('clear')
+      .optional()
+      .describe(
+        'Minutes to wait before the next check. Must be at least 1. Required when action is "set".'
+      )
   })
-])
+  .refine(
+    (data) => {
+      if (data.action === 'set') {
+        return data.goal != null && data.stopCondition != null && data.intervalMinutes != null
+      }
+      return true
+    },
+    {
+      message: 'When action is "set", goal, stopCondition, and intervalMinutes are required.'
+    }
+  )
 
 export type UseSentinelToolInput = z.infer<typeof inputSchema>
 
@@ -63,12 +85,22 @@ export function createUseSentinelTool(
         }
       }
 
+      const { goal, stopCondition, intervalMinutes } = input
+      if (!goal || !stopCondition || !intervalMinutes) {
+        return {
+          content: textContent('Missing required fields for action "set".'),
+          details: { action: 'set' },
+          metadata: {},
+          error: 'Missing required fields for action "set".'
+        }
+      }
+
       try {
         const sentinel = context.manager.set({
           threadId: context.threadId,
-          goal: input.goal,
-          stopCondition: input.stopCondition,
-          intervalMinutes: input.intervalMinutes,
+          goal,
+          stopCondition,
+          intervalMinutes,
           wakeContext: context.wakeContext
         })
         return {
