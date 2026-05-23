@@ -20,7 +20,14 @@ import {
   type PlanDocumentState
 } from '@renderer/app/store/useAppStore'
 import { isComposerDraftEmpty, NEW_THREAD_DRAFT_KEY } from '@renderer/app/store/useAppStore/helpers'
-import type { FolderRecord, RunRecord, Thread, ThreadColorTag, ToolCall } from '@renderer/app/types'
+import type {
+  FolderRecord,
+  RunRecord,
+  Thread,
+  ThreadColorTag,
+  ThreadSentinelRecord,
+  ToolCall
+} from '@renderer/app/types'
 import type { ThreadContextOperationKey } from '@renderer/features/threads/lib/threadContextOperations'
 import {
   resolveBackgroundTaskHydrationThreadIds,
@@ -557,6 +564,8 @@ function ThreadListContent({
   draftThreadIds,
   latestRunsByThread,
   planDocumentsByThread,
+  sentinelsByThread,
+  currentTimeMs,
   memoryEnabled,
   regenerateThreadTitle,
   renameThread,
@@ -590,6 +599,8 @@ function ThreadListContent({
   draftThreadIds: ReadonlySet<string>
   latestRunsByThread: Record<string, RunRecord>
   planDocumentsByThread: Record<string, PlanDocumentState>
+  sentinelsByThread: Record<string, ThreadSentinelRecord>
+  currentTimeMs: number
   memoryEnabled: boolean
   regenerateThreadTitle: (threadId: string) => Promise<void>
   renameThread: (threadId: string, title: string) => Promise<void>
@@ -926,6 +937,7 @@ function ThreadListContent({
   ): React.JSX.Element {
     const isRunActive = runStatusesByThread[thread.id] === 'running'
     const hasBackgroundWork = backgroundTaskRunningThreadIds.has(thread.id)
+    const sentinel = sentinelsByThread[thread.id]
     const draft = composerDrafts[thread.id]
     let draftText: string | null = null
     if (draft && !isComposerDraftEmpty(draft)) {
@@ -950,6 +962,8 @@ function ThreadListContent({
         hasJustDoneRun={threadListMode === 'active' && Boolean(justDoneRunIdsByThread[thread.id])}
         isRunActive={isRunActive}
         isSaving={savingThreadIds.has(thread.id)}
+        currentTimeMs={currentTimeMs}
+        sentinel={sentinel}
         pendingPlanApproval={planDocumentsByThread[thread.id]?.decision === 'pending'}
         isSelectMode={selectMode}
         isSelected={selectedIds.has(thread.id)}
@@ -1210,6 +1224,8 @@ export function ThreadList(): React.JSX.Element {
     useShallow(selectRunningBackgroundTaskThreadIds)
   )
   const justDoneRunIdsByThread = useAppStore((s) => s.justDoneRunIdsByThread)
+  const sentinelsByThread = useAppStore((s) => s.sentinelsByThread)
+  const [currentTimeMs, setCurrentTimeMs] = useState(() => Date.now())
   const sidebarFilter = useAppStore((s) => s.sidebarFilter)
   const composerDrafts = useAppStore((s) => s.composerDrafts)
   const planDocumentsByThread = useAppStore((s) => s.planDocumentsByThread)
@@ -1224,6 +1240,11 @@ export function ThreadList(): React.JSX.Element {
       }),
     [threads, archivedThreads, externalThreads]
   )
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setCurrentTimeMs(Date.now()), 30_000)
+    return () => window.clearInterval(timer)
+  }, [])
 
   useEffect(() => {
     if (backgroundTaskHydrationThreadIds.length === 0) return
@@ -1310,6 +1331,8 @@ export function ThreadList(): React.JSX.Element {
       draftThreadIds={draftThreadIds}
       latestRunsByThread={latestRunsByThread}
       planDocumentsByThread={planDocumentsByThread}
+      sentinelsByThread={sentinelsByThread}
+      currentTimeMs={currentTimeMs}
       memoryEnabled={memoryEnabled}
       regenerateThreadTitle={regenerateThreadTitle}
       renameThread={renameThread}

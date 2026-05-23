@@ -216,6 +216,12 @@ export interface UseBrowserToolCallDetails {
   title?: string
 }
 
+export interface UseSentinelToolCallDetails {
+  action: 'set' | 'clear'
+  intervalMinutes?: number
+  nextRunAt?: string
+}
+
 export type ToolCallDetailsSnapshot =
   | ReadToolCallDetails
   | WriteToolCallDetails
@@ -230,3 +236,4 @@ export type ToolCallDetailsSnapshot =
   | SkillsReadToolCallDetails
   | AskUserToolCallDetails
   | ApplyPatchToolCallDetails
+  | UseSentinelToolCallDetails

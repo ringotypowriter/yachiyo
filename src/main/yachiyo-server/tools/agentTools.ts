@@ -69,6 +69,7 @@ import {
   createUpdateTodoListTool,
   type UpdateTodoListToolContext
 } from './agentTools/updateTodoListTool.ts'
+import { createUseSentinelTool, type UseSentinelToolContext } from './agentTools/useSentinelTool.ts'
 import type { YachiyoStorage } from '../storage/storage.ts'
 import { createPlanExitTool } from '../app/domain/run/plan/planWriteTool.ts'
 
@@ -96,6 +97,7 @@ export {
   createUpdateTodoListTool,
   type UpdateTodoListToolContext
 } from './agentTools/updateTodoListTool.ts'
+export { createUseSentinelTool, type UseSentinelToolContext } from './agentTools/useSentinelTool.ts'
 
 export {
   createTool as createApplyPatchTool,
@@ -151,6 +153,8 @@ export interface AgentToolDependencies {
   askUserContext?: AskUserToolContext
   /** When provided, updateTodoList drives the persistent composer todo widget. */
   todoContext?: UpdateTodoListToolContext
+  /** When provided, useSentinel can manage thread-level wake checks. */
+  sentinelContext?: UseSentinelToolContext
   /** Internal gate for Plan Mode's exit tool; the schema stays registered either way. */
   planModeExitEnabled?: boolean
   /** Extra tools merged into the tool set (e.g. schedule-only tools). */
@@ -471,7 +475,12 @@ export function summarizeToolOutput(
     return details.truncated ? `${summary} (truncated)` : summary
   }
 
-  if (toolName === 'remember' || toolName === 'querySource' || toolName === 'updateProfile') {
+  if (
+    toolName === 'remember' ||
+    toolName === 'querySource' ||
+    toolName === 'updateProfile' ||
+    toolName === 'useSentinel'
+  ) {
     const typed = output as { content?: Array<{ type: string; text?: string }>; error?: string }
     if (typed.error) return typed.error
     const text = typed.content
@@ -625,6 +634,14 @@ export function createAgentToolSet(
       'useBrowser',
       enabledTools
     )
+
+    if (dependencies.sentinelContext) {
+      tools.useSentinel = wrapDisabledTool(
+        createUseSentinelTool(dependencies.sentinelContext),
+        'useSentinel',
+        enabledTools
+      )
+    }
 
     // Service-gated tools: only registered when the backing service is available.
     // Service availability is stable within a session so omitting them doesn't

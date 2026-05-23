@@ -58,6 +58,7 @@ function resetStore(): void {
     threadListMode: 'active',
     threads: [],
     snapshotReviewByRun: {},
+    sentinelsByThread: {},
     todoListsByThread: {},
     toolCalls: {},
     toolModeByThread: {}
@@ -275,6 +276,43 @@ test('applyServerEvent clears todo state only when the server sends an empty lis
   })
 
   assert.equal(useAppStore.getState().todoListsByThread['thread-1'], undefined)
+})
+
+test('applyServerEvent stores and clears thread sentinel state', () => {
+  resetStore()
+
+  useAppStore.getState().applyServerEvent({
+    eventId: 'event-sentinel-1',
+    timestamp: TIMESTAMP,
+    type: 'thread.sentinel.updated',
+    threadId: 'thread-1',
+    sentinel: {
+      threadId: 'thread-1',
+      goal: 'Watch the build',
+      stopCondition: 'The build has finished',
+      intervalMinutes: 3,
+      updatedAt: TIMESTAMP,
+      nextRunAt: '2026-03-15T00:03:00.000Z'
+    }
+  })
+
+  assert.deepEqual(useAppStore.getState().sentinelsByThread['thread-1'], {
+    threadId: 'thread-1',
+    goal: 'Watch the build',
+    stopCondition: 'The build has finished',
+    intervalMinutes: 3,
+    updatedAt: TIMESTAMP,
+    nextRunAt: '2026-03-15T00:03:00.000Z'
+  })
+
+  useAppStore.getState().applyServerEvent({
+    eventId: 'event-sentinel-2',
+    timestamp: TIMESTAMP,
+    type: 'thread.sentinel.updated',
+    threadId: 'thread-1'
+  })
+
+  assert.equal(useAppStore.getState().sentinelsByThread['thread-1'], undefined)
 })
 
 test('applyServerEvent moves archived threads between active and archived collections', () => {

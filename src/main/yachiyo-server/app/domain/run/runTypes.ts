@@ -22,6 +22,7 @@ import type { ModelRuntime } from '../../../runtime/models/types.ts'
 import type { SnapshotTracker } from '../../../services/fileSnapshot/snapshotTracker.ts'
 import type { RunRecoveryCheckpoint, YachiyoStorage } from '../../../storage/storage.ts'
 import type { QuerySourceExecutor } from '../../../tools/agentTools/querySourceTool.ts'
+import type { ThreadSentinelManager } from '../sentinel/threadSentinelManager.ts'
 import type { SoulDocument } from '../../../runtime/profiles/soul.ts'
 import type { UserDocument } from '../../../runtime/profiles/user.ts'
 import type { CreateId, EmitServerEvent, Timestamp } from '../shared/shared.ts'
@@ -102,6 +103,7 @@ export interface RunDomainDeps {
   loadThreadToolCalls: (threadId: string) => ToolCallRecord[]
   jotdownStore?: JotdownStore
   imageToTextService?: import('../../../services/imageToText/imageToTextService.ts').ImageToTextService
+  sentinelManager?: ThreadSentinelManager
 }
 
 export interface BackgroundTaskRunContext {

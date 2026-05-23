@@ -7,6 +7,7 @@ import type {
   RunModeId,
   SendChatRunTrigger,
   SettingsConfig,
+  ThreadSentinelRecord,
   ThreadRecord,
   ToolCallRecord
 } from '../protocol.ts'
@@ -64,6 +65,11 @@ export interface ThreadRestoredEvent extends ThreadEvent {
 
 export interface ThreadDeletedEvent extends ThreadEvent {
   type: 'thread.deleted'
+}
+
+export interface ThreadSentinelUpdatedEvent extends ThreadEvent {
+  type: 'thread.sentinel.updated'
+  sentinel?: ThreadSentinelRecord
 }
 
 export interface RunCreatedEvent extends RunEvent {
@@ -286,6 +292,7 @@ export type YachiyoServerEvent =
   | ThreadArchivedEvent
   | ThreadRestoredEvent
   | ThreadDeletedEvent
+  | ThreadSentinelUpdatedEvent
   | RunCreatedEvent
   | RunMemoryRecalledEvent
   | RunContextCompiledEvent

@@ -339,6 +339,7 @@ export function createThreadLifecycleActions(input: {
               ...collectThreadToolModes([...payload.threads, ...payload.archivedThreads])
             },
             settings: payload.settings ?? state.settings ?? DEFAULT_SETTINGS,
+            sentinelsByThread: payload.sentinelsByThread ?? {},
             todoListsByThread: collectThreadTodoLists([
               ...payload.threads,
               ...payload.archivedThreads

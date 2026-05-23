@@ -2,6 +2,7 @@ import type { BootstrapPayload, SettingsConfig } from '../../../../shared/yachiy
 import type { YachiyoServerConfigDomain } from '../domain/config/configDomain.ts'
 import type { YachiyoServerRunDomain } from '../domain/run/runDomain.ts'
 import type { YachiyoStorage } from '../../storage/storage.ts'
+import type { ThreadSentinelManager } from '../domain/sentinel/threadSentinelManager.ts'
 
 export async function bootstrapYachiyoServer(input: {
   configDomain: YachiyoServerConfigDomain
@@ -11,6 +12,7 @@ export async function bootstrapYachiyoServer(input: {
   recoverInterruptedRuns: () => void
   recoverInterruptedSaves: () => string[]
   runDomain: YachiyoServerRunDomain
+  sentinelManager?: ThreadSentinelManager
   storage: YachiyoStorage
 }): Promise<BootstrapPayload> {
   if (!input.developmentMode) {
@@ -27,6 +29,9 @@ export async function bootstrapYachiyoServer(input: {
 
   return {
     ...bootstrapped,
+    sentinelsByThread: Object.fromEntries(
+      (input.sentinelManager?.list() ?? []).map((sentinel) => [sentinel.threadId, sentinel])
+    ),
     recoveredInterruptedSaveThreadIds,
     config: input.configDomain.readConfig() as SettingsConfig,
     settings: input.configDomain.readSettings()

@@ -31,6 +31,7 @@ export type {
   ThreadModelOverride,
   ThreadColorTag,
   ThreadRecord as Thread,
+  ThreadSentinelRecord,
   TodoItemRecord,
   TodoItemStatus,
   ToolCallName,

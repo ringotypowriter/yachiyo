@@ -145,6 +145,37 @@ test('createAgentToolSet adds querySource when source query storage is provided'
   assert.equal('querySource' in withoutSourceStorage, false)
 })
 
+test('createAgentToolSet respects disabled useSentinel', async () => {
+  const tools = createAgentToolSet(
+    {
+      enabledTools: ['read'],
+      workspacePath: '/tmp/yachiyo'
+    },
+    {
+      sentinelContext: {
+        threadId: 'thread-1',
+        manager: {
+          set: () => {
+            throw new Error('useSentinel should be disabled')
+          },
+          clear: () => {
+            throw new Error('useSentinel should be disabled')
+          },
+          get: () => undefined,
+          list: () => [],
+          onRunTerminal: () => {},
+          dispose: () => {}
+        }
+      }
+    }
+  )
+
+  assert.ok(tools?.useSentinel)
+  const result = await tools.useSentinel.execute?.({ action: 'clear' }, {} as never)
+  assert.match(flattenToolContent(result?.content ?? []), /currently disabled/)
+  assert.equal(result?.error, 'Tool "useSentinel" is disabled.')
+})
+
 test('createAgentToolSet passes configured fetch into jsRepl', async () => {
   await withWorkspace(async (workspacePath) => {
     const tools = createAgentToolSet(

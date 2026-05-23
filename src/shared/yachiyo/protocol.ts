@@ -242,7 +242,8 @@ export const CORE_TOOL_NAMES = [
   'useBrowser',
   'webSearch',
   'skillsRead',
-  'applyPatch'
+  'applyPatch',
+  'useSentinel'
 ] as const
 export type ToolCallName = (typeof CORE_TOOL_NAMES)[number]
 export type SelectableRunModeId = 'auto' | 'explore' | 'plan' | 'chat'
@@ -352,6 +353,7 @@ const trackedToolNameSet = new Set<string>([
   'remember',
   'querySource',
   'updateProfile',
+  'useSentinel',
   'exitPlanMode'
 ])
 
@@ -434,6 +436,15 @@ export interface ThreadCapabilities {
   canSelectReplyBranch: boolean
   canEdit: boolean
   canDelete: boolean
+}
+
+export interface ThreadSentinelRecord {
+  threadId: string
+  goal: string
+  stopCondition: string
+  intervalMinutes: number
+  updatedAt: string
+  nextRunAt?: string
 }
 
 export interface ThreadRecord {
@@ -1130,6 +1141,7 @@ export interface FolderRecord {
 export interface BootstrapPayload {
   threads: ThreadRecord[]
   archivedThreads: ThreadRecord[]
+  sentinelsByThread: Record<string, ThreadSentinelRecord>
   folders: FolderRecord[]
   messagesByThread: Record<string, MessageRecord[]>
   toolCallsByThread: Record<string, ToolCallRecord[]>

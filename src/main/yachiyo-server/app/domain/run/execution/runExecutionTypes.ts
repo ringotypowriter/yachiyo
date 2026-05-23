@@ -39,6 +39,7 @@ import type {
   BackgroundBashAdoptionHandle,
   BackgroundBashTaskHandle
 } from '../../../../tools/agentTools/shared.ts'
+import type { UseSentinelToolContext } from '../../../../tools/agentTools/useSentinelTool.ts'
 import type { BackgroundBashTaskResult } from '../../background/backgroundBashManager.ts'
 import type { CreateId, EmitServerEvent, Timestamp } from '../../shared/shared.ts'
 import type { PendingSteerInput } from '../runTypes.ts'
@@ -167,6 +168,7 @@ export interface RunExecutionDeps {
   /** Called by execution to register the askUser answer handler. */
   onAskUserHandlerReady?: (handler: (toolCallId: string, answer: string) => void) => void
   onTerminalState?: () => void
+  sentinelContext?: UseSentinelToolContext
   onBackgroundBashStarted?: (task: BackgroundBashTaskHandle & { threadId: string }) => Promise<void>
   onBackgroundBashAdopted?: (
     task: BackgroundBashAdoptionHandle & { threadId: string }

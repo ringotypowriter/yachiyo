@@ -1,7 +1,7 @@
 import type React from 'react'
 import { useEffect, useRef, useState } from 'react'
-import { Check, Star } from 'lucide-react'
-import type { Thread, ThreadColorTag, ToolCall } from '@renderer/app/types'
+import { AlarmClock, Check, Star } from 'lucide-react'
+import type { Thread, ThreadColorTag, ThreadSentinelRecord, ToolCall } from '@renderer/app/types'
 import { ThreadContextMenuPopup } from '@renderer/features/threads/components/ThreadContextMenuPopup'
 import { imeSafeEnter, isDismissEscapeKey } from '@renderer/lib/imeUtils'
 import {
@@ -85,6 +85,8 @@ export function ThreadListItem({
   hasJustDoneRun,
   isRunActive,
   isSaving,
+  currentTimeMs,
+  sentinel,
   pendingPlanApproval,
   isSelectMode,
   isSelected,
@@ -110,6 +112,8 @@ export function ThreadListItem({
   hasJustDoneRun: boolean
   isRunActive: boolean
   isSaving: boolean
+  currentTimeMs: number
+  sentinel?: ThreadSentinelRecord
   pendingPlanApproval: boolean
   isSelectMode: boolean
   isSelected: boolean
@@ -162,6 +166,9 @@ export function ThreadListItem({
     preview.state === 'thinking' || preview.state === 'working'
       ? 'mt-0.5 block truncate yachiyo-sidebar-run-preview-shimmer'
       : 'mt-0.5 block truncate'
+  const sentinelRemainingMinutes = sentinel?.nextRunAt
+    ? Math.max(0, Math.ceil((Date.parse(sentinel.nextRunAt) - currentTimeMs) / 60_000))
+    : null
 
   function handleIconClick(e: React.MouseEvent): void {
     e.stopPropagation()
@@ -344,6 +351,30 @@ export function ThreadListItem({
                 ) : (
                   <span className="min-w-0 flex-1 truncate">{displayedTitle}</span>
                 )}
+                {sentinel ? (
+                  <span
+                    aria-label="Sentinel active"
+                    title={
+                      sentinelRemainingMinutes === null
+                        ? 'Sentinel armed'
+                        : `Sentinel in ${sentinelRemainingMinutes} minute${sentinelRemainingMinutes === 1 ? '' : 's'}`
+                    }
+                    className="relative inline-flex shrink-0 items-center gap-0.5 rounded px-1"
+                    style={{
+                      color: theme.text.inverse,
+                      background: theme.text.accentStrong,
+                      fontSize: '0.6rem',
+                      lineHeight: '14px',
+                      height: '14px',
+                      top: '-1px'
+                    }}
+                  >
+                    <AlarmClock size={9} strokeWidth={2} />
+                    {sentinelRemainingMinutes === null ? null : (
+                      <span>{sentinelRemainingMinutes}m</span>
+                    )}
+                  </span>
+                ) : null}
               </span>
               {showPreview && (
                 <span
@@ -370,7 +401,7 @@ export function ThreadListItem({
               )}
             </div>
           </div>
-          {isSaving ? (
+          {sentinel ? null : isSaving ? (
             <span
               aria-label="Saving"
               className="absolute right-3 top-1/2 -translate-y-1/2 rounded-full"
@@ -429,8 +460,15 @@ export function ThreadListItem({
             style={{
               color: isStarred ? theme.text.warning : theme.text.muted,
               opacity:
-                !hasActiveRun && !hasJustDoneRun && !isSaving && (isHovered || isStarred) ? 1 : 0,
-              pointerEvents: hasActiveRun || hasJustDoneRun || isSaving ? 'none' : 'auto',
+                !hasActiveRun &&
+                !hasJustDoneRun &&
+                !isSaving &&
+                !sentinel &&
+                (isHovered || isStarred)
+                  ? 1
+                  : 0,
+              pointerEvents:
+                hasActiveRun || hasJustDoneRun || isSaving || sentinel ? 'none' : 'auto',
               transition: 'opacity 0.15s'
             }}
           >

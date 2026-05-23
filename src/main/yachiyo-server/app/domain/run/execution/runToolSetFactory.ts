@@ -141,6 +141,7 @@ export function createRunToolSet(input: CreateRunToolSetInput): ToolSet | undefi
       : {}),
     ...(isLocalRunTrigger ? { askUserContext: createAskUserContext(input) } : {}),
     ...(isLocalRunTrigger ? { todoContext: createTodoContext(input) } : {}),
+    ...(deps.sentinelContext ? { sentinelContext: deps.sentinelContext } : {}),
     ...((gitCtx.hasGit || gitValidatedWorkspaces.length > 0) && enabledSubagentProfiles.length > 0
       ? {
           subagentProfiles: enabledSubagentProfiles,

@@ -16,6 +16,7 @@ import type {
   Thread,
   ThreadColorTag,
   ThreadModelOverride,
+  ThreadSentinelRecord,
   TodoItemRecord,
   ToolCallName,
   ToolCall,
@@ -312,6 +313,7 @@ export interface AppState {
   toggleSidebarFilterFolderOnly: () => void
   clearSidebarFilter: () => void
   todoListsByThread: Record<string, TodoListState>
+  sentinelsByThread: Record<string, ThreadSentinelRecord>
   planDocumentsByThread: Record<string, PlanDocumentState>
   toolCalls: Record<string, ToolCall[]>
   /** Snapshot review info per run, set by snapshot.ready events. */
@@ -973,6 +975,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   threadListMode: deriveThreadListMode(loadSidebarFilter()),
   sidebarFilter: loadSidebarFilter(),
   todoListsByThread: {},
+  sentinelsByThread: {},
   planDocumentsByThread: {},
   toolCalls: {},
   snapshotReviewByRun: {},

@@ -127,6 +127,8 @@ export function reduceServerEvent(state: AppState, event: YachiyoServerEvent): P
     )
     const todoListsByThread = { ...state.todoListsByThread }
     delete todoListsByThread[event.threadId]
+    const sentinelsByThread = { ...state.sentinelsByThread }
+    delete sentinelsByThread[event.threadId]
     const planDocumentsByThread = { ...state.planDocumentsByThread }
     delete planDocumentsByThread[event.threadId]
     const subagentActiveIdsByThread = { ...state.subagentActiveIdsByThread }
@@ -175,6 +177,7 @@ export function reduceServerEvent(state: AppState, event: YachiyoServerEvent): P
       subagentProgressTimelineByThread,
       subagentStateById,
       externalThreads,
+      sentinelsByThread,
       todoListsByThread,
       planDocumentsByThread,
       toolModeByThread,
@@ -665,6 +668,17 @@ export function reduceServerEvent(state: AppState, event: YachiyoServerEvent): P
     }
 
     return { todoListsByThread }
+  }
+
+  if (event.type === 'thread.sentinel.updated') {
+    const sentinelsByThread = { ...state.sentinelsByThread }
+    if (event.sentinel) {
+      sentinelsByThread[event.threadId] = event.sentinel
+    } else {
+      delete sentinelsByThread[event.threadId]
+    }
+
+    return { sentinelsByThread }
   }
 
   if (event.type === 'run.usage.updated') {

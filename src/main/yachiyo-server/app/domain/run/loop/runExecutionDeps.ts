@@ -115,6 +115,35 @@ export function buildRunExecutionDeps(
     jotdownStore: deps.jotdownStore,
     imageToTextService: deps.imageToTextService,
     isModelImageCapable: resolveCurrentModelImageCapability(deps, input.currentThread),
+    ...(deps.sentinelManager
+      ? {
+          sentinelContext: {
+            threadId: input.currentThread.id,
+            manager: deps.sentinelManager,
+            wakeContext: {
+              enabledTools: input.activeRun.enabledTools ?? input.loopInput.enabledTools,
+              ...((input.activeRun.enabledSkillNames ?? input.loopInput.enabledSkillNames)
+                ? {
+                    enabledSkillNames:
+                      input.activeRun.enabledSkillNames ?? input.loopInput.enabledSkillNames
+                  }
+                : {}),
+              runMode: input.activeRun.runMode ?? input.loopInput.runMode,
+              ...((input.activeRun.reasoningEffort ?? input.loopInput.reasoningEffort)
+                ? {
+                    reasoningEffort:
+                      input.activeRun.reasoningEffort ?? input.loopInput.reasoningEffort
+                  }
+                : {}),
+              runTrigger: input.activeRun.runTrigger ?? input.loopInput.runTrigger,
+              ...((input.activeRun.channelHint ?? input.loopInput.channelHint)
+                ? { channelHint: input.activeRun.channelHint ?? input.loopInput.channelHint }
+                : {}),
+              ...(input.loopInput.extraTools ? { extraTools: input.loopInput.extraTools } : {})
+            }
+          }
+        }
+      : {}),
     onEnabledToolsUsed: (enabledTools) => {
       context.setLastRunEnabledTools(enabledTools)
       context.setLastRunMode(input.activeRun.runMode ?? input.loopInput.runMode)
@@ -278,6 +307,7 @@ export function buildRunExecutionDeps(
         context.activeRunByThread.delete(input.loopInput.thread.id)
       }
       context.activeRunTasks.delete(input.loopInput.runId)
+      deps.sentinelManager?.onRunTerminal(input.currentThread.id)
     }
   }
 }

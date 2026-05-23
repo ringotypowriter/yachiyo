@@ -142,6 +142,10 @@ import {
 import { testSubagentProfile as runTestSubagentProfile } from '../../tools/agentTools/testSubagentProfile.ts'
 import { assertSupportedImages, YachiyoServerConfigDomain } from '../domain/config/configDomain.ts'
 import { YachiyoServerRunDomain } from '../domain/run/runDomain.ts'
+import {
+  createThreadSentinelManager,
+  type ThreadSentinelManager
+} from '../domain/sentinel/threadSentinelManager.ts'
 import { YachiyoServerThreadDomain } from '../domain/threads/threadDomain.ts'
 import {
   createRemoteImageDomain,
@@ -213,6 +217,7 @@ export class YachiyoServer {
   private readonly memoryService: MemoryService
   private readonly configDomain: YachiyoServerConfigDomain
   private readonly runDomain: YachiyoServerRunDomain
+  private readonly sentinelManager: ThreadSentinelManager
   private readonly threadDomain: YachiyoServerThreadDomain
   private readonly browserSearchSession: BrowserSearchSession
   private readonly browserAutomationService: BrowserAutomationService
@@ -370,6 +375,25 @@ export class YachiyoServer {
     this.webSearchServiceInstance = webSearchService
     this.browserAutomationService = browserAutomationService
     this.jotdownStore = options.jotdownStore ?? null
+    this.sentinelManager = createThreadSentinelManager({
+      now: () => this.now().getTime(),
+      setTimer: (callback, delayMs) => setTimeout(callback, delayMs),
+      clearTimer: (timer) => clearTimeout(timer as ReturnType<typeof setTimeout>),
+      emit: this.emit.bind(this),
+      wakeThread: async ({ threadId, content, wakeContext }) => {
+        await this.sendChat({
+          threadId,
+          content,
+          enabledTools: wakeContext?.enabledTools,
+          enabledSkillNames: wakeContext?.enabledSkillNames,
+          runMode: wakeContext?.runMode,
+          reasoningEffort: wakeContext?.reasoningEffort,
+          runTrigger: wakeContext?.runTrigger ?? 'local',
+          channelHint: wakeContext?.channelHint,
+          extraTools: wakeContext?.extraTools
+        })
+      }
+    })
     this.runDomain = new YachiyoServerRunDomain({
       storage: this.storage,
       createId: this.createId,
@@ -396,7 +420,8 @@ export class YachiyoServer {
       loadThreadMessages: (threadId) => this.storage.listThreadMessages(threadId),
       loadThreadToolCalls: (threadId) => this.storage.listThreadToolCalls(threadId),
       jotdownStore: this.jotdownStore ?? undefined,
-      imageToTextService: this.imageToTextServiceInstance
+      imageToTextService: this.imageToTextServiceInstance,
+      sentinelManager: this.sentinelManager
     })
     this.threadDomain = new YachiyoServerThreadDomain({
       storage: this.storage,
@@ -466,6 +491,7 @@ export class YachiyoServer {
 
   async close(): Promise<void> {
     this.ttlReaper.stop()
+    this.sentinelManager.dispose()
     this.browserAutomationService.dispose()
     await this.runDomain.close()
     await acpProcessPool.shutdown()
@@ -490,6 +516,7 @@ export class YachiyoServer {
       recoverInterruptedRuns: () => this.recoverInterruptedRuns(),
       recoverInterruptedSaves: () => this.recoverInterruptedSaves(),
       runDomain: this.runDomain,
+      sentinelManager: this.sentinelManager,
       storage: this.storage
     })
   }
