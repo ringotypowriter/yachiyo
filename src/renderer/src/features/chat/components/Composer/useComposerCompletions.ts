@@ -55,7 +55,7 @@ interface UseComposerCompletionsInput {
   pendingWorkspaceChangeConfirmation: PendingWorkspaceChangeConfirmation | null
   reasoningSelectorOpen: boolean
   runStatus: RunStatus
-  savedWorkspacePaths: string[]
+  saveThreadWorkspaceCandidate: (threadId: string, workspacePath: string) => void
   setPendingWorkspaceChangeConfirmation: React.Dispatch<
     React.SetStateAction<PendingWorkspaceChangeConfirmation | null>
   >
@@ -117,7 +117,7 @@ export function useComposerCompletions(
     pendingWorkspaceChangeConfirmation,
     reasoningSelectorOpen,
     runStatus,
-    savedWorkspacePaths,
+    saveThreadWorkspaceCandidate,
     setPendingWorkspaceChangeConfirmation,
     setThreadWorkspace,
     setWorkspaceHintPinned,
@@ -216,8 +216,19 @@ export function useComposerCompletions(
 
   const commitWorkspaceSelection = useCallback(
     async (selection: PendingWorkspaceChangeConfirmation): Promise<void> => {
+      if (selection.currentWorkspacePath === selection.nextWorkspacePath) {
+        return
+      }
+
+      await setThreadWorkspace(selection.nextWorkspacePath, selection.threadId, { confirmed: true })
+
+      if (selection.threadId && selection.currentWorkspacePath) {
+        saveThreadWorkspaceCandidate(selection.threadId, selection.currentWorkspacePath)
+      }
+
       if (selection.saveWorkspacePath && config) {
-        const nextSavedPaths = [...new Set([...savedWorkspacePaths, selection.saveWorkspacePath])]
+        const configuredSavedPaths = config.workspace?.savedPaths ?? []
+        const nextSavedPaths = [...new Set([...configuredSavedPaths, selection.saveWorkspacePath])]
         await window.api.yachiyo.saveConfig({
           ...config,
           workspace: {
@@ -226,32 +237,27 @@ export function useComposerCompletions(
           }
         })
       }
-
-      if (selection.currentWorkspacePath === selection.nextWorkspacePath) {
-        return
-      }
-
-      await setThreadWorkspace(selection.nextWorkspacePath, selection.threadId, { confirmed: true })
     },
-    [config, savedWorkspacePaths, setThreadWorkspace]
+    [config, saveThreadWorkspaceCandidate, setThreadWorkspace]
   )
 
   const requestWorkspaceSelection = useCallback(
     (selection: PendingWorkspaceChangeConfirmation): void => {
+      const threadId = selection.threadId
       const workspaceChanged = selection.currentWorkspacePath !== selection.nextWorkspacePath
 
-      if (selection.threadId && workspaceChanged) {
+      if (threadId && workspaceChanged) {
         void (async () => {
           const decision = await window.api.yachiyo.getThreadWorkspaceChangeDecision({
-            threadId: selection.threadId!,
+            threadId,
             workspacePath: selection.nextWorkspacePath
           })
           if (!decision.allowed) {
             useAppStore.getState().pushToast({
-              threadId: selection.threadId!,
+              threadId,
               title: 'Workspace not changed',
               body: decision.message ?? 'This thread cannot change workspace.',
-              eventKey: `workspace-change-blocked:${selection.threadId}`
+              eventKey: `workspace-change-blocked:${threadId}`
             })
             return
           }
@@ -269,10 +275,10 @@ export function useComposerCompletions(
           await commitWorkspaceSelection(selection)
         })().catch((error) => {
           useAppStore.getState().pushToast({
-            threadId: selection.threadId!,
+            threadId,
             title: 'Workspace not changed',
             body: error instanceof Error ? error.message : 'Unable to change the workspace.',
-            eventKey: `workspace-change-error:${selection.threadId}`
+            eventKey: `workspace-change-error:${threadId}`
           })
         })
         return

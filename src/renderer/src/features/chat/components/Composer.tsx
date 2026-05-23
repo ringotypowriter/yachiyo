@@ -46,6 +46,31 @@ import { ComposerView } from './Composer/ComposerView.tsx'
 import { useComposerCompletions } from './Composer/useComposerCompletions.ts'
 import { useComposerInputHandlers } from './Composer/useComposerInputHandlers.ts'
 
+const THREAD_WORKSPACE_CANDIDATES_STORAGE_PREFIX = 'yachiyo:thread-workspace-candidates:'
+
+function readThreadWorkspaceCandidates(threadId: string | null): string[] {
+  if (!threadId || typeof window === 'undefined') return []
+  try {
+    const parsed = JSON.parse(
+      window.localStorage.getItem(`${THREAD_WORKSPACE_CANDIDATES_STORAGE_PREFIX}${threadId}`) ??
+        '[]'
+    )
+    return Array.isArray(parsed)
+      ? parsed.filter((path): path is string => typeof path === 'string')
+      : []
+  } catch {
+    return []
+  }
+}
+
+function writeThreadWorkspaceCandidates(threadId: string, paths: string[]): void {
+  if (typeof window === 'undefined') return
+  window.localStorage.setItem(
+    `${THREAD_WORKSPACE_CANDIDATES_STORAGE_PREFIX}${threadId}`,
+    JSON.stringify([...new Set(paths)])
+  )
+}
+
 export function Composer({
   onSelectThreadOperation
 }: {
@@ -263,6 +288,19 @@ export function Composer({
     ? canRemoveQueuedFollowUp({ threadCapabilities: getThreadCapabilities(activeThread) })
     : false
   const currentWorkspacePath = activeThread?.workspacePath ?? pendingWorkspacePath
+  const [threadWorkspaceCandidatePaths, setThreadWorkspaceCandidatePaths] = useState<string[]>(() =>
+    readThreadWorkspaceCandidates(activeThreadId)
+  )
+  useEffect(() => {
+    setThreadWorkspaceCandidatePaths(readThreadWorkspaceCandidates(activeThreadId))
+  }, [activeThreadId])
+  const saveThreadWorkspaceCandidate = useCallback((threadId: string, workspacePath: string) => {
+    setThreadWorkspaceCandidatePaths((current) => {
+      const next = [...new Set([...current, workspacePath])]
+      writeThreadWorkspaceCandidates(threadId, next)
+      return next
+    })
+  }, [])
   const activePlanDocument = useAppStore((s) =>
     activeThreadId ? s.planDocumentsByThread[activeThreadId] : undefined
   )
@@ -289,8 +327,14 @@ export function Composer({
       effectiveModel.model.trim().length > 0) ||
     effectiveAcpBinding !== null
   const savedWorkspacePaths = useMemo(
-    () => config?.workspace?.savedPaths ?? [],
-    [config?.workspace]
+    () => [
+      ...new Set([
+        ...(currentWorkspacePath ? [currentWorkspacePath] : []),
+        ...threadWorkspaceCandidatePaths,
+        ...(config?.workspace?.savedPaths ?? [])
+      ])
+    ],
+    [config?.workspace, currentWorkspacePath, threadWorkspaceCandidatePaths]
   )
   const workspaceHint = getWorkspaceHint({
     workspacePath: currentWorkspacePath,
@@ -334,7 +378,7 @@ export function Composer({
     pendingWorkspaceChangeConfirmation,
     reasoningSelectorOpen,
     runStatus,
-    savedWorkspacePaths,
+    saveThreadWorkspaceCandidate,
     setPendingWorkspaceChangeConfirmation,
     setThreadWorkspace,
     setWorkspaceHintPinned,
