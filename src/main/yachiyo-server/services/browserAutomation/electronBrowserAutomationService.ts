@@ -4,6 +4,12 @@ import { mkdir, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 
 import { resolveElectronSessionProxyConfig } from '../webSearch/electronProxyConfig.ts'
+import {
+  normalizeBrowserAutomationScriptExecutionError,
+  unwrapBrowserAutomationPageScriptResult,
+  wrapBrowserAutomationPageScript
+} from './browserAutomationScriptEvaluation.ts'
+import { buildBrowserAutomationSnapshotScript } from './browserAutomationSnapshotScript.ts'
 import { createBrowserPointerOverlay, type BrowserPointerOverlay } from './browserPointerOverlay.ts'
 import type {
   BrowserAutomationPointerState,
@@ -338,9 +344,27 @@ export function createElectronBrowserAutomationService(input: {
 
   async function evaluate<TResult>(
     state: ThreadBrowserSessionState,
-    script: string
+    script: string,
+    action?: string
   ): Promise<TResult> {
-    return state.view.webContents.executeJavaScript(script, true)
+    const url = state.url || state.view.webContents.getURL() || undefined
+    const context = {
+      ...(action ? { action } : {}),
+      session: state.session,
+      ...(url ? { url } : {})
+    }
+
+    let result: unknown
+    try {
+      result = await state.view.webContents.executeJavaScript(
+        wrapBrowserAutomationPageScript(script),
+        true
+      )
+    } catch (error) {
+      throw normalizeBrowserAutomationScriptExecutionError(error, context)
+    }
+
+    return unwrapBrowserAutomationPageScriptResult<TResult>(result, context)
   }
 
   function updateSessionMetadata(
@@ -431,7 +455,8 @@ export function createElectronBrowserAutomationService(input: {
           x: Math.round(rect.x + rect.width / 2),
           y: Math.round(rect.y + rect.height / 2)
         }
-      })()`
+      })()`,
+      'locate ref'
     )
     setPointer(state, { x: point.x, y: point.y, visible: true, label: `Yachiyo's Cursor` })
     return xpath
@@ -711,7 +736,7 @@ export function createElectronBrowserAutomationService(input: {
           throw error
         }
 
-        const matched = await evaluate<boolean>(state, predicate)
+        const matched = await evaluate<boolean>(state, predicate, 'wait predicate')
         if (matched) {
           updateSessionMetadata(state)
           return
@@ -732,139 +757,7 @@ export function createElectronBrowserAutomationService(input: {
         title?: string
         pageText: BrowserAutomationPageText
         refs: Array<Omit<BrowserAutomationRef, 'ref'> & { xpath: string }>
-      }>(
-        state,
-        `(() => {
-          const limit = ${JSON.stringify(limit)}
-          const isVisible = (el) => {
-            if (!(el instanceof Element)) return false
-            const style = window.getComputedStyle(el)
-            if (!style || style.visibility === 'hidden' || style.display === 'none') return false
-            const rect = el.getBoundingClientRect()
-            return rect.width > 1 && rect.height > 1
-          }
-
-          const clip = (text, length) => {
-            const normalized = String(text || '').replace(/\\s+/g, ' ').trim()
-            return normalized.length > length ? normalized.slice(0, length - 3) + '...' : normalized
-          }
-
-          const elementText = (el) => clip(el.innerText || el.textContent || '', 120)
-
-          const visibleText = (el) => {
-            if (!isVisible(el)) return ''
-            const rect = el.getBoundingClientRect()
-            if (rect.bottom < 0 || rect.top > window.innerHeight) return ''
-            return clip(el.innerText || el.textContent || '', 240)
-          }
-
-          const toXpath = (el) => {
-            if (!(el instanceof Element)) return ''
-            if (el.id) return '//*[@id=' + JSON.stringify(el.id) + ']'
-            const parts = []
-            let node = el
-            while (node && node.nodeType === 1 && parts.length < 32) {
-              const tag = node.tagName.toLowerCase()
-              let index = 1
-              let sibling = node.previousElementSibling
-              while (sibling) {
-                if (sibling.tagName === node.tagName) index++
-                sibling = sibling.previousElementSibling
-              }
-              parts.unshift(tag + '[' + index + ']')
-              node = node.parentElement
-            }
-            return '/' + parts.join('/')
-          }
-
-          const selector = [
-            'a[href]',
-            'button',
-            'input:not([type="hidden"])',
-            'textarea',
-            'select',
-            '[role="button"]',
-            '[role="link"]',
-            '[contenteditable="true"]'
-          ].join(',')
-
-          const nodes = Array.from(document.querySelectorAll(selector))
-            .filter(isVisible)
-            .slice(0, limit)
-
-          const headings = Array.from(document.querySelectorAll('h1,h2,h3,[role="heading"]'))
-            .map(visibleText)
-            .filter(Boolean)
-            .slice(0, 12)
-
-          const snippets = Array.from(document.querySelectorAll('main p, article p, p, li'))
-            .map(visibleText)
-            .filter((text) => text.length >= 20)
-            .slice(0, 20)
-
-          const viewport = clip(
-            Array.from(
-              document.querySelectorAll(
-                'h1,h2,h3,h4,p,li,blockquote,pre,button,a,label,summary,td,th,figcaption,[role="heading"]'
-              )
-            )
-              .filter((el) => {
-                if (!isVisible(el)) return false
-                const rect = el.getBoundingClientRect()
-                return rect.bottom >= 0 && rect.top <= window.innerHeight
-              })
-              .sort((left, right) => {
-                const leftRect = left.getBoundingClientRect()
-                const rightRect = right.getBoundingClientRect()
-                return leftRect.top - rightRect.top || leftRect.left - rightRect.left
-              })
-              .map((el) => visibleText(el))
-              .filter(Boolean)
-              .filter((text, index, all) => all.indexOf(text) === index)
-              .join('\n'),
-            2000
-          )
-
-          const refs = nodes.map((el) => {
-            const rect = el.getBoundingClientRect()
-            const id = (el.id || '').trim() || undefined
-            const role = (el.getAttribute('role') || '').trim() || undefined
-            const name = (el.getAttribute('name') || '').trim() || undefined
-            const testId = (el.getAttribute('data-testid') || el.getAttribute('data-test-id') || '').trim() || undefined
-            const selectorHint = id
-              ? '#' + CSS.escape(id)
-              : testId
-                ? '[data-testid="' + testId.replace(/"/g, '\\"') + '"]'
-                : undefined
-            return {
-              tag: el.tagName.toLowerCase(),
-              text: elementText(el) || undefined,
-              ariaLabel: (el.getAttribute('aria-label') || '').trim() || undefined,
-              placeholder: (el.getAttribute('placeholder') || '').trim() || undefined,
-              href: (el instanceof HTMLAnchorElement ? el.href : (el.getAttribute('href') || '').trim()) || undefined,
-              id,
-              role,
-              name,
-              testId,
-              selectorHint,
-              box: {
-                x: Math.round(rect.x),
-                y: Math.round(rect.y),
-                width: Math.round(rect.width),
-                height: Math.round(rect.height)
-              },
-              xpath: toXpath(el)
-            }
-          })
-
-          return {
-            url: location.href,
-            title: document.title || undefined,
-            pageText: { headings, snippets, viewport },
-            refs
-          }
-        })()`
-      )
+      }>(state, buildBrowserAutomationSnapshotScript(limit), 'snapshot')
 
       state.refXpathById.clear()
       state.refSummaryById.clear()
@@ -922,7 +815,8 @@ export function createElectronBrowserAutomationService(input: {
             right: { left: amount, top: 0 }
           }[direction] || { left: 0, top: amount }
           window.scrollBy({ ...delta, behavior: 'instant' })
-        })()`
+        })()`,
+        'scroll'
       )
       return settleAndUpdate(state)
     },
@@ -966,7 +860,8 @@ export function createElectronBrowserAutomationService(input: {
           ;(node).dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))
           ;(node).dispatchEvent(new MouseEvent('mouseup', { bubbles: true }))
           ;(node).dispatchEvent(new MouseEvent('click', { bubbles: true }))
-        })()`
+        })()`,
+        'click'
       )
       return settleAndUpdate(state)
     },
@@ -996,7 +891,8 @@ export function createElectronBrowserAutomationService(input: {
             return
           }
           throw new Error('Ref is not fillable.')
-        })()`
+        })()`,
+        'fill'
       )
       return settleAndUpdate(state)
     },
@@ -1026,7 +922,8 @@ export function createElectronBrowserAutomationService(input: {
             return
           }
           throw new Error('Ref is not typable.')
-        })()`
+        })()`,
+        'type'
       )
       return settleAndUpdate(state)
     },
@@ -1049,7 +946,8 @@ export function createElectronBrowserAutomationService(input: {
             return
           }
           throw new Error('Ref is not a select element.')
-        })()`
+        })()`,
+        'select'
       )
       return settleAndUpdate(state)
     },
@@ -1072,7 +970,8 @@ export function createElectronBrowserAutomationService(input: {
             return
           }
           throw new Error('Ref is not a checkbox/radio input.')
-        })()`
+        })()`,
+        'check'
       )
       return settleAndUpdate(state)
     },

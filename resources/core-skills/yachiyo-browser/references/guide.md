@@ -39,18 +39,18 @@ Typical sequence:
 { "action": "snapshot" }
 ```
 
-If the snapshot shows refs like `@1` and `@2`, use them directly:
+If the snapshot shows refs like `@e1` and `@e2`, use them **without the @ prefix** in the `ref` parameter:
 
 ```json
-{ "action": "fill", "ref": "@1", "text": "user@example.com" }
-{ "action": "click", "ref": "@2" }
+{ "action": "fill", "ref": "e1", "text": "user@example.com" }
+{ "action": "click", "ref": "e2" }
 { "action": "wait" }
 { "action": "snapshot" }
 ```
 
 ## Element Refs
 
-Refs like `@1` are session-local handles returned by snapshots. Treat them as short-lived.
+Refs like `@e1` are session-local handles returned by snapshots. Treat them as short-lived. When passing a ref to an action, omit the `@` prefix and use just `e1`.
 
 Always re-snapshot after:
 
@@ -93,11 +93,11 @@ If a ref stops working, assume it is stale and take a new snapshot instead of re
 ### Interaction
 
 ```json
-{ "action": "click", "ref": "@1" }
-{ "action": "fill", "ref": "@2", "text": "Jane Doe" }
-{ "action": "type", "ref": "@2", "text": "Jane Doe" }
-{ "action": "select", "ref": "@3", "value": "Option B" }
-{ "action": "check", "ref": "@4", "checked": true }
+{ "action": "click", "ref": "e1" }
+{ "action": "fill", "ref": "e2", "text": "Jane Doe" }
+{ "action": "type", "ref": "e2", "text": "Jane Doe" }
+{ "action": "select", "ref": "e3", "value": "Option B" }
+{ "action": "check", "ref": "e4", "checked": true }
 { "action": "press", "key": "Enter" }
 ```
 
@@ -177,9 +177,9 @@ If a page is slow, increase `timeoutMs` up to 120000.
 { "action": "open", "url": "https://example.com/form" }
 { "action": "wait" }
 { "action": "snapshot" }
-{ "action": "fill", "ref": "@1", "text": "Jane Doe" }
-{ "action": "fill", "ref": "@2", "text": "jane@example.com" }
-{ "action": "click", "ref": "@3" }
+{ "action": "fill", "ref": "e1", "text": "Jane Doe" }
+{ "action": "fill", "ref": "e2", "text": "jane@example.com" }
+{ "action": "click", "ref": "e3" }
 { "action": "wait" }
 { "action": "snapshot" }
 ```
@@ -190,9 +190,9 @@ If a page is slow, increase `timeoutMs` up to 120000.
 { "action": "open", "url": "https://app.example.com/login" }
 { "action": "wait" }
 { "action": "snapshot" }
-{ "action": "fill", "ref": "@1", "text": "$USERNAME" }
-{ "action": "fill", "ref": "@2", "text": "$PASSWORD" }
-{ "action": "click", "ref": "@3" }
+{ "action": "fill", "ref": "e1", "text": "$USERNAME" }
+{ "action": "fill", "ref": "e2", "text": "$PASSWORD" }
+{ "action": "click", "ref": "e3" }
 { "action": "wait", "predicate": "(() => window.location.pathname.includes('/dashboard'))()" }
 { "action": "getUrl" }
 ```

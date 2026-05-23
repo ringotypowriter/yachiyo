@@ -390,7 +390,11 @@ export const useBrowserToolInputSchema = z.object({
   ]),
   session: z.string().min(1).default('default'),
   url: z.string().min(1).optional(),
-  ref: z.string().min(1).optional(),
+  ref: z
+    .string()
+    .min(1)
+    .optional()
+    .describe('Element reference from snapshot, e.g. "e3". Do not include the @ prefix.'),
   text: z.string().optional(),
   value: z.string().optional(),
   checked: z.boolean().optional(),
