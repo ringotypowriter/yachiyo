@@ -188,6 +188,9 @@ export interface UseBrowserToolCallDetails {
     | 'loadUrl'
     | 'wait'
     | 'snapshot'
+    | 'scroll'
+    | 'goBack'
+    | 'goForward'
     | 'click'
     | 'fill'
     | 'type'
@@ -200,6 +203,8 @@ export interface UseBrowserToolCallDetails {
   url?: string
   ref?: string
   key?: string
+  direction?: 'up' | 'down' | 'left' | 'right'
+  amount?: number
   value?: string
   checked?: boolean
   timeoutMs?: number

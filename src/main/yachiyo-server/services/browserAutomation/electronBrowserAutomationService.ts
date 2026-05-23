@@ -16,6 +16,10 @@ import type {
 } from '../../../../shared/yachiyo/protocol.ts'
 
 const DEFAULT_WAIT_POLL_INTERVAL_MS = 100
+const INTERACTION_SETTLE_MS = 250
+const HISTORY_NAVIGATION_TIMEOUT_MS = 5_000
+const IDLE_SESSION_TTL_MS = 30 * 60 * 1000
+const IDLE_SESSION_SWEEP_MS = 5 * 60 * 1000
 const { BrowserWindow, WebContentsView, session } = electron
 
 export interface BrowserAutomationViewport {
@@ -37,12 +41,31 @@ export interface BrowserAutomationRef {
   ariaLabel?: string
   placeholder?: string
   href?: string
+  id?: string
+  role?: string
+  name?: string
+  testId?: string
+  selectorHint?: string
   box?: BrowserAutomationRefBox
 }
+
+export interface BrowserAutomationPageText {
+  headings: string[]
+  snippets: string[]
+  viewport?: string
+}
+
+export interface BrowserAutomationPageState {
+  url: string
+  title?: string
+}
+
+export type BrowserAutomationScrollDirection = 'up' | 'down' | 'left' | 'right'
 
 export interface BrowserAutomationSnapshot {
   url: string
   title?: string
+  pageText: BrowserAutomationPageText
   refCount: number
   refs: BrowserAutomationRef[]
 }
@@ -101,12 +124,49 @@ export interface BrowserAutomationService {
     maxRefs?: number
   }): Promise<BrowserAutomationSnapshot>
 
-  click(input: { threadId: string; session: string; ref: string }): Promise<void>
-  fill(input: { threadId: string; session: string; ref: string; text: string }): Promise<void>
-  type(input: { threadId: string; session: string; ref: string; text: string }): Promise<void>
-  select(input: { threadId: string; session: string; ref: string; value: string }): Promise<void>
-  check(input: { threadId: string; session: string; ref: string; checked: boolean }): Promise<void>
-  press(input: { threadId: string; session: string; key: string }): Promise<void>
+  scroll(input: {
+    threadId: string
+    session: string
+    direction?: BrowserAutomationScrollDirection
+    amount?: number
+    ref?: string
+  }): Promise<BrowserAutomationPageState>
+  goBack(input: { threadId: string; session: string }): Promise<BrowserAutomationPageState>
+  goForward(input: { threadId: string; session: string }): Promise<BrowserAutomationPageState>
+  click(input: {
+    threadId: string
+    session: string
+    ref: string
+  }): Promise<BrowserAutomationPageState>
+  fill(input: {
+    threadId: string
+    session: string
+    ref: string
+    text: string
+  }): Promise<BrowserAutomationPageState>
+  type(input: {
+    threadId: string
+    session: string
+    ref: string
+    text: string
+  }): Promise<BrowserAutomationPageState>
+  select(input: {
+    threadId: string
+    session: string
+    ref: string
+    value: string
+  }): Promise<BrowserAutomationPageState>
+  check(input: {
+    threadId: string
+    session: string
+    ref: string
+    checked: boolean
+  }): Promise<BrowserAutomationPageState>
+  press(input: {
+    threadId: string
+    session: string
+    key: string
+  }): Promise<BrowserAutomationPageState>
 
   screenshot(input: {
     threadId: string
@@ -128,6 +188,7 @@ export interface BrowserAutomationService {
 interface ThreadBrowserSessionState {
   view: InstanceType<typeof WebContentsView>
   refXpathById: Map<string, string>
+  refSummaryById: Map<string, string>
   threadId: string
   session: string
   viewport: BrowserAutomationViewport
@@ -175,12 +236,55 @@ function timestamp(): string {
   return new Date().toISOString()
 }
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+function pageState(state: ThreadBrowserSessionState): BrowserAutomationPageState {
+  return { url: state.url, ...(state.title ? { title: state.title } : {}) }
+}
+
+function normalizeScrollAmount(amount: number | undefined): number {
+  return typeof amount === 'number' && Number.isFinite(amount) && amount > 0 ? amount : 720
+}
+
+function formatRefSummary(ref: BrowserAutomationRef): string {
+  const bits = [
+    ref.text,
+    ref.ariaLabel ? `aria=${ref.ariaLabel}` : undefined,
+    ref.placeholder ? `placeholder=${ref.placeholder}` : undefined,
+    ref.href,
+    ref.id ? `id=${ref.id}` : undefined,
+    ref.role ? `role=${ref.role}` : undefined,
+    ref.name ? `name=${ref.name}` : undefined,
+    ref.testId ? `data-testid=${ref.testId}` : undefined,
+    ref.selectorHint
+  ].filter((bit): bit is string => Boolean(bit))
+  return `<${ref.tag}>${bits.length > 0 ? ` ${bits.join(' | ')}` : ''}`
+}
+
 export function createElectronBrowserAutomationService(input: {
   profilePath: string
 }): BrowserAutomationService {
   const threadSessions = new Map<string, Map<string, ThreadBrowserSessionState>>()
   let browserSession: ReturnType<typeof session.fromPath> | undefined
   let proxyReady: Promise<void> | undefined
+  const idleSweep = setInterval(() => {
+    const now = Date.now()
+    for (const [threadId, threadMap] of threadSessions) {
+      for (const [name, state] of threadMap) {
+        const updatedAt = Date.parse(state.updatedAt)
+        if (state.attachedWindow || !Number.isFinite(updatedAt)) continue
+        if (now - updatedAt <= IDLE_SESSION_TTL_MS) continue
+        threadMap.delete(name)
+        destroySessionState(state)
+      }
+      if (threadMap.size === 0) {
+        threadSessions.delete(threadId)
+      }
+    }
+  }, IDLE_SESSION_SWEEP_MS)
+  idleSweep.unref?.()
 
   function getThreadMap(threadId: string): Map<string, ThreadBrowserSessionState> {
     const existing = threadSessions.get(threadId)
@@ -309,8 +413,9 @@ export function createElectronBrowserAutomationService(input: {
   ): Promise<string> {
     const xpath = state.refXpathById.get(ref)
     if (!xpath) {
+      const summary = state.refSummaryById.get(ref)
       throw new Error(
-        `Unknown ref "${ref}" for session "${sessionName}". Call useBrowser({ action: "snapshot" }) and use the latest refs.`
+        `Unknown ref "${ref}" for session "${sessionName}"${summary ? ` (${summary})` : ''}. Call useBrowser({ action: "snapshot" }) and use the latest refs.`
       )
     }
 
@@ -330,6 +435,86 @@ export function createElectronBrowserAutomationService(input: {
     )
     setPointer(state, { x: point.x, y: point.y, visible: true, label: `Yachiyo's Cursor` })
     return xpath
+  }
+
+  async function settleAndUpdate(
+    state: ThreadBrowserSessionState
+  ): Promise<BrowserAutomationPageState> {
+    await sleep(INTERACTION_SETTLE_MS)
+    updateSessionMetadata(state)
+    return pageState(state)
+  }
+
+  async function waitForHistoryNavigation(
+    state: ThreadBrowserSessionState,
+    navigate: () => void
+  ): Promise<BrowserAutomationPageState> {
+    const webContents = state.view.webContents
+    const initialUrl = webContents.getURL()
+
+    await new Promise<void>((resolve, reject) => {
+      let settled = false
+      const timeout = setTimeout(
+        () =>
+          fail(
+            new Error(
+              `Timed out after ${HISTORY_NAVIGATION_TIMEOUT_MS}ms waiting for history navigation.`
+            )
+          ),
+        HISTORY_NAVIGATION_TIMEOUT_MS
+      )
+
+      const cleanup = (): void => {
+        webContents.off('did-navigate', onNavigated)
+        webContents.off('did-navigate-in-page', onNavigated)
+        webContents.off('did-fail-load', onFailed)
+        webContents.off('did-stop-loading', onStoppedLoading)
+        clearTimeout(timeout)
+      }
+
+      const finish = (): void => {
+        if (settled) return
+        settled = true
+        cleanup()
+        resolve()
+      }
+
+      const fail = (error: Error): void => {
+        if (settled) return
+        settled = true
+        cleanup()
+        reject(error)
+      }
+
+      const onNavigated = (): void => finish()
+      const onStoppedLoading = (): void => {
+        if (webContents.getURL() !== initialUrl) finish()
+      }
+      const onFailed = (
+        _event: unknown,
+        errorCode: number,
+        errorDescription: string,
+        validatedUrl: string,
+        isMainFrame: boolean
+      ): void => {
+        if (!isMainFrame) return
+        fail(new Error(`Navigation failed for ${validatedUrl}: ${errorDescription} (${errorCode})`))
+      }
+
+      webContents.on('did-navigate', onNavigated)
+      webContents.on('did-navigate-in-page', onNavigated)
+      webContents.on('did-fail-load', onFailed)
+      webContents.on('did-stop-loading', onStoppedLoading)
+
+      try {
+        navigate()
+      } catch (error) {
+        fail(error instanceof Error ? error : new Error(String(error)))
+      }
+    })
+
+    updateSessionMetadata(state)
+    return pageState(state)
   }
 
   function purgeDestroyedSessions(threadMap: Map<string, ThreadBrowserSessionState>): void {
@@ -443,6 +628,7 @@ export function createElectronBrowserAutomationService(input: {
       const state: ThreadBrowserSessionState = {
         view,
         refXpathById: new Map<string, string>(),
+        refSummaryById: new Map<string, string>(),
         threadId,
         session: sessionName,
         viewport: viewportSize,
@@ -544,6 +730,7 @@ export function createElectronBrowserAutomationService(input: {
       const result = await evaluate<{
         url: string
         title?: string
+        pageText: BrowserAutomationPageText
         refs: Array<Omit<BrowserAutomationRef, 'ref'> & { xpath: string }>
       }>(
         state,
@@ -557,9 +744,18 @@ export function createElectronBrowserAutomationService(input: {
             return rect.width > 1 && rect.height > 1
           }
 
-          const elementText = (el) => {
-            const raw = (el.innerText || el.textContent || '').replace(/\\s+/g, ' ').trim()
-            return raw.length > 120 ? raw.slice(0, 117) + '...' : raw
+          const clip = (text, length) => {
+            const normalized = String(text || '').replace(/\\s+/g, ' ').trim()
+            return normalized.length > length ? normalized.slice(0, length - 3) + '...' : normalized
+          }
+
+          const elementText = (el) => clip(el.innerText || el.textContent || '', 120)
+
+          const visibleText = (el) => {
+            if (!isVisible(el)) return ''
+            const rect = el.getBoundingClientRect()
+            if (rect.bottom < 0 || rect.top > window.innerHeight) return ''
+            return clip(el.innerText || el.textContent || '', 240)
           }
 
           const toXpath = (el) => {
@@ -596,14 +792,61 @@ export function createElectronBrowserAutomationService(input: {
             .filter(isVisible)
             .slice(0, limit)
 
+          const headings = Array.from(document.querySelectorAll('h1,h2,h3,[role="heading"]'))
+            .map(visibleText)
+            .filter(Boolean)
+            .slice(0, 12)
+
+          const snippets = Array.from(document.querySelectorAll('main p, article p, p, li'))
+            .map(visibleText)
+            .filter((text) => text.length >= 20)
+            .slice(0, 20)
+
+          const viewport = clip(
+            Array.from(
+              document.querySelectorAll(
+                'h1,h2,h3,h4,p,li,blockquote,pre,button,a,label,summary,td,th,figcaption,[role="heading"]'
+              )
+            )
+              .filter((el) => {
+                if (!isVisible(el)) return false
+                const rect = el.getBoundingClientRect()
+                return rect.bottom >= 0 && rect.top <= window.innerHeight
+              })
+              .sort((left, right) => {
+                const leftRect = left.getBoundingClientRect()
+                const rightRect = right.getBoundingClientRect()
+                return leftRect.top - rightRect.top || leftRect.left - rightRect.left
+              })
+              .map((el) => visibleText(el))
+              .filter(Boolean)
+              .filter((text, index, all) => all.indexOf(text) === index)
+              .join('\n'),
+            2000
+          )
+
           const refs = nodes.map((el) => {
             const rect = el.getBoundingClientRect()
+            const id = (el.id || '').trim() || undefined
+            const role = (el.getAttribute('role') || '').trim() || undefined
+            const name = (el.getAttribute('name') || '').trim() || undefined
+            const testId = (el.getAttribute('data-testid') || el.getAttribute('data-test-id') || '').trim() || undefined
+            const selectorHint = id
+              ? '#' + CSS.escape(id)
+              : testId
+                ? '[data-testid="' + testId.replace(/"/g, '\\"') + '"]'
+                : undefined
             return {
               tag: el.tagName.toLowerCase(),
               text: elementText(el) || undefined,
               ariaLabel: (el.getAttribute('aria-label') || '').trim() || undefined,
               placeholder: (el.getAttribute('placeholder') || '').trim() || undefined,
               href: (el instanceof HTMLAnchorElement ? el.href : (el.getAttribute('href') || '').trim()) || undefined,
+              id,
+              role,
+              name,
+              testId,
+              selectorHint,
               box: {
                 x: Math.round(rect.x),
                 y: Math.round(rect.y),
@@ -617,12 +860,14 @@ export function createElectronBrowserAutomationService(input: {
           return {
             url: location.href,
             title: document.title || undefined,
+            pageText: { headings, snippets, viewport },
             refs
           }
         })()`
       )
 
       state.refXpathById.clear()
+      state.refSummaryById.clear()
       const refs: BrowserAutomationRef[] = []
       for (let i = 0; i < result.refs.length; i++) {
         const ref = `e${i + 1}`
@@ -630,24 +875,82 @@ export function createElectronBrowserAutomationService(input: {
         if (item.xpath) {
           state.refXpathById.set(ref, item.xpath)
         }
-        refs.push({
+        const automationRef: BrowserAutomationRef = {
           ref,
           tag: item.tag,
           ...(item.text ? { text: item.text } : {}),
           ...(item.ariaLabel ? { ariaLabel: item.ariaLabel } : {}),
           ...(item.placeholder ? { placeholder: item.placeholder } : {}),
           ...(item.href ? { href: item.href } : {}),
+          ...(item.id ? { id: item.id } : {}),
+          ...(item.role ? { role: item.role } : {}),
+          ...(item.name ? { name: item.name } : {}),
+          ...(item.testId ? { testId: item.testId } : {}),
+          ...(item.selectorHint ? { selectorHint: item.selectorHint } : {}),
           ...(item.box ? { box: item.box } : {})
-        })
+        }
+        state.refSummaryById.set(ref, formatRefSummary(automationRef))
+        refs.push(automationRef)
       }
 
       updateSessionMetadata(state, { url: result.url, title: result.title })
       return {
         url: result.url,
         ...(result.title ? { title: result.title } : {}),
+        pageText: result.pageText,
         refCount: refs.length,
         refs
       }
+    },
+
+    async scroll({ threadId, session: sessionName, direction, amount, ref }) {
+      const state = requireSessionState(threadId, sessionName)
+      if (ref) {
+        await pointAtRef(state, sessionName, ref)
+      }
+      const distance = normalizeScrollAmount(amount)
+      const resolvedDirection = direction ?? 'down'
+      await evaluate<void>(
+        state,
+        `(() => {
+          const direction = ${JSON.stringify(resolvedDirection)}
+          const amount = ${JSON.stringify(distance)}
+          const delta = {
+            up: { left: 0, top: -amount },
+            down: { left: 0, top: amount },
+            left: { left: -amount, top: 0 },
+            right: { left: amount, top: 0 }
+          }[direction] || { left: 0, top: amount }
+          window.scrollBy({ ...delta, behavior: 'instant' })
+        })()`
+      )
+      return settleAndUpdate(state)
+    },
+
+    async goBack({ threadId, session: sessionName }) {
+      const state = requireSessionState(threadId, sessionName)
+      const webContents = state.view.webContents as typeof state.view.webContents & {
+        canGoBack?: () => boolean
+        goBack?: () => void
+      }
+      if (!webContents.canGoBack?.()) {
+        updateSessionMetadata(state)
+        return pageState(state)
+      }
+      return waitForHistoryNavigation(state, () => webContents.goBack?.())
+    },
+
+    async goForward({ threadId, session: sessionName }) {
+      const state = requireSessionState(threadId, sessionName)
+      const webContents = state.view.webContents as typeof state.view.webContents & {
+        canGoForward?: () => boolean
+        goForward?: () => void
+      }
+      if (!webContents.canGoForward?.()) {
+        updateSessionMetadata(state)
+        return pageState(state)
+      }
+      return waitForHistoryNavigation(state, () => webContents.goForward?.())
     },
 
     async click({ threadId, session: sessionName, ref }) {
@@ -665,7 +968,7 @@ export function createElectronBrowserAutomationService(input: {
           ;(node).dispatchEvent(new MouseEvent('click', { bubbles: true }))
         })()`
       )
-      updateSessionMetadata(state)
+      return settleAndUpdate(state)
     },
 
     async fill({ threadId, session: sessionName, ref, text }) {
@@ -695,7 +998,7 @@ export function createElectronBrowserAutomationService(input: {
           throw new Error('Ref is not fillable.')
         })()`
       )
-      updateSessionMetadata(state)
+      return settleAndUpdate(state)
     },
 
     async type({ threadId, session: sessionName, ref, text }) {
@@ -725,7 +1028,7 @@ export function createElectronBrowserAutomationService(input: {
           throw new Error('Ref is not typable.')
         })()`
       )
-      updateSessionMetadata(state)
+      return settleAndUpdate(state)
     },
 
     async select({ threadId, session: sessionName, ref, value }) {
@@ -748,7 +1051,7 @@ export function createElectronBrowserAutomationService(input: {
           throw new Error('Ref is not a select element.')
         })()`
       )
-      updateSessionMetadata(state)
+      return settleAndUpdate(state)
     },
 
     async check({ threadId, session: sessionName, ref, checked }) {
@@ -771,22 +1074,26 @@ export function createElectronBrowserAutomationService(input: {
           throw new Error('Ref is not a checkbox/radio input.')
         })()`
       )
-      updateSessionMetadata(state)
+      return settleAndUpdate(state)
     },
 
     async press({ threadId, session: sessionName, key }) {
       const state = requireSessionState(threadId, sessionName)
-      await evaluate<void>(
-        state,
-        `(() => {
-          const key = ${JSON.stringify(key)}
-          const el = document.activeElement
-          if (!(el instanceof Element)) return
-          el.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }))
-          el.dispatchEvent(new KeyboardEvent('keyup', { key, bubbles: true }))
-        })()`
-      )
-      updateSessionMetadata(state)
+      const parts = key
+        .split('+')
+        .map((part) => part.trim())
+        .filter(Boolean)
+      const keyCode = parts.pop() ?? key
+      const modifiers = parts
+        .map((part) => part.toLowerCase())
+        .map((part) => (part === 'ctrl' ? 'control' : part === 'cmd' ? 'meta' : part))
+        .filter(
+          (part): part is 'shift' | 'control' | 'alt' | 'meta' =>
+            part === 'shift' || part === 'control' || part === 'alt' || part === 'meta'
+        )
+      state.view.webContents.sendInputEvent({ type: 'keyDown', keyCode, modifiers })
+      state.view.webContents.sendInputEvent({ type: 'keyUp', keyCode, modifiers })
+      return settleAndUpdate(state)
     },
 
     async screenshot({ threadId, session: sessionName, workspacePath, fileName }) {
@@ -836,6 +1143,7 @@ export function createElectronBrowserAutomationService(input: {
     },
 
     dispose() {
+      clearInterval(idleSweep)
       for (const threadMap of threadSessions.values()) {
         for (const state of threadMap.values()) {
           destroySessionState(state)

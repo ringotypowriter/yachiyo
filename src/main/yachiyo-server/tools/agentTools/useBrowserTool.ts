@@ -29,6 +29,11 @@ function formatRefs(snapshot: BrowserAutomationSnapshot, limit = 30): string {
     if (ref.text) bits.push(ref.text)
     if (ref.ariaLabel) bits.push(`aria="${ref.ariaLabel}"`)
     if (ref.placeholder) bits.push(`placeholder="${ref.placeholder}"`)
+    if (ref.id) bits.push(`id="${ref.id}"`)
+    if (ref.role) bits.push(`role="${ref.role}"`)
+    if (ref.name) bits.push(`name="${ref.name}"`)
+    if (ref.testId) bits.push(`data-testid="${ref.testId}"`)
+    if (ref.selectorHint) bits.push(`selector="${ref.selectorHint}"`)
     if (ref.href) bits.push(ref.href)
     const label = bits.length > 0 ? ` — ${bits.join(' | ')}` : ''
     return `@${ref.ref} <${ref.tag}>${label}`
@@ -36,6 +41,20 @@ function formatRefs(snapshot: BrowserAutomationSnapshot, limit = 30): string {
   const omitted =
     snapshot.refs.length > shown.length ? `\n… +${snapshot.refs.length - shown.length} more` : ''
   return `${lines.join('\n')}${omitted}`
+}
+
+function formatPageText(snapshot: BrowserAutomationSnapshot): string {
+  const sections: string[] = []
+  if (snapshot.pageText.headings.length > 0) {
+    sections.push(`Headings:\n${snapshot.pageText.headings.map((line) => `- ${line}`).join('\n')}`)
+  }
+  if (snapshot.pageText.snippets.length > 0) {
+    sections.push(`Snippets:\n${snapshot.pageText.snippets.map((line) => `- ${line}`).join('\n')}`)
+  }
+  if (snapshot.pageText.viewport) {
+    sections.push(`Viewport text:\n${snapshot.pageText.viewport}`)
+  }
+  return sections.length > 0 ? `Page text\n${sections.join('\n\n')}` : ''
 }
 
 export function createTool(
@@ -85,6 +104,8 @@ export function createTool(
         ...(input.url ? { url: input.url } : {}),
         ...(input.ref ? { ref: input.ref } : {}),
         ...(input.key ? { key: input.key } : {}),
+        ...(input.direction ? { direction: input.direction } : {}),
+        ...(input.amount ? { amount: input.amount } : {}),
         ...(value !== undefined ? { value } : {}),
         ...(input.checked !== undefined ? { checked: input.checked } : {}),
         ...(input.timeoutMs ? { timeoutMs: input.timeoutMs } : {})
@@ -189,8 +210,9 @@ export function createTool(
                 return service.snapshot({ threadId, session, maxRefs: input.maxRefs })
               })
             const refsText = formatRefs(snapshot)
+            const pageText = formatPageText(snapshot)
             const header = snapshot.title ? `${snapshot.title}\n${snapshot.url}` : snapshot.url
-            const body = refsText ? `${header}\n\n${refsText}` : header
+            const body = [header, pageText, refsText].filter(Boolean).join('\n\n')
             return {
               content: textContent(body),
               details: {
@@ -202,30 +224,94 @@ export function createTool(
               metadata: {}
             }
           }
+          case 'scroll': {
+            const result = await service.scroll({
+              threadId,
+              session,
+              ...(input.direction ? { direction: input.direction } : {}),
+              ...(input.amount ? { amount: input.amount } : {}),
+              ...(input.ref ? { ref: input.ref } : {})
+            })
+            return {
+              content: textContent(`Scrolled: ${result.url}`),
+              details: {
+                ...baseDetails,
+                finalUrl: result.url,
+                ...(result.title ? { title: result.title } : {})
+              },
+              metadata: {}
+            }
+          }
+          case 'goBack': {
+            const result = await service.goBack({ threadId, session })
+            return {
+              content: textContent(`Went back: ${result.url}`),
+              details: {
+                ...baseDetails,
+                finalUrl: result.url,
+                ...(result.title ? { title: result.title } : {})
+              },
+              metadata: {}
+            }
+          }
+          case 'goForward': {
+            const result = await service.goForward({ threadId, session })
+            return {
+              content: textContent(`Went forward: ${result.url}`),
+              details: {
+                ...baseDetails,
+                finalUrl: result.url,
+                ...(result.title ? { title: result.title } : {})
+              },
+              metadata: {}
+            }
+          }
           case 'click': {
             if (!input.ref) throw new Error('ref is required for click')
-            await service.click({ threadId, session, ref: input.ref })
+            const result = await service.click({ threadId, session, ref: input.ref })
             return {
-              content: textContent(`Clicked @${input.ref}`),
-              details: baseDetails,
+              content: textContent(`Clicked @${input.ref}: ${result.url}`),
+              details: {
+                ...baseDetails,
+                finalUrl: result.url,
+                ...(result.title ? { title: result.title } : {})
+              },
               metadata: {}
             }
           }
           case 'fill': {
             if (!input.ref) throw new Error('ref is required for fill')
-            await service.fill({ threadId, session, ref: input.ref, text: input.text ?? '' })
+            const result = await service.fill({
+              threadId,
+              session,
+              ref: input.ref,
+              text: input.text ?? ''
+            })
             return {
-              content: textContent(`Filled @${input.ref}`),
-              details: baseDetails,
+              content: textContent(`Filled @${input.ref}: ${result.url}`),
+              details: {
+                ...baseDetails,
+                finalUrl: result.url,
+                ...(result.title ? { title: result.title } : {})
+              },
               metadata: {}
             }
           }
           case 'type': {
             if (!input.ref) throw new Error('ref is required for type')
-            await service.type({ threadId, session, ref: input.ref, text: input.text ?? '' })
+            const result = await service.type({
+              threadId,
+              session,
+              ref: input.ref,
+              text: input.text ?? ''
+            })
             return {
-              content: textContent(`Typed into @${input.ref}`),
-              details: baseDetails,
+              content: textContent(`Typed into @${input.ref}: ${result.url}`),
+              details: {
+                ...baseDetails,
+                finalUrl: result.url,
+                ...(result.title ? { title: result.title } : {})
+              },
               metadata: {}
             }
           }
@@ -233,29 +319,48 @@ export function createTool(
             if (!input.ref) throw new Error('ref is required for select')
             const value = input.value ?? input.text
             if (value === undefined) throw new Error('value is required for select')
-            await service.select({ threadId, session, ref: input.ref, value })
+            const result = await service.select({ threadId, session, ref: input.ref, value })
             return {
-              content: textContent(`Selected @${input.ref}`),
-              details: baseDetails,
+              content: textContent(`Selected @${input.ref}: ${result.url}`),
+              details: {
+                ...baseDetails,
+                finalUrl: result.url,
+                ...(result.title ? { title: result.title } : {})
+              },
               metadata: {}
             }
           }
           case 'check': {
             if (!input.ref) throw new Error('ref is required for check')
             if (input.checked === undefined) throw new Error('checked is required for check')
-            await service.check({ threadId, session, ref: input.ref, checked: input.checked })
+            const result = await service.check({
+              threadId,
+              session,
+              ref: input.ref,
+              checked: input.checked
+            })
             return {
-              content: textContent(`${input.checked ? 'Checked' : 'Unchecked'} @${input.ref}`),
-              details: baseDetails,
+              content: textContent(
+                `${input.checked ? 'Checked' : 'Unchecked'} @${input.ref}: ${result.url}`
+              ),
+              details: {
+                ...baseDetails,
+                finalUrl: result.url,
+                ...(result.title ? { title: result.title } : {})
+              },
               metadata: {}
             }
           }
           case 'press': {
             if (!input.key) throw new Error('key is required for press')
-            await service.press({ threadId, session, key: input.key })
+            const result = await service.press({ threadId, session, key: input.key })
             return {
-              content: textContent(`Pressed: ${input.key}`),
-              details: baseDetails,
+              content: textContent(`Pressed: ${input.key}: ${result.url}`),
+              details: {
+                ...baseDetails,
+                finalUrl: result.url,
+                ...(result.title ? { title: result.title } : {})
+              },
               metadata: {}
             }
           }

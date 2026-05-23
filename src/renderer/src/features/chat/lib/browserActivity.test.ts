@@ -178,3 +178,51 @@ test('deriveBrowserActivity switches latest step to newer assistant text', () =>
     'I found the result.'
   )
 })
+
+test('deriveBrowserActivity supports newly added browser actions as latest steps', () => {
+  const activity = deriveBrowserActivity({
+    messages: [],
+    toolCalls: [
+      browserCall({
+        id: 'tc-1',
+        session: 'main',
+        action: 'open',
+        startedAt: '2026-05-23T00:00:00.000Z'
+      }),
+      browserCall({
+        id: 'tc-2',
+        session: 'main',
+        action: 'scroll',
+        startedAt: '2026-05-23T00:00:01.000Z',
+        finalUrl: 'https://example.com#section',
+        title: 'Example'
+      }),
+      browserCall({
+        id: 'tc-3',
+        session: 'main',
+        action: 'goBack',
+        startedAt: '2026-05-23T00:00:02.000Z',
+        finalUrl: 'https://example.com',
+        title: 'Example'
+      }),
+      browserCall({
+        id: 'tc-4',
+        session: 'main',
+        action: 'goForward',
+        startedAt: '2026-05-23T00:00:03.000Z',
+        finalUrl: 'https://example.com#section',
+        title: 'Example'
+      })
+    ]
+  })
+
+  assert.equal(activity.latestStep?.kind, 'browser')
+  assert.equal(
+    activity.latestStep?.kind === 'browser' ? activity.latestStep.action : '',
+    'goForward'
+  )
+  assert.equal(
+    activity.latestStep?.kind === 'browser' ? activity.latestStep.url : '',
+    'https://example.com#section'
+  )
+})
