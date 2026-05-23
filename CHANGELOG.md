@@ -1,5 +1,11 @@
 # yachiyo
 
+## 1.1.9
+
+### Patch Changes
+
+- [`c954c1e`](https://github.com/ringotypowriter/yachiyo/commit/c954c1e5b50e2e840f02eaee143491d129b8291c) Thanks [@ringotypowriter](https://github.com/ringotypowriter)! - Browser & Sentinel
+
 ## 1.1.8
 
 ### Patch Changes
