@@ -71,13 +71,13 @@ test('runReadTool reads image file as base64 with image-data content block', asy
   })
 })
 
-test('createReadTool hides focus from image-incapable models', async () => {
-  assert.deepEqual(await readToolPropertyNames(false), ['path', 'offset', 'limit'])
+test('createReadTool keeps focus visible for image-incapable models', async () => {
+  assert.deepEqual(await readToolPropertyNames(false), ['path', 'offset', 'limit', 'focus'])
 })
 
-test('createReadTool keeps focus visible for image-capable models', async () => {
-  assert.deepEqual(await readToolPropertyNames(true), ['path', 'offset', 'limit', 'focus'])
-  assert.deepEqual(await readToolPropertyNames(), ['path', 'offset', 'limit', 'focus'])
+test('createReadTool hides focus from image-capable models', async () => {
+  assert.deepEqual(await readToolPropertyNames(true), ['path', 'offset', 'limit'])
+  assert.deepEqual(await readToolPropertyNames(), ['path', 'offset', 'limit'])
 })
 
 test('runReadTool detects .jpg, .jpeg, .webp extensions', async () => {

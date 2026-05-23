@@ -96,7 +96,7 @@ function isUnreadableBinary(filePath: string): boolean {
 
 export function createTool(context: AgentToolContext): Tool<ReadToolInput, ReadToolOutput> {
   const inputSchema =
-    context.isModelImageCapable === false ? readToolInputSchemaWithoutFocus : readToolInputSchema
+    context.isModelImageCapable === false ? readToolInputSchema : readToolInputSchemaWithoutFocus
 
   return tool({
     description: `Read a file from the current thread workspace or an absolute path. Supports text files (with offset/limit pagination), PDF files (text extraction), and common image formats (png, jpg, webp, gif, bmp, tiff, avif, heic, ico). Binary formats like office documents, video and audio are not supported. Relative paths resolve from ${context.workspacePath}. Offset is a 1-based line number — use it to start reading at a specific line.`,
