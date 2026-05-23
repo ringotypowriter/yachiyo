@@ -517,6 +517,24 @@ describe('editTool', () => {
       assert.strictEqual(content, 'a\nX\nY\nZ\nc\n')
     })
 
+    it('does not introduce a trailing empty line from range replacement text', async () => {
+      const workspace = await makeWorkspace()
+      const filePath = join(workspace, 'file.txt')
+      await writeFile(filePath, 'a\nb\nc\n', 'utf8')
+
+      const cache = new ReadRecordCache()
+      cache.recordRead(filePath, 1, 4)
+
+      const result = await runEditTool(
+        { mode: 'range', path: 'file.txt', replaceLines: { start: 2, end: 2 }, newText: 'X\nY\n' },
+        { workspacePath: workspace, readRecordCache: cache }
+      )
+
+      assert.strictEqual(result.error, undefined)
+      const content = await readFile(filePath, 'utf8')
+      assert.strictEqual(content, 'a\nX\nY\nc\n')
+    })
+
     it('uses newText for multiline range replacements', async () => {
       const workspace = await makeWorkspace()
       const filePath = join(workspace, 'file.txt')

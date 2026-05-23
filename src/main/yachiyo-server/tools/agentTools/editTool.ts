@@ -463,10 +463,13 @@ async function runRangedEdit(
 
     // Splice the range. originalLines is 0-indexed; input range is 1-indexed inclusive.
     // newText from the model may use LF or CRLF; split tolerantly and rejoin with eol.
+    // A final line terminator marks the end of the replacement block, not an extra blank line.
     // Note: ''.split(/\r?\n/) === ['']. An empty newText therefore replaces the range with
     // a single empty line — NOT zero lines — which preserves the file's trailing newline
     // when the phantom last line (the empty element produced by a trailing \n) is targeted.
-    const newLines = replacementText.split(/\r?\n/)
+    const normalizedReplacementText =
+      replacementText === '' ? replacementText : replacementText.replace(/\r?\n$/u, '')
+    const newLines = normalizedReplacementText.split(/\r?\n/)
     const nextLines = [
       ...originalLines.slice(0, start - 1),
       ...newLines,
