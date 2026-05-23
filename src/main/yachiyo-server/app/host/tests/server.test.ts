@@ -1052,6 +1052,10 @@ test('YachiyoServer.acceptThreadPlanDocument creates an execution thread seeded 
     assert.equal(accepted.userMessage.parentMessageId, planMessage.id)
     assert.notEqual(accepted.userMessage.hidden, true)
     assert.equal(accepted.userMessage.content, 'Execute the accepted plan.')
+
+    const updatedSourceThread = storage.getThread(sourceThread.id)
+    assert.ok(updatedSourceThread)
+    assert.equal(updatedSourceThread.preview, 'Plan has been approved')
   })
 })
 

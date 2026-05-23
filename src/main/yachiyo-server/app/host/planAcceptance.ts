@@ -154,10 +154,22 @@ async function startPlanAcceptanceWithHandoff(input: PlanAcceptanceInput): Promi
       ? { reasoningEffort: input.sourceThread.reasoningEffort }
       : {})
   })
-
   input.folderDomain.ensureFolderForDerivedThread({
     sourceThread: input.sourceThread,
     derivedThread: destinationThread
+  })
+
+  const timestamp = input.timestamp()
+  const updatedSourceThread: ThreadRecord = {
+    ...input.sourceThread,
+    preview: 'Plan has been approved',
+    updatedAt: timestamp
+  }
+  input.storage.updateThread(updatedSourceThread)
+  input.emit<ThreadUpdatedEvent>({
+    type: 'thread.updated',
+    threadId: updatedSourceThread.id,
+    thread: updatedSourceThread
   })
 
   const seeded = seedAcceptedPlanMessage({
