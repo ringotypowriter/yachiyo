@@ -24,6 +24,7 @@ export type DmSlashCommandServer = Pick<
   updateThreadWorkspace(input: {
     threadId: string
     workspacePath?: string | null
+    confirmed?: boolean
   }): Promise<ThreadRecord>
 }
 
@@ -389,7 +390,8 @@ async function handleWorkspaceCommand<TTarget>(
   try {
     await options.server.updateThreadWorkspace({
       threadId: thread.id,
-      workspacePath: selected.path
+      workspacePath: selected.path,
+      confirmed: true
     })
   } catch (error) {
     await options.sendMessage(

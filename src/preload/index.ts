@@ -40,6 +40,9 @@ import type {
   ThreadModelOverride,
   ThreadRecord,
   ThreadRuntimeBinding,
+  ThreadWorkspaceChangeDecision,
+  ThreadWorkspaceChangeDecisionInput,
+  ThreadWorkspaceUpdateInput,
   ThreadSearchResult,
   MemoryTermDocument,
   UpdateChannelGroupInput,
@@ -147,6 +150,10 @@ const api = {
     editMessage: (input: EditMessageInput) => ipcRenderer.invoke('yachiyo:edit-message', input),
     openThreadWorkspace: (input: { threadId: string }) =>
       ipcRenderer.invoke('yachiyo:open-thread-workspace', input),
+    getThreadWorkspaceChangeDecision: (
+      input: ThreadWorkspaceChangeDecisionInput
+    ): Promise<ThreadWorkspaceChangeDecision> =>
+      ipcRenderer.invoke('yachiyo:get-thread-workspace-change-decision', input),
     readThreadPlanDocument: (
       input: ReadThreadPlanDocumentInput
     ): Promise<ReadThreadPlanDocumentResult> =>
@@ -185,7 +192,7 @@ const api = {
     sendChat: (input: SendChatInput) => ipcRenderer.invoke('yachiyo:send-chat', input),
     retryMessage: (input: RetryInput) => ipcRenderer.invoke('yachiyo:retry-message', input),
     saveThread: (input: SaveThreadInput) => ipcRenderer.invoke('yachiyo:save-thread', input),
-    updateThreadWorkspace: (input: { threadId: string; workspacePath?: string | null }) =>
+    updateThreadWorkspace: (input: ThreadWorkspaceUpdateInput) =>
       ipcRenderer.invoke('yachiyo:update-thread-workspace', input),
     selectReplyBranch: (input: { threadId: string; assistantMessageId: string }) =>
       ipcRenderer.invoke('yachiyo:select-reply-branch', input),

@@ -61,6 +61,7 @@ function createThreadDomainHarness(
       if (!stored) throw new Error(`Unknown thread: ${threadId}`)
       return stored
     },
+    loadThreadToolCalls: (threadId) => storage.listThreadToolCalls(threadId),
     isThreadRunning: () => false,
     auxiliaryGeneration: {} as never,
     evictAcpIdleThread: async (threadId) => {
@@ -180,4 +181,106 @@ test('YachiyoServerThreadDomain deletes ACP threads only after evicting idle ses
   assert.deepEqual(deletedWorkspaceThreadIds, ['thread-1'])
   assert.equal(storage.getThread('thread-1'), undefined)
   assert.equal(storage.getArchivedThread('thread-1'), undefined)
+})
+
+test('YachiyoServerThreadDomain requires confirmation before changing a thread with history', async () => {
+  const { domain, storage } = createThreadDomainHarness(null)
+  const thread = storage.getThread('thread-1')!
+  storage.saveThreadMessage({
+    thread,
+    updatedThread: { ...thread, headMessageId: 'user-1' },
+    message: {
+      id: 'user-1',
+      threadId: 'thread-1',
+      role: 'user',
+      content: 'hello',
+      status: 'completed',
+      createdAt: '2026-01-01T00:00:02.000Z'
+    }
+  })
+
+  const decision = domain.getWorkspaceChangeDecision({
+    threadId: 'thread-1',
+    workspacePath: '/tmp/real-workspace'
+  })
+
+  assert.equal(decision.allowed, true)
+  assert.equal(decision.requiresConfirmation, true)
+  await assert.rejects(
+    () => domain.updateWorkspace({ threadId: 'thread-1', workspacePath: '/tmp/real-workspace' }),
+    /already has conversation history/
+  )
+
+  const updated = await domain.updateWorkspace({
+    threadId: 'thread-1',
+    workspacePath: '/tmp/real-workspace',
+    confirmed: true
+  })
+
+  assert.equal(updated.workspacePath, '/tmp/real-workspace')
+})
+
+test('YachiyoServerThreadDomain blocks ACP workspace changes', () => {
+  const { domain } = createThreadDomainHarness({
+    kind: 'acp',
+    profileId: 'agent-1',
+    sessionStatus: 'active',
+    sessionId: 'session-1'
+  })
+
+  const decision = domain.getWorkspaceChangeDecision({
+    threadId: 'thread-1',
+    workspacePath: '/tmp/real-workspace'
+  })
+
+  assert.equal(decision.allowed, false)
+  assert.equal(decision.blockedReason, 'acp-thread')
+})
+
+test('YachiyoServerThreadDomain blocks workspace changes while a plan is pending', () => {
+  const { domain, storage } = createThreadDomainHarness(null)
+  const thread = storage.getThread('thread-1')!
+  storage.saveThreadMessage({
+    thread,
+    updatedThread: { ...thread, headMessageId: 'assistant-plan' },
+    message: {
+      id: 'assistant-plan',
+      threadId: 'thread-1',
+      role: 'assistant',
+      content: '<!-- yachiyo:plan-document -->\n# Plan',
+      status: 'completed',
+      createdAt: '2026-01-01T00:00:02.000Z'
+    }
+  })
+  storage.createToolCall({
+    id: 'tool-1',
+    threadId: 'thread-1',
+    toolName: 'exitPlanMode',
+    status: 'completed',
+    inputSummary: '',
+    startedAt: '2026-01-01T00:00:03.000Z'
+  })
+
+  const decision = domain.getWorkspaceChangeDecision({
+    threadId: 'thread-1',
+    workspacePath: '/tmp/real-workspace'
+  })
+
+  assert.equal(decision.allowed, false)
+  assert.equal(decision.blockedReason, 'pending-plan')
+})
+
+test('YachiyoServerThreadDomain clears workspacePath to return to the stable temp workspace', async () => {
+  const { domain } = createThreadDomainHarness(null)
+  await domain.updateWorkspace({
+    threadId: 'thread-1',
+    workspacePath: '/tmp/real-workspace',
+    confirmed: true
+  })
+
+  const decision = domain.getWorkspaceChangeDecision({ threadId: 'thread-1', workspacePath: null })
+  assert.equal(decision.targetWorkspacePath, '/tmp/thread-1')
+
+  const updated = await domain.updateWorkspace({ threadId: 'thread-1', workspacePath: null })
+  assert.equal(updated.workspacePath, undefined)
 })

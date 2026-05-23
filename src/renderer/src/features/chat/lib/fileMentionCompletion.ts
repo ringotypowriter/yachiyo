@@ -11,6 +11,18 @@ export interface FileMentionCompletionCommand {
   type: 'file' | 'jotdown'
 }
 
+export function buildFileMentionRequestKey(input: {
+  threadId: string | null
+  workspacePath: string | null
+  queryKey: string | null
+}): string | null {
+  if (input.queryKey === null) return null
+  const scopeKey = input.threadId
+    ? `thread:${input.threadId}:${input.workspacePath ?? ''}`
+    : `workspace:${input.workspacePath ?? ''}`
+  return `${scopeKey}\n${input.queryKey}`
+}
+
 export function paginateFileMentionMatches(input: {
   matches: FileMentionCompletionCandidate[]
   visibleLimit: number

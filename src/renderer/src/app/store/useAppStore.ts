@@ -355,7 +355,11 @@ export interface AppState {
   setComposerReasoningEffort: (reasoningEffort: ComposerReasoningSelection) => void
   setPendingWorkspacePath: (workspacePath: string | null) => void
   setPendingAcpBinding: (binding: ThreadRuntimeBinding | null) => void
-  setThreadWorkspace: (workspacePath: string | null, threadId?: string | null) => Promise<void>
+  setThreadWorkspace: (
+    workspacePath: string | null,
+    threadId?: string | null,
+    options?: { confirmed?: boolean }
+  ) => Promise<void>
   setThreadListMode: (mode: 'active' | 'archived') => void
   toggleShowExternalThreads: () => void
   setThreadPrivacyMode: (threadId: string, enabled: boolean) => Promise<void>

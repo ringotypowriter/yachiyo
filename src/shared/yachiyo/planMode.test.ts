@@ -3,6 +3,7 @@ import test from 'node:test'
 
 import {
   getThreadPlanDocumentFilename,
+  hasPendingPlanDocument,
   hasExitPlanModeToolCall,
   isLatestRunPlanMode,
   normalizePlanDocumentFilename,
@@ -91,4 +92,57 @@ test('isLatestRunPlanMode ignores older plan messages and missing request metada
   )
 
   assert.equal(isLatestRunPlanMode({ latestRun: null, messages: [] }), false)
+})
+
+test('hasPendingPlanDocument detects an exited plan without acceptance', () => {
+  assert.equal(
+    hasPendingPlanDocument({
+      messages: [
+        {
+          id: 'assistant-plan',
+          role: 'assistant',
+          content: '<!-- yachiyo:plan-document -->\n# Plan',
+          createdAt: '2026-05-23T00:00:00.000Z'
+        }
+      ],
+      toolCalls: [
+        {
+          toolName: PLAN_MODE_EXIT_TOOL_NAME,
+          status: 'completed',
+          startedAt: '2026-05-23T00:00:01.000Z'
+        }
+      ]
+    }),
+    true
+  )
+})
+
+test('hasPendingPlanDocument treats accepted plans as not pending', () => {
+  assert.equal(
+    hasPendingPlanDocument({
+      messages: [
+        {
+          id: 'assistant-plan',
+          role: 'assistant',
+          content: '<!-- yachiyo:plan-document -->\n# Plan',
+          createdAt: '2026-05-23T00:00:00.000Z'
+        },
+        {
+          id: 'user-accept',
+          parentMessageId: 'assistant-plan',
+          role: 'user',
+          content: 'Execute the accepted plan.',
+          createdAt: '2026-05-23T00:00:02.000Z'
+        }
+      ],
+      toolCalls: [
+        {
+          toolName: PLAN_MODE_EXIT_TOOL_NAME,
+          status: 'completed',
+          startedAt: '2026-05-23T00:00:01.000Z'
+        }
+      ]
+    }),
+    false
+  )
 })

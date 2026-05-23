@@ -874,8 +874,14 @@ test('YachiyoServer allows changing a fresh branch workspace before the first ne
           threadId: branch.thread.id,
           workspacePath: null
         }),
-        /before the first message is sent/
+        /already has conversation history/
       )
+      const restoredBranch = await server.updateThreadWorkspace({
+        threadId: branch.thread.id,
+        workspacePath: null,
+        confirmed: true
+      })
+      assert.equal(restoredBranch.workspacePath, undefined)
     },
     {
       createModelRuntime: () => ({

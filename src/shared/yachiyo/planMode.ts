@@ -95,6 +95,65 @@ export function isPlanDocumentMessage(content: string): boolean {
   return content.trimStart().startsWith(PLAN_DOCUMENT_MARKER)
 }
 
+export function findPlanExitTimestamp(input: {
+  messages: readonly Pick<MessageRecord, 'role' | 'content' | 'responseMessages' | 'createdAt'>[]
+  toolCalls: readonly { toolName: string; status: string; startedAt: string; finishedAt?: string }[]
+}): string | null {
+  for (let i = input.toolCalls.length - 1; i >= 0; i -= 1) {
+    const toolCall = input.toolCalls[i]
+    if (toolCall?.toolName === PLAN_MODE_EXIT_TOOL_NAME && toolCall.status === 'completed') {
+      return toolCall.finishedAt ?? toolCall.startedAt
+    }
+  }
+
+  for (let i = input.messages.length - 1; i >= 0; i -= 1) {
+    const message = input.messages[i]
+    if (message?.role === 'assistant' && isPlanModeExitRecord(message)) {
+      return message.createdAt
+    }
+  }
+
+  return null
+}
+
+export function findPlanAcceptanceTimestamp(input: {
+  messages: readonly Pick<
+    MessageRecord,
+    'id' | 'parentMessageId' | 'role' | 'content' | 'createdAt'
+  >[]
+  planExitTimestamp: string
+}): string | null {
+  const messagesById = new Map(input.messages.map((message) => [message.id, message]))
+
+  for (let i = input.messages.length - 1; i >= 0; i -= 1) {
+    const message = input.messages[i]
+    if (!message || message.role !== 'user') continue
+    if (message.content.trim() !== PLAN_EXECUTION_USER_MESSAGE) continue
+    if (!message.parentMessageId) continue
+
+    const parent = messagesById.get(message.parentMessageId)
+    if (!parent || parent.role !== 'assistant') continue
+    if (!isPlanDocumentMessage(parent.content)) continue
+    if (message.createdAt.localeCompare(input.planExitTimestamp) < 0) continue
+
+    return message.createdAt
+  }
+
+  return null
+}
+
+export function hasPendingPlanDocument(input: {
+  messages: readonly Pick<
+    MessageRecord,
+    'id' | 'parentMessageId' | 'role' | 'content' | 'responseMessages' | 'createdAt'
+  >[]
+  toolCalls: readonly { toolName: string; status: string; startedAt: string; finishedAt?: string }[]
+}): boolean {
+  const planExitTimestamp = findPlanExitTimestamp(input)
+  if (!planExitTimestamp) return false
+  return !findPlanAcceptanceTimestamp({ messages: input.messages, planExitTimestamp })
+}
+
 export function stripPlanDocumentMarker(content: string): string {
   if (!isPlanDocumentMessage(content)) return content
   return content.trimStart().slice(PLAN_DOCUMENT_MARKER.length).trimStart()

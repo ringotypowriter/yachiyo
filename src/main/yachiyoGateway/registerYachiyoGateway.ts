@@ -728,6 +728,11 @@ export function registerYachiyoGateway(): YachiyoServer {
       .openThreadWorkspace(input)
       .then((workspacePath) => openThreadWorkspace(input.threadId, workspacePath))
   )
+  handleYachiyoIpc(
+    IPC_CHANNELS.getThreadWorkspaceChangeDecision,
+    (input: { threadId: string; workspacePath?: string | null }) =>
+      server!.getThreadWorkspaceChangeDecision(input)
+  )
   handleYachiyoIpc(IPC_CHANNELS.readThreadPlanDocument, (input: { threadId: string }) =>
     server!.readThreadPlanDocument(input)
   )
@@ -757,7 +762,7 @@ export function registerYachiyoGateway(): YachiyoServer {
   )
   handleYachiyoIpc(
     IPC_CHANNELS.updateThreadWorkspace,
-    (input: { threadId: string; workspacePath?: string | null }) =>
+    (input: { threadId: string; workspacePath?: string | null; confirmed?: boolean }) =>
       server!.updateThreadWorkspace(input)
   )
   handleYachiyoIpc(IPC_CHANNELS.pickCodexSessionFile, async () => {

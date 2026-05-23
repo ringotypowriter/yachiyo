@@ -32,10 +32,6 @@ import { useAppDialog } from '@renderer/components/AppDialogContext'
 import { selectContextPromptTokens } from '@renderer/lib/contextPromptTokens'
 import { estimateDraftPromptTokens } from '@renderer/lib/estimatePromptTokens'
 import {
-  canChangeThreadWorkspace,
-  isFreshHandoffWorkspaceThread
-} from '../../../../../shared/yachiyo/threadWorkspaceRules.ts'
-import {
   COMPOSER_TEXT_FIELD_MAX_HEIGHT_PX,
   MAX_COMPOSER_FILES,
   MAX_COMPOSER_IMAGES,
@@ -78,27 +74,8 @@ export function Composer({
     s.activeThreadId ? s.savingThreadIds.has(s.activeThreadId) : false
   )
   const config = useAppStore((s) => s.config)
-  const activeThreadMessageState = useAppStore(
-    useShallow((s) => {
-      const messages = s.activeThreadId
-        ? (s.messages[s.activeThreadId] ?? EMPTY_MESSAGES)
-        : EMPTY_MESSAGES
-      return {
-        activeThreadMessageCount: messages.length,
-        isFreshHandoffWorkspace:
-          s.activeThreadId !== null &&
-          isFreshHandoffWorkspaceThread({
-            messages,
-            threadCreatedAt: null
-          }),
-        isWorkspaceLocked:
-          s.activeThreadId !== null &&
-          !canChangeThreadWorkspace({
-            messages,
-            threadCreatedAt: null
-          })
-      }
-    })
+  const activeThreadMessageCount = useAppStore((s) =>
+    s.activeThreadId ? (s.messages[s.activeThreadId] ?? EMPTY_MESSAGES).length : 0
   )
   const pendingWorkspacePath = useAppStore((s) => s.pendingWorkspacePath)
   const pendingAcpBinding = useAppStore((s) => s.pendingAcpBinding)
@@ -285,9 +262,16 @@ export function Composer({
   const queuedFollowUpCanRemove = activeThread
     ? canRemoveQueuedFollowUp({ threadCapabilities: getThreadCapabilities(activeThread) })
     : false
-  const { activeThreadMessageCount, isFreshHandoffWorkspace, isWorkspaceLocked } =
-    activeThreadMessageState
   const currentWorkspacePath = activeThread?.workspacePath ?? pendingWorkspacePath
+  const activePlanDocument = useAppStore((s) =>
+    activeThreadId ? s.planDocumentsByThread[activeThreadId] : undefined
+  )
+  const workspaceSwitchLockReason =
+    runStatus === 'running'
+      ? 'active-run'
+      : activePlanDocument?.decision === 'pending'
+        ? 'pending-plan'
+        : null
   const activeAcpBinding =
     activeThread?.runtimeBinding?.kind === 'acp' ? activeThread.runtimeBinding : null
   // For a brand-new thread (no activeThreadId yet) the user may have picked an ACP agent
@@ -309,8 +293,8 @@ export function Composer({
     [config?.workspace]
   )
   const workspaceHint = getWorkspaceHint({
-    isWorkspaceLocked,
-    workspacePath: currentWorkspacePath
+    workspacePath: currentWorkspacePath,
+    lockReason: workspaceSwitchLockReason
   })
   const showWorkspaceHint = !workspaceSelectorOpen && (workspaceHintHovered || workspaceHintPinned)
   const threadIsBusy = threadIsSaving || isBackendSwitchPending
@@ -346,7 +330,6 @@ export function Composer({
     composerValue,
     config,
     currentWorkspacePath,
-    isFreshHandoffWorkspace,
     modelSelectorOpen,
     pendingWorkspaceChangeConfirmation,
     reasoningSelectorOpen,
@@ -1208,8 +1191,8 @@ export function Composer({
       workspaceSelectorRef={workspaceSelectorRef}
       setWorkspaceHintHovered={setWorkspaceHintHovered}
       setWorkspaceHintPinned={setWorkspaceHintPinned}
-      isWorkspaceLocked={isWorkspaceLocked}
       workspaceSelectorOpen={workspaceSelectorOpen}
+      workspaceSwitchLockReason={workspaceSwitchLockReason}
       currentWorkspacePath={currentWorkspacePath}
       showWorkspaceHint={showWorkspaceHint}
       workspaceHint={workspaceHint}

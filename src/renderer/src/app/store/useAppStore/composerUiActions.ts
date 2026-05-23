@@ -468,7 +468,7 @@ export function createComposerUiActions(input: {
       void refreshAvailableSkills(set, get)
     },
 
-    setThreadWorkspace: async (workspacePath, targetThreadId) => {
+    setThreadWorkspace: async (workspacePath, targetThreadId, options = {}) => {
       const threadId = targetThreadId ?? get().activeThreadId
       if (!threadId) {
         set({
@@ -481,7 +481,8 @@ export function createComposerUiActions(input: {
       try {
         const thread = await window.api.yachiyo.updateThreadWorkspace({
           threadId,
-          workspacePath: normalizeWorkspacePath(workspacePath)
+          workspacePath: normalizeWorkspacePath(workspacePath),
+          ...(options.confirmed ? { confirmed: true } : {})
         })
         set((state) => {
           const nextState: Partial<AppState> = {

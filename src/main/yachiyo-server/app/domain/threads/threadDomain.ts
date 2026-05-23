@@ -12,6 +12,8 @@ import type {
   ThreadDeletedEvent,
   ThreadModelOverride,
   ThreadRecord,
+  ThreadWorkspaceChangeDecision,
+  ThreadWorkspaceUpdateInput,
   ThreadRestoredEvent,
   ThreadRuntimeBinding,
   ThreadSnapshot,
@@ -37,7 +39,8 @@ import {
   pickReplacementHeadId,
   sortMessagesByCreatedAt
 } from '../../../../../shared/yachiyo/threadTree.ts'
-import { canChangeThreadWorkspace } from '../../../../../shared/yachiyo/threadWorkspaceRules.ts'
+import { canChangeThreadWorkspaceWithoutConfirmation } from '../../../../../shared/yachiyo/threadWorkspaceRules.ts'
+import { hasPendingPlanDocument } from '../../../../../shared/yachiyo/planMode.ts'
 import type { AuxiliaryGenerationService } from '../../../runtime/models/auxiliaryGeneration.ts'
 import type { MemoryService } from '../../../services/memory/memoryService.ts'
 import type { YachiyoStorage } from '../../../storage/storage.ts'
@@ -65,6 +68,7 @@ interface ThreadDomainDeps {
   deleteThreadWorkspace: (threadId: string) => Promise<void>
   memoryService: MemoryService
   loadThreadMessages: (threadId: string) => MessageRecord[]
+  loadThreadToolCalls: (threadId: string) => ToolCallRecord[]
   requireThread: (threadId: string) => ThreadRecord
   isThreadRunning: (threadId: string) => boolean
   restoreActiveRunBranchWorkspace?: (input: {
@@ -239,13 +243,13 @@ export class YachiyoServerThreadDomain {
     return thread
   }
 
-  async updateWorkspace(input: {
-    threadId: string
-    workspacePath?: string | null
-  }): Promise<ThreadRecord> {
-    const blocker = this.getWorkspaceChangeBlocker({ threadId: input.threadId })
-    if (blocker) {
-      throw new Error(blocker)
+  async updateWorkspace(input: ThreadWorkspaceUpdateInput): Promise<ThreadRecord> {
+    const decision = this.getWorkspaceChangeDecision(input)
+    if (!decision.allowed) {
+      throw new Error(decision.message ?? 'Cannot change the workspace for this thread.')
+    }
+    if (decision.requiresConfirmation && input.confirmed !== true) {
+      throw new Error(decision.message ?? 'Confirm workspace change before continuing.')
     }
 
     const thread = this.deps.requireThread(input.threadId)
@@ -277,24 +281,69 @@ export class YachiyoServerThreadDomain {
     return updatedThread
   }
 
-  getWorkspaceChangeBlocker(input: { threadId: string }): string | null {
+  getWorkspaceChangeDecision(input: {
+    threadId: string
+    workspacePath?: string | null
+  }): ThreadWorkspaceChangeDecision {
     const thread = this.deps.requireThread(input.threadId)
+    const currentWorkspacePath = thread.workspacePath?.trim()
+      ? resolve(thread.workspacePath)
+      : this.deps.resolveThreadWorkspacePath(thread.id)
+    const targetWorkspacePath = input.workspacePath?.trim()
+      ? resolve(input.workspacePath.trim())
+      : this.deps.resolveThreadWorkspacePath(thread.id)
+
+    const blocked = (
+      blockedReason: ThreadWorkspaceChangeDecision['blockedReason'],
+      message: string
+    ): ThreadWorkspaceChangeDecision => ({
+      allowed: false,
+      blockedReason,
+      message,
+      requiresConfirmation: false,
+      currentWorkspacePath,
+      targetWorkspacePath
+    })
+
     if (this.deps.isThreadRunning(thread.id)) {
-      return 'Cannot change the workspace while this thread is running.'
+      return blocked('active-run', 'Cannot change the workspace while this thread is running.')
+    }
+
+    if (thread.runtimeBinding?.kind === 'acp') {
+      return blocked('acp-thread', 'ACP threads cannot change workspace after binding to an agent.')
     }
 
     const messages = this.loadThreadMessages(thread.id)
-    const threadCreatedAt = this.deps.storage.getThreadCreatedAt(thread.id)
-    if (
-      !canChangeThreadWorkspace({
-        messages,
-        threadCreatedAt
-      })
-    ) {
-      return 'Workspace can only be changed before the first message is sent.'
+    const toolCalls = this.deps.loadThreadToolCalls(thread.id)
+    if (hasPendingPlanDocument({ messages, toolCalls })) {
+      return blocked('pending-plan', 'Accept or reject the pending plan before changing workspace.')
     }
 
-    return null
+    const threadCreatedAt = this.deps.storage.getThreadCreatedAt(thread.id)
+    const requiresConfirmation = !canChangeThreadWorkspaceWithoutConfirmation({
+      messages,
+      threadCreatedAt
+    })
+
+    return {
+      allowed: true,
+      requiresConfirmation,
+      ...(requiresConfirmation
+        ? {
+            message:
+              'This thread already has conversation history. Switch workspace only if future runs should use the new folder.'
+          }
+        : {}),
+      currentWorkspacePath,
+      targetWorkspacePath
+    }
+  }
+
+  getWorkspaceChangeBlocker(input: { threadId: string }): string | null {
+    const decision = this.getWorkspaceChangeDecision(input)
+    return decision.allowed
+      ? null
+      : (decision.message ?? 'Cannot change the workspace for this thread.')
   }
 
   renameThread(input: { threadId: string; title: string }): ThreadRecord {

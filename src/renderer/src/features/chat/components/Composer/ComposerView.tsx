@@ -143,8 +143,8 @@ export function ComposerView(props: any): React.JSX.Element {
     workspaceSelectorRef,
     setWorkspaceHintHovered,
     setWorkspaceHintPinned,
-    isWorkspaceLocked,
     workspaceSelectorOpen,
+    workspaceSwitchLockReason,
     currentWorkspacePath,
     showWorkspaceHint,
     workspaceHint,
@@ -314,7 +314,7 @@ export function ComposerView(props: any): React.JSX.Element {
             <button
               type="button"
               onClick={() => {
-                if (isWorkspaceLocked) {
+                if (workspaceSwitchLockReason) {
                   setWorkspaceHintPinned(true)
                   return
                 }
@@ -333,7 +333,6 @@ export function ComposerView(props: any): React.JSX.Element {
               aria-label="Workspace selection"
               aria-expanded={workspaceSelectorOpen}
               aria-haspopup="menu"
-              disabled={isWorkspaceLocked}
             >
               <Folder
                 size={14}
@@ -393,7 +392,7 @@ export function ComposerView(props: any): React.JSX.Element {
               </div>
             ) : null}
 
-            {workspaceSelectorOpen && !isWorkspaceLocked ? (
+            {workspaceSelectorOpen ? (
               <WorkspaceSelectorPopup
                 currentWorkspacePath={currentWorkspacePath}
                 savedPaths={savedWorkspacePaths}
@@ -491,10 +490,13 @@ export function ComposerView(props: any): React.JSX.Element {
 
       {pendingWorkspaceChangeConfirmation ? (
         <ConfirmDialog
-          title="Switch this handoff thread to a different workspace?"
-          description="This thread started from a handoff and inherited the previous workspace. Changing it now will detach the handoff from that inherited folder."
+          title={pendingWorkspaceChangeConfirmation.title ?? 'Switch workspace?'}
+          description={
+            pendingWorkspaceChangeConfirmation.description ??
+            'Future runs in this thread will use the selected workspace.'
+          }
           actions={[
-            { key: 'keep', label: 'Keep inherited workspace' },
+            { key: 'keep', label: 'Keep current workspace' },
             { key: 'switch', label: 'Switch workspace', tone: 'accent' }
           ]}
           onClose={() => setPendingWorkspaceChangeConfirmation(null)}

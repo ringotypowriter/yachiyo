@@ -603,7 +603,7 @@ test('YachiyoServer fails runs cleanly when thread workspace initialization fail
   )
 })
 
-test('YachiyoServer allows setting a specific workspace before the first send and locks it after', async () => {
+test('YachiyoServer requires confirmation to change a specific workspace after the first send', async () => {
   await withServer(
     async ({ completeRun, server }) => {
       const firstWorkspace = join(tmpdir(), 'yachiyo-specific-workspace-a')
@@ -631,8 +631,14 @@ test('YachiyoServer allows setting a specific workspace before the first send an
           threadId: thread.id,
           workspacePath: null
         }),
-        /before the first message is sent/
+        /already has conversation history/
       )
+      const restoredThread = await server.updateThreadWorkspace({
+        threadId: thread.id,
+        workspacePath: null,
+        confirmed: true
+      })
+      assert.equal(restoredThread.workspacePath, undefined)
     },
     {
       createModelRuntime: () => ({

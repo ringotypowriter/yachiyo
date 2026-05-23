@@ -8,9 +8,11 @@ import type {
   SkillCatalogEntry,
   Thread
 } from '@renderer/app/types'
+import { useAppStore } from '@renderer/app/store/useAppStore'
 import { canCompactThreadToAnotherThread } from '@renderer/features/threads/lib/threadVisibility'
 import { scoreCandidates } from '../../lib/completionMatch'
 import {
+  buildFileMentionRequestKey,
   buildFileMentionCompletionCommands,
   paginateFileMentionMatches
 } from '../../lib/fileMentionCompletion'
@@ -49,7 +51,6 @@ interface UseComposerCompletionsInput {
   composerValue: string
   config: SettingsConfig | null
   currentWorkspacePath: string | null
-  isFreshHandoffWorkspace: boolean
   modelSelectorOpen: boolean
   pendingWorkspaceChangeConfirmation: PendingWorkspaceChangeConfirmation | null
   reasoningSelectorOpen: boolean
@@ -58,7 +59,11 @@ interface UseComposerCompletionsInput {
   setPendingWorkspaceChangeConfirmation: React.Dispatch<
     React.SetStateAction<PendingWorkspaceChangeConfirmation | null>
   >
-  setThreadWorkspace: (workspacePath: string | null, threadId?: string | null) => Promise<void>
+  setThreadWorkspace: (
+    workspacePath: string | null,
+    threadId?: string | null,
+    options?: { confirmed?: boolean }
+  ) => Promise<void>
   setWorkspaceHintPinned: React.Dispatch<React.SetStateAction<boolean>>
   skillsSelectorOpen: boolean
   textareaRef: React.RefObject<HTMLTextAreaElement | null>
@@ -108,7 +113,6 @@ export function useComposerCompletions(
     composerValue,
     config,
     currentWorkspacePath,
-    isFreshHandoffWorkspace,
     modelSelectorOpen,
     pendingWorkspaceChangeConfirmation,
     reasoningSelectorOpen,
@@ -165,10 +169,11 @@ export function useComposerCompletions(
   const fileMentionIncludeIgnored = fileMentionMatch?.[2] === '!'
   const fileMentionQueryKey =
     fileMentionQuery === null ? null : `${fileMentionIncludeIgnored ? '!' : ''}${fileMentionQuery}`
-  const fileMentionSearchScopeKey =
-    activeThreadId !== null ? `thread:${activeThreadId}` : `workspace:${currentWorkspacePath ?? ''}`
-  const fileMentionRequestKey =
-    fileMentionQueryKey === null ? null : `${fileMentionSearchScopeKey}\n${fileMentionQueryKey}`
+  const fileMentionRequestKey = buildFileMentionRequestKey({
+    threadId: activeThreadId,
+    workspacePath: currentWorkspacePath,
+    queryKey: fileMentionQueryKey
+  })
   const fileMentionResultLimit =
     fileMentionRequestKey !== null && fileMentionResultLimitState.key === fileMentionRequestKey
       ? fileMentionResultLimitState.limit
@@ -226,7 +231,7 @@ export function useComposerCompletions(
         return
       }
 
-      await setThreadWorkspace(selection.nextWorkspacePath, selection.threadId)
+      await setThreadWorkspace(selection.nextWorkspacePath, selection.threadId, { confirmed: true })
     },
     [config, savedWorkspacePaths, setThreadWorkspace]
   )
@@ -235,14 +240,47 @@ export function useComposerCompletions(
     (selection: PendingWorkspaceChangeConfirmation): void => {
       const workspaceChanged = selection.currentWorkspacePath !== selection.nextWorkspacePath
 
-      if (isFreshHandoffWorkspace && workspaceChanged) {
-        setPendingWorkspaceChangeConfirmation(selection)
+      if (selection.threadId && workspaceChanged) {
+        void (async () => {
+          const decision = await window.api.yachiyo.getThreadWorkspaceChangeDecision({
+            threadId: selection.threadId!,
+            workspacePath: selection.nextWorkspacePath
+          })
+          if (!decision.allowed) {
+            useAppStore.getState().pushToast({
+              threadId: selection.threadId!,
+              title: 'Workspace not changed',
+              body: decision.message ?? 'This thread cannot change workspace.',
+              eventKey: `workspace-change-blocked:${selection.threadId}`
+            })
+            return
+          }
+          if (decision.requiresConfirmation) {
+            setPendingWorkspaceChangeConfirmation({
+              ...selection,
+              title: 'Switch this thread to a different workspace?',
+              description:
+                decision.message ??
+                'Future runs in this thread will use the selected workspace. Existing messages and files stay where they are.'
+            })
+            return
+          }
+
+          await commitWorkspaceSelection(selection)
+        })().catch((error) => {
+          useAppStore.getState().pushToast({
+            threadId: selection.threadId!,
+            title: 'Workspace not changed',
+            body: error instanceof Error ? error.message : 'Unable to change the workspace.',
+            eventKey: `workspace-change-error:${selection.threadId}`
+          })
+        })
         return
       }
 
       void commitWorkspaceSelection(selection)
     },
-    [commitWorkspaceSelection, isFreshHandoffWorkspace, setPendingWorkspaceChangeConfirmation]
+    [commitWorkspaceSelection, setPendingWorkspaceChangeConfirmation]
   )
   const allSlashCommands = useMemo<SlashCommand[]>(
     () => [

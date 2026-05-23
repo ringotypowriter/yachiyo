@@ -52,6 +52,9 @@ import type {
   ThreadModelOverride,
   ThreadRecord,
   ThreadRuntimeBinding,
+  ThreadWorkspaceChangeDecision,
+  ThreadWorkspaceChangeDecisionInput,
+  ThreadWorkspaceUpdateInput,
   ThreadSearchResult,
   ThreadSnapshot,
   ThreadStateReplacedEvent,
@@ -435,6 +438,7 @@ export class YachiyoServer {
       memoryService,
       requireThread: this.requireThread.bind(this),
       loadThreadMessages: (threadId) => this.storage.listThreadMessages(threadId),
+      loadThreadToolCalls: (threadId) => this.storage.listThreadToolCalls(threadId),
       isThreadRunning: (threadId) => this.runDomain.hasActiveThread(threadId),
       restoreActiveRunBranchWorkspace: (input) =>
         this.runDomain.restoreActiveRunBranchWorkspace(input),
@@ -739,7 +743,7 @@ export class YachiyoServer {
       createId: this.createId,
       payload: input,
       requireThread: this.requireThread.bind(this),
-      resolveThreadWorkspacePath: this.resolveThreadWorkspacePath,
+      ensureThreadWorkspace: this.ensureThreadWorkspacePath,
       threadDomain: this.threadDomain
     })
   }
@@ -750,17 +754,20 @@ export class YachiyoServer {
       folderDomain: this.folderDomain,
       payload: input,
       requireThread: this.requireThread.bind(this),
-      resolveThreadWorkspacePath: this.resolveThreadWorkspacePath,
+      ensureThreadWorkspace: this.ensureThreadWorkspacePath,
       runDomain: this.runDomain,
       threadDomain: this.threadDomain
     })
   }
 
-  async updateThreadWorkspace(input: {
-    threadId: string
-    workspacePath?: string | null
-  }): Promise<ThreadRecord> {
+  async updateThreadWorkspace(input: ThreadWorkspaceUpdateInput): Promise<ThreadRecord> {
     return this.threadDomain.updateWorkspace(input)
+  }
+
+  getThreadWorkspaceChangeDecision(
+    input: ThreadWorkspaceChangeDecisionInput
+  ): ThreadWorkspaceChangeDecision {
+    return this.threadDomain.getWorkspaceChangeDecision(input)
   }
 
   getThreadWorkspaceChangeBlocker(input: { threadId: string }): string | null {

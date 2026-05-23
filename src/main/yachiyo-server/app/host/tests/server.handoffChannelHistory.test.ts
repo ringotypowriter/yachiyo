@@ -368,8 +368,15 @@ test('YachiyoServer allows changing a fresh handoff thread workspace before the 
           threadId: compacted.thread.id,
           workspacePath: inheritedWorkspace
         }),
-        /before the first message is sent/
+        /already has conversation history/
       )
+
+      const confirmedThread = await server.updateThreadWorkspace({
+        threadId: compacted.thread.id,
+        workspacePath: inheritedWorkspace,
+        confirmed: true
+      })
+      assert.equal(confirmedThread.workspacePath, inheritedWorkspace)
     },
     {
       createModelRuntime: () => ({
@@ -428,7 +435,7 @@ test('YachiyoServer rejects handoff for external threads', async () => {
   })
 })
 
-test('YachiyoServer fails and clears handoff runs when setup fails before streaming', async () => {
+test('YachiyoServer rejects handoff creation when source temp workspace setup fails', async () => {
   let failingThreadId: string | null = null
 
   await withServer(
@@ -441,23 +448,16 @@ test('YachiyoServer fails and clears handoff runs when setup fails before stream
       await completeRun(accepted.runId)
 
       failingThreadId = sourceThread.id
-      const compacted = await server.compactThreadToAnotherThread({
-        threadId: sourceThread.id
-      })
-
       await assert.rejects(
-        Promise.race([
-          completeRun(compacted.runId),
-          new Promise<never>((_, reject) => {
-            setTimeout(() => reject(new Error('Timed out waiting for handoff failure')), 1000)
-          })
-        ]),
+        server.compactThreadToAnotherThread({
+          threadId: sourceThread.id
+        }),
         /source workspace failed/
       )
 
       failingThreadId = null
       const retry = await server.sendChat({
-        threadId: compacted.thread.id,
+        threadId: sourceThread.id,
         content: 'Continue after the failed handoff.'
       })
 

@@ -1,10 +1,8 @@
 import type { Message, ToolCall } from '../../types.ts'
 import type { AppState } from '../useAppStore.ts'
 import {
-  isPlanDocumentMessage,
-  isPlanModeExitRecord,
-  PLAN_EXECUTION_USER_MESSAGE,
-  PLAN_MODE_EXIT_TOOL_NAME
+  findPlanAcceptanceTimestamp as findSharedPlanAcceptanceTimestamp,
+  findPlanExitTimestamp as findSharedPlanExitTimestamp
 } from '../../../../../shared/yachiyo/planMode.ts'
 
 const hydratingPlanDocumentThreadIds = new Set<string>()
@@ -13,54 +11,14 @@ export function findPlanExitTimestamp(input: {
   messages: readonly Message[]
   toolCalls: readonly ToolCall[]
 }): string | null {
-  for (let i = input.toolCalls.length - 1; i >= 0; i -= 1) {
-    const toolCall = input.toolCalls[i]
-    if (toolCall?.toolName === PLAN_MODE_EXIT_TOOL_NAME && toolCall.status === 'completed') {
-      return toolCall.finishedAt ?? toolCall.startedAt
-    }
-  }
-
-  for (let i = input.messages.length - 1; i >= 0; i -= 1) {
-    const message = input.messages[i]
-    if (message?.role === 'assistant' && isPlanModeExitRecord(message)) {
-      return message.createdAt
-    }
-  }
-
-  return null
-}
-
-function findPlanAcceptanceTimestamp(input: {
-  messages: readonly Message[]
-  planExitTimestamp: string
-}): string | null {
-  const messagesById = new Map(input.messages.map((message) => [message.id, message]))
-
-  for (let i = input.messages.length - 1; i >= 0; i -= 1) {
-    const message = input.messages[i]
-    if (!message || message.role !== 'user') continue
-    if (message.content.trim() !== PLAN_EXECUTION_USER_MESSAGE) continue
-    if (!message.parentMessageId) continue
-
-    const parent = messagesById.get(message.parentMessageId)
-    if (!parent || parent.role !== 'assistant') continue
-    if (!isPlanDocumentMessage(parent.content)) continue
-
-    // If a newer plan was generated after this acceptance, the UI should show the latest plan
-    // as pending again.
-    if (message.createdAt.localeCompare(input.planExitTimestamp) < 0) continue
-
-    return message.createdAt
-  }
-
-  return null
+  return findSharedPlanExitTimestamp(input)
 }
 
 export function derivePlanDocumentDecision(input: {
   messages: readonly Message[]
   planExitTimestamp: string
 }): 'pending' | 'accepted' {
-  return findPlanAcceptanceTimestamp(input) ? 'accepted' : 'pending'
+  return findSharedPlanAcceptanceTimestamp(input) ? 'accepted' : 'pending'
 }
 
 export function hydratePlanDocumentForThread(input: {

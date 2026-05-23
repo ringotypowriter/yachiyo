@@ -54,6 +54,25 @@ export function buildRunModeChangedReminderSection(input: {
   }
 }
 
+export function buildWorkspaceChangedReminderSection(input: {
+  previousWorkspacePath: string
+  workspacePath: string
+}): QueryReminderSection | null {
+  if (input.previousWorkspacePath === input.workspacePath) {
+    return null
+  }
+
+  return {
+    key: 'workspace-changed',
+    title: 'Workspace changed for this turn',
+    lines: [
+      `Previous run workspace: ${input.previousWorkspacePath}.`,
+      `Current workspace: ${input.workspacePath}.`,
+      'Treat file paths and file mentions as relative to the current workspace unless the user says otherwise.'
+    ]
+  }
+}
+
 export function buildDisabledToolsReminderSection(input: {
   enabledTools: ToolCallName[]
 }): QueryReminderSection | null {

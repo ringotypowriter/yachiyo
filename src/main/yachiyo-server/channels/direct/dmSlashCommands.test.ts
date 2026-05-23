@@ -13,7 +13,8 @@ import {
   handleDmSlashCommand,
   resolvePendingDmSlashCommandChoice,
   shouldDiscardPendingBatchForDmCommand,
-  type DmSlashCommandOptions
+  type DmSlashCommandOptions,
+  type DmSlashCommandServer
 } from './dmSlashCommands.ts'
 
 function createChannelUser(overrides: Partial<ChannelUserRecord> = {}): ChannelUserRecord {
@@ -814,7 +815,7 @@ describe('handleDmSlashCommand', () => {
       const channelUser = createChannelUser({ role: 'owner' })
       const activeThread = createThread('thread-active')
       const sent: string[] = []
-      const workspaceUpdates: Array<{ threadId: string; workspacePath?: string | null }> = []
+      const workspaceUpdates: Parameters<DmSlashCommandServer['updateThreadWorkspace']>[0][] = []
 
       const options = makeOptions<string>({
         pendingChoices,
@@ -847,7 +848,7 @@ describe('handleDmSlashCommand', () => {
 
       assert.equal(handled, true)
       assert.deepEqual(workspaceUpdates, [
-        { threadId: activeThread.id, workspacePath: '/work/research-notes' }
+        { threadId: activeThread.id, workspacePath: '/work/research-notes', confirmed: true }
       ])
       assert.equal(sent.length, 2)
       assert.match(sent[1], /Workspace switched:\n\nResearch Notes/)
@@ -887,7 +888,7 @@ describe('handleDmSlashCommand', () => {
       const channelUser = createChannelUser({ role: 'owner' })
       const activeThread = createThread('thread-active')
       const sent: string[] = []
-      const workspaceUpdates: Array<{ threadId: string; workspacePath?: string | null }> = []
+      const workspaceUpdates: Parameters<DmSlashCommandServer['updateThreadWorkspace']>[0][] = []
 
       const options = makeOptions<string>({
         pendingChoices,
@@ -919,7 +920,7 @@ describe('handleDmSlashCommand', () => {
       const channelUser = createChannelUser({ role: 'owner' })
       const activeThread = createThread('thread-active')
       const sent: string[] = []
-      const workspaceUpdates: Array<{ threadId: string; workspacePath?: string | null }> = []
+      const workspaceUpdates: Parameters<DmSlashCommandServer['updateThreadWorkspace']>[0][] = []
 
       const handled = await handleDmSlashCommand(
         makeOptions<string>({
@@ -947,7 +948,7 @@ describe('handleDmSlashCommand', () => {
 
       assert.equal(handled, true)
       assert.deepEqual(workspaceUpdates, [
-        { threadId: activeThread.id, workspacePath: '/work/research-notes' }
+        { threadId: activeThread.id, workspacePath: '/work/research-notes', confirmed: true }
       ])
       assert.equal(sent.length, 1)
       assert.match(sent[0], /Research Notes/)
@@ -958,7 +959,7 @@ describe('handleDmSlashCommand', () => {
       )
     })
 
-    it('returns the workspace lock message before showing choices', async () => {
+    it('returns the workspace blocker message before showing choices', async () => {
       const channelUser = createChannelUser({ role: 'owner' })
       const activeThread = createThread('thread-active')
       const sent: string[] = []
@@ -973,7 +974,7 @@ describe('handleDmSlashCommand', () => {
               return createConfig()
             },
             getThreadWorkspaceChangeBlocker: () =>
-              'Workspace can only be changed before the first message is sent.'
+              'Accept or reject the pending plan before changing workspace.'
           },
           sendMessage: async (_target, text) => {
             sent.push(text)
@@ -987,7 +988,7 @@ describe('handleDmSlashCommand', () => {
 
       assert.equal(handled, true)
       assert.equal(configRead, false)
-      assert.deepEqual(sent, ['Workspace can only be changed before the first message is sent.'])
+      assert.deepEqual(sent, ['Accept or reject the pending plan before changing workspace.'])
     })
 
     it('includes a discard notice when batchDiscarded is true', async () => {
@@ -1022,7 +1023,7 @@ describe('handleDmSlashCommand', () => {
     it('creates a fresh owner thread before switching when no active thread exists', async () => {
       const channelUser = createChannelUser({ role: 'owner' })
       const freshThread = createThread('thread-fresh')
-      const workspaceUpdates: Array<{ threadId: string; workspacePath?: string | null }> = []
+      const workspaceUpdates: Parameters<DmSlashCommandServer['updateThreadWorkspace']>[0][] = []
       let createdForUserId: string | undefined
 
       const handled = await handleDmSlashCommand(
@@ -1054,7 +1055,7 @@ describe('handleDmSlashCommand', () => {
       assert.equal(handled, true)
       assert.equal(createdForUserId, channelUser.id)
       assert.deepEqual(workspaceUpdates, [
-        { threadId: freshThread.id, workspacePath: '/work/yachiyo' }
+        { threadId: freshThread.id, workspacePath: '/work/yachiyo', confirmed: true }
       ])
     })
 

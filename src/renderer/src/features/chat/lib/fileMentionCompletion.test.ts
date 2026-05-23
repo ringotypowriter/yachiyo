@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import {
+  buildFileMentionRequestKey,
   buildFileMentionCompletionCommands,
   paginateFileMentionMatches
 } from './fileMentionCompletion.ts'
@@ -49,5 +50,25 @@ test('file mention pagination keeps JotDown visible instead of using it as the s
   assert.equal(
     page.matches.some((match) => match.path === 'notes/jot-24.md'),
     false
+  )
+})
+
+test('file mention request key includes workspace for existing thread scope', () => {
+  assert.equal(
+    buildFileMentionRequestKey({
+      threadId: 'thread-1',
+      workspacePath: '/tmp/one',
+      queryKey: 'src'
+    }),
+    'thread:thread-1:/tmp/one\nsrc'
+  )
+
+  assert.equal(
+    buildFileMentionRequestKey({
+      threadId: 'thread-1',
+      workspacePath: '/tmp/two',
+      queryKey: 'src'
+    }),
+    'thread:thread-1:/tmp/two\nsrc'
   )
 })

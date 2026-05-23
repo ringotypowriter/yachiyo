@@ -23,7 +23,7 @@ export function isFreshHandoffWorkspaceThread(input: {
   return firstMessage?.role === 'assistant' && firstMessage.parentMessageId === undefined
 }
 
-export function canChangeThreadWorkspace(input: {
+export function canChangeThreadWorkspaceWithoutConfirmation(input: {
   messages: ReadonlyArray<Pick<MessageRecord, 'createdAt' | 'parentMessageId' | 'role'>>
   threadCreatedAt: string | null | undefined
 }): boolean {

@@ -55,6 +55,9 @@ import type {
   SoulDocument,
   ThreadSnapshot,
   ThreadRecord,
+  ThreadWorkspaceChangeDecision,
+  ThreadWorkspaceChangeDecisionInput,
+  ThreadWorkspaceUpdateInput,
   ToolCallName,
   ToolPreferencesInput,
   TranslateInput,
@@ -121,6 +124,9 @@ declare global {
         deleteMessage: (input: { threadId: string; messageId: string }) => Promise<ThreadSnapshot>
         editMessage: (input: EditMessageInput) => Promise<ChatAccepted>
         openThreadWorkspace: (input: { threadId: string }) => Promise<void>
+        getThreadWorkspaceChangeDecision: (
+          input: ThreadWorkspaceChangeDecisionInput
+        ) => Promise<ThreadWorkspaceChangeDecision>
         readThreadPlanDocument: (
           input: ReadThreadPlanDocumentInput
         ) => Promise<ReadThreadPlanDocumentResult>
@@ -152,10 +158,7 @@ declare global {
         sendChat: (input: SendChatInput) => Promise<ChatAccepted>
         retryMessage: (input: RetryInput) => Promise<RetryAccepted>
         saveThread: (input: SaveThreadInput) => Promise<SaveThreadResult>
-        updateThreadWorkspace: (input: {
-          threadId: string
-          workspacePath?: string | null
-        }) => Promise<ThreadRecord>
+        updateThreadWorkspace: (input: ThreadWorkspaceUpdateInput) => Promise<ThreadRecord>
         selectReplyBranch: (input: {
           threadId: string
           assistantMessageId: string

@@ -430,6 +430,28 @@ export interface ThreadRuntimeBinding {
   lastSessionBoundAt?: string
 }
 
+export type ThreadWorkspaceChangeBlockedReason = 'active-run' | 'acp-thread' | 'pending-plan'
+
+export interface ThreadWorkspaceChangeDecision {
+  allowed: boolean
+  blockedReason?: ThreadWorkspaceChangeBlockedReason
+  message?: string
+  requiresConfirmation: boolean
+  currentWorkspacePath: string
+  targetWorkspacePath: string
+}
+
+export interface ThreadWorkspaceUpdateInput {
+  threadId: string
+  workspacePath?: string | null
+  confirmed?: boolean
+}
+
+export interface ThreadWorkspaceChangeDecisionInput {
+  threadId: string
+  workspacePath?: string | null
+}
+
 export interface ThreadCapabilities {
   canRetry: boolean
   canCreateBranch: boolean

@@ -205,13 +205,6 @@ export function RunInspectionPanel({ threadId }: RunInspectionPanelProps): React
     threadId ? (state.runsByThread[threadId] ?? EMPTY_RUNS) : EMPTY_RUNS
   )
   const snapshotReviewByRun = useAppStore((s) => s.snapshotReviewByRun)
-  const thread = useAppStore((state) =>
-    threadId
-      ? (state.threads.find((t) => t.id === threadId) ??
-        state.externalThreads.find((t) => t.id === threadId) ??
-        null)
-      : null
-  )
 
   const [viewingSnapshotRunId, setViewingSnapshotRunId] = useState<string | null>(null)
   const [confirmRestoreRunId, setConfirmRestoreRunId] = useState<string | null>(null)
@@ -237,18 +230,21 @@ export function RunInspectionPanel({ threadId }: RunInspectionPanelProps): React
   }, [])
 
   const handleConfirmRestore = useCallback(async () => {
-    if (!confirmRestoreRunId || !thread?.workspacePath) return
+    const workspacePath = runsWithSnapshots.find(
+      (run) => run.id === confirmRestoreRunId
+    )?.workspacePath
+    if (!confirmRestoreRunId || !workspacePath) return
     setRestoring(true)
     try {
       await window.api.yachiyo.restoreToCheckpoint({
         runId: confirmRestoreRunId,
-        workspacePath: thread.workspacePath
+        workspacePath
       })
     } finally {
       setRestoring(false)
       setConfirmRestoreRunId(null)
     }
-  }, [confirmRestoreRunId, thread?.workspacePath])
+  }, [confirmRestoreRunId, runsWithSnapshots])
 
   return (
     <div
@@ -311,7 +307,6 @@ export function RunInspectionPanel({ threadId }: RunInspectionPanelProps): React
           workspacePath={
             runsWithSnapshots.find((r) => r.id === viewingSnapshotRunId)?.workspacePath ??
             snapshotReviewByRun[viewingSnapshotRunId]?.workspacePath ??
-            thread?.workspacePath ??
             ''
           }
           isLatestRun={viewingSnapshotRunId === latestRunId}

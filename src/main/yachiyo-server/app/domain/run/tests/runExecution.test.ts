@@ -17,6 +17,7 @@ import type { ModelUsage } from '../../../../runtime/models/types.ts'
 import type {
   MessageRecord,
   ProviderSettings,
+  RunRecord,
   SettingsConfig,
   ThreadRecord,
   ToolCallRecord
@@ -51,6 +52,7 @@ function createRunContextDeps(input: {
   messages: MessageRecord[]
   workspacePath: string
   updatedMessages?: MessageRecord[]
+  runs?: RunRecord[]
   activitySourceRecords?: unknown[]
   imageToTextService?: RunExecutionDeps['imageToTextService']
   isModelImageCapable?: boolean
@@ -102,7 +104,7 @@ function createRunContextDeps(input: {
       },
       getChannelUser: () => undefined,
       persistResponseMessagesRepairInBackground: () => {},
-      listThreadRuns: () => [],
+      listThreadRuns: () => input.runs ?? [],
       saveActivitySourceRecord: (record: unknown) => {
         input.activitySourceRecords?.push(record)
       }
@@ -346,6 +348,67 @@ test('prepareServerRunContext injects tool availability changes into the current
     assert.match(updatedMessages[0]?.turnContext?.reminder ?? '', /Enabled: write\./)
   } finally {
     await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('prepareServerRunContext injects workspace change reminder from previous run snapshot workspace', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'yachiyo-workspace-reminder-'))
+  const previousRoot = await mkdtemp(join(tmpdir(), 'yachiyo-previous-workspace-'))
+  const thread: ThreadRecord = {
+    id: 'thread-workspace-reminder',
+    title: 'Thread',
+    workspacePath: root,
+    updatedAt: '2026-04-28T00:00:00.000Z'
+  }
+  const requestMessage: MessageRecord = {
+    id: 'msg-workspace-reminder',
+    threadId: thread.id,
+    role: 'user',
+    content: 'continue',
+    status: 'completed',
+    createdAt: '2026-04-28T00:00:00.000Z'
+  }
+  const events: unknown[] = []
+  const updatedMessages: MessageRecord[] = []
+
+  try {
+    await prepareServerRunContext(
+      createRunContextDeps({
+        events,
+        messages: [requestMessage],
+        updatedMessages,
+        workspacePath: root,
+        runs: [
+          {
+            id: 'previous-run',
+            threadId: thread.id,
+            status: 'completed',
+            createdAt: '2026-04-27T00:00:00.000Z',
+            workspacePath: previousRoot
+          }
+        ]
+      }),
+      {
+        runId: 'run-workspace-reminder',
+        thread,
+        requestMessageId: requestMessage.id,
+        enabledTools: ['read'],
+        runMode: 'auto',
+        runTrigger: 'local',
+        abortController: new AbortController(),
+        requestMessage,
+        historyMessages: [requestMessage],
+        includeMemoryRecall: false,
+        applyStripCompact: false
+      }
+    )
+
+    assert.match(updatedMessages[0]?.turnContext?.reminder ?? '', /Workspace changed for this turn/)
+    assert.equal(updatedMessages[0]?.turnContext?.reminder?.includes(previousRoot), true)
+    assert.equal(updatedMessages[0]?.turnContext?.reminder?.includes(root), true)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+    await rm(previousRoot, { recursive: true, force: true })
   }
 })
 

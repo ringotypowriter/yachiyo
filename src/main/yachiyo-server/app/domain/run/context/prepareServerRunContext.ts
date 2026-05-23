@@ -34,6 +34,7 @@ import {
   buildCurrentTimeSection,
   buildDisabledToolsReminderSection,
   buildRunModeChangedReminderSection,
+  buildWorkspaceChangedReminderSection,
   buildToolAvailabilityReminderSection,
   buildSteerReminderSection,
   formatDateLine,
@@ -236,6 +237,10 @@ export async function prepareServerRunContext(
   const hintTime = requestMessage?.createdAt ? new Date(requestMessage.createdAt) : now
   const isSteerLeg = input.isSteerLeg === true || input.priorUsage != null
   const isVisibleSteerLeg = isSteerLeg && !requestIsHidden
+  const previousWorkspacePath = deps.storage
+    .listThreadRuns(input.thread.id)
+    .filter((run) => run.id !== input.runId && run.workspacePath)
+    .sort((left, right) => right.createdAt.localeCompare(left.createdAt))[0]?.workspacePath
   const hiddenQueryReminder = formatQueryReminder(
     [
       input.previousEnabledTools
@@ -248,6 +253,12 @@ export async function prepareServerRunContext(
         ? buildRunModeChangedReminderSection({
             previousRunMode: input.previousRunMode,
             runMode: input.runMode
+          })
+        : null,
+      previousWorkspacePath
+        ? buildWorkspaceChangedReminderSection({
+            previousWorkspacePath,
+            workspacePath
           })
         : null,
       buildDisabledToolsReminderSection({ enabledTools: modelEnabledTools }),

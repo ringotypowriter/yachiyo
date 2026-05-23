@@ -57,6 +57,8 @@ export interface PendingWorkspaceChangeConfirmation {
   currentWorkspacePath: string | null
   nextWorkspacePath: string | null
   saveWorkspacePath?: string
+  title?: string
+  description?: string
 }
 
 export interface AttachmentUploadNotice {
@@ -314,19 +316,26 @@ export function getWorkspaceLabel(workspacePath: string | null): string {
   return workspacePath.split('/').filter(Boolean).at(-1) ?? workspacePath
 }
 
+export type WorkspaceSwitchLockReason = 'active-run' | 'pending-plan'
+
 export function getWorkspaceHint(input: {
-  isWorkspaceLocked: boolean
   workspacePath: string | null
+  lockReason?: WorkspaceSwitchLockReason | null
 }): {
   title: string
   detail: string
 } {
-  if (input.isWorkspaceLocked) {
+  if (input.lockReason === 'active-run') {
     return {
-      title: 'Workspace locked',
-      detail: input.workspacePath
-        ? `${input.workspacePath}\nSent messages already exist, so this thread can no longer switch workspaces.`
-        : 'This thread is already using the temp workspace. Sent messages already exist, so it can no longer switch workspaces.'
+      title: 'Workspace locked while running',
+      detail: 'Wait for the current run to finish before switching workspace.'
+    }
+  }
+
+  if (input.lockReason === 'pending-plan') {
+    return {
+      title: 'Workspace locked by pending plan',
+      detail: 'Accept or reject the pending plan before switching workspace.'
     }
   }
 

@@ -1,11 +1,14 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 
-import { canChangeThreadWorkspace, isFreshHandoffWorkspaceThread } from './threadWorkspaceRules.ts'
+import {
+  canChangeThreadWorkspaceWithoutConfirmation,
+  isFreshHandoffWorkspaceThread
+} from './threadWorkspaceRules.ts'
 
-test('canChangeThreadWorkspace allows an empty thread', () => {
+test('canChangeThreadWorkspaceWithoutConfirmation allows an empty thread', () => {
   assert.equal(
-    canChangeThreadWorkspace({
+    canChangeThreadWorkspaceWithoutConfirmation({
       messages: [],
       threadCreatedAt: '2026-03-31T00:00:00.000Z'
     }),
@@ -29,9 +32,9 @@ test('isFreshHandoffWorkspaceThread matches a single assistant bootstrap message
   )
 })
 
-test('canChangeThreadWorkspace allows a single assistant bootstrap message without threadCreatedAt', () => {
+test('canChangeThreadWorkspaceWithoutConfirmation allows a single assistant bootstrap message without threadCreatedAt', () => {
   assert.equal(
-    canChangeThreadWorkspace({
+    canChangeThreadWorkspaceWithoutConfirmation({
       messages: [
         {
           createdAt: '2026-03-31T00:00:01.000Z',
@@ -45,9 +48,9 @@ test('canChangeThreadWorkspace allows a single assistant bootstrap message witho
   )
 })
 
-test('canChangeThreadWorkspace rejects a handoff thread after the first user continuation', () => {
+test('canChangeThreadWorkspaceWithoutConfirmation requires confirmation after the first user continuation', () => {
   assert.equal(
-    canChangeThreadWorkspace({
+    canChangeThreadWorkspaceWithoutConfirmation({
       messages: [
         {
           createdAt: '2026-03-31T00:00:01.000Z',
@@ -66,9 +69,9 @@ test('canChangeThreadWorkspace rejects a handoff thread after the first user con
   )
 })
 
-test('canChangeThreadWorkspace keeps branch snapshots editable before new messages are added', () => {
+test('canChangeThreadWorkspaceWithoutConfirmation keeps branch snapshots editable before new messages are added', () => {
   assert.equal(
-    canChangeThreadWorkspace({
+    canChangeThreadWorkspaceWithoutConfirmation({
       messages: [
         {
           createdAt: '2026-03-30T23:59:58.000Z',
