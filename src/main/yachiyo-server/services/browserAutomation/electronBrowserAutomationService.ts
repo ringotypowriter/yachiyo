@@ -275,7 +275,7 @@ export function createElectronBrowserAutomationService(input: {
 
     try {
       if (state.overlay) {
-        attachedWindow.contentView.removeChildView(state.overlay.view)
+        state.overlay.detach()
       }
       attachedWindow.contentView.removeChildView(state.view)
     } catch {
@@ -366,9 +366,8 @@ export function createElectronBrowserAutomationService(input: {
         state.attachedWindow = window
       }
 
-      window.contentView.removeChildView(state.overlay.view)
-      window.contentView.addChildView(state.overlay.view)
       state.view.setBounds(viewBounds)
+      state.overlay.attachTo(window)
       state.overlay.setBounds(viewBounds)
       state.overlay.updatePointer(state.pointer)
       if (overlay && 'activityBubble' in overlay) {
@@ -394,10 +393,6 @@ export function createElectronBrowserAutomationService(input: {
       state.overlay?.setBounds(viewBounds)
       if (overlay?.theme) {
         state.overlay?.updateTheme(overlay.theme)
-      }
-      if (state.attachedWindow && !state.attachedWindow.isDestroyed() && state.overlay) {
-        state.attachedWindow.contentView.removeChildView(state.overlay.view)
-        state.attachedWindow.contentView.addChildView(state.overlay.view)
       }
       if (overlay && 'activityBubble' in overlay) {
         state.overlay?.updateActivityBubble(overlay.activityBubble ?? null)

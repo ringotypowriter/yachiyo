@@ -130,7 +130,7 @@ export function TimelineSurfaceHeader({
           aria-selected={activeSurface === 'timeline'}
           onClick={() => onActiveSurfaceChange('timeline')}
         >
-          Timeline
+          Conversation
         </button>
         <button
           type="button"

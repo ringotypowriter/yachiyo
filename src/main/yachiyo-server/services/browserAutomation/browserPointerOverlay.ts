@@ -7,7 +7,7 @@ import type {
   BrowserAutomationViewBounds
 } from '../../../../shared/yachiyo/protocol.ts'
 
-const { WebContentsView } = electron
+const { BrowserWindow } = electron
 
 const POINTER_OVERLAY_HTML = `<!doctype html>
 <html>
@@ -207,7 +207,8 @@ body {
 </html>`
 
 export interface BrowserPointerOverlay {
-  view: InstanceType<typeof WebContentsView>
+  attachTo: (window: InstanceType<typeof BrowserWindow>) => void
+  detach: () => void
   setBounds: (bounds: BrowserAutomationViewBounds) => void
   updateTheme: (theme: BrowserAutomationOverlayTheme | null) => void
   updatePointer: (pointer: BrowserAutomationPointerState | null) => void
@@ -236,27 +237,109 @@ function transparentBackgroundFromTheme(
 }
 
 export function createBrowserPointerOverlay(): BrowserPointerOverlay {
-  const view = new WebContentsView({
+  const window = new BrowserWindow({
+    show: false,
+    frame: false,
+    transparent: true,
+    hasShadow: false,
+    resizable: false,
+    movable: false,
+    minimizable: false,
+    maximizable: false,
+    fullscreenable: false,
+    focusable: false,
+    skipTaskbar: true,
+    acceptFirstMouse: false,
     webPreferences: {
       backgroundThrottling: false,
       transparent: true,
       sandbox: false
     }
   })
+  window.setIgnoreMouseEvents(true, { forward: true })
   let currentPointer: BrowserAutomationPointerState | null = null
   let currentActivityBubble: BrowserAutomationActivityBubbleState | null = null
   let currentTheme: BrowserAutomationOverlayTheme | null = null
+  let attachedWindow: InstanceType<typeof BrowserWindow> | null = null
+  let currentBounds: BrowserAutomationViewBounds | null = null
   let destroyed = false
-  const loaded = view.webContents.loadURL(
+  const loaded = window.webContents.loadURL(
     `data:text/html;charset=utf-8,${encodeURIComponent(POINTER_OVERLAY_HTML)}`
   )
 
+  function applyBounds(): void {
+    if (destroyed || window.isDestroyed() || !attachedWindow || attachedWindow.isDestroyed()) return
+    if (!currentBounds) return
+    const contentBounds = attachedWindow.getContentBounds()
+    window.setBounds({
+      x: contentBounds.x + currentBounds.x,
+      y: contentBounds.y + currentBounds.y,
+      width: currentBounds.width,
+      height: currentBounds.height
+    })
+  }
+
+  function parentCanShowOverlay(): boolean {
+    return Boolean(
+      attachedWindow &&
+      !attachedWindow.isDestroyed() &&
+      attachedWindow.isVisible() &&
+      !attachedWindow.isMinimized()
+    )
+  }
+
+  function ensureVisible(): void {
+    if (destroyed || window.isDestroyed() || !attachedWindow || attachedWindow.isDestroyed()) return
+    if (!currentBounds || !parentCanShowOverlay()) {
+      window.hide()
+      return
+    }
+
+    window.setParentWindow(attachedWindow)
+    applyBounds()
+    window.showInactive()
+    window.setAlwaysOnTop(true, 'pop-up-menu')
+    window.moveTop()
+    window.setAlwaysOnTop(false)
+  }
+
+  function hideOverlay(): void {
+    if (destroyed || window.isDestroyed()) return
+    window.hide()
+  }
+
+  function followParent(): void {
+    ensureVisible()
+  }
+
+  function unfollowParent(): void {
+    if (!attachedWindow || attachedWindow.isDestroyed()) return
+    attachedWindow.off('focus', ensureVisible)
+    attachedWindow.off('show', ensureVisible)
+    attachedWindow.off('restore', ensureVisible)
+    attachedWindow.off('move', followParent)
+    attachedWindow.off('resize', followParent)
+    attachedWindow.off('enter-full-screen', ensureVisible)
+    attachedWindow.off('leave-full-screen', ensureVisible)
+    attachedWindow.off('hide', hideOverlay)
+    attachedWindow.off('minimize', hideOverlay)
+    attachedWindow.off('closed', detach)
+  }
+
+  function detach(): void {
+    if (destroyed || window.isDestroyed()) return
+    unfollowParent()
+    attachedWindow = null
+    window.hide()
+    window.setParentWindow(null)
+  }
+
   function applyPointer(): void {
-    if (destroyed || view.webContents.isDestroyed()) return
+    if (destroyed || window.webContents.isDestroyed()) return
     void loaded
       .then(() => {
-        if (destroyed || view.webContents.isDestroyed()) return
-        return view.webContents.executeJavaScript(
+        if (destroyed || window.webContents.isDestroyed()) return
+        return window.webContents.executeJavaScript(
           `window.__yachiyoSetPointer(${JSON.stringify(currentPointer)})`,
           true
         )
@@ -265,11 +348,11 @@ export function createBrowserPointerOverlay(): BrowserPointerOverlay {
   }
 
   function applyTheme(): void {
-    if (destroyed || view.webContents.isDestroyed()) return
+    if (destroyed || window.webContents.isDestroyed()) return
     void loaded
       .then(() => {
-        if (destroyed || view.webContents.isDestroyed()) return
-        return view.webContents.executeJavaScript(
+        if (destroyed || window.webContents.isDestroyed()) return
+        return window.webContents.executeJavaScript(
           `window.__yachiyoSetTheme(${JSON.stringify(currentTheme)})`,
           true
         )
@@ -278,11 +361,11 @@ export function createBrowserPointerOverlay(): BrowserPointerOverlay {
   }
 
   function applyActivityBubble(): void {
-    if (destroyed || view.webContents.isDestroyed()) return
+    if (destroyed || window.webContents.isDestroyed()) return
     void loaded
       .then(() => {
-        if (destroyed || view.webContents.isDestroyed()) return
-        return view.webContents.executeJavaScript(
+        if (destroyed || window.webContents.isDestroyed()) return
+        return window.webContents.executeJavaScript(
           `window.__yachiyoSetActivityBubble(${JSON.stringify(currentActivityBubble)})`,
           true
         )
@@ -291,16 +374,36 @@ export function createBrowserPointerOverlay(): BrowserPointerOverlay {
   }
 
   return {
-    view,
+    attachTo(parentWindow) {
+      if (destroyed || window.isDestroyed() || parentWindow.isDestroyed()) return
+      if (attachedWindow !== parentWindow) {
+        unfollowParent()
+        attachedWindow = parentWindow
+        window.setParentWindow(parentWindow)
+        parentWindow.on('focus', ensureVisible)
+        parentWindow.on('show', ensureVisible)
+        parentWindow.on('restore', ensureVisible)
+        parentWindow.on('move', followParent)
+        parentWindow.on('resize', followParent)
+        parentWindow.on('enter-full-screen', ensureVisible)
+        parentWindow.on('leave-full-screen', ensureVisible)
+        parentWindow.on('hide', hideOverlay)
+        parentWindow.on('minimize', hideOverlay)
+        parentWindow.on('closed', detach)
+      }
+      ensureVisible()
+    },
+    detach,
     setBounds(bounds) {
-      if (destroyed || view.webContents.isDestroyed()) return
-      view.setBounds(bounds)
+      if (destroyed || window.isDestroyed()) return
+      currentBounds = bounds
+      ensureVisible()
     },
     updateTheme(theme) {
       currentTheme = theme
       const background = transparentBackgroundFromTheme(theme)
       if (background) {
-        view.setBackgroundColor(background)
+        window.setBackgroundColor(background)
       }
       applyTheme()
     },
@@ -313,9 +416,10 @@ export function createBrowserPointerOverlay(): BrowserPointerOverlay {
       applyActivityBubble()
     },
     destroy() {
+      detach()
       destroyed = true
-      if (!view.webContents.isDestroyed()) {
-        view.webContents.close()
+      if (!window.isDestroyed()) {
+        window.close()
       }
     }
   }
