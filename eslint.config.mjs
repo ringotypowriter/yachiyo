@@ -35,5 +35,11 @@ export default defineConfig(
       'yachiyo/max-typescript-file-lines': ['error', { max: 1500 }]
     }
   },
+  {
+    files: ['**/*.test.{ts,tsx}'],
+    rules: {
+      'yachiyo/max-typescript-file-lines': 'off'
+    }
+  },
   eslintConfigPrettier
 )
