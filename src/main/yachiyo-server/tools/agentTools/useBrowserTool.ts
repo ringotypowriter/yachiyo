@@ -8,6 +8,7 @@ import type {
 import { assertNonEmptyScreenshotByteLength } from '../../services/browserAutomation/browserCaptureValidation.ts'
 
 import {
+  takeTail,
   textContent,
   toToolModelOutput,
   useBrowserToolInputSchema,
@@ -17,6 +18,8 @@ import {
 } from './shared.ts'
 
 const DEFAULT_WAIT_PREDICATE = `(() => document.readyState === 'complete')()`
+const MAX_EVAL_MODEL_RESULT_CHARS = 20_000
+const MAX_EVAL_DETAILS_RESULT_CHARS = 4_000
 
 function isMissingSessionError(error: unknown): boolean {
   return error instanceof Error && error.message.includes('No browser session')
@@ -58,16 +61,30 @@ function formatPageText(snapshot: BrowserAutomationSnapshot): string {
   return sections.length > 0 ? `Page text\n${sections.join('\n\n')}` : ''
 }
 
+function formatEvalResult(value: unknown): string {
+  if (value === undefined) return 'undefined'
+  if (typeof value === 'string') return value
+
+  try {
+    const json = JSON.stringify(value, null, 2)
+    if (json !== undefined) return json
+  } catch {
+    // Fall back to String(value) for values that cannot be JSON stringified.
+  }
+
+  return String(value)
+}
+
 export function createTool(
   context: AgentToolContext,
   deps: { browserAutomationService?: BrowserAutomationService } = {}
 ): Tool<UseBrowserToolInput, UseBrowserToolOutput> {
   return tool({
     description:
-      'Browser automation for opening pages, inspecting content, clicking, filling forms, scrolling, and capturing screenshots or PDFs. The browser window is visible to the user and they can interact with it directly. If a step requires human action (e.g. CAPTCHA, login, 2FA, consent dialog), ask the user to perform it rather than failing. Sessions are scoped to this conversation, but cookies and storage are shared globally. Start with action="open"; loadUrl, snapshot, and wait auto-open the session if needed.',
+      'Browser automation for opening pages, inspecting content, clicking, filling forms, scrolling, and capturing screenshots or PDFs. You can also run JavaScript in the page with action="eval". The browser window is visible to the user and they can interact with it directly. If a step requires human action (e.g. CAPTCHA, login, 2FA, consent dialog), ask the user to perform it rather than failing. Sessions are scoped to this conversation, but cookies and storage are shared globally. Start with action="open"; loadUrl, snapshot, and wait auto-open the session if needed.',
     inputSchema: useBrowserToolInputSchema,
     toModelOutput: ({ output }) => toToolModelOutput(output),
-    execute: async (input) => {
+    execute: async (input): Promise<UseBrowserToolOutput> => {
       const service = deps.browserAutomationService
       if (!service) {
         return {
@@ -109,6 +126,7 @@ export function createTool(
         ...(input.amount ? { amount: input.amount } : {}),
         ...(value !== undefined ? { value } : {}),
         ...(input.checked !== undefined ? { checked: input.checked } : {}),
+        ...(input.script ? { script: input.script } : {}),
         ...(input.timeoutMs ? { timeoutMs: input.timeoutMs } : {})
       }
 
@@ -363,6 +381,33 @@ export function createTool(
                 ...(result.title ? { title: result.title } : {})
               },
               metadata: {}
+            }
+          }
+          case 'eval': {
+            if (!input.script) throw new Error('script is required for eval')
+            const result = await service.evaluateScript({
+              threadId,
+              session,
+              script: input.script,
+              timeoutMs: input.timeoutMs
+            })
+            const resultText = formatEvalResult(result.value)
+            const modelResult = takeTail(resultText, MAX_EVAL_MODEL_RESULT_CHARS)
+            const detailsResult = takeTail(resultText, MAX_EVAL_DETAILS_RESULT_CHARS)
+            const header = result.title
+              ? `Evaluated: ${result.title}\n${result.url}`
+              : `Evaluated: ${result.url}`
+            return {
+              content: textContent(
+                `${header}\n\nResult${modelResult.truncated ? ' (truncated)' : ''}:\n${modelResult.text}`
+              ),
+              details: {
+                ...baseDetails,
+                finalUrl: result.url,
+                ...(result.title ? { title: result.title } : {}),
+                result: detailsResult.text
+              },
+              metadata: modelResult.truncated ? { truncated: true } : {}
             }
           }
           case 'screenshot': {

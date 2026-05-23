@@ -6,6 +6,7 @@ import { dirname, join } from 'node:path'
 import { resolveElectronSessionProxyConfig } from '../webSearch/electronProxyConfig.ts'
 import {
   normalizeBrowserAutomationScriptExecutionError,
+  wrapBrowserAutomationPageEvalScript,
   unwrapBrowserAutomationPageScriptResult,
   wrapBrowserAutomationPageScript
 } from './browserAutomationScriptEvaluation.ts'
@@ -65,6 +66,10 @@ export interface BrowserAutomationPageText {
 export interface BrowserAutomationPageState {
   url: string
   title?: string
+}
+
+export interface BrowserAutomationEvaluationResult extends BrowserAutomationPageState {
+  value: unknown
 }
 
 export type BrowserAutomationScrollDirection = 'up' | 'down' | 'left' | 'right'
@@ -175,6 +180,13 @@ export interface BrowserAutomationService {
     key: string
   }): Promise<BrowserAutomationPageState>
 
+  evaluateScript(input: {
+    threadId: string
+    session: string
+    script: string
+    timeoutMs: number
+  }): Promise<BrowserAutomationEvaluationResult>
+
   screenshot(input: {
     threadId: string
     session: string
@@ -245,6 +257,24 @@ function timestamp(): string {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+async function withTimeout<TResult>(
+  promise: Promise<TResult>,
+  timeoutMs: number,
+  message: string
+): Promise<TResult> {
+  let timeoutId: ReturnType<typeof setTimeout> | undefined
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<TResult>((_resolve, reject) => {
+        timeoutId = setTimeout(() => reject(new Error(message)), timeoutMs)
+      })
+    ])
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId)
+  }
 }
 
 function pageState(state: ThreadBrowserSessionState): BrowserAutomationPageState {
@@ -346,7 +376,9 @@ export function createElectronBrowserAutomationService(input: {
   async function evaluate<TResult>(
     state: ThreadBrowserSessionState,
     script: string,
-    action?: string
+    action?: string,
+    wrapScript: (script: string, timeoutMs?: number) => string = wrapBrowserAutomationPageScript,
+    timeoutMs?: number
   ): Promise<TResult> {
     const url = state.url || state.view.webContents.getURL() || undefined
     const context = {
@@ -357,10 +389,18 @@ export function createElectronBrowserAutomationService(input: {
 
     let result: unknown
     try {
-      result = await state.view.webContents.executeJavaScript(
-        wrapBrowserAutomationPageScript(script),
+      const execution = state.view.webContents.executeJavaScript(
+        wrapScript(script, timeoutMs),
         true
       )
+      result =
+        typeof timeoutMs === 'number' && Number.isFinite(timeoutMs) && timeoutMs > 0
+          ? await withTimeout(
+              execution,
+              timeoutMs,
+              `Timed out after ${timeoutMs}ms running browser ${action ?? 'automation'} script.`
+            )
+          : await execution
     } catch (error) {
       throw normalizeBrowserAutomationScriptExecutionError(error, context)
     }
@@ -994,6 +1034,19 @@ export function createElectronBrowserAutomationService(input: {
       state.view.webContents.sendInputEvent({ type: 'keyDown', keyCode, modifiers })
       state.view.webContents.sendInputEvent({ type: 'keyUp', keyCode, modifiers })
       return settleAndUpdate(state)
+    },
+
+    async evaluateScript({ threadId, session: sessionName, script, timeoutMs }) {
+      const state = requireSessionState(threadId, sessionName)
+      const value = await evaluate<unknown>(
+        state,
+        script,
+        'eval',
+        wrapBrowserAutomationPageEvalScript,
+        timeoutMs
+      )
+      const result = await settleAndUpdate(state)
+      return { ...result, value }
     },
 
     async screenshot({ threadId, session: sessionName, workspacePath, fileName }) {

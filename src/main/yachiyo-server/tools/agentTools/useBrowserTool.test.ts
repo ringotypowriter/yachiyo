@@ -118,6 +118,11 @@ function makeService(overrides?: Partial<BrowserAutomationService>): BrowserAuto
       savedFilePath: '/tmp/yachiyo-use-browser/.yachiyo/tool-result/browser.pdf',
       bytesWritten: 20
     }),
+    evaluateScript: async () => ({
+      url: 'https://example.com/eval',
+      title: 'Evaluated',
+      value: { answer: 42 }
+    }),
     dispose: () => {},
     ...overrides
   }
@@ -236,6 +241,51 @@ test('useBrowserTool: screenshot reports saved file', async () => {
   assert.equal(result.error, undefined)
   assert.equal(result.details.savedFileName, '.yachiyo/tool-result/browser.png')
   assert.equal(result.details.bytesWritten, 10)
+})
+
+test('useBrowserTool: eval executes JavaScript and returns the result', async () => {
+  let receivedInput: {
+    threadId: string
+    session: string
+    script: string
+    timeoutMs: number
+  } | null = null
+  const tool = createTool(makeContext(), {
+    browserAutomationService: makeService({
+      evaluateScript: async (input) => {
+        receivedInput = input
+        return {
+          url: 'https://example.com/eval',
+          title: 'Evaluated',
+          value: { answer: 42 }
+        }
+      }
+    })
+  })
+  assert.ok(tool.execute)
+  const result = await resolveToolOutput(
+    tool.execute(
+      {
+        action: 'eval',
+        session: 's1',
+        script: 'return document.title',
+        ...TOOL_INPUT_DEFAULTS
+      },
+      TOOL_EXECUTION_OPTIONS
+    )
+  )
+
+  assert.equal(result.error, undefined)
+  assert.deepEqual(receivedInput, {
+    threadId: 'thread-1',
+    session: 's1',
+    script: 'return document.title',
+    timeoutMs: 15_000
+  })
+  assert.equal(result.details.action, 'eval')
+  assert.equal(result.details.finalUrl, 'https://example.com/eval')
+  assert.equal(result.details.title, 'Evaluated')
+  assert.match(result.content[0]?.type === 'text' ? result.content[0].text : '', /"answer": 42/)
 })
 
 test('useBrowserTool: screenshot rejects empty saved files', async () => {

@@ -269,6 +269,7 @@ export function summarizeToolInput(toolName: ToolCallName | string, input: unkno
       const session = (input as { session?: unknown }).session
       const url = (input as { url?: unknown }).url
       const ref = (input as { ref?: unknown }).ref
+      const script = (input as { script?: unknown }).script
 
       const actionText = typeof action === 'string' ? action : 'useBrowser'
       const sessionText =
@@ -282,6 +283,9 @@ export function summarizeToolInput(toolName: ToolCallName | string, input: unkno
         typeof ref === 'string'
       ) {
         return `${actionText} @${ref}${sessionText}`
+      }
+      if (actionText === 'eval' && typeof script === 'string' && script.trim()) {
+        return `eval ${takeTail(script, 120).text}${sessionText}`
       }
       return `${actionText}${sessionText}`
     }

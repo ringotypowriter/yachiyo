@@ -385,6 +385,7 @@ export const useBrowserToolInputSchema = z.object({
     'select',
     'check',
     'press',
+    'eval',
     'screenshot',
     'pdf'
   ]),
@@ -402,6 +403,13 @@ export const useBrowserToolInputSchema = z.object({
   direction: z.enum(['up', 'down', 'left', 'right']).optional(),
   amount: z.number().int().min(1).max(10_000).optional(),
   predicate: z.string().min(1).optional(),
+  script: z
+    .string()
+    .min(1)
+    .optional()
+    .describe(
+      'JavaScript code for action="eval". Runs in the page context; return a serializable value or Promise.'
+    ),
   timeoutMs: z.number().int().min(1).max(120_000).default(15_000),
   maxRefs: z.number().int().min(1).max(200).default(60),
   fileName: z.string().min(1).optional(),

@@ -197,6 +197,7 @@ export interface UseBrowserToolCallDetails {
     | 'select'
     | 'check'
     | 'press'
+    | 'eval'
     | 'screenshot'
     | 'pdf'
   session: string
@@ -207,6 +208,8 @@ export interface UseBrowserToolCallDetails {
   amount?: number
   value?: string
   checked?: boolean
+  script?: string
+  result?: string
   timeoutMs?: number
   savedFileName?: string
   savedFilePath?: string

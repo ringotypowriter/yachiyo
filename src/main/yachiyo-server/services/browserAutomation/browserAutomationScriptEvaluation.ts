@@ -51,9 +51,10 @@ function compactStack(stack: string | undefined): string | undefined {
   return trimmed ? trimmed.slice(0, 2_000) : undefined
 }
 
-export function wrapBrowserAutomationPageScript(script: string): string {
+function wrapBrowserAutomationPageScriptExpression(expression: string, timeoutMs?: number): string {
   return `(() => {
     const marker = ${JSON.stringify(SCRIPT_RESULT_MARKER)}
+    const timeoutMs = ${JSON.stringify(timeoutMs)}
     const ok = (value) => ({ [marker]: true, ok: true, value })
     const fail = (error) => {
       const record = error && typeof error === 'object' ? error : undefined
@@ -69,11 +70,46 @@ export function wrapBrowserAutomationPageScript(script: string): string {
     }
 
     try {
-      return Promise.resolve((${script})).then(ok, fail)
+      const run = Promise.resolve(${expression})
+      if (typeof timeoutMs !== 'number' || !Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+        return run.then(ok, fail)
+      }
+
+      let timeoutId
+      const timeout = new Promise((_resolve, reject) => {
+        timeoutId = setTimeout(
+          () => reject(new Error('Timed out after ' + timeoutMs + 'ms running browser eval script.')),
+          timeoutMs
+        )
+      })
+
+      return Promise.race([run, timeout]).then(
+        (value) => {
+          clearTimeout(timeoutId)
+          return ok(value)
+        },
+        (error) => {
+          clearTimeout(timeoutId)
+          return fail(error)
+        }
+      )
     } catch (error) {
       return fail(error)
     }
   })()`
+}
+
+export function wrapBrowserAutomationPageScript(script: string): string {
+  return wrapBrowserAutomationPageScriptExpression(`(${script})`)
+}
+
+export function wrapBrowserAutomationPageEvalScript(script: string, timeoutMs?: number): string {
+  return wrapBrowserAutomationPageScriptExpression(
+    `(async () => {
+${script}
+  })()`,
+    timeoutMs
+  )
 }
 
 export function unwrapBrowserAutomationPageScriptResult<TResult>(

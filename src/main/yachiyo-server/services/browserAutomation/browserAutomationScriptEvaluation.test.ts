@@ -3,6 +3,7 @@ import test from 'node:test'
 
 import {
   normalizeBrowserAutomationScriptExecutionError,
+  wrapBrowserAutomationPageEvalScript,
   unwrapBrowserAutomationPageScriptResult,
   wrapBrowserAutomationPageScript
 } from './browserAutomationScriptEvaluation.ts'
@@ -41,4 +42,52 @@ test('browser automation execution errors do not surface Electron renderer-conso
   )
   assert.doesNotMatch(error.message, /renderer console/)
   assert.doesNotMatch(error.message, /Script failed to execute/)
+})
+
+test('browser automation eval wrapper executes JavaScript statements and returns explicit values', async () => {
+  const host = globalThis as typeof globalThis & { __yachiyoBrowserEvalTestValue?: number }
+  host.__yachiyoBrowserEvalTestValue = 39
+  try {
+    const wrappedScript = wrapBrowserAutomationPageEvalScript(`
+      const value = globalThis.__yachiyoBrowserEvalTestValue
+      return await Promise.resolve(value + 3)
+    `)
+
+    const result = await Function(`return ${wrappedScript}`)()
+
+    assert.equal(
+      unwrapBrowserAutomationPageScriptResult(result, {
+        action: 'eval',
+        session: 's1',
+        url: 'https://example.com'
+      }),
+      42
+    )
+  } finally {
+    delete host.__yachiyoBrowserEvalTestValue
+  }
+})
+
+test('browser automation eval wrapper times out never-settling scripts', async () => {
+  const wrapEvalWithTimeout = wrapBrowserAutomationPageEvalScript as (
+    script: string,
+    timeoutMs: number
+  ) => string
+  const wrappedScript = wrapEvalWithTimeout('await new Promise(() => {})', 5)
+
+  const result = await Promise.race([
+    Function(`return ${wrappedScript}`)(),
+    new Promise((resolve) => setTimeout(() => resolve('still pending'), 50))
+  ])
+
+  assert.notEqual(result, 'still pending')
+  assert.throws(
+    () =>
+      unwrapBrowserAutomationPageScriptResult(result, {
+        action: 'eval',
+        session: 's1',
+        url: 'https://example.com'
+      }),
+    /Timed out after 5ms running browser eval script\./
+  )
 })
