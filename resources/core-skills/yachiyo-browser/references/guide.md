@@ -2,19 +2,21 @@
 
 ## Purpose
 
-Use `yachiyo-browser` for practical browser work with the `agent-browser` CLI:
+Use `yachiyo-browser` for practical browser work with the `useBrowser` tool:
 
 - open and inspect websites
 - click, type, select, and submit forms
 - capture screenshots or PDFs
-- extract visible content
+- extract visible content via snapshots
 - verify UI flows and page changes
 - work with authenticated sessions when needed
+
+The browser is a headful Electron BrowserWindow. Sessions are scoped to the current conversation, but cookies and local storage are shared via a single global browser profile.
 
 ## Definition Of Done
 
 - The requested page or flow was actually exercised.
-- The final state was verified with a fresh snapshot, URL check, text check, screenshot, diff, or download check.
+- The final state was verified with a fresh snapshot, URL check, text check, screenshot, or PDF.
 - Any output artifact exists where expected.
 - The session was closed unless the task explicitly needed it left open.
 
@@ -31,40 +33,24 @@ Treat browser work as a repeatable loop:
 
 Typical sequence:
 
-```bash
-agent-browser open https://example.com
-agent-browser wait --load networkidle
-agent-browser snapshot -i
+```json
+{ "action": "open", "url": "https://example.com" }
+{ "action": "wait" }
+{ "action": "snapshot" }
 ```
 
-If the snapshot shows refs like `@e1` and `@e2`, use them directly:
+If the snapshot shows refs like `@1` and `@2`, use them directly:
 
-```bash
-agent-browser fill @e1 "user@example.com"
-agent-browser click @e2
-agent-browser wait --load networkidle
-agent-browser snapshot -i
-```
-
-## Command Strategy
-
-Use separate commands when you need to inspect output between steps. That is the normal case for:
-
-- discovering refs from `snapshot -i`
-- checking text or URL after an action
-- debugging slow or dynamic pages
-
-Chain with `&&` only when every step is already known and no intermediate output needs to be read.
-
-Safe example:
-
-```bash
-agent-browser open https://example.com && agent-browser wait --load networkidle && agent-browser screenshot page.png
+```json
+{ "action": "fill", "ref": "@1", "text": "user@example.com" }
+{ "action": "click", "ref": "@2" }
+{ "action": "wait" }
+{ "action": "snapshot" }
 ```
 
 ## Element Refs
 
-Refs like `@e1` are session-local handles returned by snapshots. Treat them as short-lived.
+Refs like `@1` are session-local handles returned by snapshots. Treat them as short-lived.
 
 Always re-snapshot after:
 
@@ -76,214 +62,157 @@ Always re-snapshot after:
 
 If a ref stops working, assume it is stale and take a new snapshot instead of retrying blindly.
 
-## Commands To Reach For First
+## Actions Reference
 
 ### Navigation and page state
 
-```bash
-agent-browser open <url>
-agent-browser get url
-agent-browser get title
-agent-browser wait --load networkidle
-agent-browser wait --url "**/dashboard"
-agent-browser wait --text "Welcome"
+```json
+{ "action": "open", "url": "https://example.com" }
+{ "action": "getUrl" }
+{ "action": "getTitle" }
+{ "action": "loadUrl", "url": "https://example.com/dashboard" }
+{ "action": "wait" }
+{ "action": "wait", "predicate": "(() => document.querySelector('.ready') !== null)()", "timeoutMs": 30000 }
 ```
+
+- `open` accepts an optional `viewport: { width, height }`.
+- `loadUrl`, `wait`, and `snapshot` auto-open the session if it does not yet exist and a `url` is provided.
+- `wait` defaults to waiting for `document.readyState === 'complete'`. Pass a custom `predicate` for targeted waits. `timeoutMs` defaults to 15000 and caps at 120000.
 
 ### Inspection
 
-```bash
-agent-browser snapshot -i
-agent-browser snapshot -i --json
-agent-browser get text @e1
-agent-browser get text body
+```json
+{ "action": "snapshot" }
+{ "action": "snapshot", "maxRefs": 100 }
 ```
+
+- `snapshot` returns the page URL, title, and a numbered list of interactive elements with refs.
+- Each ref line includes the tag, visible text, aria-label, placeholder, and href when available.
+- `maxRefs` defaults to 60 and caps at 200. Increase it when a page has many interactive elements.
 
 ### Interaction
 
-```bash
-agent-browser click @e1
-agent-browser fill @e2 "text"
-agent-browser type @e2 "text"
-agent-browser select @e3 "Option"
-agent-browser check @e4
-agent-browser press Enter
+```json
+{ "action": "click", "ref": "@1" }
+{ "action": "fill", "ref": "@2", "text": "Jane Doe" }
+{ "action": "type", "ref": "@2", "text": "Jane Doe" }
+{ "action": "select", "ref": "@3", "value": "Option B" }
+{ "action": "check", "ref": "@4", "checked": true }
+{ "action": "press", "key": "Enter" }
 ```
+
+- `fill` replaces the entire value of an input. `type` sends keystrokes one by one.
+- `select` uses `value` (preferred) or `text` as the option to choose.
+- `check` sets the checked state of a checkbox or radio button.
+- `press` sends a key or key combination (e.g. `Enter`, `Tab`, `Control+a`).
 
 ### Capture and verification
 
-```bash
-agent-browser screenshot
-agent-browser screenshot --full
-agent-browser screenshot --annotate
-agent-browser pdf output.pdf
-agent-browser diff snapshot
-agent-browser diff screenshot --baseline before.png
+```json
+{ "action": "screenshot", "fileName": "page.png" }
+{ "action": "pdf", "fileName": "page.pdf" }
 ```
 
-## Authentication And State
+- Screenshots and PDFs are saved into the current workspace.
+- If `fileName` is omitted, a default name is generated.
+- Use screenshots when visual layout matters and snapshots are not enough.
 
-Choose the lightest persistence model that fits the task.
+## Session Management
 
-### One-off reuse from an existing browser
+### Default session
 
-Use this when the user is already logged in and you only need to borrow that state:
+If you omit `session`, it defaults to `"default"`. Most simple tasks only need one session.
 
-```bash
-agent-browser --auto-connect state save ./auth.json
-agent-browser --state ./auth.json open https://app.example.com/dashboard
-```
+### Named sessions
 
-### Persistent profile
+Use named sessions whenever you may have multiple independent automations:
 
-Use this for recurring manual or semi-automated work:
-
-```bash
-agent-browser --profile ~/.myapp open https://app.example.com/login
-```
-
-### Session name
-
-Use this when you want cookies and local storage to come back automatically:
-
-```bash
-agent-browser --session-name myapp open https://app.example.com/login
-agent-browser close
-```
-
-### Manual state files
-
-Use this when the task needs an explicit artifact:
-
-```bash
-agent-browser state save ./auth.json
-agent-browser state load ./auth.json
-```
-
-Rules:
-
-- State files may contain sensitive tokens. Do not commit them.
-- Only persist auth if the task needs it.
-- If auth is temporary, clean it up before finishing.
-
-## Session Isolation
-
-Use named sessions whenever you may have multiple independent automations.
-
-```bash
-agent-browser --session site1 open https://site-a.com
-agent-browser --session site2 open https://site-b.com
-agent-browser session list
+```json
+{ "action": "open", "session": "site1", "url": "https://site-a.com" }
+{ "action": "open", "session": "site2", "url": "https://site-b.com" }
 ```
 
 This prevents cross-talk between tabs, refs, and state.
 
-## Visual And Responsive Checks
+### Closing sessions
 
-Use screenshots when layout matters and snapshots are not enough.
-
-```bash
-agent-browser set viewport 1440 900
-agent-browser screenshot desktop.png
-
-agent-browser set viewport 390 844
-agent-browser screenshot mobile.png
+```json
+{ "action": "close" }
+{ "action": "close", "session": "site1" }
 ```
 
-Use `screenshot --annotate` when you need spatial reasoning or unlabeled controls. It gives you a picture plus ref labels in one step.
+Always close sessions when done. Do not leave background browser windows open unless the task explicitly depends on persistence.
 
-## Downloads And Files
+## Authentication and State
 
-Use explicit output paths when a task expects a file:
+Cookies and local storage are shared across all sessions via a single global browser profile. If the user is already logged in from prior browser activity, that state is typically available automatically.
 
-```bash
-agent-browser download @e1 ./file.pdf
-agent-browser wait --download ./output.zip
-agent-browser --download-path ./downloads open https://example.com
-```
+If a task requires logging in and the profile does not already have the necessary cookies:
 
-Verify that the expected file exists before reporting success.
+1. Open the login page.
+2. Snapshot to find the username and password field refs.
+3. Fill the credentials and submit.
+4. Wait for redirect or a post-login indicator.
+5. Verify with `getUrl` or `snapshot`.
 
-## Debugging Slow Or Fragile Pages
+Do not persist credentials in tool parameters beyond the immediate fill action.
+
+## Debugging Slow or Fragile Pages
 
 Prefer targeted waits instead of arbitrary delays:
 
-```bash
-agent-browser wait --load networkidle
-agent-browser wait "#content"
-agent-browser wait --url "**/complete"
-agent-browser wait --fn "document.readyState === 'complete'"
+```json
+{ "action": "wait", "predicate": "(() => document.querySelector('#content') !== null)()" }
+{ "action": "wait", "predicate": "(() => window.location.pathname.includes('/dashboard'))()" }
+{ "action": "wait", "predicate": "(() => document.body.innerText.includes('Welcome'))()" }
 ```
 
-If commands suddenly time out, check for blocking dialogs:
-
-```bash
-agent-browser dialog status
-agent-browser dialog accept
-agent-browser dialog dismiss
-```
-
-## Reliable Extraction
-
-For data extraction, confirm the exact scope first.
-
-```bash
-agent-browser snapshot -i
-agent-browser get text @e5
-agent-browser get text body
-```
-
-Use JSON mode when another tool or script needs structured output:
-
-```bash
-agent-browser snapshot -i --json
-agent-browser get text @e1 --json
-```
+If a page is slow, increase `timeoutMs` up to 120000.
 
 ## Suggested Working Patterns
 
 ### Form fill and submit
 
-```bash
-agent-browser open https://example.com/form
-agent-browser wait --load networkidle
-agent-browser snapshot -i
-agent-browser fill @e1 "Jane Doe"
-agent-browser fill @e2 "jane@example.com"
-agent-browser click @e3
-agent-browser wait --load networkidle
-agent-browser snapshot -i
+```json
+{ "action": "open", "url": "https://example.com/form" }
+{ "action": "wait" }
+{ "action": "snapshot" }
+{ "action": "fill", "ref": "@1", "text": "Jane Doe" }
+{ "action": "fill", "ref": "@2", "text": "jane@example.com" }
+{ "action": "click", "ref": "@3" }
+{ "action": "wait" }
+{ "action": "snapshot" }
 ```
 
 ### Login and verify redirect
 
-```bash
-agent-browser open https://app.example.com/login
-agent-browser wait --load networkidle
-agent-browser snapshot -i
-agent-browser fill @e1 "$USERNAME"
-agent-browser fill @e2 "$PASSWORD"
-agent-browser click @e3
-agent-browser wait --url "**/dashboard"
-agent-browser get url
+```json
+{ "action": "open", "url": "https://app.example.com/login" }
+{ "action": "wait" }
+{ "action": "snapshot" }
+{ "action": "fill", "ref": "@1", "text": "$USERNAME" }
+{ "action": "fill", "ref": "@2", "text": "$PASSWORD" }
+{ "action": "click", "ref": "@3" }
+{ "action": "wait", "predicate": "(() => window.location.pathname.includes('/dashboard'))()" }
+{ "action": "getUrl" }
 ```
 
 ### Capture current page state
 
-```bash
-agent-browser open https://example.com
-agent-browser wait --load networkidle
-agent-browser screenshot --full page.png
-agent-browser pdf page.pdf
+```json
+{ "action": "open", "url": "https://example.com" }
+{ "action": "wait" }
+{ "action": "screenshot", "fileName": "page.png" }
+{ "action": "pdf", "fileName": "page.pdf" }
 ```
 
 ## Cleanup
 
 Close sessions when done:
 
-```bash
-agent-browser close
-agent-browser --session site1 close
-agent-browser close --all
+```json
+{ "action": "close" }
+{ "action": "close", "session": "site1" }
 ```
 
-Do not leave background browser processes running unless the task explicitly depends on persistence.
+Do not leave background browser windows open unless the task explicitly depends on persistence.

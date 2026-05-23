@@ -1,36 +1,36 @@
 ---
 name: yachiyo-browser
-description: Use this skill for browser automation with the `agent-browser` CLI: opening pages, taking snapshots, clicking and filling elements, handling login state, capturing screenshots, extracting page data, and verifying web flows. Re-snapshot after page changes, use isolated sessions when needed, and always close the browser session when done.
+description: Use this skill for browser automation with the useBrowser tool — opening pages, taking snapshots, clicking and filling elements, handling page state, capturing screenshots, extracting page data, and verifying web flows. Re-snapshot after page changes, use isolated sessions when needed, and always close the browser session when done.
 ---
 
 # Yachiyo Browser
 
-Use this skill when the user wants browser automation through `agent-browser`.
+Use this skill when the user wants browser automation through the `useBrowser` tool.
 
 Read [guide.md](references/guide.md) for the operating guide before non-trivial web work.
 
 ## Stable Workflow
 
-1. Open the target page.
-2. Wait for load or the specific content you need.
-3. Take a snapshot to discover fresh element refs.
-4. Interact with the page using those refs.
+1. Open the target page with `action="open"`.
+2. Wait for load or specific content with `action="wait"`.
+3. Take a snapshot with `action="snapshot"` to discover fresh element refs.
+4. Interact with the page using those refs (`click`, `fill`, `type`, `select`, `check`, `press`).
 5. Re-snapshot after navigation or visible DOM changes.
-6. Verify the result with text, URL, screenshot, diff, or download checks.
-7. Close the session when done.
+6. Verify the result with text, URL, screenshot, or PDF.
+7. Close the session with `action="close"` when done.
 
 ## Good Defaults
 
-- Prefer `snapshot -i` before interacting.
-- Prefer explicit waits over fixed sleeps.
-- Use named sessions for multi-site or concurrent work.
-- Save or reuse auth state only when the task actually needs login.
-- Use annotated screenshots when visual layout matters more than text output.
+- Prefer `snapshot` before interacting.
+- Prefer explicit waits with custom `predicate` over fixed delays.
+- Use named `session` values for multi-site or concurrent work.
+- Cookies and storage are shared across sessions via a single global browser profile.
+- Save screenshots and PDFs to explicit filenames when artifacts are needed.
 
 ## Output Rules
 
-- Report the concrete page state you verified, not just the commands you ran.
-- Save screenshots, PDFs, HAR files, or downloads to explicit paths when the task needs artifacts.
+- Report the concrete page state you verified, not just the actions you took.
+- Save screenshots and PDFs with explicit `fileName` values when the task needs artifacts.
 - Do not leave long-lived browser sessions running unless the user asked for persistence.
 
 ## Verification
@@ -38,6 +38,5 @@ Read [guide.md](references/guide.md) for the operating guide before non-trivial 
 Before finishing:
 
 - Confirm the final URL or visible text matches the requested outcome.
-- Confirm any expected file, screenshot, or download exists.
-- If the task changed the page, verify the effect with a fresh snapshot, `get`, or `diff`.
-- If login state was created temporarily, make sure it is either stored intentionally or cleaned up.
+- Confirm any expected screenshot or PDF file exists in the workspace.
+- If the task changed the page, verify the effect with a fresh `snapshot`, `getUrl`, or `getTitle`.
