@@ -39,6 +39,46 @@ yachiyo <namespace> <subcommand> [args...] [flags...]
 | `channel`  | List channel users/groups and change group monitor status | [channel.md](references/channel.md)     |
 | `send`     | Send notifications and channel messages                   | [send.md](references/send.md)           |
 
+## Launch on Login (macOS)
+
+This only applies when the user's system is `darwin` (macOS).
+
+To make Yachiyo.app start automatically on user login, create and load a LaunchAgent plist:
+
+### 1. Write the plist file
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>sh.ringo.yachiyo</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/bin/open</string>
+        <string>/Applications/Yachiyo.app</string>
+    </array>
+    <key>RunAtLoad</key>
+    <true/>
+</dict>
+</plist>
+```
+
+Save it to `~/Library/LaunchAgents/sh.ringo.yachiyo.plist`.
+
+### 2. Load the agent
+
+```bash
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/sh.ringo.yachiyo.plist
+```
+
+### 3. Confirm it is active
+
+```bash
+launchctl list | grep sh.ringo.yachiyo
+```
+
 ## Global Flags
 
 | Flag               | Description                              |
