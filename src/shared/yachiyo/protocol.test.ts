@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import { deriveThreadCapabilities, getThreadCapabilities, isMemoryConfigured } from './protocol.ts'
+import { CORE_TOOL_NAMES, DEFAULT_ENABLED_TOOL_NAMES } from './protocol.ts'
 
 test('isMemoryConfigured follows the memory enabled flag', () => {
   assert.equal(isMemoryConfigured({ memory: { enabled: true } }), true)
@@ -54,4 +55,9 @@ test('getThreadCapabilities prefers explicit thread capabilities when present', 
       canDelete: false
     }
   )
+})
+
+test('useBrowser is registered and enabled by default', () => {
+  assert.ok(CORE_TOOL_NAMES.includes('useBrowser'))
+  assert.ok(DEFAULT_ENABLED_TOOL_NAMES.includes('useBrowser'))
 })

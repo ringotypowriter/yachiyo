@@ -67,6 +67,7 @@ export function createRunToolSet(input: CreateRunToolSetInput): ToolSet | undefi
   const executionInput = input.executionInput
   const toolContext = {
     enabledTools: modelEnabledTools,
+    threadId: executionInput.thread.id,
     workspacePath,
     sandboxed: isExternalChannel && !isOwnerDm,
     snapshotTracker: input.snapshotTracker,
@@ -109,6 +110,7 @@ export function createRunToolSet(input: CreateRunToolSetInput): ToolSet | undefi
     availableSkills,
     fetchImpl: deps.webExternalFetchImpl ?? deps.fetchImpl,
     loadBrowserSnapshot: deps.loadBrowserSnapshot,
+    browserAutomationService: deps.browserAutomationService,
     searchService: deps.searchService,
     memoryService: resolveToolMemoryService(input),
     webSearchService: deps.webSearchService,

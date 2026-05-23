@@ -19,6 +19,7 @@ import type { ImageToTextService } from '../../../../services/imageToText/imageT
 import type { MemoryService } from '../../../../services/memory/memoryService.ts'
 import type { SnapshotTracker } from '../../../../services/fileSnapshot/snapshotTracker.ts'
 import type { BrowserWebPageSnapshotLoader } from '../../../../services/webRead/browserWebPageSnapshot.ts'
+import type { BrowserAutomationService } from '../../../../services/browserAutomation/electronBrowserAutomationService.ts'
 import type { SearchService } from '../../../../services/search/searchService.ts'
 import type { WebSearchService } from '../../../../services/webSearch/webSearchService.ts'
 import type { JotdownStore } from '../../../../services/jotdownStore.ts'
@@ -141,6 +142,7 @@ export interface RunExecutionDeps {
   sourceQueryExecutor?: QuerySourceExecutor
   searchService?: SearchService
   webSearchService?: WebSearchService
+  browserAutomationService?: BrowserAutomationService
   readSoulDocument?: () => Promise<SoulDocument | null>
   readUserDocument?: () => Promise<UserDocument | null>
   readThread: (threadId: string) => ThreadRecord

@@ -18,6 +18,7 @@ import type {
   SkillsReadToolCallDetails,
   ToolCallDetailsSnapshot,
   ToolCallName,
+  UseBrowserToolCallDetails,
   WebReadToolCallDetails,
   WebSearchToolCallDetails,
   WriteToolCallDetails
@@ -366,6 +367,43 @@ export const webReadToolInputSchema = z.object({
   format: z.enum(['markdown', 'html']).default(DEFAULT_WEB_READ_FORMAT)
 })
 
+export const useBrowserToolInputSchema = z.object({
+  action: z.enum([
+    'open',
+    'close',
+    'getUrl',
+    'getTitle',
+    'loadUrl',
+    'wait',
+    'snapshot',
+    'click',
+    'fill',
+    'type',
+    'select',
+    'check',
+    'press',
+    'screenshot',
+    'pdf'
+  ]),
+  session: z.string().min(1).default('default'),
+  url: z.string().min(1).optional(),
+  ref: z.string().min(1).optional(),
+  text: z.string().optional(),
+  value: z.string().optional(),
+  checked: z.boolean().optional(),
+  key: z.string().min(1).optional(),
+  predicate: z.string().min(1).optional(),
+  timeoutMs: z.number().int().min(1).max(120_000).default(15_000),
+  maxRefs: z.number().int().min(1).max(200).default(60),
+  fileName: z.string().min(1).optional(),
+  viewport: z
+    .object({
+      width: z.number().int().min(1),
+      height: z.number().int().min(1)
+    })
+    .optional()
+})
+
 export const webSearchToolInputSchema = z.object({
   query: z.string().min(1),
   limit: z.number().int().min(1).max(MAX_WEB_SEARCH_LIMIT).default(DEFAULT_WEB_SEARCH_LIMIT)
@@ -388,6 +426,7 @@ export type JsReplToolInput = z.infer<typeof jsReplToolInputSchema>
 export type GrepToolInput = z.infer<typeof grepToolInputSchema>
 export type GlobToolInput = z.infer<typeof globToolInputSchema>
 export type WebReadToolInput = z.infer<typeof webReadToolInputSchema>
+export type UseBrowserToolInput = z.infer<typeof useBrowserToolInputSchema>
 export type WebSearchToolInput = z.infer<typeof webSearchToolInputSchema>
 export type SkillsReadToolInput = z.infer<typeof skillsReadToolInputSchema>
 export type ApplyPatchToolInput = z.infer<typeof applyPatchToolInputSchema>
@@ -416,6 +455,8 @@ export interface BackgroundBashAdoptionHandle extends BackgroundBashTaskHandle {
 
 export interface AgentToolContext {
   enabledTools?: ToolCallName[]
+  /** Stable conversation identifier for thread-scoped tool state. */
+  threadId?: string
   workspacePath: string
   /** When true, file tools are sandboxed to the workspace — no absolute path escapes. */
   sandboxed?: boolean
@@ -468,6 +509,7 @@ export type JsReplToolOutput = AgentToolResult<JsReplToolCallDetails>
 export type GrepToolOutput = AgentToolResult<GrepToolCallDetails>
 export type GlobToolOutput = AgentToolResult<GlobToolCallDetails>
 export type WebReadToolOutput = AgentToolResult<WebReadToolCallDetails>
+export type UseBrowserToolOutput = AgentToolResult<UseBrowserToolCallDetails>
 export type WebSearchToolOutput = AgentToolResult<WebSearchToolCallDetails>
 export type SkillsReadToolOutput = AgentToolResult<SkillsReadToolCallDetails>
 
@@ -483,6 +525,7 @@ export type AgentToolOutput =
   | GrepToolOutput
   | GlobToolOutput
   | WebReadToolOutput
+  | UseBrowserToolOutput
   | WebSearchToolOutput
   | SkillsReadToolOutput
   | AskUserToolOutput

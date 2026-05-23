@@ -14,6 +14,7 @@ import type { SearchService } from '../services/search/searchService.ts'
 import type { WebSearchService } from '../services/webSearch/webSearchService.ts'
 import type { MemoryService } from '../services/memory/memoryService.ts'
 import type { BrowserWebPageSnapshotLoader } from '../services/webRead/browserWebPageSnapshot.ts'
+import type { BrowserAutomationService } from '../services/browserAutomation/electronBrowserAutomationService.ts'
 
 import { createTool as createApplyPatchTool } from './agentTools/applyPatchTool.ts'
 import { createTool as createBashTool } from './agentTools/bashTool.ts'
@@ -51,6 +52,7 @@ import { ReadRecordCache } from './agentTools/readRecordCache.ts'
 import { createTool as createWebReadTool } from './agentTools/webReadTool.ts'
 import { createTool as createWebSearchTool } from './agentTools/webSearchTool.ts'
 import { createTool as createWriteTool } from './agentTools/writeTool.ts'
+import { createTool as createUseBrowserTool } from './agentTools/useBrowserTool.ts'
 import {
   createTool as createDelegateCodingTaskTool,
   type DelegateCodingTaskContext,
@@ -128,6 +130,7 @@ export interface AgentToolDependencies {
   availableSkills?: SkillCatalogEntry[]
   fetchImpl?: typeof globalThis.fetch
   loadBrowserSnapshot?: BrowserWebPageSnapshotLoader
+  browserAutomationService?: BrowserAutomationService
   memoryService?: MemoryService
   searchService?: SearchService
   webSearchService?: WebSearchService
@@ -254,6 +257,31 @@ export function summarizeToolInput(toolName: ToolCallName | string, input: unkno
   if (toolName === 'webRead') {
     const url = typeof input === 'object' && input !== null && 'url' in input ? input.url : ''
     return typeof url === 'string' && url.trim().length > 0 ? takeTail(url, 160).text : toolName
+  }
+
+  if (toolName === 'useBrowser') {
+    if (typeof input === 'object' && input !== null && 'action' in input) {
+      const action = (input as { action?: unknown }).action
+      const session = (input as { session?: unknown }).session
+      const url = (input as { url?: unknown }).url
+      const ref = (input as { ref?: unknown }).ref
+
+      const actionText = typeof action === 'string' ? action : 'useBrowser'
+      const sessionText =
+        typeof session === 'string' && session.trim() ? ` (${session.trim()})` : ''
+
+      if ((actionText === 'open' || actionText === 'loadUrl') && typeof url === 'string') {
+        return takeTail(url, 160).text
+      }
+      if (
+        (actionText === 'click' || actionText === 'fill' || actionText === 'type') &&
+        typeof ref === 'string'
+      ) {
+        return `${actionText} @${ref}${sessionText}`
+      }
+      return `${actionText}${sessionText}`
+    }
+    return 'useBrowser'
   }
 
   if (toolName === 'webSearch') {
@@ -393,6 +421,20 @@ export function summarizeToolOutput(
     }
 
     return details.title?.trim() ? `read "${details.title}"` : 'read web page'
+  }
+
+  if (toolName === 'useBrowser') {
+    const details = (output as import('./agentTools/shared.ts').UseBrowserToolOutput).details
+    if (details.savedFileName || details.savedFilePath) {
+      return `saved to ${details.savedFileName ?? details.savedFilePath}`
+    }
+    if (typeof details.refCount === 'number') {
+      return `snapshot (${details.refCount} ref${details.refCount === 1 ? '' : 's'})`
+    }
+    if (details.finalUrl) {
+      return takeTail(details.finalUrl, 160).text
+    }
+    return details.action
   }
 
   if (toolName === 'webSearch') {
@@ -573,6 +615,14 @@ export function createAgentToolSet(
           : {})
       }),
       'webRead',
+      enabledTools
+    )
+
+    tools.useBrowser = wrapDisabledTool(
+      createUseBrowserTool(context, {
+        browserAutomationService: dependencies.browserAutomationService
+      }),
+      'useBrowser',
       enabledTools
     )
 

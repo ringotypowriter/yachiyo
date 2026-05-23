@@ -79,3 +79,19 @@ export const YACHIYO_WORKSPACE_INDEX_DIR_NAME = 'workspace-indexes'
 export function resolveYachiyoWorkspaceIndexDir(): string {
   return join(resolveYachiyoDataDir(), YACHIYO_WORKSPACE_INDEX_DIR_NAME)
 }
+
+export const YACHIYO_BROWSER_AUTOMATION_DIR_NAME = 'browser-automation'
+export const YACHIYO_BROWSER_AUTOMATION_SESSIONS_DIR_NAME = 'sessions'
+export const YACHIYO_BROWSER_AUTOMATION_PROFILE_DIR_NAME = 'profile'
+
+export function resolveYachiyoBrowserAutomationRoot(): string {
+  return join(resolveYachiyoDataDir(), YACHIYO_BROWSER_AUTOMATION_DIR_NAME)
+}
+
+export function resolveYachiyoBrowserAutomationSessionsRoot(): string {
+  return join(resolveYachiyoBrowserAutomationRoot(), YACHIYO_BROWSER_AUTOMATION_SESSIONS_DIR_NAME)
+}
+
+export function resolveYachiyoBrowserAutomationProfilePath(): string {
+  return join(resolveYachiyoBrowserAutomationRoot(), YACHIYO_BROWSER_AUTOMATION_PROFILE_DIR_NAME)
+}

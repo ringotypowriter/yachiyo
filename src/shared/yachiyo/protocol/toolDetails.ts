@@ -178,6 +178,39 @@ export interface ApplyPatchToolCallDetails {
   operations: ApplyPatchFileOperation[]
 }
 
+export interface UseBrowserToolCallDetails {
+  kind: 'useBrowser'
+  action:
+    | 'open'
+    | 'close'
+    | 'getUrl'
+    | 'getTitle'
+    | 'loadUrl'
+    | 'wait'
+    | 'snapshot'
+    | 'click'
+    | 'fill'
+    | 'type'
+    | 'select'
+    | 'check'
+    | 'press'
+    | 'screenshot'
+    | 'pdf'
+  session: string
+  url?: string
+  ref?: string
+  key?: string
+  value?: string
+  checked?: boolean
+  timeoutMs?: number
+  savedFileName?: string
+  savedFilePath?: string
+  bytesWritten?: number
+  refCount?: number
+  finalUrl?: string
+  title?: string
+}
+
 export type ToolCallDetailsSnapshot =
   | ReadToolCallDetails
   | WriteToolCallDetails
@@ -187,6 +220,7 @@ export type ToolCallDetailsSnapshot =
   | GrepToolCallDetails
   | GlobToolCallDetails
   | WebReadToolCallDetails
+  | UseBrowserToolCallDetails
   | WebSearchToolCallDetails
   | SkillsReadToolCallDetails
   | AskUserToolCallDetails

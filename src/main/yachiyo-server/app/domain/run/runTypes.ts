@@ -15,6 +15,7 @@ import type { AuxiliaryGenerationService } from '../../../runtime/models/auxilia
 import type { BrowserWebPageSnapshotLoader } from '../../../services/webRead/browserWebPageSnapshot.ts'
 import type { JotdownStore } from '../../../services/jotdownStore.ts'
 import type { MemoryService } from '../../../services/memory/memoryService.ts'
+import type { BrowserAutomationService } from '../../../services/browserAutomation/electronBrowserAutomationService.ts'
 import type { SearchService } from '../../../services/search/searchService.ts'
 import type { WebSearchService } from '../../../services/webSearch/webSearchService.ts'
 import type { ModelRuntime } from '../../../runtime/models/types.ts'
@@ -90,6 +91,7 @@ export interface RunDomainDeps {
   sourceQueryExecutor?: QuerySourceExecutor
   searchService?: SearchService
   webSearchService?: WebSearchService
+  browserAutomationService?: BrowserAutomationService
   readSoulDocument?: () => Promise<SoulDocument | null>
   readUserDocument?: () => Promise<UserDocument | null>
   readConfig: () => SettingsConfig

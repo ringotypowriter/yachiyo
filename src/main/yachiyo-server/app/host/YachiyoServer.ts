@@ -77,9 +77,11 @@ import {
   resolveThreadWorkspacePath as defaultResolveThreadWorkspacePath,
   resolveYachiyoSettingsPath,
   resolveYachiyoTempWorkspaceRoot,
+  resolveYachiyoBrowserAutomationProfilePath,
   resolveYachiyoWebSearchBrowserSessionPath
 } from '../../config/paths.ts'
 import { FolderDomain } from '../domain/folders/folderDomain.ts'
+import { createElectronBrowserAutomationService } from '../../services/browserAutomation/electronBrowserAutomationService.ts'
 import { ScheduleDomain } from '../domain/schedules/scheduleDomain.ts'
 import { createTtlReaper, type TtlReaper } from '../domain/shared/ttlReaper.ts'
 import { acpProcessPool } from '../../runtime/acp/acpProcessPool.ts'
@@ -290,6 +292,10 @@ export class YachiyoServer {
     const browserWebPageSnapshotLoader = createBrowserWebPageSnapshotLoader({
       browserSession: this.browserSearchSession
     })
+
+    const browserAutomationService = createElectronBrowserAutomationService({
+      profilePath: resolveYachiyoBrowserAutomationProfilePath()
+    })
     const webSearchService = createWebSearchService({
       providers: [
         createGoogleBrowserWebSearchProvider({
@@ -366,6 +372,7 @@ export class YachiyoServer {
       loadBrowserSnapshot: browserWebPageSnapshotLoader,
       searchService,
       webSearchService,
+      browserAutomationService,
       memoryService,
       sourceQueryExecutor: options.sourceQueryExecutor,
       readSoulDocument: this.readSoulDocumentFile,

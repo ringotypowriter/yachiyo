@@ -166,6 +166,7 @@ export const CORE_TOOL_NAMES = [
   'grep',
   'glob',
   'webRead',
+  'useBrowser',
   'webSearch',
   'skillsRead',
   'applyPatch'
@@ -238,7 +239,15 @@ export function normalizeUserEnabledTools(
   )
   const normalizedTools = normalizeEnabledTools(value, normalizedFallback)
 
-  return normalizedTools.filter((toolName) => fallbackSet.has(toolName))
+  const filtered = normalizedTools.filter((toolName) => fallbackSet.has(toolName))
+
+  // Browser automation is not user-configurable yet; keep it enabled by default
+  // even when users have a hand-edited enabledTools allowlist.
+  if (!filtered.includes('useBrowser')) {
+    filtered.push('useBrowser')
+  }
+
+  return filtered
 }
 
 export function normalizeSkillNames(value: unknown, fallback: readonly string[] = []): string[] {

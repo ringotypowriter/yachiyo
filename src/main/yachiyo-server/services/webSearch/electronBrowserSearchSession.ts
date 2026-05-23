@@ -1,6 +1,7 @@
 import electron from 'electron'
 
 import type { BrowserSearchPage, BrowserSearchPageFactory } from './browserSearchSession.ts'
+import { resolveElectronSessionProxyConfig } from './electronProxyConfig.ts'
 
 const DEFAULT_WAIT_POLL_INTERVAL_MS = 100
 const { BrowserWindow, session } = electron
@@ -70,19 +71,6 @@ class ElectronBrowserSearchPage implements BrowserSearchPage {
   }
 }
 
-function resolveProxyConfig(): Parameters<typeof session.defaultSession.setProxy>[0] {
-  const proxyUrl = (
-    process.env.HTTPS_PROXY ??
-    process.env.https_proxy ??
-    process.env.HTTP_PROXY ??
-    process.env.http_proxy ??
-    process.env.ALL_PROXY ??
-    process.env.all_proxy
-  )?.trim()
-
-  return proxyUrl ? { mode: 'fixed_servers', proxyRules: proxyUrl } : { mode: 'system' }
-}
-
 export function createElectronBrowserSearchPageFactory(
   input: ElectronBrowserSearchPageFactoryOptions = {}
 ): BrowserSearchPageFactory {
@@ -95,7 +83,7 @@ export function createElectronBrowserSearchPageFactory(
       if (!proxyReadyByPath.has(profilePath)) {
         proxyReadyByPath.set(
           profilePath,
-          browserSession.setProxy(resolveProxyConfig()).then(() => {
+          browserSession.setProxy(resolveElectronSessionProxyConfig()).then(() => {
             browserSession.setCertificateVerifyProc((_request, callback) => callback(0))
           })
         )
