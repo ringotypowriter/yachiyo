@@ -224,9 +224,7 @@ export function buildAgentInstructions(input: {
   }
 
   if (input.enabledTools.includes('skillsRead')) {
-    instructions.push(
-      'Use skillsRead to inspect discovered Skills by name. It returns the skill folder path and SKILL.md path. The full workflow for activating a skill is described in the Skills section above.'
-    )
+    instructions.push('Use skillsRead to get the full instructions of a discovered Skill by name.')
   }
 
   if (input.hasSourceQuery) {

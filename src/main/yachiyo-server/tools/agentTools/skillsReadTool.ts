@@ -1,9 +1,12 @@
+import { readFile, stat } from 'node:fs/promises'
+
 import { tool, type Tool } from 'ai'
 
 import type {
   SkillCatalogEntry,
   SkillsReadToolCallDetails
 } from '../../../../shared/yachiyo/protocol.ts'
+import { rewriteRelativeMarkdownLinks } from '../../services/skills/skillContent.ts'
 import {
   type AgentToolContext,
   type SkillsReadToolInput,
@@ -12,6 +15,8 @@ import {
   textContent,
   toToolModelOutput
 } from './shared.ts'
+
+const MAX_SKILL_CONTENT_BYTES = 20 * 1024
 
 function buildModelContent(details: SkillsReadToolCallDetails): string {
   const lines: string[] = []
@@ -30,10 +35,14 @@ function buildModelContent(details: SkillsReadToolCallDetails): string {
     if (skill.description) {
       lines.push(`Description: ${skill.description}`)
     }
-    lines.push('Use the read tool on SKILL.md if you need the full instructions.')
-    lines.push(
-      'Any referenced files are relative to the skill folder; use absolute paths under that folder when reading them.'
-    )
+    if (skill.content) {
+      lines.push('')
+      lines.push(skill.content.trim())
+    } else {
+      lines.push(
+        '(SKILL.md content omitted — file too large. Use the read tool on SKILL.md if you need the full instructions.)'
+      )
+    }
     lines.push('')
   }
 
@@ -65,8 +74,7 @@ export function createTool(
   }
 ): Tool<SkillsReadToolInput, SkillsReadToolOutput> {
   return tool({
-    description:
-      'Read discovered Skills by name. Returns the skill name, directory path, SKILL.md path, and any concise description. To get full instructions, use the read tool on the SKILL.md path.',
+    description: 'Read discovered Skills by name to get their full SKILL.md instructions.',
     inputSchema: skillsReadToolInputSchema,
     toModelOutput: ({ output }) => toToolModelOutput(output),
     execute: (input) => runSkillsReadTool(input, dependencies)
@@ -92,10 +100,22 @@ export async function runSkillsReadTool(
       continue
     }
 
+    let content: string | undefined
+    try {
+      const fileStat = await stat(skill.skillFilePath)
+      if (fileStat.size <= MAX_SKILL_CONTENT_BYTES) {
+        const rawContent = await readFile(skill.skillFilePath, 'utf8')
+        content = rewriteRelativeMarkdownLinks(rawContent, skill.directoryPath)
+      }
+    } catch {
+      // If we can't read the file, fall back to metadata-only
+    }
+
     resolvedSkills.push({
       name: skill.name,
       directoryPath: skill.directoryPath,
       skillFilePath: skill.skillFilePath,
+      ...(content ? { content } : {}),
       ...(skill.description ? { description: skill.description } : {}),
       ...(skill.origin ? { origin: skill.origin } : {})
     })
