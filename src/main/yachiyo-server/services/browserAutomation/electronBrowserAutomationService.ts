@@ -133,7 +133,7 @@ export function createElectronBrowserAutomationService(input: {
   profilePath: string
 }): BrowserAutomationService {
   const threadSessions = new Map<string, Map<string, ThreadBrowserSessionState>>()
-  const browserSession = session.fromPath(input.profilePath, { cache: true })
+  let browserSession: ReturnType<typeof session.fromPath> | undefined
   let proxyReady: Promise<void> | undefined
 
   function getThreadMap(threadId: string): Map<string, ThreadBrowserSessionState> {
@@ -144,13 +144,24 @@ export function createElectronBrowserAutomationService(input: {
     return created
   }
 
-  async function ensureProxyReady(): Promise<void> {
+  function getBrowserSession(): ReturnType<typeof session.fromPath> {
+    if (typeof session?.fromPath !== 'function' || typeof BrowserWindow !== 'function') {
+      throw new Error('Browser automation is only available inside the Electron app.')
+    }
+
+    browserSession ??= session.fromPath(input.profilePath, { cache: true })
+    return browserSession
+  }
+
+  async function ensureProxyReady(): Promise<ReturnType<typeof session.fromPath>> {
+    const currentSession = getBrowserSession()
     if (!proxyReady) {
-      proxyReady = browserSession.setProxy(resolveElectronSessionProxyConfig()).then(() => {
-        browserSession.setCertificateVerifyProc((_request, callback) => callback(0))
+      proxyReady = currentSession.setProxy(resolveElectronSessionProxyConfig()).then(() => {
+        currentSession.setCertificateVerifyProc((_request, callback) => callback(0))
       })
     }
     await proxyReady
+    return currentSession
   }
 
   function requireSessionState(threadId: string, name: string): ThreadBrowserSessionState {
@@ -179,7 +190,7 @@ export function createElectronBrowserAutomationService(input: {
 
   return {
     async open({ threadId, session: sessionName, url, viewport }) {
-      await ensureProxyReady()
+      const currentSession = await ensureProxyReady()
       const threadMap = getThreadMap(threadId)
       const existing = threadMap.get(sessionName)
       if (existing && !existing.window.isDestroyed()) {
@@ -200,7 +211,7 @@ export function createElectronBrowserAutomationService(input: {
         webPreferences: {
           backgroundThrottling: false,
           sandbox: false,
-          session: browserSession
+          session: currentSession
         }
       })
 

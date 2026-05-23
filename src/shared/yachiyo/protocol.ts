@@ -239,15 +239,7 @@ export function normalizeUserEnabledTools(
   )
   const normalizedTools = normalizeEnabledTools(value, normalizedFallback)
 
-  const filtered = normalizedTools.filter((toolName) => fallbackSet.has(toolName))
-
-  // Browser automation is not user-configurable yet; keep it enabled by default
-  // even when users have a hand-edited enabledTools allowlist.
-  if (!filtered.includes('useBrowser')) {
-    filtered.push('useBrowser')
-  }
-
-  return filtered
+  return normalizedTools.filter((toolName) => fallbackSet.has(toolName))
 }
 
 export function normalizeSkillNames(value: unknown, fallback: readonly string[] = []): string[] {

@@ -34,9 +34,13 @@ const collectTestFiles = (directory) => {
 }
 
 const testFiles = collectTestFiles(testsDir).sort()
-const result = spawnSync(process.execPath, ['--experimental-strip-types', '--test', ...testFiles], {
-  cwd: rootDir,
-  stdio: 'inherit'
-})
+const result = spawnSync(
+  process.execPath,
+  ['--experimental-strip-types', '--test', '--test-concurrency=1', ...testFiles],
+  {
+    cwd: rootDir,
+    stdio: 'inherit'
+  }
+)
 
 process.exit(result.status ?? 1)
