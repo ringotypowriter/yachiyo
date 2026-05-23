@@ -130,6 +130,7 @@ export function AppMainPanel({
   const [activeTimelineSurface, setActiveTimelineSurface] =
     useState<MessageTimelineSurface>('timeline')
   const [selectedBrowserSession, setSelectedBrowserSession] = useState<string | null>(null)
+  const [isBrowserSessionMenuOpen, setIsBrowserSessionMenuOpen] = useState(false)
   const [runtimeBrowserSessions, setRuntimeBrowserSessions] = useState<
     BrowserAutomationSessionRecord[]
   >([])
@@ -188,6 +189,7 @@ export function AppMainPanel({
   useEffect(() => {
     setActiveTimelineSurface('timeline')
     setSelectedBrowserSession(null)
+    setIsBrowserSessionMenuOpen(false)
     setRuntimeBrowserSessions([])
   }, [activeThreadId])
 
@@ -241,8 +243,9 @@ export function AppMainPanel({
         activeSurface={activeTimelineSurface}
         browserSessions={browserActivity.sessions}
         selectedBrowserSession={selectedBrowserSession ?? browserActivity.defaultSession}
+        browserSessionMenuOpen={isBrowserSessionMenuOpen}
         onActiveSurfaceChange={setActiveTimelineSurface}
-        onSelectedBrowserSessionChange={setSelectedBrowserSession}
+        onBrowserSessionMenuOpenChange={setIsBrowserSessionMenuOpen}
       />
     ) : null
 
@@ -813,6 +816,10 @@ export function AppMainPanel({
             browserSessions={browserActivity.sessions}
             selectedBrowserSession={selectedBrowserSession}
             browserActivityBubble={browserActivityBubble}
+            browserViewSuspended={isBrowserSessionMenuOpen}
+            browserSessionPickerOpen={isBrowserSessionMenuOpen}
+            onSelectedBrowserSessionChange={setSelectedBrowserSession}
+            onBrowserSessionPickerOpenChange={setIsBrowserSessionMenuOpen}
           />
           <AnimatePresence initial={false}>
             {isInspectionPanelOpen && (

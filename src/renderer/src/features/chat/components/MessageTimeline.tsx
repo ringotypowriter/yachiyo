@@ -76,6 +76,10 @@ interface MessageTimelineProps {
   browserSessions: BrowserActivitySession[]
   selectedBrowserSession: string | null
   browserActivityBubble?: BrowserAutomationActivityBubbleState | null
+  browserViewSuspended?: boolean
+  browserSessionPickerOpen?: boolean
+  onSelectedBrowserSessionChange?: (session: string) => void
+  onBrowserSessionPickerOpenChange?: (open: boolean) => void
 }
 
 interface TimelineItemRenderContext {
@@ -615,7 +619,11 @@ export function MessageTimeline({
   activeSurface,
   browserSessions,
   selectedBrowserSession,
-  browserActivityBubble
+  browserActivityBubble,
+  browserViewSuspended = false,
+  browserSessionPickerOpen = false,
+  onSelectedBrowserSessionChange,
+  onBrowserSessionPickerOpenChange
 }: MessageTimelineProps): React.JSX.Element {
   const dialog = useAppDialog()
   const {
@@ -1337,6 +1345,11 @@ export function MessageTimeline({
             sessionId={effectiveSelectedBrowserSession}
             activitySession={selectedActivitySession}
             activityBubble={browserActivityBubble}
+            suspended={browserViewSuspended}
+            sessions={browserSessions}
+            sessionPickerOpen={browserSessionPickerOpen}
+            onSelectedSessionChange={onSelectedBrowserSessionChange}
+            onSessionPickerOpenChange={onBrowserSessionPickerOpenChange}
           />
         ) : timelineRows.length === 0 ? (
           <div className="flex-1 flex items-center justify-center">

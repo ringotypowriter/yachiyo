@@ -96,20 +96,34 @@ export function buildBrowserAutomationSnapshotScript(limit: number): string {
       .filter((text) => text.length >= 20)
       .slice(0, 20)
 
+    const isReadableTextParent = (el) => {
+      if (!(el instanceof Element)) return false
+      const tag = el.tagName.toLowerCase()
+      if (['script', 'style', 'noscript', 'template', 'svg'].includes(tag)) return false
+      if (el.closest('[hidden],[aria-hidden="true"]')) return false
+      return isVisible(el)
+    }
+
+    const visibleTextNodeLines = () => {
+      const walker = document.createTreeWalker(document.body, window.NodeFilter?.SHOW_TEXT ?? 4)
+      const lines = []
+      let node = walker.nextNode()
+      while (node) {
+        const parent = node.parentElement
+        if (parent && isReadableTextParent(parent)) {
+          const rect = parent.getBoundingClientRect()
+          if (rect.bottom >= 0 && rect.top <= window.innerHeight) {
+            const text = clip(node.nodeValue || '', 240)
+            if (text) lines.push(text)
+          }
+        }
+        node = walker.nextNode()
+      }
+      return lines
+    }
+
     const viewport = clip(
-      Array.from(
-        document.querySelectorAll(
-          'h1,h2,h3,h4,p,li,blockquote,pre,button,a,label,summary,td,th,figcaption,[role="heading"]'
-        )
-      )
-        .filter((el) => {
-          if (!isVisible(el)) return false
-          const rect = el.getBoundingClientRect()
-          return rect.bottom >= 0 && rect.top <= window.innerHeight
-        })
-        .sort(compareDocumentPosition)
-        .map((el) => visibleText(el))
-        .filter(Boolean)
+      visibleTextNodeLines()
         .filter((text, index, all) => all.indexOf(text) === index)
         .join('\\n'),
       2000

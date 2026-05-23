@@ -32,7 +32,10 @@ function box(input: { x?: number; y: number; width?: number; height?: number }):
   }
 }
 
-function evaluateSnapshot(html: string, limit: number): { refs: Array<{ id?: string }> } {
+function evaluateSnapshot(
+  html: string,
+  limit: number
+): { pageText: { viewport?: string }; refs: Array<{ id?: string }> } {
   const { window } = parseHTML(html)
   const document = window.document
   const elements = Array.from(document.querySelectorAll('[data-box]'))
@@ -85,4 +88,24 @@ test('browser automation snapshot prioritizes refs visible in the viewport', () 
     snapshot.refs.map((ref) => ref.id),
     ['target', 'offscreen-1', 'offscreen-2']
   )
+})
+
+test('browser automation snapshot includes visible text nodes outside semantic tags', () => {
+  const snapshot = evaluateSnapshot(
+    `<!doctype html>
+      <html>
+        <head><title>Example</title></head>
+        <body>
+          <main>
+            <div data-box data-y="120">
+              <span data-box data-y="120">&gt; yachiyo@1.1.9-beta build /Users/runner/work/yachiyo/yachiyo</span>
+            </div>
+          </main>
+        </body>
+      </html>`,
+    10
+  )
+
+  assert.match(snapshot.pageText.viewport ?? '', /yachiyo@1\.1\.9-beta build/)
+  assert.equal(snapshot.refs.length, 0)
 })

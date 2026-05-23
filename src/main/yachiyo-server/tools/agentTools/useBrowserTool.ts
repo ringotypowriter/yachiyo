@@ -5,6 +5,7 @@ import type {
   BrowserAutomationService,
   BrowserAutomationSnapshot
 } from '../../services/browserAutomation/electronBrowserAutomationService.ts'
+import { assertNonEmptyScreenshotByteLength } from '../../services/browserAutomation/browserCaptureValidation.ts'
 
 import {
   textContent,
@@ -371,6 +372,7 @@ export function createTool(
               workspacePath: context.workspacePath,
               ...(input.fileName ? { fileName: input.fileName } : {})
             })
+            assertNonEmptyScreenshotByteLength(result.bytesWritten)
             return {
               content: textContent(`Saved screenshot: ${result.savedFileName}`),
               details: {

@@ -313,38 +313,51 @@ body > div:not(#root) {
   white-space: nowrap;
 }
 
-.message-surface-session-menu {
-  position: fixed;
-  z-index: 9999;
-  overflow: hidden;
-  padding: 4px;
-  border: 1px solid rgb(var(--yachiyo-rgb-ink) / 0.08);
-  border-radius: 12px;
-  background: rgb(var(--yachiyo-rgb-surface) / 0.96);
-  box-shadow: 0 12px 30px rgb(var(--yachiyo-rgb-ink) / 0.14);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-}
-
-.message-surface-session-option {
+.browser-session-picker {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
   display: flex;
   align-items: center;
-  gap: 8px;
+  justify-content: center;
+  padding: 24px;
+  background: rgb(var(--yachiyo-rgb-app) / 0.34);
+}
+
+.browser-session-picker__panel {
+  display: flex;
+  width: min(520px, 86%);
+  max-height: min(420px, 74%);
+  flex-direction: column;
+  overflow: auto;
+  padding: 6px;
+  border: 1px solid rgb(var(--yachiyo-rgb-ink) / 0.08);
+  border-radius: 16px;
+  background: rgb(var(--yachiyo-rgb-surface) / 0.96);
+  box-shadow: 0 18px 45px rgb(var(--yachiyo-rgb-ink) / 0.16);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+}
+
+.browser-session-picker__option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
   width: 100%;
-  padding: 8px;
+  padding: 10px;
   border: 0;
-  border-radius: 9px;
+  border-radius: 11px;
   background: transparent;
   color: rgb(var(--yachiyo-rgb-ink));
   text-align: left;
   cursor: default;
 }
 
-.message-surface-session-option:hover {
+.browser-session-picker__option:hover {
   background: rgb(var(--yachiyo-rgb-ink) / 0.045);
 }
 
-.message-surface-session-option__text {
+.browser-session-picker__option-text {
   display: flex;
   flex: 1 1 auto;
   min-width: 0;
@@ -352,21 +365,21 @@ body > div:not(#root) {
   gap: 3px;
 }
 
-.message-surface-session-option__label,
-.message-surface-session-option__url {
+.browser-session-picker__option-label,
+.browser-session-picker__option-url {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.message-surface-session-option__label {
+.browser-session-picker__option-label {
   font-size: 12px;
-  font-weight: 600;
+  font-weight: 650;
 }
 
-.message-surface-session-option__url {
+.browser-session-picker__option-url {
   color: rgb(var(--yachiyo-rgb-text-muted));
-  font-size: 10px;
+  font-size: 11px;
 }
 
 .browser-timeline-view {

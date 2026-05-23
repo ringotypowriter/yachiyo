@@ -238,6 +238,30 @@ test('useBrowserTool: screenshot reports saved file', async () => {
   assert.equal(result.details.bytesWritten, 10)
 })
 
+test('useBrowserTool: screenshot rejects empty saved files', async () => {
+  const tool = createTool(makeContext(), {
+    browserAutomationService: makeService({
+      screenshot: async () => ({
+        savedFileName: '.yachiyo/tool-result/empty.png',
+        savedFilePath: '/tmp/yachiyo-use-browser/.yachiyo/tool-result/empty.png',
+        bytesWritten: 0
+      })
+    })
+  })
+  assert.ok(tool.execute)
+
+  const result = await resolveToolOutput(
+    tool.execute(
+      { action: 'screenshot', session: 's1', ...TOOL_INPUT_DEFAULTS },
+      TOOL_EXECUTION_OPTIONS
+    )
+  )
+
+  assert.ok(result.error)
+  assert.match(result.error, /empty screenshot/i)
+  assert.equal(result.details.savedFileName, undefined)
+})
+
 test('useBrowserTool: returns error when service is unavailable', async () => {
   const tool = createTool(makeContext(), { browserAutomationService: undefined })
   assert.ok(tool.execute)

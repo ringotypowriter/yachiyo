@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { Check } from 'lucide-react'
 
 import type { BrowserActivitySession } from '../lib/browserActivity'
+import { getBrowserSessionLabel } from '../lib/browserSessionLabel'
 import type {
   BrowserAutomationActivityBubbleState,
   BrowserAutomationOverlayTheme
@@ -11,6 +13,11 @@ interface BrowserTimelineViewProps {
   sessionId: string | null
   activitySession?: BrowserActivitySession
   activityBubble?: BrowserAutomationActivityBubbleState | null
+  suspended?: boolean
+  sessions?: BrowserActivitySession[]
+  sessionPickerOpen?: boolean
+  onSelectedSessionChange?: (session: string) => void
+  onSessionPickerOpenChange?: (open: boolean) => void
 }
 
 function getElementBounds(element: HTMLElement): {
@@ -56,7 +63,12 @@ export function BrowserTimelineView({
   threadId,
   sessionId,
   activitySession,
-  activityBubble
+  activityBubble,
+  suspended = false,
+  sessions = [],
+  sessionPickerOpen = false,
+  onSelectedSessionChange,
+  onSessionPickerOpenChange
 }: BrowserTimelineViewProps): React.JSX.Element {
   const viewportRef = useRef<HTMLDivElement>(null)
   const visibleSessionRef = useRef<{ threadId: string; session: string } | null>(null)
@@ -77,7 +89,7 @@ export function BrowserTimelineView({
   const syncBrowserView = useCallback(
     (mode: 'show' | 'bounds'): void => {
       const element = viewportRef.current
-      if (!element || !sessionId) {
+      if (!element || !sessionId || suspended || sessionPickerOpen) {
         hideVisibleSession()
         return
       }
@@ -107,7 +119,7 @@ export function BrowserTimelineView({
           setError(err instanceof Error ? err.message : 'Unable to show the browser session.')
         })
     },
-    [hideVisibleSession, sessionId, threadId]
+    [hideVisibleSession, sessionId, sessionPickerOpen, suspended, threadId]
   )
 
   useLayoutEffect(() => {
@@ -159,6 +171,48 @@ export function BrowserTimelineView({
       </div>
       <div className="browser-timeline-view__viewport-shell">
         <div ref={viewportRef} className="browser-timeline-view__viewport" />
+        {sessionPickerOpen && sessions.length > 1 ? (
+          <div
+            className="browser-session-picker"
+            role="presentation"
+            onPointerDown={(event) => {
+              if (event.target === event.currentTarget) onSessionPickerOpenChange?.(false)
+            }}
+          >
+            <div
+              className="browser-session-picker__panel"
+              role="listbox"
+              aria-label="Browser sessions"
+            >
+              {sessions.map((session) => {
+                const isSelected = session.session === sessionId
+                return (
+                  <button
+                    key={session.session}
+                    type="button"
+                    className="browser-session-picker__option"
+                    role="option"
+                    aria-selected={isSelected}
+                    onClick={() => {
+                      onSelectedSessionChange?.(session.session)
+                      onSessionPickerOpenChange?.(false)
+                    }}
+                  >
+                    <span className="browser-session-picker__option-text">
+                      <span className="browser-session-picker__option-label">
+                        {getBrowserSessionLabel(session)}
+                      </span>
+                      {session.url ? (
+                        <span className="browser-session-picker__option-url">{session.url}</span>
+                      ) : null}
+                    </span>
+                    {isSelected ? <Check size={13} strokeWidth={2.4} /> : null}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+        ) : null}
         {error ? <div className="browser-timeline-view__error">{error}</div> : null}
       </div>
     </div>

@@ -291,7 +291,6 @@ async function runImageReadTool(
   const fileStat = await (abortSignal
     ? raceAgainstSignal(stat(resolvedPath), abortSignal)
     : stat(resolvedPath))
-  const base64 = fileData.toString('base64')
   const filename = resolvedPath.split('/').pop() ?? resolvedPath
   const summary = `Read image ${filename} (${mediaType}, ${fileStat.size} bytes)`
 
@@ -304,6 +303,18 @@ async function runImageReadTool(
     truncated: false,
     mediaType
   }
+
+  if (fileStat.size === 0 || fileData.byteLength === 0) {
+    const error = `Cannot read empty image file ${filename} (${mediaType}, ${fileStat.size} bytes).`
+    return {
+      content: textContent(error),
+      details,
+      error,
+      metadata: {}
+    }
+  }
+
+  const base64 = fileData.toString('base64')
 
   if (focus?.trim() && context.imageToTextService) {
     const dataUrl = `data:${mediaType};base64,${base64}`

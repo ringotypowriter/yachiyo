@@ -10,6 +10,7 @@ import {
   wrapBrowserAutomationPageScript
 } from './browserAutomationScriptEvaluation.ts'
 import { buildBrowserAutomationSnapshotScript } from './browserAutomationSnapshotScript.ts'
+import { assertNonEmptyScreenshotByteLength } from './browserCaptureValidation.ts'
 import { createBrowserPointerOverlay, type BrowserPointerOverlay } from './browserPointerOverlay.ts'
 import type {
   BrowserAutomationPointerState,
@@ -1004,6 +1005,7 @@ export function createElectronBrowserAutomationService(input: {
       await mkdir(dirname(savedFilePath), { recursive: true })
       const image = await state.view.webContents.capturePage()
       const buffer = image.toPNG()
+      assertNonEmptyScreenshotByteLength(buffer.byteLength)
       await writeFile(savedFilePath, buffer)
       updateSessionMetadata(state)
 

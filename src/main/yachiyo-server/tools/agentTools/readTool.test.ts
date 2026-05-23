@@ -71,6 +71,21 @@ test('runReadTool reads image file as base64 with image-data content block', asy
   })
 })
 
+test('runReadTool rejects empty image files instead of returning empty image-data', async () => {
+  await withWorkspace(async (workspacePath) => {
+    const imagePath = join(workspacePath, 'empty.png')
+    await writeFile(imagePath, Buffer.alloc(0))
+
+    const result = await runReadTool(readInput({ path: imagePath }), { workspacePath })
+
+    assert.ok(result.error)
+    assert.match(result.error, /empty image file/i)
+    assert.equal(result.details.mediaType, 'image/png')
+    assert.equal(result.details.totalBytes, 0)
+    assert.ok(!result.content.some((b) => b.type === 'image-data'))
+  })
+})
+
 test('createReadTool keeps focus visible for image-incapable models', async () => {
   assert.deepEqual(await readToolPropertyNames(false), ['path', 'offset', 'limit', 'focus'])
 })
