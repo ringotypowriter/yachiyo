@@ -62,10 +62,20 @@ import { RunStatsFooter } from './RunStatsFooter'
 import { PlanDocumentCard } from './PlanDocumentCard'
 import { PlanDocumentTimelineCard } from './PlanDocumentTimelineCard'
 import { makeRunningPlaceholderSeed } from '@renderer/lib/runningPlaceholders.ts'
+import { BrowserTimelineView } from './BrowserTimelineView'
+import type { MessageTimelineSurface } from './TimelineSurfaceHeader'
+import type { BrowserActivitySession } from '../lib/browserActivity'
+import type { BrowserAutomationActivityBubbleState } from '../../../../../shared/yachiyo/protocol.ts'
+
+export type { MessageTimelineSurface } from './TimelineSurfaceHeader'
 
 interface MessageTimelineProps {
   threadId: string | null
   recapText?: string
+  activeSurface: MessageTimelineSurface
+  browserSessions: BrowserActivitySession[]
+  selectedBrowserSession: string | null
+  browserActivityBubble?: BrowserAutomationActivityBubbleState | null
 }
 
 interface TimelineItemRenderContext {
@@ -599,7 +609,14 @@ const TimelineItemContent = memo(
   (prev, next) => prev.item === next.item && prev.context === next.context
 )
 
-export function MessageTimeline({ threadId, recapText }: MessageTimelineProps): React.JSX.Element {
+export function MessageTimeline({
+  threadId,
+  recapText,
+  activeSurface,
+  browserSessions,
+  selectedBrowserSession,
+  browserActivityBubble
+}: MessageTimelineProps): React.JSX.Element {
   const dialog = useAppDialog()
   const {
     thread,
@@ -1306,69 +1323,83 @@ export function MessageTimeline({ threadId, recapText }: MessageTimelineProps): 
     )
   }
 
-  if (timelineRows.length === 0) {
-    return (
-      <div className="flex-1 flex items-center justify-center">
-        <p className="text-sm" style={{ color: theme.text.placeholder }}>
-          No messages yet
-        </p>
-      </div>
-    )
-  }
+  const selectedActivitySession =
+    browserSessions.find((session) => session.session === selectedBrowserSession) ??
+    browserSessions[0]
+  const effectiveSelectedBrowserSession = selectedActivitySession?.session ?? null
 
   return (
-    <div className="flex-1 relative min-h-0 min-w-0">
-      {!isAcpThread && (
-        <TimelineScrollbar
-          messages={scrollbarMessages}
-          scrollContainerRef={scrollContainerRef}
-          onScrollToMessage={handleScrollToMessage}
-        />
-      )}
-      <div
-        ref={scrollContainerRef}
-        data-timeline-scroll
-        className="h-full overflow-y-auto overflow-x-hidden yachiyo-thread-enter"
-        style={{
-          maskImage: 'linear-gradient(to bottom, transparent, black 24px)',
-          WebkitMaskImage: 'linear-gradient(to bottom, transparent, black 24px)'
-        }}
-      >
-        <div
-          style={{
-            height: virtualizer.getTotalSize(),
-            width: '100%',
-            position: 'relative'
-          }}
-        >
-          {virtualizer.getVirtualItems().map((virtualRow) => {
-            const item = timelineRows[virtualRow.index]
-            if (!item) return null
-
-            return (
-              <div
-                key={item.key}
-                className="message-timeline-row"
-                data-index={virtualRow.index}
-                ref={virtualizer.measureElement}
-                style={buildTimelineVirtualRowStyle(virtualRow.start)}
-              >
-                <TimelineItemContent item={item} context={timelineItemContext} />
-              </div>
-            )
-          })}
-        </div>
-        {recapText ? (
-          <div
-            ref={recapRef}
-            className="px-6 py-3 text-xs opacity-50 italic leading-relaxed inline-flex items-start gap-1.5"
-          >
-            <Waypoints size={14} className="shrink-0 mt-px" />
-            <span>
-              <strong className="not-italic">Recap:</strong> {recapText}
-            </span>
+    <div className="flex-1 relative min-h-0 min-w-0 flex flex-col">
+      <div className="message-surface-body">
+        {activeSurface === 'browser' ? (
+          <BrowserTimelineView
+            threadId={threadId}
+            sessionId={effectiveSelectedBrowserSession}
+            activitySession={selectedActivitySession}
+            activityBubble={browserActivityBubble}
+          />
+        ) : timelineRows.length === 0 ? (
+          <div className="flex-1 flex items-center justify-center">
+            <p className="text-sm" style={{ color: theme.text.placeholder }}>
+              No messages yet
+            </p>
           </div>
-        ) : null}
+        ) : (
+          <div className="flex-1 relative min-h-0 min-w-0">
+            {!isAcpThread && (
+              <TimelineScrollbar
+                messages={scrollbarMessages}
+                scrollContainerRef={scrollContainerRef}
+                onScrollToMessage={handleScrollToMessage}
+              />
+            )}
+            <div
+              ref={scrollContainerRef}
+              data-timeline-scroll
+              className="h-full overflow-y-auto overflow-x-hidden yachiyo-thread-enter"
+              style={{
+                maskImage: 'linear-gradient(to bottom, transparent, black 24px)',
+                WebkitMaskImage: 'linear-gradient(to bottom, transparent, black 24px)'
+              }}
+            >
+              <div
+                style={{
+                  height: virtualizer.getTotalSize(),
+                  width: '100%',
+                  position: 'relative'
+                }}
+              >
+                {virtualizer.getVirtualItems().map((virtualRow) => {
+                  const item = timelineRows[virtualRow.index]
+                  if (!item) return null
+
+                  return (
+                    <div
+                      key={item.key}
+                      className="message-timeline-row"
+                      data-index={virtualRow.index}
+                      ref={virtualizer.measureElement}
+                      style={buildTimelineVirtualRowStyle(virtualRow.start)}
+                    >
+                      <TimelineItemContent item={item} context={timelineItemContext} />
+                    </div>
+                  )
+                })}
+              </div>
+              {recapText ? (
+                <div
+                  ref={recapRef}
+                  className="px-6 py-3 text-xs opacity-50 italic leading-relaxed inline-flex items-start gap-1.5"
+                >
+                  <Waypoints size={14} className="shrink-0 mt-px" />
+                  <span>
+                    <strong className="not-italic">Recap:</strong> {recapText}
+                  </span>
+                </div>
+              ) : null}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   )

@@ -1,6 +1,7 @@
 import type {
   AnswerToolQuestionInput,
   BootstrapPayload,
+  BrowserAutomationSessionRecord,
   ChannelGroupRecord,
   ChannelsConfig,
   ChannelUserRecord,
@@ -15,7 +16,9 @@ import type {
   FolderRecord,
   GetMemoryTermDocumentInput,
   FileMentionCandidate,
+  HideBrowserAutomationSessionInput,
   ImportWebSearchBrowserSessionInput,
+  ListBrowserAutomationSessionsInput,
   ListActivitySourceRecordsInput,
   ListActivitySourceRecordsResult,
   ListSkillsInput,
@@ -26,6 +29,7 @@ import type {
   ResolveFileReferencesInput,
   ResolvedFileReference,
   SaveThreadInput,
+  SetBrowserAutomationSessionBoundsInput,
   SaveThreadResult,
   ReadThreadPlanDocumentInput,
   ReadThreadPlanDocumentResult,
@@ -35,6 +39,7 @@ import type {
   SearchWorkspaceFilesInput,
   SettingsConfig,
   SendChatInput,
+  ShowBrowserAutomationSessionInput,
   ShowNotificationInput,
   TestSubagentProfileInput,
   TestSubagentProfileResult,
@@ -208,6 +213,16 @@ declare global {
         importWebSearchBrowserSession: (
           input: ImportWebSearchBrowserSessionInput
         ) => Promise<SettingsConfig>
+        listBrowserAutomationSessions: (
+          input: ListBrowserAutomationSessionsInput
+        ) => Promise<BrowserAutomationSessionRecord[]>
+        showBrowserAutomationSession: (
+          input: ShowBrowserAutomationSessionInput
+        ) => Promise<BrowserAutomationSessionRecord>
+        hideBrowserAutomationSession: (input: HideBrowserAutomationSessionInput) => Promise<void>
+        setBrowserAutomationSessionBounds: (
+          input: SetBrowserAutomationSessionBoundsInput
+        ) => Promise<BrowserAutomationSessionRecord>
         setThreadPrivacyMode: (input: {
           threadId: string
           enabled: boolean

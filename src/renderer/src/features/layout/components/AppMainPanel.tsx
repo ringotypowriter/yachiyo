@@ -12,6 +12,10 @@ import {
 import { Composer } from '@renderer/features/chat/components/Composer'
 import { ExternalThreadViewer } from '@renderer/features/chat/components/ExternalThreadViewer'
 import { MessageTimeline } from '@renderer/features/chat/components/MessageTimeline'
+import {
+  TimelineSurfaceHeader,
+  type MessageTimelineSurface
+} from '@renderer/features/chat/components/TimelineSurfaceHeader'
 import { ArchivedThreadsPage } from '@renderer/features/layout/components/ArchivedThreadsPage'
 import { AppMainPanelHeader } from '@renderer/features/layout/components/AppMainPanelHeader'
 import { RunInspectionPanel } from '@renderer/features/runs/components/RunInspectionPanel'
@@ -20,18 +24,48 @@ import type { ThreadContextOperationKey } from '@renderer/features/threads/lib/t
 import { isExternalThread } from '@renderer/features/threads/lib/threadVisibility'
 import { isOpenFindBarShortcut } from '@renderer/features/layout/lib/findBarShortcut'
 import { computeRecapDecision } from '@renderer/features/layout/lib/recapIdle'
+import { deriveBrowserActivity } from '@renderer/features/chat/lib/browserActivity'
 import { selectContextPromptTokens } from '@renderer/lib/contextPromptTokens'
 import { MessageSquare, Trash2 } from 'lucide-react'
 import { ConfirmDialog } from '@renderer/components/ConfirmDialog'
 import { useAppDialog } from '@renderer/components/AppDialogContext'
 import { Tooltip } from '@renderer/components/Tooltip'
 import { theme } from '@renderer/theme/theme'
+import type {
+  BrowserAutomationActivityBubbleState,
+  BrowserAutomationSessionRecord
+} from '../../../../../shared/yachiyo/protocol.ts'
 import { isMemoryConfigured } from '../../../../../shared/yachiyo/protocol.ts'
 import { isLatestRunPlanMode } from '../../../../../shared/yachiyo/planMode.ts'
 
 const EMPTY: Message[] = []
 const EMPTY_FIND_MATCHES: FindMatch[] = []
 const EMPTY_TOOL_CALLS: ToolCall[] = []
+
+function formatBrowserAction(action: string): string {
+  return action.replace(/([A-Z])/g, ' $1').replace(/^./, (ch) => ch.toUpperCase())
+}
+
+function toBrowserActivityBubbleState(
+  latestStep: ReturnType<typeof deriveBrowserActivity>['latestStep']
+): BrowserAutomationActivityBubbleState | null {
+  if (!latestStep) return null
+
+  if (latestStep.kind === 'text') {
+    return {
+      label: latestStep.isStreaming ? 'Responding' : 'Latest response',
+      text: latestStep.content
+    }
+  }
+
+  return {
+    label: 'Browser step',
+    text: `${formatBrowserAction(latestStep.action)} in ${latestStep.session}${latestStep.ref ? ` · @${latestStep.ref}` : ''}`,
+    ...(latestStep.title || latestStep.url
+      ? { meta: `${latestStep.status} · ${latestStep.title ?? latestStep.url}` }
+      : { meta: latestStep.status })
+  }
+}
 
 function getTextRanges(el: Element, query: string): Range[] {
   const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT)
@@ -93,6 +127,12 @@ export function AppMainPanel({
   const [findOpen, setFindOpen] = useState(false)
   const [findQuery, setFindQuery] = useState('')
   const [findCurrentIndex, setFindCurrentIndex] = useState(0)
+  const [activeTimelineSurface, setActiveTimelineSurface] =
+    useState<MessageTimelineSurface>('timeline')
+  const [selectedBrowserSession, setSelectedBrowserSession] = useState<string | null>(null)
+  const [runtimeBrowserSessions, setRuntimeBrowserSessions] = useState<
+    BrowserAutomationSessionRecord[]
+  >([])
   const shouldReadFindDocuments = findOpen && findQuery.trim().length >= 2
   const threadMessages = useAppStore((s) =>
     activeThreadId ? (s.messages[activeThreadId] ?? EMPTY) : EMPTY
@@ -130,10 +170,88 @@ export function AppMainPanel({
   const saveThread = useAppStore((s) => s.saveThread)
   const setThreadPrivacyMode = useAppStore((s) => s.setThreadPrivacyMode)
   const starThread = useAppStore((s) => s.starThread)
-  const toolCalls = useAppStore((s) =>
-    shouldReadFindDocuments && activeThreadId
-      ? (s.toolCalls[activeThreadId] ?? EMPTY_TOOL_CALLS)
-      : EMPTY_TOOL_CALLS
+  const threadToolCalls = useAppStore((s) =>
+    activeThreadId ? (s.toolCalls[activeThreadId] ?? EMPTY_TOOL_CALLS) : EMPTY_TOOL_CALLS
+  )
+  const toolCalls = shouldReadFindDocuments ? threadToolCalls : EMPTY_TOOL_CALLS
+
+  const browserActivity = useMemo(
+    () =>
+      deriveBrowserActivity({
+        messages: threadMessages,
+        toolCalls: threadToolCalls,
+        sessions: runtimeBrowserSessions
+      }),
+    [runtimeBrowserSessions, threadMessages, threadToolCalls]
+  )
+
+  useEffect(() => {
+    setActiveTimelineSurface('timeline')
+    setSelectedBrowserSession(null)
+    setRuntimeBrowserSessions([])
+  }, [activeThreadId])
+
+  useEffect(() => {
+    if (!activeThreadId) {
+      setRuntimeBrowserSessions([])
+      return
+    }
+
+    let cancelled = false
+    const refreshBrowserSessions = async (): Promise<void> => {
+      try {
+        const sessions = await window.api.yachiyo.listBrowserAutomationSessions({
+          threadId: activeThreadId
+        })
+        if (!cancelled) setRuntimeBrowserSessions(sessions)
+      } catch {
+        if (!cancelled) setRuntimeBrowserSessions([])
+      }
+    }
+
+    void refreshBrowserSessions()
+    return () => {
+      cancelled = true
+    }
+  }, [activeThreadId, threadToolCalls])
+
+  useEffect(() => {
+    if (browserActivity.sessions.length === 0) {
+      if (selectedBrowserSession !== null) setSelectedBrowserSession(null)
+      return
+    }
+
+    const selectedStillOpen = browserActivity.sessions.some(
+      (session) => session.session === selectedBrowserSession
+    )
+    if (!selectedStillOpen && browserActivity.defaultSession !== selectedBrowserSession) {
+      setSelectedBrowserSession(browserActivity.defaultSession)
+    }
+  }, [browserActivity.defaultSession, browserActivity.sessions, selectedBrowserSession])
+
+  useEffect(() => {
+    if (browserActivity.sessions.length === 0 && activeTimelineSurface !== 'timeline') {
+      setActiveTimelineSurface('timeline')
+    }
+  }, [activeTimelineSurface, browserActivity.sessions.length])
+
+  const headerSurfaceSwitcher =
+    browserActivity.sessions.length > 0 ? (
+      <TimelineSurfaceHeader
+        activeSurface={activeTimelineSurface}
+        browserSessions={browserActivity.sessions}
+        selectedBrowserSession={selectedBrowserSession ?? browserActivity.defaultSession}
+        onActiveSurfaceChange={setActiveTimelineSurface}
+        onSelectedBrowserSessionChange={setSelectedBrowserSession}
+      />
+    ) : null
+
+  const browserActivityBubble = useMemo(
+    () =>
+      activeTimelineSurface === 'browser'
+        ? toBrowserActivityBubbleState(browserActivity.latestStep)
+        : null,
+    [activeTimelineSurface, browserActivity.latestStep]
   )
 
   const findMatches = useMemo(
@@ -672,6 +790,7 @@ export function AppMainPanel({
         isSaving={threadIsSaving}
         isSidebarToggleDisabled={isSidebarToggleDisabled}
         isStarred={!!activeThread?.starredAt}
+        centerAccessory={headerSurfaceSwitcher}
         messageCount={messageCount}
         onOpenThreadWorkspace={handleOpenThreadWorkspace}
         onOpenInEditor={config?.workspace?.editorApp ? handleOpenInEditor : undefined}
@@ -690,6 +809,10 @@ export function AppMainPanel({
             key={activeThreadId ?? 'empty'}
             threadId={activeThreadId}
             recapText={recapText}
+            activeSurface={activeTimelineSurface}
+            browserSessions={browserActivity.sessions}
+            selectedBrowserSession={selectedBrowserSession}
+            browserActivityBubble={browserActivityBubble}
           />
           <AnimatePresence initial={false}>
             {isInspectionPanelOpen && (

@@ -1,9 +1,11 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { readFile, writeFile } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
+import type { BrowserWindow } from 'electron'
 
 import type {
   BootstrapPayload,
+  BrowserAutomationSessionRecord,
   ChannelGroupRecord,
   ChannelUserRecord,
   ChatAccepted,
@@ -18,7 +20,9 @@ import type {
   FolderColorTag,
   FolderRecord,
   GetMemoryTermDocumentInput,
+  HideBrowserAutomationSessionInput,
   ImportWebSearchBrowserSessionInput,
+  ListBrowserAutomationSessionsInput,
   ListActivitySourceRecordsInput,
   ListActivitySourceRecordsResult,
   ListSkillsInput,
@@ -37,6 +41,8 @@ import type {
   SearchWorkspaceFilesInput,
   SendChatInput,
   SettingsConfig,
+  SetBrowserAutomationSessionBoundsInput,
+  ShowBrowserAutomationSessionInput,
   SkillCatalogEntry,
   MessageRecord,
   MemoryTermDocument,
@@ -81,7 +87,10 @@ import {
   resolveYachiyoWebSearchBrowserSessionPath
 } from '../../config/paths.ts'
 import { FolderDomain } from '../domain/folders/folderDomain.ts'
-import { createElectronBrowserAutomationService } from '../../services/browserAutomation/electronBrowserAutomationService.ts'
+import {
+  createElectronBrowserAutomationService,
+  type BrowserAutomationService
+} from '../../services/browserAutomation/electronBrowserAutomationService.ts'
 import { ScheduleDomain } from '../domain/schedules/scheduleDomain.ts'
 import { createTtlReaper, type TtlReaper } from '../domain/shared/ttlReaper.ts'
 import { acpProcessPool } from '../../runtime/acp/acpProcessPool.ts'
@@ -206,6 +215,7 @@ export class YachiyoServer {
   private readonly runDomain: YachiyoServerRunDomain
   private readonly threadDomain: YachiyoServerThreadDomain
   private readonly browserSearchSession: BrowserSearchSession
+  private readonly browserAutomationService: BrowserAutomationService
   private readonly resolveThreadWorkspacePath: (threadId: string) => string
   private readonly ensureThreadWorkspacePath: (threadId: string) => Promise<string>
   private readonly searchService: SearchService
@@ -358,6 +368,7 @@ export class YachiyoServer {
     this.ensureThreadWorkspacePath = ensureThreadWorkspace
     this.searchService = searchService
     this.webSearchServiceInstance = webSearchService
+    this.browserAutomationService = browserAutomationService
     this.jotdownStore = options.jotdownStore ?? null
     this.runDomain = new YachiyoServerRunDomain({
       storage: this.storage,
@@ -455,6 +466,7 @@ export class YachiyoServer {
 
   async close(): Promise<void> {
     this.ttlReaper.stop()
+    this.browserAutomationService.dispose()
     await this.runDomain.close()
     await acpProcessPool.shutdown()
     await this.storage.flushBackgroundTasks?.()
@@ -640,6 +652,28 @@ export class YachiyoServer {
     input: ImportWebSearchBrowserSessionInput
   ): Promise<SettingsConfig> {
     return this.configDomain.importWebSearchBrowserSession(input)
+  }
+
+  listBrowserAutomationSessions(
+    input: ListBrowserAutomationSessionsInput
+  ): BrowserAutomationSessionRecord[] {
+    return this.browserAutomationService.listSessions(input)
+  }
+
+  showBrowserAutomationSession(
+    input: ShowBrowserAutomationSessionInput & { window: BrowserWindow }
+  ): BrowserAutomationSessionRecord {
+    return this.browserAutomationService.showSessionView(input)
+  }
+
+  hideBrowserAutomationSession(input: HideBrowserAutomationSessionInput): void {
+    this.browserAutomationService.hideSessionView(input)
+  }
+
+  setBrowserAutomationSessionBounds(
+    input: SetBrowserAutomationSessionBoundsInput
+  ): BrowserAutomationSessionRecord {
+    return this.browserAutomationService.setSessionViewBounds(input)
   }
 
   async listSkills(input: ListSkillsInput = {}): Promise<SkillCatalogEntry[]> {

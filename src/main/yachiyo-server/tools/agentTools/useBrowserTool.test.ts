@@ -51,6 +51,24 @@ function makeContext(overrides?: Partial<AgentToolContext>): AgentToolContext {
 
 function makeService(overrides?: Partial<BrowserAutomationService>): BrowserAutomationService {
   return {
+    listSessions: () => [],
+    showSessionView: () => ({
+      threadId: 'thread-1',
+      session: 's1',
+      url: 'https://example.com',
+      title: 'Example',
+      viewport: { width: 1280, height: 960 },
+      updatedAt: '2026-01-01T00:00:00.000Z'
+    }),
+    hideSessionView: () => {},
+    setSessionViewBounds: () => ({
+      threadId: 'thread-1',
+      session: 's1',
+      url: 'https://example.com',
+      title: 'Example',
+      viewport: { width: 1280, height: 960 },
+      updatedAt: '2026-01-01T00:00:00.000Z'
+    }),
     open: async () => ({ url: 'https://example.com', title: 'Example' }),
     close: async () => {},
     getUrl: async () => 'https://example.com',
@@ -82,6 +100,7 @@ function makeService(overrides?: Partial<BrowserAutomationService>): BrowserAuto
       savedFilePath: '/tmp/yachiyo-use-browser/.yachiyo/tool-result/browser.pdf',
       bytesWritten: 20
     }),
+    dispose: () => {},
     ...overrides
   }
 }

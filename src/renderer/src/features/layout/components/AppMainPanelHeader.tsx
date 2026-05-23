@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react'
 import { Eye, EyeOff, PanelLeft, PanelRight } from 'lucide-react'
 import type { Thread } from '@renderer/app/types'
 import { Tooltip } from '@renderer/components/Tooltip'
@@ -18,6 +19,7 @@ export interface AppMainPanelHeaderProps {
   isSaving?: boolean
   isSidebarToggleDisabled: boolean
   isStarred?: boolean
+  centerAccessory?: ReactNode
   messageCount: number
   onOpenThreadWorkspace: () => Promise<void>
   onOpenInEditor?: () => Promise<void>
@@ -42,6 +44,7 @@ export function AppMainPanelHeader({
   isSaving,
   isSidebarToggleDisabled,
   isStarred,
+  centerAccessory,
   messageCount,
   onOpenThreadWorkspace,
   onOpenInEditor,
@@ -101,7 +104,7 @@ export function AppMainPanelHeader({
         </div>
       </div>
 
-      {/* Message count — absolutely centered, only when sidebar is open */}
+      {/* Center status — absolutely centered, only when sidebar is open */}
       {!showSidebarToggle && activeThread ? (
         <div
           style={{
@@ -113,13 +116,19 @@ export function AppMainPanelHeader({
             pointerEvents: 'none'
           }}
         >
-          <span className="text-xs font-medium" style={{ color: theme.text.muted }}>
-            {isBootstrapping
-              ? 'Loading local workspace...'
-              : messageCount > 0
-                ? `${messageCount} message${messageCount !== 1 ? 's' : ''}`
-                : 'No messages yet'}
-          </span>
+          {centerAccessory ? (
+            <div className="no-drag" style={{ pointerEvents: 'auto' }}>
+              {centerAccessory}
+            </div>
+          ) : (
+            <span className="text-xs font-medium" style={{ color: theme.text.muted }}>
+              {isBootstrapping
+                ? 'Loading local workspace...'
+                : messageCount > 0
+                  ? `${messageCount} message${messageCount !== 1 ? 's' : ''}`
+                  : 'No messages yet'}
+            </span>
+          )}
         </div>
       ) : null}
 

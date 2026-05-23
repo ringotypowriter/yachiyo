@@ -4,9 +4,19 @@ import { mkdir, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 
 import { resolveElectronSessionProxyConfig } from '../webSearch/electronProxyConfig.ts'
+import { createBrowserPointerOverlay, type BrowserPointerOverlay } from './browserPointerOverlay.ts'
+import type {
+  BrowserAutomationPointerState,
+  BrowserAutomationSessionRecord,
+  BrowserAutomationViewBounds,
+  HideBrowserAutomationSessionInput,
+  ListBrowserAutomationSessionsInput,
+  SetBrowserAutomationSessionBoundsInput,
+  ShowBrowserAutomationSessionInput
+} from '../../../../shared/yachiyo/protocol.ts'
 
 const DEFAULT_WAIT_POLL_INTERVAL_MS = 100
-const { BrowserWindow, session } = electron
+const { BrowserWindow, WebContentsView, session } = electron
 
 export interface BrowserAutomationViewport {
   width: number
@@ -50,6 +60,18 @@ export interface BrowserAutomationScreenshotResult {
 }
 
 export interface BrowserAutomationService {
+  listSessions(input: ListBrowserAutomationSessionsInput): BrowserAutomationSessionRecord[]
+
+  showSessionView(
+    input: ShowBrowserAutomationSessionInput & { window: InstanceType<typeof BrowserWindow> }
+  ): BrowserAutomationSessionRecord
+
+  hideSessionView(input: HideBrowserAutomationSessionInput): void
+
+  setSessionViewBounds(
+    input: SetBrowserAutomationSessionBoundsInput
+  ): BrowserAutomationSessionRecord
+
   open(input: {
     threadId: string
     session: string
@@ -99,11 +121,22 @@ export interface BrowserAutomationService {
     workspacePath: string
     fileName?: string
   }): Promise<BrowserAutomationPdfResult>
+
+  dispose(): void
 }
 
 interface ThreadBrowserSessionState {
-  window: InstanceType<typeof BrowserWindow>
+  view: InstanceType<typeof WebContentsView>
   refXpathById: Map<string, string>
+  threadId: string
+  session: string
+  viewport: BrowserAutomationViewport
+  url: string
+  title?: string
+  pointer: BrowserAutomationPointerState | null
+  overlay: BrowserPointerOverlay | null
+  attachedWindow: InstanceType<typeof BrowserWindow> | null
+  updatedAt: string
 }
 
 function toViewport(input?: BrowserAutomationViewport): BrowserAutomationViewport {
@@ -129,6 +162,19 @@ function toolResultPath(workspacePath: string, fileName: string): string {
   return join(workspacePath, '.yachiyo', 'tool-result', fileName)
 }
 
+function toViewBounds(bounds: BrowserAutomationViewBounds): BrowserAutomationViewBounds {
+  return {
+    x: Math.max(0, Math.round(bounds.x)),
+    y: Math.max(0, Math.round(bounds.y)),
+    width: Math.max(1, Math.round(bounds.width)),
+    height: Math.max(1, Math.round(bounds.height))
+  }
+}
+
+function timestamp(): string {
+  return new Date().toISOString()
+}
+
 export function createElectronBrowserAutomationService(input: {
   profilePath: string
 }): BrowserAutomationService {
@@ -145,7 +191,11 @@ export function createElectronBrowserAutomationService(input: {
   }
 
   function getBrowserSession(): ReturnType<typeof session.fromPath> {
-    if (typeof session?.fromPath !== 'function' || typeof BrowserWindow !== 'function') {
+    if (
+      typeof session?.fromPath !== 'function' ||
+      typeof BrowserWindow !== 'function' ||
+      typeof WebContentsView !== 'function'
+    ) {
       throw new Error('Browser automation is only available inside the Electron app.')
     }
 
@@ -172,7 +222,8 @@ export function createElectronBrowserAutomationService(input: {
         `No browser session "${name}" is open for this conversation. Call useBrowser({ action: "open", session: "${name}" }) first.`
       )
     }
-    if (state.window.isDestroyed()) {
+    if (state.view.webContents.isDestroyed()) {
+      destroySessionState(state)
       threadMap?.delete(name)
       throw new Error(
         `Browser session "${name}" was destroyed. Re-open it with useBrowser({ action: "open", session: "${name}" }).`
@@ -185,48 +236,248 @@ export function createElectronBrowserAutomationService(input: {
     state: ThreadBrowserSessionState,
     script: string
   ): Promise<TResult> {
-    return state.window.webContents.executeJavaScript(script, true)
+    return state.view.webContents.executeJavaScript(script, true)
+  }
+
+  function updateSessionMetadata(
+    state: ThreadBrowserSessionState,
+    metadata: { url?: string; title?: string; viewport?: BrowserAutomationViewport } = {}
+  ): void {
+    state.url = metadata.url ?? state.view.webContents.getURL() ?? state.url
+    const nextTitle = metadata.title ?? state.view.webContents.getTitle()
+    if (nextTitle) {
+      state.title = nextTitle
+    }
+    if (metadata.viewport) {
+      state.viewport = metadata.viewport
+    }
+    state.updatedAt = timestamp()
+  }
+
+  function toSessionRecord(state: ThreadBrowserSessionState): BrowserAutomationSessionRecord {
+    return {
+      threadId: state.threadId,
+      session: state.session,
+      url: state.url,
+      ...(state.title ? { title: state.title } : {}),
+      viewport: state.viewport,
+      ...(state.pointer ? { pointer: state.pointer } : {}),
+      updatedAt: state.updatedAt
+    }
+  }
+
+  function detachSessionView(state: ThreadBrowserSessionState): void {
+    const attachedWindow = state.attachedWindow
+    if (!attachedWindow || attachedWindow.isDestroyed()) {
+      state.attachedWindow = null
+      return
+    }
+
+    try {
+      if (state.overlay) {
+        attachedWindow.contentView.removeChildView(state.overlay.view)
+      }
+      attachedWindow.contentView.removeChildView(state.view)
+    } catch {
+      // Electron throws if a view is not currently attached; the desired state is detached.
+    }
+    state.attachedWindow = null
+  }
+
+  function destroySessionState(state: ThreadBrowserSessionState): void {
+    detachSessionView(state)
+    state.overlay?.destroy()
+    state.overlay = null
+    if (!state.view.webContents.isDestroyed()) {
+      state.view.webContents.close()
+    }
+  }
+
+  function setPointer(
+    state: ThreadBrowserSessionState,
+    pointer: Omit<BrowserAutomationPointerState, 'updatedAt'> | null
+  ): void {
+    state.pointer = pointer ? { ...pointer, updatedAt: timestamp() } : null
+    state.updatedAt = timestamp()
+    state.overlay?.updatePointer(state.pointer)
+  }
+
+  async function pointAtRef(
+    state: ThreadBrowserSessionState,
+    sessionName: string,
+    ref: string
+  ): Promise<string> {
+    const xpath = state.refXpathById.get(ref)
+    if (!xpath) {
+      throw new Error(
+        `Unknown ref "${ref}" for session "${sessionName}". Call useBrowser({ action: "snapshot" }) and use the latest refs.`
+      )
+    }
+
+    const point = await evaluate<{ x: number; y: number }>(
+      state,
+      `(() => {
+        const xpath = ${JSON.stringify(xpath)}
+        const node = document.evaluate(xpath, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue
+        if (!(node instanceof Element)) throw new Error('Element not found for ref.')
+        node.scrollIntoView({ block: 'center', inline: 'center' })
+        const rect = node.getBoundingClientRect()
+        return {
+          x: Math.round(rect.x + rect.width / 2),
+          y: Math.round(rect.y + rect.height / 2)
+        }
+      })()`
+    )
+    setPointer(state, { x: point.x, y: point.y, visible: true, label: `Yachiyo's Cursor` })
+    return xpath
+  }
+
+  function purgeDestroyedSessions(threadMap: Map<string, ThreadBrowserSessionState>): void {
+    for (const [name, state] of threadMap) {
+      if (state.view.webContents.isDestroyed()) {
+        destroySessionState(state)
+        threadMap.delete(name)
+      }
+    }
   }
 
   return {
+    listSessions({ threadId }) {
+      const threadMap = threadSessions.get(threadId)
+      if (!threadMap) return []
+      purgeDestroyedSessions(threadMap)
+      return [...threadMap.values()].map(toSessionRecord)
+    },
+
+    showSessionView({ threadId, session: sessionName, bounds, overlay, window }) {
+      const state = requireSessionState(threadId, sessionName)
+      const viewBounds = toViewBounds(bounds)
+      if (!state.overlay) {
+        state.overlay = createBrowserPointerOverlay()
+      }
+
+      if (overlay?.theme) {
+        state.overlay.updateTheme(overlay.theme)
+      }
+
+      if (state.attachedWindow !== window) {
+        detachSessionView(state)
+        window.contentView.addChildView(state.view)
+        state.attachedWindow = window
+      }
+
+      window.contentView.removeChildView(state.overlay.view)
+      window.contentView.addChildView(state.overlay.view)
+      state.view.setBounds(viewBounds)
+      state.overlay.setBounds(viewBounds)
+      state.overlay.updatePointer(state.pointer)
+      if (overlay && 'activityBubble' in overlay) {
+        state.overlay.updateActivityBubble(overlay.activityBubble ?? null)
+      }
+      updateSessionMetadata(state, {
+        viewport: { width: viewBounds.width, height: viewBounds.height }
+      })
+      return toSessionRecord(state)
+    },
+
+    hideSessionView(input) {
+      const threadMap = threadSessions.get(input.threadId)
+      const state = threadMap?.get(input.session)
+      if (!state) return
+      detachSessionView(state)
+    },
+
+    setSessionViewBounds({ threadId, session: sessionName, bounds, overlay }) {
+      const state = requireSessionState(threadId, sessionName)
+      const viewBounds = toViewBounds(bounds)
+      state.view.setBounds(viewBounds)
+      state.overlay?.setBounds(viewBounds)
+      if (overlay?.theme) {
+        state.overlay?.updateTheme(overlay.theme)
+      }
+      if (state.attachedWindow && !state.attachedWindow.isDestroyed() && state.overlay) {
+        state.attachedWindow.contentView.removeChildView(state.overlay.view)
+        state.attachedWindow.contentView.addChildView(state.overlay.view)
+      }
+      if (overlay && 'activityBubble' in overlay) {
+        state.overlay?.updateActivityBubble(overlay.activityBubble ?? null)
+      }
+      updateSessionMetadata(state, {
+        viewport: { width: viewBounds.width, height: viewBounds.height }
+      })
+      return toSessionRecord(state)
+    },
+
     async open({ threadId, session: sessionName, url, viewport }) {
       const currentSession = await ensureProxyReady()
       const threadMap = getThreadMap(threadId)
       const existing = threadMap.get(sessionName)
-      if (existing && !existing.window.isDestroyed()) {
-        if (url) {
-          await existing.window.loadURL(url)
+      if (existing && !existing.view.webContents.isDestroyed()) {
+        if (viewport) {
+          existing.viewport = toViewport(viewport)
+          if (!existing.attachedWindow) {
+            existing.view.setBounds({ x: 0, y: 0, ...existing.viewport })
+          }
         }
+        if (url) {
+          await existing.view.webContents.loadURL(url)
+        }
+        updateSessionMetadata(existing, { url: existing.view.webContents.getURL() || url || '' })
         return {
-          url: existing.window.webContents.getURL() || url || '',
-          title: existing.window.getTitle()
+          url: existing.url,
+          ...(existing.title ? { title: existing.title } : {})
         }
       }
 
-      const { width, height } = toViewport(viewport)
-      const window = new BrowserWindow({
-        show: false,
-        width,
-        height,
+      if (existing) {
+        destroySessionState(existing)
+        threadMap.delete(sessionName)
+      }
+
+      const viewportSize = toViewport(viewport)
+      const view = new WebContentsView({
         webPreferences: {
           backgroundThrottling: false,
           sandbox: false,
           session: currentSession
         }
       })
+      view.setBounds({ x: 0, y: 0, ...viewportSize })
+      view.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
 
-      window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
+      const state: ThreadBrowserSessionState = {
+        view,
+        refXpathById: new Map<string, string>(),
+        threadId,
+        session: sessionName,
+        viewport: viewportSize,
+        url: '',
+        pointer: null,
+        overlay: null,
+        attachedWindow: null,
+        updatedAt: timestamp()
+      }
+      threadMap.set(sessionName, state)
 
-      threadMap.set(sessionName, {
-        window,
-        refXpathById: new Map<string, string>()
+      view.webContents.on('did-navigate', (_event, navigatedUrl) => {
+        updateSessionMetadata(state, { url: navigatedUrl })
+      })
+      view.webContents.on('did-navigate-in-page', (_event, navigatedUrl) => {
+        updateSessionMetadata(state, { url: navigatedUrl })
+      })
+      view.webContents.on('page-title-updated', (_event, title) => {
+        updateSessionMetadata(state, { title })
+      })
+      view.webContents.once('destroyed', () => {
+        threadMap.delete(sessionName)
       })
 
       if (url) {
-        await window.loadURL(url)
+        await view.webContents.loadURL(url)
       }
 
-      return { url: window.webContents.getURL() || url || '', title: window.getTitle() }
+      updateSessionMetadata(state, { url: view.webContents.getURL() || url || '' })
+      return { url: state.url, ...(state.title ? { title: state.title } : {}) }
     },
 
     async close({ threadId, session: sessionName }) {
@@ -235,25 +486,29 @@ export function createElectronBrowserAutomationService(input: {
       if (!state) return
 
       threadMap?.delete(sessionName)
-      if (!state.window.isDestroyed()) {
-        state.window.destroy()
+      destroySessionState(state)
+      if (threadMap && threadMap.size === 0) {
+        threadSessions.delete(threadId)
       }
     },
 
     async getUrl({ threadId, session: sessionName }) {
       const state = requireSessionState(threadId, sessionName)
-      return state.window.webContents.getURL()
+      updateSessionMetadata(state)
+      return state.url
     },
 
     async getTitle({ threadId, session: sessionName }) {
       const state = requireSessionState(threadId, sessionName)
-      return state.window.getTitle()
+      updateSessionMetadata(state)
+      return state.title ?? ''
     },
 
     async loadUrl({ threadId, session: sessionName, url }) {
       const state = requireSessionState(threadId, sessionName)
-      await state.window.loadURL(url)
-      return state.window.webContents.getURL() || url
+      await state.view.webContents.loadURL(url)
+      updateSessionMetadata(state, { url: state.view.webContents.getURL() || url })
+      return state.url
     },
 
     async waitForFunction({
@@ -276,7 +531,10 @@ export function createElectronBrowserAutomationService(input: {
         }
 
         const matched = await evaluate<boolean>(state, predicate)
-        if (matched) return
+        if (matched) {
+          updateSessionMetadata(state)
+          return
+        }
 
         await new Promise((resolve) => setTimeout(resolve, poll))
       }
@@ -388,6 +646,7 @@ export function createElectronBrowserAutomationService(input: {
         })
       }
 
+      updateSessionMetadata(state, { url: result.url, title: result.title })
       return {
         url: result.url,
         ...(result.title ? { title: result.title } : {}),
@@ -398,37 +657,25 @@ export function createElectronBrowserAutomationService(input: {
 
     async click({ threadId, session: sessionName, ref }) {
       const state = requireSessionState(threadId, sessionName)
-      const xpath = state.refXpathById.get(ref)
-      if (!xpath) {
-        throw new Error(
-          `Unknown ref "${ref}" for session "${sessionName}". Call useBrowser({ action: "snapshot" }) and use the latest refs.`
-        )
-      }
-
+      const xpath = await pointAtRef(state, sessionName, ref)
       await evaluate<void>(
         state,
         `(() => {
           const xpath = ${JSON.stringify(xpath)}
           const node = document.evaluate(xpath, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue
           if (!(node instanceof Element)) throw new Error('Element not found for ref.')
-          node.scrollIntoView({ block: 'center', inline: 'center' })
           ;(node).dispatchEvent(new MouseEvent('mouseover', { bubbles: true }))
           ;(node).dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))
           ;(node).dispatchEvent(new MouseEvent('mouseup', { bubbles: true }))
           ;(node).dispatchEvent(new MouseEvent('click', { bubbles: true }))
         })()`
       )
+      updateSessionMetadata(state)
     },
 
     async fill({ threadId, session: sessionName, ref, text }) {
       const state = requireSessionState(threadId, sessionName)
-      const xpath = state.refXpathById.get(ref)
-      if (!xpath) {
-        throw new Error(
-          `Unknown ref "${ref}" for session "${sessionName}". Call useBrowser({ action: "snapshot" }) and use the latest refs.`
-        )
-      }
-
+      const xpath = await pointAtRef(state, sessionName, ref)
       await evaluate<void>(
         state,
         `(() => {
@@ -437,7 +684,6 @@ export function createElectronBrowserAutomationService(input: {
           const node = document.evaluate(xpath, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue
           if (!(node instanceof Element)) throw new Error('Element not found for ref.')
           const el = node
-          el.scrollIntoView({ block: 'center', inline: 'center' })
           if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) {
             const setter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(el), 'value')?.set
             setter?.call(el, value)
@@ -454,17 +700,12 @@ export function createElectronBrowserAutomationService(input: {
           throw new Error('Ref is not fillable.')
         })()`
       )
+      updateSessionMetadata(state)
     },
 
     async type({ threadId, session: sessionName, ref, text }) {
       const state = requireSessionState(threadId, sessionName)
-      const xpath = state.refXpathById.get(ref)
-      if (!xpath) {
-        throw new Error(
-          `Unknown ref "${ref}" for session "${sessionName}". Call useBrowser({ action: "snapshot" }) and use the latest refs.`
-        )
-      }
-
+      const xpath = await pointAtRef(state, sessionName, ref)
       await evaluate<void>(
         state,
         `(() => {
@@ -473,7 +714,6 @@ export function createElectronBrowserAutomationService(input: {
           const node = document.evaluate(xpath, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue
           if (!(node instanceof Element)) throw new Error('Element not found for ref.')
           const el = node
-          el.scrollIntoView({ block: 'center', inline: 'center' })
           if (el instanceof HTMLElement) el.focus()
           if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) {
             el.value = (el.value || '') + value
@@ -490,17 +730,12 @@ export function createElectronBrowserAutomationService(input: {
           throw new Error('Ref is not typable.')
         })()`
       )
+      updateSessionMetadata(state)
     },
 
     async select({ threadId, session: sessionName, ref, value }) {
       const state = requireSessionState(threadId, sessionName)
-      const xpath = state.refXpathById.get(ref)
-      if (!xpath) {
-        throw new Error(
-          `Unknown ref "${ref}" for session "${sessionName}". Call useBrowser({ action: "snapshot" }) and use the latest refs.`
-        )
-      }
-
+      const xpath = await pointAtRef(state, sessionName, ref)
       await evaluate<void>(
         state,
         `(() => {
@@ -509,7 +744,6 @@ export function createElectronBrowserAutomationService(input: {
           const node = document.evaluate(xpath, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue
           if (!(node instanceof Element)) throw new Error('Element not found for ref.')
           const el = node
-          el.scrollIntoView({ block: 'center', inline: 'center' })
           if (el instanceof HTMLSelectElement) {
             el.value = value
             el.dispatchEvent(new Event('input', { bubbles: true }))
@@ -519,17 +753,12 @@ export function createElectronBrowserAutomationService(input: {
           throw new Error('Ref is not a select element.')
         })()`
       )
+      updateSessionMetadata(state)
     },
 
     async check({ threadId, session: sessionName, ref, checked }) {
       const state = requireSessionState(threadId, sessionName)
-      const xpath = state.refXpathById.get(ref)
-      if (!xpath) {
-        throw new Error(
-          `Unknown ref "${ref}" for session "${sessionName}". Call useBrowser({ action: "snapshot" }) and use the latest refs.`
-        )
-      }
-
+      const xpath = await pointAtRef(state, sessionName, ref)
       await evaluate<void>(
         state,
         `(() => {
@@ -538,7 +767,6 @@ export function createElectronBrowserAutomationService(input: {
           const node = document.evaluate(xpath, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue
           if (!(node instanceof Element)) throw new Error('Element not found for ref.')
           const el = node
-          el.scrollIntoView({ block: 'center', inline: 'center' })
           if (el instanceof HTMLInputElement && (el.type === 'checkbox' || el.type === 'radio')) {
             el.checked = checked
             el.dispatchEvent(new Event('input', { bubbles: true }))
@@ -548,6 +776,7 @@ export function createElectronBrowserAutomationService(input: {
           throw new Error('Ref is not a checkbox/radio input.')
         })()`
       )
+      updateSessionMetadata(state)
     },
 
     async press({ threadId, session: sessionName, key }) {
@@ -562,6 +791,7 @@ export function createElectronBrowserAutomationService(input: {
           el.dispatchEvent(new KeyboardEvent('keyup', { key, bubbles: true }))
         })()`
       )
+      updateSessionMetadata(state)
     },
 
     async screenshot({ threadId, session: sessionName, workspacePath, fileName }) {
@@ -571,9 +801,10 @@ export function createElectronBrowserAutomationService(input: {
       const savedFilePath = toolResultPath(workspacePath, pngName)
 
       await mkdir(dirname(savedFilePath), { recursive: true })
-      const image = await state.window.webContents.capturePage()
+      const image = await state.view.webContents.capturePage()
       const buffer = image.toPNG()
       await writeFile(savedFilePath, buffer)
+      updateSessionMetadata(state)
 
       return {
         savedFileName,
@@ -590,7 +821,7 @@ export function createElectronBrowserAutomationService(input: {
 
       await mkdir(dirname(savedFilePath), { recursive: true })
 
-      const buffer = await state.window.webContents
+      const buffer = await state.view.webContents
         .printToPDF({
           printBackground: true
         })
@@ -600,12 +831,22 @@ export function createElectronBrowserAutomationService(input: {
         })
 
       await writeFile(savedFilePath, buffer)
+      updateSessionMetadata(state)
 
       return {
         savedFileName,
         savedFilePath,
         bytesWritten: buffer.byteLength
       }
+    },
+
+    dispose() {
+      for (const threadMap of threadSessions.values()) {
+        for (const state of threadMap.values()) {
+          destroySessionState(state)
+        }
+      }
+      threadSessions.clear()
     }
   }
 }

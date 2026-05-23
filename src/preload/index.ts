@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import type {
   AnswerToolQuestionInput,
+  BrowserAutomationSessionRecord,
   ChannelGroupRecord,
   ChannelsConfig,
   ChannelUserRecord,
@@ -12,8 +13,10 @@ import type {
   EditMessageInput,
   FolderRecord,
   GetMemoryTermDocumentInput,
+  HideBrowserAutomationSessionInput,
   SearchWorkspaceFilesInput,
   ImportWebSearchBrowserSessionInput,
+  ListBrowserAutomationSessionsInput,
   ListActivitySourceRecordsInput,
   ListActivitySourceRecordsResult,
   ListSkillsInput,
@@ -23,12 +26,14 @@ import type {
   ResolveFileReferencesInput,
   ResolvedFileReference,
   SaveThreadInput,
+  SetBrowserAutomationSessionBoundsInput,
   ReadThreadPlanDocumentInput,
   ReadThreadPlanDocumentResult,
   AcceptThreadPlanDocumentInput,
   ChatAccepted,
   SettingsConfig,
   SendChatInput,
+  ShowBrowserAutomationSessionInput,
   ShowNotificationInput,
   TestSubagentProfileInput,
   ThreadColorTag,
@@ -276,6 +281,20 @@ const api = {
       ipcRenderer.invoke('yachiyo:list-web-search-browser-import-sources'),
     importWebSearchBrowserSession: (input: ImportWebSearchBrowserSessionInput) =>
       ipcRenderer.invoke('yachiyo:import-web-search-browser-session', input),
+    listBrowserAutomationSessions: (
+      input: ListBrowserAutomationSessionsInput
+    ): Promise<BrowserAutomationSessionRecord[]> =>
+      ipcRenderer.invoke('yachiyo:list-browser-automation-sessions', input),
+    showBrowserAutomationSession: (
+      input: ShowBrowserAutomationSessionInput
+    ): Promise<BrowserAutomationSessionRecord> =>
+      ipcRenderer.invoke('yachiyo:show-browser-automation-session', input),
+    hideBrowserAutomationSession: (input: HideBrowserAutomationSessionInput): Promise<void> =>
+      ipcRenderer.invoke('yachiyo:hide-browser-automation-session', input),
+    setBrowserAutomationSessionBounds: (
+      input: SetBrowserAutomationSessionBoundsInput
+    ): Promise<BrowserAutomationSessionRecord> =>
+      ipcRenderer.invoke('yachiyo:set-browser-automation-session-bounds', input),
     setThreadPrivacyMode: (input: { threadId: string; enabled: boolean }): Promise<ThreadRecord> =>
       ipcRenderer.invoke('yachiyo:set-thread-privacy-mode', input),
     setThreadModelOverride: (input: {

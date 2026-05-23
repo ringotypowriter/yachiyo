@@ -17,6 +17,7 @@ import { probeFullActivityAccess } from '../yachiyo-server/activity/osascript.ts
 import type {
   AcceptThreadPlanDocumentInput,
   AnswerToolQuestionInput,
+  BrowserAutomationSessionRecord,
   ChannelsConfig,
   CompactThreadInput,
   ComposerReasoningSelection,
@@ -25,7 +26,9 @@ import type {
   DeleteMemoryTermResult,
   EditMessageInput,
   GetMemoryTermDocumentInput,
+  HideBrowserAutomationSessionInput,
   ImportWebSearchBrowserSessionInput,
+  ListBrowserAutomationSessionsInput,
   ListActivitySourceRecordsInput,
   ListSkillsInput,
   ProviderConfig,
@@ -34,8 +37,10 @@ import type {
   RunModeId,
   SaveThreadInput,
   SearchWorkspaceFilesInput,
+  SetBrowserAutomationSessionBoundsInput,
   SettingsConfig,
   SendChatInput,
+  ShowBrowserAutomationSessionInput,
   ShowNotificationInput,
   MemoryTermDocument,
   TestSubagentProfileInput,
@@ -901,6 +906,33 @@ export function registerYachiyoGateway(): YachiyoServer {
   handleYachiyoIpc(
     IPC_CHANNELS.importWebSearchBrowserSession,
     (input: ImportWebSearchBrowserSessionInput) => server!.importWebSearchBrowserSession(input)
+  )
+  handleYachiyoIpc(
+    IPC_CHANNELS.listBrowserAutomationSessions,
+    (input: ListBrowserAutomationSessionsInput): BrowserAutomationSessionRecord[] =>
+      server!.listBrowserAutomationSessions(input)
+  )
+  ipcMain.removeHandler(IPC_CHANNELS.showBrowserAutomationSession)
+  ipcMain.handle(
+    IPC_CHANNELS.showBrowserAutomationSession,
+    (event, input: ShowBrowserAutomationSessionInput): BrowserAutomationSessionRecord => {
+      const window = BrowserWindow.fromWebContents(event.sender)
+      if (!window || window.isDestroyed()) {
+        throw new Error('Unable to show browser session: source window is unavailable.')
+      }
+      return server!.showBrowserAutomationSession({ ...input, window })
+    }
+  )
+  handleYachiyoIpc(
+    IPC_CHANNELS.hideBrowserAutomationSession,
+    (input: HideBrowserAutomationSessionInput): void => {
+      server!.hideBrowserAutomationSession(input)
+    }
+  )
+  handleYachiyoIpc(
+    IPC_CHANNELS.setBrowserAutomationSessionBounds,
+    (input: SetBrowserAutomationSessionBoundsInput): BrowserAutomationSessionRecord =>
+      server!.setBrowserAutomationSessionBounds(input)
   )
   handleYachiyoIpc(
     IPC_CHANNELS.setThreadPrivacyMode,
