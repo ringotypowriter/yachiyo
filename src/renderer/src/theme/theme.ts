@@ -89,6 +89,8 @@ export const theme = {
     inverse: solid('surface'),
     accent: solid('accent'),
     accentStrong: solid('accentStrong'),
+    counter: solid('counter'),
+    counterStrong: solid('counterStrong'),
     success: solid('successStrong'),
     warning: solid('warning'),
     danger: solid('danger'),
@@ -98,7 +100,7 @@ export const theme = {
     app: solid('app'),
     canvas: solid('canvas'),
     sidebar: solid('sidebar'),
-    sidebarVibrancy: alpha('accent', 0.15),
+    sidebarVibrancy: alpha('counter', 0.15),
     scrim: alpha('scrim', 0.25),
     onAccentOverlay: alpha('onAccentOverlay', 0.15),
     chatCard: alpha('canvas', 0.92),
@@ -115,6 +117,10 @@ export const theme = {
     accentMuted: alpha('accent', 0.1),
     accentSurface: alpha('accent', 0.12),
     accentPanel: alpha('accent', 0.14),
+    counterSoft: alpha('counter', 0.06),
+    counterMuted: alpha('counter', 0.1),
+    counterSurface: alpha('counter', 0.12),
+    counterPanel: alpha('counter', 0.14),
     dangerSoft: alpha('danger', 0.06),
     dangerSurface: alpha('danger', 0.08),
     code: alpha('ink', 0.07),
@@ -129,6 +135,8 @@ export const theme = {
     contrast: alpha('ink', 0.15),
     accent: alpha('accent', 0.28),
     accentStrong: alpha('accentStrong', 0.16),
+    counter: alpha('counter', 0.28),
+    counterStrong: alpha('counterStrong', 0.16),
     danger: alpha('danger', 0.14)
   },
   icon: {
@@ -136,6 +144,7 @@ export const theme = {
     muted: solid('textMuted'),
     placeholder: solid('textPlaceholder'),
     accent: solid('accent'),
+    counter: solid('counter'),
     success: solid('successStrong'),
     danger: solid('danger')
   },
@@ -143,7 +152,8 @@ export const theme = {
     idle: alpha('idle', 0.78),
     success: alpha('success', 0.78),
     danger: alpha('dangerStrong', 0.76),
-    accent: alpha('accent', 0.55)
+    accent: alpha('accent', 0.55),
+    counter: alpha('counter', 0.55)
   },
   shadow: {
     panel: `0 10px 30px ${alpha('ink', 0.04)}`,

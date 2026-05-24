@@ -54,8 +54,8 @@ function HighlightedText({ text, query }: { text: string; query: string }): Reac
           <mark
             key={i}
             style={{
-              background: theme.background.accentPanel,
-              color: theme.text.accentStrong,
+              background: theme.background.counterPanel,
+              color: theme.text.counterStrong,
               borderRadius: '2px',
               padding: '0 1px',
               fontWeight: 600

@@ -197,8 +197,8 @@ export function AppSidebar({
                 onClick={() => window.api.openSettings('about')}
                 className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium mr-1.5 transition-opacity hover:opacity-80"
                 style={{
-                  background: alpha('accent', 0.12),
-                  color: theme.text.accent,
+                  background: alpha('counter', 0.12),
+                  color: theme.text.counter,
                   border: 'none',
                   cursor: 'default'
                 }}

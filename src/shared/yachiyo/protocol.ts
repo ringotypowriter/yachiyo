@@ -119,7 +119,8 @@ export const THEME_IDS = [
   'mint',
   'fuji',
   'yamabuki',
-  'gobyou'
+  'gobyou',
+  'murasaki'
 ] as const
 export type ThemeId = (typeof THEME_IDS)[number]
 export type ThemeAppearance = 'system' | 'light' | 'dark'

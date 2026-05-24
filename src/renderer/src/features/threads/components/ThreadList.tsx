@@ -117,7 +117,7 @@ function DroppableFolder({
       ref={setNodeRef}
       style={{
         borderRadius: 6,
-        outline: isOver ? `2px solid ${theme.border.accent}` : 'none',
+        outline: isOver ? `2px solid ${theme.border.counter}` : 'none',
         outlineOffset: -2,
         transition: 'outline 0.1s ease'
       }}
@@ -144,7 +144,7 @@ function DroppableThread({
       ref={setNodeRef}
       style={{
         borderRadius: 6,
-        outline: isOver ? `2px solid ${theme.border.accent}` : 'none',
+        outline: isOver ? `2px solid ${theme.border.counter}` : 'none',
         outlineOffset: -2,
         transition: 'outline 0.1s ease'
       }}

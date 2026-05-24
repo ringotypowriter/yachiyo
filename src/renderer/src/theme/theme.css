@@ -18,6 +18,8 @@
 
   --yachiyo-rgb-accent: 75 175 201;
   --yachiyo-rgb-accent-strong: 42 122 149;
+  --yachiyo-rgb-counter: 75 175 201;
+  --yachiyo-rgb-counter-strong: 42 122 149;
   --yachiyo-rgb-scrim: 0 0 0;
   --yachiyo-rgb-on-accent-overlay: 255 255 255;
   --yachiyo-rgb-success: 78 131 102;
@@ -43,6 +45,8 @@
 
     --yachiyo-rgb-accent: 99 179 195;
     --yachiyo-rgb-accent-strong: 130 203 214;
+    --yachiyo-rgb-counter: 99 179 195;
+    --yachiyo-rgb-counter-strong: 130 203 214;
     --yachiyo-rgb-scrim: 0 0 0;
     --yachiyo-rgb-on-accent-overlay: 255 255 255;
     --yachiyo-rgb-success: 116 160 132;
@@ -68,6 +72,8 @@
 
   --yachiyo-rgb-accent: 99 179 195;
   --yachiyo-rgb-accent-strong: 130 203 214;
+  --yachiyo-rgb-counter: 99 179 195;
+  --yachiyo-rgb-counter-strong: 130 203 214;
   --yachiyo-rgb-scrim: 0 0 0;
   --yachiyo-rgb-on-accent-overlay: 255 255 255;
   --yachiyo-rgb-success: 116 160 132;
@@ -91,6 +97,8 @@
 
   --yachiyo-rgb-accent: 225 72 62;
   --yachiyo-rgb-accent-strong: 188 50 42;
+  --yachiyo-rgb-counter: 72 68 65;
+  --yachiyo-rgb-counter-strong: 95 90 85;
   --yachiyo-rgb-scrim: 0 0 0;
   --yachiyo-rgb-on-accent-overlay: 255 255 255;
   --yachiyo-rgb-success: 78 131 102;
@@ -100,7 +108,6 @@
   --yachiyo-rgb-danger-strong: 143 65 50;
   --yachiyo-rgb-idle: 192 189 184;
 }
-
 :root[data-yachiyo-theme='gobyou'][data-yachiyo-theme-variant='dark'] {
   --yachiyo-rgb-ink: 242 238 235;
   --yachiyo-rgb-text-secondary: 210 204 198;
@@ -115,6 +122,59 @@
 
   --yachiyo-rgb-accent: 245 130 118;
   --yachiyo-rgb-accent-strong: 255 162 150;
+  --yachiyo-rgb-counter: 170 160 150;
+  --yachiyo-rgb-counter-strong: 195 185 175;
+  --yachiyo-rgb-scrim: 0 0 0;
+  --yachiyo-rgb-on-accent-overlay: 255 255 255;
+  --yachiyo-rgb-success: 116 160 132;
+  --yachiyo-rgb-success-strong: 139 191 158;
+  --yachiyo-rgb-warning: 218 155 95;
+  --yachiyo-rgb-danger: 218 105 94;
+  --yachiyo-rgb-danger-strong: 232 135 120;
+  --yachiyo-rgb-idle: 105 113 119;
+}
+:root[data-yachiyo-theme='murasaki'][data-yachiyo-theme-variant='light'] {
+  --yachiyo-rgb-ink: 46 38 36;
+  --yachiyo-rgb-text-secondary: 95 82 78;
+  --yachiyo-rgb-text-tertiary: 112 98 94;
+  --yachiyo-rgb-text-muted: 148 132 126;
+  --yachiyo-rgb-text-placeholder: 176 160 152;
+
+  --yachiyo-rgb-app: 245 240 238;
+  --yachiyo-rgb-canvas: 252 248 245;
+  --yachiyo-rgb-sidebar: 238 228 222;
+  --yachiyo-rgb-surface: 255 255 255;
+
+  --yachiyo-rgb-accent: 210 60 50;
+  --yachiyo-rgb-accent-strong: 180 40 32;
+  --yachiyo-rgb-counter: 70 110 180;
+  --yachiyo-rgb-counter-strong: 50 85 155;
+  --yachiyo-rgb-scrim: 0 0 0;
+  --yachiyo-rgb-on-accent-overlay: 255 255 255;
+  --yachiyo-rgb-success: 78 131 102;
+  --yachiyo-rgb-success-strong: 92 173 138;
+  --yachiyo-rgb-warning: 192 86 33;
+  --yachiyo-rgb-danger: 181 58 47;
+  --yachiyo-rgb-danger-strong: 143 65 50;
+  --yachiyo-rgb-idle: 192 189 184;
+}
+
+:root[data-yachiyo-theme='murasaki'][data-yachiyo-theme-variant='dark'] {
+  --yachiyo-rgb-ink: 235 238 245;
+  --yachiyo-rgb-text-secondary: 190 198 212;
+  --yachiyo-rgb-text-tertiary: 145 158 178;
+  --yachiyo-rgb-text-muted: 115 128 148;
+  --yachiyo-rgb-text-placeholder: 88 100 120;
+
+  --yachiyo-rgb-app: 20 24 36;
+  --yachiyo-rgb-canvas: 24 28 40;
+  --yachiyo-rgb-sidebar: 30 35 50;
+  --yachiyo-rgb-surface: 38 44 60;
+
+  --yachiyo-rgb-accent: 95 145 220;
+  --yachiyo-rgb-accent-strong: 130 175 245;
+  --yachiyo-rgb-counter: 190 80 75;
+  --yachiyo-rgb-counter-strong: 220 100 90;
   --yachiyo-rgb-scrim: 0 0 0;
   --yachiyo-rgb-on-accent-overlay: 255 255 255;
   --yachiyo-rgb-success: 116 160 132;

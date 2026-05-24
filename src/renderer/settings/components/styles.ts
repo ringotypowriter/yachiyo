@@ -19,7 +19,7 @@ export function settingsPanelStyle(): React.CSSProperties {
 export function compactChoiceStyle(selected: boolean): React.CSSProperties {
   return {
     background: selected ? theme.background.surfaceFrosted : theme.background.surfaceMuted,
-    border: selected ? `1px solid ${theme.border.accent}` : `1px solid ${theme.border.panel}`,
+    border: selected ? `1px solid ${theme.border.counter}` : `1px solid ${theme.border.panel}`,
     boxShadow: selected ? theme.shadow.raised : 'none'
   }
 }

@@ -219,9 +219,9 @@ function ReasoningSettingsModal({
                   onClick={() => onToggleOption(choice.value)}
                   className="rounded-lg px-3 py-2 text-sm font-medium transition-colors"
                   style={{
-                    color: active ? theme.text.accent : theme.text.secondary,
-                    background: active ? theme.background.accentSoft : alpha('ink', 0.04),
-                    border: `1px solid ${active ? theme.border.accent : theme.border.subtle}`
+                    color: active ? theme.text.counter : theme.text.secondary,
+                    background: active ? theme.background.counterSoft : alpha('ink', 0.04),
+                    border: `1px solid ${active ? theme.border.counter : theme.border.subtle}`
                   }}
                 >
                   {choice.label}

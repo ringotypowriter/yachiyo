@@ -271,8 +271,8 @@ export function ThreadListItem({
                   style={{
                     width: 18,
                     height: 18,
-                    border: `1.5px solid ${isSelected ? theme.text.accentStrong : theme.border.strong}`,
-                    background: isSelected ? theme.text.accentStrong : 'transparent',
+                    border: `1.5px solid ${isSelected ? theme.text.counterStrong : theme.border.strong}`,
+                    background: isSelected ? theme.text.counterStrong : 'transparent',
                     flexShrink: 0
                   }}
                 >

@@ -713,8 +713,8 @@ function SettingsApp(): React.ReactNode {
               style={
                 activeTab === id
                   ? {
-                      background: theme.background.accentSoft,
-                      color: theme.text.accent,
+                      background: theme.background.counterSoft,
+                      color: theme.text.counter,
                       fontWeight: 500
                     }
                   : { color: theme.text.secondary }
@@ -771,7 +771,7 @@ function SettingsApp(): React.ReactNode {
                   {isActive ? (
                     <span
                       className="absolute bottom-0 left-3 right-3"
-                      style={{ height: 2, background: theme.text.primary, borderRadius: 1 }}
+                      style={{ height: 2, background: theme.text.counter, borderRadius: 1 }}
                     />
                   ) : null}
                 </button>

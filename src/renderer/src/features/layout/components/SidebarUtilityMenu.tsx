@@ -116,7 +116,7 @@ export function SidebarUtilityMenu({
           {showExternalThreads && (
             <span
               className="ml-auto text-[10px] font-medium px-1.5 py-0.5 rounded"
-              style={{ background: theme.background.accentSurface, color: theme.text.accent }}
+              style={{ background: theme.background.counterSurface, color: theme.text.counter }}
             >
               ON
             </span>

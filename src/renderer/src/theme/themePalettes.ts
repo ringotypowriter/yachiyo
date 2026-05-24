@@ -14,6 +14,8 @@ export const themeRgbTokenVars = {
   surface: '--yachiyo-rgb-surface',
   accent: '--yachiyo-rgb-accent',
   accentStrong: '--yachiyo-rgb-accent-strong',
+  counter: '--yachiyo-rgb-counter',
+  counterStrong: '--yachiyo-rgb-counter-strong',
   scrim: '--yachiyo-rgb-scrim',
   onAccentOverlay: '--yachiyo-rgb-on-accent-overlay',
   success: '--yachiyo-rgb-success',
@@ -87,14 +89,25 @@ const darkSemanticTokens = {
   idle: '105 113 119'
 } as const
 
-type ThemeIdentityTokens = Omit<ThemePalette, keyof typeof lightSemanticTokens>
+type ThemeIdentityTokens = Omit<
+  ThemePalette,
+  keyof typeof lightSemanticTokens | 'counter' | 'counterStrong'
+>
 
-function lightPalette(tokens: ThemeIdentityTokens): ThemePalette {
-  return { ...tokens, ...lightSemanticTokens }
+function lightPalette(
+  tokens: ThemeIdentityTokens & { counter?: string; counterStrong?: string }
+): ThemePalette {
+  const counter = tokens.counter ?? tokens.accent
+  const counterStrong = tokens.counterStrong ?? tokens.accentStrong
+  return { ...tokens, counter, counterStrong, ...lightSemanticTokens } as ThemePalette
 }
 
-function darkPalette(tokens: ThemeIdentityTokens): ThemePalette {
-  return { ...tokens, ...darkSemanticTokens }
+function darkPalette(
+  tokens: ThemeIdentityTokens & { counter?: string; counterStrong?: string }
+): ThemePalette {
+  const counter = tokens.counter ?? tokens.accent
+  const counterStrong = tokens.counterStrong ?? tokens.accentStrong
+  return { ...tokens, counter, counterStrong, ...darkSemanticTokens } as ThemePalette
 }
 
 export const THEME_OPTIONS: readonly ThemeOption[] = [
@@ -345,7 +358,9 @@ export const THEME_OPTIONS: readonly ThemeOption[] = [
         sidebar: '232 224 218',
         surface: '255 255 255',
         accent: '225 72 62',
-        accentStrong: '188 50 42'
+        accentStrong: '188 50 42',
+        counter: '72 68 65',
+        counterStrong: '95 90 85'
       }),
       dark: darkPalette({
         ink: '242 238 235',
@@ -358,7 +373,46 @@ export const THEME_OPTIONS: readonly ThemeOption[] = [
         sidebar: '36 32 30',
         surface: '42 38 35',
         accent: '245 130 118',
-        accentStrong: '255 162 150'
+        accentStrong: '255 162 150',
+        counter: '170 160 150',
+        counterStrong: '195 185 175'
+      })
+    }
+  },
+  {
+    id: 'murasaki',
+    label: 'Murasaki',
+    description: 'Scarlet and ink-blue.',
+    palettes: {
+      light: lightPalette({
+        ink: '46 38 36',
+        textSecondary: '95 82 78',
+        textTertiary: '112 98 94',
+        textMuted: '148 132 126',
+        textPlaceholder: '176 160 152',
+        app: '245 240 238',
+        canvas: '252 248 245',
+        sidebar: '238 228 222',
+        surface: '255 255 255',
+        accent: '210 60 50',
+        accentStrong: '180 40 32',
+        counter: '70 110 180',
+        counterStrong: '50 85 155'
+      }),
+      dark: darkPalette({
+        ink: '235 238 245',
+        textSecondary: '190 198 212',
+        textTertiary: '145 158 178',
+        textMuted: '115 128 148',
+        textPlaceholder: '88 100 120',
+        app: '20 24 36',
+        canvas: '24 28 40',
+        sidebar: '30 35 50',
+        surface: '38 44 60',
+        accent: '95 145 220',
+        accentStrong: '130 175 245',
+        counter: '190 80 75',
+        counterStrong: '220 100 90'
       })
     }
   }
@@ -372,7 +426,8 @@ const themeOptionsById: Record<ThemeId, ThemeOption> = {
   mint: THEME_OPTIONS[4],
   fuji: THEME_OPTIONS[5],
   yamabuki: THEME_OPTIONS[6],
-  gobyou: THEME_OPTIONS[7]
+  gobyou: THEME_OPTIONS[7],
+  murasaki: THEME_OPTIONS[8]
 }
 
 export function getThemeOption(themeId: ThemeId): ThemeOption {
