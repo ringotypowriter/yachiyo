@@ -11,7 +11,7 @@ import {
   Settings2
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
-import { theme } from '@renderer/theme/theme'
+import { alpha, theme } from '@renderer/theme/theme'
 import { useApplyThemeConfig } from '@renderer/theme/useThemeConfig'
 import type {
   ChannelGroupRecord,
@@ -145,6 +145,80 @@ export interface SettingsPanelProps {
   active: boolean
   route: string
   onRouteChange: (route: string) => void
+}
+
+export interface SettingsSidebarProps {
+  route: string
+  sidebarWidth: number
+  onRouteChange: (route: string) => void
+}
+
+export function SettingsSidebar({
+  route,
+  sidebarWidth,
+  onRouteChange
+}: SettingsSidebarProps): React.JSX.Element {
+  const activeTab = resolveSettingsRoute(route).tab
+
+  return (
+    <aside
+      className="drag-region flex h-full shrink-0 flex-col overflow-hidden"
+      style={{
+        width: sidebarWidth,
+        background: alpha('sidebar', 0.15),
+        backdropFilter: 'blur(24px) saturate(1.4)',
+        WebkitBackdropFilter: 'blur(24px) saturate(1.4)'
+      }}
+    >
+      <div className="shrink-0 px-4 pb-3 pt-5">
+        <div
+          className="text-[11px] font-semibold uppercase tracking-[0.18em]"
+          style={{ color: theme.text.tertiary }}
+        >
+          Settings
+        </div>
+        <div
+          className="mt-1 text-[20px] font-semibold leading-tight"
+          style={{ color: theme.text.primary, letterSpacing: '-0.45px' }}
+        >
+          Preferences
+        </div>
+      </div>
+
+      <nav className="no-drag flex-1 overflow-y-auto px-2 pb-3" aria-label="Settings sections">
+        {TABS.map(({ id, label, icon: Icon }) => {
+          const isActive = activeTab === id
+          return (
+            <button
+              key={id}
+              onClick={() => onRouteChange(id)}
+              className="mb-1 flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left text-sm transition-all"
+              style={
+                isActive
+                  ? {
+                      background: theme.background.counterSurface,
+                      color: theme.text.counter,
+                      fontWeight: 600,
+                      boxShadow: theme.shadow.button
+                    }
+                  : {
+                      background: 'transparent',
+                      color: theme.text.secondary
+                    }
+              }
+            >
+              <Icon
+                size={16}
+                strokeWidth={1.7}
+                style={{ opacity: isActive ? 1 : 0.58, flexShrink: 0 }}
+              />
+              <span className="truncate">{label}</span>
+            </button>
+          )
+        })}
+      </nav>
+    </aside>
+  )
 }
 
 function SettingsPanel({ active, route, onRouteChange }: SettingsPanelProps): React.JSX.Element {
@@ -700,84 +774,84 @@ function SettingsPanel({ active, route, onRouteChange }: SettingsPanelProps): Re
     body = draft ? <AboutPane draft={draft} onChange={setDraft} /> : body
   }
 
+  const activeSubTabLabel = activeSettingsTab.subTabs?.find(
+    (item) => item.id === activeSubTab[activeSettingsTab.id]
+  )?.label
+  const statusText = error
+    ? error
+    : activeValidationError
+      ? activeValidationError
+      : saving
+        ? 'Saving...'
+        : isDirty
+          ? 'Unsaved changes'
+          : 'All changes saved'
+  const statusColor = error || activeValidationError ? theme.text.dangerStrong : theme.text.muted
+
   return (
     <div
-      className="flex h-full flex-1 min-w-0 overflow-hidden"
+      className="flex h-full min-w-0 flex-1 flex-col overflow-hidden"
       style={{
-        background: theme.background.chatCard,
+        background: `linear-gradient(180deg, ${theme.background.chatCard} 0%, ${theme.background.surface} 100%)`,
         borderRadius: 12,
         boxShadow: theme.shadow.card
       }}
     >
-      <div
-        className="flex flex-col shrink-0"
+      <header
+        className="drag-region shrink-0"
         style={{
-          width: '210px',
-          background: theme.background.sidebar,
-          borderRight: `1px solid ${theme.border.panel}`
+          padding: '16px 24px 12px',
+          borderBottom: `1px solid ${theme.border.panel}`,
+          background: `linear-gradient(180deg, ${alpha('surface', 0.42)}, ${alpha('surface', 0.12)})`
         }}
       >
-        <div className="drag-region shrink-0 flex items-center px-4" style={{ height: '52px' }}>
-          <span
-            className="font-bold text-lg"
-            style={{ color: theme.text.primary, letterSpacing: '-0.3px' }}
-          >
-            Settings
-          </span>
-        </div>
-
-        <nav className="flex-1 px-2 py-1 overflow-y-auto no-drag">
-          {TABS.map(({ id, label, icon: Icon }) => (
-            <button
-              key={id}
-              onClick={() => navigateToRoute(serializeSettingsRoute(id, activeSubTab[id]))}
-              className="w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg text-sm text-left mb-0.5 transition-all"
-              style={
-                activeTab === id
-                  ? {
-                      background: theme.background.counterSoft,
-                      color: theme.text.counter,
-                      fontWeight: 500
-                    }
-                  : { color: theme.text.secondary }
-              }
+        <div className="flex items-start justify-between gap-4">
+          <div className="min-w-0">
+            <div
+              className="text-[11px] font-semibold uppercase tracking-[0.16em]"
+              style={{ color: theme.text.tertiary }}
             >
-              <Icon
-                size={16}
-                strokeWidth={1.5}
-                style={{ opacity: activeTab === id ? 1 : 0.6, flexShrink: 0 }}
-              />
-              {label}
-            </button>
-          ))}
-        </nav>
-      </div>
+              {activeSettingsTab.label}
+            </div>
+            <h1
+              className="mt-1 truncate text-[22px] font-semibold leading-tight"
+              style={{ color: theme.text.primary, letterSpacing: '-0.45px' }}
+            >
+              {activeSubTabLabel ?? activeSettingsTab.label}
+            </h1>
+          </div>
 
-      <div
-        className="flex flex-col flex-1 min-w-0"
-        style={{ background: theme.background.surface }}
-      >
-        <div
-          className="shrink-0 flex items-center drag-region"
-          style={{
-            height: '52px',
-            padding: '0 28px',
-            borderBottom: `1px solid ${theme.border.panel}`
-          }}
-        >
-          <span
-            className="font-semibold text-xl"
-            style={{ color: theme.text.primary, letterSpacing: '-0.3px' }}
-          >
-            {activeSettingsTab.label}
-          </span>
+          <div className="no-drag flex shrink-0 items-center gap-2">
+            <span className="max-w-[320px] truncate text-xs" style={{ color: statusColor }}>
+              {statusText}
+            </span>
+            <button
+              onClick={() => void triggerSave()}
+              disabled={!hasSaveableChanges || saving || loading}
+              className="rounded-full px-4 py-1.5 text-sm font-medium transition-all"
+              style={{
+                minHeight: 34,
+                border: '1px solid transparent',
+                ...(!hasSaveableChanges || saving || loading
+                  ? {
+                      background: alpha('ink', 0.04),
+                      color: theme.text.muted,
+                      opacity: 0.45
+                    }
+                  : {
+                      background: theme.text.accent,
+                      color: theme.text.inverse,
+                      boxShadow: theme.shadow.button
+                    })
+              }}
+            >
+              Save
+            </button>
+          </div>
         </div>
 
         {activeSettingsTab.subTabs ? (
-          <div
-            className="shrink-0 no-drag flex items-center gap-1 px-7"
-            style={{ borderBottom: `1px solid ${theme.border.panel}` }}
-          >
+          <div className="no-drag mt-3 flex min-w-0 items-center gap-1 overflow-x-auto">
             {activeSettingsTab.subTabs.map((subTab) => {
               const isActive = activeSubTab[activeSettingsTab.id] === subTab.id
               return (
@@ -786,70 +860,21 @@ function SettingsPanel({ active, route, onRouteChange }: SettingsPanelProps): Re
                   onClick={() =>
                     navigateToRoute(serializeSettingsRoute(activeSettingsTab.id, subTab.id))
                   }
-                  className="relative px-3 py-2.5 text-sm font-medium transition-colors"
-                  style={{ color: isActive ? theme.text.primary : theme.text.muted }}
+                  className="rounded-full px-3 py-1.5 text-sm font-medium transition-colors"
+                  style={{
+                    color: isActive ? theme.text.primary : theme.text.muted,
+                    background: isActive ? alpha('ink', 0.06) : 'transparent'
+                  }}
                 >
                   {subTab.label}
-                  {isActive ? (
-                    <span
-                      className="absolute bottom-0 left-3 right-3"
-                      style={{ height: 2, background: theme.text.counter, borderRadius: 1 }}
-                    />
-                  ) : null}
                 </button>
               )
             })}
           </div>
         ) : null}
+      </header>
 
-        {body}
-
-        <div
-          className="shrink-0 no-drag flex items-center justify-between px-5 py-3"
-          style={{ borderTop: `1px solid ${theme.border.panel}` }}
-        >
-          <span
-            className="text-xs"
-            style={{
-              minHeight: 16,
-              lineHeight: '16px',
-              color: error || activeValidationError ? theme.text.dangerStrong : theme.text.muted,
-              visibility: isDirty || saving || error || activeValidationError ? 'visible' : 'hidden'
-            }}
-          >
-            {error
-              ? error
-              : activeValidationError
-                ? activeValidationError
-                : saving
-                  ? 'Saving...'
-                  : 'Unsaved changes'}
-          </span>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => void triggerSave()}
-              disabled={!hasSaveableChanges || saving || loading}
-              className="px-4 py-1.5 rounded-lg text-sm font-medium transition-all"
-              style={{
-                minHeight: 36,
-                border: '1px solid transparent',
-                ...(!hasSaveableChanges || saving || loading
-                  ? {
-                      background: 'transparent',
-                      color: theme.text.muted,
-                      opacity: 0.4
-                    }
-                  : {
-                      background: theme.text.accent,
-                      color: theme.text.inverse
-                    })
-              }}
-            >
-              Save
-            </button>
-          </div>
-        </div>
-      </div>
+      <div className="flex flex-1 min-h-0 min-w-0 flex-col overflow-hidden">{body}</div>
     </div>
   )
 }

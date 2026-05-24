@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useAppStore } from '@renderer/app/store/useAppStore'
 import avatarUrl from '../../../resources/branding.jpeg'
-import SettingsPanel from '../settings/App'
+import SettingsPanel, { SettingsSidebar } from '../settings/App'
 import { AppMainPanel } from '@renderer/features/layout/components/AppMainPanel'
 import { AppSidebar } from '@renderer/features/layout/components/AppSidebar'
 import { AppSidebarDivider } from '@renderer/features/layout/components/AppSidebarDivider'
@@ -15,6 +15,7 @@ import {
   threadListModeForAppTab,
   type AppTabId
 } from '@renderer/features/layout/lib/appTabs'
+import { DEFAULT_SIDEBAR_WIDTH } from '@renderer/lib/sidebarLayout'
 import { ToastPresenter } from '@renderer/features/notifications/components/ToastPresenter'
 import { GlobalProcessingModal } from '@renderer/components/GlobalProcessingModal'
 import { theme } from '@renderer/theme/theme'
@@ -149,6 +150,7 @@ function App(): React.JSX.Element {
       if (tab === 'settings') {
         setHasOpenedSettings(true)
         setSettingsTabActive(true)
+        void openSidebar()
         return
       }
 
@@ -160,14 +162,18 @@ function App(): React.JSX.Element {
       const mode = threadListModeForAppTab(tab)
       if (mode) setThreadListMode(mode)
     },
-    [setThreadListMode]
+    [openSidebar, setThreadListMode]
   )
 
-  const handleOpenSettingsRoute = useCallback((route = 'general'): void => {
-    setSettingsRoute(route)
-    setHasOpenedSettings(true)
-    setSettingsTabActive(true)
-  }, [])
+  const handleOpenSettingsRoute = useCallback(
+    (route = 'general'): void => {
+      setSettingsRoute(route)
+      setHasOpenedSettings(true)
+      setSettingsTabActive(true)
+      void openSidebar()
+    },
+    [openSidebar]
+  )
 
   useEffect(() => {
     const unsubscribeThread = window.api.onNavigateToThread((threadId) => {
@@ -256,9 +262,9 @@ function App(): React.JSX.Element {
   const windowBackdrop = `linear-gradient(90deg, ${theme.background.sidebarVibrancy} 0%, ${theme.background.surfaceLight} 100%)`
   const isSettingsTabActive = activeAppTab === 'settings'
   const contentDividerOffset =
-    isSettingsTabActive || sidebarLayout.dividerOffset === null
-      ? null
-      : APP_TAB_BAR_WIDTH + sidebarLayout.dividerOffset
+    sidebarLayout.dividerOffset === null ? null : APP_TAB_BAR_WIDTH + sidebarLayout.dividerOffset
+  const settingsSidebarWidth = sidebarLayout.sidebarWidth || DEFAULT_SIDEBAR_WIDTH
+  const settingsDividerOffset = APP_TAB_BAR_WIDTH + settingsSidebarWidth
   const mainHeaderPaddingLeft = isSidebarOpen ? sidebarLayout.mainHeaderPaddingLeft : 20
 
   return (
@@ -315,15 +321,30 @@ function App(): React.JSX.Element {
         className="flex flex-1 min-w-0"
         style={{
           display: isSettingsTabActive ? 'flex' : 'none',
-          padding: '8px 8px 8px 4px'
+          padding: 0
         }}
       >
         {(hasOpenedSettings || isSettingsTabActive) && (
-          <SettingsPanel
-            active={isSettingsTabActive}
-            route={settingsRoute}
-            onRouteChange={setSettingsRoute}
-          />
+          <>
+            <SettingsSidebar
+              route={settingsRoute}
+              sidebarWidth={settingsSidebarWidth}
+              onRouteChange={setSettingsRoute}
+            />
+            <AppSidebarDivider offset={settingsDividerOffset} onDragStart={onDragStart} />
+            <div
+              className="flex flex-1 min-w-0"
+              style={{
+                padding: '8px 8px 8px 4px'
+              }}
+            >
+              <SettingsPanel
+                active={isSettingsTabActive}
+                route={settingsRoute}
+                onRouteChange={setSettingsRoute}
+              />
+            </div>
+          </>
         )}
       </div>
       <ToastPresenter />
