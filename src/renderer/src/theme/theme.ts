@@ -100,6 +100,7 @@ export const theme = {
     app: solid('app'),
     canvas: solid('canvas'),
     sidebar: solid('sidebar'),
+    dock: solid('dock'),
     sidebarVibrancy: alpha('counter', 0.15),
     scrim: alpha('scrim', 0.25),
     onAccentOverlay: alpha('onAccentOverlay', 0.15),

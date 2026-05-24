@@ -2,7 +2,7 @@
 
 ## Project Structure & Module Organization
 
-`src/main` contains the Electron main process plus the local server in `src/main/yachiyo-server`. `src/preload` exposes the preload bridge. The React UI lives in `src/renderer/src`, with the separate settings window under `src/renderer/settings`. Shared protocol and message utilities belong in `src/shared/yachiyo`. Keep product and architecture notes in `docs/`, helper scripts in `scripts/`, and packaging assets in `build/` and `resources/`.
+`src/main` contains the Electron main process plus the local server in `src/main/yachiyo-server`. `src/preload` exposes the preload bridge. The React UI lives in `src/renderer/src`, with the embedded settings panel under `src/renderer/settings`. Shared protocol and message utilities belong in `src/shared/yachiyo`. Keep product and architecture notes in `docs/`, helper scripts in `scripts/`, and packaging assets in `build/` and `resources/`.
 
 ## Build, Test, and Development Commands
 

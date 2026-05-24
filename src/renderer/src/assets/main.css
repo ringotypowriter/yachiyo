@@ -2,6 +2,7 @@
 @custom-variant dark (&:where(.dark, .dark *));
 @source "../../../../node_modules/streamdown/dist/*.js";
 @source "../../../../node_modules/@streamdown/mermaid/dist/*.js";
+@source "../../settings/**/*.tsx";
 @import 'streamdown/styles.css';
 @import 'katex/dist/katex.min.css';
 @import '../theme/theme.css';

@@ -1,12 +1,20 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useAppStore } from '@renderer/app/store/useAppStore'
 import avatarUrl from '../../../resources/branding.jpeg'
+import SettingsPanel from '../settings/App'
 import { AppMainPanel } from '@renderer/features/layout/components/AppMainPanel'
 import { AppSidebar } from '@renderer/features/layout/components/AppSidebar'
 import { AppSidebarDivider } from '@renderer/features/layout/components/AppSidebarDivider'
+import { AppTabBar } from '@renderer/features/layout/components/AppTabBar'
 import { useSidebarVisibilityState } from '@renderer/features/layout/hooks/useSidebarVisibilityState'
 import { isCreateNewThreadShortcut } from '@renderer/features/layout/lib/newThreadShortcut'
 import { isOpenSidebarSearchShortcut } from '@renderer/features/layout/lib/findBarShortcut'
+import {
+  APP_TAB_BAR_WIDTH,
+  appTabForThreadListMode,
+  threadListModeForAppTab,
+  type AppTabId
+} from '@renderer/features/layout/lib/appTabs'
 import { ToastPresenter } from '@renderer/features/notifications/components/ToastPresenter'
 import { GlobalProcessingModal } from '@renderer/components/GlobalProcessingModal'
 import { theme } from '@renderer/theme/theme'
@@ -126,13 +134,48 @@ function App(): React.JSX.Element {
   useApplyThemeConfig(config)
   const createNewThread = useAppStore((s) => s.createNewThread)
   const openThreadFromNotification = useAppStore((s) => s.openThreadFromNotification)
+  const setThreadListMode = useAppStore((s) => s.setThreadListMode)
+  const threadListMode = useAppStore((s) => s.threadListMode)
+  const [settingsTabActive, setSettingsTabActive] = useState(false)
+  const [settingsRoute, setSettingsRoute] = useState('general')
+  const [hasOpenedSettings, setHasOpenedSettings] = useState(false)
   const [isSidebarSearchOpen, setIsSidebarSearchOpen] = useState(false)
+  const activeAppTab: AppTabId = settingsTabActive
+    ? 'settings'
+    : appTabForThreadListMode(threadListMode)
+
+  const handleSelectAppTab = useCallback(
+    (tab: AppTabId): void => {
+      if (tab === 'settings') {
+        setHasOpenedSettings(true)
+        setSettingsTabActive(true)
+        return
+      }
+
+      setSettingsTabActive(false)
+      if (tab === 'archived') {
+        setIsSidebarSearchOpen(false)
+      }
+
+      const mode = threadListModeForAppTab(tab)
+      if (mode) setThreadListMode(mode)
+    },
+    [setThreadListMode]
+  )
+
+  const handleOpenSettingsRoute = useCallback((route = 'general'): void => {
+    setSettingsRoute(route)
+    setHasOpenedSettings(true)
+    setSettingsTabActive(true)
+  }, [])
 
   useEffect(() => {
     const unsubscribeThread = window.api.onNavigateToThread((threadId) => {
+      setSettingsTabActive(false)
       openThreadFromNotification(threadId)
     })
     const unsubscribeArchivedThread = window.api.onNavigateToArchivedThread((threadId) => {
+      setSettingsTabActive(false)
       openThreadFromNotification(threadId, 'archivedThread')
     })
     return () => {
@@ -140,6 +183,12 @@ function App(): React.JSX.Element {
       unsubscribeArchivedThread()
     }
   }, [openThreadFromNotification])
+
+  useEffect(() => {
+    return window.api.onNavigateSettingsTo((route) => {
+      handleOpenSettingsRoute(route)
+    })
+  }, [handleOpenSettingsRoute])
   const [pendingFindQuery, setPendingFindQuery] = useState<string | null>(null)
 
   useEffect(() => {
@@ -205,6 +254,12 @@ function App(): React.JSX.Element {
   }, [config?.general?.uiFontSize, config?.general?.chatFontSize])
 
   const windowBackdrop = `linear-gradient(90deg, ${theme.background.sidebarVibrancy} 0%, ${theme.background.surfaceLight} 100%)`
+  const isSettingsTabActive = activeAppTab === 'settings'
+  const contentDividerOffset =
+    isSettingsTabActive || sidebarLayout.dividerOffset === null
+      ? null
+      : APP_TAB_BAR_WIDTH + sidebarLayout.dividerOffset
+  const mainHeaderPaddingLeft = isSidebarOpen ? sidebarLayout.mainHeaderPaddingLeft : 20
 
   return (
     <div
@@ -214,36 +269,62 @@ function App(): React.JSX.Element {
         userSelect: isDragging ? 'none' : undefined
       }}
     >
-      <AppSidebar
-        isDragging={isDragging}
-        isOpen={isSidebarOpen}
-        isToggleDisabled={!isConfigLoaded}
-        onToggle={() => void toggleSidebar()}
-        sidebarWidth={sidebarLayout.sidebarWidth}
-        toggleTitle={sidebarLayout.toggleTitle}
-        isSearchOpen={isSidebarSearchOpen}
-        onOpenSearch={() => setIsSidebarSearchOpen(true)}
-        onCloseSearch={() => setIsSidebarSearchOpen(false)}
-        onSearchSelect={(query) => setPendingFindQuery(query)}
+      <AppTabBar
+        activeTab={activeAppTab}
+        onSelectTab={handleSelectAppTab}
+        onOpenSettingsRoute={handleOpenSettingsRoute}
       />
-      <AppSidebarDivider offset={sidebarLayout.dividerOffset} onDragStart={onDragStart} />
+      <div
+        className="flex h-full min-w-0 flex-1"
+        style={{ display: isSettingsTabActive ? 'none' : 'flex' }}
+      >
+        <AppSidebar
+          mode={activeAppTab === 'archived' ? 'archived' : 'chat'}
+          isDragging={isDragging}
+          isOpen={isSidebarOpen}
+          isToggleDisabled={!isConfigLoaded}
+          onToggle={() => void toggleSidebar()}
+          sidebarWidth={sidebarLayout.sidebarWidth}
+          toggleTitle={sidebarLayout.toggleTitle}
+          isSearchOpen={isSidebarSearchOpen}
+          onOpenSearch={() => setIsSidebarSearchOpen(true)}
+          onCloseSearch={() => setIsSidebarSearchOpen(false)}
+          onSearchSelect={(query) => setPendingFindQuery(query)}
+        />
+        <AppSidebarDivider offset={contentDividerOffset} onDragStart={onDragStart} />
+        <div
+          className="flex flex-1 min-w-0"
+          style={{
+            padding: isSidebarOpen ? '8px 8px 8px 4px' : '0',
+            transition: 'padding 200ms ease'
+          }}
+        >
+          <AppMainPanel
+            headerPaddingLeft={mainHeaderPaddingLeft}
+            isSidebarOpen={isSidebarOpen}
+            isSidebarToggleDisabled={!isConfigLoaded}
+            showSidebarToggle={!isSidebarOpen}
+            onToggleSidebar={() => void openSidebar()}
+            toggleSidebarTitle={sidebarLayout.toggleTitle}
+            pendingFindQuery={pendingFindQuery}
+            onPendingFindQueryApplied={() => setPendingFindQuery(null)}
+          />
+        </div>
+      </div>
       <div
         className="flex flex-1 min-w-0"
         style={{
-          padding: isSidebarOpen ? '8px 8px 8px 4px' : '0',
-          transition: 'padding 200ms ease'
+          display: isSettingsTabActive ? 'flex' : 'none',
+          padding: '8px 8px 8px 4px'
         }}
       >
-        <AppMainPanel
-          headerPaddingLeft={sidebarLayout.mainHeaderPaddingLeft}
-          isSidebarOpen={isSidebarOpen}
-          isSidebarToggleDisabled={!isConfigLoaded}
-          showSidebarToggle={!isSidebarOpen}
-          onToggleSidebar={() => void openSidebar()}
-          toggleSidebarTitle={sidebarLayout.toggleTitle}
-          pendingFindQuery={pendingFindQuery}
-          onPendingFindQueryApplied={() => setPendingFindQuery(null)}
-        />
+        {(hasOpenedSettings || isSettingsTabActive) && (
+          <SettingsPanel
+            active={isSettingsTabActive}
+            route={settingsRoute}
+            onRouteChange={setSettingsRoute}
+          />
+        )}
       </div>
       <ToastPresenter />
       <GlobalProcessingModal />

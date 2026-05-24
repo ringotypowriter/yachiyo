@@ -79,7 +79,6 @@ export default defineConfig({
       rollupOptions: {
         input: {
           main: resolve('src/renderer/index.html'),
-          settings: resolve('src/renderer/settings/index.html'),
           translator: resolve('src/renderer/translator/index.html'),
           jotdown: resolve('src/renderer/jotdown/index.html')
         }

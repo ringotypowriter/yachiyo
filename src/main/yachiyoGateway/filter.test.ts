@@ -44,13 +44,6 @@ describe('isAuxiliaryWindow', () => {
     assert.strictEqual(isAuxiliaryWindow(mockWindow('file://app/renderer/index.html')), false)
   })
 
-  test('returns true for settings window', () => {
-    assert.strictEqual(
-      isAuxiliaryWindow(mockWindow('file://app/renderer/settings/index.html')),
-      true
-    )
-  })
-
   test('returns true for translator window', () => {
     assert.strictEqual(
       isAuxiliaryWindow(mockWindow('file://app/renderer/translator/index.html')),

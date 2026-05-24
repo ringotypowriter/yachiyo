@@ -46,15 +46,12 @@ if (!is.dev) {
   }
 }
 
-let settingsWindow: BrowserWindow | null = null
 let translatorWindow: BrowserWindow | null = null
 let jotdownWindow: BrowserWindow | null = null
 let mainWindowRef: BrowserWindow | null = null
 
 function applyNativeTheme(config: SettingsConfig): void {
   nativeTheme.themeSource = config.general?.themeAppearance ?? DEFAULT_THEME_APPEARANCE
-  const backgroundColor = nativeTheme.shouldUseDarkColors ? '#181b1e' : '#eaf2f7'
-  settingsWindow?.setBackgroundColor(backgroundColor)
 }
 let isQuitting = false
 
@@ -193,49 +190,15 @@ function openJotdownWindow(): void {
   }
 }
 
-function openSettingsWindow(tab?: string): void {
-  if (settingsWindow && !settingsWindow.isDestroyed()) {
-    settingsWindow.focus()
-    if (tab) {
-      settingsWindow.webContents.send('navigate-settings-to', tab)
-    }
+function openSettingsInMainWindow(tab = 'general'): void {
+  if (!mainWindowRef || mainWindowRef.isDestroyed()) {
     return
   }
 
-  settingsWindow = new BrowserWindow({
-    width: 1180,
-    height: 760,
-    resizable: false,
-    minimizable: false,
-    show: false,
-    title: 'Settings',
-    frame: false,
-    backgroundColor: nativeTheme.shouldUseDarkColors ? '#181b1e' : '#eaf2f7',
-    icon,
-    webPreferences: {
-      preload: join(__dirname, '../preload/index.js'),
-      sandbox: true,
-      contextIsolation: true
-    }
-  })
-  installEditableContextMenu(settingsWindow)
-  settingsWindow.webContents.setWindowOpenHandler((details) => {
-    shell.openExternal(details.url)
-    return { action: 'deny' }
-  })
-  settingsWindow.on('ready-to-show', () => settingsWindow?.show())
-  settingsWindow.on('closed', () => {
-    settingsWindow = null
-    maybeDestroyHiddenJotdown()
-  })
-  const hash = tab ? `#${tab}` : ''
-  if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
-    settingsWindow.loadURL(`${process.env['ELECTRON_RENDERER_URL']}/settings/index.html${hash}`)
-  } else {
-    settingsWindow.loadFile(join(__dirname, '../renderer/settings/index.html'), {
-      hash: tab
-    })
-  }
+  if (mainWindowRef.isMinimized()) mainWindowRef.restore()
+  mainWindowRef.show()
+  mainWindowRef.focus()
+  mainWindowRef.webContents.send('navigate-settings-to', tab)
 }
 
 app.setPath('userData', resolveYachiyoDataDir())
@@ -328,7 +291,7 @@ app.whenReady().then(async () => {
   installApplicationMenu({
     appName: APP_NAME,
     isDev: is.dev,
-    openSettings: () => openSettingsWindow(),
+    openSettings: () => openSettingsInMainWindow(),
     platform: process.platform
   })
 
@@ -399,15 +362,9 @@ app.whenReady().then(async () => {
   })
 
   ipcMain.on('navigate-to-archived-thread', (_event, threadId: string) => {
-    // Forward to the main window, then close settings.
-    for (const win of BrowserWindow.getAllWindows()) {
-      if (win !== settingsWindow && !win.isDestroyed()) {
-        win.webContents.send('navigate-to-archived-thread', threadId)
-        win.focus()
-      }
-    }
-    if (settingsWindow && !settingsWindow.isDestroyed()) {
-      settingsWindow.close()
+    if (mainWindowRef && !mainWindowRef.isDestroyed()) {
+      mainWindowRef.webContents.send('navigate-to-archived-thread', threadId)
+      mainWindowRef.focus()
     }
   })
 
@@ -437,7 +394,7 @@ app.whenReady().then(async () => {
     })
   })
 
-  ipcMain.on('open-settings', (_event, tab?: string) => openSettingsWindow(tab))
+  ipcMain.on('open-settings', (_event, tab?: string) => openSettingsInMainWindow(tab))
 
   createWindow(server)
   setupAutoUpdate()

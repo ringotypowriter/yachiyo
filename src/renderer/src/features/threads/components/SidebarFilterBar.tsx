@@ -2,7 +2,6 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useShallow } from 'zustand/react/shallow'
 import {
-  Archive,
   Check,
   CheckCircle2,
   ChevronDown,
@@ -41,7 +40,7 @@ const EMPTY_WORKSPACE_PATHS: string[] = []
 
 function resolveFilterLabel(filter: SidebarFilter): string {
   const hasMulti = hasActiveMultiFilter(filter)
-  if (!hasMulti) return filter.base === 'archived' ? 'Archived' : 'All'
+  if (!hasMulti) return 'All'
 
   const parts: string[] = []
   for (const tag of filter.colorTags) {
@@ -154,20 +153,16 @@ function useSidebarFilterCounts(workspaces: WorkspaceFilterOption[]): {
 
 export function SidebarFilterBar(): React.JSX.Element {
   const sidebarFilter = useAppStore((s) => s.sidebarFilter)
-  const unreadArchivedCount = useAppStore(
-    (s) => s.archivedThreads.filter((t) => t.archivedAt && !t.readAt).length
-  )
   const [anchorRect, setAnchorRect] = useState<DOMRect | null>(null)
   const triggerRef = useRef<HTMLButtonElement>(null)
 
   const hasMulti = hasActiveMultiFilter(sidebarFilter)
-  const isActive = hasMulti || sidebarFilter.base === 'archived'
+  const isActive = hasMulti
   const label = resolveFilterLabel(sidebarFilter)
   const tooltipLabel = `Filter chats: ${label}`
-  const showUnreadDot = unreadArchivedCount > 0 && sidebarFilter.base !== 'archived' && !hasMulti
 
   return (
-    <div className="flex w-full min-w-0 items-center justify-center">
+    <div className="flex w-full min-w-0 items-center justify-start">
       <Tooltip
         content={
           <span style={{ display: 'block', maxWidth: 240, whiteSpace: 'normal' }}>
@@ -187,7 +182,7 @@ export function SidebarFilterBar(): React.JSX.Element {
               setAnchorRect(triggerRef.current!.getBoundingClientRect())
             }
           }}
-          className="relative inline-flex max-w-full min-w-0 items-center gap-1.5 px-2.5 py-1 rounded-lg transition-colors"
+          className="relative flex w-full min-w-0 items-center gap-1.5 px-2.5 py-1 rounded-lg transition-colors"
           style={{
             color: isActive ? theme.text.accentStrong : theme.text.secondary,
             background: anchorRect
@@ -223,16 +218,6 @@ export function SidebarFilterBar(): React.JSX.Element {
               transition: 'transform 0.15s ease'
             }}
           />
-          {showUnreadDot && (
-            <span
-              className="absolute -top-0.5 -right-0.5 rounded-full"
-              style={{
-                width: 6,
-                height: 6,
-                background: theme.text.accent
-              }}
-            />
-          )}
         </button>
       </Tooltip>
       {anchorRect && (
@@ -260,13 +245,10 @@ function SidebarFilterDropdown({
   const toggleFolderOnly = useAppStore((s) => s.toggleSidebarFilterFolderOnly)
   const clearFilter = useAppStore((s) => s.clearSidebarFilter)
   useRestoreFocusOnUnmount()
-  const unreadArchivedCount = useAppStore(
-    (s) => s.archivedThreads.filter((t) => t.archivedAt && !t.readAt).length
-  )
   const workspaces = useWorkspaceFilterOptions()
   const counts = useSidebarFilterCounts(workspaces)
   const hasMulti = hasActiveMultiFilter(sidebarFilter)
-  const hasAnyFilter = hasMulti || sidebarFilter.base === 'archived'
+  const hasAnyFilter = hasMulti
 
   useEffect(() => {
     requestAnimationFrame(() => setVisible(true))
@@ -352,14 +334,6 @@ function SidebarFilterDropdown({
             onClick={() => setSidebarFilterBase('all')}
             count={counts.all}
             icon={<Inbox size={15} strokeWidth={1.8} />}
-          />
-          <RadioRow
-            label="Archived"
-            checked={sidebarFilter.base === 'archived'}
-            onClick={() => setSidebarFilterBase('archived')}
-            count={counts.archived}
-            unreadCount={unreadArchivedCount}
-            icon={<Archive size={15} strokeWidth={1.8} />}
           />
         </div>
 

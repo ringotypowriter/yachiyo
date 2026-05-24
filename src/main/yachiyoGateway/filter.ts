@@ -7,5 +7,5 @@ export function isHighFrequencyChatEvent(event: YachiyoServerEvent): boolean {
 
 export function isAuxiliaryWindow(window: BrowserWindow): boolean {
   const url = window.webContents.getURL()
-  return url.includes('/settings/') || url.includes('/translator/') || url.includes('/jotdown/')
+  return url.includes('/translator/') || url.includes('/jotdown/')
 }

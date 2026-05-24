@@ -86,17 +86,17 @@ const TAB_ICONS: Record<SettingsTabId, LucideIcon> = {
 
 const TABS: AppTab[] = SETTINGS_TABS.map((tab) => ({ ...tab, icon: TAB_ICONS[tab.id] }))
 
-function getInitialSettingsRoute(): ReturnType<typeof resolveSettingsRoute> {
-  return resolveSettingsRoute(window.location.hash.slice(1))
-}
-
-function getInitialActiveSubTabs(): Record<string, string> {
+function getInitialActiveSubTabs(routeValue: string): Record<string, string> {
   const subTabs = getInitialSettingsSubTabs()
-  const route = getInitialSettingsRoute()
+  const route = resolveSettingsRoute(routeValue)
   if (route.subTab) {
     subTabs[route.tab] = route.subTab
   }
   return subTabs
+}
+
+function serializeSettingsRoute(tab: SettingsTabId, subTab?: string): string {
+  return subTab ? `${tab}/${subTab}` : tab
 }
 
 function validateConfig(config: SettingsConfig | null): string | null {
@@ -141,9 +141,15 @@ function validateConfig(config: SettingsConfig | null): string | null {
   return null
 }
 
-function SettingsApp(): React.ReactNode {
-  const [activeTab, setActiveTab] = useState<SettingsTabId>(() => getInitialSettingsRoute().tab)
-  const [activeSubTab, setActiveSubTab] = useState(getInitialActiveSubTabs)
+export interface SettingsPanelProps {
+  active: boolean
+  route: string
+  onRouteChange: (route: string) => void
+}
+
+function SettingsPanel({ active, route, onRouteChange }: SettingsPanelProps): React.JSX.Element {
+  const [activeTab, setActiveTab] = useState<SettingsTabId>(() => resolveSettingsRoute(route).tab)
+  const [activeSubTab, setActiveSubTab] = useState(() => getInitialActiveSubTabs(route))
   const [savedConfig, setSavedConfig] = useState<SettingsConfig | null>(null)
   const [draft, setDraft] = useState<SettingsConfig | null>(null)
   const [savedChannelsConfig, setSavedChannelsConfig] = useState<ChannelsConfig | null>(null)
@@ -170,18 +176,30 @@ function SettingsApp(): React.ReactNode {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const previousActiveTabRef = useRef<SettingsTabId | null>(null)
-  useApplyThemeConfig(draft ?? savedConfig, false)
+  useApplyThemeConfig(active ? (draft ?? savedConfig) : savedConfig, false)
 
   useEffect(() => {
-    return window.api.onNavigateSettingsTo((tab) => {
-      const route = resolveSettingsRoute(tab)
-      setActiveTab(route.tab)
-      const { subTab } = route
-      if (subTab) {
-        setActiveSubTab((current) => ({ ...current, [route.tab]: subTab }))
-      }
-    })
-  }, [])
+    const nextRoute = resolveSettingsRoute(route)
+    setActiveTab(nextRoute.tab)
+    if (nextRoute.subTab) {
+      setActiveSubTab((current) => ({ ...current, [nextRoute.tab]: nextRoute.subTab! }))
+    }
+  }, [route])
+
+  const navigateToRoute = useCallback(
+    (routeValue: string): void => {
+      const nextRoute = resolveSettingsRoute(routeValue)
+      setActiveTab(nextRoute.tab)
+      setActiveSubTab((current) => {
+        const nextSubTab = nextRoute.subTab ?? current[nextRoute.tab]
+        return nextSubTab ? { ...current, [nextRoute.tab]: nextSubTab } : current
+      })
+      onRouteChange(
+        serializeSettingsRoute(nextRoute.tab, nextRoute.subTab ?? activeSubTab[nextRoute.tab])
+      )
+    },
+    [activeSubTab, onRouteChange]
+  )
 
   useEffect(() => {
     let cancelled = false
@@ -345,7 +363,7 @@ function SettingsApp(): React.ReactNode {
     setSelectedProviderId(draft.providers[0]?.id ?? '')
   }, [draft, selectedProviderId])
 
-  const active = TABS.find((tab) => tab.id === activeTab)!
+  const activeSettingsTab = TABS.find((tab) => tab.id === activeTab)!
   const validationError = validateConfig(draft)
   const isSettingsDirty = JSON.stringify(savedConfig) !== JSON.stringify(draft)
   const isChannelsDirty =
@@ -527,6 +545,10 @@ function SettingsApp(): React.ReactNode {
 
   // Global keyboard shortcut: Cmd/Ctrl+S to save
   useEffect(() => {
+    if (!active) {
+      return
+    }
+
     const handler = (e: KeyboardEvent): void => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 's') {
         if (e.defaultPrevented) return
@@ -536,13 +558,13 @@ function SettingsApp(): React.ReactNode {
     }
     document.addEventListener('keydown', handler)
     return () => document.removeEventListener('keydown', handler)
-  }, [triggerSave])
+  }, [active, triggerSave])
 
   let body: React.ReactNode = (
     <PlaceholderPane
       label={
-        active.subTabs
-          ? `${active.label} -> ${active.subTabs.find((item) => item.id === activeSubTab[active.id])?.label}`
+        activeSettingsTab.subTabs
+          ? `${activeSettingsTab.label} -> ${activeSettingsTab.subTabs.find((item) => item.id === activeSubTab[activeSettingsTab.id])?.label}`
           : undefined
       }
     />
@@ -640,7 +662,7 @@ function SettingsApp(): React.ReactNode {
               {channelsConfigError ?? 'Channels settings are unavailable.'}
             </div>
             <div className="mt-2 text-sm" style={{ color: theme.text.tertiary }}>
-              Fix `channels.toml` or reload the settings window before editing channel settings.
+              Fix `channels.toml` or reload settings before editing channel settings.
             </div>
           </div>
         )
@@ -664,14 +686,7 @@ function SettingsApp(): React.ReactNode {
       body = (
         <SchedulePane
           activeSubTab={activeSubTab['schedules'] ?? 'list'}
-          onNavigateToTab={(tab) => {
-            const route = resolveSettingsRoute(tab)
-            setActiveTab(route.tab)
-            const { subTab } = route
-            if (subTab) {
-              setActiveSubTab((current) => ({ ...current, [route.tab]: subTab }))
-            }
-          }}
+          onNavigateToTab={navigateToRoute}
         />
       )
     }
@@ -686,7 +701,14 @@ function SettingsApp(): React.ReactNode {
   }
 
   return (
-    <div className="flex h-full overflow-hidden">
+    <div
+      className="flex h-full flex-1 min-w-0 overflow-hidden"
+      style={{
+        background: theme.background.chatCard,
+        borderRadius: 12,
+        boxShadow: theme.shadow.card
+      }}
+    >
       <div
         className="flex flex-col shrink-0"
         style={{
@@ -708,7 +730,7 @@ function SettingsApp(): React.ReactNode {
           {TABS.map(({ id, label, icon: Icon }) => (
             <button
               key={id}
-              onClick={() => setActiveTab(id)}
+              onClick={() => navigateToRoute(serializeSettingsRoute(id, activeSubTab[id]))}
               className="w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg text-sm text-left mb-0.5 transition-all"
               style={
                 activeTab === id
@@ -747,22 +769,22 @@ function SettingsApp(): React.ReactNode {
             className="font-semibold text-xl"
             style={{ color: theme.text.primary, letterSpacing: '-0.3px' }}
           >
-            {active.label}
+            {activeSettingsTab.label}
           </span>
         </div>
 
-        {active.subTabs ? (
+        {activeSettingsTab.subTabs ? (
           <div
             className="shrink-0 no-drag flex items-center gap-1 px-7"
             style={{ borderBottom: `1px solid ${theme.border.panel}` }}
           >
-            {active.subTabs.map((subTab) => {
-              const isActive = activeSubTab[active.id] === subTab.id
+            {activeSettingsTab.subTabs.map((subTab) => {
+              const isActive = activeSubTab[activeSettingsTab.id] === subTab.id
               return (
                 <button
                   key={subTab.id}
                   onClick={() =>
-                    setActiveSubTab((current) => ({ ...current, [active.id]: subTab.id }))
+                    navigateToRoute(serializeSettingsRoute(activeSettingsTab.id, subTab.id))
                   }
                   className="relative px-3 py-2.5 text-sm font-medium transition-colors"
                   style={{ color: isActive ? theme.text.primary : theme.text.muted }}
@@ -805,18 +827,6 @@ function SettingsApp(): React.ReactNode {
           </span>
           <div className="flex items-center gap-2">
             <button
-              onClick={() => window.close()}
-              className="px-4 py-1.5 rounded-lg text-sm font-medium transition-opacity opacity-60 hover:opacity-100"
-              style={{
-                background: 'transparent',
-                border: 'none',
-                color: theme.text.secondary,
-                cursor: 'default'
-              }}
-            >
-              Close
-            </button>
-            <button
               onClick={() => void triggerSave()}
               disabled={!hasSaveableChanges || saving || loading}
               className="px-4 py-1.5 rounded-lg text-sm font-medium transition-all"
@@ -844,4 +854,4 @@ function SettingsApp(): React.ReactNode {
   )
 }
 
-export default SettingsApp
+export default SettingsPanel

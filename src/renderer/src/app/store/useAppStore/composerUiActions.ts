@@ -308,17 +308,22 @@ export function createComposerUiActions(input: {
     },
 
     setThreadListMode: (mode) =>
-      set((state) => ({
-        activeArchivedThreadId:
-          mode === 'archived'
-            ? (state.activeArchivedThreadId ?? state.archivedThreads[0]?.id ?? null)
-            : state.activeArchivedThreadId,
-        activeThreadId:
-          mode === 'active'
-            ? (state.activeThreadId ?? state.threads[0]?.id ?? null)
-            : state.activeThreadId,
-        ...withFilterBase(state.sidebarFilter, mode === 'archived' ? 'archived' : 'all')
-      })),
+      set((state) => {
+        const base: 'all' | 'archived' = mode === 'archived' ? 'archived' : 'all'
+        const nextFilter = { ...state.sidebarFilter, base }
+        saveSidebarFilter(nextFilter)
+        return {
+          activeArchivedThreadId:
+            mode === 'archived'
+              ? (state.activeArchivedThreadId ?? state.archivedThreads[0]?.id ?? null)
+              : state.activeArchivedThreadId,
+          activeThreadId:
+            mode === 'active'
+              ? (state.activeThreadId ?? state.threads[0]?.id ?? null)
+              : state.activeThreadId,
+          ...withFilterBase(nextFilter, base)
+        }
+      }),
 
     setSidebarFilterBase: (base) => {
       set((state) => {

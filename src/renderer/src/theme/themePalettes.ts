@@ -11,6 +11,7 @@ export const themeRgbTokenVars = {
   app: '--yachiyo-rgb-app',
   canvas: '--yachiyo-rgb-canvas',
   sidebar: '--yachiyo-rgb-sidebar',
+  dock: '--yachiyo-rgb-dock',
   surface: '--yachiyo-rgb-surface',
   accent: '--yachiyo-rgb-accent',
   accentStrong: '--yachiyo-rgb-accent-strong',
@@ -95,19 +96,21 @@ type ThemeIdentityTokens = Omit<
 >
 
 function lightPalette(
-  tokens: ThemeIdentityTokens & { counter?: string; counterStrong?: string }
+  tokens: ThemeIdentityTokens & { counter?: string; counterStrong?: string; dock?: string }
 ): ThemePalette {
   const counter = tokens.counter ?? tokens.accent
   const counterStrong = tokens.counterStrong ?? tokens.accentStrong
-  return { ...tokens, counter, counterStrong, ...lightSemanticTokens } as ThemePalette
+  const dock = tokens.dock ?? tokens.sidebar
+  return { ...tokens, counter, counterStrong, dock, ...lightSemanticTokens } as ThemePalette
 }
 
 function darkPalette(
-  tokens: ThemeIdentityTokens & { counter?: string; counterStrong?: string }
+  tokens: ThemeIdentityTokens & { counter?: string; counterStrong?: string; dock?: string }
 ): ThemePalette {
   const counter = tokens.counter ?? tokens.accent
   const counterStrong = tokens.counterStrong ?? tokens.accentStrong
-  return { ...tokens, counter, counterStrong, ...darkSemanticTokens } as ThemePalette
+  const dock = tokens.dock ?? tokens.sidebar
+  return { ...tokens, counter, counterStrong, dock, ...darkSemanticTokens } as ThemePalette
 }
 
 export const THEME_OPTIONS: readonly ThemeOption[] = [
@@ -125,6 +128,7 @@ export const THEME_OPTIONS: readonly ThemeOption[] = [
         app: '234 242 247',
         canvas: '242 248 252',
         sidebar: '224 237 245',
+        dock: '212 225 233',
         surface: '255 255 255',
         accent: '75 175 201',
         accentStrong: '42 122 149'
@@ -138,6 +142,7 @@ export const THEME_OPTIONS: readonly ThemeOption[] = [
         app: '24 27 30',
         canvas: '29 33 37',
         sidebar: '32 38 43',
+        dock: '25 30 34',
         surface: '38 42 46',
         accent: '99 179 195',
         accentStrong: '130 203 214'
@@ -158,6 +163,7 @@ export const THEME_OPTIONS: readonly ThemeOption[] = [
         app: '240 242 244',
         canvas: '247 248 249',
         sidebar: '231 235 239',
+        dock: '219 223 227',
         surface: '255 255 255',
         accent: '104 149 190',
         accentStrong: '72 111 151'
@@ -171,6 +177,7 @@ export const THEME_OPTIONS: readonly ThemeOption[] = [
         app: '24 25 27',
         canvas: '29 31 34',
         sidebar: '35 38 42',
+        dock: '28 31 35',
         surface: '42 45 49',
         accent: '122 171 210',
         accentStrong: '151 195 228'
@@ -191,6 +198,7 @@ export const THEME_OPTIONS: readonly ThemeOption[] = [
         app: '247 241 244',
         canvas: '252 247 249',
         sidebar: '241 230 235',
+        dock: '229 218 223',
         surface: '255 255 255',
         accent: '200 106 134',
         accentStrong: '154 72 98'
@@ -204,6 +212,7 @@ export const THEME_OPTIONS: readonly ThemeOption[] = [
         app: '29 24 27',
         canvas: '35 29 32',
         sidebar: '42 34 39',
+        dock: '35 27 32',
         surface: '48 40 45',
         accent: '217 139 160',
         accentStrong: '233 167 184'
@@ -224,6 +233,7 @@ export const THEME_OPTIONS: readonly ThemeOption[] = [
         app: '240 246 242',
         canvas: '247 251 248',
         sidebar: '228 239 233',
+        dock: '216 227 221',
         surface: '255 255 255',
         accent: '106 174 143',
         accentStrong: '72 129 101'
@@ -237,6 +247,7 @@ export const THEME_OPTIONS: readonly ThemeOption[] = [
         app: '23 28 26',
         canvas: '28 34 31',
         sidebar: '33 42 37',
+        dock: '26 35 30',
         surface: '39 48 43',
         accent: '134 198 167',
         accentStrong: '164 221 190'
@@ -257,6 +268,7 @@ export const THEME_OPTIONS: readonly ThemeOption[] = [
         app: '235 247 244',
         canvas: '247 253 251',
         sidebar: '161 227 216',
+        dock: '149 215 204',
         surface: '255 255 255',
         accent: '42 128 118',
         accentStrong: '24 96 88'
@@ -270,6 +282,7 @@ export const THEME_OPTIONS: readonly ThemeOption[] = [
         app: '20 29 28',
         canvas: '24 36 34',
         sidebar: '29 48 44',
+        dock: '22 41 37',
         surface: '35 55 50',
         accent: '161 227 216',
         accentStrong: '194 246 237'
@@ -290,6 +303,7 @@ export const THEME_OPTIONS: readonly ThemeOption[] = [
         app: '242 238 247',
         canvas: '248 245 252',
         sidebar: '231 224 241',
+        dock: '219 212 229',
         surface: '255 255 255',
         accent: '172 142 202',
         accentStrong: '138 108 168'
@@ -303,6 +317,7 @@ export const THEME_OPTIONS: readonly ThemeOption[] = [
         app: '27 24 31',
         canvas: '32 28 36',
         sidebar: '38 33 45',
+        dock: '31 26 38',
         surface: '44 39 51',
         accent: '192 168 220',
         accentStrong: '212 188 232'
@@ -323,6 +338,7 @@ export const THEME_OPTIONS: readonly ThemeOption[] = [
         app: '247 245 238',
         canvas: '252 250 244',
         sidebar: '239 233 218',
+        dock: '227 221 206',
         surface: '255 255 255',
         accent: '202 156 72',
         accentStrong: '168 126 48'
@@ -336,6 +352,7 @@ export const THEME_OPTIONS: readonly ThemeOption[] = [
         app: '30 28 23',
         canvas: '35 33 27',
         sidebar: '42 38 30',
+        dock: '35 31 23',
         surface: '48 44 36',
         accent: '220 180 100',
         accentStrong: '236 200 128'
@@ -356,6 +373,7 @@ export const THEME_OPTIONS: readonly ThemeOption[] = [
         app: '242 238 235',
         canvas: '248 244 241',
         sidebar: '232 224 218',
+        dock: '220 212 206',
         surface: '255 255 255',
         accent: '225 72 62',
         accentStrong: '188 50 42',
@@ -371,6 +389,7 @@ export const THEME_OPTIONS: readonly ThemeOption[] = [
         app: '26 24 23',
         canvas: '31 28 27',
         sidebar: '36 32 30',
+        dock: '29 25 23',
         surface: '42 38 35',
         accent: '245 130 118',
         accentStrong: '255 162 150',
@@ -393,6 +412,7 @@ export const THEME_OPTIONS: readonly ThemeOption[] = [
         app: '245 240 238',
         canvas: '252 248 245',
         sidebar: '238 228 222',
+        dock: '226 216 210',
         surface: '255 255 255',
         accent: '210 60 50',
         accentStrong: '180 40 32',
@@ -408,6 +428,7 @@ export const THEME_OPTIONS: readonly ThemeOption[] = [
         app: '20 24 36',
         canvas: '24 28 40',
         sidebar: '30 35 50',
+        dock: '23 28 43',
         surface: '38 44 60',
         accent: '95 145 220',
         accentStrong: '130 175 245',

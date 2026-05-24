@@ -1,26 +1,17 @@
-import { useCallback, useEffect, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import {
-  ArrowDownCircle,
-  MoreHorizontal,
-  PanelLeft,
-  Search,
-  Settings,
-  SquarePen
-} from 'lucide-react'
+import { PanelLeft, Search, SquarePen } from 'lucide-react'
 import { useAppStore } from '@renderer/app/store/useAppStore'
 import { EssentialsBar } from '@renderer/features/essentials/components/EssentialsBar'
-import { SidebarUtilityMenu } from '@renderer/features/layout/components/SidebarUtilityMenu'
 import { SidebarSearch } from '@renderer/features/search/SidebarSearch'
 import { SidebarFilterBar } from '@renderer/features/threads/components/SidebarFilterBar'
 import { ThreadList } from '@renderer/features/threads/components/ThreadList'
-import { TRAFFIC_LIGHTS_SAFE_ZONE } from '@renderer/lib/sidebarLayout'
 import { theme, alpha } from '@renderer/theme/theme'
 import { Tooltip } from '@renderer/components/Tooltip'
 
 const SIDEBAR_FILTER_BUTTON_RIGHT_OFFSET_PX = 3
 
 export interface AppSidebarProps {
+  mode: 'chat' | 'archived'
   isDragging: boolean
   isOpen: boolean
   isToggleDisabled: boolean
@@ -34,6 +25,7 @@ export interface AppSidebarProps {
 }
 
 export function AppSidebar({
+  mode,
   isDragging,
   isOpen,
   isToggleDisabled,
@@ -45,35 +37,10 @@ export function AppSidebar({
   onCloseSearch,
   onSearchSelect
 }: AppSidebarProps): React.JSX.Element {
-  const [updateAvailable, setUpdateAvailable] = useState(false)
-  const [updateVersion, setUpdateVersion] = useState<string>()
-
-  useEffect(() => {
-    window.api.appUpdate.getStatus().then((s) => {
-      setUpdateAvailable(s.state === 'available' || s.state === 'ready')
-      if (s.version) setUpdateVersion(s.version)
-    })
-    return window.api.appUpdate.onStatus((s) => {
-      setUpdateAvailable(s.state === 'available' || s.state === 'ready')
-      if (s.version) setUpdateVersion(s.version)
-    })
-  }, [])
-
-  const connectionStatus = useAppStore((s) => s.connectionStatus)
   const createNewThread = useAppStore((s) => s.createNewThread)
   const setActiveThread = useAppStore((s) => s.setActiveThread)
-  const showExternalThreads = useAppStore((s) => s.showExternalThreads)
-  const toggleShowExternalThreads = useAppStore((s) => s.toggleShowExternalThreads)
-
-  const [utilityMenuAnchor, setUtilityMenuAnchor] = useState<DOMRect | null>(null)
-
-  const handleOpenTranslator = useCallback(() => {
-    window.api.openTranslator()
-  }, [])
-
-  const handleOpenJotdown = useCallback(() => {
-    window.api.openJotdown()
-  }, [])
+  const archivedThreads = useAppStore((s) => s.archivedThreads)
+  const isArchivedMode = mode === 'archived'
 
   return (
     <div
@@ -81,7 +48,7 @@ export function AppSidebar({
       className="flex flex-col h-full shrink-0 overflow-hidden"
       style={{
         width: sidebarWidth,
-        background: 'transparent',
+        background: alpha('sidebar', 0.15),
         opacity: isOpen ? 1 : 0,
         pointerEvents: isOpen ? 'auto' : 'none',
         transition: isDragging ? 'none' : 'opacity 200ms, width 200ms'
@@ -91,13 +58,27 @@ export function AppSidebar({
         className="flex items-center drag-region shrink-0"
         style={{
           height: '48px',
-          paddingLeft: `${TRAFFIC_LIGHTS_SAFE_ZONE}px`,
+          paddingLeft: '12px',
           paddingRight: '12px'
         }}
       >
         <div className="grid w-full min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-1 no-drag">
           <div className="min-w-0" style={{ paddingLeft: SIDEBAR_FILTER_BUTTON_RIGHT_OFFSET_PX }}>
-            <SidebarFilterBar />
+            {isArchivedMode ? (
+              <div className="min-w-0 px-2">
+                <div
+                  className="truncate text-sm font-semibold"
+                  style={{ color: theme.text.primary }}
+                >
+                  Archived
+                </div>
+                <div className="truncate text-xs font-medium" style={{ color: theme.text.muted }}>
+                  {archivedThreads.length} thread{archivedThreads.length !== 1 ? 's' : ''}
+                </div>
+              </div>
+            ) : (
+              <SidebarFilterBar />
+            )}
           </div>
           <div className="flex min-w-0 items-center justify-end gap-1">
             <Tooltip content={toggleTitle} placement="bottom">
@@ -111,29 +92,33 @@ export function AppSidebar({
                 <PanelLeft size={16} strokeWidth={1.5} />
               </button>
             </Tooltip>
-            <Tooltip content="Search chats" placement="bottom">
-              <button
-                onClick={onOpenSearch}
-                className="p-1.5 rounded-md transition-opacity"
-                style={{
-                  color: theme.icon.default,
-                  opacity: isSearchOpen ? 0.9 : 0.5
-                }}
-                aria-label="Search chats"
-              >
-                <Search size={15} strokeWidth={1.5} />
-              </button>
-            </Tooltip>
-            <Tooltip content="New chat" placement="bottom">
-              <button
-                onClick={createNewThread}
-                className="p-1.5 rounded-md opacity-50 hover:opacity-80 transition-opacity"
-                style={{ color: theme.icon.default }}
-                aria-label="New chat"
-              >
-                <SquarePen size={15} strokeWidth={1.5} />
-              </button>
-            </Tooltip>
+            {!isArchivedMode && (
+              <>
+                <Tooltip content="Search chats" placement="bottom">
+                  <button
+                    onClick={onOpenSearch}
+                    className="p-1.5 rounded-md transition-opacity"
+                    style={{
+                      color: theme.icon.default,
+                      opacity: isSearchOpen ? 0.9 : 0.5
+                    }}
+                    aria-label="Search chats"
+                  >
+                    <Search size={15} strokeWidth={1.5} />
+                  </button>
+                </Tooltip>
+                <Tooltip content="New chat" placement="bottom">
+                  <button
+                    onClick={createNewThread}
+                    className="p-1.5 rounded-md opacity-50 hover:opacity-80 transition-opacity"
+                    style={{ color: theme.icon.default }}
+                    aria-label="New chat"
+                  >
+                    <SquarePen size={15} strokeWidth={1.5} />
+                  </button>
+                </Tooltip>
+              </>
+            )}
           </div>
         </div>
       </div>
@@ -141,7 +126,7 @@ export function AppSidebar({
       <EssentialsBar />
 
       <AnimatePresence mode="wait" initial={false}>
-        {isSearchOpen ? (
+        {!isArchivedMode && isSearchOpen ? (
           <motion.div
             key="search"
             initial={{ opacity: 0 }}
@@ -175,72 +160,6 @@ export function AppSidebar({
           </motion.div>
         )}
       </AnimatePresence>
-
-      <div className="shrink-0 px-3 py-3 no-drag">
-        <div className="flex items-center">
-          <div className="flex items-center gap-1.5">
-            <Tooltip content="Settings">
-              <button
-                onClick={() => window.api.openSettings()}
-                className="p-1.5 rounded-md opacity-40 hover:opacity-70 transition-opacity"
-                style={{ color: theme.icon.default }}
-                aria-label="Settings"
-              >
-                <Settings size={16} strokeWidth={1.5} />
-              </button>
-            </Tooltip>
-          </div>
-          <div className="flex-1" />
-          {updateAvailable && (
-            <Tooltip content={`v${updateVersion} available`}>
-              <button
-                onClick={() => window.api.openSettings('about')}
-                className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium mr-1.5 transition-opacity hover:opacity-80"
-                style={{
-                  background: alpha('counter', 0.12),
-                  color: theme.text.counter,
-                  border: 'none',
-                  cursor: 'default'
-                }}
-                aria-label="Install update"
-              >
-                <ArrowDownCircle size={11} strokeWidth={2} />
-                Update
-              </button>
-            </Tooltip>
-          )}
-          <Tooltip content="More">
-            <button
-              onClick={(e) => {
-                if (utilityMenuAnchor) {
-                  setUtilityMenuAnchor(null)
-                } else {
-                  setUtilityMenuAnchor(e.currentTarget.getBoundingClientRect())
-                }
-              }}
-              className="p-1.5 rounded-md transition-opacity"
-              style={{
-                color: utilityMenuAnchor ? theme.text.accentStrong : theme.icon.default,
-                opacity: utilityMenuAnchor ? 0.9 : 0.4
-              }}
-              aria-label="More options"
-            >
-              <MoreHorizontal size={16} strokeWidth={1.5} />
-            </button>
-          </Tooltip>
-          {utilityMenuAnchor && (
-            <SidebarUtilityMenu
-              anchorRect={utilityMenuAnchor}
-              connectionStatus={connectionStatus}
-              showExternalThreads={showExternalThreads}
-              onToggleExternalThreads={toggleShowExternalThreads}
-              onOpenTranslator={handleOpenTranslator}
-              onOpenJotdown={handleOpenJotdown}
-              onClose={() => setUtilityMenuAnchor(null)}
-            />
-          )}
-        </div>
-      </div>
     </div>
   )
 }

@@ -14,6 +14,7 @@
   --yachiyo-rgb-app: 234 242 247;
   --yachiyo-rgb-canvas: 242 248 252;
   --yachiyo-rgb-sidebar: 224 237 245;
+  --yachiyo-rgb-dock: 212 225 233;
   --yachiyo-rgb-surface: 255 255 255;
 
   --yachiyo-rgb-accent: 75 175 201;
@@ -41,6 +42,7 @@
     --yachiyo-rgb-app: 24 27 30;
     --yachiyo-rgb-canvas: 29 33 37;
     --yachiyo-rgb-sidebar: 32 38 43;
+    --yachiyo-rgb-dock: 25 30 34;
     --yachiyo-rgb-surface: 38 42 46;
 
     --yachiyo-rgb-accent: 99 179 195;
@@ -68,6 +70,7 @@
   --yachiyo-rgb-app: 24 27 30;
   --yachiyo-rgb-canvas: 29 33 37;
   --yachiyo-rgb-sidebar: 32 38 43;
+  --yachiyo-rgb-dock: 25 30 34;
   --yachiyo-rgb-surface: 38 42 46;
 
   --yachiyo-rgb-accent: 99 179 195;
@@ -93,6 +96,7 @@
   --yachiyo-rgb-app: 242 238 235;
   --yachiyo-rgb-canvas: 248 244 241;
   --yachiyo-rgb-sidebar: 232 224 218;
+  --yachiyo-rgb-dock: 220 212 206;
   --yachiyo-rgb-surface: 255 255 255;
 
   --yachiyo-rgb-accent: 225 72 62;
@@ -118,6 +122,7 @@
   --yachiyo-rgb-app: 26 24 23;
   --yachiyo-rgb-canvas: 31 28 27;
   --yachiyo-rgb-sidebar: 36 32 30;
+  --yachiyo-rgb-dock: 29 25 23;
   --yachiyo-rgb-surface: 42 38 35;
 
   --yachiyo-rgb-accent: 245 130 118;
@@ -143,6 +148,7 @@
   --yachiyo-rgb-app: 245 240 238;
   --yachiyo-rgb-canvas: 252 248 245;
   --yachiyo-rgb-sidebar: 238 228 222;
+  --yachiyo-rgb-dock: 226 216 210;
   --yachiyo-rgb-surface: 255 255 255;
 
   --yachiyo-rgb-accent: 210 60 50;
@@ -169,6 +175,7 @@
   --yachiyo-rgb-app: 20 24 36;
   --yachiyo-rgb-canvas: 24 28 40;
   --yachiyo-rgb-sidebar: 30 35 50;
+  --yachiyo-rgb-dock: 23 28 43;
   --yachiyo-rgb-surface: 38 44 60;
 
   --yachiyo-rgb-accent: 95 145 220;
