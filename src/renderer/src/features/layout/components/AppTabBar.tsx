@@ -39,7 +39,6 @@ export function AppTabBar({
   const [updateAvailable, setUpdateAvailable] = useState(false)
   const [updateVersion, setUpdateVersion] = useState<string>()
   const [utilityMenuAnchor, setUtilityMenuAnchor] = useState<DOMRect | null>(null)
-  const archivedCount = useAppStore((s) => s.archivedThreads.length)
   const unreadArchivedCount = useAppStore(
     (s) => s.archivedThreads.filter((thread) => thread.archivedAt && !thread.readAt).length
   )
@@ -94,13 +93,7 @@ export function AppTabBar({
             const Icon = TAB_ICONS[tab.id]
             const active = activeTab === tab.id
             const archivedBadge =
-              tab.id === 'archived'
-                ? unreadArchivedCount > 0
-                  ? unreadArchivedCount
-                  : archivedCount > 0
-                    ? archivedCount
-                    : null
-                : null
+              tab.id === 'archived' ? (unreadArchivedCount > 0 ? unreadArchivedCount : null) : null
 
             return (
               <button

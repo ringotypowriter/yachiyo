@@ -1,5 +1,5 @@
 import { motion, AnimatePresence } from 'framer-motion'
-import { PanelLeft, Search, SquarePen } from 'lucide-react'
+import { CheckCheck, PanelLeft, Search, SquarePen } from 'lucide-react'
 import { useAppStore } from '@renderer/app/store/useAppStore'
 import { EssentialsBar } from '@renderer/features/essentials/components/EssentialsBar'
 import { SidebarSearch } from '@renderer/features/search/SidebarSearch'
@@ -37,6 +37,22 @@ export function AppSidebarTopControls({
   const createNewThread = useAppStore((s) => s.createNewThread)
   const archivedThreads = useAppStore((s) => s.archivedThreads)
   const isArchivedMode = mode === 'archived'
+  const hasUnreadArchived = archivedThreads.some((t) => t.archivedAt && !t.readAt)
+
+  const handleMarkAllArchivedAsRead = async (): Promise<void> => {
+    const unread = archivedThreads.filter((t) => t.archivedAt && !t.readAt)
+    try {
+      const updated = await Promise.all(
+        unread.map((t) => window.api.yachiyo.markThreadAsRead({ threadId: t.id }))
+      )
+      const updatedMap = new Map(updated.map((t) => [t.id, t]))
+      useAppStore.setState((state) => ({
+        archivedThreads: state.archivedThreads.map((t) => updatedMap.get(t.id) ?? t)
+      }))
+    } catch {
+      // silently fail — no need to block UI
+    }
+  }
 
   return (
     <div className="grid w-full min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-1 no-drag">
@@ -50,7 +66,20 @@ export function AppSidebarTopControls({
         )}
       </div>
       <div className="flex min-w-0 items-center justify-end gap-1">
-        {!isArchivedMode && (
+        {isArchivedMode ? (
+          hasUnreadArchived && (
+            <Tooltip content="Mark all as read" placement="bottom">
+              <button
+                onClick={() => void handleMarkAllArchivedAsRead()}
+                className="p-1.5 rounded-md opacity-50 hover:opacity-80 transition-opacity"
+                style={{ color: theme.icon.default }}
+                aria-label="Mark all as read"
+              >
+                <CheckCheck size={15} strokeWidth={1.5} />
+              </button>
+            </Tooltip>
+          )
+        ) : (
           <>
             <Tooltip content={toggleTitle} placement="bottom">
               <button
