@@ -17,6 +17,7 @@ import {
   threadListModeForAppTab,
   type AppTabId
 } from '@renderer/features/layout/lib/appTabs'
+import { shouldHandleWorkShortcut } from '@renderer/features/layout/lib/workShortcutScope'
 import { ToastPresenter } from '@renderer/features/notifications/components/ToastPresenter'
 import { GlobalProcessingModal } from '@renderer/components/GlobalProcessingModal'
 import { alpha, theme } from '@renderer/theme/theme'
@@ -200,6 +201,10 @@ function App(): React.JSX.Element {
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent): void => {
+      if (!shouldHandleWorkShortcut(activeAppTab)) {
+        return
+      }
+
       if (!isCreateNewThreadShortcut(event)) {
         return
       }
@@ -210,17 +215,18 @@ function App(): React.JSX.Element {
 
     document.addEventListener('keydown', handleKeyDown)
     return () => document.removeEventListener('keydown', handleKeyDown)
-  }, [createNewThread])
+  }, [activeAppTab, createNewThread])
 
   useEffect(() => {
     const handler = (e: KeyboardEvent): void => {
+      if (!shouldHandleWorkShortcut(activeAppTab)) return
       if (!isOpenSidebarSearchShortcut(e)) return
       e.preventDefault()
       setIsSidebarSearchOpen(true)
     }
     document.addEventListener('keydown', handler)
     return () => document.removeEventListener('keydown', handler)
-  }, [])
+  }, [activeAppTab])
 
   useEffect(() => {
     if (isSidebarOpen) {
@@ -314,6 +320,7 @@ function App(): React.JSX.Element {
         toggleSidebarTitle={sidebarLayout.toggleTitle}
         pendingFindQuery={pendingFindQuery}
         onPendingFindQueryApplied={() => setPendingFindQuery(null)}
+        shortcutsEnabled={shouldHandleWorkShortcut(activeAppTab)}
       >
         {(slots) =>
           renderTabFrame({

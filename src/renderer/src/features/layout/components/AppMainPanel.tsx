@@ -103,6 +103,7 @@ export interface AppMainPanelProps {
   toggleSidebarTitle: string
   pendingFindQuery: string | null
   onPendingFindQueryApplied: () => void
+  shortcutsEnabled: boolean
 }
 
 export function AppMainPanel({
@@ -113,7 +114,8 @@ export function AppMainPanel({
   onToggleSidebar,
   toggleSidebarTitle,
   pendingFindQuery,
-  onPendingFindQueryApplied
+  onPendingFindQueryApplied,
+  shortcutsEnabled
 }: AppMainPanelProps): React.JSX.Element {
   const dialog = useAppDialog()
   const archiveThread = useAppStore((s) => s.archiveThread)
@@ -276,13 +278,14 @@ export function AppMainPanel({
 
   useEffect(() => {
     const handler = (e: KeyboardEvent): void => {
+      if (!shortcutsEnabled) return
       if (!isOpenFindBarShortcut(e) || !activeThreadId) return
       e.preventDefault()
       setFindOpen(true)
     }
     document.addEventListener('keydown', handler)
     return () => document.removeEventListener('keydown', handler)
-  }, [activeThreadId])
+  }, [activeThreadId, shortcutsEnabled])
 
   // Build CSS highlight ranges for all currently-visible matched messages
   const refreshFindHighlights = useCallback(() => {
