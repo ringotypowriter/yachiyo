@@ -7,10 +7,12 @@ export interface AppTabDefinition {
 
 export type AppTabBarBottomToolId = 'update' | 'more'
 
-export const APP_TAB_BAR_WIDTH = 80
+export const APP_TOP_BAR_HEIGHT = 48
+export const APP_TAB_BAR_WIDTH = 56
+export const APP_TRAFFIC_LIGHT_SAFE_WIDTH = 84
 
 export const APP_TABS: readonly AppTabDefinition[] = [
-  { id: 'chat', label: 'Chat' },
+  { id: 'chat', label: 'Work' },
   { id: 'archived', label: 'Archived' },
   { id: 'settings', label: 'Settings' }
 ]
@@ -29,4 +31,10 @@ export function resolveAppTabBarBottomTools(
   updateAvailable: boolean
 ): readonly AppTabBarBottomToolId[] {
   return updateAvailable ? ['update', 'more'] : ['more']
+}
+
+export function resolveAppTabFrameSidebarDividerOffset(
+  sidebarDividerOffset: number | null
+): number | null {
+  return sidebarDividerOffset === null ? null : APP_TAB_BAR_WIDTH + sidebarDividerOffset
 }

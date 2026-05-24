@@ -2,8 +2,8 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   Archive,
   ArrowDownCircle,
-  MessageSquare,
   MoreHorizontal,
+  Waypoints,
   Settings2,
   type LucideIcon
 } from 'lucide-react'
@@ -26,7 +26,7 @@ interface AppTabBarProps {
 }
 
 const TAB_ICONS: Record<AppTabId, LucideIcon> = {
-  chat: MessageSquare,
+  chat: Waypoints,
   archived: Archive,
   settings: Settings2
 }
@@ -72,154 +72,158 @@ export function AppTabBar({
 
   return (
     <div
-      className="flex h-full shrink-0 flex-col items-center overflow-hidden"
+      className="flex h-full shrink-0 flex-col overflow-hidden"
       style={{
         width: APP_TAB_BAR_WIDTH,
-        paddingTop: 0,
-        paddingBottom: 12,
-        background: alpha('dock', 0.15),
+        background: alpha('sidebar', 0.15),
         borderRight: `1px solid ${theme.border.panel}`
       }}
     >
-      {/* Top drag area: only the traffic-lights zone needs to drag the window */}
-      <div className="drag-region shrink-0" style={{ width: '100%', height: 48 }} />
-
-      <nav
-        className="no-drag flex flex-col items-center gap-2"
-        style={{ paddingTop: 4 }}
-        aria-label="App sections"
+      <div
+        className="flex min-h-0 flex-1 flex-col items-center overflow-hidden"
+        style={{
+          paddingBottom: 12
+        }}
       >
-        {APP_TABS.map((tab) => {
-          const Icon = TAB_ICONS[tab.id]
-          const active = activeTab === tab.id
-          const archivedBadge =
-            tab.id === 'archived'
-              ? unreadArchivedCount > 0
-                ? unreadArchivedCount
-                : archivedCount > 0
-                  ? archivedCount
-                  : null
-              : null
+        <nav
+          className="no-drag flex flex-col items-center gap-2"
+          style={{ paddingTop: 10 }}
+          aria-label="App sections"
+        >
+          {APP_TABS.map((tab) => {
+            const Icon = TAB_ICONS[tab.id]
+            const active = activeTab === tab.id
+            const archivedBadge =
+              tab.id === 'archived'
+                ? unreadArchivedCount > 0
+                  ? unreadArchivedCount
+                  : archivedCount > 0
+                    ? archivedCount
+                    : null
+                : null
 
-          return (
-            <button
-              key={tab.id}
-              type="button"
-              aria-label={tab.label}
-              aria-pressed={active}
-              onClick={() => {
-                setUtilityMenuAnchor(null)
-                onSelectTab(tab.id)
-              }}
-              className="relative flex flex-col items-center justify-center rounded-2xl transition-all"
-              style={{
-                width: 64,
-                height: 52,
-                gap: 2,
-                color: active ? theme.text.accentStrong : theme.icon.default,
-                background: 'transparent',
-                opacity: active ? 1 : 0.6
-              }}
-            >
-              <Icon size={18} strokeWidth={1.7} />
-              <span
-                className="text-[9px] font-medium"
-                style={{
-                  maxWidth: 56,
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                  whiteSpace: 'nowrap'
-                }}
-              >
-                {tab.label}
-              </span>
-              {archivedBadge !== null && (
-                <span
-                  className="absolute -right-0.5 -top-0.5 flex items-center justify-center rounded-full text-[9px] font-semibold"
-                  style={{
-                    minWidth: 16,
-                    height: 16,
-                    padding: '0 4px',
-                    color: unreadArchivedCount > 0 ? theme.text.inverse : theme.text.counter,
-                    background:
-                      unreadArchivedCount > 0 ? theme.text.accent : theme.background.counterSurface,
-                    border: `1px solid ${theme.background.surfaceFrosted}`
-                  }}
-                >
-                  {archivedBadge > 99 ? '99+' : archivedBadge}
-                </span>
-              )}
-            </button>
-          )
-        })}
-      </nav>
-
-      <div className="no-drag mt-auto flex flex-col items-center gap-2">
-        {bottomTools.map((tool) =>
-          tool === 'update' ? (
-            <Tooltip
-              key={tool}
-              content={updateVersion ? `v${updateVersion} available` : 'Update available'}
-              placement="top"
-            >
+            return (
               <button
+                key={tab.id}
                 type="button"
+                aria-label={tab.label}
+                aria-pressed={active}
                 onClick={() => {
                   setUtilityMenuAnchor(null)
-                  onOpenSettingsRoute('about')
+                  onSelectTab(tab.id)
                 }}
-                className="flex flex-col items-center justify-center rounded-2xl text-[9px] font-semibold leading-none transition-opacity hover:opacity-90"
+                className="relative flex flex-col items-center justify-center rounded-2xl transition-all"
                 style={{
-                  width: 64,
-                  height: 46,
+                  width: 46,
+                  height: 50,
                   gap: 2,
-                  color: theme.text.counter,
-                  background: alpha('counter', 0.12)
+                  color: active ? theme.text.accentStrong : theme.icon.default,
+                  background: 'transparent',
+                  opacity: active ? 1 : 0.6
                 }}
-                aria-label="Install update"
               >
-                <ArrowDownCircle size={14} strokeWidth={2} />
-                <span>Update</span>
+                <Icon size={18} strokeWidth={1.7} />
+                <span
+                  className="text-[9px] font-medium"
+                  style={{
+                    maxWidth: 48,
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap'
+                  }}
+                >
+                  {tab.label}
+                </span>
+                {archivedBadge !== null && (
+                  <span
+                    className="absolute -right-1 -top-0.5 flex items-center justify-center rounded-full text-[9px] font-semibold"
+                    style={{
+                      minWidth: 16,
+                      height: 16,
+                      padding: '0 4px',
+                      color: unreadArchivedCount > 0 ? theme.text.inverse : theme.text.counter,
+                      background:
+                        unreadArchivedCount > 0
+                          ? theme.text.accent
+                          : theme.background.counterSurface,
+                      border: `1px solid ${theme.background.surfaceFrosted}`
+                    }}
+                  >
+                    {archivedBadge > 99 ? '99+' : archivedBadge}
+                  </span>
+                )}
               </button>
-            </Tooltip>
-          ) : (
-            <button
-              key={tool}
-              type="button"
-              onClick={(event) => {
-                if (utilityMenuAnchor) {
-                  setUtilityMenuAnchor(null)
-                } else {
-                  setUtilityMenuAnchor(event.currentTarget.getBoundingClientRect())
-                }
-              }}
-              className="flex flex-col items-center justify-center rounded-2xl transition-opacity"
-              style={{
-                width: 64,
-                height: 46,
-                gap: 2,
-                color: utilityMenuAnchor ? theme.text.accentStrong : theme.icon.default,
-                background: utilityMenuAnchor ? theme.background.hoverStrong : 'transparent',
-                opacity: utilityMenuAnchor ? 0.9 : 0.55
-              }}
-              aria-label="More options"
-              aria-pressed={utilityMenuAnchor !== null}
-            >
-              <MoreHorizontal size={17} strokeWidth={1.6} />
-              <span
-                className="text-[9px] font-medium"
-                style={{
-                  maxWidth: 56,
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                  whiteSpace: 'nowrap'
-                }}
+            )
+          })}
+        </nav>
+
+        <div className="no-drag mt-auto flex flex-col items-center gap-2">
+          {bottomTools.map((tool) =>
+            tool === 'update' ? (
+              <Tooltip
+                key={tool}
+                content={updateVersion ? `v${updateVersion} available` : 'Update available'}
+                placement="top"
               >
-                More
-              </span>
-            </button>
-          )
-        )}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setUtilityMenuAnchor(null)
+                    onOpenSettingsRoute('about')
+                  }}
+                  className="flex flex-col items-center justify-center rounded-2xl text-[9px] font-semibold leading-none transition-opacity hover:opacity-90"
+                  style={{
+                    width: 46,
+                    height: 42,
+                    gap: 2,
+                    color: theme.text.counter,
+                    background: alpha('counter', 0.12)
+                  }}
+                  aria-label="Install update"
+                >
+                  <ArrowDownCircle size={14} strokeWidth={2} />
+                  <span>Update</span>
+                </button>
+              </Tooltip>
+            ) : (
+              <button
+                key={tool}
+                type="button"
+                onClick={(event) => {
+                  if (utilityMenuAnchor) {
+                    setUtilityMenuAnchor(null)
+                  } else {
+                    setUtilityMenuAnchor(event.currentTarget.getBoundingClientRect())
+                  }
+                }}
+                className="flex flex-col items-center justify-center rounded-2xl transition-opacity"
+                style={{
+                  width: 46,
+                  height: 42,
+                  gap: 2,
+                  color: utilityMenuAnchor ? theme.text.accentStrong : theme.icon.default,
+                  background: utilityMenuAnchor ? theme.background.hoverStrong : 'transparent',
+                  opacity: utilityMenuAnchor ? 0.9 : 0.55
+                }}
+                aria-label="More options"
+                aria-pressed={utilityMenuAnchor !== null}
+              >
+                <MoreHorizontal size={17} strokeWidth={1.6} />
+                <span
+                  className="text-[9px] font-medium"
+                  style={{
+                    maxWidth: 48,
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap'
+                  }}
+                >
+                  More
+                </span>
+              </button>
+            )
+          )}
+        </div>
       </div>
 
       {utilityMenuAnchor && (

@@ -1,24 +1,25 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { useAppStore } from '@renderer/app/store/useAppStore'
 import avatarUrl from '../../../resources/branding.jpeg'
-import SettingsPanel, { SettingsSidebar } from '../settings/App'
+import SettingsPanel, { SettingsSidebarContent } from '../settings/App'
 import { AppMainPanel } from '@renderer/features/layout/components/AppMainPanel'
-import { AppSidebar } from '@renderer/features/layout/components/AppSidebar'
-import { AppSidebarDivider } from '@renderer/features/layout/components/AppSidebarDivider'
-import { AppTabBar } from '@renderer/features/layout/components/AppTabBar'
+import {
+  AppSidebarContent,
+  AppSidebarTopControls
+} from '@renderer/features/layout/components/AppSidebar'
+import { AppTabFrame } from '@renderer/features/layout/components/AppTabFrame'
 import { useSidebarVisibilityState } from '@renderer/features/layout/hooks/useSidebarVisibilityState'
 import { isCreateNewThreadShortcut } from '@renderer/features/layout/lib/newThreadShortcut'
 import { isOpenSidebarSearchShortcut } from '@renderer/features/layout/lib/findBarShortcut'
 import {
-  APP_TAB_BAR_WIDTH,
   appTabForThreadListMode,
+  resolveAppTabFrameSidebarDividerOffset,
   threadListModeForAppTab,
   type AppTabId
 } from '@renderer/features/layout/lib/appTabs'
-import { DEFAULT_SIDEBAR_WIDTH } from '@renderer/lib/sidebarLayout'
 import { ToastPresenter } from '@renderer/features/notifications/components/ToastPresenter'
 import { GlobalProcessingModal } from '@renderer/components/GlobalProcessingModal'
-import { theme } from '@renderer/theme/theme'
+import { alpha, theme } from '@renderer/theme/theme'
 import { useApplyThemeConfig } from '@renderer/theme/useThemeConfig'
 
 function ConnectionOverlay({
@@ -259,13 +260,43 @@ function App(): React.JSX.Element {
     }
   }, [config?.general?.uiFontSize, config?.general?.chatFontSize])
 
-  const windowBackdrop = `linear-gradient(90deg, ${theme.background.sidebarVibrancy} 0%, ${theme.background.surfaceLight} 100%)`
+  const windowBackdrop = `linear-gradient(90deg, ${alpha('sidebar', 0.15)} 0%, ${theme.background.surfaceLight} 100%)`
   const isSettingsTabActive = activeAppTab === 'settings'
-  const contentDividerOffset =
-    sidebarLayout.dividerOffset === null ? null : APP_TAB_BAR_WIDTH + sidebarLayout.dividerOffset
-  const settingsSidebarWidth = sidebarLayout.sidebarWidth || DEFAULT_SIDEBAR_WIDTH
-  const settingsDividerOffset = APP_TAB_BAR_WIDTH + settingsSidebarWidth
+  const threadSidebarMode = threadListMode === 'archived' ? 'archived' : 'chat'
+  const sidebarDividerOffset = resolveAppTabFrameSidebarDividerOffset(sidebarLayout.dividerOffset)
   const mainHeaderPaddingLeft = isSidebarOpen ? sidebarLayout.mainHeaderPaddingLeft : 20
+  const renderTabFrame = ({
+    content,
+    contentSubControls,
+    contentTopControls,
+    sidebar,
+    sidebarTopControls,
+    visible
+  }: {
+    content: ReactNode
+    contentSubControls?: ReactNode
+    contentTopControls: ReactNode
+    sidebar: ReactNode
+    sidebarTopControls: ReactNode
+    visible: boolean
+  }): React.JSX.Element => (
+    <AppTabFrame
+      activeTab={activeAppTab}
+      content={content}
+      contentSubControls={contentSubControls}
+      contentTopControls={contentTopControls}
+      isDragging={isDragging}
+      isSidebarOpen={isSidebarOpen}
+      onOpenSettingsRoute={handleOpenSettingsRoute}
+      onSelectTab={handleSelectAppTab}
+      onSidebarDragStart={onDragStart}
+      sidebar={sidebar}
+      sidebarDividerOffset={sidebarDividerOffset}
+      sidebarTopControls={sidebarTopControls}
+      sidebarWidth={sidebarLayout.sidebarWidth}
+      visible={visible}
+    />
+  )
 
   return (
     <div
@@ -275,78 +306,62 @@ function App(): React.JSX.Element {
         userSelect: isDragging ? 'none' : undefined
       }}
     >
-      <AppTabBar
-        activeTab={activeAppTab}
-        onSelectTab={handleSelectAppTab}
-        onOpenSettingsRoute={handleOpenSettingsRoute}
-      />
-      <div
-        className="flex h-full min-w-0 flex-1"
-        style={{ display: isSettingsTabActive ? 'none' : 'flex' }}
+      <AppMainPanel
+        headerPaddingLeft={mainHeaderPaddingLeft}
+        isSidebarToggleDisabled={!isConfigLoaded}
+        showSidebarToggle={!isSidebarOpen}
+        onToggleSidebar={() => void openSidebar()}
+        toggleSidebarTitle={sidebarLayout.toggleTitle}
+        pendingFindQuery={pendingFindQuery}
+        onPendingFindQueryApplied={() => setPendingFindQuery(null)}
       >
-        <AppSidebar
-          mode={activeAppTab === 'archived' ? 'archived' : 'chat'}
-          isDragging={isDragging}
-          isOpen={isSidebarOpen}
-          isToggleDisabled={!isConfigLoaded}
-          onToggle={() => void toggleSidebar()}
-          sidebarWidth={sidebarLayout.sidebarWidth}
-          toggleTitle={sidebarLayout.toggleTitle}
-          isSearchOpen={isSidebarSearchOpen}
-          onOpenSearch={() => setIsSidebarSearchOpen(true)}
-          onCloseSearch={() => setIsSidebarSearchOpen(false)}
-          onSearchSelect={(query) => setPendingFindQuery(query)}
-        />
-        <AppSidebarDivider offset={contentDividerOffset} onDragStart={onDragStart} />
-        <div
-          className="flex flex-1 min-w-0"
-          style={{
-            padding: isSidebarOpen ? '8px 8px 8px 4px' : '0',
-            transition: 'padding 200ms ease'
-          }}
-        >
-          <AppMainPanel
-            headerPaddingLeft={mainHeaderPaddingLeft}
-            isSidebarOpen={isSidebarOpen}
-            isSidebarToggleDisabled={!isConfigLoaded}
-            showSidebarToggle={!isSidebarOpen}
-            onToggleSidebar={() => void openSidebar()}
-            toggleSidebarTitle={sidebarLayout.toggleTitle}
-            pendingFindQuery={pendingFindQuery}
-            onPendingFindQueryApplied={() => setPendingFindQuery(null)}
-          />
-        </div>
-      </div>
-      <div
-        className="flex flex-1 min-w-0"
-        style={{
-          display: isSettingsTabActive ? 'flex' : 'none',
-          padding: 0
-        }}
-      >
-        {(hasOpenedSettings || isSettingsTabActive) && (
-          <>
-            <SettingsSidebar
-              route={settingsRoute}
-              sidebarWidth={settingsSidebarWidth}
-              onRouteChange={setSettingsRoute}
-            />
-            <AppSidebarDivider offset={settingsDividerOffset} onDragStart={onDragStart} />
-            <div
-              className="flex flex-1 min-w-0"
-              style={{
-                padding: '8px 8px 8px 4px'
-              }}
-            >
-              <SettingsPanel
-                active={isSettingsTabActive}
-                route={settingsRoute}
-                onRouteChange={setSettingsRoute}
+        {(slots) =>
+          renderTabFrame({
+            content: slots.content,
+            contentTopControls: slots.contentTopControls,
+            sidebar: (
+              <AppSidebarContent
+                mode={threadSidebarMode}
+                isSearchOpen={isSidebarSearchOpen}
+                onCloseSearch={() => setIsSidebarSearchOpen(false)}
+                onSearchSelect={(query) => setPendingFindQuery(query)}
               />
-            </div>
-          </>
-        )}
-      </div>
+            ),
+            sidebarTopControls: (
+              <AppSidebarTopControls
+                mode={threadSidebarMode}
+                isSearchOpen={isSidebarSearchOpen}
+                isToggleDisabled={!isConfigLoaded}
+                onOpenSearch={() => setIsSidebarSearchOpen(true)}
+                onToggle={() => void toggleSidebar()}
+                toggleTitle={sidebarLayout.toggleTitle}
+              />
+            ),
+            visible: !isSettingsTabActive
+          })
+        }
+      </AppMainPanel>
+
+      {(hasOpenedSettings || isSettingsTabActive) && (
+        <SettingsPanel
+          active={isSettingsTabActive}
+          route={settingsRoute}
+          onRouteChange={setSettingsRoute}
+        >
+          {(slots) =>
+            renderTabFrame({
+              content: slots.content,
+              contentSubControls: slots.contentSubControls,
+              contentTopControls: slots.contentTopControls,
+              sidebar: (
+                <SettingsSidebarContent route={settingsRoute} onRouteChange={setSettingsRoute} />
+              ),
+              sidebarTopControls: null,
+              visible: isSettingsTabActive
+            })
+          }
+        </SettingsPanel>
+      )}
       <ToastPresenter />
       <GlobalProcessingModal />
 

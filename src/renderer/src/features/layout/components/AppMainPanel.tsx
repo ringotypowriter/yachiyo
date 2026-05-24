@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import type { Message, Thread, ToolCall } from '@renderer/app/types'
 import { useAppStore } from '@renderer/app/store/useAppStore'
@@ -89,9 +89,14 @@ function getTextRanges(el: Element, query: string): Range[] {
   return ranges
 }
 
+export interface AppMainPanelSlots {
+  content: ReactNode
+  contentTopControls: ReactNode
+}
+
 export interface AppMainPanelProps {
+  children: (slots: AppMainPanelSlots) => React.JSX.Element
   headerPaddingLeft: number
-  isSidebarOpen: boolean
   isSidebarToggleDisabled: boolean
   showSidebarToggle: boolean
   onToggleSidebar: () => void
@@ -101,8 +106,8 @@ export interface AppMainPanelProps {
 }
 
 export function AppMainPanel({
+  children,
   headerPaddingLeft,
-  isSidebarOpen,
   isSidebarToggleDisabled,
   showSidebarToggle,
   onToggleSidebar,
@@ -657,23 +662,15 @@ export function AppMainPanel({
     }
   }
 
-  const cardStyle = {
-    background: theme.background.chatCard,
-    borderRadius: isSidebarOpen ? 12 : 0,
-    boxShadow: isSidebarOpen ? theme.shadow.card : 'none',
-    transition: 'border-radius 200ms ease, box-shadow 200ms ease'
-  }
-
   if (threadListMode === 'archived') {
-    return (
-      <div className="flex flex-col flex-1 h-full min-w-0 overflow-hidden" style={cardStyle}>
+    return children({
+      content: <ArchivedThreadsPage activeThread={activeArchivedThread} />,
+      contentTopControls: (
         <div
-          className="flex items-center shrink-0 drag-region"
+          className="flex h-full min-w-0 flex-1 items-center"
           style={{
-            height: '48px',
             paddingLeft: `${headerPaddingLeft}px`,
-            paddingRight: '20px',
-            borderBottom: `1px solid ${theme.border.default}`
+            paddingRight: '20px'
           }}
         >
           <div className="flex-1 min-w-0">
@@ -716,16 +713,16 @@ export function AppMainPanel({
             </div>
           )}
         </div>
-        <ArchivedThreadsPage activeThread={activeArchivedThread} />
-      </div>
-    )
+      )
+    })
   }
 
   const isExternal = activeThread != null && isExternalThread(activeThread)
 
   if (isExternal) {
-    return (
-      <div className="flex flex-col flex-1 h-full min-w-0 overflow-hidden" style={cardStyle}>
+    return children({
+      content: <ExternalThreadViewer threadId={activeThreadId} />,
+      contentTopControls: (
         <AppMainPanelHeader
           activeThread={activeThread}
           headerPaddingLeft={headerPaddingLeft}
@@ -746,42 +743,112 @@ export function AppMainPanel({
           showSidebarToggle={showSidebarToggle}
           toggleSidebarTitle={toggleSidebarTitle}
         />
-        <ExternalThreadViewer threadId={activeThreadId} />
-      </div>
-    )
+      )
+    })
   }
 
-  return (
-    <div className="flex flex-col flex-1 h-full min-w-0 overflow-hidden relative" style={cardStyle}>
-      <AnimatePresence>
-        {findOpen && (
-          <motion.div
-            key="find-bar"
-            initial={{ opacity: 0, scale: 0.95, y: -4 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.95, y: -4 }}
-            transition={{ duration: 0.15, ease: 'easeOut' }}
-          >
-            <ThreadFindBar
-              matches={findMatches}
-              currentIndex={findCurrentIndex}
-              query={findQuery}
-              onQueryChange={setFindQuery}
-              onNext={() =>
-                setFindCurrentIndex((i) =>
-                  findMatches.length === 0 ? 0 : (i + 1) % findMatches.length
-                )
-              }
-              onPrev={() =>
-                setFindCurrentIndex((i) =>
-                  findMatches.length === 0 ? 0 : (i - 1 + findMatches.length) % findMatches.length
-                )
-              }
-              onClose={handleFindClose}
+  return children({
+    content: (
+      <div className="flex flex-col flex-1 min-h-0 relative">
+        <AnimatePresence>
+          {findOpen && (
+            <motion.div
+              key="find-bar"
+              initial={{ opacity: 0, scale: 0.95, y: -4 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: -4 }}
+              transition={{ duration: 0.15, ease: 'easeOut' }}
+            >
+              <ThreadFindBar
+                matches={findMatches}
+                currentIndex={findCurrentIndex}
+                query={findQuery}
+                onQueryChange={setFindQuery}
+                onNext={() =>
+                  setFindCurrentIndex((i) =>
+                    findMatches.length === 0 ? 0 : (i + 1) % findMatches.length
+                  )
+                }
+                onPrev={() =>
+                  setFindCurrentIndex((i) =>
+                    findMatches.length === 0 ? 0 : (i - 1 + findMatches.length) % findMatches.length
+                  )
+                }
+                onClose={handleFindClose}
+              />
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        <div className="flex flex-col flex-1 min-h-0 relative">
+          <div className="flex flex-row flex-1 min-h-0 min-w-0">
+            <MessageTimeline
+              key={activeThreadId ?? 'empty'}
+              threadId={activeThreadId}
+              recapText={recapText}
+              activeSurface={activeTimelineSurface}
+              browserSessions={browserActivity.sessions}
+              selectedBrowserSession={selectedBrowserSession}
+              browserActivityBubble={browserActivityBubble}
+              browserViewSuspended={isBrowserSessionMenuOpen}
+              browserSessionPickerOpen={isBrowserSessionMenuOpen}
+              onSelectedBrowserSessionChange={setSelectedBrowserSession}
+              onBrowserSessionPickerOpenChange={setIsBrowserSessionMenuOpen}
             />
-          </motion.div>
+            <AnimatePresence initial={false}>
+              {isInspectionPanelOpen && (
+                <motion.div
+                  key="inspection-panel"
+                  initial={{ width: 0, opacity: 0 }}
+                  animate={{ width: 300, opacity: 1 }}
+                  exit={{ width: 0, opacity: 0 }}
+                  transition={{ duration: 0.2, ease: 'easeOut' }}
+                  className="shrink-0 overflow-hidden"
+                >
+                  <RunInspectionPanel threadId={activeThreadId} />
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+          <RunStatusStrip />
+          <div className="relative">
+            <Composer onSelectThreadOperation={handleSelectThreadOperation} />
+          </div>
+          {threadIsSaving && (
+            <div
+              className="absolute inset-0 flex flex-col items-center justify-center gap-2 pointer-events-auto"
+              style={{
+                background: theme.background.surfaceLight,
+                backdropFilter: 'blur(4px)',
+                WebkitBackdropFilter: 'blur(4px)'
+              }}
+            >
+              <p className="text-sm font-medium" style={{ color: theme.text.primary }}>
+                Saving to memory…
+              </p>
+              <p className="text-xs" style={{ color: theme.text.muted }}>
+                Thread interactions are paused
+              </p>
+            </div>
+          )}
+        </div>
+        {archiveTarget && (
+          <ConfirmDialog
+            title={`Archive "${archiveTarget.title}"?`}
+            actions={[
+              { key: 'archive', label: 'Archive', tone: 'accent' },
+              ...(memoryEnabled
+                ? [{ key: 'save-and-archive' as const, label: 'Save Memory & Archive' as const }]
+                : []),
+              { key: 'cancel', label: 'Cancel' }
+            ]}
+            onSelect={(key) => void handleArchiveConfirm(key)}
+            onClose={() => setArchiveTarget(null)}
+          />
         )}
-      </AnimatePresence>
+      </div>
+    ),
+    contentTopControls: (
       <AppMainPanelHeader
         activeThread={activeThread}
         headerPaddingLeft={headerPaddingLeft}
@@ -805,73 +872,6 @@ export function AppMainPanel({
         showSidebarToggle={showSidebarToggle}
         toggleSidebarTitle={toggleSidebarTitle}
       />
-
-      <div className="flex flex-col flex-1 min-h-0 relative">
-        <div className="flex flex-row flex-1 min-h-0 min-w-0">
-          <MessageTimeline
-            key={activeThreadId ?? 'empty'}
-            threadId={activeThreadId}
-            recapText={recapText}
-            activeSurface={activeTimelineSurface}
-            browserSessions={browserActivity.sessions}
-            selectedBrowserSession={selectedBrowserSession}
-            browserActivityBubble={browserActivityBubble}
-            browserViewSuspended={isBrowserSessionMenuOpen}
-            browserSessionPickerOpen={isBrowserSessionMenuOpen}
-            onSelectedBrowserSessionChange={setSelectedBrowserSession}
-            onBrowserSessionPickerOpenChange={setIsBrowserSessionMenuOpen}
-          />
-          <AnimatePresence initial={false}>
-            {isInspectionPanelOpen && (
-              <motion.div
-                key="inspection-panel"
-                initial={{ width: 0, opacity: 0 }}
-                animate={{ width: 300, opacity: 1 }}
-                exit={{ width: 0, opacity: 0 }}
-                transition={{ duration: 0.2, ease: 'easeOut' }}
-                className="shrink-0 overflow-hidden"
-              >
-                <RunInspectionPanel threadId={activeThreadId} />
-              </motion.div>
-            )}
-          </AnimatePresence>
-        </div>
-        <RunStatusStrip />
-        <div className="relative">
-          <Composer onSelectThreadOperation={handleSelectThreadOperation} />
-        </div>
-        {threadIsSaving && (
-          <div
-            className="absolute inset-0 flex flex-col items-center justify-center gap-2 pointer-events-auto"
-            style={{
-              background: theme.background.surfaceLight,
-              backdropFilter: 'blur(4px)',
-              WebkitBackdropFilter: 'blur(4px)'
-            }}
-          >
-            <p className="text-sm font-medium" style={{ color: theme.text.primary }}>
-              Saving to memory…
-            </p>
-            <p className="text-xs" style={{ color: theme.text.muted }}>
-              Thread interactions are paused
-            </p>
-          </div>
-        )}
-      </div>
-      {archiveTarget && (
-        <ConfirmDialog
-          title={`Archive "${archiveTarget.title}"?`}
-          actions={[
-            { key: 'archive', label: 'Archive', tone: 'accent' },
-            ...(memoryEnabled
-              ? [{ key: 'save-and-archive' as const, label: 'Save Memory & Archive' as const }]
-              : []),
-            { key: 'cancel', label: 'Cancel' }
-          ]}
-          onSelect={(key) => void handleArchiveConfirm(key)}
-          onClose={() => setArchiveTarget(null)}
-        />
-      )}
-    </div>
-  )
+    )
+  })
 }

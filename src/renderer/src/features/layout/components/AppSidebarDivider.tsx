@@ -1,3 +1,5 @@
+import { APP_TOP_BAR_HEIGHT } from '@renderer/features/layout/lib/appTabs'
+
 export interface AppSidebarDividerProps {
   offset: number | null
   onDragStart: (e: React.MouseEvent) => void
@@ -18,7 +20,7 @@ export function AppSidebarDivider({
         position: 'absolute',
         left: `${offset - 4}px`,
         width: '8px',
-        top: '48px',
+        top: APP_TOP_BAR_HEIGHT,
         bottom: 0,
         zIndex: 1,
         cursor: 'col-resize'

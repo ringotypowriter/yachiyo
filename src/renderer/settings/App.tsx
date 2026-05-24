@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import {
   BarChart3,
   Clock,
@@ -143,85 +143,70 @@ function validateConfig(config: SettingsConfig | null): string | null {
 
 export interface SettingsPanelProps {
   active: boolean
+  children: (slots: SettingsPanelSlots) => React.JSX.Element
   route: string
   onRouteChange: (route: string) => void
 }
 
-export interface SettingsSidebarProps {
+export interface SettingsPanelSlots {
+  content: ReactNode
+  contentSubControls?: ReactNode
+  contentTopControls: ReactNode
+}
+
+export interface SettingsSidebarControlsProps {
   route: string
-  sidebarWidth: number
   onRouteChange: (route: string) => void
 }
 
-export function SettingsSidebar({
+export function SettingsSidebarContent({
   route,
-  sidebarWidth,
   onRouteChange
-}: SettingsSidebarProps): React.JSX.Element {
+}: SettingsSidebarControlsProps): React.JSX.Element {
   const activeTab = resolveSettingsRoute(route).tab
 
   return (
-    <aside
-      className="drag-region flex h-full shrink-0 flex-col overflow-hidden"
-      style={{
-        width: sidebarWidth,
-        background: alpha('sidebar', 0.15),
-        backdropFilter: 'blur(24px) saturate(1.4)',
-        WebkitBackdropFilter: 'blur(24px) saturate(1.4)'
-      }}
-    >
-      <div className="shrink-0 px-4 pb-3 pt-5">
-        <div
-          className="text-[11px] font-semibold uppercase tracking-[0.18em]"
-          style={{ color: theme.text.tertiary }}
-        >
-          Settings
-        </div>
-        <div
-          className="mt-1 text-[20px] font-semibold leading-tight"
-          style={{ color: theme.text.primary, letterSpacing: '-0.45px' }}
-        >
-          Preferences
-        </div>
-      </div>
-
-      <nav className="no-drag flex-1 overflow-y-auto px-2 pb-3" aria-label="Settings sections">
-        {TABS.map(({ id, label, icon: Icon }) => {
-          const isActive = activeTab === id
-          return (
-            <button
-              key={id}
-              onClick={() => onRouteChange(id)}
-              className="mb-1 flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left text-sm transition-all"
-              style={
-                isActive
-                  ? {
-                      background: theme.background.counterSurface,
-                      color: theme.text.counter,
-                      fontWeight: 600,
-                      boxShadow: theme.shadow.button
-                    }
-                  : {
-                      background: 'transparent',
-                      color: theme.text.secondary
-                    }
-              }
-            >
-              <Icon
-                size={16}
-                strokeWidth={1.7}
-                style={{ opacity: isActive ? 1 : 0.58, flexShrink: 0 }}
-              />
-              <span className="truncate">{label}</span>
-            </button>
-          )
-        })}
-      </nav>
-    </aside>
+    <nav className="no-drag flex-1 overflow-y-auto px-2 pb-3 pt-2" aria-label="Settings sections">
+      {TABS.map(({ id, label, icon: Icon }) => {
+        const isActive = activeTab === id
+        return (
+          <button
+            key={id}
+            onClick={() => onRouteChange(id)}
+            className="mb-1 flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left text-sm transition-all"
+            style={
+              isActive
+                ? {
+                    background: theme.background.counterSurface,
+                    color: theme.text.counter,
+                    fontWeight: 600,
+                    boxShadow: theme.shadow.button
+                  }
+                : {
+                    background: 'transparent',
+                    color: theme.text.secondary
+                  }
+            }
+          >
+            <Icon
+              size={16}
+              strokeWidth={1.7}
+              style={{ opacity: isActive ? 1 : 0.58, flexShrink: 0 }}
+            />
+            <span className="truncate">{label}</span>
+          </button>
+        )
+      })}
+    </nav>
   )
 }
 
-function SettingsPanel({ active, route, onRouteChange }: SettingsPanelProps): React.JSX.Element {
+function SettingsPanel({
+  active,
+  children,
+  route,
+  onRouteChange
+}: SettingsPanelProps): React.JSX.Element {
   const [activeTab, setActiveTab] = useState<SettingsTabId>(() => resolveSettingsRoute(route).tab)
   const [activeSubTab, setActiveSubTab] = useState(() => getInitialActiveSubTabs(route))
   const [savedConfig, setSavedConfig] = useState<SettingsConfig | null>(null)
@@ -788,95 +773,71 @@ function SettingsPanel({ active, route, onRouteChange }: SettingsPanelProps): Re
           : 'All changes saved'
   const statusColor = error || activeValidationError ? theme.text.dangerStrong : theme.text.muted
 
-  return (
-    <div
-      className="flex h-full min-w-0 flex-1 flex-col overflow-hidden"
-      style={{
-        background: `linear-gradient(180deg, ${theme.background.chatCard} 0%, ${theme.background.surface} 100%)`,
-        borderRadius: 12,
-        boxShadow: theme.shadow.card
-      }}
-    >
-      <header
-        className="drag-region shrink-0"
-        style={{
-          padding: '16px 24px 12px',
-          borderBottom: `1px solid ${theme.border.panel}`,
-          background: `linear-gradient(180deg, ${alpha('surface', 0.42)}, ${alpha('surface', 0.12)})`
-        }}
-      >
-        <div className="flex items-start justify-between gap-4">
-          <div className="min-w-0">
-            <div
-              className="text-[11px] font-semibold uppercase tracking-[0.16em]"
-              style={{ color: theme.text.tertiary }}
-            >
-              {activeSettingsTab.label}
-            </div>
-            <h1
-              className="mt-1 truncate text-[22px] font-semibold leading-tight"
-              style={{ color: theme.text.primary, letterSpacing: '-0.45px' }}
-            >
-              {activeSubTabLabel ?? activeSettingsTab.label}
-            </h1>
-          </div>
-
-          <div className="no-drag flex shrink-0 items-center gap-2">
-            <span className="max-w-[320px] truncate text-xs" style={{ color: statusColor }}>
-              {statusText}
-            </span>
+  return children({
+    content: body,
+    contentSubControls: activeSettingsTab.subTabs ? (
+      <div className="no-drag flex min-w-0 items-center gap-1 overflow-x-auto px-4 py-2">
+        {activeSettingsTab.subTabs.map((subTab) => {
+          const isActive = activeSubTab[activeSettingsTab.id] === subTab.id
+          return (
             <button
-              onClick={() => void triggerSave()}
-              disabled={!hasSaveableChanges || saving || loading}
-              className="rounded-full px-4 py-1.5 text-sm font-medium transition-all"
+              key={subTab.id}
+              onClick={() =>
+                navigateToRoute(serializeSettingsRoute(activeSettingsTab.id, subTab.id))
+              }
+              className="rounded-full px-3 py-1.5 text-sm font-medium transition-colors"
               style={{
-                minHeight: 34,
-                border: '1px solid transparent',
-                ...(!hasSaveableChanges || saving || loading
-                  ? {
-                      background: alpha('ink', 0.04),
-                      color: theme.text.muted,
-                      opacity: 0.45
-                    }
-                  : {
-                      background: theme.text.accent,
-                      color: theme.text.inverse,
-                      boxShadow: theme.shadow.button
-                    })
+                color: isActive ? theme.text.primary : theme.text.muted,
+                background: isActive ? alpha('ink', 0.06) : 'transparent'
               }}
             >
-              Save
+              {subTab.label}
             </button>
+          )
+        })}
+      </div>
+    ) : undefined,
+    contentTopControls: (
+      <div className="flex min-w-0 flex-1 items-center gap-4 px-5">
+        <div className="min-w-0 flex-1">
+          <div
+            className="truncate text-sm font-semibold"
+            style={{ color: theme.text.primary, letterSpacing: '-0.2px' }}
+          >
+            {activeSubTabLabel ?? activeSettingsTab.label}
           </div>
         </div>
 
-        {activeSettingsTab.subTabs ? (
-          <div className="no-drag mt-3 flex min-w-0 items-center gap-1 overflow-x-auto">
-            {activeSettingsTab.subTabs.map((subTab) => {
-              const isActive = activeSubTab[activeSettingsTab.id] === subTab.id
-              return (
-                <button
-                  key={subTab.id}
-                  onClick={() =>
-                    navigateToRoute(serializeSettingsRoute(activeSettingsTab.id, subTab.id))
+        <div className="no-drag flex shrink-0 items-center gap-2">
+          <span className="max-w-[320px] truncate text-xs" style={{ color: statusColor }}>
+            {statusText}
+          </span>
+          <button
+            onClick={() => void triggerSave()}
+            disabled={!hasSaveableChanges || saving || loading}
+            className="rounded-full px-4 py-1.5 text-sm font-medium transition-all"
+            style={{
+              minHeight: 34,
+              border: '1px solid transparent',
+              ...(!hasSaveableChanges || saving || loading
+                ? {
+                    background: alpha('ink', 0.04),
+                    color: theme.text.muted,
+                    opacity: 0.45
                   }
-                  className="rounded-full px-3 py-1.5 text-sm font-medium transition-colors"
-                  style={{
-                    color: isActive ? theme.text.primary : theme.text.muted,
-                    background: isActive ? alpha('ink', 0.06) : 'transparent'
-                  }}
-                >
-                  {subTab.label}
-                </button>
-              )
-            })}
-          </div>
-        ) : null}
-      </header>
-
-      <div className="flex flex-1 min-h-0 min-w-0 flex-col overflow-hidden">{body}</div>
-    </div>
-  )
+                : {
+                    background: theme.text.accent,
+                    color: theme.text.inverse,
+                    boxShadow: theme.shadow.button
+                  })
+            }}
+          >
+            Save
+          </button>
+        </div>
+      </div>
+    )
+  })
 }
 
 export default SettingsPanel

@@ -217,7 +217,7 @@ function createWindow(server: YachiyoServer): void {
     title: APP_NAME,
     autoHideMenuBar: true,
     titleBarStyle: 'hiddenInset',
-    trafficLightPosition: { x: 16, y: 18 },
+    trafficLightPosition: { x: 10, y: 16 },
     ...(process.platform === 'darwin' && {
       vibrancy: 'under-window',
       visualEffectState: 'active',
