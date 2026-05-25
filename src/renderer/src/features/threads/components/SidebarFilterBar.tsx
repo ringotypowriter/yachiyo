@@ -175,6 +175,7 @@ export function SidebarFilterBar(): React.JSX.Element {
         <button
           ref={triggerRef}
           aria-label="Filter chats"
+          onMouseDown={(e) => e.stopPropagation()}
           onClick={() => {
             if (anchorRect) {
               setAnchorRect(null)
