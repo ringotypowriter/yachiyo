@@ -40,6 +40,14 @@ function flattenToolContent(content: Array<{ type: string; text?: string }>): st
     .join('')
 }
 
+async function collectAsync<T>(iterable: AsyncIterable<T>): Promise<T[]> {
+  const items: T[] = []
+  for await (const item of iterable) {
+    items.push(item)
+  }
+  return items
+}
+
 function processExists(pid: number): boolean {
   try {
     process.kill(pid, 0)
@@ -350,7 +358,7 @@ test('streamBashTool abortSignal stops a long-running command without waiting fo
     const controller = new AbortController()
     const started = performance.now()
 
-    const drain = Array.fromAsync(
+    const drain = collectAsync(
       streamBashTool(
         {
           command: 'sleep 60',
@@ -383,7 +391,7 @@ test('streamBashTool abortSignal kills spawned child processes, not just the she
     const controller = new AbortController()
     const childPidPath = join(workspacePath, 'child.pid')
 
-    const drain = Array.fromAsync(
+    const drain = collectAsync(
       streamBashTool(
         {
           command: `nohup sleep 60 >/dev/null 2>&1 & echo $! > ${JSON.stringify(childPidPath)}; wait`,

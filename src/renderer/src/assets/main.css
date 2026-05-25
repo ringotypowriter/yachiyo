@@ -17,7 +17,6 @@
   --color-background: rgb(var(--yachiyo-rgb-surface));
   --color-sidebar: rgb(var(--yachiyo-rgb-canvas));
   --color-border: rgb(var(--yachiyo-rgb-ink) / 0.08);
-  --color-muted: rgb(var(--yachiyo-rgb-sidebar));
   --color-muted-foreground: rgb(var(--yachiyo-rgb-text-tertiary));
   --color-foreground: rgb(var(--yachiyo-rgb-ink));
 }
@@ -662,7 +661,7 @@ body > div:not(#root) {
   background: linear-gradient(
     180deg,
     rgb(var(--yachiyo-rgb-app) / 0.92),
-    rgb(var(--yachiyo-rgb-sidebar) / 0.86)
+    rgb(var(--yachiyo-rgb-canvas) / 0.86)
   );
   min-height: 90px;
 }

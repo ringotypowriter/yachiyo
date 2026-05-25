@@ -9,7 +9,7 @@ import {
   shouldShowAppTabFrameSidebarTopControls,
   type AppTabId
 } from '@renderer/features/layout/lib/appTabs'
-import { alpha, theme } from '@renderer/theme/theme'
+import { theme } from '@renderer/theme/theme'
 
 export interface AppTabFrameProps {
   activeTab: AppTabId
@@ -44,7 +44,7 @@ export function AppTabFrame({
   sidebarWidth,
   visible = true
 }: AppTabFrameProps): React.JSX.Element {
-  const chromeBackground = alpha('sidebar', 0.15)
+  const chromeBackground = theme.background.sidebarVibrancy
   const showSidebarTopControls = shouldShowAppTabFrameSidebarTopControls(isSidebarOpen)
   const topChromeColumn = resolveAppTabFrameTopChromeColumn(isSidebarOpen)
 

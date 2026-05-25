@@ -20,7 +20,7 @@ import {
 import { shouldHandleWorkShortcut } from '@renderer/features/layout/lib/workShortcutScope'
 import { ToastPresenter } from '@renderer/features/notifications/components/ToastPresenter'
 import { GlobalProcessingModal } from '@renderer/components/GlobalProcessingModal'
-import { alpha, theme } from '@renderer/theme/theme'
+import { theme } from '@renderer/theme/theme'
 import { useApplyThemeConfig } from '@renderer/theme/useThemeConfig'
 
 function ConnectionOverlay({
@@ -266,7 +266,7 @@ function App(): React.JSX.Element {
     }
   }, [config?.general?.uiFontSize, config?.general?.chatFontSize])
 
-  const windowBackdrop = `linear-gradient(90deg, ${alpha('sidebar', 0.15)} 0%, ${theme.background.surfaceLight} 100%)`
+  const windowBackdrop = `linear-gradient(90deg, ${theme.background.sidebarVibrancy} 0%, ${theme.background.surfaceLight} 100%)`
   const isSettingsTabActive = activeAppTab === 'settings'
   const threadSidebarMode = threadListMode === 'archived' ? 'archived' : 'chat'
   const sidebarDividerOffset = resolveAppTabFrameSidebarDividerOffset(sidebarLayout.dividerOffset)

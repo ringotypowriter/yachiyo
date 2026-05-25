@@ -86,7 +86,7 @@ test('theme catalog exposes coordinated light and dark preview stripes', () => {
         segments.map((segment) => segment.rgb),
         [
           getThemePalette(option.id, variant).app,
-          getThemePalette(option.id, variant).sidebar,
+          getThemePalette(option.id, variant).canvas,
           getThemePalette(option.id, variant).surface,
           getThemePalette(option.id, variant).ink,
           getThemePalette(option.id, variant).accent
@@ -100,7 +100,7 @@ test('theme catalog exposes Mint with the requested core color', () => {
   const mint = THEME_OPTIONS.find((option) => option.id === 'mint')
 
   assert.equal(mint?.label, 'Mint')
-  assert.equal(mint?.palettes.light.sidebar, '161 227 216')
+  assert.equal(mint?.palettes.light.canvas, '247 253 251')
   assert.equal(mint?.palettes.dark.accent, '161 227 216')
 })
 

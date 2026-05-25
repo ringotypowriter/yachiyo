@@ -74,7 +74,7 @@ export function AppTabBar({
       className="flex h-full shrink-0 flex-col overflow-hidden"
       style={{
         width: APP_TAB_BAR_WIDTH,
-        background: alpha('sidebar', 0.15),
+        background: theme.background.sidebarVibrancy,
         borderRight: `1px solid ${theme.border.panel}`
       }}
     >

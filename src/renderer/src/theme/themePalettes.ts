@@ -10,7 +10,6 @@ export const themeRgbTokenVars = {
   textPlaceholder: '--yachiyo-rgb-text-placeholder',
   app: '--yachiyo-rgb-app',
   canvas: '--yachiyo-rgb-canvas',
-  sidebar: '--yachiyo-rgb-sidebar',
   dock: '--yachiyo-rgb-dock',
   surface: '--yachiyo-rgb-surface',
   accent: '--yachiyo-rgb-accent',
@@ -38,21 +37,21 @@ export interface ThemeOption {
 }
 
 export interface ThemePreviewSegment {
-  token: 'app' | 'sidebar' | 'surface' | 'ink' | 'accent'
+  token: 'app' | 'canvas' | 'surface' | 'ink' | 'accent'
   rgb: string
   weight: number
 }
 
 export interface ThemeSchemePreviewSegment {
   variant: ThemeVariant
-  token: 'app' | 'sidebar' | 'surface' | 'accent'
+  token: 'app' | 'canvas' | 'surface' | 'accent'
   rgb: string
   weight: number
 }
 
 const previewTokens: readonly ThemePreviewSegment['token'][] = [
   'app',
-  'sidebar',
+  'canvas',
   'surface',
   'ink',
   'accent'
@@ -60,10 +59,10 @@ const previewTokens: readonly ThemePreviewSegment['token'][] = [
 const previewWeights = [38, 24, 30, 1, 7] as const
 const schemePreviewSpec: readonly Omit<ThemeSchemePreviewSegment, 'rgb'>[] = [
   { variant: 'light', token: 'app', weight: 32 },
-  { variant: 'light', token: 'sidebar', weight: 18 },
+  { variant: 'light', token: 'canvas', weight: 18 },
   { variant: 'light', token: 'surface', weight: 16 },
   { variant: 'dark', token: 'surface', weight: 14 },
-  { variant: 'dark', token: 'sidebar', weight: 8 },
+  { variant: 'dark', token: 'canvas', weight: 8 },
   { variant: 'light', token: 'accent', weight: 6 },
   { variant: 'dark', token: 'accent', weight: 6 }
 ]
@@ -100,7 +99,7 @@ function lightPalette(
 ): ThemePalette {
   const counter = tokens.counter ?? tokens.accent
   const counterStrong = tokens.counterStrong ?? tokens.accentStrong
-  const dock = tokens.dock ?? tokens.sidebar
+  const dock = tokens.dock
   return { ...tokens, counter, counterStrong, dock, ...lightSemanticTokens } as ThemePalette
 }
 
@@ -109,7 +108,7 @@ function darkPalette(
 ): ThemePalette {
   const counter = tokens.counter ?? tokens.accent
   const counterStrong = tokens.counterStrong ?? tokens.accentStrong
-  const dock = tokens.dock ?? tokens.sidebar
+  const dock = tokens.dock
   return { ...tokens, counter, counterStrong, dock, ...darkSemanticTokens } as ThemePalette
 }
 
@@ -127,7 +126,6 @@ export const THEME_OPTIONS: readonly ThemeOption[] = [
         textPlaceholder: '170 169 164',
         app: '234 242 247',
         canvas: '242 248 252',
-        sidebar: '224 237 245',
         dock: '212 225 233',
         surface: '255 255 255',
         accent: '75 175 201',
@@ -141,7 +139,6 @@ export const THEME_OPTIONS: readonly ThemeOption[] = [
         textPlaceholder: '93 104 111',
         app: '24 27 30',
         canvas: '29 33 37',
-        sidebar: '32 38 43',
         dock: '25 30 34',
         surface: '38 42 46',
         accent: '99 179 195',
@@ -162,7 +159,6 @@ export const THEME_OPTIONS: readonly ThemeOption[] = [
         textPlaceholder: '168 172 178',
         app: '240 242 244',
         canvas: '247 248 249',
-        sidebar: '231 235 239',
         dock: '219 223 227',
         surface: '255 255 255',
         accent: '104 149 190',
@@ -176,7 +172,6 @@ export const THEME_OPTIONS: readonly ThemeOption[] = [
         textPlaceholder: '94 100 107',
         app: '24 25 27',
         canvas: '29 31 34',
-        sidebar: '35 38 42',
         dock: '28 31 35',
         surface: '42 45 49',
         accent: '122 171 210',
@@ -197,7 +192,6 @@ export const THEME_OPTIONS: readonly ThemeOption[] = [
         textPlaceholder: '174 166 170',
         app: '247 241 244',
         canvas: '252 247 249',
-        sidebar: '241 230 235',
         dock: '229 218 223',
         surface: '255 255 255',
         accent: '200 106 134',
@@ -211,7 +205,6 @@ export const THEME_OPTIONS: readonly ThemeOption[] = [
         textPlaceholder: '107 95 102',
         app: '29 24 27',
         canvas: '35 29 32',
-        sidebar: '42 34 39',
         dock: '35 27 32',
         surface: '48 40 45',
         accent: '217 139 160',
@@ -232,7 +225,6 @@ export const THEME_OPTIONS: readonly ThemeOption[] = [
         textPlaceholder: '166 174 169',
         app: '240 246 242',
         canvas: '247 251 248',
-        sidebar: '228 239 233',
         dock: '216 227 221',
         surface: '255 255 255',
         accent: '106 174 143',
@@ -246,7 +238,6 @@ export const THEME_OPTIONS: readonly ThemeOption[] = [
         textPlaceholder: '95 106 99',
         app: '23 28 26',
         canvas: '28 34 31',
-        sidebar: '33 42 37',
         dock: '26 35 30',
         surface: '39 48 43',
         accent: '134 198 167',
@@ -267,7 +258,6 @@ export const THEME_OPTIONS: readonly ThemeOption[] = [
         textPlaceholder: '164 178 174',
         app: '235 247 244',
         canvas: '247 253 251',
-        sidebar: '161 227 216',
         dock: '149 215 204',
         surface: '255 255 255',
         accent: '42 128 118',
@@ -281,7 +271,6 @@ export const THEME_OPTIONS: readonly ThemeOption[] = [
         textPlaceholder: '91 110 104',
         app: '20 29 28',
         canvas: '24 36 34',
-        sidebar: '29 48 44',
         dock: '22 41 37',
         surface: '35 55 50',
         accent: '161 227 216',
@@ -302,7 +291,6 @@ export const THEME_OPTIONS: readonly ThemeOption[] = [
         textPlaceholder: '172 164 180',
         app: '242 238 247',
         canvas: '248 245 252',
-        sidebar: '231 224 241',
         dock: '219 212 229',
         surface: '255 255 255',
         accent: '172 142 202',
@@ -316,7 +304,6 @@ export const THEME_OPTIONS: readonly ThemeOption[] = [
         textPlaceholder: '100 93 115',
         app: '27 24 31',
         canvas: '32 28 36',
-        sidebar: '38 33 45',
         dock: '31 26 38',
         surface: '44 39 51',
         accent: '192 168 220',
@@ -337,7 +324,6 @@ export const THEME_OPTIONS: readonly ThemeOption[] = [
         textPlaceholder: '172 166 156',
         app: '247 245 238',
         canvas: '252 250 244',
-        sidebar: '239 233 218',
         dock: '227 221 206',
         surface: '255 255 255',
         accent: '202 156 72',
@@ -351,7 +337,6 @@ export const THEME_OPTIONS: readonly ThemeOption[] = [
         textPlaceholder: '101 96 86',
         app: '30 28 23',
         canvas: '35 33 27',
-        sidebar: '42 38 30',
         dock: '35 31 23',
         surface: '48 44 36',
         accent: '220 180 100',
@@ -372,7 +357,6 @@ export const THEME_OPTIONS: readonly ThemeOption[] = [
         textPlaceholder: '170 164 158',
         app: '242 238 235',
         canvas: '248 244 241',
-        sidebar: '232 224 218',
         dock: '220 212 206',
         surface: '255 255 255',
         accent: '225 72 62',
@@ -388,7 +372,6 @@ export const THEME_OPTIONS: readonly ThemeOption[] = [
         textPlaceholder: '98 92 85',
         app: '26 24 23',
         canvas: '31 28 27',
-        sidebar: '36 32 30',
         dock: '29 25 23',
         surface: '42 38 35',
         accent: '245 130 118',
@@ -411,7 +394,6 @@ export const THEME_OPTIONS: readonly ThemeOption[] = [
         textPlaceholder: '176 160 152',
         app: '245 240 238',
         canvas: '252 248 245',
-        sidebar: '238 228 222',
         dock: '226 216 210',
         surface: '255 255 255',
         accent: '210 60 50',
@@ -427,7 +409,6 @@ export const THEME_OPTIONS: readonly ThemeOption[] = [
         textPlaceholder: '88 100 120',
         app: '20 24 36',
         canvas: '24 28 40',
-        sidebar: '30 35 50',
         dock: '23 28 43',
         surface: '38 44 60',
         accent: '95 145 220',
