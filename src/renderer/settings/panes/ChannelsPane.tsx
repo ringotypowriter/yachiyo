@@ -66,7 +66,7 @@ function RestartServiceButton({
 }
 
 export function ChannelsPane({
-  activeSubTab,
+  activeTab,
   config,
   onConfigChange,
   users,
@@ -77,7 +77,7 @@ export function ChannelsPane({
   onGroupsChange,
   providers
 }: {
-  activeSubTab: string
+  activeTab: string
   config: ChannelsConfig
   onConfigChange: (next: ChannelsConfig) => void
   users: ChannelUserRecord[] | null
@@ -247,7 +247,7 @@ export function ChannelsPane({
 
   const modelSelector = providers.length > 0
 
-  if (activeSubTab === 'telegram') {
+  if (activeTab === 'telegram') {
     return (
       <div className="flex-1 overflow-y-auto pb-6">
         <SettingSection>
@@ -379,7 +379,7 @@ export function ChannelsPane({
     )
   }
 
-  if (activeSubTab === 'qq') {
+  if (activeTab === 'qq') {
     return (
       <div className="flex-1 overflow-y-auto pb-6">
         <SettingSection>
@@ -534,7 +534,7 @@ export function ChannelsPane({
     )
   }
 
-  if (activeSubTab === 'qqbot') {
+  if (activeTab === 'qqbot') {
     return (
       <div className="flex-1 overflow-y-auto pb-6">
         <SettingSection>
@@ -648,7 +648,7 @@ export function ChannelsPane({
     )
   }
 
-  if (activeSubTab === 'discord') {
+  if (activeTab === 'discord') {
     return (
       <div className="flex-1 overflow-y-auto pb-6">
         <SettingSection>

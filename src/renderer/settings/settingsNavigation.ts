@@ -1,4 +1,4 @@
-export type SettingsTabId =
+export type SettingsPanelId =
   | 'general'
   | 'providers'
   | 'chat'
@@ -9,28 +9,28 @@ export type SettingsTabId =
   | 'usage'
   | 'about'
 
-export interface SettingsSubTab {
+export interface SettingsPanelTab {
   id: string
   label: string
 }
 
-export interface SettingsTab {
-  id: SettingsTabId
+export interface SettingsPanelDefinition {
+  id: SettingsPanelId
   label: string
-  subTabs?: SettingsSubTab[]
+  tabs?: readonly SettingsPanelTab[]
 }
 
 export interface SettingsRoute {
-  tab: SettingsTabId
-  subTab?: string
+  panel: SettingsPanelId
+  tab?: string
 }
 
-export const SETTINGS_TABS: readonly SettingsTab[] = [
+export const SETTINGS_PANELS: readonly SettingsPanelDefinition[] = [
   {
     id: 'general',
     label: 'General',
-    subTabs: [
-      { id: 'general', label: 'General' },
+    tabs: [
+      { id: 'behavior', label: 'Behavior' },
       { id: 'ui', label: 'User Interface' }
     ]
   },
@@ -38,7 +38,7 @@ export const SETTINGS_TABS: readonly SettingsTab[] = [
   {
     id: 'chat',
     label: 'Chat',
-    subTabs: [
+    tabs: [
       { id: 'threads', label: 'Threads' },
       { id: 'essentials', label: 'Essentials' }
     ]
@@ -46,7 +46,7 @@ export const SETTINGS_TABS: readonly SettingsTab[] = [
   {
     id: 'capabilities',
     label: 'Capabilities',
-    subTabs: [
+    tabs: [
       { id: 'skills', label: 'Skills' },
       { id: 'coding-agents', label: 'Coding' },
       { id: 'prompts', label: 'Prompts' },
@@ -56,7 +56,7 @@ export const SETTINGS_TABS: readonly SettingsTab[] = [
   {
     id: 'source',
     label: 'Sources',
-    subTabs: [
+    tabs: [
       { id: 'memory', label: 'Memory' },
       { id: 'search', label: 'Search' },
       { id: 'activity', label: 'Activity' }
@@ -65,7 +65,7 @@ export const SETTINGS_TABS: readonly SettingsTab[] = [
   {
     id: 'channels',
     label: 'Channels',
-    subTabs: [
+    tabs: [
       { id: 'general', label: 'General' },
       { id: 'telegram', label: 'Telegram' },
       { id: 'qq', label: 'QQ' },
@@ -76,7 +76,7 @@ export const SETTINGS_TABS: readonly SettingsTab[] = [
   {
     id: 'schedules',
     label: 'Schedules',
-    subTabs: [
+    tabs: [
       { id: 'list', label: 'Schedules' },
       { id: 'history', label: 'History' }
     ]
@@ -84,7 +84,7 @@ export const SETTINGS_TABS: readonly SettingsTab[] = [
   {
     id: 'usage',
     label: 'Statistics',
-    subTabs: [
+    tabs: [
       { id: 'usage', label: 'Usage' },
       { id: 'performance', label: 'Performance' }
     ]
@@ -92,28 +92,37 @@ export const SETTINGS_TABS: readonly SettingsTab[] = [
   { id: 'about', label: 'About' }
 ]
 
-const topLevelRoutes = new Set<string>(SETTINGS_TABS.map((tab) => tab.id))
-const tabsById = new Map(SETTINGS_TABS.map((tab) => [tab.id, tab]))
+const topLevelRoutes = new Set<string>(SETTINGS_PANELS.map((panel) => panel.id))
+const panelsById = new Map(SETTINGS_PANELS.map((panel) => [panel.id, panel]))
 const routeAliases: Record<string, SettingsRoute> = {
-  ui: { tab: 'general', subTab: 'ui' },
-  essentials: { tab: 'chat', subTab: 'essentials' },
-  skills: { tab: 'capabilities', subTab: 'skills' },
-  'coding-agents': { tab: 'capabilities', subTab: 'coding-agents' },
-  prompts: { tab: 'capabilities', subTab: 'prompts' },
-  workspace: { tab: 'capabilities', subTab: 'workspace' },
-  memory: { tab: 'source', subTab: 'memory' },
-  search: { tab: 'source', subTab: 'search' },
-  activity: { tab: 'source', subTab: 'activity' }
+  behavior: { panel: 'general', tab: 'behavior' },
+  ui: { panel: 'general', tab: 'ui' },
+  essentials: { panel: 'chat', tab: 'essentials' },
+  skills: { panel: 'capabilities', tab: 'skills' },
+  'coding-agents': { panel: 'capabilities', tab: 'coding-agents' },
+  prompts: { panel: 'capabilities', tab: 'prompts' },
+  workspace: { panel: 'capabilities', tab: 'workspace' },
+  memory: { panel: 'source', tab: 'memory' },
+  search: { panel: 'source', tab: 'search' },
+  activity: { panel: 'source', tab: 'activity' }
 }
 
-export function getInitialSettingsSubTabs(): Record<string, string> {
+const panelTabAliases: Partial<Record<SettingsPanelId, Record<string, string>>> = {
+  general: { general: 'behavior' }
+}
+
+export function getInitialSettingsPanelTabs(): Record<string, string> {
   const map: Record<string, string> = {}
-  for (const tab of SETTINGS_TABS) {
-    if (tab.subTabs?.length) {
-      map[tab.id] = tab.subTabs[0].id
+  for (const panel of SETTINGS_PANELS) {
+    if (panel.tabs?.length) {
+      map[panel.id] = panel.tabs[0].id
     }
   }
   return map
+}
+
+export function serializeSettingsRoute(panel: SettingsPanelId, tab?: string): string {
+  return tab ? `${panel}/${tab}` : panel
 }
 
 export function resolveSettingsRoute(value: string): SettingsRoute {
@@ -121,15 +130,18 @@ export function resolveSettingsRoute(value: string): SettingsRoute {
     return routeAliases[value]
   }
 
-  const [tabId, subTabId] = value.split('/')
-  const tab = tabsById.get(tabId as SettingsTabId)
-  if (tab && subTabId && tab.subTabs?.some((subTab) => subTab.id === subTabId)) {
-    return { tab: tab.id, subTab: subTabId }
+  const [panelId, rawTabId] = value.split('/')
+  const panel = panelsById.get(panelId as SettingsPanelId)
+  if (panel && rawTabId) {
+    const tabId = panelTabAliases[panel.id]?.[rawTabId] ?? rawTabId
+    if (panel.tabs?.some((tab) => tab.id === tabId)) {
+      return { panel: panel.id, tab: tabId }
+    }
   }
 
   if (topLevelRoutes.has(value)) {
-    return { tab: value as SettingsTabId }
+    return { panel: value as SettingsPanelId }
   }
 
-  return { tab: 'general' }
+  return { panel: 'general' }
 }

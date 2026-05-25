@@ -97,8 +97,8 @@ const tooltipStyle = {
 // Component
 // ---------------------------------------------------------------------------
 
-export function UsagePane({ activeSubTab }: { activeSubTab: string }): React.ReactNode {
-  if (activeSubTab === 'performance') {
+export function UsagePane({ activeTab }: { activeTab: string }): React.ReactNode {
+  if (activeTab === 'performance') {
     return <PerformanceContent />
   }
   return <UsageContent />

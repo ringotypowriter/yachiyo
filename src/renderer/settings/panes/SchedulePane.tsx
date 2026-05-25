@@ -15,28 +15,25 @@ import { CronQuickPick, DateTimePick } from './SchedulePickers'
 import { cronToHuman } from './scheduleTimeFormat'
 
 interface SchedulePaneProps {
-  activeSubTab: string
-  onNavigateToTab?: (tab: string) => void
+  activeTab: string
+  onNavigateToRoute?: (route: string) => void
 }
 
-export function SchedulePane({
-  activeSubTab,
-  onNavigateToTab
-}: SchedulePaneProps): React.ReactNode {
-  if (activeSubTab === 'history') {
-    return <HistorySubTab />
+export function SchedulePane({ activeTab, onNavigateToRoute }: SchedulePaneProps): React.ReactNode {
+  if (activeTab === 'history') {
+    return <HistoryTab />
   }
-  return <ScheduleListSubTab onNavigateToTab={onNavigateToTab} />
+  return <ScheduleListTab onNavigateToRoute={onNavigateToRoute} />
 }
 
 // ---------------------------------------------------------------------------
 // Schedule List
 // ---------------------------------------------------------------------------
 
-function ScheduleListSubTab({
-  onNavigateToTab
+function ScheduleListTab({
+  onNavigateToRoute
 }: {
-  onNavigateToTab?: (tab: string) => void
+  onNavigateToRoute?: (route: string) => void
 }): React.ReactNode {
   const [schedules, setSchedules] = useState<ScheduleRecord[]>([])
   const [adding, setAdding] = useState(false)
@@ -134,7 +131,7 @@ function ScheduleListSubTab({
         <ScheduleForm
           onSubmit={handleCreate}
           onCancel={() => setAdding(false)}
-          onNavigateToTab={onNavigateToTab}
+          onNavigateToRoute={onNavigateToRoute}
         />
       )}
 
@@ -154,7 +151,7 @@ function ScheduleListSubTab({
             initial={s}
             onSubmit={(input) => handleUpdate({ ...input, id: s.id })}
             onCancel={() => setEditingId(null)}
-            onNavigateToTab={onNavigateToTab}
+            onNavigateToRoute={onNavigateToRoute}
             submitLabel="Save"
           />
         ) : (
@@ -239,13 +236,13 @@ function ScheduleForm({
   initial,
   onSubmit,
   onCancel,
-  onNavigateToTab,
+  onNavigateToRoute,
   submitLabel = 'Create'
 }: {
   initial?: ScheduleRecord
   onSubmit: (input: ScheduleFormSubmitInput) => Promise<void>
   onCancel: () => void
-  onNavigateToTab?: (tab: string) => void
+  onNavigateToRoute?: (route: string) => void
   submitLabel?: string
 }): React.ReactNode {
   const [mode, setMode] = useState<'recurring' | 'one-off'>(
@@ -436,11 +433,11 @@ function ScheduleForm({
               width="100%"
             />
           </div>
-          {onNavigateToTab && (
+          {onNavigateToRoute && (
             <button
               className="text-xs mt-1 "
               style={{ color: theme.text.accent, background: 'none', border: 'none', padding: 0 }}
-              onClick={() => onNavigateToTab('workspace')}
+              onClick={() => onNavigateToRoute('workspace')}
             >
               Manage workspaces...
             </button>
@@ -481,7 +478,7 @@ function ScheduleForm({
 // History
 // ---------------------------------------------------------------------------
 
-function HistorySubTab(): React.ReactNode {
+function HistoryTab(): React.ReactNode {
   const [runs, setRuns] = useState<ScheduleRunRecord[]>([])
   const [schedules, setSchedules] = useState<Map<string, ScheduleRecord>>(new Map())
   const [loading, setLoading] = useState(true)

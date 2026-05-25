@@ -28,7 +28,7 @@ import {
 } from '../../shared/yachiyo/providerConfig.ts'
 import { PlaceholderPane } from './components/primitives'
 import { ChatPane } from './panes/ChatPane'
-import { GeneralPane } from './panes/GeneralPane'
+import { BehaviorPane } from './panes/BehaviorPane'
 import { MemoryPane } from './panes/MemoryPane'
 import { ProvidersPane } from './panes/ProvidersPane'
 import { SearchPane } from './panes/SearchPane'
@@ -61,18 +61,19 @@ import {
   persistUserDocument
 } from './panes/userDocumentEditorModel'
 import {
-  SETTINGS_TABS,
-  getInitialSettingsSubTabs,
+  SETTINGS_PANELS,
+  getInitialSettingsPanelTabs,
   resolveSettingsRoute,
-  type SettingsTab,
-  type SettingsTabId
+  serializeSettingsRoute,
+  type SettingsPanelDefinition,
+  type SettingsPanelId
 } from './settingsNavigation'
 
-interface AppTab extends SettingsTab {
+interface AppPanel extends SettingsPanelDefinition {
   icon: LucideIcon
 }
 
-const TAB_ICONS: Record<SettingsTabId, LucideIcon> = {
+const PANEL_ICONS: Record<SettingsPanelId, LucideIcon> = {
   general: Settings2,
   providers: Cpu,
   chat: MessageSquare,
@@ -84,19 +85,18 @@ const TAB_ICONS: Record<SettingsTabId, LucideIcon> = {
   about: Info
 }
 
-const TABS: AppTab[] = SETTINGS_TABS.map((tab) => ({ ...tab, icon: TAB_ICONS[tab.id] }))
+const PANELS: AppPanel[] = SETTINGS_PANELS.map((panel) => ({
+  ...panel,
+  icon: PANEL_ICONS[panel.id]
+}))
 
-function getInitialActiveSubTabs(routeValue: string): Record<string, string> {
-  const subTabs = getInitialSettingsSubTabs()
+function getInitialActivePanelTabs(routeValue: string): Record<string, string> {
+  const panelTabs = getInitialSettingsPanelTabs()
   const route = resolveSettingsRoute(routeValue)
-  if (route.subTab) {
-    subTabs[route.tab] = route.subTab
+  if (route.tab) {
+    panelTabs[route.panel] = route.tab
   }
-  return subTabs
-}
-
-function serializeSettingsRoute(tab: SettingsTabId, subTab?: string): string {
-  return subTab ? `${tab}/${subTab}` : tab
+  return panelTabs
 }
 
 function validateConfig(config: SettingsConfig | null): string | null {
@@ -163,12 +163,12 @@ export function SettingsSidebarContent({
   route,
   onRouteChange
 }: SettingsSidebarControlsProps): React.JSX.Element {
-  const activeTab = resolveSettingsRoute(route).tab
+  const activePanel = resolveSettingsRoute(route).panel
 
   return (
     <nav className="no-drag flex-1 overflow-y-auto px-2 pb-3 pt-2" aria-label="Settings sections">
-      {TABS.map(({ id, label, icon: Icon }) => {
-        const isActive = activeTab === id
+      {PANELS.map(({ id, label, icon: Icon }) => {
+        const isActive = activePanel === id
         return (
           <button
             key={id}
@@ -207,8 +207,10 @@ function SettingsPanel({
   route,
   onRouteChange
 }: SettingsPanelProps): React.JSX.Element {
-  const [activeTab, setActiveTab] = useState<SettingsTabId>(() => resolveSettingsRoute(route).tab)
-  const [activeSubTab, setActiveSubTab] = useState(() => getInitialActiveSubTabs(route))
+  const [activePanel, setActivePanel] = useState<SettingsPanelId>(
+    () => resolveSettingsRoute(route).panel
+  )
+  const [activePanelTabs, setActivePanelTabs] = useState(() => getInitialActivePanelTabs(route))
   const [savedConfig, setSavedConfig] = useState<SettingsConfig | null>(null)
   const [draft, setDraft] = useState<SettingsConfig | null>(null)
   const [savedChannelsConfig, setSavedChannelsConfig] = useState<ChannelsConfig | null>(null)
@@ -234,30 +236,30 @@ function SettingsPanel({
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const previousActiveTabRef = useRef<SettingsTabId | null>(null)
+  const previousActivePanelRef = useRef<SettingsPanelId | null>(null)
   useApplyThemeConfig(active ? (draft ?? savedConfig) : savedConfig, false)
 
   useEffect(() => {
     const nextRoute = resolveSettingsRoute(route)
-    setActiveTab(nextRoute.tab)
-    if (nextRoute.subTab) {
-      setActiveSubTab((current) => ({ ...current, [nextRoute.tab]: nextRoute.subTab! }))
+    setActivePanel(nextRoute.panel)
+    if (nextRoute.tab) {
+      setActivePanelTabs((current) => ({ ...current, [nextRoute.panel]: nextRoute.tab! }))
     }
   }, [route])
 
   const navigateToRoute = useCallback(
     (routeValue: string): void => {
       const nextRoute = resolveSettingsRoute(routeValue)
-      setActiveTab(nextRoute.tab)
-      setActiveSubTab((current) => {
-        const nextSubTab = nextRoute.subTab ?? current[nextRoute.tab]
-        return nextSubTab ? { ...current, [nextRoute.tab]: nextSubTab } : current
+      setActivePanel(nextRoute.panel)
+      setActivePanelTabs((current) => {
+        const nextPanelTab = nextRoute.tab ?? current[nextRoute.panel]
+        return nextPanelTab ? { ...current, [nextRoute.panel]: nextPanelTab } : current
       })
       onRouteChange(
-        serializeSettingsRoute(nextRoute.tab, nextRoute.subTab ?? activeSubTab[nextRoute.tab])
+        serializeSettingsRoute(nextRoute.panel, nextRoute.tab ?? activePanelTabs[nextRoute.panel])
       )
     },
-    [activeSubTab, onRouteChange]
+    [activePanelTabs, onRouteChange]
   )
 
   useEffect(() => {
@@ -422,7 +424,11 @@ function SettingsPanel({
     setSelectedProviderId(draft.providers[0]?.id ?? '')
   }, [draft, selectedProviderId])
 
-  const activeSettingsTab = TABS.find((tab) => tab.id === activeTab)!
+  const activeSettingsPanel = PANELS.find((panel) => panel.id === activePanel) ?? PANELS[0]
+  const activePanelTab =
+    activeSettingsPanel.tabs?.find((tab) => tab.id === activePanelTabs[activeSettingsPanel.id]) ??
+    activeSettingsPanel.tabs?.[0]
+  const activePanelTabId = activePanelTab?.id
   const validationError = validateConfig(draft)
   const isSettingsDirty = JSON.stringify(savedConfig) !== JSON.stringify(draft)
   const isChannelsDirty =
@@ -578,10 +584,10 @@ function SettingsPanel({
   handleSaveRef.current = handleSave
 
   useEffect(() => {
-    const previousActiveTab = previousActiveTabRef.current
-    previousActiveTabRef.current = activeTab
+    const previousActivePanel = previousActivePanelRef.current
+    previousActivePanelRef.current = activePanel
 
-    if (activeTab !== 'channels' || previousActiveTab === 'channels') {
+    if (activePanel !== 'channels' || previousActivePanel === 'channels') {
       return
     }
 
@@ -590,7 +596,7 @@ function SettingsPanel({
     }
 
     void loadChannelRecords({ force: true })
-  }, [activeTab, isChannelGroupsDirty, isChannelUsersDirty, loadChannelRecords])
+  }, [activePanel, isChannelGroupsDirty, isChannelUsersDirty, loadChannelRecords])
 
   const triggerSave = useCallback(async (): Promise<void> => {
     const activeElement = document.activeElement
@@ -621,11 +627,7 @@ function SettingsPanel({
 
   let body: React.ReactNode = (
     <PlaceholderPane
-      label={
-        activeSettingsTab.subTabs
-          ? `${activeSettingsTab.label} -> ${activeSettingsTab.subTabs.find((item) => item.id === activeSubTab[activeSettingsTab.id])?.label}`
-          : undefined
-      }
+      label={activePanelTab ? `${activeSettingsPanel.label} -> ${activePanelTab.label}` : undefined}
     />
   )
 
@@ -638,12 +640,12 @@ function SettingsPanel({
       </div>
     )
   } else if (draft) {
-    if (activeTab === 'general') {
-      if ((activeSubTab['general'] ?? 'general') === 'ui') {
+    if (activePanel === 'general') {
+      if ((activePanelTabs.general ?? 'behavior') === 'ui') {
         body = <UIPane draft={draft} onChange={setDraft} />
       } else {
         body = (
-          <GeneralPane
+          <BehaviorPane
             draft={draft}
             onChange={setDraft}
             userDocument={savedUserDocument}
@@ -669,7 +671,7 @@ function SettingsPanel({
           />
         )
       }
-    } else if (activeTab === 'providers') {
+    } else if (activePanel === 'providers') {
       body = (
         <ProvidersPane
           draft={draft}
@@ -678,15 +680,15 @@ function SettingsPanel({
           onChange={setDraft}
         />
       )
-    } else if (activeTab === 'chat') {
+    } else if (activePanel === 'chat') {
       body =
-        (activeSubTab['chat'] ?? 'threads') === 'essentials' ? (
+        (activePanelTabs.chat ?? 'threads') === 'essentials' ? (
           <EssentialsPane draft={draft} onChange={setDraft} />
         ) : (
           <ChatPane draft={draft} onChange={setDraft} />
         )
-    } else if (activeTab === 'capabilities') {
-      const tab = activeSubTab['capabilities'] ?? 'skills'
+    } else if (activePanel === 'capabilities') {
+      const tab = activePanelTabs.capabilities ?? 'skills'
       if (tab === 'coding-agents') {
         body = <CodingAgentsPane draft={draft} onChange={setDraft} />
       } else if (tab === 'prompts') {
@@ -696,8 +698,8 @@ function SettingsPanel({
       } else {
         body = <SkillsPane availableSkills={availableSkills} draft={draft} onChange={setDraft} />
       }
-    } else if (activeTab === 'source') {
-      const tab = activeSubTab['source'] ?? 'memory'
+    } else if (activePanel === 'source') {
+      const tab = activePanelTabs.source ?? 'memory'
       if (tab === 'activity') {
         body = <ActivityPane draft={draft} onChange={setDraft} />
       } else if (tab === 'search') {
@@ -705,7 +707,7 @@ function SettingsPanel({
       } else {
         body = <MemoryPane draft={draft} onChange={setDraft} />
       }
-    } else if (activeTab === 'channels') {
+    } else if (activePanel === 'channels') {
       if (isLoadingChannelsConfig) {
         body = (
           <div className="flex-1 overflow-y-auto flex items-center justify-center">
@@ -728,7 +730,7 @@ function SettingsPanel({
       } else {
         body = (
           <ChannelsPane
-            activeSubTab={activeSubTab['channels'] ?? 'general'}
+            activeTab={activePanelTabs.channels ?? 'general'}
             config={channelsDraft}
             onConfigChange={setChannelsDraft}
             users={channelUsersDraft}
@@ -741,27 +743,24 @@ function SettingsPanel({
           />
         )
       }
-    } else if (activeTab === 'schedules') {
+    } else if (activePanel === 'schedules') {
       body = (
         <SchedulePane
-          activeSubTab={activeSubTab['schedules'] ?? 'list'}
-          onNavigateToTab={navigateToRoute}
+          activeTab={activePanelTabs.schedules ?? 'list'}
+          onNavigateToRoute={navigateToRoute}
         />
       )
     }
   }
 
-  if (activeTab === 'usage') {
-    body = <UsagePane activeSubTab={activeSubTab['usage'] ?? 'usage'} />
+  if (activePanel === 'usage') {
+    body = <UsagePane activeTab={activePanelTabs.usage ?? 'usage'} />
   }
 
-  if (activeTab === 'about') {
+  if (activePanel === 'about') {
     body = draft ? <AboutPane draft={draft} onChange={setDraft} /> : body
   }
 
-  const activeSubTabLabel = activeSettingsTab.subTabs?.find(
-    (item) => item.id === activeSubTab[activeSettingsTab.id]
-  )?.label
   const statusText = error
     ? error
     : activeValidationError
@@ -775,15 +774,15 @@ function SettingsPanel({
 
   return children({
     content: body,
-    contentSubControls: activeSettingsTab.subTabs ? (
+    contentSubControls: activeSettingsPanel.tabs ? (
       <div className="no-drag flex min-w-0 items-center gap-1 overflow-x-auto px-4 py-2">
-        {activeSettingsTab.subTabs.map((subTab) => {
-          const isActive = activeSubTab[activeSettingsTab.id] === subTab.id
+        {activeSettingsPanel.tabs.map((tab) => {
+          const isActive = activePanelTabId === tab.id
           return (
             <button
-              key={subTab.id}
+              key={tab.id}
               onClick={() =>
-                navigateToRoute(serializeSettingsRoute(activeSettingsTab.id, subTab.id))
+                navigateToRoute(serializeSettingsRoute(activeSettingsPanel.id, tab.id))
               }
               className="rounded-full px-3 py-1.5 text-sm font-medium transition-colors"
               style={{
@@ -791,7 +790,7 @@ function SettingsPanel({
                 background: isActive ? alpha('ink', 0.06) : 'transparent'
               }}
             >
-              {subTab.label}
+              {tab.label}
             </button>
           )
         })}
@@ -804,7 +803,7 @@ function SettingsPanel({
             className="truncate text-sm font-semibold"
             style={{ color: theme.text.primary, letterSpacing: '-0.2px' }}
           >
-            {activeSubTabLabel ?? activeSettingsTab.label}
+            Settings
           </div>
         </div>
 

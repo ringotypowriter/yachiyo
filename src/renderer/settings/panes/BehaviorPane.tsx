@@ -20,7 +20,7 @@ import { hasPendingSoulDocumentChanges } from './soulDocumentEditorModel'
 import { UserDocumentTableEditor } from './UserDocumentTableEditor'
 import { hasPendingUserDocumentChanges } from './userDocumentEditorModel'
 
-interface GeneralPaneProps {
+interface BehaviorPaneProps {
   draft: SettingsConfig
   onChange: (next: SettingsConfig) => void
   userDocument: UserDocument | null
@@ -39,7 +39,7 @@ interface GeneralPaneProps {
   onRevertSoulDocument: () => void
 }
 
-export function GeneralPane({
+export function BehaviorPane({
   draft,
   onChange,
   userDocument,
@@ -56,7 +56,7 @@ export function GeneralPane({
   onLoadSoulDocument,
   onSoulDraftChange,
   onRevertSoulDocument
-}: GeneralPaneProps): React.ReactNode {
+}: BehaviorPaneProps): React.ReactNode {
   const [view, setView] = useState<'overview' | 'user-document' | 'soul-document'>('overview')
 
   const hasAttemptedUserDocumentLoadRef = useRef(false)
@@ -127,7 +127,7 @@ export function GeneralPane({
                 hasAttemptedUserDocumentLoadRef.current = false
               }}
             >
-              ← General
+              ← Behavior
             </button>
             <div className="text-lg font-semibold" style={{ color: theme.text.primary }}>
               USER.md
@@ -194,7 +194,7 @@ export function GeneralPane({
               hasAttemptedSoulLoadRef.current = false
             }}
           >
-            ← General
+            ← Behavior
           </button>
           <div className="mt-1 text-lg font-semibold" style={{ color: theme.text.primary }}>
             SOUL.md
