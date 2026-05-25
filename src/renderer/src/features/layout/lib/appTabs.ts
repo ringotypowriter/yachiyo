@@ -38,3 +38,11 @@ export function resolveAppTabFrameSidebarDividerOffset(
 ): number | null {
   return sidebarDividerOffset === null ? null : APP_TAB_BAR_WIDTH + sidebarDividerOffset
 }
+
+export function shouldShowAppTabFrameSidebarTopControls(isSidebarOpen: boolean): boolean {
+  return isSidebarOpen
+}
+
+export function resolveAppTabFrameTopChromeColumn(isSidebarOpen: boolean): string {
+  return isSidebarOpen ? '1 / 3' : '1 / 4'
+}

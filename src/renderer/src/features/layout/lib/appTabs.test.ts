@@ -7,6 +7,8 @@ import {
   appTabForThreadListMode,
   resolveAppTabBarBottomTools,
   resolveAppTabFrameSidebarDividerOffset,
+  resolveAppTabFrameTopChromeColumn,
+  shouldShowAppTabFrameSidebarTopControls,
   threadListModeForAppTab,
   type AppTabId
 } from './appTabs.ts'
@@ -45,4 +47,14 @@ test('sidebar divider offsets include the compact app rail width', () => {
 test('tabbar bottom tools keep ellipsis at the lowest position', () => {
   assert.deepEqual(resolveAppTabBarBottomTools(false), ['more'])
   assert.deepEqual(resolveAppTabBarBottomTools(true), ['update', 'more'])
+})
+
+test('app frame hides sidebar top controls when sidebar is collapsed', () => {
+  assert.equal(shouldShowAppTabFrameSidebarTopControls(false), false)
+  assert.equal(shouldShowAppTabFrameSidebarTopControls(true), true)
+})
+
+test('app frame top chrome stays out of the main column when sidebar is open', () => {
+  assert.equal(resolveAppTabFrameTopChromeColumn(true), '1 / 3')
+  assert.equal(resolveAppTabFrameTopChromeColumn(false), '1 / 4')
 })

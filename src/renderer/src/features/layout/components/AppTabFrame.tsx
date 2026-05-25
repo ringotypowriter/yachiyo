@@ -5,6 +5,8 @@ import {
   APP_TAB_BAR_WIDTH,
   APP_TOP_BAR_HEIGHT,
   APP_TRAFFIC_LIGHT_SAFE_WIDTH,
+  resolveAppTabFrameTopChromeColumn,
+  shouldShowAppTabFrameSidebarTopControls,
   type AppTabId
 } from '@renderer/features/layout/lib/appTabs'
 import { alpha, theme } from '@renderer/theme/theme'
@@ -43,6 +45,8 @@ export function AppTabFrame({
   visible = true
 }: AppTabFrameProps): React.JSX.Element {
   const chromeBackground = alpha('sidebar', 0.15)
+  const showSidebarTopControls = shouldShowAppTabFrameSidebarTopControls(isSidebarOpen)
+  const topChromeColumn = resolveAppTabFrameTopChromeColumn(isSidebarOpen)
 
   return (
     <div
@@ -59,17 +63,32 @@ export function AppTabFrame({
           <div
             className="drag-region flex min-w-0 items-center"
             style={{
-              gridColumn: '1 / 3',
+              gridColumn: topChromeColumn,
               gridRow: '1',
               background: chromeBackground,
               borderBottom: `1px solid ${theme.border.panel}`
             }}
           >
             <div className="h-full shrink-0" style={{ width: APP_TRAFFIC_LIGHT_SAFE_WIDTH }} />
-            <div className="no-drag flex h-full min-w-0 flex-1 items-center pr-3">
-              {sidebarTopControls}
-            </div>
+            {showSidebarTopControls ? (
+              <div className="no-drag flex h-full min-w-0 flex-1 items-center pr-3">
+                {sidebarTopControls}
+              </div>
+            ) : null}
           </div>
+          {!isSidebarOpen ? (
+            <div
+              className="drag-region flex min-w-0 items-center"
+              style={{
+                gridColumn: '1 / 4',
+                gridRow: '1',
+                marginLeft: APP_TRAFFIC_LIGHT_SAFE_WIDTH,
+                minWidth: 0
+              }}
+            >
+              {contentTopControls}
+            </div>
+          ) : null}
           <div style={{ gridColumn: '1', gridRow: '2', minHeight: 0 }}>
             <AppTabBar
               activeTab={activeTab}
@@ -102,7 +121,7 @@ export function AppTabFrame({
         className="flex min-w-0 flex-1"
         style={{
           gridColumn: '3',
-          gridRow: '1 / 3',
+          gridRow: isSidebarOpen ? '1 / 3' : '2',
           minWidth: 0,
           minHeight: 0,
           background: `linear-gradient(90deg, ${chromeBackground} 0%, ${theme.background.surfaceLight} 100%)`,
@@ -119,16 +138,18 @@ export function AppTabFrame({
             transition: 'border-radius 200ms ease, box-shadow 200ms ease'
           }}
         >
-          <div
-            className="drag-region flex shrink-0 items-center"
-            style={{
-              height: APP_TOP_BAR_HEIGHT,
-              borderBottom: `1px solid ${theme.border.panel}`,
-              position: 'relative'
-            }}
-          >
-            {contentTopControls}
-          </div>
+          {isSidebarOpen ? (
+            <div
+              className="drag-region flex shrink-0 items-center"
+              style={{
+                height: APP_TOP_BAR_HEIGHT,
+                borderBottom: `1px solid ${theme.border.panel}`,
+                position: 'relative'
+              }}
+            >
+              {contentTopControls}
+            </div>
+          ) : null}
           {contentSubControls ? (
             <div className="shrink-0" style={{ borderBottom: `1px solid ${theme.border.panel}` }}>
               {contentSubControls}

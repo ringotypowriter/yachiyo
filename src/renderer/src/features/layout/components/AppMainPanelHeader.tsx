@@ -1,9 +1,10 @@
 import type { ReactNode } from 'react'
-import { Eye, EyeOff, PanelLeft, PanelRight } from 'lucide-react'
+import { Activity, Eye, EyeOff, PanelLeft } from 'lucide-react'
 import type { Thread } from '@renderer/app/types'
 import { Tooltip } from '@renderer/components/Tooltip'
 import { ThreadHeaderActions } from '@renderer/features/layout/components/ThreadHeaderActions'
 import { ThreadHeaderTitle } from '@renderer/features/layout/components/ThreadHeaderTitle'
+import { shouldShowCenteredHeaderAccessory } from '@renderer/features/layout/lib/mainPanelHeaderLayout'
 import type { ThreadContextOperationKey } from '@renderer/features/threads/lib/threadContextOperations'
 import { theme } from '@renderer/theme/theme'
 
@@ -56,6 +57,11 @@ export function AppMainPanelHeader({
   showSidebarToggle,
   toggleSidebarTitle
 }: AppMainPanelHeaderProps): React.JSX.Element {
+  const showCenteredAccessory = shouldShowCenteredHeaderAccessory({
+    showSidebarToggle,
+    hasCenterAccessory: centerAccessory != null
+  })
+
   return (
     <div
       className="flex h-full min-w-0 flex-1 items-center"
@@ -92,14 +98,18 @@ export function AppMainPanelHeader({
           pointerEvents: 'none'
         }}
       >
-        <div style={{ pointerEvents: 'auto', minWidth: 0, overflow: 'hidden' }}>
-          <ThreadHeaderTitle
-            activeThread={activeThread}
-            centered={showSidebarToggle}
-            onOpenThreadWorkspace={onOpenThreadWorkspace}
-            onOpenInEditor={onOpenInEditor}
-            onOpenInTerminal={onOpenInTerminal}
-          />
+        <div className="no-drag" style={{ pointerEvents: 'auto', minWidth: 0, overflow: 'hidden' }}>
+          {showCenteredAccessory ? (
+            centerAccessory
+          ) : (
+            <ThreadHeaderTitle
+              activeThread={activeThread}
+              centered={showSidebarToggle}
+              onOpenThreadWorkspace={onOpenThreadWorkspace}
+              onOpenInEditor={onOpenInEditor}
+              onOpenInTerminal={onOpenInTerminal}
+            />
+          )}
         </div>
       </div>
 
@@ -186,7 +196,7 @@ export function AppMainPanelHeader({
               aria-label={isInspectionPanelOpen ? 'Close run inspector' : 'Open run inspector'}
               aria-pressed={isInspectionPanelOpen}
             >
-              <PanelRight size={16} strokeWidth={1.5} />
+              <Activity size={16} strokeWidth={1.5} />
             </button>
           </Tooltip>
         ) : null}
