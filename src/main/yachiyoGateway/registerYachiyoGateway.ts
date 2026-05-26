@@ -36,6 +36,7 @@ import type {
   RetryInput,
   RunModeId,
   SaveThreadInput,
+  SearchThreadsAndMessagesInput,
   SearchWorkspaceFilesInput,
   SetBrowserAutomationSessionBoundsInput,
   SettingsConfig,
@@ -663,7 +664,7 @@ export function registerYachiyoGateway(): YachiyoServer {
   startCommandSocketNow('initial startup')
   registerCommandSocketRecovery()
 
-  handleYachiyoIpc(IPC_CHANNELS.searchThreadsAndMessages, (input: { query: string }) =>
+  handleYachiyoIpc(IPC_CHANNELS.searchThreadsAndMessages, (input: SearchThreadsAndMessagesInput) =>
     server!.searchThreadsAndMessages(input)
   )
   handleYachiyoIpc(IPC_CHANNELS.searchWorkspaceFiles, (input: SearchWorkspaceFilesInput) =>

@@ -819,17 +819,19 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
       applyThreadSnapshot(storedThread, thread)
     },
 
-    searchThreadsAndMessages({ query }) {
+    searchThreadsAndMessages({ query, scope = 'active' }) {
       const trimmed = query.trim()
       if (trimmed.length === 0) {
         return []
       }
       const lower = trimmed.toLowerCase()
 
-      const activeThreads = [...threads.values()].filter((t) => t.archivedAt === null)
+      const searchedThreads = [...threads.values()].filter((t) =>
+        scope === 'archived' ? t.archivedAt !== null : t.archivedAt === null
+      )
 
       const titleMatchedIds = new Set(
-        activeThreads
+        searchedThreads
           .filter(
             (t) =>
               t.title.toLowerCase().includes(lower) ||
@@ -841,7 +843,8 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
       const messageMatchesByThread = new Map<string, { messageId: string; content: string }[]>()
       for (const message of messages) {
         const thread = threads.get(message.threadId)
-        if (!thread || thread.archivedAt !== null) continue
+        if (!thread) continue
+        if (scope === 'archived' ? thread.archivedAt === null : thread.archivedAt !== null) continue
         if (!message.content.toLowerCase().includes(lower)) continue
         const existing = messageMatchesByThread.get(message.threadId) ?? []
         existing.push({ messageId: message.id, content: message.content })
@@ -851,7 +854,7 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
       const allMatchedIds = new Set([...titleMatchedIds, ...messageMatchesByThread.keys()])
       if (allMatchedIds.size === 0) return []
 
-      const matchedThreads = activeThreads
+      const matchedThreads = searchedThreads
         .filter((t) => allMatchedIds.has(t.id))
         .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
         .slice(0, 30)

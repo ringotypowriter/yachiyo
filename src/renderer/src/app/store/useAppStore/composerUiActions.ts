@@ -283,11 +283,12 @@ export function createComposerUiActions(input: {
       }
     },
 
-    setActiveArchivedThread: (id) => {
+    setActiveArchivedThread: (id, scrollToMessageId) => {
       set((state) => ({
         activeArchivedThreadId: id,
         justDoneRunIdsByThread: setThreadStringValue(state.justDoneRunIdsByThread, id, null),
-        ...withFilterBase(state.sidebarFilter, 'archived')
+        ...withFilterBase(state.sidebarFilter, 'archived'),
+        scrollToMessageId: scrollToMessageId ?? null
       }))
       // Mark as read when the user opens an archived thread.
       void window.api.yachiyo.markThreadAsRead({ threadId: id }).then((updated) => {

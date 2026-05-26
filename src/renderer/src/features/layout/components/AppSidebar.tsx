@@ -67,18 +67,33 @@ export function AppSidebarTopControls({
       </div>
       <div className="flex min-w-0 items-center justify-end gap-1">
         {isArchivedMode ? (
-          hasUnreadArchived && (
-            <Tooltip content="Mark all as read" placement="bottom">
+          <>
+            <Tooltip content="Search archived chats" placement="bottom">
               <button
-                onClick={() => void handleMarkAllArchivedAsRead()}
-                className="p-1.5 rounded-md opacity-50 hover:opacity-80 transition-opacity"
-                style={{ color: theme.icon.default }}
-                aria-label="Mark all as read"
+                onClick={onOpenSearch}
+                className="p-1.5 rounded-md transition-opacity"
+                style={{
+                  color: theme.icon.default,
+                  opacity: isSearchOpen ? 0.9 : 0.5
+                }}
+                aria-label="Search archived chats"
               >
-                <CheckCheck size={15} strokeWidth={1.5} />
+                <Search size={15} strokeWidth={1.5} />
               </button>
             </Tooltip>
-          )
+            {hasUnreadArchived && (
+              <Tooltip content="Mark all as read" placement="bottom">
+                <button
+                  onClick={() => void handleMarkAllArchivedAsRead()}
+                  className="p-1.5 rounded-md opacity-50 hover:opacity-80 transition-opacity"
+                  style={{ color: theme.icon.default }}
+                  aria-label="Mark all as read"
+                >
+                  <CheckCheck size={15} strokeWidth={1.5} />
+                </button>
+              </Tooltip>
+            )}
+          </>
         ) : (
           <>
             <Tooltip content={toggleTitle} placement="bottom">
@@ -129,13 +144,14 @@ export function AppSidebarContent({
   onSearchSelect
 }: AppSidebarContentProps): React.JSX.Element {
   const setActiveThread = useAppStore((s) => s.setActiveThread)
+  const setActiveArchivedThread = useAppStore((s) => s.setActiveArchivedThread)
   const isArchivedMode = mode === 'archived'
 
   return (
     <>
       {!isArchivedMode && <EssentialsBar />}
       <AnimatePresence mode="wait" initial={false}>
-        {!isArchivedMode && isSearchOpen ? (
+        {isSearchOpen ? (
           <motion.div
             key="search"
             initial={{ opacity: 0 }}
@@ -145,14 +161,23 @@ export function AppSidebarContent({
             className="flex flex-col flex-1 min-h-0"
           >
             <SidebarSearch
+              scope={isArchivedMode ? 'archived' : 'active'}
               onClose={onCloseSearch}
               onSelectThread={(threadId, query) => {
-                setActiveThread(threadId)
-                onSearchSelect(query)
+                if (isArchivedMode) {
+                  setActiveArchivedThread(threadId)
+                } else {
+                  setActiveThread(threadId)
+                  onSearchSelect(query)
+                }
               }}
               onSelectMessage={(threadId, messageId, query) => {
-                setActiveThread(threadId, messageId)
-                onSearchSelect(query)
+                if (isArchivedMode) {
+                  setActiveArchivedThread(threadId, messageId)
+                } else {
+                  setActiveThread(threadId, messageId)
+                  onSearchSelect(query)
+                }
               }}
             />
           </motion.div>

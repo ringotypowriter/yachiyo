@@ -10,6 +10,7 @@ import { useMemo, useEffect, useRef, useState } from 'react'
 import { CheckCircle2, XCircle } from 'lucide-react'
 import { formatTokenCount } from '@renderer/lib/formatTokenCount'
 import type { Thread, Message, ToolCall, RunRecord } from '@renderer/app/types'
+import { useAppStore } from '@renderer/app/store/useAppStore'
 import type { ScheduleRunRecord } from '../../../../../shared/yachiyo/protocol.ts'
 import { theme, alpha } from '@renderer/theme/theme'
 import { MessageMarkdown } from '@renderer/lib/markdown/MessageMarkdown'
@@ -68,6 +69,8 @@ function ArchivedTimeline({
   const [runs, setRuns] = useState<RunRecord[]>([])
   const bottomRef = useRef<HTMLDivElement>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
+  const scrollToMessageId = useAppStore((s) => s.scrollToMessageId)
+  const clearScrollToMessageId = useAppStore((s) => s.clearScrollToMessageId)
 
   // Fetch on mount only — the parent remounts via key={threadId} so a new
   // archived thread always starts with a fresh local state.
@@ -86,6 +89,7 @@ function ArchivedTimeline({
   }, [threadId])
 
   useEffect(() => {
+    if (scrollToMessageId) return
     const container = scrollContainerRef.current
     const bottom = bottomRef.current
     if (!container || !bottom) return
@@ -109,7 +113,7 @@ function ArchivedTimeline({
       if (rafId !== null) cancelAnimationFrame(rafId)
       if (rafId2 !== null) cancelAnimationFrame(rafId2)
     }
-  }, [messages])
+  }, [messages, scrollToMessageId])
 
   // Walk the active branch from headMessageId to show the correct reply path,
   // not every branch. Falls back to flat filter if no head is set.
@@ -125,6 +129,28 @@ function ArchivedTimeline({
     () => resolveArchivedWorkspacePath(workspacePath, runs),
     [runs, workspacePath]
   )
+
+  useEffect(() => {
+    if (!scrollToMessageId || visibleMessages.length === 0) return
+    const targetMessageId = scrollToMessageId
+    let rafId: number | null = null
+    let rafId2: number | null = null
+
+    rafId = requestAnimationFrame(() => {
+      rafId2 = requestAnimationFrame(() => {
+        const el = scrollContainerRef.current?.querySelector(
+          `[data-message-id="${targetMessageId}"]`
+        )
+        el?.scrollIntoView(getNativeScrollIntoViewOptions('center'))
+        clearScrollToMessageId()
+      })
+    })
+
+    return () => {
+      if (rafId !== null) cancelAnimationFrame(rafId)
+      if (rafId2 !== null) cancelAnimationFrame(rafId2)
+    }
+  }, [clearScrollToMessageId, scrollToMessageId, visibleMessages])
 
   // Group tool calls by the assistant message they belong to so each branch in
   // a multi-reply thread shows its own execution history. Tool calls written

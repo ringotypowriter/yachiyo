@@ -348,7 +348,7 @@ export interface AppState {
   setScrollToMessageId: (messageId: string) => void
   clearScrollToMessageId: () => void
   setActiveThread: (id: string, scrollToMessageId?: string) => void
-  setActiveArchivedThread: (id: string) => void
+  setActiveArchivedThread: (id: string, scrollToMessageId?: string) => void
   openThreadFromNotification: (id: string, target?: NotificationThreadTarget) => void
   setComposerValue: (value: string) => void
   setComposerEnabledSkillNames: (enabledSkillNames: string[] | null) => void

@@ -55,6 +55,7 @@ import type {
   ThreadWorkspaceChangeDecision,
   ThreadWorkspaceChangeDecisionInput,
   ThreadWorkspaceUpdateInput,
+  SearchThreadsAndMessagesInput,
   ThreadSearchResult,
   ThreadSnapshot,
   ThreadStateReplacedEvent,
@@ -721,7 +722,7 @@ export class YachiyoServer {
     })
   }
 
-  searchThreadsAndMessages(input: { query: string }): ThreadSearchResult[] {
+  searchThreadsAndMessages(input: SearchThreadsAndMessagesInput): ThreadSearchResult[] {
     return this.storage.searchThreadsAndMessages(input)
   }
 

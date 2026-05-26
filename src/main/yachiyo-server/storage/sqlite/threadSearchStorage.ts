@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray, isNull, like, or } from 'drizzle-orm'
+import { and, asc, desc, eq, inArray, isNotNull, isNull, like, or } from 'drizzle-orm'
 
 import type { ThreadSearchResult } from '../../../../shared/yachiyo/protocol.ts'
 import {
@@ -19,12 +19,14 @@ export function createSqliteThreadSearchStorageMethods(input: {
   const { client, db } = input
 
   return {
-    searchThreadsAndMessages({ query }) {
+    searchThreadsAndMessages({ query, scope = 'active' }) {
       const trimmed = query.trim()
       if (trimmed.length === 0) {
         return []
       }
       const pattern = `%${trimmed.replace(/[%_]/g, '')}%`
+      const archivePredicate =
+        scope === 'archived' ? isNotNull(threadsTable.archivedAt) : isNull(threadsTable.archivedAt)
 
       const titleMatchedIds = new Set(
         db
@@ -32,7 +34,7 @@ export function createSqliteThreadSearchStorageMethods(input: {
           .from(threadsTable)
           .where(
             and(
-              isNull(threadsTable.archivedAt),
+              archivePredicate,
               or(like(threadsTable.title, pattern), like(threadsTable.preview, pattern))
             )
           )
@@ -50,11 +52,7 @@ export function createSqliteThreadSearchStorageMethods(input: {
         .from(messagesTable)
         .innerJoin(threadsTable, eq(messagesTable.threadId, threadsTable.id))
         .where(
-          and(
-            isNull(threadsTable.archivedAt),
-            like(messagesTable.content, pattern),
-            isNull(messagesTable.hidden)
-          )
+          and(archivePredicate, like(messagesTable.content, pattern), isNull(messagesTable.hidden))
         )
         .orderBy(desc(threadsTable.updatedAt), asc(messagesTable.createdAt))
         .all()

@@ -76,12 +76,14 @@ type SelectableItem =
   | { kind: 'message'; threadId: string; messageId: string }
 
 interface SidebarSearchProps {
+  scope?: 'active' | 'archived'
   onClose: () => void
   onSelectThread: (threadId: string, query: string) => void
   onSelectMessage: (threadId: string, messageId: string, query: string) => void
 }
 
 export function SidebarSearch({
+  scope = 'active',
   onClose,
   onSelectThread,
   onSelectMessage
@@ -142,7 +144,7 @@ export function SidebarSearch({
     setLoading(true)
     const timeout = setTimeout(async () => {
       try {
-        const res = await window.api.yachiyo.searchThreadsAndMessages({ query: trimmed })
+        const res = await window.api.yachiyo.searchThreadsAndMessages({ query: trimmed, scope })
         setResults(res)
       } catch {
         setResults([])
@@ -152,7 +154,7 @@ export function SidebarSearch({
     }, 280)
 
     return () => clearTimeout(timeout)
-  }, [query])
+  }, [query, scope])
 
   function selectItem(item: SelectableItem): void {
     if (item.kind === 'thread') {
@@ -196,7 +198,7 @@ export function SidebarSearch({
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={handleInputKeyDown}
-          placeholder="Search chats…"
+          placeholder={scope === 'archived' ? 'Search archived chats…' : 'Search chats…'}
           className="flex-1 bg-transparent text-sm outline-none min-w-0"
           style={{
             color: theme.text.primary,
@@ -223,7 +225,7 @@ export function SidebarSearch({
 
         {!loading && query.trim() && results.length === 0 && (
           <p className="px-4 py-3 text-xs" style={{ color: theme.text.muted }}>
-            No results
+            {scope === 'archived' ? 'No archived results' : 'No results'}
           </p>
         )}
 

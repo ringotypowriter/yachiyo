@@ -43,6 +43,7 @@ import type {
   ThreadWorkspaceChangeDecision,
   ThreadWorkspaceChangeDecisionInput,
   ThreadWorkspaceUpdateInput,
+  SearchThreadsAndMessagesInput,
   ThreadSearchResult,
   MemoryTermDocument,
   UpdateChannelGroupInput,
@@ -124,7 +125,9 @@ const api = {
     }
   },
   yachiyo: {
-    searchThreadsAndMessages: (input: { query: string }): Promise<ThreadSearchResult[]> =>
+    searchThreadsAndMessages: (
+      input: SearchThreadsAndMessagesInput
+    ): Promise<ThreadSearchResult[]> =>
       ipcRenderer.invoke('yachiyo:search-threads-and-messages', input),
     searchWorkspaceFiles: (input: SearchWorkspaceFilesInput) =>
       ipcRenderer.invoke('yachiyo:search-workspace-files', input),

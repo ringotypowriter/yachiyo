@@ -46,6 +46,7 @@ import type {
   ThreadColorTag,
   ThreadModelOverride,
   ThreadRuntimeBinding,
+  SearchThreadsAndMessagesInput,
   ThreadSearchResult,
   MemoryTermDocument,
   UpdateChannelGroupInput,
@@ -106,7 +107,9 @@ declare global {
         ) => () => void
       }
       yachiyo: {
-        searchThreadsAndMessages: (input: { query: string }) => Promise<ThreadSearchResult[]>
+        searchThreadsAndMessages: (
+          input: SearchThreadsAndMessagesInput
+        ) => Promise<ThreadSearchResult[]>
         searchWorkspaceFiles: (input: SearchWorkspaceFilesInput) => Promise<FileMentionCandidate[]>
         archiveThread: (input: { threadId: string }) => Promise<void>
         bootstrap: () => Promise<BootstrapPayload>

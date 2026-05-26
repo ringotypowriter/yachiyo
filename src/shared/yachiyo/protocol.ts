@@ -1393,6 +1393,11 @@ export interface ThreadSearchMessageMatch {
   createdAt?: string
 }
 
+export interface SearchThreadsAndMessagesInput {
+  query: string
+  scope?: 'active' | 'archived'
+}
+
 export interface ThreadSearchResult {
   threadId: string
   threadTitle: string

@@ -28,6 +28,7 @@ import type {
   ThreadColorTag,
   ThreadRuntimeBinding,
   ThreadRecord,
+  SearchThreadsAndMessagesInput,
   ThreadSearchResult,
   TodoItemRecord,
   ToolCallDetailsSnapshot,
@@ -337,7 +338,7 @@ export interface YachiyoStorage {
   createToolCall(toolCall: ToolCallRecord): void
   updateToolCall(toolCall: ToolCallRecord): void
   deleteMessages(input: DeleteMessagesInput): void
-  searchThreadsAndMessages(input: { query: string }): ThreadSearchResult[]
+  searchThreadsAndMessages(input: SearchThreadsAndMessagesInput): ThreadSearchResult[]
   searchThreadsAndMessagesFts(input: {
     query: string
     limit?: number

@@ -189,11 +189,29 @@ test('returns all message matches without cap', () => {
   assert.equal(hit.messageMatches.length, 5)
 })
 
-test('does not return archived threads', () => {
+test('does not return archived threads by default', () => {
   const storage = setupStorage()
   storage.archiveThread({ threadId: 'thread-1', archivedAt: NOW, updatedAt: NOW })
   const results = storage.searchThreadsAndMessages({ query: 'TypeScript' })
   assert.ok(!results.find((r) => r.threadId === 'thread-1'))
+})
+
+test('returns archived threads by title when scope is archived', () => {
+  const storage = setupStorage()
+  storage.archiveThread({ threadId: 'thread-1', archivedAt: NOW, updatedAt: NOW })
+  const results = storage.searchThreadsAndMessages({ query: 'TypeScript', scope: 'archived' })
+  const hit = results.find((r) => r.threadId === 'thread-1')
+  assert.ok(hit)
+  assert.equal(hit.titleMatched, true)
+})
+
+test('returns archived threads by message content when scope is archived', () => {
+  const storage = setupStorage()
+  storage.archiveThread({ threadId: 'thread-2', archivedAt: NOW, updatedAt: NOW })
+  const results = storage.searchThreadsAndMessages({ query: 'useState', scope: 'archived' })
+  const hit = results.find((r) => r.threadId === 'thread-2')
+  assert.ok(hit)
+  assert.equal(hit.messageMatches[0]?.messageId, 'msg-3')
 })
 
 test('searchThreadsAndMessagesFts excludes private threads by default', () => {
