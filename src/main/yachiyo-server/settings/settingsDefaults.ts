@@ -1,7 +1,5 @@
 import {
   DEFAULT_ACTIVE_RUN_ENTER_BEHAVIOR,
-  DEFAULT_ENABLED_TOOL_NAMES,
-  DEFAULT_RUN_MODE_ID,
   DEFAULT_SIDEBAR_VISIBILITY,
   DEFAULT_STRIP_COMPACT_TOKEN_THRESHOLD,
   DEFAULT_THEME_APPEARANCE,
@@ -13,8 +11,6 @@ import {
 
 export const DEFAULT_SETTINGS_CONFIG: SettingsConfig = {
   providers: [],
-  enabledTools: DEFAULT_ENABLED_TOOL_NAMES,
-  runMode: DEFAULT_RUN_MODE_ID,
   general: {
     sidebarVisibility: DEFAULT_SIDEBAR_VISIBILITY,
     sidebarPreview: true,

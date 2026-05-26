@@ -49,7 +49,7 @@ import { readSoulDocument, type SoulDocument } from '../../../../runtime/profile
 import { readUserDocument, type UserDocument } from '../../../../runtime/profiles/user.ts'
 import { rewriteRelativeMarkdownLinks } from '../../../../services/skills/skillContent.ts'
 import { resolveActiveSkills } from '../../../../services/skills/skillResolver.ts'
-import { resolveEnabledTools } from '../../config/configDomain.ts'
+import { resolveRunModeEnabledTools } from '../../../../../../shared/yachiyo/toolModes.ts'
 import { buildRecoveryHistory } from '../runRecovery.ts'
 import {
   buildAgentInstructions,
@@ -203,9 +203,7 @@ export async function prepareServerRunContext(
     (isExternalChannel && !isOwnerDm ? EXTERNAL_CHANNEL_MAX_TOOL_STEPS : DEFAULT_MAX_TOOL_STEPS)
   const modelEnabledTools = resolveModelEnabledTools({
     activeSkills,
-    enabledTools: isOwnerDm
-      ? resolveEnabledTools(undefined, deps.readConfig().enabledTools)
-      : input.enabledTools
+    enabledTools: isOwnerDm ? resolveRunModeEnabledTools('auto') : input.enabledTools
   })
   const guestUserPath = resolveYachiyoUserPath(workspacePath)
   const userDocument = isGuest

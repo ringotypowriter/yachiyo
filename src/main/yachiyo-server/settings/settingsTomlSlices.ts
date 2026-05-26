@@ -19,10 +19,8 @@ export const settingsTomlSlices: readonly TomlConfigSlice<SettingsConfig, TomlDo
       const enabledTools = readTomlArray(doc['enabledTools'])
       return enabledTools ? { enabledTools: enabledTools as SettingsConfig['enabledTools'] } : {}
     },
-    write(config) {
-      return {
-        enabledTools: config.enabledTools ?? DEFAULT_SETTINGS_CONFIG.enabledTools
-      }
+    write() {
+      return {}
     }
   },
   {
@@ -32,10 +30,8 @@ export const settingsTomlSlices: readonly TomlConfigSlice<SettingsConfig, TomlDo
         ? { runMode: doc['runMode'] as SettingsConfig['runMode'] }
         : {}
     },
-    write(config) {
-      return {
-        runMode: config.runMode ?? DEFAULT_SETTINGS_CONFIG.runMode
-      }
+    write() {
+      return {}
     }
   },
   {

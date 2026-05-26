@@ -5,11 +5,10 @@ import { DEFAULT_SETTINGS_CONFIG } from '../../../settings/settingsStore.ts'
 import type { SettingsConfig } from '../../../../../shared/yachiyo/protocol.ts'
 import { YachiyoServerConfigDomain } from './configDomain.ts'
 
-test('saveToolPreferences preserves custom enabled tools when no run mode is supplied', () => {
+test('saveToolPreferences ignores deprecated global tool preferences', () => {
   let config: SettingsConfig = {
     ...DEFAULT_SETTINGS_CONFIG,
-    enabledTools: ['read', 'bash'],
-    runMode: 'auto'
+    providers: []
   }
   const domain = new YachiyoServerConfigDomain({
     settingsStore: {
@@ -21,8 +20,9 @@ test('saveToolPreferences preserves custom enabled tools when no run mode is sup
     emit: () => {}
   })
 
-  const nextConfig = domain.saveToolPreferences({ enabledTools: ['read', 'edit'] })
+  const nextConfig = domain.saveToolPreferences({ enabledTools: ['read', 'edit'], runMode: 'chat' })
 
-  assert.deepEqual(nextConfig.enabledTools, ['read', 'edit'])
-  assert.equal(nextConfig.runMode, 'custom')
+  assert.deepEqual(nextConfig, config)
+  assert.equal(nextConfig.enabledTools, undefined)
+  assert.equal(nextConfig.runMode, undefined)
 })

@@ -18,8 +18,10 @@ test('run mode definitions expose expected tool sets', () => {
     'grep',
     'glob',
     'webRead',
+    'useBrowser',
     'webSearch',
-    'applyPatch'
+    'applyPatch',
+    'useSentinel'
   ])
   assert.deepEqual(resolveRunModeEnabledTools('explore'), [
     'read',
@@ -50,13 +52,14 @@ test('deriveRunModeId recognizes standard modes independent of tool order', () =
   assert.equal(deriveRunModeId([]), 'chat')
 })
 
-test('deriveRunModeId preserves legacy custom tool sets', () => {
-  assert.equal(deriveRunModeId(['read', 'bash']), 'custom')
+test('deriveRunModeId falls back to auto for legacy custom tool sets', () => {
+  assert.equal(deriveRunModeId(['read', 'bash']), 'auto')
 })
 
-test('normalizeRunModeId accepts only selectable run modes plus custom fallback', () => {
+test('normalizeRunModeId treats custom as a legacy invalid value', () => {
   assert.equal(normalizeRunModeId('explore'), 'explore')
-  assert.equal(normalizeRunModeId('custom'), 'custom')
+  assert.equal(normalizeRunModeId('custom'), 'auto')
+  assert.equal(normalizeRunModeId('custom', 'chat'), 'chat')
   assert.equal(normalizeRunModeId('plan', 'chat'), 'plan')
 })
 

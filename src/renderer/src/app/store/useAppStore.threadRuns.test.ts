@@ -2,7 +2,10 @@ import type { YachiyoPreloadYachiyoApi } from '../../../../preload/index.ts'
 
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { DEFAULT_ENABLED_TOOL_NAMES } from '../../../../shared/yachiyo/protocol.ts'
+import {
+  DEFAULT_ENABLED_TOOL_NAMES,
+  DEFAULT_RUN_MODE_ID
+} from '../../../../shared/yachiyo/protocol.ts'
 import { DEFAULT_SIDEBAR_FILTER, DEFAULT_SETTINGS, useAppStore } from './useAppStore.ts'
 
 const TIMESTAMP = '2026-03-15T00:00:00.000Z'
@@ -60,7 +63,8 @@ function resetStore(): void {
     },
     threadListMode: 'active',
     threads: [],
-    toolCalls: {}
+    toolCalls: {},
+    toolModeByThread: {}
   })
 }
 
@@ -336,7 +340,7 @@ test('sendMessage restores per-thread drafts and clears only the sent thread on 
     assert.deepEqual(calls, [
       {
         content: 'Alpha',
-        enabledTools: ['read', 'bash'],
+        enabledTools: DEFAULT_ENABLED_TOOL_NAMES,
         reasoningEffort: 'high',
         threadId: 'thread-1'
       }
@@ -353,6 +357,76 @@ test('sendMessage restores per-thread drafts and clears only the sent thread on 
     state.setActiveThread('thread-2')
     state = useAppStore.getState()
     assert.equal(state.composerDrafts['thread-2']?.text, 'Bravo')
+  } finally {
+    restoreWindow()
+  }
+})
+
+test('sendMessage drops staged custom tool sets for new threads and falls back to auto', async () => {
+  resetStore()
+
+  const createThreadCalls: unknown[] = []
+  const sendChatCalls: Array<{ enabledTools?: string[]; runMode?: string; threadId: string }> = []
+  const restoreWindow = withWindowApiMock({
+    createThread: async (input) => {
+      createThreadCalls.push(input)
+      return {
+        id: 'thread-1',
+        title: 'Thread one',
+        updatedAt: TIMESTAMP
+      }
+    },
+    sendChat: async (input) => {
+      sendChatCalls.push({
+        enabledTools: input.enabledTools,
+        runMode: input.runMode,
+        threadId: input.threadId
+      })
+
+      return {
+        kind: 'run-started',
+        runId: 'run-1',
+        thread: {
+          id: input.threadId,
+          title: 'Thread one',
+          updatedAt: TIMESTAMP
+        },
+        userMessage: {
+          id: 'user-1',
+          threadId: input.threadId,
+          role: 'user',
+          content: input.content,
+          status: 'completed',
+          createdAt: TIMESTAMP
+        }
+      }
+    }
+  })
+
+  try {
+    useAppStore.setState({
+      composerDrafts: {
+        __new__: {
+          text: 'Hello',
+          images: [],
+          files: []
+        }
+      },
+      settings: READY_SETTINGS
+    })
+
+    await useAppStore.getState().setEnabledTools(['read', 'bash'])
+    await useAppStore.getState().sendMessage()
+
+    assert.deepEqual(createThreadCalls, [{}])
+    assert.deepEqual(sendChatCalls, [
+      {
+        enabledTools: DEFAULT_ENABLED_TOOL_NAMES,
+        runMode: DEFAULT_RUN_MODE_ID,
+        threadId: 'thread-1'
+      }
+    ])
+    assert.equal(useAppStore.getState().toolModeByThread['thread-1'], undefined)
   } finally {
     restoreWindow()
   }
@@ -461,7 +535,7 @@ test('sendMessage routes active-run steer through the ordinary message path with
     assert.deepEqual(calls, [
       {
         content: 'Use the screenshot',
-        enabledTools: ['read', 'bash'],
+        enabledTools: DEFAULT_ENABLED_TOOL_NAMES,
         images: [
           {
             dataUrl: 'data:image/png;base64,AAAA',
@@ -860,7 +934,7 @@ test('retryMessage marks the accepted run as active immediately', async () => {
     assert.deepEqual(calls, [
       {
         enabledSkillNames: ['workspace-refactor'],
-        enabledTools: ['read', 'edit'],
+        enabledTools: DEFAULT_ENABLED_TOOL_NAMES,
         messageId: 'assistant-1',
         reasoningEffort: 'high',
         threadId: 'thread-1'

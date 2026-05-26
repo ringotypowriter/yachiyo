@@ -269,7 +269,7 @@ const defaultDisabledToolNameSet = new Set<ToolCallName>()
 export const DEFAULT_ENABLED_TOOL_NAMES = USER_MANAGED_TOOL_NAMES.filter(
   (name) => !defaultDisabledToolNameSet.has(name)
 ) as ToolCallName[]
-export const DEFAULT_RUN_MODE_ID: RunModeId = 'auto'
+export const DEFAULT_RUN_MODE_ID: SelectableRunModeId = 'auto'
 export const DEFAULT_ACTIVE_RUN_ENTER_BEHAVIOR: ActiveRunEnterBehavior = 'enter-steers'
 export const DEFAULT_SIDEBAR_VISIBILITY: SidebarVisibility = 'expanded'
 export const DEFAULT_THEME_ID: ThemeId = 'mizu'

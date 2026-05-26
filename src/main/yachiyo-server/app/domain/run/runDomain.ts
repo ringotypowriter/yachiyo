@@ -23,6 +23,7 @@ import type {
   ToolCallName
 } from '../../../../../shared/yachiyo/protocol.ts'
 import {
+  DEFAULT_RUN_MODE_ID,
   getThreadCapabilities,
   normalizeSkillNames
 } from '../../../../../shared/yachiyo/protocol.ts'
@@ -418,17 +419,16 @@ export class YachiyoServerRunDomain {
       throw new Error('This thread already has an active run.')
     }
 
-    const config = this.deps.readConfig()
     const runMode = resolveRunModeId({
       enabledTools: input.enabledTools,
       runMode: input.runMode,
-      fallbackEnabledTools: config.enabledTools,
-      fallbackRunMode: config.runMode
+      fallbackEnabledTools: thread.enabledTools,
+      fallbackRunMode: thread.runMode ?? DEFAULT_RUN_MODE_ID
     })
     const enabledTools = resolveRunModeEnabledToolsForInput({
       enabledTools: input.enabledTools,
       runMode,
-      fallbackEnabledTools: config.enabledTools
+      fallbackEnabledTools: thread.enabledTools
     })
     const enabledSkillNames =
       input.enabledSkillNames === undefined
@@ -566,14 +566,10 @@ export class YachiyoServerRunDomain {
         createdAt: timestamp
       }
 
-      const config = this.deps.readConfig()
-      const runMode = resolveRunModeId({
-        enabledTools: config.enabledTools,
-        runMode: config.runMode
-      })
+      const runMode = thread.runMode ?? DEFAULT_RUN_MODE_ID
       const enabledTools = resolveRunModeEnabledToolsForInput({
         runMode,
-        fallbackEnabledTools: config.enabledTools
+        fallbackEnabledTools: thread.enabledTools
       })
 
       return new Promise<string | null>((resolve) => {

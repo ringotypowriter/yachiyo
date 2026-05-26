@@ -16,7 +16,10 @@ import type {
   ThreadUpdatedEvent,
   ToolCallName
 } from '../../../../../../shared/yachiyo/protocol.ts'
-import { normalizeSkillNames } from '../../../../../../shared/yachiyo/protocol.ts'
+import {
+  DEFAULT_RUN_MODE_ID,
+  normalizeSkillNames
+} from '../../../../../../shared/yachiyo/protocol.ts'
 import {
   hasMessagePayload,
   normalizeMessageImages,
@@ -85,22 +88,21 @@ export async function sendChatFlow(
   const { deps } = context
   const rawContent = input.content.trim()
   const images = normalizeMessageImages(input.images)
-  const config = deps.readConfig()
+  const thread = deps.requireThread(input.threadId)
   const runMode = resolveRunModeId({
     enabledTools: input.enabledTools,
     runMode: input.runMode,
-    fallbackEnabledTools: config.enabledTools,
-    fallbackRunMode: config.runMode
+    fallbackEnabledTools: thread.enabledTools,
+    fallbackRunMode: thread.runMode ?? DEFAULT_RUN_MODE_ID
   })
   const enabledTools = resolveRunModeEnabledToolsForInput({
     enabledTools: input.enabledTools,
     runMode,
-    fallbackEnabledTools: config.enabledTools
+    fallbackEnabledTools: thread.enabledTools
   })
   const enabledSkillNames =
     input.enabledSkillNames === undefined ? undefined : normalizeSkillNames(input.enabledSkillNames)
 
-  const thread = deps.requireThread(input.threadId)
   const reasoningEffort = input.reasoningEffort ?? thread.reasoningEffort
   const content = rawContent
   const rawMode = input.mode ?? 'normal'

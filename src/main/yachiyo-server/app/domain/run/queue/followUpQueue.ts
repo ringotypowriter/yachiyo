@@ -9,14 +9,18 @@ import type {
   ThreadStateReplacedEvent
 } from '../../../../../../shared/yachiyo/protocol.ts'
 import {
+  DEFAULT_RUN_MODE_ID,
   normalizeSkillNames,
   type ToolCallName
 } from '../../../../../../shared/yachiyo/protocol.ts'
 import { summarizeMessageInput } from '../../../../../../shared/yachiyo/messageContent.ts'
 import { wouldCreateParentCycle } from '../../../../../../shared/yachiyo/threadTree.ts'
 import type { BootstrapState, RunRecoveryCheckpoint } from '../../../../storage/storage.ts'
-import { resolveEnabledTools } from '../../config/configDomain.ts'
-import { deriveRunModeId } from '../../../../../../shared/yachiyo/toolModes.ts'
+import {
+  deriveRunModeId,
+  normalizeRunModeId,
+  resolveRunModeEnabledTools
+} from '../../../../../../shared/yachiyo/toolModes.ts'
 import { createRunEventMetadata } from '../../shared/runEventMetadata.ts'
 import type { StartActiveRunInput } from '../active/activeRunStart.ts'
 import { withParentMessageId } from '../chat/threadMessages.ts'
@@ -477,12 +481,13 @@ function prepareQueuedFollowUpStart(
   const reasoningEffort = draft?.reasoningEffort ?? thread.queuedFollowUpReasoningEffort
   const runTrigger = draft?.runTrigger ?? 'local'
 
-  const enabledTools = draft
-    ? [...draft.enabledTools]
-    : thread.queuedFollowUpEnabledTools
-      ? [...thread.queuedFollowUpEnabledTools]
-      : resolveEnabledTools(undefined, context.deps.readConfig().enabledTools)
-  const runMode = draft?.runMode ?? deriveRunModeId(enabledTools)
+  const storedRunMode =
+    draft?.runMode ??
+    (thread.queuedFollowUpEnabledTools
+      ? deriveRunModeId(thread.queuedFollowUpEnabledTools)
+      : (thread.runMode ?? DEFAULT_RUN_MODE_ID))
+  const runMode = normalizeRunModeId(storedRunMode)
+  const enabledTools = resolveRunModeEnabledTools(runMode)
   const enabledSkillNames = draft
     ? draft.enabledSkillNames
     : thread.queuedFollowUpEnabledSkillNames === undefined

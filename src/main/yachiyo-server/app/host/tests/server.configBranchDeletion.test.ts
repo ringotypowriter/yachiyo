@@ -436,21 +436,14 @@ test('YachiyoServer updates an existing provider by id when the name changes', a
   })
 })
 
-test('YachiyoServer persists shared app config changes across tool and layout settings', async () => {
+test('YachiyoServer persists shared app config changes without global tool settings', async () => {
   await withServer(async ({ server, waitForEvent }) => {
-    const toolPreferencesUpdated = waitForEvent('settings.updated')
     const toolPreferences = await server.saveToolPreferences({
       enabledTools: ['read', 'edit']
     })
 
-    const toolPreferencesEvent = (await toolPreferencesUpdated) as {
-      config: { enabledTools?: string[] }
-      settings: { providerName: string }
-    }
-
-    assert.deepEqual(toolPreferences.enabledTools, ['read', 'edit'])
-    assert.deepEqual(toolPreferencesEvent.config.enabledTools, ['read', 'edit'])
-    assert.equal(toolPreferencesEvent.settings.providerName, '')
+    assert.equal(toolPreferences.enabledTools, undefined)
+    assert.equal(toolPreferences.runMode, undefined)
 
     const configUpdated = waitForEvent('settings.updated')
     const config = await server.saveConfig({
@@ -466,20 +459,24 @@ test('YachiyoServer persists shared app config changes across tool and layout se
     const configEvent = (await configUpdated) as {
       config: {
         enabledTools?: string[]
+        runMode?: string
         general?: { sidebarVisibility?: string }
         chat?: { activeRunEnterBehavior?: string }
       }
     }
 
-    assert.deepEqual(config.enabledTools, ['read', 'edit'])
+    assert.equal(config.enabledTools, undefined)
+    assert.equal(config.runMode, undefined)
     assert.equal(config.general?.sidebarVisibility, 'collapsed')
     assert.equal(config.chat?.activeRunEnterBehavior, 'enter-queues-follow-up')
-    assert.deepEqual(configEvent.config.enabledTools, ['read', 'edit'])
+    assert.equal(configEvent.config.enabledTools, undefined)
+    assert.equal(configEvent.config.runMode, undefined)
     assert.equal(configEvent.config.general?.sidebarVisibility, 'collapsed')
     assert.equal(configEvent.config.chat?.activeRunEnterBehavior, 'enter-queues-follow-up')
 
     const bootstrapped = await server.bootstrap()
-    assert.deepEqual(bootstrapped.config.enabledTools, ['read', 'edit'])
+    assert.equal(bootstrapped.config.enabledTools, undefined)
+    assert.equal(bootstrapped.config.runMode, undefined)
     assert.equal(bootstrapped.config.general?.sidebarVisibility, 'collapsed')
     assert.equal(bootstrapped.config.chat?.activeRunEnterBehavior, 'enter-queues-follow-up')
   })

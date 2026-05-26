@@ -1,11 +1,9 @@
 import {
   DEFAULT_ENABLED_TOOL_NAMES,
-  DEFAULT_RUN_MODE_ID,
   type ImportWebSearchBrowserSessionInput,
   normalizeUserEnabledTools,
   type SettingsConfig,
   type SettingsUpdatedEvent,
-  type SelectableRunModeId,
   type ToolCallName,
   type ToolPreferencesInput,
   type WebSearchBrowserImportSource,
@@ -15,7 +13,6 @@ import {
   type ProviderSettings
 } from '../../../../../shared/yachiyo/protocol.ts'
 import {
-  deriveRunModeId,
   normalizeRunModeId,
   resolveRunModeEnabledTools
 } from '../../../../../shared/yachiyo/toolModes.ts'
@@ -69,12 +66,8 @@ export function resolveRunModeEnabledToolsForInput(input: {
   runMode?: unknown
   fallbackEnabledTools?: readonly ToolCallName[]
 }): ToolCallName[] {
-  const runMode = normalizeRunModeId(input.runMode, 'custom')
-  if (runMode !== 'custom') {
-    return resolveRunModeEnabledTools(runMode as SelectableRunModeId)
-  }
-
-  return resolveEnabledTools(input.enabledTools, input.fallbackEnabledTools)
+  const runMode = normalizeRunModeId(input.runMode)
+  return resolveRunModeEnabledTools(runMode)
 }
 
 function upsertProviderConfig(config: SettingsConfig, provider: ProviderConfig): SettingsConfig {
@@ -242,26 +235,9 @@ export class YachiyoServerConfigDomain {
     return toProviderSettings(nextConfig)
   }
 
-  saveToolPreferences(input: ToolPreferencesInput): SettingsConfig {
-    const current = this.readConfig()
-    if (input.runMode === undefined) {
-      const enabledTools = resolveEnabledTools(input.enabledTools, current.enabledTools)
-      return this.persistConfig({
-        ...current,
-        enabledTools,
-        runMode: deriveRunModeId(enabledTools)
-      })
-    }
-
-    const runMode = normalizeRunModeId(input.runMode, current.runMode ?? DEFAULT_RUN_MODE_ID)
-    return this.persistConfig({
-      ...current,
-      enabledTools:
-        runMode === 'custom'
-          ? resolveEnabledTools(input.enabledTools, current.enabledTools)
-          : resolveRunModeEnabledTools(runMode),
-      runMode
-    })
+  saveToolPreferences(input?: ToolPreferencesInput): SettingsConfig {
+    void input
+    return this.readConfig()
   }
 
   async listWebSearchBrowserImportSources(): Promise<WebSearchBrowserImportSource[]> {

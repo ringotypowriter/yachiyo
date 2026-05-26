@@ -4,6 +4,7 @@ import { basename, resolve } from 'node:path'
 import type {
   ComposerReasoningSelection,
   MessageRecord,
+  RunModeId,
   SaveThreadInput,
   SaveThreadResult,
   ThreadArchivedEvent,
@@ -27,7 +28,7 @@ import {
   normalizeUserEnabledTools,
   withThreadCapabilities
 } from '../../../../../shared/yachiyo/protocol.ts'
-import { deriveRunModeId } from '../../../../../shared/yachiyo/toolModes.ts'
+import { deriveRunModeId, normalizeRunModeId } from '../../../../../shared/yachiyo/toolModes.ts'
 import {
   summarizeMessageInput,
   summarizeMessagePreview
@@ -191,6 +192,7 @@ export class YachiyoServerThreadDomain {
       privacyMode?: boolean
       modelOverride?: ThreadModelOverride
       enabledTools?: ToolCallName[]
+      runMode?: RunModeId
       reasoningEffort?: ComposerReasoningSelection
     } = {}
   ): Promise<ThreadRecord> {
@@ -200,10 +202,14 @@ export class YachiyoServerThreadDomain {
     const channelUserRole = input.channelUserId
       ? this.deps.storage.getChannelUser(input.channelUserId)?.role
       : undefined
-    const enabledTools = input.enabledTools
+    const legacyEnabledTools = input.enabledTools
       ? normalizeUserEnabledTools(input.enabledTools, [])
       : undefined
-    const runMode = enabledTools ? deriveRunModeId(enabledTools) : undefined
+    const runMode = input.runMode
+      ? normalizeRunModeId(input.runMode)
+      : legacyEnabledTools
+        ? deriveRunModeId(legacyEnabledTools)
+        : undefined
     const thread = withThreadCapabilities({
       id: input.threadId ?? this.deps.createId(),
       title: input.title ?? DEFAULT_THREAD_TITLE,
@@ -223,7 +229,6 @@ export class YachiyoServerThreadDomain {
         : {}),
       ...(input.handoffFromThreadId ? { handoffFromThreadId: input.handoffFromThreadId } : {}),
       ...(input.modelOverride ? { modelOverride: input.modelOverride } : {}),
-      ...(enabledTools ? { enabledTools } : {}),
       ...(runMode ? { runMode } : {}),
       ...(input.reasoningEffort ? { reasoningEffort: input.reasoningEffort } : {})
     })
@@ -964,14 +969,21 @@ export class YachiyoServerThreadDomain {
     return updatedThread
   }
 
-  setThreadToolMode(input: { threadId: string; enabledTools: ToolCallName[] }): ThreadRecord {
+  setThreadToolMode(input: {
+    threadId: string
+    enabledTools: ToolCallName[]
+    runMode?: RunModeId
+  }): ThreadRecord {
     const thread = this.deps.requireThread(input.threadId)
     const enabledTools = normalizeUserEnabledTools(input.enabledTools, thread.enabledTools ?? [])
+    const runMode = input.runMode
+      ? normalizeRunModeId(input.runMode)
+      : deriveRunModeId(enabledTools)
     const updatedThread: ThreadRecord = {
       ...thread,
-      enabledTools,
-      runMode: deriveRunModeId(enabledTools)
+      runMode
     }
+    delete updatedThread.enabledTools
 
     this.deps.storage.updateThread(updatedThread)
     this.deps.emit<ThreadUpdatedEvent>({

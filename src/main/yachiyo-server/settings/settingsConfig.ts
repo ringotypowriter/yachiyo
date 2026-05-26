@@ -1,11 +1,9 @@
 import {
-  normalizeUserEnabledTools,
   normalizeUserPrompts,
   type ProviderSettings,
   type SettingsConfig,
   type ThreadModelOverride
 } from '../../../shared/yachiyo/protocol.ts'
-import { resolveRunModeId } from '../../../shared/yachiyo/toolModes.ts'
 import {
   createDisabledToolModelConfig,
   resolveToolModelProvider,
@@ -43,20 +41,8 @@ export function normalizeSettingsConfig(value: unknown): SettingsConfig {
   const subagentProfiles = normalizeSubagentProfiles(input['subagentProfiles'])
   const essentials = normalizeEssentials(input['essentials'])
 
-  const enabledTools = normalizeUserEnabledTools(
-    input['enabledTools'],
-    DEFAULT_SETTINGS_CONFIG.enabledTools
-  )
-  const runMode = resolveRunModeId({
-    enabledTools,
-    runMode: input['runMode'],
-    fallbackRunMode: DEFAULT_SETTINGS_CONFIG.runMode
-  })
-
   return {
     ...(defaultModel ? { defaultModel } : {}),
-    enabledTools,
-    runMode,
     general: normalizeGeneralConfig(input['general']),
     chat: normalizeChatConfig(input['chat']),
     workspace: normalizeWorkspaceConfig(input['workspace']),

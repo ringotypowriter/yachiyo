@@ -1,11 +1,12 @@
 import type { AppState } from '../useAppStore.ts'
-import type { Message, YachiyoServerEvent } from '../../types.ts'
-import {
-  DEFAULT_ENABLED_TOOL_NAMES,
-  DEFAULT_RUN_MODE_ID,
-  normalizeUserEnabledTools
-} from '../../../../../shared/yachiyo/protocol.ts'
+import type { ComposerToolMode } from './helpers.ts'
+import type { Message, Thread, YachiyoServerEvent } from '../../types.ts'
+import { DEFAULT_RUN_MODE_ID } from '../../../../../shared/yachiyo/protocol.ts'
 import { isVisibleExternalThread } from '../../../features/threads/lib/threadVisibility.ts'
+import {
+  deriveRunModeId,
+  resolveRunModeEnabledTools
+} from '../../../../../shared/yachiyo/toolModes.ts'
 import {
   DEFAULT_SETTINGS,
   appendSubagentProgressEntry,
@@ -40,6 +41,16 @@ import {
   upsertToolCall,
   withFilterBase
 } from './helpers.ts'
+
+function getThreadEventToolMode(thread: Thread): ComposerToolMode | undefined {
+  if (!thread.enabledTools && !thread.runMode) return undefined
+  const storedRunMode = thread.runMode ?? deriveRunModeId(thread.enabledTools)
+  const runMode = storedRunMode === 'custom' ? DEFAULT_RUN_MODE_ID : storedRunMode
+  return {
+    enabledTools: resolveRunModeEnabledTools(runMode),
+    runMode
+  }
+}
 
 export function reduceServerEvent(state: AppState, event: YachiyoServerEvent): Partial<AppState> {
   if (event.type === 'thread.archived') {
@@ -205,6 +216,7 @@ export function reduceServerEvent(state: AppState, event: YachiyoServerEvent): P
       Boolean(event.thread.headMessageId) &&
       event.thread.headMessageId !== (state.activeRequestMessageIdsByThread[event.threadId] ?? null)
 
+    const threadToolMode = getThreadEventToolMode(event.thread)
     const nextState = {
       ...state,
       activeRequestMessageIdsByThread: setThreadStringValue(
@@ -230,28 +242,15 @@ export function reduceServerEvent(state: AppState, event: YachiyoServerEvent): P
       toolModeByThread: setThreadToolModeValue(
         state.toolModeByThread,
         event.threadId,
-        event.thread.enabledTools || event.thread.runMode
-          ? {
-              enabledTools: normalizeUserEnabledTools(
-                event.thread.enabledTools,
-                state.config?.enabledTools ?? DEFAULT_ENABLED_TOOL_NAMES
-              ),
-              runMode: event.thread.runMode ?? state.config?.runMode ?? DEFAULT_RUN_MODE_ID
-            }
-          : undefined
+        threadToolMode
       ),
       enabledTools:
-        state.activeThreadId === event.threadId &&
-        (event.thread.enabledTools || event.thread.runMode)
-          ? normalizeUserEnabledTools(
-              event.thread.enabledTools,
-              state.config?.enabledTools ?? DEFAULT_ENABLED_TOOL_NAMES
-            )
+        state.activeThreadId === event.threadId && threadToolMode
+          ? threadToolMode.enabledTools
           : state.enabledTools,
       runMode:
-        state.activeThreadId === event.threadId &&
-        (event.thread.enabledTools || event.thread.runMode)
-          ? (event.thread.runMode ?? state.config?.runMode ?? DEFAULT_RUN_MODE_ID)
+        state.activeThreadId === event.threadId && threadToolMode
+          ? threadToolMode.runMode
           : state.runMode,
       threads: upsertThread(state.threads, event.thread)
     }
@@ -303,6 +302,7 @@ export function reduceServerEvent(state: AppState, event: YachiyoServerEvent): P
       [event.threadId]: event.toolCalls
     }
 
+    const threadToolMode = getThreadEventToolMode(event.thread)
     const nextState = {
       ...state,
       activeRequestMessageIdsByThread: setThreadStringValue(
@@ -323,15 +323,7 @@ export function reduceServerEvent(state: AppState, event: YachiyoServerEvent): P
       toolModeByThread: setThreadToolModeValue(
         state.toolModeByThread,
         event.threadId,
-        event.thread.enabledTools || event.thread.runMode
-          ? {
-              enabledTools: normalizeUserEnabledTools(
-                event.thread.enabledTools,
-                state.config?.enabledTools ?? DEFAULT_ENABLED_TOOL_NAMES
-              ),
-              runMode: event.thread.runMode ?? state.config?.runMode ?? DEFAULT_RUN_MODE_ID
-            }
-          : undefined
+        threadToolMode
       ),
       latestRunsByThread: hadMessageDecrease
         ? stripLatestRunTokens(state.latestRunsByThread, event.threadId)
@@ -353,12 +345,8 @@ export function reduceServerEvent(state: AppState, event: YachiyoServerEvent): P
   if (event.type === 'settings.updated') {
     return {
       config: event.config ?? state.config,
-      enabledTools: state.activeThreadId
-        ? state.enabledTools
-        : normalizeUserEnabledTools(event.config?.enabledTools, state.enabledTools),
-      runMode: state.activeThreadId
-        ? state.runMode
-        : (event.config?.runMode ?? state.runMode ?? DEFAULT_RUN_MODE_ID),
+      enabledTools: state.enabledTools,
+      runMode: state.runMode,
       lastError: null,
       settings: event.settings ?? state.settings ?? DEFAULT_SETTINGS
     }

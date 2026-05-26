@@ -91,7 +91,7 @@ export function resolveRunModeEnabledTools(runMode: SelectableRunModeId): ToolCa
   return [...RUN_MODE_DEFINITIONS[runMode].enabledTools]
 }
 
-export function deriveRunModeId(enabledTools: unknown): RunModeId {
+export function deriveRunModeId(enabledTools: unknown): SelectableRunModeId {
   const normalizedTools = normalizeUserEnabledTools(enabledTools, [])
 
   for (const runMode of SELECTABLE_RUN_MODE_IDS) {
@@ -100,15 +100,14 @@ export function deriveRunModeId(enabledTools: unknown): RunModeId {
     }
   }
 
-  return 'custom'
+  return 'auto'
 }
 
-export function normalizeRunModeId(value: unknown, fallback: RunModeId = 'auto'): RunModeId {
-  return value === 'auto' ||
-    value === 'explore' ||
-    value === 'plan' ||
-    value === 'chat' ||
-    value === 'custom'
+export function normalizeRunModeId(
+  value: unknown,
+  fallback: SelectableRunModeId = 'auto'
+): SelectableRunModeId {
+  return value === 'auto' || value === 'explore' || value === 'plan' || value === 'chat'
     ? value
     : fallback
 }
@@ -129,7 +128,7 @@ export function resolveRunModeId(input: {
   }
 
   if (input.runMode === 'custom') {
-    return 'custom'
+    return normalizeRunModeId(input.fallbackRunMode)
   }
 
   if (Array.isArray(input.enabledTools)) {
@@ -137,7 +136,7 @@ export function resolveRunModeId(input: {
   }
 
   if (input.fallbackRunMode) {
-    return input.fallbackRunMode
+    return normalizeRunModeId(input.fallbackRunMode)
   }
 
   return deriveRunModeId(input.fallbackEnabledTools ?? USER_MANAGED_TOOL_NAMES)

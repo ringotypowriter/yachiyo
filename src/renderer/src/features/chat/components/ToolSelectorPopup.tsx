@@ -173,22 +173,6 @@ export function ToolSelectorPopup({
             </button>
           )
         })}
-
-        {runMode === 'custom' ? (
-          <div
-            style={{
-              margin: '4px 12px 2px',
-              padding: '8px 10px',
-              borderRadius: 10,
-              background: theme.background.surfaceMuted,
-              color: theme.text.muted,
-              fontSize: 12,
-              lineHeight: 1.45
-            }}
-          >
-            Custom legacy tool set is active. Choose a mode to replace it.
-          </div>
-        ) : null}
       </div>
 
       <div

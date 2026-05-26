@@ -21,7 +21,7 @@ import { buildThreadHandoffPrompt } from '../../../../runtime/context/threadHand
 import type { ModelUsage } from '../../../../runtime/models/types.ts'
 import { toEffectiveProviderSettings } from '../../../../settings/settingsStore.ts'
 import { createAgentToolSet, ReadRecordCache } from '../../../../tools/agentTools.ts'
-import { resolveEnabledTools } from '../../config/configDomain.ts'
+import { resolveRunModeEnabledTools } from '../../../../../../shared/yachiyo/toolModes.ts'
 import { createRunEventMetadata } from '../../shared/runEventMetadata.ts'
 import { createDeltaBatcher, DEFAULT_THREAD_TITLE } from '../../shared/shared.ts'
 import { buildTitleQuery, deriveThreadTitleFallback } from '../../threads/threadTitle.ts'
@@ -119,8 +119,9 @@ export async function streamCompactThreadHandoff(
       status: 'completed',
       createdAt: deps.timestamp()
     }
-    const sourceEnabledTools =
-      sourceTurnContext?.enabledTools ?? resolveEnabledTools(undefined, config.enabledTools)
+    const storedSourceRunMode = sourceTurnContext?.runMode ?? sourceThread.runMode ?? 'auto'
+    const sourceRunMode = storedSourceRunMode === 'custom' ? 'auto' : storedSourceRunMode
+    const sourceEnabledTools = resolveRunModeEnabledTools(sourceRunMode)
     const preparedContext = await prepareServerRunContext(
       {
         storage: deps.storage,
@@ -155,7 +156,7 @@ export async function streamCompactThreadHandoff(
         requestMessage: handoffRequestMessage,
         historyMessages: [...input.sourceMessages, handoffRequestMessage],
         enabledTools: sourceEnabledTools,
-        runMode: sourceTurnContext?.runMode ?? 'auto',
+        runMode: sourceRunMode,
         runTrigger: 'local',
         ...(sourceTurnContext?.enabledSkillNames !== undefined
           ? { enabledSkillNames: sourceTurnContext.enabledSkillNames }

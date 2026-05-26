@@ -1,10 +1,12 @@
 import {
+  DEFAULT_RUN_MODE_ID,
   normalizeUserEnabledTools,
   normalizeSkillNames,
   type RunModeId
 } from '../../../../../shared/yachiyo/protocol.ts'
 import {
   deriveRunModeId,
+  normalizeRunModeId,
   resolveRunModeEnabledTools
 } from '../../../../../shared/yachiyo/toolModes.ts'
 import { isComposerReasoningSelection } from '../../../../../shared/yachiyo/reasoningEffort.ts'
@@ -13,6 +15,7 @@ import type { AppState, ComposerFileDraft, ComposerImageDraft } from '../useAppS
 import {
   DEFAULT_SIDEBAR_FILTER,
   EMPTY_COMPOSER_DRAFT,
+  areEnabledToolSetsEqual,
   areEnabledToolsEqual,
   deriveActiveThreadRunState,
   deriveSubagentStateFromToolCalls,
@@ -76,8 +79,17 @@ export function createComposerUiActions(input: {
       const threadId = currentState.activeThreadId
       const draftKey = getComposerDraftKey(threadId)
       const previousMode = getComposerToolMode(currentState, threadId)
-      const nextEnabledTools = normalizeUserEnabledTools(enabledTools, previousMode.enabledTools)
-      const nextRunMode = deriveRunModeId(nextEnabledTools)
+      const requestedEnabledTools = normalizeUserEnabledTools(
+        enabledTools,
+        previousMode.enabledTools
+      )
+      const requestedRunMode = deriveRunModeId(requestedEnabledTools)
+      const requestedRunModeTools = resolveRunModeEnabledTools(requestedRunMode)
+      const dropCustomMode = !areEnabledToolSetsEqual(requestedEnabledTools, requestedRunModeTools)
+      const nextRunMode = dropCustomMode ? DEFAULT_RUN_MODE_ID : requestedRunMode
+      const nextEnabledTools = dropCustomMode
+        ? resolveRunModeEnabledTools(DEFAULT_RUN_MODE_ID)
+        : requestedRunModeTools
 
       if (
         areEnabledToolsEqual(previousMode.enabledTools, nextEnabledTools) &&
@@ -87,18 +99,25 @@ export function createComposerUiActions(input: {
       }
 
       set((state) => ({
-        toolModeByThread: setThreadToolModeValue(state.toolModeByThread, draftKey, {
-          enabledTools: nextEnabledTools,
-          runMode: nextRunMode
-        }),
+        toolModeByThread: setThreadToolModeValue(
+          state.toolModeByThread,
+          draftKey,
+          !threadId && dropCustomMode
+            ? undefined
+            : {
+                enabledTools: nextEnabledTools,
+                runMode: nextRunMode
+              }
+        ),
         enabledTools: nextEnabledTools,
         runMode: nextRunMode,
         threads: threadId
-          ? state.threads.map((thread) =>
-              thread.id === threadId
-                ? { ...thread, enabledTools: nextEnabledTools, runMode: nextRunMode }
-                : thread
-            )
+          ? state.threads.map((thread) => {
+              if (thread.id !== threadId) return thread
+              const updatedThread = { ...thread, runMode: nextRunMode }
+              delete updatedThread.enabledTools
+              return updatedThread
+            })
           : state.threads,
         lastError: null
       }))
@@ -111,11 +130,8 @@ export function createComposerUiActions(input: {
           enabledTools: nextEnabledTools,
           runMode: nextRunMode
         })
-        const persistedEnabledTools = normalizeUserEnabledTools(
-          updatedThread.enabledTools,
-          nextEnabledTools
-        )
-        const persistedRunMode = updatedThread.runMode ?? nextRunMode
+        const persistedRunMode = normalizeRunModeId(updatedThread.runMode, nextRunMode)
+        const persistedEnabledTools = resolveRunModeEnabledTools(persistedRunMode)
         set((state) => ({
           toolModeByThread: setThreadToolModeValue(state.toolModeByThread, updatedThread.id, {
             enabledTools: persistedEnabledTools,
@@ -135,15 +151,12 @@ export function createComposerUiActions(input: {
           enabledTools: previousMode.enabledTools,
           runMode: previousMode.runMode,
           threads: threadId
-            ? state.threads.map((thread) =>
-                thread.id === threadId
-                  ? {
-                      ...thread,
-                      enabledTools: previousMode.enabledTools,
-                      runMode: previousMode.runMode
-                    }
-                  : thread
-              )
+            ? state.threads.map((thread) => {
+                if (thread.id !== threadId) return thread
+                const restoredThread = { ...thread, runMode: previousMode.runMode }
+                delete restoredThread.enabledTools
+                return restoredThread
+              })
             : state.threads,
           lastError: message
         }))

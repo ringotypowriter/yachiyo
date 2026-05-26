@@ -540,13 +540,6 @@ export const useAppStore = create<AppState>((set, get) => ({
             ...state.toolCalls,
             [accepted.thread.id]: state.toolCalls[accepted.thread.id] ?? []
           },
-          toolModeByThread: {
-            ...state.toolModeByThread,
-            [accepted.thread.id]: {
-              enabledTools: accepted.thread.enabledTools ?? DEFAULT_ENABLED_TOOL_NAMES,
-              runMode: accepted.thread.runMode ?? 'auto'
-            }
-          },
           threads: upsertThread(state.threads, accepted.thread)
         }
 

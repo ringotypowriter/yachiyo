@@ -34,6 +34,7 @@ import {
   setThreadRunPhaseValue,
   setThreadRunStatusValue,
   setThreadStringValue,
+  setThreadToolModeValue,
   sortThreads,
   upsertThread,
   waitForGlobalProcessingPaint,
@@ -88,7 +89,8 @@ export function createThreadLifecycleActions(input: {
     createNewThread: async () => {
       const pendingWorkspacePath = normalizeWorkspacePath(get().pendingWorkspacePath)
       const stagedReasoningEffort = get().reasoningEffortByThread[getComposerDraftKey(null)]
-      const stagedToolMode = get().toolModeByThread[getComposerDraftKey(null)]
+      const rawStagedToolMode = get().toolModeByThread[getComposerDraftKey(null)]
+      const stagedToolMode = rawStagedToolMode?.runMode === 'custom' ? undefined : rawStagedToolMode
       const reusableThread = get().threads.find((thread) =>
         isThreadReusableNewChat(
           {
@@ -118,11 +120,17 @@ export function createThreadLifecycleActions(input: {
               getComposerDraftKey(null),
               getComposerDraftKey(reusableThread.id)
             ),
-            toolModeByThread: moveThreadToolMode(
-              state.toolModeByThread,
-              getComposerDraftKey(null),
-              getComposerDraftKey(reusableThread.id)
-            ),
+            toolModeByThread: stagedToolMode
+              ? moveThreadToolMode(
+                  state.toolModeByThread,
+                  getComposerDraftKey(null),
+                  getComposerDraftKey(reusableThread.id)
+                )
+              : setThreadToolModeValue(
+                  state.toolModeByThread,
+                  getComposerDraftKey(null),
+                  undefined
+                ),
             ...(stagedToolMode
               ? { enabledTools: stagedToolMode.enabledTools, runMode: stagedToolMode.runMode }
               : {}),
@@ -180,9 +188,7 @@ export function createThreadLifecycleActions(input: {
 
       const createThreadInput = {
         ...(pendingWorkspacePath ? { workspacePath: pendingWorkspacePath } : {}),
-        ...(stagedToolMode
-          ? { enabledTools: stagedToolMode.enabledTools, runMode: stagedToolMode.runMode }
-          : {}),
+        ...(stagedToolMode ? { runMode: stagedToolMode.runMode } : {}),
         ...(stagedReasoningEffort ? { reasoningEffort: stagedReasoningEffort } : {})
       }
       const thread = await window.api.yachiyo.createThread(
@@ -206,11 +212,13 @@ export function createThreadLifecycleActions(input: {
             getComposerDraftKey(null),
             getComposerDraftKey(thread.id)
           ),
-          toolModeByThread: moveThreadToolMode(
-            state.toolModeByThread,
-            getComposerDraftKey(null),
-            getComposerDraftKey(thread.id)
-          ),
+          toolModeByThread: stagedToolMode
+            ? moveThreadToolMode(
+                state.toolModeByThread,
+                getComposerDraftKey(null),
+                getComposerDraftKey(thread.id)
+              )
+            : setThreadToolModeValue(state.toolModeByThread, getComposerDraftKey(null), undefined),
           enabledTools: stagedToolMode?.enabledTools ?? state.enabledTools,
           runMode: stagedToolMode?.runMode ?? state.runMode,
           pendingWorkspacePath: null,

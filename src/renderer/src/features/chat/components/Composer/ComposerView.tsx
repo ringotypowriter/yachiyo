@@ -16,7 +16,6 @@ import {
   Telescope,
   Timer,
   TriangleAlert,
-  Wrench,
   X,
   Zap
 } from 'lucide-react'
@@ -440,13 +439,12 @@ export function ComposerView(props: any): React.JSX.Element {
                   opacity: toolSelectorOpen ? 1 : undefined,
                   gap: 4
                 }}
-                aria-label={`Mode: ${runMode === 'custom' ? 'Custom' : RUN_MODE_DEFINITIONS[runMode].label}`}
+                aria-label={`Mode: ${RUN_MODE_DEFINITIONS[runMode === 'custom' ? 'auto' : runMode].label}`}
                 aria-expanded={toolSelectorOpen}
                 aria-haspopup="menu"
               >
                 {(() => {
-                  const ModeIcon =
-                    runMode === 'custom' ? Wrench : (MODE_ICON_MAP[runMode] ?? Wrench)
+                  const ModeIcon = MODE_ICON_MAP[runMode === 'custom' ? 'auto' : runMode]
                   return (
                     <ModeIcon
                       size={14}
@@ -456,7 +454,7 @@ export function ComposerView(props: any): React.JSX.Element {
                   )
                 })()}
                 <span style={{ fontSize: 11.5, fontWeight: 500 }}>
-                  {runMode === 'custom' ? 'Custom' : RUN_MODE_DEFINITIONS[runMode].shortLabel}
+                  {RUN_MODE_DEFINITIONS[runMode === 'custom' ? 'auto' : runMode].shortLabel}
                 </span>
                 <ChevronDown
                   size={10}

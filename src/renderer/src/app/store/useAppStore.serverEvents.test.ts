@@ -2,7 +2,11 @@ import type { YachiyoPreloadYachiyoApi } from '../../../../preload/index.ts'
 
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { DEFAULT_ENABLED_TOOL_NAMES } from '../../../../shared/yachiyo/protocol.ts'
+import {
+  DEFAULT_ENABLED_TOOL_NAMES,
+  DEFAULT_RUN_MODE_ID
+} from '../../../../shared/yachiyo/protocol.ts'
+import { resolveRunModeEnabledTools } from '../../../../shared/yachiyo/toolModes.ts'
 import { DEFAULT_SIDEBAR_FILTER, DEFAULT_SETTINGS, useAppStore } from './useAppStore.ts'
 import { useBackgroundTasksStore } from '../../features/chat/state/useBackgroundTasksStore.ts'
 
@@ -45,6 +49,7 @@ function resetStore(): void {
     pendingSteerMessages: {},
     pendingWorkspacePath: null,
     queuedToasts: [],
+    runMode: DEFAULT_RUN_MODE_ID,
     runPhase: 'idle',
     runPhasesByThread: {},
     runStatus: 'idle',
@@ -1230,7 +1235,49 @@ test('selectModel ignores changes while a run is active', async () => {
   }
 })
 
-test('setEnabledTools persists thread tool mode without leaking across thread switches', async () => {
+test('setEnabledTools recognizes reordered standard tool sets as that mode', async () => {
+  resetStore()
+
+  const calls: Array<{ threadId: string; enabledTools: string[]; runMode?: string }> = []
+  const exploreTools = resolveRunModeEnabledTools('explore')
+  const restoreWindow = withWindowApiMock({
+    setThreadToolMode: async (input) => {
+      calls.push(input)
+
+      return {
+        id: input.threadId,
+        title: 'Thread one',
+        runMode: input.runMode,
+        updatedAt: TIMESTAMP
+      }
+    }
+  })
+
+  try {
+    useAppStore.setState({
+      activeThreadId: 'thread-1',
+      threads: [
+        {
+          id: 'thread-1',
+          title: 'Thread one',
+          updatedAt: TIMESTAMP
+        }
+      ]
+    })
+
+    await useAppStore.getState().setEnabledTools(['webSearch', 'glob', 'read', 'webRead', 'grep'])
+
+    assert.deepEqual(calls, [
+      { threadId: 'thread-1', enabledTools: exploreTools, runMode: 'explore' }
+    ])
+    assert.deepEqual(useAppStore.getState().enabledTools, exploreTools)
+    assert.equal(useAppStore.getState().runMode, 'explore')
+  } finally {
+    restoreWindow()
+  }
+})
+
+test('setEnabledTools drops custom tool sets and keeps the thread on auto', async () => {
   resetStore()
 
   const calls: Array<{ threadId: string; enabledTools: string[]; runMode?: string }> = []
@@ -1242,7 +1289,6 @@ test('setEnabledTools persists thread tool mode without leaking across thread sw
       return {
         id: input.threadId,
         title: input.threadId === 'thread-1' ? 'Thread one' : 'Thread two',
-        enabledTools: input.enabledTools,
         runMode: input.runMode,
         updatedAt: TIMESTAMP
       }
@@ -1278,16 +1324,14 @@ test('setEnabledTools persists thread tool mode without leaking across thread sw
     await useAppStore.getState().setEnabledTools(['read', 'bash'])
 
     let state = useAppStore.getState()
-    assert.deepEqual(calls, [
-      { threadId: 'thread-1', enabledTools: ['read', 'bash'], runMode: 'custom' }
-    ])
+    assert.deepEqual(calls, [])
     assert.equal(saveToolPreferencesCalled, false)
-    assert.deepEqual(state.enabledTools, ['read', 'bash'])
-    assert.equal(state.runMode, 'custom')
+    assert.deepEqual(state.enabledTools, DEFAULT_ENABLED_TOOL_NAMES)
+    assert.equal(state.runMode, 'auto')
 
     const thread = state.threads.find((item) => item.id === 'thread-1')
-    assert.deepEqual(thread?.enabledTools, ['read', 'bash'])
-    assert.equal(thread?.runMode, 'custom')
+    assert.equal(thread?.enabledTools, undefined)
+    assert.equal(thread?.runMode, undefined)
 
     state.setActiveThread('thread-2')
     state = useAppStore.getState()

@@ -24,6 +24,7 @@ import {
   setThreadRunPhaseValue,
   setThreadRunStatusValue,
   setThreadStringValue,
+  setThreadToolModeValue,
   toReadyFileAttachments,
   toReadyMessageImages,
   upsertThread,
@@ -155,14 +156,14 @@ export function createSendMessageActions(input: {
           const pendingAcp = currentState.pendingAcpBinding
           const pendingReasoningEffort =
             currentState.reasoningEffortByThread[getComposerDraftKey(null)]
-          const pendingToolMode = currentState.toolModeByThread[getComposerDraftKey(null)]
+          const stagedPendingToolMode = currentState.toolModeByThread[getComposerDraftKey(null)]
+          const pendingToolMode =
+            stagedPendingToolMode?.runMode === 'custom' ? undefined : stagedPendingToolMode
           const thread = await window.api.yachiyo.createThread({
             ...(workspacePath ? { workspacePath } : {}),
             ...(essentialId ? { createdFromEssentialId: essentialId } : {}),
             ...(essential?.privacyMode ? { privacyMode: true } : {}),
-            ...(pendingToolMode
-              ? { enabledTools: pendingToolMode.enabledTools, runMode: pendingToolMode.runMode }
-              : {}),
+            ...(pendingToolMode ? { runMode: pendingToolMode.runMode } : {}),
             ...(pendingReasoningEffort ? { reasoningEffort: pendingReasoningEffort } : {})
           })
 
@@ -170,7 +171,6 @@ export function createSendMessageActions(input: {
           if (pendingModel) thread.modelOverride = pendingModel
           if (pendingAcp) thread.runtimeBinding = pendingAcp
           if (pendingToolMode) {
-            thread.enabledTools = pendingToolMode.enabledTools
             thread.runMode = pendingToolMode.runMode
           }
           if (pendingReasoningEffort) thread.reasoningEffort = pendingReasoningEffort
@@ -198,11 +198,17 @@ export function createSendMessageActions(input: {
               getComposerDraftKey(null),
               getComposerDraftKey(thread.id)
             ),
-            toolModeByThread: moveThreadToolMode(
-              state.toolModeByThread,
-              getComposerDraftKey(null),
-              getComposerDraftKey(thread.id)
-            ),
+            toolModeByThread: pendingToolMode
+              ? moveThreadToolMode(
+                  state.toolModeByThread,
+                  getComposerDraftKey(null),
+                  getComposerDraftKey(thread.id)
+                )
+              : setThreadToolModeValue(
+                  state.toolModeByThread,
+                  getComposerDraftKey(null),
+                  undefined
+                ),
             enabledTools: pendingToolMode?.enabledTools ?? state.enabledTools,
             runMode: pendingToolMode?.runMode ?? state.runMode,
             messages: {

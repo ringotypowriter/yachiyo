@@ -15,14 +15,16 @@ import type {
 } from '../../types.ts'
 import { normalizeMessageImages } from '../../../../../shared/yachiyo/messageContent.ts'
 import {
-  DEFAULT_ENABLED_TOOL_NAMES,
   DEFAULT_RUN_MODE_ID,
   normalizeSkillNames,
-  normalizeUserEnabledTools,
   USER_MANAGED_TOOL_NAMES,
   type RunModeId
 } from '../../../../../shared/yachiyo/protocol.ts'
 import { sortToolCallsChronologically } from '../../../../../shared/yachiyo/toolCallOrder.ts'
+import {
+  deriveRunModeId,
+  resolveRunModeEnabledTools
+} from '../../../../../shared/yachiyo/toolModes.ts'
 import { getReasoningSelectorState } from '../../../../../shared/yachiyo/reasoningEffort.ts'
 import { collectMessagePath } from '../../../../../shared/yachiyo/threadTree.ts'
 import { isExternalThread } from '../../../features/threads/lib/threadVisibility.ts'
@@ -294,6 +296,12 @@ export function areEnabledToolsEqual(left: ToolCallName[], right: ToolCallName[]
   return left.length === right.length && left.every((toolName, index) => toolName === right[index])
 }
 
+export function areEnabledToolSetsEqual(left: ToolCallName[], right: ToolCallName[]): boolean {
+  if (left.length !== right.length) return false
+  const rightSet = new Set(right)
+  return left.every((toolName) => rightSet.has(toolName))
+}
+
 export function toggleEnabledTools(
   enabledTools: ToolCallName[],
   toolName: ToolCallName
@@ -360,15 +368,13 @@ export function collectThreadToolModes(threads: Thread[]): Record<string, Compos
     threads
       .filter((thread) => thread.enabledTools !== undefined || thread.runMode !== undefined)
       .map((thread) => {
-        const enabledTools = normalizeUserEnabledTools(
-          thread.enabledTools,
-          DEFAULT_ENABLED_TOOL_NAMES
-        )
+        const storedRunMode = thread.runMode ?? deriveRunModeId(thread.enabledTools)
+        const runMode = storedRunMode === 'custom' ? DEFAULT_RUN_MODE_ID : storedRunMode
         return [
           thread.id,
           {
-            enabledTools,
-            runMode: thread.runMode ?? DEFAULT_RUN_MODE_ID
+            enabledTools: resolveRunModeEnabledTools(runMode),
+            runMode
           }
         ] as const
       })
@@ -760,26 +766,28 @@ export function getComposerDraft(
 }
 
 export function getComposerToolMode(
-  state: Pick<AppState, 'activeThreadId' | 'config' | 'threads' | 'toolModeByThread'>,
+  state: Pick<AppState, 'activeThreadId' | 'threads' | 'toolModeByThread'>,
   threadId: string | null = state.activeThreadId
 ): ComposerToolMode {
   const key = getComposerDraftKey(threadId)
+  const staged = state.toolModeByThread[key]
+  if (staged) {
+    return staged.runMode === 'custom'
+      ? {
+          enabledTools: resolveRunModeEnabledTools(DEFAULT_RUN_MODE_ID),
+          runMode: DEFAULT_RUN_MODE_ID
+        }
+      : staged
+  }
+
   const thread = threadId ? findThread(state, threadId) : undefined
-  const fallbackTools = normalizeUserEnabledTools(
-    state.config?.enabledTools,
-    DEFAULT_ENABLED_TOOL_NAMES
-  )
-  const persistedTools = thread?.enabledTools
-    ? normalizeUserEnabledTools(thread.enabledTools, fallbackTools)
-    : undefined
-  const enabledTools = state.toolModeByThread[key]?.enabledTools ?? persistedTools ?? fallbackTools
+  const storedRunMode =
+    thread?.runMode ??
+    (thread?.enabledTools ? deriveRunModeId(thread.enabledTools) : DEFAULT_RUN_MODE_ID)
+  const runMode = storedRunMode === 'custom' ? DEFAULT_RUN_MODE_ID : storedRunMode
   return {
-    enabledTools,
-    runMode:
-      state.toolModeByThread[key]?.runMode ??
-      thread?.runMode ??
-      state.config?.runMode ??
-      DEFAULT_RUN_MODE_ID
+    enabledTools: resolveRunModeEnabledTools(runMode),
+    runMode
   }
 }
 

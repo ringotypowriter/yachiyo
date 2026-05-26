@@ -30,6 +30,7 @@ import type {
   ProviderSettings,
   RetryAccepted,
   RetryInput,
+  RunModeId,
   RunRecord,
   SaveThreadInput,
   SaveThreadResult,
@@ -932,6 +933,7 @@ export class YachiyoServer {
   async setThreadToolMode(input: {
     threadId: string
     enabledTools: ToolCallName[]
+    runMode?: RunModeId
   }): Promise<ThreadRecord> {
     return this.threadDomain.setThreadToolMode(input)
   }

@@ -122,11 +122,11 @@ test('settings store persists multi-provider config as TOML', async () => {
 
     store.write(config)
 
-    assert.deepEqual(store.read(), config)
+    assert.deepEqual(store.read(), normalizeSettingsConfig(config))
 
     const toml = await readFile(settingsPath, 'utf8')
-    assert.match(toml, /enabledTools = \[.*"read".*"bash".*\]/)
-    assert.match(toml, /runMode = "custom"/)
+    assert.doesNotMatch(toml, /enabledTools = /)
+    assert.doesNotMatch(toml, /runMode = /)
     assert.match(toml, /\[general\]/)
     assert.match(toml, /sidebarVisibility = "collapsed"/)
     assert.match(toml, /workSummary = true/)
@@ -476,13 +476,15 @@ test('normalizeSettingsConfig normalizes skill name lists', () => {
   assert.deepEqual(normalized.skills?.enabled, ['workspace-refactor', 'release-checklist'])
 })
 
-test('normalizeSettingsConfig strips runtime-managed tools from user tool preferences', () => {
+test('normalizeSettingsConfig ignores deprecated global tool preferences', () => {
   const normalized = normalizeSettingsConfig({
     enabledTools: ['read', 'skillsRead', 'bash'],
+    runMode: 'custom',
     providers: []
   })
 
-  assert.deepEqual(normalized.enabledTools, ['read', 'bash'])
+  assert.equal(normalized.enabledTools, undefined)
+  assert.equal(normalized.runMode, undefined)
 })
 
 test('toToolModelSettings resolves the configured auxiliary model snapshot', () => {

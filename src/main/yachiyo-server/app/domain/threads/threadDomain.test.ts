@@ -100,7 +100,7 @@ test('YachiyoServerThreadDomain sets and clears a thread title color', () => {
   })
 })
 
-test('YachiyoServerThreadDomain sets thread tool mode', () => {
+test('YachiyoServerThreadDomain stores standard tool mode as runMode only', () => {
   const { domain, events, storage } = createThreadDomainHarness(null)
 
   const updatedThread = domain.setThreadToolMode({
@@ -108,9 +108,9 @@ test('YachiyoServerThreadDomain sets thread tool mode', () => {
     enabledTools: []
   })
 
-  assert.deepEqual(updatedThread.enabledTools, [])
+  assert.equal(updatedThread.enabledTools, undefined)
   assert.equal(updatedThread.runMode, 'chat')
-  assert.deepEqual(storage.getThread('thread-1')?.enabledTools, [])
+  assert.equal(storage.getThread('thread-1')?.enabledTools, undefined)
   assert.equal(storage.getThread('thread-1')?.runMode, 'chat')
   assert.deepEqual(events.at(-1), {
     type: 'thread.updated',
