@@ -75,6 +75,8 @@ export function AppTabBar({
       style={{
         width: APP_TAB_BAR_WIDTH,
         background: theme.background.sidebarVibrancy,
+        backdropFilter: 'blur(24px) saturate(1.4)',
+        WebkitBackdropFilter: 'blur(24px) saturate(1.4)',
         borderRight: `1px solid ${theme.border.panel}`
       }}
     >

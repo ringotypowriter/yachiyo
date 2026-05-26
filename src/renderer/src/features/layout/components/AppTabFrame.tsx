@@ -66,6 +66,8 @@ export function AppTabFrame({
               gridColumn: topChromeColumn,
               gridRow: '1',
               background: chromeBackground,
+              backdropFilter: 'blur(24px) saturate(1.4)',
+              WebkitBackdropFilter: 'blur(24px) saturate(1.4)',
               borderBottom: `1px solid ${theme.border.panel}`
             }}
           >
@@ -125,6 +127,8 @@ export function AppTabFrame({
           minWidth: 0,
           minHeight: 0,
           background: `linear-gradient(90deg, ${chromeBackground} 0%, ${theme.background.surfaceLight} 100%)`,
+          backdropFilter: 'blur(24px) saturate(1.4)',
+          WebkitBackdropFilter: 'blur(24px) saturate(1.4)',
           padding: isSidebarOpen ? '8px 8px 8px 4px' : '0',
           transition: 'padding 200ms ease'
         }}
