@@ -11,6 +11,7 @@ import { useAppStore } from '@renderer/app/store/useAppStore'
 import { Tooltip } from '@renderer/components/Tooltip'
 import { SidebarUtilityMenu } from '@renderer/features/layout/components/SidebarUtilityMenu'
 import {
+  APP_TOP_BAR_HEIGHT,
   APP_TAB_BAR_WIDTH,
   APP_TABS,
   resolveAppTabBarBottomTools,
@@ -19,16 +20,50 @@ import {
 } from '@renderer/features/layout/lib/appTabs'
 import { alpha, theme } from '@renderer/theme/theme'
 
-interface AppTabBarProps {
+export interface AppTabBarProps {
   activeTab: AppTabId
   onOpenSettingsRoute: (route?: string) => void
   onSelectTab: (tab: AppTabId) => void
+}
+
+const APP_TAB_RAIL_BACKDROP_FILTER = 'blur(24px) saturate(1.4)'
+
+const appTabRailSurfaceStyle = {
+  background: theme.background.sidebarVibrancy,
+  backdropFilter: APP_TAB_RAIL_BACKDROP_FILTER,
+  WebkitBackdropFilter: APP_TAB_RAIL_BACKDROP_FILTER
+}
+
+const appTabRailBodyStyle = {
+  ...appTabRailSurfaceStyle,
+  borderRight: `1px solid ${theme.border.panel}`
 }
 
 const TAB_ICONS: Record<AppTabId, LucideIcon> = {
   chat: Waypoints,
   archived: Archive,
   settings: Settings2
+}
+
+export function AppTabRail(props: AppTabBarProps): React.JSX.Element {
+  return (
+    <div
+      className="grid h-full shrink-0 overflow-hidden"
+      style={{
+        width: APP_TAB_BAR_WIDTH,
+        gridTemplateRows: `${APP_TOP_BAR_HEIGHT}px minmax(0, 1fr)`
+      }}
+    >
+      <div
+        className="drag-region"
+        style={{
+          ...appTabRailSurfaceStyle,
+          borderBottom: `1px solid ${theme.border.panel}`
+        }}
+      />
+      <AppTabBar {...props} />
+    </div>
+  )
 }
 
 export function AppTabBar({
@@ -74,10 +109,7 @@ export function AppTabBar({
       className="flex h-full shrink-0 flex-col overflow-hidden"
       style={{
         width: APP_TAB_BAR_WIDTH,
-        background: theme.background.sidebarVibrancy,
-        backdropFilter: 'blur(24px) saturate(1.4)',
-        WebkitBackdropFilter: 'blur(24px) saturate(1.4)',
-        borderRight: `1px solid ${theme.border.panel}`
+        ...appTabRailBodyStyle
       }}
     >
       <div

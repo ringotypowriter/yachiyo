@@ -1110,6 +1110,12 @@ function ThreadListContent({
         key={threadListMode}
         ref={setScrollNode}
         className="flex-1 overflow-y-auto px-2 py-1 yachiyo-thread-enter"
+        style={{
+          maskImage:
+            'linear-gradient(to bottom, transparent, black 12px, black calc(100% - 12px), transparent)',
+          WebkitMaskImage:
+            'linear-gradient(to bottom, transparent, black 12px, black calc(100% - 12px), transparent)'
+        }}
       >
         {visibleThreads.length === 0 ? <ThreadListEmpty threadListMode={threadListMode} /> : null}
         <FolderAwareThreadList

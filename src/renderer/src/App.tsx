@@ -7,6 +7,7 @@ import {
   AppSidebarContent,
   AppSidebarTopControls
 } from '@renderer/features/layout/components/AppSidebar'
+import { AppTabRail } from '@renderer/features/layout/components/AppTabBar'
 import { AppTabFrame } from '@renderer/features/layout/components/AppTabFrame'
 import { useSidebarVisibilityState } from '@renderer/features/layout/hooks/useSidebarVisibilityState'
 import { isCreateNewThreadShortcut } from '@renderer/features/layout/lib/newThreadShortcut'
@@ -287,14 +288,11 @@ function App(): React.JSX.Element {
     visible: boolean
   }): React.JSX.Element => (
     <AppTabFrame
-      activeTab={activeAppTab}
       content={content}
       contentSubControls={contentSubControls}
       contentTopControls={contentTopControls}
       isDragging={isDragging}
       isSidebarOpen={isSidebarOpen}
-      onOpenSettingsRoute={handleOpenSettingsRoute}
-      onSelectTab={handleSelectAppTab}
       onSidebarDragStart={onDragStart}
       sidebar={sidebar}
       sidebarDividerOffset={sidebarDividerOffset}
@@ -312,6 +310,11 @@ function App(): React.JSX.Element {
         userSelect: isDragging ? 'none' : undefined
       }}
     >
+      <AppTabRail
+        activeTab={activeAppTab}
+        onSelectTab={handleSelectAppTab}
+        onOpenSettingsRoute={handleOpenSettingsRoute}
+      />
       <AppMainPanel
         headerPaddingLeft={mainHeaderPaddingLeft}
         isSidebarToggleDisabled={!isConfigLoaded}

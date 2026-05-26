@@ -10,6 +10,8 @@ export type AppTabBarBottomToolId = 'update' | 'more'
 export const APP_TOP_BAR_HEIGHT = 48
 export const APP_TAB_BAR_WIDTH = 56
 export const APP_TRAFFIC_LIGHT_SAFE_WIDTH = 84
+export const APP_TAB_FRAME_TRAFFIC_LIGHT_SAFE_WIDTH =
+  APP_TRAFFIC_LIGHT_SAFE_WIDTH - APP_TAB_BAR_WIDTH
 
 export const APP_TABS: readonly AppTabDefinition[] = [
   { id: 'chat', label: 'Work' },
@@ -36,7 +38,7 @@ export function resolveAppTabBarBottomTools(
 export function resolveAppTabFrameSidebarDividerOffset(
   sidebarDividerOffset: number | null
 ): number | null {
-  return sidebarDividerOffset === null ? null : APP_TAB_BAR_WIDTH + sidebarDividerOffset
+  return sidebarDividerOffset
 }
 
 export function shouldShowAppTabFrameSidebarTopControls(isSidebarOpen: boolean): boolean {
@@ -44,5 +46,5 @@ export function shouldShowAppTabFrameSidebarTopControls(isSidebarOpen: boolean):
 }
 
 export function resolveAppTabFrameTopChromeColumn(isSidebarOpen: boolean): string {
-  return isSidebarOpen ? '1 / 3' : '1 / 4'
+  return isSidebarOpen ? '1 / 2' : '1 / 3'
 }
