@@ -26,7 +26,7 @@ test('theme exposes semantic tokens for accent and danger independently', () => 
   assert.notEqual(theme.text.accent, theme.text.danger)
   assert.equal(theme.background.accentSurface, 'rgb(var(--yachiyo-rgb-accent) / 0.12)')
   assert.equal(theme.background.dangerSurface, 'rgb(var(--yachiyo-rgb-danger) / 0.08)')
-  assert.equal(theme.background.sidebarVibrancy, 'rgb(var(--yachiyo-rgb-counter) / 0.15)')
+  assert.equal(theme.background.sidebarVibrancy, 'rgb(var(--yachiyo-rgb-counter) / 0.08)')
   assert.equal(theme.background.scrim, 'rgb(var(--yachiyo-rgb-scrim) / 0.25)')
   assert.equal(theme.background.onAccentOverlay, 'rgb(var(--yachiyo-rgb-on-accent-overlay) / 0.15)')
 })
