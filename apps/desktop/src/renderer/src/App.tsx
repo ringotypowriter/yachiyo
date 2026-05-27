@@ -309,8 +309,7 @@ function App(): React.JSX.Element {
       aria-hidden={!active}
       className="absolute inset-0 min-w-0"
       style={{
-        visibility: active ? 'visible' : 'hidden',
-        pointerEvents: active ? 'auto' : 'none',
+        display: active ? 'block' : 'none',
         zIndex: active ? 1 : 0
       }}
     >
