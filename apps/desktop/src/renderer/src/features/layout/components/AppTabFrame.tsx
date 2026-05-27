@@ -19,7 +19,6 @@ export interface AppTabFrameProps {
   sidebarDividerOffset: number | null
   sidebarTopControls: ReactNode
   sidebarWidth: number
-  visible?: boolean
 }
 
 export function AppTabFrame({
@@ -32,8 +31,7 @@ export function AppTabFrame({
   sidebar,
   sidebarDividerOffset,
   sidebarTopControls,
-  sidebarWidth,
-  visible = true
+  sidebarWidth
 }: AppTabFrameProps): React.JSX.Element {
   const chromeBackground = theme.background.sidebarVibrancy
   const showSidebarTopControls = shouldShowAppTabFrameSidebarTopControls(isSidebarOpen)
@@ -43,49 +41,45 @@ export function AppTabFrame({
     <div
       className="h-full min-w-0 flex-1"
       style={{
-        display: visible ? 'grid' : 'none',
+        display: 'grid',
         gridTemplateColumns: `${sidebarWidth}px minmax(0, 1fr)`,
         gridTemplateRows: `${APP_TOP_BAR_HEIGHT}px minmax(0, 1fr)`,
         position: 'relative'
       }}
     >
-      {visible ? (
-        <>
-          <div
-            className="drag-region flex min-w-0 items-center"
-            style={{
-              gridColumn: topChromeColumn,
-              gridRow: '1',
-              background: chromeBackground,
-              backdropFilter: 'blur(24px) saturate(1.4)',
-              WebkitBackdropFilter: 'blur(24px) saturate(1.4)',
-              borderBottom: `1px solid ${theme.border.panel}`
-            }}
-          >
-            <div
-              className="h-full shrink-0"
-              style={{ width: APP_TAB_FRAME_TRAFFIC_LIGHT_SAFE_WIDTH }}
-            />
-            {showSidebarTopControls ? (
-              <div className="no-drag flex h-full min-w-0 flex-1 items-center pr-3">
-                {sidebarTopControls}
-              </div>
-            ) : null}
+      <div
+        className="drag-region flex min-w-0 items-center"
+        style={{
+          gridColumn: topChromeColumn,
+          gridRow: '1',
+          background: chromeBackground,
+          backdropFilter: 'blur(24px) saturate(1.4)',
+          WebkitBackdropFilter: 'blur(24px) saturate(1.4)',
+          borderBottom: `1px solid ${theme.border.panel}`
+        }}
+      >
+        <div
+          className="h-full shrink-0"
+          style={{ width: APP_TAB_FRAME_TRAFFIC_LIGHT_SAFE_WIDTH }}
+        />
+        {showSidebarTopControls ? (
+          <div className="no-drag flex h-full min-w-0 flex-1 items-center pr-3">
+            {sidebarTopControls}
           </div>
-          {!isSidebarOpen ? (
-            <div
-              className="drag-region flex min-w-0 items-center"
-              style={{
-                gridColumn: topChromeColumn,
-                gridRow: '1',
-                marginLeft: APP_TAB_FRAME_TRAFFIC_LIGHT_SAFE_WIDTH,
-                minWidth: 0
-              }}
-            >
-              {contentTopControls}
-            </div>
-          ) : null}
-        </>
+        ) : null}
+      </div>
+      {!isSidebarOpen ? (
+        <div
+          className="drag-region flex min-w-0 items-center"
+          style={{
+            gridColumn: topChromeColumn,
+            gridRow: '1',
+            marginLeft: APP_TAB_FRAME_TRAFFIC_LIGHT_SAFE_WIDTH,
+            minWidth: 0
+          }}
+        >
+          {contentTopControls}
+        </div>
       ) : null}
       <aside
         aria-hidden={!isSidebarOpen}

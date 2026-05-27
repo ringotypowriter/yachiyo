@@ -277,15 +277,13 @@ function App(): React.JSX.Element {
     contentSubControls,
     contentTopControls,
     sidebar,
-    sidebarTopControls,
-    visible
+    sidebarTopControls
   }: {
     content: ReactNode
     contentSubControls?: ReactNode
     contentTopControls: ReactNode
     sidebar: ReactNode
     sidebarTopControls: ReactNode
-    visible: boolean
   }): React.JSX.Element => (
     <AppTabFrame
       content={content}
@@ -298,8 +296,26 @@ function App(): React.JSX.Element {
       sidebarDividerOffset={sidebarDividerOffset}
       sidebarTopControls={sidebarTopControls}
       sidebarWidth={sidebarLayout.sidebarWidth}
-      visible={visible}
     />
+  )
+  const renderTabLayer = ({
+    active,
+    children
+  }: {
+    active: boolean
+    children: ReactNode
+  }): React.JSX.Element => (
+    <div
+      aria-hidden={!active}
+      className="absolute inset-0 min-w-0"
+      style={{
+        visibility: active ? 'visible' : 'hidden',
+        pointerEvents: active ? 'auto' : 'none',
+        zIndex: active ? 1 : 0
+      }}
+    >
+      {children}
+    </div>
   )
 
   return (
@@ -315,63 +331,76 @@ function App(): React.JSX.Element {
         onSelectTab={handleSelectAppTab}
         onOpenSettingsRoute={handleOpenSettingsRoute}
       />
-      <AppMainPanel
-        headerPaddingLeft={mainHeaderPaddingLeft}
-        isSidebarToggleDisabled={!isConfigLoaded}
-        showSidebarToggle={!isSidebarOpen}
-        onToggleSidebar={() => void openSidebar()}
-        toggleSidebarTitle={sidebarLayout.toggleTitle}
-        pendingFindQuery={pendingFindQuery}
-        onPendingFindQueryApplied={() => setPendingFindQuery(null)}
-        shortcutsEnabled={shouldHandleWorkShortcut(activeAppTab)}
-      >
-        {(slots) =>
-          renderTabFrame({
-            content: slots.content,
-            contentTopControls: slots.contentTopControls,
-            sidebar: (
-              <AppSidebarContent
-                mode={threadSidebarMode}
-                isSearchOpen={isSidebarSearchOpen}
-                onCloseSearch={() => setIsSidebarSearchOpen(false)}
-                onSearchSelect={(query) => setPendingFindQuery(query)}
-              />
-            ),
-            sidebarTopControls: (
-              <AppSidebarTopControls
-                mode={threadSidebarMode}
-                isSearchOpen={isSidebarSearchOpen}
-                isToggleDisabled={!isConfigLoaded}
-                onOpenSearch={() => setIsSidebarSearchOpen(true)}
-                onToggle={() => void toggleSidebar()}
-                toggleTitle={sidebarLayout.toggleTitle}
-              />
-            ),
-            visible: !isSettingsTabActive
-          })
-        }
-      </AppMainPanel>
+      <div className="relative h-full min-w-0 flex-1 overflow-hidden">
+        {renderTabLayer({
+          active: !isSettingsTabActive,
+          children: (
+            <AppMainPanel
+              headerPaddingLeft={mainHeaderPaddingLeft}
+              isSidebarToggleDisabled={!isConfigLoaded}
+              showSidebarToggle={!isSidebarOpen}
+              onToggleSidebar={() => void openSidebar()}
+              toggleSidebarTitle={sidebarLayout.toggleTitle}
+              pendingFindQuery={pendingFindQuery}
+              onPendingFindQueryApplied={() => setPendingFindQuery(null)}
+              shortcutsEnabled={shouldHandleWorkShortcut(activeAppTab)}
+            >
+              {(slots) =>
+                renderTabFrame({
+                  content: slots.content,
+                  contentTopControls: slots.contentTopControls,
+                  sidebar: (
+                    <AppSidebarContent
+                      mode={threadSidebarMode}
+                      isSearchOpen={isSidebarSearchOpen}
+                      onCloseSearch={() => setIsSidebarSearchOpen(false)}
+                      onSearchSelect={(query) => setPendingFindQuery(query)}
+                    />
+                  ),
+                  sidebarTopControls: (
+                    <AppSidebarTopControls
+                      mode={threadSidebarMode}
+                      isSearchOpen={isSidebarSearchOpen}
+                      isToggleDisabled={!isConfigLoaded}
+                      onOpenSearch={() => setIsSidebarSearchOpen(true)}
+                      onToggle={() => void toggleSidebar()}
+                      toggleTitle={sidebarLayout.toggleTitle}
+                    />
+                  )
+                })
+              }
+            </AppMainPanel>
+          )
+        })}
 
-      {(hasOpenedSettings || isSettingsTabActive) && (
-        <SettingsPanel
-          active={isSettingsTabActive}
-          route={settingsRoute}
-          onRouteChange={setSettingsRoute}
-        >
-          {(slots) =>
-            renderTabFrame({
-              content: slots.content,
-              contentSubControls: slots.contentSubControls,
-              contentTopControls: slots.contentTopControls,
-              sidebar: (
-                <SettingsSidebarContent route={settingsRoute} onRouteChange={setSettingsRoute} />
-              ),
-              sidebarTopControls: null,
-              visible: isSettingsTabActive
+        {hasOpenedSettings || isSettingsTabActive
+          ? renderTabLayer({
+              active: isSettingsTabActive,
+              children: (
+                <SettingsPanel
+                  active={isSettingsTabActive}
+                  route={settingsRoute}
+                  onRouteChange={setSettingsRoute}
+                >
+                  {(slots) =>
+                    renderTabFrame({
+                      content: slots.content,
+                      contentSubControls: slots.contentSubControls,
+                      contentTopControls: slots.contentTopControls,
+                      sidebar: (
+                        <SettingsSidebarContent
+                          route={settingsRoute}
+                          onRouteChange={setSettingsRoute}
+                        />
+                      ),
+                      sidebarTopControls: null
+                    })
+                  }
+                </SettingsPanel>
+              )
             })
-          }
-        </SettingsPanel>
-      )}
+          : null}
+      </div>
       <ToastPresenter />
       <GlobalProcessingModal />
 

@@ -34,7 +34,7 @@
     "dev": "node ../../scripts/run-desktop-dev.mjs",
     "dev:channels": "node ../../scripts/run-desktop-dev.mjs --channels",
     "dev:schedules": "node ../../scripts/run-desktop-dev.mjs --schedules",
-    "build": "pnpm run native:prepare && pnpm run search:download && pnpm run typecheck && electron-vite build",
+    "build": "pnpm run native:prepare && pnpm run search:download && pnpm run typecheck && electron-vite build && node ../../scripts/stage-runtime-node-modules.mjs",
     "build:unpack": "pnpm run external-hooks:build && pnpm run build && CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --dir",
     "build:win": "pnpm run build && electron-builder --win",
     "build:mac": "pnpm run external-hooks:build && pnpm run build && CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac zip",

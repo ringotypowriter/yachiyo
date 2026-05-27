@@ -32,6 +32,20 @@ function copyCoreSkills(): { name: string; closeBundle: () => void } {
   }
 }
 
+const runtimeNodeModulesBanner = `
+try {
+  const path = require('path');
+  const Module = require('module');
+  const runtimeNodeModules = path.join(process.resourcesPath || '', 'node_modules');
+  if (runtimeNodeModules && !Module.globalPaths.includes(runtimeNodeModules)) {
+    process.env.NODE_PATH = process.env.NODE_PATH
+      ? runtimeNodeModules + path.delimiter + process.env.NODE_PATH
+      : runtimeNodeModules;
+    Module._initPaths();
+  }
+} catch {}
+`
+
 function copyJiebaWasm(): { name: string; closeBundle: () => void } {
   return {
     name: 'copy-jieba-wasm',
@@ -63,7 +77,10 @@ export default defineConfig({
           index: resolve('src/main/index.ts'),
           'yachiyo-cli': resolve('../../packages/cli/src/yachiyoCli.ts')
         },
-        external: ['better-sqlite3', 'sharp', 'zlib-sync', 'bufferutil', 'utf-8-validate']
+        external: ['better-sqlite3', 'sharp', 'zlib-sync', 'bufferutil', 'utf-8-validate'],
+        output: {
+          banner: runtimeNodeModulesBanner
+        }
       }
     },
     plugins: [copyDrizzleMigrations(), copyCoreSkills(), copyJiebaWasm()]

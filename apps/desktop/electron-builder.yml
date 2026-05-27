@@ -11,6 +11,10 @@ files:
   - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}'
   - '!resources/screenshots{,/**}'
 extraResources:
+  - from: out/runtime-node-modules/node_modules
+    to: node_modules
+    filter:
+      - '**/*'
   - from: ../../packages/core-skills/core-skills
     to: core-skills
   - from: resources/bin/${os}-${arch}
