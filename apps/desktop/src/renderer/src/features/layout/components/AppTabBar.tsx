@@ -26,12 +26,8 @@ export interface AppTabBarProps {
   onSelectTab: (tab: AppTabId) => void
 }
 
-const APP_TAB_RAIL_BACKDROP_FILTER = 'blur(24px) saturate(1.4)'
-
 const appTabRailSurfaceStyle = {
-  background: theme.background.sidebarVibrancy,
-  backdropFilter: APP_TAB_RAIL_BACKDROP_FILTER,
-  WebkitBackdropFilter: APP_TAB_RAIL_BACKDROP_FILTER
+  background: theme.background.sidebarVibrancy
 }
 
 const appTabRailBodyStyle = {

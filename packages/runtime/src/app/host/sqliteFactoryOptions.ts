@@ -37,12 +37,18 @@ export function createSqliteYachiyoServerOptions(
       (shouldUseDemoStorage
         ? undefined
         : createSqliteSourceQueryExecutor({ dbPath: options.dbPath })),
-    readMemoryTermDocument: async (input) =>
-      readCognitiveMemoryTermDocument({
-        store: createSqliteCognitiveMemoryStore({ dbPath: builtinMemoryDbPath }),
-        limit: input?.limit,
-        offset: input?.offset
-      }),
+    readMemoryTermDocument: async (input) => {
+      const store = createSqliteCognitiveMemoryStore({ dbPath: builtinMemoryDbPath })
+      try {
+        return await readCognitiveMemoryTermDocument({
+          store,
+          limit: input?.limit,
+          offset: input?.offset
+        })
+      } finally {
+        store.close()
+      }
+    },
     storage: shouldUseDemoStorage
       ? createDemoYachiyoStorage()
       : createSqliteYachiyoStorage(options.dbPath)

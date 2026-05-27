@@ -171,6 +171,23 @@ function readStateFromDb(db: SqliteDb): CognitiveMemoryState {
   }
 }
 
+function readActiveRowsFromDb(db: SqliteDb): CognitiveRow[] {
+  return db
+    .select()
+    .from(cognitiveRowsTable)
+    .where(eq(cognitiveRowsTable.status, 'active'))
+    .all()
+    .map(toRow)
+}
+
+function readPatchWorkingStateFromDb(db: SqliteDb): CognitiveMemoryState {
+  return {
+    events: [],
+    relations: db.select().from(cognitiveRelationsTable).all().map(toRelation),
+    rows: db.select().from(cognitiveRowsTable).all().map(toRow)
+  }
+}
+
 function readTermPageFromDb(
   db: SqliteDb,
   input?: CognitiveMemoryTermPageInput
@@ -206,10 +223,12 @@ function readTermPageFromDb(
 
 function writeStateDiff(input: {
   db: SqliteDb
+  previous: CognitiveMemoryState
   next: CognitiveMemoryState
-  previousEventCount: number
 }): number {
+  const prevRelations = new Map(input.previous.relations.map((r) => [r.name, JSON.stringify(r)]))
   for (const relation of input.next.relations) {
+    if (prevRelations.get(relation.name) === JSON.stringify(relation)) continue
     input.db
       .insert(cognitiveRelationsTable)
       .values({
@@ -231,7 +250,9 @@ function writeStateDiff(input: {
       .run()
   }
 
+  const prevRows = new Map(input.previous.rows.map((r) => [r.id, JSON.stringify(r)]))
   for (const row of input.next.rows) {
+    if (prevRows.get(row.id) === JSON.stringify(row)) continue
     input.db
       .insert(cognitiveRowsTable)
       .values({
@@ -272,8 +293,9 @@ function writeStateDiff(input: {
       .run()
   }
 
-  const events = input.next.events.slice(input.previousEventCount)
-  for (const event of events) {
+  const prevEventIds = new Set(input.previous.events.map((e) => e.id))
+  const newEvents = input.next.events.filter((e) => !prevEventIds.has(e.id))
+  for (const event of newEvents) {
     input.db
       .insert(cognitiveEventsTable)
       .values({
@@ -285,16 +307,7 @@ function writeStateDiff(input: {
       .run()
   }
 
-  return events.length
-}
-
-function withDatabase<T>(dbPath: string, run: (db: SqliteDb) => T): T {
-  const { client, db } = openMigratedSqliteDatabase(dbPath)
-  try {
-    return run(db)
-  } finally {
-    client.close()
-  }
+  return newEvents.length
 }
 
 export function createInMemoryCognitiveMemoryStore(
@@ -353,62 +366,66 @@ export function createInMemoryCognitiveMemoryStore(
     }
   }
 }
-
 export function createSqliteCognitiveMemoryStore(
   options: SqliteCognitiveMemoryStoreOptions
-): CognitiveMemoryStore {
+): CognitiveMemoryStore & { close(): void } {
+  const { client, db } = openMigratedSqliteDatabase(options.dbPath)
+
   return {
     async applyPatch(patch, input) {
-      return withDatabase(options.dbPath, (db) => {
-        const state = readStateFromDb(db)
-        const next = applyCognitivePatchToState(state, patch, {
-          createId: randomUUID,
-          now: input?.now ?? new Date().toISOString()
-        })
-        return { savedCount: writeStateDiff({ db, next, previousEventCount: state.events.length }) }
+      const state = readPatchWorkingStateFromDb(db)
+      const next = applyCognitivePatchToState(state, patch, {
+        createId: randomUUID,
+        now: input?.now ?? new Date().toISOString()
       })
+      return { savedCount: writeStateDiff({ db, previous: state, next }) }
     },
     async activateRows(input) {
-      return withDatabase(options.dbPath, (db) => {
-        const state = readStateFromDb(db)
-        const seeds = activateCognitiveRows(state, input)
-        const extraBudget = Math.max(0, input.limit - seeds.length)
-        const diffused =
-          extraBudget > 0 ? diffuseCognitiveRows(state, seeds, input.userQuery, extraBudget) : []
+      const rows = readActiveRowsFromDb(db)
+      const state = createEmptyCognitiveMemoryState()
+      state.rows = rows
+      const seeds = activateCognitiveRows(state, input)
+      const extraBudget = Math.max(0, input.limit - seeds.length)
+      const diffused =
+        extraBudget > 0 ? diffuseCognitiveRows(state, seeds, input.userQuery, extraBudget) : []
 
-        const seen = new Set<string>()
-        const allRows: CognitiveRow[] = []
-        for (const row of [...seeds, ...diffused]) {
-          if (seen.has(row.id)) continue
-          seen.add(row.id)
-          allRows.push(row)
-        }
+      const seen = new Set<string>()
+      const allRows: CognitiveRow[] = []
+      for (const row of [...seeds, ...diffused]) {
+        if (seen.has(row.id)) continue
+        seen.add(row.id)
+        allRows.push(row)
+      }
 
-        const next = markCognitiveRowsActivated(state, {
-          now: input.now,
-          rowIds: seeds.map((row) => row.id)
-        })
-        writeStateDiff({ db, next, previousEventCount: state.events.length })
-        return allRows
-      })
+      for (const seed of seeds) {
+        const nextCount = (seed.activationCount ?? 0) + 1
+        seed.activationCount = nextCount
+        seed.lastActivatedAt = input.now
+        db.update(cognitiveRowsTable)
+          .set({ activationCount: nextCount, lastActivatedAt: input.now })
+          .where(eq(cognitiveRowsTable.id, seed.id))
+          .run()
+      }
+      return allRows
     },
     async deleteRow(input) {
-      return withDatabase(options.dbPath, (db) => {
-        const result = db
-          .delete(cognitiveRowsTable)
-          .where(eq(cognitiveRowsTable.id, input.id))
-          .run()
-        return { deleted: result.changes > 0 }
-      })
+      const result = db.delete(cognitiveRowsTable).where(eq(cognitiveRowsTable.id, input.id)).run()
+      return { deleted: result.changes > 0 }
     },
     async readState() {
-      return withDatabase(options.dbPath, readStateFromDb)
+      return readStateFromDb(db)
     },
     async listTermRows(input) {
-      return withDatabase(options.dbPath, (db) => readTermPageFromDb(db, input))
+      return readTermPageFromDb(db, input)
     },
     async searchRows(input) {
-      return withDatabase(options.dbPath, (db) => searchCognitiveRows(readStateFromDb(db), input))
+      const rows = readActiveRowsFromDb(db)
+      const state = createEmptyCognitiveMemoryState()
+      state.rows = rows
+      return searchCognitiveRows(state, input)
+    },
+    close() {
+      client.close()
     }
   }
 }
