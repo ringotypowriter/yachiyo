@@ -2,11 +2,13 @@
 
 import { spawnSync } from 'node:child_process'
 import { readdirSync } from 'node:fs'
-import { join, resolve } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import process from 'node:process'
+import { fileURLToPath } from 'node:url'
 
-const rootDir = process.cwd()
-const testsDir = resolve(rootDir, 'src/main/yachiyo-server')
+const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
+const testRoots = process.argv.slice(2)
+const testsDirs = testRoots.length > 0 ? testRoots.map((root) => resolve(repoRoot, root)) : []
 
 /** @type {(directory: string) => string[]} */
 const collectTestFiles = (directory) => {
@@ -33,12 +35,17 @@ const collectTestFiles = (directory) => {
   })
 }
 
-const testFiles = collectTestFiles(testsDir).sort()
+const testFiles = testsDirs.flatMap(collectTestFiles).sort()
+if (testFiles.length === 0) {
+  console.log('No server tests found.')
+  process.exit(0)
+}
+
 const result = spawnSync(
   process.execPath,
   ['--experimental-strip-types', '--test', '--test-concurrency=1', ...testFiles],
   {
-    cwd: rootDir,
+    cwd: repoRoot,
     stdio: 'inherit'
   }
 )

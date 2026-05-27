@@ -14,9 +14,9 @@ __pycache__/
 .claude/settings.local.json
 other_resources/
 docs/
-external-hooks/*/.build/
+native/*/.build/
 
 *.p12
 
 # Downloaded search binaries (rg, bfs) — platform-specific, not committed.
-resources/bin/
+apps/desktop/resources/bin/

@@ -75,9 +75,22 @@ jobs:
 
       - name: Set nightly version
         run: |
-          npm version patch --no-git-tag-version
-          NIGHTLY_VERSION="$(node -p "require('./package.json').version")-beta.$(date -u +%Y%m%d%H%M)"
-          npm version "$NIGHTLY_VERSION" --no-git-tag-version
+          node - <<'NODE'
+          const fs = require('node:fs')
+          const path = 'apps/desktop/package.json'
+          const pkg = JSON.parse(fs.readFileSync(path, 'utf8'))
+          const [major, minor, patch] = pkg.version.split('.').map(Number)
+          pkg.version = `${major}.${minor}.${patch + 1}`
+          fs.writeFileSync(path, JSON.stringify(pkg, null, 2) + '\n')
+          NODE
+          NIGHTLY_VERSION="$(node -p "require('./apps/desktop/package.json').version")-beta.$(date -u +%Y%m%d%H%M)"
+          NIGHTLY_VERSION="$NIGHTLY_VERSION" node - <<NODE
+          const fs = require('node:fs')
+          const path = 'apps/desktop/package.json'
+          const pkg = JSON.parse(fs.readFileSync(path, 'utf8'))
+          pkg.version = process.env.NIGHTLY_VERSION
+          fs.writeFileSync(path, JSON.stringify(pkg, null, 2) + '\n')
+          NODE
           echo "NIGHTLY_VERSION=$NIGHTLY_VERSION" >> "$GITHUB_ENV"
 
       - name: Build and publish
@@ -88,7 +101,7 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        run: pnpm run build && pnpm exec electron-builder --mac zip --publish always -c.publish.releaseType=prerelease
+        run: pnpm --filter @yachiyo/desktop run build && pnpm --filter @yachiyo/desktop exec electron-builder --mac zip --publish always -c.publish.releaseType=prerelease
 
       - name: Generate changelog and update release
         env:

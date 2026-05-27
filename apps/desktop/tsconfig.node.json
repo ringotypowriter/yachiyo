@@ -1,0 +1,24 @@
+{
+  "extends": "@electron-toolkit/tsconfig/tsconfig.node.json",
+  "include": [
+    "electron.vite.config.*",
+    "src/main/**/*",
+    "src/preload/**/*",
+    "../../packages/shared/src/**/*",
+    "../../packages/runtime/src/**/*",
+    "../../packages/cli/src/**/*"
+  ],
+  "exclude": ["**/*.test.ts", "**/*.test.tsx", "**/*.spec.ts", "**/*.spec.tsx"],
+  "compilerOptions": {
+    "allowImportingTsExtensions": true,
+    "composite": true,
+    "noEmit": true,
+    "types": ["node", "electron-vite/node"],
+    "baseUrl": ".",
+    "paths": {
+      "@yachiyo/shared/*": ["../../packages/shared/src/*"],
+      "@yachiyo/runtime/*": ["../../packages/runtime/src/*"],
+      "@yachiyo/cli/*": ["../../packages/cli/src/*"]
+    }
+  }
+}

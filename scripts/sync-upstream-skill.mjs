@@ -24,7 +24,7 @@ const UPSTREAM_SKILLS = [
   {
     repo: 'ringotypowriter/kagete',
     remotePath: 'skills/kagete',
-    localDir: 'resources/core-skills/yachiyo-kagete'
+    localDir: 'packages/core-skills/core-skills/yachiyo-kagete'
   }
 ]
 

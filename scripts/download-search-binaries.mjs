@@ -2,7 +2,7 @@
 
 /**
  * Downloads pinned versions of ripgrep (rg) and fd for the current macOS
- * platform. Outputs binaries to resources/bin/{platform}-{arch}/.
+ * platform. Outputs binaries to apps/desktop/resources/bin/{platform}-{arch}/.
  *
  * Usage:
  *   node scripts/download-search-binaries.mjs           # download for current arch
@@ -50,7 +50,7 @@ const platformDir = `${EB_OS_MAP[PLATFORM]}-${ARCH}`
 // ── Paths ────────────────────────────────────────────────────────────────────
 
 const rootDir = resolve(import.meta.dirname, '..')
-const outputDir = resolve(rootDir, 'resources', 'bin', platformDir)
+const outputDir = resolve(rootDir, 'apps', 'desktop', 'resources', 'bin', platformDir)
 const rgOutputPath = join(outputDir, 'rg')
 const fdOutputPath = join(outputDir, 'fd')
 const force = process.argv.includes('--force')

@@ -2,7 +2,7 @@
 
 ## Project Structure & Module Organization
 
-`src/main` contains the Electron main process plus the local server in `src/main/yachiyo-server`. `src/preload` exposes the preload bridge. The React UI lives in `src/renderer/src`, with the embedded settings panel under `src/renderer/settings`. Shared protocol and message utilities belong in `src/shared/yachiyo`. Keep product and architecture notes in `docs/`, helper scripts in `scripts/`, and packaging assets in `build/` and `resources/`.
+`apps/desktop/src/main` contains the Electron main process. `apps/desktop/src/preload` exposes the preload bridge. The React UI lives in `apps/desktop/src/renderer/src`, with the embedded settings panel under `apps/desktop/src/renderer/settings`. `packages/shared` owns shared protocol and message utilities. `packages/runtime` owns the local assistant runtime. `packages/cli` owns the `yachiyo` command-line interface. `packages/core-skills` contains bundled core skills, `native/` contains native helper packages, and `apps/website` contains the public website. Keep product and architecture notes in `docs/`, helper scripts in `scripts/`, and desktop packaging assets in `apps/desktop/build` and `apps/desktop/resources`.
 
 ## Build, Test, and Development Commands
 
@@ -72,16 +72,16 @@ Do not commit provider secrets, local sqlite files, or machine-specific data. Ru
 
 ## Configuration Extension Notes
 
-- Treat `src/shared/yachiyo/protocol.ts` as the runtime contract only. Keep TOML keys, legacy migrations, and file-format quirks out of that file.
-- `src/main/yachiyo-server/settings/settingsDefaults.ts` owns the default in-memory settings shape. Keep new defaults there instead of scattering them across readers or writers.
-- `src/main/yachiyo-server/settings/settingsConfig.ts` should stay as a small assembly facade. Put feature-specific normalization in the neighboring normalization modules instead of growing that file again.
-- `config.toml` now flows through `src/main/yachiyo-server/settings/settingsTomlCodec.ts` and `src/main/yachiyo-server/settings/settingsTomlSlices.ts`.
+- Treat `packages/shared/src/protocol.ts` as the runtime contract only. Keep TOML keys, legacy migrations, and file-format quirks out of that file.
+- `packages/runtime/src/settings/settingsDefaults.ts` owns the default in-memory settings shape. Keep new defaults there instead of scattering them across readers or writers.
+- `packages/runtime/src/settings/settingsConfig.ts` should stay as a small assembly facade. Put feature-specific normalization in the neighboring normalization modules instead of growing that file again.
+- `config.toml` now flows through `packages/runtime/src/settings/settingsTomlCodec.ts` and `packages/runtime/src/settings/settingsTomlSlices.ts`.
 - Settings normalization is split by concern:
   - `settingsFeatureNormalization.ts` for general/chat/workspace/memory/web-search style sections
   - `settingsProviderNormalization.ts` for providers, tool-model resolution, and runtime provider snapshots
   - `settingsProfileNormalization.ts` for subagents and essentials
-- `channels.toml` now flows through `src/main/yachiyo-server/runtime/config/channelsTomlCodec.ts` and `src/main/yachiyo-server/runtime/config/channelsTomlSlices.ts`.
-- Keep the public entry points stable: `src/main/yachiyo-server/settings/settingsStore.ts` and `src/main/yachiyo-server/runtime/config/channelsConfig.ts` should stay thin read/write facades.
+- `channels.toml` now flows through `packages/runtime/src/runtime/config/channelsTomlCodec.ts` and `packages/runtime/src/runtime/config/channelsTomlSlices.ts`.
+- Keep the public entry points stable: `packages/runtime/src/settings/settingsStore.ts` and `packages/runtime/src/runtime/config/channelsConfig.ts` should stay thin read/write facades.
 - When adding a new setting, update the runtime type in `protocol.ts`, add the default in `settingsDefaults.ts` if needed, add one slice entry for reading and writing the TOML field, and extend the owning normalization module instead of touching unrelated slices.
 - Put legacy compatibility fixes in the codec layer, not in feature code. For `config.toml`, keep old-format rewrites near `fixLegacyJsonEnv`.
 - Preserve deterministic TOML output order by appending new slice entries in the intended section order instead of inserting ad hoc writes elsewhere.

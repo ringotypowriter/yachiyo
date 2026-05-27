@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# Yachiyo CLI - first-class control surface for the Yachiyo app.
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
+exec node --experimental-strip-types "$ROOT/packages/cli/src/yachiyoCli.ts" "$@"

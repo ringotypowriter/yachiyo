@@ -1,0 +1,9 @@
+{
+  "name": "@yachiyo/core-skills",
+  "version": "1.1.9",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./package.json": "./package.json"
+  }
+}

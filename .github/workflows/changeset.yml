@@ -45,7 +45,7 @@ jobs:
           pnpm changeset version
 
           # Read the new version
-          VERSION="v$(node -p "require('./package.json').version")"
+          VERSION="v$(node -p "require('./apps/desktop/package.json').version")"
           echo "New version: $VERSION"
 
           # Commit directly to main
@@ -91,7 +91,7 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        run: pnpm run build && pnpm exec electron-builder --mac zip --publish always
+        run: pnpm --filter @yachiyo/desktop run build && pnpm --filter @yachiyo/desktop exec electron-builder --mac zip --publish always
 
       - name: Generate changelog and update release
         env:

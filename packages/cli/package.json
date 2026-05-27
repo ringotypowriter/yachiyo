@@ -1,0 +1,22 @@
+{
+  "name": "@yachiyo/cli",
+  "version": "1.1.9",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "yachiyo": "bin/yachiyo"
+  },
+  "exports": {
+    "./yachiyoCli": "./src/yachiyoCli.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json --composite false",
+    "typecheck:tests": "tsc --noEmit -p tsconfig.tests.json --composite false",
+    "test": "pnpm run typecheck:tests && node ../../scripts/run-server-tests.mjs packages/cli/src"
+  },
+  "dependencies": {
+    "@yachiyo/runtime": "workspace:*",
+    "@yachiyo/shared": "workspace:*",
+    "drizzle-orm": "^0.45.1"
+  }
+}

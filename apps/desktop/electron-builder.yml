@@ -1,0 +1,59 @@
+appId: sh.ringo.yachiyo
+productName: Yachiyo
+directories:
+  buildResources: build
+files:
+  - '!**/.vscode/*'
+  - '!src/*'
+  - '!electron.vite.config.{js,ts,mjs,cjs}'
+  - '!{.eslintcache,eslint.config.mjs,.prettierignore,.prettierrc.yaml,dev-app-update.yml,CHANGELOG.md,README.md}'
+  - '!{.env,.env.*,.npmrc,pnpm-lock.yaml}'
+  - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}'
+  - '!resources/screenshots{,/**}'
+extraResources:
+  - from: ../../packages/core-skills/core-skills
+    to: core-skills
+  - from: resources/bin/${os}-${arch}
+    to: bin
+    filter:
+      - '**/*'
+asarUnpack:
+  - resources/**
+  - '!resources/screenshots{,/**}'
+win:
+  executableName: yachiyo
+nsis:
+  artifactName: ${name}-${version}-setup.${ext}
+  shortcutName: ${productName}
+  uninstallDisplayName: ${productName}
+  createDesktopShortcut: always
+mac:
+  extraResources:
+    - from: ../../native/vision-ocr/.build/release/vision-ocr
+      to: external-hooks/vision-ocr
+  entitlementsInherit: build/entitlements.mac.plist
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  extendInfo:
+    - NSCameraUsageDescription: Application requests access to the device's camera.
+    - NSMicrophoneUsageDescription: Application requests access to the device's microphone.
+    - NSDocumentsFolderUsageDescription: Application requests access to the user's Documents folder.
+    - NSDownloadsFolderUsageDescription: Application requests access to the user's Downloads folder.
+  notarize: true
+dmg:
+  artifactName: ${name}-${version}.${ext}
+linux:
+  target:
+    - AppImage
+    - snap
+    - deb
+  maintainer: Yachiyo
+  category: Utility
+appImage:
+  artifactName: ${name}-${version}.${ext}
+publish:
+  provider: github
+  owner: ringotypowriter
+  repo: yachiyo
+  releaseType: release
+npmRebuild: true
