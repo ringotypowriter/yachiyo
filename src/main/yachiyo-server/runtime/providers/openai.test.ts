@@ -39,7 +39,11 @@ test('createOpenAiLanguageModel uses the Codex backend and account headers', () 
       codexAccountId: 'acct_123'
     },
     {
-      createOpenAIProvider: (options) => {
+      createOpenAIProvider: (options: {
+        apiKey?: string
+        baseURL?: string
+        headers?: Record<string, string>
+      }) => {
         providerOptions = options as typeof providerOptions
         return {
           chat: () => {

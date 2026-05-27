@@ -166,7 +166,7 @@ export async function fetchOpenAiCompatibleModels(
   const baseUrl = isCodexOauth
     ? CODEX_BACKEND_BASE_URL
     : cleanBaseUrl(provider.baseUrl, DEFAULT_OPENAI_BASE_URL)
-  const url = isCodexOauth ? `${baseUrl}/models?client_version=0.125.0` : `${baseUrl}/models`
+  const url = isCodexOauth ? `${baseUrl}/models?client_version=0.134.0` : `${baseUrl}/models`
   console.log('[fetchModels] fetching openai-compatible:', url)
 
   let apiKey = provider.apiKey
