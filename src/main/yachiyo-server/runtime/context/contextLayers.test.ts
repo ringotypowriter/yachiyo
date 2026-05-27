@@ -32,8 +32,7 @@ test('compileSoulLayer wraps raw SOUL.md content', () => {
 })
 
 test('compileContextLayers merges turn context into the last user message', () => {
-  const reminder =
-    '<reminder>\nTool availability changed for this turn:\n- Disabled: write.\n</reminder>'
+  const reminder = '<reminder>\nAdditional context:\n- Reminder payload.\n</reminder>'
   const soulContent =
     '# SOUL\n\n## Evolved Traits\n### 2026-03-25\n- Leans toward concise execution'
 

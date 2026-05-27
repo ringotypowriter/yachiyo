@@ -5,7 +5,10 @@ import {
   DEFAULT_ENABLED_TOOL_NAMES,
   USER_MANAGED_TOOL_NAMES
 } from '../../../../shared/yachiyo/protocol.ts'
-import { RUN_MODE_DEFINITIONS } from '../../../../shared/yachiyo/toolModes.ts'
+import {
+  RUN_MODE_DEFINITIONS,
+  resolveRunModeEnabledTools
+} from '../../../../shared/yachiyo/toolModes.ts'
 import {
   buildCurrentTimeSection,
   buildDisabledToolsReminderSection,
@@ -20,7 +23,7 @@ test('formatQueryReminder wraps multiple sections into one extensible reminder b
     {
       key: 'tool-availability',
       title: 'Tool availability changed for this turn',
-      lines: ['Enabled: bash.', 'Disabled: write, edit.']
+      lines: ['First reminder line.', 'Second reminder line.']
     },
     {
       key: 'future-context',
@@ -34,8 +37,8 @@ test('formatQueryReminder wraps multiple sections into one extensible reminder b
     [
       '<reminder>',
       'Tool availability changed for this turn:',
-      '- Enabled: bash.',
-      '- Disabled: write, edit.',
+      '- First reminder line.',
+      '- Second reminder line.',
       'Additional context:',
       '- Another reminder payload.',
       '</reminder>'
@@ -43,59 +46,101 @@ test('formatQueryReminder wraps multiple sections into one extensible reminder b
   )
 })
 
-test('buildToolAvailabilityReminderSection only emits changed tools', () => {
+function parseToolListLine(line: string, prefix: string): string[] {
+  assert.ok(line.startsWith(prefix), `Expected line to start with ${prefix}`)
+  const value = line.slice(prefix.length, -1)
+  return value === 'none' ? [] : value.split(', ')
+}
+
+function assertToolStateLines(input: {
+  lines: string[]
+  enabledTools: readonly string[]
+  modeIndependentTools?: readonly string[]
+}): void {
+  const [enabledLine, disabledLine] = input.lines
+  assert.equal(input.lines.length, 2)
+  assert.ok(enabledLine)
+  assert.ok(disabledLine)
+
+  const enabledToolSet = new Set(input.enabledTools)
+  assert.deepEqual(parseToolListLine(enabledLine, 'Enabled tools: '), [
+    ...USER_MANAGED_TOOL_NAMES.filter((toolName) => enabledToolSet.has(toolName)),
+    ...new Set(input.modeIndependentTools ?? [])
+  ])
   assert.deepEqual(
-    buildToolAvailabilityReminderSection({
-      previousEnabledTools: ['read', 'write', 'edit', 'bash', 'webRead'],
-      enabledTools: ['read', 'bash']
-    }),
-    {
-      key: 'tool-availability',
-      title: 'Tool availability changed for this turn',
-      lines: ['Disabled: write, edit, webRead.']
-    }
+    parseToolListLine(disabledLine, 'Disabled tools: '),
+    USER_MANAGED_TOOL_NAMES.filter((toolName) => !enabledToolSet.has(toolName))
   )
+}
+
+test('buildToolAvailabilityReminderSection emits the complete tool state when it changes', () => {
+  const enabledTools = resolveRunModeEnabledTools('chat')
+  const previousEnabledTools = resolveRunModeEnabledTools('auto')
+  const modeIndependentTools = ['runtimeToolA', 'runtimeToolB']
+  const section = buildToolAvailabilityReminderSection({
+    previousEnabledTools,
+    enabledTools,
+    modeIndependentTools
+  })
+
+  assert.deepEqual(section?.key, 'tool-availability')
+  assert.equal(section?.title, 'Tool availability changed for this turn')
+  assertToolStateLines({
+    lines: section?.lines ?? [],
+    enabledTools,
+    modeIndependentTools
+  })
 
   assert.equal(
     buildToolAvailabilityReminderSection({
-      previousEnabledTools: ['read', 'bash'],
-      enabledTools: ['read', 'bash']
+      previousEnabledTools: enabledTools,
+      enabledTools
     }),
     null
   )
 })
 
 test('buildRunModeChangedReminderSection emits only when mode changes', () => {
-  assert.deepEqual(
-    buildRunModeChangedReminderSection({ previousRunMode: 'auto', runMode: 'explore' }),
-    {
-      key: 'run-mode',
-      title: 'Mode changed to Explore Mode for this turn',
-      lines: [RUN_MODE_DEFINITIONS.explore.description]
-    }
-  )
+  const runMode = 'explore'
+  const modeIndependentTools = ['runtimeToolA', 'runtimeToolB']
+  const section = buildRunModeChangedReminderSection({
+    previousRunMode: 'auto',
+    runMode,
+    modeIndependentTools
+  })
 
+  assert.equal(section?.key, 'run-mode')
   assert.equal(
-    buildRunModeChangedReminderSection({ previousRunMode: 'explore', runMode: 'explore' }),
-    null
+    section?.title,
+    `Mode changed to ${RUN_MODE_DEFINITIONS[runMode].label} for this turn`
   )
+  assert.equal(section?.lines[0], RUN_MODE_DEFINITIONS[runMode].description)
+  assertToolStateLines({
+    lines: section?.lines.slice(1) ?? [],
+    enabledTools: RUN_MODE_DEFINITIONS[runMode].enabledTools,
+    modeIndependentTools
+  })
+
+  assert.equal(buildRunModeChangedReminderSection({ previousRunMode: runMode, runMode }), null)
 })
 
 test('buildDisabledToolsReminderSection lists disabled user-managed tools', () => {
-  const section = buildDisabledToolsReminderSection({
-    enabledTools: ['read', 'bash', 'grep']
-  })
+  const enabledTools = USER_MANAGED_TOOL_NAMES.slice(0, 3)
+  const disabledTools = USER_MANAGED_TOOL_NAMES.slice(3)
+  const section = buildDisabledToolsReminderSection({ enabledTools })
+
   assert.ok(section)
   assert.equal(section.key, 'disabled-tools')
-  assert.ok(section.lines[0].includes('write'))
-  assert.ok(section.lines[0].includes('edit'))
-  assert.ok(section.lines[0].includes('glob'))
-  assert.ok(section.lines[0].includes('webRead'))
-  assert.ok(section.lines[0].includes('webSearch'))
-  // Should not mention enabled tools
-  assert.ok(!section.lines[0].includes('read,'))
-  assert.ok(!section.lines[0].includes('bash'))
-  assert.ok(!section.lines[0].includes('grep'))
+  const linePrefix = 'The following tools are disabled by the user and will reject calls: '
+  const disabledList = parseToolListLine(
+    section.lines[0].replace(linePrefix, 'Disabled tools: '),
+    'Disabled tools: '
+  )
+
+  assert.deepEqual(disabledList, disabledTools)
+  for (const toolName of enabledTools) {
+    assert.ok(!disabledList.includes(toolName))
+  }
 })
 
 test('buildDisabledToolsReminderSection returns null when all default tools are enabled', () => {
@@ -106,7 +151,6 @@ test('buildDisabledToolsReminderSection returns null when all default tools are 
 })
 
 test('buildDisabledToolsReminderSection excludes runtime-managed tools', () => {
-  // Even if skillsRead is not in enabledTools, it should not appear (it's runtime-managed)
   const section = buildDisabledToolsReminderSection({
     enabledTools: [...USER_MANAGED_TOOL_NAMES]
   })

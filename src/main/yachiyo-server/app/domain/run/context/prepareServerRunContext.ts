@@ -239,37 +239,7 @@ export async function prepareServerRunContext(
     .listThreadRuns(input.thread.id)
     .filter((run) => run.id !== input.runId && run.workspacePath)
     .sort((left, right) => right.createdAt.localeCompare(left.createdAt))[0]?.workspacePath
-  const hiddenQueryReminder = formatQueryReminder(
-    [
-      input.previousEnabledTools
-        ? buildToolAvailabilityReminderSection({
-            previousEnabledTools: input.previousEnabledTools,
-            enabledTools: modelEnabledTools
-          })
-        : null,
-      input.previousRunMode
-        ? buildRunModeChangedReminderSection({
-            previousRunMode: input.previousRunMode,
-            runMode: input.runMode
-          })
-        : null,
-      previousWorkspacePath
-        ? buildWorkspaceChangedReminderSection({
-            previousWorkspacePath,
-            workspacePath
-          })
-        : null,
-      buildDisabledToolsReminderSection({ enabledTools: modelEnabledTools }),
-      buildCurrentTimeSection(hintTime, { includeDate: !isLocalOrOwnerDm }),
-      planModeDocument ? buildPlanModeReminderSection(planModeDocument) : null,
-      isVisibleSteerLeg ? buildSteerReminderSection() : null
-    ].flatMap((section) => (section ? [section] : []))
-  )
-  const sessionHint = input.thread.lastDelegatedSession
-    ? `Hint: The most recent delegated coding task (Agent: ${input.thread.lastDelegatedSession.agentName}) used session_id ${input.thread.lastDelegatedSession.sessionId} in workspace ${input.thread.lastDelegatedSession.workspacePath}. If the user asks to resume or continue that task, you must provide this exact session_id and set workspace to ${input.thread.lastDelegatedSession.workspacePath} in the delegateCodingTask tool.`
-    : undefined
-  const effectiveReminder =
-    [hiddenQueryReminder, sessionHint].filter(Boolean).join('\n\n') || undefined
+
   const fileMentionResolution = await resolveFileMentionsForUserQuery({
     content: requestMessage?.content ?? '',
     workspacePath,
@@ -378,6 +348,57 @@ export async function prepareServerRunContext(
     enabledSubagentProfiles,
     gitValidatedWorkspaces
   )
+  const modeIndependentTools = [
+    ...(modelEnabledTools.includes('skillsRead') ? ['skillsRead'] : []),
+    ...(!input.thread.privacyMode &&
+    (deps.memoryService.isConfigured() || !isExternalChannel || isOwnerDm)
+      ? ['querySource']
+      : []),
+    ...(!input.thread.privacyMode &&
+    (!isExternalChannel || isOwnerDm) &&
+    deps.memoryService.isConfigured()
+      ? ['remember']
+      : []),
+    'updateProfile',
+    ...((gitCtx.hasGit || gitValidatedWorkspaces.length > 0) && enabledSubagentProfiles.length > 0
+      ? ['delegateCodingTask']
+      : []),
+    ...(isLocalRunTrigger ? ['askUser', 'updateTodoList'] : []),
+    ...(planModeDocument ? ['exitPlanMode'] : [])
+  ]
+  const hiddenQueryReminder = formatQueryReminder(
+    [
+      input.previousEnabledTools
+        ? buildToolAvailabilityReminderSection({
+            previousEnabledTools: input.previousEnabledTools,
+            enabledTools: modelEnabledTools,
+            modeIndependentTools
+          })
+        : null,
+      input.previousRunMode
+        ? buildRunModeChangedReminderSection({
+            previousRunMode: input.previousRunMode,
+            runMode: input.runMode,
+            modeIndependentTools
+          })
+        : null,
+      previousWorkspacePath
+        ? buildWorkspaceChangedReminderSection({
+            previousWorkspacePath,
+            workspacePath
+          })
+        : null,
+      buildDisabledToolsReminderSection({ enabledTools: modelEnabledTools }),
+      buildCurrentTimeSection(hintTime, { includeDate: !isLocalOrOwnerDm }),
+      planModeDocument ? buildPlanModeReminderSection(planModeDocument) : null,
+      isVisibleSteerLeg ? buildSteerReminderSection() : null
+    ].flatMap((section) => (section ? [section] : []))
+  )
+  const sessionHint = input.thread.lastDelegatedSession
+    ? `Hint: The most recent delegated coding task (Agent: ${input.thread.lastDelegatedSession.agentName}) used session_id ${input.thread.lastDelegatedSession.sessionId} in workspace ${input.thread.lastDelegatedSession.workspacePath}. If the user asks to resume or continue that task, you must provide this exact session_id and set workspace to ${input.thread.lastDelegatedSession.workspacePath} in the delegateCodingTask tool.`
+    : undefined
+  const effectiveReminder =
+    [hiddenQueryReminder, sessionHint].filter(Boolean).join('\n\n') || undefined
 
   // Fetch activity summary - only for local / owner-DM runs, never for guests.
   const shouldIncludeActivity = (!isExternalChannel || isOwnerDm) && !requestIsHidden

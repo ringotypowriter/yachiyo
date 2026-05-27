@@ -45,8 +45,7 @@ test('message prepare can add soul, agent, hint, and memory layers without mutat
       instructions: 'Workspace: /tmp/thread-1'
     },
     hint: {
-      reminder:
-        '<reminder>\nTool availability changed for this turn:\n- Disabled: edit.\n</reminder>'
+      reminder: '<reminder>\nAdditional context:\n- Reminder payload.\n</reminder>'
     },
     memory: {
       entries: ['No persisted memories yet.']
@@ -66,7 +65,7 @@ test('message prepare can add soul, agent, hint, and memory layers without mutat
   assert.equal(prepared[1]?.role, 'user')
   const userContent = prepared[1]?.content as string
   assert.ok(userContent.includes('Inspect the workspace'))
-  assert.ok(userContent.includes('Tool availability changed for this turn'))
+  assert.ok(userContent.includes('Additional context'))
   assert.ok(userContent.includes('No persisted memories yet.'))
 })
 

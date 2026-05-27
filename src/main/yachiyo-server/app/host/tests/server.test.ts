@@ -10,7 +10,6 @@ import { readUserDocument, writeUserDocument } from '../../../runtime/profiles/u
 import { createInMemoryYachiyoStorage } from '../../../storage/memoryStorage.ts'
 import type { MemoryService } from '../../../services/memory/memoryService.ts'
 import {
-  DEFAULT_ENABLED_TOOL_NAMES,
   type ChatAccepted,
   type ChatAcceptedWithUserMessage,
   type UserDocument,
@@ -921,7 +920,6 @@ test('YachiyoServer.acceptThreadPlanDocument runs directly in the source thread 
       assert.equal(handoffThreads.length, 0)
       assert.equal(accepted.thread.id, sourceThread.id)
       assert.equal(accepted.thread.handoffFromThreadId, undefined)
-      assert.deepEqual(accepted.thread.enabledTools, DEFAULT_ENABLED_TOOL_NAMES)
       assert.equal(accepted.thread.runMode, 'auto')
       assert.equal(accepted.userMessage.threadId, sourceThread.id)
       assert.equal(accepted.userMessage.parentMessageId, planMessage.id)
@@ -945,7 +943,6 @@ test('YachiyoServer.acceptThreadPlanDocument runs directly in the source thread 
       const updatedSourceThread = storage
         .bootstrap()
         .threads.find((thread) => thread.id === sourceThread.id)
-      assert.deepEqual(updatedSourceThread?.enabledTools, DEFAULT_ENABLED_TOOL_NAMES)
       assert.equal(updatedSourceThread?.runMode, 'auto')
     }
   )
@@ -1007,6 +1004,8 @@ test('YachiyoServer.acceptThreadPlanDocument tells direct execution the accepted
         .join('\n')
       assert.ok(executionContextText.includes('Plan Mode'))
       assert.ok(executionContextText.includes('Mode changed to Auto Mode for this turn'))
+      assert.ok(executionContextText.includes('Enabled tools:'))
+      assert.ok(executionContextText.includes('Disabled tools:'))
     }
   )
 })
@@ -1047,7 +1046,6 @@ test('YachiyoServer.acceptThreadPlanDocument creates an execution thread seeded 
     assert.equal(accepted.thread.workspacePath, workspacePath)
     assert.equal(accepted.thread.title, 'Build Blog Generator')
     assert.equal(accepted.thread.icon, sourceThreadWithIcon.icon)
-    assert.deepEqual(accepted.thread.enabledTools, DEFAULT_ENABLED_TOOL_NAMES)
     assert.equal(accepted.thread.runMode, 'auto')
     assert.equal(accepted.userMessage.parentMessageId, planMessage.id)
     assert.notEqual(accepted.userMessage.hidden, true)

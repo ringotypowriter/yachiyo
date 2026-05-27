@@ -343,9 +343,13 @@ test('prepareServerRunContext injects tool availability changes into the current
       .filter((content): content is string => typeof content === 'string')
       .join('\n')
 
+    const addedTool = 'write'
     assert.match(userContent, /Tool availability changed for this turn/)
-    assert.match(userContent, /Enabled: write\./)
-    assert.match(updatedMessages[0]?.turnContext?.reminder ?? '', /Enabled: write\./)
+    assert.match(userContent, new RegExp(`Enabled tools: .*${addedTool}`))
+    assert.match(
+      updatedMessages[0]?.turnContext?.reminder ?? '',
+      new RegExp(`Enabled tools: .*${addedTool}`)
+    )
   } finally {
     await rm(root, { recursive: true, force: true })
   }

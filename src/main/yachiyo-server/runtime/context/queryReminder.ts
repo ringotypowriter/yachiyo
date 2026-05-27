@@ -11,36 +11,52 @@ export interface QueryReminderSection {
   lines: string[]
 }
 
+function formatToolList(toolNames: readonly string[]): string {
+  return toolNames.length > 0 ? toolNames.join(', ') : 'none'
+}
+
+function buildToolStateLines(input: {
+  enabledTools: readonly ToolCallName[]
+  modeIndependentTools?: readonly string[]
+}): string[] {
+  const enabledToolSet = new Set(input.enabledTools)
+  const enabledTools = [
+    ...USER_MANAGED_TOOL_NAMES.filter((toolName) => enabledToolSet.has(toolName)),
+    ...new Set(input.modeIndependentTools ?? [])
+  ]
+  const disabledTools = USER_MANAGED_TOOL_NAMES.filter((toolName) => !enabledToolSet.has(toolName))
+  return [
+    `Enabled tools: ${formatToolList(enabledTools)}.`,
+    `Disabled tools: ${formatToolList(disabledTools)}.`
+  ]
+}
+
 export function buildToolAvailabilityReminderSection(input: {
   previousEnabledTools: ToolCallName[]
   enabledTools: ToolCallName[]
+  modeIndependentTools?: readonly string[]
 }): QueryReminderSection | null {
   const previousEnabledToolSet = new Set(input.previousEnabledTools)
   const enabledToolSet = new Set(input.enabledTools)
-  const addedTools = USER_MANAGED_TOOL_NAMES.filter(
-    (toolName) => enabledToolSet.has(toolName) && !previousEnabledToolSet.has(toolName)
-  )
-  const removedTools = USER_MANAGED_TOOL_NAMES.filter(
-    (toolName) => !enabledToolSet.has(toolName) && previousEnabledToolSet.has(toolName)
+  const changed = USER_MANAGED_TOOL_NAMES.some(
+    (toolName) => previousEnabledToolSet.has(toolName) !== enabledToolSet.has(toolName)
   )
 
-  if (addedTools.length === 0 && removedTools.length === 0) {
+  if (!changed) {
     return null
   }
 
   return {
     key: 'tool-availability',
     title: 'Tool availability changed for this turn',
-    lines: [
-      ...(addedTools.length > 0 ? [`Enabled: ${addedTools.join(', ')}.`] : []),
-      ...(removedTools.length > 0 ? [`Disabled: ${removedTools.join(', ')}.`] : [])
-    ]
+    lines: buildToolStateLines(input)
   }
 }
 
 export function buildRunModeChangedReminderSection(input: {
   previousRunMode: RunModeId
   runMode: RunModeId
+  modeIndependentTools?: readonly string[]
 }): QueryReminderSection | null {
   if (input.previousRunMode === input.runMode || input.runMode === 'custom') {
     return null
@@ -50,7 +66,13 @@ export function buildRunModeChangedReminderSection(input: {
   return {
     key: 'run-mode',
     title: `Mode changed to ${mode.label} for this turn`,
-    lines: [mode.description]
+    lines: [
+      mode.description,
+      ...buildToolStateLines({
+        enabledTools: mode.enabledTools,
+        modeIndependentTools: input.modeIndependentTools
+      })
+    ]
   }
 }
 
