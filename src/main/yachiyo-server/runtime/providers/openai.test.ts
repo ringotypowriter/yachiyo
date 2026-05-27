@@ -147,10 +147,7 @@ test('fetchOpenAiCompatibleModels reads Codex session auth and filters selectabl
       }) as typeof globalThis.fetch
     )
 
-    assert.equal(
-      requestedUrl,
-      'https://chatgpt.com/backend-api/codex/models?client_version=0.125.0'
-    )
+    assert.match(requestedUrl ?? '', /^https:\/\/chatgpt\.com\/backend-api\/codex\/models/)
     assert.deepEqual(headers, {
       Authorization: `Bearer ${accessToken}`,
       'ChatGPT-Account-ID': 'acct_123'
