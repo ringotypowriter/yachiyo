@@ -367,6 +367,36 @@ function buildWorkTrajectoryItems(input: {
   return items
 }
 
+function isToolCallBoundToAssistant(toolCall: ToolCall, assistantMessageId: string): boolean {
+  return !toolCall.assistantMessageId || toolCall.assistantMessageId === assistantMessageId
+}
+
+function getWorkSummaryToolCalls(input: {
+  activeAssistantMessage: Message
+  requestMessageIds: readonly string[]
+  runs: RunRecord[]
+  visibleToolCalls: ToolCall[]
+}): ToolCall[] {
+  const latestCompletedRun = findLatestRunForRequests(
+    input.runs,
+    input.requestMessageIds,
+    (run) => run.status === 'completed' && run.completedAt != null
+  )
+  const activeAssistantMessageId = input.activeAssistantMessage.id
+
+  if (latestCompletedRun) {
+    return input.visibleToolCalls.filter(
+      (toolCall) =>
+        toolCall.runId === latestCompletedRun.id ||
+        (!toolCall.runId && isToolCallBoundToAssistant(toolCall, activeAssistantMessageId))
+    )
+  }
+
+  return input.visibleToolCalls.filter((toolCall) =>
+    isToolCallBoundToAssistant(toolCall, activeAssistantMessageId)
+  )
+}
+
 function resolveWorkTrajectoryTimelineEntry(
   timelineItem: ConversationGroupTimelineItem,
   textBlockById: ReadonlyMap<string, MessageTextBlockRecord>,
@@ -515,19 +545,28 @@ export function buildConversationGroupRows(
   const renderableTextBlocks = activeAssistantTextBlocks.filter(
     (textBlock) => textBlock.content.trim().length > 0
   )
+  const workSummaryToolCalls = activeAssistantMessage
+    ? getWorkSummaryToolCalls({
+        activeAssistantMessage,
+        requestMessageIds: groupRequestMessageIds,
+        runs: input.runs,
+        visibleToolCalls
+      })
+    : []
   const hasOnlyManyToolCalls =
-    renderableTextBlocks.length === 0 && visibleToolCalls.length > TOOL_ONLY_WORK_SUMMARY_THRESHOLD
+    renderableTextBlocks.length === 0 &&
+    workSummaryToolCalls.length > TOOL_ONLY_WORK_SUMMARY_THRESHOLD
   const shouldSummarizeCompletedWork =
     input.workSummaryEnabled !== false &&
     activeAssistantMessage != null &&
     activeAssistantMessage.status === 'completed' &&
-    visibleToolCalls.every(
+    workSummaryToolCalls.every(
       (toolCall) => toolCall.status !== 'preparing' && toolCall.status !== 'running'
     ) &&
     !input.subagentActive &&
     (hasOnlyManyToolCalls ||
       (renderableTextBlocks.length > 0 &&
-        (visibleToolCalls.length > 0 ||
+        (workSummaryToolCalls.length > 0 ||
           (activeAssistantMessages.length === 1 && renderableTextBlocks.length > 1))))
   const summarizedFinalTextBlock =
     shouldSummarizeCompletedWork && !hasOnlyManyToolCalls ? renderableTextBlocks.at(-1) : undefined
@@ -594,7 +633,7 @@ export function buildConversationGroupRows(
         memorySummary,
         textBlocks: summarizedTextBlocks,
         userSteerMessages: group.userSteerMessages,
-        toolCalls: visibleToolCalls
+        toolCalls: workSummaryToolCalls
       }),
       requestMessageIds: groupRequestMessageIds
     })

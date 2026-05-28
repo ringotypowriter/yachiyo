@@ -609,6 +609,96 @@ test('buildConversationGroupRows summarizes completed agent work before the fina
   assert.equal(finalText?.textBlock.content, 'Final handoff')
 })
 
+test('buildConversationGroupRows excludes stopped branch tool calls from the active work summary', () => {
+  const stoppedAssistant = createAssistantMessage({
+    id: 'assistant-stopped',
+    content: 'Stopped attempt',
+    status: 'stopped',
+    createdAt: '2026-04-18T00:00:03.000Z'
+  })
+  const completedAssistant = createAssistantMessage({
+    id: 'assistant-completed',
+    content: '',
+    status: 'completed',
+    createdAt: '2026-04-18T00:00:08.000Z',
+    textBlocks: [
+      {
+        id: 'text-before-tools',
+        content: 'I will delegate this.',
+        createdAt: '2026-04-18T00:00:04.000Z'
+      },
+      {
+        id: 'text-final',
+        content: 'Done.',
+        createdAt: '2026-04-18T00:00:08.000Z'
+      }
+    ]
+  })
+  const group = createGroup({
+    inactiveAssistant: stoppedAssistant,
+    activeAssistant: completedAssistant
+  })
+
+  const rows = buildConversationGroupRows({
+    group,
+    inlineToolCalls: [
+      ...Array.from({ length: 3 }, (_, index) => ({
+        id: `tool-stopped-${index + 1}`,
+        runId: 'run-stopped',
+        threadId: 'thread-1',
+        requestMessageId: 'user-1',
+        assistantMessageId: 'assistant-stopped',
+        toolName: 'delegateTask',
+        status: 'completed' as const,
+        inputSummary: 'explore',
+        startedAt: `2026-04-18T00:00:0${index + 1}.000Z`,
+        finishedAt: `2026-04-18T00:00:0${index + 1}.500Z`
+      })),
+      ...Array.from({ length: 3 }, (_, index) => ({
+        id: `tool-completed-${index + 1}`,
+        runId: 'run-completed',
+        threadId: 'thread-1',
+        requestMessageId: 'user-1',
+        assistantMessageId: 'assistant-completed',
+        toolName: 'delegateTask',
+        status: 'completed' as const,
+        inputSummary: 'explore',
+        startedAt: `2026-04-18T00:00:0${index + 5}.000Z`,
+        finishedAt: `2026-04-18T00:00:0${index + 5}.500Z`
+      }))
+    ],
+    runs: [
+      {
+        id: 'run-stopped',
+        threadId: 'thread-1',
+        requestMessageId: 'user-1',
+        status: 'cancelled',
+        createdAt: '2026-04-18T00:00:00.000Z',
+        completedAt: '2026-04-18T00:00:03.000Z'
+      },
+      {
+        id: 'run-completed',
+        threadId: 'thread-1',
+        requestMessageId: 'user-1',
+        status: 'completed',
+        createdAt: '2026-04-18T00:00:04.000Z',
+        completedAt: '2026-04-18T00:00:08.000Z'
+      }
+    ],
+    activeRunId: null,
+    isActiveGroup: false,
+    subagentActive: false
+  })
+
+  const summary = rows.find((row) => row.kind === 'group-work-summary')
+  assert.ok(summary)
+  assert.equal(summary.assistantMessage.id, 'assistant-completed')
+  assert.deepEqual(
+    summary.items.flatMap((item) => (item.kind === 'tool-call' ? [item.toolCall.id] : [])),
+    ['tool-completed-1', 'tool-completed-2', 'tool-completed-3']
+  )
+})
+
 test('buildConversationGroupRows summarizes completed tool-only work when many tool calls have no text block', () => {
   const group = createGroup({
     activeAssistant: createAssistantMessage({
