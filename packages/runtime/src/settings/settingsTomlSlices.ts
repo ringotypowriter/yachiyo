@@ -324,6 +324,32 @@ export const settingsTomlSlices: readonly TomlConfigSlice<SettingsConfig, TomlDo
     }
   },
   {
+    key: 'subagents',
+    read(doc) {
+      const subagents = readTomlTable(doc['subagents'])
+      if (!subagents) return {}
+      const enabledNamedAgents = readTomlArray(subagents['enabledNamedAgents'])
+      return {
+        subagents: {
+          mode: (subagents['mode'] as NonNullable<SettingsConfig['subagents']>['mode']) ?? 'worker',
+          enabledNamedAgents:
+            (enabledNamedAgents as NonNullable<
+              SettingsConfig['subagents']
+            >['enabledNamedAgents']) ?? []
+        }
+      }
+    },
+    write(config) {
+      const subagents = config.subagents ?? DEFAULT_SETTINGS_CONFIG.subagents!
+      return {
+        subagents: {
+          mode: subagents.mode,
+          enabledNamedAgents: subagents.enabledNamedAgents
+        }
+      }
+    }
+  },
+  {
     key: 'essentials',
     read(doc) {
       const essentials = readTomlArray(doc['essentials'])

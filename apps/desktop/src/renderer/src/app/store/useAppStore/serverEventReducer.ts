@@ -1028,8 +1028,10 @@ export function reduceServerEvent(state: AppState, event: YachiyoServerEvent): P
           delegationId: event.delegationId,
           threadId: event.threadId,
           agentName: event.agentName,
+          agentType: event.agentType,
           progress: existing?.progress ?? '',
-          workspacePath: event.workspacePath
+          workspacePath: event.workspacePath,
+          startedAt: event.startedAt
         }
       }
     }
@@ -1037,7 +1039,8 @@ export function reduceServerEvent(state: AppState, event: YachiyoServerEvent): P
 
   if (event.type === 'subagent.progress') {
     const existing = state.subagentStateById[event.delegationId]
-    const agentName = existing?.agentName ?? 'Coding agent'
+    const agentName = existing?.agentName ?? 'Subagent'
+    const agentType = existing?.agentType
     return {
       subagentActiveIdsByThread: upsertActiveSubagentId(
         state.subagentActiveIdsByThread,
@@ -1050,6 +1053,7 @@ export function reduceServerEvent(state: AppState, event: YachiyoServerEvent): P
         {
           delegationId: event.delegationId,
           agentName,
+          agentType,
           chunk: event.chunk
         }
       ),
@@ -1059,8 +1063,11 @@ export function reduceServerEvent(state: AppState, event: YachiyoServerEvent): P
           delegationId: event.delegationId,
           threadId: event.threadId,
           agentName,
+          agentType,
           progress: (existing?.progress ?? '') + event.chunk,
-          ...(existing?.workspacePath ? { workspacePath: existing.workspacePath } : {})
+          ...(existing?.workspacePath ? { workspacePath: existing.workspacePath } : {}),
+          ...(existing?.startedAt ? { startedAt: existing.startedAt } : {}),
+          ...(existing?.recentToolCalls ? { recentToolCalls: existing.recentToolCalls } : {})
         }
       }
     }

@@ -126,6 +126,22 @@ notifyRunCompleted = true
   })
 })
 
+test('subagents mode and enabled builtin workers round-trip through TOML serialization', () => {
+  const config = parseSettingsToml(`[subagents]
+mode = "acp"
+enabledNamedAgents = ["explore", "review"]
+`)
+
+  assert.equal(config.subagents?.mode, 'acp')
+  assert.deepEqual(config.subagents?.enabledNamedAgents, ['explore', 'review'])
+
+  const serialized = stringifySettingsToml(config)
+  const reloaded = parseSettingsToml(serialized)
+  assert.equal(reloaded.subagents?.mode, 'acp')
+  assert.deepEqual(reloaded.subagents?.enabledNamedAgents, ['explore', 'review'])
+  assert.doesNotMatch(serialized, /systemPrompt|maxToolSteps|allowedTools/)
+})
+
 test('general theme preferences round-trip through parse → normalize → stringify → parse', () => {
   const toml = `[general]
 themeId = "ume"

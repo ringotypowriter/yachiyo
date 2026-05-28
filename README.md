@@ -64,18 +64,6 @@ _Configure providers locally, choose runtime behavior, and manage enabled models
 
 _Run prompts on a schedule, keep history, and treat recurring work like a first-class feature instead of a hack._
 
-### Coding agents
-
-![Coding agent profiles for Claude Code and Codex.](apps/desktop/resources/screenshots/coding-agents.jpg)
-
-_Register coding agents, tune their launch command and environment, and keep them ready for delegation._
-
-### Model and agent picker
-
-![One picker for models and ACP agents.](apps/desktop/resources/screenshots/model-and-agent-picker.jpg)
-
-_Switch between normal models and ACP-backed coding agents directly from the composer._
-
 ### Essentials
 
 ![Essentials view for quick access to pinned context and reusable workspace items.](apps/desktop/resources/screenshots/app-home.jpg)

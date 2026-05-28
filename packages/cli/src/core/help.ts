@@ -28,14 +28,15 @@ export const NAMESPACE_HELP: Record<string, string> = {
 
   agent: `Usage: yachiyo agent <action> [args...] [flags...]
 
-  agent list                             List all registered subagent profiles.
-  agent show <id-or-name>                Show a single subagent profile.
-  agent add --payload <json>             Register a new subagent. Requires "name" and "command" in payload.
+  agent mode <worker|acp>                Set the subagent runtime mode. Worker is the default; ACP is deprecated.
+  agent list                             Show current mode and deprecated ACP profiles.
+  agent show <id-or-name>                Show a single deprecated ACP profile.
+  agent add --payload <json>             Register a deprecated ACP agent. Requires "name" and "command" in payload.
   agent update <id-or-name> [--payload <json>]
-                                         Merge JSON patch into an existing subagent profile.
-  agent remove <id-or-name>              Unregister a subagent profile.
-  agent enable <id-or-name>              Enable a disabled subagent.
-  agent disable <id-or-name>             Disable a subagent without removing it.`,
+                                         Merge JSON patch into an existing deprecated ACP profile.
+  agent remove <id-or-name>              Unregister a deprecated ACP profile.
+  agent enable <id-or-name>              Enable a disabled deprecated ACP profile.
+  agent disable <id-or-name>             Disable a deprecated ACP profile without removing it.`,
 
   config: `Usage: yachiyo config <action> [args...]
 

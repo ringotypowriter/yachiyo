@@ -51,9 +51,12 @@ export function filterEnabledModelProviders(
 }
 
 export function filterAcpAgents(
-  config: Pick<SettingsConfig, 'subagentProfiles'>,
+  config: Pick<SettingsConfig, 'subagentProfiles' | 'subagents'>,
   query: string
 ): AcpAgentEntry[] {
+  if (config.subagents?.mode !== 'acp') {
+    return []
+  }
   const normalizedQuery = query.trim().toLowerCase()
   return (config.subagentProfiles ?? [])
     .filter(
@@ -66,7 +69,7 @@ export function filterAcpAgents(
 }
 
 export function resolveModelSelectorState(input: {
-  config: Pick<SettingsConfig, 'providers' | 'subagentProfiles'>
+  config: Pick<SettingsConfig, 'providers' | 'subagentProfiles' | 'subagents'>
   hasLeadingOption: boolean
   query: string
 }): ModelSelectorState {

@@ -570,7 +570,7 @@ export function deriveSubagentStateFromToolCalls(
   for (const [threadId, toolCalls] of Object.entries(toolCallsByThread)) {
     const activeDelegationIds: string[] = []
     for (const toolCall of toolCalls) {
-      if (toolCall.toolName !== 'delegateCodingTask' || toolCall.status !== 'running') {
+      if (toolCall.toolName !== 'delegateTask' || toolCall.status !== 'running') {
         continue
       }
 
@@ -583,9 +583,12 @@ export function deriveSubagentStateFromToolCalls(
       subagentStateById[toolCall.id] = {
         delegationId: toolCall.id,
         threadId,
-        agentName: previous?.agentName || toolCall.inputSummary || 'Coding agent',
+        agentName: previous?.agentName || toolCall.inputSummary || 'Subagent',
+        agentType: previous?.agentType,
         progress: previous?.progress ?? '',
-        ...(previous?.workspacePath ? { workspacePath: previous.workspacePath } : {})
+        ...(previous?.workspacePath ? { workspacePath: previous.workspacePath } : {}),
+        ...(previous?.startedAt ? { startedAt: previous.startedAt } : {}),
+        ...(previous?.recentToolCalls ? { recentToolCalls: previous.recentToolCalls } : {})
       }
     }
 
@@ -610,7 +613,7 @@ export function syncSubagentStateWithToolCall(input: {
   subagentActiveIdsByThread: Record<string, string[]>
   subagentStateById: Record<string, ActiveSubagentState>
 }): Pick<AppState, 'subagentActiveIdsByThread' | 'subagentStateById'> {
-  if (input.toolCall.toolName !== 'delegateCodingTask') {
+  if (input.toolCall.toolName !== 'delegateTask') {
     return {
       subagentActiveIdsByThread: input.subagentActiveIdsByThread,
       subagentStateById: input.subagentStateById
@@ -632,10 +635,17 @@ export function syncSubagentStateWithToolCall(input: {
           agentName:
             input.subagentStateById[input.toolCall.id]?.agentName ||
             input.toolCall.inputSummary ||
-            'Coding agent',
+            'Subagent',
+          agentType: input.subagentStateById[input.toolCall.id]?.agentType,
           progress: input.subagentStateById[input.toolCall.id]?.progress ?? '',
           ...(input.subagentStateById[input.toolCall.id]?.workspacePath
             ? { workspacePath: input.subagentStateById[input.toolCall.id]?.workspacePath }
+            : {}),
+          ...(input.subagentStateById[input.toolCall.id]?.startedAt
+            ? { startedAt: input.subagentStateById[input.toolCall.id]?.startedAt }
+            : {}),
+          ...(input.subagentStateById[input.toolCall.id]?.recentToolCalls
+            ? { recentToolCalls: input.subagentStateById[input.toolCall.id]?.recentToolCalls }
             : {})
         }
       }

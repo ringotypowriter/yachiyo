@@ -244,7 +244,14 @@ export const CORE_TOOL_NAMES = [
   'webSearch',
   'skillsRead',
   'applyPatch',
-  'useSentinel'
+  'useSentinel',
+  'askUser',
+  'delegateTask',
+  'remember',
+  'querySource',
+  'updateProfile',
+  'updateTodoList',
+  'exitPlanMode'
 ] as const
 export type ToolCallName = (typeof CORE_TOOL_NAMES)[number]
 export type SelectableRunModeId = 'auto' | 'explore' | 'plan' | 'chat'
@@ -256,6 +263,9 @@ export type ToolCallStatus =
   | 'failed'
   | 'waiting-for-user'
   | 'background'
+
+export type SubagentRuntimeMode = 'worker' | 'acp'
+export type NamedSubagentId = 'explore' | 'plan' | 'review' | 'general'
 
 const coreToolNameSet = new Set<string>(CORE_TOOL_NAMES)
 const themeIdSet = new Set<string>(THEME_IDS)
@@ -350,10 +360,11 @@ export function isCoreToolName(value: string): value is ToolCallName {
 const trackedToolNameSet = new Set<string>([
   ...CORE_TOOL_NAMES,
   'askUser',
-  'delegateCodingTask',
+  'delegateTask',
   'remember',
   'querySource',
   'updateProfile',
+  'updateTodoList',
   'useSentinel',
   'exitPlanMode'
 ])
@@ -954,6 +965,11 @@ export interface SubagentProfile {
   allowDirectChat?: boolean
 }
 
+export interface SubagentsConfig {
+  mode: SubagentRuntimeMode
+  enabledNamedAgents: NamedSubagentId[]
+}
+
 export interface FileMentionCandidate {
   path: string
   includeIgnored?: boolean
@@ -1120,6 +1136,7 @@ export interface SettingsConfig {
   prompts?: UserPrompt[]
   subagentProfiles?: SubagentProfile[]
   essentials?: EssentialPreset[]
+  subagents?: SubagentsConfig
 }
 
 export function isMemoryConfigured(

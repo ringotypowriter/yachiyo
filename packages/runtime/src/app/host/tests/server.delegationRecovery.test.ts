@@ -463,7 +463,7 @@ test('YachiyoServer merges stale checkpoint transcripts with completed delegated
       runId: 'run-1',
       threadId: 'thread-1',
       requestMessageId: 'user-1',
-      toolName: 'delegateCodingTask',
+      toolName: 'delegateTask',
       status: 'completed',
       inputSummary: 'Worker 1',
       outputSummary: 'done',
@@ -545,7 +545,7 @@ test('YachiyoServer merges stale checkpoint transcripts with completed delegated
               (part) =>
                 part.type === 'tool-call' &&
                 part.toolCallId === 'tool-delegate-1' &&
-                part.toolName === 'delegateCodingTask'
+                part.toolName === 'delegateTask'
             )
         )
       )
@@ -558,7 +558,7 @@ test('YachiyoServer merges stale checkpoint transcripts with completed delegated
               (part) =>
                 part.type === 'tool-result' &&
                 part.toolCallId === 'tool-delegate-1' &&
-                part.toolName === 'delegateCodingTask'
+                part.toolName === 'delegateTask'
             )
         )
       )

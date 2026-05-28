@@ -472,6 +472,8 @@ export interface BackgroundBashAdoptionHandle extends BackgroundBashTaskHandle {
 
 export interface AgentToolContext {
   enabledTools?: ToolCallName[]
+  /** Internal worker contexts should expose only tools explicitly present in enabledTools. */
+  registerOnlyEnabledToolSchemas?: boolean
   /** Stable conversation identifier for thread-scoped tool state. */
   threadId?: string
   workspacePath: string

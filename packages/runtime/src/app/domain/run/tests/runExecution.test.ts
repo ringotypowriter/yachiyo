@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
@@ -214,6 +214,49 @@ test('prepareServerRunContext injects consumed activity and reports it as a cont
         summary: '2 apps'
       }
     )
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('prepareServerRunContext exposes worker delegateTask without ACP profiles', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'yachiyo-worker-subagents-'))
+  await mkdir(join(root, '.git'))
+  const thread: ThreadRecord = {
+    id: 'thread-1',
+    title: 'Thread',
+    workspacePath: root,
+    updatedAt: '2026-04-28T00:00:00.000Z'
+  }
+  const requestMessage: MessageRecord = {
+    id: 'msg-1',
+    threadId: thread.id,
+    role: 'user',
+    content: 'Use an explore worker.',
+    status: 'completed',
+    createdAt: '2026-04-28T00:00:00.000Z'
+  }
+
+  try {
+    const context = await prepareServerRunContext(
+      createRunContextDeps({ events: [], messages: [requestMessage], workspacePath: root }),
+      {
+        runId: 'run-1',
+        thread,
+        requestMessageId: requestMessage.id,
+        runTrigger: 'local',
+        runMode: 'auto',
+        enabledTools: [],
+        abortController: new AbortController()
+      }
+    )
+
+    assert.doesNotMatch(
+      context.messages.map((message) => message.content).join('\n'),
+      /unavailable because the current workspace is not a Git repository/
+    )
+    assert.match(context.messages.map((message) => message.content).join('\n'), /delegateTask/)
+    assert.deepEqual(context.subagentAvailableWorkspaces, [])
   } finally {
     await rm(root, { recursive: true, force: true })
   }

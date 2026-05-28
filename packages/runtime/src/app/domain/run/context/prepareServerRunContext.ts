@@ -140,8 +140,10 @@ export interface PreparedServerRunContext {
   fileMentionCount: number
   inlinedFileCount: number
   enabledSubagentProfiles: SubagentProfile[]
+  subagentsConfig: NonNullable<SettingsConfig['subagents']>
   gitCtx: GitContext
   gitValidatedWorkspaces: string[]
+  subagentAvailableWorkspaces: string[]
   runMode: RunModeId
 }
 
@@ -324,13 +326,18 @@ export async function prepareServerRunContext(
   }
 
   const enabledSubagentProfiles = (config.subagentProfiles ?? []).filter((p) => p.enabled)
+  const subagentsConfig = config.subagents ?? { mode: 'worker' as const, enabledNamedAgents: [] }
+  const hasEnabledWorkerSubagents =
+    subagentsConfig.mode === 'worker' && subagentsConfig.enabledNamedAgents.length > 0
+  const hasEnabledAcpSubagents =
+    subagentsConfig.mode === 'acp' && enabledSubagentProfiles.length > 0
+  const hasEnabledSubagents = hasEnabledWorkerSubagents || hasEnabledAcpSubagents
   const savedWorkspacePaths = config.workspace?.savedPaths ?? []
-  const gitCtx =
-    enabledSubagentProfiles.length > 0
-      ? await detectGitContext(workspacePath)
-      : ({ hasGit: false } as GitContext)
+  const gitCtx = hasEnabledSubagents
+    ? await detectGitContext(workspacePath)
+    : ({ hasGit: false } as GitContext)
   const gitValidatedWorkspaces =
-    enabledSubagentProfiles.length > 0 && savedWorkspacePaths.length > 0
+    hasEnabledAcpSubagents && savedWorkspacePaths.length > 0
       ? (
           await Promise.all(
             savedWorkspacePaths.map(async (p) => {
@@ -342,12 +349,19 @@ export async function prepareServerRunContext(
           )
         ).filter((p): p is string => p !== null)
       : []
+  const subagentAvailableWorkspaces = hasEnabledWorkerSubagents
+    ? savedWorkspacePaths
+    : gitValidatedWorkspaces
   const subagentContextBlock = buildSubagentContextBlock(
     gitCtx,
     workspacePath,
     enabledSubagentProfiles,
-    gitValidatedWorkspaces
+    subagentAvailableWorkspaces,
+    subagentsConfig
   )
+  const canUseDelegateTask = hasEnabledWorkerSubagents
+    ? true
+    : (gitCtx.hasGit || gitValidatedWorkspaces.length > 0) && hasEnabledAcpSubagents
   const modeIndependentTools = [
     ...(modelEnabledTools.includes('skillsRead') ? ['skillsRead'] : []),
     ...(!input.thread.privacyMode &&
@@ -360,9 +374,7 @@ export async function prepareServerRunContext(
       ? ['remember']
       : []),
     'updateProfile',
-    ...((gitCtx.hasGit || gitValidatedWorkspaces.length > 0) && enabledSubagentProfiles.length > 0
-      ? ['delegateCodingTask']
-      : []),
+    ...(canUseDelegateTask ? ['delegateTask'] : []),
     ...(isLocalRunTrigger ? ['askUser', 'updateTodoList'] : []),
     ...(planModeDocument ? ['exitPlanMode'] : [])
   ]
@@ -395,7 +407,7 @@ export async function prepareServerRunContext(
     ].flatMap((section) => (section ? [section] : []))
   )
   const sessionHint = input.thread.lastDelegatedSession
-    ? `Hint: The most recent delegated coding task (Agent: ${input.thread.lastDelegatedSession.agentName}) used session_id ${input.thread.lastDelegatedSession.sessionId} in workspace ${input.thread.lastDelegatedSession.workspacePath}. If the user asks to resume or continue that task, you must provide this exact session_id and set workspace to ${input.thread.lastDelegatedSession.workspacePath} in the delegateCodingTask tool.`
+    ? `Hint: The most recent delegated task (Agent: ${input.thread.lastDelegatedSession.agentName}) used session_id ${input.thread.lastDelegatedSession.sessionId} in workspace ${input.thread.lastDelegatedSession.workspacePath}. If the user asks to resume or continue that task, you must provide this exact session_id and set workspace to ${input.thread.lastDelegatedSession.workspacePath} in the delegateTask tool.`
     : undefined
   const effectiveReminder =
     [hiddenQueryReminder, sessionHint].filter(Boolean).join('\n\n') || undefined
@@ -625,8 +637,10 @@ export async function prepareServerRunContext(
     fileMentionCount: fileMentionResolution.mentions.length,
     inlinedFileCount: (fileMentionResolution.inlinedPath ? 1 : 0) + (hasInlinedJotdown ? 1 : 0),
     enabledSubagentProfiles,
+    subagentsConfig,
     gitCtx,
     gitValidatedWorkspaces,
+    subagentAvailableWorkspaces,
     runMode: input.runMode
   }
 }

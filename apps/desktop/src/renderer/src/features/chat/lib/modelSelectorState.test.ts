@@ -109,3 +109,55 @@ test('filters selector results to enabled models only', () => {
     }
   )
 })
+
+test('hides ACP agents while subagents are in worker mode', () => {
+  assert.deepEqual(
+    resolveModelSelectorState({
+      config: {
+        ...SETTINGS_FIXTURE,
+        subagents: { mode: 'worker', enabledNamedAgents: [] },
+        subagentProfiles: [
+          {
+            id: 'agent-1',
+            name: 'Claude Code',
+            enabled: true,
+            showInChatPicker: true,
+            description: 'Deprecated ACP agent',
+            command: 'npx',
+            args: [],
+            env: {}
+          }
+        ]
+      },
+      hasLeadingOption: false,
+      query: 'Claude'
+    }).acpAgents,
+    []
+  )
+})
+
+test('shows ACP agents only in deprecated ACP mode', () => {
+  assert.deepEqual(
+    resolveModelSelectorState({
+      config: {
+        ...SETTINGS_FIXTURE,
+        subagents: { mode: 'acp', enabledNamedAgents: [] },
+        subagentProfiles: [
+          {
+            id: 'agent-1',
+            name: 'Claude Code',
+            enabled: true,
+            showInChatPicker: true,
+            description: 'Deprecated ACP agent',
+            command: 'npx',
+            args: [],
+            env: {}
+          }
+        ]
+      },
+      hasLeadingOption: false,
+      query: 'Claude'
+    }).acpAgents,
+    [{ id: 'agent-1', name: 'Claude Code', description: 'Deprecated ACP agent' }]
+  )
+})

@@ -135,7 +135,7 @@ export async function runAcpSession(
         const detail = resumeErr instanceof Error ? resumeErr.message : String(resumeErr)
         throw new Error(
           `Session resume failed for session_id "${resumeSessionId}": ${detail}. ` +
-            `Call delegateCodingTask again without session_id to start a new session.`
+            `Call delegateTask again without session_id to start a new session.`
         )
       }
       sessionId = resumeSessionId

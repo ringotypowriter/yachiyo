@@ -157,7 +157,7 @@ test('applyServerEvent preserves existing delegated progress when thread state i
         runId: 'run-1',
         threadId: 'thread-1',
         requestMessageId: 'user-1',
-        toolName: 'delegateCodingTask',
+        toolName: 'delegateTask',
         status: 'running',
         inputSummary: 'Worker',
         startedAt: TIMESTAMP
@@ -259,7 +259,7 @@ test('thread.state.replaced drops progress entries for delegations that are no l
         runId: 'run-2',
         threadId: 'thread-1',
         requestMessageId: 'user-2',
-        toolName: 'delegateCodingTask',
+        toolName: 'delegateTask',
         status: 'running',
         inputSummary: 'New Worker',
         startedAt: TIMESTAMP

@@ -87,11 +87,15 @@ interface TimelineItemRenderContext {
   activeSubagents: Array<{
     delegationId: string
     agentName: string
+    agentType?: string
     progress: string
+    startedAt?: string
+    recentToolCalls?: Array<{ toolName: string; inputSummary: string; outputSummary?: string }>
   }>
   subagentProgressEntries: Array<{
     delegationId: string
     agentName: string
+    agentType?: string
     chunk: string
   }>
   retryInfo?: { attempt: number; maxAttempts: number; error: string }
@@ -124,6 +128,7 @@ const EMPTY_ACTIVE_SUBAGENT_IDS: string[] = []
 const EMPTY_SUBAGENT_PROGRESS_ENTRIES: Array<{
   delegationId: string
   agentName: string
+  agentType?: string
   chunk: string
 }> = []
 
@@ -708,7 +713,10 @@ export function MessageTimeline({
         .map((entry) => ({
           delegationId: entry.delegationId,
           agentName: entry.agentName,
-          progress: entry.progress
+          agentType: entry.agentType,
+          progress: entry.progress,
+          startedAt: entry.startedAt,
+          recentToolCalls: entry.recentToolCalls
         })),
     [activeSubagentIds, subagentStateById]
   )

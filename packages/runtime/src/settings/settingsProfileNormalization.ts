@@ -1,10 +1,14 @@
 import type {
   EssentialPreset,
+  NamedSubagentId,
   SubagentProfile,
+  SubagentsConfig,
   ThreadModelOverride
 } from '@yachiyo/shared/protocol'
 import { DEFAULT_SETTINGS_CONFIG } from './settingsDefaults.ts'
 import { asRecord, normalizeString } from './settingsNormalizationShared.ts'
+
+const VALID_NAMED_SUBAGENT_IDS: NamedSubagentId[] = ['explore', 'plan', 'review', 'general']
 
 function normalizeThreadModelOverride(value: unknown): ThreadModelOverride | undefined {
   const input = asRecord(value)
@@ -111,4 +115,25 @@ export function normalizeEssentials(value: unknown): EssentialPreset[] {
     const preset = normalizeEssentialPreset(item)
     return preset ? [preset] : []
   })
+}
+
+export function normalizeSubagentsConfig(value: unknown): SubagentsConfig {
+  const input = asRecord(value)
+  const rawMode = input['mode']
+  const mode: import('@yachiyo/shared/protocol').SubagentRuntimeMode =
+    rawMode === 'acp' ? 'acp' : 'worker'
+  const defaultEnabled = DEFAULT_SETTINGS_CONFIG.subagents?.enabledNamedAgents ?? []
+  const rawEnabled = input['enabledNamedAgents']
+  const enabledNamedAgents = Array.isArray(rawEnabled)
+    ? rawEnabled
+        .filter((id): id is string => typeof id === 'string')
+        .filter((id): id is NamedSubagentId =>
+          VALID_NAMED_SUBAGENT_IDS.includes(id as NamedSubagentId)
+        )
+    : defaultEnabled
+
+  return {
+    mode,
+    enabledNamedAgents: [...new Set(enabledNamedAgents)]
+  }
 }

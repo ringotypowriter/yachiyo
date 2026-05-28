@@ -1,14 +1,168 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useMemo } from 'react'
 import type React from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { ChevronDown, ChevronUp } from 'lucide-react'
+import { ChevronDown, ChevronUp, Clock, Wrench } from 'lucide-react'
 import { theme } from '@renderer/theme/theme'
-import { buildSubagentIndicatorStream, canCancelFromIndicator } from './subagentIndicatorState'
+import {
+  buildAgentIdentities,
+  canCancelFromIndicator,
+  type AgentIdentity
+} from './subagentIndicatorState'
+
+interface SubagentAgent {
+  delegationId: string
+  agentName: string
+  agentType?: string
+  progress: string
+  startedAt?: string
+  recentToolCalls?: Array<{ toolName: string; inputSummary: string; outputSummary?: string }>
+}
+
+interface SubagentProgressEntry {
+  delegationId: string
+  agentName: string
+  agentType?: string
+  chunk: string
+}
 
 interface SubagentRunningIndicatorProps {
-  agents: Array<{ delegationId: string; agentName: string; progress: string }>
-  progressEntries: Array<{ delegationId: string; agentName: string; chunk: string }>
+  agents: SubagentAgent[]
+  progressEntries: SubagentProgressEntry[]
   onCancel?: () => void
+}
+
+function formatDurationMs(ms: number): string {
+  if (ms < 60_000) return `${Math.floor(ms / 1000)}s`
+  const m = Math.floor(ms / 60_000)
+  const s = Math.floor((ms % 60_000) / 1000)
+  return s > 0 ? `${m}m ${s}s` : `${m}m`
+}
+
+function useElapsed(startedAt?: string): number {
+  const [now, setNow] = useState(0)
+  useEffect(() => {
+    if (!startedAt) return
+    const id = setInterval(() => setNow(Date.now()), 1000)
+    return () => clearInterval(id)
+  }, [startedAt])
+  if (!startedAt || now === 0) return 0
+  return Math.max(0, now - new Date(startedAt).getTime())
+}
+
+/** Group consecutive chunks per delegationId, preserving order. */
+function buildAgentProgressChunks(entries: SubagentProgressEntry[]): Record<string, string> {
+  const chunks: Record<string, string[]> = {}
+  let currentId: string | null = null
+  let currentBuf: string[] = []
+
+  function flush(): void {
+    if (currentId !== null && currentBuf.length > 0) {
+      chunks[currentId] = chunks[currentId] ?? []
+      chunks[currentId].push(currentBuf.join(''))
+      currentBuf = []
+    }
+  }
+
+  for (const entry of entries) {
+    if (entry.delegationId !== currentId) {
+      flush()
+      currentId = entry.delegationId
+    }
+    currentBuf.push(entry.chunk)
+  }
+  flush()
+
+  return Object.fromEntries(Object.entries(chunks).map(([k, v]) => [k, v.join('')]))
+}
+
+function AgentProgressBlock({ text }: { text: string }): React.JSX.Element {
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    el.scrollTop = el.scrollHeight
+  }, [text])
+
+  if (!text) return <></>
+
+  return (
+    <div
+      ref={ref}
+      className="mt-2 rounded-sm text-[11px] font-mono overflow-y-auto"
+      style={{
+        maxHeight: '120px',
+        background: theme.background.codeBlock,
+        border: `1px solid ${theme.border.subtle}`,
+        color: theme.text.tertiary,
+        padding: '6px 10px',
+        lineHeight: 1.6,
+        wordBreak: 'break-word',
+        whiteSpace: 'pre-wrap'
+      }}
+    >
+      {text}
+    </div>
+  )
+}
+
+function AgentCard({
+  agent,
+  identity,
+  progressText
+}: {
+  agent: SubagentAgent
+  identity: AgentIdentity
+  progressText: string
+}): React.JSX.Element {
+  const elapsed = useElapsed(agent.startedAt)
+  const recent = (agent.recentToolCalls ?? []).slice(-3)
+  return (
+    <div
+      className="rounded-md px-3 py-2 mb-2"
+      style={{
+        background: theme.background.surface,
+        border: `1px solid ${theme.border.subtle}`
+      }}
+    >
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <span
+            className="text-[10px] font-semibold rounded px-1 py-0.5"
+            style={{
+              background: identity.color + '18',
+              color: identity.color
+            }}
+          >
+            #{identity.index}
+          </span>
+          <span className="text-xs font-medium" style={{ color: theme.text.secondary }}>
+            {agent.agentName}
+          </span>
+        </div>
+        <div className="flex items-center gap-1" style={{ color: theme.text.muted }}>
+          <Clock size={10} />
+          <span className="text-[10px]">{formatDurationMs(elapsed)}</span>
+        </div>
+      </div>
+
+      {recent.length > 0 && (
+        <div className="mt-1.5 flex flex-col gap-1">
+          {recent.map((tc, i) => (
+            <div key={i} className="flex items-center gap-1.5">
+              <Wrench size={9} style={{ color: theme.text.muted, opacity: 0.6 }} />
+              <span className="text-[10px] truncate" style={{ color: theme.text.muted }}>
+                {tc.toolName}
+                {tc.inputSummary ? ` · ${tc.inputSummary.slice(0, 60)}` : ''}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <AgentProgressBlock text={progressText} />
+    </div>
+  )
 }
 
 export function SubagentRunningIndicator({
@@ -18,28 +172,21 @@ export function SubagentRunningIndicator({
 }: SubagentRunningIndicatorProps): React.JSX.Element {
   const [confirming, setConfirming] = useState(false)
   const [expanded, setExpanded] = useState(true)
-  const scrollRef = useRef<HTMLDivElement>(null)
-  const userScrolledRef = useRef(false)
 
-  useEffect(() => {
-    const el = scrollRef.current
-    if (!el || !expanded) return
-    if (!userScrolledRef.current) {
-      el.scrollTop = el.scrollHeight
+  const identities = useMemo(() => buildAgentIdentities(agents), [agents])
+  const identityMap = useMemo(() => {
+    const map: Record<string, AgentIdentity> = {}
+    for (const id of identities) {
+      map[id.delegationId] = id
     }
-  }, [agents, expanded])
+    return map
+  }, [identities])
 
-  function handleScroll(): void {
-    const el = scrollRef.current
-    if (!el) return
-    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 8
-    userScrolledRef.current = !atBottom
-  }
+  const agentProgress = useMemo(() => buildAgentProgressChunks(progressEntries), [progressEntries])
+  const canCancel = onCancel ? canCancelFromIndicator(agents) : false
 
   function handleCancelClick(): void {
-    if (!onCancel) {
-      return
-    }
+    if (!onCancel) return
     setConfirming(true)
   }
 
@@ -52,8 +199,14 @@ export function SubagentRunningIndicator({
     setConfirming(false)
   }
 
-  const stream = buildSubagentIndicatorStream(progressEntries)
-  const canCancel = onCancel ? canCancelFromIndicator(agents) : false
+  const headerText = useMemo(() => {
+    if (agents.length === 0) return 'No active agents'
+    if (agents.length === 1) {
+      const type = agents[0]?.agentType ?? 'Agent'
+      return `${type} is working`
+    }
+    return `${agents.length} agents are working`
+  }, [agents])
 
   return (
     <div className="px-6 py-1">
@@ -67,33 +220,25 @@ export function SubagentRunningIndicator({
           }}
         />
 
-        {stream ? (
-          <button
-            onClick={() => setExpanded((v) => !v)}
-            className="flex items-center gap-1 text-xs"
-            style={{
-              color: theme.text.muted,
-              background: 'none',
-              border: 'none',
-              cursor: 'default',
-              padding: 0,
-              fontFamily: theme.font.ui
-            }}
-          >
-            <span>Agent is working</span>
-            {expanded ? (
-              <ChevronUp size={11} style={{ opacity: 0.55 }} />
-            ) : (
-              <ChevronDown size={11} style={{ opacity: 0.55 }} />
-            )}
-          </button>
-        ) : (
-          <span className="text-xs" style={{ color: theme.text.muted }}>
-            {agents.length === 1
-              ? `${agents[0]?.agentName ?? 'Agent'} is working…`
-              : `${agents.length} agents are working…`}
-          </span>
-        )}
+        <button
+          onClick={() => setExpanded((v) => !v)}
+          className="flex items-center gap-1 text-xs"
+          style={{
+            color: theme.text.muted,
+            background: 'none',
+            border: 'none',
+            cursor: 'default',
+            padding: 0,
+            fontFamily: theme.font.ui
+          }}
+        >
+          <span>{headerText}</span>
+          {expanded ? (
+            <ChevronUp size={11} style={{ opacity: 0.55 }} />
+          ) : (
+            <ChevronDown size={11} style={{ opacity: 0.55 }} />
+          )}
+        </button>
 
         <AnimatePresence mode="wait" initial={false}>
           {canCancel && confirming ? (
@@ -167,22 +312,16 @@ export function SubagentRunningIndicator({
         </AnimatePresence>
       </div>
 
-      {expanded && stream && (
-        <div
-          ref={scrollRef}
-          onScroll={handleScroll}
-          className="mt-2 rounded-md text-xs font-mono whitespace-pre-wrap overflow-y-auto yachiyo-detail-reveal"
-          style={{
-            maxHeight: '180px',
-            background: theme.background.codeBlock,
-            border: `1px solid ${theme.border.subtle}`,
-            color: theme.text.tertiary,
-            padding: '8px 12px',
-            lineHeight: 1.65,
-            wordBreak: 'break-word'
-          }}
-        >
-          {stream}
+      {expanded && (
+        <div className="mt-2">
+          {agents.map((agent) => (
+            <AgentCard
+              key={agent.delegationId}
+              agent={agent}
+              identity={identityMap[agent.delegationId]!}
+              progressText={agentProgress[agent.delegationId] ?? ''}
+            />
+          ))}
         </div>
       )}
     </div>

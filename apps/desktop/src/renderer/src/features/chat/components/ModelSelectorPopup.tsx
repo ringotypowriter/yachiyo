@@ -264,7 +264,11 @@ export function ModelSelectorPopup({
   const hasLeadingOptions = leadingOptions != null && leadingOptions.length > 0
 
   const selectorState = resolveModelSelectorState({
-    config,
+    config: {
+      providers: config.providers,
+      subagentProfiles: config.subagentProfiles,
+      subagents: config.subagents
+    },
     hasLeadingOption: hasLeadingOptions,
     query
   })
@@ -436,7 +440,7 @@ export function ModelSelectorPopup({
                     textTransform: 'uppercase'
                   }}
                 >
-                  ACP Agents
+                  ACP Agents (Deprecated)
                 </div>
                 {selectorState.acpAgents.map((agent) => (
                   <AcpAgentOption

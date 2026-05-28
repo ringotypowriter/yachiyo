@@ -20,16 +20,6 @@ const shots = [
     label: 'Schedules'
   },
   {
-    src: '/screenshots/coding-agents.jpg',
-    alt: 'Coding agent profiles',
-    label: 'Coding Agents'
-  },
-  {
-    src: '/screenshots/model-and-agent-picker.jpg',
-    alt: 'Model and agent picker',
-    label: 'Model Picker'
-  },
-  {
     src: '/screenshots/app-home.jpg',
     alt: 'Essentials view',
     label: 'Essentials'

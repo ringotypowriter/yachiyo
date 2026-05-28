@@ -1,6 +1,7 @@
 import type {
   FolderRecord,
   MessageRecord,
+  NamedSubagentId,
   ProviderSettings,
   RecallDecisionSnapshot,
   RunContextSourceSummary,
@@ -224,13 +225,16 @@ export interface SubagentStartedEvent extends RunEvent {
   type: 'subagent.started'
   delegationId: string
   agentName: string
+  agentType?: NamedSubagentId | string
   workspacePath: string
+  startedAt?: string
 }
 
 export interface SubagentFinishedEvent extends RunEvent {
   type: 'subagent.finished'
   delegationId: string
   agentName: string
+  agentType?: NamedSubagentId | string
   status: 'success' | 'cancelled'
   sessionId?: string
 }

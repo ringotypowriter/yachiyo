@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import type { SubagentProfile } from '@yachiyo/shared/protocol'
+import type { SubagentProfile, SubagentRuntimeMode } from '@yachiyo/shared/protocol'
 import { namespaceHelp } from '../core/help.ts'
 import { outputJson } from '../core/output.ts'
 import type { CliConfigService } from '../core/types.ts'
@@ -23,7 +23,31 @@ export async function handleAgentCommand(
 
   if (action === 'list') {
     const config = await configService.getConfig()
-    outputJson(stdout, config.subagentProfiles ?? [])
+    const mode = config.subagents?.mode ?? 'worker'
+    outputJson(stdout, {
+      mode,
+      deprecatedAcpProfiles: config.subagentProfiles ?? [],
+      note:
+        mode === 'worker'
+          ? 'ACP profiles are deprecated. Worker named subagents are active.'
+          : undefined
+    })
+    return
+  }
+
+  if (action === 'mode') {
+    const requestedMode = positionals[1]
+    if (!requestedMode || (requestedMode !== 'worker' && requestedMode !== 'acp')) {
+      throw new Error('Mode must be "worker" or "acp": agent mode <worker|acp>')
+    }
+    const mode = requestedMode as SubagentRuntimeMode
+    const config = await configService.getConfig()
+    const updatedConfig = {
+      ...config,
+      subagents: { ...(config.subagents ?? { enabledNamedAgents: [] }), mode }
+    }
+    await configService.saveConfig(updatedConfig)
+    outputJson(stdout, { mode: requestedMode })
     return
   }
 

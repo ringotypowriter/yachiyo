@@ -17,9 +17,9 @@ import { createFilteredMemoryService } from '../../../../services/memory/memoryS
 import { createAgentToolSet } from '../../../../tools/agentTools.ts'
 import { createRunEventMetadata } from '../../shared/runEventMetadata.ts'
 import type {
-  DelegateCodingTaskFinishedEvent,
-  DelegateCodingTaskProgressEvent,
-  DelegateCodingTaskStartedEvent
+  DelegateTaskFinishedEvent,
+  DelegateTaskProgressEvent,
+  DelegateTaskStartedEvent
 } from '../../../../tools/agentTools.ts'
 import type { PreparedServerRunContext } from '../context/prepareServerRunContext.ts'
 import type { RunToolLifecycleState } from './runToolLifecycleState.ts'
@@ -55,6 +55,7 @@ export function createRunToolSet(input: CreateRunToolSetInput): ToolSet | undefi
     enabledSubagentProfiles,
     gitCtx,
     gitValidatedWorkspaces,
+    subagentAvailableWorkspaces,
     isExternalChannel,
     isGuest,
     isLocalRunTrigger,
@@ -65,6 +66,14 @@ export function createRunToolSet(input: CreateRunToolSetInput): ToolSet | undefi
   } = input.preparedContext
   const deps = input.deps
   const executionInput = input.executionInput
+  const subagentsConfig = input.preparedContext.subagentsConfig
+  const hasEnabledWorkerSubagents =
+    subagentsConfig.mode === 'worker' && subagentsConfig.enabledNamedAgents.length > 0
+  const hasEnabledAcpSubagents =
+    subagentsConfig.mode === 'acp' && enabledSubagentProfiles.length > 0
+  const canUseDelegateTask = hasEnabledWorkerSubagents
+    ? true
+    : (gitCtx.hasGit || gitValidatedWorkspaces.length > 0) && hasEnabledAcpSubagents
   const toolContext = {
     enabledTools: modelEnabledTools,
     threadId: executionInput.thread.id,
@@ -142,18 +151,21 @@ export function createRunToolSet(input: CreateRunToolSetInput): ToolSet | undefi
     ...(isLocalRunTrigger ? { askUserContext: createAskUserContext(input) } : {}),
     ...(isLocalRunTrigger ? { todoContext: createTodoContext(input) } : {}),
     ...(deps.sentinelContext ? { sentinelContext: deps.sentinelContext } : {}),
-    ...((gitCtx.hasGit || gitValidatedWorkspaces.length > 0) && enabledSubagentProfiles.length > 0
+    ...(canUseDelegateTask
       ? {
           subagentProfiles: enabledSubagentProfiles,
-          availableWorkspaces: gitValidatedWorkspaces,
-          onSubagentProgress: (event: DelegateCodingTaskProgressEvent) => {
+          subagentsConfig,
+          availableWorkspaces: subagentAvailableWorkspaces,
+          settings: deps.readSettings(),
+          createModelRuntime: deps.createModelRuntime,
+          onSubagentProgress: (event: DelegateTaskProgressEvent) => {
             input.markProgress()
             deps.onSubagentProgress?.(event)
           },
-          onSubagentStarted: (event: DelegateCodingTaskStartedEvent) => {
+          onSubagentStarted: (event: DelegateTaskStartedEvent) => {
             handleSubagentStarted(input, event)
           },
-          onSubagentFinished: (event: DelegateCodingTaskFinishedEvent) => {
+          onSubagentFinished: (event: DelegateTaskFinishedEvent) => {
             handleSubagentFinished(input, event)
           }
         }
@@ -257,10 +269,11 @@ function createAskUserContext(input: CreateRunToolSetInput): {
 
 function handleSubagentStarted(
   input: CreateRunToolSetInput,
-  event: DelegateCodingTaskStartedEvent
+  event: DelegateTaskStartedEvent
 ): void {
   input.markProgress()
-  input.subagentStartedAtByDelegationId.set(event.delegationId, input.deps.timestamp())
+  const startedAt = event.startedAt ?? input.deps.timestamp()
+  input.subagentStartedAtByDelegationId.set(event.delegationId, startedAt)
   input.deps.emit<SubagentStartedEvent>({
     type: 'subagent.started',
     ...createRunEventMetadata({
@@ -270,13 +283,15 @@ function handleSubagentStarted(
     }),
     delegationId: event.delegationId,
     agentName: event.agentName,
-    workspacePath: event.workspacePath
+    agentType: event.agentType,
+    workspacePath: event.workspacePath,
+    startedAt
   })
 }
 
 function handleSubagentFinished(
   input: CreateRunToolSetInput,
-  event: DelegateCodingTaskFinishedEvent
+  event: DelegateTaskFinishedEvent
 ): void {
   input.markProgress()
   if (event.sessionId) {
@@ -291,6 +306,7 @@ function handleSubagentFinished(
     }),
     delegationId: event.delegationId,
     agentName: event.agentName,
+    agentType: event.agentType,
     status: event.status,
     ...(event.sessionId ? { sessionId: event.sessionId } : {})
   })
@@ -298,7 +314,7 @@ function handleSubagentFinished(
 
 function persistLatestDelegatedSession(
   input: CreateRunToolSetInput,
-  event: DelegateCodingTaskFinishedEvent,
+  event: DelegateTaskFinishedEvent,
   sessionId: string
 ): void {
   const delegationStartedAt =

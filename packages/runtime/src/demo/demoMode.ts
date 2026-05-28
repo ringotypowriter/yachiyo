@@ -677,7 +677,7 @@ function createCodingDispatchThread(storage: YachiyoStorage): ThreadRecord {
       runId: 'demo-run-coding-dispatch-1',
       threadId: thread.id,
       requestMessageId: userMessage.id,
-      toolName: 'delegateCodingTask',
+      toolName: 'delegateTask',
       status: 'completed',
       inputSummary: 'Ask Claude Code to review `src/auth.ts`',
       outputSummary:
@@ -692,7 +692,7 @@ function createCodingDispatchThread(storage: YachiyoStorage): ThreadRecord {
       runId: 'demo-run-coding-dispatch-1',
       threadId: thread.id,
       requestMessageId: userMessage.id,
-      toolName: 'delegateCodingTask',
+      toolName: 'delegateTask',
       status: 'completed',
       inputSummary: 'Ask Codex to verify refresh edge cases',
       outputSummary:

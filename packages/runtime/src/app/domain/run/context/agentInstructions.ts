@@ -1,7 +1,13 @@
 import { platform, release } from 'node:os'
 
-import type { SkillSummary, SubagentProfile, ToolCallName } from '@yachiyo/shared/protocol'
+import type {
+  NamedSubagentId,
+  SkillSummary,
+  SubagentProfile,
+  ToolCallName
+} from '@yachiyo/shared/protocol'
 import { RUN_MODE_DEFINITIONS, SELECTABLE_RUN_MODE_IDS } from '@yachiyo/shared/toolModes'
+import { SUBAGENT_DESCRIPTIONS } from '../../../../settings/namedSubagents.ts'
 import type { GitContext } from './gitContext.ts'
 
 export function resolveModelEnabledTools(input: {
@@ -19,18 +25,28 @@ export function buildSubagentContextBlock(
   gitCtx: GitContext,
   workspacePath: string,
   profiles: SubagentProfile[],
-  availableWorkspaces: string[] = []
+  availableWorkspaces: string[] = [],
+  subagentsConfig?: {
+    mode: 'worker' | 'acp'
+    enabledNamedAgents: NamedSubagentId[]
+  }
 ): string {
   const enabledProfiles = profiles.filter((p) => p.enabled)
-  if (enabledProfiles.length === 0) {
+  const mode = subagentsConfig?.mode ?? 'worker'
+  const hasAnySubagent =
+    mode === 'worker'
+      ? (subagentsConfig?.enabledNamedAgents.length ?? 0) > 0
+      : enabledProfiles.length > 0
+
+  if (!hasAnySubagent) {
     return ''
   }
 
-  if (!gitCtx.hasGit && availableWorkspaces.length === 0) {
+  if (mode === 'acp' && !gitCtx.hasGit && availableWorkspaces.length === 0) {
     return [
-      '<coding_agents>',
-      'The `delegateCodingTask` tool is unavailable because the current workspace is not a Git repository. If asked to delegate, inform the user that a Git repository must be initialized first for safe execution.',
-      '</coding_agents>'
+      '<subagents>',
+      'The `delegateTask` tool is unavailable because the current workspace is not a Git repository. If asked to delegate, inform the user that a Git repository must be initialized first for safe execution.',
+      '</subagents>'
     ].join('\n')
   }
 
@@ -56,15 +72,13 @@ export function buildSubagentContextBlock(
   }
 
   const workspaceRule =
-    availableWorkspaces.length > 0 && gitCtx.hasGit
-      ? `Agents operate in the current thread workspace by default: ${workspacePath}. To use a different workspace, pass the \`workspace\` parameter with one of the listed paths below. Agents MUST NOT operate outside the thread workspace or the listed workspaces.`
-      : availableWorkspaces.length > 0
-        ? `Agents MUST use the \`workspace\` parameter to select one of the available workspaces below. Agents MUST NOT operate outside the listed workspaces.`
-        : `Agents MUST ONLY operate within the current thread workspace: ${workspacePath}.`
+    availableWorkspaces.length > 0
+      ? `Agents operate in the current workspace by default (${workspacePath}). To switch workspaces, pass the \`workspace\` parameter with one of the listed paths.`
+      : `Agents must stay within the current workspace: ${workspacePath}.`
 
   const lines = [
-    '<coding_agents>',
-    "You have a `delegateCodingTask` tool that forwards work to external agent processes. This section applies only when the user explicitly asks you to delegate — it does not guide how you interpret the user's messages otherwise.",
+    '<subagents>',
+    'Use `delegateTask` to run parallel tasks or to work within a narrower tool context. Choose the subagent that matches the task and write a clear prompt.',
     '',
     '<agent_rules>',
     workspaceRule
@@ -75,34 +89,37 @@ export function buildSubagentContextBlock(
   }
 
   if (availableWorkspaces.length > 0) {
-    lines.push('')
-    lines.push('Available Workspaces (use the `workspace` parameter to select):')
+    lines.push('', 'Available Workspaces:')
     for (const ws of availableWorkspaces) {
       lines.push(`- ${ws}`)
     }
   }
 
-  lines.push(
-    '',
-    'When writing the `prompt` parameter:',
-    '- Write strictly in English.',
-    '- Use direct, imperative natural language (e.g. "Implement X", "Ensure Y").',
-    '- Provide ONLY the objective, context/constraints, and acceptance criteria.',
-    '- DO NOT predefine architectural structures; let the agent decide the implementation.',
-    '- DO NOT use overly structured, markdown-heavy formatting.',
-    '',
-    'Session resume:',
-    '- Omit `session_id` for new tasks.',
-    '- Only pass `session_id` when the user explicitly asks to resume, with an exact ID from a prior `delegateCodingTask` result already in context. Never invent one.',
-    '',
-    'Available agent profiles:'
-  )
-
-  for (const profile of enabledProfiles) {
-    lines.push(`- Name: "${profile.name}" (Description: ${profile.description})`)
+  if (mode === 'acp') {
+    lines.push(
+      '',
+      'Session resume:',
+      '- Omit `session_id` for new tasks.',
+      '- Only pass `session_id` when the user explicitly asks to resume, with an exact ID from a prior `delegateTask` result in context. Never invent one.'
+    )
   }
 
-  lines.push('</agent_rules>', '</coding_agents>')
+  if (mode === 'worker') {
+    const enabled = subagentsConfig?.enabledNamedAgents ?? []
+    if (enabled.length > 0) {
+      lines.push('', 'Available subagents:')
+      for (const id of enabled) {
+        lines.push(`- ${id}: ${SUBAGENT_DESCRIPTIONS[id]}`)
+      }
+    }
+  } else {
+    lines.push('', 'Available agent profiles:')
+    for (const profile of enabledProfiles) {
+      lines.push(`- ${profile.name}: ${profile.description}`)
+    }
+  }
+
+  lines.push('</agent_rules>', '</subagents>')
   return lines.join('\n')
 }
 

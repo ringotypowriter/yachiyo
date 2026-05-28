@@ -30,9 +30,9 @@ import type { RunRecoveryCheckpoint, YachiyoStorage } from '../../../../storage/
 import type { QuerySourceExecutor } from '../../../../tools/agentTools/querySourceTool.ts'
 import type { RunExecutionPhase } from '../runTypes.ts'
 import type {
-  DelegateCodingTaskFinishedEvent,
-  DelegateCodingTaskProgressEvent,
-  DelegateCodingTaskStartedEvent,
+  DelegateTaskFinishedEvent,
+  DelegateTaskProgressEvent,
+  DelegateTaskStartedEvent,
   ReadRecordCache
 } from '../../../../tools/agentTools.ts'
 import type {
@@ -174,10 +174,10 @@ export interface RunExecutionDeps {
     task: BackgroundBashAdoptionHandle & { threadId: string }
   ) => Promise<void>
   getCompletedBackgroundBashTask?: (taskId: string) => BackgroundBashTaskResult | undefined
-  onSubagentProgress?: (event: DelegateCodingTaskProgressEvent) => void
-  onSubagentStarted?: (event: DelegateCodingTaskStartedEvent) => void
+  onSubagentProgress?: (event: DelegateTaskProgressEvent) => void
+  onSubagentStarted?: (event: DelegateTaskStartedEvent) => void
   jotdownStore?: JotdownStore
-  onSubagentFinished?: (event: DelegateCodingTaskFinishedEvent) => void
+  onSubagentFinished?: (event: DelegateTaskFinishedEvent) => void
   imageToTextService?: ImageToTextService
   isModelImageCapable?: boolean
   activityTracker?: {

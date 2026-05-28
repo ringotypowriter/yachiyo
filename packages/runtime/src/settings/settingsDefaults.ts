@@ -8,6 +8,7 @@ import {
   DEFAULT_WEB_SEARCH_PROVIDER,
   type SettingsConfig
 } from '@yachiyo/shared/protocol'
+import { DEFAULT_SUBAGENTS_CONFIG } from './namedSubagents.ts'
 
 export const DEFAULT_SETTINGS_CONFIG: SettingsConfig = {
   providers: [],
@@ -76,5 +77,6 @@ export const DEFAULT_SETTINGS_CONFIG: SettingsConfig = {
       apiKey: '',
       baseUrl: ''
     }
-  }
+  },
+  subagents: DEFAULT_SUBAGENTS_CONFIG
 }

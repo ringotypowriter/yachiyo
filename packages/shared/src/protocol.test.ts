@@ -1,7 +1,12 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { deriveThreadCapabilities, getThreadCapabilities, isMemoryConfigured } from './protocol.ts'
+import {
+  deriveThreadCapabilities,
+  getThreadCapabilities,
+  isMemoryConfigured,
+  isTrackedToolName
+} from './protocol.ts'
 import { CORE_TOOL_NAMES, DEFAULT_ENABLED_TOOL_NAMES } from './protocol.ts'
 
 test('isMemoryConfigured follows the memory enabled flag', () => {
@@ -60,4 +65,15 @@ test('getThreadCapabilities prefers explicit thread capabilities when present', 
 test('useBrowser is registered and enabled by default', () => {
   assert.ok(CORE_TOOL_NAMES.includes('useBrowser'))
   assert.ok(DEFAULT_ENABLED_TOOL_NAMES.includes('useBrowser'))
+})
+
+test('delegateTask is the only registered delegation tool', () => {
+  assert.ok(CORE_TOOL_NAMES.includes('delegateTask'))
+  assert.equal(CORE_TOOL_NAMES.includes('delegateCodingTask' as never), false)
+  assert.ok(DEFAULT_ENABLED_TOOL_NAMES.includes('delegateTask'))
+})
+
+test('updateTodoList is a tracked runtime tool', () => {
+  assert.ok(CORE_TOOL_NAMES.includes('updateTodoList'))
+  assert.equal(isTrackedToolName('updateTodoList'), true)
 })

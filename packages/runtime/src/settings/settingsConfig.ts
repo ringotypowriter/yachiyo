@@ -20,7 +20,11 @@ import {
   normalizeWorkspaceConfig
 } from './settingsFeatureNormalization.ts'
 import { asRecord } from './settingsNormalizationShared.ts'
-import { normalizeEssentials, normalizeSubagentProfiles } from './settingsProfileNormalization.ts'
+import {
+  normalizeEssentials,
+  normalizeSubagentProfiles,
+  normalizeSubagentsConfig
+} from './settingsProfileNormalization.ts'
 import {
   EMPTY_PROVIDER_SETTINGS,
   normalizeProviders,
@@ -40,6 +44,7 @@ export function normalizeSettingsConfig(value: unknown): SettingsConfig {
   const defaultModel = normalizeDefaultModel(input['defaultModel'])
   const subagentProfiles = normalizeSubagentProfiles(input['subagentProfiles'])
   const essentials = normalizeEssentials(input['essentials'])
+  const subagents = normalizeSubagentsConfig(input['subagents'])
 
   return {
     ...(defaultModel ? { defaultModel } : {}),
@@ -58,7 +63,8 @@ export function normalizeSettingsConfig(value: unknown): SettingsConfig {
     providers: hasProviders ? providers : DEFAULT_SETTINGS_CONFIG.providers,
     prompts: normalizeUserPrompts(input['prompts']),
     subagentProfiles,
-    ...(essentials.length > 0 ? { essentials } : {})
+    ...(essentials.length > 0 ? { essentials } : {}),
+    subagents
   }
 }
 

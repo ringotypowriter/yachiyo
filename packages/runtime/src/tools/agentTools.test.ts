@@ -153,6 +153,16 @@ test('createAgentToolSet adds querySource when source query storage is provided'
   assert.equal('querySource' in withoutSourceStorage, false)
 })
 
+test('summarizeToolInput uses delegated agent names for delegateTask', () => {
+  assert.equal(
+    summarizeToolInput('delegateTask', {
+      agent_name: 'explore',
+      prompt: 'Map the feature'
+    }),
+    'explore'
+  )
+})
+
 test('createAgentToolSet respects disabled useSentinel', async () => {
   const tools = createAgentToolSet(
     {

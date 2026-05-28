@@ -139,13 +139,17 @@ export interface ActiveSubagentState {
   delegationId: string
   threadId: string
   agentName: string
+  agentType?: string
   progress: string
   workspacePath?: string
+  startedAt?: string
+  recentToolCalls?: Array<{ toolName: string; inputSummary: string; outputSummary?: string }>
 }
 
 export interface SubagentProgressEntry {
   delegationId: string
   agentName: string
+  agentType?: string
   chunk: string
 }
 

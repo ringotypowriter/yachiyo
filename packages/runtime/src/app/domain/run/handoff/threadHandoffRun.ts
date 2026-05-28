@@ -220,12 +220,17 @@ export async function streamCompactThreadHandoff(
                 }
               }
             : {}),
-          ...((preparedContext.gitCtx.hasGit ||
-            preparedContext.gitValidatedWorkspaces.length > 0) &&
-          preparedContext.enabledSubagentProfiles.length > 0
+          ...((preparedContext.subagentsConfig.mode === 'worker' &&
+            preparedContext.subagentsConfig.enabledNamedAgents.length > 0) ||
+          ((preparedContext.gitCtx.hasGit || preparedContext.gitValidatedWorkspaces.length > 0) &&
+            preparedContext.subagentsConfig.mode === 'acp' &&
+            preparedContext.enabledSubagentProfiles.length > 0)
             ? {
                 subagentProfiles: preparedContext.enabledSubagentProfiles,
-                availableWorkspaces: preparedContext.gitValidatedWorkspaces
+                subagentsConfig: preparedContext.subagentsConfig,
+                availableWorkspaces: preparedContext.subagentAvailableWorkspaces,
+                settings,
+                createModelRuntime: deps.createModelRuntime
               }
             : {})
         }
