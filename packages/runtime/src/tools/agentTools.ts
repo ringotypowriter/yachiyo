@@ -58,7 +58,8 @@ import {
   type DelegateTaskContext,
   type DelegateTaskFinishedEvent,
   type DelegateTaskProgressEvent,
-  type DelegateTaskStartedEvent
+  type DelegateTaskStartedEvent,
+  type DelegateTaskToolCallEvent
 } from './agentTools/delegateTaskTool.ts'
 
 import {
@@ -128,7 +129,8 @@ export { createTool as createWriteTool, runWriteTool } from './agentTools/writeT
 export type {
   DelegateTaskFinishedEvent,
   DelegateTaskProgressEvent,
-  DelegateTaskStartedEvent
+  DelegateTaskStartedEvent,
+  DelegateTaskToolCallEvent
 } from './agentTools/delegateTaskTool.ts'
 
 export interface AgentToolDependencies {
@@ -153,6 +155,7 @@ export interface AgentToolDependencies {
   onSubagentProgress?: (event: DelegateTaskProgressEvent) => void
   onSubagentStarted?: (event: DelegateTaskStartedEvent) => void
   onSubagentFinished?: (event: DelegateTaskFinishedEvent) => void
+  onSubagentToolCall?: (event: DelegateTaskToolCallEvent) => void
   /** When provided, the askUser tool is injected into the tool set. */
   askUserContext?: AskUserToolContext
   /** When provided, updateTodoList drives the persistent composer todo widget. */
@@ -764,7 +767,8 @@ export function createAgentToolSet(
       parentDependencies: dependencies,
       onProgress: dependencies.onSubagentProgress,
       onSubagentStarted: dependencies.onSubagentStarted,
-      onSubagentFinished: dependencies.onSubagentFinished
+      onSubagentFinished: dependencies.onSubagentFinished,
+      onSubagentToolCall: dependencies.onSubagentToolCall
     }
     tools.delegateTask = createDelegateTaskTool(subagentCtx)
   }

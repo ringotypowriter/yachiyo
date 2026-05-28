@@ -1031,7 +1031,40 @@ export function reduceServerEvent(state: AppState, event: YachiyoServerEvent): P
           agentType: event.agentType,
           progress: existing?.progress ?? '',
           workspacePath: event.workspacePath,
-          startedAt: event.startedAt
+          startedAt: event.startedAt,
+          prompt: event.prompt,
+          codeName: event.codeName
+        }
+      }
+    }
+  }
+
+  if (event.type === 'subagent.toolCall') {
+    const existing = state.subagentStateById[event.delegationId]
+    if (!existing) return {}
+    const recent = existing.recentToolCalls ?? []
+    const currentIndex = event.toolCallId
+      ? recent.findIndex((toolCall) => toolCall.toolCallId === event.toolCallId)
+      : -1
+    const nextToolCall = {
+      ...(currentIndex >= 0 ? recent[currentIndex] : {}),
+      ...(event.toolCallId ? { toolCallId: event.toolCallId } : {}),
+      toolName: event.toolName,
+      inputSummary: event.inputSummary,
+      ...(event.outputSummary ? { outputSummary: event.outputSummary } : {}),
+      ...(event.status ? { status: event.status } : {})
+    }
+    const nextRecent = (
+      currentIndex >= 0
+        ? [...recent.slice(0, currentIndex), nextToolCall, ...recent.slice(currentIndex + 1)]
+        : [...recent, nextToolCall]
+    ).slice(-5)
+    return {
+      subagentStateById: {
+        ...state.subagentStateById,
+        [event.delegationId]: {
+          ...existing,
+          recentToolCalls: nextRecent
         }
       }
     }
@@ -1067,6 +1100,8 @@ export function reduceServerEvent(state: AppState, event: YachiyoServerEvent): P
           progress: (existing?.progress ?? '') + event.chunk,
           ...(existing?.workspacePath ? { workspacePath: existing.workspacePath } : {}),
           ...(existing?.startedAt ? { startedAt: existing.startedAt } : {}),
+          ...(existing?.prompt ? { prompt: existing.prompt } : {}),
+          ...(existing?.codeName ? { codeName: existing.codeName } : {}),
           ...(existing?.recentToolCalls ? { recentToolCalls: existing.recentToolCalls } : {})
         }
       }
@@ -1085,10 +1120,31 @@ export function reduceServerEvent(state: AppState, event: YachiyoServerEvent): P
     if ((subagentActiveIdsByThread[event.threadId]?.length ?? 0) === 0) {
       delete subagentProgressTimelineByThread[event.threadId]
     }
+    const existing = state.subagentStateById[event.delegationId]
+    const finishedResult = {
+      delegationId: event.delegationId,
+      agentName: event.agentName,
+      codeName: event.codeName ?? existing?.codeName,
+      prompt: existing?.prompt,
+      lastMessage: event.lastMessage,
+      status: event.status,
+      durationMs: event.durationMs,
+      promptTokens: event.promptTokens,
+      completionTokens: event.completionTokens,
+      finishedAt: event.timestamp
+    }
+    const subagentFinishedResultsByThread = {
+      ...state.subagentFinishedResultsByThread,
+      [event.threadId]: [
+        ...(state.subagentFinishedResultsByThread[event.threadId] ?? []),
+        finishedResult
+      ]
+    }
     return {
       subagentActiveIdsByThread,
       subagentProgressTimelineByThread,
-      subagentStateById
+      subagentStateById,
+      subagentFinishedResultsByThread
     }
   }
 

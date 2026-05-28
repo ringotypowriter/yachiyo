@@ -1,6 +1,7 @@
 export interface SubagentIndicatorAgent {
   delegationId: string
   agentName: string
+  codeName?: string
   progress: string
 }
 
@@ -10,13 +11,6 @@ export interface SubagentIndicatorProgressEntry {
   chunk: string
 }
 
-export interface AgentIdentity {
-  delegationId: string
-  agentName: string
-  index: number
-  color: string
-}
-
 export function canCancelFromIndicator(agents: SubagentIndicatorAgent[]): boolean {
   return agents.length === 1
 }
@@ -24,7 +18,7 @@ export function canCancelFromIndicator(agents: SubagentIndicatorAgent[]): boolea
 /** Build a plain-text stream with labeled agent sections. */
 export function buildSubagentIndicatorStream(
   entries: SubagentIndicatorProgressEntry[],
-  identities?: Record<string, AgentIdentity>
+  codeNames?: Record<string, string | undefined>
 ): string {
   let stream = ''
   let currentDelegationId: string | null = null
@@ -34,9 +28,9 @@ export function buildSubagentIndicatorStream(
       if (stream && !stream.endsWith('\n')) {
         stream += '\n'
       }
-      const identity = identities?.[entry.delegationId]
-      if (identity) {
-        stream += `[#${identity.index} ${entry.agentName}]\n`
+      const codeName = codeNames?.[entry.delegationId]
+      if (codeName) {
+        stream += `[${codeName}]\n`
       } else {
         stream += `[${entry.agentName}]\n`
       }
@@ -46,24 +40,4 @@ export function buildSubagentIndicatorStream(
   }
 
   return stream
-}
-
-export function buildAgentIdentities(agents: SubagentIndicatorAgent[]): AgentIdentity[] {
-  const colors = [
-    '#3b82f6', // blue
-    '#10b981', // emerald
-    '#f59e0b', // amber
-    '#8b5cf6', // violet
-    '#ec4899', // pink
-    '#06b6d4', // cyan
-    '#f97316', // orange
-    '#84cc16' // lime
-  ]
-
-  return agents.map((agent, i) => ({
-    delegationId: agent.delegationId,
-    agentName: agent.agentName,
-    index: i + 1,
-    color: colors[i % colors.length] ?? colors[0]
-  }))
 }

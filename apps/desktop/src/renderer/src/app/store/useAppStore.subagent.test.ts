@@ -24,6 +24,7 @@ function resetStore(): void {
     subagentActiveIdsByThread: {},
     subagentProgressTimelineByThread: {},
     subagentStateById: {},
+    subagentFinishedResultsByThread: {},
     initialized: false,
     isBootstrapping: false,
     justDoneRunIdsByThread: {},
@@ -96,13 +97,18 @@ test('applyServerEvent keeps sibling delegated agents isolated by delegationId',
     runId: 'run-1',
     delegationId: 'delegate-1',
     agentName: 'Worker',
-    status: 'success'
+    status: 'success',
+    lastMessage: 'worker final result'
   })
 
   const state = useAppStore.getState()
 
   assert.deepEqual(state.subagentActiveIdsByThread['thread-1'], ['delegate-2'])
   assert.equal(state.subagentStateById['delegate-1'], undefined)
+  assert.equal(
+    state.subagentFinishedResultsByThread['thread-1']?.[0]?.lastMessage,
+    'worker final result'
+  )
   assert.equal(state.subagentStateById['delegate-2']?.progress, 'beta\n')
   assert.deepEqual(
     state.subagentProgressTimelineByThread['thread-1']?.map((entry) => [
@@ -216,6 +222,57 @@ test('applyServerEvent clears stale thread progress when a new first delegation 
     ]),
     [['delegate-fresh', 'fresh\n']]
   )
+})
+
+test('applyServerEvent upserts subagent tool calls with input and output summaries', () => {
+  resetStore()
+
+  useAppStore.getState().applyServerEvent({
+    type: 'subagent.started',
+    eventId: 'event-subagent-started-tools',
+    timestamp: TIMESTAMP,
+    threadId: 'thread-1',
+    runId: 'run-1',
+    delegationId: 'delegate-1',
+    agentName: 'Worker',
+    workspacePath: '/tmp/workspace-a'
+  })
+
+  useAppStore.getState().applyServerEvent({
+    type: 'subagent.toolCall',
+    eventId: 'event-subagent-tool-call-start',
+    timestamp: TIMESTAMP,
+    threadId: 'thread-1',
+    runId: 'run-1',
+    delegationId: 'delegate-1',
+    toolCallId: 'tool-1',
+    toolName: 'glob',
+    inputSummary: '**/*.ts',
+    status: 'running'
+  })
+  useAppStore.getState().applyServerEvent({
+    type: 'subagent.toolCall',
+    eventId: 'event-subagent-tool-call-end',
+    timestamp: TIMESTAMP,
+    threadId: 'thread-1',
+    runId: 'run-1',
+    delegationId: 'delegate-1',
+    toolCallId: 'tool-1',
+    toolName: 'glob',
+    inputSummary: '**/*.ts',
+    outputSummary: 'found 8 files',
+    status: 'completed'
+  })
+
+  assert.deepEqual(useAppStore.getState().subagentStateById['delegate-1']?.recentToolCalls, [
+    {
+      toolCallId: 'tool-1',
+      toolName: 'glob',
+      inputSummary: '**/*.ts',
+      outputSummary: 'found 8 files',
+      status: 'completed'
+    }
+  ])
 })
 
 test('thread.state.replaced drops progress entries for delegations that are no longer active', () => {

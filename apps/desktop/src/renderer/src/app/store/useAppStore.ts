@@ -143,7 +143,28 @@ export interface ActiveSubagentState {
   progress: string
   workspacePath?: string
   startedAt?: string
-  recentToolCalls?: Array<{ toolName: string; inputSummary: string; outputSummary?: string }>
+  prompt?: string
+  codeName?: string
+  recentToolCalls?: Array<{
+    toolCallId?: string
+    toolName: string
+    inputSummary: string
+    outputSummary?: string
+    status?: 'running' | 'completed' | 'failed'
+  }>
+}
+
+export interface SubagentFinishedResult {
+  delegationId: string
+  agentName: string
+  codeName?: string
+  prompt?: string
+  lastMessage?: string
+  status: 'success' | 'cancelled'
+  durationMs?: number
+  promptTokens?: number
+  completionTokens?: number
+  finishedAt: string
 }
 
 export interface SubagentProgressEntry {
@@ -254,6 +275,7 @@ export interface AppState {
   subagentActiveIdsByThread: Record<string, string[]>
   subagentProgressTimelineByThread: Record<string, SubagentProgressEntry[]>
   subagentStateById: Record<string, ActiveSubagentState>
+  subagentFinishedResultsByThread: Record<string, SubagentFinishedResult[]>
   initialized: boolean
   isBootstrapping: boolean
   justDoneRunIdsByThread: Record<string, string>
@@ -660,6 +682,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   subagentActiveIdsByThread: {},
   subagentProgressTimelineByThread: {},
   subagentStateById: {},
+  subagentFinishedResultsByThread: {},
   initialized: false,
   isBootstrapping: false,
   justDoneRunIdsByThread: {},

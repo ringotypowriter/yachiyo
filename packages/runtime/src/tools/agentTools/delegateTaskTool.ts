@@ -10,6 +10,7 @@ import type {
   SubagentsConfig,
   ToolCallName
 } from '@yachiyo/shared/protocol'
+import { summarizeToolInput, summarizeToolOutput } from '../agentTools.ts'
 import { launchAcpProcess } from '../../runtime/acp/acpLauncher.ts'
 import { createAcpStreamAdapter } from '../../runtime/acp/acpStreamAdapter.ts'
 import { runAcpSession } from '../../runtime/acp/acpSessionClient.ts'
@@ -20,6 +21,42 @@ import {
 } from '../../settings/namedSubagents.ts'
 import { createAgentToolSet, type AgentToolDependencies } from '../agentTools.ts'
 import type { AgentToolContext } from './shared.ts'
+
+/** Gojūon-order meaningful Japanese romaji code names for subagents. */
+const SUBAGENT_CODE_NAMES = [
+  'Ame', // 雨 — rain
+  'Kaze', // 風 — wind
+  'Sora', // 空 — sky
+  'Tsuki', // 月 — moon
+  'Hana', // 花 — flower
+  'Mizu', // 水 — water
+  'Yama', // 山 — mountain
+  'Ringo', // 林檎 — apple
+  'Kumo', // 雲 — cloud
+  'Tori', // 鳥 — bird
+  'Hoshi', // 星 — star
+  'Umi', // 海 — sea
+  'Yuki', // 雪 — snow
+  'Sakura', // 桜 — cherry blossom
+  'Hikari', // 光 — light
+  'Kawa', // 川 — river
+  'Mori', // 森 — forest
+  'Tsubasa', // 翼 — wing
+  'Asa', // 朝 — morning
+  'Yoru', // 夜 — night
+  'Natsu', // 夏 — summer
+  'Aki', // 秋 — autumn
+  'Fuyu', // 冬 — winter
+  'Haruka', // 遥 — distant
+  'Sui' // 翠 — jade green
+]
+
+let codeNameIndex = 0
+function assignCodeName(): string {
+  const name = SUBAGENT_CODE_NAMES[codeNameIndex % SUBAGENT_CODE_NAMES.length]!
+  codeNameIndex++
+  return name
+}
 
 const VALID_NAMED_SUBAGENT_IDS: NamedSubagentId[] = ['explore', 'plan', 'review', 'general']
 
@@ -70,6 +107,8 @@ export interface DelegateTaskStartedEvent {
   agentType: NamedSubagentId | string
   workspacePath: string
   startedAt: string
+  prompt?: string
+  codeName?: string
 }
 
 export interface DelegateTaskProgressEvent {
@@ -85,6 +124,19 @@ export interface DelegateTaskFinishedEvent {
   lastMessage?: string
   sessionId?: string
   workspacePath: string
+  durationMs?: number
+  promptTokens?: number
+  completionTokens?: number
+  codeName?: string
+}
+
+export interface DelegateTaskToolCallEvent {
+  delegationId: string
+  toolCallId?: string
+  toolName: string
+  inputSummary: string
+  outputSummary?: string
+  status?: 'running' | 'completed' | 'failed'
 }
 
 export interface DelegateTaskContext {
@@ -99,6 +151,7 @@ export interface DelegateTaskContext {
   onProgress?: (event: DelegateTaskProgressEvent) => void
   onSubagentStarted?: (event: DelegateTaskStartedEvent) => void
   onSubagentFinished?: (event: DelegateTaskFinishedEvent) => void
+  onSubagentToolCall?: (event: DelegateTaskToolCallEvent) => void
   launchAcpProcess?: typeof launchAcpProcess
   runAcpSession?: typeof runAcpSession
 }
@@ -161,7 +214,14 @@ async function runWorkerSubagent(
   ctx: DelegateTaskContext,
   delegationId: string,
   abortSignal?: AbortSignal
-): Promise<DelegateTaskOutput & { lastMessage: string; durationMs: number }> {
+): Promise<
+  DelegateTaskOutput & {
+    lastMessage: string
+    durationMs: number
+    promptTokens?: number
+    completionTokens?: number
+  }
+> {
   const profile = DEFAULT_NAMED_SUBAGENT_PROFILES[profileId]
   if (!ctx.subagentsConfig.enabledNamedAgents.includes(profileId)) {
     const error = `Worker subagent "${profileId}" is not enabled.`
@@ -202,6 +262,10 @@ async function runWorkerSubagent(
     { role: 'user' as const, content: prompt }
   ]
   let resultText = ''
+  const recentToolSummaries: string[] = []
+
+  let promptTokens: number | undefined
+  let completionTokens: number | undefined
 
   try {
     for await (const delta of modelRuntime.streamReply({
@@ -212,7 +276,41 @@ async function runWorkerSubagent(
       maxToolSteps: profile.maxToolSteps ?? 10,
       tools,
       onToolCallStart: (event) => {
-        ctx.onProgress?.({ delegationId, chunk: `[${event.toolCall.toolName}]\n` })
+        const toolName = event.toolCall.toolName
+        const inputSummary = summarizeToolInput(toolName, event.toolCall.input)
+        ctx.onProgress?.({ delegationId, chunk: `[${toolName}] ${inputSummary}\n` })
+        ctx.onSubagentToolCall?.({
+          delegationId,
+          toolCallId: event.toolCall.toolCallId,
+          toolName,
+          inputSummary,
+          status: 'running'
+        })
+      },
+      onToolCallFinish: (event) => {
+        const toolName = event.toolCall.toolName
+        const inputSummary = summarizeToolInput(toolName, event.toolCall.input)
+        const outputSummary = event.success
+          ? summarizeToolOutput(toolName, event.output)
+          : summarizeToolOutput(toolName, {
+              error: event.error instanceof Error ? event.error.message : String(event.error)
+            })
+        recentToolSummaries.push(
+          `${toolName}: ${inputSummary}${outputSummary ? ` → ${outputSummary}` : ''}`
+        )
+        if (recentToolSummaries.length > 5) recentToolSummaries.shift()
+        ctx.onSubagentToolCall?.({
+          delegationId,
+          toolCallId: event.toolCall.toolCallId,
+          toolName,
+          inputSummary,
+          outputSummary,
+          status: event.success ? 'completed' : 'failed'
+        })
+      },
+      onFinish: (usage) => {
+        promptTokens = usage.promptTokens
+        completionTokens = usage.completionTokens
       }
     })) {
       resultText += delta
@@ -228,11 +326,21 @@ async function runWorkerSubagent(
     resultText += `\n\n[Worker subagent error: ${detail}]`
   }
 
+  const finalText = resultText.trim()
+  if (!finalText) {
+    resultText =
+      recentToolSummaries.length > 0
+        ? `Subagent completed without a final text response. Recent tool calls:\n${recentToolSummaries.map((summary) => `- ${summary}`).join('\n')}`
+        : 'Subagent completed without a final text response.'
+  }
+
   const durationMs = Date.now() - startedAt
   return {
     content: [{ type: 'text', text: resultText }],
     lastMessage: resultText,
-    durationMs
+    durationMs,
+    ...(promptTokens !== undefined ? { promptTokens } : {}),
+    ...(completionTokens !== undefined ? { completionTokens } : {})
   }
 }
 
@@ -322,41 +430,44 @@ function createWorkerTool(
         const error = `Unknown worker subagent "${agentName}". Valid names: ${VALID_NAMED_SUBAGENT_IDS.join(', ')}.`
         return { content: [{ type: 'text', text: error }], error }
       }
+      const codeName = assignCodeName()
       const startedAt = new Date().toISOString()
       ctx.onSubagentStarted?.({
         delegationId,
         agentName,
         agentType: agentName,
         workspacePath: workspaceResult,
-        startedAt
+        startedAt,
+        prompt: input.prompt,
+        codeName
       })
-      ctx.onProgress?.({ delegationId, chunk: `> ${input.prompt}\n${'─'.repeat(40)}\n` })
+      ctx.onProgress?.({
+        delegationId,
+        chunk: `[${codeName}] > ${input.prompt}\n${'─'.repeat(40)}\n`
+      })
 
       try {
-        const { durationMs, lastMessage, ...result } = await runWorkerSubagent(
-          agentName,
-          input.prompt,
-          { ...ctx, workspacePath: workspaceResult },
-          delegationId,
-          options.abortSignal
-        )
+        const { durationMs, promptTokens, completionTokens, lastMessage, ...result } =
+          await runWorkerSubagent(
+            agentName,
+            input.prompt,
+            { ...ctx, workspacePath: workspaceResult },
+            delegationId,
+            options.abortSignal
+          )
         ctx.onSubagentFinished?.({
           delegationId,
           agentName,
           agentType: agentName,
           status: 'success',
           lastMessage,
-          workspacePath: workspaceResult
+          workspacePath: workspaceResult,
+          durationMs,
+          promptTokens,
+          completionTokens,
+          codeName
         })
-        return {
-          ...result,
-          content: [
-            {
-              type: 'text',
-              text: `${result.content[0]?.text ?? ''}\n\n(duration: ${durationMs}ms)`
-            }
-          ]
-        }
+        return result
       } catch (err) {
         if (options.abortSignal?.aborted) {
           const abortErr = new Error('Subagent execution aborted.', { cause: err })
@@ -369,7 +480,8 @@ function createWorkerTool(
           agentName,
           agentType: agentName,
           status: 'cancelled',
-          workspacePath: workspaceResult
+          workspacePath: workspaceResult,
+          codeName
         })
         return {
           content: [{ type: 'text', text: `Subagent execution failed: ${detail}` }],
@@ -405,15 +517,22 @@ function createAcpTool(ctx: DelegateTaskContext): Tool<AcpDelegateTaskInput, Del
         }
       }
 
+      const codeName = assignCodeName()
       const startedAt = new Date().toISOString()
+      const acpStartedAt = Date.now()
       ctx.onSubagentStarted?.({
         delegationId,
         agentName: input.agent_name,
         agentType: 'acp',
         workspacePath: workspaceResult,
-        startedAt
+        startedAt,
+        prompt: input.prompt,
+        codeName
       })
-      ctx.onProgress?.({ delegationId, chunk: `> ${input.prompt}\n${'─'.repeat(40)}\n` })
+      ctx.onProgress?.({
+        delegationId,
+        chunk: `[${codeName}] > ${input.prompt}\n${'─'.repeat(40)}\n`
+      })
 
       try {
         const { lastMessage, ...result } = await runAcpSubagent(
@@ -424,6 +543,7 @@ function createAcpTool(ctx: DelegateTaskContext): Tool<AcpDelegateTaskInput, Del
           options.abortSignal,
           input.session_id || undefined
         )
+        const durationMs = Date.now() - acpStartedAt
         ctx.onSubagentFinished?.({
           delegationId,
           agentName: input.agent_name,
@@ -431,7 +551,9 @@ function createAcpTool(ctx: DelegateTaskContext): Tool<AcpDelegateTaskInput, Del
           status: 'success',
           lastMessage,
           sessionId: result.sessionId,
-          workspacePath: workspaceResult
+          workspacePath: workspaceResult,
+          durationMs,
+          codeName
         })
         return result
       } catch (err) {
@@ -440,7 +562,8 @@ function createAcpTool(ctx: DelegateTaskContext): Tool<AcpDelegateTaskInput, Del
           agentName: input.agent_name,
           agentType: 'acp',
           status: 'cancelled',
-          workspacePath: workspaceResult
+          workspacePath: workspaceResult,
+          codeName
         })
         if (options.abortSignal?.aborted) {
           const abortErr = new Error('Subagent execution aborted.', { cause: err })

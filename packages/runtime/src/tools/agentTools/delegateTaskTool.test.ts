@@ -64,6 +64,58 @@ test('delegateTask runs enabled worker subagents with stable start and finish me
   )
 })
 
+test('delegateTask returns fallback text when a worker produces only tool calls', async () => {
+  const modelRuntime: ModelRuntime = {
+    streamReply: async function* (input) {
+      if (process.env.__YACHIYO_TEST_UNREACHABLE__ === '1') yield ''
+      input.onToolCallFinish?.({
+        abortSignal: AbortSignal.timeout(5000),
+        durationMs: 0,
+        experimental_context: undefined,
+        functionId: undefined,
+        metadata: undefined,
+        model: undefined,
+        messages: [],
+        stepNumber: undefined,
+        success: true,
+        output: {
+          content: [{ type: 'text', text: 'a.ts\nb.ts' }],
+          details: {
+            backend: 'typescript',
+            pattern: '**/*.ts',
+            path: process.cwd(),
+            resultCount: 2,
+            truncated: false,
+            matches: ['a.ts', 'b.ts']
+          }
+        },
+        toolCall: {
+          type: 'tool-call',
+          dynamic: true,
+          toolCallId: 'worker-tool-1',
+          toolName: 'glob',
+          input: { pattern: '**/*.ts' }
+        }
+      })
+    }
+  } as ModelRuntime
+  const tool = createTool(
+    makeContext({
+      createModelRuntime: () => modelRuntime
+    })
+  )
+
+  const result = (await tool.execute!(
+    { agent_name: 'explore', prompt: 'Map the feature' },
+    { toolCallId: 'delegation-fallback', messages: [], abortSignal: AbortSignal.timeout(5000) }
+  )) as Awaited<ReturnType<NonNullable<typeof tool.execute>>> & {
+    content: Array<{ type: 'text'; text: string }>
+  }
+
+  assert.match(result.content[0]?.text ?? '', /Subagent completed without a final text response/)
+  assert.match(result.content[0]?.text ?? '', /glob: \*\*\/\*\.ts → found 2 files/)
+})
+
 test('delegateTask rejects unknown worker subagent names', async () => {
   const tool = createTool(makeContext())
   const result = (await tool.execute!(

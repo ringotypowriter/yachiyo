@@ -4,6 +4,7 @@ import type {
   NotificationRequestEvent,
   SubagentFinishedEvent,
   SubagentStartedEvent,
+  SubagentToolCallEvent,
   ThreadRecord,
   ThreadUpdatedEvent,
   TodoItemRecord,
@@ -19,7 +20,8 @@ import { createRunEventMetadata } from '../../shared/runEventMetadata.ts'
 import type {
   DelegateTaskFinishedEvent,
   DelegateTaskProgressEvent,
-  DelegateTaskStartedEvent
+  DelegateTaskStartedEvent,
+  DelegateTaskToolCallEvent
 } from '../../../../tools/agentTools.ts'
 import type { PreparedServerRunContext } from '../context/prepareServerRunContext.ts'
 import type { RunToolLifecycleState } from './runToolLifecycleState.ts'
@@ -167,6 +169,9 @@ export function createRunToolSet(input: CreateRunToolSetInput): ToolSet | undefi
           },
           onSubagentFinished: (event: DelegateTaskFinishedEvent) => {
             handleSubagentFinished(input, event)
+          },
+          onSubagentToolCall: (event: DelegateTaskToolCallEvent) => {
+            handleSubagentToolCall(input, event)
           }
         }
       : {}),
@@ -285,7 +290,9 @@ function handleSubagentStarted(
     agentName: event.agentName,
     agentType: event.agentType,
     workspacePath: event.workspacePath,
-    startedAt
+    startedAt,
+    prompt: event.prompt,
+    codeName: event.codeName
   })
 }
 
@@ -308,7 +315,33 @@ function handleSubagentFinished(
     agentName: event.agentName,
     agentType: event.agentType,
     status: event.status,
-    ...(event.sessionId ? { sessionId: event.sessionId } : {})
+    ...(event.sessionId ? { sessionId: event.sessionId } : {}),
+    ...(event.lastMessage ? { lastMessage: event.lastMessage } : {}),
+    ...(event.durationMs !== undefined ? { durationMs: event.durationMs } : {}),
+    ...(event.promptTokens !== undefined ? { promptTokens: event.promptTokens } : {}),
+    ...(event.completionTokens !== undefined ? { completionTokens: event.completionTokens } : {}),
+    ...(event.codeName ? { codeName: event.codeName } : {})
+  })
+}
+
+function handleSubagentToolCall(
+  input: CreateRunToolSetInput,
+  event: DelegateTaskToolCallEvent
+): void {
+  input.markProgress()
+  input.deps.emit<SubagentToolCallEvent>({
+    type: 'subagent.toolCall',
+    ...createRunEventMetadata({
+      threadId: input.executionInput.thread.id,
+      runId: input.executionInput.runId,
+      runTrigger: input.executionInput.runTrigger
+    }),
+    delegationId: event.delegationId,
+    ...(event.toolCallId ? { toolCallId: event.toolCallId } : {}),
+    toolName: event.toolName,
+    inputSummary: event.inputSummary,
+    ...(event.outputSummary ? { outputSummary: event.outputSummary } : {}),
+    ...(event.status ? { status: event.status } : {})
   })
 }
 

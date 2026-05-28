@@ -1,27 +1,32 @@
-import { useState, useRef, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import type React from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { ChevronDown, ChevronUp, Clock, Wrench } from 'lucide-react'
+import { ChevronDown, ChevronUp, Clock } from 'lucide-react'
 import { theme } from '@renderer/theme/theme'
-import {
-  buildAgentIdentities,
-  canCancelFromIndicator,
-  type AgentIdentity
-} from './subagentIndicatorState'
+import { canCancelFromIndicator } from './subagentIndicatorState'
+
+interface SubagentToolCallPreview {
+  toolCallId?: string
+  toolName: string
+  inputSummary: string
+  outputSummary?: string
+  status?: 'running' | 'completed' | 'failed'
+}
 
 interface SubagentAgent {
   delegationId: string
   agentName: string
   agentType?: string
+  codeName?: string
+  prompt?: string
   progress: string
   startedAt?: string
-  recentToolCalls?: Array<{ toolName: string; inputSummary: string; outputSummary?: string }>
+  recentToolCalls?: SubagentToolCallPreview[]
 }
 
 interface SubagentProgressEntry {
   delegationId: string
   agentName: string
-  agentType?: string
   chunk: string
 }
 
@@ -49,140 +54,147 @@ function useElapsed(startedAt?: string): number {
   return Math.max(0, now - new Date(startedAt).getTime())
 }
 
-/** Group consecutive chunks per delegationId, preserving order. */
-function buildAgentProgressChunks(entries: SubagentProgressEntry[]): Record<string, string> {
-  const chunks: Record<string, string[]> = {}
-  let currentId: string | null = null
-  let currentBuf: string[] = []
-
-  function flush(): void {
-    if (currentId !== null && currentBuf.length > 0) {
-      chunks[currentId] = chunks[currentId] ?? []
-      chunks[currentId].push(currentBuf.join(''))
-      currentBuf = []
-    }
-  }
-
-  for (const entry of entries) {
-    if (entry.delegationId !== currentId) {
-      flush()
-      currentId = entry.delegationId
-    }
-    currentBuf.push(entry.chunk)
-  }
-  flush()
-
-  return Object.fromEntries(Object.entries(chunks).map(([k, v]) => [k, v.join('')]))
+function dotColor(status: SubagentToolCallPreview['status']): string {
+  if (status === 'failed') return theme.status.danger
+  if (status === 'running') return theme.text.accent
+  return theme.status.success
 }
 
-function AgentProgressBlock({ text }: { text: string }): React.JSX.Element {
-  const ref = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    const el = ref.current
-    if (!el) return
-    el.scrollTop = el.scrollHeight
-  }, [text])
-
-  if (!text) return <></>
+function SubagentToolCallItem({
+  toolCall
+}: {
+  toolCall: SubagentToolCallPreview
+}): React.JSX.Element {
+  const isRunning = toolCall.status === 'running'
 
   return (
     <div
-      ref={ref}
-      className="mt-2 rounded-sm text-[11px] font-mono overflow-y-auto"
-      style={{
-        maxHeight: '120px',
-        background: theme.background.codeBlock,
-        border: `1px solid ${theme.border.subtle}`,
-        color: theme.text.tertiary,
-        padding: '6px 10px',
-        lineHeight: 1.6,
-        wordBreak: 'break-word',
-        whiteSpace: 'pre-wrap'
-      }}
+      className="flex flex-wrap items-center gap-1.5 py-0.5"
+      style={{ fontSize: '11px', color: theme.text.muted }}
     >
-      {text}
+      <span
+        className="w-1.5 h-1.5 rounded-full shrink-0"
+        style={{
+          background: dotColor(toolCall.status),
+          animation: isRunning ? 'yachiyo-preparing-pulse 1.2s ease-in-out infinite' : undefined
+        }}
+      />
+      <span style={{ color: theme.text.placeholder }}>{toolCall.toolName}</span>
+      {toolCall.inputSummary ? (
+        <span className="break-all" style={{ color: theme.text.secondary }}>
+          · {toolCall.inputSummary}
+        </span>
+      ) : null}
+      {toolCall.outputSummary ? (
+        <span
+          className="break-all"
+          style={{
+            color: toolCall.status === 'failed' ? theme.text.danger : theme.text.placeholder
+          }}
+        >
+          · {toolCall.outputSummary}
+        </span>
+      ) : null}
     </div>
   )
 }
 
-function AgentCard({
-  agent,
-  identity,
-  progressText
-}: {
-  agent: SubagentAgent
-  identity: AgentIdentity
-  progressText: string
-}): React.JSX.Element {
+function AgentCard({ agent }: { agent: SubagentAgent }): React.JSX.Element {
   const elapsed = useElapsed(agent.startedAt)
-  const recent = (agent.recentToolCalls ?? []).slice(-3)
+  const recent = agent.recentToolCalls ?? []
+  const codeName = agent.codeName ?? agent.agentName
+
   return (
     <div
-      className="rounded-md px-3 py-2 mb-2"
+      className="rounded-lg px-3 py-2 mb-2"
       style={{
         background: theme.background.surface,
-        border: `1px solid ${theme.border.subtle}`
+        border: `1px solid ${theme.border.subtle}`,
+        boxShadow: '0 1px 2px rgba(0,0,0,0.02)'
       }}
     >
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <span
-            className="text-[10px] font-semibold rounded px-1 py-0.5"
-            style={{
-              background: identity.color + '18',
-              color: identity.color
-            }}
-          >
-            #{identity.index}
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-2">
+          <span className="text-[11px] font-semibold" style={{ color: theme.text.accent }}>
+            {codeName}
           </span>
-          <span className="text-xs font-medium" style={{ color: theme.text.secondary }}>
+          <span className="text-[11px] truncate" style={{ color: theme.text.muted }}>
             {agent.agentName}
           </span>
         </div>
-        <div className="flex items-center gap-1" style={{ color: theme.text.muted }}>
+        <div className="flex shrink-0 items-center gap-1" style={{ color: theme.text.muted }}>
           <Clock size={10} />
           <span className="text-[10px]">{formatDurationMs(elapsed)}</span>
         </div>
       </div>
 
-      {recent.length > 0 && (
-        <div className="mt-1.5 flex flex-col gap-1">
-          {recent.map((tc, i) => (
-            <div key={i} className="flex items-center gap-1.5">
-              <Wrench size={9} style={{ color: theme.text.muted, opacity: 0.6 }} />
-              <span className="text-[10px] truncate" style={{ color: theme.text.muted }}>
-                {tc.toolName}
-                {tc.inputSummary ? ` · ${tc.inputSummary.slice(0, 60)}` : ''}
-              </span>
-            </div>
-          ))}
+      {agent.prompt ? (
+        <div className="mt-2">
+          <div
+            className="mb-1 text-[10px] uppercase tracking-[0.04em]"
+            style={{ color: theme.text.placeholder }}
+          >
+            Prompt
+          </div>
+          <div
+            className="message-selectable overflow-auto rounded-md px-2.5 py-2 text-[11px]"
+            style={{
+              background: theme.background.hover,
+              color: theme.text.secondary,
+              lineHeight: 1.55,
+              maxHeight: '112px',
+              whiteSpace: 'pre-wrap',
+              wordBreak: 'break-word'
+            }}
+          >
+            {agent.prompt}
+          </div>
         </div>
-      )}
+      ) : null}
 
-      <AgentProgressBlock text={progressText} />
+      <div className="mt-2">
+        <div className="mb-1 flex items-center justify-between gap-2">
+          <span
+            className="text-[10px] uppercase tracking-[0.04em]"
+            style={{ color: theme.text.placeholder }}
+          >
+            Recent tool calls
+          </span>
+          <span className="text-[10px]" style={{ color: theme.text.placeholder }}>
+            latest {Math.min(recent.length, 5)}/5
+          </span>
+        </div>
+        <div
+          className="overflow-auto rounded-md px-2.5 py-1.5"
+          style={{
+            background: theme.background.hover,
+            maxHeight: '132px'
+          }}
+        >
+          {recent.length > 0 ? (
+            recent.map((toolCall, index) => (
+              <SubagentToolCallItem
+                key={toolCall.toolCallId ?? `${toolCall.toolName}:${index}`}
+                toolCall={toolCall}
+              />
+            ))
+          ) : (
+            <div className="py-0.5 text-[11px]" style={{ color: theme.text.placeholder }}>
+              Waiting for tool calls
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   )
 }
 
 export function SubagentRunningIndicator({
   agents,
-  progressEntries,
   onCancel
 }: SubagentRunningIndicatorProps): React.JSX.Element {
   const [confirming, setConfirming] = useState(false)
   const [expanded, setExpanded] = useState(true)
-
-  const identities = useMemo(() => buildAgentIdentities(agents), [agents])
-  const identityMap = useMemo(() => {
-    const map: Record<string, AgentIdentity> = {}
-    for (const id of identities) {
-      map[id.delegationId] = id
-    }
-    return map
-  }, [identities])
-
-  const agentProgress = useMemo(() => buildAgentProgressChunks(progressEntries), [progressEntries])
   const canCancel = onCancel ? canCancelFromIndicator(agents) : false
 
   function handleCancelClick(): void {
@@ -202,8 +214,8 @@ export function SubagentRunningIndicator({
   const headerText = useMemo(() => {
     if (agents.length === 0) return 'No active agents'
     if (agents.length === 1) {
-      const type = agents[0]?.agentType ?? 'Agent'
-      return `${type} is working`
+      const name = agents[0]?.codeName ?? agents[0]?.agentName ?? 'Agent'
+      return `${name} is working`
     }
     return `${agents.length} agents are working`
   }, [agents])
@@ -315,12 +327,7 @@ export function SubagentRunningIndicator({
       {expanded && (
         <div className="mt-2">
           {agents.map((agent) => (
-            <AgentCard
-              key={agent.delegationId}
-              agent={agent}
-              identity={identityMap[agent.delegationId]!}
-              progressText={agentProgress[agent.delegationId] ?? ''}
-            />
+            <AgentCard key={agent.delegationId} agent={agent} />
           ))}
         </div>
       )}

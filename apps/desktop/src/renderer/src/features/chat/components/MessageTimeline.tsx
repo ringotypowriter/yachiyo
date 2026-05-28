@@ -2,7 +2,11 @@ import React, { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef }
 import { useVirtualizer as useTanStackVirtualizer } from '@tanstack/react-virtual'
 import { useShallow } from 'zustand/react/shallow'
 import { Waypoints } from 'lucide-react'
-import { useAppStore, type PlanDocumentState } from '@renderer/app/store/useAppStore'
+import {
+  useAppStore,
+  type PlanDocumentState,
+  type SubagentFinishedResult
+} from '@renderer/app/store/useAppStore'
 import type { Message, RunRecord, ToolCall } from '@renderer/app/types'
 import { useAppDialog, type AppConfirmOptions } from '@renderer/components/AppDialogContext'
 import { theme } from '@renderer/theme/theme'
@@ -39,6 +43,7 @@ import { UserMessageBubble } from './UserMessageBubble'
 import { AssistantMessageBubble } from './AssistantMessageBubble'
 import { GeneratingRow } from './GeneratingRow'
 import { SubagentRunningIndicator } from './SubagentRunningIndicator'
+import { SubagentFinishedToolCallRow } from './SubagentFinishedToolCallRow'
 import { PreparingBubble } from './PreparingBubble'
 import { RunMemoryRecallRow } from './RunMemoryRecallRow'
 import { ReplyBranchNavigation } from './ReplyBranchNavigation'
@@ -88,10 +93,19 @@ interface TimelineItemRenderContext {
     delegationId: string
     agentName: string
     agentType?: string
+    codeName?: string
+    prompt?: string
     progress: string
     startedAt?: string
-    recentToolCalls?: Array<{ toolName: string; inputSummary: string; outputSummary?: string }>
+    recentToolCalls?: Array<{
+      toolCallId?: string
+      toolName: string
+      inputSummary: string
+      outputSummary?: string
+      status?: 'running' | 'completed' | 'failed'
+    }>
   }>
+  subagentFinishedResults: SubagentFinishedResult[]
   subagentProgressEntries: Array<{
     delegationId: string
     agentName: string
@@ -131,6 +145,7 @@ const EMPTY_SUBAGENT_PROGRESS_ENTRIES: Array<{
   agentType?: string
   chunk: string
 }> = []
+const EMPTY_SUBAGENT_FINISHED_RESULTS: SubagentFinishedResult[] = []
 
 const useIsomorphicLayoutEffect = typeof document !== 'undefined' ? useLayoutEffect : useEffect
 const useMessageTimelineVirtualizer = useTanStackVirtualizer
@@ -250,6 +265,7 @@ function renderTimelineItem(
     threadIsSaving,
     activeRequestMessageId,
     activeSubagents,
+    subagentFinishedResults,
     subagentProgressEntries,
     retryInfo,
     runs,
@@ -290,6 +306,13 @@ function renderTimelineItem(
   if (item.kind === 'tool') {
     if (item.data.toolName === PLAN_MODE_EXIT_TOOL_NAME) {
       return renderPlanDocumentCard()
+    }
+
+    const subagentResult = subagentFinishedResults.find(
+      (result) => result.delegationId === item.data.id
+    )
+    if (subagentResult) {
+      return <SubagentFinishedToolCallRow result={subagentResult} />
     }
 
     return <ToolCallRow toolCall={item.data} workspacePath={workspacePath} />
@@ -477,6 +500,13 @@ function renderTimelineItem(
     )
   }
   if (item.kind === 'group-tool-call') {
+    const subagentResult = subagentFinishedResults.find(
+      (result) => result.delegationId === item.toolCall.id
+    )
+    if (subagentResult) {
+      return <SubagentFinishedToolCallRow result={subagentResult} />
+    }
+
     return <ToolCallRow toolCall={item.toolCall} workspacePath={workspacePath} />
   }
   if (item.kind === 'group-tool-call-group') {
@@ -640,6 +670,7 @@ export function MessageTimeline({
     subagentActive,
     activeSubagentIds,
     subagentStateById,
+    subagentFinishedResultsByThread,
     subagentProgressEntries,
     retryInfo,
     cancelRunForThread,
@@ -679,6 +710,9 @@ export function MessageTimeline({
         ? (state.subagentActiveIdsByThread[threadId] ?? EMPTY_ACTIVE_SUBAGENT_IDS)
         : EMPTY_ACTIVE_SUBAGENT_IDS,
       subagentStateById: state.subagentStateById,
+      subagentFinishedResultsByThread: threadId
+        ? (state.subagentFinishedResultsByThread[threadId] ?? EMPTY_SUBAGENT_FINISHED_RESULTS)
+        : EMPTY_SUBAGENT_FINISHED_RESULTS,
       subagentProgressEntries: threadId
         ? (state.subagentProgressTimelineByThread[threadId] ?? EMPTY_SUBAGENT_PROGRESS_ENTRIES)
         : EMPTY_SUBAGENT_PROGRESS_ENTRIES,
@@ -714,11 +748,18 @@ export function MessageTimeline({
           delegationId: entry.delegationId,
           agentName: entry.agentName,
           agentType: entry.agentType,
+          codeName: entry.codeName,
+          prompt: entry.prompt,
           progress: entry.progress,
           startedAt: entry.startedAt,
           recentToolCalls: entry.recentToolCalls
         })),
     [activeSubagentIds, subagentStateById]
+  )
+
+  const subagentFinishedResults = useMemo(
+    () => subagentFinishedResultsByThread.slice().reverse(),
+    [subagentFinishedResultsByThread]
   )
 
   const timelineMessages = useMemo(
@@ -1254,6 +1295,7 @@ export function MessageTimeline({
       threadIsSaving,
       activeRequestMessageId,
       activeSubagents,
+      subagentFinishedResults,
       subagentProgressEntries,
       retryInfo,
       runs,
@@ -1278,6 +1320,7 @@ export function MessageTimeline({
       threadIsSaving,
       activeRequestMessageId,
       activeSubagents,
+      subagentFinishedResults,
       subagentProgressEntries,
       retryInfo,
       runs,
@@ -1404,6 +1447,7 @@ export function MessageTimeline({
                   )
                 })}
               </div>
+
               {recapText ? (
                 <div
                   ref={recapRef}

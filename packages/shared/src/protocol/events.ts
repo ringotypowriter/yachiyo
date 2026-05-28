@@ -228,6 +228,8 @@ export interface SubagentStartedEvent extends RunEvent {
   agentType?: NamedSubagentId | string
   workspacePath: string
   startedAt?: string
+  prompt?: string
+  codeName?: string
 }
 
 export interface SubagentFinishedEvent extends RunEvent {
@@ -237,12 +239,27 @@ export interface SubagentFinishedEvent extends RunEvent {
   agentType?: NamedSubagentId | string
   status: 'success' | 'cancelled'
   sessionId?: string
+  lastMessage?: string
+  durationMs?: number
+  promptTokens?: number
+  completionTokens?: number
+  codeName?: string
 }
 
 export interface SubagentProgressEvent extends RunEvent {
   type: 'subagent.progress'
   delegationId: string
   chunk: string
+}
+
+export interface SubagentToolCallEvent extends RunEvent {
+  type: 'subagent.toolCall'
+  delegationId: string
+  toolCallId?: string
+  toolName: string
+  inputSummary: string
+  outputSummary?: string
+  status?: 'running' | 'completed' | 'failed'
 }
 
 export interface NotificationRequestEvent extends RunEvent {
@@ -315,6 +332,7 @@ export type YachiyoServerEvent =
   | SubagentStartedEvent
   | SubagentFinishedEvent
   | SubagentProgressEvent
+  | SubagentToolCallEvent
   | NotificationRequestEvent
   | ChannelGroupHistoryClearStartedEvent
   | ChannelGroupHistoryClearCompletedEvent

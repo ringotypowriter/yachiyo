@@ -588,6 +588,8 @@ export function deriveSubagentStateFromToolCalls(
         progress: previous?.progress ?? '',
         ...(previous?.workspacePath ? { workspacePath: previous.workspacePath } : {}),
         ...(previous?.startedAt ? { startedAt: previous.startedAt } : {}),
+        ...(previous?.prompt ? { prompt: previous.prompt } : {}),
+        ...(previous?.codeName ? { codeName: previous.codeName } : {}),
         ...(previous?.recentToolCalls ? { recentToolCalls: previous.recentToolCalls } : {})
       }
     }
@@ -643,6 +645,12 @@ export function syncSubagentStateWithToolCall(input: {
             : {}),
           ...(input.subagentStateById[input.toolCall.id]?.startedAt
             ? { startedAt: input.subagentStateById[input.toolCall.id]?.startedAt }
+            : {}),
+          ...(input.subagentStateById[input.toolCall.id]?.prompt
+            ? { prompt: input.subagentStateById[input.toolCall.id]?.prompt }
+            : {}),
+          ...(input.subagentStateById[input.toolCall.id]?.codeName
+            ? { codeName: input.subagentStateById[input.toolCall.id]?.codeName }
             : {}),
           ...(input.subagentStateById[input.toolCall.id]?.recentToolCalls
             ? { recentToolCalls: input.subagentStateById[input.toolCall.id]?.recentToolCalls }
