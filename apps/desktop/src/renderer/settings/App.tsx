@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import {
   BarChart3,
   Clock,
@@ -50,7 +50,8 @@ import {
 import {
   hasPendingSoulDocumentChanges,
   loadSoulDocument,
-  persistSoulDocument
+  persistSoulDocument,
+  toSoulTraitTexts
 } from './panes/soulDocumentEditorModel'
 import {
   hasPendingUserDocumentChanges,
@@ -342,7 +343,7 @@ function SettingsPanel({
     try {
       const document = await loadSoulDocument()
       setSavedSoulDocument(document)
-      setSoulDocumentDraft(document.evolvedTraits)
+      setSoulDocumentDraft(toSoulTraitTexts(document.evolvedTraits))
     } catch (reason) {
       setSoulDocumentError(reason instanceof Error ? reason.message : 'Failed to load SOUL.md.')
     } finally {
@@ -435,9 +436,12 @@ function SettingsPanel({
   const isUserDocumentDirty =
     userDocumentDraft !== null &&
     hasPendingUserDocumentChanges(savedUserDocument?.content ?? '', userDocumentDraft)
+  const savedSoulTraits = useMemo(
+    () => toSoulTraitTexts(savedSoulDocument?.evolvedTraits),
+    [savedSoulDocument?.evolvedTraits]
+  )
   const isSoulDocumentDirty =
-    soulDocumentDraft !== null &&
-    hasPendingSoulDocumentChanges(savedSoulDocument?.evolvedTraits ?? [], soulDocumentDraft)
+    soulDocumentDraft !== null && hasPendingSoulDocumentChanges(savedSoulTraits, soulDocumentDraft)
   const isChannelUsersDirty =
     savedChannelUsers !== null &&
     channelUsersDraft !== null &&
@@ -528,12 +532,9 @@ function SettingsPanel({
       }
 
       if (hasSoulDocumentToSave && soulDocumentDraft !== null) {
-        const nextSoulDocument = await persistSoulDocument(
-          savedSoulDocument?.evolvedTraits ?? [],
-          soulDocumentDraft
-        )
+        const nextSoulDocument = await persistSoulDocument(savedSoulTraits, soulDocumentDraft)
         setSavedSoulDocument(nextSoulDocument)
-        setSoulDocumentDraft(nextSoulDocument.evolvedTraits)
+        setSoulDocumentDraft(toSoulTraitTexts(nextSoulDocument.evolvedTraits))
         setSoulDocumentError(null)
       }
 
@@ -569,7 +570,7 @@ function SettingsPanel({
     savedChannelGroups,
     savedChannelUsers,
     savedConfig,
-    savedSoulDocument,
+    savedSoulTraits,
     saving,
     soulDocumentDraft,
     userDocumentDraft,
@@ -662,7 +663,7 @@ function SettingsPanel({
             onLoadSoulDocument={loadSoulDocumentDraft}
             onSoulDraftChange={setSoulDocumentDraft}
             onRevertSoulDocument={() => {
-              setSoulDocumentDraft(savedSoulDocument?.evolvedTraits ?? [])
+              setSoulDocumentDraft(savedSoulTraits)
               setSoulDocumentError(null)
             }}
           />

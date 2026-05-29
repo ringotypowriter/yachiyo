@@ -4,6 +4,12 @@ export async function loadSoulDocument(): Promise<SoulDocument> {
   return window.api.yachiyo.getSoulDocument()
 }
 
+export function toSoulTraitTexts(
+  traits: SoulDocument['evolvedTraits'] | null | undefined
+): string[] {
+  return traits?.map((entry) => entry.trait) ?? []
+}
+
 export function hasPendingSoulDocumentChanges(
   savedTraits: string[],
   draftTraits: string[]

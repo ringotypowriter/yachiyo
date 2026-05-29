@@ -76,16 +76,16 @@ test('soul traits add - creates and persists a trait', async () => {
       soulPath
     ])) as {
       added: string
-      traits: Array<{ index: number; trait: string }>
+      traits: Array<{ key: string; trait: string }>
     }
     assert.equal(result.added, 'Prefers concise responses')
     assert.equal(result.traits.length, 1)
     assert.equal(result.traits[0]?.trait, 'Prefers concise responses')
-    assert.equal(result.traits[0]?.index, 0)
+    assert.ok(typeof result.traits[0]?.key === 'string' && result.traits[0].key.length >= 6)
 
     // Persists: list should show it
     const list = (await run(['soul', 'traits', 'list', '--soul', soulPath])) as Array<{
-      index: number
+      key: string
       trait: string
     }>
     assert.equal(list.length, 1)
@@ -106,7 +106,7 @@ test('soul traits add - multiple traits, deduplicated', async () => {
     await run(['soul', 'traits', 'add', 'Trait A', '--soul', soulPath]) // duplicate
 
     const list = (await run(['soul', 'traits', 'list', '--soul', soulPath])) as Array<{
-      index: number
+      key: string
       trait: string
     }>
     assert.equal(list.length, 2)
@@ -119,7 +119,7 @@ test('soul traits add - multiple traits, deduplicated', async () => {
   }
 })
 
-test('soul traits remove by index', async () => {
+test('soul traits remove by key', async () => {
   const root = await mkdtemp(join(tmpdir(), 'yachiyo-cli-soul-'))
   const soulPath = join(root, 'SOUL.md')
 
@@ -129,11 +129,17 @@ test('soul traits remove by index', async () => {
     await run(['soul', 'traits', 'add', 'Trait B', '--soul', soulPath])
     await run(['soul', 'traits', 'add', 'Trait C', '--soul', soulPath])
 
-    const result = (await run(['soul', 'traits', 'remove', '1', '--soul', soulPath])) as {
+    const listBefore = (await run(['soul', 'traits', 'list', '--soul', soulPath])) as Array<{
+      key: string
+      trait: string
+    }>
+    const keyB = listBefore.find((t) => t.trait === 'Trait B')!.key
+
+    const result = (await run(['soul', 'traits', 'remove', keyB, '--soul', soulPath])) as {
       removed: string
-      traits: Array<{ index: number; trait: string }>
+      traits: Array<{ key: string; trait: string }>
     }
-    assert.equal(result.removed, '1')
+    assert.equal(result.removed, keyB)
     assert.equal(result.traits.length, 2)
     assert.deepEqual(
       result.traits.map((t) => t.trait),
@@ -144,26 +150,7 @@ test('soul traits remove by index', async () => {
   }
 })
 
-test('soul traits remove by text', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'yachiyo-cli-soul-'))
-  const soulPath = join(root, 'SOUL.md')
-
-  try {
-    const run = makeRunSoulCommand()
-    await run(['soul', 'traits', 'add', 'Trait A', '--soul', soulPath])
-    await run(['soul', 'traits', 'add', 'Trait B', '--soul', soulPath])
-
-    const result = (await run(['soul', 'traits', 'remove', 'Trait A', '--soul', soulPath])) as {
-      traits: Array<{ trait: string }>
-    }
-    assert.equal(result.traits.length, 1)
-    assert.equal(result.traits[0]?.trait, 'Trait B')
-  } finally {
-    await rm(root, { recursive: true, force: true })
-  }
-})
-
-test('soul traits remove by out-of-range index throws', async () => {
+test('soul traits remove by unknown key throws', async () => {
   const root = await mkdtemp(join(tmpdir(), 'yachiyo-cli-soul-'))
   const soulPath = join(root, 'SOUL.md')
 
@@ -172,8 +159,8 @@ test('soul traits remove by out-of-range index throws', async () => {
     await run(['soul', 'traits', 'add', 'Only one', '--soul', soulPath])
 
     await assert.rejects(
-      () => run(['soul', 'traits', 'remove', '99', '--soul', soulPath]),
-      /out of range/
+      () => run(['soul', 'traits', 'remove', 'abc123', '--soul', soulPath]),
+      /Trait key not found/
     )
   } finally {
     await rm(root, { recursive: true, force: true })

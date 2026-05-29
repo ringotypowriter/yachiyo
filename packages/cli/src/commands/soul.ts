@@ -7,10 +7,6 @@ import { namespaceHelp } from '../core/help.ts'
 import { outputJson } from '../core/output.ts'
 import type { RemoveSoulTraitInput, RunYachiyoCliOptions } from '../core/types.ts'
 
-function formatTraitList(traits: string[]): Array<{ index: number; trait: string }> {
-  return traits.map((trait, index) => ({ index, trait }))
-}
-
 export async function handleSoulCommand(
   positionals: string[],
   flags: Map<string, string>,
@@ -36,7 +32,7 @@ export async function handleSoulCommand(
 
   if (action === 'list') {
     const doc = await readDoc({ filePath: soulPath })
-    outputJson(stdout, formatTraitList(doc?.evolvedTraits ?? []))
+    outputJson(stdout, doc?.evolvedTraits ?? [])
     return
   }
 
@@ -48,7 +44,7 @@ export async function handleSoulCommand(
     const doc = await upsertTrait({ filePath: soulPath, trait: traitText })
     outputJson(stdout, {
       added: traitText.trim(),
-      traits: formatTraitList(doc?.evolvedTraits ?? [])
+      traits: doc?.evolvedTraits ?? []
     })
     return
   }
@@ -56,19 +52,13 @@ export async function handleSoulCommand(
   if (action === 'remove') {
     const ref = positionals[2]
     if (ref === undefined) {
-      throw new Error('Index or trait text is required: soul traits remove <index-or-text>')
+      throw new Error('Trait key is required: soul traits remove <key>')
     }
-    const numericIndex = /^\d+$/u.test(ref) ? parseInt(ref, 10) : NaN
-    const input: RemoveSoulTraitInput = { filePath: soulPath }
-    if (!isNaN(numericIndex)) {
-      input.index = numericIndex
-    } else {
-      input.trait = ref
-    }
+    const input: RemoveSoulTraitInput = { filePath: soulPath, key: ref }
     const doc = await removeTrait(input)
     outputJson(stdout, {
       removed: ref,
-      traits: formatTraitList(doc?.evolvedTraits ?? [])
+      traits: doc?.evolvedTraits ?? []
     })
     return
   }

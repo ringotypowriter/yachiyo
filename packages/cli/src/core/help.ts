@@ -10,9 +10,9 @@ export const GLOBAL_FLAGS_HELP = `Global flags:
 export const NAMESPACE_HELP: Record<string, string> = {
   soul: `Usage: yachiyo soul <subcommand> [args...]
 
-  soul traits list                       List evolved personality traits (JSON array of {index, trait}).
+  soul traits list                       List evolved personality traits (JSON array of {key, trait}).
   soul traits add <trait>                Append a daily trait. Returns updated list.
-  soul traits remove <index-or-text>     Remove trait by numeric index or exact text. Returns updated list.`,
+  soul traits remove <key>               Remove trait by hash key. Returns updated list.`,
 
   provider: `Usage: yachiyo provider <action> [args...] [flags...]
 

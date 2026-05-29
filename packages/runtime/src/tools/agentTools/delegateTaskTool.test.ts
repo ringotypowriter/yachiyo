@@ -221,3 +221,20 @@ test('built-in worker tool permissions stay fixed in code', () => {
     'applyPatch'
   ])
 })
+
+test('built-in worker agents have enough tool steps for multi-step work', () => {
+  assert.deepEqual(
+    Object.fromEntries(
+      Object.entries(DEFAULT_NAMED_SUBAGENT_PROFILES).map(([agentName, profile]) => [
+        agentName,
+        profile.maxToolSteps
+      ])
+    ),
+    {
+      explore: 500,
+      plan: 500,
+      review: 500,
+      general: 500
+    }
+  )
+})

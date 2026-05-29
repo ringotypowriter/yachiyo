@@ -6,7 +6,8 @@ import test from 'node:test'
 import {
   hasPendingSoulDocumentChanges,
   loadSoulDocument,
-  persistSoulDocument
+  persistSoulDocument,
+  toSoulTraitTexts
 } from './soulDocumentEditorModel.ts'
 
 type YachiyoApiMock = Partial<YachiyoPreloadYachiyoApi>
@@ -52,7 +53,7 @@ test('soul document editor model loads SOUL.md through the settings bridge', asy
       calls += 1
       return {
         filePath: '/tmp/.yachiyo/SOUL.md',
-        evolvedTraits: ['Sharp'],
+        evolvedTraits: [{ key: 'sharp1', trait: 'Sharp' }],
         lastUpdated: '2026-04-10T10:00:00.000Z'
       }
     }
@@ -61,7 +62,7 @@ test('soul document editor model loads SOUL.md through the settings bridge', asy
   try {
     assert.deepEqual(await loadSoulDocument(), {
       filePath: '/tmp/.yachiyo/SOUL.md',
-      evolvedTraits: ['Sharp'],
+      evolvedTraits: [{ key: 'sharp1', trait: 'Sharp' }],
       lastUpdated: '2026-04-10T10:00:00.000Z'
     })
     assert.equal(calls, 1)
@@ -77,7 +78,7 @@ test('persistSoulDocument applies removals and additions before reloading SOUL.m
       calls.push(`delete:${trait}`)
       return {
         filePath: '/tmp/.yachiyo/SOUL.md',
-        evolvedTraits: ['Curious'],
+        evolvedTraits: [{ key: 'curious1', trait: 'Curious' }],
         lastUpdated: '2026-04-10T10:01:00.000Z'
       }
     },
@@ -85,7 +86,10 @@ test('persistSoulDocument applies removals and additions before reloading SOUL.m
       calls.push(`add:${trait}`)
       return {
         filePath: '/tmp/.yachiyo/SOUL.md',
-        evolvedTraits: ['Curious', trait],
+        evolvedTraits: [
+          { key: 'curious1', trait: 'Curious' },
+          { key: `${trait.toLowerCase()}1`, trait }
+        ],
         lastUpdated: '2026-04-10T10:02:00.000Z'
       }
     },
@@ -93,7 +97,10 @@ test('persistSoulDocument applies removals and additions before reloading SOUL.m
       calls.push('reload')
       return {
         filePath: '/tmp/.yachiyo/SOUL.md',
-        evolvedTraits: ['Curious', 'Precise'],
+        evolvedTraits: [
+          { key: 'curious1', trait: 'Curious' },
+          { key: 'precise1', trait: 'Precise' }
+        ],
         lastUpdated: '2026-04-10T10:03:00.000Z'
       }
     }
@@ -102,7 +109,10 @@ test('persistSoulDocument applies removals and additions before reloading SOUL.m
   try {
     assert.deepEqual(await persistSoulDocument(['Calm', 'Curious'], ['Curious', 'Precise']), {
       filePath: '/tmp/.yachiyo/SOUL.md',
-      evolvedTraits: ['Curious', 'Precise'],
+      evolvedTraits: [
+        { key: 'curious1', trait: 'Curious' },
+        { key: 'precise1', trait: 'Precise' }
+      ],
       lastUpdated: '2026-04-10T10:03:00.000Z'
     })
     assert.deepEqual(calls, ['delete:Calm', 'add:Precise', 'reload'])
@@ -126,7 +136,7 @@ test('persistSoulDocument rewrites only the moved traits when the order changed'
       calls.push(`add:${trait}`)
       return {
         filePath: '/tmp/.yachiyo/SOUL.md',
-        evolvedTraits: [trait],
+        evolvedTraits: [{ key: `${trait.toLowerCase()}1`, trait }],
         lastUpdated: '2026-04-10T10:02:00.000Z'
       }
     },
@@ -134,7 +144,10 @@ test('persistSoulDocument rewrites only the moved traits when the order changed'
       calls.push('reload')
       return {
         filePath: '/tmp/.yachiyo/SOUL.md',
-        evolvedTraits: ['Curious', 'Calm'],
+        evolvedTraits: [
+          { key: 'curious1', trait: 'Curious' },
+          { key: 'calm1', trait: 'Calm' }
+        ],
         lastUpdated: '2026-04-10T10:03:00.000Z'
       }
     }
@@ -143,13 +156,26 @@ test('persistSoulDocument rewrites only the moved traits when the order changed'
   try {
     assert.deepEqual(await persistSoulDocument(['Calm', 'Curious'], ['Curious', 'Calm']), {
       filePath: '/tmp/.yachiyo/SOUL.md',
-      evolvedTraits: ['Curious', 'Calm'],
+      evolvedTraits: [
+        { key: 'curious1', trait: 'Curious' },
+        { key: 'calm1', trait: 'Calm' }
+      ],
       lastUpdated: '2026-04-10T10:03:00.000Z'
     })
     assert.deepEqual(calls, ['delete:Calm', 'add:Calm', 'reload'])
   } finally {
     restore()
   }
+})
+
+test('toSoulTraitTexts returns editable trait text from structured records', () => {
+  assert.deepEqual(
+    toSoulTraitTexts([
+      { key: 'sharp1', trait: 'Sharp' },
+      { key: 'calm1', trait: 'Calm' }
+    ]),
+    ['Sharp', 'Calm']
+  )
 })
 
 test('hasPendingSoulDocumentChanges tracks unsaved trait edits', () => {

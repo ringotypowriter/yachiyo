@@ -16,7 +16,7 @@ import {
   SimpleSelect
 } from '../components/primitives'
 import { ShortcutRecorder } from '../components/ShortcutRecorder'
-import { hasPendingSoulDocumentChanges } from './soulDocumentEditorModel'
+import { hasPendingSoulDocumentChanges, toSoulTraitTexts } from './soulDocumentEditorModel'
 import { UserDocumentTableEditor } from './UserDocumentTableEditor'
 import { hasPendingUserDocumentChanges } from './userDocumentEditorModel'
 
@@ -66,10 +66,10 @@ export function BehaviorPane({
   const [newTrait, setNewTrait] = useState('')
   const hasPendingUserChanges =
     userDraft !== null && hasPendingUserDocumentChanges(userDocument?.content ?? '', userDraft)
-  const soulTraits = soulDraftTraits ?? soulDocument?.evolvedTraits ?? []
+  const savedSoulTraits = toSoulTraitTexts(soulDocument?.evolvedTraits)
+  const soulTraits = soulDraftTraits ?? savedSoulTraits
   const hasPendingSoulChanges =
-    soulDraftTraits !== null &&
-    hasPendingSoulDocumentChanges(soulDocument?.evolvedTraits ?? [], soulDraftTraits)
+    soulDraftTraits !== null && hasPendingSoulDocumentChanges(savedSoulTraits, soulDraftTraits)
 
   useEffect(() => {
     if (

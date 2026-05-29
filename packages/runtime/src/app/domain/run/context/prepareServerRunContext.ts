@@ -592,7 +592,7 @@ export async function prepareServerRunContext(
       threadId: input.thread.id,
       runId: input.runId,
       contextSources: buildContextSources({
-        evolvedTraitCount: (soulDocument?.evolvedTraits ?? []).filter((t) => t.trim()).length,
+        evolvedTraitCount: (soulDocument?.evolvedTraits ?? []).filter((t) => t.trait.trim()).length,
         hasUserContent: (userDocument?.content ?? '').trim().length > 0,
         enabledTools: modelEnabledTools,
         activeSkills,

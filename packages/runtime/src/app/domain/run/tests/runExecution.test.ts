@@ -56,6 +56,7 @@ function createRunContextDeps(input: {
   activitySourceRecords?: unknown[]
   imageToTextService?: RunExecutionDeps['imageToTextService']
   isModelImageCapable?: boolean
+  readSoulDocument?: RunExecutionDeps['readSoulDocument']
 }): RunExecutionDeps {
   const config: SettingsConfig = {
     ...DEFAULT_SETTINGS_CONFIG,
@@ -117,7 +118,7 @@ function createRunContextDeps(input: {
     createModelRuntime: () => ({}) as ReturnType<RunExecutionDeps['createModelRuntime']>,
     ensureThreadWorkspace: async () => input.workspacePath,
     memoryService,
-    readSoulDocument: async () => null,
+    readSoulDocument: input.readSoulDocument ?? (async () => null),
     readUserDocument: async () => null,
     readThread: (threadId) => ({
       id: threadId,
@@ -212,6 +213,77 @@ test('prepareServerRunContext injects consumed activity and reports it as a cont
         kind: 'activity',
         present: true,
         summary: '2 apps'
+      }
+    )
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('prepareServerRunContext counts structured evolved traits without crashing', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'yachiyo-soul-trait-count-'))
+  const thread: ThreadRecord = {
+    id: 'thread-1',
+    title: 'Thread',
+    workspacePath: root,
+    updatedAt: '2026-04-28T00:00:00.000Z'
+  }
+  const requestMessage: MessageRecord = {
+    id: 'msg-1',
+    threadId: thread.id,
+    role: 'user',
+    content: 'hello',
+    status: 'completed',
+    createdAt: '2026-04-28T00:00:00.000Z'
+  }
+  const events: unknown[] = []
+
+  try {
+    await prepareServerRunContext(
+      createRunContextDeps({
+        events,
+        messages: [requestMessage],
+        workspacePath: root,
+        readSoulDocument: async () => ({
+          filePath: '/tmp/.yachiyo/SOUL.md',
+          rawContent: '# SOUL\n\n## Evolved Traits\n### 2026-05-29\n- Calm\n- Precise\n',
+          evolvedTraits: [
+            { key: 'calm01', trait: 'Calm' },
+            { key: 'precise01', trait: 'Precise' }
+          ],
+          lastUpdated: '2026-05-29T00:00:00.000Z'
+        })
+      }),
+      {
+        runId: 'run-1',
+        thread,
+        requestMessageId: requestMessage.id,
+        enabledTools: [],
+        runMode: 'auto',
+        runTrigger: 'local',
+        abortController: new AbortController(),
+        previousEnabledTools: null,
+        previousRunMode: null,
+        requestMessage,
+        historyMessages: [requestMessage],
+        includeMemoryRecall: false,
+        applyStripCompact: false
+      }
+    )
+
+    const compiled = events.find(
+      (event): event is { type: string; contextSources: Array<{ kind: string; count?: number }> } =>
+        typeof event === 'object' &&
+        event !== null &&
+        (event as { type?: unknown }).type === 'run.context.compiled'
+    )
+    assert.deepEqual(
+      compiled?.contextSources.find((source) => source.kind === 'soul'),
+      {
+        kind: 'soul',
+        present: true,
+        count: 2,
+        summary: '2 traits'
       }
     )
   } finally {

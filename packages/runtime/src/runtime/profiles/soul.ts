@@ -1,6 +1,6 @@
+import { createHash } from 'node:crypto'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
-
 import { resolveYachiyoSoulPath } from '../../config/paths.ts'
 
 const EVOLVED_TRAITS_HEADING = '## Evolved Traits'
@@ -15,24 +15,24 @@ export const SOUL_TRAIT_CAP = 20
 export class SoulTraitCapError extends Error {
   readonly currentCount: number
   readonly cap: number
-  readonly existingTraits: Array<{ index: number; trait: string }>
+  readonly existingTraits: Array<{ key: string; trait: string }>
 
-  constructor(currentTraits: string[]) {
-    const formatted = currentTraits.map((t, i) => `  [${i}] ${t}`).join('\n')
+  constructor(currentTraits: Array<{ key: string; trait: string }>) {
+    const formatted = currentTraits.map((t) => `  [${t.key}] ${t.trait}`).join('\n')
 
     super(
       `Soul trait cap reached (${currentTraits.length}/${SOUL_TRAIT_CAP}). ` +
         `Cannot append new traits until the total count is reduced below ${SOUL_TRAIT_CAP}.\n\n` +
         `Current traits:\n${formatted}\n\n` +
         `Action required: review the traits above and consolidate related ones. ` +
-        `Use "soul traits remove <index-or-text>" to remove outdated or redundant traits, ` +
+        `Use "soul traits remove <key>" to remove outdated or redundant traits, ` +
         `then "soul traits add" to append consolidated replacements. ` +
         `Aim to compress overlapping traits into fewer, richer descriptions.`
     )
     this.name = 'SoulTraitCapError'
     this.currentCount = currentTraits.length
     this.cap = SOUL_TRAIT_CAP
-    this.existingTraits = currentTraits.map((trait, index) => ({ index, trait }))
+    this.existingTraits = currentTraits
   }
 }
 
@@ -55,7 +55,7 @@ interface ParsedSoulBody {
 export interface SoulDocument {
   filePath: string
   rawContent: string
-  evolvedTraits: string[]
+  evolvedTraits: Array<{ key: string; trait: string }>
   lastUpdated: string
 }
 
@@ -71,12 +71,23 @@ export interface UpsertDailySoulTraitInput {
 
 export interface RemoveSoulTraitInput {
   filePath?: string
-  index?: number
+  key?: string
   trait?: string
 }
 
 function resolveSoulPath(filePath?: string): string {
   return filePath ?? resolveYachiyoSoulPath()
+}
+
+export function traitHash(text: string, existingKeys: Set<string>): string {
+  const base = createHash('sha256').update(text).digest('hex')
+  for (let len = 6; len <= base.length; len++) {
+    const candidate = base.slice(0, len)
+    if (!existingKeys.has(candidate)) {
+      return candidate
+    }
+  }
+  throw new Error('Exhausted hash space for trait collision resolution')
 }
 
 function buildDefaultSoulTemplate(): string {
@@ -227,9 +238,10 @@ function parseSoulBody(body: string): ParsedSoulBody {
   }
 }
 
-function flattenTraits(entries: SoulTraitEntry[]): string[] {
+function flattenTraits(entries: SoulTraitEntry[]): Array<{ key: string; trait: string }> {
   const seen = new Set<string>()
-  const traits: string[] = []
+  const traits: Array<{ key: string; trait: string }> = []
+  const existingKeys = new Set<string>()
 
   for (const entry of entries) {
     for (const trait of entry.traits) {
@@ -238,7 +250,9 @@ function flattenTraits(entries: SoulTraitEntry[]): string[] {
       }
 
       seen.add(trait)
-      traits.push(trait)
+      const key = traitHash(trait, existingKeys)
+      existingKeys.add(key)
+      traits.push({ key, trait })
     }
   }
 
@@ -345,20 +359,21 @@ export async function removeSoulTrait(input: RemoveSoulTraitInput): Promise<Soul
   const flattened = flattenTraits(parsedBody.entries)
 
   let traitText: string
-  if (input.index !== undefined) {
-    const found = flattened[input.index]
-    if (found === undefined) {
-      throw new Error(`Trait index ${input.index} is out of range (${flattened.length} traits).`)
+  if (input.key !== undefined) {
+    const found = flattened.find((t) => t.key === input.key)
+    if (!found) {
+      throw new Error(`Trait key not found: "${input.key}"`)
     }
-    traitText = found
+    traitText = found.trait
   } else if (input.trait !== undefined) {
     const normalized = input.trait.trim()
-    if (!flattened.includes(normalized)) {
+    const found = flattened.find((t) => t.trait === normalized)
+    if (!found) {
       throw new Error(`Trait not found: "${normalized}"`)
     }
     traitText = normalized
   } else {
-    throw new Error('Either index or trait must be provided to removeSoulTrait.')
+    throw new Error('Either key or trait must be provided to removeSoulTrait.')
   }
 
   const updatedEntries = parsedBody.entries
@@ -403,7 +418,7 @@ export async function upsertDailySoulTrait(
   const parsedBody = parseSoulBody(body)
   const currentTraits = flattenTraits(parsedBody.entries)
 
-  if (!currentTraits.includes(trait) && currentTraits.length >= SOUL_TRAIT_CAP) {
+  if (!currentTraits.some((t) => t.trait === trait) && currentTraits.length >= SOUL_TRAIT_CAP) {
     throw new SoulTraitCapError(currentTraits)
   }
 

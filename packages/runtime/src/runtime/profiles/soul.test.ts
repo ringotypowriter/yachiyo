@@ -8,7 +8,8 @@ import {
   readSoulDocument,
   upsertDailySoulTrait,
   SOUL_TRAIT_CAP,
-  SoulTraitCapError
+  SoulTraitCapError,
+  traitHash
 } from './soul.ts'
 
 test('readSoulDocument creates a template when SOUL.md is missing', async () => {
@@ -62,17 +63,13 @@ test('readSoulDocument parses evolved traits from the dedicated section', async 
     )
 
     const soul = await readSoulDocument({ filePath })
-
     const { rawContent: rawContent2, ...rest2 } = soul!
     assert.ok(rawContent2)
-    assert.deepEqual(rest2, {
-      filePath,
-      evolvedTraits: [
-        'Speaks more directly when the task is urgent',
-        'Keeps a calm tone around ambiguous requests'
-      ],
-      lastUpdated: '2026-03-22T08:00:00.000Z'
-    })
+    assert.equal(rest2.filePath, filePath)
+    assert.equal(rest2.evolvedTraits.length, 2)
+    assert.equal(rest2.evolvedTraits[0]?.trait, 'Speaks more directly when the task is urgent')
+    assert.equal(rest2.evolvedTraits[1]?.trait, 'Keeps a calm tone around ambiguous requests')
+    assert.equal(rest2.lastUpdated, '2026-03-22T08:00:00.000Z')
   } finally {
     await rm(root, { recursive: true, force: true })
   }
@@ -197,20 +194,64 @@ test('upsertDailySoulTrait merges writes into one entry per day and updates fron
 
     const { rawContent: rawContent3, ...rest3 } = soul!
     assert.ok(rawContent3)
-    assert.deepEqual(rest3, {
-      filePath,
-      evolvedTraits: [
-        'Responds with sharper prioritization',
-        'Explains tradeoffs without losing warmth'
-      ],
-      lastUpdated: '2026-03-22T18:45:00.000Z'
-    })
+    assert.equal(rest3.filePath, filePath)
+    assert.equal(rest3.evolvedTraits.length, 2)
+    assert.equal(rest3.evolvedTraits[0]?.trait, 'Responds with sharper prioritization')
+    assert.equal(rest3.evolvedTraits[1]?.trait, 'Explains tradeoffs without losing warmth')
+    assert.equal(rest3.lastUpdated, '2026-03-22T18:45:00.000Z')
     assert.match(content, /^---\nlast_updated: 2026-03-22T18:45:00.000Z\n---/m)
     assert.match(
       content,
       /## Evolved Traits\n### 2026-03-22\n- Responds with sharper prioritization\n- Explains tradeoffs without losing warmth/
     )
     assert.equal((content.match(/^### 2026-03-22$/gm) ?? []).length, 1)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('traitHash returns stable 6-char key for same text without collision', () => {
+  const key1 = traitHash('hello world', new Set())
+  const key2 = traitHash('hello world', new Set())
+  assert.equal(key1, key2)
+  assert.equal(key1.length, 6)
+  assert.ok(/^[0-9a-f]{6}$/.test(key1))
+
+  const key3 = traitHash('different text', new Set())
+  assert.notEqual(key3, key1)
+})
+
+test('traitHash extends length on real 6-char collision', () => {
+  const first = traitHash('collision trait 1904', new Set())
+  const second = traitHash('collision trait 3602', new Set([first]))
+
+  assert.equal(first, 'a840a0')
+  assert.equal(second, 'a840a00')
+  assert.equal(second.length, 7)
+})
+
+test('readSoulDocument gives colliding traits unique keys', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'yachiyo-soul-hash-collision-'))
+  const filePath = join(root, 'SOUL.md')
+
+  try {
+    await writeFile(
+      filePath,
+      [
+        '# SOUL',
+        '',
+        '## Evolved Traits',
+        '### 2026-05-29',
+        '- collision trait 1904',
+        '- collision trait 3602'
+      ].join('\n')
+    )
+
+    const soul = await readSoulDocument({ filePath })
+    assert.deepEqual(
+      soul?.evolvedTraits.map((t) => t.key),
+      ['a840a0', 'a840a00']
+    )
   } finally {
     await rm(root, { recursive: true, force: true })
   }

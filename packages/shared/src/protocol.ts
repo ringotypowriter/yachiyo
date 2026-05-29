@@ -799,9 +799,14 @@ export interface UserDocument {
   content: string
 }
 
+export interface SoulTraitRecord {
+  key: string
+  trait: string
+}
+
 export interface SoulDocument {
   filePath: string
-  evolvedTraits: string[]
+  evolvedTraits: SoulTraitRecord[]
   lastUpdated: string
 }
 

@@ -388,7 +388,7 @@ test('YachiyoServer injects USER.md into the consolidated system layer and expos
         filePath: '/tmp/.yachiyo/SOUL.md',
         rawContent:
           '# SOUL\n\n## Evolved Traits\n### 2026-03-22\n- Responds with stable optimism\n',
-        evolvedTraits: ['Responds with stable optimism'],
+        evolvedTraits: [{ key: 'stable1', trait: 'Responds with stable optimism' }],
         lastUpdated: '2026-03-22T00:00:00.000Z'
       }),
       readUserDocument: async () => ({

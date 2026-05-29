@@ -116,6 +116,8 @@ const GENERAL_SYSTEM_PROMPT = `Handle the delegated subtask autonomously.
 ## Task
 Complete the delegated subtask and report the outcome.`
 
+const WORKER_SUBAGENT_MAX_TOOL_STEPS = 500
+
 export const DEFAULT_NAMED_SUBAGENT_PROFILES: Record<
   NamedSubagentId,
   {
@@ -126,22 +128,22 @@ export const DEFAULT_NAMED_SUBAGENT_PROFILES: Record<
 > = {
   explore: {
     systemPrompt: EXPLORE_SYSTEM_PROMPT,
-    maxToolSteps: 10,
+    maxToolSteps: WORKER_SUBAGENT_MAX_TOOL_STEPS,
     allowedTools: ['read', 'grep', 'glob', 'skillsRead']
   },
   plan: {
     systemPrompt: PLAN_SYSTEM_PROMPT,
-    maxToolSteps: 10,
+    maxToolSteps: WORKER_SUBAGENT_MAX_TOOL_STEPS,
     allowedTools: ['read', 'grep', 'glob', 'skillsRead', 'querySource']
   },
   review: {
     systemPrompt: REVIEW_SYSTEM_PROMPT,
-    maxToolSteps: 10,
+    maxToolSteps: WORKER_SUBAGENT_MAX_TOOL_STEPS,
     allowedTools: ['read', 'bash', 'grep', 'glob', 'skillsRead']
   },
   general: {
     systemPrompt: GENERAL_SYSTEM_PROMPT,
-    maxToolSteps: 15,
+    maxToolSteps: WORKER_SUBAGENT_MAX_TOOL_STEPS,
     allowedTools: [
       'read',
       'write',

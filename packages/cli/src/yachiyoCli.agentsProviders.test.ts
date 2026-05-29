@@ -43,7 +43,7 @@ function makeRunAgentCommand(settingsPath: string): (args: string[]) => Promise<
   }
 }
 
-test('soul traits remove - unknown text throws', async () => {
+test('soul traits remove - unknown key throws', async () => {
   const root = await mkdtemp(join(tmpdir(), 'yachiyo-cli-soul-err-'))
   const soulPath = join(root, 'SOUL.md')
 
@@ -52,8 +52,8 @@ test('soul traits remove - unknown text throws', async () => {
     await run(['soul', 'traits', 'add', 'existing trait', '--soul', soulPath])
 
     await assert.rejects(
-      () => run(['soul', 'traits', 'remove', 'nonexistent trait', '--soul', soulPath]),
-      /Trait not found/
+      () => run(['soul', 'traits', 'remove', 'nonexistent', '--soul', soulPath]),
+      /Trait key not found/
     )
   } finally {
     await rm(root, { recursive: true, force: true })
