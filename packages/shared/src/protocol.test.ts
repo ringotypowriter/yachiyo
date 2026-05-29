@@ -73,7 +73,7 @@ test('delegateTask is the only registered delegation tool', () => {
   assert.ok(DEFAULT_ENABLED_TOOL_NAMES.includes('delegateTask'))
 })
 
-test('updateTodoList is a tracked runtime tool', () => {
+test('updateTodoList is a core tool but not tracked in the timeline', () => {
   assert.ok(CORE_TOOL_NAMES.includes('updateTodoList'))
-  assert.equal(isTrackedToolName('updateTodoList'), true)
+  assert.equal(isTrackedToolName('updateTodoList'), false)
 })
