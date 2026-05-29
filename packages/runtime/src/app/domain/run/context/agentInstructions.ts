@@ -7,7 +7,10 @@ import type {
   ToolCallName
 } from '@yachiyo/shared/protocol'
 import { RUN_MODE_DEFINITIONS, SELECTABLE_RUN_MODE_IDS } from '@yachiyo/shared/toolModes'
-import { SUBAGENT_DESCRIPTIONS } from '../../../../settings/namedSubagents.ts'
+import {
+  DEFAULT_NAMED_SUBAGENT_PROFILES,
+  SUBAGENT_DESCRIPTIONS
+} from '../../../../settings/namedSubagents.ts'
 import type { GitContext } from './gitContext.ts'
 
 export function resolveModelEnabledTools(input: {
@@ -109,7 +112,8 @@ export function buildSubagentContextBlock(
     if (enabled.length > 0) {
       lines.push('', 'Available subagents:')
       for (const id of enabled) {
-        lines.push(`- ${id}: ${SUBAGENT_DESCRIPTIONS[id]}`)
+        const tools = DEFAULT_NAMED_SUBAGENT_PROFILES[id]?.allowedTools?.join(', ') ?? 'all tools'
+        lines.push(`- ${id}: ${SUBAGENT_DESCRIPTIONS[id]} (Tools: ${tools})`)
       }
     }
   } else {

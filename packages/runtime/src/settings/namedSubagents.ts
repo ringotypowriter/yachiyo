@@ -57,7 +57,12 @@ const PLAN_SYSTEM_PROMPT = `Analyze the request and produce a concrete execution
 ## Task
 Analyze the request and produce a concrete execution plan or decision.`
 
-const REVIEW_SYSTEM_PROMPT = `Review the proposed code change made by another engineer. The changed code is in your working tree; inspect it yourself.
+const REVIEW_SYSTEM_PROMPT = `Review code as described in instruction prompt.
+
+## Scope
+- Review the specific files, diffs, or changes described in the instruction prompt.
+- If your prompt does not specify a target, inspect the uncommitted changes (staged, unstaged, and untracked) in the working tree.
+- Do not expand the review scope beyond what your prompt specifies.
 
 ## Bug Criteria
 
@@ -95,7 +100,7 @@ When flagging a bug, provide an accompanying comment that:
 
 ## Task
 
-Inspect the uncommitted changes (staged, unstaged, and untracked files) and provide your review as a list of findings. If there are no qualifying findings, say so plainly and briefly explain why the change looks correct.`
+Inspect the target code and provide your review as a list of findings. If there are no qualifying findings, say so plainly and briefly explain why the change looks correct.`
 
 const GENERAL_SYSTEM_PROMPT = `Handle the delegated subtask autonomously.
 
@@ -154,10 +159,20 @@ export const DEFAULT_NAMED_SUBAGENT_PROFILES: Record<
 }
 
 export const SUBAGENT_DESCRIPTIONS: Record<NamedSubagentId, string> = {
-  explore: 'Read-only codebase exploration. Finds relevant files and explains how things work.',
-  plan: 'Analysis and planning. Breaks down complex requests into actionable steps.',
-  review: 'Code review on uncommitted changes. Identifies issues and suggests fixes.',
-  general: 'General-purpose task execution with file and shell tools.'
+  explore:
+    'Use this when you need to find files, search for patterns, or understand ' +
+    'how something works in the codebase. Good for: "where is X defined?", ' +
+    '"how does Y work?", "find all usages of Z". Not for editing files.',
+  plan:
+    'Use this when facing a complex multi-file change and you need a ' +
+    'step-by-step implementation strategy before writing code. Returns ' +
+    'a concrete plan with critical files identified.',
+  review:
+    'Use this after you have made code changes and want a second opinion ' +
+    'before committing. Inspects uncommitted diffs. Not for general questions.',
+  general:
+    'Use this for tasks that require editing files, running commands, or ' +
+    'other tool work that does not fit the read-only agents. Default fallback.'
 }
 
 export const DEFAULT_SUBAGENTS_CONFIG: NonNullable<SettingsConfig['subagents']> = {
