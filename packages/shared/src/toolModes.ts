@@ -17,7 +17,7 @@ export interface RunModeDefinition {
   iconName: string
 }
 
-const EXPLORE_MODE_TOOL_NAMES: readonly ToolCallName[] = [
+export const EXPLORE_MODE_TOOL_NAMES: readonly ToolCallName[] = [
   'read',
   'grep',
   'glob',
@@ -25,7 +25,7 @@ const EXPLORE_MODE_TOOL_NAMES: readonly ToolCallName[] = [
   'webSearch'
 ]
 
-const PLAN_MODE_TOOL_NAMES: readonly ToolCallName[] = [
+export const PLAN_MODE_TOOL_NAMES: readonly ToolCallName[] = [
   'read',
   'grep',
   'glob',

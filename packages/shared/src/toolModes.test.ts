@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
+import { DEFAULT_ENABLED_TOOL_NAMES } from './protocol.ts'
 import {
+  EXPLORE_MODE_TOOL_NAMES,
+  PLAN_MODE_TOOL_NAMES,
   RUN_MODE_DEFINITIONS,
   deriveRunModeId,
   normalizeRunModeId,
@@ -9,36 +12,9 @@ import {
 } from './toolModes.ts'
 
 test('run mode definitions expose expected tool sets', () => {
-  assert.deepEqual(resolveRunModeEnabledTools('auto'), [
-    'read',
-    'write',
-    'edit',
-    'bash',
-    'jsRepl',
-    'grep',
-    'glob',
-    'webRead',
-    'useBrowser',
-    'webSearch',
-    'applyPatch',
-    'useSentinel'
-  ])
-  assert.deepEqual(resolveRunModeEnabledTools('explore'), [
-    'read',
-    'grep',
-    'glob',
-    'webRead',
-    'webSearch'
-  ])
-  assert.deepEqual(resolveRunModeEnabledTools('plan'), [
-    'read',
-    'grep',
-    'glob',
-    'webRead',
-    'webSearch',
-    'write',
-    'bash'
-  ])
+  assert.deepEqual(resolveRunModeEnabledTools('auto'), [...DEFAULT_ENABLED_TOOL_NAMES])
+  assert.deepEqual(resolveRunModeEnabledTools('explore'), [...EXPLORE_MODE_TOOL_NAMES])
+  assert.deepEqual(resolveRunModeEnabledTools('plan'), [...PLAN_MODE_TOOL_NAMES])
   assert.deepEqual(resolveRunModeEnabledTools('chat'), [])
 })
 
