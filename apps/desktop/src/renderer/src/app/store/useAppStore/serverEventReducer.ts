@@ -1008,11 +1008,33 @@ export function reduceServerEvent(state: AppState, event: YachiyoServerEvent): P
   }
 
   if (event.type === 'subagent.started') {
-    const existing = state.subagentStateById[event.delegationId]
-    const hadActiveDelegates = (state.subagentActiveIdsByThread[event.threadId]?.length ?? 0) > 0
+    const delegateTaskPlaceholderIds = (state.toolCalls[event.threadId] ?? [])
+      .filter((toolCall) => {
+        if (
+          toolCall.toolName !== 'delegateTask' ||
+          toolCall.status !== 'running' ||
+          toolCall.runId !== event.runId ||
+          toolCall.id === event.delegationId
+        ) {
+          return false
+        }
+        const activeState = state.subagentStateById[toolCall.id]
+        return !activeState?.workspacePath && !activeState?.codeName
+      })
+      .map((toolCall) => toolCall.id)
+    const activeIdsByThread = delegateTaskPlaceholderIds.reduce(
+      (activeIds, delegationId) => removeActiveSubagentId(activeIds, event.threadId, delegationId),
+      state.subagentActiveIdsByThread
+    )
+    const subagentStateById = { ...state.subagentStateById }
+    for (const delegationId of delegateTaskPlaceholderIds) {
+      delete subagentStateById[delegationId]
+    }
+    const existing = subagentStateById[event.delegationId]
+    const hadActiveDelegates = (activeIdsByThread[event.threadId]?.length ?? 0) > 0
     return {
       subagentActiveIdsByThread: upsertActiveSubagentId(
-        state.subagentActiveIdsByThread,
+        activeIdsByThread,
         event.threadId,
         event.delegationId
       ),
@@ -1023,7 +1045,7 @@ export function reduceServerEvent(state: AppState, event: YachiyoServerEvent): P
             [event.threadId]: []
           },
       subagentStateById: {
-        ...state.subagentStateById,
+        ...subagentStateById,
         [event.delegationId]: {
           delegationId: event.delegationId,
           threadId: event.threadId,

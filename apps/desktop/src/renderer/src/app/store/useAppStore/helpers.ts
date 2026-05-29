@@ -624,39 +624,8 @@ export function syncSubagentStateWithToolCall(input: {
 
   if (input.toolCall.status === 'running') {
     return {
-      subagentActiveIdsByThread: upsertActiveSubagentId(
-        input.subagentActiveIdsByThread,
-        input.threadId,
-        input.toolCall.id
-      ),
-      subagentStateById: {
-        ...input.subagentStateById,
-        [input.toolCall.id]: {
-          delegationId: input.toolCall.id,
-          threadId: input.threadId,
-          agentName:
-            input.subagentStateById[input.toolCall.id]?.agentName ||
-            input.toolCall.inputSummary ||
-            'Subagent',
-          agentType: input.subagentStateById[input.toolCall.id]?.agentType,
-          progress: input.subagentStateById[input.toolCall.id]?.progress ?? '',
-          ...(input.subagentStateById[input.toolCall.id]?.workspacePath
-            ? { workspacePath: input.subagentStateById[input.toolCall.id]?.workspacePath }
-            : {}),
-          ...(input.subagentStateById[input.toolCall.id]?.startedAt
-            ? { startedAt: input.subagentStateById[input.toolCall.id]?.startedAt }
-            : {}),
-          ...(input.subagentStateById[input.toolCall.id]?.prompt
-            ? { prompt: input.subagentStateById[input.toolCall.id]?.prompt }
-            : {}),
-          ...(input.subagentStateById[input.toolCall.id]?.codeName
-            ? { codeName: input.subagentStateById[input.toolCall.id]?.codeName }
-            : {}),
-          ...(input.subagentStateById[input.toolCall.id]?.recentToolCalls
-            ? { recentToolCalls: input.subagentStateById[input.toolCall.id]?.recentToolCalls }
-            : {})
-        }
-      }
+      subagentActiveIdsByThread: input.subagentActiveIdsByThread,
+      subagentStateById: input.subagentStateById
     }
   }
 

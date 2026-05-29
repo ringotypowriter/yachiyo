@@ -48,6 +48,106 @@ function resetStore(): void {
   })
 }
 
+test('applyServerEvent does not keep delegateTask placeholder alongside the real subagent', () => {
+  resetStore()
+
+  useAppStore.getState().applyServerEvent({
+    type: 'tool.updated',
+    eventId: 'event-tool-delegate-running',
+    timestamp: TIMESTAMP,
+    threadId: 'thread-1',
+    runId: 'run-1',
+    toolCall: {
+      id: 'tool-delegate',
+      runId: 'run-1',
+      threadId: 'thread-1',
+      requestMessageId: 'user-1',
+      toolName: 'delegateTask',
+      status: 'running',
+      inputSummary: 'review',
+      startedAt: TIMESTAMP
+    }
+  })
+
+  assert.equal(useAppStore.getState().subagentActiveIdsByThread['thread-1'], undefined)
+
+  useAppStore.getState().applyServerEvent({
+    type: 'subagent.started',
+    eventId: 'event-subagent-started-real',
+    timestamp: TIMESTAMP,
+    threadId: 'thread-1',
+    runId: 'run-1',
+    delegationId: 'worker-delegate',
+    agentName: 'review',
+    agentType: 'review',
+    workspacePath: '/tmp/workspace-a',
+    codeName: 'Kaze'
+  })
+
+  const state = useAppStore.getState()
+
+  assert.deepEqual(state.subagentActiveIdsByThread['thread-1'], ['worker-delegate'])
+  assert.equal(state.subagentStateById['tool-delegate'], undefined)
+  assert.equal(state.subagentStateById['worker-delegate']?.codeName, 'Kaze')
+})
+
+test('applyServerEvent replaces a rehydrated delegateTask placeholder with the real subagent', () => {
+  resetStore()
+  useAppStore.setState({
+    config: {
+      providers: [],
+      general: { notifyCodingTaskStarted: false }
+    }
+  })
+
+  useAppStore.getState().applyServerEvent({
+    type: 'thread.state.replaced',
+    eventId: 'event-thread-state-replaced-placeholder',
+    timestamp: TIMESTAMP,
+    threadId: 'thread-1',
+    thread: {
+      id: 'thread-1',
+      title: 'Thread 1',
+      updatedAt: TIMESTAMP,
+      headMessageId: 'message-1'
+    },
+    messages: [],
+    toolCalls: [
+      {
+        id: 'tool-delegate',
+        runId: 'run-1',
+        threadId: 'thread-1',
+        requestMessageId: 'user-1',
+        toolName: 'delegateTask',
+        status: 'running',
+        inputSummary: 'review',
+        startedAt: TIMESTAMP
+      }
+    ]
+  })
+
+  assert.deepEqual(useAppStore.getState().subagentActiveIdsByThread['thread-1'], ['tool-delegate'])
+
+  useAppStore.getState().applyServerEvent({
+    type: 'subagent.started',
+    eventId: 'event-subagent-started-real-after-rehydrate',
+    timestamp: TIMESTAMP,
+    threadId: 'thread-1',
+    runId: 'run-1',
+    delegationId: 'worker-delegate',
+    agentName: 'review',
+    agentType: 'review',
+    workspacePath: '/tmp/workspace-a',
+    codeName: 'Kaze'
+  })
+
+  const state = useAppStore.getState()
+
+  assert.deepEqual(state.subagentActiveIdsByThread['thread-1'], ['worker-delegate'])
+  assert.equal(state.subagentStateById['tool-delegate'], undefined)
+  assert.equal(state.subagentStateById['worker-delegate']?.codeName, 'Kaze')
+})
+
 test('applyServerEvent keeps sibling delegated agents isolated by delegationId', () => {
   resetStore()
 
