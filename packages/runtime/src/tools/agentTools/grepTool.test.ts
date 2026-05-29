@@ -121,6 +121,26 @@ describe('grepTool', () => {
     ])
   })
 
+  it('searches valid paths and ignores non-existent ones in a space-separated list', async () => {
+    const workspace = await makeWorkspace()
+    await mkdir(join(workspace, 'src', 'main'), { recursive: true })
+    await mkdir(join(workspace, 'src', 'shared'), { recursive: true })
+    await writeFile(join(workspace, 'src', 'main', 'main.ts'), 'needle main\n', 'utf8')
+    await writeFile(join(workspace, 'src', 'shared', 'shared.ts'), 'needle shared\n', 'utf8')
+
+    const searchService = createSearchService()
+    const result = await runGrepTool(
+      grepInput({ pattern: 'needle', path: 'src/main src/shared src/nonexistent' }),
+      { workspacePath: workspace },
+      { searchService }
+    )
+
+    assert.deepStrictEqual(result.details.matches.map((match) => match.path).sort(), [
+      'src/main/main.ts',
+      'src/shared/shared.ts'
+    ])
+  })
+
   it('keeps an existing path containing spaces as one search root', async () => {
     const workspace = await makeWorkspace()
     await mkdir(join(workspace, 'space dir'), { recursive: true })

@@ -635,8 +635,9 @@ export async function resolveSearchToolTargets(
     resolvedPath: resolveToolPath(workspacePath, token)
   }))
   const existing = await Promise.all(targets.map((target) => hasAccess(target.resolvedPath)))
+  const validTargets = targets.filter((_, i) => existing[i])
 
-  return existing.every(Boolean) ? targets : [singleTarget]
+  return validTargets.length > 0 ? validTargets : [singleTarget]
 }
 
 function normalizeModelPathToken(targetPath: string): string {
