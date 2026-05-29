@@ -87,10 +87,20 @@ test('agent list - returns default profiles from fresh config', async () => {
 
   try {
     const run = makeRunAgentCommand(settingsPath)
-    const result = (await run(['agent', 'list'])) as Array<{ id: string; name: string }>
-    assert.ok(Array.isArray(result))
-    assert.ok(result.length >= 1, 'default config has at least one subagent profile')
-    assert.ok(result.every((a) => typeof a.id === 'string' && typeof a.name === 'string'))
+    const result = (await run(['agent', 'list'])) as {
+      mode: string
+      deprecatedAcpProfiles: Array<{ id: string; name: string }>
+    }
+    assert.ok(Array.isArray(result.deprecatedAcpProfiles))
+    assert.ok(
+      result.deprecatedAcpProfiles.length >= 1,
+      'default config has at least one subagent profile'
+    )
+    assert.ok(
+      result.deprecatedAcpProfiles.every(
+        (a) => typeof a.id === 'string' && typeof a.name === 'string'
+      )
+    )
   } finally {
     await rm(root, { recursive: true, force: true })
   }
@@ -166,9 +176,11 @@ test('agent add - persists so subsequent list shows new agent', async () => {
       JSON.stringify({ id: 'persisted-agent', name: 'Persisted', command: 'bash' })
     ])
 
-    const list = (await run(['agent', 'list'])) as Array<{ id: string }>
+    const list = (await run(['agent', 'list'])) as {
+      deprecatedAcpProfiles: Array<{ id: string }>
+    }
     assert.ok(
-      list.some((a) => a.id === 'persisted-agent'),
+      list.deprecatedAcpProfiles.some((a) => a.id === 'persisted-agent'),
       'persisted agent appears in list'
     )
   } finally {
@@ -354,9 +366,11 @@ test('agent remove - removes agent by id', async () => {
     )
 
     // Verify persisted
-    const list = (await run(['agent', 'list'])) as Array<{ id: string }>
+    const list = (await run(['agent', 'list'])) as {
+      deprecatedAcpProfiles: Array<{ id: string }>
+    }
     assert.ok(
-      list.every((a) => a.id !== 'claude-code-default'),
+      list.deprecatedAcpProfiles.every((a) => a.id !== 'claude-code-default'),
       'removal persisted to disk'
     )
   } finally {
