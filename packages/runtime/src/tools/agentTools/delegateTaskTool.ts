@@ -24,31 +24,69 @@ import type { AgentToolContext } from './shared.ts'
 
 /** Gojūon-order meaningful Japanese romaji code names for subagents. */
 const SUBAGENT_CODE_NAMES = [
-  'Ame', // 雨 — rain
-  'Kaze', // 風 — wind
-  'Sora', // 空 — sky
-  'Tsuki', // 月 — moon
-  'Hana', // 花 — flower
-  'Mizu', // 水 — water
-  'Yama', // 山 — mountain
-  'Ringo', // 林檎 — apple
-  'Kumo', // 雲 — cloud
-  'Tori', // 鳥 — bird
-  'Hoshi', // 星 — star
-  'Umi', // 海 — sea
-  'Yuki', // 雪 — snow
+  // あ行 (A)
+  'Akari', // 明かり — lamplight
+  'Ibuki', // 息吹 — breath of life
+  'Ukiyo', // 浮世 — floating world
+  'Enishi', // 縁 — bond / fate
+  'Ochiba', // 落葉 — fallen leaves
+
+  // か行 (Ka)
+  'Kagerou', // 陽炎 — heat haze
+  'Kikyou', // 桔梗 — bellflower
+  'Kurenai', // 紅 — deep crimson
+  'Kemuri', // 煙 — smoke
+  'Komorebi', // 木漏れ日 — sunlight through leaves
+
+  // さ行 (Sa)
   'Sakura', // 桜 — cherry blossom
+  'Shigure', // 時雨 — late-autumn rain
+  'Susuki', // 薄 — pampas grass
+  'Setsuna', // 刹那 — moment / instant
+  'Soyokaze', // そよ風 — gentle breeze
+
+  // た行 (Ta)
+  'Tamayura', // 玉響 — brief moment
+  'Chigusa', // 千草 — myriad grasses
+  'Tsurara', // 氷柱 — icicle
+  'Tegami', // 手紙 — letter
+  'Tomoshibi', // 灯火 — lamplight
+
+  // な行 (Na)
+  'Nagisa', // 渚 — shore
+  'Nioi', // 匂い — scent / fragrance
+  'Nukumori', // 温もり — warmth
+  'Negai', // 願い — wish
+  'Nogiku', // 野菊 — wild chrysanthemum
+
+  // は行 (Ha)
+  'Hanabi', // 花火 — fireworks
   'Hikari', // 光 — light
-  'Kawa', // 川 — river
-  'Mori', // 森 — forest
-  'Tsubasa', // 翼 — wing
-  'Asa', // 朝 — morning
-  'Yoru', // 夜 — night
-  'Natsu', // 夏 — summer
-  'Aki', // 秋 — autumn
-  'Fuyu', // 冬 — winter
-  'Haruka', // 遥 — distant
-  'Sui' // 翠 — jade green
+  'Fubuki', // 吹雪 — blizzard
+  'Henro', // 遍路 — pilgrimage
+  'Hotaru', // 蛍 — firefly
+
+  // ま行 (Ma)
+  'Madobe', // 窓辺 — windowsill
+  'Minamo', // 水面 — water surface
+  'Murasaki', // 紫 — purple
+  'Mebae', // 芽生え — sprout / budding
+  'Momiji', // 紅葉 — autumn leaves
+
+  // や行 (Ya)
+  'Yamabiko', // 山彦 — mountain echo
+  'Yugure', // 夕暮れ — dusk
+  'Yoake', // 夜明け — dawn
+
+  // ら行 (Ra)
+  'Raimei', // 雷鳴 — thunder
+  'Rikka', // 立夏 — first day of summer
+  'Ruri', // 瑠璃 — lapis lazuli
+  'Reimei', // 黎明 — daybreak
+  'Roji', // 路地 — alley
+
+  // わ行 (Wa)
+  'Wakare' // 別れ — farewell
 ]
 
 let codeNameIndex = 0
