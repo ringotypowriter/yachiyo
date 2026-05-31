@@ -249,6 +249,7 @@ export const CORE_TOOL_NAMES = [
   'delegateTask',
   'remember',
   'querySource',
+  'useThings',
   'updateProfile',
   'updateTodoList',
   'exitPlanMode'
@@ -363,6 +364,7 @@ const trackedToolNameSet = new Set<string>([
   'delegateTask',
   'remember',
   'querySource',
+  'useThings',
   'updateProfile',
   'useSentinel',
   'exitPlanMode'

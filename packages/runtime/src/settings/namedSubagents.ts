@@ -164,7 +164,8 @@ export const SUBAGENT_DESCRIPTIONS: Record<NamedSubagentId, string> = {
   explore:
     'Use this when you need to find files, search for patterns, or understand ' +
     'how something works in the codebase. Good for: "where is X defined?", ' +
-    '"how does Y work?", "find all usages of Z". Not for editing files.',
+    '"how does Y work?", "find all usages of Z". If several independent modules ' +
+    'need exploration, delegate separate Explore tasks in parallel. Not for editing files.',
   plan:
     'Use this when facing a complex multi-file change and you need a ' +
     'step-by-step implementation strategy before writing code. Returns ' +

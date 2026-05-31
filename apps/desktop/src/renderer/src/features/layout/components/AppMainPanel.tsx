@@ -24,6 +24,7 @@ import type { ThreadContextOperationKey } from '@renderer/features/threads/lib/t
 import { isExternalThread } from '@renderer/features/threads/lib/threadVisibility'
 import { isOpenFindBarShortcut } from '@renderer/features/layout/lib/findBarShortcut'
 import { computeRecapDecision } from '@renderer/features/layout/lib/recapIdle'
+import { resolveWelcomeState } from '@renderer/features/layout/lib/welcomeState'
 import { deriveBrowserActivity } from '@renderer/features/chat/lib/browserActivity'
 import { selectContextPromptTokens } from '@renderer/lib/contextPromptTokens'
 import { MessageSquare, Trash2 } from 'lucide-react'
@@ -178,9 +179,15 @@ export function AppMainPanel({
   const threadMessages = useAppStore((s) =>
     activeThreadId ? (s.messages[activeThreadId] ?? EMPTY) : EMPTY
   )
+  const activeThreadMessagesLoaded = useAppStore((s) =>
+    activeThreadId === null
+      ? true
+      : Object.prototype.hasOwnProperty.call(s.messages, activeThreadId)
+  )
   const messages = shouldReadFindDocuments ? threadMessages : EMPTY
   const renameThread = useAppStore((s) => s.renameThread)
   const restoreThread = useAppStore((s) => s.restoreThread)
+  const setActiveThread = useAppStore((s) => s.setActiveThread)
   const threadListMode = useAppStore((s) => s.threadListMode)
   const threads = useAppStore((s) => s.threads)
   const isBootstrapping = useAppStore((s) => s.isBootstrapping)
@@ -190,6 +197,7 @@ export function AppMainPanel({
     threads.find((t) => t.id === activeThreadId) ??
     externalThreads.find((t) => t.id === activeThreadId) ??
     null
+  const activeThreadExists = activeThread !== null
   const config = useAppStore((s) => s.config)
   const latestRunsByThread = useAppStore((s) => s.latestRunsByThread)
   const latestRunIsPlanMode = isLatestRunPlanMode({
@@ -513,22 +521,31 @@ export function AppMainPanel({
     setFindCurrentIndex(0)
   }
   const memoryEnabled = isMemoryConfigured(config) && !activeThread?.privacyMode
-  const emptySurfaceEligible = messageCount === 0 && activeTimelineSurface === 'timeline'
-  const essentialSourceId = activeEssentialId ?? activeThread?.createdFromEssentialId ?? null
+
+  useEffect(() => {
+    if (!activeThreadId || activeThreadMessagesLoaded || !activeThreadExists) return
+    setActiveThread(activeThreadId)
+  }, [activeThreadExists, activeThreadId, activeThreadMessagesLoaded, setActiveThread])
+
+  const candidateEssentialSourceId =
+    activeEssentialId ?? activeThread?.createdFromEssentialId ?? null
   const activeEssential = useMemo(
     () =>
-      essentialSourceId
-        ? (config?.essentials?.find((essential) => essential.id === essentialSourceId) ?? null)
+      candidateEssentialSourceId
+        ? (config?.essentials?.find((essential) => essential.id === candidateEssentialSourceId) ??
+          null)
         : null,
-    [config?.essentials, essentialSourceId]
+    [config?.essentials, candidateEssentialSourceId]
   )
-  const welcomeVariant = emptySurfaceEligible
-    ? activeEssential
-      ? 'essential'
-      : essentialSourceId === null
-        ? 'generic'
-        : null
-    : null
+  const { variant: welcomeVariant, essentialSourceId } = resolveWelcomeState({
+    activeSurface: activeTimelineSurface,
+    activeThreadId,
+    activeThreadMessagesLoaded,
+    messageCount,
+    activeEssentialId,
+    activeThreadCreatedFromEssentialId: activeThread?.createdFromEssentialId ?? null,
+    hasActiveEssential: activeEssential !== null
+  })
   const showWelcomeState = welcomeVariant !== null
   const welcomeCopyKey = `${activeThreadId ?? 'new-thread'}:${essentialSourceId ?? 'plain'}`
   const welcomeCopy = useMemo(() => {

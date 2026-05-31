@@ -646,7 +646,6 @@ test('createNewThread reuses an existing blank New Chat instead of creating anot
     useAppStore.setState({
       activeThreadId: 'thread-older',
       messages: {
-        'thread-1': [],
         'thread-older': [
           {
             id: 'message-1',
@@ -679,6 +678,8 @@ test('createNewThread reuses an existing blank New Chat instead of creating anot
     const state = useAppStore.getState()
     assert.equal(createThreadCallCount, 0)
     assert.equal(state.activeThreadId, 'thread-1')
+    assert.deepEqual(state.messages['thread-1'], [])
+    assert.deepEqual(state.toolCalls['thread-1'], [])
     assert.equal(state.threads.length, 2)
   } finally {
     restoreWindow()

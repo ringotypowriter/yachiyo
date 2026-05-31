@@ -132,7 +132,15 @@ export function createThreadLifecycleActions(input: {
               ? { enabledTools: stagedToolMode.enabledTools, runMode: stagedToolMode.runMode }
               : {}),
             pendingWorkspacePath: null,
-            ...withFilterBase(state.sidebarFilter, 'all')
+            ...withFilterBase(state.sidebarFilter, 'all'),
+            messages: {
+              ...state.messages,
+              [reusableThread.id]: state.messages[reusableThread.id] ?? []
+            },
+            toolCalls: {
+              ...state.toolCalls,
+              [reusableThread.id]: state.toolCalls[reusableThread.id] ?? []
+            }
           }
 
           return {
