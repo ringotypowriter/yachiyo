@@ -58,7 +58,7 @@ export function buildPlanModeReminderSection(input: {
       'This plan is a self-contained handoff for another agent that will execute it in a new thread.',
       'Use this exact document shape: # Execution Plan, ## Goal, ## Context, ## Steps, ## Validation.',
       "Write the plan in the same language as the user's messages. Do not switch languages.",
-      'Keep the plan under 40 lines. Use bullets only. Do not use code blocks or long prose.',
+      'Use bullets only. Do not use code blocks or long prose.',
       'Write executable steps in order. Each step must name the concrete action and the relevant file, module, command, or UI surface when known.',
       'Eliminate downstream decisions: do not write alternatives, recommendations, options, risks, assumptions, or open questions in the plan.',
       'If a blocking decision remains, use askUser before finalizing instead of recording the uncertainty in the plan.',
