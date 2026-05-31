@@ -9,7 +9,8 @@ import type {
 import { RUN_MODE_DEFINITIONS, SELECTABLE_RUN_MODE_IDS } from '@yachiyo/shared/toolModes'
 import {
   DEFAULT_NAMED_SUBAGENT_PROFILES,
-  SUBAGENT_DESCRIPTIONS
+  SUBAGENT_DESCRIPTIONS,
+  WORKER_DELEGATION_PROMPT_GUIDANCE
 } from '../../../../settings/namedSubagents.ts'
 import type { GitContext } from './gitContext.ts'
 
@@ -81,7 +82,7 @@ export function buildSubagentContextBlock(
 
   const lines = [
     '<subagents>',
-    'Use `delegateTask` to run parallel tasks or to work within a narrower tool context. Choose the subagent that matches the task and write a clear prompt.',
+    'Use `delegateTask` to run parallel tasks or to work within a narrower tool context. Choose the subagent that matches the task and write a self-contained prompt.',
     '',
     '<agent_rules>',
     workspaceRule
@@ -110,6 +111,10 @@ export function buildSubagentContextBlock(
   if (mode === 'worker') {
     const enabled = subagentsConfig?.enabledNamedAgents ?? []
     if (enabled.length > 0) {
+      lines.push('', 'Worker prompt guidance:')
+      for (const item of WORKER_DELEGATION_PROMPT_GUIDANCE) {
+        lines.push(`- ${item}`)
+      }
       lines.push('', 'Available subagents:')
       for (const id of enabled) {
         const tools = DEFAULT_NAMED_SUBAGENT_PROFILES[id]?.allowedTools?.join(', ') ?? 'all tools'

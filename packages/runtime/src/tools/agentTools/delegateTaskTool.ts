@@ -17,7 +17,8 @@ import { runAcpSession } from '../../runtime/acp/acpSessionClient.ts'
 import type { ModelRuntime } from '../../runtime/models/types.ts'
 import {
   DEFAULT_NAMED_SUBAGENT_PROFILES,
-  SUBAGENT_DESCRIPTIONS
+  SUBAGENT_DESCRIPTIONS,
+  WORKER_DELEGATION_PROMPT_GUIDANCE
 } from '../../settings/namedSubagents.ts'
 import { createAgentToolSet, type AgentToolDependencies } from '../agentTools.ts'
 import type { AgentToolContext } from './shared.ts'
@@ -440,7 +441,8 @@ function createWorkerTool(
     'Choose the agent_name that matches the task:',
     ...agentLines,
     '',
-    'Write the prompt as a clear, direct task description. Include the objective, relevant context, and what done looks like.'
+    'Prompt guidance:',
+    ...WORKER_DELEGATION_PROMPT_GUIDANCE.map((item) => `- ${item}`)
   ].join('\n')
   const inputSchema = workerDelegateTaskBaseSchema.extend({
     agent_name: z.enum(enabledAgents as [NamedSubagentId, ...NamedSubagentId[]])

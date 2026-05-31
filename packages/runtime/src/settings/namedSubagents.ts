@@ -177,6 +177,13 @@ export const SUBAGENT_DESCRIPTIONS: Record<NamedSubagentId, string> = {
     'other tool work that does not fit the read-only agents. Default fallback.'
 }
 
+export const WORKER_DELEGATION_PROMPT_GUIDANCE: readonly string[] = [
+  'Write the prompt as a self-contained task brief. Worker subagents only receive their system prompt and your `prompt` string; they do not see the parent conversation, hidden Plan Mode document, previous analysis, or tool results unless you include them.',
+  'Include the concrete objective, relevant context, exact file paths, constraints, and done criteria.',
+  'Avoid relative references like "the plan", "above", "as discussed", or "continue"; paste or summarize the needed content instead.',
+  "Do not repeat the selected subagent's preconfigured role instructions or tool limits; for example, do not tell Explore to be read-only."
+]
+
 export const DEFAULT_SUBAGENTS_CONFIG: NonNullable<SettingsConfig['subagents']> = {
   mode: 'worker',
   enabledNamedAgents: Object.keys(DEFAULT_NAMED_SUBAGENT_PROFILES) as NamedSubagentId[]
