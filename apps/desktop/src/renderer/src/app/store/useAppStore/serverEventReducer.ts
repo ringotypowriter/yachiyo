@@ -322,6 +322,14 @@ export function reduceServerEvent(state: AppState, event: YachiyoServerEvent): P
         event.threadId,
         threadToolMode
       ),
+      enabledTools:
+        state.activeThreadId === event.threadId && threadToolMode
+          ? threadToolMode.enabledTools
+          : state.enabledTools,
+      runMode:
+        state.activeThreadId === event.threadId && threadToolMode
+          ? threadToolMode.runMode
+          : state.runMode,
       latestRunsByThread: hadMessageDecrease
         ? stripLatestRunTokens(state.latestRunsByThread, event.threadId)
         : state.latestRunsByThread,

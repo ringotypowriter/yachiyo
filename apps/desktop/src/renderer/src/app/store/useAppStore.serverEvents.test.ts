@@ -233,6 +233,45 @@ test('applyServerEvent replaces a thread snapshot after branch-aware history edi
   assert.equal(state.toolCalls['thread-1']?.[0]?.cwd, '/tmp/thread-1')
 })
 
+test('thread.state.replaced syncs the active composer run mode before reselecting Auto', async () => {
+  resetStore()
+
+  useAppStore.setState({
+    activeThreadId: 'thread-1',
+    enabledTools: resolveRunModeEnabledTools('plan'),
+    runMode: 'plan',
+    threads: [
+      {
+        id: 'thread-1',
+        title: 'Thread',
+        updatedAt: TIMESTAMP,
+        runMode: 'plan'
+      }
+    ]
+  })
+
+  useAppStore.getState().applyServerEvent({
+    type: 'thread.state.replaced',
+    eventId: 'event-thread-state-replaced-auto-mode',
+    timestamp: '2026-03-15T00:00:01.000Z',
+    threadId: 'thread-1',
+    thread: {
+      id: 'thread-1',
+      title: 'Thread',
+      updatedAt: '2026-03-15T00:00:01.000Z',
+      runMode: 'auto'
+    },
+    messages: [],
+    toolCalls: []
+  })
+
+  await useAppStore.getState().setRunMode('auto')
+
+  const state = useAppStore.getState()
+  assert.equal(state.runMode, 'auto')
+  assert.deepEqual(state.enabledTools, resolveRunModeEnabledTools('auto'))
+})
+
 test('applyServerEvent keeps a completed todo list visible', () => {
   resetStore()
 
