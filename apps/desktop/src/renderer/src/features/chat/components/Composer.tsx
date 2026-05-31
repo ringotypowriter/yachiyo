@@ -48,6 +48,13 @@ import { useComposerInputHandlers } from './Composer/useComposerInputHandlers.ts
 
 const THREAD_WORKSPACE_CANDIDATES_STORAGE_PREFIX = 'yachiyo:thread-workspace-candidates:'
 
+export type ComposerPresentation = 'normal' | 'compact'
+
+interface ComposerProps {
+  onSelectThreadOperation?: (key: ThreadContextOperationKey) => void
+  presentation?: ComposerPresentation
+}
+
 function readThreadWorkspaceCandidates(threadId: string | null): string[] {
   if (!threadId || typeof window === 'undefined') return []
   try {
@@ -72,10 +79,9 @@ function writeThreadWorkspaceCandidates(threadId: string, paths: string[]): void
 }
 
 export function Composer({
-  onSelectThreadOperation
-}: {
-  onSelectThreadOperation?: (key: ThreadContextOperationKey) => void
-}): React.JSX.Element {
+  onSelectThreadOperation,
+  presentation = 'normal'
+}: ComposerProps): React.JSX.Element {
   const dialog = useAppDialog()
   const activeThreadId = useAppStore((s) => s.activeThreadId)
   const todoList = useAppStore((s) =>
@@ -1152,6 +1158,7 @@ export function Composer({
 
   return (
     <ComposerView
+      presentation={presentation}
       composerRootRef={composerRootRef}
       handleComposerWheel={handleComposerWheel}
       handleDragEnter={handleDragEnter}

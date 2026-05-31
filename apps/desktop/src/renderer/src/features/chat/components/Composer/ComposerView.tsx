@@ -61,6 +61,7 @@ const MODE_ICON_MAP: Record<string, React.ElementType> = {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function ComposerView(props: any): React.JSX.Element {
   const {
+    presentation = 'normal',
     composerRootRef,
     handleDragEnter,
     handleDragOver,
@@ -189,6 +190,9 @@ export function ComposerView(props: any): React.JSX.Element {
     attachmentStripRef
   } = props
 
+  const isCompact = presentation === 'compact'
+  const inputMinHeight = isCompact ? '58px' : '92px'
+
   const placeholderText = selectComposerPlaceholder({
     threadId: activeThreadId,
     runId: placeholderRunId,
@@ -199,8 +203,11 @@ export function ComposerView(props: any): React.JSX.Element {
   return (
     <div
       ref={composerRootRef}
-      className="composer-shell flex flex-col"
-      style={{ borderTop: `1px solid ${theme.border.panel}`, position: 'relative' }}
+      className={`composer-shell composer-shell--${presentation} flex flex-col`}
+      style={{
+        borderTop: isCompact ? undefined : `1px solid ${theme.border.panel}`,
+        position: 'relative'
+      }}
       onDragEnter={handleDragEnter}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
@@ -218,7 +225,7 @@ export function ComposerView(props: any): React.JSX.Element {
             justifyContent: 'center',
             background: `color-mix(in srgb, ${theme.background.accentPanel} 85%, transparent)`,
             border: `2px dashed ${theme.text.accent}`,
-            borderRadius: 8,
+            borderRadius: isCompact ? 22 : 8,
             pointerEvents: 'none'
           }}
         >
@@ -557,7 +564,7 @@ export function ComposerView(props: any): React.JSX.Element {
           />
         ) : null}
         {activeSkillTag || validatedFileTags.length > 0 ? (
-          <div className="px-4 pt-2 flex flex-wrap items-center gap-2">
+          <div className="composer-tag-row px-4 pt-2 flex flex-wrap items-center gap-2">
             {activeSkillTag ? (
               <div
                 className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium"
@@ -651,7 +658,7 @@ export function ComposerView(props: any): React.JSX.Element {
               display: 'grid',
               position: 'relative',
               maxHeight: `${COMPOSER_TEXT_FIELD_MAX_HEIGHT_PX}px`,
-              minHeight: '92px',
+              minHeight: inputMinHeight,
               overflow: 'hidden'
             }}
           >
@@ -668,7 +675,7 @@ export function ComposerView(props: any): React.JSX.Element {
                 whiteSpace: 'pre',
                 overflowY: 'auto',
                 pointerEvents: 'none',
-                minHeight: '92px',
+                minHeight: inputMinHeight,
                 maxHeight: `${COMPOSER_TEXT_FIELD_MAX_HEIGHT_PX}px`,
                 letterSpacing: '0.04em'
               }}
@@ -753,7 +760,7 @@ export function ComposerView(props: any): React.JSX.Element {
                 color: 'transparent',
                 caretColor: 'transparent',
                 padding: 0,
-                minHeight: '92px',
+                minHeight: inputMinHeight,
                 maxHeight: `${COMPOSER_TEXT_FIELD_MAX_HEIGHT_PX}px`,
                 letterSpacing: '0.04em',
                 wordBreak: 'break-word',
@@ -765,7 +772,7 @@ export function ComposerView(props: any): React.JSX.Element {
       </div>
 
       {composerStatus ? (
-        <div className="px-4 pb-2">
+        <div className="composer-status-row px-4 pb-2">
           <div className={`composer-status composer-status--${composerStatus.tone}`}>
             {composerStatus.tone === 'error' ? (
               <AlertCircle size={12} strokeWidth={1.8} />
@@ -777,7 +784,7 @@ export function ComposerView(props: any): React.JSX.Element {
         </div>
       ) : null}
 
-      <div className="flex items-center gap-2 px-3 pb-3 no-drag">
+      <div className="composer-action-row flex items-center gap-2 px-3 pb-3 no-drag">
         {!effectiveAcpBinding && (
           <div ref={skillsSelectorRef} style={{ position: 'relative' }}>
             <button

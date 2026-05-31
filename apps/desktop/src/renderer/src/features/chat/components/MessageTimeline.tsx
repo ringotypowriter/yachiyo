@@ -686,8 +686,6 @@ export function MessageTimeline({
     runPhase,
     scrollToMessageId,
     clearScrollToMessageId,
-    activeEssentialId,
-    essentials,
     workSummaryEnabled
   } = useAppStore(
     useShallow((state) => ({
@@ -732,8 +730,6 @@ export function MessageTimeline({
       runPhase: threadId ? (state.runPhasesByThread[threadId] ?? 'idle') : 'idle',
       scrollToMessageId: state.scrollToMessageId,
       clearScrollToMessageId: state.clearScrollToMessageId,
-      activeEssentialId: state.activeEssentialId,
-      essentials: state.config?.essentials,
       workSummaryEnabled: state.config?.general?.workSummary !== false
     }))
   )
@@ -1342,39 +1338,11 @@ export function MessageTimeline({
   )
 
   if (!threadId) {
-    const activeEssential = activeEssentialId
-      ? essentials?.find((e) => e.id === activeEssentialId)
-      : null
     return (
       <div className="flex-1 flex flex-col items-center justify-center gap-3">
-        {activeEssential ? (
-          <>
-            {activeEssential.iconType === 'image' ? (
-              <img
-                src={activeEssential.icon}
-                alt={activeEssential.label ?? ''}
-                style={{ width: 120, height: 120, borderRadius: '50%', objectFit: 'cover' }}
-              />
-            ) : (
-              <span style={{ fontSize: 96, lineHeight: 1 }}>{activeEssential.icon}</span>
-            )}
-            <p className="text-xs" style={{ color: theme.text.muted }}>
-              Creation with
-            </p>
-            {activeEssential.label && (
-              <p
-                className="text-base font-bold tracking-widest uppercase"
-                style={{ color: theme.text.primary }}
-              >
-                {activeEssential.label}
-              </p>
-            )}
-          </>
-        ) : (
-          <p className="text-sm" style={{ color: theme.text.muted }}>
-            Start a new thread or type below to create one automatically.
-          </p>
-        )}
+        <p className="text-sm" style={{ color: theme.text.muted }}>
+          Start a new thread or type below to create one automatically.
+        </p>
       </div>
     )
   }

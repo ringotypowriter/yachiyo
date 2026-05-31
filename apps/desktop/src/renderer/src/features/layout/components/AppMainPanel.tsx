@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import type { Message, Thread, ToolCall } from '@renderer/app/types'
 import { useAppStore } from '@renderer/app/store/useAppStore'
@@ -31,6 +31,7 @@ import { ConfirmDialog } from '@renderer/components/ConfirmDialog'
 import { useAppDialog } from '@renderer/components/AppDialogContext'
 import { Tooltip } from '@renderer/components/Tooltip'
 import { theme } from '@renderer/theme/theme'
+import avatarUrl from '../../../../../../resources/branding.jpeg'
 import type {
   BrowserAutomationActivityBubbleState,
   BrowserAutomationSessionRecord
@@ -41,6 +42,36 @@ import { isLatestRunPlanMode } from '@yachiyo/shared/planMode'
 const EMPTY: Message[] = []
 const EMPTY_FIND_MATCHES: FindMatch[] = []
 const EMPTY_TOOL_CALLS: ToolCall[] = []
+
+const GREETING_CANDIDATES = [
+  'Where shall we begin?',
+  'What are we making today?',
+  'Bring me the messy part.',
+  'Ready when you are.'
+] as const
+
+const SLOGAN_CANDIDATES = [
+  'Start rough. We can make it sharper.',
+  'Drop in a thought, a file, or a half-shaped plan.',
+  'Paste the tangle here — Yachiyo will carry it from there.',
+  'A small prompt is enough to begin.'
+] as const
+
+interface WelcomeCopy {
+  greeting: string
+  slogan: string
+}
+
+function pickWelcomeCandidate(candidates: readonly string[]): string {
+  return candidates[Math.floor(Math.random() * candidates.length)] ?? candidates[0]
+}
+
+function buildWelcomeCopy(): WelcomeCopy {
+  return {
+    greeting: pickWelcomeCandidate(GREETING_CANDIDATES),
+    slogan: pickWelcomeCandidate(SLOGAN_CANDIDATES)
+  }
+}
 
 function formatBrowserAction(action: string): string {
   return action.replace(/([A-Z])/g, ' $1').replace(/^./, (ch) => ch.toUpperCase())
@@ -122,6 +153,7 @@ export function AppMainPanel({
   const archivedThreads = useAppStore((s) => s.archivedThreads)
   const activeArchivedThreadId = useAppStore((s) => s.activeArchivedThreadId)
   const activeThreadId = useAppStore((s) => s.activeThreadId)
+  const activeEssentialId = useAppStore((s) => s.activeEssentialId)
   const threadIsSaving = useAppStore((s) =>
     s.activeThreadId ? s.savingThreadIds.has(s.activeThreadId) : false
   )
@@ -141,6 +173,7 @@ export function AppMainPanel({
   const [runtimeBrowserSessions, setRuntimeBrowserSessions] = useState<
     BrowserAutomationSessionRecord[]
   >([])
+  const welcomeCopyByKeyRef = useRef(new Map<string, WelcomeCopy>())
   const shouldReadFindDocuments = findOpen && findQuery.trim().length >= 2
   const threadMessages = useAppStore((s) =>
     activeThreadId ? (s.messages[activeThreadId] ?? EMPTY) : EMPTY
@@ -480,6 +513,32 @@ export function AppMainPanel({
     setFindCurrentIndex(0)
   }
   const memoryEnabled = isMemoryConfigured(config) && !activeThread?.privacyMode
+  const emptySurfaceEligible = messageCount === 0 && activeTimelineSurface === 'timeline'
+  const essentialSourceId = activeEssentialId ?? activeThread?.createdFromEssentialId ?? null
+  const activeEssential = useMemo(
+    () =>
+      essentialSourceId
+        ? (config?.essentials?.find((essential) => essential.id === essentialSourceId) ?? null)
+        : null,
+    [config?.essentials, essentialSourceId]
+  )
+  const welcomeVariant = emptySurfaceEligible
+    ? activeEssential
+      ? 'essential'
+      : essentialSourceId === null
+        ? 'generic'
+        : null
+    : null
+  const showWelcomeState = welcomeVariant !== null
+  const welcomeCopyKey = `${activeThreadId ?? 'new-thread'}:${essentialSourceId ?? 'plain'}`
+  const welcomeCopy = useMemo(() => {
+    const existing = welcomeCopyByKeyRef.current.get(welcomeCopyKey)
+    if (existing) return existing
+
+    const next = buildWelcomeCopy()
+    welcomeCopyByKeyRef.current.set(welcomeCopyKey, next)
+    return next
+  }, [welcomeCopyKey])
 
   async function handleRenameThread(thread: Thread): Promise<void> {
     if (renamingThreadId === thread.id) {
@@ -783,21 +842,85 @@ export function AppMainPanel({
           )}
         </AnimatePresence>
 
-        <div className="flex flex-col flex-1 min-h-0 relative">
-          <div className="flex flex-row flex-1 min-h-0 min-w-0">
-            <MessageTimeline
-              key={activeThreadId ?? 'empty'}
-              threadId={activeThreadId}
-              recapText={recapText}
-              activeSurface={activeTimelineSurface}
-              browserSessions={browserActivity.sessions}
-              selectedBrowserSession={selectedBrowserSession}
-              browserActivityBubble={browserActivityBubble}
-              browserViewSuspended={isBrowserSessionMenuOpen}
-              browserSessionPickerOpen={isBrowserSessionMenuOpen}
-              onSelectedBrowserSessionChange={setSelectedBrowserSession}
-              onBrowserSessionPickerOpenChange={setIsBrowserSessionMenuOpen}
-            />
+        <div
+          className={`work-chat-shell ${
+            showWelcomeState ? 'work-chat-shell--welcome' : 'work-chat-shell--normal'
+          } ${isInspectionPanelOpen ? 'work-chat-shell--inspecting' : ''}`}
+        >
+          <motion.div
+            layout
+            className="work-chat-shell__timeline-row"
+            transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
+          >
+            <AnimatePresence initial={false} mode="popLayout">
+              {showWelcomeState ? (
+                <motion.div
+                  key={`empty-thread-welcome-${welcomeVariant ?? 'generic'}`}
+                  className={`thread-welcome thread-welcome--${welcomeVariant ?? 'generic'}`}
+                  initial={{ opacity: 0, y: 8, scale: 0.98 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: -8, scale: 0.98 }}
+                  transition={{ duration: 0.22, ease: 'easeOut' }}
+                >
+                  {welcomeVariant === 'essential' && activeEssential ? (
+                    <>
+                      {activeEssential.iconType === 'image' ? (
+                        <img
+                          className="thread-welcome__essential-image"
+                          src={activeEssential.icon}
+                          alt={activeEssential.label ?? 'Essential'}
+                          draggable={false}
+                        />
+                      ) : (
+                        <span className="thread-welcome__essential-emoji">
+                          {activeEssential.icon}
+                        </span>
+                      )}
+                      <div className="thread-welcome__copy">
+                        <p className="thread-welcome__eyebrow">Creation with</p>
+                        <p className="thread-welcome__label">
+                          {activeEssential.label ?? 'Essential'}
+                        </p>
+                        <p className="thread-welcome__slogan">
+                          Send a first message to start a focused thread with this Essential.
+                        </p>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <img className="thread-welcome__avatar" src={avatarUrl} alt="Yachiyo" />
+                      <div className="thread-welcome__copy">
+                        <p className="thread-welcome__greeting">{welcomeCopy.greeting}</p>
+                        <p className="thread-welcome__slogan">{welcomeCopy.slogan}</p>
+                      </div>
+                    </>
+                  )}
+                </motion.div>
+              ) : (
+                <motion.div
+                  key="message-timeline"
+                  className="work-timeline-surface"
+                  initial={{ opacity: 0, scale: 0.985 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0, scale: 0.985 }}
+                  transition={{ duration: 0.2, ease: 'easeOut' }}
+                >
+                  <MessageTimeline
+                    key={activeThreadId ?? 'empty'}
+                    threadId={activeThreadId}
+                    recapText={recapText}
+                    activeSurface={activeTimelineSurface}
+                    browserSessions={browserActivity.sessions}
+                    selectedBrowserSession={selectedBrowserSession}
+                    browserActivityBubble={browserActivityBubble}
+                    browserViewSuspended={isBrowserSessionMenuOpen}
+                    browserSessionPickerOpen={isBrowserSessionMenuOpen}
+                    onSelectedBrowserSessionChange={setSelectedBrowserSession}
+                    onBrowserSessionPickerOpenChange={setIsBrowserSessionMenuOpen}
+                  />
+                </motion.div>
+              )}
+            </AnimatePresence>
             <AnimatePresence initial={false}>
               {isInspectionPanelOpen && (
                 <motion.div
@@ -812,18 +935,28 @@ export function AppMainPanel({
                 </motion.div>
               )}
             </AnimatePresence>
-          </div>
+          </motion.div>
           <RunStatusStrip />
-          <div className="relative">
-            <Composer onSelectThreadOperation={handleSelectThreadOperation} />
-          </div>
+          <motion.div
+            layout
+            className={`work-composer-slot ${
+              showWelcomeState ? 'work-composer-slot--welcome' : 'work-composer-slot--normal'
+            }`}
+            transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
+          >
+            <Composer
+              onSelectThreadOperation={handleSelectThreadOperation}
+              presentation={showWelcomeState ? 'compact' : 'normal'}
+            />
+          </motion.div>
           {threadIsSaving && (
             <div
               className="absolute inset-0 flex flex-col items-center justify-center gap-2 pointer-events-auto"
               style={{
                 background: theme.background.surfaceLight,
                 backdropFilter: 'blur(4px)',
-                WebkitBackdropFilter: 'blur(4px)'
+                WebkitBackdropFilter: 'blur(4px)',
+                zIndex: 80
               }}
             >
               <p className="text-sm font-medium" style={{ color: theme.text.primary }}>
