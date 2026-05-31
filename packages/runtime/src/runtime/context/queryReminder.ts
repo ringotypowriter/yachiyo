@@ -19,12 +19,20 @@ function buildToolStateLines(input: {
   enabledTools: readonly ToolCallName[]
   modeIndependentTools?: readonly string[]
 }): string[] {
-  const enabledToolSet = new Set(input.enabledTools)
+  const effectiveEnabledToolSet = new Set<string>([
+    ...input.enabledTools,
+    ...(input.modeIndependentTools ?? [])
+  ])
+  const userManagedToolSet = new Set<string>(USER_MANAGED_TOOL_NAMES)
   const enabledTools = [
-    ...USER_MANAGED_TOOL_NAMES.filter((toolName) => enabledToolSet.has(toolName)),
-    ...new Set(input.modeIndependentTools ?? [])
+    ...USER_MANAGED_TOOL_NAMES.filter((toolName) => effectiveEnabledToolSet.has(toolName)),
+    ...[...new Set(input.modeIndependentTools ?? [])].filter(
+      (toolName) => !userManagedToolSet.has(toolName)
+    )
   ]
-  const disabledTools = USER_MANAGED_TOOL_NAMES.filter((toolName) => !enabledToolSet.has(toolName))
+  const disabledTools = USER_MANAGED_TOOL_NAMES.filter(
+    (toolName) => !effectiveEnabledToolSet.has(toolName)
+  )
   return [
     `Enabled tools: ${formatToolList(enabledTools)}.`,
     `Disabled tools: ${formatToolList(disabledTools)}.`
@@ -97,9 +105,15 @@ export function buildWorkspaceChangedReminderSection(input: {
 
 export function buildDisabledToolsReminderSection(input: {
   enabledTools: ToolCallName[]
+  modeIndependentTools?: readonly string[]
 }): QueryReminderSection | null {
-  const enabledToolSet = new Set(input.enabledTools)
-  const disabledTools = USER_MANAGED_TOOL_NAMES.filter((toolName) => !enabledToolSet.has(toolName))
+  const effectiveEnabledToolSet = new Set<string>([
+    ...input.enabledTools,
+    ...(input.modeIndependentTools ?? [])
+  ])
+  const disabledTools = USER_MANAGED_TOOL_NAMES.filter(
+    (toolName) => !effectiveEnabledToolSet.has(toolName)
+  )
 
   if (disabledTools.length === 0) {
     return null

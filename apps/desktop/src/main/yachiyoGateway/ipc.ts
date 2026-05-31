@@ -1,4 +1,4 @@
-import { BrowserWindow, ipcMain, Notification } from 'electron'
+import { app, BrowserWindow, ipcMain, Notification } from 'electron'
 
 import type {
   NotificationThreadTarget,
@@ -8,6 +8,16 @@ import type {
 import { getPerfMonitor } from '@yachiyo/runtime/services/perfMonitor'
 import { isAuxiliaryWindow, isHighFrequencyChatEvent } from './filter.ts'
 import { IPC_CHANNELS } from './ipcChannels.ts'
+import { createDockBadgeController } from './dockBadgeController.ts'
+
+const notificationDockBadge = createDockBadgeController({
+  platform: process.platform,
+  setBadgeCount: (count) => app.setBadgeCount(count)
+})
+
+function hasFocusedYachiyoWindow(): boolean {
+  return BrowserWindow.getAllWindows().some((window) => !window.isDestroyed() && window.isFocused())
+}
 
 function focusNotificationWindow(window: BrowserWindow): void {
   if (window.isMinimized()) window.restore()
@@ -27,25 +37,31 @@ function navigateToNotificationThread(threadId: string, target: NotificationThre
   }
 }
 
+export function clearYachiyoNotificationBadge(): void {
+  notificationDockBadge.clear()
+}
+
 export function showYachiyoNotification(input: ShowNotificationInput): void {
   if (!Notification.isSupported()) return
 
+  const shouldShowDockBadge = !hasFocusedYachiyoWindow()
   const notification = new Notification({ title: input.title, body: input.body ?? '' })
   const threadId = input.threadId
-  if (threadId) {
-    notification.on('click', () => {
+  notification.on('click', () => {
+    clearYachiyoNotificationBadge()
+    if (threadId) {
       navigateToNotificationThread(threadId, input.target ?? 'thread')
-    })
-  }
+    }
+  })
   notification.show()
+  if (shouldShowDockBadge) notificationDockBadge.increment()
 }
 
 export function broadcastYachiyoEvent(event: YachiyoServerEvent): void {
   getPerfMonitor().recordIpcEvent(event.type)
 
   if (event.type === 'notification.requested') {
-    const anyFocused = BrowserWindow.getAllWindows().some((w) => !w.isDestroyed() && w.isFocused())
-    if (!anyFocused) {
+    if (!hasFocusedYachiyoWindow()) {
       showYachiyoNotification({
         title: event.title,
         body: event.body,

@@ -22,6 +22,7 @@ import type {
   ThreadRecord,
   ToolCallRecord
 } from '@yachiyo/shared/protocol'
+import { resolveRunModeEnabledTools } from '@yachiyo/shared/toolModes'
 
 function makeUsage(promptTokens: number, completionTokens: number): ModelUsage {
   return {
@@ -465,6 +466,59 @@ test('prepareServerRunContext injects tool availability changes into the current
       updatedMessages[0]?.turnContext?.reminder ?? '',
       new RegExp(`Enabled tools: .*${addedTool}`)
     )
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('prepareServerRunContext does not mark exitPlanMode disabled in Plan Mode reminders', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'yachiyo-plan-exit-reminder-'))
+  const thread: ThreadRecord = {
+    id: 'thread-plan-exit-reminder',
+    title: 'Thread',
+    workspacePath: root,
+    updatedAt: '2026-04-28T00:00:00.000Z'
+  }
+  const requestMessage: MessageRecord = {
+    id: 'msg-plan-exit-reminder',
+    threadId: thread.id,
+    role: 'user',
+    content: 'fix the bug',
+    status: 'completed',
+    createdAt: '2026-04-28T00:00:00.000Z'
+  }
+  const updatedMessages: MessageRecord[] = []
+
+  try {
+    await prepareServerRunContext(
+      createRunContextDeps({
+        events: [],
+        messages: [requestMessage],
+        updatedMessages,
+        workspacePath: root
+      }),
+      {
+        runId: 'run-plan-exit-reminder',
+        thread,
+        requestMessageId: requestMessage.id,
+        enabledTools: resolveRunModeEnabledTools('plan'),
+        runMode: 'plan',
+        previousEnabledTools: resolveRunModeEnabledTools('auto'),
+        previousRunMode: 'auto',
+        runTrigger: 'local',
+        abortController: new AbortController(),
+        requestMessage,
+        historyMessages: [requestMessage],
+        includeMemoryRecall: false,
+        applyStripCompact: false
+      }
+    )
+
+    const reminder = updatedMessages[0]?.turnContext?.reminder ?? ''
+    assert.match(reminder, /Enabled tools: .*exitPlanMode/)
+    for (const line of reminder.split('\n').filter((line) => /disabled/i.test(line))) {
+      assert.doesNotMatch(line, /\bexitPlanMode\b/)
+    }
   } finally {
     await rm(root, { recursive: true, force: true })
   }

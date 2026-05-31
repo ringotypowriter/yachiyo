@@ -15,6 +15,7 @@ import {
 } from './electron/userShellEnv'
 import { resolveYachiyoDataDir } from '@yachiyo/runtime/config/paths'
 import { registerYachiyoGateway } from './yachiyoGateway/registerYachiyoGateway'
+import { clearYachiyoNotificationBadge } from './yachiyoGateway/ipc'
 import { setupCLI } from './cli/setup'
 import { setupCoreSkills } from './skills/coreSkillsSetup'
 import { setupAutoUpdate, isInstallingUpdate } from './electron/autoUpdate'
@@ -288,6 +289,8 @@ app.whenReady().then(async () => {
   if (process.platform === 'darwin' && app.dock) {
     app.dock.setIcon(icon)
   }
+  clearYachiyoNotificationBadge()
+  app.on('browser-window-focus', clearYachiyoNotificationBadge)
   installApplicationMenu({
     appName: APP_NAME,
     isDev: is.dev,
@@ -400,6 +403,7 @@ app.whenReady().then(async () => {
   setupAutoUpdate()
 
   app.on('activate', function () {
+    clearYachiyoNotificationBadge()
     // Dock click should always go straight to the main window, not to whatever
     // auxiliary window (jotdown/translator) happens to be hidden in another
     // workspace. If the main window is gone, recreate it.

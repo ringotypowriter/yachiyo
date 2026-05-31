@@ -56,14 +56,20 @@ function assertToolStateLines(input: {
   assert.ok(enabledLine)
   assert.ok(disabledLine)
 
-  const enabledToolSet = new Set(input.enabledTools)
+  const effectiveEnabledToolSet = new Set([
+    ...(input.enabledTools ?? []),
+    ...(input.modeIndependentTools ?? [])
+  ])
+  const userManagedToolSet = new Set<string>(USER_MANAGED_TOOL_NAMES)
   assert.deepEqual(parseToolListLine(enabledLine, 'Enabled tools: '), [
-    ...USER_MANAGED_TOOL_NAMES.filter((toolName) => enabledToolSet.has(toolName)),
-    ...new Set(input.modeIndependentTools ?? [])
+    ...USER_MANAGED_TOOL_NAMES.filter((toolName) => effectiveEnabledToolSet.has(toolName)),
+    ...[...new Set(input.modeIndependentTools ?? [])].filter(
+      (toolName) => !userManagedToolSet.has(toolName)
+    )
   ])
   assert.deepEqual(
     parseToolListLine(disabledLine, 'Disabled tools: '),
-    USER_MANAGED_TOOL_NAMES.filter((toolName) => !enabledToolSet.has(toolName))
+    USER_MANAGED_TOOL_NAMES.filter((toolName) => !effectiveEnabledToolSet.has(toolName))
   )
 }
 
@@ -149,6 +155,15 @@ test('buildDisabledToolsReminderSection excludes runtime-managed tools', () => {
     enabledTools: [...USER_MANAGED_TOOL_NAMES]
   })
   assert.equal(section, null)
+})
+
+test('buildDisabledToolsReminderSection excludes mode-independent tools', () => {
+  const section = buildDisabledToolsReminderSection({
+    enabledTools: resolveRunModeEnabledTools('plan'),
+    modeIndependentTools: ['exitPlanMode']
+  })
+  assert.ok(section)
+  assert.doesNotMatch(section.lines.join('\n'), /\bexitPlanMode\b/)
 })
 
 test('buildCurrentTimeSection uses local time with day name', () => {

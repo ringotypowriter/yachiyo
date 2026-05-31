@@ -400,7 +400,7 @@ export async function prepareServerRunContext(
             workspacePath
           })
         : null,
-      buildDisabledToolsReminderSection({ enabledTools: modelEnabledTools }),
+      buildDisabledToolsReminderSection({ enabledTools: modelEnabledTools, modeIndependentTools }),
       buildCurrentTimeSection(hintTime, { includeDate: !isLocalOrOwnerDm }),
       planModeDocument ? buildPlanModeReminderSection(planModeDocument) : null,
       isVisibleSteerLeg ? buildSteerReminderSection() : null
