@@ -12,6 +12,7 @@ import type { MemoryService } from '../../../services/memory/memoryService.ts'
 import {
   type ChatAccepted,
   type ChatAcceptedWithUserMessage,
+  type ThreadUpdatedEvent,
   type UserDocument,
   type YachiyoServerEvent
 } from '@yachiyo/shared/protocol'
@@ -1010,6 +1011,10 @@ test('YachiyoServer.acceptThreadPlanDocument tells direct execution the accepted
 test('YachiyoServer.acceptThreadPlanDocument creates an execution thread seeded with the plan document', async () => {
   await withServer(async ({ server, storage, completeRun, workspacePathForThread }) => {
     const sourceThread = await server.createThread()
+    const threadUpdatedEvents: ThreadUpdatedEvent[] = []
+    const unsubscribe = server.subscribe((event) => {
+      if (event.type === 'thread.updated') threadUpdatedEvents.push(event)
+    })
     const sourceThreadWithIcon = await server.setThreadIcon({
       threadId: sourceThread.id,
       icon: '🧪'
@@ -1024,10 +1029,16 @@ test('YachiyoServer.acceptThreadPlanDocument creates an execution thread seeded 
     const planContent = ['# Build Blog Generator', '', '## Goal', 'Ship it.', ''].join('\n')
     await writeFile(planPath, planContent, 'utf8')
 
-    const accepted = await server.acceptThreadPlanDocument({
-      threadId: sourceThread.id,
-      mode: 'handoff'
-    })
+    const accepted = await (async () => {
+      try {
+        return await server.acceptThreadPlanDocument({
+          threadId: sourceThread.id,
+          mode: 'handoff'
+        })
+      } finally {
+        unsubscribe()
+      }
+    })()
     assertAcceptedHasUserMessage(accepted)
 
     await completeRun(accepted.runId)
@@ -1049,8 +1060,20 @@ test('YachiyoServer.acceptThreadPlanDocument creates an execution thread seeded 
     assert.equal(accepted.userMessage.content, 'Execute the accepted plan.')
 
     const updatedSourceThread = storage.getThread(sourceThread.id)
+    const updatedDestinationThread = storage.getThread(accepted.thread.id)
     assert.ok(updatedSourceThread)
+    assert.ok(updatedDestinationThread)
+    assert.ok(updatedDestinationThread.folderId)
+    assert.equal(accepted.thread.folderId, updatedDestinationThread.folderId)
     assert.equal(updatedSourceThread.preview, 'Plan has been approved')
+    assert.equal(updatedSourceThread.folderId, updatedDestinationThread.folderId)
+
+    const sourcePreviewEvent = threadUpdatedEvents.findLast(
+      (event) =>
+        event.threadId === sourceThread.id && event.thread.preview === 'Plan has been approved'
+    )
+    assert.ok(sourcePreviewEvent)
+    assert.equal(sourcePreviewEvent.thread.folderId, updatedDestinationThread.folderId)
   })
 })
 

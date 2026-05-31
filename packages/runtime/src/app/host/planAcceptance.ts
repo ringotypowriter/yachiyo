@@ -156,9 +156,12 @@ async function startPlanAcceptanceWithHandoff(input: PlanAcceptanceInput): Promi
     derivedThread: destinationThread
   })
 
+  const groupedSourceThread = input.storage.getThread(input.sourceThread.id) ?? input.sourceThread
+  const groupedDestinationThread =
+    input.storage.getThread(destinationThread.id) ?? destinationThread
   const timestamp = input.timestamp()
   const updatedSourceThread: ThreadRecord = {
-    ...input.sourceThread,
+    ...groupedSourceThread,
     preview: 'Plan has been approved',
     updatedAt: timestamp
   }
@@ -172,7 +175,7 @@ async function startPlanAcceptanceWithHandoff(input: PlanAcceptanceInput): Promi
   const seeded = seedAcceptedPlanMessage({
     ...input,
     hidden: false,
-    thread: destinationThread
+    thread: groupedDestinationThread
   })
 
   return input.runDomain.sendChat({
