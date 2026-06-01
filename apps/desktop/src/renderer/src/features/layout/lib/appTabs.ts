@@ -1,4 +1,4 @@
-export type AppTabId = 'chat' | 'archived' | 'settings'
+export type AppTabId = 'chat' | 'things' | 'archived' | 'settings'
 
 export interface AppTabDefinition {
   id: AppTabId
@@ -15,6 +15,7 @@ export const APP_TAB_FRAME_TRAFFIC_LIGHT_SAFE_WIDTH =
 
 export const APP_TABS: readonly AppTabDefinition[] = [
   { id: 'chat', label: 'Work' },
+  { id: 'things', label: 'Things' },
   { id: 'archived', label: 'Archived' },
   { id: 'settings', label: 'Settings' }
 ]

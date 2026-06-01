@@ -350,6 +350,13 @@ export function useComposerInputHandlers(
       } else if (command.type === 'skill') {
         const skillName = command.key.slice('skills:'.length)
         setComposerValue(`@skills:${skillName} `)
+      } else if (command.type === 'thing') {
+        setComposerValue(
+          composerValue.replace(/(?:^|\s)#([A-Za-z0-9_-]*)$/, (match) => {
+            const prefix = match.startsWith(' ') ? ' ' : ''
+            return `${prefix}${command.key} `
+          })
+        )
       } else if (command.type === 'file' || command.type === 'jotdown') {
         const encodedPath = command.key.slice('file:'.length)
         const filePath = encodedPath.startsWith('!') ? encodedPath.slice(1) : encodedPath

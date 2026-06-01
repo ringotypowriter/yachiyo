@@ -1,5 +1,6 @@
 import type { ToolCallDetailsSnapshot } from './protocol/toolDetails.ts'
 import type { TodoItemRecord } from './protocol/events.ts'
+import type { ThingMentionResolution } from './protocol/things.ts'
 
 export * from './protocol/toolDetails.ts'
 export * from './protocol/usageStats.ts'
@@ -8,6 +9,7 @@ export * from './protocol/schedule.ts'
 export * from './protocol/translate.ts'
 export * from './protocol/jotdown.ts'
 export * from './protocol/perf.ts'
+export * from './protocol/things.ts'
 
 export type ChannelUserStatus = 'pending' | 'allowed' | 'blocked'
 export type ChannelUserRole = 'owner' | 'guest'
@@ -577,6 +579,7 @@ export interface MessageTurnContext {
   enabledTools?: ToolCallName[]
   enabledSkillNames?: string[]
   runMode?: RunModeId
+  thingMentions?: ThingMentionResolution[]
   /** Hidden user-message origin for timeline grouping. */
   hiddenRequestKind?: 'steer' | 'follow-up'
 }
@@ -905,6 +908,7 @@ export type RunContextSourceKind =
   | 'agent'
   | 'skills'
   | 'fileMentions'
+  | 'things'
   | 'memory'
   | 'handoff'
   | 'hint'

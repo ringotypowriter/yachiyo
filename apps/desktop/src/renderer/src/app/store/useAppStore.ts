@@ -15,6 +15,7 @@ import type {
   SkillCatalogEntry,
   Thread,
   ThreadColorTag,
+  ThingRecord,
   ThreadModelOverride,
   ThreadSentinelRecord,
   TodoItemRecord,
@@ -322,6 +323,12 @@ export interface AppState {
   runStatusesByThread: Record<string, RunStatus>
   settings: ProviderSettings
   threads: Thread[]
+  things: ThingRecord[]
+  showInactiveThings: boolean
+  loadThings: (input?: { includeInactive?: boolean }) => Promise<void>
+  reactivateThing: (name: string) => Promise<void>
+  continueThingInNewChat: (name: string) => Promise<void>
+  toggleShowInactiveThings: () => void
   folders: FolderRecord[]
   collapsedFolderIds: Set<string>
   externalThreads: Thread[]
@@ -415,6 +422,38 @@ export const useAppStore = create<AppState>((set, get) => ({
     })),
   collapsedFolderIds: loadCollapsedFolderIds(),
   availableSkills: [],
+  things: [],
+  showInactiveThings: false,
+  loadThings: async (input) => {
+    const includeInactive = input?.includeInactive ?? get().showInactiveThings
+    const things = await window.api.yachiyo.listThings({ includeInactive })
+    set({ things, showInactiveThings: includeInactive })
+  },
+  reactivateThing: async (name) => {
+    await window.api.yachiyo.reactivateThing({ name })
+    await get().loadThings({ includeInactive: get().showInactiveThings })
+  },
+  continueThingInNewChat: async (name) => {
+    const thread = await window.api.yachiyo.continueThingInNewChat({ name })
+    set((state) => ({
+      threads: upsertThread(state.threads, thread),
+      activeThreadId: thread.id,
+      threadListMode: 'active',
+      composerDrafts: updateComposerDraft(
+        state.composerDrafts,
+        getComposerDraftKey(thread.id),
+        () => ({
+          ...EMPTY_COMPOSER_DRAFT,
+          content: `#${name} `
+        })
+      )
+    }))
+  },
+  toggleShowInactiveThings: () => {
+    const includeInactive = !get().showInactiveThings
+    set({ showInactiveThings: includeInactive })
+    void get().loadThings({ includeInactive })
+  },
   archiveThread: async (threadId) => {
     try {
       await window.api.yachiyo.archiveThread({ threadId })

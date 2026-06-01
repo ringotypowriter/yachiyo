@@ -28,6 +28,8 @@ import type {
   ThreadColorTag,
   ThreadRuntimeBinding,
   ThreadRecord,
+  ThingSourceQuoteRecord,
+  ThingThreadScopeRecord,
   SearchThreadsAndMessagesInput,
   ThreadSearchResult,
   TodoItemRecord,
@@ -202,6 +204,33 @@ export interface StoredToolCallRow {
   finishedAt: string | null
   stepIndex: number | null
   stepBudget: number | null
+}
+
+export interface StoredThingRow {
+  id: string
+  name: string
+  summary: string
+  lastUpdatedAt: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface StoredThingThreadScopeRow {
+  thingId: string
+  threadId: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface StoredThingSourceQuoteRow {
+  id: string
+  thingId: string
+  threadId: string
+  messageId: string | null
+  spanRowId: string | null
+  sourceRowId: string
+  quote: string
+  createdAt: string
 }
 
 export interface StoredRunRow {
@@ -403,6 +432,20 @@ export interface YachiyoStorage {
   createSchedule(schedule: ScheduleRecord): void
   updateSchedule(schedule: ScheduleRecord): void
   deleteSchedule(id: string): void
+
+  // Things
+  listThings(): StoredThingRow[]
+  getThing(id: string): StoredThingRow | undefined
+  getThingByName(name: string): StoredThingRow | undefined
+  createThing(thing: StoredThingRow): void
+  updateThing(thing: StoredThingRow): void
+  deleteThing(id: string): void
+  listThingThreadScopes(thingId?: string): ThingThreadScopeRecord[]
+  upsertThingThreadScope(scope: StoredThingThreadScopeRow): void
+  deleteThingThreadScope(input: { thingId: string; threadId: string }): void
+  listThingSourceQuotes(thingId?: string): ThingSourceQuoteRecord[]
+  addThingSourceQuote(quote: StoredThingSourceQuoteRow): void
+  deleteThingSourceQuote(id: string): void
 
   // Schedule runs
   createScheduleRun(run: ScheduleRunRecord): void
@@ -1035,8 +1078,16 @@ export function serializeTurnContext(turnContext?: MessageTurnContext): string |
   const hasEnabledTools = turnContext.enabledTools !== undefined
   const hasEnabledSkillNames = turnContext.enabledSkillNames !== undefined
   const hasRunMode = turnContext.runMode !== undefined
+  const hasThingMentions = turnContext.thingMentions && turnContext.thingMentions.length > 0
 
-  if (!hasReminder && !hasMemory && !hasEnabledTools && !hasEnabledSkillNames && !hasRunMode) {
+  if (
+    !hasReminder &&
+    !hasMemory &&
+    !hasEnabledTools &&
+    !hasEnabledSkillNames &&
+    !hasRunMode &&
+    !hasThingMentions
+  ) {
     return null
   }
 
@@ -1049,7 +1100,8 @@ export function serializeTurnContext(turnContext?: MessageTurnContext): string |
     ...(hasEnabledSkillNames
       ? { enabledSkillNames: normalizeSkillNames(turnContext.enabledSkillNames, []) }
       : {}),
-    ...(hasRunMode ? { runMode: turnContext.runMode } : {})
+    ...(hasRunMode ? { runMode: turnContext.runMode } : {}),
+    ...(hasThingMentions ? { thingMentions: turnContext.thingMentions } : {})
   })
 }
 
@@ -1074,12 +1126,16 @@ export function parseTurnContext(value: string | null): MessageTurnContext | und
       ? normalizeSkillNames(parsed.enabledSkillNames, [])
       : undefined
     const runMode = parseRunMode(parsed.runMode)
+    const thingMentions = Array.isArray(parsed.thingMentions)
+      ? (parsed.thingMentions as MessageTurnContext['thingMentions'])
+      : undefined
     if (
       reminder === undefined &&
       memoryEntries.length === 0 &&
       enabledTools === undefined &&
       enabledSkillNames === undefined &&
-      runMode === undefined
+      runMode === undefined &&
+      thingMentions === undefined
     ) {
       return undefined
     }
@@ -1088,7 +1144,8 @@ export function parseTurnContext(value: string | null): MessageTurnContext | und
       ...(memoryEntries.length > 0 ? { memoryEntries } : {}),
       ...(enabledTools !== undefined ? { enabledTools } : {}),
       ...(enabledSkillNames !== undefined ? { enabledSkillNames } : {}),
-      ...(runMode !== undefined ? { runMode } : {})
+      ...(runMode !== undefined ? { runMode } : {}),
+      ...(thingMentions !== undefined ? { thingMentions } : {})
     }
   } catch {
     return undefined

@@ -7,6 +7,8 @@
  * preferences are preserved.
  */
 
+import type { ToolCallName } from '@yachiyo/shared/protocol'
+
 export const BUNDLED_ID_PREFIX = 'bundled:'
 
 export interface BundledScheduleSpec {
@@ -15,6 +17,7 @@ export interface BundledScheduleSpec {
   name: string
   cronExpression: string
   prompt: string
+  enabledTools?: ToolCallName[]
 }
 
 // ── Self-Review ────────────────────────────────────────────────────────
@@ -411,7 +414,35 @@ shape — prefer trait or skill first.
 
 // ── Registry ───────────────────────────────────────────────────────────
 
+const THINGS_DAILY_REVIEW_PROMPT = `You are Yachiyo running the Things Daily Review. Maintain Things as cross-chat context indexes, not as todos or conversation summaries.
+
+Workflow:
+1. Call useThings with action "list" and includeInactive true.
+2. Use querySource to read today's conversation spans.
+3. Decide which conversations belong to existing non-stale Things, which inactive Things should be reactivated, and whether any clearly continuing work deserves a new #name.
+4. Call useThings with action "dailyReview" once for the batch update.
+
+Selection rules:
+- Link a chat to a Thing only when the chat is directly about that Thing.
+- Create a Thing only for context the user is likely to mention or need again later.
+- Do not create Things for one-off questions, completed chores, greetings, or ordinary chat summaries.
+- Things with no updates for 3 days stay inactive; do not invent activity to keep them alive.
+
+Evidence rules:
+- Save source quotes for claims that future conversations may rely on.
+- Preserve the original quote text, and save sourceRowId plus threadId and messageId/spanRowId when available.
+- Write summaries only as recognition aids. Source quotes and references remain the factual record.
+
+Language rule: for every Thing summary, use the main language of that Thing's included chats/source quotes. If sources are mixed, use the language the user used most in those related chats. Do not output or maintain any primaryLanguage field.`
+
 export const BUNDLED_SCHEDULES: readonly BundledScheduleSpec[] = [
+  {
+    id: 'bundled:things-daily-review',
+    name: 'Things Daily Review',
+    cronExpression: '0 22 * * *',
+    prompt: THINGS_DAILY_REVIEW_PROMPT,
+    enabledTools: ['querySource', 'useThings']
+  },
   {
     id: 'bundled:self-review',
     name: 'Self-Review',

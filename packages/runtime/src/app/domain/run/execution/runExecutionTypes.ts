@@ -43,6 +43,7 @@ import type { UseSentinelToolContext } from '../../../../tools/agentTools/useSen
 import type { BackgroundBashTaskResult } from '../../background/backgroundBashManager.ts'
 import type { CreateId, EmitServerEvent, Timestamp } from '../../shared/shared.ts'
 import type { PendingSteerInput } from '../runTypes.ts'
+import type { ThingDomain } from '../../things/thingDomain.ts'
 
 export interface ExecuteRunInput {
   enabledTools: ToolCallName[]
@@ -141,6 +142,7 @@ export interface RunExecutionDeps {
   loadBrowserSnapshot?: BrowserWebPageSnapshotLoader
   memoryService: MemoryService
   sourceQueryExecutor?: QuerySourceExecutor
+  thingDomain?: ThingDomain
   searchService?: SearchService
   webSearchService?: WebSearchService
   browserAutomationService?: BrowserAutomationService

@@ -303,6 +303,9 @@ export function createThreadLifecycleActions(input: {
 
         try {
           const payload = await window.api.yachiyo.bootstrap()
+          const things = await window.api.yachiyo.listThings({
+            includeInactive: get().showInactiveThings
+          })
           const recoveredSaveToasts = payload.recoveredInterruptedSaveThreadIds.map((threadId) => {
             const thread = [...payload.threads, ...payload.archivedThreads].find(
               (item) => item.id === threadId
@@ -358,6 +361,7 @@ export function createThreadLifecycleActions(input: {
               ...payload.archivedThreads
             ]),
             threads: sortThreads(payload.threads),
+            things,
             folders: payload.folders ?? [],
             toolCalls: payload.toolCallsByThread
           }))

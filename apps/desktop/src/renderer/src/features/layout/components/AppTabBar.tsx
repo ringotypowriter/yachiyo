@@ -3,6 +3,7 @@ import {
   Archive,
   ArrowDownCircle,
   MoreHorizontal,
+  Hash,
   Waypoints,
   Settings2,
   type LucideIcon
@@ -37,6 +38,7 @@ const appTabRailBodyStyle = {
 
 const TAB_ICONS: Record<AppTabId, LucideIcon> = {
   chat: Waypoints,
+  things: Hash,
   archived: Archive,
   settings: Settings2
 }

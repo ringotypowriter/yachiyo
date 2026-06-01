@@ -19,6 +19,7 @@ import {
   type AppTabId
 } from '@renderer/features/layout/lib/appTabs'
 import { shouldHandleWorkShortcut } from '@renderer/features/layout/lib/workShortcutScope'
+import { ThingsPage, ThingsSidebar } from '@renderer/features/things/components/ThingsPage'
 import { ToastPresenter } from '@renderer/features/notifications/components/ToastPresenter'
 import { GlobalProcessingModal } from '@renderer/components/GlobalProcessingModal'
 import { theme } from '@renderer/theme/theme'
@@ -140,25 +141,24 @@ function App(): React.JSX.Element {
   const openThreadFromNotification = useAppStore((s) => s.openThreadFromNotification)
   const setThreadListMode = useAppStore((s) => s.setThreadListMode)
   const threadListMode = useAppStore((s) => s.threadListMode)
-  const [settingsTabActive, setSettingsTabActive] = useState(false)
+  const [activeAppTab, setActiveAppTab] = useState<AppTabId>(
+    appTabForThreadListMode(threadListMode)
+  )
   const [settingsRoute, setSettingsRoute] = useState('general')
   const [hasOpenedSettings, setHasOpenedSettings] = useState(false)
   const [isSidebarSearchOpen, setIsSidebarSearchOpen] = useState(false)
-  const activeAppTab: AppTabId = settingsTabActive
-    ? 'settings'
-    : appTabForThreadListMode(threadListMode)
 
   const handleSelectAppTab = useCallback(
     (tab: AppTabId): void => {
       if (tab === 'settings') {
         setHasOpenedSettings(true)
-        setSettingsTabActive(true)
+        setActiveAppTab('settings')
         void openSidebar()
         return
       }
 
-      setSettingsTabActive(false)
-      if (tab === 'archived') {
+      setActiveAppTab(tab)
+      if (tab === 'archived' || tab === 'things') {
         setIsSidebarSearchOpen(false)
       }
 
@@ -172,7 +172,7 @@ function App(): React.JSX.Element {
     (route = 'general'): void => {
       setSettingsRoute(route)
       setHasOpenedSettings(true)
-      setSettingsTabActive(true)
+      setActiveAppTab('settings')
       void openSidebar()
     },
     [openSidebar]
@@ -180,11 +180,11 @@ function App(): React.JSX.Element {
 
   useEffect(() => {
     const unsubscribeThread = window.api.onNavigateToThread((threadId) => {
-      setSettingsTabActive(false)
+      setActiveAppTab('chat')
       openThreadFromNotification(threadId)
     })
     const unsubscribeArchivedThread = window.api.onNavigateToArchivedThread((threadId) => {
-      setSettingsTabActive(false)
+      setActiveAppTab('archived')
       openThreadFromNotification(threadId, 'archivedThread')
     })
     return () => {
@@ -269,6 +269,7 @@ function App(): React.JSX.Element {
 
   const windowBackdrop = `linear-gradient(90deg, ${theme.background.sidebarVibrancy} 0%, ${theme.background.surfaceLight} 100%)`
   const isSettingsTabActive = activeAppTab === 'settings'
+  const isThingsTabActive = activeAppTab === 'things'
   const threadSidebarMode = threadListMode === 'archived' ? 'archived' : 'chat'
   const sidebarDividerOffset = resolveAppTabFrameSidebarDividerOffset(sidebarLayout.dividerOffset)
   const mainHeaderPaddingLeft = isSidebarOpen ? sidebarLayout.mainHeaderPaddingLeft : 20
@@ -332,7 +333,7 @@ function App(): React.JSX.Element {
       />
       <div className="relative h-full min-w-0 flex-1 overflow-hidden">
         {renderTabLayer({
-          active: !isSettingsTabActive,
+          active: activeAppTab === 'chat' || activeAppTab === 'archived',
           children: (
             <AppMainPanel
               headerPaddingLeft={mainHeaderPaddingLeft}
@@ -370,6 +371,16 @@ function App(): React.JSX.Element {
               }
             </AppMainPanel>
           )
+        })}
+
+        {renderTabLayer({
+          active: isThingsTabActive,
+          children: renderTabFrame({
+            content: <ThingsPage />,
+            contentTopControls: <div />,
+            sidebar: <ThingsSidebar />,
+            sidebarTopControls: null
+          })
         })}
 
         {hasOpenedSettings || isSettingsTabActive

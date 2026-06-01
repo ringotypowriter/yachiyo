@@ -12,6 +12,10 @@ import { useAppStore } from '@renderer/app/store/useAppStore'
 import { canCompactThreadToAnotherThread } from '@renderer/features/threads/lib/threadVisibility'
 import { scoreCandidates } from '../../lib/completionMatch'
 import {
+  buildThingMentionCompletionCommands,
+  getThingMentionQuery
+} from '../../lib/thingMentionCompletion'
+import {
   buildFileMentionRequestKey,
   buildFileMentionCompletionCommands,
   paginateFileMentionMatches
@@ -137,6 +141,7 @@ export function useComposerCompletions(
     hasMore: false,
     matches: []
   })
+  const things = useAppStore((s) => s.things)
   const [fileMentionResultLimitState, setFileMentionResultLimitState] = useState<{
     key: string | null
     limit: number
@@ -157,10 +162,15 @@ export function useComposerCompletions(
     : atSkillPrefixMatch
       ? atSkillPrefixMatch[1]
       : null
+  const thingMentionQuery = useMemo(
+    () => getThingMentionQuery(composerValue, composerValue.length),
+    [composerValue]
+  )
   const fileMentionMatch = useMemo(() => {
-    if (skillQuery !== null || atSkillPrefixMatch !== null) return null
+    if (thingMentionQuery !== null || skillQuery !== null || atSkillPrefixMatch !== null)
+      return null
     return FILE_MENTION_PATTERN.exec(composerValue)
-  }, [composerValue, skillQuery, atSkillPrefixMatch])
+  }, [composerValue, thingMentionQuery, skillQuery, atSkillPrefixMatch])
   const fileMentionRawQuery = fileMentionMatch
     ? (fileMentionMatch[3] ?? fileMentionMatch[4] ?? '')
     : ''
@@ -340,6 +350,16 @@ export function useComposerCompletions(
         })
       )
     }
+    if (thingMentionQuery !== null) {
+      return buildThingMentionCompletionCommands({ things, query: thingMentionQuery }).map(
+        (command) => ({
+          key: command.insertText,
+          label: command.label,
+          description: command.description,
+          type: 'thing' as const
+        })
+      )
+    }
     if (fileMentionQuery !== null) {
       return buildFileMentionCompletionCommands({
         matches: fileMentionMatches
@@ -353,15 +373,17 @@ export function useComposerCompletions(
     return []
   }, [
     skillQuery,
+    thingMentionQuery,
+    things,
     fileMentionQuery,
     fileMentionMatches,
     slashQuery,
     allSlashCommands,
     availableSkills
   ])
-  const activeQuery = skillQuery ?? fileMentionQuery ?? slashQuery
+  const activeQuery = skillQuery ?? thingMentionQuery ?? fileMentionQuery ?? slashQuery
   const showSlashCommandPopup =
-    (fileMentionQuery !== null || matchingSlashCommands.length > 0) &&
+    (thingMentionQuery !== null || fileMentionQuery !== null || matchingSlashCommands.length > 0) &&
     dismissedSlashQuery !== activeQuery
 
   useEffect(() => {

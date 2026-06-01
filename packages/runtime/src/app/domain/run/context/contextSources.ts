@@ -9,6 +9,7 @@ export function buildContextSources(input: {
   activeSkills: SkillSummary[]
   fileMentionCount: number
   inlinedFileCount: number
+  thingMentionCount?: number
   workspacePath: string
   hasToolReminder: boolean
   memoryEntries: string[]
@@ -56,6 +57,15 @@ export function buildContextSources(input: {
         }
       : { kind: 'fileMentions', present: false }
   )
+
+  if ((input.thingMentionCount ?? 0) > 0) {
+    sources.push({
+      kind: 'things',
+      present: true,
+      count: input.thingMentionCount,
+      summary: `${input.thingMentionCount} Thing${input.thingMentionCount === 1 ? '' : 's'} resolved`
+    })
+  }
 
   const toolCount = input.enabledTools.length
   const agentSummaryParts = [`${toolCount} ${toolCount === 1 ? 'tool' : 'tools'}`]

@@ -135,6 +135,52 @@ export const messagesTable = sqliteTable(
   ]
 )
 
+export const thingsTable = sqliteTable('things', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull().unique(),
+  summary: text('summary').notNull(),
+  lastUpdatedAt: text('last_updated_at').notNull(),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull()
+})
+
+export const thingThreadScopesTable = sqliteTable(
+  'thing_thread_scopes',
+  {
+    thingId: text('thing_id')
+      .notNull()
+      .references(() => thingsTable.id, { onDelete: 'cascade' }),
+    threadId: text('thread_id')
+      .notNull()
+      .references(() => threadsTable.id, { onDelete: 'cascade' }),
+    createdAt: text('created_at').notNull(),
+    updatedAt: text('updated_at').notNull()
+  },
+  (table) => [uniqueIndex('thing_thread_scopes_thing_thread_idx').on(table.thingId, table.threadId)]
+)
+
+export const thingSourceQuotesTable = sqliteTable(
+  'thing_source_quotes',
+  {
+    id: text('id').primaryKey(),
+    thingId: text('thing_id')
+      .notNull()
+      .references(() => thingsTable.id, { onDelete: 'cascade' }),
+    threadId: text('thread_id')
+      .notNull()
+      .references(() => threadsTable.id, { onDelete: 'cascade' }),
+    messageId: text('message_id').references(() => messagesTable.id, { onDelete: 'set null' }),
+    spanRowId: text('span_row_id'),
+    sourceRowId: text('source_row_id').notNull(),
+    quote: text('quote').notNull(),
+    createdAt: text('created_at').notNull()
+  },
+  (table) => [
+    index('thing_source_quotes_thing_id_idx').on(table.thingId),
+    index('thing_source_quotes_thread_id_idx').on(table.threadId)
+  ]
+)
+
 export const runsTable = sqliteTable(
   'runs',
   {

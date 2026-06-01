@@ -57,6 +57,7 @@ export class ScheduleDomain {
           name: spec.name,
           cronExpression: spec.cronExpression,
           prompt: spec.prompt,
+          ...(spec.enabledTools ? { enabledTools: spec.enabledTools } : {}),
           enabled: true,
           bundled: true,
           createdAt: now,
@@ -72,6 +73,13 @@ export class ScheduleDomain {
         if (existing.prompt !== spec.prompt || existing.name !== spec.name) {
           patched.name = spec.name
           patched.prompt = spec.prompt
+          needsUpdate = true
+        }
+
+        if (
+          JSON.stringify(existing.enabledTools ?? []) !== JSON.stringify(spec.enabledTools ?? [])
+        ) {
+          patched.enabledTools = spec.enabledTools
           needsUpdate = true
         }
 

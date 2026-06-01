@@ -10,7 +10,7 @@ export interface SlashCommand {
   key: string
   label: string
   description: string
-  type: 'action' | 'prompt' | 'skill' | 'skill-prefix' | 'file' | 'jotdown'
+  type: 'action' | 'prompt' | 'skill' | 'skill-prefix' | 'file' | 'jotdown' | 'thing'
 }
 
 const TYPE_ICONS = {
@@ -19,7 +19,8 @@ const TYPE_ICONS = {
   skill: Sparkles,
   'skill-prefix': Sparkles,
   file: Folder,
-  jotdown: NotebookPen
+  jotdown: NotebookPen,
+  thing: Hash
 } satisfies Record<
   SlashCommand['type'],
   React.ComponentType<{ size: number; strokeWidth: number; color: string }>
@@ -61,6 +62,10 @@ function CommandKey({ command }: { command: SlashCommand }): React.ReactNode {
         <span style={muted}>:…</span>
       </>
     )
+  }
+
+  if (command.type === 'thing') {
+    return <span style={accent}>{command.label}</span>
   }
 
   if (command.type === 'file' || command.type === 'jotdown') {

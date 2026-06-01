@@ -32,6 +32,7 @@ export type {
   ThreadColorTag,
   ThreadRecord as Thread,
   ThreadSentinelRecord,
+  ThingRecord,
   TodoItemRecord,
   TodoItemStatus,
   ToolCallName,

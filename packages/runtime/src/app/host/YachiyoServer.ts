@@ -53,6 +53,7 @@ import type {
   ThreadModelOverride,
   ThreadRecord,
   ThreadRuntimeBinding,
+  ThingRecord,
   ThreadWorkspaceChangeDecision,
   ThreadWorkspaceChangeDecisionInput,
   ThreadWorkspaceUpdateInput,
@@ -61,6 +62,7 @@ import type {
   ThreadSnapshot,
   ThreadStateReplacedEvent,
   ThreadUpdatedEvent,
+  ThingsUpdatedEvent,
   ToolCallName,
   ChannelsConfig,
   ChannelGroupHistoryClearCompletedEvent,
@@ -94,6 +96,7 @@ import {
   type BrowserAutomationService
 } from '../../services/browserAutomation/electronBrowserAutomationService.ts'
 import { ScheduleDomain } from '../domain/schedules/scheduleDomain.ts'
+import { ThingDomain } from '../domain/things/thingDomain.ts'
 import { createTtlReaper, type TtlReaper } from '../domain/shared/ttlReaper.ts'
 import { acpProcessPool } from '../../runtime/acp/acpProcessPool.ts'
 import { createAuxiliaryGenerationService } from '../../runtime/models/auxiliaryGeneration.ts'
@@ -240,6 +243,7 @@ export class YachiyoServer {
   private readonly removeSoulTraitFile: (trait: string) => Promise<SoulDocument | null>
   private readonly folderDomain: FolderDomain
   private readonly scheduleDomain: ScheduleDomain
+  private readonly thingDomain: ThingDomain
   private readonly ttlReaper: TtlReaper
   private readonly jotdownStore: JotdownStore | null
   private readonly developmentMode: boolean
@@ -374,6 +378,12 @@ export class YachiyoServer {
     this.webSearchServiceInstance = webSearchService
     this.browserAutomationService = browserAutomationService
     this.jotdownStore = options.jotdownStore ?? null
+    this.thingDomain = new ThingDomain({
+      storage: this.storage,
+      now: this.now,
+      onThingsChanged: (things) => this.emit<ThingsUpdatedEvent>({ type: 'things.updated', things })
+    })
+
     this.sentinelManager = createThreadSentinelManager({
       now: () => this.now().getTime(),
       setTimer: (callback, delayMs) => setTimeout(callback, delayMs),
@@ -409,6 +419,7 @@ export class YachiyoServer {
       browserAutomationService,
       memoryService,
       sourceQueryExecutor: options.sourceQueryExecutor,
+      thingDomain: this.thingDomain,
       readSoulDocument: this.readSoulDocumentFile,
       readUserDocument: this.readUserDocumentFile,
       readConfig: () => this.configDomain.readConfig(),
@@ -498,15 +509,12 @@ export class YachiyoServer {
     await this.storage.flushBackgroundTasks?.()
     this.storage.close()
   }
-
   recoverInterruptedRuns(error?: string): void {
     this.runDomain.recoverInterruptedRuns(error)
   }
-
   recoverInterruptedSaves(): string[] {
     return this.storage.recoverInterruptedSaves()
   }
-
   async bootstrap(): Promise<BootstrapPayload> {
     return bootstrapYachiyoServer({
       configDomain: this.configDomain,
@@ -520,7 +528,6 @@ export class YachiyoServer {
       storage: this.storage
     })
   }
-
   async getConfig(): Promise<SettingsConfig> {
     return this.configDomain.getConfig()
   }
@@ -532,7 +539,6 @@ export class YachiyoServer {
       lastUpdated: doc.lastUpdated
     }
   }
-
   async getSoulDocument(): Promise<ProtocolSoulDocument> {
     const doc = await this.readSoulDocumentFile()
     if (!doc) {
@@ -719,6 +725,21 @@ export class YachiyoServer {
 
   searchThreadsAndMessages(input: SearchThreadsAndMessagesInput): ThreadSearchResult[] {
     return this.storage.searchThreadsAndMessages(input)
+  }
+
+  async listThings(input: { includeInactive?: boolean } = {}): Promise<ThingRecord[]> {
+    return this.thingDomain.listThings(input)
+  }
+  async getThing(input: { name: string }): Promise<ThingRecord | undefined> {
+    return this.thingDomain.getThing(input.name)
+  }
+  async reactivateThing(input: { name: string }): Promise<ThingRecord | undefined> {
+    return this.thingDomain.reactivateThing(input.name)
+  }
+  async continueThingInNewChat(input: { name: string }): Promise<ThreadRecord> {
+    const thing = await this.thingDomain.getThing(input.name)
+    if (!thing || thing.isInactive) throw new Error(`Thing is not available: #${input.name}`)
+    return this.createThread({ title: `#${thing.name}` })
   }
 
   async createThread(

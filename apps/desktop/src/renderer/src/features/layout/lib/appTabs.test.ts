@@ -14,14 +14,14 @@ import {
   type AppTabId
 } from './appTabs.ts'
 
-test('app tabs expose Work, Archived, and Settings in order', () => {
+test('app tabs expose Work, Things, Archived, and Settings in order', () => {
   assert.deepEqual(
     APP_TABS.map((tab) => tab.id),
-    ['chat', 'archived', 'settings'] satisfies AppTabId[]
+    ['chat', 'things', 'archived', 'settings'] satisfies AppTabId[]
   )
   assert.deepEqual(
     APP_TABS.map((tab) => tab.label),
-    ['Work', 'Archived', 'Settings']
+    ['Work', 'Things', 'Archived', 'Settings']
   )
 })
 
@@ -33,6 +33,7 @@ test('thread list mode maps to the owning app tab', () => {
 test('app tabs resolve the thread list mode they own', () => {
   assert.equal(threadListModeForAppTab('chat'), 'active')
   assert.equal(threadListModeForAppTab('archived'), 'archived')
+  assert.equal(threadListModeForAppTab('things'), null)
   assert.equal(threadListModeForAppTab('settings'), null)
 })
 

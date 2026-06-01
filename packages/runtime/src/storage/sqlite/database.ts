@@ -17,6 +17,7 @@ import {
 import { openMigratedSqliteDatabase } from './sqliteRuntime.ts'
 import { ensureThreadSearchIndex, repairRunRequestMessageIds } from './threadSearchIndex.ts'
 import { createSqliteThreadSearchStorageMethods } from './threadSearchStorage.ts'
+import { createSqliteThingsStorageMethods } from './thingsStorage.ts'
 import {
   serializeEnabledTools,
   serializeModelOverride,
@@ -103,6 +104,7 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
       isBootstrapThread,
       toThreadRecordWithChannelUserRole
     }),
+    ...createSqliteThingsStorageMethods(db),
 
     recoverInterruptedRuns({ error, finishedAt }) {
       const recoverableRunIds = new Set(

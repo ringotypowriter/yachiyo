@@ -58,6 +58,7 @@ import {
 } from './agentInstructions.ts'
 import { buildContextSources } from './contextSources.ts'
 import { detectGitContext, type GitContext } from './gitContext.ts'
+import { buildThingContextBlock, resolveThingMentionsForUserQuery } from './thingMentions.ts'
 import { loadRunHistory, toRunHistoryMessages, type RunHistoryMessage } from './runHistory.ts'
 import { DEFAULT_MAX_TOOL_STEPS } from '../execution/runExecutionConstants.ts'
 import { getPreviousRunActualPromptTokens } from '../execution/runUsage.ts'
@@ -418,6 +419,12 @@ export async function prepareServerRunContext(
     ? (deps.activityTracker ?? getActivityTracker('simple')).finalizeAndConsume()
     : null
   const activityText = activitySummary?.text
+  const thingMentionResolutions = await resolveThingMentionsForUserQuery({
+    content: requestMessage?.content ?? '',
+    thingDomain: deps.thingDomain,
+    threadId: input.thread.id
+  })
+  const thingContextBlock = buildThingContextBlock(thingMentionResolutions)
 
   if (activitySummary && input.persistTurnContext !== false) {
     deps.storage.saveActivitySourceRecord({
@@ -445,6 +452,7 @@ export async function prepareServerRunContext(
       ...(hiddenQueryReminder ? { reminder: hiddenQueryReminder } : {}),
       ...(memoryEntries.length > 0 ? { memoryEntries } : {}),
       ...(activityText ? { activityText } : {}),
+      ...(thingMentionResolutions.length > 0 ? { thingMentions: thingMentionResolutions } : {}),
       enabledTools: [...input.enabledTools],
       enabledSkillNames: activeSkills.map((skill) => skill.name),
       runMode: input.runMode
@@ -458,10 +466,13 @@ export async function prepareServerRunContext(
   ])
   const augmentedUserQuery = fileMentionResolution.augmentedUserQuery
   const hasSkillExpansion = skillExpandedContent !== rawContent
-  const modelUserQuery = hasSkillExpansion
+  const expandedUserQuery = hasSkillExpansion
     ? augmentedUserQuery.slice(0, augmentedUserQuery.length - rawContent.length) +
       skillExpandedContent
     : augmentedUserQuery
+  const modelUserQuery = thingContextBlock
+    ? `${thingContextBlock}\n\n${expandedUserQuery}`
+    : expandedUserQuery
 
   const history =
     input.historyMessages !== undefined
@@ -598,6 +609,8 @@ export async function prepareServerRunContext(
         activeSkills,
         fileMentionCount: fileMentionResolution.mentions.length,
         inlinedFileCount: (fileMentionResolution.inlinedPath ? 1 : 0) + (hasInlinedJotdown ? 1 : 0),
+        thingMentionCount: thingMentionResolutions.filter((resolution) => resolution.resolved)
+          .length,
         workspacePath,
         hasToolReminder: hiddenQueryReminder !== undefined,
         memoryEntries,

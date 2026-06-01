@@ -27,6 +27,7 @@ import type { SoulDocument } from '../../../runtime/profiles/soul.ts'
 import type { UserDocument } from '../../../runtime/profiles/user.ts'
 import type { CreateId, EmitServerEvent, Timestamp } from '../shared/shared.ts'
 import type { TodoProgressState } from './todo/todoProgress.ts'
+import type { ThingDomain } from '../things/thingDomain.ts'
 
 export type RunExecutionPhase = 'generating' | 'tool-running' | 'waiting-for-user' | 'terminal'
 
@@ -90,6 +91,7 @@ export interface RunDomainDeps {
   loadBrowserSnapshot?: BrowserWebPageSnapshotLoader
   memoryService: MemoryService
   sourceQueryExecutor?: QuerySourceExecutor
+  thingDomain?: ThingDomain
   searchService?: SearchService
   webSearchService?: WebSearchService
   browserAutomationService?: BrowserAutomationService

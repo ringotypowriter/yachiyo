@@ -50,6 +50,14 @@ function getThreadEventToolMode(thread: Thread): ComposerToolMode | undefined {
 }
 
 export function reduceServerEvent(state: AppState, event: YachiyoServerEvent): Partial<AppState> {
+  if (event.type === 'things.updated') {
+    return {
+      things: state.showInactiveThings
+        ? event.things
+        : event.things.filter((thing) => !thing.isInactive)
+    }
+  }
+
   if (event.type === 'thread.archived') {
     const threads = removeThread(state.threads, event.threadId)
     const archivedThreads = upsertThread(state.archivedThreads, event.thread)

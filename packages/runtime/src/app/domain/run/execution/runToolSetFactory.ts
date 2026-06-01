@@ -125,6 +125,7 @@ export function createRunToolSet(input: CreateRunToolSetInput): ToolSet | undefi
     searchService: deps.searchService,
     memoryService: resolveToolMemoryService(input),
     webSearchService: deps.webSearchService,
+    ...(deps.thingDomain ? { thingDomain: deps.thingDomain } : {}),
     updateProfileDeps: {
       userDocumentPath: isGuest ? resolveYachiyoUserPath(workspacePath) : resolveYachiyoUserPath(),
       ...(isExternalChannel

@@ -53,6 +53,7 @@ import { createTool as createWebReadTool } from './agentTools/webReadTool.ts'
 import { createTool as createWebSearchTool } from './agentTools/webSearchTool.ts'
 import { createTool as createWriteTool } from './agentTools/writeTool.ts'
 import { createTool as createUseBrowserTool } from './agentTools/useBrowserTool.ts'
+import { createTool as createUseThingsTool } from './agentTools/useThingsTool.ts'
 import {
   createTool as createDelegateTaskTool,
   type DelegateTaskContext,
@@ -73,6 +74,7 @@ import {
 } from './agentTools/updateTodoListTool.ts'
 import { createUseSentinelTool, type UseSentinelToolContext } from './agentTools/useSentinelTool.ts'
 import type { YachiyoStorage } from '../storage/storage.ts'
+import type { ThingDomain } from '../app/domain/things/thingDomain.ts'
 import { createPlanExitTool } from '../app/domain/run/plan/planWriteTool.ts'
 import type { ModelRuntime } from '../runtime/models/types.ts'
 import type { ProviderSettings, SubagentsConfig } from '@yachiyo/shared/protocol'
@@ -146,6 +148,8 @@ export interface AgentToolDependencies {
   rememberDeps?: RememberToolDeps
   /** When provided, querySource exposes local context sources. */
   activityOcrEnabled?: boolean
+  /** When provided, useThings exposes cross-thread Things. */
+  thingDomain?: ThingDomain
   sourceQueryExecutor?: QuerySourceExecutor
   sourceQueryStorage?: YachiyoStorage
   subagentProfiles?: SubagentProfile[]
@@ -333,6 +337,15 @@ export function summarizeToolInput(toolName: ToolCallName | string, input: unkno
       : toolName
   }
 
+  if (toolName === 'useThings') {
+    if (typeof input === 'object' && input !== null && 'action' in input) {
+      const action = String(input.action)
+      const name = 'name' in input && typeof input.name === 'string' ? ` #${input.name}` : ''
+      return `${action}${name}`
+    }
+    return toolName
+  }
+
   if (toolName === 'querySource') {
     if (typeof input === 'object' && input !== null && 'from' in input) {
       const from = input.from
@@ -493,6 +506,7 @@ export function summarizeToolOutput(
   if (
     toolName === 'remember' ||
     toolName === 'querySource' ||
+    toolName === 'useThings' ||
     toolName === 'updateProfile' ||
     toolName === 'useSentinel'
   ) {
@@ -739,6 +753,10 @@ export function createAgentToolSet(
 
   if (dependencies.rememberDeps && shouldRegisterTool('remember')) {
     tools.remember = createRememberTool(dependencies.rememberDeps)
+  }
+
+  if (dependencies.thingDomain && shouldRegisterTool('useThings')) {
+    tools.useThings = createUseThingsTool({ thingDomain: dependencies.thingDomain })
   }
 
   if (dependencies.updateProfileDeps && shouldRegisterTool('updateProfile')) {

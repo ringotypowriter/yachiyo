@@ -55,6 +55,7 @@ import type {
   UserDocument,
   SoulDocument,
   ThreadSnapshot,
+  ThingRecord,
   ThreadRecord,
   ThreadWorkspaceChangeDecision,
   ThreadWorkspaceChangeDecisionInput,
@@ -111,6 +112,10 @@ declare global {
           input: SearchThreadsAndMessagesInput
         ) => Promise<ThreadSearchResult[]>
         searchWorkspaceFiles: (input: SearchWorkspaceFilesInput) => Promise<FileMentionCandidate[]>
+        listThings: (input?: { includeInactive?: boolean }) => Promise<ThingRecord[]>
+        getThing: (input: { name: string }) => Promise<ThingRecord | undefined>
+        reactivateThing: (input: { name: string }) => Promise<ThingRecord | undefined>
+        continueThingInNewChat: (input: { name: string }) => Promise<ThreadRecord>
         archiveThread: (input: { threadId: string }) => Promise<void>
         bootstrap: () => Promise<BootstrapPayload>
         createBranch: (input: { threadId: string; messageId: string }) => Promise<ThreadSnapshot>

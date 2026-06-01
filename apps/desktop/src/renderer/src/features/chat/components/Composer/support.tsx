@@ -44,7 +44,7 @@ export const ACCEPT_ATTRIBUTE = [
 ].join(',')
 
 export const COMPOSER_TAG_HIGHLIGHT_RE =
-  /@skills:[a-zA-Z0-9_-]+|@!?"[^"]+"|@!?[\p{L}\p{N}\p{M}._/-]+/gu
+  /@skills:[a-zA-Z0-9_-]+|@!?"[^"]+"|@!?[\p{L}\p{N}\p{M}._/-]+|#[a-zA-Z][a-zA-Z0-9_-]+/gu
 export const CONFIRMED_FILE_TAG_RE = /(^|\s)@(!?"[^"]+"|!?[\p{L}\p{N}\p{M}._/-]+)(?=\s|$)/gu
 export const SKILL_TAG_PATTERN = /^@skills:([a-zA-Z0-9_-]+)(\s|$)/
 export const SLASH_PATTERN = /^\/([a-zA-Z0-9-]*)$/
@@ -80,11 +80,14 @@ export function renderComposerTextHighlights(
   while ((m = COMPOSER_TAG_HIGHLIGHT_RE.exec(text)) !== null) {
     const matched = m[0]
     const isSkillTag = matched.startsWith('@skills:')
+    const isThingTag = matched.startsWith('#')
     // For file tags, strip the leading @ (and optional !) and surrounding quotes to check against validated set
-    let fileTagKey = isSkillTag ? null : matched.slice(matched.startsWith('@!') ? 2 : 1)
+    let fileTagKey =
+      isSkillTag || isThingTag ? null : matched.slice(matched.startsWith('@!') ? 2 : 1)
     if (fileTagKey?.startsWith('"') && fileTagKey.endsWith('"'))
       fileTagKey = fileTagKey.slice(1, -1)
-    const isHighlighted = isSkillTag || (fileTagKey !== null && validatedSet.has(fileTagKey))
+    const isHighlighted =
+      isSkillTag || isThingTag || (fileTagKey !== null && validatedSet.has(fileTagKey))
 
     if (m.index > last) {
       parts.push(

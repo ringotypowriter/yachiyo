@@ -40,6 +40,7 @@ import type {
   ThreadModelOverride,
   ThreadRecord,
   ThreadRuntimeBinding,
+  ThingRecord,
   ThreadWorkspaceChangeDecision,
   ThreadWorkspaceChangeDecisionInput,
   ThreadWorkspaceUpdateInput,
@@ -131,6 +132,14 @@ const api = {
       ipcRenderer.invoke('yachiyo:search-threads-and-messages', input),
     searchWorkspaceFiles: (input: SearchWorkspaceFilesInput) =>
       ipcRenderer.invoke('yachiyo:search-workspace-files', input),
+    listThings: (input?: { includeInactive?: boolean }): Promise<ThingRecord[]> =>
+      ipcRenderer.invoke('yachiyo:list-things', input),
+    getThing: (input: { name: string }): Promise<ThingRecord | undefined> =>
+      ipcRenderer.invoke('yachiyo:get-thing', input),
+    reactivateThing: (input: { name: string }): Promise<ThingRecord | undefined> =>
+      ipcRenderer.invoke('yachiyo:reactivate-thing', input),
+    continueThingInNewChat: (input: { name: string }): Promise<ThreadRecord> =>
+      ipcRenderer.invoke('yachiyo:continue-thing-in-new-chat', input),
     archiveThread: (input: { threadId: string }) =>
       ipcRenderer.invoke('yachiyo:archive-thread', input),
     bootstrap: () => ipcRenderer.invoke('yachiyo:bootstrap'),

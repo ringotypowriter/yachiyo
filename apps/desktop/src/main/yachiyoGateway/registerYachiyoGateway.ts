@@ -667,6 +667,16 @@ export function registerYachiyoGateway(): YachiyoServer {
   handleYachiyoIpc(IPC_CHANNELS.searchWorkspaceFiles, (input: SearchWorkspaceFilesInput) =>
     server!.searchWorkspaceFiles(input)
   )
+  handleYachiyoIpc(IPC_CHANNELS.listThings, (input?: { includeInactive?: boolean }) =>
+    server!.listThings(input)
+  )
+  handleYachiyoIpc(IPC_CHANNELS.getThing, (input: { name: string }) => server!.getThing(input))
+  handleYachiyoIpc(IPC_CHANNELS.reactivateThing, (input: { name: string }) =>
+    server!.reactivateThing(input)
+  )
+  handleYachiyoIpc(IPC_CHANNELS.continueThingInNewChat, (input: { name: string }) =>
+    server!.continueThingInNewChat(input)
+  )
   handleYachiyoIpc(IPC_CHANNELS.bootstrap, () => server!.bootstrap())
   handleYachiyoIpc(
     IPC_CHANNELS.createThread,

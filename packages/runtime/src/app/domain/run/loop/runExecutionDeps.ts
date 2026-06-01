@@ -90,6 +90,7 @@ export function buildRunExecutionDeps(
     memoryService: deps.memoryService,
     browserAutomationService: deps.browserAutomationService,
     sourceQueryExecutor: deps.sourceQueryExecutor,
+    thingDomain: deps.thingDomain,
     searchService: deps.searchService,
     webSearchService: deps.webSearchService,
     readSoulDocument: deps.readSoulDocument,

@@ -41,6 +41,9 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
   const threads = new Map<string, StoredThreadRow>()
   const folders = new Map<string, FolderRecord>()
   const schedules = new Map<string, ScheduleRecord>()
+  const things = new Map<string, import('./storage.ts').StoredThingRow>()
+  const thingThreadScopes = new Map<string, import('./storage.ts').StoredThingThreadScopeRow>()
+  const thingSourceQuotes = new Map<string, import('./storage.ts').StoredThingSourceQuoteRow>()
   const scheduleRuns = new Map<string, ScheduleRunRecord>()
   const messages: MessageRecord[] = []
   const runs = new Map<string, StoredRunRow>()
@@ -112,6 +115,26 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
     [...items].sort((left, right) => left.createdAt.localeCompare(right.createdAt))
   const sortToolCalls = (items: ToolCallRecord[]): ToolCallRecord[] =>
     sortToolCallsChronologically(items)
+  const threadTitle = (threadId: string): string | undefined => threads.get(threadId)?.title
+  const toThingThreadScopeRecord = (
+    scope: import('./storage.ts').StoredThingThreadScopeRow
+  ): import('@yachiyo/shared/protocol').ThingThreadScopeRecord => ({
+    ...scope,
+    ...(threadTitle(scope.threadId) ? { threadTitle: threadTitle(scope.threadId) } : {})
+  })
+  const toThingSourceQuoteRecord = (
+    quote: import('./storage.ts').StoredThingSourceQuoteRow
+  ): import('@yachiyo/shared/protocol').ThingSourceQuoteRecord => ({
+    id: quote.id,
+    thingId: quote.thingId,
+    threadId: quote.threadId,
+    ...(threadTitle(quote.threadId) ? { threadTitle: threadTitle(quote.threadId) } : {}),
+    ...(quote.messageId ? { messageId: quote.messageId } : {}),
+    ...(quote.spanRowId ? { spanRowId: quote.spanRowId } : {}),
+    sourceRowId: quote.sourceRowId,
+    quote: quote.quote,
+    createdAt: quote.createdAt
+  })
   const hasVisibleMessageContent = (message: MessageRecord): boolean => {
     if (message.hidden) return false
     if (message.role !== 'user' && message.role !== 'assistant') return false
@@ -1108,6 +1131,58 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
         }
       }
     },
+
+    listThings() {
+      return [...things.values()].sort((left, right) =>
+        right.lastUpdatedAt.localeCompare(left.lastUpdatedAt)
+      )
+    },
+    getThing(id) {
+      return things.get(id)
+    },
+    getThingByName(name) {
+      return [...things.values()].find((thing) => thing.name === name)
+    },
+    createThing(thing) {
+      things.set(thing.id, { ...thing })
+    },
+    updateThing(thing) {
+      things.set(thing.id, { ...thing })
+    },
+    deleteThing(id) {
+      things.delete(id)
+      for (const [key, scope] of thingThreadScopes.entries()) {
+        if (scope.thingId === id) thingThreadScopes.delete(key)
+      }
+      for (const [quoteId, quote] of thingSourceQuotes.entries()) {
+        if (quote.thingId === id) thingSourceQuotes.delete(quoteId)
+      }
+    },
+    listThingThreadScopes(thingId) {
+      return [...thingThreadScopes.values()]
+        .filter((scope) => !thingId || scope.thingId === thingId)
+        .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
+        .map(toThingThreadScopeRecord)
+    },
+    upsertThingThreadScope(scope) {
+      thingThreadScopes.set(`${scope.thingId}:${scope.threadId}`, { ...scope })
+    },
+    deleteThingThreadScope({ thingId, threadId }) {
+      thingThreadScopes.delete(`${thingId}:${threadId}`)
+    },
+    listThingSourceQuotes(thingId) {
+      return [...thingSourceQuotes.values()]
+        .filter((quote) => !thingId || quote.thingId === thingId)
+        .sort((left, right) => left.createdAt.localeCompare(right.createdAt))
+        .map(toThingSourceQuoteRecord)
+    },
+    addThingSourceQuote(quote) {
+      thingSourceQuotes.set(quote.id, { ...quote })
+    },
+    deleteThingSourceQuote(id) {
+      thingSourceQuotes.delete(id)
+    },
+
     createScheduleRun(run) {
       scheduleRuns.set(run.id, { ...run })
     },

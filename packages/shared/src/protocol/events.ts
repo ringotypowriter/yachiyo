@@ -10,6 +10,7 @@ import type {
   SettingsConfig,
   ThreadSentinelRecord,
   ThreadRecord,
+  ThingRecord,
   ToolCallRecord
 } from '../protocol.ts'
 
@@ -215,6 +216,11 @@ export interface TodoUpdatedEvent extends RunEvent {
   items: TodoItemRecord[]
 }
 
+export interface ThingsUpdatedEvent extends BaseEvent {
+  type: 'things.updated'
+  things: ThingRecord[]
+}
+
 export interface SettingsUpdatedEvent extends BaseEvent {
   type: 'settings.updated'
   config: SettingsConfig
@@ -328,6 +334,7 @@ export type YachiyoServerEvent =
   | MessageCompletedEvent
   | ToolCallUpdatedEvent
   | TodoUpdatedEvent
+  | ThingsUpdatedEvent
   | SettingsUpdatedEvent
   | SubagentStartedEvent
   | SubagentFinishedEvent
