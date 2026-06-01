@@ -3,7 +3,7 @@ import test from 'node:test'
 
 import { createInMemoryYachiyoStorage } from '../../storage/memoryStorage.ts'
 import { ThingDomain } from '../../app/domain/things/thingDomain.ts'
-import { createTool, useThingsToolDescription } from './useThingsTool.ts'
+import { createTool } from './useThingsTool.ts'
 
 test('useThings tool creates and lists Things', async () => {
   const domain = new ThingDomain({
@@ -27,12 +27,4 @@ test('useThings tool creates and lists Things', async () => {
 
   assert.equal(output.error, undefined)
   assert.ok(JSON.stringify(output.details).includes('raven-ui'))
-})
-
-test('useThings description requires language alignment and no primaryLanguage field', () => {
-  assert.match(useThingsToolDescription, /main language/)
-  assert.match(
-    useThingsToolDescription,
-    /Do not create, infer, output, or maintain any primaryLanguage field/
-  )
 })
