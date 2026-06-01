@@ -116,7 +116,7 @@ const GENERAL_SYSTEM_PROMPT = `Handle the delegated subtask autonomously.
 ## Task
 Complete the delegated subtask and report the outcome.`
 
-const WORKER_SUBAGENT_MAX_TOOL_STEPS = 500
+const WORKER_SUBAGENT_MAX_TOOL_STEPS = 999
 
 export const DEFAULT_NAMED_SUBAGENT_PROFILES: Record<
   NamedSubagentId,

@@ -1,4 +1,5 @@
 export type AppTabId = 'chat' | 'things' | 'archived' | 'settings'
+export type AppSidebarMode = 'chat' | 'archived'
 
 export interface AppTabDefinition {
   id: AppTabId
@@ -28,6 +29,24 @@ export function threadListModeForAppTab(tab: AppTabId): 'active' | 'archived' | 
   if (tab === 'chat') return 'active'
   if (tab === 'archived') return 'archived'
   return null
+}
+
+export function shouldRenderWorkTabFrame(tab: AppTabId): boolean {
+  return tab === 'chat' || tab === 'things' || tab === 'archived'
+}
+
+export function sidebarModeForAppTab(tab: AppTabId): AppSidebarMode | null {
+  if (tab === 'archived') return 'archived'
+  if (tab === 'chat' || tab === 'things') return 'chat'
+  return null
+}
+
+export function shouldActivateThreadsFromSidebar(tab: AppTabId): boolean {
+  return tab === 'chat' || tab === 'archived'
+}
+
+export function shouldSelectThreadsFromSidebar(tab: AppTabId): boolean {
+  return tab === 'chat' || tab === 'things' || tab === 'archived'
 }
 
 export function resolveAppTabBarBottomTools(

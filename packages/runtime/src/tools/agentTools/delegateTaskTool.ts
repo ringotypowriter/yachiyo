@@ -312,7 +312,7 @@ async function runWorkerSubagent(
       settings: ctx.settings,
       signal: abortSignal ?? new AbortController().signal,
       purpose: `worker:${profileId}`,
-      maxToolSteps: profile.maxToolSteps ?? 10,
+      maxToolSteps: profile.maxToolSteps ?? 999,
       tools,
       onToolCallStart: (event) => {
         const toolName = event.toolCall.toolName

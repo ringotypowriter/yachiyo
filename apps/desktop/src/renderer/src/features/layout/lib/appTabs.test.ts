@@ -9,6 +9,10 @@ import {
   resolveAppTabBarBottomTools,
   resolveAppTabFrameSidebarDividerOffset,
   resolveAppTabFrameTopChromeColumn,
+  sidebarModeForAppTab,
+  shouldActivateThreadsFromSidebar,
+  shouldRenderWorkTabFrame,
+  shouldSelectThreadsFromSidebar,
   shouldShowAppTabFrameSidebarTopControls,
   threadListModeForAppTab,
   type AppTabId
@@ -35,6 +39,30 @@ test('app tabs resolve the thread list mode they own', () => {
   assert.equal(threadListModeForAppTab('archived'), 'archived')
   assert.equal(threadListModeForAppTab('things'), null)
   assert.equal(threadListModeForAppTab('settings'), null)
+})
+
+test('Things renders inside the Work frame without owning a thread list mode', () => {
+  assert.equal(shouldRenderWorkTabFrame('chat'), true)
+  assert.equal(shouldRenderWorkTabFrame('things'), true)
+  assert.equal(shouldRenderWorkTabFrame('archived'), true)
+  assert.equal(shouldRenderWorkTabFrame('settings'), false)
+})
+
+test('Things reuses the Work sidebar while keeping thread activation disabled', () => {
+  assert.equal(sidebarModeForAppTab('chat'), 'chat')
+  assert.equal(sidebarModeForAppTab('things'), 'chat')
+  assert.equal(sidebarModeForAppTab('archived'), 'archived')
+  assert.equal(sidebarModeForAppTab('settings'), null)
+
+  assert.equal(shouldActivateThreadsFromSidebar('chat'), true)
+  assert.equal(shouldActivateThreadsFromSidebar('things'), false)
+  assert.equal(shouldActivateThreadsFromSidebar('archived'), true)
+  assert.equal(shouldActivateThreadsFromSidebar('settings'), false)
+
+  assert.equal(shouldSelectThreadsFromSidebar('chat'), true)
+  assert.equal(shouldSelectThreadsFromSidebar('things'), true)
+  assert.equal(shouldSelectThreadsFromSidebar('archived'), true)
+  assert.equal(shouldSelectThreadsFromSidebar('settings'), false)
 })
 
 test('compact app tab rail is narrower than the macOS traffic-light safe area', () => {

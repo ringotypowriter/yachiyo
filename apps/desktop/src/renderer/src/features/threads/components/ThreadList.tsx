@@ -579,6 +579,8 @@ function ThreadListContent({
   setThreadIcon,
   starThread,
   threadListMode,
+  threadActivationEnabled,
+  onThreadSelect,
   visibleThreads,
   toolCallsByThread,
   folders,
@@ -614,6 +616,8 @@ function ThreadListContent({
   setThreadIcon: (threadId: string, icon: string | null) => Promise<void>
   starThread: (threadId: string, starred: boolean) => Promise<void>
   threadListMode: 'active' | 'archived'
+  threadActivationEnabled: boolean
+  onThreadSelect?: (threadId: string) => void
   visibleThreads: Thread[]
   toolCallsByThread: Record<string, ToolCall[]>
   folders: FolderRecord[]
@@ -699,6 +703,7 @@ function ThreadListContent({
       }
 
       if (operationKey === 'compact-to-another-thread') {
+        if (!threadActivationEnabled) return
         setActiveThread(thread.id)
         await compactThreadToAnotherThread()
         return
@@ -969,6 +974,8 @@ function ThreadListContent({
         isSelected={selectedIds.has(thread.id)}
         isStarred={!!thread.starredAt}
         isInFolder={options.isInFolder === true}
+        threadActivationEnabled={threadActivationEnabled}
+        threadSelectionEnabled={threadActivationEnabled || onThreadSelect !== undefined}
         showPreview={showPreview}
         toolCalls={toolCallsByThread[thread.id] ?? EMPTY_THREAD_TOOL_CALLS}
         threadListMode={threadListMode}
@@ -977,6 +984,11 @@ function ThreadListContent({
           void handleSelectOperation(targetThread, operationKey)
         }
         onSelectThread={(threadId) => {
+          if (onThreadSelect) {
+            onThreadSelect(threadId)
+            return
+          }
+          if (!threadActivationEnabled) return
           if (threadListMode === 'archived') {
             setActiveArchivedThread(threadId)
             return
@@ -1193,7 +1205,15 @@ function ThreadListContent({
   )
 }
 
-export function ThreadList(): React.JSX.Element {
+export function ThreadList({
+  threadActivationEnabled = true,
+  threadListModeOverride,
+  onThreadSelect
+}: {
+  threadActivationEnabled?: boolean
+  threadListModeOverride?: 'active' | 'archived'
+  onThreadSelect?: (threadId: string) => void
+}): React.JSX.Element {
   const activeArchivedThreadId = useAppStore((s) => s.activeArchivedThreadId)
   const activeThreadId = useAppStore((s) => s.activeThreadId)
   const archiveThread = useAppStore((s) => s.archiveThread)
@@ -1220,7 +1240,8 @@ export function ThreadList(): React.JSX.Element {
   const savingThreadIds = useAppStore((s) => s.savingThreadIds)
   const setActiveArchivedThread = useAppStore((s) => s.setActiveArchivedThread)
   const setActiveThread = useAppStore((s) => s.setActiveThread)
-  const threadListMode = useAppStore((s) => s.threadListMode)
+  const storeThreadListMode = useAppStore((s) => s.threadListMode)
+  const threadListMode = threadListModeOverride ?? storeThreadListMode
   const threads = useAppStore((s) => s.threads)
   const toolCallsByThread = useAppStore((s) => s.toolCalls)
   const externalThreads = useAppStore((s) => s.externalThreads)
@@ -1322,7 +1343,11 @@ export function ThreadList(): React.JSX.Element {
     return ids
   }, [composerDrafts, threadListMode])
 
-  const activeId = threadListMode === 'archived' ? activeArchivedThreadId : activeThreadId
+  const activeId = threadActivationEnabled
+    ? threadListMode === 'archived'
+      ? activeArchivedThreadId
+      : activeThreadId
+    : null
   const memoryEnabled = isMemoryConfigured(config)
 
   return (
@@ -1352,6 +1377,8 @@ export function ThreadList(): React.JSX.Element {
       setThreadIcon={setThreadIcon}
       starThread={starThread}
       threadListMode={threadListMode}
+      threadActivationEnabled={threadActivationEnabled}
+      onThreadSelect={onThreadSelect}
       visibleThreads={visibleThreads}
       toolCallsByThread={toolCallsByThread}
       folders={folders}

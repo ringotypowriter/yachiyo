@@ -3,9 +3,59 @@ import { useEffect, useMemo, useState } from 'react'
 import { useAppStore } from '@renderer/app/store/useAppStore'
 import type { ThingRecord } from '@renderer/app/types'
 import { alpha, theme } from '@renderer/theme/theme'
-import { ThingCard, ThingSourcePanel } from './ThingCard'
+import { ThingColumn, ThingDetailOverlay } from './ThingCard'
 
-export function ThingsPage(): React.JSX.Element {
+export interface ThingsPageProps {
+  showHeader?: boolean
+  onContinueThing?: (name: string) => Promise<void>
+  onOpenThread?: (threadId: string, messageId?: string) => void
+}
+
+export function ThingsPanelTopControls({
+  headerPaddingLeft
+}: {
+  headerPaddingLeft: number
+}): React.JSX.Element {
+  const things = useAppStore((s) => s.things)
+  const showInactiveThings = useAppStore((s) => s.showInactiveThings)
+  const toggleShowInactiveThings = useAppStore((s) => s.toggleShowInactiveThings)
+  const activeCount = countActiveThings(things)
+  const quoteCount = countSourceQuotes(things)
+
+  return (
+    <div
+      className="flex h-full min-w-0 flex-1 items-center gap-4"
+      style={{ paddingLeft: `${headerPaddingLeft}px`, paddingRight: 20 }}
+    >
+      <div className="min-w-0 flex-1">
+        <div className="truncate text-sm font-semibold" style={{ color: theme.text.primary }}>
+          Things
+        </div>
+        <div className="truncate text-xs font-medium" style={{ color: theme.text.muted }}>
+          Context board · {activeCount} active · {quoteCount} source{quoteCount === 1 ? '' : 's'}
+        </div>
+      </div>
+      <button
+        type="button"
+        className="no-drag shrink-0 rounded-full px-3 py-1.5 text-xs font-medium transition hover:scale-[1.01]"
+        style={{
+          background: showInactiveThings ? theme.background.accentSoft : theme.background.surface,
+          color: showInactiveThings ? theme.text.accent : theme.text.secondary,
+          boxShadow: theme.shadow.button
+        }}
+        onClick={toggleShowInactiveThings}
+      >
+        {showInactiveThings ? 'Hide inactive' : 'Show inactive'}
+      </button>
+    </div>
+  )
+}
+
+export function ThingsPage({
+  showHeader = true,
+  onContinueThing,
+  onOpenThread
+}: ThingsPageProps): React.JSX.Element {
   const things = useAppStore((s) => s.things)
   const showInactiveThings = useAppStore((s) => s.showInactiveThings)
   const loadThings = useAppStore((s) => s.loadThings)
@@ -19,72 +69,83 @@ export function ThingsPage(): React.JSX.Element {
     void loadThings({ includeInactive: showInactiveThings })
   }, [loadThings, showInactiveThings])
 
-  const visibleThings = useMemo(() => {
-    return [...things].sort((a, b) => {
-      if (a.isInactive !== b.isInactive) return a.isInactive ? 1 : -1
-      return Date.parse(b.lastUpdatedAt) - Date.parse(a.lastUpdatedAt)
-    })
-  }, [things])
+  const boardThings = useMemo(() => {
+    return [...things]
+      .filter((thing) => showInactiveThings || !thing.isInactive)
+      .sort((a, b) => {
+        if (a.isInactive !== b.isInactive) return a.isInactive ? 1 : -1
+        return Date.parse(b.lastUpdatedAt) - Date.parse(a.lastUpdatedAt)
+      })
+  }, [showInactiveThings, things])
 
   const selectedThing = useMemo<ThingRecord | null>(() => {
-    if (visibleThings.length === 0) return null
-    return visibleThings.find((thing) => thing.id === selectedThingId) ?? visibleThings[0]
-  }, [selectedThingId, visibleThings])
+    if (!selectedThingId) return null
+    return things.find((thing) => thing.id === selectedThingId) ?? null
+  }, [selectedThingId, things])
 
-  const activeCount = things.filter((thing) => !thing.isInactive).length
-  const quoteCount = things.reduce((count, thing) => count + thing.sourceQuotes.length, 0)
+  const activeCount = countActiveThings(things)
+  const quoteCount = countSourceQuotes(things)
+  const contentPadding = showHeader ? 'px-8 pb-8' : 'px-6 py-6'
+  const handleContinue = onContinueThing ?? continueThingInNewChat
+  const handleOpenThread = onOpenThread ?? setActiveThread
 
   return (
-    <div className="h-full overflow-auto px-8 py-7">
-      <div className="mx-auto flex max-w-7xl flex-col gap-6">
-        <header className="flex flex-wrap items-end justify-between gap-4">
-          <div>
-            <div
-              className="text-xs font-semibold uppercase tracking-[0.18em]"
-              style={{ color: theme.text.muted }}
-            >
-              Context index
+    <div
+      className="relative grid h-full min-h-0 min-w-0 overflow-hidden"
+      style={{ gridTemplateRows: showHeader ? 'auto minmax(0, 1fr)' : 'minmax(0, 1fr)' }}
+    >
+      {showHeader ? (
+        <header className="min-w-0 px-8 pb-5 pt-7">
+          <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-end gap-6">
+            <div className="min-w-0">
+              <div
+                className="text-xs font-semibold uppercase tracking-[0.18em]"
+                style={{ color: theme.text.muted }}
+              >
+                Context board
+              </div>
+              <h1
+                className="mt-2 text-3xl font-semibold tracking-[-0.03em]"
+                style={{ color: theme.text.primary }}
+              >
+                Things
+              </h1>
+              <p
+                className="mt-2 max-w-2xl text-sm leading-6"
+                style={{ color: theme.text.secondary }}
+              >
+                Durable work context with source-backed evidence. Mention #name to carry a Thing
+                into chat.
+              </p>
             </div>
-            <h1
-              className="mt-2 text-3xl font-semibold tracking-[-0.03em]"
-              style={{ color: theme.text.primary }}
-            >
-              Things
-            </h1>
-            <p className="mt-2 max-w-xl text-sm leading-6" style={{ color: theme.text.secondary }}>
-              Durable work context with source-backed evidence. Mention a Thing with #name to carry
-              it into a chat.
-            </p>
-          </div>
 
-          <div className="flex items-center gap-3">
-            <Metric label="Active" value={activeCount} />
-            <Metric label="Sources" value={quoteCount} />
-            <button
-              type="button"
-              className="rounded-full border px-4 py-2 text-sm font-medium transition hover:scale-[1.01]"
-              style={{
-                borderColor: showInactiveThings ? theme.border.accent : theme.border.panel,
-                background: showInactiveThings
-                  ? theme.background.accentSoft
-                  : theme.background.surface,
-                color: showInactiveThings ? theme.text.accent : theme.text.secondary
-              }}
-              onClick={toggleShowInactiveThings}
-            >
-              {showInactiveThings ? 'Hide inactive' : 'Show inactive'}
-            </button>
+            <div className="flex shrink-0 items-center gap-3">
+              <Metric label="Active" value={activeCount} />
+              <Metric label="Sources" value={quoteCount} />
+              <button
+                type="button"
+                className="rounded-full px-4 py-2 text-sm font-medium transition hover:scale-[1.01]"
+                style={{
+                  background: showInactiveThings
+                    ? theme.background.accentSoft
+                    : theme.background.surface,
+                  color: showInactiveThings ? theme.text.accent : theme.text.secondary,
+                  boxShadow: theme.shadow.button
+                }}
+                onClick={toggleShowInactiveThings}
+              >
+                {showInactiveThings ? 'Hide inactive' : 'Show inactive'}
+              </button>
+            </div>
           </div>
         </header>
+      ) : null}
 
-        {visibleThings.length === 0 ? (
+      {boardThings.length === 0 ? (
+        <div className={`min-h-0 min-w-0 overflow-hidden ${contentPadding}`}>
           <div
-            className="rounded-[2rem] border px-8 py-12 text-center"
-            style={{
-              borderColor: theme.border.subtle,
-              background: theme.background.surface,
-              boxShadow: theme.shadow.card
-            }}
+            className="w-full rounded-4xl px-8 py-12 text-center"
+            style={{ background: alpha('surface', 0.62), boxShadow: theme.shadow.card }}
           >
             <div className="text-lg font-semibold" style={{ color: theme.text.primary }}>
               No Things yet
@@ -96,59 +157,52 @@ export function ThingsPage(): React.JSX.Element {
               The daily review will create one when a topic becomes worth carrying forward.
             </p>
           </div>
-        ) : (
-          <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_420px]">
-            <div className="flex flex-col gap-3">
-              {visibleThings.map((thing) => (
-                <ThingCard
+        </div>
+      ) : (
+        <div className={`min-h-0 min-w-0 overflow-hidden ${contentPadding}`}>
+          <div className="h-full min-h-0 min-w-0 overflow-x-auto overflow-y-hidden">
+            <div
+              className="grid items-start gap-4 pb-4 pr-8"
+              style={{ gridAutoFlow: 'column', gridAutoColumns: '340px' }}
+            >
+              {boardThings.map((thing) => (
+                <ThingColumn
                   key={thing.id}
                   thing={thing}
-                  selected={selectedThing?.id === thing.id}
-                  onSelect={() => setSelectedThingId(thing.id)}
-                  onContinue={(name) => void continueThingInNewChat(name)}
+                  onOpen={() => setSelectedThingId(thing.id)}
+                  onContinue={(name) => void handleContinue(name)}
                   onReactivate={(name) => void reactivateThing(name)}
                 />
               ))}
             </div>
-            <ThingSourcePanel
-              thing={selectedThing}
-              onContinue={(name) => void continueThingInNewChat(name)}
-              onReactivate={(name) => void reactivateThing(name)}
-              onOpenThread={(threadId, messageId) => setActiveThread(threadId, messageId)}
-            />
           </div>
-        )}
-      </div>
+        </div>
+      )}
+
+      {selectedThing ? (
+        <ThingDetailOverlay
+          thing={selectedThing}
+          onClose={() => setSelectedThingId(null)}
+          onContinue={(name) => void handleContinue(name)}
+          onReactivate={(name) => void reactivateThing(name)}
+          onOpenThread={handleOpenThread}
+        />
+      ) : null}
     </div>
   )
 }
 
-export function ThingsSidebar(): React.JSX.Element {
-  const things = useAppStore((s) => s.things)
-  const activeCount = things.filter((thing) => !thing.isInactive).length
-  const inactiveCount = things.length - activeCount
-  return (
-    <div className="p-4">
-      <div
-        className="text-xs font-semibold uppercase tracking-wide"
-        style={{ color: theme.text.muted }}
-      >
-        Things
-      </div>
-      <div className="mt-3 space-y-2 text-sm" style={{ color: theme.text.secondary }}>
-        <div>{activeCount} active</div>
-        <div>{inactiveCount} inactive shown</div>
-      </div>
-    </div>
-  )
+function countActiveThings(things: ThingRecord[]): number {
+  return things.filter((thing) => !thing.isInactive).length
+}
+
+function countSourceQuotes(things: ThingRecord[]): number {
+  return things.reduce((count, thing) => count + thing.sourceQuotes.length, 0)
 }
 
 function Metric({ label, value }: { label: string; value: number }): React.JSX.Element {
   return (
-    <div
-      className="rounded-2xl border px-4 py-2 text-right"
-      style={{ borderColor: theme.border.subtle, background: alpha('surface', 0.72) }}
-    >
+    <div className="rounded-2xl px-4 py-2 text-right" style={{ background: alpha('surface', 0.7) }}>
       <div className="text-base font-semibold tabular-nums" style={{ color: theme.text.primary }}>
         {value}
       </div>

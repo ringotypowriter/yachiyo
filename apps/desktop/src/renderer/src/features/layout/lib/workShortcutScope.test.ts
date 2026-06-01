@@ -11,3 +11,7 @@ test('work shortcuts stay enabled in Chat and Archived tabs', () => {
 test('work shortcuts are disabled while Settings is active', () => {
   assert.equal(shouldHandleWorkShortcut('settings'), false)
 })
+
+test('work shortcuts are disabled while Things shows passive Work sidebar context', () => {
+  assert.equal(shouldHandleWorkShortcut('things'), false)
+})

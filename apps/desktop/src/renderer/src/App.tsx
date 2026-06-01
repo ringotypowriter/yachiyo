@@ -15,11 +15,15 @@ import { isOpenSidebarSearchShortcut } from '@renderer/features/layout/lib/findB
 import {
   appTabForThreadListMode,
   resolveAppTabFrameSidebarDividerOffset,
+  shouldActivateThreadsFromSidebar,
+  shouldRenderWorkTabFrame,
+  shouldSelectThreadsFromSidebar,
+  sidebarModeForAppTab,
   threadListModeForAppTab,
   type AppTabId
 } from '@renderer/features/layout/lib/appTabs'
 import { shouldHandleWorkShortcut } from '@renderer/features/layout/lib/workShortcutScope'
-import { ThingsPage, ThingsSidebar } from '@renderer/features/things/components/ThingsPage'
+import { ThingsPage, ThingsPanelTopControls } from '@renderer/features/things/components/ThingsPage'
 import { ToastPresenter } from '@renderer/features/notifications/components/ToastPresenter'
 import { GlobalProcessingModal } from '@renderer/components/GlobalProcessingModal'
 import { theme } from '@renderer/theme/theme'
@@ -137,8 +141,10 @@ function App(): React.JSX.Element {
   }, [connectionStatus])
   const config = useAppStore((s) => s.config)
   useApplyThemeConfig(config)
+  const continueThingInNewChat = useAppStore((s) => s.continueThingInNewChat)
   const createNewThread = useAppStore((s) => s.createNewThread)
   const openThreadFromNotification = useAppStore((s) => s.openThreadFromNotification)
+  const setActiveThread = useAppStore((s) => s.setActiveThread)
   const setThreadListMode = useAppStore((s) => s.setThreadListMode)
   const threadListMode = useAppStore((s) => s.threadListMode)
   const [activeAppTab, setActiveAppTab] = useState<AppTabId>(
@@ -176,6 +182,23 @@ function App(): React.JSX.Element {
       void openSidebar()
     },
     [openSidebar]
+  )
+
+  const handleContinueThingInNewChat = useCallback(
+    async (name: string): Promise<void> => {
+      await continueThingInNewChat(name)
+      setActiveAppTab('chat')
+    },
+    [continueThingInNewChat]
+  )
+
+  const handleOpenThingSourceThread = useCallback(
+    (threadId: string, messageId?: string): void => {
+      setThreadListMode('active')
+      setActiveThread(threadId, messageId)
+      setActiveAppTab('chat')
+    },
+    [setActiveThread, setThreadListMode]
   )
 
   useEffect(() => {
@@ -270,7 +293,13 @@ function App(): React.JSX.Element {
   const windowBackdrop = `linear-gradient(90deg, ${theme.background.sidebarVibrancy} 0%, ${theme.background.surfaceLight} 100%)`
   const isSettingsTabActive = activeAppTab === 'settings'
   const isThingsTabActive = activeAppTab === 'things'
-  const threadSidebarMode = threadListMode === 'archived' ? 'archived' : 'chat'
+  const threadSidebarMode = sidebarModeForAppTab(activeAppTab) ?? 'chat'
+  const threadSidebarActivatesThreads = shouldActivateThreadsFromSidebar(activeAppTab)
+  const threadSidebarSelectsThreads = shouldSelectThreadsFromSidebar(activeAppTab)
+  const passiveThreadSelect =
+    threadSidebarSelectsThreads && !threadSidebarActivatesThreads
+      ? handleOpenThingSourceThread
+      : undefined
   const sidebarDividerOffset = resolveAppTabFrameSidebarDividerOffset(sidebarLayout.dividerOffset)
   const mainHeaderPaddingLeft = isSidebarOpen ? sidebarLayout.mainHeaderPaddingLeft : 20
   const renderTabFrame = ({
@@ -333,8 +362,42 @@ function App(): React.JSX.Element {
       />
       <div className="relative h-full min-w-0 flex-1 overflow-hidden">
         {renderTabLayer({
-          active: activeAppTab === 'chat' || activeAppTab === 'archived',
-          children: (
+          active: shouldRenderWorkTabFrame(activeAppTab),
+          children: isThingsTabActive ? (
+            renderTabFrame({
+              content: (
+                <ThingsPage
+                  showHeader={false}
+                  onContinueThing={handleContinueThingInNewChat}
+                  onOpenThread={handleOpenThingSourceThread}
+                />
+              ),
+              contentTopControls: (
+                <ThingsPanelTopControls headerPaddingLeft={mainHeaderPaddingLeft} />
+              ),
+              sidebar: (
+                <AppSidebarContent
+                  mode={threadSidebarMode}
+                  isSearchOpen={isSidebarSearchOpen}
+                  onCloseSearch={() => setIsSidebarSearchOpen(false)}
+                  onSearchSelect={(query) => setPendingFindQuery(query)}
+                  onThreadSelect={passiveThreadSelect}
+                  threadActivationEnabled={threadSidebarActivatesThreads}
+                />
+              ),
+              sidebarTopControls: (
+                <AppSidebarTopControls
+                  mode={threadSidebarMode}
+                  isSearchOpen={isSidebarSearchOpen}
+                  isToggleDisabled={!isConfigLoaded}
+                  onOpenSearch={() => setIsSidebarSearchOpen(true)}
+                  onToggle={() => void toggleSidebar()}
+                  threadActivationEnabled={threadSidebarActivatesThreads}
+                  toggleTitle={sidebarLayout.toggleTitle}
+                />
+              )
+            })
+          ) : (
             <AppMainPanel
               headerPaddingLeft={mainHeaderPaddingLeft}
               isSidebarToggleDisabled={!isConfigLoaded}
@@ -355,6 +418,8 @@ function App(): React.JSX.Element {
                       isSearchOpen={isSidebarSearchOpen}
                       onCloseSearch={() => setIsSidebarSearchOpen(false)}
                       onSearchSelect={(query) => setPendingFindQuery(query)}
+                      onThreadSelect={passiveThreadSelect}
+                      threadActivationEnabled={threadSidebarActivatesThreads}
                     />
                   ),
                   sidebarTopControls: (
@@ -364,6 +429,7 @@ function App(): React.JSX.Element {
                       isToggleDisabled={!isConfigLoaded}
                       onOpenSearch={() => setIsSidebarSearchOpen(true)}
                       onToggle={() => void toggleSidebar()}
+                      threadActivationEnabled={threadSidebarActivatesThreads}
                       toggleTitle={sidebarLayout.toggleTitle}
                     />
                   )
@@ -371,16 +437,6 @@ function App(): React.JSX.Element {
               }
             </AppMainPanel>
           )
-        })}
-
-        {renderTabLayer({
-          active: isThingsTabActive,
-          children: renderTabFrame({
-            content: <ThingsPage />,
-            contentTopControls: <div />,
-            sidebar: <ThingsSidebar />,
-            sidebarTopControls: null
-          })
         })}
 
         {hasOpenedSettings || isSettingsTabActive

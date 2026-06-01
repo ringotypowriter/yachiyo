@@ -92,6 +92,8 @@ export function ThreadListItem({
   isSelected,
   isStarred,
   isInFolder,
+  threadActivationEnabled,
+  threadSelectionEnabled,
   onRename,
   onSelectOperation,
   onSelectThread,
@@ -119,6 +121,8 @@ export function ThreadListItem({
   isSelected: boolean
   isStarred: boolean
   isInFolder: boolean
+  threadActivationEnabled: boolean
+  threadSelectionEnabled: boolean
   onRename: (thread: Thread, nextTitle: string) => void
   onSelectOperation: (thread: Thread, operationKey: ThreadContextOperationKey) => void
   onSelectThread: (threadId: string) => void
@@ -146,7 +150,7 @@ export function ThreadListItem({
   const titleInputRef = useRef<HTMLInputElement>(null)
   const isExternal = isExternalThread(thread)
   const operations = resolveThreadContextOperations({
-    canHandoff: canCompactThreadToAnotherThread(thread),
+    canHandoff: threadActivationEnabled && canCompactThreadToAnotherThread(thread),
     colorTag: thread.colorTag ?? null,
     includeSelectMode: true,
     isArchived: Boolean(thread.archivedAt),
@@ -211,7 +215,7 @@ export function ThreadListItem({
   function handleClick(): void {
     if (isSelectMode) {
       onToggleSelect(thread.id)
-    } else {
+    } else if (threadSelectionEnabled) {
       onSelectThread(thread.id)
     }
   }
@@ -247,6 +251,7 @@ export function ThreadListItem({
       >
         <button
           onClick={handleClick}
+          aria-disabled={!threadSelectionEnabled && !isSelectMode}
           className={`relative w-full text-left px-3 ${showPreview ? 'py-2.5' : 'py-2'} rounded-lg transition-colors no-drag`}
           style={{
             background: isHighlighted ? theme.background.code : 'transparent'

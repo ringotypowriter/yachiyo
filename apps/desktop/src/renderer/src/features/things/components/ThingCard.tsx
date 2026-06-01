@@ -1,78 +1,87 @@
 import { useEffect, useState } from 'react'
-import { ArrowUpRight, Check, Copy, MessageCircle, Quote, RotateCcw, Sparkles } from 'lucide-react'
+import { ArrowUpRight, Check, Copy, Quote, RotateCcw, X } from 'lucide-react'
 
 import type { ThingRecord } from '@renderer/app/types'
 import type { ThingSourceQuoteRecord } from '@yachiyo/shared/protocol'
 import { alpha, theme } from '@renderer/theme/theme'
 import { copyTextWithFallback } from '../../chat/lib/copyTextWithFallback'
 
-export function ThingCard({
+export function ThingColumn({
   thing,
-  selected,
-  onSelect,
+  onOpen,
   onContinue,
   onReactivate
 }: {
   thing: ThingRecord
-  selected: boolean
-  onSelect: () => void
+  onOpen: () => void
   onContinue: (name: string) => void
   onReactivate: (name: string) => void
 }): React.JSX.Element {
   const sourceCount = thing.sourceQuotes.length
-  const chatCount = thing.includedChats.length
 
   return (
     <article
-      className="group rounded-[1.75rem] border p-5 text-left transition duration-200 hover:-translate-y-0.5"
+      className="flex h-105 w-85 flex-col rounded-[1.75rem] p-5 transition duration-200 hover:-translate-y-0.5"
       style={{
-        background: selected ? theme.background.accentSoft : theme.background.surface,
-        borderColor: selected ? theme.border.accent : theme.border.subtle,
-        boxShadow: selected ? theme.shadow.card : 'none'
+        background: thing.isInactive ? alpha('surface', 0.5) : alpha('surface', 0.76),
+        boxShadow: thing.isInactive ? 'none' : theme.shadow.card,
+        opacity: thing.isInactive ? 0.72 : 1
       }}
     >
-      <button type="button" className="block w-full text-left" onClick={onSelect}>
-        <div className="flex items-start justify-between gap-5">
-          <div className="min-w-0 flex-1">
-            <div className="flex flex-wrap items-center gap-2">
-              <h2
-                className="truncate text-lg font-semibold tracking-[-0.02em]"
-                style={{ color: theme.text.primary }}
-              >
-                #{thing.name}
-              </h2>
-              {thing.isInactive ? <StatusPill tone="muted" label="Inactive" /> : null}
-            </div>
-            <p
-              className="mt-2 line-clamp-2 text-sm leading-6"
-              style={{ color: theme.text.secondary }}
-            >
-              {thing.summary || 'No summary yet.'}
-            </p>
-          </div>
-          <div
-            className="shrink-0 text-right text-xs tabular-nums"
-            style={{ color: theme.text.muted }}
+      <button type="button" className="block shrink-0 text-left" onClick={onOpen}>
+        <div className="flex items-start justify-between gap-4">
+          <h2
+            className="min-w-0 wrap-break-word text-lg font-semibold leading-tight tracking-[-0.03em]"
+            style={{ color: theme.text.primary }}
           >
-            {thing.isInactive
-              ? 'No updates in 3 days'
-              : `Updated ${formatDate(thing.lastUpdatedAt)}`}
-          </div>
+            #{thing.name}
+          </h2>
+          {thing.isInactive ? <StatusPill tone="muted" label="Inactive" /> : null}
         </div>
 
-        <div className="mt-4 flex flex-wrap items-center gap-2">
-          <ContextChip
-            icon={<MessageCircle size={13} />}
-            label={`${chatCount} chat${chatCount === 1 ? '' : 's'}`}
-          />
+        <p className="mt-4 line-clamp-3 text-sm leading-6" style={{ color: theme.text.secondary }}>
+          {thing.summary || 'No summary yet.'}
+        </p>
+      </button>
+
+      <div className="mt-5 flex min-h-0 shrink-0 flex-col">
+        <div className="flex items-center justify-between gap-3">
+          <div
+            className="text-xs font-semibold uppercase tracking-[0.16em]"
+            style={{ color: theme.text.muted }}
+          >
+            Sources
+          </div>
           <ContextChip
             icon={<Quote size={13} />}
             label={`${sourceCount} source${sourceCount === 1 ? '' : 's'}`}
           />
         </div>
-      </button>
+        <div className="mt-3 grid h-37.5 auto-rows-max grid-cols-1 gap-2 overflow-hidden">
+          {thing.sourceQuotes.length > 0 ? (
+            thing.sourceQuotes.slice(0, 4).map((source) => (
+              <button
+                type="button"
+                key={source.id}
+                className="rounded-2xl px-3 py-2 text-left text-xs leading-5 transition hover:translate-x-0.5"
+                style={{ background: theme.background.surfaceSoft, color: theme.text.secondary }}
+                onClick={onOpen}
+              >
+                <span className="line-clamp-2">“{source.quote}”</span>
+              </button>
+            ))
+          ) : (
+            <div
+              className="rounded-2xl px-3 py-3 text-sm"
+              style={{ background: alpha('surface', 0.46), color: theme.text.muted }}
+            >
+              No sources yet.
+            </div>
+          )}
+        </div>
+      </div>
 
-      <div className="mt-4 flex flex-wrap gap-2">
+      <div className="mt-auto flex shrink-0 flex-wrap gap-2 pt-5">
         <PrimaryButton onClick={() => onContinue(thing.name)}>Continue</PrimaryButton>
         {thing.isInactive ? (
           <SecondaryButton onClick={() => onReactivate(thing.name)} icon={<RotateCcw size={14} />}>
@@ -84,104 +93,98 @@ export function ThingCard({
   )
 }
 
-export function ThingSourcePanel({
+export function ThingDetailOverlay({
   thing,
+  onClose,
   onContinue,
   onReactivate,
   onOpenThread
 }: {
-  thing: ThingRecord | null
+  thing: ThingRecord
+  onClose: () => void
   onContinue: (name: string) => void
   onReactivate: (name: string) => void
   onOpenThread: (threadId: string, messageId?: string) => void
 }): React.JSX.Element {
-  if (!thing) {
-    return (
-      <aside
-        className="rounded-[2rem] border p-6"
-        style={{ borderColor: theme.border.subtle, background: theme.background.surface }}
-      >
-        <div className="text-sm" style={{ color: theme.text.secondary }}>
-          Select a Thing to inspect its sources.
-        </div>
-      </aside>
-    )
-  }
-
   return (
-    <aside className="lg:sticky lg:top-7 lg:self-start">
-      <div
-        className="overflow-hidden rounded-[2rem] border"
-        style={{
-          borderColor: theme.border.subtle,
-          background: theme.background.surface,
-          boxShadow: theme.shadow.card
-        }}
+    <div
+      className="absolute inset-0 z-20 flex items-center justify-center p-8"
+      style={{ background: alpha('scrim', 0.22), backdropFilter: 'blur(18px)' }}
+      onClick={onClose}
+    >
+      <section
+        className="flex max-h-full w-full max-w-4xl flex-col overflow-hidden rounded-4xl p-6"
+        style={{ background: theme.background.surfaceFrosted, boxShadow: theme.shadow.overlay }}
+        onClick={(event) => event.stopPropagation()}
       >
-        <div className="border-b p-5" style={{ borderColor: theme.border.subtle }}>
-          <div className="flex items-start justify-between gap-4">
-            <div className="min-w-0">
-              <div
-                className="text-xs font-semibold uppercase tracking-[0.18em]"
-                style={{ color: theme.text.muted }}
-              >
-                Source view
-              </div>
-              <h2
-                className="mt-2 truncate text-xl font-semibold tracking-[-0.03em]"
-                style={{ color: theme.text.primary }}
-              >
-                #{thing.name}
-              </h2>
+        <header className="flex shrink-0 items-start justify-between gap-5">
+          <div className="min-w-0">
+            <div
+              className="text-xs font-semibold uppercase tracking-[0.18em]"
+              style={{ color: theme.text.muted }}
+            >
+              Evidence
             </div>
-            {thing.isInactive ? (
-              <StatusPill tone="muted" label="Inactive" />
-            ) : (
-              <StatusPill tone="accent" label="Active" />
-            )}
+            <h2
+              className="mt-2 wrap-break-word text-3xl font-semibold tracking-[-0.04em]"
+              style={{ color: theme.text.primary }}
+            >
+              #{thing.name}
+            </h2>
+            <p className="mt-4 max-w-3xl text-sm leading-6" style={{ color: theme.text.secondary }}>
+              {thing.summary || 'No summary yet.'}
+            </p>
           </div>
-          <p className="mt-3 text-sm leading-6" style={{ color: theme.text.secondary }}>
-            {thing.summary || 'No summary yet.'}
-          </p>
-          <div className="mt-4 flex flex-wrap gap-2">
-            <PrimaryButton onClick={() => onContinue(thing.name)}>Continue</PrimaryButton>
-            {thing.isInactive ? (
-              <SecondaryButton
-                onClick={() => onReactivate(thing.name)}
-                icon={<RotateCcw size={14} />}
-              >
-                Reactivate
-              </SecondaryButton>
-            ) : null}
-          </div>
+          <button
+            type="button"
+            className="rounded-full p-2 transition hover:scale-105"
+            style={{ background: theme.background.counterSoft, color: theme.text.primary }}
+            onClick={onClose}
+            aria-label="Close Thing details"
+          >
+            <X size={18} />
+          </button>
+        </header>
+
+        <div className="mt-5 flex shrink-0 flex-wrap gap-2">
+          <PrimaryButton onClick={() => onContinue(thing.name)}>Continue</PrimaryButton>
+          {thing.isInactive ? (
+            <SecondaryButton
+              onClick={() => onReactivate(thing.name)}
+              icon={<RotateCcw size={14} />}
+            >
+              Reactivate
+            </SecondaryButton>
+          ) : null}
         </div>
 
-        <div className="max-h-[calc(100vh-17rem)] overflow-auto p-5">
-          <SectionTitle label="Included chats" count={thing.includedChats.length} />
-          <div className="mt-3 flex flex-col gap-2">
-            {thing.includedChats.length === 0 ? (
-              <EmptyLine>No linked chats yet.</EmptyLine>
-            ) : (
-              thing.includedChats.map((chat) => (
-                <button
-                  type="button"
-                  key={`${chat.thingId}:${chat.threadId}`}
-                  className="flex items-center justify-between gap-3 rounded-2xl border px-3 py-3 text-left text-sm transition hover:translate-x-0.5"
-                  style={{
-                    borderColor: theme.border.subtle,
-                    background: theme.background.surfaceSoft,
-                    color: theme.text.secondary
-                  }}
-                  onClick={() => onOpenThread(chat.threadId)}
-                >
-                  <span className="min-w-0 truncate">{chat.threadTitle ?? chat.threadId}</span>
-                  <ArrowUpRight size={14} className="shrink-0" />
-                </button>
-              ))
-            )}
-          </div>
+        <div className="mt-6 grid min-h-0 gap-6 overflow-auto lg:grid-cols-[280px_minmax(0,1fr)]">
+          <section>
+            <SectionTitle label="Included chats" count={thing.includedChats.length} />
+            <div className="mt-3 flex flex-col gap-2">
+              {thing.includedChats.length === 0 ? (
+                <EmptyLine>No linked chats yet.</EmptyLine>
+              ) : (
+                thing.includedChats.map((chat) => (
+                  <button
+                    type="button"
+                    key={`${chat.thingId}:${chat.threadId}`}
+                    className="flex items-center justify-between gap-3 rounded-2xl px-3 py-3 text-left text-sm transition hover:translate-x-0.5"
+                    style={{
+                      background: theme.background.surfaceSoft,
+                      color: theme.text.secondary
+                    }}
+                    onClick={() => onOpenThread(chat.threadId)}
+                  >
+                    <span className="min-w-0 truncate">{chat.threadTitle ?? chat.threadId}</span>
+                    <ArrowUpRight size={14} className="shrink-0" />
+                  </button>
+                ))
+              )}
+            </div>
+          </section>
 
-          <div className="mt-6">
+          <section>
             <SectionTitle label="Source quotes" count={thing.sourceQuotes.length} />
             <div className="mt-3 flex flex-col gap-3">
               {thing.sourceQuotes.length === 0 ? (
@@ -192,10 +195,10 @@ export function ThingSourcePanel({
                 ))
               )}
             </div>
-          </div>
+          </section>
         </div>
-      </div>
-    </aside>
+      </section>
+    </div>
   )
 }
 
@@ -224,10 +227,7 @@ function SourceQuoteCard({
   }
 
   return (
-    <figure
-      className="rounded-3xl border p-4"
-      style={{ borderColor: theme.border.subtle, background: alpha('surface', 0.72) }}
-    >
+    <figure className="rounded-3xl p-4" style={{ background: alpha('surface', 0.72) }}>
       <blockquote className="text-sm leading-6" style={{ color: theme.text.primary }}>
         “{quote.quote}”
       </blockquote>
@@ -309,7 +309,6 @@ function PrimaryButton({
       }}
       onClick={onClick}
     >
-      <Sparkles size={14} />
       {children}
     </button>
   )
@@ -327,12 +326,8 @@ function SecondaryButton({
   return (
     <button
       type="button"
-      className="inline-flex items-center gap-1.5 rounded-full border px-3 py-2 text-sm font-medium transition hover:scale-[1.02]"
-      style={{
-        borderColor: theme.border.subtle,
-        background: theme.background.surfaceSoft,
-        color: theme.text.primary
-      }}
+      className="inline-flex items-center gap-1.5 rounded-full px-3 py-2 text-sm font-medium transition hover:scale-[1.02]"
+      style={{ background: theme.background.surfaceSoft, color: theme.text.primary }}
       onClick={onClick}
     >
       {icon}
@@ -350,7 +345,7 @@ function StatusPill({
 }): React.JSX.Element {
   return (
     <span
-      className="rounded-full px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide"
+      className="shrink-0 rounded-full px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide"
       style={{
         background: tone === 'accent' ? theme.background.accentSoft : theme.background.counterSoft,
         color: tone === 'accent' ? theme.text.accent : theme.text.muted
@@ -364,8 +359,8 @@ function StatusPill({
 function EmptyLine({ children }: { children: React.ReactNode }): React.JSX.Element {
   return (
     <div
-      className="rounded-2xl border border-dashed px-3 py-4 text-sm"
-      style={{ borderColor: theme.border.subtle, color: theme.text.muted }}
+      className="rounded-2xl px-3 py-4 text-sm"
+      style={{ background: alpha('surface', 0.52), color: theme.text.muted }}
     >
       {children}
     </div>

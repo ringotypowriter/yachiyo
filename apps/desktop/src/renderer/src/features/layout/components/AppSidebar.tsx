@@ -16,6 +16,7 @@ export interface AppSidebarTopControlsProps {
   mode: 'chat' | 'archived'
   onOpenSearch: () => void
   onToggle: () => void
+  threadActivationEnabled?: boolean
   toggleTitle: string
 }
 
@@ -24,6 +25,8 @@ export interface AppSidebarContentProps {
   mode: 'chat' | 'archived'
   onCloseSearch: () => void
   onSearchSelect: (query: string) => void
+  onThreadSelect?: (threadId: string) => void
+  threadActivationEnabled?: boolean
 }
 
 export function AppSidebarTopControls({
@@ -32,6 +35,7 @@ export function AppSidebarTopControls({
   mode,
   onOpenSearch,
   onToggle,
+  threadActivationEnabled = true,
   toggleTitle
 }: AppSidebarTopControlsProps): React.JSX.Element {
   const createNewThread = useAppStore((s) => s.createNewThread)
@@ -107,29 +111,33 @@ export function AppSidebarTopControls({
                 <PanelLeft size={16} strokeWidth={1.5} />
               </button>
             </Tooltip>
-            <Tooltip content="Search chats" placement="bottom">
-              <button
-                onClick={onOpenSearch}
-                className="p-1.5 rounded-md transition-opacity"
-                style={{
-                  color: theme.icon.default,
-                  opacity: isSearchOpen ? 0.9 : 0.5
-                }}
-                aria-label="Search chats"
-              >
-                <Search size={15} strokeWidth={1.5} />
-              </button>
-            </Tooltip>
-            <Tooltip content="New chat" placement="bottom">
-              <button
-                onClick={createNewThread}
-                className="p-1.5 rounded-md opacity-50 hover:opacity-80 transition-opacity"
-                style={{ color: theme.icon.default }}
-                aria-label="New chat"
-              >
-                <SquarePen size={15} strokeWidth={1.5} />
-              </button>
-            </Tooltip>
+            {threadActivationEnabled ? (
+              <>
+                <Tooltip content="Search chats" placement="bottom">
+                  <button
+                    onClick={onOpenSearch}
+                    className="p-1.5 rounded-md transition-opacity"
+                    style={{
+                      color: theme.icon.default,
+                      opacity: isSearchOpen ? 0.9 : 0.5
+                    }}
+                    aria-label="Search chats"
+                  >
+                    <Search size={15} strokeWidth={1.5} />
+                  </button>
+                </Tooltip>
+                <Tooltip content="New chat" placement="bottom">
+                  <button
+                    onClick={createNewThread}
+                    className="p-1.5 rounded-md opacity-50 hover:opacity-80 transition-opacity"
+                    style={{ color: theme.icon.default }}
+                    aria-label="New chat"
+                  >
+                    <SquarePen size={15} strokeWidth={1.5} />
+                  </button>
+                </Tooltip>
+              </>
+            ) : null}
           </>
         )}
       </div>
@@ -141,7 +149,9 @@ export function AppSidebarContent({
   isSearchOpen,
   mode,
   onCloseSearch,
-  onSearchSelect
+  onSearchSelect,
+  onThreadSelect,
+  threadActivationEnabled = true
 }: AppSidebarContentProps): React.JSX.Element {
   const setActiveThread = useAppStore((s) => s.setActiveThread)
   const setActiveArchivedThread = useAppStore((s) => s.setActiveArchivedThread)
@@ -149,9 +159,9 @@ export function AppSidebarContent({
 
   return (
     <>
-      {!isArchivedMode && <EssentialsBar />}
+      {!isArchivedMode && threadActivationEnabled ? <EssentialsBar /> : null}
       <AnimatePresence mode="wait" initial={false}>
-        {isSearchOpen ? (
+        {isSearchOpen && threadActivationEnabled ? (
           <motion.div
             key="search"
             initial={{ opacity: 0 }}
@@ -190,7 +200,11 @@ export function AppSidebarContent({
             transition={{ duration: 0.15 }}
             className="flex flex-col flex-1 min-h-0"
           >
-            <ThreadList />
+            <ThreadList
+              threadActivationEnabled={threadActivationEnabled}
+              onThreadSelect={onThreadSelect}
+              threadListModeOverride={isArchivedMode ? 'archived' : 'active'}
+            />
           </motion.div>
         )}
       </AnimatePresence>
