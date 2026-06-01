@@ -740,10 +740,17 @@ export class YachiyoServer {
   async deleteThing(input: { name: string }): Promise<boolean> {
     return this.thingDomain.deleteThing(input.name)
   }
-  async continueThingInNewChat(input: { name: string }): Promise<ThreadRecord> {
+  async continueThingInNewChat(input: {
+    name: string
+    workspacePath?: string
+    modelOverride?: ThreadModelOverride
+  }): Promise<ThreadRecord> {
     const thing = await this.thingDomain.getThing(input.name)
     if (!thing || thing.isInactive) throw new Error(`Thing is not available: #${input.name}`)
-    return this.createThread({ title: `#${thing.name}` })
+    return this.createThread({
+      ...(input.workspacePath ? { workspacePath: input.workspacePath } : {}),
+      ...(input.modelOverride ? { modelOverride: input.modelOverride } : {})
+    })
   }
 
   async createThread(
@@ -757,6 +764,7 @@ export class YachiyoServer {
       createdFromScheduleId?: string
       handoffFromThreadId?: string
       privacyMode?: boolean
+      modelOverride?: ThreadModelOverride
       reasoningEffort?: ComposerReasoningSelection
     } = {}
   ): Promise<ThreadRecord> {

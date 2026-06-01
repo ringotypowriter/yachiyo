@@ -116,7 +116,11 @@ declare global {
         getThing: (input: { name: string }) => Promise<ThingRecord | undefined>
         reactivateThing: (input: { name: string }) => Promise<ThingRecord | undefined>
         deleteThing: (input: { name: string }) => Promise<boolean>
-        continueThingInNewChat: (input: { name: string }) => Promise<ThreadRecord>
+        continueThingInNewChat: (input: {
+          name: string
+          workspacePath?: string
+          modelOverride?: ThreadModelOverride
+        }) => Promise<ThreadRecord>
         archiveThread: (input: { threadId: string }) => Promise<void>
         bootstrap: () => Promise<BootstrapPayload>
         createBranch: (input: { threadId: string; messageId: string }) => Promise<ThreadSnapshot>
@@ -125,6 +129,7 @@ declare global {
           workspacePath?: string
           createdFromEssentialId?: string
           privacyMode?: boolean
+          modelOverride?: ThreadModelOverride
           enabledTools?: ToolCallName[]
           runMode?: RunModeId
           reasoningEffort?: ComposerReasoningSelection

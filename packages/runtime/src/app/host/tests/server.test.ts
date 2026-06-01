@@ -546,6 +546,107 @@ test('YachiyoServer can refine the fallback thread title with the configured too
   )
 })
 
+test('YachiyoServer lets Things Continue chats receive automatic generated titles', async () => {
+  const requests: ModelStreamRequest[] = []
+  let releaseMainRun: (() => void) | null = null
+  const mainRunGate = new Promise<void>((resolve) => {
+    releaseMainRun = resolve
+  })
+
+  await withServer(
+    async ({ server, storage, completeRun }) => {
+      await server.upsertProvider({
+        name: 'work',
+        type: 'openai',
+        apiKey: 'sk-test',
+        baseUrl: 'https://api.openai.com/v1',
+        modelList: {
+          enabled: ['gpt-5'],
+          disabled: ['gpt-5-mini']
+        }
+      })
+
+      await server.saveConfig({
+        ...(await server.getConfig()),
+        toolModel: {
+          mode: 'custom',
+          providerName: 'work',
+          model: 'gpt-5-mini'
+        }
+      })
+
+      storage.createThing({
+        id: 'thing-1',
+        name: 'raven-ui',
+        summary: 'Raven UI work',
+        lastUpdatedAt: '2026-06-01T00:00:00.000Z',
+        createdAt: '2026-06-01T00:00:00.000Z',
+        updatedAt: '2026-06-01T00:00:00.000Z'
+      })
+
+      const waiter = createServerEventWaiter(server)
+
+      try {
+        const thread = await server.continueThingInNewChat({ name: 'raven-ui' })
+        assert.equal(thread.title, 'New Chat')
+
+        const titleUpdatedEvent = waiter.waitForEvent(
+          'thread.updated',
+          (event) => event.threadId === thread.id && event.thread.title === 'Raven UI polish'
+        )
+
+        const accepted = await server.sendChat({
+          threadId: thread.id,
+          content: '#raven-ui plan the next UI polish pass'
+        })
+
+        const titleUpdate = await Promise.race([
+          titleUpdatedEvent,
+          new Promise<never>((_, reject) => {
+            setTimeout(() => reject(new Error('Timed out waiting for title update')), 1000)
+          })
+        ])
+
+        releaseMainRun?.()
+        await completeRun(accepted.runId)
+        const bootstrap = await server.bootstrap()
+        const auxiliaryRequest = requests.find(
+          (request) => request.providerOptionsMode === 'auxiliary'
+        )
+
+        assert.equal(titleUpdate.thread.title, 'Raven UI polish')
+        assert.equal(bootstrap.threads[0]?.title, 'Raven UI polish')
+        assert.match(
+          typeof auxiliaryRequest?.messages[0]?.content === 'string'
+            ? auxiliaryRequest.messages[0].content
+            : '',
+          /#raven-ui plan the next UI polish pass/u
+        )
+      } finally {
+        releaseMainRun?.()
+        waiter.close()
+      }
+    },
+    {
+      now: () => new Date('2026-06-01T12:00:00.000Z'),
+      createModelRuntime: () => ({
+        async *streamReply(request: ModelStreamRequest) {
+          requests.push(request)
+
+          if (request.providerOptionsMode === 'auxiliary') {
+            yield 'Raven UI polish'
+            return
+          }
+
+          await mainRunGate
+          yield 'Hello'
+          yield ' world'
+        }
+      })
+    }
+  )
+})
+
 test('YachiyoServer refines owner DM thread titles like local threads', async () => {
   const requests: ModelStreamRequest[] = []
   let releaseMainRun: (() => void) | null = null

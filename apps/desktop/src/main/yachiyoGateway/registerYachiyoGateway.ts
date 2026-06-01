@@ -678,8 +678,10 @@ export function registerYachiyoGateway(): YachiyoServer {
   handleYachiyoIpc(IPC_CHANNELS.deleteThing, (input: DeleteThingInput) =>
     server!.deleteThing(input)
   )
-  handleYachiyoIpc(IPC_CHANNELS.continueThingInNewChat, (input: { name: string }) =>
-    server!.continueThingInNewChat(input)
+  handleYachiyoIpc(
+    IPC_CHANNELS.continueThingInNewChat,
+    (input: { name: string; workspacePath?: string; modelOverride?: ThreadModelOverride }) =>
+      server!.continueThingInNewChat(input)
   )
   handleYachiyoIpc(IPC_CHANNELS.bootstrap, () => server!.bootstrap())
   handleYachiyoIpc(
@@ -688,6 +690,7 @@ export function registerYachiyoGateway(): YachiyoServer {
       workspacePath?: string
       createdFromEssentialId?: string
       privacyMode?: boolean
+      modelOverride?: ThreadModelOverride
       enabledTools?: ToolCallName[]
       runMode?: RunModeId
       reasoningEffort?: ComposerReasoningSelection

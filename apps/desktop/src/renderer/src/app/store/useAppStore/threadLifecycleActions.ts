@@ -84,16 +84,21 @@ export function createThreadLifecycleActions(input: {
     },
 
     createNewThread: async () => {
-      const pendingWorkspacePath = normalizeWorkspacePath(get().pendingWorkspacePath)
-      const stagedReasoningEffort = get().reasoningEffortByThread[getComposerDraftKey(null)]
-      const rawStagedToolMode = get().toolModeByThread[getComposerDraftKey(null)]
+      const currentState = get()
+      const activeThread = findThread(currentState, currentState.activeThreadId)
+      const pendingWorkspacePath = normalizeWorkspacePath(currentState.pendingWorkspacePath)
+      const inheritedModelOverride =
+        currentState.pendingModelOverride ?? activeThread?.modelOverride ?? null
+      const stagedReasoningEffort = currentState.reasoningEffortByThread[getComposerDraftKey(null)]
+      const rawStagedToolMode = currentState.toolModeByThread[getComposerDraftKey(null)]
       const stagedToolMode = rawStagedToolMode?.runMode === 'custom' ? undefined : rawStagedToolMode
-      const reusableThread = get().threads.find((thread) =>
+      const reusableThread = currentState.threads.find((thread) =>
         isThreadReusableNewChat(
           {
-            composerDrafts: get().composerDrafts,
-            messages: get().messages,
-            pendingWorkspacePath
+            composerDrafts: currentState.composerDrafts,
+            messages: currentState.messages,
+            pendingWorkspacePath,
+            modelOverride: inheritedModelOverride
           },
           thread
         )
@@ -193,6 +198,7 @@ export function createThreadLifecycleActions(input: {
 
       const createThreadInput = {
         ...(pendingWorkspacePath ? { workspacePath: pendingWorkspacePath } : {}),
+        ...(inheritedModelOverride ? { modelOverride: inheritedModelOverride } : {}),
         ...(stagedToolMode ? { runMode: stagedToolMode.runMode } : {}),
         ...(stagedReasoningEffort ? { reasoningEffort: stagedReasoningEffort } : {})
       }

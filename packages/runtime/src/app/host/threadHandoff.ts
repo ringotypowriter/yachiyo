@@ -29,6 +29,7 @@ export async function createThreadWithHandoffWorkspace(input: {
     createdFromScheduleId?: string
     handoffFromThreadId?: string
     privacyMode?: boolean
+    modelOverride?: ThreadRecord['modelOverride']
     reasoningEffort?: ComposerReasoningSelection
   }
   requireThread: (threadId: string) => ThreadRecord

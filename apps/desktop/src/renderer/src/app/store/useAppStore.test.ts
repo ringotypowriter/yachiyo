@@ -213,6 +213,64 @@ test('deleteThing removes the Thing through the preload API and reloads the boar
   }
 })
 
+test('continueThingInNewChat keeps Work context and pre-fills the Thing tag', async () => {
+  resetStore()
+
+  const calls: Array<{
+    name: string
+    workspacePath?: string
+    modelOverride?: { providerName: string; model: string }
+  }> = []
+  const restoreWindow = withWindowApiMock({
+    continueThingInNewChat: async (input) => {
+      calls.push(input)
+      return {
+        id: 'thread-2',
+        title: 'New Chat',
+        updatedAt: TIMESTAMP,
+        workspacePath: input.workspacePath,
+        modelOverride: input.modelOverride
+      }
+    }
+  })
+
+  try {
+    useAppStore.setState({
+      activeThreadId: 'thread-1',
+      threads: [
+        {
+          id: 'thread-1',
+          title: 'Raven work',
+          updatedAt: TIMESTAMP,
+          workspacePath: '/projects/raven',
+          modelOverride: { providerName: 'work', model: 'gpt-5' }
+        }
+      ]
+    })
+
+    await useAppStore.getState().continueThingInNewChat('raven-ui')
+
+    const state = useAppStore.getState()
+    assert.deepEqual(calls, [
+      {
+        name: 'raven-ui',
+        workspacePath: '/projects/raven',
+        modelOverride: { providerName: 'work', model: 'gpt-5' }
+      }
+    ])
+    assert.equal(state.activeThreadId, 'thread-2')
+    assert.equal(state.composerDrafts['thread-2']?.text, '#raven-ui ')
+    const continuedThread = state.threads.find((thread) => thread.id === 'thread-2')
+    assert.equal(continuedThread?.workspacePath, '/projects/raven')
+    assert.deepEqual(continuedThread?.modelOverride, {
+      providerName: 'work',
+      model: 'gpt-5'
+    })
+  } finally {
+    restoreWindow()
+  }
+})
+
 test('sendMessage with a pending plan sends visible revision feedback in plan mode', async () => {
   resetStore()
 

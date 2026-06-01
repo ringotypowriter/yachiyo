@@ -439,7 +439,17 @@ export const useAppStore = create<AppState>((set, get) => ({
     await get().loadThings({ includeInactive: get().showInactiveThings })
   },
   continueThingInNewChat: async (name) => {
-    const thread = await window.api.yachiyo.continueThingInNewChat({ name })
+    const currentState = get()
+    const activeThread = findThread(currentState, currentState.activeThreadId)
+    const workspacePath =
+      activeThread?.workspacePath ?? currentState.pendingWorkspacePath ?? undefined
+    const modelOverride =
+      activeThread?.modelOverride ?? currentState.pendingModelOverride ?? undefined
+    const thread = await window.api.yachiyo.continueThingInNewChat({
+      name,
+      ...(workspacePath ? { workspacePath } : {}),
+      ...(modelOverride ? { modelOverride } : {})
+    })
     set((state) => ({
       threads: upsertThread(state.threads, thread),
       activeThreadId: thread.id,
@@ -449,7 +459,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         getComposerDraftKey(thread.id),
         () => ({
           ...EMPTY_COMPOSER_DRAFT,
-          content: `#${name} `
+          text: `#${name} `
         })
       )
     }))

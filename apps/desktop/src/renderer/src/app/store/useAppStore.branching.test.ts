@@ -495,6 +495,54 @@ test('createNewThread preserves the drafted workspace selection', async () => {
   }
 })
 
+test('createNewThread inherits the active thread model override', async () => {
+  resetStore()
+
+  const createThreadCalls: Array<
+    { modelOverride?: { providerName: string; model: string } } | undefined
+  > = []
+  const restoreWindow = withWindowApiMock({
+    createThread: async (input) => {
+      createThreadCalls.push(input)
+      return {
+        id: 'thread-2',
+        title: 'New Chat',
+        updatedAt: TIMESTAMP,
+        modelOverride: input?.modelOverride
+      }
+    }
+  })
+
+  try {
+    useAppStore.setState({
+      activeThreadId: 'thread-1',
+      threads: [
+        {
+          id: 'thread-1',
+          title: 'Existing chat',
+          updatedAt: TIMESTAMP,
+          modelOverride: { providerName: 'work', model: 'gpt-5' }
+        }
+      ]
+    })
+
+    await useAppStore.getState().createNewThread()
+
+    const state = useAppStore.getState()
+    assert.deepEqual(createThreadCalls, [
+      { modelOverride: { providerName: 'work', model: 'gpt-5' } }
+    ])
+    assert.equal(state.activeThreadId, 'thread-2')
+    const createdThread = state.threads.find((thread) => thread.id === 'thread-2')
+    assert.deepEqual(createdThread?.modelOverride, {
+      providerName: 'work',
+      model: 'gpt-5'
+    })
+  } finally {
+    restoreWindow()
+  }
+})
+
 test('createNewThreadFromEssential preserves the staged new-chat draft', () => {
   resetStore()
 

@@ -891,6 +891,7 @@ export function isComposerDraftEmpty(draft: ComposerDraft): boolean {
 export function isThreadReusableNewChat(
   input: Pick<AppState, 'composerDrafts' | 'messages'> & {
     pendingWorkspacePath: string | null
+    modelOverride: Thread['modelOverride'] | null
   },
   thread: Thread
 ): boolean {
@@ -911,7 +912,20 @@ export function isThreadReusableNewChat(
     return false
   }
 
-  return normalizeWorkspacePath(thread.workspacePath) === input.pendingWorkspacePath
+  return (
+    normalizeWorkspacePath(thread.workspacePath) === input.pendingWorkspacePath &&
+    areThreadModelOverridesEqual(thread.modelOverride, input.modelOverride)
+  )
+}
+
+function areThreadModelOverridesEqual(
+  left: Thread['modelOverride'] | null | undefined,
+  right: Thread['modelOverride'] | null | undefined
+): boolean {
+  return (
+    (left?.providerName ?? '') === (right?.providerName ?? '') &&
+    (left?.model ?? '') === (right?.model ?? '')
+  )
 }
 
 export function isBlankNewChat(input: Pick<AppState, 'messages'>, thread: Thread): boolean {

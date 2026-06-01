@@ -141,8 +141,11 @@ const api = {
       ipcRenderer.invoke('yachiyo:reactivate-thing', input),
     deleteThing: (input: DeleteThingInput): Promise<boolean> =>
       ipcRenderer.invoke('yachiyo:delete-thing', input),
-    continueThingInNewChat: (input: { name: string }): Promise<ThreadRecord> =>
-      ipcRenderer.invoke('yachiyo:continue-thing-in-new-chat', input),
+    continueThingInNewChat: (input: {
+      name: string
+      workspacePath?: string
+      modelOverride?: ThreadModelOverride
+    }): Promise<ThreadRecord> => ipcRenderer.invoke('yachiyo:continue-thing-in-new-chat', input),
     archiveThread: (input: { threadId: string }) =>
       ipcRenderer.invoke('yachiyo:archive-thread', input),
     bootstrap: () => ipcRenderer.invoke('yachiyo:bootstrap'),
@@ -154,6 +157,7 @@ const api = {
       workspacePath?: string
       createdFromEssentialId?: string
       privacyMode?: boolean
+      modelOverride?: ThreadModelOverride
       enabledTools?: ToolCallName[]
       runMode?: RunModeId
       reasoningEffort?: ComposerReasoningSelection
