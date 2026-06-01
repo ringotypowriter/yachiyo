@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import type { Message, MessageTextBlockRecord } from '../../../app/types.ts'
+import type { Message, MessageTextBlockRecord } from '@renderer/app/types'
 import { PLAN_DOCUMENT_MARKER } from '@yachiyo/shared/planMode'
 import {
   buildConversationGroupRows,

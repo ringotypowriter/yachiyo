@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { buildMessagePresentation } from './messagePresentation'
+import { buildMessagePresentation } from './messagePresentation.ts'
 
 const BASE_MESSAGE = {
   id: 'message-1',

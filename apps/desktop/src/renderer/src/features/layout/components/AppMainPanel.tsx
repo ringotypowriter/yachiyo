@@ -3,8 +3,8 @@ import { motion, AnimatePresence } from 'framer-motion'
 import type { Message, Thread, ToolCall } from '@renderer/app/types'
 import { useAppStore } from '@renderer/app/store/useAppStore'
 import { ThreadFindBar } from '@renderer/features/chat/components/ThreadFindBar'
-import { buildFindMatches } from '@renderer/features/chat/lib/threadFindBar'
-import type { FindMatch } from '@renderer/features/chat/lib/threadFindBar'
+import { buildFindMatches } from '@renderer/features/chat/lib/thread-search/threadFindBar'
+import type { FindMatch } from '@renderer/features/chat/lib/thread-search/threadFindBar'
 import {
   useBackgroundTasksStore,
   selectThreadRunningCount
@@ -25,7 +25,7 @@ import { isExternalThread } from '@renderer/features/threads/lib/threadVisibilit
 import { isOpenFindBarShortcut } from '@renderer/features/layout/lib/findBarShortcut'
 import { computeRecapDecision } from '@renderer/features/layout/lib/recapIdle'
 import { resolveWelcomeState } from '@renderer/features/layout/lib/welcomeState'
-import { deriveBrowserActivity } from '@renderer/features/chat/lib/browserActivity'
+import { deriveBrowserActivity } from '@renderer/features/chat/lib/browser-activity/browserActivity'
 import { selectContextPromptTokens } from '@renderer/lib/contextPromptTokens'
 import { MessageSquare, Trash2 } from 'lucide-react'
 import { ConfirmDialog } from '@renderer/components/ConfirmDialog'

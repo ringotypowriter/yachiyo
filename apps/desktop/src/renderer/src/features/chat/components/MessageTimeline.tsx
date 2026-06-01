@@ -28,17 +28,17 @@ import {
   getTimelineMessages,
   isActiveRequestForGroup,
   partitionToolCallsForGroups
-} from '../lib/messageThreadPresentation'
+} from '../lib/timeline/messageThreadPresentation'
 import {
   buildMessageTimelineRows,
   collectInlineCodeMarkdownDocumentsFromRows,
   type MessageTimelineRow
-} from '../lib/messageTimelineRows.ts'
-import { buildTimelineVirtualRowStyle } from '../lib/messageTimelineRowStyle.ts'
+} from '../lib/timeline/messageTimelineRows.ts'
+import { buildTimelineVirtualRowStyle } from '../lib/timeline/messageTimelineRowStyle.ts'
 import {
   getInitialBottomScrollDecision,
   getNativeScrollIntoViewOptions
-} from '../lib/messageTimelineScroll.ts'
+} from '../lib/timeline/messageTimelineScroll.ts'
 import { UserMessageBubble } from './UserMessageBubble'
 import { AssistantMessageBubble } from './AssistantMessageBubble'
 import { GeneratingRow } from './GeneratingRow'
@@ -58,7 +58,7 @@ import {
   canRetryAssistantMessage,
   canSelectReplyBranch,
   resolveRetryTargetMessageId
-} from '../lib/messageActionState'
+} from '../lib/messages/messageActionState'
 import { MessageActionBar } from './MessageActionBar'
 import { RunStatsFooter } from './RunStatsFooter'
 import { PlanDocumentCard } from './PlanDocumentCard'
@@ -66,7 +66,7 @@ import { PlanDocumentTimelineCard } from './PlanDocumentTimelineCard'
 import { makeRunningPlaceholderSeed } from '@renderer/lib/runningPlaceholders.ts'
 import { BrowserTimelineView } from './BrowserTimelineView'
 import type { MessageTimelineSurface } from './TimelineSurfaceHeader'
-import type { BrowserActivitySession } from '../lib/browserActivity'
+import type { BrowserActivitySession } from '../lib/browser-activity/browserActivity'
 import type { BrowserAutomationActivityBubbleState } from '@yachiyo/shared/protocol'
 
 export type { MessageTimelineSurface } from './TimelineSurfaceHeader'

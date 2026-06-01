@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import type { ToolCall } from '../../../app/types.ts'
+import type { ToolCall } from '@renderer/app/types'
 
 import {
   buildConversationGroupTimelineItems,

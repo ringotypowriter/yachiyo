@@ -9,18 +9,18 @@ import type { ActiveRunEnterBehavior, RunStatus, SettingsConfig } from '@rendere
 import {
   resolveComposerEnterAction,
   shouldSelectCompletionCandidate
-} from '@renderer/features/chat/lib/composerEnterBehavior'
-import { shouldRevertPendingComposerMessagesOnArrowUp } from '@renderer/features/chat/lib/composerArrowUpRevert'
-import { selectComposerBackspaceAttachmentRemoval } from '@renderer/features/chat/lib/composerAttachmentBackspace'
+} from '@renderer/features/chat/lib/composer/composerEnterBehavior'
+import { shouldRevertPendingComposerMessagesOnArrowUp } from '@renderer/features/chat/lib/composer/composerArrowUpRevert'
+import { selectComposerBackspaceAttachmentRemoval } from '@renderer/features/chat/lib/composer/composerAttachmentBackspace'
 import {
   buildPlainTextPasteValue,
   isPastePlainTextShortcut
-} from '@renderer/features/chat/lib/composerPlainTextPaste'
+} from '@renderer/features/chat/lib/composer/composerPlainTextPaste'
 import type { UseChatInputBufferResult } from '@renderer/features/chat/hooks/useChatInputBuffer'
-import { clearGoalX, navigatePretextLine } from '@renderer/features/chat/lib/pretextSync'
+import { clearGoalX, navigatePretextLine } from '@renderer/features/chat/lib/composer/pretextSync'
 import type { ThreadContextOperationKey } from '@renderer/features/threads/lib/threadContextOperations'
 import { isDismissEscapeKey } from '@renderer/lib/imeUtils'
-import { longestCommonPrefix } from '../../lib/longestCommonPrefix'
+import { longestCommonPrefix } from '../../lib/composer-completion/longestCommonPrefix'
 import type { SlashCommand } from '../SlashCommandPopup'
 import {
   classifyAttachmentFileSelection,

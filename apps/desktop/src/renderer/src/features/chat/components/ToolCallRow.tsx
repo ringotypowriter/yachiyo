@@ -6,7 +6,7 @@ import { theme } from '@renderer/theme/theme'
 import {
   buildToolCallDetailsPresentation,
   formatToolFilePath
-} from '../lib/toolCallPresentation.ts'
+} from '../lib/tool-calls/toolCallPresentation.ts'
 import { ToolCodeBlock } from './ToolCodeBlock.tsx'
 import { AskUserInlineWidget } from './AskUserInlineWidget.tsx'
 

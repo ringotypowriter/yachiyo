@@ -2,7 +2,7 @@ import type React from 'react'
 import { useEffect, useState } from 'react'
 import { Check, Copy, GitBranchPlus, Pencil, RotateCcw, Trash2, Undo2 } from 'lucide-react'
 import { theme } from '@renderer/theme/theme'
-import { copyTextWithFallback } from '../lib/copyTextWithFallback'
+import { copyTextWithFallback } from '../lib/messages/copyTextWithFallback'
 
 interface MessageActionBarProps {
   align?: 'start' | 'end'

@@ -3,7 +3,7 @@ import { useId, useState } from 'react'
 import { Brain, ChevronRight } from 'lucide-react'
 import type { RecallDecisionSnapshot } from '@renderer/app/types'
 import { theme } from '@renderer/theme/theme'
-import { compactNovelTermsForDisplay } from '../lib/runMemoryPresentation.ts'
+import { compactNovelTermsForDisplay } from '../lib/run-memory/runMemoryPresentation.ts'
 
 interface ParsedCognitiveEntry {
   relation: string

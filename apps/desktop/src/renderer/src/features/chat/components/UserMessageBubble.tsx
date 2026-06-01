@@ -4,7 +4,7 @@ import type { Message, Thread } from '@renderer/app/types'
 import { theme } from '@renderer/theme/theme'
 import { linkifyText } from '@renderer/lib/markdown/linkifyText'
 import { ImageDetailViewer } from '@renderer/lib/markdown/ImageDetailViewer'
-import { canRetryUserMessage } from '../lib/messageActionState'
+import { canRetryUserMessage } from '../lib/messages/messageActionState'
 import { MessageActionBar } from './MessageActionBar'
 
 function UserMessageImages({ message }: { message: Message }): React.JSX.Element | null {

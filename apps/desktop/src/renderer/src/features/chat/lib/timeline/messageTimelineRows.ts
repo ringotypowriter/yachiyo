@@ -12,7 +12,7 @@ import {
 import {
   findLatestRunForRequests,
   findRunMemorySummaryForRequests
-} from './runMemoryPresentation.ts'
+} from '../run-memory/runMemoryPresentation.ts'
 import {
   isPlanModeExitRecord,
   isPlanDocumentMessage,

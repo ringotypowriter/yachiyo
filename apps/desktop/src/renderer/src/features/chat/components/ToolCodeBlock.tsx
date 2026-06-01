@@ -5,12 +5,12 @@ import { alpha, solid } from '@renderer/theme/theme'
 import { code as codePlugin } from '@streamdown/code'
 import { useAppStore } from '@renderer/app/store/useAppStore'
 import { useAppDialog } from '@renderer/components/AppDialogContext'
-import { detectLanguage } from '../lib/detectLanguage'
+import { detectLanguage } from '../lib/code-blocks/detectLanguage'
 import {
   codeHighlightTokenStyle,
   readCodeHighlightTokenTheme,
   type CodeHighlightTokenTheme
-} from '../lib/codeHighlightTheme'
+} from '../lib/code-blocks/codeHighlightTheme'
 
 interface ToolCodeBlockProps {
   value: string

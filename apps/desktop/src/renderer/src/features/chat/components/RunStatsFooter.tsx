@@ -5,7 +5,10 @@ import type { RunRecord, ToolCall } from '@renderer/app/types'
 import { useAppStore } from '@renderer/app/store/useAppStore'
 import { theme, alpha } from '@renderer/theme/theme'
 import { DiffPreviewerModal } from './DiffPreviewerModal'
-import { countToolCallsForRun, findLatestRunForRequests } from '../lib/runMemoryPresentation.ts'
+import {
+  countToolCallsForRun,
+  findLatestRunForRequests
+} from '../lib/run-memory/runMemoryPresentation.ts'
 
 interface RunStatsFooterProps {
   runs: RunRecord[]

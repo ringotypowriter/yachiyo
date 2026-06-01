@@ -4,7 +4,7 @@ import { ChevronDown, ChevronUp, Search, X } from 'lucide-react'
 import { theme } from '@renderer/theme/theme'
 import { isDismissEscapeKey } from '@renderer/lib/imeUtils'
 import { useRestoreFocusOnUnmount } from '@renderer/lib/focusRestore'
-import type { FindMatch } from '../lib/threadFindBar'
+import type { FindMatch } from '../lib/thread-search/threadFindBar'
 
 export interface ThreadFindBarProps {
   matches: FindMatch[]

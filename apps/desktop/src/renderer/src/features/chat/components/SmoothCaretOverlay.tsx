@@ -6,7 +6,7 @@ import {
   buildFontString,
   resolveLineHeightPx,
   getMeasureContext
-} from '@renderer/features/chat/lib/pretextSync'
+} from '@renderer/features/chat/lib/composer/pretextSync'
 
 type TrailStrength = 'off' | 'low' | 'medium' | 'high'
 type CaretIntent = 'typing' | 'delete' | 'nav-left' | 'nav-right' | 'other'

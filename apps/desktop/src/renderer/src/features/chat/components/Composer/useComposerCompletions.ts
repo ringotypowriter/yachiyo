@@ -10,22 +10,22 @@ import type {
 } from '@renderer/app/types'
 import { useAppStore } from '@renderer/app/store/useAppStore'
 import { canCompactThreadToAnotherThread } from '@renderer/features/threads/lib/threadVisibility'
-import { scoreCandidates } from '../../lib/completionMatch'
+import { scoreCandidates } from '../../lib/composer-completion/completionMatch'
 import {
   buildThingMentionCompletionCommands,
   getThingMentionQuery
-} from '../../lib/thingMentionCompletion'
+} from '../../lib/composer-completion/thingMentionCompletion'
 import {
   buildFileMentionRequestKey,
   buildFileMentionCompletionCommands,
   paginateFileMentionMatches
-} from '../../lib/fileMentionCompletion'
+} from '../../lib/composer-completion/fileMentionCompletion'
 import {
   buildFontString,
   computePretextLines,
   getMeasureContext,
   resolveLineHeightPx
-} from '@renderer/features/chat/lib/pretextSync'
+} from '@renderer/features/chat/lib/composer/pretextSync'
 import {
   AT_SKILL_PREFIX_PATTERN,
   FILE_MENTION_MAX_RESULTS,

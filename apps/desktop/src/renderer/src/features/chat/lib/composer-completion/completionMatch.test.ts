@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
-import { scoreMatch, scoreCandidates } from './completionMatch'
+import { scoreMatch, scoreCandidates } from './completionMatch.ts'
 
 describe('scoreMatch', () => {
   it('exact beats prefix beats substring beats fuzzy', () => {

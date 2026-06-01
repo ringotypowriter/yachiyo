@@ -1,4 +1,4 @@
-import type { TodoItemRecord } from '../../../app/types.ts'
+import type { TodoItemRecord } from '@renderer/app/types'
 
 export interface TodoProgressCount {
   completed: number

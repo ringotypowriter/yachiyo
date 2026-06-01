@@ -9,8 +9,8 @@ import {
   getToolCallGroupFilePaths,
   getToolCallGroupLabel,
   type ToolCallSemanticGroup
-} from '../lib/messageTimelineLayout.ts'
-import { formatToolFilePathList } from '../lib/toolCallPresentation.ts'
+} from '../lib/timeline/messageTimelineLayout.ts'
+import { formatToolFilePathList } from '../lib/tool-calls/toolCallPresentation.ts'
 import { ToolCallRow } from './ToolCallRow.tsx'
 
 interface ToolCallGroupRowProps {

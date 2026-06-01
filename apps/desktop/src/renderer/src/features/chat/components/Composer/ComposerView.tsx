@@ -33,10 +33,10 @@ import { RunArrowIndicator } from '../RunArrowIndicator'
 import { WorkspaceSelectorPopup } from '../WorkspaceSelectorPopup'
 import { SmoothCaretOverlay } from '../SmoothCaretOverlay'
 import { BackgroundTasksChip } from '../BackgroundTasksChip'
-import type { AcpAgentEntry } from '../../lib/modelSelectorState'
-import { clearGoalX } from '@renderer/features/chat/lib/pretextSync'
-import { selectComposerPlaceholder } from '@renderer/features/chat/lib/composerPlaceholder'
-import { formatReasoningSelection } from '../../lib/reasoningSelectionLabel'
+import type { AcpAgentEntry } from '../../lib/composer/modelSelectorState'
+import { clearGoalX } from '@renderer/features/chat/lib/composer/pretextSync'
+import { selectComposerPlaceholder } from '@renderer/features/chat/lib/composer/composerPlaceholder'
+import { formatReasoningSelection } from '../../lib/composer/reasoningSelectionLabel'
 import {
   ACCEPT_ATTRIBUTE,
   COMPOSER_TEXT_FIELD_MAX_HEIGHT_PX,

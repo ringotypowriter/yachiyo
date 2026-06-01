@@ -16,9 +16,12 @@ import type { RunRecord, ToolCall } from '@renderer/app/types'
 import { useAppStore } from '@renderer/app/store/useAppStore'
 import { mathPlugin } from '@renderer/lib/markdown/mathPlugin'
 import { theme, alpha } from '@renderer/theme/theme'
-import type { WorkTrajectoryItem } from '../lib/messageTimelineRows.ts'
-import { formatToolFilePathList } from '../lib/toolCallPresentation.ts'
-import { countToolCallsForRun, findLatestRunForRequests } from '../lib/runMemoryPresentation.ts'
+import type { WorkTrajectoryItem } from '../lib/timeline/messageTimelineRows.ts'
+import { formatToolFilePathList } from '../lib/tool-calls/toolCallPresentation.ts'
+import {
+  countToolCallsForRun,
+  findLatestRunForRequests
+} from '../lib/run-memory/runMemoryPresentation.ts'
 import { ToolCallGroupRow } from './ToolCallGroupRow.tsx'
 import { ToolCallRow } from './ToolCallRow.tsx'
 import { DiffPreviewerModal } from './DiffPreviewerModal.tsx'

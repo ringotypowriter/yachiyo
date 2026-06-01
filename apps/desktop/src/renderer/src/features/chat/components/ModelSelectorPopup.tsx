@@ -13,7 +13,7 @@ import {
   resolveModelSelectorState,
   type AcpAgentEntry,
   type FilteredModelProvider
-} from '../lib/modelSelectorState'
+} from '../lib/composer/modelSelectorState'
 
 function ModelOption({
   model,

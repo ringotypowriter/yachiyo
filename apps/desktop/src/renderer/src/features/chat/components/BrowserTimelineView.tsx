@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { Check } from 'lucide-react'
 
-import type { BrowserActivitySession } from '../lib/browserActivity'
-import { getBrowserSessionLabel } from '../lib/browserSessionLabel'
+import type { BrowserActivitySession } from '../lib/browser-activity/browserActivity'
+import { getBrowserSessionLabel } from '../lib/browser-activity/browserSessionLabel'
 import type {
   BrowserAutomationActivityBubbleState,
   BrowserAutomationOverlayTheme

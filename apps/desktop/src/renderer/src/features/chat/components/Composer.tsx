@@ -8,16 +8,16 @@ import {
   getComposerReasoningEffort,
   useAppStore
 } from '@renderer/app/store/useAppStore'
-import { getComposerActionState } from '@renderer/features/chat/lib/composerActionState'
-import { canRemoveQueuedFollowUp } from '@renderer/features/chat/lib/messageActionState'
-import type { ChatInputBufferPayload } from '@renderer/features/chat/lib/chatInputBuffer'
+import { getComposerActionState } from '@renderer/features/chat/lib/composer/composerActionState'
+import { canRemoveQueuedFollowUp } from '@renderer/features/chat/lib/messages/messageActionState'
+import type { ChatInputBufferPayload } from '@renderer/features/chat/lib/composer/chatInputBuffer'
 import { useChatInputBuffer } from '@renderer/features/chat/hooks/useChatInputBuffer'
-import { computePretextLines } from '@renderer/features/chat/lib/pretextSync'
+import { computePretextLines } from '@renderer/features/chat/lib/composer/pretextSync'
 import {
   forwardComposerWheelToTimeline,
   resolveComposerWheelDestination,
   resolveWheelScrollOffset
-} from '@renderer/features/chat/lib/composerWheel'
+} from '@renderer/features/chat/lib/composer/composerWheel'
 import {
   DEFAULT_ACTIVE_RUN_ENTER_BEHAVIOR,
   DEFAULT_STRIP_COMPACT_TOKEN_THRESHOLD,

@@ -2,7 +2,7 @@ import type React from 'react'
 import { useRef, useState } from 'react'
 import { MessageCircleQuestion, ArrowUp } from 'lucide-react'
 import type { ToolCall, AskUserToolCallDetails } from '@renderer/app/types'
-import { shouldSubmitAskUserAnswer } from '@renderer/features/chat/lib/askUserEnterBehavior'
+import { shouldSubmitAskUserAnswer } from '@renderer/features/chat/lib/ask-user/askUserEnterBehavior'
 import { theme } from '@renderer/theme/theme'
 
 interface AskUserInlineWidgetProps {

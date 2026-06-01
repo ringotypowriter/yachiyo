@@ -16,8 +16,8 @@ import {
 } from 'lucide-react'
 import type { ComposerFileDraft, ComposerImageDraft } from '@renderer/app/store/useAppStore'
 import type { Message, RunRecord, TodoItemRecord } from '@renderer/app/types'
-import type { ChatInputBufferPayload } from '@renderer/features/chat/lib/chatInputBuffer'
-import { getTodoProgressCount } from '@renderer/features/chat/lib/todoProgressPresentation'
+import type { ChatInputBufferPayload } from '@renderer/features/chat/lib/composer/chatInputBuffer'
+import { getTodoProgressCount } from '@renderer/features/chat/lib/todo-progress/todoProgressPresentation'
 import { theme } from '@renderer/theme/theme'
 import {
   ACCEPTED_ATTACHMENT_FILE_EXTENSIONS,

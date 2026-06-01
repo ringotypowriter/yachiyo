@@ -7,7 +7,7 @@ import {
   stageChatInputBuffer,
   type ChatInputBufferPayload,
   type ChatInputBufferState
-} from '../lib/chatInputBuffer.ts'
+} from '../lib/composer/chatInputBuffer.ts'
 
 export type ChatInputBufferFlushResult = boolean | void
 

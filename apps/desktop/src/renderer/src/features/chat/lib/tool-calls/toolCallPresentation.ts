@@ -12,7 +12,7 @@ import type {
   WebSearchResultItem,
   WebSearchToolCallDetails,
   WriteToolCallDetails
-} from '../../../app/types.ts'
+} from '@renderer/app/types'
 
 type ToolCallDetailTone = 'danger'
 

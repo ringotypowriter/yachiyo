@@ -4,8 +4,8 @@ import { buildAssetUrl } from '@renderer/lib/markdown/imageUrl'
 import type { MarkdownImageContextValue } from '@renderer/lib/markdown/MarkdownImage'
 import type { InlineCodeFileLinkSnapshot } from '@renderer/lib/markdown/inlineCodeFileLinkSnapshot'
 import type { Message } from '@renderer/app/types'
-import { buildMessagePresentation } from '../lib/messagePresentation'
-import type { MessageFooter } from '../lib/messagePresentation'
+import { buildMessagePresentation } from '../lib/messages/messagePresentation'
+import type { MessageFooter } from '../lib/messages/messagePresentation'
 import { theme } from '@renderer/theme/theme'
 
 function MessageMetaRow({ footer }: { footer: MessageFooter }): React.JSX.Element | null {

@@ -18,7 +18,7 @@ import type { MarkdownImageContextValue } from '@renderer/lib/markdown/MarkdownI
 import { collectMessagePath } from '@yachiyo/shared/threadTree'
 import { TimelineScrollbar } from '@renderer/features/chat/components/TimelineScrollbar'
 import { ToolCallRow } from '@renderer/features/chat/components/ToolCallRow'
-import { getNativeScrollIntoViewOptions } from '@renderer/features/chat/lib/messageTimelineScroll'
+import { getNativeScrollIntoViewOptions } from '@renderer/features/chat/lib/timeline/messageTimelineScroll'
 import { resolveArchivedWorkspacePath } from './archivedWorkspacePath'
 
 export interface ArchivedThreadsPageProps {

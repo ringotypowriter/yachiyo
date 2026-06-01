@@ -8,7 +8,7 @@ import {
 import { getToolModelConfig, resolveToolModelProvider } from '@yachiyo/shared/providerConfig'
 import { formatStoredModelChip } from '../../src/lib/model/modelLabel'
 import { ModelSelectorPopup } from '../../src/features/chat/components/ModelSelectorPopup'
-import { canOpenToolModelPicker } from '../../src/features/chat/lib/modelSelectorState'
+import { canOpenToolModelPicker } from '../../src/features/chat/lib/composer/modelSelectorState'
 import { RECAP_IDLE_LABEL } from '../../src/features/layout/lib/recapIdle'
 import { SettingLabel, SettingRow, SettingSection, SettingSwitch } from '../components/primitives'
 import { inputStyle } from '../components/styles'

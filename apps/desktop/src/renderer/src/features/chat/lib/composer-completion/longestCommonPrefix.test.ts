@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
-import { longestCommonPrefix } from './longestCommonPrefix'
+import { longestCommonPrefix } from './longestCommonPrefix.ts'
 
 describe('longestCommonPrefix', () => {
   it('returns empty for empty input', () => {

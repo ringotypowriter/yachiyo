@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import type { TodoItemRecord } from '../../../app/types.ts'
+import type { TodoItemRecord } from '@renderer/app/types'
 import { getTodoProgressCount } from './todoProgressPresentation.ts'
 
 const items: TodoItemRecord[] = [

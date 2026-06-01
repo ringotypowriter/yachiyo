@@ -4,7 +4,7 @@ import { ArrowUpRight, Check, Copy, Quote, RotateCcw, X } from 'lucide-react'
 import type { ThingRecord } from '@renderer/app/types'
 import type { ThingSourceQuoteRecord } from '@yachiyo/shared/protocol'
 import { alpha, theme } from '@renderer/theme/theme'
-import { copyTextWithFallback } from '../../chat/lib/copyTextWithFallback'
+import { copyTextWithFallback } from '../../chat/lib/messages/copyTextWithFallback'
 
 export function ThingColumn({
   thing,

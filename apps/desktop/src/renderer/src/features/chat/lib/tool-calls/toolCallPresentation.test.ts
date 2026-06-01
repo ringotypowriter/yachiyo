@@ -74,7 +74,7 @@ test('buildToolCallDetailsPresentation exposes edit metadata and diff blocks', (
     { label: 'first changed line', value: '8' }
   ])
   assert.deepEqual(presentation.codeBlocks, [
-    { label: 'diff', value: '@@ -8 +8 @@\n-old line\n+new line' }
+    { label: 'diff', value: '@@ -8 +8 @@\n-old line\n+new line', filePath: '/tmp/draft.txt' }
   ])
 })
 

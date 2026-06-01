@@ -1,8 +1,8 @@
 import { useEffect, useRef } from 'react'
 import { ChevronDown } from 'lucide-react'
 
-import type { BrowserActivitySession } from '../lib/browserActivity'
-import { getBrowserSessionLabel } from '../lib/browserSessionLabel'
+import type { BrowserActivitySession } from '../lib/browser-activity/browserActivity'
+import { getBrowserSessionLabel } from '../lib/browser-activity/browserSessionLabel'
 
 export type MessageTimelineSurface = 'timeline' | 'browser'
 

@@ -5,7 +5,7 @@ import {
   THINKING_PAGE_MIN_SWAP_MS,
   type ThinkingPage,
   computeThinkingPage
-} from '../lib/thinkingPager.ts'
+} from '../lib/thinking/thinkingPager.ts'
 
 // Drives a throttled, teleprompter-style view of streaming thinking content.
 //
