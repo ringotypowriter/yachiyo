@@ -116,6 +116,8 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
   const sortToolCalls = (items: ToolCallRecord[]): ToolCallRecord[] =>
     sortToolCallsChronologically(items)
   const threadTitle = (threadId: string): string | undefined => threads.get(threadId)?.title
+  const threadIcon = (threadId: string): string | undefined =>
+    threads.get(threadId)?.icon ?? undefined
   const toThingThreadScopeRecord = (
     scope: import('./storage.ts').StoredThingThreadScopeRow
   ): import('@yachiyo/shared/protocol').ThingThreadScopeRecord => ({
@@ -129,6 +131,7 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
     thingId: quote.thingId,
     threadId: quote.threadId,
     ...(threadTitle(quote.threadId) ? { threadTitle: threadTitle(quote.threadId) } : {}),
+    ...(threadIcon(quote.threadId) ? { threadIcon: threadIcon(quote.threadId) } : {}),
     ...(quote.messageId ? { messageId: quote.messageId } : {}),
     ...(quote.spanRowId ? { spanRowId: quote.spanRowId } : {}),
     sourceRowId: quote.sourceRowId,

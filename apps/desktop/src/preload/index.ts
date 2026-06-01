@@ -8,6 +8,7 @@ import type {
   CompactThreadInput,
   CompactThreadAccepted,
   ComposerReasoningSelection,
+  DeleteThingInput,
   DeleteMemoryTermInput,
   DeleteMemoryTermResult,
   EditMessageInput,
@@ -138,6 +139,8 @@ const api = {
       ipcRenderer.invoke('yachiyo:get-thing', input),
     reactivateThing: (input: { name: string }): Promise<ThingRecord | undefined> =>
       ipcRenderer.invoke('yachiyo:reactivate-thing', input),
+    deleteThing: (input: DeleteThingInput): Promise<boolean> =>
+      ipcRenderer.invoke('yachiyo:delete-thing', input),
     continueThingInNewChat: (input: { name: string }): Promise<ThreadRecord> =>
       ipcRenderer.invoke('yachiyo:continue-thing-in-new-chat', input),
     archiveThread: (input: { threadId: string }) =>

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 
+import { useAppDialog } from '@renderer/components/AppDialogContext'
 import { useAppStore } from '@renderer/app/store/useAppStore'
 import type { ThingRecord } from '@renderer/app/types'
 import { alpha, theme } from '@renderer/theme/theme'
@@ -35,18 +36,11 @@ export function ThingsPanelTopControls({
           Context board · {activeCount} active · {quoteCount} source{quoteCount === 1 ? '' : 's'}
         </div>
       </div>
-      <button
-        type="button"
-        className="no-drag shrink-0 rounded-full px-3 py-1.5 text-xs font-medium transition hover:scale-[1.01]"
-        style={{
-          background: showInactiveThings ? theme.background.accentSoft : theme.background.surface,
-          color: showInactiveThings ? theme.text.accent : theme.text.secondary,
-          boxShadow: theme.shadow.button
-        }}
+      <InactiveThingsToggleButton
+        showInactiveThings={showInactiveThings}
         onClick={toggleShowInactiveThings}
-      >
-        {showInactiveThings ? 'Hide inactive' : 'Show inactive'}
-      </button>
+        size="compact"
+      />
     </div>
   )
 }
@@ -61,8 +55,10 @@ export function ThingsPage({
   const loadThings = useAppStore((s) => s.loadThings)
   const toggleShowInactiveThings = useAppStore((s) => s.toggleShowInactiveThings)
   const reactivateThing = useAppStore((s) => s.reactivateThing)
+  const deleteThing = useAppStore((s) => s.deleteThing)
   const continueThingInNewChat = useAppStore((s) => s.continueThingInNewChat)
   const setActiveThread = useAppStore((s) => s.setActiveThread)
+  const dialog = useAppDialog()
   const [selectedThingId, setSelectedThingId] = useState<string | null>(null)
 
   useEffect(() => {
@@ -88,6 +84,25 @@ export function ThingsPage({
   const contentPadding = showHeader ? 'px-8 pb-8' : 'px-6 py-6'
   const handleContinue = onContinueThing ?? continueThingInNewChat
   const handleOpenThread = onOpenThread ?? setActiveThread
+
+  async function handleDeleteThing(thing: ThingRecord): Promise<void> {
+    const confirmed = await dialog.confirm({
+      title: `Delete #${thing.name}?`,
+      message:
+        'This removes the Thing and its saved source references. Conversations stay untouched.',
+      confirmLabel: 'Delete',
+      tone: 'danger'
+    })
+    if (!confirmed) return
+    try {
+      await deleteThing(thing.name)
+      setSelectedThingId(null)
+    } catch (error) {
+      await dialog.alert({
+        title: error instanceof Error ? error.message : `Failed to delete #${thing.name}.`
+      })
+    }
+  }
 
   return (
     <div
@@ -122,31 +137,20 @@ export function ThingsPage({
             <div className="flex shrink-0 items-center gap-3">
               <Metric label="Active" value={activeCount} />
               <Metric label="Sources" value={quoteCount} />
-              <button
-                type="button"
-                className="rounded-full px-4 py-2 text-sm font-medium transition hover:scale-[1.01]"
-                style={{
-                  background: showInactiveThings
-                    ? theme.background.accentSoft
-                    : theme.background.surface,
-                  color: showInactiveThings ? theme.text.accent : theme.text.secondary,
-                  boxShadow: theme.shadow.button
-                }}
+              <InactiveThingsToggleButton
+                showInactiveThings={showInactiveThings}
                 onClick={toggleShowInactiveThings}
-              >
-                {showInactiveThings ? 'Hide inactive' : 'Show inactive'}
-              </button>
+              />
             </div>
           </div>
         </header>
       ) : null}
 
       {boardThings.length === 0 ? (
-        <div className={`min-h-0 min-w-0 overflow-hidden ${contentPadding}`}>
-          <div
-            className="w-full rounded-4xl px-8 py-12 text-center"
-            style={{ background: alpha('surface', 0.62), boxShadow: theme.shadow.card }}
-          >
+        <div
+          className={`flex h-full min-h-0 min-w-0 items-center justify-center overflow-hidden ${contentPadding}`}
+        >
+          <div className="px-8 py-12 text-center">
             <div className="text-lg font-semibold" style={{ color: theme.text.primary }}>
               No Things yet
             </div>
@@ -172,6 +176,7 @@ export function ThingsPage({
                   onOpen={() => setSelectedThingId(thing.id)}
                   onContinue={(name) => void handleContinue(name)}
                   onReactivate={(name) => void reactivateThing(name)}
+                  onOpenThread={handleOpenThread}
                 />
               ))}
             </div>
@@ -185,6 +190,7 @@ export function ThingsPage({
           onClose={() => setSelectedThingId(null)}
           onContinue={(name) => void handleContinue(name)}
           onReactivate={(name) => void reactivateThing(name)}
+          onDelete={() => void handleDeleteThing(selectedThing)}
           onOpenThread={handleOpenThread}
         />
       ) : null}
@@ -198,6 +204,38 @@ function countActiveThings(things: ThingRecord[]): number {
 
 function countSourceQuotes(things: ThingRecord[]): number {
   return things.reduce((count, thing) => count + thing.sourceQuotes.length, 0)
+}
+
+function InactiveThingsToggleButton({
+  showInactiveThings,
+  onClick,
+  size = 'regular'
+}: {
+  showInactiveThings: boolean
+  onClick: () => void
+  size?: 'compact' | 'regular'
+}): React.JSX.Element {
+  return (
+    <button
+      type="button"
+      className={`no-drag shrink-0 rounded-full font-medium transition hover:scale-[1.01] ${
+        size === 'compact' ? 'px-3 py-1.5 text-xs' : 'px-4 py-2 text-sm'
+      }`}
+      style={{
+        background: 'transparent',
+        color: showInactiveThings ? theme.text.accent : theme.text.secondary
+      }}
+      onClick={onClick}
+      onMouseEnter={(event) => {
+        event.currentTarget.style.background = theme.background.hoverStrong
+      }}
+      onMouseLeave={(event) => {
+        event.currentTarget.style.background = 'transparent'
+      }}
+    >
+      {showInactiveThings ? 'Hide inactive' : 'Show inactive'}
+    </button>
+  )
 }
 
 function Metric({ label, value }: { label: string; value: number }): React.JSX.Element {

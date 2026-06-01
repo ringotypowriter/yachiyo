@@ -7,6 +7,7 @@ export const IPC_CHANNELS = {
   listThings: 'yachiyo:list-things',
   getThing: 'yachiyo:get-thing',
   reactivateThing: 'yachiyo:reactivate-thing',
+  deleteThing: 'yachiyo:delete-thing',
   continueThingInNewChat: 'yachiyo:continue-thing-in-new-chat',
   deleteThread: 'yachiyo:delete-thread',
   disableProviderModel: 'yachiyo:disable-provider-model',

@@ -1,3 +1,4 @@
+/* eslint-disable yachiyo/max-typescript-file-lines */
 import { createHash, randomUUID } from 'node:crypto'
 import { readFile, writeFile } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
@@ -735,6 +736,9 @@ export class YachiyoServer {
   }
   async reactivateThing(input: { name: string }): Promise<ThingRecord | undefined> {
     return this.thingDomain.reactivateThing(input.name)
+  }
+  async deleteThing(input: { name: string }): Promise<boolean> {
+    return this.thingDomain.deleteThing(input.name)
   }
   async continueThingInNewChat(input: { name: string }): Promise<ThreadRecord> {
     const thing = await this.thingDomain.getThing(input.name)

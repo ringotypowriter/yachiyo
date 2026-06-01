@@ -11,6 +11,7 @@ export interface ThingSourceQuoteRecord {
   thingId: string
   threadId: string
   threadTitle?: string
+  threadIcon?: string
   messageId?: string
   spanRowId?: string
   sourceRowId: string
@@ -55,6 +56,10 @@ export interface UpdateThingInput {
   name: string
   summary?: string
   touch?: boolean
+}
+
+export interface DeleteThingInput {
+  name: string
 }
 
 export interface LinkThingThreadInput {

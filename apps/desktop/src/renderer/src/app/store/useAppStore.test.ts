@@ -68,6 +68,8 @@ function resetStore(): void {
     },
     threadListMode: 'active',
     threads: [],
+    things: [],
+    showInactiveThings: false,
     todoListsByThread: {},
     planDocumentsByThread: {},
     toolCalls: {}
@@ -99,6 +101,7 @@ function withWindowApiMock(mock: YachiyoApiMock): () => void {
       api: {
         yachiyo: {
           listSkills: async () => [],
+          listThings: async () => [],
           ...mock
         }
       }
@@ -162,6 +165,49 @@ test('rejectPlanDocument only marks the plan rejected', async () => {
 
     assert.equal(useAppStore.getState().planDocumentsByThread['thread-plan']?.decision, 'rejected')
     assert.deepEqual(sendChatInputs, [])
+  } finally {
+    restoreWindow()
+  }
+})
+
+test('deleteThing removes the Thing through the preload API and reloads the board', async () => {
+  resetStore()
+
+  const calls: string[] = []
+  const restoreWindow = withWindowApiMock({
+    deleteThing: async ({ name }) => {
+      calls.push(name)
+      return true
+    },
+    listThings: async ({ includeInactive } = {}) => {
+      assert.equal(includeInactive, true)
+      return []
+    }
+  })
+
+  try {
+    useAppStore.setState({
+      showInactiveThings: true,
+      things: [
+        {
+          id: 'thing-1',
+          name: 'raven-ui',
+          summary: 'UI work',
+          lastUpdatedAt: TIMESTAMP,
+          createdAt: TIMESTAMP,
+          updatedAt: TIMESTAMP,
+          includedChats: [],
+          sourceQuotes: [],
+          isInactive: false
+        }
+      ]
+    })
+
+    await useAppStore.getState().deleteThing('raven-ui')
+
+    assert.deepEqual(calls, ['raven-ui'])
+    assert.deepEqual(useAppStore.getState().things, [])
+    assert.equal(useAppStore.getState().showInactiveThings, true)
   } finally {
     restoreWindow()
   }

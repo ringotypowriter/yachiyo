@@ -35,3 +35,27 @@ test('creates, links, quotes, and resolves only non-inactive Things', async () =
   assert.equal(inactive.resolved, false)
   assert.equal(inactive.reason, 'inactive')
 })
+
+test('deletes a Thing and its saved source references', async () => {
+  const storage = createInMemoryYachiyoStorage()
+  const domain = new ThingDomain({
+    storage,
+    now: () => new Date('2026-06-01T00:00:00.000Z')
+  })
+
+  const thing = await domain.createThing({ name: 'raven-ui', summary: 'UI work' })
+  await domain.linkThread({ name: thing.name, threadId: 'thread-1' })
+  await domain.addQuote({
+    name: thing.name,
+    threadId: 'thread-1',
+    sourceRowId: 'thread_message:1',
+    quote: 'Original quote'
+  })
+
+  const deleted = await domain.deleteThing('raven-ui')
+
+  assert.equal(deleted, true)
+  assert.equal(await domain.getThing('raven-ui'), undefined)
+  assert.deepEqual(storage.listThingThreadScopes(thing.id), [])
+  assert.deepEqual(storage.listThingSourceQuotes(thing.id), [])
+})

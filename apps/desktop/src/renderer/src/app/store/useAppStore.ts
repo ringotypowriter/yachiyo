@@ -327,6 +327,7 @@ export interface AppState {
   showInactiveThings: boolean
   loadThings: (input?: { includeInactive?: boolean }) => Promise<void>
   reactivateThing: (name: string) => Promise<void>
+  deleteThing: (name: string) => Promise<void>
   continueThingInNewChat: (name: string) => Promise<void>
   toggleShowInactiveThings: () => void
   folders: FolderRecord[]
@@ -431,6 +432,10 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
   reactivateThing: async (name) => {
     await window.api.yachiyo.reactivateThing({ name })
+    await get().loadThings({ includeInactive: get().showInactiveThings })
+  },
+  deleteThing: async (name) => {
+    await window.api.yachiyo.deleteThing({ name })
     await get().loadThings({ includeInactive: get().showInactiveThings })
   },
   continueThingInNewChat: async (name) => {

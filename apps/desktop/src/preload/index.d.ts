@@ -115,6 +115,7 @@ declare global {
         listThings: (input?: { includeInactive?: boolean }) => Promise<ThingRecord[]>
         getThing: (input: { name: string }) => Promise<ThingRecord | undefined>
         reactivateThing: (input: { name: string }) => Promise<ThingRecord | undefined>
+        deleteThing: (input: { name: string }) => Promise<boolean>
         continueThingInNewChat: (input: { name: string }) => Promise<ThreadRecord>
         archiveThread: (input: { threadId: string }) => Promise<void>
         bootstrap: () => Promise<BootstrapPayload>

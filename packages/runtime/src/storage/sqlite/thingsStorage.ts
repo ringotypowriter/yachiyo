@@ -49,6 +49,7 @@ export function createSqliteThingsStorageMethods(db: SqliteDb): SqliteThingsStor
     thingId: string
     threadId: string
     threadTitle: string | null
+    threadIcon: string | null
     messageId: string | null
     spanRowId: string | null
     sourceRowId: string
@@ -59,6 +60,7 @@ export function createSqliteThingsStorageMethods(db: SqliteDb): SqliteThingsStor
     thingId: row.thingId,
     threadId: row.threadId,
     ...(row.threadTitle ? { threadTitle: row.threadTitle } : {}),
+    ...(row.threadIcon ? { threadIcon: row.threadIcon } : {}),
     ...(row.messageId ? { messageId: row.messageId } : {}),
     ...(row.spanRowId ? { spanRowId: row.spanRowId } : {}),
     sourceRowId: row.sourceRowId,
@@ -128,6 +130,7 @@ export function createSqliteThingsStorageMethods(db: SqliteDb): SqliteThingsStor
           thingId: thingSourceQuotesTable.thingId,
           threadId: thingSourceQuotesTable.threadId,
           threadTitle: threadsTable.title,
+          threadIcon: threadsTable.icon,
           messageId: thingSourceQuotesTable.messageId,
           spanRowId: thingSourceQuotesTable.spanRowId,
           sourceRowId: thingSourceQuotesTable.sourceRowId,
