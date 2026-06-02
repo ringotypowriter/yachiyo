@@ -4,62 +4,56 @@ import { z } from 'zod'
 import type { ThingDomain } from '../../app/domain/things/thingDomain.ts'
 import { formatThingDetailText, formatThingListText } from './thingToolFormatting.ts'
 
-const listInputSchema = z
+type ReviewThingsInput =
+  | { action: 'list'; includeInactive?: boolean }
+  | { action: 'get'; name: string }
+  | { action: 'create'; name: string; summary: string }
+  | { action: 'updateSummary'; name: string; summary: string }
+  | { action: 'addReviewedSource'; name: string; sourceRowId: string; preview: string }
+  | { action: 'restore'; name: string }
+
+const reviewThingsInputSchema = z
   .object({
-    action: z.literal('list'),
-    includeInactive: z.boolean().optional()
+    action: z.enum(['list', 'get', 'create', 'updateSummary', 'addReviewedSource', 'restore']),
+    includeInactive: z.boolean().optional(),
+    name: z.string().min(1).optional(),
+    summary: z.string().min(1).optional(),
+    sourceRowId: z.string().min(1).optional(),
+    preview: z.string().min(1).optional()
   })
-  .strict()
-
-const getInputSchema = z
-  .object({
-    action: z.literal('get'),
-    name: z.string().min(1)
-  })
-  .strict()
-
-const createInputSchema = z
-  .object({
-    action: z.literal('create'),
-    name: z.string().min(1),
-    summary: z.string().min(1)
-  })
-  .strict()
-
-const updateSummaryInputSchema = z
-  .object({
-    action: z.literal('updateSummary'),
-    name: z.string().min(1),
-    summary: z.string().min(1)
-  })
-  .strict()
-
-const addReviewedSourceInputSchema = z
-  .object({
-    action: z.literal('addReviewedSource'),
-    name: z.string().min(1),
-    sourceRowId: z.string().min(1),
-    preview: z.string().min(1)
-  })
-  .strict()
-
-const restoreInputSchema = z
-  .object({
-    action: z.literal('restore'),
-    name: z.string().min(1)
-  })
-  .strict()
-
-const reviewThingsInputSchema = z.discriminatedUnion('action', [
-  listInputSchema,
-  getInputSchema,
-  createInputSchema,
-  updateSummaryInputSchema,
-  addReviewedSourceInputSchema,
-  restoreInputSchema
-])
-
-type ReviewThingsInput = z.infer<typeof reviewThingsInputSchema>
+  .passthrough()
+  .refine(
+    (data) => {
+      switch (data.action) {
+        case 'list':
+          return true
+        case 'get':
+        case 'restore':
+          return data.name != null
+        case 'create':
+        case 'updateSummary':
+          return data.name != null && data.summary != null
+        case 'addReviewedSource':
+          return data.name != null && data.sourceRowId != null && data.preview != null
+      }
+    },
+    { message: 'Missing required fields for the given action.' }
+  )
+  .refine(
+    (data) => {
+      const allowed = {
+        list: ['action', 'includeInactive'],
+        get: ['action', 'name'],
+        create: ['action', 'name', 'summary'],
+        updateSummary: ['action', 'name', 'summary'],
+        addReviewedSource: ['action', 'name', 'sourceRowId', 'preview'],
+        restore: ['action', 'name']
+      }[data.action]
+      return Object.keys(data).every((key) => allowed.includes(key))
+    },
+    { message: 'Unexpected fields for the given action.' }
+  )
+  .transform((data) => data as ReviewThingsInput)
 
 interface ReviewThingsToolOutput {
   content: Array<{ type: 'text'; text: string }>
