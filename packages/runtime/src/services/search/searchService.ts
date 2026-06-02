@@ -250,6 +250,9 @@ async function runRipgrepSearch(input: {
     '--max-count',
     String(input.request.limit),
     ...(input.request.literal ? ['--fixed-strings'] : []),
+    ...(shouldEnableRipgrepMultiline(input.request.pattern, input.request.literal)
+      ? ['--multiline']
+      : []),
     ...(input.request.caseSensitive ? [] : ['--ignore-case']),
     ...(input.request.include ? ['--glob', input.request.include] : []),
     ...(input.request.context > 0 ? ['--context', String(input.request.context)] : []),
@@ -346,6 +349,38 @@ async function runRipgrepSearch(input: {
     matches: matches.slice(0, input.request.limit),
     truncated: matches.length > input.request.limit || Boolean(result.terminatedEarly)
   }
+}
+
+function shouldEnableRipgrepMultiline(pattern: string, literal: boolean): boolean {
+  if (pattern.includes('\n') || pattern.includes('\r')) {
+    return true
+  }
+
+  if (literal) {
+    return false
+  }
+
+  return containsRegexNewlineEscape(pattern)
+}
+
+function containsRegexNewlineEscape(pattern: string): boolean {
+  for (let index = 0; index < pattern.length; index += 1) {
+    const char = pattern[index]
+    if (char !== 'n' && char !== 'r') {
+      continue
+    }
+
+    let slashCount = 0
+    for (let slashIndex = index - 1; pattern[slashIndex] === '\\'; slashIndex -= 1) {
+      slashCount += 1
+    }
+
+    if (slashCount % 2 === 1) {
+      return true
+    }
+  }
+
+  return false
 }
 
 // ── fd backend ───────────────────────────────────────────────────────────────

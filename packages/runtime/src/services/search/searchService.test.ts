@@ -87,6 +87,23 @@ test('rg backend passes --hidden flag', async () => {
   )
 })
 
+test('rg backend enables multiline only for newline regex patterns', async () => {
+  const calls: Array<{ args: string[] }> = []
+  const service = createSearchService({
+    rgPath: '/usr/bin/rg',
+    runCommand: async ({ args }) => {
+      calls.push({ args })
+      return { exitCode: 1, stdout: '', stderr: '' }
+    }
+  })
+
+  await service.grep({ cwd: '/repo', pattern: 'alpha\\n\\s+beta', path: '.' })
+  await service.grep({ cwd: '/repo', pattern: 'alpha beta', path: '.' })
+
+  assert.equal(calls[0]?.args.includes('--multiline'), true)
+  assert.equal(calls[1]?.args.includes('--multiline'), false)
+})
+
 test('rg backend parses context events from JSON output', async () => {
   const service = createSearchService({
     rgPath: '/usr/bin/rg',
