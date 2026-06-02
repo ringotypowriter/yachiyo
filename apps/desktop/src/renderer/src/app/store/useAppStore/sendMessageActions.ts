@@ -305,7 +305,7 @@ export function createSendMessageActions(input: {
             }
 
             const nextMessages =
-              acceptedKind === 'active-run-steer-pending'
+              acceptedKind === 'active-run-steer-pending' || acceptedKind === 'active-run-follow-up'
                 ? (state.messages[accepted.thread.id] ?? [])
                 : replaceMessage(
                     state.messages[accepted.thread.id] ?? [],
@@ -349,6 +349,13 @@ export function createSendMessageActions(input: {
                 ...state.messages,
                 [accepted.thread.id]: nextMessages
               },
+              queuedFollowUpMessagesByThread:
+                accepted.kind === 'active-run-follow-up'
+                  ? {
+                      ...state.queuedFollowUpMessagesByThread,
+                      [accepted.thread.id]: accepted.queuedFollowUpMessages ?? []
+                    }
+                  : state.queuedFollowUpMessagesByThread,
               toolCalls: nextToolCalls,
               pendingSteerMessages:
                 acceptedKind === 'active-run-steer-pending'

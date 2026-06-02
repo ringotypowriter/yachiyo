@@ -15,7 +15,6 @@ import {
   groupLatestRunsByThread,
   groupToolCallsByThread,
   groupMessagesByThread,
-  serializeReasoningSelection,
   serializeToolCallDetails,
   toRunRecoveryCheckpoint,
   toStoredRunRecoveryCheckpointRow,
@@ -191,6 +190,7 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
         latestRunsByThread,
         threads: activeThreads.map(toThreadRecordWithChannelUserRole),
         messagesByThread: groupMessagesByThread(allMessages),
+        queuedFollowUpMessagesByThread: {},
         toolCallsByThread: groupToolCallsByThread(allToolCalls)
       }
     },
@@ -429,10 +429,6 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
 
       thread.headMessageId = null
       thread.preview = null
-      thread.queuedFollowUpEnabledTools = null
-      thread.queuedFollowUpEnabledSkillNames = null
-      thread.queuedFollowUpMessageId = null
-      thread.queuedFollowUpReasoningEffort = null
       thread.rollingSummary = null
       thread.summaryWatermarkMessageId = null
       thread.recapText = null
@@ -472,10 +468,6 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
         }
         thread.headMessageId = null
         thread.preview = null
-        thread.queuedFollowUpEnabledTools = null
-        thread.queuedFollowUpEnabledSkillNames = null
-        thread.queuedFollowUpMessageId = null
-        thread.queuedFollowUpReasoningEffort = null
         thread.rollingSummary = null
         thread.summaryWatermarkMessageId = null
         thread.recapText = null
@@ -542,13 +534,6 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
       storedThread.updatedAt = updatedThread.updatedAt
       storedThread.headMessageId = updatedThread.headMessageId ?? null
       storedThread.preview = updatedThread.preview ?? null
-      storedThread.queuedFollowUpEnabledTools = updatedThread.queuedFollowUpEnabledTools
-        ? JSON.stringify(updatedThread.queuedFollowUpEnabledTools)
-        : null
-      storedThread.queuedFollowUpMessageId = updatedThread.queuedFollowUpMessageId ?? null
-      storedThread.queuedFollowUpReasoningEffort = serializeReasoningSelection(
-        updatedThread.queuedFollowUpReasoningEffort
-      )
       storedThread.recapText = updatedThread.recapText ?? null
       if (userMessage) {
         messages.push(userMessage)
@@ -833,13 +818,6 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
       const storedThread = threads.get(thread.id)
       if (!storedThread) {
         return
-      }
-
-      if (deletedIds.has(storedThread.queuedFollowUpMessageId ?? '')) {
-        storedThread.queuedFollowUpEnabledTools = null
-        storedThread.queuedFollowUpEnabledSkillNames = null
-        storedThread.queuedFollowUpMessageId = null
-        storedThread.queuedFollowUpReasoningEffort = null
       }
 
       applyThreadSnapshot(storedThread, thread)

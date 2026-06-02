@@ -25,7 +25,6 @@ import { TimelineScrollbar } from './TimelineScrollbar'
 import {
   buildMessageGroups,
   getRootAssistantMessages,
-  getTimelineMessages,
   isActiveRequestForGroup,
   partitionToolCallsForGroups
 } from '../lib/timeline/messageThreadPresentation'
@@ -758,23 +757,18 @@ export function MessageTimeline({
     [subagentFinishedResultsByThread]
   )
 
-  const timelineMessages = useMemo(
-    () => (thread ? getTimelineMessages({ thread, messages }) : messages),
-    [thread, messages]
-  )
-
   const messageGroups = useMemo(
     () =>
       thread
         ? buildMessageGroups({
             thread,
-            messages: timelineMessages,
+            messages,
             runs,
             runPhase,
             activeRequestMessageId
           })
         : [],
-    [thread, timelineMessages, runs, runPhase, activeRequestMessageId]
+    [thread, messages, runs, runPhase, activeRequestMessageId]
   )
   const pendingSteerMessage = useMemo(
     () =>
@@ -796,10 +790,7 @@ export function MessageTimeline({
     () => partitionToolCallsForGroups({ groups: messageGroups, toolCalls }),
     [messageGroups, toolCalls]
   )
-  const rootAssistantMessages = useMemo(
-    () => getRootAssistantMessages(timelineMessages),
-    [timelineMessages]
-  )
+  const rootAssistantMessages = useMemo(() => getRootAssistantMessages(messages), [messages])
   const threadCapabilities = useMemo(
     () => (thread ? getThreadCapabilities(thread) : null),
     [thread]

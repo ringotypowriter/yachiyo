@@ -672,18 +672,23 @@ test('YachiyoServer merges additional follow-ups into the queued follow-up for a
       assert.equal(firstQueued.kind, 'active-run-follow-up')
       assert.equal(replacement.kind, 'active-run-follow-up')
       assert.equal(replacement.replacedMessageId, firstQueued.userMessage.id)
-      assert.equal(replacement.thread.queuedFollowUpMessageId, replacement.userMessage.id)
+      assert.deepEqual(
+        replacement.queuedFollowUpMessages?.map((message) => message.id),
+        [replacement.userMessage.id]
+      )
       try {
         const pendingBootstrap = await server.bootstrap()
         const persistedBootstrap = storage.bootstrap()
-        assert.equal(
-          pendingBootstrap.threads[0]?.queuedFollowUpMessageId,
-          replacement.userMessage.id
+        assert.deepEqual(
+          pendingBootstrap.queuedFollowUpMessagesByThread[thread.id]?.map(
+            (message) => message.content
+          ),
+          ['First queued follow-up\nSecond queued follow-up']
         )
-        assert.equal(persistedBootstrap.threads[0]?.queuedFollowUpMessageId, undefined)
+        assert.deepEqual(persistedBootstrap.queuedFollowUpMessagesByThread[thread.id] ?? [], [])
         assert.deepEqual(
           pendingBootstrap.messagesByThread[thread.id]?.map((message) => message.content),
-          ['First question', 'First queued follow-up\nSecond queued follow-up']
+          ['First question']
         )
         assert.deepEqual(
           persistedBootstrap.messagesByThread[thread.id]?.map((message) => message.content),
@@ -694,13 +699,12 @@ test('YachiyoServer merges additional follow-ups into the queued follow-up for a
       }
       await completeRun(firstRun.runId)
       await new Promise((resolve) => setTimeout(resolve, 0))
-      assert.equal((await server.bootstrap()).threads[0]?.queuedFollowUpMessageId, undefined)
       const followUpRunCreated = (await waitForEvent('run.created')) as { runId: string }
       await completeRun(followUpRunCreated.runId)
 
       const bootstrap = await server.bootstrap()
 
-      assert.equal(bootstrap.threads[0]?.queuedFollowUpMessageId, undefined)
+      assert.deepEqual(bootstrap.queuedFollowUpMessagesByThread[thread.id] ?? [], [])
       assert.deepEqual(
         (bootstrap.messagesByThread[thread.id] ?? []).map((message) => message.content),
         [
@@ -871,7 +875,7 @@ test('YachiyoServer deletes a queued follow-up draft without editing persisted h
         threadId: thread.id,
         messageId: queuedFollowUp.userMessage.id
       })
-      assert.equal(deleted.thread.queuedFollowUpMessageId, undefined)
+      assert.deepEqual(deleted.queuedFollowUpMessages ?? [], [])
       assert.deepEqual(
         deleted.messages.map((message) => message.content),
         ['First question']
@@ -882,7 +886,7 @@ test('YachiyoServer deletes a queued follow-up draft without editing persisted h
       await new Promise((resolve) => setTimeout(resolve, 0))
 
       const bootstrap = await server.bootstrap()
-      assert.equal(bootstrap.threads[0]?.queuedFollowUpMessageId, undefined)
+      assert.deepEqual(bootstrap.queuedFollowUpMessagesByThread[thread.id] ?? [], [])
       assert.deepEqual(
         (bootstrap.messagesByThread[thread.id] ?? []).map((message) => message.content),
         ['First question', 'Hello world']
@@ -1026,6 +1030,8 @@ test('YachiyoServer preserves a queued follow-up draft across later thread snaps
       const visibleThread = visibleBootstrap.threads.find((entry) => entry.id === thread.id)
       const persistedThread = persistedBootstrap.threads.find((entry) => entry.id === thread.id)
       const visibleMessages = visibleBootstrap.messagesByThread[thread.id] ?? []
+      const visibleQueuedFollowUpMessages =
+        visibleBootstrap.queuedFollowUpMessagesByThread[thread.id] ?? []
       const persistedMessages = persistedBootstrap.messagesByThread[thread.id] ?? []
 
       releaseFirstRun?.()
@@ -1033,12 +1039,16 @@ test('YachiyoServer preserves a queued follow-up draft across later thread snaps
       const followUpRunCreated = (await waitForEvent('run.created')) as { runId: string }
       await completeRun(followUpRunCreated.runId)
 
-      assert.equal(renamedEvent.thread.queuedFollowUpMessageId, queuedFollowUp.userMessage.id)
-      assert.equal(visibleThread?.queuedFollowUpMessageId, queuedFollowUp.userMessage.id)
-      assert.equal(persistedThread?.queuedFollowUpMessageId, undefined)
+      assert.equal(renamedEvent.thread.title, 'Renamed thread')
+      assert.equal(visibleThread?.title, 'Renamed thread')
+      assert.equal(persistedThread?.title, 'Renamed thread')
       assert.deepEqual(
         visibleMessages.map((message) => message.content),
-        ['First question', 'Queued follow-up']
+        ['First question']
+      )
+      assert.deepEqual(
+        visibleQueuedFollowUpMessages.map((message) => message.content),
+        ['Queued follow-up']
       )
       assert.deepEqual(
         persistedMessages.map((message) => message.content),

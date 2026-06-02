@@ -60,10 +60,6 @@ export interface StoredThreadRow {
   handoffFromThreadId: string | null
   folderId: string | null
   colorTag: ThreadColorTag | null
-  queuedFollowUpMessageId: string | null
-  queuedFollowUpEnabledTools: string | null
-  queuedFollowUpEnabledSkillNames: string | null
-  queuedFollowUpReasoningEffort: string | null
   enabledTools: string | null
   runMode: string | null
   reasoningEffort: string | null
@@ -116,6 +112,7 @@ export interface BootstrapState {
   archivedThreads: ThreadRecord[]
   folders: FolderRecord[]
   messagesByThread: Record<string, MessageRecord[]>
+  queuedFollowUpMessagesByThread: Record<string, MessageRecord[]>
   toolCallsByThread: Record<string, ToolCallRecord[]>
   latestRunsByThread: Record<string, RunRecord>
 }
@@ -503,10 +500,6 @@ export function toThreadRecord(
     | 'modelOverride'
     | 'preview'
     | 'privacyMode'
-    | 'queuedFollowUpEnabledTools'
-    | 'queuedFollowUpEnabledSkillNames'
-    | 'queuedFollowUpMessageId'
-    | 'queuedFollowUpReasoningEffort'
     | 'reasoningEffort'
     | 'source'
     | 'channelUserId'
@@ -529,9 +522,6 @@ export function toThreadRecord(
     runMode?: string | null
   }
 ): ThreadRecord {
-  const queuedFollowUpEnabledTools = parseEnabledTools(row.queuedFollowUpEnabledTools)
-  const queuedFollowUpEnabledSkillNames = parseSkillNames(row.queuedFollowUpEnabledSkillNames)
-  const queuedFollowUpReasoningEffort = parseReasoningSelection(row.queuedFollowUpReasoningEffort)
   const enabledTools = parseEnabledTools(row.enabledTools ?? null)
   const runMode = parseRunMode(row.runMode ?? null)
   const reasoningEffort = parseReasoningSelection(row.reasoningEffort)
@@ -556,15 +546,9 @@ export function toThreadRecord(
       ...(memoryRecall ? { memoryRecall } : {}),
       ...(modelOverride ? { modelOverride } : {}),
       ...(row.privacyMode === '1' ? { privacyMode: true } : {}),
-      ...(queuedFollowUpEnabledTools ? { queuedFollowUpEnabledTools } : {}),
-      ...(queuedFollowUpEnabledSkillNames ? { queuedFollowUpEnabledSkillNames } : {}),
-      ...(queuedFollowUpReasoningEffort ? { queuedFollowUpReasoningEffort } : {}),
       ...(enabledTools ? { enabledTools } : {}),
       ...(runMode ? { runMode } : {}),
       ...(reasoningEffort ? { reasoningEffort } : {}),
-      ...(row.queuedFollowUpMessageId === null
-        ? {}
-        : { queuedFollowUpMessageId: row.queuedFollowUpMessageId }),
       ...(row.workspacePath === null ? {} : { workspacePath: row.workspacePath }),
       ...(source ? { source } : {}),
       ...(row.channelUserId === null ? {} : { channelUserId: row.channelUserId }),
@@ -604,15 +588,9 @@ export function toThreadRecord(
     ...(memoryRecall ? { memoryRecall } : {}),
     ...(modelOverride ? { modelOverride } : {}),
     ...(row.privacyMode === '1' ? { privacyMode: true } : {}),
-    ...(queuedFollowUpEnabledTools ? { queuedFollowUpEnabledTools } : {}),
-    ...(queuedFollowUpEnabledSkillNames ? { queuedFollowUpEnabledSkillNames } : {}),
-    ...(queuedFollowUpReasoningEffort ? { queuedFollowUpReasoningEffort } : {}),
     ...(enabledTools ? { enabledTools } : {}),
     ...(runMode ? { runMode } : {}),
     ...(reasoningEffort ? { reasoningEffort } : {}),
-    ...(row.queuedFollowUpMessageId === null
-      ? {}
-      : { queuedFollowUpMessageId: row.queuedFollowUpMessageId }),
     ...(row.workspacePath === null ? {} : { workspacePath: row.workspacePath }),
     ...(source ? { source } : {}),
     ...(row.channelUserId === null ? {} : { channelUserId: row.channelUserId }),

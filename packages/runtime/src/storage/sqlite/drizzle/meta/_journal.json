@@ -435,6 +435,13 @@
       "when": 1780248169555,
       "tag": "0061_puzzling_thing",
       "breakpoints": true
+    },
+    {
+      "idx": 62,
+      "version": "6",
+      "when": 1780408832097,
+      "tag": "0062_brief_star_brand",
+      "breakpoints": true
     }
   ]
 }

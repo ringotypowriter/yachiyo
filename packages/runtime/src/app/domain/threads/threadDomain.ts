@@ -810,12 +810,7 @@ export class YachiyoServerThreadDomain {
     if (!getThreadCapabilities(thread).canDelete) {
       throw new Error('ACP threads do not support deleting messages.')
     }
-    // Allow deleting only the queued follow-up while a run is active —
-    // it has not yet been consumed, so removing it does not edit history.
-    const isQueuedFollowUpDelete =
-      thread.queuedFollowUpMessageId !== undefined &&
-      thread.queuedFollowUpMessageId === input.messageId
-    if (this.deps.isThreadRunning(thread.id) && !isQueuedFollowUpDelete) {
+    if (this.deps.isThreadRunning(thread.id)) {
       throw new Error('Cannot edit history while this thread is running.')
     }
 
@@ -844,14 +839,6 @@ export class YachiyoServerThreadDomain {
       ...thread,
       title: remainingMessages.length === 0 ? DEFAULT_THREAD_TITLE : thread.title,
       updatedAt: timestamp,
-      ...(thread.queuedFollowUpMessageId && !deletedIds.has(thread.queuedFollowUpMessageId)
-        ? {
-            queuedFollowUpEnabledTools: thread.queuedFollowUpEnabledTools,
-            queuedFollowUpEnabledSkillNames: thread.queuedFollowUpEnabledSkillNames,
-            queuedFollowUpMessageId: thread.queuedFollowUpMessageId,
-            queuedFollowUpReasoningEffort: thread.queuedFollowUpReasoningEffort
-          }
-        : {}),
       ...(nextHeadMessageId ? { headMessageId: nextHeadMessageId } : {}),
       ...(preview ? { preview: preview.slice(0, 240) } : {})
     }
@@ -862,13 +849,6 @@ export class YachiyoServerThreadDomain {
 
     if (!preview) {
       delete updatedThread.preview
-    }
-
-    if (thread.queuedFollowUpMessageId && deletedIds.has(thread.queuedFollowUpMessageId)) {
-      delete updatedThread.queuedFollowUpEnabledTools
-      delete updatedThread.queuedFollowUpEnabledSkillNames
-      delete updatedThread.queuedFollowUpMessageId
-      delete updatedThread.queuedFollowUpReasoningEffort
     }
 
     this.deps.storage.deleteMessages({

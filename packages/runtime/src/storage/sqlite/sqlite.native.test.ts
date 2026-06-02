@@ -186,12 +186,6 @@ test('sqlite storage initializes migrations on disk', async () => {
     )
     assert.ok(
       db
-        .prepare('PRAGMA table_info(threads)')
-        .all()
-        .some((row) => row.name === 'queued_follow_up_message_id')
-    )
-    assert.ok(
-      db
         .prepare('PRAGMA table_info(runs)')
         .all()
         .some((row) => row.name === 'request_message_id')
@@ -624,9 +618,7 @@ test('sqlite migrations backfill tool call message anchors from historical runs'
         head_message_id text,
         archived_at text,
         updated_at text NOT NULL,
-        created_at text NOT NULL,
-        queued_follow_up_message_id text,
-        queued_follow_up_enabled_tools text
+        created_at text NOT NULL
       );
       CREATE TABLE messages (
         id text PRIMARY KEY NOT NULL,

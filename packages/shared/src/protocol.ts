@@ -498,10 +498,6 @@ export interface ThreadRecord {
   workspacePath?: string
   preview?: string
   headMessageId?: string
-  queuedFollowUpMessageId?: string
-  queuedFollowUpEnabledTools?: ToolCallName[]
-  queuedFollowUpEnabledSkillNames?: string[]
-  queuedFollowUpReasoningEffort?: ComposerReasoningSelection
   enabledTools?: ToolCallName[]
   runMode?: RunModeId
   reasoningEffort?: ComposerReasoningSelection
@@ -1196,6 +1192,7 @@ export interface BootstrapPayload {
   sentinelsByThread: Record<string, ThreadSentinelRecord>
   folders: FolderRecord[]
   messagesByThread: Record<string, MessageRecord[]>
+  queuedFollowUpMessagesByThread: Record<string, MessageRecord[]>
   toolCallsByThread: Record<string, ToolCallRecord[]>
   latestRunsByThread: Record<string, RunRecord>
   recoveredInterruptedSaveThreadIds: string[]
@@ -1238,6 +1235,7 @@ export interface ChatAcceptedWithUserMessage {
   kind: 'run-started' | 'active-run-steer' | 'active-run-follow-up'
   thread: ThreadRecord
   userMessage: MessageRecord
+  queuedFollowUpMessages?: MessageRecord[]
   runId: string
   replacedMessageId?: string
 }
@@ -1409,6 +1407,7 @@ export interface TestSubagentProfileResult {
 export interface ThreadSnapshot {
   thread: ThreadRecord
   messages: MessageRecord[]
+  queuedFollowUpMessages?: MessageRecord[]
   toolCalls: ToolCallRecord[]
 }
 

@@ -63,10 +63,6 @@ export function createSqliteBootstrapStorageMethods(input: {
           modelOverride: threadsTable.modelOverride,
           preview: threadsTable.preview,
           privacyMode: threadsTable.privacyMode,
-          queuedFollowUpEnabledTools: threadsTable.queuedFollowUpEnabledTools,
-          queuedFollowUpEnabledSkillNames: threadsTable.queuedFollowUpEnabledSkillNames,
-          queuedFollowUpMessageId: threadsTable.queuedFollowUpMessageId,
-          queuedFollowUpReasoningEffort: threadsTable.queuedFollowUpReasoningEffort,
           enabledTools: threadsTable.enabledTools,
           runMode: threadsTable.runMode,
           reasoningEffort: threadsTable.reasoningEffort,
@@ -141,6 +137,7 @@ export function createSqliteBootstrapStorageMethods(input: {
         latestRunsByThread,
         threads,
         messagesByThread: {},
+        queuedFollowUpMessagesByThread: {},
         toolCallsByThread: {}
       }
     }

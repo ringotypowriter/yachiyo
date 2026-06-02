@@ -1,5 +1,6 @@
 import type {
   BootstrapPayload,
+  ComposerReasoningSelection,
   MessageRecord,
   RunCreatedEvent,
   RunModeId,
@@ -8,19 +9,9 @@ import type {
   ThreadRecord,
   ThreadStateReplacedEvent
 } from '@yachiyo/shared/protocol'
-import {
-  DEFAULT_RUN_MODE_ID,
-  normalizeSkillNames,
-  type ToolCallName
-} from '@yachiyo/shared/protocol'
+import type { ToolCallName } from '@yachiyo/shared/protocol'
 import { summarizeMessageInput } from '@yachiyo/shared/messageContent'
-import { wouldCreateParentCycle } from '@yachiyo/shared/threadTree'
 import type { BootstrapState, RunRecoveryCheckpoint } from '../../../../storage/storage.ts'
-import {
-  deriveRunModeId,
-  normalizeRunModeId,
-  resolveRunModeEnabledTools
-} from '@yachiyo/shared/toolModes'
 import { createRunEventMetadata } from '../../shared/runEventMetadata.ts'
 import type { StartActiveRunInput } from '../active/activeRunStart.ts'
 import { withParentMessageId } from '../chat/threadMessages.ts'
@@ -32,7 +23,7 @@ interface PreparedQueuedFollowUpStart {
   enabledSkillNames?: string[]
   runMode: RunModeId
   runTrigger: SendChatRunTrigger
-  reasoningEffort?: ThreadRecord['queuedFollowUpReasoningEffort']
+  reasoningEffort?: ComposerReasoningSelection
   requestMessageId: string
   runId: string
   thread: ThreadRecord
@@ -46,7 +37,7 @@ export interface QueuedFollowUpRequestDraft {
   enabledSkillNames?: string[]
   runMode: RunModeId
   runTrigger: SendChatRunTrigger
-  reasoningEffort?: ThreadRecord['queuedFollowUpReasoningEffort']
+  reasoningEffort?: ComposerReasoningSelection
   userMessage: MessageRecord
 }
 
@@ -65,73 +56,12 @@ export interface FollowUpQueueContext {
   startRecoveredRun: (checkpoint: RunRecoveryCheckpoint) => void
 }
 
-export function prepareRecoveredQueuedFollowUps(context: FollowUpQueueContext): string[] {
-  const recoveredThreadIds: string[] = []
-
-  for (const thread of context.deps.storage.bootstrap().threads) {
-    const queuedMessageId = thread.queuedFollowUpMessageId
-    if (!queuedMessageId) {
-      continue
-    }
-
-    if (context.activeRunByThread.has(thread.id) || context.queuedFollowUpDrafts.has(thread.id)) {
-      continue
-    }
-
-    const hasPersistedQueuedMessage = context.deps
-      .loadThreadMessages(thread.id)
-      .some((message) => message.id === queuedMessageId && message.role === 'user')
-
-    if (hasPersistedQueuedMessage) {
-      recoveredThreadIds.push(thread.id)
-      continue
-    }
-
-    const clearedThread: ThreadRecord = {
-      ...thread,
-      updatedAt: context.deps.timestamp()
-    }
-    delete clearedThread.queuedFollowUpEnabledTools
-    delete clearedThread.queuedFollowUpEnabledSkillNames
-    delete clearedThread.queuedFollowUpReasoningEffort
-    delete clearedThread.queuedFollowUpMessageId
-    context.deps.storage.updateThread(clearedThread)
-  }
-
-  return recoveredThreadIds
-}
-
-export function projectQueuedFollowUpDraftThread(
-  queuedFollowUpDrafts: QueuedFollowUpDrafts,
-  thread: ThreadRecord
-): ThreadRecord {
-  const draft = queuedFollowUpDrafts.get(thread.id)
-  if (!draft) {
-    return thread
-  }
-  if (!isVisibleQueuedFollowUpDraft(draft)) {
-    return withoutQueuedFollowUpProjection(thread)
-  }
-
-  const projectedThread: ThreadRecord = {
-    ...thread,
-    queuedFollowUpEnabledTools: [...draft.enabledTools],
-    queuedFollowUpMessageId: draft.userMessage.id
-  }
-
-  if (draft.enabledSkillNames !== undefined) {
-    projectedThread.queuedFollowUpEnabledSkillNames = [...draft.enabledSkillNames]
-  } else {
-    delete projectedThread.queuedFollowUpEnabledSkillNames
-  }
-
-  if (draft.reasoningEffort !== undefined) {
-    projectedThread.queuedFollowUpReasoningEffort = draft.reasoningEffort
-  } else {
-    delete projectedThread.queuedFollowUpReasoningEffort
-  }
-
-  return projectedThread
+export function replaceQueuedFollowUpDraft(
+  context: FollowUpQueueContext,
+  threadId: string,
+  draft: QueuedFollowUpDraft
+): void {
+  context.queuedFollowUpDrafts.set(threadId, cloneQueuedFollowUpDraft(draft))
 }
 
 export function projectQueuedFollowUpDraftSnapshot(
@@ -142,17 +72,10 @@ export function projectQueuedFollowUpDraftSnapshot(
   if (!draft) {
     return snapshot
   }
-  if (!isVisibleQueuedFollowUpDraft(draft)) {
-    return {
-      ...snapshot,
-      thread: withoutQueuedFollowUpProjection(snapshot.thread)
-    }
-  }
 
   return {
     ...snapshot,
-    thread: projectQueuedFollowUpDraftThread(queuedFollowUpDrafts, snapshot.thread),
-    messages: includeQueuedFollowUpDraftMessages(snapshot.messages, draft)
+    queuedFollowUpMessages: getVisibleQueuedFollowUpDraftMessages(draft)
   }
 }
 
@@ -171,43 +94,21 @@ export function projectQueuedFollowUpDraftsBootstrap<
     return bootstrap
   }
 
-  const messagesByThread = { ...bootstrap.messagesByThread }
-  const threads = bootstrap.threads.map((thread) => {
+  const queuedFollowUpMessagesByThread = { ...bootstrap.queuedFollowUpMessagesByThread }
+  for (const thread of bootstrap.threads) {
     const draft = queuedFollowUpDrafts.get(thread.id)
-    if (!draft) {
-      return thread
-    }
-    if (!isVisibleQueuedFollowUpDraft(draft)) {
-      return withoutQueuedFollowUpProjection(thread)
-    }
-
-    messagesByThread[thread.id] = includeQueuedFollowUpDraftMessages(
-      messagesByThread[thread.id] ?? [],
-      draft
-    )
-    return projectQueuedFollowUpDraftThread(queuedFollowUpDrafts, thread)
-  })
+    if (!draft) continue
+    queuedFollowUpMessagesByThread[thread.id] = getVisibleQueuedFollowUpDraftMessages(draft)
+  }
 
   return {
     ...bootstrap,
-    threads,
-    messagesByThread
+    queuedFollowUpMessagesByThread
   }
 }
 
 function isVisibleQueuedFollowUpDraft(draft: QueuedFollowUpDraft): boolean {
   return draft.userMessage.hidden !== true
-}
-
-function withoutQueuedFollowUpProjection(thread: ThreadRecord): ThreadRecord {
-  const projectedThread = {
-    ...thread
-  }
-  delete projectedThread.queuedFollowUpEnabledTools
-  delete projectedThread.queuedFollowUpEnabledSkillNames
-  delete projectedThread.queuedFollowUpReasoningEffort
-  delete projectedThread.queuedFollowUpMessageId
-  return projectedThread
 }
 
 function getQueuedFollowUpDraftMessages(draft: QueuedFollowUpDraft): MessageRecord[] {
@@ -217,17 +118,8 @@ function getQueuedFollowUpDraftMessages(draft: QueuedFollowUpDraft): MessageReco
   ]
 }
 
-function includeQueuedFollowUpDraftMessages(
-  messages: MessageRecord[],
-  draft: QueuedFollowUpDraft
-): MessageRecord[] {
-  const nextMessages = [...messages]
-  for (const draftMessage of getQueuedFollowUpDraftMessages(draft)) {
-    if (!nextMessages.some((message) => message.id === draftMessage.id)) {
-      nextMessages.push(draftMessage)
-    }
-  }
-  return nextMessages
+function getVisibleQueuedFollowUpDraftMessages(draft: QueuedFollowUpDraft): MessageRecord[] {
+  return isVisibleQueuedFollowUpDraft(draft) ? [draft.userMessage] : []
 }
 
 export function prepareRecoveredRuns(context: FollowUpQueueContext): RunRecoveryCheckpoint[] {
@@ -242,21 +134,6 @@ export function prepareRecoveredRuns(context: FollowUpQueueContext): RunRecovery
     }
     return true
   })
-}
-
-export function scheduleRecoveredQueuedFollowUps(
-  context: FollowUpQueueContext,
-  threadIds: string[]
-): void {
-  if (threadIds.length === 0) {
-    return
-  }
-
-  setTimeout(() => {
-    for (const threadId of threadIds) {
-      startQueuedFollowUpIfPresent(context, threadId)
-    }
-  }, 0)
 }
 
 export function scheduleRecoveredRuns(
@@ -298,6 +175,9 @@ export function emitThreadStateReplaced(context: FollowUpQueueContext, threadId:
     threadId,
     thread,
     messages,
+    queuedFollowUpMessages: context.queuedFollowUpDrafts.has(threadId)
+      ? getVisibleQueuedFollowUpDraftMessages(context.queuedFollowUpDrafts.get(threadId)!)
+      : [],
     toolCalls
   })
 }
@@ -316,11 +196,6 @@ export function deleteQueuedFollowUpDraft(
     ...thread,
     updatedAt: context.deps.timestamp()
   }
-  delete updatedThread.queuedFollowUpEnabledTools
-  delete updatedThread.queuedFollowUpEnabledSkillNames
-  delete updatedThread.queuedFollowUpReasoningEffort
-  delete updatedThread.queuedFollowUpMessageId
-
   const remainingHiddenDraft = createHiddenOnlyDraftAfterVisibleDelete(draft)
   if (remainingHiddenDraft) {
     context.queuedFollowUpDrafts.set(input.threadId, remainingHiddenDraft)
@@ -332,6 +207,9 @@ export function deleteQueuedFollowUpDraft(
   const snapshot: ThreadSnapshot = {
     thread: updatedThread,
     messages: context.deps.loadThreadMessages(input.threadId),
+    queuedFollowUpMessages: remainingHiddenDraft
+      ? getVisibleQueuedFollowUpDraftMessages(remainingHiddenDraft)
+      : [],
     toolCalls: context.deps.loadThreadToolCalls(input.threadId)
   }
   context.deps.emit<ThreadStateReplacedEvent>({
@@ -339,6 +217,7 @@ export function deleteQueuedFollowUpDraft(
     threadId: input.threadId,
     thread: snapshot.thread,
     messages: snapshot.messages,
+    queuedFollowUpMessages: snapshot.queuedFollowUpMessages,
     toolCalls: snapshot.toolCalls
   })
 
@@ -380,6 +259,15 @@ function cloneQueuedFollowUpRequestDraft(
   }
 }
 
+function cloneQueuedFollowUpDraft(draft: QueuedFollowUpDraft): QueuedFollowUpDraft {
+  return {
+    ...cloneQueuedFollowUpRequestDraft(draft),
+    ...(draft.hiddenDrafts
+      ? { hiddenDrafts: draft.hiddenDrafts.map(cloneQueuedFollowUpRequestDraft) }
+      : {})
+  }
+}
+
 function prepareQueuedFollowUpStart(
   context: FollowUpQueueContext,
   threadId: string
@@ -393,72 +281,18 @@ function prepareQueuedFollowUpStart(
     return null
   }
   const draft = context.queuedFollowUpDrafts.get(threadId)
-  const queuedMessageId = draft?.userMessage.id ?? thread.queuedFollowUpMessageId
-  if (!queuedMessageId) {
-    if (
-      thread.queuedFollowUpEnabledTools ||
-      thread.queuedFollowUpEnabledSkillNames ||
-      thread.queuedFollowUpReasoningEffort
-    ) {
-      const clearedThread: ThreadRecord = {
-        ...thread,
-        updatedAt: context.deps.timestamp()
-      }
-      delete clearedThread.queuedFollowUpEnabledTools
-      delete clearedThread.queuedFollowUpEnabledSkillNames
-      delete clearedThread.queuedFollowUpReasoningEffort
-      context.deps.storage.updateThread(clearedThread)
-    }
-    return null
-  }
-
-  const threadMessages = context.deps.loadThreadMessages(threadId)
-  const queuedDraftMessage =
-    draft && draft.userMessage.id === queuedMessageId ? draft.userMessage : null
-  const persistedQueuedMessage = threadMessages.find(
-    (message) => message.id === queuedMessageId && message.role === 'user'
-  )
-  if (!queuedDraftMessage && !persistedQueuedMessage) {
-    const clearedThread: ThreadRecord = {
-      ...thread,
-      updatedAt: context.deps.timestamp()
-    }
-    delete clearedThread.queuedFollowUpEnabledTools
-    delete clearedThread.queuedFollowUpEnabledSkillNames
-    delete clearedThread.queuedFollowUpReasoningEffort
-    delete clearedThread.queuedFollowUpMessageId
-
-    context.deps.storage.updateThread(clearedThread)
+  if (!draft) {
     return null
   }
 
   const timestamp = context.deps.timestamp()
-  const queuedMessage = queuedDraftMessage ?? persistedQueuedMessage!
-  const wouldCycleQueuedFollowUpParent = persistedQueuedMessage
-    ? wouldCreateParentCycle(threadMessages, queuedMessage.id, thread.headMessageId)
-    : false
-  if (wouldCycleQueuedFollowUpParent) {
-    console.warn('[yachiyo][thread-tree] skipped cyclic queued follow-up reparent', {
-      messageId: queuedMessage.id,
-      threadHeadMessageId: thread.headMessageId,
-      threadId
-    })
-  }
-  const nextQueuedParentMessageId =
-    persistedQueuedMessage && wouldCycleQueuedFollowUpParent
-      ? queuedMessage.parentMessageId
-      : thread.headMessageId
-  const activatedDraftMessages = queuedDraftMessage
-    ? reparentQueuedDraftMessages(getQueuedFollowUpDraftMessages(draft!), {
-        parentMessageId: nextQueuedParentMessageId,
-        timestamp
-      })
-    : [
-        {
-          ...withParentMessageId(queuedMessage, nextQueuedParentMessageId),
-          createdAt: timestamp
-        }
-      ]
+  const activatedDraftMessages = reparentQueuedDraftMessages(
+    getQueuedFollowUpDraftMessages(draft),
+    {
+      parentMessageId: thread.headMessageId,
+      timestamp
+    }
+  )
   const activatedQueuedMessage = activatedDraftMessages.at(-1)
   if (!activatedQueuedMessage) {
     throw new Error('Queued follow-up activation did not produce a request message.')
@@ -469,45 +303,25 @@ function prepareQueuedFollowUpStart(
     : summarizeMessageInput(activatedQueuedMessage)
   const updatedThread: ThreadRecord = {
     ...thread,
-    headMessageId: queuedMessage.id,
+    headMessageId: activatedQueuedMessage.id,
     ...(messageSummary ? { preview: messageSummary.slice(0, 240) } : {}),
     updatedAt: timestamp
   }
-  delete updatedThread.queuedFollowUpEnabledTools
-  delete updatedThread.queuedFollowUpEnabledSkillNames
-  delete updatedThread.queuedFollowUpReasoningEffort
-  delete updatedThread.queuedFollowUpMessageId
-
-  const reasoningEffort = draft?.reasoningEffort ?? thread.queuedFollowUpReasoningEffort
-  const runTrigger = draft?.runTrigger ?? 'local'
-
-  const storedRunMode =
-    draft?.runMode ??
-    (thread.queuedFollowUpEnabledTools
-      ? deriveRunModeId(thread.queuedFollowUpEnabledTools)
-      : (thread.runMode ?? DEFAULT_RUN_MODE_ID))
-  const runMode = normalizeRunModeId(storedRunMode)
-  const enabledTools = resolveRunModeEnabledTools(runMode)
-  const enabledSkillNames = draft
-    ? draft.enabledSkillNames
-    : thread.queuedFollowUpEnabledSkillNames === undefined
-      ? undefined
-      : normalizeSkillNames(thread.queuedFollowUpEnabledSkillNames)
   const runId = context.deps.createId()
 
   return {
     createdAt: timestamp,
-    enabledTools,
-    enabledSkillNames,
-    runMode,
-    runTrigger,
-    ...(reasoningEffort !== undefined ? { reasoningEffort } : {}),
-    requestMessageId: queuedMessage.id,
+    enabledTools: draft.enabledTools,
+    enabledSkillNames: draft.enabledSkillNames,
+    runMode: draft.runMode,
+    runTrigger: draft.runTrigger,
+    ...(draft.reasoningEffort !== undefined ? { reasoningEffort: draft.reasoningEffort } : {}),
+    requestMessageId: activatedQueuedMessage.id,
     runId,
     thread: updatedThread,
-    draftMessagesBeforeRequest: queuedDraftMessage ? activatedDraftMessages.slice(0, -1) : [],
+    draftMessagesBeforeRequest: activatedDraftMessages.slice(0, -1),
     userMessage: activatedQueuedMessage,
-    saveUserMessageOnStart: queuedDraftMessage != null
+    saveUserMessageOnStart: true
   }
 }
 

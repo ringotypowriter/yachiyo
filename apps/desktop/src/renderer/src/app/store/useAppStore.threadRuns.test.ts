@@ -217,6 +217,7 @@ test('setActiveThread caps loaded run history to recent threads', async () => {
   const restoreWindow = withWindowApiMock({
     loadThreadData: async ({ threadId }) => ({
       messages: [],
+      queuedFollowUpMessages: [],
       toolCalls: [],
       runs: [
         {
@@ -736,8 +737,7 @@ test('sendMessage replaces the queued follow-up for an active run', async () => 
           id: input.threadId,
           title: 'Thread one',
           updatedAt: TIMESTAMP,
-          headMessageId: 'user-1',
-          queuedFollowUpMessageId: 'user-follow-up-2'
+          headMessageId: 'user-1'
         },
         replacedMessageId: 'user-follow-up-1',
         userMessage: {
@@ -748,7 +748,18 @@ test('sendMessage replaces the queued follow-up for an active run', async () => 
           content: input.content,
           status: 'completed',
           createdAt: TIMESTAMP
-        }
+        },
+        queuedFollowUpMessages: [
+          {
+            id: 'user-follow-up-2',
+            threadId: input.threadId,
+            parentMessageId: 'user-1',
+            role: 'user',
+            content: input.content,
+            status: 'completed',
+            createdAt: TIMESTAMP
+          }
+        ]
       }
     }
   })
@@ -788,7 +799,11 @@ test('sendMessage replaces the queued follow-up for an active run', async () => 
             content: 'Original request',
             status: 'completed',
             createdAt: '2026-03-15T00:00:00.000Z'
-          },
+          }
+        ]
+      },
+      queuedFollowUpMessagesByThread: {
+        'thread-1': [
           {
             id: 'user-follow-up-1',
             threadId: 'thread-1',
@@ -806,8 +821,7 @@ test('sendMessage replaces the queued follow-up for an active run', async () => 
           id: 'thread-1',
           title: 'Thread one',
           updatedAt: TIMESTAMP,
-          headMessageId: 'user-1',
-          queuedFollowUpMessageId: 'user-follow-up-1'
+          headMessageId: 'user-1'
         }
       ]
     })
@@ -829,9 +843,12 @@ test('sendMessage replaces the queued follow-up for an active run', async () => 
     assert.equal(state.composerDrafts['thread-1'], undefined)
     assert.deepEqual(
       state.messages['thread-1']?.map((message) => message.id),
-      ['user-1', 'user-follow-up-2']
+      ['user-1']
     )
-    assert.equal(state.threads[0]?.queuedFollowUpMessageId, 'user-follow-up-2')
+    assert.deepEqual(
+      state.queuedFollowUpMessagesByThread['thread-1']?.map((message) => message.id),
+      ['user-follow-up-2']
+    )
   } finally {
     restoreWindow()
   }

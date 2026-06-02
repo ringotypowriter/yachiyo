@@ -503,11 +503,9 @@ test('YachiyoServer bootstrap clears a temporary queued follow-up draft after re
 
     try {
       const bootstrap = await resumedServer.bootstrap()
-      const bootstrappedThread = bootstrap.threads.find((entry) => entry.id === thread.id)
 
-      assert.equal(bootstrappedThread?.queuedFollowUpMessageId, undefined)
-      assert.equal(bootstrappedThread?.queuedFollowUpEnabledTools, undefined)
       assert.match(bootstrap.latestRunsByThread[thread.id]?.status ?? '', /^(cancelled|failed)$/)
+      assert.deepEqual(bootstrap.queuedFollowUpMessagesByThread[thread.id] ?? [], [])
       assert.deepEqual(
         (bootstrap.messagesByThread[thread.id] ?? []).map((message) => message.content),
         ['First question', '']
@@ -633,10 +631,8 @@ test('YachiyoServer does not recover a temporary queued follow-up when a new run
 
     try {
       const bootstrap = await resumedServer.bootstrap()
-      const bootstrappedThread = bootstrap.threads.find((entry) => entry.id === thread.id)
 
-      assert.equal(bootstrappedThread?.queuedFollowUpMessageId, undefined)
-      assert.equal(bootstrappedThread?.queuedFollowUpEnabledTools, undefined)
+      assert.deepEqual(bootstrap.queuedFollowUpMessagesByThread[thread.id] ?? [], [])
 
       const immediateAccepted = await resumedServer.sendChat({
         threadId: thread.id,
@@ -655,10 +651,7 @@ test('YachiyoServer does not recover a temporary queued follow-up when a new run
 
       const recoveredBootstrap = await resumedServer.bootstrap()
 
-      assert.equal(
-        recoveredBootstrap.threads.find((entry) => entry.id === thread.id)?.queuedFollowUpMessageId,
-        undefined
-      )
+      assert.deepEqual(recoveredBootstrap.queuedFollowUpMessagesByThread[thread.id] ?? [], [])
       assert.deepEqual(
         (recoveredBootstrap.messagesByThread[thread.id] ?? []).map((message) => message.content),
         ['First question', '', 'Immediate question', 'Immediate reply']

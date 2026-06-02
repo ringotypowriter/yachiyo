@@ -52,6 +52,7 @@ export interface ThreadStateReplacedEvent extends ThreadEvent {
   type: 'thread.state.replaced'
   thread: ThreadRecord
   messages: MessageRecord[]
+  queuedFollowUpMessages?: MessageRecord[]
   toolCalls: ToolCallRecord[]
 }
 
@@ -203,6 +204,7 @@ export interface MessageReasoningDeltaEvent extends RunEvent {
 export interface MessageCompletedEvent extends RunEvent {
   type: 'message.completed'
   message: MessageRecord
+  queuedFollowUpMessages?: MessageRecord[]
 }
 
 export interface ToolCallUpdatedEvent extends ThreadEvent {

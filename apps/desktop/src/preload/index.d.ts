@@ -280,6 +280,7 @@ declare global {
         openWorkspaceWithApp: (input: { threadId: string; appName: string }) => Promise<void>
         loadThreadData: (input: { threadId: string; includeMessages?: boolean }) => Promise<{
           messages: import('@yachiyo/shared/protocol').MessageRecord[]
+          queuedFollowUpMessages: import('@yachiyo/shared/protocol').MessageRecord[]
           toolCalls: import('@yachiyo/shared/protocol').ToolCallRecord[]
           runs: import('@yachiyo/shared/protocol').RunRecord[]
           scheduleRun?: import('@yachiyo/shared/protocol').ScheduleRunRecord

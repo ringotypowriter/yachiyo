@@ -320,6 +320,10 @@ export function reduceServerEvent(state: AppState, event: YachiyoServerEvent): P
         ...state.messages,
         [event.threadId]: nextMessages
       },
+      queuedFollowUpMessagesByThread: {
+        ...state.queuedFollowUpMessagesByThread,
+        [event.threadId]: event.queuedFollowUpMessages ?? []
+      },
       pendingSteerMessages: removePendingSteerMessage(state.pendingSteerMessages, event.threadId),
       runPhasesByThread: hadPendingSteer
         ? setThreadRunPhaseValue(state.runPhasesByThread, event.threadId, 'preparing')
@@ -601,11 +605,26 @@ export function reduceServerEvent(state: AppState, event: YachiyoServerEvent): P
           })()
         : state.pendingAssistantMessages
 
+    const queuedFollowUpMessages = event.queuedFollowUpMessages
+    const shouldInsertTimelineMessage = queuedFollowUpMessages === undefined
+
     return {
-      messages: {
-        ...state.messages,
-        [event.threadId]: upsertMessage(state.messages[event.threadId] ?? [], event.message)
-      },
+      ...(shouldInsertTimelineMessage
+        ? {
+            messages: {
+              ...state.messages,
+              [event.threadId]: upsertMessage(state.messages[event.threadId] ?? [], event.message)
+            }
+          }
+        : {}),
+      ...(queuedFollowUpMessages !== undefined
+        ? {
+            queuedFollowUpMessagesByThread: {
+              ...state.queuedFollowUpMessagesByThread,
+              [event.threadId]: queuedFollowUpMessages
+            }
+          }
+        : {}),
       pendingAssistantMessages
     }
   }

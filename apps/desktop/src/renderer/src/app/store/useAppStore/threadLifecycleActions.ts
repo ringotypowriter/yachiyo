@@ -340,6 +340,7 @@ export function createThreadLifecycleActions(input: {
               ])
             ),
             messages: payload.messagesByThread,
+            queuedFollowUpMessagesByThread: payload.queuedFollowUpMessagesByThread,
             reasoningEffortByThread: {
               ...state.reasoningEffortByThread,
               ...collectThreadReasoningEfforts([...payload.threads, ...payload.archivedThreads])
@@ -429,6 +430,12 @@ export function createThreadLifecycleActions(input: {
                   state.messages,
                   initialActiveThreadId,
                   data.messages,
+                  [state.activeThreadId]
+                ),
+                queuedFollowUpMessagesByThread: limitLoadedThreadData(
+                  state.queuedFollowUpMessagesByThread,
+                  initialActiveThreadId,
+                  data.queuedFollowUpMessages ?? [],
                   [state.activeThreadId]
                 ),
                 toolCalls,

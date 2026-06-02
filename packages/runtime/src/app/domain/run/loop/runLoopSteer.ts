@@ -1,4 +1,4 @@
-import type { RunCancelledEvent, ThreadRecord } from '@yachiyo/shared/protocol'
+import type { MessageRecord, RunCancelledEvent, ThreadRecord } from '@yachiyo/shared/protocol'
 import type { SnapshotTracker } from '../../../../services/fileSnapshot/snapshotTracker.ts'
 import type { ActiveRunLoopInput } from '../active/activeRunStart.ts'
 import {
@@ -8,8 +8,14 @@ import {
 import { persistSteerMessages, type SendChatFlowContext } from '../chat/sendChatFlow.ts'
 import type { ExecuteRunInput, ExecuteRunResult } from '../execution/runExecutionTypes.ts'
 import { usageFieldsFrom } from '../runUsageFields.ts'
-import type { RunDomainDeps, RunState } from '../runTypes.ts'
-import { emitThreadStateReplaced, type FollowUpQueueContext } from '../queue/followUpQueue.ts'
+import type { PendingSteerInput, RunDomainDeps, RunState } from '../runTypes.ts'
+import {
+  emitThreadStateReplaced,
+  replaceQueuedFollowUpDraft,
+  type FollowUpQueueContext,
+  type QueuedFollowUpDraft,
+  type QueuedFollowUpRequestDraft
+} from '../queue/followUpQueue.ts'
 import { accumulateRunLoopUsage, mergeUsageForTerminal } from './runUsage.ts'
 
 type SteerPendingRunResult = Extract<ExecuteRunResult, { kind: 'steer-pending' }>
@@ -128,49 +134,16 @@ export function handleCancelledWithSteerResult(
 
   // If a prior safe-steer branch already consumed it, there is nothing left to persist.
   if (steerInputs.length > 0) {
-    const steerThread = context.deps.requireThread(input.loopInput.thread.id)
-    const { updatedThread, userMessages } = persistSteerMessages(
-      context.createSendChatFlowContext(),
-      {
-        steerInputs,
-        runId: input.loopInput.runId,
-        runState: { ...input.activeRun, requestMessageId: input.result.stoppedMessageId },
-        thread: steerThread
-      }
+    replaceQueuedFollowUpDraft(
+      context.createFollowUpQueueContext(),
+      input.loopInput.thread.id,
+      createQueuedFollowUpDraftFromSteers({
+        activeRun: input.activeRun,
+        loopInput: input.loopInput,
+        parentMessageId: input.result.stoppedMessageId,
+        steerInputs
+      })
     )
-    if (userMessages.length === 0) {
-      throw new Error('Pending steer persistence did not create a queued message.')
-    }
-    const queuedRequestMessage = userMessages.findLast((message) => message.hidden !== true)
-    if (queuedRequestMessage) {
-      const queuedSteerInput = steerInputs.find(
-        (steerInput) => steerInput.messageId === queuedRequestMessage.id
-      )
-      const queuedEnabledTools =
-        queuedSteerInput?.enabledTools ??
-        input.activeRun.enabledTools ??
-        input.loopInput.enabledTools
-      const queuedEnabledSkillNames =
-        queuedSteerInput?.enabledSkillNames ??
-        input.activeRun.enabledSkillNames ??
-        input.loopInput.enabledSkillNames
-      const queuedThread: ThreadRecord = {
-        ...updatedThread,
-        queuedFollowUpEnabledTools: [...queuedEnabledTools],
-        queuedFollowUpMessageId: queuedRequestMessage.id
-      }
-      if (queuedEnabledSkillNames !== undefined) {
-        queuedThread.queuedFollowUpEnabledSkillNames = [...queuedEnabledSkillNames]
-      } else {
-        delete queuedThread.queuedFollowUpEnabledSkillNames
-      }
-      if (queuedSteerInput?.reasoningEffort !== undefined) {
-        queuedThread.queuedFollowUpReasoningEffort = queuedSteerInput.reasoningEffort
-      } else {
-        delete queuedThread.queuedFollowUpReasoningEffort
-      }
-      context.deps.storage.updateThread(queuedThread)
-    }
     emitThreadStateReplaced(context.createFollowUpQueueContext(), input.loopInput.thread.id)
     clearPendingSteerInputs(input.activeRun)
   }
@@ -178,5 +151,74 @@ export function handleCancelledWithSteerResult(
   return {
     kind: 'cancelled',
     ...(input.result.usage ? { usage: input.result.usage } : {})
+  }
+}
+
+function createQueuedFollowUpDraftFromSteers(input: {
+  activeRun: RunState
+  loopInput: ActiveRunLoopInput
+  parentMessageId: string
+  steerInputs: PendingSteerInput[]
+}): QueuedFollowUpDraft {
+  const drafts = input.steerInputs.map((steerInput) =>
+    createQueuedFollowUpRequestDraftFromSteer({
+      activeRun: input.activeRun,
+      loopInput: input.loopInput,
+      parentMessageId: input.parentMessageId,
+      steerInput
+    })
+  )
+  const visibleDraftIndex = drafts.findLastIndex((draft) => draft.userMessage.hidden !== true)
+  const userMessageIndex = visibleDraftIndex >= 0 ? visibleDraftIndex : drafts.length - 1
+  const userDraft = drafts[userMessageIndex]
+
+  if (!userDraft) {
+    throw new Error('Pending steer queue did not create a follow-up draft.')
+  }
+
+  const hiddenDrafts = drafts.filter((_, index) => index !== userMessageIndex)
+
+  return {
+    ...userDraft,
+    ...(hiddenDrafts.length > 0 ? { hiddenDrafts } : {})
+  }
+}
+
+function createQueuedFollowUpRequestDraftFromSteer(input: {
+  activeRun: RunState
+  loopInput: ActiveRunLoopInput
+  parentMessageId: string
+  steerInput: PendingSteerInput
+}): QueuedFollowUpRequestDraft {
+  const { activeRun, loopInput, parentMessageId, steerInput } = input
+  const enabledTools = steerInput.enabledTools ?? activeRun.enabledTools ?? loopInput.enabledTools
+  const enabledSkillNames =
+    steerInput.enabledSkillNames ?? activeRun.enabledSkillNames ?? loopInput.enabledSkillNames
+  const runMode = steerInput.runMode ?? activeRun.runMode ?? loopInput.runMode
+  const runTrigger = steerInput.runTrigger ?? activeRun.runTrigger ?? loopInput.runTrigger
+  const reasoningEffort =
+    steerInput.reasoningEffort ?? activeRun.reasoningEffort ?? loopInput.reasoningEffort
+  const userMessage: MessageRecord = {
+    id: steerInput.messageId,
+    threadId: loopInput.thread.id,
+    parentMessageId,
+    role: 'user',
+    content: steerInput.content,
+    ...(steerInput.images && steerInput.images.length > 0 ? { images: steerInput.images } : {}),
+    ...(steerInput.attachments.length > 0 ? { attachments: steerInput.attachments } : {}),
+    ...(steerInput.hidden === true
+      ? { hidden: true, turnContext: { hiddenRequestKind: 'follow-up' as const } }
+      : {}),
+    status: 'completed',
+    createdAt: steerInput.timestamp
+  }
+
+  return {
+    enabledTools: [...enabledTools],
+    ...(enabledSkillNames !== undefined ? { enabledSkillNames: [...enabledSkillNames] } : {}),
+    runMode,
+    runTrigger,
+    ...(reasoningEffort !== undefined ? { reasoningEffort } : {}),
+    userMessage
   }
 }

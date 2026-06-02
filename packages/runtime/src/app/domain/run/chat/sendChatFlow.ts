@@ -565,30 +565,11 @@ function queueFollowUp(
     acceptedUserMessage = queuedUserMessage
   }
 
-  const exposeQueuedFollowUp = queuedUserMessage.hidden !== true
   const updatedThread: ThreadRecord = {
     ...input.thread,
     updatedAt: timestamp
   }
-  if (exposeQueuedFollowUp) {
-    updatedThread.queuedFollowUpEnabledTools = [...queuedEnabledTools]
-    updatedThread.queuedFollowUpMessageId = queuedUserMessage.id
-  } else {
-    delete updatedThread.queuedFollowUpEnabledTools
-    delete updatedThread.queuedFollowUpMessageId
-  }
-  if (exposeQueuedFollowUp && queuedReasoningEffort !== undefined) {
-    updatedThread.queuedFollowUpReasoningEffort = queuedReasoningEffort
-  } else {
-    delete updatedThread.queuedFollowUpReasoningEffort
-  }
-  if (exposeQueuedFollowUp && queuedEnabledSkillNames !== undefined) {
-    updatedThread.queuedFollowUpEnabledSkillNames = [...queuedEnabledSkillNames]
-  } else {
-    delete updatedThread.queuedFollowUpEnabledSkillNames
-  }
-
-  context.queuedFollowUpDrafts.set(input.thread.id, {
+  const queuedDraft = {
     ...createQueuedFollowUpRequestDraft({
       enabledTools: queuedEnabledTools,
       runMode: queuedRunMode,
@@ -600,7 +581,9 @@ function queueFollowUp(
       userMessage: queuedUserMessage
     }),
     ...(hiddenDrafts.length > 0 ? { hiddenDrafts } : {})
-  })
+  }
+  context.queuedFollowUpDrafts.set(input.thread.id, queuedDraft)
+  const queuedFollowUpMessages = queuedUserMessage.hidden === true ? [] : [queuedUserMessage]
   deps.emit<ThreadUpdatedEvent>({
     type: 'thread.updated',
     threadId: updatedThread.id,
@@ -610,7 +593,8 @@ function queueFollowUp(
     type: 'message.completed',
     threadId: updatedThread.id,
     runId: activeRunId,
-    message: acceptedUserMessage
+    message: acceptedUserMessage,
+    queuedFollowUpMessages
   })
 
   return {
@@ -618,6 +602,7 @@ function queueFollowUp(
     runId: activeRunId,
     thread: updatedThread,
     userMessage: acceptedUserMessage,
+    queuedFollowUpMessages,
     ...(replacedMessageId ? { replacedMessageId } : {})
   }
 }
@@ -775,8 +760,6 @@ function createDebouncedSendChatStateSignature(
           runTrigger: queuedFollowUpDraft.runTrigger
         }
       : null,
-    queuedFollowUpMessageId: thread.queuedFollowUpMessageId ?? null,
-    queuedFollowUpReasoningEffort: thread.queuedFollowUpReasoningEffort ?? null,
     requestMessageId: activeRun?.requestMessageId ?? null
   })
 }

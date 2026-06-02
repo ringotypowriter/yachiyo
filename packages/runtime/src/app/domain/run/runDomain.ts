@@ -86,12 +86,9 @@ import {
 import {
   emitThreadStateReplaced,
   deleteQueuedFollowUpDraft,
-  prepareRecoveredQueuedFollowUps,
   prepareRecoveredRuns,
   projectQueuedFollowUpDraftSnapshot,
   projectQueuedFollowUpDraftsBootstrap,
-  projectQueuedFollowUpDraftThread,
-  scheduleRecoveredQueuedFollowUps,
   scheduleRecoveredRuns,
   startQueuedFollowUpIfPresent,
   type QueuedFollowUpDraft,
@@ -374,16 +371,8 @@ export class YachiyoServerRunDomain {
     recoverOrphanedBackgroundToolCalls(this.createBackgroundTaskLifecycleContext())
   }
 
-  prepareRecoveredQueuedFollowUps(): string[] {
-    return prepareRecoveredQueuedFollowUps(this.createFollowUpQueueContext())
-  }
-
   prepareRecoveredRuns(): RunRecoveryCheckpoint[] {
     return prepareRecoveredRuns(this.createFollowUpQueueContext())
-  }
-
-  scheduleRecoveredQueuedFollowUps(threadIds: string[]): void {
-    scheduleRecoveredQueuedFollowUps(this.createFollowUpQueueContext(), threadIds)
   }
 
   scheduleRecoveredRuns(checkpoints: RunRecoveryCheckpoint[]): void {
@@ -396,10 +385,6 @@ export class YachiyoServerRunDomain {
 
   deleteQueuedFollowUpDraft(input: { threadId: string; messageId: string }): ThreadSnapshot | null {
     return deleteQueuedFollowUpDraft(this.createFollowUpQueueContext(), input)
-  }
-
-  withQueuedFollowUpDraft(thread: ThreadRecord): ThreadRecord {
-    return projectQueuedFollowUpDraftThread(this.queuedFollowUpDrafts, thread)
   }
 
   withQueuedFollowUpDraftSnapshot(snapshot: ThreadSnapshot): ThreadSnapshot {

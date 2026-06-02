@@ -295,6 +295,7 @@ export interface AppState {
   beginEditMessage: (messageId: string) => void
   cancelEditMessage: () => void
   messages: Record<string, Message[]>
+  queuedFollowUpMessagesByThread: Record<string, Message[]>
   pendingAssistantMessages: Record<string, PendingAssistantMessage>
   pendingSteerMessages: Record<string, PendingSteerMessage>
   activeEssentialId: string | null
@@ -759,6 +760,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       }
     }),
   messages: {},
+  queuedFollowUpMessagesByThread: {},
   activeEssentialId: null,
   pendingAssistantMessages: {},
   pendingModelOverride: null,
@@ -832,6 +834,10 @@ export const useAppStore = create<AppState>((set, get) => ({
             ...state.messages,
             [threadId]: nextMessages
           },
+          queuedFollowUpMessagesByThread: {
+            ...state.queuedFollowUpMessagesByThread,
+            [threadId]: snapshot.queuedFollowUpMessages ?? []
+          },
           toolCalls,
           latestRunsByThread: activeRunId
             ? state.latestRunsByThread
@@ -896,9 +902,10 @@ export const useAppStore = create<AppState>((set, get) => ({
     const state = get()
     const threadId = state.activeThreadId
     if (!threadId) return
-    const message = (state.messages[threadId] ?? []).find((m) => m.id === messageId)
+    const message = (state.queuedFollowUpMessagesByThread[threadId] ?? []).find(
+      (m) => m.id === messageId
+    )
     if (!message) return
-
     const draftKey = getComposerDraftKey(threadId)
     const currentDraft = state.composerDrafts[draftKey] ?? EMPTY_COMPOSER_DRAFT
     const mergedText = [message.content, currentDraft.text]

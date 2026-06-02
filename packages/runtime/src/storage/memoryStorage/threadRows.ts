@@ -25,16 +25,6 @@ export function createStoredThreadRow(thread: ThreadRecord, createdAt: string): 
     handoffFromThreadId: thread.handoffFromThreadId ?? null,
     folderId: thread.folderId ?? null,
     colorTag: thread.colorTag ?? null,
-    queuedFollowUpEnabledTools: thread.queuedFollowUpEnabledTools
-      ? JSON.stringify(thread.queuedFollowUpEnabledTools)
-      : null,
-    queuedFollowUpEnabledSkillNames: thread.queuedFollowUpEnabledSkillNames
-      ? JSON.stringify(thread.queuedFollowUpEnabledSkillNames)
-      : null,
-    queuedFollowUpMessageId: thread.queuedFollowUpMessageId ?? null,
-    queuedFollowUpReasoningEffort: serializeReasoningSelection(
-      thread.queuedFollowUpReasoningEffort
-    ),
     enabledTools: serializeEnabledTools(thread.enabledTools),
     runMode: thread.runMode ?? null,
     reasoningEffort: serializeReasoningSelection(thread.reasoningEffort),
@@ -77,16 +67,6 @@ export function applyThreadSnapshot(
   storedThread.memoryRecallState = serializeThreadMemoryRecallState(nextThread.memoryRecall)
   storedThread.preview = nextThread.preview ?? null
   storedThread.privacyMode = nextThread.privacyMode ? '1' : null
-  storedThread.queuedFollowUpEnabledTools = nextThread.queuedFollowUpEnabledTools
-    ? JSON.stringify(nextThread.queuedFollowUpEnabledTools)
-    : null
-  storedThread.queuedFollowUpEnabledSkillNames = nextThread.queuedFollowUpEnabledSkillNames
-    ? JSON.stringify(nextThread.queuedFollowUpEnabledSkillNames)
-    : null
-  storedThread.queuedFollowUpMessageId = nextThread.queuedFollowUpMessageId ?? null
-  storedThread.queuedFollowUpReasoningEffort = serializeReasoningSelection(
-    nextThread.queuedFollowUpReasoningEffort
-  )
   storedThread.enabledTools = serializeEnabledTools(nextThread.enabledTools)
   storedThread.runMode = nextThread.runMode ?? null
   storedThread.reasoningEffort = serializeReasoningSelection(nextThread.reasoningEffort)

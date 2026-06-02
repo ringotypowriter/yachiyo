@@ -757,6 +757,7 @@ test('initialize hydrates the active thread run history after bootstrap', async 
       assert.equal(threadId, 'thread-1')
       return {
         messages: [],
+        queuedFollowUpMessages: [],
         toolCalls: [],
         runs: [
           {
@@ -857,6 +858,7 @@ test('initialize loads the active thread messages after lightweight bootstrap', 
             createdAt: TIMESTAMP
           }
         ],
+        queuedFollowUpMessages: [],
         toolCalls: [
           {
             id: 'tool-call-1',
@@ -924,6 +926,7 @@ test('setActiveThread hydrates a pending plan document from historical exitPlanM
           createdAt: TIMESTAMP
         }
       ],
+      queuedFollowUpMessages: [],
       toolCalls: [
         {
           id: 'tool-exit-plan',
@@ -1000,6 +1003,7 @@ test('setActiveThread keeps only the recent loaded thread data in memory', async
           createdAt: TIMESTAMP
         }
       ],
+      queuedFollowUpMessages: [],
       toolCalls: [],
       runs: []
     })
@@ -1431,6 +1435,7 @@ test('setActiveThread clears the just done run marker after the user opens the t
   const restoreWindow = withWindowApiMock({
     loadThreadData: async () => ({
       messages: [],
+      queuedFollowUpMessages: [],
       toolCalls: [],
       runs: []
     })

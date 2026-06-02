@@ -20,6 +20,7 @@ test('handleSteerPendingResult persists hidden steers before the visible steer a
     updatedAt: '2026-05-02T00:00:00.000Z'
   }
   const savedMessages: MessageRecord[] = []
+  const queuedFollowUpDrafts = new Map()
   let runRequestMessageId: string | undefined
 
   const context: RunLoopSteerContext = {
@@ -55,7 +56,8 @@ test('handleSteerPendingResult persists hidden steers before the visible steer a
           loadThreadMessages: () => savedMessages,
           loadThreadToolCalls: () => [],
           emit: () => {}
-        }
+        },
+        queuedFollowUpDrafts
       }) as unknown as ReturnType<RunLoopSteerContext['createFollowUpQueueContext']>
   }
 
@@ -139,6 +141,7 @@ test('handleSteerPendingResult carries the active snapshot tracker through hidde
     updatedAt: '2026-05-02T00:00:00.000Z'
   }
   const savedMessages: MessageRecord[] = []
+  const queuedFollowUpDrafts = new Map()
   const markedRestorePoints: string[] = []
   const snapshotTracker = {
     markRestorePoint: async (messageId: string) => {
@@ -177,7 +180,8 @@ test('handleSteerPendingResult carries the active snapshot tracker through hidde
           loadThreadMessages: () => savedMessages,
           loadThreadToolCalls: () => [],
           emit: () => {}
-        }
+        },
+        queuedFollowUpDrafts
       }) as unknown as ReturnType<RunLoopSteerContext['createFollowUpQueueContext']>
   }
 
@@ -235,7 +239,7 @@ test('handleCancelledWithSteerResult preserves queued visible steer tools after 
     updatedAt: '2026-05-02T00:00:00.000Z'
   }
   const savedMessages: MessageRecord[] = []
-  const updatedThreads: ThreadRecord[] = []
+  const queuedFollowUpDrafts = new Map()
 
   const context: RunLoopSteerContext = {
     deps: {
@@ -255,7 +259,6 @@ test('handleCancelledWithSteerResult preserves queued visible steer tools after 
           currentThread = updatedThread
         },
         updateThread: (thread: ThreadRecord) => {
-          updatedThreads.push(thread)
           currentThread = thread
         }
       }
@@ -271,7 +274,8 @@ test('handleCancelledWithSteerResult preserves queued visible steer tools after 
           loadThreadMessages: () => savedMessages,
           loadThreadToolCalls: () => [],
           emit: () => {}
-        }
+        },
+        queuedFollowUpDrafts
       }) as unknown as ReturnType<RunLoopSteerContext['createFollowUpQueueContext']>
   }
 
@@ -315,30 +319,16 @@ test('handleCancelledWithSteerResult preserves queued visible steer tools after 
     }
   })
 
+  const queuedDraft = queuedFollowUpDrafts.get('thread-1')
+
   assert.deepEqual(result, { kind: 'cancelled' })
-  assert.equal(currentThread.queuedFollowUpMessageId, 'visible-steer')
-  assert.deepEqual(currentThread.queuedFollowUpEnabledTools, DEFAULT_ENABLED_TOOL_NAMES)
-  assert.deepEqual(currentThread.queuedFollowUpEnabledSkillNames, ['workspace-refactor'])
-  assert.equal(currentThread.queuedFollowUpReasoningEffort, 'high')
-  assert.deepEqual(
-    updatedThreads.map((thread) => ({
-      queuedFollowUpEnabledSkillNames: thread.queuedFollowUpEnabledSkillNames,
-      queuedFollowUpEnabledTools: thread.queuedFollowUpEnabledTools,
-      queuedFollowUpMessageId: thread.queuedFollowUpMessageId,
-      queuedFollowUpReasoningEffort: thread.queuedFollowUpReasoningEffort
-    })),
-    [
-      {
-        queuedFollowUpEnabledSkillNames: ['workspace-refactor'],
-        queuedFollowUpEnabledTools: DEFAULT_ENABLED_TOOL_NAMES,
-        queuedFollowUpMessageId: 'visible-steer',
-        queuedFollowUpReasoningEffort: 'high'
-      }
-    ]
-  )
+  assert.equal(queuedDraft?.userMessage.id, 'visible-steer')
+  assert.deepEqual(queuedDraft?.enabledTools, DEFAULT_ENABLED_TOOL_NAMES)
+  assert.deepEqual(queuedDraft?.enabledSkillNames, ['workspace-refactor'])
+  assert.equal(queuedDraft?.reasoningEffort, 'high')
 })
 
-test('handleCancelledWithSteerResult does not queue hidden-only steers as follow-ups', () => {
+test('handleCancelledWithSteerResult queues hidden-only steers without a visible follow-up', () => {
   let currentThread: ThreadRecord = {
     id: 'thread-1',
     title: 'Thread',
@@ -346,7 +336,8 @@ test('handleCancelledWithSteerResult does not queue hidden-only steers as follow
     updatedAt: '2026-05-02T00:00:00.000Z'
   }
   const savedMessages: MessageRecord[] = []
-  const updatedThreads: ThreadRecord[] = []
+  const queuedFollowUpDrafts = new Map()
+  const emittedQueuedFollowUpMessages: MessageRecord[][] = []
 
   const context: RunLoopSteerContext = {
     deps: {
@@ -366,7 +357,6 @@ test('handleCancelledWithSteerResult does not queue hidden-only steers as follow
           currentThread = updatedThread
         },
         updateThread: (thread: ThreadRecord) => {
-          updatedThreads.push(thread)
           currentThread = thread
         }
       }
@@ -381,8 +371,11 @@ test('handleCancelledWithSteerResult does not queue hidden-only steers as follow
           requireThread: () => currentThread,
           loadThreadMessages: () => savedMessages,
           loadThreadToolCalls: () => [],
-          emit: () => {}
-        }
+          emit: (event: { queuedFollowUpMessages?: MessageRecord[] }) => {
+            emittedQueuedFollowUpMessages.push(event.queuedFollowUpMessages ?? [])
+          }
+        },
+        queuedFollowUpDrafts
       }) as unknown as ReturnType<RunLoopSteerContext['createFollowUpQueueContext']>
   }
 
@@ -423,18 +416,11 @@ test('handleCancelledWithSteerResult does not queue hidden-only steers as follow
     }
   })
 
+  const queuedDraft = queuedFollowUpDrafts.get('thread-1')
+
   assert.deepEqual(result, { kind: 'cancelled' })
-  assert.deepEqual(
-    savedMessages.map((message) => ({
-      id: message.id,
-      hidden: message.hidden === true,
-      content: message.content
-    })),
-    [{ id: 'hidden-steer', hidden: true, content: 'internal recovery note' }]
-  )
-  assert.equal(currentThread.queuedFollowUpMessageId, undefined)
-  assert.deepEqual(
-    updatedThreads.map((thread) => thread.queuedFollowUpMessageId),
-    []
-  )
+  assert.deepEqual(savedMessages, [])
+  assert.equal(queuedDraft?.userMessage.id, 'hidden-steer')
+  assert.equal(queuedDraft?.userMessage.hidden, true)
+  assert.deepEqual(emittedQueuedFollowUpMessages.at(-1), [])
 })

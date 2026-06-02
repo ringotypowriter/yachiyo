@@ -67,7 +67,7 @@ interface UseComposerInputHandlersInput {
   onSelectThreadOperation?: (key: ThreadContextOperationKey) => void
   overlayRef: React.RefObject<HTMLDivElement | null>
   pendingSteerEntry: unknown | null
-  queuedFollowUpMessageId: string | null
+  queuedFollowUpDraftId: string | null
   reasoningSelectorOpen: boolean
   revertPendingSteer: AppState['revertPendingSteer']
   revertQueuedFollowUp: AppState['revertQueuedFollowUp']
@@ -191,7 +191,7 @@ export function useComposerInputHandlers(
     onSelectThreadOperation,
     overlayRef,
     pendingSteerEntry,
-    queuedFollowUpMessageId,
+    queuedFollowUpDraftId,
     reasoningSelectorOpen,
     revertPendingSteer,
     revertQueuedFollowUp,
@@ -628,13 +628,13 @@ export function useComposerInputHandlers(
           shiftKey: event.shiftKey,
           hasPayload,
           hasPendingSteer: Boolean(pendingSteerEntry),
-          hasQueuedFollowUp: Boolean(queuedFollowUpMessageId)
+          hasQueuedFollowUp: Boolean(queuedFollowUpDraftId)
         })
       ) {
         event.preventDefault()
         void (async () => {
           if (pendingSteerEntry) await revertPendingSteer()
-          if (queuedFollowUpMessageId) await revertQueuedFollowUp(queuedFollowUpMessageId)
+          if (queuedFollowUpDraftId) await revertQueuedFollowUp(queuedFollowUpDraftId)
         })()
         return
       }
@@ -753,7 +753,7 @@ export function useComposerInputHandlers(
       setComposerValue,
       hasPayload,
       pendingSteerEntry,
-      queuedFollowUpMessageId,
+      queuedFollowUpDraftId,
       removeComposerFile,
       removeComposerImage,
       revertPendingSteer,

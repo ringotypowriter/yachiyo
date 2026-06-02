@@ -1,3 +1,4 @@
+import { createRequire } from 'node:module'
 import { Worker } from 'node:worker_threads'
 
 export interface BackgroundResponseMessagesRepairJob {
@@ -11,9 +12,15 @@ export interface BackgroundResponseMessagesRepairQueue {
   close(): void
 }
 
+export interface BackgroundResponseMessagesRepairQueueOptions {
+  betterSqlite3ModulePath?: string
+}
+
+const appRequire = createRequire(import.meta.url)
+
 const RESPONSE_MESSAGES_REPAIR_WORKER_SCRIPT = `
   const { parentPort, workerData } = require('node:worker_threads')
-  const BetterSqlite3Module = require('better-sqlite3')
+  const BetterSqlite3Module = require(workerData.betterSqlite3ModulePath)
   const BetterSqlite3 =
     typeof BetterSqlite3Module === 'function' ? BetterSqlite3Module : BetterSqlite3Module.default
 
@@ -46,8 +53,11 @@ const RESPONSE_MESSAGES_REPAIR_WORKER_SCRIPT = `
 `
 
 export function createBackgroundResponseMessagesRepairQueue(
-  dbPath: string
+  dbPath: string,
+  options: BackgroundResponseMessagesRepairQueueOptions = {}
 ): BackgroundResponseMessagesRepairQueue {
+  const betterSqlite3ModulePath =
+    options.betterSqlite3ModulePath ?? appRequire.resolve('better-sqlite3')
   let worker: Worker | null = null
   let closing = false
   let nextJobId = 1
@@ -73,7 +83,7 @@ export function createBackgroundResponseMessagesRepairQueue(
 
     const createdWorker = new Worker(RESPONSE_MESSAGES_REPAIR_WORKER_SCRIPT, {
       eval: true,
-      workerData: { dbPath }
+      workerData: { betterSqlite3ModulePath, dbPath }
     })
 
     createdWorker.on('message', (message: unknown) => {
@@ -120,9 +130,11 @@ export function createBackgroundResponseMessagesRepairQueue(
 
   const trackInFlightJob = (job: Promise<void>): void => {
     inFlightJobs.add(job)
-    void job.finally(() => {
+    const removeInFlightJob = (): void => {
       inFlightJobs.delete(job)
-    })
+    }
+
+    void job.then(removeInFlightJob, removeInFlightJob)
   }
 
   const dispatchQueuedJobs = (): void => {

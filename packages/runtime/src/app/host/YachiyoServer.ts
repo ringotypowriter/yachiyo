@@ -1172,6 +1172,7 @@ export class YachiyoServer {
     options: { includeMessages?: boolean } = {}
   ): {
     messages: MessageRecord[]
+    queuedFollowUpMessages: MessageRecord[]
     toolCalls: ToolCallRecord[]
     runs: RunRecord[]
     scheduleRun?: ScheduleRunRecord
@@ -1180,13 +1181,14 @@ export class YachiyoServer {
     const scheduleRun = this.storage.getScheduleRunByThreadId(threadId)
     const messages = includeMessages ? this.storage.listThreadMessages(threadId) : []
     const toolCalls = includeMessages ? this.storage.listThreadToolCalls(threadId) : []
-    const thread = includeMessages ? this.storage.getThread(threadId) : undefined
+    const thread = this.storage.getThread(threadId)
     const snapshot = thread
       ? this.runDomain.withQueuedFollowUpDraftSnapshot({ thread, messages, toolCalls })
-      : { messages, toolCalls }
+      : { messages, queuedFollowUpMessages: [], toolCalls }
 
     return {
       messages: snapshot.messages,
+      queuedFollowUpMessages: snapshot.queuedFollowUpMessages ?? [],
       toolCalls: snapshot.toolCalls,
       runs: this.storage.listThreadRuns(threadId),
       ...(scheduleRun ? { scheduleRun } : {})

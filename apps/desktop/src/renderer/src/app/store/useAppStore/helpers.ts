@@ -316,7 +316,7 @@ export function sortThreads(threads: Thread[]): Thread[] {
 }
 
 export function limitLoadedThreadData<T>(
-  records: Record<string, T[]>,
+  records: Record<string, T[]> | undefined,
   threadId: string,
   items: T[],
   keepThreadIds: Array<string | null | undefined> = []
@@ -326,7 +326,7 @@ export function limitLoadedThreadData<T>(
       (id): id is string => typeof id === 'string' && id.length > 0
     )
   )
-  const entries = Object.entries(records).filter(([id]) => id !== threadId)
+  const entries = Object.entries(records ?? {}).filter(([id]) => id !== threadId)
   entries.push([threadId, items])
 
   while (entries.length > MAX_LOADED_THREAD_DATA) {

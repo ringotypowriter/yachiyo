@@ -9,23 +9,18 @@ export function projectVisibleRunEvent(input: {
   runDomain: YachiyoServerRunDomain
 }): YachiyoServerEventPayload {
   const { event, runDomain } = input
-  if (event.type === 'thread.updated') {
-    return {
-      ...event,
-      thread: runDomain.withQueuedFollowUpDraft(event.thread)
-    }
-  }
-
   if (event.type === 'thread.state.replaced') {
     const snapshot = runDomain.withQueuedFollowUpDraftSnapshot({
       thread: event.thread,
       messages: event.messages,
+      queuedFollowUpMessages: event.queuedFollowUpMessages,
       toolCalls: event.toolCalls
     })
     return {
       ...event,
       thread: snapshot.thread,
       messages: snapshot.messages,
+      queuedFollowUpMessages: snapshot.queuedFollowUpMessages,
       toolCalls: snapshot.toolCalls
     }
   }

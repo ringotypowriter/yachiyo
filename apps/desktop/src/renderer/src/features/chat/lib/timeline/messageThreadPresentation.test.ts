@@ -3,9 +3,7 @@ import test from 'node:test'
 
 import {
   buildMessageGroups,
-  getQueuedFollowUpMessage,
   getRootAssistantMessages,
-  getTimelineMessages,
   getVisibleToolCallsForGroup,
   partitionToolCallsForGroups
 } from './messageThreadPresentation.ts'
@@ -133,64 +131,7 @@ test('getRootAssistantMessages returns assistant-first messages in timeline orde
   )
 })
 
-test('getTimelineMessages excludes a queued follow-up until the thread starts that run', () => {
-  const messages = [
-    {
-      id: 'user-1',
-      threadId: 'thread-1',
-      role: 'user' as const,
-      content: 'Original request',
-      status: 'completed' as const,
-      createdAt: TIMESTAMP
-    },
-    {
-      id: 'user-follow-up',
-      threadId: 'thread-1',
-      role: 'user' as const,
-      parentMessageId: 'user-1',
-      content: 'Queued follow-up',
-      status: 'completed' as const,
-      createdAt: '2026-03-15T00:00:01.000Z'
-    },
-    {
-      id: 'background-note',
-      threadId: 'thread-1',
-      role: 'assistant' as const,
-      content: 'Background task finished',
-      status: 'completed' as const,
-      createdAt: '2026-03-15T00:00:02.000Z'
-    }
-  ]
-
-  const queuedThread = {
-    id: 'thread-1',
-    title: 'Thread',
-    updatedAt: TIMESTAMP,
-    headMessageId: 'user-1',
-    queuedFollowUpMessageId: 'user-follow-up'
-  }
-
-  assert.deepEqual(
-    getTimelineMessages({ thread: queuedThread, messages }).map((message) => message.id),
-    ['user-1', 'background-note']
-  )
-  assert.equal(getQueuedFollowUpMessage({ thread: queuedThread, messages })?.id, 'user-follow-up')
-
-  assert.deepEqual(
-    getTimelineMessages({
-      thread: {
-        id: 'thread-1',
-        title: 'Thread',
-        updatedAt: TIMESTAMP,
-        headMessageId: 'user-follow-up'
-      },
-      messages
-    }).map((message) => message.id),
-    ['user-1', 'user-follow-up', 'background-note']
-  )
-})
-
-test('getTimelineMessages preserves hidden path records for visible grouping', () => {
+test('buildMessageGroups preserves hidden path records for visible grouping', () => {
   const messages = [
     {
       id: 'user-1',
@@ -230,15 +171,7 @@ test('getTimelineMessages preserves hidden path records for visible grouping', (
     }
   ]
 
-  const timelineMessages = getTimelineMessages({
-    thread: {
-      id: 'thread-1',
-      title: 'Thread',
-      updatedAt: TIMESTAMP,
-      headMessageId: 'assistant-after-hidden'
-    },
-    messages
-  })
+  const timelineMessages = messages
   const [group] = buildMessageGroups({
     thread: {
       id: 'thread-1',
@@ -260,43 +193,6 @@ test('getTimelineMessages preserves hidden path records for visible grouping', (
     ['assistant-before-hidden', 'assistant-after-hidden']
   )
   assert.deepEqual(group?.hiddenRequestMessageIds, ['hidden-background-notice'])
-})
-
-test('getTimelineMessages keeps queued follow-up drafts out of grouping input', () => {
-  const messages = [
-    {
-      id: 'user-1',
-      threadId: 'thread-1',
-      role: 'user' as const,
-      content: 'Visible request',
-      status: 'completed' as const,
-      createdAt: TIMESTAMP
-    },
-    {
-      id: 'queued-hidden-follow-up',
-      threadId: 'thread-1',
-      role: 'user' as const,
-      parentMessageId: 'user-1',
-      content: '[Background task completed]',
-      hidden: true,
-      status: 'completed' as const,
-      createdAt: '2026-03-15T00:00:01.000Z'
-    }
-  ]
-
-  assert.deepEqual(
-    getTimelineMessages({
-      thread: {
-        id: 'thread-1',
-        title: 'Thread',
-        updatedAt: TIMESTAMP,
-        headMessageId: 'user-1',
-        queuedFollowUpMessageId: 'queued-hidden-follow-up'
-      },
-      messages
-    }).map((message) => message.id),
-    ['user-1']
-  )
 })
 
 test('buildMessageGroups ignores hidden user messages on the visible head path', () => {

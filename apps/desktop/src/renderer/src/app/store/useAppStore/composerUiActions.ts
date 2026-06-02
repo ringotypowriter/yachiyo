@@ -20,7 +20,6 @@ import {
   deriveActiveThreadRunState,
   deriveSubagentStateFromToolCalls,
   deriveThreadListMode,
-  findThread,
   getComposerDraftKey,
   getComposerToolMode,
   limitLoadedThreadData,
@@ -200,8 +199,7 @@ export function createComposerUiActions(input: {
       // not yet in memory; runs are always refreshed so the run history sidebar
       // shows the full list from the database.
       if (typeof window !== 'undefined' && window.api?.yachiyo?.loadThreadData) {
-        const needsMessages =
-          !messages[id]?.length || Boolean(findThread(get(), id)?.queuedFollowUpMessageId)
+        const needsMessages = !messages[id]?.length
         void window.api.yachiyo
           .loadThreadData({ threadId: id, includeMessages: needsMessages })
           .then((data) => {
@@ -210,6 +208,12 @@ export function createComposerUiActions(input: {
                 ? limitLoadedThreadData(state.toolCalls, id, data.toolCalls, [state.activeThreadId])
                 : state.toolCalls
               return {
+                queuedFollowUpMessagesByThread: limitLoadedThreadData(
+                  state.queuedFollowUpMessagesByThread,
+                  id,
+                  data.queuedFollowUpMessages ?? [],
+                  [state.activeThreadId]
+                ),
                 ...(needsMessages
                   ? {
                       messages: limitLoadedThreadData(state.messages, id, data.messages, [

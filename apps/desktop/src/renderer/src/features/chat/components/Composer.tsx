@@ -280,17 +280,13 @@ export function Composer({
     threads.find((thread) => thread.id === activeThreadId) ??
     externalThreads.find((thread) => thread.id === activeThreadId) ??
     null
-  const queuedFollowUpMessageIdFromThread = activeThread?.queuedFollowUpMessageId ?? null
   const queuedFollowUpMessage = useAppStore((s) => {
-    if (!activeThreadId || !queuedFollowUpMessageIdFromThread) return null
+    if (!activeThreadId) return null
     return (
-      (s.messages[activeThreadId] ?? EMPTY_MESSAGES).find(
-        (message) => message.id === queuedFollowUpMessageIdFromThread
-      ) ?? null
+      s.queuedFollowUpMessagesByThread[activeThreadId]?.find((message) => !message.hidden) ?? null
     )
   })
-  const queuedFollowUpMessageId =
-    queuedFollowUpMessage?.id ?? activeThread?.queuedFollowUpMessageId ?? null
+  const queuedFollowUpDraftId = queuedFollowUpMessage?.id ?? null
   const queuedFollowUpCanRemove = activeThread
     ? canRemoveQueuedFollowUp({ threadCapabilities: getThreadCapabilities(activeThread) })
     : false
@@ -459,22 +455,22 @@ export function Composer({
   const inputBuffer = useChatInputBuffer({ onFlush: handleBufferedFlush })
 
   const handleEditQueuedFollowUp = useCallback(() => {
-    if (!queuedFollowUpMessageId) return
+    if (!queuedFollowUpDraftId) return
 
     void (async () => {
       try {
-        await revertQueuedFollowUp(queuedFollowUpMessageId)
+        await revertQueuedFollowUp(queuedFollowUpDraftId)
       } catch (error) {
         await dialog.alert({
           title: error instanceof Error ? error.message : 'Failed to edit queued follow-up.'
         })
       }
     })()
-  }, [dialog, queuedFollowUpMessageId, revertQueuedFollowUp])
+  }, [dialog, queuedFollowUpDraftId, revertQueuedFollowUp])
 
   const handleRemoveQueuedFollowUp = useCallback(() => {
     void (async () => {
-      if (!queuedFollowUpMessageId) return
+      if (!queuedFollowUpDraftId) return
       const confirmed = await dialog.confirm({
         title: 'Remove this queued follow-up?',
         confirmLabel: 'Remove',
@@ -483,14 +479,14 @@ export function Composer({
       if (!confirmed) return
 
       try {
-        await deleteMessage(queuedFollowUpMessageId)
+        await deleteMessage(queuedFollowUpDraftId)
       } catch (error) {
         await dialog.alert({
           title: error instanceof Error ? error.message : 'Failed to remove queued follow-up.'
         })
       }
     })()
-  }, [deleteMessage, dialog, queuedFollowUpMessageId])
+  }, [deleteMessage, dialog, queuedFollowUpDraftId])
 
   const dispatchSend = useCallback(
     (mode: 'normal' | 'steer' | 'follow-up') => {
@@ -1114,7 +1110,7 @@ export function Composer({
     onSelectThreadOperation,
     overlayRef,
     pendingSteerEntry,
-    queuedFollowUpMessageId,
+    queuedFollowUpDraftId,
     reasoningSelectorOpen,
     revertPendingSteer,
     revertQueuedFollowUp,

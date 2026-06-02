@@ -536,7 +536,6 @@ test('sendChatFlow does not expose hidden-only follow-up drafts as visible queue
     updatedAt: '2026-05-02T00:00:00.000Z'
   }
   let id = 0
-  const threadUpdates: ThreadRecord[] = []
   const activeRun = {
     threadId: thread.id,
     requestMessageId: 'user-1',
@@ -550,11 +549,7 @@ test('sendChatFlow does not expose hidden-only follow-up drafts as visible queue
       timestamp: () => '2026-05-02T00:00:00.000Z',
       requireThread: () => thread,
       readConfig: () => ({ enabledTools: [] }),
-      emit: (event: { type: string; thread?: ThreadRecord }) => {
-        if (event.type === 'thread.updated' && event.thread) {
-          threadUpdates.push(event.thread)
-        }
-      }
+      emit: () => {}
     } as unknown as SendChatFlowContext['deps'],
     activeRuns: new Map([['run-1', activeRun]]) as SendChatFlowContext['activeRuns'],
     activeRunByThread: new Map([[thread.id, 'run-1']]),
@@ -579,9 +574,8 @@ test('sendChatFlow does not expose hidden-only follow-up drafts as visible queue
   })
 
   assert.equal(hidden.kind, 'active-run-follow-up')
-  assert.equal(hidden.thread.queuedFollowUpMessageId, undefined)
-  assert.equal(threadUpdates.at(-1)?.queuedFollowUpMessageId, undefined)
-  assert.equal(projectedSnapshot.thread.queuedFollowUpMessageId, undefined)
+  assert.deepEqual(hidden.queuedFollowUpMessages, [])
+  assert.deepEqual(projectedSnapshot.queuedFollowUpMessages, [])
   assert.deepEqual(projectedSnapshot.messages, [])
   assert.equal(context.queuedFollowUpDrafts.get(thread.id)?.userMessage.hidden, true)
   assert.equal(
@@ -698,7 +692,6 @@ test('deleteQueuedFollowUpDraft preserves hidden notices attached to a visible d
   })
   const remainingDraft = sendContext.queuedFollowUpDrafts.get(currentThread.id)
 
-  assert.equal(currentThread.queuedFollowUpMessageId, undefined)
   assert.equal(remainingDraft?.userMessage.content, 'hidden notice')
   assert.equal(remainingDraft?.userMessage.hidden, true)
 
