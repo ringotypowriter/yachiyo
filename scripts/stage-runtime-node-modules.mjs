@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 /* eslint-disable @typescript-eslint/explicit-function-return-type */
 
+import { spawnSync } from 'node:child_process'
 import { builtinModules, createRequire } from 'node:module'
 import {
   cpSync,
@@ -29,7 +30,10 @@ const packageSearchRoots = [
   resolve(repoRoot, 'packages', 'cli'),
   repoRoot
 ]
-const explicitRuntimePackages = new Map([['better-sqlite3', ['native SQLite runtime package']]])
+const nativeRuntimePackages = ['better-sqlite3']
+const explicitRuntimePackages = new Map(
+  nativeRuntimePackages.map((packageName) => [packageName, ['native SQLite runtime package']])
+)
 const optionalRuntimePackages = new Set(['bufferutil', 'utf-8-validate', 'zlib-sync'])
 const builtins = new Set([
   ...builtinModules,
@@ -139,6 +143,49 @@ function packageExists(packageName, searchRoots) {
   return Boolean(resolvePackageRoot(packageName, searchRoots))
 }
 
+function rebuildStagedNativeRuntimePackages(packageNames) {
+  if (packageNames.length === 0) {
+    return
+  }
+
+  writeFileSync(
+    join(stagedRuntimeDir, 'package.json'),
+    `${JSON.stringify(
+      {
+        name: 'yachiyo-runtime-node-modules',
+        private: true,
+        dependencies: Object.fromEntries(packageNames.map((packageName) => [packageName, '*']))
+      },
+      null,
+      2
+    )}\n`
+  )
+
+  const pnpmBin = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm'
+  const result = spawnSync(
+    pnpmBin,
+    [
+      'exec',
+      'electron-rebuild',
+      '-f',
+      '--module-dir',
+      stagedRuntimeDir,
+      '--only',
+      packageNames.join(',')
+    ],
+    {
+      cwd: appDir,
+      encoding: 'utf8',
+      stdio: 'inherit'
+    }
+  )
+
+  if (result.status !== 0) {
+    console.error(`Failed to rebuild staged native runtime packages: ${packageNames.join(', ')}`)
+    process.exit(result.status ?? 1)
+  }
+}
+
 function stageRuntimePackages(runtimeRequires) {
   const queue = [...runtimeRequires.keys()].map((packageName) => ({
     packageName,
@@ -211,6 +258,9 @@ mkdirSync(stagedNodeModulesDir, { recursive: true })
 
 const runtimeRequires = findRuntimeRequires()
 const { staged, skippedOptional } = stageRuntimePackages(runtimeRequires)
+rebuildStagedNativeRuntimePackages(
+  nativeRuntimePackages.filter((packageName) => staged.has(packageName))
+)
 const manifestPath = join(stagedRuntimeDir, 'runtime-node-modules.json')
 writeFileSync(
   manifestPath,
