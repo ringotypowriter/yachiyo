@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url'
 
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3'
 
+import { resolveRuntimeNodeModule } from '../../config/runtimeNodeModules.ts'
 import * as schema from './schema.ts'
 
 const MIGRATIONS_DIR = fileURLToPath(new URL('./drizzle', import.meta.url))
@@ -38,7 +39,7 @@ interface SqliteRuntime {
 }
 
 function loadSqliteRuntime(): SqliteRuntime {
-  const BetterSqlite3Module = require('better-sqlite3') as
+  const BetterSqlite3Module = require(resolveRuntimeNodeModule('better-sqlite3', require)) as
     | BetterSqlite3Constructor
     | BetterSqlite3Module
   const drizzleModule = require('drizzle-orm/better-sqlite3') as Pick<SqliteRuntime, 'drizzle'>

@@ -2,6 +2,7 @@ import { Worker } from 'node:worker_threads'
 import { createRequire } from 'node:module'
 
 import { resolveYachiyoActivitySourceKeyPath } from '../../config/paths.ts'
+import { resolveRuntimeNodeModule } from '../../config/runtimeNodeModules.ts'
 import type {
   QueryRowsResult,
   QuerySourceExecutor,
@@ -77,7 +78,7 @@ function runSqliteSourceQueryWorker(input: {
     eval: true,
     workerData: {
       activitySourceKeyPath: input.activitySourceKeyPath,
-      betterSqlite3ModulePath: appRequire.resolve('better-sqlite3'),
+      betterSqlite3ModulePath: resolveRuntimeNodeModule('better-sqlite3', appRequire),
       dbPath: input.dbPath,
       input: normalizeQuerySourceInput(input.queryInput)
     }

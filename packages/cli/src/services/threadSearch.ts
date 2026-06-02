@@ -8,6 +8,7 @@ import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3'
 
 import type { ToolCallRecord } from '@yachiyo/shared/protocol'
 import { resolveYachiyoDataDir } from '@yachiyo/runtime/config/paths'
+import { resolveRuntimeNodeModule } from '@yachiyo/runtime/config/runtimeNodeModules'
 import { isBundledSkillPath } from '@yachiyo/runtime/services/skills/skillDiscovery'
 import * as schema from '@yachiyo/runtime/storage/sqlite/schema'
 import {
@@ -47,7 +48,9 @@ interface SqliteRuntime {
 const _require = createRequire(import.meta.url)
 
 function loadSqliteRuntime(): SqliteRuntime {
-  const mod = _require('better-sqlite3') as BetterSqlite3Constructor | BetterSqlite3Module
+  const mod = _require(resolveRuntimeNodeModule('better-sqlite3', _require)) as
+    | BetterSqlite3Constructor
+    | BetterSqlite3Module
   const drizzleModule = _require('drizzle-orm/better-sqlite3') as Pick<SqliteRuntime, 'drizzle'>
   const BetterSqlite3 = typeof mod === 'function' ? mod : mod.default
   if (!BetterSqlite3) throw new Error('Failed to load better-sqlite3 runtime')

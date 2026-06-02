@@ -1,6 +1,8 @@
 import { createRequire } from 'node:module'
 import { Worker } from 'node:worker_threads'
 
+import { resolveRuntimeNodeModule } from '../../config/runtimeNodeModules.ts'
+
 export interface BackgroundResponseMessagesRepairJob {
   messageId: string
   responseMessages: string
@@ -57,7 +59,7 @@ export function createBackgroundResponseMessagesRepairQueue(
   options: BackgroundResponseMessagesRepairQueueOptions = {}
 ): BackgroundResponseMessagesRepairQueue {
   const betterSqlite3ModulePath =
-    options.betterSqlite3ModulePath ?? appRequire.resolve('better-sqlite3')
+    options.betterSqlite3ModulePath ?? resolveRuntimeNodeModule('better-sqlite3', appRequire)
   let worker: Worker | null = null
   let closing = false
   let nextJobId = 1

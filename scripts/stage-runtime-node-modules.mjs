@@ -29,6 +29,7 @@ const packageSearchRoots = [
   resolve(repoRoot, 'packages', 'cli'),
   repoRoot
 ]
+const explicitRuntimePackages = new Map([['better-sqlite3', ['native SQLite runtime package']]])
 const optionalRuntimePackages = new Set(['bufferutil', 'utf-8-validate', 'zlib-sync'])
 const builtins = new Set([
   ...builtinModules,
@@ -101,7 +102,9 @@ function walkJavaScriptFiles(directory) {
 }
 
 function findRuntimeRequires() {
-  const packages = new Map()
+  const packages = new Map(
+    [...explicitRuntimePackages].map(([packageName, reasons]) => [packageName, [...reasons]])
+  )
   for (const file of walkJavaScriptFiles(outMainDir)) {
     const source = readFileSync(file, 'utf8')
     for (const match of source.matchAll(requirePattern)) {
