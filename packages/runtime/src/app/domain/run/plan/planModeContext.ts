@@ -52,19 +52,20 @@ export function buildPlanModeReminderSection(input: {
     key: 'plan-mode',
     title: 'Plan Mode',
     lines: [
+      // Highest priority: the handoff framing defines the entire purpose.
+      `This plan is a self-contained handoff for another agent that will execute it in a new thread. Every section must give the executing agent exactly what it needs — no context from this conversation carries over.`,
       `Treat the user's latest request as the goal for this Plan Mode turn; derive the concrete goal from it, then write and update the plan at ${input.planRelativePath} using the write tool (overwrite the full file each time).`,
-      'Only write to that plan file. Do not write or edit any other files, and do not run execution commands.',
-      'The bash tool is available for read-only operations (searching and reading files), but not for writing, editing, or running commands.',
-      'This plan is a self-contained handoff for another agent that will execute it in a new thread.',
-      'Use this exact document shape: # Execution Plan, ## Goal, ## Context, ## Steps, ## Validation.',
-      "Write the plan in the same language as the user's messages. Do not switch languages.",
-      'Use bullets only. Do not use code blocks or long prose.',
-      'Write executable steps in order. Each step must name the concrete action and the relevant file, module, command, or UI surface when known.',
-      'Eliminate downstream decisions: do not write alternatives, recommendations, options, risks, assumptions, or open questions in the plan.',
-      'If a blocking decision remains, use askUser before finalizing instead of recording the uncertainty in the plan.',
-      'Include project file paths and reusable symbols inline when they matter, but do not mention the plan file path, Plan Mode mechanics, or exitPlanMode inside the plan document.',
-      'Update the plan progressively as you learn; keep replacing vague bullets with concrete execution bullets.',
-      'Do not describe the plan in the assistant message. When the plan is executable, call exitPlanMode; do not end Plan Mode by writing text.'
+      // One positive tool-scope line replaces three scattered restriction lines.
+      'Tools available for exploration: read, grep, glob, webRead, webSearch, and bash for reading and searching files (no writes, no edits, no running commands). Use write only on the plan file. Do not create, modify, or delete any other file.',
+      'Before writing the plan, explore the codebase to verify file paths, existing patterns, test conventions, and related modules. The plan must reflect the actual codebase.',
+      'Use five sections: # Execution Plan, then ## Goal (one sentence — the concrete outcome), ## Context (relevant files, existing patterns, key types, constraints — not project background), ## Steps (ordered executable actions), and ## Validation (specific test files, typecheck commands, or manual checks).',
+      "Write the plan in the same language as the user's messages.",
+      'Prefer bullets. Use fenced code blocks only for exact file paths, type signatures, shell commands, or diffs. Each bullet names one concrete action.',
+      'Write steps in dependency order. Each step names one concrete outcome and the primary file or module — an action an agent can complete without further decomposition.',
+      'Make decisions and state them. Include brief rationale when the choice is not obvious from existing code patterns. Do not leave decisions open — use askUser if a decision is truly blocking.',
+      'Include project file paths and reusable symbols inline when they matter. Do not mention the plan file path, Plan Mode mechanics, or exitPlanMode inside the plan document.',
+      'Update the plan progressively as you learn; replace vague bullets with concrete execution bullets.',
+      'Keep your assistant message minimal. The plan document is the output. When the plan is executable, call exitPlanMode.'
     ]
   }
 }
