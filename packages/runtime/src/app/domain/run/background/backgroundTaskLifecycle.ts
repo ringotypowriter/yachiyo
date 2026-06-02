@@ -1,14 +1,13 @@
 import type {
   BackgroundTaskCompletedEvent,
   ChatAccepted,
-  SendChatInput,
   SendChatMode,
   ThreadRecord,
   ToolCallRecord,
   ToolCallUpdatedEvent
 } from '@yachiyo/shared/protocol'
 import type { BackgroundBashTaskResult } from '../../background/backgroundBashManager.ts'
-import type { BackgroundTaskRunContext, RunDomainDeps } from '../runTypes.ts'
+import type { BackgroundTaskRunContext, InternalSendChatInput, RunDomainDeps } from '../runTypes.ts'
 import {
   buildBackgroundCompletionMessage,
   isBackgroundAutoDeliveryEligible
@@ -18,7 +17,7 @@ export interface BackgroundTaskLifecycleContext {
   deps: RunDomainDeps
   backgroundTaskRunContext: Map<string, BackgroundTaskRunContext>
   isClosing: () => boolean
-  sendChat: (input: SendChatInput) => Promise<ChatAccepted>
+  sendChat: (input: InternalSendChatInput) => Promise<ChatAccepted>
 }
 
 export function recoverOrphanedBackgroundToolCalls(context: BackgroundTaskLifecycleContext): void {
@@ -161,7 +160,7 @@ async function autoDeliverBackgroundCompletion(
     threadId: thread.id,
     content,
     hidden: true,
-    ...(ctx?.enabledTools ? { enabledTools: ctx.enabledTools } : {}),
+    ...(ctx?.enabledTools ? { toolPreset: ctx.enabledTools } : {}),
     ...(ctx?.runMode ? { runMode: ctx.runMode } : {}),
     ...(ctx?.enabledSkillNames ? { enabledSkillNames: ctx.enabledSkillNames } : {}),
     ...(ctx?.reasoningEffort !== undefined ? { reasoningEffort: ctx.reasoningEffort } : {}),

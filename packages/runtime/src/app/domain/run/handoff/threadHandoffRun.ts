@@ -14,6 +14,7 @@ import type {
   ThreadRecord,
   ThreadUpdatedEvent
 } from '@yachiyo/shared/protocol'
+import { normalizeEnabledTools } from '@yachiyo/shared/protocol'
 import { summarizeMessagePreview } from '@yachiyo/shared/messageContent'
 import { isModelImageCapable } from '@yachiyo/shared/providerConfig'
 import { resolveYachiyoUserPath } from '../../../../config/paths.ts'
@@ -121,7 +122,9 @@ export async function streamCompactThreadHandoff(
     }
     const storedSourceRunMode = sourceTurnContext?.runMode ?? sourceThread.runMode ?? 'auto'
     const sourceRunMode = storedSourceRunMode === 'custom' ? 'auto' : storedSourceRunMode
-    const sourceEnabledTools = resolveRunModeEnabledTools(sourceRunMode)
+    const sourceEnabledTools = sourceTurnContext?.enabledTools
+      ? normalizeEnabledTools(sourceTurnContext.enabledTools, [])
+      : resolveRunModeEnabledTools(sourceRunMode)
     const preparedContext = await prepareServerRunContext(
       {
         storage: deps.storage,

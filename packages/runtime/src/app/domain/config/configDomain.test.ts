@@ -5,9 +5,9 @@ import { DEFAULT_SETTINGS_CONFIG } from '../../../settings/settingsStore.ts'
 import type { SettingsConfig } from '@yachiyo/shared/protocol'
 import { resolveRunModeEnabledToolsForInput, YachiyoServerConfigDomain } from './configDomain.ts'
 
-test('resolveRunModeEnabledToolsForInput preserves explicit tool lists', () => {
+test('resolveRunModeEnabledToolsForInput preserves internal tool presets', () => {
   assert.deepEqual(
-    resolveRunModeEnabledToolsForInput({ enabledTools: ['querySource', 'reviewThings'] }),
+    resolveRunModeEnabledToolsForInput({ toolPreset: ['querySource', 'reviewThings'] }),
     ['querySource', 'reviewThings']
   )
 })

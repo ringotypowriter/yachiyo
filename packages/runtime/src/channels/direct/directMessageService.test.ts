@@ -348,7 +348,7 @@ describe('directMessageService', () => {
         threadId: string
         content: string
         images?: { dataUrl: string; mediaType: string; filename?: string; workspacePath?: string }[]
-        enabledTools?: string[]
+        toolPreset?: string[]
         runTrigger?: string
         channelHint?: string
         extraTools?: Record<string, unknown>
@@ -357,7 +357,7 @@ describe('directMessageService', () => {
         assert.equal(input.threadId, thread.id)
         assert.equal(input.content, 'hello\nagain')
         assert.deepEqual(input.images, undefined)
-        assert.deepEqual(input.enabledTools, telegramPolicy.allowedTools)
+        assert.deepEqual(input.toolPreset, telegramPolicy.allowedTools)
         assert.equal(input.runTrigger, 'channel')
         assert.equal(input.channelHint, telegramPolicy.replyInstruction)
         queueMicrotask(() => {

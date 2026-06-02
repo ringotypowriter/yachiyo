@@ -1282,7 +1282,6 @@ export interface SendChatInput {
   content: string
   images?: MessageImageRecord[]
   attachments?: SendChatAttachment[]
-  enabledTools?: ToolCallName[]
   enabledSkillNames?: string[]
   runMode?: RunModeId
   /**
@@ -1322,7 +1321,6 @@ export interface AnswerToolQuestionInput {
 export interface RetryInput {
   threadId: string
   messageId: string
-  enabledTools?: ToolCallName[]
   enabledSkillNames?: string[]
   runMode?: RunModeId
   reasoningEffort?: ComposerReasoningSelection
@@ -1334,7 +1332,6 @@ export interface EditMessageInput {
   content: string
   images?: MessageImageRecord[]
   attachments?: SendChatAttachment[]
-  enabledTools?: ToolCallName[]
   enabledSkillNames?: string[]
   runMode?: RunModeId
   reasoningEffort?: ComposerReasoningSelection

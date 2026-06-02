@@ -9,7 +9,6 @@ import type {
   MessageRecord,
   RunCreatedEvent,
   RunModeId,
-  SendChatInput,
   SendChatMode,
   SendChatRunTrigger,
   ThreadRecord,
@@ -34,7 +33,7 @@ import { resolveRunModeId } from '@yachiyo/shared/toolModes'
 import { createRunEventMetadata } from '../../shared/runEventMetadata.ts'
 import { DEFAULT_THREAD_TITLE } from '../../shared/shared.ts'
 import { buildTitleQuery, deriveThreadTitleFallback } from '../../threads/threadTitle.ts'
-import type { RunDomainDeps, RunState } from '../runTypes.ts'
+import type { InternalSendChatInput, RunDomainDeps, RunState } from '../runTypes.ts'
 import type { QueuedFollowUpDraft, QueuedFollowUpRequestDraft } from '../queue/followUpQueue.ts'
 import {
   addPendingSteerInput,
@@ -80,20 +79,20 @@ export interface SendChatFlowContext {
 
 export async function sendChatFlow(
   context: SendChatFlowContext,
-  input: SendChatInput
+  input: InternalSendChatInput
 ): Promise<ChatAccepted> {
   const { deps } = context
   const rawContent = input.content.trim()
   const images = normalizeMessageImages(input.images)
   const thread = deps.requireThread(input.threadId)
   const runMode = resolveRunModeId({
-    enabledTools: input.enabledTools,
+    enabledTools: input.toolPreset,
     runMode: input.runMode,
     fallbackEnabledTools: thread.enabledTools,
     fallbackRunMode: thread.runMode ?? DEFAULT_RUN_MODE_ID
   })
   const enabledTools = resolveRunModeEnabledToolsForInput({
-    enabledTools: input.enabledTools,
+    toolPreset: input.toolPreset,
     runMode,
     fallbackEnabledTools: thread.enabledTools
   })

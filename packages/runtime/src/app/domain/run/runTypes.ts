@@ -4,6 +4,7 @@ import type {
   MessageRecord,
   ProviderSettings,
   RunModeId,
+  SendChatInput,
   SendChatRunTrigger,
   SkillCatalogEntry,
   SettingsConfig,
@@ -30,6 +31,11 @@ import type { TodoProgressState } from './todo/todoProgress.ts'
 import type { ThingDomain } from '../things/thingDomain.ts'
 
 export type RunExecutionPhase = 'generating' | 'tool-running' | 'waiting-for-user' | 'terminal'
+
+export type InternalSendChatInput = SendChatInput & {
+  /** Internal per-run tool preset for system/channel runs that need a fixed tool set. */
+  toolPreset?: ToolCallName[]
+}
 
 export interface PendingSteerInput {
   content: string

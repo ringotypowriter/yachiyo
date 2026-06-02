@@ -126,7 +126,6 @@ async function startPlanAcceptanceDirect(input: PlanAcceptanceInput): Promise<Ch
 
   return input.runDomain.sendChat({
     threadId: seeded.thread.id,
-    enabledTools: DEFAULT_ENABLED_TOOL_NAMES,
     runMode: 'auto',
     previousRunMode: 'plan',
     hidden: false,
@@ -180,7 +179,6 @@ async function startPlanAcceptanceWithHandoff(input: PlanAcceptanceInput): Promi
 
   return input.runDomain.sendChat({
     threadId: seeded.thread.id,
-    enabledTools: DEFAULT_ENABLED_TOOL_NAMES,
     runMode: 'auto',
     previousRunMode: 'plan',
     hidden: false,

@@ -5,6 +5,7 @@ import type {
   SendChatInput,
   ThreadModelOverride,
   ThreadRecord,
+  ToolCallName,
   UpdateChannelUserInput,
   YachiyoServerEvent
 } from '@yachiyo/shared/protocol'
@@ -14,6 +15,8 @@ import type { ChannelPolicy } from '../shared/channelPolicy.ts'
 
 const REPLY_DELAY_MIN_MS = 3_000
 const REPLY_DELAY_MAX_MS = 8_000
+
+type DirectMessageSendChatInput = SendChatInput & { toolPreset?: ToolCallName[] }
 
 function randomReplyDelay(): number {
   return REPLY_DELAY_MIN_MS + Math.random() * (REPLY_DELAY_MAX_MS - REPLY_DELAY_MIN_MS)
@@ -43,7 +46,7 @@ function toKTokens(totalTokens: number): number {
 
 export interface DirectMessageServer {
   subscribe(listener: (event: YachiyoServerEvent) => void): () => void
-  sendChat(input: SendChatInput): Promise<ChatAccepted>
+  sendChat(input: DirectMessageSendChatInput): Promise<ChatAccepted>
   getThreadTotalTokens(threadId: string): number
   updateLatestAssistantVisibleReply(input: { threadId: string; visibleReply: string }): void
   updateChannelUser(input: UpdateChannelUserInput): ChannelUserRecord
@@ -533,7 +536,7 @@ export function createDirectMessageService<TTarget>(
         threadId: thread.id,
         content: text,
         images: images.length > 0 ? images : undefined,
-        enabledTools: options.policy.allowedTools,
+        toolPreset: options.policy.allowedTools,
         runTrigger: 'channel',
         channelHint: userLabelHint + options.policy.replyInstruction,
         extraTools: { reply: replyTool }

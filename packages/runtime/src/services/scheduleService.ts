@@ -10,9 +10,12 @@ import type {
   SendChatInput,
   ShowNotificationInput,
   ThreadRecord,
+  ToolCallName,
   YachiyoServerEvent
 } from '@yachiyo/shared/protocol'
 import type { YachiyoStorage } from '../storage/storage.ts'
+
+type ScheduleSendChatInput = SendChatInput & { toolPreset?: ToolCallName[] }
 
 export interface ScheduleServerApi {
   createThread(input: {
@@ -25,7 +28,7 @@ export interface ScheduleServerApi {
     threadId: string
     modelOverride: NonNullable<ThreadRecord['modelOverride']>
   }): Promise<ThreadRecord>
-  sendChat(input: SendChatInput): Promise<{ runId: string }>
+  sendChat(input: ScheduleSendChatInput): Promise<{ runId: string }>
   setThreadIcon(input: { threadId: string; icon: string }): Promise<ThreadRecord>
   archiveThread(input: { threadId: string; unread?: boolean }): Promise<void>
   showNotification(input: ShowNotificationInput): void
@@ -364,7 +367,7 @@ export function createScheduleService(deps: ScheduleServiceDeps): ScheduleServic
         await deps.server.sendChat({
           threadId: thread.id,
           content,
-          enabledTools: schedule.enabledTools,
+          toolPreset: schedule.enabledTools,
           extraTools: { reportScheduleResult },
           runTrigger: 'local',
           channelHint: SCHEDULE_CHANNEL_HINT

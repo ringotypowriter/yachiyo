@@ -558,7 +558,6 @@ export function createThreadLifecycleActions(input: {
         const accepted = await window.api.yachiyo.retryMessage({
           threadId,
           messageId,
-          enabledTools: toolMode.enabledTools,
           runMode: toolMode.runMode,
           enabledSkillNames,
           reasoningEffort

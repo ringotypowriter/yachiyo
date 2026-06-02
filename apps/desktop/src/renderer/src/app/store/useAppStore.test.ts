@@ -401,7 +401,7 @@ test('applyServerEvent loads a pending plan document when exitPlanMode completes
 test('acceptPlanDocument switches the handoff execution thread composer to auto mode', async () => {
   resetStore()
 
-  const sendChatInputs: Array<{ content?: string; enabledTools?: string[]; runMode?: string }> = []
+  const sendChatInputs: Array<{ content?: string; runMode?: string }> = []
   const restoreWindow = withWindowApiMock({
     acceptThreadPlanDocument: async ({ threadId, mode }) => {
       assert.equal(threadId, 'thread-plan')
@@ -435,7 +435,6 @@ test('acceptPlanDocument switches the handoff execution thread composer to auto 
           id: 'thread-execute',
           title: 'Execution thread',
           updatedAt: TIMESTAMP,
-          enabledTools: input.enabledTools,
           runMode: input.runMode
         },
         userMessage: {
@@ -497,7 +496,6 @@ test('acceptPlanDocument switches the handoff execution thread composer to auto 
     assert.equal(sendChatInputs.length, 1)
     assert.equal(sendChatInputs[0]?.content, 'Continue with step one.')
     assert.equal(sendChatInputs[0]?.runMode, 'auto')
-    assert.deepEqual(sendChatInputs[0]?.enabledTools, DEFAULT_ENABLED_TOOL_NAMES)
   } finally {
     restoreWindow()
   }
@@ -506,7 +504,7 @@ test('acceptPlanDocument switches the handoff execution thread composer to auto 
 test('acceptPlanDocument keeps direct execution in the source thread and switches composer to auto mode', async () => {
   resetStore()
 
-  const sendChatInputs: Array<{ content?: string; enabledTools?: string[]; runMode?: string }> = []
+  const sendChatInputs: Array<{ content?: string; runMode?: string }> = []
   const restoreWindow = withWindowApiMock({
     acceptThreadPlanDocument: async ({ threadId, mode }) => {
       assert.equal(threadId, 'thread-plan')
@@ -540,7 +538,6 @@ test('acceptPlanDocument keeps direct execution in the source thread and switche
           id: 'thread-plan',
           title: 'Plan thread',
           updatedAt: TIMESTAMP,
-          enabledTools: input.enabledTools,
           runMode: input.runMode
         },
         userMessage: {
@@ -602,7 +599,6 @@ test('acceptPlanDocument keeps direct execution in the source thread and switche
     assert.equal(sendChatInputs.length, 1)
     assert.equal(sendChatInputs[0]?.content, 'Continue with step one.')
     assert.equal(sendChatInputs[0]?.runMode, 'auto')
-    assert.deepEqual(sendChatInputs[0]?.enabledTools, DEFAULT_ENABLED_TOOL_NAMES)
   } finally {
     restoreWindow()
   }

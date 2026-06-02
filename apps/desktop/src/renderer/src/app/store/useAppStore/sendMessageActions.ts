@@ -117,7 +117,6 @@ export function createSendMessageActions(input: {
           await get().rejectPlanDocument(planRevisionThreadId)
         }
 
-        const enabledTools = initialToolMode.enabledTools
         const runMode = planRevisionThreadId ? 'plan' : initialToolMode.runMode
         const enabledSkillNames = override
           ? normalizeSkillNames(override.enabledSkillNames ?? currentState.config?.skills?.enabled)
@@ -260,7 +259,6 @@ export function createSendMessageActions(input: {
                 threadId,
                 messageId: editingMessage.messageId,
                 content: trimmed,
-                enabledTools,
                 runMode,
                 enabledSkillNames: draft.enabledSkillNames !== null ? enabledSkillNames : undefined,
                 reasoningEffort,
@@ -269,7 +267,6 @@ export function createSendMessageActions(input: {
               })
             : await window.api.yachiyo.sendChat({
                 content: trimmed,
-                enabledTools,
                 runMode,
                 enabledSkillNames:
                   mode === 'follow-up' || hasExplicitSkillNames ? enabledSkillNames : undefined,

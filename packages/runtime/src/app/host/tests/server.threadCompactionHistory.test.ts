@@ -509,7 +509,7 @@ test('YachiyoServer.compactThreadToAnotherThread keeps the runtime-prepared sour
       const first = await server.sendChat({
         threadId: sourceThread.id,
         content: 'Run the first prefix diagnostic.',
-        enabledTools: ['bash'],
+        toolPreset: ['bash'],
         enabledSkillNames: []
       })
       await completeRun(first.runId)
@@ -517,7 +517,7 @@ test('YachiyoServer.compactThreadToAnotherThread keeps the runtime-prepared sour
       const second = await server.sendChat({
         threadId: sourceThread.id,
         content: 'Run the second prefix diagnostic.',
-        enabledTools: ['bash'],
+        toolPreset: ['bash'],
         enabledSkillNames: []
       })
       await completeRun(second.runId)

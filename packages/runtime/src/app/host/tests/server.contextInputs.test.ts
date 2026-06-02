@@ -364,7 +364,7 @@ test('YachiyoServer injects only active skill summaries into runtime context and
     const accepted = await server.sendChat({
       threadId: thread.id,
       content: 'Use the local skill summary',
-      enabledTools: ['read']
+      toolPreset: ['read']
     })
     await completeRun(accepted.runId)
 

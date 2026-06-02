@@ -60,12 +60,12 @@ export function resolveEnabledTools(
 }
 
 export function resolveRunModeEnabledToolsForInput(input: {
-  enabledTools?: unknown
+  toolPreset?: unknown
   runMode?: unknown
   fallbackEnabledTools?: readonly ToolCallName[]
 }): ToolCallName[] {
-  if (Array.isArray(input.enabledTools)) {
-    return normalizeEnabledTools(input.enabledTools, [])
+  if (Array.isArray(input.toolPreset)) {
+    return normalizeEnabledTools(input.toolPreset, [])
   }
 
   const runMode = normalizeRunModeId(input.runMode)

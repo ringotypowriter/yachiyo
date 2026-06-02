@@ -14,7 +14,6 @@ import type {
   RetryInput,
   RunFailedEvent,
   RunCreatedEvent,
-  SendChatInput,
   ThreadSnapshot,
   ThreadRecord,
   ThreadUpdatedEvent,
@@ -46,7 +45,12 @@ import { resolveRetryRequest } from '../threads/threadDomain.ts'
 import { sleep } from '../../../channels/shared/connectionRetry.ts'
 import { createRunEventMetadata } from '../shared/runEventMetadata.ts'
 import { INTERRUPTED_RUN_ERROR, SHUTDOWN_RUN_ERROR, isAbortError } from '../shared/shared.ts'
-import { type BackgroundTaskRunContext, type RunDomainDeps, type RunState } from './runTypes.ts'
+import {
+  type BackgroundTaskRunContext,
+  type InternalSendChatInput,
+  type RunDomainDeps,
+  type RunState
+} from './runTypes.ts'
 import { createEphemeralStorageProxy, type EphemeralStorage } from './chat/ephemeralStorage.ts'
 import { type DebouncedSendChatEntry } from './chat/sendChatDebounce.ts'
 import { sendChatFlow, type SendChatFlowContext } from './chat/sendChatFlow.ts'
@@ -386,7 +390,7 @@ export class YachiyoServerRunDomain {
     scheduleRecoveredRuns(this.createFollowUpQueueContext(), checkpoints)
   }
 
-  async sendChat(input: SendChatInput): Promise<ChatAccepted> {
+  async sendChat(input: InternalSendChatInput): Promise<ChatAccepted> {
     return sendChatFlow(this.createSendChatFlowContext(), input)
   }
 
@@ -420,13 +424,11 @@ export class YachiyoServerRunDomain {
     }
 
     const runMode = resolveRunModeId({
-      enabledTools: input.enabledTools,
       runMode: input.runMode,
       fallbackEnabledTools: thread.enabledTools,
       fallbackRunMode: thread.runMode ?? DEFAULT_RUN_MODE_ID
     })
     const enabledTools = resolveRunModeEnabledToolsForInput({
-      enabledTools: input.enabledTools,
       runMode,
       fallbackEnabledTools: thread.enabledTools
     })

@@ -258,7 +258,6 @@ test('sendMessage restores per-thread drafts and clears only the sent thread on 
 
   const calls: Array<{
     content: string
-    enabledTools?: string[]
     reasoningEffort?: string
     threadId: string
   }> = []
@@ -266,7 +265,6 @@ test('sendMessage restores per-thread drafts and clears only the sent thread on 
     sendChat: async (input) => {
       calls.push({
         content: input.content,
-        enabledTools: input.enabledTools,
         reasoningEffort: input.reasoningEffort,
         threadId: input.threadId
       })
@@ -337,7 +335,6 @@ test('sendMessage restores per-thread drafts and clears only the sent thread on 
     assert.deepEqual(calls, [
       {
         content: 'Alpha',
-        enabledTools: DEFAULT_ENABLED_TOOL_NAMES,
         reasoningEffort: 'high',
         threadId: 'thread-1'
       }
@@ -363,7 +360,7 @@ test('sendMessage drops staged custom tool sets for new threads and falls back t
   resetStore()
 
   const createThreadCalls: unknown[] = []
-  const sendChatCalls: Array<{ enabledTools?: string[]; runMode?: string; threadId: string }> = []
+  const sendChatCalls: Array<{ runMode?: string; threadId: string }> = []
   const restoreWindow = withWindowApiMock({
     createThread: async (input) => {
       createThreadCalls.push(input)
@@ -375,7 +372,6 @@ test('sendMessage drops staged custom tool sets for new threads and falls back t
     },
     sendChat: async (input) => {
       sendChatCalls.push({
-        enabledTools: input.enabledTools,
         runMode: input.runMode,
         threadId: input.threadId
       })
@@ -418,7 +414,6 @@ test('sendMessage drops staged custom tool sets for new threads and falls back t
     assert.deepEqual(createThreadCalls, [{}])
     assert.deepEqual(sendChatCalls, [
       {
-        enabledTools: DEFAULT_ENABLED_TOOL_NAMES,
         runMode: DEFAULT_RUN_MODE_ID,
         threadId: 'thread-1'
       }
@@ -434,7 +429,6 @@ test('sendMessage routes active-run steer through the ordinary message path with
 
   const calls: Array<{
     content: string
-    enabledTools?: string[]
     images?: Array<{ dataUrl: string; filename?: string; mediaType: string }>
     mode?: string
     threadId: string
@@ -443,7 +437,6 @@ test('sendMessage routes active-run steer through the ordinary message path with
     sendChat: async (input) => {
       calls.push({
         content: input.content,
-        enabledTools: input.enabledTools,
         images: input.images,
         mode: input.mode,
         threadId: input.threadId
@@ -532,7 +525,6 @@ test('sendMessage routes active-run steer through the ordinary message path with
     assert.deepEqual(calls, [
       {
         content: 'Use the screenshot',
-        enabledTools: DEFAULT_ENABLED_TOOL_NAMES,
         images: [
           {
             dataUrl: 'data:image/png;base64,AAAA',
@@ -850,7 +842,6 @@ test('retryMessage marks the accepted run as active immediately', async () => {
 
   const calls: Array<{
     enabledSkillNames?: string[]
-    enabledTools?: string[]
     messageId: string
     reasoningEffort?: string
     threadId: string
@@ -859,7 +850,6 @@ test('retryMessage marks the accepted run as active immediately', async () => {
     retryMessage: async (input) => {
       calls.push({
         enabledSkillNames: input.enabledSkillNames,
-        enabledTools: input.enabledTools,
         messageId: input.messageId,
         reasoningEffort: input.reasoningEffort,
         threadId: input.threadId
@@ -931,7 +921,6 @@ test('retryMessage marks the accepted run as active immediately', async () => {
     assert.deepEqual(calls, [
       {
         enabledSkillNames: ['workspace-refactor'],
-        enabledTools: DEFAULT_ENABLED_TOOL_NAMES,
         messageId: 'assistant-1',
         reasoningEffort: 'high',
         threadId: 'thread-1'

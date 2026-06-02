@@ -628,7 +628,7 @@ test('deleteQueuedFollowUpDraft preserves hidden notices attached to a visible d
     threadId: currentThread.id,
     content: 'visible follow-up',
     mode: 'follow-up',
-    enabledTools: ['read'],
+    toolPreset: ['read'],
     runMode: 'auto',
     enabledSkillNames: ['visible-skill'],
 
@@ -641,7 +641,7 @@ test('deleteQueuedFollowUpDraft preserves hidden notices attached to a visible d
     content: 'hidden notice',
     mode: 'follow-up',
     hidden: true,
-    enabledTools: [],
+    toolPreset: [],
     runMode: 'chat',
     enabledSkillNames: ['hidden-skill'],
 

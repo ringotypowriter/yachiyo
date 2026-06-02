@@ -41,7 +41,6 @@ import type {
   ScheduleRecord,
   ScheduleRunRecord,
   SearchWorkspaceFilesInput,
-  SendChatInput,
   SettingsConfig,
   SetBrowserAutomationSessionBoundsInput,
   ShowBrowserAutomationSessionInput,
@@ -148,6 +147,7 @@ import {
 import { testSubagentProfile as runTestSubagentProfile } from '../../tools/agentTools/testSubagentProfile.ts'
 import { assertSupportedImages, YachiyoServerConfigDomain } from '../domain/config/configDomain.ts'
 import { YachiyoServerRunDomain } from '../domain/run/runDomain.ts'
+import type { InternalSendChatInput } from '../domain/run/runTypes.ts'
 import {
   createThreadSentinelManager,
   type ThreadSentinelManager
@@ -394,7 +394,7 @@ export class YachiyoServer {
         await this.sendChat({
           threadId,
           content,
-          enabledTools: wakeContext?.enabledTools,
+          toolPreset: wakeContext?.enabledTools,
           enabledSkillNames: wakeContext?.enabledSkillNames,
           runMode: wakeContext?.runMode,
           reasoningEffort: wakeContext?.reasoningEffort,
@@ -1016,7 +1016,7 @@ export class YachiyoServer {
     return this.runDomain.requestRecap(input)
   }
 
-  async sendChat(input: SendChatInput): Promise<ChatAccepted> {
+  async sendChat(input: InternalSendChatInput): Promise<ChatAccepted> {
     return this.runDomain.sendChat(input)
   }
 
@@ -1082,7 +1082,6 @@ export class YachiyoServer {
       content: input.content,
       images: input.images,
       attachments: input.attachments,
-      enabledTools: input.enabledTools,
       enabledSkillNames: input.enabledSkillNames,
       runMode: input.runMode,
       reasoningEffort: input.reasoningEffort

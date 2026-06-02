@@ -492,7 +492,6 @@ test('YachiyoServer.editMessage forwards an explicit run mode', async () => {
       threadId: thread.id,
       messageId: firstAccepted.userMessage.id,
       content: 'Revised question',
-      enabledTools: ['bash'],
       runMode: 'chat'
     })
     assertAcceptedHasUserMessage(editAccepted)

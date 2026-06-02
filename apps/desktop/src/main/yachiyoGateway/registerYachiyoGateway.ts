@@ -811,7 +811,15 @@ export function registerYachiyoGateway(): YachiyoServer {
   handleYachiyoIpc(IPC_CHANNELS.requestRecap, (input: { threadId: string }) =>
     server!.requestRecap(input)
   )
-  handleYachiyoIpc(IPC_CHANNELS.sendChat, (input: SendChatInput) => server!.sendChat(input))
+  handleYachiyoIpc(IPC_CHANNELS.sendChat, (input: SendChatInput) => {
+    const safeInput: SendChatInput = { ...input }
+    delete (
+      safeInput as SendChatInput & {
+        toolPreset?: unknown
+      }
+    ).toolPreset
+    return server!.sendChat(safeInput)
+  })
   handleYachiyoIpc(IPC_CHANNELS.retryMessage, (input: RetryInput) => server!.retryMessage(input))
   handleYachiyoIpc(IPC_CHANNELS.saveThread, (input: SaveThreadInput) => server!.saveThread(input))
   handleYachiyoIpc(
