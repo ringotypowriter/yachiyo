@@ -260,6 +260,7 @@ test('continueThingInNewChat keeps Work context and pre-fills the Thing tag', as
     ])
     assert.equal(state.activeThreadId, 'thread-2')
     assert.equal(state.composerDrafts['thread-2']?.text, '#raven-ui ')
+    assert.equal(state.composerDrafts['thread-2']?.initialCursorOffset, '#raven-ui '.length)
     const continuedThread = state.threads.find((thread) => thread.id === 'thread-2')
     assert.equal(continuedThread?.workspacePath, '/projects/raven')
     assert.deepEqual(continuedThread?.modelOverride, {

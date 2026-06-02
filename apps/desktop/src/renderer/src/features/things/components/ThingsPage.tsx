@@ -166,8 +166,12 @@ export function ThingsPage({
         <div className={`min-h-0 min-w-0 overflow-hidden ${contentPadding}`}>
           <div className="h-full min-h-0 min-w-0 overflow-x-auto overflow-y-hidden">
             <div
-              className="grid items-start gap-4 pb-4 pr-8"
-              style={{ gridAutoFlow: 'column', gridAutoColumns: '340px' }}
+              className="grid h-full min-h-0 items-stretch gap-4 pb-4 pr-8"
+              style={{
+                gridAutoFlow: 'column',
+                gridAutoColumns: '340px',
+                gridTemplateRows: 'minmax(0, 1fr)'
+              }}
             >
               {boardThings.map((thing) => (
                 <ThingColumn

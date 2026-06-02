@@ -23,7 +23,7 @@ export function ThingColumn({
 
   return (
     <article
-      className="flex h-105 w-85 flex-col rounded-[1.75rem] p-5 transition duration-200 hover:-translate-y-0.5"
+      className="flex h-full min-h-0 w-85 flex-col rounded-[1.75rem] p-5 transition duration-200 hover:-translate-y-0.5"
       style={{
         background: thing.isInactive ? alpha('surface', 0.5) : alpha('surface', 0.76),
         boxShadow: thing.isInactive ? 'none' : theme.shadow.card,
@@ -46,7 +46,7 @@ export function ThingColumn({
         </p>
       </button>
 
-      <div className="mt-5 flex min-h-0 shrink-0 flex-col">
+      <div className="mt-5 flex min-h-0 flex-1 flex-col">
         <div className="flex items-center justify-between gap-3">
           <div
             className="text-xs font-semibold uppercase tracking-[0.16em]"
@@ -59,17 +59,11 @@ export function ThingColumn({
             label={`${sourceCount} source${sourceCount === 1 ? '' : 's'}`}
           />
         </div>
-        <div className="mt-3 grid h-37.5 auto-rows-max grid-cols-1 gap-2 overflow-hidden">
+        <div className="mt-3 flex min-h-0 flex-1 flex-col gap-2 overflow-x-hidden overflow-y-auto pr-1">
           {thing.sourceQuotes.length > 0 ? (
-            thing.sourceQuotes
-              .slice(0, 2)
-              .map((source) => (
-                <SourceEvidencePreview
-                  key={source.id}
-                  source={source}
-                  onOpenThread={onOpenThread}
-                />
-              ))
+            thing.sourceQuotes.map((source) => (
+              <SourceEvidencePreview key={source.id} source={source} onOpenThread={onOpenThread} />
+            ))
           ) : (
             <div
               className="rounded-2xl px-3 py-3 text-sm"
@@ -192,7 +186,7 @@ function SourceEvidencePreview({
   return (
     <button
       type="button"
-      className="rounded-2xl px-3 py-2 text-left transition hover:translate-x-0.5"
+      className="shrink-0 rounded-2xl px-3 py-2 text-left transition hover:translate-x-0.5"
       style={{ background: theme.background.surfaceSoft }}
       onClick={() => onOpenThread(source.threadId, source.messageId)}
     >

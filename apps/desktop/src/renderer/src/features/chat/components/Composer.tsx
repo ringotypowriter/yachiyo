@@ -198,6 +198,7 @@ export function Composer({
   // Custom selection range for the pretext-driven overlay (native ::selection is hidden).
   const [overlaySelRange, setOverlaySelRange] = useState<[number, number] | null>(null)
   const composerValue = composerDraft.text
+  const initialCursorOffset = composerDraft.initialCursorOffset
   const draftImages = composerDraft.images
   const draftFiles = composerDraft.files
   const readyImageCount = draftImages.filter((image) => image.status === 'ready').length
@@ -813,6 +814,21 @@ export function Composer({
   useEffect(() => {
     textareaRef.current?.focus()
   }, [activeThreadId])
+
+  useLayoutEffect(() => {
+    if (initialCursorOffset === undefined) return
+    const textarea = textareaRef.current
+    if (!textarea) return
+
+    const cursorOffset = Math.max(0, Math.min(initialCursorOffset, composerValue.length))
+    const frameId = requestAnimationFrame(() => {
+      textarea.focus()
+      textarea.setSelectionRange(cursorOffset, cursorOffset)
+    })
+    return () => {
+      cancelAnimationFrame(frameId)
+    }
+  }, [activeThreadId, composerValue, initialCursorOffset])
 
   useEffect(() => {
     if (editingMessage !== null) {

@@ -420,10 +420,11 @@ export function createComposerUiActions(input: {
         const draftKey = getComposerDraftKey(state.activeThreadId)
 
         return {
-          composerDrafts: updateComposerDraft(state.composerDrafts, draftKey, (draft) => ({
-            ...draft,
-            text: value
-          }))
+          composerDrafts: updateComposerDraft(state.composerDrafts, draftKey, (draft) => {
+            const nextDraft = { ...draft, text: value }
+            delete nextDraft.initialCursorOffset
+            return nextDraft
+          })
         }
       }),
 

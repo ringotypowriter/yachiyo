@@ -74,6 +74,7 @@ import { createComposerUiActions } from './useAppStore/composerUiActions.ts'
 import { reduceServerEvent } from './useAppStore/serverEventReducer.ts'
 import { createSendMessageActions } from './useAppStore/sendMessageActions.ts'
 import { createThreadLifecycleActions } from './useAppStore/threadLifecycleActions.ts'
+import { resolveLeadingThingHashtagCursorOffset } from '../../features/chat/lib/composer/thingContinuationDraft.ts'
 
 export {
   DEFAULT_SETTINGS,
@@ -207,6 +208,7 @@ export interface ComposerDraft {
   images: ComposerImageDraft[]
   files: ComposerFileDraft[]
   enabledSkillNames?: string[] | null
+  initialCursorOffset?: number
 }
 
 export interface EditingMessageState {
@@ -450,6 +452,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       ...(workspacePath ? { workspacePath } : {}),
       ...(modelOverride ? { modelOverride } : {})
     })
+    const draftText = `#${name} `
     set((state) => ({
       threads: upsertThread(state.threads, thread),
       activeThreadId: thread.id,
@@ -459,7 +462,8 @@ export const useAppStore = create<AppState>((set, get) => ({
         getComposerDraftKey(thread.id),
         () => ({
           ...EMPTY_COMPOSER_DRAFT,
-          text: `#${name} `
+          text: draftText,
+          initialCursorOffset: resolveLeadingThingHashtagCursorOffset(draftText)
         })
       )
     }))
