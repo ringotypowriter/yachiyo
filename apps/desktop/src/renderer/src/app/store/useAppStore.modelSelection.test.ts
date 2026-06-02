@@ -7,6 +7,7 @@ import {
   DEFAULT_RUN_MODE_ID,
   type SettingsConfig
 } from '@yachiyo/shared/protocol'
+import { resolveRunModeEnabledTools } from '@yachiyo/shared/toolModes'
 import {
   DEFAULT_SIDEBAR_FILTER,
   DEFAULT_SETTINGS,
@@ -406,7 +407,55 @@ test('setRunMode persists mode on the active thread without saving global tool p
   }
 })
 
-test('setRunMode stages mode for a new thread and createThread stores it', async () => {
+test('createNewThread defaults to auto instead of inheriting the active thread run mode', async () => {
+  resetStore()
+
+  const createThreadInputs: unknown[] = []
+  const restoreWindow = withWindowApiMock({
+    createThread: async (input) => {
+      createThreadInputs.push(input)
+      return {
+        id: 'thread-auto',
+        title: 'New Chat',
+        updatedAt: TIMESTAMP
+      }
+    }
+  })
+
+  try {
+    useAppStore.setState({
+      activeThreadId: 'thread-plan',
+      enabledTools: resolveRunModeEnabledTools('plan'),
+      runMode: 'plan',
+      toolModeByThread: {
+        __new__: {
+          enabledTools: resolveRunModeEnabledTools('plan'),
+          runMode: 'plan'
+        }
+      },
+      threads: [
+        {
+          id: 'thread-plan',
+          title: 'Existing thread',
+          runMode: 'plan',
+          updatedAt: TIMESTAMP
+        }
+      ]
+    })
+
+    await useAppStore.getState().createNewThread()
+
+    const state = useAppStore.getState()
+    assert.deepEqual(createThreadInputs, [undefined])
+    assert.equal(state.activeThreadId, 'thread-auto')
+    assert.equal(state.runMode, DEFAULT_RUN_MODE_ID)
+    assert.deepEqual(state.enabledTools, DEFAULT_ENABLED_TOOL_NAMES)
+  } finally {
+    restoreWindow()
+  }
+})
+
+test('createNewThread resets a pre-create mode selection to auto', async () => {
   resetStore()
 
   const createThreadInputs: unknown[] = []
@@ -416,20 +465,19 @@ test('setRunMode stages mode for a new thread and createThread stores it', async
       return {
         id: 'thread-1',
         title: 'Thread',
-        runMode: 'chat',
         updatedAt: TIMESTAMP
       }
-    },
-    listSkills: async () => []
+    }
   })
 
   try {
     await useAppStore.getState().setRunMode('chat')
     await useAppStore.getState().createNewThread()
 
-    assert.deepEqual(createThreadInputs, [{ runMode: 'chat' }])
+    assert.deepEqual(createThreadInputs, [undefined])
     assert.equal(useAppStore.getState().activeThreadId, 'thread-1')
-    assert.equal(useAppStore.getState().runMode, 'chat')
+    assert.equal(useAppStore.getState().runMode, DEFAULT_RUN_MODE_ID)
+    assert.deepEqual(useAppStore.getState().enabledTools, DEFAULT_ENABLED_TOOL_NAMES)
   } finally {
     restoreWindow()
   }

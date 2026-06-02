@@ -1,5 +1,6 @@
 import { isModelImageCapable } from '@yachiyo/shared/providerConfig'
 import { isPlanModeExitRecord, PLAN_MODE_EXIT_TOOL_NAME } from '@yachiyo/shared/planMode'
+import { DEFAULT_ENABLED_TOOL_NAMES, DEFAULT_RUN_MODE_ID } from '@yachiyo/shared/protocol'
 import { createServerEventBatcher } from '../serverEventBatcher.ts'
 import type { AppState } from '../useAppStore.ts'
 import { hydratePlanDocumentForThread } from './planDocumentHydration.ts'
@@ -23,7 +24,6 @@ import {
   limitLoadedThreadData,
   moveComposerDraft,
   moveReasoningEffort,
-  moveThreadToolMode,
   normalizeWorkspacePath,
   refreshAvailableSkills,
   resolveEffectiveEnabledSkillNames,
@@ -90,8 +90,6 @@ export function createThreadLifecycleActions(input: {
       const inheritedModelOverride =
         currentState.pendingModelOverride ?? activeThread?.modelOverride ?? null
       const stagedReasoningEffort = currentState.reasoningEffortByThread[getComposerDraftKey(null)]
-      const rawStagedToolMode = currentState.toolModeByThread[getComposerDraftKey(null)]
-      const stagedToolMode = rawStagedToolMode?.runMode === 'custom' ? undefined : rawStagedToolMode
       const reusableThread = currentState.threads.find((thread) =>
         isThreadReusableNewChat(
           {
@@ -105,64 +103,66 @@ export function createThreadLifecycleActions(input: {
       )
 
       if (reusableThread) {
+        const reusableAutoThread = { ...reusableThread }
+        delete reusableAutoThread.enabledTools
+        delete reusableAutoThread.runMode
+
         set((state) => {
           const nextState = {
             ...state,
-            activeThreadId: reusableThread.id,
+            activeThreadId: reusableAutoThread.id,
             activeEssentialId: null,
             pendingModelOverride: null,
             pendingAcpBinding: null,
             composerDrafts: moveComposerDraft(
               state.composerDrafts,
               getComposerDraftKey(null),
-              getComposerDraftKey(reusableThread.id)
+              getComposerDraftKey(reusableAutoThread.id)
             ),
             reasoningEffortByThread: moveReasoningEffort(
               state.reasoningEffortByThread,
               getComposerDraftKey(null),
-              getComposerDraftKey(reusableThread.id)
+              getComposerDraftKey(reusableAutoThread.id)
             ),
-            toolModeByThread: stagedToolMode
-              ? moveThreadToolMode(
-                  state.toolModeByThread,
-                  getComposerDraftKey(null),
-                  getComposerDraftKey(reusableThread.id)
-                )
-              : setThreadToolModeValue(
-                  state.toolModeByThread,
-                  getComposerDraftKey(null),
-                  undefined
-                ),
-            ...(stagedToolMode
-              ? { enabledTools: stagedToolMode.enabledTools, runMode: stagedToolMode.runMode }
-              : {}),
+            toolModeByThread: setThreadToolModeValue(
+              setThreadToolModeValue(
+                state.toolModeByThread,
+                getComposerDraftKey(null),
+                undefined
+              ),
+              getComposerDraftKey(reusableAutoThread.id),
+              undefined
+            ),
             pendingWorkspacePath: null,
             ...withFilterBase(state.sidebarFilter, 'all'),
             messages: {
               ...state.messages,
-              [reusableThread.id]: state.messages[reusableThread.id] ?? []
+              [reusableAutoThread.id]: state.messages[reusableAutoThread.id] ?? []
             },
             toolCalls: {
               ...state.toolCalls,
-              [reusableThread.id]: state.toolCalls[reusableThread.id] ?? []
-            }
+              [reusableAutoThread.id]: state.toolCalls[reusableAutoThread.id] ?? []
+            },
+            threads: upsertThread(state.threads, reusableAutoThread)
           }
 
           return {
             ...nextState,
-            ...deriveActiveThreadRunState(nextState)
+            ...deriveActiveThreadRunState(nextState),
+            enabledTools: DEFAULT_ENABLED_TOOL_NAMES,
+            runMode: DEFAULT_RUN_MODE_ID
           }
         })
         if (
-          stagedToolMode &&
+          (reusableThread.enabledTools !== undefined || reusableThread.runMode !== undefined) &&
           typeof window !== 'undefined' &&
           window.api?.yachiyo?.setThreadToolMode
         ) {
           void window.api.yachiyo
             .setThreadToolMode({
               threadId: reusableThread.id,
-              enabledTools: stagedToolMode.enabledTools,
-              runMode: stagedToolMode.runMode
+              enabledTools: DEFAULT_ENABLED_TOOL_NAMES,
+              runMode: DEFAULT_RUN_MODE_ID
             })
             .then((updatedThread) => {
               set((state) => ({ threads: upsertThread(state.threads, updatedThread) }))
@@ -199,7 +199,6 @@ export function createThreadLifecycleActions(input: {
       const createThreadInput = {
         ...(pendingWorkspacePath ? { workspacePath: pendingWorkspacePath } : {}),
         ...(inheritedModelOverride ? { modelOverride: inheritedModelOverride } : {}),
-        ...(stagedToolMode ? { runMode: stagedToolMode.runMode } : {}),
         ...(stagedReasoningEffort ? { reasoningEffort: stagedReasoningEffort } : {})
       }
       const thread = await window.api.yachiyo.createThread(
@@ -223,15 +222,11 @@ export function createThreadLifecycleActions(input: {
             getComposerDraftKey(null),
             getComposerDraftKey(thread.id)
           ),
-          toolModeByThread: stagedToolMode
-            ? moveThreadToolMode(
-                state.toolModeByThread,
-                getComposerDraftKey(null),
-                getComposerDraftKey(thread.id)
-              )
-            : setThreadToolModeValue(state.toolModeByThread, getComposerDraftKey(null), undefined),
-          enabledTools: stagedToolMode?.enabledTools ?? state.enabledTools,
-          runMode: stagedToolMode?.runMode ?? state.runMode,
+          toolModeByThread: setThreadToolModeValue(
+            state.toolModeByThread,
+            getComposerDraftKey(null),
+            undefined
+          ),
           pendingWorkspacePath: null,
           ...withFilterBase(state.sidebarFilter, 'all'),
           messages: {
@@ -247,7 +242,9 @@ export function createThreadLifecycleActions(input: {
 
         return {
           ...nextState,
-          ...deriveActiveThreadRunState(nextState)
+          ...deriveActiveThreadRunState(nextState),
+          enabledTools: DEFAULT_ENABLED_TOOL_NAMES,
+          runMode: DEFAULT_RUN_MODE_ID
         }
       })
       await refreshAvailableSkills(set, get)
