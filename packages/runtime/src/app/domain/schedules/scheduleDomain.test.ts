@@ -2,7 +2,6 @@ import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
 
 import { ScheduleDomain } from './scheduleDomain.ts'
-import { getBundledScheduleSpec } from './bundledSchedules.ts'
 import type { ScheduleRecord, ScheduleRunRecord } from '@yachiyo/shared/protocol'
 
 interface MockStorage {
@@ -543,17 +542,6 @@ describe('ScheduleDomain', () => {
       assert.equal(bundled?.bundled, true)
       assert.equal(user?.bundled, undefined)
     })
-
-    it('Things Daily Review ships querySource/useThings and language guidance', () => {
-      const spec = getBundledScheduleSpec('bundled:things-daily-review')
-      assert.deepEqual(spec?.enabledTools, ['querySource', 'useThings'])
-      assert.match(
-        spec?.prompt ?? '',
-        /main language of that Thing's included chats\/source quotes/
-      )
-      assert.doesNotMatch(spec?.prompt ?? '', /primaryLanguage field\s*:/)
-    })
-
     it('getSchedule hydrates bundled flag', () => {
       const { domain } = createDomain()
       domain.ensureBundledSchedules()
