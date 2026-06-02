@@ -28,7 +28,7 @@ import type {
   ThreadColorTag,
   ThreadRuntimeBinding,
   ThreadRecord,
-  ThingSourceQuoteRecord,
+  ThingSourceRecord,
   ThingThreadScopeRecord,
   SearchThreadsAndMessagesInput,
   ThreadSearchResult,
@@ -222,14 +222,14 @@ export interface StoredThingThreadScopeRow {
   updatedAt: string
 }
 
-export interface StoredThingSourceQuoteRow {
+export interface StoredThingSourceRow {
   id: string
   thingId: string
   threadId: string
   messageId: string | null
   spanRowId: string | null
   sourceRowId: string
-  quote: string
+  preview: string
   createdAt: string
 }
 
@@ -443,9 +443,9 @@ export interface YachiyoStorage {
   listThingThreadScopes(thingId?: string): ThingThreadScopeRecord[]
   upsertThingThreadScope(scope: StoredThingThreadScopeRow): void
   deleteThingThreadScope(input: { thingId: string; threadId: string }): void
-  listThingSourceQuotes(thingId?: string): ThingSourceQuoteRecord[]
-  addThingSourceQuote(quote: StoredThingSourceQuoteRow): void
-  deleteThingSourceQuote(id: string): void
+  listThingSources(thingId?: string): ThingSourceRecord[]
+  upsertThingSource(source: StoredThingSourceRow): void
+  deleteThingSource(id: string): void
 
   // Schedule runs
   createScheduleRun(run: ScheduleRunRecord): void

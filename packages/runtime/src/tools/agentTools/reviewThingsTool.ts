@@ -2,7 +2,6 @@ import { tool, type Tool } from 'ai'
 import { z } from 'zod'
 
 import type { ThingDomain } from '../../app/domain/things/thingDomain.ts'
-import type { AgentToolContext } from './shared.ts'
 import { formatThingDetailText, formatThingListText } from './thingToolFormatting.ts'
 
 const listInputSchema = z
@@ -35,10 +34,11 @@ const updateSummaryInputSchema = z
   })
   .strict()
 
-const addCurrentThreadSourceInputSchema = z
+const addReviewedSourceInputSchema = z
   .object({
-    action: z.literal('addCurrentThreadSource'),
+    action: z.literal('addReviewedSource'),
     name: z.string().min(1),
+    sourceRowId: z.string().min(1),
     preview: z.string().min(1)
   })
   .strict()
@@ -50,62 +50,111 @@ const restoreInputSchema = z
   })
   .strict()
 
-const useThingsInputSchema = z.discriminatedUnion('action', [
+const reviewThingsInputSchema = z.discriminatedUnion('action', [
   listInputSchema,
   getInputSchema,
   createInputSchema,
   updateSummaryInputSchema,
-  addCurrentThreadSourceInputSchema,
+  addReviewedSourceInputSchema,
   restoreInputSchema
 ])
 
-type UseThingsInput = z.infer<typeof useThingsInputSchema>
+type ReviewThingsInput = z.infer<typeof reviewThingsInputSchema>
 
-interface UseThingsToolOutput {
+interface ReviewThingsToolOutput {
   content: Array<{ type: 'text'; text: string }>
   details?: unknown
   error?: string
 }
 
-export interface UseThingsToolDeps {
+export interface ReviewThingsToolDeps {
   thingDomain: ThingDomain
 }
 
-const DESCRIPTION = `Manage Things, which are named context indexes referenced as #name.
+interface ParsedRowId {
+  kind: string
+  parts: string[]
+}
 
-Use this tool when the current conversation creates or changes a topic, project, decision, or long-running piece of work that should be easy to carry into future conversations. Do not use Things as todos, reminders, task lists, or a database of model-written summaries.
+interface ReviewedSourceRef {
+  threadId: string
+  messageId?: string
+  spanRowId?: string
+  sourceRowId: string
+}
+
+const DESCRIPTION = `Review Things from scheduled source review runs.
+
+Use this schedule-only tool when a daily review identifies a past conversation that should be attached to a Thing. Do not use it as a todo list, reminder system, or batch summary database.
 
 Grounding rules:
 - The Thing summary describes the Thing itself: the stable topic, project, decision, or context.
-- A source preview describes why the current conversation belongs to that Thing. It is a compact conversation preview, not an exact quote.
-- This ordinary conversation tool can only save the current conversation as a source. It cannot attach other conversations or arbitrary sourceRowIds.
-- If a future answer needs details from a source, open the saved source reference with querySource instead of relying only on the preview.
-
-Language rule for user-visible text written into a Thing: write summaries and source previews in the main language of the current conversation.
+- A source preview describes the main content of one reviewed conversation source. It is not an exact quote.
+- Always pass a sourceRowId returned by querySource. This tool derives threadId and message/span references from that rowId.
+- Only thread, thread_span, and thread_message rowIds can be saved as Thing sources.
+- If a future answer needs details from a source, open the saved sourceRowId with querySource.
 
 Actions:
 - list: inspect existing Things. Set includeInactive true when reviewing or reconciling old context.
 - get: open one Thing by name.
 - create: create a Thing only when the context is likely to be useful in a later conversation.
 - updateSummary: rewrite the Thing summary.
-- addCurrentThreadSource: attach the current conversation to a Thing with a source preview.
+- addReviewedSource: attach one reviewed thread source to a Thing with a source preview.
 - restore: mark an inactive Thing as current again.`
 
-function textOutput(text: string, details?: unknown): UseThingsToolOutput {
+function textOutput(text: string, details?: unknown): ReviewThingsToolOutput {
   return { content: [{ type: 'text', text }], ...(details ? { details } : {}) }
 }
 
-function threadRowId(threadId: string): string {
-  return `thread:${encodeURIComponent(threadId)}`
+function parseSourceEventSourceRowId(rowId: string): string {
+  const prefix = 'source_event:'
+  return rowId.startsWith(prefix) ? rowId.slice(prefix.length) : rowId
+}
+
+function parseRowId(rowId: string): ParsedRowId {
+  const [kind, ...encodedParts] = rowId.split(':')
+  return {
+    kind: kind ?? '',
+    parts: encodedParts.map((part) => decodeURIComponent(part))
+  }
+}
+
+function parseReviewedSourceRowId(sourceRowId: string): ReviewedSourceRef {
+  const normalizedSourceRowId = parseSourceEventSourceRowId(sourceRowId)
+  const parsed = parseRowId(normalizedSourceRowId)
+
+  if (parsed.kind === 'thread' && parsed.parts.length === 1) {
+    return {
+      threadId: parsed.parts[0] ?? '',
+      sourceRowId: normalizedSourceRowId
+    }
+  }
+
+  if (parsed.kind === 'thread_message' && parsed.parts.length === 2) {
+    return {
+      threadId: parsed.parts[0] ?? '',
+      messageId: parsed.parts[1] ?? '',
+      sourceRowId: normalizedSourceRowId
+    }
+  }
+
+  if (parsed.kind === 'thread_span' && parsed.parts.length === 3) {
+    return {
+      threadId: parsed.parts[0] ?? '',
+      spanRowId: normalizedSourceRowId,
+      sourceRowId: normalizedSourceRowId
+    }
+  }
+
+  throw new Error('reviewThings can only save thread source rowIds.')
 }
 
 export function createTool(
-  context: AgentToolContext,
-  deps: UseThingsToolDeps
-): Tool<UseThingsInput, UseThingsToolOutput> {
+  deps: ReviewThingsToolDeps
+): Tool<ReviewThingsInput, ReviewThingsToolOutput> {
   return tool({
     description: DESCRIPTION,
-    inputSchema: useThingsInputSchema,
+    inputSchema: reviewThingsInputSchema,
     toModelOutput: ({ output }) =>
       output.error
         ? { type: 'error-text', value: output.error }
@@ -144,17 +193,19 @@ export function createTool(
               { thing }
             )
           }
-          case 'addCurrentThreadSource': {
-            if (!context.threadId) throw new Error('Current threadId is required.')
+          case 'addReviewedSource': {
+            const source = parseReviewedSourceRowId(input.sourceRowId)
             const thing = await deps.thingDomain.upsertSource({
               name: input.name,
-              threadId: context.threadId,
-              sourceRowId: threadRowId(context.threadId),
+              threadId: source.threadId,
+              ...(source.messageId ? { messageId: source.messageId } : {}),
+              ...(source.spanRowId ? { spanRowId: source.spanRowId } : {}),
+              sourceRowId: source.sourceRowId,
               preview: input.preview
             })
             return textOutput(
               thing
-                ? `Saved current source for #${thing.name}.\n${formatThingDetailText(thing)}`
+                ? `Saved reviewed source for #${thing.name}.\n${formatThingDetailText(thing)}`
                 : 'Thing not found.',
               {
                 thing
@@ -172,11 +223,11 @@ export function createTool(
           }
         }
       } catch (error) {
-        const message = error instanceof Error ? error.message : 'useThings failed.'
+        const message = error instanceof Error ? error.message : 'reviewThings failed.'
         return { content: [{ type: 'text', text: message }], error: message }
       }
     }
   })
 }
 
-export const useThingsToolDescription = DESCRIPTION
+export const reviewThingsToolDescription = DESCRIPTION

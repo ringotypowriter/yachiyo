@@ -252,6 +252,7 @@ export const CORE_TOOL_NAMES = [
   'remember',
   'querySource',
   'useThings',
+  'reviewThings',
   'updateProfile',
   'updateTodoList',
   'exitPlanMode'
@@ -272,7 +273,7 @@ export type NamedSubagentId = 'explore' | 'plan' | 'review' | 'general'
 
 const coreToolNameSet = new Set<string>(CORE_TOOL_NAMES)
 const themeIdSet = new Set<string>(THEME_IDS)
-const runtimeManagedToolNameSet = new Set<ToolCallName>(['skillsRead'])
+const runtimeManagedToolNameSet = new Set<ToolCallName>(['skillsRead', 'reviewThings'])
 const userManagedToolNames = CORE_TOOL_NAMES.filter(
   (toolName) => !runtimeManagedToolNameSet.has(toolName)
 )
@@ -367,6 +368,7 @@ const trackedToolNameSet = new Set<string>([
   'remember',
   'querySource',
   'useThings',
+  'reviewThings',
   'updateProfile',
   'useSentinel',
   'exitPlanMode'

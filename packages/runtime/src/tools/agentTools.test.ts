@@ -22,6 +22,7 @@ import {
 import { resolveGlobInput } from './agentTools/globTool.ts'
 import type { MemoryService } from '../services/memory/memoryService.ts'
 import { createInMemoryYachiyoStorage } from '../storage/memoryStorage.ts'
+import { ThingDomain } from '../app/domain/things/thingDomain.ts'
 
 async function withWorkspace(fn: (workspacePath: string) => Promise<void> | void): Promise<void> {
   const workspacePath = await mkdtemp(join(tmpdir(), 'yachiyo-agent-tools-'))
@@ -161,6 +162,34 @@ test('summarizeToolInput uses delegated agent names for delegateTask', () => {
     }),
     'explore'
   )
+})
+
+test('createAgentToolSet exposes reviewThings but disables useThings for schedule-only review runs', async () => {
+  const thingDomain = new ThingDomain({ storage: createInMemoryYachiyoStorage() })
+  const tools = createAgentToolSet(
+    {
+      enabledTools: ['querySource', 'reviewThings'],
+      threadId: 'thread-schedule',
+      workspacePath: '/tmp/yachiyo'
+    },
+    {
+      thingDomain,
+      sourceQueryExecutor: {
+        query: async () => ({ rows: [] })
+      }
+    }
+  )
+
+  assert.ok(tools?.reviewThings)
+  assert.ok(tools?.useThings)
+
+  const useThingsResult = await tools.useThings.execute?.({ action: 'list' }, {} as never)
+  assert.match(flattenToolContent(useThingsResult?.content ?? []), /currently disabled/)
+  assert.equal(useThingsResult?.error, 'Tool "useThings" is disabled.')
+
+  const reviewThingsResult = await tools.reviewThings.execute?.({ action: 'list' }, {} as never)
+  assert.equal(reviewThingsResult?.error, undefined)
+  assert.match(flattenToolContent(reviewThingsResult?.content ?? []), /Found 0 things/)
 })
 
 test('createAgentToolSet respects disabled useSentinel', async () => {

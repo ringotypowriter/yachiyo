@@ -6,7 +6,7 @@ export const IPC_CHANNELS = {
   searchThreadsAndMessages: 'yachiyo:search-threads-and-messages',
   listThings: 'yachiyo:list-things',
   getThing: 'yachiyo:get-thing',
-  reactivateThing: 'yachiyo:reactivate-thing',
+  restoreThing: 'yachiyo:restore-thing',
   deleteThing: 'yachiyo:delete-thing',
   continueThingInNewChat: 'yachiyo:continue-thing-in-new-chat',
   deleteThread: 'yachiyo:delete-thread',

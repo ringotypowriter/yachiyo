@@ -734,22 +734,20 @@ export class YachiyoServer {
   async getThing(input: { name: string }): Promise<ThingRecord | undefined> {
     return this.thingDomain.getThing(input.name)
   }
-  async reactivateThing(input: { name: string }): Promise<ThingRecord | undefined> {
-    return this.thingDomain.reactivateThing(input.name)
+  async restoreThing(input: { name: string }): Promise<ThingRecord | undefined> {
+    return this.thingDomain.restoreThing(input.name)
   }
   async deleteThing(input: { name: string }): Promise<boolean> {
     return this.thingDomain.deleteThing(input.name)
   }
-  async continueThingInNewChat(input: {
-    name: string
-    workspacePath?: string
-    modelOverride?: ThreadModelOverride
-  }): Promise<ThreadRecord> {
+  async continueThingInNewChat(input: { name: string }): Promise<ThreadRecord> {
     const thing = await this.thingDomain.getThing(input.name)
     if (!thing || thing.isInactive) throw new Error(`Thing is not available: #${input.name}`)
+    const latestSource = thing.sources.at(-1)
+    const sourceThread = latestSource ? this.storage.getThread(latestSource.threadId) : undefined
     return this.createThread({
-      ...(input.workspacePath ? { workspacePath: input.workspacePath } : {}),
-      ...(input.modelOverride ? { modelOverride: input.modelOverride } : {})
+      ...(sourceThread?.workspacePath ? { workspacePath: sourceThread.workspacePath } : {}),
+      ...(sourceThread?.modelOverride ? { modelOverride: sourceThread.modelOverride } : {})
     })
   }
 

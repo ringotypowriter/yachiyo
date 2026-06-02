@@ -54,6 +54,7 @@ import { createTool as createWebSearchTool } from './agentTools/webSearchTool.ts
 import { createTool as createWriteTool } from './agentTools/writeTool.ts'
 import { createTool as createUseBrowserTool } from './agentTools/useBrowserTool.ts'
 import { createTool as createUseThingsTool } from './agentTools/useThingsTool.ts'
+import { createTool as createReviewThingsTool } from './agentTools/reviewThingsTool.ts'
 import {
   createTool as createDelegateTaskTool,
   type DelegateTaskContext,
@@ -337,7 +338,7 @@ export function summarizeToolInput(toolName: ToolCallName | string, input: unkno
       : toolName
   }
 
-  if (toolName === 'useThings') {
+  if (toolName === 'useThings' || toolName === 'reviewThings') {
     if (typeof input === 'object' && input !== null && 'action' in input) {
       const action = String(input.action)
       const name = 'name' in input && typeof input.name === 'string' ? ` #${input.name}` : ''
@@ -507,6 +508,7 @@ export function summarizeToolOutput(
     toolName === 'remember' ||
     toolName === 'querySource' ||
     toolName === 'useThings' ||
+    toolName === 'reviewThings' ||
     toolName === 'updateProfile' ||
     toolName === 'useSentinel'
   ) {
@@ -756,7 +758,19 @@ export function createAgentToolSet(
   }
 
   if (dependencies.thingDomain && shouldRegisterTool('useThings')) {
-    tools.useThings = createUseThingsTool({ thingDomain: dependencies.thingDomain })
+    tools.useThings = wrapDisabledTool(
+      createUseThingsTool(context, { thingDomain: dependencies.thingDomain }),
+      'useThings',
+      enabledTools
+    )
+  }
+
+  if (
+    dependencies.thingDomain &&
+    enabledTools.has('reviewThings') &&
+    shouldRegisterTool('reviewThings')
+  ) {
+    tools.reviewThings = createReviewThingsTool({ thingDomain: dependencies.thingDomain })
   }
 
   if (dependencies.updateProfileDeps && shouldRegisterTool('updateProfile')) {

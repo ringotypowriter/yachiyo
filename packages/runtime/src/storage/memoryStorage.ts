@@ -43,7 +43,7 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
   const schedules = new Map<string, ScheduleRecord>()
   const things = new Map<string, import('./storage.ts').StoredThingRow>()
   const thingThreadScopes = new Map<string, import('./storage.ts').StoredThingThreadScopeRow>()
-  const thingSourceQuotes = new Map<string, import('./storage.ts').StoredThingSourceQuoteRow>()
+  const thingSources = new Map<string, import('./storage.ts').StoredThingSourceRow>()
   const scheduleRuns = new Map<string, ScheduleRunRecord>()
   const messages: MessageRecord[] = []
   const runs = new Map<string, StoredRunRow>()
@@ -124,19 +124,19 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
     ...scope,
     ...(threadTitle(scope.threadId) ? { threadTitle: threadTitle(scope.threadId) } : {})
   })
-  const toThingSourceQuoteRecord = (
-    quote: import('./storage.ts').StoredThingSourceQuoteRow
-  ): import('@yachiyo/shared/protocol').ThingSourceQuoteRecord => ({
-    id: quote.id,
-    thingId: quote.thingId,
-    threadId: quote.threadId,
-    ...(threadTitle(quote.threadId) ? { threadTitle: threadTitle(quote.threadId) } : {}),
-    ...(threadIcon(quote.threadId) ? { threadIcon: threadIcon(quote.threadId) } : {}),
-    ...(quote.messageId ? { messageId: quote.messageId } : {}),
-    ...(quote.spanRowId ? { spanRowId: quote.spanRowId } : {}),
-    sourceRowId: quote.sourceRowId,
-    quote: quote.quote,
-    createdAt: quote.createdAt
+  const toThingSourceRecord = (
+    source: import('./storage.ts').StoredThingSourceRow
+  ): import('@yachiyo/shared/protocol').ThingSourceRecord => ({
+    id: source.id,
+    thingId: source.thingId,
+    threadId: source.threadId,
+    ...(threadTitle(source.threadId) ? { threadTitle: threadTitle(source.threadId) } : {}),
+    ...(threadIcon(source.threadId) ? { threadIcon: threadIcon(source.threadId) } : {}),
+    ...(source.messageId ? { messageId: source.messageId } : {}),
+    ...(source.spanRowId ? { spanRowId: source.spanRowId } : {}),
+    sourceRowId: source.sourceRowId,
+    preview: source.preview,
+    createdAt: source.createdAt
   })
   const hasVisibleMessageContent = (message: MessageRecord): boolean => {
     if (message.hidden) return false
@@ -1157,8 +1157,8 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
       for (const [key, scope] of thingThreadScopes.entries()) {
         if (scope.thingId === id) thingThreadScopes.delete(key)
       }
-      for (const [quoteId, quote] of thingSourceQuotes.entries()) {
-        if (quote.thingId === id) thingSourceQuotes.delete(quoteId)
+      for (const [sourceId, source] of thingSources.entries()) {
+        if (source.thingId === id) thingSources.delete(sourceId)
       }
     },
     listThingThreadScopes(thingId) {
@@ -1173,17 +1173,24 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
     deleteThingThreadScope({ thingId, threadId }) {
       thingThreadScopes.delete(`${thingId}:${threadId}`)
     },
-    listThingSourceQuotes(thingId) {
-      return [...thingSourceQuotes.values()]
-        .filter((quote) => !thingId || quote.thingId === thingId)
+    listThingSources(thingId) {
+      return [...thingSources.values()]
+        .filter((source) => !thingId || source.thingId === thingId)
         .sort((left, right) => left.createdAt.localeCompare(right.createdAt))
-        .map(toThingSourceQuoteRecord)
+        .map(toThingSourceRecord)
     },
-    addThingSourceQuote(quote) {
-      thingSourceQuotes.set(quote.id, { ...quote })
+    upsertThingSource(source) {
+      const existing = [...thingSources.values()].find(
+        (item) => item.thingId === source.thingId && item.sourceRowId === source.sourceRowId
+      )
+      thingSources.set(existing?.id ?? source.id, {
+        ...source,
+        id: existing?.id ?? source.id,
+        createdAt: existing?.createdAt ?? source.createdAt
+      })
     },
-    deleteThingSourceQuote(id) {
-      thingSourceQuotes.delete(id)
+    deleteThingSource(id) {
+      thingSources.delete(id)
     },
 
     createScheduleRun(run) {

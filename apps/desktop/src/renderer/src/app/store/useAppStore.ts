@@ -328,7 +328,7 @@ export interface AppState {
   things: ThingRecord[]
   showInactiveThings: boolean
   loadThings: (input?: { includeInactive?: boolean }) => Promise<void>
-  reactivateThing: (name: string) => Promise<void>
+  restoreThing: (name: string) => Promise<void>
   deleteThing: (name: string) => Promise<void>
   continueThingInNewChat: (name: string) => Promise<void>
   toggleShowInactiveThings: () => void
@@ -432,8 +432,8 @@ export const useAppStore = create<AppState>((set, get) => ({
     const things = await window.api.yachiyo.listThings({ includeInactive })
     set({ things, showInactiveThings: includeInactive })
   },
-  reactivateThing: async (name) => {
-    await window.api.yachiyo.reactivateThing({ name })
+  restoreThing: async (name) => {
+    await window.api.yachiyo.restoreThing({ name })
     await get().loadThings({ includeInactive: get().showInactiveThings })
   },
   deleteThing: async (name) => {
@@ -441,17 +441,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     await get().loadThings({ includeInactive: get().showInactiveThings })
   },
   continueThingInNewChat: async (name) => {
-    const currentState = get()
-    const activeThread = findThread(currentState, currentState.activeThreadId)
-    const workspacePath =
-      activeThread?.workspacePath ?? currentState.pendingWorkspacePath ?? undefined
-    const modelOverride =
-      activeThread?.modelOverride ?? currentState.pendingModelOverride ?? undefined
-    const thread = await window.api.yachiyo.continueThingInNewChat({
-      name,
-      ...(workspacePath ? { workspacePath } : {}),
-      ...(modelOverride ? { modelOverride } : {})
-    })
+    const thread = await window.api.yachiyo.continueThingInNewChat({ name })
     const draftText = `#${name} `
     set((state) => ({
       threads: upsertThread(state.threads, thread),
@@ -620,6 +610,13 @@ export const useAppStore = create<AppState>((set, get) => ({
           toolCalls: {
             ...state.toolCalls,
             [accepted.thread.id]: state.toolCalls[accepted.thread.id] ?? []
+          },
+          toolModeByThread: {
+            ...state.toolModeByThread,
+            [accepted.thread.id]: {
+              enabledTools: accepted.thread.enabledTools ?? DEFAULT_ENABLED_TOOL_NAMES,
+              runMode: accepted.thread.runMode ?? DEFAULT_RUN_MODE_ID
+            }
           },
           threads: upsertThread(state.threads, accepted.thread)
         }

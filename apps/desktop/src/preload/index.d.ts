@@ -114,13 +114,9 @@ declare global {
         searchWorkspaceFiles: (input: SearchWorkspaceFilesInput) => Promise<FileMentionCandidate[]>
         listThings: (input?: { includeInactive?: boolean }) => Promise<ThingRecord[]>
         getThing: (input: { name: string }) => Promise<ThingRecord | undefined>
-        reactivateThing: (input: { name: string }) => Promise<ThingRecord | undefined>
+        restoreThing: (input: { name: string }) => Promise<ThingRecord | undefined>
         deleteThing: (input: { name: string }) => Promise<boolean>
-        continueThingInNewChat: (input: {
-          name: string
-          workspacePath?: string
-          modelOverride?: ThreadModelOverride
-        }) => Promise<ThreadRecord>
+        continueThingInNewChat: (input: { name: string }) => Promise<ThreadRecord>
         archiveThread: (input: { threadId: string }) => Promise<void>
         bootstrap: () => Promise<BootstrapPayload>
         createBranch: (input: { threadId: string; messageId: string }) => Promise<ThreadSnapshot>

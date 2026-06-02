@@ -1,6 +1,7 @@
 import {
   DEFAULT_ENABLED_TOOL_NAMES,
   type ImportWebSearchBrowserSessionInput,
+  normalizeEnabledTools,
   normalizeUserEnabledTools,
   type SettingsConfig,
   type SettingsUpdatedEvent,
@@ -63,6 +64,10 @@ export function resolveRunModeEnabledToolsForInput(input: {
   runMode?: unknown
   fallbackEnabledTools?: readonly ToolCallName[]
 }): ToolCallName[] {
+  if (Array.isArray(input.enabledTools)) {
+    return normalizeEnabledTools(input.enabledTools, [])
+  }
+
   const runMode = normalizeRunModeId(input.runMode)
   return resolveRunModeEnabledTools(runMode)
 }

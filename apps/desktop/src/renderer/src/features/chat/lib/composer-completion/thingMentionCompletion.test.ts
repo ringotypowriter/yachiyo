@@ -39,8 +39,7 @@ function makeThing(
   lastUpdatedAt: string
   createdAt: string
   updatedAt: string
-  includedChats: []
-  sourceQuotes: []
+  sources: []
   isInactive: boolean
 } {
   return {
@@ -50,8 +49,7 @@ function makeThing(
     lastUpdatedAt: '2026-06-01T00:00:00.000Z',
     createdAt: '2026-06-01T00:00:00.000Z',
     updatedAt: '2026-06-01T00:00:00.000Z',
-    includedChats: [],
-    sourceQuotes: [],
+    sources: [],
     isInactive
   }
 }

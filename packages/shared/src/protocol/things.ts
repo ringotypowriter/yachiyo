@@ -6,7 +6,7 @@ export interface ThingThreadScopeRecord {
   updatedAt: string
 }
 
-export interface ThingSourceQuoteRecord {
+export interface ThingSourceRecord {
   id: string
   thingId: string
   threadId: string
@@ -15,7 +15,7 @@ export interface ThingSourceQuoteRecord {
   messageId?: string
   spanRowId?: string
   sourceRowId: string
-  quote: string
+  preview: string
   createdAt: string
 }
 
@@ -26,8 +26,7 @@ export interface ThingRecord {
   lastUpdatedAt: string
   createdAt: string
   updatedAt: string
-  includedChats: ThingThreadScopeRecord[]
-  sourceQuotes: ThingSourceQuoteRecord[]
+  sources: ThingSourceRecord[]
   isInactive: boolean
 }
 
@@ -42,14 +41,6 @@ export interface GetThingInput {
 export interface CreateThingInput {
   name: string
   summary: string
-  threadId?: string
-  sourceQuotes?: Array<{
-    threadId: string
-    messageId?: string
-    spanRowId?: string
-    sourceRowId: string
-    quote: string
-  }>
 }
 
 export interface UpdateThingInput {
@@ -62,18 +53,13 @@ export interface DeleteThingInput {
   name: string
 }
 
-export interface LinkThingThreadInput {
-  name: string
-  threadId: string
-}
-
-export interface AddThingQuoteInput {
+export interface AddThingSourceInput {
   name: string
   threadId: string
   messageId?: string
   spanRowId?: string
   sourceRowId: string
-  quote: string
+  preview: string
 }
 
 export interface ContinueThingInput {

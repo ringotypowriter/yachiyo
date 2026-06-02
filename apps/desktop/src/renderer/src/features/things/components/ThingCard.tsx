@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react'
-import { ArrowUpRight, Check, Copy, Quote, RotateCcw, Trash2, X } from 'lucide-react'
+import { ArrowUpRight, Check, Copy, Database, RotateCcw, Trash2, X } from 'lucide-react'
 
 import type { ThingRecord } from '@renderer/app/types'
-import type { ThingSourceQuoteRecord } from '@yachiyo/shared/protocol'
+import type { ThingSourceRecord } from '@yachiyo/shared/protocol'
 import { alpha, theme } from '@renderer/theme/theme'
 import { copyTextWithFallback } from '../../chat/lib/messages/copyTextWithFallback'
 
@@ -10,16 +10,16 @@ export function ThingColumn({
   thing,
   onOpen,
   onContinue,
-  onReactivate,
+  onRestore,
   onOpenThread
 }: {
   thing: ThingRecord
   onOpen: () => void
   onContinue: (name: string) => void
-  onReactivate: (name: string) => void
+  onRestore: (name: string) => void
   onOpenThread: (threadId: string, messageId?: string) => void
 }): React.JSX.Element {
-  const sourceCount = thing.sourceQuotes.length
+  const sourceCount = thing.sources.length
 
   return (
     <article
@@ -55,14 +55,14 @@ export function ThingColumn({
             Sources
           </div>
           <ContextChip
-            icon={<Quote size={13} />}
+            icon={<Database size={13} />}
             label={`${sourceCount} source${sourceCount === 1 ? '' : 's'}`}
           />
         </div>
         <div className="mt-3 flex min-h-0 flex-1 flex-col gap-2 overflow-x-hidden overflow-y-auto pr-1">
-          {thing.sourceQuotes.length > 0 ? (
-            thing.sourceQuotes.map((source) => (
-              <SourceEvidencePreview key={source.id} source={source} onOpenThread={onOpenThread} />
+          {thing.sources.length > 0 ? (
+            thing.sources.map((source) => (
+              <SourcePreview key={source.id} source={source} onOpenThread={onOpenThread} />
             ))
           ) : (
             <div
@@ -78,8 +78,8 @@ export function ThingColumn({
       <div className="mt-auto flex shrink-0 flex-wrap gap-2 pt-5">
         <PrimaryButton onClick={() => onContinue(thing.name)}>Continue</PrimaryButton>
         {thing.isInactive ? (
-          <SecondaryButton onClick={() => onReactivate(thing.name)} icon={<RotateCcw size={14} />}>
-            Reactivate
+          <SecondaryButton onClick={() => onRestore(thing.name)} icon={<RotateCcw size={14} />}>
+            Restore
           </SecondaryButton>
         ) : null}
       </div>
@@ -91,14 +91,14 @@ export function ThingDetailOverlay({
   thing,
   onClose,
   onContinue,
-  onReactivate,
+  onRestore,
   onDelete,
   onOpenThread
 }: {
   thing: ThingRecord
   onClose: () => void
   onContinue: (name: string) => void
-  onReactivate: (name: string) => void
+  onRestore: (name: string) => void
   onDelete: () => void
   onOpenThread: (threadId: string, messageId?: string) => void
 }): React.JSX.Element {
@@ -119,7 +119,7 @@ export function ThingDetailOverlay({
               className="text-xs font-semibold uppercase tracking-[0.18em]"
               style={{ color: theme.text.muted }}
             >
-              Evidence
+              Sources
             </div>
             <h2
               className="mt-2 wrap-break-word text-3xl font-semibold tracking-[-0.04em]"
@@ -146,11 +146,8 @@ export function ThingDetailOverlay({
           <div className="flex min-w-0 flex-wrap gap-2">
             <PrimaryButton onClick={() => onContinue(thing.name)}>Continue</PrimaryButton>
             {thing.isInactive ? (
-              <SecondaryButton
-                onClick={() => onReactivate(thing.name)}
-                icon={<RotateCcw size={14} />}
-              >
-                Reactivate
+              <SecondaryButton onClick={() => onRestore(thing.name)} icon={<RotateCcw size={14} />}>
+                Restore
               </SecondaryButton>
             ) : null}
           </div>
@@ -160,13 +157,13 @@ export function ThingDetailOverlay({
         </div>
 
         <div className="mt-6 min-h-0 overflow-auto">
-          <SectionTitle label="Sources" count={thing.sourceQuotes.length} />
+          <SectionTitle label="Sources" count={thing.sources.length} />
           <div className="mt-3 flex flex-col gap-3">
-            {thing.sourceQuotes.length === 0 ? (
-              <EmptyLine>No source quotes saved yet.</EmptyLine>
+            {thing.sources.length === 0 ? (
+              <EmptyLine>No source previews saved yet.</EmptyLine>
             ) : (
-              thing.sourceQuotes.map((quote) => (
-                <SourceQuoteCard key={quote.id} quote={quote} onOpenThread={onOpenThread} />
+              thing.sources.map((source) => (
+                <SourceCard key={source.id} source={source} onOpenThread={onOpenThread} />
               ))
             )}
           </div>
@@ -176,11 +173,11 @@ export function ThingDetailOverlay({
   )
 }
 
-function SourceEvidencePreview({
+function SourcePreview({
   source,
   onOpenThread
 }: {
-  source: ThingSourceQuoteRecord
+  source: ThingSourceRecord
   onOpenThread: (threadId: string, messageId?: string) => void
 }): React.JSX.Element {
   return (
@@ -201,17 +198,17 @@ function SourceEvidencePreview({
         <ArrowUpRight size={12} className="shrink-0" />
       </div>
       <p className="mt-1 line-clamp-2 text-xs leading-4" style={{ color: theme.text.secondary }}>
-        “{source.quote}”
+        {source.preview}
       </p>
     </button>
   )
 }
 
-function SourceQuoteCard({
-  quote,
+function SourceCard({
+  source,
   onOpenThread
 }: {
-  quote: ThingSourceQuoteRecord
+  source: ThingSourceRecord
   onOpenThread: (threadId: string, messageId?: string) => void
 }): React.JSX.Element {
   const [copyState, setCopyState] = useState<'idle' | 'copied' | 'failed'>('idle')
@@ -224,7 +221,7 @@ function SourceQuoteCard({
 
   async function handleCopy(): Promise<void> {
     try {
-      await copyTextWithFallback(quote.quote)
+      await copyTextWithFallback(source.preview)
       setCopyState('copied')
     } catch {
       setCopyState('failed')
@@ -241,17 +238,17 @@ function SourceQuoteCard({
           className="flex min-w-0 items-center gap-1.5 font-semibold"
           style={{ color: theme.text.primary }}
         >
-          <SourceThreadIcon icon={quote.threadIcon} />
-          <span className="min-w-0 truncate">{sourceConversationTitle(quote)}</span>
+          <SourceThreadIcon icon={source.threadIcon} />
+          <span className="min-w-0 truncate">{sourceConversationTitle(source)}</span>
         </span>
-        <span className="shrink-0">{formatDate(quote.createdAt)}</span>
+        <span className="shrink-0">{formatDate(source.createdAt)}</span>
       </figcaption>
-      <blockquote className="mt-3 text-sm leading-6" style={{ color: theme.text.primary }}>
-        “{quote.quote}”
-      </blockquote>
+      <p className="mt-3 text-sm leading-6" style={{ color: theme.text.primary }}>
+        {source.preview}
+      </p>
       <div className="mt-3 flex flex-wrap gap-2">
         <SecondaryButton
-          onClick={() => onOpenThread(quote.threadId, quote.messageId)}
+          onClick={() => onOpenThread(source.threadId, source.messageId)}
           icon={<ArrowUpRight size={14} />}
         >
           Open conversation
@@ -264,7 +261,7 @@ function SourceQuoteCard({
             ? 'Copied'
             : copyState === 'failed'
               ? 'Copy failed'
-              : 'Copy quote'}
+              : 'Copy preview'}
         </SecondaryButton>
       </div>
     </figure>
@@ -277,7 +274,7 @@ function SourceThreadIcon({ icon }: { icon?: string }): React.JSX.Element | null
 }
 
 function sourceConversationTitle(
-  source: Pick<ThingSourceQuoteRecord, 'threadId' | 'threadTitle'>
+  source: Pick<ThingSourceRecord, 'threadId' | 'threadTitle'>
 ): string {
   return source.threadTitle?.trim() || `Conversation ${shortId(source.threadId)}`
 }

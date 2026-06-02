@@ -495,15 +495,11 @@ test('createNewThread preserves the drafted workspace selection', async () => {
   }
 })
 
-test('createNewThread inherits the active thread model override', async () => {
+test('createNewThread does not inherit the active thread model override', async () => {
   resetStore()
 
-  const createThreadCalls: Array<
-    { modelOverride?: { providerName: string; model: string } } | undefined
-  > = []
   const restoreWindow = withWindowApiMock({
     createThread: async (input) => {
-      createThreadCalls.push(input)
       return {
         id: 'thread-2',
         title: 'New Chat',
@@ -529,15 +525,64 @@ test('createNewThread inherits the active thread model override', async () => {
     await useAppStore.getState().createNewThread()
 
     const state = useAppStore.getState()
-    assert.deepEqual(createThreadCalls, [
-      { modelOverride: { providerName: 'work', model: 'gpt-5' } }
-    ])
     assert.equal(state.activeThreadId, 'thread-2')
     const createdThread = state.threads.find((thread) => thread.id === 'thread-2')
-    assert.deepEqual(createdThread?.modelOverride, {
-      providerName: 'work',
-      model: 'gpt-5'
+    assert.equal(createdThread?.modelOverride, undefined)
+  } finally {
+    restoreWindow()
+  }
+})
+
+test('createNewThread skips reusable blank chats with a model override', async () => {
+  resetStore()
+
+  const restoreWindow = withWindowApiMock({
+    createThread: async () => ({
+      id: 'thread-2',
+      title: 'New Chat',
+      updatedAt: TIMESTAMP
     })
+  })
+
+  try {
+    useAppStore.setState({
+      activeThreadId: 'thread-active',
+      messages: {
+        'thread-1': [],
+        'thread-active': [
+          {
+            id: 'message-1',
+            threadId: 'thread-active',
+            role: 'user',
+            content: 'hello',
+            status: 'completed',
+            createdAt: TIMESTAMP
+          }
+        ]
+      },
+      threads: [
+        {
+          id: 'thread-1',
+          title: 'New Chat',
+          updatedAt: TIMESTAMP,
+          modelOverride: { providerName: 'work', model: 'gpt-5' }
+        },
+        {
+          id: 'thread-active',
+          title: 'Existing chat',
+          updatedAt: TIMESTAMP,
+          preview: 'hello',
+          headMessageId: 'message-1'
+        }
+      ]
+    })
+
+    await useAppStore.getState().createNewThread()
+
+    const state = useAppStore.getState()
+    assert.equal(state.activeThreadId, 'thread-2')
+    const createdThread = state.threads.find((thread) => thread.id === 'thread-2')
+    assert.equal(createdThread?.modelOverride, undefined)
   } finally {
     restoreWindow()
   }

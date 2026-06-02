@@ -422,16 +422,15 @@ Today means 00:00 to now in the local timezone this schedule runs in. Use queryS
 If today returns no conversation-level activity, report "No conversations today — nothing to review." and stop.
 
 ## Workflow
-1. Call useThings action "list" with includeInactive true. This returns every existing Thing with its summary, active/inactive status, and linked thread IDs. It does not include full source quotes — use action "get" on a specific Thing when you need to read its quotes to decide a match.
-2. Query source_events for today's activity. Open each returned thread_span to understand what the conversation was about. Skim for topic and key decisions — full transcripts are not needed.
-3. Apply the selection rules below to every conversation. Build the complete batch payload (creates, summaryUpdates, threadLinks, quotes, reactivations) before calling anything.
-4. Call useThings action "dailyReview" exactly once with the full batch.
-5. Report: one line per change. If nothing changed, say so.
+1. Call reviewThings action "list" with includeInactive true. This returns every existing Thing with its summary, active/inactive status, and saved source previews.
+2. Query source_events for today's activity. Open relevant thread_span rows to understand what each conversation was about. Skim for topic, decisions, and continuity signals — full transcripts are not needed unless the preview would otherwise be vague.
+3. For each conversation worth keeping, make small reviewThings calls as needed: create a Thing, addReviewedSource with that conversation's sourceRowId and preview, restore an inactive Thing, or updateSummary.
+4. Report: one line per change. If nothing changed, say so.
 
 ## Selection
 
-### Link
-Link a conversation to an existing Thing when their topics overlap. "Overlap" means the conversation extends, continues, or revisits the topic that Thing tracks. Match against the Thing's summary first; if the summary alone is too vague to decide, call get on the candidate Thing to read its source quotes before committing. Match against the topic, not just the name — a keyword hit is not enough.
+### Attach a source
+Attach a conversation to an existing Thing when their topics overlap. "Overlap" means the conversation extends, continues, or revisits the topic that Thing tracks. Match against the Thing's summary and existing source previews first; if those are too vague to decide, call get on the candidate Thing. Match against the topic, not just the name — a keyword hit is not enough.
 
 ### Create
 Create a Thing when the user is working on something they are likely to reference by name in a future conversation. The test: would they say "check the #foo notes" or "what did we decide about #bar"? If the work is one-off or already finished, skip.
@@ -440,34 +439,36 @@ Do not create for:
 - One-off questions, finished chores, or greetings
 - Anything you would not naturally refer back to by topic name a week from now
 
-### Reactivate
-Reactivate only when today's conversation picks up a dormant Thing's topic and the user is clearly resuming that work. "Clearly" means at least one of: the user explicitly names the Thing, the user references its topic in a way that matches the Thing's summary, or the user states they are returning to that line of work. A passing mention of the same general topic is not enough.
+### Restore
+Restore only when today's conversation picks up a dormant Thing's topic and the user is clearly resuming that work. "Clearly" means at least one of: the user explicitly names the Thing, the user references its topic in a way that matches the Thing's summary, or the user states they are returning to that line of work. A passing mention of the same general topic is not enough.
 
 ### Stale
-Things with no linked activity for 3 or more days are expected to be inactive. The tool marks them automatically. Do not fabricate links or updates to keep a stale Thing alive.
+Things with no source activity for 3 or more days are expected to be inactive. The tool marks them automatically. Do not fabricate sources or updates to keep a stale Thing alive.
 
 ### Default
-When you are unsure whether to link or create: don't. A missed link is a minor gap. A wrong link pollutes the index and the user has to undo it.
+When you are unsure whether to attach or create: don't. A missed source is a minor gap. A wrong source pollutes the index and the user has to undo it.
 
 ## Examples
-- An existing Thing "agent-tool-design" tracks agent tool decisions. Today the user debated streaming vs batch output for a tool. → Link.
+- An existing Thing "agent-tool-design" tracks agent tool decisions. Today the user debated streaming vs batch output for a tool. → Add a reviewed source with a concise preview.
 - The user fixed a one-off test failure in 5 minutes. → Nothing.
-- Thing "refactor-settings" went inactive last week. Today the user said "let's pick up the settings refactor." → Reactivate and link.
+- Thing "refactor-settings" went inactive last week. Today the user said "let's pick up the settings refactor." → Restore and add a reviewed source.
 - The user asked "how do I deploy this?" and Thing "deployment" exists, but the conversation was about a completely different project. → Nothing.
-- The user spent 3 conversations debugging a CI pipeline failure, keeps calling it "the CI issue", and no Thing exists for it. → Create "ci-pipeline-debug" with a source quote from the conversation where they first named the problem, including sourceRowId and threadId.
+- The user spent 3 conversations debugging a CI pipeline failure, keeps calling it "the CI issue", and no Thing exists for it. → Create "ci-pipeline-debug" and add a reviewed source preview for the conversation where the problem became durable.
 
-## Evidence
-- The useThings grounding rules apply: source quotes are the factual record, summaries are recognition labels only, preserve exact quote text, and always include sourceRowId with threadId.
-- Never fabricate or paraphrase a quote. If the source text is truncated, ambiguous out of context, or you cannot confirm the exact original wording — skip that quote.
+## Source previews
+- A source preview describes the main content of one source conversation. It is not an exact quote and does not need quotation marks.
+- Use the sourceRowId returned by querySource. reviewThings derives threadId and message/span references from it.
+- Only save a source when the preview would help future context retrieval.
+- If a future answer needs exact detail, it should open sourceRowId with querySource.
 
 ## Language
-- New Thing summary: use the dominant language the user used in today's linked conversations.
-- Existing Thing summary update: match the language of the Thing's current summary. If the current summary is too short or mixed to determine a language, fall back to the dominant language of today's linked chats.
+- New Thing summary and source preview: use the dominant language the user used in the linked conversation.
+- Existing Thing summary update: match the language of the Thing's current summary. If the current summary is too short or mixed to determine a language, fall back to the dominant language of today's linked conversations.
 
 ## Guardrails
-- Add only. Never delete existing quotes or rewrite summaries the user already relies on.
+- Add sources and restore only when today's activity justifies it. Never delete existing sources or rewrite summaries the user already relies on.
 - The daily review indexes today's activity against existing context. It does not curate or reorganize old Things.
-- One dailyReview call. Build the full payload first.`
+- Work in small calls. Do not construct batch payloads.`
 
 export const BUNDLED_SCHEDULES: readonly BundledScheduleSpec[] = [
   {
@@ -475,7 +476,7 @@ export const BUNDLED_SCHEDULES: readonly BundledScheduleSpec[] = [
     name: 'Things Daily Review',
     cronExpression: '0 22 * * *',
     prompt: THINGS_DAILY_REVIEW_PROMPT,
-    enabledTools: ['querySource', 'useThings']
+    enabledTools: ['querySource', 'reviewThings']
   },
   {
     id: 'bundled:self-review',

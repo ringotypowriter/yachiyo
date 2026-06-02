@@ -647,6 +647,55 @@ test('YachiyoServer lets Things Continue chats receive automatic generated title
   )
 })
 
+test('YachiyoServer continues a Thing in the latest source thread workspace and model', async () => {
+  await withServer(async ({ server, storage, workspacePathForThread }) => {
+    const oldWorkspacePath = workspacePathForThread('old-source')
+    const latestWorkspacePath = workspacePathForThread('latest-source')
+    const oldThread = await server.createThread({
+      workspacePath: oldWorkspacePath,
+      modelOverride: { providerName: 'work', model: 'gpt-4.1' }
+    })
+    const latestThread = await server.createThread({
+      workspacePath: latestWorkspacePath,
+      modelOverride: { providerName: 'work', model: 'gpt-5' }
+    })
+
+    storage.createThing({
+      id: 'thing-1',
+      name: 'raven-ui',
+      summary: 'Raven UI work',
+      lastUpdatedAt: '2026-06-02T00:00:00.000Z',
+      createdAt: '2026-06-01T00:00:00.000Z',
+      updatedAt: '2026-06-02T00:00:00.000Z'
+    })
+    storage.upsertThingSource({
+      id: 'source-old',
+      thingId: 'thing-1',
+      threadId: oldThread.id,
+      messageId: null,
+      spanRowId: null,
+      sourceRowId: 'row-old',
+      preview: 'Older source',
+      createdAt: '2026-06-01T00:00:00.000Z'
+    })
+    storage.upsertThingSource({
+      id: 'source-latest',
+      thingId: 'thing-1',
+      threadId: latestThread.id,
+      messageId: null,
+      spanRowId: null,
+      sourceRowId: 'row-latest',
+      preview: 'Latest source',
+      createdAt: '2026-06-02T00:00:00.000Z'
+    })
+
+    const continuedThread = await server.continueThingInNewChat({ name: 'raven-ui' })
+
+    assert.equal(continuedThread.workspacePath, latestWorkspacePath)
+    assert.deepEqual(continuedThread.modelOverride, { providerName: 'work', model: 'gpt-5' })
+  })
+})
+
 test('YachiyoServer refines owner DM thread titles like local threads', async () => {
   const requests: ModelStreamRequest[] = []
   let releaseMainRun: (() => void) | null = null

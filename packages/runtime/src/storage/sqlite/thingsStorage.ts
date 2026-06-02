@@ -1,15 +1,10 @@
 import { and, asc, desc, eq } from 'drizzle-orm'
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3'
 
-import type { ThingSourceQuoteRecord, ThingThreadScopeRecord } from '@yachiyo/shared/protocol'
+import type { ThingSourceRecord, ThingThreadScopeRecord } from '@yachiyo/shared/protocol'
 import type { YachiyoStorage } from '../storage.ts'
 import * as schema from './schema.ts'
-import {
-  thingsTable,
-  thingSourceQuotesTable,
-  thingThreadScopesTable,
-  threadsTable
-} from './schema.ts'
+import { thingsTable, thingSourcesTable, thingThreadScopesTable, threadsTable } from './schema.ts'
 
 type SqliteDb = BetterSQLite3Database<typeof schema>
 
@@ -24,9 +19,9 @@ type SqliteThingsStorageMethods = Pick<
   | 'listThingThreadScopes'
   | 'upsertThingThreadScope'
   | 'deleteThingThreadScope'
-  | 'listThingSourceQuotes'
-  | 'addThingSourceQuote'
-  | 'deleteThingSourceQuote'
+  | 'listThingSources'
+  | 'upsertThingSource'
+  | 'deleteThingSource'
 >
 
 export function createSqliteThingsStorageMethods(db: SqliteDb): SqliteThingsStorageMethods {
@@ -44,7 +39,7 @@ export function createSqliteThingsStorageMethods(db: SqliteDb): SqliteThingsStor
     updatedAt: row.updatedAt
   })
 
-  const toQuoteRecord = (row: {
+  const toSourceRecord = (row: {
     id: string
     thingId: string
     threadId: string
@@ -53,9 +48,9 @@ export function createSqliteThingsStorageMethods(db: SqliteDb): SqliteThingsStor
     messageId: string | null
     spanRowId: string | null
     sourceRowId: string
-    quote: string
+    preview: string
     createdAt: string
-  }): ThingSourceQuoteRecord => ({
+  }): ThingSourceRecord => ({
     id: row.id,
     thingId: row.thingId,
     threadId: row.threadId,
@@ -64,7 +59,7 @@ export function createSqliteThingsStorageMethods(db: SqliteDb): SqliteThingsStor
     ...(row.messageId ? { messageId: row.messageId } : {}),
     ...(row.spanRowId ? { spanRowId: row.spanRowId } : {}),
     sourceRowId: row.sourceRowId,
-    quote: row.quote,
+    preview: row.preview,
     createdAt: row.createdAt
   })
 
@@ -123,33 +118,58 @@ export function createSqliteThingsStorageMethods(db: SqliteDb): SqliteThingsStor
         )
         .run()
     },
-    listThingSourceQuotes(thingId) {
+    listThingSources(thingId) {
       const query = db
         .select({
-          id: thingSourceQuotesTable.id,
-          thingId: thingSourceQuotesTable.thingId,
-          threadId: thingSourceQuotesTable.threadId,
+          id: thingSourcesTable.id,
+          thingId: thingSourcesTable.thingId,
+          threadId: thingSourcesTable.threadId,
           threadTitle: threadsTable.title,
           threadIcon: threadsTable.icon,
-          messageId: thingSourceQuotesTable.messageId,
-          spanRowId: thingSourceQuotesTable.spanRowId,
-          sourceRowId: thingSourceQuotesTable.sourceRowId,
-          quote: thingSourceQuotesTable.quote,
-          createdAt: thingSourceQuotesTable.createdAt
+          messageId: thingSourcesTable.messageId,
+          spanRowId: thingSourcesTable.spanRowId,
+          sourceRowId: thingSourcesTable.sourceRowId,
+          preview: thingSourcesTable.preview,
+          createdAt: thingSourcesTable.createdAt
         })
-        .from(thingSourceQuotesTable)
-        .leftJoin(threadsTable, eq(thingSourceQuotesTable.threadId, threadsTable.id))
-        .orderBy(asc(thingSourceQuotesTable.createdAt))
+        .from(thingSourcesTable)
+        .leftJoin(threadsTable, eq(thingSourcesTable.threadId, threadsTable.id))
+        .orderBy(asc(thingSourcesTable.createdAt))
 
       return (
-        thingId ? query.where(eq(thingSourceQuotesTable.thingId, thingId)).all() : query.all()
-      ).map(toQuoteRecord)
+        thingId ? query.where(eq(thingSourcesTable.thingId, thingId)).all() : query.all()
+      ).map(toSourceRecord)
     },
-    addThingSourceQuote(quote) {
-      db.insert(thingSourceQuotesTable).values(quote).run()
+    upsertThingSource(source) {
+      const existing = db
+        .select({ id: thingSourcesTable.id })
+        .from(thingSourcesTable)
+        .where(
+          and(
+            eq(thingSourcesTable.thingId, source.thingId),
+            eq(thingSourcesTable.sourceRowId, source.sourceRowId)
+          )
+        )
+        .get()
+
+      if (existing) {
+        db.update(thingSourcesTable)
+          .set({
+            threadId: source.threadId,
+            messageId: source.messageId,
+            spanRowId: source.spanRowId,
+            sourceRowId: source.sourceRowId,
+            preview: source.preview
+          })
+          .where(eq(thingSourcesTable.id, existing.id))
+          .run()
+        return
+      }
+
+      db.insert(thingSourcesTable).values(source).run()
     },
-    deleteThingSourceQuote(id) {
-      db.delete(thingSourceQuotesTable).where(eq(thingSourceQuotesTable.id, id)).run()
+    deleteThingSource(id) {
+      db.delete(thingSourcesTable).where(eq(thingSourcesTable.id, id)).run()
     }
   }
 }

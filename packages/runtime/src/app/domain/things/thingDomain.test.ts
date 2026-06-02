@@ -8,35 +8,76 @@ test('normalizes Thing names to lower-kebab slugs', () => {
   assert.equal(normalizeThingName('#Raven_UI'), 'raven-ui')
 })
 
-test('creates, links, quotes, and resolves only non-inactive Things', async () => {
+test('creates Things as summary-only records and resolves only non-inactive Things', async () => {
   let now = new Date('2026-06-01T00:00:00.000Z')
   const storage = createInMemoryYachiyoStorage()
   const domain = new ThingDomain({ storage, now: () => now })
 
   const created = await domain.createThing({ name: '#Raven_UI', summary: 'UI work' })
   assert.equal(created.name, 'raven-ui')
-  assert.equal('primaryLanguage' in created, false)
+  assert.equal(created.summary, 'UI work')
+  assert.deepEqual(created.sources, [])
 
-  await domain.linkThread({ name: 'raven-ui', threadId: 'thread-1' })
-  await domain.addQuote({
+  await domain.upsertSource({
     name: 'raven-ui',
     threadId: 'thread-1',
-    sourceRowId: 'thread_message:1',
-    quote: 'Original quote'
+    sourceRowId: 'thread_message:thread-1:message-1',
+    preview: 'Main points from this conversation.'
   })
 
   const resolved = await domain.resolveThingMention('raven-ui')
   assert.equal(resolved.resolved, true)
-  assert.equal(resolved.thing?.includedChats.length, 1)
-  assert.equal(resolved.thing?.sourceQuotes[0]?.sourceRowId, 'thread_message:1')
+  assert.equal(resolved.thing?.sources.length, 1)
+  assert.equal(resolved.thing?.sources[0]?.sourceRowId, 'thread_message:thread-1:message-1')
+  assert.equal(resolved.thing?.sources[0]?.preview, 'Main points from this conversation.')
 
-  now = new Date('2026-06-04T00:00:00.000Z')
+  now = new Date('2026-06-04T00:00:00.001Z')
   const inactive = await domain.resolveThingMention('raven-ui')
   assert.equal(inactive.resolved, false)
   assert.equal(inactive.reason, 'inactive')
 })
 
-test('deletes a Thing and its saved source references', async () => {
+test('upsertSource updates an existing source preview instead of duplicating it', async () => {
+  const storage = createInMemoryYachiyoStorage()
+  const domain = new ThingDomain({
+    storage,
+    now: () => new Date('2026-06-01T00:00:00.000Z')
+  })
+
+  await domain.createThing({ name: 'raven-ui', summary: 'UI work' })
+  await domain.upsertSource({
+    name: 'raven-ui',
+    threadId: 'thread-1',
+    sourceRowId: 'thread_message:thread-1:message-1',
+    preview: 'Old preview'
+  })
+  const updated = await domain.upsertSource({
+    name: 'raven-ui',
+    threadId: 'thread-1',
+    sourceRowId: 'thread_message:thread-1:message-1',
+    preview: 'Updated preview'
+  })
+
+  assert.equal(updated?.sources.length, 1)
+  assert.equal(updated?.sources[0]?.preview, 'Updated preview')
+})
+
+test('restoreThing refreshes inactive Things', async () => {
+  let now = new Date('2026-06-01T00:00:00.000Z')
+  const storage = createInMemoryYachiyoStorage()
+  const domain = new ThingDomain({ storage, now: () => now })
+
+  await domain.createThing({ name: 'raven-ui', summary: 'UI work' })
+  now = new Date('2026-06-04T00:00:00.001Z')
+  assert.equal((await domain.getThing('raven-ui'))?.isInactive, true)
+
+  const restored = await domain.restoreThing('raven-ui')
+
+  assert.equal(restored?.isInactive, false)
+  assert.equal(restored?.lastUpdatedAt, '2026-06-04T00:00:00.001Z')
+})
+
+test('deletes a Thing and its saved sources', async () => {
   const storage = createInMemoryYachiyoStorage()
   const domain = new ThingDomain({
     storage,
@@ -44,18 +85,16 @@ test('deletes a Thing and its saved source references', async () => {
   })
 
   const thing = await domain.createThing({ name: 'raven-ui', summary: 'UI work' })
-  await domain.linkThread({ name: thing.name, threadId: 'thread-1' })
-  await domain.addQuote({
+  await domain.upsertSource({
     name: thing.name,
     threadId: 'thread-1',
-    sourceRowId: 'thread_message:1',
-    quote: 'Original quote'
+    sourceRowId: 'thread_message:thread-1:message-1',
+    preview: 'Main points from this conversation.'
   })
 
   const deleted = await domain.deleteThing('raven-ui')
 
   assert.equal(deleted, true)
   assert.equal(await domain.getThing('raven-ui'), undefined)
-  assert.deepEqual(storage.listThingThreadScopes(thing.id), [])
-  assert.deepEqual(storage.listThingSourceQuotes(thing.id), [])
+  assert.deepEqual(storage.listThingSources(thing.id), [])
 })

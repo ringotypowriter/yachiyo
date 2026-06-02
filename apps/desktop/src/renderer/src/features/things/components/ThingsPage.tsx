@@ -21,7 +21,7 @@ export function ThingsPanelTopControls({
   const showInactiveThings = useAppStore((s) => s.showInactiveThings)
   const toggleShowInactiveThings = useAppStore((s) => s.toggleShowInactiveThings)
   const activeCount = countActiveThings(things)
-  const quoteCount = countSourceQuotes(things)
+  const sourceCount = countSources(things)
 
   return (
     <div
@@ -33,7 +33,7 @@ export function ThingsPanelTopControls({
           Things
         </div>
         <div className="truncate text-xs font-medium" style={{ color: theme.text.muted }}>
-          Context board · {activeCount} active · {quoteCount} source{quoteCount === 1 ? '' : 's'}
+          Context board · {activeCount} active · {sourceCount} source{sourceCount === 1 ? '' : 's'}
         </div>
       </div>
       <InactiveThingsToggleButton
@@ -54,7 +54,7 @@ export function ThingsPage({
   const showInactiveThings = useAppStore((s) => s.showInactiveThings)
   const loadThings = useAppStore((s) => s.loadThings)
   const toggleShowInactiveThings = useAppStore((s) => s.toggleShowInactiveThings)
-  const reactivateThing = useAppStore((s) => s.reactivateThing)
+  const restoreThing = useAppStore((s) => s.restoreThing)
   const deleteThing = useAppStore((s) => s.deleteThing)
   const continueThingInNewChat = useAppStore((s) => s.continueThingInNewChat)
   const setActiveThread = useAppStore((s) => s.setActiveThread)
@@ -80,7 +80,7 @@ export function ThingsPage({
   }, [selectedThingId, things])
 
   const activeCount = countActiveThings(things)
-  const quoteCount = countSourceQuotes(things)
+  const sourceCount = countSources(things)
   const contentPadding = showHeader ? 'px-8 pb-8' : 'px-6 py-6'
   const handleContinue = onContinueThing ?? continueThingInNewChat
   const handleOpenThread = onOpenThread ?? setActiveThread
@@ -129,14 +129,13 @@ export function ThingsPage({
                 className="mt-2 max-w-2xl text-sm leading-6"
                 style={{ color: theme.text.secondary }}
               >
-                Durable work context with source-backed evidence. Mention #name to carry a Thing
-                into chat.
+                Durable work context with source previews. Mention #name to carry a Thing into chat.
               </p>
             </div>
 
             <div className="flex shrink-0 items-center gap-3">
               <Metric label="Active" value={activeCount} />
-              <Metric label="Sources" value={quoteCount} />
+              <Metric label="Sources" value={sourceCount} />
               <InactiveThingsToggleButton
                 showInactiveThings={showInactiveThings}
                 onClick={toggleShowInactiveThings}
@@ -179,7 +178,7 @@ export function ThingsPage({
                   thing={thing}
                   onOpen={() => setSelectedThingId(thing.id)}
                   onContinue={(name) => void handleContinue(name)}
-                  onReactivate={(name) => void reactivateThing(name)}
+                  onRestore={(name) => void restoreThing(name)}
                   onOpenThread={handleOpenThread}
                 />
               ))}
@@ -193,7 +192,7 @@ export function ThingsPage({
           thing={selectedThing}
           onClose={() => setSelectedThingId(null)}
           onContinue={(name) => void handleContinue(name)}
-          onReactivate={(name) => void reactivateThing(name)}
+          onRestore={(name) => void restoreThing(name)}
           onDelete={() => void handleDeleteThing(selectedThing)}
           onOpenThread={handleOpenThread}
         />
@@ -206,8 +205,8 @@ function countActiveThings(things: ThingRecord[]): number {
   return things.filter((thing) => !thing.isInactive).length
 }
 
-function countSourceQuotes(things: ThingRecord[]): number {
-  return things.reduce((count, thing) => count + thing.sourceQuotes.length, 0)
+function countSources(things: ThingRecord[]): number {
+  return things.reduce((count, thing) => count + thing.sources.length, 0)
 }
 
 function InactiveThingsToggleButton({

@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 
 import type {
-  AddThingQuoteInput,
+  AddThingSourceInput,
   CreateThingInput,
   ListThingsInput,
   ThingMentionResolution,
@@ -69,25 +69,6 @@ export class ThingDomain {
       updatedAt: now
     }
     this.storage.createThing(row)
-    if (input.threadId)
-      this.storage.upsertThingThreadScope({
-        thingId: row.id,
-        threadId: input.threadId,
-        createdAt: now,
-        updatedAt: now
-      })
-    for (const quote of input.sourceQuotes ?? []) {
-      this.storage.addThingSourceQuote({
-        id: randomUUID(),
-        thingId: row.id,
-        threadId: quote.threadId,
-        messageId: quote.messageId ?? null,
-        spanRowId: quote.spanRowId ?? null,
-        sourceRowId: quote.sourceRowId,
-        quote: quote.quote,
-        createdAt: now
-      })
-    }
     await this.emitChanged()
     return this.toThingRecord(row)
   }
@@ -115,51 +96,19 @@ export class ThingDomain {
     return true
   }
 
-  async linkThread(input: { name: string; threadId: string }): Promise<ThingRecord | undefined> {
+  async upsertSource(input: AddThingSourceInput): Promise<ThingRecord | undefined> {
     const row = await this.mustGetThingRow(input.name)
     if (!row) return undefined
     const now = this.nowIso()
-    this.storage.upsertThingThreadScope({
-      thingId: row.id,
-      threadId: input.threadId,
-      createdAt: now,
-      updatedAt: now
-    })
-    const next = { ...row, lastUpdatedAt: now, updatedAt: now }
-    this.storage.updateThing(next)
-    await this.emitChanged()
-    return this.toThingRecord(next)
-  }
-
-  async unlinkThread(input: { name: string; threadId: string }): Promise<ThingRecord | undefined> {
-    const row = await this.mustGetThingRow(input.name)
-    if (!row) return undefined
-    this.storage.deleteThingThreadScope({ thingId: row.id, threadId: input.threadId })
-    const next = { ...row, updatedAt: this.nowIso() }
-    this.storage.updateThing(next)
-    await this.emitChanged()
-    return this.toThingRecord(next)
-  }
-
-  async addQuote(input: AddThingQuoteInput): Promise<ThingRecord | undefined> {
-    const row = await this.mustGetThingRow(input.name)
-    if (!row) return undefined
-    const now = this.nowIso()
-    this.storage.addThingSourceQuote({
+    this.storage.upsertThingSource({
       id: randomUUID(),
       thingId: row.id,
       threadId: input.threadId,
       messageId: input.messageId ?? null,
       spanRowId: input.spanRowId ?? null,
       sourceRowId: input.sourceRowId,
-      quote: input.quote,
+      preview: input.preview.trim(),
       createdAt: now
-    })
-    this.storage.upsertThingThreadScope({
-      thingId: row.id,
-      threadId: input.threadId,
-      createdAt: now,
-      updatedAt: now
     })
     const next = { ...row, lastUpdatedAt: now, updatedAt: now }
     this.storage.updateThing(next)
@@ -167,7 +116,7 @@ export class ThingDomain {
     return this.toThingRecord(next)
   }
 
-  async reactivateThing(name: string): Promise<ThingRecord | undefined> {
+  async restoreThing(name: string): Promise<ThingRecord | undefined> {
     return this.updateThing({ name, touch: true })
   }
 
@@ -193,8 +142,7 @@ export class ThingDomain {
       lastUpdatedAt: row.lastUpdatedAt,
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,
-      includedChats: this.storage.listThingThreadScopes(row.id),
-      sourceQuotes: this.storage.listThingSourceQuotes(row.id),
+      sources: this.storage.listThingSources(row.id),
       isInactive: this.now().getTime() - new Date(row.lastUpdatedAt).getTime() >= INACTIVE_AFTER_MS
     }
   }

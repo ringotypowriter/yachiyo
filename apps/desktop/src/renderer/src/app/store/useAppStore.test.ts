@@ -196,8 +196,7 @@ test('deleteThing removes the Thing through the preload API and reloads the boar
           lastUpdatedAt: TIMESTAMP,
           createdAt: TIMESTAMP,
           updatedAt: TIMESTAMP,
-          includedChats: [],
-          sourceQuotes: [],
+          sources: [],
           isInactive: false
         }
       ]
@@ -213,23 +212,45 @@ test('deleteThing removes the Thing through the preload API and reloads the boar
   }
 })
 
-test('continueThingInNewChat keeps Work context and pre-fills the Thing tag', async () => {
+test('restoreThing restores a Thing through the preload API and reloads the board', async () => {
   resetStore()
 
-  const calls: Array<{
-    name: string
-    workspacePath?: string
-    modelOverride?: { providerName: string; model: string }
-  }> = []
+  const calls: string[] = []
   const restoreWindow = withWindowApiMock({
-    continueThingInNewChat: async (input) => {
-      calls.push(input)
+    restoreThing: async ({ name }) => {
+      calls.push(name)
+      return undefined
+    },
+    listThings: async ({ includeInactive } = {}) => {
+      assert.equal(includeInactive, true)
+      return []
+    }
+  })
+
+  try {
+    useAppStore.setState({ showInactiveThings: true })
+
+    await useAppStore.getState().restoreThing('raven-ui')
+
+    assert.deepEqual(calls, ['raven-ui'])
+    assert.deepEqual(useAppStore.getState().things, [])
+    assert.equal(useAppStore.getState().showInactiveThings, true)
+  } finally {
+    restoreWindow()
+  }
+})
+
+test('continueThingInNewChat lets the server choose Thing source context and pre-fills the tag', async () => {
+  resetStore()
+
+  const restoreWindow = withWindowApiMock({
+    continueThingInNewChat: async () => {
       return {
         id: 'thread-2',
         title: 'New Chat',
         updatedAt: TIMESTAMP,
-        workspacePath: input.workspacePath,
-        modelOverride: input.modelOverride
+        workspacePath: '/projects/raven',
+        modelOverride: { providerName: 'work', model: 'gpt-5' }
       }
     }
   })
@@ -251,13 +272,6 @@ test('continueThingInNewChat keeps Work context and pre-fills the Thing tag', as
     await useAppStore.getState().continueThingInNewChat('raven-ui')
 
     const state = useAppStore.getState()
-    assert.deepEqual(calls, [
-      {
-        name: 'raven-ui',
-        workspacePath: '/projects/raven',
-        modelOverride: { providerName: 'work', model: 'gpt-5' }
-      }
-    ])
     assert.equal(state.activeThreadId, 'thread-2')
     assert.equal(state.composerDrafts['thread-2']?.text, '#raven-ui ')
     assert.equal(state.composerDrafts['thread-2']?.initialCursorOffset, '#raven-ui '.length)

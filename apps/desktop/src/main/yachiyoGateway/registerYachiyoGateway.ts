@@ -541,7 +541,7 @@ async function startLiveServices(): Promise<void> {
       createThread: (input) => server!.createThread(input),
       setThreadModelOverride: (input) => server!.setThreadModelOverride(input),
       setThreadIcon: (input) => server!.setThreadIcon(input),
-      sendChat: (input) => server!.sendChat(input as never),
+      sendChat: (input) => server!.sendChat(input),
       archiveThread: (input) => server!.archiveThread(input),
       showNotification: (input) => showYachiyoNotification(input),
       subscribe: (listener) => server!.subscribe(listener)
@@ -672,16 +672,14 @@ export function registerYachiyoGateway(): YachiyoServer {
     server!.listThings(input)
   )
   handleYachiyoIpc(IPC_CHANNELS.getThing, (input: { name: string }) => server!.getThing(input))
-  handleYachiyoIpc(IPC_CHANNELS.reactivateThing, (input: { name: string }) =>
-    server!.reactivateThing(input)
+  handleYachiyoIpc(IPC_CHANNELS.restoreThing, (input: { name: string }) =>
+    server!.restoreThing(input)
   )
   handleYachiyoIpc(IPC_CHANNELS.deleteThing, (input: DeleteThingInput) =>
     server!.deleteThing(input)
   )
-  handleYachiyoIpc(
-    IPC_CHANNELS.continueThingInNewChat,
-    (input: { name: string; workspacePath?: string; modelOverride?: ThreadModelOverride }) =>
-      server!.continueThingInNewChat(input)
+  handleYachiyoIpc(IPC_CHANNELS.continueThingInNewChat, (input: { name: string }) =>
+    server!.continueThingInNewChat(input)
   )
   handleYachiyoIpc(IPC_CHANNELS.bootstrap, () => server!.bootstrap())
   handleYachiyoIpc(

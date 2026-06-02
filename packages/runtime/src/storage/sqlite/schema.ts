@@ -159,7 +159,7 @@ export const thingThreadScopesTable = sqliteTable(
   (table) => [uniqueIndex('thing_thread_scopes_thing_thread_idx').on(table.thingId, table.threadId)]
 )
 
-export const thingSourceQuotesTable = sqliteTable(
+export const thingSourcesTable = sqliteTable(
   'thing_source_quotes',
   {
     id: text('id').primaryKey(),
@@ -172,7 +172,7 @@ export const thingSourceQuotesTable = sqliteTable(
     messageId: text('message_id').references(() => messagesTable.id, { onDelete: 'set null' }),
     spanRowId: text('span_row_id'),
     sourceRowId: text('source_row_id').notNull(),
-    quote: text('quote').notNull(),
+    preview: text('quote').notNull(),
     createdAt: text('created_at').notNull()
   },
   (table) => [

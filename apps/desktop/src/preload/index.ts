@@ -137,15 +137,12 @@ const api = {
       ipcRenderer.invoke('yachiyo:list-things', input),
     getThing: (input: { name: string }): Promise<ThingRecord | undefined> =>
       ipcRenderer.invoke('yachiyo:get-thing', input),
-    reactivateThing: (input: { name: string }): Promise<ThingRecord | undefined> =>
-      ipcRenderer.invoke('yachiyo:reactivate-thing', input),
+    restoreThing: (input: { name: string }): Promise<ThingRecord | undefined> =>
+      ipcRenderer.invoke('yachiyo:restore-thing', input),
     deleteThing: (input: DeleteThingInput): Promise<boolean> =>
       ipcRenderer.invoke('yachiyo:delete-thing', input),
-    continueThingInNewChat: (input: {
-      name: string
-      workspacePath?: string
-      modelOverride?: ThreadModelOverride
-    }): Promise<ThreadRecord> => ipcRenderer.invoke('yachiyo:continue-thing-in-new-chat', input),
+    continueThingInNewChat: (input: { name: string }): Promise<ThreadRecord> =>
+      ipcRenderer.invoke('yachiyo:continue-thing-in-new-chat', input),
     archiveThread: (input: { threadId: string }) =>
       ipcRenderer.invoke('yachiyo:archive-thread', input),
     bootstrap: () => ipcRenderer.invoke('yachiyo:bootstrap'),

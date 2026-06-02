@@ -85,18 +85,14 @@ export function createThreadLifecycleActions(input: {
 
     createNewThread: async () => {
       const currentState = get()
-      const activeThread = findThread(currentState, currentState.activeThreadId)
       const pendingWorkspacePath = normalizeWorkspacePath(currentState.pendingWorkspacePath)
-      const inheritedModelOverride =
-        currentState.pendingModelOverride ?? activeThread?.modelOverride ?? null
       const stagedReasoningEffort = currentState.reasoningEffortByThread[getComposerDraftKey(null)]
       const reusableThread = currentState.threads.find((thread) =>
         isThreadReusableNewChat(
           {
             composerDrafts: currentState.composerDrafts,
             messages: currentState.messages,
-            pendingWorkspacePath,
-            modelOverride: inheritedModelOverride
+            pendingWorkspacePath
           },
           thread
         )
@@ -125,11 +121,7 @@ export function createThreadLifecycleActions(input: {
               getComposerDraftKey(reusableAutoThread.id)
             ),
             toolModeByThread: setThreadToolModeValue(
-              setThreadToolModeValue(
-                state.toolModeByThread,
-                getComposerDraftKey(null),
-                undefined
-              ),
+              setThreadToolModeValue(state.toolModeByThread, getComposerDraftKey(null), undefined),
               getComposerDraftKey(reusableAutoThread.id),
               undefined
             ),
@@ -198,7 +190,6 @@ export function createThreadLifecycleActions(input: {
 
       const createThreadInput = {
         ...(pendingWorkspacePath ? { workspacePath: pendingWorkspacePath } : {}),
-        ...(inheritedModelOverride ? { modelOverride: inheritedModelOverride } : {}),
         ...(stagedReasoningEffort ? { reasoningEffort: stagedReasoningEffort } : {})
       }
       const thread = await window.api.yachiyo.createThread(

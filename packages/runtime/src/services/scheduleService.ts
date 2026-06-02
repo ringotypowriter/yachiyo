@@ -7,7 +7,7 @@ import { mkdir } from 'node:fs/promises'
 import type {
   ScheduleRecord,
   ScheduleResultStatus,
-  SendChatRunTrigger,
+  SendChatInput,
   ShowNotificationInput,
   ThreadRecord,
   YachiyoServerEvent
@@ -25,14 +25,7 @@ export interface ScheduleServerApi {
     threadId: string
     modelOverride: NonNullable<ThreadRecord['modelOverride']>
   }): Promise<ThreadRecord>
-  sendChat(input: {
-    threadId: string
-    content: string
-    enabledTools?: string[]
-    extraTools?: Record<string, unknown>
-    runTrigger?: SendChatRunTrigger
-    channelHint?: string
-  }): Promise<{ runId: string }>
+  sendChat(input: SendChatInput): Promise<{ runId: string }>
   setThreadIcon(input: { threadId: string; icon: string }): Promise<ThreadRecord>
   archiveThread(input: { threadId: string; unread?: boolean }): Promise<void>
   showNotification(input: ShowNotificationInput): void
