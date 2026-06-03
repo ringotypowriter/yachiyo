@@ -53,6 +53,11 @@ export interface DeleteThingInput {
   name: string
 }
 
+export interface RemoveThingSourceInput {
+  name: string
+  sourceId: string
+}
+
 export interface AddThingSourceInput {
   name: string
   threadId: string

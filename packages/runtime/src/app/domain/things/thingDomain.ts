@@ -4,6 +4,7 @@ import type {
   AddThingSourceInput,
   CreateThingInput,
   ListThingsInput,
+  RemoveThingSourceInput,
   ThingMentionResolution,
   ThingRecord,
   UpdateThingInput
@@ -114,6 +115,18 @@ export class ThingDomain {
     this.storage.updateThing(next)
     await this.emitChanged()
     return this.toThingRecord(next)
+  }
+
+  async removeSource(input: RemoveThingSourceInput): Promise<boolean> {
+    const row = await this.mustGetThingRow(input.name)
+    if (!row) return false
+    const source = this.storage.listThingSources(row.id).find((item) => item.id === input.sourceId)
+    if (!source) return false
+
+    this.storage.deleteThingSource(source.id)
+    this.storage.updateThing({ ...row, updatedAt: this.nowIso() })
+    await this.emitChanged()
+    return true
   }
 
   async restoreThing(name: string): Promise<ThingRecord | undefined> {

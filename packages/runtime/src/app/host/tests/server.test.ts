@@ -696,6 +696,31 @@ test('YachiyoServer continues a Thing in the latest source thread workspace and 
   })
 })
 
+test('YachiyoServer restores an inactive Thing before continuing it in a new chat', async () => {
+  await withServer(
+    async ({ server, storage }) => {
+      storage.createThing({
+        id: 'thing-1',
+        name: 'raven-ui',
+        summary: 'Raven UI work',
+        lastUpdatedAt: '2026-06-01T00:00:00.000Z',
+        createdAt: '2026-06-01T00:00:00.000Z',
+        updatedAt: '2026-06-01T00:00:00.000Z'
+      })
+
+      assert.equal((await server.getThing({ name: 'raven-ui' }))?.isInactive, true)
+
+      const continuedThread = await server.continueThingInNewChat({ name: 'raven-ui' })
+
+      assert.equal(continuedThread.title, 'New Chat')
+      const restored = await server.getThing({ name: 'raven-ui' })
+      assert.equal(restored?.isInactive, false)
+      assert.equal(restored?.lastUpdatedAt, '2026-06-04T00:00:00.001Z')
+    },
+    { now: () => new Date('2026-06-04T00:00:00.001Z') }
+  )
+})
+
 test('YachiyoServer refines owner DM thread titles like local threads', async () => {
   const requests: ModelStreamRequest[] = []
   let releaseMainRun: (() => void) | null = null

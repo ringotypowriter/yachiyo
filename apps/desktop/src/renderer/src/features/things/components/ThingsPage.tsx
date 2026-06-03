@@ -56,6 +56,7 @@ export function ThingsPage({
   const toggleShowInactiveThings = useAppStore((s) => s.toggleShowInactiveThings)
   const restoreThing = useAppStore((s) => s.restoreThing)
   const deleteThing = useAppStore((s) => s.deleteThing)
+  const removeThingSource = useAppStore((s) => s.removeThingSource)
   const continueThingInNewChat = useAppStore((s) => s.continueThingInNewChat)
   const setActiveThread = useAppStore((s) => s.setActiveThread)
   const dialog = useAppDialog()
@@ -100,6 +101,23 @@ export function ThingsPage({
     } catch (error) {
       await dialog.alert({
         title: error instanceof Error ? error.message : `Failed to delete #${thing.name}.`
+      })
+    }
+  }
+
+  async function handleRemoveSource(thing: ThingRecord, sourceId: string): Promise<void> {
+    const confirmed = await dialog.confirm({
+      title: 'Remove this source?',
+      message: `This removes the saved source from #${thing.name}. The conversation stays untouched.`,
+      confirmLabel: 'Remove source',
+      tone: 'danger'
+    })
+    if (!confirmed) return
+    try {
+      await removeThingSource({ name: thing.name, sourceId })
+    } catch (error) {
+      await dialog.alert({
+        title: error instanceof Error ? error.message : 'Failed to remove this source.'
       })
     }
   }
@@ -194,6 +212,7 @@ export function ThingsPage({
           onContinue={(name) => void handleContinue(name)}
           onRestore={(name) => void restoreThing(name)}
           onDelete={() => void handleDeleteThing(selectedThing)}
+          onRemoveSource={(source) => void handleRemoveSource(selectedThing, source.id)}
           onOpenThread={handleOpenThread}
         />
       ) : null}

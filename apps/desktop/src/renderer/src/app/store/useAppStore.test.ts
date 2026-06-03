@@ -240,6 +240,45 @@ test('restoreThing restores a Thing through the preload API and reloads the boar
   }
 })
 
+test('removeThingSource removes one source through the preload API and reloads the board', async () => {
+  resetStore()
+
+  const calls: Array<{ name: string; sourceId: string }> = []
+  const restoreWindow = withWindowApiMock({
+    removeThingSource: async (input) => {
+      calls.push(input)
+      return true
+    },
+    listThings: async ({ includeInactive } = {}) => {
+      assert.equal(includeInactive, true)
+      return [
+        {
+          id: 'thing-1',
+          name: 'raven-ui',
+          summary: 'UI work',
+          lastUpdatedAt: TIMESTAMP,
+          createdAt: TIMESTAMP,
+          updatedAt: TIMESTAMP,
+          sources: [],
+          isInactive: false
+        }
+      ]
+    }
+  })
+
+  try {
+    useAppStore.setState({ showInactiveThings: true })
+
+    await useAppStore.getState().removeThingSource({ name: 'raven-ui', sourceId: 'source-1' })
+
+    assert.deepEqual(calls, [{ name: 'raven-ui', sourceId: 'source-1' }])
+    assert.equal(useAppStore.getState().things[0]?.sources.length, 0)
+    assert.equal(useAppStore.getState().showInactiveThings, true)
+  } finally {
+    restoreWindow()
+  }
+})
+
 test('continueThingInNewChat lets the server choose Thing source context and pre-fills the tag', async () => {
   resetStore()
 

@@ -58,6 +58,7 @@ import type {
   RunModeId,
   TranslateResult,
   JotdownSaveInput,
+  RemoveThingSourceInput,
   YachiyoServerEvent
 } from '@yachiyo/shared/protocol'
 
@@ -141,6 +142,8 @@ const api = {
       ipcRenderer.invoke('yachiyo:restore-thing', input),
     deleteThing: (input: DeleteThingInput): Promise<boolean> =>
       ipcRenderer.invoke('yachiyo:delete-thing', input),
+    removeThingSource: (input: RemoveThingSourceInput): Promise<boolean> =>
+      ipcRenderer.invoke('yachiyo:remove-thing-source', input),
     continueThingInNewChat: (input: { name: string }): Promise<ThreadRecord> =>
       ipcRenderer.invoke('yachiyo:continue-thing-in-new-chat', input),
     archiveThread: (input: { threadId: string }) =>

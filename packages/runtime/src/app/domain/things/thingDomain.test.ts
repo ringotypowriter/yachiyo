@@ -62,6 +62,37 @@ test('upsertSource updates an existing source preview instead of duplicating it'
   assert.equal(updated?.sources[0]?.preview, 'Updated preview')
 })
 
+test('removeSource removes one saved source without deleting the Thing', async () => {
+  const storage = createInMemoryYachiyoStorage()
+  const domain = new ThingDomain({
+    storage,
+    now: () => new Date('2026-06-01T00:00:00.000Z')
+  })
+
+  const thing = await domain.createThing({ name: 'raven-ui', summary: 'UI work' })
+  await domain.upsertSource({
+    name: thing.name,
+    threadId: 'thread-1',
+    sourceRowId: 'thread_message:thread-1:message-1',
+    preview: 'First source'
+  })
+  const withSources = await domain.upsertSource({
+    name: thing.name,
+    threadId: 'thread-2',
+    sourceRowId: 'thread_message:thread-2:message-2',
+    preview: 'Second source'
+  })
+  const firstSourceId = withSources?.sources[0]?.id
+  assert.ok(firstSourceId)
+
+  const removed = await domain.removeSource({ name: thing.name, sourceId: firstSourceId })
+
+  assert.equal(removed, true)
+  const current = await domain.getThing(thing.name)
+  assert.equal(current?.sources.length, 1)
+  assert.equal(current?.sources[0]?.preview, 'Second source')
+})
+
 test('restoreThing refreshes inactive Things', async () => {
   let now = new Date('2026-06-01T00:00:00.000Z')
   const storage = createInMemoryYachiyoStorage()

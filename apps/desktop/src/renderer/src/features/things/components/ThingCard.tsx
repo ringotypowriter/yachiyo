@@ -76,7 +76,9 @@ export function ThingColumn({
       </div>
 
       <div className="mt-auto flex shrink-0 flex-wrap gap-2 pt-5">
-        <PrimaryButton onClick={() => onContinue(thing.name)}>Continue</PrimaryButton>
+        <PrimaryButton onClick={() => onContinue(thing.name)}>
+          {thing.isInactive ? 'Restore and continue' : 'Continue'}
+        </PrimaryButton>
         {thing.isInactive ? (
           <SecondaryButton onClick={() => onRestore(thing.name)} icon={<RotateCcw size={14} />}>
             Restore
@@ -93,6 +95,7 @@ export function ThingDetailOverlay({
   onContinue,
   onRestore,
   onDelete,
+  onRemoveSource,
   onOpenThread
 }: {
   thing: ThingRecord
@@ -100,6 +103,7 @@ export function ThingDetailOverlay({
   onContinue: (name: string) => void
   onRestore: (name: string) => void
   onDelete: () => void
+  onRemoveSource: (source: ThingSourceRecord) => void
   onOpenThread: (threadId: string, messageId?: string) => void
 }): React.JSX.Element {
   return (
@@ -144,7 +148,9 @@ export function ThingDetailOverlay({
 
         <div className="mt-5 flex shrink-0 items-center justify-between gap-3">
           <div className="flex min-w-0 flex-wrap gap-2">
-            <PrimaryButton onClick={() => onContinue(thing.name)}>Continue</PrimaryButton>
+            <PrimaryButton onClick={() => onContinue(thing.name)}>
+              {thing.isInactive ? 'Restore and continue' : 'Continue'}
+            </PrimaryButton>
             {thing.isInactive ? (
               <SecondaryButton onClick={() => onRestore(thing.name)} icon={<RotateCcw size={14} />}>
                 Restore
@@ -163,7 +169,12 @@ export function ThingDetailOverlay({
               <EmptyLine>No source previews saved yet.</EmptyLine>
             ) : (
               thing.sources.map((source) => (
-                <SourceCard key={source.id} source={source} onOpenThread={onOpenThread} />
+                <SourceCard
+                  key={source.id}
+                  source={source}
+                  onOpenThread={onOpenThread}
+                  onRemove={() => onRemoveSource(source)}
+                />
               ))
             )}
           </div>
@@ -206,9 +217,11 @@ function SourcePreview({
 
 function SourceCard({
   source,
+  onRemove,
   onOpenThread
 }: {
   source: ThingSourceRecord
+  onRemove: () => void
   onOpenThread: (threadId: string, messageId?: string) => void
 }): React.JSX.Element {
   const [copyState, setCopyState] = useState<'idle' | 'copied' | 'failed'>('idle')
@@ -262,6 +275,9 @@ function SourceCard({
             : copyState === 'failed'
               ? 'Copy failed'
               : 'Copy preview'}
+        </SecondaryButton>
+        <SecondaryButton onClick={onRemove} icon={<Trash2 size={14} />} tone="danger">
+          Remove source
         </SecondaryButton>
       </div>
     </figure>

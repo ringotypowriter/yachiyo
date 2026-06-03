@@ -34,6 +34,7 @@ import type {
   ListSkillsInput,
   ProviderConfig,
   ProviderSettings,
+  RemoveThingSourceInput,
   RetryInput,
   RunModeId,
   SaveThreadInput,
@@ -677,6 +678,9 @@ export function registerYachiyoGateway(): YachiyoServer {
   )
   handleYachiyoIpc(IPC_CHANNELS.deleteThing, (input: DeleteThingInput) =>
     server!.deleteThing(input)
+  )
+  handleYachiyoIpc(IPC_CHANNELS.removeThingSource, (input: RemoveThingSourceInput) =>
+    server!.removeThingSource(input)
   )
   handleYachiyoIpc(IPC_CHANNELS.continueThingInNewChat, (input: { name: string }) =>
     server!.continueThingInNewChat(input)

@@ -29,6 +29,7 @@ import type {
   ListSkillsInput,
   ProviderConfig,
   ProviderSettings,
+  RemoveThingSourceInput,
   RetryAccepted,
   RetryInput,
   RunModeId,
@@ -740,9 +741,14 @@ export class YachiyoServer {
   async deleteThing(input: { name: string }): Promise<boolean> {
     return this.thingDomain.deleteThing(input.name)
   }
+  async removeThingSource(input: RemoveThingSourceInput): Promise<boolean> {
+    return this.thingDomain.removeSource(input)
+  }
   async continueThingInNewChat(input: { name: string }): Promise<ThreadRecord> {
-    const thing = await this.thingDomain.getThing(input.name)
-    if (!thing || thing.isInactive) throw new Error(`Thing is not available: #${input.name}`)
+    let thing = await this.thingDomain.getThing(input.name)
+    if (!thing) throw new Error(`Thing is not available: #${input.name}`)
+    if (thing.isInactive) thing = await this.thingDomain.restoreThing(input.name)
+    if (!thing) throw new Error(`Thing is not available: #${input.name}`)
     const latestSource = thing.sources.at(-1)
     const sourceThread = latestSource ? this.storage.getThread(latestSource.threadId) : undefined
     return this.createThread({

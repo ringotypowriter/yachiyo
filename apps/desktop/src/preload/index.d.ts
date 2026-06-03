@@ -24,6 +24,7 @@ import type {
   ListSkillsInput,
   ProviderConfig,
   ProviderSettings,
+  RemoveThingSourceInput,
   RetryInput,
   RetryAccepted,
   ResolveFileReferencesInput,
@@ -116,6 +117,7 @@ declare global {
         getThing: (input: { name: string }) => Promise<ThingRecord | undefined>
         restoreThing: (input: { name: string }) => Promise<ThingRecord | undefined>
         deleteThing: (input: { name: string }) => Promise<boolean>
+        removeThingSource: (input: RemoveThingSourceInput) => Promise<boolean>
         continueThingInNewChat: (input: { name: string }) => Promise<ThreadRecord>
         archiveThread: (input: { threadId: string }) => Promise<void>
         bootstrap: () => Promise<BootstrapPayload>
