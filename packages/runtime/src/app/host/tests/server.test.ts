@@ -17,6 +17,7 @@ import {
   type YachiyoServerEvent
 } from '@yachiyo/shared/protocol'
 import { getThreadPlanDocumentFilename, PLAN_DOCUMENT_MARKER } from '@yachiyo/shared/planMode'
+import { messageRowId } from '@yachiyo/shared/sourceRowIds'
 import { RUN_MODE_DEFINITIONS } from '@yachiyo/shared/toolModes'
 
 function assertAcceptedHasUserMessage(
@@ -644,6 +645,64 @@ test('YachiyoServer lets Things Continue chats receive automatic generated title
         }
       })
     }
+  )
+})
+
+test('YachiyoServer adds an accepted user hashtag mention to the active Thing sources', async () => {
+  await withServer(async ({ server, storage, completeRun }) => {
+    storage.createThing({
+      id: 'thing-1',
+      name: 'raven-ui',
+      summary: 'Raven UI work',
+      lastUpdatedAt: '2026-06-01T00:00:00.000Z',
+      createdAt: '2026-06-01T00:00:00.000Z',
+      updatedAt: '2026-06-01T00:00:00.000Z'
+    })
+    const thread = await server.createThread()
+
+    const accepted = await server.sendChat({
+      threadId: thread.id,
+      content: 'Use #raven-ui for this UI pass, not #slus.'
+    })
+    assertAcceptedHasUserMessage(accepted)
+
+    const thing = await server.getThing({ name: 'raven-ui' })
+    assert.equal(thing?.sources.length, 1)
+    assert.equal(thing?.sources[0]?.threadId, thread.id)
+    assert.equal(thing?.sources[0]?.messageId, accepted.userMessage.id)
+    assert.equal(thing?.sources[0]?.sourceRowId, messageRowId(thread.id, accepted.userMessage.id))
+    assert.equal(thing?.sources[0]?.preview, 'Use #raven-ui for this UI pass, not #slus.')
+
+    await completeRun(accepted.runId)
+  })
+})
+
+test('YachiyoServer ignores inactive Thing hashtag mentions when adding sources', async () => {
+  await withServer(
+    async ({ server, storage, completeRun }) => {
+      storage.createThing({
+        id: 'thing-1',
+        name: 'raven-ui',
+        summary: 'Raven UI work',
+        lastUpdatedAt: '2026-06-01T00:00:00.000Z',
+        createdAt: '2026-06-01T00:00:00.000Z',
+        updatedAt: '2026-06-01T00:00:00.000Z'
+      })
+      const thread = await server.createThread()
+
+      const accepted = await server.sendChat({
+        threadId: thread.id,
+        content: 'Use #raven-ui for this UI pass.'
+      })
+      assertAcceptedHasUserMessage(accepted)
+
+      const thing = await server.getThing({ name: 'raven-ui' })
+      assert.equal(thing?.isInactive, true)
+      assert.equal(thing?.sources.length, 0)
+
+      await completeRun(accepted.runId)
+    },
+    { now: () => new Date('2026-06-05T00:00:00.000Z') }
   )
 })
 

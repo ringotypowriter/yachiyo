@@ -99,6 +99,7 @@ interface UseComposerCompletionsResult {
   slashSelectedIndex: number
   setSlashSelectedIndex: React.Dispatch<React.SetStateAction<number>>
   validatedFileTags: string[]
+  validThingSlugs: ReadonlySet<string>
   canRunThreadOperations: boolean
   canHandoffActiveThread: boolean
   commitWorkspaceSelection: (selection: PendingWorkspaceChangeConfirmation) => Promise<void>
@@ -217,6 +218,10 @@ export function useComposerCompletions(
         ? validatedFileTagsState.tags
         : [],
     [confirmedFileTags.length, confirmedFileTagsKey, validatedFileTagsState]
+  )
+  const validThingSlugs = useMemo(
+    () => new Set(things.filter((thing) => !thing.isInactive).map((thing) => thing.name)),
+    [things]
   )
 
   const userPrompts = useMemo(() => config?.prompts ?? [], [config?.prompts])
@@ -619,6 +624,7 @@ export function useComposerCompletions(
     slashSelectedIndex,
     setSlashSelectedIndex,
     validatedFileTags,
+    validThingSlugs,
     canRunThreadOperations,
     canHandoffActiveThread,
     commitWorkspaceSelection,

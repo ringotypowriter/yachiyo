@@ -97,6 +97,7 @@ export function ComposerView(props: any): React.JSX.Element {
     fileMentionAnchorRect,
     activeSkillTag,
     validatedFileTags,
+    validThingSlugs,
     setComposerValue,
     composerValue,
     composerInputRef,
@@ -694,7 +695,8 @@ export function ComposerView(props: any): React.JSX.Element {
                             overlaySelRange,
                             theme.text.primary,
                             theme.text.accent,
-                            validatedFileTags
+                            validatedFileTags,
+                            validThingSlugs
                           )}
                         </div>
                       )
@@ -722,7 +724,8 @@ export function ComposerView(props: any): React.JSX.Element {
                     composerValue,
                     theme.text.primary,
                     theme.text.accent,
-                    validatedFileTags
+                    validatedFileTags,
+                    validThingSlugs
                   )}
             </div>
             <SmoothCaretOverlay

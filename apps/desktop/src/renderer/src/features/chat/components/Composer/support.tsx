@@ -1,6 +1,7 @@
 /* eslint-disable react-refresh/only-export-components */
 import type React from 'react'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { isThingMentionToken } from '@yachiyo/shared/thingMentions'
 import {
   AlertCircle,
   Brain,
@@ -70,7 +71,8 @@ export function renderComposerTextHighlights(
   text: string,
   primaryColor: string,
   accentColor: string,
-  validatedFileTags: string[]
+  validatedFileTags: string[],
+  validThingSlugs: ReadonlySet<string> = new Set()
 ): React.ReactNode {
   const validatedSet = new Set(validatedFileTags)
   const parts: React.ReactNode[] = []
@@ -87,7 +89,9 @@ export function renderComposerTextHighlights(
     if (fileTagKey?.startsWith('"') && fileTagKey.endsWith('"'))
       fileTagKey = fileTagKey.slice(1, -1)
     const isHighlighted =
-      isSkillTag || isThingTag || (fileTagKey !== null && validatedSet.has(fileTagKey))
+      isSkillTag ||
+      (isThingTag && isThingMentionToken(matched, validThingSlugs)) ||
+      (fileTagKey !== null && validatedSet.has(fileTagKey))
 
     if (m.index > last) {
       parts.push(
@@ -136,7 +140,8 @@ export function renderPretextLine(
   selRange: [number, number] | null,
   primaryColor: string,
   accentColor: string,
-  validatedFileTags: string[]
+  validatedFileTags: string[],
+  validThingSlugs: ReadonlySet<string> = new Set()
 ): React.ReactNode {
   if (!lineText) return '\u200b'
 
@@ -145,8 +150,13 @@ export function renderPretextLine(
   // No selection or no intersection → plain highlights
   if (!selRange || selRange[0] >= lineEnd || selRange[1] <= lineCharStart) {
     return (
-      renderComposerTextHighlights(lineText, primaryColor, accentColor, validatedFileTags) ||
-      '\u200b'
+      renderComposerTextHighlights(
+        lineText,
+        primaryColor,
+        accentColor,
+        validatedFileTags,
+        validThingSlugs
+      ) || '\u200b'
     )
   }
 
@@ -157,8 +167,13 @@ export function renderPretextLine(
   if (localStart === 0 && localEnd === lineText.length) {
     return (
       <span style={{ backgroundColor: SELECTION_BG }}>
-        {renderComposerTextHighlights(lineText, primaryColor, accentColor, validatedFileTags) ||
-          lineText}
+        {renderComposerTextHighlights(
+          lineText,
+          primaryColor,
+          accentColor,
+          validatedFileTags,
+          validThingSlugs
+        ) || lineText}
       </span>
     )
   }
@@ -170,12 +185,31 @@ export function renderPretextLine(
 
   return (
     <>
-      {before && renderComposerTextHighlights(before, primaryColor, accentColor, validatedFileTags)}
+      {before &&
+        renderComposerTextHighlights(
+          before,
+          primaryColor,
+          accentColor,
+          validatedFileTags,
+          validThingSlugs
+        )}
       <span style={{ backgroundColor: SELECTION_BG }}>
-        {renderComposerTextHighlights(selected, primaryColor, accentColor, validatedFileTags) ||
-          selected}
+        {renderComposerTextHighlights(
+          selected,
+          primaryColor,
+          accentColor,
+          validatedFileTags,
+          validThingSlugs
+        ) || selected}
       </span>
-      {after && renderComposerTextHighlights(after, primaryColor, accentColor, validatedFileTags)}
+      {after &&
+        renderComposerTextHighlights(
+          after,
+          primaryColor,
+          accentColor,
+          validatedFileTags,
+          validThingSlugs
+        )}
     </>
   )
 }

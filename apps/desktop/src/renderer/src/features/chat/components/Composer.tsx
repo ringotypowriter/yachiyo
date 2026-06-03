@@ -364,6 +364,7 @@ export function Composer({
     slashSelectedIndex,
     setSlashSelectedIndex,
     validatedFileTags,
+    validThingSlugs,
     canRunThreadOperations,
     canHandoffActiveThread,
     commitWorkspaceSelection,
@@ -1208,6 +1209,7 @@ export function Composer({
       fileMentionAnchorRect={fileMentionAnchorRect}
       activeSkillTag={activeSkillTag}
       validatedFileTags={validatedFileTags}
+      validThingSlugs={validThingSlugs}
       setComposerValue={setComposerValue}
       composerValue={composerValue}
       composerInputRef={composerInputRef}

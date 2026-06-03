@@ -160,6 +160,8 @@ import {
   type RemoteImageFetcher
 } from '../domain/images/remoteImageDomain.ts'
 import { hasMessagePayload, normalizeMessageImages } from '@yachiyo/shared/messageContent'
+import { messageRowId } from '@yachiyo/shared/sourceRowIds'
+import { collectThingMentionSlugs } from '@yachiyo/shared/thingMentions'
 import {
   getThreadPlanDocumentFilename,
   getThreadPlanDocumentStateFilename,
@@ -203,6 +205,11 @@ function resolveCognitiveMemoryStore(
   store: CognitiveMemoryStore | undefined
 ): CognitiveMemoryStore {
   return store ?? createInMemoryCognitiveMemoryStore()
+}
+
+function compactThingMentionSourcePreview(content: string): string {
+  const compact = content.replace(/\s+/g, ' ').trim()
+  return compact.length > 240 ? `${compact.slice(0, 239)}…` : compact
 }
 
 export class YachiyoServer {
@@ -1023,7 +1030,9 @@ export class YachiyoServer {
   }
 
   async sendChat(input: InternalSendChatInput): Promise<ChatAccepted> {
-    return this.runDomain.sendChat(input)
+    const accepted = await this.runDomain.sendChat(input)
+    await this.addThingMentionSources(accepted)
+    return accepted
   }
 
   async retryMessage(input: RetryInput): Promise<RetryAccepted> {
@@ -1092,10 +1101,33 @@ export class YachiyoServer {
       runMode: input.runMode,
       reasoningEffort: input.reasoningEffort
     })
+    await this.addThingMentionSources(accepted)
     if ('userMessage' in accepted) {
       return { ...accepted, replacedMessageId: input.messageId }
     }
     return accepted
+  }
+
+  private async addThingMentionSources(accepted: ChatAccepted): Promise<void> {
+    if (!('userMessage' in accepted)) return
+
+    const slugs = collectThingMentionSlugs(accepted.userMessage.content)
+    if (slugs.length === 0) return
+
+    const sourceRowId = messageRowId(accepted.thread.id, accepted.userMessage.id)
+    const preview = compactThingMentionSourcePreview(accepted.userMessage.content)
+
+    for (const slug of slugs) {
+      const resolution = await this.thingDomain.resolveThingMention(slug)
+      if (!resolution.resolved) continue
+      await this.thingDomain.upsertSource({
+        name: resolution.name,
+        threadId: accepted.thread.id,
+        messageId: accepted.userMessage.id,
+        sourceRowId,
+        preview
+      })
+    }
   }
 
   async downloadRemoteImageForMessage(
