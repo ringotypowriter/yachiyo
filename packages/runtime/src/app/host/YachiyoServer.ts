@@ -749,7 +749,7 @@ export class YachiyoServer {
     if (!thing) throw new Error(`Thing is not available: #${input.name}`)
     if (thing.isInactive) thing = await this.thingDomain.restoreThing(input.name)
     if (!thing) throw new Error(`Thing is not available: #${input.name}`)
-    const latestSource = thing.sources.at(-1)
+    const latestSource = thing.sources.at(0)
     const sourceThread = latestSource ? this.storage.getThread(latestSource.threadId) : undefined
     return this.createThread({
       ...(sourceThread?.workspacePath ? { workspacePath: sourceThread.workspacePath } : {}),
