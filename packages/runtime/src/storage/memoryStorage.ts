@@ -1154,7 +1154,7 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
     listThingSources(thingId) {
       return [...thingSources.values()]
         .filter((source) => !thingId || source.thingId === thingId)
-        .sort((left, right) => left.createdAt.localeCompare(right.createdAt))
+        .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
         .map(toThingSourceRecord)
     },
     upsertThingSource(source) {

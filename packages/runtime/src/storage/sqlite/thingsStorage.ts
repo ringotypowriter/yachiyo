@@ -1,4 +1,4 @@
-import { and, asc, desc, eq } from 'drizzle-orm'
+import { and, desc, eq } from 'drizzle-orm'
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3'
 
 import type { ThingSourceRecord, ThingThreadScopeRecord } from '@yachiyo/shared/protocol'
@@ -134,7 +134,7 @@ export function createSqliteThingsStorageMethods(db: SqliteDb): SqliteThingsStor
         })
         .from(thingSourcesTable)
         .leftJoin(threadsTable, eq(thingSourcesTable.threadId, threadsTable.id))
-        .orderBy(asc(thingSourcesTable.createdAt))
+        .orderBy(desc(thingSourcesTable.createdAt))
 
       return (
         thingId ? query.where(eq(thingSourcesTable.thingId, thingId)).all() : query.all()

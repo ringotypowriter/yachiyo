@@ -6,10 +6,13 @@ import type { ThingRecord } from '@renderer/app/types'
 import { alpha, theme } from '@renderer/theme/theme'
 import { ThingColumn, ThingDetailOverlay } from './ThingCard'
 
+const THINGS_DAILY_REVIEW_SCHEDULE_ID = 'bundled:things-daily-review'
+
 export interface ThingsPageProps {
   showHeader?: boolean
   onContinueThing?: (name: string) => Promise<void>
   onOpenThread?: (threadId: string, messageId?: string) => void
+  onOpenSettingsRoute?: (route: string) => void
 }
 
 export function ThingsPanelTopControls({
@@ -33,7 +36,7 @@ export function ThingsPanelTopControls({
           Things
         </div>
         <div className="truncate text-xs font-medium" style={{ color: theme.text.muted }}>
-          Context board · {activeCount} active · {sourceCount} source{sourceCount === 1 ? '' : 's'}
+          {activeCount} active · {sourceCount} source{sourceCount === 1 ? '' : 's'}
         </div>
       </div>
       <InactiveThingsToggleButton
@@ -48,7 +51,8 @@ export function ThingsPanelTopControls({
 export function ThingsPage({
   showHeader = true,
   onContinueThing,
-  onOpenThread
+  onOpenThread,
+  onOpenSettingsRoute
 }: ThingsPageProps): React.JSX.Element {
   const things = useAppStore((s) => s.things)
   const showInactiveThings = useAppStore((s) => s.showInactiveThings)
@@ -61,10 +65,31 @@ export function ThingsPage({
   const setActiveThread = useAppStore((s) => s.setActiveThread)
   const dialog = useAppDialog()
   const [selectedThingId, setSelectedThingId] = useState<string | null>(null)
+  const [isDailyReviewEnabled, setIsDailyReviewEnabled] = useState<boolean | null>(null)
 
   useEffect(() => {
     void loadThings({ includeInactive: showInactiveThings })
   }, [loadThings, showInactiveThings])
+
+  useEffect(() => {
+    let cancelled = false
+    void window.api.yachiyo
+      .listSchedules()
+      .then((schedules) => {
+        if (cancelled) return
+        const dailyReviewSchedule = schedules.find(
+          (schedule) => schedule.id === THINGS_DAILY_REVIEW_SCHEDULE_ID
+        )
+        setIsDailyReviewEnabled(dailyReviewSchedule?.enabled === true)
+      })
+      .catch(() => {
+        if (!cancelled) setIsDailyReviewEnabled(null)
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   const boardThings = useMemo(() => {
     return [...things]
@@ -82,7 +107,9 @@ export function ThingsPage({
 
   const activeCount = countActiveThings(things)
   const sourceCount = countSources(things)
-  const contentPadding = showHeader ? 'px-8 pb-8' : 'px-6 py-6'
+  const contentPadding = showHeader
+    ? 'px-4 pb-6 sm:px-6 lg:px-8 lg:pb-8'
+    : 'px-4 py-5 sm:px-6 sm:py-6'
   const handleContinue = onContinueThing ?? continueThingInNewChat
   const handleOpenThread = onOpenThread ?? setActiveThread
 
@@ -167,7 +194,7 @@ export function ThingsPage({
         <div
           className={`flex h-full min-h-0 min-w-0 items-center justify-center overflow-hidden ${contentPadding}`}
         >
-          <div className="px-8 py-12 text-center">
+          <div className="px-6 py-12 text-center">
             <div className="text-lg font-semibold" style={{ color: theme.text.primary }}>
               No Things yet
             </div>
@@ -175,18 +202,29 @@ export function ThingsPage({
               className="mx-auto mt-2 max-w-md text-sm leading-6"
               style={{ color: theme.text.secondary }}
             >
-              The daily review will create one when a topic becomes worth carrying forward.
+              Ask Yachiyo to save work context as a Thing, for example: “Keep this as #launch-plan
+              with the key source quotes.”
             </p>
+            {isDailyReviewEnabled === false && onOpenSettingsRoute ? (
+              <button
+                type="button"
+                className="mt-4 rounded-full px-3 py-1.5 text-sm font-semibold transition hover:scale-[1.01]"
+                style={{ color: theme.text.accent, background: theme.background.accentSoft }}
+                onClick={() => onOpenSettingsRoute('schedules/list')}
+              >
+                Turn on Daily Review
+              </button>
+            ) : null}
           </div>
         </div>
       ) : (
         <div className={`min-h-0 min-w-0 overflow-hidden ${contentPadding}`}>
           <div className="h-full min-h-0 min-w-0 overflow-x-auto overflow-y-hidden">
             <div
-              className="grid h-full min-h-0 items-stretch gap-4 pb-4 pr-8"
+              className="grid h-full min-h-0 items-stretch gap-3 pb-4 pr-4 sm:gap-4 sm:pr-6"
               style={{
                 gridAutoFlow: 'column',
-                gridAutoColumns: '340px',
+                gridAutoColumns: 'clamp(280px, 30vw, 360px)',
                 gridTemplateRows: 'minmax(0, 1fr)'
               }}
             >
@@ -240,21 +278,43 @@ function InactiveThingsToggleButton({
   return (
     <button
       type="button"
-      className={`no-drag shrink-0 rounded-full font-medium transition hover:scale-[1.01] ${
-        size === 'compact' ? 'px-3 py-1.5 text-xs' : 'px-4 py-2 text-sm'
+      role="switch"
+      aria-checked={showInactiveThings}
+      className={`no-drag inline-flex shrink-0 items-center gap-2 rounded-full font-medium transition hover:scale-[1.01] ${
+        size === 'compact' ? 'px-2.5 py-1.5 text-xs' : 'px-3 py-2 text-sm'
       }`}
       style={{
-        background: 'transparent',
-        color: showInactiveThings ? theme.text.accent : theme.text.secondary
+        background: theme.background.surfaceSoft,
+        color: showInactiveThings ? theme.text.primary : theme.text.secondary
       }}
       onClick={onClick}
       onMouseEnter={(event) => {
         event.currentTarget.style.background = theme.background.hoverStrong
       }}
       onMouseLeave={(event) => {
-        event.currentTarget.style.background = 'transparent'
+        event.currentTarget.style.background = theme.background.surfaceSoft
       }}
     >
+      <span
+        className="relative inline-flex shrink-0 rounded-full p-0.5 transition"
+        style={{
+          width: size === 'compact' ? 30 : 34,
+          height: size === 'compact' ? 17 : 19,
+          background: showInactiveThings ? theme.text.accent : alpha('ink', 0.14)
+        }}
+      >
+        <span
+          className="block rounded-full transition-transform"
+          style={{
+            width: size === 'compact' ? 13 : 15,
+            height: size === 'compact' ? 13 : 15,
+            background: theme.text.inverse,
+            transform: showInactiveThings
+              ? `translateX(${size === 'compact' ? 13 : 15}px)`
+              : 'translateX(0)'
+          }}
+        />
+      </span>
       {showInactiveThings ? 'Hide inactive' : 'Show inactive'}
     </button>
   )

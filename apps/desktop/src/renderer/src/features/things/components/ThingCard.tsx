@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { ArrowUpRight, Check, Copy, Database, RotateCcw, Trash2, X } from 'lucide-react'
+import { ArrowUpRight, Check, Copy, RotateCcw, Trash2, X } from 'lucide-react'
 
 import type { ThingRecord } from '@renderer/app/types'
 import type { ThingSourceRecord } from '@yachiyo/shared/protocol'
@@ -23,14 +23,14 @@ export function ThingColumn({
 
   return (
     <article
-      className="flex h-full min-h-0 w-85 flex-col rounded-[1.75rem] p-5 transition duration-200 hover:-translate-y-0.5"
+      className="flex h-full min-h-0 w-full flex-col rounded-3xl p-4 transition duration-200 hover:-translate-y-0.5 sm:p-5"
       style={{
         background: thing.isInactive ? alpha('surface', 0.5) : alpha('surface', 0.76),
         boxShadow: thing.isInactive ? 'none' : theme.shadow.card,
         opacity: thing.isInactive ? 0.72 : 1
       }}
     >
-      <button type="button" className="block shrink-0 text-left" onClick={onOpen}>
+      <button type="button" className="block w-full shrink-0 text-left" onClick={onOpen}>
         <div className="flex items-start justify-between gap-4">
           <h2
             className="min-w-0 wrap-break-word text-lg font-semibold leading-tight tracking-[-0.03em]"
@@ -39,6 +39,10 @@ export function ThingColumn({
             #{thing.name}
           </h2>
           {thing.isInactive ? <StatusPill tone="muted" label="Inactive" /> : null}
+        </div>
+
+        <div className="mt-2 text-xs font-medium" style={{ color: theme.text.muted }}>
+          Updated {formatDate(thing.lastUpdatedAt)} · {sourceCountLabel(sourceCount)}
         </div>
 
         <p className="mt-4 line-clamp-3 text-sm leading-6" style={{ color: theme.text.secondary }}>
@@ -52,12 +56,8 @@ export function ThingColumn({
             className="text-xs font-semibold uppercase tracking-[0.16em]"
             style={{ color: theme.text.muted }}
           >
-            Sources
+            Source previews
           </div>
-          <ContextChip
-            icon={<Database size={13} />}
-            label={`${sourceCount} source${sourceCount === 1 ? '' : 's'}`}
-          />
         </div>
         <div className="mt-3 flex min-h-0 flex-1 flex-col gap-2 overflow-x-hidden overflow-y-auto pr-1">
           {thing.sources.length > 0 ? (
@@ -119,18 +119,15 @@ export function ThingDetailOverlay({
       >
         <header className="flex shrink-0 items-start justify-between gap-5">
           <div className="min-w-0">
-            <div
-              className="text-xs font-semibold uppercase tracking-[0.18em]"
-              style={{ color: theme.text.muted }}
-            >
-              Sources
-            </div>
             <h2
-              className="mt-2 wrap-break-word text-3xl font-semibold tracking-[-0.04em]"
+              className="wrap-break-word text-3xl font-semibold tracking-[-0.04em]"
               style={{ color: theme.text.primary }}
             >
               #{thing.name}
             </h2>
+            <div className="mt-2 text-sm font-medium" style={{ color: theme.text.muted }}>
+              Updated {formatDate(thing.lastUpdatedAt)} · {sourceCountLabel(thing.sources.length)}
+            </div>
             <p className="mt-4 max-w-3xl text-sm leading-6" style={{ color: theme.text.secondary }}>
               {thing.summary || 'No summary yet.'}
             </p>
@@ -163,7 +160,7 @@ export function ThingDetailOverlay({
         </div>
 
         <div className="mt-6 min-h-0 overflow-auto">
-          <SectionTitle label="Sources" count={thing.sources.length} />
+          <SectionTitle label="Source previews" count={thing.sources.length} />
           <div className="mt-3 flex flex-col gap-3">
             {thing.sources.length === 0 ? (
               <EmptyLine>No source previews saved yet.</EmptyLine>
@@ -194,9 +191,15 @@ function SourcePreview({
   return (
     <button
       type="button"
-      className="shrink-0 rounded-2xl px-3 py-2 text-left transition hover:translate-x-0.5"
+      className="shrink-0 rounded-2xl px-3 py-2 text-left transition hover:translate-x-1"
       style={{ background: theme.background.surfaceSoft }}
       onClick={() => onOpenThread(source.threadId, source.messageId)}
+      onMouseEnter={(event) => {
+        event.currentTarget.style.background = theme.background.hoverStrong
+      }}
+      onMouseLeave={(event) => {
+        event.currentTarget.style.background = theme.background.surfaceSoft
+      }}
     >
       <div
         className="flex items-center justify-between gap-2 text-[11px] font-semibold leading-4"
@@ -318,18 +321,6 @@ function SectionTitle({ label, count }: { label: string; count: number }): React
   )
 }
 
-function ContextChip({ icon, label }: { icon: React.ReactNode; label: string }): React.JSX.Element {
-  return (
-    <span
-      className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium"
-      style={{ background: theme.background.counterSoft, color: theme.text.secondary }}
-    >
-      {icon}
-      {label}
-    </span>
-  )
-}
-
 function PrimaryButton({
   children,
   onClick
@@ -413,4 +404,8 @@ function EmptyLine({ children }: { children: React.ReactNode }): React.JSX.Eleme
 
 function formatDate(value: string): string {
   return new Date(value).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+}
+
+function sourceCountLabel(count: number): string {
+  return `${count} source${count === 1 ? '' : 's'}`
 }

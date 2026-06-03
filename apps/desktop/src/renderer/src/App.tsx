@@ -369,6 +369,7 @@ function App(): React.JSX.Element {
                 <ThingsPage
                   showHeader={false}
                   onContinueThing={handleContinueThingInNewChat}
+                  onOpenSettingsRoute={handleOpenSettingsRoute}
                   onOpenThread={handleOpenThingSourceThread}
                 />
               ),

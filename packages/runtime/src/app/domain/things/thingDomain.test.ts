@@ -62,6 +62,33 @@ test('upsertSource updates an existing source preview instead of duplicating it'
   assert.equal(updated?.sources[0]?.preview, 'Updated preview')
 })
 
+test('lists Thing sources newest first', async () => {
+  let now = new Date('2026-06-01T00:00:00.000Z')
+  const storage = createInMemoryYachiyoStorage()
+  const domain = new ThingDomain({ storage, now: () => now })
+
+  await domain.createThing({ name: 'raven-ui', summary: 'UI work' })
+  await domain.upsertSource({
+    name: 'raven-ui',
+    threadId: 'thread-1',
+    sourceRowId: 'thread_message:thread-1:message-1',
+    preview: 'Older source'
+  })
+
+  now = new Date('2026-06-01T00:01:00.000Z')
+  const updated = await domain.upsertSource({
+    name: 'raven-ui',
+    threadId: 'thread-2',
+    sourceRowId: 'thread_message:thread-2:message-2',
+    preview: 'Newer source'
+  })
+
+  assert.deepEqual(
+    updated?.sources.map((source) => source.preview),
+    ['Newer source', 'Older source']
+  )
+})
+
 test('removeSource removes one saved source without deleting the Thing', async () => {
   const storage = createInMemoryYachiyoStorage()
   const domain = new ThingDomain({
