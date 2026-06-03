@@ -5,13 +5,15 @@ import type { SettingsConfig, UserPrompt } from '@yachiyo/shared/protocol'
 import { normalizeUserPrompts } from '@yachiyo/shared/protocol'
 import { SettingSection } from '../components/primitives'
 import { inputStyle } from '../components/styles'
+import {
+  prependPromptDraftRow,
+  type PromptDraftRow,
+  promptRowsFromStoredPrompts,
+  promptRowsToStoredOrder,
+  shiftPromptKeycodeErrorsForPrependedRow
+} from './promptsPaneModel'
 
 const KEYCODE_RE = /^[a-zA-Z][a-zA-Z0-9-]*$/
-
-interface DraftRow {
-  keycode: string
-  text: string
-}
 
 interface PromptsProps {
   draft: SettingsConfig
@@ -19,8 +21,8 @@ interface PromptsProps {
 }
 
 export function PromptsPane({ draft, onChange }: PromptsProps): React.ReactNode {
-  const [rows, setRows] = useState<DraftRow[]>(() =>
-    (draft.prompts ?? []).map((p) => ({ keycode: p.keycode, text: p.text }))
+  const [rows, setRows] = useState<PromptDraftRow[]>(() =>
+    promptRowsFromStoredPrompts(draft.prompts)
   )
   const [keycodeErrors, setKeycodeErrors] = useState<Record<number, string>>({})
   const latestDraftRef = useRef(draft)
@@ -32,9 +34,11 @@ export function PromptsPane({ draft, onChange }: PromptsProps): React.ReactNode 
   })
 
   useEffect(() => {
-    const valid = rows.filter(
-      (row, idx) => row.keycode && KEYCODE_RE.test(row.keycode) && row.text && !keycodeErrors[idx]
-    )
+    const rowsInStoredOrder = promptRowsToStoredOrder(rows)
+    const valid = rowsInStoredOrder.filter((row, storedIndex) => {
+      const displayIndex = rows.length - 1 - storedIndex
+      return row.keycode && KEYCODE_RE.test(row.keycode) && row.text && !keycodeErrors[displayIndex]
+    })
     const deduped: UserPrompt[] = []
     const seen = new Set<string>()
     for (const row of valid) {
@@ -64,12 +68,13 @@ export function PromptsPane({ draft, onChange }: PromptsProps): React.ReactNode 
     setKeycodeErrors(errors)
   }
 
-  function updateRow(index: number, patch: Partial<DraftRow>): void {
+  function updateRow(index: number, patch: Partial<PromptDraftRow>): void {
     setRows((prev) => prev.map((row, i) => (i === index ? { ...row, ...patch } : row)))
   }
 
   function addRow(): void {
-    setRows((prev) => [...prev, { keycode: '', text: '' }])
+    setRows((prev) => prependPromptDraftRow(prev))
+    setKeycodeErrors((prev) => shiftPromptKeycodeErrorsForPrependedRow(prev))
   }
 
   function removeRow(index: number): void {
