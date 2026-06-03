@@ -42,7 +42,6 @@ export function ThingsPanelTopControls({
       <InactiveThingsToggleButton
         showInactiveThings={showInactiveThings}
         onClick={toggleShowInactiveThings}
-        size="compact"
       />
     </div>
   )
@@ -57,7 +56,6 @@ export function ThingsPage({
   const things = useAppStore((s) => s.things)
   const showInactiveThings = useAppStore((s) => s.showInactiveThings)
   const loadThings = useAppStore((s) => s.loadThings)
-  const toggleShowInactiveThings = useAppStore((s) => s.toggleShowInactiveThings)
   const restoreThing = useAppStore((s) => s.restoreThing)
   const deleteThing = useAppStore((s) => s.deleteThing)
   const removeThingSource = useAppStore((s) => s.removeThingSource)
@@ -181,10 +179,6 @@ export function ThingsPage({
             <div className="flex shrink-0 items-center gap-3">
               <Metric label="Active" value={activeCount} />
               <Metric label="Sources" value={sourceCount} />
-              <InactiveThingsToggleButton
-                showInactiveThings={showInactiveThings}
-                onClick={toggleShowInactiveThings}
-              />
             </div>
           </div>
         </header>
@@ -268,50 +262,35 @@ function countSources(things: ThingRecord[]): number {
 
 function InactiveThingsToggleButton({
   showInactiveThings,
-  onClick,
-  size = 'regular'
+  onClick
 }: {
   showInactiveThings: boolean
   onClick: () => void
-  size?: 'compact' | 'regular'
 }): React.JSX.Element {
   return (
     <button
       type="button"
       role="switch"
       aria-checked={showInactiveThings}
-      className={`no-drag inline-flex shrink-0 items-center gap-2 rounded-full font-medium transition hover:scale-[1.01] ${
-        size === 'compact' ? 'px-2.5 py-1.5 text-xs' : 'px-3 py-2 text-sm'
-      }`}
-      style={{
-        background: theme.background.surfaceSoft,
-        color: showInactiveThings ? theme.text.primary : theme.text.secondary
-      }}
+      className="no-drag inline-flex shrink-0 items-center gap-2 rounded-full px-2.5 py-1.5 text-xs font-medium transition hover:scale-[1.01]"
+      style={{ color: showInactiveThings ? theme.text.primary : theme.text.secondary }}
       onClick={onClick}
-      onMouseEnter={(event) => {
-        event.currentTarget.style.background = theme.background.hoverStrong
-      }}
-      onMouseLeave={(event) => {
-        event.currentTarget.style.background = theme.background.surfaceSoft
-      }}
     >
       <span
         className="relative inline-flex shrink-0 rounded-full p-0.5 transition"
         style={{
-          width: size === 'compact' ? 30 : 34,
-          height: size === 'compact' ? 17 : 19,
+          width: 30,
+          height: 17,
           background: showInactiveThings ? theme.text.accent : alpha('ink', 0.14)
         }}
       >
         <span
           className="block rounded-full transition-transform"
           style={{
-            width: size === 'compact' ? 13 : 15,
-            height: size === 'compact' ? 13 : 15,
+            width: 13,
+            height: 13,
             background: theme.text.inverse,
-            transform: showInactiveThings
-              ? `translateX(${size === 'compact' ? 13 : 15}px)`
-              : 'translateX(0)'
+            transform: showInactiveThings ? 'translateX(13px)' : 'translateX(0)'
           }}
         />
       </span>
