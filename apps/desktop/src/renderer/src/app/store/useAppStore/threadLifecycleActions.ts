@@ -265,6 +265,13 @@ export function createThreadLifecycleActions(input: {
           pendingWorkspacePath: normalizeWorkspacePath(essential.workspacePath ?? null),
           pendingModelOverride: essential.modelOverride ?? null,
           composerDrafts,
+          toolModeByThread: setThreadToolModeValue(
+            state.toolModeByThread,
+            getComposerDraftKey(null),
+            undefined
+          ),
+          enabledTools: DEFAULT_ENABLED_TOOL_NAMES,
+          runMode: DEFAULT_RUN_MODE_ID,
           ...withFilterBase(state.sidebarFilter, 'all')
         }
       })

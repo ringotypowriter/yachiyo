@@ -2,7 +2,7 @@ import type { YachiyoPreloadYachiyoApi } from '../../../../preload/index.ts'
 
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { DEFAULT_ENABLED_TOOL_NAMES } from '@yachiyo/shared/protocol'
+import { DEFAULT_ENABLED_TOOL_NAMES, DEFAULT_RUN_MODE_ID } from '@yachiyo/shared/protocol'
 import {
   DEFAULT_SIDEBAR_FILTER,
   DEFAULT_SETTINGS,
@@ -36,6 +36,7 @@ function resetStore(): void {
     config: null,
     connectionStatus: 'connected',
     enabledTools: DEFAULT_ENABLED_TOOL_NAMES,
+    runMode: DEFAULT_RUN_MODE_ID,
     subagentActiveIdsByThread: {},
     subagentProgressTimelineByThread: {},
     subagentStateById: {},
@@ -65,7 +66,8 @@ function resetStore(): void {
     },
     threadListMode: 'active',
     threads: [],
-    toolCalls: {}
+    toolCalls: {},
+    toolModeByThread: {}
   })
 }
 
@@ -632,6 +634,60 @@ test('createNewThreadFromEssential preserves the staged new-chat draft', () => {
   assert.equal(state.pendingWorkspacePath, '/tmp/beta')
   assert.deepEqual(state.pendingModelOverride, { providerName: 'work', model: 'gpt-5' })
   assert.equal(state.composerDrafts.__new__?.text, 'Keep this while I switch')
+})
+
+test('createNewThreadFromEssential resets the composer mode from the active thread mode', () => {
+  resetStore()
+
+  useAppStore.setState({
+    activeThreadId: 'thread-1',
+    enabledTools: [],
+    runMode: 'plan',
+    toolModeByThread: {
+      'thread-1': { enabledTools: [], runMode: 'plan' }
+    },
+    config: {
+      providers: [],
+      essentials: [
+        {
+          id: 'essential-a',
+          icon: 'A',
+          iconType: 'emoji',
+          label: 'Alpha',
+          order: 0
+        }
+      ]
+    },
+    messages: {
+      'thread-1': [
+        {
+          id: 'message-1',
+          threadId: 'thread-1',
+          role: 'user',
+          content: 'hello',
+          status: 'completed',
+          createdAt: TIMESTAMP
+        }
+      ]
+    },
+    threads: [
+      {
+        id: 'thread-1',
+        title: 'Existing chat',
+        updatedAt: TIMESTAMP,
+        runMode: 'plan'
+      }
+    ]
+  })
+
+  useAppStore.getState().createNewThreadFromEssential('essential-a')
+
+  const state = useAppStore.getState()
+  assert.equal(state.activeThreadId, null)
+  assert.equal(state.activeEssentialId, 'essential-a')
+  assert.deepEqual(state.enabledTools, DEFAULT_ENABLED_TOOL_NAMES)
+  assert.equal(state.runMode, DEFAULT_RUN_MODE_ID)
+  assert.equal(state.toolModeByThread.__new__, undefined)
 })
 
 test('createNewThreadFromEssential moves an active blank new-chat draft into the staged draft', () => {
