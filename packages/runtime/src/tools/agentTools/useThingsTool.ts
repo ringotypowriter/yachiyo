@@ -16,6 +16,7 @@ type UseThingsInput =
   | { action: 'delete'; name: string }
 
 interface UseThingsToolInput {
+  action: UseThingsInput['action']
   arguments: string
 }
 
@@ -87,7 +88,21 @@ const useThingsActionSchema = z
     { message: 'Unexpected fields for the given action.' }
   )
 
-const useThingsInputSchema = z.object({ arguments: z.string().min(1) }).strip()
+const useThingsInputSchema = z
+  .object({
+    action: z.enum([
+      'list',
+      'get',
+      'create',
+      'updateSummary',
+      'addCurrentThreadSource',
+      'restore',
+      'moveSources',
+      'delete'
+    ]),
+    arguments: z.string().min(1)
+  })
+  .strip()
 
 function parseUseThingsArguments(input: UseThingsToolInput): UseThingsInput {
   let parsed: unknown
@@ -97,7 +112,13 @@ function parseUseThingsArguments(input: UseThingsToolInput): UseThingsInput {
     throw new Error('arguments must be a JSON object string.')
   }
 
-  const result = useThingsActionSchema.safeParse(sanitizeEmptyToolFields(parsed))
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new Error('arguments must be a JSON object string.')
+  }
+
+  const result = useThingsActionSchema.safeParse(
+    sanitizeEmptyToolFields({ ...parsed, action: input.action })
+  )
   if (!result.success) {
     throw new Error(result.error.issues[0]?.message ?? 'Invalid useThings arguments.')
   }
@@ -136,7 +157,7 @@ Actions:
 - moveSources: move saved source previews from one existing Thing to another existing Thing.
 - delete: delete one Thing.
 
-Call this tool with one field named arguments. Its value must be a JSON string containing the action object, for example: {"action":"get","name":"project-name"}.`
+Call this tool with action and arguments. action is one of the action names above. arguments is a JSON string containing that action's parameters, for example action=get and arguments={"name":"project-name"}.`
 
 function textOutput(text: string, details?: unknown): UseThingsToolOutput {
   return { content: [{ type: 'text', text }], ...(details ? { details } : {}) }

@@ -32,8 +32,10 @@ function createThingsTool(threadId = 'thread-current'): {
     { thingDomain: domain }
   )
   const rawExecute = thingTool.execute as unknown as TestToolExecute
-  const execute: TestToolExecute = (input, options) =>
-    rawExecute({ arguments: JSON.stringify(input) }, options)
+  const execute: TestToolExecute = (input, options) => {
+    const { action, ...args } = input as { action: string; [key: string]: unknown }
+    return rawExecute({ action, arguments: JSON.stringify(args) }, options)
+  }
   return { domain, thingTool, execute }
 }
 
@@ -99,7 +101,7 @@ test('useThings addCurrentThreadSource derives the source from AgentToolContext.
   ])
 })
 
-test('useThings tool schema exposes only JSON arguments', async () => {
+test('useThings tool schema exposes action plus JSON arguments', async () => {
   const { execute, thingTool } = createThingsTool()
   const schema = (
     thingTool as { inputSchema: { safeParse: (input: unknown) => { success: boolean } } }
@@ -107,12 +109,13 @@ test('useThings tool schema exposes only JSON arguments', async () => {
 
   assert.equal(
     schema.safeParse({
-      arguments: JSON.stringify({ action: 'get', name: 'raven-ui' }),
+      action: 'get',
+      arguments: JSON.stringify({ name: 'raven-ui' }),
       includeInactive: false
     }).success,
     true
   )
-  assert.equal(schema.safeParse({ action: 'get', name: 'raven-ui' }).success, false)
+  assert.equal(schema.safeParse({ arguments: JSON.stringify({ name: 'raven-ui' }) }).success, false)
 
   assert.equal(
     (await execute({ action: 'linkThread', name: 'raven-ui', threadId: 'other' }, {})).error !=
@@ -201,8 +204,8 @@ test('useThings moveSources moves existing sources without deleting the source T
 
   assert.equal(
     schema.safeParse({
+      action: 'moveSources',
       arguments: JSON.stringify({
-        action: 'moveSources',
         sourceName: 'source',
         targetName: 'target'
       })
@@ -225,8 +228,8 @@ test('useThings moveSources moves existing sources without deleting the source T
   )
   assert.equal(
     schema.safeParse({
+      action: 'moveSources',
       arguments: JSON.stringify({
-        action: 'moveSources',
         sourceName: 'source',
         targetName: 'target'
       }),
@@ -258,7 +261,7 @@ test('useThings delete removes one Thing and rejects extra fields', async () => 
   ).inputSchema
 
   assert.equal(
-    schema.safeParse({ arguments: JSON.stringify({ action: 'delete', name: 'source' }) }).success,
+    schema.safeParse({ action: 'delete', arguments: JSON.stringify({ name: 'source' }) }).success,
     true
   )
   assert.equal(
