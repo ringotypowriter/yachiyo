@@ -4,7 +4,9 @@ import type {
   AddThingSourceInput,
   CreateThingInput,
   ListThingsInput,
+  MoveThingSourcesInput,
   RemoveThingSourceInput,
+  RenameThingInput,
   ThingMentionResolution,
   ThingRecord,
   UpdateThingInput
@@ -89,6 +91,23 @@ export class ThingDomain {
     return this.toThingRecord(next)
   }
 
+  async renameThing(input: RenameThingInput): Promise<ThingRecord | undefined> {
+    const row = await this.mustGetThingRow(input.name)
+    if (!row) return undefined
+
+    const newName = normalizeThingName(input.newName)
+    if (!newName) throw new Error('Thing name is required.')
+
+    const existing = this.storage.getThingByName(newName)
+    if (existing && existing.id !== row.id) throw new Error(`Thing already exists: #${newName}`)
+
+    const now = this.nowIso()
+    const next = { ...row, name: newName, lastUpdatedAt: now, updatedAt: now }
+    this.storage.updateThing(next)
+    await this.emitChanged()
+    return this.toThingRecord(next)
+  }
+
   async deleteThing(name: string): Promise<boolean> {
     const row = await this.mustGetThingRow(name)
     if (!row) return false
@@ -112,6 +131,41 @@ export class ThingDomain {
       createdAt: now
     })
     const next = { ...row, lastUpdatedAt: now, updatedAt: now }
+    this.storage.updateThing(next)
+    await this.emitChanged()
+    return this.toThingRecord(next)
+  }
+
+  async moveSources(input: MoveThingSourcesInput): Promise<ThingRecord | undefined> {
+    const source = await this.mustGetThingRow(input.sourceName)
+    const target = await this.mustGetThingRow(input.targetName)
+    if (!source || !target) return undefined
+    if (source.id === target.id) throw new Error('Choose two different Things.')
+
+    for (const item of this.storage.listThingSources(source.id)) {
+      this.storage.upsertThingSource({
+        id: randomUUID(),
+        thingId: target.id,
+        threadId: item.threadId,
+        messageId: item.messageId ?? null,
+        spanRowId: item.spanRowId ?? null,
+        sourceRowId: item.sourceRowId,
+        preview: item.preview,
+        createdAt: item.createdAt
+      })
+    }
+
+    for (const scope of this.storage.listThingThreadScopes(source.id)) {
+      this.storage.upsertThingThreadScope({
+        thingId: target.id,
+        threadId: scope.threadId,
+        createdAt: scope.createdAt,
+        updatedAt: scope.updatedAt
+      })
+    }
+
+    const now = this.nowIso()
+    const next = { ...target, lastUpdatedAt: now, updatedAt: now }
     this.storage.updateThing(next)
     await this.emitChanged()
     return this.toThingRecord(next)

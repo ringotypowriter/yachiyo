@@ -1,10 +1,12 @@
-import { useEffect, useState } from 'react'
-import { ArrowUpRight, Check, Copy, RotateCcw, Trash2, X } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
+import { ArrowUpRight, Check, Copy, Ellipsis, RotateCcw, Trash2, X } from 'lucide-react'
 
 import type { ThingRecord } from '@renderer/app/types'
 import type { ThingSourceRecord } from '@yachiyo/shared/protocol'
 import { alpha, theme } from '@renderer/theme/theme'
 import { copyTextWithFallback } from '../../chat/lib/messages/copyTextWithFallback'
+import { isDismissEscapeKey } from '@renderer/lib/imeUtils'
 
 export function ThingColumn({
   thing,
@@ -94,18 +96,26 @@ export function ThingDetailOverlay({
   onClose,
   onContinue,
   onRestore,
+  onRename,
+  onMerge,
   onDelete,
   onRemoveSource,
-  onOpenThread
+  onOpenThread,
+  mergeTargets
 }: {
   thing: ThingRecord
   onClose: () => void
   onContinue: (name: string) => void
   onRestore: (name: string) => void
+  onRename: () => void
+  onMerge: (target: ThingRecord) => void
   onDelete: () => void
   onRemoveSource: (source: ThingSourceRecord) => void
   onOpenThread: (threadId: string, messageId?: string) => void
+  mergeTargets: ThingRecord[]
 }): React.JSX.Element {
+  const [menuPosition, setMenuPosition] = useState<{ top: number; left: number } | null>(null)
+
   return (
     <div
       className="absolute inset-0 z-20 flex items-center justify-center p-8"
@@ -132,15 +142,31 @@ export function ThingDetailOverlay({
               {thing.summary || 'No summary yet.'}
             </p>
           </div>
-          <button
-            type="button"
-            className="rounded-full p-2 transition hover:scale-105"
-            style={{ background: theme.background.counterSoft, color: theme.text.primary }}
-            onClick={onClose}
-            aria-label="Close Thing details"
-          >
-            <X size={18} />
-          </button>
+          <div className="flex shrink-0 items-center gap-2">
+            <button
+              type="button"
+              className="rounded-full p-2 transition hover:scale-105"
+              style={{ background: theme.background.counterSoft, color: theme.text.primary }}
+              onClick={(event) => {
+                event.stopPropagation()
+                const rect = event.currentTarget.getBoundingClientRect()
+                setMenuPosition({ top: rect.bottom + 8, left: rect.right - 220 })
+              }}
+              aria-label="Thing options"
+              aria-expanded={menuPosition !== null}
+            >
+              <Ellipsis size={18} />
+            </button>
+            <button
+              type="button"
+              className="rounded-full p-2 transition hover:scale-105"
+              style={{ background: theme.background.counterSoft, color: theme.text.primary }}
+              onClick={onClose}
+              aria-label="Close Thing details"
+            >
+              <X size={18} />
+            </button>
+          </div>
         </header>
 
         <div className="mt-5 flex shrink-0 items-center justify-between gap-3">
@@ -154,9 +180,7 @@ export function ThingDetailOverlay({
               </SecondaryButton>
             ) : null}
           </div>
-          <SecondaryButton onClick={onDelete} icon={<Trash2 size={14} />} tone="danger">
-            Delete
-          </SecondaryButton>
+          <div />
         </div>
 
         <div className="mt-6 min-h-0 overflow-auto">
@@ -177,8 +201,153 @@ export function ThingDetailOverlay({
           </div>
         </div>
       </section>
+      {menuPosition ? (
+        <ThingManagementMenu
+          position={menuPosition}
+          mergeTargets={mergeTargets}
+          onRename={() => {
+            setMenuPosition(null)
+            onRename()
+          }}
+          onMerge={(target) => {
+            setMenuPosition(null)
+            onMerge(target)
+          }}
+          onDelete={() => {
+            setMenuPosition(null)
+            onDelete()
+          }}
+          onClose={() => setMenuPosition(null)}
+        />
+      ) : null}
     </div>
   )
+}
+
+function ThingManagementMenu({
+  mergeTargets,
+  onClose,
+  onDelete,
+  onMerge,
+  onRename,
+  position
+}: {
+  mergeTargets: ThingRecord[]
+  onClose: () => void
+  onDelete: () => void
+  onMerge: (target: ThingRecord) => void
+  onRename: () => void
+  position: { top: number; left: number }
+}): React.JSX.Element {
+  const menuRef = useRef<HTMLDivElement>(null)
+  const [resolvedTop, setResolvedTop] = useState(position.top)
+  const menuWidth = 220
+
+  useEffect(() => {
+    const handlePointerDown = (): void => onClose()
+    const handleEscape = (event: KeyboardEvent): void => {
+      if (isDismissEscapeKey(event)) onClose()
+    }
+
+    document.addEventListener('mousedown', handlePointerDown)
+    document.addEventListener('keydown', handleEscape)
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown)
+      document.removeEventListener('keydown', handleEscape)
+    }
+  }, [onClose])
+
+  useEffect(() => {
+    const el = menuRef.current
+    if (!el) return
+    const margin = 12
+    const menuHeight = el.offsetHeight
+    if (position.top + menuHeight > window.innerHeight - margin) {
+      setResolvedTop(Math.max(margin, window.innerHeight - menuHeight - margin))
+    } else {
+      setResolvedTop(position.top)
+    }
+  }, [position.top, mergeTargets.length])
+
+  return createPortal(
+    <div
+      ref={menuRef}
+      className="no-drag"
+      data-no-drag
+      onMouseDown={(event) => event.stopPropagation()}
+      onClick={(event) => event.stopPropagation()}
+      style={{
+        position: 'fixed',
+        top: resolvedTop,
+        left: Math.max(12, Math.min(position.left, window.innerWidth - menuWidth - 12)),
+        width: menuWidth,
+        padding: 6,
+        background: theme.background.surfaceFrosted,
+        backdropFilter: 'blur(24px)',
+        WebkitBackdropFilter: 'blur(24px)',
+        border: `1px solid ${theme.border.strong}`,
+        borderRadius: 14,
+        boxShadow: theme.shadow.menu,
+        zIndex: 100
+      }}
+    >
+      <ThingMenuButton onClick={onRename}>Rename slug</ThingMenuButton>
+      <MenuDivider />
+      <div
+        className="px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.14em]"
+        style={{ color: theme.text.muted }}
+      >
+        Merge into…
+      </div>
+      {mergeTargets.length > 0 ? (
+        mergeTargets.map((target) => (
+          <ThingMenuButton key={target.id} onClick={() => onMerge(target)}>
+            #{target.name}
+          </ThingMenuButton>
+        ))
+      ) : (
+        <div className="px-3 py-2 text-sm" style={{ color: theme.text.muted }}>
+          No other Things
+        </div>
+      )}
+      <MenuDivider />
+      <ThingMenuButton tone="danger" onClick={onDelete}>
+        Delete
+      </ThingMenuButton>
+    </div>,
+    document.body
+  )
+}
+
+function ThingMenuButton({
+  children,
+  onClick,
+  tone = 'normal'
+}: {
+  children: React.ReactNode
+  onClick: () => void
+  tone?: 'normal' | 'danger'
+}): React.JSX.Element {
+  return (
+    <button
+      type="button"
+      className="w-full rounded-lg px-3 py-2 text-left text-sm transition-colors"
+      style={{ color: tone === 'danger' ? theme.text.dangerStrong : theme.text.primary }}
+      onClick={onClick}
+      onMouseEnter={(event) => {
+        event.currentTarget.style.background = theme.background.hoverStrong
+      }}
+      onMouseLeave={(event) => {
+        event.currentTarget.style.background = 'transparent'
+      }}
+    >
+      {children}
+    </button>
+  )
+}
+
+function MenuDivider(): React.JSX.Element {
+  return <div style={{ height: 1, margin: '4px 8px', background: theme.border.default }} />
 }
 
 function SourcePreview({

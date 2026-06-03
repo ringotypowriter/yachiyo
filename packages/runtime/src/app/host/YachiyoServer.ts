@@ -29,6 +29,7 @@ import type {
   ListSkillsInput,
   ProviderConfig,
   ProviderSettings,
+  RenameThingInput,
   RemoveThingSourceInput,
   RetryAccepted,
   RetryInput,
@@ -744,6 +745,9 @@ export class YachiyoServer {
   }
   async restoreThing(input: { name: string }): Promise<ThingRecord | undefined> {
     return this.thingDomain.restoreThing(input.name)
+  }
+  async renameThing(input: RenameThingInput): Promise<ThingRecord | undefined> {
+    return this.thingDomain.renameThing(input)
   }
   async deleteThing(input: { name: string }): Promise<boolean> {
     return this.thingDomain.deleteThing(input.name)

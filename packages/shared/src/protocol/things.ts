@@ -49,6 +49,11 @@ export interface UpdateThingInput {
   touch?: boolean
 }
 
+export interface RenameThingInput {
+  name: string
+  newName: string
+}
+
 export interface DeleteThingInput {
   name: string
 }
@@ -65,6 +70,11 @@ export interface AddThingSourceInput {
   spanRowId?: string
   sourceRowId: string
   preview: string
+}
+
+export interface MoveThingSourcesInput {
+  sourceName: string
+  targetName: string
 }
 
 export interface ContinueThingInput {

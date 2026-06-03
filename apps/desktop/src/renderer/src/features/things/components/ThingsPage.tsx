@@ -11,6 +11,7 @@ const THINGS_DAILY_REVIEW_SCHEDULE_ID = 'bundled:things-daily-review'
 export interface ThingsPageProps {
   showHeader?: boolean
   onContinueThing?: (name: string) => Promise<void>
+  onMergeThing?: (sourceName: string, targetName: string) => Promise<void>
   onOpenThread?: (threadId: string, messageId?: string) => void
   onOpenSettingsRoute?: (route: string) => void
 }
@@ -50,6 +51,7 @@ export function ThingsPanelTopControls({
 export function ThingsPage({
   showHeader = true,
   onContinueThing,
+  onMergeThing,
   onOpenThread,
   onOpenSettingsRoute
 }: ThingsPageProps): React.JSX.Element {
@@ -57,9 +59,11 @@ export function ThingsPage({
   const showInactiveThings = useAppStore((s) => s.showInactiveThings)
   const loadThings = useAppStore((s) => s.loadThings)
   const restoreThing = useAppStore((s) => s.restoreThing)
+  const renameThing = useAppStore((s) => s.renameThing)
   const deleteThing = useAppStore((s) => s.deleteThing)
   const removeThingSource = useAppStore((s) => s.removeThingSource)
   const continueThingInNewChat = useAppStore((s) => s.continueThingInNewChat)
+  const mergeThingInNewChat = useAppStore((s) => s.mergeThingInNewChat)
   const setActiveThread = useAppStore((s) => s.setActiveThread)
   const dialog = useAppDialog()
   const [selectedThingId, setSelectedThingId] = useState<string | null>(null)
@@ -109,7 +113,46 @@ export function ThingsPage({
     ? 'px-4 pb-6 sm:px-6 lg:px-8 lg:pb-8'
     : 'px-4 py-5 sm:px-6 sm:py-6'
   const handleContinue = onContinueThing ?? continueThingInNewChat
+  const handleMerge = onMergeThing ?? mergeThingInNewChat
   const handleOpenThread = onOpenThread ?? setActiveThread
+
+  async function handleRenameThing(thing: ThingRecord): Promise<void> {
+    const nextName = await dialog.prompt({
+      title: 'Rename Thing',
+      initialValue: thing.name,
+      confirmLabel: 'Rename'
+    })
+    if (nextName === null) return
+
+    const trimmedName = nextName.trim()
+    if (normalizeThingSlug(trimmedName) === thing.name) return
+
+    try {
+      await renameThing(thing.name, trimmedName)
+    } catch (error) {
+      await dialog.alert({
+        title: error instanceof Error ? error.message : `Failed to rename #${thing.name}.`
+      })
+    }
+  }
+
+  async function handleMergeThing(source: ThingRecord, target: ThingRecord): Promise<void> {
+    const confirmed = await dialog.confirm({
+      title: `Merge #${source.name} into #${target.name}?`,
+      message: 'Yachiyo will open a new conversation and automatically run the merge workflow.',
+      confirmLabel: 'Merge'
+    })
+    if (!confirmed) return
+
+    try {
+      await handleMerge(source.name, target.name)
+      setSelectedThingId(null)
+    } catch (error) {
+      await dialog.alert({
+        title: error instanceof Error ? error.message : `Failed to merge #${source.name}.`
+      })
+    }
+  }
 
   async function handleDeleteThing(thing: ThingRecord): Promise<void> {
     const confirmed = await dialog.confirm({
@@ -243,9 +286,12 @@ export function ThingsPage({
           onClose={() => setSelectedThingId(null)}
           onContinue={(name) => void handleContinue(name)}
           onRestore={(name) => void restoreThing(name)}
+          onRename={() => void handleRenameThing(selectedThing)}
+          onMerge={(target) => void handleMergeThing(selectedThing, target)}
           onDelete={() => void handleDeleteThing(selectedThing)}
           onRemoveSource={(source) => void handleRemoveSource(selectedThing, source.id)}
           onOpenThread={handleOpenThread}
+          mergeTargets={boardThings.filter((thing) => thing.id !== selectedThing.id)}
         />
       ) : null}
     </div>
@@ -258,6 +304,14 @@ function countActiveThings(things: ThingRecord[]): number {
 
 function countSources(things: ThingRecord[]): number {
   return things.reduce((count, thing) => count + thing.sources.length, 0)
+}
+
+function normalizeThingSlug(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
 }
 
 function InactiveThingsToggleButton({

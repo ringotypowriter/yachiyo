@@ -188,6 +188,26 @@ export interface SendMessageOverride {
   threadId: string
 }
 
+export function buildThingMergeWorkflowPrompt(sourceName: string, targetName: string): string {
+  return [
+    `Merge #${sourceName} into #${targetName}.`,
+    '',
+    'Use useThings to read both Things, merge their saved source previews into the target, update the target summary, and remove the source Thing.',
+    `Keep #${targetName} as the resulting Thing and remove #${sourceName} after its sources have been moved.`,
+    'Write the new summary as one concise description of the broader Thing represented by both records.',
+    '',
+    `Finish with one brief sentence saying #${sourceName} was merged into #${targetName}.`
+  ].join('\n')
+}
+
+function normalizeThingSlugInput(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+}
+
 export interface ComposerImageDraft extends MessageImageRecord {
   id: string
   status: 'loading' | 'ready' | 'failed'
@@ -330,9 +350,11 @@ export interface AppState {
   showInactiveThings: boolean
   loadThings: (input?: { includeInactive?: boolean }) => Promise<void>
   restoreThing: (name: string) => Promise<void>
+  renameThing: (name: string, newName: string) => Promise<ThingRecord | undefined>
   deleteThing: (name: string) => Promise<void>
   removeThingSource: (input: { name: string; sourceId: string }) => Promise<void>
   continueThingInNewChat: (name: string) => Promise<void>
+  mergeThingInNewChat: (sourceName: string, targetName: string) => Promise<void>
   toggleShowInactiveThings: () => void
   folders: FolderRecord[]
   collapsedFolderIds: Set<string>
@@ -438,6 +460,11 @@ export const useAppStore = create<AppState>((set, get) => ({
     await window.api.yachiyo.restoreThing({ name })
     await get().loadThings({ includeInactive: get().showInactiveThings })
   },
+  renameThing: async (name, newName) => {
+    const renamed = await window.api.yachiyo.renameThing({ name, newName })
+    await get().loadThings({ includeInactive: get().showInactiveThings })
+    return renamed
+  },
   deleteThing: async (name) => {
     await window.api.yachiyo.deleteThing({ name })
     await get().loadThings({ includeInactive: get().showInactiveThings })
@@ -463,6 +490,23 @@ export const useAppStore = create<AppState>((set, get) => ({
         })
       )
     }))
+  },
+  mergeThingInNewChat: async (sourceName, targetName) => {
+    const sourceSlug = normalizeThingSlugInput(sourceName)
+    const targetSlug = normalizeThingSlugInput(targetName)
+    const thread = await window.api.yachiyo.continueThingInNewChat({ name: targetSlug })
+    set((state) => ({
+      threads: upsertThread(state.threads, thread),
+      activeThreadId: thread.id,
+      threadListMode: 'active'
+    }))
+    await get().sendMessage('normal', {
+      threadId: thread.id,
+      content: buildThingMergeWorkflowPrompt(sourceSlug, targetSlug),
+      images: [],
+      attachments: [],
+      enabledSkillNames: null
+    })
   },
   toggleShowInactiveThings: () => {
     const includeInactive = !get().showInactiveThings

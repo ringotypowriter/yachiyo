@@ -240,6 +240,55 @@ test('restoreThing restores a Thing through the preload API and reloads the boar
   }
 })
 
+test('renameThing renames a Thing through the preload API and reloads the board', async () => {
+  resetStore()
+
+  const calls: Array<{ name: string; newName: string }> = []
+  const restoreWindow = withWindowApiMock({
+    renameThing: async (input) => {
+      calls.push(input)
+      return {
+        id: 'thing-1',
+        name: 'raven-design',
+        summary: 'UI work',
+        lastUpdatedAt: TIMESTAMP,
+        createdAt: TIMESTAMP,
+        updatedAt: TIMESTAMP,
+        sources: [],
+        isInactive: false
+      }
+    },
+    listThings: async ({ includeInactive } = {}) => {
+      assert.equal(includeInactive, true)
+      return [
+        {
+          id: 'thing-1',
+          name: 'raven-design',
+          summary: 'UI work',
+          lastUpdatedAt: TIMESTAMP,
+          createdAt: TIMESTAMP,
+          updatedAt: TIMESTAMP,
+          sources: [],
+          isInactive: false
+        }
+      ]
+    }
+  })
+
+  try {
+    useAppStore.setState({ showInactiveThings: true })
+
+    const renamed = await useAppStore.getState().renameThing('raven-ui', 'Raven Design')
+
+    assert.deepEqual(calls, [{ name: 'raven-ui', newName: 'Raven Design' }])
+    assert.equal(renamed?.name, 'raven-design')
+    assert.equal(useAppStore.getState().things[0]?.name, 'raven-design')
+    assert.equal(useAppStore.getState().showInactiveThings, true)
+  } finally {
+    restoreWindow()
+  }
+})
+
 test('removeThingSource removes one source through the preload API and reloads the board', async () => {
   resetStore()
 
@@ -320,6 +369,70 @@ test('continueThingInNewChat lets the server choose Thing source context and pre
       providerName: 'work',
       model: 'gpt-5'
     })
+  } finally {
+    restoreWindow()
+  }
+})
+
+test('mergeThingInNewChat opens a target continuation thread and sends the merge workflow prompt', async () => {
+  resetStore()
+
+  const sendChatInputs: Array<{
+    content: string
+    threadId?: string
+    enabledSkillNames?: string[]
+  }> = []
+  const restoreWindow = withWindowApiMock({
+    continueThingInNewChat: async ({ name }) => {
+      assert.equal(name, 'target-thing')
+      return {
+        id: 'thread-merge',
+        title: 'Merge target',
+        updatedAt: TIMESTAMP,
+        workspacePath: '/projects/raven'
+      }
+    },
+    sendChat: async (input) => {
+      sendChatInputs.push(input)
+      return {
+        kind: 'run-started',
+        runId: 'run-merge',
+        thread: {
+          id: 'thread-merge',
+          title: 'Merge target',
+          updatedAt: TIMESTAMP,
+          workspacePath: '/projects/raven'
+        },
+        userMessage: {
+          id: 'message-merge',
+          threadId: 'thread-merge',
+          role: 'user',
+          content: input.content,
+          status: 'completed',
+          createdAt: TIMESTAMP
+        }
+      }
+    }
+  })
+
+  try {
+    await useAppStore.getState().mergeThingInNewChat('source-thing', 'target-thing')
+
+    assert.equal(useAppStore.getState().activeThreadId, 'thread-merge')
+    assert.equal(useAppStore.getState().threadListMode, 'active')
+    assert.equal(sendChatInputs.length, 1)
+    assert.equal(sendChatInputs[0]?.threadId, 'thread-merge')
+    assert.equal(sendChatInputs[0]?.enabledSkillNames, undefined)
+    assert.match(sendChatInputs[0]?.content ?? '', /#source-thing/)
+    assert.match(sendChatInputs[0]?.content ?? '', /#target-thing/)
+    assert.match(sendChatInputs[0]?.content ?? '', /Use useThings to read both Things/)
+    assert.match(
+      sendChatInputs[0]?.content ?? '',
+      /merge their saved source previews into the target/
+    )
+    assert.match(sendChatInputs[0]?.content ?? '', /remove #source-thing/)
+    assert.doesNotMatch(sendChatInputs[0]?.content ?? '', /"action":"get"/)
+    assert.doesNotMatch(sendChatInputs[0]?.content ?? '', /arguments string/)
   } finally {
     restoreWindow()
   }

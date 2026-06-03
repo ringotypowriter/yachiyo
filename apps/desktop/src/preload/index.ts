@@ -56,6 +56,7 @@ import type {
   ToolPreferencesInput,
   TranslateInput,
   RunModeId,
+  RenameThingInput,
   TranslateResult,
   JotdownSaveInput,
   RemoveThingSourceInput,
@@ -140,6 +141,8 @@ const api = {
       ipcRenderer.invoke('yachiyo:get-thing', input),
     restoreThing: (input: { name: string }): Promise<ThingRecord | undefined> =>
       ipcRenderer.invoke('yachiyo:restore-thing', input),
+    renameThing: (input: RenameThingInput): Promise<ThingRecord | undefined> =>
+      ipcRenderer.invoke('yachiyo:rename-thing', input),
     deleteThing: (input: DeleteThingInput): Promise<boolean> =>
       ipcRenderer.invoke('yachiyo:delete-thing', input),
     removeThingSource: (input: RemoveThingSourceInput): Promise<boolean> =>

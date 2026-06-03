@@ -142,6 +142,7 @@ function App(): React.JSX.Element {
   const config = useAppStore((s) => s.config)
   useApplyThemeConfig(config)
   const continueThingInNewChat = useAppStore((s) => s.continueThingInNewChat)
+  const mergeThingInNewChat = useAppStore((s) => s.mergeThingInNewChat)
   const createNewThread = useAppStore((s) => s.createNewThread)
   const openThreadFromNotification = useAppStore((s) => s.openThreadFromNotification)
   const setActiveThread = useAppStore((s) => s.setActiveThread)
@@ -190,6 +191,14 @@ function App(): React.JSX.Element {
       setActiveAppTab('chat')
     },
     [continueThingInNewChat]
+  )
+
+  const handleMergeThingInNewChat = useCallback(
+    async (sourceName: string, targetName: string): Promise<void> => {
+      await mergeThingInNewChat(sourceName, targetName)
+      setActiveAppTab('chat')
+    },
+    [mergeThingInNewChat]
   )
 
   const handleOpenThingSourceThread = useCallback(
@@ -369,6 +378,7 @@ function App(): React.JSX.Element {
                 <ThingsPage
                   showHeader={false}
                   onContinueThing={handleContinueThingInNewChat}
+                  onMergeThing={handleMergeThingInNewChat}
                   onOpenSettingsRoute={handleOpenSettingsRoute}
                   onOpenThread={handleOpenThingSourceThread}
                 />

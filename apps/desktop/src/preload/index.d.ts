@@ -65,6 +65,7 @@ import type {
   ToolPreferencesInput,
   TranslateInput,
   RunModeId,
+  RenameThingInput,
   TranslateResult,
   JotdownMeta,
   JotdownFull,
@@ -116,6 +117,7 @@ declare global {
         listThings: (input?: { includeInactive?: boolean }) => Promise<ThingRecord[]>
         getThing: (input: { name: string }) => Promise<ThingRecord | undefined>
         restoreThing: (input: { name: string }) => Promise<ThingRecord | undefined>
+        renameThing: (input: RenameThingInput) => Promise<ThingRecord | undefined>
         deleteThing: (input: { name: string }) => Promise<boolean>
         removeThingSource: (input: RemoveThingSourceInput) => Promise<boolean>
         continueThingInNewChat: (input: { name: string }) => Promise<ThreadRecord>

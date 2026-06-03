@@ -12,14 +12,42 @@ type UseThingsInput =
   | { action: 'updateSummary'; name: string; summary: string }
   | { action: 'addCurrentThreadSource'; name: string; preview: string }
   | { action: 'restore'; name: string }
+  | { action: 'moveSources'; sourceName: string; targetName: string }
+  | { action: 'delete'; name: string }
 
-const useThingsInputSchema = z
+interface UseThingsToolInput {
+  arguments: string
+}
+
+function sanitizeEmptyToolFields(input: unknown): unknown {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return input
+  return Object.fromEntries(
+    Object.entries(input).filter(([, value]) => {
+      if (value == null) return false
+      if (typeof value === 'string' && value.trim() === '') return false
+      return true
+    })
+  )
+}
+
+const useThingsActionSchema = z
   .object({
-    action: z.enum(['list', 'get', 'create', 'updateSummary', 'addCurrentThreadSource', 'restore']),
+    action: z.enum([
+      'list',
+      'get',
+      'create',
+      'updateSummary',
+      'addCurrentThreadSource',
+      'restore',
+      'moveSources',
+      'delete'
+    ]),
     includeInactive: z.boolean().optional(),
     name: z.string().min(1).optional(),
     summary: z.string().min(1).optional(),
-    preview: z.string().min(1).optional()
+    preview: z.string().min(1).optional(),
+    sourceName: z.string().min(1).optional(),
+    targetName: z.string().min(1).optional()
   })
   .passthrough()
   .refine(
@@ -29,12 +57,15 @@ const useThingsInputSchema = z
           return true
         case 'get':
         case 'restore':
+        case 'delete':
           return data.name != null
         case 'create':
         case 'updateSummary':
           return data.name != null && data.summary != null
         case 'addCurrentThreadSource':
           return data.name != null && data.preview != null
+        case 'moveSources':
+          return data.sourceName != null && data.targetName != null
       }
     },
     { message: 'Missing required fields for the given action.' }
@@ -47,13 +78,31 @@ const useThingsInputSchema = z
         create: ['action', 'name', 'summary'],
         updateSummary: ['action', 'name', 'summary'],
         addCurrentThreadSource: ['action', 'name', 'preview'],
-        restore: ['action', 'name']
+        restore: ['action', 'name'],
+        moveSources: ['action', 'sourceName', 'targetName'],
+        delete: ['action', 'name']
       }[data.action]
       return Object.keys(data).every((key) => allowed.includes(key))
     },
     { message: 'Unexpected fields for the given action.' }
   )
-  .transform((data) => data as UseThingsInput)
+
+const useThingsInputSchema = z.object({ arguments: z.string().min(1) }).strip()
+
+function parseUseThingsArguments(input: UseThingsToolInput): UseThingsInput {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(input.arguments)
+  } catch {
+    throw new Error('arguments must be a JSON object string.')
+  }
+
+  const result = useThingsActionSchema.safeParse(sanitizeEmptyToolFields(parsed))
+  if (!result.success) {
+    throw new Error(result.error.issues[0]?.message ?? 'Invalid useThings arguments.')
+  }
+  return result.data as UseThingsInput
+}
 
 interface UseThingsToolOutput {
   content: Array<{ type: 'text'; text: string }>
@@ -83,7 +132,11 @@ Actions:
 - create: create a Thing only when the context is likely to be useful in a later conversation.
 - updateSummary: rewrite the Thing summary.
 - addCurrentThreadSource: attach the current conversation to a Thing with a source preview.
-- restore: mark an inactive Thing as current again.`
+- restore: mark an inactive Thing as current again.
+- moveSources: move saved source previews from one existing Thing to another existing Thing.
+- delete: delete one Thing.
+
+Call this tool with one field named arguments. Its value must be a JSON string containing the action object, for example: {"action":"get","name":"project-name"}.`
 
 function textOutput(text: string, details?: unknown): UseThingsToolOutput {
   return { content: [{ type: 'text', text }], ...(details ? { details } : {}) }
@@ -96,7 +149,7 @@ function threadRowId(threadId: string): string {
 export function createTool(
   context: AgentToolContext,
   deps: UseThingsToolDeps
-): Tool<UseThingsInput, UseThingsToolOutput> {
+): Tool<UseThingsToolInput, UseThingsToolOutput> {
   return tool({
     description: DESCRIPTION,
     inputSchema: useThingsInputSchema,
@@ -104,8 +157,9 @@ export function createTool(
       output.error
         ? { type: 'error-text', value: output.error }
         : { type: 'content', value: output.content },
-    execute: async (input) => {
+    execute: async (toolInput) => {
       try {
+        const input = parseUseThingsArguments(toolInput)
         switch (input.action) {
           case 'list': {
             const things = await deps.thingDomain.listThings({
@@ -163,6 +217,22 @@ export function createTool(
                 : 'Thing not found.',
               { thing }
             )
+          }
+          case 'moveSources': {
+            const thing = await deps.thingDomain.moveSources({
+              sourceName: input.sourceName,
+              targetName: input.targetName
+            })
+            return textOutput(
+              thing
+                ? `Moved sources from #${input.sourceName} to #${thing.name}.\n${formatThingDetailText(thing)}`
+                : 'Thing not found.',
+              { thing }
+            )
+          }
+          case 'delete': {
+            const deleted = await deps.thingDomain.deleteThing(input.name)
+            return textOutput(deleted ? `Deleted #${input.name}.` : 'Thing not found.', { deleted })
           }
         }
       } catch (error) {
