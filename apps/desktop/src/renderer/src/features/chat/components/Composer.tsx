@@ -174,6 +174,8 @@ export function Composer({
   const [skillsSelectorOpen, setSkillsSelectorOpen] = useState(false)
   const [toolSelectorOpen, setToolSelectorOpen] = useState(false)
   const [workspaceSelectorOpen, setWorkspaceSelectorOpen] = useState(false)
+  const [workspaceSuggestionPath, setWorkspaceSuggestionPath] = useState<string | null>(null)
+  const dismissedSuggestionPathRef = useRef<string | null>(null)
   const [workspaceHintHovered, setWorkspaceHintHovered] = useState(false)
   const [workspaceHintPinned, setWorkspaceHintPinned] = useState(false)
   const [attachmentUploadNotice, setAttachmentUploadNotice] =
@@ -344,8 +346,107 @@ export function Composer({
     lockReason: workspaceSwitchLockReason
   })
   const showWorkspaceHint = !workspaceSelectorOpen && (workspaceHintHovered || workspaceHintPinned)
-  const threadIsBusy = threadIsSaving || isBackendSwitchPending
 
+  // Workspace suggestion: when the user types a folder name that matches a saved
+  // workspace while on a new thread with temp workspace, suggest switching.
+  const workspaceSuggestion = useMemo(() => {
+    if (activeThreadMessageCount > 0) return null
+    if (currentWorkspacePath !== null) return null
+    if (workspaceSwitchLockReason !== null) return null
+    if (!composerValue.trim()) return null
+
+    const words = composerValue
+      .toLowerCase()
+      .split(/[\s,;:!?.()\x5B\x5D{}"'`~@#$%^&*+=|\\/<>\-_]+/)
+      .filter(Boolean)
+
+    // Collect folder name → path mapping
+    const pathByFolder: Record<string, string> = {}
+    for (const savedPath of savedWorkspacePaths) {
+      const folderName = savedPath.split('/').filter(Boolean).pop()?.toLowerCase()
+      if (!folderName || pathByFolder[folderName]) continue
+      pathByFolder[folderName] = savedPath
+    }
+
+    // Pass 1: exact word match
+    for (const word of words) {
+      if (pathByFolder[word]) {
+        return pathByFolder[word]
+      }
+    }
+
+    // Pass 2: prefix match (word must be at least 5 chars)
+    for (const word of words) {
+      if (word.length < 5) continue
+      for (const folderName of Object.keys(pathByFolder)) {
+        if (folderName.startsWith(word)) {
+          return pathByFolder[folderName]
+        }
+      }
+    }
+
+    return null
+  }, [
+    activeThreadMessageCount,
+    currentWorkspacePath,
+    workspaceSwitchLockReason,
+    composerValue,
+    savedWorkspacePaths
+  ])
+
+  // Sync the suggestion state, respecting dismissal
+  useEffect(() => {
+    if (workspaceSuggestion === null) {
+      setWorkspaceSuggestionPath(null)
+      dismissedSuggestionPathRef.current = null
+      return
+    }
+
+    if (workspaceSuggestion !== dismissedSuggestionPathRef.current) {
+      setWorkspaceSuggestionPath(workspaceSuggestion)
+    }
+  }, [workspaceSuggestion])
+
+  const dismissWorkspaceSuggestion = useCallback(() => {
+    dismissedSuggestionPathRef.current = workspaceSuggestionPath
+    setWorkspaceSuggestionPath(null)
+  }, [workspaceSuggestionPath])
+
+  const switchToWorkspaceSuggestion = useCallback(() => {
+    if (!workspaceSuggestionPath) return
+    void setThreadWorkspace(workspaceSuggestionPath, null)
+    setWorkspaceSuggestionPath(null)
+    dismissedSuggestionPathRef.current = null
+  }, [workspaceSuggestionPath, setThreadWorkspace])
+
+  // Dismiss suggestion on thread switch
+  useEffect(() => {
+    setWorkspaceSuggestionPath(null)
+    dismissedSuggestionPathRef.current = null
+  }, [activeThreadId])
+
+  // Dismiss suggestion on click-away (outside the popup and textarea)
+  useEffect(() => {
+    if (!workspaceSuggestionPath) return
+
+    const handleMouseDown = (e: MouseEvent): void => {
+      const target = e.target as HTMLElement | null
+      if (!target) return
+
+      // Keep suggestion visible when clicking inside it
+      if (target.closest('.workspace-suggestion-popup')) return
+      // Keep visible when clicking the textarea (user is typing)
+      if (target.closest('textarea')) return
+
+      dismissedSuggestionPathRef.current = workspaceSuggestionPath
+      setWorkspaceSuggestionPath(null)
+    }
+
+    document.addEventListener('mousedown', handleMouseDown, true)
+    return () => document.removeEventListener('mousedown', handleMouseDown, true)
+  }, [workspaceSuggestionPath])
+
+  const threadIsBusy = threadIsSaving || isBackendSwitchPending
   const {
     activeSkillTag,
     atSkillPrefixMatch,
@@ -1266,6 +1367,9 @@ export function Composer({
       pendingWorkspaceChangeConfirmation={pendingWorkspaceChangeConfirmation}
       setPendingWorkspaceChangeConfirmation={setPendingWorkspaceChangeConfirmation}
       commitWorkspaceSelection={commitWorkspaceSelection}
+      workspaceSuggestionPath={workspaceSuggestionPath}
+      dismissWorkspaceSuggestion={dismissWorkspaceSuggestion}
+      switchToWorkspaceSuggestion={switchToWorkspaceSuggestion}
       modelSelectorRef={modelSelectorRef}
       modelSelectorOpen={modelSelectorOpen}
       canOpenModelPicker={canOpenModelPicker}

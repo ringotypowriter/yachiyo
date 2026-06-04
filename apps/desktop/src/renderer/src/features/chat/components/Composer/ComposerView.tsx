@@ -31,6 +31,7 @@ import { RUN_MODE_DEFINITIONS } from '@yachiyo/shared/toolModes'
 import { ReasoningSelectorPopup } from '../ReasoningSelectorPopup'
 import { RunArrowIndicator } from '../RunArrowIndicator'
 import { WorkspaceSelectorPopup } from '../WorkspaceSelectorPopup'
+import { WorkspaceSuggestionPopup } from './WorkspaceSuggestionPopup'
 import { SmoothCaretOverlay } from '../SmoothCaretOverlay'
 import { BackgroundTasksChip } from '../BackgroundTasksChip'
 import type { AcpAgentEntry } from '../../lib/composer/modelSelectorState'
@@ -154,6 +155,9 @@ export function ComposerView(props: any): React.JSX.Element {
     pendingWorkspaceChangeConfirmation,
     setPendingWorkspaceChangeConfirmation,
     commitWorkspaceSelection,
+    workspaceSuggestionPath,
+    dismissWorkspaceSuggestion,
+    switchToWorkspaceSuggestion,
     modelSelectorRef,
     modelSelectorOpen,
     canOpenModelPicker,
@@ -357,7 +361,7 @@ export function ComposerView(props: any): React.JSX.Element {
               />
             </button>
 
-            {showWorkspaceHint ? (
+            {showWorkspaceHint && !workspaceSuggestionPath ? (
               <div
                 style={{
                   position: 'absolute',
@@ -397,6 +401,14 @@ export function ComposerView(props: any): React.JSX.Element {
                   {workspaceHint.detail}
                 </div>
               </div>
+            ) : null}
+
+            {workspaceSuggestionPath ? (
+              <WorkspaceSuggestionPopup
+                workspacePath={workspaceSuggestionPath}
+                onSwitch={switchToWorkspaceSuggestion}
+                onDismiss={dismissWorkspaceSuggestion}
+              />
             ) : null}
 
             {workspaceSelectorOpen ? (
