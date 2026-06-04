@@ -143,6 +143,7 @@ export interface SettingsPanelProps {
   active: boolean
   children: (slots: SettingsPanelSlots) => React.JSX.Element
   route: string
+  onActivateChat: () => void
   onRouteChange: (route: string) => void
 }
 
@@ -203,6 +204,7 @@ function SettingsPanel({
   active,
   children,
   route,
+  onActivateChat,
   onRouteChange
 }: SettingsPanelProps): React.JSX.Element {
   const [activePanel, setActivePanel] = useState<SettingsPanelId>(
@@ -666,6 +668,8 @@ function SettingsPanel({
               setSoulDocumentDraft(savedSoulTraits)
               setSoulDocumentError(null)
             }}
+            onActivateChat={onActivateChat}
+            onNavigateToRoute={navigateToRoute}
           />
         )
       }

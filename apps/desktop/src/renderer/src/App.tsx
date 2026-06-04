@@ -185,6 +185,11 @@ function App(): React.JSX.Element {
     [openSidebar]
   )
 
+  const handleActivateChat = useCallback((): void => {
+    setThreadListMode('active')
+    setActiveAppTab('chat')
+  }, [setThreadListMode])
+
   const handleContinueThingInNewChat = useCallback(
     async (name: string): Promise<void> => {
       await continueThingInNewChat(name)
@@ -457,6 +462,7 @@ function App(): React.JSX.Element {
                 <SettingsPanel
                   active={isSettingsTabActive}
                   route={settingsRoute}
+                  onActivateChat={handleActivateChat}
                   onRouteChange={setSettingsRoute}
                 >
                   {(slots) =>

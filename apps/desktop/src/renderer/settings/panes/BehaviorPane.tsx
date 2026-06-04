@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
 import type {
   SettingsConfig,
@@ -6,6 +6,8 @@ import type {
   UpdateChannel,
   UserDocument
 } from '@yachiyo/shared/protocol'
+import { useAppStore } from '@renderer/app/store/useAppStore'
+import { useAppDialog } from '@renderer/components/AppDialogContext'
 import { theme, alpha } from '@renderer/theme/theme'
 import { imeSafeEnter } from '@renderer/lib/imeUtils'
 import {
@@ -19,6 +21,7 @@ import { ShortcutRecorder } from '../components/ShortcutRecorder'
 import { hasPendingSoulDocumentChanges, toSoulTraitTexts } from './soulDocumentEditorModel'
 import { UserDocumentTableEditor } from './UserDocumentTableEditor'
 import { hasPendingUserDocumentChanges } from './userDocumentEditorModel'
+import { hasEnabledChatModel, LAUNCH_AT_LOGIN_PROMPT } from './behaviorPaneModel'
 
 interface BehaviorPaneProps {
   draft: SettingsConfig
@@ -37,6 +40,8 @@ interface BehaviorPaneProps {
   onLoadSoulDocument: () => Promise<void>
   onSoulDraftChange: (next: string[]) => void
   onRevertSoulDocument: () => void
+  onActivateChat: () => void
+  onNavigateToRoute: (route: string) => void
 }
 
 export function BehaviorPane({
@@ -55,9 +60,15 @@ export function BehaviorPane({
   soulDocumentError,
   onLoadSoulDocument,
   onSoulDraftChange,
-  onRevertSoulDocument
+  onRevertSoulDocument,
+  onActivateChat,
+  onNavigateToRoute
 }: BehaviorPaneProps): React.ReactNode {
   const [view, setView] = useState<'overview' | 'user-document' | 'soul-document'>('overview')
+  const dialog = useAppDialog()
+  const config = useAppStore((state) => state.config)
+  const createNewThread = useAppStore((state) => state.createNewThread)
+  const sendMessage = useAppStore((state) => state.sendMessage)
 
   const hasAttemptedUserDocumentLoadRef = useRef(false)
 
@@ -112,6 +123,68 @@ export function BehaviorPane({
   const handleDeleteTrait = (trait: string): void => {
     onSoulDraftChange(soulTraits.filter((entry) => entry !== trait))
   }
+
+  const handleLaunchAtLogin = useCallback(async (): Promise<void> => {
+    if (!hasEnabledChatModel(config?.providers ?? [])) {
+      const openProviders = await dialog.confirm({
+        title: 'Set up a model first',
+        message:
+          'Yachiyo needs at least one enabled model before it can configure Launch at Login for you.',
+        confirmLabel: 'Open Providers',
+        cancelLabel: 'Not now'
+      })
+      if (openProviders) {
+        onNavigateToRoute('providers')
+      }
+      return
+    }
+
+    const confirmed = await dialog.confirm({
+      title: 'Let Yachiyo set up Launch at Login?',
+      message:
+        'Yachiyo will start a new chat and configure macOS so the app opens when you log in.',
+      confirmLabel: 'Set Up',
+      cancelLabel: 'Cancel'
+    })
+    if (!confirmed) {
+      return
+    }
+
+    let threadId: string | null = null
+    try {
+      await createNewThread()
+      threadId = useAppStore.getState().activeThreadId
+    } catch {
+      threadId = null
+    }
+
+    if (!threadId) {
+      await dialog.alert({
+        title: 'Could not start setup',
+        message: 'Yachiyo could not create a new chat. Please try again.'
+      })
+      return
+    }
+
+    onActivateChat()
+    let sent = false
+    try {
+      sent = await sendMessage('normal', {
+        threadId,
+        content: LAUNCH_AT_LOGIN_PROMPT,
+        images: [],
+        attachments: []
+      })
+    } catch {
+      sent = false
+    }
+    if (!sent) {
+      await dialog.alert({
+        title: 'Could not start setup',
+        message: 'Yachiyo could not send the setup request. Please try again.'
+      })
+    }
+  }, [config?.providers, createNewThread, dialog, onActivateChat, onNavigateToRoute, sendMessage])
 
   if (view === 'user-document') {
     return (
@@ -348,6 +421,30 @@ export function BehaviorPane({
               width={120}
             />
           </div>
+        </SettingRow>
+      </SettingSection>
+
+      <SettingSection>
+        <SettingLabel>Startup</SettingLabel>
+
+        <SettingRow>
+          <div className="min-w-0 space-y-0.5">
+            <div className="text-sm font-medium" style={{ color: theme.text.primary }}>
+              Launch at Login
+            </div>
+            <div className="text-sm leading-5" style={{ color: theme.text.tertiary }}>
+              Ask Yachiyo to configure macOS so the app opens when you log in.
+            </div>
+          </div>
+
+          <button
+            type="button"
+            className="shrink-0 text-sm font-medium transition-opacity opacity-60 hover:opacity-100"
+            style={{ color: theme.text.accent }}
+            onClick={() => void handleLaunchAtLogin()}
+          >
+            Set up…
+          </button>
         </SettingRow>
       </SettingSection>
 
