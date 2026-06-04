@@ -357,6 +357,82 @@ test('sendMessage restores per-thread drafts and clears only the sent thread on 
   }
 })
 
+test('sendMessage clears stale active run state when a send fails', async () => {
+  resetStore()
+
+  const restoreWindow = withWindowApiMock({
+    sendChat: async () => {
+      throw new Error('Run failed before accepting the message.')
+    }
+  })
+
+  try {
+    useAppStore.setState({
+      activeRunIdsByThread: {
+        'thread-1': 'run-stale'
+      },
+      activeRequestMessageIdsByThread: {
+        'thread-1': 'user-1'
+      },
+      activeRunId: 'run-stale',
+      activeRequestMessageId: 'user-1',
+      activeRunThreadId: 'thread-1',
+      activeThreadId: 'thread-1',
+      composerDrafts: {
+        'thread-1': {
+          text: 'Retry after error',
+          images: [],
+          files: []
+        }
+      },
+      messages: {
+        'thread-1': [
+          {
+            id: 'user-1',
+            threadId: 'thread-1',
+            role: 'user',
+            content: 'Original request',
+            status: 'completed',
+            createdAt: TIMESTAMP
+          }
+        ]
+      },
+      runPhasesByThread: {
+        'thread-1': 'preparing'
+      },
+      runStatusesByThread: {
+        'thread-1': 'running'
+      },
+      settings: READY_SETTINGS,
+      threads: [
+        {
+          id: 'thread-1',
+          title: 'Thread one',
+          updatedAt: TIMESTAMP,
+          headMessageId: 'user-1'
+        }
+      ]
+    })
+
+    const sent = await useAppStore.getState().sendMessage()
+
+    const state = useAppStore.getState()
+    assert.equal(sent, false)
+    assert.equal(state.activeRunId, null)
+    assert.equal(state.activeRequestMessageId, null)
+    assert.equal(state.activeRunThreadId, null)
+    assert.equal(state.activeRunIdsByThread['thread-1'], undefined)
+    assert.equal(state.activeRequestMessageIdsByThread['thread-1'], undefined)
+    assert.equal(state.runPhase, 'idle')
+    assert.equal(state.runStatus, 'failed')
+    assert.equal(state.runPhasesByThread['thread-1'], 'idle')
+    assert.equal(state.runStatusesByThread['thread-1'], 'failed')
+    assert.equal(state.composerDrafts['thread-1']?.text, 'Retry after error')
+  } finally {
+    restoreWindow()
+  }
+})
+
 test('sendMessage drops staged custom tool sets for new threads and falls back to auto', async () => {
   resetStore()
 

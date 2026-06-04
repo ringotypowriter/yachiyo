@@ -406,10 +406,33 @@ export function createSendMessageActions(input: {
           // same prompt after a transient failure.
           lastSendFingerprint = null
           lastSendAt = 0
-          set({
-            activeThreadId: threadId,
-            lastError: message,
-            runStatus: 'failed'
+          set((state) => {
+            const nextState = {
+              ...state,
+              activeRequestMessageIdsByThread: setThreadStringValue(
+                state.activeRequestMessageIdsByThread,
+                threadId,
+                null
+              ),
+              activeRunIdsByThread: setThreadStringValue(
+                state.activeRunIdsByThread,
+                threadId,
+                null
+              ),
+              activeThreadId: threadId,
+              lastError: message,
+              runPhasesByThread: setThreadRunPhaseValue(state.runPhasesByThread, threadId, 'idle'),
+              runStatusesByThread: setThreadRunStatusValue(
+                state.runStatusesByThread,
+                threadId,
+                'failed'
+              )
+            }
+
+            return {
+              ...nextState,
+              ...deriveActiveThreadRunState(nextState)
+            }
           })
           return false
         }
