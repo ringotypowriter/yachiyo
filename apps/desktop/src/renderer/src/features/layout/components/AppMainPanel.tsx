@@ -234,6 +234,28 @@ export function AppMainPanel({
     [runtimeBrowserSessions, threadMessages, threadToolCalls]
   )
 
+  const candidateEssentialSourceId =
+    activeEssentialId ?? activeThread?.createdFromEssentialId ?? null
+  const activeEssential = useMemo(
+    () =>
+      candidateEssentialSourceId
+        ? (config?.essentials?.find((essential) => essential.id === candidateEssentialSourceId) ??
+          null)
+        : null,
+    [config?.essentials, candidateEssentialSourceId]
+  )
+  const { variant: welcomeVariant, essentialSourceId } = resolveWelcomeState({
+    activeSurface: activeTimelineSurface,
+    activeThreadId,
+    activeThreadMessagesLoaded,
+    messageCount,
+    activeEssentialId,
+    activeThreadCreatedFromEssentialId: activeThread?.createdFromEssentialId ?? null,
+    hasActiveEssential: activeEssential !== null
+  })
+  const showWelcomeState = welcomeVariant !== null
+  const shouldShowFindBar = findOpen && !showWelcomeState
+
   useEffect(() => {
     setActiveTimelineSurface('timeline')
     setSelectedBrowserSession(null)
@@ -320,13 +342,13 @@ export function AppMainPanel({
   useEffect(() => {
     const handler = (e: KeyboardEvent): void => {
       if (!shortcutsEnabled) return
-      if (!isOpenFindBarShortcut(e) || !activeThreadId) return
+      if (!isOpenFindBarShortcut(e) || !activeThreadId || showWelcomeState) return
       e.preventDefault()
       setFindOpen(true)
     }
     document.addEventListener('keydown', handler)
     return () => document.removeEventListener('keydown', handler)
-  }, [activeThreadId, shortcutsEnabled])
+  }, [activeThreadId, shortcutsEnabled, showWelcomeState])
 
   // Build CSS highlight ranges for all currently-visible matched messages
   const refreshFindHighlights = useCallback(() => {
@@ -527,26 +549,6 @@ export function AppMainPanel({
     setActiveThread(activeThreadId)
   }, [activeThreadExists, activeThreadId, activeThreadMessagesLoaded, setActiveThread])
 
-  const candidateEssentialSourceId =
-    activeEssentialId ?? activeThread?.createdFromEssentialId ?? null
-  const activeEssential = useMemo(
-    () =>
-      candidateEssentialSourceId
-        ? (config?.essentials?.find((essential) => essential.id === candidateEssentialSourceId) ??
-          null)
-        : null,
-    [config?.essentials, candidateEssentialSourceId]
-  )
-  const { variant: welcomeVariant, essentialSourceId } = resolveWelcomeState({
-    activeSurface: activeTimelineSurface,
-    activeThreadId,
-    activeThreadMessagesLoaded,
-    messageCount,
-    activeEssentialId,
-    activeThreadCreatedFromEssentialId: activeThread?.createdFromEssentialId ?? null,
-    hasActiveEssential: activeEssential !== null
-  })
-  const showWelcomeState = welcomeVariant !== null
   const welcomeCopyKey = `${activeThreadId ?? 'new-thread'}:${essentialSourceId ?? 'plain'}`
   const welcomeCopy = useMemo(() => {
     const existing = welcomeCopyByKeyRef.current.get(welcomeCopyKey)
@@ -556,6 +558,15 @@ export function AppMainPanel({
     welcomeCopyByKeyRef.current.set(welcomeCopyKey, next)
     return next
   }, [welcomeCopyKey])
+
+  useEffect(() => {
+    if (!showWelcomeState || !findOpen) return
+    setFindOpen(false)
+    setFindQuery('')
+    setFindCurrentIndex(0)
+    CSS.highlights?.delete('yachiyo-find')
+    CSS.highlights?.delete('yachiyo-find-current')
+  }, [findOpen, showWelcomeState])
 
   async function handleRenameThread(thread: Thread): Promise<void> {
     if (renamingThreadId === thread.id) {
@@ -830,7 +841,7 @@ export function AppMainPanel({
     content: (
       <div className="flex flex-col flex-1 min-h-0 relative">
         <AnimatePresence>
-          {findOpen && (
+          {shouldShowFindBar && (
             <motion.div
               key="find-bar"
               initial={{ opacity: 0, scale: 0.95, y: -4 }}
