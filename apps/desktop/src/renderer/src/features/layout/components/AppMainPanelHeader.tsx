@@ -20,6 +20,7 @@ export interface AppMainPanelHeaderProps {
   isSaving?: boolean
   isSidebarToggleDisabled: boolean
   isStarred?: boolean
+  hideThreadActions?: boolean
   centerAccessory?: ReactNode
   messageCount: number
   onOpenThreadWorkspace: () => Promise<void>
@@ -45,6 +46,7 @@ export function AppMainPanelHeader({
   isSaving,
   isSidebarToggleDisabled,
   isStarred,
+  hideThreadActions = false,
   centerAccessory,
   messageCount,
   onOpenThreadWorkspace,
@@ -143,7 +145,7 @@ export function AppMainPanelHeader({
 
       {/* Right zone: actions */}
       <div className="flex items-center gap-1 no-drag ml-auto" style={{ position: 'relative' }}>
-        {activeThread && !isReadOnly ? (
+        {activeThread && !isReadOnly && !hideThreadActions ? (
           <Tooltip
             content={
               <PrivacyTooltipContent
@@ -184,7 +186,7 @@ export function AppMainPanelHeader({
             </button>
           </Tooltip>
         ) : null}
-        {activeThread && !isReadOnly ? (
+        {activeThread && !isReadOnly && !hideThreadActions ? (
           <Tooltip content={isInspectionPanelOpen ? 'Close run inspector' : 'Open run inspector'}>
             <button
               onClick={onToggleInspectionPanel}
@@ -200,14 +202,16 @@ export function AppMainPanelHeader({
             </button>
           </Tooltip>
         ) : null}
-        <ThreadHeaderActions
-          activeThread={activeThread}
-          isRenameDisabled={false}
-          isRunning={isRunning}
-          isSaving={isSaving}
-          isStarred={isStarred}
-          onSelectOperation={onSelectThreadOperation}
-        />
+        {!hideThreadActions ? (
+          <ThreadHeaderActions
+            activeThread={activeThread}
+            isRenameDisabled={false}
+            isRunning={isRunning}
+            isSaving={isSaving}
+            isStarred={isStarred}
+            onSelectOperation={onSelectThreadOperation}
+          />
+        ) : null}
       </div>
     </div>
   )

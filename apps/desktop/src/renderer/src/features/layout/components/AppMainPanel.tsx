@@ -1024,6 +1024,7 @@ export function AppMainPanel({
         isSaving={threadIsSaving}
         isSidebarToggleDisabled={isSidebarToggleDisabled}
         isStarred={!!activeThread?.starredAt}
+        hideThreadActions={activeTimelineSurface === 'browser'}
         centerAccessory={headerSurfaceSwitcher}
         messageCount={messageCount}
         onOpenThreadWorkspace={handleOpenThreadWorkspace}
