@@ -1,5 +1,5 @@
 import type { BrowserSearchSession } from '../webSearch/browserSearchSession.ts'
-import { runWithBrowserRetries } from '../webSearch/browserRetry.ts'
+import { runWithBrowserRetries } from '../browserRetry.ts'
 
 const DEFAULT_BROWSER_WEB_READ_TIMEOUT_MS = 15_000
 const PAGE_READY_PREDICATE = `

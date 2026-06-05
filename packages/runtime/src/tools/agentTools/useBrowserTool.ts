@@ -6,6 +6,10 @@ import type {
   BrowserAutomationSnapshot
 } from '../../services/browserAutomation/electronBrowserAutomationService.ts'
 import { assertNonEmptyScreenshotByteLength } from '../../services/browserAutomation/browserCaptureValidation.ts'
+import {
+  isRetryableBrowserNavigationError,
+  runWithBrowserRetries
+} from '../../services/browserRetry.ts'
 
 import {
   takeTail,
@@ -23,6 +27,10 @@ const MAX_EVAL_DETAILS_RESULT_CHARS = 4_000
 
 function isMissingSessionError(error: unknown): boolean {
   return error instanceof Error && error.message.includes('No browser session')
+}
+
+function formatAttemptSuffix(attempts: number): string {
+  return attempts > 1 ? ` after ${attempts} attempts` : ''
 }
 
 function formatRefs(snapshot: BrowserAutomationSnapshot, limit = 30): string {
@@ -129,25 +137,49 @@ export function createTool(
         ...(input.script ? { script: input.script } : {}),
         ...(input.timeoutMs ? { timeoutMs: input.timeoutMs } : {})
       }
+      let navigationAttempts: number | undefined
+
+      const detailsWithNavigationAttempts = (
+        details: UseBrowserToolCallDetails
+      ): UseBrowserToolCallDetails => ({
+        ...details,
+        ...(navigationAttempts ? { attempts: navigationAttempts } : {})
+      })
+
+      const runNavigation = async <TResult>(run: () => Promise<TResult>): Promise<TResult> => {
+        return runWithBrowserRetries({
+          shouldRetryError: isRetryableBrowserNavigationError,
+          run: async (attempt) => {
+            navigationAttempts = attempt
+            return run()
+          }
+        })
+      }
 
       try {
         switch (input.action) {
           case 'open': {
-            const opened = await service.open({
-              threadId,
-              session,
-              ...(input.url ? { url: input.url } : {}),
-              ...(input.viewport ? { viewport: input.viewport } : {})
-            })
+            const opened = await runNavigation(() =>
+              service.open({
+                threadId,
+                session,
+                ...(input.url ? { url: input.url } : {}),
+                ...(input.viewport ? { viewport: input.viewport } : {})
+              })
+            )
             const finalUrl = opened.url
             const title = opened.title
             return {
-              content: textContent(title ? `Opened: ${title}\n${finalUrl}` : `Opened: ${finalUrl}`),
-              details: {
+              content: textContent(
+                title
+                  ? `Opened${formatAttemptSuffix(navigationAttempts ?? 1)}: ${title}\n${finalUrl}`
+                  : `Opened${formatAttemptSuffix(navigationAttempts ?? 1)}: ${finalUrl}`
+              ),
+              details: detailsWithNavigationAttempts({
                 ...baseDetails,
                 finalUrl,
                 ...(title ? { title } : {})
-              },
+              }),
               metadata: {}
             }
           }
@@ -177,16 +209,20 @@ export function createTool(
           }
           case 'loadUrl': {
             if (!input.url) throw new Error('url is required for loadUrl')
-            const finalUrl = await service
-              .loadUrl({ threadId, session, url: input.url })
-              .catch(async (error: unknown) => {
-                if (!isMissingSessionError(error)) throw error
-                await service.open({ threadId, session })
-                return service.loadUrl({ threadId, session, url: input.url! })
-              })
+            const finalUrl = await runNavigation(() =>
+              service
+                .loadUrl({ threadId, session, url: input.url! })
+                .catch(async (error: unknown) => {
+                  if (!isMissingSessionError(error)) throw error
+                  await service.open({ threadId, session })
+                  return service.loadUrl({ threadId, session, url: input.url! })
+                })
+            )
             return {
-              content: textContent(`Loaded: ${finalUrl}`),
-              details: { ...baseDetails, finalUrl },
+              content: textContent(
+                `Loaded${formatAttemptSuffix(navigationAttempts ?? 1)}: ${finalUrl}`
+              ),
+              details: detailsWithNavigationAttempts({ ...baseDetails, finalUrl }),
               metadata: {}
             }
           }
@@ -201,7 +237,7 @@ export function createTool(
               })
               .catch(async (error: unknown) => {
                 if (!isMissingSessionError(error) || !input.url) throw error
-                await service.open({ threadId, session, url: input.url })
+                await runNavigation(() => service.open({ threadId, session, url: input.url }))
                 return service.waitForFunction({
                   threadId,
                   session,
@@ -211,8 +247,10 @@ export function createTool(
               })
             const finalUrl = await service.getUrl({ threadId, session })
             return {
-              content: textContent(`Ready: ${finalUrl}`),
-              details: { ...baseDetails, finalUrl },
+              content: textContent(
+                `Ready${formatAttemptSuffix(navigationAttempts ?? 1)}: ${finalUrl}`
+              ),
+              details: detailsWithNavigationAttempts({ ...baseDetails, finalUrl }),
               metadata: {}
             }
           }
@@ -225,7 +263,7 @@ export function createTool(
               })
               .catch(async (error: unknown) => {
                 if (!isMissingSessionError(error) || !input.url) throw error
-                await service.open({ threadId, session, url: input.url })
+                await runNavigation(() => service.open({ threadId, session, url: input.url }))
                 return service.snapshot({ threadId, session, maxRefs: input.maxRefs })
               })
             const refsText = formatRefs(snapshot)
@@ -234,12 +272,12 @@ export function createTool(
             const body = [header, pageText, refsText].filter(Boolean).join('\n\n')
             return {
               content: textContent(body),
-              details: {
+              details: detailsWithNavigationAttempts({
                 ...baseDetails,
                 finalUrl: snapshot.url,
                 ...(snapshot.title ? { title: snapshot.title } : {}),
                 refCount: snapshot.refCount
-              },
+              }),
               metadata: {}
             }
           }
@@ -454,11 +492,15 @@ export function createTool(
         }
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error)
+        const errorMessage =
+          navigationAttempts && isRetryableBrowserNavigationError(error)
+            ? `Browser navigation failed after ${navigationAttempts} attempts: ${message}`
+            : message
         return {
-          content: textContent(message),
-          details: baseDetails,
+          content: textContent(errorMessage),
+          details: detailsWithNavigationAttempts(baseDetails),
           metadata: {},
-          error: message
+          error: errorMessage
         }
       }
     }

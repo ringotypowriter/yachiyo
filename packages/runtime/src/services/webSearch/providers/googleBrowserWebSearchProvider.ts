@@ -1,6 +1,6 @@
 import type { WebSearchFailureCode, WebSearchResultItem } from '@yachiyo/shared/protocol'
 import type { BrowserSearchSession } from '../browserSearchSession.ts'
-import { runWithBrowserRetries } from '../browserRetry.ts'
+import { runWithBrowserRetries } from '../../browserRetry.ts'
 import type { WebSearchProvider, WebSearchResult } from '../webSearchService.ts'
 
 const GOOGLE_SEARCH_URL = 'https://www.google.com/search'

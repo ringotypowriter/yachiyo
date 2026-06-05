@@ -145,6 +145,87 @@ test('useBrowserTool: open includes finalUrl/title in details', async () => {
   assert.equal(result.details.title, 'Example')
 })
 
+test('useBrowserTool: open retries transient navigation failures before succeeding', async () => {
+  let attempts = 0
+  const tool = createTool(makeContext(), {
+    browserAutomationService: makeService({
+      open: async () => {
+        attempts += 1
+        if (attempts < 5) {
+          throw new Error('Navigation failed: ERR_CONNECTION_RESET')
+        }
+        return { url: 'https://example.com/recovered', title: 'Recovered' }
+      }
+    })
+  })
+  assert.ok(tool.execute)
+
+  const result = await resolveToolOutput(
+    tool.execute(
+      { action: 'open', session: 's1', url: 'https://example.com', ...TOOL_INPUT_DEFAULTS },
+      TOOL_EXECUTION_OPTIONS
+    )
+  )
+
+  assert.equal(result.error, undefined)
+  assert.equal(attempts, 5)
+  assert.equal(result.details.finalUrl, 'https://example.com/recovered')
+  assert.equal(result.details.attempts, 5)
+  assert.match(result.content[0]?.type === 'text' ? result.content[0].text : '', /after 5 attempts/)
+})
+
+test('useBrowserTool: loadUrl retries SSL navigation failures before succeeding', async () => {
+  let attempts = 0
+  const tool = createTool(makeContext(), {
+    browserAutomationService: makeService({
+      loadUrl: async ({ url }) => {
+        attempts += 1
+        if (attempts < 2) {
+          throw new Error('Navigation failed: ERR_SSL_PROTOCOL_ERROR')
+        }
+        return url
+      }
+    })
+  })
+  assert.ok(tool.execute)
+
+  const result = await resolveToolOutput(
+    tool.execute(
+      { action: 'loadUrl', session: 's1', url: 'https://example.com', ...TOOL_INPUT_DEFAULTS },
+      TOOL_EXECUTION_OPTIONS
+    )
+  )
+
+  assert.equal(result.error, undefined)
+  assert.equal(attempts, 2)
+  assert.equal(result.details.finalUrl, 'https://example.com')
+  assert.equal(result.details.attempts, 2)
+})
+
+test('useBrowserTool: navigation retry keeps non-retryable errors single-attempt', async () => {
+  let attempts = 0
+  const tool = createTool(makeContext(), {
+    browserAutomationService: makeService({
+      open: async () => {
+        attempts += 1
+        throw new Error('Browser session "s1" was destroyed. Re-open it.')
+      }
+    })
+  })
+  assert.ok(tool.execute)
+
+  const result = await resolveToolOutput(
+    tool.execute(
+      { action: 'open', session: 's1', url: 'https://example.com', ...TOOL_INPUT_DEFAULTS },
+      TOOL_EXECUTION_OPTIONS
+    )
+  )
+
+  assert.equal(attempts, 1)
+  assert.ok(result.error)
+  assert.equal(result.details.attempts, 1)
+})
+
 test('useBrowserTool: snapshot returns refs and refCount', async () => {
   const tool = createTool(makeContext(), { browserAutomationService: makeService() })
   assert.ok(tool.execute)

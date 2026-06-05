@@ -211,6 +211,7 @@ export interface UseBrowserToolCallDetails {
   script?: string
   result?: string
   timeoutMs?: number
+  attempts?: number
   savedFileName?: string
   savedFilePath?: string
   bytesWritten?: number
