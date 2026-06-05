@@ -187,7 +187,10 @@ test('createAgentToolSet exposes reviewThings but disables useThings for schedul
   assert.match(flattenToolContent(useThingsResult?.content ?? []), /currently disabled/)
   assert.equal(useThingsResult?.error, 'Tool "useThings" is disabled.')
 
-  const reviewThingsResult = await tools.reviewThings.execute?.({ action: 'list' }, {} as never)
+  const reviewThingsResult = await tools.reviewThings.execute?.(
+    { action: 'list', arguments: '{"includeInactive":true}' },
+    {} as never
+  )
   assert.equal(reviewThingsResult?.error, undefined)
   assert.match(flattenToolContent(reviewThingsResult?.content ?? []), /Found 0 things/)
 })

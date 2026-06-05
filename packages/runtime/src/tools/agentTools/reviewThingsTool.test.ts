@@ -28,20 +28,23 @@ function createReviewThingsTool(): { execute: TestToolExecute } {
   return { execute }
 }
 
+function reviewInput(action: string, args: Record<string, unknown>): unknown {
+  return { action, arguments: JSON.stringify(args) }
+}
+
 test('reviewThings addReviewedSource derives source refs from a thread span rowId', async () => {
   const { execute } = createReviewThingsTool()
-  await execute(
-    { action: 'create', name: 'Raven UI', summary: 'UI work' },
-    { toolCallId: 't', messages: [] }
-  )
+  await execute(reviewInput('create', { name: 'Raven UI', summary: 'UI work' }), {
+    toolCallId: 't',
+    messages: []
+  })
 
   const output = await execute(
-    {
-      action: 'addReviewedSource',
+    reviewInput('addReviewedSource', {
       name: 'raven-ui',
       sourceRowId: 'thread_span:thread-1:start-message:end-message',
       preview: 'Reviewed conversation about source previews.'
-    },
+    }),
     { toolCallId: 't', messages: [] }
   )
 
@@ -69,29 +72,37 @@ test('reviewThings addReviewedSource derives source refs from a thread span rowI
 
 test('reviewThings list and get expose model-visible Thing details', async () => {
   const { execute } = createReviewThingsTool()
+  await execute(reviewInput('create', { name: 'Raven UI', summary: 'UI work' }), {
+    toolCallId: 't',
+    messages: []
+  })
   await execute(
-    { action: 'create', name: 'Raven UI', summary: 'UI work' },
-    { toolCallId: 't', messages: [] }
-  )
-  await execute(
-    {
-      action: 'addReviewedSource',
+    reviewInput('addReviewedSource', {
       name: 'raven-ui',
       sourceRowId: 'thread_message:thread-1:message-1',
       preview: 'Reviewed one message.'
-    },
+    }),
     { toolCallId: 't', messages: [] }
   )
 
-  const listOutput = await execute({ action: 'list' }, { toolCallId: 't', messages: [] })
+  const listOutput = await execute(
+    reviewInput('list', {
+      includeInactive: true,
+      name: '',
+      summary: '',
+      sourceRowId: '',
+      preview: ''
+    }),
+    { toolCallId: 't', messages: [] }
+  )
   assert.match(outputText(listOutput), /#raven-ui/)
   assert.match(outputText(listOutput), /UI work/)
   assert.match(outputText(listOutput), /1 source/)
 
-  const getOutput = await execute(
-    { action: 'get', name: 'raven-ui' },
-    { toolCallId: 't', messages: [] }
-  )
+  const getOutput = await execute(reviewInput('get', { name: 'raven-ui' }), {
+    toolCallId: 't',
+    messages: []
+  })
   assert.match(outputText(getOutput), /#raven-ui/)
   assert.match(outputText(getOutput), /Status: active/)
   assert.match(outputText(getOutput), /Summary: UI work/)
@@ -102,18 +113,17 @@ test('reviewThings list and get expose model-visible Thing details', async () =>
 
 test('reviewThings addReviewedSource derives source refs from a thread message rowId', async () => {
   const { execute } = createReviewThingsTool()
-  await execute(
-    { action: 'create', name: 'Raven UI', summary: 'UI work' },
-    { toolCallId: 't', messages: [] }
-  )
+  await execute(reviewInput('create', { name: 'Raven UI', summary: 'UI work' }), {
+    toolCallId: 't',
+    messages: []
+  })
 
   const output = await execute(
-    {
-      action: 'addReviewedSource',
+    reviewInput('addReviewedSource', {
       name: 'raven-ui',
       sourceRowId: 'source_event:thread_message:thread-1:message-1',
       preview: 'Reviewed one message.'
-    },
+    }),
     { toolCallId: 't', messages: [] }
   )
 
@@ -137,18 +147,17 @@ test('reviewThings addReviewedSource derives source refs from a thread message r
 
 test('reviewThings addReviewedSource rejects non-thread source rowIds', async () => {
   const { execute } = createReviewThingsTool()
-  await execute(
-    { action: 'create', name: 'Raven UI', summary: 'UI work' },
-    { toolCallId: 't', messages: [] }
-  )
+  await execute(reviewInput('create', { name: 'Raven UI', summary: 'UI work' }), {
+    toolCallId: 't',
+    messages: []
+  })
 
   const output = await execute(
-    {
-      action: 'addReviewedSource',
+    reviewInput('addReviewedSource', {
       name: 'raven-ui',
       sourceRowId: 'activity_record:activity-1',
       preview: 'Not a thread source.'
-    },
+    }),
     { toolCallId: 't', messages: [] }
   )
 

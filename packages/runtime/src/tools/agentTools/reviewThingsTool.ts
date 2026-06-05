@@ -12,7 +12,23 @@ type ReviewThingsInput =
   | { action: 'addReviewedSource'; name: string; sourceRowId: string; preview: string }
   | { action: 'restore'; name: string }
 
-const reviewThingsInputSchema = z
+interface ReviewThingsToolInput {
+  action: ReviewThingsInput['action']
+  arguments: string
+}
+
+function sanitizeEmptyToolFields(input: unknown): unknown {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return input
+  return Object.fromEntries(
+    Object.entries(input).filter(([, value]) => {
+      if (value == null) return false
+      if (typeof value === 'string' && value.trim() === '') return false
+      return true
+    })
+  )
+}
+
+const reviewThingsActionSchema = z
   .object({
     action: z.enum(['list', 'get', 'create', 'updateSummary', 'addReviewedSource', 'restore']),
     includeInactive: z.boolean().optional(),
@@ -53,7 +69,34 @@ const reviewThingsInputSchema = z
     },
     { message: 'Unexpected fields for the given action.' }
   )
-  .transform((data) => data as ReviewThingsInput)
+
+const reviewThingsInputSchema = z
+  .object({
+    action: z.enum(['list', 'get', 'create', 'updateSummary', 'addReviewedSource', 'restore']),
+    arguments: z.string().min(1)
+  })
+  .strip()
+
+function parseReviewThingsArguments(input: ReviewThingsToolInput): ReviewThingsInput {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(input.arguments)
+  } catch {
+    throw new Error('arguments must be a JSON object string.')
+  }
+
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new Error('arguments must be a JSON object string.')
+  }
+
+  const result = reviewThingsActionSchema.safeParse(
+    sanitizeEmptyToolFields({ ...parsed, action: input.action })
+  )
+  if (!result.success) {
+    throw new Error(result.error.issues[0]?.message ?? 'Invalid reviewThings arguments.')
+  }
+  return result.data as ReviewThingsInput
+}
 
 interface ReviewThingsToolOutput {
   content: Array<{ type: 'text'; text: string }>
@@ -94,7 +137,9 @@ Actions:
 - create: create a Thing only when the context is likely to be useful in a later conversation.
 - updateSummary: rewrite the Thing summary.
 - addReviewedSource: attach one reviewed thread source to a Thing with a source preview.
-- restore: mark an inactive Thing as current again.`
+- restore: mark an inactive Thing as current again.
+
+Call this tool with action and arguments. action is one of the action names above. arguments is a JSON string containing that action's parameters, for example action=get and arguments={"name":"project-name"}.`
 
 function textOutput(text: string, details?: unknown): ReviewThingsToolOutput {
   return { content: [{ type: 'text', text }], ...(details ? { details } : {}) }
@@ -145,7 +190,7 @@ function parseReviewedSourceRowId(sourceRowId: string): ReviewedSourceRef {
 
 export function createTool(
   deps: ReviewThingsToolDeps
-): Tool<ReviewThingsInput, ReviewThingsToolOutput> {
+): Tool<ReviewThingsToolInput, ReviewThingsToolOutput> {
   return tool({
     description: DESCRIPTION,
     inputSchema: reviewThingsInputSchema,
@@ -153,8 +198,9 @@ export function createTool(
       output.error
         ? { type: 'error-text', value: output.error }
         : { type: 'content', value: output.content },
-    execute: async (input) => {
+    execute: async (toolInput) => {
       try {
+        const input = parseReviewThingsArguments(toolInput)
         switch (input.action) {
           case 'list': {
             const things = await deps.thingDomain.listThings({

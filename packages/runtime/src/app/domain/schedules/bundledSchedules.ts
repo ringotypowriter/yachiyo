@@ -422,10 +422,11 @@ Today means 00:00 to now in the local timezone this schedule runs in. Use queryS
 If today returns no conversation-level activity, report "No conversations today — nothing to review." and stop.
 
 ## Workflow
-1. Call reviewThings action "list" with includeInactive true. This returns every existing Thing with its summary, active/inactive status, and saved source previews.
+1. Call reviewThings with action "list" and arguments {"includeInactive":true}. This returns every existing Thing with its summary, active/inactive status, and saved source previews.
 2. Query source_events for today's activity. Open relevant thread_span rows to understand what each conversation was about. Skim for topic, decisions, and continuity signals — full transcripts are not needed unless the preview would otherwise be vague.
-3. For each conversation worth keeping, make small reviewThings calls as needed: create a Thing, addReviewedSource with that conversation's sourceRowId and preview, restore an inactive Thing, or updateSummary.
-4. Report: one line per change. If nothing changed, say so.
+3. For each conversation worth keeping, make small reviewThings calls as needed: create a Thing, addReviewedSource with that conversation's sourceRowId and preview, restore an inactive Thing, or updateSummary. Always pass reviewThings parameters inside the JSON string field named arguments.
+4. When a new Thing is justified, create it first, then immediately call addReviewedSource for the same conversation. Do not skip creation just because the source attachment requires a second tool call.
+5. Report: one line per change. If nothing changed, say so.
 
 ## Selection
 
