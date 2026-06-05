@@ -132,8 +132,26 @@ export function normalizeSubagentsConfig(value: unknown): SubagentsConfig {
         )
     : defaultEnabled
 
+  const rawPreferredModels = input['preferredModels']
+  const preferredModels: Partial<Record<NamedSubagentId, ThreadModelOverride>> = {}
+  if (
+    rawPreferredModels &&
+    typeof rawPreferredModels === 'object' &&
+    !Array.isArray(rawPreferredModels)
+  ) {
+    for (const agentId of VALID_NAMED_SUBAGENT_IDS) {
+      const override = normalizeThreadModelOverride(
+        (rawPreferredModels as Record<string, unknown>)[agentId]
+      )
+      if (override) {
+        preferredModels[agentId] = override
+      }
+    }
+  }
+
   return {
     mode,
-    enabledNamedAgents: [...new Set(enabledNamedAgents)]
+    enabledNamedAgents: [...new Set(enabledNamedAgents)],
+    ...(Object.keys(preferredModels).length > 0 ? { preferredModels } : {})
   }
 }

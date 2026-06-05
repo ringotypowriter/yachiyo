@@ -160,6 +160,7 @@ export function createRunToolSet(input: CreateRunToolSetInput): ToolSet | undefi
           subagentsConfig,
           availableWorkspaces: subagentAvailableWorkspaces,
           settings: deps.readSettings(),
+          config: input.preparedContext.config,
           createModelRuntime: deps.createModelRuntime,
           onSubagentProgress: (event: DelegateTaskProgressEvent) => {
             input.markProgress()

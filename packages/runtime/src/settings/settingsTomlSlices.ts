@@ -329,24 +329,46 @@ export const settingsTomlSlices: readonly TomlConfigSlice<SettingsConfig, TomlDo
       const subagents = readTomlTable(doc['subagents'])
       if (!subagents) return {}
       const enabledNamedAgents = readTomlArray(subagents['enabledNamedAgents'])
+      const preferredModelsRaw = readTomlTable(subagents['preferredModels'])
+      const preferredModels: Record<string, { providerName: string; model: string }> = {}
+      if (preferredModelsRaw) {
+        for (const [key, val] of Object.entries(preferredModelsRaw)) {
+          const entry = readTomlTable(val)
+          if (
+            entry &&
+            typeof entry['providerName'] === 'string' &&
+            entry['providerName'].length > 0 &&
+            typeof entry['model'] === 'string' &&
+            entry['model'].length > 0
+          ) {
+            preferredModels[key] = {
+              providerName: entry['providerName'],
+              model: entry['model']
+            }
+          }
+        }
+      }
       return {
         subagents: {
           mode: (subagents['mode'] as NonNullable<SettingsConfig['subagents']>['mode']) ?? 'worker',
           enabledNamedAgents:
             (enabledNamedAgents as NonNullable<
               SettingsConfig['subagents']
-            >['enabledNamedAgents']) ?? []
+            >['enabledNamedAgents']) ?? [],
+          ...(Object.keys(preferredModels).length > 0 ? { preferredModels } : {})
         }
       }
     },
     write(config) {
       const subagents = config.subagents ?? DEFAULT_SETTINGS_CONFIG.subagents!
-      return {
-        subagents: {
-          mode: subagents.mode,
-          enabledNamedAgents: subagents.enabledNamedAgents
-        }
+      const result: Record<string, unknown> = {
+        mode: subagents.mode,
+        enabledNamedAgents: subagents.enabledNamedAgents
       }
+      if (subagents.preferredModels && Object.keys(subagents.preferredModels).length > 0) {
+        result['preferredModels'] = subagents.preferredModels
+      }
+      return { subagents: result }
     }
   },
   {

@@ -221,3 +221,169 @@ test('built-in worker tool permissions stay fixed in code', () => {
     'applyPatch'
   ])
 })
+
+test('worker subagent uses preferred model when configured', async () => {
+  const capturedSettings: Array<{ providerName: string; model: string }> = []
+  const modelRuntime: ModelRuntime = {
+    streamReply: async function* (input) {
+      capturedSettings.push({
+        providerName: input.settings.providerName,
+        model: input.settings.model
+      })
+      yield 'worker result'
+    }
+  } as ModelRuntime
+
+  const tool = createTool(
+    makeContext({
+      config: {
+        providers: [
+          {
+            id: 'p1',
+            name: 'preferred',
+            type: 'openai',
+            apiKey: 'sk-p',
+            baseUrl: '',
+            project: '',
+            location: '',
+            serviceAccountEmail: '',
+            serviceAccountPrivateKey: '',
+            modelList: { enabled: ['gpt-5'], disabled: [] }
+          }
+        ],
+        subagents: {
+          mode: 'worker',
+          enabledNamedAgents: ['explore'],
+          preferredModels: {
+            explore: { providerName: 'preferred', model: 'gpt-5' }
+          }
+        }
+      },
+      settings: {
+        providerName: 'default',
+        provider: 'anthropic',
+        model: 'claude-default',
+        apiKey: '',
+        baseUrl: ''
+      },
+      createModelRuntime: () => modelRuntime
+    })
+  )
+
+  await tool.execute!(
+    { agent_name: 'explore', prompt: 'Do it' },
+    { toolCallId: 'delegation-preferred', messages: [], abortSignal: AbortSignal.timeout(5000) }
+  )
+
+  assert.equal(capturedSettings.length, 1)
+  assert.equal(capturedSettings[0]!.providerName, 'preferred')
+  assert.equal(capturedSettings[0]!.model, 'gpt-5')
+})
+
+test('worker subagent falls back to calling model when preferred model is disabled or missing', async () => {
+  const capturedSettings: Array<{ providerName: string; model: string }> = []
+  const modelRuntime: ModelRuntime = {
+    streamReply: async function* (input) {
+      capturedSettings.push({
+        providerName: input.settings.providerName,
+        model: input.settings.model
+      })
+      yield 'worker result'
+    }
+  } as ModelRuntime
+
+  const tool = createTool(
+    makeContext({
+      config: {
+        providers: [
+          {
+            id: 'p1',
+            name: 'preferred',
+            type: 'openai',
+            apiKey: 'sk-p',
+            baseUrl: '',
+            project: '',
+            location: '',
+            serviceAccountEmail: '',
+            serviceAccountPrivateKey: '',
+            modelList: { enabled: [], disabled: ['gpt-5'] }
+          }
+        ],
+        subagents: {
+          mode: 'worker',
+          enabledNamedAgents: ['explore'],
+          preferredModels: {
+            explore: { providerName: 'preferred', model: 'gpt-5' }
+          }
+        }
+      },
+      settings: {
+        providerName: 'default',
+        provider: 'anthropic',
+        model: 'claude-default',
+        apiKey: '',
+        baseUrl: ''
+      },
+      createModelRuntime: () => modelRuntime
+    })
+  )
+
+  await tool.execute!(
+    { agent_name: 'explore', prompt: 'Do it' },
+    {
+      toolCallId: 'delegation-fallback',
+      messages: [],
+      abortSignal: AbortSignal.timeout(5000)
+    }
+  )
+
+  assert.equal(capturedSettings.length, 1)
+  assert.equal(capturedSettings[0]!.providerName, 'default')
+  assert.equal(capturedSettings[0]!.model, 'claude-default')
+})
+
+test('worker without preferred model uses calling model unchanged', async () => {
+  const capturedSettings: Array<{ providerName: string; model: string }> = []
+  const modelRuntime: ModelRuntime = {
+    streamReply: async function* (input) {
+      capturedSettings.push({
+        providerName: input.settings.providerName,
+        model: input.settings.model
+      })
+      yield 'worker result'
+    }
+  } as ModelRuntime
+
+  const tool = createTool(
+    makeContext({
+      config: {
+        providers: [],
+        subagents: {
+          mode: 'worker',
+          enabledNamedAgents: ['explore']
+        }
+      },
+      settings: {
+        providerName: 'default',
+        provider: 'anthropic',
+        model: 'claude-default',
+        apiKey: '',
+        baseUrl: ''
+      },
+      createModelRuntime: () => modelRuntime
+    })
+  )
+
+  await tool.execute!(
+    { agent_name: 'explore', prompt: 'Do it' },
+    {
+      toolCallId: 'delegation-no-pref',
+      messages: [],
+      abortSignal: AbortSignal.timeout(5000)
+    }
+  )
+
+  assert.equal(capturedSettings.length, 1)
+  assert.equal(capturedSettings[0]!.providerName, 'default')
+  assert.equal(capturedSettings[0]!.model, 'claude-default')
+})

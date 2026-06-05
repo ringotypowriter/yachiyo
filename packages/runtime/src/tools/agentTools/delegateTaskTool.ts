@@ -6,6 +6,7 @@ import { z } from 'zod'
 import type {
   NamedSubagentId,
   ProviderSettings,
+  SettingsConfig,
   SubagentProfile,
   SubagentsConfig,
   ToolCallName
@@ -20,6 +21,7 @@ import {
   SUBAGENT_DESCRIPTIONS,
   WORKER_DELEGATION_PROMPT_GUIDANCE
 } from '../../settings/namedSubagents.ts'
+import { toSubagentProviderSettings } from '../../settings/settingsStore.ts'
 import { createAgentToolSet, type AgentToolDependencies } from '../agentTools.ts'
 import type { AgentToolContext } from './shared.ts'
 
@@ -184,6 +186,7 @@ export interface DelegateTaskContext {
   subagentsConfig: SubagentsConfig
   subagentProfiles: SubagentProfile[]
   settings: ProviderSettings
+  config?: SettingsConfig
   createModelRuntime: () => ModelRuntime
   parentToolContext: AgentToolContext
   parentDependencies: AgentToolDependencies
@@ -300,6 +303,11 @@ async function runWorkerSubagent(
     { role: 'system' as const, content: profile.systemPrompt },
     { role: 'user' as const, content: prompt }
   ]
+  const workerSettings =
+    ctx.config && ctx.settings
+      ? toSubagentProviderSettings(ctx.config, profileId, ctx.settings)
+      : ctx.settings
+
   let resultText = ''
   const recentToolSummaries: string[] = []
 
@@ -309,7 +317,7 @@ async function runWorkerSubagent(
   try {
     for await (const delta of modelRuntime.streamReply({
       messages,
-      settings: ctx.settings,
+      settings: workerSettings,
       signal: abortSignal ?? new AbortController().signal,
       purpose: `worker:${profileId}`,
       maxToolSteps: profile.maxToolSteps ?? 999,

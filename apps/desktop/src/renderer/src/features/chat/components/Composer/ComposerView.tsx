@@ -930,6 +930,7 @@ export function ComposerView(props: any): React.JSX.Element {
           {modelSelectorOpen && config && !isModelSelectorLocked ? (
             <ModelSelectorPopup
               config={config}
+              triggerRef={modelSelectorRef}
               currentProviderName={effectiveModel.providerName}
               currentModel={effectiveModel.model}
               currentAcpProfileId={effectiveAcpBinding?.profileId ?? null}

@@ -233,6 +233,7 @@ export async function streamCompactThreadHandoff(
                 subagentsConfig: preparedContext.subagentsConfig,
                 availableWorkspaces: preparedContext.subagentAvailableWorkspaces,
                 settings,
+                config,
                 createModelRuntime: deps.createModelRuntime
               }
             : {})

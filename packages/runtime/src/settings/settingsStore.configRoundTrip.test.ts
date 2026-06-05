@@ -142,6 +142,46 @@ enabledNamedAgents = ["explore", "review"]
   assert.doesNotMatch(serialized, /systemPrompt|maxToolSteps|allowedTools/)
 })
 
+test('subagents preferredModels round-trips through parse → normalize → stringify → parse', () => {
+  const config = parseSettingsToml(`[subagents]
+mode = "worker"
+enabledNamedAgents = ["explore", "review"]
+
+[subagents.preferredModels]
+explore = { providerName = "work", model = "gpt-5" }
+review = { providerName = "backup", model = "claude-opus-4-6" }
+`)
+
+  assert.deepEqual(config.subagents?.preferredModels, {
+    explore: { providerName: 'work', model: 'gpt-5' },
+    review: { providerName: 'backup', model: 'claude-opus-4-6' }
+  })
+
+  const serialized = stringifySettingsToml(config)
+  const reloaded = parseSettingsToml(serialized)
+  assert.deepEqual(reloaded.subagents?.preferredModels, {
+    explore: { providerName: 'work', model: 'gpt-5' },
+    review: { providerName: 'backup', model: 'claude-opus-4-6' }
+  })
+})
+
+test('subagents preferredModels filters invalid worker ids and empty values', () => {
+  const config = parseSettingsToml(`[subagents]
+mode = "worker"
+enabledNamedAgents = ["explore"]
+
+[subagents.preferredModels]
+explore = { providerName = "work", model = "gpt-5" }
+invalid_agent = { providerName = "x", model = "y" }
+empty_provider = { providerName = "", model = "gpt-5" }
+empty_model = { providerName = "work", model = "" }
+`)
+
+  assert.deepEqual(config.subagents?.preferredModels, {
+    explore: { providerName: 'work', model: 'gpt-5' }
+  })
+})
+
 test('general theme preferences round-trip through parse → normalize → stringify → parse', () => {
   const toml = `[general]
 themeId = "ume"

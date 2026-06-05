@@ -206,6 +206,8 @@ export function ModelSelectorPopup({
   onClose,
   placement = 'top',
   portal = false,
+  triggerRef,
+  onRequestAnchorUpdate,
   width = 300
 }: {
   align?: 'left' | 'right'
@@ -225,13 +227,18 @@ export function ModelSelectorPopup({
   onClose: () => void
   placement?: 'bottom' | 'top'
   portal?: boolean
+  triggerRef?: React.RefObject<HTMLElement | null>
+  onRequestAnchorUpdate?: () => void
   width?: number
 }): React.ReactNode {
   const [query, setQuery] = useState('')
   const [selectionPending, setSelectionPending] = useState(false)
   const [visible, setVisible] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
+  const internalPopupRef = useRef<HTMLDivElement>(null)
   useRestoreFocusOnUnmount()
+
+  const popupRef = containerRef ?? internalPopupRef
 
   const handleSelection = (action: () => Promise<void> | void): void => {
     if (selectionPending) {
@@ -260,6 +267,30 @@ export function ModelSelectorPopup({
     document.addEventListener('keydown', handler)
     return () => document.removeEventListener('keydown', handler)
   }, [onClose, selectionPending])
+
+  useEffect(() => {
+    const handlePointerDown = (event: MouseEvent): void => {
+      if (selectionPending) return
+      const target = event.target
+      if (!(target instanceof Node)) return
+      if (popupRef.current?.contains(target)) return
+      if (triggerRef?.current?.contains(target)) return
+      onClose()
+    }
+
+    const handleViewportChange = (): void => {
+      onRequestAnchorUpdate?.()
+    }
+
+    document.addEventListener('mousedown', handlePointerDown)
+    window.addEventListener('resize', handleViewportChange)
+    window.addEventListener('scroll', handleViewportChange, true)
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown)
+      window.removeEventListener('resize', handleViewportChange)
+      window.removeEventListener('scroll', handleViewportChange, true)
+    }
+  }, [popupRef, triggerRef, onClose, onRequestAnchorUpdate, selectionPending])
 
   const hasLeadingOptions = leadingOptions != null && leadingOptions.length > 0
 
@@ -322,7 +353,7 @@ export function ModelSelectorPopup({
 
   const popup = (
     <div
-      ref={containerRef}
+      ref={popupRef}
       style={{
         ...popupStyle,
         maxHeight: 360,

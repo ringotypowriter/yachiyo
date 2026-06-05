@@ -54,110 +54,9 @@ export function ChatPane({ draft, onChange }: ChatPaneProps): React.ReactNode {
   const [i2tModelSelectorOpen, setI2tModelSelectorOpen] = useState(false)
   const [i2tModelAnchorRect, setI2tModelAnchorRect] = useState<DOMRect | null>(null)
 
-  const updateToolModelAnchorRect = (): void => {
-    setToolModelAnchorRect(toolModelTriggerRef.current?.getBoundingClientRect() ?? null)
-  }
-
   const updateDefaultModelAnchorRect = (): void => {
     setDefaultModelAnchorRect(defaultModelTriggerRef.current?.getBoundingClientRect() ?? null)
   }
-
-  useEffect(() => {
-    if (!toolModelSelectorOpen) {
-      return
-    }
-
-    const handlePointerDown = (event: MouseEvent): void => {
-      const target = event.target
-      if (!(target instanceof Node)) {
-        return
-      }
-
-      if (toolModelSelectorRef.current?.contains(target)) {
-        return
-      }
-
-      if (toolModelPopupRef.current?.contains(target)) {
-        return
-      }
-
-      setToolModelSelectorOpen(false)
-    }
-
-    const handleViewportChange = (): void => {
-      updateToolModelAnchorRect()
-    }
-
-    document.addEventListener('mousedown', handlePointerDown)
-    window.addEventListener('resize', handleViewportChange)
-    window.addEventListener('scroll', handleViewportChange, true)
-    return () => {
-      document.removeEventListener('mousedown', handlePointerDown)
-      window.removeEventListener('resize', handleViewportChange)
-      window.removeEventListener('scroll', handleViewportChange, true)
-    }
-  }, [toolModelSelectorOpen])
-
-  useEffect(() => {
-    if (!defaultModelSelectorOpen) {
-      return
-    }
-
-    const handlePointerDown = (event: MouseEvent): void => {
-      const target = event.target
-      if (!(target instanceof Node)) {
-        return
-      }
-
-      if (defaultModelSelectorRef.current?.contains(target)) {
-        return
-      }
-
-      if (defaultModelPopupRef.current?.contains(target)) {
-        return
-      }
-
-      setDefaultModelSelectorOpen(false)
-    }
-
-    const handleViewportChange = (): void => {
-      updateDefaultModelAnchorRect()
-    }
-
-    document.addEventListener('mousedown', handlePointerDown)
-    window.addEventListener('resize', handleViewportChange)
-    window.addEventListener('scroll', handleViewportChange, true)
-    return () => {
-      document.removeEventListener('mousedown', handlePointerDown)
-      window.removeEventListener('resize', handleViewportChange)
-      window.removeEventListener('scroll', handleViewportChange, true)
-    }
-  }, [defaultModelSelectorOpen])
-
-  useEffect(() => {
-    if (!i2tModelSelectorOpen) return
-
-    const handlePointerDown = (event: MouseEvent): void => {
-      const target = event.target
-      if (!(target instanceof Node)) return
-      if (i2tModelSelectorRef.current?.contains(target)) return
-      if (i2tModelPopupRef.current?.contains(target)) return
-      setI2tModelSelectorOpen(false)
-    }
-
-    const handleViewportChange = (): void => {
-      setI2tModelAnchorRect(i2tModelTriggerRef.current?.getBoundingClientRect() ?? null)
-    }
-
-    document.addEventListener('mousedown', handlePointerDown)
-    window.addEventListener('resize', handleViewportChange)
-    window.addEventListener('scroll', handleViewportChange, true)
-    return () => {
-      document.removeEventListener('mousedown', handlePointerDown)
-      window.removeEventListener('resize', handleViewportChange)
-      window.removeEventListener('scroll', handleViewportChange, true)
-    }
-  }, [i2tModelSelectorOpen])
 
   const enabledProviderCount = draft.providers.filter(
     (provider) => provider.modelList.enabled.length > 0
@@ -414,6 +313,12 @@ export function ChatPane({ draft, onChange }: ChatPaneProps): React.ReactNode {
               <ModelSelectorPopup
                 config={draft}
                 containerRef={defaultModelPopupRef}
+                triggerRef={defaultModelSelectorRef}
+                onRequestAnchorUpdate={() =>
+                  setDefaultModelAnchorRect(
+                    defaultModelTriggerRef.current?.getBoundingClientRect() ?? null
+                  )
+                }
                 currentProviderName={currentDefaultModel?.providerName ?? ''}
                 currentModel={currentDefaultModel?.model ?? ''}
                 onSelect={(providerName, model) => {
@@ -454,7 +359,7 @@ export function ChatPane({ draft, onChange }: ChatPaneProps): React.ReactNode {
                   return
                 }
 
-                updateToolModelAnchorRect()
+                setToolModelAnchorRect(toolModelTriggerRef.current?.getBoundingClientRect() ?? null)
                 setToolModelSelectorOpen((open) => !open)
               }}
               className="flex items-center gap-1.5 px-2 py-1 rounded-lg text-xs font-medium transition-opacity"
@@ -487,6 +392,12 @@ export function ChatPane({ draft, onChange }: ChatPaneProps): React.ReactNode {
               <ModelSelectorPopup
                 config={draft}
                 containerRef={toolModelPopupRef}
+                triggerRef={toolModelSelectorRef}
+                onRequestAnchorUpdate={() =>
+                  setToolModelAnchorRect(
+                    toolModelTriggerRef.current?.getBoundingClientRect() ?? null
+                  )
+                }
                 currentProviderName={selectedToolProvider?.name ?? ''}
                 currentModel={toolModel.model}
                 leadingOptions={[
@@ -600,6 +511,10 @@ export function ChatPane({ draft, onChange }: ChatPaneProps): React.ReactNode {
               <ModelSelectorPopup
                 config={draft}
                 containerRef={i2tModelPopupRef}
+                triggerRef={i2tModelSelectorRef}
+                onRequestAnchorUpdate={() =>
+                  setI2tModelAnchorRect(i2tModelTriggerRef.current?.getBoundingClientRect() ?? null)
+                }
                 currentProviderName={currentI2tModel?.providerName ?? ''}
                 currentModel={currentI2tModel?.model ?? ''}
                 leadingOptions={[

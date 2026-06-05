@@ -78,7 +78,7 @@ import type { YachiyoStorage } from '../storage/storage.ts'
 import type { ThingDomain } from '../app/domain/things/thingDomain.ts'
 import { createPlanExitTool } from '../app/domain/run/plan/planWriteTool.ts'
 import type { ModelRuntime } from '../runtime/models/types.ts'
-import type { ProviderSettings, SubagentsConfig } from '@yachiyo/shared/protocol'
+import type { ProviderSettings, SettingsConfig, SubagentsConfig } from '@yachiyo/shared/protocol'
 
 export type {
   AgentToolMetadata,
@@ -173,6 +173,8 @@ export interface AgentToolDependencies {
   extraTools?: ToolSet
   /** Provider settings for worker subagent model calls. */
   settings?: ProviderSettings
+  /** Full settings config for resolving subagent preferred models. */
+  config?: SettingsConfig
   /** Factory for creating a ModelRuntime for worker subagents. */
   createModelRuntime?: () => ModelRuntime
 }
@@ -794,6 +796,7 @@ export function createAgentToolSet(
       subagentsConfig,
       subagentProfiles: dependencies.subagentProfiles ?? [],
       settings: dependencies.settings,
+      config: dependencies.config,
       createModelRuntime: dependencies.createModelRuntime,
       parentToolContext: context,
       parentDependencies: dependencies,

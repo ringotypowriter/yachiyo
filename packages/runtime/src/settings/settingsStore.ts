@@ -8,6 +8,7 @@ import {
   normalizeSettingsConfig,
   toEffectiveProviderSettings,
   toProviderSettings,
+  toSubagentProviderSettings,
   toToolModelSettings
 } from './settingsConfig.ts'
 import { parseSettingsToml, stringifySettingsToml } from './settingsTomlCodec.ts'
@@ -20,6 +21,7 @@ export {
   stringifySettingsToml,
   toEffectiveProviderSettings,
   toProviderSettings,
+  toSubagentProviderSettings,
   toToolModelSettings
 }
 

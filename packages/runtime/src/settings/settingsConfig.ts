@@ -1,5 +1,6 @@
 import {
   normalizeUserPrompts,
+  type NamedSubagentId,
   type ProviderSettings,
   type SettingsConfig,
   type ThreadModelOverride
@@ -112,4 +113,26 @@ export function toToolModelSettings(config: SettingsConfig): ProviderSettings | 
 
   const provider = resolveToolModelProvider(normalizedConfig, toolModel)
   return toResolvedProviderSettings(provider, toolModel.model ?? '')
+}
+
+export function toSubagentProviderSettings(
+  config: SettingsConfig,
+  agentId: NamedSubagentId,
+  callingSettings: ProviderSettings
+): ProviderSettings {
+  const preferredModel = config.subagents?.preferredModels?.[agentId]
+  if (!preferredModel) {
+    return callingSettings
+  }
+
+  const provider = config.providers.find((entry) => entry.name === preferredModel.providerName)
+  if (!provider) {
+    return callingSettings
+  }
+
+  if (!provider.modelList.enabled.includes(preferredModel.model)) {
+    return callingSettings
+  }
+
+  return toResolvedProviderSettings(provider, preferredModel.model) ?? callingSettings
 }

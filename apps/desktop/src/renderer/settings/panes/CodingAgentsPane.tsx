@@ -1,5 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Check, CheckCircle, ChevronDown, Loader, Plus, Trash2, XCircle } from 'lucide-react'
+import {
+  Check,
+  CheckCircle,
+  CircleCheck,
+  ChevronDown,
+  Loader,
+  Plus,
+  Trash2,
+  XCircle
+} from 'lucide-react'
 import { theme } from '@renderer/theme/theme'
 import type {
   NamedSubagentId,
@@ -9,6 +18,8 @@ import type {
 } from '@yachiyo/shared/protocol'
 import { SettingLabel, SettingSection, SettingSwitch, SimpleSelect } from '../components/primitives'
 import { inputStyle } from '../components/styles'
+import { ModelSelectorPopup } from '../../src/features/chat/components/ModelSelectorPopup'
+import { formatStoredModelChip } from '../../src/lib/model/modelLabel'
 
 interface EnvEntry {
   key: string
@@ -293,6 +304,72 @@ export function CodingAgentsPane({ draft, onChange }: CodingAgentsPaneProps): Re
 
   const subagentMode = draft.subagents?.mode ?? 'worker'
 
+  const hasEnabledModels = draft.providers.some((p) => p.modelList.enabled.length > 0)
+  const [workerModelSelectorOpen, setWorkerModelSelectorOpen] = useState<NamedSubagentId | null>(
+    null
+  )
+  const workerSelectorRefs = useRef<Record<string, HTMLDivElement | null>>({})
+  const workerTriggerRefs = useRef<Record<string, HTMLButtonElement | null>>({})
+  const [workerAnchorRect, setWorkerAnchorRect] = useState<DOMRect | null>(null)
+
+  function updateWorkerAnchorRect(agentId: NamedSubagentId): void {
+    const el = workerTriggerRefs.current[agentId]
+    setWorkerAnchorRect(el?.getBoundingClientRect() ?? null)
+  }
+
+  function getWorkerModelLabel(agentId: NamedSubagentId): string {
+    const preferred = draft.subagents?.preferredModels?.[agentId]
+    if (!preferred?.providerName || !preferred?.model) {
+      return 'Default (same as calling model)'
+    }
+    const chip = formatStoredModelChip(preferred.model, preferred.providerName)
+    return `${chip.provider} - ${chip.model}`
+  }
+
+  function getWorkerCurrentProviderName(agentId: NamedSubagentId): string {
+    return draft.subagents?.preferredModels?.[agentId]?.providerName ?? ''
+  }
+
+  function getWorkerCurrentModel(agentId: NamedSubagentId): string {
+    return draft.subagents?.preferredModels?.[agentId]?.model ?? ''
+  }
+
+  function setWorkerPreferredModel(
+    agentId: NamedSubagentId,
+    providerName: string,
+    model: string
+  ): void {
+    const current = draft.subagents ?? {
+      mode: 'worker' as const,
+      enabledNamedAgents: BUILT_IN_WORKER_AGENTS.map((a) => a.id)
+    }
+    const currentPreferred = current.preferredModels ?? {}
+    onChange({
+      ...draft,
+      subagents: {
+        ...current,
+        preferredModels: { ...currentPreferred, [agentId]: { providerName, model } }
+      }
+    })
+  }
+  function clearWorkerPreferredModel(agentId: NamedSubagentId): void {
+    const current = draft.subagents ?? {
+      mode: 'worker' as const,
+      enabledNamedAgents: BUILT_IN_WORKER_AGENTS.map((a) => a.id)
+    }
+    const currentPreferred = { ...(current.preferredModels ?? {}) }
+    delete currentPreferred[agentId]
+    const hasRemaining = Object.keys(currentPreferred).length > 0
+    onChange({
+      ...draft,
+      subagents: {
+        mode: current.mode,
+        enabledNamedAgents: current.enabledNamedAgents,
+        ...(hasRemaining ? { preferredModels: currentPreferred } : {})
+      }
+    })
+  }
+
   return (
     <div className="flex-1 overflow-y-auto pb-6">
       <SettingSection>
@@ -328,6 +405,7 @@ export function CodingAgentsPane({ draft, onChange }: CodingAgentsPaneProps): Re
                   draft.subagents?.enabledNamedAgents ??
                   BUILT_IN_WORKER_AGENTS.map((item) => item.id)
                 ).includes(agent.id)
+                const isPopupOpen = workerModelSelectorOpen === agent.id
                 return (
                   <div
                     key={agent.id}
@@ -338,7 +416,7 @@ export function CodingAgentsPane({ draft, onChange }: CodingAgentsPaneProps): Re
                     }}
                   >
                     <div className="flex items-center justify-between gap-3">
-                      <div>
+                      <div className="min-w-0 flex-1">
                         <div className="text-sm font-medium" style={{ color: theme.text.primary }}>
                           {agent.label}
                         </div>
@@ -346,11 +424,101 @@ export function CodingAgentsPane({ draft, onChange }: CodingAgentsPaneProps): Re
                           {agent.description}
                         </div>
                       </div>
-                      <SettingSwitch
-                        ariaLabel={`Enable ${agent.label} worker`}
-                        checked={enabled}
-                        onChange={() => toggleWorkerAgent(agent.id)}
-                      />
+                      <div className="flex items-center gap-2 shrink-0">
+                        <div
+                          ref={(el) => {
+                            workerSelectorRefs.current[agent.id] = el
+                          }}
+                          className="relative"
+                        >
+                          <button
+                            ref={(el) => {
+                              workerTriggerRefs.current[agent.id] = el
+                            }}
+                            type="button"
+                            disabled={!hasEnabledModels}
+                            onClick={() => {
+                              if (!hasEnabledModels) return
+                              if (isPopupOpen) {
+                                setWorkerModelSelectorOpen(null)
+                                return
+                              }
+                              updateWorkerAnchorRect(agent.id)
+                              setWorkerModelSelectorOpen(agent.id)
+                            }}
+                            className="flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium transition-opacity"
+                            style={{
+                              color: theme.text.primary,
+                              opacity: isPopupOpen ? 1 : 0.72
+                            }}
+                            aria-label={`Model for ${agent.label} worker`}
+                          >
+                            <CircleCheck
+                              size={12}
+                              strokeWidth={1.5}
+                              color={
+                                draft.subagents?.preferredModels?.[agent.id]
+                                  ? theme.icon.success
+                                  : theme.icon.muted
+                              }
+                            />
+                            {getWorkerModelLabel(agent.id)}
+                            {hasEnabledModels ? (
+                              <ChevronDown
+                                size={10}
+                                strokeWidth={1.5}
+                                color={theme.icon.muted}
+                                style={{
+                                  transform: isPopupOpen ? 'rotate(180deg)' : 'rotate(0deg)',
+                                  transition: 'transform 0.15s ease'
+                                }}
+                              />
+                            ) : null}
+                          </button>
+
+                          {isPopupOpen ? (
+                            <ModelSelectorPopup
+                              config={draft}
+                              triggerRef={
+                                workerSelectorRefs.current[agent.id]
+                                  ? { current: workerSelectorRefs.current[agent.id] }
+                                  : undefined
+                              }
+                              onRequestAnchorUpdate={() => {
+                                const el = workerTriggerRefs.current[agent.id]
+                                setWorkerAnchorRect(el?.getBoundingClientRect() ?? null)
+                              }}
+                              currentProviderName={getWorkerCurrentProviderName(agent.id)}
+                              currentModel={getWorkerCurrentModel(agent.id)}
+                              leadingOptions={[
+                                {
+                                  label: 'Default (same as calling model)',
+                                  isSelected: !draft.subagents?.preferredModels?.[agent.id],
+                                  onSelect: () => {
+                                    clearWorkerPreferredModel(agent.id)
+                                    setWorkerModelSelectorOpen(null)
+                                  }
+                                }
+                              ]}
+                              onSelect={(providerName, model) => {
+                                setWorkerPreferredModel(agent.id, providerName, model)
+                                setWorkerModelSelectorOpen(null)
+                              }}
+                              onClose={() => setWorkerModelSelectorOpen(null)}
+                              align="right"
+                              anchorRect={workerAnchorRect}
+                              placement="bottom"
+                              portal
+                              width={280}
+                            />
+                          ) : null}
+                        </div>
+                        <SettingSwitch
+                          ariaLabel={`Enable ${agent.label} worker`}
+                          checked={enabled}
+                          onChange={() => toggleWorkerAgent(agent.id)}
+                        />
+                      </div>
                     </div>
                   </div>
                 )

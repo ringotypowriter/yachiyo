@@ -976,6 +976,7 @@ export interface SubagentProfile {
 export interface SubagentsConfig {
   mode: SubagentRuntimeMode
   enabledNamedAgents: NamedSubagentId[]
+  preferredModels?: Partial<Record<NamedSubagentId, ThreadModelOverride>>
 }
 
 export interface FileMentionCandidate {
