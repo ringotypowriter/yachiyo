@@ -308,9 +308,17 @@ export function CodingAgentsPane({ draft, onChange }: CodingAgentsPaneProps): Re
   const [workerModelSelectorOpen, setWorkerModelSelectorOpen] = useState<NamedSubagentId | null>(
     null
   )
-  const workerSelectorRefs = useRef<Record<string, HTMLDivElement | null>>({})
+  const workerAnchorRectRefs = useRef<Record<string, React.RefObject<HTMLDivElement | null>>>({})
   const workerTriggerRefs = useRef<Record<string, HTMLButtonElement | null>>({})
   const [workerAnchorRect, setWorkerAnchorRect] = useState<DOMRect | null>(null)
+
+  function getWorkerTriggerRef(agentId: NamedSubagentId): React.RefObject<HTMLDivElement | null> {
+    const refs = workerAnchorRectRefs.current
+    if (!refs[agentId]) {
+      refs[agentId] = { current: null }
+    }
+    return refs[agentId]
+  }
 
   function updateWorkerAnchorRect(agentId: NamedSubagentId): void {
     const el = workerTriggerRefs.current[agentId]
@@ -332,6 +340,14 @@ export function CodingAgentsPane({ draft, onChange }: CodingAgentsPaneProps): Re
 
   function getWorkerCurrentModel(agentId: NamedSubagentId): string {
     return draft.subagents?.preferredModels?.[agentId]?.model ?? ''
+  }
+
+  function isWorkerPreferredModelResolvable(agentId: NamedSubagentId): boolean {
+    const preferred = draft.subagents?.preferredModels?.[agentId]
+    if (!preferred?.providerName || !preferred?.model) return false
+    const provider = draft.providers.find((p) => p.name === preferred.providerName)
+    if (!provider) return false
+    return provider.modelList.enabled.includes(preferred.model)
   }
 
   function setWorkerPreferredModel(
@@ -425,12 +441,7 @@ export function CodingAgentsPane({ draft, onChange }: CodingAgentsPaneProps): Re
                         </div>
                       </div>
                       <div className="flex items-center gap-2 shrink-0">
-                        <div
-                          ref={(el) => {
-                            workerSelectorRefs.current[agent.id] = el
-                          }}
-                          className="relative"
-                        >
+                        <div ref={getWorkerTriggerRef(agent.id)} className="relative">
                           <button
                             ref={(el) => {
                               workerTriggerRefs.current[agent.id] = el
@@ -457,7 +468,7 @@ export function CodingAgentsPane({ draft, onChange }: CodingAgentsPaneProps): Re
                               size={12}
                               strokeWidth={1.5}
                               color={
-                                draft.subagents?.preferredModels?.[agent.id]
+                                isWorkerPreferredModelResolvable(agent.id)
                                   ? theme.icon.success
                                   : theme.icon.muted
                               }
@@ -480,9 +491,7 @@ export function CodingAgentsPane({ draft, onChange }: CodingAgentsPaneProps): Re
                             <ModelSelectorPopup
                               config={draft}
                               triggerRef={
-                                workerSelectorRefs.current[agent.id]
-                                  ? { current: workerSelectorRefs.current[agent.id] }
-                                  : undefined
+                                getWorkerTriggerRef(agent.id) as React.RefObject<HTMLElement | null>
                               }
                               onRequestAnchorUpdate={() => {
                                 const el = workerTriggerRefs.current[agent.id]

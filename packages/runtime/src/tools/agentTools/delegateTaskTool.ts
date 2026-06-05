@@ -15,7 +15,8 @@ import { summarizeToolInput, summarizeToolOutput } from '../agentTools.ts'
 import { launchAcpProcess } from '../../runtime/acp/acpLauncher.ts'
 import { createAcpStreamAdapter } from '../../runtime/acp/acpStreamAdapter.ts'
 import { runAcpSession } from '../../runtime/acp/acpSessionClient.ts'
-import type { ModelRuntime } from '../../runtime/models/types.ts'
+import { applyAnthropicCacheBreakpoints } from '../../runtime/context/contextLayers.ts'
+import type { ModelRuntime, ModelMessage } from '../../runtime/models/types.ts'
 import {
   DEFAULT_NAMED_SUBAGENT_PROFILES,
   SUBAGENT_DESCRIPTIONS,
@@ -299,14 +300,20 @@ async function runWorkerSubagent(
       : {})
   }
   const tools = createAgentToolSet(workerContext, workerDeps)
-  const messages = [
-    { role: 'system' as const, content: profile.systemPrompt },
-    { role: 'user' as const, content: prompt }
-  ]
   const workerSettings =
     ctx.config && ctx.settings
       ? toSubagentProviderSettings(ctx.config, profileId, ctx.settings)
       : ctx.settings
+  const messages: ModelMessage[] = [
+    { role: 'system' as const, content: profile.systemPrompt },
+    { role: 'user' as const, content: prompt }
+  ]
+  if (workerSettings.provider === 'anthropic') {
+    applyAnthropicCacheBreakpoints(messages)
+  }
+  const promptCacheKey = ctx.parentToolContext.threadId
+    ? `${ctx.parentToolContext.threadId}:subagent:${profileId}`
+    : undefined
 
   let resultText = ''
   const recentToolSummaries: string[] = []
@@ -320,6 +327,7 @@ async function runWorkerSubagent(
       settings: workerSettings,
       signal: abortSignal ?? new AbortController().signal,
       purpose: `worker:${profileId}`,
+      ...(promptCacheKey ? { promptCacheKey } : {}),
       maxToolSteps: profile.maxToolSteps ?? 999,
       tools,
       onToolCallStart: (event) => {

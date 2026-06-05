@@ -538,7 +538,7 @@ function withCacheBreakpoint(message: ModelMessage): ModelMessage {
  * Anthropic allows up to 4 breakpoints; we use 2–3 depending on
  * conversation length.
  */
-function applyAnthropicCacheBreakpoints(messages: ModelMessage[]): void {
+export function applyAnthropicCacheBreakpoints(messages: ModelMessage[]): void {
   // Breakpoint 1: last system message.
   let systemIdx = -1
   for (let i = messages.length - 1; i >= 0; i--) {

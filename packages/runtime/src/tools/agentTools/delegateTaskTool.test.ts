@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import type { ToolSet } from 'ai'
-import type { ModelRuntime } from '../../runtime/models/types.ts'
+import type { ModelRuntime, ModelStreamRequest } from '../../runtime/models/types.ts'
 import { DEFAULT_NAMED_SUBAGENT_PROFILES } from '../../settings/namedSubagents.ts'
 import { createTool, type DelegateTaskContext } from './delegateTaskTool.ts'
 
@@ -220,6 +220,72 @@ test('built-in worker tool permissions stay fixed in code', () => {
     'skillsRead',
     'applyPatch'
   ])
+})
+
+test('worker subagent uses thread-scoped prompt cache key', async () => {
+  let capturedRequest: ModelStreamRequest | undefined
+  const modelRuntime: ModelRuntime = {
+    streamReply: async function* (input) {
+      capturedRequest = input
+      yield 'worker result'
+    }
+  } as ModelRuntime
+  const tool = createTool(
+    makeContext({
+      parentToolContext: {
+        enabledTools: ['read', 'grep'],
+        workspacePath: process.cwd(),
+        threadId: 'thread-1'
+      },
+      createModelRuntime: () => modelRuntime
+    })
+  )
+
+  await tool.execute!(
+    { agent_name: 'explore', prompt: 'Map the feature' },
+    { toolCallId: 'delegation-cache', messages: [], abortSignal: AbortSignal.timeout(5000) }
+  )
+
+  assert.equal(capturedRequest?.promptCacheKey, 'thread-1:subagent:explore')
+})
+
+test('worker subagent applies Anthropic cache breakpoint to its stable system prompt', async () => {
+  let capturedRequest: ModelStreamRequest | undefined
+  const modelRuntime: ModelRuntime = {
+    streamReply: async function* (input) {
+      capturedRequest = input
+      yield 'worker result'
+    }
+  } as ModelRuntime
+  const tool = createTool(
+    makeContext({
+      settings: {
+        providerName: 'claude',
+        provider: 'anthropic',
+        model: 'claude-test',
+        apiKey: '',
+        baseUrl: ''
+      },
+      createModelRuntime: () => modelRuntime
+    })
+  )
+
+  await tool.execute!(
+    { agent_name: 'explore', prompt: 'Map the feature' },
+    {
+      toolCallId: 'delegation-anthropic-cache',
+      messages: [],
+      abortSignal: AbortSignal.timeout(5000)
+    }
+  )
+
+  const systemMessage = capturedRequest?.messages[0]
+  assert.equal(systemMessage?.role, 'system')
+  assert.deepEqual(
+    (systemMessage?.providerOptions as { anthropic?: { cacheControl?: { type?: string } } })
+      ?.anthropic?.cacheControl,
+    { type: 'ephemeral' }
+  )
 })
 
 test('worker subagent uses preferred model when configured', async () => {
