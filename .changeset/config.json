@@ -2,7 +2,15 @@
   "$schema": "https://unpkg.com/@changesets/config@3.1.1/schema.json",
   "changelog": ["@changesets/changelog-github", { "repo": "ringotypowriter/yachiyo" }],
   "commit": false,
-  "fixed": [],
+  "fixed": [
+    [
+      "@yachiyo/desktop",
+      "@yachiyo/cli",
+      "@yachiyo/runtime",
+      "@yachiyo/shared",
+      "@yachiyo/core-skills"
+    ]
+  ],
   "linked": [],
   "access": "public",
   "baseBranch": "main",
