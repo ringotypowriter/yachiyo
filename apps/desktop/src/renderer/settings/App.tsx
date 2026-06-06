@@ -869,7 +869,7 @@ function SettingsPanel({
             className="rounded-full px-3.5 py-1.5 text-sm font-medium transition-all"
             style={{
               minHeight: 34,
-              border: `1px solid ${alpha('ink', 0.08)}`,
+              border: '1px solid transparent',
               ...(!isDirty || saving || loading
                 ? {
                     background: alpha('ink', 0.02),
