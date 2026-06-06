@@ -12,6 +12,7 @@ import {
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { alpha, theme } from '@renderer/theme/theme'
+import { useAppDialog } from '@renderer/components/AppDialogContext'
 import { useApplyThemeConfig } from '@renderer/theme/useThemeConfig'
 import type {
   ChannelGroupRecord,
@@ -237,6 +238,7 @@ function SettingsPanel({
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const previousActivePanelRef = useRef<SettingsPanelId | null>(null)
+  const dialog = useAppDialog()
   useApplyThemeConfig(active ? (draft ?? savedConfig) : savedConfig, false)
 
   useEffect(() => {
@@ -583,6 +585,54 @@ function SettingsPanel({
   const handleSaveRef = useRef(handleSave)
   handleSaveRef.current = handleSave
 
+  const handleDiscardChanges = useCallback(async (): Promise<void> => {
+    if (!isDirty || saving) {
+      return
+    }
+
+    const confirmed = await dialog.confirm({
+      title: 'Discard unsaved changes?',
+      message: 'This resets every unsaved settings draft to the last saved version.',
+      confirmLabel: 'Discard',
+      cancelLabel: 'Cancel',
+      tone: 'danger'
+    })
+    if (!confirmed) {
+      return
+    }
+
+    setDraft(savedConfig)
+    setChannelsDraft(savedChannelsConfig)
+    if (userDocumentDraft !== null) {
+      setUserDocumentDraft(savedUserDocument?.content ?? '')
+      setUserDocumentError(null)
+    }
+    if (soulDocumentDraft !== null) {
+      setSoulDocumentDraft(savedSoulTraits)
+      setSoulDocumentError(null)
+    }
+    setChannelUsersDraft(savedChannelUsers)
+    setChannelGroupsDraft(savedChannelGroups)
+    setSelectedProviderId((current) =>
+      savedConfig?.providers.some((provider) => provider.id === current)
+        ? current
+        : (savedConfig?.providers[0]?.id ?? '')
+    )
+    setError(null)
+  }, [
+    dialog,
+    isDirty,
+    savedChannelGroups,
+    savedChannelUsers,
+    savedChannelsConfig,
+    savedConfig,
+    savedSoulTraits,
+    savedUserDocument?.content,
+    saving,
+    soulDocumentDraft,
+    userDocumentDraft
+  ])
+
   useEffect(() => {
     const previousActivePanel = previousActivePanelRef.current
     previousActivePanelRef.current = activePanel
@@ -813,6 +863,27 @@ function SettingsPanel({
           <span className="max-w-[320px] truncate text-xs" style={{ color: statusColor }}>
             {statusText}
           </span>
+          <button
+            onClick={() => void handleDiscardChanges()}
+            disabled={!isDirty || saving || loading}
+            className="rounded-full px-3.5 py-1.5 text-sm font-medium transition-all"
+            style={{
+              minHeight: 34,
+              border: `1px solid ${alpha('ink', 0.08)}`,
+              ...(!isDirty || saving || loading
+                ? {
+                    background: alpha('ink', 0.02),
+                    color: theme.text.muted,
+                    opacity: 0.45
+                  }
+                : {
+                    background: theme.background.surface,
+                    color: theme.text.secondary
+                  })
+            }}
+          >
+            Discard
+          </button>
           <button
             onClick={() => void triggerSave()}
             disabled={!hasSaveableChanges || saving || loading}
