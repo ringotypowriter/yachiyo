@@ -357,7 +357,7 @@ export function Composer({
 
     const words = composerValue
       .toLowerCase()
-      .split(/[\s,;:!?.()\x5B\x5D{}"'`~@#$%^&*+=|\\/<>\-_]+/)
+      .split(/[\s\p{P}\p{S}]+/u)
       .filter(Boolean)
 
     // Collect folder name → path mapping
