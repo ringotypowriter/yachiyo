@@ -164,6 +164,24 @@ test('summarizeToolInput uses delegated agent names for delegateTask', () => {
   )
 })
 
+test('summarizeToolInput summarizes applyPatch by changed files instead of raw patch text', () => {
+  assert.equal(
+    summarizeToolInput('applyPatch', {
+      patch:
+        '*** Begin Patch\n' +
+        '*** Add File: src/new.ts\n' +
+        '+export const value = 1\n' +
+        '*** Update File: src/old.ts\n' +
+        '*** Move to: src/new-name.ts\n' +
+        '@@\n' +
+        '-old\n' +
+        '+new\n' +
+        '*** End Patch'
+    }),
+    '2 files (+src/new.ts, → src/old.ts → src/new-name.ts)'
+  )
+})
+
 test('createAgentToolSet exposes reviewThings but disables useThings for schedule-only review runs', async () => {
   const thingDomain = new ThingDomain({ storage: createInMemoryYachiyoStorage() })
   const tools = createAgentToolSet(

@@ -202,6 +202,33 @@ function pushBashOutputBlocks(
   pushCodeBlock(codeBlocks, 'stdout', details.stdout)
 }
 
+function formatApplyPatchOperation(op: ApplyPatchToolCallDetails['operations'][number]): string {
+  switch (op.operation) {
+    case 'add':
+      return `+ ${op.path}`
+    case 'delete':
+      return `- ${op.path}`
+    case 'move':
+      return `→ ${op.path}${op.movePath ? ` → ${op.movePath}` : ''}`
+    case 'update':
+      return `~ ${op.path}`
+  }
+}
+
+function formatApplyPatchChangeCounts(operations: ApplyPatchToolCallDetails['operations']): string {
+  const counts = operations.reduce(
+    (acc, op) => ({ ...acc, [op.operation]: acc[op.operation] + 1 }),
+    { add: 0, delete: 0, move: 0, update: 0 }
+  )
+  const parts = [
+    counts.add > 0 ? `${counts.add} added` : undefined,
+    counts.update > 0 ? `${counts.update} updated` : undefined,
+    counts.delete > 0 ? `${counts.delete} deleted` : undefined,
+    counts.move > 0 ? `${counts.move} moved` : undefined
+  ].filter((part): part is string => part !== undefined)
+  return parts.join(' · ')
+}
+
 export function buildToolCallDetailsPresentation(toolCall: ToolCall): ToolCallDetailsPresentation {
   const fields: ToolCallDetailField[] = []
   const codeBlocks: ToolCallDetailCodeBlock[] = []
@@ -272,26 +299,8 @@ export function buildToolCallDetailsPresentation(toolCall: ToolCall): ToolCallDe
     }
 
     pushField(fields, 'files', details.operations.length)
-    pushCodeBlock(
-      codeBlocks,
-      'operations',
-      details.operations
-        .map((op) => {
-          switch (op.operation) {
-            case 'add':
-              return 'added ' + op.path
-            case 'delete':
-              return 'deleted ' + op.path
-            case 'move':
-              return ('moved ' + op.path + ' → ' + (op.movePath ?? '')).trimEnd()
-            case 'update':
-              return 'updated ' + op.path
-            default:
-              return op.path
-          }
-        })
-        .join('\n')
-    )
+    pushField(fields, 'changes', formatApplyPatchChangeCounts(details.operations))
+    pushCodeBlock(codeBlocks, 'files', details.operations.map(formatApplyPatchOperation).join('\n'))
 
     for (const op of details.operations) {
       pushCodeBlock(
@@ -301,7 +310,7 @@ export function buildToolCallDetailsPresentation(toolCall: ToolCall): ToolCallDe
           : 'diff · ' + op.path,
         op.diff,
         undefined,
-        undefined,
+        'inspection',
         op.movePath ?? op.path
       )
     }

@@ -78,6 +78,53 @@ test('buildToolCallDetailsPresentation exposes edit metadata and diff blocks', (
   ])
 })
 
+test('buildToolCallDetailsPresentation keeps applyPatch inline details concise', () => {
+  const presentation = buildToolCallDetailsPresentation({
+    ...BASE_TOOL_CALL,
+    toolName: 'applyPatch',
+    details: {
+      operations: [
+        {
+          operation: 'add',
+          path: 'src/new.ts',
+          diff: '--- /dev/null\n+++ src/new.ts\n@@ -0,0 +1 @@\n+export const value = 1'
+        },
+        {
+          operation: 'update',
+          path: 'src/existing.ts',
+          diff: '@@ -1 +1 @@\n-old\n+new'
+        },
+        {
+          operation: 'move',
+          path: 'src/old.ts',
+          movePath: 'src/new-name.ts',
+          diff: ''
+        }
+      ]
+    }
+  })
+
+  assert.deepEqual(presentation.fields, [
+    { label: 'files', value: '3' },
+    { label: 'changes', value: '1 added · 1 updated · 1 moved' }
+  ])
+  assert.deepEqual(presentation.codeBlocks, [
+    { label: 'files', value: '+ src/new.ts\n~ src/existing.ts\n→ src/old.ts → src/new-name.ts' },
+    {
+      label: 'diff · src/new.ts',
+      value: '--- /dev/null\n+++ src/new.ts\n@@ -0,0 +1 @@\n+export const value = 1',
+      filePath: 'src/new.ts',
+      displayTier: 'inspection'
+    },
+    {
+      label: 'diff · src/existing.ts',
+      value: '@@ -1 +1 @@\n-old\n+new',
+      filePath: 'src/existing.ts',
+      displayTier: 'inspection'
+    }
+  ])
+})
+
 test('buildToolCallDetailsPresentation exposes bash metadata, tails, and explicit errors', () => {
   const presentation = buildToolCallDetailsPresentation({
     ...BASE_TOOL_CALL,

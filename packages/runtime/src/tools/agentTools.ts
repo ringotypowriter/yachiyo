@@ -16,7 +16,11 @@ import type { MemoryService } from '../services/memory/memoryService.ts'
 import type { BrowserWebPageSnapshotLoader } from '../services/webRead/browserWebPageSnapshot.ts'
 import type { BrowserAutomationService } from '../services/browserAutomation/electronBrowserAutomationService.ts'
 
-import { createTool as createApplyPatchTool } from './agentTools/applyPatchTool.ts'
+import {
+  createTool as createApplyPatchTool,
+  parsePatchStreaming,
+  type Hunk
+} from './agentTools/applyPatchTool.ts'
 import { createTool as createBashTool } from './agentTools/bashTool.ts'
 import { createTool as createEditTool } from './agentTools/editTool.ts'
 import { createTool as createGlobTool } from './agentTools/globTool.ts'
@@ -258,6 +262,30 @@ function summarizeDelegateTaskOutput(output: unknown): string | undefined {
   return sessionSummary ?? bodySummary ?? takeTail(withoutFooter, 120).text
 }
 
+function formatApplyPatchHunk(hunk: Hunk): string {
+  switch (hunk.kind) {
+    case 'add':
+      return `+${hunk.path}`
+    case 'delete':
+      return `-${hunk.path}`
+    case 'update':
+      return hunk.movePath ? `→ ${hunk.path} → ${hunk.movePath}` : `~${hunk.path}`
+  }
+}
+
+function summarizeApplyPatchInput(patch: string): string {
+  try {
+    const parts = parsePatchStreaming(patch).hunks.map(formatApplyPatchHunk)
+    if (parts.length > 0) {
+      const summary = `${parts.length} file${parts.length === 1 ? '' : 's'} (${parts.join(', ')})`
+      return takeTail(summary, 160).text
+    }
+  } catch {
+    // Fall back to the raw patch tail while the model is still streaming a malformed prefix.
+  }
+  return takeTail(patch, 160).text
+}
+
 export function summarizeToolInput(toolName: ToolCallName | string, input: unknown): string {
   if (toolName === 'askUser') {
     const question =
@@ -373,7 +401,7 @@ export function summarizeToolInput(toolName: ToolCallName | string, input: unkno
   if (toolName === 'applyPatch') {
     const patch = typeof input === 'object' && input !== null && 'patch' in input ? input.patch : ''
     return typeof patch === 'string' && patch.trim().length > 0
-      ? takeTail(patch, 160).text
+      ? summarizeApplyPatchInput(patch)
       : toolName
   }
 
@@ -439,7 +467,7 @@ export function summarizeToolOutput(
         case 'delete':
           return `-${op.path}`
         case 'move':
-          return `→ ${op.path}`
+          return `→ ${op.path}${op.movePath ? ` → ${op.movePath}` : ''}`
         case 'update':
           return `~${op.path}`
         default:
