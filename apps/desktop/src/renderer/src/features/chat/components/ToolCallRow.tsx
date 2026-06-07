@@ -40,11 +40,9 @@ export function ToolCallRow({ toolCall, workspacePath }: ToolCallRowProps): Reac
       ? theme.text.accent
       : theme.status.success
   const presentation = buildToolCallDetailsPresentation(toolCall)
-  // Only show secondary-tier blocks inline; inspection-tier blocks belong in the run inspector
-  const secondaryCodeBlocks = presentation.codeBlocks.filter((b) => b.displayTier !== 'inspection')
   const hasSearchResults = (presentation.searchResults?.length ?? 0) > 0
   const hasExpandableDetails =
-    presentation.fields.length > 0 || secondaryCodeBlocks.length > 0 || hasSearchResults
+    presentation.fields.length > 0 || presentation.codeBlocks.length > 0 || hasSearchResults
 
   const isPathTool =
     toolCall.toolName === 'read' || toolCall.toolName === 'write' || toolCall.toolName === 'edit'
@@ -160,7 +158,7 @@ export function ToolCallRow({ toolCall, workspacePath }: ToolCallRowProps): Reac
             </div>
           ) : null}
 
-          {secondaryCodeBlocks.map((block) => (
+          {presentation.codeBlocks.map((block) => (
             <div key={`${block.label}:${block.value.slice(0, 32)}`}>
               <div
                 style={{

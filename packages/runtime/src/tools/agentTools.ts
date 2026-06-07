@@ -262,14 +262,18 @@ function summarizeDelegateTaskOutput(output: unknown): string | undefined {
   return sessionSummary ?? bodySummary ?? takeTail(withoutFooter, 120).text
 }
 
+function getBasename(path: string): string {
+  return path.split('/').pop() ?? path
+}
+
 function formatApplyPatchHunk(hunk: Hunk): string {
   switch (hunk.kind) {
     case 'add':
-      return `+${hunk.path}`
+      return getBasename(hunk.path)
     case 'delete':
-      return `-${hunk.path}`
+      return getBasename(hunk.path)
     case 'update':
-      return hunk.movePath ? `→ ${hunk.path} → ${hunk.movePath}` : `~${hunk.path}`
+      return getBasename(hunk.movePath ?? hunk.path)
   }
 }
 
@@ -277,13 +281,12 @@ function summarizeApplyPatchInput(patch: string): string {
   try {
     const parts = parsePatchStreaming(patch).hunks.map(formatApplyPatchHunk)
     if (parts.length > 0) {
-      const summary = `${parts.length} file${parts.length === 1 ? '' : 's'} (${parts.join(', ')})`
-      return takeTail(summary, 160).text
+      return takeTail(parts.join(', '), 160).text
     }
   } catch {
-    // Fall back to the raw patch tail while the model is still streaming a malformed prefix.
+    return ''
   }
-  return takeTail(patch, 160).text
+  return ''
 }
 
 export function summarizeToolInput(toolName: ToolCallName | string, input: unknown): string {
@@ -460,20 +463,7 @@ export function summarizeToolOutput(
     const details = (output as ApplyPatchToolOutput).details
     const opCount = details.operations.length
     if (opCount === 0) return 'no changes applied'
-    const parts = details.operations.map((op) => {
-      switch (op.operation) {
-        case 'add':
-          return `+${op.path}`
-        case 'delete':
-          return `-${op.path}`
-        case 'move':
-          return `→ ${op.path}${op.movePath ? ` → ${op.movePath}` : ''}`
-        case 'update':
-          return `~${op.path}`
-        default:
-          return op.path
-      }
-    })
+    const parts = details.operations.map((op) => getBasename(op.movePath ?? op.path))
     return `${opCount} file${opCount === 1 ? '' : 's'} (${parts.join(', ')})`
   }
 

@@ -16,15 +16,6 @@ import type {
 
 type ToolCallDetailTone = 'danger'
 
-/**
- * Presentation tier for tool call detail blocks:
- * - 'secondary': shown in the expandable section inline in chat
- * - 'inspection': only shown in the dedicated run inspection panel
- *
- * Absence of displayTier is treated as 'secondary'.
- */
-export type ToolCallDetailDisplayTier = 'secondary' | 'inspection'
-
 export interface ToolCallDetailField {
   label: string
   value: string
@@ -36,7 +27,6 @@ export interface ToolCallDetailCodeBlock {
   value: string
   filePath?: string
   tone?: ToolCallDetailTone
-  displayTier?: ToolCallDetailDisplayTier
 }
 
 export interface ToolCallDetailsPresentation {
@@ -70,7 +60,6 @@ function pushCodeBlock(
   label: string,
   value: string | undefined,
   tone?: ToolCallDetailTone,
-  displayTier?: ToolCallDetailDisplayTier,
   filePath?: string
 ): void {
   const normalizedValue = value?.trimEnd()
@@ -82,8 +71,7 @@ function pushCodeBlock(
     label,
     value: normalizedValue,
     ...(filePath ? { filePath } : {}),
-    ...(tone ? { tone } : {}),
-    ...(displayTier ? { displayTier } : {})
+    ...(tone ? { tone } : {})
   })
 }
 
@@ -150,8 +138,7 @@ function pushOutputTail(
   codeBlocks: ToolCallDetailCodeBlock[],
   label: string,
   value: string | undefined,
-  tone?: ToolCallDetailTone,
-  displayTier?: ToolCallDetailDisplayTier
+  tone?: ToolCallDetailTone
 ): void {
   if (value === undefined) {
     return
@@ -162,28 +149,21 @@ function pushOutputTail(
     return
   }
 
-  pushCodeBlock(codeBlocks, tail.truncated ? `${label} tail` : label, tail.text, tone, displayTier)
+  pushCodeBlock(codeBlocks, tail.truncated ? `${label} tail` : label, tail.text, tone)
 }
 
 function pushOutputHead(
   codeBlocks: ToolCallDetailCodeBlock[],
   label: string,
   value: string,
-  tone?: ToolCallDetailTone,
-  displayTier?: ToolCallDetailDisplayTier
+  tone?: ToolCallDetailTone
 ): void {
   const head = takeTextHead(value)
   if (!head.text) {
     return
   }
 
-  pushCodeBlock(
-    codeBlocks,
-    head.truncated ? `${label} excerpt` : label,
-    head.text,
-    tone,
-    displayTier
-  )
+  pushCodeBlock(codeBlocks, head.truncated ? `${label} excerpt` : label, head.text, tone)
 }
 
 function pushBashOutputBlocks(
@@ -192,13 +172,7 @@ function pushBashOutputBlocks(
   codeBlocks: ToolCallDetailCodeBlock[]
 ): void {
   const stderrTone = toolCall.status === 'failed' || details.blocked ? 'danger' : undefined
-  pushOutputTail(
-    codeBlocks,
-    'stderr',
-    details.stderr,
-    stderrTone,
-    stderrTone ? undefined : 'inspection'
-  )
+  pushOutputTail(codeBlocks, 'stderr', details.stderr, stderrTone)
   pushCodeBlock(codeBlocks, 'stdout', details.stdout)
 }
 
@@ -275,7 +249,7 @@ export function buildToolCallDetailsPresentation(toolCall: ToolCall): ToolCallDe
     pushField(fields, 'mode', details.mode)
     pushField(fields, 'replacements', details.replacements)
     pushField(fields, 'first changed line', details.firstChangedLine)
-    pushCodeBlock(codeBlocks, 'diff', details.diff, undefined, undefined, details.path)
+    pushCodeBlock(codeBlocks, 'diff', details.diff, undefined, details.path)
     return { fields, codeBlocks }
   }
 
@@ -288,7 +262,7 @@ export function buildToolCallDetailsPresentation(toolCall: ToolCall): ToolCallDe
     pushField(fields, 'bytes written', details.bytesWritten)
     pushField(fields, 'created', toYesNo(details.created))
     pushField(fields, 'overwritten', toYesNo(details.overwritten))
-    pushCodeBlock(codeBlocks, 'preview', details.contentPreview, undefined, undefined, details.path)
+    pushCodeBlock(codeBlocks, 'preview', details.contentPreview, undefined, details.path)
     return { fields, codeBlocks }
   }
 
@@ -310,7 +284,6 @@ export function buildToolCallDetailsPresentation(toolCall: ToolCall): ToolCallDe
           : 'diff · ' + op.path,
         op.diff,
         undefined,
-        'inspection',
         op.movePath ?? op.path
       )
     }
@@ -398,13 +371,11 @@ export function buildToolCallDetailsPresentation(toolCall: ToolCall): ToolCallDe
     if (details.truncated) {
       pushField(fields, 'truncated', 'yes')
     }
-    // Full match list can be long — inspection panel only; count already shown in fields
     pushCodeBlock(
       codeBlocks,
       'matches',
       details.matches.map((match) => `${match.path}:${match.line}: ${match.text}`).join('\n'),
-      undefined,
-      'inspection'
+      undefined
     )
 
     return { fields, codeBlocks }
@@ -422,8 +393,7 @@ export function buildToolCallDetailsPresentation(toolCall: ToolCall): ToolCallDe
     if (details.truncated) {
       pushField(fields, 'truncated', 'yes')
     }
-    // Full file list deferred to inspection panel; count already shown in fields
-    pushCodeBlock(codeBlocks, 'matches', details.matches.join('\n'), undefined, 'inspection')
+    pushCodeBlock(codeBlocks, 'matches', details.matches.join('\n'))
 
     return { fields, codeBlocks }
   }
@@ -451,8 +421,7 @@ export function buildToolCallDetailsPresentation(toolCall: ToolCall): ToolCallDe
     pushField(fields, 'saved bytes', details.savedBytes)
     pushField(fields, 'failure code', details.failureCode)
     pushCodeBlock(codeBlocks, 'description', details.description)
-    // Full web content belongs in the inspection panel, not inline in chat
-    pushOutputHead(codeBlocks, 'content', details.content, undefined, 'inspection')
+    pushOutputHead(codeBlocks, 'content', details.content)
 
     return { fields, codeBlocks }
   }

@@ -113,14 +113,12 @@ test('buildToolCallDetailsPresentation keeps applyPatch inline details concise',
     {
       label: 'diff · src/new.ts',
       value: '--- /dev/null\n+++ src/new.ts\n@@ -0,0 +1 @@\n+export const value = 1',
-      filePath: 'src/new.ts',
-      displayTier: 'inspection'
+      filePath: 'src/new.ts'
     },
     {
       label: 'diff · src/existing.ts',
       value: '@@ -1 +1 @@\n-old\n+new',
-      filePath: 'src/existing.ts',
-      displayTier: 'inspection'
+      filePath: 'src/existing.ts'
     }
   ])
 })
@@ -220,8 +218,7 @@ test('buildToolCallDetailsPresentation exposes grep metadata and normalized matc
   assert.deepEqual(presentation.codeBlocks, [
     {
       label: 'matches',
-      value: 'src/alpha.ts:3: const needle = 1\nsrc/beta.ts:8: needle()',
-      displayTier: 'inspection'
+      value: 'src/alpha.ts:3: const needle = 1\nsrc/beta.ts:8: needle()'
     }
   ])
 })
@@ -249,8 +246,7 @@ test('buildToolCallDetailsPresentation exposes glob metadata and normalized file
   assert.deepEqual(presentation.codeBlocks, [
     {
       label: 'matches',
-      value: 'src/alpha.ts\nsrc/beta.ts',
-      displayTier: 'inspection'
+      value: 'src/alpha.ts\nsrc/beta.ts'
     }
   ])
 })
@@ -294,11 +290,9 @@ test('buildToolCallDetailsPresentation exposes webRead metadata and markdown exc
   ])
   assert.deepEqual(presentation.codeBlocks, [
     { label: 'description', value: 'Short summary.' },
-    // Full web content is inspection-only; chat shows only description + metadata
     {
       label: 'content',
-      value: '# Example article\n\nFirst paragraph.\n\nSecond paragraph.\n\nThird paragraph.',
-      displayTier: 'inspection'
+      value: '# Example article\n\nFirst paragraph.\n\nSecond paragraph.\n\nThird paragraph.'
     }
   ])
 })
@@ -359,13 +353,12 @@ test('buildToolCallDetailsPresentation exposes webRead html excerpts', () => {
   assert.deepEqual(presentation.codeBlocks, [
     {
       label: 'content',
-      value: '<article><p>First paragraph.</p><p>Second paragraph.</p></article>',
-      displayTier: 'inspection'
+      value: '<article><p>First paragraph.</p><p>Second paragraph.</p></article>'
     }
   ])
 })
 
-test('buildToolCallDetailsPresentation marks bash stdout as inspection-tier regardless of success', () => {
+test('buildToolCallDetailsPresentation shows bash stdout without presentation tiers', () => {
   const presentation = buildToolCallDetailsPresentation({
     ...BASE_TOOL_CALL,
     toolName: 'bash',
@@ -381,8 +374,7 @@ test('buildToolCallDetailsPresentation marks bash stdout as inspection-tier rega
 
   const stdoutBlock = presentation.codeBlocks.find((b) => b.label === 'stdout')
   assert.ok(stdoutBlock, 'stdout block should be present')
-  // stdout is shown inline (no displayTier) so the user can see command output directly
-  assert.equal(stdoutBlock.displayTier, undefined)
+  assert.deepEqual(stdoutBlock, { label: 'stdout', value: 'hello' })
 })
 
 test('buildToolCallDetailsPresentation keeps bash stderr secondary when it carries danger signal', () => {
@@ -401,11 +393,10 @@ test('buildToolCallDetailsPresentation keeps bash stderr secondary when it carri
 
   const stderrBlock = presentation.codeBlocks.find((b) => b.label === 'stderr')
   assert.ok(stderrBlock, 'stderr block should be present')
-  assert.equal(stderrBlock.tone, 'danger')
-  assert.equal(stderrBlock.displayTier, undefined)
+  assert.deepEqual(stderrBlock, { label: 'stderr', value: 'command not found', tone: 'danger' })
 })
 
-test('buildToolCallDetailsPresentation marks grep and glob match lists as inspection-tier', () => {
+test('buildToolCallDetailsPresentation shows grep and glob match lists without presentation tiers', () => {
   const grepPresentation = buildToolCallDetailsPresentation({
     ...BASE_TOOL_CALL,
     toolName: 'grep',
@@ -432,8 +423,8 @@ test('buildToolCallDetailsPresentation marks grep and glob match lists as inspec
     }
   })
 
-  assert.equal(grepPresentation.codeBlocks[0].displayTier, 'inspection')
-  assert.equal(globPresentation.codeBlocks[0].displayTier, 'inspection')
+  assert.deepEqual(grepPresentation.codeBlocks, [{ label: 'matches', value: 'a.ts:1: foo' }])
+  assert.deepEqual(globPresentation.codeBlocks, [{ label: 'matches', value: 'a.ts' }])
 })
 
 test('compressPath returns short paths unchanged', () => {

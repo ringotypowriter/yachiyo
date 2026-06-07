@@ -178,7 +178,20 @@ test('summarizeToolInput summarizes applyPatch by changed files instead of raw p
         '+new\n' +
         '*** End Patch'
     }),
-    '2 files (+src/new.ts, → src/old.ts → src/new-name.ts)'
+    'new.ts, new-name.ts'
+  )
+  assert.equal(summarizeToolInput('applyPatch', { patch: 'not a patch' }), '')
+  assert.equal(
+    summarizeToolOutput('applyPatch', {
+      content: [],
+      details: {
+        operations: [
+          { operation: 'update', path: 'src/old.ts', movePath: 'src/new-name.ts' },
+          { operation: 'add', path: 'src/new.ts' }
+        ]
+      }
+    }),
+    '2 files (new-name.ts, new.ts)'
   )
 })
 
