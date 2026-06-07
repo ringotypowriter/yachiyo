@@ -195,6 +195,39 @@ test('summarizeToolInput summarizes applyPatch by changed files instead of raw p
   )
 })
 
+test('summarizeToolInput keeps bash and jsRepl row summaries compact', () => {
+  assert.equal(
+    summarizeToolInput('bash', { command: 'git diff -- packages/runtime/src/tools/agentTools.ts' }),
+    'git diff agentTools.ts'
+  )
+  assert.equal(summarizeToolInput('bash', { command: 'git status --short' }), 'git status')
+  assert.equal(summarizeToolInput('bash', { command: 'pnpm run lint -- --fix' }), 'pnpm lint')
+  assert.equal(
+    summarizeToolInput('bash', {
+      command:
+        'node --experimental-strip-types --test packages/runtime/src/tools/agentTools.test.ts'
+    }),
+    'node test agentTools.test.ts'
+  )
+  assert.equal(
+    summarizeToolInput('bash', {
+      command: "sed -n '1,220p' packages/runtime/src/tools/agentTools.ts"
+    }),
+    'sed agentTools.ts'
+  )
+  assert.equal(summarizeToolInput('bash', { command: 'pnpm run typecheck' }), 'pnpm typecheck')
+  assert.equal(
+    summarizeToolInput('bash', { command: 'curl -L https://example.com/api/status' }),
+    'curl example.com'
+  )
+  assert.equal(
+    summarizeToolInput('jsRepl', {
+      code: "const value = await fs.promises.readFile('long/file/name.ts', 'utf8')"
+    }),
+    'JavaScript'
+  )
+})
+
 test('createAgentToolSet exposes reviewThings but disables useThings for schedule-only review runs', async () => {
   const thingDomain = new ThingDomain({ storage: createInMemoryYachiyoStorage() })
   const tools = createAgentToolSet(

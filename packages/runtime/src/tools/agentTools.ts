@@ -289,6 +289,72 @@ function summarizeApplyPatchInput(patch: string): string {
   return ''
 }
 
+function parseCommandWords(command: string): string[] {
+  return Array.from(
+    command.matchAll(/"([^"]*)"|'([^']*)'|(\S+)/g),
+    (match) => match[1] ?? match[2] ?? match[3] ?? ''
+  ).filter(Boolean)
+}
+
+function formatBashObject(value: string | undefined): string | undefined {
+  if (!value) return undefined
+  try {
+    return new URL(value).hostname
+  } catch {
+    return getBasename(value)
+  }
+}
+
+function isBashOption(value: string): boolean {
+  return value.startsWith('-')
+}
+
+function isSedAddress(value: string): boolean {
+  return /^\d+(?:,\d+)?[a-z]?$/i.test(value)
+}
+
+function lastBashObject(words: string[], startIndex = 1): string | undefined {
+  return [...words]
+    .slice(startIndex)
+    .reverse()
+    .find((word) => !isBashOption(word) && !isSedAddress(word))
+}
+
+function summarizeBashCommand(command: string): string {
+  const words = parseCommandWords(command)
+  const executable = getBasename(words[0] ?? '')
+  if (!executable) return ''
+
+  if (
+    executable === 'pnpm' ||
+    executable === 'npm' ||
+    executable === 'yarn' ||
+    executable === 'bun'
+  ) {
+    if (words[1] === 'run' && words[2]) return `${executable} ${words[2]}`
+    return words[1] ? `${executable} ${words[1]}` : executable
+  }
+
+  if (executable === 'git') {
+    const subcommand = words[1]
+    if (!subcommand) return 'git'
+    const separatorIndex = words.indexOf('--')
+    const pathAfterSeparator = separatorIndex >= 0 ? words[separatorIndex + 1] : undefined
+    const target =
+      formatBashObject(pathAfterSeparator) ?? formatBashObject(lastBashObject(words, 2))
+    return target ? `git ${subcommand} ${target}` : `git ${subcommand}`
+  }
+
+  if (executable === 'node' && words.includes('--test')) {
+    const target = formatBashObject(lastBashObject(words, words.indexOf('--test') + 1))
+    return target ? `node test ${target}` : 'node test'
+  }
+
+  const target = formatBashObject(lastBashObject(words))
+  if (target && target !== executable) return `${executable} ${target}`
+  return words.length > 1 ? `${executable} …` : executable
+}
+
 export function summarizeToolInput(toolName: ToolCallName | string, input: unknown): string {
   if (toolName === 'askUser') {
     const question =
@@ -299,12 +365,11 @@ export function summarizeToolInput(toolName: ToolCallName | string, input: unkno
   if (toolName === 'bash') {
     const command =
       typeof input === 'object' && input !== null && 'command' in input ? input.command : ''
-    return typeof command === 'string' ? takeTail(command, 160).text : toolName
+    return typeof command === 'string' ? summarizeBashCommand(command) : toolName
   }
 
   if (toolName === 'jsRepl') {
-    const code = typeof input === 'object' && input !== null && 'code' in input ? input.code : ''
-    return typeof code === 'string' ? takeTail(code, 160).text : toolName
+    return 'JavaScript'
   }
 
   if (toolName === 'webRead') {
