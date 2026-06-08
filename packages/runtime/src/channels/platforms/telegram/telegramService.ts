@@ -60,9 +60,13 @@ export interface TelegramServiceOptions {
 
 export interface TelegramService {
   /** Start long-polling. */
+  start: () => void
+  /** Start long-polling. */
   startPolling: () => void
   /** Gracefully shut down the bot. */
   stop: () => Promise<void>
+  /** Verify the Bot API is reachable for this bot. */
+  healthCheck: () => Promise<boolean>
   /** Notify the service that a group's status changed (approved/blocked). */
   onGroupStatusChange: (group: ChannelGroupRecord) => void
   /** Send a text message to a Telegram chat by chat ID. */
@@ -342,19 +346,41 @@ export function createTelegramService({
       })
     : null
 
+  let connectionAbortController: AbortController | null = null
+
   return {
-    startPolling() {
+    start() {
       console.log('[telegram] startPolling called — launching Telegraf')
+      connectionAbortController?.abort()
+      const abortController = new AbortController()
+      connectionAbortController = abortController
       void connectWithRetry(() => bot.launch({ dropPendingUpdates: true }), {
         label: 'telegram',
         baseDelayMs: 3_000,
-        maxDelayMs: 30_000
+        maxDelayMs: 30_000,
+        signal: abortController.signal
+      }).catch((error) => {
+        if (error instanceof Error && error.name === 'AbortError') return
+        console.error('[telegram] launch retry loop failed:', error)
       })
     },
+    startPolling() {
+      this.start()
+    },
     async stop() {
+      connectionAbortController?.abort()
+      connectionAbortController = null
       groupDiscussion?.stop()
       directMessages.stop()
       bot.stop()
+    },
+    async healthCheck() {
+      try {
+        await bot.telegram.getMe()
+        return true
+      } catch {
+        return false
+      }
     },
     onGroupStatusChange(group) {
       groupDiscussion?.onGroupStatusChange(group)

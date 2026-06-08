@@ -1,10 +1,59 @@
 import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
 
+import { createOneBotClient } from './onebotClient.ts'
+
+type FakeWebSocketEvent = { data?: unknown; code?: number; reason?: string }
+
+class FakeOneBotWebSocket {
+  static OPEN = 1
+  readyState = FakeOneBotWebSocket.OPEN
+  sent: string[] = []
+  listeners = new Map<string, Array<(event: FakeWebSocketEvent) => void>>()
+
+  url: string
+
+  constructor(url: string) {
+    this.url = url
+  }
+
+  addEventListener(type: string, handler: (event: FakeWebSocketEvent) => void): void {
+    const handlers = this.listeners.get(type) ?? []
+    handlers.push(handler)
+    this.listeners.set(type, handlers)
+  }
+
+  send(data: string): void {
+    this.sent.push(data)
+  }
+
+  close(): void {
+    this.readyState = 3
+    this.emit('close', { code: 1000, reason: '' })
+  }
+
+  emit(type: string, event: FakeWebSocketEvent): void {
+    for (const handler of this.listeners.get(type) ?? []) handler(event)
+  }
+}
+
+function createFakeWebSocketFactory(): {
+  WebSocketImpl: typeof FakeOneBotWebSocket
+  sockets: FakeOneBotWebSocket[]
+} {
+  const sockets: FakeOneBotWebSocket[] = []
+  class CapturingWebSocket extends FakeOneBotWebSocket {
+    constructor(url: string) {
+      super(url)
+      sockets.push(this)
+    }
+  }
+  return { WebSocketImpl: CapturingWebSocket, sockets }
+}
+
 /**
  * Since the OneBot client depends on WebSocket (network), these tests verify
- * the message parsing and action serialization logic without a live connection.
- * Integration testing with a real NapCatQQ instance is done manually.
+ * parsing and health behavior without a live NapCatQQ instance.
  */
 
 describe('OneBot v11 message parsing', () => {
@@ -81,5 +130,41 @@ describe('OneBot v11 message parsing', () => {
 
     assert.equal(heartbeat.post_type, 'meta_event')
     assert.notEqual(heartbeat.post_type, 'message')
+  })
+})
+
+describe('OneBot healthCheck', () => {
+  it('returns true when get_login_info succeeds before timeout', async () => {
+    const { WebSocketImpl, sockets } = createFakeWebSocketFactory()
+    const client = createOneBotClient({ url: 'ws://onebot.test', WebSocketImpl })
+    client.connect()
+
+    const health = client.healthCheck(50)
+    const sent = JSON.parse(sockets[0].sent[0])
+    sockets[0].emit('message', {
+      data: JSON.stringify({
+        status: 'ok',
+        retcode: 0,
+        data: { user_id: 1, nickname: 'bot' },
+        echo: sent.echo
+      })
+    })
+
+    assert.equal(await health, true)
+  })
+
+  it('returns false when the socket is not connected', async () => {
+    const { WebSocketImpl } = createFakeWebSocketFactory()
+    const client = createOneBotClient({ url: 'ws://onebot.test', WebSocketImpl })
+
+    assert.equal(await client.healthCheck(10), false)
+  })
+
+  it('returns false when get_login_info times out', async () => {
+    const { WebSocketImpl } = createFakeWebSocketFactory()
+    const client = createOneBotClient({ url: 'ws://onebot.test', WebSocketImpl })
+    client.connect()
+
+    assert.equal(await client.healthCheck(1), false)
   })
 })

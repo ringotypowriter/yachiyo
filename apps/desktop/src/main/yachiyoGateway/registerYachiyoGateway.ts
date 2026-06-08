@@ -99,6 +99,10 @@ import {
   qqbotPolicy
 } from '@yachiyo/runtime/channels/shared/channelPolicy'
 import {
+  createChannelServiceSupervisor,
+  type ChannelServiceSupervisor
+} from '@yachiyo/runtime/channels/shared/channelServiceLifecycle'
+import {
   createScheduleService,
   type ScheduleService
 } from '@yachiyo/runtime/services/scheduleService'
@@ -122,6 +126,10 @@ let telegramService: TelegramService | null = null
 let qqService: QQService | null = null
 let discordService: DiscordService | null = null
 let qqbotService: QQBotService | null = null
+let channelsConfigForSupervisor: ChannelsConfig | null = null
+let channelSupervisor: ChannelServiceSupervisor | null = null
+let channelHealthTimer: ReturnType<typeof setInterval> | null = null
+let channelRecoveryRegistered = false
 let scheduleService: ScheduleService | null = null
 let commandSocket: CommandSocketHandle | null = null
 let commandSocketHealthTimer: ReturnType<typeof setInterval> | null = null
@@ -131,6 +139,7 @@ let fatalRunRecoveryRegistered = false
 
 const COMMAND_SOCKET_HEALTH_INTERVAL_MS = 15_000
 const COMMAND_SOCKET_HEALTH_TIMEOUT_MS = 1_000
+const CHANNEL_HEALTH_INTERVAL_MS = 60_000
 
 function createCommandSocketHandle(): CommandSocketHandle {
   return startCommandSocket({
@@ -261,148 +270,128 @@ function registerCommandSocketRecovery(): void {
   powerMonitor.on('user-did-become-active', () => scheduleHealthCheck('user-did-become-active'))
 }
 
-async function applyTelegramConfig(cfg: ChannelsConfig): Promise<void> {
-  const token = cfg.telegram?.botToken?.trim()
-  const enabled = cfg.telegram?.enabled ?? false
+function getChannelSupervisor(): ChannelServiceSupervisor {
+  if (channelSupervisor) return channelSupervisor
 
-  if (telegramService) {
-    console.log('[telegram] stopping existing service')
-    const old = telegramService
-    telegramService = null
-    try {
-      await old.stop()
-    } catch (e) {
-      console.error('[telegram] stop error', e)
+  channelSupervisor = createChannelServiceSupervisor({
+    telegram: {
+      label: 'telegram',
+      enabled: () => {
+        const token = channelsConfigForSupervisor?.telegram?.botToken?.trim()
+        return Boolean(server && channelsConfigForSupervisor?.telegram?.enabled && token)
+      },
+      create: () => {
+        const cfg = channelsConfigForSupervisor!
+        const token = cfg.telegram!.botToken!.trim()
+        return createTelegramService({
+          botToken: token,
+          model: cfg.telegram?.model,
+          server: server!,
+          groupConfig: cfg.telegram?.group,
+          botUsername: undefined,
+          groupVerbosity: cfg.groupVerbosity,
+          groupCheckIntervalMs: cfg.groupCheckIntervalMs,
+          policy: applyChannelsConfigToPolicy(telegramPolicy, cfg)
+        })
+      },
+      onServiceChange: (service) => {
+        telegramService = service as TelegramService | null
+      }
+    },
+    qq: {
+      label: 'qq',
+      enabled: () => {
+        const wsUrl = channelsConfigForSupervisor?.qq?.wsUrl?.trim()
+        return Boolean(server && channelsConfigForSupervisor?.qq?.enabled && wsUrl)
+      },
+      create: () => {
+        const cfg = channelsConfigForSupervisor!
+        const wsUrl = cfg.qq!.wsUrl!.trim()
+        return createQQService({
+          wsUrl,
+          token: cfg.qq?.token,
+          model: cfg.qq?.model,
+          server: server!,
+          groupConfig: cfg.qq?.group,
+          botQQId: undefined,
+          groupVerbosity: cfg.groupVerbosity,
+          groupCheckIntervalMs: cfg.groupCheckIntervalMs,
+          policy: applyChannelsConfigToPolicy(qqPolicy, cfg)
+        })
+      },
+      onServiceChange: (service) => {
+        qqService = service as QQService | null
+      }
+    },
+    discord: {
+      label: 'discord',
+      enabled: () => {
+        const token = channelsConfigForSupervisor?.discord?.botToken?.trim()
+        return Boolean(server && channelsConfigForSupervisor?.discord?.enabled && token)
+      },
+      create: () => {
+        const cfg = channelsConfigForSupervisor!
+        const token = cfg.discord!.botToken!.trim()
+        return createDiscordService({
+          botToken: token,
+          model: cfg.discord?.model,
+          server: server!,
+          groupConfig: cfg.discord?.group,
+          groupVerbosity: cfg.groupVerbosity,
+          groupCheckIntervalMs: cfg.groupCheckIntervalMs,
+          policy: applyChannelsConfigToPolicy(discordPolicy, cfg)
+        })
+      },
+      onServiceChange: (service) => {
+        discordService = service as DiscordService | null
+      }
+    },
+    qqbot: {
+      label: 'qqbot',
+      enabled: () => {
+        const appId = channelsConfigForSupervisor?.qqbot?.appId?.trim()
+        const clientSecret = channelsConfigForSupervisor?.qqbot?.clientSecret?.trim()
+        return Boolean(
+          server && channelsConfigForSupervisor?.qqbot?.enabled && appId && clientSecret
+        )
+      },
+      create: () => {
+        const cfg = channelsConfigForSupervisor!
+        return createQQBotService({
+          appId: cfg.qqbot!.appId!.trim(),
+          clientSecret: cfg.qqbot!.clientSecret!.trim(),
+          model: cfg.qqbot?.model,
+          server: server!,
+          policy: applyChannelsConfigToPolicy(qqbotPolicy, cfg)
+        })
+      },
+      onServiceChange: (service) => {
+        qqbotService = service as QQBotService | null
+      }
     }
-  }
-
-  if (!enabled || !token || !server) {
-    console.log(`[telegram] service not started (enabled=${enabled}, hasToken=${Boolean(token)})`)
-    return
-  }
-
-  console.log('[telegram] starting polling service')
-  const model = cfg.telegram?.model
-  telegramService = createTelegramService({
-    botToken: token,
-    model,
-    server,
-    groupConfig: cfg.telegram?.group,
-    botUsername: undefined, // TODO: resolve bot username from Bot API getMe
-    groupVerbosity: cfg.groupVerbosity,
-    groupCheckIntervalMs: cfg.groupCheckIntervalMs,
-    policy: applyChannelsConfigToPolicy(telegramPolicy, cfg)
   })
-  telegramService.startPolling()
-  console.log('[telegram] polling started')
+
+  return channelSupervisor
 }
 
-async function applyQQConfig(cfg: ChannelsConfig): Promise<void> {
-  const wsUrl = cfg.qq?.wsUrl?.trim()
-  const enabled = cfg.qq?.enabled ?? false
+function registerChannelRecovery(): void {
+  if (channelRecoveryRegistered) return
 
-  if (qqService) {
-    console.log('[qq] stopping existing service')
-    const old = qqService
-    qqService = null
-    try {
-      await old.stop()
-    } catch (e) {
-      console.error('[qq] stop error', e)
-    }
+  channelRecoveryRegistered = true
+  channelHealthTimer = setInterval(() => {
+    void channelSupervisor?.poke('periodic health check')
+  }, CHANNEL_HEALTH_INTERVAL_MS)
+
+  const scheduleHealthCheck = (reason: string, delayMs = 0): void => {
+    setTimeout(() => {
+      void channelSupervisor?.poke(reason)
+    }, delayMs)
   }
 
-  if (!enabled || !wsUrl || !server) {
-    console.log(`[qq] service not started (enabled=${enabled}, hasWsUrl=${Boolean(wsUrl)})`)
-    return
-  }
-
-  console.log('[qq] starting QQ service')
-  const model = cfg.qq?.model
-  qqService = createQQService({
-    wsUrl,
-    token: cfg.qq?.token,
-    model,
-    server,
-    groupConfig: cfg.qq?.group,
-    botQQId: cfg.qq?.token ? undefined : undefined, // TODO: resolve bot's own QQ ID for @mention detection
-    groupVerbosity: cfg.groupVerbosity,
-    groupCheckIntervalMs: cfg.groupCheckIntervalMs,
-    policy: applyChannelsConfigToPolicy(qqPolicy, cfg)
-  })
-  qqService.connect()
-  console.log('[qq] service started')
-}
-
-async function applyDiscordConfig(cfg: ChannelsConfig): Promise<void> {
-  const token = cfg.discord?.botToken?.trim()
-  const enabled = cfg.discord?.enabled ?? false
-
-  if (discordService) {
-    console.log('[discord] stopping existing service')
-    const old = discordService
-    discordService = null
-    try {
-      await old.stop()
-    } catch (e) {
-      console.error('[discord] stop error', e)
-    }
-  }
-
-  if (!enabled || !token || !server) {
-    console.log(`[discord] service not started (enabled=${enabled}, hasToken=${Boolean(token)})`)
-    return
-  }
-
-  console.log('[discord] starting service')
-  const model = cfg.discord?.model
-  discordService = createDiscordService({
-    botToken: token,
-    model,
-    server,
-    groupConfig: cfg.discord?.group,
-    groupVerbosity: cfg.groupVerbosity,
-    groupCheckIntervalMs: cfg.groupCheckIntervalMs,
-    policy: applyChannelsConfigToPolicy(discordPolicy, cfg)
-  })
-  discordService.connect()
-  console.log('[discord] service started')
-}
-
-async function applyQQBotConfig(cfg: ChannelsConfig): Promise<void> {
-  const appId = cfg.qqbot?.appId?.trim()
-  const clientSecret = cfg.qqbot?.clientSecret?.trim()
-  const enabled = cfg.qqbot?.enabled ?? false
-
-  if (qqbotService) {
-    console.log('[qqbot] stopping existing service')
-    const old = qqbotService
-    qqbotService = null
-    try {
-      await old.stop()
-    } catch (e) {
-      console.error('[qqbot] stop error', e)
-    }
-  }
-
-  if (!enabled || !appId || !clientSecret || !server) {
-    console.log(
-      `[qqbot] service not started (enabled=${enabled}, hasAppId=${Boolean(appId)}, hasSecret=${Boolean(clientSecret)})`
-    )
-    return
-  }
-
-  console.log('[qqbot] starting QQBot service')
-  const model = cfg.qqbot?.model
-  qqbotService = createQQBotService({
-    appId,
-    clientSecret,
-    model,
-    server,
-    policy: applyChannelsConfigToPolicy(qqbotPolicy, cfg)
-  })
-  qqbotService.connect()
-  console.log('[qqbot] service started')
+  powerMonitor.on('lock-screen', () => scheduleHealthCheck('lock-screen', 1_000))
+  powerMonitor.on('unlock-screen', () => scheduleHealthCheck('unlock-screen'))
+  powerMonitor.on('resume', () => scheduleHealthCheck('resume'))
+  powerMonitor.on('user-did-become-active', () => scheduleHealthCheck('user-did-become-active'))
 }
 
 function toFatalRunError(error: unknown): string {
@@ -514,23 +503,11 @@ async function stopLiveServices(): Promise<void> {
   scheduleService?.stop()
   scheduleService = null
 
-  const activeTelegramService = telegramService
+  await channelSupervisor?.stopAll('live services stopping')
   telegramService = null
-  if (activeTelegramService) {
-    await activeTelegramService.stop()
-  }
-
-  const activeQQService = qqService
   qqService = null
-  if (activeQQService) {
-    await activeQQService.stop()
-  }
-
-  const activeDiscordService = discordService
   discordService = null
-  if (activeDiscordService) {
-    await activeDiscordService.stop()
-  }
+  qqbotService = null
 }
 
 async function startLiveServices(): Promise<void> {
@@ -561,20 +538,8 @@ async function startLiveServices(): Promise<void> {
 
   if (!is.dev || process.env['YACHIYO_DEV_CHANNELS']) {
     const channelsConfig = server.getChannelsConfig()
-    const channelStarts = [
-      { label: 'telegram', start: () => applyTelegramConfig(channelsConfig) },
-      { label: 'qq', start: () => applyQQConfig(channelsConfig) },
-      { label: 'discord', start: () => applyDiscordConfig(channelsConfig) },
-      { label: 'qqbot', start: () => applyQQBotConfig(channelsConfig) }
-    ]
-
-    for (const channel of channelStarts) {
-      try {
-        await channel.start()
-      } catch (error) {
-        console.error(`[${channel.label}] startup failed:`, error)
-      }
-    }
+    channelsConfigForSupervisor = channelsConfig
+    await getChannelSupervisor().reconcileAll('initial startup')
   }
 }
 
@@ -663,6 +628,7 @@ export function registerYachiyoGateway(): YachiyoServer {
   // Unix domain socket for CLI commands (notifications, send-channel, etc.)
   startCommandSocketNow('initial startup')
   registerCommandSocketRecovery()
+  registerChannelRecovery()
 
   handleYachiyoIpc(IPC_CHANNELS.searchThreadsAndMessages, (input: SearchThreadsAndMessagesInput) =>
     server!.searchThreadsAndMessages(input)
@@ -1039,46 +1005,19 @@ export function registerYachiyoGateway(): YachiyoServer {
   handleYachiyoIpc(IPC_CHANNELS.getChannelsConfig, () => server!.getChannelsConfig())
   handleYachiyoIpc(IPC_CHANNELS.saveChannelsConfig, async (input: ChannelsConfig) => {
     const saved = server!.saveChannelsConfig(input)
-    await applyTelegramConfig(saved)
-    await applyQQConfig(saved)
-    await applyDiscordConfig(saved)
-    await applyQQBotConfig(saved)
+    channelsConfigForSupervisor = saved
+    await getChannelSupervisor().reconcileAll('config changed')
     return saved
   })
   handleYachiyoIpc(
     IPC_CHANNELS.restartChannelService,
     async (input: { platform: 'telegram' | 'qq' | 'discord' | 'qqbot' | 'all' }) => {
-      const cfg = server!.getChannelsConfig()
+      channelsConfigForSupervisor = server!.getChannelsConfig()
       if (input.platform === 'all') {
-        const restarts = [
-          { label: 'telegram', start: () => applyTelegramConfig(cfg) },
-          { label: 'qq', start: () => applyQQConfig(cfg) },
-          { label: 'discord', start: () => applyDiscordConfig(cfg) },
-          { label: 'qqbot', start: () => applyQQBotConfig(cfg) }
-        ]
-        for (const channel of restarts) {
-          try {
-            await channel.start()
-          } catch (error) {
-            console.error(`[${channel.label}] restart failed:`, error)
-          }
-        }
+        await getChannelSupervisor().restartAll('manual restart')
         return
       }
-      switch (input.platform) {
-        case 'telegram':
-          await applyTelegramConfig(cfg)
-          break
-        case 'qq':
-          await applyQQConfig(cfg)
-          break
-        case 'discord':
-          await applyDiscordConfig(cfg)
-          break
-        case 'qqbot':
-          await applyQQBotConfig(cfg)
-          break
-      }
+      await getChannelSupervisor().restart(input.platform, 'manual restart')
     }
   )
   // Schedule CRUD
@@ -1218,15 +1157,17 @@ export function registerYachiyoGateway(): YachiyoServer {
       clearInterval(commandSocketHealthTimer)
       commandSocketHealthTimer = null
     }
+    if (channelHealthTimer) {
+      clearInterval(channelHealthTimer)
+      channelHealthTimer = null
+    }
     scheduleService?.stop()
     scheduleService = null
-    void telegramService?.stop().catch(() => {})
+    void channelSupervisor?.stopAll('before quit').catch(() => {})
+    channelSupervisor = null
     telegramService = null
-    void qqService?.stop().catch(() => {})
     qqService = null
-    void discordService?.stop().catch(() => {})
     discordService = null
-    void qqbotService?.stop().catch(() => {})
     qqbotService = null
     commandSocketRestartInFlight = null
     void commandSocket?.close()

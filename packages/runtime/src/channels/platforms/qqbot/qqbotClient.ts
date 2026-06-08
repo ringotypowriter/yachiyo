@@ -27,11 +27,38 @@ export interface QQBotC2CMessage {
 export interface QQBotClientOptions {
   appId: string
   clientSecret: string
+  /** Optional WebSocket implementation for tests. Defaults to global WebSocket. */
+  WebSocketImpl?: WebSocketConstructor
+  /** Optional fetch implementation for tests. Defaults to global fetch. */
+  fetchImpl?: typeof fetch
+  /** Optional heartbeat ACK freshness window for tests. */
+  heartbeatAckTimeoutMs?: number
+  /** Optional reconnect delays for tests. */
+  reconnectDelaysMs?: readonly number[]
+}
+
+interface WebSocketLike {
+  readyState: number
+  addEventListener(type: string, handler: (event: WebSocketEventLike) => void): void
+  send(data: string): void
+  close(): void
+}
+
+interface WebSocketEventLike {
+  data?: unknown
+  code?: number
+  message?: string
+}
+
+interface WebSocketConstructor {
+  new (url: string): WebSocketLike
+  OPEN: number
 }
 
 export interface QQBotClient {
   connect(): void
   close(): Promise<void>
+  healthCheck(): Promise<boolean>
   onC2CMessage(handler: (msg: QQBotC2CMessage) => void): void
   /** Send a text message to a C2C user. replyMsgId is required (passive reply). */
   sendC2CMessage(openId: string, text: string, replyMsgId: string): Promise<void>
@@ -61,6 +88,9 @@ const MAX_RECONNECT_ATTEMPTS = 100
 
 export function createQQBotClient(options: QQBotClientOptions): QQBotClient {
   const { appId, clientSecret } = options
+  const WebSocketImpl = options.WebSocketImpl ?? WebSocket
+  const fetchImpl = options.fetchImpl ?? fetch
+  const reconnectDelays = options.reconnectDelaysMs ?? RECONNECT_DELAYS_MS
 
   // Per-send sequence counter (must be unique per reply chain).
   let msgSeqCounter = 1
@@ -72,8 +102,13 @@ export function createQQBotClient(options: QQBotClientOptions): QQBotClient {
   let tokenFetchInFlight: Promise<string> | null = null
 
   // WebSocket state
-  let ws: WebSocket | null = null
+  let ws: WebSocketLike | null = null
   let heartbeatTimer: ReturnType<typeof setTimeout> | null = null
+  const heartbeatWatchdogTimers = new Set<ReturnType<typeof setTimeout>>()
+  const reconnectTimers = new Set<ReturnType<typeof setTimeout>>()
+  let heartbeatAckTimeoutMs = options.heartbeatAckTimeoutMs ?? 30_000
+  let lastHeartbeatSentAt = 0
+  let lastHeartbeatAckAt = 0
   let lastSeq: number | null = null
   let sessionId: string | null = null
   let reconnectAttempt = 0
@@ -86,7 +121,7 @@ export function createQQBotClient(options: QQBotClientOptions): QQBotClient {
   // ------------------------------------------------------------------
 
   async function fetchAccessToken(): Promise<string> {
-    const res = await fetch(TOKEN_URL, {
+    const res = await fetchImpl(TOKEN_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ appId, clientSecret })
@@ -116,6 +151,7 @@ export function createQQBotClient(options: QQBotClientOptions): QQBotClient {
     tokenRefreshTimer = setTimeout(() => {
       void getToken().catch((err) => console.error('[qqbot] background token refresh failed:', err))
     }, delayMs)
+    unrefTimer(tokenRefreshTimer)
   }
 
   /** Get a valid token, fetching/refreshing if needed. Deduplicates concurrent calls. */
@@ -140,7 +176,7 @@ export function createQQBotClient(options: QQBotClientOptions): QQBotClient {
     body?: Record<string, unknown>
   ): Promise<unknown> {
     const token = await getToken()
-    const res = await fetch(`${API_BASE}${path}`, {
+    const res = await fetchImpl(`${API_BASE}${path}`, {
       method,
       headers: {
         Authorization: `QQBot ${token}`,
@@ -172,7 +208,7 @@ export function createQQBotClient(options: QQBotClientOptions): QQBotClient {
 
     console.log(`[qqbot] connecting to gateway: ${gatewayUrl}`)
 
-    ws = new WebSocket(gatewayUrl)
+    ws = new WebSocketImpl(gatewayUrl)
 
     ws.addEventListener('open', () => {
       console.log('[qqbot] gateway connected')
@@ -245,6 +281,7 @@ export function createQQBotClient(options: QQBotClientOptions): QQBotClient {
 
       // Heartbeat ACK — nothing to do.
       case 11:
+        lastHeartbeatAckAt = Date.now()
         break
 
       // Reconnect requested by server.
@@ -298,15 +335,21 @@ export function createQQBotClient(options: QQBotClientOptions): QQBotClient {
   }
 
   function sendGateway(op: number, d?: unknown): void {
-    if (!ws || ws.readyState !== WebSocket.OPEN) return
+    if (!ws || ws.readyState !== WebSocketImpl.OPEN) return
     ws.send(JSON.stringify({ op, d }))
   }
 
   function startHeartbeat(intervalMs: number): void {
     stopHeartbeat()
-    heartbeatTimer = setInterval(() => {
+    heartbeatAckTimeoutMs = options.heartbeatAckTimeoutMs ?? Math.max(intervalMs * 2, 30_000)
+    const sendHeartbeat = (): void => {
+      lastHeartbeatSentAt = Date.now()
       sendGateway(1, lastSeq)
-    }, intervalMs)
+      scheduleHeartbeatWatchdog(lastHeartbeatSentAt)
+    }
+    sendHeartbeat()
+    heartbeatTimer = setInterval(sendHeartbeat, intervalMs)
+    unrefTimer(heartbeatTimer)
   }
 
   function stopHeartbeat(): void {
@@ -314,13 +357,33 @@ export function createQQBotClient(options: QQBotClientOptions): QQBotClient {
       clearInterval(heartbeatTimer)
       heartbeatTimer = null
     }
+    for (const timer of heartbeatWatchdogTimers) {
+      clearTimeout(timer)
+    }
+    heartbeatWatchdogTimers.clear()
+    lastHeartbeatSentAt = 0
+    lastHeartbeatAckAt = 0
+  }
+
+  function scheduleHeartbeatWatchdog(sentAt: number): void {
+    const timer = setTimeout(() => {
+      heartbeatWatchdogTimers.delete(timer)
+      if (!ws || ws.readyState !== WebSocketImpl.OPEN) return
+      if (lastHeartbeatAckAt < sentAt) {
+        console.warn('[qqbot] heartbeat ACK timed out; closing stale gateway')
+        ws.close()
+      }
+    }, heartbeatAckTimeoutMs)
+    unrefTimer(timer)
+    heartbeatWatchdogTimers.add(timer)
   }
 
   function scheduleReconnect(): void {
     if (intentionallyClosed || reconnectAttempt >= MAX_RECONNECT_ATTEMPTS) return
-    const delay = RECONNECT_DELAYS_MS[Math.min(reconnectAttempt, RECONNECT_DELAYS_MS.length - 1)]
+    const delay = reconnectDelays[Math.min(reconnectAttempt, reconnectDelays.length - 1)]
     reconnectAttempt++
-    setTimeout(() => {
+    const timer = setTimeout(() => {
+      reconnectTimers.delete(timer)
       if (!intentionallyClosed) {
         void connectGateway().catch((err) => {
           console.error('[qqbot] reconnect failed:', err)
@@ -328,6 +391,21 @@ export function createQQBotClient(options: QQBotClientOptions): QQBotClient {
         })
       }
     }, delay)
+    unrefTimer(timer)
+    reconnectTimers.add(timer)
+  }
+
+  function stopReconnects(): void {
+    for (const timer of reconnectTimers) {
+      clearTimeout(timer)
+    }
+    reconnectTimers.clear()
+  }
+
+  function unrefTimer(timer: ReturnType<typeof setTimeout>): void {
+    if ('unref' in timer && typeof timer.unref === 'function') {
+      timer.unref()
+    }
   }
 
   // ------------------------------------------------------------------
@@ -343,9 +421,16 @@ export function createQQBotClient(options: QQBotClientOptions): QQBotClient {
       })
     },
 
+    async healthCheck(): Promise<boolean> {
+      if (!ws || ws.readyState !== WebSocketImpl.OPEN) return false
+      if (!sessionId) return false
+      return lastHeartbeatAckAt > 0 && Date.now() - lastHeartbeatAckAt <= heartbeatAckTimeoutMs
+    },
+
     async close(): Promise<void> {
       intentionallyClosed = true
       stopHeartbeat()
+      stopReconnects()
       if (tokenRefreshTimer) {
         clearTimeout(tokenRefreshTimer)
         tokenRefreshTimer = null

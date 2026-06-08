@@ -85,9 +85,13 @@ export interface DiscordServiceOptions {
 
 export interface DiscordService {
   /** Log in and connect to the Discord gateway. */
+  start: () => void
+  /** Log in and connect to the Discord gateway. */
   connect: () => void
   /** Gracefully shut down the bot. */
   stop: () => Promise<void>
+  /** Verify the Discord gateway client is ready. */
+  healthCheck: () => Promise<boolean>
   /** Notify the service that a group's status changed (approved/blocked). */
   onGroupStatusChange: (group: ChannelGroupRecord) => void
   /** Send a text message to a Discord channel by channel ID. */
@@ -317,9 +321,14 @@ export function createDiscordService({
       })
     : null
 
+  let connectionAbortController: AbortController | null = null
+
   return {
-    connect() {
+    start() {
       console.log('[discord] logging in to Discord gateway')
+      connectionAbortController?.abort()
+      const abortController = new AbortController()
+      connectionAbortController = abortController
       client.once(Events.ClientReady, (readyClient) => {
         botUserId = readyClient.user.id
         console.log(`[discord] logged in as ${readyClient.user.tag} (${botUserId})`)
@@ -327,13 +336,26 @@ export function createDiscordService({
       void connectWithRetry(() => client.login(botToken).then(() => {}), {
         label: 'discord',
         baseDelayMs: 3_000,
-        maxDelayMs: 30_000
+        maxDelayMs: 30_000,
+        signal: abortController.signal
+      }).catch((error) => {
+        if (error instanceof Error && error.name === 'AbortError') return
+        console.error('[discord] login retry loop failed:', error)
       })
     },
+    connect() {
+      this.start()
+    },
     async stop() {
+      connectionAbortController?.abort()
+      connectionAbortController = null
       groupDiscussion?.stop()
       directMessages.stop()
       await client.destroy()
+    },
+
+    async healthCheck() {
+      return client.isReady()
     },
 
     onGroupStatusChange(group) {

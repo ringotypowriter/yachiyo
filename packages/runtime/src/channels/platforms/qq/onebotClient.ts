@@ -27,6 +27,27 @@ export interface OneBotClientOptions {
   url: string
   /** Optional auth token (sent as Authorization header). */
   token?: string
+  /** Optional WebSocket implementation for tests. Defaults to global WebSocket. */
+  WebSocketImpl?: WebSocketConstructor
+}
+
+interface WebSocketLike {
+  readyState: number
+  addEventListener(type: string, handler: (event: WebSocketEventLike) => void): void
+  send(data: string): void
+  close(): void
+}
+
+interface WebSocketEventLike {
+  data?: unknown
+  code?: number
+  reason?: string
+  message?: string
+}
+
+interface WebSocketConstructor {
+  new (url: string): WebSocketLike
+  OPEN: number
 }
 
 type PrivateMessageHandler = (msg: OneBotPrivateMessage) => void
@@ -69,6 +90,7 @@ export interface OneBotImageInfo {
 export interface OneBotClient {
   connect(): void
   close(): Promise<void>
+  healthCheck(timeoutMs?: number): Promise<boolean>
   /** Register a callback that fires each time the WebSocket connects (including reconnects). */
   onConnect(handler: () => void): void
   onPrivateMessage(handler: PrivateMessageHandler): void
@@ -90,7 +112,8 @@ export interface OneBotClient {
 }
 
 export function createOneBotClient(options: OneBotClientOptions): OneBotClient {
-  let ws: WebSocket | null = null
+  const WebSocketImpl = options.WebSocketImpl ?? WebSocket
+  let ws: WebSocketLike | null = null
   let reconnectDelay = RECONNECT_BASE_MS
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null
   let intentionallyClosed = false
@@ -115,7 +138,7 @@ export function createOneBotClient(options: OneBotClientOptions): OneBotClient {
     }
 
     try {
-      ws = new WebSocket(url)
+      ws = new WebSocketImpl(url)
     } catch (error) {
       console.error('[onebot] failed to create WebSocket:', error)
       scheduleReconnect()
@@ -215,9 +238,13 @@ export function createOneBotClient(options: OneBotClientOptions): OneBotClient {
     }
   }
 
-  function sendAction(action: string, params: Record<string, unknown>): Promise<unknown> {
+  function sendAction(
+    action: string,
+    params: Record<string, unknown>,
+    timeoutMs = ACTION_TIMEOUT_MS
+  ): Promise<unknown> {
     return new Promise((resolve, reject) => {
-      if (!ws || ws.readyState !== WebSocket.OPEN) {
+      if (!ws || ws.readyState !== WebSocketImpl.OPEN) {
         reject(new Error('[onebot] not connected'))
         return
       }
@@ -225,8 +252,8 @@ export function createOneBotClient(options: OneBotClientOptions): OneBotClient {
       const echo = `yachiyo-${++echoCounter}`
       const timer = setTimeout(() => {
         pendingActions.delete(echo)
-        reject(new Error(`[onebot] action "${action}" timed out after ${ACTION_TIMEOUT_MS}ms`))
-      }, ACTION_TIMEOUT_MS)
+        reject(new Error(`[onebot] action "${action}" timed out after ${timeoutMs}ms`))
+      }, timeoutMs)
 
       pendingActions.set(echo, { resolve, reject, timer })
       ws.send(JSON.stringify({ action, params, echo }))
@@ -235,6 +262,24 @@ export function createOneBotClient(options: OneBotClientOptions): OneBotClient {
 
   return {
     connect,
+
+    async healthCheck(timeoutMs = 1_000): Promise<boolean> {
+      if (!ws || ws.readyState !== WebSocketImpl.OPEN) return false
+
+      let timeout: ReturnType<typeof setTimeout> | null = null
+      try {
+        return await Promise.race([
+          sendAction('get_login_info', {}, timeoutMs).then(() => true),
+          new Promise<boolean>((resolve) => {
+            timeout = setTimeout(() => resolve(false), timeoutMs)
+          })
+        ])
+      } catch {
+        return false
+      } finally {
+        if (timeout) clearTimeout(timeout)
+      }
+    },
 
     async close(): Promise<void> {
       intentionallyClosed = true

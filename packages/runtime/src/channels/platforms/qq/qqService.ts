@@ -60,8 +60,10 @@ export interface QQServiceOptions {
 }
 
 export interface QQService {
+  start: () => void
   connect: () => void
   stop: () => Promise<void>
+  healthCheck: () => Promise<boolean>
   /** Notify the service that a group's status changed (approved/blocked). */
   onGroupStatusChange: (group: ChannelGroupRecord) => void
   /** Send a private message to a QQ user by numeric user ID. */
@@ -394,7 +396,7 @@ export function createQQService({
   })
 
   return {
-    connect() {
+    start() {
       console.log(`[qq] connecting to NapCat at ${wsUrl}`)
 
       // Auto-detect the bot's own QQ ID once connected.
@@ -413,10 +415,17 @@ export function createQQService({
 
       client.connect()
     },
+    connect() {
+      this.start()
+    },
     async stop() {
       groupDiscussion?.stop()
       directMessages.stop()
       await client.close()
+    },
+
+    async healthCheck() {
+      return client.healthCheck()
     },
 
     onGroupStatusChange(group) {

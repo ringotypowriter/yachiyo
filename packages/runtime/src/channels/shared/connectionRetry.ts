@@ -1,9 +1,10 @@
 /**
- * Shared connection retry with exponential backoff.
+ * Shared one-shot connection retry with exponential backoff.
  *
- * Used by channel services (Discord, Telegram) to retry the initial connection
- * when the remote server is unavailable. QQ/OneBot has its own built-in
- * reconnect loop in onebotClient.ts, so it doesn't use this.
+ * `connectWithRetry` retries an initial connect call until it succeeds or is
+ * aborted. It does not supervise a long-lived service after that first success;
+ * channel recovery, health checks, and sleep-resume handling live in
+ * channelServiceLifecycle.ts and the Electron gateway integration.
  */
 
 export interface ConnectRetryOptions {

@@ -33,8 +33,10 @@ export interface QQBotServiceOptions {
 }
 
 export interface QQBotService {
+  start: () => void
   connect: () => void
   stop: () => Promise<void>
+  healthCheck: () => Promise<boolean>
   /**
    * Send a DM to a QQBot user by openId.
    * Throws if no inbound msg_id is cached (QQBot only supports passive replies).
@@ -177,14 +179,22 @@ export function createQQBotService({
   })
 
   return {
-    connect() {
+    start() {
       console.log(`[qqbot] connecting (appId=${appId})`)
       client.connect()
+    },
+
+    connect() {
+      this.start()
     },
 
     async stop() {
       directMessages.stop()
       await client.close()
+    },
+
+    async healthCheck() {
+      return client.healthCheck()
     },
 
     sendMessage
