@@ -216,6 +216,11 @@ test('summarizeToolInput keeps bash and jsRepl row summaries compact', () => {
     'sed agentTools.ts'
   )
   assert.equal(summarizeToolInput('bash', { command: 'pnpm run typecheck' }), 'pnpm typecheck')
+  assert.equal(summarizeToolInput('bash', { command: 'pwd && ls' }), 'pwd && ls')
+  assert.equal(
+    summarizeToolInput('bash', { command: 'cat package.json | grep scripts' }),
+    'cat package.json | grep scripts'
+  )
   assert.equal(
     summarizeToolInput('bash', { command: 'curl -L https://example.com/api/status' }),
     'curl example.com'

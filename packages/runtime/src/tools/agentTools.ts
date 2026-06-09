@@ -320,8 +320,9 @@ function lastBashObject(words: string[], startIndex = 1): string | undefined {
     .find((word) => !isBashOption(word) && !isSedAddress(word))
 }
 
-function summarizeBashCommand(command: string): string {
-  const words = parseCommandWords(command)
+const BASH_CONNECTORS = new Set(['&&', '||', '|'])
+
+function summarizeSimpleBashCommand(words: string[]): string {
   const executable = getBasename(words[0] ?? '')
   if (!executable) return ''
 
@@ -353,6 +354,32 @@ function summarizeBashCommand(command: string): string {
   const target = formatBashObject(lastBashObject(words))
   if (target && target !== executable) return `${executable} ${target}`
   return words.length > 1 ? `${executable} …` : executable
+}
+
+function summarizeBashCommand(command: string): string {
+  const words = parseCommandWords(command)
+  if (!words.some((word) => BASH_CONNECTORS.has(word))) {
+    return summarizeSimpleBashCommand(words)
+  }
+
+  const parts: string[] = []
+  let segment: string[] = []
+
+  for (const word of words) {
+    if (BASH_CONNECTORS.has(word)) {
+      const summary = summarizeSimpleBashCommand(segment)
+      if (summary) parts.push(summary)
+      parts.push(word)
+      segment = []
+    } else {
+      segment.push(word)
+    }
+  }
+
+  const finalSummary = summarizeSimpleBashCommand(segment)
+  if (finalSummary) parts.push(finalSummary)
+
+  return takeTail(parts.join(' '), 160).text
 }
 
 export function summarizeToolInput(toolName: ToolCallName | string, input: unknown): string {
