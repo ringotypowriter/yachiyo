@@ -789,6 +789,7 @@ export interface GeneralConfig {
   chatFontSize?: number
   updateChannel?: UpdateChannel
   demoMode?: boolean
+  preventSystemSleep?: boolean
   notifyRunCompleted?: boolean
   notifyCodingTaskStarted?: boolean
   notifyCodingTaskFinished?: boolean

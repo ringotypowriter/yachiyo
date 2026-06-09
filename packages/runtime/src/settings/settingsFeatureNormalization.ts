@@ -49,6 +49,7 @@ export function normalizeGeneralConfig(value: unknown): GeneralConfig {
       DEFAULT_SETTINGS_CONFIG.general?.themeAppearance
     ),
     demoMode: normalizeOptionalBool(input['demoMode'], false),
+    preventSystemSleep: normalizeOptionalBool(input['preventSystemSleep'], false),
     notifyRunCompleted: normalizeOptionalBool(input['notifyRunCompleted'], true),
     notifyCodingTaskStarted: normalizeOptionalBool(input['notifyCodingTaskStarted'], true),
     notifyCodingTaskFinished: normalizeOptionalBool(input['notifyCodingTaskFinished'], true),

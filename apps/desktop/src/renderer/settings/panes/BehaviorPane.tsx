@@ -383,6 +383,8 @@ export function BehaviorPane({
   }
 
   const updateChannel: UpdateChannel = draft.general?.updateChannel ?? 'stable'
+  const isMac = window.api.process.platform === 'darwin'
+  const preventSystemSleep = draft.general?.preventSystemSleep === true
   const notifyRunCompleted = draft.general?.notifyRunCompleted !== false
   const notifyCodingTaskStarted = draft.general?.notifyCodingTaskStarted !== false
   const notifyCodingTaskFinished = draft.general?.notifyCodingTaskFinished !== false
@@ -426,6 +428,32 @@ export function BehaviorPane({
 
       <SettingSection>
         <SettingLabel>Startup</SettingLabel>
+
+        {isMac ? (
+          <SettingRow>
+            <div className="min-w-0 space-y-0.5">
+              <div className="text-sm font-medium" style={{ color: theme.text.primary }}>
+                Keep Mac awake
+              </div>
+              <div className="text-sm leading-5" style={{ color: theme.text.tertiary }}>
+                Keeps the device awake with caffinate while Yachiyo is open.
+              </div>
+            </div>
+
+            <div className="shrink-0">
+              <SettingSwitch
+                checked={preventSystemSleep}
+                onChange={() =>
+                  onChange({
+                    ...draft,
+                    general: { ...draft.general, preventSystemSleep: !preventSystemSleep }
+                  })
+                }
+                ariaLabel="Toggle keep Mac awake"
+              />
+            </div>
+          </SettingRow>
+        ) : null}
 
         <SettingRow>
           <div className="min-w-0 space-y-0.5">

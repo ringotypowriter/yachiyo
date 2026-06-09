@@ -509,6 +509,7 @@ test('normalization preserves every GeneralConfig key', () => {
     chatFontSize: 18,
     updateChannel: 'beta',
     demoMode: true,
+    preventSystemSleep: true,
     notifyRunCompleted: false,
     notifyCodingTaskStarted: false,
     notifyCodingTaskFinished: false,

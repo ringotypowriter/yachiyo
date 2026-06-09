@@ -19,6 +19,7 @@ export const DEFAULT_SETTINGS_CONFIG: SettingsConfig = {
     themeId: DEFAULT_THEME_ID,
     themeAppearance: DEFAULT_THEME_APPEARANCE,
     demoMode: false,
+    preventSystemSleep: false,
     notifyRunCompleted: true,
     notifyCodingTaskStarted: true,
     notifyCodingTaskFinished: true,

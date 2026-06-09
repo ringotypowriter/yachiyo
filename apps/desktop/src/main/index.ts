@@ -21,6 +21,7 @@ import { setupCoreSkills } from './skills/coreSkillsSetup'
 import { setupAutoUpdate, isInstallingUpdate } from './electron/autoUpdate'
 import { installActiveRunCloseGuard } from './electron/activeRunCloseGuard'
 import { installApplicationMenu } from './electron/applicationMenu'
+import { createKeepAwakeController } from './electron/keepAwake'
 import {
   installYachiyoAssetProtocolHandler,
   registerYachiyoAssetScheme
@@ -50,6 +51,7 @@ if (!is.dev) {
 let translatorWindow: BrowserWindow | null = null
 let jotdownWindow: BrowserWindow | null = null
 let mainWindowRef: BrowserWindow | null = null
+const keepAwakeController = createKeepAwakeController()
 
 function applyNativeTheme(config: SettingsConfig): void {
   nativeTheme.themeSource = config.general?.themeAppearance ?? DEFAULT_THEME_APPEARANCE
@@ -353,6 +355,7 @@ app.whenReady().then(async () => {
 
   void server.getConfig().then((initialConfig) => {
     applyNativeTheme(initialConfig)
+    keepAwakeController.setEnabled(initialConfig.general?.preventSystemSleep === true)
     updateFloatWindowShortcuts(initialConfig)
   })
 
@@ -360,6 +363,7 @@ app.whenReady().then(async () => {
     if (event.type === 'settings.updated') {
       const config = (event as SettingsUpdatedEvent).config
       applyNativeTheme(config)
+      keepAwakeController.setEnabled(config.general?.preventSystemSleep === true)
       updateFloatWindowShortcuts(config)
     }
   })
@@ -425,6 +429,7 @@ app.on('before-quit', () => {
 })
 
 app.on('will-quit', () => {
+  keepAwakeController.stop()
   globalShortcut.unregisterAll()
 })
 

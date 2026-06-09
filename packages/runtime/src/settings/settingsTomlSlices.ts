@@ -50,6 +50,7 @@ export const settingsTomlSlices: readonly TomlConfigSlice<SettingsConfig, TomlDo
           themeId: config.general?.themeId ?? DEFAULT_THEME_ID,
           themeAppearance: config.general?.themeAppearance ?? DEFAULT_THEME_APPEARANCE,
           demoMode: config.general?.demoMode === true,
+          preventSystemSleep: config.general?.preventSystemSleep === true,
           notifyRunCompleted: config.general?.notifyRunCompleted !== false,
           notifyCodingTaskStarted: config.general?.notifyCodingTaskStarted !== false,
           notifyCodingTaskFinished: config.general?.notifyCodingTaskFinished !== false,

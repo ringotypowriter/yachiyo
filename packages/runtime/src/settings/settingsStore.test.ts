@@ -184,6 +184,21 @@ test('normalizeSettingsConfig preserves demoMode in general settings', () => {
   )
 })
 
+test('settings store preserves preventSystemSleep in general settings', () => {
+  const config = normalizeSettingsConfig({
+    providers: [],
+    general: { preventSystemSleep: true }
+  })
+
+  assert.equal(config.general?.preventSystemSleep, true)
+
+  const toml = stringifySettingsToml(config)
+  assert.match(toml, /preventSystemSleep = true/)
+
+  const reloaded = parseSettingsToml(toml)
+  assert.equal(reloaded.general?.preventSystemSleep, true)
+})
+
 test('settings store returns the default config when the file is missing', async () => {
   const root = await mkdtemp(join(tmpdir(), 'yachiyo-settings-default-'))
   const settingsPath = join(root, 'config.toml')
@@ -931,6 +946,7 @@ test('normalizeSettingsConfig falls back to the default sidebar visibility', () 
   assert.deepEqual(normalizeSettingsConfig({ providers: [] }).general, {
     sidebarVisibility: DEFAULT_SIDEBAR_VISIBILITY,
     demoMode: false,
+    preventSystemSleep: false,
     notifyRunCompleted: true,
     notifyCodingTaskStarted: true,
     sidebarPreview: true,
@@ -955,6 +971,7 @@ test('normalizeSettingsConfig falls back to the default sidebar visibility', () 
       sidebarPreview: true,
       workSummary: true,
       demoMode: false,
+      preventSystemSleep: false,
       notifyRunCompleted: true,
       notifyCodingTaskStarted: true,
       notifyCodingTaskFinished: true,
@@ -973,6 +990,7 @@ test('normalizeSettingsConfig normalizes theme preferences', () => {
     sidebarPreview: true,
     workSummary: true,
     demoMode: false,
+    preventSystemSleep: false,
     notifyRunCompleted: true,
     notifyCodingTaskStarted: true,
     notifyCodingTaskFinished: true,
