@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { useAppDialog } from '@renderer/components/AppDialogContext'
 import { useAppStore } from '@renderer/app/store/useAppStore'
 import type { ThingRecord } from '@renderer/app/types'
 import { alpha, theme } from '@renderer/theme/theme'
 import { ThingColumn, ThingDetailOverlay } from './ThingCard'
+import { canScrollInWheelDirection, resolveThingsBoardWheelDelta } from '../lib/thingsBoardWheel'
 
 const THINGS_DAILY_REVIEW_SCHEDULE_ID = 'bundled:things-daily-review'
 
@@ -68,6 +69,7 @@ export function ThingsPage({
   const dialog = useAppDialog()
   const [selectedThingId, setSelectedThingId] = useState<string | null>(null)
   const [isDailyReviewEnabled, setIsDailyReviewEnabled] = useState<boolean | null>(null)
+  const boardScrollerRef = useRef<HTMLDivElement | null>(null)
 
   useEffect(() => {
     void loadThings({ includeInactive: showInactiveThings })
@@ -115,6 +117,27 @@ export function ThingsPage({
   const handleContinue = onContinueThing ?? continueThingInNewChat
   const handleMerge = onMergeThing ?? mergeThingInNewChat
   const handleOpenThread = onOpenThread ?? setActiveThread
+
+  function handleBoardWheel(event: React.WheelEvent<HTMLDivElement>): void {
+    const scroller = boardScrollerRef.current
+    if (!scroller || canNestedVerticalScrollerHandleWheel(scroller, event.target, event.deltaY)) {
+      return
+    }
+
+    const horizontalDelta = resolveThingsBoardWheelDelta({
+      deltaX: event.deltaX,
+      deltaY: event.deltaY,
+      horizontal: {
+        scrollOffset: scroller.scrollLeft,
+        viewportSize: scroller.clientWidth,
+        contentSize: scroller.scrollWidth
+      }
+    })
+    if (horizontalDelta === null) return
+
+    event.preventDefault()
+    scroller.scrollLeft += horizontalDelta
+  }
 
   async function handleRenameThing(thing: ThingRecord): Promise<void> {
     const nextName = await dialog.prompt({
@@ -256,7 +279,11 @@ export function ThingsPage({
         </div>
       ) : (
         <div className={`min-h-0 min-w-0 overflow-hidden ${contentPadding}`}>
-          <div className="h-full min-h-0 min-w-0 overflow-x-auto overflow-y-hidden">
+          <div
+            ref={boardScrollerRef}
+            className="h-full min-h-0 min-w-0 overflow-x-auto overflow-y-hidden"
+            onWheel={handleBoardWheel}
+          >
             <div
               className="grid h-full min-h-0 items-stretch gap-3 pb-4 pr-4 sm:gap-4 sm:pr-6"
               style={{
@@ -304,6 +331,39 @@ function countActiveThings(things: ThingRecord[]): number {
 
 function countSources(things: ThingRecord[]): number {
   return things.reduce((count, thing) => count + thing.sources.length, 0)
+}
+
+function canNestedVerticalScrollerHandleWheel(
+  boardScroller: HTMLDivElement,
+  target: EventTarget,
+  deltaY: number
+): boolean {
+  if (!(target instanceof Element)) return false
+
+  let element: Element | null = target
+  while (element && element !== boardScroller) {
+    if (element instanceof HTMLElement) {
+      const overflowY = window.getComputedStyle(element).overflowY
+      const canScrollVertically =
+        overflowY === 'auto' || overflowY === 'scroll' || overflowY === 'overlay'
+      if (
+        canScrollVertically &&
+        canScrollInWheelDirection(
+          {
+            scrollOffset: element.scrollTop,
+            viewportSize: element.clientHeight,
+            contentSize: element.scrollHeight
+          },
+          deltaY
+        )
+      ) {
+        return true
+      }
+    }
+    element = element.parentElement
+  }
+
+  return false
 }
 
 function normalizeThingSlug(value: string): string {
