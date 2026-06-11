@@ -1,6 +1,10 @@
 import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
-import { detectMediaTypeFromBytes, fetchImageAsDataUrl } from './channelImageDownload.ts'
+import {
+  detectMediaTypeFromBytes,
+  fetchImageAsDataUrl,
+  fileBufferToAttachment
+} from './channelImageDownload.ts'
 
 describe('detectMediaTypeFromBytes', () => {
   it('detects JPEG from magic bytes', () => {
@@ -47,5 +51,25 @@ describe('fetchImageAsDataUrl', () => {
       timeoutMs: 1000
     })
     assert.equal(result, null)
+  })
+})
+
+describe('fileBufferToAttachment', () => {
+  it('accepts composer-supported extensions and resolves media type from filename', () => {
+    assert.deepEqual(
+      fileBufferToAttachment({ buffer: Buffer.from('hello'), filename: 'notes.md' }),
+      {
+        filename: 'notes.md',
+        mediaType: 'text/markdown',
+        dataUrl: 'data:text/markdown;base64,aGVsbG8='
+      }
+    )
+  })
+
+  it('rejects unsupported extensions even when bytes are available', () => {
+    assert.throws(
+      () => fileBufferToAttachment({ buffer: Buffer.from('PK'), filename: 'archive.zip' }),
+      /Unsupported attachment file type/
+    )
   })
 })

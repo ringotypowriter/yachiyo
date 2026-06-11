@@ -24,8 +24,9 @@ import type {
 } from '@yachiyo/shared/protocol'
 import type { YachiyoServer } from '../../../app/host/YachiyoServer.ts'
 import { discordPolicy, type ChannelPolicy } from '../../shared/channelPolicy.ts'
-import { fetchImageAsDataUrl } from '../../shared/channelImageDownload.ts'
+import { fetchFileAsDataUrl, fetchImageAsDataUrl } from '../../shared/channelImageDownload.ts'
 import { createChannelDirectMessageRuntime } from '../../direct/channelDirectMessageRuntime.ts'
+import type { DirectMessageInboundAttachment } from '../../direct/directMessageService.ts'
 import {
   createChannelGroupDiscussionService,
   type ChannelGroupDiscussionService
@@ -210,13 +211,50 @@ export function createDiscordService({
   }
 
   /**
-   * Download image attachments from a Discord message.
+   * Download attachments from a Discord message. Image attachments stay visible to vision;
+   * other files are saved to the thread workspace and exposed by path.
    * Returns an array of eager download promises.
    */
+  function startAttachmentDownloads(
+    msg: Message,
+    { includeFiles }: { includeFiles: boolean }
+  ): Promise<DirectMessageInboundAttachment | null>[] {
+    const attachments = [...msg.attachments.values()]
+    const imageDownloads = attachments
+      .map((attachment, index) => ({ attachment, attachmentIndex: index + 1 }))
+      .filter(({ attachment }) => isImageAttachment(attachment))
+      .slice(0, policy.maxImagesPerBatch)
+      .map(({ attachment, attachmentIndex }) =>
+        fetchImageAsDataUrl(attachment.url, {
+          maxBytes: policy.maxImageBytes,
+          attachmentIndex,
+          filename: attachment.name ?? `discord-attachment-${attachmentIndex}`
+        }).then((image) => (image ? { kind: 'image' as const, image } : null))
+      )
+
+    const fileDownloads = includeFiles
+      ? attachments
+          .map((attachment, index) => ({ attachment, attachmentIndex: index + 1 }))
+          .filter(({ attachment }) => !isImageAttachment(attachment))
+          .slice(0, policy.maxImagesPerBatch)
+          .map(({ attachment, attachmentIndex }) =>
+            fetchFileAsDataUrl(attachment.url, {
+              filename: attachment.name ?? `discord-attachment-${attachmentIndex}`,
+              mediaType: attachment.contentType ?? undefined,
+              attachmentIndex
+            }).then((fileAttachment) =>
+              fileAttachment ? { kind: 'file' as const, attachment: fileAttachment } : null
+            )
+          )
+      : []
+
+    return [...imageDownloads, ...fileDownloads]
+  }
+
   function startImageDownloads(msg: Message): Promise<MessageImageRecord | null>[] {
-    const imageAttachments = [...msg.attachments.values()].filter(isImageAttachment)
-    const capped = imageAttachments.slice(0, policy.maxImagesPerBatch)
-    return capped.map((a) => fetchImageAsDataUrl(a.url, { maxBytes: policy.maxImageBytes }))
+    return startAttachmentDownloads(msg, { includeFiles: false }).map((download) =>
+      download.then((attachment) => (attachment?.kind === 'image' ? attachment.image : null))
+    )
   }
 
   // Wire up the Discord message handler.
@@ -237,10 +275,8 @@ export function createDiscordService({
     const externalUserId = msg.author.id
     const username = msg.author.username
 
-    const imageDownloads = startImageDownloads(msg)
-
     console.log(
-      `[discord] inbound DM from ${username} (${externalUserId}): ${JSON.stringify(incomingText)} (${imageDownloads.length} image(s))`
+      `[discord] inbound DM from ${username} (${externalUserId}): ${JSON.stringify(incomingText)}`
     )
 
     const result = routeDiscordMessage({ externalUserId, username, text: incomingText }, storage)
@@ -263,8 +299,17 @@ export function createDiscordService({
         void sendMessage(channelId, result.reply)
         return
 
-      case 'allowed':
-        directMessages.enqueueMessage(channelId, result.channelUser, incomingText, imageDownloads)
+      case 'allowed': {
+        const attachmentDownloads = startAttachmentDownloads(msg, {
+          includeFiles: result.channelUser.role === 'owner'
+        })
+        directMessages.enqueueMessage(
+          channelId,
+          result.channelUser,
+          incomingText,
+          attachmentDownloads
+        )
+      }
     }
   }
 

@@ -585,6 +585,93 @@ test('prepareServerRunContext injects workspace change reminder from previous ru
   }
 })
 
+test('prepareServerRunContext injects inbound attachment paths with stable attachment numbers', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'yachiyo-attachment-reminder-'))
+  const thread: ThreadRecord = {
+    id: 'thread-attachment-reminder',
+    title: 'Thread',
+    workspacePath: root,
+    updatedAt: '2026-04-28T00:00:00.000Z'
+  }
+  const imagePath = join(root, '.yachiyo', 'attachments', 'msg-attach', 'photo.png')
+  const filePath = join(root, '.yachiyo', 'attachments', 'msg-attach', 'report.pdf')
+  const requestMessage: MessageRecord = {
+    id: 'msg-attach',
+    threadId: thread.id,
+    role: 'user',
+    content: '看附件1和附件2',
+    images: [
+      {
+        dataUrl: 'data:image/png;base64,abc',
+        mediaType: 'image/png',
+        filename: 'photo.png',
+        workspacePath: imagePath,
+        attachmentIndex: 2
+      }
+    ],
+    attachments: [
+      {
+        filename: 'report.pdf',
+        mediaType: 'application/pdf',
+        workspacePath: filePath,
+        attachmentIndex: 1
+      }
+    ],
+    status: 'completed',
+    createdAt: '2026-04-28T00:00:00.000Z'
+  }
+  const events: unknown[] = []
+
+  try {
+    const context = await prepareServerRunContext(
+      createRunContextDeps({ events, messages: [requestMessage], workspacePath: root }),
+      {
+        runId: 'run-attachment-reminder',
+        thread,
+        requestMessageId: requestMessage.id,
+        enabledTools: ['read'],
+        runMode: 'auto',
+        runTrigger: 'local',
+        abortController: new AbortController(),
+        requestMessage,
+        historyMessages: [requestMessage],
+        persistTurnContext: false,
+        includeMemoryRecall: false,
+        applyStripCompact: false
+      }
+    )
+
+    const userContent = context.messages
+      .filter((message) => message.role === 'user')
+      .flatMap((message) =>
+        typeof message.content === 'string'
+          ? [message.content]
+          : Array.isArray(message.content)
+            ? message.content.flatMap((part) =>
+                part.type === 'text' && typeof part.text === 'string' ? [part.text] : []
+              )
+            : []
+      )
+      .join('\n')
+
+    assert.match(userContent, /Incoming attachments for this turn/)
+    assert.equal(
+      userContent.includes(
+        `Attachment 1: file; filename=report.pdf; mediaType=application/pdf; path=${filePath}.`
+      ),
+      true
+    )
+    assert.equal(
+      userContent.includes(
+        `Attachment 2: image; filename=photo.png; mediaType=image/png; path=${imagePath}.`
+      ),
+      true
+    )
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
 test('prepareServerRunContext persists consumed activity for replay', async () => {
   const root = await mkdtemp(join(tmpdir(), 'yachiyo-run-context-'))
   const thread: ThreadRecord = {

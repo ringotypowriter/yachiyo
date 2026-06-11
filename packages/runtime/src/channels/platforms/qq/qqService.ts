@@ -28,6 +28,7 @@ import {
   ensureVisionSafe,
   fetchImageAsDataUrl
 } from '../../shared/channelImageDownload.ts'
+import type { DirectMessageInboundAttachment } from '../../direct/directMessageService.ts'
 import {
   createChannelGroupDiscussionService,
   type ChannelGroupDiscussionService
@@ -165,7 +166,10 @@ export function createQQService({
    * NapCat returns a local file path where the image is cached. We try to
    * read the file directly; if that fails we fall back to fetching the URL.
    */
-  async function resolveQQImage(ref: CQImageRef): Promise<MessageImageRecord | null> {
+  async function resolveQQImage(
+    ref: CQImageRef,
+    attachmentIndex?: number
+  ): Promise<MessageImageRecord | null> {
     try {
       const info = await client.getImage(ref.file)
       console.log(`[qq] get_image resolved: file=${info.file}, size=${info.size}`)
@@ -199,7 +203,8 @@ export function createQQService({
           return {
             dataUrl: `data:${safe.mediaType};base64,${safe.buffer.toString('base64')}`,
             mediaType: safe.mediaType,
-            filename
+            filename,
+            ...(attachmentIndex !== undefined ? { attachmentIndex } : {})
           }
         } catch {
           // Local file not readable — fall through to URL download.
@@ -208,7 +213,7 @@ export function createQQService({
 
       // Fall back to URL from get_image response.
       if (info.url) {
-        return fetchImageAsDataUrl(info.url, { maxBytes: policy.maxImageBytes })
+        return fetchImageAsDataUrl(info.url, { maxBytes: policy.maxImageBytes, attachmentIndex })
       }
 
       return null
@@ -229,14 +234,7 @@ export function createQQService({
     const userId = String(msg.userId)
     const nickname = msg.nickname
 
-    // Start image resolution eagerly — overlaps with debounce window.
-    const imageDownloads = imageRefs
-      .slice(0, policy.maxImagesPerBatch)
-      .map((ref) => resolveQQImage(ref))
-
-    console.log(
-      `[qq] inbound DM from ${nickname} (${userId}): ${JSON.stringify(text)} (${imageDownloads.length} image(s))`
-    )
+    console.log(`[qq] inbound DM from ${nickname} (${userId}): ${JSON.stringify(text)}`)
 
     const result = routeQQMessage({ userId, nickname, text }, storage)
     console.log(
@@ -259,8 +257,16 @@ export function createQQService({
           .catch((e) => console.error('[qq] failed to send limit reply', e))
         return
 
-      case 'allowed':
-        directMessages.enqueueMessage(msg.userId, result.channelUser, text, imageDownloads)
+      case 'allowed': {
+        const attachmentDownloads: Promise<DirectMessageInboundAttachment | null>[] = imageRefs
+          .slice(0, policy.maxImagesPerBatch)
+          .map((ref, index) =>
+            resolveQQImage(ref, index + 1).then((image) =>
+              image ? { kind: 'image' as const, image } : null
+            )
+          )
+        directMessages.enqueueMessage(msg.userId, result.channelUser, text, attachmentDownloads)
+      }
     }
   })
 

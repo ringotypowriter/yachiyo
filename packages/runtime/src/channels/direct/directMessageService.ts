@@ -7,6 +7,7 @@ import type {
   ChannelUserRecord,
   ChatAccepted,
   MessageImageRecord,
+  SendChatAttachment,
   SendChatInput,
   ThreadModelOverride,
   ThreadRecord,
@@ -209,7 +210,7 @@ export interface DirectMessageService<TTarget> {
     target: TTarget,
     channelUser: ChannelUserRecord,
     text: string,
-    imageDownloads?: Promise<MessageImageRecord | null>[]
+    attachmentDownloads?: Promise<DirectMessageInboundAttachment | null>[]
   ): void
   stop(): void
   /** Abort any in-flight message handling for the given channel user. */
@@ -218,19 +219,64 @@ export interface DirectMessageService<TTarget> {
 
 interface PendingBatch<TTarget> {
   messages: string[]
-  imageDownloads: Promise<MessageImageRecord | null>[]
+  attachmentDownloads: Promise<DirectMessageInboundAttachment | null>[]
   timer: ReturnType<typeof setTimeout>
   target: TTarget
   channelUser: ChannelUserRecord
   stopBatchIndicator: () => void
 }
 
-function collectResolvedImages(
-  imageDownloads: Promise<MessageImageRecord | null>[]
-): Promise<MessageImageRecord[]> {
-  return Promise.all(imageDownloads).then((results) =>
-    results.filter((img): img is MessageImageRecord => img !== null)
-  )
+export type DirectMessageInboundAttachment =
+  | { kind: 'image'; image: MessageImageRecord }
+  | { kind: 'file'; attachment: SendChatAttachment }
+
+function offsetInboundAttachmentIndex(
+  download: Promise<DirectMessageInboundAttachment | null>,
+  offset: number
+): Promise<DirectMessageInboundAttachment | null> {
+  if (offset === 0) return download
+  return download.then((attachment) => {
+    if (!attachment) return null
+    if (attachment.kind === 'image') {
+      return {
+        kind: 'image',
+        image: {
+          ...attachment.image,
+          attachmentIndex:
+            (attachment.image.attachmentIndex ?? 0) > 0
+              ? attachment.image.attachmentIndex! + offset
+              : undefined
+        }
+      }
+    }
+    return {
+      kind: 'file',
+      attachment: {
+        ...attachment.attachment,
+        attachmentIndex:
+          (attachment.attachment.attachmentIndex ?? 0) > 0
+            ? attachment.attachment.attachmentIndex! + offset
+            : undefined
+      }
+    }
+  })
+}
+
+function offsetInboundAttachmentDownloads(
+  downloads: Promise<DirectMessageInboundAttachment | null>[],
+  offset: number
+): Promise<DirectMessageInboundAttachment | null>[] {
+  return downloads.map((download) => offsetInboundAttachmentIndex(download, offset))
+}
+
+async function collectResolvedAttachments(
+  attachmentDownloads: Promise<DirectMessageInboundAttachment | null>[]
+): Promise<{ images: MessageImageRecord[]; attachments: SendChatAttachment[] }> {
+  const results = await Promise.all(attachmentDownloads)
+  return {
+    images: results.flatMap((result) => (result?.kind === 'image' ? [result.image] : [])),
+    attachments: results.flatMap((result) => (result?.kind === 'file' ? [result.attachment] : []))
+  }
 }
 
 /**
@@ -627,7 +673,8 @@ export function createDirectMessageService<TTarget>(
     target: TTarget,
     channelUser: ChannelUserRecord,
     text: string,
-    images: MessageImageRecord[]
+    images: MessageImageRecord[],
+    attachments: SendChatAttachment[]
   ): Promise<void> {
     const stopHandlingIndicator = options.startHandlingIndicator?.(target) ?? (() => {})
     const stopController = new AbortController()
@@ -636,7 +683,7 @@ export function createDirectMessageService<TTarget>(
 
     try {
       console.log(
-        `[${options.logLabel}] handling allowed message for user ${channelUser.username} (${images.length} image(s))`
+        `[${options.logLabel}] handling allowed message for user ${channelUser.username} (${images.length} image(s), ${attachments.length} file attachment(s))`
       )
 
       const { thread, usageBaselineKTokens } = await options.resolveThread(channelUser)
@@ -734,6 +781,7 @@ export function createDirectMessageService<TTarget>(
         threadId: thread.id,
         content: text,
         images: images.length > 0 ? images : undefined,
+        attachments: attachments.length > 0 ? attachments : undefined,
         toolPreset: options.policy.allowedTools,
         runTrigger: 'channel',
         channelHint: userLabelHint + options.policy.replyInstruction,
@@ -828,17 +876,17 @@ export function createDirectMessageService<TTarget>(
     pendingBatches.delete(userId)
 
     const joinedText = batch.messages.join('\n')
-    const images = await collectResolvedImages(batch.imageDownloads)
+    const { images, attachments } = await collectResolvedAttachments(batch.attachmentDownloads)
 
     console.log(
-      `[${options.logLabel}] flushing batch for ${batch.channelUser.username}: ${batch.messages.length} message(s), ${images.length} image(s)`
+      `[${options.logLabel}] flushing batch for ${batch.channelUser.username}: ${batch.messages.length} message(s), ${images.length} image(s), ${attachments.length} file attachment(s)`
     )
 
     batch.stopBatchIndicator()
 
     const prev = userRunChain.get(batch.channelUser.id) ?? Promise.resolve()
     const next = prev.then(() =>
-      handleAllowedMessage(batch.target, batch.channelUser, joinedText, images)
+      handleAllowedMessage(batch.target, batch.channelUser, joinedText, images, attachments)
     )
     userRunChain.set(
       batch.channelUser.id,
@@ -850,20 +898,23 @@ export function createDirectMessageService<TTarget>(
     target: TTarget,
     channelUser: ChannelUserRecord,
     text: string,
-    imageDownloads: Promise<MessageImageRecord | null>[]
+    attachmentDownloads: Promise<DirectMessageInboundAttachment | null>[]
   ): void {
     const existing = pendingBatches.get(channelUser.id)
 
     if (existing) {
+      const attachmentIndexOffset = existing.attachmentDownloads.length
       existing.messages.push(text)
-      existing.imageDownloads.push(...imageDownloads)
+      existing.attachmentDownloads.push(
+        ...offsetInboundAttachmentDownloads(attachmentDownloads, attachmentIndexOffset)
+      )
       clearTimeout(existing.timer)
       const delay = replyDelayMs()
       existing.timer = setTimeout(() => {
         void flushBatch(channelUser.id)
       }, delay)
       console.log(
-        `[${options.logLabel}] appended to batch for ${channelUser.username} (${existing.messages.length} msgs, ${existing.imageDownloads.length} img(s), next flush in ${Math.round(delay)}ms)`
+        `[${options.logLabel}] appended to batch for ${channelUser.username} (${existing.messages.length} msgs, ${existing.attachmentDownloads.length} attachment(s), next flush in ${Math.round(delay)}ms)`
       )
       return
     }
@@ -876,7 +927,7 @@ export function createDirectMessageService<TTarget>(
 
     pendingBatches.set(channelUser.id, {
       messages: [text],
-      imageDownloads: [...imageDownloads],
+      attachmentDownloads: offsetInboundAttachmentDownloads(attachmentDownloads, 0),
       timer,
       target,
       channelUser,
@@ -917,10 +968,10 @@ export function createDirectMessageService<TTarget>(
     command: string,
     args: string,
     text: string,
-    imageDownloads: Promise<MessageImageRecord | null>[]
+    attachmentDownloads: Promise<DirectMessageInboundAttachment | null>[]
   ): void {
     if (!options.handleSlashCommand) {
-      enqueueToBatch(target, channelUser, text, imageDownloads)
+      enqueueToBatch(target, channelUser, text, attachmentDownloads)
       return
     }
 
@@ -930,7 +981,7 @@ export function createDirectMessageService<TTarget>(
       .handleSlashCommand(target, channelUser, command, args, { batchDiscarded })
       .then((handled) => {
         if (!handled) {
-          enqueueToBatch(target, channelUser, text, imageDownloads)
+          enqueueToBatch(target, channelUser, text, attachmentDownloads)
         }
       })
       .catch((err) => {
@@ -944,12 +995,12 @@ export function createDirectMessageService<TTarget>(
       target: TTarget,
       channelUser: ChannelUserRecord,
       text: string,
-      imageDownloads: Promise<MessageImageRecord | null>[] = []
+      attachmentDownloads: Promise<DirectMessageInboundAttachment | null>[] = []
     ): void {
       const trimmed = text.trim()
       if (
         options.handleSlashCommand &&
-        imageDownloads.length === 0 &&
+        attachmentDownloads.length === 0 &&
         !trimmed.includes('\n') &&
         trimmed.startsWith('/')
       ) {
@@ -957,12 +1008,12 @@ export function createDirectMessageService<TTarget>(
         const command = spaceIdx === -1 ? trimmed : trimmed.slice(0, spaceIdx)
         const args = spaceIdx === -1 ? '' : trimmed.slice(spaceIdx + 1).trim()
 
-        handleCommandMessage(target, channelUser, command, args, text, imageDownloads)
+        handleCommandMessage(target, channelUser, command, args, text, attachmentDownloads)
         return
       }
 
       const resolvedPlainCommand =
-        options.handleSlashCommand && imageDownloads.length === 0 && !trimmed.includes('\n')
+        options.handleSlashCommand && attachmentDownloads.length === 0 && !trimmed.includes('\n')
           ? options.resolvePlainTextCommand?.(channelUser, trimmed)
           : null
       if (resolvedPlainCommand) {
@@ -972,12 +1023,12 @@ export function createDirectMessageService<TTarget>(
           resolvedPlainCommand.command,
           resolvedPlainCommand.args,
           text,
-          imageDownloads
+          attachmentDownloads
         )
         return
       }
 
-      enqueueToBatch(target, channelUser, text, imageDownloads)
+      enqueueToBatch(target, channelUser, text, attachmentDownloads)
     },
 
     stop(): void {

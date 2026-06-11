@@ -455,6 +455,114 @@ describe('directMessageService', () => {
     assert.deepEqual(tokenUpdates, [{ id: channelUser.id, usedKTokens: 2 }])
   })
 
+  it('passes ordered inbound images and file attachments into sendChat', async () => {
+    const channelUser = createChannelUser()
+    const thread = createThread('thread-inbound-attachments')
+    const listeners = new Set<(event: YachiyoServerEvent) => void>()
+    let capturedImages: ChatAcceptedWithUserMessage['userMessage']['images']
+    let capturedAttachments:
+      | Array<{
+          filename: string
+          mediaType: string
+          dataUrl: string
+          attachmentIndex?: number
+        }>
+      | undefined
+
+    const server: DirectMessageServer = {
+      subscribe(listener) {
+        listeners.add(listener)
+        return () => listeners.delete(listener)
+      },
+      async sendChat(input): Promise<ChatAcceptedWithUserMessage> {
+        capturedImages = input.images
+        capturedAttachments = input.attachments
+        queueMicrotask(() => {
+          for (const listener of listeners) {
+            listener({
+              type: 'run.completed',
+              eventId: 'evt-inbound-attachments-completed',
+              timestamp: '2026-03-31T00:00:02.000Z',
+              threadId: thread.id,
+              runId: 'run-inbound-attachments'
+            })
+          }
+        })
+        return {
+          kind: 'run-started',
+          thread,
+          runId: 'run-inbound-attachments',
+          userMessage: createUserMessage(thread.id)
+        }
+      },
+      getThreadTotalTokens: () => 0,
+      findActiveChannelThread: () => undefined,
+      async setThreadModelOverride() {
+        throw new Error('should not be called')
+      },
+      cancelRunForThread: () => false,
+      cancelRunForChannelUser: () => false,
+      updateChannelUser: (input) => ({ ...channelUser, usedKTokens: input.usedKTokens ?? 0 }),
+      updateLatestAssistantVisibleReply: () => {},
+      getTtlReaper: () => ({ register: () => {} })
+    }
+
+    const directMessages = createDirectMessageService({
+      logLabel: 'telegram',
+      server,
+      policy: telegramPolicy,
+      replyDelayMs: () => 0,
+      resolveThread: async () => ({ thread, usageBaselineKTokens: 0 }),
+      sendMessage: async () => {},
+      startBatchIndicator: () => undefined,
+      startHandlingIndicator: () => undefined,
+      nonRunReply: 'non-run',
+      errorReply: 'error'
+    })
+
+    directMessages.enqueueMessage(channelUser.id, channelUser, 'please inspect these', [
+      Promise.resolve({
+        kind: 'file',
+        attachment: {
+          filename: 'report.pdf',
+          mediaType: 'application/pdf',
+          dataUrl: 'data:application/pdf;base64,abc',
+          attachmentIndex: 1
+        }
+      })
+    ])
+    directMessages.enqueueMessage(channelUser.id, channelUser, 'and this image', [
+      Promise.resolve({
+        kind: 'image',
+        image: {
+          dataUrl: 'data:image/png;base64,def',
+          mediaType: 'image/png',
+          filename: 'photo.png',
+          attachmentIndex: 1
+        }
+      })
+    ])
+
+    await delay(20)
+
+    assert.deepEqual(capturedAttachments, [
+      {
+        filename: 'report.pdf',
+        mediaType: 'application/pdf',
+        dataUrl: 'data:application/pdf;base64,abc',
+        attachmentIndex: 1
+      }
+    ])
+    assert.deepEqual(capturedImages, [
+      {
+        dataUrl: 'data:image/png;base64,def',
+        mediaType: 'image/png',
+        filename: 'photo.png',
+        attachmentIndex: 2
+      }
+    ])
+  })
+
   it('stores live reply tool messages and final output as the outbound transcript', async () => {
     const channelUser = createChannelUser()
     const thread = createThread('thread-live-reply')

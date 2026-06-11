@@ -309,8 +309,11 @@ describe('directMessageService', () => {
 
     // /new with an image attached — should NOT be treated as a slash command
     const fakeImage = Promise.resolve({
-      dataUrl: 'data:image/png;base64,abc',
-      mediaType: 'image/png' as const
+      kind: 'image' as const,
+      image: {
+        dataUrl: 'data:image/png;base64,abc',
+        mediaType: 'image/png' as const
+      }
     })
     directMessages.enqueueMessage('chat-1', channelUser, '/new', [fakeImage])
 

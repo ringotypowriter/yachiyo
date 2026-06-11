@@ -112,7 +112,10 @@ export async function saveFileAttachmentsToWorkspace(input: {
       return {
         filename: attachment.filename,
         mediaType: attachment.mediaType,
-        workspacePath: filePath
+        workspacePath: filePath,
+        ...(attachment.attachmentIndex !== undefined
+          ? { attachmentIndex: attachment.attachmentIndex }
+          : {})
       }
     })
   )

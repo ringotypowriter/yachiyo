@@ -154,6 +154,35 @@ export function buildCurrentTimeSection(
   }
 }
 
+export interface InboundAttachmentReminderItem {
+  index: number
+  kind: 'image' | 'file'
+  filename: string
+  mediaType: string
+  path: string
+}
+
+export function buildInboundAttachmentReminderSection(
+  attachments: InboundAttachmentReminderItem[]
+): QueryReminderSection | null {
+  if (attachments.length === 0) {
+    return null
+  }
+
+  return {
+    key: 'inbound-attachments',
+    title: 'Incoming attachments for this turn',
+    lines: [
+      'The user sent attachments. Match user references like "attachment 1" or "附件1" to the numbered list below.',
+      ...attachments.map(
+        (attachment) =>
+          `Attachment ${attachment.index}: ${attachment.kind}; filename=${attachment.filename}; mediaType=${attachment.mediaType}; path=${attachment.path}.`
+      ),
+      'Images are also visible to the model when supported, but keep the listed path as the stable reference. Non-image files are available at the listed path for tool-based reading.'
+    ]
+  }
+}
+
 /**
  * Reminder injected when the user sends a mid-run steer message.
  * Self-contained behavioral rules so the model sees them at the steer

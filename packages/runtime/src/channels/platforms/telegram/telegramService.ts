@@ -25,8 +25,9 @@ import type {
 } from '@yachiyo/shared/protocol'
 import type { YachiyoServer } from '../../../app/host/YachiyoServer'
 import { telegramPolicy, type ChannelPolicy } from '../../shared/channelPolicy'
-import { fetchImageAsDataUrl } from '../../shared/channelImageDownload'
+import { fetchFileAsDataUrl, fetchImageAsDataUrl } from '../../shared/channelImageDownload'
 import { createChannelDirectMessageRuntime } from '../../direct/channelDirectMessageRuntime.ts'
+import type { DirectMessageInboundAttachment } from '../../direct/directMessageService.ts'
 import {
   createChannelGroupDiscussionService,
   type ChannelGroupDiscussionService
@@ -163,10 +164,43 @@ export function createTelegramService({
   })
 
   /** Download a single Telegram file by file_id via getFileLink. */
-  function downloadByFileId(fileId: string): Promise<MessageImageRecord | null> {
+  function downloadImageByFileId(input: {
+    fileId: string
+    attachmentIndex: number
+    filename?: string
+  }): Promise<DirectMessageInboundAttachment | null> {
     return bot.telegram
-      .getFileLink(fileId)
-      .then((link) => fetchImageAsDataUrl(link.href, { maxBytes: policy.maxImageBytes }))
+      .getFileLink(input.fileId)
+      .then((link) =>
+        fetchImageAsDataUrl(link.href, {
+          maxBytes: policy.maxImageBytes,
+          attachmentIndex: input.attachmentIndex,
+          filename: input.filename
+        })
+      )
+      .then((image) => (image ? { kind: 'image' as const, image } : null))
+      .catch((err) => {
+        console.warn('[telegram] failed to get file link:', err)
+        return null
+      })
+  }
+
+  function downloadFileByFileId(input: {
+    fileId: string
+    attachmentIndex: number
+    filename: string
+    mediaType?: string
+  }): Promise<DirectMessageInboundAttachment | null> {
+    return bot.telegram
+      .getFileLink(input.fileId)
+      .then((link) =>
+        fetchFileAsDataUrl(link.href, {
+          filename: input.filename,
+          mediaType: input.mediaType,
+          attachmentIndex: input.attachmentIndex
+        })
+      )
+      .then((attachment) => (attachment ? { kind: 'file' as const, attachment } : null))
       .catch((err) => {
         console.warn('[telegram] failed to get file link:', err)
         return null
@@ -179,22 +213,55 @@ export function createTelegramService({
    * Handles compressed photos, image documents, animations (GIF), and
    * webp stickers so that all common visual media reaches the vision pipeline.
    */
-  function startImageDownloads(msg: Message): Promise<MessageImageRecord | null>[] {
-    const fileIds: string[] = []
+  function startAttachmentDownloads(
+    msg: Message,
+    { includeFiles }: { includeFiles: boolean }
+  ): Promise<DirectMessageInboundAttachment | null>[] {
+    const downloads: Promise<DirectMessageInboundAttachment | null>[] = []
+    let attachmentIndex = 1
 
     // Compressed photos — pick the largest size.
     if ('photo' in msg && msg.photo && msg.photo.length > 0) {
-      fileIds.push(msg.photo[msg.photo.length - 1].file_id)
+      downloads.push(
+        downloadImageByFileId({
+          fileId: msg.photo[msg.photo.length - 1].file_id,
+          attachmentIndex: attachmentIndex++
+        })
+      )
     }
 
-    // Image files sent as documents (uncompressed).
-    if ('document' in msg && msg.document?.mime_type?.startsWith('image/')) {
-      fileIds.push(msg.document.file_id)
+    // Files sent as documents; image documents stay visible to vision, all others stay readable by path.
+    if ('document' in msg && msg.document) {
+      const filename = msg.document.file_name ?? `telegram-file-${attachmentIndex}`
+      if (msg.document.mime_type?.startsWith('image/')) {
+        downloads.push(
+          downloadImageByFileId({
+            fileId: msg.document.file_id,
+            attachmentIndex: attachmentIndex++,
+            filename
+          })
+        )
+      } else if (includeFiles) {
+        downloads.push(
+          downloadFileByFileId({
+            fileId: msg.document.file_id,
+            attachmentIndex: attachmentIndex++,
+            filename,
+            mediaType: msg.document.mime_type
+          })
+        )
+      }
     }
 
     // Animations (GIF / MP4 GIF) — converted to PNG first frame by ensureVisionSafe.
     if ('animation' in msg && msg.animation) {
-      fileIds.push(msg.animation.file_id)
+      downloads.push(
+        downloadImageByFileId({
+          fileId: msg.animation.file_id,
+          attachmentIndex: attachmentIndex++,
+          filename: msg.animation.file_name
+        })
+      )
     }
 
     // Static webp stickers only — animated .tgs (Lottie) and video stickers
@@ -205,10 +272,22 @@ export function createTelegramService({
       msg.sticker.is_animated === false &&
       !msg.sticker.is_video
     ) {
-      fileIds.push(msg.sticker.file_id)
+      downloads.push(
+        downloadImageByFileId({
+          fileId: msg.sticker.file_id,
+          attachmentIndex: attachmentIndex++,
+          filename: msg.sticker.file_unique_id ? `${msg.sticker.file_unique_id}.webp` : undefined
+        })
+      )
     }
 
-    return fileIds.slice(0, policy.maxImagesPerBatch).map((id) => downloadByFileId(id))
+    return downloads.slice(0, policy.maxImagesPerBatch)
+  }
+
+  function startImageDownloads(msg: Message): Promise<MessageImageRecord | null>[] {
+    return startAttachmentDownloads(msg, { includeFiles: false }).map((download) =>
+      download.then((attachment) => (attachment?.kind === 'image' ? attachment.image : null))
+    )
   }
 
   /** Check if a message is a private (DM) chat. */
@@ -239,11 +318,8 @@ export function createTelegramService({
     const externalUserId = String(msg.from?.id ?? '')
     const username = msg.from?.username ?? msg.from?.first_name ?? externalUserId
 
-    // Start image downloads eagerly — they overlap with debounce.
-    const imageDownloads = startImageDownloads(msg)
-
     console.log(
-      `[telegram] inbound DM from ${username} (${externalUserId}): ${JSON.stringify(incomingText)} (${imageDownloads.length} image(s))`
+      `[telegram] inbound DM from ${username} (${externalUserId}): ${JSON.stringify(incomingText)}`
     )
 
     const result = routeTelegramMessage({ externalUserId, username, text: incomingText }, storage)
@@ -266,8 +342,12 @@ export function createTelegramService({
         void sendMessage(chatId, result.reply)
         return
 
-      case 'allowed':
-        directMessages.enqueueMessage(chatId, result.channelUser, incomingText, imageDownloads)
+      case 'allowed': {
+        const attachmentDownloads = startAttachmentDownloads(msg, {
+          includeFiles: result.channelUser.role === 'owner'
+        })
+        directMessages.enqueueMessage(chatId, result.channelUser, incomingText, attachmentDownloads)
+      }
     }
   }
 

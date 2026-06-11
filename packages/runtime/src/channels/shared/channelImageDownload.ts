@@ -12,10 +12,16 @@
  */
 
 import sharp from 'sharp'
-import type { MessageImageRecord } from '@yachiyo/shared/protocol'
+import {
+  classifyAttachmentFileSelection,
+  MAX_ATTACHMENT_FILE_BYTES,
+  resolveAcceptedAttachmentMediaType
+} from '@yachiyo/shared/attachmentFileTypes'
+import type { MessageImageRecord, SendChatAttachment } from '@yachiyo/shared/protocol'
 
 export const IMAGE_MAX_BYTES = 5 * 1024 * 1024 // 5 MB
 export const IMAGE_DOWNLOAD_TIMEOUT_MS = 15_000
+export const ATTACHMENT_MAX_BYTES = MAX_ATTACHMENT_FILE_BYTES
 
 /**
  * Formats natively accepted by major vision model APIs.
@@ -96,6 +102,44 @@ function bufferToDataUrl(buffer: Buffer, mediaType: string): string {
   return `data:${mediaType};base64,${buffer.toString('base64')}`
 }
 
+function resolveSupportedAttachmentMediaType(filename: string, size?: number): string | null {
+  const [classification] = classifyAttachmentFileSelection([{ name: filename, size }]).accepted
+  return classification?.mediaType ?? null
+}
+
+export async function imageBufferToRecord(input: {
+  buffer: Buffer
+  filename?: string
+  mediaType?: string
+  attachmentIndex?: number
+}): Promise<MessageImageRecord> {
+  const detectedType = inferMediaTypeWithBytes(input.buffer, input.filename, input.mediaType)
+  const { buffer, mediaType } = await ensureVisionSafe(input.buffer, detectedType)
+  return {
+    dataUrl: bufferToDataUrl(buffer, mediaType),
+    mediaType,
+    ...(input.filename ? { filename: input.filename } : {}),
+    ...(input.attachmentIndex !== undefined ? { attachmentIndex: input.attachmentIndex } : {})
+  }
+}
+
+export function fileBufferToAttachment(input: {
+  buffer: Buffer
+  filename: string
+  attachmentIndex?: number
+}): SendChatAttachment {
+  const mediaType = resolveAcceptedAttachmentMediaType({ name: input.filename })
+  if (!mediaType) {
+    throw new Error(`Unsupported attachment file type: ${input.filename}`)
+  }
+  return {
+    filename: input.filename,
+    mediaType,
+    dataUrl: bufferToDataUrl(input.buffer, mediaType),
+    ...(input.attachmentIndex !== undefined ? { attachmentIndex: input.attachmentIndex } : {})
+  }
+}
+
 /**
  * Ensure the image buffer is in a vision-model-safe format.
  * If the detected media type is unsupported (e.g. GIF, BMP), convert to PNG
@@ -121,7 +165,7 @@ export async function ensureVisionSafe(
  */
 export async function fetchImageAsDataUrl(
   url: string,
-  opts?: { timeoutMs?: number; maxBytes?: number }
+  opts?: { timeoutMs?: number; maxBytes?: number; attachmentIndex?: number; filename?: string }
 ): Promise<MessageImageRecord | null> {
   const timeoutMs = opts?.timeoutMs ?? IMAGE_DOWNLOAD_TIMEOUT_MS
   const maxBytes = opts?.maxBytes ?? IMAGE_MAX_BYTES
@@ -155,17 +199,75 @@ export async function fetchImageAsDataUrl(
     }
 
     const contentType = response.headers.get('content-type') ?? undefined
-    const filename = url.split('/').pop()?.split('?')[0] || undefined
-    const detectedType = inferMediaTypeWithBytes(rawBuffer, filename, contentType)
-    const { buffer, mediaType } = await ensureVisionSafe(rawBuffer, detectedType)
-
-    return {
-      dataUrl: bufferToDataUrl(buffer, mediaType),
-      mediaType,
-      filename
-    }
+    const filename = opts?.filename ?? (url.split('/').pop()?.split('?')[0] || undefined)
+    return await imageBufferToRecord({
+      buffer: rawBuffer,
+      filename,
+      mediaType: contentType,
+      ...(opts?.attachmentIndex !== undefined ? { attachmentIndex: opts.attachmentIndex } : {})
+    })
   } catch (err) {
     console.warn('[channelImage] failed to fetch image:', err)
+    return null
+  }
+}
+
+export async function fetchFileAsDataUrl(
+  url: string,
+  opts: {
+    filename: string
+    mediaType?: string
+    timeoutMs?: number
+    maxBytes?: number
+    attachmentIndex?: number
+  }
+): Promise<SendChatAttachment | null> {
+  const timeoutMs = opts.timeoutMs ?? IMAGE_DOWNLOAD_TIMEOUT_MS
+  const maxBytes = opts.maxBytes ?? ATTACHMENT_MAX_BYTES
+
+  try {
+    const supportedMediaType = resolveSupportedAttachmentMediaType(opts.filename)
+    if (!supportedMediaType) {
+      console.warn(`[channelAttachment] skipping unsupported file type: ${opts.filename}`)
+      return null
+    }
+
+    const response = await fetch(url, { signal: AbortSignal.timeout(timeoutMs) })
+    if (!response.ok) {
+      console.warn(`[channelAttachment] fetch failed: ${response.status} ${response.statusText}`)
+      return null
+    }
+
+    const contentLength = Number(response.headers.get('content-length'))
+    if (contentLength) {
+      const checkedMediaType = resolveSupportedAttachmentMediaType(opts.filename, contentLength)
+      if (!checkedMediaType) {
+        console.warn(`[channelAttachment] skipping unsupported or oversized file: ${opts.filename}`)
+        return null
+      }
+    }
+    if (contentLength && contentLength > maxBytes) {
+      console.warn(
+        `[channelAttachment] skipping oversized file: Content-Length ${contentLength} > ${maxBytes}`
+      )
+      return null
+    }
+
+    const buffer = Buffer.from(await response.arrayBuffer())
+    if (buffer.length > maxBytes) {
+      console.warn(
+        `[channelAttachment] skipping oversized file: ${buffer.length} bytes > ${maxBytes}`
+      )
+      return null
+    }
+
+    return fileBufferToAttachment({
+      buffer,
+      filename: opts.filename,
+      ...(opts.attachmentIndex !== undefined ? { attachmentIndex: opts.attachmentIndex } : {})
+    })
+  } catch (err) {
+    console.warn('[channelAttachment] failed to fetch file:', err)
     return null
   }
 }

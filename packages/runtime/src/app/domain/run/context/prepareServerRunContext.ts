@@ -36,9 +36,11 @@ import {
   buildRunModeChangedReminderSection,
   buildWorkspaceChangedReminderSection,
   buildToolAvailabilityReminderSection,
+  buildInboundAttachmentReminderSection,
   buildSteerReminderSection,
   formatDateLine,
-  formatQueryReminder
+  formatQueryReminder,
+  type InboundAttachmentReminderItem
 } from '../../../../runtime/context/queryReminder.ts'
 import { readChannelsConfig } from '../../../../runtime/config/channelsConfig.ts'
 import { buildPlanModeReminderSection, ensurePlanDocument } from '../plan/planModeContext.ts'
@@ -67,6 +69,33 @@ import type { RunRecoveryCheckpoint } from '../../../../storage/storage.ts'
 
 const MEMORY_RECALL_TIMEOUT_MS = 15_000
 const EXTERNAL_CHANNEL_MAX_TOOL_STEPS = 10
+
+function buildInboundAttachmentReminderItems(
+  message: MessageRecord | undefined
+): InboundAttachmentReminderItem[] {
+  if (!message) return []
+  const items: InboundAttachmentReminderItem[] = []
+  for (const image of message.images ?? []) {
+    if (!image.workspacePath) continue
+    items.push({
+      index: image.attachmentIndex ?? items.length + 1,
+      kind: 'image',
+      filename: image.filename ?? `image_${image.attachmentIndex ?? items.length + 1}`,
+      mediaType: image.mediaType,
+      path: image.workspacePath
+    })
+  }
+  for (const attachment of message.attachments ?? []) {
+    items.push({
+      index: attachment.attachmentIndex ?? items.length + 1,
+      kind: 'file',
+      filename: attachment.filename,
+      mediaType: attachment.mediaType,
+      path: attachment.workspacePath
+    })
+  }
+  return items.sort((left, right) => left.index - right.index)
+}
 
 async function ensureResolvedWorkspacePath(
   thread: ThreadRecord,
@@ -403,6 +432,7 @@ export async function prepareServerRunContext(
         : null,
       buildDisabledToolsReminderSection({ enabledTools: modelEnabledTools, modeIndependentTools }),
       buildCurrentTimeSection(hintTime, { includeDate: !isLocalOrOwnerDm }),
+      buildInboundAttachmentReminderSection(buildInboundAttachmentReminderItems(requestMessage)),
       planModeDocument ? buildPlanModeReminderSection(planModeDocument) : null,
       isVisibleSteerLeg ? buildSteerReminderSection() : null
     ].flatMap((section) => (section ? [section] : []))

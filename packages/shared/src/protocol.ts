@@ -415,6 +415,8 @@ export interface MessageImageRecord {
   mediaType: string
   filename?: string
   workspacePath?: string
+  /** 1-based inbound attachment order, when the image came from an external attachment. */
+  attachmentIndex?: number
   /** Pre-generated alt text description from the image-to-text service. */
   altText?: string
   /** Replay this image as alt text because the original turn used image-to-text. */
@@ -425,6 +427,8 @@ export interface MessageFileAttachment {
   filename: string
   mediaType: string
   workspacePath: string
+  /** 1-based inbound attachment order, when the file came from an external attachment. */
+  attachmentIndex?: number
 }
 
 export interface MessageTextBlockRecord {
@@ -1275,6 +1279,8 @@ export interface SendChatAttachment {
   filename: string
   mediaType: string
   dataUrl: string
+  /** 1-based inbound attachment order, preserved for model-facing attachment reminders. */
+  attachmentIndex?: number
 }
 
 export interface SendChatInput {
