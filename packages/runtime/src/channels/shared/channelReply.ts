@@ -10,6 +10,10 @@
 import { tool, type Tool } from 'ai'
 import { z } from 'zod'
 
+export const CHANNEL_REPLY_IMAGE_AS_IMAGE_MAX_BYTES = 10 * 1024 * 1024
+
+export type ChannelReplyAttachmentDelivery = 'image' | 'file'
+
 export interface ChannelReplyAttachment {
   /** Local file path to send as an external-chat attachment. */
   path: string
@@ -17,6 +21,10 @@ export interface ChannelReplyAttachment {
   filename?: string
   /** Optional media type hint. Platforms may ignore it. */
   mediaType?: string
+  /** Transport hint added after local validation/snapshotting. Not model-controlled. */
+  deliveryKind?: ChannelReplyAttachmentDelivery
+  /** Snapshot size in bytes, added after local validation/snapshotting. */
+  sizeBytes?: number
 }
 
 export interface ChannelReplyPayload {
@@ -27,6 +35,26 @@ export interface ChannelReplyPayload {
 }
 
 export type ChannelReplyToolInput = ChannelReplyPayload
+
+const IMAGE_ATTACHMENT_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'heic', 'heif'])
+
+function isLikelyImageAttachment(input: { filename?: string; mediaType?: string }): boolean {
+  if (input.mediaType?.toLowerCase().startsWith('image/')) {
+    return true
+  }
+  const ext = input.filename?.split('.').pop()?.toLowerCase()
+  return ext ? IMAGE_ATTACHMENT_EXTENSIONS.has(ext) : false
+}
+
+export function classifyChannelReplyAttachmentDelivery(input: {
+  filename?: string
+  mediaType?: string
+  sizeBytes: number
+}): ChannelReplyAttachmentDelivery {
+  return isLikelyImageAttachment(input) && input.sizeBytes <= CHANNEL_REPLY_IMAGE_AS_IMAGE_MAX_BYTES
+    ? 'image'
+    : 'file'
+}
 
 // ---------------------------------------------------------------------------
 // Reply tool factory

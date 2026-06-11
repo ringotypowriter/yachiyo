@@ -15,6 +15,7 @@ import type {
   YachiyoServerEvent
 } from '@yachiyo/shared/protocol'
 import {
+  classifyChannelReplyAttachmentDelivery,
   createChannelReplyTool,
   type ChannelReplyAttachment,
   type ChannelReplyPayload
@@ -492,7 +493,7 @@ function sanitizeSnapshotFilename(filename: string): string {
 async function createAttachmentSnapshot(input: {
   sourcePath: string
   filename: string
-}): Promise<{ path: string; dir: string }> {
+}): Promise<{ path: string; dir: string; sizeBytes: number }> {
   const snapshotBaseDir = join(homedir(), '.yachiyo', 'channel-reply-attachments')
   await mkdir(snapshotBaseDir, { recursive: true, mode: 0o700 })
   const snapshotDir = await mkdtemp(join(snapshotBaseDir, 'reply-'))
@@ -510,7 +511,7 @@ async function createAttachmentSnapshot(input: {
       throw new Error(`Reply attachment is not a readable file: ${input.sourcePath}`)
     }
     await writeFile(snapshotPath, await handle.readFile(), { mode: 0o600 })
-    return { path: snapshotPath, dir: snapshotDir }
+    return { path: snapshotPath, dir: snapshotDir, sizeBytes: fileStat.size }
   } catch (error) {
     await rm(snapshotDir, { recursive: true, force: true })
     throw error
@@ -543,12 +544,19 @@ async function resolveOutboundReplyAttachments(
       }
 
       const filename = attachment.filename?.trim() || basename(realFilePath)
+      const mediaType = attachment.mediaType?.trim()
       const snapshot = await createAttachmentSnapshot({ sourcePath: realFilePath, filename })
       snapshotDirs.push(snapshot.dir)
       resolved.push({
         path: snapshot.path,
         filename,
-        ...(attachment.mediaType?.trim() ? { mediaType: attachment.mediaType.trim() } : {})
+        deliveryKind: classifyChannelReplyAttachmentDelivery({
+          filename,
+          mediaType,
+          sizeBytes: snapshot.sizeBytes
+        }),
+        sizeBytes: snapshot.sizeBytes,
+        ...(mediaType ? { mediaType } : {})
       })
     }
   } catch (error) {
@@ -584,7 +592,7 @@ async function appendOutboundReplyMessage(input: {
 
   console.log(
     `[${input.logLabel}] sending outbound reply${
-      attachments.length > 0 ? ` with ${attachments.length} file attachment(s)` : ''
+      attachments.length > 0 ? ` with ${attachments.length} attachment(s)` : ''
     }: ${(message || attachments.map((a) => a.filename ?? basename(a.path)).join(', ')).slice(0, 100)}`
   )
 

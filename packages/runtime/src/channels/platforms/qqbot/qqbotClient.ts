@@ -64,6 +64,8 @@ export interface QQBotClient {
   onC2CMessage(handler: (msg: QQBotC2CMessage) => void): void
   /** Send a text message to a C2C user. replyMsgId is required (passive reply). */
   sendC2CMessage(openId: string, text: string, replyMsgId: string): Promise<void>
+  /** Send a local image to a C2C user as a passive media reply. */
+  sendC2CImage(openId: string, filePath: string, replyMsgId: string): Promise<void>
   /** Send a local file to a C2C user as a passive media reply. */
   sendC2CFile(openId: string, filePath: string, replyMsgId: string): Promise<void>
   /**
@@ -201,10 +203,14 @@ export function createQQBotClient(options: QQBotClientOptions): QQBotClient {
     return undefined
   }
 
-  async function uploadC2CFile(openId: string, filePath: string): Promise<string> {
+  async function uploadC2CMedia(
+    openId: string,
+    filePath: string,
+    fileType: 1 | 4
+  ): Promise<string> {
     const buffer = await readFile(filePath)
     const result = (await apiRequest('POST', `/v2/users/${openId}/files`, {
-      file_type: 4,
+      file_type: fileType,
       srv_send_msg: false,
       file_data: buffer.toString('base64')
     })) as { file_info?: string }
@@ -471,8 +477,18 @@ export function createQQBotClient(options: QQBotClientOptions): QQBotClient {
       })
     },
 
+    async sendC2CImage(openId: string, filePath: string, replyMsgId: string): Promise<void> {
+      const fileInfo = await uploadC2CMedia(openId, filePath, 1)
+      await apiRequest('POST', `/v2/users/${openId}/messages`, {
+        msg_type: 7,
+        media: { file_info: fileInfo },
+        msg_id: replyMsgId,
+        msg_seq: msgSeqCounter++
+      })
+    },
+
     async sendC2CFile(openId: string, filePath: string, replyMsgId: string): Promise<void> {
-      const fileInfo = await uploadC2CFile(openId, filePath)
+      const fileInfo = await uploadC2CMedia(openId, filePath, 4)
       await apiRequest('POST', `/v2/users/${openId}/messages`, {
         msg_type: 7,
         media: { file_info: fileInfo },

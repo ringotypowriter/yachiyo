@@ -133,6 +133,13 @@ export function createTelegramService({
       await sendMessage(chatId, text)
     }
     for (const attachment of payload.attachments ?? []) {
+      if (attachment.deliveryKind === 'image') {
+        await bot.telegram.sendPhoto(chatId, {
+          source: attachment.path,
+          ...(attachment.filename ? { filename: attachment.filename } : {})
+        })
+        continue
+      }
       await bot.telegram.sendDocument(chatId, {
         source: attachment.path,
         ...(attachment.filename ? { filename: attachment.filename } : {})

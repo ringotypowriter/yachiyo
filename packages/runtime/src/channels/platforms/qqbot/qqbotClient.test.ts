@@ -211,4 +211,49 @@ describe('QQBot C2C file messages', () => {
       msg_seq: 1
     })
   })
+
+  it('uploads a local image with image media type and sends it as a passive media reply', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'yachiyo-qqbot-image-'))
+    const filePath = join(dir, 'chart.png')
+    await writeFile(filePath, 'image bytes')
+
+    const calls: Array<{ url: string; method?: string; body?: unknown }> = []
+    const fetchImpl = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      calls.push({
+        url,
+        method: init?.method,
+        body: init?.body ? JSON.parse(String(init.body)) : undefined
+      })
+      if (url.endsWith('/app/getAppAccessToken')) {
+        return jsonResponse({ access_token: 'token', expires_in: 3600 })
+      }
+      if (url.endsWith('/v2/users/open-1/files')) {
+        return jsonResponse({ file_info: 'image-info-1', ttl: 60 })
+      }
+      return jsonResponse({ id: 'message-1', timestamp: 1711627200 })
+    }) as typeof fetch
+
+    const client = createQQBotClient({
+      appId: 'app',
+      clientSecret: 'secret',
+      WebSocketImpl: createFakeWebSocketFactory().WebSocketImpl,
+      fetchImpl
+    })
+
+    await client.sendC2CImage('open-1', filePath, 'reply-msg-1')
+    await client.close()
+
+    assert.deepEqual(calls[1].body, {
+      file_type: 1,
+      srv_send_msg: false,
+      file_data: Buffer.from('image bytes').toString('base64')
+    })
+    assert.deepEqual(calls[2].body, {
+      msg_type: 7,
+      media: { file_info: 'image-info-1' },
+      msg_id: 'reply-msg-1',
+      msg_seq: 1
+    })
+  })
 })

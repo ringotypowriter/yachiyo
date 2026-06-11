@@ -189,4 +189,28 @@ describe('OneBot file upload actions', () => {
     })
     await upload
   })
+
+  it('serializes an image message segment with a local path', async () => {
+    const { WebSocketImpl, sockets } = createFakeWebSocketFactory()
+    const client = createOneBotClient({ url: 'ws://onebot.test', WebSocketImpl })
+    client.connect()
+
+    const sendImage = client.sendPrivateImage(987654, '/tmp/chart.png')
+    const sent = JSON.parse(sockets[0].sent[0])
+    assert.equal(sent.action, 'send_private_msg')
+    assert.deepEqual(sent.params, {
+      user_id: 987654,
+      message: [{ type: 'image', data: { file: '/tmp/chart.png' } }]
+    })
+
+    sockets[0].emit('message', {
+      data: JSON.stringify({
+        status: 'ok',
+        retcode: 0,
+        data: { message_id: 123 },
+        echo: sent.echo
+      })
+    })
+    assert.deepEqual(await sendImage, { messageId: 123 })
+  })
 })

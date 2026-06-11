@@ -127,6 +127,10 @@ export function createQQService({
       await sendPrivateMessage(userId, text)
     }
     for (const attachment of payload.attachments ?? []) {
+      if (attachment.deliveryKind === 'image') {
+        await client.sendPrivateImage(userId, attachment.path)
+        continue
+      }
       await client.uploadPrivateFile(
         userId,
         attachment.path,

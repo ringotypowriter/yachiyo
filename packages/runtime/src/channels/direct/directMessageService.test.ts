@@ -15,6 +15,7 @@ import type {
   YachiyoServerEvent
 } from '@yachiyo/shared/protocol'
 import { telegramPolicy } from '../shared/channelPolicy.ts'
+import type { ChannelReplyAttachment } from '../shared/channelReply.ts'
 import {
   collectDirectMessageRunOutput,
   createDirectMessageService,
@@ -535,12 +536,12 @@ describe('directMessageService', () => {
     assert.deepEqual(visibleReplies, ['Working on it\nFinal answer'])
   })
 
-  it('allows owner DM reply tool calls to send file attachments under home', async (t) => {
+  it('allows owner DM reply tool calls to send small image attachments under home', async (t) => {
     const attachmentDir = await mkdtemp(join(homedir(), '.yachiyo-dm-attachment-'))
     t.after(async () => {
       await rm(attachmentDir, { recursive: true, force: true })
     })
-    const filePath = join(attachmentDir, 'report.txt')
+    const filePath = join(attachmentDir, 'chart.png')
     await writeFile(filePath, 'report')
     const resolvedFilePath = await realpath(filePath)
 
@@ -550,7 +551,7 @@ describe('directMessageService', () => {
     const sentReplies: Array<{
       target: string
       message?: string
-      attachments: Array<{ path: string; filename?: string; mediaType?: string }>
+      attachments: ChannelReplyAttachment[]
     }> = []
     let copiedAttachmentPath = ''
     let copiedAttachmentContent = ''
@@ -571,7 +572,7 @@ describe('directMessageService', () => {
         }
         await replyTool.execute({
           message: 'Here is the file',
-          attachments: [{ path: filePath, filename: 'final-report.txt', mediaType: 'text/plain' }]
+          attachments: [{ path: filePath, filename: 'final-chart.png', mediaType: 'image/png' }]
         })
         queueMicrotask(() => {
           for (const listener of listeners) {
@@ -641,11 +642,13 @@ describe('directMessageService', () => {
     assert.equal(sentReplies[0].attachments.length, 1)
     assert.notEqual(sentReplies[0].attachments[0].path, resolvedFilePath)
     assert.match(sentReplies[0].attachments[0].path, /\.yachiyo\/channel-reply-attachments\//)
-    assert.equal(sentReplies[0].attachments[0].filename, 'final-report.txt')
-    assert.equal(sentReplies[0].attachments[0].mediaType, 'text/plain')
+    assert.equal(sentReplies[0].attachments[0].filename, 'final-chart.png')
+    assert.equal(sentReplies[0].attachments[0].mediaType, 'image/png')
+    assert.equal(sentReplies[0].attachments[0].deliveryKind, 'image')
+    assert.equal(sentReplies[0].attachments[0].sizeBytes, 'report'.length)
     assert.equal(copiedAttachmentContent, 'report')
     await assert.rejects(readFile(copiedAttachmentPath), { code: 'ENOENT' })
-    assert.deepEqual(visibleReplies, ['Here is the file\n[Attachment: final-report.txt]'])
+    assert.deepEqual(visibleReplies, ['Here is the file\n[Attachment: final-chart.png]'])
   })
 
   it('rejects owner DM reply attachments whose real path leaves home', async (t) => {

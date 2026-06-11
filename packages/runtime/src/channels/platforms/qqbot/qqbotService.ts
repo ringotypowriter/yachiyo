@@ -97,6 +97,10 @@ export function createQQBotService({
       await sendMessageWithTarget(target, text)
     }
     for (const attachment of payload.attachments ?? []) {
+      if (attachment.deliveryKind === 'image') {
+        await client.sendC2CImage(target.openId, attachment.path, target.replyMsgId)
+        continue
+      }
       await client.sendC2CFile(target.openId, attachment.path, target.replyMsgId)
     }
   }
