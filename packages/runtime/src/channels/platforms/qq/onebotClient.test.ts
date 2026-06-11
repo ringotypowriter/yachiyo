@@ -168,3 +168,25 @@ describe('OneBot healthCheck', () => {
     assert.equal(await client.healthCheck(1), false)
   })
 })
+
+describe('OneBot file upload actions', () => {
+  it('serializes an upload_private_file action with a local path and display name', async () => {
+    const { WebSocketImpl, sockets } = createFakeWebSocketFactory()
+    const client = createOneBotClient({ url: 'ws://onebot.test', WebSocketImpl })
+    client.connect()
+
+    const upload = client.uploadPrivateFile(987654, '/tmp/report.txt', 'report.txt')
+    const sent = JSON.parse(sockets[0].sent[0])
+    assert.equal(sent.action, 'upload_private_file')
+    assert.deepEqual(sent.params, {
+      user_id: 987654,
+      file: '/tmp/report.txt',
+      name: 'report.txt'
+    })
+
+    sockets[0].emit('message', {
+      data: JSON.stringify({ status: 'ok', retcode: 0, data: {}, echo: sent.echo })
+    })
+    await upload
+  })
+})

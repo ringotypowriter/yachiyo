@@ -33,6 +33,7 @@ import {
   type ChannelGroupDiscussionService
 } from '../../group/channelGroupDiscussionService.ts'
 import { routeChannelGroupMessage } from '../../group/channelGroupRouting.ts'
+import type { ChannelReplyPayload } from '../../shared/channelReply.ts'
 import { parseCQImages, type CQImageRef } from './qqImageParsing.ts'
 import { resolveCQCodes, extractReplyId } from './qqCQCodes.ts'
 import { createOneBotClient, type OneBotClient } from './onebotClient.ts'
@@ -120,6 +121,20 @@ export function createQQService({
     await client.sendPrivateMessage(userId, text)
   }
 
+  async function sendPrivateReply(userId: number, payload: ChannelReplyPayload): Promise<void> {
+    const text = payload.message?.trim()
+    if (text) {
+      await sendPrivateMessage(userId, text)
+    }
+    for (const attachment of payload.attachments ?? []) {
+      await client.uploadPrivateFile(
+        userId,
+        attachment.path,
+        attachment.filename ?? attachment.path
+      )
+    }
+  }
+
   const directMessages = createChannelDirectMessageRuntime<number>({
     platform: 'qq',
     logLabel: 'qq',
@@ -127,6 +142,7 @@ export function createQQService({
     policy,
     modelOverride,
     sendMessage: sendPrivateMessage,
+    sendReply: sendPrivateReply,
     startBatchIndicator: (qqUserId) => {
       sendTyping(qqUserId)
     },

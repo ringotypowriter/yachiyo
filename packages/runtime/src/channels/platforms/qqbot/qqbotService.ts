@@ -15,6 +15,7 @@
 import type { ThreadModelOverride } from '@yachiyo/shared/protocol'
 import type { YachiyoServer } from '../../../app/host/YachiyoServer.ts'
 import { qqbotPolicy, type ChannelPolicy } from '../../shared/channelPolicy.ts'
+import type { ChannelReplyPayload } from '../../shared/channelReply.ts'
 import { createChannelDirectMessageRuntime } from '../../direct/channelDirectMessageRuntime.ts'
 import { createQQBotClient, type QQBotClient } from './qqbotClient.ts'
 import { routeQQBotMessage, type QQBotChannelStorage } from './qqbot.ts'
@@ -87,6 +88,19 @@ export function createQQBotService({
     await client.sendC2CMessage(target.openId, text, target.replyMsgId)
   }
 
+  async function sendReplyWithTarget(
+    target: QQBotTarget,
+    payload: ChannelReplyPayload
+  ): Promise<void> {
+    const text = payload.message?.trim()
+    if (text) {
+      await sendMessageWithTarget(target, text)
+    }
+    for (const attachment of payload.attachments ?? []) {
+      await client.sendC2CFile(target.openId, attachment.path, target.replyMsgId)
+    }
+  }
+
   /**
    * Public sendMessage for the send-channel path (manual sends from
    * settings UI). Throws when no inbound msg_id is cached — QQBot
@@ -109,6 +123,7 @@ export function createQQBotService({
     policy,
     modelOverride,
     sendMessage: sendMessageWithTarget,
+    sendReply: sendReplyWithTarget,
     startBatchIndicator: (target) => {
       console.log(`[qqbot] sending typing indicator (batch) for ${target.openId.slice(0, 8)}...`)
       void client

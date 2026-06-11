@@ -1,4 +1,7 @@
 import assert from 'node:assert/strict'
+import { mkdtemp, realpath, rm, symlink, writeFile } from 'node:fs/promises'
+import { homedir, tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { describe, it } from 'node:test'
 import { setTimeout as delay } from 'node:timers/promises'
 import type {
@@ -530,6 +533,270 @@ describe('directMessageService', () => {
 
     assert.deepEqual(sentMessages, ['Working on it', 'Final answer'])
     assert.deepEqual(visibleReplies, ['Working on it\nFinal answer'])
+  })
+
+  it('allows owner DM reply tool calls to send file attachments under home', async (t) => {
+    const attachmentDir = await mkdtemp(join(homedir(), '.yachiyo-dm-attachment-'))
+    t.after(async () => {
+      await rm(attachmentDir, { recursive: true, force: true })
+    })
+    const filePath = join(attachmentDir, 'report.txt')
+    await writeFile(filePath, 'report')
+    const resolvedFilePath = await realpath(filePath)
+
+    const channelUser = { ...createChannelUser(), role: 'owner' as const }
+    const thread = createThread('thread-owner-file-reply')
+    const sentMessages: string[] = []
+    const sentReplies: Array<{
+      target: string
+      message?: string
+      attachments: Array<{ path: string; filename?: string; mediaType?: string }>
+    }> = []
+    const visibleReplies: string[] = []
+    const listeners = new Set<(event: YachiyoServerEvent) => void>()
+
+    const server: DirectMessageServer = {
+      subscribe(listener) {
+        listeners.add(listener)
+        return () => listeners.delete(listener)
+      },
+      async sendChat(input): Promise<ChatAcceptedWithUserMessage> {
+        const replyTool = input.extraTools?.reply as {
+          execute(input: {
+            message?: string
+            attachments?: Array<{ path: string; filename?: string; mediaType?: string }>
+          }): Promise<string>
+        }
+        await replyTool.execute({
+          message: 'Here is the file',
+          attachments: [{ path: filePath, filename: 'final-report.txt', mediaType: 'text/plain' }]
+        })
+        queueMicrotask(() => {
+          for (const listener of listeners) {
+            listener({
+              type: 'run.completed',
+              eventId: 'evt-owner-file-completed',
+              timestamp: '2026-03-31T00:00:02.000Z',
+              threadId: thread.id,
+              runId: 'run-owner-file-reply'
+            })
+          }
+        })
+        return {
+          kind: 'run-started',
+          thread,
+          runId: 'run-owner-file-reply',
+          userMessage: createUserMessage(thread.id)
+        }
+      },
+      getThreadTotalTokens: () => 0,
+      findActiveChannelThread: () => undefined,
+      async setThreadModelOverride() {
+        throw new Error('should not be called')
+      },
+      cancelRunForThread: () => false,
+      cancelRunForChannelUser: () => false,
+      updateChannelUser: (input) => ({ ...channelUser, usedKTokens: input.usedKTokens ?? 0 }),
+      updateLatestAssistantVisibleReply(input) {
+        visibleReplies.push(input.visibleReply)
+      },
+      getTtlReaper: () => ({ register: () => {} })
+    }
+
+    const directMessages = createDirectMessageService<string>({
+      logLabel: 'telegram',
+      server,
+      policy: telegramPolicy,
+      replyDelayMs: () => 0,
+      resolveThread: async () => ({ thread, usageBaselineKTokens: 0 }),
+      sendMessage: async (_chatId, text) => {
+        sentMessages.push(text)
+      },
+      sendReply: async (target, payload) => {
+        sentReplies.push({
+          target,
+          message: payload.message,
+          attachments: payload.attachments ?? []
+        })
+      },
+      nonRunReply: 'non-run',
+      errorReply: 'error'
+    })
+
+    directMessages.enqueueMessage('chat-1', channelUser, 'send the report')
+
+    await delay(20)
+
+    assert.deepEqual(sentMessages, [])
+    assert.deepEqual(sentReplies, [
+      {
+        target: 'chat-1',
+        message: 'Here is the file',
+        attachments: [
+          { path: resolvedFilePath, filename: 'final-report.txt', mediaType: 'text/plain' }
+        ]
+      }
+    ])
+    assert.deepEqual(visibleReplies, ['Here is the file\n[Attachment: final-report.txt]'])
+  })
+
+  it('rejects owner DM reply attachments whose real path leaves home', async (t) => {
+    const outsideDir = await mkdtemp(join(tmpdir(), 'yachiyo-dm-outside-attachment-'))
+    const homeDir = await mkdtemp(join(homedir(), '.yachiyo-dm-symlink-attachment-'))
+    t.after(async () => {
+      await rm(outsideDir, { recursive: true, force: true })
+      await rm(homeDir, { recursive: true, force: true })
+    })
+    const outsideFilePath = join(outsideDir, 'secret.txt')
+    const symlinkPath = join(homeDir, 'secret-link.txt')
+    await writeFile(outsideFilePath, 'secret')
+    await symlink(outsideFilePath, symlinkPath)
+
+    const channelUser = { ...createChannelUser(), role: 'owner' as const }
+    const thread = createThread('thread-owner-file-reply-outside-home')
+    const sentMessages: string[] = []
+    const sentReplies: unknown[] = []
+    const listeners = new Set<(event: YachiyoServerEvent) => void>()
+
+    const server: DirectMessageServer = {
+      subscribe(listener) {
+        listeners.add(listener)
+        return () => listeners.delete(listener)
+      },
+      async sendChat(input): Promise<ChatAcceptedWithUserMessage> {
+        const replyTool = input.extraTools?.reply as {
+          execute(input: {
+            message?: string
+            attachments?: Array<{ path: string; filename?: string; mediaType?: string }>
+          }): Promise<string>
+        }
+        await replyTool.execute({
+          message: 'Here is the file',
+          attachments: [{ path: symlinkPath, filename: 'secret.txt', mediaType: 'text/plain' }]
+        })
+        return {
+          kind: 'run-started',
+          thread,
+          runId: 'run-owner-file-reply-outside-home',
+          userMessage: createUserMessage(thread.id)
+        }
+      },
+      getThreadTotalTokens: () => 0,
+      findActiveChannelThread: () => undefined,
+      async setThreadModelOverride() {
+        throw new Error('should not be called')
+      },
+      cancelRunForThread: () => false,
+      cancelRunForChannelUser: () => false,
+      updateChannelUser: (input) => ({ ...channelUser, usedKTokens: input.usedKTokens ?? 0 }),
+      updateLatestAssistantVisibleReply: () => {},
+      getTtlReaper: () => ({ register: () => {} })
+    }
+
+    const directMessages = createDirectMessageService({
+      logLabel: 'telegram',
+      server,
+      policy: telegramPolicy,
+      replyDelayMs: () => 0,
+      resolveThread: async () => ({ thread, usageBaselineKTokens: 0 }),
+      sendMessage: async (_chatId, text) => {
+        sentMessages.push(text)
+      },
+      sendReply: async (_target, payload) => {
+        sentReplies.push(payload)
+      },
+      nonRunReply: 'non-run',
+      errorReply: 'error'
+    })
+
+    directMessages.enqueueMessage('chat-1', channelUser, 'send the symlink')
+
+    await delay(20)
+
+    assert.deepEqual(sentReplies, [])
+    assert.deepEqual(sentMessages, ['error'])
+  })
+
+  it('does not let guest DM reply tool calls send file attachments', async () => {
+    const attachmentDir = await mkdtemp(join(tmpdir(), 'yachiyo-dm-guest-attachment-'))
+    const filePath = join(attachmentDir, 'secret.txt')
+    await writeFile(filePath, 'secret')
+
+    const channelUser = createChannelUser()
+    const thread = createThread('thread-guest-file-reply')
+    const sentMessages: string[] = []
+    const sentReplies: unknown[] = []
+    const listeners = new Set<(event: YachiyoServerEvent) => void>()
+
+    const server: DirectMessageServer = {
+      subscribe(listener) {
+        listeners.add(listener)
+        return () => listeners.delete(listener)
+      },
+      async sendChat(input): Promise<ChatAcceptedWithUserMessage> {
+        const replyTool = input.extraTools?.reply as {
+          execute(input: {
+            message?: string
+            attachments?: Array<{ path: string; filename?: string; mediaType?: string }>
+          }): Promise<string>
+        }
+        const result = await replyTool.execute({
+          message: 'Text only',
+          attachments: [{ path: filePath, filename: 'secret.txt', mediaType: 'text/plain' }]
+        })
+        assert.equal(result, 'File attachments are not available in this channel. Message sent.')
+        queueMicrotask(() => {
+          for (const listener of listeners) {
+            listener({
+              type: 'run.completed',
+              eventId: 'evt-guest-file-completed',
+              timestamp: '2026-03-31T00:00:02.000Z',
+              threadId: thread.id,
+              runId: 'run-guest-file-reply'
+            })
+          }
+        })
+        return {
+          kind: 'run-started',
+          thread,
+          runId: 'run-guest-file-reply',
+          userMessage: createUserMessage(thread.id)
+        }
+      },
+      getThreadTotalTokens: () => 0,
+      findActiveChannelThread: () => undefined,
+      async setThreadModelOverride() {
+        throw new Error('should not be called')
+      },
+      cancelRunForThread: () => false,
+      cancelRunForChannelUser: () => false,
+      updateChannelUser: (input) => ({ ...channelUser, usedKTokens: input.usedKTokens ?? 0 }),
+      updateLatestAssistantVisibleReply: () => {},
+      getTtlReaper: () => ({ register: () => {} })
+    }
+
+    const directMessages = createDirectMessageService({
+      logLabel: 'telegram',
+      server,
+      policy: telegramPolicy,
+      replyDelayMs: () => 0,
+      resolveThread: async () => ({ thread, usageBaselineKTokens: 0 }),
+      sendMessage: async (_chatId, text) => {
+        sentMessages.push(text)
+      },
+      sendReply: async (_target, payload) => {
+        sentReplies.push(payload)
+      },
+      nonRunReply: 'non-run',
+      errorReply: 'error'
+    })
+
+    directMessages.enqueueMessage('chat-1', channelUser, 'try sending a file')
+
+    await delay(20)
+
+    assert.deepEqual(sentMessages, ['Text only'])
+    assert.deepEqual(sentReplies, [])
   })
 
   it('flushes normal output before tool calls so IM history preserves sequence', async () => {

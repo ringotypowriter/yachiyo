@@ -22,6 +22,7 @@ import {
   type DmSlashCommandServer
 } from './dmSlashCommands.ts'
 import type { ChannelPolicy } from '../shared/channelPolicy.ts'
+import type { ChannelReplyPayload } from '../shared/channelReply.ts'
 
 interface ChannelDirectMessageCreateThreadRequest {
   workspacePath?: string
@@ -59,6 +60,7 @@ export interface ChannelDirectMessageRuntimeOptions<TTarget> {
   policy: ChannelPolicy
   modelOverride?: ThreadModelOverride
   sendMessage(target: TTarget, text: string): Promise<void>
+  sendReply?(target: TTarget, payload: ChannelReplyPayload): Promise<void>
   startBatchIndicator?(target: TTarget): void | (() => void)
   startHandlingIndicator?(target: TTarget): void | (() => void)
   nonRunReply: string
@@ -115,6 +117,7 @@ export function createChannelDirectMessageRuntime<TTarget>(
     policy: options.policy,
     resolveThread,
     sendMessage: options.sendMessage,
+    sendReply: options.sendReply,
     startBatchIndicator: options.startBatchIndicator,
     startHandlingIndicator: options.startHandlingIndicator,
     nonRunReply: options.nonRunReply,

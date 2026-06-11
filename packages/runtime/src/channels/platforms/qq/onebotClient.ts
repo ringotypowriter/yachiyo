@@ -97,6 +97,8 @@ export interface OneBotClient {
   onGroupMessage(handler: GroupMessageHandler): void
   sendPrivateMessage(userId: number, text: string): Promise<{ messageId: number }>
   sendGroupMessage(groupId: number, text: string): Promise<{ messageId: number }>
+  /** Upload a local file to a private chat. NapCat extension. */
+  uploadPrivateFile(userId: number, filePath: string, filename: string): Promise<void>
   /** Get the bot's own login info (QQ ID + nickname). */
   getLoginInfo(): Promise<{ userId: number; nickname: string }>
   /** Resolve an image file identifier to a local path / download URL. */
@@ -326,6 +328,14 @@ export function createOneBotClient(options: OneBotClientOptions): OneBotClient {
         auto_escape: true
       })) as { message_id: number }
       return { messageId: result.message_id }
+    },
+
+    async uploadPrivateFile(userId: number, filePath: string, filename: string): Promise<void> {
+      await sendAction('upload_private_file', {
+        user_id: userId,
+        file: filePath,
+        name: filename
+      })
     },
 
     async getLoginInfo(): Promise<{ userId: number; nickname: string }> {

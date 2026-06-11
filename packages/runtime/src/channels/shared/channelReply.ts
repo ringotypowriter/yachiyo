@@ -10,13 +10,33 @@
 import { tool, type Tool } from 'ai'
 import { z } from 'zod'
 
+export interface ChannelReplyAttachment {
+  /** Local file path to send as an external-chat attachment. */
+  path: string
+  /** Optional display filename for the external chat. */
+  filename?: string
+  /** Optional media type hint. Platforms may ignore it. */
+  mediaType?: string
+}
+
+export interface ChannelReplyPayload {
+  /** Optional text to send before or alongside attachments. */
+  message?: string
+  /** Local files to send as external-chat attachments. Owner DMs only. */
+  attachments?: ChannelReplyAttachment[]
+}
+
+export type ChannelReplyToolInput = ChannelReplyPayload
+
 // ---------------------------------------------------------------------------
 // Reply tool factory
 // ---------------------------------------------------------------------------
 
 export interface ChannelReplyToolContext {
+  /** Whether this channel may send local file attachments through the reply tool. */
+  allowFileAttachments?: boolean
   /** Callback invoked each time the model calls the reply tool. */
-  onReply: (message: string) => void | Promise<void>
+  onReply: (payload: ChannelReplyPayload) => void | Promise<void>
 }
 
 /**
@@ -25,24 +45,105 @@ export interface ChannelReplyToolContext {
  * The model can call it multiple times — e.g. once for a progress update and
  * once for a follow-up note. Each invocation triggers `onReply` immediately.
  */
-export function createChannelReplyTool(ctx: ChannelReplyToolContext): Tool<{ message: string }> {
-  return tool({
-    description:
-      'Optionally send a live outbound message to the user in the external IM chat while you are working. ' +
-      'Use it for progress updates, quick notices, or channel-specific follow-up messages. ' +
-      'Your regular final response is also sent to the user at the end. Current payload is plain text only.',
-    inputSchema: z.object({
-      message: z.string().describe('The message to send to the user. Plain text only.')
-    }),
-    execute: async ({ message }) => {
-      const trimmed = message.trim()
-      if (!trimmed) {
-        return 'Empty message ignored.'
-      }
-      await ctx.onReply(trimmed)
-      return 'Message sent.'
+const replyAttachmentSchema = z.object({
+  path: z.string().min(1).describe('Local file path to send as an attachment.'),
+  filename: z.string().min(1).optional().describe('Optional display filename.'),
+  mediaType: z.string().min(1).optional().describe('Optional media type hint.')
+})
+
+const textOnlyReplyInputSchema = z.object({
+  message: z.string().describe('The message to send to the user. Plain text only.')
+})
+
+const fileReplyInputSchema = z.object({
+  message: z
+    .string()
+    .optional()
+    .describe('Optional text to send to the user before or alongside attachments.'),
+  attachments: z
+    .array(replyAttachmentSchema)
+    .max(10)
+    .optional()
+    .describe('Optional local file attachments to send to the owner DM.')
+})
+
+function normalizeReplyAttachments(
+  attachments: ChannelReplyAttachment[] = []
+): ChannelReplyAttachment[] {
+  return attachments
+    .map((attachment) => ({
+      path: attachment.path.trim(),
+      ...(attachment.filename?.trim() ? { filename: attachment.filename.trim() } : {}),
+      ...(attachment.mediaType?.trim() ? { mediaType: attachment.mediaType.trim() } : {})
+    }))
+    .filter((attachment) => attachment.path.length > 0)
+}
+
+function formatReplyToolResult(input: {
+  textSent: boolean
+  attachmentCount: number
+  attachmentsIgnored?: boolean
+}): string {
+  const sent =
+    input.textSent && input.attachmentCount > 0
+      ? `Message and ${input.attachmentCount} file attachment(s) sent.`
+      : input.attachmentCount > 0
+        ? `${input.attachmentCount} file attachment(s) sent.`
+        : input.textSent
+          ? 'Message sent.'
+          : 'Empty message ignored.'
+  return input.attachmentsIgnored
+    ? `File attachments are not available in this channel. ${sent}`
+    : sent
+}
+
+export function createChannelReplyTool(ctx: ChannelReplyToolContext): Tool<ChannelReplyToolInput> {
+  const allowFileAttachments = ctx.allowFileAttachments === true
+  const description =
+    'Optionally send a live outbound message to the user in the external IM chat while you are working. ' +
+    'Use it for progress updates, quick notices, or channel-specific follow-up messages. ' +
+    'Your regular final response is also sent to the user at the end. ' +
+    (allowFileAttachments
+      ? 'For owner DMs, you may include local file attachments by path when the file itself is the useful reply.'
+      : 'Current payload is plain text only.')
+
+  const executeReply = async (input: ChannelReplyPayload): Promise<string> => {
+    const message = input.message?.trim() ?? ''
+    const normalizedAttachments = normalizeReplyAttachments(input.attachments)
+    const attachments = allowFileAttachments ? normalizedAttachments : []
+
+    if (!message && attachments.length === 0) {
+      return formatReplyToolResult({
+        textSent: false,
+        attachmentCount: 0,
+        attachmentsIgnored: normalizedAttachments.length > 0 && !allowFileAttachments
+      })
     }
-  })
+
+    await ctx.onReply({
+      ...(message ? { message } : {}),
+      ...(attachments.length > 0 ? { attachments } : {})
+    })
+    return formatReplyToolResult({
+      textSent: message.length > 0,
+      attachmentCount: attachments.length,
+      attachmentsIgnored: normalizedAttachments.length > 0 && !allowFileAttachments
+    })
+  }
+
+  if (allowFileAttachments) {
+    return tool({
+      description,
+      inputSchema: fileReplyInputSchema,
+      execute: executeReply
+    }) as unknown as Tool<ChannelReplyToolInput>
+  }
+
+  return tool({
+    description,
+    inputSchema: textOnlyReplyInputSchema,
+    execute: executeReply
+  }) as unknown as Tool<ChannelReplyToolInput>
 }
 
 // ---------------------------------------------------------------------------
@@ -54,6 +155,8 @@ export const CHANNEL_REPLY_HINT = `\
 The user is chatting from external instant-messaging software. Your normal text output is your final response, and it will be sent back to that external chat at the end.
 
 You also have an optional \`reply\` tool for live outbound messages while you work. Use it when an immediate progress update, quick notice, or channel-specific follow-up would help. You do not need to call it for every reply.
+
+If the \`reply\` tool schema includes attachments, you are in an owner DM that can receive local files. Attach a file only when the file itself is the useful result; use the local file path exactly as produced by tools.
 
 This is an IM chat, not an essay. Keep it short and lively — like texting a friend who you're genuinely happy to hear from. Your personality should shine through in HOW you say things, not in how MUCH you say.
 

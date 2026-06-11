@@ -33,6 +33,7 @@ import {
 } from '../../group/channelGroupDiscussionService.ts'
 import { routeChannelGroupMessage } from '../../group/channelGroupRouting.ts'
 import { connectWithRetry } from '../../shared/connectionRetry.ts'
+import type { ChannelReplyPayload } from '../../shared/channelReply.ts'
 import { routeTelegramMessage, type TelegramChannelStorage } from './telegram'
 import { splitTelegramMessage } from './telegramMessageSplit.ts'
 
@@ -125,6 +126,20 @@ export function createTelegramService({
     }
   }
 
+  /** Send a richer owner-DM reply with optional local file attachments. */
+  async function sendReply(chatId: string, payload: ChannelReplyPayload): Promise<void> {
+    const text = payload.message?.trim()
+    if (text) {
+      await sendMessage(chatId, text)
+    }
+    for (const attachment of payload.attachments ?? []) {
+      await bot.telegram.sendDocument(chatId, {
+        source: attachment.path,
+        ...(attachment.filename ? { filename: attachment.filename } : {})
+      })
+    }
+  }
+
   const directMessages = createChannelDirectMessageRuntime<string>({
     platform: 'telegram',
     logLabel: 'telegram',
@@ -132,6 +147,7 @@ export function createTelegramService({
     policy,
     modelOverride,
     sendMessage,
+    sendReply,
     startBatchIndicator: startTypingLoop,
     startHandlingIndicator: startTypingLoop,
     nonRunReply: 'Sorry, something went wrong on my end.',

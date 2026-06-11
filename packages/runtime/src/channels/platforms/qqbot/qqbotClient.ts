@@ -9,6 +9,8 @@
  * Reference: https://bot.q.qq.com/wiki/develop/api-v2/
  */
 
+import { readFile } from 'node:fs/promises'
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -62,6 +64,8 @@ export interface QQBotClient {
   onC2CMessage(handler: (msg: QQBotC2CMessage) => void): void
   /** Send a text message to a C2C user. replyMsgId is required (passive reply). */
   sendC2CMessage(openId: string, text: string, replyMsgId: string): Promise<void>
+  /** Send a local file to a C2C user as a passive media reply. */
+  sendC2CFile(openId: string, filePath: string, replyMsgId: string): Promise<void>
   /**
    * Show "typing…" indicator to a C2C user.
    * Uses `msg_type: 6` with `input_notify`. The indicator stays visible
@@ -195,6 +199,19 @@ export function createQQBotClient(options: QQBotClientOptions): QQBotClient {
       return res.json()
     }
     return undefined
+  }
+
+  async function uploadC2CFile(openId: string, filePath: string): Promise<string> {
+    const buffer = await readFile(filePath)
+    const result = (await apiRequest('POST', `/v2/users/${openId}/files`, {
+      file_type: 4,
+      srv_send_msg: false,
+      file_data: buffer.toString('base64')
+    })) as { file_info?: string }
+    if (!result.file_info) {
+      throw new Error(`[qqbot] file upload returned no file_info for ${filePath}`)
+    }
+    return result.file_info
   }
 
   // ------------------------------------------------------------------
@@ -449,6 +466,16 @@ export function createQQBotClient(options: QQBotClientOptions): QQBotClient {
       await apiRequest('POST', `/v2/users/${openId}/messages`, {
         msg_type: 2,
         markdown: { content: text },
+        msg_id: replyMsgId,
+        msg_seq: msgSeqCounter++
+      })
+    },
+
+    async sendC2CFile(openId: string, filePath: string, replyMsgId: string): Promise<void> {
+      const fileInfo = await uploadC2CFile(openId, filePath)
+      await apiRequest('POST', `/v2/users/${openId}/messages`, {
+        msg_type: 7,
+        media: { file_info: fileInfo },
         msg_id: replyMsgId,
         msg_seq: msgSeqCounter++
       })

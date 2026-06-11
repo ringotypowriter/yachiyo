@@ -1,3 +1,8 @@
+import { constants } from 'node:fs'
+import { access, realpath, stat } from 'node:fs/promises'
+import { homedir } from 'node:os'
+import { basename, isAbsolute, relative } from 'node:path'
+
 import type {
   ChannelUserRecord,
   ChatAccepted,
@@ -9,7 +14,11 @@ import type {
   UpdateChannelUserInput,
   YachiyoServerEvent
 } from '@yachiyo/shared/protocol'
-import { createChannelReplyTool } from '../shared/channelReply.ts'
+import {
+  createChannelReplyTool,
+  type ChannelReplyAttachment,
+  type ChannelReplyPayload
+} from '../shared/channelReply.ts'
 import { createToolProgressReporter } from '../shared/channelToolProgressReporter.ts'
 import type { ChannelPolicy } from '../shared/channelPolicy.ts'
 
@@ -162,6 +171,7 @@ export interface DirectMessageServiceOptions<TTarget> {
   policy: Pick<ChannelPolicy, 'allowedTools' | 'replyInstruction' | 'imageTtlMs'>
   resolveThread(channelUser: ChannelUserRecord): Promise<DirectMessageThreadResolution>
   sendMessage(target: TTarget, text: string): Promise<void>
+  sendReply?(target: TTarget, payload: ChannelReplyPayload): Promise<void>
   startBatchIndicator?(target: TTarget): void | (() => void)
   startHandlingIndicator?(target: TTarget): void | (() => void)
   replyDelayMs?(): number
@@ -447,6 +457,101 @@ async function appendOutboundTextMessage(input: {
   return text
 }
 
+function formatAttachmentTranscriptLine(attachment: ChannelReplyAttachment): string {
+  return `[Attachment: ${attachment.filename ?? basename(attachment.path)}]`
+}
+
+function formatOutboundReplyTranscript(payload: ChannelReplyPayload): string {
+  return [
+    payload.message?.trim() ?? '',
+    ...(payload.attachments ?? []).map(formatAttachmentTranscriptLine)
+  ]
+    .filter(Boolean)
+    .join('\n')
+}
+
+function expandHomePath(path: string): string {
+  if (path === '~') {
+    return homedir()
+  }
+  if (path.startsWith('~/')) {
+    return `${homedir()}${path.slice(1)}`
+  }
+  return path
+}
+
+function isPathInside(basePath: string, targetPath: string): boolean {
+  const rel = relative(basePath, targetPath)
+  return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel))
+}
+
+async function resolveOutboundReplyAttachments(
+  attachments: ChannelReplyAttachment[] = []
+): Promise<ChannelReplyAttachment[]> {
+  const resolved: ChannelReplyAttachment[] = []
+  const homePath = attachments.length > 0 ? await realpath(homedir()) : ''
+  for (const attachment of attachments) {
+    const path = expandHomePath(attachment.path.trim())
+    const realFilePath = await realpath(path).catch(() => null)
+    if (!realFilePath || !isPathInside(homePath, realFilePath)) {
+      throw new Error(`Reply attachment is outside the allowed home directory: ${path}`)
+    }
+
+    const fileStat = await stat(realFilePath).catch(() => null)
+    if (!fileStat || !fileStat.isFile()) {
+      throw new Error(`Reply attachment is not a readable file: ${path}`)
+    }
+    await access(realFilePath, constants.R_OK).catch(() => {
+      throw new Error(`Reply attachment is not a readable file: ${path}`)
+    })
+    resolved.push({
+      path: realFilePath,
+      filename: attachment.filename?.trim() || basename(realFilePath),
+      ...(attachment.mediaType?.trim() ? { mediaType: attachment.mediaType.trim() } : {})
+    })
+  }
+  return resolved
+}
+
+async function appendOutboundReplyMessage(input: {
+  payload: ChannelReplyPayload
+  outboundTranscript: string[]
+  dedupeAgainst?: readonly string[]
+  logLabel: string
+  sendText(message: string): Promise<void>
+  sendReply(payload: ChannelReplyPayload): Promise<void>
+}): Promise<{ transcriptEntry: string; message: string } | null> {
+  const message = input.payload.message?.trim() ?? ''
+  const attachments = await resolveOutboundReplyAttachments(input.payload.attachments)
+  if (!message && attachments.length === 0) {
+    return null
+  }
+  if (attachments.length === 0 && input.dedupeAgainst?.includes(message)) {
+    return null
+  }
+
+  const payload: ChannelReplyPayload = {
+    ...(message ? { message } : {}),
+    ...(attachments.length > 0 ? { attachments } : {})
+  }
+
+  console.log(
+    `[${input.logLabel}] sending outbound reply${
+      attachments.length > 0 ? ` with ${attachments.length} file attachment(s)` : ''
+    }: ${(message || attachments.map((a) => a.filename ?? basename(a.path)).join(', ')).slice(0, 100)}`
+  )
+
+  if (attachments.length > 0) {
+    await input.sendReply(payload)
+  } else {
+    await input.sendText(message)
+  }
+
+  const transcriptEntry = formatOutboundReplyTranscript(payload)
+  input.outboundTranscript.push(transcriptEntry)
+  return { transcriptEntry, message }
+}
+
 function formatOutboundTranscript(outboundTranscript: string[]): string {
   return outboundTranscript.join('\n')
 }
@@ -486,6 +591,7 @@ export function createDirectMessageService<TTarget>(
       const liveReplies: string[] = []
       const outboundTranscript: string[] = []
       let outboundQueue = Promise.resolve()
+      const canSendFileAttachments = channelUser.role === 'owner' && options.sendReply != null
       const queueOutboundTextMessage = (input: {
         message: string
         dedupeAgainst?: readonly string[]
@@ -505,11 +611,44 @@ export function createDirectMessageService<TTarget>(
         })
         return outboundQueue
       }
+      const queueOutboundReplyMessage = (input: {
+        payload: ChannelReplyPayload
+        dedupeAgainst?: readonly string[]
+        recordLiveReply?: boolean
+      }): Promise<void> => {
+        outboundQueue = outboundQueue.then(async () => {
+          const payload: ChannelReplyPayload = {
+            ...(input.payload.message?.trim() ? { message: input.payload.message.trim() } : {}),
+            ...(canSendFileAttachments && input.payload.attachments?.length
+              ? { attachments: input.payload.attachments }
+              : {})
+          }
+          const sent = await appendOutboundReplyMessage({
+            payload,
+            outboundTranscript,
+            dedupeAgainst: input.dedupeAgainst,
+            logLabel: options.logLabel,
+            sendText: (message) => options.sendMessage(target, message),
+            sendReply: (payload) => {
+              if (!options.sendReply) {
+                throw new Error('File attachments are not supported by this channel.')
+              }
+              return options.sendReply(target, payload)
+            }
+          })
+          if (sent?.message && input.recordLiveReply) {
+            liveReplies.push(sent.message)
+          }
+        })
+        return outboundQueue
+      }
       const replyTool = createChannelReplyTool({
-        onReply: async (message: string): Promise<void> => {
+        allowFileAttachments: canSendFileAttachments,
+        onReply: async (payload: ChannelReplyPayload): Promise<void> => {
+          const message = payload.message?.trim() ?? ''
           console.log(`[${options.logLabel}] reply tool called: ${message.slice(0, 100)}`)
-          await queueOutboundTextMessage({
-            message,
+          await queueOutboundReplyMessage({
+            payload,
             dedupeAgainst: outboundTranscript,
             recordLiveReply: true
           })

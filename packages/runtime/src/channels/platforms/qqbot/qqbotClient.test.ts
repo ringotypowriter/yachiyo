@@ -1,5 +1,8 @@
 import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
+import { mkdtemp, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 
 import { createQQBotClient } from './qqbotClient.ts'
 
@@ -69,6 +72,15 @@ function createFetchImpl(): typeof fetch {
 }
 
 const wait = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
+
+function jsonResponse(body: unknown): Response {
+  return {
+    ok: true,
+    headers: { get: () => 'application/json' },
+    json: async () => body,
+    text: async () => JSON.stringify(body)
+  } as unknown as Response
+}
 
 describe('QQBot gateway heartbeat health', () => {
   it('closes a stale socket when heartbeat ACK is not received', async () => {
@@ -143,5 +155,60 @@ describe('QQBot gateway heartbeat health', () => {
     await wait(12)
     assert.equal(await client.healthCheck(), false)
     await client.close()
+  })
+})
+
+describe('QQBot C2C file messages', () => {
+  it('uploads a local file and sends it as a passive media reply', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'yachiyo-qqbot-file-'))
+    const filePath = join(dir, 'report.txt')
+    await writeFile(filePath, 'hello file')
+
+    const calls: Array<{ url: string; method?: string; body?: unknown }> = []
+    const fetchImpl = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      calls.push({
+        url,
+        method: init?.method,
+        body: init?.body ? JSON.parse(String(init.body)) : undefined
+      })
+      if (url.endsWith('/app/getAppAccessToken')) {
+        return jsonResponse({ access_token: 'token', expires_in: 3600 })
+      }
+      if (url.endsWith('/v2/users/open-1/files')) {
+        return jsonResponse({ file_info: 'file-info-1', ttl: 60 })
+      }
+      return jsonResponse({ id: 'message-1', timestamp: 1711627200 })
+    }) as typeof fetch
+
+    const client = createQQBotClient({
+      appId: 'app',
+      clientSecret: 'secret',
+      WebSocketImpl: createFakeWebSocketFactory().WebSocketImpl,
+      fetchImpl
+    })
+
+    await client.sendC2CFile('open-1', filePath, 'reply-msg-1')
+    await client.close()
+
+    assert.deepEqual(
+      calls.map((call) => call.url),
+      [
+        'https://bots.qq.com/app/getAppAccessToken',
+        'https://api.sgroup.qq.com/v2/users/open-1/files',
+        'https://api.sgroup.qq.com/v2/users/open-1/messages'
+      ]
+    )
+    assert.deepEqual(calls[1].body, {
+      file_type: 4,
+      srv_send_msg: false,
+      file_data: Buffer.from('hello file').toString('base64')
+    })
+    assert.deepEqual(calls[2].body, {
+      msg_type: 7,
+      media: { file_info: 'file-info-1' },
+      msg_id: 'reply-msg-1',
+      msg_seq: 1
+    })
   })
 })

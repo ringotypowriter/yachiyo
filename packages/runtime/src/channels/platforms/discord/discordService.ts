@@ -32,6 +32,7 @@ import {
 } from '../../group/channelGroupDiscussionService.ts'
 import { routeChannelGroupMessage } from '../../group/channelGroupRouting.ts'
 import { connectWithRetry } from '../../shared/connectionRetry.ts'
+import type { ChannelReplyPayload } from '../../shared/channelReply.ts'
 import { routeDiscordMessage, type DiscordChannelStorage } from './discord.ts'
 
 /** Discord typing indicator lasts ~10 s; resend every 8 s. */
@@ -161,6 +162,28 @@ export function createDiscordService({
     }
   }
 
+  /** Send a richer owner-DM reply with optional local file attachments. */
+  async function sendReply(channelId: string, payload: ChannelReplyPayload): Promise<void> {
+    const text = payload.message?.trim()
+    if (text) {
+      await sendMessage(channelId, text)
+    }
+
+    const files = (payload.attachments ?? []).map((attachment) => ({
+      attachment: attachment.path,
+      ...(attachment.filename ? { name: attachment.filename } : {})
+    }))
+    if (files.length === 0) return
+
+    const channel = client.channels.cache.get(channelId)
+    if (!channel || !('send' in channel)) return
+    await (
+      channel as {
+        send(options: { files: Array<{ attachment: string; name?: string }> }): Promise<unknown>
+      }
+    ).send({ files })
+  }
+
   const directMessages = createChannelDirectMessageRuntime<string>({
     platform: 'discord',
     logLabel: 'discord',
@@ -168,6 +191,7 @@ export function createDiscordService({
     policy,
     modelOverride,
     sendMessage,
+    sendReply,
     startBatchIndicator: startTypingLoop,
     startHandlingIndicator: startTypingLoop,
     nonRunReply: 'Sorry, something went wrong on my end.',
