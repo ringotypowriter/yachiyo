@@ -1,7 +1,7 @@
 import { constants } from 'node:fs'
-import { access, realpath, stat } from 'node:fs/promises'
+import { mkdtemp, mkdir, open, realpath, rm, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { basename, isAbsolute, relative } from 'node:path'
+import { basename, isAbsolute, join, relative } from 'node:path'
 
 import type {
   ChannelUserRecord,
@@ -485,32 +485,77 @@ function isPathInside(basePath: string, targetPath: string): boolean {
   return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel))
 }
 
+function sanitizeSnapshotFilename(filename: string): string {
+  return basename(filename).replace(/[^A-Za-z0-9._-]/g, '_') || 'attachment'
+}
+
+async function createAttachmentSnapshot(input: {
+  sourcePath: string
+  filename: string
+}): Promise<{ path: string; dir: string }> {
+  const snapshotBaseDir = join(homedir(), '.yachiyo', 'channel-reply-attachments')
+  await mkdir(snapshotBaseDir, { recursive: true, mode: 0o700 })
+  const snapshotDir = await mkdtemp(join(snapshotBaseDir, 'reply-'))
+  const snapshotPath = join(snapshotDir, sanitizeSnapshotFilename(input.filename))
+  const flags = constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0)
+  const handle = await open(input.sourcePath, flags).catch(() => null)
+  if (!handle) {
+    await rm(snapshotDir, { recursive: true, force: true })
+    throw new Error(`Reply attachment is not a readable file: ${input.sourcePath}`)
+  }
+
+  try {
+    const fileStat = await handle.stat()
+    if (!fileStat.isFile()) {
+      throw new Error(`Reply attachment is not a readable file: ${input.sourcePath}`)
+    }
+    await writeFile(snapshotPath, await handle.readFile(), { mode: 0o600 })
+    return { path: snapshotPath, dir: snapshotDir }
+  } catch (error) {
+    await rm(snapshotDir, { recursive: true, force: true })
+    throw error
+  } finally {
+    await handle.close().catch(() => {})
+  }
+}
+
+async function cleanupAttachmentSnapshots(dirs: readonly string[]): Promise<void> {
+  await Promise.all(dirs.map((dir) => rm(dir, { recursive: true, force: true })))
+}
+
+interface ResolvedOutboundReplyAttachments {
+  attachments: ChannelReplyAttachment[]
+  snapshotDirs: string[]
+}
+
 async function resolveOutboundReplyAttachments(
   attachments: ChannelReplyAttachment[] = []
-): Promise<ChannelReplyAttachment[]> {
+): Promise<ResolvedOutboundReplyAttachments> {
   const resolved: ChannelReplyAttachment[] = []
+  const snapshotDirs: string[] = []
   const homePath = attachments.length > 0 ? await realpath(homedir()) : ''
-  for (const attachment of attachments) {
-    const path = expandHomePath(attachment.path.trim())
-    const realFilePath = await realpath(path).catch(() => null)
-    if (!realFilePath || !isPathInside(homePath, realFilePath)) {
-      throw new Error(`Reply attachment is outside the allowed home directory: ${path}`)
-    }
+  try {
+    for (const attachment of attachments) {
+      const path = expandHomePath(attachment.path.trim())
+      const realFilePath = await realpath(path).catch(() => null)
+      if (!realFilePath || !isPathInside(homePath, realFilePath)) {
+        throw new Error(`Reply attachment is outside the allowed home directory: ${path}`)
+      }
 
-    const fileStat = await stat(realFilePath).catch(() => null)
-    if (!fileStat || !fileStat.isFile()) {
-      throw new Error(`Reply attachment is not a readable file: ${path}`)
+      const filename = attachment.filename?.trim() || basename(realFilePath)
+      const snapshot = await createAttachmentSnapshot({ sourcePath: realFilePath, filename })
+      snapshotDirs.push(snapshot.dir)
+      resolved.push({
+        path: snapshot.path,
+        filename,
+        ...(attachment.mediaType?.trim() ? { mediaType: attachment.mediaType.trim() } : {})
+      })
     }
-    await access(realFilePath, constants.R_OK).catch(() => {
-      throw new Error(`Reply attachment is not a readable file: ${path}`)
-    })
-    resolved.push({
-      path: realFilePath,
-      filename: attachment.filename?.trim() || basename(realFilePath),
-      ...(attachment.mediaType?.trim() ? { mediaType: attachment.mediaType.trim() } : {})
-    })
+  } catch (error) {
+    await cleanupAttachmentSnapshots(snapshotDirs)
+    throw error
   }
-  return resolved
+  return { attachments: resolved, snapshotDirs }
 }
 
 async function appendOutboundReplyMessage(input: {
@@ -522,7 +567,9 @@ async function appendOutboundReplyMessage(input: {
   sendReply(payload: ChannelReplyPayload): Promise<void>
 }): Promise<{ transcriptEntry: string; message: string } | null> {
   const message = input.payload.message?.trim() ?? ''
-  const attachments = await resolveOutboundReplyAttachments(input.payload.attachments)
+  const { attachments, snapshotDirs } = await resolveOutboundReplyAttachments(
+    input.payload.attachments
+  )
   if (!message && attachments.length === 0) {
     return null
   }
@@ -542,7 +589,11 @@ async function appendOutboundReplyMessage(input: {
   )
 
   if (attachments.length > 0) {
-    await input.sendReply(payload)
+    try {
+      await input.sendReply(payload)
+    } finally {
+      await cleanupAttachmentSnapshots(snapshotDirs)
+    }
   } else {
     await input.sendText(message)
   }

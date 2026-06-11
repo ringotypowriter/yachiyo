@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, realpath, rm, symlink, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises'
 import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, it } from 'node:test'
@@ -552,6 +552,8 @@ describe('directMessageService', () => {
       message?: string
       attachments: Array<{ path: string; filename?: string; mediaType?: string }>
     }> = []
+    let copiedAttachmentPath = ''
+    let copiedAttachmentContent = ''
     const visibleReplies: string[] = []
     const listeners = new Set<(event: YachiyoServerEvent) => void>()
 
@@ -613,6 +615,11 @@ describe('directMessageService', () => {
         sentMessages.push(text)
       },
       sendReply: async (target, payload) => {
+        const attachment = payload.attachments?.[0]
+        assert.ok(attachment)
+        copiedAttachmentPath = attachment.path
+        await writeFile(filePath, 'mutated')
+        copiedAttachmentContent = await readFile(attachment.path, 'utf8')
         sentReplies.push({
           target,
           message: payload.message,
@@ -628,15 +635,16 @@ describe('directMessageService', () => {
     await delay(20)
 
     assert.deepEqual(sentMessages, [])
-    assert.deepEqual(sentReplies, [
-      {
-        target: 'chat-1',
-        message: 'Here is the file',
-        attachments: [
-          { path: resolvedFilePath, filename: 'final-report.txt', mediaType: 'text/plain' }
-        ]
-      }
-    ])
+    assert.equal(sentReplies.length, 1)
+    assert.equal(sentReplies[0].target, 'chat-1')
+    assert.equal(sentReplies[0].message, 'Here is the file')
+    assert.equal(sentReplies[0].attachments.length, 1)
+    assert.notEqual(sentReplies[0].attachments[0].path, resolvedFilePath)
+    assert.match(sentReplies[0].attachments[0].path, /\.yachiyo\/channel-reply-attachments\//)
+    assert.equal(sentReplies[0].attachments[0].filename, 'final-report.txt')
+    assert.equal(sentReplies[0].attachments[0].mediaType, 'text/plain')
+    assert.equal(copiedAttachmentContent, 'report')
+    await assert.rejects(readFile(copiedAttachmentPath), { code: 'ENOENT' })
     assert.deepEqual(visibleReplies, ['Here is the file\n[Attachment: final-report.txt]'])
   })
 
