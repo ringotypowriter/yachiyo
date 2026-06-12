@@ -488,6 +488,19 @@ body > div:not(#root) {
   z-index: 60;
 }
 
+.handoff-fold-marker {
+  margin: 4px auto 10px;
+  width: fit-content;
+  max-width: calc(100% - 48px);
+  border: 1px solid rgb(var(--yachiyo-rgb-border) / 0.72);
+  border-radius: 999px;
+  padding: 6px 12px;
+  color: rgb(var(--yachiyo-rgb-muted));
+  background: rgb(var(--yachiyo-rgb-surface) / 0.58);
+  font-size: 12px;
+  line-height: 1.25;
+}
+
 .user-message-images {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));

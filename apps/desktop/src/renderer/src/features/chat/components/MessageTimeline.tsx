@@ -153,6 +153,8 @@ function estimateTimelineRowSize(item: MessageTimelineRow): number {
   switch (item.kind) {
     case 'tool':
       return 72
+    case 'handoff-fold':
+      return 44
     case 'pending-steer':
       return 120
     case 'assistant-root': {
@@ -282,6 +284,14 @@ function renderTimelineItem(
     onDelete,
     onSelectReplyBranch
   } = context
+
+  if (item.kind === 'handoff-fold') {
+    return (
+      <div className="handoff-fold-marker" role="note">
+        Earlier messages folded into handoff
+      </div>
+    )
+  }
 
   if (item.kind === 'pending-steer') {
     if (!threadCapabilities) return null
@@ -809,6 +819,7 @@ export function MessageTimeline({
         activeRunId,
         activeRequestMessageId,
         subagentActive,
+        summaryWatermarkMessageId: thread?.summaryWatermarkMessageId ?? null,
         workSummaryEnabled
       }),
     [
@@ -821,6 +832,7 @@ export function MessageTimeline({
       activeRunId,
       activeRequestMessageId,
       subagentActive,
+      thread?.summaryWatermarkMessageId,
       workSummaryEnabled
     ]
   )

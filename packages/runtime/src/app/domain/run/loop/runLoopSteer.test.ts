@@ -11,6 +11,7 @@ import {
   handleSteerPendingResult,
   type RunLoopSteerContext
 } from './runLoopSteer.ts'
+import { CONTEXT_HANDOFF_CONTINUATION_STEER } from '../runTypes.ts'
 
 test('handleSteerPendingResult persists hidden steers before the visible steer anchor', async () => {
   let currentThread: ThreadRecord = {
@@ -131,6 +132,93 @@ test('handleSteerPendingResult persists hidden steers before the visible steer a
   )
   assert.equal(result.currentRequestMessageId, 'visible-steer')
   assert.equal(runRequestMessageId, 'visible-steer')
+})
+
+test('handleSteerPendingResult cancels the synthetic context handoff steer when handoff is skipped', async () => {
+  const currentThread: ThreadRecord = {
+    id: 'thread-1',
+    title: 'Thread',
+    headMessageId: 'assistant-checkpoint',
+    updatedAt: '2026-05-02T00:00:00.000Z'
+  }
+  const savedMessages: MessageRecord[] = []
+  let cancelledRunId: string | undefined
+
+  const context: RunLoopSteerContext = {
+    deps: {
+      createId: () => 'id',
+      timestamp: () => '2026-05-02T00:00:01.000Z',
+      requireThread: () => currentThread,
+      emit: () => {},
+      storage: {
+        cancelRun: ({ runId }: { runId: string }) => {
+          cancelledRunId = runId
+        },
+        saveThreadMessage: ({ message }: { message: MessageRecord }) => {
+          savedMessages.push(message)
+        }
+      }
+    } as unknown as RunLoopSteerContext['deps'],
+    createSendChatFlowContext: () =>
+      ({ deps: context.deps }) as ReturnType<RunLoopSteerContext['createSendChatFlowContext']>,
+    createFollowUpQueueContext: () =>
+      ({
+        deps: {
+          requireThread: () => currentThread,
+          loadThreadMessages: () => savedMessages,
+          loadThreadToolCalls: () => [],
+          emit: () => {}
+        },
+        queuedFollowUpDrafts: new Map()
+      }) as unknown as ReturnType<RunLoopSteerContext['createFollowUpQueueContext']>,
+    seamlessHandoffCoordinator: {
+      handoffAtCheckpoint: async () => ({ kind: 'skipped' as const, reason: 'empty-summary' })
+    } as unknown as RunLoopSteerContext['seamlessHandoffCoordinator']
+  }
+
+  const activeRun = {
+    threadId: 'thread-1',
+    requestMessageId: 'user-start',
+    abortController: new AbortController(),
+    executionPhase: 'generating' as const,
+    updateHeadOnComplete: true,
+    pendingContextHandoff: { reason: 'step-boundary' },
+    pendingSteerInputs: [
+      {
+        content: CONTEXT_HANDOFF_CONTINUATION_STEER,
+        images: [],
+        attachments: [],
+        messageId: 'handoff-steer',
+        timestamp: '2026-05-02T00:00:00.250Z',
+        hidden: true
+      }
+    ]
+  }
+
+  const result = await handleSteerPendingResult(context, {
+    accumulatedUsage: undefined,
+    activeRun: activeRun as unknown as Parameters<typeof handleSteerPendingResult>[1]['activeRun'],
+    carriedToolFailLoopSteers: 0,
+    currentRequestMessageId: 'user-start',
+    loopInput: {
+      enabledTools: [],
+      runMode: 'auto',
+      requestMessageId: 'user-start',
+      runId: 'run-1',
+      runTrigger: 'local',
+      thread: currentThread,
+      updateHeadOnComplete: true
+    } as Parameters<typeof handleSteerPendingResult>[1]['loopInput'],
+    result: {
+      kind: 'steer-pending',
+      assistantMessageId: 'assistant-checkpoint'
+    }
+  })
+
+  assert.equal(result.kind, 'cancelled')
+  assert.equal(cancelledRunId, 'run-1')
+  assert.equal(savedMessages.length, 0)
+  assert.equal(activeRun.pendingSteerInputs, undefined)
 })
 
 test('handleSteerPendingResult carries the active snapshot tracker through hidden system steers', async () => {

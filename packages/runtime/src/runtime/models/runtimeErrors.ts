@@ -36,12 +36,43 @@ export class RetryableRunError extends Error {
   }
 }
 
+export class ContextWindowExceededRunError extends Error {
+  override readonly name = 'ContextWindowExceededRunError'
+
+  constructor(message: string, options?: { cause?: unknown }) {
+    super(message, options)
+  }
+}
+
 export function isRetryableRunError(error: unknown): error is RetryableRunError {
   return error instanceof RetryableRunError
 }
 
+export function isContextWindowExceededRunError(
+  error: unknown
+): error is ContextWindowExceededRunError {
+  return error instanceof ContextWindowExceededRunError
+}
+
 function readErrorString(value: unknown): string {
   return typeof value === 'string' ? value : ''
+}
+
+function readContextWindowErrorMessage(value: unknown, seen = new WeakSet<object>()): string {
+  if (typeof value === 'string') return value
+  if (!value || typeof value !== 'object') return ''
+  if (seen.has(value)) return ''
+  seen.add(value)
+
+  const record = value as Record<string, unknown>
+  const message = readErrorString(record.message).trim()
+  if (message) return message
+
+  return (
+    readContextWindowErrorMessage(record.error, seen) ||
+    readContextWindowErrorMessage(record.cause, seen) ||
+    readErrorString(record.code).trim()
+  )
 }
 
 function isContextWindowExceededRecord(value: unknown, seen = new WeakSet<object>()): boolean {
@@ -153,7 +184,13 @@ export function isTransientTransportError(error: unknown): boolean {
  * pattern-match on the original class. Idempotent.
  */
 export function toRunBoundaryError(error: unknown): unknown {
-  if (error instanceof RetryableRunError) return error
+  if (error instanceof RetryableRunError || error instanceof ContextWindowExceededRunError) {
+    return error
+  }
+  if (isContextWindowExceededError(error)) {
+    const message = error instanceof Error ? error.message : readContextWindowErrorMessage(error)
+    return new ContextWindowExceededRunError(message || 'Context window exceeded', { cause: error })
+  }
   if (!isTransientTransportError(error)) return error
   const message = error instanceof Error ? error.message : String(error)
   return new RetryableRunError(message, { cause: error })
