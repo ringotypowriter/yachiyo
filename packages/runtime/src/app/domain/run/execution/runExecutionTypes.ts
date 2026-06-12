@@ -161,6 +161,17 @@ export interface RunExecutionDeps {
   hasPendingSteer?: () => boolean
   /** Called by execution to inject a system steer that breaks loops or redirects the model. */
   injectPendingSteer?: (input: { content: string }) => void
+  /** Called by execution to checkpoint context and continue from a hidden steer at a safe boundary. */
+  requestContextHandoffContinuation?: (input: {
+    reason: 'preflight' | 'step-boundary' | 'context-window-error' | string
+    requestedAtStep?: number
+  }) => void
+  /** Performs an immediate context handoff before the next model request. */
+  performContextHandoff?: (input: {
+    threadId: string
+    checkpointMessageId: string
+    reason: 'preflight' | 'step-boundary' | 'context-window-error' | string
+  }) => Promise<{ kind: 'completed' | 'already-covered' | 'skipped'; reason?: string }>
   /** Returns the latest todo widget items for id preservation across full-list updates. */
   getTodoItems?: () => readonly TodoItemRecord[]
   /** Called when the model updates the persistent todo widget. */

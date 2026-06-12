@@ -158,6 +158,12 @@ export type MessageTimelineRow =
       scrollMessageId: string
     }
   | {
+      kind: 'handoff-fold'
+      key: string
+      time: string
+      foldedRowCount: number
+    }
+  | {
       kind: 'tool'
       key: string
       time: string
@@ -184,6 +190,7 @@ interface BuildMessageTimelineRowsInput {
   activeRunId: string | null
   activeRequestMessageId: string | null
   subagentActive: boolean
+  summaryWatermarkMessageId?: string | null
   workSummaryEnabled?: boolean
 }
 
@@ -199,6 +206,41 @@ function isPlanDocumentAnchorRow(row: MessageTimelineRow): boolean {
   if (row.kind === 'tool') return row.data.toolName === PLAN_MODE_EXIT_TOOL_NAME
   if (row.kind === 'assistant-root') return isPlanModeExitRecord(row.data)
   return false
+}
+
+function rowReferencesMessage(row: MessageTimelineRow, messageId: string): boolean {
+  if ('scrollMessageId' in row && row.scrollMessageId === messageId) return true
+  if ('requestMessageId' in row && row.requestMessageId === messageId) return true
+  if ('assistantMessageId' in row && row.assistantMessageId === messageId) return true
+  if (row.kind === 'assistant-root') return row.data.id === messageId
+  if (row.kind === 'pending-steer') return row.data.id === messageId
+  if (row.kind === 'tool') {
+    return row.data.requestMessageId === messageId || row.data.assistantMessageId === messageId
+  }
+  return false
+}
+
+function foldRowsCoveredByHandoff(
+  rows: MessageTimelineRow[],
+  summaryWatermarkMessageId?: string | null
+): MessageTimelineRow[] {
+  if (!summaryWatermarkMessageId) return rows
+  const watermarkIndex = rows.findLastIndex((row) =>
+    rowReferencesMessage(row, summaryWatermarkMessageId)
+  )
+  if (watermarkIndex < 0) return rows
+  const remainingRows = rows.slice(watermarkIndex + 1)
+  if (remainingRows.length < 3) return rows
+
+  return [
+    {
+      kind: 'handoff-fold' as const,
+      key: `handoff-fold:${summaryWatermarkMessageId}`,
+      time: rows[watermarkIndex]?.time ?? remainingRows[0]?.time ?? '',
+      foldedRowCount: watermarkIndex + 1
+    },
+    ...remainingRows
+  ]
 }
 
 function keepLatestPlanDocumentAnchorRow(rows: MessageTimelineRow[]): MessageTimelineRow[] {
@@ -892,5 +934,8 @@ export function buildMessageTimelineRows(
     }))
   ]
 
-  return keepLatestPlanDocumentAnchorRow(blocks.sort(compareBlocks).flatMap((block) => block.rows))
+  const rows = keepLatestPlanDocumentAnchorRow(
+    blocks.sort(compareBlocks).flatMap((block) => block.rows)
+  )
+  return foldRowsCoveredByHandoff(rows, input.summaryWatermarkMessageId)
 }

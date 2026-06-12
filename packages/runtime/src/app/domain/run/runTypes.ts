@@ -37,6 +37,9 @@ export type InternalSendChatInput = SendChatInput & {
   toolPreset?: ToolCallName[]
 }
 
+export const CONTEXT_HANDOFF_CONTINUATION_STEER =
+  'Context was checkpointed; continue the same task from the handoff summary without repeating completed tool calls.'
+
 export interface PendingSteerInput {
   content: string
   images: MessageRecord['images']
@@ -81,6 +84,10 @@ export interface RunState {
   recapUserMessage?: MessageRecord
   agentStepCount?: number
   todoProgress?: TodoProgressState
+  pendingContextHandoff?: {
+    reason: 'preflight' | 'step-boundary' | 'context-window-error' | string
+    requestedAtStep?: number
+  }
 }
 
 export interface RunDomainDeps {

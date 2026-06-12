@@ -95,6 +95,7 @@ import {
   type FollowUpQueueContext
 } from './queue/followUpQueue.ts'
 import { ThreadTitleGenerationRunner } from './title/threadTitleGeneration.ts'
+import { SeamlessHandoffCoordinator } from './handoff/seamlessHandoffCoordinator.ts'
 
 export class YachiyoServerRunDomain {
   private readonly deps: RunDomainDeps
@@ -114,6 +115,7 @@ export class YachiyoServerRunDomain {
    */
   private readonly backgroundTaskRunContext = new Map<string, BackgroundTaskRunContext>()
   private readonly memoryScheduler: MemoryDistillationScheduler
+  private readonly seamlessHandoffCoordinator: SeamlessHandoffCoordinator
   private readonly readRecordCaches = new Map<string, ReadRecordCache>()
   private lastRunEnabledTools: ToolCallName[] | null
   private lastRunMode: RunModeId | null
@@ -124,6 +126,18 @@ export class YachiyoServerRunDomain {
     this.lastRunEnabledTools = null
     this.lastRunMode = null
     this.threadTitleRunner = new ThreadTitleGenerationRunner(deps)
+    this.seamlessHandoffCoordinator = new SeamlessHandoffCoordinator({
+      storage: deps.storage,
+      createId: deps.createId,
+      timestamp: deps.timestamp,
+      emit: deps.emit,
+      createModelRuntime: deps.createModelRuntime,
+      ensureThreadWorkspace: deps.ensureThreadWorkspace,
+      loadThreadMessages: deps.loadThreadMessages,
+      loadThreadToolCalls: deps.loadThreadToolCalls,
+      readConfig: deps.readConfig,
+      readSettings: deps.readSettings
+    })
     this.memoryScheduler = createMemoryDistillationScheduler({
       memoryService: deps.memoryService,
       readConfig: deps.readConfig,
@@ -226,6 +240,7 @@ export class YachiyoServerRunDomain {
       state.abortController.abort()
     }
     this.threadTitleRunner.abort()
+    this.seamlessHandoffCoordinator.abort()
 
     await this.backgroundBashManager.close()
 
@@ -297,7 +312,8 @@ export class YachiyoServerRunDomain {
       },
       setLastRunMode: (runMode) => {
         this.lastRunMode = runMode
-      }
+      },
+      seamlessHandoffCoordinator: this.seamlessHandoffCoordinator
     }
   }
 
@@ -305,7 +321,8 @@ export class YachiyoServerRunDomain {
     return {
       deps: this.deps,
       createSendChatFlowContext: () => this.createSendChatFlowContext(),
-      createFollowUpQueueContext: () => this.createFollowUpQueueContext()
+      createFollowUpQueueContext: () => this.createFollowUpQueueContext(),
+      seamlessHandoffCoordinator: this.seamlessHandoffCoordinator
     }
   }
 

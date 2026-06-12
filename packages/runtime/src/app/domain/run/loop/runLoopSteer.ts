@@ -8,7 +8,12 @@ import {
 import { persistSteerMessages, type SendChatFlowContext } from '../chat/sendChatFlow.ts'
 import type { ExecuteRunInput, ExecuteRunResult } from '../execution/runExecutionTypes.ts'
 import { usageFieldsFrom } from '../runUsageFields.ts'
-import type { PendingSteerInput, RunDomainDeps, RunState } from '../runTypes.ts'
+import {
+  CONTEXT_HANDOFF_CONTINUATION_STEER,
+  type PendingSteerInput,
+  type RunDomainDeps,
+  type RunState
+} from '../runTypes.ts'
 import {
   emitThreadStateReplaced,
   replaceQueuedFollowUpDraft,
@@ -17,6 +22,7 @@ import {
   type QueuedFollowUpRequestDraft
 } from '../queue/followUpQueue.ts'
 import { accumulateRunLoopUsage, mergeUsageForTerminal } from './runUsage.ts'
+import type { SeamlessHandoffCoordinator } from '../handoff/seamlessHandoffCoordinator.ts'
 
 type SteerPendingRunResult = Extract<ExecuteRunResult, { kind: 'steer-pending' }>
 type CancelledRunResult = Extract<ExecuteRunResult, { kind: 'cancelled' }>
@@ -26,6 +32,7 @@ export interface RunLoopSteerContext {
   deps: RunDomainDeps
   createSendChatFlowContext: () => SendChatFlowContext
   createFollowUpQueueContext: () => FollowUpQueueContext
+  seamlessHandoffCoordinator?: SeamlessHandoffCoordinator
 }
 
 export type HandleSteerPendingResult =
@@ -43,44 +50,99 @@ export type HandleSteerPendingResult =
       currentThread: ThreadRecord
     }
 
+interface HandleSteerPendingInput {
+  accumulatedUsage: ExecuteRunInput['priorUsage'] | undefined
+  activeRun: RunState
+  carriedToolFailLoopSteers: number
+  currentRequestMessageId: string
+  loopInput: ActiveRunLoopInput
+  result: SteerPendingRunResult
+}
+
+function cancelSteerPendingRun(input: {
+  context: RunLoopSteerContext
+  handleInput: HandleSteerPendingInput
+  snapshotTracker: SnapshotTracker | undefined
+}): HandleSteerPendingResult {
+  const { context, handleInput, snapshotTracker } = input
+  snapshotTracker?.dispose()
+  const steerPendingUsage = mergeUsageForTerminal(
+    handleInput.accumulatedUsage,
+    handleInput.result.usage
+  )
+  context.deps.storage.cancelRun({
+    runId: handleInput.loopInput.runId,
+    completedAt: context.deps.timestamp(),
+    ...usageFieldsFrom(steerPendingUsage)
+  })
+  context.deps.emit<RunCancelledEvent>({
+    type: 'run.cancelled',
+    threadId: handleInput.loopInput.thread.id,
+    runId: handleInput.loopInput.runId,
+    requestMessageId: handleInput.currentRequestMessageId
+  })
+  return {
+    kind: 'cancelled',
+    accumulatedUsage: steerPendingUsage,
+    result: { kind: 'cancelled' }
+  }
+}
+
+function removeContextHandoffContinuationSteer(runState: RunState): void {
+  const nextInputs = (runState.pendingSteerInputs ?? [])
+    .map((steerInput) => {
+      if (steerInput.hidden !== true) return steerInput
+      const contentParts = steerInput.content
+        .split('\n')
+        .filter((part) => part !== CONTEXT_HANDOFF_CONTINUATION_STEER)
+      if (contentParts.length === 0) return null
+      return { ...steerInput, content: contentParts.join('\n') }
+    })
+    .filter((steerInput): steerInput is PendingSteerInput => steerInput != null)
+
+  if (nextInputs.length > 0) {
+    runState.pendingSteerInputs = nextInputs
+  } else {
+    clearPendingSteerInputs(runState)
+  }
+}
+
 export async function handleSteerPendingResult(
   context: RunLoopSteerContext,
-  input: {
-    accumulatedUsage: ExecuteRunInput['priorUsage'] | undefined
-    activeRun: RunState
-    carriedToolFailLoopSteers: number
-    currentRequestMessageId: string
-    loopInput: ActiveRunLoopInput
-    result: SteerPendingRunResult
-  }
+  input: HandleSteerPendingInput
 ): Promise<HandleSteerPendingResult> {
-  const steerInputs = getPendingSteerInputsForPersistence(input.activeRun)
+  let steerInputs = getPendingSteerInputsForPersistence(input.activeRun)
   const snapshotTracker = input.result.snapshotTracker ?? input.activeRun.snapshotTracker
 
   if (steerInputs.length === 0) {
     // The steer was withdrawn after execution finished at a safe turn boundary.
-    snapshotTracker?.dispose()
-    const steerPendingUsage = mergeUsageForTerminal(input.accumulatedUsage, input.result.usage)
-    context.deps.storage.cancelRun({
-      runId: input.loopInput.runId,
-      completedAt: context.deps.timestamp(),
-      ...usageFieldsFrom(steerPendingUsage)
-    })
-    context.deps.emit<RunCancelledEvent>({
-      type: 'run.cancelled',
-      threadId: input.loopInput.thread.id,
-      runId: input.loopInput.runId,
-      requestMessageId: input.currentRequestMessageId
-    })
-    return {
-      kind: 'cancelled',
-      accumulatedUsage: steerPendingUsage,
-      result: { kind: 'cancelled' }
-    }
+    return cancelSteerPendingRun({ context, handleInput: input, snapshotTracker })
   }
 
   // Parent the steer under the completed assistant response.
   input.activeRun.requestMessageId = input.result.assistantMessageId
+
+  const pendingContextHandoff = input.activeRun.pendingContextHandoff
+  if (pendingContextHandoff) {
+    let handoffCompleted = false
+    try {
+      const result = await context.seamlessHandoffCoordinator?.handoffAtCheckpoint(
+        input.loopInput.thread.id,
+        input.result.assistantMessageId,
+        pendingContextHandoff.reason
+      )
+      handoffCompleted = result?.kind === 'completed' || result?.kind === 'already-covered'
+    } finally {
+      delete input.activeRun.pendingContextHandoff
+    }
+    if (!handoffCompleted) {
+      removeContextHandoffContinuationSteer(input.activeRun)
+      steerInputs = getPendingSteerInputsForPersistence(input.activeRun)
+      if (steerInputs.length === 0) {
+        return cancelSteerPendingRun({ context, handleInput: input, snapshotTracker })
+      }
+    }
+  }
 
   const steerThread = context.deps.requireThread(input.loopInput.thread.id)
   const { userMessages } = persistSteerMessages(context.createSendChatFlowContext(), {

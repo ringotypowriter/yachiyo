@@ -1,5 +1,7 @@
 import { stepCountIs, type StopCondition, type ToolSet } from 'ai'
 import { performance } from 'node:perf_hooks'
+import { collectMessagePath } from '@yachiyo/shared/threadTree'
+import { estimateTextTokens } from '@yachiyo/shared/estimateTokens'
 
 import { SnapshotTracker } from '../../../../services/fileSnapshot/snapshotTracker.ts'
 
@@ -16,11 +18,22 @@ import { isTrackedToolName } from '@yachiyo/shared/protocol'
 import { PLAN_MODE_EXIT_TOOL_NAME } from '@yachiyo/shared/planMode'
 import { createRunPerfCollector } from '../../../../services/perfMonitor.ts'
 import type { ModelUsage } from '../../../../runtime/models/types.ts'
-import { RetryableRunError } from '../../../../runtime/models/runtimeErrors.ts'
+import {
+  RetryableRunError,
+  isContextWindowExceededRunError
+} from '../../../../runtime/models/runtimeErrors.ts'
+import {
+  STRIP_COMPACT_TOKEN_THRESHOLD,
+  estimateTokenCount
+} from '../../../../runtime/context/contextStripCompact.ts'
 import { normalizeToolResult, summarizeToolInput } from '../../../../tools/agentTools.ts'
 import { createDeltaBatcher } from '../../shared/shared.ts'
 import type { RunExecutionPhase } from '../runTypes.ts'
-import { prepareServerRunContext } from '../context/prepareServerRunContext.ts'
+import {
+  prepareServerRunContext,
+  type PreparedServerRunContext,
+  type PrepareServerRunContextInput
+} from '../context/prepareServerRunContext.ts'
 import {
   getCompletedBackgroundBashError,
   getCompletedBackgroundBashOutputSummary,
@@ -90,6 +103,41 @@ function isSuccessfulPlanModeExitToolResult(toolResult: unknown): boolean {
   }
 
   return !hasToolFailureMarker(toolResult) && !hasToolFailureMarker(getToolResultOutput(toolResult))
+}
+
+function resolveContextHandoffThreshold(config: {
+  chat?: { stripCompact?: boolean; stripCompactThresholdTokens?: number }
+}): number | null {
+  if (config.chat?.stripCompact === false) return null
+  const threshold = config.chat?.stripCompactThresholdTokens ?? STRIP_COMPACT_TOKEN_THRESHOLD
+  return Math.max(1, Math.floor(threshold * 0.85))
+}
+
+function estimateUnknownTokenCount(value: unknown): number {
+  if (value == null) return 0
+  if (typeof value === 'string') return estimateTextTokens(value)
+  try {
+    return estimateTextTokens(JSON.stringify(value))
+  } catch {
+    return estimateTextTokens(String(value))
+  }
+}
+
+function findCompletedAssistantCheckpointBeforeRequest(input: {
+  deps: RunExecutionDeps
+  threadId: string
+  requestMessageId: string
+  currentWatermarkMessageId?: string
+}): string | undefined {
+  const messages = input.deps.loadThreadMessages(input.threadId)
+  const path = collectMessagePath(messages, input.requestMessageId)
+  const requestIndex = path.findIndex((message) => message.id === input.requestMessageId)
+  const candidates = (requestIndex >= 0 ? path.slice(0, requestIndex) : path).filter(
+    (message) => message.role === 'assistant' && message.status === 'completed'
+  )
+  const checkpoint = candidates.at(-1)
+  if (!checkpoint || checkpoint.id === input.currentWatermarkMessageId) return undefined
+  return checkpoint.id
 }
 
 export async function executeServerRun(
@@ -287,32 +335,73 @@ export async function executeServerRun(
     perfCollector.recordModelStream(performance.now() - streamStartedAt)
   }
 
+  const hasPendingSteer = deps.hasPendingSteer
+  const buildPrepareInput = (thread: typeof input.thread): PrepareServerRunContextInput => ({
+    runId: input.runId,
+    thread,
+    requestMessageId: input.requestMessageId,
+    enabledTools: input.enabledTools,
+    runMode: input.runMode,
+    ...(input.enabledSkillNames !== undefined
+      ? { enabledSkillNames: input.enabledSkillNames }
+      : {}),
+    ...(input.reasoningEffort !== undefined ? { reasoningEffort: input.reasoningEffort } : {}),
+    runTrigger: input.runTrigger,
+    ...(input.channelHint ? { channelHint: input.channelHint } : {}),
+    ...(input.recoveryCheckpoint ? { recoveryCheckpoint: input.recoveryCheckpoint } : {}),
+    ...(input.isSteerLeg !== undefined ? { isSteerLeg: input.isSteerLeg } : {}),
+    ...(input.previousEnabledTools !== null
+      ? { previousEnabledTools: input.previousEnabledTools }
+      : {}),
+    ...(input.previousRunMode !== null ? { previousRunMode: input.previousRunMode } : {}),
+    ...(input.priorUsage ? { priorUsage: input.priorUsage } : {}),
+    ...(input.maxToolStepsOverride !== undefined
+      ? { maxToolStepsOverride: input.maxToolStepsOverride }
+      : {}),
+    abortController: input.abortController
+  })
+  const prepareWithPreflightHandoff = async (): Promise<PreparedServerRunContext> => {
+    let thread = input.thread
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const prepared = await prepareServerRunContext(deps, buildPrepareInput(thread))
+      const threshold = resolveContextHandoffThreshold(prepared.config)
+      const estimatedTokens = estimateTokenCount(
+        prepared.messages,
+        prepared.modelEnabledTools.length +
+          (input.extraTools ? Object.keys(input.extraTools).length : 0)
+      )
+      if (
+        recoveryCheckpoint ||
+        threshold == null ||
+        estimatedTokens < threshold ||
+        !deps.performContextHandoff
+      ) {
+        return prepared
+      }
+
+      const checkpointMessageId = findCompletedAssistantCheckpointBeforeRequest({
+        deps,
+        threadId: thread.id,
+        requestMessageId: input.requestMessageId,
+        currentWatermarkMessageId: thread.summaryWatermarkMessageId
+      })
+      if (!checkpointMessageId) return prepared
+
+      const result = await deps.performContextHandoff({
+        threadId: thread.id,
+        checkpointMessageId,
+        reason: 'preflight'
+      })
+      if (result.kind !== 'completed' && result.kind !== 'already-covered') return prepared
+      thread = deps.readThread(thread.id)
+    }
+
+    return prepareServerRunContext(deps, buildPrepareInput(thread))
+  }
+
   try {
     const contextPrepareStartedAt = performance.now()
-    const preparedContext = await prepareServerRunContext(deps, {
-      runId: input.runId,
-      thread: input.thread,
-      requestMessageId: input.requestMessageId,
-      enabledTools: input.enabledTools,
-      runMode: input.runMode,
-      ...(input.enabledSkillNames !== undefined
-        ? { enabledSkillNames: input.enabledSkillNames }
-        : {}),
-      ...(input.reasoningEffort !== undefined ? { reasoningEffort: input.reasoningEffort } : {}),
-      runTrigger: input.runTrigger,
-      ...(input.channelHint ? { channelHint: input.channelHint } : {}),
-      abortController: input.abortController,
-      ...(input.recoveryCheckpoint ? { recoveryCheckpoint: input.recoveryCheckpoint } : {}),
-      ...(input.isSteerLeg !== undefined ? { isSteerLeg: input.isSteerLeg } : {}),
-      ...(input.previousEnabledTools !== null
-        ? { previousEnabledTools: input.previousEnabledTools }
-        : {}),
-      ...(input.previousRunMode !== null ? { previousRunMode: input.previousRunMode } : {}),
-      ...(input.priorUsage ? { priorUsage: input.priorUsage } : {}),
-      ...(input.maxToolStepsOverride !== undefined
-        ? { maxToolStepsOverride: input.maxToolStepsOverride }
-        : {})
-    })
+    const preparedContext = await prepareWithPreflightHandoff()
     perfCollector.recordContextPreparation(performance.now() - contextPrepareStartedAt, {
       activeSkillCount: preparedContext.activeSkills.length,
       availableSkillCount: preparedContext.availableSkills.length,
@@ -349,7 +438,44 @@ export async function executeServerRun(
     )
     deps.onEnabledToolsUsed(input.enabledTools)
 
-    const hasPendingSteer = deps.hasPendingSteer
+    const contextHandoffThreshold = resolveContextHandoffThreshold(preparedContext.config)
+    const initialPromptEstimate = estimateTokenCount(
+      finalMessages,
+      preparedContext.modelEnabledTools.length +
+        (input.extraTools ? Object.keys(input.extraTools).length : 0)
+    )
+    const contextHandoffState: {
+      handoffRequested: boolean
+      latestStepPromptTokens: number
+      latestToolResultTokens: number
+      requestedAtStep?: number
+    } = {
+      handoffRequested: false,
+      latestStepPromptTokens: initialPromptEstimate,
+      latestToolResultTokens: 0
+    }
+    const requestStepBoundaryHandoffIfNeeded = (toolResultTokens: number): void => {
+      if (
+        contextHandoffThreshold == null ||
+        contextHandoffState.handoffRequested ||
+        !deps.requestContextHandoffContinuation
+      ) {
+        return
+      }
+      contextHandoffState.latestToolResultTokens += toolResultTokens
+      const promptBasis = Math.max(
+        contextHandoffState.latestStepPromptTokens,
+        initialPromptEstimate
+      )
+      if (promptBasis + contextHandoffState.latestToolResultTokens < contextHandoffThreshold) return
+      contextHandoffState.handoffRequested = true
+      contextHandoffState.requestedAtStep = agentStepCount
+      deps.requestContextHandoffContinuation({
+        reason: 'step-boundary',
+        requestedAtStep: agentStepCount
+      })
+    }
+
     const stopWhen: Array<StopCondition<ToolSet>> | undefined = tools
       ? [
           stepCountIs(maxToolSteps),
@@ -359,6 +485,10 @@ export async function executeServerRun(
               input.runMode === 'plan' &&
               latestToolResults.some(isSuccessfulPlanModeExitToolResult)
             ) {
+              return true
+            }
+
+            if (contextHandoffState.handoffRequested && latestToolResults.length > 0) {
               return true
             }
 
@@ -383,6 +513,8 @@ export async function executeServerRun(
       ...(tools ? { tools } : {}),
       ...(stopWhen ? { stopWhen } : {}),
       onStepUsage: (stepUsage) => {
+        contextHandoffState.latestStepPromptTokens = stepUsage.promptTokens
+        contextHandoffState.latestToolResultTokens = 0
         cumulativeCompletionTokens += stepUsage.completionTokens
         deps.emit<RunUsageUpdatedEvent>({
           type: 'run.usage.updated',
@@ -754,6 +886,12 @@ export async function executeServerRun(
             toolCall
           })
 
+          const toolResultTokens =
+            estimateUnknownTokenCount(event.output) +
+            estimateUnknownTokenCount(event.error) +
+            estimateTextTokens(toolCall.outputSummary ?? '')
+          requestStepBoundaryHandoffIfNeeded(toolResultTokens)
+
           if (toolLifecycle.finishRunningToolCall(event.toolCall.toolCallId)) {
             setExecutionPhase('generating')
           }
@@ -868,6 +1006,32 @@ export async function executeServerRun(
     })
     if (abortedResult) {
       return abortedResult
+    }
+
+    if (
+      isContextWindowExceededRunError(error) &&
+      deps.requestContextHandoffContinuation &&
+      !toolLifecycle.hasRunningToolCalls() &&
+      (outputState.hasTextContent() || toolLifecycle.hasToolCalls())
+    ) {
+      deps.requestContextHandoffContinuation({
+        reason: 'context-window-error',
+        requestedAtStep: agentStepCount
+      })
+      return handleCompletedRun({
+        bindCurrentRunToolCallsToAssistant,
+        deps,
+        executionInput: input,
+        getOutputSnapshot: getCurrentOutputSnapshot,
+        hasPendingSteer,
+        lastUsage,
+        messageId,
+        perfCollector,
+        recoveredFromCheckpoint: Boolean(recoveryCheckpoint),
+        settings,
+        snapshotTracker,
+        toolLifecycle
+      })
     }
 
     return handleRunFailure({

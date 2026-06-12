@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import type { Message, MessageTextBlockRecord } from '@renderer/app/types'
+import type { Message, MessageTextBlockRecord } from '../../../../app/types.ts'
 import { PLAN_DOCUMENT_MARKER } from '@yachiyo/shared/planMode'
 import {
   buildConversationGroupRows,
@@ -1341,4 +1341,77 @@ test('buildConversationGroupRows keeps assistant lookup metadata for tool-only r
     ),
     true
   )
+})
+
+test('buildMessageTimelineRows folds rows covered by the thread handoff watermark', () => {
+  const firstUser = createUserMessage('user-1', 'First question')
+  const firstAssistant = createAssistantMessage({
+    id: 'assistant-1',
+    content: 'First answer',
+    status: 'completed',
+    createdAt: '2026-04-18T00:00:01.000Z'
+  })
+  const laterGroups = [2, 3, 4].map((index) => {
+    const userMessage = {
+      ...createUserMessage(`user-${index}`, `Question ${index}`),
+      createdAt: `2026-04-18T00:00:0${index * 2}.000Z`
+    }
+    const assistantMessage = {
+      ...createAssistantMessage({
+        id: `assistant-${index}`,
+        content: `Answer ${index}`,
+        status: 'completed',
+        createdAt: `2026-04-18T00:00:0${index * 2 + 1}.000Z`
+      }),
+      parentMessageId: userMessage.id
+    }
+    return {
+      userMessage,
+      assistantBranches: [{ message: assistantMessage, isActive: true as const }],
+      activeAssistantMessages: [assistantMessage],
+      hiddenRequestMessageIds: [],
+      userSteerMessages: [],
+      activeBranchIndex: 0,
+      hideActiveBranchWhilePreparing: false,
+      showPreparing: false
+    }
+  })
+
+  const rows = buildMessageTimelineRows({
+    messageGroups: [
+      {
+        userMessage: firstUser,
+        assistantBranches: [{ message: firstAssistant, isActive: true as const }],
+        activeAssistantMessages: [firstAssistant],
+        hiddenRequestMessageIds: [],
+        userSteerMessages: [],
+        activeBranchIndex: 0,
+        hideActiveBranchWhilePreparing: false,
+        showPreparing: false
+      },
+      ...laterGroups
+    ],
+    rootAssistantMessages: [],
+    orphanToolCalls: [],
+    pendingSteerMessage: null,
+    inlineToolCalls: [],
+    runs: [],
+    activeRunId: null,
+    activeRequestMessageId: null,
+    subagentActive: false,
+    summaryWatermarkMessageId: 'assistant-1'
+  })
+
+  assert.equal(rows[0]?.kind, 'handoff-fold')
+  assert.deepEqual(rowKinds(rows).slice(1), [
+    'group-user',
+    'group-assistant-text-block',
+    'group-footer',
+    'group-user',
+    'group-assistant-text-block',
+    'group-footer',
+    'group-user',
+    'group-assistant-text-block',
+    'group-footer'
+  ])
 })

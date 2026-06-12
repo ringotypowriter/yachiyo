@@ -2,8 +2,10 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import {
+  ContextWindowExceededRunError,
   RetryableRunError,
   isContextWindowExceededError,
+  isContextWindowExceededRunError,
   isRetryableRunError,
   isTransientTransportError,
   toRunBoundaryError
@@ -112,6 +114,11 @@ test('isContextWindowExceededError recognizes provider context-window errors', (
     isContextWindowExceededError(new Error('Your input exceeds the context window of this model.')),
     true
   )
+
+  assert.equal(
+    isContextWindowExceededError('This model supports a maximum context length of 128000 tokens.'),
+    true
+  )
 })
 
 test('isContextWindowExceededError checks nested error causes', () => {
@@ -124,7 +131,31 @@ test('isContextWindowExceededError checks nested error causes', () => {
   })
 
   assert.equal(isContextWindowExceededError(wrapped), true)
+  assert.equal(
+    isContextWindowExceededError({
+      error: {
+        cause: {
+          message: 'Requested 130000 tokens, maximum context length is 128000 tokens.'
+        }
+      }
+    }),
+    true
+  )
   assert.equal(isContextWindowExceededError(new Error('Unauthorized')), false)
+})
+
+test('toRunBoundaryError wraps context-window errors in a typed non-retryable error', () => {
+  const raw = {
+    code: 'context_length_exceeded',
+    message: 'Your input exceeds the context window of this model.'
+  }
+  const wrapped = toRunBoundaryError(raw)
+
+  assert.ok(wrapped instanceof ContextWindowExceededRunError)
+  assert.equal(isContextWindowExceededRunError(wrapped), true)
+  assert.equal((wrapped as ContextWindowExceededRunError).message, raw.message)
+  assert.equal((wrapped as ContextWindowExceededRunError).cause, raw)
+  assert.equal(isRetryableRunError(wrapped), false)
 })
 
 test('isTransientTransportError rejects storage/ORM-shaped errors', () => {

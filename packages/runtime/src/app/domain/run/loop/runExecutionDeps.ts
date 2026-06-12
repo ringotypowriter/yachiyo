@@ -14,7 +14,13 @@ import type { ActiveRunLoopInput } from '../active/activeRunStart.ts'
 import { hasPendingSteerInputs } from '../active/pendingSteerQueue.ts'
 import { sendActiveRunSteer, type SendChatFlowContext } from '../chat/sendChatFlow.ts'
 import type { RunExecutionDeps } from '../execution/runExecutionTypes.ts'
-import type { BackgroundTaskRunContext, RunDomainDeps, RunState } from '../runTypes.ts'
+import {
+  CONTEXT_HANDOFF_CONTINUATION_STEER,
+  type BackgroundTaskRunContext,
+  type RunDomainDeps,
+  type RunState
+} from '../runTypes.ts'
+import type { SeamlessHandoffCoordinator } from '../handoff/seamlessHandoffCoordinator.ts'
 import { createRunEventMetadata } from '../../shared/runEventMetadata.ts'
 import {
   buildTodoReminderSteer,
@@ -33,6 +39,7 @@ export interface RunExecutionDepsContext {
   createSendChatFlowContext: () => SendChatFlowContext
   setLastRunEnabledTools: (enabledTools: ToolCallName[]) => void
   setLastRunMode: (runMode: RunModeId) => void
+  seamlessHandoffCoordinator?: SeamlessHandoffCoordinator
 }
 
 export interface BuildRunExecutionDepsInput {
@@ -190,6 +197,29 @@ export function buildRunExecutionDeps(
       }
       injectHiddenRunSteer(context, input, activeRun, steerInput.content)
     },
+    requestContextHandoffContinuation: (handoffInput) => {
+      const activeRun = context.activeRuns.get(input.loopInput.runId)
+      if (!activeRun || activeRun.pendingContextHandoff) {
+        return
+      }
+      activeRun.pendingContextHandoff = {
+        reason: handoffInput.reason,
+        ...(handoffInput.requestedAtStep !== undefined
+          ? { requestedAtStep: handoffInput.requestedAtStep }
+          : {})
+      }
+      injectHiddenRunSteer(context, input, activeRun, CONTEXT_HANDOFF_CONTINUATION_STEER)
+    },
+    ...(context.seamlessHandoffCoordinator
+      ? {
+          performContextHandoff: async (handoffInput) =>
+            context.seamlessHandoffCoordinator!.handoffAtCheckpoint(
+              handoffInput.threadId,
+              handoffInput.checkpointMessageId,
+              handoffInput.reason
+            )
+        }
+      : {}),
     getTodoItems: () => {
       const currentRun = context.activeRuns.get(input.loopInput.runId)
       return (
