@@ -202,7 +202,8 @@ describe('QQBot C2C file messages', () => {
     assert.deepEqual(calls[1].body, {
       file_type: 4,
       srv_send_msg: false,
-      file_data: Buffer.from('hello file').toString('base64')
+      file_data: Buffer.from('hello file').toString('base64'),
+      file_name: 'report.txt'
     })
     assert.deepEqual(calls[2].body, {
       msg_type: 7,
@@ -247,7 +248,8 @@ describe('QQBot C2C file messages', () => {
     assert.deepEqual(calls[1].body, {
       file_type: 1,
       srv_send_msg: false,
-      file_data: Buffer.from('image bytes').toString('base64')
+      file_data: Buffer.from('image bytes').toString('base64'),
+      file_name: 'chart.png'
     })
     assert.deepEqual(calls[2].body, {
       msg_type: 7,

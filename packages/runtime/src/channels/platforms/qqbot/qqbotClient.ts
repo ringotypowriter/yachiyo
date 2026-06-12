@@ -10,6 +10,7 @@
  */
 
 import { readFile } from 'node:fs/promises'
+import { basename } from 'node:path'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -65,9 +66,19 @@ export interface QQBotClient {
   /** Send a text message to a C2C user. replyMsgId is required (passive reply). */
   sendC2CMessage(openId: string, text: string, replyMsgId: string): Promise<void>
   /** Send a local image to a C2C user as a passive media reply. */
-  sendC2CImage(openId: string, filePath: string, replyMsgId: string): Promise<void>
+  sendC2CImage(
+    openId: string,
+    filePath: string,
+    replyMsgId: string,
+    filename?: string
+  ): Promise<void>
   /** Send a local file to a C2C user as a passive media reply. */
-  sendC2CFile(openId: string, filePath: string, replyMsgId: string): Promise<void>
+  sendC2CFile(
+    openId: string,
+    filePath: string,
+    replyMsgId: string,
+    filename?: string
+  ): Promise<void>
   /**
    * Show "typing…" indicator to a C2C user.
    * Uses `msg_type: 6` with `input_notify`. The indicator stays visible
@@ -203,16 +214,22 @@ export function createQQBotClient(options: QQBotClientOptions): QQBotClient {
     return undefined
   }
 
+  function resolveUploadFilename(filePath: string, filename?: string): string {
+    return basename(filename?.trim() || filePath)
+  }
+
   async function uploadC2CMedia(
     openId: string,
     filePath: string,
-    fileType: 1 | 4
+    fileType: 1 | 4,
+    filename?: string
   ): Promise<string> {
     const buffer = await readFile(filePath)
     const result = (await apiRequest('POST', `/v2/users/${openId}/files`, {
       file_type: fileType,
       srv_send_msg: false,
-      file_data: buffer.toString('base64')
+      file_data: buffer.toString('base64'),
+      file_name: resolveUploadFilename(filePath, filename)
     })) as { file_info?: string }
     if (!result.file_info) {
       throw new Error(`[qqbot] file upload returned no file_info for ${filePath}`)
@@ -477,8 +494,13 @@ export function createQQBotClient(options: QQBotClientOptions): QQBotClient {
       })
     },
 
-    async sendC2CImage(openId: string, filePath: string, replyMsgId: string): Promise<void> {
-      const fileInfo = await uploadC2CMedia(openId, filePath, 1)
+    async sendC2CImage(
+      openId: string,
+      filePath: string,
+      replyMsgId: string,
+      filename?: string
+    ): Promise<void> {
+      const fileInfo = await uploadC2CMedia(openId, filePath, 1, filename)
       await apiRequest('POST', `/v2/users/${openId}/messages`, {
         msg_type: 7,
         media: { file_info: fileInfo },
@@ -487,8 +509,13 @@ export function createQQBotClient(options: QQBotClientOptions): QQBotClient {
       })
     },
 
-    async sendC2CFile(openId: string, filePath: string, replyMsgId: string): Promise<void> {
-      const fileInfo = await uploadC2CMedia(openId, filePath, 4)
+    async sendC2CFile(
+      openId: string,
+      filePath: string,
+      replyMsgId: string,
+      filename?: string
+    ): Promise<void> {
+      const fileInfo = await uploadC2CMedia(openId, filePath, 4, filename)
       await apiRequest('POST', `/v2/users/${openId}/messages`, {
         msg_type: 7,
         media: { file_info: fileInfo },
