@@ -36,8 +36,8 @@ export function createStoredThreadRow(thread: ThreadRecord, createdAt: string): 
     source: thread.source ?? null,
     channelUserId: thread.channelUserId ?? null,
     channelGroupId: thread.channelGroupId ?? null,
-    rollingSummary: thread.rollingSummary ?? null,
-    summaryWatermarkMessageId: thread.summaryWatermarkMessageId ?? null,
+    contextHandoffSummary: thread.contextHandoffSummary ?? null,
+    contextHandoffWatermarkMessageId: thread.contextHandoffWatermarkMessageId ?? null,
     readAt: thread.readAt ?? null,
     createdFromEssentialId: thread.createdFromEssentialId ?? null,
     createdFromScheduleId: thread.createdFromScheduleId ?? null,
@@ -71,8 +71,9 @@ export function applyThreadSnapshot(
   storedThread.runMode = nextThread.runMode ?? null
   storedThread.reasoningEffort = serializeReasoningSelection(nextThread.reasoningEffort)
   storedThread.modelOverride = serializeModelOverride(nextThread.modelOverride)
-  storedThread.rollingSummary = nextThread.rollingSummary ?? null
-  storedThread.summaryWatermarkMessageId = nextThread.summaryWatermarkMessageId ?? null
+  storedThread.contextHandoffSummary = nextThread.contextHandoffSummary ?? null
+  storedThread.contextHandoffWatermarkMessageId =
+    nextThread.contextHandoffWatermarkMessageId ?? null
   storedThread.runtimeBinding = serializeRuntimeBinding(nextThread.runtimeBinding)
   storedThread.lastDelegatedSession = serializeLastDelegatedSession(nextThread.lastDelegatedSession)
   storedThread.todoItems = serializeTodoItems(nextThread.todoItems)

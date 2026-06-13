@@ -1,0 +1,2 @@
+ALTER TABLE `threads` RENAME COLUMN "rolling_summary" TO "context_handoff_summary";--> statement-breakpoint
+ALTER TABLE `threads` RENAME COLUMN "summary_watermark_message_id" TO "context_handoff_watermark_message_id";

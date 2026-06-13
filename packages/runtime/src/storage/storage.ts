@@ -71,8 +71,8 @@ export interface StoredThreadRow {
   source: string | null
   channelUserId: string | null
   channelGroupId: string | null
-  rollingSummary: string | null
-  summaryWatermarkMessageId: string | null
+  contextHandoffSummary: string | null
+  contextHandoffWatermarkMessageId: string | null
   readAt: string | null
   createdFromEssentialId: string | null
   createdFromScheduleId: string | null
@@ -504,8 +504,8 @@ export function toThreadRecord(
     | 'source'
     | 'channelUserId'
     | 'channelGroupId'
-    | 'rollingSummary'
-    | 'summaryWatermarkMessageId'
+    | 'contextHandoffSummary'
+    | 'contextHandoffWatermarkMessageId'
     | 'readAt'
     | 'createdFromEssentialId'
     | 'createdFromScheduleId'
@@ -554,10 +554,12 @@ export function toThreadRecord(
       ...(row.channelUserId === null ? {} : { channelUserId: row.channelUserId }),
       ...(row.channelUserRole == null ? {} : { channelUserRole: row.channelUserRole }),
       ...(row.channelGroupId === null ? {} : { channelGroupId: row.channelGroupId }),
-      ...(row.rollingSummary === null ? {} : { rollingSummary: row.rollingSummary }),
-      ...(row.summaryWatermarkMessageId === null
+      ...(row.contextHandoffSummary === null
         ? {}
-        : { summaryWatermarkMessageId: row.summaryWatermarkMessageId }),
+        : { contextHandoffSummary: row.contextHandoffSummary }),
+      ...(row.contextHandoffWatermarkMessageId === null
+        ? {}
+        : { contextHandoffWatermarkMessageId: row.contextHandoffWatermarkMessageId }),
       ...(row.readAt === null ? {} : { readAt: row.readAt }),
       ...(row.createdFromEssentialId === null
         ? {}
@@ -596,10 +598,12 @@ export function toThreadRecord(
     ...(row.channelUserId === null ? {} : { channelUserId: row.channelUserId }),
     ...(row.channelUserRole == null ? {} : { channelUserRole: row.channelUserRole }),
     ...(row.channelGroupId === null ? {} : { channelGroupId: row.channelGroupId }),
-    ...(row.rollingSummary === null ? {} : { rollingSummary: row.rollingSummary }),
-    ...(row.summaryWatermarkMessageId === null
+    ...(row.contextHandoffSummary === null
       ? {}
-      : { summaryWatermarkMessageId: row.summaryWatermarkMessageId }),
+      : { contextHandoffSummary: row.contextHandoffSummary }),
+    ...(row.contextHandoffWatermarkMessageId === null
+      ? {}
+      : { contextHandoffWatermarkMessageId: row.contextHandoffWatermarkMessageId }),
     ...(row.readAt === null ? {} : { readAt: row.readAt }),
     ...(row.createdFromScheduleId === null
       ? {}

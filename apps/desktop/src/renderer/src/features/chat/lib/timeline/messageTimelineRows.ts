@@ -158,6 +158,19 @@ export type MessageTimelineRow =
       scrollMessageId: string
     }
   | {
+      kind: 'handoff-fold'
+      key: string
+      time: string
+      foldedMessageCount: number
+      expanded: boolean
+    }
+  | {
+      kind: 'handoff-summary'
+      key: string
+      time: string
+      content: string
+    }
+  | {
       kind: 'tool'
       key: string
       time: string
@@ -184,6 +197,9 @@ interface BuildMessageTimelineRowsInput {
   activeRunId: string | null
   activeRequestMessageId: string | null
   subagentActive: boolean
+  contextHandoffWatermarkMessageId?: string | null
+  contextHandoffSummary?: string
+  expandedHandoffFoldKeys?: ReadonlySet<string>
   workSummaryEnabled?: boolean
 }
 
@@ -201,6 +217,66 @@ function isPlanDocumentAnchorRow(row: MessageTimelineRow): boolean {
   return false
 }
 
+function rowReferencesMessage(row: MessageTimelineRow, messageId: string): boolean {
+  if ('scrollMessageId' in row && row.scrollMessageId === messageId) return true
+  if ('requestMessageId' in row && row.requestMessageId === messageId) return true
+  if ('assistantMessageId' in row && row.assistantMessageId === messageId) return true
+  if (row.kind === 'assistant-root') return row.data.id === messageId
+  if (row.kind === 'pending-steer') return row.data.id === messageId
+  if (row.kind === 'tool') {
+    return row.data.requestMessageId === messageId || row.data.assistantMessageId === messageId
+  }
+  return false
+}
+
+function foldRowsCoveredByHandoff(
+  rows: MessageTimelineRow[],
+  options: {
+    contextHandoffWatermarkMessageId?: string | null
+    contextHandoffSummary?: string
+    expandedHandoffFoldKeys?: ReadonlySet<string>
+  }
+): MessageTimelineRow[] {
+  const { contextHandoffWatermarkMessageId } = options
+  if (!contextHandoffWatermarkMessageId) return rows
+  const watermarkIndex = rows.findLastIndex((row) =>
+    rowReferencesMessage(row, contextHandoffWatermarkMessageId)
+  )
+  if (watermarkIndex < 0) return rows
+  const foldedRows = rows.slice(0, watermarkIndex + 1)
+  const remainingRows = rows.slice(watermarkIndex + 1)
+  const foldedMessageCount = foldedRows.reduce((count, row) => {
+    if (row.kind === 'group-user') return count + 1
+    return count
+  }, 0)
+
+  const foldKey = `handoff-fold:${contextHandoffWatermarkMessageId}`
+  const expanded = options.expandedHandoffFoldKeys?.has(foldKey) === true
+
+  const foldMarker: MessageTimelineRow = {
+    kind: 'handoff-fold' as const,
+    key: foldKey,
+    time: rows[watermarkIndex]?.time ?? remainingRows[0]?.time ?? '',
+    foldedMessageCount,
+    expanded
+  }
+  const trimmedSummary = options.contextHandoffSummary?.trim()
+  const summaryRow: MessageTimelineRow[] = trimmedSummary
+    ? [
+        {
+          kind: 'handoff-summary' as const,
+          key: `${foldKey}:summary`,
+          time: foldMarker.time,
+          content: trimmedSummary
+        }
+      ]
+    : []
+
+  if (expanded) {
+    return [...foldedRows, ...summaryRow, foldMarker, ...remainingRows]
+  }
+  return [foldMarker, ...remainingRows]
+}
 function keepLatestPlanDocumentAnchorRow(rows: MessageTimelineRow[]): MessageTimelineRow[] {
   let latestPlanDocumentIndex = -1
 
@@ -471,6 +547,11 @@ export function collectInlineCodeMarkdownDocumentsFromRows(
       if (content.length > 0) {
         documents.push(content)
       }
+      continue
+    }
+
+    if (row.kind === 'handoff-summary' && row.content.length > 0) {
+      documents.push(row.content)
     }
   }
 
@@ -892,5 +973,12 @@ export function buildMessageTimelineRows(
     }))
   ]
 
-  return keepLatestPlanDocumentAnchorRow(blocks.sort(compareBlocks).flatMap((block) => block.rows))
+  const rows = keepLatestPlanDocumentAnchorRow(
+    blocks.sort(compareBlocks).flatMap((block) => block.rows)
+  )
+  return foldRowsCoveredByHandoff(rows, {
+    contextHandoffWatermarkMessageId: input.contextHandoffWatermarkMessageId,
+    contextHandoffSummary: input.contextHandoffSummary,
+    expandedHandoffFoldKeys: input.expandedHandoffFoldKeys
+  })
 }

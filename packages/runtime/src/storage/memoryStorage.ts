@@ -429,8 +429,8 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
 
       thread.headMessageId = null
       thread.preview = null
-      thread.rollingSummary = null
-      thread.summaryWatermarkMessageId = null
+      thread.contextHandoffSummary = null
+      thread.contextHandoffWatermarkMessageId = null
       thread.recapText = null
       thread.updatedAt = updatedAt
     },
@@ -468,8 +468,8 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
         }
         thread.headMessageId = null
         thread.preview = null
-        thread.rollingSummary = null
-        thread.summaryWatermarkMessageId = null
+        thread.contextHandoffSummary = null
+        thread.contextHandoffWatermarkMessageId = null
         thread.recapText = null
         thread.updatedAt = updatedAt
       }

@@ -93,13 +93,13 @@ export function toRunHistoryMessages(
   messagePath: ReplayHistoryMessage[],
   requestMessageId: string,
   requestMessageContentOverride?: string,
-  /** If set, only messages after this legacy external-summary watermark are included. */
-  summaryWatermarkMessageId?: string
+  /** If set, only messages after this context handoff watermark are included. */
+  contextHandoffWatermarkMessageId?: string
 ): RunHistoryMessage[] {
   let effectivePath = messagePath
 
-  if (summaryWatermarkMessageId) {
-    const watermarkIndex = effectivePath.findIndex((m) => m.id === summaryWatermarkMessageId)
+  if (contextHandoffWatermarkMessageId) {
+    const watermarkIndex = effectivePath.findIndex((m) => m.id === contextHandoffWatermarkMessageId)
     if (watermarkIndex >= 0) {
       effectivePath = effectivePath.slice(watermarkIndex + 1)
     }
@@ -128,7 +128,7 @@ export function loadRunHistory(
   threadId: string,
   requestMessageId: string,
   requestMessageContentOverride?: string,
-  summaryWatermarkMessageId?: string
+  contextHandoffWatermarkMessageId?: string
 ): RunHistoryMessage[] {
   const messagePath = repairReplayHistoryMessages({
     messages: collectMessagePath(loadThreadMessages(threadId), requestMessageId),
@@ -141,6 +141,6 @@ export function loadRunHistory(
     messagePath,
     requestMessageId,
     requestMessageContentOverride,
-    summaryWatermarkMessageId
+    contextHandoffWatermarkMessageId
   )
 }

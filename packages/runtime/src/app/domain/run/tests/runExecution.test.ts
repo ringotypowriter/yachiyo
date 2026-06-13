@@ -156,6 +156,103 @@ function createRunContextDeps(input: {
   }
 }
 
+test('executeServerRun does not preflight context handoff from rough token estimates', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'yachiyo-no-estimated-handoff-'))
+  const thread: ThreadRecord = {
+    id: 'thread-no-estimated-handoff',
+    title: 'Thread',
+    workspacePath: root,
+    updatedAt: '2026-04-28T00:00:00.000Z'
+  }
+  const requestMessage: MessageRecord = {
+    id: 'msg-no-estimated-handoff',
+    threadId: thread.id,
+    role: 'user',
+    content: 'large pending request '.repeat(10_000),
+    status: 'completed',
+    createdAt: '2026-04-28T00:00:00.000Z'
+  }
+  const events: unknown[] = []
+  let preflightHandoffCalls = 0
+  let continuationHandoffCalls = 0
+  const baseDeps = createRunContextDeps({
+    events,
+    messages: [requestMessage],
+    workspacePath: root
+  })
+  const storage: RunExecutionDeps['storage'] = {
+    ...baseDeps.storage,
+    updateMessage: () => {},
+    getChannelUser: () => undefined,
+    persistResponseMessagesRepairInBackground: () => {},
+    listThreadRuns: () => [],
+    upsertRunRecoveryCheckpoint: () => {},
+    deleteRunRecoveryCheckpoint: () => {},
+    createToolCall: () => {},
+    updateToolCall: () => {},
+    listThreadToolCalls: () => [],
+    completeRun: () => {},
+    cancelRun: () => {},
+    failRun: () => {},
+    saveThreadMessage: () => {},
+    updateRunSnapshot: () => {}
+  }
+  const deps: RunExecutionDeps = {
+    ...baseDeps,
+    storage,
+    readConfig: () => ({
+      ...DEFAULT_SETTINGS_CONFIG,
+      subagentProfiles: [],
+      workspace: { savedPaths: [] },
+      chat: {
+        ...DEFAULT_SETTINGS_CONFIG.chat,
+        stripCompact: true,
+        stripCompactThresholdTokens: 10
+      }
+    }),
+    performContextHandoff: async () => {
+      preflightHandoffCalls++
+      return { kind: 'completed' }
+    },
+    requestContextHandoffContinuation: () => {
+      continuationHandoffCalls++
+    },
+    createModelRuntime: () => ({
+      streamReply: async function* (request) {
+        yield 'Done.'
+        request.onFinish?.({
+          promptTokens: 9,
+          completionTokens: 1,
+          totalPromptTokens: 9,
+          totalCompletionTokens: 1
+        })
+      }
+    })
+  }
+
+  try {
+    const result = await executeServerRun(deps, {
+      enabledTools: [],
+      runMode: 'auto',
+      inactivityTimeoutMs: 30_000,
+      runTrigger: 'local',
+      runId: 'run-no-estimated-handoff',
+      thread,
+      requestMessageId: requestMessage.id,
+      abortController: new AbortController(),
+      updateHeadOnComplete: true,
+      previousEnabledTools: null,
+      previousRunMode: null
+    })
+
+    assert.equal(result.kind, 'completed')
+    assert.equal(preflightHandoffCalls, 0)
+    assert.equal(continuationHandoffCalls, 0)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
 test('prepareServerRunContext injects consumed activity and reports it as a context source', async () => {
   const root = await mkdtemp(join(tmpdir(), 'yachiyo-run-context-'))
   const thread: ThreadRecord = {

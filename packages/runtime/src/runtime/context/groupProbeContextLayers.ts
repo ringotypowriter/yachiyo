@@ -5,7 +5,7 @@ import { toModelHistoryMessages, type ContextLayerHistoryMessage } from './conte
 export interface CompileGroupProbeContextLayersInput {
   stableSystemPrompt: string
   dynamicSystemPrompt: string
-  rollingSummary?: string
+  contextHandoffSummary?: string
   history: ContextLayerHistoryMessage[]
   currentTurnContent: string
   requireAssistantReasoningForReplay?: boolean
@@ -184,14 +184,14 @@ export function compileGroupProbeContextLayers(
     systemPrefix.push({ role: 'system', content: input.dynamicSystemPrompt.trim() })
   }
 
-  const summaryMessages: ModelMessage[] = input.rollingSummary?.trim()
+  const summaryMessages: ModelMessage[] = input.contextHandoffSummary?.trim()
     ? [
         {
           role: 'user',
           content: [
-            '<conversation_summary>',
-            input.rollingSummary.trim(),
-            '</conversation_summary>'
+            '<context_handoff>',
+            input.contextHandoffSummary.trim(),
+            '</context_handoff>'
           ].join('\n')
         }
       ]

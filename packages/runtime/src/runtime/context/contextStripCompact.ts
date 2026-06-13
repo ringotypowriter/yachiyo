@@ -200,7 +200,7 @@ export function applyStripCompact(
 ): ModelMessage[] {
   // Use the provider-reported actual token count from the previous comparable
   // run as the floor, and estimate the current message array from scratch.
-  // This aligns server-side strip compact with the UI warning (which shows
+  // This aligns server-side context compaction with the UI warning (which shows
   // actual promptTokens when available) while still capturing new content.
   let estimatedTokens = estimateTokenCount(messages, toolCount)
   if (previousActualPromptTokens != null) {

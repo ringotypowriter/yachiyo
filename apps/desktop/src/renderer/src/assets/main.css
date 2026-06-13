@@ -488,6 +488,89 @@ body > div:not(#root) {
   z-index: 60;
 }
 
+.handoff-fold-marker {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 10px 24px;
+}
+
+.handoff-fold-marker__divider {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  width: 100%;
+  border: 0;
+  padding: 6px 0;
+  background: transparent;
+  color: rgb(var(--yachiyo-rgb-muted));
+  font: inherit;
+  font-size: 11px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.handoff-fold-marker__divider::before,
+.handoff-fold-marker__divider::after {
+  content: '';
+  flex: 1 1 auto;
+  height: 1px;
+  min-width: 24px;
+  background: rgb(var(--yachiyo-rgb-border) / 0.54);
+  transition: background 0.15s ease;
+}
+
+.handoff-fold-marker__divider:hover::before,
+.handoff-fold-marker__divider:hover::after {
+  background: rgb(var(--yachiyo-rgb-border) / 0.78);
+}
+
+.handoff-fold-marker__pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex: 0 0 auto;
+  padding: 4px 10px;
+  border: 1px solid rgb(var(--yachiyo-rgb-border) / 0.54);
+  border-radius: 999px;
+  background: rgb(var(--yachiyo-rgb-surface) / 0.62);
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease;
+}
+
+.handoff-fold-marker__divider:hover .handoff-fold-marker__pill {
+  background: rgb(var(--yachiyo-rgb-surface) / 0.86);
+  border-color: rgb(var(--yachiyo-rgb-border) / 0.78);
+}
+
+.handoff-fold-marker__icon {
+  color: rgb(var(--yachiyo-rgb-accent) / 0.78);
+  transition: transform 0.15s ease;
+}
+
+.handoff-fold-summary {
+  width: 100%;
+  padding: 0 24px 6px;
+}
+
+.handoff-fold-summary :where(p, ul, ol, pre, blockquote) {
+  margin-top: 0.35em;
+  margin-bottom: 0.35em;
+}
+
+.handoff-fold-summary
+  :where(p:first-child, ul:first-child, ol:first-child, pre:first-child, blockquote:first-child) {
+  margin-top: 0;
+}
+
+.handoff-fold-summary
+  :where(p:last-child, ul:last-child, ol:last-child, pre:last-child, blockquote:last-child) {
+  margin-bottom: 0;
+}
+
 .user-message-images {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));

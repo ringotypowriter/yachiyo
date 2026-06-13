@@ -4,7 +4,7 @@
  * Separate from `compileContextLayers` (local desktop) because external channels
  * have a fundamentally different prefix structure: no skills, no local-agent
  * instructions, channel instruction in the stable system prefix, and optional
- * legacy rolling summary between the system prefix and history.
+ * legacy context handoff summary between the system prefix and history.
  *
  * History replay is identical to local (full responseMessages) for prompt cache
  * stability. The divergence is in the system prefix and legacy summary placement.
@@ -134,8 +134,8 @@ export interface ExternalContextLayersInput {
   executionContract: string
   /** Channel-specific reply formatting instruction. */
   channelInstruction: string
-  /** Legacy rolling conversation summary from older external auto-rolling. */
-  rollingSummary?: string
+  /** Context handoff summary carried before the current transcript window. */
+  contextHandoffSummary?: string
   /** Full conversation history (same as local — includes responseMessages for cache stability). */
   history: ContextLayerHistoryMessage[]
   /** Per-turn reminders (tool changes, current time). */
@@ -154,7 +154,7 @@ export interface ExternalContextLayersInput {
  * 1. [System] personality + soul + user + execution contract + channel instruction
  *    → Stable across the entire thread lifetime. Cacheable.
  *
- * 2. [User] legacy rolling summary (if present)
+ * 2. [User] legacy context handoff summary (if present)
  *    → Stable until the stored thread summary changes. Cacheable.
  *
  * 3. [History] full message history with responseMessages
@@ -182,15 +182,15 @@ export function compileExternalContextLayers(input: ExternalContextLayersInput):
       : null
   ])
 
-  // --- Rolling summary (stable between compactions) ---
-  const summaryMessages: ModelMessage[] = input.rollingSummary?.trim()
+  // --- Context handoff summary (stable between handoffs) ---
+  const summaryMessages: ModelMessage[] = input.contextHandoffSummary?.trim()
     ? [
         {
           role: 'user',
           content: [
-            '<conversation_summary>',
-            input.rollingSummary.trim(),
-            '</conversation_summary>'
+            '<context_handoff>',
+            input.contextHandoffSummary.trim(),
+            '</context_handoff>'
           ].join('\n')
         }
       ]

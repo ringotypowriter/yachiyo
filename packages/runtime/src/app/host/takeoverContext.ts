@@ -154,7 +154,7 @@ function selectTakeoverToolCalls(input: {
   const sortedToolCalls = sortToolCallsChronologically(input.toolCalls)
   const afterWatermark = messagesAfterWatermark(
     input.messages,
-    input.thread.summaryWatermarkMessageId
+    input.thread.contextHandoffWatermarkMessageId
   )
   if (afterWatermark.length === 0) {
     return sortedToolCalls.slice(-TAKEOVER_TOOL_LIMIT)
@@ -176,8 +176,8 @@ export function formatConversationSummary(input: {
   toolCalls: ToolCallRecord[]
 }): string {
   const messages = visibleTakeoverMessages(input.thread, input.messages)
-  const recap = (input.thread.recapText ?? input.thread.rollingSummary ?? '').trim()
-  const sinceRecap = messagesAfterWatermark(messages, input.thread.summaryWatermarkMessageId)
+  const recap = (input.thread.recapText ?? input.thread.contextHandoffSummary ?? '').trim()
+  const sinceRecap = messagesAfterWatermark(messages, input.thread.contextHandoffWatermarkMessageId)
   const conversationMessages = recap
     ? sinceRecap.slice(-TAKEOVER_MESSAGE_LIMIT)
     : messages.slice(-TAKEOVER_MESSAGE_LIMIT)

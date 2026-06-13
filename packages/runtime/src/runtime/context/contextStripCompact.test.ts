@@ -50,9 +50,13 @@ function makeImageToolOutput(imageCount: number): { type: string; value: unknown
   }
 }
 
+function makeOverThresholdAsciiChars(extraTokens = 10_000): number {
+  return Math.ceil((STRIP_COMPACT_TOKEN_THRESHOLD + extraTokens) * 4)
+}
+
 /** Build messages whose estimated token count exceeds the threshold. */
 function buildOverThresholdMessages(): ModelMessage[] {
-  // Each 400K-char tool output ≈ 100K tokens. Two runs with these outputs push past 200K.
+  // Two large ASCII tool outputs push past the default threshold.
   const largeOutput = makeLargeToolOutput(500_000)
   return [
     makeSystemMessage('system'),
@@ -108,7 +112,7 @@ test('estimateTokenCount includes nested tool-result output text', () => {
     makeSystemMessage('system'),
     makeUserMessage('hello'),
     makeAssistantMessage('checking'),
-    makeToolMessage('tc1', makeLargeToolOutput(900_000))
+    makeToolMessage('tc1', makeLargeToolOutput(makeOverThresholdAsciiChars()))
   ]
 
   assert.ok(

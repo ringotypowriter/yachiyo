@@ -1,5 +1,3 @@
-import type { StopCondition, ToolSet } from 'ai'
-
 import type {
   ComposerReasoningSelection,
   MessageCompletedEvent,
@@ -14,26 +12,16 @@ import type {
   ThreadRecord,
   ThreadUpdatedEvent
 } from '@yachiyo/shared/protocol'
-import { normalizeEnabledTools } from '@yachiyo/shared/protocol'
 import { summarizeMessagePreview } from '@yachiyo/shared/messageContent'
-import { isModelImageCapable } from '@yachiyo/shared/providerConfig'
-import { resolveYachiyoUserPath } from '../../../../config/paths.ts'
 import { buildThreadHandoffPrompt } from '../../../../runtime/context/threadHandoff.ts'
 import type { ModelUsage } from '../../../../runtime/models/types.ts'
 import { toEffectiveProviderSettings } from '../../../../settings/settingsStore.ts'
-import { createAgentToolSet, ReadRecordCache } from '../../../../tools/agentTools.ts'
-import { resolveRunModeEnabledTools } from '@yachiyo/shared/toolModes'
 import { createRunEventMetadata } from '../../shared/runEventMetadata.ts'
 import { createDeltaBatcher, DEFAULT_THREAD_TITLE } from '../../shared/shared.ts'
 import { buildTitleQuery, deriveThreadTitleFallback } from '../../threads/threadTitle.ts'
-import { prepareServerRunContext } from '../context/prepareServerRunContext.ts'
 import type { RunDomainDeps, RunState } from '../runTypes.ts'
 import type { ThreadTitleGenerationRunner } from '../title/threadTitleGeneration.ts'
-import {
-  disableHandoffToolExecution,
-  findLatestUserTurnContext,
-  HANDOFF_MAX_REFUSED_TOOL_STEPS
-} from './handoffTools.ts'
+import { prepareThreadHandoffContext } from './threadHandoffContext.ts'
 
 export interface StreamCompactThreadHandoffContext {
   deps: RunDomainDeps
@@ -110,151 +98,19 @@ export async function streamCompactThreadHandoff(
 
   try {
     const sourceThread = deps.requireThread(input.sourceThreadId)
-    const sourceTurnContext = findLatestUserTurnContext(input.sourceMessages)
-    const handoffRequestId = deps.createId()
-    const handoffRequestMessage: MessageRecord = {
-      id: handoffRequestId,
-      threadId: sourceThread.id,
-      role: 'user',
-      content: buildThreadHandoffPrompt(input.sourceMessages.length > 0),
-      status: 'completed',
-      createdAt: deps.timestamp()
-    }
-    const storedSourceRunMode = sourceTurnContext?.runMode ?? sourceThread.runMode ?? 'auto'
-    const sourceRunMode = storedSourceRunMode === 'custom' ? 'auto' : storedSourceRunMode
-    const sourceEnabledTools = sourceTurnContext?.enabledTools
-      ? normalizeEnabledTools(sourceTurnContext.enabledTools, [])
-      : resolveRunModeEnabledTools(sourceRunMode)
-    const preparedContext = await prepareServerRunContext(
-      {
-        storage: deps.storage,
-        createId: deps.createId,
-        timestamp: deps.timestamp,
-        emit: deps.emit,
-        createModelRuntime: deps.createModelRuntime,
-        ensureThreadWorkspace: deps.ensureThreadWorkspace,
-        fetchImpl: deps.fetchImpl,
-        webExternalFetchImpl: deps.webExternalFetchImpl,
-        loadBrowserSnapshot: deps.loadBrowserSnapshot,
-        memoryService: deps.memoryService,
-        searchService: deps.searchService,
-        webSearchService: deps.webSearchService,
-        readSoulDocument: deps.readSoulDocument,
-        readUserDocument: deps.readUserDocument,
-        readThread: deps.requireThread,
-        readConfig: deps.readConfig,
-        readSettings: () => settings,
-        loadThreadMessages: deps.loadThreadMessages,
-        loadThreadToolCalls: deps.loadThreadToolCalls,
-        listSkills: deps.listSkills,
-        onEnabledToolsUsed: () => undefined,
-        jotdownStore: deps.jotdownStore,
-        imageToTextService: deps.imageToTextService,
-        isModelImageCapable: isModelImageCapable(config, settings.providerName, settings.model)
-      },
-      {
-        runId: input.runId,
-        thread: sourceThread,
-        requestMessageId: handoffRequestId,
-        requestMessage: handoffRequestMessage,
-        historyMessages: [...input.sourceMessages, handoffRequestMessage],
-        enabledTools: sourceEnabledTools,
-        runMode: sourceRunMode,
-        runTrigger: 'local',
-        ...(sourceTurnContext?.enabledSkillNames !== undefined
-          ? { enabledSkillNames: sourceTurnContext.enabledSkillNames }
-          : {}),
-        abortController: activeRun.abortController,
-        persistTurnContext: false,
-        persistImageReplayMarkers: false,
-        emitContextEvents: false,
-        includeMemoryRecall: false,
-        applyStripCompact: false
-      }
-    )
-    const handoffTools = disableHandoffToolExecution(
-      createAgentToolSet(
-        {
-          enabledTools: preparedContext.modelEnabledTools,
-          workspacePath: preparedContext.workspacePath,
-          sandboxed: preparedContext.isExternalChannel && !preparedContext.isOwnerDm,
-          readRecordCache: new ReadRecordCache(),
-          imageToTextService: deps.imageToTextService,
-          isModelImageCapable: isModelImageCapable(config, settings.providerName, settings.model)
-        },
-        {
-          availableSkills: preparedContext.availableSkills,
-          fetchImpl: deps.webExternalFetchImpl ?? deps.fetchImpl,
-          loadBrowserSnapshot: deps.loadBrowserSnapshot,
-          searchService: deps.searchService,
-          memoryService: sourceThread.privacyMode ? undefined : deps.memoryService,
-          webSearchService: deps.webSearchService,
-          updateProfileDeps: {
-            userDocumentPath: preparedContext.isGuest
-              ? resolveYachiyoUserPath(preparedContext.workspacePath)
-              : resolveYachiyoUserPath(),
-            ...(preparedContext.isExternalChannel
-              ? {
-                  userDocumentMode: preparedContext.isGuest
-                    ? ('guest' as const)
-                    : ('owner' as const)
-                }
-              : {})
-          },
-          ...(!sourceThread.privacyMode &&
-          (!preparedContext.isExternalChannel || preparedContext.isOwnerDm) &&
-          deps.memoryService.isConfigured()
-            ? { rememberDeps: { memoryService: deps.memoryService } }
-            : {}),
-          ...(!sourceThread.privacyMode &&
-          (!preparedContext.isExternalChannel || preparedContext.isOwnerDm)
-            ? {
-                activityOcrEnabled: config.general?.activityTracking?.ocr?.enabled === true,
-                sourceQueryExecutor: deps.sourceQueryExecutor,
-                sourceQueryStorage: deps.storage
-              }
-            : {}),
-          ...(preparedContext.isLocalRunTrigger
-            ? {
-                askUserContext: {
-                  waitForUserAnswer: async () => {
-                    throw new Error('Tool execution is disabled during handoff creation.')
-                  }
-                }
-              }
-            : {}),
-          ...((preparedContext.subagentsConfig.mode === 'worker' &&
-            preparedContext.subagentsConfig.enabledNamedAgents.length > 0) ||
-          ((preparedContext.gitCtx.hasGit || preparedContext.gitValidatedWorkspaces.length > 0) &&
-            preparedContext.subagentsConfig.mode === 'acp' &&
-            preparedContext.enabledSubagentProfiles.length > 0)
-            ? {
-                subagentProfiles: preparedContext.enabledSubagentProfiles,
-                subagentsConfig: preparedContext.subagentsConfig,
-                availableWorkspaces: preparedContext.subagentAvailableWorkspaces,
-                settings,
-                config,
-                createModelRuntime: deps.createModelRuntime
-              }
-            : {})
-        }
-      )
-    )
+    const handoffContext = await prepareThreadHandoffContext({
+      deps,
+      sourceThread,
+      sourceMessages: input.sourceMessages,
+      requestContent: buildThreadHandoffPrompt(input.sourceMessages.length > 0),
+      runId: input.runId,
+      settings,
+      config,
+      abortController: activeRun.abortController
+    })
+    const { preparedContext } = handoffContext
 
     let handoffUsage: ModelUsage | undefined
-    let refusedHandoffToolExecution = false
-    let handoffToolRefusalCount = 0
-    let observedHandoffToolRefusalCount = 0
-    let handoffToolRefusalSteps = 0
-    const stopAfterRepeatedHandoffToolRefusal: StopCondition<ToolSet> = () => {
-      if (handoffToolRefusalCount === observedHandoffToolRefusalCount) {
-        return false
-      }
-
-      observedHandoffToolRefusalCount = handoffToolRefusalCount
-      handoffToolRefusalSteps += 1
-      return handoffToolRefusalSteps >= HANDOFF_MAX_REFUSED_TOOL_STEPS
-    }
     for await (const delta of runtime.streamReply({
       messages: preparedContext.messages,
       settings,
@@ -262,15 +118,11 @@ export async function streamCompactThreadHandoff(
       purpose: 'thread-handoff',
       promptCacheKey: input.sourceThreadId,
       ...(input.reasoningEffort !== undefined ? { reasoningEffort: input.reasoningEffort } : {}),
-      ...(handoffTools
+      ...(handoffContext.tools
         ? {
-            tools: handoffTools,
-            stopWhen: stopAfterRepeatedHandoffToolRefusal,
-            onToolCallError: () => {
-              refusedHandoffToolExecution = true
-              handoffToolRefusalCount += 1
-              return 'continue' as const
-            }
+            tools: handoffContext.tools,
+            stopWhen: handoffContext.stopWhen,
+            onToolCallError: handoffContext.onToolCallError
           }
         : {}),
       onReasoningDelta: (reasoningDelta) => {
@@ -292,7 +144,7 @@ export async function streamCompactThreadHandoff(
 
     const timestamp = deps.timestamp()
     const handoffResponseMessages =
-      !refusedHandoffToolExecution && handoffUsage?.responseMessages
+      !handoffContext.didRefuseToolExecution() && handoffUsage?.responseMessages
         ? (handoffUsage.responseMessages as Array<{ role?: string; content?: unknown[] }>)
             .map((msg) => {
               if (msg.role !== 'assistant' || !Array.isArray(msg.content)) return msg

@@ -253,9 +253,9 @@ function createAgenticChatThread(storage: YachiyoStorage): ThreadRecord {
     workspacePath: DEMO_WORKSPACE_PATH,
     preview: summarizeMessagePreview(assistantMessage),
     updatedAt: assistantMessage.createdAt,
-    rollingSummary:
+    contextHandoffSummary:
       'Earlier turns compared provider docs and concluded Gemini was the only page still mixing current rates with historical launch-era copy.',
-    summaryWatermarkMessageId: prepAssistantMessage.id,
+    contextHandoffWatermarkMessageId: prepAssistantMessage.id,
     memoryRecall: {
       lastRunAt: assistantMessage.createdAt,
       lastRecallAt: userMessage.createdAt,
@@ -641,9 +641,9 @@ function createCodingDispatchThread(storage: YachiyoStorage): ThreadRecord {
       workspacePath: DEMO_WORKSPACE_PATH,
       timestamp: '2026-04-03T10:10:58.000Z'
     },
-    rollingSummary:
+    contextHandoffSummary:
       'This workspace uses delegated ACP sessions for coding tasks. Claude Code handles primary implementation proposals, then Codex verifies edge cases before the merged answer returns here.',
-    summaryWatermarkMessageId: planningAssistantMessage.id
+    contextHandoffWatermarkMessageId: planningAssistantMessage.id
   })
 
   storage.createThread({
@@ -853,9 +853,9 @@ function createReplyBranchingThread(storage: YachiyoStorage): ThreadRecord {
       providerName: 'work',
       model: 'gpt-5-mini'
     },
-    rollingSummary:
+    contextHandoffSummary:
       'This thread demonstrates reply branching: one concise branch, one technical branch, and a later request to reframe the release note for screenshots and README copy.',
-    summaryWatermarkMessageId: selectedReply.id
+    contextHandoffWatermarkMessageId: selectedReply.id
   })
 
   storage.createThread({
@@ -999,9 +999,9 @@ function createArchivedHandoffThread(storage: YachiyoStorage): ThreadRecord {
     headMessageId: assistantMessage.id,
     privacyMode: true,
     starredAt: '2026-04-02T18:06:00.000Z',
-    rollingSummary:
+    contextHandoffSummary:
       'Archived handoff thread: screenshot plan is stable, docs are synced, and only launch-day publishing choices remain.',
-    summaryWatermarkMessageId: assistantMessage.id
+    contextHandoffWatermarkMessageId: assistantMessage.id
   })
 
   storage.createThread({

@@ -230,7 +230,7 @@ export interface SetBrowserAutomationSessionBoundsInput {
   overlay?: BrowserAutomationOverlayState
 }
 
-export const DEFAULT_STRIP_COMPACT_TOKEN_THRESHOLD = 200_000
+export const DEFAULT_STRIP_COMPACT_TOKEN_THRESHOLD = 230_400
 export const DEFAULT_WEB_READ_CONTENT_FORMAT: WebReadRequestFormat = 'markdown'
 export const DEFAULT_WEB_SEARCH_PROVIDER: WebSearchProviderId = 'google-browser'
 export const CORE_TOOL_NAMES = [
@@ -515,10 +515,10 @@ export interface ThreadRecord {
   channelUserId?: string
   channelUserRole?: ChannelUserRole
   channelGroupId?: string
-  /** Legacy external-safe summary from older external auto-rolling. Preserved for replay. */
-  rollingSummary?: string
-  /** Messages up to this ID are covered by rollingSummary. Transcript window starts after. */
-  summaryWatermarkMessageId?: string
+  /** Context handoff summary covering the folded transcript prefix. */
+  contextHandoffSummary?: string
+  /** Messages up to this ID are covered by contextHandoffSummary. Transcript window starts after it. */
+  contextHandoffWatermarkMessageId?: string
   /** When the user last viewed this archived thread. Null = unread. */
   readAt?: string
   /** Essential preset that spawned this thread. */
