@@ -81,36 +81,28 @@ export function buildThreadHandoffPrompt(hasHistory: boolean): string {
   return hasHistory ? HANDOFF_PROMPT : `${HANDOFF_PROMPT}\n\n${EMPTY_THREAD_HANDOFF_SUFFIX}`
 }
 
-export function buildSeamlessThreadHandoffMessages(input: {
+export function buildSeamlessThreadHandoffPrompt(input: {
   previousContextHandoffSummary?: string | null
   checkpointSegmentSummary: string
   checkpointDumpPath: string
   reason: string
-}): ModelMessage[] {
+}): string {
   const previousSummary = input.previousContextHandoffSummary?.trim() || '(none)'
-  return [
-    {
-      role: 'system',
-      content: SEAMLESS_THREAD_HANDOFF_PROMPT
-    },
-    {
-      role: 'user',
-      content: [
-        `Handoff reason: ${input.reason}`,
-        '',
-        'Previous context handoff summary:',
-        previousSummary,
-        '',
-        'Checkpoint segment summary:',
-        input.checkpointSegmentSummary.trim() || '(no new messages)',
-        '',
-        'New Markdown dump path:',
-        `\`${input.checkpointDumpPath}\``,
-        '',
-        'Return the updated context handoff summary only.'
-      ].join('\n')
-    }
-  ]
+  const handoffInput = [
+    `Handoff reason: ${input.reason}`,
+    '',
+    'Previous context handoff summary:',
+    previousSummary,
+    '',
+    'Checkpoint segment summary:',
+    input.checkpointSegmentSummary.trim() || '(no new messages)',
+    '',
+    'New Markdown dump path:',
+    `\`${input.checkpointDumpPath}\``,
+    '',
+    'Return the updated context handoff summary only.'
+  ].join('\n')
+  return `${SEAMLESS_THREAD_HANDOFF_PROMPT}\n\n${handoffInput}`
 }
 
 type HandoffHistoryMessage = ContextLayerHistoryMessage

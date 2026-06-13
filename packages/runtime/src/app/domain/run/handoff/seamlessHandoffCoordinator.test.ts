@@ -11,13 +11,20 @@ import type {
   ThreadUpdatedEvent
 } from '@yachiyo/shared/protocol'
 import type { YachiyoStorage } from '../../../../storage/storage.ts'
+import { DEFAULT_SETTINGS_CONFIG } from '../../../../settings/settingsStore.ts'
+import { buildThreadHandoffPrompt } from '../../../../runtime/context/threadHandoff.ts'
 import type { ModelRuntime, ModelStreamRequest } from '../../../../runtime/models/types.ts'
-import { SeamlessHandoffCoordinator } from './seamlessHandoffCoordinator.ts'
+import {
+  SeamlessHandoffCoordinator,
+  type SeamlessHandoffCoordinatorDeps
+} from './seamlessHandoffCoordinator.ts'
+import { prepareThreadHandoffContext } from './threadHandoffContext.ts'
 
 function createThread(): ThreadRecord {
   return {
     id: 'thread-1',
     title: 'Long task',
+    runMode: 'chat',
     createdAt: '2026-06-01T00:00:00.000Z',
     updatedAt: '2026-06-01T00:00:00.000Z',
     contextHandoffSummary: '### Goal\nKeep building.\n\n### Original message records\n- `/old.md`',
@@ -71,6 +78,7 @@ function createCoordinator(input: {
   requests: ModelStreamRequest[]
   events: Array<Omit<ThreadUpdatedEvent, 'eventId' | 'timestamp'>>
   streamReply?: ModelRuntime['streamReply']
+  listSkills?: SeamlessHandoffCoordinatorDeps['listSkills']
 }): SeamlessHandoffCoordinator {
   const settings: ProviderSettings = {
     providerName: 'work',
@@ -83,18 +91,23 @@ function createCoordinator(input: {
     getThread: () => input.thread,
     updateThread: (thread: ThreadRecord) => {
       Object.assign(input.thread, thread)
-    }
+    },
+    updateMessage: () => {},
+    getChannelUser: () => undefined,
+    listThreadRuns: () => [],
+    persistResponseMessagesRepairInBackground: () => {}
   } as Partial<YachiyoStorage> as YachiyoStorage
-
-  return new SeamlessHandoffCoordinator({
+  const deps = {
     storage,
     createId: () => 'handoff-id',
     timestamp: () => '2026-06-01T00:00:05.000Z',
-    emit: (event) => {
+    emit: (event: Parameters<SeamlessHandoffCoordinatorDeps['emit']>[0]) => {
       if (event.type === 'thread.updated') {
         input.events.push(event as Omit<ThreadUpdatedEvent, 'eventId' | 'timestamp'>)
       }
     },
+    runInactivityTimeoutMs: 30_000,
+    auxiliaryGeneration: {} as never,
     createModelRuntime: () => ({
       async *streamReply(request: ModelStreamRequest) {
         input.requests.push(request)
@@ -111,11 +124,16 @@ function createCoordinator(input: {
       }
     }),
     ensureThreadWorkspace: async () => input.workspacePath,
+    memoryService: { isConfigured: () => false } as never,
+    readConfig: () => DEFAULT_SETTINGS_CONFIG,
+    readSettings: () => settings,
+    listSkills: input.listSkills ?? (async () => []),
+    requireThread: () => input.thread,
     loadThreadMessages: () => input.messages,
-    loadThreadToolCalls: () => [],
-    readConfig: () => ({ providers: [] }),
-    readSettings: () => settings
-  })
+    loadThreadToolCalls: () => []
+  }
+
+  return new SeamlessHandoffCoordinator(deps as SeamlessHandoffCoordinatorDeps)
 }
 
 test('SeamlessHandoffCoordinator writes one markdown dump and advances context handoff summary watermark atomically', async () => {
@@ -135,7 +153,7 @@ test('SeamlessHandoffCoordinator writes one markdown dump and advances context h
     assert.match(thread.contextHandoffSummary ?? '', /Continue the active run/)
     assert.equal(requests.length, 1)
     assert.equal(requests[0]?.purpose, 'thread-handoff')
-    assert.equal(requests[0]?.tools, undefined)
+    assert.ok(requests[0]?.tools)
     assert.equal(events.length, 1)
     assert.equal(events[0]?.thread.contextHandoffWatermarkMessageId, 'a2')
 
@@ -145,6 +163,65 @@ test('SeamlessHandoffCoordinator writes one markdown dump and advances context h
     const markdown = await readFile(join(dumpDir, files[0]!), 'utf8')
     assert.match(markdown, /new task/)
     assert.doesNotMatch(markdown, /old answer/)
+  } finally {
+    await rm(workspacePath, { recursive: true, force: true })
+  }
+})
+
+test('SeamlessHandoffCoordinator builds summary generation from the shared handoff context prefix', async () => {
+  const workspacePath = await mkdtemp(join(tmpdir(), 'yachiyo-seamless-handoff-'))
+  try {
+    const thread = createThread()
+    const messages = createSegmentMessages(thread)
+    const requests: ModelStreamRequest[] = []
+    const events: ThreadUpdatedEvent[] = []
+    const coordinator = createCoordinator({
+      thread,
+      workspacePath,
+      messages,
+      requests,
+      events
+    })
+
+    const coordinatorDeps = (
+      coordinator as unknown as {
+        deps: ConstructorParameters<typeof SeamlessHandoffCoordinator>[0]
+      }
+    ).deps
+    const referenceContext = await prepareThreadHandoffContext({
+      deps: coordinatorDeps,
+      sourceThread: thread,
+      sourceMessages: messages.slice(2),
+      requestContent: buildThreadHandoffPrompt(true),
+      runId: 'a2',
+      settings: {
+        providerName: 'work',
+        provider: 'openai',
+        model: 'gpt-4o',
+        apiKey: 'sk-test',
+        baseUrl: ''
+      },
+      config: DEFAULT_SETTINGS_CONFIG,
+      abortController: new AbortController()
+    })
+
+    const result = await coordinator.handoffAtCheckpoint(thread.id, 'a2', 'step-boundary')
+
+    assert.equal(result.kind, 'completed')
+    assert.deepEqual(
+      requests[0]?.messages.slice(0, -1),
+      referenceContext.preparedContext.messages.slice(0, -1)
+    )
+    assert.equal(requests[0]?.messages.at(-1)?.role, 'user')
+    assert.match(
+      String(requests[0]?.messages.at(-1)?.content),
+      /Update the context handoff summary/
+    )
+    assert.notEqual(
+      requests[0]?.messages.at(-1)?.content,
+      referenceContext.preparedContext.messages.at(-1)?.content
+    )
+    assert.equal(requests[0]?.promptCacheKey, thread.id)
   } finally {
     await rm(workspacePath, { recursive: true, force: true })
   }
@@ -175,6 +252,35 @@ test('SeamlessHandoffCoordinator skips without updating the thread when summary 
     assert.equal(thread.contextHandoffWatermarkMessageId, 'a1')
     assert.equal(thread.contextHandoffSummary, originalSummary)
     assert.equal(requests.length, 1)
+    assert.equal(events.length, 0)
+  } finally {
+    await rm(workspacePath, { recursive: true, force: true })
+  }
+})
+
+test('SeamlessHandoffCoordinator rethrows shared handoff context builder failures', async () => {
+  const workspacePath = await mkdtemp(join(tmpdir(), 'yachiyo-seamless-handoff-'))
+  try {
+    const thread = createThread()
+    const requests: ModelStreamRequest[] = []
+    const events: ThreadUpdatedEvent[] = []
+    const coordinator = createCoordinator({
+      thread,
+      workspacePath,
+      messages: createSegmentMessages(thread),
+      requests,
+      events,
+      listSkills: async () => {
+        throw new Error('skill catalog unavailable')
+      }
+    })
+
+    await assert.rejects(
+      () => coordinator.handoffAtCheckpoint(thread.id, 'a2', 'step-boundary'),
+      /skill catalog unavailable/
+    )
+    assert.equal(thread.contextHandoffWatermarkMessageId, 'a1')
+    assert.equal(requests.length, 0)
     assert.equal(events.length, 0)
   } finally {
     await rm(workspacePath, { recursive: true, force: true })

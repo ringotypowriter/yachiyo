@@ -10,12 +10,14 @@ import type {
   ToolCallRecord
 } from '@yachiyo/shared/protocol'
 import { collectMessagePath } from '@yachiyo/shared/threadTree'
-import { buildSeamlessThreadHandoffMessages } from '../../../../runtime/context/threadHandoff.ts'
-import type { ModelRuntime } from '../../../../runtime/models/types.ts'
+import { buildSeamlessThreadHandoffPrompt } from '../../../../runtime/context/threadHandoff.ts'
 import { toEffectiveProviderSettings } from '../../../../settings/settingsStore.ts'
-import type { YachiyoStorage } from '../../../../storage/storage.ts'
-import type { CreateId, EmitServerEvent, Timestamp } from '../../shared/shared.ts'
+import type { RunDomainDeps } from '../runTypes.ts'
 import { createSeamlessHandoffDump, type SeamlessHandoffDump } from './seamlessHandoffDump.ts'
+import {
+  prepareThreadHandoffContext,
+  type PreparedThreadHandoffContext
+} from './threadHandoffContext.ts'
 
 export type SeamlessHandoffReason = 'preflight' | 'step-boundary' | 'context-window-error' | string
 
@@ -24,18 +26,7 @@ export type SeamlessHandoffResult =
   | { kind: 'already-covered' }
   | { kind: 'skipped'; reason: string }
 
-export interface SeamlessHandoffCoordinatorDeps {
-  storage: Pick<YachiyoStorage, 'getThread' | 'updateThread'>
-  createId: CreateId
-  timestamp: Timestamp
-  emit: EmitServerEvent
-  createModelRuntime: () => ModelRuntime
-  ensureThreadWorkspace: (threadId: string) => Promise<string>
-  loadThreadMessages: (threadId: string) => MessageRecord[]
-  loadThreadToolCalls: (threadId: string) => ToolCallRecord[]
-  readConfig: () => SettingsConfig
-  readSettings: () => ProviderSettings
-}
+export type SeamlessHandoffCoordinatorDeps = RunDomainDeps
 
 const MESSAGE_SUMMARY_LIMIT = 900
 const TOOL_SUMMARY_LIMIT = 500
@@ -47,6 +38,15 @@ function truncateForSummary(value: string, limit: number): string {
 
 function compactWhitespace(value: string): string {
   return value.replace(/\s+/g, ' ').trim()
+}
+
+function sliceMessagesAfterWatermark(
+  messages: MessageRecord[],
+  watermarkMessageId: string | undefined
+): MessageRecord[] {
+  if (!watermarkMessageId) return messages
+  const watermarkIndex = messages.findIndex((message) => message.id === watermarkMessageId)
+  return watermarkIndex >= 0 ? messages.slice(watermarkIndex + 1) : messages
 }
 
 function createDumpFileName(timestamp: string, id: string): string {
@@ -167,22 +167,48 @@ export class SeamlessHandoffCoordinator {
       thread
     })
     const runtime = this.deps.createModelRuntime()
-    const messages = buildSeamlessThreadHandoffMessages({
-      previousContextHandoffSummary: thread.contextHandoffSummary,
-      checkpointSegmentSummary: summarizeSegment({ dump, toolCalls }),
-      checkpointDumpPath: dumpPath,
-      reason
-    })
     const controller = new AbortController()
     this.controllers.add(controller)
+    let handoffContext: PreparedThreadHandoffContext
+    try {
+      handoffContext = await prepareThreadHandoffContext({
+        deps: this.deps,
+        sourceThread: thread,
+        sourceMessages: sliceMessagesAfterWatermark(
+          activePathMessages,
+          thread.contextHandoffWatermarkMessageId
+        ),
+        requestContent: buildSeamlessThreadHandoffPrompt({
+          previousContextHandoffSummary: thread.contextHandoffSummary,
+          checkpointSegmentSummary: summarizeSegment({ dump, toolCalls }),
+          checkpointDumpPath: dumpPath,
+          reason
+        }),
+        runId: checkpointMessageId,
+        settings,
+        config,
+        abortController: controller
+      })
+    } catch (error) {
+      this.controllers.delete(controller)
+      throw error
+    }
+
     const summaryParts: string[] = []
     try {
       for await (const delta of runtime.streamReply({
-        messages,
+        messages: handoffContext.preparedContext.messages,
         settings,
         signal: controller.signal,
         purpose: 'thread-handoff',
-        promptCacheKey: thread.id
+        promptCacheKey: thread.id,
+        ...(handoffContext.tools
+          ? {
+              tools: handoffContext.tools,
+              stopWhen: handoffContext.stopWhen,
+              onToolCallError: handoffContext.onToolCallError
+            }
+          : {})
       })) {
         if (delta) summaryParts.push(delta)
       }

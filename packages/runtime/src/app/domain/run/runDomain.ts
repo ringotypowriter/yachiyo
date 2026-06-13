@@ -126,18 +126,7 @@ export class YachiyoServerRunDomain {
     this.lastRunEnabledTools = null
     this.lastRunMode = null
     this.threadTitleRunner = new ThreadTitleGenerationRunner(deps)
-    this.seamlessHandoffCoordinator = new SeamlessHandoffCoordinator({
-      storage: deps.storage,
-      createId: deps.createId,
-      timestamp: deps.timestamp,
-      emit: deps.emit,
-      createModelRuntime: deps.createModelRuntime,
-      ensureThreadWorkspace: deps.ensureThreadWorkspace,
-      loadThreadMessages: deps.loadThreadMessages,
-      loadThreadToolCalls: deps.loadThreadToolCalls,
-      readConfig: deps.readConfig,
-      readSettings: deps.readSettings
-    })
+    this.seamlessHandoffCoordinator = new SeamlessHandoffCoordinator(deps)
     this.memoryScheduler = createMemoryDistillationScheduler({
       memoryService: deps.memoryService,
       readConfig: deps.readConfig,
