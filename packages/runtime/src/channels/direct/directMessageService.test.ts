@@ -58,6 +58,15 @@ function createUserMessage(threadId: string): MessageRecord {
   }
 }
 
+async function waitFor(predicate: () => boolean, timeoutMs = 1000): Promise<void> {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    if (predicate()) return
+    await delay(5)
+  }
+  assert.ok(predicate(), 'timed out waiting for expected condition')
+}
+
 describe('directMessageService', () => {
   describe('resolveDirectMessageThread', () => {
     it('does not apply the channel model to a fresh owner DM thread', async () => {
@@ -741,7 +750,7 @@ describe('directMessageService', () => {
 
     directMessages.enqueueMessage('chat-1', channelUser, 'send the report')
 
-    await delay(20)
+    await waitFor(() => visibleReplies.length === 1)
 
     assert.deepEqual(sentMessages, [])
     assert.equal(sentReplies.length, 1)
