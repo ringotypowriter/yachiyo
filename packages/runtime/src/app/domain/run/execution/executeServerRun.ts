@@ -371,7 +371,7 @@ export async function executeServerRun(
         deps,
         threadId: thread.id,
         requestMessageId: input.requestMessageId,
-        currentWatermarkMessageId: thread.summaryWatermarkMessageId
+        currentWatermarkMessageId: thread.contextHandoffWatermarkMessageId
       })
       if (!checkpointMessageId) return prepared
 

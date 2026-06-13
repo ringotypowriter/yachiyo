@@ -20,8 +20,8 @@ function createThread(): ThreadRecord {
     title: 'Long task',
     createdAt: '2026-06-01T00:00:00.000Z',
     updatedAt: '2026-06-01T00:00:00.000Z',
-    rollingSummary: '### Goal\nKeep building.\n\n### Original message records\n- `/old.md`',
-    summaryWatermarkMessageId: 'a1'
+    contextHandoffSummary: '### Goal\nKeep building.\n\n### Original message records\n- `/old.md`',
+    contextHandoffWatermarkMessageId: 'a1'
   } as ThreadRecord
 }
 
@@ -74,7 +74,7 @@ function createCoordinator(input: {
   })
 }
 
-test('SeamlessHandoffCoordinator writes one markdown dump and advances rolling summary watermark atomically', async () => {
+test('SeamlessHandoffCoordinator writes one markdown dump and advances context handoff summary watermark atomically', async () => {
   const workspacePath = await mkdtemp(join(tmpdir(), 'yachiyo-seamless-handoff-'))
   try {
     const thread = createThread()
@@ -121,14 +121,14 @@ test('SeamlessHandoffCoordinator writes one markdown dump and advances rolling s
     const result = await coordinator.handoffAtCheckpoint(thread.id, 'a2', 'step-boundary')
 
     assert.equal(result.kind, 'completed')
-    assert.equal(thread.summaryWatermarkMessageId, 'a2')
-    assert.match(thread.rollingSummary ?? '', /### Original message records/)
-    assert.match(thread.rollingSummary ?? '', /Continue the active run/)
+    assert.equal(thread.contextHandoffWatermarkMessageId, 'a2')
+    assert.match(thread.contextHandoffSummary ?? '', /### Original message records/)
+    assert.match(thread.contextHandoffSummary ?? '', /Continue the active run/)
     assert.equal(requests.length, 1)
     assert.equal(requests[0]?.purpose, 'thread-handoff')
     assert.equal(requests[0]?.tools, undefined)
     assert.equal(events.length, 1)
-    assert.equal(events[0]?.thread.summaryWatermarkMessageId, 'a2')
+    assert.equal(events[0]?.thread.contextHandoffWatermarkMessageId, 'a2')
 
     const dumpDir = join(workspacePath, '.yachiyo', 'context-handoffs')
     const files = await readdir(dumpDir)
@@ -144,7 +144,7 @@ test('SeamlessHandoffCoordinator writes one markdown dump and advances rolling s
 test('SeamlessHandoffCoordinator skips checkpoints already covered by the watermark', async () => {
   const workspacePath = await mkdtemp(join(tmpdir(), 'yachiyo-seamless-handoff-'))
   try {
-    const thread = { ...createThread(), summaryWatermarkMessageId: 'a2' }
+    const thread = { ...createThread(), contextHandoffWatermarkMessageId: 'a2' }
     const requests: ModelStreamRequest[] = []
     const events: ThreadUpdatedEvent[] = []
     const coordinator = createCoordinator({ thread, workspacePath, messages: [], requests, events })

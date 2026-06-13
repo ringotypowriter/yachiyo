@@ -163,8 +163,8 @@ function estimateTimelineRowSize(item: MessageTimelineRow): number {
     case 'tool':
       return 72
     case 'handoff-fold':
-      if (!item.expanded || !item.rollingSummary) return 44
-      return Math.min(280, Math.ceil(item.rollingSummary.length / 90) * 18 + 96)
+      if (!item.expanded || !item.contextHandoffSummary) return 44
+      return Math.min(280, Math.ceil(item.contextHandoffSummary.length / 90) * 18 + 96)
     case 'pending-steer':
       return 120
     case 'assistant-root': {
@@ -313,10 +313,10 @@ function renderTimelineItem(
             {item.foldedRowCount} rows · {item.expanded ? 'Hide' : 'Show'}
           </span>
         </button>
-        {item.expanded && item.rollingSummary ? (
+        {item.expanded && item.contextHandoffSummary ? (
           <details className="handoff-fold-marker__summary">
             <summary>Handoff summary</summary>
-            <pre>{item.rollingSummary}</pre>
+            <pre>{item.contextHandoffSummary}</pre>
           </details>
         ) : null}
       </div>
@@ -852,8 +852,8 @@ export function MessageTimeline({
         activeRunId,
         activeRequestMessageId,
         subagentActive,
-        summaryWatermarkMessageId: thread?.summaryWatermarkMessageId ?? null,
-        rollingSummary: thread?.rollingSummary,
+        contextHandoffWatermarkMessageId: thread?.contextHandoffWatermarkMessageId ?? null,
+        contextHandoffSummary: thread?.contextHandoffSummary,
         expandedHandoffFoldKeys,
         workSummaryEnabled
       }),
@@ -867,8 +867,8 @@ export function MessageTimeline({
       activeRunId,
       activeRequestMessageId,
       subagentActive,
-      thread?.summaryWatermarkMessageId,
-      thread?.rollingSummary,
+      thread?.contextHandoffWatermarkMessageId,
+      thread?.contextHandoffSummary,
       expandedHandoffFoldKeys,
       workSummaryEnabled
     ]

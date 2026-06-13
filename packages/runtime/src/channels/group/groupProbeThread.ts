@@ -93,23 +93,25 @@ export async function resolveGroupProbeThread(
 
 function trimHistoryToWatermark(
   messages: MessageRecord[],
-  summaryWatermarkMessageId?: string
+  contextHandoffWatermarkMessageId?: string
 ): MessageRecord[] {
-  if (!summaryWatermarkMessageId) {
+  if (!contextHandoffWatermarkMessageId) {
     return messages
   }
-  const watermarkIndex = messages.findIndex((message) => message.id === summaryWatermarkMessageId)
+  const watermarkIndex = messages.findIndex(
+    (message) => message.id === contextHandoffWatermarkMessageId
+  )
   return watermarkIndex >= 0 ? messages.slice(watermarkIndex + 1) : messages
 }
 
 export function loadGroupProbeHistory(
   storage: Pick<YachiyoStorage, 'listThreadMessages' | 'persistResponseMessagesRepairInBackground'>,
-  thread: Pick<ThreadRecord, 'id' | 'summaryWatermarkMessageId'>
+  thread: Pick<ThreadRecord, 'id' | 'contextHandoffWatermarkMessageId'>
 ): ContextLayerHistoryMessage[] {
   return repairReplayHistoryMessages({
     messages: trimHistoryToWatermark(
       storage.listThreadMessages(thread.id),
-      thread.summaryWatermarkMessageId
+      thread.contextHandoffWatermarkMessageId
     ),
     persistRepairedResponseMessages: (repair) => {
       storage.persistResponseMessagesRepairInBackground?.(repair)

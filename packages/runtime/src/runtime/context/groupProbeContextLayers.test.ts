@@ -7,7 +7,7 @@ test('compileGroupProbeContextLayers keeps stable prefix, summary, history, and 
   const messages = compileGroupProbeContextLayers({
     stableSystemPrompt: 'Stable group behavior rules.',
     dynamicSystemPrompt: 'You are the group probe.',
-    rollingSummary: 'The group was joking about keyboards.',
+    contextHandoffSummary: 'The group was joking about keyboards.',
     history: [
       { role: 'user', content: '<msg from="Alice">old turn</msg>' },
       { role: 'assistant', content: 'silent, not worth joining' }
@@ -19,7 +19,7 @@ test('compileGroupProbeContextLayers keeps stable prefix, summary, history, and 
   assert.deepEqual(messages[0], { role: 'system', content: 'Stable group behavior rules.' })
   assert.deepEqual(messages[1], { role: 'system', content: 'You are the group probe.' })
   assert.equal(messages[2]?.role, 'user')
-  assert.match(messages[2]?.content as string, /conversation_summary/)
+  assert.match(messages[2]?.content as string, /context_handoff/)
   assert.equal(messages[3]?.role, 'user')
   assert.equal(messages[3]?.content, '<msg from="Alice">old turn</msg>')
   assert.equal(messages[4]?.role, 'user')

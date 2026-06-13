@@ -1400,8 +1400,8 @@ test('buildMessageTimelineRows folds rows covered by the thread handoff watermar
     activeRunId: null,
     activeRequestMessageId: null,
     subagentActive: false,
-    summaryWatermarkMessageId: 'assistant-1',
-    rollingSummary: 'The handoff summary.'
+    contextHandoffWatermarkMessageId: 'assistant-1',
+    contextHandoffSummary: 'The handoff summary.'
   }
 
   const rows = buildMessageTimelineRows(baseInput)
@@ -1409,7 +1409,7 @@ test('buildMessageTimelineRows folds rows covered by the thread handoff watermar
   assert.equal(rows[0]?.kind, 'handoff-fold')
   assert.equal(rows[0]?.foldedRowCount, 3)
   assert.equal(rows[0]?.expanded, false)
-  assert.equal(rows[0]?.rollingSummary, 'The handoff summary.')
+  assert.equal(rows[0]?.contextHandoffSummary, 'The handoff summary.')
   assert.deepEqual(rowKinds(rows).slice(1), [
     'group-user',
     'group-assistant-text-block',
@@ -1445,4 +1445,30 @@ test('buildMessageTimelineRows folds rows covered by the thread handoff watermar
     'group-assistant-text-block',
     'group-footer'
   ])
+})
+
+test('buildMessageTimelineRows shows the handoff fold marker even when no later rows exist yet', () => {
+  const assistantMessage = createAssistantMessage({
+    id: 'assistant-1',
+    content: 'Answer',
+    status: 'completed'
+  })
+  const rows = buildMessageTimelineRows({
+    messageGroups: [createGroup({ activeAssistant: assistantMessage })],
+    rootAssistantMessages: [],
+    orphanToolCalls: [],
+    pendingSteerMessage: null,
+    inlineToolCalls: [],
+    runs: [],
+    activeRunId: null,
+    activeRequestMessageId: null,
+    subagentActive: false,
+    contextHandoffWatermarkMessageId: 'assistant-1',
+    contextHandoffSummary: 'The handoff summary.'
+  })
+
+  assert.equal(rows[0]?.kind, 'handoff-fold')
+  assert.equal(rows[0]?.foldedRowCount, 3)
+  assert.equal(rows[0]?.expanded, false)
+  assert.deepEqual(rowKinds(rows), ['handoff-fold'])
 })

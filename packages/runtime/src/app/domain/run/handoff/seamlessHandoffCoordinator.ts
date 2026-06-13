@@ -136,7 +136,8 @@ export class SeamlessHandoffCoordinator {
   ): Promise<SeamlessHandoffResult> {
     const thread = this.deps.storage.getThread(threadId)
     if (!thread) return { kind: 'skipped', reason: 'thread-not-found' }
-    if (thread.summaryWatermarkMessageId === checkpointMessageId) return { kind: 'already-covered' }
+    if (thread.contextHandoffWatermarkMessageId === checkpointMessageId)
+      return { kind: 'already-covered' }
 
     const allMessages = this.deps.loadThreadMessages(threadId)
     const checkpointMessage = allMessages.find((message) => message.id === checkpointMessageId)
@@ -149,7 +150,7 @@ export class SeamlessHandoffCoordinator {
       activePathMessages,
       toolCalls,
       checkpointMessageId,
-      previousWatermarkMessageId: thread.summaryWatermarkMessageId
+      previousWatermarkMessageId: thread.contextHandoffWatermarkMessageId
     })
     if (dump.segmentMessages.length === 0) return { kind: 'skipped', reason: 'empty-segment' }
 
@@ -171,7 +172,7 @@ export class SeamlessHandoffCoordinator {
     const summaryParts: string[] = []
     try {
       const messages = buildSeamlessThreadHandoffMessages({
-        previousRollingSummary: thread.rollingSummary,
+        previousContextHandoffSummary: thread.contextHandoffSummary,
         checkpointSegmentSummary: summarizeSegment({ dump, toolCalls }),
         checkpointDumpPath: dumpPath,
         reason
@@ -196,8 +197,8 @@ export class SeamlessHandoffCoordinator {
     if (!latestThread) return { kind: 'skipped', reason: 'thread-not-found-after-summary' }
     const updatedThread: ThreadRecord = {
       ...latestThread,
-      rollingSummary: summary,
-      summaryWatermarkMessageId: checkpointMessageId,
+      contextHandoffSummary: summary,
+      contextHandoffWatermarkMessageId: checkpointMessageId,
       updatedAt: this.deps.timestamp()
     }
     this.deps.storage.updateThread(updatedThread)

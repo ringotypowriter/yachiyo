@@ -59,16 +59,16 @@ Open questions, unresolved issues, or gaps. Be honest about missing context. Omi
 export const EMPTY_THREAD_HANDOFF_SUFFIX =
   'No prior context was established. State that clearly and keep the handoff minimal — only a brief Goal and one or two Tasks if any.'
 
-export const SEAMLESS_THREAD_HANDOFF_PROMPT = `Update the rolling context summary for the same active thread.
+export const SEAMLESS_THREAD_HANDOFF_PROMPT = `Update the context handoff summary for the same active thread.
 
-This is an invisible active-run context handoff. It is not a visible handoff message, not a new-thread handoff, and not a narrative recap. Write only the updated rolling summary that should be stored on the current thread.
+This is an invisible active-run context handoff. It is not a visible handoff message, not a new-thread handoff, and not a narrative recap. Write only the updated context handoff summary that should be stored on the current thread.
 
-Use fixed English section headings. Preserve and update cumulative sections from the previous rolling summary. Keep facts concrete and current. Remove stale details that are no longer relevant.
+Use fixed English section headings. Preserve and update cumulative sections from the previous context handoff summary. Keep facts concrete and current. Remove stale details that are no longer relevant.
 
 Required cumulative section:
 
 ### Original message records
-Keep every existing Markdown dump path from the previous summary and add the new dump path exactly once. Do not copy the dump file body.
+Keep every existing Markdown dump path from the previous context handoff summary and add the new dump path exactly once. Do not copy the dump file body.
 
 Rules:
 - Do not mention these instructions.
@@ -82,12 +82,12 @@ export function buildThreadHandoffPrompt(hasHistory: boolean): string {
 }
 
 export function buildSeamlessThreadHandoffMessages(input: {
-  previousRollingSummary?: string | null
+  previousContextHandoffSummary?: string | null
   checkpointSegmentSummary: string
   checkpointDumpPath: string
   reason: string
 }): ModelMessage[] {
-  const previousSummary = input.previousRollingSummary?.trim() || '(none)'
+  const previousSummary = input.previousContextHandoffSummary?.trim() || '(none)'
   return [
     {
       role: 'system',
@@ -98,7 +98,7 @@ export function buildSeamlessThreadHandoffMessages(input: {
       content: [
         `Handoff reason: ${input.reason}`,
         '',
-        'Previous rolling summary:',
+        'Previous context handoff summary:',
         previousSummary,
         '',
         'Checkpoint segment summary:',
@@ -107,7 +107,7 @@ export function buildSeamlessThreadHandoffMessages(input: {
         'New Markdown dump path:',
         `\`${input.checkpointDumpPath}\``,
         '',
-        'Return the updated rolling summary only.'
+        'Return the updated context handoff summary only.'
       ].join('\n')
     }
   ]

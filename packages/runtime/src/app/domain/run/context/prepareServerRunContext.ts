@@ -513,7 +513,7 @@ export async function prepareServerRunContext(
           input.thread.id,
           input.requestMessageId,
           modelUserQuery,
-          input.thread.summaryWatermarkMessageId
+          input.thread.contextHandoffWatermarkMessageId
         )
   const recoveredToolCalls = input.recoveryCheckpoint
     ? deps.loadThreadToolCalls(input.thread.id).filter((toolCall) => toolCall.runId === input.runId)
@@ -548,7 +548,7 @@ export async function prepareServerRunContext(
             guestInstruction: isGuest ? readChannelsConfig().guestInstruction : undefined
           }),
           channelInstruction: input.channelHint ?? '',
-          rollingSummary: input.thread.rollingSummary,
+          contextHandoffSummary: input.thread.contextHandoffSummary,
           history: contextHistory,
           hint: { reminder: effectiveReminder },
           memory: { entries: memoryEntries }
@@ -599,11 +599,11 @@ export async function prepareServerRunContext(
           memory: { entries: memoryEntries },
           activityText,
           anthropicCacheBreakpoints: settings.provider === 'anthropic',
-          history: input.thread.rollingSummary?.trim()
+          history: input.thread.contextHandoffSummary?.trim()
             ? [
                 {
                   role: 'user' as const,
-                  content: `<conversation_summary>\n${input.thread.rollingSummary.trim()}\n</conversation_summary>`
+                  content: `<context_handoff>\n${input.thread.contextHandoffSummary.trim()}\n</context_handoff>`
                 },
                 ...contextHistory
               ]

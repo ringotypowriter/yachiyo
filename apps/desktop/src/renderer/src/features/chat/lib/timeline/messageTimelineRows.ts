@@ -163,7 +163,7 @@ export type MessageTimelineRow =
       time: string
       foldedRowCount: number
       expanded: boolean
-      rollingSummary?: string
+      contextHandoffSummary?: string
     }
   | {
       kind: 'tool'
@@ -192,8 +192,8 @@ interface BuildMessageTimelineRowsInput {
   activeRunId: string | null
   activeRequestMessageId: string | null
   subagentActive: boolean
-  summaryWatermarkMessageId?: string | null
-  rollingSummary?: string
+  contextHandoffWatermarkMessageId?: string | null
+  contextHandoffSummary?: string
   expandedHandoffFoldKeys?: ReadonlySet<string>
   workSummaryEnabled?: boolean
 }
@@ -227,22 +227,21 @@ function rowReferencesMessage(row: MessageTimelineRow, messageId: string): boole
 function foldRowsCoveredByHandoff(
   rows: MessageTimelineRow[],
   options: {
-    summaryWatermarkMessageId?: string | null
-    rollingSummary?: string
+    contextHandoffWatermarkMessageId?: string | null
+    contextHandoffSummary?: string
     expandedHandoffFoldKeys?: ReadonlySet<string>
   }
 ): MessageTimelineRow[] {
-  const { summaryWatermarkMessageId } = options
-  if (!summaryWatermarkMessageId) return rows
+  const { contextHandoffWatermarkMessageId } = options
+  if (!contextHandoffWatermarkMessageId) return rows
   const watermarkIndex = rows.findLastIndex((row) =>
-    rowReferencesMessage(row, summaryWatermarkMessageId)
+    rowReferencesMessage(row, contextHandoffWatermarkMessageId)
   )
   if (watermarkIndex < 0) return rows
   const foldedRows = rows.slice(0, watermarkIndex + 1)
   const remainingRows = rows.slice(watermarkIndex + 1)
-  if (remainingRows.length < 3) return rows
 
-  const foldKey = `handoff-fold:${summaryWatermarkMessageId}`
+  const foldKey = `handoff-fold:${contextHandoffWatermarkMessageId}`
   const expanded = options.expandedHandoffFoldKeys?.has(foldKey) === true
   return [
     {
@@ -251,7 +250,9 @@ function foldRowsCoveredByHandoff(
       time: rows[watermarkIndex]?.time ?? remainingRows[0]?.time ?? '',
       foldedRowCount: foldedRows.length,
       expanded,
-      ...(options.rollingSummary?.trim() ? { rollingSummary: options.rollingSummary } : {})
+      ...(options.contextHandoffSummary?.trim()
+        ? { contextHandoffSummary: options.contextHandoffSummary }
+        : {})
     },
     ...(expanded ? foldedRows : []),
     ...remainingRows
@@ -953,8 +954,8 @@ export function buildMessageTimelineRows(
     blocks.sort(compareBlocks).flatMap((block) => block.rows)
   )
   return foldRowsCoveredByHandoff(rows, {
-    summaryWatermarkMessageId: input.summaryWatermarkMessageId,
-    rollingSummary: input.rollingSummary,
+    contextHandoffWatermarkMessageId: input.contextHandoffWatermarkMessageId,
+    contextHandoffSummary: input.contextHandoffSummary,
     expandedHandoffFoldKeys: input.expandedHandoffFoldKeys
   })
 }

@@ -55,12 +55,12 @@ describe('compileExternalContextLayers', () => {
     assert.ok(!content.includes('Skill'), 'should not contain skills references')
   })
 
-  it('includes rolling summary as a user message before history', () => {
+  it('includes context handoff summary as a user message before history', () => {
     const messages = compileExternalContextLayers({
       personality: { basePersona },
       executionContract: '',
       channelInstruction: '',
-      rollingSummary: 'We were discussing weather patterns.',
+      contextHandoffSummary: 'We were discussing weather patterns.',
       history: [
         { role: 'user', content: 'What about today?' },
         { role: 'assistant', content: 'Sunny!' }
@@ -69,9 +69,9 @@ describe('compileExternalContextLayers', () => {
 
     const userMessages = messages.filter((m) => m.role === 'user')
     const summaryMsg = userMessages.find(
-      (m) => typeof m.content === 'string' && m.content.includes('conversation_summary')
+      (m) => typeof m.content === 'string' && m.content.includes('context_handoff')
     )
-    assert.ok(summaryMsg, 'should include rolling summary')
+    assert.ok(summaryMsg, 'should include context handoff summary')
     assert.ok(
       (summaryMsg!.content as string).includes('weather patterns'),
       'summary should contain the actual content'
@@ -112,7 +112,7 @@ describe('compileExternalContextLayers', () => {
     assert.equal(firstUserMsg?.content, 'First message')
   })
 
-  it('omits rolling summary when not provided', () => {
+  it('omits context handoff summary when not provided', () => {
     const messages = compileExternalContextLayers({
       personality: { basePersona },
       executionContract: '',
@@ -121,7 +121,7 @@ describe('compileExternalContextLayers', () => {
     })
 
     const summaryMsg = messages.find(
-      (m) => typeof m.content === 'string' && m.content.includes('conversation_summary')
+      (m) => typeof m.content === 'string' && m.content.includes('context_handoff')
     )
     assert.equal(summaryMsg, undefined, 'should not include summary when not provided')
   })

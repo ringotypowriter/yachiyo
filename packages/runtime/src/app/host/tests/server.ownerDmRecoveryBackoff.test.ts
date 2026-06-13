@@ -879,8 +879,9 @@ test('YachiyoServer builds owner DM takeover context from recap, visible delta, 
     assert.ok(afterFirstRunThread)
     storage.updateThread({
       ...afterFirstRunThread,
-      rollingSummary: 'Earlier recap: the reply ordering issue was narrowed to outbound delivery.',
-      summaryWatermarkMessageId: firstAssistant.id
+      contextHandoffSummary:
+        'Earlier recap: the reply ordering issue was narrowed to outbound delivery.',
+      contextHandoffWatermarkMessageId: firstAssistant.id
     })
 
     const secondAccepted = await server.sendChat({

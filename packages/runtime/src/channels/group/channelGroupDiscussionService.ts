@@ -231,7 +231,7 @@ export function createChannelGroupDiscussionService(
     const messages = compileGroupProbeContextLayers({
       stableSystemPrompt,
       dynamicSystemPrompt,
-      rollingSummary: probeThread.rollingSummary,
+      contextHandoffSummary: probeThread.contextHandoffSummary,
       history: loadGroupProbeHistory(server.getStorage(), probeThread),
       currentTurnContent,
       requireAssistantReasoningForReplay:

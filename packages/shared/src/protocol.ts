@@ -515,10 +515,10 @@ export interface ThreadRecord {
   channelUserId?: string
   channelUserRole?: ChannelUserRole
   channelGroupId?: string
-  /** Legacy external-safe summary from older external auto-rolling. Preserved for replay. */
-  rollingSummary?: string
-  /** Messages up to this ID are covered by rollingSummary. Transcript window starts after. */
-  summaryWatermarkMessageId?: string
+  /** Context handoff summary covering the folded transcript prefix. */
+  contextHandoffSummary?: string
+  /** Messages up to this ID are covered by contextHandoffSummary. Transcript window starts after it. */
+  contextHandoffWatermarkMessageId?: string
   /** When the user last viewed this archived thread. Null = unread. */
   readAt?: string
   /** Essential preset that spawned this thread. */
