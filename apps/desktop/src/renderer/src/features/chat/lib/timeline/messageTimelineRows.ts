@@ -161,9 +161,14 @@ export type MessageTimelineRow =
       kind: 'handoff-fold'
       key: string
       time: string
-      foldedRowCount: number
+      foldedMessageCount: number
       expanded: boolean
-      contextHandoffSummary?: string
+    }
+  | {
+      kind: 'handoff-summary'
+      key: string
+      time: string
+      content: string
     }
   | {
       kind: 'tool'
@@ -240,25 +245,38 @@ function foldRowsCoveredByHandoff(
   if (watermarkIndex < 0) return rows
   const foldedRows = rows.slice(0, watermarkIndex + 1)
   const remainingRows = rows.slice(watermarkIndex + 1)
+  const foldedMessageCount = foldedRows.reduce((count, row) => {
+    if (row.kind === 'group-user') return count + 1
+    return count
+  }, 0)
 
   const foldKey = `handoff-fold:${contextHandoffWatermarkMessageId}`
   const expanded = options.expandedHandoffFoldKeys?.has(foldKey) === true
-  return [
-    {
-      kind: 'handoff-fold' as const,
-      key: foldKey,
-      time: rows[watermarkIndex]?.time ?? remainingRows[0]?.time ?? '',
-      foldedRowCount: foldedRows.length,
-      expanded,
-      ...(options.contextHandoffSummary?.trim()
-        ? { contextHandoffSummary: options.contextHandoffSummary }
-        : {})
-    },
-    ...(expanded ? foldedRows : []),
-    ...remainingRows
-  ]
-}
 
+  const foldMarker: MessageTimelineRow = {
+    kind: 'handoff-fold' as const,
+    key: foldKey,
+    time: rows[watermarkIndex]?.time ?? remainingRows[0]?.time ?? '',
+    foldedMessageCount,
+    expanded
+  }
+  const trimmedSummary = options.contextHandoffSummary?.trim()
+  const summaryRow: MessageTimelineRow[] = trimmedSummary
+    ? [
+        {
+          kind: 'handoff-summary' as const,
+          key: `${foldKey}:summary`,
+          time: foldMarker.time,
+          content: trimmedSummary
+        }
+      ]
+    : []
+
+  if (expanded) {
+    return [...foldedRows, ...summaryRow, foldMarker, ...remainingRows]
+  }
+  return [foldMarker, ...remainingRows]
+}
 function keepLatestPlanDocumentAnchorRow(rows: MessageTimelineRow[]): MessageTimelineRow[] {
   let latestPlanDocumentIndex = -1
 
@@ -529,6 +547,11 @@ export function collectInlineCodeMarkdownDocumentsFromRows(
       if (content.length > 0) {
         documents.push(content)
       }
+      continue
+    }
+
+    if (row.kind === 'handoff-summary' && row.content.length > 0) {
+      documents.push(row.content)
     }
   }
 

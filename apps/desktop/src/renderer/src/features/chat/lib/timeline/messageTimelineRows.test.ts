@@ -1407,9 +1407,8 @@ test('buildMessageTimelineRows folds rows covered by the thread handoff watermar
   const rows = buildMessageTimelineRows(baseInput)
 
   assert.equal(rows[0]?.kind, 'handoff-fold')
-  assert.equal(rows[0]?.foldedRowCount, 3)
+  assert.equal(rows[0]?.foldedMessageCount, 1)
   assert.equal(rows[0]?.expanded, false)
-  assert.equal(rows[0]?.contextHandoffSummary, 'The handoff summary.')
   assert.deepEqual(rowKinds(rows).slice(1), [
     'group-user',
     'group-assistant-text-block',
@@ -1427,14 +1426,17 @@ test('buildMessageTimelineRows folds rows covered by the thread handoff watermar
     expandedHandoffFoldKeys: new Set(['handoff-fold:assistant-1'])
   })
 
-  assert.equal(expandedRows[0]?.kind, 'handoff-fold')
-  assert.equal(expandedRows[0]?.expanded, true)
-  assert.deepEqual(rowKinds(expandedRows).slice(1, 4), [
+  // Expanded: folded rows, summary, then fixed-height fold marker
+  assert.equal(expandedRows[3]?.kind, 'handoff-summary')
+  assert.equal(expandedRows[3]?.content, 'The handoff summary.')
+  assert.equal(expandedRows[4]?.kind, 'handoff-fold')
+  assert.equal(expandedRows[4]?.expanded, true)
+  assert.deepEqual(rowKinds(expandedRows).slice(0, 3), [
     'group-user',
     'group-assistant-text-block',
     'group-footer'
   ])
-  assert.deepEqual(rowKinds(expandedRows).slice(4), [
+  assert.deepEqual(rowKinds(expandedRows).slice(5), [
     'group-user',
     'group-assistant-text-block',
     'group-footer',
@@ -1468,7 +1470,7 @@ test('buildMessageTimelineRows shows the handoff fold marker even when no later 
   })
 
   assert.equal(rows[0]?.kind, 'handoff-fold')
-  assert.equal(rows[0]?.foldedRowCount, 3)
+  assert.equal(rows[0]?.foldedMessageCount, 1)
   assert.equal(rows[0]?.expanded, false)
   assert.deepEqual(rowKinds(rows), ['handoff-fold'])
 })
