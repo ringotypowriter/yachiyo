@@ -221,6 +221,7 @@ async function persistCompletedRun(
     modelId: input.settings.model,
     providerName: input.settings.providerName
   })
+  const persistedThread = input.deps.readThread(input.executionInput.thread.id)
   await input.deps.onAssistantMessagePersisted?.(assistantMessage.id)
 
   input.deps.emit<MessageCompletedEvent>({
@@ -237,7 +238,7 @@ async function persistCompletedRun(
   input.deps.emit<ThreadUpdatedEvent>({
     type: 'thread.updated',
     threadId: input.executionInput.thread.id,
-    thread: updatedThread
+    thread: persistedThread
   })
   await finalizeRunSnapshot({
     deps: input.deps,

@@ -87,3 +87,80 @@ test('completed run preview uses the last assistant text block', async () => {
   assert.equal(completedThreads[0]?.preview, 'Second block')
   assert.equal(completedMessages[0]?.content, 'First block\nSecond block')
 })
+
+test('completed run emits the persisted thread handoff watermark after storage merge', async () => {
+  let storedThread: ThreadRecord = {
+    id: 'thread-1',
+    title: 'Thread',
+    updatedAt: '2026-05-18T00:00:01.000Z',
+    contextHandoffSummary: 'Previous context summary',
+    contextHandoffWatermarkMessageId: 'assistant-before-run'
+  }
+  const staleExecutionThread: ThreadRecord = {
+    id: 'thread-1',
+    title: 'Thread',
+    updatedAt: '2026-05-18T00:00:00.000Z'
+  }
+  const emittedThreads: ThreadRecord[] = []
+  let readCount = 0
+  const deps = {
+    timestamp: () => '2026-05-18T00:00:02.000Z',
+    readThread: () => (++readCount === 1 ? staleExecutionThread : storedThread),
+    loadThreadToolCalls: () => [],
+    emit: (event: { type: string; thread?: ThreadRecord }) => {
+      if (event.type === 'thread.updated' && event.thread) emittedThreads.push(event.thread)
+    },
+    storage: {
+      completeRun: (input: { updatedThread: ThreadRecord }) => {
+        storedThread = {
+          ...input.updatedThread,
+          contextHandoffSummary:
+            input.updatedThread.contextHandoffSummary ?? storedThread.contextHandoffSummary,
+          contextHandoffWatermarkMessageId:
+            input.updatedThread.contextHandoffWatermarkMessageId ??
+            storedThread.contextHandoffWatermarkMessageId
+        }
+      }
+    }
+  } as unknown as RunExecutionDeps
+  const settings: ProviderSettings = {
+    providerName: 'test',
+    provider: 'openai',
+    model: 'test-model',
+    apiKey: 'test-key',
+    baseUrl: 'https://example.test'
+  }
+
+  await handleCompletedRun({
+    bindCurrentRunToolCallsToAssistant: () => {},
+    deps,
+    executionInput: {
+      enabledTools: [],
+      runMode: 'auto',
+      runTrigger: 'local',
+      inactivityTimeoutMs: 0,
+      runId: 'run-1',
+      thread: staleExecutionThread,
+      requestMessageId: 'message-user',
+      abortController: new AbortController(),
+      updateHeadOnComplete: true,
+      previousEnabledTools: null,
+      previousRunMode: null
+    },
+    getOutputSnapshot: () => ({
+      content: 'Done',
+      textBlocks: [],
+      recoveryResponseMessages: []
+    }),
+    lastUsage: undefined,
+    messageId: 'message-assistant',
+    perfCollector: createPerfCollector(),
+    recoveredFromCheckpoint: false,
+    settings,
+    snapshotTracker: null,
+    toolLifecycle: createRunToolLifecycleState({ initialToolCalls: new Map() })
+  })
+
+  assert.equal(emittedThreads[0]?.contextHandoffSummary, 'Previous context summary')
+  assert.equal(emittedThreads[0]?.contextHandoffWatermarkMessageId, 'assistant-before-run')
+})
