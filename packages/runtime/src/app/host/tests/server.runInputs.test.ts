@@ -376,23 +376,10 @@ test('YachiyoServer creates a per-thread workspace, persists structured tool det
           outputSummary?: string
         }
       }
-      const laterToolEvent = (await waitForEvent('tool.updated')) as {
-        toolCall: {
-          id: string
-          status: string
-          details?: {
-            command?: string
-            cwd?: string
-            stderr?: string
-            stdout?: string
-          }
-          outputSummary?: string
-        }
-      }
-      const streamingToolEvent =
-        updatedToolEvent.toolCall.outputSummary === 'streaming output'
-          ? updatedToolEvent
-          : laterToolEvent
+      // Consume the finish event (status 'completed') — no longer needed separately
+      // since the streaming output summary is no longer a sentinel string.
+      await waitForEvent('tool.updated')
+      const streamingToolEvent = updatedToolEvent
 
       await completeRun(accepted.runId)
 
@@ -405,14 +392,14 @@ test('YachiyoServer creates a per-thread workspace, persists structured tool det
       assert.equal(streamingToolEvent.toolCall.status, 'running')
       assert.equal(streamingToolEvent.toolCall.details?.cwd, toolWorkspacePath)
       assert.equal(streamingToolEvent.toolCall.details?.stdout, `${toolWorkspacePath}\n`)
-      assert.equal(streamingToolEvent.toolCall.outputSummary, 'streaming output')
+      assert.equal(streamingToolEvent.toolCall.outputSummary, toolWorkspacePath)
 
       assert.equal(toolCalls.length, 1)
       assert.equal(toolCalls[0]?.toolName, 'bash')
       assert.equal(toolCalls[0]?.status, 'completed')
       assert.equal(toolCalls[0]?.cwd, toolWorkspacePath)
       assert.equal(toolCalls[0]?.inputSummary, 'pwd && ls')
-      assert.equal(toolCalls[0]?.outputSummary, 'exit 0')
+      assert.equal(toolCalls[0]?.outputSummary, toolWorkspacePath)
       assert.deepEqual(toolCalls[0]?.details, {
         command: 'pwd && ls',
         cwd: toolWorkspacePath,

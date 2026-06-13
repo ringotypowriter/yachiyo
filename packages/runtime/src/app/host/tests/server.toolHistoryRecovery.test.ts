@@ -527,7 +527,7 @@ test('YachiyoServer applies steer at the completed tool-call boundary', async ()
       )
       assert.equal(toolCalls.length, 1)
       assert.equal(toolCalls[0]?.status, 'completed')
-      assert.equal(toolCalls[0]?.outputSummary, 'exit 0')
+      assert.equal(toolCalls[0]?.outputSummary, '/tmp/workspace')
       assert.equal(toolCalls[0]?.error, undefined)
       assert.deepEqual(
         toolUpdates.map((toolCall) => toolCall.status),
@@ -722,7 +722,7 @@ test('YachiyoServer recovers a committed transport failure and resumes from pres
       )
       assert.equal(toolCalls.length, 1)
       assert.equal(toolCalls[0]?.status, 'completed')
-      assert.equal(toolCalls[0]?.outputSummary, 'exit 0')
+      assert.equal(toolCalls[0]?.outputSummary, '/tmp/workspace')
       assert.equal(finalAssistant?.content, 'Checking the workspace. Final answer.')
     },
     {

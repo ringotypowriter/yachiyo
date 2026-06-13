@@ -510,7 +510,7 @@ test('YachiyoServer ignores late tool updates after a tool call has already fini
 
       assert.equal(toolCalls.length, 1)
       assert.equal(toolCalls[0]?.status, 'completed')
-      assert.equal(toolCalls[0]?.outputSummary, 'exit 0')
+      assert.equal(toolCalls[0]?.outputSummary, '/tmp/workspace')
       assert.equal(typeof toolCalls[0]?.finishedAt, 'string')
       assert.deepEqual(
         toolUpdates.map((toolCall) => toolCall.status),
@@ -646,7 +646,7 @@ test('YachiyoServer persists tool finishes that arrive without a prior tool star
       assert.equal(toolCalls[0]?.status, 'completed')
       assert.equal(toolCalls[0]?.toolName, 'bash')
       assert.equal(toolCalls[0]?.inputSummary, 'pwd')
-      assert.equal(toolCalls[0]?.outputSummary, 'exit 0')
+      assert.equal(toolCalls[0]?.outputSummary, '/tmp/workspace')
       assert.equal(toolCalls[0]?.requestMessageId, accepted.userMessage.id)
       assert.equal(typeof toolCalls[0]?.assistantMessageId, 'string')
       assert.deepEqual(

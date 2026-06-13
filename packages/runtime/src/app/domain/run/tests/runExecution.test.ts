@@ -1656,6 +1656,13 @@ test('executeServerRun continues agent step count from prior run legs', async ()
           messages: request.messages,
           output: {
             content: [{ type: 'text' as const, text: 'ok' }],
+            details: {
+              command: 'echo ok',
+              cwd: root,
+              stdout: 'ok\n',
+              stderr: '',
+              exitCode: 0
+            },
             metadata: { cwd: root }
           },
           stepNumber: undefined,
