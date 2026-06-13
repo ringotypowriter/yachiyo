@@ -382,6 +382,28 @@ function summarizeBashCommand(command: string): string {
   return takeTail(parts.join(' '), 160).text
 }
 
+function takeHead(value: string, maxChars: number): { text: string; truncated: boolean } {
+  const trimmed = value.trim()
+  if (trimmed.length <= maxChars) {
+    return { text: trimmed, truncated: false }
+  }
+  return { text: trimmed.slice(0, maxChars).trimEnd(), truncated: true }
+}
+
+function summarizeBashOutputSnapshot(details: Partial<BashToolOutput['details']>): string {
+  const output =
+    (typeof details.stdout === 'string' ? details.stdout.trim() : '') ||
+    (typeof details.stderr === 'string' ? details.stderr.trim() : '')
+  if (output) {
+    const head = takeHead(output, 160)
+    return `${head.text}${head.truncated ? '…' : ''}`
+  }
+  if (typeof details.exitCode === 'number') {
+    return `exit ${details.exitCode}`
+  }
+  return 'no output'
+}
+
 export function summarizeToolInput(toolName: ToolCallName | string, input: unknown): string {
   if (toolName === 'askUser') {
     const question =
@@ -604,6 +626,10 @@ export function summarizeToolOutput(
     return details.consoleOutput ? 'console output' : 'no output'
   }
 
+  if (toolName === 'bash') {
+    return summarizeBashOutputSnapshot((output as BashToolOutput).details)
+  }
+
   if (toolName === 'grep') {
     const details = (output as GrepToolOutput).details
     const summary = `found ${details.resultCount} match${details.resultCount === 1 ? '' : 'es'}`
@@ -639,11 +665,6 @@ export function summarizeToolOutput(
 
   if (phase === 'update') {
     return 'streaming output'
-  }
-
-  const details = (output as BashToolOutput).details
-  if (details && typeof details.exitCode === 'number') {
-    return `exit ${details.exitCode}`
   }
 
   return extractTextContent(output) ?? 'tool completed'

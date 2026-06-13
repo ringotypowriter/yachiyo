@@ -9,18 +9,11 @@ import type {
   ReadToolCallDetails,
   ToolCall,
   WebReadToolCallDetails,
-  WebSearchResultItem,
   WebSearchToolCallDetails,
   WriteToolCallDetails
 } from '@renderer/app/types'
 
 type ToolCallDetailTone = 'danger'
-
-export interface ToolCallDetailField {
-  label: string
-  value: string
-  tone?: ToolCallDetailTone
-}
 
 export interface ToolCallDetailCodeBlock {
   label: string
@@ -30,427 +23,219 @@ export interface ToolCallDetailCodeBlock {
 }
 
 export interface ToolCallDetailsPresentation {
-  fields: ToolCallDetailField[]
-  codeBlocks: ToolCallDetailCodeBlock[]
-  searchResults?: WebSearchResultItem[]
+  input?: ToolCallDetailCodeBlock
+  output?: ToolCallDetailCodeBlock
 }
 
-const OUTPUT_TAIL_MAX_LINES = 12
-const OUTPUT_TAIL_MAX_CHARS = 1200
+function stringifyJson(value: unknown): string {
+  return JSON.stringify(value, null, 2)
+}
 
-function pushField(
-  fields: ToolCallDetailField[],
+function renderRawValue(value: unknown): string {
+  if (
+    value &&
+    typeof value === 'object' &&
+    'type' in value &&
+    value.type === 'content' &&
+    'value' in value &&
+    Array.isArray(value.value)
+  ) {
+    const text = value.value
+      .map((block) =>
+        block &&
+        typeof block === 'object' &&
+        'type' in block &&
+        block.type === 'text' &&
+        'text' in block &&
+        typeof block.text === 'string'
+          ? block.text
+          : stringifyJson(block)
+      )
+      .join('')
+      .trimEnd()
+    return text || stringifyJson(value.value)
+  }
+
+  return typeof value === 'string' ? value.trimEnd() : stringifyJson(value)
+}
+
+function pushPart(
+  parts: string[],
   label: string,
-  value: string | number | undefined,
-  tone?: ToolCallDetailTone
+  value: string | number | boolean | undefined
 ): void {
-  if (value === undefined) {
-    return
-  }
-
-  fields.push({
-    label,
-    value: String(value),
-    ...(tone ? { tone } : {})
-  })
+  if (value === undefined || value === '') return
+  parts.push(`${label}: ${String(value)}`)
 }
 
-function pushCodeBlock(
-  codeBlocks: ToolCallDetailCodeBlock[],
-  label: string,
-  value: string | undefined,
-  tone?: ToolCallDetailTone,
-  filePath?: string
-): void {
-  const normalizedValue = value?.trimEnd()
-  if (!normalizedValue) {
-    return
-  }
-
-  codeBlocks.push({
-    label,
-    value: normalizedValue,
-    ...(filePath ? { filePath } : {}),
-    ...(tone ? { tone } : {})
-  })
+function compactJson(value: Record<string, unknown>): string {
+  return stringifyJson(
+    Object.fromEntries(
+      Object.entries(value).filter(([, entry]) => entry !== undefined && entry !== '')
+    )
+  )
 }
 
-function toYesNo(value: boolean): string {
-  return value ? 'yes' : 'no'
-}
-
-function takeTextTail(
-  value: string,
-  options: { maxLines?: number; maxChars?: number } = {}
-): { text: string; truncated: boolean } {
-  const trimmedValue = value.trimEnd()
-  if (!trimmedValue) {
-    return { text: '', truncated: false }
-  }
-
-  const maxLines = options.maxLines ?? OUTPUT_TAIL_MAX_LINES
-  const maxChars = options.maxChars ?? OUTPUT_TAIL_MAX_CHARS
-
-  const lines = trimmedValue.split(/\r?\n/)
-  const lineTail = lines.slice(-maxLines)
-  let text = lineTail.join('\n')
-  let truncated = lineTail.length !== lines.length
-
-  if (text.length > maxChars) {
-    text = text.slice(-maxChars)
-    truncated = true
-
-    const firstNewlineIndex = text.indexOf('\n')
-    if (firstNewlineIndex > 0 && firstNewlineIndex < text.length - 1) {
-      text = text.slice(firstNewlineIndex + 1)
+function buildFallbackInput(toolCall: ToolCall): string | undefined {
+  if (toolCall.details) {
+    if (toolCall.toolName === 'bash') {
+      return (toolCall.details as BashToolCallDetails).command
+    }
+    if (toolCall.toolName === 'jsRepl') {
+      return (toolCall.details as JsReplToolCallDetails).code
+    }
+    if (toolCall.toolName === 'read') {
+      const details = toolCall.details as ReadToolCallDetails
+      return compactJson({ path: details.path, offset: details.startLine })
+    }
+    if (toolCall.toolName === 'write') {
+      return compactJson({ path: (toolCall.details as WriteToolCallDetails).path })
+    }
+    if (toolCall.toolName === 'edit') {
+      const details = toolCall.details as EditToolCallDetails
+      return compactJson({ path: details.path, mode: details.mode })
+    }
+    if (toolCall.toolName === 'grep') {
+      const details = toolCall.details as GrepToolCallDetails
+      return compactJson({
+        pattern: details.pattern,
+        path: details.path,
+        backend: details.backend
+      })
+    }
+    if (toolCall.toolName === 'glob') {
+      const details = toolCall.details as GlobToolCallDetails
+      return compactJson({
+        pattern: details.pattern,
+        path: details.path,
+        backend: details.backend
+      })
+    }
+    if (toolCall.toolName === 'webRead') {
+      const details = toolCall.details as WebReadToolCallDetails
+      return compactJson({ url: details.requestedUrl, format: details.contentFormat })
+    }
+    if (toolCall.toolName === 'webSearch') {
+      return compactJson({ query: (toolCall.details as WebSearchToolCallDetails).query })
+    }
+    if (toolCall.toolName === 'askUser') {
+      const details = toolCall.details as AskUserToolCallDetails
+      return compactJson({ question: details.question, choices: details.choices })
+    }
+    if (toolCall.toolName === 'applyPatch') {
+      const details = toolCall.details as ApplyPatchToolCallDetails
+      return details.operations
+        .map((op) =>
+          op.operation === 'move'
+            ? `move ${op.path} -> ${op.movePath ?? ''}`
+            : `${op.operation} ${op.path}`
+        )
+        .join('\n')
     }
   }
 
-  return { text, truncated }
+  return toolCall.inputSummary || undefined
 }
 
-function takeTextHead(
-  value: string,
-  options: { maxLines?: number; maxChars?: number } = {}
-): { text: string; truncated: boolean } {
-  const trimmedValue = value.trim()
-  if (!trimmedValue) {
-    return { text: '', truncated: false }
+function buildFallbackOutput(toolCall: ToolCall): ToolCallDetailCodeBlock | undefined {
+  const details = toolCall.details
+  const error = toolCall.error?.trim()
+
+  if (toolCall.toolName === 'bash' && details) {
+    const bash = details as BashToolCallDetails
+    const parts: string[] = []
+    pushPart(parts, 'exitCode', bash.exitCode)
+    pushPart(parts, 'timedOut', bash.timedOut)
+    pushPart(parts, 'blocked', bash.blocked)
+    pushPart(parts, 'truncated', bash.truncated)
+    pushPart(parts, 'outputFile', bash.outputFilePath)
+    if (bash.stdout.trim()) parts.push('stdout:\n' + bash.stdout.trimEnd())
+    if (bash.stderr.trim()) parts.push('stderr:\n' + bash.stderr.trimEnd())
+    if (error) parts.push('error:\n' + error)
+    const value = parts.join('\n\n')
+    return value
+      ? {
+          label: 'Output',
+          value,
+          ...(toolCall.status === 'failed' ? { tone: 'danger' as const } : {})
+        }
+      : undefined
   }
 
-  const maxLines = options.maxLines ?? OUTPUT_TAIL_MAX_LINES
-  const maxChars = options.maxChars ?? OUTPUT_TAIL_MAX_CHARS
-
-  const lines = trimmedValue.split(/\r?\n/)
-  const lineHead = lines.slice(0, maxLines)
-  let text = lineHead.join('\n')
-  let truncated = lineHead.length !== lines.length
-
-  if (text.length > maxChars) {
-    text = text.slice(0, maxChars).trimEnd()
-    truncated = true
+  if (toolCall.toolName === 'jsRepl' && details) {
+    const repl = details as JsReplToolCallDetails
+    const parts: string[] = []
+    pushPart(parts, 'timedOut', repl.timedOut)
+    pushPart(parts, 'contextReset', repl.contextReset)
+    if (repl.consoleOutput?.trim()) parts.push('console:\n' + repl.consoleOutput.trimEnd())
+    if (repl.result?.trim()) parts.push('result:\n' + repl.result.trimEnd())
+    if (repl.error?.trim()) parts.push('error:\n' + repl.error.trimEnd())
+    if (error) parts.push('error:\n' + error)
+    const value = parts.join('\n\n')
+    return value
+      ? {
+          label: 'Output',
+          value,
+          ...(repl.error || toolCall.status === 'failed' ? { tone: 'danger' as const } : {})
+        }
+      : undefined
   }
 
-  return { text, truncated }
-}
-
-function pushOutputTail(
-  codeBlocks: ToolCallDetailCodeBlock[],
-  label: string,
-  value: string | undefined,
-  tone?: ToolCallDetailTone
-): void {
-  if (value === undefined) {
-    return
+  if (toolCall.toolName === 'webRead' && details) {
+    const webRead = details as WebReadToolCallDetails
+    const meta = compactJson({
+      finalUrl: webRead.finalUrl,
+      httpStatus: webRead.httpStatus,
+      contentType: webRead.contentType,
+      extractor: webRead.extractor,
+      title: webRead.title,
+      author: webRead.author,
+      siteName: webRead.siteName,
+      publishedTime: webRead.publishedTime,
+      description: webRead.description,
+      contentFormat: webRead.contentFormat,
+      contentChars: webRead.contentChars,
+      truncated: webRead.truncated,
+      originalContentChars: webRead.originalContentChars,
+      savedFileName: webRead.savedFileName,
+      savedFilePath: webRead.savedFilePath,
+      savedBytes: webRead.savedBytes,
+      failureCode: webRead.failureCode
+    })
+    const value = [meta, webRead.content].filter(Boolean).join('\n\n')
+    return value ? { label: 'Output', value } : undefined
   }
 
-  const tail = takeTextTail(value)
-  if (!tail.text) {
-    return
+  if (details) {
+    return {
+      label: 'Output',
+      value: compactJson({
+        summary: toolCall.outputSummary,
+        error,
+        details
+      }),
+      tone: toolCall.status === 'failed' ? 'danger' : undefined
+    }
   }
 
-  pushCodeBlock(codeBlocks, tail.truncated ? `${label} tail` : label, tail.text, tone)
-}
-
-function pushOutputHead(
-  codeBlocks: ToolCallDetailCodeBlock[],
-  label: string,
-  value: string,
-  tone?: ToolCallDetailTone
-): void {
-  const head = takeTextHead(value)
-  if (!head.text) {
-    return
-  }
-
-  pushCodeBlock(codeBlocks, head.truncated ? `${label} excerpt` : label, head.text, tone)
-}
-
-function pushBashOutputBlocks(
-  toolCall: ToolCall,
-  details: BashToolCallDetails,
-  codeBlocks: ToolCallDetailCodeBlock[]
-): void {
-  const stderrTone = toolCall.status === 'failed' || details.blocked ? 'danger' : undefined
-  pushOutputTail(codeBlocks, 'stderr', details.stderr, stderrTone)
-  pushCodeBlock(codeBlocks, 'stdout', details.stdout)
-}
-
-function formatApplyPatchOperation(op: ApplyPatchToolCallDetails['operations'][number]): string {
-  switch (op.operation) {
-    case 'add':
-      return `+ ${op.path}`
-    case 'delete':
-      return `- ${op.path}`
-    case 'move':
-      return `→ ${op.path}${op.movePath ? ` → ${op.movePath}` : ''}`
-    case 'update':
-      return `~ ${op.path}`
-  }
-}
-
-function formatApplyPatchChangeCounts(operations: ApplyPatchToolCallDetails['operations']): string {
-  const counts = operations.reduce(
-    (acc, op) => ({ ...acc, [op.operation]: acc[op.operation] + 1 }),
-    { add: 0, delete: 0, move: 0, update: 0 }
-  )
-  const parts = [
-    counts.add > 0 ? `${counts.add} added` : undefined,
-    counts.update > 0 ? `${counts.update} updated` : undefined,
-    counts.delete > 0 ? `${counts.delete} deleted` : undefined,
-    counts.move > 0 ? `${counts.move} moved` : undefined
-  ].filter((part): part is string => part !== undefined)
-  return parts.join(' · ')
+  const value = error ?? toolCall.outputSummary
+  return value ? { label: 'Output', value, tone: error ? 'danger' : undefined } : undefined
 }
 
 export function buildToolCallDetailsPresentation(toolCall: ToolCall): ToolCallDetailsPresentation {
-  const fields: ToolCallDetailField[] = []
-  const codeBlocks: ToolCallDetailCodeBlock[] = []
+  const rawInput = 'rawInput' in toolCall ? toolCall.rawInput : undefined
+  const rawOutput = 'rawOutput' in toolCall ? toolCall.rawOutput : undefined
+  const inputValue =
+    rawInput !== undefined ? renderRawValue(rawInput) : buildFallbackInput(toolCall)
+  const output =
+    rawOutput !== undefined
+      ? { label: 'Output', value: renderRawValue(rawOutput) }
+      : buildFallbackOutput(toolCall)
 
-  pushCodeBlock(codeBlocks, 'error', toolCall.error, 'danger')
-
-  if (toolCall.toolName === 'read') {
-    const details = toolCall.details as ReadToolCallDetails | undefined
-    if (!details) {
-      return { fields, codeBlocks }
-    }
-
-    if (details.mediaType === 'application/pdf') {
-      pushField(fields, 'pages', details.totalPages)
-      pushField(fields, 'start line', details.startLine)
-      pushField(fields, 'end line', details.endLine)
-      if (details.truncated) {
-        pushField(fields, 'truncated', 'yes')
-      }
-      pushField(fields, 'next offset', details.nextOffset)
-      pushField(fields, 'remaining lines', details.remainingLines)
-      if (details.cached) {
-        pushField(fields, 'cached', 'yes')
-      }
-      return { fields, codeBlocks }
-    }
-
-    pushField(fields, 'start line', details.startLine)
-    pushField(fields, 'end line', details.endLine)
-    if (details.truncated) {
-      pushField(fields, 'truncated', 'yes')
-    }
-    pushField(fields, 'next offset', details.nextOffset)
-    pushField(fields, 'remaining lines', details.remainingLines)
-    return { fields, codeBlocks }
+  return {
+    ...(inputValue ? { input: { label: 'Input', value: inputValue } } : {}),
+    ...(output?.value ? { output } : {})
   }
-
-  if (toolCall.toolName === 'edit') {
-    const details = toolCall.details as EditToolCallDetails | undefined
-    if (!details) {
-      return { fields, codeBlocks }
-    }
-
-    pushField(fields, 'mode', details.mode)
-    pushField(fields, 'replacements', details.replacements)
-    pushField(fields, 'first changed line', details.firstChangedLine)
-    pushCodeBlock(codeBlocks, 'diff', details.diff, undefined, details.path)
-    return { fields, codeBlocks }
-  }
-
-  if (toolCall.toolName === 'write') {
-    const details = toolCall.details as WriteToolCallDetails | undefined
-    if (!details) {
-      return { fields, codeBlocks }
-    }
-
-    pushField(fields, 'bytes written', details.bytesWritten)
-    pushField(fields, 'created', toYesNo(details.created))
-    pushField(fields, 'overwritten', toYesNo(details.overwritten))
-    pushCodeBlock(codeBlocks, 'preview', details.contentPreview, undefined, details.path)
-    return { fields, codeBlocks }
-  }
-
-  if (toolCall.toolName === 'applyPatch') {
-    const details = toolCall.details as ApplyPatchToolCallDetails | undefined
-    if (!details) {
-      return { fields, codeBlocks }
-    }
-
-    pushField(fields, 'files', details.operations.length)
-    pushField(fields, 'changes', formatApplyPatchChangeCounts(details.operations))
-    pushCodeBlock(codeBlocks, 'files', details.operations.map(formatApplyPatchOperation).join('\n'))
-
-    for (const op of details.operations) {
-      pushCodeBlock(
-        codeBlocks,
-        op.operation === 'move'
-          ? ('diff · ' + op.path + ' → ' + (op.movePath ?? '')).trimEnd()
-          : 'diff · ' + op.path,
-        op.diff,
-        undefined,
-        op.movePath ?? op.path
-      )
-    }
-
-    return { fields, codeBlocks }
-  }
-
-  if (toolCall.toolName === 'bash') {
-    const details = toolCall.details as BashToolCallDetails | undefined
-    if (!details) {
-      return { fields, codeBlocks }
-    }
-
-    pushCodeBlock(codeBlocks, 'command', details.command)
-
-    if (details.background) {
-      pushField(fields, 'task id', details.taskId)
-      pushField(fields, 'log file', details.logPath)
-      // Only show exit code once the background task has completed
-      if (details.exitCode !== undefined) {
-        pushField(
-          fields,
-          'exit code',
-          details.exitCode,
-          details.exitCode !== 0 ? 'danger' : undefined
-        )
-      }
-      pushBashOutputBlocks(toolCall, details, codeBlocks)
-      return { fields, codeBlocks }
-    }
-
-    pushField(fields, 'exit code', details.exitCode, details.exitCode !== 0 ? 'danger' : undefined)
-
-    if (details.timedOut) {
-      pushField(fields, 'timed out', 'yes')
-    }
-
-    if (details.blocked) {
-      pushField(fields, 'blocked', 'yes')
-    }
-
-    if (details.truncated) {
-      pushField(fields, 'output truncated', 'yes')
-    }
-
-    pushField(fields, 'output file', details.outputFilePath)
-    pushBashOutputBlocks(toolCall, details, codeBlocks)
-  }
-
-  if (toolCall.toolName === 'jsRepl') {
-    const details = toolCall.details as JsReplToolCallDetails | undefined
-    if (!details) {
-      return { fields, codeBlocks }
-    }
-
-    if (details.cwd) {
-      pushField(fields, 'cwd', details.cwd)
-    }
-    if (details.timedOut) {
-      pushField(fields, 'timed out', 'yes')
-    }
-    if (details.contextReset) {
-      pushField(fields, 'context reset', 'yes')
-    }
-
-    pushCodeBlock(codeBlocks, 'code', details.code)
-    pushOutputTail(codeBlocks, 'console', details.consoleOutput ?? '')
-    pushCodeBlock(codeBlocks, 'result', details.result)
-    if (details.error) {
-      pushCodeBlock(codeBlocks, 'error', details.error, 'danger')
-    }
-
-    return { fields, codeBlocks }
-  }
-
-  if (toolCall.toolName === 'grep') {
-    const details = toolCall.details as GrepToolCallDetails | undefined
-    if (!details) {
-      return { fields, codeBlocks }
-    }
-
-    pushField(fields, 'backend', details.backend)
-    pushField(fields, 'path', details.path)
-    pushField(fields, 'results', details.resultCount)
-    if (details.truncated) {
-      pushField(fields, 'truncated', 'yes')
-    }
-    pushCodeBlock(
-      codeBlocks,
-      'matches',
-      details.matches.map((match) => `${match.path}:${match.line}: ${match.text}`).join('\n'),
-      undefined
-    )
-
-    return { fields, codeBlocks }
-  }
-
-  if (toolCall.toolName === 'glob') {
-    const details = toolCall.details as GlobToolCallDetails | undefined
-    if (!details) {
-      return { fields, codeBlocks }
-    }
-
-    pushField(fields, 'backend', details.backend)
-    pushField(fields, 'path', details.path)
-    pushField(fields, 'results', details.resultCount)
-    if (details.truncated) {
-      pushField(fields, 'truncated', 'yes')
-    }
-    pushCodeBlock(codeBlocks, 'matches', details.matches.join('\n'))
-
-    return { fields, codeBlocks }
-  }
-
-  if (toolCall.toolName === 'webRead') {
-    const details = toolCall.details as WebReadToolCallDetails | undefined
-    if (!details) {
-      return { fields, codeBlocks }
-    }
-
-    pushField(fields, 'final url', details.finalUrl)
-    pushField(fields, 'http status', details.httpStatus)
-    pushField(fields, 'content type', details.contentType)
-    pushField(fields, 'extractor', details.extractor)
-    pushField(fields, 'title', details.title)
-    pushField(fields, 'author', details.author)
-    pushField(fields, 'site name', details.siteName)
-    pushField(fields, 'published', details.publishedTime)
-    pushField(fields, 'format', details.contentFormat)
-    if (details.truncated) {
-      pushField(fields, 'truncated', 'yes')
-    }
-    pushField(fields, 'original chars', details.originalContentChars)
-    pushField(fields, 'saved file', details.savedFilePath)
-    pushField(fields, 'saved bytes', details.savedBytes)
-    pushField(fields, 'failure code', details.failureCode)
-    pushCodeBlock(codeBlocks, 'description', details.description)
-    pushOutputHead(codeBlocks, 'content', details.content)
-
-    return { fields, codeBlocks }
-  }
-
-  if (toolCall.toolName === 'askUser') {
-    const details = toolCall.details as AskUserToolCallDetails | undefined
-    if (!details) {
-      return { fields, codeBlocks }
-    }
-
-    pushField(fields, 'question', details.question)
-    pushField(fields, 'answer', details.answer)
-    return { fields, codeBlocks }
-  }
-
-  if (toolCall.toolName === 'webSearch') {
-    const details = toolCall.details as WebSearchToolCallDetails | undefined
-    if (!details) {
-      return { fields, codeBlocks }
-    }
-
-    pushField(fields, 'provider', details.provider)
-    pushField(fields, 'query', details.query)
-    pushField(fields, 'failure code', details.failureCode)
-
-    return { fields, codeBlocks, searchResults: details.results }
-  }
-
-  return { fields, codeBlocks }
 }
 
 /**

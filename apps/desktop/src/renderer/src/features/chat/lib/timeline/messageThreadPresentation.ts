@@ -123,19 +123,27 @@ export function getRootAssistantMessages(messages: Message[]): Message[] {
   )
 }
 
-function collectResponseMessageToolOrder(responseMessages?: unknown[]): Map<string, number> {
+interface ResponseMessageToolTrace {
+  order: number
+  input?: unknown
+  output?: unknown
+}
+
+function collectResponseMessageToolTrace(
+  responseMessages?: unknown[]
+): Map<string, ResponseMessageToolTrace> {
   if (!responseMessages?.length) {
     return new Map()
   }
 
-  const toolOrder = new Map<string, number>()
+  const toolTrace = new Map<string, ResponseMessageToolTrace>()
 
   for (const message of responseMessages) {
     if (
       !message ||
       typeof message !== 'object' ||
       !('role' in message) ||
-      message.role !== 'assistant' ||
+      (message.role !== 'assistant' && message.role !== 'tool') ||
       !('content' in message) ||
       !Array.isArray(message.content)
     ) {
@@ -146,20 +154,27 @@ function collectResponseMessageToolOrder(responseMessages?: unknown[]): Map<stri
       if (
         !part ||
         typeof part !== 'object' ||
-        !('type' in part) ||
-        part.type !== 'tool-call' ||
         !('toolCallId' in part) ||
-        typeof part.toolCallId !== 'string' ||
-        toolOrder.has(part.toolCallId)
+        typeof part.toolCallId !== 'string'
       ) {
         continue
       }
 
-      toolOrder.set(part.toolCallId, toolOrder.size)
+      const existing = toolTrace.get(part.toolCallId)
+      const trace = existing ?? { order: toolTrace.size }
+
+      if ('type' in part && part.type === 'tool-call' && 'input' in part) {
+        trace.input = part.input
+      }
+      if ('type' in part && part.type === 'tool-result' && 'output' in part) {
+        trace.output = part.output
+      }
+
+      toolTrace.set(part.toolCallId, trace)
     }
   }
 
-  return toolOrder
+  return toolTrace
 }
 
 export function getVisibleToolCallsForGroup(input: {
@@ -201,7 +216,7 @@ export function getVisibleToolCallsForGroup(input: {
       )
       .map((branch) => branch.message.id)
   ])
-  const responseMessageToolOrder = collectResponseMessageToolOrder(
+  const responseMessageToolTrace = collectResponseMessageToolTrace(
     activeAssistantMessage?.responseMessages
   )
 
@@ -250,9 +265,18 @@ export function getVisibleToolCallsForGroup(input: {
 
       return visibleAssistantIds.has(toolCall.assistantMessageId)
     })
+    .map((toolCall) => {
+      const trace = responseMessageToolTrace.get(toolCall.id)
+      if (!trace) return toolCall
+      return {
+        ...toolCall,
+        ...(trace.input !== undefined ? { rawInput: trace.input } : {}),
+        ...(trace.output !== undefined ? { rawOutput: trace.output } : {})
+      }
+    })
     .sort((left, right) => {
-      const leftResponseOrder = responseMessageToolOrder.get(left.id)
-      const rightResponseOrder = responseMessageToolOrder.get(right.id)
+      const leftResponseOrder = responseMessageToolTrace.get(left.id)?.order
+      const rightResponseOrder = responseMessageToolTrace.get(right.id)?.order
 
       if (leftResponseOrder !== undefined && rightResponseOrder !== undefined) {
         return leftResponseOrder - rightResponseOrder

@@ -2,8 +2,10 @@ import { useState, useEffect, useMemo } from 'react'
 import type React from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { ChevronDown, ChevronUp, Clock } from 'lucide-react'
+import type { ToolCall } from '@renderer/app/types'
 import { theme } from '@renderer/theme/theme'
 import { canCancelFromIndicator } from './subagentIndicatorState'
+import { ToolCallRow } from './ToolCallRow'
 
 interface SubagentToolCallPreview {
   toolCallId?: string
@@ -54,49 +56,16 @@ function useElapsed(startedAt?: string): number {
   return Math.max(0, now - new Date(startedAt).getTime())
 }
 
-function dotColor(status: SubagentToolCallPreview['status']): string {
-  if (status === 'failed') return theme.status.danger
-  if (status === 'running') return theme.text.accent
-  return theme.status.success
-}
-
-function SubagentToolCallItem({
-  toolCall
-}: {
-  toolCall: SubagentToolCallPreview
-}): React.JSX.Element {
-  const isRunning = toolCall.status === 'running'
-
-  return (
-    <div
-      className="flex flex-wrap items-center gap-1.5 py-0.5"
-      style={{ fontSize: '11px', color: theme.text.muted }}
-    >
-      <span
-        className="w-1.5 h-1.5 rounded-full shrink-0"
-        style={{
-          background: dotColor(toolCall.status),
-          animation: isRunning ? 'yachiyo-preparing-pulse 1.2s ease-in-out infinite' : undefined
-        }}
-      />
-      <span style={{ color: theme.text.placeholder }}>{toolCall.toolName}</span>
-      {toolCall.inputSummary ? (
-        <span className="break-all" style={{ color: theme.text.secondary }}>
-          · {toolCall.inputSummary}
-        </span>
-      ) : null}
-      {toolCall.outputSummary ? (
-        <span
-          className="break-all"
-          style={{
-            color: toolCall.status === 'failed' ? theme.text.danger : theme.text.placeholder
-          }}
-        >
-          · {toolCall.outputSummary}
-        </span>
-      ) : null}
-    </div>
-  )
+function toNestedToolCall(toolCall: SubagentToolCallPreview, index: number): ToolCall {
+  return {
+    id: toolCall.toolCallId ?? `${toolCall.toolName}:${index}`,
+    threadId: 'subagent-preview',
+    toolName: toolCall.toolName,
+    status: toolCall.status ?? 'running',
+    inputSummary: toolCall.inputSummary,
+    ...(toolCall.outputSummary ? { outputSummary: toolCall.outputSummary } : {}),
+    startedAt: new Date(0).toISOString()
+  }
 }
 
 function AgentCard({ agent }: { agent: SubagentAgent }): React.JSX.Element {
@@ -173,9 +142,10 @@ function AgentCard({ agent }: { agent: SubagentAgent }): React.JSX.Element {
         >
           {recent.length > 0 ? (
             recent.map((toolCall, index) => (
-              <SubagentToolCallItem
+              <ToolCallRow
                 key={toolCall.toolCallId ?? `${toolCall.toolName}:${index}`}
-                toolCall={toolCall}
+                toolCall={toNestedToolCall(toolCall, index)}
+                nested
               />
             ))
           ) : (

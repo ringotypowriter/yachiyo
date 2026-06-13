@@ -1,7 +1,7 @@
 import type React from 'react'
-import { Fragment, useId, useState } from 'react'
-import { ChevronRight, ExternalLink } from 'lucide-react'
-import type { ToolCall, WebSearchResultItem, WriteToolCallDetails } from '@renderer/app/types'
+import { useId, useState } from 'react'
+import { ChevronRight } from 'lucide-react'
+import type { ToolCall } from '@renderer/app/types'
 import { theme } from '@renderer/theme/theme'
 import {
   buildToolCallDetailsPresentation,
@@ -13,6 +13,7 @@ import { AskUserInlineWidget } from './AskUserInlineWidget.tsx'
 interface ToolCallRowProps {
   toolCall: ToolCall
   workspacePath?: string | null
+  nested?: boolean
 }
 
 function elapsedSeconds(startedAt: string, finishedAt: string): string | null {
@@ -21,7 +22,11 @@ function elapsedSeconds(startedAt: string, finishedAt: string): string | null {
   return s >= 0.1 ? `${s.toFixed(1)}s` : null
 }
 
-export function ToolCallRow({ toolCall, workspacePath }: ToolCallRowProps): React.JSX.Element {
+export function ToolCallRow({
+  toolCall,
+  workspacePath,
+  nested = false
+}: ToolCallRowProps): React.JSX.Element {
   const [isExpanded, setIsExpanded] = useState(false)
   const detailsId = useId()
 
@@ -40,9 +45,11 @@ export function ToolCallRow({ toolCall, workspacePath }: ToolCallRowProps): Reac
       ? theme.text.accent
       : theme.status.success
   const presentation = buildToolCallDetailsPresentation(toolCall)
-  const hasSearchResults = (presentation.searchResults?.length ?? 0) > 0
-  const hasExpandableDetails =
-    presentation.fields.length > 0 || presentation.codeBlocks.length > 0 || hasSearchResults
+  const rowPaddingClass = nested ? 'px-0' : 'px-6'
+  const detailBlocks = [presentation.input, presentation.output].filter(
+    (block): block is NonNullable<typeof block> => Boolean(block?.value)
+  )
+  const hasExpandableDetails = detailBlocks.length > 0
 
   const isPathTool =
     toolCall.toolName === 'read' || toolCall.toolName === 'write' || toolCall.toolName === 'edit'
@@ -84,7 +91,7 @@ export function ToolCallRow({ toolCall, workspacePath }: ToolCallRowProps): Reac
   if (!hasExpandableDetails) {
     return (
       <div
-        className="flex flex-wrap items-center gap-1.5 px-6 py-0.5"
+        className={`flex flex-wrap items-center gap-1.5 ${rowPaddingClass} py-0.5`}
         style={{ fontSize: '11px', color: theme.text.muted }}
       >
         {summaryContent}
@@ -93,7 +100,10 @@ export function ToolCallRow({ toolCall, workspacePath }: ToolCallRowProps): Reac
   }
 
   return (
-    <div className="px-6 py-0.5" style={{ fontSize: '11px', color: theme.text.muted }}>
+    <div
+      className={`${rowPaddingClass} py-0.5`}
+      style={{ fontSize: '11px', color: theme.text.muted }}
+    >
       <button
         type="button"
         className="flex w-full items-start gap-2 rounded-sm text-left"
@@ -127,38 +137,10 @@ export function ToolCallRow({ toolCall, workspacePath }: ToolCallRowProps): Reac
       {isExpanded && (
         <div
           id={detailsId}
-          className="mt-1 ml-3 flex flex-col gap-1.5 border-l pl-3 pr-6 yachiyo-detail-reveal"
+          className={`mt-1 ml-3 flex flex-col gap-1.5 border-l pl-3 ${nested ? 'pr-0' : 'pr-6'} yachiyo-detail-reveal`}
           style={{ borderColor: theme.border.panel }}
         >
-          {presentation.fields.length > 0 ? (
-            <div
-              style={{
-                display: 'grid',
-                gridTemplateColumns: 'max-content 1fr max-content 1fr',
-                columnGap: '10px',
-                rowGap: '2px'
-              }}
-            >
-              {presentation.fields.map((field) => (
-                <Fragment key={field.label}>
-                  <span style={{ color: theme.text.placeholder, textAlign: 'right' }}>
-                    {field.label}
-                  </span>
-                  <span
-                    className="break-all"
-                    style={{
-                      color: field.tone === 'danger' ? theme.text.danger : theme.text.tertiary,
-                      fontFamily: "ui-monospace, 'SF Mono', Menlo, monospace"
-                    }}
-                  >
-                    {field.value}
-                  </span>
-                </Fragment>
-              ))}
-            </div>
-          ) : null}
-
-          {presentation.codeBlocks.map((block) => (
+          {detailBlocks.map((block) => (
             <div key={`${block.label}:${block.value.slice(0, 32)}`}>
               <div
                 style={{
@@ -173,13 +155,6 @@ export function ToolCallRow({ toolCall, workspacePath }: ToolCallRowProps): Reac
               </div>
               {block.label.startsWith('diff') ? (
                 <ToolCodeBlock value={block.value} filePath={block.filePath} variant="diff" />
-              ) : block.label === 'preview' ? (
-                <ToolCodeBlock
-                  value={block.value}
-                  filePath={
-                    block.filePath ?? (toolCall.details as WriteToolCallDetails | undefined)?.path
-                  }
-                />
               ) : (
                 <pre
                   className="message-selectable overflow-auto rounded-md px-3 py-2"
@@ -204,97 +179,8 @@ export function ToolCallRow({ toolCall, workspacePath }: ToolCallRowProps): Reac
               )}
             </div>
           ))}
-
-          {hasSearchResults ? <SearchResultsList results={presentation.searchResults!} /> : null}
         </div>
       )}
-    </div>
-  )
-}
-
-function formatDisplayUrl(raw: string): string {
-  try {
-    const u = new URL(raw)
-    return u.hostname + (u.pathname !== '/' ? u.pathname : '')
-  } catch {
-    return raw
-  }
-}
-
-function SearchResultsList({ results }: { results: WebSearchResultItem[] }): React.JSX.Element {
-  return (
-    <div className="overflow-y-auto" style={{ maxHeight: '200px' }}>
-      {results.map((result, i) => (
-        <a
-          key={`${result.rank}-${result.url}`}
-          href={result.url}
-          target="_blank"
-          rel="noreferrer"
-          onClick={(e) => {
-            e.preventDefault()
-            window.open(result.url, '_blank', 'noreferrer')
-          }}
-          className="group flex items-start gap-2 py-1.5 no-underline"
-          style={{
-            borderTop: i > 0 ? `1px solid ${theme.border.subtle}` : undefined,
-            cursor: 'default'
-          }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.background = theme.background.hover
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.background = 'transparent'
-          }}
-        >
-          <span
-            className="shrink-0 mt-px"
-            style={{
-              color: theme.text.placeholder,
-              fontFamily: "ui-monospace, 'SF Mono', Menlo, monospace",
-              fontSize: '10px',
-              width: '12px',
-              textAlign: 'right'
-            }}
-          >
-            {result.rank}
-          </span>
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-1" style={{ lineHeight: 1.4 }}>
-              <span className="truncate" style={{ color: theme.text.accent, fontWeight: 500 }}>
-                {result.title}
-              </span>
-              <ExternalLink
-                size={9}
-                strokeWidth={1.6}
-                className="shrink-0 opacity-0 group-hover:opacity-100"
-                style={{ color: theme.text.placeholder, transition: 'opacity 0.1s ease' }}
-              />
-            </div>
-            <div
-              className="truncate"
-              style={{ color: theme.text.placeholder, fontSize: '10px', lineHeight: 1.3 }}
-            >
-              {formatDisplayUrl(result.url)}
-            </div>
-            {result.snippet ? (
-              <div
-                style={{
-                  color: theme.text.muted,
-                  fontSize: '10.5px',
-                  lineHeight: 1.4,
-                  marginTop: '1px',
-                  display: '-webkit-box',
-                  WebkitLineClamp: 2,
-                  WebkitBoxOrient: 'vertical',
-                  overflow: 'hidden'
-                }}
-              >
-                {result.snippet}
-              </div>
-            ) : null}
-          </div>
-        </a>
-      ))}
     </div>
   )
 }
