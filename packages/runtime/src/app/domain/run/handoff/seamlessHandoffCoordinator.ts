@@ -167,16 +167,16 @@ export class SeamlessHandoffCoordinator {
       thread
     })
     const runtime = this.deps.createModelRuntime()
+    const messages = buildSeamlessThreadHandoffMessages({
+      previousContextHandoffSummary: thread.contextHandoffSummary,
+      checkpointSegmentSummary: summarizeSegment({ dump, toolCalls }),
+      checkpointDumpPath: dumpPath,
+      reason
+    })
     const controller = new AbortController()
     this.controllers.add(controller)
     const summaryParts: string[] = []
     try {
-      const messages = buildSeamlessThreadHandoffMessages({
-        previousContextHandoffSummary: thread.contextHandoffSummary,
-        checkpointSegmentSummary: summarizeSegment({ dump, toolCalls }),
-        checkpointDumpPath: dumpPath,
-        reason
-      })
       for await (const delta of runtime.streamReply({
         messages,
         settings,
@@ -186,6 +186,9 @@ export class SeamlessHandoffCoordinator {
       })) {
         if (delta) summaryParts.push(delta)
       }
+    } catch (error) {
+      if (controller.signal.aborted) throw error
+      return { kind: 'skipped', reason: 'summary-generation-failed' }
     } finally {
       this.controllers.delete(controller)
     }

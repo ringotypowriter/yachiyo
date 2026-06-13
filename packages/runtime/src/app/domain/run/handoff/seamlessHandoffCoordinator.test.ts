@@ -11,7 +11,7 @@ import type {
   ThreadUpdatedEvent
 } from '@yachiyo/shared/protocol'
 import type { YachiyoStorage } from '../../../../storage/storage.ts'
-import type { ModelStreamRequest } from '../../../../runtime/models/types.ts'
+import type { ModelRuntime, ModelStreamRequest } from '../../../../runtime/models/types.ts'
 import { SeamlessHandoffCoordinator } from './seamlessHandoffCoordinator.ts'
 
 function createThread(): ThreadRecord {
@@ -25,12 +25,52 @@ function createThread(): ThreadRecord {
   } as ThreadRecord
 }
 
+function createSegmentMessages(thread: ThreadRecord): MessageRecord[] {
+  return [
+    {
+      id: 'u1',
+      threadId: thread.id,
+      role: 'user',
+      content: 'old',
+      status: 'completed',
+      createdAt: '2026-06-01T00:00:00.000Z'
+    },
+    {
+      id: 'a1',
+      threadId: thread.id,
+      role: 'assistant',
+      content: 'old answer',
+      status: 'completed',
+      createdAt: '2026-06-01T00:00:01.000Z'
+    },
+    {
+      id: 'u2',
+      threadId: thread.id,
+      role: 'user',
+      parentMessageId: 'a1',
+      content: 'new task',
+      status: 'completed',
+      createdAt: '2026-06-01T00:00:02.000Z'
+    },
+    {
+      id: 'a2',
+      threadId: thread.id,
+      role: 'assistant',
+      parentMessageId: 'u2',
+      content: 'new answer',
+      status: 'completed',
+      createdAt: '2026-06-01T00:00:03.000Z'
+    }
+  ]
+}
+
 function createCoordinator(input: {
   thread: ThreadRecord
   workspacePath: string
   messages: MessageRecord[]
   requests: ModelStreamRequest[]
   events: Array<Omit<ThreadUpdatedEvent, 'eventId' | 'timestamp'>>
+  streamReply?: ModelRuntime['streamReply']
 }): SeamlessHandoffCoordinator {
   const settings: ProviderSettings = {
     providerName: 'work',
@@ -58,6 +98,10 @@ function createCoordinator(input: {
     createModelRuntime: () => ({
       async *streamReply(request: ModelStreamRequest) {
         input.requests.push(request)
+        if (input.streamReply) {
+          yield* input.streamReply(request)
+          return
+        }
         yield '### Goal\nKeep building.\n\n### Original message records\n- `/old.md`\n- `'
         const prompt = String(
           (request.messages.at(-1) as { content?: unknown } | undefined)?.content ?? ''
@@ -78,42 +122,7 @@ test('SeamlessHandoffCoordinator writes one markdown dump and advances context h
   const workspacePath = await mkdtemp(join(tmpdir(), 'yachiyo-seamless-handoff-'))
   try {
     const thread = createThread()
-    const messages: MessageRecord[] = [
-      {
-        id: 'u1',
-        threadId: thread.id,
-        role: 'user',
-        content: 'old',
-        status: 'completed',
-        createdAt: '2026-06-01T00:00:00.000Z'
-      },
-      {
-        id: 'a1',
-        threadId: thread.id,
-        role: 'assistant',
-        content: 'old answer',
-        status: 'completed',
-        createdAt: '2026-06-01T00:00:01.000Z'
-      },
-      {
-        id: 'u2',
-        threadId: thread.id,
-        role: 'user',
-        parentMessageId: 'a1',
-        content: 'new task',
-        status: 'completed',
-        createdAt: '2026-06-01T00:00:02.000Z'
-      },
-      {
-        id: 'a2',
-        threadId: thread.id,
-        role: 'assistant',
-        parentMessageId: 'u2',
-        content: 'new answer',
-        status: 'completed',
-        createdAt: '2026-06-01T00:00:03.000Z'
-      }
-    ]
+    const messages = createSegmentMessages(thread)
     const requests: ModelStreamRequest[] = []
     const events: ThreadUpdatedEvent[] = []
     const coordinator = createCoordinator({ thread, workspacePath, messages, requests, events })
@@ -136,6 +145,72 @@ test('SeamlessHandoffCoordinator writes one markdown dump and advances context h
     const markdown = await readFile(join(dumpDir, files[0]!), 'utf8')
     assert.match(markdown, /new task/)
     assert.doesNotMatch(markdown, /old answer/)
+  } finally {
+    await rm(workspacePath, { recursive: true, force: true })
+  }
+})
+
+test('SeamlessHandoffCoordinator skips without updating the thread when summary generation fails', async () => {
+  const workspacePath = await mkdtemp(join(tmpdir(), 'yachiyo-seamless-handoff-'))
+  try {
+    const thread = createThread()
+    const originalSummary = thread.contextHandoffSummary
+    const requests: ModelStreamRequest[] = []
+    const events: ThreadUpdatedEvent[] = []
+    const coordinator = createCoordinator({
+      thread,
+      workspacePath,
+      messages: createSegmentMessages(thread),
+      requests,
+      events,
+      streamReply: async function* () {
+        yield 'partial summary'
+        throw new Error('provider unavailable')
+      }
+    })
+
+    const result = await coordinator.handoffAtCheckpoint(thread.id, 'a2', 'step-boundary')
+
+    assert.deepEqual(result, { kind: 'skipped', reason: 'summary-generation-failed' })
+    assert.equal(thread.contextHandoffWatermarkMessageId, 'a1')
+    assert.equal(thread.contextHandoffSummary, originalSummary)
+    assert.equal(requests.length, 1)
+    assert.equal(events.length, 0)
+  } finally {
+    await rm(workspacePath, { recursive: true, force: true })
+  }
+})
+
+test('SeamlessHandoffCoordinator rethrows active aborts from summary generation', async () => {
+  const workspacePath = await mkdtemp(join(tmpdir(), 'yachiyo-seamless-handoff-'))
+  try {
+    const thread = createThread()
+    const requests: ModelStreamRequest[] = []
+    const events: ThreadUpdatedEvent[] = []
+    const coordinatorRef: { current?: SeamlessHandoffCoordinator } = {}
+    const coordinator = createCoordinator({
+      thread,
+      workspacePath,
+      messages: createSegmentMessages(thread),
+      requests,
+      events,
+      streamReply: async function* () {
+        coordinatorRef.current?.abort()
+        yield 'partial summary'
+        const error = new Error('Aborted')
+        error.name = 'AbortError'
+        throw error
+      }
+    })
+    coordinatorRef.current = coordinator
+
+    await assert.rejects(
+      () => coordinator.handoffAtCheckpoint(thread.id, 'a2', 'step-boundary'),
+      (error: unknown) => error instanceof Error && error.name === 'AbortError'
+    )
+    assert.equal(thread.contextHandoffWatermarkMessageId, 'a1')
+    assert.equal(requests.length, 1)
+    assert.equal(events.length, 0)
   } finally {
     await rm(workspacePath, { recursive: true, force: true })
   }
