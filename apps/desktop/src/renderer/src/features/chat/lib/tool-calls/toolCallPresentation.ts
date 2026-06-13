@@ -141,6 +141,13 @@ function buildFallbackOutput(toolCall: ToolCall): ToolCallDetailCodeBlock | unde
   const details = toolCall.details
   const error = toolCall.error?.trim()
 
+  if (toolCall.toolName === 'read' && details) {
+    const read = details as ReadToolCallDetails
+    if (read.content?.trim()) {
+      return { label: 'Output', value: read.content.trimEnd() }
+    }
+  }
+
   if (toolCall.toolName === 'bash' && details) {
     const bash = details as BashToolCallDetails
     const parts: string[] = []

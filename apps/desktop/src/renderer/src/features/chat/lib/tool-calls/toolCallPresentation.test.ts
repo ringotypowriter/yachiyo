@@ -35,6 +35,26 @@ test('buildToolCallDetailsPresentation uses recovered raw input and output when 
   assert.deepEqual(presentation.output, { label: 'Output', value: 'full output' })
 })
 
+test('buildToolCallDetailsPresentation shows read content excerpt from details when raw output is absent', () => {
+  const presentation = buildToolCallDetailsPresentation({
+    ...BASE_TOOL_CALL,
+    details: {
+      path: '/workspace/notes.txt',
+      startLine: 1,
+      endLine: 2,
+      totalLines: 2,
+      totalBytes: 16,
+      truncated: false,
+      content: '1➔alpha\n2➔omega'
+    }
+  })
+
+  assert.deepEqual(presentation.output, {
+    label: 'Output',
+    value: '1➔alpha\n2➔omega'
+  })
+})
+
 test('buildToolCallDetailsPresentation shows complete bash command and output from details', () => {
   const presentation = buildToolCallDetailsPresentation({
     ...BASE_TOOL_CALL,

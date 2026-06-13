@@ -3,6 +3,8 @@ import { useId, useState } from 'react'
 import { ChevronRight } from 'lucide-react'
 import type { ToolCall } from '@renderer/app/types'
 import { theme } from '@renderer/theme/theme'
+import { JsonTreeView } from './JsonTreeView.tsx'
+import { isValidJson } from '../lib/jsonTree/isValidJson.ts'
 import {
   buildToolCallDetailsPresentation,
   formatToolFilePath
@@ -155,6 +157,8 @@ export function ToolCallRow({
               </div>
               {block.label.startsWith('diff') ? (
                 <ToolCodeBlock value={block.value} filePath={block.filePath} variant="diff" />
+              ) : isValidJson(block.value) && block.tone !== 'danger' ? (
+                <JsonTreeView value={block.value} />
               ) : (
                 <pre
                   className="message-selectable overflow-auto rounded-md px-3 py-2"

@@ -148,6 +148,7 @@ test('runReadTool prefixes text lines with original file line numbers', async ()
     const textBlock = result.content.find((b) => b.type === 'text')
     assert.ok(textBlock?.type === 'text')
     assert.equal(textBlock.text, '2➔\n3➔omega\n4➔last')
+    assert.equal(result.details.content, '2➔\n3➔omega\n4➔last')
   })
 })
 

@@ -17,6 +17,8 @@ export interface ReadToolCallDetails {
   truncated: boolean
   nextOffset?: number
   remainingLines?: number
+  /** Text content returned to the model for text/PDF reads or image inspection. */
+  content?: string
   /** Set for image reads; contains the IANA media type e.g. "image/png". */
   mediaType?: string
   /** Set for PDF reads; total number of pages in the document. */

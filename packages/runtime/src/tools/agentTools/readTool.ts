@@ -26,6 +26,7 @@ import {
 
 const DEFAULT_READ_TIMEOUT_MS = 30_000
 const INSPECT_READ_TIMEOUT_MS = 90_000
+const MAX_READ_DETAILS_CONTENT_CHARS = 4_000
 
 const IMAGE_EXTENSIONS: Record<string, string> = {
   '.png': 'image/png',
@@ -92,6 +93,14 @@ function detectImageMimeType(filePath: string): string | undefined {
 
 function isUnreadableBinary(filePath: string): boolean {
   return UNREADABLE_BINARY_EXTENSIONS.has(extname(filePath).toLowerCase())
+}
+
+function truncateReadDetailsContent(content: string): string {
+  const trimmed = content.trim()
+  if (trimmed.length <= MAX_READ_DETAILS_CONTENT_CHARS) {
+    return trimmed
+  }
+  return `${trimmed.slice(0, MAX_READ_DETAILS_CONTENT_CHARS).trimEnd()}\n\n[output trimmed for display]`
 }
 
 export function createTool(context: AgentToolContext): Tool<ReadToolInput, ReadToolOutput> {
@@ -263,6 +272,7 @@ async function runPdfReadTool(
       ? `\n\n[truncated: continue with offset ${excerpt.nextOffset}]`
       : ''
 
+  const outputContent = `${excerpt.excerpt}${continuationHint}`
   const details: ReadToolCallDetails = {
     path: resolvedPath,
     startLine: Math.max(input.offset ?? 1, 1),
@@ -272,12 +282,13 @@ async function runPdfReadTool(
     truncated: excerpt.truncated,
     ...(excerpt.nextOffset !== undefined ? { nextOffset: excerpt.nextOffset } : {}),
     ...(excerpt.remainingLines !== undefined ? { remainingLines: excerpt.remainingLines } : {}),
+    content: truncateReadDetailsContent(outputContent),
     mediaType: 'application/pdf',
     totalPages,
     cached
   }
 
-  return { content: textContent(`${excerpt.excerpt}${continuationHint}`), details, metadata: {} }
+  return { content: textContent(outputContent), details, metadata: {} }
 }
 
 async function runImageReadTool(
@@ -319,9 +330,10 @@ async function runImageReadTool(
   if (focus?.trim() && context.imageToTextService) {
     const dataUrl = `data:${mediaType};base64,${base64}`
     const result = await context.imageToTextService.inspect(dataUrl, focus.trim(), abortSignal)
+    const outputContent = `${result ?? '(image could not be inspected)'}\n${summary}`
     return {
-      content: textContent(`${result ?? '(image could not be inspected)'}\n${summary}`),
-      details,
+      content: textContent(outputContent),
+      details: { ...details, content: truncateReadDetailsContent(outputContent) },
       metadata: {}
     }
   }
@@ -408,6 +420,11 @@ export async function runReadTool(
     const rawContent = await readFile(resolvedPath, { encoding: 'utf8', signal: effectiveSignal })
     const lines = rawContent.length === 0 ? [] : rawContent.split(/\r?\n/)
     const excerpt = buildReadExcerpt(lines, input)
+    const continuationHint =
+      excerpt.truncated && excerpt.nextOffset !== undefined
+        ? `\n\n[truncated: continue with offset ${excerpt.nextOffset}]`
+        : ''
+    const outputContent = `${excerpt.excerpt}${continuationHint}${focusIgnoredHint}`
     const details: ReadToolCallDetails = {
       path: resolvedPath,
       startLine: Math.max(input.offset ?? 1, 1),
@@ -416,12 +433,9 @@ export async function runReadTool(
       totalBytes: Buffer.byteLength(rawContent, 'utf8'),
       truncated: excerpt.truncated,
       ...(excerpt.nextOffset === undefined ? {} : { nextOffset: excerpt.nextOffset }),
-      ...(excerpt.remainingLines === undefined ? {} : { remainingLines: excerpt.remainingLines })
+      ...(excerpt.remainingLines === undefined ? {} : { remainingLines: excerpt.remainingLines }),
+      content: truncateReadDetailsContent(outputContent)
     }
-    const continuationHint =
-      excerpt.truncated && excerpt.nextOffset !== undefined
-        ? `\n\n[truncated: continue with offset ${excerpt.nextOffset}]`
-        : ''
 
     if (context.readRecordCache) {
       const mtimeMs = await (
@@ -444,7 +458,7 @@ export async function runReadTool(
       }
     }
     return {
-      content: textContent(`${excerpt.excerpt}${continuationHint}${focusIgnoredHint}`),
+      content: textContent(outputContent),
       details,
       metadata: {}
     }
