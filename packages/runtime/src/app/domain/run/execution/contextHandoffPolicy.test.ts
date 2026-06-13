@@ -6,6 +6,10 @@ import {
   shouldTriggerContextHandoffForActualPromptTokens
 } from './contextHandoffPolicy.ts'
 
+test('resolveContextHandoffThreshold defaults to 90 percent of a 256k context window', () => {
+  assert.equal(resolveContextHandoffThreshold({}), 230_400)
+})
+
 test('resolveContextHandoffThreshold uses the configured boundary without a safety discount', () => {
   assert.equal(
     resolveContextHandoffThreshold({ chat: { stripCompactThresholdTokens: 128_000 } }),

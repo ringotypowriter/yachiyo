@@ -20,9 +20,11 @@ interface ChatPaneProps {
 
 export function ChatPane({ draft, onChange }: ChatPaneProps): React.ReactNode {
   const activeRunEnterBehavior = draft.chat?.activeRunEnterBehavior ?? 'enter-steers'
-  const stripCompactThresholdK = Math.round(
-    (draft.chat?.stripCompactThresholdTokens ?? DEFAULT_STRIP_COMPACT_TOKEN_THRESHOLD) / 1000
-  )
+  const contextHandoffThresholdTokens =
+    draft.chat?.stripCompactThresholdTokens ?? DEFAULT_STRIP_COMPACT_TOKEN_THRESHOLD
+  const contextHandoffThresholdK = Number(
+    (contextHandoffThresholdTokens / 1000).toFixed(3)
+  ).toString()
   const toolModel = getToolModelConfig(draft)
   const selectedToolProvider = resolveToolModelProvider(draft, toolModel)
   const toolModelSelectorRef = useRef<HTMLDivElement>(null)
@@ -165,10 +167,10 @@ export function ChatPane({ draft, onChange }: ChatPaneProps): React.ReactNode {
         <SettingRow>
           <div className="min-w-0 space-y-0.5">
             <div className="text-sm font-medium" style={{ color: theme.text.primary }}>
-              Strip Compact
+              Automatic context handoff
             </div>
             <div className="text-sm leading-5" style={{ color: theme.text.tertiary }}>
-              Trim old tool results when context exceeds the threshold.
+              Checkpoint old context and continue from a summary when a run gets large.
             </div>
           </div>
 
@@ -181,7 +183,7 @@ export function ChatPane({ draft, onChange }: ChatPaneProps): React.ReactNode {
                   chat: { ...draft.chat, stripCompact: draft.chat?.stripCompact === false }
                 })
               }
-              ariaLabel="Toggle Strip Compact"
+              ariaLabel="Toggle automatic context handoff"
             />
           </div>
         </SettingRow>
@@ -189,10 +191,10 @@ export function ChatPane({ draft, onChange }: ChatPaneProps): React.ReactNode {
         <SettingRow>
           <div className="min-w-0 space-y-0.5">
             <div className="text-sm font-medium" style={{ color: theme.text.primary }}>
-              Strip threshold
+              Handoff threshold
             </div>
             <div className="text-sm leading-5" style={{ color: theme.text.tertiary }}>
-              Also controls the Composer context warning.
+              Prompt tokens before automatic handoff and the Composer warning.
             </div>
           </div>
 
@@ -200,23 +202,23 @@ export function ChatPane({ draft, onChange }: ChatPaneProps): React.ReactNode {
             <input
               type="number"
               min={1}
-              step={1}
-              value={stripCompactThresholdK}
+              step={0.1}
+              value={contextHandoffThresholdK}
               onChange={(e) => {
-                const raw = parseInt(e.target.value, 10)
+                const raw = Number.parseFloat(e.target.value)
                 if (!Number.isNaN(raw) && raw > 0) {
                   onChange({
                     ...draft,
                     chat: {
                       ...draft.chat,
-                      stripCompactThresholdTokens: raw * 1000
+                      stripCompactThresholdTokens: Math.round(raw * 1000)
                     }
                   })
                 }
               }}
               className="w-20 rounded-lg px-2 py-1 text-sm text-right outline-none"
               style={inputStyle()}
-              aria-label="Strip compact threshold in thousands of tokens"
+              aria-label="Context handoff threshold in thousands of tokens"
             />
             <span className="text-sm" style={{ color: theme.text.secondary }}>
               K

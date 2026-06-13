@@ -230,7 +230,7 @@ export interface SetBrowserAutomationSessionBoundsInput {
   overlay?: BrowserAutomationOverlayState
 }
 
-export const DEFAULT_STRIP_COMPACT_TOKEN_THRESHOLD = 200_000
+export const DEFAULT_STRIP_COMPACT_TOKEN_THRESHOLD = 230_400
 export const DEFAULT_WEB_READ_CONTENT_FORMAT: WebReadRequestFormat = 'markdown'
 export const DEFAULT_WEB_SEARCH_PROVIDER: WebSearchProviderId = 'google-browser'
 export const CORE_TOOL_NAMES = [

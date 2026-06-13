@@ -588,7 +588,7 @@ test('normalizeSettingsConfig falls back to the default active-run input behavio
   )
 })
 
-test('normalizeSettingsConfig normalizes strip compact threshold', () => {
+test('normalizeSettingsConfig normalizes context handoff threshold', () => {
   assert.equal(
     normalizeSettingsConfig({
       providers: [],

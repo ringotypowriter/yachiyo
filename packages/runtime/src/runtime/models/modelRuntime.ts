@@ -994,7 +994,7 @@ export function createAiSdkModelRuntime(dependencies: AiSdkRuntimeDependencies =
               contextStripCompactRetries++
               preparedMessages = compactedMessages
               console.warn(
-                `${llmTag} retrying with strip compact after context-window error ` +
+                `${llmTag} retrying with context compaction after context-window error ` +
                   `attempt=${contextStripCompactRetries}/${CONTEXT_STRIP_COMPACT_MAX_RETRIES}: ${errorLogMessage}`
               )
               request.onRetry?.(
