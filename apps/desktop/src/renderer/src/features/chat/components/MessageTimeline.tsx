@@ -1,4 +1,12 @@
-import React, { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef } from 'react'
+import React, {
+  memo,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState
+} from 'react'
 import { useVirtualizer as useTanStackVirtualizer } from '@tanstack/react-virtual'
 import { useShallow } from 'zustand/react/shallow'
 import { Waypoints } from 'lucide-react'
@@ -127,6 +135,7 @@ interface TimelineItemRenderContext {
   onRetry: (messageId: string) => Promise<void>
   onDelete: (messageId: string) => Promise<void>
   onSelectReplyBranch: (messageId: string) => Promise<void>
+  onToggleHandoffFold: (foldKey: string) => void
 }
 
 interface TimelineItemContentProps {
@@ -154,7 +163,8 @@ function estimateTimelineRowSize(item: MessageTimelineRow): number {
     case 'tool':
       return 72
     case 'handoff-fold':
-      return 44
+      if (!item.expanded || !item.rollingSummary) return 44
+      return Math.min(280, Math.ceil(item.rollingSummary.length / 90) * 18 + 96)
     case 'pending-steer':
       return 120
     case 'assistant-root': {
@@ -282,13 +292,33 @@ function renderTimelineItem(
     onCreateBranch,
     onRetry,
     onDelete,
-    onSelectReplyBranch
+    onSelectReplyBranch,
+    onToggleHandoffFold
   } = context
 
   if (item.kind === 'handoff-fold') {
     return (
-      <div className="handoff-fold-marker" role="note">
-        Earlier messages folded into handoff
+      <div
+        className={`handoff-fold-marker${item.expanded ? ' handoff-fold-marker--expanded' : ''}`}
+        role="note"
+      >
+        <button
+          type="button"
+          className="handoff-fold-marker__button"
+          aria-expanded={item.expanded}
+          onClick={() => onToggleHandoffFold(item.key)}
+        >
+          <span>Earlier messages folded into handoff</span>
+          <span className="handoff-fold-marker__meta">
+            {item.foldedRowCount} rows · {item.expanded ? 'Hide' : 'Show'}
+          </span>
+        </button>
+        {item.expanded && item.rollingSummary ? (
+          <details className="handoff-fold-marker__summary">
+            <summary>Handoff summary</summary>
+            <pre>{item.rollingSummary}</pre>
+          </details>
+        ) : null}
       </div>
     )
   }
@@ -667,6 +697,9 @@ export function MessageTimeline({
   onBrowserSessionPickerOpenChange
 }: MessageTimelineProps): React.JSX.Element {
   const dialog = useAppDialog()
+  const [expandedHandoffFoldKeys, setExpandedHandoffFoldKeys] = useState<Set<string>>(
+    () => new Set()
+  )
   const {
     thread,
     messages,
@@ -820,6 +853,8 @@ export function MessageTimeline({
         activeRequestMessageId,
         subagentActive,
         summaryWatermarkMessageId: thread?.summaryWatermarkMessageId ?? null,
+        rollingSummary: thread?.rollingSummary,
+        expandedHandoffFoldKeys,
         workSummaryEnabled
       }),
     [
@@ -833,6 +868,8 @@ export function MessageTimeline({
       activeRequestMessageId,
       subagentActive,
       thread?.summaryWatermarkMessageId,
+      thread?.rollingSummary,
+      expandedHandoffFoldKeys,
       workSummaryEnabled
     ]
   )
@@ -886,6 +923,7 @@ export function MessageTimeline({
     stickToBottomRef.current = true
     pendingThreadSwitchScrollRef.current = threadId
     programmaticScrollUntilRef.current = Date.now() + 500
+    setExpandedHandoffFoldKeys(new Set())
     cancelInitialBottomScroll()
     prevThreadIdRef.current = threadId
   }, [threadId, cancelInitialBottomScroll])
@@ -1285,6 +1323,18 @@ export function MessageTimeline({
     [dialog, selectReplyBranch]
   )
 
+  const handleToggleHandoffFold = useCallback((foldKey: string): void => {
+    setExpandedHandoffFoldKeys((current) => {
+      const next = new Set(current)
+      if (next.has(foldKey)) {
+        next.delete(foldKey)
+      } else {
+        next.add(foldKey)
+      }
+      return next
+    })
+  }, [])
+
   const isAcpThread = thread?.runtimeBinding?.kind === 'acp'
 
   const timelineItemContext = useMemo<TimelineItemRenderContext>(
@@ -1311,7 +1361,8 @@ export function MessageTimeline({
       onCreateBranch: handleCreateBranch,
       onRetry: handleRetry,
       onDelete: handleDelete,
-      onSelectReplyBranch: handleSelectReplyBranch
+      onSelectReplyBranch: handleSelectReplyBranch,
+      onToggleHandoffFold: handleToggleHandoffFold
     }),
     [
       threadCapabilities,
@@ -1336,7 +1387,8 @@ export function MessageTimeline({
       handleCreateBranch,
       handleRetry,
       handleDelete,
-      handleSelectReplyBranch
+      handleSelectReplyBranch,
+      handleToggleHandoffFold
     ]
   )
 

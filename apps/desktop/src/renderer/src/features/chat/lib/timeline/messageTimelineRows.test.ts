@@ -1377,20 +1377,21 @@ test('buildMessageTimelineRows folds rows covered by the thread handoff watermar
     }
   })
 
-  const rows = buildMessageTimelineRows({
-    messageGroups: [
-      {
-        userMessage: firstUser,
-        assistantBranches: [{ message: firstAssistant, isActive: true as const }],
-        activeAssistantMessages: [firstAssistant],
-        hiddenRequestMessageIds: [],
-        userSteerMessages: [],
-        activeBranchIndex: 0,
-        hideActiveBranchWhilePreparing: false,
-        showPreparing: false
-      },
-      ...laterGroups
-    ],
+  const messageGroups = [
+    {
+      userMessage: firstUser,
+      assistantBranches: [{ message: firstAssistant, isActive: true as const }],
+      activeAssistantMessages: [firstAssistant],
+      hiddenRequestMessageIds: [],
+      userSteerMessages: [],
+      activeBranchIndex: 0,
+      hideActiveBranchWhilePreparing: false,
+      showPreparing: false
+    },
+    ...laterGroups
+  ]
+  const baseInput = {
+    messageGroups,
     rootAssistantMessages: [],
     orphanToolCalls: [],
     pendingSteerMessage: null,
@@ -1399,11 +1400,41 @@ test('buildMessageTimelineRows folds rows covered by the thread handoff watermar
     activeRunId: null,
     activeRequestMessageId: null,
     subagentActive: false,
-    summaryWatermarkMessageId: 'assistant-1'
-  })
+    summaryWatermarkMessageId: 'assistant-1',
+    rollingSummary: 'The handoff summary.'
+  }
+
+  const rows = buildMessageTimelineRows(baseInput)
 
   assert.equal(rows[0]?.kind, 'handoff-fold')
+  assert.equal(rows[0]?.foldedRowCount, 3)
+  assert.equal(rows[0]?.expanded, false)
+  assert.equal(rows[0]?.rollingSummary, 'The handoff summary.')
   assert.deepEqual(rowKinds(rows).slice(1), [
+    'group-user',
+    'group-assistant-text-block',
+    'group-footer',
+    'group-user',
+    'group-assistant-text-block',
+    'group-footer',
+    'group-user',
+    'group-assistant-text-block',
+    'group-footer'
+  ])
+
+  const expandedRows = buildMessageTimelineRows({
+    ...baseInput,
+    expandedHandoffFoldKeys: new Set(['handoff-fold:assistant-1'])
+  })
+
+  assert.equal(expandedRows[0]?.kind, 'handoff-fold')
+  assert.equal(expandedRows[0]?.expanded, true)
+  assert.deepEqual(rowKinds(expandedRows).slice(1, 4), [
+    'group-user',
+    'group-assistant-text-block',
+    'group-footer'
+  ])
+  assert.deepEqual(rowKinds(expandedRows).slice(4), [
     'group-user',
     'group-assistant-text-block',
     'group-footer',

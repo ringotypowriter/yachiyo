@@ -1,7 +1,6 @@
 import { stepCountIs, type StopCondition, type ToolSet } from 'ai'
 import { performance } from 'node:perf_hooks'
 import { collectMessagePath } from '@yachiyo/shared/threadTree'
-import { estimateTextTokens } from '@yachiyo/shared/estimateTokens'
 
 import { SnapshotTracker } from '../../../../services/fileSnapshot/snapshotTracker.ts'
 
@@ -23,9 +22,10 @@ import {
   isContextWindowExceededRunError
 } from '../../../../runtime/models/runtimeErrors.ts'
 import {
-  STRIP_COMPACT_TOKEN_THRESHOLD,
-  estimateTokenCount
-} from '../../../../runtime/context/contextStripCompact.ts'
+  resolveContextHandoffThreshold,
+  shouldTriggerContextHandoffForActualPromptTokens
+} from './contextHandoffPolicy.ts'
+import { getPreviousRunActualPromptTokens } from './runUsage.ts'
 import { normalizeToolResult, summarizeToolInput } from '../../../../tools/agentTools.ts'
 import { createDeltaBatcher } from '../../shared/shared.ts'
 import type { RunExecutionPhase } from '../runTypes.ts'
@@ -103,24 +103,6 @@ function isSuccessfulPlanModeExitToolResult(toolResult: unknown): boolean {
   }
 
   return !hasToolFailureMarker(toolResult) && !hasToolFailureMarker(getToolResultOutput(toolResult))
-}
-
-function resolveContextHandoffThreshold(config: {
-  chat?: { stripCompact?: boolean; stripCompactThresholdTokens?: number }
-}): number | null {
-  if (config.chat?.stripCompact === false) return null
-  const threshold = config.chat?.stripCompactThresholdTokens ?? STRIP_COMPACT_TOKEN_THRESHOLD
-  return Math.max(1, Math.floor(threshold * 0.85))
-}
-
-function estimateUnknownTokenCount(value: unknown): number {
-  if (value == null) return 0
-  if (typeof value === 'string') return estimateTextTokens(value)
-  try {
-    return estimateTextTokens(JSON.stringify(value))
-  } catch {
-    return estimateTextTokens(String(value))
-  }
 }
 
 function findCompletedAssistantCheckpointBeforeRequest(input: {
@@ -365,15 +347,21 @@ export async function executeServerRun(
     for (let attempt = 0; attempt < 3; attempt++) {
       const prepared = await prepareServerRunContext(deps, buildPrepareInput(thread))
       const threshold = resolveContextHandoffThreshold(prepared.config)
-      const estimatedTokens = estimateTokenCount(
-        prepared.messages,
-        prepared.modelEnabledTools.length +
-          (input.extraTools ? Object.keys(input.extraTools).length : 0)
-      )
+      const actualPromptTokens =
+        input.priorUsage?.promptTokens ??
+        getPreviousRunActualPromptTokens(
+          deps.storage,
+          deps.loadThreadMessages,
+          thread.id,
+          input.runId,
+          input.requestMessageId
+        )
       if (
         recoveryCheckpoint ||
-        threshold == null ||
-        estimatedTokens < threshold ||
+        !shouldTriggerContextHandoffForActualPromptTokens({
+          actualPromptTokens,
+          thresholdTokens: threshold
+        }) ||
         !deps.performContextHandoff
       ) {
         return prepared
@@ -439,35 +427,23 @@ export async function executeServerRun(
     deps.onEnabledToolsUsed(input.enabledTools)
 
     const contextHandoffThreshold = resolveContextHandoffThreshold(preparedContext.config)
-    const initialPromptEstimate = estimateTokenCount(
-      finalMessages,
-      preparedContext.modelEnabledTools.length +
-        (input.extraTools ? Object.keys(input.extraTools).length : 0)
-    )
     const contextHandoffState: {
       handoffRequested: boolean
-      latestStepPromptTokens: number
-      latestToolResultTokens: number
       requestedAtStep?: number
     } = {
-      handoffRequested: false,
-      latestStepPromptTokens: initialPromptEstimate,
-      latestToolResultTokens: 0
+      handoffRequested: false
     }
-    const requestStepBoundaryHandoffIfNeeded = (toolResultTokens: number): void => {
+    const requestStepBoundaryHandoffIfNeeded = (actualPromptTokens: number): void => {
       if (
-        contextHandoffThreshold == null ||
         contextHandoffState.handoffRequested ||
-        !deps.requestContextHandoffContinuation
+        !deps.requestContextHandoffContinuation ||
+        !shouldTriggerContextHandoffForActualPromptTokens({
+          actualPromptTokens,
+          thresholdTokens: contextHandoffThreshold
+        })
       ) {
         return
       }
-      contextHandoffState.latestToolResultTokens += toolResultTokens
-      const promptBasis = Math.max(
-        contextHandoffState.latestStepPromptTokens,
-        initialPromptEstimate
-      )
-      if (promptBasis + contextHandoffState.latestToolResultTokens < contextHandoffThreshold) return
       contextHandoffState.handoffRequested = true
       contextHandoffState.requestedAtStep = agentStepCount
       deps.requestContextHandoffContinuation({
@@ -513,8 +489,6 @@ export async function executeServerRun(
       ...(tools ? { tools } : {}),
       ...(stopWhen ? { stopWhen } : {}),
       onStepUsage: (stepUsage) => {
-        contextHandoffState.latestStepPromptTokens = stepUsage.promptTokens
-        contextHandoffState.latestToolResultTokens = 0
         cumulativeCompletionTokens += stepUsage.completionTokens
         deps.emit<RunUsageUpdatedEvent>({
           type: 'run.usage.updated',
@@ -523,6 +497,7 @@ export async function executeServerRun(
           promptTokens: stepUsage.promptTokens,
           completionTokens: cumulativeCompletionTokens
         })
+        requestStepBoundaryHandoffIfNeeded(stepUsage.promptTokens)
       },
       onFinish: (usage) => {
         markProgress()
@@ -885,12 +860,6 @@ export async function executeServerRun(
             runId: input.runId,
             toolCall
           })
-
-          const toolResultTokens =
-            estimateUnknownTokenCount(event.output) +
-            estimateUnknownTokenCount(event.error) +
-            estimateTextTokens(toolCall.outputSummary ?? '')
-          requestStepBoundaryHandoffIfNeeded(toolResultTokens)
 
           if (toolLifecycle.finishRunningToolCall(event.toolCall.toolCallId)) {
             setExecutionPhase('generating')

@@ -494,11 +494,56 @@ body > div:not(#root) {
   max-width: calc(100% - 48px);
   border: 1px solid rgb(var(--yachiyo-rgb-border) / 0.72);
   border-radius: 999px;
-  padding: 6px 12px;
+  padding: 0;
   color: rgb(var(--yachiyo-rgb-muted));
   background: rgb(var(--yachiyo-rgb-surface) / 0.58);
   font-size: 12px;
   line-height: 1.25;
+}
+
+.handoff-fold-marker--expanded {
+  width: min(760px, calc(100% - 48px));
+  border-radius: 16px;
+}
+
+.handoff-fold-marker__button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  border: 0;
+  border-radius: inherit;
+  padding: 6px 12px;
+  color: inherit;
+  background: transparent;
+  font: inherit;
+  cursor: pointer;
+}
+
+.handoff-fold-marker__button:hover {
+  color: rgb(var(--yachiyo-rgb-text));
+}
+
+.handoff-fold-marker__meta {
+  color: rgb(var(--yachiyo-rgb-muted) / 0.78);
+}
+
+.handoff-fold-marker__summary {
+  border-top: 1px solid rgb(var(--yachiyo-rgb-border) / 0.54);
+  padding: 8px 12px 10px;
+}
+
+.handoff-fold-marker__summary summary {
+  cursor: pointer;
+  color: rgb(var(--yachiyo-rgb-text) / 0.82);
+}
+
+.handoff-fold-marker__summary pre {
+  margin: 8px 0 0;
+  max-height: 220px;
+  overflow: auto;
+  white-space: pre-wrap;
+  color: rgb(var(--yachiyo-rgb-text) / 0.72);
 }
 
 .user-message-images {

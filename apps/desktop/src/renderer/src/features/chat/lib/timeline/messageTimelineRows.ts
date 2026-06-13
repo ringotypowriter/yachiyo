@@ -162,6 +162,8 @@ export type MessageTimelineRow =
       key: string
       time: string
       foldedRowCount: number
+      expanded: boolean
+      rollingSummary?: string
     }
   | {
       kind: 'tool'
@@ -191,6 +193,8 @@ interface BuildMessageTimelineRowsInput {
   activeRequestMessageId: string | null
   subagentActive: boolean
   summaryWatermarkMessageId?: string | null
+  rollingSummary?: string
+  expandedHandoffFoldKeys?: ReadonlySet<string>
   workSummaryEnabled?: boolean
 }
 
@@ -222,23 +226,34 @@ function rowReferencesMessage(row: MessageTimelineRow, messageId: string): boole
 
 function foldRowsCoveredByHandoff(
   rows: MessageTimelineRow[],
-  summaryWatermarkMessageId?: string | null
+  options: {
+    summaryWatermarkMessageId?: string | null
+    rollingSummary?: string
+    expandedHandoffFoldKeys?: ReadonlySet<string>
+  }
 ): MessageTimelineRow[] {
+  const { summaryWatermarkMessageId } = options
   if (!summaryWatermarkMessageId) return rows
   const watermarkIndex = rows.findLastIndex((row) =>
     rowReferencesMessage(row, summaryWatermarkMessageId)
   )
   if (watermarkIndex < 0) return rows
+  const foldedRows = rows.slice(0, watermarkIndex + 1)
   const remainingRows = rows.slice(watermarkIndex + 1)
   if (remainingRows.length < 3) return rows
 
+  const foldKey = `handoff-fold:${summaryWatermarkMessageId}`
+  const expanded = options.expandedHandoffFoldKeys?.has(foldKey) === true
   return [
     {
       kind: 'handoff-fold' as const,
-      key: `handoff-fold:${summaryWatermarkMessageId}`,
+      key: foldKey,
       time: rows[watermarkIndex]?.time ?? remainingRows[0]?.time ?? '',
-      foldedRowCount: watermarkIndex + 1
+      foldedRowCount: foldedRows.length,
+      expanded,
+      ...(options.rollingSummary?.trim() ? { rollingSummary: options.rollingSummary } : {})
     },
+    ...(expanded ? foldedRows : []),
     ...remainingRows
   ]
 }
@@ -937,5 +952,9 @@ export function buildMessageTimelineRows(
   const rows = keepLatestPlanDocumentAnchorRow(
     blocks.sort(compareBlocks).flatMap((block) => block.rows)
   )
-  return foldRowsCoveredByHandoff(rows, input.summaryWatermarkMessageId)
+  return foldRowsCoveredByHandoff(rows, {
+    summaryWatermarkMessageId: input.summaryWatermarkMessageId,
+    rollingSummary: input.rollingSummary,
+    expandedHandoffFoldKeys: input.expandedHandoffFoldKeys
+  })
 }
