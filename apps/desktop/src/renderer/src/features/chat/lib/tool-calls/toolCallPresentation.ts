@@ -24,7 +24,22 @@ export interface ToolCallDetailCodeBlock {
 
 export interface ToolCallDetailsPresentation {
   input?: ToolCallDetailCodeBlock
+  metadata?: ToolCallDetailCodeBlock
   output?: ToolCallDetailCodeBlock
+}
+
+export interface ToolCallRowSummary {
+  inputSummary?: string
+  outputSummary?: string
+}
+
+function buildFixedBashRowStatus(toolCall: ToolCall): string {
+  if (toolCall.status === 'preparing') return 'preparing'
+  if (toolCall.status === 'running') return 'running'
+  if (toolCall.status === 'failed') return 'failed'
+  if (toolCall.status === 'waiting-for-user') return 'waiting'
+  if (toolCall.status === 'background') return 'background'
+  return 'completed'
 }
 
 function stringifyJson(value: unknown): string {
@@ -99,16 +114,14 @@ function buildFallbackInput(toolCall: ToolCall): string | undefined {
       const details = toolCall.details as GrepToolCallDetails
       return compactJson({
         pattern: details.pattern,
-        path: details.path,
-        backend: details.backend
+        path: details.path
       })
     }
     if (toolCall.toolName === 'glob') {
       const details = toolCall.details as GlobToolCallDetails
       return compactJson({
         pattern: details.pattern,
-        path: details.path,
-        backend: details.backend
+        path: details.path
       })
     }
     if (toolCall.toolName === 'webRead') {
@@ -137,6 +150,55 @@ function buildFallbackInput(toolCall: ToolCall): string | undefined {
   return toolCall.inputSummary || undefined
 }
 
+function buildFallbackMetadata(toolCall: ToolCall): ToolCallDetailCodeBlock | undefined {
+  if (!toolCall.details) return undefined
+
+  if (toolCall.toolName === 'bash') {
+    const details = toolCall.details as BashToolCallDetails
+    return {
+      label: 'Metadata',
+      value: compactJson({
+        cwd: details.cwd,
+        exitCode: details.exitCode,
+        timedOut: details.timedOut,
+        blocked: details.blocked,
+        truncated: details.truncated,
+        outputFile: details.outputFilePath,
+        background: details.background,
+        taskId: details.taskId,
+        logPath: details.logPath,
+        liftedAfterTimeout: details.liftedAfterTimeout
+      })
+    }
+  }
+
+  if (toolCall.toolName === 'grep') {
+    const details = toolCall.details as GrepToolCallDetails
+    return {
+      label: 'Metadata',
+      value: compactJson({
+        backend: details.backend,
+        resultCount: details.resultCount,
+        truncated: details.truncated
+      })
+    }
+  }
+
+  if (toolCall.toolName === 'glob') {
+    const details = toolCall.details as GlobToolCallDetails
+    return {
+      label: 'Metadata',
+      value: compactJson({
+        backend: details.backend,
+        resultCount: details.resultCount,
+        truncated: details.truncated
+      })
+    }
+  }
+
+  return undefined
+}
+
 function buildFallbackOutput(toolCall: ToolCall): ToolCallDetailCodeBlock | undefined {
   const details = toolCall.details
   const error = toolCall.error?.trim()
@@ -151,11 +213,6 @@ function buildFallbackOutput(toolCall: ToolCall): ToolCallDetailCodeBlock | unde
   if (toolCall.toolName === 'bash' && details) {
     const bash = details as BashToolCallDetails
     const parts: string[] = []
-    pushPart(parts, 'exitCode', bash.exitCode)
-    pushPart(parts, 'timedOut', bash.timedOut)
-    pushPart(parts, 'blocked', bash.blocked)
-    pushPart(parts, 'truncated', bash.truncated)
-    pushPart(parts, 'outputFile', bash.outputFilePath)
     if (bash.stdout.trim()) parts.push('stdout:\n' + bash.stdout.trimEnd())
     if (bash.stderr.trim()) parts.push('stderr:\n' + bash.stderr.trimEnd())
     if (error) parts.push('error:\n' + error)
@@ -213,6 +270,20 @@ function buildFallbackOutput(toolCall: ToolCall): ToolCallDetailCodeBlock | unde
     return value ? { label: 'Output', value } : undefined
   }
 
+  if (toolCall.toolName === 'grep' && details) {
+    return {
+      label: 'Output',
+      value: compactJson({ matches: (details as GrepToolCallDetails).matches })
+    }
+  }
+
+  if (toolCall.toolName === 'glob' && details) {
+    return {
+      label: 'Output',
+      value: compactJson({ matches: (details as GlobToolCallDetails).matches })
+    }
+  }
+
   if (details) {
     return {
       label: 'Output',
@@ -234,6 +305,7 @@ export function buildToolCallDetailsPresentation(toolCall: ToolCall): ToolCallDe
   const rawOutput = 'rawOutput' in toolCall ? toolCall.rawOutput : undefined
   const inputValue =
     rawInput !== undefined ? renderRawValue(rawInput) : buildFallbackInput(toolCall)
+  const metadata = buildFallbackMetadata(toolCall)
   const output =
     rawOutput !== undefined
       ? { label: 'Output', value: renderRawValue(rawOutput) }
@@ -241,7 +313,28 @@ export function buildToolCallDetailsPresentation(toolCall: ToolCall): ToolCallDe
 
   return {
     ...(inputValue ? { input: { label: 'Input', value: inputValue } } : {}),
+    ...(metadata?.value ? { metadata } : {}),
     ...(output?.value ? { output } : {})
+  }
+}
+
+export function buildToolCallRowSummary(
+  toolCall: ToolCall,
+  workspacePath?: string | null
+): ToolCallRowSummary {
+  const isPathTool =
+    toolCall.toolName === 'read' || toolCall.toolName === 'write' || toolCall.toolName === 'edit'
+  const inputSummary =
+    isPathTool && toolCall.inputSummary
+      ? formatToolFilePath(toolCall.inputSummary, workspacePath)
+      : toolCall.inputSummary || undefined
+
+  return {
+    inputSummary,
+    outputSummary:
+      toolCall.toolName === 'bash'
+        ? buildFixedBashRowStatus(toolCall)
+        : toolCall.outputSummary || undefined
   }
 }
 

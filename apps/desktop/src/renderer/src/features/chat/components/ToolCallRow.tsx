@@ -7,7 +7,7 @@ import { JsonTreeView } from './JsonTreeView.tsx'
 import { isValidJson } from '../lib/jsonTree/isValidJson.ts'
 import {
   buildToolCallDetailsPresentation,
-  formatToolFilePath
+  buildToolCallRowSummary
 } from '../lib/tool-calls/toolCallPresentation.ts'
 import { ToolCodeBlock } from './ToolCodeBlock.tsx'
 import { AskUserInlineWidget } from './AskUserInlineWidget.tsx'
@@ -48,17 +48,12 @@ export function ToolCallRow({
       : theme.status.success
   const presentation = buildToolCallDetailsPresentation(toolCall)
   const rowPaddingClass = nested ? 'px-0' : 'px-6'
-  const detailBlocks = [presentation.input, presentation.output].filter(
+  const detailBlocks = [presentation.input, presentation.metadata, presentation.output].filter(
     (block): block is NonNullable<typeof block> => Boolean(block?.value)
   )
   const hasExpandableDetails = detailBlocks.length > 0
 
-  const isPathTool =
-    toolCall.toolName === 'read' || toolCall.toolName === 'write' || toolCall.toolName === 'edit'
-  const displaySummary =
-    isPathTool && toolCall.inputSummary
-      ? formatToolFilePath(toolCall.inputSummary, workspacePath)
-      : toolCall.inputSummary
+  const rowSummary = buildToolCallRowSummary(toolCall, workspacePath)
 
   const summaryContent = (
     <>
@@ -70,15 +65,15 @@ export function ToolCallRow({
         }}
       />
       <span style={{ color: theme.text.placeholder }}>{toolCall.toolName}</span>
-      {displaySummary ? (
-        <span style={{ color: theme.text.secondary }}>· {displaySummary}</span>
+      {rowSummary.inputSummary ? (
+        <span style={{ color: theme.text.secondary }}>· {rowSummary.inputSummary}</span>
       ) : null}
       {toolCall.cwd && (!workspacePath || toolCall.cwd !== workspacePath) ? (
         <span>· cwd {toolCall.cwd}</span>
       ) : null}
-      {toolCall.outputSummary && (
+      {rowSummary.outputSummary && (
         <span style={{ color: isFailed ? theme.text.danger : theme.text.placeholder }}>
-          · {toolCall.outputSummary}
+          · {rowSummary.outputSummary}
         </span>
       )}
       {!isActive &&

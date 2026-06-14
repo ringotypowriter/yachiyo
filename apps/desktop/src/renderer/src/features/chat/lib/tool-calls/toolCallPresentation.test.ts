@@ -3,6 +3,7 @@ import test from 'node:test'
 
 import {
   buildToolCallDetailsPresentation,
+  buildToolCallRowSummary,
   compressPath,
   formatToolFilePath,
   formatToolFilePathList,
@@ -74,9 +75,13 @@ test('buildToolCallDetailsPresentation shows complete bash command and output fr
     label: 'Input',
     value: 'printf "line 1\\nline 2"'
   })
+  assert.deepEqual(presentation.metadata, {
+    label: 'Metadata',
+    value: '{\n  "cwd": "/workspace",\n  "exitCode": 0\n}'
+  })
   assert.deepEqual(presentation.output, {
     label: 'Output',
-    value: 'exitCode: 0\n\nstdout:\nline 1\nline 2'
+    value: 'stdout:\nline 1\nline 2'
   })
 })
 
@@ -98,11 +103,29 @@ test('buildToolCallDetailsPresentation keeps failed bash stderr complete and dan
   assert.equal(presentation.output?.tone, 'danger')
   assert.equal(
     presentation.output?.value,
-    'exitCode: 1\n\nstderr:\nfirst error\nsecond error\n\nerror:\ncommand failed'
+    'stderr:\nfirst error\nsecond error\n\nerror:\ncommand failed'
   )
+  assert.deepEqual(presentation.metadata, {
+    label: 'Metadata',
+    value: '{\n  "cwd": "/workspace",\n  "exitCode": 1\n}'
+  })
 })
 
-test('buildToolCallDetailsPresentation falls back to structured details when raw output is absent', () => {
+test('buildToolCallRowSummary uses fixed bash status instead of output in the collapsed row', () => {
+  const summary = buildToolCallRowSummary({
+    ...BASE_TOOL_CALL,
+    toolName: 'bash',
+    inputSummary: 'pnpm lint',
+    outputSummary: 'massive stdout that should only appear after expanding details'
+  })
+
+  assert.deepEqual(summary, {
+    inputSummary: 'pnpm lint',
+    outputSummary: 'completed'
+  })
+})
+
+test('buildToolCallDetailsPresentation separates grep input, metadata, and output', () => {
   const presentation = buildToolCallDetailsPresentation({
     ...BASE_TOOL_CALL,
     toolName: 'grep',
@@ -120,10 +143,15 @@ test('buildToolCallDetailsPresentation falls back to structured details when raw
 
   assert.deepEqual(presentation.input, {
     label: 'Input',
-    value: '{\n  "pattern": "needle",\n  "path": "src",\n  "backend": "rg"\n}'
+    value: '{\n  "pattern": "needle",\n  "path": "src"\n}'
+  })
+  assert.deepEqual(presentation.metadata, {
+    label: 'Metadata',
+    value: '{\n  "backend": "rg",\n  "resultCount": 1,\n  "truncated": false\n}'
   })
   assert.ok(presentation.output?.value.includes('"matches"'))
   assert.ok(presentation.output?.value.includes('src/a.ts'))
+  assert.ok(!presentation.output?.value.includes('"backend"'))
 })
 
 test('compressPath returns short paths unchanged', () => {
