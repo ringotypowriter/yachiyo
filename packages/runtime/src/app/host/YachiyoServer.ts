@@ -285,6 +285,7 @@ function parseSyncCoreOutput(stdout: string): SyncStatus {
     remote_device_count?: number
     pending_conflict_count?: number
     last_exported_at?: string
+    last_imported_at?: string
     last_error?: string
   }
   return {
@@ -294,6 +295,7 @@ function parseSyncCoreOutput(stdout: string): SyncStatus {
     remoteDeviceCount: parsed.remote_device_count ?? 0,
     pendingConflictCount: parsed.pending_conflict_count ?? 0,
     ...(parsed.last_exported_at ? { lastExportedAt: parsed.last_exported_at } : {}),
+    ...(parsed.last_imported_at ? { lastImportedAt: parsed.last_imported_at } : {}),
     ...(parsed.last_error ? { lastError: parsed.last_error } : {})
   }
 }
@@ -724,19 +726,18 @@ export class YachiyoServer {
   }
 
   async initSync(): Promise<SyncStatus> {
-    const { stdout } = await execFileAsync(resolveSyncCoreBinary(), [
-      'init',
-      '--home',
-      dirname(this.settingsPath),
-      '--device-label',
-      'Yachiyo'
-    ])
-    return parseSyncCoreOutput(stdout)
+    const binary = resolveSyncCoreBinary()
+    const home = dirname(this.settingsPath)
+    await execFileAsync(binary, ['init', '--home', home, '--device-label', 'Yachiyo'])
+    // Publish + pull once so enabling sync immediately produces a usable state.
+    return this.exportThenImport(binary, home)
   }
 
   async runSyncNow(): Promise<SyncStatus> {
-    const binary = resolveSyncCoreBinary()
-    const home = dirname(this.settingsPath)
+    return this.exportThenImport(resolveSyncCoreBinary(), dirname(this.settingsPath))
+  }
+
+  private async exportThenImport(binary: string, home: string): Promise<SyncStatus> {
     await execFileAsync(binary, ['export', '--home', home])
     const { stdout } = await execFileAsync(binary, ['import', '--home', home])
     return parseSyncCoreOutput(stdout)

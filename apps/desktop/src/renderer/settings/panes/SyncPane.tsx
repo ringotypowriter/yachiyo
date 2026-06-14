@@ -35,7 +35,8 @@ function secondaryButtonStyle(): React.CSSProperties {
   }
 }
 
-function statusLabel(status: SyncStatus | null): string {
+function statusLabel(status: SyncStatus | null, busy: boolean): string {
+  if (busy) return 'Syncing...'
   if (!status) return 'Loading sync status...'
   switch (status.state) {
     case 'icloud_unavailable':
@@ -191,14 +192,16 @@ export function SyncPane({ onConfigReload }: SyncPaneProps): React.ReactNode {
           className="flex items-center gap-2 text-sm font-semibold"
           style={{ color: theme.text.primary }}
         >
-          {status?.state === 'needs_attention' || unavailable ? (
+          {busy ? (
+            <RefreshCw size={16} color={theme.icon.muted} className="animate-spin" />
+          ) : status?.state === 'needs_attention' || unavailable ? (
             <AlertTriangle size={16} color={theme.text.dangerStrong} />
           ) : status?.state === 'ready' ? (
             <CheckCircle2 size={16} color={theme.text.success} />
           ) : (
             <Cloud size={16} color={theme.icon.muted} />
           )}
-          {statusLabel(status)}
+          {statusLabel(status, busy)}
         </div>
         <div className="mt-2 text-xs leading-5 break-all" style={{ color: theme.text.muted }}>
           {status?.syncDir ?? 'Resolving iCloud Drive path...'}
