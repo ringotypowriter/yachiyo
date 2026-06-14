@@ -233,6 +233,23 @@ test('summarizeToolInput keeps bash and jsRepl row summaries compact', () => {
   )
 })
 
+test('summarizeToolInput prefers the bash description over the command summary', () => {
+  assert.equal(
+    summarizeToolInput('bash', {
+      command: 'ls -la',
+      description: 'List files in the current directory'
+    }),
+    'List files in the current directory'
+  )
+  // Blank/whitespace description falls back to the command summary.
+  assert.equal(
+    summarizeToolInput('bash', { command: 'pnpm run lint -- --fix', description: '   ' }),
+    'pnpm lint'
+  )
+  // Missing description (legacy records) falls back to the command summary.
+  assert.equal(summarizeToolInput('bash', { command: 'git status --short' }), 'git status')
+})
+
 test('createAgentToolSet exposes reviewThings but disables useThings for schedule-only review runs', async () => {
   const thingDomain = new ThingDomain({ storage: createInMemoryYachiyoStorage() })
   const tools = createAgentToolSet(
@@ -404,6 +421,7 @@ test('streamBashTool emits preliminary updates and runBashTool returns a structu
     for await (const result of streamBashTool(
       {
         command: 'pwd',
+        description: 'print the working directory',
         timeout: 5,
         background: false
       },
@@ -436,6 +454,7 @@ test('streamBashTool emits preliminary updates and runBashTool returns a structu
     const finalResult = await runBashTool(
       {
         command: 'pwd',
+        description: 'print the working directory',
         timeout: 5,
         background: false
       },
@@ -473,6 +492,7 @@ test('streamBashTool abortSignal stops a long-running command without waiting fo
       streamBashTool(
         {
           command: 'sleep 60',
+          description: 'sleep for 60 seconds',
           timeout: 120,
           background: false
         },
@@ -506,6 +526,7 @@ test('streamBashTool abortSignal kills spawned child processes, not just the she
       streamBashTool(
         {
           command: `nohup sleep 60 >/dev/null 2>&1 & echo $! > ${JSON.stringify(childPidPath)}; wait`,
+          description: 'spawn a detached child and wait',
           timeout: 120,
           background: false
         },
@@ -556,6 +577,7 @@ test('runBashTool maps timeout failures into structured metadata', async () => {
     const result = await runBashTool(
       {
         command: 'sleep 10',
+        description: 'sleep for 10 seconds',
         timeout: 1,
         background: false
       },
@@ -585,6 +607,7 @@ test('runBashTool refuses chained sleep commands that outlive the timeout', asyn
     const result = await runBashTool(
       {
         command: 'sleep 90 && echo done',
+        description: 'sleep then echo done',
         timeout: 60,
         background: false
       },
@@ -616,7 +639,12 @@ test('runBashTool lifts a timed-out command into a background task when adoption
     const fakeChild = {} as unknown as import('node:child_process').ChildProcess
 
     const result = await runBashTool(
-      { command: 'sleep 9999', timeout: 1, background: false },
+      {
+        command: 'sleep 9999',
+        description: 'sleep for a long time',
+        timeout: 1,
+        background: false
+      },
       {
         workspacePath,
         onBackgroundBashAdopted: async (task) => {
@@ -661,7 +689,7 @@ test('runBashTool lifts a timed-out command into a background task when adoption
 test('runBashTool falls back to a normal timeout error when no adoption hook is wired', async () => {
   await withWorkspace(async (workspacePath) => {
     const result = await runBashTool(
-      { command: 'sleep 5', timeout: 1, background: false },
+      { command: 'sleep 5', description: 'sleep for 5 seconds', timeout: 1, background: false },
       { workspacePath },
       {
         runCommand: async ({ onTimeoutLift }) => {
@@ -688,7 +716,7 @@ test('runBashTool auto-saves to .yachiyo/tool-output when output exceeds inline 
     const largeOutput = 'x'.repeat(25_000)
 
     const result = await runBashTool(
-      { command: 'echo large', timeout: 30, background: false },
+      { command: 'echo large', description: 'echo a large output', timeout: 30, background: false },
       { workspacePath },
       {
         runCommand: async () => ({

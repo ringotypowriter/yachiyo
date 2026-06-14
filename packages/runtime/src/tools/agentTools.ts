@@ -412,6 +412,13 @@ export function summarizeToolInput(toolName: ToolCallName | string, input: unkno
   }
 
   if (toolName === 'bash') {
+    const description =
+      typeof input === 'object' && input !== null && 'description' in input
+        ? (input as { description?: unknown }).description
+        : ''
+    if (typeof description === 'string' && description.trim().length > 0) {
+      return takeTail(description.trim(), 160).text
+    }
     const command =
       typeof input === 'object' && input !== null && 'command' in input ? input.command : ''
     return typeof command === 'string' ? summarizeBashCommand(command) : toolName

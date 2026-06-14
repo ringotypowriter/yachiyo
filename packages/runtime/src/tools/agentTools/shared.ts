@@ -301,6 +301,12 @@ export const editToolInputSchema = withShadowFallbacks(
 
 export const bashToolInputSchema = z.object({
   command: z.string().min(1),
+  description: z
+    .string()
+    .min(1)
+    .describe(
+      'A short, present-tense explanation of what this command does, shown to the user in place of the raw command. E.g. "List files in the current directory", "Run the linter".'
+    ),
   timeout: z
     .number()
     .int()

@@ -352,7 +352,12 @@ describe('editTool', () => {
 
     const cache = new ReadRecordCache()
     await runBashTool(
-      { command: "sed -n '3,4p' file.txt", timeout: 30, background: false },
+      {
+        command: "sed -n '3,4p' file.txt",
+        description: 'show lines 3-4 of file.txt',
+        timeout: 30,
+        background: false
+      },
       { workspacePath: workspace, readRecordCache: cache }
     )
 
