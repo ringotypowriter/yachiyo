@@ -11,6 +11,7 @@ import {
   runRecoveryCheckpointsTable,
   runsTable,
   scheduleRunsTable,
+  syncConflictsTable,
   threadsTable,
   toolCallsTable
 } from './schema.ts'
@@ -96,6 +97,60 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
 
     flushBackgroundTasks(): Promise<void> {
       return backgroundResponseMessagesRepairQueue.flush()
+    },
+
+    listSyncConflicts() {
+      return db
+        .select()
+        .from(syncConflictsTable)
+        .where(isNull(syncConflictsTable.resolvedAt))
+        .orderBy(asc(syncConflictsTable.createdAt))
+        .all()
+        .map((row) => ({
+          id: row.id,
+          opId: row.opId,
+          deviceId: row.deviceId,
+          entityType: row.entityType,
+          entityId: row.entityId,
+          localHash: row.localHash,
+          remoteHash: row.remoteHash,
+          payloadJson: row.payloadJson,
+          createdAt: row.createdAt
+        }))
+    },
+
+    resolveSyncConflict({ conflictId, resolution, resolvedAt }) {
+      const row = db
+        .select()
+        .from(syncConflictsTable)
+        .where(and(eq(syncConflictsTable.id, conflictId), isNull(syncConflictsTable.resolvedAt)))
+        .get()
+      if (!row) return undefined
+
+      db.update(syncConflictsTable)
+        .set({ resolvedAt, resolution })
+        .where(eq(syncConflictsTable.id, conflictId))
+        .run()
+
+      return {
+        id: row.id,
+        opId: row.opId,
+        deviceId: row.deviceId,
+        entityType: row.entityType,
+        entityId: row.entityId,
+        localHash: row.localHash,
+        remoteHash: row.remoteHash,
+        payloadJson: row.payloadJson,
+        createdAt: row.createdAt
+      }
+    },
+
+    countPendingSyncConflicts() {
+      return db
+        .select({ id: syncConflictsTable.id })
+        .from(syncConflictsTable)
+        .where(isNull(syncConflictsTable.resolvedAt))
+        .all().length
     },
 
     ...createSqliteBootstrapStorageMethods({
@@ -229,6 +284,8 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
           lastDelegatedSession: threadsTable.lastDelegatedSession,
           todoItems: threadsTable.todoItems,
           recapText: threadsTable.recapText,
+          syncOriginDeviceId: threadsTable.syncOriginDeviceId,
+          syncImportedAt: threadsTable.syncImportedAt,
           title: threadsTable.title,
           updatedAt: threadsTable.updatedAt,
           workspacePath: threadsTable.workspacePath
@@ -272,6 +329,8 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
           lastDelegatedSession: threadsTable.lastDelegatedSession,
           todoItems: threadsTable.todoItems,
           recapText: threadsTable.recapText,
+          syncOriginDeviceId: threadsTable.syncOriginDeviceId,
+          syncImportedAt: threadsTable.syncImportedAt,
           title: threadsTable.title,
           updatedAt: threadsTable.updatedAt,
           workspacePath: threadsTable.workspacePath
@@ -339,7 +398,9 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
             runtimeBinding: serializeRuntimeBinding(thread.runtimeBinding),
             lastDelegatedSession: serializeLastDelegatedSession(thread.lastDelegatedSession),
             todoItems: serializeTodoItems(thread.todoItems),
-            recapText: thread.recapText ?? null
+            recapText: thread.recapText ?? null,
+            syncOriginDeviceId: thread.syncOriginDeviceId ?? null,
+            syncImportedAt: thread.syncImportedAt ?? null
           })
           .run()
 
@@ -549,7 +610,9 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
           runtimeBinding: serializeRuntimeBinding(thread.runtimeBinding),
           lastDelegatedSession: serializeLastDelegatedSession(thread.lastDelegatedSession),
           todoItems: serializeTodoItems(thread.todoItems),
-          recapText: thread.recapText ?? null
+          recapText: thread.recapText ?? null,
+          syncOriginDeviceId: thread.syncOriginDeviceId ?? null,
+          syncImportedAt: thread.syncImportedAt ?? null
         })
         .where(eq(threadsTable.id, thread.id))
         .run()

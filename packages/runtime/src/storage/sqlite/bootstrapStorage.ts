@@ -78,6 +78,8 @@ export function createSqliteBootstrapStorageMethods(input: {
           lastDelegatedSession: threadsTable.lastDelegatedSession,
           todoItems: threadsTable.todoItems,
           recapText: threadsTable.recapText,
+          syncOriginDeviceId: threadsTable.syncOriginDeviceId,
+          syncImportedAt: threadsTable.syncImportedAt,
           title: threadsTable.title,
           updatedAt: threadsTable.updatedAt,
           workspacePath: threadsTable.workspacePath

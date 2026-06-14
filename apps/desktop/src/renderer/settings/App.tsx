@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import {
   BarChart3,
   Clock,
+  Cloud,
   Compass,
   Cpu,
   Info,
@@ -41,6 +42,7 @@ import { ChannelsPane } from './panes/ChannelsPane'
 import { EssentialsPane } from './panes/EssentialsPane'
 import { SchedulePane } from './panes/SchedulePane'
 import { UsagePane } from './panes/UsagePane'
+import { SyncPane } from './panes/SyncPane'
 import {
   hasPendingChannelGroupChanges,
   hasPendingChannelUserChanges,
@@ -80,6 +82,7 @@ const PANEL_ICONS: Record<SettingsPanelId, LucideIcon> = {
   source: Compass,
   channels: Radio,
   schedules: Clock,
+  sync: Cloud,
   usage: BarChart3,
   about: Info
 }
@@ -354,6 +357,17 @@ function SettingsPanel({
       setIsLoadingSoulDocument(false)
     }
   }, [isLoadingSoulDocument])
+
+  const reloadSettingsConfig = useCallback(async (): Promise<void> => {
+    const config = await window.api.yachiyo.getConfig()
+    setSavedConfig(config)
+    setDraft(config)
+    setSelectedProviderId((current) =>
+      config.providers.some((provider) => provider.id === current)
+        ? current
+        : (config.providers[0]?.id ?? '')
+    )
+  }, [])
 
   const loadChannelRecords = useCallback(
     async (options?: { force?: boolean }): Promise<void> => {
@@ -802,6 +816,8 @@ function SettingsPanel({
           onNavigateToRoute={navigateToRoute}
         />
       )
+    } else if (activePanel === 'sync') {
+      body = <SyncPane onConfigReload={reloadSettingsConfig} />
     }
   }
 

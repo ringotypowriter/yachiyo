@@ -60,6 +60,7 @@ import type {
   TranslateResult,
   JotdownSaveInput,
   RemoveThingSourceInput,
+  ResolveSyncConflictInput,
   YachiyoServerEvent
 } from '@yachiyo/shared/protocol'
 
@@ -288,6 +289,12 @@ const api = {
     testSubagentProfile: (input: TestSubagentProfileInput) =>
       ipcRenderer.invoke('yachiyo:test-subagent-profile', input),
     getSettings: () => ipcRenderer.invoke('yachiyo:get-settings'),
+    getSyncStatus: () => ipcRenderer.invoke('yachiyo:get-sync-status'),
+    initSync: () => ipcRenderer.invoke('yachiyo:init-sync'),
+    runSyncNow: () => ipcRenderer.invoke('yachiyo:run-sync-now'),
+    listSyncConflicts: () => ipcRenderer.invoke('yachiyo:list-sync-conflicts'),
+    resolveSyncConflict: (input: ResolveSyncConflictInput) =>
+      ipcRenderer.invoke('yachiyo:resolve-sync-conflict', input),
     saveConfig: (input: SettingsConfig) => ipcRenderer.invoke('yachiyo:save-config', input),
     saveUserDocument: (input: { content: string }): Promise<UserDocument> =>
       ipcRenderer.invoke('yachiyo:save-user-document', input),

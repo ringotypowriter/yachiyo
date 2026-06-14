@@ -1,6 +1,9 @@
 /* eslint-disable yachiyo/max-typescript-file-lines */
 import { createHash, randomUUID } from 'node:crypto'
+import { accessSync, constants, existsSync } from 'node:fs'
 import { readFile, writeFile } from 'node:fs/promises'
+import { execFile } from 'node:child_process'
+import { promisify } from 'node:util'
 import { dirname, join, resolve } from 'node:path'
 import type { BrowserWindow } from 'electron'
 
@@ -47,8 +50,10 @@ import type {
   SetBrowserAutomationSessionBoundsInput,
   ShowBrowserAutomationSessionInput,
   SkillCatalogEntry,
+  ListSyncConflictsResult,
   MessageRecord,
   MemoryTermDocument,
+  ResolveSyncConflictInput,
   TestSubagentProfileInput,
   TestSubagentProfileResult,
   ThreadColorTag,
@@ -79,6 +84,7 @@ import type {
   UpdateScheduleInput,
   UserDocument,
   SoulDocument as ProtocolSoulDocument,
+  SyncStatus,
   UsageStatsInput,
   UsageStatsResponse,
   WebSearchBrowserImportSource,
@@ -138,7 +144,12 @@ import {
 import { createGoogleBrowserWebSearchProvider } from '../../services/webSearch/providers/googleBrowserWebSearchProvider.ts'
 import { createExaWebSearchProvider } from '../../services/webSearch/providers/exaWebSearchProvider.ts'
 import { createWebSearchService } from '../../services/webSearch/webSearchService.ts'
-import { createSettingsStore, toEffectiveProviderSettings } from '../../settings/settingsStore.ts'
+import {
+  createSettingsStore,
+  normalizeSettingsConfig,
+  parseSettingsToml,
+  toEffectiveProviderSettings
+} from '../../settings/settingsStore.ts'
 import type { JotdownStore } from '../../services/jotdownStore.ts'
 import type { YachiyoStorage } from '../../storage/storage.ts'
 import {
@@ -202,6 +213,91 @@ import { projectVisibleRunEvent, type YachiyoServerEventPayload } from './runEve
 import { createSqliteYachiyoServerOptions } from './sqliteFactoryOptions.ts'
 import type { SqliteYachiyoServerOptions, YachiyoServerOptions } from './options.ts'
 
+const execFileAsync = promisify(execFile)
+
+function resolveDefaultICloudSyncDir(): string {
+  const home = process.env['HOME']?.trim()
+  if (!home) return ''
+  return join(home, 'Library/Mobile Documents/com~apple~CloudDocs/Documents/Yachiyo/Sync')
+}
+
+function resolveSyncCoreBinary(): string {
+  const binaryName = process.platform === 'win32' ? 'sync-core.exe' : 'sync-core'
+  const osMap: Record<string, string> = { darwin: 'mac', linux: 'linux', win32: 'win' }
+  const platformDir = `${osMap[process.platform] ?? process.platform}-${process.arch}`
+  const candidates = [
+    ...(typeof process.resourcesPath === 'string'
+      ? [join(process.resourcesPath, 'bin', binaryName)]
+      : []),
+    resolve(process.cwd(), 'apps/desktop/resources/bin', platformDir, binaryName),
+    resolve(process.cwd(), 'native/sync-core/target/release', binaryName),
+    resolve(process.cwd(), 'native/sync-core/target/debug', binaryName)
+  ]
+
+  const thisDir = import.meta.dirname
+  if (thisDir && !thisDir.includes('.asar')) {
+    const projectRoot = findProjectRoot(thisDir)
+    if (projectRoot) {
+      candidates.push(join(projectRoot, 'apps/desktop/resources/bin', platformDir, binaryName))
+      candidates.push(join(projectRoot, 'native/sync-core/target/release', binaryName))
+      candidates.push(join(projectRoot, 'native/sync-core/target/debug', binaryName))
+    }
+  }
+
+  const binary = candidates.find(isExecutable)
+  if (!binary) {
+    throw new Error(
+      'sync-core binary is unavailable. Run pnpm run sync-core:build before using sync.'
+    )
+  }
+  return binary
+}
+
+function isExecutable(path: string): boolean {
+  try {
+    accessSync(path, constants.X_OK)
+    return true
+  } catch {
+    return false
+  }
+}
+
+function findProjectRoot(startDir: string): string | undefined {
+  let current = startDir
+  for (let depth = 0; depth < 10; depth++) {
+    try {
+      accessSync(join(current, 'pnpm-workspace.yaml'), constants.R_OK)
+      return current
+    } catch {
+      const parent = resolve(current, '..')
+      if (parent === current) return undefined
+      current = parent
+    }
+  }
+  return undefined
+}
+
+function parseSyncCoreOutput(stdout: string): SyncStatus {
+  const parsed = JSON.parse(stdout) as {
+    state?: SyncStatus['state']
+    sync_dir?: string
+    device_id?: string
+    remote_device_count?: number
+    pending_conflict_count?: number
+    last_exported_at?: string
+    last_error?: string
+  }
+  return {
+    state: parsed.state ?? 'not_initialized',
+    syncDir: parsed.sync_dir ?? resolveDefaultICloudSyncDir(),
+    ...(parsed.device_id ? { deviceId: parsed.device_id } : {}),
+    remoteDeviceCount: parsed.remote_device_count ?? 0,
+    pendingConflictCount: parsed.pending_conflict_count ?? 0,
+    ...(parsed.last_exported_at ? { lastExportedAt: parsed.last_exported_at } : {}),
+    ...(parsed.last_error ? { lastError: parsed.last_error } : {})
+  }
+}
+
 function resolveCognitiveMemoryStore(
   store: CognitiveMemoryStore | undefined
 ): CognitiveMemoryStore {
@@ -258,6 +354,7 @@ export class YachiyoServer {
   private readonly jotdownStore: JotdownStore | null
   private readonly developmentMode: boolean
   private readonly remoteImageDomain: ReturnType<typeof createRemoteImageDomain>
+  private readonly settingsPath: string
 
   private static logBrowserSearchDiagnostic(event: BrowserSearchDiagnosticEvent): void {
     const details = {
@@ -280,10 +377,10 @@ export class YachiyoServer {
     this.now = options.now ?? (() => new Date())
     this.createId = options.createId ?? randomUUID
 
-    const settingsStore = createSettingsStore(
-      options.settingsPath ?? resolveYachiyoSettingsPath(),
-      { seedPresetProviders: options.seedPresetProviders }
-    )
+    this.settingsPath = options.settingsPath ?? resolveYachiyoSettingsPath()
+    const settingsStore = createSettingsStore(this.settingsPath, {
+      seedPresetProviders: options.seedPresetProviders
+    })
     const createModelRuntime =
       options.createModelRuntime ??
       (() => createAiSdkModelRuntime({ fetchImpl: options.fetchImpl }))
@@ -589,6 +686,89 @@ export class YachiyoServer {
     return this.configDomain.saveConfig(input)
   }
 
+  async getSyncStatus(): Promise<SyncStatus> {
+    const syncDir = resolveDefaultICloudSyncDir()
+    const iCloudRoot = syncDir ? resolve(syncDir, '../../..') : ''
+    if (!syncDir || !existsSync(iCloudRoot)) {
+      return {
+        state: 'icloud_unavailable',
+        syncDir,
+        remoteDeviceCount: 0,
+        pendingConflictCount: this.storage.countPendingSyncConflicts()
+      }
+    }
+    if (!existsSync(join(syncDir, 'universe.json'))) {
+      return {
+        state: 'not_initialized',
+        syncDir,
+        remoteDeviceCount: 0,
+        pendingConflictCount: this.storage.countPendingSyncConflicts()
+      }
+    }
+    try {
+      const { stdout } = await execFileAsync(resolveSyncCoreBinary(), [
+        'status',
+        '--home',
+        dirname(this.settingsPath)
+      ])
+      return parseSyncCoreOutput(stdout)
+    } catch (reason) {
+      return {
+        state: 'needs_attention',
+        syncDir,
+        remoteDeviceCount: 0,
+        pendingConflictCount: this.storage.countPendingSyncConflicts(),
+        lastError: reason instanceof Error ? reason.message : 'Failed to read sync status.'
+      }
+    }
+  }
+
+  async initSync(): Promise<SyncStatus> {
+    const { stdout } = await execFileAsync(resolveSyncCoreBinary(), [
+      'init',
+      '--home',
+      dirname(this.settingsPath),
+      '--device-label',
+      'Yachiyo'
+    ])
+    return parseSyncCoreOutput(stdout)
+  }
+
+  async runSyncNow(): Promise<SyncStatus> {
+    const binary = resolveSyncCoreBinary()
+    const home = dirname(this.settingsPath)
+    await execFileAsync(binary, ['export', '--home', home])
+    const { stdout } = await execFileAsync(binary, ['import', '--home', home])
+    return parseSyncCoreOutput(stdout)
+  }
+
+  async listSyncConflicts(): Promise<ListSyncConflictsResult> {
+    return { conflicts: this.storage.listSyncConflicts() }
+  }
+
+  async resolveSyncConflict(input: ResolveSyncConflictInput): Promise<ListSyncConflictsResult> {
+    const conflict = this.storage.listSyncConflicts().find((item) => item.id === input.conflictId)
+    if (!conflict) {
+      return { conflicts: this.storage.listSyncConflicts() }
+    }
+
+    if (input.resolution === 'use_remote') {
+      const payload = JSON.parse(conflict.payloadJson) as { text?: unknown }
+      if (typeof payload.text !== 'string') {
+        throw new Error('Synced settings payload is invalid.')
+      }
+      const nextConfig = normalizeSettingsConfig(parseSettingsToml(payload.text))
+      this.configDomain.saveConfig(nextConfig)
+    }
+
+    this.storage.resolveSyncConflict({
+      conflictId: input.conflictId,
+      resolution: input.resolution,
+      resolvedAt: this.now().toISOString()
+    })
+    return { conflicts: this.storage.listSyncConflicts() }
+  }
+
   async saveUserDocument(input: { content: string }): Promise<UserDocument> {
     const document = await this.saveUserDocumentFile(input.content)
     if (!document) {
@@ -805,6 +985,7 @@ export class YachiyoServer {
   }
 
   async updateThreadWorkspace(input: ThreadWorkspaceUpdateInput): Promise<ThreadRecord> {
+    this.assertWritableThread(input.threadId)
     return this.threadDomain.updateWorkspace(input)
   }
 
@@ -856,6 +1037,7 @@ export class YachiyoServer {
 
   async acceptThreadPlanDocument(input: AcceptThreadPlanDocumentInput): Promise<ChatAccepted> {
     const sourceThread = this.requireThread(input.threadId)
+    this.assertWritableThreadRecord(sourceThread)
 
     if (sourceThread.source && sourceThread.source !== 'local') {
       throw new Error('Plan acceptance is only supported for local threads.')
@@ -913,6 +1095,9 @@ export class YachiyoServer {
 
   async createFolderForThreads(input: { threadIds: string[] }): Promise<FolderRecord> {
     const threads = input.threadIds.map((id) => this.requireThread(id))
+    for (const thread of threads) {
+      this.assertWritableThreadRecord(thread)
+    }
     return this.folderDomain.createFolderForThreads({ threads })
   }
 
@@ -935,10 +1120,12 @@ export class YachiyoServer {
     threadId: string
     folderId: string | null
   }): Promise<ThreadRecord> {
+    this.assertWritableThread(input.threadId)
     return this.folderDomain.moveThreadToFolder(input)
   }
 
   async renameThread(input: { threadId: string; title: string }): Promise<ThreadRecord> {
+    this.assertWritableThread(input.threadId)
     return this.threadDomain.renameThread(input)
   }
 
@@ -946,22 +1133,27 @@ export class YachiyoServer {
     threadId: string
     colorTag: ThreadColorTag | null
   }): Promise<ThreadRecord> {
+    this.assertWritableThread(input.threadId)
     return this.threadDomain.setThreadColor(input)
   }
 
   async setThreadIcon(input: { threadId: string; icon: string | null }): Promise<ThreadRecord> {
+    this.assertWritableThread(input.threadId)
     return this.threadDomain.setThreadIcon(input)
   }
 
   async starThread(input: { threadId: string; starred: boolean }): Promise<ThreadRecord> {
+    this.assertWritableThread(input.threadId)
     return this.threadDomain.starThread(input)
   }
 
   async regenerateThreadTitle(input: { threadId: string }): Promise<ThreadRecord> {
+    this.assertWritableThread(input.threadId)
     return this.threadDomain.regenerateThreadTitle(input)
   }
 
   async setThreadPrivacyMode(input: { threadId: string; enabled: boolean }): Promise<ThreadRecord> {
+    this.assertWritableThread(input.threadId)
     return this.threadDomain.setThreadPrivacyMode(input)
   }
 
@@ -969,6 +1161,7 @@ export class YachiyoServer {
     threadId: string
     modelOverride: ThreadModelOverride | null
   }): Promise<ThreadRecord> {
+    this.assertWritableThread(input.threadId)
     return this.threadDomain.setThreadModelOverride(input)
   }
 
@@ -977,6 +1170,7 @@ export class YachiyoServer {
     enabledTools: ToolCallName[]
     runMode?: RunModeId
   }): Promise<ThreadRecord> {
+    this.assertWritableThread(input.threadId)
     return this.threadDomain.setThreadToolMode(input)
   }
 
@@ -984,6 +1178,7 @@ export class YachiyoServer {
     threadId: string
     reasoningEffort: ComposerReasoningSelection | null
   }): Promise<ThreadRecord> {
+    this.assertWritableThread(input.threadId)
     return this.threadDomain.setThreadReasoningEffort(input)
   }
 
@@ -991,10 +1186,12 @@ export class YachiyoServer {
     threadId: string
     runtimeBinding: ThreadRuntimeBinding | null
   }): Promise<ThreadRecord> {
+    this.assertWritableThread(input.threadId)
     return this.threadDomain.setThreadRuntimeBinding(input)
   }
 
   async archiveThread(input: { threadId: string; unread?: boolean }): Promise<void> {
+    this.assertWritableThread(input.threadId)
     this.threadDomain.archiveThread(input)
   }
 
@@ -1010,10 +1207,12 @@ export class YachiyoServer {
   }
 
   async restoreThread(input: { threadId: string }): Promise<ThreadRecord> {
+    this.assertWritableAnyThread(input.threadId)
     return this.threadDomain.restoreThread(input)
   }
 
   async deleteThread(input: { threadId: string }): Promise<void> {
+    this.assertWritableAnyThread(input.threadId)
     await this.threadDomain.deleteThread(input)
   }
 
@@ -1034,16 +1233,19 @@ export class YachiyoServer {
   }
 
   async sendChat(input: InternalSendChatInput): Promise<ChatAccepted> {
+    this.assertWritableThread(input.threadId)
     const accepted = await this.runDomain.sendChat(input)
     await this.addThingMentionSources(accepted)
     return accepted
   }
 
   async retryMessage(input: RetryInput): Promise<RetryAccepted> {
+    this.assertWritableThread(input.threadId)
     return this.runDomain.retryMessage(input)
   }
 
   async saveThread(input: SaveThreadInput): Promise<SaveThreadResult> {
+    this.assertWritableThread(input.threadId)
     return this.threadDomain.saveThread(input)
   }
 
@@ -1051,11 +1253,13 @@ export class YachiyoServer {
     threadId: string
     assistantMessageId: string
   }): Promise<ThreadRecord> {
+    this.assertWritableThread(input.threadId)
     return this.threadDomain.selectReplyBranch(input)
   }
 
   async createBranch(input: { threadId: string; messageId: string }): Promise<ThreadSnapshot> {
     const sourceThread = this.requireThread(input.threadId)
+    this.assertWritableThreadRecord(sourceThread)
     const result = await this.threadDomain.createBranch(input)
 
     // Auto-categorize: group source and branch under a folder
@@ -1073,6 +1277,7 @@ export class YachiyoServer {
     threadId: string
     messageId: string
   }): Promise<ThreadSnapshot> {
+    this.assertWritableThread(input.threadId)
     const queuedDraftSnapshot = this.runDomain.deleteQueuedFollowUpDraft(input)
     if (queuedDraftSnapshot) {
       return queuedDraftSnapshot
@@ -1088,6 +1293,7 @@ export class YachiyoServer {
     }
     assertSupportedImages(images)
     const thread = this.requireThread(input.threadId)
+    this.assertWritableThreadRecord(thread)
     if (!getThreadCapabilities(thread).canEdit) {
       throw new Error('ACP threads do not support editing messages.')
     }
@@ -1525,6 +1731,24 @@ export class YachiyoServer {
     }
 
     return thread
+  }
+
+  private assertWritableThread(threadId: string): void {
+    this.assertWritableThreadRecord(this.requireThread(threadId))
+  }
+
+  private assertWritableAnyThread(threadId: string): void {
+    const thread = this.storage.getThread(threadId) ?? this.storage.getArchivedThread(threadId)
+    if (!thread) {
+      throw new Error(`Unknown thread: ${threadId}`)
+    }
+    this.assertWritableThreadRecord(thread)
+  }
+
+  private assertWritableThreadRecord(thread: ThreadRecord): void {
+    if (thread.syncOriginDeviceId) {
+      throw new Error('Synced archive threads are read-only on this device.')
+    }
   }
 
   private timestamp(): string {

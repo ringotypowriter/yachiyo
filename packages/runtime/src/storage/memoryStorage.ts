@@ -1246,6 +1246,18 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
       return activitySourceRecords.length
     },
 
+    listSyncConflicts() {
+      return []
+    },
+
+    resolveSyncConflict() {
+      return undefined
+    },
+
+    countPendingSyncConflicts() {
+      return 0
+    },
+
     // Group monitor buffer persistence
     saveGroupMonitorBuffer({ groupId, phase, buffer, savedAt }) {
       const stripped = buffer.map((entry) => {

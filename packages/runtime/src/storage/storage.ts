@@ -19,6 +19,8 @@ import type {
   MessageTextBlockRecord,
   RunRecord,
   ScheduleRecord,
+  SyncConflictRecord,
+  SyncConflictResolution,
   ScheduleResultStatus,
   ScheduleRunRecord,
   ScheduleRunStatus,
@@ -80,6 +82,8 @@ export interface StoredThreadRow {
   lastDelegatedSession: string | null
   todoItems: string | null
   recapText: string | null
+  syncOriginDeviceId: string | null
+  syncImportedAt: string | null
   updatedAt: string
   createdAt: string
   headMessageId: string | null
@@ -182,6 +186,12 @@ export interface SaveThreadMessageInput {
 export interface PersistResponseMessagesRepairInput {
   messageId: string
   responseMessages: unknown[]
+}
+
+export interface ResolveSyncConflictStorageInput {
+  conflictId: string
+  resolution: SyncConflictResolution
+  resolvedAt: string
 }
 
 export interface StoredToolCallRow {
@@ -481,6 +491,9 @@ export interface YachiyoStorage {
   saveActivitySourceRecord(record: ActivitySourceRecord): void
   listActivitySourceRecords(input?: ListActivitySourceRecordsInput): ActivitySourceRecord[]
   countActivitySourceRecords(): number
+  listSyncConflicts(): SyncConflictRecord[]
+  resolveSyncConflict(input: ResolveSyncConflictStorageInput): SyncConflictRecord | undefined
+  countPendingSyncConflicts(): number
 }
 
 export function toThreadRecord(
@@ -520,6 +533,8 @@ export function toThreadRecord(
     channelUserRole?: ChannelUserRole | null
     enabledTools?: string | null
     runMode?: string | null
+    syncOriginDeviceId?: string | null
+    syncImportedAt?: string | null
   }
 ): ThreadRecord {
   const enabledTools = parseEnabledTools(row.enabledTools ?? null)
@@ -571,6 +586,8 @@ export function toThreadRecord(
       ...(lastDelegatedSession ? { lastDelegatedSession } : {}),
       ...(todoItems ? { todoItems } : {}),
       ...(row.recapText === null ? {} : { recapText: row.recapText }),
+      ...(row.syncOriginDeviceId == null ? {} : { syncOriginDeviceId: row.syncOriginDeviceId }),
+      ...(row.syncImportedAt == null ? {} : { syncImportedAt: row.syncImportedAt }),
       id: row.id,
       title: row.title,
       updatedAt: row.updatedAt
@@ -612,6 +629,8 @@ export function toThreadRecord(
     ...(lastDelegatedSession ? { lastDelegatedSession } : {}),
     ...(todoItems ? { todoItems } : {}),
     ...(row.recapText === null ? {} : { recapText: row.recapText }),
+    ...(row.syncOriginDeviceId == null ? {} : { syncOriginDeviceId: row.syncOriginDeviceId }),
+    ...(row.syncImportedAt == null ? {} : { syncImportedAt: row.syncImportedAt }),
     id: row.id,
     preview: row.preview,
     title: row.title,

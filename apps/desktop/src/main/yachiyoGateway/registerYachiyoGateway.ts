@@ -36,6 +36,7 @@ import type {
   ProviderSettings,
   RenameThingInput,
   RemoveThingSourceInput,
+  ResolveSyncConflictInput,
   RetryInput,
   RunModeId,
   SaveThreadInput,
@@ -840,6 +841,13 @@ export function registerYachiyoGateway(): YachiyoServer {
     server!.testSubagentProfile(input)
   )
   handleYachiyoIpc(IPC_CHANNELS.getSettings, () => server!.getSettings())
+  handleYachiyoIpc(IPC_CHANNELS.getSyncStatus, () => server!.getSyncStatus())
+  handleYachiyoIpc(IPC_CHANNELS.initSync, () => server!.initSync())
+  handleYachiyoIpc(IPC_CHANNELS.runSyncNow, () => server!.runSyncNow())
+  handleYachiyoIpc(IPC_CHANNELS.listSyncConflicts, () => server!.listSyncConflicts())
+  handleYachiyoIpc(IPC_CHANNELS.resolveSyncConflict, (input: ResolveSyncConflictInput) =>
+    server!.resolveSyncConflict(input)
+  )
   handleYachiyoIpc(IPC_CHANNELS.saveConfig, async (input: SettingsConfig) => {
     const currentConfig = await server!.getConfig()
     const demoModeBeforeSave = is.dev && currentConfig.general?.demoMode === true

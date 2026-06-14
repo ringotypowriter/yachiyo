@@ -25,6 +25,7 @@ import type {
   ProviderConfig,
   ProviderSettings,
   RemoveThingSourceInput,
+  ResolveSyncConflictInput,
   RetryInput,
   RetryAccepted,
   ResolveFileReferencesInput,
@@ -39,6 +40,7 @@ import type {
   ScheduleRunRecord,
   SearchWorkspaceFilesInput,
   SettingsConfig,
+  ListSyncConflictsResult,
   SendChatInput,
   ShowBrowserAutomationSessionInput,
   ShowNotificationInput,
@@ -75,6 +77,7 @@ import type {
   UsageStatsResponse,
   PerfStatsResponse,
   WebSearchBrowserImportSource,
+  SyncStatus,
   YachiyoServerEvent
 } from '@yachiyo/shared/protocol'
 
@@ -216,6 +219,11 @@ declare global {
         getUserDocument: () => Promise<UserDocument>
         testSubagentProfile: (input: TestSubagentProfileInput) => Promise<TestSubagentProfileResult>
         getSettings: () => Promise<ProviderSettings>
+        getSyncStatus: () => Promise<SyncStatus>
+        initSync: () => Promise<SyncStatus>
+        runSyncNow: () => Promise<SyncStatus>
+        listSyncConflicts: () => Promise<ListSyncConflictsResult>
+        resolveSyncConflict: (input: ResolveSyncConflictInput) => Promise<ListSyncConflictsResult>
         saveConfig: (input: SettingsConfig) => Promise<SettingsConfig>
         saveUserDocument: (input: { content: string }) => Promise<UserDocument>
         saveSettings: (input: Partial<ProviderSettings>) => Promise<ProviderSettings>

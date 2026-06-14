@@ -45,6 +45,8 @@ export function createStoredThreadRow(thread: ThreadRecord, createdAt: string): 
     lastDelegatedSession: serializeLastDelegatedSession(thread.lastDelegatedSession),
     todoItems: serializeTodoItems(thread.todoItems),
     recapText: thread.recapText ?? null,
+    syncOriginDeviceId: thread.syncOriginDeviceId ?? null,
+    syncImportedAt: thread.syncImportedAt ?? null,
     updatedAt: thread.updatedAt,
     createdAt
   }
@@ -78,6 +80,8 @@ export function applyThreadSnapshot(
   storedThread.lastDelegatedSession = serializeLastDelegatedSession(nextThread.lastDelegatedSession)
   storedThread.todoItems = serializeTodoItems(nextThread.todoItems)
   storedThread.recapText = nextThread.recapText ?? null
+  storedThread.syncOriginDeviceId = nextThread.syncOriginDeviceId ?? null
+  storedThread.syncImportedAt = nextThread.syncImportedAt ?? null
   storedThread.starredAt = nextThread.starredAt ?? null
   storedThread.title = nextThread.title
   storedThread.updatedAt = nextThread.updatedAt
