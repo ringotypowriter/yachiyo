@@ -318,6 +318,8 @@ describe('runApplyPatchTool', () => {
     assert.strictEqual(result.details.operations.length, 1)
     assert.strictEqual(result.details.operations[0].operation, 'add')
     assert.strictEqual(result.details.operations[0].path, 'created.txt')
+    assert.match(result.details.operations[0].diff ?? '', /^\+hello world/m)
+    assert.match(result.details.operations[0].diff ?? '', /^\+second line/m)
 
     const content = await readFile(join(workspace, 'created.txt'), 'utf8')
     assert.strictEqual(content, 'hello world\nsecond line\n')
@@ -339,6 +341,7 @@ describe('runApplyPatchTool', () => {
 
     assert.strictEqual(result.error, undefined)
     assert.strictEqual(result.details.operations[0].operation, 'delete')
+    assert.match(result.details.operations[0].diff ?? '', /^-bye/m)
   })
 
   it('updates an existing file', async () => {

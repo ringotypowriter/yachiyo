@@ -753,7 +753,11 @@ export async function runApplyPatchTool(
             throw new Error(`Add target already exists: ${hunk.path}`)
           }
           setState(resolvedSourcePath, { exists: true, isFile: true, content: hunk.contents })
-          details.operations.push({ path: hunk.path, operation: 'add' })
+          details.operations.push({
+            path: hunk.path,
+            operation: 'add',
+            diff: generateUnifiedDiff(hunk.path, '', hunk.contents)
+          })
           break
         }
 
@@ -762,7 +766,11 @@ export async function runApplyPatchTool(
           if (!target.exists) throw new Error(`Delete target does not exist: ${hunk.path}`)
           if (!target.isFile) throw new Error(`\`${resolvedSourcePath}\` is not a regular file.`)
           setState(resolvedSourcePath, { exists: false, isFile: false, content: '' })
-          details.operations.push({ path: hunk.path, operation: 'delete' })
+          details.operations.push({
+            path: hunk.path,
+            operation: 'delete',
+            diff: generateUnifiedDiff(hunk.path, target.content, '')
+          })
           break
         }
 

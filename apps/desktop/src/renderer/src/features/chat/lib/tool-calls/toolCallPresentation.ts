@@ -74,21 +74,24 @@ function renderRawValue(value: unknown): string {
   return typeof value === 'string' ? value.trimEnd() : stringifyJson(value)
 }
 
-function pushPart(
-  parts: string[],
-  label: string,
-  value: string | number | boolean | undefined
-): void {
-  if (value === undefined || value === '') return
-  parts.push(`${label}: ${String(value)}`)
-}
-
 function compactJson(value: Record<string, unknown>): string {
   return stringifyJson(
     Object.fromEntries(
       Object.entries(value).filter(([, entry]) => entry !== undefined && entry !== '')
     )
   )
+}
+
+function compactJsonBlock(value: Record<string, unknown>): string | undefined {
+  const compact = Object.fromEntries(
+    Object.entries(value).filter(([, entry]) => entry !== undefined && entry !== '')
+  )
+  return Object.keys(compact).length > 0 ? stringifyJson(compact) : undefined
+}
+
+function metadataBlock(value: Record<string, unknown>): ToolCallDetailCodeBlock | undefined {
+  const rendered = compactJsonBlock(value)
+  return rendered ? { label: 'Metadata', value: rendered } : undefined
 }
 
 function buildFallbackInput(toolCall: ToolCall): string | undefined {
@@ -155,45 +158,36 @@ function buildFallbackMetadata(toolCall: ToolCall): ToolCallDetailCodeBlock | un
 
   if (toolCall.toolName === 'bash') {
     const details = toolCall.details as BashToolCallDetails
-    return {
-      label: 'Metadata',
-      value: compactJson({
-        cwd: details.cwd,
-        exitCode: details.exitCode,
-        timedOut: details.timedOut,
-        blocked: details.blocked,
-        truncated: details.truncated,
-        outputFile: details.outputFilePath,
-        background: details.background,
-        taskId: details.taskId,
-        logPath: details.logPath,
-        liftedAfterTimeout: details.liftedAfterTimeout
-      })
-    }
+    return metadataBlock({
+      cwd: details.cwd,
+      exitCode: details.exitCode,
+      timedOut: details.timedOut,
+      blocked: details.blocked,
+      truncated: details.truncated,
+      outputFile: details.outputFilePath,
+      background: details.background,
+      taskId: details.taskId,
+      logPath: details.logPath,
+      liftedAfterTimeout: details.liftedAfterTimeout
+    })
   }
 
   if (toolCall.toolName === 'grep') {
     const details = toolCall.details as GrepToolCallDetails
-    return {
-      label: 'Metadata',
-      value: compactJson({
-        backend: details.backend,
-        resultCount: details.resultCount,
-        truncated: details.truncated
-      })
-    }
+    return metadataBlock({
+      backend: details.backend,
+      resultCount: details.resultCount,
+      truncated: details.truncated
+    })
   }
 
   if (toolCall.toolName === 'glob') {
     const details = toolCall.details as GlobToolCallDetails
-    return {
-      label: 'Metadata',
-      value: compactJson({
-        backend: details.backend,
-        resultCount: details.resultCount,
-        truncated: details.truncated
-      })
-    }
+    return metadataBlock({
+      backend: details.backend,
+      resultCount: details.resultCount,
+      truncated: details.truncated
+    })
   }
 
   return undefined
@@ -229,8 +223,6 @@ function buildFallbackOutput(toolCall: ToolCall): ToolCallDetailCodeBlock | unde
   if (toolCall.toolName === 'jsRepl' && details) {
     const repl = details as JsReplToolCallDetails
     const parts: string[] = []
-    pushPart(parts, 'timedOut', repl.timedOut)
-    pushPart(parts, 'contextReset', repl.contextReset)
     if (repl.consoleOutput?.trim()) parts.push('console:\n' + repl.consoleOutput.trimEnd())
     if (repl.result?.trim()) parts.push('result:\n' + repl.result.trimEnd())
     if (repl.error?.trim()) parts.push('error:\n' + repl.error.trimEnd())
