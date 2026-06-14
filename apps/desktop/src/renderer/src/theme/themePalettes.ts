@@ -14,6 +14,7 @@ export const themeRgbTokenVars = {
   surface: '--yachiyo-rgb-surface',
   accent: '--yachiyo-rgb-accent',
   accentStrong: '--yachiyo-rgb-accent-strong',
+  onAccent: '--yachiyo-rgb-on-accent',
   counter: '--yachiyo-rgb-counter',
   counterStrong: '--yachiyo-rgb-counter-strong',
   scrim: '--yachiyo-rgb-scrim',
@@ -91,8 +92,23 @@ const darkSemanticTokens = {
 
 type ThemeIdentityTokens = Omit<
   ThemePalette,
-  keyof typeof lightSemanticTokens | 'counter' | 'counterStrong'
+  keyof typeof lightSemanticTokens | 'counter' | 'counterStrong' | 'onAccent'
 >
+
+// Foreground color for text/icons sitting ON an accent fill. Picks black or
+// white by whichever yields higher WCAG contrast against the accent, so every
+// theme (including future/custom ones) stays readable without hand-tuning.
+function pickOnAccent(accent: string): string {
+  const channel = (value: number): number => {
+    const c = value / 255
+    return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4
+  }
+  const [r, g, b] = accent.split(/\s+/).map(Number)
+  const luminance = 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b)
+  const onWhite = 1.05 / (luminance + 0.05)
+  const onBlack = (luminance + 0.05) / 0.05
+  return onWhite >= onBlack ? '255 255 255' : '0 0 0'
+}
 
 function lightPalette(
   tokens: ThemeIdentityTokens & { counter?: string; counterStrong?: string; dock?: string }
@@ -100,7 +116,15 @@ function lightPalette(
   const counter = tokens.counter ?? tokens.accent
   const counterStrong = tokens.counterStrong ?? tokens.accentStrong
   const dock = tokens.dock
-  return { ...tokens, counter, counterStrong, dock, ...lightSemanticTokens } as ThemePalette
+  const onAccent = pickOnAccent(tokens.accent)
+  return {
+    ...tokens,
+    counter,
+    counterStrong,
+    dock,
+    onAccent,
+    ...lightSemanticTokens
+  } as ThemePalette
 }
 
 function darkPalette(
@@ -109,7 +133,15 @@ function darkPalette(
   const counter = tokens.counter ?? tokens.accent
   const counterStrong = tokens.counterStrong ?? tokens.accentStrong
   const dock = tokens.dock
-  return { ...tokens, counter, counterStrong, dock, ...darkSemanticTokens } as ThemePalette
+  const onAccent = pickOnAccent(tokens.accent)
+  return {
+    ...tokens,
+    counter,
+    counterStrong,
+    dock,
+    onAccent,
+    ...darkSemanticTokens
+  } as ThemePalette
 }
 
 export const THEME_OPTIONS: readonly ThemeOption[] = [

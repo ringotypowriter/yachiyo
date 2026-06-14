@@ -89,6 +89,7 @@ export const theme = {
     inverse: solid('surface'),
     accent: solid('accent'),
     accentStrong: solid('accentStrong'),
+    onAccent: solid('onAccent'),
     counter: solid('counter'),
     counterStrong: solid('counterStrong'),
     success: solid('successStrong'),

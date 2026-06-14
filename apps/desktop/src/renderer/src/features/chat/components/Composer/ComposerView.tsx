@@ -827,7 +827,7 @@ export function ComposerView(props: any): React.JSX.Element {
                   style={{
                     fontSize: '8px',
                     background: theme.text.accent,
-                    color: theme.text.inverse
+                    color: theme.text.onAccent
                   }}
                 >
                   {enabledSkillCount}

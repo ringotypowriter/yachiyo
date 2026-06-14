@@ -24,7 +24,7 @@ function ExternalUserBubble({ message }: { message: Message }): React.JSX.Elemen
       <div className="max-w-[68%]">
         <div
           className="rounded-[18px] px-4 py-2.5"
-          style={{ background: theme.text.accent, color: theme.text.inverse }}
+          style={{ background: theme.text.accent, color: theme.text.onAccent }}
         >
           {message.content ? (
             <p

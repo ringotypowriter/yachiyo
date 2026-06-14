@@ -915,7 +915,7 @@ function SettingsPanel({
                   }
                 : {
                     background: theme.text.accent,
-                    color: theme.text.inverse,
+                    color: theme.text.onAccent,
                     boxShadow: theme.shadow.button
                   })
             }}
