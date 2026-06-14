@@ -5,18 +5,20 @@ use sha2::{Digest, Sha256};
 use std::env;
 use std::fmt;
 use std::fs::{self, File};
-use std::io::{BufRead, BufReader, Write};
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
 const DB_FILE: &str = "yachiyo.sqlite";
 const SETTINGS_FILE: &str = "config.toml";
 const FORMAT_VERSION: u32 = 1;
+const META_UNIVERSE: &str = "universe_id";
 
 #[derive(Debug)]
 pub enum SyncError {
     ICloudUnavailable(PathBuf),
     NotInitialized(PathBuf),
+    UniverseMismatch { local: String, remote: String },
     Io(std::io::Error),
     Sql(rusqlite::Error),
     Json(serde_json::Error),
@@ -28,6 +30,7 @@ impl SyncError {
         match self {
             SyncError::ICloudUnavailable(_) => "icloud_unavailable",
             SyncError::NotInitialized(_) => "not_initialized",
+            SyncError::UniverseMismatch { .. } => "universe_mismatch",
             SyncError::Io(_) => "io_error",
             SyncError::Sql(_) => "sqlite_error",
             SyncError::Json(_) => "json_error",
@@ -45,6 +48,10 @@ impl fmt::Display for SyncError {
             SyncError::NotInitialized(path) => {
                 write!(f, "Sync is not initialized at {}", path.display())
             }
+            SyncError::UniverseMismatch { local, remote } => write!(
+                f,
+                "Sync directory belongs to a different universe (local {local}, remote {remote}). Keep only one Sync folder."
+            ),
             SyncError::Io(error) => write!(f, "{error}"),
             SyncError::Sql(error) => write!(f, "{error}"),
             SyncError::Json(error) => write!(f, "{error}"),
@@ -80,8 +87,12 @@ pub struct CommandOutput {
     pub remote_device_count: usize,
     pub exported_ops: usize,
     pub imported_ops: usize,
+    pub last_exported_seq: i64,
+    pub applied_op_count: usize,
+    pub pending_op_count: usize,
     pub pending_conflict_count: usize,
     pub last_exported_at: Option<String>,
+    pub last_imported_at: Option<String>,
     pub last_error: Option<String>,
 }
 
@@ -104,6 +115,8 @@ struct Manifest {
     last_exported_seq: i64,
     #[serde(rename = "lastExportedAt")]
     last_exported_at: Option<String>,
+    #[serde(rename = "appVersion")]
+    app_version: String,
     #[serde(rename = "formatVersion")]
     format_version: u32,
 }
@@ -127,13 +140,21 @@ struct SyncOp {
     payload_hash: String,
 }
 
-pub fn resolve_default_sync_dir() -> Result<PathBuf, SyncError> {
-    let home = env::var("HOME").map_err(|_| SyncError::Message("HOME is not set".to_string()))?;
-    let root = Path::new(&home).join("Library/Mobile Documents/com~apple~CloudDocs");
+fn icloud_root(home: &Path) -> PathBuf {
+    home.join("Library/Mobile Documents/com~apple~CloudDocs")
+}
+
+fn default_sync_dir(home: &Path) -> Result<PathBuf, SyncError> {
+    let root = icloud_root(home);
     if !root.exists() {
         return Err(SyncError::ICloudUnavailable(root));
     }
     Ok(root.join("Documents/Yachiyo/Sync"))
+}
+
+pub fn resolve_default_sync_dir() -> Result<PathBuf, SyncError> {
+    let home = env::var("HOME").map_err(|_| SyncError::Message("HOME is not set".to_string()))?;
+    default_sync_dir(Path::new(&home))
 }
 
 fn resolve_sync_dir(override_dir: Option<&Path>) -> Result<PathBuf, SyncError> {
@@ -150,6 +171,10 @@ fn now() -> String {
         .unwrap_or_default()
         .as_millis();
     format!("{millis}")
+}
+
+fn app_version() -> String {
+    env::var("YACHIYO_APP_VERSION").unwrap_or_else(|_| env!("CARGO_PKG_VERSION").to_string())
 }
 
 fn hash_text(text: &str) -> String {
@@ -172,12 +197,31 @@ fn device_dir(sync_dir: &Path, device_id: &str) -> PathBuf {
 
 fn open_db(home: &Path) -> Result<Connection, SyncError> {
     let conn = Connection::open(db_path(home))?;
+    // These mirror the app's Drizzle-owned tables; CREATE IF NOT EXISTS is a
+    // safety net for standalone runs/tests. In production the migration wins.
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS sync_devices (device_id TEXT PRIMARY KEY, created_at TEXT NOT NULL, label TEXT NOT NULL);
          CREATE TABLE IF NOT EXISTS sync_applied_ops (op_id TEXT PRIMARY KEY, device_id TEXT NOT NULL, seq INTEGER NOT NULL, applied_at TEXT NOT NULL);
-         CREATE TABLE IF NOT EXISTS sync_conflicts (id TEXT PRIMARY KEY, op_id TEXT NOT NULL, device_id TEXT NOT NULL, entity_type TEXT NOT NULL, entity_id TEXT NOT NULL, local_hash TEXT NOT NULL, remote_hash TEXT NOT NULL, payload_json TEXT NOT NULL, created_at TEXT NOT NULL, resolved_at TEXT, resolution TEXT);"
+         CREATE TABLE IF NOT EXISTS sync_conflicts (id TEXT PRIMARY KEY, op_id TEXT NOT NULL, device_id TEXT NOT NULL, entity_type TEXT NOT NULL, entity_id TEXT NOT NULL, local_hash TEXT NOT NULL, remote_hash TEXT NOT NULL, payload_json TEXT NOT NULL, created_at TEXT NOT NULL, resolved_at TEXT, resolution TEXT);
+         CREATE TABLE IF NOT EXISTS sync_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);"
     )?;
     Ok(conn)
+}
+
+fn get_meta(conn: &Connection, key: &str) -> Result<Option<String>, SyncError> {
+    Ok(conn
+        .query_row("SELECT value FROM sync_meta WHERE key = ?1", [key], |row| {
+            row.get(0)
+        })
+        .optional()?)
+}
+
+fn set_meta(conn: &Connection, key: &str, value: &str) -> Result<(), SyncError> {
+    conn.execute(
+        "INSERT INTO sync_meta (key, value) VALUES (?1, ?2) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        params![key, value],
+    )?;
+    Ok(())
 }
 
 fn get_or_create_device(conn: &Connection, label: &str) -> Result<String, SyncError> {
@@ -203,6 +247,67 @@ fn get_device(conn: &Connection) -> Result<Option<String>, SyncError> {
             row.get(0)
         })
         .optional()?)
+}
+
+fn get_device_label(conn: &Connection, device_id: &str) -> Result<String, SyncError> {
+    Ok(conn
+        .query_row(
+            "SELECT label FROM sync_devices WHERE device_id = ?1",
+            [device_id],
+            |row| row.get(0),
+        )
+        .optional()?
+        .unwrap_or_else(|| "Yachiyo".to_string()))
+}
+
+fn read_universe(sync_dir: &Path) -> Result<Option<Universe>, SyncError> {
+    match fs::read_to_string(sync_dir.join("universe.json")) {
+        Ok(text) => Ok(Some(serde_json::from_str(&text)?)),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(SyncError::Io(error)),
+    }
+}
+
+/// Resolve the universe this device belongs to. Records the joined universe id
+/// locally on first contact and refuses to operate when the sync dir's universe
+/// id no longer matches it (the "two universes" split the plan warns about).
+fn ensure_universe(
+    conn: &Connection,
+    sync_dir: &Path,
+    create_if_missing: bool,
+) -> Result<String, SyncError> {
+    let local = get_meta(conn, META_UNIVERSE)?;
+    match read_universe(sync_dir)? {
+        Some(universe) => {
+            match &local {
+                Some(local_id) if local_id != &universe.universe_id => {
+                    return Err(SyncError::UniverseMismatch {
+                        local: local_id.clone(),
+                        remote: universe.universe_id,
+                    });
+                }
+                Some(_) => {}
+                None => set_meta(conn, META_UNIVERSE, &universe.universe_id)?,
+            }
+            Ok(universe.universe_id)
+        }
+        None => {
+            if !create_if_missing {
+                return Err(SyncError::NotInitialized(sync_dir.to_path_buf()));
+            }
+            let universe = Universe {
+                universe_id: Uuid::new_v4().to_string(),
+                created_at: now(),
+                format_version: FORMAT_VERSION,
+            };
+            atomic_write(
+                &sync_dir.join("universe.json"),
+                &serde_json::to_string_pretty(&universe)?,
+            )?;
+            set_meta(conn, META_UNIVERSE, &universe.universe_id)?;
+            Ok(universe.universe_id)
+        }
+    }
 }
 
 fn atomic_write(path: &Path, content: &str) -> Result<(), SyncError> {
@@ -232,20 +337,28 @@ pub fn init_sync(
 ) -> Result<CommandOutput, SyncError> {
     let sync_dir = resolve_sync_dir(sync_dir_override)?;
     fs::create_dir_all(&sync_dir)?;
-    let universe_path = sync_dir.join("universe.json");
-    if !universe_path.exists() {
-        let universe = Universe {
-            universe_id: Uuid::new_v4().to_string(),
-            created_at: now(),
-            format_version: FORMAT_VERSION,
-        };
-        atomic_write(&universe_path, &serde_json::to_string_pretty(&universe)?)?;
-    }
     let conn = open_db(home)?;
+    ensure_universe(&conn, &sync_dir, true)?;
     let device_id = get_or_create_device(&conn, device_label)?;
     fs::create_dir_all(device_dir(&sync_dir, &device_id).join("ops"))?;
-    write_manifest(&sync_dir, &device_id, device_label, 0, None)?;
-    output(home, &sync_dir, Some(device_id), "ready", 0, 0, None)
+    let label = get_device_label(&conn, &device_id)?;
+    // Don't reset export progress if this device already published before.
+    let existing = read_manifest(&sync_dir, &device_id);
+    let (seq, exported_at) = existing
+        .map(|m| (m.last_exported_seq, m.last_exported_at))
+        .unwrap_or((0, None));
+    write_manifest(&sync_dir, &device_id, &label, seq, exported_at)?;
+    output(
+        home,
+        &sync_dir,
+        Some(device_id),
+        "ready",
+        0,
+        0,
+        None,
+        None,
+        None,
+    )
 }
 
 fn write_manifest(
@@ -260,6 +373,7 @@ fn write_manifest(
         label: label.to_string(),
         last_exported_seq: seq,
         last_exported_at: exported_at,
+        app_version: app_version(),
         format_version: FORMAT_VERSION,
     };
     atomic_write(
@@ -268,17 +382,21 @@ fn write_manifest(
     )
 }
 
+fn read_manifest(sync_dir: &Path, device_id: &str) -> Option<Manifest> {
+    let text = fs::read_to_string(device_dir(sync_dir, device_id).join("manifest.json")).ok()?;
+    serde_json::from_str(&text).ok()
+}
+
 pub fn export_ops(
     home: &Path,
     sync_dir_override: Option<&Path>,
 ) -> Result<CommandOutput, SyncError> {
     let sync_dir = resolve_sync_dir(sync_dir_override)?;
-    if !sync_dir.join("universe.json").exists() {
-        return Err(SyncError::NotInitialized(sync_dir));
-    }
     let conn = open_db(home)?;
+    ensure_universe(&conn, &sync_dir, false)?;
     let device_id = get_device(&conn)?
         .ok_or_else(|| SyncError::Message("device is not initialized".to_string()))?;
+    let label = get_device_label(&conn, &device_id)?;
     let exported_at = now();
     let seq = next_export_seq(&sync_dir, &device_id)?;
     let mut ops = Vec::new();
@@ -307,13 +425,7 @@ pub fn export_ops(
             .join(format!("{seq:016}.jsonl")),
         &content,
     )?;
-    write_manifest(
-        &sync_dir,
-        &device_id,
-        "Yachiyo",
-        seq,
-        Some(exported_at.clone()),
-    )?;
+    write_manifest(&sync_dir, &device_id, &label, seq, Some(exported_at.clone()))?;
     output(
         home,
         &sync_dir,
@@ -322,6 +434,8 @@ pub fn export_ops(
         ops.len(),
         0,
         Some(exported_at),
+        None,
+        None,
     )
 }
 
@@ -441,34 +555,43 @@ pub fn import_ops(
     sync_dir_override: Option<&Path>,
 ) -> Result<CommandOutput, SyncError> {
     let sync_dir = resolve_sync_dir(sync_dir_override)?;
-    if !sync_dir.join("universe.json").exists() {
-        return Err(SyncError::NotInitialized(sync_dir));
-    }
     let conn = open_db(home)?;
+    ensure_universe(&conn, &sync_dir, false)?;
     let local_device = get_device(&conn)?.unwrap_or_default();
     let mut imported = 0;
+    let mut transient_error: Option<String> = None;
     for path in op_files(&sync_dir)? {
-        if path
-            .to_string_lossy()
-            .contains(&format!("/devices/{}/", local_device))
-        {
+        if path_belongs_to_device(&path, &local_device) {
             continue;
         }
-        let file = match File::open(&path) {
-            Ok(file) => file,
-            Err(_) => continue,
+        // A file that fails to read is likely still downloading from iCloud:
+        // skip it (don't record it as applied) and report a transient error.
+        let content = match fs::read_to_string(&path) {
+            Ok(content) => content,
+            Err(error) => {
+                transient_error = Some(format!(
+                    "Could not read {} (still downloading?): {error}",
+                    path.display()
+                ));
+                continue;
+            }
         };
-        for line in BufReader::new(file).lines() {
-            let line = line?;
+        for line in content.lines() {
             if line.trim().is_empty() {
                 continue;
             }
-            let op: SyncOp = serde_json::from_str(&line)?;
-            if apply_op(home, &conn, &op)? {
+            let op: SyncOp = serde_json::from_str(line)?;
+            // Business write + applied-ops bookkeeping commit together, so a
+            // crash mid-import can never leave an op half-applied.
+            let tx = conn.unchecked_transaction()?;
+            let applied = apply_op(home, &tx, &op)?;
+            tx.commit()?;
+            if applied {
                 imported += 1;
             }
         }
     }
+    let last_imported_at = if imported > 0 { Some(now()) } else { None };
     output(
         home,
         &sync_dir,
@@ -477,7 +600,24 @@ pub fn import_ops(
         0,
         imported,
         None,
+        last_imported_at,
+        transient_error,
     )
+}
+
+/// True when `path` lives under `sync_dir/devices/<device_id>/...`. Component-based
+/// so it works regardless of the platform path separator.
+fn path_belongs_to_device(path: &Path, device_id: &str) -> bool {
+    if device_id.is_empty() {
+        return false;
+    }
+    let components: Vec<String> = path
+        .components()
+        .map(|c| c.as_os_str().to_string_lossy().to_string())
+        .collect();
+    components
+        .windows(2)
+        .any(|pair| pair[0] == "devices" && pair[1] == device_id)
 }
 
 fn op_files(sync_dir: &Path) -> Result<Vec<PathBuf>, SyncError> {
@@ -519,11 +659,32 @@ fn apply_op(home: &Path, conn: &Connection, op: &SyncOp) -> Result<bool, SyncErr
         "thread.archive.upsert" => {
             insert_json_row(conn, "threads", &op.payload, Some((&op.device_id, now())))?
         }
-        "message.archive.upsert" => insert_json_row(conn, "messages", &op.payload, None)?,
+        "message.archive.upsert" => {
+            if !message_parent_exists(conn, &op.payload)? {
+                // Parent thread hasn't been imported yet; defer without marking
+                // applied so a later import (after the thread op arrives) retries.
+                return Ok(false);
+            }
+            insert_json_row(conn, "messages", &op.payload, None)?
+        }
         _ => {}
     }
     conn.execute("INSERT OR IGNORE INTO sync_applied_ops (op_id, device_id, seq, applied_at) VALUES (?1, ?2, ?3, ?4)", params![op.op_id, op.device_id, op.seq, now()])?;
     Ok(true)
+}
+
+fn message_parent_exists(conn: &Connection, payload: &Value) -> Result<bool, SyncError> {
+    let thread_id = payload
+        .get("thread_id")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    if thread_id.is_empty() {
+        return Ok(false);
+    }
+    Ok(conn
+        .query_row("SELECT 1 FROM threads WHERE id = ?1", [thread_id], |_| Ok(()))
+        .optional()?
+        .is_some())
 }
 
 fn apply_settings(home: &Path, conn: &Connection, op: &SyncOp) -> Result<(), SyncError> {
@@ -541,7 +702,7 @@ fn apply_settings(home: &Path, conn: &Connection, op: &SyncOp) -> Result<(), Syn
         .payload
         .get("contentHash")
         .and_then(Value::as_str)
-        .unwrap_or_else(|| op.payload_hash.as_str());
+        .unwrap_or(op.payload_hash.as_str());
     let path = settings_path(home);
     let local_text = fs::read_to_string(&path).unwrap_or_default();
     let local_hash = hash_text(&local_text);
@@ -618,13 +779,54 @@ fn json_to_sql(value: &Value) -> rusqlite::types::Value {
 
 pub fn status(home: &Path, sync_dir_override: Option<&Path>) -> Result<CommandOutput, SyncError> {
     let sync_dir = resolve_sync_dir(sync_dir_override)?;
-    if !sync_dir.join("universe.json").exists() {
-        return output(home, &sync_dir, None, "not_initialized", 0, 0, None);
-    }
     let conn = open_db(home)?;
-    output(home, &sync_dir, get_device(&conn)?, "ready", 0, 0, None)
+    let device_id = get_device(&conn)?;
+    match ensure_universe(&conn, &sync_dir, false) {
+        Ok(_) => output(home, &sync_dir, device_id, "ready", 0, 0, None, None, None),
+        Err(SyncError::NotInitialized(_)) => output(
+            home,
+            &sync_dir,
+            device_id,
+            "not_initialized",
+            0,
+            0,
+            None,
+            None,
+            None,
+        ),
+        Err(error @ SyncError::UniverseMismatch { .. }) => output(
+            home,
+            &sync_dir,
+            device_id,
+            "needs_attention",
+            0,
+            0,
+            None,
+            None,
+            Some(error.to_string()),
+        ),
+        Err(error) => Err(error),
+    }
 }
 
+fn count_scalar(conn: &Connection, sql: &str) -> usize {
+    conn.query_row(sql, [], |row| row.get::<_, i64>(0))
+        .unwrap_or(0) as usize
+}
+
+fn count_remote_devices(sync_dir: &Path, local_device: Option<&str>) -> usize {
+    let entries = match fs::read_dir(sync_dir.join("devices")) {
+        Ok(entries) => entries,
+        Err(_) => return 0,
+    };
+    entries
+        .filter_map(Result::ok)
+        .filter(|entry| entry.path().is_dir())
+        .filter(|entry| Some(entry.file_name().to_string_lossy().as_ref()) != local_device)
+        .count()
+}
+
+#[allow(clippy::too_many_arguments)]
 fn output(
     home: &Path,
     sync_dir: &Path,
@@ -633,39 +835,96 @@ fn output(
     exported_ops: usize,
     imported_ops: usize,
     last_exported_at: Option<String>,
+    last_imported_at: Option<String>,
+    last_error: Option<String>,
 ) -> Result<CommandOutput, SyncError> {
     let conn = open_db(home)?;
-    let pending_conflict_count: usize = conn
-        .query_row(
-            "SELECT COUNT(*) FROM sync_conflicts WHERE resolved_at IS NULL",
-            [],
-            |row| row.get::<_, i64>(0),
-        )
-        .unwrap_or(0) as usize;
-    let remote_device_count = fs::read_dir(sync_dir.join("devices"))
-        .map(|entries| entries.filter_map(Result::ok).count())
+    let pending_conflict_count =
+        count_scalar(&conn, "SELECT COUNT(*) FROM sync_conflicts WHERE resolved_at IS NULL");
+    let applied_op_count = count_scalar(&conn, "SELECT COUNT(*) FROM sync_applied_ops");
+    // Local ops queued for the next export. v1 re-exports from scratch, so this
+    // is 0 unless the app starts capturing incremental ops into sync_local_ops.
+    let pending_op_count =
+        count_scalar(&conn, "SELECT COUNT(*) FROM sync_local_ops WHERE exported_at IS NULL");
+    let remote_device_count = count_remote_devices(sync_dir, device_id.as_deref());
+    let last_exported_seq = device_id
+        .as_deref()
+        .and_then(|id| read_manifest(sync_dir, id))
+        .map(|m| m.last_exported_seq)
         .unwrap_or(0);
+    let state = if last_error.is_some() || pending_conflict_count > 0 {
+        "needs_attention".to_string()
+    } else {
+        state.to_string()
+    };
     Ok(CommandOutput {
         ok: true,
-        state: if pending_conflict_count > 0 {
-            "needs_attention".to_string()
-        } else {
-            state.to_string()
-        },
+        state,
         sync_dir: sync_dir.display().to_string(),
         device_id,
         remote_device_count,
         exported_ops,
         imported_ops,
+        last_exported_seq,
+        applied_op_count,
+        pending_op_count,
         pending_conflict_count,
         last_exported_at,
-        last_error: None,
+        last_imported_at,
+        last_error,
     })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tempfile::TempDir;
+
+    fn setup_home(config: &str) -> TempDir {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join(SETTINGS_FILE), config).unwrap();
+        let conn = Connection::open(dir.path().join(DB_FILE)).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE threads (id TEXT PRIMARY KEY, title TEXT, created_at TEXT, sync_origin_device_id TEXT, sync_imported_at TEXT);
+             CREATE TABLE messages (id TEXT PRIMARY KEY, thread_id TEXT NOT NULL, body TEXT, created_at TEXT);",
+        )
+        .unwrap();
+        dir
+    }
+
+    fn seed_thread(home: &Path, thread_id: &str, message_id: &str) {
+        let conn = Connection::open(home.join(DB_FILE)).unwrap();
+        conn.execute(
+            "INSERT INTO threads (id, title, created_at) VALUES (?1, ?2, ?3)",
+            params![thread_id, "Hello", "1"],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO messages (id, thread_id, body, created_at) VALUES (?1, ?2, ?3, ?4)",
+            params![message_id, thread_id, "hi", "1"],
+        )
+        .unwrap();
+    }
+
+    fn count_rows(home: &Path, table: &str) -> i64 {
+        let conn = Connection::open(home.join(DB_FILE)).unwrap();
+        conn.query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |r| r.get(0))
+            .unwrap()
+    }
+
+    fn write_ops_file(sync_dir: &Path, device_id: &str, seq: i64, ops: &[SyncOp]) {
+        let content = ops
+            .iter()
+            .map(|op| serde_json::to_string(op).unwrap())
+            .collect::<Vec<_>>()
+            .join("\n")
+            + "\n";
+        let path = device_dir(sync_dir, device_id)
+            .join("ops")
+            .join(format!("{seq:016}.jsonl"));
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(path, content).unwrap();
+    }
 
     #[test]
     fn hash_is_stable() {
@@ -680,5 +939,179 @@ mod tests {
         atomic_write(&path, "one").unwrap();
         atomic_write(&path, "two").unwrap();
         assert_eq!(fs::read_to_string(path).unwrap(), "two");
+    }
+
+    #[test]
+    fn default_sync_dir_requires_icloud_root() {
+        let home = tempfile::tempdir().unwrap();
+        assert!(matches!(
+            default_sync_dir(home.path()),
+            Err(SyncError::ICloudUnavailable(_))
+        ));
+        fs::create_dir_all(home.path().join("Library/Mobile Documents/com~apple~CloudDocs"))
+            .unwrap();
+        let dir = default_sync_dir(home.path()).unwrap();
+        assert!(dir.ends_with("Documents/Yachiyo/Sync"));
+    }
+
+    #[test]
+    fn op_files_ignores_tmp_files() {
+        let sync = tempfile::tempdir().unwrap();
+        let ops = device_dir(sync.path(), "d1").join("ops");
+        fs::create_dir_all(&ops).unwrap();
+        fs::write(ops.join("0000000000000001.jsonl"), "{}\n").unwrap();
+        fs::write(ops.join("0000000000000002.jsonl.tmp-1-abc"), "garbage").unwrap();
+        let files = op_files(sync.path()).unwrap();
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].extension().and_then(|e| e.to_str()), Some("jsonl"));
+    }
+
+    #[test]
+    fn op_round_trips_through_json() {
+        let op = make_op(
+            "dev",
+            7,
+            "thread.archive.upsert",
+            "thread",
+            "t1",
+            json!({"id": "t1"}),
+        )
+        .unwrap();
+        let text = serde_json::to_string(&op).unwrap();
+        let parsed: SyncOp = serde_json::from_str(&text).unwrap();
+        assert_eq!(parsed.op_id, op.op_id);
+        assert_eq!(parsed.payload_hash, op.payload_hash);
+        assert_eq!(parsed.entity_id, "t1");
+    }
+
+    #[test]
+    fn import_marks_origin_and_is_idempotent() {
+        let sync = tempfile::tempdir().unwrap();
+        let home_a = setup_home("config-a");
+        let home_b = setup_home("config-b");
+        seed_thread(home_a.path(), "t1", "m1");
+        init_sync(home_a.path(), Some(sync.path()), "A").unwrap();
+        init_sync(home_b.path(), Some(sync.path()), "B").unwrap();
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+
+        let first = import_ops(home_b.path(), Some(sync.path())).unwrap();
+        assert!(first.imported_ops >= 2);
+
+        {
+            let conn = Connection::open(home_b.path().join(DB_FILE)).unwrap();
+            let origin: Option<String> = conn
+                .query_row(
+                    "SELECT sync_origin_device_id FROM threads WHERE id = 't1'",
+                    [],
+                    |r| r.get(0),
+                )
+                .unwrap();
+            assert!(origin.is_some(), "imported thread must carry origin device");
+        }
+        assert_eq!(count_rows(home_b.path(), "messages"), 1);
+
+        let second = import_ops(home_b.path(), Some(sync.path())).unwrap();
+        assert_eq!(second.imported_ops, 0, "re-import must be a no-op");
+        assert_eq!(count_rows(home_b.path(), "threads"), 1);
+    }
+
+    #[test]
+    fn settings_conflict_keeps_local() {
+        let sync = tempfile::tempdir().unwrap();
+        let home_a = setup_home("config-a");
+        let home_b = setup_home("config-b");
+        init_sync(home_a.path(), Some(sync.path()), "A").unwrap();
+        init_sync(home_b.path(), Some(sync.path()), "B").unwrap();
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+
+        assert_eq!(
+            fs::read_to_string(home_b.path().join(SETTINGS_FILE)).unwrap(),
+            "config-b",
+            "local settings must win"
+        );
+        let conn = Connection::open(home_b.path().join(DB_FILE)).unwrap();
+        let conflicts: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sync_conflicts WHERE resolved_at IS NULL",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(conflicts, 1);
+    }
+
+    #[test]
+    fn settings_overwrites_when_local_missing() {
+        let sync = tempfile::tempdir().unwrap();
+        let home_a = setup_home("config-a");
+        let home_b = setup_home("config-b");
+        fs::remove_file(home_b.path().join(SETTINGS_FILE)).unwrap();
+        init_sync(home_a.path(), Some(sync.path()), "A").unwrap();
+        init_sync(home_b.path(), Some(sync.path()), "B").unwrap();
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+        assert_eq!(
+            fs::read_to_string(home_b.path().join(SETTINGS_FILE)).unwrap(),
+            "config-a"
+        );
+    }
+
+    #[test]
+    fn message_without_parent_is_deferred_then_applied() {
+        let sync = tempfile::tempdir().unwrap();
+        let home = setup_home("config-b");
+        init_sync(home.path(), Some(sync.path()), "B").unwrap();
+        let message_op = make_op(
+            "remote-device",
+            1,
+            "message.archive.upsert",
+            "message",
+            "m1",
+            json!({"id": "m1", "thread_id": "t1", "body": "hi", "created_at": "1"}),
+        )
+        .unwrap();
+        write_ops_file(sync.path(), "remote-device", 1, &[message_op]);
+
+        let first = import_ops(home.path(), Some(sync.path())).unwrap();
+        assert_eq!(first.imported_ops, 0, "orphan message must defer");
+        assert_eq!(count_rows(home.path(), "messages"), 0);
+
+        // Parent thread becomes available locally; the deferred message now applies.
+        {
+            let conn = Connection::open(home.path().join(DB_FILE)).unwrap();
+            conn.execute(
+                "INSERT INTO threads (id, title, created_at) VALUES ('t1', 'Hi', '1')",
+                [],
+            )
+            .unwrap();
+        }
+        let second = import_ops(home.path(), Some(sync.path())).unwrap();
+        assert_eq!(second.imported_ops, 1);
+        assert_eq!(count_rows(home.path(), "messages"), 1);
+    }
+
+    #[test]
+    fn universe_mismatch_is_detected() {
+        let sync1 = tempfile::tempdir().unwrap();
+        let sync2 = tempfile::tempdir().unwrap();
+        let home = setup_home("config");
+        init_sync(home.path(), Some(sync1.path()), "A").unwrap();
+
+        let other = Universe {
+            universe_id: "other-universe".to_string(),
+            created_at: now(),
+            format_version: FORMAT_VERSION,
+        };
+        atomic_write(
+            &sync2.path().join("universe.json"),
+            &serde_json::to_string_pretty(&other).unwrap(),
+        )
+        .unwrap();
+
+        assert!(matches!(
+            export_ops(home.path(), Some(sync2.path())),
+            Err(SyncError::UniverseMismatch { .. })
+        ));
     }
 }
