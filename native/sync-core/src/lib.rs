@@ -84,7 +84,7 @@ pub struct CommandOutput {
     pub state: String,
     pub sync_dir: String,
     pub device_id: Option<String>,
-    pub remote_device_count: usize,
+    pub device_count: usize,
     pub exported_ops: usize,
     pub imported_ops: usize,
     pub last_exported_seq: i64,
@@ -814,7 +814,10 @@ fn count_scalar(conn: &Connection, sql: &str) -> usize {
         .unwrap_or(0) as usize
 }
 
-fn count_remote_devices(sync_dir: &Path, local_device: Option<&str>) -> usize {
+/// Total devices in the sync universe, including this one. Each device owns one
+/// directory under `devices/`; skip non-directories (e.g. macOS `.DS_Store`) and
+/// dotfiles so stray files never inflate the count.
+fn count_devices(sync_dir: &Path) -> usize {
     let entries = match fs::read_dir(sync_dir.join("devices")) {
         Ok(entries) => entries,
         Err(_) => return 0,
@@ -822,7 +825,7 @@ fn count_remote_devices(sync_dir: &Path, local_device: Option<&str>) -> usize {
     entries
         .filter_map(Result::ok)
         .filter(|entry| entry.path().is_dir())
-        .filter(|entry| Some(entry.file_name().to_string_lossy().as_ref()) != local_device)
+        .filter(|entry| !entry.file_name().to_string_lossy().starts_with('.'))
         .count()
 }
 
@@ -846,7 +849,7 @@ fn output(
     // is 0 unless the app starts capturing incremental ops into sync_local_ops.
     let pending_op_count =
         count_scalar(&conn, "SELECT COUNT(*) FROM sync_local_ops WHERE exported_at IS NULL");
-    let remote_device_count = count_remote_devices(sync_dir, device_id.as_deref());
+    let device_count = count_devices(sync_dir);
     let last_exported_seq = device_id
         .as_deref()
         .and_then(|id| read_manifest(sync_dir, id))
@@ -862,7 +865,7 @@ fn output(
         state,
         sync_dir: sync_dir.display().to_string(),
         device_id,
-        remote_device_count,
+        device_count,
         exported_ops,
         imported_ops,
         last_exported_seq,

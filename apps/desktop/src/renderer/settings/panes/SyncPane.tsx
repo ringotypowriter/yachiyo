@@ -211,7 +211,7 @@ export function SyncPane({ onConfigReload }: SyncPaneProps): React.ReactNode {
         {status ? (
           <div className="mt-3 flex flex-wrap gap-3 text-xs" style={{ color: theme.text.tertiary }}>
             <span>
-              {status.remoteDeviceCount} device{status.remoteDeviceCount === 1 ? '' : 's'}
+              {status.deviceCount} device{status.deviceCount === 1 ? '' : 's'}
             </span>
             <span>
               {conflicts.length} pending conflict{conflicts.length === 1 ? '' : 's'}

@@ -1192,7 +1192,7 @@ export interface SyncStatus {
   state: 'icloud_unavailable' | 'not_initialized' | 'ready' | 'needs_attention'
   syncDir: string
   deviceId?: string
-  remoteDeviceCount: number
+  deviceCount: number
   pendingConflictCount: number
   lastExportedAt?: string
   lastImportedAt?: string

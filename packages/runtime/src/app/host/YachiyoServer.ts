@@ -282,7 +282,7 @@ function parseSyncCoreOutput(stdout: string): SyncStatus {
     state?: SyncStatus['state']
     sync_dir?: string
     device_id?: string
-    remote_device_count?: number
+    device_count?: number
     pending_conflict_count?: number
     last_exported_at?: string
     last_imported_at?: string
@@ -292,7 +292,7 @@ function parseSyncCoreOutput(stdout: string): SyncStatus {
     state: parsed.state ?? 'not_initialized',
     syncDir: parsed.sync_dir ?? resolveDefaultICloudSyncDir(),
     ...(parsed.device_id ? { deviceId: parsed.device_id } : {}),
-    remoteDeviceCount: parsed.remote_device_count ?? 0,
+    deviceCount: parsed.device_count ?? 0,
     pendingConflictCount: parsed.pending_conflict_count ?? 0,
     ...(parsed.last_exported_at ? { lastExportedAt: parsed.last_exported_at } : {}),
     ...(parsed.last_imported_at ? { lastImportedAt: parsed.last_imported_at } : {}),
@@ -695,7 +695,7 @@ export class YachiyoServer {
       return {
         state: 'icloud_unavailable',
         syncDir,
-        remoteDeviceCount: 0,
+        deviceCount: 0,
         pendingConflictCount: this.storage.countPendingSyncConflicts()
       }
     }
@@ -703,7 +703,7 @@ export class YachiyoServer {
       return {
         state: 'not_initialized',
         syncDir,
-        remoteDeviceCount: 0,
+        deviceCount: 0,
         pendingConflictCount: this.storage.countPendingSyncConflicts()
       }
     }
@@ -718,7 +718,7 @@ export class YachiyoServer {
       return {
         state: 'needs_attention',
         syncDir,
-        remoteDeviceCount: 0,
+        deviceCount: 0,
         pendingConflictCount: this.storage.countPendingSyncConflicts(),
         lastError: reason instanceof Error ? reason.message : 'Failed to read sync status.'
       }
