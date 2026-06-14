@@ -154,6 +154,46 @@ test('buildToolCallDetailsPresentation separates grep input, metadata, and outpu
   assert.ok(!presentation.output?.value.includes('"backend"'))
 })
 
+test('buildToolCallDetailsPresentation renders applyPatch output as diff from operation details', () => {
+  const presentation = buildToolCallDetailsPresentation({
+    ...BASE_TOOL_CALL,
+    toolName: 'applyPatch',
+    rawOutput: {
+      type: 'content',
+      value: [{ type: 'text', text: 'Applied 1 change:\nUpdated src/a.ts' }]
+    },
+    details: {
+      operations: [
+        {
+          path: 'src/a.ts',
+          operation: 'update',
+          diff:
+            'Index: src/a.ts\n' +
+            '===================================================================\n' +
+            '--- src/a.ts\n' +
+            '+++ src/a.ts\n' +
+            '@@ -1,1 +1,1 @@\n' +
+            '-old\n' +
+            '+new\n'
+        }
+      ]
+    }
+  })
+
+  assert.deepEqual(presentation.output, {
+    label: 'diff: src/a.ts',
+    value:
+      'Index: src/a.ts\n' +
+      '===================================================================\n' +
+      '--- src/a.ts\n' +
+      '+++ src/a.ts\n' +
+      '@@ -1,1 +1,1 @@\n' +
+      '-old\n' +
+      '+new',
+    filePath: 'src/a.ts'
+  })
+})
+
 test('compressPath returns short paths unchanged', () => {
   assert.equal(compressPath('/a/b/c.txt'), '/a/b/c.txt')
   assert.equal(compressPath('src/file.ts'), 'src/file.ts')

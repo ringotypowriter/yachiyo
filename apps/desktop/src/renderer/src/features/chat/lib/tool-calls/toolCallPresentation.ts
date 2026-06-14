@@ -193,6 +193,21 @@ function buildFallbackMetadata(toolCall: ToolCall): ToolCallDetailCodeBlock | un
   return undefined
 }
 
+function buildApplyPatchDiffOutput(
+  details: ApplyPatchToolCallDetails | undefined
+): ToolCallDetailCodeBlock | undefined {
+  const diffOperations = details?.operations.filter((op) => op.diff?.trim()) ?? []
+  if (diffOperations.length === 0) return undefined
+
+  const value = diffOperations.map((op) => op.diff!.trimEnd()).join('\n\n')
+  const label = diffOperations.length === 1 ? `diff: ${diffOperations[0].path}` : 'diff'
+  return {
+    label,
+    value,
+    ...(diffOperations.length === 1 ? { filePath: diffOperations[0].path } : {})
+  }
+}
+
 function buildFallbackOutput(toolCall: ToolCall): ToolCallDetailCodeBlock | undefined {
   const details = toolCall.details
   const error = toolCall.error?.trim()
@@ -298,10 +313,15 @@ export function buildToolCallDetailsPresentation(toolCall: ToolCall): ToolCallDe
   const inputValue =
     rawInput !== undefined ? renderRawValue(rawInput) : buildFallbackInput(toolCall)
   const metadata = buildFallbackMetadata(toolCall)
+  const applyPatchDiffOutput =
+    toolCall.toolName === 'applyPatch'
+      ? buildApplyPatchDiffOutput(toolCall.details as ApplyPatchToolCallDetails | undefined)
+      : undefined
   const output =
-    rawOutput !== undefined
+    applyPatchDiffOutput ??
+    (rawOutput !== undefined
       ? { label: 'Output', value: renderRawValue(rawOutput) }
-      : buildFallbackOutput(toolCall)
+      : buildFallbackOutput(toolCall))
 
   return {
     ...(inputValue ? { input: { label: 'Input', value: inputValue } } : {}),
