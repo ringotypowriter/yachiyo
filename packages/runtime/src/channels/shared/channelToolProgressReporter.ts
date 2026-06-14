@@ -217,8 +217,10 @@ export function createToolProgressReporter(
   const allTools = new Map<string, TrackedToolCall>()
   /** Tool call IDs that completed since last report (reported once, then cleared). */
   const completedSinceLastReport = new Map<string, TrackedToolCall>()
+  let stopped = false
 
   const unsubscribe = subscribe((event: YachiyoServerEvent) => {
+    if (stopped) return
     if (!('threadId' in event) || event.threadId !== threadId) return
     if (event.type !== 'tool.updated') return
     if (!('runId' in event) || event.runId !== runId) return
@@ -274,6 +276,8 @@ export function createToolProgressReporter(
   }, intervalMs)
 
   async function flush(): Promise<void> {
+    if (stopped) return
+
     const active = [...allTools.values()].filter(
       (t) => t.status === 'preparing' || t.status === 'running'
     )
@@ -297,6 +301,8 @@ export function createToolProgressReporter(
       return
     }
 
+    if (stopped) return
+
     console.log(`[${logLabel}] progress report: ${message}`)
     await sendMessage(message).catch((err) => {
       console.error(`[${logLabel}] failed to send progress report`, err)
@@ -305,6 +311,7 @@ export function createToolProgressReporter(
 
   return {
     stop(): void {
+      stopped = true
       clearInterval(timer)
       unsubscribe()
     }
