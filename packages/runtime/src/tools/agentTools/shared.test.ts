@@ -172,6 +172,7 @@ describe('shadow fallbacks', () => {
     it('accepts timeout values up to 300 seconds', () => {
       const parsed = bashToolInputSchema.safeParse({
         command: 'sleep 300',
+        description: 'Sleep for five minutes',
         timeout: 300
       })
 
@@ -184,6 +185,7 @@ describe('shadow fallbacks', () => {
     it('rejects timeout values above 300 seconds', () => {
       const parsed = bashToolInputSchema.safeParse({
         command: 'sleep 301',
+        description: 'Sleep for slightly over five minutes',
         timeout: 301
       })
 
