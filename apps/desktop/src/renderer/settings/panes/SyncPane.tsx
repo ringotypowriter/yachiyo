@@ -44,7 +44,7 @@ function statusLabel(status: SyncStatus | null, busy: boolean): string {
     case 'icloud_unavailable':
       return 'iCloud Drive unavailable'
     case 'not_initialized':
-      return 'Not initialized'
+      return status.deviceCount > 0 ? 'Not enabled on this device' : 'Not initialized'
     case 'needs_attention':
       return 'Needs attention'
     case 'ready':
@@ -144,6 +144,9 @@ export function SyncPane({ onConfigReload }: SyncPaneProps): React.ReactNode {
 
   const unavailable = status?.state === 'icloud_unavailable'
   const initialized = status && status.state !== 'not_initialized' && !unavailable
+  // Sync already exists (another device created the universe) but this device
+  // hasn't joined yet — offer "Join" instead of first-time "Enable".
+  const joinable = status != null && status.state === 'not_initialized' && status.deviceCount > 0
 
   return (
     <div className="flex-1 overflow-y-auto px-7 py-6">
@@ -171,7 +174,7 @@ export function SyncPane({ onConfigReload }: SyncPaneProps): React.ReactNode {
               onClick={() => void handleInit()}
               style={primaryButtonStyle(busy || unavailable)}
             >
-              Enable iCloud Sync
+              {joinable ? 'Join This Device' : 'Enable iCloud Sync'}
             </button>
           ) : (
             <button
@@ -222,6 +225,11 @@ export function SyncPane({ onConfigReload }: SyncPaneProps): React.ReactNode {
         {unavailable ? (
           <div className="mt-3 text-sm leading-5" style={{ color: theme.text.tertiary }}>
             Sign in to iCloud Drive and enable Documents sync in macOS before turning this on.
+          </div>
+        ) : null}
+        {joinable ? (
+          <div className="mt-3 text-sm leading-5" style={{ color: theme.text.tertiary }}>
+            Sync is already active on another device. Join to pull your synced chats here.
           </div>
         ) : null}
         {error || status?.lastError ? (
