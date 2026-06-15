@@ -781,6 +781,13 @@ pub fn status(home: &Path, sync_dir_override: Option<&Path>) -> Result<CommandOu
     let sync_dir = resolve_sync_dir(sync_dir_override)?;
     let conn = open_db(home)?;
     let device_id = get_device(&conn)?;
+    // A synced universe.json alone does NOT mean this device joined sync — a second
+    // device only sees it because iCloud copied it over. Until this device runs init
+    // (creating its own device row), report not_initialized so the UI offers to enable
+    // sync rather than letting export/import fail with "device is not initialized".
+    if device_id.is_none() {
+        return output(home, &sync_dir, None, "not_initialized", 0, 0, None, None, None);
+    }
     match ensure_universe(&conn, &sync_dir, false) {
         Ok(_) => output(home, &sync_dir, device_id, "ready", 0, 0, None, None, None),
         Err(SyncError::NotInitialized(_)) => output(
@@ -1116,5 +1123,27 @@ mod tests {
             export_ops(home.path(), Some(sync2.path())),
             Err(SyncError::UniverseMismatch { .. })
         ));
+    }
+
+    #[test]
+    fn status_is_not_initialized_when_device_absent_despite_synced_universe() {
+        let sync = tempfile::tempdir().unwrap();
+        // Device A enables sync, creating universe.json + its own device dir.
+        let home_a = setup_home("config-a");
+        init_sync(home_a.path(), Some(sync.path()), "A").unwrap();
+
+        // Device B only sees the synced universe (iCloud copied it over) but never
+        // ran init locally — it must report not_initialized, not "ready".
+        let home_b = setup_home("config-b");
+        assert!(sync.path().join("universe.json").exists());
+        let before = status(home_b.path(), Some(sync.path())).unwrap();
+        assert_eq!(before.state, "not_initialized");
+        assert!(before.device_id.is_none());
+
+        // After B joins, it adopts A's universe and reports ready.
+        init_sync(home_b.path(), Some(sync.path()), "B").unwrap();
+        let after = status(home_b.path(), Some(sync.path())).unwrap();
+        assert_eq!(after.state, "ready");
+        assert!(after.device_id.is_some());
     }
 }
