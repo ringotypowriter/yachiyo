@@ -197,6 +197,12 @@ fn device_dir(sync_dir: &Path, device_id: &str) -> PathBuf {
 
 fn open_db(home: &Path) -> Result<Connection, SyncError> {
     let conn = Connection::open(db_path(home))?;
+    // sync-core imports a partial, read-only archive. Exported thread/message rows
+    // legitimately reference device-local entities that are never synced — folders,
+    // channel users/groups, branch/handoff sources, parent messages. Enforcing the
+    // app's full FK graph here would reject those valid archive rows, so disable FK
+    // checks on this connection. The main app keeps its own FK-enforcing connection.
+    conn.execute_batch("PRAGMA foreign_keys = OFF;")?;
     // These mirror the app's Drizzle-owned tables; CREATE IF NOT EXISTS is a
     // safety net for standalone runs/tests. In production the migration wins.
     conn.execute_batch(
@@ -1145,5 +1151,69 @@ mod tests {
         let after = status(home_b.path(), Some(sync.path())).unwrap();
         assert_eq!(after.state, "ready");
         assert!(after.device_id.is_some());
+    }
+
+    #[test]
+    fn open_db_disables_foreign_keys() {
+        let home = tempfile::tempdir().unwrap();
+        let conn = open_db(home.path()).unwrap();
+        let fk: i64 = conn.query_row("PRAGMA foreign_keys", [], |r| r.get(0)).unwrap();
+        assert_eq!(fk, 0, "sync-core must not enforce the app FK graph while importing");
+    }
+
+    #[test]
+    fn import_tolerates_dangling_device_local_references() {
+        let sync = tempfile::tempdir().unwrap();
+        // Schema with real FK columns: a thread filed in a folder, and self-referencing
+        // messages — mirroring the app tables that broke real two-device import.
+        let make = |config: &str| {
+            let dir = tempfile::tempdir().unwrap();
+            fs::write(dir.path().join(SETTINGS_FILE), config).unwrap();
+            let conn = Connection::open(dir.path().join(DB_FILE)).unwrap();
+            conn.execute_batch(
+                "CREATE TABLE folders (id TEXT PRIMARY KEY);
+                 CREATE TABLE threads (id TEXT PRIMARY KEY, folder_id TEXT REFERENCES folders(id), created_at TEXT, sync_origin_device_id TEXT, sync_imported_at TEXT);
+                 CREATE TABLE messages (id TEXT PRIMARY KEY, thread_id TEXT NOT NULL REFERENCES threads(id), parent_message_id TEXT REFERENCES messages(id), created_at TEXT);",
+            )
+            .unwrap();
+            dir
+        };
+        let home_a = make("config-a");
+        let home_b = make("config-b");
+        {
+            let conn = Connection::open(home_a.path().join(DB_FILE)).unwrap();
+            conn.execute("INSERT INTO folders (id) VALUES ('f1')", []).unwrap();
+            conn.execute(
+                "INSERT INTO threads (id, folder_id, created_at) VALUES ('t1', 'f1', '1')",
+                [],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO messages (id, thread_id, parent_message_id, created_at) VALUES ('m1','t1',NULL,'1')",
+                [],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO messages (id, thread_id, parent_message_id, created_at) VALUES ('m2','t1','m1','2')",
+                [],
+            )
+            .unwrap();
+        }
+        init_sync(home_a.path(), Some(sync.path()), "A").unwrap();
+        init_sync(home_b.path(), Some(sync.path()), "B").unwrap();
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+
+        // B has no folder 'f1'; import must still succeed despite the dangling ref.
+        let result = import_ops(home_b.path(), Some(sync.path())).unwrap();
+        assert!(result.imported_ops >= 3);
+        let conn = Connection::open(home_b.path().join(DB_FILE)).unwrap();
+        let folder_id: Option<String> = conn
+            .query_row("SELECT folder_id FROM threads WHERE id = 't1'", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(folder_id.as_deref(), Some("f1"), "dangling ref kept as historical value");
+        let messages: i64 = conn
+            .query_row("SELECT COUNT(*) FROM messages", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(messages, 2);
     }
 }
