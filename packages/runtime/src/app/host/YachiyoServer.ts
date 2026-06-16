@@ -84,6 +84,7 @@ import type {
   UpdateScheduleInput,
   UserDocument,
   SoulDocument as ProtocolSoulDocument,
+  SyncConflictRecord,
   SyncStatus,
   UsageStatsInput,
   UsageStatsResponse,
@@ -150,6 +151,7 @@ import {
   parseSettingsToml,
   toEffectiveProviderSettings
 } from '../../settings/settingsStore.ts'
+import { diffSettings, mergeSettings } from '../../settings/settingsFieldMerge.ts'
 import type { JotdownStore } from '../../services/jotdownStore.ts'
 import type { YachiyoStorage } from '../../storage/storage.ts'
 import {
@@ -744,21 +746,47 @@ export class YachiyoServer {
   }
 
   async listSyncConflicts(): Promise<ListSyncConflictsResult> {
-    return { conflicts: this.storage.listSyncConflicts() }
+    return {
+      conflicts: this.storage
+        .listSyncConflicts()
+        .map((conflict) => this.withSettingsFields(conflict))
+    }
+  }
+
+  private withSettingsFields(conflict: SyncConflictRecord): SyncConflictRecord {
+    if (conflict.entityType !== 'settings') return conflict
+    const remote = this.parseConflictRemoteSettings(conflict)
+    if (!remote) return conflict
+    return { ...conflict, settingsFields: diffSettings(this.configDomain.getConfig(), remote) }
+  }
+
+  private parseConflictRemoteSettings(conflict: SyncConflictRecord): SettingsConfig | null {
+    try {
+      const payload = JSON.parse(conflict.payloadJson) as { text?: unknown }
+      if (typeof payload.text !== 'string') return null
+      return normalizeSettingsConfig(parseSettingsToml(payload.text))
+    } catch {
+      return null
+    }
   }
 
   async resolveSyncConflict(input: ResolveSyncConflictInput): Promise<ListSyncConflictsResult> {
     const conflict = this.storage.listSyncConflicts().find((item) => item.id === input.conflictId)
     if (!conflict) {
-      return { conflicts: this.storage.listSyncConflicts() }
+      return this.listSyncConflicts()
     }
 
-    if (input.resolution === 'use_remote') {
-      const payload = JSON.parse(conflict.payloadJson) as { text?: unknown }
-      if (typeof payload.text !== 'string') {
+    if (input.resolution === 'use_remote' || input.resolution === 'merge') {
+      const remote = this.parseConflictRemoteSettings(conflict)
+      if (!remote) {
         throw new Error('Synced settings payload is invalid.')
       }
-      const nextConfig = normalizeSettingsConfig(parseSettingsToml(payload.text))
+      const nextConfig =
+        input.resolution === 'merge'
+          ? normalizeSettingsConfig(
+              mergeSettings(this.configDomain.getConfig(), remote, input.fieldSelections ?? {})
+            )
+          : remote
       this.configDomain.saveConfig(nextConfig)
     }
 
@@ -767,7 +795,7 @@ export class YachiyoServer {
       resolution: input.resolution,
       resolvedAt: this.now().toISOString()
     })
-    return { conflicts: this.storage.listSyncConflicts() }
+    return this.listSyncConflicts()
   }
 
   async saveUserDocument(input: { content: string }): Promise<UserDocument> {

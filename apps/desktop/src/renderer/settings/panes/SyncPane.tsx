@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useState } from 'react'
 import { AlertTriangle, CheckCircle2, Cloud, RefreshCw } from 'lucide-react'
-import type { SyncConflictRecord, SyncStatus } from '@yachiyo/shared/protocol'
+import type {
+  SyncConflictRecord,
+  SyncConflictResolution,
+  SyncStatus
+} from '@yachiyo/shared/protocol'
 import { useAppDialog } from '@renderer/components/AppDialogContext'
 import { alpha, theme } from '@renderer/theme/theme'
 
@@ -37,6 +41,18 @@ function secondaryButtonStyle(): React.CSSProperties {
   }
 }
 
+function choiceChipStyle(selected: boolean): React.CSSProperties {
+  return {
+    flex: 1,
+    minWidth: 0,
+    textAlign: 'left',
+    borderRadius: 8,
+    padding: '6px 9px',
+    border: `1px solid ${selected ? theme.text.accent : theme.border.subtle}`,
+    background: selected ? theme.background.accentSoft : theme.background.surface
+  }
+}
+
 function statusLabel(status: SyncStatus | null, busy: boolean): string {
   if (busy) return 'Syncing...'
   if (!status) return 'Loading sync status...'
@@ -58,6 +74,27 @@ export function SyncPane({ onConfigReload }: SyncPaneProps): React.ReactNode {
   const [conflicts, setConflicts] = useState<SyncConflictRecord[]>([])
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // Per-conflict, per-field choice for settings merges. Defaults to 'local'.
+  const [selections, setSelections] = useState<Record<string, Record<string, 'local' | 'remote'>>>(
+    {}
+  )
+
+  const fieldChoice = (conflictId: string, path: string): 'local' | 'remote' =>
+    selections[conflictId]?.[path] ?? 'local'
+
+  const setFieldChoice = (conflictId: string, path: string, choice: 'local' | 'remote'): void =>
+    setSelections((prev) => ({
+      ...prev,
+      [conflictId]: { ...prev[conflictId], [path]: choice }
+    }))
+
+  const setAllChoices = (conflict: SyncConflictRecord, choice: 'local' | 'remote'): void =>
+    setSelections((prev) => ({
+      ...prev,
+      [conflict.id]: Object.fromEntries(
+        (conflict.settingsFields ?? []).map((field) => [field.path, choice])
+      )
+    }))
 
   const reload = useCallback(async (): Promise<void> => {
     const [nextStatus, conflictResult] = await Promise.all([
@@ -102,7 +139,8 @@ export function SyncPane({ onConfigReload }: SyncPaneProps): React.ReactNode {
 
   const resolveConflict = async (
     conflict: SyncConflictRecord,
-    resolution: 'keep_local' | 'use_remote'
+    resolution: SyncConflictResolution,
+    fieldSelections?: Record<string, 'local' | 'remote'>
   ): Promise<void> => {
     if (resolution === 'use_remote') {
       const confirmed = await dialog.confirm({
@@ -119,10 +157,11 @@ export function SyncPane({ onConfigReload }: SyncPaneProps): React.ReactNode {
     try {
       const result = await window.api.yachiyo.resolveSyncConflict({
         conflictId: conflict.id,
-        resolution
+        resolution,
+        ...(fieldSelections ? { fieldSelections } : {})
       })
       setConflicts(result.conflicts)
-      if (resolution === 'use_remote') {
+      if (resolution === 'use_remote' || resolution === 'merge') {
         await onConfigReload()
       }
       await reload()
@@ -277,35 +316,134 @@ export function SyncPane({ onConfigReload }: SyncPaneProps): React.ReactNode {
               <div className="mt-1 text-xs leading-5" style={{ color: theme.text.tertiary }}>
                 From device {conflict.deviceId.slice(0, 8)} · {conflict.createdAt}
               </div>
-              <div className="mt-2 grid gap-1 text-xs" style={{ color: theme.text.muted }}>
-                <span>Local: {conflict.localHash}</span>
-                <span>Synced: {conflict.remoteHash}</span>
-              </div>
-              <div className="mt-3 flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  disabled={busy}
-                  onClick={() => void resolveConflict(conflict, 'keep_local')}
-                  style={secondaryButtonStyle()}
-                >
-                  Keep This Device
-                </button>
-                <button
-                  type="button"
-                  disabled={busy}
-                  onClick={() => void resolveConflict(conflict, 'use_remote')}
-                  style={primaryButtonStyle(busy)}
-                >
-                  Use Synced Version
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void copySyncedToml(conflict)}
-                  style={secondaryButtonStyle()}
-                >
-                  Copy Synced TOML
-                </button>
-              </div>
+              {conflict.settingsFields && conflict.settingsFields.length > 0 ? (
+                <>
+                  <div
+                    className="mt-3 flex items-center gap-3 text-xs"
+                    style={{ color: theme.text.tertiary }}
+                  >
+                    <span>
+                      {conflict.settingsFields.length} field
+                      {conflict.settingsFields.length === 1 ? '' : 's'} differ
+                    </span>
+                    <button
+                      type="button"
+                      className="underline"
+                      style={{ color: theme.text.accent }}
+                      onClick={() => setAllChoices(conflict, 'local')}
+                    >
+                      All: this device
+                    </button>
+                    <button
+                      type="button"
+                      className="underline"
+                      style={{ color: theme.text.accent }}
+                      onClick={() => setAllChoices(conflict, 'remote')}
+                    >
+                      All: synced
+                    </button>
+                  </div>
+                  <div className="mt-2 space-y-2">
+                    {conflict.settingsFields.map((field) => (
+                      <div key={field.path}>
+                        <div
+                          className="text-xs font-medium"
+                          style={{ color: theme.text.secondary }}
+                        >
+                          {field.path}
+                        </div>
+                        <div className="mt-1 flex gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => setFieldChoice(conflict.id, field.path, 'local')}
+                            style={choiceChipStyle(
+                              fieldChoice(conflict.id, field.path) === 'local'
+                            )}
+                          >
+                            <div
+                              className="text-[10px] uppercase tracking-wide"
+                              style={{ color: theme.text.muted }}
+                            >
+                              This device
+                            </div>
+                            <div className="truncate text-xs" style={{ color: theme.text.primary }}>
+                              {field.localValue ?? '—'}
+                            </div>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setFieldChoice(conflict.id, field.path, 'remote')}
+                            style={choiceChipStyle(
+                              fieldChoice(conflict.id, field.path) === 'remote'
+                            )}
+                          >
+                            <div
+                              className="text-[10px] uppercase tracking-wide"
+                              style={{ color: theme.text.muted }}
+                            >
+                              Synced
+                            </div>
+                            <div className="truncate text-xs" style={{ color: theme.text.primary }}>
+                              {field.remoteValue ?? '—'}
+                            </div>
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() =>
+                        void resolveConflict(conflict, 'merge', selections[conflict.id] ?? {})
+                      }
+                      style={primaryButtonStyle(busy)}
+                    >
+                      Apply
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void copySyncedToml(conflict)}
+                      style={secondaryButtonStyle()}
+                    >
+                      Copy Synced TOML
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="mt-2 grid gap-1 text-xs" style={{ color: theme.text.muted }}>
+                    <span>Local: {conflict.localHash}</span>
+                    <span>Synced: {conflict.remoteHash}</span>
+                  </div>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => void resolveConflict(conflict, 'keep_local')}
+                      style={secondaryButtonStyle()}
+                    >
+                      Keep This Device
+                    </button>
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => void resolveConflict(conflict, 'use_remote')}
+                      style={primaryButtonStyle(busy)}
+                    >
+                      Use Synced Version
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void copySyncedToml(conflict)}
+                      style={secondaryButtonStyle()}
+                    >
+                      Copy Synced TOML
+                    </button>
+                  </div>
+                </>
+              )}
             </div>
           ))}
         </div>

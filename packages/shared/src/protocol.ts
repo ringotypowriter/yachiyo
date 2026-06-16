@@ -1165,7 +1165,17 @@ export interface SettingsConfig {
   subagents?: SubagentsConfig
 }
 
-export type SyncConflictResolution = 'keep_local' | 'use_remote'
+export type SyncConflictResolution = 'keep_local' | 'use_remote' | 'merge'
+
+/** A single setting that differs between this device and the synced device. */
+export interface SyncSettingsFieldDiff {
+  /** Dot path of the field, e.g. `general.themeId` or `providers`. */
+  path: string
+  /** Display value on this device, or null when the field is absent here. */
+  localValue: string | null
+  /** Display value from the synced device, or null when absent there. */
+  remoteValue: string | null
+}
 
 export interface SyncConflictRecord {
   id: string
@@ -1177,6 +1187,8 @@ export interface SyncConflictRecord {
   remoteHash: string
   payloadJson: string
   createdAt: string
+  /** Field-level differences for settings conflicts; absent for other entity types. */
+  settingsFields?: SyncSettingsFieldDiff[]
 }
 
 export interface ListSyncConflictsResult {
@@ -1186,6 +1198,8 @@ export interface ListSyncConflictsResult {
 export interface ResolveSyncConflictInput {
   conflictId: string
   resolution: SyncConflictResolution
+  /** For `merge`: per-field choice keyed by `SyncSettingsFieldDiff.path`. Omitted fields keep local. */
+  fieldSelections?: Record<string, 'local' | 'remote'>
 }
 
 export interface SyncStatus {
