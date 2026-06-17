@@ -5,6 +5,7 @@ import {
   USER_MANAGED_TOOL_NAMES,
   normalizeEnabledTools,
   type SkillCatalogEntry,
+  type SkillSummary,
   type SubagentProfile,
   type ToolCallDetailsSnapshot,
   type ToolCallName,
@@ -142,6 +143,8 @@ export type {
 
 export interface AgentToolDependencies {
   availableSkills?: SkillCatalogEntry[]
+  /** Active (enabled) skills, surfaced to worker subagents so they can discover what exists. */
+  activeSkills?: SkillSummary[]
   fetchImpl?: typeof globalThis.fetch
   loadBrowserSnapshot?: BrowserWebPageSnapshotLoader
   browserAutomationService?: BrowserAutomationService
@@ -935,6 +938,7 @@ export function createAgentToolSet(
       subagentProfiles: dependencies.subagentProfiles ?? [],
       settings: dependencies.settings,
       config: dependencies.config,
+      ...(dependencies.activeSkills ? { activeSkills: dependencies.activeSkills } : {}),
       createModelRuntime: dependencies.createModelRuntime,
       parentToolContext: context,
       parentDependencies: dependencies,

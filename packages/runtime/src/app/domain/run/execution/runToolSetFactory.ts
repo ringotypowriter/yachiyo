@@ -54,6 +54,7 @@ export interface CreateRunToolSetInput {
 export function createRunToolSet(input: CreateRunToolSetInput): ToolSet | undefined {
   const {
     availableSkills,
+    activeSkills,
     enabledSubagentProfiles,
     gitCtx,
     gitValidatedWorkspaces,
@@ -119,6 +120,7 @@ export function createRunToolSet(input: CreateRunToolSetInput): ToolSet | undefi
 
   return createAgentToolSet(toolContext, {
     availableSkills,
+    activeSkills,
     fetchImpl: deps.webExternalFetchImpl ?? deps.fetchImpl,
     loadBrowserSnapshot: deps.loadBrowserSnapshot,
     browserAutomationService: deps.browserAutomationService,

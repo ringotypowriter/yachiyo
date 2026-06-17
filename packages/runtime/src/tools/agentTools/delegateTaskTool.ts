@@ -7,6 +7,7 @@ import type {
   NamedSubagentId,
   ProviderSettings,
   SettingsConfig,
+  SkillSummary,
   SubagentProfile,
   SubagentsConfig,
   ToolCallName
@@ -188,6 +189,8 @@ export interface DelegateTaskContext {
   subagentProfiles: SubagentProfile[]
   settings: ProviderSettings
   config?: SettingsConfig
+  /** Active (enabled) skills the worker may discover and read via skillsRead. */
+  activeSkills?: SkillSummary[]
   createModelRuntime: () => ModelRuntime
   parentToolContext: AgentToolContext
   parentDependencies: AgentToolDependencies
@@ -251,6 +254,24 @@ async function resolveWorkspace(input: {
   return requested
 }
 
+/**
+ * Worker subagents only see their static profile system prompt — unlike the main
+ * agent, they never get a dynamically injected skill catalog. When the worker can
+ * read Skills, append just the active-skill names so it can discover what exists.
+ * How to use them is already covered by the skillsRead tool description, so we do
+ * not restate that here.
+ */
+function buildWorkerSystemPrompt(
+  baseSystemPrompt: string,
+  activeSkillNames: string[],
+  hasSkillsRead: boolean
+): string {
+  if (!hasSkillsRead || activeSkillNames.length === 0) {
+    return baseSystemPrompt
+  }
+  return `${baseSystemPrompt}\n\nActive Skills: ${activeSkillNames.join(', ')}.`
+}
+
 async function runWorkerSubagent(
   profileId: NamedSubagentId,
   prompt: string,
@@ -305,7 +326,14 @@ async function runWorkerSubagent(
       ? toSubagentProviderSettings(ctx.config, profileId, ctx.settings)
       : ctx.settings
   const messages: ModelMessage[] = [
-    { role: 'system' as const, content: profile.systemPrompt },
+    {
+      role: 'system' as const,
+      content: buildWorkerSystemPrompt(
+        profile.systemPrompt,
+        (ctx.activeSkills ?? []).map((skill) => skill.name),
+        workerEnabledTools.has('skillsRead')
+      )
+    },
     { role: 'user' as const, content: prompt }
   ]
   if (workerSettings.provider === 'anthropic') {

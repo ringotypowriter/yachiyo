@@ -35,6 +35,30 @@ function makeContext(overrides: Partial<DelegateTaskContext> = {}): DelegateTask
   }
 }
 
+test('active skills from context reach the worker system prompt for discovery', async () => {
+  let capturedRequest: ModelStreamRequest | undefined
+  const modelRuntime: ModelRuntime = {
+    streamReply: async function* (input) {
+      capturedRequest = input
+      yield 'worker result'
+    }
+  } as ModelRuntime
+  const tool = createTool(
+    makeContext({
+      activeSkills: [{ name: 'pdf' }, { name: 'docx' }],
+      createModelRuntime: () => modelRuntime
+    })
+  )
+
+  await tool.execute!(
+    { agent_name: 'explore', prompt: 'Map the feature' },
+    { toolCallId: 'delegation-skills', messages: [], abortSignal: AbortSignal.timeout(5000) }
+  )
+
+  const content = String(capturedRequest?.messages[0]?.content)
+  assert.ok(content.includes('pdf') && content.includes('docx'))
+})
+
 test('delegateTask runs enabled worker subagents with stable start and finish metadata', async () => {
   const starts: Array<{ delegationId: string; agentType: string; startedAt: string }> = []
   const finishes: Array<{ delegationId: string; agentType: string; status: string }> = []
