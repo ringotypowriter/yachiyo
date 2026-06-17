@@ -89,6 +89,8 @@ export const threadsTable = sqliteTable(
     todoItems: text('todo_items'),
     recapText: text('recap_text'),
     selfReviewedAt: text('self_reviewed_at'),
+    syncOriginDeviceId: text('sync_origin_device_id'),
+    syncImportedAt: text('sync_imported_at'),
     updatedAt: text('updated_at').notNull(),
     createdAt: text('created_at').notNull()
   },
@@ -96,6 +98,54 @@ export const threadsTable = sqliteTable(
     index('threads_channel_group_id_idx').on(table.channelGroupId),
     index('threads_folder_id_idx').on(table.folderId)
   ]
+)
+
+export const syncDevicesTable = sqliteTable('sync_devices', {
+  deviceId: text('device_id').primaryKey(),
+  createdAt: text('created_at').notNull(),
+  label: text('label').notNull()
+})
+
+export const syncLocalOpsTable = sqliteTable(
+  'sync_local_ops',
+  {
+    opId: text('op_id').primaryKey(),
+    deviceId: text('device_id').notNull(),
+    seq: integer('seq').notNull(),
+    kind: text('kind').notNull(),
+    entityType: text('entity_type').notNull(),
+    entityId: text('entity_id').notNull(),
+    payloadJson: text('payload_json').notNull(),
+    baseHash: text('base_hash'),
+    createdAt: text('created_at').notNull(),
+    exportedAt: text('exported_at')
+  },
+  (table) => [index('sync_local_ops_device_seq_idx').on(table.deviceId, table.seq)]
+)
+
+export const syncAppliedOpsTable = sqliteTable('sync_applied_ops', {
+  opId: text('op_id').primaryKey(),
+  deviceId: text('device_id').notNull(),
+  seq: integer('seq').notNull(),
+  appliedAt: text('applied_at').notNull()
+})
+
+export const syncConflictsTable = sqliteTable(
+  'sync_conflicts',
+  {
+    id: text('id').primaryKey(),
+    opId: text('op_id').notNull(),
+    deviceId: text('device_id').notNull(),
+    entityType: text('entity_type').notNull(),
+    entityId: text('entity_id').notNull(),
+    localHash: text('local_hash').notNull(),
+    remoteHash: text('remote_hash').notNull(),
+    payloadJson: text('payload_json').notNull(),
+    createdAt: text('created_at').notNull(),
+    resolvedAt: text('resolved_at'),
+    resolution: text('resolution')
+  },
+  (table) => [index('sync_conflicts_resolved_at_idx').on(table.resolvedAt)]
 )
 
 export const messagesTable = sqliteTable(

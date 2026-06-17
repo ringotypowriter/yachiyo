@@ -539,12 +539,16 @@ export interface ThreadRecord {
   /** Current persistent todo widget snapshot for this thread. */
   todoItems?: TodoItemRecord[]
   recapText?: string
+  /** Device that originally created this synced archive thread. Present only for remote read-only archives. */
+  syncOriginDeviceId?: string
+  syncImportedAt?: string
 }
 
 export function deriveThreadCapabilities(
-  runtimeBinding?: ThreadRuntimeBinding
+  runtimeBinding?: ThreadRuntimeBinding,
+  syncOriginDeviceId?: string
 ): ThreadCapabilities {
-  const actionEnabled = runtimeBinding?.kind !== 'acp'
+  const actionEnabled = runtimeBinding?.kind !== 'acp' && !syncOriginDeviceId
 
   return {
     canRetry: actionEnabled,
@@ -556,20 +560,24 @@ export function deriveThreadCapabilities(
 }
 
 export function getThreadCapabilities(
-  thread: Pick<ThreadRecord, 'capabilities' | 'runtimeBinding'>
+  thread: Pick<ThreadRecord, 'capabilities' | 'runtimeBinding' | 'syncOriginDeviceId'>
 ): ThreadCapabilities {
-  return thread.capabilities ?? deriveThreadCapabilities(thread.runtimeBinding)
+  return (
+    thread.capabilities ??
+    deriveThreadCapabilities(thread.runtimeBinding, thread.syncOriginDeviceId)
+  )
 }
 
 export function withThreadCapabilities<T extends object>(
   thread: T & {
     runtimeBinding?: ThreadRuntimeBinding
+    syncOriginDeviceId?: string
     capabilities?: ThreadCapabilities
   }
 ): Omit<T, 'capabilities'> & { capabilities: ThreadCapabilities } {
   return {
     ...thread,
-    capabilities: deriveThreadCapabilities(thread.runtimeBinding)
+    capabilities: deriveThreadCapabilities(thread.runtimeBinding, thread.syncOriginDeviceId)
   }
 }
 
@@ -1155,6 +1163,54 @@ export interface SettingsConfig {
   subagentProfiles?: SubagentProfile[]
   essentials?: EssentialPreset[]
   subagents?: SubagentsConfig
+}
+
+export type SyncConflictResolution = 'keep_local' | 'use_remote' | 'merge'
+
+/** A single setting that differs between this device and the synced device. */
+export interface SyncSettingsFieldDiff {
+  /** Dot path of the field, e.g. `general.themeId` or `providers`. */
+  path: string
+  /** Display value on this device, or null when the field is absent here. */
+  localValue: string | null
+  /** Display value from the synced device, or null when absent there. */
+  remoteValue: string | null
+}
+
+export interface SyncConflictRecord {
+  id: string
+  opId: string
+  deviceId: string
+  entityType: string
+  entityId: string
+  localHash: string
+  remoteHash: string
+  payloadJson: string
+  createdAt: string
+  /** Field-level differences for settings conflicts; absent for other entity types. */
+  settingsFields?: SyncSettingsFieldDiff[]
+}
+
+export interface ListSyncConflictsResult {
+  conflicts: SyncConflictRecord[]
+}
+
+export interface ResolveSyncConflictInput {
+  conflictId: string
+  resolution: SyncConflictResolution
+  /** For `merge`: per-field choice keyed by `SyncSettingsFieldDiff.path`. Omitted fields keep local. */
+  fieldSelections?: Record<string, 'local' | 'remote'>
+}
+
+export interface SyncStatus {
+  state: 'icloud_unavailable' | 'not_initialized' | 'ready' | 'needs_attention'
+  syncDir: string
+  deviceId?: string
+  deviceCount: number
+  pendingConflictCount: number
+  lastExportedAt?: string
+  lastImportedAt?: string
+  lastError?: string
 }
 
 export function isMemoryConfigured(

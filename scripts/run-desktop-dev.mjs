@@ -75,6 +75,17 @@ if (nativePrepare.code !== 0 || nativePrepare.signal) {
   process.exit(nativePrepare.code ?? 1)
 }
 
+// Rebuild + restage the sync-core binary only when its sources changed, so dev
+// never runs against a stale binary. Non-blocking: a Rust compile error (or a
+// missing toolchain) warns but still lets the rest of the app run.
+const syncCore = await run(process.execPath, [
+  resolve(repoRoot, 'scripts/build-sync-core.mjs'),
+  '--if-changed'
+])
+if (syncCore.code !== 0 && !syncCore.signal) {
+  console.warn('⚠ sync-core build failed; continuing dev with the existing staged binary.')
+}
+
 const electronViteBin = resolve(
   desktopDir,
   'node_modules',

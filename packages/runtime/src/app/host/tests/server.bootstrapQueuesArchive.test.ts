@@ -807,3 +807,27 @@ test('YachiyoServer restores and deletes archived threads', async () => {
     await assert.rejects(access(workspacePathForThread(second.id)))
   })
 })
+
+test('YachiyoServer rejects mutations for synced archive threads', async () => {
+  await withServer(async ({ server, storage }) => {
+    const thread = await server.createThread()
+    storage.updateThread({
+      ...thread,
+      syncOriginDeviceId: 'remote-device',
+      syncImportedAt: '2026-06-14T00:00:00.000Z'
+    })
+
+    await assert.rejects(
+      server.renameThread({ threadId: thread.id, title: 'Remote edit' }),
+      /Synced archive threads are read-only on this device\./
+    )
+    await assert.rejects(
+      server.sendChat({ threadId: thread.id, content: 'Continue remote thread' }),
+      /Synced archive threads are read-only on this device\./
+    )
+    await assert.rejects(
+      server.deleteThread({ threadId: thread.id }),
+      /Synced archive threads are read-only on this device\./
+    )
+  })
+})

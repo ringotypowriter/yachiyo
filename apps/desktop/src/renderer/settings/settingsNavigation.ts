@@ -6,6 +6,7 @@ export type SettingsPanelId =
   | 'source'
   | 'channels'
   | 'schedules'
+  | 'sync'
   | 'usage'
   | 'about'
 
@@ -81,6 +82,7 @@ export const SETTINGS_PANELS: readonly SettingsPanelDefinition[] = [
       { id: 'history', label: 'History' }
     ]
   },
+  { id: 'sync', label: 'Sync' },
   {
     id: 'usage',
     label: 'Statistics',

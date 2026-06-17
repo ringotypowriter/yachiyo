@@ -109,7 +109,7 @@ export const UserMessageBubble = memo(function UserMessageBubble({
       <div className="max-w-[68%] message-card-shell">
         <div
           className="rounded-[18px] px-4 py-2.5 message-selectable"
-          style={{ background: theme.text.accent, color: theme.text.inverse }}
+          style={{ background: theme.text.accent, color: theme.text.onAccent }}
         >
           {label ? (
             <div
