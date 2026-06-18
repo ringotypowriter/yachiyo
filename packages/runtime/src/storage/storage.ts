@@ -194,6 +194,12 @@ export interface ResolveSyncConflictStorageInput {
   resolvedAt: string
 }
 
+export interface FindResolvedSyncConflictInput {
+  entityType: string
+  localHash: string
+  remoteHash: string
+}
+
 export interface StoredToolCallRow {
   id: string
   runId: string | null
@@ -494,6 +500,12 @@ export interface YachiyoStorage {
   listSyncConflicts(): SyncConflictRecord[]
   resolveSyncConflict(input: ResolveSyncConflictStorageInput): SyncConflictRecord | undefined
   countPendingSyncConflicts(): number
+  /** The resolution a previously-resolved conflict with the same content was given, if any. */
+  findResolvedSyncConflictResolution(
+    input: FindResolvedSyncConflictInput
+  ): SyncConflictResolution | undefined
+  /** Remove a conflict row outright (used to drop auto-handled duplicates). */
+  deleteSyncConflict(conflictId: string): void
 }
 
 export function toThreadRecord(

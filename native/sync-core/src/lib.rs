@@ -13,6 +13,7 @@ const DB_FILE: &str = "yachiyo.sqlite";
 const SETTINGS_FILE: &str = "config.toml";
 const FORMAT_VERSION: u32 = 1;
 const META_UNIVERSE: &str = "universe_id";
+const META_EXPORT_FINGERPRINT: &str = "export_fingerprint";
 
 #[derive(Debug)]
 pub enum SyncError {
@@ -419,6 +420,26 @@ pub fn export_ops(
         )?);
     }
     export_threads(&conn, &device_id, seq, &mut ops)?;
+
+    // Nothing changed since the last export — skip writing a fresh ops file so
+    // auto-sync doesn't accumulate identical snapshots (and re-trigger remote
+    // conflicts) on every cycle. seq isn't bumped, so the next real change reuses
+    // it.
+    let fingerprint = export_fingerprint(&ops);
+    if get_meta(&conn, META_EXPORT_FINGERPRINT)?.as_deref() == Some(fingerprint.as_str()) {
+        return output(
+            home,
+            &sync_dir,
+            Some(device_id),
+            "ready",
+            0,
+            0,
+            None,
+            None,
+            None,
+        );
+    }
+
     let content = ops
         .iter()
         .map(serde_json::to_string)
@@ -431,7 +452,14 @@ pub fn export_ops(
             .join(format!("{seq:016}.jsonl")),
         &content,
     )?;
-    write_manifest(&sync_dir, &device_id, &label, seq, Some(exported_at.clone()))?;
+    write_manifest(
+        &sync_dir,
+        &device_id,
+        &label,
+        seq,
+        Some(exported_at.clone()),
+    )?;
+    set_meta(&conn, META_EXPORT_FINGERPRINT, &fingerprint)?;
     output(
         home,
         &sync_dir,
@@ -464,6 +492,18 @@ fn make_op(
         payload_hash: hash_value(&payload)?,
         payload,
     })
+}
+
+/// Content fingerprint of an export, independent of op_id / seq / timestamps, so
+/// an unchanged settings+threads snapshot yields the same value every time. Used
+/// to skip re-exporting identical data on every auto-sync cycle.
+fn export_fingerprint(ops: &[SyncOp]) -> String {
+    let mut parts: Vec<String> = ops
+        .iter()
+        .map(|op| format!("{}\u{0}{}\u{0}{}", op.kind, op.entity_id, op.payload_hash))
+        .collect();
+    parts.sort();
+    hash_text(&parts.join("\n"))
 }
 
 fn next_export_seq(sync_dir: &Path, device_id: &str) -> Result<i64, SyncError> {
@@ -688,7 +728,9 @@ fn message_parent_exists(conn: &Connection, payload: &Value) -> Result<bool, Syn
         return Ok(false);
     }
     Ok(conn
-        .query_row("SELECT 1 FROM threads WHERE id = ?1", [thread_id], |_| Ok(()))
+        .query_row("SELECT 1 FROM threads WHERE id = ?1", [thread_id], |_| {
+            Ok(())
+        })
         .optional()?
         .is_some())
 }
@@ -712,6 +754,12 @@ fn apply_settings(home: &Path, conn: &Connection, op: &SyncOp) -> Result<(), Syn
     let path = settings_path(home);
     let local_text = fs::read_to_string(&path).unwrap_or_default();
     let local_hash = hash_text(&local_text);
+    // Both sides already agree — nothing to write and never a conflict. Without
+    // this, a re-exported but byte-identical snapshot would record a phantom
+    // conflict on every import.
+    if path.exists() && local_hash == remote_hash {
+        return Ok(());
+    }
     if !path.exists() || local_hash == base_hash {
         atomic_write(&path, remote_text)?;
         return Ok(());
@@ -792,7 +840,17 @@ pub fn status(home: &Path, sync_dir_override: Option<&Path>) -> Result<CommandOu
     // (creating its own device row), report not_initialized so the UI offers to enable
     // sync rather than letting export/import fail with "device is not initialized".
     if device_id.is_none() {
-        return output(home, &sync_dir, None, "not_initialized", 0, 0, None, None, None);
+        return output(
+            home,
+            &sync_dir,
+            None,
+            "not_initialized",
+            0,
+            0,
+            None,
+            None,
+            None,
+        );
     }
     match ensure_universe(&conn, &sync_dir, false) {
         Ok(_) => output(home, &sync_dir, device_id, "ready", 0, 0, None, None, None),
@@ -855,13 +913,17 @@ fn output(
     last_error: Option<String>,
 ) -> Result<CommandOutput, SyncError> {
     let conn = open_db(home)?;
-    let pending_conflict_count =
-        count_scalar(&conn, "SELECT COUNT(*) FROM sync_conflicts WHERE resolved_at IS NULL");
+    let pending_conflict_count = count_scalar(
+        &conn,
+        "SELECT COUNT(*) FROM sync_conflicts WHERE resolved_at IS NULL",
+    );
     let applied_op_count = count_scalar(&conn, "SELECT COUNT(*) FROM sync_applied_ops");
     // Local ops queued for the next export. v1 re-exports from scratch, so this
     // is 0 unless the app starts capturing incremental ops into sync_local_ops.
-    let pending_op_count =
-        count_scalar(&conn, "SELECT COUNT(*) FROM sync_local_ops WHERE exported_at IS NULL");
+    let pending_op_count = count_scalar(
+        &conn,
+        "SELECT COUNT(*) FROM sync_local_ops WHERE exported_at IS NULL",
+    );
     let device_count = count_devices(sync_dir);
     let last_exported_seq = device_id
         .as_deref()
@@ -928,6 +990,23 @@ mod tests {
             .unwrap()
     }
 
+    fn device_id_of(home: &Path) -> String {
+        let conn = Connection::open(home.join(DB_FILE)).unwrap();
+        get_device(&conn).unwrap().unwrap()
+    }
+
+    fn count_op_files(sync_dir: &Path, device_id: &str) -> usize {
+        let ops = device_dir(sync_dir, device_id).join("ops");
+        if !ops.exists() {
+            return 0;
+        }
+        fs::read_dir(ops)
+            .unwrap()
+            .filter_map(Result::ok)
+            .filter(|e| e.path().extension().and_then(|x| x.to_str()) == Some("jsonl"))
+            .count()
+    }
+
     fn write_ops_file(sync_dir: &Path, device_id: &str, seq: i64, ops: &[SyncOp]) {
         let content = ops
             .iter()
@@ -964,8 +1043,11 @@ mod tests {
             default_sync_dir(home.path()),
             Err(SyncError::ICloudUnavailable(_))
         ));
-        fs::create_dir_all(home.path().join("Library/Mobile Documents/com~apple~CloudDocs"))
-            .unwrap();
+        fs::create_dir_all(
+            home.path()
+                .join("Library/Mobile Documents/com~apple~CloudDocs"),
+        )
+        .unwrap();
         let dir = default_sync_dir(home.path()).unwrap();
         assert!(dir.ends_with("Documents/Yachiyo/Sync"));
     }
@@ -1055,6 +1137,50 @@ mod tests {
             )
             .unwrap();
         assert_eq!(conflicts, 1);
+    }
+
+    #[test]
+    fn export_is_skipped_when_unchanged() {
+        let sync = tempfile::tempdir().unwrap();
+        let home = setup_home("config-a");
+        init_sync(home.path(), Some(sync.path()), "A").unwrap();
+        let device = device_id_of(home.path());
+
+        let first = export_ops(home.path(), Some(sync.path())).unwrap();
+        assert!(first.exported_ops >= 1);
+        assert_eq!(count_op_files(sync.path(), &device), 1);
+
+        // Re-exporting unchanged data must not write another ops file.
+        let second = export_ops(home.path(), Some(sync.path())).unwrap();
+        assert_eq!(second.exported_ops, 0, "unchanged export must be skipped");
+        assert_eq!(count_op_files(sync.path(), &device), 1);
+
+        // A real change exports again.
+        fs::write(home.path().join(SETTINGS_FILE), "config-changed").unwrap();
+        let third = export_ops(home.path(), Some(sync.path())).unwrap();
+        assert!(third.exported_ops >= 1, "changed export must run");
+        assert_eq!(count_op_files(sync.path(), &device), 2);
+    }
+
+    #[test]
+    fn identical_settings_do_not_conflict() {
+        let sync = tempfile::tempdir().unwrap();
+        let home_a = setup_home("same-config");
+        let home_b = setup_home("same-config");
+        init_sync(home_a.path(), Some(sync.path()), "A").unwrap();
+        init_sync(home_b.path(), Some(sync.path()), "B").unwrap();
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+
+        assert_eq!(
+            fs::read_to_string(home_b.path().join(SETTINGS_FILE)).unwrap(),
+            "same-config"
+        );
+        let conn = Connection::open(home_b.path().join(DB_FILE)).unwrap();
+        let conflicts: i64 = conn
+            .query_row("SELECT COUNT(*) FROM sync_conflicts", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(conflicts, 0, "identical settings must not conflict");
     }
 
     #[test]
@@ -1157,8 +1283,13 @@ mod tests {
     fn open_db_disables_foreign_keys() {
         let home = tempfile::tempdir().unwrap();
         let conn = open_db(home.path()).unwrap();
-        let fk: i64 = conn.query_row("PRAGMA foreign_keys", [], |r| r.get(0)).unwrap();
-        assert_eq!(fk, 0, "sync-core must not enforce the app FK graph while importing");
+        let fk: i64 = conn
+            .query_row("PRAGMA foreign_keys", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(
+            fk, 0,
+            "sync-core must not enforce the app FK graph while importing"
+        );
     }
 
     #[test]
@@ -1182,7 +1313,8 @@ mod tests {
         let home_b = make("config-b");
         {
             let conn = Connection::open(home_a.path().join(DB_FILE)).unwrap();
-            conn.execute("INSERT INTO folders (id) VALUES ('f1')", []).unwrap();
+            conn.execute("INSERT INTO folders (id) VALUES ('f1')", [])
+                .unwrap();
             conn.execute(
                 "INSERT INTO threads (id, folder_id, created_at) VALUES ('t1', 'f1', '1')",
                 [],
@@ -1208,9 +1340,15 @@ mod tests {
         assert!(result.imported_ops >= 3);
         let conn = Connection::open(home_b.path().join(DB_FILE)).unwrap();
         let folder_id: Option<String> = conn
-            .query_row("SELECT folder_id FROM threads WHERE id = 't1'", [], |r| r.get(0))
+            .query_row("SELECT folder_id FROM threads WHERE id = 't1'", [], |r| {
+                r.get(0)
+            })
             .unwrap();
-        assert_eq!(folder_id.as_deref(), Some("f1"), "dangling ref kept as historical value");
+        assert_eq!(
+            folder_id.as_deref(),
+            Some("f1"),
+            "dangling ref kept as historical value"
+        );
         let messages: i64 = conn
             .query_row("SELECT COUNT(*) FROM messages", [], |r| r.get(0))
             .unwrap();
