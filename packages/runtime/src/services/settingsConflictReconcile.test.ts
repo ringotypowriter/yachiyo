@@ -26,8 +26,8 @@ describe('decideSettingsConflict', () => {
     assert.equal(decideSettingsConflict(conflict('a', 'b'), 'keep_local'), 'drop')
   })
 
-  it('drops a recurring conflict the user merged before (local already converged)', () => {
-    assert.equal(decideSettingsConflict(conflict('m', 'b'), 'merge'), 'drop')
+  it('re-prompts a remembered merge (field selections cannot be replayed from hashes)', () => {
+    assert.equal(decideSettingsConflict(conflict('m', 'b'), 'merge'), 'prompt')
   })
 
   it('re-applies a remembered "use synced version" choice', () => {

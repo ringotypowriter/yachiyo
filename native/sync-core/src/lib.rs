@@ -424,9 +424,12 @@ pub fn export_ops(
     // Nothing changed since the last export — skip writing a fresh ops file so
     // auto-sync doesn't accumulate identical snapshots (and re-trigger remote
     // conflicts) on every cycle. seq isn't bumped, so the next real change reuses
-    // it.
+    // it. `seq > 1` means next_export_seq still found a published ops file: if this
+    // device's snapshot was wiped from the sync dir (seq == 1), republish anyway so
+    // other devices can recover, even when the local fingerprint is unchanged.
     let fingerprint = export_fingerprint(&ops);
-    if get_meta(&conn, META_EXPORT_FINGERPRINT)?.as_deref() == Some(fingerprint.as_str()) {
+    if seq > 1 && get_meta(&conn, META_EXPORT_FINGERPRINT)?.as_deref() == Some(fingerprint.as_str())
+    {
         return output(
             home,
             &sync_dir,
@@ -1160,6 +1163,30 @@ mod tests {
         let third = export_ops(home.path(), Some(sync.path())).unwrap();
         assert!(third.exported_ops >= 1, "changed export must run");
         assert_eq!(count_op_files(sync.path(), &device), 2);
+    }
+
+    #[test]
+    fn export_republishes_when_ops_files_missing() {
+        let sync = tempfile::tempdir().unwrap();
+        let home = setup_home("config-a");
+        init_sync(home.path(), Some(sync.path()), "A").unwrap();
+        let device = device_id_of(home.path());
+
+        export_ops(home.path(), Some(sync.path())).unwrap();
+        assert_eq!(count_op_files(sync.path(), &device), 1);
+
+        // iCloud (or the user) wiped this device's published ops, but the local DB
+        // and its export fingerprint survive.
+        fs::remove_dir_all(device_dir(sync.path(), &device).join("ops")).unwrap();
+        assert_eq!(count_op_files(sync.path(), &device), 0);
+
+        // Unchanged settings must still republish so other devices can recover.
+        let again = export_ops(home.path(), Some(sync.path())).unwrap();
+        assert!(
+            again.exported_ops >= 1,
+            "must republish when snapshot is gone"
+        );
+        assert_eq!(count_op_files(sync.path(), &device), 1);
     }
 
     #[test]

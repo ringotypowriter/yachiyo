@@ -761,11 +761,18 @@ export class YachiyoServer {
 
   /**
    * One automatic sync pass for the background scheduler. Skips (returns null)
-   * when sync isn't initialized or iCloud is unavailable, and is serialized with
-   * manual syncs through the same mutex.
+   * when this device hasn't joined sync or iCloud is unavailable, and is
+   * serialized with manual syncs through the same mutex.
    */
   async runAutoSyncCycle(): Promise<SyncStatus | null> {
-    if (!this.resolveSyncReadiness().initialized) return null
+    // universe.json can exist on a device that copied it from iCloud but hasn't
+    // joined yet (no local device row). Exporting there fails every cycle with
+    // "device is not initialized", so only run once this device is actually
+    // joined — `deviceId` is set only when a local device row exists. getSyncStatus
+    // still short-circuits without spawning the binary when iCloud is unavailable
+    // or the universe is missing.
+    const status = await this.getSyncStatus()
+    if (!status.deviceId) return null
     return this.runExclusiveSync(() =>
       this.exportThenImport(resolveSyncCoreBinary(), dirname(this.settingsPath))
     )

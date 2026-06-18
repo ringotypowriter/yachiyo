@@ -4,10 +4,11 @@ import type { SyncConflictResolution } from '@yachiyo/shared/protocol'
  * What to do with a settings conflict the sync binary just recorded, without
  * bothering the user when their earlier decision still applies.
  *
- *  - `prompt`       — a genuinely new conflict; leave it for the user to resolve.
+ *  - `prompt`       — a genuinely new conflict (or one we can't safely auto-apply);
+ *                     leave it for the user to resolve.
  *  - `drop`         — auto-handle and remove it: either the two sides are already
- *                     identical, or the user's prior choice (keep-local / merge)
- *                     is already reflected in the current local settings.
+ *                     identical, or the user's remembered keep-local choice is
+ *                     already reflected in the current local settings.
  *  - `apply-remote` — re-apply the user's remembered "use synced version" choice,
  *                     then remove the conflict.
  */
@@ -17,11 +18,13 @@ export type SettingsConflictDecision = 'prompt' | 'drop' | 'apply-remote'
  * Decide a single settings conflict.
  *
  * A conflict's `localHash` captures exactly what the local settings were when the
- * user made their choice. So when the same `(localHash, remoteHash)` pair shows
- * up again, the local content is unchanged and the earlier preference still holds
- * — there's no need to ask again. `use_remote` is the only remembered choice that
- * still needs an action (overwrite local with the synced version); `keep_local`
- * and `merge` already live in the unchanged local settings.
+ * user made their choice, so when the same `(localHash, remoteHash)` pair shows up
+ * again the earlier preference still holds and we needn't ask again. `keep_local`
+ * already lives in the unchanged local settings (drop); `use_remote` just needs the
+ * synced version re-applied. `merge` is the exception: a field-level merge can't be
+ * faithfully replayed from hashes alone, so we re-prompt rather than silently drop
+ * the remote fields the user previously chose. (With export-dedup a resolved
+ * conflict rarely recurs, so this re-prompt is near-theoretical.)
  */
 export function decideSettingsConflict(
   conflict: { entityType: string; localHash: string; remoteHash: string },
@@ -31,8 +34,8 @@ export function decideSettingsConflict(
   if (conflict.entityType !== 'settings') return 'prompt'
   // Both sides already agree — there is nothing to decide.
   if (conflict.localHash === conflict.remoteHash) return 'drop'
-  // First time we've seen this exact difference — the user must decide.
-  if (remembered === undefined) return 'prompt'
+  if (remembered === 'keep_local') return 'drop'
   if (remembered === 'use_remote') return 'apply-remote'
-  return 'drop'
+  // 'merge' or no memory — the user decides.
+  return 'prompt'
 }
