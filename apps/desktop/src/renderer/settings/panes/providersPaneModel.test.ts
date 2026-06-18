@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { filterProviderModels } from './providersPaneModel.ts'
+import { filterProviderModels, toggleProviderModel } from './providersPaneModel.ts'
 
 test('filterProviderModels returns all models for an empty query', () => {
   assert.deepEqual(
@@ -47,6 +47,24 @@ test('filterProviderModels excludes non-matching models', () => {
     {
       enabled: [],
       disabled: []
+    }
+  )
+})
+
+test('toggleProviderModel preserves image capability overrides when enabling a model', () => {
+  assert.deepEqual(
+    toggleProviderModel(
+      {
+        enabled: [],
+        disabled: ['deepseek-chat'],
+        imageIncapable: ['deepseek-chat']
+      },
+      'deepseek-chat'
+    ),
+    {
+      enabled: ['deepseek-chat'],
+      disabled: [],
+      imageIncapable: ['deepseek-chat']
     }
   )
 })

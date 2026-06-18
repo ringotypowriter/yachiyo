@@ -28,7 +28,7 @@ import {
   isReasoningEffortSelectable,
   normalizeProviderReasoningConfig
 } from '@yachiyo/shared/reasoningEffort'
-import { filterProviderModels } from './providersPaneModel'
+import { filterProviderModels, toggleProviderModel } from './providersPaneModel'
 
 interface ModelToggleProps {
   enabled: boolean
@@ -384,21 +384,10 @@ export function ModelListSection({
   }
 
   const handleToggle = (model: string): void => {
-    onProviderChange((p) => {
-      const isEnabled = p.modelList.enabled.includes(model)
-      return {
-        ...p,
-        modelList: isEnabled
-          ? {
-              enabled: p.modelList.enabled.filter((m) => m !== model),
-              disabled: [...p.modelList.disabled, model]
-            }
-          : {
-              enabled: [...p.modelList.enabled, model],
-              disabled: p.modelList.disabled.filter((m) => m !== model)
-            }
-      }
-    })
+    onProviderChange((p) => ({
+      ...p,
+      modelList: toggleProviderModel(p.modelList, model)
+    }))
   }
 
   const handleRemoveModel = (model: string): void => {
