@@ -9,6 +9,7 @@ export interface BackgroundTaskLogTarget {
   taskId: string
   threadId: string
   command: string
+  description?: string
   logPath: string
 }
 
@@ -53,6 +54,7 @@ export async function readBackgroundTaskLogSnapshot(
       taskId: target.taskId,
       threadId: target.threadId,
       command: target.command,
+      ...(target.description ? { description: target.description } : {}),
       logPath: target.logPath,
       content: tail.content,
       truncated: tail.truncated,
@@ -95,6 +97,9 @@ export function getBackgroundTaskLogTargetFromToolCalls(
     taskId: input.taskId,
     threadId: input.threadId,
     command: details.command,
+    ...(typeof details.description === 'string' && details.description.trim()
+      ? { description: details.description.trim() }
+      : {}),
     logPath: details.logPath
   }
 }

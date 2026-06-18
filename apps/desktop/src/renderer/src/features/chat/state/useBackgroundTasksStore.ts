@@ -15,6 +15,7 @@ export interface BackgroundTaskState {
   taskId: string
   threadId: string
   command: string
+  description?: string
   startedAt: string
   status: BackgroundTaskSnapshotStatus
   exitCode?: number
@@ -58,6 +59,7 @@ function hydrateThreadTasks(
       taskId: snap.taskId,
       threadId: snap.threadId,
       command: snap.command,
+      ...(snap.description ? { description: snap.description } : {}),
       startedAt: snap.startedAt,
       status: snap.status,
       ...(snap.exitCode != null ? { exitCode: snap.exitCode } : {}),
@@ -118,6 +120,7 @@ export const useBackgroundTasksStore = create<BackgroundTasksState>((set) => ({
         taskId: event.taskId,
         threadId: event.threadId,
         command: event.command,
+        ...(event.description ? { description: event.description } : {}),
         startedAt: event.startedAt,
         status: 'running',
         logTail: []
@@ -157,6 +160,9 @@ export const useBackgroundTasksStore = create<BackgroundTasksState>((set) => ({
         taskId: event.taskId,
         threadId: event.threadId,
         command: event.command,
+        ...(event.description || prior?.description
+          ? { description: event.description ?? prior?.description }
+          : {}),
         startedAt: prior?.startedAt ?? new Date().toISOString(),
         status: cancelled || event.exitCode !== 0 ? 'failed' : 'completed',
         exitCode: event.exitCode,

@@ -457,6 +457,7 @@ export type ApplyPatchToolInput = z.infer<typeof applyPatchToolInputSchema>
 export interface BackgroundBashTaskHandle {
   taskId: string
   command: string
+  description?: string
   cwd: string
   logPath: string
   toolCallId?: string

@@ -123,6 +123,7 @@ export interface BackgroundTaskCompletedEvent extends ThreadEvent {
   type: 'background-task.completed'
   taskId: string
   command: string
+  description?: string
   logPath: string
   exitCode: number
   toolCallId?: string
@@ -135,6 +136,7 @@ export interface BackgroundTaskSnapshot {
   taskId: string
   threadId: string
   command: string
+  description?: string
   logPath: string
   startedAt: string
   status: BackgroundTaskSnapshotStatus
@@ -152,6 +154,7 @@ export interface BackgroundTaskLogSnapshot {
   taskId: string
   threadId: string
   command: string
+  description?: string
   logPath: string
   content: string
   truncated: boolean
@@ -163,6 +166,7 @@ export interface BackgroundTaskStartedEvent extends ThreadEvent {
   type: 'background-task.started'
   taskId: string
   command: string
+  description?: string
   startedAt: string
 }
 

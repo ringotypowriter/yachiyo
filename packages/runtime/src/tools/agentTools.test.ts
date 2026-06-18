@@ -476,6 +476,7 @@ test('streamBashTool emits preliminary updates and runBashTool returns a structu
     assert.equal(finalResult.metadata.cwd, workspacePath)
     assert.equal(finalResult.metadata.exitCode, 0)
     assert.equal(finalResult.details.command, 'pwd')
+    assert.equal(finalResult.details.description, 'print the working directory')
     assert.equal(finalResult.details.cwd, workspacePath)
     assert.equal(finalResult.details.stdout, `${workspacePath}\n`)
     assert.equal(finalResult.details.stderr, 'warning\n')

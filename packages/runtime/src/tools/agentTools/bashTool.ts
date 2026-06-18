@@ -127,6 +127,7 @@ function buildBashContent(input: {
 
 function createBashResult(input: {
   command: string
+  description?: string
   cwd: string
   combinedOutput?: string
   stdout: string
@@ -156,6 +157,7 @@ function createBashResult(input: {
 
   const details: BashToolCallDetails = {
     command: input.command,
+    ...(input.description ? { description: input.description } : {}),
     cwd: input.cwd,
     ...(input.exitCode === undefined ? {} : { exitCode: input.exitCode }),
     stdout: stdoutTail.text,
@@ -412,6 +414,7 @@ export async function* streamBashTool(
 ): AsyncIterable<BashToolOutput> {
   const queue = new AsyncQueue<BashToolOutput>()
   const command = input.command.trim()
+  const description = input.description.trim()
   const timeoutSeconds = input.timeout ?? DEFAULT_BASH_TIMEOUT_SECONDS
 
   const securityCheck = validateBashCommand(command)
@@ -423,6 +426,7 @@ export async function* streamBashTool(
       queue.push(
         createBashResult({
           command,
+          description,
           combinedOutput: '',
           cwd: context.workspacePath,
           stdout: '',
@@ -446,6 +450,7 @@ export async function* streamBashTool(
       await context.onBackgroundBashStarted?.({
         taskId,
         command,
+        description,
         cwd: context.workspacePath,
         logPath,
         toolCallId: options.toolCallId
@@ -454,6 +459,7 @@ export async function* streamBashTool(
       const message = error instanceof Error ? error.message : 'Background task failed to start.'
       yield createBashResult({
         command,
+        description,
         combinedOutput: '',
         cwd: context.workspacePath,
         stdout: '',
@@ -468,6 +474,7 @@ export async function* streamBashTool(
       content: [{ type: 'text', text: JSON.stringify(handle) }],
       details: {
         command,
+        description,
         cwd: context.workspacePath,
         stdout: '',
         stderr: '',
@@ -484,6 +491,7 @@ export async function* streamBashTool(
     queue.push(
       createBashResult({
         command,
+        description,
         combinedOutput: '',
         cwd: context.workspacePath,
         stdout: '',
@@ -502,6 +510,7 @@ export async function* streamBashTool(
     queue.push(
       createBashResult({
         command,
+        description,
         combinedOutput: '',
         cwd: context.workspacePath,
         stdout: '',
@@ -654,6 +663,7 @@ export async function* streamBashTool(
                   await adoptHook({
                     taskId: liftTaskId,
                     command,
+                    description,
                     cwd: context.workspacePath,
                     logPath: liftLogPath,
                     ...(options.toolCallId ? { toolCallId: options.toolCallId } : {}),
@@ -689,6 +699,7 @@ export async function* streamBashTool(
           content: [{ type: 'text', text: liftNotice }],
           details: {
             command,
+            description,
             cwd: context.workspacePath,
             stdout: truncateForDetails(stdout).text,
             stderr: truncateForDetails(stderr).text,
@@ -744,6 +755,7 @@ export async function* streamBashTool(
       queue.push(
         createBashResult({
           command,
+          description,
           combinedOutput,
           cwd: context.workspacePath,
           exitCode: result.exitCode,
@@ -767,6 +779,7 @@ export async function* streamBashTool(
       queue.push(
         createBashResult({
           command,
+          description,
           combinedOutput,
           cwd: context.workspacePath,
           stdout,

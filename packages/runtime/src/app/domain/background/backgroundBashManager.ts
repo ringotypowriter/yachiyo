@@ -8,6 +8,7 @@ import { killProcessTree } from '../processes/killProcessTree.ts'
 export interface BackgroundBashTaskInput {
   taskId: string
   command: string
+  description?: string
   cwd: string
   logPath: string
   toolCallId?: string
@@ -30,6 +31,7 @@ export interface BackgroundBashAdoptInput extends BackgroundBashTaskInput {
 export interface BackgroundBashTaskResult {
   taskId: string
   command: string
+  description?: string
   logPath: string
   exitCode: number
   threadId: string
@@ -51,6 +53,7 @@ export interface BackgroundBashSnapshot {
   taskId: string
   threadId: string
   command: string
+  description?: string
   logPath: string
   startedAt: string
   status: BackgroundTaskSnapshotStatus
@@ -63,12 +66,14 @@ export interface BackgroundBashLogTarget {
   taskId: string
   threadId: string
   command: string
+  description?: string
   logPath: string
 }
 
 interface ActiveBackgroundTask {
   taskId: string
   command: string
+  description?: string
   cwd: string
   logPath: string
   toolCallId?: string
@@ -178,6 +183,7 @@ export class BackgroundBashManager {
     const task: ActiveBackgroundTask = {
       taskId: input.taskId,
       command: input.command,
+      description: input.description,
       cwd: input.cwd,
       logPath: input.logPath,
       toolCallId: input.toolCallId,
@@ -282,6 +288,7 @@ export class BackgroundBashManager {
       const result: BackgroundBashTaskResult = {
         taskId: input.taskId,
         command: input.command,
+        ...(input.description ? { description: input.description } : {}),
         logPath: input.logPath,
         exitCode,
         threadId: input.threadId,
@@ -352,6 +359,7 @@ export class BackgroundBashManager {
       taskId: task.taskId,
       threadId: task.threadId,
       command: task.command,
+      ...(task.description ? { description: task.description } : {}),
       logPath: task.logPath,
       startedAt: task.startedAt,
       status: cancelledByUser || result.exitCode !== 0 ? 'failed' : 'completed',
@@ -395,6 +403,7 @@ export class BackgroundBashManager {
         taskId: task.taskId,
         threadId: task.threadId,
         command: task.command,
+        ...(task.description ? { description: task.description } : {}),
         logPath: task.logPath
       }
     }
@@ -405,6 +414,7 @@ export class BackgroundBashManager {
       taskId: completed.taskId,
       threadId: completed.threadId,
       command: completed.command,
+      ...(completed.description ? { description: completed.description } : {}),
       logPath: completed.logPath
     }
   }
@@ -430,6 +440,7 @@ export class BackgroundBashManager {
         taskId: task.taskId,
         threadId: task.threadId,
         command: task.command,
+        ...(task.description ? { description: task.description } : {}),
         logPath: task.logPath,
         startedAt: task.startedAt,
         status: 'running'

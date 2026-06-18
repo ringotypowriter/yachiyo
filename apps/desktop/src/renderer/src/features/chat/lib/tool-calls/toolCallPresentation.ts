@@ -46,6 +46,21 @@ function stringifyJson(value: unknown): string {
   return JSON.stringify(value, null, 2)
 }
 
+function getStringField(value: unknown, field: string): string | undefined {
+  if (value == null || typeof value !== 'object' || !(field in value)) return undefined
+  const fieldValue = (value as Record<string, unknown>)[field]
+  return typeof fieldValue === 'string' && fieldValue.trim() ? fieldValue.trim() : undefined
+}
+
+function getBashDescription(toolCall: ToolCall): string | undefined {
+  if (toolCall.toolName !== 'bash') return undefined
+  return (
+    getStringField('rawInput' in toolCall ? toolCall.rawInput : undefined, 'description') ??
+    (toolCall.details as BashToolCallDetails | undefined)?.description?.trim() ??
+    undefined
+  )
+}
+
 function renderRawValue(value: unknown): string {
   if (
     value &&
@@ -336,8 +351,10 @@ export function buildToolCallRowSummary(
 ): ToolCallRowSummary {
   const isPathTool =
     toolCall.toolName === 'read' || toolCall.toolName === 'write' || toolCall.toolName === 'edit'
-  const inputSummary =
-    isPathTool && toolCall.inputSummary
+  const bashDescription = getBashDescription(toolCall)
+  const inputSummary = bashDescription
+    ? bashDescription
+    : isPathTool && toolCall.inputSummary
       ? formatToolFilePath(toolCall.inputSummary, workspacePath)
       : toolCall.inputSummary || undefined
 

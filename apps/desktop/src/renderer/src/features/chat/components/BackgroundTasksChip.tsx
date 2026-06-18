@@ -263,6 +263,8 @@ function BackgroundTaskRow({
         ? `failed (exit ${task.exitCode ?? '?'})`
         : `done (exit ${task.exitCode ?? 0})`
 
+  const label = task.description?.trim() || task.command
+
   return (
     <div style={{ borderBottom: `1px solid ${theme.border.subtle}` }}>
       <div className="flex items-center gap-2 px-3 py-2">
@@ -278,13 +280,13 @@ function BackgroundTaskRow({
               animation: isRunning ? 'yachiyo-preparing-pulse 1.2s ease-in-out infinite' : undefined
             }}
           />
-          <code
-            className="flex-1 min-w-0 text-xs truncate font-mono"
+          <span
+            className="flex-1 min-w-0 text-xs truncate"
             style={{ color: theme.text.primary, maxWidth: 420 }}
-            title={task.command}
+            title={label}
           >
-            {task.command}
-          </code>
+            {label}
+          </span>
           <span className="text-[10px] tabular-nums" style={{ color: theme.text.muted }}>
             {statusLabel}
           </span>

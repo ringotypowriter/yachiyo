@@ -125,6 +125,39 @@ test('buildToolCallRowSummary uses fixed bash status instead of output in the co
   })
 })
 
+test('buildToolCallRowSummary prefers bash description over raw command input', () => {
+  const summary = buildToolCallRowSummary({
+    ...BASE_TOOL_CALL,
+    toolName: 'bash',
+    inputSummary: 'git add && git commit',
+    details: {
+      command: 'git add && git commit',
+      description: 'Commit staged changes',
+      cwd: '/workspace',
+      exitCode: 0,
+      stdout: '',
+      stderr: ''
+    }
+  })
+
+  assert.equal(summary.inputSummary, 'Commit staged changes')
+})
+
+test('buildToolCallRowSummary uses bash description from recovered raw input', () => {
+  const summary = buildToolCallRowSummary({
+    ...BASE_TOOL_CALL,
+    toolName: 'bash',
+    inputSummary: 'git diff --stat && git diff',
+    rawInput: {
+      command: 'git diff --stat && git diff',
+      description: 'Review current code changes',
+      timeout: 30,
+      background: false
+    }
+  })
+
+  assert.equal(summary.inputSummary, 'Review current code changes')
+})
 test('buildToolCallDetailsPresentation separates grep input, metadata, and output', () => {
   const presentation = buildToolCallDetailsPresentation({
     ...BASE_TOOL_CALL,

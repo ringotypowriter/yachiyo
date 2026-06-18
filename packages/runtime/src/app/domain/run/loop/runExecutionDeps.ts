@@ -297,6 +297,7 @@ export function buildRunExecutionDeps(
           threadId: task.threadId,
           taskId: task.taskId,
           command: task.command,
+          ...(task.description ? { description: task.description } : {}),
           startedAt: deps.timestamp()
         })
       } catch (error) {
@@ -310,6 +311,7 @@ export function buildRunExecutionDeps(
         await context.backgroundBashManager.adoptTask({
           taskId: task.taskId,
           command: task.command,
+          ...(task.description ? { description: task.description } : {}),
           cwd: task.cwd,
           logPath: task.logPath,
           ...(task.toolCallId ? { toolCallId: task.toolCallId } : {}),
@@ -323,6 +325,7 @@ export function buildRunExecutionDeps(
           threadId: task.threadId,
           taskId: task.taskId,
           command: task.command,
+          ...(task.description ? { description: task.description } : {}),
           startedAt: deps.timestamp()
         })
       } catch (error) {

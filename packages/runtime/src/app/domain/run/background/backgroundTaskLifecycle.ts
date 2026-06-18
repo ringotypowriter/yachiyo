@@ -110,6 +110,7 @@ export function handleBackgroundBashCompleted(
       threadId: result.threadId,
       taskId: result.taskId,
       command: result.command,
+      ...(result.description ? { description: result.description } : {}),
       logPath: result.logPath,
       exitCode: result.exitCode,
       toolCallId: result.toolCallId,

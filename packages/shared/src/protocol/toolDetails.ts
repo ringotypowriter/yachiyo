@@ -46,6 +46,8 @@ export interface EditToolCallDetails {
 
 export interface BashToolCallDetails {
   command: string
+  /** User-facing summary of what the command does, supplied by the model. */
+  description?: string
   cwd: string
   exitCode?: number
   stdout: string
