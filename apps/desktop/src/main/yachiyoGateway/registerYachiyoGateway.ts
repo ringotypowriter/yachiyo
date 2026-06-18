@@ -107,6 +107,10 @@ import {
   createScheduleService,
   type ScheduleService
 } from '@yachiyo/runtime/services/scheduleService'
+import {
+  createAutoSyncScheduler,
+  type AutoSyncScheduler
+} from '@yachiyo/runtime/services/autoSyncScheduler'
 import { createJotdownStore } from '@yachiyo/runtime/services/jotdownStore'
 import {
   generateDiffForRun,
@@ -132,6 +136,7 @@ let channelSupervisor: ChannelServiceSupervisor | null = null
 let channelHealthTimer: ReturnType<typeof setInterval> | null = null
 let channelRecoveryRegistered = false
 let scheduleService: ScheduleService | null = null
+let autoSyncScheduler: AutoSyncScheduler | null = null
 let commandSocket: CommandSocketHandle | null = null
 let commandSocketHealthTimer: ReturnType<typeof setInterval> | null = null
 let commandSocketRecoveryRegistered = false
@@ -501,6 +506,8 @@ function createConfiguredServer(
 }
 
 async function stopLiveServices(): Promise<void> {
+  autoSyncScheduler?.stop()
+  autoSyncScheduler = null
   scheduleService?.stop()
   scheduleService = null
 
@@ -536,6 +543,16 @@ async function startLiveServices(): Promise<void> {
   if (!is.dev || process.env['YACHIYO_DEV_SCHEDULES']) {
     scheduleService.start()
   }
+
+  // Keep iCloud sync flowing automatically. The scheduler no-ops until the user
+  // has enabled sync (runAutoSyncCycle gates on readiness), so it's safe to run
+  // in dev too — it just mirrors files the user already opted into syncing.
+  autoSyncScheduler = createAutoSyncScheduler({
+    runSync: () => server!.runAutoSyncCycle(),
+    subscribe: (listener) => server!.subscribe(listener),
+    onError: (error) => console.warn('[auto-sync]', error instanceof Error ? error.message : error)
+  })
+  autoSyncScheduler.start()
 
   if (!is.dev || process.env['YACHIYO_DEV_CHANNELS']) {
     const channelsConfig = server.getChannelsConfig()
@@ -1169,6 +1186,8 @@ export function registerYachiyoGateway(): YachiyoServer {
       clearInterval(channelHealthTimer)
       channelHealthTimer = null
     }
+    autoSyncScheduler?.stop()
+    autoSyncScheduler = null
     scheduleService?.stop()
     scheduleService = null
     void channelSupervisor?.stopAll('before quit').catch(() => {})

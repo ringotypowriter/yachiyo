@@ -152,6 +152,7 @@ import {
   toEffectiveProviderSettings
 } from '../../settings/settingsStore.ts'
 import { diffSettings, mergeSettings } from '../../settings/settingsFieldMerge.ts'
+import { decideSettingsConflict } from '../../services/settingsConflictReconcile.ts'
 import type { JotdownStore } from '../../services/jotdownStore.ts'
 import type { YachiyoStorage } from '../../storage/storage.ts'
 import {
@@ -359,6 +360,9 @@ export class YachiyoServer {
   private readonly developmentMode: boolean
   private readonly remoteImageDomain: ReturnType<typeof createRemoteImageDomain>
   private readonly settingsPath: string
+  // Serializes every sync that spawns the binary (manual, auto, init) so two
+  // export/import passes never run against the same files at once.
+  private syncMutex: Promise<unknown> = Promise.resolve()
 
   private static logBrowserSearchDiagnostic(event: BrowserSearchDiagnosticEvent): void {
     const details = {
@@ -690,10 +694,22 @@ export class YachiyoServer {
     return this.configDomain.saveConfig(input)
   }
 
-  async getSyncStatus(): Promise<SyncStatus> {
+  /**
+   * Cheap, spawn-free check of whether sync can run on this device. Used both by
+   * status reporting and to gate background auto-sync so it never spawns the
+   * binary for a device that hasn't opted into sync.
+   */
+  private resolveSyncReadiness(): { syncDir: string; available: boolean; initialized: boolean } {
     const syncDir = resolveDefaultICloudSyncDir()
     const iCloudRoot = syncDir ? resolve(syncDir, '../../..') : ''
-    if (!syncDir || !existsSync(iCloudRoot)) {
+    const available = Boolean(syncDir) && existsSync(iCloudRoot)
+    const initialized = available && existsSync(join(syncDir, 'universe.json'))
+    return { syncDir, available, initialized }
+  }
+
+  async getSyncStatus(): Promise<SyncStatus> {
+    const { syncDir, available, initialized } = this.resolveSyncReadiness()
+    if (!available) {
       return {
         state: 'icloud_unavailable',
         syncDir,
@@ -701,7 +717,7 @@ export class YachiyoServer {
         pendingConflictCount: this.storage.countPendingSyncConflicts()
       }
     }
-    if (!existsSync(join(syncDir, 'universe.json'))) {
+    if (!initialized) {
       return {
         state: 'not_initialized',
         syncDir,
@@ -730,19 +746,78 @@ export class YachiyoServer {
   async initSync(): Promise<SyncStatus> {
     const binary = resolveSyncCoreBinary()
     const home = dirname(this.settingsPath)
-    await execFileAsync(binary, ['init', '--home', home, '--device-label', 'Yachiyo'])
-    // Publish + pull once so enabling sync immediately produces a usable state.
-    return this.exportThenImport(binary, home)
+    return this.runExclusiveSync(async () => {
+      await execFileAsync(binary, ['init', '--home', home, '--device-label', 'Yachiyo'])
+      // Publish + pull once so enabling sync immediately produces a usable state.
+      return this.exportThenImport(binary, home)
+    })
   }
 
   async runSyncNow(): Promise<SyncStatus> {
-    return this.exportThenImport(resolveSyncCoreBinary(), dirname(this.settingsPath))
+    return this.runExclusiveSync(() =>
+      this.exportThenImport(resolveSyncCoreBinary(), dirname(this.settingsPath))
+    )
+  }
+
+  /**
+   * One automatic sync pass for the background scheduler. Skips (returns null)
+   * when this device hasn't joined sync or iCloud is unavailable, and is
+   * serialized with manual syncs through the same mutex.
+   */
+  async runAutoSyncCycle(): Promise<SyncStatus | null> {
+    // universe.json can exist on a device that copied it from iCloud but hasn't
+    // joined yet (no local device row). Exporting there fails every cycle with
+    // "device is not initialized", so only run once this device is actually
+    // joined — `deviceId` is set only when a local device row exists. getSyncStatus
+    // still short-circuits without spawning the binary when iCloud is unavailable
+    // or the universe is missing.
+    const status = await this.getSyncStatus()
+    if (!status.deviceId) return null
+    return this.runExclusiveSync(() =>
+      this.exportThenImport(resolveSyncCoreBinary(), dirname(this.settingsPath))
+    )
+  }
+
+  private runExclusiveSync<T>(operation: () => Promise<T>): Promise<T> {
+    const run = this.syncMutex.then(operation, operation)
+    // Keep the chain alive regardless of this run's outcome.
+    this.syncMutex = run.then(
+      () => undefined,
+      () => undefined
+    )
+    return run
   }
 
   private async exportThenImport(binary: string, home: string): Promise<SyncStatus> {
     await execFileAsync(binary, ['export', '--home', home])
     const { stdout } = await execFileAsync(binary, ['import', '--home', home])
-    return parseSyncCoreOutput(stdout)
+    const status = parseSyncCoreOutput(stdout)
+    this.reconcileSyncConflicts()
+    // The binary's own count predates reconciliation; report the live count.
+    return { ...status, pendingConflictCount: this.storage.countPendingSyncConflicts() }
+  }
+
+  /**
+   * Auto-handle conflicts the user shouldn't have to see again: drop ones whose
+   * sides already match, and silently re-apply a remembered choice for a conflict
+   * the user resolved before. Only genuinely-new differences are left pending.
+   */
+  private reconcileSyncConflicts(): void {
+    for (const conflict of this.storage.listSyncConflicts()) {
+      const remembered = this.storage.findResolvedSyncConflictResolution({
+        entityType: conflict.entityType,
+        localHash: conflict.localHash,
+        remoteHash: conflict.remoteHash
+      })
+      const decision = decideSettingsConflict(conflict, remembered)
+      if (decision === 'prompt') continue
+      if (decision === 'apply-remote') {
+        const remote = this.parseConflictRemoteSettings(conflict)
+        if (remote) this.configDomain.saveConfig(remote)
+      }
+      // Drop the duplicate; the user's original resolved row stays as the memory.
+      this.storage.deleteSyncConflict(conflict.id)
+    }
   }
 
   async listSyncConflicts(): Promise<ListSyncConflictsResult> {

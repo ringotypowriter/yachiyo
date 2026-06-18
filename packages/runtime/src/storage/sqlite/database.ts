@@ -47,7 +47,7 @@ import {
   type StartRunInput,
   type YachiyoStorage
 } from '../storage.ts'
-import type { ChannelUserRole } from '@yachiyo/shared/protocol'
+import type { ChannelUserRole, SyncConflictResolution } from '@yachiyo/shared/protocol'
 import { sortToolCallsChronologically } from '@yachiyo/shared/toolCallOrder'
 
 export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
@@ -151,6 +151,28 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
         .from(syncConflictsTable)
         .where(isNull(syncConflictsTable.resolvedAt))
         .all().length
+    },
+
+    findResolvedSyncConflictResolution({ entityType, localHash, remoteHash }) {
+      const row = db
+        .select({ resolution: syncConflictsTable.resolution })
+        .from(syncConflictsTable)
+        .where(
+          and(
+            eq(syncConflictsTable.entityType, entityType),
+            eq(syncConflictsTable.localHash, localHash),
+            eq(syncConflictsTable.remoteHash, remoteHash),
+            isNotNull(syncConflictsTable.resolvedAt),
+            isNotNull(syncConflictsTable.resolution)
+          )
+        )
+        .orderBy(desc(syncConflictsTable.resolvedAt))
+        .get()
+      return (row?.resolution as SyncConflictResolution | null | undefined) ?? undefined
+    },
+
+    deleteSyncConflict(conflictId) {
+      db.delete(syncConflictsTable).where(eq(syncConflictsTable.id, conflictId)).run()
     },
 
     ...createSqliteBootstrapStorageMethods({

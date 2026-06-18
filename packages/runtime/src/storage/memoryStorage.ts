@@ -1258,6 +1258,16 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
       return 0
     },
 
+    // Sync conflicts are written by the native sync-core binary into sqlite, so the
+    // in-memory store has nothing to remember or delete.
+    findResolvedSyncConflictResolution() {
+      return undefined
+    },
+
+    deleteSyncConflict() {
+      // Sync conflicts live only in the sqlite store; nothing to delete in memory.
+    },
+
     // Group monitor buffer persistence
     saveGroupMonitorBuffer({ groupId, phase, buffer, savedAt }) {
       const stripped = buffer.map((entry) => {
