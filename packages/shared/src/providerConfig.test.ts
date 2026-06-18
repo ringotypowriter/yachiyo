@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import {
+  createProviderConfig,
   computeImageIncapableForNewModels,
   isKnownImageIncapableModel,
   isModelImageCapable,
@@ -10,6 +11,33 @@ import {
   syncModelOverrideWithProvider,
   syncToolModelWithProvider
 } from './providerConfig.ts'
+import { findProviderPreset, mergePresetProviders } from './providerPresets.ts'
+
+test('createProviderConfig defaults DeepSeek to chat completions for model fetching', () => {
+  const preset = findProviderPreset('deepseek')
+  assert.ok(preset)
+
+  const provider = createProviderConfig([], preset)
+
+  assert.equal(provider.type, 'openai')
+  assert.equal(provider.baseUrl, 'https://api.deepseek.com/v1')
+})
+
+test('mergePresetProviders migrates legacy DeepSeek preset to chat completions', () => {
+  const [provider] = mergePresetProviders([
+    {
+      presetKey: 'deepseek',
+      name: 'DeepSeek',
+      type: 'anthropic',
+      apiKey: '',
+      baseUrl: 'https://api.deepseek.com/anthropic',
+      modelList: { enabled: [], disabled: [] }
+    }
+  ])
+
+  assert.equal(provider.type, 'openai')
+  assert.equal(provider.baseUrl, 'https://api.deepseek.com/v1')
+})
 
 test('sanitizeProviderConfig preserves spaces while editing a provider name', () => {
   const sanitized = sanitizeProviderConfig({

@@ -1,6 +1,8 @@
 import type { ProviderConfig, ProviderKind } from './protocol.ts'
 import { createProviderId } from './providerConfig.ts'
 
+const LEGACY_DEEPSEEK_ANTHROPIC_BASE_URL = 'https://api.deepseek.com/anthropic'
+
 export interface ProviderPreset {
   /** Unique key for lookup and matching */
   key: string
@@ -36,8 +38,8 @@ export const providerPresets: readonly ProviderPreset[] = [
   {
     key: 'deepseek',
     name: 'DeepSeek',
-    type: 'anthropic',
-    baseUrl: 'https://api.deepseek.com/anthropic',
+    type: 'openai',
+    baseUrl: 'https://api.deepseek.com/v1',
     iconKey: 'deepseek'
   },
   {
@@ -197,6 +199,9 @@ function backfillPresetKeys(providers: ProviderConfig[]): void {
     if (match && !claimed.has(match.key)) {
       provider.presetKey = match.key
       claimed.add(match.key)
+    } else if (url === LEGACY_DEEPSEEK_ANTHROPIC_BASE_URL && !claimed.has('deepseek')) {
+      provider.presetKey = 'deepseek'
+      claimed.add('deepseek')
     }
   }
 }
@@ -208,6 +213,17 @@ function backfillPresetKeys(providers: ProviderConfig[]): void {
  */
 export function mergePresetProviders(existing: ProviderConfig[]): ProviderConfig[] {
   backfillPresetKeys(existing)
+
+  for (const provider of existing) {
+    if (
+      provider.presetKey === 'deepseek' &&
+      provider.type === 'anthropic' &&
+      provider.baseUrl.trim() === LEGACY_DEEPSEEK_ANTHROPIC_BASE_URL
+    ) {
+      provider.type = 'openai'
+      provider.baseUrl = 'https://api.deepseek.com/v1'
+    }
+  }
 
   const keySet = new Set(existing.map((p) => p.presetKey).filter(Boolean))
 
