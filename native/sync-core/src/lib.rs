@@ -530,15 +530,7 @@ fn export_threads(
     ops: &mut Vec<SyncOp>,
 ) -> Result<(), SyncError> {
     let mut stmt = conn.prepare("SELECT * FROM threads WHERE sync_origin_device_id IS NULL")?;
-    let rows = stmt.query_map([], |row| {
-        let names = row.as_ref().column_names();
-        let mut map = serde_json::Map::new();
-        for (i, name) in names.iter().enumerate() {
-            let value: rusqlite::types::Value = row.get(i)?;
-            map.insert((*name).to_string(), sqlite_value(value));
-        }
-        Ok(Value::Object(map))
-    })?;
+    let rows = stmt.query_map([], row_to_json_object)?;
     let mut thread_ids = Vec::new();
     for row in rows {
         let payload = row?;
@@ -559,16 +551,15 @@ fn export_threads(
     }
     let mut message_stmt =
         conn.prepare("SELECT * FROM messages WHERE thread_id = ?1 ORDER BY created_at ASC")?;
-    for thread_id in thread_ids {
-        let messages = message_stmt.query_map([thread_id], |row| {
-            let names = row.as_ref().column_names();
-            let mut map = serde_json::Map::new();
-            for (i, name) in names.iter().enumerate() {
-                let value: rusqlite::types::Value = row.get(i)?;
-                map.insert((*name).to_string(), sqlite_value(value));
-            }
-            Ok(Value::Object(map))
-        })?;
+    // Tool calls live in their own table; older schemas (and minimal test
+    // fixtures) may not have it, so only export when present.
+    let mut tool_call_stmt = if table_exists(conn, "tool_calls")? {
+        Some(conn.prepare("SELECT * FROM tool_calls WHERE thread_id = ?1 ORDER BY started_at ASC")?)
+    } else {
+        None
+    };
+    for thread_id in &thread_ids {
+        let messages = message_stmt.query_map([thread_id.as_str()], row_to_json_object)?;
         for message in messages {
             let payload = message?;
             let id = payload
@@ -585,6 +576,27 @@ fn export_threads(
                 payload,
             )?);
         }
+        // Emit tool calls after their messages so the assistant/request rows the
+        // renderer binds them to are already applied within the same import.
+        if let Some(stmt) = tool_call_stmt.as_mut() {
+            let tool_calls = stmt.query_map([thread_id.as_str()], row_to_json_object)?;
+            for tool_call in tool_calls {
+                let payload = tool_call?;
+                let id = payload
+                    .get("id")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_string();
+                ops.push(make_op(
+                    device_id,
+                    seq,
+                    "toolcall.archive.upsert",
+                    "toolcall",
+                    &id,
+                    payload,
+                )?);
+            }
+        }
     }
     Ok(())
 }
@@ -597,6 +609,32 @@ fn sqlite_value(value: rusqlite::types::Value) -> Value {
         rusqlite::types::Value::Text(v) => json!(v),
         rusqlite::types::Value::Blob(_) => Value::Null,
     }
+}
+
+/// Snapshot a full row as a JSON object keyed by column name. Schema-agnostic so
+/// the same helper serializes threads, messages, and tool calls without knowing
+/// their columns up front.
+fn row_to_json_object(row: &rusqlite::Row<'_>) -> rusqlite::Result<Value> {
+    let names = row.as_ref().column_names();
+    let mut map = serde_json::Map::new();
+    for (i, name) in names.iter().enumerate() {
+        let value: rusqlite::types::Value = row.get(i)?;
+        map.insert((*name).to_string(), sqlite_value(value));
+    }
+    Ok(Value::Object(map))
+}
+
+/// Whether `table` exists in this database. Lets export tolerate schema versions
+/// (and minimal test fixtures) that predate a synced table like `tool_calls`.
+fn table_exists(conn: &Connection, table: &str) -> Result<bool, SyncError> {
+    Ok(conn
+        .query_row(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?1",
+            [table],
+            |_| Ok(()),
+        )
+        .optional()?
+        .is_some())
 }
 
 pub fn import_ops(
@@ -709,12 +747,19 @@ fn apply_op(home: &Path, conn: &Connection, op: &SyncOp) -> Result<bool, SyncErr
             insert_json_row(conn, "threads", &op.payload, Some((&op.device_id, now())))?
         }
         "message.archive.upsert" => {
-            if !message_parent_exists(conn, &op.payload)? {
+            if !parent_thread_exists(conn, &op.payload)? {
                 // Parent thread hasn't been imported yet; defer without marking
                 // applied so a later import (after the thread op arrives) retries.
                 return Ok(false);
             }
             insert_json_row(conn, "messages", &op.payload, None)?
+        }
+        "toolcall.archive.upsert" => {
+            if !parent_thread_exists(conn, &op.payload)? {
+                // Same deferral as messages: wait until the owning thread exists.
+                return Ok(false);
+            }
+            insert_json_row(conn, "tool_calls", &op.payload, None)?
         }
         _ => {}
     }
@@ -722,7 +767,8 @@ fn apply_op(home: &Path, conn: &Connection, op: &SyncOp) -> Result<bool, SyncErr
     Ok(true)
 }
 
-fn message_parent_exists(conn: &Connection, payload: &Value) -> Result<bool, SyncError> {
+/// Whether the thread a message/tool-call payload belongs to is already imported.
+fn parent_thread_exists(conn: &Connection, payload: &Value) -> Result<bool, SyncError> {
     let thread_id = payload
         .get("thread_id")
         .and_then(Value::as_str)
@@ -967,7 +1013,8 @@ mod tests {
         let conn = Connection::open(dir.path().join(DB_FILE)).unwrap();
         conn.execute_batch(
             "CREATE TABLE threads (id TEXT PRIMARY KEY, title TEXT, created_at TEXT, sync_origin_device_id TEXT, sync_imported_at TEXT);
-             CREATE TABLE messages (id TEXT PRIMARY KEY, thread_id TEXT NOT NULL, body TEXT, created_at TEXT);",
+             CREATE TABLE messages (id TEXT PRIMARY KEY, thread_id TEXT NOT NULL, body TEXT, created_at TEXT);
+             CREATE TABLE tool_calls (id TEXT PRIMARY KEY, thread_id TEXT NOT NULL, request_message_id TEXT, assistant_message_id TEXT, run_id TEXT, tool_name TEXT, status TEXT, input_summary TEXT, started_at TEXT);",
         )
         .unwrap();
         dir
@@ -983,6 +1030,30 @@ mod tests {
         conn.execute(
             "INSERT INTO messages (id, thread_id, body, created_at) VALUES (?1, ?2, ?3, ?4)",
             params![message_id, thread_id, "hi", "1"],
+        )
+        .unwrap();
+    }
+
+    fn seed_tool_call(
+        home: &Path,
+        tool_call_id: &str,
+        thread_id: &str,
+        assistant_message_id: &str,
+    ) {
+        let conn = Connection::open(home.join(DB_FILE)).unwrap();
+        conn.execute(
+            "INSERT INTO tool_calls (id, thread_id, request_message_id, assistant_message_id, run_id, tool_name, status, input_summary, started_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            params![
+                tool_call_id,
+                thread_id,
+                assistant_message_id,
+                assistant_message_id,
+                "run-local",
+                "read",
+                "completed",
+                "README.md",
+                "1"
+            ],
         )
         .unwrap();
     }
@@ -1114,6 +1185,32 @@ mod tests {
         let second = import_ops(home_b.path(), Some(sync.path())).unwrap();
         assert_eq!(second.imported_ops, 0, "re-import must be a no-op");
         assert_eq!(count_rows(home_b.path(), "threads"), 1);
+    }
+
+    #[test]
+    fn tool_calls_are_synced_with_message_binding() {
+        let sync = tempfile::tempdir().unwrap();
+        let home_a = setup_home("config-a");
+        let home_b = setup_home("config-b");
+        seed_thread(home_a.path(), "t1", "m1");
+        seed_tool_call(home_a.path(), "tc1", "t1", "m1");
+        init_sync(home_a.path(), Some(sync.path()), "A").unwrap();
+        init_sync(home_b.path(), Some(sync.path()), "B").unwrap();
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+
+        assert_eq!(count_rows(home_b.path(), "tool_calls"), 1);
+        // The assistant binding must survive so the renderer can fold tool calls
+        // into a work summary without the (unsynced) run record.
+        let conn = Connection::open(home_b.path().join(DB_FILE)).unwrap();
+        let assistant_id: Option<String> = conn
+            .query_row(
+                "SELECT assistant_message_id FROM tool_calls WHERE id = 'tc1'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(assistant_id.as_deref(), Some("m1"));
     }
 
     #[test]

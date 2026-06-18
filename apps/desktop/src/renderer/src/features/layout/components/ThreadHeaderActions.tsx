@@ -8,7 +8,8 @@ import {
 } from '@renderer/features/threads/lib/threadContextOperations'
 import {
   canCompactThreadToAnotherThread,
-  isExternalThread
+  isExternalThread,
+  isSyncedArchiveThread
 } from '@renderer/features/threads/lib/threadVisibility'
 import { theme } from '@renderer/theme/theme'
 
@@ -31,7 +32,8 @@ export function ThreadHeaderActions({
 }: ThreadHeaderActionsProps): React.JSX.Element {
   const [menuPosition, setMenuPosition] = useState<{ left: number; top: number } | null>(null)
 
-  if (!activeThread) {
+  // Synced archives reject every metadata mutation, so there is nothing to offer.
+  if (!activeThread || isSyncedArchiveThread(activeThread)) {
     return <div className="no-drag" />
   }
 

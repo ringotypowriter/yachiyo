@@ -385,8 +385,9 @@ function compareWorkTrajectoryEntries(
   return left.priority - right.priority
 }
 
-function buildWorkTrajectoryItems(input: {
-  group: MessageGroup
+export function buildWorkTrajectoryItems(input: {
+  userMessageId: string
+  replyCount: number
   memorySummary: ReturnType<typeof findRunMemorySummaryForRequests>
   textBlocks: readonly MessageTextBlockRecord[]
   userSteerMessages: readonly Message[]
@@ -397,7 +398,7 @@ function buildWorkTrajectoryItems(input: {
   if (input.memorySummary) {
     items.push({
       kind: 'memory',
-      key: `memory:${input.group.userMessage.id}`,
+      key: `memory:${input.userMessageId}`,
       entries: input.memorySummary.entries,
       recallDecision: input.memorySummary.recallDecision
     })
@@ -425,7 +426,7 @@ function buildWorkTrajectoryItems(input: {
 
   const timelineItems = buildConversationGroupTimelineItems({
     hasMemoryRecall: false,
-    replyCount: input.group.assistantBranches.length,
+    replyCount: input.replyCount,
     showPreparing: false,
     showGenerating: false,
     activeAssistantTextBlocks: [...input.textBlocks],
@@ -710,7 +711,8 @@ export function buildConversationGroupRows(
       group,
       assistantMessage: activeAssistantMessage,
       items: buildWorkTrajectoryItems({
-        group,
+        userMessageId: group.userMessage.id,
+        replyCount: group.assistantBranches.length,
         memorySummary,
         textBlocks: summarizedTextBlocks,
         userSteerMessages: group.userSteerMessages,

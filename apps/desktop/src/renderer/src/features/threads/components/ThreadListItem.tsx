@@ -1,6 +1,6 @@
 import type React from 'react'
 import { useEffect, useRef, useState } from 'react'
-import { AlarmClock, Check, Star } from 'lucide-react'
+import { AlarmClock, Check, Lock, Star } from 'lucide-react'
 import type { Thread, ThreadColorTag, ThreadSentinelRecord, ToolCall } from '@renderer/app/types'
 import { ThreadContextMenuPopup } from '@renderer/features/threads/components/ThreadContextMenuPopup'
 import { imeSafeEnter, isDismissEscapeKey } from '@renderer/lib/imeUtils'
@@ -11,7 +11,8 @@ import {
 } from '@renderer/features/threads/lib/threadContextOperations'
 import {
   canCompactThreadToAnotherThread,
-  isExternalThread
+  isExternalThread,
+  isSyncedArchiveThread
 } from '@renderer/features/threads/lib/threadVisibility'
 import { theme } from '@renderer/theme/theme'
 import { resolveThreadTitleColor } from '@renderer/features/threads/lib/threadColorPalette'
@@ -149,6 +150,7 @@ export function ThreadListItem({
   const iconInputRef = useRef<HTMLInputElement>(null)
   const titleInputRef = useRef<HTMLInputElement>(null)
   const isExternal = isExternalThread(thread)
+  const isSyncedArchive = isSyncedArchiveThread(thread)
   const operations = resolveThreadContextOperations({
     canHandoff: threadActivationEnabled && canCompactThreadToAnotherThread(thread),
     colorTag: thread.colorTag ?? null,
@@ -235,7 +237,7 @@ export function ThreadListItem({
 
   function openContextMenu(event: React.MouseEvent): void {
     event.preventDefault()
-    if (isSelectMode) return
+    if (isSelectMode || isSyncedArchive) return
     setMenuPosition({
       left: event.clientX,
       top: event.clientY
@@ -290,21 +292,23 @@ export function ThreadListItem({
               <span
                 className="relative shrink-0 flex items-center select-none leading-none"
                 style={{ fontSize: showPreview ? '1.45em' : '1.15em' }}
-                title="Click to change icon"
+                title={isSyncedArchive ? undefined : 'Click to change icon'}
               >
                 {thread.icon}
-                <input
-                  ref={iconInputRef}
-                  type="text"
-                  tabIndex={-1}
-                  defaultValue=""
-                  onInput={handleIconInput}
-                  onKeyDown={handleIconInputKeyDown}
-                  onClick={handleIconClick}
-                  onMouseDown={(e) => e.stopPropagation()}
-                  className="absolute inset-0 opacity-0 "
-                  style={{ fontSize: 'inherit', width: '100%', height: '100%' }}
-                />
+                {isSyncedArchive ? null : (
+                  <input
+                    ref={iconInputRef}
+                    type="text"
+                    tabIndex={-1}
+                    defaultValue=""
+                    onInput={handleIconInput}
+                    onKeyDown={handleIconInputKeyDown}
+                    onClick={handleIconClick}
+                    onMouseDown={(e) => e.stopPropagation()}
+                    className="absolute inset-0 opacity-0 "
+                    style={{ fontSize: 'inherit', width: '100%', height: '100%' }}
+                  />
+                )}
               </span>
             ) : !showPreview ? (
               <span
@@ -356,6 +360,15 @@ export function ThreadListItem({
                 ) : (
                   <span className="min-w-0 flex-1 truncate">{displayedTitle}</span>
                 )}
+                {isSyncedArchive ? (
+                  <Lock
+                    size={11}
+                    strokeWidth={1.75}
+                    className="shrink-0"
+                    aria-label="Read-only, synced from another device"
+                    style={{ color: theme.text.muted }}
+                  />
+                ) : null}
                 {sentinel ? (
                   <span
                     aria-label="Sentinel active"
@@ -449,7 +462,7 @@ export function ThreadListItem({
             />
           ) : null}
         </button>
-        {!isSelectMode && !isUnreadArchived ? (
+        {!isSelectMode && !isUnreadArchived && !isSyncedArchive ? (
           <button
             title={isStarred ? 'Unstar' : 'Star'}
             onClick={(e) => {
