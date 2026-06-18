@@ -292,21 +292,23 @@ export function ThreadListItem({
               <span
                 className="relative shrink-0 flex items-center select-none leading-none"
                 style={{ fontSize: showPreview ? '1.45em' : '1.15em' }}
-                title="Click to change icon"
+                title={isSyncedArchive ? undefined : 'Click to change icon'}
               >
                 {thread.icon}
-                <input
-                  ref={iconInputRef}
-                  type="text"
-                  tabIndex={-1}
-                  defaultValue=""
-                  onInput={handleIconInput}
-                  onKeyDown={handleIconInputKeyDown}
-                  onClick={handleIconClick}
-                  onMouseDown={(e) => e.stopPropagation()}
-                  className="absolute inset-0 opacity-0 "
-                  style={{ fontSize: 'inherit', width: '100%', height: '100%' }}
-                />
+                {isSyncedArchive ? null : (
+                  <input
+                    ref={iconInputRef}
+                    type="text"
+                    tabIndex={-1}
+                    defaultValue=""
+                    onInput={handleIconInput}
+                    onKeyDown={handleIconInputKeyDown}
+                    onClick={handleIconClick}
+                    onMouseDown={(e) => e.stopPropagation()}
+                    className="absolute inset-0 opacity-0 "
+                    style={{ fontSize: 'inherit', width: '100%', height: '100%' }}
+                  />
+                )}
               </span>
             ) : !showPreview ? (
               <span

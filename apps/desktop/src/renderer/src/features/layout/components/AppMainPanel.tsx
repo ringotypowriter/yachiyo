@@ -783,28 +783,39 @@ export function AppMainPanel({
               </>
             )}
           </div>
-          {activeArchivedThread && (
-            <div className="flex items-center gap-1 no-drag">
-              <Tooltip content="Continue chat">
-                <button
-                  onClick={() => void handleRestoreThread(activeArchivedThread)}
-                  className="p-1.5 rounded-md transition-opacity hover:opacity-70"
-                  style={{ color: theme.icon.default }}
-                >
-                  <MessageSquare size={15} strokeWidth={1.5} />
-                </button>
-              </Tooltip>
-              <Tooltip content="Delete permanently">
-                <button
-                  onClick={() => void handleDeleteThread(activeArchivedThread)}
-                  className="p-1.5 rounded-md transition-opacity hover:opacity-70"
-                  style={{ color: theme.text.danger }}
-                >
-                  <Trash2 size={15} strokeWidth={1.5} />
-                </button>
-              </Tooltip>
-            </div>
-          )}
+          {activeArchivedThread &&
+            (isSyncedArchiveThread(activeArchivedThread) ? (
+              // Restore/Delete both hit the read-only guard for synced archives.
+              <span
+                className="no-drag inline-flex items-center"
+                title="Read-only — synced from another device"
+                aria-label="Read-only, synced from another device"
+                style={{ color: theme.text.muted }}
+              >
+                <Lock size={14} strokeWidth={1.5} />
+              </span>
+            ) : (
+              <div className="flex items-center gap-1 no-drag">
+                <Tooltip content="Continue chat">
+                  <button
+                    onClick={() => void handleRestoreThread(activeArchivedThread)}
+                    className="p-1.5 rounded-md transition-opacity hover:opacity-70"
+                    style={{ color: theme.icon.default }}
+                  >
+                    <MessageSquare size={15} strokeWidth={1.5} />
+                  </button>
+                </Tooltip>
+                <Tooltip content="Delete permanently">
+                  <button
+                    onClick={() => void handleDeleteThread(activeArchivedThread)}
+                    className="p-1.5 rounded-md transition-opacity hover:opacity-70"
+                    style={{ color: theme.text.danger }}
+                  >
+                    <Trash2 size={15} strokeWidth={1.5} />
+                  </button>
+                </Tooltip>
+              </div>
+            ))}
         </div>
       )
     })
