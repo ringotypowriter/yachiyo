@@ -1,6 +1,6 @@
 import type React from 'react'
 import { useEffect, useRef, useState } from 'react'
-import { AlarmClock, Check, Star } from 'lucide-react'
+import { AlarmClock, Check, Lock, Star } from 'lucide-react'
 import type { Thread, ThreadColorTag, ThreadSentinelRecord, ToolCall } from '@renderer/app/types'
 import { ThreadContextMenuPopup } from '@renderer/features/threads/components/ThreadContextMenuPopup'
 import { imeSafeEnter, isDismissEscapeKey } from '@renderer/lib/imeUtils'
@@ -11,7 +11,8 @@ import {
 } from '@renderer/features/threads/lib/threadContextOperations'
 import {
   canCompactThreadToAnotherThread,
-  isExternalThread
+  isExternalThread,
+  isSyncedArchiveThread
 } from '@renderer/features/threads/lib/threadVisibility'
 import { theme } from '@renderer/theme/theme'
 import { resolveThreadTitleColor } from '@renderer/features/threads/lib/threadColorPalette'
@@ -149,6 +150,7 @@ export function ThreadListItem({
   const iconInputRef = useRef<HTMLInputElement>(null)
   const titleInputRef = useRef<HTMLInputElement>(null)
   const isExternal = isExternalThread(thread)
+  const isSyncedArchive = isSyncedArchiveThread(thread)
   const operations = resolveThreadContextOperations({
     canHandoff: threadActivationEnabled && canCompactThreadToAnotherThread(thread),
     colorTag: thread.colorTag ?? null,
@@ -235,7 +237,7 @@ export function ThreadListItem({
 
   function openContextMenu(event: React.MouseEvent): void {
     event.preventDefault()
-    if (isSelectMode) return
+    if (isSelectMode || isSyncedArchive) return
     setMenuPosition({
       left: event.clientX,
       top: event.clientY
@@ -356,6 +358,15 @@ export function ThreadListItem({
                 ) : (
                   <span className="min-w-0 flex-1 truncate">{displayedTitle}</span>
                 )}
+                {isSyncedArchive ? (
+                  <Lock
+                    size={11}
+                    strokeWidth={1.75}
+                    className="shrink-0"
+                    aria-label="Read-only, synced from another device"
+                    style={{ color: theme.text.muted }}
+                  />
+                ) : null}
                 {sentinel ? (
                   <span
                     aria-label="Sentinel active"
@@ -449,7 +460,7 @@ export function ThreadListItem({
             />
           ) : null}
         </button>
-        {!isSelectMode && !isUnreadArchived ? (
+        {!isSelectMode && !isUnreadArchived && !isSyncedArchive ? (
           <button
             title={isStarred ? 'Unstar' : 'Star'}
             onClick={(e) => {

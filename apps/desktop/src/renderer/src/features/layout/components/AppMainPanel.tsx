@@ -21,13 +21,16 @@ import { AppMainPanelHeader } from '@renderer/features/layout/components/AppMain
 import { RunInspectionPanel } from '@renderer/features/runs/components/RunInspectionPanel'
 import { RunStatusStrip } from '@renderer/features/runs/components/RunStatusStrip'
 import type { ThreadContextOperationKey } from '@renderer/features/threads/lib/threadContextOperations'
-import { isExternalThread } from '@renderer/features/threads/lib/threadVisibility'
+import {
+  isExternalThread,
+  isSyncedArchiveThread
+} from '@renderer/features/threads/lib/threadVisibility'
 import { isOpenFindBarShortcut } from '@renderer/features/layout/lib/findBarShortcut'
 import { computeRecapDecision } from '@renderer/features/layout/lib/recapIdle'
 import { resolveWelcomeState } from '@renderer/features/layout/lib/welcomeState'
 import { deriveBrowserActivity } from '@renderer/features/chat/lib/browser-activity/browserActivity'
 import { selectContextPromptTokens } from '@renderer/lib/contextPromptTokens'
-import { MessageSquare, Trash2 } from 'lucide-react'
+import { Lock, MessageSquare, Trash2 } from 'lucide-react'
 import { ConfirmDialog } from '@renderer/components/ConfirmDialog'
 import { useAppDialog } from '@renderer/components/AppDialogContext'
 import { Tooltip } from '@renderer/components/Tooltip'
@@ -808,6 +811,7 @@ export function AppMainPanel({
   }
 
   const isExternal = activeThread != null && isExternalThread(activeThread)
+  const isSyncedArchive = activeThread != null && isSyncedArchiveThread(activeThread)
 
   if (isExternal) {
     return children({
@@ -972,10 +976,20 @@ export function AppMainPanel({
             }`}
             transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
           >
-            <Composer
-              onSelectThreadOperation={handleSelectThreadOperation}
-              presentation={showWelcomeState ? 'compact' : 'normal'}
-            />
+            {isSyncedArchive ? (
+              <div
+                className="flex items-center justify-center gap-2 px-4 py-3 text-xs"
+                style={{ color: theme.text.muted }}
+              >
+                <Lock size={13} strokeWidth={1.5} />
+                <span>Read-only — synced from another device</span>
+              </div>
+            ) : (
+              <Composer
+                onSelectThreadOperation={handleSelectThreadOperation}
+                presentation={showWelcomeState ? 'compact' : 'normal'}
+              />
+            )}
           </motion.div>
           {threadIsSaving && (
             <div
@@ -1020,6 +1034,7 @@ export function AppMainPanel({
         isInspectionPanelOpen={isInspectionPanelOpen}
         isPrivacyMode={activeThread?.privacyMode ?? false}
         isPrivacyToggleLocked={messageCount > 0}
+        isReadOnly={isSyncedArchive}
         isRunning={hasActiveRun}
         isSaving={threadIsSaving}
         isSidebarToggleDisabled={isSidebarToggleDisabled}

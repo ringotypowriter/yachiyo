@@ -10,11 +10,12 @@ import type React from 'react'
 import { useEffect, useMemo, useRef } from 'react'
 import { useAppStore } from '@renderer/app/store/useAppStore'
 import { limitLoadedThreadData } from '@renderer/app/store/useAppStore/helpers'
-import type { Message, ToolCall } from '@renderer/app/types'
+import type { Message, RunRecord, ToolCall } from '@renderer/app/types'
 import { theme } from '@renderer/theme/theme'
 import { MessageMarkdown } from '@renderer/lib/markdown/MessageMarkdown'
 import type { MarkdownImageContextValue } from '@renderer/lib/markdown/MarkdownImage'
-import { ToolCallRow } from './ToolCallRow.tsx'
+import { AgentWorkSummaryRow } from './AgentWorkSummaryRow.tsx'
+import { buildWorkTrajectoryItems } from '../lib/timeline/messageTimelineRows.ts'
 import { getNativeScrollIntoViewOptions } from '../lib/timeline/messageTimelineScroll.ts'
 import { isVisibleTimelineMessage } from '../lib/timeline/messageThreadPresentation.ts'
 
@@ -60,12 +61,33 @@ function ExternalAssistantBubble({
     }),
     [message.id, message.threadId, workspacePath]
   )
+  // Collapse the imported tool calls into the same work summary the live
+  // timeline shows, instead of one row per call. No runs are synced, so the
+  // summary derives everything from the tool calls and their message binding.
+  const workSummaryItems = useMemo(
+    () =>
+      buildWorkTrajectoryItems({
+        userMessageId: message.id,
+        replyCount: 1,
+        memorySummary: null,
+        textBlocks: [],
+        userSteerMessages: [],
+        toolCalls
+      }),
+    [message.id, toolCalls]
+  )
 
   return (
     <div className="flex flex-col gap-0 px-0 py-1">
-      {toolCalls.map((tc) => (
-        <ToolCallRow key={tc.id} toolCall={tc} />
-      ))}
+      {toolCalls.length > 0 ? (
+        <AgentWorkSummaryRow
+          items={workSummaryItems}
+          requestMessageIds={[message.parentMessageId ?? message.id]}
+          runs={EMPTY_RUNS}
+          toolCalls={toolCalls}
+          workspacePath={workspacePath}
+        />
+      ) : null}
       {content.trim() ? (
         <div className="px-6">
           <div className="w-full">
@@ -81,6 +103,7 @@ function ExternalAssistantBubble({
 
 const EMPTY_MESSAGES: Message[] = []
 const EMPTY_TOOL_CALLS: ToolCall[] = []
+const EMPTY_RUNS: RunRecord[] = []
 
 export function ExternalThreadViewer({ threadId }: { threadId: string | null }): React.JSX.Element {
   const messages = useAppStore((state) =>
