@@ -7,6 +7,7 @@ import test from 'node:test'
 import {
   createAgentToolSet,
   normalizeToolResult,
+  resolveAvailableToolNamesFromToolSet,
   runGlobTool,
   runGrepTool,
   runBashTool,
@@ -154,6 +155,46 @@ test('createAgentToolSet adds querySource when source query storage is provided'
   assert.equal('querySource' in withoutSourceStorage, false)
 })
 
+test('createAgentToolSet keeps useThings available outside mode-specific tool sets', () => {
+  const storage = createInMemoryYachiyoStorage()
+  const thingDomain = new ThingDomain({ storage })
+  const tools = createAgentToolSet(
+    {
+      enabledTools: ['read', 'grep', 'glob', 'webRead', 'webSearch'],
+      threadId: 'thread-use-things',
+      workspacePath: '/tmp/yachiyo'
+    },
+    { thingDomain }
+  )
+
+  assert.ok(tools)
+  assert.equal('useThings' in tools, true)
+  assert.ok(resolveAvailableToolNamesFromToolSet(tools).includes('useThings'))
+})
+
+test('createAgentToolSet keeps skillsRead available outside mode-specific tool sets', () => {
+  const tools = createAgentToolSet(
+    {
+      enabledTools: ['read', 'grep', 'glob', 'webRead', 'webSearch'],
+      workspacePath: '/tmp/yachiyo'
+    },
+    {
+      availableSkills: [
+        {
+          name: 'demo-skill',
+          description: 'Demo skill',
+          directoryPath: '/tmp/yachiyo/demo-skill',
+          skillFilePath: '/tmp/yachiyo/demo-skill/SKILL.md'
+        }
+      ]
+    }
+  )
+
+  assert.ok(tools)
+  assert.equal('skillsRead' in tools, true)
+  assert.ok(resolveAvailableToolNamesFromToolSet(tools).includes('skillsRead'))
+})
+
 test('summarizeToolInput uses delegated agent names for delegateTask', () => {
   assert.equal(
     summarizeToolInput('delegateTask', {
@@ -281,7 +322,8 @@ test('createAgentToolSet exposes reviewThings but disables useThings for schedul
   assert.match(flattenToolContent(reviewThingsResult?.content ?? []), /Found 0 things/)
 })
 
-test('createAgentToolSet respects disabled useSentinel', async () => {
+test('createAgentToolSet keeps useSentinel available outside mode-specific tool sets', async () => {
+  let clearedThreadId: string | undefined
   const tools = createAgentToolSet(
     {
       enabledTools: ['read'],
@@ -291,11 +333,16 @@ test('createAgentToolSet respects disabled useSentinel', async () => {
       sentinelContext: {
         threadId: 'thread-1',
         manager: {
-          set: () => {
-            throw new Error('useSentinel should be disabled')
-          },
-          clear: () => {
-            throw new Error('useSentinel should be disabled')
+          set: (input) => ({
+            threadId: input.threadId,
+            goal: input.goal,
+            stopCondition: input.stopCondition,
+            intervalMinutes: input.intervalMinutes,
+            updatedAt: '2026-06-19T00:00:00.000Z'
+          }),
+          clear: (threadId: string) => {
+            clearedThreadId = threadId
+            return true
           },
           get: () => undefined,
           list: () => [],
@@ -307,9 +354,10 @@ test('createAgentToolSet respects disabled useSentinel', async () => {
   )
 
   assert.ok(tools?.useSentinel)
+  assert.ok(resolveAvailableToolNamesFromToolSet(tools).includes('useSentinel'))
   const result = await tools.useSentinel.execute?.({ action: 'clear' }, {} as never)
-  assert.match(flattenToolContent(result?.content ?? []), /currently disabled/)
-  assert.equal(result?.error, 'Tool "useSentinel" is disabled.')
+  assert.equal(result?.error, undefined)
+  assert.equal(clearedThreadId, 'thread-1')
 })
 
 test('createAgentToolSet passes configured fetch into jsRepl', async () => {

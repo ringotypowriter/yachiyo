@@ -60,7 +60,7 @@ export interface ExecuteRunInput {
   requestMessageId: string
   abortController: AbortController
   updateHeadOnComplete: boolean
-  previousEnabledTools: ToolCallName[] | null
+  previousEnabledTools: string[] | null
   previousRunMode: RunModeId | null
   /** Accumulated usage from prior steer legs of the same run. */
   priorUsage?: Pick<
@@ -154,7 +154,7 @@ export interface RunExecutionDeps {
   loadThreadMessages: (threadId: string) => MessageRecord[]
   loadThreadToolCalls: (threadId: string) => ToolCallRecord[]
   listSkills: (workspacePaths?: string[]) => Promise<SkillCatalogEntry[]>
-  onEnabledToolsUsed: (enabledTools: ToolCallName[]) => void
+  onEnabledToolsUsed: (enabledTools: string[]) => void
   onExecutionPhaseChange?: (phase: RunExecutionPhase) => void
   onSnapshotTrackerReady?: (snapshotTracker: SnapshotTracker) => void
   onAssistantMessagePersisted?: (messageId: string) => Promise<void>

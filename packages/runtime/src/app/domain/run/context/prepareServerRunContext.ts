@@ -32,10 +32,7 @@ import { prepareModelMessages } from '../../../../runtime/messages/messagePrepar
 import { EXTERNAL_SYSTEM_PROMPT, SYSTEM_PROMPT } from '../../../../runtime/context/prompt.ts'
 import {
   buildCurrentTimeSection,
-  buildDisabledToolsReminderSection,
-  buildRunModeChangedReminderSection,
   buildWorkspaceChangedReminderSection,
-  buildToolAvailabilityReminderSection,
   buildInboundAttachmentReminderSection,
   buildSteerReminderSection,
   formatDateLine,
@@ -49,6 +46,7 @@ import { applyStripCompact } from '../../../../runtime/context/contextStripCompa
 import type { ModelMessage } from '../../../../runtime/models/types.ts'
 import { readSoulDocument, type SoulDocument } from '../../../../runtime/profiles/soul.ts'
 import { readUserDocument, type UserDocument } from '../../../../runtime/profiles/user.ts'
+
 import { rewriteRelativeMarkdownLinks } from '../../../../services/skills/skillContent.ts'
 import { resolveActiveSkills } from '../../../../services/skills/skillResolver.ts'
 import { resolveRunModeEnabledTools } from '@yachiyo/shared/toolModes'
@@ -189,7 +187,7 @@ export interface PrepareServerRunContextInput {
   abortController: AbortController
   recoveryCheckpoint?: RunRecoveryCheckpoint
   isSteerLeg?: boolean
-  previousEnabledTools?: ToolCallName[] | null
+  previousEnabledTools?: string[] | null
   previousRunMode?: RunModeId | null
   runMode: RunModeId
   priorUsage?: ExecuteRunInput['priorUsage']
@@ -389,48 +387,15 @@ export async function prepareServerRunContext(
     subagentAvailableWorkspaces,
     subagentsConfig
   )
-  const canUseDelegateTask = hasEnabledWorkerSubagents
-    ? true
-    : (gitCtx.hasGit || gitValidatedWorkspaces.length > 0) && hasEnabledAcpSubagents
-  const modeIndependentTools = [
-    ...(modelEnabledTools.includes('skillsRead') ? ['skillsRead'] : []),
-    ...(!input.thread.privacyMode &&
-    (deps.memoryService.isConfigured() || !isExternalChannel || isOwnerDm)
-      ? ['querySource']
-      : []),
-    ...(!input.thread.privacyMode &&
-    (!isExternalChannel || isOwnerDm) &&
-    deps.memoryService.isConfigured()
-      ? ['remember']
-      : []),
-    'updateProfile',
-    ...(canUseDelegateTask ? ['delegateTask'] : []),
-    ...(isLocalRunTrigger ? ['askUser', 'updateTodoList'] : []),
-    ...(planModeDocument ? ['exitPlanMode'] : [])
-  ]
+
   const hiddenQueryReminder = formatQueryReminder(
     [
-      input.previousEnabledTools
-        ? buildToolAvailabilityReminderSection({
-            previousEnabledTools: input.previousEnabledTools,
-            enabledTools: modelEnabledTools,
-            modeIndependentTools
-          })
-        : null,
-      input.previousRunMode
-        ? buildRunModeChangedReminderSection({
-            previousRunMode: input.previousRunMode,
-            runMode: input.runMode,
-            modeIndependentTools
-          })
-        : null,
       previousWorkspacePath
         ? buildWorkspaceChangedReminderSection({
             previousWorkspacePath,
             workspacePath
           })
         : null,
-      buildDisabledToolsReminderSection({ enabledTools: modelEnabledTools, modeIndependentTools }),
       buildCurrentTimeSection(hintTime, { includeDate: !isLocalOrOwnerDm }),
       buildInboundAttachmentReminderSection(buildInboundAttachmentReminderItems(requestMessage)),
       planModeDocument ? buildPlanModeReminderSection(planModeDocument) : null,

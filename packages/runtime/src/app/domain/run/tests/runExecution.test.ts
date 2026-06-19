@@ -13,7 +13,7 @@ import type { RunExecutionDeps } from '../execution/runExecutionTypes.ts'
 import { RetryableRunError } from '../../../../runtime/models/runtimeErrors.ts'
 import type { RunRecoveryCheckpoint } from '../../../../storage/storage.ts'
 import type { MemoryService } from '../../../../services/memory/memoryService.ts'
-import type { ModelUsage } from '../../../../runtime/models/types.ts'
+import type { ModelMessage, ModelUsage } from '../../../../runtime/models/types.ts'
 import type {
   MessageRecord,
   ProviderSettings,
@@ -506,7 +506,7 @@ test('prepareServerRunContext skips foreground activity for hidden steer request
   }
 })
 
-test('prepareServerRunContext injects tool availability changes into the current turn reminder', async () => {
+test('executeServerRun injects actual available tools into the current turn reminder', async () => {
   const root = await mkdtemp(join(tmpdir(), 'yachiyo-tool-reminder-'))
   const thread: ThreadRecord = {
     id: 'thread-tool-reminder',
@@ -524,51 +524,82 @@ test('prepareServerRunContext injects tool availability changes into the current
   }
   const events: unknown[] = []
   const updatedMessages: MessageRecord[] = []
+  let streamedMessages: ModelMessage[] = []
+  let reportedEnabledTools: string[] = []
+  const baseDeps = createRunContextDeps({
+    events,
+    messages: [requestMessage],
+    updatedMessages,
+    workspacePath: root
+  })
+  const storage: RunExecutionDeps['storage'] = {
+    ...baseDeps.storage,
+    upsertRunRecoveryCheckpoint: () => {},
+    deleteRunRecoveryCheckpoint: () => {},
+    createToolCall: () => {},
+    updateToolCall: () => {},
+    listThreadToolCalls: () => [],
+    completeRun: () => {},
+    cancelRun: () => {},
+    failRun: () => {},
+    saveThreadMessage: () => {},
+    updateRunSnapshot: () => {}
+  }
+  const deps: RunExecutionDeps = {
+    ...baseDeps,
+    storage,
+    onEnabledToolsUsed: (enabledTools) => {
+      reportedEnabledTools = enabledTools
+    },
+    createModelRuntime: () => ({
+      streamReply: async function* (request) {
+        streamedMessages = request.messages
+        yield 'Done.'
+        request.onFinish?.({
+          promptTokens: 1,
+          completionTokens: 1,
+          totalPromptTokens: 1,
+          totalCompletionTokens: 1
+        })
+      }
+    })
+  }
 
   try {
-    const context = await prepareServerRunContext(
-      createRunContextDeps({
-        events,
-        messages: [requestMessage],
-        updatedMessages,
-        workspacePath: root
-      }),
-      {
-        runId: 'run-tool-reminder',
-        thread,
-        requestMessageId: requestMessage.id,
-        enabledTools: ['read', 'write', 'bash'],
-        runMode: 'auto',
-        previousEnabledTools: ['read', 'bash'],
-        previousRunMode: 'auto',
-        runTrigger: 'local',
-        abortController: new AbortController(),
-        requestMessage,
-        historyMessages: [requestMessage],
-        includeMemoryRecall: false,
-        applyStripCompact: false
-      }
-    )
+    await executeServerRun(deps, {
+      enabledTools: ['read', 'write', 'bash'],
+      runMode: 'auto',
+      inactivityTimeoutMs: 30_000,
+      runTrigger: 'local',
+      runId: 'run-tool-reminder',
+      thread,
+      requestMessageId: requestMessage.id,
+      abortController: new AbortController(),
+      updateHeadOnComplete: true,
+      previousEnabledTools: ['read', 'bash'],
+      previousRunMode: 'auto'
+    })
 
-    const userContent = context.messages
+    const userContent = streamedMessages
       .filter((message) => message.role === 'user')
       .map((message) => message.content)
       .filter((content): content is string => typeof content === 'string')
       .join('\n')
 
-    const addedTool = 'write'
     assert.match(userContent, /Tool availability changed for this turn/)
-    assert.match(userContent, new RegExp(`Enabled tools: .*${addedTool}`))
+    assert.match(userContent, /Enabled tools: .*write/)
+    assert.match(userContent, /Enabled tools: .*querySource/)
+    assert.ok(reportedEnabledTools.includes('querySource'))
     assert.match(
-      updatedMessages[0]?.turnContext?.reminder ?? '',
-      new RegExp(`Enabled tools: .*${addedTool}`)
+      updatedMessages.at(-1)?.turnContext?.reminder ?? '',
+      /Enabled tools: .*querySource/
     )
   } finally {
     await rm(root, { recursive: true, force: true })
   }
 })
 
-test('prepareServerRunContext does not mark exitPlanMode disabled in Plan Mode reminders', async () => {
+test('executeServerRun does not mark exitPlanMode disabled in Plan Mode reminders', async () => {
   const root = await mkdtemp(join(tmpdir(), 'yachiyo-plan-exit-reminder-'))
   const thread: ThreadRecord = {
     id: 'thread-plan-exit-reminder',
@@ -585,33 +616,65 @@ test('prepareServerRunContext does not mark exitPlanMode disabled in Plan Mode r
     createdAt: '2026-04-28T00:00:00.000Z'
   }
   const updatedMessages: MessageRecord[] = []
+  let streamedMessages: ModelMessage[] = []
+  const baseDeps = createRunContextDeps({
+    events: [],
+    messages: [requestMessage],
+    updatedMessages,
+    workspacePath: root
+  })
+  const storage: RunExecutionDeps['storage'] = {
+    ...baseDeps.storage,
+    upsertRunRecoveryCheckpoint: () => {},
+    deleteRunRecoveryCheckpoint: () => {},
+    createToolCall: () => {},
+    updateToolCall: () => {},
+    listThreadToolCalls: () => [],
+    completeRun: () => {},
+    cancelRun: () => {},
+    failRun: () => {},
+    saveThreadMessage: () => {},
+    updateRunSnapshot: () => {}
+  }
+  const deps: RunExecutionDeps = {
+    ...baseDeps,
+    storage,
+    createModelRuntime: () => ({
+      streamReply: async function* (request) {
+        streamedMessages = request.messages
+        yield 'Done.'
+        request.onFinish?.({
+          promptTokens: 1,
+          completionTokens: 1,
+          totalPromptTokens: 1,
+          totalCompletionTokens: 1
+        })
+      }
+    })
+  }
 
   try {
-    await prepareServerRunContext(
-      createRunContextDeps({
-        events: [],
-        messages: [requestMessage],
-        updatedMessages,
-        workspacePath: root
-      }),
-      {
-        runId: 'run-plan-exit-reminder',
-        thread,
-        requestMessageId: requestMessage.id,
-        enabledTools: resolveRunModeEnabledTools('plan'),
-        runMode: 'plan',
-        previousEnabledTools: resolveRunModeEnabledTools('auto'),
-        previousRunMode: 'auto',
-        runTrigger: 'local',
-        abortController: new AbortController(),
-        requestMessage,
-        historyMessages: [requestMessage],
-        includeMemoryRecall: false,
-        applyStripCompact: false
-      }
-    )
+    await executeServerRun(deps, {
+      enabledTools: resolveRunModeEnabledTools('plan'),
+      runMode: 'plan',
+      inactivityTimeoutMs: 30_000,
+      runTrigger: 'local',
+      runId: 'run-plan-exit-reminder',
+      thread,
+      requestMessageId: requestMessage.id,
+      abortController: new AbortController(),
+      updateHeadOnComplete: true,
+      previousEnabledTools: resolveRunModeEnabledTools('auto'),
+      previousRunMode: 'auto'
+    })
 
-    const reminder = updatedMessages[0]?.turnContext?.reminder ?? ''
+    const reminder = updatedMessages.at(-1)?.turnContext?.reminder ?? ''
+    const userContent = streamedMessages
+      .filter((message) => message.role === 'user')
+      .map((message) => message.content)
+      .filter((content): content is string => typeof content === 'string')
+      .join('\n')
+    assert.match(userContent, /Enabled tools: .*exitPlanMode/)
     assert.match(reminder, /Enabled tools: .*exitPlanMode/)
     for (const line of reminder.split('\n').filter((line) => /disabled/i.test(line))) {
       assert.doesNotMatch(line, /\bexitPlanMode\b/)

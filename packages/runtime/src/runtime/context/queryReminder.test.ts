@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { DEFAULT_ENABLED_TOOL_NAMES, USER_MANAGED_TOOL_NAMES } from '@yachiyo/shared/protocol'
+import {
+  DEFAULT_ENABLED_TOOL_NAMES,
+  USER_MANAGED_TOOL_NAMES,
+  type ToolCallName
+} from '@yachiyo/shared/protocol'
 import { RUN_MODE_DEFINITIONS, resolveRunModeEnabledTools } from '@yachiyo/shared/toolModes'
 import {
   buildCurrentTimeSection,
@@ -46,26 +50,15 @@ function parseToolListLine(line: string, prefix: string): string[] {
   return value === 'none' ? [] : value.split(', ')
 }
 
-function assertToolStateLines(input: {
-  lines: string[]
-  enabledTools: readonly string[]
-  modeIndependentTools?: readonly string[]
-}): void {
+function assertToolStateLines(input: { lines: string[]; enabledTools: readonly string[] }): void {
   const [enabledLine, disabledLine] = input.lines
   assert.equal(input.lines.length, 2)
   assert.ok(enabledLine)
   assert.ok(disabledLine)
 
-  const effectiveEnabledToolSet = new Set([
-    ...(input.enabledTools ?? []),
-    ...(input.modeIndependentTools ?? [])
-  ])
-  const userManagedToolSet = new Set<string>(USER_MANAGED_TOOL_NAMES)
+  const effectiveEnabledToolSet = new Set(input.enabledTools)
   assert.deepEqual(parseToolListLine(enabledLine, 'Enabled tools: '), [
-    ...USER_MANAGED_TOOL_NAMES.filter((toolName) => effectiveEnabledToolSet.has(toolName)),
-    ...[...new Set(input.modeIndependentTools ?? [])].filter(
-      (toolName) => !userManagedToolSet.has(toolName)
-    )
+    ...new Set(input.enabledTools)
   ])
   assert.deepEqual(
     parseToolListLine(disabledLine, 'Disabled tools: '),
@@ -74,21 +67,18 @@ function assertToolStateLines(input: {
 }
 
 test('buildToolAvailabilityReminderSection emits the complete tool state when it changes', () => {
-  const enabledTools = resolveRunModeEnabledTools('chat')
+  const enabledTools: ToolCallName[] = ['querySource', 'updateProfile']
   const previousEnabledTools = resolveRunModeEnabledTools('auto')
-  const modeIndependentTools = ['runtimeToolA', 'runtimeToolB']
   const section = buildToolAvailabilityReminderSection({
     previousEnabledTools,
-    enabledTools,
-    modeIndependentTools
+    enabledTools
   })
 
   assert.deepEqual(section?.key, 'tool-availability')
   assert.equal(section?.title, 'Tool availability changed for this turn')
   assertToolStateLines({
     lines: section?.lines ?? [],
-    enabledTools,
-    modeIndependentTools
+    enabledTools
   })
 
   assert.equal(
@@ -102,11 +92,11 @@ test('buildToolAvailabilityReminderSection emits the complete tool state when it
 
 test('buildRunModeChangedReminderSection emits only when mode changes', () => {
   const runMode = 'explore'
-  const modeIndependentTools = ['runtimeToolA', 'runtimeToolB']
+  const enabledTools = ['read', 'grep', 'querySource', 'updateProfile']
   const section = buildRunModeChangedReminderSection({
     previousRunMode: 'auto',
     runMode,
-    modeIndependentTools
+    enabledTools
   })
 
   assert.equal(section?.key, 'run-mode')
@@ -117,21 +107,24 @@ test('buildRunModeChangedReminderSection emits only when mode changes', () => {
   assert.equal(section?.lines[0], RUN_MODE_DEFINITIONS[runMode].description)
   assertToolStateLines({
     lines: section?.lines.slice(1) ?? [],
-    enabledTools: RUN_MODE_DEFINITIONS[runMode].enabledTools,
-    modeIndependentTools
+    enabledTools
   })
 
-  assert.equal(buildRunModeChangedReminderSection({ previousRunMode: runMode, runMode }), null)
+  assert.equal(
+    buildRunModeChangedReminderSection({ previousRunMode: runMode, runMode, enabledTools }),
+    null
+  )
 })
 
-test('buildDisabledToolsReminderSection lists disabled user-managed tools', () => {
+test('buildDisabledToolsReminderSection lists tools unavailable in the current mode or context', () => {
   const enabledTools = USER_MANAGED_TOOL_NAMES.slice(0, 3)
   const disabledTools = USER_MANAGED_TOOL_NAMES.slice(3)
   const section = buildDisabledToolsReminderSection({ enabledTools })
 
   assert.ok(section)
   assert.equal(section.key, 'disabled-tools')
-  const linePrefix = 'The following tools are disabled by the user and will reject calls: '
+  const linePrefix =
+    "The following tools are unavailable in this turn's mode or context and will reject calls: "
   const disabledList = parseToolListLine(
     section.lines[0].replace(linePrefix, 'Disabled tools: '),
     'Disabled tools: '
@@ -150,17 +143,16 @@ test('buildDisabledToolsReminderSection returns null when all default tools are 
   assert.equal(section, null)
 })
 
-test('buildDisabledToolsReminderSection excludes runtime-managed tools', () => {
+test('buildDisabledToolsReminderSection returns null when all user-managed tools are available', () => {
   const section = buildDisabledToolsReminderSection({
     enabledTools: [...USER_MANAGED_TOOL_NAMES]
   })
   assert.equal(section, null)
 })
 
-test('buildDisabledToolsReminderSection excludes mode-independent tools', () => {
+test('buildDisabledToolsReminderSection uses the supplied available tool names', () => {
   const section = buildDisabledToolsReminderSection({
-    enabledTools: resolveRunModeEnabledTools('plan'),
-    modeIndependentTools: ['exitPlanMode']
+    enabledTools: [...resolveRunModeEnabledTools('plan'), 'exitPlanMode']
   })
   assert.ok(section)
   assert.doesNotMatch(section.lines.join('\n'), /\bexitPlanMode\b/)

@@ -16,7 +16,14 @@ import type {
 import { isTrackedToolName } from '@yachiyo/shared/protocol'
 import { PLAN_MODE_EXIT_TOOL_NAME } from '@yachiyo/shared/planMode'
 import { createRunPerfCollector } from '../../../../services/perfMonitor.ts'
-import type { ModelUsage } from '../../../../runtime/models/types.ts'
+import { appendTurnContextToUserMessage } from '../../../../runtime/context/contextLayers.ts'
+import {
+  buildDisabledToolsReminderSection,
+  buildRunModeChangedReminderSection,
+  buildToolAvailabilityReminderSection,
+  formatQueryReminder
+} from '../../../../runtime/context/queryReminder.ts'
+import type { ModelMessage, ModelUsage } from '../../../../runtime/models/types.ts'
 import {
   RetryableRunError,
   isContextWindowExceededRunError
@@ -26,7 +33,11 @@ import {
   shouldTriggerContextHandoffForActualPromptTokens
 } from './contextHandoffPolicy.ts'
 import { getPreviousRunActualPromptTokens } from './runUsage.ts'
-import { normalizeToolResult, summarizeToolInput } from '../../../../tools/agentTools.ts'
+import {
+  normalizeToolResult,
+  resolveAvailableToolNamesFromToolSet,
+  summarizeToolInput
+} from '../../../../tools/agentTools.ts'
 import { createDeltaBatcher } from '../../shared/shared.ts'
 import type { RunExecutionPhase } from '../runTypes.ts'
 import {
@@ -120,6 +131,71 @@ function findCompletedAssistantCheckpointBeforeRequest(input: {
   const checkpoint = candidates.at(-1)
   if (!checkpoint || checkpoint.id === input.currentWatermarkMessageId) return undefined
   return checkpoint.id
+}
+
+function injectToolReminder(
+  messages: ModelMessage[],
+  reminder: string | undefined
+): ModelMessage[] {
+  if (!reminder?.trim()) return messages
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i].role !== 'user') continue
+    const copy = [...messages]
+    copy[i] = appendTurnContextToUserMessage(copy[i], [reminder])
+    return copy
+  }
+  return [...messages, { role: 'user', content: reminder }]
+}
+
+function persistToolReminder(input: {
+  baseReminder: string | undefined
+  deps: RunExecutionDeps
+  executionInput: ExecuteRunInput
+  reminder: string | undefined
+}): void {
+  if (!input.reminder?.trim()) return
+  const requestMessage = input.deps
+    .loadThreadMessages(input.executionInput.thread.id)
+    .find(
+      (message) => message.id === input.executionInput.requestMessageId && message.role === 'user'
+    )
+  if (!requestMessage) return
+  const existingReminder = requestMessage.turnContext?.reminder?.trim()
+  const reminder = [input.baseReminder?.trim() || existingReminder, input.reminder]
+    .filter(Boolean)
+    .join('\n\n')
+  input.deps.storage.updateMessage({
+    ...requestMessage,
+    turnContext: {
+      ...requestMessage.turnContext,
+      reminder
+    }
+  })
+}
+
+function buildActualToolReminder(input: {
+  enabledTools: readonly string[]
+  executionInput: ExecuteRunInput
+  preparedContext: PreparedServerRunContext
+}): string | undefined {
+  return formatQueryReminder(
+    [
+      input.executionInput.previousEnabledTools
+        ? buildToolAvailabilityReminderSection({
+            previousEnabledTools: input.executionInput.previousEnabledTools,
+            enabledTools: input.enabledTools
+          })
+        : null,
+      input.executionInput.previousRunMode
+        ? buildRunModeChangedReminderSection({
+            previousRunMode: input.executionInput.previousRunMode,
+            runMode: input.preparedContext.runMode,
+            enabledTools: input.enabledTools
+          })
+        : null,
+      buildDisabledToolsReminderSection({ enabledTools: input.enabledTools })
+    ].flatMap((section) => (section ? [section] : []))
+  )
 }
 
 export async function executeServerRun(
@@ -398,7 +474,8 @@ export async function executeServerRun(
       memoryEntryCount: preparedContext.memoryEntries.length,
       messageCount: preparedContext.messages.length
     })
-    const { workspacePath, messages: finalMessages, maxToolSteps } = preparedContext
+    const { workspacePath, maxToolSteps } = preparedContext
+    let finalMessages = preparedContext.messages
     if (!snapshotTracker) {
       snapshotTracker = new SnapshotTracker(workspacePath, input.runId, input.thread.id)
       snapshotTracker.startBaselineScan()
@@ -421,10 +498,23 @@ export async function executeServerRun(
       toolLifecycle,
       updateToolCall: instrumentedUpdateToolCall
     })
+    const actualEnabledTools = resolveAvailableToolNamesFromToolSet(tools)
+    const toolReminder = buildActualToolReminder({
+      enabledTools: actualEnabledTools,
+      executionInput: input,
+      preparedContext
+    })
+    finalMessages = injectToolReminder(finalMessages, toolReminder)
+    persistToolReminder({
+      baseReminder: preparedContext.hiddenQueryReminder,
+      deps,
+      executionInput: input,
+      reminder: toolReminder
+    })
     console.log(
       `[yachiyo][run] toolSet: ${tools ? Object.keys(tools).join(', ') : 'none'}, extraTools: ${input.extraTools ? Object.keys(input.extraTools).join(', ') : 'none'}`
     )
-    deps.onEnabledToolsUsed(input.enabledTools)
+    deps.onEnabledToolsUsed(actualEnabledTools)
 
     const contextHandoffThreshold = resolveContextHandoffThreshold(preparedContext.config)
     const contextHandoffState: {

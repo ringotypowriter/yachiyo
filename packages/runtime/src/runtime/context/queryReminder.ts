@@ -1,8 +1,4 @@
-import {
-  USER_MANAGED_TOOL_NAMES,
-  type RunModeId,
-  type ToolCallName
-} from '@yachiyo/shared/protocol'
+import { USER_MANAGED_TOOL_NAMES, type RunModeId } from '@yachiyo/shared/protocol'
 import { RUN_MODE_DEFINITIONS } from '@yachiyo/shared/toolModes'
 
 export interface QueryReminderSection {
@@ -15,24 +11,10 @@ function formatToolList(toolNames: readonly string[]): string {
   return toolNames.length > 0 ? toolNames.join(', ') : 'none'
 }
 
-function buildToolStateLines(input: {
-  enabledTools: readonly ToolCallName[]
-  modeIndependentTools?: readonly string[]
-}): string[] {
-  const effectiveEnabledToolSet = new Set<string>([
-    ...input.enabledTools,
-    ...(input.modeIndependentTools ?? [])
-  ])
-  const userManagedToolSet = new Set<string>(USER_MANAGED_TOOL_NAMES)
-  const enabledTools = [
-    ...USER_MANAGED_TOOL_NAMES.filter((toolName) => effectiveEnabledToolSet.has(toolName)),
-    ...[...new Set(input.modeIndependentTools ?? [])].filter(
-      (toolName) => !userManagedToolSet.has(toolName)
-    )
-  ]
-  const disabledTools = USER_MANAGED_TOOL_NAMES.filter(
-    (toolName) => !effectiveEnabledToolSet.has(toolName)
-  )
+function buildToolStateLines(input: { enabledTools: readonly string[] }): string[] {
+  const enabledTools = [...new Set(input.enabledTools)]
+  const enabledToolSet = new Set(enabledTools)
+  const disabledTools = USER_MANAGED_TOOL_NAMES.filter((toolName) => !enabledToolSet.has(toolName))
   return [
     `Enabled tools: ${formatToolList(enabledTools)}.`,
     `Disabled tools: ${formatToolList(disabledTools)}.`
@@ -40,9 +22,8 @@ function buildToolStateLines(input: {
 }
 
 export function buildToolAvailabilityReminderSection(input: {
-  previousEnabledTools: ToolCallName[]
-  enabledTools: ToolCallName[]
-  modeIndependentTools?: readonly string[]
+  previousEnabledTools: readonly string[]
+  enabledTools: readonly string[]
 }): QueryReminderSection | null {
   const previousEnabledToolSet = new Set(input.previousEnabledTools)
   const enabledToolSet = new Set(input.enabledTools)
@@ -64,7 +45,7 @@ export function buildToolAvailabilityReminderSection(input: {
 export function buildRunModeChangedReminderSection(input: {
   previousRunMode: RunModeId
   runMode: RunModeId
-  modeIndependentTools?: readonly string[]
+  enabledTools: readonly string[]
 }): QueryReminderSection | null {
   if (input.previousRunMode === input.runMode || input.runMode === 'custom') {
     return null
@@ -74,13 +55,7 @@ export function buildRunModeChangedReminderSection(input: {
   return {
     key: 'run-mode',
     title: `Mode changed to ${mode.label} for this turn`,
-    lines: [
-      mode.description,
-      ...buildToolStateLines({
-        enabledTools: mode.enabledTools,
-        modeIndependentTools: input.modeIndependentTools
-      })
-    ]
+    lines: [mode.description, ...buildToolStateLines({ enabledTools: input.enabledTools })]
   }
 }
 
@@ -104,16 +79,10 @@ export function buildWorkspaceChangedReminderSection(input: {
 }
 
 export function buildDisabledToolsReminderSection(input: {
-  enabledTools: ToolCallName[]
-  modeIndependentTools?: readonly string[]
+  enabledTools: readonly string[]
 }): QueryReminderSection | null {
-  const effectiveEnabledToolSet = new Set<string>([
-    ...input.enabledTools,
-    ...(input.modeIndependentTools ?? [])
-  ])
-  const disabledTools = USER_MANAGED_TOOL_NAMES.filter(
-    (toolName) => !effectiveEnabledToolSet.has(toolName)
-  )
+  const enabledToolSet = new Set(input.enabledTools)
+  const disabledTools = USER_MANAGED_TOOL_NAMES.filter((toolName) => !enabledToolSet.has(toolName))
 
   if (disabledTools.length === 0) {
     return null
@@ -121,10 +90,10 @@ export function buildDisabledToolsReminderSection(input: {
 
   return {
     key: 'disabled-tools',
-    title: 'Disabled tools',
+    title: 'Unavailable tools',
     lines: [
-      `The following tools are disabled by the user and will reject calls: ${disabledTools.join(', ')}.`,
-      'Do not attempt to use them unless the user re-enables them.'
+      `The following tools are unavailable in this turn's mode or context and will reject calls: ${disabledTools.join(', ')}.`,
+      'Do not attempt to use them unless the mode or context changes.'
     ]
   }
 }
