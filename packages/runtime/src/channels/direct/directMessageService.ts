@@ -7,6 +7,7 @@ import type {
   ChannelUserRecord,
   ChatAccepted,
   MessageImageRecord,
+  SelectableRunModeId,
   SendChatAttachment,
   SendChatInput,
   ThreadModelOverride,
@@ -15,6 +16,7 @@ import type {
   UpdateChannelUserInput,
   YachiyoServerEvent
 } from '@yachiyo/shared/protocol'
+import { resolveRunModeEnabledTools } from '@yachiyo/shared/toolModes'
 import {
   classifyChannelReplyAttachmentDelivery,
   createChannelReplyTool,
@@ -53,6 +55,34 @@ function toKTokens(totalTokens: number): number {
     return 0
   }
   return Math.ceil(totalTokens / 1000)
+}
+
+/**
+ * The mode an owner DM thread runs as before the owner picks one with `/mode`.
+ * Owners are trusted (it's the user on their own phone), so the default matches
+ * the desktop default — full tools — rather than the read-only guest sandbox.
+ */
+export const OWNER_DEFAULT_CHANNEL_MODE: SelectableRunModeId = 'auto'
+
+/**
+ * Owner DMs may switch their conversation mode via `/mode`, so an owner thread's
+ * tools come from its `runMode` (defaulting to {@link OWNER_DEFAULT_CHANNEL_MODE}).
+ * Guests stay on the channel policy's read-only sandbox regardless of thread mode.
+ */
+export function resolveChannelToolPreset(
+  channelUser: ChannelUserRecord,
+  thread: ThreadRecord,
+  policyAllowedTools: ToolCallName[]
+): ToolCallName[] {
+  if (channelUser.role !== 'owner') {
+    return policyAllowedTools
+  }
+  const mode = thread.runMode
+  const resolved =
+    mode === 'auto' || mode === 'explore' || mode === 'plan' || mode === 'chat'
+      ? mode
+      : OWNER_DEFAULT_CHANNEL_MODE
+  return resolveRunModeEnabledTools(resolved)
 }
 
 export interface DirectMessageServer {
@@ -782,7 +812,7 @@ export function createDirectMessageService<TTarget>(
         content: text,
         images: images.length > 0 ? images : undefined,
         attachments: attachments.length > 0 ? attachments : undefined,
-        toolPreset: options.policy.allowedTools,
+        toolPreset: resolveChannelToolPreset(channelUser, thread, options.policy.allowedTools),
         runTrigger: 'channel',
         channelHint: userLabelHint + options.policy.replyInstruction,
         extraTools: { reply: replyTool }

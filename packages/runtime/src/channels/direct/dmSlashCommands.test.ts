@@ -8,6 +8,7 @@ import type {
   ThreadModelOverride,
   ThreadRecord
 } from '@yachiyo/shared/protocol'
+import { RUN_MODE_DEFINITIONS, resolveRunModeEnabledTools } from '@yachiyo/shared/toolModes'
 import {
   createDmSlashCommandPendingChoiceStore,
   handleDmSlashCommand,
@@ -79,6 +80,9 @@ function makeOptions<TTarget>(
     getThreadWorkspaceChangeBlocker: () => null,
     updateThreadWorkspace: async () => {
       throw new Error('updateThreadWorkspace should not be called')
+    },
+    setThreadToolMode: async () => {
+      throw new Error('setThreadToolMode should not be called')
     }
   }
   const { server, ...rest } = overrides
@@ -455,8 +459,183 @@ describe('handleDmSlashCommand', () => {
       assert.equal(guestReplies.length, 1)
       assert.ok(ownerReplies[0].includes('/workspace'))
       assert.ok(ownerReplies[0].includes('/takeover'))
+      assert.ok(ownerReplies[0].includes('/mode'))
       assert.equal(guestReplies[0].includes('/workspace'), false)
       assert.equal(guestReplies[0].includes('/takeover'), false)
+      assert.equal(guestReplies[0].includes('/mode'), false)
+    })
+  })
+
+  describe('/mode', () => {
+    it('lists modes and marks the auto default as current when the thread has no mode', async () => {
+      const owner = createChannelUser({ role: 'owner' })
+      const thread = createThread('thread-1')
+      const sent: string[] = []
+
+      const options = makeOptions<string>({
+        server: {
+          findActiveChannelThread: () => thread
+        },
+        sendMessage: async (_target, text) => {
+          sent.push(text)
+        }
+      })
+
+      const handled = await handleDmSlashCommand(options, 'chat-1', owner, '/mode', '')
+
+      assert.equal(handled, true)
+      assert.equal(sent.length, 1)
+      assert.match(sent[0], /Current mode: Auto/)
+      assert.ok(sent[0].includes('auto (current)'))
+      for (const modeId of ['auto', 'explore', 'plan', 'chat']) {
+        assert.ok(sent[0].includes(modeId), `reply should list ${modeId}, got: ${sent[0]}`)
+      }
+      assert.ok(sent[0].includes('Send /mode <name> to switch.'))
+    })
+
+    it('reports the thread mode as current when one is set', async () => {
+      const owner = createChannelUser({ role: 'owner' })
+      const thread = createThread('thread-1', { runMode: 'plan' })
+      const sent: string[] = []
+
+      const options = makeOptions<string>({
+        server: {
+          findActiveChannelThread: () => thread
+        },
+        sendMessage: async (_target, text) => {
+          sent.push(text)
+        }
+      })
+
+      await handleDmSlashCommand(options, 'chat-1', owner, '/mode', '')
+
+      assert.equal(sent.length, 1)
+      assert.match(sent[0], /Current mode: Plan/)
+      assert.ok(sent[0].includes('plan (current)'))
+    })
+
+    it('switches the active thread to the requested mode', async () => {
+      const owner = createChannelUser({ role: 'owner' })
+      const thread = createThread('thread-1')
+      const sent: string[] = []
+      let toolModeInput: { threadId: string; enabledTools: unknown; runMode?: string } | undefined
+
+      const options = makeOptions<string>({
+        server: {
+          findActiveChannelThread: () => thread,
+          setThreadToolMode: async (input) => {
+            toolModeInput = input
+            return thread
+          }
+        },
+        sendMessage: async (_target, text) => {
+          sent.push(text)
+        }
+      })
+
+      const handled = await handleDmSlashCommand(options, 'chat-1', owner, '/mode', 'auto')
+
+      assert.equal(handled, true)
+      assert.deepEqual(toolModeInput, {
+        threadId: 'thread-1',
+        enabledTools: resolveRunModeEnabledTools('auto'),
+        runMode: 'auto'
+      })
+      assert.equal(sent.length, 1)
+      assert.ok(sent[0].includes('Mode switched to Auto.'))
+      assert.ok(sent[0].includes(RUN_MODE_DEFINITIONS.auto.description))
+    })
+
+    it('creates a fresh thread when none is active, then sets the mode on it', async () => {
+      const owner = createChannelUser({ role: 'owner' })
+      const fresh = createThread('thread-fresh')
+      const sent: string[] = []
+      let createdFor: string | undefined
+      let toolModeThreadId: string | undefined
+
+      const options = makeOptions<string>({
+        server: {
+          findActiveChannelThread: () => undefined,
+          setThreadToolMode: async (input) => {
+            toolModeThreadId = input.threadId
+            return fresh
+          }
+        },
+        createFreshThread: async (user) => {
+          createdFor = user.id
+          return fresh
+        },
+        sendMessage: async (_target, text) => {
+          sent.push(text)
+        }
+      })
+
+      await handleDmSlashCommand(options, 'chat-1', owner, '/mode', 'chat')
+
+      assert.equal(createdFor, owner.id)
+      assert.equal(toolModeThreadId, 'thread-fresh')
+      assert.ok(sent[0].includes('Mode switched to Chat.'))
+    })
+
+    it('rejects an unknown mode without changing the thread', async () => {
+      const owner = createChannelUser({ role: 'owner' })
+      const thread = createThread('thread-1')
+      const sent: string[] = []
+      let toolModeCalled = false
+
+      const options = makeOptions<string>({
+        server: {
+          findActiveChannelThread: () => thread,
+          setThreadToolMode: async () => {
+            toolModeCalled = true
+            return thread
+          }
+        },
+        sendMessage: async (_target, text) => {
+          sent.push(text)
+        }
+      })
+
+      await handleDmSlashCommand(options, 'chat-1', owner, '/mode', 'turbo')
+
+      assert.equal(toolModeCalled, false)
+      assert.equal(sent.length, 1)
+      assert.match(sent[0], /Unknown mode: turbo/)
+      assert.ok(sent[0].includes('Available modes:'))
+    })
+
+    it('is owner-only: a guest gets the unknown-command reply and no mode change', async () => {
+      const guest = createChannelUser({ role: 'guest' })
+      const sent: string[] = []
+      let toolModeCalled = false
+
+      const options = makeOptions<string>({
+        server: {
+          findActiveChannelThread: () => undefined,
+          setThreadToolMode: async () => {
+            toolModeCalled = true
+            return createThread('thread-1')
+          }
+        },
+        sendMessage: async (_target, text) => {
+          sent.push(text)
+        }
+      })
+
+      const handled = await handleDmSlashCommand(options, 'chat-1', guest, '/mode', 'auto')
+
+      assert.equal(handled, true)
+      assert.equal(toolModeCalled, false)
+      assert.equal(sent.length, 1)
+      assert.match(sent[0], /Unknown command: \/mode/)
+    })
+
+    it('discards pending batches for owner mode switches only', () => {
+      assert.equal(
+        shouldDiscardPendingBatchForDmCommand('/mode', createChannelUser({ role: 'owner' })),
+        true
+      )
+      assert.equal(shouldDiscardPendingBatchForDmCommand('/mode', createChannelUser()), false)
     })
   })
 
