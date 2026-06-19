@@ -12,6 +12,7 @@ import type {
   RunCompletedEvent,
   ThreadModelOverride,
   ThreadRecord,
+  ToolCallUpdatedEvent,
   YachiyoServerEvent
 } from '@yachiyo/shared/protocol'
 import { resolveRunModeEnabledTools } from '@yachiyo/shared/toolModes'
@@ -421,6 +422,7 @@ describe('directMessageService', () => {
       },
       cancelRunForThread: () => false,
       cancelRunForChannelUser: () => false,
+      answerToolQuestion: () => {},
 
       updateChannelUser(input: { id: string; usedKTokens: number }): ChannelUserRecord {
         tokenUpdates.push(input)
@@ -513,6 +515,7 @@ describe('directMessageService', () => {
       },
       cancelRunForThread: () => false,
       cancelRunForChannelUser: () => false,
+      answerToolQuestion: () => {},
       updateChannelUser: (input) => ({ ...channelUser, usedKTokens: input.usedKTokens ?? 0 }),
       updateLatestAssistantVisibleReply: () => {},
       getTtlReaper: () => ({ register: () => {} })
@@ -627,6 +630,7 @@ describe('directMessageService', () => {
       },
       cancelRunForThread: () => false,
       cancelRunForChannelUser: () => false,
+      answerToolQuestion: () => {},
       updateChannelUser: (input) => ({ ...channelUser, usedKTokens: input.usedKTokens ?? 0 }),
       updateLatestAssistantVisibleReply(input) {
         visibleReplies.push(input.visibleReply)
@@ -718,6 +722,7 @@ describe('directMessageService', () => {
       },
       cancelRunForThread: () => false,
       cancelRunForChannelUser: () => false,
+      answerToolQuestion: () => {},
       updateChannelUser: (input) => ({ ...channelUser, usedKTokens: input.usedKTokens ?? 0 }),
       updateLatestAssistantVisibleReply(input) {
         visibleReplies.push(input.visibleReply)
@@ -818,6 +823,7 @@ describe('directMessageService', () => {
       },
       cancelRunForThread: () => false,
       cancelRunForChannelUser: () => false,
+      answerToolQuestion: () => {},
       updateChannelUser: (input) => ({ ...channelUser, usedKTokens: input.usedKTokens ?? 0 }),
       updateLatestAssistantVisibleReply: () => {},
       getTtlReaper: () => ({ register: () => {} })
@@ -900,6 +906,7 @@ describe('directMessageService', () => {
       },
       cancelRunForThread: () => false,
       cancelRunForChannelUser: () => false,
+      answerToolQuestion: () => {},
       updateChannelUser: (input) => ({ ...channelUser, usedKTokens: input.usedKTokens ?? 0 }),
       updateLatestAssistantVisibleReply: () => {},
       getTtlReaper: () => ({ register: () => {} })
@@ -1001,6 +1008,7 @@ describe('directMessageService', () => {
       },
       cancelRunForThread: () => false,
       cancelRunForChannelUser: () => false,
+      answerToolQuestion: () => {},
       updateChannelUser: (input) => ({ ...channelUser, usedKTokens: input.usedKTokens ?? 0 }),
       updateLatestAssistantVisibleReply(input) {
         visibleReplies.push(input.visibleReply)
@@ -1117,6 +1125,7 @@ describe('directMessageService', () => {
       },
       cancelRunForThread: () => false,
       cancelRunForChannelUser: () => false,
+      answerToolQuestion: () => {},
       updateChannelUser: (input) => ({ ...channelUser, usedKTokens: input.usedKTokens ?? 0 }),
       updateLatestAssistantVisibleReply(input) {
         visibleReplies.push(input.visibleReply)
@@ -1216,6 +1225,7 @@ describe('directMessageService', () => {
       },
       cancelRunForThread: () => false,
       cancelRunForChannelUser: () => false,
+      answerToolQuestion: () => {},
       updateChannelUser: (input) => ({ ...channelUser, usedKTokens: input.usedKTokens ?? 0 }),
       updateLatestAssistantVisibleReply(input) {
         visibleReplies.push(input.visibleReply)
@@ -1318,6 +1328,7 @@ describe('directMessageService', () => {
       },
       cancelRunForThread: () => false,
       cancelRunForChannelUser: () => false,
+      answerToolQuestion: () => {},
       updateChannelUser: (input) => ({ ...channelUser, usedKTokens: input.usedKTokens ?? 0 }),
       updateLatestAssistantVisibleReply(input) {
         visibleReplies.push(input.visibleReply)
@@ -1386,5 +1397,110 @@ describe('resolveChannelToolPreset', () => {
       resolveChannelToolPreset(owner(), thread, policyTools),
       resolveRunModeEnabledTools('auto')
     )
+  })
+})
+
+describe('directMessageService askUser bridge', () => {
+  it('delivers an askUser question to the DM and routes the reply back as the answer', async () => {
+    const channelUser = createChannelUser()
+    const thread = createThread('thread-ask')
+    const sentMessages: string[] = []
+    const answers: Array<{ runId: string; toolCallId: string; answer: string }> = []
+    const listeners = new Set<(event: YachiyoServerEvent) => void>()
+    const emit = (event: YachiyoServerEvent): void => {
+      for (const listener of [...listeners]) listener(event)
+    }
+
+    const askEvent: ToolCallUpdatedEvent = {
+      type: 'tool.updated',
+      eventId: 'evt-ask',
+      timestamp: '2026-06-20T00:00:01.000Z',
+      threadId: thread.id,
+      runId: 'run-1',
+      toolCall: {
+        id: 'tc-1',
+        runId: 'run-1',
+        threadId: thread.id,
+        toolName: 'askUser',
+        status: 'waiting-for-user',
+        inputSummary: 'Pick one',
+        startedAt: '2026-06-20T00:00:01.000Z',
+        details: { kind: 'askUser', question: 'Pick one', choices: ['Alpha', 'Beta'] }
+      }
+    }
+    const runCompleted: RunCompletedEvent = {
+      type: 'run.completed',
+      eventId: 'evt-done',
+      timestamp: '2026-06-20T00:00:03.000Z',
+      threadId: thread.id,
+      runId: 'run-1'
+    }
+
+    const server: DirectMessageServer = {
+      subscribe(listener: (event: YachiyoServerEvent) => void): () => void {
+        listeners.add(listener)
+        return () => listeners.delete(listener)
+      },
+      async sendChat(): Promise<ChatAcceptedWithUserMessage> {
+        // The model pauses on askUser shortly after the run starts.
+        setTimeout(() => emit(askEvent), 5)
+        return {
+          kind: 'run-started',
+          thread,
+          runId: 'run-1',
+          userMessage: createUserMessage(thread.id)
+        }
+      },
+      getThreadTotalTokens: () => 0,
+      findActiveChannelThread: () => undefined,
+      async setThreadModelOverride(): Promise<ThreadRecord> {
+        assert.fail('setThreadModelOverride should not be called')
+      },
+      cancelRunForThread: () => false,
+      cancelRunForChannelUser: () => false,
+      answerToolQuestion(input: { runId: string; toolCallId: string; answer: string }): void {
+        answers.push(input)
+        // Answering resumes the run, which then completes.
+        setTimeout(() => emit(runCompleted), 0)
+      },
+      updateChannelUser: (input: { id: string; usedKTokens: number }): ChannelUserRecord => ({
+        ...channelUser,
+        usedKTokens: input.usedKTokens
+      }),
+      updateLatestAssistantVisibleReply: () => {},
+      getTtlReaper: () => ({ register: () => {} })
+    }
+
+    const directMessages = createDirectMessageService({
+      logLabel: 'telegram',
+      server,
+      policy: telegramPolicy,
+      replyDelayMs: () => 0,
+      resolveThread: async () => ({ thread, usageBaselineKTokens: 0 }),
+      sendMessage: async (_chatId: string, text: string) => {
+        sentMessages.push(text)
+      },
+      startBatchIndicator: () => undefined,
+      startHandlingIndicator: () => undefined,
+      nonRunReply: 'non-run',
+      errorReply: 'error'
+    })
+
+    directMessages.enqueueMessage('chat-1', channelUser, 'start')
+    await delay(30)
+
+    assert.ok(
+      sentMessages.some(
+        (m) => m.includes('Pick one') && m.includes('1. Alpha') && m.includes('2. Beta')
+      ),
+      `expected an askUser question to be delivered, got: ${JSON.stringify(sentMessages)}`
+    )
+    assert.equal(answers.length, 0, 'no answer should be sent before the user replies')
+
+    // The owner replies with a number, which maps to the matching choice.
+    directMessages.enqueueMessage('chat-1', channelUser, '2')
+    await delay(30)
+
+    assert.deepEqual(answers, [{ runId: 'run-1', toolCallId: 'tc-1', answer: 'Beta' }])
   })
 })

@@ -161,6 +161,7 @@ export interface PreparedServerRunContext {
   isExternalChannel: boolean
   isGuest: boolean
   isOwnerDm: boolean
+  isDirectMessage: boolean
   isLocalRunTrigger: boolean
   hiddenQueryReminder?: string
   memoryEntries: string[]
@@ -222,6 +223,10 @@ export async function prepareServerRunContext(
     : undefined
   const isGuest = isExternalChannel && (channelUser?.role ?? 'guest') !== 'owner'
   const isOwnerDm = channelUser?.role === 'owner' && !input.thread.channelGroupId
+  // A 1:1 channel conversation (owner or guest), excluding group discussions —
+  // the only external surface where askUser has a single, well-defined answerer.
+  const isDirectMessage =
+    isExternalChannel && !input.thread.channelGroupId && input.thread.channelUserId != null
   const isLocalRunTrigger = input.runTrigger === 'local'
   if (isExternalChannel || isOwnerDm) {
     console.log(
@@ -637,6 +642,7 @@ export async function prepareServerRunContext(
     isExternalChannel,
     isGuest,
     isOwnerDm,
+    isDirectMessage,
     isLocalRunTrigger,
     hiddenQueryReminder,
     ...(planModeDocument ? { planModeDocument } : {}),

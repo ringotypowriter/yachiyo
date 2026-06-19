@@ -63,6 +63,7 @@ export function createRunToolSet(input: CreateRunToolSetInput): ToolSet | undefi
     isGuest,
     isLocalRunTrigger,
     isOwnerDm,
+    isDirectMessage,
     modelEnabledTools,
     workspacePath,
     planModeDocument
@@ -153,7 +154,9 @@ export function createRunToolSet(input: CreateRunToolSetInput): ToolSet | undefi
           sourceQueryStorage: deps.storage
         }
       : {}),
-    ...(isLocalRunTrigger ? { askUserContext: createAskUserContext(input) } : {}),
+    ...(isLocalRunTrigger || isDirectMessage
+      ? { askUserContext: createAskUserContext(input) }
+      : {}),
     ...(isLocalRunTrigger ? { todoContext: createTodoContext(input) } : {}),
     ...(deps.sentinelContext ? { sentinelContext: deps.sentinelContext } : {}),
     ...(canUseDelegateTask
