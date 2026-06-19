@@ -655,6 +655,7 @@ const COMMANDS: Record<string, CommandDef<unknown>> = {
 
   '/mode': {
     description: 'Switch this owner DM conversation mode (auto/explore/plan/chat)',
+    discardPendingBatch: true,
     ownerOnly: true,
     handler: handleModeCommand
   },

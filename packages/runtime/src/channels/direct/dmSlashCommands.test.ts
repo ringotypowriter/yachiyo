@@ -629,6 +629,14 @@ describe('handleDmSlashCommand', () => {
       assert.equal(sent.length, 1)
       assert.match(sent[0], /Unknown command: \/mode/)
     })
+
+    it('discards pending batches for owner mode switches only', () => {
+      assert.equal(
+        shouldDiscardPendingBatchForDmCommand('/mode', createChannelUser({ role: 'owner' })),
+        true
+      )
+      assert.equal(shouldDiscardPendingBatchForDmCommand('/mode', createChannelUser()), false)
+    })
   })
 
   describe('/takeover', () => {
