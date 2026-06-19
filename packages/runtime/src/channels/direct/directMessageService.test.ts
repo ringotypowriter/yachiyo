@@ -9,6 +9,7 @@ import type {
   ChatAcceptedWithUserMessage,
   MessageDeltaEvent,
   MessageRecord,
+  RunCancelledEvent,
   RunCompletedEvent,
   ThreadModelOverride,
   ThreadRecord,
@@ -23,7 +24,8 @@ import {
   createDirectMessageService,
   resolveChannelToolPreset,
   resolveDirectMessageThread,
-  type DirectMessageServer
+  type DirectMessageServer,
+  type DirectMessageServiceOptions
 } from './directMessageService.ts'
 
 function createChannelUser(): ChannelUserRecord {
@@ -1502,5 +1504,146 @@ describe('directMessageService askUser bridge', () => {
     await delay(30)
 
     assert.deepEqual(answers, [{ runId: 'run-1', toolCallId: 'tc-1', answer: 'Beta' }])
+  })
+
+  type SlashHandler = NonNullable<DirectMessageServiceOptions<string>['handleSlashCommand']>
+
+  function setupPausingRun(handleSlashCommand: SlashHandler): {
+    channelUser: ChannelUserRecord
+    directMessages: ReturnType<typeof createDirectMessageService<string>>
+    sentMessages: string[]
+    answers: Array<{ runId: string; toolCallId: string; answer: string }>
+    emit: (event: YachiyoServerEvent) => void
+  } {
+    const channelUser = createChannelUser()
+    const thread = createThread('thread-ask')
+    const sentMessages: string[] = []
+    const answers: Array<{ runId: string; toolCallId: string; answer: string }> = []
+    const listeners = new Set<(event: YachiyoServerEvent) => void>()
+    const emit = (event: YachiyoServerEvent): void => {
+      for (const listener of [...listeners]) listener(event)
+    }
+    const askEvent: ToolCallUpdatedEvent = {
+      type: 'tool.updated',
+      eventId: 'evt-ask',
+      timestamp: '2026-06-20T00:00:01.000Z',
+      threadId: thread.id,
+      runId: 'run-1',
+      toolCall: {
+        id: 'tc-1',
+        runId: 'run-1',
+        threadId: thread.id,
+        toolName: 'askUser',
+        status: 'waiting-for-user',
+        inputSummary: 'What path?',
+        startedAt: '2026-06-20T00:00:01.000Z',
+        details: { kind: 'askUser', question: 'What path?' }
+      }
+    }
+    const runCompleted: RunCompletedEvent = {
+      type: 'run.completed',
+      eventId: 'evt-done',
+      timestamp: '2026-06-20T00:00:03.000Z',
+      threadId: thread.id,
+      runId: 'run-1'
+    }
+    const server: DirectMessageServer = {
+      subscribe(listener: (event: YachiyoServerEvent) => void): () => void {
+        listeners.add(listener)
+        return () => listeners.delete(listener)
+      },
+      async sendChat(): Promise<ChatAcceptedWithUserMessage> {
+        setTimeout(() => emit(askEvent), 5)
+        return {
+          kind: 'run-started',
+          thread,
+          runId: 'run-1',
+          userMessage: createUserMessage(thread.id)
+        }
+      },
+      getThreadTotalTokens: () => 0,
+      findActiveChannelThread: () => undefined,
+      async setThreadModelOverride(): Promise<ThreadRecord> {
+        assert.fail('setThreadModelOverride should not be called')
+      },
+      cancelRunForThread: () => false,
+      cancelRunForChannelUser: () => false,
+      answerToolQuestion(input: { runId: string; toolCallId: string; answer: string }): void {
+        answers.push(input)
+        setTimeout(() => emit(runCompleted), 0)
+      },
+      updateChannelUser: (input: { id: string; usedKTokens: number }): ChannelUserRecord => ({
+        ...channelUser,
+        usedKTokens: input.usedKTokens
+      }),
+      updateLatestAssistantVisibleReply: () => {},
+      getTtlReaper: () => ({ register: () => {} })
+    }
+    const directMessages = createDirectMessageService<string>({
+      logLabel: 'telegram',
+      server,
+      policy: telegramPolicy,
+      replyDelayMs: () => 0,
+      resolveThread: async () => ({ thread, usageBaselineKTokens: 0 }),
+      sendMessage: async (_chatId: string, text: string) => {
+        sentMessages.push(text)
+      },
+      startBatchIndicator: () => undefined,
+      startHandlingIndicator: () => undefined,
+      nonRunReply: 'non-run',
+      errorReply: 'error',
+      handleSlashCommand
+    })
+    return { channelUser, directMessages, sentMessages, answers, emit }
+  }
+
+  it('routes a slash-prefixed reply to the pending question, not slash handling', async () => {
+    const slashCalls: string[] = []
+    const { channelUser, directMessages, sentMessages, answers } = setupPausingRun(
+      async (_target, _channelUser, command) => {
+        slashCalls.push(command)
+        return true
+      }
+    )
+
+    directMessages.enqueueMessage('chat-1', channelUser, 'start')
+    await delay(30)
+    assert.ok(sentMessages.some((m) => m.includes('What path?')))
+
+    // A path-like reply must answer the question, not be parsed as a command.
+    directMessages.enqueueMessage('chat-1', channelUser, '/tmp/foo')
+    await delay(30)
+
+    assert.deepEqual(answers, [{ runId: 'run-1', toolCallId: 'tc-1', answer: '/tmp/foo' }])
+    assert.deepEqual(slashCalls, [], 'a path-like reply must not reach slash handling')
+  })
+
+  it('lets /stop abort a pending question instead of answering it', async () => {
+    const slashCalls: string[] = []
+    let emit: ((event: YachiyoServerEvent) => void) | null = null
+    const runCancelled: RunCancelledEvent = {
+      type: 'run.cancelled',
+      eventId: 'evt-cancel',
+      timestamp: '2026-06-20T00:00:04.000Z',
+      threadId: 'thread-ask',
+      runId: 'run-1'
+    }
+    const harness = setupPausingRun(async (_target, _channelUser, command) => {
+      slashCalls.push(command)
+      if (command === '/stop') setTimeout(() => emit?.(runCancelled), 0) // simulate cancellation
+      return true
+    })
+    emit = harness.emit
+    const { channelUser, directMessages, sentMessages, answers } = harness
+
+    directMessages.enqueueMessage('chat-1', channelUser, 'start')
+    await delay(30)
+    assert.ok(sentMessages.some((m) => m.includes('What path?')))
+
+    directMessages.enqueueMessage('chat-1', channelUser, '/stop')
+    await delay(30)
+
+    assert.deepEqual(slashCalls, ['/stop'], '/stop must reach slash handling')
+    assert.deepEqual(answers, [], '/stop must not answer the pending question')
   })
 })

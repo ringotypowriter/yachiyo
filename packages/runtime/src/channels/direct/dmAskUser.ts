@@ -24,6 +24,8 @@ export interface DmAskUserStore {
   get(channelUserId: string): DmAskUserPending | null
   set(channelUserId: string, pending: DmAskUserPending, onExpire?: () => void | Promise<void>): void
   delete(channelUserId: string): void
+  /** Clear every parked question and its timer (e.g. on channel shutdown). */
+  clear(): void
 }
 
 export interface DmAskUserStoreOptions {
@@ -40,6 +42,9 @@ export const DM_ASK_USER_TIMEOUT_ANSWER =
 
 /** Notice sent to the DM when a question times out without an answer. */
 export const DM_ASK_USER_TIMEOUT_NOTICE = 'No response — continuing without an answer.'
+
+/** Answer fed to an earlier question when a newer one supersedes it before a reply. */
+export const DM_ASK_USER_SUPERSEDED_ANSWER = '(Superseded by a newer question; disregard.)'
 
 function toPending(entry: DmAskUserEntry): DmAskUserPending {
   return {
@@ -89,6 +94,12 @@ export function createDmAskUserStore(options: DmAskUserStoreOptions = {}): DmAsk
     },
     delete(channelUserId) {
       remove(channelUserId)
+    },
+    clear() {
+      for (const entry of entries.values()) {
+        clearTimeout(entry.timeout)
+      }
+      entries.clear()
     }
   }
 }
@@ -169,6 +180,18 @@ export function watchDmAskUserQuestions(options: WatchDmAskUserQuestionsOptions)
       return
     }
     delivered.add(toolCall.id)
+
+    // If a different question is still parked (e.g. the model asked two at once),
+    // resolve it so its tool unblocks instead of hanging — the user can only
+    // answer the newest one. `store.set` below clears the old timer.
+    const existing = options.store.get(options.channelUserId)
+    if (existing && existing.toolCallId !== toolCall.id) {
+      options.answerToolQuestion({
+        runId: existing.runId,
+        toolCallId: existing.toolCallId,
+        answer: DM_ASK_USER_SUPERSEDED_ANSWER
+      })
+    }
 
     const pending: DmAskUserPending = {
       threadId: options.threadId,

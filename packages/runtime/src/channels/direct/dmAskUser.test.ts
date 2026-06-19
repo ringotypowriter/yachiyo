@@ -14,6 +14,7 @@ import {
   watchDmAskUserQuestions,
   DM_ASK_USER_TIMEOUT_ANSWER,
   DM_ASK_USER_TIMEOUT_NOTICE,
+  DM_ASK_USER_SUPERSEDED_ANSWER,
   type DmAskUserPending
 } from './dmAskUser.ts'
 
@@ -137,6 +138,24 @@ describe('createDmAskUserStore', () => {
     await delay(50)
     assert.equal(expired, false)
   })
+
+  it('clear() drops every entry and its timer', async () => {
+    const store = createDmAskUserStore({ ttlMs: 10 })
+    let expiredA = false
+    let expiredB = false
+    store.set('a', { threadId: 't', runId: 'r', toolCallId: 'tca' }, () => {
+      expiredA = true
+    })
+    store.set('b', { threadId: 't', runId: 'r', toolCallId: 'tcb' }, () => {
+      expiredB = true
+    })
+    store.clear()
+    assert.equal(store.get('a'), null)
+    assert.equal(store.get('b'), null)
+    await delay(30)
+    assert.equal(expiredA, false)
+    assert.equal(expiredB, false)
+  })
 })
 
 describe('watchDmAskUserQuestions', () => {
@@ -222,6 +241,24 @@ describe('watchDmAskUserQuestions', () => {
     ])
     assert.deepEqual(notices, [DM_ASK_USER_TIMEOUT_NOTICE])
     assert.equal(store.get('u1'), null)
+    stop()
+  })
+
+  it('resolves an earlier pending question when a newer one supersedes it', async () => {
+    const { emitter, store, answers, questions, stop } = setup()
+    emitter.emit(
+      toolUpdated(askUserToolCall({ id: 'tc-1', details: { kind: 'askUser', question: 'Q1' } }))
+    )
+    emitter.emit(
+      toolUpdated(askUserToolCall({ id: 'tc-2', details: { kind: 'askUser', question: 'Q2' } }))
+    )
+    await delay(0)
+    assert.deepEqual(answers, [
+      { runId: 'run-1', toolCallId: 'tc-1', answer: DM_ASK_USER_SUPERSEDED_ANSWER }
+    ])
+    assert.equal(store.get('u1')?.toolCallId, 'tc-2')
+    assert.equal(questions.length, 2)
+    store.delete('u1')
     stop()
   })
 

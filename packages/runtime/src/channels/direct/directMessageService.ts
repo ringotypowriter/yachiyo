@@ -1046,31 +1046,37 @@ export function createDirectMessageService<TTarget>(
       attachmentDownloads: Promise<DirectMessageInboundAttachment | null>[] = []
     ): void {
       const trimmed = text.trim()
-      if (
+      const slashCommand =
         options.handleSlashCommand &&
         attachmentDownloads.length === 0 &&
         !trimmed.includes('\n') &&
         trimmed.startsWith('/')
-      ) {
-        const spaceIdx = trimmed.indexOf(' ')
-        const command = spaceIdx === -1 ? trimmed : trimmed.slice(0, spaceIdx)
-        const args = spaceIdx === -1 ? '' : trimmed.slice(spaceIdx + 1).trim()
+          ? trimmed.indexOf(' ') === -1
+            ? trimmed
+            : trimmed.slice(0, trimmed.indexOf(' '))
+          : null
 
-        handleCommandMessage(target, channelUser, command, args, text, attachmentDownloads)
-        return
-      }
-
-      // If a run for this user is paused on an askUser question, this message is
-      // the answer — resolve the waiting tool instead of starting a new run.
+      // A run paused on an askUser question captures the user's reply — even a
+      // slash-prefixed value like a path — except explicit run-cancellation
+      // commands (/stop, /new), which still abort the run.
       const askUserPending =
         attachmentDownloads.length === 0 ? askUserStore.get(channelUser.id) : null
-      if (askUserPending) {
+      const isAskAbortCommand = slashCommand === '/stop' || slashCommand === '/new'
+      if (askUserPending && !isAskAbortCommand) {
         askUserStore.delete(channelUser.id)
         options.server.answerToolQuestion({
           runId: askUserPending.runId,
           toolCallId: askUserPending.toolCallId,
           answer: resolveAskUserAnswer(askUserPending, text)
         })
+        return
+      }
+
+      if (slashCommand) {
+        const spaceIdx = trimmed.indexOf(' ')
+        const args = spaceIdx === -1 ? '' : trimmed.slice(spaceIdx + 1).trim()
+
+        handleCommandMessage(target, channelUser, slashCommand, args, text, attachmentDownloads)
         return
       }
 
@@ -1094,6 +1100,7 @@ export function createDirectMessageService<TTarget>(
     },
 
     stop(): void {
+      askUserStore.clear()
       for (const [userId, batch] of pendingBatches) {
         clearTimeout(batch.timer)
         batch.stopBatchIndicator()
