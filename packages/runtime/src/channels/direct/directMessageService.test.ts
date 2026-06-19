@@ -14,11 +14,13 @@ import type {
   ThreadRecord,
   YachiyoServerEvent
 } from '@yachiyo/shared/protocol'
+import { resolveRunModeEnabledTools } from '@yachiyo/shared/toolModes'
 import { telegramPolicy } from '../shared/channelPolicy.ts'
 import type { ChannelReplyAttachment } from '../shared/channelReply.ts'
 import {
   collectDirectMessageRunOutput,
   createDirectMessageService,
+  resolveChannelToolPreset,
   resolveDirectMessageThread,
   type DirectMessageServer
 } from './directMessageService.ts'
@@ -1342,5 +1344,41 @@ describe('directMessageService', () => {
 
     assert.deepEqual(sentMessages, ['Same outbound.'])
     assert.deepEqual(visibleReplies, ['Same outbound.'])
+  })
+})
+
+describe('resolveChannelToolPreset', () => {
+  const policyTools = telegramPolicy.allowedTools
+  const owner = (): ChannelUserRecord => ({ ...createChannelUser(), role: 'owner' })
+
+  it('keeps guests on the channel policy sandbox regardless of thread mode', () => {
+    const guest = createChannelUser() // role: 'guest'
+    const thread = createThread('t', { runMode: 'auto' })
+    assert.deepEqual(resolveChannelToolPreset(guest, thread, policyTools), policyTools)
+  })
+
+  it('uses the policy sandbox for owner threads with no explicit mode', () => {
+    const thread = createThread('t')
+    assert.deepEqual(resolveChannelToolPreset(owner(), thread, policyTools), policyTools)
+  })
+
+  it('resolves owner thread tools from the selected mode', () => {
+    assert.deepEqual(
+      resolveChannelToolPreset(owner(), createThread('t', { runMode: 'auto' }), policyTools),
+      resolveRunModeEnabledTools('auto')
+    )
+    assert.deepEqual(
+      resolveChannelToolPreset(owner(), createThread('t', { runMode: 'plan' }), policyTools),
+      resolveRunModeEnabledTools('plan')
+    )
+    assert.deepEqual(
+      resolveChannelToolPreset(owner(), createThread('t', { runMode: 'chat' }), policyTools),
+      []
+    )
+  })
+
+  it('falls back to the policy sandbox for a custom owner mode', () => {
+    const thread = createThread('t', { runMode: 'custom' })
+    assert.deepEqual(resolveChannelToolPreset(owner(), thread, policyTools), policyTools)
   })
 })

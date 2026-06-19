@@ -781,6 +781,9 @@ describe('directMessageService', () => {
               getThreadWorkspaceChangeBlocker: () => null,
               updateThreadWorkspace: async () => {
                 throw new Error('updateThreadWorkspace should not be called')
+              },
+              setThreadToolMode: async () => {
+                throw new Error('setThreadToolMode should not be called')
               }
             },
             threadReuseWindowMs: telegramPolicy.threadReuseWindowMs,
@@ -871,6 +874,9 @@ describe('directMessageService', () => {
               getThreadWorkspaceChangeBlocker: () => null,
               updateThreadWorkspace: async () => {
                 throw new Error('updateThreadWorkspace should not be called')
+              },
+              setThreadToolMode: async () => {
+                throw new Error('setThreadToolMode should not be called')
               }
             },
             threadReuseWindowMs: telegramPolicy.threadReuseWindowMs,

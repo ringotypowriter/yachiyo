@@ -15,6 +15,7 @@ import type {
   UpdateChannelUserInput,
   YachiyoServerEvent
 } from '@yachiyo/shared/protocol'
+import { resolveRunModeEnabledTools } from '@yachiyo/shared/toolModes'
 import {
   classifyChannelReplyAttachmentDelivery,
   createChannelReplyTool,
@@ -53,6 +54,26 @@ function toKTokens(totalTokens: number): number {
     return 0
   }
   return Math.ceil(totalTokens / 1000)
+}
+
+/**
+ * Owner DMs may switch their conversation mode via `/mode`, so an owner thread's
+ * tools come from its `runMode`. Guests (and owner threads with no explicit mode)
+ * stay on the channel policy's read-only sandbox.
+ */
+export function resolveChannelToolPreset(
+  channelUser: ChannelUserRecord,
+  thread: ThreadRecord,
+  policyAllowedTools: ToolCallName[]
+): ToolCallName[] {
+  if (channelUser.role !== 'owner') {
+    return policyAllowedTools
+  }
+  const mode = thread.runMode
+  if (mode === 'auto' || mode === 'explore' || mode === 'plan' || mode === 'chat') {
+    return resolveRunModeEnabledTools(mode)
+  }
+  return policyAllowedTools
 }
 
 export interface DirectMessageServer {
@@ -782,7 +803,7 @@ export function createDirectMessageService<TTarget>(
         content: text,
         images: images.length > 0 ? images : undefined,
         attachments: attachments.length > 0 ? attachments : undefined,
-        toolPreset: options.policy.allowedTools,
+        toolPreset: resolveChannelToolPreset(channelUser, thread, options.policy.allowedTools),
         runTrigger: 'channel',
         channelHint: userLabelHint + options.policy.replyInstruction,
         extraTools: { reply: replyTool }

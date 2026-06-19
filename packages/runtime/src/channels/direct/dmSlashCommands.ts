@@ -1,6 +1,18 @@
 import { basename } from 'node:path'
 
-import type { ChannelUserRecord, SettingsConfig, ThreadRecord } from '@yachiyo/shared/protocol'
+import type {
+  ChannelUserRecord,
+  RunModeId,
+  SelectableRunModeId,
+  SettingsConfig,
+  ThreadRecord,
+  ToolCallName
+} from '@yachiyo/shared/protocol'
+import {
+  RUN_MODE_DEFINITIONS,
+  SELECTABLE_RUN_MODE_IDS,
+  resolveRunModeEnabledTools
+} from '@yachiyo/shared/toolModes'
 import type { DirectMessageServer } from './directMessageService.ts'
 
 export type DmSlashCommandServer = Pick<
@@ -21,6 +33,11 @@ export type DmSlashCommandServer = Pick<
     threadId: string
     workspacePath?: string | null
     confirmed?: boolean
+  }): Promise<ThreadRecord>
+  setThreadToolMode(input: {
+    threadId: string
+    enabledTools: ToolCallName[]
+    runMode?: RunModeId
   }): Promise<ThreadRecord>
 }
 
@@ -473,6 +490,85 @@ async function handleTakeoverCommand<TTarget>(
   )
 }
 
+// Channel runs with no explicit mode resolve to the read-only sandbox, which mirrors
+// Explore's tool set — so that is the baseline we report as the current mode.
+const DEFAULT_CHANNEL_MODE: SelectableRunModeId = 'explore'
+
+function isSelectableMode(value: unknown): value is SelectableRunModeId {
+  return SELECTABLE_RUN_MODE_IDS.includes(value as SelectableRunModeId)
+}
+
+function formatModeList(currentMode: SelectableRunModeId): string {
+  const current = RUN_MODE_DEFINITIONS[currentMode]
+  const lines = [
+    `Current mode: ${current.shortLabel} — ${current.description}`,
+    '',
+    'Available modes:',
+    ''
+  ]
+  for (const modeId of SELECTABLE_RUN_MODE_IDS) {
+    const def = RUN_MODE_DEFINITIONS[modeId]
+    const marker = modeId === currentMode ? ' (current)' : ''
+    lines.push(`${modeId}${marker} — ${def.description}`)
+  }
+  lines.push('', 'Send /mode <name> to switch.')
+  return lines.join('\n')
+}
+
+async function handleModeCommand<TTarget>(
+  options: DmSlashCommandOptions<TTarget>,
+  target: TTarget,
+  channelUser: ChannelUserRecord,
+  args: string,
+  context: { batchDiscarded: boolean }
+): Promise<void> {
+  const notice = formatDiscardNotice(context.batchDiscarded)
+  const requested = args.trim().toLowerCase()
+
+  const currentThread = options.server.findActiveChannelThread(
+    channelUser.id,
+    options.threadReuseWindowMs
+  )
+  const currentMode = isSelectableMode(currentThread?.runMode)
+    ? currentThread.runMode
+    : DEFAULT_CHANNEL_MODE
+
+  if (!requested) {
+    await options.sendMessage(target, `${notice}${formatModeList(currentMode)}`)
+    return
+  }
+
+  if (!isSelectableMode(requested)) {
+    await options.sendMessage(
+      target,
+      `${notice}Unknown mode: ${requested}.\n\n${formatModeList(currentMode)}`
+    )
+    return
+  }
+
+  const thread = currentThread ?? (await options.createFreshThread(channelUser))
+
+  try {
+    await options.server.setThreadToolMode({
+      threadId: thread.id,
+      enabledTools: resolveRunModeEnabledTools(requested),
+      runMode: requested
+    })
+  } catch (error) {
+    await options.sendMessage(
+      target,
+      error instanceof Error ? error.message : 'Failed to switch mode.'
+    )
+    return
+  }
+
+  const def = RUN_MODE_DEFINITIONS[requested]
+  await options.sendMessage(
+    target,
+    `${notice}Mode switched to ${def.shortLabel}.\n\n${def.description}`
+  )
+}
+
 // Commands are declared here. /help is auto-generated from this map.
 const COMMANDS: Record<string, CommandDef<unknown>> = {
   '/new': {
@@ -555,6 +651,12 @@ const COMMANDS: Record<string, CommandDef<unknown>> = {
     discardPendingBatch: true,
     ownerOnly: true,
     handler: handleTakeoverCommand
+  },
+
+  '/mode': {
+    description: 'Switch this owner DM conversation mode (auto/explore/plan/chat)',
+    ownerOnly: true,
+    handler: handleModeCommand
   },
 
   '/help': {
