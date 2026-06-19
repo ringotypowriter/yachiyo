@@ -13,7 +13,7 @@ const DB_FILE: &str = "yachiyo.sqlite";
 const SETTINGS_FILE: &str = "config.toml";
 const FORMAT_VERSION: u32 = 1;
 const META_UNIVERSE: &str = "universe_id";
-const META_EXPORT_FINGERPRINT: &str = "export_fingerprint";
+const META_SETTINGS_HASH: &str = "settings_export_hash";
 
 #[derive(Debug)]
 pub enum SyncError {
@@ -212,7 +212,87 @@ fn open_db(home: &Path) -> Result<Connection, SyncError> {
          CREATE TABLE IF NOT EXISTS sync_conflicts (id TEXT PRIMARY KEY, op_id TEXT NOT NULL, device_id TEXT NOT NULL, entity_type TEXT NOT NULL, entity_id TEXT NOT NULL, local_hash TEXT NOT NULL, remote_hash TEXT NOT NULL, payload_json TEXT NOT NULL, created_at TEXT NOT NULL, resolved_at TEXT, resolution TEXT);
          CREATE TABLE IF NOT EXISTS sync_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);"
     )?;
+    ensure_change_tracking(&conn)?;
     Ok(conn)
+}
+
+/// Install incremental change capture: a `sync_dirty` queue plus AFTER INSERT/UPDATE
+/// triggers on each synced table that enqueue the touched row. The `WHEN` guards skip
+/// rows belonging to imported (read-only) synced archives, so applying remote ops never
+/// echoes back into the export queue. Triggers fire for every connection (app + sync-core),
+/// so this captures the app's writes without touching app code. Idempotent.
+fn ensure_change_tracking(conn: &Connection) -> Result<(), SyncError> {
+    // `seq` is a monotonic cursor: export deletes only rows it has already emitted
+    // (seq <= high-water mark), so a concurrent re-dirty during export survives.
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS sync_dirty (
+            seq INTEGER PRIMARY KEY AUTOINCREMENT,
+            entity_type TEXT NOT NULL,
+            entity_id TEXT NOT NULL,
+            UNIQUE (entity_type, entity_id)
+        );",
+    )?;
+    if table_exists(conn, "threads")? {
+        conn.execute_batch(
+            "CREATE TRIGGER IF NOT EXISTS sync_dirty_threads_ai AFTER INSERT ON threads
+             WHEN NEW.sync_origin_device_id IS NULL
+             BEGIN INSERT OR REPLACE INTO sync_dirty (entity_type, entity_id) VALUES ('thread', NEW.id); END;
+             CREATE TRIGGER IF NOT EXISTS sync_dirty_threads_au AFTER UPDATE ON threads
+             WHEN NEW.sync_origin_device_id IS NULL
+             BEGIN INSERT OR REPLACE INTO sync_dirty (entity_type, entity_id) VALUES ('thread', NEW.id); END;",
+        )?;
+    }
+    if table_exists(conn, "messages")? {
+        conn.execute_batch(
+            "CREATE TRIGGER IF NOT EXISTS sync_dirty_messages_ai AFTER INSERT ON messages
+             WHEN (SELECT sync_origin_device_id FROM threads WHERE id = NEW.thread_id) IS NULL
+             BEGIN INSERT OR REPLACE INTO sync_dirty (entity_type, entity_id) VALUES ('message', NEW.id); END;
+             CREATE TRIGGER IF NOT EXISTS sync_dirty_messages_au AFTER UPDATE ON messages
+             WHEN (SELECT sync_origin_device_id FROM threads WHERE id = NEW.thread_id) IS NULL
+             BEGIN INSERT OR REPLACE INTO sync_dirty (entity_type, entity_id) VALUES ('message', NEW.id); END;",
+        )?;
+    }
+    if table_exists(conn, "tool_calls")? {
+        conn.execute_batch(
+            "CREATE TRIGGER IF NOT EXISTS sync_dirty_tool_calls_ai AFTER INSERT ON tool_calls
+             WHEN (SELECT sync_origin_device_id FROM threads WHERE id = NEW.thread_id) IS NULL
+             BEGIN INSERT OR REPLACE INTO sync_dirty (entity_type, entity_id) VALUES ('toolcall', NEW.id); END;
+             CREATE TRIGGER IF NOT EXISTS sync_dirty_tool_calls_au AFTER UPDATE ON tool_calls
+             WHEN (SELECT sync_origin_device_id FROM threads WHERE id = NEW.thread_id) IS NULL
+             BEGIN INSERT OR REPLACE INTO sync_dirty (entity_type, entity_id) VALUES ('toolcall', NEW.id); END;",
+        )?;
+    }
+    Ok(())
+}
+
+/// Re-enqueue every local row. Used when there are no published ops files yet
+/// (first export, or the sync dir was wiped) so a fresh/recovering peer still
+/// receives the full archive before incremental deltas take over.
+fn backfill_dirty(conn: &Connection) -> Result<(), SyncError> {
+    if table_exists(conn, "threads")? {
+        conn.execute(
+            "INSERT OR IGNORE INTO sync_dirty (entity_type, entity_id)
+             SELECT 'thread', id FROM threads WHERE sync_origin_device_id IS NULL",
+            [],
+        )?;
+    }
+    if table_exists(conn, "messages")? {
+        conn.execute(
+            "INSERT OR IGNORE INTO sync_dirty (entity_type, entity_id)
+             SELECT 'message', m.id FROM messages m JOIN threads t ON t.id = m.thread_id
+             WHERE t.sync_origin_device_id IS NULL",
+            [],
+        )?;
+    }
+    if table_exists(conn, "tool_calls")? {
+        conn.execute(
+            "INSERT OR IGNORE INTO sync_dirty (entity_type, entity_id)
+             SELECT 'toolcall', tc.id FROM tool_calls tc JOIN threads t ON t.id = tc.thread_id
+             WHERE t.sync_origin_device_id IS NULL",
+            [],
+        )?;
+    }
+    Ok(())
 }
 
 fn get_meta(conn: &Connection, key: &str) -> Result<Option<String>, SyncError> {
@@ -406,30 +486,43 @@ pub fn export_ops(
     let label = get_device_label(&conn, &device_id)?;
     let exported_at = now();
     let seq = next_export_seq(&sync_dir, &device_id)?;
-    let mut ops = Vec::new();
-    if let Ok(text) = fs::read_to_string(settings_path(home)) {
-        let payload =
-            json!({ "text": text, "baseHash": hash_text(""), "contentHash": hash_text(&text) });
-        ops.push(make_op(
-            &device_id,
-            seq,
-            "settings.snapshot",
-            "settings",
-            "config.toml",
-            payload,
-        )?);
-    }
-    export_threads(&conn, &device_id, seq, &mut ops)?;
 
-    // Nothing changed since the last export — skip writing a fresh ops file so
-    // auto-sync doesn't accumulate identical snapshots (and re-trigger remote
-    // conflicts) on every cycle. seq isn't bumped, so the next real change reuses
-    // it. `seq > 1` means next_export_seq still found a published ops file: if this
-    // device's snapshot was wiped from the sync dir (seq == 1), republish anyway so
-    // other devices can recover, even when the local fingerprint is unchanged.
-    let fingerprint = export_fingerprint(&ops);
-    if seq > 1 && get_meta(&conn, META_EXPORT_FINGERPRINT)?.as_deref() == Some(fingerprint.as_str())
-    {
+    // No published ops files (first export, or the sync dir was wiped): re-enqueue
+    // every local row so a fresh/recovering peer gets the full archive. In steady
+    // state (seq > 1) we emit only what changed since the last export.
+    let full_resync = seq == 1;
+    if full_resync {
+        backfill_dirty(&conn)?;
+    }
+
+    let mut ops = Vec::new();
+    let settings_text = fs::read_to_string(settings_path(home)).ok();
+    let settings_hash = settings_text.as_deref().map(hash_text);
+    let settings_changed = match &settings_hash {
+        Some(hash) => {
+            full_resync || get_meta(&conn, META_SETTINGS_HASH)?.as_deref() != Some(hash.as_str())
+        }
+        None => false,
+    };
+    if settings_changed {
+        if let Some(text) = &settings_text {
+            let payload =
+                json!({ "text": text, "baseHash": hash_text(""), "contentHash": hash_text(text) });
+            ops.push(make_op(
+                &device_id,
+                seq,
+                "settings.snapshot",
+                "settings",
+                "config.toml",
+                payload,
+            )?);
+        }
+    }
+
+    let high_water = export_dirty_ops(&conn, &device_id, seq, &mut ops)?;
+
+    // Nothing changed since the last export — don't write an empty file or bump seq.
+    if ops.is_empty() {
         return output(
             home,
             &sync_dir,
@@ -462,7 +555,16 @@ pub fn export_ops(
         seq,
         Some(exported_at.clone()),
     )?;
-    set_meta(&conn, META_EXPORT_FINGERPRINT, &fingerprint)?;
+    // Clear only the rows we emitted; anything re-dirtied during export kept a
+    // higher seq and survives for the next cycle.
+    if let Some(high_water) = high_water {
+        conn.execute("DELETE FROM sync_dirty WHERE seq <= ?1", [high_water])?;
+    }
+    if settings_changed {
+        if let Some(hash) = &settings_hash {
+            set_meta(&conn, META_SETTINGS_HASH, hash)?;
+        }
+    }
     output(
         home,
         &sync_dir,
@@ -500,13 +602,61 @@ fn make_op(
 /// Content fingerprint of an export, independent of op_id / seq / timestamps, so
 /// an unchanged settings+threads snapshot yields the same value every time. Used
 /// to skip re-exporting identical data on every auto-sync cycle.
-fn export_fingerprint(ops: &[SyncOp]) -> String {
-    let mut parts: Vec<String> = ops
-        .iter()
-        .map(|op| format!("{}\u{0}{}\u{0}{}", op.kind, op.entity_id, op.payload_hash))
-        .collect();
-    parts.sort();
-    hash_text(&parts.join("\n"))
+/// Drain the dirty queue into upsert ops. Returns the highest `sync_dirty.seq`
+/// seen (the high-water mark the caller deletes up to), or None if the queue was
+/// empty. Rows that were deleted before export, or that belong to imported
+/// archives, are skipped but still cleared.
+fn export_dirty_ops(
+    conn: &Connection,
+    device_id: &str,
+    seq: i64,
+    ops: &mut Vec<SyncOp>,
+) -> Result<Option<i64>, SyncError> {
+    let mut stmt =
+        conn.prepare("SELECT seq, entity_type, entity_id FROM sync_dirty ORDER BY seq ASC")?;
+    let dirty: Vec<(i64, String, String)> = stmt
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?
+        .collect::<Result<_, _>>()?;
+    let mut high_water: Option<i64> = None;
+    for (dirty_seq, entity_type, entity_id) in dirty {
+        // Track every row we've seen so the caller clears it, even when skipped.
+        high_water = Some(high_water.map_or(dirty_seq, |m| m.max(dirty_seq)));
+        let (table, kind) = match entity_type.as_str() {
+            "thread" => ("threads", "thread.archive.upsert"),
+            "message" => ("messages", "message.archive.upsert"),
+            "toolcall" => ("tool_calls", "toolcall.archive.upsert"),
+            _ => continue,
+        };
+        if !table_exists(conn, table)? {
+            continue;
+        }
+        let Some(payload) = fetch_row_json(conn, table, &entity_id)? else {
+            continue; // deleted before export — v1 doesn't propagate deletions
+        };
+        // Defense in depth: never re-export an imported (read-only) archive even if
+        // one slipped into the queue past the trigger guards.
+        if entity_type == "thread"
+            && payload
+                .get("sync_origin_device_id")
+                .is_some_and(|v| !v.is_null())
+        {
+            continue;
+        }
+        ops.push(make_op(
+            device_id,
+            seq,
+            kind,
+            &entity_type,
+            &entity_id,
+            payload,
+        )?);
+    }
+    Ok(high_water)
+}
+
+fn fetch_row_json(conn: &Connection, table: &str, id: &str) -> Result<Option<Value>, SyncError> {
+    let sql = format!("SELECT * FROM {table} WHERE id = ?1");
+    Ok(conn.query_row(&sql, [id], row_to_json_object).optional()?)
 }
 
 fn next_export_seq(sync_dir: &Path, device_id: &str) -> Result<i64, SyncError> {
@@ -521,84 +671,6 @@ fn next_export_seq(sync_dir: &Path, device_id: &str) -> Result<i64, SyncError> {
         }
     }
     Ok(max_seq + 1)
-}
-
-fn export_threads(
-    conn: &Connection,
-    device_id: &str,
-    seq: i64,
-    ops: &mut Vec<SyncOp>,
-) -> Result<(), SyncError> {
-    let mut stmt = conn.prepare("SELECT * FROM threads WHERE sync_origin_device_id IS NULL")?;
-    let rows = stmt.query_map([], row_to_json_object)?;
-    let mut thread_ids = Vec::new();
-    for row in rows {
-        let payload = row?;
-        let id = payload
-            .get("id")
-            .and_then(Value::as_str)
-            .unwrap_or_default()
-            .to_string();
-        thread_ids.push(id.clone());
-        ops.push(make_op(
-            device_id,
-            seq,
-            "thread.archive.upsert",
-            "thread",
-            &id,
-            payload,
-        )?);
-    }
-    let mut message_stmt =
-        conn.prepare("SELECT * FROM messages WHERE thread_id = ?1 ORDER BY created_at ASC")?;
-    // Tool calls live in their own table; older schemas (and minimal test
-    // fixtures) may not have it, so only export when present.
-    let mut tool_call_stmt = if table_exists(conn, "tool_calls")? {
-        Some(conn.prepare("SELECT * FROM tool_calls WHERE thread_id = ?1 ORDER BY started_at ASC")?)
-    } else {
-        None
-    };
-    for thread_id in &thread_ids {
-        let messages = message_stmt.query_map([thread_id.as_str()], row_to_json_object)?;
-        for message in messages {
-            let payload = message?;
-            let id = payload
-                .get("id")
-                .and_then(Value::as_str)
-                .unwrap_or_default()
-                .to_string();
-            ops.push(make_op(
-                device_id,
-                seq,
-                "message.archive.upsert",
-                "message",
-                &id,
-                payload,
-            )?);
-        }
-        // Emit tool calls after their messages so the assistant/request rows the
-        // renderer binds them to are already applied within the same import.
-        if let Some(stmt) = tool_call_stmt.as_mut() {
-            let tool_calls = stmt.query_map([thread_id.as_str()], row_to_json_object)?;
-            for tool_call in tool_calls {
-                let payload = tool_call?;
-                let id = payload
-                    .get("id")
-                    .and_then(Value::as_str)
-                    .unwrap_or_default()
-                    .to_string();
-                ops.push(make_op(
-                    device_id,
-                    seq,
-                    "toolcall.archive.upsert",
-                    "toolcall",
-                    &id,
-                    payload,
-                )?);
-            }
-        }
-    }
-    Ok(())
 }
 
 fn sqlite_value(value: rusqlite::types::Value) -> Value {
@@ -1095,6 +1167,33 @@ mod tests {
         fs::write(path, content).unwrap();
     }
 
+    fn insert_message(home: &Path, message_id: &str, thread_id: &str) {
+        let conn = Connection::open(home.join(DB_FILE)).unwrap();
+        conn.execute(
+            "INSERT INTO messages (id, thread_id, body, created_at) VALUES (?1, ?2, ?3, ?4)",
+            params![message_id, thread_id, "hi", "2"],
+        )
+        .unwrap();
+    }
+
+    fn read_ops_file(sync_dir: &Path, device_id: &str, seq: i64) -> Vec<SyncOp> {
+        let path = device_dir(sync_dir, device_id)
+            .join("ops")
+            .join(format!("{seq:016}.jsonl"));
+        fs::read_to_string(path)
+            .unwrap()
+            .lines()
+            .filter(|line| !line.trim().is_empty())
+            .map(|line| serde_json::from_str(line).unwrap())
+            .collect()
+    }
+
+    fn count_dirty(home: &Path) -> i64 {
+        let conn = Connection::open(home.join(DB_FILE)).unwrap();
+        conn.query_row("SELECT COUNT(*) FROM sync_dirty", [], |r| r.get(0))
+            .unwrap()
+    }
+
     #[test]
     fn hash_is_stable() {
         assert_eq!(hash_text("hello"), hash_text("hello"));
@@ -1211,6 +1310,64 @@ mod tests {
             )
             .unwrap();
         assert_eq!(assistant_id.as_deref(), Some("m1"));
+    }
+
+    #[test]
+    fn incremental_export_emits_only_changed_rows() {
+        let sync = tempfile::tempdir().unwrap();
+        let home_a = setup_home("config-a");
+        seed_thread(home_a.path(), "t1", "m1");
+        init_sync(home_a.path(), Some(sync.path()), "A").unwrap();
+        let device = device_id_of(home_a.path());
+
+        // First export has no published files (seq 1), so it backfills the whole
+        // archive: settings + thread + message.
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        assert!(read_ops_file(sync.path(), &device, 1).len() >= 3);
+
+        // A new local message is captured by the AFTER INSERT trigger.
+        insert_message(home_a.path(), "m2", "t1");
+        assert_eq!(
+            count_dirty(home_a.path()),
+            1,
+            "trigger should enqueue the new row"
+        );
+
+        // The next export ships only that row — not the full snapshot — and drains
+        // the queue.
+        let out = export_ops(home_a.path(), Some(sync.path())).unwrap();
+        assert_eq!(out.exported_ops, 1);
+        let delta = read_ops_file(sync.path(), &device, 2);
+        assert_eq!(delta.len(), 1);
+        assert_eq!(delta[0].entity_id, "m2");
+        assert_eq!(
+            count_dirty(home_a.path()),
+            0,
+            "emitted rows must be cleared"
+        );
+
+        // With nothing left dirty, a further export writes no file at all.
+        let idle = export_ops(home_a.path(), Some(sync.path())).unwrap();
+        assert_eq!(idle.exported_ops, 0);
+        assert_eq!(count_op_files(sync.path(), &device), 2);
+    }
+
+    #[test]
+    fn imported_archive_is_not_requeued_for_reexport() {
+        let sync = tempfile::tempdir().unwrap();
+        let home_a = setup_home("config-a");
+        let home_b = setup_home("config-b");
+        seed_thread(home_a.path(), "t1", "m1");
+        init_sync(home_a.path(), Some(sync.path()), "A").unwrap();
+        init_sync(home_b.path(), Some(sync.path()), "B").unwrap();
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+
+        // The imported thread/message are read-only archives on B: the trigger
+        // WHEN guards keep them out of B's dirty queue, so B never echoes A's rows
+        // back into the sync dir.
+        assert_eq!(count_rows(home_b.path(), "threads"), 1);
+        assert_eq!(count_dirty(home_b.path()), 0);
     }
 
     #[test]
