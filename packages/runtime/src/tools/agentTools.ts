@@ -732,15 +732,29 @@ function disabledToolExecute<TOutput>(toolName: string): () => Promise<TOutput> 
     }) as unknown as TOutput
 }
 
+const TOOL_ENABLED_MARKER = Symbol.for('yachiyo.tool.enabled')
+
 function wrapToolEnabled<TInput, TOutput>(
   realTool: Tool<TInput, TOutput>,
   toolName: string,
   enabled: boolean
 ): Tool<TInput, TOutput> {
-  if (enabled) return realTool
+  if (enabled) {
+    return Object.assign(Object.create(null), realTool, {
+      [TOOL_ENABLED_MARKER]: true
+    }) as Tool<TInput, TOutput>
+  }
   return Object.assign(Object.create(null), realTool, {
-    execute: disabledToolExecute<TOutput>(toolName)
+    execute: disabledToolExecute<TOutput>(toolName),
+    [TOOL_ENABLED_MARKER]: false
   }) as Tool<TInput, TOutput>
+}
+
+export function resolveAvailableToolNamesFromToolSet(toolSet: ToolSet | undefined): string[] {
+  if (!toolSet) return []
+  return Object.entries(toolSet)
+    .filter(([, tool]) => (tool as Record<symbol, unknown>)[TOOL_ENABLED_MARKER] !== false)
+    .map(([toolName]) => toolName)
 }
 
 function wrapDisabledTool<TInput, TOutput>(
@@ -828,14 +842,6 @@ export function createAgentToolSet(
       )
     }
 
-    if (dependencies.sentinelContext && shouldRegisterTool('useSentinel')) {
-      tools.useSentinel = wrapDisabledTool(
-        createUseSentinelTool(dependencies.sentinelContext),
-        'useSentinel',
-        enabledTools
-      )
-    }
-
     // Service-gated tools: only registered when the backing service is available.
     // Service availability is stable within a session so omitting them doesn't
     // cause cache churn — unlike user toggles which the wrapDisabledTool handles.
@@ -864,19 +870,19 @@ export function createAgentToolSet(
   }
 
   // --- Runtime-managed tools: conditional registration (not user-toggled) ---
+  if (dependencies.sentinelContext && shouldRegisterTool('useSentinel')) {
+    tools.useSentinel = createUseSentinelTool(dependencies.sentinelContext)
+  }
+
   // Register skillsRead when explicitly enabled, or when any user tool is enabled
-  // for cache stability (wrapped as disabled when not explicitly enabled).
+  // for cache stability.
   if (
     dependencies.availableSkills &&
     (enabledTools.has('skillsRead') || (!registerOnlyEnabledToolSchemas && hasAnyUserTool))
   ) {
-    tools.skillsRead = wrapDisabledTool(
-      createSkillsReadTool(context, {
-        availableSkills: dependencies.availableSkills
-      }),
-      'skillsRead',
-      enabledTools
-    )
+    tools.skillsRead = createSkillsReadTool(context, {
+      availableSkills: dependencies.availableSkills
+    })
   }
 
   if (
@@ -901,11 +907,11 @@ export function createAgentToolSet(
   }
 
   if (dependencies.thingDomain && shouldRegisterTool('useThings')) {
-    tools.useThings = wrapDisabledTool(
-      createUseThingsTool(context, { thingDomain: dependencies.thingDomain }),
-      'useThings',
-      enabledTools
-    )
+    const useThingsTool = createUseThingsTool(context, { thingDomain: dependencies.thingDomain })
+    tools.useThings =
+      enabledTools.has('reviewThings') && !enabledTools.has('useThings')
+        ? wrapToolEnabled(useThingsTool, 'useThings', false)
+        : useThingsTool
   }
 
   if (

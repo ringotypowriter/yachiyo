@@ -40,7 +40,7 @@ export const RUN_MODE_DEFINITIONS: Record<SelectableRunModeId, RunModeDefinition
     id: 'auto',
     label: 'Auto Mode',
     shortLabel: 'Auto',
-    description: 'Full tool access — workspace, shell, search, and web.',
+    description: 'Use every enabled tool for coding, browsing, context, and automation.',
     enabledTools: DEFAULT_ENABLED_TOOL_NAMES,
     seasoningKey: 'auto',
     iconName: 'Zap'
@@ -49,7 +49,7 @@ export const RUN_MODE_DEFINITIONS: Record<SelectableRunModeId, RunModeDefinition
     id: 'explore',
     label: 'Explore Mode',
     shortLabel: 'Explore',
-    description: 'Read and search only. Nothing gets changed.',
+    description: 'Read and search files, web, and saved context. No workspace edits.',
     enabledTools: EXPLORE_MODE_TOOL_NAMES,
     seasoningKey: 'explore',
     iconName: 'Telescope'
@@ -58,7 +58,7 @@ export const RUN_MODE_DEFINITIONS: Record<SelectableRunModeId, RunModeDefinition
     id: 'plan',
     label: 'Plan Mode',
     shortLabel: 'Plan',
-    description: 'Draft a plan first. Accept to run it, or reject to revise.',
+    description: 'Draft a plan first, with read/search and plan-file access.',
     enabledTools: PLAN_MODE_TOOL_NAMES,
     seasoningKey: 'plan',
     iconName: 'Map'
@@ -67,7 +67,7 @@ export const RUN_MODE_DEFINITIONS: Record<SelectableRunModeId, RunModeDefinition
     id: 'chat',
     label: 'Chat Mode',
     shortLabel: 'Chat',
-    description: 'No tools. Replies from existing context only.',
+    description: 'Reply from the existing conversation and context.',
     enabledTools: [],
     seasoningKey: 'chat',
     iconName: 'MessageSquare'

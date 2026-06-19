@@ -37,7 +37,7 @@ export interface RunExecutionDepsContext {
   backgroundTaskRunContext: Map<string, BackgroundTaskRunContext>
   backgroundBashManager: BackgroundBashManager
   createSendChatFlowContext: () => SendChatFlowContext
-  setLastRunEnabledTools: (enabledTools: ToolCallName[]) => void
+  setLastRunEnabledTools: (enabledTools: string[]) => void
   setLastRunMode: (runMode: RunModeId) => void
   seamlessHandoffCoordinator?: SeamlessHandoffCoordinator
 }

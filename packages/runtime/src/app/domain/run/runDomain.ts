@@ -18,8 +18,7 @@ import type {
   ThreadRecord,
   ThreadUpdatedEvent,
   ToolCallUpdatedEvent,
-  ToolCallRecord,
-  ToolCallName
+  ToolCallRecord
 } from '@yachiyo/shared/protocol'
 import {
   DEFAULT_RUN_MODE_ID,
@@ -117,7 +116,7 @@ export class YachiyoServerRunDomain {
   private readonly memoryScheduler: MemoryDistillationScheduler
   private readonly seamlessHandoffCoordinator: SeamlessHandoffCoordinator
   private readonly readRecordCaches = new Map<string, ReadRecordCache>()
-  private lastRunEnabledTools: ToolCallName[] | null
+  private lastRunEnabledTools: string[] | null
   private lastRunMode: RunModeId | null
   private isClosing = false
 
@@ -725,7 +724,7 @@ export class YachiyoServerRunDomain {
           }
         )
 
-        previousEnabledTools = executionEnabledTools
+        previousEnabledTools = this.lastRunEnabledTools ?? executionEnabledTools
         previousRunMode = executionRunMode
         this.lastRunMode = previousRunMode
 
