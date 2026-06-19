@@ -13,7 +13,7 @@ import {
   SELECTABLE_RUN_MODE_IDS,
   resolveRunModeEnabledTools
 } from '@yachiyo/shared/toolModes'
-import type { DirectMessageServer } from './directMessageService.ts'
+import { OWNER_DEFAULT_CHANNEL_MODE, type DirectMessageServer } from './directMessageService.ts'
 
 export type DmSlashCommandServer = Pick<
   DirectMessageServer,
@@ -490,10 +490,6 @@ async function handleTakeoverCommand<TTarget>(
   )
 }
 
-// Channel runs with no explicit mode resolve to the read-only sandbox, which mirrors
-// Explore's tool set — so that is the baseline we report as the current mode.
-const DEFAULT_CHANNEL_MODE: SelectableRunModeId = 'explore'
-
 function isSelectableMode(value: unknown): value is SelectableRunModeId {
   return SELECTABLE_RUN_MODE_IDS.includes(value as SelectableRunModeId)
 }
@@ -531,7 +527,7 @@ async function handleModeCommand<TTarget>(
   )
   const currentMode = isSelectableMode(currentThread?.runMode)
     ? currentThread.runMode
-    : DEFAULT_CHANNEL_MODE
+    : OWNER_DEFAULT_CHANNEL_MODE
 
   if (!requested) {
     await options.sendMessage(target, `${notice}${formatModeList(currentMode)}`)

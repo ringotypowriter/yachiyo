@@ -467,7 +467,7 @@ describe('handleDmSlashCommand', () => {
   })
 
   describe('/mode', () => {
-    it('lists modes and marks the explore baseline as current when the thread has no mode', async () => {
+    it('lists modes and marks the auto default as current when the thread has no mode', async () => {
       const owner = createChannelUser({ role: 'owner' })
       const thread = createThread('thread-1')
       const sent: string[] = []
@@ -485,8 +485,8 @@ describe('handleDmSlashCommand', () => {
 
       assert.equal(handled, true)
       assert.equal(sent.length, 1)
-      assert.match(sent[0], /Current mode: Explore/)
-      assert.ok(sent[0].includes('explore (current)'))
+      assert.match(sent[0], /Current mode: Auto/)
+      assert.ok(sent[0].includes('auto (current)'))
       for (const modeId of ['auto', 'explore', 'plan', 'chat']) {
         assert.ok(sent[0].includes(modeId), `reply should list ${modeId}, got: ${sent[0]}`)
       }

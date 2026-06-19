@@ -7,6 +7,7 @@ import type {
   ChannelUserRecord,
   ChatAccepted,
   MessageImageRecord,
+  SelectableRunModeId,
   SendChatAttachment,
   SendChatInput,
   ThreadModelOverride,
@@ -57,9 +58,16 @@ function toKTokens(totalTokens: number): number {
 }
 
 /**
+ * The mode an owner DM thread runs as before the owner picks one with `/mode`.
+ * Owners are trusted (it's the user on their own phone), so the default matches
+ * the desktop default — full tools — rather than the read-only guest sandbox.
+ */
+export const OWNER_DEFAULT_CHANNEL_MODE: SelectableRunModeId = 'auto'
+
+/**
  * Owner DMs may switch their conversation mode via `/mode`, so an owner thread's
- * tools come from its `runMode`. Guests (and owner threads with no explicit mode)
- * stay on the channel policy's read-only sandbox.
+ * tools come from its `runMode` (defaulting to {@link OWNER_DEFAULT_CHANNEL_MODE}).
+ * Guests stay on the channel policy's read-only sandbox regardless of thread mode.
  */
 export function resolveChannelToolPreset(
   channelUser: ChannelUserRecord,
@@ -70,10 +78,11 @@ export function resolveChannelToolPreset(
     return policyAllowedTools
   }
   const mode = thread.runMode
-  if (mode === 'auto' || mode === 'explore' || mode === 'plan' || mode === 'chat') {
-    return resolveRunModeEnabledTools(mode)
-  }
-  return policyAllowedTools
+  const resolved =
+    mode === 'auto' || mode === 'explore' || mode === 'plan' || mode === 'chat'
+      ? mode
+      : OWNER_DEFAULT_CHANNEL_MODE
+  return resolveRunModeEnabledTools(resolved)
 }
 
 export interface DirectMessageServer {
