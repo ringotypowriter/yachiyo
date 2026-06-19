@@ -7,6 +7,7 @@ import type { SearchService } from '../../services/search/searchService.ts'
 import type { WebSearchService } from '../../services/webSearch/webSearchService.ts'
 
 import {
+  bashToolInputSchema,
   jsReplToolInputSchema,
   flattenToolContent,
   resolvePathWithinWorkspace,
@@ -142,16 +143,15 @@ function buildToolBindings(
   }
   if (isEnabled('bash')) {
     bindings.bash = async (input) => {
-      const parsed = input as { command?: unknown }
-      const command = typeof parsed?.command === 'string' ? parsed.command : ''
+      const parsed = bashToolInputSchema.parse(input)
       const rewritten =
         cwdRef.value !== context.workspacePath
           ? {
-              ...(input as Record<string, unknown>),
-              command: `cd ${singleQuote(cwdRef.value)} && ${command}`
+              ...parsed,
+              command: `cd ${singleQuote(cwdRef.value)} && ${parsed.command}`
             }
-          : input
-      return simplifyToolResult(await runBashTool(rewritten as never, context))
+          : parsed
+      return simplifyToolResult(await runBashTool(rewritten, context))
     }
   }
 
@@ -423,7 +423,7 @@ export function createTool(
       'Available tools: ' +
       "tools.read({ path }), tools.write({ path, content }), tools.edit({ mode: 'inline', path, oldText, newText }), " +
       "tools.edit({ mode: 'range', path, replaceLines: { start, end }, newText }), " +
-      'tools.bash({ command }), tools.grep({ pattern }), tools.glob({ pattern }).\n' +
+      'tools.bash({ command, description }), tools.grep({ pattern }), tools.glob({ pattern }).\n' +
       'Prefer jsRepl over individual tool calls for: ' +
       'batch file operations, looping over search results, programmatic code generation, ' +
       'data transformation pipelines, and any task that benefits from loops, conditionals, or variables.',

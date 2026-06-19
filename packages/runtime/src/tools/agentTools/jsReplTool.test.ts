@@ -554,7 +554,7 @@ return await fsp.readFile("output/copied/context.json", "utf8")`,
       mkdirSync(join(tempDir, 'nested'))
       const tool = createTrackedTool(makeContext({ workspacePath: tempDir }))
       const result = await execute(tool, {
-        code: '(async () => (await tools.bash({ command: "pwd" })).content)()',
+        code: '(async () => (await tools.bash({ command: "pwd", description: "Print working directory" })).content)()',
         cwd: 'nested'
       })
       assert.ok(
@@ -616,7 +616,7 @@ return await fsp.readFile("output/copied/context.json", "utf8")`,
   it('tools.bash runs a command and returns output', async () => {
     const tool = createTrackedTool(makeContext())
     const result = await execute(tool, {
-      code: 'const r = await tools.bash({ command: "echo hello-from-bash" }); return r.content'
+      code: 'const r = await tools.bash({ command: "echo hello-from-bash", description: "Print hello from bash" }); return r.content'
     })
     assert.ok(result.details.result?.includes('hello-from-bash'))
   })
