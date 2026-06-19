@@ -521,50 +521,47 @@ pub fn export_ops(
 
     let high_water = export_dirty_ops(&conn, &device_id, seq, &mut ops)?;
 
-    // Nothing changed since the last export — don't write an empty file or bump seq.
-    if ops.is_empty() {
-        return output(
-            home,
+    // Publish a delta file only when there's something to ship. An empty `ops`
+    // here means the queue held only skippable rows (deleted before export, or
+    // synced archives) — we still clear them below so create/delete churn can't
+    // accumulate.
+    let last_exported_at = if ops.is_empty() {
+        None
+    } else {
+        let content = ops
+            .iter()
+            .map(serde_json::to_string)
+            .collect::<Result<Vec<_>, _>>()?
+            .join("\n")
+            + "\n";
+        atomic_write(
+            &device_dir(&sync_dir, &device_id)
+                .join("ops")
+                .join(format!("{seq:016}.jsonl")),
+            &content,
+        )?;
+        write_manifest(
             &sync_dir,
-            Some(device_id),
-            "ready",
-            0,
-            0,
-            None,
-            None,
-            None,
-        );
-    }
+            &device_id,
+            &label,
+            seq,
+            Some(exported_at.clone()),
+        )?;
+        if settings_changed {
+            if let Some(hash) = &settings_hash {
+                set_meta(&conn, META_SETTINGS_HASH, hash)?;
+            }
+        }
+        Some(exported_at)
+    };
 
-    let content = ops
-        .iter()
-        .map(serde_json::to_string)
-        .collect::<Result<Vec<_>, _>>()?
-        .join("\n")
-        + "\n";
-    atomic_write(
-        &device_dir(&sync_dir, &device_id)
-            .join("ops")
-            .join(format!("{seq:016}.jsonl")),
-        &content,
-    )?;
-    write_manifest(
-        &sync_dir,
-        &device_id,
-        &label,
-        seq,
-        Some(exported_at.clone()),
-    )?;
-    // Clear only the rows we emitted; anything re-dirtied during export kept a
-    // higher seq and survives for the next cycle.
+    // Clear every dirty row we processed (emitted or skipped) up to the high-water
+    // mark — but only after any publish above succeeded, so a failed write is
+    // retried. Rows re-dirtied concurrently kept a higher seq and survive.
     if let Some(high_water) = high_water {
         conn.execute("DELETE FROM sync_dirty WHERE seq <= ?1", [high_water])?;
     }
-    if settings_changed {
-        if let Some(hash) = &settings_hash {
-            set_meta(&conn, META_SETTINGS_HASH, hash)?;
-        }
-    }
+
     output(
         home,
         &sync_dir,
@@ -572,7 +569,7 @@ pub fn export_ops(
         "ready",
         ops.len(),
         0,
-        Some(exported_at),
+        last_exported_at,
         None,
         None,
     )
@@ -1188,6 +1185,12 @@ mod tests {
             .collect()
     }
 
+    fn delete_message(home: &Path, message_id: &str) {
+        let conn = Connection::open(home.join(DB_FILE)).unwrap();
+        conn.execute("DELETE FROM messages WHERE id = ?1", params![message_id])
+            .unwrap();
+    }
+
     fn count_dirty(home: &Path) -> i64 {
         let conn = Connection::open(home.join(DB_FILE)).unwrap();
         conn.query_row("SELECT COUNT(*) FROM sync_dirty", [], |r| r.get(0))
@@ -1368,6 +1371,32 @@ mod tests {
         // back into the sync dir.
         assert_eq!(count_rows(home_b.path(), "threads"), 1);
         assert_eq!(count_dirty(home_b.path()), 0);
+    }
+
+    #[test]
+    fn dirty_entries_for_deleted_rows_are_cleared() {
+        let sync = tempfile::tempdir().unwrap();
+        let home_a = setup_home("config-a");
+        seed_thread(home_a.path(), "t1", "m1");
+        init_sync(home_a.path(), Some(sync.path()), "A").unwrap();
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        assert_eq!(count_dirty(home_a.path()), 0);
+
+        // Insert then delete a row before the next export: the trigger enqueued it,
+        // but it's gone by export time, so export emits nothing for it.
+        insert_message(home_a.path(), "m2", "t1");
+        delete_message(home_a.path(), "m2");
+        assert_eq!(count_dirty(home_a.path()), 1, "trigger enqueued the insert");
+
+        // The export ships no ops — but it must still drain the stale entry instead
+        // of rescanning it forever (create/delete churn must not accumulate).
+        let out = export_ops(home_a.path(), Some(sync.path())).unwrap();
+        assert_eq!(out.exported_ops, 0);
+        assert_eq!(
+            count_dirty(home_a.path()),
+            0,
+            "skipped rows must be cleared"
+        );
     }
 
     #[test]
