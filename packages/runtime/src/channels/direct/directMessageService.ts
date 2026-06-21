@@ -25,6 +25,7 @@ import {
 } from '../shared/channelReply.ts'
 import { createToolProgressReporter } from '../shared/channelToolProgressReporter.ts'
 import type { ChannelPolicy } from '../shared/channelPolicy.ts'
+import { createDmAskUserStore, resolveAskUserAnswer, watchDmAskUserQuestions } from './dmAskUser.ts'
 
 const REPLY_DELAY_MIN_MS = 3_000
 const REPLY_DELAY_MAX_MS = 8_000
@@ -99,6 +100,7 @@ export interface DirectMessageServer {
   }): Promise<ThreadRecord>
   cancelRunForThread(threadId: string): boolean
   cancelRunForChannelUser(channelUserId: string): boolean
+  answerToolQuestion(input: { runId: string; toolCallId: string; answer: string }): void
 }
 
 export interface DirectMessageThreadResolution {
@@ -697,6 +699,7 @@ export function createDirectMessageService<TTarget>(
   const pendingBatches = new Map<string, PendingBatch<TTarget>>()
   const userRunChain = new Map<string, Promise<void>>()
   const userStopControllers = new Map<string, AbortController>()
+  const askUserStore = createDmAskUserStore()
   const replyDelayMs = options.replyDelayMs ?? randomReplyDelay
 
   async function handleAllowedMessage(
@@ -843,6 +846,19 @@ export function createDirectMessageService<TTarget>(
         logLabel: options.logLabel
       })
 
+      const stopAskUserWatch = watchDmAskUserQuestions({
+        subscribe: (listener) => options.server.subscribe(listener),
+        store: askUserStore,
+        channelUserId: channelUser.id,
+        threadId: thread.id,
+        runId: accepted.runId,
+        // Route the question through the outbound queue so it lands after any
+        // preamble text the model emitted before pausing.
+        sendQuestion: (question) => queueOutboundTextMessage({ message: question }),
+        answerToolQuestion: (input) => options.server.answerToolQuestion(input),
+        sendTimeoutNotice: (notice) => options.sendMessage(target, notice)
+      })
+
       if ('userMessage' in accepted) {
         for (const img of accepted.userMessage.images ?? []) {
           if (img.workspacePath) {
@@ -856,6 +872,8 @@ export function createDirectMessageService<TTarget>(
         rawOutput = await outputCollection.promise
       } finally {
         progressReporter.stop()
+        stopAskUserWatch()
+        askUserStore.delete(channelUser.id)
       }
 
       if (rawOutput === null) {
@@ -1028,17 +1046,37 @@ export function createDirectMessageService<TTarget>(
       attachmentDownloads: Promise<DirectMessageInboundAttachment | null>[] = []
     ): void {
       const trimmed = text.trim()
-      if (
+      const slashCommand =
         options.handleSlashCommand &&
         attachmentDownloads.length === 0 &&
         !trimmed.includes('\n') &&
         trimmed.startsWith('/')
-      ) {
+          ? trimmed.indexOf(' ') === -1
+            ? trimmed
+            : trimmed.slice(0, trimmed.indexOf(' '))
+          : null
+
+      // A run paused on an askUser question captures the user's reply — even a
+      // slash-prefixed value like a path — except explicit run-cancellation
+      // commands (/stop, /new), which still abort the run.
+      const askUserPending =
+        attachmentDownloads.length === 0 ? askUserStore.get(channelUser.id) : null
+      const isAskAbortCommand = slashCommand === '/stop' || slashCommand === '/new'
+      if (askUserPending && !isAskAbortCommand) {
+        askUserStore.delete(channelUser.id)
+        options.server.answerToolQuestion({
+          runId: askUserPending.runId,
+          toolCallId: askUserPending.toolCallId,
+          answer: resolveAskUserAnswer(askUserPending, text)
+        })
+        return
+      }
+
+      if (slashCommand) {
         const spaceIdx = trimmed.indexOf(' ')
-        const command = spaceIdx === -1 ? trimmed : trimmed.slice(0, spaceIdx)
         const args = spaceIdx === -1 ? '' : trimmed.slice(spaceIdx + 1).trim()
 
-        handleCommandMessage(target, channelUser, command, args, text, attachmentDownloads)
+        handleCommandMessage(target, channelUser, slashCommand, args, text, attachmentDownloads)
         return
       }
 
@@ -1062,6 +1100,7 @@ export function createDirectMessageService<TTarget>(
     },
 
     stop(): void {
+      askUserStore.clear()
       for (const [userId, batch] of pendingBatches) {
         clearTimeout(batch.timer)
         batch.stopBatchIndicator()
@@ -1073,6 +1112,7 @@ export function createDirectMessageService<TTarget>(
     },
 
     requestStop(channelUserId: string): void {
+      askUserStore.delete(channelUserId)
       userStopControllers.get(channelUserId)?.abort()
     }
   }

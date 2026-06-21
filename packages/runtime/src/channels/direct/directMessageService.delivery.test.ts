@@ -103,6 +103,7 @@ describe('directMessageService', () => {
       },
       cancelRunForThread: () => false,
       cancelRunForChannelUser: () => false,
+      answerToolQuestion: () => {},
       updateChannelUser(input) {
         if (input.usedKTokens === undefined) {
           throw new Error('usedKTokens is required for this test')
@@ -153,6 +154,7 @@ describe('directMessageService', () => {
       },
       cancelRunForThread: () => false,
       cancelRunForChannelUser: () => false,
+      answerToolQuestion: () => {},
 
       updateChannelUser: (input) => ({ ...channelUser, usedKTokens: input.usedKTokens ?? 0 }),
       updateLatestAssistantVisibleReply: () => {},
@@ -221,6 +223,7 @@ describe('directMessageService', () => {
       },
       cancelRunForThread: () => false,
       cancelRunForChannelUser: () => false,
+      answerToolQuestion: () => {},
 
       updateChannelUser: (input) => ({ ...channelUser, usedKTokens: input.usedKTokens ?? 0 }),
       updateLatestAssistantVisibleReply: () => {},
@@ -286,6 +289,7 @@ describe('directMessageService', () => {
       },
       cancelRunForThread: () => false,
       cancelRunForChannelUser: () => false,
+      answerToolQuestion: () => {},
 
       updateChannelUser: (input) => ({ ...channelUser, usedKTokens: input.usedKTokens ?? 0 }),
       updateLatestAssistantVisibleReply: () => {},
@@ -361,6 +365,7 @@ describe('directMessageService', () => {
       },
       cancelRunForThread: () => false,
       cancelRunForChannelUser: () => false,
+      answerToolQuestion: () => {},
 
       updateChannelUser: (input) => ({ ...channelUser, usedKTokens: input.usedKTokens ?? 0 }),
       updateLatestAssistantVisibleReply: () => {},
@@ -432,6 +437,7 @@ describe('directMessageService', () => {
       },
       cancelRunForThread: () => false,
       cancelRunForChannelUser: () => false,
+      answerToolQuestion: () => {},
 
       updateChannelUser: (input) => ({ ...channelUser, usedKTokens: input.usedKTokens ?? 0 }),
       updateLatestAssistantVisibleReply: () => {},
@@ -503,6 +509,7 @@ describe('directMessageService', () => {
       },
       cancelRunForThread: () => false,
       cancelRunForChannelUser: () => false,
+      answerToolQuestion: () => {},
       updateChannelUser: (input) => ({ ...channelUser, usedKTokens: input.usedKTokens ?? 0 }),
       updateLatestAssistantVisibleReply: () => {},
       getTtlReaper: () => ({ register: () => {} })
@@ -573,6 +580,7 @@ describe('directMessageService', () => {
       },
       cancelRunForThread: () => false,
       cancelRunForChannelUser: () => false,
+      answerToolQuestion: () => {},
 
       updateChannelUser: (input) => ({ ...channelUser, usedKTokens: input.usedKTokens ?? 0 }),
       updateLatestAssistantVisibleReply: () => {},
@@ -625,6 +633,7 @@ describe('directMessageService', () => {
       },
       cancelRunForThread: () => false,
       cancelRunForChannelUser: () => false,
+      answerToolQuestion: () => {},
 
       updateChannelUser: (input) => ({ ...channelUser, usedKTokens: input.usedKTokens ?? 0 }),
       updateLatestAssistantVisibleReply: () => {},
@@ -692,6 +701,7 @@ describe('directMessageService', () => {
       },
       cancelRunForThread: () => false,
       cancelRunForChannelUser: () => false,
+      answerToolQuestion: () => {},
       updateChannelUser: (input) => ({ ...channelUser, usedKTokens: input.usedKTokens ?? 0 }),
       updateLatestAssistantVisibleReply: (input) => {
         visibleReplies.push(input.visibleReply)
@@ -745,6 +755,7 @@ describe('directMessageService', () => {
       },
       cancelRunForThread: () => false,
       cancelRunForChannelUser: () => false,
+      answerToolQuestion: () => {},
       updateChannelUser: (input) => ({ ...channelUser, usedKTokens: input.usedKTokens ?? 0 }),
       updateLatestAssistantVisibleReply: () => {},
       getTtlReaper: () => ({ register: () => {} })
@@ -841,6 +852,7 @@ describe('directMessageService', () => {
         if (userId === channelUser.id) cancelRunForChannelUserCalled = true
         return true
       },
+      answerToolQuestion: () => {},
       updateChannelUser: (input) => ({ ...channelUser, usedKTokens: input.usedKTokens ?? 0 }),
       updateLatestAssistantVisibleReply: () => {},
       getTtlReaper: () => ({ register: () => {} })
