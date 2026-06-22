@@ -2,6 +2,7 @@ use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
+use std::collections::HashSet;
 use std::env;
 use std::fmt;
 use std::fs::{self, File};
@@ -706,6 +707,17 @@ fn table_exists(conn: &Connection, table: &str) -> Result<bool, SyncError> {
         .is_some())
 }
 
+/// Columns that physically exist on the local table. Used to drop unknown keys
+/// from an incoming payload so a peer on a newer schema (extra columns) cannot
+/// brick import on an older peer — readers ignore fields they don't know.
+fn table_columns(conn: &Connection, table: &str) -> Result<HashSet<String>, SyncError> {
+    let mut stmt = conn.prepare(&format!("PRAGMA table_info({table})"))?;
+    let names = stmt
+        .query_map([], |row| row.get::<_, String>(1))?
+        .collect::<Result<HashSet<String>, _>>()?;
+    Ok(names)
+}
+
 pub fn import_ops(
     home: &Path,
     sync_dir_override: Option<&Path>,
@@ -909,8 +921,16 @@ fn insert_json_row(
     if exists.is_some() {
         return Ok(());
     }
+    // Only insert columns that physically exist on the local table. A peer on a
+    // newer schema may export extra columns (e.g. a future `model_id`); dropping
+    // them keeps import forward-compatible instead of failing the whole sync.
+    let local_columns = table_columns(conn, table)?;
     let mut columns: Vec<String> = object.keys().cloned().collect();
-    columns.retain(|name| name != "sync_origin_device_id" && name != "sync_imported_at");
+    columns.retain(|name| {
+        name != "sync_origin_device_id"
+            && name != "sync_imported_at"
+            && local_columns.contains(name)
+    });
     let mut values: Vec<Value> = columns
         .iter()
         .map(|name| object.get(name).cloned().unwrap_or(Value::Null))
@@ -1313,6 +1333,43 @@ mod tests {
             )
             .unwrap();
         assert_eq!(assistant_id.as_deref(), Some("m1"));
+    }
+
+    #[test]
+    fn import_drops_unknown_columns_from_newer_peer() {
+        // Peer A runs a newer schema whose tool_calls has an extra `model_id`
+        // column. Peer B does not. Import must drop the unknown column instead
+        // of failing with "table tool_calls has no column named model_id".
+        let sync = tempfile::tempdir().unwrap();
+        let home_a = setup_home("config-a");
+        let home_b = setup_home("config-b");
+        seed_thread(home_a.path(), "t1", "m1");
+        {
+            let conn = Connection::open(home_a.path().join(DB_FILE)).unwrap();
+            conn.execute("ALTER TABLE tool_calls ADD COLUMN model_id TEXT", [])
+                .unwrap();
+            conn.execute(
+                "INSERT INTO tool_calls (id, thread_id, assistant_message_id, tool_name, status, input_summary, started_at, model_id) VALUES ('tc1', 't1', 'm1', 'read', 'completed', 'README.md', '1', 'claude-opus-4-8')",
+                [],
+            )
+            .unwrap();
+        }
+        init_sync(home_a.path(), Some(sync.path()), "A").unwrap();
+        init_sync(home_b.path(), Some(sync.path()), "B").unwrap();
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+
+        assert_eq!(count_rows(home_b.path(), "tool_calls"), 1);
+        let conn = Connection::open(home_b.path().join(DB_FILE)).unwrap();
+        let tool_name: Option<String> = conn
+            .query_row(
+                "SELECT tool_name FROM tool_calls WHERE id = 'tc1'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(tool_name.as_deref(), Some("read"));
     }
 
     #[test]
