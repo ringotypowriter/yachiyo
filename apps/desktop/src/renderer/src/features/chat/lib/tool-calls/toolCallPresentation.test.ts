@@ -227,6 +227,46 @@ test('buildToolCallDetailsPresentation renders applyPatch output as diff from op
   })
 })
 
+test('buildToolCallDetailsPresentation renders edit output as diff from details', () => {
+  const presentation = buildToolCallDetailsPresentation({
+    ...BASE_TOOL_CALL,
+    toolName: 'edit',
+    rawOutput: {
+      type: 'content',
+      value: [{ type: 'text', text: 'Edited src/a.ts (1 replacement)' }]
+    },
+    details: {
+      path: 'src/a.ts',
+      mode: 'inline',
+      replacements: 1,
+      diff: '--- src/a.ts\n' + '+++ src/a.ts\n' + '@@ -1,1 +1,1 @@\n' + '-old\n' + '+new\n',
+      firstChangedLine: 1
+    }
+  })
+
+  // The diff must render as a colored diff block (label starts with "diff:"),
+  // taking precedence over rawOutput — not collapse into a generic JSON dump.
+  assert.deepEqual(presentation.output, {
+    label: 'diff: src/a.ts',
+    value: '--- src/a.ts\n' + '+++ src/a.ts\n' + '@@ -1,1 +1,1 @@\n' + '-old\n' + '+new',
+    filePath: 'src/a.ts'
+  })
+})
+
+test('buildToolCallDetailsPresentation falls back to output when edit has no diff', () => {
+  const presentation = buildToolCallDetailsPresentation({
+    ...BASE_TOOL_CALL,
+    toolName: 'edit',
+    details: {
+      path: 'src/a.ts',
+      mode: 'inline',
+      replacements: 1
+    }
+  })
+
+  assert.notEqual(presentation.output?.label, 'diff: src/a.ts')
+})
+
 test('compressPath returns short paths unchanged', () => {
   assert.equal(compressPath('/a/b/c.txt'), '/a/b/c.txt')
   assert.equal(compressPath('src/file.ts'), 'src/file.ts')
