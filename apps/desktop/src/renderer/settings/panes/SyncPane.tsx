@@ -20,9 +20,9 @@ function primaryButtonStyle(disabled = false): React.CSSProperties {
     padding: '6px 14px',
     fontSize: 13,
     fontWeight: 600,
-    background: disabled ? alpha('ink', 0.04) : theme.text.accent,
-    // `onAccent` auto-picks black/white by accent luminance for guaranteed contrast.
-    color: disabled ? theme.text.muted : theme.text.onAccent,
+    background: disabled ? alpha('ink', 0.04) : theme.background.accentFill,
+    // `accentFill` is a deep accent fill; `onAccentFill` its white label (AA-guaranteed).
+    color: disabled ? theme.text.muted : theme.text.onAccentFill,
     opacity: disabled ? 0.45 : 1,
     ...(disabled ? {} : { boxShadow: theme.shadow.button })
   }

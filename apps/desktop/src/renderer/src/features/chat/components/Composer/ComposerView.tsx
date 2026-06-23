@@ -826,8 +826,8 @@ export function ComposerView(props: any): React.JSX.Element {
                   className="absolute -top-0.5 -right-0.5 w-3.5 h-3.5 rounded-full flex items-center justify-center"
                   style={{
                     fontSize: '8px',
-                    background: theme.text.accent,
-                    color: theme.text.onAccent
+                    background: theme.background.accentFill,
+                    color: theme.text.onAccentFill
                   }}
                 >
                   {enabledSkillCount}

@@ -502,8 +502,8 @@ function PrimaryButton({
       type="button"
       className="inline-flex items-center gap-1.5 rounded-full px-4 py-2 text-sm font-semibold transition hover:scale-[1.02]"
       style={{
-        background: theme.text.accent,
-        color: theme.text.onAccent,
+        background: theme.background.accentFill,
+        color: theme.text.onAccentFill,
         boxShadow: theme.shadow.button
       }}
       onClick={onClick}

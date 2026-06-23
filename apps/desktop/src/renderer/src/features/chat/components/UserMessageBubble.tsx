@@ -1,7 +1,7 @@
 import React, { memo, useCallback, useState } from 'react'
 import { FileText } from 'lucide-react'
 import type { Message, Thread } from '@renderer/app/types'
-import { theme } from '@renderer/theme/theme'
+import { alpha, theme } from '@renderer/theme/theme'
 import { linkifyText } from '@renderer/lib/markdown/linkifyText'
 import { ImageDetailViewer } from '@renderer/lib/markdown/ImageDetailViewer'
 import { canRetryUserMessage } from '../lib/messages/messageActionState'
@@ -109,12 +109,15 @@ export const UserMessageBubble = memo(function UserMessageBubble({
       <div className="max-w-[68%] message-card-shell">
         <div
           className="rounded-[18px] px-4 py-2.5 message-selectable"
-          style={{ background: theme.text.accent, color: theme.text.onAccent }}
+          style={{ background: theme.background.accentFill, color: theme.text.onAccentFill }}
         >
           {label ? (
             <div
               className="mb-2 inline-flex rounded-full px-2 py-0.5 text-[11px] font-medium"
-              style={{ background: theme.background.surfaceOverlay }}
+              // `ink` overlay flips with the theme (dark on light themes, light on
+              // dark), darkening/lightening the accent fill away from the inherited
+              // onAccentFill label so the chip stays readable in both modes.
+              style={{ background: alpha('ink', 0.22) }}
             >
               {label}
             </div>

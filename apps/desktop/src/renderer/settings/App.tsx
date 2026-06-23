@@ -914,8 +914,8 @@ function SettingsPanel({
                     opacity: 0.45
                   }
                 : {
-                    background: theme.text.accent,
-                    color: theme.text.onAccent,
+                    background: theme.background.accentFill,
+                    color: theme.text.onAccentFill,
                     boxShadow: theme.shadow.button
                   })
             }}
