@@ -460,8 +460,8 @@ function ScheduleForm({
         <button
           className="px-3 py-1.5 rounded-md text-xs font-medium "
           style={{
-            background: theme.text.accent,
-            color: theme.text.onAccent,
+            background: theme.background.accentFill,
+            color: theme.text.onAccentFill,
             opacity: submitting ? 0.6 : 1
           }}
           disabled={submitting}

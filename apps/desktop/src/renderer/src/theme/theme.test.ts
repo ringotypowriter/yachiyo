@@ -119,3 +119,47 @@ test('theme scheme preview uses one balanced line without text-color dominance',
     )
   }
 })
+
+function contrastRatio(rgb: string, fg: '255 255 255' | '0 0 0'): number {
+  const channel = (value: number): number => {
+    const c = value / 255
+    return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4
+  }
+  const luminance = (s: string): number => {
+    const [r, g, b] = s.split(/\s+/).map(Number)
+    return 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b)
+  }
+  const a = Math.max(luminance(rgb), luminance(fg))
+  const b = Math.min(luminance(rgb), luminance(fg))
+  return (a + 0.05) / (b + 0.05)
+}
+
+test('accent fill keeps its label readable (WCAG AA) in every theme and variant', () => {
+  for (const option of THEME_OPTIONS) {
+    for (const variant of ['light', 'dark'] as const) {
+      const palette = getThemePalette(option.id, variant)
+      const fg = palette.onAccentFill as '255 255 255' | '0 0 0'
+      assert.ok(
+        fg === '255 255 255' || fg === '0 0 0',
+        `${option.id} ${variant}: onAccentFill must be black or white`
+      )
+      assert.ok(
+        contrastRatio(palette.accentFill, fg) >= 4.5,
+        `${option.id} ${variant}: accent fill ${palette.accentFill} vs label ${fg} below AA`
+      )
+    }
+  }
+})
+
+test('light accent buttons read as a deep fill with a white label', () => {
+  // The regression we are guarding: light themes flipped to dark text on saturated
+  // accent fills (e.g. Mizu cyan + black). Light fills must take a white label.
+  for (const option of THEME_OPTIONS) {
+    const palette = getThemePalette(option.id, 'light')
+    assert.equal(
+      palette.onAccentFill,
+      '255 255 255',
+      `${option.id} light: accent button label should be white`
+    )
+  }
+})

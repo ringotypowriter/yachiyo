@@ -186,8 +186,8 @@ export function AskUserInlineWidget({ toolCall }: AskUserInlineWidgetProps): Rea
               onClick={() => submitAnswer(input)}
               className="mr-1 flex shrink-0 items-center justify-center rounded-md p-1"
               style={{
-                background: hasInput ? theme.text.accent : 'transparent',
-                color: hasInput ? theme.text.onAccent : theme.text.placeholder,
+                background: hasInput ? theme.background.accentFill : 'transparent',
+                color: hasInput ? theme.text.onAccentFill : theme.text.placeholder,
                 border: 'none',
                 opacity: hasInput ? 1 : 0.4,
                 transition: 'all 0.12s ease'

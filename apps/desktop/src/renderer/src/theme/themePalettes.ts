@@ -15,6 +15,8 @@ export const themeRgbTokenVars = {
   accent: '--yachiyo-rgb-accent',
   accentStrong: '--yachiyo-rgb-accent-strong',
   onAccent: '--yachiyo-rgb-on-accent',
+  accentFill: '--yachiyo-rgb-accent-fill',
+  onAccentFill: '--yachiyo-rgb-on-accent-fill',
   counter: '--yachiyo-rgb-counter',
   counterStrong: '--yachiyo-rgb-counter-strong',
   scrim: '--yachiyo-rgb-scrim',
@@ -92,22 +94,59 @@ const darkSemanticTokens = {
 
 type ThemeIdentityTokens = Omit<
   ThemePalette,
-  keyof typeof lightSemanticTokens | 'counter' | 'counterStrong' | 'onAccent'
+  | keyof typeof lightSemanticTokens
+  | 'counter'
+  | 'counterStrong'
+  | 'onAccent'
+  | 'accentFill'
+  | 'onAccentFill'
 >
+
+function relativeLuminance(rgb: string): number {
+  const channel = (value: number): number => {
+    const c = value / 255
+    return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4
+  }
+  const [r, g, b] = rgb.split(/\s+/).map(Number)
+  return 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b)
+}
+
+// WCAG contrast ratio of white text against the given fill color.
+function whiteContrast(rgb: string): number {
+  return 1.05 / (relativeLuminance(rgb) + 0.05)
+}
 
 // Foreground color for text/icons sitting ON an accent fill. Picks black or
 // white by whichever yields higher WCAG contrast against the accent, so every
 // theme (including future/custom ones) stays readable without hand-tuning.
 function pickOnAccent(accent: string): string {
-  const channel = (value: number): number => {
-    const c = value / 255
-    return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4
-  }
-  const [r, g, b] = accent.split(/\s+/).map(Number)
-  const luminance = 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b)
+  const luminance = relativeLuminance(accent)
   const onWhite = 1.05 / (luminance + 0.05)
   const onBlack = (luminance + 0.05) / 0.05
   return onWhite >= onBlack ? '255 255 255' : '0 0 0'
+}
+
+const WHITE_LABEL_MIN_CONTRAST = 4.5
+
+// Fill color for accent buttons/bubbles. Deepens the accent until a white label
+// clears WCAG AA, so filled accents read as a solid saturated color with white
+// text across every theme — instead of flipping to harsh dark text on the
+// lighter palettes. Already-deep accents pass the first check and stay as-is.
+function deepenForWhiteLabel(accent: string): string {
+  let [r, g, b] = accent.split(/\s+/).map(Number)
+  for (let i = 0; i < 16 && whiteContrast(`${r} ${g} ${b}`) < WHITE_LABEL_MIN_CONTRAST; i++) {
+    r = Math.round(r * 0.9)
+    g = Math.round(g * 0.9)
+    b = Math.round(b * 0.9)
+  }
+  return `${r} ${g} ${b}`
+}
+
+// Label color for an accent fill: white when it clears AA, else black. The light
+// fill is deepened so white always wins; the dark-mode fill keeps its lighter
+// accent and takes a dark label, the conventional look on a dark canvas.
+function labelForFill(fill: string): string {
+  return whiteContrast(fill) >= WHITE_LABEL_MIN_CONTRAST ? '255 255 255' : '0 0 0'
 }
 
 function lightPalette(
@@ -117,12 +156,17 @@ function lightPalette(
   const counterStrong = tokens.counterStrong ?? tokens.accentStrong
   const dock = tokens.dock
   const onAccent = pickOnAccent(tokens.accent)
+  // Light buttons fill with the deepened accentStrong so a white label reads.
+  const accentFill = deepenForWhiteLabel(tokens.accentStrong)
+  const onAccentFill = labelForFill(accentFill)
   return {
     ...tokens,
     counter,
     counterStrong,
     dock,
     onAccent,
+    accentFill,
+    onAccentFill,
     ...lightSemanticTokens
   } as ThemePalette
 }
@@ -134,12 +178,17 @@ function darkPalette(
   const counterStrong = tokens.counterStrong ?? tokens.accentStrong
   const dock = tokens.dock
   const onAccent = pickOnAccent(tokens.accent)
+  // Dark buttons keep the lighter accent fill; its label flips dark for contrast.
+  const accentFill = tokens.accent
+  const onAccentFill = labelForFill(accentFill)
   return {
     ...tokens,
     counter,
     counterStrong,
     dock,
     onAccent,
+    accentFill,
+    onAccentFill,
     ...darkSemanticTokens
   } as ThemePalette
 }
