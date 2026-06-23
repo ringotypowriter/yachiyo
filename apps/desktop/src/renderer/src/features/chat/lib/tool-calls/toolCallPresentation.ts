@@ -223,6 +223,17 @@ function buildApplyPatchDiffOutput(
   }
 }
 
+function buildEditDiffOutput(
+  details: EditToolCallDetails | undefined
+): ToolCallDetailCodeBlock | undefined {
+  if (!details?.diff?.trim()) return undefined
+  return {
+    label: `diff: ${details.path}`,
+    value: details.diff.trimEnd(),
+    filePath: details.path
+  }
+}
+
 function buildFallbackOutput(toolCall: ToolCall): ToolCallDetailCodeBlock | undefined {
   const details = toolCall.details
   const error = toolCall.error?.trim()
@@ -328,12 +339,14 @@ export function buildToolCallDetailsPresentation(toolCall: ToolCall): ToolCallDe
   const inputValue =
     rawInput !== undefined ? renderRawValue(rawInput) : buildFallbackInput(toolCall)
   const metadata = buildFallbackMetadata(toolCall)
-  const applyPatchDiffOutput =
+  const diffOutput =
     toolCall.toolName === 'applyPatch'
       ? buildApplyPatchDiffOutput(toolCall.details as ApplyPatchToolCallDetails | undefined)
-      : undefined
+      : toolCall.toolName === 'edit'
+        ? buildEditDiffOutput(toolCall.details as EditToolCallDetails | undefined)
+        : undefined
   const output =
-    applyPatchDiffOutput ??
+    diffOutput ??
     (rawOutput !== undefined
       ? { label: 'Output', value: renderRawValue(rawOutput) }
       : buildFallbackOutput(toolCall))
