@@ -24,7 +24,10 @@ import { sortToolCallsChronologically } from '@yachiyo/shared/toolCallOrder'
 import { deriveRunModeId, resolveRunModeEnabledTools } from '@yachiyo/shared/toolModes'
 import { getReasoningSelectorState } from '@yachiyo/shared/reasoningEffort'
 import { collectMessagePath } from '@yachiyo/shared/threadTree'
-import { isExternalThread } from '../../../features/threads/lib/threadVisibility.ts'
+import {
+  isExternalThread,
+  isSyncedArchiveThread
+} from '../../../features/threads/lib/threadVisibility.ts'
 import type {
   ActiveSubagentState,
   AppState,
@@ -894,6 +897,12 @@ export function isThreadReusableNewChat(
   },
   thread: Thread
 ): boolean {
+  // Synced archives are read-only on this device. Reusing one as the "new chat"
+  // slot strands the user on a thread they cannot type into — never reuse it.
+  if (isSyncedArchiveThread(thread)) {
+    return false
+  }
+
   if (thread.title !== DEFAULT_THREAD_TITLE) {
     return false
   }

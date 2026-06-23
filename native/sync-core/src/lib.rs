@@ -640,6 +640,15 @@ fn export_dirty_ops(
         {
             continue;
         }
+        // Skip empty threads: a freshly created "New Chat" with no messages carries
+        // nothing worth mirroring, and syncing it strands a read-only blank archive
+        // on the peer that can also hijack its new-chat slot. Emptiness is read from
+        // the same payload we'd serialize (head_message_id is set atomically with the
+        // first message), so a message committing mid-export can't strand a stale
+        // blank row — the thread re-dirties and exports with its head set next cycle.
+        if entity_type == "thread" && payload.get("head_message_id").is_none_or(|v| v.is_null()) {
+            continue;
+        }
         ops.push(make_op(
             device_id,
             seq,
@@ -1101,7 +1110,7 @@ mod tests {
         fs::write(dir.path().join(SETTINGS_FILE), config).unwrap();
         let conn = Connection::open(dir.path().join(DB_FILE)).unwrap();
         conn.execute_batch(
-            "CREATE TABLE threads (id TEXT PRIMARY KEY, title TEXT, created_at TEXT, sync_origin_device_id TEXT, sync_imported_at TEXT);
+            "CREATE TABLE threads (id TEXT PRIMARY KEY, title TEXT, created_at TEXT, head_message_id TEXT, sync_origin_device_id TEXT, sync_imported_at TEXT);
              CREATE TABLE messages (id TEXT PRIMARY KEY, thread_id TEXT NOT NULL, body TEXT, created_at TEXT);
              CREATE TABLE tool_calls (id TEXT PRIMARY KEY, thread_id TEXT NOT NULL, request_message_id TEXT, assistant_message_id TEXT, run_id TEXT, tool_name TEXT, status TEXT, input_summary TEXT, started_at TEXT);",
         )
@@ -1111,9 +1120,11 @@ mod tests {
 
     fn seed_thread(home: &Path, thread_id: &str, message_id: &str) {
         let conn = Connection::open(home.join(DB_FILE)).unwrap();
+        // A real thread points its head at the message — mirrors the app, which sets
+        // head_message_id atomically with the first message insert.
         conn.execute(
-            "INSERT INTO threads (id, title, created_at) VALUES (?1, ?2, ?3)",
-            params![thread_id, "Hello", "1"],
+            "INSERT INTO threads (id, title, created_at, head_message_id) VALUES (?1, ?2, ?3, ?4)",
+            params![thread_id, "Hello", "1", message_id],
         )
         .unwrap();
         conn.execute(
@@ -1333,6 +1344,126 @@ mod tests {
             )
             .unwrap();
         assert_eq!(assistant_id.as_deref(), Some("m1"));
+    }
+
+    #[test]
+    fn empty_threads_are_not_exported() {
+        let sync = tempfile::tempdir().unwrap();
+        let home_a = setup_home("config-a");
+        let home_b = setup_home("config-b");
+
+        // An empty "New Chat": a thread row with no messages.
+        {
+            let conn = Connection::open(home_a.path().join(DB_FILE)).unwrap();
+            conn.execute(
+                "INSERT INTO threads (id, title, created_at) VALUES (?1, ?2, ?3)",
+                params!["empty", "New Chat", "1"],
+            )
+            .unwrap();
+        }
+        // A real conversation alongside it.
+        seed_thread(home_a.path(), "t1", "m1");
+
+        init_sync(home_a.path(), Some(sync.path()), "A").unwrap();
+        init_sync(home_b.path(), Some(sync.path()), "B").unwrap();
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+
+        // The empty thread must not cross the sync boundary; the real one must.
+        let conn = Connection::open(home_b.path().join(DB_FILE)).unwrap();
+        let empty_count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM threads WHERE id = 'empty'", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        assert_eq!(empty_count, 0, "empty thread must not be exported");
+        let real_count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM threads WHERE id = 't1'", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        assert_eq!(real_count, 1, "non-empty thread must still export");
+    }
+
+    #[test]
+    fn empty_thread_exports_once_it_gets_a_message() {
+        let sync = tempfile::tempdir().unwrap();
+        let home_a = setup_home("config-a");
+        let home_b = setup_home("config-b");
+
+        // Start as an empty "New Chat", export (nothing should cross yet).
+        {
+            let conn = Connection::open(home_a.path().join(DB_FILE)).unwrap();
+            conn.execute(
+                "INSERT INTO threads (id, title, created_at) VALUES (?1, ?2, ?3)",
+                params!["t1", "New Chat", "1"],
+            )
+            .unwrap();
+        }
+        init_sync(home_a.path(), Some(sync.path()), "A").unwrap();
+        init_sync(home_b.path(), Some(sync.path()), "B").unwrap();
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+        assert_eq!(count_rows(home_b.path(), "threads"), 0);
+
+        // The thread gets its first message. In the app the same write sets the
+        // thread's head pointer (atomic with the message insert), which re-dirties
+        // the now-non-empty thread; mirror that so it is re-queued for export.
+        {
+            let conn = Connection::open(home_a.path().join(DB_FILE)).unwrap();
+            conn.execute(
+                "INSERT INTO messages (id, thread_id, body, created_at) VALUES (?1, ?2, ?3, ?4)",
+                params!["m1", "t1", "hi", "2"],
+            )
+            .unwrap();
+            conn.execute(
+                "UPDATE threads SET head_message_id = ?1 WHERE id = ?2",
+                params!["m1", "t1"],
+            )
+            .unwrap();
+        }
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        // The thread now carries content, so it crosses the sync boundary.
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+        assert_eq!(count_rows(home_b.path(), "threads"), 1);
+        // Its first message lands once the peer's next import cycle drains the
+        // deferred-op queue — the same out-of-order delivery path sync already
+        // relies on across devices. Auto-sync supplies that follow-up cycle.
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+        assert_eq!(count_rows(home_b.path(), "messages"), 1);
+    }
+
+    #[test]
+    fn thread_emptiness_follows_head_pointer_not_message_count() {
+        // Guards the export TOCTOU: emptiness must be read from the thread payload
+        // (head_message_id), not a separate message-count query. Here a message row
+        // exists but the thread's head pointer is still null — the window where the
+        // first message has committed but the thread's head update has not. Exporting
+        // the thread now would ship a blank payload that the insert-only import can
+        // never repair, so it must be skipped until its head is set.
+        let sync = tempfile::tempdir().unwrap();
+        let home_a = setup_home("config-a");
+        let home_b = setup_home("config-b");
+        {
+            let conn = Connection::open(home_a.path().join(DB_FILE)).unwrap();
+            conn.execute(
+                "INSERT INTO threads (id, title, created_at) VALUES (?1, ?2, ?3)",
+                params!["t1", "New Chat", "1"],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO messages (id, thread_id, body, created_at) VALUES (?1, ?2, ?3, ?4)",
+                params!["m1", "t1", "hi", "2"],
+            )
+            .unwrap();
+        }
+        init_sync(home_a.path(), Some(sync.path()), "A").unwrap();
+        init_sync(home_b.path(), Some(sync.path()), "B").unwrap();
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+
+        // No blank thread on the peer despite the orphan message row on A.
+        assert_eq!(count_rows(home_b.path(), "threads"), 0);
     }
 
     #[test]
@@ -1670,7 +1801,7 @@ mod tests {
             let conn = Connection::open(dir.path().join(DB_FILE)).unwrap();
             conn.execute_batch(
                 "CREATE TABLE folders (id TEXT PRIMARY KEY);
-                 CREATE TABLE threads (id TEXT PRIMARY KEY, folder_id TEXT REFERENCES folders(id), created_at TEXT, sync_origin_device_id TEXT, sync_imported_at TEXT);
+                 CREATE TABLE threads (id TEXT PRIMARY KEY, folder_id TEXT REFERENCES folders(id), created_at TEXT, head_message_id TEXT, sync_origin_device_id TEXT, sync_imported_at TEXT);
                  CREATE TABLE messages (id TEXT PRIMARY KEY, thread_id TEXT NOT NULL REFERENCES threads(id), parent_message_id TEXT REFERENCES messages(id), created_at TEXT);",
             )
             .unwrap();
@@ -1683,7 +1814,7 @@ mod tests {
             conn.execute("INSERT INTO folders (id) VALUES ('f1')", [])
                 .unwrap();
             conn.execute(
-                "INSERT INTO threads (id, folder_id, created_at) VALUES ('t1', 'f1', '1')",
+                "INSERT INTO threads (id, folder_id, created_at, head_message_id) VALUES ('t1', 'f1', '1', 'm2')",
                 [],
             )
             .unwrap();
