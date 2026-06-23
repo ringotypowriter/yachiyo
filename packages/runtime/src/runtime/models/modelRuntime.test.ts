@@ -772,7 +772,7 @@ test('createAiSdkModelRuntime omits vercel-gateway thinking config for non-Gemin
   })
 })
 
-test('createAiSdkModelRuntime uses chat() for openai-responses auxiliary generation', async () => {
+test('createAiSdkModelRuntime uses responses() for openai-responses auxiliary generation', async () => {
   let providerOptions:
     | {
         openai?: {
@@ -786,12 +786,14 @@ test('createAiSdkModelRuntime uses chat() for openai-responses auxiliary generat
   const runtime = createAiSdkModelRuntime({
     createOpenAIProvider: () =>
       ({
-        responses: () => {
-          throw new Error('Responses API should not be used for auxiliary generation.')
+        // A dedicated Responses-API provider only speaks /responses; it must serve
+        // auxiliary/tool-model calls through responses(), not chat().
+        responses: (modelId: string) => {
+          selectedModel = { modelId, provider: 'openai.responses' }
+          return { modelId, provider: 'openai.responses' }
         },
-        chat: (modelId: string) => {
-          selectedModel = { modelId, provider: 'openai.chat' }
-          return { modelId, provider: 'openai.chat' }
+        chat: () => {
+          throw new Error('chat() should not be used for an openai-responses provider.')
         }
       }) as never,
     createAnthropicProvider: () => {
@@ -833,7 +835,7 @@ test('createAiSdkModelRuntime uses chat() for openai-responses auxiliary generat
 
   assert.deepEqual(chunks, ['title'])
   assert.deepEqual(selectedModel, {
-    provider: 'openai.chat',
+    provider: 'openai.responses',
     modelId: 'gpt-5-mini'
   })
   assert.deepEqual(providerOptions, {
@@ -842,4 +844,50 @@ test('createAiSdkModelRuntime uses chat() for openai-responses auxiliary generat
       store: false
     }
   })
+})
+
+test('createAiSdkModelRuntime keeps chat() for openai reasoning-model auxiliary generation', async () => {
+  // The plain `openai` provider only uses the Responses API for reasoning on its main
+  // turn; auxiliary/tool-model calls should still drop to the cheaper chat endpoint.
+  let selectedModel: { provider: string; modelId: string } | null = null
+
+  const runtime = createAiSdkModelRuntime({
+    createOpenAIProvider: () =>
+      ({
+        responses: () => {
+          throw new Error('responses() should not be used for openai auxiliary generation.')
+        },
+        chat: (modelId: string) => {
+          selectedModel = { modelId, provider: 'openai.chat' }
+          return { modelId, provider: 'openai.chat' }
+        }
+      }) as never,
+    createAnthropicProvider: () => {
+      throw new Error('Anthropic should not be used in this test.')
+    },
+    streamTextImpl: (() => ({
+      textStream: (async function* () {
+        yield 'title'
+      })()
+    })) as never
+  })
+
+  const chunks: string[] = []
+  for await (const chunk of runtime.streamReply({
+    messages: [{ role: 'user', content: 'Plan the MVP' }],
+    providerOptionsMode: 'auxiliary',
+    settings: {
+      providerName: 'work',
+      provider: 'openai',
+      model: 'gpt-5',
+      apiKey: 'sk-test',
+      baseUrl: ''
+    },
+    signal: new AbortController().signal
+  })) {
+    chunks.push(chunk)
+  }
+
+  assert.deepEqual(chunks, ['title'])
+  assert.deepEqual(selectedModel, { provider: 'openai.chat', modelId: 'gpt-5' })
 })
