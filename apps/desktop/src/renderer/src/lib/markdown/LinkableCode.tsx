@@ -2,10 +2,11 @@ import { useContext, useState, useCallback } from 'react'
 import { StreamdownContext } from 'streamdown'
 import { useAppDialog } from '@renderer/components/AppDialogContext'
 import { LinkSafetyModal } from './LinkSafetyModal'
-import { getLinkableCodeFileAction } from './linkableCodeFileAction'
+import { getLinkableCodeFileAction, getTimelineFileEditorApp } from './linkableCodeFileAction'
 import type { InlineCodeFileLinkSnapshot } from './inlineCodeFileLinkSnapshot'
 import { splitAutolinkCandidate } from './autolinkTextBoundary'
 import { toInlineCodeFileReferenceCandidate } from '@yachiyo/shared/inlineCodeFileReferences'
+import { useAppStore } from '@renderer/app/store/useAppStore'
 const LINK_STYLE = { textDecoration: 'underline', textUnderlineOffset: 2 }
 
 /**
@@ -24,6 +25,7 @@ export function LinkableCode({
   // `node` is the hast AST node injected by Streamdown — strip it so it doesn't hit the DOM.
   void node
   const dialog = useAppDialog()
+  const editorApp = useAppStore((s) => s.config?.workspace?.editorApp)
   const { linkSafety } = useContext(StreamdownContext)
   const [modalOpen, setModalOpen] = useState(false)
 
@@ -56,7 +58,14 @@ export function LinkableCode({
         if (action === 'reveal') {
           await window.api.yachiyo.revealFile({ path: filePath })
         } else {
-          await window.api.yachiyo.openFile({ path: filePath })
+          const app = getTimelineFileEditorApp({ editorApp })
+          if (!app) {
+            await dialog.alert({
+              title: 'No workspace editor configured.'
+            })
+            return
+          }
+          await window.api.yachiyo.openFileInEditor({ path: filePath, editorApp: app })
         }
       } catch (error) {
         await dialog.alert({
@@ -64,7 +73,7 @@ export function LinkableCode({
         })
       }
     },
-    [dialog, filePath, fileReference]
+    [dialog, editorApp, filePath, fileReference]
   )
 
   const handleConfirm = useCallback(() => {

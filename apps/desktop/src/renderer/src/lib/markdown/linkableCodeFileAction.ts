@@ -2,6 +2,10 @@ import { stripInlineCodeFileLocationSuffix } from '@yachiyo/shared/inlineCodeFil
 
 export type LinkableCodeFileAction = 'open' | 'reveal'
 
+export function getTimelineFileEditorApp(input: { editorApp?: string }): string | undefined {
+  return input.editorApp
+}
+
 export function getLinkableCodeFileAction(input: {
   reference: string
   altKey: boolean

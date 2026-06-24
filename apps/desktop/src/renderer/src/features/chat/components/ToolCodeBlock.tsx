@@ -5,6 +5,7 @@ import { alpha, solid } from '@renderer/theme/theme'
 import { code as codePlugin } from '@streamdown/code'
 import { useAppStore } from '@renderer/app/store/useAppStore'
 import { useAppDialog } from '@renderer/components/AppDialogContext'
+import { getTimelineFileEditorApp } from '@renderer/lib/markdown/linkableCodeFileAction'
 import { detectLanguage } from '../lib/code-blocks/detectLanguage'
 import {
   codeHighlightTokenStyle,
@@ -271,7 +272,6 @@ function Container({
 }): React.JSX.Element {
   const dialog = useAppDialog()
   const editorApp = useAppStore((s) => s.config?.workspace?.editorApp)
-  const markdownApp = useAppStore((s) => s.config?.workspace?.markdownApp)
 
   const handleReveal = useCallback(() => {
     if (filePath) window.api.yachiyo.revealFile({ path: filePath })
@@ -279,8 +279,7 @@ function Container({
 
   const handleOpenInEditor = useCallback(async () => {
     if (!filePath) return
-    const isMd = filePath.toLowerCase().endsWith('.md')
-    const app = isMd ? markdownApp || editorApp : editorApp
+    const app = getTimelineFileEditorApp({ editorApp })
     if (!app) return
     try {
       await window.api.yachiyo.openFileInEditor({ path: filePath, editorApp: app })
@@ -289,7 +288,7 @@ function Container({
         title: error instanceof Error ? error.message : 'Failed to open in editor.'
       })
     }
-  }, [dialog, filePath, editorApp, markdownApp])
+  }, [dialog, filePath, editorApp])
 
   const hasActions = !!filePath
 
@@ -316,8 +315,7 @@ function Container({
             <FolderOpen size={12} strokeWidth={1.5} />
           </ActionButton>
           {(() => {
-            const isMd = filePath?.toLowerCase().endsWith('.md') ?? false
-            const app = isMd ? markdownApp || editorApp : editorApp
+            const app = getTimelineFileEditorApp({ editorApp })
             return app ? (
               <ActionButton title={`Open in ${app}`} onClick={handleOpenInEditor}>
                 <SquareArrowOutUpRight size={12} strokeWidth={1.5} />
