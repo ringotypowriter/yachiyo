@@ -60,9 +60,13 @@ export function LinkableCode({
         } else {
           const app = getTimelineFileEditorApp({ editorApp })
           if (!app) {
-            await dialog.alert({
-              title: 'No workspace editor configured.'
+            const openSettings = await dialog.confirm({
+              title: 'Workspace editor not configured.',
+              message: 'Configure a workspace editor before opening timeline file links.',
+              confirmLabel: 'Open Workspace Settings',
+              cancelLabel: 'Cancel'
             })
+            if (openSettings) window.api.openSettings('workspace')
             return
           }
           await window.api.yachiyo.openFileInEditor({ path: filePath, editorApp: app })
