@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { getLinkableCodeFileAction } from './linkableCodeFileAction.ts'
+import { getLinkableCodeFileAction, getTimelineFileEditorApp } from './linkableCodeFileAction.ts'
 
 test('getLinkableCodeFileAction opens file references on normal click', () => {
   assert.equal(getLinkableCodeFileAction({ reference: 'src/App.tsx', altKey: false }), 'open')
@@ -15,4 +15,12 @@ test('getLinkableCodeFileAction reveals file references on alt click', () => {
 test('getLinkableCodeFileAction opens folder references even on alt click', () => {
   assert.equal(getLinkableCodeFileAction({ reference: 'results/', altKey: true }), 'open')
   assert.equal(getLinkableCodeFileAction({ reference: 'results\\', altKey: true }), 'open')
+})
+
+test('getTimelineFileEditorApp uses the configured workspace editor', () => {
+  assert.equal(getTimelineFileEditorApp({ editorApp: 'Zed' }), 'Zed')
+})
+
+test('getTimelineFileEditorApp returns undefined when no workspace editor is configured', () => {
+  assert.equal(getTimelineFileEditorApp({}), undefined)
 })

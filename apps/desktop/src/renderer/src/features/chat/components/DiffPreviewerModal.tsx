@@ -5,6 +5,7 @@ import { useAppStore } from '@renderer/app/store/useAppStore'
 import { AppDialog } from '@renderer/components/AppDialog'
 import { useAppDialog } from '@renderer/components/AppDialogContext'
 import { ConfirmDialog } from '@renderer/components/ConfirmDialog'
+import { getTimelineFileEditorApp } from '@renderer/lib/markdown/linkableCodeFileAction'
 import { ToolCodeBlock } from './ToolCodeBlock'
 import type { FileChangeForReview, FileChangeStatus } from '@yachiyo/shared/fileSnapshot'
 
@@ -38,7 +39,6 @@ export function DiffPreviewerModal({
 }: DiffPreviewerModalProps): React.JSX.Element {
   const dialog = useAppDialog()
   const editorApp = useAppStore((s) => s.config?.workspace?.editorApp)
-  const markdownApp = useAppStore((s) => s.config?.workspace?.markdownApp)
   const [changes, setChanges] = useState<FileChangeForReview[] | null>(null)
   const [error, setError] = useState(false)
   const [selectedIdx, setSelectedIdx] = useState(0)
@@ -120,8 +120,7 @@ export function DiffPreviewerModal({
       const fullPath = workspacePath.endsWith('/')
         ? `${workspacePath}${relativePath}`
         : `${workspacePath}/${relativePath}`
-      const isMd = relativePath.toLowerCase().endsWith('.md')
-      const app = isMd ? markdownApp || editorApp : editorApp
+      const app = getTimelineFileEditorApp({ editorApp })
       if (!app) return
       try {
         await window.api.yachiyo.openFileInEditor({ path: fullPath, editorApp: app })
@@ -131,7 +130,7 @@ export function DiffPreviewerModal({
         })
       }
     },
-    [dialog, workspacePath, editorApp, markdownApp]
+    [dialog, workspacePath, editorApp]
   )
 
   const selected = changes?.[selectedIdx]
@@ -258,8 +257,7 @@ export function DiffPreviewerModal({
                   <div className="flex items-center gap-1.5">
                     {selected.status !== 'deleted'
                       ? (() => {
-                          const isMd = selected.relativePath.toLowerCase().endsWith('.md')
-                          const app = isMd ? markdownApp || editorApp : editorApp
+                          const app = getTimelineFileEditorApp({ editorApp })
                           return app ? (
                             <button
                               type="button"
