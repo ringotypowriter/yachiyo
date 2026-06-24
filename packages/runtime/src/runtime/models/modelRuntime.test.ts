@@ -891,3 +891,50 @@ test('createAiSdkModelRuntime keeps chat() for openai reasoning-model auxiliary 
   assert.deepEqual(chunks, ['title'])
   assert.deepEqual(selectedModel, { provider: 'openai.chat', modelId: 'gpt-5' })
 })
+
+test('createAiSdkModelRuntime uses responses() for openai-codex auxiliary generation', async () => {
+  // The Codex OAuth backend is a Responses-API backend; auxiliary/tool-model calls
+  // must go through responses(), not chat().
+  let selectedModel: { provider: string; modelId: string } | null = null
+
+  const runtime = createAiSdkModelRuntime({
+    createOpenAIProvider: () =>
+      ({
+        responses: (modelId: string) => {
+          selectedModel = { modelId, provider: 'openai.responses' }
+          return { modelId, provider: 'openai.responses' }
+        },
+        chat: () => {
+          throw new Error('chat() should not be used for an openai-codex provider.')
+        }
+      }) as never,
+    createAnthropicProvider: () => {
+      throw new Error('Anthropic should not be used in this test.')
+    },
+    streamTextImpl: (() => ({
+      textStream: (async function* () {
+        yield 'title'
+      })()
+    })) as never
+  })
+
+  const chunks: string[] = []
+  for await (const chunk of runtime.streamReply({
+    messages: [{ role: 'user', content: 'Plan the MVP' }],
+    providerOptionsMode: 'auxiliary',
+    settings: {
+      providerName: 'codex',
+      provider: 'openai-codex',
+      model: 'gpt-5-codex',
+      apiKey: '',
+      baseUrl: '',
+      codexSessionPath: '~/.codex/auth.json'
+    },
+    signal: new AbortController().signal
+  })) {
+    chunks.push(chunk)
+  }
+
+  assert.deepEqual(chunks, ['title'])
+  assert.deepEqual(selectedModel, { provider: 'openai.responses', modelId: 'gpt-5-codex' })
+})

@@ -125,11 +125,12 @@ export function createOpenAiLanguageModel(
 
   if (shouldUseOpenAIResponsesApi(settings)) {
     // Auxiliary (tool-model) calls normally drop to the cheaper chat endpoint, but a
-    // dedicated Responses-API provider only speaks /responses — calling chat() there
-    // hits an unsupported endpoint, so it could never serve as a tool model. Keep
-    // such providers on responses() in both modes; the plain `openai` chat provider
-    // that merely opted into responses for reasoning still uses chat() for auxiliary.
-    const useChatForAuxiliary = mode === 'auxiliary' && settings.provider !== 'openai-responses'
+    // dedicated Responses-API backend (`openai-responses`, `openai-codex`) only speaks
+    // /responses — calling chat() there hits an unsupported endpoint, so it could never
+    // serve as a tool model. Only the plain `openai` provider, which merely opted into
+    // responses for reasoning, falls back to chat() for auxiliary; the responses
+    // backends stay on responses() in both modes.
+    const useChatForAuxiliary = mode === 'auxiliary' && settings.provider === 'openai'
     return useChatForAuxiliary ? provider.chat(settings.model) : provider.responses(settings.model)
   }
 
