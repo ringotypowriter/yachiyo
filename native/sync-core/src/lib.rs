@@ -597,6 +597,32 @@ fn make_op(
     })
 }
 
+fn is_non_null_field(payload: &Value, field: &str) -> bool {
+    payload.get(field).is_some_and(|value| !value.is_null())
+}
+
+fn thread_payload_should_not_export(payload: &Value) -> bool {
+    is_non_null_field(payload, "sync_origin_device_id")
+        || is_non_null_field(payload, "created_from_schedule_id")
+}
+
+fn child_belongs_to_non_exportable_thread(
+    conn: &Connection,
+    payload: &Value,
+) -> Result<bool, SyncError> {
+    let thread_id = payload
+        .get("thread_id")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    if thread_id.is_empty() {
+        return Ok(true);
+    }
+    let Some(thread_payload) = fetch_row_json(conn, "threads", thread_id)? else {
+        return Ok(true);
+    };
+    Ok(thread_payload_should_not_export(&thread_payload))
+}
+
 /// Content fingerprint of an export, independent of op_id / seq / timestamps, so
 /// an unchanged settings+threads snapshot yields the same value every time. Used
 /// to skip re-exporting identical data on every auto-sync cycle.
@@ -631,13 +657,13 @@ fn export_dirty_ops(
         let Some(payload) = fetch_row_json(conn, table, &entity_id)? else {
             continue; // deleted before export — v1 doesn't propagate deletions
         };
-        // Defense in depth: never re-export an imported (read-only) archive even if
-        // one slipped into the queue past the trigger guards.
-        if entity_type == "thread"
-            && payload
-                .get("sync_origin_device_id")
-                .is_some_and(|v| !v.is_null())
-        {
+        // Defense in depth: never export threads that are not part of the normal
+        // cross-device archive. Imported archives are read-only mirrors, and
+        // schedule-created run threads are device-local history entries.
+        if entity_type == "thread" && thread_payload_should_not_export(&payload) {
+            continue;
+        }
+        if entity_type != "thread" && child_belongs_to_non_exportable_thread(conn, &payload)? {
             continue;
         }
         // Skip empty threads: a freshly created "New Chat" with no messages carries
@@ -1110,7 +1136,7 @@ mod tests {
         fs::write(dir.path().join(SETTINGS_FILE), config).unwrap();
         let conn = Connection::open(dir.path().join(DB_FILE)).unwrap();
         conn.execute_batch(
-            "CREATE TABLE threads (id TEXT PRIMARY KEY, title TEXT, created_at TEXT, head_message_id TEXT, sync_origin_device_id TEXT, sync_imported_at TEXT);
+            "CREATE TABLE threads (id TEXT PRIMARY KEY, title TEXT, created_at TEXT, head_message_id TEXT, created_from_schedule_id TEXT, sync_origin_device_id TEXT, sync_imported_at TEXT);
              CREATE TABLE messages (id TEXT PRIMARY KEY, thread_id TEXT NOT NULL, body TEXT, created_at TEXT);
              CREATE TABLE tool_calls (id TEXT PRIMARY KEY, thread_id TEXT NOT NULL, request_message_id TEXT, assistant_message_id TEXT, run_id TEXT, tool_name TEXT, status TEXT, input_summary TEXT, started_at TEXT);",
         )
@@ -1464,6 +1490,95 @@ mod tests {
 
         // No blank thread on the peer despite the orphan message row on A.
         assert_eq!(count_rows(home_b.path(), "threads"), 0);
+    }
+
+    #[test]
+    fn schedule_created_threads_are_not_exported_as_normal_archives() {
+        let sync = tempfile::tempdir().unwrap();
+        let home_a = setup_home("config-a");
+        let home_b = setup_home("config-b");
+        {
+            let conn = Connection::open(home_a.path().join(DB_FILE)).unwrap();
+            conn.execute(
+                "INSERT INTO threads (id, title, created_at, head_message_id, created_from_schedule_id) VALUES (?1, ?2, ?3, ?4, ?5)",
+                params!["schedule-thread", "Schedule: Daily sync", "1", "schedule-message", "schedule-1"],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO messages (id, thread_id, body, created_at) VALUES (?1, ?2, ?3, ?4)",
+                params![
+                    "schedule-message",
+                    "schedule-thread",
+                    "scheduled result",
+                    "2"
+                ],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO tool_calls (id, thread_id, assistant_message_id, tool_name, status, input_summary, started_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                params![
+                    "schedule-tool-call",
+                    "schedule-thread",
+                    "schedule-message",
+                    "reportScheduleResult",
+                    "completed",
+                    "success",
+                    "3"
+                ],
+            )
+            .unwrap();
+        }
+        seed_thread(home_a.path(), "normal-thread", "normal-message");
+        init_sync(home_a.path(), Some(sync.path()), "A").unwrap();
+        init_sync(home_b.path(), Some(sync.path()), "B").unwrap();
+
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+
+        let conn = Connection::open(home_b.path().join(DB_FILE)).unwrap();
+        let schedule_thread_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM threads WHERE id = 'schedule-thread'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        let schedule_message_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM messages WHERE thread_id = 'schedule-thread'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        let schedule_tool_call_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM tool_calls WHERE thread_id = 'schedule-thread'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        let normal_thread_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM threads WHERE id = 'normal-thread'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+
+        assert_eq!(
+            schedule_thread_count, 0,
+            "schedule-created threads must stay device-local"
+        );
+        assert_eq!(
+            schedule_message_count, 0,
+            "messages from schedule-created threads must not be exported"
+        );
+        assert_eq!(
+            schedule_tool_call_count, 0,
+            "tool calls from schedule-created threads must not be exported"
+        );
+        assert_eq!(normal_thread_count, 1, "normal threads must still sync");
     }
 
     #[test]
