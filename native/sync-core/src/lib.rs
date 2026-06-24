@@ -597,6 +597,32 @@ fn make_op(
     })
 }
 
+fn is_non_null_field(payload: &Value, field: &str) -> bool {
+    payload.get(field).is_some_and(|value| !value.is_null())
+}
+
+fn thread_payload_should_not_export(payload: &Value) -> bool {
+    is_non_null_field(payload, "sync_origin_device_id")
+        || is_non_null_field(payload, "created_from_schedule_id")
+}
+
+fn child_belongs_to_non_exportable_thread(
+    conn: &Connection,
+    payload: &Value,
+) -> Result<bool, SyncError> {
+    let thread_id = payload
+        .get("thread_id")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    if thread_id.is_empty() {
+        return Ok(true);
+    }
+    let Some(thread_payload) = fetch_row_json(conn, "threads", thread_id)? else {
+        return Ok(true);
+    };
+    Ok(thread_payload_should_not_export(&thread_payload))
+}
+
 /// Content fingerprint of an export, independent of op_id / seq / timestamps, so
 /// an unchanged settings+threads snapshot yields the same value every time. Used
 /// to skip re-exporting identical data on every auto-sync cycle.
@@ -631,13 +657,13 @@ fn export_dirty_ops(
         let Some(payload) = fetch_row_json(conn, table, &entity_id)? else {
             continue; // deleted before export — v1 doesn't propagate deletions
         };
-        // Defense in depth: never re-export an imported (read-only) archive even if
-        // one slipped into the queue past the trigger guards.
-        if entity_type == "thread"
-            && payload
-                .get("sync_origin_device_id")
-                .is_some_and(|v| !v.is_null())
-        {
+        // Defense in depth: never export threads that are not part of the normal
+        // cross-device archive. Imported archives are read-only mirrors, and
+        // schedule-created run threads are device-local history entries.
+        if entity_type == "thread" && thread_payload_should_not_export(&payload) {
+            continue;
+        }
+        if entity_type != "thread" && child_belongs_to_non_exportable_thread(conn, &payload)? {
             continue;
         }
         // Skip empty threads: a freshly created "New Chat" with no messages carries
@@ -735,9 +761,11 @@ pub fn import_ops(
     let conn = open_db(home)?;
     ensure_universe(&conn, &sync_dir, false)?;
     let local_device = get_device(&conn)?.unwrap_or_default();
+    let paths = op_files(&sync_dir)?;
+    let schedule_thread_ids = schedule_created_thread_ids_in_ops(&paths, &local_device)?;
     let mut imported = 0;
     let mut transient_error: Option<String> = None;
-    for path in op_files(&sync_dir)? {
+    for path in paths {
         if path_belongs_to_device(&path, &local_device) {
             continue;
         }
@@ -761,7 +789,7 @@ pub fn import_ops(
             // Business write + applied-ops bookkeeping commit together, so a
             // crash mid-import can never leave an op half-applied.
             let tx = conn.unchecked_transaction()?;
-            let applied = apply_op(home, &tx, &op)?;
+            let applied = apply_op(home, &tx, &op, &schedule_thread_ids)?;
             tx.commit()?;
             if applied {
                 imported += 1;
@@ -819,7 +847,59 @@ fn op_files(sync_dir: &Path) -> Result<Vec<PathBuf>, SyncError> {
     Ok(files)
 }
 
-fn apply_op(home: &Path, conn: &Connection, op: &SyncOp) -> Result<bool, SyncError> {
+fn schedule_created_thread_ids_in_ops(
+    paths: &[PathBuf],
+    local_device: &str,
+) -> Result<HashSet<String>, SyncError> {
+    let mut ids = HashSet::new();
+    for path in paths {
+        if path_belongs_to_device(path, local_device) {
+            continue;
+        }
+        let content = match fs::read_to_string(path) {
+            Ok(content) => content,
+            Err(_) => continue,
+        };
+        for line in content.lines() {
+            if line.trim().is_empty() {
+                continue;
+            }
+            let op: SyncOp = serde_json::from_str(line)?;
+            if op.kind == "thread.archive.upsert"
+                && is_non_null_field(&op.payload, "created_from_schedule_id")
+            {
+                ids.insert(op.entity_id);
+            }
+        }
+    }
+    Ok(ids)
+}
+
+fn op_belongs_to_schedule_thread(op: &SyncOp, schedule_thread_ids: &HashSet<String>) -> bool {
+    if op.kind == "thread.archive.upsert" {
+        return is_non_null_field(&op.payload, "created_from_schedule_id");
+    }
+    if op.kind == "message.archive.upsert" || op.kind == "toolcall.archive.upsert" {
+        return op
+            .payload
+            .get("thread_id")
+            .and_then(Value::as_str)
+            .is_some_and(|thread_id| schedule_thread_ids.contains(thread_id));
+    }
+    false
+}
+
+fn mark_op_applied(conn: &Connection, op: &SyncOp) -> Result<(), SyncError> {
+    conn.execute("INSERT OR IGNORE INTO sync_applied_ops (op_id, device_id, seq, applied_at) VALUES (?1, ?2, ?3, ?4)", params![op.op_id, op.device_id, op.seq, now()])?;
+    Ok(())
+}
+
+fn apply_op(
+    home: &Path,
+    conn: &Connection,
+    op: &SyncOp,
+    schedule_thread_ids: &HashSet<String>,
+) -> Result<bool, SyncError> {
     if conn
         .query_row(
             "SELECT 1 FROM sync_applied_ops WHERE op_id = ?1",
@@ -829,6 +909,10 @@ fn apply_op(home: &Path, conn: &Connection, op: &SyncOp) -> Result<bool, SyncErr
         .optional()?
         .is_some()
     {
+        return Ok(false);
+    }
+    if op_belongs_to_schedule_thread(op, schedule_thread_ids) {
+        mark_op_applied(conn, op)?;
         return Ok(false);
     }
     match op.kind.as_str() {
@@ -853,7 +937,7 @@ fn apply_op(home: &Path, conn: &Connection, op: &SyncOp) -> Result<bool, SyncErr
         }
         _ => {}
     }
-    conn.execute("INSERT OR IGNORE INTO sync_applied_ops (op_id, device_id, seq, applied_at) VALUES (?1, ?2, ?3, ?4)", params![op.op_id, op.device_id, op.seq, now()])?;
+    mark_op_applied(conn, op)?;
     Ok(true)
 }
 
@@ -1110,7 +1194,7 @@ mod tests {
         fs::write(dir.path().join(SETTINGS_FILE), config).unwrap();
         let conn = Connection::open(dir.path().join(DB_FILE)).unwrap();
         conn.execute_batch(
-            "CREATE TABLE threads (id TEXT PRIMARY KEY, title TEXT, created_at TEXT, head_message_id TEXT, sync_origin_device_id TEXT, sync_imported_at TEXT);
+            "CREATE TABLE threads (id TEXT PRIMARY KEY, title TEXT, created_at TEXT, head_message_id TEXT, created_from_schedule_id TEXT, sync_origin_device_id TEXT, sync_imported_at TEXT);
              CREATE TABLE messages (id TEXT PRIMARY KEY, thread_id TEXT NOT NULL, body TEXT, created_at TEXT);
              CREATE TABLE tool_calls (id TEXT PRIMARY KEY, thread_id TEXT NOT NULL, request_message_id TEXT, assistant_message_id TEXT, run_id TEXT, tool_name TEXT, status TEXT, input_summary TEXT, started_at TEXT);",
         )
@@ -1464,6 +1548,217 @@ mod tests {
 
         // No blank thread on the peer despite the orphan message row on A.
         assert_eq!(count_rows(home_b.path(), "threads"), 0);
+    }
+
+    #[test]
+    fn schedule_created_threads_are_not_exported_as_normal_archives() {
+        let sync = tempfile::tempdir().unwrap();
+        let home_a = setup_home("config-a");
+        let home_b = setup_home("config-b");
+        {
+            let conn = Connection::open(home_a.path().join(DB_FILE)).unwrap();
+            conn.execute(
+                "INSERT INTO threads (id, title, created_at, head_message_id, created_from_schedule_id) VALUES (?1, ?2, ?3, ?4, ?5)",
+                params!["schedule-thread", "Schedule: Daily sync", "1", "schedule-message", "schedule-1"],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO messages (id, thread_id, body, created_at) VALUES (?1, ?2, ?3, ?4)",
+                params![
+                    "schedule-message",
+                    "schedule-thread",
+                    "scheduled result",
+                    "2"
+                ],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO tool_calls (id, thread_id, assistant_message_id, tool_name, status, input_summary, started_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                params![
+                    "schedule-tool-call",
+                    "schedule-thread",
+                    "schedule-message",
+                    "reportScheduleResult",
+                    "completed",
+                    "success",
+                    "3"
+                ],
+            )
+            .unwrap();
+        }
+        seed_thread(home_a.path(), "normal-thread", "normal-message");
+        init_sync(home_a.path(), Some(sync.path()), "A").unwrap();
+        init_sync(home_b.path(), Some(sync.path()), "B").unwrap();
+
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+
+        let conn = Connection::open(home_b.path().join(DB_FILE)).unwrap();
+        let schedule_thread_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM threads WHERE id = 'schedule-thread'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        let schedule_message_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM messages WHERE thread_id = 'schedule-thread'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        let schedule_tool_call_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM tool_calls WHERE thread_id = 'schedule-thread'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        let normal_thread_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM threads WHERE id = 'normal-thread'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+
+        assert_eq!(
+            schedule_thread_count, 0,
+            "schedule-created threads must stay device-local"
+        );
+        assert_eq!(
+            schedule_message_count, 0,
+            "messages from schedule-created threads must not be exported"
+        );
+        assert_eq!(
+            schedule_tool_call_count, 0,
+            "tool calls from schedule-created threads must not be exported"
+        );
+        assert_eq!(normal_thread_count, 1, "normal threads must still sync");
+    }
+
+    #[test]
+    fn import_skips_previously_exported_schedule_threads_and_children() {
+        let sync = tempfile::tempdir().unwrap();
+        let home = setup_home("config-b");
+        init_sync(home.path(), Some(sync.path()), "B").unwrap();
+        let thread_op = make_op(
+            "remote-device",
+            1,
+            "thread.archive.upsert",
+            "thread",
+            "schedule-thread",
+            json!({
+                "id": "schedule-thread",
+                "title": "Schedule: Daily sync",
+                "created_at": "1",
+                "head_message_id": "schedule-message",
+                "created_from_schedule_id": "schedule-1"
+            }),
+        )
+        .unwrap();
+        let message_op = make_op(
+            "remote-device",
+            1,
+            "message.archive.upsert",
+            "message",
+            "schedule-message",
+            json!({
+                "id": "schedule-message",
+                "thread_id": "schedule-thread",
+                "body": "scheduled result",
+                "created_at": "2"
+            }),
+        )
+        .unwrap();
+        let tool_call_op = make_op(
+            "remote-device",
+            1,
+            "toolcall.archive.upsert",
+            "toolcall",
+            "schedule-tool-call",
+            json!({
+                "id": "schedule-tool-call",
+                "thread_id": "schedule-thread",
+                "assistant_message_id": "schedule-message",
+                "tool_name": "reportScheduleResult",
+                "status": "completed",
+                "input_summary": "success",
+                "started_at": "3"
+            }),
+        )
+        .unwrap();
+        let normal_thread_op = make_op(
+            "remote-device",
+            1,
+            "thread.archive.upsert",
+            "thread",
+            "normal-thread",
+            json!({
+                "id": "normal-thread",
+                "title": "Hello",
+                "created_at": "1",
+                "head_message_id": "normal-message"
+            }),
+        )
+        .unwrap();
+        let normal_message_op = make_op(
+            "remote-device",
+            1,
+            "message.archive.upsert",
+            "message",
+            "normal-message",
+            json!({
+                "id": "normal-message",
+                "thread_id": "normal-thread",
+                "body": "hi",
+                "created_at": "2"
+            }),
+        )
+        .unwrap();
+        let schedule_thread_op_id = thread_op.op_id.clone();
+        let schedule_message_op_id = message_op.op_id.clone();
+        let schedule_tool_call_op_id = tool_call_op.op_id.clone();
+        write_ops_file(
+            sync.path(),
+            "remote-device",
+            1,
+            &[
+                message_op,
+                tool_call_op,
+                thread_op,
+                normal_thread_op,
+                normal_message_op,
+            ],
+        );
+
+        let result = import_ops(home.path(), Some(sync.path())).unwrap();
+
+        assert_eq!(count_rows(home.path(), "threads"), 1);
+        assert_eq!(count_rows(home.path(), "messages"), 1);
+        assert_eq!(count_rows(home.path(), "tool_calls"), 0);
+        assert_eq!(
+            result.imported_ops, 2,
+            "only normal thread/message ops should count as imported"
+        );
+        let conn = Connection::open(home.path().join(DB_FILE)).unwrap();
+        let schedule_applied_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sync_applied_ops WHERE op_id IN (?1, ?2, ?3)",
+                params![
+                    schedule_thread_op_id,
+                    schedule_message_op_id,
+                    schedule_tool_call_op_id
+                ],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(
+            schedule_applied_count, 3,
+            "skipped schedule ops must still be marked applied"
+        );
     }
 
     #[test]
