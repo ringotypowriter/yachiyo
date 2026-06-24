@@ -100,14 +100,6 @@ export function createAuxiliaryGenerationService(
         }
       }
 
-      // Codex OAuth backend is chat-only; it does not support auxiliary/tool calls.
-      if (settings.provider === 'openai-codex') {
-        return {
-          status: 'unavailable',
-          reason: 'not-configured'
-        }
-      }
-
       const signal = request.signal ?? new AbortController().signal
       const runtime = deps.createModelRuntime()
       const resolvedSettings = settings

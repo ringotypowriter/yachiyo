@@ -20,9 +20,6 @@ export async function translateWithRuntime(input: {
   if (!settings.model.trim()) {
     return { status: 'unavailable', reason: 'missing-model' }
   }
-  if (settings.provider === 'openai-codex') {
-    return { status: 'unavailable', reason: 'not-configured' }
-  }
 
   const runtime = input.createModelRuntime()
   let text = ''

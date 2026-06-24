@@ -63,11 +63,17 @@ test('generateText forwards onToolCallError to the model runtime request', async
   assert.equal(capturedOnToolCallError, onToolCallError)
 })
 
-test('generateText treats Codex OAuth as unavailable for auxiliary generation', async () => {
+test('generateText runs a Codex OAuth tool model instead of blocking it', async () => {
+  let capturedProvider: string | undefined
+
   const service = createAuxiliaryGenerationService({
-    createModelRuntime: () => {
-      throw new Error('Auxiliary generation should not create a Codex runtime.')
-    },
+    createModelRuntime: () => ({
+      async *streamReply(request: ModelStreamRequest): AsyncIterable<string> {
+        capturedProvider = request.settings.provider
+        yield 'title'
+      }
+    }),
+    // Codex authenticates via a session path rather than an apiKey.
     readToolModelSettings: () => ({
       providerName: 'codex',
       provider: 'openai-codex',
@@ -82,8 +88,6 @@ test('generateText treats Codex OAuth as unavailable for auxiliary generation', 
     messages: [{ role: 'user', content: 'Summarize this' }]
   })
 
-  assert.deepEqual(result, {
-    status: 'unavailable',
-    reason: 'not-configured'
-  })
+  assert.equal(result.status, 'success')
+  assert.equal(capturedProvider, 'openai-codex')
 })
