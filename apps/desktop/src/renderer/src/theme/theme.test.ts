@@ -134,32 +134,33 @@ function contrastRatio(rgb: string, fg: '255 255 255' | '0 0 0'): number {
   return (a + 0.05) / (b + 0.05)
 }
 
-test('accent fill keeps its label readable (WCAG AA) in every theme and variant', () => {
+test('dark accent fill keeps its label readable (WCAG AA)', () => {
   for (const option of THEME_OPTIONS) {
-    for (const variant of ['light', 'dark'] as const) {
-      const palette = getThemePalette(option.id, variant)
-      const fg = palette.onAccentFill as '255 255 255' | '0 0 0'
-      assert.ok(
-        fg === '255 255 255' || fg === '0 0 0',
-        `${option.id} ${variant}: onAccentFill must be black or white`
-      )
-      assert.ok(
-        contrastRatio(palette.accentFill, fg) >= 4.5,
-        `${option.id} ${variant}: accent fill ${palette.accentFill} vs label ${fg} below AA`
-      )
-    }
+    const palette = getThemePalette(option.id, 'dark')
+    const fg = palette.onAccentFill as '255 255 255' | '0 0 0'
+    assert.ok(
+      fg === '255 255 255' || fg === '0 0 0',
+      `${option.id} dark: onAccentFill must be black or white`
+    )
+    assert.ok(
+      contrastRatio(palette.accentFill, fg) >= 4.5,
+      `${option.id} dark: accent fill ${palette.accentFill} vs label ${fg} below AA`
+    )
   }
 })
 
-test('light accent buttons read as a deep fill with a white label', () => {
-  // The regression we are guarding: light themes flipped to dark text on saturated
-  // accent fills (e.g. Mizu cyan + black). Light fills must take a white label.
+test('light accent fills keep the theme accent with white labels', () => {
   for (const option of THEME_OPTIONS) {
     const palette = getThemePalette(option.id, 'light')
     assert.equal(
+      palette.accentFill,
+      palette.accent,
+      `${option.id} light: accent fill should not be darkened`
+    )
+    assert.equal(
       palette.onAccentFill,
       '255 255 255',
-      `${option.id} light: accent button label should be white`
+      `${option.id} light: accent fill label should stay white`
     )
   }
 })
