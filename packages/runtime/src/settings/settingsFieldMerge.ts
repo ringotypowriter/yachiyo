@@ -8,6 +8,11 @@ import type { SettingsConfig, SyncSettingsFieldDiff } from '@yachiyo/shared/prot
  */
 
 const MAX_DISPLAY = 160
+const LOCAL_ONLY_SETTING_PATHS = new Set(['sync.syncDir'])
+
+function isLocalOnlySettingPath(path: string): boolean {
+  return LOCAL_ONLY_SETTING_PATHS.has(path)
+}
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -71,6 +76,7 @@ export function diffSettings(
   const paths = new Set([...localFields.keys(), ...remoteFields.keys()])
   const diffs: SyncSettingsFieldDiff[] = []
   for (const path of [...paths].sort()) {
+    if (isLocalOnlySettingPath(path)) continue
     const localValue = localFields.get(path)
     const remoteValue = remoteFields.get(path)
     if (stableStringify(localValue) === stableStringify(remoteValue)) continue
@@ -114,6 +120,7 @@ export function mergeSettings(
   const remoteFields = flattenConfig(remote)
   const merged = structuredClone(local) as unknown as Record<string, unknown>
   for (const [path, choice] of Object.entries(selections)) {
+    if (isLocalOnlySettingPath(path)) continue
     if (choice !== 'remote') continue
     if (remoteFields.has(path)) {
       setByPath(merged, path, structuredClone(remoteFields.get(path)))

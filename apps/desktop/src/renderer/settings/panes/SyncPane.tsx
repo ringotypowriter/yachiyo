@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { AlertTriangle, CheckCircle2, Cloud, RefreshCw } from 'lucide-react'
+import { AlertTriangle, CheckCircle2, Cloud, FolderOpen, RefreshCw } from 'lucide-react'
 import type {
   SyncConflictRecord,
   SyncConflictResolution,
@@ -28,7 +28,7 @@ function primaryButtonStyle(disabled = false): React.CSSProperties {
   }
 }
 
-function secondaryButtonStyle(): React.CSSProperties {
+function secondaryButtonStyle(disabled = false): React.CSSProperties {
   return {
     minHeight: 34,
     border: `1px solid ${theme.border.subtle}`,
@@ -36,8 +36,9 @@ function secondaryButtonStyle(): React.CSSProperties {
     padding: '6px 14px',
     fontSize: 13,
     fontWeight: 600,
-    background: theme.background.surface,
-    color: theme.text.secondary
+    background: disabled ? alpha('ink', 0.03) : theme.background.surface,
+    color: disabled ? theme.text.muted : theme.text.secondary,
+    opacity: disabled ? 0.55 : 1
   }
 }
 
@@ -57,8 +58,8 @@ function statusLabel(status: SyncStatus | null, busy: boolean): string {
   if (busy) return 'Syncing...'
   if (!status) return 'Loading sync status...'
   switch (status.state) {
-    case 'icloud_unavailable':
-      return 'iCloud Drive unavailable'
+    case 'sync_dir_unavailable':
+      return 'Sync folder unavailable'
     case 'not_initialized':
       return status.deviceCount > 0 ? 'Not enabled on this device' : 'Not initialized'
     case 'needs_attention':
@@ -137,6 +138,38 @@ export function SyncPane({ onConfigReload }: SyncPaneProps): React.ReactNode {
     }
   }
 
+  const saveSyncDir = async (syncDir: string): Promise<void> => {
+    setBusy(true)
+    setError(null)
+    try {
+      const current = await window.api.yachiyo.getConfig()
+      await window.api.yachiyo.saveConfig({
+        ...current,
+        sync: {
+          ...(current.sync ?? {}),
+          syncDir
+        }
+      })
+      await onConfigReload()
+      await reload()
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Failed to update sync folder.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const handleUseRecommendedSyncDir = async (): Promise<void> => {
+    if (!status?.recommendedSyncDir) return
+    await saveSyncDir('')
+  }
+
+  const handleChooseSyncDir = async (): Promise<void> => {
+    const syncDir = await window.api.yachiyo.pickSyncDirectory()
+    if (!syncDir) return
+    await saveSyncDir(syncDir)
+  }
+
   const resolveConflict = async (
     conflict: SyncConflictRecord,
     resolution: SyncConflictResolution,
@@ -181,8 +214,12 @@ export function SyncPane({ onConfigReload }: SyncPaneProps): React.ReactNode {
     }
   }
 
-  const unavailable = status?.state === 'icloud_unavailable'
+  const unavailable = status?.state === 'sync_dir_unavailable'
   const initialized = status && status.state !== 'not_initialized' && !unavailable
+  const usingRecommendedSyncDir =
+    status != null &&
+    status.syncDir === status.recommendedSyncDir &&
+    status.recommendedSyncDir !== ''
   // Sync already exists (another device created the universe) but this device
   // hasn't joined yet — offer "Join" instead of first-time "Enable".
   const joinable = status != null && status.state === 'not_initialized' && status.deviceCount > 0
@@ -198,10 +235,11 @@ export function SyncPane({ onConfigReload }: SyncPaneProps): React.ReactNode {
             Sync
           </div>
           <div className="text-lg font-semibold" style={{ color: theme.text.primary }}>
-            iCloud Sync
+            File Sync
           </div>
           <div className="text-sm leading-5" style={{ color: theme.text.tertiary }}>
-            Settings and remote chat archives sync through iCloud Drive files. Synced chats from
+            Settings and remote chat archives sync through a local folder. Use the recommended
+            iCloud Drive folder, or choose another folder you manage yourself. Synced chats from
             other devices stay read-only.
           </div>
         </div>
@@ -213,7 +251,7 @@ export function SyncPane({ onConfigReload }: SyncPaneProps): React.ReactNode {
               onClick={() => void handleInit()}
               style={primaryButtonStyle(busy || unavailable)}
             >
-              {joinable ? 'Join This Device' : 'Enable iCloud Sync'}
+              {joinable ? 'Join This Device' : 'Enable Sync'}
             </button>
           ) : (
             <button
@@ -248,7 +286,29 @@ export function SyncPane({ onConfigReload }: SyncPaneProps): React.ReactNode {
           {statusLabel(status, busy)}
         </div>
         <div className="mt-2 text-xs leading-5 break-all" style={{ color: theme.text.muted }}>
-          {status?.syncDir ?? 'Resolving iCloud Drive path...'}
+          {status?.syncDir ?? 'Resolving sync folder...'}
+        </div>
+        <div className="mt-3 flex flex-wrap gap-2">
+          <button
+            type="button"
+            disabled={busy || !status?.recommendedSyncDir || usingRecommendedSyncDir}
+            onClick={() => void handleUseRecommendedSyncDir()}
+            className="flex items-center gap-1.5"
+            style={secondaryButtonStyle(
+              busy || !status?.recommendedSyncDir || usingRecommendedSyncDir
+            )}
+          >
+            <Cloud size={13} /> Use iCloud Folder
+          </button>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => void handleChooseSyncDir()}
+            className="flex items-center gap-1.5"
+            style={secondaryButtonStyle(busy)}
+          >
+            <FolderOpen size={13} /> Choose Folder
+          </button>
         </div>
         {status ? (
           <div className="mt-3 flex flex-wrap gap-3 text-xs" style={{ color: theme.text.tertiary }}>
@@ -263,7 +323,8 @@ export function SyncPane({ onConfigReload }: SyncPaneProps): React.ReactNode {
         ) : null}
         {unavailable ? (
           <div className="mt-3 text-sm leading-5" style={{ color: theme.text.tertiary }}>
-            Sign in to iCloud Drive and enable Documents sync in macOS before turning this on.
+            Choose an existing folder, or sign in to iCloud Drive and enable Documents sync in macOS
+            before using the recommended folder.
           </div>
         ) : null}
         {joinable ? (

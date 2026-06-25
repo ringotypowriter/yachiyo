@@ -56,6 +56,12 @@ describe('diffSettings', () => {
       ['list']
     )
   })
+
+  it('ignores local-only sync folder differences', () => {
+    const local = config({ sync: { syncDir: '/local/sync' } })
+    const remote = config({ sync: { syncDir: '/remote/sync' } })
+    assert.deepEqual(diffSettings(local, remote), [])
+  })
 })
 
 describe('mergeSettings', () => {
@@ -97,5 +103,14 @@ describe('mergeSettings', () => {
     const withoutExtra = config({ general: { themeId: 'dawn' } })
     const merged = mergeSettings(withExtra, withoutExtra, { runMode: 'remote' })
     assert.equal(get(merged, 'runMode'), undefined)
+  })
+
+  it('keeps the local sync folder even when remote is selected', () => {
+    const merged = mergeSettings(
+      config({ sync: { syncDir: '/local/sync' } }),
+      config({ sync: { syncDir: '/remote/sync' } }),
+      { 'sync.syncDir': 'remote' }
+    )
+    assert.equal(get(merged, 'sync.syncDir'), '/local/sync')
   })
 })
