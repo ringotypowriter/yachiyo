@@ -6,8 +6,9 @@ use std::collections::HashSet;
 use std::env;
 use std::fmt;
 use std::fs::{self, File};
-use std::io::Write;
+use std::io::{BufRead, BufReader, BufWriter, Write};
 use std::path::{Path, PathBuf};
+use std::time::UNIX_EPOCH;
 use uuid::Uuid;
 
 const DB_FILE: &str = "yachiyo.sqlite";
@@ -142,6 +143,31 @@ struct SyncOp {
     payload_hash: String,
 }
 
+struct ImportFile {
+    path: PathBuf,
+    key: String,
+    signature: ImportFileSignature,
+}
+
+#[derive(Clone, Copy)]
+struct ImportFileSignature {
+    size: i64,
+    modified_millis: i64,
+}
+
+enum ApplyOutcome {
+    Counted,
+    Skipped,
+    Deferred,
+}
+
+struct OpsFileWriter {
+    target: PathBuf,
+    tmp: PathBuf,
+    file: BufWriter<File>,
+    count: usize,
+}
+
 fn icloud_root(home: &Path) -> PathBuf {
     home.join("Library/Mobile Documents/com~apple~CloudDocs")
 }
@@ -210,6 +236,8 @@ fn open_db(home: &Path) -> Result<Connection, SyncError> {
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS sync_devices (device_id TEXT PRIMARY KEY, created_at TEXT NOT NULL, label TEXT NOT NULL);
          CREATE TABLE IF NOT EXISTS sync_applied_ops (op_id TEXT PRIMARY KEY, device_id TEXT NOT NULL, seq INTEGER NOT NULL, applied_at TEXT NOT NULL);
+         CREATE TABLE IF NOT EXISTS sync_imported_files (path TEXT PRIMARY KEY, size INTEGER NOT NULL, modified_millis INTEGER NOT NULL, imported_at TEXT NOT NULL);
+         CREATE TABLE IF NOT EXISTS sync_skipped_schedule_threads (thread_id TEXT PRIMARY KEY, recorded_at TEXT NOT NULL);
          CREATE TABLE IF NOT EXISTS sync_conflicts (id TEXT PRIMARY KEY, op_id TEXT NOT NULL, device_id TEXT NOT NULL, entity_type TEXT NOT NULL, entity_id TEXT NOT NULL, local_hash TEXT NOT NULL, remote_hash TEXT NOT NULL, payload_json TEXT NOT NULL, created_at TEXT NOT NULL, resolved_at TEXT, resolution TEXT);
          CREATE TABLE IF NOT EXISTS sync_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);"
     )?;
@@ -418,6 +446,52 @@ fn atomic_write(path: &Path, content: &str) -> Result<(), SyncError> {
     Ok(())
 }
 
+impl OpsFileWriter {
+    fn create(target: &Path) -> Result<Self, SyncError> {
+        let parent = target
+            .parent()
+            .ok_or_else(|| SyncError::Message("path has no parent".to_string()))?;
+        fs::create_dir_all(parent)?;
+        let tmp = parent.join(format!(
+            "{}.tmp-{}-{}",
+            target.file_name().unwrap().to_string_lossy(),
+            std::process::id(),
+            Uuid::new_v4()
+        ));
+        let file = File::create(&tmp)?;
+        Ok(Self {
+            target: target.to_path_buf(),
+            tmp,
+            file: BufWriter::new(file),
+            count: 0,
+        })
+    }
+
+    fn write_op(&mut self, op: &SyncOp) -> Result<(), SyncError> {
+        serde_json::to_writer(&mut self.file, op)?;
+        self.file.write_all(b"\n")?;
+        self.count += 1;
+        Ok(())
+    }
+
+    fn commit(mut self) -> Result<(), SyncError> {
+        self.file.flush()?;
+        self.file.get_ref().sync_all()?;
+        drop(self.file);
+        fs::rename(self.tmp, self.target)?;
+        Ok(())
+    }
+
+    fn discard(self) -> Result<(), SyncError> {
+        drop(self.file);
+        match fs::remove_file(self.tmp) {
+            Ok(()) => Ok(()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(error) => Err(SyncError::Io(error)),
+        }
+    }
+}
+
 pub fn init_sync(
     home: &Path,
     sync_dir_override: Option<&Path>,
@@ -496,7 +570,10 @@ pub fn export_ops(
         backfill_dirty(&conn)?;
     }
 
-    let mut ops = Vec::new();
+    let ops_path = device_dir(&sync_dir, &device_id)
+        .join("ops")
+        .join(format!("{seq:016}.jsonl"));
+    let mut ops = OpsFileWriter::create(&ops_path)?;
     let settings_text = fs::read_to_string(settings_path(home)).ok();
     let settings_hash = settings_text.as_deref().map(hash_text);
     let settings_changed = match &settings_hash {
@@ -509,38 +586,29 @@ pub fn export_ops(
         if let Some(text) = &settings_text {
             let payload =
                 json!({ "text": text, "baseHash": hash_text(""), "contentHash": hash_text(text) });
-            ops.push(make_op(
+            ops.write_op(&make_op(
                 &device_id,
                 seq,
                 "settings.snapshot",
                 "settings",
                 "config.toml",
                 payload,
-            )?);
+            )?)?;
         }
     }
 
-    let high_water = export_dirty_ops(&conn, &device_id, seq, &mut ops)?;
+    let high_water = export_dirty_ops(&conn, &device_id, seq, |op| ops.write_op(&op))?;
 
     // Publish a delta file only when there's something to ship. An empty `ops`
     // here means the queue held only skippable rows (deleted before export, or
     // synced archives) — we still clear them below so create/delete churn can't
     // accumulate.
-    let last_exported_at = if ops.is_empty() {
+    let exported_count = ops.count;
+    let last_exported_at = if exported_count == 0 {
+        ops.discard()?;
         None
     } else {
-        let content = ops
-            .iter()
-            .map(serde_json::to_string)
-            .collect::<Result<Vec<_>, _>>()?
-            .join("\n")
-            + "\n";
-        atomic_write(
-            &device_dir(&sync_dir, &device_id)
-                .join("ops")
-                .join(format!("{seq:016}.jsonl")),
-            &content,
-        )?;
+        ops.commit()?;
         write_manifest(
             &sync_dir,
             &device_id,
@@ -568,7 +636,7 @@ pub fn export_ops(
         &sync_dir,
         Some(device_id),
         "ready",
-        ops.len(),
+        exported_count,
         0,
         last_exported_at,
         None,
@@ -634,7 +702,7 @@ fn export_dirty_ops(
     conn: &Connection,
     device_id: &str,
     seq: i64,
-    ops: &mut Vec<SyncOp>,
+    mut emit: impl FnMut(SyncOp) -> Result<(), SyncError>,
 ) -> Result<Option<i64>, SyncError> {
     let mut stmt =
         conn.prepare("SELECT seq, entity_type, entity_id FROM sync_dirty ORDER BY seq ASC")?;
@@ -675,14 +743,14 @@ fn export_dirty_ops(
         if entity_type == "thread" && payload.get("head_message_id").is_none_or(|v| v.is_null()) {
             continue;
         }
-        ops.push(make_op(
+        emit(make_op(
             device_id,
             seq,
             kind,
             &entity_type,
             &entity_id,
             payload,
-        )?);
+        )?)?;
     }
     Ok(high_water)
 }
@@ -762,37 +830,43 @@ pub fn import_ops(
     ensure_universe(&conn, &sync_dir, false)?;
     let local_device = get_device(&conn)?.unwrap_or_default();
     let paths = op_files(&sync_dir)?;
-    let schedule_thread_ids = schedule_created_thread_ids_in_ops(&paths, &local_device)?;
+    let files = import_files_to_scan(&conn, &sync_dir, paths, &local_device)?;
+    let mut schedule_thread_ids = load_skipped_schedule_thread_ids(&conn)?;
+    schedule_thread_ids.extend(schedule_created_thread_ids_in_ops(&files)?);
     let mut imported = 0;
     let mut transient_error: Option<String> = None;
-    for path in paths {
-        if path_belongs_to_device(&path, &local_device) {
-            continue;
-        }
+    for file in files {
+        let mut file_complete = true;
         // A file that fails to read is likely still downloading from iCloud:
         // skip it (don't record it as applied) and report a transient error.
-        let content = match fs::read_to_string(&path) {
-            Ok(content) => content,
-            Err(error) => {
-                transient_error = Some(format!(
-                    "Could not read {} (still downloading?): {error}",
-                    path.display()
-                ));
-                continue;
-            }
-        };
-        for line in content.lines() {
-            if line.trim().is_empty() {
-                continue;
-            }
-            let op: SyncOp = serde_json::from_str(line)?;
+        let result = for_each_op_in_file(&file.path, |op| {
             // Business write + applied-ops bookkeeping commit together, so a
             // crash mid-import can never leave an op half-applied.
             let tx = conn.unchecked_transaction()?;
-            let applied = apply_op(home, &tx, &op, &schedule_thread_ids)?;
+            let outcome = apply_op(home, &tx, &op, &schedule_thread_ids)?;
             tx.commit()?;
-            if applied {
-                imported += 1;
+            match outcome {
+                ApplyOutcome::Counted => imported += 1,
+                ApplyOutcome::Skipped => {}
+                ApplyOutcome::Deferred => file_complete = false,
+            }
+            Ok(())
+        });
+        match result {
+            Ok(()) => {
+                if file_complete {
+                    mark_import_file_complete(&conn, &file.key, file.signature)?;
+                }
+            }
+            Err(SyncError::Io(error)) => {
+                transient_error = Some(format!(
+                    "Could not read {} (still downloading?): {error}",
+                    file.path.display()
+                ));
+                continue;
+            }
+            Err(error) => {
+                return Err(error);
             }
         }
     }
@@ -847,32 +921,137 @@ fn op_files(sync_dir: &Path) -> Result<Vec<PathBuf>, SyncError> {
     Ok(files)
 }
 
-fn schedule_created_thread_ids_in_ops(
-    paths: &[PathBuf],
+fn import_files_to_scan(
+    conn: &Connection,
+    sync_dir: &Path,
+    paths: Vec<PathBuf>,
     local_device: &str,
-) -> Result<HashSet<String>, SyncError> {
-    let mut ids = HashSet::new();
+) -> Result<Vec<ImportFile>, SyncError> {
+    let mut files = Vec::new();
     for path in paths {
-        if path_belongs_to_device(path, local_device) {
+        if path_belongs_to_device(&path, local_device) {
             continue;
         }
-        let content = match fs::read_to_string(path) {
-            Ok(content) => content,
-            Err(_) => continue,
-        };
-        for line in content.lines() {
-            if line.trim().is_empty() {
-                continue;
-            }
-            let op: SyncOp = serde_json::from_str(line)?;
+        let signature = import_file_signature(&path)?;
+        let key = import_file_key(sync_dir, &path);
+        if import_file_is_complete(conn, &key, signature)? {
+            continue;
+        }
+        files.push(ImportFile {
+            path,
+            key,
+            signature,
+        });
+    }
+    Ok(files)
+}
+
+fn import_file_key(sync_dir: &Path, path: &Path) -> String {
+    path.strip_prefix(sync_dir)
+        .unwrap_or(path)
+        .components()
+        .map(|component| component.as_os_str().to_string_lossy())
+        .collect::<Vec<_>>()
+        .join("/")
+}
+
+fn import_file_signature(path: &Path) -> Result<ImportFileSignature, SyncError> {
+    let metadata = fs::metadata(path)?;
+    let modified_millis = metadata
+        .modified()?
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as i64;
+    Ok(ImportFileSignature {
+        size: metadata.len() as i64,
+        modified_millis,
+    })
+}
+
+fn import_file_is_complete(
+    conn: &Connection,
+    key: &str,
+    signature: ImportFileSignature,
+) -> Result<bool, SyncError> {
+    Ok(conn
+        .query_row(
+            "SELECT 1 FROM sync_imported_files WHERE path = ?1 AND size = ?2 AND modified_millis = ?3",
+            params![key, signature.size, signature.modified_millis],
+            |_| Ok(()),
+        )
+        .optional()?
+        .is_some())
+}
+
+fn mark_import_file_complete(
+    conn: &Connection,
+    key: &str,
+    signature: ImportFileSignature,
+) -> Result<(), SyncError> {
+    conn.execute(
+        "INSERT INTO sync_imported_files (path, size, modified_millis, imported_at) VALUES (?1, ?2, ?3, ?4)
+         ON CONFLICT(path) DO UPDATE SET size = excluded.size, modified_millis = excluded.modified_millis, imported_at = excluded.imported_at",
+        params![key, signature.size, signature.modified_millis, now()],
+    )?;
+    Ok(())
+}
+
+fn for_each_op_in_file(
+    path: &Path,
+    mut visit: impl FnMut(SyncOp) -> Result<(), SyncError>,
+) -> Result<(), SyncError> {
+    let file = File::open(path)?;
+    let mut reader = BufReader::new(file);
+    let mut line = String::new();
+    loop {
+        line.clear();
+        let bytes = reader.read_line(&mut line)?;
+        if bytes == 0 {
+            return Ok(());
+        }
+        if line.trim().is_empty() {
+            continue;
+        }
+        visit(serde_json::from_str(&line)?)?;
+    }
+}
+
+fn schedule_created_thread_ids_in_ops(files: &[ImportFile]) -> Result<HashSet<String>, SyncError> {
+    let mut ids = HashSet::new();
+    for file in files {
+        let result = for_each_op_in_file(&file.path, |op| {
             if op.kind == "thread.archive.upsert"
                 && is_non_null_field(&op.payload, "created_from_schedule_id")
             {
                 ids.insert(op.entity_id);
             }
+            Ok(())
+        });
+        match result {
+            Ok(()) => {}
+            Err(SyncError::Io(_)) => continue,
+            Err(error) => {
+                return Err(error);
+            }
         }
     }
     Ok(ids)
+}
+
+fn load_skipped_schedule_thread_ids(conn: &Connection) -> Result<HashSet<String>, SyncError> {
+    let mut stmt = conn.prepare("SELECT thread_id FROM sync_skipped_schedule_threads")?;
+    let ids = stmt
+        .query_map([], |row| row.get::<_, String>(0))?
+        .collect::<Result<HashSet<String>, _>>()?;
+    Ok(ids)
+}
+
+fn mark_schedule_thread_skipped(conn: &Connection, thread_id: &str) -> Result<(), SyncError> {
+    conn.execute(
+        "INSERT OR IGNORE INTO sync_skipped_schedule_threads (thread_id, recorded_at) VALUES (?1, ?2)",
+        params![thread_id, now()],
+    )?;
+    Ok(())
 }
 
 fn op_belongs_to_schedule_thread(op: &SyncOp, schedule_thread_ids: &HashSet<String>) -> bool {
@@ -899,7 +1078,12 @@ fn apply_op(
     conn: &Connection,
     op: &SyncOp,
     schedule_thread_ids: &HashSet<String>,
-) -> Result<bool, SyncError> {
+) -> Result<ApplyOutcome, SyncError> {
+    let is_schedule_thread = op.kind == "thread.archive.upsert"
+        && is_non_null_field(&op.payload, "created_from_schedule_id");
+    if is_schedule_thread {
+        mark_schedule_thread_skipped(conn, &op.entity_id)?;
+    }
     if conn
         .query_row(
             "SELECT 1 FROM sync_applied_ops WHERE op_id = ?1",
@@ -909,11 +1093,11 @@ fn apply_op(
         .optional()?
         .is_some()
     {
-        return Ok(false);
+        return Ok(ApplyOutcome::Skipped);
     }
     if op_belongs_to_schedule_thread(op, schedule_thread_ids) {
         mark_op_applied(conn, op)?;
-        return Ok(false);
+        return Ok(ApplyOutcome::Skipped);
     }
     match op.kind.as_str() {
         "settings.snapshot" => apply_settings(home, conn, op)?,
@@ -924,21 +1108,21 @@ fn apply_op(
             if !parent_thread_exists(conn, &op.payload)? {
                 // Parent thread hasn't been imported yet; defer without marking
                 // applied so a later import (after the thread op arrives) retries.
-                return Ok(false);
+                return Ok(ApplyOutcome::Deferred);
             }
             insert_json_row(conn, "messages", &op.payload, None)?
         }
         "toolcall.archive.upsert" => {
             if !parent_thread_exists(conn, &op.payload)? {
                 // Same deferral as messages: wait until the owning thread exists.
-                return Ok(false);
+                return Ok(ApplyOutcome::Deferred);
             }
             insert_json_row(conn, "tool_calls", &op.payload, None)?
         }
         _ => {}
     }
     mark_op_applied(conn, op)?;
-    Ok(true)
+    Ok(ApplyOutcome::Counted)
 }
 
 /// Whether the thread a message/tool-call payload belongs to is already imported.
@@ -1402,6 +1586,39 @@ mod tests {
         let second = import_ops(home_b.path(), Some(sync.path())).unwrap();
         assert_eq!(second.imported_ops, 0, "re-import must be a no-op");
         assert_eq!(count_rows(home_b.path(), "threads"), 1);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn import_skips_cached_completed_ops_files() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let sync = tempfile::tempdir().unwrap();
+        let home_a = setup_home("config-a");
+        let home_b = setup_home("config-b");
+        seed_thread(home_a.path(), "t1", "m1");
+        init_sync(home_a.path(), Some(sync.path()), "A").unwrap();
+        init_sync(home_b.path(), Some(sync.path()), "B").unwrap();
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+
+        let first = import_ops(home_b.path(), Some(sync.path())).unwrap();
+        assert!(first.imported_ops >= 2);
+        assert_eq!(first.last_error, None);
+
+        let device_a = device_id_of(home_a.path());
+        let path = device_dir(sync.path(), &device_a)
+            .join("ops")
+            .join("0000000000000001.jsonl");
+        let original_permissions = fs::metadata(&path).unwrap().permissions();
+        let mut unreadable_permissions = original_permissions.clone();
+        unreadable_permissions.set_mode(0o000);
+        fs::set_permissions(&path, unreadable_permissions).unwrap();
+
+        let second = import_ops(home_b.path(), Some(sync.path())).unwrap();
+        fs::set_permissions(&path, original_permissions).unwrap();
+
+        assert_eq!(second.imported_ops, 0);
+        assert_eq!(second.last_error, None);
     }
 
     #[test]
