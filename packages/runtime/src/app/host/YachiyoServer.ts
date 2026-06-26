@@ -1,6 +1,6 @@
 /* eslint-disable yachiyo/max-typescript-file-lines */
 import { createHash, randomUUID } from 'node:crypto'
-import { accessSync, constants, existsSync } from 'node:fs'
+import { accessSync, constants } from 'node:fs'
 import { readFile, writeFile } from 'node:fs/promises'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
@@ -156,6 +156,10 @@ import { decideSettingsConflict } from '../../services/settingsConflictReconcile
 import type { JotdownStore } from '../../services/jotdownStore.ts'
 import type { YachiyoStorage } from '../../storage/storage.ts'
 import {
+  resolveRecommendedICloudSyncDir,
+  resolveSyncReadiness as resolveHostSyncReadiness
+} from './syncReadiness.ts'
+import {
   cloneThreadWorkspace as defaultCloneThreadWorkspace,
   deleteThreadWorkspace as defaultDeleteThreadWorkspace,
   ensureThreadWorkspace as defaultEnsureThreadWorkspace
@@ -218,12 +222,6 @@ import type { SqliteYachiyoServerOptions, YachiyoServerOptions } from './options
 
 const execFileAsync = promisify(execFile)
 
-function resolveDefaultICloudSyncDir(): string {
-  const home = process.env['HOME']?.trim()
-  if (!home) return ''
-  return join(home, 'Library/Mobile Documents/com~apple~CloudDocs/Documents/Yachiyo/Sync')
-}
-
 function resolveSyncCoreBinary(): string {
   const binaryName = process.platform === 'win32' ? 'sync-core.exe' : 'sync-core'
   const osMap: Record<string, string> = { darwin: 'mac', linux: 'linux', win32: 'win' }
@@ -280,7 +278,11 @@ function findProjectRoot(startDir: string): string | undefined {
   return undefined
 }
 
-function parseSyncCoreOutput(stdout: string): SyncStatus {
+function parseSyncCoreOutput(
+  stdout: string,
+  syncDirFallback: string,
+  recommendedSyncDir: string
+): SyncStatus {
   const parsed = JSON.parse(stdout) as {
     state?: SyncStatus['state']
     sync_dir?: string
@@ -293,7 +295,8 @@ function parseSyncCoreOutput(stdout: string): SyncStatus {
   }
   return {
     state: parsed.state ?? 'not_initialized',
-    syncDir: parsed.sync_dir ?? resolveDefaultICloudSyncDir(),
+    syncDir: parsed.sync_dir ?? syncDirFallback,
+    recommendedSyncDir,
     ...(parsed.device_id ? { deviceId: parsed.device_id } : {}),
     deviceCount: parsed.device_count ?? 0,
     pendingConflictCount: parsed.pending_conflict_count ?? 0,
@@ -699,20 +702,22 @@ export class YachiyoServer {
    * status reporting and to gate background auto-sync so it never spawns the
    * binary for a device that hasn't opted into sync.
    */
-  private resolveSyncReadiness(): { syncDir: string; available: boolean; initialized: boolean } {
-    const syncDir = resolveDefaultICloudSyncDir()
-    const iCloudRoot = syncDir ? resolve(syncDir, '../../..') : ''
-    const available = Boolean(syncDir) && existsSync(iCloudRoot)
-    const initialized = available && existsSync(join(syncDir, 'universe.json'))
-    return { syncDir, available, initialized }
+  private resolveSyncReadiness(): {
+    syncDir: string
+    recommendedSyncDir: string
+    available: boolean
+    initialized: boolean
+  } {
+    return resolveHostSyncReadiness(this.configDomain.readConfig())
   }
 
   async getSyncStatus(): Promise<SyncStatus> {
-    const { syncDir, available, initialized } = this.resolveSyncReadiness()
+    const { syncDir, recommendedSyncDir, available, initialized } = this.resolveSyncReadiness()
     if (!available) {
       return {
-        state: 'icloud_unavailable',
+        state: 'sync_dir_unavailable',
         syncDir,
+        recommendedSyncDir,
         deviceCount: 0,
         pendingConflictCount: this.storage.countPendingSyncConflicts()
       }
@@ -721,6 +726,7 @@ export class YachiyoServer {
       return {
         state: 'not_initialized',
         syncDir,
+        recommendedSyncDir,
         deviceCount: 0,
         pendingConflictCount: this.storage.countPendingSyncConflicts()
       }
@@ -729,13 +735,16 @@ export class YachiyoServer {
       const { stdout } = await execFileAsync(resolveSyncCoreBinary(), [
         'status',
         '--home',
-        dirname(this.settingsPath)
+        dirname(this.settingsPath),
+        '--sync-dir',
+        syncDir
       ])
-      return parseSyncCoreOutput(stdout)
+      return parseSyncCoreOutput(stdout, syncDir, recommendedSyncDir)
     } catch (reason) {
       return {
         state: 'needs_attention',
         syncDir,
+        recommendedSyncDir,
         deviceCount: 0,
         pendingConflictCount: this.storage.countPendingSyncConflicts(),
         lastError: reason instanceof Error ? reason.message : 'Failed to read sync status.'
@@ -746,16 +755,26 @@ export class YachiyoServer {
   async initSync(): Promise<SyncStatus> {
     const binary = resolveSyncCoreBinary()
     const home = dirname(this.settingsPath)
+    const { syncDir } = this.resolveSyncReadiness()
     return this.runExclusiveSync(async () => {
-      await execFileAsync(binary, ['init', '--home', home, '--device-label', 'Yachiyo'])
+      await execFileAsync(binary, [
+        'init',
+        '--home',
+        home,
+        '--sync-dir',
+        syncDir,
+        '--device-label',
+        'Yachiyo'
+      ])
       // Publish + pull once so enabling sync immediately produces a usable state.
-      return this.exportThenImport(binary, home)
+      return this.exportThenImport(binary, home, syncDir)
     })
   }
 
   async runSyncNow(): Promise<SyncStatus> {
+    const { syncDir } = this.resolveSyncReadiness()
     return this.runExclusiveSync(() =>
-      this.exportThenImport(resolveSyncCoreBinary(), dirname(this.settingsPath))
+      this.exportThenImport(resolveSyncCoreBinary(), dirname(this.settingsPath), syncDir)
     )
   }
 
@@ -774,7 +793,7 @@ export class YachiyoServer {
     const status = await this.getSyncStatus()
     if (!status.deviceId) return null
     return this.runExclusiveSync(() =>
-      this.exportThenImport(resolveSyncCoreBinary(), dirname(this.settingsPath))
+      this.exportThenImport(resolveSyncCoreBinary(), dirname(this.settingsPath), status.syncDir)
     )
   }
 
@@ -788,10 +807,21 @@ export class YachiyoServer {
     return run
   }
 
-  private async exportThenImport(binary: string, home: string): Promise<SyncStatus> {
-    await execFileAsync(binary, ['export', '--home', home])
-    const { stdout } = await execFileAsync(binary, ['import', '--home', home])
-    const status = parseSyncCoreOutput(stdout)
+  private async exportThenImport(
+    binary: string,
+    home: string,
+    syncDir: string
+  ): Promise<SyncStatus> {
+    const recommendedSyncDir = resolveRecommendedICloudSyncDir()
+    await execFileAsync(binary, ['export', '--home', home, '--sync-dir', syncDir])
+    const { stdout } = await execFileAsync(binary, [
+      'import',
+      '--home',
+      home,
+      '--sync-dir',
+      syncDir
+    ])
+    const status = parseSyncCoreOutput(stdout, syncDir, recommendedSyncDir)
     this.reconcileSyncConflicts()
     // The binary's own count predates reconciliation; report the live count.
     return { ...status, pendingConflictCount: this.storage.countPendingSyncConflicts() }
@@ -839,7 +869,11 @@ export class YachiyoServer {
     try {
       const payload = JSON.parse(conflict.payloadJson) as { text?: unknown }
       if (typeof payload.text !== 'string') return null
-      return normalizeSettingsConfig(parseSettingsToml(payload.text))
+      const remote = normalizeSettingsConfig(parseSettingsToml(payload.text))
+      return normalizeSettingsConfig({
+        ...remote,
+        sync: this.configDomain.getConfig().sync
+      })
     } catch {
       return null
     }

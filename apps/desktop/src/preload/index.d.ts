@@ -150,6 +150,7 @@ declare global {
         acceptThreadPlanDocument: (input: AcceptThreadPlanDocumentInput) => Promise<ChatAccepted>
         pickCodexSessionFile: () => Promise<string | null>
         pickWorkspaceDirectory: () => Promise<string | null>
+        pickSyncDirectory: () => Promise<string | null>
         createFolderForThreads: (input: { threadIds: string[] }) => Promise<FolderRecord>
         renameFolder: (input: { folderId: string; title: string }) => Promise<FolderRecord>
         setFolderColor: (input: {

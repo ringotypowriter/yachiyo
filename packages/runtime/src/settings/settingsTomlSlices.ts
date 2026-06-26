@@ -156,6 +156,20 @@ export const settingsTomlSlices: readonly TomlConfigSlice<SettingsConfig, TomlDo
     }
   },
   {
+    key: 'sync',
+    read(doc) {
+      const sync = readTomlTable(doc['sync'])
+      return sync ? { sync: sync as SettingsConfig['sync'] } : {}
+    },
+    write(config) {
+      return {
+        sync: {
+          syncDir: config.sync?.syncDir ?? ''
+        }
+      }
+    }
+  },
+  {
     key: 'skills',
     read(doc) {
       const skills = readTomlTable(doc['skills'])

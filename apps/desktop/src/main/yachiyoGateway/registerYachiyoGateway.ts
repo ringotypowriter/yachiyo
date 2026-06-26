@@ -791,6 +791,15 @@ export function registerYachiyoGateway(): YachiyoServer {
 
     return result.canceled ? null : (result.filePaths[0] ?? null)
   })
+  handleYachiyoIpc(IPC_CHANNELS.pickSyncDirectory, async () => {
+    const { dialog } = await import('electron')
+    const result = await dialog.showOpenDialog({
+      properties: ['openDirectory', 'createDirectory'],
+      buttonLabel: 'Select sync folder'
+    })
+
+    return result.canceled ? null : (result.filePaths[0] ?? null)
+  })
   handleYachiyoIpc(IPC_CHANNELS.restoreThread, (input: { threadId: string }) =>
     server!.restoreThread(input)
   )

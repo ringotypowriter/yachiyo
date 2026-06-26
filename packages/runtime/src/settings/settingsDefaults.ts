@@ -41,6 +41,9 @@ export const DEFAULT_SETTINGS_CONFIG: SettingsConfig = {
   workspace: {
     savedPaths: []
   },
+  sync: {
+    syncDir: ''
+  },
   skills: {
     enabled: []
   },

@@ -17,6 +17,7 @@ import {
   normalizeGeneralConfig,
   normalizeMemoryConfig,
   normalizeSkillsConfig,
+  normalizeSyncConfig,
   normalizeWebSearchConfig,
   normalizeWorkspaceConfig
 } from './settingsFeatureNormalization.ts'
@@ -52,6 +53,7 @@ export function normalizeSettingsConfig(value: unknown): SettingsConfig {
     general: normalizeGeneralConfig(input['general']),
     chat: normalizeChatConfig(input['chat']),
     workspace: normalizeWorkspaceConfig(input['workspace']),
+    sync: normalizeSyncConfig(input['sync']),
     skills: normalizeSkillsConfig(input['skills']),
     toolModel:
       toolModel.mode === 'custom'

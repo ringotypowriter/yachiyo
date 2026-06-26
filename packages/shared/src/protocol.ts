@@ -1155,6 +1155,7 @@ export interface SettingsConfig {
   general?: GeneralConfig
   chat?: ChatConfig
   workspace?: WorkspaceConfig
+  sync?: { syncDir?: string }
   toolModel?: ToolModelConfig
   skills?: SkillsConfig
   memory?: MemoryConfig
@@ -1191,9 +1192,7 @@ export interface SyncConflictRecord {
   settingsFields?: SyncSettingsFieldDiff[]
 }
 
-export interface ListSyncConflictsResult {
-  conflicts: SyncConflictRecord[]
-}
+export type ListSyncConflictsResult = { conflicts: SyncConflictRecord[] }
 
 export interface ResolveSyncConflictInput {
   conflictId: string
@@ -1203,8 +1202,9 @@ export interface ResolveSyncConflictInput {
 }
 
 export interface SyncStatus {
-  state: 'icloud_unavailable' | 'not_initialized' | 'ready' | 'needs_attention'
+  state: 'sync_dir_unavailable' | 'not_initialized' | 'ready' | 'needs_attention'
   syncDir: string
+  recommendedSyncDir: string
   deviceId?: string
   deviceCount: number
   pendingConflictCount: number

@@ -61,6 +61,7 @@ export const IPC_CHANNELS = {
   acceptThreadPlanDocument: 'yachiyo:accept-thread-plan-document',
   pickCodexSessionFile: 'yachiyo:pick-codex-session-file',
   pickWorkspaceDirectory: 'yachiyo:pick-workspace-directory',
+  pickSyncDirectory: 'yachiyo:pick-sync-directory',
   restoreThread: 'yachiyo:restore-thread',
   retryMessage: 'yachiyo:retry-message',
   saveThread: 'yachiyo:save-thread',

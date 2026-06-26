@@ -13,6 +13,7 @@ import {
   type GeneralConfig,
   type MemoryConfig,
   type SkillsConfig,
+  type SettingsConfig,
   type ThreadModelOverride,
   type WebSearchConfig,
   type WebSearchProviderId,
@@ -26,6 +27,8 @@ import {
   normalizeString,
   normalizeStringList
 } from './settingsNormalizationShared.ts'
+
+type SyncConfig = NonNullable<SettingsConfig['sync']>
 
 function normalizeWebSearchProviderId(
   value: unknown,
@@ -184,6 +187,15 @@ export function normalizeWorkspaceConfig(
     ...(terminalApp ? { terminalApp } : {}),
     ...(markdownApp ? { markdownApp } : {})
   }
+}
+
+export function normalizeSyncConfig(
+  value: unknown,
+  fallback: SyncConfig = DEFAULT_SETTINGS_CONFIG.sync ?? {}
+): SyncConfig {
+  const input = asRecord(value)
+  const syncDir = normalizeString(input['syncDir'] ?? fallback.syncDir, '')
+  return syncDir ? { syncDir } : { syncDir: '' }
 }
 
 export function normalizeSkillsConfig(

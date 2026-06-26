@@ -209,6 +209,82 @@ fn hash_text(text: &str) -> String {
     format!("sha256:{:x}", Sha256::digest(text.as_bytes()))
 }
 
+fn settings_table_header(line: &str) -> bool {
+    let trimmed = line.trim_start();
+    if let Some(rest) = trimmed.strip_prefix("[[") {
+        return rest.contains("]]");
+    }
+    trimmed
+        .strip_prefix('[')
+        .is_some_and(|rest| rest.contains(']'))
+}
+
+fn local_only_settings_header(line: &str) -> bool {
+    let trimmed = line.trim_start();
+    let (rest, closing) = if let Some(rest) = trimmed.strip_prefix("[[") {
+        (rest, "]]")
+    } else if let Some(rest) = trimmed.strip_prefix('[') {
+        (rest, "]")
+    } else {
+        return false;
+    };
+    let Some(end) = rest.find(closing) else {
+        return false;
+    };
+    let name = rest[..end].trim();
+    name == "sync" || name.starts_with("sync.")
+}
+
+fn strip_local_only_settings_tables(text: &str) -> String {
+    let mut output = String::with_capacity(text.len());
+    let mut skipping = false;
+    for line in text.split_inclusive('\n') {
+        if settings_table_header(line) {
+            skipping = local_only_settings_header(line);
+            if skipping {
+                continue;
+            }
+        }
+        if !skipping {
+            output.push_str(line);
+        }
+    }
+    output
+}
+
+fn extract_local_only_settings_tables(text: &str) -> String {
+    let mut output = String::new();
+    let mut keeping = false;
+    for line in text.split_inclusive('\n') {
+        if settings_table_header(line) {
+            keeping = local_only_settings_header(line);
+        }
+        if keeping {
+            output.push_str(line);
+        }
+    }
+    output
+}
+
+fn merge_local_only_settings_tables(remote_text: &str, local_text: &str) -> String {
+    let local_only = extract_local_only_settings_tables(local_text);
+    let mut merged = strip_local_only_settings_tables(remote_text);
+    if local_only.trim().is_empty() {
+        return merged;
+    }
+    if !merged.is_empty() {
+        if !merged.ends_with('\n') {
+            merged.push('\n');
+        }
+        merged.push('\n');
+    }
+    merged.push_str(local_only.trim_matches('\n'));
+    if !merged.ends_with('\n') {
+        merged.push('\n');
+    }
+    merged
+}
+
 fn hash_value(value: &Value) -> Result<String, SyncError> {
     Ok(hash_text(&serde_json::to_string(value)?))
 }
@@ -574,7 +650,9 @@ pub fn export_ops(
         .join("ops")
         .join(format!("{seq:016}.jsonl"));
     let mut ops = OpsFileWriter::create(&ops_path)?;
-    let settings_text = fs::read_to_string(settings_path(home)).ok();
+    let settings_text = fs::read_to_string(settings_path(home))
+        .ok()
+        .map(|text| strip_local_only_settings_tables(&text));
     let settings_hash = settings_text.as_deref().map(hash_text);
     let settings_changed = match &settings_hash {
         Some(hash) => {
@@ -1160,7 +1238,7 @@ fn apply_settings(home: &Path, conn: &Connection, op: &SyncOp) -> Result<(), Syn
         .unwrap_or(op.payload_hash.as_str());
     let path = settings_path(home);
     let local_text = fs::read_to_string(&path).unwrap_or_default();
-    let local_hash = hash_text(&local_text);
+    let local_hash = hash_text(&strip_local_only_settings_tables(&local_text));
     // Both sides already agree — nothing to write and never a conflict. Without
     // this, a re-exported but byte-identical snapshot would record a phantom
     // conflict on every import.
@@ -1168,7 +1246,10 @@ fn apply_settings(home: &Path, conn: &Connection, op: &SyncOp) -> Result<(), Syn
         return Ok(());
     }
     if !path.exists() || local_hash == base_hash {
-        atomic_write(&path, remote_text)?;
+        atomic_write(
+            &path,
+            &merge_local_only_settings_tables(remote_text, &local_text),
+        )?;
         return Ok(());
     }
     conn.execute(
@@ -2125,6 +2206,39 @@ mod tests {
         assert_eq!(conflicts, 1);
     }
 
+    fn config_with_sync_dir(theme_id: &str, sync_dir: &str) -> String {
+        format!("[general]\nthemeId = \"{theme_id}\"\n\n[sync]\nsyncDir = \"{sync_dir}\"\n")
+    }
+
+    #[test]
+    fn settings_sync_dir_is_local_only_on_import() {
+        let sync = tempfile::tempdir().unwrap();
+        let local_config = config_with_sync_dir("ume", "/local/sync");
+        let remote_config = config_with_sync_dir("ume", "/remote/sync");
+        let home_a = setup_home(&remote_config);
+        let home_b = setup_home(&local_config);
+        init_sync(home_a.path(), Some(sync.path()), "A").unwrap();
+        init_sync(home_b.path(), Some(sync.path()), "B").unwrap();
+
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+
+        assert_eq!(
+            fs::read_to_string(home_b.path().join(SETTINGS_FILE)).unwrap(),
+            local_config,
+            "syncDir is local device configuration and must not be imported"
+        );
+        let conn = Connection::open(home_b.path().join(DB_FILE)).unwrap();
+        let conflicts: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sync_conflicts WHERE resolved_at IS NULL",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(conflicts, 0, "syncDir-only differences must not conflict");
+    }
+
     #[test]
     fn export_is_skipped_when_unchanged() {
         let sync = tempfile::tempdir().unwrap();
@@ -2146,6 +2260,30 @@ mod tests {
         let third = export_ops(home.path(), Some(sync.path())).unwrap();
         assert!(third.exported_ops >= 1, "changed export must run");
         assert_eq!(count_op_files(sync.path(), &device), 2);
+    }
+
+    #[test]
+    fn export_is_skipped_when_only_sync_dir_changed() {
+        let sync = tempfile::tempdir().unwrap();
+        let home = setup_home(&config_with_sync_dir("ume", "/first/sync"));
+        init_sync(home.path(), Some(sync.path()), "A").unwrap();
+        let device = device_id_of(home.path());
+
+        let first = export_ops(home.path(), Some(sync.path())).unwrap();
+        assert!(first.exported_ops >= 1);
+        assert_eq!(count_op_files(sync.path(), &device), 1);
+
+        fs::write(
+            home.path().join(SETTINGS_FILE),
+            config_with_sync_dir("ume", "/second/sync"),
+        )
+        .unwrap();
+        let second = export_ops(home.path(), Some(sync.path())).unwrap();
+        assert_eq!(
+            second.exported_ops, 0,
+            "local syncDir edits must not publish a settings snapshot"
+        );
+        assert_eq!(count_op_files(sync.path(), &device), 1);
     }
 
     #[test]

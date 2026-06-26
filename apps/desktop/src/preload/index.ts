@@ -185,6 +185,7 @@ const api = {
       ipcRenderer.invoke('yachiyo:accept-thread-plan-document', input),
     pickCodexSessionFile: () => ipcRenderer.invoke('yachiyo:pick-codex-session-file'),
     pickWorkspaceDirectory: () => ipcRenderer.invoke('yachiyo:pick-workspace-directory'),
+    pickSyncDirectory: () => ipcRenderer.invoke('yachiyo:pick-sync-directory'),
     createFolderForThreads: (input: { threadIds: string[] }): Promise<FolderRecord> =>
       ipcRenderer.invoke('yachiyo:create-folder-for-threads', input),
     renameFolder: (input: { folderId: string; title: string }): Promise<FolderRecord> =>

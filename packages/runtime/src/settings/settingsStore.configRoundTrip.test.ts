@@ -94,6 +94,36 @@ test('general shortcut fields round-trip through TOML serialization', async () =
   }
 })
 
+test('sync folder path round-trips through TOML serialization', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'yachiyo-settings-sync-'))
+  const settingsPath = join(root, 'config.toml')
+  const store = createSettingsStore(settingsPath)
+
+  try {
+    store.write({
+      ...DEFAULT_SETTINGS_CONFIG,
+      sync: {
+        syncDir: '/Users/ringo/Library/Mobile Documents/com~apple~CloudDocs/Documents/Yachiyo/Sync'
+      }
+    })
+
+    const toml = await readFile(settingsPath, 'utf8')
+    assert.match(toml, /\[sync\]/)
+    assert.match(
+      toml,
+      /syncDir = "\/Users\/ringo\/Library\/Mobile Documents\/com~apple~CloudDocs\/Documents\/Yachiyo\/Sync"/
+    )
+
+    const loaded = store.read()
+    assert.equal(
+      loaded.sync?.syncDir,
+      '/Users/ringo/Library/Mobile Documents/com~apple~CloudDocs/Documents/Yachiyo/Sync'
+    )
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
 test('general activity tracking round-trips through parse → normalize → stringify → parse', () => {
   const toml = `[general]
 activityTracking = { mode = "full", accessibilityDenied = true, ocr = { enabled = true, excludedApps = ["Example Chat", "com.example.chat"] } }
