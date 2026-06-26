@@ -821,13 +821,16 @@ fn export_dirty_ops(
         if entity_type == "thread" && payload.get("head_message_id").is_none_or(|v| v.is_null()) {
             continue;
         }
-        // Drop run-only message columns from the archive: `response_messages` (the
-        // raw provider transcript, often hundreds of MB) and `turn_context` exist
-        // solely to resume/continue a run. Synced threads are read-only mirrors that
-        // can never be re-run, so these are dead weight — stripping them keeps ops
-        // files from ballooning to GB scale on full resync.
+        // Drop the heaviest message column from the archive. `response_messages` is
+        // the raw provider transcript (the dominant ~500MB of a full DB) — it only
+        // feeds run resume and the renderer's tool raw-input/output trace. On a
+        // read-only mirror that can't be re-run, the renderer gracefully falls back
+        // to the synced `tool_calls` summaries/details, so dropping it keeps ops
+        // files from ballooning to GB scale. `turn_context` is intentionally KEPT:
+        // it's tiny (~9MB) and `turnContext.hiddenRequestKind` drives timeline
+        // grouping of hidden steer/follow-up turns on the archive.
         if entity_type == "message" {
-            strip_run_only_message_columns(&mut payload);
+            strip_heavy_archive_message_columns(&mut payload);
         }
         emit(make_op(
             device_id,
@@ -841,14 +844,17 @@ fn export_dirty_ops(
     Ok(high_water)
 }
 
-/// Columns on a message row that only matter for resuming/continuing a run and are
-/// never needed to display a read-only synced archive. Stripping them from the
-/// exported payload keeps ops files small (these dominate DB size in practice).
-const RUN_ONLY_MESSAGE_COLUMNS: &[&str] = &["response_messages", "turn_context"];
+/// Message columns dropped from the read-only archive export. `response_messages`
+/// is the raw provider transcript and by far the largest contributor to DB/ops
+/// size; on a mirror it only powers run resume + the tool raw-IO trace, both of
+/// which degrade gracefully (the renderer falls back to synced tool_calls
+/// summaries/details). Kept deliberately small to avoid dropping display data —
+/// notably `turn_context` stays, since hiddenRequestKind drives timeline grouping.
+const HEAVY_ARCHIVE_MESSAGE_COLUMNS: &[&str] = &["response_messages"];
 
-fn strip_run_only_message_columns(payload: &mut Value) {
+fn strip_heavy_archive_message_columns(payload: &mut Value) {
     if let Some(object) = payload.as_object_mut() {
-        for column in RUN_ONLY_MESSAGE_COLUMNS {
+        for column in HEAVY_ARCHIVE_MESSAGE_COLUMNS {
             object.remove(*column);
         }
     }
@@ -2525,7 +2531,7 @@ mod tests {
     }
 
     #[test]
-    fn export_strips_run_only_message_columns() {
+    fn export_strips_response_messages_but_keeps_display_columns() {
         let sync = tempfile::tempdir().unwrap();
         let home = setup_home("config");
         {
@@ -2563,11 +2569,12 @@ mod tests {
                     let obj = op.payload.as_object().unwrap();
                     assert!(
                         !obj.contains_key("response_messages"),
-                        "response_messages must be stripped from the exported message op"
+                        "response_messages (raw transcript) must be stripped from the export"
                     );
-                    assert!(
-                        !obj.contains_key("turn_context"),
-                        "turn_context must be stripped from the exported message op"
+                    assert_eq!(
+                        obj.get("turn_context").and_then(|v| v.as_str()),
+                        Some(r#"{"hint":"x"}"#),
+                        "turn_context must be KEPT (drives timeline grouping on archives)"
                     );
                     assert_eq!(
                         obj.get("body").and_then(|v| v.as_str()),
