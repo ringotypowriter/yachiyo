@@ -800,7 +800,7 @@ fn export_dirty_ops(
         if !table_exists(conn, table)? {
             continue;
         }
-        let Some(payload) = fetch_row_json(conn, table, &entity_id)? else {
+        let Some(mut payload) = fetch_row_json(conn, table, &entity_id)? else {
             continue; // deleted before export — v1 doesn't propagate deletions
         };
         // Defense in depth: never export threads that are not part of the normal
@@ -821,6 +821,17 @@ fn export_dirty_ops(
         if entity_type == "thread" && payload.get("head_message_id").is_none_or(|v| v.is_null()) {
             continue;
         }
+        // Drop the heaviest message column from the archive. `response_messages` is
+        // the raw provider transcript (the dominant ~500MB of a full DB) — it only
+        // feeds run resume and the renderer's tool raw-input/output trace. On a
+        // read-only mirror that can't be re-run, the renderer gracefully falls back
+        // to the synced `tool_calls` summaries/details, so dropping it keeps ops
+        // files from ballooning to GB scale. `turn_context` is intentionally KEPT:
+        // it's tiny (~9MB) and `turnContext.hiddenRequestKind` drives timeline
+        // grouping of hidden steer/follow-up turns on the archive.
+        if entity_type == "message" {
+            strip_heavy_archive_message_columns(&mut payload);
+        }
         emit(make_op(
             device_id,
             seq,
@@ -831,6 +842,22 @@ fn export_dirty_ops(
         )?)?;
     }
     Ok(high_water)
+}
+
+/// Message columns dropped from the read-only archive export. `response_messages`
+/// is the raw provider transcript and by far the largest contributor to DB/ops
+/// size; on a mirror it only powers run resume + the tool raw-IO trace, both of
+/// which degrade gracefully (the renderer falls back to synced tool_calls
+/// summaries/details). Kept deliberately small to avoid dropping display data —
+/// notably `turn_context` stays, since hiddenRequestKind drives timeline grouping.
+const HEAVY_ARCHIVE_MESSAGE_COLUMNS: &[&str] = &["response_messages"];
+
+fn strip_heavy_archive_message_columns(payload: &mut Value) {
+    if let Some(object) = payload.as_object_mut() {
+        for column in HEAVY_ARCHIVE_MESSAGE_COLUMNS {
+            object.remove(*column);
+        }
+    }
 }
 
 fn fetch_row_json(conn: &Connection, table: &str, id: &str) -> Result<Option<Value>, SyncError> {
@@ -1460,7 +1487,7 @@ mod tests {
         let conn = Connection::open(dir.path().join(DB_FILE)).unwrap();
         conn.execute_batch(
             "CREATE TABLE threads (id TEXT PRIMARY KEY, title TEXT, created_at TEXT, head_message_id TEXT, created_from_schedule_id TEXT, sync_origin_device_id TEXT, sync_imported_at TEXT);
-             CREATE TABLE messages (id TEXT PRIMARY KEY, thread_id TEXT NOT NULL, body TEXT, created_at TEXT);
+             CREATE TABLE messages (id TEXT PRIMARY KEY, thread_id TEXT NOT NULL, body TEXT, created_at TEXT, response_messages TEXT, turn_context TEXT);
              CREATE TABLE tool_calls (id TEXT PRIMARY KEY, thread_id TEXT NOT NULL, request_message_id TEXT, assistant_message_id TEXT, run_id TEXT, tool_name TEXT, status TEXT, input_summary TEXT, started_at TEXT);",
         )
         .unwrap();
@@ -2501,5 +2528,62 @@ mod tests {
             .query_row("SELECT COUNT(*) FROM messages", [], |r| r.get(0))
             .unwrap();
         assert_eq!(messages, 2);
+    }
+
+    #[test]
+    fn export_strips_response_messages_but_keeps_display_columns() {
+        let sync = tempfile::tempdir().unwrap();
+        let home = setup_home("config");
+        {
+            let conn = Connection::open(home.path().join(DB_FILE)).unwrap();
+            conn.execute(
+                "INSERT INTO threads (id, title, created_at, head_message_id) VALUES ('t1','Hello','1','m1')",
+                [],
+            )
+            .unwrap();
+            // Message carries the heavy run-only columns plus a normal display column.
+            conn.execute(
+                "INSERT INTO messages (id, thread_id, body, created_at, response_messages, turn_context) VALUES ('m1','t1','hi','1',?1,?2)",
+                params![r#"[{"role":"assistant","huge":"payload"}]"#, r#"{"hint":"x"}"#],
+            )
+            .unwrap();
+        }
+        init_sync(home.path(), Some(sync.path()), "A").unwrap();
+        export_ops(home.path(), Some(sync.path())).unwrap();
+
+        let device = device_id_of(home.path());
+        let ops_dir = device_dir(sync.path(), &device).join("ops");
+        let mut message_op_seen = false;
+        for entry in fs::read_dir(&ops_dir).unwrap() {
+            let path = entry.unwrap().path();
+            if path.extension().and_then(|x| x.to_str()) != Some("jsonl") {
+                continue;
+            }
+            for line in fs::read_to_string(&path).unwrap().lines() {
+                if line.trim().is_empty() {
+                    continue;
+                }
+                let op: SyncOp = serde_json::from_str(line).unwrap();
+                if op.kind == "message.archive.upsert" && op.entity_id == "m1" {
+                    message_op_seen = true;
+                    let obj = op.payload.as_object().unwrap();
+                    assert!(
+                        !obj.contains_key("response_messages"),
+                        "response_messages (raw transcript) must be stripped from the export"
+                    );
+                    assert_eq!(
+                        obj.get("turn_context").and_then(|v| v.as_str()),
+                        Some(r#"{"hint":"x"}"#),
+                        "turn_context must be KEPT (drives timeline grouping on archives)"
+                    );
+                    assert_eq!(
+                        obj.get("body").and_then(|v| v.as_str()),
+                        Some("hi"),
+                        "display columns must survive the strip"
+                    );
+                }
+            }
+        }
+        assert!(message_op_seen, "the message op should have been exported");
     }
 }
