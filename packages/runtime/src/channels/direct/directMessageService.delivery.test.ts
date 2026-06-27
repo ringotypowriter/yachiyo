@@ -781,6 +781,9 @@ describe('directMessageService', () => {
               ...server,
               getConfig: async () => ({ providers: [], workspace: { savedPaths: [] } }),
               hasActiveThread: () => false,
+              compactChannelThreadForChannelUser: async () => {
+                throw new Error('compactChannelThreadForChannelUser should not be called')
+              },
               listOwnerDmTakeoverThreads: () => [],
               takeOverThreadForChannelUser: async () => {
                 throw new Error('takeOverThreadForChannelUser should not be called')
@@ -875,6 +878,9 @@ describe('directMessageService', () => {
               ...server,
               getConfig: async () => ({ providers: [], workspace: { savedPaths: [] } }),
               hasActiveThread: () => false,
+              compactChannelThreadForChannelUser: async () => {
+                throw new Error('compactChannelThreadForChannelUser should not be called')
+              },
               listOwnerDmTakeoverThreads: () => [],
               takeOverThreadForChannelUser: async () => {
                 throw new Error('takeOverThreadForChannelUser should not be called')
