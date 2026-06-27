@@ -4,6 +4,7 @@ import { setTimeout as delay } from 'node:timers/promises'
 
 import type {
   ChannelUserRecord,
+  CompactThreadAccepted,
   SettingsConfig,
   ThreadModelOverride,
   ThreadRecord
@@ -68,6 +69,10 @@ function makeOptions<TTarget>(
     getThreadTotalTokens: () => 0,
     hasActiveThread: () => false,
     cancelRunForChannelUser: () => false,
+    subscribe: () => () => {},
+    compactChannelThreadForChannelUser: async () => {
+      throw new Error('compactChannelThreadForChannelUser should not be called')
+    },
     getConfig: async () => createConfig(),
     listOwnerDmTakeoverThreads: () => [],
     takeOverThreadForChannelUser: async () => {
@@ -460,9 +465,187 @@ describe('handleDmSlashCommand', () => {
       assert.ok(ownerReplies[0].includes('/workspace'))
       assert.ok(ownerReplies[0].includes('/takeover'))
       assert.ok(ownerReplies[0].includes('/mode'))
+      assert.ok(ownerReplies[0].includes('/handoff'))
       assert.equal(guestReplies[0].includes('/workspace'), false)
       assert.equal(guestReplies[0].includes('/takeover'), false)
       assert.equal(guestReplies[0].includes('/mode'), false)
+      assert.equal(guestReplies[0].includes('/handoff'), false)
+    })
+  })
+
+  describe('/handoff', () => {
+    it('starts a handoff for the active owner DM thread and sends the generated summary', async () => {
+      const owner = createChannelUser({ role: 'owner' })
+      const sourceThread = createThread('thread-source', {
+        source: 'telegram',
+        channelUserId: owner.id,
+        channelUserRole: 'owner'
+      })
+      const handoffThread = createThread('thread-handoff', {
+        source: 'telegram',
+        channelUserId: owner.id,
+        channelUserRole: 'owner',
+        handoffFromThreadId: sourceThread.id
+      })
+      const sent: string[] = []
+      const compactCalls: Array<{ threadId: string; channelUser: ChannelUserRecord }> = []
+      const listeners = new Set<Parameters<DmSlashCommandServer['subscribe']>[0]>()
+
+      const compacted: CompactThreadAccepted = {
+        runId: 'run-handoff',
+        sourceThreadId: sourceThread.id,
+        thread: handoffThread
+      }
+
+      const handled = await handleDmSlashCommand(
+        makeOptions<string>({
+          server: {
+            findActiveChannelThread: (userId, maxAgeMs) => {
+              assert.equal(userId, owner.id)
+              assert.equal(maxAgeMs, 3_600_000)
+              return sourceThread
+            },
+            subscribe: (listener) => {
+              listeners.add(listener)
+              return () => listeners.delete(listener)
+            },
+            compactChannelThreadForChannelUser: async (input) => {
+              compactCalls.push(input)
+              queueMicrotask(() => {
+                for (const listener of listeners) {
+                  listener({
+                    type: 'message.delta',
+                    eventId: 'evt-handoff-delta',
+                    timestamp: '2026-03-31T00:00:01.000Z',
+                    threadId: handoffThread.id,
+                    runId: compacted.runId,
+                    messageId: 'msg-handoff',
+                    delta: '### Goal\nKeep going.'
+                  })
+                  listener({
+                    type: 'run.completed',
+                    eventId: 'evt-handoff-completed',
+                    timestamp: '2026-03-31T00:00:02.000Z',
+                    threadId: handoffThread.id,
+                    runId: compacted.runId
+                  })
+                }
+              })
+              return compacted
+            }
+          },
+          sendMessage: async (_target, text) => {
+            sent.push(text)
+          }
+        }),
+        'chat-1',
+        owner,
+        '/handoff',
+        ''
+      )
+
+      assert.equal(handled, true)
+      assert.deepEqual(compactCalls, [{ threadId: sourceThread.id, channelUser: owner }])
+      assert.deepEqual(sent, ['Handoff started.', '### Goal\nKeep going.'])
+    })
+
+    it('reports no active conversation when the owner has no DM thread', async () => {
+      const owner = createChannelUser({ role: 'owner' })
+      const sent: string[] = []
+      let compactCalled = false
+
+      const handled = await handleDmSlashCommand(
+        makeOptions<string>({
+          server: {
+            findActiveChannelThread: () => undefined,
+            compactChannelThreadForChannelUser: async () => {
+              compactCalled = true
+              throw new Error('compactChannelThreadForChannelUser should not be called')
+            }
+          },
+          sendMessage: async (_target, text) => {
+            sent.push(text)
+          }
+        }),
+        'chat-1',
+        owner,
+        '/handoff',
+        ''
+      )
+
+      assert.equal(handled, true)
+      assert.equal(compactCalled, false)
+      assert.deepEqual(sent, ['No active conversation.'])
+    })
+
+    it('rejects handoff while the active owner DM thread is running', async () => {
+      const owner = createChannelUser({ role: 'owner' })
+      const sourceThread = createThread('thread-running')
+      const sent: string[] = []
+      let compactCalled = false
+
+      const handled = await handleDmSlashCommand(
+        makeOptions<string>({
+          server: {
+            findActiveChannelThread: () => sourceThread,
+            hasActiveThread: (threadId) => {
+              assert.equal(threadId, sourceThread.id)
+              return true
+            },
+            compactChannelThreadForChannelUser: async () => {
+              compactCalled = true
+              throw new Error('compactChannelThreadForChannelUser should not be called')
+            }
+          },
+          sendMessage: async (_target, text) => {
+            sent.push(text)
+          }
+        }),
+        'chat-1',
+        owner,
+        '/handoff',
+        '',
+        { batchDiscarded: true }
+      )
+
+      assert.equal(handled, true)
+      assert.equal(compactCalled, false)
+      assert.deepEqual(sent, [
+        'Your unsent message was discarded.\n\nCannot start a handoff while this conversation is running.'
+      ])
+    })
+
+    it('is owner-only and discards pending batches only for owner handoffs', async () => {
+      const guest = createChannelUser()
+      const sent: string[] = []
+      let compactCalled = false
+
+      const handled = await handleDmSlashCommand(
+        makeOptions<string>({
+          server: {
+            compactChannelThreadForChannelUser: async () => {
+              compactCalled = true
+              throw new Error('compactChannelThreadForChannelUser should not be called')
+            }
+          },
+          sendMessage: async (_target, text) => {
+            sent.push(text)
+          }
+        }),
+        'chat-1',
+        guest,
+        '/handoff',
+        ''
+      )
+
+      assert.equal(handled, true)
+      assert.equal(compactCalled, false)
+      assert.deepEqual(sent, ['Unknown command: /handoff.\n\nType /help for a list of commands.'])
+      assert.equal(
+        shouldDiscardPendingBatchForDmCommand('/handoff', createChannelUser({ role: 'owner' })),
+        true
+      )
+      assert.equal(shouldDiscardPendingBatchForDmCommand('/handoff', guest), false)
     })
   })
 

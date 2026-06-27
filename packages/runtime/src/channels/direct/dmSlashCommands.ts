@@ -2,11 +2,13 @@ import { basename } from 'node:path'
 
 import type {
   ChannelUserRecord,
+  CompactThreadAccepted,
   RunModeId,
   SelectableRunModeId,
   SettingsConfig,
   ThreadRecord,
-  ToolCallName
+  ToolCallName,
+  YachiyoServerEvent
 } from '@yachiyo/shared/protocol'
 import {
   RUN_MODE_DEFINITIONS,
@@ -17,10 +19,14 @@ import { OWNER_DEFAULT_CHANNEL_MODE, type DirectMessageServer } from './directMe
 
 export type DmSlashCommandServer = Pick<
   DirectMessageServer,
-  'findActiveChannelThread' | 'getThreadTotalTokens' | 'cancelRunForChannelUser'
+  'findActiveChannelThread' | 'getThreadTotalTokens' | 'cancelRunForChannelUser' | 'subscribe'
 > & {
   getConfig(): Promise<SettingsConfig>
   hasActiveThread(threadId: string): boolean
+  compactChannelThreadForChannelUser(input: {
+    threadId: string
+    channelUser: ChannelUserRecord
+  }): Promise<CompactThreadAccepted>
   listOwnerDmTakeoverThreads(input: { channelUserId: string; limit: number }): ThreadRecord[]
   takeOverThreadForChannelUser(input: {
     threadId: string
@@ -565,6 +571,153 @@ async function handleModeCommand<TTarget>(
   )
 }
 
+type HandoffOutputResult =
+  | { kind: 'completed'; text: string }
+  | { kind: 'cancelled' }
+  | { kind: 'failed'; error: string }
+
+function createHandoffOutputWaiter(server: Pick<DmSlashCommandServer, 'subscribe'>): {
+  bind(accepted: CompactThreadAccepted): void
+  promise: Promise<HandoffOutputResult>
+  stop(): void
+} {
+  let accepted: CompactThreadAccepted | null = null
+  const bufferedEvents: YachiyoServerEvent[] = []
+  let fullText = ''
+  let settled = false
+  let resolveResult: (result: HandoffOutputResult) => void = () => {}
+
+  const promise = new Promise<HandoffOutputResult>((resolve) => {
+    resolveResult = resolve
+  })
+
+  const settle = (result: HandoffOutputResult): void => {
+    if (settled) {
+      return
+    }
+    settled = true
+    unsubscribe()
+    resolveResult(result)
+  }
+
+  const handleEvent = (event: YachiyoServerEvent): void => {
+    if (!accepted) {
+      bufferedEvents.push(event)
+      return
+    }
+    if (!('threadId' in event) || event.threadId !== accepted.thread.id) {
+      return
+    }
+    if (!('runId' in event) || event.runId !== accepted.runId) {
+      return
+    }
+
+    if (event.type === 'message.delta') {
+      fullText += (event as YachiyoServerEvent & { delta?: string }).delta ?? ''
+      return
+    }
+    if (event.type === 'run.completed') {
+      settle({ kind: 'completed', text: fullText })
+      return
+    }
+    if (event.type === 'run.cancelled') {
+      settle({ kind: 'cancelled' })
+      return
+    }
+    if (event.type === 'run.failed') {
+      settle({
+        kind: 'failed',
+        error: (event as YachiyoServerEvent & { error?: string }).error ?? 'Run failed'
+      })
+    }
+  }
+
+  const unsubscribe = server.subscribe(handleEvent)
+
+  return {
+    bind(nextAccepted) {
+      accepted = nextAccepted
+      for (const event of bufferedEvents.splice(0)) {
+        handleEvent(event)
+      }
+    },
+    promise,
+    stop: () => {
+      if (!settled) {
+        settled = true
+        unsubscribe()
+      }
+    }
+  }
+}
+
+async function handleHandoffCommand<TTarget>(
+  options: DmSlashCommandOptions<TTarget>,
+  target: TTarget,
+  channelUser: ChannelUserRecord,
+  _args: string,
+  context: { batchDiscarded: boolean }
+): Promise<void> {
+  const notice = formatDiscardNotice(context.batchDiscarded)
+  const sourceThread = options.server.findActiveChannelThread(
+    channelUser.id,
+    options.threadReuseWindowMs
+  )
+  if (!sourceThread) {
+    await options.sendMessage(target, `${notice}No active conversation.`)
+    return
+  }
+  if (options.server.hasActiveThread(sourceThread.id)) {
+    await options.sendMessage(
+      target,
+      `${notice}Cannot start a handoff while this conversation is running.`
+    )
+    return
+  }
+
+  const outputWaiter = createHandoffOutputWaiter(options.server)
+  let accepted: CompactThreadAccepted
+  try {
+    accepted = await options.server.compactChannelThreadForChannelUser({
+      threadId: sourceThread.id,
+      channelUser
+    })
+    outputWaiter.bind(accepted)
+  } catch (error) {
+    outputWaiter.stop()
+    await options.sendMessage(
+      target,
+      error instanceof Error ? `${notice}${error.message}` : `${notice}Failed to start handoff.`
+    )
+    return
+  }
+
+  await options.sendMessage(target, `${notice}Handoff started.`)
+
+  const output = await outputWaiter.promise
+  if (output.kind === 'cancelled') {
+    await options.sendMessage(target, 'Handoff cancelled.')
+    return
+  }
+  if (output.kind === 'failed') {
+    await options.sendMessage(target, `Handoff failed: ${output.error}`)
+    return
+  }
+  try {
+    if (output.text.trim()) {
+      await options.sendMessage(target, output.text.trim())
+    } else {
+      await options.sendMessage(target, 'Handoff completed.')
+    }
+  } catch (error) {
+    outputWaiter.stop()
+    await options.sendMessage(
+      target,
+      error instanceof Error ? `Handoff failed: ${error.message}` : 'Handoff failed.'
+    )
+  }
+}
+
 // Commands are declared here. /help is auto-generated from this map.
 const COMMANDS: Record<string, CommandDef<unknown>> = {
   '/new': {
@@ -654,6 +807,13 @@ const COMMANDS: Record<string, CommandDef<unknown>> = {
     discardPendingBatch: true,
     ownerOnly: true,
     handler: handleModeCommand
+  },
+
+  '/handoff': {
+    description: 'Compact this owner DM conversation into a handoff thread',
+    discardPendingBatch: true,
+    ownerOnly: true,
+    handler: handleHandoffCommand
   },
 
   '/help': {

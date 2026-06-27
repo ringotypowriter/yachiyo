@@ -1122,6 +1122,54 @@ export class YachiyoServer {
     })
   }
 
+  async compactChannelThreadForChannelUser(input: {
+    threadId: string
+    channelUser: ChannelUserRecord
+  }): Promise<CompactThreadAccepted> {
+    if (input.channelUser.role !== 'owner') {
+      throw new Error('Only owner DMs can start a handoff.')
+    }
+
+    const sourceThread = this.requireThread(input.threadId)
+    this.assertWritableThreadRecord(sourceThread)
+    if (
+      sourceThread.channelUserId !== input.channelUser.id ||
+      sourceThread.channelUserRole !== 'owner'
+    ) {
+      throw new Error('This conversation does not belong to this owner DM.')
+    }
+    if (sourceThread.source && sourceThread.source !== input.channelUser.platform) {
+      throw new Error('This conversation does not belong to this owner DM.')
+    }
+    if (this.runDomain.hasActiveThread(sourceThread.id)) {
+      throw new Error('Cannot start a handoff while this conversation is running.')
+    }
+
+    const destinationThread = await this.threadDomain.createThread({
+      threadId: this.createId(),
+      ...(sourceThread.source ? { source: sourceThread.source } : {}),
+      channelUserId: input.channelUser.id,
+      handoffFromThreadId: sourceThread.id,
+      workspacePath: sourceThread.workspacePath?.trim()
+        ? sourceThread.workspacePath
+        : await this.ensureThreadWorkspacePath(sourceThread.id),
+      ...(sourceThread.modelOverride ? { modelOverride: sourceThread.modelOverride } : {}),
+      ...(sourceThread.reasoningEffort ? { reasoningEffort: sourceThread.reasoningEffort } : {}),
+      ...(sourceThread.runMode ? { runMode: sourceThread.runMode } : {})
+    })
+
+    this.folderDomain.ensureFolderForDerivedThread({
+      sourceThread,
+      derivedThread: destinationThread
+    })
+
+    return this.runDomain.compactThreadToAnotherThread({
+      sourceThread,
+      destinationThread,
+      reasoningEffort: destinationThread.reasoningEffort
+    })
+  }
+
   async updateThreadWorkspace(input: ThreadWorkspaceUpdateInput): Promise<ThreadRecord> {
     this.assertWritableThread(input.threadId)
     return this.threadDomain.updateWorkspace(input)
