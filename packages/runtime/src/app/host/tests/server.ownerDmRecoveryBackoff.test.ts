@@ -818,6 +818,49 @@ test('YachiyoServer compacts an owner DM thread into a new active owner DM hando
   })
 })
 
+test('YachiyoServer allows owner DM handoff from a took-over local-source thread', async () => {
+  await withServer(async ({ server, completeRun }) => {
+    const owner = server.createChannelUser({
+      id: 'tg-owner-local-handoff',
+      platform: 'telegram',
+      externalUserId: '123',
+      username: 'owner',
+      label: '',
+      status: 'allowed',
+      role: 'owner',
+      usageLimitKTokens: null,
+      workspacePath: '/tmp/tg-owner'
+    })
+    const sourceThread = await server.takeOverThreadForChannelUser({
+      threadId: (
+        await server.createThread({
+          source: 'local',
+          title: 'Local desktop work'
+        })
+      ).id,
+      channelUser: owner
+    })
+    const sourceAccepted = await server.sendChat({
+      threadId: sourceThread.id,
+      content: 'Prepare this took-over local handoff.'
+    })
+    await completeRun(sourceAccepted.runId)
+
+    const compacted = await server.compactChannelThreadForChannelUser({
+      threadId: sourceThread.id,
+      channelUser: owner
+    })
+    await completeRun(compacted.runId)
+
+    assert.equal(sourceThread.source, 'local')
+    assert.equal(compacted.sourceThreadId, sourceThread.id)
+    assert.equal(compacted.thread.handoffFromThreadId, sourceThread.id)
+    assert.equal(compacted.thread.source, 'local')
+    assert.equal(compacted.thread.channelUserId, owner.id)
+    assert.equal(compacted.thread.channelUserRole, 'owner')
+  })
+})
+
 test('YachiyoServer rejects owner DM handoff for a different channel user', async () => {
   await withServer(async ({ server }) => {
     const owner = server.createChannelUser({

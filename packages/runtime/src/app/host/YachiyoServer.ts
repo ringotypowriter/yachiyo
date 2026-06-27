@@ -1138,7 +1138,11 @@ export class YachiyoServer {
     ) {
       throw new Error('This conversation does not belong to this owner DM.')
     }
-    if (sourceThread.source && sourceThread.source !== input.channelUser.platform) {
+    if (
+      sourceThread.source &&
+      sourceThread.source !== 'local' &&
+      sourceThread.source !== input.channelUser.platform
+    ) {
       throw new Error('This conversation does not belong to this owner DM.')
     }
     if (this.runDomain.hasActiveThread(sourceThread.id)) {
