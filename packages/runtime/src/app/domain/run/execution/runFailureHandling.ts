@@ -110,14 +110,17 @@ export async function handleRunFailure(input: HandleRunFailureInput): Promise<Ex
 
 export function extractRetryErrorMessage(error: unknown): string {
   if (!(error instanceof Error)) return humanizeErrorMessage(String(error))
+  const status = readHttpStatus(error)
   const code = (error as { code?: string }).code
   if (code) {
     const label = humanizeErrorMessage(code)
     if (label !== code) return label
   }
-  if (error.message) return humanizeErrorMessage(error.message)
-  const statusCode = (error as { statusCode?: number }).statusCode
-  return statusCode ? humanizeErrorMessage(`HTTP ${statusCode}`) : 'Provider error'
+  if (error.message) {
+    const message = humanizeErrorMessage(error.message)
+    return status ? appendHttpStatus(message, status) : message
+  }
+  return status ? humanizeErrorMessage(`HTTP ${status}`) : 'Provider error'
 }
 
 async function failRun(input: HandleRunFailureInput, message: string): Promise<ExecuteRunResult> {
@@ -216,6 +219,21 @@ function humanizeErrorMessage(raw: string): string {
   for (const [test, label] of FRIENDLY_ERROR_LABELS) {
     if (typeof test === 'string' ? raw.includes(test) : test.test(raw)) return label
   }
-  if (/^HTTP (\d{3})$/.test(raw)) return `Server error (${raw})`
+  const httpStatusMatch = /^HTTP (\d{3})$/.exec(raw)
+  if (httpStatusMatch) {
+    return httpStatusMatch[1] === '401' ? `Authentication failed (${raw})` : `Server error (${raw})`
+  }
   return raw
+}
+
+function readHttpStatus(error: Error): number | undefined {
+  const status = (error as { status?: unknown }).status
+  if (typeof status === 'number') return status
+  const statusCode = (error as { statusCode?: unknown }).statusCode
+  return typeof statusCode === 'number' ? statusCode : undefined
+}
+
+function appendHttpStatus(message: string, status: number): string {
+  const httpStatus = `HTTP ${status}`
+  return message.includes(httpStatus) ? message : `${message} (${httpStatus})`
 }
