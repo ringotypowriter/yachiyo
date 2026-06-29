@@ -1,4 +1,5 @@
-import { Copy, Factory, File, Plus, Trash2 } from 'lucide-react'
+import { useState } from 'react'
+import { Check, Copy, Eye, EyeOff, Factory, File, Plus, Trash2 } from 'lucide-react'
 import { ProviderIconAvatar } from '../../src/lib/providerIcons'
 import { theme, alpha } from '@renderer/theme/theme'
 import {
@@ -95,6 +96,63 @@ function ProviderIconBadge({ provider }: { provider: ProviderConfig }): React.Re
       ) : (
         <Factory size={PROVIDER_ICON_SIZE} strokeWidth={1.5} color={theme.icon.muted} />
       )}
+    </div>
+  )
+}
+
+function ApiKeyField({
+  value,
+  placeholder,
+  onChange
+}: {
+  value: string
+  placeholder: string
+  onChange: (value: string) => void
+}): React.ReactNode {
+  const [show, setShow] = useState(false)
+  const [copied, setCopied] = useState(false)
+
+  const copy = (): void => {
+    if (!value) {
+      return
+    }
+    void navigator.clipboard.writeText(value).then(() => {
+      setCopied(true)
+      window.setTimeout(() => setCopied(false), 1500)
+    })
+  }
+
+  return (
+    <div className="relative">
+      <input
+        type={show ? 'text' : 'password'}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="w-full rounded-xl px-3 py-2.5 pr-16 text-sm outline-none"
+        style={inputStyle()}
+        placeholder={placeholder}
+      />
+      <div className="absolute inset-y-0 right-2 flex items-center gap-0.5">
+        <button
+          type="button"
+          onClick={() => setShow((current) => !current)}
+          className="flex items-center justify-center rounded-md p-1 transition-opacity opacity-60 hover:opacity-100"
+          title={show ? 'Hide key' : 'Show key'}
+          aria-label={show ? 'Hide API key' : 'Show API key'}
+        >
+          {show ? <EyeOff size={14} strokeWidth={2} /> : <Eye size={14} strokeWidth={2} />}
+        </button>
+        <button
+          type="button"
+          onClick={copy}
+          disabled={!value}
+          className="flex items-center justify-center rounded-md p-1 transition-opacity opacity-60 hover:opacity-100 disabled:opacity-25"
+          title={copied ? 'Copied' : 'Copy key'}
+          aria-label="Copy API key"
+        >
+          {copied ? <Check size={14} strokeWidth={2} /> : <Copy size={14} strokeWidth={2} />}
+        </button>
+      </div>
     </div>
   )
 }
@@ -435,17 +493,15 @@ export function ProvidersPane({
                 <>
                   <div className="col-span-2">
                     <Field label="API Key">
-                      <input
-                        type="password"
+                      <ApiKeyField
+                        key={selectedProvider.id ?? ''}
                         value={selectedProvider.apiKey}
-                        onChange={(e) =>
+                        onChange={(value) =>
                           handleProviderChange((provider) => ({
                             ...provider,
-                            apiKey: e.target.value
+                            apiKey: value
                           }))
                         }
-                        className="w-full rounded-xl px-3 py-2.5 text-sm outline-none"
-                        style={inputStyle()}
                         placeholder={
                           selectedProvider.type === 'anthropic'
                             ? 'sk-ant-...'
