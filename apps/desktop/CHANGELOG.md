@@ -1,5 +1,19 @@
 # @yachiyo/desktop
 
+## 1.3.0
+
+### Minor Changes
+
+- [`00f5880`](https://github.com/ringotypowriter/yachiyo/commit/00f58800e31cfc57a9de7b138fca16b0efc3ccc1) Thanks [@ringotypowriter](https://github.com/ringotypowriter)! - Lots of update
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @yachiyo/cli@1.3.0
+  - @yachiyo/runtime@1.3.0
+  - @yachiyo/shared@1.3.0
+  - @yachiyo/core-skills@1.3.0
+
 ## 1.2.1
 
 ### Patch Changes
