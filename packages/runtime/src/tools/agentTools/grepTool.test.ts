@@ -94,6 +94,53 @@ describe('grepTool', () => {
     assert.strictEqual(cache.hasRecentRead(filePath), true)
   })
 
+  it('formats grep matches with a readable grouped layout', async () => {
+    const workspace = await makeWorkspace()
+    await writeFile(join(workspace, 'file.txt'), 'alpha\nbeta needle\ngamma\n', 'utf8')
+
+    const searchService = createSearchService()
+    const result = await runGrepTool(
+      grepInput({ pattern: 'needle', path: workspace, context: 1 }),
+      { workspacePath: workspace },
+      { searchService }
+    )
+
+    assert.deepStrictEqual(result.content, [
+      {
+        type: 'text',
+        text: [
+          'Found 1 match in 1 file.',
+          '',
+          'file.txt',
+          '  1- alpha',
+          '  2: beta needle',
+          '  3- gamma'
+        ].join('\n')
+      }
+    ])
+  })
+
+  it('formats glob matches as a readable file list', async () => {
+    const workspace = await makeWorkspace()
+    await mkdir(join(workspace, 'src'), { recursive: true })
+    await writeFile(join(workspace, 'src', 'a.ts'), '', 'utf8')
+    await writeFile(join(workspace, 'src', 'b.ts'), '', 'utf8')
+
+    const searchService = createSearchService()
+    const result = await runGlobTool(
+      { pattern: '**/*.ts', path: 'src', limit: DEFAULT_SEARCH_LIMIT },
+      { workspacePath: workspace },
+      { searchService }
+    )
+
+    assert.deepStrictEqual(result.content, [
+      {
+        type: 'text',
+        text: ['Found 2 files.', '', '- src/a.ts', '- src/b.ts'].join('\n')
+      }
+    ])
+  })
+
   it('searches space-separated path lists', async () => {
     const workspace = await makeWorkspace()
     await mkdir(join(workspace, 'src', 'main'), { recursive: true })

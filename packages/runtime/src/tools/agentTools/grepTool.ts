@@ -175,8 +175,6 @@ function formatGrepContent(matches: GrepToolCallDetails['matches'], truncated: b
     return 'No matches found.'
   }
 
-  // Use standard path:line: text format (familiar to models from grep/rg output).
-  // Group by file with blank lines between groups for readability.
   const hasContext = matches.some((m) => m.contextBefore?.length || m.contextAfter?.length)
   const groups = new Map<string, typeof matches>()
   for (const match of matches) {
@@ -188,21 +186,23 @@ function formatGrepContent(matches: GrepToolCallDetails['matches'], truncated: b
     }
   }
 
-  const sections: string[] = []
+  const sections: string[] = [
+    `Found ${matches.length} ${plural(matches.length, 'match', 'matches')} in ${groups.size} ${plural(groups.size, 'file', 'files')}.`
+  ]
 
   for (const [filePath, fileMatches] of groups) {
-    const lines: string[] = []
+    const lines: string[] = [filePath]
     for (const match of fileMatches) {
       if (hasContext && match.contextBefore?.length) {
         for (let i = 0; i < match.contextBefore.length; i++) {
           const lineNum = match.line - match.contextBefore.length + i
-          lines.push(`${filePath}:${lineNum}- ${match.contextBefore[i]}`)
+          lines.push(`  ${lineNum}- ${match.contextBefore[i]}`)
         }
       }
-      lines.push(`${filePath}:${match.line}: ${match.text}`)
+      lines.push(`  ${match.line}: ${match.text}`)
       if (hasContext && match.contextAfter?.length) {
         for (let i = 0; i < match.contextAfter.length; i++) {
-          lines.push(`${filePath}:${match.line + 1 + i}- ${match.contextAfter[i]}`)
+          lines.push(`  ${match.line + 1 + i}- ${match.contextAfter[i]}`)
         }
       }
     }
@@ -222,11 +222,19 @@ function formatGrepFilesOnly(matches: GrepToolCallDetails['matches'], truncated:
   }
 
   const uniquePaths = [...new Set(matches.map((m) => m.path))]
-  let output = uniquePaths.join('\n')
+  let output = [
+    `Found ${uniquePaths.length} ${plural(uniquePaths.length, 'file', 'files')} with matches.`,
+    '',
+    ...uniquePaths.map((path) => `- ${path}`)
+  ].join('\n')
   if (truncated) {
     output += `\n\n[truncated — ${uniquePaths.length} files shown. Narrow your pattern or use \`include\` to filter.]`
   }
   return output
+}
+
+function plural(count: number, singular: string, pluralForm: string): string {
+  return count === 1 ? singular : pluralForm
 }
 
 async function spillToFile(
