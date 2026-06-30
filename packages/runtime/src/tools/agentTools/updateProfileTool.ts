@@ -19,6 +19,7 @@ import {
   upsertRows,
   upsertRowsByIndex
 } from '../../runtime/profiles/profileTable.ts'
+import { toToolModelOutput } from './shared.ts'
 
 const updateProfileToolInputSchema = z.object({
   section: z.string().min(1).describe('Section name from USER.md (e.g. "Profile", "People")'),
@@ -153,10 +154,7 @@ export function createTool(
   return tool({
     description: buildDescription(mode),
     inputSchema: updateProfileToolInputSchema,
-    toModelOutput: ({ output }) =>
-      output.error
-        ? { type: 'error-text', value: output.error }
-        : { type: 'content', value: output.content },
+    toModelOutput: ({ output }) => toToolModelOutput(output),
     execute: async (input, options) => {
       function throwIfAborted(): void {
         if (options.abortSignal?.aborted) {

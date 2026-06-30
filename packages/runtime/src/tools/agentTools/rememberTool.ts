@@ -2,6 +2,7 @@ import { tool, type Tool } from 'ai'
 import { z } from 'zod'
 
 import type { MemoryService } from '../../services/memory/memoryService.ts'
+import { toToolModelOutput } from './shared.ts'
 
 const MEMORY_UNIT_TYPES = [
   'fact',
@@ -63,10 +64,7 @@ export function createTool(deps: RememberToolDeps): Tool<RememberToolInput, Reme
     description:
       'Save a durable memory for the user. Use when the user explicitly asks you to remember something — a preference, decision, fact, workflow, or constraint. Write structured facts (not a narrative), provide generous activation subjects for future recall, and use a stable key that will still make sense months from now.',
     inputSchema: rememberToolInputSchema,
-    toModelOutput: ({ output }) =>
-      output.error
-        ? { type: 'error-text', value: output.error }
-        : { type: 'content', value: output.content },
+    toModelOutput: ({ output }) => toToolModelOutput(output),
     execute: async (input, options) => {
       try {
         const result = await deps.memoryService.validateAndCreateMemory(

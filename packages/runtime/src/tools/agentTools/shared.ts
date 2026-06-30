@@ -869,6 +869,10 @@ export function truncateForDetails(value: string): { text: string; truncated: bo
 
 export function toToolModelOutput(output: unknown):
   | {
+      type: 'text'
+      value: string
+    }
+  | {
       type: 'content'
       value: ToolContentBlock[]
     }
@@ -882,6 +886,13 @@ export function toToolModelOutput(output: unknown):
     return {
       type: 'error-text',
       value: flattenToolContent(typedOutput.content) || typedOutput.error
+    }
+  }
+
+  if (typedOutput.content.every((block) => block.type === 'text')) {
+    return {
+      type: 'text',
+      value: flattenToolContent(typedOutput.content)
     }
   }
 
