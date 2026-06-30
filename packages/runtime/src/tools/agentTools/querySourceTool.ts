@@ -30,6 +30,7 @@ import {
   type ThreadSpanRankingCandidate,
   tokenizeQuery
 } from './querySourceThreadSpanRanking.ts'
+import { toToolModelOutput } from './shared.ts'
 
 const SOURCE_TABLES = [
   'source_events',
@@ -1440,10 +1441,7 @@ export function createTool(
   return tool({
     description: buildDescription({ activityOcrEnabled: deps.activityOcrEnabled === true }).trim(),
     inputSchema,
-    toModelOutput: ({ output }) =>
-      output.error
-        ? { type: 'error-text', value: output.error }
-        : { type: 'content', value: output.content },
+    toModelOutput: ({ output }) => toToolModelOutput(output),
     execute: async (input, options) => {
       const normalizedInput = normalizeQuerySourceInput(input)
       try {

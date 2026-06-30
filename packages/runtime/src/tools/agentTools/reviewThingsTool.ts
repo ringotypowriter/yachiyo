@@ -2,6 +2,7 @@ import { tool, type Tool } from 'ai'
 import { z } from 'zod'
 
 import type { ThingDomain } from '../../app/domain/things/thingDomain.ts'
+import { toToolModelOutput } from './shared.ts'
 import { formatThingDetailText, formatThingListText } from './thingToolFormatting.ts'
 
 type ReviewThingsInput =
@@ -194,10 +195,7 @@ export function createTool(
   return tool({
     description: DESCRIPTION,
     inputSchema: reviewThingsInputSchema,
-    toModelOutput: ({ output }) =>
-      output.error
-        ? { type: 'error-text', value: output.error }
-        : { type: 'content', value: output.content },
+    toModelOutput: ({ output }) => toToolModelOutput(output),
     execute: async (toolInput) => {
       try {
         const input = parseReviewThingsArguments(toolInput)

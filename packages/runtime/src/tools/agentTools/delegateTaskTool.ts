@@ -25,7 +25,7 @@ import {
 } from '../../settings/namedSubagents.ts'
 import { toSubagentProviderSettings } from '../../settings/settingsStore.ts'
 import { createAgentToolSet, type AgentToolDependencies } from '../agentTools.ts'
-import type { AgentToolContext } from './shared.ts'
+import { toToolModelOutput, type AgentToolContext } from './shared.ts'
 
 /** Gojūon-order meaningful Japanese romaji code names for subagents. */
 const SUBAGENT_CODE_NAMES = [
@@ -494,7 +494,7 @@ function createWorkerTool(
   return tool({
     description,
     inputSchema,
-    toModelOutput: ({ output }) => ({ type: 'content', value: output.content }),
+    toModelOutput: ({ output }) => toToolModelOutput(output),
     execute: async (input, options) => {
       const delegationId = options.toolCallId
       const workspaceResult = await resolveWorkspace({
@@ -580,7 +580,7 @@ function createAcpTool(ctx: DelegateTaskContext): Tool<AcpDelegateTaskInput, Del
   return tool({
     description: 'Delegate a task to an external agent process.',
     inputSchema: acpDelegateTaskInputSchema,
-    toModelOutput: ({ output }) => ({ type: 'content', value: output.content }),
+    toModelOutput: ({ output }) => toToolModelOutput(output),
     execute: async (input, options) => {
       const delegationId = options.toolCallId
       const profile = ctx.subagentProfiles.find((p) => p.name === input.agent_name && p.enabled)

@@ -7,6 +7,9 @@ import {
   editToolInputSchema,
   grepToolInputSchema,
   globToolInputSchema,
+  imageDataContent,
+  textContent,
+  toToolModelOutput,
   webSearchToolInputSchema
 } from './shared.ts'
 
@@ -190,6 +193,45 @@ describe('shadow fallbacks', () => {
       })
 
       assert.strictEqual(parsed.success, false)
+    })
+  })
+
+  describe('toToolModelOutput', () => {
+    it('renders text-only tool content as plain text for the model', () => {
+      const output = {
+        content: textContent('src/example.ts:12: const needle = true'),
+        details: {
+          backend: 'rg',
+          pattern: 'needle',
+          path: '/workspace',
+          resultCount: 1,
+          truncated: false,
+          matches: []
+        },
+        metadata: {}
+      }
+
+      assert.deepStrictEqual(toToolModelOutput(output), {
+        type: 'text',
+        value: 'src/example.ts:12: const needle = true'
+      })
+    })
+
+    it('keeps content blocks when tool output includes image data', () => {
+      const content = [
+        ...imageDataContent('base64-data', 'image/png'),
+        ...textContent('Read image photo.png')
+      ]
+      const output = {
+        content,
+        details: {},
+        metadata: {}
+      }
+
+      assert.deepStrictEqual(toToolModelOutput(output), {
+        type: 'content',
+        value: content
+      })
     })
   })
 })

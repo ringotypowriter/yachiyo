@@ -1,6 +1,10 @@
-import type { AgentToolOutput } from '../../../tools/agentTools.ts'
 import type { MessageRecord, ToolCallRecord } from '@yachiyo/shared/protocol'
 import type { RunRecoveryCheckpoint } from '../../../storage/storage.ts'
+import {
+  textContent,
+  toToolModelOutput,
+  type AgentToolOutput
+} from '../../../tools/agentTools/shared.ts'
 
 interface RecoveryAssistantReasoningPart {
   type: 'reasoning'
@@ -88,10 +92,7 @@ function toRecoveryToolResultOutput(input: { output?: unknown; error?: unknown }
   const toolOutput = input.output as Partial<AgentToolOutput> | undefined
 
   if (Array.isArray(toolOutput?.content)) {
-    return {
-      type: 'content',
-      value: structuredClone(toolOutput.content)
-    }
+    return toToolModelOutput(structuredClone(toolOutput))
   }
 
   const errorMessage =
@@ -104,15 +105,17 @@ function toRecoveryToolResultOutput(input: { output?: unknown; error?: unknown }
           : undefined
 
   if (errorMessage) {
-    return {
-      type: 'content',
-      value: [{ type: 'text', text: errorMessage }]
-    }
+    return toToolModelOutput({
+      content: textContent(errorMessage),
+      details: {},
+      error: errorMessage,
+      metadata: {}
+    })
   }
 
   return {
-    type: 'content',
-    value: [{ type: 'text', text: 'tool completed' }]
+    type: 'text',
+    value: 'tool completed'
   }
 }
 
@@ -426,8 +429,8 @@ function buildInterruptedToolCallInput(toolCall: ToolCallRecord): unknown {
 function buildInterruptedToolCallOutput(toolCall: ToolCallRecord): unknown {
   if (toolCall.error) {
     return {
-      type: 'content',
-      value: [{ type: 'text', text: toolCall.error }]
+      type: 'text',
+      value: toolCall.error
     }
   }
 
@@ -441,22 +444,22 @@ function buildInterruptedToolCallOutput(toolCall: ToolCallRecord): unknown {
 
     if (blocks.length > 0) {
       return {
-        type: 'content',
-        value: blocks
+        type: 'text',
+        value: blocks.map((block) => block.text).join('\n')
       }
     }
   }
 
   if (toolCall.outputSummary) {
     return {
-      type: 'content',
-      value: [{ type: 'text', text: toolCall.outputSummary }]
+      type: 'text',
+      value: toolCall.outputSummary
     }
   }
 
   return {
-    type: 'content',
-    value: [{ type: 'text', text: 'tool completed' }]
+    type: 'text',
+    value: 'tool completed'
   }
 }
 

@@ -160,7 +160,11 @@ function formatGlobContent(matches: string[], truncated: boolean): string {
     return 'No files found.'
   }
 
-  let output = matches.join('\n')
+  let output = [
+    `Found ${matches.length} ${matches.length === 1 ? 'file' : 'files'}.`,
+    '',
+    ...matches.map((match) => `- ${match}`)
+  ].join('\n')
   if (truncated) {
     output += `\n\n[truncated — showing ${matches.length} files. Use a more specific pattern to narrow results.]`
   }
