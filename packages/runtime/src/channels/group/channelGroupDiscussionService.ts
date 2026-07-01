@@ -266,20 +266,19 @@ export function createChannelGroupDiscussionService(
         requestContent: currentTurnContent,
         result
       })
-      // Once the raw thread outgrows the handoff threshold, compress the older
-      // transcript into a rolling summary + advance the watermark, in the
-      // background so the reply path stays fast.
-      if (
-        policy.groupHandoffTokenThreshold > 0 &&
-        !handoffInFlight.has(probeThread.id) &&
-        server.getThreadTotalTokens(probeThread.id) >= policy.groupHandoffTokenThreshold
-      ) {
+      // Compress the older transcript into a rolling summary + advance the
+      // watermark once enough raw transcript has piled up, in the background so
+      // the reply path stays fast. The threshold is checked against the stored
+      // post-watermark size inside summarizeGroupProbeContext (the prompt itself
+      // is capped by the B-window, so it can't signal raw growth).
+      if (policy.groupHandoffTokenThreshold > 0 && !handoffInFlight.has(probeThread.id)) {
         handoffInFlight.add(probeThread.id)
         void summarizeGroupProbeContext({
           storage: server.getStorage(),
           auxService,
           threadId: probeThread.id,
           recentWindowTokens: policy.groupContextTokenLimit,
+          handoffThresholdTokens: policy.groupHandoffTokenThreshold,
           groupName: group.name,
           settingsOverride
         })

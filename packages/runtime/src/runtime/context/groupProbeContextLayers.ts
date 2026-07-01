@@ -79,7 +79,7 @@ function sanitizeSyntheticGroupMessageText(text: string): string {
     .replace(/<\/?msg[\s>]/gi, '')
 }
 
-function extractSuccessfulGroupMessageText(messages: ModelMessage[]): string | null {
+export function extractSuccessfulGroupMessageText(messages: ModelMessage[]): string | null {
   const successfulToolCallIds = new Set<string>()
 
   for (const message of messages) {

@@ -1,6 +1,8 @@
 import type { MessageRecord, ProviderSettings, ThreadRecord } from '@yachiyo/shared/protocol'
 import { estimateTextTokens } from '@yachiyo/shared/estimateTokens'
 import type { AuxiliaryGenerationService } from '../../runtime/models/auxiliaryGeneration.ts'
+import type { ModelMessage } from '../../runtime/models/types.ts'
+import { extractSuccessfulGroupMessageText } from '../../runtime/context/groupProbeContextLayers.ts'
 import {
   GROUP_HANDOFF_SYSTEM_PROMPT,
   buildGroupHandoffSummaryPrompt
@@ -26,9 +28,10 @@ export function messagesAfterWatermark(
 /**
  * Choose the watermark checkpoint so the transcript kept *after* it is roughly
  * `recentWindowTokens` — everything up to and including the checkpoint gets
- * summarized. Walks newest-first and returns the message just before the point
- * where the recent tail reaches the window. Returns null when there is nothing
- * worth compressing (thread already fits the window).
+ * summarized. Walks newest-first to find the window boundary, then snaps it
+ * forward to a turn start so the kept tail begins with a user delta (never an
+ * orphaned assistant/tool reply, since the read path slices after the
+ * watermark). Returns null when there is nothing clean worth compressing.
  */
 export function pickGroupHandoffCheckpoint(
   messages: MessageRecord[],
@@ -38,20 +41,40 @@ export function pickGroupHandoffCheckpoint(
     return null
   }
   let tailTokens = 0
+  let start = -1
   for (let i = messages.length - 1; i >= 1; i--) {
     tailTokens += estimateTextTokens(messages[i]!.content)
     if (tailTokens >= recentWindowTokens) {
-      return messages[i - 1]!.id
+      start = i
+      break
     }
   }
-  return null
+  if (start < 0) {
+    return null
+  }
+  // Snap the boundary older to a turn start: the kept tail must begin with a
+  // user delta so its assistant reply keeps the group context it answered (the
+  // read path slices strictly after the watermark).
+  while (start > 0 && messages[start]!.role !== 'user') {
+    start--
+  }
+  if (start <= 0 || messages[start]!.role !== 'user') {
+    return null
+  }
+  return messages[start - 1]!.id
 }
 
 function renderSegmentTranscript(messages: MessageRecord[]): string {
   return messages
     .map((message) => {
       if (message.role === 'assistant') {
-        const said = (message.visibleReply ?? '').trim()
+        // Group probe assistant turns store the sent text in responseMessages
+        // (visibleReply is not set), so pull it out — otherwise the summary
+        // loses Yachiyo's own replies and the stance/continuity it should keep.
+        const said =
+          message.visibleReply?.trim() ||
+          extractSuccessfulGroupMessageText((message.responseMessages ?? []) as ModelMessage[]) ||
+          ''
         return said ? `Yachiyo: ${said}` : ''
       }
       return message.content.trim()
@@ -66,9 +89,23 @@ export interface SummarizeGroupProbeContextInput {
   threadId: string
   /** Tokens of raw transcript to keep after the watermark (the B-window). */
   recentWindowTokens: number
+  /**
+   * Raw post-watermark transcript size (tokens) that triggers compaction.
+   * Measured from stored messages, NOT the last prompt — B already caps the
+   * prompt at recentWindowTokens, so prompt size never reflects raw growth.
+   */
+  handoffThresholdTokens: number
   groupName: string
   settingsOverride?: ProviderSettings
   now?: () => string
+}
+
+function estimateRawTokens(messages: MessageRecord[]): number {
+  let total = 0
+  for (const message of messages) {
+    total += estimateTextTokens(message.content)
+  }
+  return total
 }
 
 /**
@@ -89,6 +126,11 @@ export async function summarizeGroupProbeContext(
     input.storage.listThreadMessages(input.threadId),
     thread.contextHandoffWatermarkMessageId
   )
+  // Gate on the raw stored transcript that has piled up since the last
+  // watermark — this is what actually grows; the prompt is capped by B.
+  if (estimateRawTokens(afterWatermark) < input.handoffThresholdTokens) {
+    return 'skipped'
+  }
   const checkpointId = pickGroupHandoffCheckpoint(afterWatermark, input.recentWindowTokens)
   if (!checkpointId) {
     return 'skipped'
