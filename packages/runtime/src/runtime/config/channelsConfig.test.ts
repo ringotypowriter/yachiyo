@@ -55,7 +55,8 @@ test('channels config round-trips through TOML', async () => {
       groupVerbosity: 0.4,
       groupCheckIntervalMs: 9000,
       dmCompactTokenThresholdK: 48,
-      groupContextWindowK: 96
+      groupContextWindowK: 96,
+      groupHandoffThresholdK: 128
     }
 
     writeChannelsConfig(config, filePath)
@@ -69,6 +70,7 @@ test('channels config round-trips through TOML', async () => {
     assert.match(raw, /memory_filter_keywords = \[ "secret", "private" \]/)
     assert.match(raw, /\[image_to_text\]/)
     assert.match(raw, /\[group\]/)
+    assert.match(raw, /group_handoff_threshold_k = 128/)
 
     const reparsed = readChannelsConfig(filePath)
     assert.deepEqual(reparsed, config)

@@ -16,7 +16,7 @@ import {
   requiresAssistantReasoningForGroupProbeReplay
 } from '../../runtime/context/groupProbeContextLayers.ts'
 import { readChannelsConfig } from '../../runtime/config/channelsConfig.ts'
-import { EXTERNAL_GROUP_PROMPT } from '../../runtime/context/prompt.ts'
+import { EXTERNAL_GROUP_PROMPT, GROUP_STYLE_REMINDER } from '../../runtime/context/prompt.ts'
 import { readUserDocument } from '../../runtime/profiles/user.ts'
 import { createTool as createReadTool } from '../../tools/agentTools/readTool.ts'
 import { createTool as createUpdateProfileTool } from '../../tools/agentTools/updateProfileTool.ts'
@@ -39,6 +39,7 @@ import {
   resolveGroupProbeThread
 } from './groupProbeThread.ts'
 import { hasForbiddenGroupReplyPrefix, hasVisibleGroupReplyContent } from './groupReplyGuard.ts'
+import { summarizeGroupProbeContext } from './groupProbeHandoff.ts'
 import { createSpeechThrottle } from './groupSpeechThrottle.ts'
 
 export interface ChannelGroupDiscussionServiceOptions {
@@ -108,6 +109,10 @@ export function createChannelGroupDiscussionService(
     }
     return map
   }
+
+  // Probe threads whose context handoff summarization is currently running, so a
+  // second turn does not kick off a duplicate summarization for the same thread.
+  const handoffInFlight = new Set<string>()
 
   async function handleGroupTurn(
     group: ChannelGroupRecord,
@@ -234,6 +239,8 @@ export function createChannelGroupDiscussionService(
       contextHandoffSummary: probeThread.contextHandoffSummary,
       history: loadGroupProbeHistory(server.getStorage(), probeThread),
       currentTurnContent,
+      historyTokenBudget: policy.groupContextTokenLimit,
+      styleReminder: GROUP_STYLE_REMINDER,
       requireAssistantReasoningForReplay:
         requiresAssistantReasoningForGroupProbeReplay(settingsOverride)
     })
@@ -259,6 +266,36 @@ export function createChannelGroupDiscussionService(
         requestContent: currentTurnContent,
         result
       })
+      // Compress the older transcript into a rolling summary + advance the
+      // watermark once enough raw transcript has piled up, in the background so
+      // the reply path stays fast. The threshold is checked against the stored
+      // post-watermark size inside summarizeGroupProbeContext (the prompt itself
+      // is capped by the B-window, so it can't signal raw growth).
+      if (policy.groupHandoffTokenThreshold > 0 && !handoffInFlight.has(probeThread.id)) {
+        handoffInFlight.add(probeThread.id)
+        void summarizeGroupProbeContext({
+          storage: server.getStorage(),
+          auxService,
+          threadId: probeThread.id,
+          recentWindowTokens: policy.groupContextTokenLimit,
+          handoffThresholdTokens: policy.groupHandoffTokenThreshold,
+          groupName: group.name,
+          settingsOverride
+        })
+          .then((outcome) => {
+            if (outcome === 'summarized') {
+              console.log(
+                `[${logLabel}] group="${group.name}" compressed old context into a handoff summary`
+              )
+            }
+          })
+          .catch((error) => {
+            console.warn(`[${logLabel}] group="${group.name}" context handoff failed:`, error)
+          })
+          .finally(() => {
+            handoffInFlight.delete(probeThread.id)
+          })
+      }
       console.log(
         `[${logLabel}] group="${group.name}" monologue: ${result.text.slice(0, 200)}${result.text.length > 200 ? '…' : ''}`
       )

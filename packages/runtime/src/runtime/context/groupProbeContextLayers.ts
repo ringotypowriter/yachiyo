@@ -1,4 +1,5 @@
 import type { ProviderSettings } from '@yachiyo/shared/protocol'
+import { estimateTextTokens } from '@yachiyo/shared/estimateTokens'
 import type { ModelMessage } from '../models/types.ts'
 import { toModelHistoryMessages, type ContextLayerHistoryMessage } from './contextLayers.ts'
 
@@ -9,6 +10,18 @@ export interface CompileGroupProbeContextLayersInput {
   history: ContextLayerHistoryMessage[]
   currentTurnContent: string
   requireAssistantReasoningForReplay?: boolean
+  /**
+   * Token budget for the replayed history. When set, only the most recent
+   * whole history turns that fit the budget are kept (at least one always
+   * survives). Prevents an ever-growing group thread from drowning the fixed
+   * persona and making replies regress to the bland group-average tone.
+   */
+  historyTokenBudget?: number
+  /**
+   * Short persona/voice reminder re-asserted right before the current turn.
+   * Recency keeps the bot's own voice from being lost in a long history.
+   */
+  styleReminder?: string
 }
 
 function removeEmptyMessages(messages: ModelMessage[]): ModelMessage[] {
@@ -66,7 +79,7 @@ function sanitizeSyntheticGroupMessageText(text: string): string {
     .replace(/<\/?msg[\s>]/gi, '')
 }
 
-function extractSuccessfulGroupMessageText(messages: ModelMessage[]): string | null {
+export function extractSuccessfulGroupMessageText(messages: ModelMessage[]): string | null {
   const successfulToolCallIds = new Set<string>()
 
   for (const message of messages) {
@@ -173,6 +186,81 @@ function toGroupProbeHistoryMessages(
   return []
 }
 
+function estimateMessagesTokens(messages: ModelMessage[]): number {
+  let total = 0
+  for (const message of messages) {
+    const text =
+      typeof message.content === 'string' ? message.content : JSON.stringify(message.content)
+    total += estimateTextTokens(text)
+  }
+  return total
+}
+
+interface HistoryReplayEntry {
+  role: ContextLayerHistoryMessage['role']
+  messages: ModelMessage[]
+}
+
+/**
+ * Group persisted history turns into atomic replay units so an assistant reply
+ * is never separated from the user delta it responded to. Probe history is
+ * stored as a user delta followed by its assistant result; a unit runs from a
+ * user turn through the assistant turn(s) that follow it. Grouping keys off the
+ * ORIGINAL stored role, not the flattened message role — an assistant turn can
+ * render as a synthetic `role: 'user'` self-message (reasoning-replay fallback)
+ * and must still stay with its preceding delta. Empty (silent) turns are skipped.
+ */
+function groupHistoryIntoReplayUnits(entries: HistoryReplayEntry[]): ModelMessage[][] {
+  const units: ModelMessage[][] = []
+  for (const entry of entries) {
+    if (entry.messages.length === 0) {
+      continue
+    }
+    const startsNewUnit = entry.role === 'user' || units.length === 0
+    if (startsNewUnit) {
+      units.push([...entry.messages])
+    } else {
+      units[units.length - 1]!.push(...entry.messages)
+    }
+  }
+  return units
+}
+
+/**
+ * Flatten history to model messages, keeping only the most recent replay units
+ * that fit `budget` tokens. Trims at unit boundaries (a user delta and its
+ * assistant reply stay together, never orphaning a reply/tool-call) and always
+ * keeps at least the newest unit.
+ */
+function buildBudgetedHistoryMessages(
+  history: ContextLayerHistoryMessage[],
+  requireAssistantReasoningForReplay: boolean,
+  budget?: number
+): ModelMessage[] {
+  const entries: HistoryReplayEntry[] = history.map((message) => ({
+    role: message.role,
+    messages: toGroupProbeHistoryMessages(message, requireAssistantReasoningForReplay)
+  }))
+
+  if (budget == null || budget <= 0) {
+    return entries.flatMap((entry) => entry.messages)
+  }
+
+  const units = groupHistoryIntoReplayUnits(entries)
+  const kept: ModelMessage[][] = []
+  let total = 0
+  for (let i = units.length - 1; i >= 0; i--) {
+    const unit = units[i]!
+    const unitTokens = estimateMessagesTokens(unit)
+    if (total + unitTokens > budget && kept.length > 0) {
+      break
+    }
+    kept.unshift(unit)
+    total += unitTokens
+  }
+  return kept.flat()
+}
+
 export function compileGroupProbeContextLayers(
   input: CompileGroupProbeContextLayersInput
 ): ModelMessage[] {
@@ -197,9 +285,25 @@ export function compileGroupProbeContextLayers(
       ]
     : []
 
-  const historyMessages = input.history.flatMap((message) =>
-    toGroupProbeHistoryMessages(message, input.requireAssistantReasoningForReplay === true)
+  const historyMessages = buildBudgetedHistoryMessages(
+    input.history,
+    input.requireAssistantReasoningForReplay === true,
+    input.historyTokenBudget
   )
+
+  // Re-assert the persona right before the current turn, but only when there is
+  // history to counteract — a fresh thread's system prompt is not yet diluted.
+  const styleReminderMessages: ModelMessage[] =
+    input.styleReminder?.trim() && historyMessages.length > 0
+      ? [
+          {
+            role: 'user',
+            content: ['<style_reminder>', input.styleReminder.trim(), '</style_reminder>'].join(
+              '\n'
+            )
+          }
+        ]
+      : []
 
   const currentTurn: ModelMessage[] = input.currentTurnContent.trim()
     ? [{ role: 'user', content: input.currentTurnContent.trim() }]
@@ -209,6 +313,7 @@ export function compileGroupProbeContextLayers(
     ...systemPrefix,
     ...summaryMessages,
     ...historyMessages,
+    ...styleReminderMessages,
     ...currentTurn
   ])
 }

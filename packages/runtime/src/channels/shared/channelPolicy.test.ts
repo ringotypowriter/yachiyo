@@ -1,7 +1,11 @@
 import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
 
-import { telegramPolicy, resolveChannelPolicy } from './channelPolicy.ts'
+import {
+  telegramPolicy,
+  resolveChannelPolicy,
+  applyChannelsConfigToPolicy
+} from './channelPolicy.ts'
 
 describe('telegramPolicy', () => {
   it('has the correct platform', () => {
@@ -39,5 +43,29 @@ describe('resolveChannelPolicy', () => {
 
   it('throws for unknown platform', () => {
     assert.throws(() => resolveChannelPolicy('unknown' as 'telegram'), /Unknown channel platform/)
+  })
+})
+
+describe('applyChannelsConfigToPolicy group handoff threshold', () => {
+  it('defaults the handoff threshold to 2× the window (hysteresis)', () => {
+    const policy = applyChannelsConfigToPolicy(telegramPolicy, { groupContextWindowK: 32 })
+    assert.equal(policy.groupContextTokenLimit, 32_000)
+    assert.equal(policy.groupHandoffTokenThreshold, 64_000)
+  })
+
+  it('floors an explicit threshold at 2× the window so it never re-summarizes every turn', () => {
+    const policy = applyChannelsConfigToPolicy(telegramPolicy, {
+      groupContextWindowK: 32,
+      groupHandoffThresholdK: 32 // below 2× window → floored to 64K
+    })
+    assert.equal(policy.groupHandoffTokenThreshold, 64_000)
+  })
+
+  it('honors an explicit threshold above the floor', () => {
+    const policy = applyChannelsConfigToPolicy(telegramPolicy, {
+      groupContextWindowK: 32,
+      groupHandoffThresholdK: 128
+    })
+    assert.equal(policy.groupHandoffTokenThreshold, 128_000)
   })
 })
