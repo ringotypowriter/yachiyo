@@ -39,6 +39,7 @@ import {
   resolveGroupProbeThread
 } from './groupProbeThread.ts'
 import { hasForbiddenGroupReplyPrefix, hasVisibleGroupReplyContent } from './groupReplyGuard.ts'
+import { summarizeGroupProbeContext } from './groupProbeHandoff.ts'
 import { createSpeechThrottle } from './groupSpeechThrottle.ts'
 
 export interface ChannelGroupDiscussionServiceOptions {
@@ -108,6 +109,10 @@ export function createChannelGroupDiscussionService(
     }
     return map
   }
+
+  // Probe threads whose context handoff summarization is currently running, so a
+  // second turn does not kick off a duplicate summarization for the same thread.
+  const handoffInFlight = new Set<string>()
 
   async function handleGroupTurn(
     group: ChannelGroupRecord,
@@ -261,6 +266,37 @@ export function createChannelGroupDiscussionService(
         requestContent: currentTurnContent,
         result
       })
+      // Once the raw thread outgrows the handoff threshold, compress the older
+      // transcript into a rolling summary + advance the watermark, in the
+      // background so the reply path stays fast.
+      if (
+        policy.groupHandoffTokenThreshold > 0 &&
+        !handoffInFlight.has(probeThread.id) &&
+        server.getThreadTotalTokens(probeThread.id) >= policy.groupHandoffTokenThreshold
+      ) {
+        handoffInFlight.add(probeThread.id)
+        void summarizeGroupProbeContext({
+          storage: server.getStorage(),
+          auxService,
+          threadId: probeThread.id,
+          recentWindowTokens: policy.groupContextTokenLimit,
+          groupName: group.name,
+          settingsOverride
+        })
+          .then((outcome) => {
+            if (outcome === 'summarized') {
+              console.log(
+                `[${logLabel}] group="${group.name}" compressed old context into a handoff summary`
+              )
+            }
+          })
+          .catch((error) => {
+            console.warn(`[${logLabel}] group="${group.name}" context handoff failed:`, error)
+          })
+          .finally(() => {
+            handoffInFlight.delete(probeThread.id)
+          })
+      }
       console.log(
         `[${logLabel}] group="${group.name}" monologue: ${result.text.slice(0, 200)}${result.text.length > 200 ? '…' : ''}`
       )

@@ -1115,21 +1115,14 @@ export interface ChannelsConfig {
    * 0 = default throttle curve, 1 = never throttled. Default undefined (= 0).
    */
   groupVerbosity?: number
-  /**
-   * Global override for the active-phase check interval (ms).
-   * Overridden by per-platform `activeCheckIntervalMs` when set.
-   */
+  /** Global override for the active-phase check interval (ms); per-platform `activeCheckIntervalMs` wins when set. */
   groupCheckIntervalMs?: number
-  /**
-   * Legacy-named DM context budget (in K), currently shown in channel status output.
-   * Default: 64 (= 64 000 tokens).
-   */
+  /** Legacy-named DM context budget (in K), shown in channel status output. Default: 64 (= 64 000 tokens). */
   dmCompactTokenThresholdK?: number
-  /**
-   * Token budget (in K) for the group probe sliding window.
-   * Default: 64 (= 64 000 tokens).
-   */
+  /** Token budget (in K) for the group probe sliding window. Default: 64 (= 64 000 tokens). */
   groupContextWindowK?: number
+  /** Raw group probe thread size (in K tokens) above which older transcript is summarized into a rolling handoff. Should exceed groupContextWindowK. Default: 64. */
+  groupHandoffThresholdK?: number
 }
 
 // ---------------------------------------------------------------------------
