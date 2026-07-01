@@ -1121,7 +1121,7 @@ export interface ChannelsConfig {
   dmCompactTokenThresholdK?: number
   /** Token budget (in K) for the group probe sliding window. Default: 64 (= 64 000 tokens). */
   groupContextWindowK?: number
-  /** Raw group probe thread size (in K tokens) above which older transcript is summarized into a rolling handoff. Should exceed groupContextWindowK. Default: 64. */
+  /** Raw group probe thread size (in K tokens) above which older transcript is summarized into a rolling handoff. Default & floor: 2× groupContextWindowK (hysteresis, so it doesn't re-summarize every turn). */
   groupHandoffThresholdK?: number
 }
 

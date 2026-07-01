@@ -79,7 +79,7 @@ export const telegramPolicy: ChannelPolicy = {
   allowedTools: ['read', 'grep', 'glob', 'webRead', 'webSearch'],
   contextTokenLimit: 64_000,
   groupContextTokenLimit: 64_000,
-  groupHandoffTokenThreshold: 64_000,
+  groupHandoffTokenThreshold: 128_000,
   threadReuseWindowMs: 24 * 60 * 60 * 1_000,
   maxImageBytes: 5 * 1024 * 1024,
   maxImagesPerBatch: 4,
@@ -94,7 +94,7 @@ export const qqPolicy: ChannelPolicy = {
   allowedTools: ['read', 'grep', 'glob', 'webRead', 'webSearch'],
   contextTokenLimit: 64_000,
   groupContextTokenLimit: 64_000,
-  groupHandoffTokenThreshold: 64_000,
+  groupHandoffTokenThreshold: 128_000,
   threadReuseWindowMs: 24 * 60 * 60 * 1_000,
   maxImageBytes: 5 * 1024 * 1024,
   maxImagesPerBatch: 4,
@@ -109,7 +109,7 @@ export const discordPolicy: ChannelPolicy = {
   allowedTools: ['read', 'grep', 'glob', 'webRead', 'webSearch'],
   contextTokenLimit: 64_000,
   groupContextTokenLimit: 64_000,
-  groupHandoffTokenThreshold: 64_000,
+  groupHandoffTokenThreshold: 128_000,
   threadReuseWindowMs: 24 * 60 * 60 * 1_000,
   maxImageBytes: 8 * 1024 * 1024,
   maxImagesPerBatch: 4,
@@ -124,7 +124,7 @@ export const qqbotPolicy: ChannelPolicy = {
   allowedTools: ['read', 'grep', 'glob', 'webRead', 'webSearch'],
   contextTokenLimit: 64_000,
   groupContextTokenLimit: 64_000,
-  groupHandoffTokenThreshold: 64_000,
+  groupHandoffTokenThreshold: 128_000,
   threadReuseWindowMs: 24 * 60 * 60 * 1_000,
   maxImageBytes: 5 * 1024 * 1024,
   maxImagesPerBatch: 4,
@@ -160,10 +160,17 @@ export function applyChannelsConfigToPolicy(
     'dmCompactTokenThresholdK' | 'groupContextWindowK' | 'groupHandoffThresholdK'
   >
 ): ChannelPolicy {
+  const groupContextTokenLimit = (cfg.groupContextWindowK ?? 64) * 1_000
+  // Handoff summarization leaves ~one window of raw transcript after each pass,
+  // so the threshold must sit above the window or every subsequent turn would
+  // re-summarize. Default to (and floor at) 2× the window for hysteresis.
+  const minHandoffThreshold = groupContextTokenLimit * 2
+  const requestedHandoffThreshold =
+    cfg.groupHandoffThresholdK != null ? cfg.groupHandoffThresholdK * 1_000 : minHandoffThreshold
   return {
     ...base,
     contextTokenLimit: (cfg.dmCompactTokenThresholdK ?? 64) * 1_000,
-    groupContextTokenLimit: (cfg.groupContextWindowK ?? 64) * 1_000,
-    groupHandoffTokenThreshold: (cfg.groupHandoffThresholdK ?? 64) * 1_000
+    groupContextTokenLimit,
+    groupHandoffTokenThreshold: Math.max(requestedHandoffThreshold, minHandoffThreshold)
   }
 }
