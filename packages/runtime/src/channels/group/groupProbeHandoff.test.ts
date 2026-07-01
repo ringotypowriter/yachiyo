@@ -14,6 +14,8 @@ const success = (text: string): AuxiliaryTextGenerationResult => ({
   settings: {} as ProviderSettings
 })
 
+const NO_SEGMENT_CAP = 100_000_000
+
 function msg(id: string, content: string, role: 'user' | 'assistant' = 'user'): MessageRecord {
   return {
     id,
@@ -60,32 +62,39 @@ function sentReply(id: string, text: string): MessageRecord {
 }
 
 test('pickGroupHandoffCheckpoint returns null when the thread is too short', () => {
-  assert.equal(pickGroupHandoffCheckpoint([], 100), null)
-  assert.equal(pickGroupHandoffCheckpoint([big('a')], 100), null)
+  assert.equal(pickGroupHandoffCheckpoint([], 100, NO_SEGMENT_CAP), null)
+  assert.equal(pickGroupHandoffCheckpoint([big('a')], 100, NO_SEGMENT_CAP), null)
 })
 
 test('pickGroupHandoffCheckpoint returns null when the whole thread fits the window', () => {
-  assert.equal(pickGroupHandoffCheckpoint([big('a'), big('b')], 10_000), null)
+  assert.equal(pickGroupHandoffCheckpoint([big('a'), big('b')], 10_000, NO_SEGMENT_CAP), null)
 })
 
 test('pickGroupHandoffCheckpoint keeps ~one window after the checkpoint', () => {
-  const checkpoint = pickGroupHandoffCheckpoint([big('a'), big('b'), big('c'), big('d')], 100)
+  const checkpoint = pickGroupHandoffCheckpoint(
+    [big('a'), big('b'), big('c'), big('d')],
+    100,
+    NO_SEGMENT_CAP
+  )
   assert.equal(checkpoint, 'c')
 })
 
 test('pickGroupHandoffCheckpoint snaps the boundary so the kept tail starts with a user delta', () => {
-  // Alternating turns; a window boundary that lands on an assistant reply must
-  // move older so the reply keeps the user delta it answered.
   const messages = [
     big('u1', 'user'),
     big('a1', 'assistant'),
     big('u2', 'user'),
     big('a2', 'assistant')
   ]
-  const checkpoint = pickGroupHandoffCheckpoint(messages, 100)
   // Boundary lands on a2 (assistant) → snap older to u2, watermark = a1.
-  assert.equal(checkpoint, 'a1')
-  // Everything after 'a1' is [u2, a2] — starts with a user delta.
+  assert.equal(pickGroupHandoffCheckpoint(messages, 100, NO_SEGMENT_CAP), 'a1')
+})
+
+test('pickGroupHandoffCheckpoint caps the summarized segment to maxSegmentTokens for a huge thread', () => {
+  // 6 turns ≈ 100 tokens each = 600 raw; segment cap 100 → only the oldest turn
+  // ('a') is summarized this pass, so the transcript never blows the model up.
+  const messages = [big('a'), big('b'), big('c'), big('d'), big('e'), big('f')]
+  assert.equal(pickGroupHandoffCheckpoint(messages, 100, 100), 'a')
 })
 
 interface FakeStorage {
@@ -107,7 +116,7 @@ function fakeStorage(thread: ThreadRecord, messages: MessageRecord[]): FakeStora
 
 const baseThread = { id: 't', title: 'g [group probe]' } as unknown as ThreadRecord
 
-test('summarizeGroupProbeContext writes summary + advances watermark to the checkpoint', async () => {
+test('summarizeGroupProbeContext writes summary + advances the watermark', async () => {
   const storage = fakeStorage(baseThread, [big('a'), big('b'), big('c'), big('d')])
   const auxService = { generateText: async () => success('  previously in the group…  ') }
 
@@ -124,7 +133,8 @@ test('summarizeGroupProbeContext writes summary + advances watermark to the chec
   assert.equal(outcome, 'summarized')
   assert.equal(storage.updated.length, 1)
   assert.equal(storage.updated[0]?.contextHandoffSummary, 'previously in the group…')
-  assert.equal(storage.updated[0]?.contextHandoffWatermarkMessageId, 'c')
+  // Segment capped to one window ⇒ only the oldest turn is compressed this pass.
+  assert.equal(storage.updated[0]?.contextHandoffWatermarkMessageId, 'a')
 })
 
 test('summarizeGroupProbeContext includes Yachiyo sent replies (from responseMessages) in the transcript', async () => {
@@ -132,7 +142,9 @@ test('summarizeGroupProbeContext includes Yachiyo sent replies (from responseMes
     big('u1', 'user'),
     sentReply('a1', 'GN everyone, going offline'),
     big('u2', 'user'),
-    big('u3', 'user')
+    big('u3', 'user'),
+    big('u4', 'user'),
+    big('u5', 'user')
   ])
   let captured: AuxiliaryTextGenerationRequest | undefined
   const auxService = {
@@ -146,7 +158,7 @@ test('summarizeGroupProbeContext includes Yachiyo sent replies (from responseMes
     storage,
     auxService,
     threadId: 't',
-    recentWindowTokens: 100,
+    recentWindowTokens: 200,
     handoffThresholdTokens: 100,
     groupName: '杂鱼村'
   })

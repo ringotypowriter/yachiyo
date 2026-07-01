@@ -26,35 +26,54 @@ export function messagesAfterWatermark(
 }
 
 /**
- * Choose the watermark checkpoint so the transcript kept *after* it is roughly
- * `recentWindowTokens` — everything up to and including the checkpoint gets
- * summarized. Walks newest-first to find the window boundary, then snaps it
- * forward to a turn start so the kept tail begins with a user delta (never an
- * orphaned assistant/tool reply, since the read path slices after the
- * watermark). Returns null when there is nothing clean worth compressing.
+ * Choose the watermark checkpoint for one handoff pass. Two bounds:
+ *  - keep ~`recentWindowTokens` of raw transcript AFTER the checkpoint, and
+ *  - summarize at most ~`maxSegmentTokens` of the OLDEST transcript in this pass
+ *    so an already-huge thread never sends a segment larger than the model can
+ *    take (the rolling summary folds the backlog in over successive passes).
+ * The boundary is then snapped older to a turn start so the kept tail begins
+ * with a user delta (the read path slices strictly after the watermark).
+ * Returns null when there is nothing clean worth compressing this pass.
  */
 export function pickGroupHandoffCheckpoint(
   messages: MessageRecord[],
-  recentWindowTokens: number
+  recentWindowTokens: number,
+  maxSegmentTokens: number
 ): string | null {
   if (messages.length < 2 || recentWindowTokens <= 0) {
     return null
   }
+
+  // Latest first-kept index that still leaves ~one window of raw after it.
   let tailTokens = 0
-  let start = -1
+  let windowStart = -1
   for (let i = messages.length - 1; i >= 1; i--) {
     tailTokens += estimateTextTokens(messages[i]!.content)
     if (tailTokens >= recentWindowTokens) {
-      start = i
+      windowStart = i
       break
     }
   }
-  if (start < 0) {
+  if (windowStart < 0) {
     return null
   }
+
+  // Cap the summarized segment to the oldest ~maxSegmentTokens so this pass's
+  // transcript stays within the model's context.
+  let start = windowStart
+  if (maxSegmentTokens > 0) {
+    let segmentTokens = 0
+    for (let i = 0; i < messages.length; i++) {
+      segmentTokens += estimateTextTokens(messages[i]!.content)
+      if (segmentTokens >= maxSegmentTokens) {
+        start = Math.min(windowStart, i + 1)
+        break
+      }
+    }
+  }
+
   // Snap the boundary older to a turn start: the kept tail must begin with a
-  // user delta so its assistant reply keeps the group context it answered (the
-  // read path slices strictly after the watermark).
+  // user delta so its assistant reply keeps the group context it answered.
   while (start > 0 && messages[start]!.role !== 'user') {
     start--
   }
@@ -132,7 +151,13 @@ export async function summarizeGroupProbeContext(
   if (estimateRawTokens(afterWatermark) < input.handoffThresholdTokens) {
     return 'skipped'
   }
-  const checkpointId = pickGroupHandoffCheckpoint(afterWatermark, input.recentWindowTokens)
+  // Summarize at most one window of the oldest backlog per pass so the segment
+  // never exceeds the model's context, even for an already-huge thread.
+  const checkpointId = pickGroupHandoffCheckpoint(
+    afterWatermark,
+    input.recentWindowTokens,
+    input.recentWindowTokens
+  )
   if (!checkpointId) {
     return 'skipped'
   }
