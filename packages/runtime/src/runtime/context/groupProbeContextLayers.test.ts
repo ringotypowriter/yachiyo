@@ -216,6 +216,74 @@ test('compileGroupProbeContextLayers drops one-sentence silent assistant monolog
   assert.equal(messages[2]?.content, '<msg from="Bob">fresh turn</msg>')
 })
 
+test('compileGroupProbeContextLayers trims the oldest history turns to the token budget', () => {
+  // ASCII content: estimateTextTokens ≈ length / 4, so each turn ≈ 100 tokens.
+  const messages = compileGroupProbeContextLayers({
+    stableSystemPrompt: 'Stable group behavior rules.',
+    dynamicSystemPrompt: 'You are the group probe.',
+    history: [
+      { role: 'user', content: `<msg from="A">${'a'.repeat(390)}</msg>` },
+      { role: 'user', content: `<msg from="B">${'b'.repeat(390)}</msg>` },
+      { role: 'user', content: `<msg from="C">${'c'.repeat(390)}</msg>` }
+    ],
+    currentTurnContent: '<msg from="Bob">fresh turn</msg>',
+    historyTokenBudget: 150
+  })
+
+  const contents = messages.map((message) => message.content as string)
+  // Only the most recent turn fits the 150-token budget; older ones are dropped.
+  assert.ok(contents.some((content) => content.includes('from="C"')))
+  assert.ok(!contents.some((content) => content.includes('from="A"')))
+  assert.ok(!contents.some((content) => content.includes('from="B"')))
+  // Current turn is always preserved.
+  assert.equal(messages[messages.length - 1]?.content, '<msg from="Bob">fresh turn</msg>')
+})
+
+test('compileGroupProbeContextLayers always keeps at least the newest turn even if it exceeds budget', () => {
+  const messages = compileGroupProbeContextLayers({
+    stableSystemPrompt: 'Stable group behavior rules.',
+    dynamicSystemPrompt: 'You are the group probe.',
+    history: [{ role: 'user', content: `<msg from="A">${'a'.repeat(4000)}</msg>` }],
+    currentTurnContent: '<msg from="Bob">fresh turn</msg>',
+    historyTokenBudget: 10
+  })
+
+  assert.ok(messages.some((message) => (message.content as string).includes('from="A"')))
+})
+
+test('compileGroupProbeContextLayers re-asserts the style reminder right before the current turn', () => {
+  const messages = compileGroupProbeContextLayers({
+    stableSystemPrompt: 'Stable group behavior rules.',
+    dynamicSystemPrompt: 'You are the group probe.',
+    history: [{ role: 'user', content: '<msg from="Alice">old turn</msg>' }],
+    currentTurnContent: '<msg from="Bob">fresh turn</msg>',
+    styleReminder: 'Stay in your own voice.'
+  })
+
+  const last = messages[messages.length - 1]
+  const secondLast = messages[messages.length - 2]
+  assert.equal(last?.content, '<msg from="Bob">fresh turn</msg>')
+  assert.equal(secondLast?.role, 'user')
+  assert.match(secondLast?.content as string, /<style_reminder>/)
+  assert.match(secondLast?.content as string, /Stay in your own voice\./)
+})
+
+test('compileGroupProbeContextLayers omits the style reminder when there is no replayable history', () => {
+  const messages = compileGroupProbeContextLayers({
+    stableSystemPrompt: 'Stable group behavior rules.',
+    dynamicSystemPrompt: 'You are the group probe.',
+    history: [],
+    currentTurnContent: '<msg from="Bob">fresh turn</msg>',
+    styleReminder: 'Stay in your own voice.'
+  })
+
+  assert.ok(
+    !messages.some(
+      (message) => typeof message.content === 'string' && message.content.includes('style_reminder')
+    )
+  )
+})
+
 test('compileGroupProbeContextLayers drops tool-assisted silent turns unless they sent a group message', () => {
   const responseMessages = [
     {

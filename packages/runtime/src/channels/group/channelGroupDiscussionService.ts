@@ -16,7 +16,7 @@ import {
   requiresAssistantReasoningForGroupProbeReplay
 } from '../../runtime/context/groupProbeContextLayers.ts'
 import { readChannelsConfig } from '../../runtime/config/channelsConfig.ts'
-import { EXTERNAL_GROUP_PROMPT } from '../../runtime/context/prompt.ts'
+import { EXTERNAL_GROUP_PROMPT, GROUP_STYLE_REMINDER } from '../../runtime/context/prompt.ts'
 import { readUserDocument } from '../../runtime/profiles/user.ts'
 import { createTool as createReadTool } from '../../tools/agentTools/readTool.ts'
 import { createTool as createUpdateProfileTool } from '../../tools/agentTools/updateProfileTool.ts'
@@ -234,6 +234,8 @@ export function createChannelGroupDiscussionService(
       contextHandoffSummary: probeThread.contextHandoffSummary,
       history: loadGroupProbeHistory(server.getStorage(), probeThread),
       currentTurnContent,
+      historyTokenBudget: policy.groupContextTokenLimit,
+      styleReminder: GROUP_STYLE_REMINDER,
       requireAssistantReasoningForReplay:
         requiresAssistantReasoningForGroupProbeReplay(settingsOverride)
     })
