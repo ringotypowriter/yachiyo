@@ -552,6 +552,10 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
       db.transaction((tx) => {
         tx.delete(toolCallsTable).where(eq(toolCallsTable.threadId, threadId)).run()
         tx.delete(runsTable).where(eq(runsTable.threadId, threadId)).run()
+        tx.update(messagesTable)
+          .set({ parentMessageId: null })
+          .where(eq(messagesTable.threadId, threadId))
+          .run()
         tx.delete(messagesTable).where(eq(messagesTable.threadId, threadId)).run()
         tx.update(threadsTable)
           .set({
@@ -575,6 +579,10 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
       db.transaction((tx) => {
         tx.delete(toolCallsTable).where(inArray(toolCallsTable.threadId, threadIds)).run()
         tx.delete(runsTable).where(inArray(runsTable.threadId, threadIds)).run()
+        tx.update(messagesTable)
+          .set({ parentMessageId: null })
+          .where(inArray(messagesTable.threadId, threadIds))
+          .run()
         tx.delete(messagesTable).where(inArray(messagesTable.threadId, threadIds)).run()
         tx.update(threadsTable)
           .set({

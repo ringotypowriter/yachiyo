@@ -310,6 +310,61 @@ test('sqlite storage preserves tool step order across reload', async () => {
   }
 })
 
+test('sqlite storage clears group thread history with deep message chains', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'yachiyo-sqlite-native-'))
+  const dbPath = join(root, 'group-history-clear.sqlite')
+  const timestamp = '2026-07-01T00:00:00.000Z'
+
+  try {
+    const storage = createSqliteYachiyoStorage(dbPath)
+    storage.createChannelGroup({
+      id: 'group-1',
+      platform: 'qq',
+      externalGroupId: '459936541',
+      name: '杂鱼村',
+      label: '杂鱼村',
+      status: 'approved',
+      workspacePath: '/tmp/group-workspace'
+    })
+    storage.createThread({
+      thread: {
+        id: 'thread-1',
+        title: '杂鱼村 [group probe]',
+        source: 'qq',
+        channelGroupId: 'group-1',
+        workspacePath: '/tmp/group-workspace',
+        headMessageId: 'message-1100',
+        updatedAt: timestamp
+      },
+      createdAt: timestamp,
+      messages: Array.from({ length: 1_100 }, (_, index) => {
+        const messageNumber = index + 1
+        return {
+          id: `message-${messageNumber}`,
+          threadId: 'thread-1',
+          parentMessageId: messageNumber === 1 ? undefined : `message-${messageNumber - 1}`,
+          role: messageNumber % 2 === 0 ? ('assistant' as const) : ('user' as const),
+          content: `Group message ${messageNumber}`,
+          hidden: true,
+          status: 'completed' as const,
+          createdAt: timestamp
+        }
+      })
+    })
+
+    storage.resetChannelGroupThreadsHistory({
+      channelGroupId: 'group-1',
+      updatedAt: '2026-07-01T00:00:01.000Z'
+    })
+
+    assert.equal(storage.getThread('thread-1')?.headMessageId, undefined)
+    assert.deepEqual(storage.listThreadMessages('thread-1'), [])
+    storage.close()
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
 test('0034 migration preserves recurring schedules without inventing run_at values', async () => {
   const root = await mkdtemp(join(tmpdir(), 'yachiyo-sqlite-native-'))
   const dbPath = join(root, 'schedule-migration.sqlite')
