@@ -30,6 +30,44 @@ function buildCodexHeaders(accountId?: string): Record<string, string> {
   return headers
 }
 
+function isCodexResponsesRequest(input: Parameters<typeof globalThis.fetch>[0]): boolean {
+  const url = typeof input === 'string' || input instanceof URL ? String(input) : input.url
+
+  try {
+    return new URL(url).pathname.endsWith('/responses')
+  } catch {
+    return url.endsWith('/responses')
+  }
+}
+
+function stripCodexResponsesUnsupportedParams(init?: RequestInit): RequestInit | undefined {
+  if (!init?.body || typeof init.body !== 'string') {
+    return init
+  }
+
+  try {
+    const body = JSON.parse(init.body) as Record<string, unknown>
+    if (!Object.hasOwn(body, 'max_output_tokens')) {
+      return init
+    }
+
+    const nextBody = { ...body }
+    delete nextBody['max_output_tokens']
+
+    return { ...init, body: JSON.stringify(nextBody) }
+  } catch {
+    return init
+  }
+}
+
+function createCodexResponsesFetch(baseFetch: typeof globalThis.fetch): typeof globalThis.fetch {
+  return (input, init) =>
+    baseFetch(
+      input,
+      isCodexResponsesRequest(input) ? stripCodexResponsesUnsupportedParams(init) : init
+    )
+}
+
 export function supportsOpenAIReasoningEffort(modelId: string): boolean {
   const normalized = modelId.trim().toLowerCase()
 
@@ -114,13 +152,16 @@ export function createOpenAiLanguageModel(
   const composedFetch = maxEffortFetch ?? thinkingFetch ?? cacheFetch
 
   const isCodexOauth = settings.provider === 'openai-codex'
+  const codexFetch = isCodexOauth
+    ? createCodexResponsesFetch(composedFetch ?? innerFetch)
+    : undefined
   const provider = dependencies.createOpenAIProvider({
     apiKey: settings.apiKey,
     baseURL: isCodexOauth
       ? CODEX_BACKEND_BASE_URL
       : cleanBaseUrl(settings.baseUrl, DEFAULT_OPENAI_BASE_URL),
     ...(isCodexOauth ? { headers: buildCodexHeaders(settings.codexAccountId) } : {}),
-    ...(composedFetch ? { fetch: composedFetch } : {})
+    ...((codexFetch ?? composedFetch) ? { fetch: codexFetch ?? composedFetch } : {})
   })
 
   if (shouldUseOpenAIResponsesApi(settings)) {
