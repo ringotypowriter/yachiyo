@@ -301,6 +301,60 @@ test('compileGroupProbeContextLayers never replays an assistant reply without it
   )
 })
 
+test('compileGroupProbeContextLayers keeps a synthetic self-reply with its user delta under a tight budget', () => {
+  // Reasoning-replay fallback renders the assistant turn as a synthetic
+  // `<msg from="Yachiyo">` with role 'user'; it must still group with its delta.
+  const responseMessages = [
+    {
+      role: 'assistant' as const,
+      content: [
+        { type: 'text' as const, text: 'thinking' },
+        {
+          type: 'tool-call' as const,
+          toolCallId: 'tc1',
+          toolName: 'send_group_message',
+          input: { message: 'hey there' }
+        }
+      ]
+    },
+    {
+      role: 'tool' as const,
+      content: [
+        {
+          type: 'tool-result' as const,
+          toolCallId: 'tc1',
+          toolName: 'send_group_message',
+          output: { type: 'text' as const, value: 'Message sent.' }
+        }
+      ]
+    }
+  ]
+
+  const messages = compileGroupProbeContextLayers({
+    stableSystemPrompt: 'Stable group behavior rules.',
+    dynamicSystemPrompt: 'You are the group probe.',
+    history: [
+      { role: 'user', content: `<msg from="Alice">${'a'.repeat(2000)}</msg>` },
+      { role: 'assistant', content: 'thinking', responseMessages }
+    ],
+    currentTurnContent: '<msg from="Bob">fresh turn</msg>',
+    historyTokenBudget: 50,
+    requireAssistantReasoningForReplay: true
+  })
+
+  const hasSelfReply = messages.some(
+    (m) => typeof m.content === 'string' && m.content.includes('from="Yachiyo"')
+  )
+  const hasDelta = messages.some(
+    (m) => typeof m.content === 'string' && m.content.includes('from="Alice"')
+  )
+  assert.ok(!hasSelfReply || hasDelta, 'self-reply must not appear without its user delta')
+  assert.ok(
+    hasSelfReply && hasDelta,
+    'the delta + its self-reply form one unit and are kept together'
+  )
+})
+
 test('compileGroupProbeContextLayers re-asserts the style reminder right before the current turn', () => {
   const messages = compileGroupProbeContextLayers({
     stableSystemPrompt: 'Stable group behavior rules.',

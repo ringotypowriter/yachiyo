@@ -196,24 +196,31 @@ function estimateMessagesTokens(messages: ModelMessage[]): number {
   return total
 }
 
+interface HistoryReplayEntry {
+  role: ContextLayerHistoryMessage['role']
+  messages: ModelMessage[]
+}
+
 /**
- * Group persisted history turns into atomic replay units so an assistant/tool
- * reply is never separated from the user delta it responded to. Probe history
- * is stored as a user delta followed by its assistant result; a unit runs from
- * a user turn through the assistant turn(s) that follow it. Empty (silent) turns
- * are skipped.
+ * Group persisted history turns into atomic replay units so an assistant reply
+ * is never separated from the user delta it responded to. Probe history is
+ * stored as a user delta followed by its assistant result; a unit runs from a
+ * user turn through the assistant turn(s) that follow it. Grouping keys off the
+ * ORIGINAL stored role, not the flattened message role — an assistant turn can
+ * render as a synthetic `role: 'user'` self-message (reasoning-replay fallback)
+ * and must still stay with its preceding delta. Empty (silent) turns are skipped.
  */
-function groupHistoryIntoReplayUnits(perTurn: ModelMessage[][]): ModelMessage[][] {
+function groupHistoryIntoReplayUnits(entries: HistoryReplayEntry[]): ModelMessage[][] {
   const units: ModelMessage[][] = []
-  for (const turn of perTurn) {
-    if (turn.length === 0) {
+  for (const entry of entries) {
+    if (entry.messages.length === 0) {
       continue
     }
-    const startsNewUnit = turn[0]?.role === 'user' || units.length === 0
+    const startsNewUnit = entry.role === 'user' || units.length === 0
     if (startsNewUnit) {
-      units.push([...turn])
+      units.push([...entry.messages])
     } else {
-      units[units.length - 1]!.push(...turn)
+      units[units.length - 1]!.push(...entry.messages)
     }
   }
   return units
@@ -230,15 +237,16 @@ function buildBudgetedHistoryMessages(
   requireAssistantReasoningForReplay: boolean,
   budget?: number
 ): ModelMessage[] {
-  const perTurn = history.map((message) =>
-    toGroupProbeHistoryMessages(message, requireAssistantReasoningForReplay)
-  )
+  const entries: HistoryReplayEntry[] = history.map((message) => ({
+    role: message.role,
+    messages: toGroupProbeHistoryMessages(message, requireAssistantReasoningForReplay)
+  }))
 
   if (budget == null || budget <= 0) {
-    return perTurn.flat()
+    return entries.flatMap((entry) => entry.messages)
   }
 
-  const units = groupHistoryIntoReplayUnits(perTurn)
+  const units = groupHistoryIntoReplayUnits(entries)
   const kept: ModelMessage[][] = []
   let total = 0
   for (let i = units.length - 1; i >= 0; i--) {

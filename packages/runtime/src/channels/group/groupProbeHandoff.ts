@@ -122,9 +122,10 @@ export async function summarizeGroupProbeContext(
     return 'skipped'
   }
 
+  const startingWatermark = thread.contextHandoffWatermarkMessageId
   const afterWatermark = messagesAfterWatermark(
     input.storage.listThreadMessages(input.threadId),
-    thread.contextHandoffWatermarkMessageId
+    startingWatermark
   )
   // Gate on the raw stored transcript that has piled up since the last
   // watermark — this is what actually grows; the prompt is capped by B.
@@ -166,9 +167,18 @@ export async function summarizeGroupProbeContext(
     return 'skipped'
   }
 
-  // Re-read: the thread may have changed while the summary was generating.
+  // Re-read: the thread may have changed while the summary was generating. Bail
+  // if it was cleared or handed off in the meantime — otherwise we'd write a
+  // summary of just-cleared history or a watermark pointing at a deleted
+  // message. Guard on both the watermark moving and the checkpoint surviving.
   const latest = input.storage.getThread(input.threadId)
-  if (!latest) {
+  if (!latest || latest.contextHandoffWatermarkMessageId !== startingWatermark) {
+    return 'skipped'
+  }
+  const checkpointSurvives = input.storage
+    .listThreadMessages(input.threadId)
+    .some((message) => message.id === checkpointId)
+  if (!checkpointSurvives) {
     return 'skipped'
   }
   input.storage.updateThread({

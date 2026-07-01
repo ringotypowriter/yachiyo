@@ -198,6 +198,37 @@ test('summarizeGroupProbeContext skips when there is nothing worth compressing',
   assert.equal(storage.updated.length, 0)
 })
 
+test('summarizeGroupProbeContext skips the write when history is cleared mid-summary', async () => {
+  const messages = [big('a'), big('b'), big('c'), big('d')]
+  const updated: ThreadRecord[] = []
+  let cleared = false
+  const storage: FakeStorage = {
+    updated,
+    getThread: () => baseThread,
+    listThreadMessages: () => (cleared ? [] : messages),
+    updateThread: (next) => updated.push(next)
+  }
+  const auxService = {
+    generateText: async () => {
+      // Simulate the user clearing the group history while the model runs.
+      cleared = true
+      return success('SUMMARY of now-deleted history')
+    }
+  }
+
+  const outcome = await summarizeGroupProbeContext({
+    storage,
+    auxService,
+    threadId: 't',
+    recentWindowTokens: 100,
+    handoffThresholdTokens: 100,
+    groupName: '杂鱼村'
+  })
+
+  assert.equal(outcome, 'skipped')
+  assert.equal(updated.length, 0)
+})
+
 test('summarizeGroupProbeContext skips when generation is unavailable', async () => {
   const storage = fakeStorage(baseThread, [big('a'), big('b'), big('c'), big('d')])
   const auxService = {
