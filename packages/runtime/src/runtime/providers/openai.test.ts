@@ -88,6 +88,60 @@ test('shouldUseOpenAIResponsesApi enables Responses API for Codex OAuth', () => 
   )
 })
 
+test('createOpenAiLanguageModel strips max_output_tokens for Codex responses requests', async () => {
+  let providerOptions:
+    | {
+        fetch?: typeof globalThis.fetch
+      }
+    | undefined
+  let capturedBody: Record<string, unknown> | undefined
+
+  createOpenAiLanguageModel(
+    {
+      providerName: 'codex',
+      provider: 'openai-codex',
+      model: 'gpt-5.4-mini',
+      apiKey: 'oauth-access-token',
+      baseUrl: '',
+      codexSessionPath: '/tmp/auth.json'
+    },
+    {
+      createOpenAIProvider: (options: { fetch?: typeof globalThis.fetch }) => {
+        providerOptions = options
+        return {
+          chat: () => {
+            throw new Error('Codex OAuth must use the Responses API.')
+          },
+          responses: (modelId: string) => ({ method: 'responses', modelId })
+        } as never
+      }
+    } as never,
+    'auxiliary',
+    (async (_input, init) => {
+      capturedBody = JSON.parse(String(init?.body)) as Record<string, unknown>
+      return new Response('{}')
+    }) as typeof globalThis.fetch
+  )
+
+  assert.ok(providerOptions?.fetch)
+
+  await providerOptions.fetch('https://chatgpt.com/backend-api/codex/responses', {
+    method: 'POST',
+    body: JSON.stringify({
+      input: [{ role: 'user', content: 'title' }],
+      max_output_tokens: 64,
+      model: 'gpt-5.4-mini',
+      store: false
+    })
+  })
+
+  assert.deepEqual(capturedBody, {
+    input: [{ role: 'user', content: 'title' }],
+    model: 'gpt-5.4-mini',
+    store: false
+  })
+})
+
 test('fetchOpenAiCompatibleModels reads Codex session auth and filters selectable models', async () => {
   const root = await mkdtemp(join(tmpdir(), 'yachiyo-codex-models-'))
   const authPath = join(root, 'auth.json')
