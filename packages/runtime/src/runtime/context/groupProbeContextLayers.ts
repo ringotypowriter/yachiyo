@@ -197,9 +197,33 @@ function estimateMessagesTokens(messages: ModelMessage[]): number {
 }
 
 /**
- * Flatten history to model messages, keeping only the most recent whole turns
- * that fit `budget` tokens. Trims at the turn level (never mid-turn) to keep
- * role pairing intact, and always keeps at least the newest turn.
+ * Group persisted history turns into atomic replay units so an assistant/tool
+ * reply is never separated from the user delta it responded to. Probe history
+ * is stored as a user delta followed by its assistant result; a unit runs from
+ * a user turn through the assistant turn(s) that follow it. Empty (silent) turns
+ * are skipped.
+ */
+function groupHistoryIntoReplayUnits(perTurn: ModelMessage[][]): ModelMessage[][] {
+  const units: ModelMessage[][] = []
+  for (const turn of perTurn) {
+    if (turn.length === 0) {
+      continue
+    }
+    const startsNewUnit = turn[0]?.role === 'user' || units.length === 0
+    if (startsNewUnit) {
+      units.push([...turn])
+    } else {
+      units[units.length - 1]!.push(...turn)
+    }
+  }
+  return units
+}
+
+/**
+ * Flatten history to model messages, keeping only the most recent replay units
+ * that fit `budget` tokens. Trims at unit boundaries (a user delta and its
+ * assistant reply stay together, never orphaning a reply/tool-call) and always
+ * keeps at least the newest unit.
  */
 function buildBudgetedHistoryMessages(
   history: ContextLayerHistoryMessage[],
@@ -214,19 +238,17 @@ function buildBudgetedHistoryMessages(
     return perTurn.flat()
   }
 
+  const units = groupHistoryIntoReplayUnits(perTurn)
   const kept: ModelMessage[][] = []
   let total = 0
-  for (let i = perTurn.length - 1; i >= 0; i--) {
-    const turn = perTurn[i]
-    if (turn.length === 0) {
-      continue
-    }
-    const turnTokens = estimateMessagesTokens(turn)
-    if (total + turnTokens > budget && kept.length > 0) {
+  for (let i = units.length - 1; i >= 0; i--) {
+    const unit = units[i]!
+    const unitTokens = estimateMessagesTokens(unit)
+    if (total + unitTokens > budget && kept.length > 0) {
       break
     }
-    kept.unshift(turn)
-    total += turnTokens
+    kept.unshift(unit)
+    total += unitTokens
   }
   return kept.flat()
 }

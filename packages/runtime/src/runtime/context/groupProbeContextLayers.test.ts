@@ -251,6 +251,56 @@ test('compileGroupProbeContextLayers always keeps at least the newest turn even 
   assert.ok(messages.some((message) => (message.content as string).includes('from="A"')))
 })
 
+test('compileGroupProbeContextLayers never replays an assistant reply without its user delta', () => {
+  const responseMessages = [
+    {
+      role: 'assistant' as const,
+      content: [
+        { type: 'text' as const, text: 'ok' },
+        {
+          type: 'tool-call' as const,
+          toolCallId: 'tc1',
+          toolName: 'send_group_message',
+          input: { message: 'hi' }
+        }
+      ]
+    },
+    {
+      role: 'tool' as const,
+      content: [
+        {
+          type: 'tool-result' as const,
+          toolCallId: 'tc1',
+          toolName: 'send_group_message',
+          output: { type: 'text' as const, value: 'Message sent.' }
+        }
+      ]
+    }
+  ]
+
+  const messages = compileGroupProbeContextLayers({
+    stableSystemPrompt: 'Stable group behavior rules.',
+    dynamicSystemPrompt: 'You are the group probe.',
+    // A large user delta followed by its small assistant reply — a tight budget
+    // must keep them together, not the reply alone.
+    history: [
+      { role: 'user', content: `<msg from="A">${'a'.repeat(4000)}</msg>` },
+      { role: 'assistant', content: 'ok', responseMessages }
+    ],
+    currentTurnContent: '<msg from="Bob">fresh turn</msg>',
+    historyTokenBudget: 100
+  })
+
+  const hasAssistantReplay = messages.some((message) => message.role === 'assistant')
+  const hasUserDelta = messages.some(
+    (message) => typeof message.content === 'string' && message.content.includes('from="A"')
+  )
+  assert.ok(
+    !hasAssistantReplay || hasUserDelta,
+    'assistant reply must never be replayed without its user delta'
+  )
+})
+
 test('compileGroupProbeContextLayers re-asserts the style reminder right before the current turn', () => {
   const messages = compileGroupProbeContextLayers({
     stableSystemPrompt: 'Stable group behavior rules.',
