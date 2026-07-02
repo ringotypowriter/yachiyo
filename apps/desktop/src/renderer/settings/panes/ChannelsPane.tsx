@@ -931,6 +931,38 @@ export function ChannelsPane({
             </span>
           </div>
         </SettingRow>
+
+        {modelSelector && (
+          <SettingRow>
+            <div className="min-w-0 space-y-0.5">
+              <div className="text-sm font-medium" style={{ color: theme.text.primary }}>
+                Rewrite model
+              </div>
+              <div className="text-sm leading-5" style={{ color: theme.text.tertiary }}>
+                Rewrites outgoing group replies into the persona voice before sending. Empty = send
+                as generated.
+              </div>
+            </div>
+            <div className="shrink-0">
+              <ModelSelect
+                value={
+                  config.groupRewriteModel
+                    ? `${config.groupRewriteModel.providerName}::${config.groupRewriteModel.model}`
+                    : ''
+                }
+                providers={providers}
+                onChange={(val) => {
+                  if (!val) {
+                    onConfigChange({ ...config, groupRewriteModel: undefined })
+                  } else {
+                    const [providerName, model] = val.split('::')
+                    onConfigChange({ ...config, groupRewriteModel: { providerName, model } })
+                  }
+                }}
+              />
+            </div>
+          </SettingRow>
+        )}
       </SettingSection>
 
       <SettingSection>
