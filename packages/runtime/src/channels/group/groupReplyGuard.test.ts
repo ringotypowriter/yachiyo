@@ -1,7 +1,35 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 
-import { hasForbiddenGroupReplyPrefix, hasVisibleGroupReplyContent } from './groupReplyGuard.ts'
+import {
+  GROUP_REPLY_MAX_CHARS,
+  hasForbiddenGroupReplyPrefix,
+  hasVisibleGroupReplyContent,
+  isOverlongGroupReply
+} from './groupReplyGuard.ts'
+
+describe('isOverlongGroupReply', () => {
+  it('allows a short chat sentence', () => {
+    assert.equal(isOverlongGroupReply('这猫脸也太臭了哈哈'), false)
+  })
+
+  it('allows exactly the limit', () => {
+    assert.equal(isOverlongGroupReply('字'.repeat(GROUP_REPLY_MAX_CHARS)), false)
+  })
+
+  it('rejects one code point over the limit', () => {
+    assert.equal(isOverlongGroupReply('字'.repeat(GROUP_REPLY_MAX_CHARS + 1)), true)
+  })
+
+  it('counts code points, not UTF-16 units', () => {
+    // Astral-plane emoji are 2 UTF-16 units but 1 code point each.
+    assert.equal(isOverlongGroupReply('😹'.repeat(GROUP_REPLY_MAX_CHARS)), false)
+  })
+
+  it('ignores surrounding whitespace', () => {
+    assert.equal(isOverlongGroupReply(`  ${'字'.repeat(GROUP_REPLY_MAX_CHARS)}  `), false)
+  })
+})
 
 describe('hasForbiddenGroupReplyPrefix', () => {
   it('rejects replies that start with an ASCII colon', () => {

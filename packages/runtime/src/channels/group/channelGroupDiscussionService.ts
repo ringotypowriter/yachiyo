@@ -35,7 +35,12 @@ import {
   persistSuccessfulGroupProbeTurn,
   resolveGroupProbeThread
 } from './groupProbeThread.ts'
-import { hasForbiddenGroupReplyPrefix, hasVisibleGroupReplyContent } from './groupReplyGuard.ts'
+import {
+  GROUP_REPLY_MAX_CHARS,
+  hasForbiddenGroupReplyPrefix,
+  hasVisibleGroupReplyContent,
+  isOverlongGroupReply
+} from './groupReplyGuard.ts'
 import { summarizeGroupProbeContext } from './groupProbeHandoff.ts'
 import { createSpeechThrottle } from './groupSpeechThrottle.ts'
 
@@ -127,7 +132,7 @@ export function createChannelGroupDiscussionService(
         message: z
           .string()
           .describe(
-            'The message to send to the group. Plain text only. Never start with a colon or }.'
+            `The message to send to the group. Plain text only, one or two short chat sentences — hard limit ${GROUP_REPLY_MAX_CHARS} characters. Never start with a colon or }.`
           )
       }),
       execute: async ({ message }) => {
@@ -141,6 +146,13 @@ export function createChannelGroupDiscussionService(
         if (!hasVisibleGroupReplyContent(message)) {
           console.log(`[${logLabel}] rejected empty message for "${group.name}"`)
           return 'Rejected: message must contain visible text.'
+        }
+
+        if (isOverlongGroupReply(message)) {
+          console.log(
+            `[${logLabel}] rejected over-length message (${[...message.trim()].length} chars) for "${group.name}": ${message.slice(0, 80)}`
+          )
+          return `Rejected: too long for a group chat message. Resend the same point in at most two short sentences (hard limit ${GROUP_REPLY_MAX_CHARS} characters), or stay silent if it is not worth that little space.`
         }
 
         if (hasForbiddenGroupReplyPrefix(message)) {
