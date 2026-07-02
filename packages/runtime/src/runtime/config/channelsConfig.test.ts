@@ -57,7 +57,12 @@ test('channels config round-trips through TOML', async () => {
       dmCompactTokenThresholdK: 48,
       groupContextWindowK: 96,
       groupHandoffThresholdK: 128,
-      groupRewriteModel: { providerName: 'DeepSeek', model: 'deepseek-v4-flash' }
+      groupRewriteModel: { providerName: 'DeepSeek', model: 'deepseek-v4-flash' },
+      groupProbeAdapter: {
+        adapter: 'claude-code' as const,
+        providerName: 'Claude Code',
+        model: 'sonnet'
+      }
     }
 
     writeChannelsConfig(config, filePath)
@@ -74,9 +79,118 @@ test('channels config round-trips through TOML', async () => {
     assert.match(raw, /group_handoff_threshold_k = 128/)
     assert.match(raw, /rewrite_model_provider = "DeepSeek"/)
     assert.match(raw, /rewrite_model_name = "deepseek-v4-flash"/)
+    assert.match(raw, /probe_adapter = "claude-code"/)
+    assert.match(raw, /probe_adapter_provider = "Claude Code"/)
+    assert.match(raw, /probe_adapter_model = "sonnet"/)
 
     const reparsed = readChannelsConfig(filePath)
     assert.deepEqual(reparsed, config)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('readChannelsConfig env registers a hidden group probe model without forcing group config', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'yachiyo-channels-env-'))
+  const filePath = join(root, 'channels.toml')
+
+  try {
+    await writeFile(
+      filePath,
+      `
+[telegram]
+enabled = true
+bot_token = "telegram-token"
+
+[telegram.group]
+enabled = true
+`,
+      'utf8'
+    )
+
+    assert.deepEqual(
+      readChannelsConfig(filePath, {
+        YACHIYO_GROUP_PROBE_HEADLESS_ADAPTER: 'claude-code',
+        YACHIYO_GROUP_PROBE_HEADLESS_PROVIDER: 'Claude Code',
+        YACHIYO_GROUP_PROBE_HEADLESS_MODEL: 'sonnet'
+      }),
+      {
+        telegram: {
+          enabled: true,
+          botToken: 'telegram-token',
+          group: { enabled: true }
+        },
+        groupProbeAdapter: {
+          adapter: 'claude-code',
+          providerName: 'Claude Code',
+          model: 'sonnet'
+        }
+      }
+    )
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('readChannelsConfig maps legacy Claude Code probe env names to the hidden adapter registration', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'yachiyo-channels-claude-code-env-'))
+  const filePath = join(root, 'channels.toml')
+
+  try {
+    await writeFile(
+      filePath,
+      `
+[telegram.group]
+enabled = true
+`,
+      'utf8'
+    )
+
+    assert.deepEqual(
+      readChannelsConfig(filePath, {
+        YACHIYO_GROUP_CLAUDE_CODE_PROBE_ENABLED: 'true',
+        YACHIYO_GROUP_CLAUDE_CODE_PROBE_MODEL: 'sonnet'
+      }),
+      {
+        telegram: {
+          enabled: false,
+          botToken: '',
+          group: { enabled: true }
+        },
+        groupProbeAdapter: {
+          adapter: 'claude-code',
+          providerName: 'Claude Code',
+          model: 'sonnet'
+        }
+      }
+    )
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('readChannelsConfig lets the legacy Claude Code enabled env disable a file adapter', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'yachiyo-channels-claude-code-disable-env-'))
+  const filePath = join(root, 'channels.toml')
+
+  try {
+    await writeFile(
+      filePath,
+      `
+[group]
+probe_adapter = "claude-code"
+probe_adapter_provider = "Claude Code"
+probe_adapter_model = "sonnet"
+`,
+      'utf8'
+    )
+
+    assert.deepEqual(
+      readChannelsConfig(filePath, {
+        YACHIYO_GROUP_CLAUDE_CODE_PROBE_ENABLED: 'false'
+      }),
+      {}
+    )
   } finally {
     await rm(root, { recursive: true, force: true })
   }
