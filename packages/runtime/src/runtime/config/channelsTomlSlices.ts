@@ -1,12 +1,14 @@
 import type {
   ChannelsConfig,
   DiscordChannelConfig,
+  GroupProbeHeadlessAdapterConfig,
   GroupChannelConfig,
   QQBotChannelConfig,
   QQChannelConfig,
   TelegramChannelConfig,
   ThreadModelOverride
 } from '@yachiyo/shared/protocol'
+import { isGroupProbeHeadlessAdapterKind } from '@yachiyo/shared/protocol'
 import type { TomlConfigSlice, TomlDoc } from '../../config/tomlSlices.ts'
 import { readTomlTable } from '../../config/tomlSlices.ts'
 
@@ -104,6 +106,20 @@ function buildGroupSection(group: GroupChannelConfig): Record<string, unknown> {
   }
 
   return section
+}
+
+function readGroupProbeAdapter(
+  section: Record<string, unknown>
+): GroupProbeHeadlessAdapterConfig | undefined {
+  const adapter = readString(section['probe_adapter']).trim()
+  const providerName = readString(section['probe_adapter_provider']).trim()
+  const model = readString(section['probe_adapter_model']).trim()
+
+  if (!adapter || !providerName || !model || !isGroupProbeHeadlessAdapterKind(adapter)) {
+    return undefined
+  }
+
+  return { adapter, providerName, model }
 }
 
 function readTelegram(section: Record<string, unknown>): TelegramChannelConfig {
@@ -354,6 +370,7 @@ export const channelsTomlSlices: readonly TomlConfigSlice<ChannelsConfig, TomlDo
       const groupHandoffThresholdK = readInteger(section['group_handoff_threshold_k'])
       const rewriteProviderName = readString(section['rewrite_model_provider'])
       const rewriteModelName = readString(section['rewrite_model_name'])
+      const groupProbeAdapter = readGroupProbeAdapter(section)
       const groupRewriteModel =
         rewriteProviderName && rewriteModelName
           ? { providerName: rewriteProviderName, model: rewriteModelName }
@@ -365,7 +382,8 @@ export const channelsTomlSlices: readonly TomlConfigSlice<ChannelsConfig, TomlDo
         ...(dmCompactTokenThresholdK !== undefined ? { dmCompactTokenThresholdK } : {}),
         ...(groupContextWindowK !== undefined ? { groupContextWindowK } : {}),
         ...(groupHandoffThresholdK !== undefined ? { groupHandoffThresholdK } : {}),
-        ...(groupRewriteModel ? { groupRewriteModel } : {})
+        ...(groupRewriteModel ? { groupRewriteModel } : {}),
+        ...(groupProbeAdapter ? { groupProbeAdapter } : {})
       }
     },
     write(config) {
@@ -375,7 +393,8 @@ export const channelsTomlSlices: readonly TomlConfigSlice<ChannelsConfig, TomlDo
         config.dmCompactTokenThresholdK !== undefined ||
         config.groupContextWindowK !== undefined ||
         config.groupHandoffThresholdK !== undefined ||
-        config.groupRewriteModel !== undefined
+        config.groupRewriteModel !== undefined ||
+        config.groupProbeAdapter !== undefined
 
       if (!hasGroup) {
         return {}
@@ -389,7 +408,10 @@ export const channelsTomlSlices: readonly TomlConfigSlice<ChannelsConfig, TomlDo
           ['group_context_window_k', config.groupContextWindowK],
           ['group_handoff_threshold_k', config.groupHandoffThresholdK],
           ['rewrite_model_provider', config.groupRewriteModel?.providerName],
-          ['rewrite_model_name', config.groupRewriteModel?.model]
+          ['rewrite_model_name', config.groupRewriteModel?.model],
+          ['probe_adapter', config.groupProbeAdapter?.adapter],
+          ['probe_adapter_provider', config.groupProbeAdapter?.providerName],
+          ['probe_adapter_model', config.groupProbeAdapter?.model]
         ])
       }
     }

@@ -20,6 +20,7 @@ import {
   ModelSelect,
   SettingSlider
 } from './ChannelsPaneRows'
+import { buildGroupProbeModelProviders } from './channelsPaneModel'
 
 function RestartServiceButton({
   platform,
@@ -246,6 +247,8 @@ export function ChannelsPane({
   }, [])
 
   const modelSelector = providers.length > 0
+  const groupModelProviders = buildGroupProbeModelProviders(providers, config.groupProbeAdapter)
+  const groupModelSelector = groupModelProviders.length > 0
 
   if (activeTab === 'telegram') {
     return (
@@ -332,7 +335,7 @@ export function ChannelsPane({
             </SettingRow>
           )}
 
-          {modelSelector && (
+          {groupModelSelector && (
             <SettingRow>
               <div className="flex items-center gap-2.5 flex-1 min-w-0">
                 <span
@@ -347,7 +350,7 @@ export function ChannelsPane({
                       ? `${telegram.group.model.providerName}::${telegram.group.model.model}`
                       : ''
                   }
-                  providers={providers}
+                  providers={groupModelProviders}
                   onChange={(val) => {
                     if (!val) {
                       patchTelegram({
@@ -487,7 +490,7 @@ export function ChannelsPane({
             </SettingRow>
           )}
 
-          {modelSelector && (
+          {groupModelSelector && (
             <SettingRow>
               <div className="flex items-center gap-2.5 flex-1 min-w-0">
                 <span
@@ -502,7 +505,7 @@ export function ChannelsPane({
                       ? `${qq.group.model.providerName}::${qq.group.model.model}`
                       : ''
                   }
-                  providers={providers}
+                  providers={groupModelProviders}
                   onChange={(val) => {
                     if (!val) {
                       patchQQ({
@@ -756,7 +759,7 @@ export function ChannelsPane({
             />
           </SettingRow>
 
-          {modelSelector && (
+          {groupModelSelector && (
             <SettingRow>
               <div className="flex items-center gap-2.5 flex-1 min-w-0">
                 <span
@@ -771,7 +774,7 @@ export function ChannelsPane({
                       ? `${discord.group.model.providerName}::${discord.group.model.model}`
                       : ''
                   }
-                  providers={providers}
+                  providers={groupModelProviders}
                   onChange={(val) => {
                     if (!val) {
                       patchDiscord({

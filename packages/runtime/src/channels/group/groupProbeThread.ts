@@ -182,6 +182,7 @@ export function persistSuccessfulGroupProbeTurn(
   const requestAt = input.requestAt ?? new Date().toISOString()
   const assistantAt = input.assistantAt ?? requestAt
   const liveThread = input.storage.getThread(input.thread.id) ?? input.thread
+  const responseMessages = input.result.responseMessages ?? input.result.usage?.responseMessages
   const requestMessageId = input.generateId()
   const runId = input.generateId()
   const assistantMessageId = input.generateId()
@@ -221,15 +222,12 @@ export function persistSuccessfulGroupProbeTurn(
     hidden: true,
     status: 'completed',
     createdAt: assistantAt,
-    ...(input.result.usage?.responseMessages
+    ...(responseMessages
       ? {
           responseMessages:
             input.sentTextByToolCallId && input.sentTextByToolCallId.size > 0
-              ? patchSentGroupMessageText(
-                  input.result.usage.responseMessages,
-                  input.sentTextByToolCallId
-                )
-              : input.result.usage.responseMessages
+              ? patchSentGroupMessageText(responseMessages, input.sentTextByToolCallId)
+              : responseMessages
         }
       : {}),
     ...(input.result.settings.model ? { modelId: input.result.settings.model } : {}),

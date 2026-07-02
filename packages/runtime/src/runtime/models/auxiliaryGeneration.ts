@@ -15,6 +15,7 @@ export type AuxiliaryTextGenerationResult =
       settings: ProviderSettings
       text: string
       usage?: ModelUsage
+      responseMessages?: unknown[]
     }
   | {
       status: 'unavailable'

@@ -6,15 +6,19 @@ import { z } from 'zod'
 import type {
   ChannelGroupRecord,
   ChannelPlatform,
+  GroupProbeHeadlessAdapterConfig,
   GroupChannelConfig,
   GroupMessageEntry,
   ProviderSettings
 } from '@yachiyo/shared/protocol'
+import { resolveGroupProbeHeadlessAdapter } from '@yachiyo/shared/protocol'
 import type { YachiyoServer } from '../../app/host/YachiyoServer.ts'
 import { YACHIYO_USER_FILE_NAME } from '../../config/paths.ts'
 import { compileGroupProbeContextLayers } from '../../runtime/context/groupProbeContextLayers.ts'
 import { readChannelsConfig } from '../../runtime/config/channelsConfig.ts'
 import { EXTERNAL_GROUP_PROMPT, GROUP_STYLE_REMINDER } from '../../runtime/context/prompt.ts'
+import type { AuxiliaryTextGenerationResult } from '../../runtime/models/auxiliaryGeneration.ts'
+import type { ModelMessage } from '../../runtime/models/types.ts'
 import { readUserDocument } from '../../runtime/profiles/user.ts'
 import { createTool as createReadTool } from '../../tools/agentTools/readTool.ts'
 import { createTool as createUpdateProfileTool } from '../../tools/agentTools/updateProfileTool.ts'
@@ -42,6 +46,10 @@ import {
   hasVisibleGroupReplyContent,
   isOverlongGroupReply
 } from './groupReplyGuard.ts'
+import {
+  CLAUDE_CODE_SEND_GROUP_MESSAGE_TOOL_CALL_ID,
+  runClaudeCodeGroupProbe
+} from './groupProbeClaudeCode.ts'
 import { rewriteGroupReply } from './groupReplyRewrite.ts'
 import { summarizeGroupProbeContext } from './groupProbeHandoff.ts'
 import { createSpeechThrottle } from './groupSpeechThrottle.ts'
@@ -67,6 +75,58 @@ export interface ChannelGroupDiscussionService {
     text: string
     images: NonNullable<GroupMessageEntry['images']>
   }): Promise<void>
+}
+
+function dropHeadlessReplayMessages(
+  result: Extract<AuxiliaryTextGenerationResult, { status: 'success' }>
+): Extract<AuxiliaryTextGenerationResult, { status: 'success' }> {
+  if (!result.usage) {
+    return { ...result, responseMessages: undefined }
+  }
+  return {
+    ...result,
+    responseMessages: undefined,
+    usage: { ...result.usage, responseMessages: undefined }
+  }
+}
+
+export async function runGroupProbeHeadlessAdapter(input: {
+  adapter: GroupProbeHeadlessAdapterConfig
+  group: ChannelGroupRecord
+  logLabel: string
+  messages: ModelMessage[]
+  sendGroupMessage: (message: string, toolCallId: string) => Promise<string>
+  runClaudeCodeProbe?: typeof runClaudeCodeGroupProbe
+}): Promise<AuxiliaryTextGenerationResult> {
+  switch (input.adapter.adapter) {
+    case 'claude-code':
+      return (input.runClaudeCodeProbe ?? runClaudeCodeGroupProbe)({
+        messages: input.messages,
+        workspacePath: input.group.workspacePath,
+        providerName: input.adapter.providerName,
+        model: input.adapter.model
+      }).then(async (probeResult) => {
+        if (probeResult.status === 'failed') {
+          return probeResult.auxiliaryResult
+        }
+        if (probeResult.decision.action !== 'send') {
+          return probeResult.auxiliaryResult
+        }
+
+        try {
+          const sendResult = await input.sendGroupMessage(
+            probeResult.decision.message,
+            CLAUDE_CODE_SEND_GROUP_MESSAGE_TOOL_CALL_ID
+          )
+          return sendResult === 'Message sent.'
+            ? probeResult.auxiliaryResult
+            : dropHeadlessReplayMessages(probeResult.auxiliaryResult)
+        } catch (error) {
+          console.warn(`[${input.logLabel}] Claude Code group probe send rejected:`, error)
+          return dropHeadlessReplayMessages(probeResult.auxiliaryResult)
+        }
+      })
+  }
 }
 
 export function createChannelGroupDiscussionService(
@@ -140,6 +200,86 @@ export function createChannelGroupDiscussionService(
     }
     const sentTextByToolCallId = new Map<string, string>()
 
+    async function attemptSendGroupMessage(message: string, toolCallId?: string): Promise<string> {
+      turnSendGuard.beforeAttempt()
+
+      if (rejectMultilineMessages && message.includes('\n')) {
+        console.log(`[${logLabel}] rejected multi-line message for "${group.name}"`)
+        return 'Rejected: message must be a single line. Do not include line breaks.'
+      }
+
+      if (!hasVisibleGroupReplyContent(message)) {
+        console.log(`[${logLabel}] rejected empty message for "${group.name}"`)
+        return 'Rejected: message must contain visible text.'
+      }
+
+      if (isOverlongGroupReply(message)) {
+        console.log(
+          `[${logLabel}] rejected over-length message (${[...message.trim()].length} chars) for "${group.name}": ${message.slice(0, 80)}`
+        )
+        return `Rejected: too long for a group chat message. Resend the same point in at most two short sentences (hard limit ${GROUP_REPLY_MAX_CHARS} characters), or stay silent if it is not worth that little space.`
+      }
+
+      if (hasForbiddenGroupReplyPrefix(message)) {
+        console.log(
+          `[${logLabel}] rejected forbidden-prefix message for "${group.name}": ${message}`
+        )
+        throw new Error('Rejected: message must not start with a colon or }.')
+      }
+
+      if (isBareSymbolMessage(message)) {
+        console.log(`[${logLabel}] rejected bare-symbol message for "${group.name}": ${message}`)
+        return 'Rejected: message contains only punctuation. Write actual words or stay silent.'
+      }
+
+      if (speechThrottle.shouldDrop(group.id)) {
+        const rate = speechThrottle.getDropRate(group.id)
+        console.log(
+          `[${logLabel}] throttled message for "${group.name}" (drop rate ${Math.round(rate * 100)}%): ${message.slice(0, 80)}`
+        )
+        return turnSendGuard.recordBlockedAttempt()
+      }
+
+      let outgoing = message
+      if (rewriteSettings) {
+        const rewritten = await rewriteGroupReply({
+          auxService,
+          message,
+          settingsOverride: rewriteSettings
+        })
+        if (rewritten && rewritten !== message) {
+          console.log(
+            `[${logLabel}] voice pass for "${group.name}": ${message.slice(0, 80)} -> ${rewritten.slice(0, 80)}`
+          )
+          outgoing = rewritten
+        }
+      }
+
+      try {
+        await sendMessage(group, outgoing)
+        turnSendGuard.recordSent()
+        speechThrottle.recordSend(group.id)
+        console.log(`[${logLabel}] sent reply to "${group.name}": ${outgoing.slice(0, 100)}`)
+        if (toolCallId && outgoing !== message) {
+          sentTextByToolCallId.set(toolCallId, outgoing)
+        }
+
+        groupRegistry.routeMessage(group.id, {
+          senderName: 'Yachiyo',
+          senderExternalUserId: '__self__',
+          isMention: false,
+          text: outgoing,
+          timestamp: Date.now() / 1_000
+        })
+
+        didSpeak = true
+        return 'Message sent.'
+      } catch (err) {
+        console.error(`[${logLabel}] failed to send message to "${group.name}"`, err)
+        return 'Failed to send message.'
+      }
+    }
+
     const sendGroupMessageTool = tool({
       description:
         'Send a message to the group chat. Only call this when you genuinely want to speak. Your raw text output is private and never shown to anyone.',
@@ -150,87 +290,7 @@ export function createChannelGroupDiscussionService(
             `The message to send to the group. Plain text only, one or two short chat sentences — hard limit ${GROUP_REPLY_MAX_CHARS} characters. Never start with a colon or }.`
           )
       }),
-      execute: async ({ message }, { toolCallId }) => {
-        turnSendGuard.beforeAttempt()
-
-        if (rejectMultilineMessages && message.includes('\n')) {
-          console.log(`[${logLabel}] rejected multi-line message for "${group.name}"`)
-          return 'Rejected: message must be a single line. Do not include line breaks.'
-        }
-
-        if (!hasVisibleGroupReplyContent(message)) {
-          console.log(`[${logLabel}] rejected empty message for "${group.name}"`)
-          return 'Rejected: message must contain visible text.'
-        }
-
-        if (isOverlongGroupReply(message)) {
-          console.log(
-            `[${logLabel}] rejected over-length message (${[...message.trim()].length} chars) for "${group.name}": ${message.slice(0, 80)}`
-          )
-          return `Rejected: too long for a group chat message. Resend the same point in at most two short sentences (hard limit ${GROUP_REPLY_MAX_CHARS} characters), or stay silent if it is not worth that little space.`
-        }
-
-        if (hasForbiddenGroupReplyPrefix(message)) {
-          console.log(
-            `[${logLabel}] rejected forbidden-prefix message for "${group.name}": ${message}`
-          )
-          throw new Error('Rejected: message must not start with a colon or }.')
-        }
-
-        if (isBareSymbolMessage(message)) {
-          console.log(`[${logLabel}] rejected bare-symbol message for "${group.name}": ${message}`)
-          return 'Rejected: message contains only punctuation. Write actual words or stay silent.'
-        }
-
-        if (speechThrottle.shouldDrop(group.id)) {
-          const rate = speechThrottle.getDropRate(group.id)
-          console.log(
-            `[${logLabel}] throttled message for "${group.name}" (drop rate ${Math.round(rate * 100)}%): ${message.slice(0, 80)}`
-          )
-          return turnSendGuard.recordBlockedAttempt()
-        }
-
-        // Voice pass: restate the draft in the persona's voice. An unusable
-        // rewrite falls back to the (already guard-approved) original.
-        let outgoing = message
-        if (rewriteSettings) {
-          const rewritten = await rewriteGroupReply({
-            auxService,
-            message,
-            settingsOverride: rewriteSettings
-          })
-          if (rewritten && rewritten !== message) {
-            console.log(
-              `[${logLabel}] voice pass for "${group.name}": ${message.slice(0, 80)} → ${rewritten.slice(0, 80)}`
-            )
-            outgoing = rewritten
-          }
-        }
-
-        try {
-          await sendMessage(group, outgoing)
-          turnSendGuard.recordSent()
-          speechThrottle.recordSend(group.id)
-          console.log(`[${logLabel}] sent reply to "${group.name}": ${outgoing.slice(0, 100)}`)
-          if (outgoing !== message) {
-            sentTextByToolCallId.set(toolCallId, outgoing)
-          }
-
-          groupRegistry.routeMessage(group.id, {
-            senderName: 'Yachiyo',
-            senderExternalUserId: '__self__',
-            isMention: false,
-            text: outgoing,
-            timestamp: Date.now() / 1_000
-          })
-
-          didSpeak = true
-          return 'Message sent.'
-        } catch (err) {
-          console.error(`[${logLabel}] failed to send message to "${group.name}"`, err)
-          return 'Failed to send message.'
-        }
-      }
+      execute: async ({ message }, { toolCallId }) => attemptSendGroupMessage(message, toolCallId)
     })
 
     const userDocPath = join(group.workspacePath, YACHIYO_USER_FILE_NAME)
@@ -253,7 +313,11 @@ export function createChannelGroupDiscussionService(
       })
     }
 
-    const settingsOverride = server.resolveProviderSettings(groupConfig?.model)
+    const channelsConfig = readChannelsConfig()
+    const headlessAdapter = resolveGroupProbeHeadlessAdapter(
+      channelsConfig.groupProbeAdapter,
+      groupConfig?.model
+    )
     const currentTurnContent = formatGroupProbeTurnDelta(
       recentMessages,
       'Yachiyo',
@@ -267,7 +331,7 @@ export function createChannelGroupDiscussionService(
       groupName: group.name,
       groupLabel: group.label || undefined,
       personaSummary: EXTERNAL_GROUP_PROMPT,
-      ownerInstruction: readChannelsConfig().guestInstruction,
+      ownerInstruction: channelsConfig.guestInstruction,
       groupUserDocument: groupUserDoc?.content
     })
     const { thread: probeThread } = await resolveGroupProbeThread({
@@ -287,18 +351,34 @@ export function createChannelGroupDiscussionService(
       styleReminder: GROUP_STYLE_REMINDER
     })
 
-    console.log(
-      `[${logLabel}] group="${group.name}" probing ${freshCount}/${recentMessages.length} fresh message(s) with ${settingsOverride.providerName}/${settingsOverride.model}:\n${currentTurnContent}`
-    )
-
-    const result = await auxService.generateText({
-      messages,
-      tools: probeTools,
-      onToolCallError: (event) =>
-        event.toolCall.toolName === 'send_group_message' ? 'abort' : 'continue',
-      settingsOverride,
-      purpose: `${logLabel}-probe`
-    })
+    let result: AuxiliaryTextGenerationResult
+    let handoffSettingsOverride: ProviderSettings | undefined
+    if (headlessAdapter) {
+      console.log(
+        `[${logLabel}] group="${group.name}" probing ${freshCount}/${recentMessages.length} fresh message(s) with ${headlessAdapter.providerName}/${headlessAdapter.model}:\n${currentTurnContent}`
+      )
+      result = await runGroupProbeHeadlessAdapter({
+        adapter: headlessAdapter,
+        group,
+        logLabel,
+        messages,
+        sendGroupMessage: attemptSendGroupMessage
+      })
+    } else {
+      const settingsOverride = server.resolveProviderSettings(groupConfig?.model)
+      handoffSettingsOverride = settingsOverride
+      console.log(
+        `[${logLabel}] group="${group.name}" probing ${freshCount}/${recentMessages.length} fresh message(s) with ${settingsOverride.providerName}/${settingsOverride.model}:\n${currentTurnContent}`
+      )
+      result = await auxService.generateText({
+        messages,
+        tools: probeTools,
+        onToolCallError: (event) =>
+          event.toolCall.toolName === 'send_group_message' ? 'abort' : 'continue',
+        settingsOverride,
+        purpose: `${logLabel}-probe`
+      })
+    }
 
     if (result.status === 'success') {
       persistSuccessfulGroupProbeTurn({
@@ -323,7 +403,7 @@ export function createChannelGroupDiscussionService(
           recentWindowTokens: policy.groupContextTokenLimit,
           handoffThresholdTokens: policy.groupHandoffTokenThreshold,
           groupName: group.name,
-          settingsOverride
+          settingsOverride: handoffSettingsOverride
         })
           .then((outcome) => {
             if (outcome === 'summarized') {

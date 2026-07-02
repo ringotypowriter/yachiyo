@@ -8,8 +8,7 @@ import type {
   ChannelGroupStatus,
   ChannelUserRecord,
   ChannelUserRole,
-  ChannelUserStatus,
-  ProviderConfig
+  ChannelUserStatus
 } from '@yachiyo/shared/protocol'
 
 // ─── memory filter keywords ──────────────────────────────────────────────────
@@ -98,13 +97,20 @@ export function MemoryFilterKeywords({
 
 // ─── shared model selector ───────────────────────────────────────────────────
 
+export interface ModelSelectProvider {
+  name: string
+  modelList: {
+    enabled: string[]
+  }
+}
+
 export function ModelSelect({
   value,
   providers,
   onChange
 }: {
   value: string
-  providers: ProviderConfig[]
+  providers: ModelSelectProvider[]
   onChange: (value: string) => void
 }): React.ReactNode {
   const options: { value: string; label: string }[] = [

@@ -2,6 +2,7 @@ import type {
   ChannelGroupRecord,
   ChannelUserRecord,
   ChannelsConfig,
+  GroupProbeHeadlessAdapterConfig,
   GroupChannelConfig,
   ProviderConfig,
   ThreadModelOverride,
@@ -36,7 +37,7 @@ function sanitizeModelOverride(
 
 function sanitizeGroupConfig(
   group: GroupChannelConfig | undefined,
-  providerNames: Set<string>
+  groupModelProviderNames: Set<string>
 ): GroupChannelConfig | undefined {
   if (!group) {
     return undefined
@@ -44,8 +45,52 @@ function sanitizeGroupConfig(
 
   return {
     ...group,
-    model: sanitizeModelOverride(group.model, providerNames)
+    model: sanitizeModelOverride(group.model, groupModelProviderNames)
   }
+}
+
+export interface GroupProbeModelProvider {
+  name: string
+  modelList: {
+    enabled: string[]
+    disabled: string[]
+  }
+}
+
+export function buildGroupProbeModelProviders(
+  providers: ProviderConfig[],
+  adapter?: GroupProbeHeadlessAdapterConfig
+): GroupProbeModelProvider[] {
+  const result = providers.map((provider) => ({
+    name: provider.name,
+    modelList: {
+      enabled: [...provider.modelList.enabled],
+      disabled: [...provider.modelList.disabled]
+    }
+  }))
+
+  if (!adapter) {
+    return result
+  }
+
+  const existingProvider = result.find((provider) => provider.name === adapter.providerName)
+  if (existingProvider) {
+    if (!existingProvider.modelList.enabled.includes(adapter.model)) {
+      existingProvider.modelList.enabled.push(adapter.model)
+    }
+    return result
+  }
+
+  return [
+    ...result,
+    {
+      name: adapter.providerName,
+      modelList: {
+        enabled: [adapter.model],
+        disabled: []
+      }
+    }
+  ]
 }
 
 export function sanitizeChannelsConfig(
@@ -55,13 +100,17 @@ export function sanitizeChannelsConfig(
   const providerNames = new Set(
     providers.map((provider) => provider.name).filter((name) => name.trim().length > 0)
   )
+  const groupModelProviderNames = new Set(providerNames)
+  if (config.groupProbeAdapter) {
+    groupModelProviderNames.add(config.groupProbeAdapter.providerName)
+  }
   const sanitizedConfig: ChannelsConfig = { ...config }
 
   if (config.telegram) {
     sanitizedConfig.telegram = {
       ...config.telegram,
       model: sanitizeModelOverride(config.telegram.model, providerNames),
-      group: sanitizeGroupConfig(config.telegram.group, providerNames)
+      group: sanitizeGroupConfig(config.telegram.group, groupModelProviderNames)
     }
   }
 
@@ -69,7 +118,7 @@ export function sanitizeChannelsConfig(
     sanitizedConfig.qq = {
       ...config.qq,
       model: sanitizeModelOverride(config.qq.model, providerNames),
-      group: sanitizeGroupConfig(config.qq.group, providerNames)
+      group: sanitizeGroupConfig(config.qq.group, groupModelProviderNames)
     }
   }
 
@@ -77,7 +126,7 @@ export function sanitizeChannelsConfig(
     sanitizedConfig.discord = {
       ...config.discord,
       model: sanitizeModelOverride(config.discord.model, providerNames),
-      group: sanitizeGroupConfig(config.discord.group, providerNames)
+      group: sanitizeGroupConfig(config.discord.group, groupModelProviderNames)
     }
   }
 

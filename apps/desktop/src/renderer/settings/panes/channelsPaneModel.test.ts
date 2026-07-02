@@ -12,6 +12,7 @@ import type {
 import {
   hasPendingChannelGroupChanges,
   hasPendingChannelUserChanges,
+  buildGroupProbeModelProviders,
   persistChannelGroupDrafts,
   persistChannelUserDrafts,
   sanitizeChannelsConfig
@@ -343,4 +344,93 @@ test('sanitizeChannelsConfig preserves overrides for whitespace-padded provider 
   // The override should be kept — the provider name matches verbatim
   const result = sanitizeChannelsConfig(config, providers)
   assert.deepEqual(result.telegram?.model, { providerName: ' work ', model: 'gpt-5' })
+})
+
+test('buildGroupProbeModelProviders exposes the configured hidden group probe adapter', () => {
+  const providers: ProviderConfig[] = [
+    {
+      id: 'saved-work',
+      name: 'work',
+      type: 'openai',
+      apiKey: 'secret',
+      baseUrl: 'https://api.openai.com/v1',
+      modelList: {
+        enabled: ['gpt-5'],
+        disabled: []
+      }
+    }
+  ]
+
+  assert.deepEqual(
+    buildGroupProbeModelProviders(providers, {
+      adapter: 'claude-code',
+      providerName: 'Claude Code',
+      model: 'sonnet'
+    }),
+    [
+      {
+        name: 'work',
+        modelList: {
+          enabled: ['gpt-5'],
+          disabled: []
+        }
+      },
+      {
+        name: 'Claude Code',
+        modelList: {
+          enabled: ['sonnet'],
+          disabled: []
+        }
+      }
+    ]
+  )
+})
+
+test('sanitizeChannelsConfig allows hidden probe adapter only for group model overrides', () => {
+  const providers: ProviderConfig[] = [
+    {
+      id: 'saved-work',
+      name: 'work',
+      type: 'openai',
+      apiKey: 'secret',
+      baseUrl: 'https://api.openai.com/v1',
+      modelList: {
+        enabled: ['gpt-5'],
+        disabled: []
+      }
+    }
+  ]
+  const config: ChannelsConfig = {
+    groupProbeAdapter: {
+      adapter: 'claude-code',
+      providerName: 'Claude Code',
+      model: 'sonnet'
+    },
+    telegram: {
+      enabled: true,
+      botToken: 'token',
+      model: { providerName: 'Claude Code', model: 'sonnet' },
+      group: {
+        enabled: true,
+        model: { providerName: 'Claude Code', model: 'sonnet' }
+      }
+    }
+  }
+
+  assert.deepEqual(sanitizeChannelsConfig(config, providers), {
+    groupProbeAdapter: {
+      adapter: 'claude-code',
+      providerName: 'Claude Code',
+      model: 'sonnet'
+    },
+    telegram: {
+      enabled: true,
+      botToken: 'token',
+      model: undefined,
+      group: {
+        enabled: true,
+        model: { providerName: 'Claude Code', model: 'sonnet' }
+      }
+    }
+  })
 })

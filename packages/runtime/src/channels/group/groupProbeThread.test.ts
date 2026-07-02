@@ -189,6 +189,68 @@ test('persistSuccessfulGroupProbeTurn stores hidden request/assistant messages a
   assert.equal(storage.getThreadTotalTokens(thread.id), 321)
 })
 
+test('persistSuccessfulGroupProbeTurn stores replay messages without synthetic usage', () => {
+  const storage = createInMemoryYachiyoStorage()
+  const thread = makeThread('thread-headless')
+  storage.createThread({ thread, createdAt: '2026-04-21T00:00:00.000Z' })
+
+  persistSuccessfulGroupProbeTurn({
+    storage,
+    generateId: (() => {
+      const ids = ['msg-user', 'run-1', 'msg-assistant']
+      return () => ids.shift() ?? 'unexpected'
+    })(),
+    thread,
+    requestContent: '<msg from="Alice">hello</msg>',
+    result: {
+      status: 'success',
+      settings: {
+        providerName: 'Claude Code',
+        provider: 'anthropic',
+        model: 'sonnet',
+        apiKey: '',
+        baseUrl: ''
+      },
+      text: '{"action":"send","message":"短一点"}',
+      responseMessages: [
+        {
+          role: 'assistant',
+          content: [
+            {
+              type: 'tool-call',
+              toolCallId: 'claude-code-send-group-message',
+              toolName: 'send_group_message',
+              input: { message: '短一点' }
+            }
+          ]
+        }
+      ]
+    },
+    requestAt: '2026-04-21T00:00:01.000Z',
+    assistantAt: '2026-04-21T00:00:02.000Z'
+  })
+
+  const messages = storage.listThreadMessages(thread.id)
+  const runs = storage.listThreadRuns(thread.id)
+
+  assert.deepEqual(messages[1]?.responseMessages, [
+    {
+      role: 'assistant',
+      content: [
+        {
+          type: 'tool-call',
+          toolCallId: 'claude-code-send-group-message',
+          toolName: 'send_group_message',
+          input: { message: '短一点' }
+        }
+      ]
+    }
+  ])
+  assert.equal(runs[0]?.promptTokens, undefined)
+  assert.equal(runs[0]?.completionTokens, undefined)
+  assert.equal(storage.getThreadTotalTokens(thread.id), 0)
+})
+
 test('persistSuccessfulGroupProbeTurn rebases on the live thread head after history reset', () => {
   const storage = createInMemoryYachiyoStorage()
   const thread = makeThread('thread-1')

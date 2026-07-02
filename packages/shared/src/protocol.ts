@@ -1,6 +1,7 @@
 import type { ToolCallDetailsSnapshot } from './protocol/toolDetails.ts'
 import type { TodoItemRecord } from './protocol/events.ts'
 import type { ThingMentionResolution } from './protocol/things.ts'
+import type { GroupProbeHeadlessAdapterConfig } from './protocol/groupProbeAdapters.ts'
 
 export * from './protocol/toolDetails.ts'
 export * from './protocol/usageStats.ts'
@@ -10,6 +11,7 @@ export * from './protocol/translate.ts'
 export * from './protocol/jotdown.ts'
 export * from './protocol/perf.ts'
 export * from './protocol/things.ts'
+export * from './protocol/groupProbeAdapters.ts'
 
 export type ChannelUserStatus = 'pending' | 'allowed' | 'blocked'
 export type ChannelUserRole = 'owner' | 'guest'
@@ -1125,6 +1127,8 @@ export interface ChannelsConfig {
   groupHandoffThresholdK?: number
   /** Model that rewrites outgoing group replies into the persona's voice before sending. Unset = replies go out as generated (no rewrite pass). */
   groupRewriteModel?: ThreadModelOverride
+  /** Hidden headless adapter option exposed only in per-platform group probe model selectors. */
+  groupProbeAdapter?: GroupProbeHeadlessAdapterConfig
 }
 
 // ---------------------------------------------------------------------------
