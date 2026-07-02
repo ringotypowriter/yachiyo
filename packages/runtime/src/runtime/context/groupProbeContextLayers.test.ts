@@ -26,13 +26,18 @@ test('compileGroupProbeContextLayers keeps stable prefix, summary, history, and 
   assert.equal(messages[4]?.content, '<msg from="Bob">fresh turn</msg>')
 })
 
-test('compileGroupProbeContextLayers preserves assistant responseMessages for cache-stable replay', () => {
+test('compileGroupProbeContextLayers replays assistant turns as sent-text chat messages, never raw responseMessages', () => {
   const responseMessages = [
     {
       role: 'assistant' as const,
       content: [
-        { type: 'text' as const, text: 'thinking about whether to speak' },
-        { type: 'tool-call' as const, toolCallId: 'tc1', toolName: 'send_group_message', input: {} }
+        { type: 'text' as const, text: 'private monologue that must never replay' },
+        {
+          type: 'tool-call' as const,
+          toolCallId: 'tc1',
+          toolName: 'send_group_message',
+          input: { message: 'hello group' }
+        }
       ]
     },
     {
@@ -55,7 +60,7 @@ test('compileGroupProbeContextLayers preserves assistant responseMessages for ca
       { role: 'user', content: '<msg from="Alice">old turn</msg>' },
       {
         role: 'assistant',
-        content: 'thinking about whether to speak',
+        content: 'private monologue that must never replay',
         responseMessages
       }
     ],
@@ -65,10 +70,15 @@ test('compileGroupProbeContextLayers preserves assistant responseMessages for ca
   assert.equal(messages[0]?.role, 'system')
   assert.equal(messages[1]?.role, 'system')
   assert.equal(messages[2]?.role, 'user')
-  assert.deepEqual(messages[3], responseMessages[0])
-  assert.deepEqual(messages[4], responseMessages[1])
-  assert.equal(messages[5]?.role, 'user')
-  assert.equal(messages[5]?.content, '<msg from="Bob">fresh turn</msg>')
+  assert.equal(messages[3]?.role, 'user')
+  assert.equal(messages[3]?.content, '<msg from="Yachiyo">hello group</msg>')
+  // No raw assistant turn, tool call, or monologue text survives into the replay.
+  assert.ok(messages.every((m) => m.role !== 'assistant' && m.role !== 'tool'))
+  assert.ok(
+    messages.every((m) => typeof m.content !== 'string' || !m.content.includes('private monologue'))
+  )
+  assert.equal(messages[4]?.role, 'user')
+  assert.equal(messages[4]?.content, '<msg from="Bob">fresh turn</msg>')
 })
 
 test('compileGroupProbeContextLayers preserves successful sends as safe group context when reasoning is missing', () => {
@@ -108,8 +118,7 @@ test('compileGroupProbeContextLayers preserves successful sends as safe group co
         responseMessages
       }
     ],
-    currentTurnContent: '<msg from="Bob">fresh turn</msg>',
-    requireAssistantReasoningForReplay: true
+    currentTurnContent: '<msg from="Bob">fresh turn</msg>'
   })
 
   assert.equal(messages[2]?.role, 'user')
@@ -338,8 +347,7 @@ test('compileGroupProbeContextLayers keeps a synthetic self-reply with its user 
       { role: 'assistant', content: 'thinking', responseMessages }
     ],
     currentTurnContent: '<msg from="Bob">fresh turn</msg>',
-    historyTokenBudget: 50,
-    requireAssistantReasoningForReplay: true
+    historyTokenBudget: 50
   })
 
   const hasSelfReply = messages.some(

@@ -1,4 +1,3 @@
-import type { ProviderSettings } from '@yachiyo/shared/protocol'
 import { estimateTextTokens } from '@yachiyo/shared/estimateTokens'
 import type { ModelMessage } from '../models/types.ts'
 import { toModelHistoryMessages, type ContextLayerHistoryMessage } from './contextLayers.ts'
@@ -9,7 +8,6 @@ export interface CompileGroupProbeContextLayersInput {
   contextHandoffSummary?: string
   history: ContextLayerHistoryMessage[]
   currentTurnContent: string
-  requireAssistantReasoningForReplay?: boolean
   /**
    * Token budget for the replayed history. When set, only the most recent
    * whole history turns that fit the budget are kept (at least one always
@@ -32,20 +30,6 @@ function removeEmptyMessages(messages: ModelMessage[]): ModelMessage[] {
 
     return message.content.length > 0
   })
-}
-
-export function requiresAssistantReasoningForGroupProbeReplay(
-  settings: Pick<ProviderSettings, 'provider' | 'baseUrl'>
-): boolean {
-  if (settings.provider !== 'anthropic') {
-    return false
-  }
-
-  try {
-    return new URL(settings.baseUrl).hostname === 'api.deepseek.com'
-  } catch {
-    return settings.baseUrl.includes('api.deepseek.com')
-  }
 }
 
 function isSuccessfulGroupMessageSendResult(output: unknown): boolean {
@@ -124,36 +108,6 @@ export function extractSuccessfulGroupMessageText(messages: ModelMessage[]): str
   return null
 }
 
-function hasReplayableAnthropicReasoning(messages: ModelMessage[]): boolean {
-  return messages.some((message) => {
-    if (message.role !== 'assistant' || typeof message.content === 'string') {
-      return false
-    }
-
-    return message.content.some((part) => {
-      if (part.type !== 'reasoning') {
-        return false
-      }
-
-      const reasoningPart = part as unknown as {
-        providerMetadata?: Record<string, unknown>
-        providerOptions?: Record<string, unknown>
-      }
-      const providerOptions = reasoningPart.providerOptions
-      const providerMetadata = reasoningPart.providerMetadata
-      const anthropicOptions = providerOptions?.anthropic as Record<string, unknown> | undefined
-      const anthropicMetadata = providerMetadata?.anthropic as Record<string, unknown> | undefined
-
-      return Boolean(
-        anthropicOptions?.signature ||
-        anthropicOptions?.redactedData ||
-        anthropicMetadata?.signature ||
-        anthropicMetadata?.redactedData
-      )
-    })
-  })
-}
-
 function toSafeGroupProbeSelfMessage(messageText: string): ModelMessage {
   return {
     role: 'user',
@@ -161,22 +115,20 @@ function toSafeGroupProbeSelfMessage(messageText: string): ModelMessage {
   }
 }
 
-function toGroupProbeHistoryMessages(
-  message: ContextLayerHistoryMessage,
-  requireAssistantReasoningForReplay: boolean
-): ModelMessage[] {
+function toGroupProbeHistoryMessages(message: ContextLayerHistoryMessage): ModelMessage[] {
   if (message.role !== 'assistant') {
     return toModelHistoryMessages(message)
   }
 
+  // Replay only the text that was actually sent, as a chat-form message.
+  // Raw assistant turns (private monologue + tool calls) are never replayed:
+  // seeing its own monologues blurs the private-thinking/public-speech split,
+  // and seeing its own outputs verbatim turns them into few-shot templates
+  // that lock in whatever register the model last used.
   if (message.responseMessages && message.responseMessages.length > 0) {
     const responseMessages = message.responseMessages as ModelMessage[]
     if (!hasReplayableGroupMessageSend(responseMessages)) {
       return []
-    }
-
-    if (!requireAssistantReasoningForReplay || hasReplayableAnthropicReasoning(responseMessages)) {
-      return toModelHistoryMessages(message)
     }
 
     const sentMessageText = extractSuccessfulGroupMessageText(responseMessages)
@@ -234,12 +186,11 @@ function groupHistoryIntoReplayUnits(entries: HistoryReplayEntry[]): ModelMessag
  */
 function buildBudgetedHistoryMessages(
   history: ContextLayerHistoryMessage[],
-  requireAssistantReasoningForReplay: boolean,
   budget?: number
 ): ModelMessage[] {
   const entries: HistoryReplayEntry[] = history.map((message) => ({
     role: message.role,
-    messages: toGroupProbeHistoryMessages(message, requireAssistantReasoningForReplay)
+    messages: toGroupProbeHistoryMessages(message)
   }))
 
   if (budget == null || budget <= 0) {
@@ -285,11 +236,7 @@ export function compileGroupProbeContextLayers(
       ]
     : []
 
-  const historyMessages = buildBudgetedHistoryMessages(
-    input.history,
-    input.requireAssistantReasoningForReplay === true,
-    input.historyTokenBudget
-  )
+  const historyMessages = buildBudgetedHistoryMessages(input.history, input.historyTokenBudget)
 
   // Re-assert the persona right before the current turn, but only when there is
   // history to counteract — a fresh thread's system prompt is not yet diluted.

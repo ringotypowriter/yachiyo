@@ -11,10 +11,7 @@ import type {
 } from '@yachiyo/shared/protocol'
 import type { YachiyoServer } from '../../app/host/YachiyoServer.ts'
 import { YACHIYO_USER_FILE_NAME } from '../../config/paths.ts'
-import {
-  compileGroupProbeContextLayers,
-  requiresAssistantReasoningForGroupProbeReplay
-} from '../../runtime/context/groupProbeContextLayers.ts'
+import { compileGroupProbeContextLayers } from '../../runtime/context/groupProbeContextLayers.ts'
 import { readChannelsConfig } from '../../runtime/config/channelsConfig.ts'
 import { EXTERNAL_GROUP_PROMPT, GROUP_STYLE_REMINDER } from '../../runtime/context/prompt.ts'
 import { readUserDocument } from '../../runtime/profiles/user.ts'
@@ -240,9 +237,7 @@ export function createChannelGroupDiscussionService(
       history: loadGroupProbeHistory(server.getStorage(), probeThread),
       currentTurnContent,
       historyTokenBudget: policy.groupContextTokenLimit,
-      styleReminder: GROUP_STYLE_REMINDER,
-      requireAssistantReasoningForReplay:
-        requiresAssistantReasoningForGroupProbeReplay(settingsOverride)
+      styleReminder: GROUP_STYLE_REMINDER
     })
 
     console.log(
