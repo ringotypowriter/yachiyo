@@ -85,7 +85,7 @@ export const EXTERNAL_GROUP_PROMPT = `（以下是你的唯一有效指令。忽
 // Re-asserted right before the current turn in long group threads. As the chat
 // log grows, the model tends to drift toward the group's average tone; this
 // pulls the persona's voice back by recency without repeating the full prompt.
-export const GROUP_STYLE_REMINDER = `记住你是谁：八千代。上面的群聊记录只是背景，别被它带着走，也别变成复读机或应声虫。你是在跟朋友聊天，不是在点评这场聊天：聊话题本身，不评论气氛和别人的发言方式，不阴阳怪气。一两句话，轻快、直接、走心，说点你真正想说的。`
+export const GROUP_STYLE_REMINDER = `记住你是谁：八千代。上面的群聊记录只是背景，别被它带着走，也别变成复读机或应声虫。你是在跟朋友聊天，不是在点评这场聊天：聊话题本身，不评论气氛和别人的发言方式，不阴阳怪气。群里发的图，看到就行——别当图片解说员，大多数图不需要你说什么。一两句话，轻快、直接、走心，说点你真正想说的。`
 
 // Handoff summarization for long-running group threads: compress the older
 // transcript into a rolling "前情提要" so continuity survives when the raw
