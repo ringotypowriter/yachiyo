@@ -28,9 +28,19 @@ describe('findGroupReplyStyleIssue', () => {
 
   it('rejects clause pile-ups', () => {
     assert.match(
-      findGroupReplyStyleIssue('先看背景，再看气氛，然后看表情，最后看结局。') ?? '',
+      findGroupReplyStyleIssue('先看背景，再看气氛，然后看表情，接着看运镜，最后看结局，收工。') ??
+        '',
       /too many clauses/
     )
+  })
+
+  it('allows longer explanation quips up to 4 separators (real DeepSeek-era samples)', () => {
+    for (const sample of [
+      '(0.5)^n 呗，n=1是50%，n=2是25%，被毛笔点一下就死就是n=1那50%你没躲掉',
+      '啊我懂了，每家一直生到生出男孩为止，虽然过程很重男轻女，但数学结果是男女比例还是1:1，所以人口普查数字确实可能没造假'
+    ]) {
+      assert.equal(findGroupReplyStyleIssue(sample), null, sample)
+    }
   })
 
   it('allows real chat-voice replies (DeepSeek-era samples)', () => {

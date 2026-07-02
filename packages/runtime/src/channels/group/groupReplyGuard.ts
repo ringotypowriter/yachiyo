@@ -29,8 +29,14 @@ const ASSISTANT_TONE_OPENER_RE = /^\s*(对|是的|确实|没错|可以考虑)\s*
 /** The quoted-simile commentary gimmick ("这就像 XX" framings). */
 const TEMPLATE_PHRASES = ['这就像', '这就很像', '这张像是', '这图很像'] as const
 
-/** More clause separators than this reads as structured prose, not chat. */
-export const GROUP_REPLY_MAX_CLAUSE_SEPARATORS = 2
+/**
+ * More clause separators than this reads as structured prose, not chat.
+ * Audited against all 55 real DeepSeek-era replies: genuine chat voice reaches
+ * 4 separators in longer explanation/math quips, never 5 — a threshold of 2
+ * false-killed 4 of them (7.3%), so the gate only cuts extreme pile-ups and
+ * leaves the mid-range to the prompt and few-shots.
+ */
+export const GROUP_REPLY_MAX_CLAUSE_SEPARATORS = 4
 
 function countClauseSeparators(message: string): number {
   return (message.match(/[，,；;]/g) ?? []).length
