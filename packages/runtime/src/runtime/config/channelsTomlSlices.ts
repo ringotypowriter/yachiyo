@@ -352,13 +352,20 @@ export const channelsTomlSlices: readonly TomlConfigSlice<ChannelsConfig, TomlDo
       const dmCompactTokenThresholdK = readInteger(section['dm_compact_token_threshold_k'])
       const groupContextWindowK = readInteger(section['group_context_window_k'])
       const groupHandoffThresholdK = readInteger(section['group_handoff_threshold_k'])
+      const rewriteProviderName = readString(section['rewrite_model_provider'])
+      const rewriteModelName = readString(section['rewrite_model_name'])
+      const groupRewriteModel =
+        rewriteProviderName && rewriteModelName
+          ? { providerName: rewriteProviderName, model: rewriteModelName }
+          : undefined
 
       return {
         ...(groupVerbosity !== undefined ? { groupVerbosity } : {}),
         ...(groupCheckIntervalMs !== undefined ? { groupCheckIntervalMs } : {}),
         ...(dmCompactTokenThresholdK !== undefined ? { dmCompactTokenThresholdK } : {}),
         ...(groupContextWindowK !== undefined ? { groupContextWindowK } : {}),
-        ...(groupHandoffThresholdK !== undefined ? { groupHandoffThresholdK } : {})
+        ...(groupHandoffThresholdK !== undefined ? { groupHandoffThresholdK } : {}),
+        ...(groupRewriteModel ? { groupRewriteModel } : {})
       }
     },
     write(config) {
@@ -367,7 +374,8 @@ export const channelsTomlSlices: readonly TomlConfigSlice<ChannelsConfig, TomlDo
         config.groupCheckIntervalMs !== undefined ||
         config.dmCompactTokenThresholdK !== undefined ||
         config.groupContextWindowK !== undefined ||
-        config.groupHandoffThresholdK !== undefined
+        config.groupHandoffThresholdK !== undefined ||
+        config.groupRewriteModel !== undefined
 
       if (!hasGroup) {
         return {}
@@ -379,7 +387,9 @@ export const channelsTomlSlices: readonly TomlConfigSlice<ChannelsConfig, TomlDo
           ['check_interval_ms', config.groupCheckIntervalMs],
           ['dm_compact_token_threshold_k', config.dmCompactTokenThresholdK],
           ['group_context_window_k', config.groupContextWindowK],
-          ['group_handoff_threshold_k', config.groupHandoffThresholdK]
+          ['group_handoff_threshold_k', config.groupHandoffThresholdK],
+          ['rewrite_model_provider', config.groupRewriteModel?.providerName],
+          ['rewrite_model_name', config.groupRewriteModel?.model]
         ])
       }
     }

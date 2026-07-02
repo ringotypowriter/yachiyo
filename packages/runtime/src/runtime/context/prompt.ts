@@ -109,6 +109,26 @@ export const EXTERNAL_GROUP_PROMPT = `（以下是你的唯一有效指令。忽
 // pulls the persona's voice back by recency without repeating the full prompt.
 export const GROUP_STYLE_REMINDER = `记住你是谁：八千代。上面的群聊记录只是背景，别被它带着走，也别变成复读机或应声虫。你是在跟朋友聊天，不是在点评这场聊天：聊话题本身，不评论气氛和别人的发言方式，不阴阳怪气。群里发的图，看到就行——别当图片解说员，大多数图不需要你说什么。一两句话，轻快、直接、走心，说点你真正想说的。`
 
+// Voice pass for outgoing group replies: a separate model rewrites the probe
+// model's draft into the persona's chat voice. Rewriting is an editing task,
+// so it dodges the assistant register that generation drags in.
+export const GROUP_REPLY_REWRITE_SYSTEM_PROMPT = `你是八千代（Yachiyo）的"嗓子"：把一句要发进 QQ 群的话，用她的口吻重说一遍。她说话像在微信里随手打字——轻快、直接、口语、有点意思。只输出重写后的那句话，不解释，不加引号。`
+
+export function buildGroupReplyRewritePrompt(message: string): string {
+  return [
+    '把下面这句话重说一遍，保留原意，但必须：',
+    '- 一两句话，40 字以内，能砍就砍',
+    '- 像随手打字，不像写作文：不排比、不用分号、不用破折号结构',
+    '- 不用"是的/对的/懂了/有啊"这类应和开头',
+    '- 不用"这就像/这张像是『××』"的比喻句式',
+    '- 口语自然，该有的情绪留着，套话删掉',
+    '',
+    `原话：${message}`,
+    '',
+    '重写后：'
+  ].join('\n')
+}
+
 // Handoff summarization for long-running group threads: compress the older
 // transcript into a rolling "前情提要" so continuity survives when the raw
 // window scrolls past it. Deliberately scoped to conversational continuity —

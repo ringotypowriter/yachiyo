@@ -1123,6 +1123,8 @@ export interface ChannelsConfig {
   groupContextWindowK?: number
   /** Raw group probe thread size (in K tokens) above which older transcript is summarized into a rolling handoff. Default & floor: 2× groupContextWindowK (hysteresis, so it doesn't re-summarize every turn). */
   groupHandoffThresholdK?: number
+  /** Model that rewrites outgoing group replies into the persona's voice before sending. Unset = replies go out as generated (no rewrite pass). */
+  groupRewriteModel?: ThreadModelOverride
 }
 
 // ---------------------------------------------------------------------------

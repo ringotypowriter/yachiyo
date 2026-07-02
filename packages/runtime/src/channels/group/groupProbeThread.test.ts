@@ -59,6 +59,74 @@ test('resolveGroupProbeThread creates and reuses hidden group threads', async ()
   assert.equal(created[0]?.workspacePath, '/tmp/group-workspace')
 })
 
+test('persistSuccessfulGroupProbeTurn records the actually-sent text for rewritten sends', () => {
+  const storage = createInMemoryYachiyoStorage()
+  const thread = makeThread('thread-rw')
+  storage.createThread({ thread, createdAt: '2026-04-21T00:00:00.000Z' })
+
+  persistSuccessfulGroupProbeTurn({
+    storage,
+    generateId: (() => {
+      const ids = ['msg-user', 'run-1', 'msg-assistant']
+      return () => ids.shift() ?? 'unexpected'
+    })(),
+    thread,
+    requestContent: '<msg from="Alice">hello</msg>',
+    result: {
+      status: 'success',
+      settings: {
+        providerName: 'tool-model',
+        provider: 'openai',
+        model: 'gpt-4.1',
+        apiKey: 'sk-test',
+        baseUrl: ''
+      },
+      text: '',
+      usage: {
+        promptTokens: 1,
+        completionTokens: 1,
+        totalPromptTokens: 1,
+        totalCompletionTokens: 1,
+        responseMessages: [
+          {
+            role: 'assistant',
+            content: [
+              { type: 'text', text: 'draft thinking' },
+              {
+                type: 'tool-call',
+                toolCallId: 'tc-1',
+                toolName: 'send_group_message',
+                input: { message: '对，这张像是模板腔的原稿。' }
+              },
+              {
+                type: 'tool-call',
+                toolCallId: 'tc-2',
+                toolName: 'updateProfile',
+                input: { section: 'People' }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    requestAt: '2026-04-21T00:00:01.000Z',
+    assistantAt: '2026-04-21T00:00:02.000Z',
+    sentTextByToolCallId: new Map([['tc-1', '这猫脸也太臭了哈哈']])
+  })
+
+  const messages = storage.listThreadMessages(thread.id)
+  const content = (messages[1]?.responseMessages?.[0] as { content: unknown[] }).content
+  const sendCall = content.find(
+    (part) => (part as { toolCallId?: string }).toolCallId === 'tc-1'
+  ) as { input: { message: string } }
+  const otherCall = content.find(
+    (part) => (part as { toolCallId?: string }).toolCallId === 'tc-2'
+  ) as { input: { section: string } }
+
+  assert.equal(sendCall.input.message, '这猫脸也太臭了哈哈')
+  assert.equal(otherCall.input.section, 'People')
+})
+
 test('persistSuccessfulGroupProbeTurn stores hidden request/assistant messages and completed run', () => {
   const storage = createInMemoryYachiyoStorage()
   const thread = makeThread('thread-1')

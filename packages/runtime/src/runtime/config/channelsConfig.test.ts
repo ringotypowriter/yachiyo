@@ -56,7 +56,8 @@ test('channels config round-trips through TOML', async () => {
       groupCheckIntervalMs: 9000,
       dmCompactTokenThresholdK: 48,
       groupContextWindowK: 96,
-      groupHandoffThresholdK: 128
+      groupHandoffThresholdK: 128,
+      groupRewriteModel: { providerName: 'DeepSeek', model: 'deepseek-v4-flash' }
     }
 
     writeChannelsConfig(config, filePath)
@@ -71,6 +72,8 @@ test('channels config round-trips through TOML', async () => {
     assert.match(raw, /\[image_to_text\]/)
     assert.match(raw, /\[group\]/)
     assert.match(raw, /group_handoff_threshold_k = 128/)
+    assert.match(raw, /rewrite_model_provider = "DeepSeek"/)
+    assert.match(raw, /rewrite_model_name = "deepseek-v4-flash"/)
 
     const reparsed = readChannelsConfig(filePath)
     assert.deepEqual(reparsed, config)

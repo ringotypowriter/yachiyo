@@ -134,6 +134,46 @@ export interface PersistSuccessfulGroupProbeTurnInput {
   result: Extract<AuxiliaryTextGenerationResult, { status: 'success' }>
   requestAt?: string
   assistantAt?: string
+  /**
+   * Text that actually went to the group per send tool call (e.g. after the
+   * voice-pass rewrite), keyed by toolCallId. Persisted history must reflect
+   * what was sent — replaying the pre-rewrite draft would leak its register
+   * back into future context and undo the rewrite.
+   */
+  sentTextByToolCallId?: Map<string, string>
+}
+
+function patchSentGroupMessageText(
+  responseMessages: unknown[],
+  sentTextByToolCallId: Map<string, string>
+): unknown[] {
+  return responseMessages.map((message) => {
+    const m = message as { role?: unknown; content?: unknown }
+    if (m.role !== 'assistant' || !Array.isArray(m.content)) {
+      return message
+    }
+    return {
+      ...m,
+      content: m.content.map((part) => {
+        const p = part as { type?: unknown; toolName?: unknown; toolCallId?: unknown }
+        if (p.type !== 'tool-call' || p.toolName !== 'send_group_message') {
+          return part
+        }
+        const sentText = sentTextByToolCallId.get(String(p.toolCallId))
+        if (sentText === undefined) {
+          return part
+        }
+        const input = (part as { input?: unknown }).input
+        return {
+          ...(part as object),
+          input: {
+            ...(typeof input === 'object' && input !== null ? input : {}),
+            message: sentText
+          }
+        }
+      })
+    }
+  })
 }
 
 export function persistSuccessfulGroupProbeTurn(
@@ -182,7 +222,15 @@ export function persistSuccessfulGroupProbeTurn(
     status: 'completed',
     createdAt: assistantAt,
     ...(input.result.usage?.responseMessages
-      ? { responseMessages: input.result.usage.responseMessages }
+      ? {
+          responseMessages:
+            input.sentTextByToolCallId && input.sentTextByToolCallId.size > 0
+              ? patchSentGroupMessageText(
+                  input.result.usage.responseMessages,
+                  input.sentTextByToolCallId
+                )
+              : input.result.usage.responseMessages
+        }
       : {}),
     ...(input.result.settings.model ? { modelId: input.result.settings.model } : {}),
     ...(input.result.settings.providerName

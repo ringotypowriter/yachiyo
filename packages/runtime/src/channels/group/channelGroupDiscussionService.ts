@@ -7,7 +7,8 @@ import type {
   ChannelGroupRecord,
   ChannelPlatform,
   GroupChannelConfig,
-  GroupMessageEntry
+  GroupMessageEntry,
+  ProviderSettings
 } from '@yachiyo/shared/protocol'
 import type { YachiyoServer } from '../../app/host/YachiyoServer.ts'
 import { YACHIYO_USER_FILE_NAME } from '../../config/paths.ts'
@@ -41,6 +42,7 @@ import {
   hasVisibleGroupReplyContent,
   isOverlongGroupReply
 } from './groupReplyGuard.ts'
+import { rewriteGroupReply } from './groupReplyRewrite.ts'
 import { summarizeGroupProbeContext } from './groupProbeHandoff.ts'
 import { createSpeechThrottle } from './groupSpeechThrottle.ts'
 
@@ -125,6 +127,19 @@ export function createChannelGroupDiscussionService(
     let didSpeak = false
     const turnSendGuard = createGroupTurnSendGuard()
 
+    // Voice pass: optional channel-global rewrite model that restates outgoing
+    // replies in the persona's chat voice. Unset = replies go out as generated.
+    const groupRewriteModel = readChannelsConfig().groupRewriteModel
+    let rewriteSettings: ProviderSettings | undefined
+    if (groupRewriteModel) {
+      try {
+        rewriteSettings = server.resolveProviderSettings(groupRewriteModel)
+      } catch (err) {
+        console.warn(`[${logLabel}] rewrite model unresolvable, sending replies as generated:`, err)
+      }
+    }
+    const sentTextByToolCallId = new Map<string, string>()
+
     const sendGroupMessageTool = tool({
       description:
         'Send a message to the group chat. Only call this when you genuinely want to speak. Your raw text output is private and never shown to anyone.',
@@ -135,7 +150,7 @@ export function createChannelGroupDiscussionService(
             `The message to send to the group. Plain text only, one or two short chat sentences — hard limit ${GROUP_REPLY_MAX_CHARS} characters. Never start with a colon or }.`
           )
       }),
-      execute: async ({ message }) => {
+      execute: async ({ message }, { toolCallId }) => {
         turnSendGuard.beforeAttempt()
 
         if (rejectMultilineMessages && message.includes('\n')) {
@@ -175,17 +190,37 @@ export function createChannelGroupDiscussionService(
           return turnSendGuard.recordBlockedAttempt()
         }
 
+        // Voice pass: restate the draft in the persona's voice. An unusable
+        // rewrite falls back to the (already guard-approved) original.
+        let outgoing = message
+        if (rewriteSettings) {
+          const rewritten = await rewriteGroupReply({
+            auxService,
+            message,
+            settingsOverride: rewriteSettings
+          })
+          if (rewritten && rewritten !== message) {
+            console.log(
+              `[${logLabel}] voice pass for "${group.name}": ${message.slice(0, 80)} → ${rewritten.slice(0, 80)}`
+            )
+            outgoing = rewritten
+          }
+        }
+
         try {
-          await sendMessage(group, message)
+          await sendMessage(group, outgoing)
           turnSendGuard.recordSent()
           speechThrottle.recordSend(group.id)
-          console.log(`[${logLabel}] sent reply to "${group.name}": ${message.slice(0, 100)}`)
+          console.log(`[${logLabel}] sent reply to "${group.name}": ${outgoing.slice(0, 100)}`)
+          if (outgoing !== message) {
+            sentTextByToolCallId.set(toolCallId, outgoing)
+          }
 
           groupRegistry.routeMessage(group.id, {
             senderName: 'Yachiyo',
             senderExternalUserId: '__self__',
             isMention: false,
-            text: message,
+            text: outgoing,
             timestamp: Date.now() / 1_000
           })
 
@@ -271,7 +306,8 @@ export function createChannelGroupDiscussionService(
         generateId: () => server.generateId(),
         thread: probeThread,
         requestContent: currentTurnContent,
-        result
+        result,
+        sentTextByToolCallId
       })
       // Compress the older transcript into a rolling summary + advance the
       // watermark once enough raw transcript has piled up, in the background so
