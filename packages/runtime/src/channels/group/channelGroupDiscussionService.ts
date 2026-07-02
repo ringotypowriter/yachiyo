@@ -42,6 +42,7 @@ import {
 } from './groupProbeThread.ts'
 import {
   GROUP_REPLY_MAX_CHARS,
+  findGroupReplyStyleIssue,
   hasForbiddenGroupReplyPrefix,
   hasVisibleGroupReplyContent,
   isOverlongGroupReply
@@ -230,6 +231,14 @@ export function createChannelGroupDiscussionService(
       if (isBareSymbolMessage(message)) {
         console.log(`[${logLabel}] rejected bare-symbol message for "${group.name}": ${message}`)
         return 'Rejected: message contains only punctuation. Write actual words or stay silent.'
+      }
+
+      const styleIssue = findGroupReplyStyleIssue(message)
+      if (styleIssue) {
+        console.log(
+          `[${logLabel}] rejected style issue for "${group.name}" (${styleIssue.split('.')[0]}): ${message.slice(0, 80)}`
+        )
+        return `Rejected: the message ${styleIssue} Resend it the way you would actually type it in chat, or stay silent.`
       }
 
       if (speechThrottle.shouldDrop(group.id)) {

@@ -3,10 +3,48 @@ import { describe, it } from 'node:test'
 
 import {
   GROUP_REPLY_MAX_CHARS,
+  findGroupReplyStyleIssue,
   hasForbiddenGroupReplyPrefix,
   hasVisibleGroupReplyContent,
   isOverlongGroupReply
 } from './groupReplyGuard.ts'
+
+describe('findGroupReplyStyleIssue', () => {
+  it('rejects agreement-filler openers', () => {
+    assert.match(findGroupReplyStyleIssue('对，眼神一出来气质就立住了。') ?? '', /agreement filler/)
+    assert.match(findGroupReplyStyleIssue('是的，更新内容确实很丰富。') ?? '', /agreement filler/)
+    assert.match(findGroupReplyStyleIssue('确实，这个说得有道理。') ?? '', /agreement filler/)
+  })
+
+  it('allows words that merely start with a filler character', () => {
+    assert.equal(findGroupReplyStyleIssue('对面比你还会玩'), null)
+    assert.equal(findGroupReplyStyleIssue('那确实，不然还能是人腿吗'), null)
+  })
+
+  it('rejects the quoted-simile commentary formula', () => {
+    assert.match(findGroupReplyStyleIssue('这就像老婆饼里没有老婆。') ?? '', /commentary formula/)
+    assert.match(findGroupReplyStyleIssue('这张像是被迫营业的表情。') ?? '', /commentary formula/)
+  })
+
+  it('rejects clause pile-ups', () => {
+    assert.match(
+      findGroupReplyStyleIssue('先看背景，再看气氛，然后看表情，最后看结局。') ?? '',
+      /too many clauses/
+    )
+  })
+
+  it('allows real chat-voice replies (DeepSeek-era samples)', () => {
+    for (const sample of [
+      '五次方程没有通用求根公式，这是阿贝尔证明的，你饶了我吧',
+      '妈妈给我什么配置我就用什么配置，总之不是豆包',
+      '金华火腿算好玩的地方吗',
+      '因为违法（',
+      '那我还好，我没有信用分，不会被清理'
+    ]) {
+      assert.equal(findGroupReplyStyleIssue(sample), null, sample)
+    }
+  })
+})
 
 describe('isOverlongGroupReply', () => {
   it('allows a short chat sentence', () => {

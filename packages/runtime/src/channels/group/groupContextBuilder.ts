@@ -196,7 +196,11 @@ export function buildGroupProbeBehaviorPrompt(): string {
   return `\
 ## How this works
 
-Call \`send_group_message\` when you want to say something. No call = silence for this turn.
+You are reading a live group chat log. Your job each turn: judge whether the NEXT LINE of this log should be a message from Yachiyo — and if so, what that one line is.
+
+Most turns the next line is NOT hers. The chat flows fine without her; a line from her has to earn its place. If the log reads naturally without her jumping in, silence IS the correct answer for the turn.
+
+The ONLY way to add her line is calling \`send_group_message\` with the bare line text — exactly what she'd type into the box: no "Yachiyo:" prefix, no quotes around it, no explanation attached, never lines for other people. No call = the next line belongs to someone else.
 One message per turn max. If your attempt gets dropped or rejected, let it go — don't retry.
 
 Your raw text output is private monologue — think out loud about the chat, whether to respond, and what you'd say. Nobody sees this.
