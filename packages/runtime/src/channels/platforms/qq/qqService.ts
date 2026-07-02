@@ -34,6 +34,7 @@ import {
   type ChannelGroupDiscussionService
 } from '../../group/channelGroupDiscussionService.ts'
 import { routeChannelGroupMessage } from '../../group/channelGroupRouting.ts'
+import { buildLegacyQQImageUrl } from './qqImageFallback.ts'
 import type { ChannelReplyPayload } from '../../shared/channelReply.ts'
 import { parseCQImages, type CQImageRef } from './qqImageParsing.ts'
 import { resolveCQCodes, extractReplyId } from './qqCQCodes.ts'
@@ -160,6 +161,14 @@ export function createQQService({
     formatGuestThreadTitle: (channelUser) => `QQ:${channelUser.username}`
   })
 
+  function safeUrlHost(url: string): string {
+    try {
+      return new URL(url).hostname
+    } catch {
+      return 'unparsable'
+    }
+  }
+
   /**
    * Resolve a CQ image reference via OneBot `get_image` API.
    *
@@ -213,7 +222,23 @@ export function createQQService({
 
       // Fall back to URL from get_image response.
       if (info.url) {
-        return fetchImageAsDataUrl(info.url, { maxBytes: policy.maxImageBytes, attachmentIndex })
+        const fetched = await fetchImageAsDataUrl(info.url, {
+          maxBytes: policy.maxImageBytes,
+          attachmentIndex
+        })
+        if (fetched) {
+          return fetched
+        }
+        console.warn(
+          `[qq] napcat image url rejected (host=${safeUrlHost(info.url)}), trying legacy md5 url`
+        )
+      }
+
+      // Napcat's rkey-signed URL was rejected (or absent) — rebuild the legacy
+      // md5-addressed URL from the cache file name and try once more.
+      const legacyUrl = buildLegacyQQImageUrl(info.file ?? ref.file)
+      if (legacyUrl && legacyUrl !== info.url) {
+        return fetchImageAsDataUrl(legacyUrl, { maxBytes: policy.maxImageBytes, attachmentIndex })
       }
 
       return null
