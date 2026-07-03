@@ -14,7 +14,6 @@ use uuid::Uuid;
 const DB_FILE: &str = "yachiyo.sqlite";
 const SETTINGS_FILE: &str = "config.toml";
 const FORMAT_VERSION: u32 = 2;
-const OPS_FILE_HEADER_KIND: &str = "sync.format";
 const META_UNIVERSE: &str = "universe_id";
 const META_SETTINGS_HASH: &str = "settings_export_hash";
 
@@ -569,16 +568,10 @@ impl OpsFileWriter {
             Uuid::new_v4()
         ));
         let file = File::create(&tmp)?;
-        let mut file = BufWriter::new(file);
-        serde_json::to_writer(
-            &mut file,
-            &json!({"kind": OPS_FILE_HEADER_KIND, "formatVersion": FORMAT_VERSION}),
-        )?;
-        file.write_all(b"\n")?;
         Ok(Self {
             target: target.to_path_buf(),
             tmp,
-            file,
+            file: BufWriter::new(file),
             count: 0,
         })
     }
@@ -665,6 +658,34 @@ fn read_manifest(sync_dir: &Path, device_id: &str) -> Option<Manifest> {
     serde_json::from_str(&text).ok()
 }
 
+fn known_devices_support_delete_tombstones(
+    sync_dir: &Path,
+    local_device_id: &str,
+) -> Result<bool, SyncError> {
+    let devices = sync_dir.join("devices");
+    if !devices.exists() {
+        return Ok(true);
+    }
+    for entry in fs::read_dir(devices)? {
+        let entry = entry?;
+        let path = entry.path();
+        if !path.is_dir() {
+            continue;
+        }
+        let device_id = entry.file_name().to_string_lossy().to_string();
+        if device_id.starts_with('.') || device_id == local_device_id {
+            continue;
+        }
+        let Some(manifest) = read_manifest(sync_dir, &device_id) else {
+            return Ok(false);
+        };
+        if manifest.format_version < FORMAT_VERSION {
+            return Ok(false);
+        }
+    }
+    Ok(true)
+}
+
 pub fn export_ops(
     home: &Path,
     sync_dir_override: Option<&Path>,
@@ -715,7 +736,13 @@ pub fn export_ops(
         }
     }
 
-    let high_water = export_dirty_ops(&conn, &device_id, seq, |op| ops.write_op(&op))?;
+    let processed_dirty = export_dirty_ops(
+        &conn,
+        &device_id,
+        seq,
+        known_devices_support_delete_tombstones(&sync_dir, &device_id)?,
+        |op| ops.write_op(&op),
+    )?;
 
     // Publish a delta file only when there's something to ship. An empty `ops`
     // here means the queue held only skippable rows (deleted before export, or
@@ -742,11 +769,10 @@ pub fn export_ops(
         Some(exported_at)
     };
 
-    // Clear every dirty row we processed (emitted or skipped) up to the high-water
-    // mark — but only after any publish above succeeded, so a failed write is
-    // retried. Rows re-dirtied concurrently kept a higher seq and survive.
-    if let Some(high_water) = high_water {
-        conn.execute("DELETE FROM sync_dirty WHERE seq <= ?1", [high_water])?;
+    // Clear every dirty row we processed (emitted or intentionally skipped) only
+    // after publish succeeds. Tombstones waiting for old peers stay queued.
+    for dirty_seq in processed_dirty {
+        conn.execute("DELETE FROM sync_dirty WHERE seq = ?1", [dirty_seq])?;
     }
 
     output(
@@ -812,25 +838,22 @@ fn child_belongs_to_non_exportable_thread(
 /// Content fingerprint of an export, independent of op_id / seq / timestamps, so
 /// an unchanged settings+threads snapshot yields the same value every time. Used
 /// to skip re-exporting identical data on every auto-sync cycle.
-/// Drain the dirty queue into upsert ops. Returns the highest `sync_dirty.seq`
-/// seen (the high-water mark the caller deletes up to), or None if the queue was
-/// empty. Rows that were deleted before export, or that belong to imported
-/// archives, are skipped but still cleared.
+/// Drain the dirty queue into upsert/delete ops. Returns dirty sequence ids that
+/// were emitted or intentionally skipped and can be cleared after publish.
 fn export_dirty_ops(
     conn: &Connection,
     device_id: &str,
     seq: i64,
+    delete_tombstones_supported: bool,
     mut emit: impl FnMut(SyncOp) -> Result<(), SyncError>,
-) -> Result<Option<i64>, SyncError> {
+) -> Result<Vec<i64>, SyncError> {
     let mut stmt =
         conn.prepare("SELECT seq, entity_type, entity_id FROM sync_dirty ORDER BY seq ASC")?;
     let dirty: Vec<(i64, String, String)> = stmt
         .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?
         .collect::<Result<_, _>>()?;
-    let mut high_water: Option<i64> = None;
+    let mut processed = Vec::new();
     for (dirty_seq, entity_type, entity_id) in dirty {
-        // Track every row we've seen so the caller clears it, even when skipped.
-        high_water = Some(high_water.map_or(dirty_seq, |m| m.max(dirty_seq)));
         let (table, upsert_kind, delete_kind) = match entity_type.as_str() {
             "thread" => ("threads", "thread.archive.upsert", "thread.archive.delete"),
             "message" => (
@@ -846,9 +869,13 @@ fn export_dirty_ops(
             _ => continue,
         };
         if !table_exists(conn, table)? {
+            processed.push(dirty_seq);
             continue;
         }
         let Some(mut payload) = fetch_row_json(conn, table, &entity_id)? else {
+            if !delete_tombstones_supported {
+                continue;
+            }
             emit(make_op(
                 device_id,
                 seq,
@@ -857,21 +884,27 @@ fn export_dirty_ops(
                 &entity_id,
                 json!({ "id": entity_id }),
             )?)?;
+            processed.push(dirty_seq);
             continue;
         };
         // Defense in depth: never export threads that are not part of the normal
         // cross-device archive. Imported archives are read-only mirrors, and
         // schedule-created run threads are device-local history entries.
         if entity_type == "thread" && thread_payload_should_not_export(&payload) {
+            processed.push(dirty_seq);
             continue;
         }
         if entity_type != "thread" && child_belongs_to_non_exportable_thread(conn, &payload)? {
+            processed.push(dirty_seq);
             continue;
         }
         // Empty local threads export as delete tombstones. Fresh "New Chat" rows
         // become harmless no-ops on peers, while a thread emptied by deleting its
         // last message clears the previously imported archive row.
         if entity_type == "thread" && payload.get("head_message_id").is_none_or(|v| v.is_null()) {
+            if !delete_tombstones_supported {
+                continue;
+            }
             emit(make_op(
                 device_id,
                 seq,
@@ -880,6 +913,7 @@ fn export_dirty_ops(
                 &entity_id,
                 json!({ "id": entity_id }),
             )?)?;
+            processed.push(dirty_seq);
             continue;
         }
         // Drop the heaviest message column from the archive. `response_messages` is
@@ -901,8 +935,9 @@ fn export_dirty_ops(
             &entity_id,
             payload,
         )?)?;
+        processed.push(dirty_seq);
     }
-    Ok(high_water)
+    Ok(processed)
 }
 
 /// Message columns dropped from the read-only archive export. `response_messages`
@@ -1260,22 +1295,7 @@ fn for_each_op_in_file(
         if line.trim().is_empty() {
             continue;
         }
-        let value: Value = serde_json::from_str(&line)?;
-        if value.get("kind").and_then(Value::as_str) == Some(OPS_FILE_HEADER_KIND) {
-            let version = value
-                .get("formatVersion")
-                .and_then(Value::as_u64)
-                .ok_or_else(|| {
-                    SyncError::Message("Sync op file header is missing formatVersion.".to_string())
-                })?;
-            if version > u64::from(FORMAT_VERSION) {
-                return Err(SyncError::Message(format!(
-                    "Sync op file requires format version {version}, but this sync-core supports {FORMAT_VERSION}."
-                )));
-            }
-            continue;
-        }
-        visit(serde_json::from_value(value)?)?;
+        visit(serde_json::from_str(&line)?)?;
     }
 }
 
@@ -1883,6 +1903,16 @@ mod tests {
         get_device(&conn).unwrap().unwrap()
     }
 
+    fn set_manifest_format(sync_dir: &Path, device_id: &str, format_version: u32) {
+        let mut manifest = read_manifest(sync_dir, device_id).unwrap();
+        manifest.format_version = format_version;
+        atomic_write(
+            &device_dir(sync_dir, device_id).join("manifest.json"),
+            &serde_json::to_string_pretty(&manifest).unwrap(),
+        )
+        .unwrap();
+    }
+
     fn count_op_files(sync_dir: &Path, device_id: &str) -> usize {
         let ops = device_dir(sync_dir, device_id).join("ops");
         if !ops.exists() {
@@ -1926,14 +1956,7 @@ mod tests {
             .unwrap()
             .lines()
             .filter(|line| !line.trim().is_empty())
-            .filter_map(|line| {
-                let value: Value = serde_json::from_str(line).unwrap();
-                if value.get("kind").and_then(Value::as_str) == Some(OPS_FILE_HEADER_KIND) {
-                    None
-                } else {
-                    Some(serde_json::from_value(value).unwrap())
-                }
-            })
+            .map(|line| serde_json::from_str(line).unwrap())
             .collect()
     }
 
@@ -2953,11 +2976,13 @@ mod tests {
     }
 
     #[test]
-    fn exported_delete_file_starts_with_format_header() {
+    fn exported_delete_file_remains_v1_readable() {
         let sync = tempfile::tempdir().unwrap();
         let home_a = setup_home("config-a");
+        let home_b = setup_home("config-b");
         seed_thread(home_a.path(), "t1", "m1");
         init_sync(home_a.path(), Some(sync.path()), "A").unwrap();
+        init_sync(home_b.path(), Some(sync.path()), "B").unwrap();
         let device = device_id_of(home_a.path());
         export_ops(home_a.path(), Some(sync.path())).unwrap();
 
@@ -2966,66 +2991,44 @@ mod tests {
         export_ops(home_a.path(), Some(sync.path())).unwrap();
 
         let lines = read_op_file_lines(sync.path(), &device, 2);
-        let header: Value = serde_json::from_str(&lines[0]).unwrap();
-        assert_eq!(
-            header.get("kind").and_then(Value::as_str),
-            Some(OPS_FILE_HEADER_KIND)
-        );
-        assert_eq!(
-            header.get("formatVersion").and_then(Value::as_u64),
-            Some(u64::from(FORMAT_VERSION))
-        );
-        let op: SyncOp = serde_json::from_str(&lines[1]).unwrap();
+        assert_eq!(lines.len(), 1);
+        let op: SyncOp = serde_json::from_str(&lines[0]).unwrap();
         assert_eq!(op.kind, "message.archive.delete");
         assert_eq!(op.entity_id, "m2");
     }
 
     #[test]
-    fn future_format_file_is_not_marked_imported() {
+    fn delete_tombstone_waits_for_known_v1_peer() {
         let sync = tempfile::tempdir().unwrap();
+        let home_a = setup_home("config-a");
         let home_b = setup_home("config-b");
+        seed_thread(home_a.path(), "t1", "m1");
+        init_sync(home_a.path(), Some(sync.path()), "A").unwrap();
         init_sync(home_b.path(), Some(sync.path()), "B").unwrap();
-        let op = make_op(
-            "remote-device",
-            1,
-            "thread.archive.upsert",
-            "thread",
-            "t1",
-            json!({"id": "t1", "title": "Future title", "created_at": "1", "head_message_id": "m1"}),
-        )
-        .unwrap();
-        let path = device_dir(sync.path(), "remote-device")
-            .join("ops")
-            .join("0000000000000001.jsonl");
-        fs::create_dir_all(path.parent().unwrap()).unwrap();
-        fs::write(
-            &path,
-            format!(
-                "{{\"kind\":\"{}\",\"formatVersion\":{}}}\n{}\n",
-                OPS_FILE_HEADER_KIND,
-                FORMAT_VERSION + 1,
-                serde_json::to_string(&op).unwrap()
-            ),
-        )
-        .unwrap();
+        let device_a = device_id_of(home_a.path());
+        let device_b = device_id_of(home_b.path());
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        set_manifest_format(sync.path(), &device_b, 1);
 
-        let error = match import_ops(home_b.path(), Some(sync.path())) {
-            Ok(_) => panic!("future format import must fail"),
-            Err(error) => error,
-        };
+        delete_message(home_a.path(), "m1");
+        clear_thread_head(home_a.path(), "t1");
+        let held = export_ops(home_a.path(), Some(sync.path())).unwrap();
 
-        assert!(error.to_string().contains("requires format version"));
-        assert_eq!(count_rows(home_b.path(), "threads"), 0);
-        let conn = Connection::open(home_b.path().join(DB_FILE)).unwrap();
-        let key = import_file_key(sync.path(), &path);
+        assert_eq!(held.exported_ops, 0);
+        assert_eq!(count_op_files(sync.path(), &device_a), 1);
+        assert_eq!(count_dirty(home_a.path()), 2);
+
+        set_manifest_format(sync.path(), &device_b, FORMAT_VERSION);
+        let exported = export_ops(home_a.path(), Some(sync.path())).unwrap();
+
+        assert_eq!(exported.exported_ops, 2);
+        assert_eq!(count_dirty(home_a.path()), 0);
+        let delta = read_ops_file(sync.path(), &device_a, 2);
+        let mut kinds = delta.iter().map(|op| op.kind.as_str()).collect::<Vec<_>>();
+        kinds.sort_unstable();
         assert_eq!(
-            conn.query_row(
-                "SELECT COUNT(*) FROM sync_imported_files WHERE path = ?1",
-                [key],
-                |row| row.get::<_, i64>(0),
-            )
-            .unwrap(),
-            0
+            kinds,
+            vec!["message.archive.delete", "thread.archive.delete"]
         );
     }
 
@@ -3385,11 +3388,7 @@ mod tests {
                 if line.trim().is_empty() {
                     continue;
                 }
-                let value: Value = serde_json::from_str(line).unwrap();
-                if value.get("kind").and_then(Value::as_str) == Some(OPS_FILE_HEADER_KIND) {
-                    continue;
-                }
-                let op: SyncOp = serde_json::from_value(value).unwrap();
+                let op: SyncOp = serde_json::from_str(line).unwrap();
                 if op.kind == "message.archive.upsert" && op.entity_id == "m1" {
                     message_op_seen = true;
                     let obj = op.payload.as_object().unwrap();
