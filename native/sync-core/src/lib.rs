@@ -16,6 +16,8 @@ const SETTINGS_FILE: &str = "config.toml";
 const FORMAT_VERSION: u32 = 2;
 const META_UNIVERSE: &str = "universe_id";
 const META_SETTINGS_HASH: &str = "settings_export_hash";
+const OPS_DIR_V1: &str = "ops";
+const OPS_DIR_V2: &str = "ops-v2";
 
 #[derive(Debug)]
 pub enum SyncError {
@@ -302,6 +304,9 @@ fn settings_path(home: &Path) -> PathBuf {
 }
 fn device_dir(sync_dir: &Path, device_id: &str) -> PathBuf {
     sync_dir.join("devices").join(device_id)
+}
+fn device_ops_dir(sync_dir: &Path, device_id: &str, ops_dir: &str) -> PathBuf {
+    device_dir(sync_dir, device_id).join(ops_dir)
 }
 
 fn open_db(home: &Path) -> Result<Connection, SyncError> {
@@ -611,7 +616,8 @@ pub fn init_sync(
     let conn = open_db(home)?;
     ensure_universe(&conn, &sync_dir, true)?;
     let device_id = get_or_create_device(&conn, device_label)?;
-    fs::create_dir_all(device_dir(&sync_dir, &device_id).join("ops"))?;
+    fs::create_dir_all(device_ops_dir(&sync_dir, &device_id, OPS_DIR_V1))?;
+    fs::create_dir_all(device_ops_dir(&sync_dir, &device_id, OPS_DIR_V2))?;
     let label = get_device_label(&conn, &device_id)?;
     // Don't reset export progress if this device already published before.
     let existing = read_manifest(&sync_dir, &device_id);
@@ -669,34 +675,6 @@ fn read_manifest(sync_dir: &Path, device_id: &str) -> Option<Manifest> {
     serde_json::from_str(&text).ok()
 }
 
-fn known_devices_support_delete_tombstones(
-    sync_dir: &Path,
-    local_device_id: &str,
-) -> Result<bool, SyncError> {
-    let devices = sync_dir.join("devices");
-    if !devices.exists() {
-        return Ok(true);
-    }
-    for entry in fs::read_dir(devices)? {
-        let entry = entry?;
-        let path = entry.path();
-        if !path.is_dir() {
-            continue;
-        }
-        let device_id = entry.file_name().to_string_lossy().to_string();
-        if device_id.starts_with('.') || device_id == local_device_id {
-            continue;
-        }
-        let Some(manifest) = read_manifest(sync_dir, &device_id) else {
-            return Ok(false);
-        };
-        if manifest.format_version < FORMAT_VERSION {
-            return Ok(false);
-        }
-    }
-    Ok(true)
-}
-
 pub fn export_ops(
     home: &Path,
     sync_dir_override: Option<&Path>,
@@ -720,7 +698,7 @@ pub fn export_ops(
     }
 
     let ops_path = device_dir(&sync_dir, &device_id)
-        .join("ops")
+        .join(OPS_DIR_V2)
         .join(format!("{seq:016}.jsonl"));
     let mut ops = OpsFileWriter::create(&ops_path)?;
     let settings_text = fs::read_to_string(settings_path(home))
@@ -748,13 +726,7 @@ pub fn export_ops(
         }
     }
 
-    let processed_dirty = export_dirty_ops(
-        &conn,
-        &device_id,
-        seq,
-        known_devices_support_delete_tombstones(&sync_dir, &device_id)?,
-        |op| ops.write_op(&op),
-    )?;
+    let processed_dirty = export_dirty_ops(&conn, &device_id, seq, |op| ops.write_op(&op))?;
 
     // Publish a delta file only when there's something to ship. An empty `ops`
     // here means the queue held only skippable rows (deleted before export, or
@@ -856,7 +828,6 @@ fn export_dirty_ops(
     conn: &Connection,
     device_id: &str,
     seq: i64,
-    delete_tombstones_supported: bool,
     mut emit: impl FnMut(SyncOp) -> Result<(), SyncError>,
 ) -> Result<Vec<i64>, SyncError> {
     let mut stmt =
@@ -885,9 +856,6 @@ fn export_dirty_ops(
             continue;
         }
         let Some(mut payload) = fetch_row_json(conn, table, &entity_id)? else {
-            if !delete_tombstones_supported {
-                continue;
-            }
             emit(make_op(
                 device_id,
                 seq,
@@ -914,9 +882,6 @@ fn export_dirty_ops(
         // become harmless no-ops on peers, while a thread emptied by deleting its
         // last message clears the previously imported archive row.
         if entity_type == "thread" && payload.get("head_message_id").is_none_or(|v| v.is_null()) {
-            if !delete_tombstones_supported {
-                continue;
-            }
             emit(make_op(
                 device_id,
                 seq,
@@ -974,14 +939,16 @@ fn fetch_row_json(conn: &Connection, table: &str, id: &str) -> Result<Option<Val
 }
 
 fn next_export_seq(sync_dir: &Path, device_id: &str) -> Result<i64, SyncError> {
-    let ops_dir = device_dir(sync_dir, device_id).join("ops");
-    fs::create_dir_all(&ops_dir)?;
     let mut max_seq = 0;
-    for entry in fs::read_dir(ops_dir)? {
-        let entry = entry?;
-        let name = entry.file_name().to_string_lossy().to_string();
-        if let Some(stem) = name.strip_suffix(".jsonl") {
-            max_seq = max_seq.max(stem.parse::<i64>().unwrap_or(0));
+    for ops_dir_name in [OPS_DIR_V1, OPS_DIR_V2] {
+        let ops_dir = device_ops_dir(sync_dir, device_id, ops_dir_name);
+        fs::create_dir_all(&ops_dir)?;
+        for entry in fs::read_dir(ops_dir)? {
+            let entry = entry?;
+            let name = entry.file_name().to_string_lossy().to_string();
+            if let Some(stem) = name.strip_suffix(".jsonl") {
+                max_seq = max_seq.max(stem.parse::<i64>().unwrap_or(0));
+            }
         }
     }
     Ok(max_seq + 1)
@@ -1096,6 +1063,16 @@ pub fn import_ops(
                 ));
                 continue;
             }
+            Err(SyncError::Json(error)) => {
+                if let Some(device_id) = file_device {
+                    blocked_devices.insert(device_id);
+                }
+                transient_error = Some(format!(
+                    "Could not parse {} (still downloading?): {error}",
+                    file.path.display()
+                ));
+                continue;
+            }
             Err(error) => {
                 return Err(error);
             }
@@ -1154,18 +1131,25 @@ fn op_files(sync_dir: &Path) -> Result<Vec<PathBuf>, SyncError> {
         return Ok(files);
     }
     for device in fs::read_dir(devices)? {
-        let ops = device?.path().join("ops");
-        if !ops.exists() {
-            continue;
-        }
-        for entry in fs::read_dir(ops)? {
-            let path = entry?.path();
-            if path.extension().and_then(|e| e.to_str()) == Some("jsonl") {
-                files.push(path);
+        let device_path = device?.path();
+        for ops_dir_name in [OPS_DIR_V1, OPS_DIR_V2] {
+            let ops = device_path.join(ops_dir_name);
+            if !ops.exists() {
+                continue;
+            }
+            for entry in fs::read_dir(ops)? {
+                let path = entry?.path();
+                if path.extension().and_then(|e| e.to_str()) == Some("jsonl") {
+                    files.push(path);
+                }
             }
         }
     }
-    files.sort();
+    files.sort_by_key(|path| {
+        import_file_device_seq(sync_dir, path)
+            .map(|(device_id, seq)| (device_id, seq))
+            .unwrap_or_else(|| (path.display().to_string(), i64::MAX))
+    });
     Ok(files)
 }
 
@@ -1205,7 +1189,6 @@ fn import_files_to_scan(
             }
             continue;
         }
-        backfill_paths.push(path.clone());
         files.push(ImportFile {
             path,
             key,
@@ -1227,7 +1210,10 @@ fn import_file_device_seq(sync_dir: &Path, path: &Path) -> Option<(String, i64)>
         .components()
         .map(|component| component.as_os_str().to_string_lossy().to_string())
         .collect::<Vec<_>>();
-    if parts.len() != 4 || parts[0] != "devices" || parts[2] != "ops" {
+    if parts.len() != 4
+        || parts[0] != "devices"
+        || (parts[2] != OPS_DIR_V1 && parts[2] != OPS_DIR_V2)
+    {
         return None;
     }
     let seq = parts[3].strip_suffix(".jsonl")?.parse::<i64>().ok()?;
@@ -1236,7 +1222,10 @@ fn import_file_device_seq(sync_dir: &Path, path: &Path) -> Option<(String, i64)>
 
 fn import_key_device_seq(key: &str) -> Option<(String, i64)> {
     let parts = key.split('/').collect::<Vec<_>>();
-    if parts.len() != 4 || parts[0] != "devices" || parts[2] != "ops" {
+    if parts.len() != 4
+        || parts[0] != "devices"
+        || (parts[2] != OPS_DIR_V1 && parts[2] != OPS_DIR_V2)
+    {
         return None;
     }
     let seq = parts[3].strip_suffix(".jsonl")?.parse::<i64>().ok()?;
@@ -1341,7 +1330,7 @@ fn schedule_created_thread_ids_in_ops(files: &[ImportFile]) -> Result<HashSet<St
         });
         match result {
             Ok(()) => {}
-            Err(SyncError::Io(_)) => continue,
+            Err(SyncError::Io(_) | SyncError::Json(_)) => continue,
             Err(error) => {
                 return Err(error);
             }
@@ -1943,15 +1932,20 @@ mod tests {
     }
 
     fn count_op_files(sync_dir: &Path, device_id: &str) -> usize {
-        let ops = device_dir(sync_dir, device_id).join("ops");
-        if !ops.exists() {
-            return 0;
-        }
-        fs::read_dir(ops)
-            .unwrap()
-            .filter_map(Result::ok)
-            .filter(|e| e.path().extension().and_then(|x| x.to_str()) == Some("jsonl"))
-            .count()
+        [OPS_DIR_V1, OPS_DIR_V2]
+            .into_iter()
+            .map(|ops_dir| {
+                let ops = device_ops_dir(sync_dir, device_id, ops_dir);
+                if !ops.exists() {
+                    return 0;
+                }
+                fs::read_dir(ops)
+                    .unwrap()
+                    .filter_map(Result::ok)
+                    .filter(|e| e.path().extension().and_then(|x| x.to_str()) == Some("jsonl"))
+                    .count()
+            })
+            .sum()
     }
 
     fn write_ops_file(sync_dir: &Path, device_id: &str, seq: i64, ops: &[SyncOp]) {
@@ -1978,9 +1972,7 @@ mod tests {
     }
 
     fn read_ops_file(sync_dir: &Path, device_id: &str, seq: i64) -> Vec<SyncOp> {
-        let path = device_dir(sync_dir, device_id)
-            .join("ops")
-            .join(format!("{seq:016}.jsonl"));
+        let path = op_file_path(sync_dir, device_id, seq);
         fs::read_to_string(path)
             .unwrap()
             .lines()
@@ -1990,14 +1982,23 @@ mod tests {
     }
 
     fn read_op_file_lines(sync_dir: &Path, device_id: &str, seq: i64) -> Vec<String> {
-        let path = device_dir(sync_dir, device_id)
-            .join("ops")
-            .join(format!("{seq:016}.jsonl"));
+        let path = op_file_path(sync_dir, device_id, seq);
         fs::read_to_string(path)
             .unwrap()
             .lines()
             .map(str::to_string)
             .collect()
+    }
+
+    fn op_file_path(sync_dir: &Path, device_id: &str, seq: i64) -> PathBuf {
+        let path = [OPS_DIR_V2, OPS_DIR_V1]
+            .into_iter()
+            .map(|ops_dir| {
+                device_ops_dir(sync_dir, device_id, ops_dir).join(format!("{seq:016}.jsonl"))
+            })
+            .find(|path| path.exists())
+            .unwrap();
+        path
     }
 
     fn delete_message(home: &Path, message_id: &str) {
@@ -2153,9 +2154,7 @@ mod tests {
         assert_eq!(first.last_error, None);
 
         let device_a = device_id_of(home_a.path());
-        let path = device_dir(sync.path(), &device_a)
-            .join("ops")
-            .join("0000000000000001.jsonl");
+        let path = op_file_path(sync.path(), &device_a, 1);
         let original_permissions = fs::metadata(&path).unwrap().permissions();
         let mut unreadable_permissions = original_permissions.clone();
         unreadable_permissions.set_mode(0o000);
@@ -3027,7 +3026,38 @@ mod tests {
     }
 
     #[test]
-    fn delete_tombstone_waits_for_known_v1_peer() {
+    fn delete_tombstones_are_not_published_to_v1_ops_dir() {
+        let sync = tempfile::tempdir().unwrap();
+        let home_a = setup_home("config-a");
+        seed_thread(home_a.path(), "t1", "m1");
+        init_sync(home_a.path(), Some(sync.path()), "A").unwrap();
+        let device = device_id_of(home_a.path());
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+
+        insert_message(home_a.path(), "m2", "t1");
+        delete_message(home_a.path(), "m2");
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+
+        assert!(
+            !device_dir(sync.path(), &device)
+                .join("ops")
+                .join("0000000000000002.jsonl")
+                .exists(),
+            "v1 importers must not see delete tombstones as unknown applied ops"
+        );
+        let lines = fs::read_to_string(
+            device_dir(sync.path(), &device)
+                .join("ops-v2")
+                .join("0000000000000002.jsonl"),
+        )
+        .unwrap();
+        let op: SyncOp = serde_json::from_str(lines.trim()).unwrap();
+        assert_eq!(op.kind, "message.archive.delete");
+        assert_eq!(op.entity_id, "m2");
+    }
+
+    #[test]
+    fn delete_tombstone_with_known_v1_peer_uses_v2_ops_dir() {
         let sync = tempfile::tempdir().unwrap();
         let home_a = setup_home("config-a");
         let home_b = setup_home("config-b");
@@ -3041,17 +3071,13 @@ mod tests {
 
         delete_message(home_a.path(), "m1");
         clear_thread_head(home_a.path(), "t1");
-        let held = export_ops(home_a.path(), Some(sync.path())).unwrap();
-
-        assert_eq!(held.exported_ops, 0);
-        assert_eq!(count_op_files(sync.path(), &device_a), 1);
-        assert_eq!(count_dirty(home_a.path()), 2);
-
-        set_manifest_format(sync.path(), &device_b, FORMAT_VERSION);
         let exported = export_ops(home_a.path(), Some(sync.path())).unwrap();
 
         assert_eq!(exported.exported_ops, 2);
         assert_eq!(count_dirty(home_a.path()), 0);
+        assert!(!device_ops_dir(sync.path(), &device_a, OPS_DIR_V1)
+            .join("0000000000000002.jsonl")
+            .exists());
         let delta = read_ops_file(sync.path(), &device_a, 2);
         let mut kinds = delta.iter().map(|op| op.kind.as_str()).collect::<Vec<_>>();
         kinds.sort_unstable();
@@ -3218,7 +3244,8 @@ mod tests {
 
         // iCloud (or the user) wiped this device's published ops, but the local DB
         // and its export fingerprint survive.
-        fs::remove_dir_all(device_dir(sync.path(), &device).join("ops")).unwrap();
+        fs::remove_dir_all(device_ops_dir(sync.path(), &device, OPS_DIR_V1)).unwrap();
+        fs::remove_dir_all(device_ops_dir(sync.path(), &device, OPS_DIR_V2)).unwrap();
         assert_eq!(count_op_files(sync.path(), &device), 0);
 
         // Unchanged settings must still republish so other devices can recover.
@@ -3345,6 +3372,42 @@ mod tests {
         assert_eq!(imported.imported_ops, 2);
         assert_eq!(thread_title(home.path(), "t1").as_deref(), Some("First"));
         assert_eq!(thread_title(home.path(), "t2").as_deref(), Some("Second"));
+    }
+
+    #[test]
+    fn metadata_backfill_does_not_parse_later_ineligible_file() {
+        let sync = tempfile::tempdir().unwrap();
+        let home = setup_home("config-b");
+        init_sync(home.path(), Some(sync.path()), "B").unwrap();
+        let conn = Connection::open(home.path().join(DB_FILE)).unwrap();
+        conn.execute(
+            "INSERT INTO sync_applied_ops (op_id, device_id, seq, applied_at) VALUES ('legacy-missing', 'remote-device', 0, 'old')",
+            [],
+        )
+        .unwrap();
+        let first_op = make_op(
+            "remote-device",
+            1,
+            "thread.archive.upsert",
+            "thread",
+            "t1",
+            json!({"id": "t1", "title": "First", "created_at": "1", "head_message_id": null}),
+        )
+        .unwrap();
+        write_ops_file(sync.path(), "remote-device", 1, &[first_op]);
+        let later_path = device_dir(sync.path(), "remote-device")
+            .join("ops")
+            .join("0000000000000002.jsonl");
+        fs::write(later_path, "{not-json\n").unwrap();
+
+        let output = import_ops(home.path(), Some(sync.path())).unwrap();
+
+        assert_eq!(output.imported_ops, 1);
+        assert!(
+            output.last_error.is_some(),
+            "the later truncated file should be reported as transient"
+        );
+        assert_eq!(thread_title(home.path(), "t1").as_deref(), Some("First"));
     }
 
     #[test]
@@ -3491,35 +3554,40 @@ mod tests {
         export_ops(home.path(), Some(sync.path())).unwrap();
 
         let device = device_id_of(home.path());
-        let ops_dir = device_dir(sync.path(), &device).join("ops");
         let mut message_op_seen = false;
-        for entry in fs::read_dir(&ops_dir).unwrap() {
-            let path = entry.unwrap().path();
-            if path.extension().and_then(|x| x.to_str()) != Some("jsonl") {
+        for ops_dir in [OPS_DIR_V1, OPS_DIR_V2] {
+            let ops_dir = device_ops_dir(sync.path(), &device, ops_dir);
+            if !ops_dir.exists() {
                 continue;
             }
-            for line in fs::read_to_string(&path).unwrap().lines() {
-                if line.trim().is_empty() {
+            for entry in fs::read_dir(&ops_dir).unwrap() {
+                let path = entry.unwrap().path();
+                if path.extension().and_then(|x| x.to_str()) != Some("jsonl") {
                     continue;
                 }
-                let op: SyncOp = serde_json::from_str(line).unwrap();
-                if op.kind == "message.archive.upsert" && op.entity_id == "m1" {
-                    message_op_seen = true;
-                    let obj = op.payload.as_object().unwrap();
-                    assert!(
-                        !obj.contains_key("response_messages"),
-                        "response_messages (raw transcript) must be stripped from the export"
-                    );
-                    assert_eq!(
-                        obj.get("turn_context").and_then(|v| v.as_str()),
-                        Some(r#"{"hint":"x"}"#),
-                        "turn_context must be KEPT (drives timeline grouping on archives)"
-                    );
-                    assert_eq!(
-                        obj.get("body").and_then(|v| v.as_str()),
-                        Some("hi"),
-                        "display columns must survive the strip"
-                    );
+                for line in fs::read_to_string(&path).unwrap().lines() {
+                    if line.trim().is_empty() {
+                        continue;
+                    }
+                    let op: SyncOp = serde_json::from_str(line).unwrap();
+                    if op.kind == "message.archive.upsert" && op.entity_id == "m1" {
+                        message_op_seen = true;
+                        let obj = op.payload.as_object().unwrap();
+                        assert!(
+                            !obj.contains_key("response_messages"),
+                            "response_messages (raw transcript) must be stripped from the export"
+                        );
+                        assert_eq!(
+                            obj.get("turn_context").and_then(|v| v.as_str()),
+                            Some(r#"{"hint":"x"}"#),
+                            "turn_context must be KEPT (drives timeline grouping on archives)"
+                        );
+                        assert_eq!(
+                            obj.get("body").and_then(|v| v.as_str()),
+                            Some("hi"),
+                            "display columns must survive the strip"
+                        );
+                    }
                 }
             }
         }
