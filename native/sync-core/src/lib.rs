@@ -653,6 +653,17 @@ fn write_manifest(
     )
 }
 
+fn refresh_local_manifest(sync_dir: &Path, device_id: &str, label: &str) -> Result<(), SyncError> {
+    let existing = read_manifest(sync_dir, device_id);
+    let published_seq = next_export_seq(sync_dir, device_id)? - 1;
+    let seq = existing
+        .as_ref()
+        .map(|manifest| manifest.last_exported_seq.max(published_seq))
+        .unwrap_or(published_seq);
+    let exported_at = existing.and_then(|manifest| manifest.last_exported_at);
+    write_manifest(sync_dir, device_id, label, seq, exported_at)
+}
+
 fn read_manifest(sync_dir: &Path, device_id: &str) -> Option<Manifest> {
     let text = fs::read_to_string(device_dir(sync_dir, device_id).join("manifest.json")).ok()?;
     serde_json::from_str(&text).ok()
@@ -696,6 +707,7 @@ pub fn export_ops(
     let device_id = get_device(&conn)?
         .ok_or_else(|| SyncError::Message("device is not initialized".to_string()))?;
     let label = get_device_label(&conn, &device_id)?;
+    refresh_local_manifest(&sync_dir, &device_id, &label)?;
     let exported_at = now();
     let seq = next_export_seq(&sync_dir, &device_id)?;
 
@@ -1030,6 +1042,10 @@ pub fn import_ops(
     let conn = open_db(home)?;
     ensure_universe(&conn, &sync_dir, false)?;
     let local_device = get_device(&conn)?.unwrap_or_default();
+    if !local_device.is_empty() {
+        let label = get_device_label(&conn, &local_device)?;
+        refresh_local_manifest(&sync_dir, &local_device, &label)?;
+    }
     let paths = op_files(&sync_dir)?;
     let plan = import_files_to_scan(&conn, &sync_dir, paths, &local_device)?;
     backfill_applied_op_entities(&conn, &plan.backfill_paths)?;
@@ -3019,6 +3035,45 @@ mod tests {
         assert_eq!(count_dirty(home_a.path()), 2);
 
         set_manifest_format(sync.path(), &device_b, FORMAT_VERSION);
+        let exported = export_ops(home_a.path(), Some(sync.path())).unwrap();
+
+        assert_eq!(exported.exported_ops, 2);
+        assert_eq!(count_dirty(home_a.path()), 0);
+        let delta = read_ops_file(sync.path(), &device_a, 2);
+        let mut kinds = delta.iter().map(|op| op.kind.as_str()).collect::<Vec<_>>();
+        kinds.sort_unstable();
+        assert_eq!(
+            kinds,
+            vec!["message.archive.delete", "thread.archive.delete"]
+        );
+    }
+
+    #[test]
+    fn idle_upgraded_peer_refreshes_manifest_for_delete_tombstones() {
+        let sync = tempfile::tempdir().unwrap();
+        let home_a = setup_home("config-a");
+        let home_b = setup_home("config-b");
+        seed_thread(home_a.path(), "t1", "m1");
+        init_sync(home_a.path(), Some(sync.path()), "A").unwrap();
+        init_sync(home_b.path(), Some(sync.path()), "B").unwrap();
+        let device_a = device_id_of(home_a.path());
+        let device_b = device_id_of(home_b.path());
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        export_ops(home_b.path(), Some(sync.path())).unwrap();
+        set_manifest_format(sync.path(), &device_b, 1);
+
+        let idle = export_ops(home_b.path(), Some(sync.path())).unwrap();
+
+        assert_eq!(idle.exported_ops, 0);
+        assert_eq!(
+            read_manifest(sync.path(), &device_b)
+                .unwrap()
+                .format_version,
+            FORMAT_VERSION
+        );
+
+        delete_message(home_a.path(), "m1");
+        clear_thread_head(home_a.path(), "t1");
         let exported = export_ops(home_a.path(), Some(sync.path())).unwrap();
 
         assert_eq!(exported.exported_ops, 2);
