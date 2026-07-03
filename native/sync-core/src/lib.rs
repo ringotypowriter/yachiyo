@@ -13,7 +13,8 @@ use uuid::Uuid;
 
 const DB_FILE: &str = "yachiyo.sqlite";
 const SETTINGS_FILE: &str = "config.toml";
-const FORMAT_VERSION: u32 = 1;
+const FORMAT_VERSION: u32 = 2;
+const OPS_FILE_HEADER_KIND: &str = "sync.format";
 const META_UNIVERSE: &str = "universe_id";
 const META_SETTINGS_HASH: &str = "settings_export_hash";
 
@@ -479,6 +480,13 @@ fn read_universe(sync_dir: &Path) -> Result<Option<Universe>, SyncError> {
     }
 }
 
+fn write_universe(sync_dir: &Path, universe: &Universe) -> Result<(), SyncError> {
+    atomic_write(
+        &sync_dir.join("universe.json"),
+        &serde_json::to_string_pretty(universe)?,
+    )
+}
+
 /// Resolve the universe this device belongs to. Records the joined universe id
 /// locally on first contact and refuses to operate when the sync dir's universe
 /// id no longer matches it (the "two universes" split the plan warns about).
@@ -489,7 +497,13 @@ fn ensure_universe(
 ) -> Result<String, SyncError> {
     let local = get_meta(conn, META_UNIVERSE)?;
     match read_universe(sync_dir)? {
-        Some(universe) => {
+        Some(mut universe) => {
+            if universe.format_version > FORMAT_VERSION {
+                return Err(SyncError::Message(format!(
+                    "Sync directory requires format version {}, but this sync-core supports {}.",
+                    universe.format_version, FORMAT_VERSION
+                )));
+            }
             match &local {
                 Some(local_id) if local_id != &universe.universe_id => {
                     return Err(SyncError::UniverseMismatch {
@@ -499,6 +513,10 @@ fn ensure_universe(
                 }
                 Some(_) => {}
                 None => set_meta(conn, META_UNIVERSE, &universe.universe_id)?,
+            }
+            if universe.format_version < FORMAT_VERSION {
+                universe.format_version = FORMAT_VERSION;
+                write_universe(sync_dir, &universe)?;
             }
             Ok(universe.universe_id)
         }
@@ -511,10 +529,7 @@ fn ensure_universe(
                 created_at: now(),
                 format_version: FORMAT_VERSION,
             };
-            atomic_write(
-                &sync_dir.join("universe.json"),
-                &serde_json::to_string_pretty(&universe)?,
-            )?;
+            write_universe(sync_dir, &universe)?;
             set_meta(conn, META_UNIVERSE, &universe.universe_id)?;
             Ok(universe.universe_id)
         }
@@ -554,10 +569,16 @@ impl OpsFileWriter {
             Uuid::new_v4()
         ));
         let file = File::create(&tmp)?;
+        let mut file = BufWriter::new(file);
+        serde_json::to_writer(
+            &mut file,
+            &json!({"kind": OPS_FILE_HEADER_KIND, "formatVersion": FORMAT_VERSION}),
+        )?;
+        file.write_all(b"\n")?;
         Ok(Self {
             target: target.to_path_buf(),
             tmp,
-            file: BufWriter::new(file),
+            file,
             count: 0,
         })
     }
@@ -1239,7 +1260,22 @@ fn for_each_op_in_file(
         if line.trim().is_empty() {
             continue;
         }
-        visit(serde_json::from_str(&line)?)?;
+        let value: Value = serde_json::from_str(&line)?;
+        if value.get("kind").and_then(Value::as_str) == Some(OPS_FILE_HEADER_KIND) {
+            let version = value
+                .get("formatVersion")
+                .and_then(Value::as_u64)
+                .ok_or_else(|| {
+                    SyncError::Message("Sync op file header is missing formatVersion.".to_string())
+                })?;
+            if version > u64::from(FORMAT_VERSION) {
+                return Err(SyncError::Message(format!(
+                    "Sync op file requires format version {version}, but this sync-core supports {FORMAT_VERSION}."
+                )));
+            }
+            continue;
+        }
+        visit(serde_json::from_value(value)?)?;
     }
 }
 
@@ -1890,7 +1926,25 @@ mod tests {
             .unwrap()
             .lines()
             .filter(|line| !line.trim().is_empty())
-            .map(|line| serde_json::from_str(line).unwrap())
+            .filter_map(|line| {
+                let value: Value = serde_json::from_str(line).unwrap();
+                if value.get("kind").and_then(Value::as_str) == Some(OPS_FILE_HEADER_KIND) {
+                    None
+                } else {
+                    Some(serde_json::from_value(value).unwrap())
+                }
+            })
+            .collect()
+    }
+
+    fn read_op_file_lines(sync_dir: &Path, device_id: &str, seq: i64) -> Vec<String> {
+        let path = device_dir(sync_dir, device_id)
+            .join("ops")
+            .join(format!("{seq:016}.jsonl"));
+        fs::read_to_string(path)
+            .unwrap()
+            .lines()
+            .map(str::to_string)
             .collect()
     }
 
@@ -2899,6 +2953,83 @@ mod tests {
     }
 
     #[test]
+    fn exported_delete_file_starts_with_format_header() {
+        let sync = tempfile::tempdir().unwrap();
+        let home_a = setup_home("config-a");
+        seed_thread(home_a.path(), "t1", "m1");
+        init_sync(home_a.path(), Some(sync.path()), "A").unwrap();
+        let device = device_id_of(home_a.path());
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+
+        insert_message(home_a.path(), "m2", "t1");
+        delete_message(home_a.path(), "m2");
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+
+        let lines = read_op_file_lines(sync.path(), &device, 2);
+        let header: Value = serde_json::from_str(&lines[0]).unwrap();
+        assert_eq!(
+            header.get("kind").and_then(Value::as_str),
+            Some(OPS_FILE_HEADER_KIND)
+        );
+        assert_eq!(
+            header.get("formatVersion").and_then(Value::as_u64),
+            Some(u64::from(FORMAT_VERSION))
+        );
+        let op: SyncOp = serde_json::from_str(&lines[1]).unwrap();
+        assert_eq!(op.kind, "message.archive.delete");
+        assert_eq!(op.entity_id, "m2");
+    }
+
+    #[test]
+    fn future_format_file_is_not_marked_imported() {
+        let sync = tempfile::tempdir().unwrap();
+        let home_b = setup_home("config-b");
+        init_sync(home_b.path(), Some(sync.path()), "B").unwrap();
+        let op = make_op(
+            "remote-device",
+            1,
+            "thread.archive.upsert",
+            "thread",
+            "t1",
+            json!({"id": "t1", "title": "Future title", "created_at": "1", "head_message_id": "m1"}),
+        )
+        .unwrap();
+        let path = device_dir(sync.path(), "remote-device")
+            .join("ops")
+            .join("0000000000000001.jsonl");
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(
+            &path,
+            format!(
+                "{{\"kind\":\"{}\",\"formatVersion\":{}}}\n{}\n",
+                OPS_FILE_HEADER_KIND,
+                FORMAT_VERSION + 1,
+                serde_json::to_string(&op).unwrap()
+            ),
+        )
+        .unwrap();
+
+        let error = match import_ops(home_b.path(), Some(sync.path())) {
+            Ok(_) => panic!("future format import must fail"),
+            Err(error) => error,
+        };
+
+        assert!(error.to_string().contains("requires format version"));
+        assert_eq!(count_rows(home_b.path(), "threads"), 0);
+        let conn = Connection::open(home_b.path().join(DB_FILE)).unwrap();
+        let key = import_file_key(sync.path(), &path);
+        assert_eq!(
+            conn.query_row(
+                "SELECT COUNT(*) FROM sync_imported_files WHERE path = ?1",
+                [key],
+                |row| row.get::<_, i64>(0),
+            )
+            .unwrap(),
+            0
+        );
+    }
+
+    #[test]
     fn settings_conflict_keeps_local() {
         let sync = tempfile::tempdir().unwrap();
         let home_a = setup_home("config-a");
@@ -3254,7 +3385,11 @@ mod tests {
                 if line.trim().is_empty() {
                     continue;
                 }
-                let op: SyncOp = serde_json::from_str(line).unwrap();
+                let value: Value = serde_json::from_str(line).unwrap();
+                if value.get("kind").and_then(Value::as_str) == Some(OPS_FILE_HEADER_KIND) {
+                    continue;
+                }
+                let op: SyncOp = serde_json::from_value(value).unwrap();
                 if op.kind == "message.archive.upsert" && op.entity_id == "m1" {
                     message_op_seen = true;
                     let obj = op.payload.as_object().unwrap();

@@ -123,14 +123,25 @@ export const syncLocalOpsTable = sqliteTable(
   (table) => [index('sync_local_ops_device_seq_idx').on(table.deviceId, table.seq)]
 )
 
-export const syncAppliedOpsTable = sqliteTable('sync_applied_ops', {
-  opId: text('op_id').primaryKey(),
-  deviceId: text('device_id').notNull(),
-  seq: integer('seq').notNull(),
-  entityType: text('entity_type'),
-  entityId: text('entity_id'),
-  appliedAt: text('applied_at').notNull()
-})
+export const syncAppliedOpsTable = sqliteTable(
+  'sync_applied_ops',
+  {
+    opId: text('op_id').primaryKey(),
+    deviceId: text('device_id').notNull(),
+    seq: integer('seq').notNull(),
+    entityType: text('entity_type'),
+    entityId: text('entity_id'),
+    appliedAt: text('applied_at').notNull()
+  },
+  (table) => [
+    index('sync_applied_ops_entity_seq_idx').on(
+      table.deviceId,
+      table.entityType,
+      table.entityId,
+      table.seq
+    )
+  ]
+)
 
 export const syncConflictsTable = sqliteTable(
   'sync_conflicts',
