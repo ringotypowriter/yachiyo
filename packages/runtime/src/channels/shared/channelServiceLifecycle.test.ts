@@ -86,6 +86,33 @@ describe('createChannelServiceSupervisor', () => {
     assert.equal(supervisor.getService('qq'), services[0])
   })
 
+  it('restarts an enabled service when its config key changes', async () => {
+    let configKey = 'provider=Claude Code;model=sonnet'
+    const services: FakeService[] = []
+    const supervisor = createChannelServiceSupervisor({
+      qq: {
+        label: 'qq',
+        enabled: () => true,
+        configKey: () => configKey,
+        create: () => {
+          const service = createFakeService()
+          services.push(service)
+          return service
+        }
+      }
+    })
+
+    await supervisor.reconcile('qq', 'initial')
+    configKey = 'provider=OpenAI (Codex OAuth);model=gpt-5.5'
+    await supervisor.reconcile('qq', 'config changed')
+
+    assert.equal(services.length, 2)
+    assert.equal(services[0].starts, 1)
+    assert.equal(services[0].stops, 1)
+    assert.equal(services[1].starts, 1)
+    assert.equal(supervisor.getService('qq'), services[1])
+  })
+
   it('restarts an unhealthy service', async () => {
     const services: FakeService[] = []
     const supervisor = createChannelServiceSupervisor({
