@@ -127,6 +127,8 @@ export const syncAppliedOpsTable = sqliteTable('sync_applied_ops', {
   opId: text('op_id').primaryKey(),
   deviceId: text('device_id').notNull(),
   seq: integer('seq').notNull(),
+  entityType: text('entity_type'),
+  entityId: text('entity_id'),
   appliedAt: text('applied_at').notNull()
 })
 
