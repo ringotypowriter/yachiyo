@@ -323,6 +323,7 @@ fn open_db(home: &Path) -> Result<Connection, SyncError> {
         "CREATE TABLE IF NOT EXISTS sync_devices (device_id TEXT PRIMARY KEY, created_at TEXT NOT NULL, label TEXT NOT NULL);
          CREATE TABLE IF NOT EXISTS sync_applied_ops (op_id TEXT PRIMARY KEY, device_id TEXT NOT NULL, seq INTEGER NOT NULL, entity_type TEXT, entity_id TEXT, applied_at TEXT NOT NULL);
          CREATE TABLE IF NOT EXISTS sync_imported_files (path TEXT PRIMARY KEY, size INTEGER NOT NULL, modified_millis INTEGER NOT NULL, imported_at TEXT NOT NULL);
+         CREATE TABLE IF NOT EXISTS sync_deferred_ops (op_id TEXT PRIMARY KEY, device_id TEXT NOT NULL, seq INTEGER NOT NULL, entity_type TEXT NOT NULL, entity_id TEXT NOT NULL, op_json TEXT NOT NULL, deferred_at TEXT NOT NULL);
          CREATE TABLE IF NOT EXISTS sync_skipped_schedule_threads (thread_id TEXT PRIMARY KEY, recorded_at TEXT NOT NULL);
          CREATE TABLE IF NOT EXISTS sync_conflicts (id TEXT PRIMARY KEY, op_id TEXT NOT NULL, device_id TEXT NOT NULL, entity_type TEXT NOT NULL, entity_id TEXT NOT NULL, local_hash TEXT NOT NULL, remote_hash TEXT NOT NULL, payload_json TEXT NOT NULL, created_at TEXT NOT NULL, resolved_at TEXT, resolution TEXT);
          CREATE TABLE IF NOT EXISTS sync_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);"
@@ -697,10 +698,14 @@ pub fn export_ops(
         backfill_dirty(&conn)?;
     }
 
-    let ops_path = device_dir(&sync_dir, &device_id)
+    let ops_v1_path = device_dir(&sync_dir, &device_id)
+        .join(OPS_DIR_V1)
+        .join(format!("{seq:016}.jsonl"));
+    let ops_v2_path = device_dir(&sync_dir, &device_id)
         .join(OPS_DIR_V2)
         .join(format!("{seq:016}.jsonl"));
-    let mut ops = OpsFileWriter::create(&ops_path)?;
+    let mut ops_v1 = OpsFileWriter::create(&ops_v1_path)?;
+    let mut ops_v2 = OpsFileWriter::create(&ops_v2_path)?;
     let settings_text = fs::read_to_string(settings_path(home))
         .ok()
         .map(|text| strip_local_only_settings_tables(&text));
@@ -715,7 +720,7 @@ pub fn export_ops(
         if let Some(text) = &settings_text {
             let payload =
                 json!({ "text": text, "baseHash": hash_text(""), "contentHash": hash_text(text) });
-            ops.write_op(&make_op(
+            ops_v1.write_op(&make_op(
                 &device_id,
                 seq,
                 "settings.snapshot",
@@ -726,18 +731,36 @@ pub fn export_ops(
         }
     }
 
-    let processed_dirty = export_dirty_ops(&conn, &device_id, seq, |op| ops.write_op(&op))?;
+    let processed_dirty = export_dirty_ops(&conn, &device_id, seq, |op| {
+        if op_requires_v2_dir(&op) {
+            ops_v2.write_op(&op)
+        } else {
+            ops_v1.write_op(&op)
+        }
+    })?;
 
     // Publish a delta file only when there's something to ship. An empty `ops`
     // here means the queue held only skippable rows (deleted before export, or
     // synced archives) — we still clear them below so create/delete churn can't
     // accumulate.
-    let exported_count = ops.count;
+    let ops_v1_count = ops_v1.count;
+    let ops_v2_count = ops_v2.count;
+    let exported_count = ops_v1_count + ops_v2_count;
     let last_exported_at = if exported_count == 0 {
-        ops.discard()?;
+        ops_v1.discard()?;
+        ops_v2.discard()?;
         None
     } else {
-        ops.commit()?;
+        if ops_v1_count == 0 {
+            ops_v1.discard()?;
+        } else {
+            ops_v1.commit()?;
+        }
+        if ops_v2_count == 0 {
+            ops_v2.discard()?;
+        } else {
+            ops_v2.commit()?;
+        }
         write_manifest(
             &sync_dir,
             &device_id,
@@ -791,6 +814,13 @@ fn make_op(
         payload_hash: hash_value(&payload)?,
         payload,
     })
+}
+
+fn op_requires_v2_dir(op: &SyncOp) -> bool {
+    matches!(
+        op.kind.as_str(),
+        "thread.archive.delete" | "message.archive.delete" | "toolcall.archive.delete"
+    )
 }
 
 fn is_non_null_field(payload: &Value, field: &str) -> bool {
@@ -1029,7 +1059,6 @@ pub fn import_ops(
         {
             continue;
         }
-        let mut file_complete = true;
         // A file that fails to read is likely still downloading from iCloud:
         // skip it (don't record it as applied) and report a transient error.
         let result = for_each_op_in_file(&file.path, |op| {
@@ -1037,21 +1066,20 @@ pub fn import_ops(
             // crash mid-import can never leave an op half-applied.
             let tx = conn.unchecked_transaction()?;
             let outcome = apply_op(home, &tx, &op, &schedule_thread_ids)?;
-            tx.commit()?;
             match outcome {
-                ApplyOutcome::Counted => imported += 1,
-                ApplyOutcome::Skipped => {}
-                ApplyOutcome::Deferred => file_complete = false,
+                ApplyOutcome::Counted => {
+                    clear_deferred_op(&tx, &op.op_id)?;
+                    imported += 1;
+                }
+                ApplyOutcome::Skipped => clear_deferred_op(&tx, &op.op_id)?,
+                ApplyOutcome::Deferred => record_deferred_op(&tx, &op)?,
             }
+            tx.commit()?;
             Ok(())
         });
         match result {
             Ok(()) => {
-                if file_complete {
-                    mark_import_file_complete(&conn, &file.key, file.signature)?;
-                } else if let Some(device_id) = file_device {
-                    blocked_devices.insert(device_id);
-                }
+                mark_import_file_complete(&conn, &file.key, file.signature)?;
             }
             Err(SyncError::Io(error)) => {
                 if let Some(device_id) = file_device {
@@ -1078,6 +1106,7 @@ pub fn import_ops(
             }
         }
     }
+    retry_deferred_ops(home, &conn, &schedule_thread_ids, &mut imported)?;
     let last_imported_at = if imported > 0 { Some(now()) } else { None };
     output(
         home,
@@ -1294,6 +1323,61 @@ fn mark_import_file_complete(
          ON CONFLICT(path) DO UPDATE SET size = excluded.size, modified_millis = excluded.modified_millis, imported_at = excluded.imported_at",
         params![key, signature.size, signature.modified_millis, now()],
     )?;
+    Ok(())
+}
+
+fn record_deferred_op(conn: &Connection, op: &SyncOp) -> Result<(), SyncError> {
+    conn.execute(
+        "INSERT INTO sync_deferred_ops (op_id, device_id, seq, entity_type, entity_id, op_json, deferred_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+         ON CONFLICT(op_id) DO UPDATE SET op_json = excluded.op_json, deferred_at = excluded.deferred_at",
+        params![
+            op.op_id,
+            op.device_id,
+            op.seq,
+            op.entity_type,
+            op.entity_id,
+            serde_json::to_string(op)?,
+            now()
+        ],
+    )?;
+    Ok(())
+}
+
+fn clear_deferred_op(conn: &Connection, op_id: &str) -> Result<(), SyncError> {
+    conn.execute("DELETE FROM sync_deferred_ops WHERE op_id = ?1", [op_id])?;
+    Ok(())
+}
+
+fn load_deferred_ops(conn: &Connection) -> Result<Vec<SyncOp>, SyncError> {
+    let mut stmt = conn.prepare("SELECT op_json FROM sync_deferred_ops ORDER BY device_id, seq")?;
+    let rows = stmt
+        .query_map([], |row| row.get::<_, String>(0))?
+        .collect::<Result<Vec<_>, _>>()?;
+    rows.into_iter()
+        .map(|text| serde_json::from_str(&text).map_err(SyncError::Json))
+        .collect()
+}
+
+fn retry_deferred_ops(
+    home: &Path,
+    conn: &Connection,
+    schedule_thread_ids: &HashSet<String>,
+    imported: &mut usize,
+) -> Result<(), SyncError> {
+    for op in load_deferred_ops(conn)? {
+        let tx = conn.unchecked_transaction()?;
+        let outcome = apply_op(home, &tx, &op, schedule_thread_ids)?;
+        match outcome {
+            ApplyOutcome::Counted => {
+                clear_deferred_op(&tx, &op.op_id)?;
+                *imported += 1;
+            }
+            ApplyOutcome::Skipped => clear_deferred_op(&tx, &op.op_id)?,
+            ApplyOutcome::Deferred => record_deferred_op(&tx, &op)?,
+        }
+        tx.commit()?;
+    }
     Ok(())
 }
 
@@ -2134,6 +2218,37 @@ mod tests {
         let second = import_ops(home_b.path(), Some(sync.path())).unwrap();
         assert_eq!(second.imported_ops, 0, "re-import must be a no-op");
         assert_eq!(count_rows(home_b.path(), "threads"), 1);
+    }
+
+    #[test]
+    fn ordinary_exports_remain_visible_in_v1_ops_dir() {
+        let sync = tempfile::tempdir().unwrap();
+        let home = setup_home("config-a");
+        seed_thread(home.path(), "t1", "m1");
+        init_sync(home.path(), Some(sync.path()), "A").unwrap();
+        let device = device_id_of(home.path());
+
+        export_ops(home.path(), Some(sync.path())).unwrap();
+
+        let legacy_path =
+            device_ops_dir(sync.path(), &device, OPS_DIR_V1).join("0000000000000001.jsonl");
+        let v2_path =
+            device_ops_dir(sync.path(), &device, OPS_DIR_V2).join("0000000000000001.jsonl");
+        assert!(
+            legacy_path.exists(),
+            "v1 peers must still see ordinary exports"
+        );
+        assert!(
+            !v2_path.exists(),
+            "v2-only files should be reserved for ops that old clients must not consume"
+        );
+        let kinds = fs::read_to_string(legacy_path)
+            .unwrap()
+            .lines()
+            .map(|line| serde_json::from_str::<SyncOp>(line).unwrap().kind)
+            .collect::<HashSet<_>>();
+        assert!(kinds.contains("thread.archive.upsert"));
+        assert!(kinds.contains("message.archive.upsert"));
     }
 
     #[cfg(unix)]
@@ -3326,6 +3441,39 @@ mod tests {
         let second = import_ops(home.path(), Some(sync.path())).unwrap();
         assert_eq!(second.imported_ops, 1);
         assert_eq!(count_rows(home.path(), "messages"), 1);
+    }
+
+    #[test]
+    fn orphan_child_op_does_not_block_later_device_files() {
+        let sync = tempfile::tempdir().unwrap();
+        let home = setup_home("config-b");
+        init_sync(home.path(), Some(sync.path()), "B").unwrap();
+        let orphan_op = make_op(
+            "remote-device",
+            1,
+            "message.archive.upsert",
+            "message",
+            "m1",
+            json!({"id": "m1", "thread_id": "deleted-thread", "body": "stale", "created_at": "1"}),
+        )
+        .unwrap();
+        let later_op = make_op(
+            "remote-device",
+            2,
+            "thread.archive.upsert",
+            "thread",
+            "t2",
+            json!({"id": "t2", "title": "Later", "created_at": "2", "head_message_id": null}),
+        )
+        .unwrap();
+        write_ops_file(sync.path(), "remote-device", 1, &[orphan_op]);
+        write_ops_file(sync.path(), "remote-device", 2, &[later_op]);
+
+        let output = import_ops(home.path(), Some(sync.path())).unwrap();
+
+        assert_eq!(output.imported_ops, 1);
+        assert_eq!(message_body(home.path(), "m1"), None);
+        assert_eq!(thread_title(home.path(), "t2").as_deref(), Some("Later"));
     }
 
     #[test]
