@@ -1053,7 +1053,15 @@ pub fn import_ops(
     schedule_thread_ids.extend(schedule_created_thread_ids_in_ops(&plan.files)?);
     let mut imported = 0;
     let mut transient_error: Option<String> = None;
+    let mut blocked_devices = HashSet::new();
     for file in plan.files {
+        let file_device = import_key_device_seq(&file.key).map(|(device_id, _)| device_id);
+        if file_device
+            .as_ref()
+            .is_some_and(|device_id| blocked_devices.contains(device_id))
+        {
+            continue;
+        }
         let mut file_complete = true;
         // A file that fails to read is likely still downloading from iCloud:
         // skip it (don't record it as applied) and report a transient error.
@@ -1074,9 +1082,14 @@ pub fn import_ops(
             Ok(()) => {
                 if file_complete {
                     mark_import_file_complete(&conn, &file.key, file.signature)?;
+                } else if let Some(device_id) = file_device {
+                    blocked_devices.insert(device_id);
                 }
             }
             Err(SyncError::Io(error)) => {
+                if let Some(device_id) = file_device {
+                    blocked_devices.insert(device_id);
+                }
                 transient_error = Some(format!(
                     "Could not read {} (still downloading?): {error}",
                     file.path.display()
@@ -3286,6 +3299,52 @@ mod tests {
         let second = import_ops(home.path(), Some(sync.path())).unwrap();
         assert_eq!(second.imported_ops, 1);
         assert_eq!(count_rows(home.path(), "messages"), 1);
+    }
+
+    #[test]
+    fn unreadable_import_file_blocks_later_files_from_same_device() {
+        let sync = tempfile::tempdir().unwrap();
+        let home = setup_home("config-b");
+        init_sync(home.path(), Some(sync.path()), "B").unwrap();
+        let remote_ops_dir = device_dir(sync.path(), "remote-device").join("ops");
+        fs::create_dir_all(remote_ops_dir.join("0000000000000001.jsonl")).unwrap();
+        let second_op = make_op(
+            "remote-device",
+            2,
+            "thread.archive.upsert",
+            "thread",
+            "t2",
+            json!({"id": "t2", "title": "Second", "created_at": "2", "head_message_id": null}),
+        )
+        .unwrap();
+        write_ops_file(sync.path(), "remote-device", 2, &[second_op]);
+
+        let blocked = import_ops(home.path(), Some(sync.path())).unwrap();
+
+        assert_eq!(blocked.imported_ops, 0);
+        assert!(
+            blocked.last_error.is_some(),
+            "unreadable first file should surface a transient import error"
+        );
+        assert_eq!(thread_title(home.path(), "t2"), None);
+
+        fs::remove_dir_all(remote_ops_dir.join("0000000000000001.jsonl")).unwrap();
+        let first_op = make_op(
+            "remote-device",
+            1,
+            "thread.archive.upsert",
+            "thread",
+            "t1",
+            json!({"id": "t1", "title": "First", "created_at": "1", "head_message_id": null}),
+        )
+        .unwrap();
+        write_ops_file(sync.path(), "remote-device", 1, &[first_op]);
+
+        let imported = import_ops(home.path(), Some(sync.path())).unwrap();
+
+        assert_eq!(imported.imported_ops, 2);
+        assert_eq!(thread_title(home.path(), "t1").as_deref(), Some("First"));
+        assert_eq!(thread_title(home.path(), "t2").as_deref(), Some("Second"));
     }
 
     #[test]
