@@ -9,6 +9,7 @@ export type ChannelServicePlatform = 'telegram' | 'qq' | 'discord' | 'qqbot'
 export interface ChannelServiceLifecycleEntry<TService extends ManagedChannelService> {
   label: string
   enabled(): boolean
+  configKey?: () => string
   create(): TService
   onServiceChange?: (service: TService | null) => void
 }
@@ -31,6 +32,7 @@ export interface ChannelServiceSupervisor {
 
 interface ChannelServiceState {
   service: ManagedChannelService | null
+  configKey: string | null
   operationInFlight: Promise<void> | null
   operationKind: ChannelLifecycleOperationKind | null
 }
@@ -55,7 +57,7 @@ export function createChannelServiceSupervisor(
   function getState(platform: ChannelServicePlatform): ChannelServiceState {
     let state = states.get(platform)
     if (!state) {
-      state = { service: null, operationInFlight: null, operationKind: null }
+      state = { service: null, configKey: null, operationInFlight: null, operationKind: null }
       states.set(platform, state)
     }
     return state
@@ -63,17 +65,24 @@ export function createChannelServiceSupervisor(
 
   function setService(
     platform: ChannelServicePlatform,
-    service: ManagedChannelService | null
+    service: ManagedChannelService | null,
+    configKey: string | null = null
   ): void {
     const state = getState(platform)
     state.service = service
+    state.configKey = configKey
     getEntry(platform).onServiceChange?.(service)
+  }
+
+  function getConfigKey(entry: ChannelServiceLifecycleEntry<ManagedChannelService>): string | null {
+    return entry.configKey?.() ?? null
   }
 
   async function start(platform: ChannelServicePlatform, reason: string): Promise<void> {
     const entry = getEntry(platform)
+    const configKey = getConfigKey(entry)
     const service = entry.create()
-    setService(platform, service)
+    setService(platform, service, configKey)
     console.log(`[${entry.label}] starting service (${reason})`)
     try {
       await service.start()
@@ -149,6 +158,12 @@ export function createChannelServiceSupervisor(
       }
 
       if (!getState(platform).service) {
+        await start(platform, reason)
+        return
+      }
+
+      if (getState(platform).configKey !== getConfigKey(entry)) {
+        await stop(platform, reason)
         await start(platform, reason)
       }
     })

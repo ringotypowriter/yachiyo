@@ -101,6 +101,7 @@ import {
 } from '@yachiyo/runtime/channels/shared/channelPolicy'
 import {
   createChannelServiceSupervisor,
+  type ChannelServicePlatform,
   type ChannelServiceSupervisor
 } from '@yachiyo/runtime/channels/shared/channelServiceLifecycle'
 import {
@@ -146,6 +147,20 @@ let fatalRunRecoveryRegistered = false
 const COMMAND_SOCKET_HEALTH_INTERVAL_MS = 15_000
 const COMMAND_SOCKET_HEALTH_TIMEOUT_MS = 1_000
 const CHANNEL_HEALTH_INTERVAL_MS = 60_000
+
+function buildChannelServiceConfigKey(
+  cfg: ChannelsConfig,
+  platform: ChannelServicePlatform
+): string {
+  return JSON.stringify({
+    platform: cfg[platform],
+    groupVerbosity: cfg.groupVerbosity,
+    groupCheckIntervalMs: cfg.groupCheckIntervalMs,
+    dmCompactTokenThresholdK: cfg.dmCompactTokenThresholdK,
+    groupContextWindowK: cfg.groupContextWindowK,
+    groupHandoffThresholdK: cfg.groupHandoffThresholdK
+  })
+}
 
 function createCommandSocketHandle(): CommandSocketHandle {
   return startCommandSocket({
@@ -286,6 +301,7 @@ function getChannelSupervisor(): ChannelServiceSupervisor {
         const token = channelsConfigForSupervisor?.telegram?.botToken?.trim()
         return Boolean(server && channelsConfigForSupervisor?.telegram?.enabled && token)
       },
+      configKey: () => buildChannelServiceConfigKey(channelsConfigForSupervisor!, 'telegram'),
       create: () => {
         const cfg = channelsConfigForSupervisor!
         const token = cfg.telegram!.botToken!.trim()
@@ -310,6 +326,7 @@ function getChannelSupervisor(): ChannelServiceSupervisor {
         const wsUrl = channelsConfigForSupervisor?.qq?.wsUrl?.trim()
         return Boolean(server && channelsConfigForSupervisor?.qq?.enabled && wsUrl)
       },
+      configKey: () => buildChannelServiceConfigKey(channelsConfigForSupervisor!, 'qq'),
       create: () => {
         const cfg = channelsConfigForSupervisor!
         const wsUrl = cfg.qq!.wsUrl!.trim()
@@ -335,6 +352,7 @@ function getChannelSupervisor(): ChannelServiceSupervisor {
         const token = channelsConfigForSupervisor?.discord?.botToken?.trim()
         return Boolean(server && channelsConfigForSupervisor?.discord?.enabled && token)
       },
+      configKey: () => buildChannelServiceConfigKey(channelsConfigForSupervisor!, 'discord'),
       create: () => {
         const cfg = channelsConfigForSupervisor!
         const token = cfg.discord!.botToken!.trim()
@@ -361,6 +379,7 @@ function getChannelSupervisor(): ChannelServiceSupervisor {
           server && channelsConfigForSupervisor?.qqbot?.enabled && appId && clientSecret
         )
       },
+      configKey: () => buildChannelServiceConfigKey(channelsConfigForSupervisor!, 'qqbot'),
       create: () => {
         const cfg = channelsConfigForSupervisor!
         return createQQBotService({
