@@ -322,23 +322,13 @@ fn open_db(home: &Path) -> Result<Connection, SyncError> {
          CREATE TABLE IF NOT EXISTS sync_conflicts (id TEXT PRIMARY KEY, op_id TEXT NOT NULL, device_id TEXT NOT NULL, entity_type TEXT NOT NULL, entity_id TEXT NOT NULL, local_hash TEXT NOT NULL, remote_hash TEXT NOT NULL, payload_json TEXT NOT NULL, created_at TEXT NOT NULL, resolved_at TEXT, resolution TEXT);
          CREATE TABLE IF NOT EXISTS sync_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);"
     )?;
-    ensure_sync_applied_ops_schema(&conn)?;
     ensure_change_tracking(&conn)?;
     Ok(conn)
 }
 
-fn ensure_sync_applied_ops_schema(conn: &Connection) -> Result<(), SyncError> {
+fn sync_applied_ops_tracks_entities(conn: &Connection) -> Result<bool, SyncError> {
     let columns = table_columns(conn, "sync_applied_ops")?;
-    if !columns.contains("entity_type") {
-        conn.execute(
-            "ALTER TABLE sync_applied_ops ADD COLUMN entity_type TEXT",
-            [],
-        )?;
-    }
-    if !columns.contains("entity_id") {
-        conn.execute("ALTER TABLE sync_applied_ops ADD COLUMN entity_id TEXT", [])?;
-    }
-    Ok(())
+    Ok(columns.contains("entity_type") && columns.contains("entity_id"))
 }
 
 /// Install incremental change capture: a `sync_dirty` queue plus AFTER INSERT/UPDATE
@@ -1041,6 +1031,9 @@ pub fn import_ops(
 }
 
 fn backfill_applied_op_entities(conn: &Connection, paths: &[PathBuf]) -> Result<(), SyncError> {
+    if !sync_applied_ops_tracks_entities(conn)? {
+        return Ok(());
+    }
     let mut stmt = conn.prepare(
         "SELECT op_id FROM sync_applied_ops WHERE entity_type IS NULL OR entity_id IS NULL",
     )?;
@@ -1303,15 +1296,25 @@ fn op_belongs_to_schedule_thread(op: &SyncOp, schedule_thread_ids: &HashSet<Stri
 }
 
 fn mark_op_applied(conn: &Connection, op: &SyncOp) -> Result<(), SyncError> {
-    conn.execute("INSERT OR IGNORE INTO sync_applied_ops (op_id, device_id, seq, entity_type, entity_id, applied_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)", params![op.op_id, op.device_id, op.seq, op.entity_type, op.entity_id, now()])?;
+    if sync_applied_ops_tracks_entities(conn)? {
+        conn.execute("INSERT OR IGNORE INTO sync_applied_ops (op_id, device_id, seq, entity_type, entity_id, applied_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)", params![op.op_id, op.device_id, op.seq, op.entity_type, op.entity_id, now()])?;
+        conn.execute(
+            "UPDATE sync_applied_ops SET entity_type = COALESCE(entity_type, ?2), entity_id = COALESCE(entity_id, ?3) WHERE op_id = ?1",
+            params![op.op_id, op.entity_type, op.entity_id],
+        )?;
+        return Ok(());
+    }
     conn.execute(
-        "UPDATE sync_applied_ops SET entity_type = COALESCE(entity_type, ?2), entity_id = COALESCE(entity_id, ?3) WHERE op_id = ?1",
-        params![op.op_id, op.entity_type, op.entity_id],
+        "INSERT OR IGNORE INTO sync_applied_ops (op_id, device_id, seq, applied_at) VALUES (?1, ?2, ?3, ?4)",
+        params![op.op_id, op.device_id, op.seq, now()],
     )?;
     Ok(())
 }
 
 fn has_newer_applied_op_for_entity(conn: &Connection, op: &SyncOp) -> Result<bool, SyncError> {
+    if !sync_applied_ops_tracks_entities(conn)? {
+        return Ok(false);
+    }
     Ok(conn
         .query_row(
             "SELECT 1 FROM sync_applied_ops WHERE device_id = ?1 AND seq > ?2 AND entity_type = ?3 AND entity_id = ?4 LIMIT 1",
@@ -2796,6 +2799,72 @@ mod tests {
         assert_eq!(
             thread_title(home_b.path(), "t1").as_deref(),
             Some("New title")
+        );
+    }
+
+    #[test]
+    fn open_db_does_not_mutate_legacy_applied_ops_schema() {
+        let home = setup_home("config");
+        {
+            let conn = Connection::open(home.path().join(DB_FILE)).unwrap();
+            conn.execute(
+                "CREATE TABLE sync_applied_ops (op_id TEXT PRIMARY KEY, device_id TEXT NOT NULL, seq INTEGER NOT NULL, applied_at TEXT NOT NULL)",
+                [],
+            )
+            .unwrap();
+        }
+
+        let conn = open_db(home.path()).unwrap();
+        let columns = table_columns(&conn, "sync_applied_ops").unwrap();
+
+        assert!(!columns.contains("entity_type"));
+        assert!(!columns.contains("entity_id"));
+    }
+
+    #[test]
+    fn legacy_applied_ops_schema_imports_without_entity_columns() {
+        let sync = tempfile::tempdir().unwrap();
+        let home_b = setup_home("config-b");
+        {
+            let conn = Connection::open(home_b.path().join(DB_FILE)).unwrap();
+            conn.execute(
+                "CREATE TABLE sync_applied_ops (op_id TEXT PRIMARY KEY, device_id TEXT NOT NULL, seq INTEGER NOT NULL, applied_at TEXT NOT NULL)",
+                [],
+            )
+            .unwrap();
+        }
+        init_sync(home_b.path(), Some(sync.path()), "B").unwrap();
+        let op = make_op(
+            "remote-device",
+            1,
+            "thread.archive.upsert",
+            "thread",
+            "t1",
+            json!({"id": "t1", "title": "Imported title", "created_at": "1", "head_message_id": "m1"}),
+        )
+        .unwrap();
+        let op_id = op.op_id.clone();
+        write_ops_file(sync.path(), "remote-device", 1, &[op]);
+
+        let output = import_ops(home_b.path(), Some(sync.path())).unwrap();
+
+        assert_eq!(output.imported_ops, 1);
+        assert_eq!(
+            thread_title(home_b.path(), "t1").as_deref(),
+            Some("Imported title")
+        );
+        let conn = Connection::open(home_b.path().join(DB_FILE)).unwrap();
+        let columns = table_columns(&conn, "sync_applied_ops").unwrap();
+        assert!(!columns.contains("entity_type"));
+        assert!(!columns.contains("entity_id"));
+        assert_eq!(
+            conn.query_row(
+                "SELECT COUNT(*) FROM sync_applied_ops WHERE op_id = ?1",
+                [op_id],
+                |row| row.get::<_, i64>(0),
+            )
+            .unwrap(),
+            1
         );
     }
 
