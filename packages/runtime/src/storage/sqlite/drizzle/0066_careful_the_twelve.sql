@@ -1,0 +1,1 @@
+CREATE INDEX `sync_applied_ops_entity_seq_idx` ON `sync_applied_ops` (`device_id`,`entity_type`,`entity_id`,`seq`);

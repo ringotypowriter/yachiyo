@@ -2,7 +2,7 @@ use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::env;
 use std::fmt;
 use std::fs::{self, File};
@@ -13,9 +13,11 @@ use uuid::Uuid;
 
 const DB_FILE: &str = "yachiyo.sqlite";
 const SETTINGS_FILE: &str = "config.toml";
-const FORMAT_VERSION: u32 = 1;
+const FORMAT_VERSION: u32 = 2;
 const META_UNIVERSE: &str = "universe_id";
 const META_SETTINGS_HASH: &str = "settings_export_hash";
+const OPS_DIR_V1: &str = "ops";
+const OPS_DIR_V2: &str = "ops-v2";
 
 #[derive(Debug)]
 pub enum SyncError {
@@ -147,6 +149,11 @@ struct ImportFile {
     path: PathBuf,
     key: String,
     signature: ImportFileSignature,
+}
+
+struct ImportPlan {
+    files: Vec<ImportFile>,
+    backfill_paths: Vec<PathBuf>,
 }
 
 #[derive(Clone, Copy)]
@@ -298,6 +305,9 @@ fn settings_path(home: &Path) -> PathBuf {
 fn device_dir(sync_dir: &Path, device_id: &str) -> PathBuf {
     sync_dir.join("devices").join(device_id)
 }
+fn device_ops_dir(sync_dir: &Path, device_id: &str, ops_dir: &str) -> PathBuf {
+    device_dir(sync_dir, device_id).join(ops_dir)
+}
 
 fn open_db(home: &Path) -> Result<Connection, SyncError> {
     let conn = Connection::open(db_path(home))?;
@@ -311,14 +321,20 @@ fn open_db(home: &Path) -> Result<Connection, SyncError> {
     // safety net for standalone runs/tests. In production the migration wins.
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS sync_devices (device_id TEXT PRIMARY KEY, created_at TEXT NOT NULL, label TEXT NOT NULL);
-         CREATE TABLE IF NOT EXISTS sync_applied_ops (op_id TEXT PRIMARY KEY, device_id TEXT NOT NULL, seq INTEGER NOT NULL, applied_at TEXT NOT NULL);
+         CREATE TABLE IF NOT EXISTS sync_applied_ops (op_id TEXT PRIMARY KEY, device_id TEXT NOT NULL, seq INTEGER NOT NULL, entity_type TEXT, entity_id TEXT, applied_at TEXT NOT NULL);
          CREATE TABLE IF NOT EXISTS sync_imported_files (path TEXT PRIMARY KEY, size INTEGER NOT NULL, modified_millis INTEGER NOT NULL, imported_at TEXT NOT NULL);
+         CREATE TABLE IF NOT EXISTS sync_deferred_ops (op_id TEXT PRIMARY KEY, device_id TEXT NOT NULL, seq INTEGER NOT NULL, entity_type TEXT NOT NULL, entity_id TEXT NOT NULL, op_json TEXT NOT NULL, deferred_at TEXT NOT NULL);
          CREATE TABLE IF NOT EXISTS sync_skipped_schedule_threads (thread_id TEXT PRIMARY KEY, recorded_at TEXT NOT NULL);
          CREATE TABLE IF NOT EXISTS sync_conflicts (id TEXT PRIMARY KEY, op_id TEXT NOT NULL, device_id TEXT NOT NULL, entity_type TEXT NOT NULL, entity_id TEXT NOT NULL, local_hash TEXT NOT NULL, remote_hash TEXT NOT NULL, payload_json TEXT NOT NULL, created_at TEXT NOT NULL, resolved_at TEXT, resolution TEXT);
          CREATE TABLE IF NOT EXISTS sync_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);"
     )?;
     ensure_change_tracking(&conn)?;
     Ok(conn)
+}
+
+fn sync_applied_ops_tracks_entities(conn: &Connection) -> Result<bool, SyncError> {
+    let columns = table_columns(conn, "sync_applied_ops")?;
+    Ok(columns.contains("entity_type") && columns.contains("entity_id"))
 }
 
 /// Install incremental change capture: a `sync_dirty` queue plus AFTER INSERT/UPDATE
@@ -344,7 +360,10 @@ fn ensure_change_tracking(conn: &Connection) -> Result<(), SyncError> {
              BEGIN INSERT OR REPLACE INTO sync_dirty (entity_type, entity_id) VALUES ('thread', NEW.id); END;
              CREATE TRIGGER IF NOT EXISTS sync_dirty_threads_au AFTER UPDATE ON threads
              WHEN NEW.sync_origin_device_id IS NULL
-             BEGIN INSERT OR REPLACE INTO sync_dirty (entity_type, entity_id) VALUES ('thread', NEW.id); END;",
+             BEGIN INSERT OR REPLACE INTO sync_dirty (entity_type, entity_id) VALUES ('thread', NEW.id); END;
+             CREATE TRIGGER IF NOT EXISTS sync_dirty_threads_ad AFTER DELETE ON threads
+             WHEN OLD.sync_origin_device_id IS NULL
+             BEGIN INSERT OR REPLACE INTO sync_dirty (entity_type, entity_id) VALUES ('thread', OLD.id); END;",
         )?;
     }
     if table_exists(conn, "messages")? {
@@ -354,7 +373,10 @@ fn ensure_change_tracking(conn: &Connection) -> Result<(), SyncError> {
              BEGIN INSERT OR REPLACE INTO sync_dirty (entity_type, entity_id) VALUES ('message', NEW.id); END;
              CREATE TRIGGER IF NOT EXISTS sync_dirty_messages_au AFTER UPDATE ON messages
              WHEN (SELECT sync_origin_device_id FROM threads WHERE id = NEW.thread_id) IS NULL
-             BEGIN INSERT OR REPLACE INTO sync_dirty (entity_type, entity_id) VALUES ('message', NEW.id); END;",
+             BEGIN INSERT OR REPLACE INTO sync_dirty (entity_type, entity_id) VALUES ('message', NEW.id); END;
+             CREATE TRIGGER IF NOT EXISTS sync_dirty_messages_ad AFTER DELETE ON messages
+             WHEN (SELECT sync_origin_device_id FROM threads WHERE id = OLD.thread_id) IS NULL
+             BEGIN INSERT OR REPLACE INTO sync_dirty (entity_type, entity_id) VALUES ('message', OLD.id); END;",
         )?;
     }
     if table_exists(conn, "tool_calls")? {
@@ -364,7 +386,10 @@ fn ensure_change_tracking(conn: &Connection) -> Result<(), SyncError> {
              BEGIN INSERT OR REPLACE INTO sync_dirty (entity_type, entity_id) VALUES ('toolcall', NEW.id); END;
              CREATE TRIGGER IF NOT EXISTS sync_dirty_tool_calls_au AFTER UPDATE ON tool_calls
              WHEN (SELECT sync_origin_device_id FROM threads WHERE id = NEW.thread_id) IS NULL
-             BEGIN INSERT OR REPLACE INTO sync_dirty (entity_type, entity_id) VALUES ('toolcall', NEW.id); END;",
+             BEGIN INSERT OR REPLACE INTO sync_dirty (entity_type, entity_id) VALUES ('toolcall', NEW.id); END;
+             CREATE TRIGGER IF NOT EXISTS sync_dirty_tool_calls_ad AFTER DELETE ON tool_calls
+             WHEN (SELECT sync_origin_device_id FROM threads WHERE id = OLD.thread_id) IS NULL
+             BEGIN INSERT OR REPLACE INTO sync_dirty (entity_type, entity_id) VALUES ('toolcall', OLD.id); END;",
         )?;
     }
     Ok(())
@@ -460,6 +485,13 @@ fn read_universe(sync_dir: &Path) -> Result<Option<Universe>, SyncError> {
     }
 }
 
+fn write_universe(sync_dir: &Path, universe: &Universe) -> Result<(), SyncError> {
+    atomic_write(
+        &sync_dir.join("universe.json"),
+        &serde_json::to_string_pretty(universe)?,
+    )
+}
+
 /// Resolve the universe this device belongs to. Records the joined universe id
 /// locally on first contact and refuses to operate when the sync dir's universe
 /// id no longer matches it (the "two universes" split the plan warns about).
@@ -470,7 +502,13 @@ fn ensure_universe(
 ) -> Result<String, SyncError> {
     let local = get_meta(conn, META_UNIVERSE)?;
     match read_universe(sync_dir)? {
-        Some(universe) => {
+        Some(mut universe) => {
+            if universe.format_version > FORMAT_VERSION {
+                return Err(SyncError::Message(format!(
+                    "Sync directory requires format version {}, but this sync-core supports {}.",
+                    universe.format_version, FORMAT_VERSION
+                )));
+            }
             match &local {
                 Some(local_id) if local_id != &universe.universe_id => {
                     return Err(SyncError::UniverseMismatch {
@@ -480,6 +518,10 @@ fn ensure_universe(
                 }
                 Some(_) => {}
                 None => set_meta(conn, META_UNIVERSE, &universe.universe_id)?,
+            }
+            if universe.format_version < FORMAT_VERSION {
+                universe.format_version = FORMAT_VERSION;
+                write_universe(sync_dir, &universe)?;
             }
             Ok(universe.universe_id)
         }
@@ -492,10 +534,7 @@ fn ensure_universe(
                 created_at: now(),
                 format_version: FORMAT_VERSION,
             };
-            atomic_write(
-                &sync_dir.join("universe.json"),
-                &serde_json::to_string_pretty(&universe)?,
-            )?;
+            write_universe(sync_dir, &universe)?;
             set_meta(conn, META_UNIVERSE, &universe.universe_id)?;
             Ok(universe.universe_id)
         }
@@ -578,7 +617,8 @@ pub fn init_sync(
     let conn = open_db(home)?;
     ensure_universe(&conn, &sync_dir, true)?;
     let device_id = get_or_create_device(&conn, device_label)?;
-    fs::create_dir_all(device_dir(&sync_dir, &device_id).join("ops"))?;
+    fs::create_dir_all(device_ops_dir(&sync_dir, &device_id, OPS_DIR_V1))?;
+    fs::create_dir_all(device_ops_dir(&sync_dir, &device_id, OPS_DIR_V2))?;
     let label = get_device_label(&conn, &device_id)?;
     // Don't reset export progress if this device already published before.
     let existing = read_manifest(&sync_dir, &device_id);
@@ -620,6 +660,17 @@ fn write_manifest(
     )
 }
 
+fn refresh_local_manifest(sync_dir: &Path, device_id: &str, label: &str) -> Result<(), SyncError> {
+    let existing = read_manifest(sync_dir, device_id);
+    let published_seq = next_export_seq(sync_dir, device_id)? - 1;
+    let seq = existing
+        .as_ref()
+        .map(|manifest| manifest.last_exported_seq.max(published_seq))
+        .unwrap_or(published_seq);
+    let exported_at = existing.and_then(|manifest| manifest.last_exported_at);
+    write_manifest(sync_dir, device_id, label, seq, exported_at)
+}
+
 fn read_manifest(sync_dir: &Path, device_id: &str) -> Option<Manifest> {
     let text = fs::read_to_string(device_dir(sync_dir, device_id).join("manifest.json")).ok()?;
     serde_json::from_str(&text).ok()
@@ -635,6 +686,7 @@ pub fn export_ops(
     let device_id = get_device(&conn)?
         .ok_or_else(|| SyncError::Message("device is not initialized".to_string()))?;
     let label = get_device_label(&conn, &device_id)?;
+    refresh_local_manifest(&sync_dir, &device_id, &label)?;
     let exported_at = now();
     let seq = next_export_seq(&sync_dir, &device_id)?;
 
@@ -646,10 +698,14 @@ pub fn export_ops(
         backfill_dirty(&conn)?;
     }
 
-    let ops_path = device_dir(&sync_dir, &device_id)
-        .join("ops")
+    let ops_v1_path = device_dir(&sync_dir, &device_id)
+        .join(OPS_DIR_V1)
         .join(format!("{seq:016}.jsonl"));
-    let mut ops = OpsFileWriter::create(&ops_path)?;
+    let ops_v2_path = device_dir(&sync_dir, &device_id)
+        .join(OPS_DIR_V2)
+        .join(format!("{seq:016}.jsonl"));
+    let mut ops_v1 = OpsFileWriter::create(&ops_v1_path)?;
+    let mut ops_v2 = OpsFileWriter::create(&ops_v2_path)?;
     let settings_text = fs::read_to_string(settings_path(home))
         .ok()
         .map(|text| strip_local_only_settings_tables(&text));
@@ -664,7 +720,7 @@ pub fn export_ops(
         if let Some(text) = &settings_text {
             let payload =
                 json!({ "text": text, "baseHash": hash_text(""), "contentHash": hash_text(text) });
-            ops.write_op(&make_op(
+            ops_v1.write_op(&make_op(
                 &device_id,
                 seq,
                 "settings.snapshot",
@@ -675,18 +731,36 @@ pub fn export_ops(
         }
     }
 
-    let high_water = export_dirty_ops(&conn, &device_id, seq, |op| ops.write_op(&op))?;
+    let processed_dirty = export_dirty_ops(&conn, &device_id, seq, |op| {
+        if op_requires_v2_dir(&op) {
+            ops_v2.write_op(&op)
+        } else {
+            ops_v1.write_op(&op)
+        }
+    })?;
 
     // Publish a delta file only when there's something to ship. An empty `ops`
     // here means the queue held only skippable rows (deleted before export, or
     // synced archives) — we still clear them below so create/delete churn can't
     // accumulate.
-    let exported_count = ops.count;
+    let ops_v1_count = ops_v1.count;
+    let ops_v2_count = ops_v2.count;
+    let exported_count = ops_v1_count + ops_v2_count;
     let last_exported_at = if exported_count == 0 {
-        ops.discard()?;
+        ops_v1.discard()?;
+        ops_v2.discard()?;
         None
     } else {
-        ops.commit()?;
+        if ops_v1_count == 0 {
+            ops_v1.discard()?;
+        } else {
+            ops_v1.commit()?;
+        }
+        if ops_v2_count == 0 {
+            ops_v2.discard()?;
+        } else {
+            ops_v2.commit()?;
+        }
         write_manifest(
             &sync_dir,
             &device_id,
@@ -702,11 +776,10 @@ pub fn export_ops(
         Some(exported_at)
     };
 
-    // Clear every dirty row we processed (emitted or skipped) up to the high-water
-    // mark — but only after any publish above succeeded, so a failed write is
-    // retried. Rows re-dirtied concurrently kept a higher seq and survive.
-    if let Some(high_water) = high_water {
-        conn.execute("DELETE FROM sync_dirty WHERE seq <= ?1", [high_water])?;
+    // Clear every dirty row we processed (emitted or intentionally skipped) only
+    // after publish succeeds. Tombstones waiting for old peers stay queued.
+    for dirty_seq in processed_dirty {
+        conn.execute("DELETE FROM sync_dirty WHERE seq = ?1", [dirty_seq])?;
     }
 
     output(
@@ -743,6 +816,13 @@ fn make_op(
     })
 }
 
+fn op_requires_v2_dir(op: &SyncOp) -> bool {
+    matches!(
+        op.kind.as_str(),
+        "thread.archive.delete" | "message.archive.delete" | "toolcall.archive.delete"
+    )
+}
+
 fn is_non_null_field(payload: &Value, field: &str) -> bool {
     payload.get(field).is_some_and(|value| !value.is_null())
 }
@@ -772,53 +852,75 @@ fn child_belongs_to_non_exportable_thread(
 /// Content fingerprint of an export, independent of op_id / seq / timestamps, so
 /// an unchanged settings+threads snapshot yields the same value every time. Used
 /// to skip re-exporting identical data on every auto-sync cycle.
-/// Drain the dirty queue into upsert ops. Returns the highest `sync_dirty.seq`
-/// seen (the high-water mark the caller deletes up to), or None if the queue was
-/// empty. Rows that were deleted before export, or that belong to imported
-/// archives, are skipped but still cleared.
+/// Drain the dirty queue into upsert/delete ops. Returns dirty sequence ids that
+/// were emitted or intentionally skipped and can be cleared after publish.
 fn export_dirty_ops(
     conn: &Connection,
     device_id: &str,
     seq: i64,
     mut emit: impl FnMut(SyncOp) -> Result<(), SyncError>,
-) -> Result<Option<i64>, SyncError> {
+) -> Result<Vec<i64>, SyncError> {
     let mut stmt =
         conn.prepare("SELECT seq, entity_type, entity_id FROM sync_dirty ORDER BY seq ASC")?;
     let dirty: Vec<(i64, String, String)> = stmt
         .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?
         .collect::<Result<_, _>>()?;
-    let mut high_water: Option<i64> = None;
+    let mut processed = Vec::new();
     for (dirty_seq, entity_type, entity_id) in dirty {
-        // Track every row we've seen so the caller clears it, even when skipped.
-        high_water = Some(high_water.map_or(dirty_seq, |m| m.max(dirty_seq)));
-        let (table, kind) = match entity_type.as_str() {
-            "thread" => ("threads", "thread.archive.upsert"),
-            "message" => ("messages", "message.archive.upsert"),
-            "toolcall" => ("tool_calls", "toolcall.archive.upsert"),
+        let (table, upsert_kind, delete_kind) = match entity_type.as_str() {
+            "thread" => ("threads", "thread.archive.upsert", "thread.archive.delete"),
+            "message" => (
+                "messages",
+                "message.archive.upsert",
+                "message.archive.delete",
+            ),
+            "toolcall" => (
+                "tool_calls",
+                "toolcall.archive.upsert",
+                "toolcall.archive.delete",
+            ),
             _ => continue,
         };
         if !table_exists(conn, table)? {
+            processed.push(dirty_seq);
             continue;
         }
         let Some(mut payload) = fetch_row_json(conn, table, &entity_id)? else {
-            continue; // deleted before export — v1 doesn't propagate deletions
+            emit(make_op(
+                device_id,
+                seq,
+                delete_kind,
+                &entity_type,
+                &entity_id,
+                json!({ "id": entity_id }),
+            )?)?;
+            processed.push(dirty_seq);
+            continue;
         };
         // Defense in depth: never export threads that are not part of the normal
         // cross-device archive. Imported archives are read-only mirrors, and
         // schedule-created run threads are device-local history entries.
         if entity_type == "thread" && thread_payload_should_not_export(&payload) {
+            processed.push(dirty_seq);
             continue;
         }
         if entity_type != "thread" && child_belongs_to_non_exportable_thread(conn, &payload)? {
+            processed.push(dirty_seq);
             continue;
         }
-        // Skip empty threads: a freshly created "New Chat" with no messages carries
-        // nothing worth mirroring, and syncing it strands a read-only blank archive
-        // on the peer that can also hijack its new-chat slot. Emptiness is read from
-        // the same payload we'd serialize (head_message_id is set atomically with the
-        // first message), so a message committing mid-export can't strand a stale
-        // blank row — the thread re-dirties and exports with its head set next cycle.
+        // Empty local threads export as delete tombstones. Fresh "New Chat" rows
+        // become harmless no-ops on peers, while a thread emptied by deleting its
+        // last message clears the previously imported archive row.
         if entity_type == "thread" && payload.get("head_message_id").is_none_or(|v| v.is_null()) {
+            emit(make_op(
+                device_id,
+                seq,
+                delete_kind,
+                &entity_type,
+                &entity_id,
+                json!({ "id": entity_id }),
+            )?)?;
+            processed.push(dirty_seq);
             continue;
         }
         // Drop the heaviest message column from the archive. `response_messages` is
@@ -835,13 +937,14 @@ fn export_dirty_ops(
         emit(make_op(
             device_id,
             seq,
-            kind,
+            upsert_kind,
             &entity_type,
             &entity_id,
             payload,
         )?)?;
+        processed.push(dirty_seq);
     }
-    Ok(high_water)
+    Ok(processed)
 }
 
 /// Message columns dropped from the read-only archive export. `response_messages`
@@ -866,14 +969,16 @@ fn fetch_row_json(conn: &Connection, table: &str, id: &str) -> Result<Option<Val
 }
 
 fn next_export_seq(sync_dir: &Path, device_id: &str) -> Result<i64, SyncError> {
-    let ops_dir = device_dir(sync_dir, device_id).join("ops");
-    fs::create_dir_all(&ops_dir)?;
     let mut max_seq = 0;
-    for entry in fs::read_dir(ops_dir)? {
-        let entry = entry?;
-        let name = entry.file_name().to_string_lossy().to_string();
-        if let Some(stem) = name.strip_suffix(".jsonl") {
-            max_seq = max_seq.max(stem.parse::<i64>().unwrap_or(0));
+    for ops_dir_name in [OPS_DIR_V1, OPS_DIR_V2] {
+        let ops_dir = device_ops_dir(sync_dir, device_id, ops_dir_name);
+        fs::create_dir_all(&ops_dir)?;
+        for entry in fs::read_dir(ops_dir)? {
+            let entry = entry?;
+            let name = entry.file_name().to_string_lossy().to_string();
+            if let Some(stem) = name.strip_suffix(".jsonl") {
+                max_seq = max_seq.max(stem.parse::<i64>().unwrap_or(0));
+            }
         }
     }
     Ok(max_seq + 1)
@@ -934,14 +1039,26 @@ pub fn import_ops(
     let conn = open_db(home)?;
     ensure_universe(&conn, &sync_dir, false)?;
     let local_device = get_device(&conn)?.unwrap_or_default();
+    if !local_device.is_empty() {
+        let label = get_device_label(&conn, &local_device)?;
+        refresh_local_manifest(&sync_dir, &local_device, &label)?;
+    }
     let paths = op_files(&sync_dir)?;
-    let files = import_files_to_scan(&conn, &sync_dir, paths, &local_device)?;
+    let plan = import_files_to_scan(&conn, &sync_dir, paths, &local_device)?;
+    backfill_applied_op_entities(&conn, &plan.backfill_paths)?;
     let mut schedule_thread_ids = load_skipped_schedule_thread_ids(&conn)?;
-    schedule_thread_ids.extend(schedule_created_thread_ids_in_ops(&files)?);
+    schedule_thread_ids.extend(schedule_created_thread_ids_in_ops(&plan.files)?);
     let mut imported = 0;
     let mut transient_error: Option<String> = None;
-    for file in files {
-        let mut file_complete = true;
+    let mut blocked_devices = HashSet::new();
+    for file in plan.files {
+        let file_device = import_key_device_seq(&file.key).map(|(device_id, _)| device_id);
+        if file_device
+            .as_ref()
+            .is_some_and(|device_id| blocked_devices.contains(device_id))
+        {
+            continue;
+        }
         // A file that fails to read is likely still downloading from iCloud:
         // skip it (don't record it as applied) and report a transient error.
         let result = for_each_op_in_file(&file.path, |op| {
@@ -949,23 +1066,37 @@ pub fn import_ops(
             // crash mid-import can never leave an op half-applied.
             let tx = conn.unchecked_transaction()?;
             let outcome = apply_op(home, &tx, &op, &schedule_thread_ids)?;
-            tx.commit()?;
             match outcome {
-                ApplyOutcome::Counted => imported += 1,
-                ApplyOutcome::Skipped => {}
-                ApplyOutcome::Deferred => file_complete = false,
+                ApplyOutcome::Counted => {
+                    clear_deferred_op(&tx, &op.op_id)?;
+                    imported += 1;
+                }
+                ApplyOutcome::Skipped => clear_deferred_op(&tx, &op.op_id)?,
+                ApplyOutcome::Deferred => record_deferred_op(&tx, &op)?,
             }
+            tx.commit()?;
             Ok(())
         });
         match result {
             Ok(()) => {
-                if file_complete {
-                    mark_import_file_complete(&conn, &file.key, file.signature)?;
-                }
+                mark_import_file_complete(&conn, &file.key, file.signature)?;
             }
             Err(SyncError::Io(error)) => {
+                if let Some(device_id) = file_device {
+                    blocked_devices.insert(device_id);
+                }
                 transient_error = Some(format!(
                     "Could not read {} (still downloading?): {error}",
+                    file.path.display()
+                ));
+                continue;
+            }
+            Err(SyncError::Json(error)) => {
+                if let Some(device_id) = file_device {
+                    blocked_devices.insert(device_id);
+                }
+                transient_error = Some(format!(
+                    "Could not parse {} (still downloading?): {error}",
                     file.path.display()
                 ));
                 continue;
@@ -975,6 +1106,7 @@ pub fn import_ops(
             }
         }
     }
+    retry_deferred_ops(home, &conn, &schedule_thread_ids, &mut imported)?;
     let last_imported_at = if imported > 0 { Some(now()) } else { None };
     output(
         home,
@@ -989,19 +1121,36 @@ pub fn import_ops(
     )
 }
 
-/// True when `path` lives under `sync_dir/devices/<device_id>/...`. Component-based
-/// so it works regardless of the platform path separator.
-fn path_belongs_to_device(path: &Path, device_id: &str) -> bool {
-    if device_id.is_empty() {
-        return false;
+fn backfill_applied_op_entities(conn: &Connection, paths: &[PathBuf]) -> Result<(), SyncError> {
+    if !sync_applied_ops_tracks_entities(conn)? {
+        return Ok(());
     }
-    let components: Vec<String> = path
-        .components()
-        .map(|c| c.as_os_str().to_string_lossy().to_string())
-        .collect();
-    components
-        .windows(2)
-        .any(|pair| pair[0] == "devices" && pair[1] == device_id)
+    let mut stmt = conn.prepare(
+        "SELECT op_id FROM sync_applied_ops WHERE entity_type IS NULL OR entity_id IS NULL",
+    )?;
+    let missing = stmt
+        .query_map([], |row| row.get::<_, String>(0))?
+        .collect::<Result<HashSet<String>, _>>()?;
+    if missing.is_empty() {
+        return Ok(());
+    }
+    for path in paths {
+        let result = for_each_op_in_file(path, |op| {
+            if missing.contains(&op.op_id) {
+                conn.execute(
+                    "UPDATE sync_applied_ops SET entity_type = ?2, entity_id = ?3 WHERE op_id = ?1",
+                    params![op.op_id, op.entity_type, op.entity_id],
+                )?;
+            }
+            Ok(())
+        });
+        match result {
+            Ok(()) => {}
+            Err(SyncError::Io(_)) => continue,
+            Err(error) => return Err(error),
+        }
+    }
+    Ok(())
 }
 
 fn op_files(sync_dir: &Path) -> Result<Vec<PathBuf>, SyncError> {
@@ -1011,18 +1160,25 @@ fn op_files(sync_dir: &Path) -> Result<Vec<PathBuf>, SyncError> {
         return Ok(files);
     }
     for device in fs::read_dir(devices)? {
-        let ops = device?.path().join("ops");
-        if !ops.exists() {
-            continue;
-        }
-        for entry in fs::read_dir(ops)? {
-            let path = entry?.path();
-            if path.extension().and_then(|e| e.to_str()) == Some("jsonl") {
-                files.push(path);
+        let device_path = device?.path();
+        for ops_dir_name in [OPS_DIR_V1, OPS_DIR_V2] {
+            let ops = device_path.join(ops_dir_name);
+            if !ops.exists() {
+                continue;
+            }
+            for entry in fs::read_dir(ops)? {
+                let path = entry?.path();
+                if path.extension().and_then(|e| e.to_str()) == Some("jsonl") {
+                    files.push(path);
+                }
             }
         }
     }
-    files.sort();
+    files.sort_by_key(|path| {
+        import_file_device_seq(sync_dir, path)
+            .map(|(device_id, seq)| (device_id, seq))
+            .unwrap_or_else(|| (path.display().to_string(), i64::MAX))
+    });
     Ok(files)
 }
 
@@ -1031,15 +1187,35 @@ fn import_files_to_scan(
     sync_dir: &Path,
     paths: Vec<PathBuf>,
     local_device: &str,
-) -> Result<Vec<ImportFile>, SyncError> {
+) -> Result<ImportPlan, SyncError> {
     let mut files = Vec::new();
+    let mut backfill_paths = Vec::new();
+    let mut next_seq_by_device: HashMap<String, i64> = HashMap::new();
     for path in paths {
-        if path_belongs_to_device(&path, local_device) {
+        let Some((device_id, seq)) = import_file_device_seq(sync_dir, &path) else {
+            continue;
+        };
+        if device_id == local_device {
+            continue;
+        }
+        let expected_seq = match next_seq_by_device.get(&device_id).copied() {
+            Some(seq) => seq,
+            None => {
+                let seq = next_import_seq(conn, &device_id)?;
+                next_seq_by_device.insert(device_id.clone(), seq);
+                seq
+            }
+        };
+        if seq > expected_seq {
             continue;
         }
         let signature = import_file_signature(&path)?;
         let key = import_file_key(sync_dir, &path);
         if import_file_is_complete(conn, &key, signature)? {
+            backfill_paths.push(path);
+            if seq == expected_seq {
+                next_seq_by_device.insert(device_id, expected_seq + 1);
+            }
             continue;
         }
         files.push(ImportFile {
@@ -1047,8 +1223,57 @@ fn import_files_to_scan(
             key,
             signature,
         });
+        if seq == expected_seq {
+            next_seq_by_device.insert(device_id, expected_seq + 1);
+        }
     }
-    Ok(files)
+    Ok(ImportPlan {
+        files,
+        backfill_paths,
+    })
+}
+
+fn import_file_device_seq(sync_dir: &Path, path: &Path) -> Option<(String, i64)> {
+    let relative = path.strip_prefix(sync_dir).ok()?;
+    let parts = relative
+        .components()
+        .map(|component| component.as_os_str().to_string_lossy().to_string())
+        .collect::<Vec<_>>();
+    if parts.len() != 4
+        || parts[0] != "devices"
+        || (parts[2] != OPS_DIR_V1 && parts[2] != OPS_DIR_V2)
+    {
+        return None;
+    }
+    let seq = parts[3].strip_suffix(".jsonl")?.parse::<i64>().ok()?;
+    Some((parts[1].clone(), seq))
+}
+
+fn import_key_device_seq(key: &str) -> Option<(String, i64)> {
+    let parts = key.split('/').collect::<Vec<_>>();
+    if parts.len() != 4
+        || parts[0] != "devices"
+        || (parts[2] != OPS_DIR_V1 && parts[2] != OPS_DIR_V2)
+    {
+        return None;
+    }
+    let seq = parts[3].strip_suffix(".jsonl")?.parse::<i64>().ok()?;
+    Some((parts[1].to_string(), seq))
+}
+
+fn next_import_seq(conn: &Connection, device_id: &str) -> Result<i64, SyncError> {
+    let mut stmt = conn.prepare("SELECT path FROM sync_imported_files")?;
+    let completed = stmt
+        .query_map([], |row| row.get::<_, String>(0))?
+        .filter_map(|row| row.ok())
+        .filter_map(|key| import_key_device_seq(&key))
+        .filter_map(|(key_device_id, seq)| (key_device_id == device_id).then_some(seq))
+        .collect::<HashSet<_>>();
+    let mut next = 1;
+    while completed.contains(&next) {
+        next += 1;
+    }
+    Ok(next)
 }
 
 fn import_file_key(sync_dir: &Path, path: &Path) -> String {
@@ -1101,6 +1326,61 @@ fn mark_import_file_complete(
     Ok(())
 }
 
+fn record_deferred_op(conn: &Connection, op: &SyncOp) -> Result<(), SyncError> {
+    conn.execute(
+        "INSERT INTO sync_deferred_ops (op_id, device_id, seq, entity_type, entity_id, op_json, deferred_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+         ON CONFLICT(op_id) DO UPDATE SET op_json = excluded.op_json, deferred_at = excluded.deferred_at",
+        params![
+            op.op_id,
+            op.device_id,
+            op.seq,
+            op.entity_type,
+            op.entity_id,
+            serde_json::to_string(op)?,
+            now()
+        ],
+    )?;
+    Ok(())
+}
+
+fn clear_deferred_op(conn: &Connection, op_id: &str) -> Result<(), SyncError> {
+    conn.execute("DELETE FROM sync_deferred_ops WHERE op_id = ?1", [op_id])?;
+    Ok(())
+}
+
+fn load_deferred_ops(conn: &Connection) -> Result<Vec<SyncOp>, SyncError> {
+    let mut stmt = conn.prepare("SELECT op_json FROM sync_deferred_ops ORDER BY device_id, seq")?;
+    let rows = stmt
+        .query_map([], |row| row.get::<_, String>(0))?
+        .collect::<Result<Vec<_>, _>>()?;
+    rows.into_iter()
+        .map(|text| serde_json::from_str(&text).map_err(SyncError::Json))
+        .collect()
+}
+
+fn retry_deferred_ops(
+    home: &Path,
+    conn: &Connection,
+    schedule_thread_ids: &HashSet<String>,
+    imported: &mut usize,
+) -> Result<(), SyncError> {
+    for op in load_deferred_ops(conn)? {
+        let tx = conn.unchecked_transaction()?;
+        let outcome = apply_op(home, &tx, &op, schedule_thread_ids)?;
+        match outcome {
+            ApplyOutcome::Counted => {
+                clear_deferred_op(&tx, &op.op_id)?;
+                *imported += 1;
+            }
+            ApplyOutcome::Skipped => clear_deferred_op(&tx, &op.op_id)?,
+            ApplyOutcome::Deferred => record_deferred_op(&tx, &op)?,
+        }
+        tx.commit()?;
+    }
+    Ok(())
+}
+
 fn for_each_op_in_file(
     path: &Path,
     mut visit: impl FnMut(SyncOp) -> Result<(), SyncError>,
@@ -1134,7 +1414,7 @@ fn schedule_created_thread_ids_in_ops(files: &[ImportFile]) -> Result<HashSet<St
         });
         match result {
             Ok(()) => {}
-            Err(SyncError::Io(_)) => continue,
+            Err(SyncError::Io(_) | SyncError::Json(_)) => continue,
             Err(error) => {
                 return Err(error);
             }
@@ -1174,8 +1454,33 @@ fn op_belongs_to_schedule_thread(op: &SyncOp, schedule_thread_ids: &HashSet<Stri
 }
 
 fn mark_op_applied(conn: &Connection, op: &SyncOp) -> Result<(), SyncError> {
-    conn.execute("INSERT OR IGNORE INTO sync_applied_ops (op_id, device_id, seq, applied_at) VALUES (?1, ?2, ?3, ?4)", params![op.op_id, op.device_id, op.seq, now()])?;
+    if sync_applied_ops_tracks_entities(conn)? {
+        conn.execute("INSERT OR IGNORE INTO sync_applied_ops (op_id, device_id, seq, entity_type, entity_id, applied_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)", params![op.op_id, op.device_id, op.seq, op.entity_type, op.entity_id, now()])?;
+        conn.execute(
+            "UPDATE sync_applied_ops SET entity_type = COALESCE(entity_type, ?2), entity_id = COALESCE(entity_id, ?3) WHERE op_id = ?1",
+            params![op.op_id, op.entity_type, op.entity_id],
+        )?;
+        return Ok(());
+    }
+    conn.execute(
+        "INSERT OR IGNORE INTO sync_applied_ops (op_id, device_id, seq, applied_at) VALUES (?1, ?2, ?3, ?4)",
+        params![op.op_id, op.device_id, op.seq, now()],
+    )?;
     Ok(())
+}
+
+fn has_newer_applied_op_for_entity(conn: &Connection, op: &SyncOp) -> Result<bool, SyncError> {
+    if !sync_applied_ops_tracks_entities(conn)? {
+        return Ok(false);
+    }
+    Ok(conn
+        .query_row(
+            "SELECT 1 FROM sync_applied_ops WHERE device_id = ?1 AND seq > ?2 AND entity_type = ?3 AND entity_id = ?4 LIMIT 1",
+            params![op.device_id, op.seq, op.entity_type, op.entity_id],
+            |_| Ok(()),
+        )
+        .optional()?
+        .is_some())
 }
 
 fn apply_op(
@@ -1200,6 +1505,10 @@ fn apply_op(
     {
         return Ok(ApplyOutcome::Skipped);
     }
+    if has_newer_applied_op_for_entity(conn, op)? {
+        mark_op_applied(conn, op)?;
+        return Ok(ApplyOutcome::Skipped);
+    }
     if op_belongs_to_schedule_thread(op, schedule_thread_ids) {
         mark_op_applied(conn, op)?;
         return Ok(ApplyOutcome::Skipped);
@@ -1209,20 +1518,32 @@ fn apply_op(
         "thread.archive.upsert" => {
             insert_json_row(conn, "threads", &op.payload, Some((&op.device_id, now())))?
         }
+        "thread.archive.delete" => delete_imported_thread(conn, &op.entity_id, &op.device_id)?,
         "message.archive.upsert" => {
             if !parent_thread_exists(conn, &op.payload)? {
                 // Parent thread hasn't been imported yet; defer without marking
                 // applied so a later import (after the thread op arrives) retries.
                 return Ok(ApplyOutcome::Deferred);
             }
-            insert_json_row(conn, "messages", &op.payload, None)?
+            insert_json_row(conn, "messages", &op.payload, Some((&op.device_id, now())))?
+        }
+        "message.archive.delete" => {
+            delete_imported_child_row(conn, "messages", &op.entity_id, &op.device_id)?
         }
         "toolcall.archive.upsert" => {
             if !parent_thread_exists(conn, &op.payload)? {
                 // Same deferral as messages: wait until the owning thread exists.
                 return Ok(ApplyOutcome::Deferred);
             }
-            insert_json_row(conn, "tool_calls", &op.payload, None)?
+            insert_json_row(
+                conn,
+                "tool_calls",
+                &op.payload,
+                Some((&op.device_id, now())),
+            )?
+        }
+        "toolcall.archive.delete" => {
+            delete_imported_child_row(conn, "tool_calls", &op.entity_id, &op.device_id)?
         }
         _ => {}
     }
@@ -1245,6 +1566,106 @@ fn parent_thread_exists(conn: &Connection, payload: &Value) -> Result<bool, Sync
         })
         .optional()?
         .is_some())
+}
+
+fn thread_origin_matches(
+    conn: &Connection,
+    thread_id: &str,
+    device_id: &str,
+) -> Result<bool, SyncError> {
+    Ok(conn
+        .query_row(
+            "SELECT sync_origin_device_id FROM threads WHERE id = ?1",
+            [thread_id],
+            |row| row.get::<_, Option<String>>(0),
+        )
+        .optional()?
+        .flatten()
+        .is_some_and(|origin| origin == device_id))
+}
+
+fn child_origin_matches(
+    conn: &Connection,
+    table: &str,
+    id: &str,
+    device_id: &str,
+) -> Result<bool, SyncError> {
+    let thread_id = conn
+        .query_row(
+            &format!("SELECT thread_id FROM {table} WHERE id = ?1"),
+            [id],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()?;
+    match thread_id {
+        Some(thread_id) => thread_origin_matches(conn, &thread_id, device_id),
+        None => Ok(false),
+    }
+}
+
+fn payload_thread_origin_matches(
+    conn: &Connection,
+    payload: &Value,
+    device_id: &str,
+) -> Result<bool, SyncError> {
+    let thread_id = payload
+        .get("thread_id")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    if thread_id.is_empty() {
+        return Ok(false);
+    }
+    thread_origin_matches(conn, thread_id, device_id)
+}
+
+fn can_update_imported_row(
+    conn: &Connection,
+    table: &str,
+    id: &str,
+    payload: &Value,
+    device_id: &str,
+) -> Result<bool, SyncError> {
+    match table {
+        "threads" => thread_origin_matches(conn, id, device_id),
+        "messages" | "tool_calls" => payload_thread_origin_matches(conn, payload, device_id),
+        _ => Ok(false),
+    }
+}
+
+fn delete_imported_thread(
+    conn: &Connection,
+    thread_id: &str,
+    device_id: &str,
+) -> Result<(), SyncError> {
+    if !thread_origin_matches(conn, thread_id, device_id)? {
+        return Ok(());
+    }
+    conn.execute("DELETE FROM tool_calls WHERE thread_id = ?1", [thread_id])?;
+    conn.execute("DELETE FROM messages WHERE thread_id = ?1", [thread_id])?;
+    conn.execute(
+        "DELETE FROM threads WHERE id = ?1 AND sync_origin_device_id = ?2",
+        params![thread_id, device_id],
+    )?;
+    Ok(())
+}
+
+fn delete_imported_child_row(
+    conn: &Connection,
+    table: &str,
+    id: &str,
+    device_id: &str,
+) -> Result<(), SyncError> {
+    if !child_origin_matches(conn, table, id, device_id)? {
+        return Ok(());
+    }
+    if table == "messages" {
+        conn.execute(
+            "DELETE FROM tool_calls WHERE request_message_id = ?1 OR assistant_message_id = ?1",
+            [id],
+        )?;
+    }
+    conn.execute(&format!("DELETE FROM {table} WHERE id = ?1"), [id])?;
+    Ok(())
 }
 
 fn apply_settings(home: &Path, conn: &Connection, op: &SyncOp) -> Result<(), SyncError> {
@@ -1303,13 +1724,52 @@ fn insert_json_row(
             |row| row.get(0),
         )
         .optional()?;
+    let remote_device_id = remote.as_ref().map(|(device_id, _)| *device_id);
+    let local_columns = table_columns(conn, table)?;
     if exists.is_some() {
+        let Some(device_id) = remote_device_id else {
+            return Ok(());
+        };
+        if !can_update_imported_row(conn, table, id, payload, device_id)? {
+            return Ok(());
+        }
+        let mut columns: Vec<String> = object.keys().cloned().collect();
+        columns.retain(|name| {
+            name != "id"
+                && name != "sync_origin_device_id"
+                && name != "sync_imported_at"
+                && local_columns.contains(name)
+        });
+        let mut values: Vec<Value> = columns
+            .iter()
+            .map(|name| object.get(name).cloned().unwrap_or(Value::Null))
+            .collect();
+        if table == "threads" {
+            columns.push("sync_imported_at".to_string());
+            let (_, imported_at) = remote.unwrap();
+            values.push(json!(imported_at));
+        }
+        if columns.is_empty() {
+            return Ok(());
+        }
+        let assignments = columns
+            .iter()
+            .enumerate()
+            .map(|(index, name)| format!("{name} = ?{}", index + 1))
+            .collect::<Vec<_>>()
+            .join(", ");
+        values.push(json!(id));
+        let sql = format!(
+            "UPDATE {table} SET {assignments} WHERE id = ?{}",
+            values.len()
+        );
+        let params = rusqlite::params_from_iter(values.iter().map(json_to_sql));
+        conn.execute(&sql, params)?;
         return Ok(());
     }
     // Only insert columns that physically exist on the local table. A peer on a
     // newer schema may export extra columns (e.g. a future `model_id`); dropping
     // them keeps import forward-compatible instead of failing the whole sync.
-    let local_columns = table_columns(conn, table)?;
     let mut columns: Vec<String> = object.keys().cloned().collect();
     columns.retain(|name| {
         name != "sync_origin_device_id"
@@ -1545,16 +2005,31 @@ mod tests {
         get_device(&conn).unwrap().unwrap()
     }
 
+    fn set_manifest_format(sync_dir: &Path, device_id: &str, format_version: u32) {
+        let mut manifest = read_manifest(sync_dir, device_id).unwrap();
+        manifest.format_version = format_version;
+        atomic_write(
+            &device_dir(sync_dir, device_id).join("manifest.json"),
+            &serde_json::to_string_pretty(&manifest).unwrap(),
+        )
+        .unwrap();
+    }
+
     fn count_op_files(sync_dir: &Path, device_id: &str) -> usize {
-        let ops = device_dir(sync_dir, device_id).join("ops");
-        if !ops.exists() {
-            return 0;
-        }
-        fs::read_dir(ops)
-            .unwrap()
-            .filter_map(Result::ok)
-            .filter(|e| e.path().extension().and_then(|x| x.to_str()) == Some("jsonl"))
-            .count()
+        [OPS_DIR_V1, OPS_DIR_V2]
+            .into_iter()
+            .map(|ops_dir| {
+                let ops = device_ops_dir(sync_dir, device_id, ops_dir);
+                if !ops.exists() {
+                    return 0;
+                }
+                fs::read_dir(ops)
+                    .unwrap()
+                    .filter_map(Result::ok)
+                    .filter(|e| e.path().extension().and_then(|x| x.to_str()) == Some("jsonl"))
+                    .count()
+            })
+            .sum()
     }
 
     fn write_ops_file(sync_dir: &Path, device_id: &str, seq: i64, ops: &[SyncOp]) {
@@ -1581,9 +2056,7 @@ mod tests {
     }
 
     fn read_ops_file(sync_dir: &Path, device_id: &str, seq: i64) -> Vec<SyncOp> {
-        let path = device_dir(sync_dir, device_id)
-            .join("ops")
-            .join(format!("{seq:016}.jsonl"));
+        let path = op_file_path(sync_dir, device_id, seq);
         fs::read_to_string(path)
             .unwrap()
             .lines()
@@ -1592,10 +2065,61 @@ mod tests {
             .collect()
     }
 
+    fn read_op_file_lines(sync_dir: &Path, device_id: &str, seq: i64) -> Vec<String> {
+        let path = op_file_path(sync_dir, device_id, seq);
+        fs::read_to_string(path)
+            .unwrap()
+            .lines()
+            .map(str::to_string)
+            .collect()
+    }
+
+    fn op_file_path(sync_dir: &Path, device_id: &str, seq: i64) -> PathBuf {
+        let path = [OPS_DIR_V2, OPS_DIR_V1]
+            .into_iter()
+            .map(|ops_dir| {
+                device_ops_dir(sync_dir, device_id, ops_dir).join(format!("{seq:016}.jsonl"))
+            })
+            .find(|path| path.exists())
+            .unwrap();
+        path
+    }
+
     fn delete_message(home: &Path, message_id: &str) {
         let conn = Connection::open(home.join(DB_FILE)).unwrap();
         conn.execute("DELETE FROM messages WHERE id = ?1", params![message_id])
             .unwrap();
+    }
+
+    fn clear_thread_head(home: &Path, thread_id: &str) {
+        let conn = Connection::open(home.join(DB_FILE)).unwrap();
+        conn.execute(
+            "UPDATE threads SET head_message_id = NULL WHERE id = ?1",
+            params![thread_id],
+        )
+        .unwrap();
+    }
+
+    fn message_body(home: &Path, message_id: &str) -> Option<String> {
+        let conn = Connection::open(home.join(DB_FILE)).unwrap();
+        conn.query_row(
+            "SELECT body FROM messages WHERE id = ?1",
+            [message_id],
+            |r| r.get(0),
+        )
+        .optional()
+        .unwrap()
+    }
+
+    fn thread_title(home: &Path, thread_id: &str) -> Option<String> {
+        let conn = Connection::open(home.join(DB_FILE)).unwrap();
+        conn.query_row(
+            "SELECT title FROM threads WHERE id = ?1",
+            [thread_id],
+            |r| r.get(0),
+        )
+        .optional()
+        .unwrap()
     }
 
     fn count_dirty(home: &Path) -> i64 {
@@ -1696,6 +2220,37 @@ mod tests {
         assert_eq!(count_rows(home_b.path(), "threads"), 1);
     }
 
+    #[test]
+    fn ordinary_exports_remain_visible_in_v1_ops_dir() {
+        let sync = tempfile::tempdir().unwrap();
+        let home = setup_home("config-a");
+        seed_thread(home.path(), "t1", "m1");
+        init_sync(home.path(), Some(sync.path()), "A").unwrap();
+        let device = device_id_of(home.path());
+
+        export_ops(home.path(), Some(sync.path())).unwrap();
+
+        let legacy_path =
+            device_ops_dir(sync.path(), &device, OPS_DIR_V1).join("0000000000000001.jsonl");
+        let v2_path =
+            device_ops_dir(sync.path(), &device, OPS_DIR_V2).join("0000000000000001.jsonl");
+        assert!(
+            legacy_path.exists(),
+            "v1 peers must still see ordinary exports"
+        );
+        assert!(
+            !v2_path.exists(),
+            "v2-only files should be reserved for ops that old clients must not consume"
+        );
+        let kinds = fs::read_to_string(legacy_path)
+            .unwrap()
+            .lines()
+            .map(|line| serde_json::from_str::<SyncOp>(line).unwrap().kind)
+            .collect::<HashSet<_>>();
+        assert!(kinds.contains("thread.archive.upsert"));
+        assert!(kinds.contains("message.archive.upsert"));
+    }
+
     #[cfg(unix)]
     #[test]
     fn import_skips_cached_completed_ops_files() {
@@ -1714,9 +2269,7 @@ mod tests {
         assert_eq!(first.last_error, None);
 
         let device_a = device_id_of(home_a.path());
-        let path = device_dir(sync.path(), &device_a)
-            .join("ops")
-            .join("0000000000000001.jsonl");
+        let path = op_file_path(sync.path(), &device_a, 1);
         let original_permissions = fs::metadata(&path).unwrap().permissions();
         let mut unreadable_permissions = original_permissions.clone();
         unreadable_permissions.set_mode(0o000);
@@ -2182,28 +2735,509 @@ mod tests {
     }
 
     #[test]
+    fn imported_archive_updates_when_origin_reexports_row() {
+        let sync = tempfile::tempdir().unwrap();
+        let home_a = setup_home("config-a");
+        let home_b = setup_home("config-b");
+        seed_thread(home_a.path(), "t1", "m1");
+        init_sync(home_a.path(), Some(sync.path()), "A").unwrap();
+        init_sync(home_b.path(), Some(sync.path()), "B").unwrap();
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+        assert_eq!(message_body(home_b.path(), "m1").as_deref(), Some("hi"));
+
+        let conn_a = Connection::open(home_a.path().join(DB_FILE)).unwrap();
+        conn_a
+            .execute("UPDATE messages SET body = 'corrected' WHERE id = 'm1'", [])
+            .unwrap();
+
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+
+        assert_eq!(
+            message_body(home_b.path(), "m1").as_deref(),
+            Some("corrected")
+        );
+    }
+
+    #[test]
+    fn imported_archive_deletes_message_when_origin_deletes_message() {
+        let sync = tempfile::tempdir().unwrap();
+        let home_a = setup_home("config-a");
+        let home_b = setup_home("config-b");
+        seed_thread(home_a.path(), "t1", "m1");
+        init_sync(home_a.path(), Some(sync.path()), "A").unwrap();
+        init_sync(home_b.path(), Some(sync.path()), "B").unwrap();
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+        assert_eq!(count_rows(home_b.path(), "messages"), 1);
+
+        delete_message(home_a.path(), "m1");
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+
+        assert_eq!(count_rows(home_b.path(), "messages"), 0);
+    }
+
+    #[test]
+    fn deleting_last_message_removes_imported_archive_thread() {
+        let sync = tempfile::tempdir().unwrap();
+        let home_a = setup_home("config-a");
+        let home_b = setup_home("config-b");
+        seed_thread(home_a.path(), "t1", "m1");
+        init_sync(home_a.path(), Some(sync.path()), "A").unwrap();
+        init_sync(home_b.path(), Some(sync.path()), "B").unwrap();
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+        assert_eq!(count_rows(home_b.path(), "threads"), 1);
+
+        delete_message(home_a.path(), "m1");
+        clear_thread_head(home_a.path(), "t1");
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+
+        assert_eq!(count_rows(home_b.path(), "messages"), 0);
+        assert_eq!(count_rows(home_b.path(), "threads"), 0);
+    }
+
+    #[test]
+    fn older_remote_op_does_not_overwrite_newer_archive_row() {
+        let sync = tempfile::tempdir().unwrap();
+        let home_b = setup_home("config-b");
+        init_sync(home_b.path(), Some(sync.path()), "B").unwrap();
+        let newer = make_op(
+            "remote-device",
+            2,
+            "thread.archive.upsert",
+            "thread",
+            "t1",
+            json!({"id": "t1", "title": "New title", "created_at": "1", "head_message_id": "m1"}),
+        )
+        .unwrap();
+        write_ops_file(sync.path(), "remote-device", 2, &[newer]);
+
+        let first = import_ops(home_b.path(), Some(sync.path())).unwrap();
+        assert_eq!(
+            first.imported_ops, 0,
+            "seq 2 must wait until seq 1 is visible"
+        );
+        assert_eq!(count_rows(home_b.path(), "threads"), 0);
+
+        let older = make_op(
+            "remote-device",
+            1,
+            "thread.archive.upsert",
+            "thread",
+            "t1",
+            json!({"id": "t1", "title": "Old title", "created_at": "1", "head_message_id": "m1"}),
+        )
+        .unwrap();
+        write_ops_file(sync.path(), "remote-device", 1, &[older]);
+
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+
+        assert_eq!(
+            thread_title(home_b.path(), "t1").as_deref(),
+            Some("New title")
+        );
+    }
+
+    #[test]
+    fn older_unrelated_op_imports_after_newer_device_op_was_applied() {
+        let sync = tempfile::tempdir().unwrap();
+        let home_b = setup_home("config-b");
+        init_sync(home_b.path(), Some(sync.path()), "B").unwrap();
+        let newer = make_op(
+            "remote-device",
+            2,
+            "settings.snapshot",
+            "settings",
+            "config.toml",
+            json!({"text": "config-b", "baseHash": hash_text(""), "contentHash": hash_text("config-b")}),
+        )
+        .unwrap();
+        {
+            let conn = Connection::open(home_b.path().join(DB_FILE)).unwrap();
+            mark_op_applied(&conn, &newer).unwrap();
+        }
+        let older_unrelated = make_op(
+            "remote-device",
+            1,
+            "thread.archive.upsert",
+            "thread",
+            "t1",
+            json!({"id": "t1", "title": "Missing thread", "created_at": "1", "head_message_id": "m1"}),
+        )
+        .unwrap();
+        write_ops_file(sync.path(), "remote-device", 1, &[older_unrelated]);
+
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+
+        assert_eq!(
+            thread_title(home_b.path(), "t1").as_deref(),
+            Some("Missing thread")
+        );
+    }
+
+    #[test]
+    fn older_same_entity_op_does_not_replace_newer_applied_archive_row() {
+        let sync = tempfile::tempdir().unwrap();
+        let home_b = setup_home("config-b");
+        init_sync(home_b.path(), Some(sync.path()), "B").unwrap();
+        let newer = make_op(
+            "remote-device",
+            2,
+            "thread.archive.upsert",
+            "thread",
+            "t1",
+            json!({"id": "t1", "title": "New title", "created_at": "1", "head_message_id": "m1"}),
+        )
+        .unwrap();
+        {
+            let conn = Connection::open(home_b.path().join(DB_FILE)).unwrap();
+            insert_json_row(
+                &conn,
+                "threads",
+                &newer.payload,
+                Some((&newer.device_id, now())),
+            )
+            .unwrap();
+            mark_op_applied(&conn, &newer).unwrap();
+        }
+        let older = make_op(
+            "remote-device",
+            1,
+            "thread.archive.upsert",
+            "thread",
+            "t1",
+            json!({"id": "t1", "title": "Old title", "created_at": "1", "head_message_id": "m1"}),
+        )
+        .unwrap();
+        write_ops_file(sync.path(), "remote-device", 1, &[older]);
+
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+
+        assert_eq!(
+            thread_title(home_b.path(), "t1").as_deref(),
+            Some("New title")
+        );
+    }
+
+    #[test]
+    fn backfill_ignores_future_invalid_ops_file_until_sequence_is_eligible() {
+        let sync = tempfile::tempdir().unwrap();
+        let home_b = setup_home("config-b");
+        init_sync(home_b.path(), Some(sync.path()), "B").unwrap();
+        {
+            let conn = Connection::open(home_b.path().join(DB_FILE)).unwrap();
+            conn.execute(
+                "INSERT INTO sync_applied_ops (op_id, device_id, seq, applied_at) VALUES ('legacy-missing', 'remote-device', 2, '2')",
+                [],
+            )
+            .unwrap();
+        }
+        let current = make_op(
+            "remote-device",
+            1,
+            "thread.archive.upsert",
+            "thread",
+            "t1",
+            json!({"id": "t1", "title": "Current title", "created_at": "1", "head_message_id": "m1"}),
+        )
+        .unwrap();
+        write_ops_file(sync.path(), "remote-device", 1, &[current]);
+        let future_path = device_dir(sync.path(), "remote-device")
+            .join("ops")
+            .join("0000000000000003.jsonl");
+        fs::write(future_path, "{not json\n").unwrap();
+
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+
+        assert_eq!(
+            thread_title(home_b.path(), "t1").as_deref(),
+            Some("Current title")
+        );
+    }
+
+    #[test]
+    fn completed_in_window_file_backfills_legacy_applied_entity_metadata() {
+        let sync = tempfile::tempdir().unwrap();
+        let home_b = setup_home("config-b");
+        init_sync(home_b.path(), Some(sync.path()), "B").unwrap();
+        let newer = make_op(
+            "remote-device",
+            2,
+            "thread.archive.upsert",
+            "thread",
+            "t1",
+            json!({"id": "t1", "title": "New title", "created_at": "1", "head_message_id": "m1"}),
+        )
+        .unwrap();
+        write_ops_file(
+            sync.path(),
+            "remote-device",
+            2,
+            std::slice::from_ref(&newer),
+        );
+        let newer_path = device_dir(sync.path(), "remote-device")
+            .join("ops")
+            .join("0000000000000002.jsonl");
+        {
+            let conn = Connection::open(home_b.path().join(DB_FILE)).unwrap();
+            insert_json_row(
+                &conn,
+                "threads",
+                &newer.payload,
+                Some((&newer.device_id, now())),
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO sync_applied_ops (op_id, device_id, seq, applied_at) VALUES (?1, ?2, ?3, ?4)",
+                params![newer.op_id, newer.device_id, newer.seq, "2"],
+            )
+            .unwrap();
+            mark_import_file_complete(
+                &conn,
+                &import_file_key(sync.path(), &newer_path),
+                import_file_signature(&newer_path).unwrap(),
+            )
+            .unwrap();
+        }
+        let older = make_op(
+            "remote-device",
+            1,
+            "thread.archive.upsert",
+            "thread",
+            "t1",
+            json!({"id": "t1", "title": "Old title", "created_at": "1", "head_message_id": "m1"}),
+        )
+        .unwrap();
+        write_ops_file(sync.path(), "remote-device", 1, &[older]);
+
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+
+        assert_eq!(
+            thread_title(home_b.path(), "t1").as_deref(),
+            Some("New title")
+        );
+    }
+
+    #[test]
+    fn open_db_does_not_mutate_legacy_applied_ops_schema() {
+        let home = setup_home("config");
+        {
+            let conn = Connection::open(home.path().join(DB_FILE)).unwrap();
+            conn.execute(
+                "CREATE TABLE sync_applied_ops (op_id TEXT PRIMARY KEY, device_id TEXT NOT NULL, seq INTEGER NOT NULL, applied_at TEXT NOT NULL)",
+                [],
+            )
+            .unwrap();
+        }
+
+        let conn = open_db(home.path()).unwrap();
+        let columns = table_columns(&conn, "sync_applied_ops").unwrap();
+
+        assert!(!columns.contains("entity_type"));
+        assert!(!columns.contains("entity_id"));
+    }
+
+    #[test]
+    fn legacy_applied_ops_schema_imports_without_entity_columns() {
+        let sync = tempfile::tempdir().unwrap();
+        let home_b = setup_home("config-b");
+        {
+            let conn = Connection::open(home_b.path().join(DB_FILE)).unwrap();
+            conn.execute(
+                "CREATE TABLE sync_applied_ops (op_id TEXT PRIMARY KEY, device_id TEXT NOT NULL, seq INTEGER NOT NULL, applied_at TEXT NOT NULL)",
+                [],
+            )
+            .unwrap();
+        }
+        init_sync(home_b.path(), Some(sync.path()), "B").unwrap();
+        let op = make_op(
+            "remote-device",
+            1,
+            "thread.archive.upsert",
+            "thread",
+            "t1",
+            json!({"id": "t1", "title": "Imported title", "created_at": "1", "head_message_id": "m1"}),
+        )
+        .unwrap();
+        let op_id = op.op_id.clone();
+        write_ops_file(sync.path(), "remote-device", 1, &[op]);
+
+        let output = import_ops(home_b.path(), Some(sync.path())).unwrap();
+
+        assert_eq!(output.imported_ops, 1);
+        assert_eq!(
+            thread_title(home_b.path(), "t1").as_deref(),
+            Some("Imported title")
+        );
+        let conn = Connection::open(home_b.path().join(DB_FILE)).unwrap();
+        let columns = table_columns(&conn, "sync_applied_ops").unwrap();
+        assert!(!columns.contains("entity_type"));
+        assert!(!columns.contains("entity_id"));
+        assert_eq!(
+            conn.query_row(
+                "SELECT COUNT(*) FROM sync_applied_ops WHERE op_id = ?1",
+                [op_id],
+                |row| row.get::<_, i64>(0),
+            )
+            .unwrap(),
+            1
+        );
+    }
+
+    #[test]
     fn dirty_entries_for_deleted_rows_are_cleared() {
         let sync = tempfile::tempdir().unwrap();
         let home_a = setup_home("config-a");
         seed_thread(home_a.path(), "t1", "m1");
         init_sync(home_a.path(), Some(sync.path()), "A").unwrap();
+        let device = device_id_of(home_a.path());
         export_ops(home_a.path(), Some(sync.path())).unwrap();
         assert_eq!(count_dirty(home_a.path()), 0);
 
-        // Insert then delete a row before the next export: the trigger enqueued it,
-        // but it's gone by export time, so export emits nothing for it.
+        // Insert then delete a row before the next export: the same dirty entry
+        // turns into a delete tombstone. That is harmless for peers that never saw
+        // the row, and necessary for peers that imported an earlier version.
         insert_message(home_a.path(), "m2", "t1");
         delete_message(home_a.path(), "m2");
         assert_eq!(count_dirty(home_a.path()), 1, "trigger enqueued the insert");
 
-        // The export ships no ops — but it must still drain the stale entry instead
-        // of rescanning it forever (create/delete churn must not accumulate).
         let out = export_ops(home_a.path(), Some(sync.path())).unwrap();
-        assert_eq!(out.exported_ops, 0);
+        assert_eq!(out.exported_ops, 1);
+        let delta = read_ops_file(sync.path(), &device, 2);
+        assert_eq!(delta.len(), 1);
+        assert_eq!(delta[0].kind, "message.archive.delete");
+        assert_eq!(delta[0].entity_id, "m2");
         assert_eq!(
             count_dirty(home_a.path()),
             0,
-            "skipped rows must be cleared"
+            "exported tombstones must be cleared"
+        );
+    }
+
+    #[test]
+    fn exported_delete_file_remains_v1_readable() {
+        let sync = tempfile::tempdir().unwrap();
+        let home_a = setup_home("config-a");
+        let home_b = setup_home("config-b");
+        seed_thread(home_a.path(), "t1", "m1");
+        init_sync(home_a.path(), Some(sync.path()), "A").unwrap();
+        init_sync(home_b.path(), Some(sync.path()), "B").unwrap();
+        let device = device_id_of(home_a.path());
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+
+        insert_message(home_a.path(), "m2", "t1");
+        delete_message(home_a.path(), "m2");
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+
+        let lines = read_op_file_lines(sync.path(), &device, 2);
+        assert_eq!(lines.len(), 1);
+        let op: SyncOp = serde_json::from_str(&lines[0]).unwrap();
+        assert_eq!(op.kind, "message.archive.delete");
+        assert_eq!(op.entity_id, "m2");
+    }
+
+    #[test]
+    fn delete_tombstones_are_not_published_to_v1_ops_dir() {
+        let sync = tempfile::tempdir().unwrap();
+        let home_a = setup_home("config-a");
+        seed_thread(home_a.path(), "t1", "m1");
+        init_sync(home_a.path(), Some(sync.path()), "A").unwrap();
+        let device = device_id_of(home_a.path());
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+
+        insert_message(home_a.path(), "m2", "t1");
+        delete_message(home_a.path(), "m2");
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+
+        assert!(
+            !device_dir(sync.path(), &device)
+                .join("ops")
+                .join("0000000000000002.jsonl")
+                .exists(),
+            "v1 importers must not see delete tombstones as unknown applied ops"
+        );
+        let lines = fs::read_to_string(
+            device_dir(sync.path(), &device)
+                .join("ops-v2")
+                .join("0000000000000002.jsonl"),
+        )
+        .unwrap();
+        let op: SyncOp = serde_json::from_str(lines.trim()).unwrap();
+        assert_eq!(op.kind, "message.archive.delete");
+        assert_eq!(op.entity_id, "m2");
+    }
+
+    #[test]
+    fn delete_tombstone_with_known_v1_peer_uses_v2_ops_dir() {
+        let sync = tempfile::tempdir().unwrap();
+        let home_a = setup_home("config-a");
+        let home_b = setup_home("config-b");
+        seed_thread(home_a.path(), "t1", "m1");
+        init_sync(home_a.path(), Some(sync.path()), "A").unwrap();
+        init_sync(home_b.path(), Some(sync.path()), "B").unwrap();
+        let device_a = device_id_of(home_a.path());
+        let device_b = device_id_of(home_b.path());
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        set_manifest_format(sync.path(), &device_b, 1);
+
+        delete_message(home_a.path(), "m1");
+        clear_thread_head(home_a.path(), "t1");
+        let exported = export_ops(home_a.path(), Some(sync.path())).unwrap();
+
+        assert_eq!(exported.exported_ops, 2);
+        assert_eq!(count_dirty(home_a.path()), 0);
+        assert!(!device_ops_dir(sync.path(), &device_a, OPS_DIR_V1)
+            .join("0000000000000002.jsonl")
+            .exists());
+        let delta = read_ops_file(sync.path(), &device_a, 2);
+        let mut kinds = delta.iter().map(|op| op.kind.as_str()).collect::<Vec<_>>();
+        kinds.sort_unstable();
+        assert_eq!(
+            kinds,
+            vec!["message.archive.delete", "thread.archive.delete"]
+        );
+    }
+
+    #[test]
+    fn idle_upgraded_peer_refreshes_manifest_for_delete_tombstones() {
+        let sync = tempfile::tempdir().unwrap();
+        let home_a = setup_home("config-a");
+        let home_b = setup_home("config-b");
+        seed_thread(home_a.path(), "t1", "m1");
+        init_sync(home_a.path(), Some(sync.path()), "A").unwrap();
+        init_sync(home_b.path(), Some(sync.path()), "B").unwrap();
+        let device_a = device_id_of(home_a.path());
+        let device_b = device_id_of(home_b.path());
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        export_ops(home_b.path(), Some(sync.path())).unwrap();
+        set_manifest_format(sync.path(), &device_b, 1);
+
+        let idle = export_ops(home_b.path(), Some(sync.path())).unwrap();
+
+        assert_eq!(idle.exported_ops, 0);
+        assert_eq!(
+            read_manifest(sync.path(), &device_b)
+                .unwrap()
+                .format_version,
+            FORMAT_VERSION
+        );
+
+        delete_message(home_a.path(), "m1");
+        clear_thread_head(home_a.path(), "t1");
+        let exported = export_ops(home_a.path(), Some(sync.path())).unwrap();
+
+        assert_eq!(exported.exported_ops, 2);
+        assert_eq!(count_dirty(home_a.path()), 0);
+        let delta = read_ops_file(sync.path(), &device_a, 2);
+        let mut kinds = delta.iter().map(|op| op.kind.as_str()).collect::<Vec<_>>();
+        kinds.sort_unstable();
+        assert_eq!(
+            kinds,
+            vec!["message.archive.delete", "thread.archive.delete"]
         );
     }
 
@@ -2325,7 +3359,8 @@ mod tests {
 
         // iCloud (or the user) wiped this device's published ops, but the local DB
         // and its export fingerprint survive.
-        fs::remove_dir_all(device_dir(sync.path(), &device).join("ops")).unwrap();
+        fs::remove_dir_all(device_ops_dir(sync.path(), &device, OPS_DIR_V1)).unwrap();
+        fs::remove_dir_all(device_ops_dir(sync.path(), &device, OPS_DIR_V2)).unwrap();
         assert_eq!(count_op_files(sync.path(), &device), 0);
 
         // Unchanged settings must still republish so other devices can recover.
@@ -2406,6 +3441,121 @@ mod tests {
         let second = import_ops(home.path(), Some(sync.path())).unwrap();
         assert_eq!(second.imported_ops, 1);
         assert_eq!(count_rows(home.path(), "messages"), 1);
+    }
+
+    #[test]
+    fn orphan_child_op_does_not_block_later_device_files() {
+        let sync = tempfile::tempdir().unwrap();
+        let home = setup_home("config-b");
+        init_sync(home.path(), Some(sync.path()), "B").unwrap();
+        let orphan_op = make_op(
+            "remote-device",
+            1,
+            "message.archive.upsert",
+            "message",
+            "m1",
+            json!({"id": "m1", "thread_id": "deleted-thread", "body": "stale", "created_at": "1"}),
+        )
+        .unwrap();
+        let later_op = make_op(
+            "remote-device",
+            2,
+            "thread.archive.upsert",
+            "thread",
+            "t2",
+            json!({"id": "t2", "title": "Later", "created_at": "2", "head_message_id": null}),
+        )
+        .unwrap();
+        write_ops_file(sync.path(), "remote-device", 1, &[orphan_op]);
+        write_ops_file(sync.path(), "remote-device", 2, &[later_op]);
+
+        let output = import_ops(home.path(), Some(sync.path())).unwrap();
+
+        assert_eq!(output.imported_ops, 1);
+        assert_eq!(message_body(home.path(), "m1"), None);
+        assert_eq!(thread_title(home.path(), "t2").as_deref(), Some("Later"));
+    }
+
+    #[test]
+    fn unreadable_import_file_blocks_later_files_from_same_device() {
+        let sync = tempfile::tempdir().unwrap();
+        let home = setup_home("config-b");
+        init_sync(home.path(), Some(sync.path()), "B").unwrap();
+        let remote_ops_dir = device_dir(sync.path(), "remote-device").join("ops");
+        fs::create_dir_all(remote_ops_dir.join("0000000000000001.jsonl")).unwrap();
+        let second_op = make_op(
+            "remote-device",
+            2,
+            "thread.archive.upsert",
+            "thread",
+            "t2",
+            json!({"id": "t2", "title": "Second", "created_at": "2", "head_message_id": null}),
+        )
+        .unwrap();
+        write_ops_file(sync.path(), "remote-device", 2, &[second_op]);
+
+        let blocked = import_ops(home.path(), Some(sync.path())).unwrap();
+
+        assert_eq!(blocked.imported_ops, 0);
+        assert!(
+            blocked.last_error.is_some(),
+            "unreadable first file should surface a transient import error"
+        );
+        assert_eq!(thread_title(home.path(), "t2"), None);
+
+        fs::remove_dir_all(remote_ops_dir.join("0000000000000001.jsonl")).unwrap();
+        let first_op = make_op(
+            "remote-device",
+            1,
+            "thread.archive.upsert",
+            "thread",
+            "t1",
+            json!({"id": "t1", "title": "First", "created_at": "1", "head_message_id": null}),
+        )
+        .unwrap();
+        write_ops_file(sync.path(), "remote-device", 1, &[first_op]);
+
+        let imported = import_ops(home.path(), Some(sync.path())).unwrap();
+
+        assert_eq!(imported.imported_ops, 2);
+        assert_eq!(thread_title(home.path(), "t1").as_deref(), Some("First"));
+        assert_eq!(thread_title(home.path(), "t2").as_deref(), Some("Second"));
+    }
+
+    #[test]
+    fn metadata_backfill_does_not_parse_later_ineligible_file() {
+        let sync = tempfile::tempdir().unwrap();
+        let home = setup_home("config-b");
+        init_sync(home.path(), Some(sync.path()), "B").unwrap();
+        let conn = Connection::open(home.path().join(DB_FILE)).unwrap();
+        conn.execute(
+            "INSERT INTO sync_applied_ops (op_id, device_id, seq, applied_at) VALUES ('legacy-missing', 'remote-device', 0, 'old')",
+            [],
+        )
+        .unwrap();
+        let first_op = make_op(
+            "remote-device",
+            1,
+            "thread.archive.upsert",
+            "thread",
+            "t1",
+            json!({"id": "t1", "title": "First", "created_at": "1", "head_message_id": null}),
+        )
+        .unwrap();
+        write_ops_file(sync.path(), "remote-device", 1, &[first_op]);
+        let later_path = device_dir(sync.path(), "remote-device")
+            .join("ops")
+            .join("0000000000000002.jsonl");
+        fs::write(later_path, "{not-json\n").unwrap();
+
+        let output = import_ops(home.path(), Some(sync.path())).unwrap();
+
+        assert_eq!(output.imported_ops, 1);
+        assert!(
+            output.last_error.is_some(),
+            "the later truncated file should be reported as transient"
+        );
+        assert_eq!(thread_title(home.path(), "t1").as_deref(), Some("First"));
     }
 
     #[test]
@@ -2552,35 +3702,40 @@ mod tests {
         export_ops(home.path(), Some(sync.path())).unwrap();
 
         let device = device_id_of(home.path());
-        let ops_dir = device_dir(sync.path(), &device).join("ops");
         let mut message_op_seen = false;
-        for entry in fs::read_dir(&ops_dir).unwrap() {
-            let path = entry.unwrap().path();
-            if path.extension().and_then(|x| x.to_str()) != Some("jsonl") {
+        for ops_dir in [OPS_DIR_V1, OPS_DIR_V2] {
+            let ops_dir = device_ops_dir(sync.path(), &device, ops_dir);
+            if !ops_dir.exists() {
                 continue;
             }
-            for line in fs::read_to_string(&path).unwrap().lines() {
-                if line.trim().is_empty() {
+            for entry in fs::read_dir(&ops_dir).unwrap() {
+                let path = entry.unwrap().path();
+                if path.extension().and_then(|x| x.to_str()) != Some("jsonl") {
                     continue;
                 }
-                let op: SyncOp = serde_json::from_str(line).unwrap();
-                if op.kind == "message.archive.upsert" && op.entity_id == "m1" {
-                    message_op_seen = true;
-                    let obj = op.payload.as_object().unwrap();
-                    assert!(
-                        !obj.contains_key("response_messages"),
-                        "response_messages (raw transcript) must be stripped from the export"
-                    );
-                    assert_eq!(
-                        obj.get("turn_context").and_then(|v| v.as_str()),
-                        Some(r#"{"hint":"x"}"#),
-                        "turn_context must be KEPT (drives timeline grouping on archives)"
-                    );
-                    assert_eq!(
-                        obj.get("body").and_then(|v| v.as_str()),
-                        Some("hi"),
-                        "display columns must survive the strip"
-                    );
+                for line in fs::read_to_string(&path).unwrap().lines() {
+                    if line.trim().is_empty() {
+                        continue;
+                    }
+                    let op: SyncOp = serde_json::from_str(line).unwrap();
+                    if op.kind == "message.archive.upsert" && op.entity_id == "m1" {
+                        message_op_seen = true;
+                        let obj = op.payload.as_object().unwrap();
+                        assert!(
+                            !obj.contains_key("response_messages"),
+                            "response_messages (raw transcript) must be stripped from the export"
+                        );
+                        assert_eq!(
+                            obj.get("turn_context").and_then(|v| v.as_str()),
+                            Some(r#"{"hint":"x"}"#),
+                            "turn_context must be KEPT (drives timeline grouping on archives)"
+                        );
+                        assert_eq!(
+                            obj.get("body").and_then(|v| v.as_str()),
+                            Some("hi"),
+                            "display columns must survive the strip"
+                        );
+                    }
                 }
             }
         }
