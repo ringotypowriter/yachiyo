@@ -1987,3 +1987,135 @@ test('executeServerRun persists reasoning effort in recovery checkpoints', async
     await rm(root, { recursive: true, force: true })
   }
 })
+
+test('rapid preliminary tool updates do not write a recovery checkpoint per chunk', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'yachiyo-throttled-tool-checkpoints-'))
+  const thread: ThreadRecord = {
+    id: 'thread-throttled-checkpoints',
+    title: 'Thread',
+    workspacePath: root,
+    updatedAt: '2026-04-28T00:00:00.000Z'
+  }
+  const requestMessage: MessageRecord = {
+    id: 'msg-throttled-checkpoints',
+    threadId: thread.id,
+    role: 'user',
+    content: 'run a chatty command',
+    status: 'completed',
+    createdAt: '2026-04-28T00:00:00.000Z'
+  }
+  const events: unknown[] = []
+  let checkpointWrites = 0
+  const baseDeps = createRunContextDeps({
+    events,
+    messages: [requestMessage],
+    workspacePath: root
+  })
+  const storage: RunExecutionDeps['storage'] = {
+    ...baseDeps.storage,
+    updateMessage: () => {},
+    getChannelUser: () => undefined,
+    persistResponseMessagesRepairInBackground: () => {},
+    listThreadRuns: () => [],
+    upsertRunRecoveryCheckpoint: () => {
+      checkpointWrites++
+    },
+    deleteRunRecoveryCheckpoint: () => {},
+    createToolCall: () => {},
+    updateToolCall: () => {},
+    listThreadToolCalls: () => [],
+    completeRun: () => {},
+    cancelRun: () => {},
+    failRun: () => {},
+    saveThreadMessage: () => {},
+    updateRunSnapshot: () => {}
+  }
+  const preliminaryUpdateCount = 40
+  const deps: RunExecutionDeps = {
+    ...baseDeps,
+    storage,
+    createModelRuntime: () => ({
+      streamReply: async function* (request) {
+        const toolCall = {
+          type: 'tool-call',
+          dynamic: true,
+          toolCallId: 'tc-chatty-bash',
+          toolName: 'bash',
+          input: { command: 'make build' }
+        }
+
+        request.onToolCallStart?.({
+          abortSignal: request.signal,
+          messages: request.messages,
+          toolCall
+        } as never)
+
+        // Simulate a chatty command: one preliminary output event per stdout chunk.
+        for (let i = 0; i < preliminaryUpdateCount; i++) {
+          request.onToolCallUpdate?.({
+            messages: request.messages,
+            output: {
+              content: [{ type: 'text', text: `chunk ${i}\n` }],
+              details: { stdout: `chunk ${i}\n`, preliminary: true },
+              metadata: {}
+            },
+            toolCall
+          } as never)
+        }
+
+        request.onToolCallFinish?.({
+          abortSignal: request.signal,
+          durationMs: 0,
+          experimental_context: undefined,
+          functionId: undefined,
+          metadata: undefined,
+          model: undefined,
+          messages: request.messages,
+          output: {
+            content: [{ type: 'text', text: 'done\n' }],
+            details: { stdout: 'done\n' },
+            metadata: {}
+          },
+          stepNumber: undefined,
+          success: true,
+          toolCall
+        } as never)
+
+        yield 'Done.'
+        request.onFinish?.({
+          promptTokens: 1,
+          completionTokens: 1,
+          totalPromptTokens: 1,
+          totalCompletionTokens: 1
+        })
+      }
+    })
+  }
+
+  try {
+    const result = await executeServerRun(deps, {
+      enabledTools: ['bash'],
+      runMode: 'auto',
+      inactivityTimeoutMs: 30_000,
+      runTrigger: 'local',
+      runId: 'run-throttled-checkpoints',
+      thread,
+      requestMessageId: requestMessage.id,
+      abortController: new AbortController(),
+      updateHeadOnComplete: true,
+      previousEnabledTools: null,
+      previousRunMode: null
+    })
+
+    assert.equal(result.kind, 'completed')
+    // Tool start/finish transitions may checkpoint eagerly, but the 40 rapid
+    // preliminary updates must collapse through the throttle instead of
+    // serializing the full transcript once per stdout chunk.
+    assert.ok(
+      checkpointWrites <= 10,
+      `expected throttled checkpoint writes, got ${checkpointWrites}`
+    )
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})

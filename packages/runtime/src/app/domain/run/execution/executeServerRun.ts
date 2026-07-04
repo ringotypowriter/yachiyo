@@ -741,7 +741,11 @@ export async function executeServerRun(
 
         toolLifecycle.setToolCall(toolCall)
         instrumentedUpdateToolCall(toolCall)
-        persistRecoveryCheckpoint()
+        // Preliminary updates arrive per output chunk (e.g. each bash stdout
+        // flush); serializing the full transcript for each would dominate the
+        // event loop, so these go through the throttle. Start/error/finish are
+        // real state transitions and stay eager.
+        persistRecoveryCheckpointThrottled()
         deps.emit<ToolCallUpdatedEvent>({
           type: 'tool.updated',
           threadId: input.thread.id,

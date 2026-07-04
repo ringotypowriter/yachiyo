@@ -105,6 +105,9 @@ function createPerfMonitor(): PerfMonitor {
     recordIpcEvent(type: string): void {
       totalIpcEvents++
       recentIpcEvents.push({ type, at: Date.now() })
+      // Prune on record, not only in getStats — otherwise the buffer grows
+      // unbounded (~50 events/s while streaming) until the stats page is opened.
+      pruneIpcWindow()
     },
 
     setActiveRunCount(count: number): void {

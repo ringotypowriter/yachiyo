@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
 
+import { resolveYachiyoFileHistoryDir } from '../../config/paths.ts'
 import { hashContent, storeBlob, readBlob, deleteBlob } from './casStore.ts'
 
 // Override the data dir for tests
@@ -49,6 +50,17 @@ test('casStore', async (t) => {
     const hash1 = await storeBlob('workspace1', content)
     const hash2 = await storeBlob('workspace1', content)
     assert.equal(hash1, hash2)
+  })
+
+  await t.test('storeBlob skips the write when the blob already exists', async () => {
+    const content = 'existing blob content'
+    const hash = await storeBlob('workspace1', content)
+    // Tamper with the stored blob out-of-band; a skipped rewrite leaves it untouched.
+    const dest = join(resolveYachiyoFileHistoryDir(), 'workspace1', 'backups', hash)
+    await writeFile(dest, 'tampered')
+    await storeBlob('workspace1', content)
+    const blob = await readBlob('workspace1', hash)
+    assert.equal(blob.toString('utf8'), 'tampered')
   })
 
   await t.test('deleteBlob removes the blob', async () => {

@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { mkdir, readFile, unlink, writeFile } from 'node:fs/promises'
+import { access, mkdir, readFile, unlink, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
 import { resolveYachiyoFileHistoryDir } from '../../config/paths.ts'
@@ -28,7 +28,13 @@ export async function storeBlob(workspaceHash: string, content: string | Buffer)
   const dest = blobPath(workspaceHash, hash)
   const dir = backupsDir(workspaceHash)
   await mkdir(dir, { recursive: true })
-  // Write atomically — if the blob already exists, overwriting with identical content is fine.
+  // Content-addressed: an existing blob is byte-identical, so skip the rewrite.
+  try {
+    await access(dest)
+    return hash
+  } catch {
+    // Blob absent — fall through to the write below.
+  }
   await writeFile(dest, content)
   return hash
 }

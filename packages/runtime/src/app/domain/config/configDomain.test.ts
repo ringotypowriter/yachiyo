@@ -22,6 +22,7 @@ test('saveToolPreferences ignores deprecated global tool preferences', () => {
       read: () => config,
       write: (nextConfig) => {
         config = nextConfig
+        return true
       }
     },
     emit: () => {}

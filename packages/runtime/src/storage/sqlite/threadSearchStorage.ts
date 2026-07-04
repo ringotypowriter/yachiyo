@@ -5,6 +5,7 @@ import {
   extractSnippet,
   ftsMessageSearchSql,
   ftsThreadSearchSql,
+  FTS_MESSAGE_ROWS_PER_THREAD,
   toMatchExpression,
   type FtsMessageRow
 } from '../ftsQuery.ts'
@@ -55,6 +56,8 @@ export function createSqliteThreadSearchStorageMethods(input: {
           and(archivePredicate, like(messagesTable.content, pattern), isNull(messagesTable.hidden))
         )
         .orderBy(desc(threadsTable.updatedAt), asc(messagesTable.createdAt))
+        // Bound materialization for common substrings; most-recent threads win.
+        .limit(30 * FTS_MESSAGE_ROWS_PER_THREAD)
         .all()
 
       const messageMatchesByThread = new Map<string, { messageId: string; content: string }[]>()
@@ -115,10 +118,11 @@ export function createSqliteThreadSearchStorageMethods(input: {
         ).map((r) => r.id)
       )
 
-      // FTS5 message content matches — ranked by BM25
+      // FTS5 message content matches — ranked by BM25, bounded so common-token
+      // queries cannot materialize the whole messages table.
       const allMessageMatches = client
         .prepare(ftsMessageSearchSql(privacyClause))
-        .all(matchExpr) as FtsMessageRow[]
+        .all(matchExpr, limit * FTS_MESSAGE_ROWS_PER_THREAD) as FtsMessageRow[]
 
       const messageMatchesByThread = new Map<
         string,

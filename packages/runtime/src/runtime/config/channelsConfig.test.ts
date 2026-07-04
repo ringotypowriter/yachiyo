@@ -246,3 +246,36 @@ test('stringifyChannelsToml omits empty optional sections', () => {
   assert.doesNotMatch(toml, /\[image_to_text\]/)
   assert.doesNotMatch(toml, /\[group\]/)
 })
+
+test('channels config cache stays correct across external edits and mutation', async (t) => {
+  await t.test('read picks up external file changes', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'yachiyo-channels-cache-'))
+    const filePath = join(root, 'channels.toml')
+    try {
+      writeChannelsConfig({ telegram: { enabled: true, botToken: 'one' } }, filePath)
+      assert.equal(readChannelsConfig(filePath, {}).telegram?.botToken, 'one')
+      // Simulate an external process rewriting the file.
+      await writeFile(
+        filePath,
+        stringifyChannelsToml({ telegram: { enabled: true, botToken: 'two' } }),
+        'utf8'
+      )
+      assert.equal(readChannelsConfig(filePath, {}).telegram?.botToken, 'two')
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  await t.test('mutating a read result does not corrupt later reads', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'yachiyo-channels-mutate-'))
+    const filePath = join(root, 'channels.toml')
+    try {
+      writeChannelsConfig({ telegram: { enabled: true, botToken: 'one' } }, filePath)
+      const first = readChannelsConfig(filePath, {})
+      first.telegram!.botToken = 'tampered'
+      assert.equal(readChannelsConfig(filePath, {}).telegram?.botToken, 'one')
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+})

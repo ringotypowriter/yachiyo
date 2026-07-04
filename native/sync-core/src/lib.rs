@@ -311,6 +311,9 @@ fn device_ops_dir(sync_dir: &Path, device_id: &str, ops_dir: &str) -> PathBuf {
 
 fn open_db(home: &Path) -> Result<Connection, SyncError> {
     let conn = Connection::open(db_path(home))?;
+    // The app holds write locks on the same DB (e.g. completing a run); without a
+    // busy timeout rusqlite fails immediately with SQLITE_BUSY instead of waiting.
+    conn.busy_timeout(std::time::Duration::from_secs(5))?;
     // sync-core imports a partial, read-only archive. Exported thread/message rows
     // legitimately reference device-local entities that are never synced — folders,
     // channel users/groups, branch/handoff sources, parent messages. Enforcing the

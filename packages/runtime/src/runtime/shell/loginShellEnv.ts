@@ -69,7 +69,10 @@ export function readLoginShellEnvSync(
       env: { ...baseEnv },
       encoding: 'utf8',
       maxBuffer: 1024 * 1024 * 4,
-      stdio: ['ignore', 'pipe', 'ignore']
+      stdio: ['ignore', 'pipe', 'ignore'],
+      // This runs on the pre-window startup path; a hung shell init must not
+      // block launch forever. On timeout the catch below degrades to {}.
+      timeout: 10_000
     })
     return parseShellEnvOutput(output)
   } catch {

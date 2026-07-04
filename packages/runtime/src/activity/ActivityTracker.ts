@@ -35,7 +35,10 @@ interface Span {
   durationMs: number
 }
 
-const POLL_INTERVAL_MS = 1000
+// Each poll spawns an osascript process (~100-400ms of JXA startup + Apple Event
+// round trip). Window-title granularity does not need 1 Hz; 10s keeps background
+// CPU negligible while the app is unfocused.
+const POLL_INTERVAL_MS = 10_000
 const AFK_IDLE_THRESHOLD_MS = 5 * 60_000
 const OCR_INITIAL_DELAY_MS = 30_000
 const OCR_LONG_SESSION_INTERVAL_MS = 10 * 60_000

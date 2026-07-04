@@ -39,8 +39,16 @@ export function extractSnippet(content: string, query: string, maxLength = 120):
 }
 
 /**
+ * How many BM25-ranked message rows to fetch per requested result thread.
+ * Bounds the fetch for common-token queries that would otherwise materialize
+ * a large fraction of the messages table into JS.
+ */
+export const FTS_MESSAGE_ROWS_PER_THREAD = 20
+
+/**
  * SQL for FTS5 message search. The caller must supply the privacy clause
- * fragment (empty string or `AND threads.privacy_mode IS NULL`).
+ * fragment (empty string or `AND threads.privacy_mode IS NULL`), and bind
+ * two params: the MATCH expression and the row LIMIT.
  */
 export function ftsMessageSearchSql(privacyClause: string): string {
   return `
@@ -61,6 +69,7 @@ export function ftsMessageSearchSql(privacyClause: string): string {
       AND (channel_users.id IS NULL OR channel_users.role != 'guest')
       ${privacyClause}
     ORDER BY bm25(messages_fts) ASC, messages.created_at ASC
+    LIMIT ?
   `
 }
 

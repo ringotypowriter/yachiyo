@@ -382,13 +382,17 @@ export class YachiyoServerConfigDomain {
   }
 
   private persistConfig(input: SettingsConfig): SettingsConfig {
-    this.settingsStore.write(input)
+    const changed = this.settingsStore.write(input)
     const config = this.readConfig()
-    this.emit<SettingsUpdatedEvent>({
-      type: 'settings.updated',
-      config,
-      settings: toProviderSettings(config)
-    })
+    // A no-op save must not fan out (subscribers include the auto-sync scheduler,
+    // which spawns sync-core processes on every settings.updated).
+    if (changed) {
+      this.emit<SettingsUpdatedEvent>({
+        type: 'settings.updated',
+        config,
+        settings: toProviderSettings(config)
+      })
+    }
     return config
   }
 }

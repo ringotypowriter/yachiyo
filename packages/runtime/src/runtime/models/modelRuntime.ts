@@ -62,6 +62,11 @@ interface StepRequestPrefixState {
   previousBody?: string
 }
 
+// Per-step request-body prefix diagnostics decode, hash, parse, and prefix-scan the
+// full request body (and pin two copies of it for the whole stream). That is
+// O(context) work on every model step, so it is opt-in for cache debugging only.
+const DEBUG_PROMPT_CACHE = process.env['YACHIYO_DEBUG_PROMPT_CACHE'] === '1'
+
 function formatTokenCount(value: number | undefined): string {
   return value == null ? '-' : String(value)
 }
@@ -628,7 +633,7 @@ export function createAiSdkModelRuntime(dependencies: AiSdkRuntimeDependencies =
                 flushPendingStepFinish(true)
               }
 
-              if (part.type === 'start-step') {
+              if (part.type === 'start-step' && DEBUG_PROMPT_CACHE) {
                 const requestBody = readRequestBodyText(part.request)
                 if (request.promptCacheKey && requestBody !== undefined) {
                   logStepRequestPrefix(llmTag, {

@@ -5,7 +5,7 @@
  * bot tokens) never need to touch the main settings normalization pipeline.
  */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
 
 import type { ChannelsConfig, GroupProbeHeadlessAdapterKind } from '@yachiyo/shared/protocol'
@@ -130,30 +130,48 @@ function applyChannelsEnvOverrides(config: ChannelsConfig, env: ChannelsConfigEn
   }
 }
 
+// channels.toml is re-read on hot paths (twice per group probe turn), so cache the
+// parsed document keyed by file stat. Env overrides are applied per call since they
+// depend on the caller-supplied env.
+const parsedChannelsCache = new Map<
+  string,
+  { mtimeMs: number; size: number; config: ChannelsConfig }
+>()
+
 export function readChannelsConfig(
   filePath?: string,
   env: ChannelsConfigEnv = process.env
 ): ChannelsConfig {
   const path = filePath ?? resolveYachiyoChannelsPath()
 
-  if (!existsSync(path)) {
+  let stat: ReturnType<typeof statSync>
+  try {
+    stat = statSync(path)
+  } catch {
     return applyChannelsEnvOverrides({}, env)
   }
 
+  const cached = parsedChannelsCache.get(path)
   let config: ChannelsConfig
-  try {
-    const raw = readFileSync(path, 'utf8')
-    config = parseChannelsToml(raw)
-  } catch {
-    config = {}
+  if (cached && cached.mtimeMs === stat.mtimeMs && cached.size === stat.size) {
+    config = cached.config
+  } else {
+    try {
+      config = parseChannelsToml(readFileSync(path, 'utf8'))
+    } catch {
+      config = {}
+    }
+    parsedChannelsCache.set(path, { mtimeMs: stat.mtimeMs, size: stat.size, config })
   }
 
-  return applyChannelsEnvOverrides(config, env)
+  // Clone so callers can never mutate the cached object.
+  return applyChannelsEnvOverrides(structuredClone(config), env)
 }
 
 export function writeChannelsConfig(config: ChannelsConfig, filePath?: string): ChannelsConfig {
   const path = filePath ?? resolveYachiyoChannelsPath()
   mkdirSync(dirname(path), { recursive: true })
   writeFileSync(path, stringifyChannelsToml(config), 'utf8')
+  parsedChannelsCache.delete(path)
   return config
 }

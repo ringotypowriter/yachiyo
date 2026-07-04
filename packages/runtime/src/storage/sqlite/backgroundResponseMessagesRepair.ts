@@ -32,6 +32,7 @@ const RESPONSE_MESSAGES_REPAIR_WORKER_SCRIPT = `
 
   const db = new BetterSqlite3(workerData.dbPath)
   db.pragma('journal_mode = WAL')
+  db.pragma('synchronous = NORMAL')
   const updateMessageResponseMessages = db.prepare(
     'UPDATE messages SET response_messages = ? WHERE id = ?'
   )

@@ -109,7 +109,7 @@ export function searchMessages(
     if (hasFts) {
       try {
         const rows = client
-          .prepare(`${ftsMessageSearchSql(privacyClause)} LIMIT ?`)
+          .prepare(ftsMessageSearchSql(privacyClause))
           .all(matchExpr, limit) as FtsMessageRow[]
 
         return rows.map((row) => ({

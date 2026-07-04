@@ -253,11 +253,14 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
     },
 
     upsertRunRecoveryCheckpoint(checkpoint) {
+      // Serialize once — the row includes the full responseMessages transcript,
+      // which is expensive to JSON.stringify twice per checkpoint.
+      const row = toStoredRunRecoveryCheckpointRow(checkpoint as RunRecoveryCheckpoint)
       db.insert(runRecoveryCheckpointsTable)
-        .values(toStoredRunRecoveryCheckpointRow(checkpoint as RunRecoveryCheckpoint))
+        .values(row)
         .onConflictDoUpdate({
           target: runRecoveryCheckpointsTable.runId,
-          set: toStoredRunRecoveryCheckpointRow(checkpoint as RunRecoveryCheckpoint)
+          set: row
         })
         .run()
     },

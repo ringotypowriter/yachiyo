@@ -1015,3 +1015,76 @@ test('normalizeSettingsConfig normalizes theme preferences', () => {
   assert.equal(fallback.general?.themeId, DEFAULT_THEME_ID)
   assert.equal(fallback.general?.themeAppearance, DEFAULT_THEME_APPEARANCE)
 })
+
+test('settings store caching and dirty-check behavior', async (t) => {
+  const { utimesSync, statSync, writeFileSync } = await import('node:fs')
+  const PAST = new Date('2020-01-01T00:00:00Z')
+
+  await t.test('write skips the disk write when content is unchanged', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'yachiyo-settings-dirty-'))
+    const settingsPath = join(root, 'config.toml')
+    const store = createSettingsStore(settingsPath)
+    try {
+      const first = store.write({ ...DEFAULT_SETTINGS_CONFIG, enabledTools: ['read'] })
+      assert.equal(first, true)
+      utimesSync(settingsPath, PAST, PAST)
+      const second = store.write({ ...DEFAULT_SETTINGS_CONFIG, enabledTools: ['read'] })
+      assert.equal(second, false)
+      assert.equal(statSync(settingsPath).mtime.getTime(), PAST.getTime())
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  await t.test('read picks up external file changes', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'yachiyo-settings-external-'))
+    const settingsPath = join(root, 'config.toml')
+    const store = createSettingsStore(settingsPath)
+    try {
+      store.write({ ...DEFAULT_SETTINGS_CONFIG, workspace: { savedPaths: ['/tmp/a'] } })
+      assert.deepEqual(store.read().workspace?.savedPaths, ['/tmp/a'])
+      // Simulate the CLI (a separate process) rewriting the file.
+      writeFileSync(
+        settingsPath,
+        stringifySettingsToml(
+          normalizeSettingsConfig({
+            ...DEFAULT_SETTINGS_CONFIG,
+            workspace: { savedPaths: ['/tmp/a', '/tmp/b'] }
+          })
+        ),
+        'utf8'
+      )
+      assert.deepEqual(store.read().workspace?.savedPaths, ['/tmp/a', '/tmp/b'])
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  await t.test('mutating a read result does not corrupt later reads', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'yachiyo-settings-mutate-'))
+    const settingsPath = join(root, 'config.toml')
+    const store = createSettingsStore(settingsPath)
+    try {
+      store.write({ ...DEFAULT_SETTINGS_CONFIG, workspace: { savedPaths: ['/tmp/a'] } })
+      const first = store.read()
+      first.workspace!.savedPaths!.push('/tmp/b')
+      assert.deepEqual(store.read().workspace?.savedPaths, ['/tmp/a'])
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  await t.test('seedPresetProviders does not rewrite an unchanged config on relaunch', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'yachiyo-settings-seed-'))
+    const settingsPath = join(root, 'config.toml')
+    try {
+      createSettingsStore(settingsPath, { seedPresetProviders: true })
+      utimesSync(settingsPath, PAST, PAST)
+      // Relaunch: merge produces identical content, so the file must stay untouched.
+      createSettingsStore(settingsPath, { seedPresetProviders: true })
+      assert.equal(statSync(settingsPath).mtime.getTime(), PAST.getTime())
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+})

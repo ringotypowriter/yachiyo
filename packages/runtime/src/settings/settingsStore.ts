@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 
 import type { SettingsConfig, ThreadModelOverride } from '@yachiyo/shared/protocol'
@@ -27,7 +27,8 @@ export {
 
 export interface SettingsStore {
   read: () => SettingsConfig
-  write: (settings: SettingsConfig) => void
+  /** Persists the settings. Returns false when the file content was already identical. */
+  write: (settings: SettingsConfig) => boolean
 }
 
 export interface SettingsStoreOptions {
@@ -98,24 +99,50 @@ export function createSettingsStore(
       writeFileSync(settingsPath, stringifySettingsToml(normalizeSettingsConfig(seeded)), 'utf8')
     } else {
       // Subsequent launches: backfill presetKey on legacy entries and merge missing presets.
-      const config = parseSettingsToml(readFileSync(settingsPath, 'utf8'))
+      const raw = readFileSync(settingsPath, 'utf8')
+      const config = parseSettingsToml(raw)
       const merged = mergePresetProviders(config.providers)
       config.providers = merged
-      writeFileSync(settingsPath, stringifySettingsToml(normalizeSettingsConfig(config)), 'utf8')
+      const serialized = stringifySettingsToml(normalizeSettingsConfig(config))
+      if (serialized !== raw) {
+        writeFileSync(settingsPath, serialized, 'utf8')
+      }
     }
   }
 
   migrateLegacyImageToTextModel(settingsPath)
 
+  // config.toml is read on hot paths (several times per chat message), so cache the
+  // parsed config keyed by file stat. External writers (CLI, sync-core import) bump
+  // mtime, which invalidates the cache and preserves external-edit pickup.
+  let cache: { mtimeMs: number; size: number; config: SettingsConfig } | null = null
+
   return {
     read(): SettingsConfig {
-      if (!existsSync(settingsPath)) {
+      let stat: ReturnType<typeof statSync>
+      try {
+        stat = statSync(settingsPath)
+      } catch {
         return DEFAULT_SETTINGS_CONFIG
       }
-      return parseSettingsToml(readFileSync(settingsPath, 'utf8'))
+      if (cache === null || cache.mtimeMs !== stat.mtimeMs || cache.size !== stat.size) {
+        cache = {
+          mtimeMs: stat.mtimeMs,
+          size: stat.size,
+          config: parseSettingsToml(readFileSync(settingsPath, 'utf8'))
+        }
+      }
+      // Clone so callers can never mutate the cached object.
+      return structuredClone(cache.config)
     },
-    write(settings: SettingsConfig): void {
-      writeFileSync(settingsPath, stringifySettingsToml(normalizeSettingsConfig(settings)), 'utf8')
+    write(settings: SettingsConfig): boolean {
+      const serialized = stringifySettingsToml(normalizeSettingsConfig(settings))
+      if (existsSync(settingsPath) && readFileSync(settingsPath, 'utf8') === serialized) {
+        return false
+      }
+      writeFileSync(settingsPath, serialized, 'utf8')
+      cache = null
+      return true
     }
   }
 }

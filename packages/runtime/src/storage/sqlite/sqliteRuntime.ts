@@ -70,6 +70,9 @@ export function openMigratedSqliteDatabase(dbPath: string): {
   const { BetterSqlite3, drizzle, migrate } = loadSqliteRuntime()
   const client = new BetterSqlite3(dbPath)
   client.pragma('journal_mode = WAL')
+  // WAL is durable at checkpoint with NORMAL; avoids an fsync per commit on the
+  // streaming hot path (checkpoint upserts, tool-call updates).
+  client.pragma('synchronous = NORMAL')
   client.pragma('foreign_keys = ON')
 
   const db = drizzle(client, { schema })
