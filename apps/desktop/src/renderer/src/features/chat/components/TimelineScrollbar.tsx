@@ -5,7 +5,7 @@ import type { Message } from '@renderer/app/types'
 import { theme, alpha } from '@renderer/theme/theme'
 
 export interface TimelineScrollbarProps {
-  messages: Message[]
+  messages: readonly Message[]
   scrollContainerRef: React.RefObject<HTMLDivElement | null>
   onScrollToMessage: (messageId: string) => void
 }
@@ -27,45 +27,65 @@ const LINE_GAP = 3
 const TRACK_WIDTH = 24
 const PREVIEW_DELAY = 200
 
-function hasVisibleContent(m: Message): boolean {
-  if (m.content.trim().length > 0) return true
-  if (m.images && m.images.length > 0) return true
-  if (m.attachments && m.attachments.length > 0) return true
-  return false
+interface BarMessageSummary {
+  visible: boolean
+  length: number
+  snippet: string
 }
 
-function buildBars(messages: Message[]): BarEntry[] {
-  const visible = messages.filter(
-    (m) => (m.role === 'user' || m.role === 'assistant') && hasVisibleContent(m)
-  )
+// Message records are immutable and identity-stable except the streaming tail,
+// so the O(content) trim/replace work runs once per message instead of once per
+// message per streamed frame.
+const barSummaryCache = new WeakMap<Message, BarMessageSummary>()
+
+function summarizeBarMessage(m: Message): BarMessageSummary {
+  const cached = barSummaryCache.get(m)
+  if (cached) return cached
+
+  const raw = m.content.replace(/\n+/g, ' ').trim()
+  let snippet: string
+  if (raw.length > 0) {
+    snippet = raw.length > 80 ? raw.slice(0, 77) + '...' : raw
+  } else if (m.images && m.images.length > 0) {
+    const count = m.images.length
+    snippet = count === 1 ? '1 image' : `${count} images`
+  } else if (m.attachments && m.attachments.length > 0) {
+    const count = m.attachments.length
+    snippet = count === 1 ? '1 attachment' : `${count} attachments`
+  } else {
+    snippet = '(empty)'
+  }
+
+  const summary: BarMessageSummary = {
+    visible:
+      raw.length > 0 ||
+      (m.images ? m.images.length > 0 : false) ||
+      (m.attachments ? m.attachments.length > 0 : false),
+    length: Math.max(m.content.length, 1),
+    snippet
+  }
+  barSummaryCache.set(m, summary)
+  return summary
+}
+
+function buildBars(messages: readonly Message[]): BarEntry[] {
+  const visible = messages
+    .filter((m) => m.role === 'user' || m.role === 'assistant')
+    .map((m) => ({ message: m, summary: summarizeBarMessage(m) }))
+    .filter((entry) => entry.summary.visible)
   if (visible.length === 0) return []
 
-  const lengths = visible.map((m) => Math.max(m.content.length, 1))
-  const maxLen = Math.max(...lengths)
+  const maxLen = Math.max(...visible.map((entry) => entry.summary.length))
 
-  return visible.map((m, i) => {
-    const ratio = maxLen > 0 ? lengths[i] / maxLen : 0
+  return visible.map(({ message, summary }) => {
+    const ratio = maxLen > 0 ? summary.length / maxLen : 0
     const width = Math.round(MIN_LINE_WIDTH + ratio * (MAX_LINE_WIDTH - MIN_LINE_WIDTH))
 
-    let snippet: string
-    const raw = m.content.replace(/\n+/g, ' ').trim()
-    if (raw.length > 0) {
-      snippet = raw.length > 80 ? raw.slice(0, 77) + '...' : raw
-    } else if (m.images && m.images.length > 0) {
-      const count = m.images.length
-      snippet = count === 1 ? '1 image' : `${count} images`
-    } else if (m.attachments && m.attachments.length > 0) {
-      const count = m.attachments.length
-      snippet = count === 1 ? '1 attachment' : `${count} attachments`
-    } else {
-      snippet = '(empty)'
-    }
-
     return {
-      messageId: m.id,
-      role: m.role as 'user' | 'assistant',
+      messageId: message.id,
+      role: message.role as 'user' | 'assistant',
       width,
-      snippet
+      snippet: summary.snippet
     }
   })
 }

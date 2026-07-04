@@ -58,7 +58,13 @@ export function useInlineCodeFileLinkSnapshot(input: {
     void Promise.resolve(snapshotPromise)
       .then((nextSnapshot) => {
         if (!cancelled) {
-          setResolvedSnapshot({ cacheKey, snapshot: nextSnapshot })
+          // Keep the previous state object when nothing changed so a resolve
+          // from cache does not queue a redundant render.
+          setResolvedSnapshot((prev) =>
+            prev.cacheKey === cacheKey && prev.snapshot === nextSnapshot
+              ? prev
+              : { cacheKey, snapshot: nextSnapshot }
+          )
         }
       })
       .catch(() => {

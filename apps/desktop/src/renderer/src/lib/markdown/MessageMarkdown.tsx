@@ -115,8 +115,14 @@ export function MessageMarkdown({
   )
 
   const imagesEnabled = Boolean(imageContext)
-  const imageAssetVersion =
-    imagesEnabled && isStreaming ? `stream:${Math.floor(content.length / 120)}` : undefined
+  // The version bump changes the rehype-plugin identity below, which re-renders
+  // every memoized (already stable) segment. Only pay that when the stream can
+  // actually show a progressively-written image — most streams contain none.
+  const contentHasImageSyntax =
+    imagesEnabled && isStreaming && (content.includes('![') || content.includes('<img'))
+  const imageAssetVersion = contentHasImageSyntax
+    ? `stream:${Math.floor(content.length / 120)}`
+    : undefined
   const imageTransformOptions = useMemo(
     () =>
       imageContext

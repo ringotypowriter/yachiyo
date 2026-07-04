@@ -7,6 +7,7 @@ import type { Message, RunRecord, ToolCall } from '@renderer/app/types'
 import { useAppDialog, type AppConfirmOptions } from '@renderer/components/AppDialogContext'
 import { theme } from '@renderer/theme/theme'
 import { useInlineCodeFileLinkSnapshot } from '@renderer/lib/markdown/inlineCodeFileLinkSnapshot'
+import { useStableArray } from '@renderer/lib/useStableArray'
 import { getThreadCapabilities } from '@yachiyo/shared/protocol'
 import { TimelineScrollbar } from './TimelineScrollbar'
 import {
@@ -19,6 +20,7 @@ import {
   collectInlineCodeMarkdownDocumentsFromRows,
   type MessageTimelineRow
 } from '../lib/timeline/messageTimelineRows.ts'
+import { useReusedTimelineRows } from '../lib/timeline/timelineRowReuse.ts'
 import { buildTimelineVirtualRowStyle } from '../lib/timeline/messageTimelineRowStyle.ts'
 import {
   getInitialBottomScrollDecision,
@@ -325,9 +327,27 @@ export function MessageTimeline({
   )
   const threadHasActiveRun = activeRunId !== null
   const workspacePath = resolveMessageTimelineWorkspacePath(thread?.workspacePath, runs)
-  const timelineRows = useMemo(
-    () =>
-      buildMessageTimelineRows({
+  // Reuse row identities across rebuilds so the reference-equality memo on
+  // TimelineItemContent keeps skipping unchanged rows during streaming.
+  const timelineRows = useReusedTimelineRows(
+    useMemo(
+      () =>
+        buildMessageTimelineRows({
+          messageGroups,
+          rootAssistantMessages,
+          orphanToolCalls,
+          pendingSteerMessage,
+          inlineToolCalls,
+          runs,
+          activeRunId,
+          activeRequestMessageId,
+          subagentActive,
+          contextHandoffWatermarkMessageId: thread?.contextHandoffWatermarkMessageId ?? null,
+          contextHandoffSummary: thread?.contextHandoffSummary,
+          expandedHandoffFoldKeys,
+          workSummaryEnabled
+        }),
+      [
         messageGroups,
         rootAssistantMessages,
         orphanToolCalls,
@@ -337,43 +357,34 @@ export function MessageTimeline({
         activeRunId,
         activeRequestMessageId,
         subagentActive,
-        contextHandoffWatermarkMessageId: thread?.contextHandoffWatermarkMessageId ?? null,
-        contextHandoffSummary: thread?.contextHandoffSummary,
+        thread?.contextHandoffWatermarkMessageId,
+        thread?.contextHandoffSummary,
         expandedHandoffFoldKeys,
         workSummaryEnabled
-      }),
-    [
-      messageGroups,
-      rootAssistantMessages,
-      orphanToolCalls,
-      pendingSteerMessage,
-      inlineToolCalls,
-      runs,
-      activeRunId,
-      activeRequestMessageId,
-      subagentActive,
-      thread?.contextHandoffWatermarkMessageId,
-      thread?.contextHandoffSummary,
-      expandedHandoffFoldKeys,
-      workSummaryEnabled
-    ]
+      ]
+    )
   )
 
-  const inlineCodeMarkdownDocuments = useMemo(
-    () => collectInlineCodeMarkdownDocumentsFromRows(timelineRows),
-    [timelineRows]
+  // timelineRows is rebuilt every streamed frame; documents only contain
+  // non-streaming content, so pin the array identity while its strings are
+  // unchanged — this keeps the reference-extraction chain below fully idle
+  // during streaming instead of re-running regexes over the whole thread.
+  const inlineCodeMarkdownDocuments = useStableArray(
+    useMemo(() => collectInlineCodeMarkdownDocumentsFromRows(timelineRows), [timelineRows])
   )
-  const scrollbarMessages = useMemo<Message[]>(
-    () =>
-      [
-        ...messageGroups.flatMap((group) => {
-          const branch = group.assistantBranches[group.activeBranchIndex]
-          return branch ? [group.userMessage, branch.message] : [group.userMessage]
-        }),
-        ...rootAssistantMessages,
-        ...(pendingSteerMessage ? [pendingSteerMessage] : [])
-      ].sort((a, b) => a.createdAt.localeCompare(b.createdAt)),
-    [messageGroups, rootAssistantMessages, pendingSteerMessage]
+  const scrollbarMessages = useStableArray(
+    useMemo<Message[]>(
+      () =>
+        [
+          ...messageGroups.flatMap((group) => {
+            const branch = group.assistantBranches[group.activeBranchIndex]
+            return branch ? [group.userMessage, branch.message] : [group.userMessage]
+          }),
+          ...rootAssistantMessages,
+          ...(pendingSteerMessage ? [pendingSteerMessage] : [])
+        ].sort((a, b) => a.createdAt.localeCompare(b.createdAt)),
+      [messageGroups, rootAssistantMessages, pendingSteerMessage]
+    )
   )
   const inlineCodeFileLinks = useInlineCodeFileLinkSnapshot({
     enabled: inlineCodeMarkdownDocuments.length > 0,
