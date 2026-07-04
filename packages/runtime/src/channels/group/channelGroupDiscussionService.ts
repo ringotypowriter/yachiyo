@@ -357,7 +357,8 @@ export function createChannelGroupDiscussionService(
       history: loadGroupProbeHistory(server.getStorage(), probeThread),
       currentTurnContent,
       historyTokenBudget: policy.groupContextTokenLimit,
-      styleReminder: GROUP_STYLE_REMINDER
+      styleReminder: GROUP_STYLE_REMINDER,
+      anthropicCacheBreakpoints: !headlessAdapter
     })
 
     let result: AuxiliaryTextGenerationResult
@@ -381,6 +382,7 @@ export function createChannelGroupDiscussionService(
       )
       result = await auxService.generateText({
         messages,
+        promptCacheKey: probeThread.id,
         tools: probeTools,
         onToolCallError: (event) =>
           event.toolCall.toolName === 'send_group_message' ? 'abort' : 'continue',

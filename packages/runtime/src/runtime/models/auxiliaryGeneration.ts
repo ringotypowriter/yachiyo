@@ -39,6 +39,8 @@ export interface AuxiliaryTextGenerationRequest {
   onToolCallError?: (event: ModelToolCallErrorEvent) => 'abort' | 'continue'
   /** Explicit provider settings. When provided, skips the default tool-model lookup. */
   settingsOverride?: ProviderSettings
+  /** Routes OpenAI prompt-cache sharding for recurring callers (e.g. group probes). */
+  promptCacheKey?: string
 }
 
 export interface AuxiliaryGenerationService {
@@ -115,6 +117,7 @@ export function createAuxiliaryGenerationService(
           settings: resolvedSettings,
           signal,
           purpose: request.purpose ?? 'auxiliary',
+          ...(request.promptCacheKey ? { promptCacheKey: request.promptCacheKey } : {}),
           tools: request.tools,
           onToolCallError: request.onToolCallError,
           onFinish: (finishUsage) => {

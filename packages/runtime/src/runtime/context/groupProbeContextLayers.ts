@@ -1,6 +1,10 @@
 import { estimateTextTokens } from '@yachiyo/shared/estimateTokens'
 import type { ModelMessage } from '../models/types.ts'
-import { toModelHistoryMessages, type ContextLayerHistoryMessage } from './contextLayers.ts'
+import {
+  applyAnthropicCacheBreakpoints,
+  toModelHistoryMessages,
+  type ContextLayerHistoryMessage
+} from './contextLayers.ts'
 
 export interface CompileGroupProbeContextLayersInput {
   stableSystemPrompt: string
@@ -20,6 +24,13 @@ export interface CompileGroupProbeContextLayersInput {
    * Recency keeps the bot's own voice from being lost in a long history.
    */
   styleReminder?: string
+  /**
+   * Mark cache breakpoints for Anthropic-family providers. The probe's system
+   * prefix is byte-stable within a day (only the date line changes), so probes
+   * every 30-60s would otherwise re-bill the full prefix as uncached input.
+   * Off for headless adapters, which serialize messages themselves.
+   */
+  anthropicCacheBreakpoints?: boolean
 }
 
 function removeEmptyMessages(messages: ModelMessage[]): ModelMessage[] {
@@ -256,11 +267,13 @@ export function compileGroupProbeContextLayers(
     ? [{ role: 'user', content: input.currentTurnContent.trim() }]
     : []
 
-  return removeEmptyMessages([
+  const compiled = removeEmptyMessages([
     ...systemPrefix,
     ...summaryMessages,
     ...historyMessages,
     ...styleReminderMessages,
     ...currentTurn
   ])
+  if (input.anthropicCacheBreakpoints) applyAnthropicCacheBreakpoints(compiled)
+  return compiled
 }

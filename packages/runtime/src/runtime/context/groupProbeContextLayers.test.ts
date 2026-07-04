@@ -438,3 +438,44 @@ test('compileGroupProbeContextLayers drops tool-assisted silent turns unless the
   assert.equal(messages[2]?.role, 'user')
   assert.equal(messages[2]?.content, '<msg from="Bob">fresh turn</msg>')
 })
+
+test('compileGroupProbeContextLayers applies Anthropic cache breakpoints when requested', () => {
+  const messages = compileGroupProbeContextLayers({
+    stableSystemPrompt: 'Stable group behavior rules.',
+    dynamicSystemPrompt: 'You are the group probe.',
+    history: [
+      { role: 'user', content: '<msg from="Alice">earlier chatter</msg>' },
+      { role: 'assistant', content: 'Staying quiet.' }
+    ],
+    currentTurnContent: '<msg from="Bob">fresh turn</msg>',
+    styleReminder: 'Keep the persona sharp.',
+    anthropicCacheBreakpoints: true
+  })
+
+  const cacheControlOf = (message: (typeof messages)[number]): unknown =>
+    (message.providerOptions as { anthropic?: { cacheControl?: unknown } } | undefined)?.anthropic
+      ?.cacheControl
+
+  // BP1: the last system message — the stable per-group prefix ends there.
+  const lastSystemIdx = messages.map((m) => m.role).lastIndexOf('system')
+  assert.ok(lastSystemIdx >= 0)
+  assert.deepEqual(cacheControlOf(messages[lastSystemIdx]!), { type: 'ephemeral' })
+
+  // BP2: the message just before the last (volatile) user message.
+  const lastUserIdx = messages.map((m) => m.role).lastIndexOf('user')
+  assert.ok(lastUserIdx > 0)
+  assert.deepEqual(cacheControlOf(messages[lastUserIdx - 1]!), { type: 'ephemeral' })
+})
+
+test('compileGroupProbeContextLayers leaves messages unannotated by default', () => {
+  const messages = compileGroupProbeContextLayers({
+    stableSystemPrompt: 'Stable group behavior rules.',
+    dynamicSystemPrompt: 'You are the group probe.',
+    history: [],
+    currentTurnContent: '<msg from="Bob">fresh turn</msg>'
+  })
+
+  for (const message of messages) {
+    assert.equal(message.providerOptions, undefined)
+  }
+})
