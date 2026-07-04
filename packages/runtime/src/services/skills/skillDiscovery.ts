@@ -195,6 +195,11 @@ function extractBodySummary(body: string): string | undefined {
   return normalizeString(paragraphs[0])
 }
 
+// SKILL.md never lives inside dependency or VCS trees, and skill directories may
+// legitimately contain a large node_modules for their scripts — walking those
+// would dominate the scan.
+const SKIPPED_SCAN_DIR_NAMES = new Set(['node_modules', '.git'])
+
 async function collectSkillFiles(rootPath: string): Promise<string[]> {
   let entries
 
@@ -209,12 +214,15 @@ async function collectSkillFiles(rootPath: string): Promise<string[]> {
   }
 
   const discovered: string[] = []
+  const subdirScans: Promise<string[]>[] = []
 
   for (const entry of entries) {
     const entryPath = join(rootPath, entry.name)
 
     if (entry.isDirectory()) {
-      discovered.push(...(await collectSkillFiles(entryPath)))
+      if (!SKIPPED_SCAN_DIR_NAMES.has(entry.name)) {
+        subdirScans.push(collectSkillFiles(entryPath))
+      }
       continue
     }
 
@@ -222,6 +230,9 @@ async function collectSkillFiles(rootPath: string): Promise<string[]> {
       discovered.push(entryPath)
     }
   }
+
+  // Promise.all preserves entry order, so registry precedence stays deterministic.
+  discovered.push(...(await Promise.all(subdirScans)).flat())
 
   return discovered
 }
@@ -331,42 +342,45 @@ export function buildSkillDiscoveryRoots(workspacePaths: string[] = []): SkillDi
 }
 
 export async function discoverSkills(workspacePaths: string[] = []): Promise<DiscoveredSkill[]> {
-  const discovered: DiscoveredSkill[] = []
+  // Scan roots and read skill files concurrently; Promise.all preserves root
+  // order, which buildSkillRegistry relies on for first-wins name precedence.
+  const perRoot = await Promise.all(
+    buildSkillDiscoveryRoots(workspacePaths).map(async (root): Promise<DiscoveredSkill[]> => {
+      let skillFilePaths: string[]
 
-  for (const root of buildSkillDiscoveryRoots(workspacePaths)) {
-    let skillFilePaths: string[]
-
-    try {
-      skillFilePaths = await collectSkillFiles(root.rootPath)
-    } catch (error) {
-      console.warn('[yachiyo][skills] failed to scan root', {
-        error: error instanceof Error ? error.message : String(error),
-        rootPath: root.rootPath
-      })
-      continue
-    }
-
-    for (const skillFilePath of skillFilePaths) {
       try {
-        const skill = await readSkillRecord({
-          scope: root.scope,
-          rootPath: root.rootPath,
-          skillFilePath,
-          autoEnabled: root.autoEnabled,
-          originHint: root.originHint
-        })
-
-        if (skill) {
-          discovered.push(skill)
-        }
+        skillFilePaths = await collectSkillFiles(root.rootPath)
       } catch (error) {
-        console.warn('[yachiyo][skills] failed to read skill', {
+        console.warn('[yachiyo][skills] failed to scan root', {
           error: error instanceof Error ? error.message : String(error),
-          skillFilePath
+          rootPath: root.rootPath
         })
+        return []
       }
-    }
-  }
 
-  return discovered
+      const records = await Promise.all(
+        skillFilePaths.map(async (skillFilePath) => {
+          try {
+            return await readSkillRecord({
+              scope: root.scope,
+              rootPath: root.rootPath,
+              skillFilePath,
+              autoEnabled: root.autoEnabled,
+              originHint: root.originHint
+            })
+          } catch (error) {
+            console.warn('[yachiyo][skills] failed to read skill', {
+              error: error instanceof Error ? error.message : String(error),
+              skillFilePath
+            })
+            return null
+          }
+        })
+      )
+
+      return records.filter((skill): skill is DiscoveredSkill => skill !== null)
+    })
+  )
+
+  return perRoot.flat()
 }

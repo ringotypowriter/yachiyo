@@ -130,6 +130,7 @@ import {
   type CognitiveMemoryStore
 } from '../../services/memory/cognitiveMemoryStore.ts'
 import { createMemoryService, type MemoryService } from '../../services/memory/memoryService.ts'
+import { createCachedSkillCatalogLoader } from '../../services/skills/skillCatalogCache.ts'
 import { discoverSkills } from '../../services/skills/skillDiscovery.ts'
 import { buildSkillRegistry } from '../../services/skills/skillRegistry.ts'
 import { createBrowserWebPageSnapshotLoader } from '../../services/webRead/browserWebPageSnapshot.ts'
@@ -339,6 +340,9 @@ export class YachiyoServer {
   private readonly browserAutomationService: BrowserAutomationService
   private readonly resolveThreadWorkspacePath: (threadId: string) => string
   private readonly ensureThreadWorkspacePath: (threadId: string) => Promise<string>
+  private readonly loadSkillCatalog = createCachedSkillCatalogLoader({
+    loadCatalog: async (workspacePaths) => buildSkillRegistry(await discoverSkills(workspacePaths))
+  })
   private readonly searchService: SearchService
   private readonly webSearchServiceInstance: import('../../services/webSearch/webSearchService.ts').WebSearchService
   private readonly imageToTextServiceInstance: ImageToTextService
@@ -545,7 +549,7 @@ export class YachiyoServer {
       runInactivityTimeoutMs: options.runInactivityTimeoutMs ?? 45_000,
       listSkills: (workspacePaths) => this.listSkills({ workspacePaths }),
       requireThread: this.requireThread.bind(this),
-      loadThreadMessages: (threadId) => this.storage.listThreadMessages(threadId),
+      loadThreadMessages: (threadId, options) => this.storage.listThreadMessages(threadId, options),
       loadThreadToolCalls: (threadId) => this.storage.listThreadToolCalls(threadId),
       jotdownStore: this.jotdownStore ?? undefined,
       imageToTextService: this.imageToTextServiceInstance,
@@ -1038,7 +1042,7 @@ export class YachiyoServer {
   }
 
   async listSkills(input: ListSkillsInput = {}): Promise<SkillCatalogEntry[]> {
-    return buildSkillRegistry(await discoverSkills(input.workspacePaths ?? []))
+    return this.loadSkillCatalog(input.workspacePaths ?? [])
   }
 
   async searchWorkspaceFiles(input: SearchWorkspaceFilesInput): Promise<FileMentionCandidate[]> {

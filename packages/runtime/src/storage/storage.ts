@@ -329,6 +329,16 @@ export interface StoredActivitySourceRecordRow {
   createdAt: string
 }
 
+export interface ListThreadMessagesOptions {
+  /**
+   * Set to false to skip loading and parsing the responseMessages transcript —
+   * by far the heaviest message column. Records returned this way are for
+   * reading only and must never be written back via updateMessage (the missing
+   * field would clobber the stored transcript).
+   */
+  includeResponseMessages?: boolean
+}
+
 export interface YachiyoStorage {
   close(): void
   flushBackgroundTasks?(): Promise<void>
@@ -373,7 +383,9 @@ export interface YachiyoStorage {
   updateRunRequestMessageId(runId: string, requestMessageId: string): void
   updateRunSnapshot(runId: string, snapshot: { fileCount: number; workspacePath?: string }): void
   listThreadRuns(threadId: string): RunRecord[]
-  listThreadMessages(threadId: string): MessageRecord[]
+  listThreadMessages(threadId: string, options?: ListThreadMessagesOptions): MessageRecord[]
+  /** Point query for a single message by id. Returns the full record. */
+  getMessage(messageId: string): MessageRecord | undefined
   updateMessage(message: MessageRecord): void
   persistResponseMessagesRepairInBackground?(input: PersistResponseMessagesRepairInput): void
   listThreadToolCalls(threadId: string): ToolCallRecord[]

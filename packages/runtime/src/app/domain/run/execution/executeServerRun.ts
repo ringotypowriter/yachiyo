@@ -32,7 +32,6 @@ import {
   resolveContextHandoffThreshold,
   shouldTriggerContextHandoffForActualPromptTokens
 } from './contextHandoffPolicy.ts'
-import { getPreviousRunActualPromptTokens } from './runUsage.ts'
 import {
   normalizeToolResult,
   resolveAvailableToolNamesFromToolSet,
@@ -122,7 +121,9 @@ function findCompletedAssistantCheckpointBeforeRequest(input: {
   requestMessageId: string
   currentWatermarkMessageId?: string
 }): string | undefined {
-  const messages = input.deps.loadThreadMessages(input.threadId)
+  const messages = input.deps.loadThreadMessages(input.threadId, {
+    includeResponseMessages: false
+  })
   const path = collectMessagePath(messages, input.requestMessageId)
   const requestIndex = path.findIndex((message) => message.id === input.requestMessageId)
   const candidates = (requestIndex >= 0 ? path.slice(0, requestIndex) : path).filter(
@@ -154,11 +155,11 @@ function persistToolReminder(input: {
   reminder: string | undefined
 }): void {
   if (!input.reminder?.trim()) return
-  const requestMessage = input.deps
-    .loadThreadMessages(input.executionInput.thread.id)
-    .find(
-      (message) => message.id === input.executionInput.requestMessageId && message.role === 'user'
-    )
+  const candidate = input.deps.storage.getMessage(input.executionInput.requestMessageId)
+  const requestMessage =
+    candidate && candidate.threadId === input.executionInput.thread.id && candidate.role === 'user'
+      ? candidate
+      : undefined
   if (!requestMessage) return
   const existingReminder = requestMessage.turnContext?.reminder?.trim()
   const reminder = [input.baseReminder?.trim() || existingReminder, input.reminder]
@@ -423,15 +424,9 @@ export async function executeServerRun(
     for (let attempt = 0; attempt < 3; attempt++) {
       const prepared = await prepareServerRunContext(deps, buildPrepareInput(thread))
       const threshold = resolveContextHandoffThreshold(prepared.config)
+      // Reuse the value prepare already computed for strip-compact this leg.
       const actualPromptTokens =
-        input.priorUsage?.promptTokens ??
-        getPreviousRunActualPromptTokens(
-          deps.storage,
-          deps.loadThreadMessages,
-          thread.id,
-          input.runId,
-          input.requestMessageId
-        )
+        input.priorUsage?.promptTokens ?? prepared.previousActualPromptTokens
       if (
         recoveryCheckpoint ||
         !shouldTriggerContextHandoffForActualPromptTokens({

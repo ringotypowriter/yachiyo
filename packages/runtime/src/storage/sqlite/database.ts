@@ -983,34 +983,49 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
         .map(toRunRecord)
     },
 
-    listThreadMessages(threadId) {
+    listThreadMessages(threadId, options) {
+      const baseColumns = {
+        attachments: messagesTable.attachments,
+        content: messagesTable.content,
+        createdAt: messagesTable.createdAt,
+        id: messagesTable.id,
+        images: messagesTable.images,
+        modelId: messagesTable.modelId,
+        parentMessageId: messagesTable.parentMessageId,
+        providerName: messagesTable.providerName,
+        reasoning: messagesTable.reasoning,
+        turnContext: messagesTable.turnContext,
+        visibleReply: messagesTable.visibleReply,
+        senderName: messagesTable.senderName,
+        senderExternalUserId: messagesTable.senderExternalUserId,
+        hidden: messagesTable.hidden,
+        role: messagesTable.role,
+        status: messagesTable.status,
+        textBlocks: messagesTable.textBlocks,
+        threadId: messagesTable.threadId
+      }
+      if (options?.includeResponseMessages === false) {
+        // Skip the heaviest column entirely — neither read from disk nor parsed.
+        return db
+          .select(baseColumns)
+          .from(messagesTable)
+          .where(eq(messagesTable.threadId, threadId))
+          .orderBy(asc(messagesTable.createdAt))
+          .all()
+          .map((row) => toMessageRecord({ ...row, responseMessages: null }))
+      }
       return db
-        .select({
-          attachments: messagesTable.attachments,
-          content: messagesTable.content,
-          createdAt: messagesTable.createdAt,
-          id: messagesTable.id,
-          images: messagesTable.images,
-          modelId: messagesTable.modelId,
-          parentMessageId: messagesTable.parentMessageId,
-          providerName: messagesTable.providerName,
-          reasoning: messagesTable.reasoning,
-          responseMessages: messagesTable.responseMessages,
-          turnContext: messagesTable.turnContext,
-          visibleReply: messagesTable.visibleReply,
-          senderName: messagesTable.senderName,
-          senderExternalUserId: messagesTable.senderExternalUserId,
-          hidden: messagesTable.hidden,
-          role: messagesTable.role,
-          status: messagesTable.status,
-          textBlocks: messagesTable.textBlocks,
-          threadId: messagesTable.threadId
-        })
+        .select({ ...baseColumns, responseMessages: messagesTable.responseMessages })
         .from(messagesTable)
         .where(eq(messagesTable.threadId, threadId))
         .orderBy(asc(messagesTable.createdAt))
         .all()
         .map(toMessageRecord)
+    },
+
+    getMessage(messageId) {
+      const row = db.select().from(messagesTable).where(eq(messagesTable.id, messageId)).get()
+      return row ? toMessageRecord(row) : undefined
     },
 
     updateMessage(message) {

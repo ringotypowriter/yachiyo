@@ -71,7 +71,7 @@ export function buildRunExecutionDeps(
         return { entries: [], recallDecision: undefined }
       }
       const branchHistory = collectMessagePath(
-        deps.loadThreadMessages(memoryContext.thread.id),
+        deps.loadThreadMessages(memoryContext.thread.id, { includeResponseMessages: false }),
         memoryContext.requestMessageId
       )
       const result = await deps.memoryService.recallForContext({
@@ -110,8 +110,8 @@ export function buildRunExecutionDeps(
         deps.requireThread(input.currentThread.id).modelOverride
       ),
     loadThreadMessages: input.isRecapRun
-      ? (threadId: string) => {
-          const msgs = deps.loadThreadMessages(threadId)
+      ? (threadId, options) => {
+          const msgs = deps.loadThreadMessages(threadId, options)
           if (threadId === input.currentThread.id && input.activeRun.recapUserMessage) {
             return [...msgs, input.activeRun.recapUserMessage]
           }

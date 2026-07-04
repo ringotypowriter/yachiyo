@@ -104,6 +104,7 @@ function createRunContextDeps(input: {
       updateMessage: (message: MessageRecord) => {
         input.updatedMessages?.push(message)
       },
+      getMessage: (messageId: string) => input.messages.find((m) => m.id === messageId),
       getChannelUser: () => undefined,
       persistResponseMessagesRepairInBackground: () => {},
       listThreadRuns: () => input.runs ?? [],

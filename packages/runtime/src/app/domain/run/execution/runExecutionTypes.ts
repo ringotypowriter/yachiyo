@@ -26,7 +26,11 @@ import type { JotdownStore } from '../../../../services/jotdownStore.ts'
 import type { ModelRuntime, ModelUsage } from '../../../../runtime/models/types.ts'
 import type { SoulDocument } from '../../../../runtime/profiles/soul.ts'
 import type { UserDocument } from '../../../../runtime/profiles/user.ts'
-import type { RunRecoveryCheckpoint, YachiyoStorage } from '../../../../storage/storage.ts'
+import type {
+  ListThreadMessagesOptions,
+  RunRecoveryCheckpoint,
+  YachiyoStorage
+} from '../../../../storage/storage.ts'
 import type { QuerySourceExecutor } from '../../../../tools/agentTools/querySourceTool.ts'
 import type { RunExecutionPhase } from '../runTypes.ts'
 import type {
@@ -151,7 +155,7 @@ export interface RunExecutionDeps {
   readThread: (threadId: string) => ThreadRecord
   readConfig: () => SettingsConfig
   readSettings: () => ProviderSettings
-  loadThreadMessages: (threadId: string) => MessageRecord[]
+  loadThreadMessages: (threadId: string, options?: ListThreadMessagesOptions) => MessageRecord[]
   loadThreadToolCalls: (threadId: string) => ToolCallRecord[]
   listSkills: (workspacePaths?: string[]) => Promise<SkillCatalogEntry[]>
   onEnabledToolsUsed: (enabledTools: string[]) => void

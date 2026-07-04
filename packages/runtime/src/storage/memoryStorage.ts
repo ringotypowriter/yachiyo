@@ -708,8 +708,23 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
         .map(toRunRecord)
     },
 
-    listThreadMessages(threadId) {
-      return sortByCreatedAt(messages).filter((message) => message.threadId === threadId)
+    listThreadMessages(threadId, options) {
+      // Filter before sorting so the cost scales with the thread, not the store.
+      const threadMessages = sortByCreatedAt(
+        messages.filter((message) => message.threadId === threadId)
+      )
+      if (options?.includeResponseMessages === false) {
+        return threadMessages.map((message) => {
+          const projected = { ...message }
+          delete projected.responseMessages
+          return projected
+        })
+      }
+      return threadMessages
+    },
+
+    getMessage(messageId) {
+      return messages.find((message) => message.id === messageId)
     },
 
     updateMessage(message) {

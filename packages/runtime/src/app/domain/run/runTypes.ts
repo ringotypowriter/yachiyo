@@ -21,7 +21,11 @@ import type { SearchService } from '../../../services/search/searchService.ts'
 import type { WebSearchService } from '../../../services/webSearch/webSearchService.ts'
 import type { ModelRuntime } from '../../../runtime/models/types.ts'
 import type { SnapshotTracker } from '../../../services/fileSnapshot/snapshotTracker.ts'
-import type { RunRecoveryCheckpoint, YachiyoStorage } from '../../../storage/storage.ts'
+import type {
+  ListThreadMessagesOptions,
+  RunRecoveryCheckpoint,
+  YachiyoStorage
+} from '../../../storage/storage.ts'
 import type { QuerySourceExecutor } from '../../../tools/agentTools/querySourceTool.ts'
 import type { ThreadSentinelManager } from '../sentinel/threadSentinelManager.ts'
 import type { SoulDocument } from '../../../runtime/profiles/soul.ts'
@@ -114,7 +118,7 @@ export interface RunDomainDeps {
   readSettings: () => ProviderSettings
   listSkills: (workspacePaths?: string[]) => Promise<SkillCatalogEntry[]>
   requireThread: (threadId: string) => ThreadRecord
-  loadThreadMessages: (threadId: string) => MessageRecord[]
+  loadThreadMessages: (threadId: string, options?: ListThreadMessagesOptions) => MessageRecord[]
   loadThreadToolCalls: (threadId: string) => ToolCallRecord[]
   jotdownStore?: JotdownStore
   imageToTextService?: import('../../../services/imageToText/imageToTextService.ts').ImageToTextService

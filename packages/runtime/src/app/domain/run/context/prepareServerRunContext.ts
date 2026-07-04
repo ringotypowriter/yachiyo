@@ -119,14 +119,12 @@ const SKILL_MENTION_RE = /^@skills:([a-zA-Z0-9_-]+)(\s|$)/
 
 async function expandSkillMention(
   content: string,
-  listSkills: RunExecutionDeps['listSkills'],
-  workspacePaths: string[]
+  skills: readonly SkillCatalogEntry[]
 ): Promise<string> {
   const match = SKILL_MENTION_RE.exec(content)
   if (!match) return content
 
   const skillName = match[1]
-  const skills = await listSkills(workspacePaths)
   const skill = skills.find((s) => s.name === skillName)
   if (!skill) return content
 
@@ -174,6 +172,8 @@ export interface PreparedServerRunContext {
   gitValidatedWorkspaces: string[]
   subagentAvailableWorkspaces: string[]
   runMode: RunModeId
+  /** Previous completed run's actual prompt tokens, computed once per leg for reuse. */
+  previousActualPromptTokens?: number
 }
 
 export interface PrepareServerRunContextInput {
@@ -247,11 +247,14 @@ export async function prepareServerRunContext(
       ? await deps.readUserDocument()
       : await readUserDocument()
   const isLocalOrOwnerDm = !isExternalChannel || isOwnerDm
+  const storedRequestMessage =
+    input.requestMessage ?? deps.storage.getMessage(input.requestMessageId)
   const requestMessage =
-    input.requestMessage ??
-    deps
-      .loadThreadMessages(input.thread.id)
-      .find((message) => message.id === input.requestMessageId && message.role === 'user')
+    storedRequestMessage &&
+    storedRequestMessage.threadId === input.thread.id &&
+    storedRequestMessage.role === 'user'
+      ? storedRequestMessage
+      : undefined
   const requestIsHidden = requestMessage?.hidden === true
 
   const planModeDocument =
@@ -461,9 +464,8 @@ export async function prepareServerRunContext(
   }
 
   const rawContent = requestMessage?.content ?? ''
-  const skillExpandedContent = await expandSkillMention(rawContent, deps.listSkills, [
-    workspacePath
-  ])
+  // Reuse the catalog fetched above instead of re-walking the skill roots.
+  const skillExpandedContent = await expandSkillMention(rawContent, availableSkills)
   const augmentedUserQuery = fileMentionResolution.augmentedUserQuery
   const hasSkillExpansion = skillExpandedContent !== rawContent
   const expandedUserQuery = hasSkillExpansion
@@ -655,7 +657,8 @@ export async function prepareServerRunContext(
     gitCtx,
     gitValidatedWorkspaces,
     subagentAvailableWorkspaces,
-    runMode: input.runMode
+    runMode: input.runMode,
+    ...(previousActualPromptTokens !== undefined ? { previousActualPromptTokens } : {})
   }
 }
 

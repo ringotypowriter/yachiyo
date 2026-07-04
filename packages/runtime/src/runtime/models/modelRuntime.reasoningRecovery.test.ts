@@ -579,6 +579,9 @@ test('createAiSdkModelRuntime logs derived step continuation and cache details p
 })
 
 test('createAiSdkModelRuntime logs request prefix diagnostics per step', async () => {
+  // The per-step body diagnostics are opt-in (O(context) work per step).
+  const originalDebugFlag = process.env['YACHIYO_DEBUG_PROMPT_CACHE']
+  process.env['YACHIYO_DEBUG_PROMPT_CACHE'] = '1'
   const firstBody = JSON.stringify({
     model: 'gpt-5.5',
     input: [{ role: 'user', content: 'stable prefix' }],
@@ -683,6 +686,12 @@ test('createAiSdkModelRuntime logs request prefix diagnostics per step', async (
     ),
     logs.join('\n')
   )
+
+  if (originalDebugFlag === undefined) {
+    delete process.env['YACHIYO_DEBUG_PROMPT_CACHE']
+  } else {
+    process.env['YACHIYO_DEBUG_PROMPT_CACHE'] = originalDebugFlag
+  }
 })
 
 test('createAiSdkModelRuntime disables Anthropic thinking for auxiliary generation', async () => {

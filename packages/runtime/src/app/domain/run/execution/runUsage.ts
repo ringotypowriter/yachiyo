@@ -1,6 +1,6 @@
 import type { MessageRecord } from '@yachiyo/shared/protocol'
 import { collectMessagePath } from '@yachiyo/shared/threadTree'
-import type { YachiyoStorage } from '../../../../storage/storage.ts'
+import type { ListThreadMessagesOptions, YachiyoStorage } from '../../../../storage/storage.ts'
 import type { ModelUsage } from '../../../../runtime/models/types.ts'
 import type { UsageFields } from '../runUsageFields.ts'
 
@@ -36,12 +36,16 @@ export function mergeRunUsage(
 /** Get the most recent completed run's actual prompt tokens on the same branch. */
 export function getPreviousRunActualPromptTokens(
   storage: Pick<YachiyoStorage, 'listThreadRuns'>,
-  loadThreadMessages: (threadId: string) => MessageRecord[],
+  loadThreadMessages: (threadId: string, options?: ListThreadMessagesOptions) => MessageRecord[],
   threadId: string,
   currentRunId: string,
   currentRequestMessageId: string
 ): number | undefined {
-  const messagePath = collectMessagePath(loadThreadMessages(threadId), currentRequestMessageId)
+  // Only the branch path's message ids are needed — skip the transcripts.
+  const messagePath = collectMessagePath(
+    loadThreadMessages(threadId, { includeResponseMessages: false }),
+    currentRequestMessageId
+  )
   const messageIdsInPath = new Set(messagePath.map((m) => m.id))
 
   const runs = storage.listThreadRuns(threadId)
