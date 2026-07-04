@@ -1,4 +1,5 @@
 import { Suspense, lazy, useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
+import { LoaderCircle } from 'lucide-react'
 import { useAppStore } from '@renderer/app/store/useAppStore'
 import avatarUrl from '../../../resources/branding.jpeg'
 import { AppMainPanel } from '@renderer/features/layout/components/AppMainPanel'
@@ -35,6 +36,15 @@ const SettingsPanel = lazy(() => import('../settings/App'))
 const SettingsSidebarContent = lazy(() =>
   import('../settings/App').then((module) => ({ default: module.SettingsSidebarContent }))
 )
+
+function SettingsLoadingFallback(): React.JSX.Element {
+  return (
+    <div className="flex h-full w-full items-center justify-center gap-2.5">
+      <LoaderCircle size={18} strokeWidth={1.8} className="animate-spin" color={theme.text.muted} />
+      <span style={{ fontSize: 13, color: theme.text.muted }}>Loading settings…</span>
+    </div>
+  )
+}
 
 function ConnectionOverlay({
   status,
@@ -477,7 +487,7 @@ function App(): React.JSX.Element {
           ? renderTabLayer({
               active: isSettingsTabActive,
               children: (
-                <Suspense fallback={null}>
+                <Suspense fallback={<SettingsLoadingFallback />}>
                   <SettingsPanel
                     active={isSettingsTabActive}
                     route={settingsRoute}
