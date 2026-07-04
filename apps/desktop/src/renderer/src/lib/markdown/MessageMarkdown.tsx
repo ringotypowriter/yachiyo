@@ -12,9 +12,7 @@ import type { PluggableList } from 'unified'
 import { MarkdownErrorBoundary } from './MarkdownErrorBoundary'
 import { LinkSafetyModal } from './LinkSafetyModal'
 import { LinkableCode } from './LinkableCode'
-import { mermaid } from '@streamdown/mermaid'
-import { code } from '@streamdown/code'
-import { mathPlugin } from './mathPlugin'
+import { useHeavyMarkdownPlugins } from './heavyMarkdownPlugins'
 import { transformImageSrc } from './imageUrl'
 import { createMarkdownRehypePlugins } from './markdownRehypePlugins'
 import {
@@ -161,6 +159,9 @@ export function MessageMarkdown({
     }
   }, [imageTransformOptions, imagesEnabled])
 
+  // null until the mermaid/shiki/katex stacks finish their on-demand load;
+  // markdown renders without highlighting for that first moment, then upgrades.
+  const heavyPlugins = useHeavyMarkdownPlugins()
   const plugins = useMemo<PluginConfig>(
     () => ({
       cjk: {
@@ -170,11 +171,11 @@ export function MessageMarkdown({
         remarkPluginsBefore: [],
         remarkPluginsAfter: [remarkAutolinkTextBoundary]
       },
-      math: mathPlugin,
-      mermaid,
-      code
+      ...(heavyPlugins
+        ? { math: heavyPlugins.math, mermaid: heavyPlugins.mermaid, code: heavyPlugins.code }
+        : {})
     }),
-    []
+    [heavyPlugins]
   )
   const themeVariant = useDocumentThemeVariant()
   const mermaidOptions = useMemo<MermaidOptions>(

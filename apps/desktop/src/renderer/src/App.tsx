@@ -1,7 +1,6 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
+import { Suspense, lazy, useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { useAppStore } from '@renderer/app/store/useAppStore'
 import avatarUrl from '../../../resources/branding.jpeg'
-import SettingsPanel, { SettingsSidebarContent } from '../settings/App'
 import { AppMainPanel } from '@renderer/features/layout/components/AppMainPanel'
 import {
   AppSidebarContent,
@@ -28,6 +27,14 @@ import { ToastPresenter } from '@renderer/features/notifications/components/Toas
 import { GlobalProcessingModal } from '@renderer/components/GlobalProcessingModal'
 import { theme } from '@renderer/theme/theme'
 import { useApplyThemeConfig } from '@renderer/theme/useThemeConfig'
+import { loadHeavyMarkdownPlugins } from '@renderer/lib/markdown/heavyMarkdownPlugins'
+
+// Loaded on first settings open — the settings surface is a large subtree the
+// user may never visit, so keep it out of the startup bundle.
+const SettingsPanel = lazy(() => import('../settings/App'))
+const SettingsSidebarContent = lazy(() =>
+  import('../settings/App').then((module) => ({ default: module.SettingsSidebarContent }))
+)
 
 function ConnectionOverlay({
   status,
@@ -111,6 +118,17 @@ function App(): React.JSX.Element {
   const [overlayMounted, setOverlayMounted] = useState(() => connectionStatus !== 'connected')
   const [overlayExiting, setOverlayExiting] = useState(false)
   const overlayShownAtRef = useRef<number>(0)
+
+  // Warm the heavy markdown plugin stacks (mermaid/shiki/katex) shortly after
+  // first paint so threads opened later render highlighted immediately.
+  useEffect(() => {
+    const handle = window.setTimeout(() => {
+      loadHeavyMarkdownPlugins().catch((error) => {
+        console.error('[markdown] plugin prefetch failed', error)
+      })
+    }, 500)
+    return () => window.clearTimeout(handle)
+  }, [])
 
   useEffect(() => {
     if (connectionStatus !== 'connected') {
@@ -459,27 +477,29 @@ function App(): React.JSX.Element {
           ? renderTabLayer({
               active: isSettingsTabActive,
               children: (
-                <SettingsPanel
-                  active={isSettingsTabActive}
-                  route={settingsRoute}
-                  onActivateChat={handleActivateChat}
-                  onRouteChange={setSettingsRoute}
-                >
-                  {(slots) =>
-                    renderTabFrame({
-                      content: slots.content,
-                      contentSubControls: slots.contentSubControls,
-                      contentTopControls: slots.contentTopControls,
-                      sidebar: (
-                        <SettingsSidebarContent
-                          route={settingsRoute}
-                          onRouteChange={setSettingsRoute}
-                        />
-                      ),
-                      sidebarTopControls: null
-                    })
-                  }
-                </SettingsPanel>
+                <Suspense fallback={null}>
+                  <SettingsPanel
+                    active={isSettingsTabActive}
+                    route={settingsRoute}
+                    onActivateChat={handleActivateChat}
+                    onRouteChange={setSettingsRoute}
+                  >
+                    {(slots) =>
+                      renderTabFrame({
+                        content: slots.content,
+                        contentSubControls: slots.contentSubControls,
+                        contentTopControls: slots.contentTopControls,
+                        sidebar: (
+                          <SettingsSidebarContent
+                            route={settingsRoute}
+                            onRouteChange={setSettingsRoute}
+                          />
+                        ),
+                        sidebarTopControls: null
+                      })
+                    }
+                  </SettingsPanel>
+                </Suspense>
               )
             })
           : null}

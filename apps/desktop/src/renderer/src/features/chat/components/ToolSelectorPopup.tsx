@@ -1,7 +1,6 @@
 import type React from 'react'
 import { useEffect, useState } from 'react'
-import * as Icons from 'lucide-react'
-import { Check } from 'lucide-react'
+import { Check, Map, MessageSquare, Telescope, Wrench, Zap } from 'lucide-react'
 import { theme } from '@renderer/theme/theme'
 import { isDismissEscapeKey } from '@renderer/lib/imeUtils'
 import { useRestoreFocusOnUnmount } from '@renderer/lib/focusRestore'
@@ -10,8 +9,18 @@ import { RUN_MODE_DEFINITIONS, SELECTABLE_RUN_MODE_IDS } from '@yachiyo/shared/t
 
 const MODE_LIST_MAX_HEIGHT = 320
 
+// Static map instead of a lucide namespace lookup — `import * as Icons` defeats
+// tree-shaking for the whole icon library. New RUN_MODE_DEFINITIONS icons must
+// be added here (unknown names fall back to Wrench, which shows up in review).
+const MODE_ICONS: Record<string, React.ElementType> = {
+  Zap,
+  Telescope,
+  Map,
+  MessageSquare
+}
+
 function getModeIcon(iconName: string): React.ElementType {
-  return (Icons as unknown as Record<string, React.ElementType>)[iconName] ?? Icons.Wrench
+  return MODE_ICONS[iconName] ?? Wrench
 }
 
 export function ToolSelectorPopup({
