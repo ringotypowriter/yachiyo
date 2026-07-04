@@ -6,8 +6,12 @@ import {
   buildNextRecallState,
   detectNoveltySignal,
   filterRecalledMemories,
-  shouldRecallBeforeRun
+  shouldRecallBeforeRun,
+  whenRecallSegmenterReady
 } from './recallPolicy.ts'
+
+// CJK novelty detection depends on the lazily-loaded jieba segmenter.
+await whenRecallSegmenterReady()
 
 function createMessage(input: {
   id: string

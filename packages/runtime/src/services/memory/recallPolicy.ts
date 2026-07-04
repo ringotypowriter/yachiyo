@@ -1,6 +1,24 @@
 import nlp from 'compromise'
-import { tag } from 'jieba-wasm'
 import * as stopword from 'stopword'
+
+// jieba-wasm compiles its WebAssembly at module evaluation, which is too heavy
+// for the synchronous startup path (this module is statically reachable from
+// YachiyoServer). Load it in the background and degrade CJK segmentation to
+// "no novelty terms" for the brief window before it arrives.
+type JiebaTag = (text: string, hmm: boolean) => Array<{ word: string; tag: string }>
+let jiebaTag: JiebaTag | null = null
+const jiebaReady: Promise<void> = import('jieba-wasm')
+  .then((module) => {
+    jiebaTag = module.tag as JiebaTag
+  })
+  .catch((error) => {
+    console.warn('[memory] jieba segmenter failed to load; CJK novelty terms disabled', error)
+  })
+
+/** Resolves once the CJK segmenter is available (used by tests for determinism). */
+export function whenRecallSegmenterReady(): Promise<void> {
+  return jiebaReady
+}
 
 import type {
   MessageRecord,
@@ -213,10 +231,11 @@ function extractSyntaxTermCandidates(
 }
 
 function segmentCjkWordGroups(value: string): TaggedWord[][] {
+  if (!jiebaTag) return []
   const groups: TaggedWord[][] = []
   let current: TaggedWord[] = []
 
-  for (const word of tag(value, true)) {
+  for (const word of jiebaTag(value, true)) {
     const normalized = normalizeNovelTerm(word.word)
     const taggedWord = { normalized, tag: word.tag }
     if (!isCjkPhraseWord(taggedWord)) {

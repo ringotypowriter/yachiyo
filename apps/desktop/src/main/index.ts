@@ -51,6 +51,8 @@ if (!is.dev) {
 let translatorWindow: BrowserWindow | null = null
 let jotdownWindow: BrowserWindow | null = null
 let mainWindowRef: BrowserWindow | null = null
+// Assigned once the runtime gateway finishes initializing (after first window).
+let gatewayServer: YachiyoServer | null = null
 const keepAwakeController = createKeepAwakeController()
 
 function applyNativeTheme(config: SettingsConfig): void {
@@ -209,7 +211,7 @@ app.setPath('userData', resolveYachiyoDataDir())
 // Scheme registration must happen before `app.whenReady()` resolves.
 registerYachiyoAssetScheme()
 
-function createWindow(server: YachiyoServer): void {
+function createWindow(): void {
   // Create the browser window.
   const mainWindow = new BrowserWindow({
     width: 1280,
@@ -243,9 +245,9 @@ function createWindow(server: YachiyoServer): void {
     maybeDestroyHiddenJotdown()
   })
   installActiveRunCloseGuard(mainWindow, {
-    cancelActiveRuns: () => server.cancelActiveRuns(),
+    cancelActiveRuns: () => gatewayServer?.cancelActiveRuns(),
     isBypassed: () => isQuitting || isInstallingUpdate(),
-    listActiveRunIds: () => server.listActiveRunIds(),
+    listActiveRunIds: () => gatewayServer?.listActiveRunIds() ?? [],
     platform: process.platform
   })
   installEditableContextMenu(mainWindow)
@@ -278,11 +280,11 @@ if (!is.dev) {
 }
 
 app.whenReady().then(async () => {
+  // Environment first: the login shell provides proxy vars the system-proxy
+  // hydration and the gateway's web session both read.
   hydrateProcessEnvFromLoginShell()
   await hydrateProxyFromSystemSettings()
   installYachiyoAssetProtocolHandler()
-  setupCLI()
-  setupCoreSkills()
 
   // Set app user model id for windows
   electronApp.setAppUserModelId('sh.ringo.yachiyo')
@@ -322,7 +324,16 @@ app.whenReady().then(async () => {
       win.setBackgroundColor(nativeTheme.shouldUseDarkColors ? '#1d2125' : '#f5f4f0')
     }
   })
+  // Create the window before the runtime initializes: the renderer parses its
+  // bundle in its own process while the main process runs the init below.
+  // IMPORTANT: no awaits between createWindow() and registerYachiyoGateway() —
+  // renderer IPC queues behind this synchronous block, which guarantees every
+  // yachiyo:* handler is registered before the first invoke is dispatched.
+  createWindow()
+  setupCLI()
+  setupCoreSkills()
   const server = registerYachiyoGateway()
+  gatewayServer = server
 
   // Initialize activity tracker (macOS only — relies on osascript)
   if (process.platform === 'darwin') {
@@ -403,7 +414,6 @@ app.whenReady().then(async () => {
 
   ipcMain.on('open-settings', (_event, tab?: string) => openSettingsInMainWindow(tab))
 
-  createWindow(server)
   setupAutoUpdate()
 
   app.on('activate', function () {
@@ -417,7 +427,7 @@ app.whenReady().then(async () => {
       mainWindowRef.focus()
       return
     }
-    createWindow(server)
+    createWindow()
   })
 })
 

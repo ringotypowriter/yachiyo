@@ -61,6 +61,12 @@ function loadSqliteRuntime(): SqliteRuntime {
   }
 }
 
+// Several components open their own connection to the same db file (main
+// storage, cognitive memory store, per-call term-document readers). Migrations
+// are idempotent but not free, and the schema cannot regress mid-process, so
+// run them once per path per process.
+const migratedDbPaths = new Set<string>()
+
 export function openMigratedSqliteDatabase(dbPath: string): {
   client: BetterSqlite3Client
   db: SqliteDb
@@ -76,7 +82,10 @@ export function openMigratedSqliteDatabase(dbPath: string): {
   client.pragma('foreign_keys = ON')
 
   const db = drizzle(client, { schema })
-  migrate(db, { migrationsFolder: MIGRATIONS_DIR })
+  if (!migratedDbPaths.has(dbPath)) {
+    migrate(db, { migrationsFolder: MIGRATIONS_DIR })
+    migratedDbPaths.add(dbPath)
+  }
 
   return { client, db }
 }
