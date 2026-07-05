@@ -335,6 +335,14 @@ app.whenReady().then(async () => {
   const server = registerYachiyoGateway()
   gatewayServer = server
 
+  // Dev-only Phase-2 spike for the runtime process extraction: verify the
+  // utility-process hard points (docs/yachiyo-runtime-process-extraction.md §5).
+  if (is.dev && process.env['YACHIYO_SPIKE_UTILITY']) {
+    void import('./runtimeHost/runSpikeUtilityProbe.ts').then(({ runSpikeUtilityProbe }) =>
+      runSpikeUtilityProbe().catch((error) => console.error('[spike-utility] probe failed:', error))
+    )
+  }
+
   // Initialize activity tracker (macOS only — relies on osascript)
   if (process.platform === 'darwin') {
     void server.getConfig().then((cfg) => {
