@@ -6,6 +6,7 @@ import type {
   UserDocument
 } from '@yachiyo/shared/protocol'
 import type { ModelRuntime } from '../../runtime/models/types.ts'
+import type { BrowserAutomationService } from '../../services/browserAutomation/electronBrowserAutomationService.ts'
 import type { JotdownStore } from '../../services/jotdownStore.ts'
 import type { CognitiveMemoryStore } from '../../services/memory/cognitiveMemoryStore.ts'
 import type { MemoryService } from '../../services/memory/memoryService.ts'
@@ -44,6 +45,12 @@ export interface YachiyoServerOptions {
   cognitiveMemoryStore?: CognitiveMemoryStore
   memoryService?: MemoryService
   sourceQueryExecutor?: QuerySourceExecutor
+  /**
+   * Browser tool backend, injected by the host process (Electron main today;
+   * an RPC-backed proxy once the runtime moves to a utility process). Omit to
+   * run without the browser tool.
+   */
+  browserAutomationService?: BrowserAutomationService
   jotdownStore?: JotdownStore
   /** Optional override for the remote image downloader. Defaults to `fetchImpl`. */
   remoteImageFetcher?: RemoteImageFetcher

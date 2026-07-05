@@ -68,6 +68,7 @@ import {
   type YachiyoServer
 } from '@yachiyo/runtime/app/host/YachiyoServer'
 import {
+  resolveYachiyoBrowserAutomationProfilePath,
   resolveYachiyoDataDir,
   resolveYachiyoDbPath,
   resolveYachiyoJotdownsDir,
@@ -75,6 +76,10 @@ import {
   resolveYachiyoSocketPath,
   resolveYachiyoTempWorkspaceRoot
 } from '@yachiyo/runtime/config/paths'
+import {
+  createElectronBrowserAutomationService,
+  type BrowserAutomationService
+} from '@yachiyo/runtime/services/browserAutomation/electronBrowserAutomationService'
 import {
   startCommandSocket,
   type CommandSocketHandle,
@@ -134,10 +139,10 @@ import { normalizePngBytes, normalizePngFilename, type SavePngFileInput } from '
  * the server through an in-process loopback RPC proxy whose transport
  * structured-clones every message, so any payload that could not cross a real
  * MessagePort boundary fails now — before the runtime moves out of this
- * process. Methods excluded here stay on the live server: live-object getters,
- * the browser-automation surface (bound to BrowserWindow/WebContentsView in
- * this process), and the two calls served by the rpc:event / rpc:progress
- * channels instead of plain dispatch.
+ * process. Methods excluded here stay on the live server: live-object getters
+ * and the two calls served by the rpc:event / rpc:progress channels instead of
+ * plain dispatch. (The browser-automation surface lives on a main-owned
+ * service now — see browserAutomation() below.)
  */
 type RpcSafeYachiyoServer = Omit<
   YachiyoServer,
@@ -149,14 +154,13 @@ type RpcSafeYachiyoServer = Omit<
   | 'getWebSearchService'
   | 'getImageToTextService'
   | 'getAuxiliaryGenerationService'
-  | 'showBrowserAutomationSession'
-  | 'hideBrowserAutomationSession'
-  | 'setBrowserAutomationSessionBounds'
-  | 'listBrowserAutomationSessions'
 >
 
 let server: YachiyoServer | null = null
 let serverRpc: LoopbackRpcHost<RpcSafeYachiyoServer> | null = null
+// Owned by the gateway, not the server: the sessions hold WebContentsViews,
+// which must stay in the main process when the runtime is extracted.
+let browserAutomationService: BrowserAutomationService | null = null
 let webExternalFetchImpl: typeof globalThis.fetch | undefined
 let telegramService: TelegramService | null = null
 let qqService: QQService | null = null
@@ -179,6 +183,13 @@ function rpc(): RpcMethods<RpcSafeYachiyoServer> {
     throw new Error('Yachiyo server is not running')
   }
   return serverRpc.proxy
+}
+
+function browserAutomation(): BrowserAutomationService {
+  if (!browserAutomationService) {
+    throw new Error('Yachiyo server is not running')
+  }
+  return browserAutomationService
 }
 
 const COMMAND_SOCKET_HEALTH_INTERVAL_MS = 15_000
@@ -546,6 +557,9 @@ function createConfiguredServer(
     webExternalFetchImpl?: typeof globalThis.fetch
   } = {}
 ): YachiyoServer {
+  browserAutomationService = createElectronBrowserAutomationService({
+    profilePath: resolveYachiyoBrowserAutomationProfilePath()
+  })
   const nextServer = createSqliteYachiyoServer({
     dbPath: resolveYachiyoDbPath(),
     settingsPath: resolveYachiyoSettingsPath(),
@@ -554,7 +568,8 @@ function createConfiguredServer(
     fetchImpl: (input, init) =>
       net.fetch(input instanceof URL ? input.toString() : (input as string | Request), init),
     webExternalFetchImpl: input.webExternalFetchImpl,
-    jotdownStore: input.jotdownStore
+    jotdownStore: input.jotdownStore,
+    browserAutomationService
   })
   serverRpc = createLoopbackRpcHost<RpcSafeYachiyoServer>(nextServer, {
     subscribe: (listener) => nextServer.subscribe(listener)
@@ -625,6 +640,8 @@ async function restartServerForDemoModeChange(): Promise<void> {
   await stopLiveServices()
   serverRpc?.dispose()
   serverRpc = null
+  browserAutomationService?.dispose()
+  browserAutomationService = null
   await previousServer?.close()
   server = createConfiguredServer({ webExternalFetchImpl })
   await startLiveServices()
@@ -998,7 +1015,7 @@ export function registerYachiyoGateway(): YachiyoServer {
   handleYachiyoIpc(
     IPC_CHANNELS.listBrowserAutomationSessions,
     (input: ListBrowserAutomationSessionsInput): BrowserAutomationSessionRecord[] =>
-      server!.listBrowserAutomationSessions(input)
+      browserAutomation().listSessions(input)
   )
   ipcMain.removeHandler(IPC_CHANNELS.showBrowserAutomationSession)
   ipcMain.handle(
@@ -1008,19 +1025,19 @@ export function registerYachiyoGateway(): YachiyoServer {
       if (!window || window.isDestroyed()) {
         throw new Error('Unable to show browser session: source window is unavailable.')
       }
-      return server!.showBrowserAutomationSession({ ...input, window })
+      return browserAutomation().showSessionView({ ...input, window })
     }
   )
   handleYachiyoIpc(
     IPC_CHANNELS.hideBrowserAutomationSession,
     (input: HideBrowserAutomationSessionInput): void => {
-      server!.hideBrowserAutomationSession(input)
+      browserAutomation().hideSessionView(input)
     }
   )
   handleYachiyoIpc(
     IPC_CHANNELS.setBrowserAutomationSessionBounds,
     (input: SetBrowserAutomationSessionBoundsInput): BrowserAutomationSessionRecord =>
-      server!.setBrowserAutomationSessionBounds(input)
+      browserAutomation().setSessionViewBounds(input)
   )
   handleYachiyoIpc(
     IPC_CHANNELS.setThreadPrivacyMode,
@@ -1271,6 +1288,8 @@ export function registerYachiyoGateway(): YachiyoServer {
     commandSocket = null
     serverRpc?.dispose()
     serverRpc = null
+    browserAutomationService?.dispose()
+    browserAutomationService = null
     void server?.close()
     server = null
   })

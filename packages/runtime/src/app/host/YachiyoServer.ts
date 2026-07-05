@@ -5,11 +5,9 @@ import { readFile, writeFile } from 'node:fs/promises'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { dirname, join, resolve } from 'node:path'
-import type { BrowserWindow } from 'electron'
 
 import type {
   BootstrapPayload,
-  BrowserAutomationSessionRecord,
   ChannelGroupRecord,
   ChannelUserRecord,
   ChatAccepted,
@@ -24,9 +22,7 @@ import type {
   FolderColorTag,
   FolderRecord,
   GetMemoryTermDocumentInput,
-  HideBrowserAutomationSessionInput,
   ImportWebSearchBrowserSessionInput,
-  ListBrowserAutomationSessionsInput,
   ListActivitySourceRecordsInput,
   ListActivitySourceRecordsResult,
   ListSkillsInput,
@@ -47,8 +43,6 @@ import type {
   ScheduleRunRecord,
   SearchWorkspaceFilesInput,
   SettingsConfig,
-  SetBrowserAutomationSessionBoundsInput,
-  ShowBrowserAutomationSessionInput,
   SkillCatalogEntry,
   ListSyncConflictsResult,
   MessageRecord,
@@ -96,14 +90,9 @@ import {
   resolveThreadWorkspacePath as defaultResolveThreadWorkspacePath,
   resolveYachiyoSettingsPath,
   resolveYachiyoTempWorkspaceRoot,
-  resolveYachiyoBrowserAutomationProfilePath,
   resolveYachiyoWebSearchBrowserSessionPath
 } from '../../config/paths.ts'
 import { FolderDomain } from '../domain/folders/folderDomain.ts'
-import {
-  createElectronBrowserAutomationService,
-  type BrowserAutomationService
-} from '../../services/browserAutomation/electronBrowserAutomationService.ts'
 import { ScheduleDomain } from '../domain/schedules/scheduleDomain.ts'
 import { ThingDomain } from '../domain/things/thingDomain.ts'
 import { createTtlReaper, type TtlReaper } from '../domain/shared/ttlReaper.ts'
@@ -337,7 +326,6 @@ export class YachiyoServer {
   private readonly sentinelManager: ThreadSentinelManager
   private readonly threadDomain: YachiyoServerThreadDomain
   private readonly browserSearchSession: BrowserSearchSession
-  private readonly browserAutomationService: BrowserAutomationService
   private readonly resolveThreadWorkspacePath: (threadId: string) => string
   private readonly ensureThreadWorkspacePath: (threadId: string) => Promise<string>
   private readonly loadSkillCatalog = createCachedSkillCatalogLoader({
@@ -433,9 +421,6 @@ export class YachiyoServer {
       browserSession: this.browserSearchSession
     })
 
-    const browserAutomationService = createElectronBrowserAutomationService({
-      profilePath: resolveYachiyoBrowserAutomationProfilePath()
-    })
     const webSearchService = createWebSearchService({
       providers: [
         createGoogleBrowserWebSearchProvider({
@@ -498,7 +483,6 @@ export class YachiyoServer {
     this.ensureThreadWorkspacePath = ensureThreadWorkspace
     this.searchService = searchService
     this.webSearchServiceInstance = webSearchService
-    this.browserAutomationService = browserAutomationService
     this.jotdownStore = options.jotdownStore ?? null
     this.thingDomain = new ThingDomain({
       storage: this.storage,
@@ -538,7 +522,9 @@ export class YachiyoServer {
       loadBrowserSnapshot: browserWebPageSnapshotLoader,
       searchService,
       webSearchService,
-      browserAutomationService,
+      ...(options.browserAutomationService
+        ? { browserAutomationService: options.browserAutomationService }
+        : {}),
       memoryService,
       sourceQueryExecutor: options.sourceQueryExecutor,
       thingDomain: this.thingDomain,
@@ -625,7 +611,6 @@ export class YachiyoServer {
   async close(): Promise<void> {
     this.ttlReaper.stop()
     this.sentinelManager.dispose()
-    this.browserAutomationService.dispose()
     await this.runDomain.close()
     await acpProcessPool.shutdown()
     await this.storage.flushBackgroundTasks?.()
@@ -1017,28 +1002,6 @@ export class YachiyoServer {
     input: ImportWebSearchBrowserSessionInput
   ): Promise<SettingsConfig> {
     return this.configDomain.importWebSearchBrowserSession(input)
-  }
-
-  listBrowserAutomationSessions(
-    input: ListBrowserAutomationSessionsInput
-  ): BrowserAutomationSessionRecord[] {
-    return this.browserAutomationService.listSessions(input)
-  }
-
-  showBrowserAutomationSession(
-    input: ShowBrowserAutomationSessionInput & { window: BrowserWindow }
-  ): BrowserAutomationSessionRecord {
-    return this.browserAutomationService.showSessionView(input)
-  }
-
-  hideBrowserAutomationSession(input: HideBrowserAutomationSessionInput): void {
-    this.browserAutomationService.hideSessionView(input)
-  }
-
-  setBrowserAutomationSessionBounds(
-    input: SetBrowserAutomationSessionBoundsInput
-  ): BrowserAutomationSessionRecord {
-    return this.browserAutomationService.setSessionViewBounds(input)
   }
 
   async listSkills(input: ListSkillsInput = {}): Promise<SkillCatalogEntry[]> {
