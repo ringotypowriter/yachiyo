@@ -6,8 +6,6 @@
  * browser search pages, activity summaries) are consumed through reverse RPC
  * on the same port.
  *
- * Not yet wired in this mode: the cert-relaxed web-external fetch session
- * (webRead and image downloads fall back to net.fetch).
  * See docs/yachiyo-runtime-process-extraction.md.
  */
 import { net } from 'electron'
@@ -26,6 +24,7 @@ import {
 } from '@yachiyo/runtime/config/paths'
 import { createRpcBrowserAutomationBackend } from '@yachiyo/runtime/services/browserAutomation/browserAutomationRpcBridge'
 import { createJotdownStore } from '@yachiyo/runtime/services/jotdownStore'
+import { createRpcWebExternalFetch } from '@yachiyo/runtime/services/webExternalFetchRpcBridge'
 import { createRpcBrowserSearchPageFactory } from '@yachiyo/runtime/services/webSearch/browserSearchPageFactoryRpcBridge'
 import {
   messagePortMainTransport,
@@ -64,8 +63,9 @@ process.parentPort.on('message', (event) => {
     seedPresetProviders: true,
     fetchImpl: (input, init) =>
       net.fetch(input instanceof URL ? input.toString() : (input as string | Request), init),
-    // webExternalFetchImpl intentionally omitted: the cert-relaxed session
-    // only exists in the main process; consumers fall back to fetchImpl.
+    // The cert-relaxed web-external session only exists in the main process;
+    // forward those requests there, streaming responses back over RPC.
+    webExternalFetchImpl: createRpcWebExternalFetch(mainServices),
     jotdownStore: createJotdownStore(resolveYachiyoJotdownsDir()),
     browserAutomationService: createRpcBrowserAutomationBackend(mainServices),
     browserSearchPageFactory: createRpcBrowserSearchPageFactory(mainServices),

@@ -100,6 +100,7 @@ import {
   type RuntimeLiveServices
 } from '@yachiyo/runtime/app/host/runtimeLiveServices'
 import { mergeRpcTargets } from '@yachiyo/shared/rpc/mergeRpcTargets'
+import { createWebExternalFetchRpcTarget } from '@yachiyo/runtime/services/webExternalFetchRpcBridge'
 import { createJotdownStore } from '@yachiyo/runtime/services/jotdownStore'
 import {
   generateDiffForRun,
@@ -456,6 +457,9 @@ function trackActiveRunEvent(event: YachiyoServerEvent): void {
 }
 
 function startUtilityRuntime(): void {
+  if (!webExternalFetchImpl) {
+    throw new Error('startUtilityRuntime called before the web-external session was created')
+  }
   browserAutomationService = createElectronBrowserAutomationService({
     profilePath: resolveYachiyoBrowserAutomationProfilePath()
   })
@@ -470,6 +474,7 @@ function startUtilityRuntime(): void {
       ...createActivityTrackerRpcTarget({
         finalizeAndConsume: () => getActivityTracker('simple').finalizeAndConsume()
       }),
+      ...createWebExternalFetchRpcTarget(webExternalFetchImpl),
       'mainHost.showNotification': (input: ShowNotificationInput) => {
         showYachiyoNotification(input)
       }
