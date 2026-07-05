@@ -11,6 +11,13 @@ import {
   wrapBrowserAutomationPageScript
 } from './browserAutomationScriptEvaluation.ts'
 import { buildBrowserAutomationSnapshotScript } from './browserAutomationSnapshotScript.ts'
+import type {
+  BrowserAutomationPageState,
+  BrowserAutomationPageText,
+  BrowserAutomationRef,
+  BrowserAutomationToolBackend,
+  BrowserAutomationViewport
+} from './browserAutomationToolBackend.ts'
 import { assertNonEmptyScreenshotByteLength } from './browserCaptureValidation.ts'
 import { createBrowserPointerOverlay, type BrowserPointerOverlay } from './browserPointerOverlay.ts'
 import type {
@@ -30,71 +37,25 @@ const IDLE_SESSION_TTL_MS = 30 * 60 * 1000
 const IDLE_SESSION_SWEEP_MS = 5 * 60 * 1000
 const { BrowserWindow, WebContentsView, session } = electron
 
-export interface BrowserAutomationViewport {
-  width: number
-  height: number
-}
+export type {
+  BrowserAutomationEvaluationResult,
+  BrowserAutomationPageState,
+  BrowserAutomationPageText,
+  BrowserAutomationPdfResult,
+  BrowserAutomationRef,
+  BrowserAutomationRefBox,
+  BrowserAutomationScreenshotResult,
+  BrowserAutomationScrollDirection,
+  BrowserAutomationSnapshot,
+  BrowserAutomationViewport
+} from './browserAutomationToolBackend.ts'
 
-export interface BrowserAutomationRefBox {
-  x: number
-  y: number
-  width: number
-  height: number
-}
-
-export interface BrowserAutomationRef {
-  ref: string
-  tag: string
-  text?: string
-  ariaLabel?: string
-  placeholder?: string
-  href?: string
-  id?: string
-  role?: string
-  name?: string
-  testId?: string
-  selectorHint?: string
-  box?: BrowserAutomationRefBox
-}
-
-export interface BrowserAutomationPageText {
-  headings: string[]
-  snippets: string[]
-  viewport?: string
-}
-
-export interface BrowserAutomationPageState {
-  url: string
-  title?: string
-}
-
-export interface BrowserAutomationEvaluationResult extends BrowserAutomationPageState {
-  value: unknown
-}
-
-export type BrowserAutomationScrollDirection = 'up' | 'down' | 'left' | 'right'
-
-export interface BrowserAutomationSnapshot {
-  url: string
-  title?: string
-  pageText: BrowserAutomationPageText
-  refCount: number
-  refs: BrowserAutomationRef[]
-}
-
-export interface BrowserAutomationPdfResult {
-  savedFileName: string
-  savedFilePath: string
-  bytesWritten: number
-}
-
-export interface BrowserAutomationScreenshotResult {
-  savedFileName: string
-  savedFilePath: string
-  bytesWritten: number
-}
-
-export interface BrowserAutomationService {
+/**
+ * The full main-process service: the process-portable tool surface plus the
+ * session-view UI surface, which handles live BrowserWindow/WebContentsView
+ * objects and therefore never crosses a process boundary.
+ */
+export interface BrowserAutomationService extends BrowserAutomationToolBackend {
   listSessions(input: ListBrowserAutomationSessionsInput): BrowserAutomationSessionRecord[]
 
   showSessionView(
@@ -106,100 +67,6 @@ export interface BrowserAutomationService {
   setSessionViewBounds(
     input: SetBrowserAutomationSessionBoundsInput
   ): BrowserAutomationSessionRecord
-
-  open(input: {
-    threadId: string
-    session: string
-    url?: string
-    viewport?: BrowserAutomationViewport
-  }): Promise<{ url: string; title?: string }>
-
-  close(input: { threadId: string; session: string }): Promise<void>
-
-  getUrl(input: { threadId: string; session: string }): Promise<string>
-  getTitle(input: { threadId: string; session: string }): Promise<string>
-
-  loadUrl(input: { threadId: string; session: string; url: string }): Promise<string>
-
-  waitForFunction(input: {
-    threadId: string
-    session: string
-    predicate: string
-    timeoutMs: number
-    pollIntervalMs?: number
-    signal?: AbortSignal
-  }): Promise<void>
-
-  snapshot(input: {
-    threadId: string
-    session: string
-    maxRefs?: number
-  }): Promise<BrowserAutomationSnapshot>
-
-  scroll(input: {
-    threadId: string
-    session: string
-    direction?: BrowserAutomationScrollDirection
-    amount?: number
-    ref?: string
-  }): Promise<BrowserAutomationPageState>
-  goBack(input: { threadId: string; session: string }): Promise<BrowserAutomationPageState>
-  goForward(input: { threadId: string; session: string }): Promise<BrowserAutomationPageState>
-  click(input: {
-    threadId: string
-    session: string
-    ref: string
-  }): Promise<BrowserAutomationPageState>
-  fill(input: {
-    threadId: string
-    session: string
-    ref: string
-    text: string
-  }): Promise<BrowserAutomationPageState>
-  type(input: {
-    threadId: string
-    session: string
-    ref: string
-    text: string
-  }): Promise<BrowserAutomationPageState>
-  select(input: {
-    threadId: string
-    session: string
-    ref: string
-    value: string
-  }): Promise<BrowserAutomationPageState>
-  check(input: {
-    threadId: string
-    session: string
-    ref: string
-    checked: boolean
-  }): Promise<BrowserAutomationPageState>
-  press(input: {
-    threadId: string
-    session: string
-    key: string
-  }): Promise<BrowserAutomationPageState>
-
-  evaluateScript(input: {
-    threadId: string
-    session: string
-    script: string
-    timeoutMs: number
-  }): Promise<BrowserAutomationEvaluationResult>
-
-  screenshot(input: {
-    threadId: string
-    session: string
-    workspacePath: string
-    fileName?: string
-  }): Promise<BrowserAutomationScreenshotResult>
-
-  pdf(input: {
-    threadId: string
-    session: string
-    workspacePath: string
-    fileName?: string
-  }): Promise<BrowserAutomationPdfResult>
 
   dispose(): void
 }

@@ -5,7 +5,7 @@ import type { ToolExecutionOptions } from 'ai'
 
 import { createTool } from './useBrowserTool.ts'
 import type { AgentToolContext } from './shared.ts'
-import type { BrowserAutomationService } from '../../services/browserAutomation/electronBrowserAutomationService.ts'
+import type { BrowserAutomationToolBackend } from '../../services/browserAutomation/browserAutomationToolBackend.ts'
 
 const TOOL_EXECUTION_OPTIONS: ToolExecutionOptions = {
   toolCallId: 'tc-test',
@@ -49,26 +49,10 @@ function makeContext(overrides?: Partial<AgentToolContext>): AgentToolContext {
   }
 }
 
-function makeService(overrides?: Partial<BrowserAutomationService>): BrowserAutomationService {
+function makeService(
+  overrides?: Partial<BrowserAutomationToolBackend>
+): BrowserAutomationToolBackend {
   return {
-    listSessions: () => [],
-    showSessionView: () => ({
-      threadId: 'thread-1',
-      session: 's1',
-      url: 'https://example.com',
-      title: 'Example',
-      viewport: { width: 1280, height: 960 },
-      updatedAt: '2026-01-01T00:00:00.000Z'
-    }),
-    hideSessionView: () => {},
-    setSessionViewBounds: () => ({
-      threadId: 'thread-1',
-      session: 's1',
-      url: 'https://example.com',
-      title: 'Example',
-      viewport: { width: 1280, height: 960 },
-      updatedAt: '2026-01-01T00:00:00.000Z'
-    }),
     open: async () => ({ url: 'https://example.com', title: 'Example' }),
     close: async () => {},
     getUrl: async () => 'https://example.com',
@@ -123,7 +107,6 @@ function makeService(overrides?: Partial<BrowserAutomationService>): BrowserAuto
       title: 'Evaluated',
       value: { answer: 42 }
     }),
-    dispose: () => {},
     ...overrides
   }
 }

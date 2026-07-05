@@ -2,9 +2,9 @@ import { tool, type Tool } from 'ai'
 
 import type { UseBrowserToolCallDetails } from '@yachiyo/shared/protocol'
 import type {
-  BrowserAutomationService,
-  BrowserAutomationSnapshot
-} from '../../services/browserAutomation/electronBrowserAutomationService.ts'
+  BrowserAutomationSnapshot,
+  BrowserAutomationToolBackend
+} from '../../services/browserAutomation/browserAutomationToolBackend.ts'
 import { assertNonEmptyScreenshotByteLength } from '../../services/browserAutomation/browserCaptureValidation.ts'
 import {
   isRetryableBrowserNavigationError,
@@ -85,7 +85,7 @@ function formatEvalResult(value: unknown): string {
 
 export function createTool(
   context: AgentToolContext,
-  deps: { browserAutomationService?: BrowserAutomationService } = {}
+  deps: { browserAutomationService?: BrowserAutomationToolBackend } = {}
 ): Tool<UseBrowserToolInput, UseBrowserToolOutput> {
   return tool({
     description:

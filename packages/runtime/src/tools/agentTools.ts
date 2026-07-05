@@ -15,7 +15,7 @@ import type { SearchService } from '../services/search/searchService.ts'
 import type { WebSearchService } from '../services/webSearch/webSearchService.ts'
 import type { MemoryService } from '../services/memory/memoryService.ts'
 import type { BrowserWebPageSnapshotLoader } from '../services/webRead/browserWebPageSnapshot.ts'
-import type { BrowserAutomationService } from '../services/browserAutomation/electronBrowserAutomationService.ts'
+import type { BrowserAutomationToolBackend } from '../services/browserAutomation/browserAutomationToolBackend.ts'
 
 import {
   createTool as createApplyPatchTool,
@@ -147,7 +147,7 @@ export interface AgentToolDependencies {
   activeSkills?: SkillSummary[]
   fetchImpl?: typeof globalThis.fetch
   loadBrowserSnapshot?: BrowserWebPageSnapshotLoader
-  browserAutomationService?: BrowserAutomationService
+  browserAutomationService?: BrowserAutomationToolBackend
   memoryService?: MemoryService
   searchService?: SearchService
   webSearchService?: WebSearchService
