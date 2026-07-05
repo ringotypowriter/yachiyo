@@ -58,8 +58,11 @@ import type {
   UpdateChannelGroupInput,
   UpdateChannelUserInput,
   UpdateScheduleInput,
-  UsageStatsInput
+  UsageStatsInput,
+  YachiyoServerEvent
 } from '@yachiyo/shared/protocol'
+import { createLoopbackRpcHost, type LoopbackRpcHost } from '@yachiyo/shared/rpc/loopbackRpcHost'
+import type { RpcMethods } from '@yachiyo/shared/rpc/rpcClient'
 import {
   createSqliteYachiyoServer,
   type YachiyoServer
@@ -126,7 +129,34 @@ import { broadcastYachiyoEvent, handleYachiyoIpc, showYachiyoNotification } from
 import { IPC_CHANNELS } from './ipcChannels.ts'
 import { normalizePngBytes, normalizePngFilename, type SavePngFileInput } from './pngFile.ts'
 
+/**
+ * Phase 1.5 of the runtime process extraction: renderer-facing handlers call
+ * the server through an in-process loopback RPC proxy whose transport
+ * structured-clones every message, so any payload that could not cross a real
+ * MessagePort boundary fails now — before the runtime moves out of this
+ * process. Methods excluded here stay on the live server: live-object getters,
+ * the browser-automation surface (bound to BrowserWindow/WebContentsView in
+ * this process), and the two calls served by the rpc:event / rpc:progress
+ * channels instead of plain dispatch.
+ */
+type RpcSafeYachiyoServer = Omit<
+  YachiyoServer,
+  | 'subscribe'
+  | 'translateStream'
+  | 'getStorage'
+  | 'getTtlReaper'
+  | 'getMemoryService'
+  | 'getWebSearchService'
+  | 'getImageToTextService'
+  | 'getAuxiliaryGenerationService'
+  | 'showBrowserAutomationSession'
+  | 'hideBrowserAutomationSession'
+  | 'setBrowserAutomationSessionBounds'
+  | 'listBrowserAutomationSessions'
+>
+
 let server: YachiyoServer | null = null
+let serverRpc: LoopbackRpcHost<RpcSafeYachiyoServer> | null = null
 let webExternalFetchImpl: typeof globalThis.fetch | undefined
 let telegramService: TelegramService | null = null
 let qqService: QQService | null = null
@@ -143,6 +173,13 @@ let commandSocketHealthTimer: ReturnType<typeof setInterval> | null = null
 let commandSocketRecoveryRegistered = false
 let commandSocketRestartInFlight: Promise<void> | null = null
 let fatalRunRecoveryRegistered = false
+
+function rpc(): RpcMethods<RpcSafeYachiyoServer> {
+  if (!serverRpc) {
+    throw new Error('Yachiyo server is not running')
+  }
+  return serverRpc.proxy
+}
 
 const COMMAND_SOCKET_HEALTH_INTERVAL_MS = 15_000
 const COMMAND_SOCKET_HEALTH_TIMEOUT_MS = 1_000
@@ -519,7 +556,10 @@ function createConfiguredServer(
     webExternalFetchImpl: input.webExternalFetchImpl,
     jotdownStore: input.jotdownStore
   })
-  nextServer.subscribe(broadcastYachiyoEvent)
+  serverRpc = createLoopbackRpcHost<RpcSafeYachiyoServer>(nextServer, {
+    subscribe: (listener) => nextServer.subscribe(listener)
+  })
+  serverRpc.client.subscribe((event) => broadcastYachiyoEvent(event as YachiyoServerEvent))
   nextServer.getTtlReaper().start()
   return nextServer
 }
@@ -583,6 +623,8 @@ async function startLiveServices(): Promise<void> {
 async function restartServerForDemoModeChange(): Promise<void> {
   const previousServer = server
   await stopLiveServices()
+  serverRpc?.dispose()
+  serverRpc = null
   await previousServer?.close()
   server = createConfiguredServer({ webExternalFetchImpl })
   await startLiveServices()
@@ -668,31 +710,27 @@ export function registerYachiyoGateway(): YachiyoServer {
   registerChannelRecovery()
 
   handleYachiyoIpc(IPC_CHANNELS.searchThreadsAndMessages, (input: SearchThreadsAndMessagesInput) =>
-    server!.searchThreadsAndMessages(input)
+    rpc().searchThreadsAndMessages(input)
   )
   handleYachiyoIpc(IPC_CHANNELS.searchWorkspaceFiles, (input: SearchWorkspaceFilesInput) =>
-    server!.searchWorkspaceFiles(input)
+    rpc().searchWorkspaceFiles(input)
   )
   handleYachiyoIpc(IPC_CHANNELS.listThings, (input?: { includeInactive?: boolean }) =>
-    server!.listThings(input)
+    rpc().listThings(input)
   )
-  handleYachiyoIpc(IPC_CHANNELS.getThing, (input: { name: string }) => server!.getThing(input))
+  handleYachiyoIpc(IPC_CHANNELS.getThing, (input: { name: string }) => rpc().getThing(input))
   handleYachiyoIpc(IPC_CHANNELS.restoreThing, (input: { name: string }) =>
-    server!.restoreThing(input)
+    rpc().restoreThing(input)
   )
-  handleYachiyoIpc(IPC_CHANNELS.renameThing, (input: RenameThingInput) =>
-    server!.renameThing(input)
-  )
-  handleYachiyoIpc(IPC_CHANNELS.deleteThing, (input: DeleteThingInput) =>
-    server!.deleteThing(input)
-  )
+  handleYachiyoIpc(IPC_CHANNELS.renameThing, (input: RenameThingInput) => rpc().renameThing(input))
+  handleYachiyoIpc(IPC_CHANNELS.deleteThing, (input: DeleteThingInput) => rpc().deleteThing(input))
   handleYachiyoIpc(IPC_CHANNELS.removeThingSource, (input: RemoveThingSourceInput) =>
-    server!.removeThingSource(input)
+    rpc().removeThingSource(input)
   )
   handleYachiyoIpc(IPC_CHANNELS.continueThingInNewChat, (input: { name: string }) =>
-    server!.continueThingInNewChat(input)
+    rpc().continueThingInNewChat(input)
   )
-  handleYachiyoIpc(IPC_CHANNELS.bootstrap, () => server!.bootstrap())
+  handleYachiyoIpc(IPC_CHANNELS.bootstrap, () => rpc().bootstrap())
   handleYachiyoIpc(
     IPC_CHANNELS.createThread,
     (input?: {
@@ -703,71 +741,71 @@ export function registerYachiyoGateway(): YachiyoServer {
       enabledTools?: ToolCallName[]
       runMode?: RunModeId
       reasoningEffort?: ComposerReasoningSelection
-    }) => server!.createThread(input)
+    }) => rpc().createThread(input)
   )
   handleYachiyoIpc(IPC_CHANNELS.createBranch, (input: { threadId: string; messageId: string }) =>
-    server!.createBranch(input)
+    rpc().createBranch(input)
   )
   handleYachiyoIpc(IPC_CHANNELS.compactThreadToAnotherThread, (input: CompactThreadInput) =>
-    server!.compactThreadToAnotherThread(input)
+    rpc().compactThreadToAnotherThread(input)
   )
   handleYachiyoIpc(IPC_CHANNELS.createFolderForThreads, (input: { threadIds: string[] }) =>
-    server!.createFolderForThreads(input)
+    rpc().createFolderForThreads(input)
   )
   handleYachiyoIpc(IPC_CHANNELS.renameFolder, (input: { folderId: string; title: string }) =>
-    server!.renameFolder(input)
+    rpc().renameFolder(input)
   )
   handleYachiyoIpc(
     IPC_CHANNELS.setFolderColor,
-    (input: { folderId: string; colorTag: string | null }) => server!.setFolderColor(input as never)
+    (input: { folderId: string; colorTag: string | null }) => rpc().setFolderColor(input as never)
   )
   handleYachiyoIpc(IPC_CHANNELS.deleteFolder, (input: { folderId: string }) =>
-    server!.deleteFolder(input)
+    rpc().deleteFolder(input)
   )
   handleYachiyoIpc(
     IPC_CHANNELS.moveThreadToFolder,
-    (input: { threadId: string; folderId: string | null }) => server!.moveThreadToFolder(input)
+    (input: { threadId: string; folderId: string | null }) => rpc().moveThreadToFolder(input)
   )
   handleYachiyoIpc(IPC_CHANNELS.renameThread, (input: { threadId: string; title: string }) =>
-    server!.renameThread(input)
+    rpc().renameThread(input)
   )
   handleYachiyoIpc(
     IPC_CHANNELS.setThreadColor,
-    (input: { threadId: string; colorTag: ThreadColorTag | null }) => server!.setThreadColor(input)
+    (input: { threadId: string; colorTag: ThreadColorTag | null }) => rpc().setThreadColor(input)
   )
   handleYachiyoIpc(IPC_CHANNELS.setThreadIcon, (input: { threadId: string; icon: string | null }) =>
-    server!.setThreadIcon(input)
+    rpc().setThreadIcon(input)
   )
   handleYachiyoIpc(IPC_CHANNELS.showEmojiPanel, () => {
     app.showEmojiPanel()
   })
   handleYachiyoIpc(IPC_CHANNELS.archiveThread, (input: { threadId: string }) =>
-    server!.archiveThread(input)
+    rpc().archiveThread(input)
   )
   handleYachiyoIpc(IPC_CHANNELS.deleteThread, (input: { threadId: string }) =>
-    server!.deleteThread(input)
+    rpc().deleteThread(input)
   )
   handleYachiyoIpc(IPC_CHANNELS.openThreadWorkspace, (input: { threadId: string }) =>
-    server!
+    rpc()
       .openThreadWorkspace(input)
       .then((workspacePath) => openThreadWorkspace(input.threadId, workspacePath))
   )
   handleYachiyoIpc(
     IPC_CHANNELS.getThreadWorkspaceChangeDecision,
     (input: { threadId: string; workspacePath?: string | null }) =>
-      server!.getThreadWorkspaceChangeDecision(input)
+      rpc().getThreadWorkspaceChangeDecision(input)
   )
   handleYachiyoIpc(IPC_CHANNELS.readThreadPlanDocument, (input: { threadId: string }) =>
-    server!.readThreadPlanDocument(input)
+    rpc().readThreadPlanDocument(input)
   )
   handleYachiyoIpc(IPC_CHANNELS.acceptThreadPlanDocument, (input: AcceptThreadPlanDocumentInput) =>
-    server!.acceptThreadPlanDocument(input)
+    rpc().acceptThreadPlanDocument(input)
   )
   handleYachiyoIpc(IPC_CHANNELS.listDiscoveredApps, () => discoverApps())
   handleYachiyoIpc(
     IPC_CHANNELS.openWorkspaceWithApp,
     async (input: { threadId: string; appName: string }) => {
-      const workspacePath = await server!.openThreadWorkspace({ threadId: input.threadId })
+      const workspacePath = await rpc().openThreadWorkspace({ threadId: input.threadId })
       await openThreadWorkspace(input.threadId, workspacePath, {
         openPath: (path) =>
           new Promise<string>((resolve, reject) => {
@@ -787,7 +825,7 @@ export function registerYachiyoGateway(): YachiyoServer {
   handleYachiyoIpc(
     IPC_CHANNELS.updateThreadWorkspace,
     (input: { threadId: string; workspacePath?: string | null; confirmed?: boolean }) =>
-      server!.updateThreadWorkspace(input)
+      rpc().updateThreadWorkspace(input)
   )
   handleYachiyoIpc(IPC_CHANNELS.pickCodexSessionFile, async () => {
     const { dialog } = await import('electron')
@@ -820,16 +858,16 @@ export function registerYachiyoGateway(): YachiyoServer {
     return result.canceled ? null : (result.filePaths[0] ?? null)
   })
   handleYachiyoIpc(IPC_CHANNELS.restoreThread, (input: { threadId: string }) =>
-    server!.restoreThread(input)
+    rpc().restoreThread(input)
   )
   handleYachiyoIpc(IPC_CHANNELS.saveToolPreferences, (input: ToolPreferencesInput) =>
-    server!.saveToolPreferences(input)
+    rpc().saveToolPreferences(input)
   )
   handleYachiyoIpc(IPC_CHANNELS.clearRecapText, (input: { threadId: string }) =>
-    server!.clearRecapText(input)
+    rpc().clearRecapText(input)
   )
   handleYachiyoIpc(IPC_CHANNELS.requestRecap, (input: { threadId: string }) =>
-    server!.requestRecap(input)
+    rpc().requestRecap(input)
   )
   handleYachiyoIpc(IPC_CHANNELS.sendChat, (input: SendChatInput) => {
     const safeInput: SendChatInput = { ...input }
@@ -838,66 +876,63 @@ export function registerYachiyoGateway(): YachiyoServer {
         toolPreset?: unknown
       }
     ).toolPreset
-    return server!.sendChat(safeInput)
+    return rpc().sendChat(safeInput)
   })
-  handleYachiyoIpc(IPC_CHANNELS.retryMessage, (input: RetryInput) => server!.retryMessage(input))
-  handleYachiyoIpc(IPC_CHANNELS.saveThread, (input: SaveThreadInput) => server!.saveThread(input))
+  handleYachiyoIpc(IPC_CHANNELS.retryMessage, (input: RetryInput) => rpc().retryMessage(input))
+  handleYachiyoIpc(IPC_CHANNELS.saveThread, (input: SaveThreadInput) => rpc().saveThread(input))
   handleYachiyoIpc(
     IPC_CHANNELS.selectReplyBranch,
-    (input: { threadId: string; assistantMessageId: string }) => server!.selectReplyBranch(input)
+    (input: { threadId: string; assistantMessageId: string }) => rpc().selectReplyBranch(input)
   )
   handleYachiyoIpc(IPC_CHANNELS.deleteMessage, (input: { threadId: string; messageId: string }) =>
-    server!.deleteMessageFromHere(input)
+    rpc().deleteMessageFromHere(input)
   )
-  handleYachiyoIpc(IPC_CHANNELS.editMessage, (input: EditMessageInput) =>
-    server!.editMessage(input)
-  )
-  handleYachiyoIpc(IPC_CHANNELS.cancelRun, (input: { runId: string }) => server!.cancelRun(input))
+  handleYachiyoIpc(IPC_CHANNELS.editMessage, (input: EditMessageInput) => rpc().editMessage(input))
+  handleYachiyoIpc(IPC_CHANNELS.cancelRun, (input: { runId: string }) => rpc().cancelRun(input))
   handleYachiyoIpc(IPC_CHANNELS.withdrawPendingSteer, (input: { threadId: string }) =>
-    server!.withdrawPendingSteer(input)
+    rpc().withdrawPendingSteer(input)
   )
   handleYachiyoIpc(IPC_CHANNELS.answerToolQuestion, (input: AnswerToolQuestionInput) =>
-    server!.answerToolQuestion(input)
+    rpc().answerToolQuestion(input)
   )
-  handleYachiyoIpc(IPC_CHANNELS.getConfig, () => server!.getConfig())
-  handleYachiyoIpc(IPC_CHANNELS.getSoulDocument, () => server!.getSoulDocument())
+  handleYachiyoIpc(IPC_CHANNELS.getConfig, () => rpc().getConfig())
+  handleYachiyoIpc(IPC_CHANNELS.getSoulDocument, () => rpc().getSoulDocument())
   handleYachiyoIpc(IPC_CHANNELS.addSoulTrait, (input: { trait: string }) =>
-    server!.addSoulTrait(input)
+    rpc().addSoulTrait(input)
   )
   handleYachiyoIpc(IPC_CHANNELS.deleteSoulTrait, (input: { trait: string }) =>
-    server!.deleteSoulTrait(input)
+    rpc().deleteSoulTrait(input)
   )
   handleYachiyoIpc(
     IPC_CHANNELS.getMemoryTermDocument,
     (input?: GetMemoryTermDocumentInput): Promise<MemoryTermDocument> =>
-      server!.getMemoryTermDocument(input)
+      rpc().getMemoryTermDocument(input)
   )
   handleYachiyoIpc(
     IPC_CHANNELS.deleteMemoryTerm,
-    (input: DeleteMemoryTermInput): Promise<DeleteMemoryTermResult> =>
-      server!.deleteMemoryTerm(input)
+    (input: DeleteMemoryTermInput): Promise<DeleteMemoryTermResult> => rpc().deleteMemoryTerm(input)
   )
   handleYachiyoIpc(
     IPC_CHANNELS.listActivitySourceRecords,
-    (input?: ListActivitySourceRecordsInput) => server!.listActivitySourceRecords(input)
+    (input?: ListActivitySourceRecordsInput) => rpc().listActivitySourceRecords(input)
   )
-  handleYachiyoIpc(IPC_CHANNELS.getUserDocument, () => server!.getUserDocument())
+  handleYachiyoIpc(IPC_CHANNELS.getUserDocument, () => rpc().getUserDocument())
   handleYachiyoIpc(IPC_CHANNELS.testSubagentProfile, (input: TestSubagentProfileInput) =>
-    server!.testSubagentProfile(input)
+    rpc().testSubagentProfile(input)
   )
-  handleYachiyoIpc(IPC_CHANNELS.getSettings, () => server!.getSettings())
-  handleYachiyoIpc(IPC_CHANNELS.getSyncStatus, () => server!.getSyncStatus())
-  handleYachiyoIpc(IPC_CHANNELS.initSync, () => server!.initSync())
-  handleYachiyoIpc(IPC_CHANNELS.runSyncNow, () => server!.runSyncNow())
-  handleYachiyoIpc(IPC_CHANNELS.listSyncConflicts, () => server!.listSyncConflicts())
+  handleYachiyoIpc(IPC_CHANNELS.getSettings, () => rpc().getSettings())
+  handleYachiyoIpc(IPC_CHANNELS.getSyncStatus, () => rpc().getSyncStatus())
+  handleYachiyoIpc(IPC_CHANNELS.initSync, () => rpc().initSync())
+  handleYachiyoIpc(IPC_CHANNELS.runSyncNow, () => rpc().runSyncNow())
+  handleYachiyoIpc(IPC_CHANNELS.listSyncConflicts, () => rpc().listSyncConflicts())
   handleYachiyoIpc(IPC_CHANNELS.resolveSyncConflict, (input: ResolveSyncConflictInput) =>
-    server!.resolveSyncConflict(input)
+    rpc().resolveSyncConflict(input)
   )
   handleYachiyoIpc(IPC_CHANNELS.saveConfig, async (input: SettingsConfig) => {
-    const currentConfig = await server!.getConfig()
+    const currentConfig = await rpc().getConfig()
     const demoModeBeforeSave = is.dev && currentConfig.general?.demoMode === true
     const configToSave = await resolveActivityTrackingPermission(input, currentConfig)
-    const saved = await server!.saveConfig(configToSave)
+    const saved = await rpc().saveConfig(configToSave)
     const demoModeAfterSave = is.dev && saved.general?.demoMode === true
 
     if (demoModeBeforeSave !== demoModeAfterSave) {
@@ -923,31 +958,31 @@ export function registerYachiyoGateway(): YachiyoServer {
     return saved
   })
   handleYachiyoIpc(IPC_CHANNELS.saveUserDocument, (input: { content: string }) =>
-    server!.saveUserDocument(input)
+    rpc().saveUserDocument(input)
   )
   handleYachiyoIpc(IPC_CHANNELS.saveSettings, (input: Partial<ProviderSettings>) =>
-    server!.saveSettings(input)
+    rpc().saveSettings(input)
   )
   handleYachiyoIpc(IPC_CHANNELS.upsertProvider, (input: ProviderConfig) =>
-    server!.upsertProvider(input)
+    rpc().upsertProvider(input)
   )
   handleYachiyoIpc(IPC_CHANNELS.removeProvider, (input: { name: string }) =>
-    server!.removeProvider(input)
+    rpc().removeProvider(input)
   )
   handleYachiyoIpc(IPC_CHANNELS.enableProviderModel, (input: { name: string; model: string }) =>
-    server!.enableProviderModel(input)
+    rpc().enableProviderModel(input)
   )
   handleYachiyoIpc(IPC_CHANNELS.disableProviderModel, (input: { name: string; model: string }) =>
-    server!.disableProviderModel(input)
+    rpc().disableProviderModel(input)
   )
   handleYachiyoIpc(IPC_CHANNELS.fetchProviderModels, (input: ProviderConfig) =>
-    server!.fetchProviderModels(input)
+    rpc().fetchProviderModels(input)
   )
   handleYachiyoIpc(IPC_CHANNELS.listWebSearchBrowserImportSources, () =>
-    server!.listWebSearchBrowserImportSources()
+    rpc().listWebSearchBrowserImportSources()
   )
   handleYachiyoIpc(IPC_CHANNELS.listSkills, (input: ListSkillsInput | undefined) =>
-    server!.listSkills(input)
+    rpc().listSkills(input)
   )
   handleYachiyoIpc(IPC_CHANNELS.openSkillsFolder, async () => {
     const { shell } = await import('electron')
@@ -958,7 +993,7 @@ export function registerYachiyoGateway(): YachiyoServer {
   })
   handleYachiyoIpc(
     IPC_CHANNELS.importWebSearchBrowserSession,
-    (input: ImportWebSearchBrowserSessionInput) => server!.importWebSearchBrowserSession(input)
+    (input: ImportWebSearchBrowserSessionInput) => rpc().importWebSearchBrowserSession(input)
   )
   handleYachiyoIpc(
     IPC_CHANNELS.listBrowserAutomationSessions,
@@ -989,60 +1024,60 @@ export function registerYachiyoGateway(): YachiyoServer {
   )
   handleYachiyoIpc(
     IPC_CHANNELS.setThreadPrivacyMode,
-    (input: { threadId: string; enabled: boolean }) => server!.setThreadPrivacyMode(input)
+    (input: { threadId: string; enabled: boolean }) => rpc().setThreadPrivacyMode(input)
   )
   handleYachiyoIpc(
     IPC_CHANNELS.setThreadModelOverride,
     (input: { threadId: string; modelOverride: ThreadModelOverride | null }) =>
-      server!.setThreadModelOverride(input)
+      rpc().setThreadModelOverride(input)
   )
   handleYachiyoIpc(
     IPC_CHANNELS.setThreadReasoningEffort,
     (input: { threadId: string; reasoningEffort: ComposerReasoningSelection | null }) =>
-      server!.setThreadReasoningEffort(input)
+      rpc().setThreadReasoningEffort(input)
   )
   handleYachiyoIpc(
     IPC_CHANNELS.setThreadToolMode,
     (input: { threadId: string; enabledTools: ToolCallName[]; runMode?: RunModeId }) =>
-      server!.setThreadToolMode(input)
+      rpc().setThreadToolMode(input)
   )
   handleYachiyoIpc(
     IPC_CHANNELS.setThreadRuntimeBinding,
     (input: {
       threadId: string
       runtimeBinding: import('@yachiyo/shared/protocol').ThreadRuntimeBinding | null
-    }) => server!.setThreadRuntimeBinding(input)
+    }) => rpc().setThreadRuntimeBinding(input)
   )
   handleYachiyoIpc(IPC_CHANNELS.regenerateThreadTitle, (input: { threadId: string }) =>
-    server!.regenerateThreadTitle(input)
+    rpc().regenerateThreadTitle(input)
   )
   handleYachiyoIpc(IPC_CHANNELS.starThread, (input: { threadId: string; starred: boolean }) =>
-    server!.starThread(input)
+    rpc().starThread(input)
   )
   handleYachiyoIpc(
     IPC_CHANNELS.loadThreadData,
     (input: { threadId: string; includeMessages?: boolean }) =>
-      server!.loadThreadData(input.threadId, { includeMessages: input.includeMessages })
+      rpc().loadThreadData(input.threadId, { includeMessages: input.includeMessages })
   )
   handleYachiyoIpc(IPC_CHANNELS.listBackgroundTasks, (input?: { threadId?: string }) =>
-    server!.listBackgroundTasks(input)
+    rpc().listBackgroundTasks(input)
   )
   handleYachiyoIpc(
     IPC_CHANNELS.getBackgroundTaskLog,
     (input: { threadId: string; taskId: string; maxBytes?: number }) =>
-      server!.getBackgroundTaskLog(input)
+      rpc().getBackgroundTaskLog(input)
   )
   handleYachiyoIpc(IPC_CHANNELS.cancelBackgroundTask, (input: { taskId: string }) =>
-    server!.cancelBackgroundTask(input)
+    rpc().cancelBackgroundTask(input)
   )
-  handleYachiyoIpc(IPC_CHANNELS.listExternalThreads, () => server!.listExternalThreads())
-  handleYachiyoIpc(IPC_CHANNELS.listChannelUsers, () => server!.listChannelUsers())
+  handleYachiyoIpc(IPC_CHANNELS.listExternalThreads, () => rpc().listExternalThreads())
+  handleYachiyoIpc(IPC_CHANNELS.listChannelUsers, () => rpc().listChannelUsers())
   handleYachiyoIpc(IPC_CHANNELS.updateChannelUser, (input: UpdateChannelUserInput) =>
-    server!.updateChannelUser(input)
+    rpc().updateChannelUser(input)
   )
-  handleYachiyoIpc(IPC_CHANNELS.listChannelGroups, () => server!.listChannelGroups())
-  handleYachiyoIpc(IPC_CHANNELS.updateChannelGroup, (input: UpdateChannelGroupInput) => {
-    const updated = server!.updateChannelGroup(input)
+  handleYachiyoIpc(IPC_CHANNELS.listChannelGroups, () => rpc().listChannelGroups())
+  handleYachiyoIpc(IPC_CHANNELS.updateChannelGroup, async (input: UpdateChannelGroupInput) => {
+    const updated = await rpc().updateChannelGroup(input)
     // Notify running channel services so they can start/stop monitors.
     telegramService?.onGroupStatusChange(updated)
     qqService?.onGroupStatusChange(updated)
@@ -1050,14 +1085,14 @@ export function registerYachiyoGateway(): YachiyoServer {
     return updated
   })
   handleYachiyoIpc(IPC_CHANNELS.clearGroupMonitorBuffer, async (input: { groupId: string }) => {
-    server!.startClearChannelGroupHistory(input)
+    await rpc().startClearChannelGroupHistory(input)
     telegramService?.clearGroupMessages(input.groupId)
     qqService?.clearGroupMessages(input.groupId)
     discordService?.clearGroupMessages(input.groupId)
   })
-  handleYachiyoIpc(IPC_CHANNELS.getChannelsConfig, () => server!.getChannelsConfig())
+  handleYachiyoIpc(IPC_CHANNELS.getChannelsConfig, () => rpc().getChannelsConfig())
   handleYachiyoIpc(IPC_CHANNELS.saveChannelsConfig, async (input: ChannelsConfig) => {
-    const saved = server!.saveChannelsConfig(input)
+    const saved = await rpc().saveChannelsConfig(input)
     channelsConfigForSupervisor = saved
     await getChannelSupervisor().reconcileAll('config changed')
     return saved
@@ -1065,7 +1100,7 @@ export function registerYachiyoGateway(): YachiyoServer {
   handleYachiyoIpc(
     IPC_CHANNELS.restartChannelService,
     async (input: { platform: 'telegram' | 'qq' | 'discord' | 'qqbot' | 'all' }) => {
-      channelsConfigForSupervisor = server!.getChannelsConfig()
+      channelsConfigForSupervisor = await rpc().getChannelsConfig()
       if (input.platform === 'all') {
         await getChannelSupervisor().restartAll('manual restart')
         return
@@ -1074,42 +1109,42 @@ export function registerYachiyoGateway(): YachiyoServer {
     }
   )
   // Schedule CRUD
-  handleYachiyoIpc(IPC_CHANNELS.listSchedules, () => server!.listSchedules())
-  handleYachiyoIpc(IPC_CHANNELS.createSchedule, (input: CreateScheduleInput) => {
-    const schedule = server!.createSchedule(input)
+  handleYachiyoIpc(IPC_CHANNELS.listSchedules, () => rpc().listSchedules())
+  handleYachiyoIpc(IPC_CHANNELS.createSchedule, async (input: CreateScheduleInput) => {
+    const schedule = await rpc().createSchedule(input)
     scheduleService?.reload()
     return schedule
   })
-  handleYachiyoIpc(IPC_CHANNELS.updateSchedule, (input: UpdateScheduleInput) => {
-    const schedule = server!.updateSchedule(input)
+  handleYachiyoIpc(IPC_CHANNELS.updateSchedule, async (input: UpdateScheduleInput) => {
+    const schedule = await rpc().updateSchedule(input)
     scheduleService?.reload()
     return schedule
   })
-  handleYachiyoIpc(IPC_CHANNELS.deleteSchedule, (input: { id: string }) => {
-    server!.deleteSchedule(input.id)
+  handleYachiyoIpc(IPC_CHANNELS.deleteSchedule, async (input: { id: string }) => {
+    await rpc().deleteSchedule(input.id)
     scheduleService?.reload()
   })
-  handleYachiyoIpc(IPC_CHANNELS.enableSchedule, (input: { id: string }) => {
-    const result = server!.enableSchedule(input.id)
+  handleYachiyoIpc(IPC_CHANNELS.enableSchedule, async (input: { id: string }) => {
+    const result = await rpc().enableSchedule(input.id)
     scheduleService?.reload()
     return result
   })
-  handleYachiyoIpc(IPC_CHANNELS.disableSchedule, (input: { id: string }) => {
-    const result = server!.disableSchedule(input.id)
+  handleYachiyoIpc(IPC_CHANNELS.disableSchedule, async (input: { id: string }) => {
+    const result = await rpc().disableSchedule(input.id)
     scheduleService?.reload()
     return result
   })
   handleYachiyoIpc(IPC_CHANNELS.listScheduleRuns, (input: { scheduleId: string; limit?: number }) =>
-    server!.listScheduleRuns(input.scheduleId, input.limit)
+    rpc().listScheduleRuns(input.scheduleId, input.limit)
   )
   handleYachiyoIpc(IPC_CHANNELS.listRecentScheduleRuns, (input?: { limit?: number }) =>
-    server!.listRecentScheduleRuns(input?.limit)
+    rpc().listRecentScheduleRuns(input?.limit)
   )
   handleYachiyoIpc(IPC_CHANNELS.triggerScheduleNow, async (input: { scheduleId: string }) => {
     await scheduleService?.triggerScheduleNow(input.scheduleId)
   })
   handleYachiyoIpc(IPC_CHANNELS.markThreadAsRead, (input: { threadId: string }) =>
-    server!.markThreadAsRead(input)
+    rpc().markThreadAsRead(input)
   )
 
   registerGatewayFileHandlers(handleYachiyoIpc)
@@ -1139,15 +1174,22 @@ export function registerYachiyoGateway(): YachiyoServer {
   handleYachiyoIpc(
     IPC_CHANNELS.downloadRemoteImageForMessage,
     (input: { threadId: string; messageId: string; url: string }) =>
-      server!.downloadRemoteImageForMessage(input)
+      rpc().downloadRemoteImageForMessage(input)
   )
 
   ipcMain.removeHandler(IPC_CHANNELS.translate)
   ipcMain.handle(IPC_CHANNELS.translate, async (event, input: TranslateInput) => {
     const win = BrowserWindow.fromWebContents(event.sender)
-    return server!.translateStream(input, (delta) => {
-      if (win && !win.isDestroyed()) {
-        win.webContents.send('translator:delta', delta)
+    if (!serverRpc) {
+      throw new Error('Yachiyo server is not running')
+    }
+    // translateStream's trailing onDelta callback maps onto the RPC progress
+    // channel; deltas cross the same clone boundary the extraction will use.
+    return serverRpc.client.call('translateStream', [input], {
+      onProgress: (delta) => {
+        if (win && !win.isDestroyed()) {
+          win.webContents.send('translator:delta', delta)
+        }
       }
     })
   })
@@ -1162,11 +1204,11 @@ export function registerYachiyoGateway(): YachiyoServer {
     jotdownStore.delete(input.id)
   )
   handleYachiyoIpc(IPC_CHANNELS.pruneEmptyTemporaryWorkspaces, () =>
-    server!.pruneEmptyTemporaryWorkspaces()
+    rpc().pruneEmptyTemporaryWorkspaces()
   )
 
   handleYachiyoIpc(IPC_CHANNELS.getUsageStats, (input: UsageStatsInput) =>
-    server!.getUsageStats(input)
+    rpc().getUsageStats(input)
   )
 
   handleYachiyoIpc(IPC_CHANNELS.getPerfStats, () => getPerfMonitor().getStats())
@@ -1227,6 +1269,8 @@ export function registerYachiyoGateway(): YachiyoServer {
     commandSocketRestartInFlight = null
     void commandSocket?.close()
     commandSocket = null
+    serverRpc?.dispose()
+    serverRpc = null
     void server?.close()
     server = null
   })
