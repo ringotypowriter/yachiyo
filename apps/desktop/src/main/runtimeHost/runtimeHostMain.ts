@@ -6,13 +6,14 @@
  * browser search pages, activity summaries) are consumed through reverse RPC
  * on the same port.
  *
- * Not yet wired in this mode: schedule/channel/auto-sync live services and
- * the cert-relaxed web-external fetch session (webRead and image downloads
- * fall back to net.fetch). See docs/yachiyo-runtime-process-extraction.md.
+ * Not yet wired in this mode: the cert-relaxed web-external fetch session
+ * (webRead and image downloads fall back to net.fetch).
+ * See docs/yachiyo-runtime-process-extraction.md.
  */
 import { net } from 'electron'
 
 import { createRpcActivitySummarySource } from '@yachiyo/runtime/activity/activityTrackerRpcBridge'
+import { createRuntimeLiveServices } from '@yachiyo/runtime/app/host/runtimeLiveServices'
 import {
   createSqliteYachiyoServer,
   type YachiyoServer
@@ -20,7 +21,8 @@ import {
 import {
   resolveYachiyoDbPath,
   resolveYachiyoJotdownsDir,
-  resolveYachiyoSettingsPath
+  resolveYachiyoSettingsPath,
+  resolveYachiyoTempWorkspaceRoot
 } from '@yachiyo/runtime/config/paths'
 import { createRpcBrowserAutomationBackend } from '@yachiyo/runtime/services/browserAutomation/browserAutomationRpcBridge'
 import { createJotdownStore } from '@yachiyo/runtime/services/jotdownStore'
@@ -29,6 +31,7 @@ import {
   messagePortMainTransport,
   type MessagePortMainLike
 } from '@yachiyo/shared/rpc/messagePortMainTransport'
+import { mergeRpcTargets } from '@yachiyo/shared/rpc/mergeRpcTargets'
 import { createRpcClient } from '@yachiyo/shared/rpc/rpcClient'
 import { serveRpcTarget } from '@yachiyo/shared/rpc/rpcServer'
 
@@ -52,11 +55,12 @@ process.parentPort.on('message', (event) => {
 
   const transport = messagePortMainTransport(port as MessagePortMainLike)
   const mainServices = createRpcClient(transport)
+  const developmentMode = process.env['YACHIYO_RUNTIME_DEV'] === '1'
 
   server = createSqliteYachiyoServer({
     dbPath: resolveYachiyoDbPath(),
     settingsPath: resolveYachiyoSettingsPath(),
-    developmentMode: process.env['YACHIYO_RUNTIME_DEV'] === '1',
+    developmentMode,
     seedPresetProviders: true,
     fetchImpl: (input, init) =>
       net.fetch(input instanceof URL ? input.toString() : (input as string | Request), init),
@@ -68,11 +72,28 @@ process.parentPort.on('message', (event) => {
     activityTracker: createRpcActivitySummarySource(mainServices)
   })
   server.getTtlReaper().start()
+
+  const liveServices = createRuntimeLiveServices({
+    server,
+    showNotification: (input) => {
+      void mainServices
+        .call('mainHost.showNotification', [input])
+        .catch((error) => console.error('[runtime-host] notification failed:', error))
+    },
+    tempWorkspaceDir: resolveYachiyoTempWorkspaceRoot(),
+    enableSchedules: !developmentMode || Boolean(process.env['YACHIYO_DEV_SCHEDULES']),
+    enableChannels: !developmentMode || Boolean(process.env['YACHIYO_DEV_CHANNELS'])
+  })
+
   serveRpcTarget({
     transport,
-    target: server,
+    target: mergeRpcTargets(liveServices.rpcOps, server),
     subscribe: (listener) => server!.subscribe(listener)
   })
+  void liveServices
+    .start()
+    .then(() => console.log('[runtime-host] live services started'))
+    .catch((error) => console.error('[runtime-host] live services failed to start:', error))
   console.log('[runtime-host] YachiyoServer serving over MessagePort')
 })
 

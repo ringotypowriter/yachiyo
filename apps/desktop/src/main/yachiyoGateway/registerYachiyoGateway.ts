@@ -59,6 +59,7 @@ import type {
   UpdateChannelUserInput,
   UpdateScheduleInput,
   UsageStatsInput,
+  ChannelGroupRecord,
   YachiyoServerEvent
 } from '@yachiyo/shared/protocol'
 import { createLoopbackRpcHost, type LoopbackRpcHost } from '@yachiyo/shared/rpc/loopbackRpcHost'
@@ -91,46 +92,14 @@ import {
   startUtilityRuntimeHost,
   type UtilityRuntimeHost
 } from '../runtimeHost/startUtilityRuntimeHost.ts'
-import {
-  startCommandSocket,
-  type CommandSocketHandle,
-  type SendChannelInput
-} from '../cli/commandSocket.ts'
+import { startCommandSocket, type CommandSocketHandle } from '../cli/commandSocket.ts'
 import { openThreadWorkspace } from '../electron/openThreadWorkspace.ts'
 import { discoverApps } from '../electron/appDiscovery.ts'
 import {
-  createTelegramService,
-  type TelegramService
-} from '@yachiyo/runtime/channels/platforms/telegram/telegramService'
-import { createQQService, type QQService } from '@yachiyo/runtime/channels/platforms/qq/qqService'
-import {
-  createQQBotService,
-  type QQBotService
-} from '@yachiyo/runtime/channels/platforms/qqbot/qqbotService'
-import {
-  createDiscordService,
-  type DiscordService
-} from '@yachiyo/runtime/channels/platforms/discord/discordService'
-import {
-  applyChannelsConfigToPolicy,
-  telegramPolicy,
-  qqPolicy,
-  discordPolicy,
-  qqbotPolicy
-} from '@yachiyo/runtime/channels/shared/channelPolicy'
-import {
-  createChannelServiceSupervisor,
-  type ChannelServicePlatform,
-  type ChannelServiceSupervisor
-} from '@yachiyo/runtime/channels/shared/channelServiceLifecycle'
-import {
-  createScheduleService,
-  type ScheduleService
-} from '@yachiyo/runtime/services/scheduleService'
-import {
-  createAutoSyncScheduler,
-  type AutoSyncScheduler
-} from '@yachiyo/runtime/services/autoSyncScheduler'
+  createRuntimeLiveServices,
+  type RuntimeLiveServices
+} from '@yachiyo/runtime/app/host/runtimeLiveServices'
+import { mergeRpcTargets } from '@yachiyo/shared/rpc/mergeRpcTargets'
 import { createJotdownStore } from '@yachiyo/runtime/services/jotdownStore'
 import {
   generateDiffForRun,
@@ -179,9 +148,9 @@ export interface YachiyoGatewayHandle {
   listActiveRunIds(): string[]
 }
 
-// Opt-in flag for the extracted runtime: the agent loop, sqlite, and memory
-// pipeline run in a utilityProcess instead of this process. Live services
-// (schedules/channels/auto-sync) are not yet wired in this mode.
+// Opt-in flag for the extracted runtime: the agent loop, sqlite, memory
+// pipeline, and live services (schedules/channels/auto-sync) all run in a
+// utilityProcess instead of this process.
 const USE_UTILITY_RUNTIME = process.env['YACHIYO_RUNTIME_UTILITY'] === '1'
 
 let server: YachiyoServer | null = null
@@ -197,16 +166,15 @@ const utilityActiveRunIds = new Set<string>()
 // which must stay in the main process when the runtime is extracted.
 let browserAutomationService: BrowserAutomationService | null = null
 let webExternalFetchImpl: typeof globalThis.fetch | undefined
-let telegramService: TelegramService | null = null
-let qqService: QQService | null = null
-let discordService: DiscordService | null = null
-let qqbotService: QQBotService | null = null
-let channelsConfigForSupervisor: ChannelsConfig | null = null
-let channelSupervisor: ChannelServiceSupervisor | null = null
-let channelHealthTimer: ReturnType<typeof setInterval> | null = null
-let channelRecoveryRegistered = false
-let scheduleService: ScheduleService | null = null
-let autoSyncScheduler: AutoSyncScheduler | null = null
+// In-process mode only; the utility runtime host owns its own instance.
+let liveServices: RuntimeLiveServices | null = null
+let channelPokesRegistered = false
+// Crash policy for the utility runtime: refork on unexpected exit, but stop
+// trying when it keeps dying (a crash loop would thrash the user's session).
+const RUNTIME_RESTART_WINDOW_MS = 60_000
+const RUNTIME_RESTART_LIMIT = 3
+let runtimeRestartTimes: number[] = []
+let utilityRuntimeStopping = false
 let commandSocket: CommandSocketHandle | null = null
 let commandSocketHealthTimer: ReturnType<typeof setInterval> | null = null
 let commandSocketRecoveryRegistered = false
@@ -218,6 +186,14 @@ function rpc(): RpcMethods<RpcSafeYachiyoServer> {
     throw new Error('Yachiyo server is not running')
   }
   return serverRpc.proxy
+}
+
+/** Calls a host-level operation (RuntimeLiveServices.rpcOps) on the runtime. */
+function hostCall<TResult = unknown>(method: string, args: unknown[] = []): Promise<TResult> {
+  if (!serverRpc) {
+    return Promise.reject(new Error('Yachiyo server is not running'))
+  }
+  return serverRpc.client.call(`host.${method}`, args) as Promise<TResult>
 }
 
 function browserAutomation(): BrowserAutomationService {
@@ -244,52 +220,37 @@ function logBrowserSearchDiagnostic(event: BrowserSearchDiagnosticEvent): void {
 
 const COMMAND_SOCKET_HEALTH_INTERVAL_MS = 15_000
 const COMMAND_SOCKET_HEALTH_TIMEOUT_MS = 1_000
-const CHANNEL_HEALTH_INTERVAL_MS = 60_000
-
-function buildChannelServiceConfigKey(
-  cfg: ChannelsConfig,
-  platform: ChannelServicePlatform
-): string {
-  return JSON.stringify({
-    platform: cfg[platform],
-    groupVerbosity: cfg.groupVerbosity,
-    groupCheckIntervalMs: cfg.groupCheckIntervalMs,
-    dmCompactTokenThresholdK: cfg.dmCompactTokenThresholdK,
-    groupContextWindowK: cfg.groupContextWindowK,
-    groupHandoffThresholdK: cfg.groupHandoffThresholdK
-  })
-}
 
 function createCommandSocketHandle(): CommandSocketHandle {
   return startCommandSocket({
     socketPath: resolveYachiyoSocketPath(),
     onNotification: (input) => showYachiyoNotification(input),
-    onSendChannel: (input) => handleSendChannel(input),
-    onUpdateChannelGroupStatus: (input) => {
-      void (async () => {
-        const updated = await rpc().updateChannelGroup(input)
-        telegramService?.onGroupStatusChange(updated)
-        qqService?.onGroupStatusChange(updated)
-        discordService?.onGroupStatusChange(updated)
-        console.log(
-          `[channel-group-status] updated ${updated.platform}:${updated.name} -> ${updated.status}`
-        )
-      })().catch((error) => {
-        console.error('[channel-group-status] failed:', error)
+    onSendChannel: (input) => {
+      void hostCall('sendChannelMessage', [input]).catch((error) => {
+        console.error('[send-channel] failed:', error)
       })
     },
+    onUpdateChannelGroupStatus: (input) => {
+      void hostCall<ChannelGroupRecord>('updateChannelGroupAndNotify', [input])
+        .then((updated) => {
+          console.log(
+            `[channel-group-status] updated ${updated.platform}:${updated.name} -> ${updated.status}`
+          )
+        })
+        .catch((error) => {
+          console.error('[channel-group-status] failed:', error)
+        })
+    },
     onUpdateChannelGroupLabel: (input) => {
-      void (async () => {
-        const updated = await rpc().updateChannelGroup(input)
-        telegramService?.onGroupStatusChange(updated)
-        qqService?.onGroupStatusChange(updated)
-        discordService?.onGroupStatusChange(updated)
-        console.log(
-          `[channel-group-label] updated ${updated.platform}:${updated.name} label="${updated.label}"`
-        )
-      })().catch((error) => {
-        console.error('[channel-group-label] failed:', error)
-      })
+      void hostCall<ChannelGroupRecord>('updateChannelGroupAndNotify', [input])
+        .then((updated) => {
+          console.log(
+            `[channel-group-label] updated ${updated.platform}:${updated.name} label="${updated.label}"`
+          )
+        })
+        .catch((error) => {
+          console.error('[channel-group-label] failed:', error)
+        })
     },
     onMarkThreadReviewed: (input) => {
       void rpc()
@@ -379,132 +340,24 @@ function registerCommandSocketRecovery(): void {
   powerMonitor.on('user-did-become-active', () => scheduleHealthCheck('user-did-become-active'))
 }
 
-function getChannelSupervisor(): ChannelServiceSupervisor {
-  if (channelSupervisor) return channelSupervisor
+function registerChannelHealthPokes(): void {
+  if (channelPokesRegistered) return
 
-  channelSupervisor = createChannelServiceSupervisor({
-    telegram: {
-      label: 'telegram',
-      enabled: () => {
-        const token = channelsConfigForSupervisor?.telegram?.botToken?.trim()
-        return Boolean(server && channelsConfigForSupervisor?.telegram?.enabled && token)
-      },
-      configKey: () => buildChannelServiceConfigKey(channelsConfigForSupervisor!, 'telegram'),
-      create: () => {
-        const cfg = channelsConfigForSupervisor!
-        const token = cfg.telegram!.botToken!.trim()
-        return createTelegramService({
-          botToken: token,
-          model: cfg.telegram?.model,
-          server: server!,
-          groupConfig: cfg.telegram?.group,
-          botUsername: undefined,
-          groupVerbosity: cfg.groupVerbosity,
-          groupCheckIntervalMs: cfg.groupCheckIntervalMs,
-          policy: applyChannelsConfigToPolicy(telegramPolicy, cfg)
-        })
-      },
-      onServiceChange: (service) => {
-        telegramService = service as TelegramService | null
-      }
-    },
-    qq: {
-      label: 'qq',
-      enabled: () => {
-        const wsUrl = channelsConfigForSupervisor?.qq?.wsUrl?.trim()
-        return Boolean(server && channelsConfigForSupervisor?.qq?.enabled && wsUrl)
-      },
-      configKey: () => buildChannelServiceConfigKey(channelsConfigForSupervisor!, 'qq'),
-      create: () => {
-        const cfg = channelsConfigForSupervisor!
-        const wsUrl = cfg.qq!.wsUrl!.trim()
-        return createQQService({
-          wsUrl,
-          token: cfg.qq?.token,
-          model: cfg.qq?.model,
-          server: server!,
-          groupConfig: cfg.qq?.group,
-          botQQId: undefined,
-          groupVerbosity: cfg.groupVerbosity,
-          groupCheckIntervalMs: cfg.groupCheckIntervalMs,
-          policy: applyChannelsConfigToPolicy(qqPolicy, cfg)
-        })
-      },
-      onServiceChange: (service) => {
-        qqService = service as QQService | null
-      }
-    },
-    discord: {
-      label: 'discord',
-      enabled: () => {
-        const token = channelsConfigForSupervisor?.discord?.botToken?.trim()
-        return Boolean(server && channelsConfigForSupervisor?.discord?.enabled && token)
-      },
-      configKey: () => buildChannelServiceConfigKey(channelsConfigForSupervisor!, 'discord'),
-      create: () => {
-        const cfg = channelsConfigForSupervisor!
-        const token = cfg.discord!.botToken!.trim()
-        return createDiscordService({
-          botToken: token,
-          model: cfg.discord?.model,
-          server: server!,
-          groupConfig: cfg.discord?.group,
-          groupVerbosity: cfg.groupVerbosity,
-          groupCheckIntervalMs: cfg.groupCheckIntervalMs,
-          policy: applyChannelsConfigToPolicy(discordPolicy, cfg)
-        })
-      },
-      onServiceChange: (service) => {
-        discordService = service as DiscordService | null
-      }
-    },
-    qqbot: {
-      label: 'qqbot',
-      enabled: () => {
-        const appId = channelsConfigForSupervisor?.qqbot?.appId?.trim()
-        const clientSecret = channelsConfigForSupervisor?.qqbot?.clientSecret?.trim()
-        return Boolean(
-          server && channelsConfigForSupervisor?.qqbot?.enabled && appId && clientSecret
-        )
-      },
-      configKey: () => buildChannelServiceConfigKey(channelsConfigForSupervisor!, 'qqbot'),
-      create: () => {
-        const cfg = channelsConfigForSupervisor!
-        return createQQBotService({
-          appId: cfg.qqbot!.appId!.trim(),
-          clientSecret: cfg.qqbot!.clientSecret!.trim(),
-          model: cfg.qqbot?.model,
-          server: server!,
-          policy: applyChannelsConfigToPolicy(qqbotPolicy, cfg)
-        })
-      },
-      onServiceChange: (service) => {
-        qqbotService = service as QQBotService | null
-      }
-    }
-  })
-
-  return channelSupervisor
-}
-
-function registerChannelRecovery(): void {
-  if (channelRecoveryRegistered) return
-
-  channelRecoveryRegistered = true
-  channelHealthTimer = setInterval(() => {
-    void channelSupervisor?.poke('periodic health check')
-  }, CHANNEL_HEALTH_INTERVAL_MS)
-
-  const scheduleHealthCheck = (reason: string, delayMs = 0): void => {
+  channelPokesRegistered = true
+  // Periodic health checks run inside the runtime host; main only forwards
+  // power events, which never reach the other process on their own.
+  const poke = (reason: string, delayMs = 0): void => {
     setTimeout(() => {
-      void channelSupervisor?.poke(reason)
+      void hostCall('pokeChannels', [{ reason }]).catch((error) => {
+        console.warn('[channel-poke] failed:', error)
+      })
     }, delayMs)
   }
 
-  powerMonitor.on('lock-screen', () => scheduleHealthCheck('lock-screen', 1_000))
-  powerMonitor.on('unlock-screen', () => scheduleHealthCheck('unlock-screen'))
-  powerMonitor.on('resume', () => scheduleHealthCheck('resume'))
-  powerMonitor.on('user-did-become-active', () => scheduleHealthCheck('user-did-become-active'))
+  powerMonitor.on('lock-screen', () => poke('lock-screen', 1_000))
+  powerMonitor.on('unlock-screen', () => poke('unlock-screen'))
+  powerMonitor.on('resume', () => poke('resume'))
+  powerMonitor.on('user-did-become-active', () => poke('user-did-become-active'))
 }
 
 function toFatalRunError(error: unknown): string {
@@ -546,51 +399,6 @@ function registerFatalRunRecovery(): void {
 
 import { getPerfMonitor, stopPerfMonitor } from '@yachiyo/runtime/services/perfMonitor'
 
-function handleSendChannel(input: SendChannelInput): void {
-  if (!server) {
-    console.error('[send-channel] server is not running')
-    return
-  }
-
-  const storage = server.getStorage()
-  const channelUser = storage.getChannelUser(input.id)
-  const channelGroup = channelUser ? undefined : storage.getChannelGroup(input.id)
-
-  if (!channelUser && !channelGroup) {
-    console.error(`[send-channel] unknown channel user or group: ${input.id}`)
-    return
-  }
-
-  const platform = channelUser?.platform ?? channelGroup!.platform
-  const externalId = channelUser?.externalUserId ?? channelGroup!.externalGroupId
-
-  void (async () => {
-    if (platform === 'telegram') {
-      if (!telegramService) throw new Error('Telegram service is not running')
-      await telegramService.sendMessage(externalId, input.message)
-    } else if (platform === 'qq') {
-      if (!qqService) throw new Error('QQ service is not running')
-      const numericId = Number(externalId)
-      if (channelUser) {
-        await qqService.sendPrivateMessage(numericId, input.message)
-      } else {
-        await qqService.sendGroupMessage(numericId, input.message)
-      }
-    } else if (platform === 'discord') {
-      if (!discordService) throw new Error('Discord service is not running')
-      await discordService.sendMessage(externalId, input.message)
-    } else if (platform === 'qqbot') {
-      if (!qqbotService) throw new Error('QQBot service is not running')
-      await qqbotService.sendMessage(externalId, input.message)
-    } else {
-      throw new Error(`Unsupported platform: ${platform}`)
-    }
-    console.log(`[send-channel] sent to ${platform}:${externalId}`)
-  })().catch((err) => {
-    console.error('[send-channel] failed:', err)
-  })
-}
-
 function createConfiguredServer(
   input: {
     jotdownStore?: import('@yachiyo/runtime/services/jotdownStore').JotdownStore
@@ -614,9 +422,22 @@ function createConfiguredServer(
       log: logBrowserSearchDiagnostic
     })
   })
-  serverRpc = createLoopbackRpcHost<RpcSafeYachiyoServer>(nextServer, {
-    subscribe: (listener) => nextServer.subscribe(listener)
+  liveServices = createRuntimeLiveServices({
+    server: nextServer,
+    showNotification: showYachiyoNotification,
+    tempWorkspaceDir: resolveYachiyoTempWorkspaceRoot(),
+    // In dev mode, schedules and channels are skipped by default to avoid
+    // unintended automated runs / outbound connections. Opt in with
+    // YACHIYO_DEV_SCHEDULES=1 / YACHIYO_DEV_CHANNELS=1.
+    enableSchedules: !is.dev || Boolean(process.env['YACHIYO_DEV_SCHEDULES']),
+    enableChannels: !is.dev || Boolean(process.env['YACHIYO_DEV_CHANNELS'])
   })
+  serverRpc = createLoopbackRpcHost<RpcSafeYachiyoServer>(
+    mergeRpcTargets(liveServices.rpcOps, nextServer) as RpcSafeYachiyoServer,
+    {
+      subscribe: (listener) => nextServer.subscribe(listener)
+    }
+  )
   serverRpc.client.subscribe((event) => broadcastYachiyoEvent(event as YachiyoServerEvent))
   nextServer.getTtlReaper().start()
   return nextServer
@@ -648,7 +469,10 @@ function startUtilityRuntime(): void {
       ),
       ...createActivityTrackerRpcTarget({
         finalizeAndConsume: () => getActivityTracker('simple').finalizeAndConsume()
-      })
+      }),
+      'mainHost.showNotification': (input: ShowNotificationInput) => {
+        showYachiyoNotification(input)
+      }
     }
   })
   host.client.subscribe((event) => {
@@ -657,87 +481,56 @@ function startUtilityRuntime(): void {
     broadcastYachiyoEvent(serverEvent)
   })
   host.child.on('exit', (code) => {
-    console.error(`[runtime-host] utility process exited (code=${code})`)
+    if (utilityRuntimeStopping) return
+    console.error(`[runtime-host] utility process exited unexpectedly (code=${code})`)
+    serverRpc?.dispose()
+    serverRpc = null
+    browserAutomationService?.dispose()
+    browserAutomationService = null
+    utilityActiveRunIds.clear()
+
+    const now = Date.now()
+    runtimeRestartTimes = runtimeRestartTimes.filter(
+      (time) => now - time < RUNTIME_RESTART_WINDOW_MS
+    )
+    if (runtimeRestartTimes.length >= RUNTIME_RESTART_LIMIT) {
+      console.error(
+        '[runtime-host] crashed repeatedly; giving up on automatic restarts — restart Yachiyo manually'
+      )
+      return
+    }
+    runtimeRestartTimes.push(now)
+    startUtilityRuntime()
+    for (const window of BrowserWindow.getAllWindows()) {
+      if (!window.isDestroyed()) {
+        window.webContents.reloadIgnoringCache()
+      }
+    }
   })
   serverRpc = host
 }
 
-async function stopLiveServices(): Promise<void> {
-  autoSyncScheduler?.stop()
-  autoSyncScheduler = null
-  scheduleService?.stop()
-  scheduleService = null
-
-  await channelSupervisor?.stopAll('live services stopping')
-  telegramService = null
-  qqService = null
-  discordService = null
-  qqbotService = null
-}
-
-async function startLiveServices(): Promise<void> {
-  if (!server) {
-    if (USE_UTILITY_RUNTIME) {
-      console.warn(
-        '[yachiyo] live services (schedules/channels/auto-sync) are not yet wired in utility runtime mode'
-      )
-    }
-    return
-  }
-
-  scheduleService = createScheduleService({
-    server: {
-      createThread: (input) => server!.createThread(input),
-      setThreadModelOverride: (input) => server!.setThreadModelOverride(input),
-      setThreadIcon: (input) => server!.setThreadIcon(input),
-      sendChat: (input) => server!.sendChat(input),
-      archiveThread: (input) => server!.archiveThread(input),
-      showNotification: (input) => showYachiyoNotification(input),
-      subscribe: (listener) => server!.subscribe(listener)
-    },
-    storage: server.getStorage(),
-    createId: () => server!.generateId(),
-    timestamp: () => new Date().toISOString(),
-    tempWorkspaceDir: resolveYachiyoTempWorkspaceRoot()
-  })
-  // In dev mode, schedules are skipped by default to avoid unintended automated
-  // runs. Set YACHIYO_DEV_SCHEDULES=1 (or run `pnpm dev:schedules`) to opt in.
-  if (!is.dev || process.env['YACHIYO_DEV_SCHEDULES']) {
-    scheduleService.start()
-  }
-
-  // Keep iCloud sync flowing automatically. The scheduler no-ops until the user
-  // has enabled sync (runAutoSyncCycle gates on readiness), so it's safe to run
-  // in dev too — it just mirrors files the user already opted into syncing.
-  autoSyncScheduler = createAutoSyncScheduler({
-    runSync: () => server!.runAutoSyncCycle(),
-    subscribe: (listener) => server!.subscribe(listener),
-    onError: (error) => console.warn('[auto-sync]', error instanceof Error ? error.message : error)
-  })
-  autoSyncScheduler.start()
-
-  if (!is.dev || process.env['YACHIYO_DEV_CHANNELS']) {
-    const channelsConfig = server.getChannelsConfig()
-    channelsConfigForSupervisor = channelsConfig
-    await getChannelSupervisor().reconcileAll('initial startup')
-  }
-}
-
 async function restartServerForDemoModeChange(): Promise<void> {
   const previousServer = server
-  await stopLiveServices()
+  utilityRuntimeStopping = true
+  await liveServices?.stop()
+  liveServices = null
   serverRpc?.dispose()
   serverRpc = null
   browserAutomationService?.dispose()
   browserAutomationService = null
   await previousServer?.close()
   if (USE_UTILITY_RUNTIME) {
+    // The refork boots its own server and live services in the child.
     server = null
     startUtilityRuntime()
+    utilityRuntimeStopping = false
   } else {
     server = createConfiguredServer({ webExternalFetchImpl })
+    // Re-read the module variable: createConfiguredServer just reassigned it,
+    // which TypeScript's narrowing (null since the stop above) cannot see.
+    await (liveServices as RuntimeLiveServices | null)?.start()
   }
-  await startLiveServices()
 
   for (const window of BrowserWindow.getAllWindows()) {
     if (!window.isDestroyed()) {
@@ -812,10 +605,12 @@ export function registerYachiyoGateway(): YachiyoGatewayHandle {
   }
   registerFatalRunRecovery()
 
-  // Start channel services if already configured.
-  // In dev mode, channels are skipped by default to avoid unintended outbound
-  // connections. Set YACHIYO_DEV_CHANNELS=1 (or run `pnpm dev:channels`) to opt in.
-  void startLiveServices()
+  // In utility mode the runtime host starts its own live services.
+  if (!USE_UTILITY_RUNTIME) {
+    void liveServices
+      ?.start()
+      .catch((error) => console.error('[yachiyo] live services failed to start:', error))
+  }
 
   ipcMain.removeAllListeners(IPC_CHANNELS.showNotification)
   ipcMain.on(IPC_CHANNELS.showNotification, (_event, input: ShowNotificationInput) => {
@@ -832,7 +627,7 @@ export function registerYachiyoGateway(): YachiyoGatewayHandle {
   // Unix domain socket for CLI commands (notifications, send-channel, etc.)
   startCommandSocketNow('initial startup')
   registerCommandSocketRecovery()
-  registerChannelRecovery()
+  registerChannelHealthPokes()
 
   handleYachiyoIpc(IPC_CHANNELS.searchThreadsAndMessages, (input: SearchThreadsAndMessagesInput) =>
     rpc().searchThreadsAndMessages(input)
@@ -1201,62 +996,45 @@ export function registerYachiyoGateway(): YachiyoGatewayHandle {
     rpc().updateChannelUser(input)
   )
   handleYachiyoIpc(IPC_CHANNELS.listChannelGroups, () => rpc().listChannelGroups())
-  handleYachiyoIpc(IPC_CHANNELS.updateChannelGroup, async (input: UpdateChannelGroupInput) => {
-    const updated = await rpc().updateChannelGroup(input)
-    // Notify running channel services so they can start/stop monitors.
-    telegramService?.onGroupStatusChange(updated)
-    qqService?.onGroupStatusChange(updated)
-    discordService?.onGroupStatusChange(updated)
-    return updated
-  })
-  handleYachiyoIpc(IPC_CHANNELS.clearGroupMonitorBuffer, async (input: { groupId: string }) => {
-    await rpc().startClearChannelGroupHistory(input)
-    telegramService?.clearGroupMessages(input.groupId)
-    qqService?.clearGroupMessages(input.groupId)
-    discordService?.clearGroupMessages(input.groupId)
-  })
+  handleYachiyoIpc(IPC_CHANNELS.updateChannelGroup, (input: UpdateChannelGroupInput) =>
+    hostCall('updateChannelGroupAndNotify', [input])
+  )
+  handleYachiyoIpc(IPC_CHANNELS.clearGroupMonitorBuffer, (input: { groupId: string }) =>
+    hostCall('clearChannelGroupHistory', [input])
+  )
   handleYachiyoIpc(IPC_CHANNELS.getChannelsConfig, () => rpc().getChannelsConfig())
-  handleYachiyoIpc(IPC_CHANNELS.saveChannelsConfig, async (input: ChannelsConfig) => {
-    const saved = await rpc().saveChannelsConfig(input)
-    channelsConfigForSupervisor = saved
-    await getChannelSupervisor().reconcileAll('config changed')
-    return saved
-  })
+  handleYachiyoIpc(IPC_CHANNELS.saveChannelsConfig, (input: ChannelsConfig) =>
+    hostCall('saveChannelsConfigAndReconcile', [input])
+  )
   handleYachiyoIpc(
     IPC_CHANNELS.restartChannelService,
-    async (input: { platform: 'telegram' | 'qq' | 'discord' | 'qqbot' | 'all' }) => {
-      channelsConfigForSupervisor = await rpc().getChannelsConfig()
-      if (input.platform === 'all') {
-        await getChannelSupervisor().restartAll('manual restart')
-        return
-      }
-      await getChannelSupervisor().restart(input.platform, 'manual restart')
-    }
+    (input: { platform: 'telegram' | 'qq' | 'discord' | 'qqbot' | 'all' }) =>
+      hostCall('restartChannelServices', [input])
   )
   // Schedule CRUD
   handleYachiyoIpc(IPC_CHANNELS.listSchedules, () => rpc().listSchedules())
   handleYachiyoIpc(IPC_CHANNELS.createSchedule, async (input: CreateScheduleInput) => {
     const schedule = await rpc().createSchedule(input)
-    scheduleService?.reload()
+    await hostCall('reloadSchedules')
     return schedule
   })
   handleYachiyoIpc(IPC_CHANNELS.updateSchedule, async (input: UpdateScheduleInput) => {
     const schedule = await rpc().updateSchedule(input)
-    scheduleService?.reload()
+    await hostCall('reloadSchedules')
     return schedule
   })
   handleYachiyoIpc(IPC_CHANNELS.deleteSchedule, async (input: { id: string }) => {
     await rpc().deleteSchedule(input.id)
-    scheduleService?.reload()
+    await hostCall('reloadSchedules')
   })
   handleYachiyoIpc(IPC_CHANNELS.enableSchedule, async (input: { id: string }) => {
     const result = await rpc().enableSchedule(input.id)
-    scheduleService?.reload()
+    await hostCall('reloadSchedules')
     return result
   })
   handleYachiyoIpc(IPC_CHANNELS.disableSchedule, async (input: { id: string }) => {
     const result = await rpc().disableSchedule(input.id)
-    scheduleService?.reload()
+    await hostCall('reloadSchedules')
     return result
   })
   handleYachiyoIpc(IPC_CHANNELS.listScheduleRuns, (input: { scheduleId: string; limit?: number }) =>
@@ -1265,9 +1043,9 @@ export function registerYachiyoGateway(): YachiyoGatewayHandle {
   handleYachiyoIpc(IPC_CHANNELS.listRecentScheduleRuns, (input?: { limit?: number }) =>
     rpc().listRecentScheduleRuns(input?.limit)
   )
-  handleYachiyoIpc(IPC_CHANNELS.triggerScheduleNow, async (input: { scheduleId: string }) => {
-    await scheduleService?.triggerScheduleNow(input.scheduleId)
-  })
+  handleYachiyoIpc(IPC_CHANNELS.triggerScheduleNow, (input: { scheduleId: string }) =>
+    hostCall('triggerScheduleNow', [input])
+  )
   handleYachiyoIpc(IPC_CHANNELS.markThreadAsRead, (input: { threadId: string }) =>
     rpc().markThreadAsRead(input)
   )
@@ -1370,24 +1148,18 @@ export function registerYachiyoGateway(): YachiyoGatewayHandle {
 
   app.once('before-quit', () => {
     stopPerfMonitor()
+    utilityRuntimeStopping = true
     if (commandSocketHealthTimer) {
       clearInterval(commandSocketHealthTimer)
       commandSocketHealthTimer = null
     }
-    if (channelHealthTimer) {
-      clearInterval(channelHealthTimer)
-      channelHealthTimer = null
+    if (USE_UTILITY_RUNTIME) {
+      // Best-effort graceful stop before the child is killed by dispose().
+      void hostCall('stopLiveServices').catch(() => {})
+    } else {
+      void liveServices?.stop().catch(() => {})
     }
-    autoSyncScheduler?.stop()
-    autoSyncScheduler = null
-    scheduleService?.stop()
-    scheduleService = null
-    void channelSupervisor?.stopAll('before quit').catch(() => {})
-    channelSupervisor = null
-    telegramService = null
-    qqService = null
-    discordService = null
-    qqbotService = null
+    liveServices = null
     commandSocketRestartInFlight = null
     void commandSocket?.close()
     commandSocket = null
