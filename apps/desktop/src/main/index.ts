@@ -338,8 +338,13 @@ app.whenReady().then(async () => {
   // Dev-only Phase-2 spike for the runtime process extraction: verify the
   // utility-process hard points (docs/yachiyo-runtime-process-extraction.md §5).
   if (is.dev && process.env['YACHIYO_SPIKE_UTILITY']) {
+    // Resolve the spike bundle here: this entry lives in out/main/, while the
+    // dynamically imported prober is code-split into out/main/chunks/.
+    const spikeEntryPath = join(__dirname, 'runtime-host-spike.js')
     void import('./runtimeHost/runSpikeUtilityProbe.ts').then(({ runSpikeUtilityProbe }) =>
-      runSpikeUtilityProbe().catch((error) => console.error('[spike-utility] probe failed:', error))
+      runSpikeUtilityProbe(spikeEntryPath).catch((error) =>
+        console.error('[spike-utility] probe failed:', error)
+      )
     )
   }
 

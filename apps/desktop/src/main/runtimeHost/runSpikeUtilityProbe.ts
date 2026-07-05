@@ -4,13 +4,13 @@
  * and reports the results to the console. Throwaway diagnostic code — not
  * part of the app runtime. See docs/yachiyo-runtime-process-extraction.md §5.
  */
-import { join } from 'node:path'
 import { MessageChannelMain, net, utilityProcess } from 'electron'
 
 import { messagePortMainTransport } from '@yachiyo/shared/rpc/messagePortMainTransport'
 import { createRpcClient } from '@yachiyo/shared/rpc/rpcClient'
 
-const SPIKE_FETCH_URL = 'https://api.github.com/zen'
+// Connectivity-check endpoint: always 204, no body, no rate limiting.
+const SPIKE_FETCH_URL = 'https://www.gstatic.com/generate_204'
 const CHECKS = [
   'checkNetFetch',
   'checkSqlite',
@@ -19,7 +19,12 @@ const CHECKS = [
   'checkPaths'
 ] as const
 
-export async function runSpikeUtilityProbe(): Promise<void> {
+/**
+ * @param spikeEntryPath Absolute path to the built runtime-host-spike bundle.
+ *   Resolved by the caller in the main entry: this module is code-split into
+ *   chunks/, so its own __dirname points one directory too deep.
+ */
+export async function runSpikeUtilityProbe(spikeEntryPath: string): Promise<void> {
   // Baseline for the proxy comparison: same fetch from the main process.
   const baseline = await net
     .fetch(SPIKE_FETCH_URL)
@@ -27,7 +32,7 @@ export async function runSpikeUtilityProbe(): Promise<void> {
     .catch((error: unknown) => `error=${error instanceof Error ? error.message : String(error)}`)
   console.log(`[spike-utility] main-process net.fetch baseline: ${baseline}`)
 
-  const child = utilityProcess.fork(join(__dirname, 'runtime-host-spike.js'), [], {
+  const child = utilityProcess.fork(spikeEntryPath, [], {
     serviceName: 'yachiyo-runtime-host-spike',
     stdio: 'inherit'
   })
