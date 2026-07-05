@@ -82,7 +82,7 @@ export function createBrowserWebPageSnapshotLoader(input: {
           }
 
           return {
-            finalUrl: page.getURL() || url,
+            finalUrl: (await page.getURL()) || url,
             ...(snapshot.contentType ? { contentType: snapshot.contentType } : {}),
             html: snapshot.html
           }

@@ -206,7 +206,7 @@ export function createGoogleBrowserWebSearchProvider(input: {
                 failureCode,
                 query,
                 searchUrl: searchUrl.toString(),
-                finalUrl: page.getURL()
+                finalUrl: await page.getURL()
               })
             }
 
@@ -223,7 +223,7 @@ export function createGoogleBrowserWebSearchProvider(input: {
                 failureCode: 'extraction-failed',
                 query,
                 searchUrl: searchUrl.toString(),
-                finalUrl: page.getURL()
+                finalUrl: await page.getURL()
               })
             }
 
@@ -235,7 +235,7 @@ export function createGoogleBrowserWebSearchProvider(input: {
                 failureCode: 'extraction-failed',
                 query,
                 searchUrl: searchUrl.toString(),
-                finalUrl: page.getURL()
+                finalUrl: await page.getURL()
               })
             }
 
@@ -243,7 +243,7 @@ export function createGoogleBrowserWebSearchProvider(input: {
               provider: 'google-browser',
               query,
               searchUrl: searchUrl.toString(),
-              finalUrl: page.getURL(),
+              finalUrl: await page.getURL(),
               results
             }
           })

@@ -29,7 +29,7 @@ test('browser page snapshot loader retries transient browser load failures', asy
               html: '<html><body><article>Recovered</article></body></html>'
             } as TResult
           },
-          getURL() {
+          async getURL() {
             return 'https://x.com/example/status/123'
           }
         }
@@ -80,7 +80,7 @@ test('browser page snapshot loader retries empty DOM snapshots before succeeding
                 attempts < 3 ? '' : '<html><body><article>Ready on retry</article></body></html>'
             } as TResult
           },
-          getURL() {
+          async getURL() {
             return 'https://x.com/example/status/123'
           }
         }

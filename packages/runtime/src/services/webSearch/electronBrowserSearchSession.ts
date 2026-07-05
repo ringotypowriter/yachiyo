@@ -29,7 +29,7 @@ class ElectronBrowserSearchPage implements BrowserSearchPage {
     return this.window.webContents.executeJavaScript(script, true)
   }
 
-  getURL(): string {
+  async getURL(): Promise<string> {
     return this.window.webContents.getURL()
   }
 

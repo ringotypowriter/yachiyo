@@ -126,12 +126,9 @@ import { createBrowserWebPageSnapshotLoader } from '../../services/webRead/brows
 import {
   BrowserSearchSession,
   createBrowserSearchSessionImportService,
-  resolveGoogleChromeDataPath
+  resolveGoogleChromeDataPath,
+  unavailableBrowserSearchPageFactory
 } from '../../services/webSearch/browserSearchSession.ts'
-import {
-  createElectronBrowserSearchPageFactory,
-  type BrowserSearchDiagnosticEvent
-} from '../../services/webSearch/electronBrowserSearchSession.ts'
 import { createGoogleBrowserWebSearchProvider } from '../../services/webSearch/providers/googleBrowserWebSearchProvider.ts'
 import { createExaWebSearchProvider } from '../../services/webSearch/providers/exaWebSearchProvider.ts'
 import { createWebSearchService } from '../../services/webSearch/webSearchService.ts'
@@ -359,21 +356,6 @@ export class YachiyoServer {
   // export/import passes never run against the same files at once.
   private syncMutex: Promise<unknown> = Promise.resolve()
 
-  private static logBrowserSearchDiagnostic(event: BrowserSearchDiagnosticEvent): void {
-    const details = {
-      profilePath: event.profilePath,
-      ...(event.url ? { url: event.url } : {}),
-      ...(event.code !== undefined ? { code: String(event.code) } : {}),
-      ...(event.details ?? {})
-    }
-    const suffix = Object.entries(details)
-      .filter(([, value]) => value !== undefined && value !== '')
-      .map(([key, value]) => `${key}=${String(value)}`)
-      .join(' ')
-
-    console.warn(`[web-search] ${event.event}${suffix ? ` ${suffix}` : ''}`)
-  }
-
   constructor(options: YachiyoServerOptions) {
     this.storage = options.storage
     this.developmentMode = options.developmentMode === true
@@ -409,9 +391,7 @@ export class YachiyoServer {
     const cloneThreadWorkspace = options.cloneThreadWorkspace ?? defaultCloneThreadWorkspace
     const deleteThreadWorkspace = options.deleteThreadWorkspace ?? defaultDeleteThreadWorkspace
     this.browserSearchSession = new BrowserSearchSession({
-      pageFactory: createElectronBrowserSearchPageFactory({
-        log: YachiyoServer.logBrowserSearchDiagnostic
-      }),
+      pageFactory: options.browserSearchPageFactory ?? unavailableBrowserSearchPageFactory,
       profilePath: resolveYachiyoWebSearchBrowserSessionPath()
     })
     const webSearchImportService = createBrowserSearchSessionImportService({

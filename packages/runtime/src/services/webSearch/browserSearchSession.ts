@@ -22,7 +22,7 @@ const CHROME_OPTIONAL_COPY_ENTRIES = ['QuotaManager', 'QuotaManager-journal'] as
 
 export interface BrowserSearchPage {
   evaluate<TResult>(script: string): Promise<TResult>
-  getURL(): string
+  getURL(): Promise<string>
   loadURL(url: string): Promise<void>
   waitForFunction(input: {
     predicate: string
@@ -35,6 +35,18 @@ export interface BrowserSearchPage {
 export interface BrowserSearchPageFactory {
   createPage(profilePath: string): Promise<BrowserSearchPage>
   disposePage(page: BrowserSearchPage): Promise<void>
+}
+
+/**
+ * Placeholder for hosts that cannot drive a browser (no page factory
+ * injected). Fails loudly at use time instead of at construction, matching
+ * how the browser tool reports a missing backend.
+ */
+export const unavailableBrowserSearchPageFactory: BrowserSearchPageFactory = {
+  createPage: async () => {
+    throw new Error('Browser search is unavailable: this host has no browser page factory')
+  },
+  disposePage: async () => {}
 }
 
 export interface BrowserSearchSessionImportResult {

@@ -81,6 +81,10 @@ import {
   type BrowserAutomationService
 } from '@yachiyo/runtime/services/browserAutomation/electronBrowserAutomationService'
 import {
+  createElectronBrowserSearchPageFactory,
+  type BrowserSearchDiagnosticEvent
+} from '@yachiyo/runtime/services/webSearch/electronBrowserSearchSession'
+import {
   startCommandSocket,
   type CommandSocketHandle,
   type SendChannelInput
@@ -190,6 +194,21 @@ function browserAutomation(): BrowserAutomationService {
     throw new Error('Yachiyo server is not running')
   }
   return browserAutomationService
+}
+
+function logBrowserSearchDiagnostic(event: BrowserSearchDiagnosticEvent): void {
+  const details = {
+    profilePath: event.profilePath,
+    ...(event.url ? { url: event.url } : {}),
+    ...(event.code !== undefined ? { code: String(event.code) } : {}),
+    ...(event.details ?? {})
+  }
+  const suffix = Object.entries(details)
+    .filter(([, value]) => value !== undefined && value !== '')
+    .map(([key, value]) => `${key}=${String(value)}`)
+    .join(' ')
+
+  console.warn(`[web-search] ${event.event}${suffix ? ` ${suffix}` : ''}`)
 }
 
 const COMMAND_SOCKET_HEALTH_INTERVAL_MS = 15_000
@@ -569,7 +588,10 @@ function createConfiguredServer(
       net.fetch(input instanceof URL ? input.toString() : (input as string | Request), init),
     webExternalFetchImpl: input.webExternalFetchImpl,
     jotdownStore: input.jotdownStore,
-    browserAutomationService
+    browserAutomationService,
+    browserSearchPageFactory: createElectronBrowserSearchPageFactory({
+      log: logBrowserSearchDiagnostic
+    })
   })
   serverRpc = createLoopbackRpcHost<RpcSafeYachiyoServer>(nextServer, {
     subscribe: (listener) => nextServer.subscribe(listener)

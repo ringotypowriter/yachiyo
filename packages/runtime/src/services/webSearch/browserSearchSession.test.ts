@@ -29,7 +29,7 @@ test('BrowserSearchSession reuses a persistent profile path while bounding page 
           async evaluate<TResult>() {
             return 'ok' as TResult
           },
-          getURL() {
+          async getURL() {
             return 'https://example.com'
           }
         }
@@ -68,7 +68,7 @@ test('BrowserSearchSession serializes page access and exclusive profile operatio
           async evaluate<TResult>() {
             return 'ok' as TResult
           },
-          getURL() {
+          async getURL() {
             return 'https://example.com'
           }
         }

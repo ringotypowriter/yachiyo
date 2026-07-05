@@ -77,7 +77,7 @@ test('Google browser provider extracts normalized organic results from a browser
               }
             ] as TResult
           },
-          getURL() {
+          async getURL() {
             return 'https://www.google.com/search?q=yachiyo'
           }
         }
@@ -133,7 +133,7 @@ test('Google browser provider retries transient load failures before succeeding'
               }
             ] as TResult
           },
-          getURL() {
+          async getURL() {
             return 'https://www.google.com/search?q=yachiyo'
           }
         }
@@ -190,7 +190,7 @@ test('Google browser provider retries extraction failures before succeeding', as
               }
             ] as TResult
           },
-          getURL() {
+          async getURL() {
             return 'https://www.google.com/search?q=yachiyo'
           }
         }
