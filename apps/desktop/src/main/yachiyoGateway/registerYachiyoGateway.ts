@@ -84,6 +84,13 @@ import {
   createElectronBrowserSearchPageFactory,
   type BrowserSearchDiagnosticEvent
 } from '@yachiyo/runtime/services/webSearch/electronBrowserSearchSession'
+import { createActivityTrackerRpcTarget } from '@yachiyo/runtime/activity/activityTrackerRpcBridge'
+import { createBrowserAutomationRpcTarget } from '@yachiyo/runtime/services/browserAutomation/browserAutomationRpcBridge'
+import { createBrowserSearchPageFactoryRpcTarget } from '@yachiyo/runtime/services/webSearch/browserSearchPageFactoryRpcBridge'
+import {
+  startUtilityRuntimeHost,
+  type UtilityRuntimeHost
+} from '../runtimeHost/startUtilityRuntimeHost.ts'
 import {
   startCommandSocket,
   type CommandSocketHandle,
@@ -160,8 +167,32 @@ type RpcSafeYachiyoServer = Omit<
   | 'getAuxiliaryGenerationService'
 >
 
+/**
+ * The slice of the runtime that main-process callers outside the gateway
+ * (window lifecycle, menu/shortcut wiring) are allowed to touch. Both runtime
+ * modes satisfy it: the in-process server directly, the utility mode via RPC.
+ */
+export interface YachiyoGatewayHandle {
+  getConfig(): Promise<SettingsConfig>
+  subscribe(listener: (event: YachiyoServerEvent) => void): () => void
+  cancelActiveRuns(): void
+  listActiveRunIds(): string[]
+}
+
+// Opt-in flag for the extracted runtime: the agent loop, sqlite, and memory
+// pipeline run in a utilityProcess instead of this process. Live services
+// (schedules/channels/auto-sync) are not yet wired in this mode.
+const USE_UTILITY_RUNTIME = process.env['YACHIYO_RUNTIME_UTILITY'] === '1'
+
 let server: YachiyoServer | null = null
-let serverRpc: LoopbackRpcHost<RpcSafeYachiyoServer> | null = null
+let serverRpc:
+  | LoopbackRpcHost<RpcSafeYachiyoServer>
+  | UtilityRuntimeHost<RpcSafeYachiyoServer>
+  | null = null
+let gatewayHandle: YachiyoGatewayHandle | null = null
+// Mirrors the runtime's active runs from its event stream, so the window
+// close guard keeps a synchronous answer in utility mode.
+const utilityActiveRunIds = new Set<string>()
 // Owned by the gateway, not the server: the sessions hold WebContentsViews,
 // which must stay in the main process when the runtime is extracted.
 let browserAutomationService: BrowserAutomationService | null = null
@@ -235,50 +266,40 @@ function createCommandSocketHandle(): CommandSocketHandle {
     onNotification: (input) => showYachiyoNotification(input),
     onSendChannel: (input) => handleSendChannel(input),
     onUpdateChannelGroupStatus: (input) => {
-      if (!server) {
-        console.error('[channel-group-status] server is not running')
-        return
-      }
-      try {
-        const updated = server.updateChannelGroup(input)
+      void (async () => {
+        const updated = await rpc().updateChannelGroup(input)
         telegramService?.onGroupStatusChange(updated)
         qqService?.onGroupStatusChange(updated)
         discordService?.onGroupStatusChange(updated)
         console.log(
           `[channel-group-status] updated ${updated.platform}:${updated.name} -> ${updated.status}`
         )
-      } catch (error) {
+      })().catch((error) => {
         console.error('[channel-group-status] failed:', error)
-      }
+      })
     },
     onUpdateChannelGroupLabel: (input) => {
-      if (!server) {
-        console.error('[channel-group-label] server is not running')
-        return
-      }
-      try {
-        const updated = server.updateChannelGroup(input)
+      void (async () => {
+        const updated = await rpc().updateChannelGroup(input)
         telegramService?.onGroupStatusChange(updated)
         qqService?.onGroupStatusChange(updated)
         discordService?.onGroupStatusChange(updated)
         console.log(
           `[channel-group-label] updated ${updated.platform}:${updated.name} label="${updated.label}"`
         )
-      } catch (error) {
+      })().catch((error) => {
         console.error('[channel-group-label] failed:', error)
-      }
+      })
     },
     onMarkThreadReviewed: (input) => {
-      if (!server) {
-        console.error('[mark-thread-reviewed] server is not running')
-        return
-      }
-      try {
-        server.markThreadReviewed(input)
-        console.log(`[mark-thread-reviewed] marked ${input.threadId}`)
-      } catch (error) {
-        console.error('[mark-thread-reviewed] failed:', error)
-      }
+      void rpc()
+        .markThreadReviewed(input)
+        .then(() => {
+          console.log(`[mark-thread-reviewed] marked ${input.threadId}`)
+        })
+        .catch((error) => {
+          console.error('[mark-thread-reviewed] failed:', error)
+        })
     },
     onError: (error) => {
       console.error('[command-socket] server error:', error)
@@ -601,6 +622,46 @@ function createConfiguredServer(
   return nextServer
 }
 
+function trackActiveRunEvent(event: YachiyoServerEvent): void {
+  if (event.type === 'run.created') {
+    utilityActiveRunIds.add(event.runId)
+  } else if (
+    event.type === 'run.completed' ||
+    event.type === 'run.failed' ||
+    event.type === 'run.cancelled'
+  ) {
+    utilityActiveRunIds.delete(event.runId)
+  }
+}
+
+function startUtilityRuntime(): void {
+  browserAutomationService = createElectronBrowserAutomationService({
+    profilePath: resolveYachiyoBrowserAutomationProfilePath()
+  })
+  const host = startUtilityRuntimeHost<RpcSafeYachiyoServer>({
+    entryPath: join(__dirname, 'runtime-host.js'),
+    isDev: is.dev,
+    mainServicesTarget: {
+      ...createBrowserAutomationRpcTarget(browserAutomationService),
+      ...createBrowserSearchPageFactoryRpcTarget(
+        createElectronBrowserSearchPageFactory({ log: logBrowserSearchDiagnostic })
+      ),
+      ...createActivityTrackerRpcTarget({
+        finalizeAndConsume: () => getActivityTracker('simple').finalizeAndConsume()
+      })
+    }
+  })
+  host.client.subscribe((event) => {
+    const serverEvent = event as YachiyoServerEvent
+    trackActiveRunEvent(serverEvent)
+    broadcastYachiyoEvent(serverEvent)
+  })
+  host.child.on('exit', (code) => {
+    console.error(`[runtime-host] utility process exited (code=${code})`)
+  })
+  serverRpc = host
+}
+
 async function stopLiveServices(): Promise<void> {
   autoSyncScheduler?.stop()
   autoSyncScheduler = null
@@ -616,6 +677,11 @@ async function stopLiveServices(): Promise<void> {
 
 async function startLiveServices(): Promise<void> {
   if (!server) {
+    if (USE_UTILITY_RUNTIME) {
+      console.warn(
+        '[yachiyo] live services (schedules/channels/auto-sync) are not yet wired in utility runtime mode'
+      )
+    }
     return
   }
 
@@ -665,7 +731,12 @@ async function restartServerForDemoModeChange(): Promise<void> {
   browserAutomationService?.dispose()
   browserAutomationService = null
   await previousServer?.close()
-  server = createConfiguredServer({ webExternalFetchImpl })
+  if (USE_UTILITY_RUNTIME) {
+    server = null
+    startUtilityRuntime()
+  } else {
+    server = createConfiguredServer({ webExternalFetchImpl })
+  }
   await startLiveServices()
 
   for (const window of BrowserWindow.getAllWindows()) {
@@ -686,9 +757,9 @@ async function resolveActivityTrackingPermission(
   })
 }
 
-export function registerYachiyoGateway(): YachiyoServer {
-  if (server) {
-    return server
+export function registerYachiyoGateway(): YachiyoGatewayHandle {
+  if (gatewayHandle) {
+    return gatewayHandle
   }
 
   // Route global fetch through Electron's net module so libraries using the
@@ -723,7 +794,22 @@ export function registerYachiyoGateway(): YachiyoServer {
     )
 
   const jotdownStore = createJotdownStore(resolveYachiyoJotdownsDir())
-  server = createConfiguredServer({ jotdownStore, webExternalFetchImpl })
+  if (USE_UTILITY_RUNTIME) {
+    console.log('[yachiyo] runtime host: utility process (YACHIYO_RUNTIME_UTILITY=1)')
+    startUtilityRuntime()
+    gatewayHandle = {
+      getConfig: () => rpc().getConfig(),
+      subscribe: (listener) =>
+        serverRpc!.client.subscribe((event) => listener(event as YachiyoServerEvent)),
+      cancelActiveRuns: () => {
+        void rpc().cancelActiveRuns()
+      },
+      listActiveRunIds: () => [...utilityActiveRunIds]
+    }
+  } else {
+    server = createConfiguredServer({ jotdownStore, webExternalFetchImpl })
+    gatewayHandle = server
+  }
   registerFatalRunRecovery()
 
   // Start channel services if already configured.
@@ -1277,10 +1363,7 @@ export function registerYachiyoGateway(): YachiyoServer {
     IPC_CHANNELS.restoreToCheckpoint,
     async (input: { runId: string; workspacePath: string }) => {
       const destroyedRunIds = await restoreToCheckpoint(input.workspacePath, input.runId)
-      const storage = server!.getStorage()
-      for (const id of destroyedRunIds) {
-        storage.updateRunSnapshot(id, { fileCount: 0 })
-      }
+      await rpc().clearRunSnapshotFileCounts({ runIds: destroyedRunIds })
       return destroyedRunIds
     }
   )
@@ -1314,9 +1397,10 @@ export function registerYachiyoGateway(): YachiyoServer {
     browserAutomationService = null
     void server?.close()
     server = null
+    gatewayHandle = null
   })
 
-  return server
+  return gatewayHandle
 }
 
 export { IPC_CHANNELS }

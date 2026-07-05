@@ -1344,6 +1344,13 @@ export class YachiyoServer {
     })
   }
 
+  /** Marks run snapshots as emptied after a checkpoint restore destroyed them. */
+  clearRunSnapshotFileCounts(input: { runIds: string[] }): void {
+    for (const runId of input.runIds) {
+      this.storage.updateRunSnapshot(runId, { fileCount: 0 })
+    }
+  }
+
   async restoreThread(input: { threadId: string }): Promise<ThreadRecord> {
     this.assertWritableAnyThread(input.threadId)
     return this.threadDomain.restoreThread(input)

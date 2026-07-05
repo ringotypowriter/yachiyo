@@ -14,7 +14,10 @@ import {
   hydrateProxyFromSystemSettings
 } from './electron/userShellEnv'
 import { resolveYachiyoDataDir } from '@yachiyo/runtime/config/paths'
-import { registerYachiyoGateway } from './yachiyoGateway/registerYachiyoGateway'
+import {
+  registerYachiyoGateway,
+  type YachiyoGatewayHandle
+} from './yachiyoGateway/registerYachiyoGateway'
 import { clearYachiyoNotificationBadge } from './yachiyoGateway/ipc'
 import { setupCLI } from './cli/setup'
 import { setupCoreSkills } from './skills/coreSkillsSetup'
@@ -26,7 +29,6 @@ import {
   installYachiyoAssetProtocolHandler,
   registerYachiyoAssetScheme
 } from './electron/yachiyoAssetProtocol'
-import type { YachiyoServer } from '@yachiyo/runtime/app/host/YachiyoServer'
 
 // Override console.log/warn/error so all existing log calls persist to file.
 // Logs go to ~/Library/Logs/Yachiyo/main.log on macOS.
@@ -52,7 +54,7 @@ let translatorWindow: BrowserWindow | null = null
 let jotdownWindow: BrowserWindow | null = null
 let mainWindowRef: BrowserWindow | null = null
 // Assigned once the runtime gateway finishes initializing (after first window).
-let gatewayServer: YachiyoServer | null = null
+let gatewayServer: YachiyoGatewayHandle | null = null
 const keepAwakeController = createKeepAwakeController()
 
 function applyNativeTheme(config: SettingsConfig): void {

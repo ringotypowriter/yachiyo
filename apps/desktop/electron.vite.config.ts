@@ -76,6 +76,7 @@ export default defineConfig({
         input: {
           index: resolve('src/main/index.ts'),
           'yachiyo-cli': resolve('../../packages/cli/src/yachiyoCli.ts'),
+          'runtime-host': resolve('src/main/runtimeHost/runtimeHostMain.ts'),
           'runtime-host-spike': resolve('src/main/runtimeHost/spikeUtilityMain.ts')
         },
         external: ['better-sqlite3', 'sharp', 'zlib-sync', 'bufferutil', 'utf-8-validate'],
