@@ -9,6 +9,15 @@ import { sampleActivity, probeFullActivityAccess, type SampleResult } from './os
 
 export type { ActivitySummary } from './ActivitySummarizer.ts'
 
+/**
+ * The slice of the tracker the run pipeline consumes. Async-friendly so an
+ * RPC-backed source can stand in when the tracker lives in another process
+ * (the tracker itself stays beside Electron's powerMonitor/BrowserWindow).
+ */
+export interface ActivitySummarySource {
+  finalizeAndConsume(): ActivitySummary | null | Promise<ActivitySummary | null>
+}
+
 export type ActivityTrackingMode = 'off' | 'simple' | 'full'
 
 export interface ActivityTrackerDeps {

@@ -419,7 +419,7 @@ export async function prepareServerRunContext(
   // Fetch activity summary - only for local / owner-DM runs, never for guests.
   const shouldIncludeActivity = (!isExternalChannel || isOwnerDm) && !requestIsHidden
   const activitySummary = shouldIncludeActivity
-    ? (deps.activityTracker ?? getActivityTracker('simple')).finalizeAndConsume()
+    ? await (deps.activityTracker ?? getActivityTracker('simple')).finalizeAndConsume()
     : null
   const activityText = activitySummary?.text
   const thingMentionResolutions = await resolveThingMentionsForUserQuery({

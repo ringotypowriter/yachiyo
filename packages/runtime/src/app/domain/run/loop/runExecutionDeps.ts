@@ -96,6 +96,7 @@ export function buildRunExecutionDeps(
     loadBrowserSnapshot: deps.loadBrowserSnapshot,
     memoryService: deps.memoryService,
     browserAutomationService: deps.browserAutomationService,
+    activityTracker: deps.activityTracker,
     sourceQueryExecutor: deps.sourceQueryExecutor,
     thingDomain: deps.thingDomain,
     searchService: deps.searchService,

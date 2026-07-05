@@ -5,6 +5,7 @@ import type {
   MemoryTermDocument,
   UserDocument
 } from '@yachiyo/shared/protocol'
+import type { ActivitySummarySource } from '../../activity/ActivityTracker.ts'
 import type { ModelRuntime } from '../../runtime/models/types.ts'
 import type { BrowserAutomationToolBackend } from '../../services/browserAutomation/browserAutomationToolBackend.ts'
 import type { BrowserSearchPageFactory } from '../../services/webSearch/browserSearchSession.ts'
@@ -58,6 +59,13 @@ export interface YachiyoServerOptions {
    * moves to a utility process). Omit to run without browser-driven search.
    */
   browserSearchPageFactory?: BrowserSearchPageFactory
+  /**
+   * Source of user-activity summaries for run context. Defaults to this
+   * process's tracker singleton; a host whose tracker lives in another
+   * process (Electron main after the runtime extraction) injects an
+   * RPC-backed source instead.
+   */
+  activityTracker?: ActivitySummarySource
   jotdownStore?: JotdownStore
   /** Optional override for the remote image downloader. Defaults to `fetchImpl`. */
   remoteImageFetcher?: RemoteImageFetcher

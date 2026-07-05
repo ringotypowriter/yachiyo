@@ -505,6 +505,7 @@ export class YachiyoServer {
       ...(options.browserAutomationService
         ? { browserAutomationService: options.browserAutomationService }
         : {}),
+      ...(options.activityTracker ? { activityTracker: options.activityTracker } : {}),
       memoryService,
       sourceQueryExecutor: options.sourceQueryExecutor,
       thingDomain: this.thingDomain,

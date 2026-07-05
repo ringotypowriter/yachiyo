@@ -14,7 +14,7 @@ import type {
   ToolCallName,
   ToolCallRecord
 } from '@yachiyo/shared/protocol'
-import type { ActivitySummary } from '../../../../activity/ActivityTracker.ts'
+import type { ActivitySummarySource } from '../../../../activity/ActivityTracker.ts'
 import type { ImageToTextService } from '../../../../services/imageToText/imageToTextService.ts'
 import type { MemoryService } from '../../../../services/memory/memoryService.ts'
 import type { SnapshotTracker } from '../../../../services/fileSnapshot/snapshotTracker.ts'
@@ -197,7 +197,5 @@ export interface RunExecutionDeps {
   onSubagentFinished?: (event: DelegateTaskFinishedEvent) => void
   imageToTextService?: ImageToTextService
   isModelImageCapable?: boolean
-  activityTracker?: {
-    finalizeAndConsume(): ActivitySummary | null
-  }
+  activityTracker?: ActivitySummarySource
 }
