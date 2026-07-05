@@ -34,6 +34,7 @@ import {
   createAutoSyncScheduler,
   type AutoSyncScheduler
 } from '../../services/autoSyncScheduler.ts'
+import { getPerfMonitor } from '../../services/perfMonitor.ts'
 import { createScheduleService, type ScheduleService } from '../../services/scheduleService.ts'
 import type { YachiyoServer } from './YachiyoServer.ts'
 
@@ -343,6 +344,9 @@ export function createRuntimeLiveServices(
     'host.pokeChannels': (input: { reason: string }): void => {
       void channelSupervisor?.poke(input.reason)
     },
+    // Run perf records live in the process that runs the pipeline; the
+    // gateway merges them with main-side IPC stats for the Settings panel.
+    'host.getPerfStats': () => getPerfMonitor().getStats(),
     'host.stopLiveServices': (): Promise<void> => stop()
   }
 

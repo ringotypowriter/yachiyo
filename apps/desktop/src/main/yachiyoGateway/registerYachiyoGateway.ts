@@ -60,6 +60,7 @@ import type {
   UpdateScheduleInput,
   UsageStatsInput,
   ChannelGroupRecord,
+  PerfStatsResponse,
   YachiyoServerEvent
 } from '@yachiyo/shared/protocol'
 import { createLoopbackRpcHost, type LoopbackRpcHost } from '@yachiyo/shared/rpc/loopbackRpcHost'
@@ -1119,7 +1120,20 @@ export function registerYachiyoGateway(): YachiyoGatewayHandle {
     rpc().getUsageStats(input)
   )
 
-  handleYachiyoIpc(IPC_CHANNELS.getPerfStats, () => getPerfMonitor().getStats())
+  handleYachiyoIpc(IPC_CHANNELS.getPerfStats, async () => {
+    // Run records live in the runtime's process, IPC/event-loop stats in this
+    // one; in-process mode both come from the same singleton.
+    const runtimeStats = await hostCall<PerfStatsResponse>('getPerfStats')
+    if (!USE_UTILITY_RUNTIME) {
+      return runtimeStats
+    }
+    const mainStats = getPerfMonitor().getStats()
+    return {
+      ...mainStats,
+      recentRuns: runtimeStats.recentRuns,
+      activeRunCount: runtimeStats.activeRunCount
+    }
+  })
 
   handleYachiyoIpc(
     IPC_CHANNELS.getSnapshotDiff,
