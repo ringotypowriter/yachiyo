@@ -6,6 +6,7 @@ import type {
   BrowserAutomationPointerState,
   BrowserAutomationViewBounds
 } from '@yachiyo/shared/protocol'
+import { createLatestWinsRunner } from './latestWinsRunner.ts'
 
 const { BrowserWindow } = electron
 
@@ -334,44 +335,33 @@ export function createBrowserPointerOverlay(): BrowserPointerOverlay {
     window.setParentWindow(null)
   }
 
-  function applyPointer(): void {
-    if (destroyed || window.webContents.isDestroyed()) return
-    void loaded
-      .then(() => {
-        if (destroyed || window.webContents.isDestroyed()) return
-        return window.webContents.executeJavaScript(
-          `window.__yachiyoSetPointer(${JSON.stringify(currentPointer)})`,
-          true
-        )
-      })
-      .catch(() => {})
+  // Latest-wins per channel: at most one executeJavaScript in flight, so
+  // rapid updates during a page load cannot pile up Electron's internal
+  // did-stop-loading listeners (executeJavaScript parks on that event while
+  // the overlay document is still loading). The script builders read the
+  // current state at execution time, so the trailing run pushes the newest
+  // value.
+  function createOverlayScriptApplier(buildScript: () => string): () => void {
+    const schedule = createLatestWinsRunner(async () => {
+      await loaded
+      if (destroyed || window.webContents.isDestroyed()) return
+      await window.webContents.executeJavaScript(buildScript(), true)
+    })
+    return () => {
+      if (destroyed || window.webContents.isDestroyed()) return
+      schedule()
+    }
   }
 
-  function applyTheme(): void {
-    if (destroyed || window.webContents.isDestroyed()) return
-    void loaded
-      .then(() => {
-        if (destroyed || window.webContents.isDestroyed()) return
-        return window.webContents.executeJavaScript(
-          `window.__yachiyoSetTheme(${JSON.stringify(currentTheme)})`,
-          true
-        )
-      })
-      .catch(() => {})
-  }
-
-  function applyActivityBubble(): void {
-    if (destroyed || window.webContents.isDestroyed()) return
-    void loaded
-      .then(() => {
-        if (destroyed || window.webContents.isDestroyed()) return
-        return window.webContents.executeJavaScript(
-          `window.__yachiyoSetActivityBubble(${JSON.stringify(currentActivityBubble)})`,
-          true
-        )
-      })
-      .catch(() => {})
-  }
+  const applyPointer = createOverlayScriptApplier(
+    () => `window.__yachiyoSetPointer(${JSON.stringify(currentPointer)})`
+  )
+  const applyTheme = createOverlayScriptApplier(
+    () => `window.__yachiyoSetTheme(${JSON.stringify(currentTheme)})`
+  )
+  const applyActivityBubble = createOverlayScriptApplier(
+    () => `window.__yachiyoSetActivityBubble(${JSON.stringify(currentActivityBubble)})`
+  )
 
   return {
     attachTo(parentWindow) {
