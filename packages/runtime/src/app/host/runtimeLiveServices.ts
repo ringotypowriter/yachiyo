@@ -68,8 +68,8 @@ export interface RuntimeLiveServices {
 /**
  * Owns the runtime's live services — schedules, auto-sync, and channel
  * services — next to the server they drive. Runs in whichever process hosts
- * YachiyoServer: the Electron main process today, the utility runtime host
- * under YACHIYO_RUNTIME_UTILITY=1.
+ * YachiyoServer: the utility runtime host by default, or the Electron main
+ * process under YACHIYO_RUNTIME_UTILITY=0.
  */
 export function createRuntimeLiveServices(
   options: RuntimeLiveServicesOptions

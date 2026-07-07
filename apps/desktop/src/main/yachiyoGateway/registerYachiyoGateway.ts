@@ -150,10 +150,11 @@ export interface YachiyoGatewayHandle {
   listActiveRunIds(): string[]
 }
 
-// Opt-in flag for the extracted runtime: the agent loop, sqlite, memory
+// The extracted runtime is the default: the agent loop, sqlite, memory
 // pipeline, and live services (schedules/channels/auto-sync) all run in a
-// utilityProcess instead of this process.
-const USE_UTILITY_RUNTIME = process.env['YACHIYO_RUNTIME_UTILITY'] === '1'
+// utilityProcess instead of this process. Set YACHIYO_RUNTIME_UTILITY=0 to
+// fall back to the legacy in-process runtime.
+const USE_UTILITY_RUNTIME = process.env['YACHIYO_RUNTIME_UTILITY'] !== '0'
 
 let server: YachiyoServer | null = null
 let serverRpc:
@@ -594,7 +595,9 @@ export function registerYachiyoGateway(): YachiyoGatewayHandle {
 
   const jotdownStore = createJotdownStore(resolveYachiyoJotdownsDir())
   if (USE_UTILITY_RUNTIME) {
-    console.log('[yachiyo] runtime host: utility process (YACHIYO_RUNTIME_UTILITY=1)')
+    console.log(
+      '[yachiyo] runtime host: utility process (default; YACHIYO_RUNTIME_UTILITY=0 opts out)'
+    )
     startUtilityRuntime()
     gatewayHandle = {
       getConfig: () => rpc().getConfig(),
@@ -606,6 +609,7 @@ export function registerYachiyoGateway(): YachiyoGatewayHandle {
       listActiveRunIds: () => [...utilityActiveRunIds]
     }
   } else {
+    console.log('[yachiyo] runtime host: in-process (YACHIYO_RUNTIME_UTILITY=0)')
     server = createConfiguredServer({ jotdownStore, webExternalFetchImpl })
     gatewayHandle = server
   }

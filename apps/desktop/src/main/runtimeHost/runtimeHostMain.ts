@@ -1,6 +1,7 @@
 /**
- * Runtime host entry, forked as an Electron utilityProcess when
- * YACHIYO_RUNTIME_UTILITY=1. Boots the full YachiyoServer off the main
+ * Runtime host entry, forked as an Electron utilityProcess (the default
+ * runtime mode; YACHIYO_RUNTIME_UTILITY=0 keeps the runtime in the main
+ * process instead). Boots the full YachiyoServer off the main
  * process's event loop and serves it over RPC on the MessagePort delivered
  * via parentPort. Main-process-only capabilities (browser automation pages,
  * browser search pages, activity summaries) are consumed through reverse RPC
