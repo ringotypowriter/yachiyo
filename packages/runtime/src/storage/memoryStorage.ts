@@ -845,8 +845,12 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
       }
       const lower = trimmed.toLowerCase()
 
-      const searchedThreads = [...threads.values()].filter((t) =>
-        scope === 'archived' ? t.archivedAt !== null : t.archivedAt === null
+      // Channel-group threads (e.g. hidden group probe runs) never appear in
+      // the thread list, so keep them out of search results too.
+      const searchedThreads = [...threads.values()].filter(
+        (t) =>
+          !t.channelGroupId &&
+          (scope === 'archived' ? t.archivedAt !== null : t.archivedAt === null)
       )
 
       const titleMatchedIds = new Set(
@@ -860,10 +864,9 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
       )
 
       const messageMatchesByThread = new Map<string, { messageId: string; content: string }[]>()
+      const searchedThreadIds = new Set(searchedThreads.map((t) => t.id))
       for (const message of messages) {
-        const thread = threads.get(message.threadId)
-        if (!thread) continue
-        if (scope === 'archived' ? thread.archivedAt === null : thread.archivedAt !== null) continue
+        if (!searchedThreadIds.has(message.threadId)) continue
         if (!message.content.toLowerCase().includes(lower)) continue
         const existing = messageMatchesByThread.get(message.threadId) ?? []
         existing.push({ messageId: message.id, content: message.content })

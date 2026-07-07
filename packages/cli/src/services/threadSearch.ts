@@ -145,6 +145,8 @@ export function searchMessages(
       .where(
         and(
           isNull(threadsTable.archivedAt),
+          isNull(threadsTable.channelGroupId),
+          isNull(messagesTable.hidden),
           like(messagesTable.content, `%${trimmed.replace(/[%_]/g, '')}%`),
           or(isNull(channelUsersTable.id), ne(channelUsersTable.role, 'guest')),
           ...(includePrivate ? [] : [isNull(threadsTable.privacyMode)])
@@ -210,6 +212,7 @@ export function listRecentThreads(
       .where(
         and(
           isNull(threadsTable.archivedAt),
+          isNull(threadsTable.channelGroupId),
           or(isNull(channelUsersTable.id), ne(channelUsersTable.role, 'guest')),
           ...(includePrivate ? [] : [isNull(threadsTable.privacyMode)])
         )

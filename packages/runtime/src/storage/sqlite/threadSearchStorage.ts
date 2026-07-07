@@ -26,8 +26,12 @@ export function createSqliteThreadSearchStorageMethods(input: {
         return []
       }
       const pattern = `%${trimmed.replace(/[%_]/g, '')}%`
-      const archivePredicate =
+      // Channel-group threads (hidden group probe runs) never appear in the
+      // thread list, so keep them out of search results too.
+      const searchablePredicate = and(
+        isNull(threadsTable.channelGroupId),
         scope === 'archived' ? isNotNull(threadsTable.archivedAt) : isNull(threadsTable.archivedAt)
+      )
 
       const titleMatchedIds = new Set(
         db
@@ -35,7 +39,7 @@ export function createSqliteThreadSearchStorageMethods(input: {
           .from(threadsTable)
           .where(
             and(
-              archivePredicate,
+              searchablePredicate,
               or(like(threadsTable.title, pattern), like(threadsTable.preview, pattern))
             )
           )
@@ -53,7 +57,11 @@ export function createSqliteThreadSearchStorageMethods(input: {
         .from(messagesTable)
         .innerJoin(threadsTable, eq(messagesTable.threadId, threadsTable.id))
         .where(
-          and(archivePredicate, like(messagesTable.content, pattern), isNull(messagesTable.hidden))
+          and(
+            searchablePredicate,
+            like(messagesTable.content, pattern),
+            isNull(messagesTable.hidden)
+          )
         )
         .orderBy(desc(threadsTable.updatedAt), asc(messagesTable.createdAt))
         // Bound materialization for common substrings; most-recent threads win.

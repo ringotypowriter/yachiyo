@@ -65,6 +65,7 @@ export function ftsMessageSearchSql(privacyClause: string): string {
     LEFT JOIN channel_users ON channel_users.id = threads.channel_user_id
     WHERE messages_fts MATCH ?
       AND threads.archived_at IS NULL
+      AND threads.channel_group_id IS NULL
       AND messages.hidden IS NULL
       AND (channel_users.id IS NULL OR channel_users.role != 'guest')
       ${privacyClause}
@@ -84,6 +85,7 @@ export function ftsThreadSearchSql(privacyClause: string): string {
     LEFT JOIN channel_users ON channel_users.id = threads.channel_user_id
     WHERE threads_fts MATCH ?
       AND threads.archived_at IS NULL
+      AND threads.channel_group_id IS NULL
       AND (channel_users.id IS NULL OR channel_users.role != 'guest')
       ${privacyClause}
     ORDER BY bm25(threads_fts, 3.0, 1.0) ASC

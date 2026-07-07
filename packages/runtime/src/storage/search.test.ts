@@ -231,6 +231,36 @@ test('searchThreadsAndMessagesFts includes private threads when includePrivate i
   assert.ok(results.find((r) => r.threadId === 'thread-1'))
 })
 
+test('excludes channel-group threads from title and message search', () => {
+  const storage = setupStorage()
+  storage.createThread({
+    thread: makeThread({
+      id: 'thread-group-probe',
+      title: 'QQ群459936541 [group probe]',
+      channelGroupId: 'group-1',
+      updatedAt: NOW
+    }),
+    createdAt: NOW,
+    messages: [
+      makeMessage({
+        id: 'probe-msg-1',
+        threadId: 'thread-group-probe',
+        content: 'TypeScript mentioned inside probe history',
+        createdAt: NOW
+      })
+    ]
+  })
+
+  const byTitle = storage.searchThreadsAndMessages({ query: 'QQ' })
+  assert.ok(!byTitle.find((r) => r.threadId === 'thread-group-probe'))
+
+  const byContent = storage.searchThreadsAndMessages({ query: 'TypeScript' })
+  assert.ok(!byContent.find((r) => r.threadId === 'thread-group-probe'))
+
+  const byFts = storage.searchThreadsAndMessagesFts({ query: 'QQ' })
+  assert.ok(!byFts.find((r) => r.threadId === 'thread-group-probe'))
+})
+
 test('each result has required fields', () => {
   const storage = setupStorage()
   const results = storage.searchThreadsAndMessages({ query: 'React' })
