@@ -835,6 +835,17 @@ fn thread_payload_should_not_export(payload: &Value) -> bool {
         || is_non_null_field(payload, "created_from_schedule_id")
 }
 
+fn is_fresh_empty_thread(payload: &Value) -> bool {
+    payload.get("head_message_id").is_none_or(|v| v.is_null())
+        && payload.get("title").and_then(Value::as_str) == Some("New Chat")
+        && payload
+            .get("created_at")
+            .and_then(Value::as_str)
+            .is_some_and(|created_at| {
+                payload.get("updated_at").and_then(Value::as_str) == Some(created_at)
+            })
+}
+
 fn child_belongs_to_non_exportable_thread(
     conn: &Connection,
     payload: &Value,
@@ -911,9 +922,15 @@ fn export_dirty_ops(
             processed.push(dirty_seq);
             continue;
         }
-        // Empty local threads export as delete tombstones. Fresh "New Chat" rows
-        // become harmless no-ops on peers, while a thread emptied by deleting its
-        // last message clears the previously imported archive row.
+        // Untouched "New Chat" placeholders have never existed on peers, so do
+        // not publish a delete tombstone before the first real message/title/icon
+        // update has a chance to export.
+        if entity_type == "thread" && is_fresh_empty_thread(&payload) {
+            processed.push(dirty_seq);
+            continue;
+        }
+        // Other empty local threads export as delete tombstones. A thread emptied
+        // by deleting its last message clears the previously imported archive row.
         if entity_type == "thread" && payload.get("head_message_id").is_none_or(|v| v.is_null()) {
             emit(make_op(
                 device_id,
@@ -1949,7 +1966,7 @@ mod tests {
         fs::write(dir.path().join(SETTINGS_FILE), config).unwrap();
         let conn = Connection::open(dir.path().join(DB_FILE)).unwrap();
         conn.execute_batch(
-            "CREATE TABLE threads (id TEXT PRIMARY KEY, title TEXT, created_at TEXT, head_message_id TEXT, created_from_schedule_id TEXT, sync_origin_device_id TEXT, sync_imported_at TEXT);
+            "CREATE TABLE threads (id TEXT PRIMARY KEY, title TEXT, icon TEXT, created_at TEXT, updated_at TEXT, head_message_id TEXT, created_from_schedule_id TEXT, sync_origin_device_id TEXT, sync_imported_at TEXT);
              CREATE TABLE messages (id TEXT PRIMARY KEY, thread_id TEXT NOT NULL, body TEXT, created_at TEXT, response_messages TEXT, turn_context TEXT);
              CREATE TABLE tool_calls (id TEXT PRIMARY KEY, thread_id TEXT NOT NULL, request_message_id TEXT, assistant_message_id TEXT, run_id TEXT, tool_name TEXT, status TEXT, input_summary TEXT, started_at TEXT);",
         )
@@ -2321,8 +2338,8 @@ mod tests {
         {
             let conn = Connection::open(home_a.path().join(DB_FILE)).unwrap();
             conn.execute(
-                "INSERT INTO threads (id, title, created_at) VALUES (?1, ?2, ?3)",
-                params!["empty", "New Chat", "1"],
+                "INSERT INTO threads (id, title, created_at, updated_at) VALUES (?1, ?2, ?3, ?4)",
+                params!["empty", "New Chat", "1", "1"],
             )
             .unwrap();
         }
@@ -2348,6 +2365,14 @@ mod tests {
             })
             .unwrap();
         assert_eq!(real_count, 1, "non-empty thread must still export");
+
+        let device = device_id_of(home_a.path());
+        let v2_path =
+            device_ops_dir(sync.path(), &device, OPS_DIR_V2).join("0000000000000001.jsonl");
+        assert!(
+            !v2_path.exists(),
+            "fresh empty threads must not publish a delete tombstone before their first message"
+        );
     }
 
     #[test]
@@ -2360,8 +2385,8 @@ mod tests {
         {
             let conn = Connection::open(home_a.path().join(DB_FILE)).unwrap();
             conn.execute(
-                "INSERT INTO threads (id, title, created_at) VALUES (?1, ?2, ?3)",
-                params!["t1", "New Chat", "1"],
+                "INSERT INTO threads (id, title, created_at, updated_at) VALUES (?1, ?2, ?3, ?4)",
+                params!["t1", "New Chat", "1", "1"],
             )
             .unwrap();
         }
@@ -2382,8 +2407,8 @@ mod tests {
             )
             .unwrap();
             conn.execute(
-                "UPDATE threads SET head_message_id = ?1 WHERE id = ?2",
-                params!["m1", "t1"],
+                "UPDATE threads SET head_message_id = ?1, title = ?2, icon = ?3, updated_at = ?4 WHERE id = ?5",
+                params!["m1", "Electron Utility Process", "⚙️", "2", "t1"],
             )
             .unwrap();
         }
@@ -2396,6 +2421,11 @@ mod tests {
         // relies on across devices. Auto-sync supplies that follow-up cycle.
         import_ops(home_b.path(), Some(sync.path())).unwrap();
         assert_eq!(count_rows(home_b.path(), "messages"), 1);
+        let conn = Connection::open(home_b.path().join(DB_FILE)).unwrap();
+        let icon: Option<String> = conn
+            .query_row("SELECT icon FROM threads WHERE id = 't1'", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(icon.as_deref(), Some("⚙️"));
     }
 
     #[test]
@@ -2412,8 +2442,8 @@ mod tests {
         {
             let conn = Connection::open(home_a.path().join(DB_FILE)).unwrap();
             conn.execute(
-                "INSERT INTO threads (id, title, created_at) VALUES (?1, ?2, ?3)",
-                params!["t1", "New Chat", "1"],
+                "INSERT INTO threads (id, title, created_at, updated_at) VALUES (?1, ?2, ?3, ?4)",
+                params!["t1", "New Chat", "1", "1"],
             )
             .unwrap();
             conn.execute(
