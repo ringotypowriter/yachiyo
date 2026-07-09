@@ -534,4 +534,52 @@ describe('createScheduleService', () => {
       mock.timers.reset()
     }
   })
+
+  it('re-arms a CRON review schedule after a skip so it fires again (#42)', async () => {
+    // The real bundled reviews are cron (not one-off), and skip is a NEW branch.
+    // Direct evidence that a cron schedule survives a skip: it fires a second
+    // time on the next occurrence (a broken re-arm = self-review dies silently).
+    const storage = createMockStorage(
+      createSchedule({
+        id: 'bundled:self-review',
+        name: 'Self-Review',
+        runAt: undefined,
+        cronExpression: '0 12 * * *' // daily at noon
+      })
+    )
+    storage.countSelfReviewableThreads = () => 0 // always nothing to review → always skip
+    const fetchRestore = mock.method(globalThis, 'fetch', async () => ({ ok: true }) as Response)
+    mock.timers.enable({ apis: ['Date', 'setTimeout'] })
+    try {
+      const { server } = createMockServer()
+      const service = createScheduleService({
+        server,
+        storage,
+        createId: (() => {
+          let next = 0
+          return () => `run-${++next}`
+        })(),
+        timestamp: () => new Date().toISOString(),
+        tempWorkspaceDir: '/tmp'
+      })
+      service.reload()
+      await flushAsyncWork()
+
+      const DAY_MS = 25 * 60 * 60 * 1000 // > 24h — guaranteed to pass a daily cron
+      // First occurrence fires → skips → re-arms for the next occurrence.
+      mock.timers.tick(DAY_MS)
+      await flushAsyncWork()
+      assert.equal(storage.runs.length, 1, 'first cron fire should record a skipped run')
+      assert.equal(storage.runs[0]?.status, 'skipped')
+
+      // If the skip branch re-armed, the next day fires (and skips) again.
+      mock.timers.tick(DAY_MS)
+      await flushAsyncWork()
+      assert.equal(storage.runs.length, 2, 'a re-armed cron schedule must fire again after a skip')
+      assert.equal(storage.runs[1]?.status, 'skipped')
+    } finally {
+      fetchRestore.mock.restore()
+      mock.timers.reset()
+    }
+  })
 })
