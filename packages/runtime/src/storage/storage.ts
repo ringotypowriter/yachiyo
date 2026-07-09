@@ -433,6 +433,16 @@ export interface YachiyoStorage {
   findActiveGroupThread(channelGroupId: string, maxAgeMs: number): ThreadRecord | undefined
   listThreadsByChannelGroupId(channelGroupId: string): ThreadRecord[]
 
+  // Schedule eligibility counts (#42) — cheap COUNT(*) probes so a scheduled
+  // review can skip firing when there is nothing to review. Both exclude empty
+  // threads (no head message) and schedule-generated threads.
+  /** Threads a self-review pass would consider: never reviewed, or updated
+   *  since their last review (`self_reviewed_at`). */
+  countSelfReviewableThreads(): number
+  /** Threads with conversation activity at/after `sinceIso` — the "was there
+   *  anything today" signal for the Things daily review. */
+  countThreadsActiveSince(sinceIso: string): number
+
   // Thread folders
   listFolders(): FolderRecord[]
   getFolder(folderId: string): FolderRecord | undefined

@@ -47,6 +47,8 @@ export interface ScheduleServiceDeps {
     | 'completeScheduleRun'
     | 'recoverInterruptedScheduleRuns'
     | 'listThreadMessages'
+    | 'countSelfReviewableThreads'
+    | 'countThreadsActiveSince'
   >
   createId: () => string
   timestamp: () => string
@@ -135,6 +137,36 @@ function scheduleFingerprint(schedules: ScheduleRecord[]): string {
     )
     .sort()
     .join('|')
+}
+
+/** Local start-of-day ISO for `nowIso` — the "today" boundary for Things. */
+function startOfLocalDay(nowIso: string): string {
+  const d = new Date(nowIso)
+  d.setHours(0, 0, 0, 0)
+  return d.toISOString()
+}
+
+/**
+ * Per-schedule "is there anything to do?" probe (#42). Returns the eligible
+ * item count, or `undefined` for schedules with no gate (they always fire).
+ * The bundled review schedules skip firing when this is a definite 0 — but the
+ * CALLER treats only a clean numeric 0 as "skip"; any thrown error or
+ * `undefined` falls through and fires (fail-open, so a probe bug can never
+ * silently stop a review from ever running again).
+ */
+function eligibleItemCount(
+  scheduleId: string,
+  storage: ScheduleServiceDeps['storage'],
+  nowIso: string
+): number | undefined {
+  switch (scheduleId) {
+    case 'bundled:self-review':
+      return storage.countSelfReviewableThreads()
+    case 'bundled:things-daily-review':
+      return storage.countThreadsActiveSince(startOfLocalDay(nowIso))
+    default:
+      return undefined
+  }
 }
 
 export function createScheduleService(deps: ScheduleServiceDeps): ScheduleService {
@@ -265,6 +297,45 @@ export function createScheduleService(deps: ScheduleServiceDeps): ScheduleServic
         armTimer(fresh)
       }
       return
+    }
+
+    // Skip an automatic review fire when there's nothing to review, so it stops
+    // generating an empty thread + LLM run every day (#42). Manual triggers
+    // always run. Fail-open: only a clean numeric 0 skips; a probe error
+    // (undefined) falls through and fires — a probe bug must never silently
+    // stop a scheduled review from ever running.
+    if (!opts?.manual) {
+      let eligibleCount: number | undefined
+      try {
+        eligibleCount = eligibleItemCount(scheduleId, deps.storage, deps.timestamp())
+      } catch (error) {
+        console.warn(
+          `[schedule] eligibility probe failed for "${schedule.name}", firing anyway`,
+          error
+        )
+        eligibleCount = undefined
+      }
+      if (eligibleCount === 0) {
+        const runId = deps.createId()
+        const now = deps.timestamp()
+        deps.storage.createScheduleRun({ id: runId, scheduleId, status: 'skipped', startedAt: now })
+        deps.storage.completeScheduleRun({
+          id: runId,
+          status: 'skipped',
+          completedAt: now,
+          error: 'Nothing to review.'
+        })
+        // Silent by design — this is a normal no-op, not an anomaly, so no
+        // notification (that would defeat the noise-reduction purpose).
+        console.log(`[schedule] "${schedule.name}" skipped — nothing to review`)
+        const fresh = deps.storage.getSchedule(scheduleId)
+        if (fresh?.runAt) {
+          disarmOneOffSchedule(scheduleId, 'skipped')
+        } else if (fresh) {
+          armTimer(fresh)
+        }
+        return
+      }
     }
 
     activeRuns.add(scheduleId)
