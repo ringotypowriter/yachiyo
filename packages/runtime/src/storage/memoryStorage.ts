@@ -342,6 +342,30 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
       // selfReviewedAt is a sqlite-only CLI concern — no-op for in-memory storage
     },
 
+    countSelfReviewableThreads() {
+      // selfReviewedAt isn't tracked in memory (markThreadReviewed is a no-op),
+      // so every non-empty, non-schedule thread counts as reviewable here.
+      let n = 0
+      for (const thread of threads.values()) {
+        if (thread.headMessageId !== null && thread.createdFromScheduleId === null) n += 1
+      }
+      return n
+    },
+
+    countThreadsActiveSince(sinceIso) {
+      let n = 0
+      for (const thread of threads.values()) {
+        if (
+          thread.headMessageId !== null &&
+          thread.createdFromScheduleId === null &&
+          thread.updatedAt >= sinceIso
+        ) {
+          n += 1
+        }
+      }
+      return n
+    },
+
     restoreThread({ threadId, updatedAt }) {
       const thread = readArchivedThread(threadId)
       if (!thread) {

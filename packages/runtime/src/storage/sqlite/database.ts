@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray, isNotNull, isNull, or } from 'drizzle-orm'
+import { and, asc, count, desc, eq, gt, gte, inArray, isNotNull, isNull, or } from 'drizzle-orm'
 
 import { createSqliteAuxiliaryStorageMethods } from './auxiliaryStorage.ts'
 import { createSqliteActivitySourceStorageMethods } from './activitySourceStorage.ts'
@@ -487,6 +487,39 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
         .set({ selfReviewedAt: reviewedAt })
         .where(eq(threadsTable.id, threadId))
         .run()
+    },
+
+    countSelfReviewableThreads() {
+      const row = db
+        .select({ n: count() })
+        .from(threadsTable)
+        .where(
+          and(
+            isNotNull(threadsTable.headMessageId),
+            isNull(threadsTable.createdFromScheduleId),
+            or(
+              isNull(threadsTable.selfReviewedAt),
+              gt(threadsTable.updatedAt, threadsTable.selfReviewedAt)
+            )
+          )
+        )
+        .get()
+      return row?.n ?? 0
+    },
+
+    countThreadsActiveSince(sinceIso) {
+      const row = db
+        .select({ n: count() })
+        .from(threadsTable)
+        .where(
+          and(
+            isNotNull(threadsTable.headMessageId),
+            isNull(threadsTable.createdFromScheduleId),
+            gte(threadsTable.updatedAt, sinceIso)
+          )
+        )
+        .get()
+      return row?.n ?? 0
     },
 
     restoreThread({ threadId, updatedAt }) {
