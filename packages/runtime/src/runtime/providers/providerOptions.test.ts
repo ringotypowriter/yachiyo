@@ -57,7 +57,7 @@ test('createProviderOptions rejects xhigh for OpenAI models without xhigh suppor
 })
 
 test('createProviderOptions allows xhigh for newer OpenAI GPT models', () => {
-  for (const model of ['gpt-5.3-codex', 'gpt-5.4', 'gpt-5.5']) {
+  for (const model of ['gpt-5.3-codex', 'gpt-5.4', 'gpt-5.5', 'gpt-5.6', 'gpt-5-6-codex']) {
     const options = createProviderOptions(settings({ model }), 'default', 'xhigh')
 
     assert.deepEqual(options, {
