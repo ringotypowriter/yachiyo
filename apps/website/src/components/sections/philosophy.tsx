@@ -12,7 +12,8 @@ const values = [
   },
   {
     title: 'No MCP. No marketplace.',
-    description: 'Skills-only. No protocol maze, no plugin store, no vendor lock-in.'
+    description:
+      'A skill is one Markdown file you can read, edit, and delete. That is the entire extension surface.'
   },
   {
     title: 'No telemetry',
@@ -113,10 +114,7 @@ export function Philosophy(): ReactElement {
             <h2 className="text-3xl sm:text-4xl font-display font-medium text-ink mb-3">
               Why Yachiyo?
             </h2>
-            <p className="text-base text-ink/50">
-              Because your assistant should be yours — not a platform, not a marketplace, not a
-              maze.
-            </p>
+            <p className="text-base text-ink/50">Because your assistant should be yours.</p>
           </motion.div>
 
           <div>

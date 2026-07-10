@@ -19,7 +19,7 @@ export function CTA(): ReactElement {
             Let her into your computer
           </h2>
           <p className="text-base text-ink/50 mb-10">
-            Download Yachiyo today and meet the cyber-assistant that lives in your filesystem.
+            Download the app, add a provider key, and start your first thread in minutes.
           </p>
           <Button size="lg" asChild>
             <a

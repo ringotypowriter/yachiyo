@@ -320,7 +320,7 @@ export function Features(): ReactElement {
             What Yachiyo can do
           </h2>
           <p className="text-base text-ink/50">
-            Only what&apos;s necessary for a cyber-assistant that lives in your computer.
+            The whole feature set fits on a handful of notes. Drag them around.
           </p>
         </motion.div>
 
