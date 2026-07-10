@@ -183,9 +183,8 @@ export function AgentWorkSummaryRow({
         ref={packRef}
         className="yachiyo-work-summary-pack overflow-hidden rounded-md border"
         style={{
-          background: `linear-gradient(135deg, ${alpha('surface', 0.78)}, ${alpha('canvas', 0.36)})`,
-          borderColor: alpha('accent', 0.16),
-          boxShadow: `inset 3px 0 0 ${alpha('accent', 0.28)}`,
+          background: theme.background.surface,
+          borderColor: theme.border.default,
           color: theme.text.secondary
         }}
       >
@@ -213,19 +212,12 @@ export function AgentWorkSummaryRow({
             margin: 0
           }}
         >
-          <span className="flex h-8 w-4 shrink-0 flex-col items-center justify-center gap-0.5">
-            <span className="h-1.5 w-1.5 rounded-full" style={{ background: theme.text.accent }} />
-            <span
-              className="h-3 w-px rounded"
-              style={{ background: `linear-gradient(${alpha('accent', 0.42)}, transparent)` }}
-            />
-            <span
-              className="h-1.5 w-1.5 rounded-full"
-              style={{
-                background: failedToolCalls > 0 ? theme.status.danger : theme.status.success
-              }}
-            />
-          </span>
+          <span
+            className="h-1.5 w-1.5 shrink-0 rounded-full"
+            style={{
+              background: failedToolCalls > 0 ? theme.status.danger : theme.status.success
+            }}
+          />
           <span className="min-w-0 flex-1">
             <span
               className="block truncate text-[11px]"

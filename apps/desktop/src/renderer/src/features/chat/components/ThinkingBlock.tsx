@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react'
+import { ChevronRight } from 'lucide-react'
 import { Streamdown } from 'streamdown'
 import { mathPlugin } from '@renderer/lib/markdown/mathPlugin'
 import { code } from '@streamdown/code'
@@ -38,95 +39,86 @@ export function ThinkingBlock({
 
   return (
     <div className="px-6 py-1">
-      <div
-        style={{
-          background: theme.background.accentSoft,
-          borderLeft: `2px solid ${theme.border.accent}`,
-          borderRadius: '0 6px 6px 0'
-        }}
+      <button
+        className="flex items-center gap-2 py-0.5 text-left"
+        onClick={() =>
+          setOverride((prev) => ({
+            expanded: !(prev && prev.duringActive === isActive ? prev.expanded : isActive),
+            duringActive: isActive
+          }))
+        }
       >
-        <button
-          className="flex items-center gap-2 w-full px-3 py-2 text-left"
-          onClick={() =>
-            setOverride((prev) => ({
-              expanded: !(prev && prev.duringActive === isActive ? prev.expanded : isActive),
-              duringActive: isActive
-            }))
-          }
+        {isActive ? (
+          <span
+            className="shrink-0 w-1.5 h-1.5 rounded-full relative -top-px"
+            style={{
+              background: theme.text.accent,
+              animation: 'yachiyo-generating-pulse 1s ease-in-out infinite'
+            }}
+          />
+        ) : (
+          <ChevronRight
+            size={11}
+            strokeWidth={1.8}
+            className="shrink-0"
+            style={{
+              color: theme.text.accent,
+              transform: isExpanded ? 'rotate(90deg)' : 'rotate(0deg)',
+              transition: 'transform 150ms ease'
+            }}
+          />
+        )}
+        <span className="text-xs font-medium tracking-wide" style={{ color: theme.text.accent }}>
+          {isActive ? `Thinking · ${timer}` : 'Thought'}
+        </span>
+      </button>
+
+      {isExpanded && (
+        <div
+          className="mt-1 ml-3 border-l pl-3"
+          style={{
+            borderColor: theme.border.panel,
+            animation: 'yachiyo-thinking-fold-in 180ms ease-out'
+          }}
         >
           {isActive ? (
-            <span
-              className="shrink-0 w-1.5 h-1.5 rounded-full relative -top-px"
-              style={{
-                background: theme.text.accent,
-                animation: 'yachiyo-generating-pulse 1s ease-in-out infinite'
-              }}
-            />
-          ) : (
-            <svg
-              className="shrink-0"
-              width="10"
-              height="10"
-              viewBox="0 0 10 10"
-              fill="none"
-              style={{
-                color: theme.text.accent,
-                transform: isExpanded ? 'rotate(90deg)' : 'rotate(0deg)',
-                transition: 'transform 150ms ease'
-              }}
+            <div
+              className="streamdown-content text-[11px] leading-relaxed"
+              style={{ color: theme.text.tertiary }}
             >
-              <path
-                d="M3 2L7 5L3 8"
-                stroke="currentColor"
-                strokeWidth="1.5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </svg>
-          )}
-          <span className="text-xs font-medium tracking-wide" style={{ color: theme.text.accent }}>
-            {isActive ? `Thinking · ${timer}` : 'Thought'}
-          </span>
-        </button>
-
-        {isExpanded && (
-          <div style={{ animation: 'yachiyo-thinking-fold-in 180ms ease-out' }}>
-            {isActive ? (
-              <div className="px-3 pb-3 streamdown-content" style={{ color: theme.text.tertiary }}>
-                <pre
-                  key={page.index}
-                  className="whitespace-pre-wrap wrap-break-word m-0"
-                  style={{
-                    fontFamily: 'inherit',
-                    fontSize: 'inherit',
-                    lineHeight: 'inherit',
-                    height: 'calc(1.6em * 4)',
-                    overflow: 'hidden',
-                    animation: 'yachiyo-thinking-page-swap 280ms ease-out'
-                  }}
-                >
-                  {page.text}
-                </pre>
-              </div>
-            ) : (
-              <div
-                ref={contentRef}
-                className="px-3 pb-3 overflow-y-auto message-selectable"
-                style={{ maxHeight: '240px' }}
+              <pre
+                key={page.index}
+                className="whitespace-pre-wrap wrap-break-word m-0"
+                style={{
+                  fontFamily: 'inherit',
+                  fontSize: 'inherit',
+                  lineHeight: 'inherit',
+                  height: 'calc(1.6em * 4)',
+                  overflow: 'hidden',
+                  animation: 'yachiyo-thinking-page-swap 280ms ease-out'
+                }}
               >
-                <div
-                  className="streamdown-content message-selectable"
-                  style={{ color: theme.text.tertiary }}
-                >
-                  <Streamdown mode="static" controls={true} plugins={plugins}>
-                    {reasoning}
-                  </Streamdown>
-                </div>
+                {page.text}
+              </pre>
+            </div>
+          ) : (
+            <div
+              ref={contentRef}
+              className="overflow-y-auto message-selectable"
+              style={{ maxHeight: '240px' }}
+            >
+              <div
+                className="streamdown-content message-selectable text-[11px] leading-relaxed"
+                style={{ color: theme.text.tertiary }}
+              >
+                <Streamdown mode="static" controls={true} plugins={plugins}>
+                  {reasoning}
+                </Streamdown>
               </div>
-            )}
-          </div>
-        )}
-      </div>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   )
 }

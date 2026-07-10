@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 import { AppSidebarDivider } from '@renderer/features/layout/components/AppSidebarDivider'
 import {
+  APP_CONTENT_CARD_TOP_INSET,
   APP_TAB_FRAME_TRAFFIC_LIGHT_SAFE_WIDTH,
   APP_TOP_BAR_HEIGHT,
   resolveAppTabFrameTopChromeColumn,
@@ -104,7 +105,7 @@ export function AppTabFrame({
           minWidth: 0,
           minHeight: 0,
           background: `linear-gradient(90deg, ${chromeBackground} 0%, ${theme.background.surfaceLight} 100%)`,
-          padding: isSidebarOpen ? '8px 8px 8px 4px' : '0',
+          padding: isSidebarOpen ? `${APP_CONTENT_CARD_TOP_INSET}px 8px 8px 4px` : '0',
           transition: 'padding 200ms ease'
         }}
       >
@@ -121,7 +122,7 @@ export function AppTabFrame({
             <div
               className="drag-region flex shrink-0 items-center"
               style={{
-                height: APP_TOP_BAR_HEIGHT,
+                height: APP_TOP_BAR_HEIGHT - APP_CONTENT_CARD_TOP_INSET,
                 borderBottom: `1px solid ${theme.border.panel}`,
                 position: 'relative'
               }}

@@ -9,6 +9,9 @@ export interface AppTabDefinition {
 export type AppTabBarBottomToolId = 'update' | 'more'
 
 export const APP_TOP_BAR_HEIGHT = 48
+// Top inset of the floating content card; the card's header height subtracts
+// this so its bottom divider stays level with the sidebar chrome divider.
+export const APP_CONTENT_CARD_TOP_INSET = 8
 export const APP_TAB_BAR_WIDTH = 56
 export const APP_TRAFFIC_LIGHT_SAFE_WIDTH = 84
 export const APP_TAB_FRAME_TRAFFIC_LIGHT_SAFE_WIDTH =

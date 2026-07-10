@@ -52,28 +52,21 @@ export function AskUserInlineWidget({ toolCall }: AskUserInlineWidgetProps): Rea
     submitAnswer(input)
   }
 
-  // Completed state: compact Q→A row
+  // Completed state: flat Q→A row, matching finished tool rows
   if (!isWaiting) {
     return (
-      <div className="px-6 py-1">
-        <div
-          className="flex items-start gap-2.5 rounded-xl px-3.5 py-2.5"
-          style={{
-            background: theme.background.accentSoft,
-            borderLeft: `2px solid ${theme.border.accent}`
-          }}
-        >
-          <MessageCircleQuestion
-            size={15}
-            strokeWidth={1.6}
-            className="mt-px shrink-0"
-            style={{ color: theme.text.accent }}
-          />
-          <div className="flex min-w-0 flex-col gap-1" style={{ fontSize: '12px' }}>
-            <span style={{ color: theme.text.secondary }}>{question}</span>
-            {answer && <span style={{ color: theme.text.primary, fontWeight: 500 }}>{answer}</span>}
-          </div>
-        </div>
+      <div
+        className="flex flex-wrap items-center gap-1.5 px-6 py-0.5"
+        style={{ fontSize: '11px', color: theme.text.muted }}
+      >
+        <MessageCircleQuestion
+          size={12}
+          strokeWidth={1.8}
+          className="shrink-0"
+          style={{ color: theme.text.accent }}
+        />
+        <span style={{ color: theme.text.secondary }}>{question}</span>
+        {answer && <span style={{ color: theme.text.primary, fontWeight: 500 }}>· {answer}</span>}
       </div>
     )
   }
@@ -83,10 +76,10 @@ export function AskUserInlineWidget({ toolCall }: AskUserInlineWidgetProps): Rea
   return (
     <div className="px-6 py-1.5">
       <div
-        className="flex flex-col gap-3 rounded-xl px-4 py-3.5"
+        className="flex flex-col gap-3 rounded-lg px-4 py-3.5"
         style={{
-          background: theme.background.accentSoft,
-          borderLeft: `2px solid ${theme.border.accent}`
+          background: theme.background.surface,
+          border: `1px solid ${theme.border.default}`
         }}
       >
         {/* Question */}
@@ -122,7 +115,7 @@ export function AskUserInlineWidget({ toolCall }: AskUserInlineWidgetProps): Rea
                 type="button"
                 disabled={isSending}
                 onClick={() => submitAnswer(choice)}
-                className="w-full rounded-lg px-3 py-2 text-left"
+                className="w-full rounded-md px-3 py-2 text-left"
                 style={{
                   background: theme.background.surface,
                   border: `1px solid ${theme.border.panel}`,
@@ -150,7 +143,7 @@ export function AskUserInlineWidget({ toolCall }: AskUserInlineWidgetProps): Rea
 
           {/* Input */}
           <div
-            className="flex min-w-0 flex-1 items-center rounded-lg"
+            className="flex min-w-0 flex-1 items-center rounded-md"
             style={{
               background: theme.background.surface,
               border: `1px solid ${theme.border.panel}`,

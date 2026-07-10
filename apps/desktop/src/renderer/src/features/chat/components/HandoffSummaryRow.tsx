@@ -15,11 +15,9 @@ export function HandoffSummaryRow({ content }: HandoffSummaryRowProps): React.JS
   return (
     <div className="handoff-fold-summary message-selectable">
       <div
-        className="px-3 py-2"
+        className="border-l py-0.5 pl-3"
         style={{
-          background: theme.background.surfaceSoft,
-          borderLeft: `2px solid ${theme.border.accent}`,
-          borderRadius: '0 8px 8px 0',
+          borderColor: theme.border.panel,
           color: theme.text.secondary,
           fontSize: '12px',
           lineHeight: 1.55
