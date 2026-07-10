@@ -73,7 +73,9 @@ export function isOpenAIXHighReasoningEffortModel(model: string): boolean {
     normalized.startsWith('gpt-5.4') ||
     normalized.startsWith('gpt-5-4') ||
     normalized.startsWith('gpt-5.5') ||
-    normalized.startsWith('gpt-5-5')
+    normalized.startsWith('gpt-5-5') ||
+    normalized.startsWith('gpt-5.6') ||
+    normalized.startsWith('gpt-5-6')
   )
 }
 
