@@ -1,0 +1,5 @@
+---
+'@yachiyo/desktop': minor
+---
+
+Sparks!
