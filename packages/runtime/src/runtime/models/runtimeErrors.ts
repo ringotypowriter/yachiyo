@@ -157,25 +157,36 @@ export function isTransientTransportError(error: unknown): boolean {
     code === 'EAI_AGAIN' ||
     code === 'ERR_CONNECTION_CLOSED' ||
     code === 'ERR_CONNECTION_RESET' ||
+    code === 'ERR_CONNECTION_REFUSED' ||
+    code === 'ERR_CONNECTION_ABORTED' ||
+    code === 'ERR_CONNECTION_FAILED' ||
+    code === 'ERR_EMPTY_RESPONSE' ||
+    code === 'ERR_NAME_RESOLUTION_FAILED' ||
+    code === 'ERR_QUIC_PROTOCOL_ERROR' ||
+    code === 'ECONNABORTED' ||
     code === 'ERR_NETWORK_CHANGED' ||
     code === 'ERR_INTERNET_DISCONNECTED' ||
     code === 'ERR_HTTP2_PROTOCOL_ERROR' ||
     // Transient TLS handshake interruption (proxy/network blip) — NOT the
-    // permanent cert failures (ERR_CERT_*), which stay non-retryable.
+    // permanent cert failures (ERR_CERT_*), which stay non-retryable. Node's
+    // EPROTO is deliberately absent too: it mixes transient TLS blips with
+    // permanent cipher/version mismatches, so it must not blanket-retry.
     code === 'ERR_SSL_PROTOCOL_ERROR' ||
     code === 'ERR_TIMED_OUT' ||
     code === 'ERR_CONNECTION_TIMED_OUT' ||
     code === 'ERR_NAME_NOT_RESOLVED' ||
     code === 'ERR_ADDRESS_UNREACHABLE' ||
     code === 'UND_ERR_SOCKET' ||
-    code === 'UND_ERR_CONNECT_TIMEOUT'
+    code === 'UND_ERR_CONNECT_TIMEOUT' ||
+    code === 'UND_ERR_HEADERS_TIMEOUT' ||
+    code === 'UND_ERR_BODY_TIMEOUT'
   ) {
     return true
   }
 
   const message = error instanceof Error ? error.message : ''
   if (
-    /ECONNRESET|ETIMEDOUT|ECONNREFUSED|ENOTFOUND|ENETDOWN|ENETUNREACH|ENETRESET|EHOSTUNREACH|EPIPE|EAI_AGAIN|ERR_CONNECTION_CLOSED|ERR_CONNECTION_RESET|ERR_NETWORK_CHANGED|ERR_INTERNET_DISCONNECTED|ERR_HTTP2_PROTOCOL_ERROR|ERR_SSL_PROTOCOL_ERROR|ERR_TIMED_OUT|ERR_CONNECTION_TIMED_OUT|ERR_NAME_NOT_RESOLVED|ERR_ADDRESS_UNREACHABLE|network (?:changed|is unreachable|is down)|fetch failed|socket hang up/i.test(
+    /ECONNRESET|ETIMEDOUT|ECONNREFUSED|ENOTFOUND|ENETDOWN|ENETUNREACH|ENETRESET|EHOSTUNREACH|EPIPE|EAI_AGAIN|ECONNABORTED|ERR_CONNECTION_CLOSED|ERR_CONNECTION_RESET|ERR_CONNECTION_REFUSED|ERR_CONNECTION_ABORTED|ERR_CONNECTION_FAILED|ERR_EMPTY_RESPONSE|ERR_NAME_RESOLUTION_FAILED|ERR_QUIC_PROTOCOL_ERROR|ERR_NETWORK_CHANGED|ERR_INTERNET_DISCONNECTED|ERR_HTTP2_PROTOCOL_ERROR|ERR_SSL_PROTOCOL_ERROR|ERR_TIMED_OUT|ERR_CONNECTION_TIMED_OUT|ERR_NAME_NOT_RESOLVED|ERR_ADDRESS_UNREACHABLE|network (?:changed|is unreachable|is down)|fetch failed|socket hang up/i.test(
       message
     )
   ) {
