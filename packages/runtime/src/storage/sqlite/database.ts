@@ -81,6 +81,21 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
     }
     return isOwnerDmThread(thread)
   }
+  const reviewSourceThreadPredicate = (): ReturnType<typeof and> =>
+    and(
+      isNotNull(threadsTable.headMessageId),
+      isNull(threadsTable.createdFromScheduleId),
+      isNull(threadsTable.archivedAt),
+      isNull(threadsTable.privacyMode),
+      or(
+        and(
+          or(isNull(threadsTable.source), eq(threadsTable.source, 'local')),
+          isNull(threadsTable.channelGroupId),
+          isNull(threadsTable.channelUserId)
+        ),
+        and(isNull(threadsTable.channelGroupId), eq(channelUsersTable.role, 'owner'))
+      )
+    )
   const toThreadRecordWithChannelUserRole = (
     row: Parameters<typeof toThreadRecord>[0]
   ): ReturnType<typeof toThreadRecord> => {
@@ -493,16 +508,26 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
       const row = db
         .select({ n: count() })
         .from(threadsTable)
+        .leftJoin(channelUsersTable, eq(threadsTable.channelUserId, channelUsersTable.id))
         .where(
           and(
-            isNotNull(threadsTable.headMessageId),
-            isNull(threadsTable.createdFromScheduleId),
+            reviewSourceThreadPredicate(),
             or(
               isNull(threadsTable.selfReviewedAt),
               gt(threadsTable.updatedAt, threadsTable.selfReviewedAt)
             )
           )
         )
+        .get()
+      return row?.n ?? 0
+    },
+
+    countThingReviewSourceThreadsActiveSince(sinceIso) {
+      const row = db
+        .select({ n: count() })
+        .from(threadsTable)
+        .leftJoin(channelUsersTable, eq(threadsTable.channelUserId, channelUsersTable.id))
+        .where(and(reviewSourceThreadPredicate(), gte(threadsTable.updatedAt, sinceIso)))
         .get()
       return row?.n ?? 0
     },

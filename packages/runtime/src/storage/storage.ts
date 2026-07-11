@@ -434,13 +434,17 @@ export interface YachiyoStorage {
   listThreadsByChannelGroupId(channelGroupId: string): ThreadRecord[]
 
   // Schedule eligibility counts (#42) — cheap COUNT(*) probes so a scheduled
-  // review can skip firing when there is nothing to review. Both exclude empty
-  // threads (no head message) and schedule-generated threads.
-  /** Threads a self-review pass would consider: never reviewed, or updated
-   *  since their last review (`self_reviewed_at`). */
+  // review can skip firing when there is nothing to review. Review gates only
+  // count non-empty, non-schedule source threads that review tools can inspect.
+  /** Review-visible source threads a self-review pass would consider: never
+   *  reviewed, or updated since their last review (`self_reviewed_at`). */
   countSelfReviewableThreads(): number
-  /** Threads with conversation activity at/after `sinceIso` — the "was there
-   *  anything today" signal for the Things daily review. */
+  /** Threads with activity at/after `sinceIso` that the Things daily review can
+   *  actually inspect as source_events. Channel-group probe/chat threads are
+   *  excluded because Things review does not index that surface. */
+  countThingReviewSourceThreadsActiveSince(sinceIso: string): number
+  /** Generic non-schedule thread activity. Do not use this as the Things review
+   *  gate; it includes surfaces that Things cannot inspect. */
   countThreadsActiveSince(sinceIso: string): number
 
   // Thread folders
