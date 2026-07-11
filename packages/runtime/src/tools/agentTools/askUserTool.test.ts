@@ -4,7 +4,6 @@ import test from 'node:test'
 import {
   ASK_USER_MAX_CHOICES,
   ASK_USER_MAX_QUESTION_CHARS,
-  ASK_USER_MAX_QUESTIONS_PER_RUN,
   askUserToolInputSchema,
   createAskUserTool,
   type AskUserToolOutput
@@ -62,7 +61,7 @@ test('askUser input limits choices to the quick-pick range', () => {
   assert.equal(result.success, false)
 })
 
-test('askUser stops waiting for answers after the per-run question limit', async () => {
+test('askUser answers an unbounded number of questions in a single run', async () => {
   let answeredCount = 0
   const tool = createAskUserTool({
     waitForUserAnswer: async () => {
@@ -72,19 +71,16 @@ test('askUser stops waiting for answers after the per-run question limit', async
   })
   const execute = tool.execute!
 
-  for (let index = 0; index < ASK_USER_MAX_QUESTIONS_PER_RUN; index++) {
+  for (let index = 0; index < 10; index++) {
     const result = (await execute(
       { question: `Question ${index}?` },
       { abortSignal: AbortSignal.timeout(5000), toolCallId: `ask-${index}`, messages: [] }
     )) as AskUserToolOutput
     assert.equal(result.error, undefined)
+    const block = result.content[0]
+    assert.ok(block?.type === 'text', 'expected a text content block')
+    assert.equal(block.text, 'answer')
   }
 
-  const limited = (await execute(
-    { question: 'One more question?' },
-    { abortSignal: AbortSignal.timeout(5000), toolCallId: 'ask-limited', messages: [] }
-  )) as AskUserToolOutput
-
-  assert.equal(limited.error, 'Ask limit exceeded')
-  assert.equal(answeredCount, ASK_USER_MAX_QUESTIONS_PER_RUN)
+  assert.equal(answeredCount, 10)
 })

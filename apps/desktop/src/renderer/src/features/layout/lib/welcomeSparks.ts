@@ -1,4 +1,12 @@
-import { Activity, Flame, Mountain, type LucideIcon } from 'lucide-react'
+import {
+  Activity,
+  CloudLightning,
+  Flame,
+  Mountain,
+  ScanFace,
+  Waypoints,
+  type LucideIcon
+} from 'lucide-react'
 
 export interface WelcomeSpark {
   id: string
@@ -10,6 +18,9 @@ export interface WelcomeSpark {
 
 const LANGUAGE_NOTE =
   'Write your reply in the dominant language of the conversations you reviewed, not the language of this prompt.'
+
+const OPENER_LANGUAGE_NOTE =
+  'Language: if my profile states a preferred language, open in it. Otherwise take one quick querySource look at my recent thread_messages to spot my dominant language before your first question, and open in that. Once I start answering, mirror the language of my answers. Never default to the language of this prompt.'
 
 const PULSE_PROMPT = [
   'Catch me up: what did we work on yesterday?',
@@ -64,11 +75,59 @@ const GRILL_PROMPT = [
   'Rules of engagement:',
   '- One question at a time; never bundle several into one.',
   '- Offer 2-4 concrete choices when picking is faster than typing.',
-  '- When you hit the askUser limit for this run, stop and write a snapshot: goal, real motive, current shape, constraints, contradictions still open, and the weakest point found so far. I will say "continue" and you keep grilling in the next run.',
+  '- Every five or six questions, post a snapshot between questions — goal, real motive, current shape, constraints, contradictions still open, and the weakest point found so far — then keep grilling.',
   '',
   'The grill is done only when we have: the real goal (not the first-stated one), a concrete deliverable, honest constraints, the riskiest assumptions each paired with its cheapest test, kill criteria, and a first step I can take this week. Then write the final plan around exactly those pieces.',
   '',
-  'Language: if my profile states a preferred language, open in it. Otherwise take one quick querySource look at my recent thread_messages to spot my dominant language before your first question, and open in that. Once I start answering, mirror the language of my answers. Never default to the language of this prompt.'
+  OPENER_LANGUAGE_NOTE
+].join('\n')
+
+const MIRROR_PROMPT = [
+  'Hold up a mirror: show me what you currently believe about me, and let me correct it.',
+  '',
+  'Review my profile and your memories — query memories through querySource where it helps. Lay out the picture they paint: who I am, what I am working on, my preferences and habits. Give each item its source and rough age, and separate what you were told from what you inferred.',
+  '',
+  'Flag what deserves a second look:',
+  '- Stale entries: things I have likely finished, dropped, or changed since',
+  '- Contradictions: entries that clash with each other or with recent conversations',
+  '- Blind spots: anything oddly specific, or clearly missing for someone you talk to this much',
+  '',
+  'Then walk me through the flagged items with askUser, one at a time, offering keep / fix / discard style choices. Apply what I decide: correct profile entries with updateProfile, and overwrite wrong memories by re-remembering the same key with the corrected content. Whatever your tools cannot change, list plainly at the end so I can clean it up myself.',
+  '',
+  LANGUAGE_NOTE
+].join('\n')
+
+const CONSTELLATION_PROMPT = [
+  'Map my constellation: find connections across my work that I have not noticed myself.',
+  '',
+  'Use querySource to roam wide — threads, thread_spans, memories, and activity_records over roughly the past two months. You are not summarizing; you are hunting collisions:',
+  '- A problem stuck in one thread that something from another thread could solve',
+  '- The same idea showing up in different disguises in different places',
+  '- A skill or asset built for one project that unlocks a shortcut in another',
+  '- Two efforts that are secretly the same project and should merge',
+  '',
+  'For each connection, report: the points involved, the link between them, and one concrete action that exploits it.',
+  '',
+  'Quality bar: surprise me. Skip links I obviously already know — same folder, same topic, threads that reference each other. Two or three genuine constellations beat ten forced ones; if nothing real emerges, say so.',
+  '',
+  LANGUAGE_NOTE
+].join('\n')
+
+const BRAINSTORM_PROMPT = [
+  'Run a brainstorm with me: we go wide first, then close in.',
+  '',
+  'Before anything else, use querySource to gather raw material — my recent threads, memories, and activity — so you know what I work on, what I am good at, and what I already have on hand.',
+  '',
+  'Then use askUser to ask what I want to brainstorm about, and run rounds from there:',
+  '- Each round, throw out 5-6 directions that are deliberately far apart — different scales, different audiences, different mechanisms. No safe variations of the same idea.',
+  '- In every batch, at least two must collide with my own material: combine the topic with something I already built, know, or have, so the idea is one I could actually act on. Name the ingredient you used.',
+  '- Close each round with askUser: which direction pulls me, strongest candidates as choices. Then explode the picked one into the next round.',
+  '',
+  'Between rounds, write down the board so far — every direction raised, the picked path, sparks worth keeping — before exploding the next one.',
+  '',
+  'When I say stop, or the vein is mined out, distill the whole session into a final idea list: each idea in one or two sentences with the single step that would test it, keeping only what one of us actually believed in.',
+  '',
+  OPENER_LANGUAGE_NOTE
 ].join('\n')
 
 export const WELCOME_SPARKS: WelcomeSpark[] = [
@@ -92,5 +151,26 @@ export const WELCOME_SPARKS: WelcomeSpark[] = [
     hint: 'Grill a vague idea into a real plan',
     icon: Flame,
     prompt: GRILL_PROMPT
+  },
+  {
+    id: 'mirror',
+    label: 'Mirror',
+    hint: 'Audit what Yachiyo believes about you',
+    icon: ScanFace,
+    prompt: MIRROR_PROMPT
+  },
+  {
+    id: 'constellation',
+    label: 'Constellation',
+    hint: 'Find hidden links across your work',
+    icon: Waypoints,
+    prompt: CONSTELLATION_PROMPT
+  },
+  {
+    id: 'brainstorm',
+    label: 'Brainstorm',
+    hint: 'Storm ideas from a topic and what you already have',
+    icon: CloudLightning,
+    prompt: BRAINSTORM_PROMPT
   }
 ]
