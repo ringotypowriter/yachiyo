@@ -57,16 +57,38 @@ test('isTransientTransportError matches known network error codes', () => {
     'ENETUNREACH',
     'ENETRESET',
     'EHOSTUNREACH',
+    'EPIPE',
+    'EAI_AGAIN',
     'ERR_CONNECTION_CLOSED',
+    'ERR_CONNECTION_RESET',
     'ERR_NETWORK_CHANGED',
     'ERR_INTERNET_DISCONNECTED',
     'ERR_HTTP2_PROTOCOL_ERROR',
+    'ERR_SSL_PROTOCOL_ERROR',
+    'ERR_TIMED_OUT',
+    'ERR_CONNECTION_TIMED_OUT',
+    'ERR_NAME_NOT_RESOLVED',
+    'ERR_ADDRESS_UNREACHABLE',
     'UND_ERR_SOCKET',
     'UND_ERR_CONNECT_TIMEOUT'
   ]
   for (const code of codes) {
     const err = Object.assign(new Error(`driver: ${code}`), { code })
     assert.equal(isTransientTransportError(err), true, code)
+  }
+})
+
+test('isTransientTransportError keeps permanent TLS/cert failures non-retryable', () => {
+  // ERR_SSL_PROTOCOL_ERROR (transient handshake blip) is retryable, but
+  // certificate problems are configuration errors — retrying cannot fix them.
+  for (const code of [
+    'ERR_CERT_AUTHORITY_INVALID',
+    'ERR_CERT_DATE_INVALID',
+    'ERR_CERT_COMMON_NAME_INVALID',
+    'ERR_SSL_VERSION_OR_CIPHER_MISMATCH'
+  ]) {
+    const err = Object.assign(new Error(`driver: ${code}`), { code })
+    assert.equal(isTransientTransportError(err), false, code)
   }
 })
 
@@ -85,6 +107,8 @@ test('isTransientTransportError matches known network message signatures', () =>
   assert.equal(isTransientTransportError(new Error('net::ERR_NETWORK_CHANGED')), true)
   assert.equal(isTransientTransportError(new Error('net::ERR_INTERNET_DISCONNECTED')), true)
   assert.equal(isTransientTransportError(new Error('net::ERR_HTTP2_PROTOCOL_ERROR')), true)
+  assert.equal(isTransientTransportError(new Error('net::ERR_SSL_PROTOCOL_ERROR')), true)
+  assert.equal(isTransientTransportError(new Error('net::ERR_CONNECTION_RESET')), true)
   assert.equal(isTransientTransportError(new Error('fetch failed: network changed')), true)
   assert.equal(isTransientTransportError(new Error('connect ENETUNREACH 1.2.3.4:443')), true)
 })
