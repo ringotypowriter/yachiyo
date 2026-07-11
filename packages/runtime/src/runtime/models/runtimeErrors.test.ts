@@ -61,6 +61,15 @@ test('isTransientTransportError matches known network error codes', () => {
     'EAI_AGAIN',
     'ERR_CONNECTION_CLOSED',
     'ERR_CONNECTION_RESET',
+    'ERR_CONNECTION_REFUSED',
+    'ERR_CONNECTION_ABORTED',
+    'ERR_CONNECTION_FAILED',
+    'ERR_EMPTY_RESPONSE',
+    'ERR_NAME_RESOLUTION_FAILED',
+    'ERR_QUIC_PROTOCOL_ERROR',
+    'ECONNABORTED',
+    'UND_ERR_HEADERS_TIMEOUT',
+    'UND_ERR_BODY_TIMEOUT',
     'ERR_NETWORK_CHANGED',
     'ERR_INTERNET_DISCONNECTED',
     'ERR_HTTP2_PROTOCOL_ERROR',
@@ -85,7 +94,14 @@ test('isTransientTransportError keeps permanent TLS/cert failures non-retryable'
     'ERR_CERT_AUTHORITY_INVALID',
     'ERR_CERT_DATE_INVALID',
     'ERR_CERT_COMMON_NAME_INVALID',
-    'ERR_SSL_VERSION_OR_CIPHER_MISMATCH'
+    'ERR_SSL_VERSION_OR_CIPHER_MISMATCH',
+    // Intentional aborts and permission denials are not transient.
+    'ERR_ABORTED',
+    'ERR_BLOCKED_BY_CLIENT',
+    'ERR_NETWORK_ACCESS_DENIED',
+    // EPROTO mixes transient TLS blips with permanent cipher/version
+    // mismatches — blanket-retrying it would loop on permanent failures.
+    'EPROTO'
   ]) {
     const err = Object.assign(new Error(`driver: ${code}`), { code })
     assert.equal(isTransientTransportError(err), false, code)
@@ -109,6 +125,7 @@ test('isTransientTransportError matches known network message signatures', () =>
   assert.equal(isTransientTransportError(new Error('net::ERR_HTTP2_PROTOCOL_ERROR')), true)
   assert.equal(isTransientTransportError(new Error('net::ERR_SSL_PROTOCOL_ERROR')), true)
   assert.equal(isTransientTransportError(new Error('net::ERR_CONNECTION_RESET')), true)
+  assert.equal(isTransientTransportError(new Error('net::ERR_CONNECTION_REFUSED')), true)
   assert.equal(isTransientTransportError(new Error('fetch failed: network changed')), true)
   assert.equal(isTransientTransportError(new Error('connect ENETUNREACH 1.2.3.4:443')), true)
 })
