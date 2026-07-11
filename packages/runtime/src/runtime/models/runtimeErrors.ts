@@ -153,10 +153,20 @@ export function isTransientTransportError(error: unknown): boolean {
     code === 'ENETUNREACH' ||
     code === 'ENETRESET' ||
     code === 'EHOSTUNREACH' ||
+    code === 'EPIPE' ||
+    code === 'EAI_AGAIN' ||
     code === 'ERR_CONNECTION_CLOSED' ||
+    code === 'ERR_CONNECTION_RESET' ||
     code === 'ERR_NETWORK_CHANGED' ||
     code === 'ERR_INTERNET_DISCONNECTED' ||
     code === 'ERR_HTTP2_PROTOCOL_ERROR' ||
+    // Transient TLS handshake interruption (proxy/network blip) — NOT the
+    // permanent cert failures (ERR_CERT_*), which stay non-retryable.
+    code === 'ERR_SSL_PROTOCOL_ERROR' ||
+    code === 'ERR_TIMED_OUT' ||
+    code === 'ERR_CONNECTION_TIMED_OUT' ||
+    code === 'ERR_NAME_NOT_RESOLVED' ||
+    code === 'ERR_ADDRESS_UNREACHABLE' ||
     code === 'UND_ERR_SOCKET' ||
     code === 'UND_ERR_CONNECT_TIMEOUT'
   ) {
@@ -165,7 +175,7 @@ export function isTransientTransportError(error: unknown): boolean {
 
   const message = error instanceof Error ? error.message : ''
   if (
-    /ECONNRESET|ETIMEDOUT|ECONNREFUSED|ENOTFOUND|ENETDOWN|ENETUNREACH|ENETRESET|EHOSTUNREACH|ERR_CONNECTION_CLOSED|ERR_NETWORK_CHANGED|ERR_INTERNET_DISCONNECTED|ERR_HTTP2_PROTOCOL_ERROR|network (?:changed|is unreachable|is down)|fetch failed|socket hang up/i.test(
+    /ECONNRESET|ETIMEDOUT|ECONNREFUSED|ENOTFOUND|ENETDOWN|ENETUNREACH|ENETRESET|EHOSTUNREACH|EPIPE|EAI_AGAIN|ERR_CONNECTION_CLOSED|ERR_CONNECTION_RESET|ERR_NETWORK_CHANGED|ERR_INTERNET_DISCONNECTED|ERR_HTTP2_PROTOCOL_ERROR|ERR_SSL_PROTOCOL_ERROR|ERR_TIMED_OUT|ERR_CONNECTION_TIMED_OUT|ERR_NAME_NOT_RESOLVED|ERR_ADDRESS_UNREACHABLE|network (?:changed|is unreachable|is down)|fetch failed|socket hang up/i.test(
       message
     )
   ) {
