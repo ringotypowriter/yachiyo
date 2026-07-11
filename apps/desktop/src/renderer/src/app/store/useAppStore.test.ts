@@ -438,6 +438,55 @@ test('mergeThingInNewChat opens a target continuation thread and sends the merge
   }
 })
 
+test('startSparkChat opens a fresh thread and sends the spark prompt into it', async () => {
+  resetStore()
+
+  const sendChatInputs: Array<{ content?: string; threadId?: string }> = []
+  const restoreWindow = withWindowApiMock({
+    createThread: async () => {
+      return {
+        id: 'thread-spark',
+        title: 'New Chat',
+        updatedAt: TIMESTAMP
+      }
+    },
+    sendChat: async (input) => {
+      sendChatInputs.push(input)
+      return {
+        kind: 'run-started',
+        runId: 'run-spark',
+        thread: {
+          id: 'thread-spark',
+          title: 'New Chat',
+          updatedAt: TIMESTAMP
+        },
+        userMessage: {
+          id: 'message-spark',
+          threadId: 'thread-spark',
+          role: 'user',
+          content: input.content,
+          status: 'completed',
+          createdAt: TIMESTAMP
+        }
+      }
+    }
+  })
+
+  try {
+    await useAppStore.getState().startSparkChat('Catch me up on yesterday.')
+
+    const state = useAppStore.getState()
+    assert.equal(state.activeThreadId, 'thread-spark')
+    assert.equal(state.threadListMode, 'active')
+    assert.ok(state.threads.some((thread) => thread.id === 'thread-spark'))
+    assert.equal(sendChatInputs.length, 1)
+    assert.equal(sendChatInputs[0]?.threadId, 'thread-spark')
+    assert.equal(sendChatInputs[0]?.content, 'Catch me up on yesterday.')
+  } finally {
+    restoreWindow()
+  }
+})
+
 test('sendMessage with a pending plan sends visible revision feedback in plan mode', async () => {
   resetStore()
 

@@ -18,6 +18,7 @@ import {
 } from '@renderer/features/chat/components/TimelineSurfaceHeader'
 import { ArchivedThreadsPage } from '@renderer/features/layout/components/ArchivedThreadsPage'
 import { AppMainPanelHeader } from '@renderer/features/layout/components/AppMainPanelHeader'
+import { WelcomeSparks } from '@renderer/features/layout/components/WelcomeSparks'
 import { RunInspectionPanel } from '@renderer/features/runs/components/RunInspectionPanel'
 import { RunStatusStrip } from '@renderer/features/runs/components/RunStatusStrip'
 import type { ThreadContextOperationKey } from '@renderer/features/threads/lib/threadContextOperations'
@@ -996,10 +997,13 @@ export function AppMainPanel({
                 <span>Read-only — synced from another device</span>
               </div>
             ) : (
-              <Composer
-                onSelectThreadOperation={handleSelectThreadOperation}
-                presentation={showWelcomeState ? 'compact' : 'normal'}
-              />
+              <>
+                <Composer
+                  onSelectThreadOperation={handleSelectThreadOperation}
+                  presentation={showWelcomeState ? 'compact' : 'normal'}
+                />
+                {welcomeVariant === 'generic' && <WelcomeSparks />}
+              </>
             )}
           </motion.div>
           {threadIsSaving && (

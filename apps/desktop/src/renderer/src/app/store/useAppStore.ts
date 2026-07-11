@@ -355,6 +355,7 @@ export interface AppState {
   removeThingSource: (input: { name: string; sourceId: string }) => Promise<void>
   continueThingInNewChat: (name: string) => Promise<void>
   mergeThingInNewChat: (sourceName: string, targetName: string) => Promise<void>
+  startSparkChat: (prompt: string) => Promise<void>
   toggleShowInactiveThings: () => void
   folders: FolderRecord[]
   collapsedFolderIds: Set<string>
@@ -503,6 +504,21 @@ export const useAppStore = create<AppState>((set, get) => ({
     await get().sendMessage('normal', {
       threadId: thread.id,
       content: buildThingMergeWorkflowPrompt(sourceSlug, targetSlug),
+      images: [],
+      attachments: [],
+      enabledSkillNames: null
+    })
+  },
+  startSparkChat: async (prompt) => {
+    const thread = await window.api.yachiyo.createThread({})
+    set((state) => ({
+      threads: upsertThread(state.threads, thread),
+      activeThreadId: thread.id,
+      threadListMode: 'active'
+    }))
+    await get().sendMessage('normal', {
+      threadId: thread.id,
+      content: prompt,
       images: [],
       attachments: [],
       enabledSkillNames: null

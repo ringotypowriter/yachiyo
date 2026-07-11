@@ -760,6 +760,120 @@ body > div:not(#root) {
   align-self: stretch;
 }
 
+.welcome-sparks {
+  display: flex;
+  gap: 8px;
+  padding: 16px 2px 14px;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+}
+
+.welcome-sparks::-webkit-scrollbar {
+  display: none;
+}
+
+/* Center the row while it fits; degrade to a scrollable row on overflow.
+   (justify-content: center would make the overflowed left edge unreachable.) */
+.welcome-sparks > :first-child {
+  margin-left: auto;
+}
+
+.welcome-sparks > :last-child {
+  margin-right: auto;
+}
+
+.welcome-sparks > * {
+  flex: 0 0 auto;
+}
+
+.welcome-sparks[data-fade='left'] {
+  mask-image: linear-gradient(90deg, transparent, #000 28px);
+}
+
+.welcome-sparks[data-fade='right'] {
+  mask-image: linear-gradient(90deg, #000 calc(100% - 28px), transparent);
+}
+
+.welcome-sparks[data-fade='both'] {
+  mask-image: linear-gradient(
+    90deg,
+    transparent,
+    #000 28px,
+    #000 calc(100% - 28px),
+    transparent
+  );
+}
+
+.welcome-sparks__button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 15px 7px 12px;
+  border: 1px solid rgb(var(--yachiyo-rgb-ink) / 0.08);
+  border-radius: 999px;
+  background: rgb(var(--yachiyo-rgb-surface) / 0.74);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  color: rgb(var(--yachiyo-rgb-text-muted));
+  font-size: 12px;
+  font-weight: 620;
+  line-height: 1;
+  box-shadow:
+    0 8px 22px rgb(var(--yachiyo-rgb-ink) / 0.07),
+    inset 0 1px 0 rgb(var(--yachiyo-rgb-surface) / 0.85);
+  transition:
+    color 0.18s ease,
+    border-color 0.18s ease,
+    background 0.18s ease,
+    box-shadow 0.24s ease,
+    transform 0.18s ease;
+}
+
+.welcome-sparks__icon {
+  color: rgb(var(--yachiyo-rgb-accent) / 0.82);
+  transition: color 0.18s ease;
+}
+
+.welcome-sparks__button:hover:not(:disabled) {
+  transform: translateY(-1px);
+  border-color: rgb(var(--yachiyo-rgb-accent) / 0.32);
+  background: rgb(var(--yachiyo-rgb-surface) / 0.94);
+  color: rgb(var(--yachiyo-rgb-ink));
+  box-shadow:
+    0 10px 28px rgb(var(--yachiyo-rgb-ink) / 0.1),
+    0 4px 18px rgb(var(--yachiyo-rgb-accent) / 0.2),
+    inset 0 1px 0 rgb(var(--yachiyo-rgb-surface) / 0.9);
+}
+
+.welcome-sparks__button:hover:not(:disabled) .welcome-sparks__icon {
+  color: rgb(var(--yachiyo-rgb-accent));
+}
+
+.welcome-sparks__button:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.welcome-sparks__button:disabled {
+  opacity: 0.6;
+}
+
+.welcome-sparks__button--launching .welcome-sparks__icon {
+  animation: welcome-spark-pulse 1.1s ease-in-out infinite;
+}
+
+@keyframes welcome-spark-pulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.4;
+    transform: scale(0.78);
+  }
+}
+
 .composer-shell {
   background: rgb(var(--yachiyo-rgb-surface) / 0.74);
   transition:
