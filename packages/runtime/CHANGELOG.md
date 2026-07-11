@@ -1,5 +1,12 @@
 # @yachiyo/runtime
 
+## 1.4.0
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @yachiyo/shared@1.4.0
+
 ## 1.3.0
 
 ### Patch Changes

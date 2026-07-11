@@ -1,5 +1,19 @@
 # @yachiyo/desktop
 
+## 1.4.0
+
+### Minor Changes
+
+- [`14df282`](https://github.com/ringotypowriter/yachiyo/commit/14df2827c9be0e0a06ce50b729e926e9f0b50c53) Thanks [@ringotypowriter](https://github.com/ringotypowriter)! - Sparks!
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @yachiyo/cli@1.4.0
+  - @yachiyo/runtime@1.4.0
+  - @yachiyo/shared@1.4.0
+  - @yachiyo/core-skills@1.4.0
+
 ## 1.3.0
 
 ### Minor Changes
