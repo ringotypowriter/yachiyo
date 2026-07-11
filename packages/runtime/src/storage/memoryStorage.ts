@@ -102,6 +102,13 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
     }
     return isOwnerDmThread(thread)
   }
+  const isReviewSourceThread = (thread: StoredThreadRow): boolean =>
+    thread.headMessageId !== null &&
+    thread.createdFromScheduleId === null &&
+    thread.archivedAt === null &&
+    thread.privacyMode === null &&
+    thread.channelGroupId === null &&
+    isBootstrapThread(thread)
 
   const toThreadRecordWithChannelUserRole = (thread: StoredThreadRow): ThreadRecord => {
     const record = toThreadRecord(thread)
@@ -344,10 +351,20 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
 
     countSelfReviewableThreads() {
       // selfReviewedAt isn't tracked in memory (markThreadReviewed is a no-op),
-      // so every non-empty, non-schedule thread counts as reviewable here.
+      // so every review-visible source thread counts as reviewable here.
       let n = 0
       for (const thread of threads.values()) {
-        if (thread.headMessageId !== null && thread.createdFromScheduleId === null) n += 1
+        if (isReviewSourceThread(thread)) n += 1
+      }
+      return n
+    },
+
+    countThingReviewSourceThreadsActiveSince(sinceIso) {
+      let n = 0
+      for (const thread of threads.values()) {
+        if (isReviewSourceThread(thread) && thread.updatedAt >= sinceIso) {
+          n += 1
+        }
       }
       return n
     },

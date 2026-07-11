@@ -27,6 +27,7 @@ interface MockStorage {
   listThreadMessages: (threadId: string) => MessageRecord[]
   countSelfReviewableThreads: () => number
   countThreadsActiveSince: (sinceIso: string) => number
+  countThingReviewSourceThreadsActiveSince: (sinceIso: string) => number
 }
 
 function createSchedule(overrides: Partial<ScheduleRecord> = {}): ScheduleRecord {
@@ -90,7 +91,8 @@ function createMockStorage(schedule = createSchedule()): MockStorage {
     // Default: eligible (non-zero), so non-review schedules and tests that don't
     // care fire normally. Review-schedule tests override these per-case.
     countSelfReviewableThreads: () => 1,
-    countThreadsActiveSince: () => 1
+    countThreadsActiveSince: () => 1,
+    countThingReviewSourceThreadsActiveSince: () => 1
   }
 }
 
@@ -489,7 +491,23 @@ describe('createScheduleService', () => {
 
   it('skips Things Daily Review when there was no activity today (#42)', async () => {
     const storage = createMockStorage(reviewSchedule('bundled:things-daily-review'))
-    storage.countThreadsActiveSince = () => 0
+    storage.countThingReviewSourceThreadsActiveSince = () => 0
+    const fetchRestore = mock.method(globalThis, 'fetch', async () => ({ ok: true }) as Response)
+    mock.timers.enable({ apis: ['Date', 'setTimeout'] })
+    try {
+      const { sentChats } = await runReviewFire(storage)
+      assert.equal(storage.runs[0]?.status, 'skipped')
+      assert.equal(sentChats.length, 0)
+    } finally {
+      fetchRestore.mock.restore()
+      mock.timers.reset()
+    }
+  })
+
+  it('skips Things Daily Review when only excluded group-probe activity happened today', async () => {
+    const storage = createMockStorage(reviewSchedule('bundled:things-daily-review'))
+    storage.countThreadsActiveSince = () => 1
+    storage.countThingReviewSourceThreadsActiveSince = () => 0
     const fetchRestore = mock.method(globalThis, 'fetch', async () => ({ ok: true }) as Response)
     mock.timers.enable({ apis: ['Date', 'setTimeout'] })
     try {

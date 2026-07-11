@@ -48,7 +48,7 @@ export interface ScheduleServiceDeps {
     | 'recoverInterruptedScheduleRuns'
     | 'listThreadMessages'
     | 'countSelfReviewableThreads'
-    | 'countThreadsActiveSince'
+    | 'countThingReviewSourceThreadsActiveSince'
   >
   createId: () => string
   timestamp: () => string
@@ -163,7 +163,7 @@ function eligibleItemCount(
     case 'bundled:self-review':
       return storage.countSelfReviewableThreads()
     case 'bundled:things-daily-review':
-      return storage.countThreadsActiveSince(startOfLocalDay(nowIso))
+      return storage.countThingReviewSourceThreadsActiveSince(startOfLocalDay(nowIso))
     default:
       return undefined
   }
