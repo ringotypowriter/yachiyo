@@ -52,28 +52,6 @@ function isSuccessfulGroupMessageSendResult(output: unknown): boolean {
   )
 }
 
-function hasReplayableGroupMessageSend(messages: ModelMessage[]): boolean {
-  return messages.some((message) => {
-    if (message.role === 'tool') {
-      return message.content.some(
-        (part) =>
-          part.type === 'tool-result' &&
-          part.toolName === 'send_group_message' &&
-          isSuccessfulGroupMessageSendResult(part.output)
-      )
-    }
-
-    return false
-  })
-}
-
-function sanitizeSyntheticGroupMessageText(text: string): string {
-  return text
-    .replace(/\[/g, '⟦')
-    .replace(/\]/g, '⟧')
-    .replace(/<\/?msg[\s>]/gi, '')
-}
-
 export function extractSuccessfulGroupMessageText(messages: ModelMessage[]): string | null {
   const successfulToolCallIds = new Set<string>()
 
@@ -119,33 +97,19 @@ export function extractSuccessfulGroupMessageText(messages: ModelMessage[]): str
   return null
 }
 
-function toSafeGroupProbeSelfMessage(messageText: string): ModelMessage {
-  return {
-    role: 'user',
-    content: `<msg from="Yachiyo">${sanitizeSyntheticGroupMessageText(messageText)}</msg>`
-  }
-}
-
 function toGroupProbeHistoryMessages(message: ContextLayerHistoryMessage): ModelMessage[] {
   if (message.role !== 'assistant') {
     return toModelHistoryMessages(message)
   }
 
-  // Replay only the text that was actually sent, as a chat-form message.
-  // Raw assistant turns (private monologue + tool calls) are never replayed:
-  // seeing its own monologues blurs the private-thinking/public-speech split,
-  // and seeing its own outputs verbatim turns them into few-shot templates
-  // that lock in whatever register the model last used.
-  if (message.responseMessages && message.responseMessages.length > 0) {
-    const responseMessages = message.responseMessages as ModelMessage[]
-    if (!hasReplayableGroupMessageSend(responseMessages)) {
-      return []
-    }
-
-    const sentMessageText = extractSuccessfulGroupMessageText(responseMessages)
-    return sentMessageText ? [toSafeGroupProbeSelfMessage(sentMessageText)] : []
-  }
-
+  // Assistant turns are never replayed into context. Private monologue and
+  // tool calls would blur the private-thinking/public-speech split, and even
+  // the sent text is deliberately absent here: Yachiyo's own lines flow into
+  // context as ordinary <msg from="Yachiyo"> lines inside the buffered group
+  // log (see groupMonitor/formatGroupProbeTurnDelta, #55) — chronological and
+  // interleaved with everyone else, instead of a back-to-back synthetic block
+  // the model tends to pattern-complete (which caused repeated speech). The
+  // persisted responseMessages stay untouched for handoff/audit/repair.
   return []
 }
 

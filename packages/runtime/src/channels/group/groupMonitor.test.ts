@@ -407,3 +407,100 @@ describe('GroupMonitor', () => {
     monitor.stop()
   })
 })
+
+describe('GroupMonitor self-message handling (#55)', () => {
+  const selfMessage = (text: string): GroupMessageEntry =>
+    makeMessage(text, 'Yachiyo', { senderExternalUserId: '__self__' })
+
+  it('self line survives a self-only tick and lands in the next real turn', async () => {
+    const turns: Array<{ count: number; hasSelf: boolean }> = []
+    const config = fastConfig({ wakeBufferMs: 10, activeCheckIntervalMs: 25 })
+    const monitor = createGroupMonitor(
+      config,
+      {
+        onTurn: async (msgs, freshCount) => {
+          turns.push({
+            count: freshCount,
+            hasSelf: msgs.some((m) => m.senderExternalUserId === '__self__')
+          })
+          return false
+        },
+        onStateChange: () => {}
+      },
+      { phase: 'active', buffer: [] }
+    )
+
+    // Yachiyo speaks; the next tick(s) are self-only and must not consume it.
+    monitor.onMessage(selfMessage('我刚说的话'))
+    await new Promise((r) => setTimeout(r, 70))
+    assert.equal(turns.length, 0, 'self-only ticks must not trigger a probe turn')
+
+    // A human replies — the turn must include the unconsumed self line.
+    monitor.onMessage(makeMessage('回复她', 'Bob'))
+    await new Promise((r) => setTimeout(r, 70))
+
+    assert.ok(turns.length > 0, 'human message should trigger a turn')
+    assert.equal(turns[0].hasSelf, true, 'turn messages must include the self line')
+    assert.equal(turns[0].count, 2, 'freshCount must count self + human (render window)')
+    monitor.stop()
+  })
+
+  it('self-only tail does not stall dormancy accounting', async () => {
+    const config = fastConfig({ wakeBufferMs: 10, activeCheckIntervalMs: 20, dormancyMissCount: 2 })
+    const phases: string[] = []
+    const monitor = createGroupMonitor(
+      config,
+      {
+        onTurn: async () => false,
+        onStateChange: (p) => phases.push(p)
+      },
+      { phase: 'active', buffer: [] }
+    )
+
+    monitor.onMessage(selfMessage('无人回应的话'))
+    // Two+ self-only ticks: misses must accumulate and put the monitor to
+    // sleep instead of spinning forever on the unconsumed self tail.
+    await new Promise((r) => setTimeout(r, 120))
+    assert.equal(monitor.getPhase(), 'dormant', 'monitor must go dormant despite self tail')
+    monitor.stop()
+  })
+
+  it('restored trailing self line survives restart into the next real turn (#55 P1)', async () => {
+    const now = Date.now() / 1_000
+    const turns: Array<{ count: number; hasSelf: boolean }> = []
+    const config = fastConfig({ wakeBufferMs: 10, activeCheckIntervalMs: 5_000 })
+    const monitor = createGroupMonitor(
+      config,
+      {
+        onTurn: async (msgs, freshCount) => {
+          turns.push({
+            count: freshCount,
+            hasSelf: msgs.some((m) => m.senderExternalUserId === '__self__')
+          })
+          return false
+        },
+        onStateChange: () => {}
+      },
+      {
+        phase: 'dormant',
+        buffer: [
+          makeMessage('older human line', 'Alice', { timestamp: now - 20 }),
+          makeMessage('重启前我说的话', 'Yachiyo', {
+            senderExternalUserId: '__self__',
+            timestamp: now - 5
+          })
+        ]
+      }
+    )
+
+    // After restart, Bob replies — the prompt window must still carry the
+    // unconsumed self line (the old human line stays seen, as designed).
+    monitor.onMessage(makeMessage('回她的话', 'Bob'))
+    await new Promise((r) => setTimeout(r, 80))
+
+    assert.ok(turns.length > 0, 'turn should fire on the human reply')
+    assert.equal(turns[0].hasSelf, true, 'restored self line must be in the turn window')
+    assert.equal(turns[0].count, 2, 'freshCount = restored self line + new human line')
+    monitor.stop()
+  })
+})

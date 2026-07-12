@@ -32,6 +32,8 @@ export interface ResolveGroupProbeThreadOptions {
 
 export interface ResolveGroupProbeThreadResult {
   thread: ThreadRecord
+  /** True when a fresh thread was created (no reusable thread in the window). */
+  created: boolean
 }
 
 function toWantedModelOverride(
@@ -71,7 +73,7 @@ export async function resolveGroupProbeThread(
     const totalTokens = server.getThreadTotalTokens(thread.id)
     console.log(`[${logLabel}] existing group thread ${thread.id} — ${totalTokens} tokens`)
 
-    return { thread }
+    return { thread, created: false }
   }
 
   let thread = await server.createThread({
@@ -88,7 +90,7 @@ export async function resolveGroupProbeThread(
     })
   }
 
-  return { thread }
+  return { thread, created: true }
 }
 
 function trimHistoryToWatermark(

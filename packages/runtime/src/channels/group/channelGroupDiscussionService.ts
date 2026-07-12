@@ -327,13 +327,6 @@ export function createChannelGroupDiscussionService(
       channelsConfig.groupProbeAdapter,
       groupConfig?.model
     )
-    const currentTurnContent = formatGroupProbeTurnDelta(
-      recentMessages,
-      'Yachiyo',
-      buildKnownUsersMap(),
-      undefined,
-      freshCount
-    )
     const stableSystemPrompt = buildGroupProbeBehaviorPrompt()
     const dynamicSystemPrompt = buildGroupProbeContextPrompt({
       botName: 'Yachiyo',
@@ -343,13 +336,25 @@ export function createChannelGroupDiscussionService(
       ownerInstruction: channelsConfig.guestInstruction,
       groupUserDocument: groupUserDoc?.content
     })
-    const { thread: probeThread } = await resolveGroupProbeThread({
+    const { thread: probeThread, created: probeThreadCreated } = await resolveGroupProbeThread({
       logLabel,
       server,
       group,
       groupThreadReuseWindowMs: policy.groupDefaults.groupThreadReuseWindowMs,
       modelOverride: groupConfig?.model
     })
+    // A freshly created thread has no persisted history to replay, so its
+    // first turn renders the WHOLE buffered window (freshCount omitted) —
+    // otherwise a thread rotation would amnesia away everything before it,
+    // including Yachiyo's own recent lines (#55). Reused threads render only
+    // the fresh delta; older context comes from persisted history.
+    const currentTurnContent = formatGroupProbeTurnDelta(
+      recentMessages,
+      'Yachiyo',
+      buildKnownUsersMap(),
+      undefined,
+      probeThreadCreated ? undefined : freshCount
+    )
     const messages = compileGroupProbeContextLayers({
       stableSystemPrompt,
       dynamicSystemPrompt,
