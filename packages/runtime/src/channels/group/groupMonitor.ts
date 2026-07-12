@@ -120,7 +120,16 @@ export function createGroupMonitor(
     while (buffer.length > 0 && buffer[0].timestamp < cutoff) {
       buffer.shift()
     }
-    cursor = buffer.length
+    // Restored messages are seen (stale topics must not be re-answered) —
+    // EXCEPT a trailing run of Yachiyo's own sends. A restart right after
+    // she spoke, before anyone replied, must not eat her self-memory: the
+    // unconsumed self tail rides into the next real turn exactly like a
+    // live self-only tick (#55).
+    let seen = buffer.length
+    while (seen > 0 && buffer[seen - 1].senderExternalUserId === '__self__') {
+      seen -= 1
+    }
+    cursor = seen
   }
 
   // -------------------------------------------------------------------------

@@ -464,4 +464,43 @@ describe('GroupMonitor self-message handling (#55)', () => {
     assert.equal(monitor.getPhase(), 'dormant', 'monitor must go dormant despite self tail')
     monitor.stop()
   })
+
+  it('restored trailing self line survives restart into the next real turn (#55 P1)', async () => {
+    const now = Date.now() / 1_000
+    const turns: Array<{ count: number; hasSelf: boolean }> = []
+    const config = fastConfig({ wakeBufferMs: 10, activeCheckIntervalMs: 5_000 })
+    const monitor = createGroupMonitor(
+      config,
+      {
+        onTurn: async (msgs, freshCount) => {
+          turns.push({
+            count: freshCount,
+            hasSelf: msgs.some((m) => m.senderExternalUserId === '__self__')
+          })
+          return false
+        },
+        onStateChange: () => {}
+      },
+      {
+        phase: 'dormant',
+        buffer: [
+          makeMessage('older human line', 'Alice', { timestamp: now - 20 }),
+          makeMessage('重启前我说的话', 'Yachiyo', {
+            senderExternalUserId: '__self__',
+            timestamp: now - 5
+          })
+        ]
+      }
+    )
+
+    // After restart, Bob replies — the prompt window must still carry the
+    // unconsumed self line (the old human line stays seen, as designed).
+    monitor.onMessage(makeMessage('回她的话', 'Bob'))
+    await new Promise((r) => setTimeout(r, 80))
+
+    assert.ok(turns.length > 0, 'turn should fire on the human reply')
+    assert.equal(turns[0].hasSelf, true, 'restored self line must be in the turn window')
+    assert.equal(turns[0].count, 2, 'freshCount = restored self line + new human line')
+    monitor.stop()
+  })
 })
