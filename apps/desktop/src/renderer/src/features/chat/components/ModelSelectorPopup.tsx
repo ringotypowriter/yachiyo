@@ -2,6 +2,7 @@ import type React from 'react'
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Check, Cpu, Factory, Search } from 'lucide-react'
+import { useT } from '@yachiyo/i18n/react'
 import { ProviderIconAvatar } from '@renderer/lib/providerIcons'
 import type { SettingsConfig } from '@renderer/app/types'
 import { theme } from '@renderer/theme/theme'
@@ -231,6 +232,7 @@ export function ModelSelectorPopup({
   onRequestAnchorUpdate?: () => void
   width?: number
 }): React.ReactNode {
+  const t = useT()
   const [query, setQuery] = useState('')
   const [selectionPending, setSelectionPending] = useState(false)
   const [visible, setVisible] = useState(false)
@@ -388,7 +390,7 @@ export function ModelSelectorPopup({
           disabled={selectionPending}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search models..."
+          placeholder={t('chat.modelPicker.searchModels')}
           style={{
             flex: 1,
             background: 'none',
@@ -401,7 +403,7 @@ export function ModelSelectorPopup({
           }}
         />
         <SettingsShortcutButton
-          label="Open provider settings"
+          label={t('chat.modelPicker.openProviderSettings')}
           route="providers"
           onClose={onClose}
         />
@@ -434,7 +436,7 @@ export function ModelSelectorPopup({
               fontSize: 13
             }}
           >
-            No models found
+            {t('chat.modelPicker.noModelsFound')}
           </div>
         ) : (
           <>
@@ -471,7 +473,7 @@ export function ModelSelectorPopup({
                     textTransform: 'uppercase'
                   }}
                 >
-                  ACP Agents (Deprecated)
+                  {t('chat.modelPicker.acpAgentsDeprecated')}
                 </div>
                 {selectorState.acpAgents.map((agent) => (
                   <AcpAgentOption

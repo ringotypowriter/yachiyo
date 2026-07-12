@@ -1,5 +1,6 @@
 import { Suspense, lazy, useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { LoaderCircle } from 'lucide-react'
+import { useT } from '@yachiyo/i18n/react'
 import { useAppStore } from '@renderer/app/store/useAppStore'
 import avatarUrl from '../../../resources/branding.jpeg'
 import { AppMainPanel } from '@renderer/features/layout/components/AppMainPanel'
@@ -28,6 +29,7 @@ import { ToastPresenter } from '@renderer/features/notifications/components/Toas
 import { GlobalProcessingModal } from '@renderer/components/GlobalProcessingModal'
 import { theme } from '@renderer/theme/theme'
 import { useApplyThemeConfig } from '@renderer/theme/useThemeConfig'
+import { useApplyLanguageConfig } from '@renderer/i18n/useI18nConfig'
 import { loadHeavyMarkdownPlugins } from '@renderer/lib/markdown/heavyMarkdownPlugins'
 
 // Loaded on first settings open — the settings surface is a large subtree the
@@ -38,10 +40,11 @@ const SettingsSidebarContent = lazy(() =>
 )
 
 function SettingsLoadingFallback(): React.JSX.Element {
+  const t = useT()
   return (
     <div className="flex h-full w-full items-center justify-center gap-2.5">
       <LoaderCircle size={18} strokeWidth={1.8} className="animate-spin" color={theme.text.muted} />
-      <span style={{ fontSize: 13, color: theme.text.muted }}>Loading settings…</span>
+      <span style={{ fontSize: 13, color: theme.text.muted }}>{t('shell.loadingSettings')}</span>
     </div>
   )
 }
@@ -53,6 +56,7 @@ function ConnectionOverlay({
   status: 'connecting' | 'disconnected'
   exiting: boolean
 }): React.JSX.Element {
+  const t = useT()
   return (
     <div
       style={{
@@ -104,10 +108,10 @@ function ConnectionOverlay({
             letterSpacing: '-0.2px'
           }}
         >
-          {status === 'connecting' ? 'Starting up…' : 'Unable to connect'}
+          {status === 'connecting' ? t('shell.startingUp') : t('shell.unableToConnect')}
         </span>
         <span style={{ fontSize: 12, color: theme.text.muted }}>
-          {status === 'connecting' ? 'Yachiyo is waking up' : 'Waiting for the local server'}
+          {status === 'connecting' ? t('shell.wakingUp') : t('shell.waitingForLocalServer')}
         </span>
       </div>
     </div>
@@ -169,6 +173,7 @@ function App(): React.JSX.Element {
   }, [connectionStatus])
   const config = useAppStore((s) => s.config)
   useApplyThemeConfig(config)
+  useApplyLanguageConfig(config)
   const continueThingInNewChat = useAppStore((s) => s.continueThingInNewChat)
   const mergeThingInNewChat = useAppStore((s) => s.mergeThingInNewChat)
   const createNewThread = useAppStore((s) => s.createNewThread)

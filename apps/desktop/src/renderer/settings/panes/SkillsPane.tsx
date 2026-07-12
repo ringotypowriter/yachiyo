@@ -3,6 +3,7 @@ import { useDeferredValue, useMemo, useState } from 'react'
 import { theme, alpha } from '@renderer/theme/theme'
 import type { SettingsConfig, SkillCatalogEntry } from '@yachiyo/shared/protocol'
 import { normalizeSkillNames } from '@yachiyo/shared/protocol'
+import { useT } from '@yachiyo/i18n/react'
 import { SettingRow, SettingSection, SettingSwitch } from '../components/primitives'
 import { filterSkills, sortSkills } from './skillsPaneModel'
 
@@ -24,6 +25,7 @@ function isSkillEnabled(
 }
 
 export function SkillsPane({ availableSkills, draft, onChange }: SkillsPaneProps): React.ReactNode {
+  const t = useT()
   const enabledSkillNames = normalizeSkillNames(draft.skills?.enabled)
   const disabledSkillNames = normalizeSkillNames(draft.skills?.disabled)
   const [query, setQuery] = useState('')
@@ -53,8 +55,8 @@ export function SkillsPane({ availableSkills, draft, onChange }: SkillsPaneProps
                 type="search"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
-                placeholder="Search skills"
-                aria-label="Search skills"
+                placeholder={t('settings.skills.searchPlaceholder')}
+                aria-label={t('settings.skills.searchPlaceholder')}
                 className="min-w-0 flex-1 bg-transparent text-sm outline-none"
                 style={{ color: theme.text.primary }}
               />
@@ -63,10 +65,10 @@ export function SkillsPane({ availableSkills, draft, onChange }: SkillsPaneProps
               onClick={() => window.api.yachiyo.openSkillsFolder()}
               className="flex shrink-0 items-center gap-1.5 rounded-md px-2 py-1 text-[11px] font-medium transition-colors"
               style={{ color: theme.text.secondary }}
-              title="Open skills folder"
+              title={t('settings.skills.openFolderTitle')}
             >
               <FolderOpen size={12} strokeWidth={1.75} />
-              Open Folder
+              {t('settings.skills.openFolder')}
             </button>
           </div>
         ) : null}
@@ -79,7 +81,7 @@ export function SkillsPane({ availableSkills, draft, onChange }: SkillsPaneProps
               borderTop: `1px solid ${theme.border.subtle}`
             }}
           >
-            No Skills are currently discoverable from global sources.
+            {t('settings.skills.noSkills')}
           </div>
         ) : filteredSkills.length === 0 ? (
           <div
@@ -89,7 +91,7 @@ export function SkillsPane({ availableSkills, draft, onChange }: SkillsPaneProps
               borderTop: `1px solid ${theme.border.subtle}`
             }}
           >
-            No skills match &ldquo;{query.trim()}&rdquo;.
+            {t('settings.skills.noMatches', { query: query.trim() })}
           </div>
         ) : (
           filteredSkills.map((skill) => {
@@ -101,7 +103,7 @@ export function SkillsPane({ availableSkills, draft, onChange }: SkillsPaneProps
                     {skill.name}
                   </div>
                   <div className="text-sm leading-5" style={{ color: theme.text.tertiary }}>
-                    {skill.description ?? 'Available to activate for runs that can see this skill.'}
+                    {skill.description ?? t('settings.skills.defaultDescription')}
                   </div>
                 </div>
                 <div className="shrink-0">
@@ -120,7 +122,7 @@ export function SkillsPane({ availableSkills, draft, onChange }: SkillsPaneProps
                       }
                       onChange({ ...draft, skills: nextSkills })
                     }}
-                    ariaLabel={`Toggle ${skill.name} skill`}
+                    ariaLabel={t('settings.skills.toggleSkillAria', { name: skill.name })}
                   />
                 </div>
               </SettingRow>

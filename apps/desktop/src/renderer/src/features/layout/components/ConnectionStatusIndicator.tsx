@@ -1,6 +1,10 @@
+import { t } from '@yachiyo/i18n/index'
+import { useT } from '@yachiyo/i18n/react'
 import type { ConnectionStatus } from '@renderer/app/types'
 import { theme } from '@renderer/theme/theme'
 
+// Called at render time (never cached) — the component reading this must
+// call useT() so it re-renders when the locale changes.
 function resolveConnectionPresentation(connectionStatus: ConnectionStatus): {
   ariaLabel: string
   indicatorColor: string
@@ -8,16 +12,16 @@ function resolveConnectionPresentation(connectionStatus: ConnectionStatus): {
 } {
   if (connectionStatus === 'connected') {
     return {
-      ariaLabel: 'Server ready',
+      ariaLabel: t('layout.utilityMenu.serverReady'),
       indicatorColor: theme.status.success,
-      title: 'Server ready'
+      title: t('layout.utilityMenu.serverReady')
     }
   }
 
   return {
-    ariaLabel: 'Server offline',
+    ariaLabel: t('layout.utilityMenu.serverOffline'),
     indicatorColor: theme.status.danger,
-    title: 'Server offline'
+    title: t('layout.utilityMenu.serverOffline')
   }
 }
 
@@ -26,6 +30,7 @@ export function ConnectionStatusIndicator({
 }: {
   connectionStatus: ConnectionStatus
 }): React.JSX.Element {
+  useT()
   const connectionPresentation = resolveConnectionPresentation(connectionStatus)
 
   return (

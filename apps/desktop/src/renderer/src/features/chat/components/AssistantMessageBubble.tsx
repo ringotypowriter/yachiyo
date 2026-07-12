@@ -7,8 +7,11 @@ import type { Message } from '@renderer/app/types'
 import { buildMessagePresentation } from '../lib/messages/messagePresentation'
 import type { MessageFooter } from '../lib/messages/messagePresentation'
 import { theme } from '@renderer/theme/theme'
+import { useT } from '@yachiyo/i18n/react'
 
 function MessageMetaRow({ footer }: { footer: MessageFooter }): React.JSX.Element | null {
+  const t = useT()
+
   if (footer.kind === 'streaming') {
     return (
       <div className="flex items-center gap-1.5 mt-1 message-footer">
@@ -20,7 +23,7 @@ function MessageMetaRow({ footer }: { footer: MessageFooter }): React.JSX.Elemen
             animation: 'yachiyo-generating-pulse 1s ease-in-out infinite'
           }}
         />
-        <span>Generating...</span>
+        <span>{t('chat.timeline.generating')}</span>
       </div>
     )
   }
@@ -31,13 +34,17 @@ function MessageMetaRow({ footer }: { footer: MessageFooter }): React.JSX.Elemen
         className="mt-1 message-footer message-footer--always-visible"
         style={{ color: theme.text.danger }}
       >
-        Failed to generate
+        {t('chat.timeline.failedToGenerate')}
       </div>
     )
   }
 
   if (footer.kind === 'stopped') {
-    return <div className="mt-1 message-footer message-footer--always-visible">Stopped</div>
+    return (
+      <div className="mt-1 message-footer message-footer--always-visible">
+        {t('chat.timeline.stopped')}
+      </div>
+    )
   }
 
   return null

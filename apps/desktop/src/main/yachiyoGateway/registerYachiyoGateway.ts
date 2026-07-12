@@ -8,6 +8,7 @@ import {
   systemPreferences
 } from 'electron'
 import { is } from '@electron-toolkit/utils'
+import { t } from '@yachiyo/i18n/index'
 import { spawn } from 'child_process'
 import { join } from 'node:path'
 import { getActivityTracker } from '@yachiyo/runtime/activity/ActivityTracker'
@@ -763,7 +764,7 @@ export function registerYachiyoGateway(): YachiyoGatewayHandle {
     const result = await dialog.showOpenDialog({
       defaultPath: `${homedir()}/.codex/auth.json`,
       properties: ['openFile'],
-      buttonLabel: 'Select session file',
+      buttonLabel: t('main.dialogs.selectSessionFile'),
       filters: [{ name: 'JSON', extensions: ['json'] }]
     })
 
@@ -773,7 +774,7 @@ export function registerYachiyoGateway(): YachiyoGatewayHandle {
     const { dialog } = await import('electron')
     const result = await dialog.showOpenDialog({
       properties: ['openDirectory', 'createDirectory'],
-      buttonLabel: 'Select workspace'
+      buttonLabel: t('main.dialogs.selectWorkspace')
     })
 
     return result.canceled ? null : (result.filePaths[0] ?? null)
@@ -782,7 +783,7 @@ export function registerYachiyoGateway(): YachiyoGatewayHandle {
     const { dialog } = await import('electron')
     const result = await dialog.showOpenDialog({
       properties: ['openDirectory', 'createDirectory'],
-      buttonLabel: 'Select sync folder'
+      buttonLabel: t('main.dialogs.selectSyncFolder')
     })
 
     return result.canceled ? null : (result.filePaths[0] ?? null)
@@ -1074,7 +1075,7 @@ export function registerYachiyoGateway(): YachiyoGatewayHandle {
     const pngBytes = normalizePngBytes(input.pngData)
     const result = await dialog.showSaveDialog(win, {
       defaultPath: normalizePngFilename(input.defaultFilename),
-      filters: [{ name: 'PNG image', extensions: ['png'] }]
+      filters: [{ name: t('main.dialogs.pngImageFilter'), extensions: ['png'] }]
     })
     if (result.canceled || !result.filePath) {
       return { canceled: true }

@@ -16,6 +16,10 @@ import type { RunRecord, ToolCall } from '@renderer/app/types'
 import { useAppStore } from '@renderer/app/store/useAppStore'
 import { mathPlugin } from '@renderer/lib/markdown/mathPlugin'
 import { theme, alpha } from '@renderer/theme/theme'
+import { useT } from '@yachiyo/i18n/react'
+import { tPlural } from '@yachiyo/i18n/index'
+
+type Translate = ReturnType<typeof useT>
 import type { WorkTrajectoryItem } from '../lib/timeline/messageTimelineRows.ts'
 import { formatToolFilePathList } from '../lib/tool-calls/toolCallPresentation.ts'
 import {
@@ -60,19 +64,19 @@ function getMutationPath(toolCall: ToolCall): string | null {
   return toolCall.inputSummary.trim() || null
 }
 
-function getItemLabel(item: WorkTrajectoryItem): string {
+function getItemLabel(item: WorkTrajectoryItem, t: Translate): string {
   switch (item.kind) {
     case 'memory':
-      return 'Context'
+      return t('chat.workSummary.labelContext')
     case 'thought':
-      return 'Thought'
+      return t('chat.timeline.thought')
     case 'note':
-      return 'Note'
+      return t('chat.workSummary.labelNote')
     case 'user-steer':
-      return 'User steer'
+      return t('chat.workSummary.labelUserSteer')
     case 'tool-call':
     case 'tool-call-group':
-      return 'Action'
+      return t('chat.workSummary.labelAction')
   }
 }
 
@@ -113,6 +117,7 @@ export function AgentWorkSummaryRow({
   toolCalls,
   workspacePath
 }: AgentWorkSummaryRowProps): React.JSX.Element {
+  const t = useT()
   const [isExpanded, setIsExpanded] = useState(false)
   const [showDiffModal, setShowDiffModal] = useState(false)
   const packRef = useRef<HTMLDivElement>(null)
@@ -171,9 +176,9 @@ export function AgentWorkSummaryRow({
   }, [runInfo])
 
   const compactTitleParts = [
-    'Work Summary',
-    toolCallCount > 0 ? `${toolCallCount} actions` : null,
-    fileCount > 0 ? `${fileCount} files` : null,
+    t('chat.workSummary.title'),
+    toolCallCount > 0 ? t('chat.workSummary.actionsCount', { count: toolCallCount }) : null,
+    fileCount > 0 ? t('chat.workSummary.filesCount', { count: fileCount }) : null,
     runInfo ? formatElapsed(runInfo.elapsedMs) : null
   ].filter((part): part is string => part !== null)
 
@@ -232,8 +237,10 @@ export function AgentWorkSummaryRow({
               {changedPaths.length > 0
                 ? changedPaths.join(', ')
                 : failedToolCalls > 0
-                  ? `${failedToolCalls} action${failedToolCalls === 1 ? '' : 's'} need review`
-                  : 'Activity and notes'}
+                  ? tPlural('chat.workSummary.needReview', failedToolCalls, {
+                      count: failedToolCalls
+                    })
+                  : t('chat.workSummary.activityAndNotes')}
             </span>
           </span>
           <Metric
@@ -274,7 +281,7 @@ export function AgentWorkSummaryRow({
               }}
             >
               <GitCompareArrows size={11} strokeWidth={1.7} />
-              Review
+              {t('chat.workSummary.review')}
             </button>
           ) : null}
           <ChevronRight
@@ -300,6 +307,7 @@ export function AgentWorkSummaryRow({
                   item={item}
                   isLast={index === items.length - 1 && !canReviewDiff}
                   workspacePath={workspacePath}
+                  t={t}
                 />
               ))}
               {canReviewDiff ? (
@@ -307,6 +315,7 @@ export function AgentWorkSummaryRow({
                   changedPaths={changedPaths}
                   fileCount={runInfo.fileCount}
                   onReview={() => setShowDiffModal(true)}
+                  t={t}
                 />
               ) : null}
             </div>
@@ -353,11 +362,13 @@ function Metric({
 function TrajectoryItemRow({
   item,
   isLast,
-  workspacePath
+  workspacePath,
+  t
 }: {
   item: WorkTrajectoryItem
   isLast: boolean
   workspacePath?: string | null
+  t: Translate
 }): React.JSX.Element {
   return (
     <div className="grid gap-2" style={{ gridTemplateColumns: '18px minmax(0, 1fr)' }}>
@@ -379,7 +390,7 @@ function TrajectoryItemRow({
           className="mb-1 text-[10.5px]"
           style={{ color: theme.text.placeholder, fontWeight: 650 }}
         >
-          {getItemLabel(item)}
+          {getItemLabel(item, t)}
         </div>
         <TrajectoryItemContent item={item} workspacePath={workspacePath} />
       </div>
@@ -472,11 +483,13 @@ function ScrollableMarkdown({
 function OutcomeRow({
   changedPaths,
   fileCount,
-  onReview
+  onReview,
+  t
 }: {
   changedPaths: string[]
   fileCount: number
   onReview: () => void
+  t: Translate
 }): React.JSX.Element {
   return (
     <div className="grid gap-2" style={{ gridTemplateColumns: '18px minmax(0, 1fr)' }}>
@@ -495,7 +508,7 @@ function OutcomeRow({
           className="mb-1 text-[10.5px]"
           style={{ color: theme.text.placeholder, fontWeight: 650 }}
         >
-          File changes
+          {t('chat.workSummary.fileChanges')}
         </div>
         <button
           type="button"
@@ -517,7 +530,7 @@ function OutcomeRow({
         >
           <GitCompareArrows size={11} strokeWidth={1.7} />
           <span className="truncate">
-            Review {fileCount} file {fileCount === 1 ? 'change' : 'changes'}
+            {tPlural('chat.workSummary.reviewFileChanges', fileCount, { count: fileCount })}
             {changedPaths.length > 0 ? ` · ${changedPaths.join(', ')}` : ''}
           </span>
         </button>

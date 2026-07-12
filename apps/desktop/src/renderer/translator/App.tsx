@@ -2,28 +2,37 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { ArrowRightLeft, Check, ChevronDown, Clock, Copy, Loader2, X } from 'lucide-react'
 import { theme, alpha } from '@renderer/theme/theme'
 import { useAuxiliaryThemeConfig } from '@renderer/theme/useThemeConfig'
+import { useAuxiliaryLanguageConfig } from '@renderer/i18n/useI18nConfig'
+import { useT } from '@yachiyo/i18n/react'
 import type { TranslateResult } from '@yachiyo/shared/protocol'
 
 const STORAGE_KEY = 'yachiyo-translator-target-lang'
 const HISTORY_KEY = 'yachiyo-translator-history'
 
-const COMMON_LANGUAGES = [
-  'English',
-  'Chinese (Simplified)',
-  'Chinese (Traditional)',
-  'Japanese',
-  'Korean',
-  'Spanish',
-  'French',
-  'German',
-  'Russian',
-  'Portuguese',
-  'Italian',
-  'Arabic',
-  'Thai',
-  'Vietnamese',
-  'Indonesian'
-]
+const LANGUAGE_LABEL_KEYS = {
+  English: 'translator.languages.english',
+  'Chinese (Simplified)': 'translator.languages.chineseSimplified',
+  'Chinese (Traditional)': 'translator.languages.chineseTraditional',
+  Japanese: 'translator.languages.japanese',
+  Korean: 'translator.languages.korean',
+  Spanish: 'translator.languages.spanish',
+  French: 'translator.languages.french',
+  German: 'translator.languages.german',
+  Russian: 'translator.languages.russian',
+  Portuguese: 'translator.languages.portuguese',
+  Italian: 'translator.languages.italian',
+  Arabic: 'translator.languages.arabic',
+  Thai: 'translator.languages.thai',
+  Vietnamese: 'translator.languages.vietnamese',
+  Indonesian: 'translator.languages.indonesian'
+} as const
+
+const COMMON_LANGUAGES = Object.keys(LANGUAGE_LABEL_KEYS)
+
+function languageLabel(t: ReturnType<typeof useT>, language: string): string {
+  const key = LANGUAGE_LABEL_KEYS[language as keyof typeof LANGUAGE_LABEL_KEYS]
+  return key ? t(key) : language
+}
 
 interface HistoryEntry {
   id: string
@@ -39,13 +48,17 @@ function LanguageCombobox({
   value: string
   onChange: (lang: string) => void
 }): React.JSX.Element {
+  const t = useT()
   const [open, setOpen] = useState(false)
   const [filter, setFilter] = useState('')
   const inputRef = useRef<HTMLInputElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)
 
+  const query = filter.toLowerCase()
   const filtered = filter
-    ? COMMON_LANGUAGES.filter((l) => l.toLowerCase().includes(filter.toLowerCase()))
+    ? COMMON_LANGUAGES.filter(
+        (l) => l.toLowerCase().includes(query) || languageLabel(t, l).toLowerCase().includes(query)
+      )
     : COMMON_LANGUAGES
 
   useEffect(() => {
@@ -83,8 +96,8 @@ function LanguageCombobox({
           ref={inputRef}
           className="bg-transparent outline-none flex-1 min-w-0"
           style={{ color: theme.text.primary }}
-          placeholder="Target language..."
-          value={open ? filter : value}
+          placeholder={t('translator.targetLanguagePlaceholder')}
+          value={open ? filter : languageLabel(t, value)}
           onChange={(e) => {
             setFilter(e.target.value)
             if (!open) setOpen(true)
@@ -154,7 +167,7 @@ function LanguageCombobox({
                 setFilter('')
               }}
             >
-              {lang}
+              {languageLabel(t, lang)}
             </button>
           ))}
         </div>
@@ -165,6 +178,8 @@ function LanguageCombobox({
 
 export default function TranslatorApp(): React.JSX.Element {
   useAuxiliaryThemeConfig()
+  useAuxiliaryLanguageConfig()
+  const t = useT()
   const [sourceText, setSourceText] = useState('')
   const [translatedText, setTranslatedText] = useState('')
   const [targetLang, setTargetLang] = useState(() => localStorage.getItem(STORAGE_KEY) || 'English')
@@ -229,17 +244,19 @@ export default function TranslatorApp(): React.JSX.Element {
           ...prev.slice(0, 49)
         ])
       } else if (result.status === 'unavailable') {
-        setTranslatedText(`[Unavailable] ${result.reason}`)
+        setTranslatedText(t('translator.unavailableResult', { reason: result.reason }))
       } else {
-        setTranslatedText(`[Error] ${result.error}`)
+        setTranslatedText(t('translator.errorResult', { message: result.error }))
       }
     } catch (err) {
       unsub()
-      setTranslatedText(`[Error] ${err instanceof Error ? err.message : String(err)}`)
+      setTranslatedText(
+        t('translator.errorResult', { message: err instanceof Error ? err.message : String(err) })
+      )
     } finally {
       setLoading(false)
     }
-  }, [sourceText, targetLang, loading])
+  }, [sourceText, targetLang, loading, t])
 
   const handleCopy = useCallback(() => {
     if (!translatedText) return
@@ -264,7 +281,7 @@ export default function TranslatorApp(): React.JSX.Element {
       {/* Title bar */}
       <div className="drag-region flex items-center shrink-0 px-3" style={{ height: 38 }}>
         <span className="no-drag text-[13px] font-medium" style={{ color: theme.text.secondary }}>
-          Translator
+          {t('translator.title')}
         </span>
         <div className="flex-1" />
         {history.length > 0 && (
@@ -275,7 +292,7 @@ export default function TranslatorApp(): React.JSX.Element {
               opacity: showHistory ? 0.9 : 0.4
             }}
             onClick={() => setShowHistory(!showHistory)}
-            aria-label="History"
+            aria-label={t('translator.history')}
           >
             <Clock size={13} strokeWidth={1.5} />
           </button>
@@ -284,7 +301,7 @@ export default function TranslatorApp(): React.JSX.Element {
           className="no-drag p-1 rounded-md opacity-50 hover:opacity-80 transition-opacity"
           style={{ color: theme.icon.default }}
           onClick={() => window.api.hideTranslator()}
-          aria-label="Close"
+          aria-label={t('common.close')}
         >
           <X size={14} strokeWidth={1.5} />
         </button>
@@ -300,7 +317,7 @@ export default function TranslatorApp(): React.JSX.Element {
             border: `1px solid ${alpha('danger', 0.12)}`
           }}
         >
-          Tool model is not configured. Go to Settings &gt; Chat to enable it.
+          {t('translator.toolModelUnavailable')}
         </div>
       )}
 
@@ -313,7 +330,7 @@ export default function TranslatorApp(): React.JSX.Element {
             border: 'none',
             color: theme.text.primary
           }}
-          placeholder="Enter text to translate..."
+          placeholder={t('translator.sourcePlaceholder')}
           value={sourceText}
           onChange={(e) => setSourceText(e.target.value)}
           onKeyDown={(e) => {
@@ -338,7 +355,7 @@ export default function TranslatorApp(): React.JSX.Element {
             border: 'none',
             color: theme.text.primary
           }}
-          placeholder="Translation will appear here..."
+          placeholder={t('translator.outputPlaceholder')}
           value={translatedText}
         />
         {loading && !translatedText && (
@@ -351,7 +368,7 @@ export default function TranslatorApp(): React.JSX.Element {
             className="absolute top-2 right-2 p-1 rounded-md opacity-40 hover:opacity-80 transition-opacity"
             style={{ color: theme.icon.default }}
             onClick={handleCopy}
-            aria-label="Copy translation"
+            aria-label={t('translator.copyTranslation')}
           >
             {copied ? <Check size={12} /> : <Copy size={12} />}
           </button>
@@ -377,7 +394,7 @@ export default function TranslatorApp(): React.JSX.Element {
           disabled={!sourceText.trim() || loading || toolModelAvailable === false}
           onClick={handleTranslate}
         >
-          {loading ? 'Translating...' : 'Translate'}
+          {loading ? t('translator.translating') : t('translator.translate')}
         </button>
       </div>
 
@@ -396,7 +413,7 @@ export default function TranslatorApp(): React.JSX.Element {
         >
           <div className="px-3 pt-2 pb-1">
             <span className="text-[11px] font-medium" style={{ color: theme.text.muted }}>
-              History
+              {t('translator.history')}
             </span>
           </div>
           {history.map((entry) => (
@@ -420,7 +437,7 @@ export default function TranslatorApp(): React.JSX.Element {
                   className="text-[10px] px-1 rounded"
                   style={{ background: alpha('ink', 0.06), color: theme.text.muted }}
                 >
-                  {entry.targetLanguage}
+                  {languageLabel(t, entry.targetLanguage)}
                 </span>
               </div>
               <div className="truncate" style={{ color: theme.text.muted }}>

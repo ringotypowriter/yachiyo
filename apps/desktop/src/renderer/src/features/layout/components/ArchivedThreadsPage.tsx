@@ -8,6 +8,8 @@
 
 import { useMemo, useEffect, useRef, useState } from 'react'
 import { CheckCircle2, XCircle } from 'lucide-react'
+import { formatDate } from '@yachiyo/i18n/index'
+import { useT } from '@yachiyo/i18n/react'
 import { formatTokenCount } from '@renderer/lib/formatTokenCount'
 import type { Thread, Message, ToolCall, RunRecord } from '@renderer/app/types'
 import { useAppStore } from '@renderer/app/store/useAppStore'
@@ -26,15 +28,16 @@ export interface ArchivedThreadsPageProps {
 }
 
 export function ArchivedThreadsPage({ activeThread }: ArchivedThreadsPageProps): React.JSX.Element {
+  const t = useT()
   if (!activeThread) {
     return (
       <div className="flex flex-1 items-center justify-center px-8">
         <div className="max-w-md text-center">
           <div className="text-sm font-semibold" style={{ color: theme.text.primary }}>
-            Archived threads
+            {t('layout.archived.heading')}
           </div>
           <div className="mt-2 text-sm leading-6" style={{ color: theme.text.muted }}>
-            Select an archived thread from the sidebar to view it.
+            {t('layout.archived.selectPrompt')}
           </div>
         </div>
       </div>
@@ -63,6 +66,7 @@ function ArchivedTimeline({
   headMessageId?: string
   workspacePath?: string | null
 }): React.JSX.Element {
+  const t = useT()
   const [messages, setMessages] = useState<Message[]>(EMPTY_MESSAGES)
   const [toolCalls, setToolCalls] = useState<ToolCall[]>(EMPTY_TOOL_CALLS)
   const [scheduleRun, setScheduleRun] = useState<ScheduleRunRecord | null>(null)
@@ -180,7 +184,7 @@ function ArchivedTimeline({
     return (
       <div className="flex-1 flex items-center justify-center">
         <p className="text-sm" style={{ color: theme.text.placeholder }}>
-          No messages
+          {t('layout.archived.noMessages')}
         </p>
       </div>
     )
@@ -345,15 +349,11 @@ function formatDuration(startedAt: string, completedAt?: string): string | null 
 function formatRunTimestamp(iso: string): string {
   const d = new Date(iso)
   if (Number.isNaN(d.getTime())) return iso
-  return d.toLocaleString(undefined, {
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit'
-  })
+  return formatDate(d, 'dateTime')
 }
 
 function ScheduleSummaryCard({ run }: { run: ScheduleRunRecord }): React.JSX.Element {
+  const t = useT()
   // Prefer the agent-reported result status; fall back to the run's lifecycle
   // status (failed/skipped) so cancelled or pre-failure runs still render.
   const reported = run.resultStatus
@@ -382,7 +382,7 @@ function ScheduleSummaryCard({ run }: { run: ScheduleRunRecord }): React.JSX.Ele
         <div className="flex items-center gap-2">
           <Icon size={16} style={{ color: accent }} />
           <span className="text-sm font-semibold" style={{ color: theme.text.primary }}>
-            Schedule result
+            {t('layout.archived.scheduleResult')}
           </span>
           <span
             className="text-[10px] uppercase tracking-wide px-2 py-0.5 rounded-full font-medium"
@@ -406,12 +406,19 @@ function ScheduleSummaryCard({ run }: { run: ScheduleRunRecord }): React.JSX.Ele
           className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs"
           style={{ color: theme.text.muted }}
         >
-          <span>Started {formatRunTimestamp(run.startedAt)}</span>
-          {run.completedAt && <span>· Finished {formatRunTimestamp(run.completedAt)}</span>}
+          <span>{t('layout.archived.startedAt', { time: formatRunTimestamp(run.startedAt) })}</span>
+          {run.completedAt && (
+            <span>
+              · {t('layout.archived.finishedAt', { time: formatRunTimestamp(run.completedAt) })}
+            </span>
+          )}
           {duration && <span>· {duration}</span>}
           {(run.promptTokens != null || run.completionTokens != null) && (
             <span>
-              · {formatTokenCount((run.promptTokens ?? 0) + (run.completionTokens ?? 0))} tokens
+              ·{' '}
+              {t('layout.archived.tokens', {
+                tokens: formatTokenCount((run.promptTokens ?? 0) + (run.completionTokens ?? 0))
+              })}
             </span>
           )}
         </div>

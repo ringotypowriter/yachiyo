@@ -14,6 +14,7 @@ export const DEFAULT_SETTINGS_CONFIG: SettingsConfig = {
   providers: [],
   general: {
     sidebarVisibility: DEFAULT_SIDEBAR_VISIBILITY,
+    language: 'auto',
     sidebarPreview: true,
     workSummary: true,
     themeId: DEFAULT_THEME_ID,

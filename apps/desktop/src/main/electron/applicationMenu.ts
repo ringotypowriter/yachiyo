@@ -1,4 +1,5 @@
 import electron from 'electron'
+import { onLocaleChange, t } from '@yachiyo/i18n/index'
 
 const { Menu } = electron
 
@@ -14,7 +15,7 @@ function settingsMenuItem(
   openSettings: () => void
 ): Electron.MenuItemConstructorOptions {
   return {
-    label: 'Settings...',
+    label: t('main.menu.settings'),
     accelerator: platform === 'darwin' ? 'Command+,' : 'Ctrl+,',
     click: () => openSettings()
   }
@@ -51,7 +52,7 @@ export function createApplicationMenuTemplate({
   openSettings
 }: ApplicationMenuOptions): Electron.MenuItemConstructorOptions[] {
   const editMenu: Electron.MenuItemConstructorOptions = {
-    label: 'Edit',
+    label: t('main.menu.edit'),
     submenu: [
       { role: 'undo' },
       { role: 'redo' },
@@ -63,11 +64,11 @@ export function createApplicationMenuTemplate({
     ]
   }
   const viewMenu: Electron.MenuItemConstructorOptions = {
-    label: 'View',
+    label: t('main.menu.view'),
     submenu: createViewSubmenu(isDev)
   }
   const helpMenu: Electron.MenuItemConstructorOptions = {
-    label: 'Help',
+    label: t('main.menu.help'),
     submenu: []
   }
 
@@ -90,13 +91,13 @@ export function createApplicationMenuTemplate({
         ]
       },
       {
-        label: 'File',
+        label: t('main.menu.file'),
         submenu: [{ role: 'close' }]
       },
       editMenu,
       viewMenu,
       {
-        label: 'Window',
+        label: t('main.menu.window'),
         submenu: [{ role: 'minimize' }, { role: 'zoom' }, { type: 'separator' }, { role: 'front' }]
       },
       helpMenu
@@ -105,13 +106,13 @@ export function createApplicationMenuTemplate({
 
   return [
     {
-      label: 'File',
+      label: t('main.menu.file'),
       submenu: [settingsMenuItem(platform, openSettings), { type: 'separator' }, { role: 'quit' }]
     },
     editMenu,
     viewMenu,
     {
-      label: 'Window',
+      label: t('main.menu.window'),
       submenu: [{ role: 'minimize' }, { role: 'close' }]
     },
     helpMenu
@@ -119,5 +120,9 @@ export function createApplicationMenuTemplate({
 }
 
 export function installApplicationMenu(options: ApplicationMenuOptions): void {
-  Menu.setApplicationMenu(Menu.buildFromTemplate(createApplicationMenuTemplate(options)))
+  const rebuild = (): void => {
+    Menu.setApplicationMenu(Menu.buildFromTemplate(createApplicationMenuTemplate(options)))
+  }
+  rebuild()
+  onLocaleChange(rebuild)
 }

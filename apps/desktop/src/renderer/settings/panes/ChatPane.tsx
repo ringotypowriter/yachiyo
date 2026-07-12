@@ -1,5 +1,6 @@
 import { ChevronDown, CircleCheck } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
+import { useT } from '@yachiyo/i18n/react'
 import { theme } from '@renderer/theme/theme'
 import {
   DEFAULT_STRIP_COMPACT_TOKEN_THRESHOLD,
@@ -19,6 +20,7 @@ interface ChatPaneProps {
 }
 
 export function ChatPane({ draft, onChange }: ChatPaneProps): React.ReactNode {
+  const t = useT()
   const activeRunEnterBehavior = draft.chat?.activeRunEnterBehavior ?? 'enter-steers'
   const contextHandoffThresholdTokens =
     draft.chat?.stripCompactThresholdTokens ?? DEFAULT_STRIP_COMPACT_TOKEN_THRESHOLD
@@ -82,8 +84,8 @@ export function ChatPane({ draft, onChange }: ChatPaneProps): React.ReactNode {
     toolModel.mode === 'custom' && selectedToolProvider && toolModel.model
       ? `${selectedToolProvider.name} - ${formatStoredModelChip(toolModel.model, selectedToolProvider.name).model}`
       : toolModel.mode === 'default'
-        ? `Default${defaultModelLabel ? ` — ${defaultModelLabel}` : ''}`
-        : 'Disabled'
+        ? `${t('common.default')}${defaultModelLabel ? ` — ${defaultModelLabel}` : ''}`
+        : t('common.disabled')
 
   const currentI2tModel = draft.chat?.imageToTextModel
   const i2tModelProvider = currentI2tModel
@@ -92,20 +94,20 @@ export function ChatPane({ draft, onChange }: ChatPaneProps): React.ReactNode {
   const i2tModelLabel =
     i2tModelProvider && currentI2tModel?.model
       ? `${i2tModelProvider.name} - ${formatStoredModelChip(currentI2tModel.model, i2tModelProvider.name).model}`
-      : 'Default (same as tool model)'
+      : t('settings.chat.sameAsToolModel')
 
   return (
     <div className="flex-1 overflow-y-auto pb-6">
       <SettingSection>
-        <SettingLabel>Active run</SettingLabel>
+        <SettingLabel>{t('settings.chat.activeRunSection')}</SettingLabel>
 
         <SettingRow>
           <div className="min-w-0 space-y-0.5">
             <div className="text-sm font-medium" style={{ color: theme.text.primary }}>
-              Enter steers during active runs
+              {t('settings.chat.enterSteersLabel')}
             </div>
             <div className="text-sm leading-5" style={{ color: theme.text.tertiary }}>
-              Off = queue follow-up. Alt+Enter swaps.
+              {t('settings.chat.enterSteersDesc')}
             </div>
           </div>
 
@@ -124,22 +126,22 @@ export function ChatPane({ draft, onChange }: ChatPaneProps): React.ReactNode {
                   }
                 })
               }
-              ariaLabel="Toggle Enter steering during active runs"
+              ariaLabel={t('settings.chat.enterSteersToggleAria')}
             />
           </div>
         </SettingRow>
       </SettingSection>
 
       <SettingSection>
-        <SettingLabel>Input buffering</SettingLabel>
+        <SettingLabel>{t('settings.chat.inputBufferingSection')}</SettingLabel>
 
         <SettingRow>
           <div className="min-w-0 space-y-0.5">
             <div className="text-sm font-medium" style={{ color: theme.text.primary }}>
-              Merge rapid messages before sending
+              {t('settings.chat.mergeRapidLabel')}
             </div>
             <div className="text-sm leading-5" style={{ color: theme.text.tertiary }}>
-              Off = send immediately. Composer has a per-session override.
+              {t('settings.chat.mergeRapidDesc')}
             </div>
           </div>
 
@@ -155,22 +157,22 @@ export function ChatPane({ draft, onChange }: ChatPaneProps): React.ReactNode {
                   }
                 })
               }
-              ariaLabel="Toggle input buffering"
+              ariaLabel={t('settings.chat.inputBufferToggleAria')}
             />
           </div>
         </SettingRow>
       </SettingSection>
 
       <SettingSection>
-        <SettingLabel>Context management</SettingLabel>
+        <SettingLabel>{t('settings.chat.contextSection')}</SettingLabel>
 
         <SettingRow>
           <div className="min-w-0 space-y-0.5">
             <div className="text-sm font-medium" style={{ color: theme.text.primary }}>
-              Automatic context handoff
+              {t('settings.chat.contextHandoffLabel')}
             </div>
             <div className="text-sm leading-5" style={{ color: theme.text.tertiary }}>
-              Checkpoint old context and continue from a summary when a run gets large.
+              {t('settings.chat.contextHandoffDesc')}
             </div>
           </div>
 
@@ -183,7 +185,7 @@ export function ChatPane({ draft, onChange }: ChatPaneProps): React.ReactNode {
                   chat: { ...draft.chat, stripCompact: draft.chat?.stripCompact === false }
                 })
               }
-              ariaLabel="Toggle automatic context handoff"
+              ariaLabel={t('settings.chat.contextHandoffToggleAria')}
             />
           </div>
         </SettingRow>
@@ -191,10 +193,10 @@ export function ChatPane({ draft, onChange }: ChatPaneProps): React.ReactNode {
         <SettingRow>
           <div className="min-w-0 space-y-0.5">
             <div className="text-sm font-medium" style={{ color: theme.text.primary }}>
-              Handoff threshold
+              {t('settings.chat.handoffThresholdLabel')}
             </div>
             <div className="text-sm leading-5" style={{ color: theme.text.tertiary }}>
-              Prompt tokens before automatic handoff and the Composer warning.
+              {t('settings.chat.handoffThresholdDesc')}
             </div>
           </div>
 
@@ -218,7 +220,7 @@ export function ChatPane({ draft, onChange }: ChatPaneProps): React.ReactNode {
               }}
               className="w-20 rounded-lg px-2 py-1 text-sm text-right outline-none"
               style={inputStyle()}
-              aria-label="Context handoff threshold in thousands of tokens"
+              aria-label={t('settings.chat.handoffThresholdAria')}
             />
             <span className="text-sm" style={{ color: theme.text.secondary }}>
               K
@@ -228,15 +230,15 @@ export function ChatPane({ draft, onChange }: ChatPaneProps): React.ReactNode {
       </SettingSection>
 
       <SettingSection>
-        <SettingLabel>Recap</SettingLabel>
+        <SettingLabel>{t('settings.chat.recapSection')}</SettingLabel>
 
         <SettingRow>
           <div className="min-w-0 space-y-0.5">
             <div className="text-sm font-medium" style={{ color: theme.text.primary }}>
-              Auto-recap on idle threads
+              {t('settings.chat.recapLabel')}
             </div>
             <div className="text-sm leading-5" style={{ color: theme.text.tertiary }}>
-              Generate a brief summary when returning to a thread idle for {RECAP_IDLE_LABEL}+.
+              {t('settings.chat.recapDesc', { duration: RECAP_IDLE_LABEL })}
             </div>
           </div>
 
@@ -252,24 +254,24 @@ export function ChatPane({ draft, onChange }: ChatPaneProps): React.ReactNode {
                   }
                 })
               }
-              ariaLabel="Toggle auto-recap on idle threads"
+              ariaLabel={t('settings.chat.recapToggleAria')}
             />
           </div>
         </SettingRow>
       </SettingSection>
 
       <SettingSection>
-        <SettingLabel>Default model</SettingLabel>
+        <SettingLabel>{t('settings.chat.defaultModelSection')}</SettingLabel>
 
         <SettingRow>
           <div className="min-w-0 space-y-0.5">
             <div className="text-sm font-medium" style={{ color: theme.text.primary }}>
-              Model used for new threads
+              {t('settings.chat.defaultModelLabel')}
             </div>
             <div className="text-sm leading-5" style={{ color: theme.text.tertiary }}>
               {hasEnabledModels
-                ? 'Per-thread overrides take precedence.'
-                : 'Enable a model in Providers first.'}
+                ? t('settings.chat.defaultModelDesc')
+                : t('settings.chat.enableModelFirst')}
             </div>
           </div>
 
@@ -290,7 +292,7 @@ export function ChatPane({ draft, onChange }: ChatPaneProps): React.ReactNode {
                 color: theme.text.primary,
                 opacity: defaultModelSelectorOpen ? 1 : 0.72
               }}
-              aria-label="Default model selection"
+              aria-label={t('settings.chat.defaultModelAria')}
             >
               <CircleCheck
                 size={12}
@@ -338,17 +340,17 @@ export function ChatPane({ draft, onChange }: ChatPaneProps): React.ReactNode {
       </SettingSection>
 
       <SettingSection>
-        <SettingLabel>Tool model</SettingLabel>
+        <SettingLabel>{t('settings.chat.toolModelSection')}</SettingLabel>
 
         <SettingRow>
           <div className="min-w-0 space-y-0.5">
             <div className="text-sm font-medium" style={{ color: theme.text.primary }}>
-              Thread titles and small auxiliary tasks
+              {t('settings.chat.toolModelLabel')}
             </div>
             <div className="text-sm leading-5" style={{ color: theme.text.tertiary }}>
               {hasEnabledModels
-                ? 'Uses the selected model below.'
-                : 'Enable a model in Providers first.'}
+                ? t('settings.chat.toolModelDesc')
+                : t('settings.chat.enableModelFirst')}
             </div>
           </div>
 
@@ -369,7 +371,7 @@ export function ChatPane({ draft, onChange }: ChatPaneProps): React.ReactNode {
                 color: theme.text.primary,
                 opacity: toolModelSelectorOpen ? 1 : 0.72
               }}
-              aria-label="Tool model selection"
+              aria-label={t('settings.chat.toolModelAria')}
             >
               <CircleCheck
                 size={12}
@@ -404,7 +406,7 @@ export function ChatPane({ draft, onChange }: ChatPaneProps): React.ReactNode {
                 currentModel={toolModel.model}
                 leadingOptions={[
                   {
-                    label: 'Default (same as chat model)',
+                    label: t('settings.chat.sameAsChatModel'),
                     isSelected: toolModel.mode === 'default',
                     onSelect: () =>
                       onChange({
@@ -419,7 +421,7 @@ export function ChatPane({ draft, onChange }: ChatPaneProps): React.ReactNode {
                       })
                   },
                   {
-                    label: 'Disabled',
+                    label: t('common.disabled'),
                     isSelected: toolModel.mode === 'disabled',
                     onSelect: () =>
                       onChange({
@@ -460,17 +462,15 @@ export function ChatPane({ draft, onChange }: ChatPaneProps): React.ReactNode {
       </SettingSection>
 
       <SettingSection>
-        <SettingLabel>Image to Text model</SettingLabel>
+        <SettingLabel>{t('settings.chat.i2tSection')}</SettingLabel>
 
         <SettingRow>
           <div className="min-w-0 space-y-0.5">
             <div className="text-sm font-medium" style={{ color: theme.text.primary }}>
-              Vision model for image descriptions
+              {t('settings.chat.i2tLabel')}
             </div>
             <div className="text-sm leading-5" style={{ color: theme.text.tertiary }}>
-              {hasEnabledModels
-                ? 'Used when non-image-capable models need to process images.'
-                : 'Enable a model in Providers first.'}
+              {hasEnabledModels ? t('settings.chat.i2tDesc') : t('settings.chat.enableModelFirst')}
             </div>
           </div>
 
@@ -488,7 +488,7 @@ export function ChatPane({ draft, onChange }: ChatPaneProps): React.ReactNode {
                 color: theme.text.primary,
                 opacity: i2tModelSelectorOpen ? 1 : 0.72
               }}
-              aria-label="Image to Text model selection"
+              aria-label={t('settings.chat.i2tAria')}
             >
               <CircleCheck
                 size={12}
@@ -521,7 +521,7 @@ export function ChatPane({ draft, onChange }: ChatPaneProps): React.ReactNode {
                 currentModel={currentI2tModel?.model ?? ''}
                 leadingOptions={[
                   {
-                    label: 'Default (same as tool model)',
+                    label: t('settings.chat.sameAsToolModel'),
                     isSelected: !currentI2tModel,
                     onSelect: () =>
                       onChange({

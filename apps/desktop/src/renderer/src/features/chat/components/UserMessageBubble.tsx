@@ -4,10 +4,12 @@ import type { Message, Thread } from '@renderer/app/types'
 import { alpha, theme } from '@renderer/theme/theme'
 import { linkifyText } from '@renderer/lib/markdown/linkifyText'
 import { ImageDetailViewer } from '@renderer/lib/markdown/ImageDetailViewer'
+import { useT } from '@yachiyo/i18n/react'
 import { canRetryUserMessage } from '../lib/messages/messageActionState'
 import { MessageActionBar } from './MessageActionBar'
 
 function UserMessageImages({ message }: { message: Message }): React.JSX.Element | null {
+  const t = useT()
   const [viewerImage, setViewerImage] = useState<{ src: string; alt: string } | null>(null)
 
   const handleImageClick = useCallback(
@@ -26,7 +28,7 @@ function UserMessageImages({ message }: { message: Message }): React.JSX.Element
     <>
       <div className="user-message-images">
         {message.images.map((image, index) => {
-          const alt = image.filename ?? `Image ${index + 1}`
+          const alt = image.filename ?? t('chat.timeline.imageAlt', { index: index + 1 })
           return (
             <div
               key={`${image.filename ?? 'image'}-${index}`}

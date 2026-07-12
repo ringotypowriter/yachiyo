@@ -1,6 +1,7 @@
 import type React from 'react'
 import { useRef, useCallback, useState, useEffect, useLayoutEffect, useMemo } from 'react'
 import { useShallow } from 'zustand/react/shallow'
+import { useT } from '@yachiyo/i18n/react'
 import {
   DEFAULT_SETTINGS,
   EMPTY_COMPOSER_DRAFT,
@@ -82,6 +83,7 @@ export function Composer({
   onSelectThreadOperation,
   presentation = 'normal'
 }: ComposerProps): React.JSX.Element {
+  const t = useT()
   const dialog = useAppDialog()
   const activeThreadId = useAppStore((s) => s.activeThreadId)
   const todoList = useAppStore((s) =>
@@ -509,11 +511,11 @@ export function Composer({
 
     pushToast({
       threadId: activeThreadId,
-      title: 'Start a new ACP thread',
-      body: 'ACP agents can only be attached before a thread has any messages.',
+      title: t('chat.composer.acpRebindBlockedTitle'),
+      body: t('chat.composer.acpRebindBlockedBody'),
       eventKey: `acp-bind-blocked:${activeThreadId}`
     })
-  }, [activeThreadId, pushToast])
+  }, [activeThreadId, pushToast, t])
 
   const { canSend: canSendBase, showStopButton } = getComposerActionState({
     connectionStatus,
@@ -564,18 +566,19 @@ export function Composer({
         await revertQueuedFollowUp(queuedFollowUpDraftId)
       } catch (error) {
         await dialog.alert({
-          title: error instanceof Error ? error.message : 'Failed to edit queued follow-up.'
+          title:
+            error instanceof Error ? error.message : t('chat.composer.editQueuedFollowUpFailed')
         })
       }
     })()
-  }, [dialog, queuedFollowUpDraftId, revertQueuedFollowUp])
+  }, [dialog, queuedFollowUpDraftId, revertQueuedFollowUp, t])
 
   const handleRemoveQueuedFollowUp = useCallback(() => {
     void (async () => {
       if (!queuedFollowUpDraftId) return
       const confirmed = await dialog.confirm({
-        title: 'Remove this queued follow-up?',
-        confirmLabel: 'Remove',
+        title: t('chat.composer.removeQueuedFollowUpTitle'),
+        confirmLabel: t('common.remove'),
         tone: 'danger'
       })
       if (!confirmed) return
@@ -584,11 +587,12 @@ export function Composer({
         await deleteMessage(queuedFollowUpDraftId)
       } catch (error) {
         await dialog.alert({
-          title: error instanceof Error ? error.message : 'Failed to remove queued follow-up.'
+          title:
+            error instanceof Error ? error.message : t('chat.composer.removeQueuedFollowUpFailed')
         })
       }
     })()
-  }, [deleteMessage, dialog, queuedFollowUpDraftId])
+  }, [deleteMessage, dialog, queuedFollowUpDraftId, t])
 
   const dispatchSend = useCallback(
     (mode: 'normal' | 'steer' | 'follow-up') => {
@@ -688,16 +692,16 @@ export function Composer({
     : 'normal'
   const activeRunHint =
     effectiveAcpBinding !== null
-      ? 'Enter to queue follow-up.'
+      ? t('chat.composer.enterQueuesFollowUp')
       : activeRunEnterBehavior === 'enter-steers'
-        ? 'Enter to steer, Option+Enter to queue follow-up.'
-        : 'Option+Enter to steer, Enter to queue follow-up.'
+        ? t('chat.composer.enterSteersHint')
+        : t('chat.composer.enterQueuesHint')
 
   const composerStatus = (() => {
     if (connectionStatus !== 'connected') {
       return {
         tone: 'error' as const,
-        text: 'Local server is unavailable. Reconnect before sending.'
+        text: t('chat.composer.serverUnavailable')
       }
     }
 
@@ -708,21 +712,21 @@ export function Composer({
     if (!isConfigured) {
       return {
         tone: 'muted' as const,
-        text: 'Choose a provider and model in Settings before sending.'
+        text: t('chat.composer.chooseProviderFirst')
       }
     }
 
     if (hasLoadingImages || hasLoadingFiles) {
       return {
         tone: 'muted' as const,
-        text: hasLoadingFiles ? 'Preparing file...' : 'Preparing image...'
+        text: hasLoadingFiles ? t('chat.composer.preparingFile') : t('chat.composer.preparingImage')
       }
     }
 
     if (isBackendSwitchPending) {
       return {
         tone: 'muted' as const,
-        text: 'Saving backend selection...'
+        text: t('chat.composer.savingBackendSelection')
       }
     }
 
@@ -730,8 +734,8 @@ export function Composer({
       return {
         tone: 'error' as const,
         text: hasFailedFiles
-          ? 'This file could not be prepared.'
-          : 'This image could not be prepared.'
+          ? t('chat.composer.filePrepFailed')
+          : t('chat.composer.imagePrepFailed')
       }
     }
 
@@ -828,22 +832,22 @@ export function Composer({
     scrollComposerToEndAfterBreakRef.current = false
     resizeTextarea({ forceScrollToBottom: force })
 
-    const t = textareaRef.current
-    if (!t) return
+    const textarea = textareaRef.current
+    if (!textarea) return
 
     const catchUpScrollIfCaretAtEnd = (): void => {
-      if (document.activeElement !== t) return
+      if (document.activeElement !== textarea) return
       const o = overlayRef.current
-      const tOverflows = t.scrollHeight > t.clientHeight + 3
+      const tOverflows = textarea.scrollHeight > textarea.clientHeight + 3
       const oOverflows = o ? o.scrollHeight > o.clientHeight + 3 : false
       if (!tOverflows && !oOverflows) return
-      const len = t.value.length
-      if (t.selectionStart !== len || t.selectionEnd !== len) return
-      t.scrollTop = t.scrollHeight - t.clientHeight
-      if (o) o.scrollTop = Math.max(t.scrollTop, o.scrollHeight - o.clientHeight)
+      const len = textarea.value.length
+      if (textarea.selectionStart !== len || textarea.selectionEnd !== len) return
+      textarea.scrollTop = textarea.scrollHeight - textarea.clientHeight
+      if (o) o.scrollTop = Math.max(textarea.scrollTop, o.scrollHeight - o.clientHeight)
     }
 
-    void t.offsetHeight
+    void textarea.offsetHeight
     catchUpScrollIfCaretAtEnd()
     let cancelled = false
     const id = requestAnimationFrame(() => {
@@ -1244,7 +1248,7 @@ export function Composer({
 
   const providerLabel =
     effectiveModel.providerName || (settings.provider === 'openai' ? 'OpenAI' : 'Anthropic')
-  const modelLabel = effectiveModel.model || 'Configure provider'
+  const modelLabel = effectiveModel.model || t('chat.composer.configureProvider')
   const reasoningProvider = config?.providers.find(
     (provider) => provider.name === effectiveModel.providerName
   )

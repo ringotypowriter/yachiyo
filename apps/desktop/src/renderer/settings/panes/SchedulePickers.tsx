@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
 import { CalendarClock, CalendarDays } from 'lucide-react'
 import { createPortal } from 'react-dom'
+import { useLocale, useT } from '@yachiyo/i18n/react'
 import { theme, alpha } from '@renderer/theme/theme'
 import { useRestoreFocusOnUnmount } from '@renderer/lib/focusRestore'
 import { SimpleSelect } from '../components/primitives'
-import { DAY_LABELS } from './scheduleTimeFormat'
+import { weekdayLabels } from './scheduleTimeFormat'
 
 // ---------------------------------------------------------------------------
 // Quick-pick schedule widget
@@ -18,12 +19,7 @@ interface CronQuickPickProps {
 type BuilderMode = 'interval' | 'hourly' | 'daily' | 'weekly'
 
 const INTERVAL_OPTIONS = [5, 10, 15, 30, 45] as const
-const BUILDER_MODES: { value: BuilderMode; label: string }[] = [
-  { value: 'interval', label: 'Minutes' },
-  { value: 'hourly', label: 'Hourly' },
-  { value: 'daily', label: 'Daily' },
-  { value: 'weekly', label: 'Weekly' }
-]
+const BUILDER_MODE_VALUES: BuilderMode[] = ['interval', 'hourly', 'daily', 'weekly']
 
 function builderToCron(
   mode: BuilderMode,
@@ -109,6 +105,14 @@ function cronToBuilder(
 }
 
 export function CronQuickPick({ value, onPick }: CronQuickPickProps): React.ReactNode {
+  const t = useT()
+  const locale = useLocale()
+  const builderModeLabels: Record<BuilderMode, string> = {
+    interval: t('settings.schedule.builder.minutes'),
+    hourly: t('settings.schedule.builder.hourly'),
+    daily: t('settings.schedule.builder.daily'),
+    weekly: t('settings.schedule.builder.weekly')
+  }
   const [open, setOpen] = useState(false)
   const [popupRect, setPopupRect] = useState<DOMRect | null>(null)
   const btnRef = useRef<HTMLButtonElement>(null)
@@ -162,7 +166,7 @@ export function CronQuickPick({ value, onPick }: CronQuickPickProps): React.Reac
       <button
         ref={btnRef}
         type="button"
-        title="Schedule builder"
+        title={t('settings.schedule.builder.title')}
         className="flex items-center justify-center rounded-md shrink-0"
         style={{
           width: 32,
@@ -197,20 +201,20 @@ export function CronQuickPick({ value, onPick }: CronQuickPickProps): React.Reac
           >
             {/* Mode segmented control */}
             <div className="flex rounded-lg p-0.5" style={{ background: alpha('ink', 0.05) }}>
-              {BUILDER_MODES.map((m) => (
+              {BUILDER_MODE_VALUES.map((m) => (
                 <button
-                  key={m.value}
+                  key={m}
                   type="button"
                   className="flex-1 py-1.5 rounded-md text-[11px] font-medium transition-all"
                   style={{
-                    background: mode === m.value ? theme.background.surface : 'transparent',
-                    color: mode === m.value ? theme.text.primary : theme.text.tertiary,
+                    background: mode === m ? theme.background.surface : 'transparent',
+                    color: mode === m ? theme.text.primary : theme.text.tertiary,
                     border: 'none',
-                    boxShadow: mode === m.value ? theme.shadow.button : 'none'
+                    boxShadow: mode === m ? theme.shadow.button : 'none'
                   }}
-                  onClick={() => setMode(m.value)}
+                  onClick={() => setMode(m)}
                 >
-                  {m.label}
+                  {builderModeLabels[m]}
                 </button>
               ))}
             </div>
@@ -221,7 +225,7 @@ export function CronQuickPick({ value, onPick }: CronQuickPickProps): React.Reac
               {mode === 'interval' && (
                 <div className="flex items-center gap-2">
                   <span className="text-xs shrink-0" style={{ color: theme.text.secondary }}>
-                    Every
+                    {t('settings.schedule.builder.every')}
                   </span>
                   <div className="flex gap-1 flex-1">
                     {INTERVAL_OPTIONS.map((n) => (
@@ -236,7 +240,7 @@ export function CronQuickPick({ value, onPick }: CronQuickPickProps): React.Reac
                         }}
                         onClick={() => setInterval(n)}
                       >
-                        {n}m
+                        {t('settings.schedule.builder.minuteOption', { minutes: n })}
                       </button>
                     ))}
                   </div>
@@ -247,7 +251,7 @@ export function CronQuickPick({ value, onPick }: CronQuickPickProps): React.Reac
               {mode === 'hourly' && (
                 <div className="flex items-center gap-2">
                   <span className="text-xs shrink-0" style={{ color: theme.text.secondary }}>
-                    At minute
+                    {t('settings.schedule.builder.atMinute')}
                   </span>
                   <SimpleSelect
                     value={minute}
@@ -266,7 +270,7 @@ export function CronQuickPick({ value, onPick }: CronQuickPickProps): React.Reac
                 <>
                   <div className="flex items-center gap-2">
                     <span className="text-xs shrink-0" style={{ color: theme.text.secondary }}>
-                      Time
+                      {t('settings.schedule.builder.time')}
                     </span>
                     <SimpleSelect
                       value={hour}
@@ -293,7 +297,7 @@ export function CronQuickPick({ value, onPick }: CronQuickPickProps): React.Reac
 
                   {mode === 'weekly' && (
                     <div className="flex gap-0.75">
-                      {DAY_LABELS.map((label, i) => {
+                      {weekdayLabels(locale, 'narrow').map((label, i) => {
                         const active = days.includes(i)
                         return (
                           <button
@@ -307,7 +311,7 @@ export function CronQuickPick({ value, onPick }: CronQuickPickProps): React.Reac
                             }}
                             onClick={() => toggleDay(i)}
                           >
-                            {label[0]}
+                            {label}
                           </button>
                         )
                       })}
@@ -335,7 +339,7 @@ export function CronQuickPick({ value, onPick }: CronQuickPickProps): React.Reac
                 }}
                 onClick={handleApply}
               >
-                Apply
+                {t('settings.schedule.builder.apply')}
               </button>
             </div>
           </div>,
@@ -348,23 +352,6 @@ export function CronQuickPick({ value, onPick }: CronQuickPickProps): React.Reac
 // ---------------------------------------------------------------------------
 // Date-time picker widget
 // ---------------------------------------------------------------------------
-
-const MONTH_NAMES = [
-  'January',
-  'February',
-  'March',
-  'April',
-  'May',
-  'June',
-  'July',
-  'August',
-  'September',
-  'October',
-  'November',
-  'December'
-] as const
-
-const WEEKDAY_LABELS = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'] as const
 
 function buildCalendarGrid(year: number, month: number): (number | null)[] {
   const firstDow = new Date(year, month, 1).getDay()
@@ -382,6 +369,8 @@ export function DateTimePick({
   value: string
   onPick: (dt: string) => void
 }): React.ReactNode {
+  const t = useT()
+  const locale = useLocale()
   const [open, setOpen] = useState(false)
   const [popupPos, setPopupPos] = useState<{ top: number; left: number; flipUp: boolean } | null>(
     null
@@ -521,7 +510,7 @@ export function DateTimePick({
       <button
         ref={btnRef}
         type="button"
-        title="Date & time picker"
+        title={t('settings.schedule.builder.dateTimePicker')}
         className="flex items-center justify-center rounded-md shrink-0"
         style={{
           width: 32,
@@ -558,16 +547,18 @@ export function DateTimePick({
             <div className="flex items-center justify-between mb-2">
               {navBtn(prevMonth, '‹')}
               <span className="text-xs font-medium" style={{ color: theme.text.primary }}>
-                {MONTH_NAMES[viewMonth]} {viewYear}
+                {new Intl.DateTimeFormat(locale, { month: 'long', year: 'numeric' }).format(
+                  new Date(viewYear, viewMonth)
+                )}
               </span>
               {navBtn(nextMonth, '›')}
             </div>
 
             {/* Weekday labels */}
             <div className="grid grid-cols-7 mb-1">
-              {WEEKDAY_LABELS.map((l) => (
+              {weekdayLabels(locale, 'narrow').map((l, i) => (
                 <span
-                  key={l}
+                  key={i}
                   className="text-center text-[10px] font-medium py-0.5"
                   style={{ color: theme.text.tertiary }}
                 >
@@ -617,7 +608,7 @@ export function DateTimePick({
               style={{ borderTop: `1px solid ${alpha('ink', 0.06)}` }}
             >
               <span className="text-xs shrink-0" style={{ color: theme.text.secondary }}>
-                Time
+                {t('settings.schedule.builder.time')}
               </span>
               <div className="flex items-center gap-1 flex-1">
                 {stepBtn(() => setHour((h) => (h + 23) % 24), '−')}
@@ -662,7 +653,7 @@ export function DateTimePick({
                 }}
                 onClick={handleApply}
               >
-                Apply
+                {t('settings.schedule.builder.apply')}
               </button>
             </div>
           </div>,

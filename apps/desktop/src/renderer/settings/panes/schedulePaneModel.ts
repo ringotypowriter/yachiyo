@@ -21,9 +21,11 @@ export interface ScheduleFormSubmitValues {
 export type ScheduleFormSubmitInput = Omit<UpdateScheduleInput, 'id'> &
   Partial<Pick<CreateScheduleInput, 'name' | 'prompt'>>
 
+export type ScheduleFormErrorCode = 'allFieldsRequired' | 'invalidRunAt'
+
 export type ScheduleFormSubmitResult =
   | { ok: true; input: ScheduleFormSubmitInput }
-  | { ok: false; error: string }
+  | { ok: false; error: ScheduleFormErrorCode }
 
 export function buildScheduleFormSubmitInput(
   values: ScheduleFormSubmitValues
@@ -36,12 +38,12 @@ export function buildScheduleFormSubmitInput(
   const isBundledEdit = values.initial?.bundled === true
 
   if (!name || !prompt) {
-    return { ok: false, error: 'All fields are required.' }
+    return { ok: false, error: 'allFieldsRequired' }
   }
 
   if (values.mode === 'one-off') {
     if (isNaN(Date.parse(runAt.replace(' ', 'T')))) {
-      return { ok: false, error: 'Invalid date/time for one-off schedule.' }
+      return { ok: false, error: 'invalidRunAt' }
     }
     return {
       ok: true,
@@ -56,7 +58,7 @@ export function buildScheduleFormSubmitInput(
   }
 
   if (!cron) {
-    return { ok: false, error: 'All fields are required.' }
+    return { ok: false, error: 'allFieldsRequired' }
   }
 
   return {

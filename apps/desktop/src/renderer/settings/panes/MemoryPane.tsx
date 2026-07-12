@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { MemoryTermDocument, MemoryTermEntry, SettingsConfig } from '@yachiyo/shared/protocol'
+import { tPlural } from '@yachiyo/i18n/index'
+import { useT } from '@yachiyo/i18n/react'
 import { useAppDialog } from '@renderer/components/AppDialogContext'
 import { theme } from '@renderer/theme/theme'
 import {
@@ -30,6 +32,7 @@ export function MemoryPane({ draft, onChange }: MemoryPaneProps): React.JSX.Elem
   const [deletingTermId, setDeletingTermId] = useState<string | null>(null)
   const [memoryTermsReloadKey, setMemoryTermsReloadKey] = useState(0)
   const [termsError, setTermsError] = useState<string | null>(null)
+  const t = useT()
   const dialog = useAppDialog()
   const memory = draft.memory ?? {
     enabled: true,
@@ -83,7 +86,9 @@ export function MemoryPane({ draft, onChange }: MemoryPaneProps): React.JSX.Elem
       })
       .catch((reason) => {
         if (!cancelled) {
-          setTermsError(reason instanceof Error ? reason.message : 'Failed to load memory terms.')
+          setTermsError(
+            reason instanceof Error ? reason.message : t('settings.memory.loadTermsFailed')
+          )
         }
       })
       .finally(() => {
@@ -95,13 +100,13 @@ export function MemoryPane({ draft, onChange }: MemoryPaneProps): React.JSX.Elem
     return () => {
       cancelled = true
     }
-  }, [draft, memoryTermsPage, memoryTermsReloadKey, view])
+  }, [draft, memoryTermsPage, memoryTermsReloadKey, view, t])
 
   const handleDeleteMemoryTerm = async (entry: MemoryTermEntry): Promise<void> => {
     const confirmed = await dialog.confirm({
-      title: `Forget "${entry.title}" permanently?`,
-      message: 'This deletes the memory row from local cognitive memory. It cannot be undone.',
-      confirmLabel: 'Forget',
+      title: t('settings.memory.forgetConfirmTitle', { title: entry.title }),
+      message: t('settings.memory.forgetConfirmMessage'),
+      confirmLabel: t('settings.memory.forget'),
       tone: 'danger'
     })
     if (!confirmed) return
@@ -112,7 +117,7 @@ export function MemoryPane({ draft, onChange }: MemoryPaneProps): React.JSX.Elem
       await deleteMemoryTerm(entry.id)
       setMemoryTermsReloadKey((key) => key + 1)
     } catch (error) {
-      setTermsError(error instanceof Error ? error.message : 'Failed to forget memory term.')
+      setTermsError(error instanceof Error ? error.message : t('settings.memory.forgetTermFailed'))
     } finally {
       setDeletingTermId(null)
     }
@@ -132,25 +137,27 @@ export function MemoryPane({ draft, onChange }: MemoryPaneProps): React.JSX.Elem
               setMemoryTermDocument(null)
             }}
           >
-            ← Memory
+            ← {t('settings.memory.title')}
           </button>
           <div className="mt-1 text-lg font-semibold" style={{ color: theme.text.primary }}>
-            Memory terms
+            {t('settings.memory.termsTitle')}
           </div>
           <div className="mt-0.5 text-sm leading-5" style={{ color: theme.text.tertiary }}>
-            Cognitive memory as a compact indexed list. Each row keeps the topic, type, content, and
-            update metadata visible.
+            {t('settings.memory.termsDescription')}
           </div>
           {memoryTermDocument ? (
             <div className="mt-0.5 text-xs leading-5" style={{ color: theme.text.muted }}>
-              {memoryTermDocument.memoryCount} terms across {memoryTermDocument.topicCount} topics
+              {t('settings.memory.termsAcrossTopics', {
+                terms: tPlural('settings.memory.termCount', memoryTermDocument.memoryCount),
+                topics: tPlural('settings.memory.topicCount', memoryTermDocument.topicCount)
+              })}
             </div>
           ) : null}
         </div>
 
         {isLoadingTerms ? (
           <div className="px-7 text-sm" style={{ color: theme.text.muted }}>
-            Loading memory terms...
+            {t('settings.memory.loadingTerms')}
           </div>
         ) : (
           <>
@@ -194,21 +201,29 @@ export function MemoryPane({ draft, onChange }: MemoryPaneProps): React.JSX.Elem
                           >
                             <span>{topic}</span>
                             <span>
-                              · {topicEntryCount} {topicEntryCount === 1 ? 'term' : 'terms'} in
-                              topic
+                              · {tPlural('settings.memory.termsInTopic', topicEntryCount)}
                             </span>
                             {typeof entry.importance === 'number' ? (
-                              <span>· importance {entry.importance}</span>
+                              <span>
+                                ·{' '}
+                                {t('settings.memory.importanceLabel', { value: entry.importance })}
+                              </span>
                             ) : null}
                             {typeof entry.activationCount === 'number' ? (
-                              <span>· activated {entry.activationCount}</span>
+                              <span>
+                                ·{' '}
+                                {t('settings.memory.activatedCount', {
+                                  count: entry.activationCount
+                                })}
+                              </span>
                             ) : null}
                             <span>
-                              · updated <time dateTime={entry.updatedAt}>{entry.updatedAt}</time>
+                              · {t('settings.memory.updatedLabel')}{' '}
+                              <time dateTime={entry.updatedAt}>{entry.updatedAt}</time>
                             </span>
                             {entry.lastActivatedAt ? (
                               <span>
-                                · last used{' '}
+                                · {t('settings.memory.lastUsedLabel')}{' '}
                                 <time dateTime={entry.lastActivatedAt}>
                                   {entry.lastActivatedAt}
                                 </time>
@@ -223,7 +238,9 @@ export function MemoryPane({ draft, onChange }: MemoryPaneProps): React.JSX.Elem
                           disabled={deletingTermId === entry.id}
                           onClick={() => void handleDeleteMemoryTerm(entry)}
                         >
-                          {deletingTermId === entry.id ? 'Forgetting...' : 'Forget'}
+                          {deletingTermId === entry.id
+                            ? t('settings.memory.forgetting')
+                            : t('settings.memory.forget')}
                         </button>
                       </div>
                     </div>
@@ -235,13 +252,13 @@ export function MemoryPane({ draft, onChange }: MemoryPaneProps): React.JSX.Elem
                   startIndex={memoryTermStartIndex}
                   endIndex={memoryTermEndIndex}
                   totalCount={memoryTermTotalCount}
-                  itemLabel={memoryTermTotalCount === 1 ? 'term' : 'terms'}
+                  itemLabel={tPlural('settings.memory.termUnit', memoryTermTotalCount)}
                   onPageChange={setMemoryTermsPage}
                 />
               </>
             ) : (
               <div className="px-7 py-3 text-sm" style={{ color: theme.text.muted }}>
-                No memory terms yet.
+                {t('settings.memory.noTerms')}
               </div>
             )}
 
@@ -262,10 +279,10 @@ export function MemoryPane({ draft, onChange }: MemoryPaneProps): React.JSX.Elem
         <SettingRow>
           <div className="min-w-0 space-y-0.5">
             <div className="text-sm font-medium" style={{ color: theme.text.primary }}>
-              Enable memory
+              {t('settings.memory.enableTitle')}
             </div>
             <div className="text-sm leading-5" style={{ color: theme.text.tertiary }}>
-              Pull recalled context into runs and allow explicit thread saves.
+              {t('settings.memory.enableDescription')}
             </div>
           </div>
           <div className="shrink-0">
@@ -274,7 +291,7 @@ export function MemoryPane({ draft, onChange }: MemoryPaneProps): React.JSX.Elem
               onChange={() =>
                 onChange({ ...draft, memory: { ...memory, enabled: !memory.enabled } })
               }
-              ariaLabel="Toggle memory"
+              ariaLabel={t('settings.memory.toggleMemoryAria')}
             />
           </div>
         </SettingRow>
@@ -282,10 +299,10 @@ export function MemoryPane({ draft, onChange }: MemoryPaneProps): React.JSX.Elem
         <SettingRow>
           <div className="min-w-0 space-y-0.5">
             <div className="text-sm font-medium" style={{ color: theme.text.primary }}>
-              Memory terms
+              {t('settings.memory.termsTitle')}
             </div>
             <div className="text-sm leading-5" style={{ color: theme.text.tertiary }}>
-              View the memory hierarchy grouped by stored topic.
+              {t('settings.memory.termsRowDescription')}
             </div>
           </div>
           <button
@@ -297,21 +314,21 @@ export function MemoryPane({ draft, onChange }: MemoryPaneProps): React.JSX.Elem
               setView('terms')
             }}
           >
-            View terms →
+            {t('settings.memory.viewTerms')} →
           </button>
         </SettingRow>
       </SettingSection>
 
       <SettingSection>
-        <SettingLabel>Memory</SettingLabel>
+        <SettingLabel>{t('settings.memory.title')}</SettingLabel>
 
         <SettingRow>
           <div className="min-w-0 space-y-0.5">
             <div className="text-sm font-medium" style={{ color: theme.text.primary }}>
-              Auto-distill memory after runs
+              {t('settings.memory.autoDistillTitle')}
             </div>
             <div className="text-sm leading-5" style={{ color: theme.text.tertiary }}>
-              When off, memory is updated only when you use the remember tool.
+              {t('settings.memory.autoDistillDescription')}
             </div>
           </div>
 
@@ -327,7 +344,7 @@ export function MemoryPane({ draft, onChange }: MemoryPaneProps): React.JSX.Elem
                   }
                 })
               }
-              ariaLabel="Toggle auto memory distillation"
+              ariaLabel={t('settings.memory.toggleAutoDistillAria')}
             />
           </div>
         </SettingRow>
@@ -335,10 +352,10 @@ export function MemoryPane({ draft, onChange }: MemoryPaneProps): React.JSX.Elem
         <SettingRow>
           <div className="min-w-0 space-y-0.5">
             <div className="text-sm font-medium" style={{ color: theme.text.primary }}>
-              Auto Recall
+              {t('settings.memory.autoRecallTitle')}
             </div>
             <div className="text-sm leading-5" style={{ color: theme.text.tertiary }}>
-              When off, new runs start without pulling in saved memories.
+              {t('settings.memory.autoRecallDescription')}
             </div>
           </div>
 
@@ -354,7 +371,7 @@ export function MemoryPane({ draft, onChange }: MemoryPaneProps): React.JSX.Elem
                   }
                 })
               }
-              ariaLabel="Toggle automatic memory recall"
+              ariaLabel={t('settings.memory.toggleAutoRecallAria')}
             />
           </div>
         </SettingRow>
@@ -362,7 +379,7 @@ export function MemoryPane({ draft, onChange }: MemoryPaneProps): React.JSX.Elem
 
       <SettingSection>
         <div className="px-7 py-4 text-sm leading-5" style={{ color: theme.text.tertiary }}>
-          Auto-recall and post-run distillation use the tool model configured in Chat settings.
+          {t('settings.memory.toolModelNote')}
         </div>
       </SettingSection>
     </div>

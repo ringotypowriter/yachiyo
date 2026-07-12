@@ -1,5 +1,6 @@
 import type React from 'react'
 import { useState } from 'react'
+import { useT } from '@yachiyo/i18n/react'
 import type { ThreadColorTag } from '@renderer/app/types'
 import { THREAD_COLOR_VALUES } from '@renderer/features/threads/lib/threadColorPalette'
 import { theme } from '@renderer/theme/theme'
@@ -14,15 +15,16 @@ export interface ColorDotPickerOption {
 
 export function ColorDotPicker({
   options,
-  title = 'Color'
+  title
 }: {
   options: ColorDotPickerOption[]
   title?: string
 }): React.JSX.Element {
+  const t = useT()
   const [hoveredOption, setHoveredOption] = useState<ColorDotPickerOption | null>(null)
   const activeOption = options.find((option) => option.active)
   const displayedOption = hoveredOption ?? activeOption
-  const displayedLabel = displayedOption?.label ?? 'Default'
+  const displayedLabel = displayedOption?.label ?? t('common.default')
   const displayedColor = displayedOption?.colorTag
     ? THREAD_COLOR_VALUES[displayedOption.colorTag]
     : theme.text.primary
@@ -39,7 +41,7 @@ export function ColorDotPicker({
             textTransform: 'uppercase'
           }}
         >
-          {title}
+          {title ?? t('threads.colors.title')}
         </span>
         <span
           className="min-w-0 truncate text-right"
@@ -59,7 +61,7 @@ export function ColorDotPicker({
             type="button"
             disabled={option.disabled}
             title={option.label}
-            aria-label={`Mark it ${option.label}`}
+            aria-label={t('threads.colors.markIt', { color: option.label })}
             onMouseEnter={() => setHoveredOption(option)}
             onMouseLeave={() => setHoveredOption(null)}
             onClick={option.onSelect}

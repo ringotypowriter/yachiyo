@@ -5,6 +5,8 @@ import type {
   SyncConflictResolution,
   SyncStatus
 } from '@yachiyo/shared/protocol'
+import { tPlural } from '@yachiyo/i18n/index'
+import { useT } from '@yachiyo/i18n/react'
 import { useAppDialog } from '@renderer/components/AppDialogContext'
 import { alpha, theme } from '@renderer/theme/theme'
 
@@ -54,22 +56,25 @@ function choiceChipStyle(selected: boolean): React.CSSProperties {
   }
 }
 
-function statusLabel(status: SyncStatus | null, busy: boolean): string {
-  if (busy) return 'Syncing...'
-  if (!status) return 'Loading sync status...'
+function statusLabel(status: SyncStatus | null, busy: boolean, t: ReturnType<typeof useT>): string {
+  if (busy) return t('settings.sync.syncing')
+  if (!status) return t('settings.sync.loadingStatus')
   switch (status.state) {
     case 'sync_dir_unavailable':
-      return 'Sync folder unavailable'
+      return t('settings.sync.statusUnavailable')
     case 'not_initialized':
-      return status.deviceCount > 0 ? 'Not enabled on this device' : 'Not initialized'
+      return status.deviceCount > 0
+        ? t('settings.sync.statusNotEnabledDevice')
+        : t('settings.sync.statusNotInitialized')
     case 'needs_attention':
-      return 'Needs attention'
+      return t('settings.sync.statusNeedsAttention')
     case 'ready':
-      return 'Ready'
+      return t('settings.sync.statusReady')
   }
 }
 
 export function SyncPane({ onConfigReload }: SyncPaneProps): React.ReactNode {
+  const t = useT()
   const dialog = useAppDialog()
   const [status, setStatus] = useState<SyncStatus | null>(null)
   const [conflicts, setConflicts] = useState<SyncConflictRecord[]>([])
@@ -108,9 +113,9 @@ export function SyncPane({ onConfigReload }: SyncPaneProps): React.ReactNode {
 
   useEffect(() => {
     void reload().catch((reason) => {
-      setError(reason instanceof Error ? reason.message : 'Failed to load sync status.')
+      setError(reason instanceof Error ? reason.message : t('settings.sync.loadStatusFailed'))
     })
-  }, [reload])
+  }, [reload, t])
 
   const handleInit = async (): Promise<void> => {
     setBusy(true)
@@ -119,7 +124,7 @@ export function SyncPane({ onConfigReload }: SyncPaneProps): React.ReactNode {
       setStatus(await window.api.yachiyo.initSync())
       await reload()
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'Failed to initialize sync.')
+      setError(reason instanceof Error ? reason.message : t('settings.sync.initFailed'))
     } finally {
       setBusy(false)
     }
@@ -132,7 +137,7 @@ export function SyncPane({ onConfigReload }: SyncPaneProps): React.ReactNode {
       setStatus(await window.api.yachiyo.runSyncNow())
       await reload()
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'Failed to sync now.')
+      setError(reason instanceof Error ? reason.message : t('settings.sync.syncNowFailed'))
     } finally {
       setBusy(false)
     }
@@ -153,7 +158,7 @@ export function SyncPane({ onConfigReload }: SyncPaneProps): React.ReactNode {
       await onConfigReload()
       await reload()
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'Failed to update sync folder.')
+      setError(reason instanceof Error ? reason.message : t('settings.sync.updateFolderFailed'))
     } finally {
       setBusy(false)
     }
@@ -177,10 +182,10 @@ export function SyncPane({ onConfigReload }: SyncPaneProps): React.ReactNode {
   ): Promise<void> => {
     if (resolution === 'use_remote') {
       const confirmed = await dialog.confirm({
-        title: 'Use synced settings?',
-        message: 'This replaces this device’s current settings with the synced version.',
-        confirmLabel: 'Use Synced Version',
-        cancelLabel: 'Cancel'
+        title: t('settings.sync.useSyncedConfirmTitle'),
+        message: t('settings.sync.useSyncedConfirmMessage'),
+        confirmLabel: t('settings.sync.useSyncedVersion'),
+        cancelLabel: t('common.cancel')
       })
       if (!confirmed) return
     }
@@ -199,7 +204,7 @@ export function SyncPane({ onConfigReload }: SyncPaneProps): React.ReactNode {
       }
       await reload()
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'Failed to resolve conflict.')
+      setError(reason instanceof Error ? reason.message : t('settings.sync.resolveConflictFailed'))
     } finally {
       setBusy(false)
     }
@@ -232,15 +237,13 @@ export function SyncPane({ onConfigReload }: SyncPaneProps): React.ReactNode {
             className="text-[11px] font-semibold uppercase tracking-[0.12em]"
             style={{ color: theme.text.accent }}
           >
-            Sync
+            {t('settings.sync.title')}
           </div>
           <div className="text-lg font-semibold" style={{ color: theme.text.primary }}>
-            File Sync
+            {t('settings.sync.fileSync')}
           </div>
           <div className="text-sm leading-5" style={{ color: theme.text.tertiary }}>
-            Settings and remote chat archives sync through a local folder. Use the recommended
-            iCloud Drive folder, or choose another folder you manage yourself. Synced chats from
-            other devices stay read-only.
+            {t('settings.sync.description')}
           </div>
         </div>
         <div className="flex shrink-0 gap-2">
@@ -251,7 +254,7 @@ export function SyncPane({ onConfigReload }: SyncPaneProps): React.ReactNode {
               onClick={() => void handleInit()}
               style={primaryButtonStyle(busy || unavailable)}
             >
-              {joinable ? 'Join This Device' : 'Enable Sync'}
+              {joinable ? t('settings.sync.joinThisDevice') : t('settings.sync.enableSync')}
             </button>
           ) : (
             <button
@@ -260,7 +263,7 @@ export function SyncPane({ onConfigReload }: SyncPaneProps): React.ReactNode {
               onClick={() => void handleSyncNow()}
               style={primaryButtonStyle(busy)}
             >
-              Sync Now
+              {t('settings.sync.syncNow')}
             </button>
           )}
         </div>
@@ -283,10 +286,10 @@ export function SyncPane({ onConfigReload }: SyncPaneProps): React.ReactNode {
           ) : (
             <Cloud size={16} color={theme.icon.muted} />
           )}
-          {statusLabel(status, busy)}
+          {statusLabel(status, busy, t)}
         </div>
         <div className="mt-2 text-xs leading-5 break-all" style={{ color: theme.text.muted }}>
-          {status?.syncDir ?? 'Resolving sync folder...'}
+          {status?.syncDir ?? t('settings.sync.resolvingFolder')}
         </div>
         <div className="mt-3 flex flex-wrap gap-2">
           <button
@@ -298,7 +301,7 @@ export function SyncPane({ onConfigReload }: SyncPaneProps): React.ReactNode {
               busy || !status?.recommendedSyncDir || usingRecommendedSyncDir
             )}
           >
-            <Cloud size={13} /> Use iCloud Folder
+            <Cloud size={13} /> {t('settings.sync.useICloudFolder')}
           </button>
           <button
             type="button"
@@ -307,29 +310,26 @@ export function SyncPane({ onConfigReload }: SyncPaneProps): React.ReactNode {
             className="flex items-center gap-1.5"
             style={secondaryButtonStyle(busy)}
           >
-            <FolderOpen size={13} /> Choose Folder
+            <FolderOpen size={13} /> {t('settings.sync.chooseFolder')}
           </button>
         </div>
         {status ? (
           <div className="mt-3 flex flex-wrap gap-3 text-xs" style={{ color: theme.text.tertiary }}>
-            <span>
-              {status.deviceCount} device{status.deviceCount === 1 ? '' : 's'}
-            </span>
-            <span>
-              {conflicts.length} pending conflict{conflicts.length === 1 ? '' : 's'}
-            </span>
-            {status.deviceId ? <span>Device {status.deviceId.slice(0, 8)}</span> : null}
+            <span>{tPlural('settings.sync.deviceCount', status.deviceCount)}</span>
+            <span>{tPlural('settings.sync.pendingConflicts', conflicts.length)}</span>
+            {status.deviceId ? (
+              <span>{t('settings.sync.deviceIdLabel', { id: status.deviceId.slice(0, 8) })}</span>
+            ) : null}
           </div>
         ) : null}
         {unavailable ? (
           <div className="mt-3 text-sm leading-5" style={{ color: theme.text.tertiary }}>
-            Choose an existing folder, or sign in to iCloud Drive and enable Documents sync in macOS
-            before using the recommended folder.
+            {t('settings.sync.unavailableHint')}
           </div>
         ) : null}
         {joinable ? (
           <div className="mt-3 text-sm leading-5" style={{ color: theme.text.tertiary }}>
-            Sync is already active on another device. Join to pull your synced chats here.
+            {t('settings.sync.joinableHint')}
           </div>
         ) : null}
         {error || status?.lastError ? (
@@ -341,7 +341,7 @@ export function SyncPane({ onConfigReload }: SyncPaneProps): React.ReactNode {
 
       <div className="mb-3 flex items-center justify-between">
         <div className="text-sm font-semibold" style={{ color: theme.text.primary }}>
-          Conflicts
+          {t('settings.sync.conflicts')}
         </div>
         <button
           type="button"
@@ -349,7 +349,7 @@ export function SyncPane({ onConfigReload }: SyncPaneProps): React.ReactNode {
           className="flex items-center gap-1.5"
           style={secondaryButtonStyle()}
         >
-          <RefreshCw size={13} /> Refresh
+          <RefreshCw size={13} /> {t('settings.sync.refresh')}
         </button>
       </div>
 
@@ -358,7 +358,7 @@ export function SyncPane({ onConfigReload }: SyncPaneProps): React.ReactNode {
           className="rounded-2xl p-4 text-sm"
           style={{ background: alpha('ink', 0.03), color: theme.text.tertiary }}
         >
-          No pending sync conflicts.
+          {t('settings.sync.noConflicts')}
         </div>
       ) : (
         <div className="space-y-3">
@@ -375,7 +375,10 @@ export function SyncPane({ onConfigReload }: SyncPaneProps): React.ReactNode {
                 {conflict.entityId}
               </div>
               <div className="mt-1 text-xs leading-5" style={{ color: theme.text.tertiary }}>
-                From device {conflict.deviceId.slice(0, 8)} · {conflict.createdAt}
+                {t('settings.sync.fromDevice', {
+                  id: conflict.deviceId.slice(0, 8),
+                  createdAt: conflict.createdAt
+                })}
               </div>
               {conflict.settingsFields && conflict.settingsFields.length > 0 ? (
                 <>
@@ -384,8 +387,7 @@ export function SyncPane({ onConfigReload }: SyncPaneProps): React.ReactNode {
                     style={{ color: theme.text.tertiary }}
                   >
                     <span>
-                      {conflict.settingsFields.length} field
-                      {conflict.settingsFields.length === 1 ? '' : 's'} differ
+                      {tPlural('settings.sync.fieldsDiffer', conflict.settingsFields.length)}
                     </span>
                     <button
                       type="button"
@@ -393,7 +395,7 @@ export function SyncPane({ onConfigReload }: SyncPaneProps): React.ReactNode {
                       style={{ color: theme.text.accent }}
                       onClick={() => setAllChoices(conflict, 'local')}
                     >
-                      All: this device
+                      {t('settings.sync.allThisDevice')}
                     </button>
                     <button
                       type="button"
@@ -401,7 +403,7 @@ export function SyncPane({ onConfigReload }: SyncPaneProps): React.ReactNode {
                       style={{ color: theme.text.accent }}
                       onClick={() => setAllChoices(conflict, 'remote')}
                     >
-                      All: synced
+                      {t('settings.sync.allSynced')}
                     </button>
                   </div>
                   <div className="mt-2 space-y-2">
@@ -425,7 +427,7 @@ export function SyncPane({ onConfigReload }: SyncPaneProps): React.ReactNode {
                               className="text-[10px] uppercase tracking-wide"
                               style={{ color: theme.text.muted }}
                             >
-                              This device
+                              {t('settings.sync.thisDevice')}
                             </div>
                             <div className="truncate text-xs" style={{ color: theme.text.primary }}>
                               {field.localValue ?? '—'}
@@ -442,7 +444,7 @@ export function SyncPane({ onConfigReload }: SyncPaneProps): React.ReactNode {
                               className="text-[10px] uppercase tracking-wide"
                               style={{ color: theme.text.muted }}
                             >
-                              Synced
+                              {t('settings.sync.synced')}
                             </div>
                             <div className="truncate text-xs" style={{ color: theme.text.primary }}>
                               {field.remoteValue ?? '—'}
@@ -461,22 +463,22 @@ export function SyncPane({ onConfigReload }: SyncPaneProps): React.ReactNode {
                       }
                       style={primaryButtonStyle(busy)}
                     >
-                      Apply
+                      {t('settings.sync.apply')}
                     </button>
                     <button
                       type="button"
                       onClick={() => void copySyncedToml(conflict)}
                       style={secondaryButtonStyle()}
                     >
-                      Copy Synced TOML
+                      {t('settings.sync.copySyncedToml')}
                     </button>
                   </div>
                 </>
               ) : (
                 <>
                   <div className="mt-2 grid gap-1 text-xs" style={{ color: theme.text.muted }}>
-                    <span>Local: {conflict.localHash}</span>
-                    <span>Synced: {conflict.remoteHash}</span>
+                    <span>{t('settings.sync.localHash', { hash: conflict.localHash })}</span>
+                    <span>{t('settings.sync.syncedHash', { hash: conflict.remoteHash })}</span>
                   </div>
                   <div className="mt-3 flex flex-wrap gap-2">
                     <button
@@ -485,7 +487,7 @@ export function SyncPane({ onConfigReload }: SyncPaneProps): React.ReactNode {
                       onClick={() => void resolveConflict(conflict, 'keep_local')}
                       style={secondaryButtonStyle()}
                     >
-                      Keep This Device
+                      {t('settings.sync.keepThisDevice')}
                     </button>
                     <button
                       type="button"
@@ -493,14 +495,14 @@ export function SyncPane({ onConfigReload }: SyncPaneProps): React.ReactNode {
                       onClick={() => void resolveConflict(conflict, 'use_remote')}
                       style={primaryButtonStyle(busy)}
                     >
-                      Use Synced Version
+                      {t('settings.sync.useSyncedVersion')}
                     </button>
                     <button
                       type="button"
                       onClick={() => void copySyncedToml(conflict)}
                       style={secondaryButtonStyle()}
                     >
-                      Copy Synced TOML
+                      {t('settings.sync.copySyncedToml')}
                     </button>
                   </div>
                 </>

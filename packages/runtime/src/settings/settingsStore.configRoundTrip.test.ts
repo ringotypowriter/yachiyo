@@ -228,6 +228,31 @@ themeAppearance = "dark"
   assert.equal(reloaded.general?.themeAppearance, 'dark')
 })
 
+test('general language round-trips through parse → normalize → stringify → parse', () => {
+  const toml = `[general]
+language = "zh-CN"
+`
+
+  const config = parseSettingsToml(toml)
+  assert.equal(config.general?.language, 'zh-CN')
+
+  const serialized = stringifySettingsToml(config)
+  const reloaded = parseSettingsToml(serialized)
+  assert.equal(reloaded.general?.language, 'zh-CN')
+})
+
+test('general language falls back to auto when invalid or missing', () => {
+  const invalid = parseSettingsToml(`[general]
+language = "klingon"
+`)
+  assert.equal(invalid.general?.language, 'auto')
+
+  const missing = parseSettingsToml(`[general]
+demoMode = false
+`)
+  assert.equal(missing.general?.language, 'auto')
+})
+
 test('toProviderSettings uses explicit defaultModel when provider exists', () => {
   const snapshot = toProviderSettings({
     providers: [PROVIDER_WORK, PROVIDER_BACKUP],
@@ -533,6 +558,7 @@ env = {}
 test('normalization preserves every GeneralConfig key', () => {
   const sentinel: Required<GeneralConfig> = {
     sidebarVisibility: 'collapsed',
+    language: 'zh-CN',
     sidebarPreview: false,
     workSummary: false,
     uiFontSize: 16,

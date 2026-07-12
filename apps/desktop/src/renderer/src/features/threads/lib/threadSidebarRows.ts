@@ -1,3 +1,4 @@
+import { formatDate, t } from '@yachiyo/i18n/index'
 import type { FolderRecord, Thread, ToolCall } from '../../../app/types.ts'
 import { stripMarkdown } from '@yachiyo/shared/messageContent'
 import { PLAN_MODE_EXIT_TOOL_NAME } from '@yachiyo/shared/planMode'
@@ -243,14 +244,14 @@ export function resolveThreadSidebarPreview({
   if (pendingPlanApproval === true && isLatestToolCallPlanExit(toolCalls)) {
     return {
       state: 'plan',
-      text: 'Pending approval'
+      text: t('threads.preview.pendingApproval')
     }
   }
 
   const preview = thread.preview?.trim()
   return {
     state: 'normal',
-    text: preview ? stripMarkdown(preview) : 'No messages yet'
+    text: preview ? stripMarkdown(preview) : t('threads.preview.noMessagesYet')
   }
 }
 
@@ -272,7 +273,7 @@ function formatSidebarDateLabel(updatedAt: string, today: Date): string {
   const day = new Date(date.getFullYear(), date.getMonth(), date.getDate())
   const diffDays = Math.floor((today.getTime() - day.getTime()) / (1000 * 60 * 60 * 24))
 
-  if (diffDays === 0) return 'Today'
-  if (diffDays === 1) return 'Yesterday'
-  return day.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+  if (diffDays === 0) return t('common.today')
+  if (diffDays === 1) return t('common.yesterday')
+  return formatDate(day, 'date')
 }

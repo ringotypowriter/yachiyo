@@ -1,6 +1,7 @@
 import type React from 'react'
 import { useId, useState } from 'react'
 import { ChevronRight } from 'lucide-react'
+import { useT } from '@yachiyo/i18n/react'
 import type { ToolCall } from '@renderer/app/types'
 import { theme } from '@renderer/theme/theme'
 import { JsonTreeView } from './JsonTreeView.tsx'
@@ -29,6 +30,7 @@ export function ToolCallRow({
   workspacePath,
   nested = false
 }: ToolCallRowProps): React.JSX.Element {
+  const t = useT()
   const [isExpanded, setIsExpanded] = useState(false)
   const detailsId = useId()
 
@@ -79,8 +81,8 @@ export function ToolCallRow({
       {!isActive &&
         toolCall.finishedAt &&
         (() => {
-          const t = elapsedSeconds(toolCall.startedAt, toolCall.finishedAt)
-          return t ? <span>· {t}</span> : null
+          const elapsed = elapsedSeconds(toolCall.startedAt, toolCall.finishedAt)
+          return elapsed ? <span>· {elapsed}</span> : null
         })()}
     </>
   )
@@ -106,7 +108,11 @@ export function ToolCallRow({
         className="flex w-full items-start gap-2 rounded-sm text-left"
         aria-controls={detailsId}
         aria-expanded={isExpanded}
-        aria-label={`${isExpanded ? 'Collapse' : 'Expand'} ${toolCall.toolName} details`}
+        aria-label={
+          isExpanded
+            ? t('chat.tools.collapseDetailsAria', { name: toolCall.toolName })
+            : t('chat.tools.expandDetailsAria', { name: toolCall.toolName })
+        }
         onClick={() => setIsExpanded((current) => !current)}
         style={{
           appearance: 'none',

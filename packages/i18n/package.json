@@ -1,0 +1,22 @@
+{
+  "name": "@yachiyo/i18n",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./*": "./src/*.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json --composite false",
+    "typecheck:tests": "tsc --noEmit -p tsconfig.tests.json --composite false",
+    "test": "pnpm run typecheck:tests && node ../../scripts/run-server-tests.mjs packages/i18n/src"
+  },
+  "peerDependencies": {
+    "react": "*"
+  },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": true
+    }
+  }
+}

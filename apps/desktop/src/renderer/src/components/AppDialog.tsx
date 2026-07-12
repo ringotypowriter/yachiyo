@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { X } from 'lucide-react'
+import { useT } from '@yachiyo/i18n/react'
 import { theme, alpha } from '@renderer/theme/theme'
 import { useRestoreFocusOnUnmount } from '@renderer/lib/focusRestore'
 import { isDismissEscapeKey } from '@renderer/lib/imeUtils'
@@ -90,6 +91,7 @@ export function AppDialog({
   ariaLabel,
   initialFocus = 'default-action'
 }: AppDialogProps): React.JSX.Element {
+  const t = useT()
   const panelRef = useRef<HTMLDivElement>(null)
   const defaultActionKey = useMemo(() => getDefaultDialogActionKey(actions), [actions])
 
@@ -229,7 +231,7 @@ export function AppDialog({
                   background: 'none',
                   cursor: 'default'
                 }}
-                aria-label="Close"
+                aria-label={t('common.close')}
               >
                 <X size={14} strokeWidth={2} />
               </button>

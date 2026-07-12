@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Loader2, RefreshCw } from 'lucide-react'
+import { useT } from '@yachiyo/i18n/react'
 import { theme, alpha } from '@renderer/theme/theme'
 import { inputStyle } from '../components/styles'
 
@@ -31,6 +32,7 @@ function RestartServiceButton({
   enabled: boolean
   label?: string
 }): React.ReactNode {
+  const t = useT()
   const [restarting, setRestarting] = useState(false)
 
   async function handleRestart(): Promise<void> {
@@ -42,7 +44,7 @@ function RestartServiceButton({
     }
   }
 
-  const text = label ?? 'Restart service'
+  const text = label ?? t('settings.channels.restartService')
 
   return (
     <SettingRow>
@@ -60,7 +62,7 @@ function RestartServiceButton({
         }}
       >
         <RefreshCw size={14} className={restarting ? 'animate-spin' : ''} />
-        {restarting ? 'Restarting...' : text}
+        {restarting ? t('settings.channels.restarting') : text}
       </button>
     </SettingRow>
   )
@@ -89,6 +91,7 @@ export function ChannelsPane({
   onGroupsChange: (next: ChannelGroupRecord[] | null) => void
   providers: ProviderConfig[]
 }): React.ReactNode {
+  const t = useT()
   const [showTelegramToken, setShowTelegramToken] = useState(false)
   const [showQQToken, setShowQQToken] = useState(false)
   const [showDiscordToken, setShowDiscordToken] = useState(false)
@@ -208,7 +211,8 @@ export function ChannelsPane({
     try {
       await window.api.yachiyo.clearGroupMonitorBuffer(groupId)
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Failed to start clearing.'
+      const message =
+        error instanceof Error ? error.message : t('settings.channels.clearStartFailed')
       setClearingGroupIds((current) => current.filter((id) => id !== groupId))
       setClearErrorsByGroupId((current) => ({ ...current, [groupId]: message }))
       throw error
@@ -257,14 +261,14 @@ export function ChannelsPane({
           <SettingRow>
             <div className="min-w-0">
               <div className="text-sm font-medium" style={{ color: theme.text.primary }}>
-                Enable bot
+                {t('settings.channels.enableBot')}
               </div>
               <div className="text-sm" style={{ color: theme.text.tertiary }}>
-                Let external users chat with your AI over Telegram
+                {t('settings.channels.telegramDescription')}
               </div>
             </div>
             <SettingSwitch
-              ariaLabel="Enable Telegram bot"
+              ariaLabel={t('settings.channels.enableTelegramBot')}
               checked={telegramEnabled}
               onChange={() => patchTelegram({ enabled: !telegramEnabled })}
             />
@@ -273,7 +277,7 @@ export function ChannelsPane({
           <SettingRow>
             <div className="flex items-center gap-2.5 flex-1 min-w-0">
               <span className="text-sm font-medium shrink-0" style={{ color: theme.text.primary }}>
-                Bot token
+                {t('settings.channels.botToken')}
               </span>
               <input
                 type={showTelegramToken ? 'text' : 'password'}
@@ -303,7 +307,7 @@ export function ChannelsPane({
                   cursor: 'default'
                 }}
               >
-                {showTelegramToken ? 'Hide' : 'Show'}
+                {showTelegramToken ? t('settings.channels.hide') : t('settings.channels.show')}
               </button>
             </div>
           </SettingRow>
@@ -315,7 +319,7 @@ export function ChannelsPane({
                   className="text-sm font-medium shrink-0"
                   style={{ color: theme.text.primary }}
                 >
-                  Model
+                  {t('settings.channels.model')}
                 </span>
                 <ModelSelect
                   value={
@@ -342,7 +346,7 @@ export function ChannelsPane({
                   className="text-sm font-medium shrink-0"
                   style={{ color: theme.text.primary }}
                 >
-                  Group Model
+                  {t('settings.channels.groupModel')}
                 </span>
                 <ModelSelect
                   value={
@@ -389,14 +393,14 @@ export function ChannelsPane({
           <SettingRow>
             <div className="min-w-0">
               <div className="text-sm font-medium" style={{ color: theme.text.primary }}>
-                Enable bot
+                {t('settings.channels.enableBot')}
               </div>
               <div className="text-sm" style={{ color: theme.text.tertiary }}>
-                Connect to a NapCatQQ instance via OneBot v11
+                {t('settings.channels.qqDescription')}
               </div>
             </div>
             <SettingSwitch
-              ariaLabel="Enable QQ bot"
+              ariaLabel={t('settings.channels.enableQqBot')}
               checked={qqEnabled}
               onChange={() => patchQQ({ enabled: !qqEnabled })}
             />
@@ -405,7 +409,7 @@ export function ChannelsPane({
           <SettingRow>
             <div className="flex items-center gap-2.5 flex-1 min-w-0">
               <span className="text-sm font-medium shrink-0" style={{ color: theme.text.primary }}>
-                WebSocket URL
+                {t('settings.channels.webSocketUrl')}
               </span>
               <input
                 type="text"
@@ -430,13 +434,13 @@ export function ChannelsPane({
           <SettingRow>
             <div className="flex items-center gap-2.5 flex-1 min-w-0">
               <span className="text-sm font-medium shrink-0" style={{ color: theme.text.primary }}>
-                Token
+                {t('settings.channels.token')}
               </span>
               <input
                 type={showQQToken ? 'text' : 'password'}
                 value={qqToken}
                 onChange={(e) => patchQQ({ token: e.target.value })}
-                placeholder="Optional"
+                placeholder={t('settings.channels.optionalPlaceholder')}
                 spellCheck={false}
                 className="flex-1 text-sm min-w-0"
                 style={{
@@ -460,7 +464,7 @@ export function ChannelsPane({
                   cursor: 'default'
                 }}
               >
-                {showQQToken ? 'Hide' : 'Show'}
+                {showQQToken ? t('settings.channels.hide') : t('settings.channels.show')}
               </button>
             </div>
           </SettingRow>
@@ -472,7 +476,7 @@ export function ChannelsPane({
                   className="text-sm font-medium shrink-0"
                   style={{ color: theme.text.primary }}
                 >
-                  Model
+                  {t('settings.channels.model')}
                 </span>
                 <ModelSelect
                   value={qq?.model ? `${qq.model.providerName}::${qq.model.model}` : ''}
@@ -497,7 +501,7 @@ export function ChannelsPane({
                   className="text-sm font-medium shrink-0"
                   style={{ color: theme.text.primary }}
                 >
-                  Group Model
+                  {t('settings.channels.groupModel')}
                 </span>
                 <ModelSelect
                   value={
@@ -544,14 +548,14 @@ export function ChannelsPane({
           <SettingRow>
             <div className="min-w-0">
               <div className="text-sm font-medium" style={{ color: theme.text.primary }}>
-                Enable bot
+                {t('settings.channels.enableBot')}
               </div>
               <div className="text-sm" style={{ color: theme.text.tertiary }}>
-                Connect via QQ Official Bot API (DM only)
+                {t('settings.channels.qqbotDescription')}
               </div>
             </div>
             <SettingSwitch
-              ariaLabel="Enable QQBot"
+              ariaLabel={t('settings.channels.enableQqOfficialBot')}
               checked={qqbotEnabled}
               onChange={() => patchQQBot({ enabled: !qqbotEnabled })}
             />
@@ -560,7 +564,7 @@ export function ChannelsPane({
           <SettingRow>
             <div className="flex items-center gap-2.5 flex-1 min-w-0">
               <span className="text-sm font-medium shrink-0" style={{ color: theme.text.primary }}>
-                App ID
+                {t('settings.channels.appId')}
               </span>
               <input
                 type="text"
@@ -585,13 +589,13 @@ export function ChannelsPane({
           <SettingRow>
             <div className="flex items-center gap-2.5 flex-1 min-w-0">
               <span className="text-sm font-medium shrink-0" style={{ color: theme.text.primary }}>
-                Secret
+                {t('settings.channels.secret')}
               </span>
               <input
                 type={showQQBotSecret ? 'text' : 'password'}
                 value={qqbotClientSecret}
                 onChange={(e) => patchQQBot({ clientSecret: e.target.value })}
-                placeholder="Client secret from QQ Developer Portal"
+                placeholder={t('settings.channels.secretPlaceholder')}
                 spellCheck={false}
                 className="flex-1 text-sm min-w-0"
                 style={{
@@ -615,7 +619,7 @@ export function ChannelsPane({
                   cursor: 'default'
                 }}
               >
-                {showQQBotSecret ? 'Hide' : 'Show'}
+                {showQQBotSecret ? t('settings.channels.hide') : t('settings.channels.show')}
               </button>
             </div>
           </SettingRow>
@@ -627,7 +631,7 @@ export function ChannelsPane({
                   className="text-sm font-medium shrink-0"
                   style={{ color: theme.text.primary }}
                 >
-                  Model
+                  {t('settings.channels.model')}
                 </span>
                 <ModelSelect
                   value={qqbot?.model ? `${qqbot.model.providerName}::${qqbot.model.model}` : ''}
@@ -658,14 +662,14 @@ export function ChannelsPane({
           <SettingRow>
             <div className="min-w-0">
               <div className="text-sm font-medium" style={{ color: theme.text.primary }}>
-                Enable bot
+                {t('settings.channels.enableBot')}
               </div>
               <div className="text-sm" style={{ color: theme.text.tertiary }}>
-                Connect a Discord bot to your server channels and DMs
+                {t('settings.channels.discordDescription')}
               </div>
             </div>
             <SettingSwitch
-              ariaLabel="Enable Discord bot"
+              ariaLabel={t('settings.channels.enableDiscordBot')}
               checked={discordEnabled}
               onChange={() => patchDiscord({ enabled: !discordEnabled })}
             />
@@ -674,7 +678,7 @@ export function ChannelsPane({
           <SettingRow>
             <div className="flex items-center gap-2.5 flex-1 min-w-0">
               <span className="text-sm font-medium shrink-0" style={{ color: theme.text.primary }}>
-                Bot token
+                {t('settings.channels.botToken')}
               </span>
               <input
                 type={showDiscordToken ? 'text' : 'password'}
@@ -704,7 +708,7 @@ export function ChannelsPane({
                   cursor: 'default'
                 }}
               >
-                {showDiscordToken ? 'Hide' : 'Show'}
+                {showDiscordToken ? t('settings.channels.hide') : t('settings.channels.show')}
               </button>
             </div>
           </SettingRow>
@@ -716,7 +720,7 @@ export function ChannelsPane({
                   className="text-sm font-medium shrink-0"
                   style={{ color: theme.text.primary }}
                 >
-                  Model
+                  {t('settings.channels.model')}
                 </span>
                 <ModelSelect
                   value={
@@ -739,14 +743,14 @@ export function ChannelsPane({
           <SettingRow>
             <div className="min-w-0">
               <div className="text-sm font-medium" style={{ color: theme.text.primary }}>
-                Group Discussion
+                {t('settings.channels.groupDiscussion')}
               </div>
               <div className="text-sm" style={{ color: theme.text.tertiary }}>
-                Monitor approved server channels and participate in conversations
+                {t('settings.channels.discordGroupDescription')}
               </div>
             </div>
             <SettingSwitch
-              ariaLabel="Enable Discord group discussion"
+              ariaLabel={t('settings.channels.enableDiscordGroupDiscussion')}
               checked={discord?.group?.enabled ?? false}
               onChange={() =>
                 patchDiscord({
@@ -766,7 +770,7 @@ export function ChannelsPane({
                   className="text-sm font-medium shrink-0"
                   style={{ color: theme.text.primary }}
                 >
-                  Group Model
+                  {t('settings.channels.groupModel')}
                 </span>
                 <ModelSelect
                   value={
@@ -817,15 +821,15 @@ export function ChannelsPane({
   return (
     <div className="flex-1 overflow-y-auto pb-6">
       <SettingSection>
-        <SettingLabel>Token Limits</SettingLabel>
+        <SettingLabel>{t('settings.channels.tokenLimits')}</SettingLabel>
 
         <SettingRow>
           <div className="min-w-0 space-y-0.5">
             <div className="text-sm font-medium" style={{ color: theme.text.primary }}>
-              DM compact threshold
+              {t('settings.channels.dmCompactThreshold')}
             </div>
             <div className="text-sm leading-5" style={{ color: theme.text.tertiary }}>
-              Compact DM thread history above this token count.
+              {t('settings.channels.dmCompactThresholdDescription')}
             </div>
           </div>
           <div className="flex shrink-0 items-center gap-1">
@@ -852,10 +856,10 @@ export function ChannelsPane({
         <SettingRow>
           <div className="min-w-0 space-y-0.5">
             <div className="text-sm font-medium" style={{ color: theme.text.primary }}>
-              Group context window
+              {t('settings.channels.groupContextWindow')}
             </div>
             <div className="text-sm leading-5" style={{ color: theme.text.tertiary }}>
-              Sliding window budget for group probe messages.
+              {t('settings.channels.groupContextWindowDescription')}
             </div>
           </div>
           <div className="flex shrink-0 items-center gap-1">
@@ -881,12 +885,12 @@ export function ChannelsPane({
       </SettingSection>
 
       <SettingSection>
-        <SettingLabel>Group Discussion</SettingLabel>
+        <SettingLabel>{t('settings.channels.groupDiscussion')}</SettingLabel>
 
         <SettingRow>
           <div className="min-w-0 flex-1">
             <div className="text-sm font-medium" style={{ color: theme.text.primary }}>
-              Verbosity
+              {t('settings.channels.verbosity')}
             </div>
           </div>
           <div className="flex shrink-0 items-center gap-3">
@@ -898,7 +902,7 @@ export function ChannelsPane({
               onChange={(v) => {
                 onConfigChange({ ...config, groupVerbosity: v })
               }}
-              aria-label="Verbosity"
+              aria-label={t('settings.channels.verbosity')}
             />
             <span
               className="text-sm font-medium tabular-nums"
@@ -912,7 +916,7 @@ export function ChannelsPane({
         <SettingRow>
           <div className="min-w-0 flex-1">
             <div className="text-sm font-medium" style={{ color: theme.text.primary }}>
-              Check interval
+              {t('settings.channels.checkInterval')}
             </div>
           </div>
           <div className="flex shrink-0 items-center gap-3">
@@ -924,13 +928,13 @@ export function ChannelsPane({
               onChange={(v) => {
                 onConfigChange({ ...config, groupCheckIntervalMs: v * 1_000 })
               }}
-              aria-label="Check interval"
+              aria-label={t('settings.channels.checkInterval')}
             />
             <span
               className="text-sm font-medium tabular-nums"
               style={{ minWidth: 36, textAlign: 'right', color: theme.text.primary }}
             >
-              {checkIntervalSec}s
+              {t('settings.channels.intervalSeconds', { seconds: checkIntervalSec })}
             </span>
           </div>
         </SettingRow>
@@ -939,11 +943,10 @@ export function ChannelsPane({
           <SettingRow>
             <div className="min-w-0 space-y-0.5">
               <div className="text-sm font-medium" style={{ color: theme.text.primary }}>
-                Rewrite model
+                {t('settings.channels.rewriteModel')}
               </div>
               <div className="text-sm leading-5" style={{ color: theme.text.tertiary }}>
-                Rewrites outgoing group replies into the persona voice before sending. Empty = send
-                as generated.
+                {t('settings.channels.rewriteModelDescription')}
               </div>
             </div>
             <div className="shrink-0">
@@ -969,19 +972,19 @@ export function ChannelsPane({
       </SettingSection>
 
       <SettingSection>
-        <SettingLabel>Image to Text</SettingLabel>
+        <SettingLabel>{t('settings.channels.imageToText')}</SettingLabel>
 
         <SettingRow>
           <div className="min-w-0">
             <div className="text-sm font-medium" style={{ color: theme.text.primary }}>
-              Enable
+              {t('settings.channels.enable')}
             </div>
             <div className="text-sm" style={{ color: theme.text.tertiary }}>
-              Pre-describe images in group messages as alt text
+              {t('settings.channels.imageToTextDescription')}
             </div>
           </div>
           <SettingSwitch
-            ariaLabel="Enable image to text"
+            ariaLabel={t('settings.channels.enableImageToText')}
             checked={config.imageToText?.enabled ?? false}
             onChange={() => {
               onConfigChange({
@@ -997,12 +1000,12 @@ export function ChannelsPane({
       </SettingSection>
 
       <SettingSection>
-        <SettingLabel>Guest Instruction</SettingLabel>
+        <SettingLabel>{t('settings.channels.guestInstruction')}</SettingLabel>
 
         <SettingRow>
           <div className="flex-1 min-w-0">
             <div className="text-sm" style={{ color: theme.text.tertiary }}>
-              Custom context injected into the system prompt for guest conversations
+              {t('settings.channels.guestInstructionDescription')}
             </div>
           </div>
         </SettingRow>
@@ -1013,7 +1016,7 @@ export function ChannelsPane({
             onChange={(e) => {
               onConfigChange({ ...config, guestInstruction: e.target.value })
             }}
-            placeholder="Tell the model what guests should know about you, and any rules for guest conversations..."
+            placeholder={t('settings.channels.guestInstructionPlaceholder')}
             spellCheck={false}
             rows={4}
             className="w-full text-sm resize-y"
@@ -1031,7 +1034,7 @@ export function ChannelsPane({
       </SettingSection>
 
       <SettingSection>
-        <SettingLabel>Users</SettingLabel>
+        <SettingLabel>{t('settings.channels.users')}</SettingLabel>
 
         {isLoadingRecords ? (
           <div className="flex items-center justify-center py-6">
@@ -1052,7 +1055,7 @@ export function ChannelsPane({
             className="px-7 py-5 text-sm"
             style={{ color: theme.text.muted, borderTop: `1px solid ${theme.border.subtle}` }}
           >
-            No users yet — they appear here when they first message your bot.
+            {t('settings.channels.noUsersYet')}
           </div>
         ) : (
           users.map((user) => (
@@ -1070,7 +1073,7 @@ export function ChannelsPane({
       </SettingSection>
 
       <SettingSection>
-        <SettingLabel>Groups</SettingLabel>
+        <SettingLabel>{t('settings.channels.groups')}</SettingLabel>
 
         {isLoadingRecords ? (
           <div className="flex items-center justify-center py-6">
@@ -1091,7 +1094,7 @@ export function ChannelsPane({
             className="px-7 py-5 text-sm"
             style={{ color: theme.text.muted, borderTop: `1px solid ${theme.border.subtle}` }}
           >
-            No groups yet — they appear here when the bot is added to a group.
+            {t('settings.channels.noGroupsYet')}
           </div>
         ) : (
           groups.map((group) => (
@@ -1109,15 +1112,15 @@ export function ChannelsPane({
       </SettingSection>
 
       <SettingSection>
-        <SettingLabel>Memory Privacy</SettingLabel>
+        <SettingLabel>{t('settings.channels.memoryPrivacy')}</SettingLabel>
 
         <SettingRow>
           <div className="flex-1 min-w-0">
             <div className="text-sm font-medium" style={{ color: theme.text.primary }}>
-              Filter keywords
+              {t('settings.channels.filterKeywords')}
             </div>
             <div className="text-sm" style={{ color: theme.text.tertiary }}>
-              Memory search results containing these keywords are hidden from guests
+              {t('settings.channels.filterKeywordsDescription')}
             </div>
           </div>
         </SettingRow>
@@ -1134,7 +1137,7 @@ export function ChannelsPane({
         <RestartServiceButton
           platform="all"
           enabled={anyChannelEnabled}
-          label="Restart all services"
+          label={t('settings.channels.restartAllServices')}
         />
       </SettingSection>
     </div>

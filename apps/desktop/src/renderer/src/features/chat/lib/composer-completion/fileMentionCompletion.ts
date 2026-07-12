@@ -1,3 +1,5 @@
+import { t } from '@yachiyo/i18n/index'
+
 export interface FileMentionCompletionCandidate {
   path: string
   includeIgnored?: boolean
@@ -45,10 +47,10 @@ export function buildFileMentionCompletionCommands(input: {
     label: `${match.includeIgnored ? '!' : ''}${match.path}`,
     description:
       match.kind === 'jotdown'
-        ? 'Latest jot down'
+        ? t('chat.slashCommands.latestJotDown')
         : match.includeIgnored
-          ? 'Ignored workspace path'
-          : 'Workspace path',
+          ? t('chat.slashCommands.ignoredWorkspacePath')
+          : t('chat.slashCommands.workspacePath'),
     type: match.kind === 'jotdown' ? 'jotdown' : 'file'
   }))
 }

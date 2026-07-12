@@ -1,8 +1,10 @@
+import type { AppLanguage, UpdateChannel } from './protocol/appPreferences.ts'
 import type { ToolCallDetailsSnapshot } from './protocol/toolDetails.ts'
 import type { TodoItemRecord } from './protocol/events.ts'
 import type { ThingMentionResolution } from './protocol/things.ts'
 import type { GroupProbeHeadlessAdapterConfig } from './protocol/groupProbeAdapters.ts'
 
+export * from './protocol/appPreferences.ts'
 export * from './protocol/toolDetails.ts'
 export * from './protocol/usageStats.ts'
 export * from './protocol/events.ts'
@@ -705,8 +707,6 @@ export interface ChatConfig {
   imageToTextModel?: ThreadModelOverride
 }
 
-export type UpdateChannel = 'stable' | 'beta'
-
 export type ActivityTrackingMode = 'off' | 'simple' | 'full'
 
 export interface ActivityOcrConfig {
@@ -799,6 +799,7 @@ export interface ListActivitySourceRecordsResult {
 
 export interface GeneralConfig {
   sidebarVisibility?: SidebarVisibility
+  language?: AppLanguage
   sidebarPreview?: boolean
   workSummary?: boolean
   themeId?: ThemeId

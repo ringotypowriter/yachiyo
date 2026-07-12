@@ -1,4 +1,5 @@
 import { Folder } from 'lucide-react'
+import { useT } from '@yachiyo/i18n/react'
 import { theme } from '@renderer/theme/theme'
 import { getWorkspaceLabel } from './support.tsx'
 
@@ -13,6 +14,7 @@ export function WorkspaceSuggestionPopup({
   onSwitch,
   onDismiss
 }: WorkspaceSuggestionPopupProps): React.JSX.Element {
+  const t = useT()
   const folderName = getWorkspaceLabel(workspacePath)
 
   return (
@@ -46,7 +48,7 @@ export function WorkspaceSuggestionPopup({
             lineHeight: 1.35
           }}
         >
-          Switch to workspace &ldquo;{folderName}&rdquo;?
+          {t('chat.workspacePicker.suggestionTitle', { name: folderName })}
         </span>
       </div>
       <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
@@ -69,7 +71,7 @@ export function WorkspaceSuggestionPopup({
             lineHeight: 1.4
           }}
         >
-          Dismiss
+          {t('chat.dismiss')}
         </button>
         <button
           type="button"
@@ -90,7 +92,7 @@ export function WorkspaceSuggestionPopup({
             lineHeight: 1.4
           }}
         >
-          Switch
+          {t('chat.workspacePicker.switch')}
         </button>
       </div>
     </div>

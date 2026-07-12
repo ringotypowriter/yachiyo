@@ -1,5 +1,7 @@
 import type React from 'react'
 import { useEffect, useRef, useState } from 'react'
+import { tPlural } from '@yachiyo/i18n/index'
+import { useT } from '@yachiyo/i18n/react'
 import { AlarmClock, Check, Lock, Star } from 'lucide-react'
 import type { Thread, ThreadColorTag, ThreadSentinelRecord, ToolCall } from '@renderer/app/types'
 import { ThreadContextMenuPopup } from '@renderer/features/threads/components/ThreadContextMenuPopup'
@@ -136,6 +138,7 @@ export function ThreadListItem({
   toolCalls: ToolCall[]
   threadListMode: 'active' | 'archived'
 }): React.JSX.Element {
+  const t = useT()
   const preview = resolveThreadSidebarPreview({
     activeRunId,
     hasBackgroundWork,
@@ -292,7 +295,7 @@ export function ThreadListItem({
               <span
                 className="relative shrink-0 flex items-center select-none leading-none"
                 style={{ fontSize: showPreview ? '1.45em' : '1.15em' }}
-                title={isSyncedArchive ? undefined : 'Click to change icon'}
+                title={isSyncedArchive ? undefined : t('threads.item.clickToChangeIcon')}
               >
                 {thread.icon}
                 {isSyncedArchive ? null : (
@@ -365,17 +368,17 @@ export function ThreadListItem({
                     size={11}
                     strokeWidth={1.75}
                     className="shrink-0"
-                    aria-label="Read-only, synced from another device"
+                    aria-label={t('threads.item.readOnlySynced')}
                     style={{ color: theme.text.muted }}
                   />
                 ) : null}
                 {sentinel ? (
                   <span
-                    aria-label="Sentinel active"
+                    aria-label={t('threads.item.sentinelActive')}
                     title={
                       sentinelRemainingMinutes === null
-                        ? 'Sentinel armed'
-                        : `Sentinel in ${sentinelRemainingMinutes} minute${sentinelRemainingMinutes === 1 ? '' : 's'}`
+                        ? t('threads.item.sentinelArmed')
+                        : tPlural('threads.item.sentinelIn', sentinelRemainingMinutes)
                     }
                     className="relative inline-flex shrink-0 items-center gap-0.5 rounded px-1"
                     style={{
@@ -405,12 +408,17 @@ export function ThreadListItem({
                 >
                   {draftText !== null && preview.state === 'normal' ? (
                     <>
-                      <span style={{ color: theme.text.accent }}>[Draft]</span>
+                      <span style={{ color: theme.text.accent }}>
+                        {t('threads.preview.draftTag')}
+                      </span>
                       {draftText.length > 0 ? <> {draftText}</> : null}
                     </>
                   ) : preview.state === 'plan' ? (
                     <>
-                      <span style={{ color: theme.text.accent }}>[Plan]</span> {preview.text}
+                      <span style={{ color: theme.text.accent }}>
+                        {t('threads.preview.planTag')}
+                      </span>{' '}
+                      {preview.text}
                     </>
                   ) : (
                     preview.text
@@ -421,7 +429,7 @@ export function ThreadListItem({
           </div>
           {sentinel ? null : isSaving ? (
             <span
-              aria-label="Saving"
+              aria-label={t('common.saving')}
               className="absolute right-3 top-1/2 -translate-y-1/2 rounded-full"
               style={{
                 width: '7px',
@@ -432,7 +440,7 @@ export function ThreadListItem({
             />
           ) : hasActiveRun ? (
             <span
-              aria-label="Run active"
+              aria-label={t('threads.item.runActive')}
               className="yachiyo-sidebar-active-run-dot absolute right-3 top-1/2 -translate-y-1/2 rounded-full"
               style={{
                 width: '7px',
@@ -442,7 +450,7 @@ export function ThreadListItem({
             />
           ) : hasJustDoneRun ? (
             <span
-              aria-label="Just Done"
+              aria-label={t('threads.filter.justDone')}
               className="absolute right-3 top-1/2 -translate-y-1/2 rounded-full"
               style={{
                 width: '7px',
@@ -452,7 +460,7 @@ export function ThreadListItem({
             />
           ) : isUnreadArchived ? (
             <span
-              aria-label="Unread"
+              aria-label={t('threads.item.unread')}
               className="absolute right-3 top-1/2 -translate-y-1/2 rounded-full"
               style={{
                 width: '8px',
@@ -464,7 +472,7 @@ export function ThreadListItem({
         </button>
         {!isSelectMode && !isUnreadArchived && !isSyncedArchive ? (
           <button
-            title={isStarred ? 'Unstar' : 'Star'}
+            title={isStarred ? t('threads.contextMenu.unstar') : t('threads.contextMenu.star')}
             onClick={(e) => {
               e.stopPropagation()
               onStar(thread)

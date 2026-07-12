@@ -1,6 +1,8 @@
 import type React from 'react'
 import { useId, useState } from 'react'
 import { Brain, ChevronRight } from 'lucide-react'
+import { tPlural } from '@yachiyo/i18n/index'
+import { useT } from '@yachiyo/i18n/react'
 import type { RecallDecisionSnapshot } from '@renderer/app/types'
 import { theme } from '@renderer/theme/theme'
 import { compactNovelTermsForDisplay } from '../lib/run-memory/runMemoryPresentation.ts'
@@ -82,12 +84,12 @@ interface RunMemoryRecallRowProps {
   recallDecision?: RecallDecisionSnapshot
 }
 
-function formatReason(reason: string): string {
+function formatReason(reason: string, t: ReturnType<typeof useT>): string {
   switch (reason) {
     case 'topic-novelty':
-      return 'new topic'
+      return t('chat.memoryRecall.reasonNewTopic')
     case 'recall-failed':
-      return 'recall failed'
+      return t('chat.memoryRecall.reasonRecallFailed')
     default:
       return reason
   }
@@ -97,10 +99,11 @@ export function RunMemoryRecallRow({
   entries,
   recallDecision
 }: RunMemoryRecallRowProps): React.JSX.Element {
+  const t = useT()
   const [isExpanded, setIsExpanded] = useState(false)
   const detailsId = useId()
-  const reasons = recallDecision?.reasons?.map(formatReason) ?? []
-  const debugLabel = reasons.length > 0 ? reasons.join(', ') : 'manual/unknown'
+  const reasons = recallDecision?.reasons?.map((reason) => formatReason(reason, t)) ?? []
+  const debugLabel = reasons.length > 0 ? reasons.join(', ') : t('chat.memoryRecall.reasonManual')
   const shouldShowNovelTerms = recallDecision?.reasons?.includes('topic-novelty') ?? false
   const novelTerms = shouldShowNovelTerms
     ? compactNovelTermsForDisplay(recallDecision?.novelTerms)
@@ -113,7 +116,9 @@ export function RunMemoryRecallRow({
         className="inline-flex items-center gap-1.5 text-left"
         aria-controls={detailsId}
         aria-expanded={isExpanded}
-        aria-label={`${isExpanded ? 'Collapse' : 'Expand'} recalled memory`}
+        aria-label={
+          isExpanded ? t('chat.memoryRecall.collapseAria') : t('chat.memoryRecall.expandAria')
+        }
         onClick={() => setIsExpanded((current) => !current)}
         style={{
           appearance: 'none',
@@ -129,7 +134,7 @@ export function RunMemoryRecallRow({
       >
         <Brain size={12} strokeWidth={1.9} style={{ color: theme.text.accent }} />
         <span style={{ fontSize: '11px' }}>
-          {entries.length} recalled {entries.length === 1 ? 'memory' : 'memories'}
+          {tPlural('chat.memoryRecall.recalled', entries.length)}
         </span>
         <span style={{ color: theme.text.placeholder, fontSize: '11px' }}>· {debugLabel}</span>
         <ChevronRight
@@ -153,7 +158,7 @@ export function RunMemoryRecallRow({
           }}
         >
           <div className="mb-1" style={{ color: theme.text.placeholder, fontSize: '11px' }}>
-            Reason: {debugLabel}
+            {t('chat.memoryRecall.reason', { reason: debugLabel })}
           </div>
           <div className="flex flex-col gap-3">
             {entries.map((entry, index) => (
@@ -165,7 +170,7 @@ export function RunMemoryRecallRow({
               className="mt-2 text-[11px]"
               style={{ color: theme.text.placeholder, lineHeight: 1.5 }}
             >
-              Novel terms: {novelTerms.join(' · ')}
+              {t('chat.memoryRecall.novelTerms', { terms: novelTerms.join(' · ') })}
             </div>
           ) : null}
         </div>

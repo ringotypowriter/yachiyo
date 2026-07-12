@@ -1,9 +1,10 @@
+import { t } from '@yachiyo/i18n/index'
+
 export type AppTabId = 'chat' | 'things' | 'archived' | 'settings'
 export type AppSidebarMode = 'chat' | 'archived'
 
 export interface AppTabDefinition {
   id: AppTabId
-  label: string
 }
 
 export type AppTabBarBottomToolId = 'update' | 'more'
@@ -18,11 +19,26 @@ export const APP_TAB_FRAME_TRAFFIC_LIGHT_SAFE_WIDTH =
   APP_TRAFFIC_LIGHT_SAFE_WIDTH - APP_TAB_BAR_WIDTH
 
 export const APP_TABS: readonly AppTabDefinition[] = [
-  { id: 'chat', label: 'Work' },
-  { id: 'things', label: 'Things' },
-  { id: 'archived', label: 'Archived' },
-  { id: 'settings', label: 'Settings' }
+  { id: 'chat' },
+  { id: 'things' },
+  { id: 'archived' },
+  { id: 'settings' }
 ]
+
+// Called at render time (never cached) — the component reading this must
+// call useT()/useLocale() so it re-renders when the locale changes.
+export function appTabLabel(id: AppTabId): string {
+  switch (id) {
+    case 'chat':
+      return t('layout.tabs.work')
+    case 'things':
+      return t('layout.tabs.things')
+    case 'archived':
+      return t('layout.tabs.archived')
+    case 'settings':
+      return t('layout.tabs.settings')
+  }
+}
 
 export function appTabForThreadListMode(mode: 'active' | 'archived'): AppTabId {
   return mode === 'archived' ? 'archived' : 'chat'

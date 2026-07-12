@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from 'react'
 import { RotateCcw, FilePlus2, FileMinus2, FileEdit, SquareArrowOutUpRight } from 'lucide-react'
 import { theme, alpha } from '@renderer/theme/theme'
+import { tPlural } from '@yachiyo/i18n/index'
+import { useT } from '@yachiyo/i18n/react'
 import { useAppStore } from '@renderer/app/store/useAppStore'
 import { AppDialog } from '@renderer/components/AppDialog'
 import { useAppDialog } from '@renderer/components/AppDialogContext'
@@ -37,6 +39,7 @@ export function DiffPreviewerModal({
   isLatestRun = true,
   onClose
 }: DiffPreviewerModalProps): React.JSX.Element {
+  const t = useT()
   const dialog = useAppDialog()
   const editorApp = useAppStore((s) => s.config?.workspace?.editorApp)
   const [changes, setChanges] = useState<FileChangeForReview[] | null>(null)
@@ -126,11 +129,11 @@ export function DiffPreviewerModal({
         await window.api.yachiyo.openFileInEditor({ path: fullPath, editorApp: app })
       } catch (error) {
         await dialog.alert({
-          title: error instanceof Error ? error.message : 'Failed to open in editor.'
+          title: error instanceof Error ? error.message : t('chat.diff.openInEditorFailed')
         })
       }
     },
-    [dialog, workspacePath, editorApp]
+    [dialog, workspacePath, editorApp, t]
   )
 
   const selected = changes?.[selectedIdx]
@@ -140,11 +143,11 @@ export function DiffPreviewerModal({
       <AppDialog
         title={
           <>
-            File changes
+            {t('chat.workSummary.fileChanges')}
             {changes ? (
               <span style={{ color: theme.text.muted, fontWeight: 400 }}>
                 {' '}
-                ({changes.length} {changes.length === 1 ? 'file' : 'files'})
+                ({tPlural('chat.counts.files', changes.length)})
               </span>
             ) : null}
           </>
@@ -162,14 +165,14 @@ export function DiffPreviewerModal({
             ? [
                 {
                   key: 'revert-all',
-                  label: 'Revert all',
+                  label: t('chat.diff.revertAll'),
                   tone: 'danger' as const,
                   disabled: reverting,
                   icon: <RotateCcw size={11} strokeWidth={2} />
                 }
               ]
             : []),
-          { key: 'close', label: 'Close', autoFocus: true }
+          { key: 'close', label: t('common.close'), autoFocus: true }
         ]}
         actionsLayout="horizontal"
         onAction={(key) => {
@@ -192,15 +195,15 @@ export function DiffPreviewerModal({
           >
             {error ? (
               <div className="p-3 text-xs" style={{ color: theme.text.muted }}>
-                Failed to load changes.
+                {t('chat.diff.loadFailed')}
               </div>
             ) : changes === null ? (
               <div className="p-3 text-xs" style={{ color: theme.text.muted }}>
-                Loading...
+                {t('common.loading')}
               </div>
             ) : changes.length === 0 ? (
               <div className="p-3 text-xs" style={{ color: theme.text.muted }}>
-                No file changes.
+                {t('chat.diff.noFileChanges')}
               </div>
             ) : (
               changes.map((change, i) => {
@@ -271,7 +274,7 @@ export function DiffPreviewerModal({
                               }}
                             >
                               <SquareArrowOutUpRight size={10} strokeWidth={2} />
-                              Open in {app}
+                              {t('chat.diff.openInApp', { app })}
                             </button>
                           ) : null
                         })()
@@ -285,7 +288,7 @@ export function DiffPreviewerModal({
                         }}
                       >
                         <RotateCcw size={10} strokeWidth={2} />
-                        Reverted
+                        {t('chat.diff.reverted')}
                       </span>
                     ) : isLatestRun ? (
                       <button
@@ -301,7 +304,7 @@ export function DiffPreviewerModal({
                         }}
                       >
                         <RotateCcw size={10} strokeWidth={2} />
-                        Revert
+                        {t('chat.diff.revert')}
                       </button>
                     ) : null}
                   </div>
@@ -325,7 +328,7 @@ export function DiffPreviewerModal({
                 className="flex items-center justify-center h-full text-xs"
                 style={{ color: theme.text.muted }}
               >
-                All changes have been reverted.
+                {t('chat.diff.allReverted')}
               </div>
             ) : null}
           </div>
@@ -333,15 +336,23 @@ export function DiffPreviewerModal({
       </AppDialog>
       {confirmRevertMode ? (
         <ConfirmDialog
-          title={confirmRevertMode === 'file' ? 'Revert file' : 'Revert all changes'}
+          title={
+            confirmRevertMode === 'file'
+              ? t('chat.diff.revertFileTitle')
+              : t('chat.diff.revertAllTitle')
+          }
           description={
             confirmRevertMode === 'file'
-              ? `This will restore ${confirmRevertPath} to its previous state. This cannot be undone.`
-              : 'This will restore all files to their previous state. This cannot be undone.'
+              ? t('chat.diff.revertFileDescription', { path: confirmRevertPath ?? '' })
+              : t('chat.diff.revertAllDescription')
           }
           actions={[
-            { key: 'revert', label: reverting ? 'Reverting...' : 'Revert', tone: 'danger' },
-            { key: 'cancel', label: 'Cancel', tone: 'default' }
+            {
+              key: 'revert',
+              label: reverting ? t('chat.diff.reverting') : t('chat.diff.revert'),
+              tone: 'danger'
+            },
+            { key: 'cancel', label: t('common.cancel'), tone: 'default' }
           ]}
           onSelect={(key) => {
             if (key === 'revert') {

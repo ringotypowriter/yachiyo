@@ -1,3 +1,4 @@
+import { t } from '@yachiyo/i18n/index'
 import type { ThreadColorTag } from '@yachiyo/shared/protocol'
 
 export const THREAD_COLOR_TAGS: ThreadColorTag[] = [
@@ -16,20 +17,14 @@ export const THREAD_COLOR_VALUES: Record<ThreadColorTag, string> = {
   slate: '#708090'
 }
 
-export const THREAD_COLOR_LABELS: Record<ThreadColorTag, string> = {
-  coral: 'Mark it Coral',
-  azure: 'Mark it Azure',
-  emerald: 'Mark it Emerald',
-  amethyst: 'Mark it Amethyst',
-  slate: 'Mark it Slate'
+export function threadColorFilterLabel(colorTag: ThreadColorTag): string {
+  return t(`threads.colors.${colorTag}`)
 }
 
-export const THREAD_COLOR_FILTER_LABELS: Record<ThreadColorTag, string> = {
-  coral: 'Coral',
-  azure: 'Azure',
-  emerald: 'Emerald',
-  amethyst: 'Amethyst',
-  slate: 'Slate'
+export function threadColorMarkLabel(colorTag: ThreadColorTag | null): string {
+  return t('threads.colors.markIt', {
+    color: colorTag === null ? t('common.default') : threadColorFilterLabel(colorTag)
+  })
 }
 
 export function resolveThreadColor(

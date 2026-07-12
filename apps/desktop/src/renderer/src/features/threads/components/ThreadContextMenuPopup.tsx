@@ -12,11 +12,12 @@ import {
 } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { useT } from '@yachiyo/i18n/react'
 import {
   resolveThreadColorOperationTag,
   type ThreadContextOperation
 } from '@renderer/features/threads/lib/threadContextOperations'
-import { THREAD_COLOR_FILTER_LABELS } from '@renderer/features/threads/lib/threadColorPalette'
+import { threadColorFilterLabel } from '@renderer/features/threads/lib/threadColorPalette'
 import { theme } from '@renderer/theme/theme'
 import { isDismissEscapeKey } from '@renderer/lib/imeUtils'
 import { useRestoreFocusOnUnmount } from '@renderer/lib/focusRestore'
@@ -82,6 +83,7 @@ export function ThreadContextMenuPopup({
   operations,
   position
 }: ThreadContextMenuPopupProps): React.JSX.Element {
+  const t = useT()
   const menuRef = useRef<HTMLDivElement>(null)
   const [resolvedTop, setResolvedTop] = useState(position.top)
   useRestoreFocusOnUnmount()
@@ -144,7 +146,13 @@ export function ThreadContextMenuPopup({
         zIndex: 100
       }}
     >
-      {renderThreadMenuItems({ colorOperations, onClose, onSelect, operations })}
+      {renderThreadMenuItems({
+        colorOperations,
+        defaultColorLabel: t('common.default'),
+        onClose,
+        onSelect,
+        operations
+      })}
     </div>,
     document.body
   )
@@ -152,11 +160,13 @@ export function ThreadContextMenuPopup({
 
 function renderThreadMenuItems({
   colorOperations,
+  defaultColorLabel,
   onClose,
   onSelect,
   operations
 }: {
   colorOperations: ThreadContextOperation[]
+  defaultColorLabel: string
   onClose: () => void
   onSelect: (operationKey: ThreadContextOperation['key']) => void
   operations: ThreadContextOperation[]
@@ -184,8 +194,8 @@ function renderThreadMenuItems({
                 disabled: colorOperation.disabled,
                 label:
                   operationColorTag === null
-                    ? 'Default'
-                    : THREAD_COLOR_FILTER_LABELS[operationColorTag],
+                    ? defaultColorLabel
+                    : threadColorFilterLabel(operationColorTag),
                 onSelect: () => {
                   onSelect(colorOperation.key)
                   onClose()

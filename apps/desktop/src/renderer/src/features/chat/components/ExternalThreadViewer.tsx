@@ -8,6 +8,7 @@
 
 import type React from 'react'
 import { useEffect, useMemo, useRef } from 'react'
+import { useT } from '@yachiyo/i18n/react'
 import { useAppStore } from '@renderer/app/store/useAppStore'
 import { limitLoadedThreadData } from '@renderer/app/store/useAppStore/helpers'
 import type { Message, RunRecord, ToolCall } from '@renderer/app/types'
@@ -106,6 +107,7 @@ const EMPTY_TOOL_CALLS: ToolCall[] = []
 const EMPTY_RUNS: RunRecord[] = []
 
 export function ExternalThreadViewer({ threadId }: { threadId: string | null }): React.JSX.Element {
+  const t = useT()
   const messages = useAppStore((state) =>
     threadId ? (state.messages[threadId] ?? EMPTY_MESSAGES) : EMPTY_MESSAGES
   )
@@ -170,7 +172,7 @@ export function ExternalThreadViewer({ threadId }: { threadId: string | null }):
     return (
       <div className="flex-1 flex items-center justify-center">
         <p className="text-sm" style={{ color: theme.text.muted }}>
-          Select a thread to view
+          {t('chat.timeline.selectThread')}
         </p>
       </div>
     )
@@ -184,7 +186,7 @@ export function ExternalThreadViewer({ threadId }: { threadId: string | null }):
     return (
       <div className="flex-1 flex items-center justify-center">
         <p className="text-sm" style={{ color: theme.text.placeholder }}>
-          No messages yet
+          {t('chat.timeline.noMessagesYet')}
         </p>
       </div>
     )

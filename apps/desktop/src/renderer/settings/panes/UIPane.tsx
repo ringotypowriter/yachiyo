@@ -4,7 +4,13 @@ import {
   DEFAULT_THEME_APPEARANCE,
   DEFAULT_THEME_ID
 } from '@yachiyo/shared/protocol'
-import type { SettingsConfig, ThemeAppearance, ThemeId } from '@yachiyo/shared/protocol'
+import type {
+  AppLanguage,
+  SettingsConfig,
+  ThemeAppearance,
+  ThemeId
+} from '@yachiyo/shared/protocol'
+import { useT } from '@yachiyo/i18n/react'
 import { THEME_OPTIONS, alpha, getThemeSchemePreviewSegments, theme } from '@renderer/theme/theme'
 import {
   SettingLabel,
@@ -24,11 +30,6 @@ const UI_FONT_SIZES = [11, 12, 13, 14, 15, 16]
 const CHAT_FONT_SIZES = [12, 13, 14, 15, 16, 18, 20]
 const DEFAULT_UI_FONT_SIZE = 14
 const DEFAULT_CHAT_FONT_SIZE = 14
-const APPEARANCE_OPTIONS: { value: ThemeAppearance; label: string }[] = [
-  { value: 'system', label: 'System' },
-  { value: 'light', label: 'Light' },
-  { value: 'dark', label: 'Dark' }
-]
 
 interface UIPaneProps {
   draft: SettingsConfig
@@ -82,6 +83,7 @@ function FontSizeRow({
   defaultValue: number
   onChange: (next: number) => void
 }): React.ReactNode {
+  const t = useT()
   const current = value ?? defaultValue
   const currentIndex = steps.indexOf(current)
   const canDecrease = currentIndex > 0
@@ -112,7 +114,7 @@ function FontSizeRow({
             color: theme.text.primary,
             cursor: 'default'
           }}
-          aria-label={`Decrease ${label.toLowerCase()}`}
+          aria-label={t('settings.ui.decreaseAria', { label })}
         >
           −
         </button>
@@ -135,7 +137,7 @@ function FontSizeRow({
             color: theme.text.primary,
             cursor: 'default'
           }}
-          aria-label={`Increase ${label.toLowerCase()}`}
+          aria-label={t('settings.ui.increaseAria', { label })}
         >
           +
         </button>
@@ -145,6 +147,17 @@ function FontSizeRow({
 }
 
 export function UIPane({ draft, onChange }: UIPaneProps): React.ReactNode {
+  const t = useT()
+  const appearanceOptions: { value: ThemeAppearance; label: string }[] = [
+    { value: 'system', label: t('common.system') },
+    { value: 'light', label: t('settings.ui.appearanceLight') },
+    { value: 'dark', label: t('settings.ui.appearanceDark') }
+  ]
+  const languageOptions: { value: AppLanguage; label: string }[] = [
+    { value: 'auto', label: t('common.system') },
+    { value: 'en', label: 'English' },
+    { value: 'zh-CN', label: '简体中文' }
+  ]
   const [sidebarWidth, setSidebarWidthState] = useState<number>(
     () =>
       parseInt(globalThis.localStorage?.getItem(SIDEBAR_WIDTH_STORAGE_KEY) ?? '', 10) ||
@@ -162,15 +175,15 @@ export function UIPane({ draft, onChange }: UIPaneProps): React.ReactNode {
   return (
     <div className="flex-1 overflow-y-auto pb-6">
       <SettingSection>
-        <SettingLabel>Appearance</SettingLabel>
+        <SettingLabel>{t('settings.ui.appearanceSection')}</SettingLabel>
 
         <SettingRow>
           <div className="min-w-0 space-y-0.5">
             <div className="text-sm font-medium" style={{ color: theme.text.primary }}>
-              Theme
+              {t('settings.ui.themeLabel')}
             </div>
             <div className="text-sm leading-5" style={{ color: theme.text.tertiary }}>
-              Choose the color family for both light and dark.
+              {t('settings.ui.themeDesc')}
             </div>
           </div>
 
@@ -197,17 +210,17 @@ export function UIPane({ draft, onChange }: UIPaneProps): React.ReactNode {
         <SettingRow>
           <div className="min-w-0 space-y-0.5">
             <div className="text-sm font-medium" style={{ color: theme.text.primary }}>
-              Appearance
+              {t('settings.ui.appearanceLabel')}
             </div>
             <div className="text-sm leading-5" style={{ color: theme.text.tertiary }}>
-              System follows the current desktop appearance.
+              {t('settings.ui.appearanceDesc')}
             </div>
           </div>
 
           <div className="shrink-0">
             <SimpleSelect<ThemeAppearance>
               value={draft.general?.themeAppearance ?? DEFAULT_THEME_APPEARANCE}
-              options={APPEARANCE_OPTIONS}
+              options={appearanceOptions}
               width={132}
               onChange={(next) =>
                 onChange({
@@ -222,14 +235,36 @@ export function UIPane({ draft, onChange }: UIPaneProps): React.ReactNode {
             />
           </div>
         </SettingRow>
+
+        <SettingRow>
+          <div className="min-w-0 space-y-0.5">
+            <div className="text-sm font-medium" style={{ color: theme.text.primary }}>
+              {t('settings.ui.languageLabel')}
+            </div>
+            <div className="text-sm leading-5" style={{ color: theme.text.tertiary }}>
+              {t('settings.ui.languageDesc')}
+            </div>
+          </div>
+
+          <div className="shrink-0">
+            <SimpleSelect<AppLanguage>
+              value={draft.general?.language ?? 'auto'}
+              options={languageOptions}
+              width={132}
+              onChange={(next) =>
+                onChange({ ...draft, general: { ...draft.general, language: next } })
+              }
+            />
+          </div>
+        </SettingRow>
       </SettingSection>
 
       <SettingSection>
-        <SettingLabel>Text size</SettingLabel>
+        <SettingLabel>{t('settings.ui.textSizeSection')}</SettingLabel>
 
         <FontSizeRow
-          label="Interface text"
-          description="Applies to navigation, buttons, and labels."
+          label={t('settings.ui.interfaceTextLabel')}
+          description={t('settings.ui.interfaceTextDesc')}
           value={draft.general?.uiFontSize}
           steps={UI_FONT_SIZES}
           defaultValue={DEFAULT_UI_FONT_SIZE}
@@ -238,8 +273,8 @@ export function UIPane({ draft, onChange }: UIPaneProps): React.ReactNode {
           }
         />
         <FontSizeRow
-          label="Chat text"
-          description="Applies to message content in conversations."
+          label={t('settings.ui.chatTextLabel')}
+          description={t('settings.ui.chatTextDesc')}
           value={draft.general?.chatFontSize}
           steps={CHAT_FONT_SIZES}
           defaultValue={DEFAULT_CHAT_FONT_SIZE}
@@ -250,15 +285,15 @@ export function UIPane({ draft, onChange }: UIPaneProps): React.ReactNode {
       </SettingSection>
 
       <SettingSection>
-        <SettingLabel>Layout</SettingLabel>
+        <SettingLabel>{t('settings.ui.layoutSection')}</SettingLabel>
 
         <SettingRow>
           <div className="min-w-0 space-y-0.5">
             <div className="text-sm font-medium" style={{ color: theme.text.primary }}>
-              Show sidebar on launch
+              {t('settings.ui.sidebarOnLaunchLabel')}
             </div>
             <div className="text-sm leading-5" style={{ color: theme.text.tertiary }}>
-              Off starts focused on the conversation.
+              {t('settings.ui.sidebarOnLaunchDesc')}
             </div>
           </div>
 
@@ -277,7 +312,7 @@ export function UIPane({ draft, onChange }: UIPaneProps): React.ReactNode {
                   }
                 })
               }}
-              ariaLabel="Toggle sidebar visibility on launch"
+              ariaLabel={t('settings.ui.sidebarToggleAria')}
             />
           </div>
         </SettingRow>
@@ -285,10 +320,10 @@ export function UIPane({ draft, onChange }: UIPaneProps): React.ReactNode {
         <SettingRow>
           <div className="min-w-0 space-y-0.5">
             <div className="text-sm font-medium" style={{ color: theme.text.primary }}>
-              Sidebar width
+              {t('settings.ui.sidebarWidthLabel')}
             </div>
             <div className="text-sm leading-5" style={{ color: theme.text.tertiary }}>
-              Drag the sidebar edge in the main window, or set a precise value here.
+              {t('settings.ui.sidebarWidthDesc')}
             </div>
           </div>
 
@@ -329,7 +364,7 @@ export function UIPane({ draft, onChange }: UIPaneProps): React.ReactNode {
                 step={10}
                 value={sidebarWidth}
                 onChange={(e) => handleSidebarWidth(parseInt(e.target.value, 10))}
-                aria-label="Sidebar width"
+                aria-label={t('settings.ui.sidebarWidthLabel')}
                 style={{
                   position: 'absolute',
                   inset: 0,
@@ -353,10 +388,10 @@ export function UIPane({ draft, onChange }: UIPaneProps): React.ReactNode {
         <SettingRow>
           <div className="min-w-0 space-y-0.5">
             <div className="text-sm font-medium" style={{ color: theme.text.primary }}>
-              Show message preview
+              {t('settings.ui.messagePreviewLabel')}
             </div>
             <div className="text-sm leading-5" style={{ color: theme.text.tertiary }}>
-              Shows a preview line under each thread in the sidebar.
+              {t('settings.ui.messagePreviewDesc')}
             </div>
           </div>
 
@@ -372,7 +407,7 @@ export function UIPane({ draft, onChange }: UIPaneProps): React.ReactNode {
                   }
                 })
               }
-              ariaLabel="Toggle message preview in sidebar"
+              ariaLabel={t('settings.ui.messagePreviewToggleAria')}
             />
           </div>
         </SettingRow>
@@ -380,10 +415,10 @@ export function UIPane({ draft, onChange }: UIPaneProps): React.ReactNode {
         <SettingRow>
           <div className="min-w-0 space-y-0.5">
             <div className="text-sm font-medium" style={{ color: theme.text.primary }}>
-              Work Summary
+              {t('settings.ui.workSummaryLabel')}
             </div>
             <div className="text-sm leading-5" style={{ color: theme.text.tertiary }}>
-              Collapse completed tool activity into a compact summary above the final response.
+              {t('settings.ui.workSummaryDesc')}
             </div>
           </div>
 
@@ -399,7 +434,7 @@ export function UIPane({ draft, onChange }: UIPaneProps): React.ReactNode {
                   }
                 })
               }
-              ariaLabel="Toggle Work Summary in conversations"
+              ariaLabel={t('settings.ui.workSummaryToggleAria')}
             />
           </div>
         </SettingRow>

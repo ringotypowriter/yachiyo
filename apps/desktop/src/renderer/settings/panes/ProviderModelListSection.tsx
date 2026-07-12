@@ -29,6 +29,9 @@ import {
   normalizeProviderReasoningConfig
 } from '@yachiyo/shared/reasoningEffort'
 import { filterProviderModels, toggleProviderModel } from './providersPaneModel'
+import { useT } from '@yachiyo/i18n/react'
+
+type Translator = ReturnType<typeof useT>
 
 interface ModelToggleProps {
   enabled: boolean
@@ -55,17 +58,19 @@ interface ModelListSectionProps {
   provider: ProviderConfig
 }
 
-const REASONING_CHOICES: readonly {
+function reasoningChoices(t: Translator): readonly {
   label: string
   value: ComposerReasoningSelection
-}[] = [
-  { value: 'off', label: 'Off' },
-  { value: 'low', label: 'Low' },
-  { value: 'medium', label: 'Medium' },
-  { value: 'high', label: 'High' },
-  { value: 'xhigh', label: 'XHigh' },
-  { value: 'max', label: 'Max' }
-]
+}[] {
+  return [
+    { value: 'off', label: t('common.off') },
+    { value: 'low', label: t('settings.providers.effortLow') },
+    { value: 'medium', label: t('settings.providers.effortMedium') },
+    { value: 'high', label: t('settings.providers.effortHigh') },
+    { value: 'xhigh', label: t('settings.providers.effortXHigh') },
+    { value: 'max', label: t('settings.providers.effortMax') }
+  ]
+}
 
 function isReasoningLevel(
   selection: ComposerReasoningSelection
@@ -163,9 +168,12 @@ function buildReasoningModelConfig(input: {
   }
 }
 
-function formatReasoningOptionList(options: ComposerReasoningSelection[]): string {
+function formatReasoningOptionList(
+  choices: ReturnType<typeof reasoningChoices>,
+  options: ComposerReasoningSelection[]
+): string {
   const labels = options.map(
-    (option) => REASONING_CHOICES.find((choice) => choice.value === option)?.label ?? option
+    (option) => choices.find((choice) => choice.value === option)?.label ?? option
   )
   return labels.join(', ')
 }
@@ -179,7 +187,9 @@ function ReasoningSettingsModal({
   onClose,
   provider
 }: ReasoningModalProps): React.ReactNode {
-  const choices = REASONING_CHOICES.filter(
+  const t = useT()
+  const allChoices = reasoningChoices(t)
+  const choices = allChoices.filter(
     (choice) =>
       choice.value === 'off' ||
       isReasoningEffortSelectable({
@@ -190,24 +200,24 @@ function ReasoningSettingsModal({
   )
   const defaultOptions = options.map((value) => ({
     value,
-    label: REASONING_CHOICES.find((choice) => choice.value === value)?.label ?? value
+    label: allChoices.find((choice) => choice.value === value)?.label ?? value
   }))
 
   return (
     <AppDialog
       title={model}
-      description="Reasoning levels shown in the composer"
+      description={t('settings.providers.reasoningDialogDescription')}
       showCloseButton
       width="min(520px, 100%)"
       bodyPadding="16px 20px"
       zIndex={9998}
-      ariaLabel={`Reasoning settings for ${model}`}
+      ariaLabel={t('settings.providers.reasoningSettingsFor', { model })}
       onClose={onClose}
     >
       <div className="space-y-4">
         <div>
           <div className="mb-2 text-xs font-medium" style={{ color: theme.text.primary }}>
-            Available levels
+            {t('settings.providers.availableLevels')}
           </div>
           <div className="grid grid-cols-3 gap-2">
             {choices.map((choice) => {
@@ -234,10 +244,10 @@ function ReasoningSettingsModal({
         <div className="flex items-center justify-between gap-4">
           <div className="min-w-0">
             <div className="text-xs font-medium" style={{ color: theme.text.primary }}>
-              Default
+              {t('common.default')}
             </div>
             <div className="mt-1 text-xs truncate" style={{ color: theme.text.muted }}>
-              {formatReasoningOptionList(options)}
+              {formatReasoningOptionList(allChoices, options)}
             </div>
           </div>
           <SimpleSelect<ComposerReasoningSelection>
@@ -261,9 +271,12 @@ function ModelToggle({
   onOpenReasoning,
   onToggleImageCapable
 }: ModelToggleProps): React.ReactNode {
+  const t = useT()
   const [hovered, setHovered] = useState(false)
   const ImageCapabilityIcon = imageCapable ? ImageIcon : ImageOff
-  const imageCapabilityLabel = imageCapable ? 'Image Capable' : 'Image Incapable'
+  const imageCapabilityLabel = imageCapable
+    ? t('settings.providers.imageCapable')
+    : t('settings.providers.imageIncapable')
 
   return (
     <div
@@ -292,8 +305,8 @@ function ModelToggle({
           }}
           title={
             imageCapable
-              ? 'Image capable — click to mark as text-only'
-              : 'Text-only — click to mark as image capable'
+              ? t('settings.providers.imageCapableHint')
+              : t('settings.providers.imageIncapableHint')
           }
         >
           <ImageCapabilityIcon size={12} strokeWidth={1.7} color={theme.icon.muted} />
@@ -308,24 +321,28 @@ function ModelToggle({
             color: theme.text.secondary,
             background: alpha('ink', 0.04)
           }}
-          aria-label={`Reasoning settings for ${model}`}
-          title="Reasoning"
+          aria-label={t('settings.providers.reasoningSettingsFor', { model })}
+          title={t('settings.providers.reasoning')}
         >
           <Brain size={12} strokeWidth={1.7} color={theme.icon.muted} />
-          Reasoning
+          {t('settings.providers.reasoning')}
         </button>
         <button
           type="button"
           onClick={onRemove}
           className="p-0.5 rounded opacity-0 group-hover:opacity-40 hover:opacity-100! transition-opacity"
-          title="Remove model"
+          title={t('settings.providers.removeModel')}
         >
           <X size={12} strokeWidth={1.5} color={theme.icon.muted} />
         </button>
         <SettingSwitch
           checked={enabled}
           onChange={onToggle}
-          ariaLabel={`${enabled ? 'Disable' : 'Enable'} ${model}`}
+          ariaLabel={
+            enabled
+              ? t('settings.providers.disableModel', { model })
+              : t('settings.providers.enableModel', { model })
+          }
         />
       </div>
     </div>
@@ -336,6 +353,7 @@ export function ModelListSection({
   provider,
   onProviderChange
 }: ModelListSectionProps): React.ReactNode {
+  const t = useT()
   const [fetching, setFetching] = useState(false)
   const [fetchError, setFetchError] = useState<string | null>(null)
   const [manualInput, setManualInput] = useState('')
@@ -375,7 +393,7 @@ export function ModelListSection({
         }
       })
     } catch (error) {
-      const raw = error instanceof Error ? error.message : 'Failed to fetch models'
+      const raw = error instanceof Error ? error.message : t('settings.providers.fetchModelsFailed')
       const ipcMatch = raw.match(/Error invoking remote method '[^']+': (.+)$/s)
       setFetchError(ipcMatch ? ipcMatch[1] : raw)
     } finally {
@@ -523,7 +541,7 @@ export function ModelListSection({
     <div className="space-y-3">
       <div className="flex items-center justify-between">
         <span className="text-sm font-medium" style={{ color: theme.text.primary }}>
-          Models
+          {t('settings.providers.modelsLabel')}
         </span>
         <div className="flex items-center gap-2">
           {allModels.length > 0 && (
@@ -532,10 +550,10 @@ export function ModelListSection({
               onClick={handleClearAll}
               className="flex items-center gap-1 text-xs font-medium transition-opacity opacity-50 hover:opacity-100"
               style={{ color: theme.text.danger }}
-              title="Clear all models"
+              title={t('settings.providers.clearAllModels')}
             >
               <Eraser size={12} strokeWidth={2} />
-              Clear
+              {t('settings.providers.clear')}
             </button>
           )}
           <button
@@ -554,10 +572,10 @@ export function ModelListSection({
               provider.type !== 'vertex' &&
               provider.type !== 'openai-codex' &&
               !provider.apiKey.trim()
-                ? 'Add an API key first'
+                ? t('settings.providers.addApiKeyFirst')
                 : provider.type === 'openai-codex' && !provider.codexSessionPath?.trim()
-                  ? 'Set a Codex session path first'
-                  : 'Fetch available models'
+                  ? t('settings.providers.setCodexSessionPathFirst')
+                  : t('settings.providers.fetchAvailableModels')
             }
           >
             {fetching ? (
@@ -565,14 +583,16 @@ export function ModelListSection({
             ) : (
               <RefreshCw size={12} strokeWidth={2} />
             )}
-            {fetching ? 'Fetching...' : 'Fetch'}
+            {fetching ? t('settings.providers.fetching') : t('settings.providers.fetch')}
           </button>
         </div>
       </div>
 
       {fetchError ? (
         <div className="flex items-center gap-2 text-xs" style={{ color: theme.text.danger }}>
-          <span className="truncate">Fetch failed: {fetchError}</span>
+          <span className="truncate">
+            {t('settings.providers.fetchFailed', { error: fetchError })}
+          </span>
           <button
             type="button"
             onClick={() => setFetchError(null)}
@@ -587,7 +607,7 @@ export function ModelListSection({
         {allModels.length === 0 ? (
           <div className="py-6 text-center">
             <span className="text-sm" style={{ color: theme.text.muted }}>
-              No models yet. Fetch from API or add manually.
+              {t('settings.providers.noModelsYet')}
             </span>
           </div>
         ) : (
@@ -601,8 +621,8 @@ export function ModelListSection({
                 type="search"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
-                placeholder="Search models"
-                aria-label="Search provider models"
+                placeholder={t('settings.providers.searchModels')}
+                aria-label={t('settings.providers.searchProviderModels')}
                 className="min-w-0 flex-1 bg-transparent text-sm outline-none"
                 style={{ color: theme.text.primary }}
               />
@@ -611,7 +631,7 @@ export function ModelListSection({
             {filteredModelCount === 0 ? (
               <div className="py-6 text-center">
                 <span className="text-sm" style={{ color: theme.text.muted }}>
-                  No models match &ldquo;{query.trim()}&rdquo;.
+                  {t('settings.providers.noModelsMatch', { query: query.trim() })}
                 </span>
               </div>
             ) : (
@@ -633,14 +653,14 @@ export function ModelListSection({
             onKeyDown={imeSafeEnter(() => handleAddManual())}
             className="flex-1 bg-transparent text-sm outline-none"
             style={{ color: theme.text.primary }}
-            placeholder="Add model name..."
+            placeholder={t('settings.providers.addModelNamePlaceholder')}
           />
           <button
             type="button"
             onClick={handleAddManual}
             disabled={!manualInput.trim()}
             className="transition-opacity disabled:opacity-25 opacity-50 hover:opacity-100"
-            title="Add model"
+            title={t('settings.providers.addModel')}
           >
             <Plus size={14} strokeWidth={2} color={theme.icon.accent} />
           </button>
@@ -649,7 +669,10 @@ export function ModelListSection({
 
       {allModels.length > 0 ? (
         <div className="text-xs" style={{ color: theme.text.muted }}>
-          {provider.modelList.enabled.length} enabled, {provider.modelList.disabled.length} disabled
+          {t('settings.providers.modelCounts', {
+            enabled: provider.modelList.enabled.length,
+            disabled: provider.modelList.disabled.length
+          })}
         </div>
       ) : null}
 

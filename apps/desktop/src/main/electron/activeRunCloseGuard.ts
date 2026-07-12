@@ -1,4 +1,5 @@
 import electron from 'electron'
+import { t, tPlural } from '@yachiyo/i18n/index'
 
 const { dialog } = electron
 
@@ -31,15 +32,12 @@ export function createActiveRunCloseDialogOptions(
     throw new Error('activeRunCount must be a positive integer')
   }
 
-  const singleRun = activeRunCount === 1
   return {
     type: 'warning',
-    title: 'Active run in progress',
-    message: singleRun ? 'A run is still active.' : `${activeRunCount} runs are still active.`,
-    detail: singleRun
-      ? 'Stop the run and close this window?'
-      : 'Stop the active runs and close this window?',
-    buttons: ['Stop Run and Close', 'Cancel'],
+    title: t('main.closeGuard.title'),
+    message: tPlural('main.closeGuard.message', activeRunCount),
+    detail: tPlural('main.closeGuard.detail', activeRunCount),
+    buttons: [t('main.closeGuard.stopAndClose'), t('common.cancel')],
     defaultId: CANCEL_CLOSE_RESPONSE,
     cancelId: CANCEL_CLOSE_RESPONSE,
     noLink: true

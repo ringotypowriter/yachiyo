@@ -1,13 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { motion } from 'framer-motion'
+import { useT } from '@yachiyo/i18n/react'
 import { useAppStore } from '@renderer/app/store/useAppStore'
 import { useAppDialog } from '@renderer/components/AppDialogContext'
 import { Tooltip } from '@renderer/components/Tooltip'
-import { WELCOME_SPARKS } from '@renderer/features/layout/lib/welcomeSparks'
+import { WELCOME_SPARKS, getWelcomeSparkCopy } from '@renderer/features/layout/lib/welcomeSparks'
 
 type SparksFade = 'none' | 'left' | 'right' | 'both'
 
 export function WelcomeSparks(): React.JSX.Element {
+  const t = useT()
   const dialog = useAppDialog()
   const startSparkChat = useAppStore((s) => s.startSparkChat)
   const [launchingId, setLaunchingId] = useState<string | null>(null)
@@ -50,7 +52,7 @@ export function WelcomeSparks(): React.JSX.Element {
       await startSparkChat(prompt)
     } catch (error) {
       await dialog.alert({
-        title: error instanceof Error ? error.message : 'Failed to start the chat.'
+        title: error instanceof Error ? error.message : t('layout.errors.startChat')
       })
     } finally {
       setLaunchingId(null)
@@ -68,6 +70,7 @@ export function WelcomeSparks(): React.JSX.Element {
       {WELCOME_SPARKS.map((spark, index) => {
         const Icon = spark.icon
         const isLaunching = launchingId === spark.id
+        const copy = getWelcomeSparkCopy(spark.id)
         return (
           <motion.div
             key={spark.id}
@@ -75,7 +78,7 @@ export function WelcomeSparks(): React.JSX.Element {
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.26, delay: 0.14 + index * 0.06, ease: 'easeOut' }}
           >
-            <Tooltip content={spark.hint}>
+            <Tooltip content={copy.hint}>
               <button
                 type="button"
                 className={`welcome-sparks__button ${
@@ -85,7 +88,7 @@ export function WelcomeSparks(): React.JSX.Element {
                 onClick={() => void handleLaunch(spark.id, spark.prompt)}
               >
                 <Icon className="welcome-sparks__icon" size={13} strokeWidth={2} />
-                <span>{spark.label}</span>
+                <span>{copy.label}</span>
               </button>
             </Tooltip>
           </motion.div>

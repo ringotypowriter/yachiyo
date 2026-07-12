@@ -1,10 +1,12 @@
 import { useEffect, useId } from 'react'
 import { createPortal } from 'react-dom'
 import { LoaderCircle } from 'lucide-react'
+import { useT } from '@yachiyo/i18n/react'
 import { useAppStore } from '@renderer/app/store/useAppStore'
 import { alpha, theme } from '@renderer/theme/theme'
 
 export function GlobalProcessingModal(): React.JSX.Element | null {
+  const t = useT()
   const task = useAppStore((state) => state.globalProcessingTasks.at(-1) ?? null)
   const titleId = useId()
 
@@ -67,7 +69,7 @@ export function GlobalProcessingModal(): React.JSX.Element | null {
             className="m-0 text-sm font-semibold"
             style={{ color: theme.text.primary, lineHeight: 1.35 }}
           >
-            Processing
+            {t('shell.processing')}
           </p>
           <p
             className="m-0 mt-0.5 truncate text-xs"

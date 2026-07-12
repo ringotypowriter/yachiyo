@@ -3,6 +3,7 @@ import { useState } from 'react'
 import { ChevronRight } from 'lucide-react'
 import type { ToolCall } from '@renderer/app/types'
 import { theme } from '@renderer/theme/theme'
+import { useT } from '@yachiyo/i18n/react'
 import {
   getToolCallGroupCount,
   getToolCallGroupDisplayGroup,
@@ -24,6 +25,7 @@ export function ToolCallGroupRow({
   toolCalls,
   workspacePath
 }: ToolCallGroupRowProps): React.JSX.Element {
+  const t = useT()
   const [isExpanded, setIsExpanded] = useState(false)
 
   // A `background` bash call has already returned its handle. The subprocess
@@ -55,7 +57,7 @@ export function ToolCallGroupRow({
         type="button"
         className="flex w-full items-start gap-1.5 rounded-sm text-left"
         aria-expanded={isExpanded}
-        aria-label={`${isExpanded ? 'Collapse' : 'Expand'} ${label}`}
+        aria-label={`${isExpanded ? t('chat.collapse') : t('chat.expand')} ${label}`}
         onClick={() => setIsExpanded((current) => !current)}
         style={{
           appearance: 'none',

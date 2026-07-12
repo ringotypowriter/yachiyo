@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useT } from '@yachiyo/i18n/react'
 import { theme, alpha } from '@renderer/theme/theme'
 import type { SettingsConfig } from '@yachiyo/shared/protocol'
 import avatarUrl from '../../../../resources/branding.jpeg'
@@ -62,6 +63,7 @@ interface AboutPaneProps {
 }
 
 export function AboutPane({ draft, onChange }: AboutPaneProps): React.ReactNode {
+  const t = useT()
   const isDevelopment = import.meta.env.DEV
   const [hovered, setHovered] = useState(false)
   const [showNotices, setShowNotices] = useState(false)
@@ -152,12 +154,14 @@ export function AboutPane({ draft, onChange }: AboutPaneProps): React.ReactNode 
 
         {/* Author */}
         <div className="text-sm" style={{ color: theme.text.tertiary }}>
-          Made by <span style={{ color: theme.text.secondary, fontWeight: 500 }}>Ringo</span>
+          {t('settings.about.madeByBefore')}
+          <span style={{ color: theme.text.secondary, fontWeight: 500 }}>Ringo</span>
+          {t('settings.about.madeByAfter')}
         </div>
 
         {/* License badge */}
         <div className="mt-3 text-xs" style={{ color: theme.text.muted }}>
-          Apache-2.0 License
+          {t('settings.about.license')}
         </div>
 
         {/* Update status */}
@@ -178,7 +182,9 @@ export function AboutPane({ draft, onChange }: AboutPaneProps): React.ReactNode 
                   cursor: 'default'
                 }}
               >
-                {updateState.state === 'error' ? 'Retry update check' : 'Check for updates'}
+                {updateState.state === 'error'
+                  ? t('settings.about.retryUpdateCheck')
+                  : t('settings.about.checkForUpdates')}
               </button>
               {updateState.state === 'error' && updateState.error && (
                 <span
@@ -193,7 +199,7 @@ export function AboutPane({ draft, onChange }: AboutPaneProps): React.ReactNode 
           )}
           {updateState.state === 'checking' && (
             <span className="text-xs" style={{ color: theme.text.muted }}>
-              Checking for updates...
+              {t('settings.about.checkingForUpdates')}
             </span>
           )}
           {updateState.state === 'available' && (
@@ -212,7 +218,7 @@ export function AboutPane({ draft, onChange }: AboutPaneProps): React.ReactNode 
                   cursor: 'default'
                 }}
               >
-                v{updateState.version} available — download
+                {t('settings.about.updateAvailable', { version: updateState.version ?? '' })}
               </button>
               <div className="flex items-center gap-2">
                 <button
@@ -232,7 +238,7 @@ export function AboutPane({ draft, onChange }: AboutPaneProps): React.ReactNode 
                     e.currentTarget.style.color = theme.text.muted
                   }}
                 >
-                  Check again
+                  {t('settings.about.checkAgain')}
                 </button>
                 <span className="text-[11px]" style={{ color: theme.text.muted }}>
                   ·
@@ -254,14 +260,16 @@ export function AboutPane({ draft, onChange }: AboutPaneProps): React.ReactNode 
                     e.currentTarget.style.color = theme.text.muted
                   }}
                 >
-                  What&apos;s new
+                  {t('settings.about.whatsNew')}
                 </button>
               </div>
             </>
           )}
           {updateState.state === 'downloading' && (
             <span className="text-xs" style={{ color: theme.text.muted }}>
-              Downloading{updateState.percent !== undefined ? ` ${updateState.percent}%` : '…'}
+              {updateState.percent !== undefined
+                ? t('settings.about.downloadingPercent', { percent: updateState.percent })
+                : t('settings.about.downloading')}
             </span>
           )}
           {updateState.state === 'ready' && (
@@ -280,7 +288,7 @@ export function AboutPane({ draft, onChange }: AboutPaneProps): React.ReactNode 
                   cursor: 'default'
                 }}
               >
-                Restart to install v{updateState.version}
+                {t('settings.about.restartToInstall', { version: updateState.version ?? '' })}
               </button>
               <button
                 type="button"
@@ -299,13 +307,13 @@ export function AboutPane({ draft, onChange }: AboutPaneProps): React.ReactNode 
                   e.currentTarget.style.color = theme.text.muted
                 }}
               >
-                What&apos;s new
+                {t('settings.about.whatsNew')}
               </button>
             </>
           )}
           {updateState.state === 'installing' && (
             <span className="text-xs" style={{ color: theme.text.muted }}>
-              Restarting…
+              {t('settings.about.restarting')}
             </span>
           )}
         </div>
@@ -366,7 +374,7 @@ export function AboutPane({ draft, onChange }: AboutPaneProps): React.ReactNode 
               className="mt-3 pb-1 text-[11px] leading-relaxed"
               style={{ color: theme.text.muted }}
             >
-              Full license texts are available in the NOTICE file at the project root.
+              {t('settings.about.noticesFooter')}
             </div>
           </div>
         )}
@@ -382,15 +390,14 @@ export function AboutPane({ draft, onChange }: AboutPaneProps): React.ReactNode 
           >
             <div className="min-w-0">
               <div className="text-sm font-medium" style={{ color: theme.text.primary }}>
-                Demo mode
+                {t('settings.about.demoMode')}
               </div>
               <div className="text-[11px] leading-relaxed" style={{ color: theme.text.muted }}>
-                Use in-memory screenshot data instead of your normal development database after
-                saving. Production never uses this mode.
+                {t('settings.about.demoModeDescription')}
               </div>
             </div>
             <SettingSwitch
-              ariaLabel="Toggle demo mode"
+              ariaLabel={t('settings.about.toggleDemoMode')}
               checked={draft.general?.demoMode === true}
               onChange={() =>
                 onChange({
@@ -431,7 +438,7 @@ export function AboutPane({ draft, onChange }: AboutPaneProps): React.ReactNode 
               letterSpacing: '0.02em'
             }}
           >
-            <span>Third-Party Notices</span>
+            <span>{t('settings.about.thirdPartyNotices')}</span>
             <svg
               width="10"
               height="10"

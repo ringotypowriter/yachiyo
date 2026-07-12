@@ -2,6 +2,7 @@ import type React from 'react'
 import { useEffect, useState } from 'react'
 import { Check, Copy, GitBranchPlus, Pencil, RotateCcw, Trash2, Undo2 } from 'lucide-react'
 import { theme } from '@renderer/theme/theme'
+import { useT } from '@yachiyo/i18n/react'
 import { copyTextWithFallback } from '../lib/messages/copyTextWithFallback'
 
 interface MessageActionBarProps {
@@ -56,6 +57,7 @@ export function MessageActionBar({
   onDelete,
   onRevert
 }: MessageActionBarProps): React.JSX.Element {
+  const t = useT()
   const [copyState, setCopyState] = useState<'idle' | 'copied' | 'failed'>('idle')
   const canCopy = content.trim().length > 0
 
@@ -86,7 +88,7 @@ export function MessageActionBar({
     <div
       className={`message-actions${align === 'start' ? ' message-actions--start' : ''}`}
       role="toolbar"
-      aria-label="Message actions"
+      aria-label={t('chat.messageActions.ariaLabel')}
     >
       {canCopy ? (
         <ActionButton
@@ -98,19 +100,27 @@ export function MessageActionBar({
             )
           }
           label={
-            copyState === 'copied' ? 'Copied' : copyState === 'failed' ? 'Copy failed' : 'Copy'
+            copyState === 'copied'
+              ? t('common.copied')
+              : copyState === 'failed'
+                ? t('chat.messageActions.copyFailed')
+                : t('common.copy')
           }
           success={copyState === 'copied'}
           onClick={handleCopy}
         />
       ) : null}
       {onEdit ? (
-        <ActionButton icon={<Pencil size={12} strokeWidth={1.7} />} label="Edit" onClick={onEdit} />
+        <ActionButton
+          icon={<Pencil size={12} strokeWidth={1.7} />}
+          label={t('common.edit')}
+          onClick={onEdit}
+        />
       ) : null}
       {onRetry ? (
         <ActionButton
           icon={<RotateCcw size={12} strokeWidth={1.7} />}
-          label="Retry"
+          label={t('common.retry')}
           disabled={!canRetry}
           onClick={onRetry}
         />
@@ -118,21 +128,21 @@ export function MessageActionBar({
       {onCreateBranch ? (
         <ActionButton
           icon={<GitBranchPlus size={12} strokeWidth={1.7} />}
-          label="Branch"
+          label={t('chat.messageActions.branch')}
           onClick={onCreateBranch}
         />
       ) : null}
       {onRevert ? (
         <ActionButton
           icon={<Undo2 size={12} strokeWidth={1.7} />}
-          label="Revert to composer"
+          label={t('chat.messageActions.revertToComposer')}
           onClick={onRevert}
         />
       ) : null}
       {onDelete ? (
         <ActionButton
           icon={<Trash2 size={12} strokeWidth={1.7} />}
-          label="Delete from here"
+          label={t('chat.messageActions.deleteFromHere')}
           danger
           onClick={onDelete}
         />

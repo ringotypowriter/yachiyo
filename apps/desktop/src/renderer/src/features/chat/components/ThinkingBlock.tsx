@@ -4,6 +4,7 @@ import { Streamdown } from 'streamdown'
 import { mathPlugin } from '@renderer/lib/markdown/mathPlugin'
 import { code } from '@streamdown/code'
 import { theme } from '@renderer/theme/theme'
+import { useT } from '@yachiyo/i18n/react'
 import { useThinkingPager } from '../hooks/useThinkingPager'
 import { useThinkingTimer } from '../hooks/useThinkingTimer'
 
@@ -18,6 +19,7 @@ export function ThinkingBlock({
   isActive,
   startedAt
 }: ThinkingBlockProps): React.JSX.Element | null {
+  const t = useT()
   const [override, setOverride] = useState<{ expanded: boolean; duringActive: boolean } | null>(
     null
   )
@@ -69,7 +71,7 @@ export function ThinkingBlock({
           />
         )}
         <span className="text-xs font-medium tracking-wide" style={{ color: theme.text.accent }}>
-          {isActive ? `Thinking · ${timer}` : 'Thought'}
+          {isActive ? t('chat.timeline.thinking', { elapsed: timer }) : t('chat.timeline.thought')}
         </span>
       </button>
 

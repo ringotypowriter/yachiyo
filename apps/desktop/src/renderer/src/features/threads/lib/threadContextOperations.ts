@@ -1,5 +1,6 @@
+import { t } from '@yachiyo/i18n/index'
 import type { ThreadColorTag } from '@yachiyo/shared/protocol'
-import { THREAD_COLOR_LABELS, THREAD_COLOR_TAGS } from './threadColorPalette.ts'
+import { THREAD_COLOR_TAGS, threadColorMarkLabel } from './threadColorPalette.ts'
 
 export type ThreadContextOperationKey =
   | 'enter-select-mode'
@@ -59,19 +60,19 @@ export function resolveThreadContextOperations(input: {
             {
               disabled: input.isSaving,
               key: 'enter-select-mode',
-              label: 'Select'
+              label: t('threads.contextMenu.select')
             }
           ] satisfies ThreadContextOperation[])
         : []),
       {
         disabled: input.isSaving,
         key: 'restore',
-        label: 'Continue Chat'
+        label: t('threads.contextMenu.continueChat')
       },
       {
         disabled: input.isSaving,
         key: 'delete',
-        label: 'Delete',
+        label: t('common.delete'),
         tone: 'danger'
       }
     ]
@@ -81,21 +82,21 @@ export function resolveThreadContextOperations(input: {
     {
       disabled: input.isSaving,
       key: input.isStarred ? 'unstar' : 'star',
-      label: input.isStarred ? 'Unstar' : 'Star'
+      label: input.isStarred ? t('threads.contextMenu.unstar') : t('threads.contextMenu.star')
     },
     ...(input.includeSelectMode
       ? ([
           {
             disabled: input.isSaving,
             key: 'enter-select-mode',
-            label: 'Select'
+            label: t('threads.contextMenu.select')
           }
         ] satisfies ThreadContextOperation[])
       : []),
     {
       disabled: input.isSaving || input.isRenameDisabled,
       key: 'rename',
-      label: 'Rename'
+      label: t('common.rename')
     }
   ]
   const canHandoff = !input.isExternal && (input.canHandoff ?? true)
@@ -104,7 +105,7 @@ export function resolveThreadContextOperations(input: {
     operations.push({
       disabled: input.isSaving,
       key: 'regenerate-title',
-      label: 'Regenerate Title'
+      label: t('threads.contextMenu.regenerateTitle')
     })
   }
 
@@ -112,7 +113,7 @@ export function resolveThreadContextOperations(input: {
     operations.push({
       disabled: input.isSaving || input.isRunning,
       key: 'compact-to-another-thread',
-      label: 'Handoff'
+      label: t('threads.contextMenu.handoff')
     })
   }
 
@@ -121,13 +122,13 @@ export function resolveThreadContextOperations(input: {
       operations.push({
         disabled: input.isSaving,
         key: 'remove-from-folder',
-        label: 'Remove from Folder'
+        label: t('threads.contextMenu.removeFromFolder')
       })
     } else {
       operations.push({
         disabled: input.isSaving,
         key: 'create-folder',
-        label: 'Create Folder'
+        label: t('threads.contextMenu.createFolder')
       })
     }
   }
@@ -136,7 +137,7 @@ export function resolveThreadContextOperations(input: {
     operations.push({
       disabled: input.isSaving,
       key: 'archive',
-      label: 'Archive'
+      label: t('threads.actions.archive')
     })
   }
 
@@ -146,7 +147,7 @@ export function resolveThreadContextOperations(input: {
         active: input.colorTag == null,
         disabled: input.isSaving,
         key: 'set-color-default',
-        label: 'Mark it Default',
+        label: threadColorMarkLabel(null),
         separatorBefore: true
       },
       ...THREAD_COLOR_TAGS.map(
@@ -154,7 +155,7 @@ export function resolveThreadContextOperations(input: {
           active: input.colorTag === colorTag,
           disabled: input.isSaving,
           key: `set-color-${colorTag}`,
-          label: THREAD_COLOR_LABELS[colorTag]
+          label: threadColorMarkLabel(colorTag)
         })
       )
     )
@@ -163,7 +164,7 @@ export function resolveThreadContextOperations(input: {
   operations.push({
     disabled: input.isSaving,
     key: 'delete',
-    label: 'Delete',
+    label: t('common.delete'),
     separatorBefore: !input.isInFolder,
     tone: 'danger'
   })

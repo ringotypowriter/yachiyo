@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { Loader2 } from 'lucide-react'
+import { useT } from '@yachiyo/i18n/react'
 import { theme, alpha } from '@renderer/theme/theme'
 import { imeSafeEnter } from '@renderer/lib/imeUtils'
 import { SimpleSelect } from '../components/primitives'
@@ -20,6 +21,7 @@ export function MemoryFilterKeywords({
   keywords: string[]
   onChange: (keywords: string[]) => void
 }): React.ReactNode {
+  const t = useT()
   const [draft, setDraft] = useState('')
 
   function addKeyword(): void {
@@ -37,7 +39,7 @@ export function MemoryFilterKeywords({
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={imeSafeEnter(() => addKeyword())}
-          placeholder="Add keyword..."
+          placeholder={t('settings.channels.addKeywordPlaceholder')}
           className="flex-1 text-sm min-w-0"
           style={{
             padding: '5px 10px',
@@ -59,7 +61,7 @@ export function MemoryFilterKeywords({
             cursor: 'default'
           }}
         >
-          Add
+          {t('common.add')}
         </button>
       </div>
 
@@ -113,8 +115,9 @@ export function ModelSelect({
   providers: ModelSelectProvider[]
   onChange: (value: string) => void
 }): React.ReactNode {
+  const t = useT()
   const options: { value: string; label: string }[] = [
-    { value: '', label: 'Default (same as chat)' },
+    { value: '', label: t('settings.channels.modelDefaultOption') },
     ...providers.flatMap((p) =>
       p.modelList.enabled.map((m) => ({
         value: `${p.name}::${m}`,
@@ -163,6 +166,7 @@ export function ChannelUserRow({
   onLimitChange: (value: string) => void
   onLabelChange: (label: string) => void
 }): React.ReactNode {
+  const t = useT()
   const [limitDraft, setLimitDraft] = useState(
     user.usageLimitKTokens !== null ? String(user.usageLimitKTokens) : ''
   )
@@ -198,13 +202,17 @@ export function ChannelUserRow({
             onChange={(e) => setLabelDraft(e.target.value)}
             onBlur={commitLabel}
             onKeyDown={imeSafeEnter(commitLabel)}
-            placeholder="Label..."
+            placeholder={t('settings.channels.labelPlaceholder')}
             className="text-xs bg-transparent outline-none w-full"
             style={{ color: theme.text.secondary }}
           />
           <div className="text-xs" style={{ color: theme.text.tertiary }}>
-            {user.usedKTokens}k used
-            {user.usageLimitKTokens !== null ? ` / ${user.usageLimitKTokens}k limit` : ''}
+            {user.usageLimitKTokens !== null
+              ? t('settings.channels.usedTokensWithLimit', {
+                  used: user.usedKTokens,
+                  limit: user.usageLimitKTokens
+                })
+              : t('settings.channels.usedTokens', { used: user.usedKTokens })}
           </div>
         </div>
       </div>
@@ -212,8 +220,8 @@ export function ChannelUserRow({
       <SimpleSelect
         value={user.role}
         options={[
-          { value: 'guest', label: 'Guest' },
-          { value: 'owner', label: 'Owner' }
+          { value: 'guest', label: t('settings.channels.roleGuest') },
+          { value: 'owner', label: t('settings.channels.roleOwner') }
         ]}
         onChange={(v) => onRoleChange(v as ChannelUserRole)}
         width={110}
@@ -246,13 +254,25 @@ export function ChannelUserRow({
 
       <div className="flex items-center gap-1 shrink-0">
         {user.status !== 'allowed' && (
-          <ActionButton label="Approve" tone="success" onClick={() => onStatusChange('allowed')} />
+          <ActionButton
+            label={t('settings.channels.approve')}
+            tone="success"
+            onClick={() => onStatusChange('allowed')}
+          />
         )}
         {user.status === 'allowed' && (
-          <ActionButton label="Block" tone="danger" onClick={() => onStatusChange('blocked')} />
+          <ActionButton
+            label={t('settings.channels.block')}
+            tone="danger"
+            onClick={() => onStatusChange('blocked')}
+          />
         )}
         {user.status === 'blocked' && (
-          <ActionButton label="Unblock" tone="warning" onClick={() => onStatusChange('pending')} />
+          <ActionButton
+            label={t('settings.channels.unblock')}
+            tone="warning"
+            onClick={() => onStatusChange('pending')}
+          />
         )}
       </div>
     </div>
@@ -274,6 +294,7 @@ export function ChannelGroupRow({
   onLabelChange: (label: string) => void
   onClearMessages: () => void
 }): React.ReactNode {
+  const t = useT()
   const [labelDraft, setLabelDraft] = useState(group.label)
 
   const commitLabel = (): void => {
@@ -306,7 +327,7 @@ export function ChannelGroupRow({
             onChange={(e) => setLabelDraft(e.target.value)}
             onBlur={commitLabel}
             onKeyDown={imeSafeEnter(commitLabel)}
-            placeholder="Label..."
+            placeholder={t('settings.channels.labelPlaceholder')}
             className="text-xs bg-transparent outline-none w-full"
             style={{ color: theme.text.secondary }}
           />
@@ -339,30 +360,42 @@ export function ChannelGroupRow({
           }}
         >
           {busy ? <Loader2 size={12} className="animate-spin" /> : null}
-          {busy ? 'Clearing...' : 'Clear Messages'}
+          {busy ? t('settings.channels.clearing') : t('settings.channels.clearMessages')}
         </button>
         {group.status === 'pending' && (
           <>
             <ActionButton
-              label="Approve"
+              label={t('settings.channels.approve')}
               tone="success"
               onClick={() => onStatusChange('approved')}
             />
-            <ActionButton label="Block" tone="danger" onClick={() => onStatusChange('blocked')} />
+            <ActionButton
+              label={t('settings.channels.block')}
+              tone="danger"
+              onClick={() => onStatusChange('blocked')}
+            />
           </>
         )}
         {group.status === 'approved' && (
           <>
             <ActionButton
-              label="Disable"
+              label={t('settings.channels.disableGroup')}
               tone="warning"
               onClick={() => onStatusChange('pending')}
             />
-            <ActionButton label="Block" tone="danger" onClick={() => onStatusChange('blocked')} />
+            <ActionButton
+              label={t('settings.channels.block')}
+              tone="danger"
+              onClick={() => onStatusChange('blocked')}
+            />
           </>
         )}
         {group.status === 'blocked' && (
-          <ActionButton label="Unblock" tone="warning" onClick={() => onStatusChange('pending')} />
+          <ActionButton
+            label={t('settings.channels.unblock')}
+            tone="warning"
+            onClick={() => onStatusChange('pending')}
+          />
         )}
       </div>
     </div>

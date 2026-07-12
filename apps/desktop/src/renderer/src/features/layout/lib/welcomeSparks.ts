@@ -7,13 +7,34 @@ import {
   Waypoints,
   type LucideIcon
 } from 'lucide-react'
+import { t } from '@yachiyo/i18n/index'
+
+export type WelcomeSparkId =
+  | 'pulse'
+  | 'sisyphus'
+  | 'grill'
+  | 'mirror'
+  | 'constellation'
+  | 'brainstorm'
 
 export interface WelcomeSpark {
-  id: string
-  label: string
-  hint: string
+  id: WelcomeSparkId
   icon: LucideIcon
   prompt: string
+}
+
+export interface WelcomeSparkCopy {
+  label: string
+  hint: string
+}
+
+// Called at render time (never cached) — the component reading this must
+// call useT()/useLocale() so it re-renders when the locale changes.
+export function getWelcomeSparkCopy(id: WelcomeSparkId): WelcomeSparkCopy {
+  return {
+    label: t(`layout.sparks.${id}.label`),
+    hint: t(`layout.sparks.${id}.hint`)
+  }
 }
 
 const LANGUAGE_NOTE =
@@ -131,46 +152,10 @@ const BRAINSTORM_PROMPT = [
 ].join('\n')
 
 export const WELCOME_SPARKS: WelcomeSpark[] = [
-  {
-    id: 'pulse',
-    label: 'Pulse',
-    hint: "Catch up on yesterday's work",
-    icon: Activity,
-    prompt: PULSE_PROMPT
-  },
-  {
-    id: 'sisyphus',
-    label: 'Sisyphus',
-    hint: 'Spot the work that keeps rolling back',
-    icon: Mountain,
-    prompt: SISYPHUS_PROMPT
-  },
-  {
-    id: 'grill',
-    label: 'Grill',
-    hint: 'Grill a vague idea into a real plan',
-    icon: Flame,
-    prompt: GRILL_PROMPT
-  },
-  {
-    id: 'mirror',
-    label: 'Mirror',
-    hint: 'Audit what Yachiyo believes about you',
-    icon: ScanFace,
-    prompt: MIRROR_PROMPT
-  },
-  {
-    id: 'constellation',
-    label: 'Constellation',
-    hint: 'Find hidden links across your work',
-    icon: Waypoints,
-    prompt: CONSTELLATION_PROMPT
-  },
-  {
-    id: 'brainstorm',
-    label: 'Brainstorm',
-    hint: 'Storm ideas from a topic and what you already have',
-    icon: CloudLightning,
-    prompt: BRAINSTORM_PROMPT
-  }
+  { id: 'pulse', icon: Activity, prompt: PULSE_PROMPT },
+  { id: 'sisyphus', icon: Mountain, prompt: SISYPHUS_PROMPT },
+  { id: 'grill', icon: Flame, prompt: GRILL_PROMPT },
+  { id: 'mirror', icon: ScanFace, prompt: MIRROR_PROMPT },
+  { id: 'constellation', icon: Waypoints, prompt: CONSTELLATION_PROMPT },
+  { id: 'brainstorm', icon: CloudLightning, prompt: BRAINSTORM_PROMPT }
 ]

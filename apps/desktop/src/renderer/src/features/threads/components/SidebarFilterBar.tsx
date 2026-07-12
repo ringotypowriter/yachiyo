@@ -12,13 +12,15 @@ import {
   LoaderCircle,
   RotateCcw
 } from 'lucide-react'
+import { t } from '@yachiyo/i18n/index'
+import { useT } from '@yachiyo/i18n/react'
 import { DEFAULT_SIDEBAR_FILTER, useAppStore } from '@renderer/app/store/useAppStore'
 import { hasActiveMultiFilter, type SidebarFilter } from '@renderer/app/store/useAppStore'
 import type { ThreadColorTag } from '@renderer/app/types'
 import {
-  THREAD_COLOR_FILTER_LABELS,
   THREAD_COLOR_TAGS,
-  THREAD_COLOR_VALUES
+  THREAD_COLOR_VALUES,
+  threadColorFilterLabel
 } from '@renderer/features/threads/lib/threadColorPalette'
 import { Tooltip } from '@renderer/components/Tooltip'
 import { isDismissEscapeKey } from '@renderer/lib/imeUtils'
@@ -40,22 +42,22 @@ const EMPTY_WORKSPACE_PATHS: string[] = []
 
 function resolveFilterLabel(filter: SidebarFilter): string {
   const hasMulti = hasActiveMultiFilter(filter)
-  if (!hasMulti) return 'All'
+  if (!hasMulti) return t('threads.filter.all')
 
   const parts: string[] = []
   for (const tag of filter.colorTags) {
-    parts.push(THREAD_COLOR_FILTER_LABELS[tag])
+    parts.push(threadColorFilterLabel(tag))
   }
   for (const workspacePath of filter.workspacePaths) {
     parts.push(resolveWorkspaceDisplayName(workspacePath))
   }
-  if (filter.running) parts.push('Running')
-  if (filter.justDone) parts.push('Just Done')
-  if (filter.folderOnly) parts.push('Folders')
+  if (filter.running) parts.push(t('threads.filter.running'))
+  if (filter.justDone) parts.push(t('threads.filter.justDone'))
+  if (filter.folderOnly) parts.push(t('threads.filter.folders'))
 
   if (parts.length === 1) return parts[0]
   if (parts.length === 2) return parts.join(' + ')
-  return `${parts.length} filters`
+  return t('threads.filter.filtersCount', { count: parts.length })
 }
 
 function createSidebarFilter(overrides: Partial<SidebarFilter> = {}): SidebarFilter {
@@ -152,6 +154,7 @@ function useSidebarFilterCounts(workspaces: WorkspaceFilterOption[]): {
 }
 
 export function SidebarFilterBar(): React.JSX.Element {
+  const translate = useT()
   const sidebarFilter = useAppStore((s) => s.sidebarFilter)
   const [anchorRect, setAnchorRect] = useState<DOMRect | null>(null)
   const triggerRef = useRef<HTMLButtonElement>(null)
@@ -159,7 +162,7 @@ export function SidebarFilterBar(): React.JSX.Element {
   const hasMulti = hasActiveMultiFilter(sidebarFilter)
   const isActive = hasMulti
   const label = resolveFilterLabel(sidebarFilter)
-  const tooltipLabel = `Filter chats: ${label}`
+  const tooltipLabel = translate('threads.filter.filterChatsWith', { label })
 
   return (
     <div className="flex w-full min-w-0 items-center justify-start">
@@ -174,7 +177,7 @@ export function SidebarFilterBar(): React.JSX.Element {
       >
         <button
           ref={triggerRef}
-          aria-label="Filter chats"
+          aria-label={translate('threads.filter.filterChats')}
           onMouseDown={(e) => e.stopPropagation()}
           onClick={() => {
             if (anchorRect) {
@@ -235,6 +238,7 @@ function SidebarFilterDropdown({
   anchorRect: DOMRect
   onClose: () => void
 }): React.JSX.Element {
+  const translate = useT()
   const menuRef = useRef<HTMLDivElement>(null)
   const [visible, setVisible] = useState(false)
   const sidebarFilter = useAppStore((s) => s.sidebarFilter)
@@ -330,7 +334,7 @@ function SidebarFilterDropdown({
       >
         <div style={{ opacity: hasMulti ? 0.35 : 1, pointerEvents: hasMulti ? 'none' : 'auto' }}>
           <RadioRow
-            label="All"
+            label={translate('threads.filter.all')}
             checked={sidebarFilter.base === 'all'}
             onClick={() => setSidebarFilterBase('all')}
             count={counts.all}
@@ -354,29 +358,29 @@ function SidebarFilterDropdown({
             }}
           >
             <RotateCcw size={14} strokeWidth={1.8} />
-            <span className="flex-1">Reset filters</span>
+            <span className="flex-1">{translate('threads.filter.resetFilters')}</span>
           </button>
         )}
       </div>
 
       <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: 8 }}>
-        <SectionLabel>Status</SectionLabel>
+        <SectionLabel>{translate('threads.filter.status')}</SectionLabel>
         <CheckboxRow
-          label="Running"
+          label={translate('threads.filter.running')}
           checked={sidebarFilter.running}
           onClick={toggleRunning}
           count={counts.running}
           icon={<LoaderCircle size={15} strokeWidth={1.8} />}
         />
         <CheckboxRow
-          label="Just Done"
+          label={translate('threads.filter.justDone')}
           checked={sidebarFilter.justDone}
           onClick={toggleJustDone}
           count={counts.justDone}
           icon={<CheckCircle2 size={15} strokeWidth={1.8} />}
         />
         <CheckboxRow
-          label="Folder-Only"
+          label={translate('threads.filter.folderOnly')}
           checked={sidebarFilter.folderOnly}
           onClick={toggleFolderOnly}
           count={counts.folderOnly}
@@ -385,11 +389,11 @@ function SidebarFilterDropdown({
 
         <Divider />
 
-        <SectionLabel>Color</SectionLabel>
+        <SectionLabel>{translate('threads.colors.title')}</SectionLabel>
         {THREAD_COLOR_TAGS.map((tag) => (
           <CheckboxRow
             key={tag}
-            label={THREAD_COLOR_FILTER_LABELS[tag]}
+            label={threadColorFilterLabel(tag)}
             checked={sidebarFilter.colorTags.has(tag)}
             onClick={() => toggleColor(tag)}
             count={counts.colorTags.get(tag)!}
@@ -400,11 +404,15 @@ function SidebarFilterDropdown({
         {workspaces.length > 0 && (
           <>
             <Divider />
-            <SectionLabel>Workspace</SectionLabel>
+            <SectionLabel>{translate('threads.filter.workspace')}</SectionLabel>
             {workspaces.map((ws) => (
               <CheckboxRow
                 key={ws.path}
-                label={ws.displayName}
+                label={
+                  ws.path === TEMPORARY_WORKSPACE_FILTER
+                    ? translate('threads.filter.temporary')
+                    : ws.displayName
+                }
                 checked={sidebarFilter.workspacePaths.has(ws.path)}
                 onClick={() => toggleWorkspace(ws.path)}
                 count={counts.workspacePaths.get(ws.path)!}
@@ -573,7 +581,7 @@ function UnreadBadge({ count }: { count: number }): React.JSX.Element {
         background: alpha('accent', 0.12)
       }}
     >
-      {count} unread
+      {t('threads.filter.unreadCount', { count })}
     </span>
   )
 }

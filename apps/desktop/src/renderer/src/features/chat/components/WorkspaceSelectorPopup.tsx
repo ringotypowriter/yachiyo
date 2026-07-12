@@ -1,6 +1,7 @@
 import type React from 'react'
 import { useEffect, useState } from 'react'
 import { Check, Folder, Plus } from 'lucide-react'
+import { useT } from '@yachiyo/i18n/react'
 import { theme } from '@renderer/theme/theme'
 import { isDismissEscapeKey } from '@renderer/lib/imeUtils'
 import { useRestoreFocusOnUnmount } from '@renderer/lib/focusRestore'
@@ -102,6 +103,7 @@ export function WorkspaceSelectorPopup({
   onSelectWorkspace: (workspacePath: string | null) => void
   savedPaths: string[]
 }): React.ReactNode {
+  const t = useT()
   const [visible, setVisible] = useState(false)
   useRestoreFocusOnUnmount()
 
@@ -123,7 +125,7 @@ export function WorkspaceSelectorPopup({
   return (
     <div
       role="menu"
-      aria-label="Workspace selection"
+      aria-label={t('chat.workspacePicker.ariaLabel')}
       style={{
         position: 'absolute',
         bottom: 'calc(100% + 8px)',
@@ -161,10 +163,10 @@ export function WorkspaceSelectorPopup({
               color: theme.text.primary
             }}
           >
-            Workspace
+            {t('chat.workspacePicker.title')}
           </div>
           <SettingsShortcutButton
-            label="Open workspace settings"
+            label={t('chat.workspacePicker.openWorkspaceSettings')}
             route="capabilities/workspace"
             onClose={onClose}
           />
@@ -177,7 +179,7 @@ export function WorkspaceSelectorPopup({
             lineHeight: 1.45
           }}
         >
-          Temp workspace means no specific folder is pinned to this thread.
+          {t('chat.workspacePicker.tempNote')}
         </div>
       </div>
 
@@ -190,8 +192,8 @@ export function WorkspaceSelectorPopup({
       >
         <WorkspaceOption
           icon={<Folder size={13} strokeWidth={1.8} />}
-          label="Temp workspace"
-          description="Use the default per-thread temp directory"
+          label={t('chat.workspacePicker.tempWorkspace')}
+          description={t('chat.workspacePicker.tempDescription')}
           isSelected={currentWorkspacePath === null}
           onSelect={() => {
             onSelectWorkspace(null)
@@ -242,7 +244,7 @@ export function WorkspaceSelectorPopup({
           }}
         >
           <Plus size={14} strokeWidth={2} />
-          Select directory...
+          {t('chat.workspacePicker.selectDirectory')}
         </button>
       </div>
     </div>

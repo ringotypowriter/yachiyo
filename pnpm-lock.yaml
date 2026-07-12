@@ -125,6 +125,9 @@ importers:
       '@yachiyo/core-skills':
         specifier: workspace:*
         version: link:../../packages/core-skills
+      '@yachiyo/i18n':
+        specifier: workspace:*
+        version: link:../../packages/i18n
       '@yachiyo/runtime':
         specifier: workspace:*
         version: link:../../packages/runtime
@@ -354,6 +357,12 @@ importers:
         version: 0.45.1(@opentelemetry/api@1.9.0)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.8.0)
 
   packages/core-skills: {}
+
+  packages/i18n:
+    dependencies:
+      react:
+        specifier: '*'
+        version: 19.2.4
 
   packages/runtime:
     dependencies:

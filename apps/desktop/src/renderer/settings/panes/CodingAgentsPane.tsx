@@ -20,6 +20,9 @@ import { SettingLabel, SettingSection, SettingSwitch, SimpleSelect } from '../co
 import { inputStyle } from '../components/styles'
 import { ModelSelectorPopup } from '../../src/features/chat/components/ModelSelectorPopup'
 import { formatStoredModelChip } from '../../src/lib/model/modelLabel'
+import { useT } from '@yachiyo/i18n/react'
+
+type Translator = ReturnType<typeof useT>
 
 interface EnvEntry {
   key: string
@@ -51,53 +54,57 @@ interface Preset {
   env: EnvEntry[]
 }
 
-const PRESETS: Preset[] = [
-  {
-    label: 'Claude Code',
-    name: 'Claude Code',
-    description:
-      'Anthropic Claude Code agent via ACP. Best for multi-file refactoring and deep reasoning.',
-    command: 'npx',
-    argsString: JSON.stringify(['-y', '@zed-industries/claude-agent-acp']),
-    env: [{ key: 'ACP_PERMISSION_MODE', value: 'acceptEdits' }]
-  },
-  {
-    label: 'Codex',
-    name: 'Codex',
-    description: 'OpenAI Codex agent via ACP. Excellent for code generation and explanation.',
-    command: 'npx',
-    argsString: JSON.stringify(['-y', '@zed-industries/codex-acp']),
-    env: [{ key: '', value: '' }]
-  }
-]
+function buildPresets(t: Translator): Preset[] {
+  return [
+    {
+      label: 'Claude Code',
+      name: 'Claude Code',
+      description: t('settings.codingAgents.claudeCodePresetDescription'),
+      command: 'npx',
+      argsString: JSON.stringify(['-y', '@zed-industries/claude-agent-acp']),
+      env: [{ key: 'ACP_PERMISSION_MODE', value: 'acceptEdits' }]
+    },
+    {
+      label: 'Codex',
+      name: 'Codex',
+      description: t('settings.codingAgents.codexPresetDescription'),
+      command: 'npx',
+      argsString: JSON.stringify(['-y', '@zed-industries/codex-acp']),
+      env: [{ key: '', value: '' }]
+    }
+  ]
+}
 
-const BUILT_IN_WORKER_AGENTS: Array<{
+const BUILT_IN_WORKER_AGENT_IDS: NamedSubagentId[] = ['explore', 'plan', 'review', 'general']
+
+function buildWorkerAgents(t: Translator): Array<{
   id: NamedSubagentId
   label: string
   description: string
-}> = [
-  {
-    id: 'explore',
-    label: 'Explore',
-    description: 'Read-only codebase inspection with path and line references.'
-  },
-  {
-    id: 'plan',
-    label: 'Plan',
-    description: 'Read-only planning that can use saved context and preferences.'
-  },
-  {
-    id: 'review',
-    label: 'Review',
-    description: 'Review-only inspection with bash access for relevant tests or checks.'
-  },
-  {
-    id: 'general',
-    label: 'General',
-    description:
-      'Ordinary read/write worker without memory, browser, sentinel, user prompts, or todos.'
-  }
-]
+}> {
+  return [
+    {
+      id: 'explore',
+      label: t('settings.codingAgents.exploreLabel'),
+      description: t('settings.codingAgents.exploreDescription')
+    },
+    {
+      id: 'plan',
+      label: t('settings.codingAgents.planLabel'),
+      description: t('settings.codingAgents.planDescription')
+    },
+    {
+      id: 'review',
+      label: t('settings.codingAgents.reviewLabel'),
+      description: t('settings.codingAgents.reviewDescription')
+    },
+    {
+      id: 'general',
+      label: t('settings.codingAgents.generalLabel'),
+      description: t('settings.codingAgents.generalDescription')
+    }
+  ]
+}
 
 interface CodingAgentsPaneProps {
   draft: SettingsConfig
@@ -142,6 +149,9 @@ function toProfile(d: ProfileDraft): SubagentProfile {
 }
 
 export function CodingAgentsPane({ draft, onChange }: CodingAgentsPaneProps): React.ReactNode {
+  const t = useT()
+  const presets = buildPresets(t)
+  const workerAgents = buildWorkerAgents(t)
   const propsKey = useMemo(
     () => JSON.stringify(draft.subagentProfiles ?? []),
     [draft.subagentProfiles]
@@ -269,7 +279,7 @@ export function CodingAgentsPane({ draft, onChange }: CodingAgentsPaneProps): Re
         ...prev,
         [index]: {
           status: 'error',
-          error: err instanceof Error ? err.message : 'Test failed.'
+          error: err instanceof Error ? err.message : t('settings.codingAgents.testFailed')
         }
       }))
     }
@@ -280,7 +290,7 @@ export function CodingAgentsPane({ draft, onChange }: CodingAgentsPaneProps): Re
       ...draft,
       subagents: {
         ...(draft.subagents ?? {
-          enabledNamedAgents: BUILT_IN_WORKER_AGENTS.map((agent) => agent.id)
+          enabledNamedAgents: BUILT_IN_WORKER_AGENT_IDS
         }),
         mode
       }
@@ -288,8 +298,7 @@ export function CodingAgentsPane({ draft, onChange }: CodingAgentsPaneProps): Re
   }
 
   function toggleWorkerAgent(id: NamedSubagentId): void {
-    const current =
-      draft.subagents?.enabledNamedAgents ?? BUILT_IN_WORKER_AGENTS.map((agent) => agent.id)
+    const current = draft.subagents?.enabledNamedAgents ?? BUILT_IN_WORKER_AGENT_IDS
     const next = current.includes(id)
       ? current.filter((agentId) => agentId !== id)
       : [...current, id]
@@ -328,7 +337,7 @@ export function CodingAgentsPane({ draft, onChange }: CodingAgentsPaneProps): Re
   function getWorkerModelLabel(agentId: NamedSubagentId): string {
     const preferred = draft.subagents?.preferredModels?.[agentId]
     if (!preferred?.providerName || !preferred?.model) {
-      return 'Default (same as calling model)'
+      return t('settings.codingAgents.defaultSameAsCallingModel')
     }
     const chip = formatStoredModelChip(preferred.model, preferred.providerName)
     return `${chip.provider} - ${chip.model}`
@@ -357,7 +366,7 @@ export function CodingAgentsPane({ draft, onChange }: CodingAgentsPaneProps): Re
   ): void {
     const current = draft.subagents ?? {
       mode: 'worker' as const,
-      enabledNamedAgents: BUILT_IN_WORKER_AGENTS.map((a) => a.id)
+      enabledNamedAgents: BUILT_IN_WORKER_AGENT_IDS
     }
     const currentPreferred = current.preferredModels ?? {}
     onChange({
@@ -371,7 +380,7 @@ export function CodingAgentsPane({ draft, onChange }: CodingAgentsPaneProps): Re
   function clearWorkerPreferredModel(agentId: NamedSubagentId): void {
     const current = draft.subagents ?? {
       mode: 'worker' as const,
-      enabledNamedAgents: BUILT_IN_WORKER_AGENTS.map((a) => a.id)
+      enabledNamedAgents: BUILT_IN_WORKER_AGENT_IDS
     }
     const currentPreferred = { ...(current.preferredModels ?? {}) }
     delete currentPreferred[agentId]
@@ -389,7 +398,7 @@ export function CodingAgentsPane({ draft, onChange }: CodingAgentsPaneProps): Re
   return (
     <div className="flex-1 overflow-y-auto pb-6">
       <SettingSection>
-        <SettingLabel>Subagents</SettingLabel>
+        <SettingLabel>{t('settings.codingAgents.subagentsSection')}</SettingLabel>
         <div
           className="px-7 pb-4 space-y-3"
           style={{ borderTop: `1px solid ${theme.border.subtle}` }}
@@ -397,17 +406,17 @@ export function CodingAgentsPane({ draft, onChange }: CodingAgentsPaneProps): Re
           <div className="flex items-center justify-between gap-4 pt-4">
             <div>
               <div className="text-sm font-medium" style={{ color: theme.text.primary }}>
-                Runtime mode
+                {t('settings.codingAgents.runtimeMode')}
               </div>
               <div className="text-xs mt-1" style={{ color: theme.text.tertiary }}>
-                Worker mode exposes Explore, Plan, Review, and General through delegateTask.
+                {t('settings.codingAgents.runtimeModeDescription')}
               </div>
             </div>
             <SimpleSelect<SubagentRuntimeMode>
               value={subagentMode}
               options={[
-                { value: 'worker', label: 'Worker Mode' },
-                { value: 'acp', label: 'ACP Mode (Deprecated)' }
+                { value: 'worker', label: t('settings.codingAgents.workerMode') },
+                { value: 'acp', label: t('settings.codingAgents.acpModeDeprecated') }
               ]}
               onChange={updateSubagentMode}
               width={190}
@@ -416,10 +425,9 @@ export function CodingAgentsPane({ draft, onChange }: CodingAgentsPaneProps): Re
 
           {subagentMode === 'worker' ? (
             <div className="grid gap-2">
-              {BUILT_IN_WORKER_AGENTS.map((agent) => {
+              {workerAgents.map((agent) => {
                 const enabled = (
-                  draft.subagents?.enabledNamedAgents ??
-                  BUILT_IN_WORKER_AGENTS.map((item) => item.id)
+                  draft.subagents?.enabledNamedAgents ?? BUILT_IN_WORKER_AGENT_IDS
                 ).includes(agent.id)
                 const isPopupOpen = workerModelSelectorOpen === agent.id
                 return (
@@ -462,7 +470,9 @@ export function CodingAgentsPane({ draft, onChange }: CodingAgentsPaneProps): Re
                               color: theme.text.primary,
                               opacity: isPopupOpen ? 1 : 0.72
                             }}
-                            aria-label={`Model for ${agent.label} worker`}
+                            aria-label={t('settings.codingAgents.modelForWorker', {
+                              label: agent.label
+                            })}
                           >
                             <CircleCheck
                               size={12}
@@ -501,7 +511,7 @@ export function CodingAgentsPane({ draft, onChange }: CodingAgentsPaneProps): Re
                               currentModel={getWorkerCurrentModel(agent.id)}
                               leadingOptions={[
                                 {
-                                  label: 'Default (same as calling model)',
+                                  label: t('settings.codingAgents.defaultSameAsCallingModel'),
                                   isSelected: !draft.subagents?.preferredModels?.[agent.id],
                                   onSelect: () => {
                                     clearWorkerPreferredModel(agent.id)
@@ -523,7 +533,9 @@ export function CodingAgentsPane({ draft, onChange }: CodingAgentsPaneProps): Re
                           ) : null}
                         </div>
                         <SettingSwitch
-                          ariaLabel={`Enable ${agent.label} worker`}
+                          ariaLabel={t('settings.codingAgents.enableWorker', {
+                            label: agent.label
+                          })}
                           checked={enabled}
                           onChange={() => toggleWorkerAgent(agent.id)}
                         />
@@ -535,7 +547,7 @@ export function CodingAgentsPane({ draft, onChange }: CodingAgentsPaneProps): Re
             </div>
           ) : (
             <div className="text-xs" style={{ color: theme.text.tertiary }}>
-              ACP agents are deprecated. Existing profiles remain below for compatibility.
+              {t('settings.codingAgents.acpDeprecatedNotice')}
             </div>
           )}
         </div>
@@ -553,7 +565,7 @@ export function CodingAgentsPane({ draft, onChange }: CodingAgentsPaneProps): Re
                   style={{ color: theme.text.accent }}
                 >
                   <Plus size={13} strokeWidth={1.8} />
-                  Add agent
+                  {t('settings.codingAgents.addAgent')}
                   <ChevronDown size={11} strokeWidth={2} style={{ opacity: 0.6 }} />
                 </button>
 
@@ -567,7 +579,7 @@ export function CodingAgentsPane({ draft, onChange }: CodingAgentsPaneProps): Re
                       boxShadow: theme.shadow.overlay
                     }}
                   >
-                    {PRESETS.map((preset) => (
+                    {presets.map((preset) => (
                       <button
                         key={preset.label}
                         type="button"
@@ -585,14 +597,14 @@ export function CodingAgentsPane({ draft, onChange }: CodingAgentsPaneProps): Re
                       className="w-full text-left px-3 py-2 text-xs hover:opacity-80 transition-opacity"
                       style={{ color: theme.text.secondary }}
                     >
-                      Custom
+                      {t('settings.codingAgents.custom')}
                     </button>
                   </div>
                 )}
               </div>
             }
           >
-            Agent Profiles
+            {t('settings.codingAgents.agentProfiles')}
           </SettingLabel>
 
           {rows.length === 0 ? (
@@ -603,14 +615,14 @@ export function CodingAgentsPane({ draft, onChange }: CodingAgentsPaneProps): Re
                 borderTop: `1px solid ${theme.border.subtle}`
               }}
             >
-              No agent profiles configured. Add one to enable the{' '}
+              {t('settings.codingAgents.noAgentProfilesBefore')}{' '}
               <code
                 className="rounded px-1 py-0.5 text-xs font-mono"
                 style={{ background: theme.background.code }}
               >
                 delegateTask
               </code>{' '}
-              tool.
+              {t('settings.codingAgents.noAgentProfilesAfter')}
             </div>
           ) : (
             rows.map((row, index) => {
@@ -627,12 +639,14 @@ export function CodingAgentsPane({ draft, onChange }: CodingAgentsPaneProps): Re
                     <SettingSwitch
                       checked={row.enabled}
                       onChange={() => updateRow(index, { enabled: !row.enabled })}
-                      ariaLabel={`Toggle ${row.name || 'agent'}`}
+                      ariaLabel={t('settings.codingAgents.toggleAgent', {
+                        name: row.name || t('settings.codingAgents.agentFallback')
+                      })}
                     />
                     <input
                       type="text"
                       value={row.name}
-                      placeholder="Agent name"
+                      placeholder={t('settings.codingAgents.agentNamePlaceholder')}
                       className="flex-1 rounded-lg px-3 py-1.5 text-sm font-medium outline-none"
                       style={inputStyle()}
                       onChange={(e) => updateRow(index, { name: e.target.value })}
@@ -646,7 +660,9 @@ export function CodingAgentsPane({ draft, onChange }: CodingAgentsPaneProps): Re
                         color: row.showInChatPicker ? theme.text.accent : theme.text.tertiary,
                         opacity: row.showInChatPicker ? 1 : 0.5
                       }}
-                      aria-label={`Show ${row.name || 'agent'} in chat picker`}
+                      aria-label={t('settings.codingAgents.showInChatPicker', {
+                        name: row.name || t('settings.codingAgents.agentFallback')
+                      })}
                     >
                       <span
                         className="inline-flex items-center justify-center rounded-full transition-colors"
@@ -661,7 +677,7 @@ export function CodingAgentsPane({ draft, onChange }: CodingAgentsPaneProps): Re
                           <Check size={8} strokeWidth={3} color={theme.text.inverse} />
                         )}
                       </span>
-                      Picker
+                      {t('settings.codingAgents.picker')}
                     </button>
                     <button
                       type="button"
@@ -670,13 +686,15 @@ export function CodingAgentsPane({ draft, onChange }: CodingAgentsPaneProps): Re
                       className="shrink-0 text-xs font-medium transition-opacity opacity-50 hover:opacity-90 disabled:opacity-20"
                       style={{ color: theme.text.secondary }}
                     >
-                      {test.status === 'running' ? 'Testing…' : 'Test'}
+                      {test.status === 'running'
+                        ? t('settings.codingAgents.testing')
+                        : t('settings.codingAgents.test')}
                     </button>
                     <button
                       type="button"
                       onClick={() => removeRow(index)}
                       className="p-1 rounded-lg opacity-40 hover:opacity-70 transition-opacity"
-                      aria-label="Remove agent profile"
+                      aria-label={t('settings.codingAgents.removeAgentProfile')}
                     >
                       <Trash2 size={14} strokeWidth={1.6} color={theme.icon.muted} />
                     </button>
@@ -693,7 +711,7 @@ export function CodingAgentsPane({ draft, onChange }: CodingAgentsPaneProps): Re
                         strokeWidth={2}
                         style={{ animation: 'spin 1s linear infinite' }}
                       />
-                      Connecting to agent…
+                      {t('settings.codingAgents.connectingToAgent')}
                     </div>
                   )}
                   {test.status === 'ok' && (
@@ -702,7 +720,7 @@ export function CodingAgentsPane({ draft, onChange }: CodingAgentsPaneProps): Re
                       style={{ color: theme.text.success }}
                     >
                       <CheckCircle size={12} strokeWidth={2} />
-                      Agent connected successfully.
+                      {t('settings.codingAgents.agentConnected')}
                     </div>
                   )}
                   {test.status === 'error' && (
@@ -711,14 +729,14 @@ export function CodingAgentsPane({ draft, onChange }: CodingAgentsPaneProps): Re
                       style={{ color: theme.text.danger }}
                     >
                       <XCircle size={12} strokeWidth={2} className="mt-0.5 shrink-0" />
-                      <span>{test.error ?? 'Connection failed.'}</span>
+                      <span>{test.error ?? t('settings.codingAgents.connectionFailed')}</span>
                     </div>
                   )}
 
                   {/* Description */}
                   <textarea
                     value={row.description}
-                    placeholder="Describe what this agent does. Yachiyo will include this in its context when deciding which agent to delegate to."
+                    placeholder={t('settings.codingAgents.descriptionPlaceholder')}
                     rows={2}
                     className="w-full rounded-lg px-3 py-2 text-sm resize-none outline-none leading-relaxed"
                     style={inputStyle()}
@@ -728,7 +746,7 @@ export function CodingAgentsPane({ draft, onChange }: CodingAgentsPaneProps): Re
                   {/* Command + args */}
                   <div className="space-y-1.5">
                     <p className="text-xs font-medium" style={{ color: theme.text.muted }}>
-                      Command
+                      {t('settings.codingAgents.command')}
                     </p>
                     <div className="flex gap-2">
                       <input
@@ -757,7 +775,7 @@ export function CodingAgentsPane({ draft, onChange }: CodingAgentsPaneProps): Re
                     </div>
                     {parseArgs(row.argsString) === null && (
                       <p className="text-xs" style={{ color: theme.text.danger }}>
-                        {`Invalid JSON — expected an array like ["-y", "@pkg"]`}
+                        {t('settings.codingAgents.invalidArgsJson')}
                       </p>
                     )}
                   </div>
@@ -765,7 +783,7 @@ export function CodingAgentsPane({ draft, onChange }: CodingAgentsPaneProps): Re
                   {/* Env KV pairs */}
                   <div className="space-y-1.5">
                     <p className="text-xs font-medium" style={{ color: theme.text.muted }}>
-                      Environment
+                      {t('settings.codingAgents.environment')}
                     </p>
                     {row.env.map((entry, ei) => (
                       <div key={ei} className="flex gap-2 items-center">
@@ -781,7 +799,7 @@ export function CodingAgentsPane({ draft, onChange }: CodingAgentsPaneProps): Re
                         <input
                           type="text"
                           value={entry.value}
-                          placeholder="value"
+                          placeholder={t('settings.codingAgents.envValuePlaceholder')}
                           className="flex-1 rounded-lg px-3 py-1.5 text-sm font-mono outline-none"
                           style={inputStyle()}
                           onChange={(e) => updateEnvEntry(index, ei, 'value', e.target.value)}
@@ -791,7 +809,7 @@ export function CodingAgentsPane({ draft, onChange }: CodingAgentsPaneProps): Re
                           type="button"
                           onClick={() => removeEnvEntry(index, ei)}
                           className="p-1 rounded-lg opacity-40 hover:opacity-70 transition-opacity shrink-0"
-                          aria-label="Remove variable"
+                          aria-label={t('settings.codingAgents.removeVariable')}
                         >
                           <Trash2 size={14} strokeWidth={1.6} color={theme.icon.muted} />
                         </button>
@@ -804,7 +822,7 @@ export function CodingAgentsPane({ draft, onChange }: CodingAgentsPaneProps): Re
                       style={{ color: theme.text.secondary }}
                     >
                       <Plus size={11} strokeWidth={2} />
-                      Add variable
+                      {t('settings.codingAgents.addVariable')}
                     </button>
                   </div>
                 </div>

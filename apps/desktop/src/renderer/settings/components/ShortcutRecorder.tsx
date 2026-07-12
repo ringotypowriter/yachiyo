@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Keyboard, X } from 'lucide-react'
+import { useT } from '@yachiyo/i18n/react'
 import { theme } from '@renderer/theme/theme'
 import { isDismissEscapeKey } from '@renderer/lib/imeUtils'
 
@@ -57,8 +58,9 @@ function eventToAccelerator(e: KeyboardEvent): string | null {
 export function ShortcutRecorder({
   value,
   onChange,
-  placeholder = 'Click to record'
+  placeholder
 }: ShortcutRecorderProps): React.JSX.Element {
+  const t = useT()
   const [isRecording, setIsRecording] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
 
@@ -122,7 +124,7 @@ export function ShortcutRecorder({
       <div
         tabIndex={0}
         role="button"
-        aria-label="Record shortcut"
+        aria-label={t('settings.shared.shortcutRecordAria')}
         className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm transition-colors select-none w-52"
         style={{
           background: isRecording ? theme.background.accentPanel : theme.background.hover,
@@ -141,7 +143,10 @@ export function ShortcutRecorder({
       >
         <Keyboard size={14} />
         <span className="flex-1 truncate text-center">
-          {isRecording ? 'Press keys...' : formatAccelerator(value) || placeholder}
+          {isRecording
+            ? t('settings.shared.shortcutPressKeys')
+            : formatAccelerator(value) ||
+              (placeholder ?? t('settings.shared.shortcutClickToRecord'))}
         </span>
       </div>
       {value && (
@@ -153,7 +158,7 @@ export function ShortcutRecorder({
             e.stopPropagation()
             onChange('')
           }}
-          aria-label="Clear shortcut"
+          aria-label={t('settings.shared.shortcutClearAria')}
         >
           <X size={14} />
         </button>

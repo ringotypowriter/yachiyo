@@ -4,9 +4,13 @@ import { ArrowUpRight, Check, Copy, Ellipsis, RotateCcw, Trash2, X } from 'lucid
 
 import type { ThingRecord } from '@renderer/app/types'
 import type { ThingSourceRecord } from '@yachiyo/shared/protocol'
+import { formatDate, tPlural } from '@yachiyo/i18n/index'
+import { useT } from '@yachiyo/i18n/react'
 import { alpha, theme } from '@renderer/theme/theme'
 import { copyTextWithFallback } from '../../chat/lib/messages/copyTextWithFallback'
 import { isDismissEscapeKey } from '@renderer/lib/imeUtils'
+
+type Translator = ReturnType<typeof useT>
 
 export function ThingColumn({
   thing,
@@ -21,6 +25,7 @@ export function ThingColumn({
   onRestore: (name: string) => void
   onOpenThread: (threadId: string, messageId?: string) => void
 }): React.JSX.Element {
+  const t = useT()
   const sourceCount = thing.sources.length
 
   return (
@@ -40,15 +45,16 @@ export function ThingColumn({
           >
             #{thing.name}
           </h2>
-          {thing.isInactive ? <StatusPill tone="muted" label="Inactive" /> : null}
+          {thing.isInactive ? <StatusPill tone="muted" label={t('things.inactive')} /> : null}
         </div>
 
         <div className="mt-2 text-xs font-medium" style={{ color: theme.text.muted }}>
-          Updated {formatDate(thing.lastUpdatedAt)} · {sourceCountLabel(sourceCount)}
+          {t('things.updated', { date: formatDate(new Date(thing.lastUpdatedAt), 'date') })} ·{' '}
+          {tPlural('things.sourceCount', sourceCount)}
         </div>
 
         <p className="mt-4 line-clamp-3 text-sm leading-6" style={{ color: theme.text.secondary }}>
-          {thing.summary || 'No summary yet.'}
+          {thing.summary || t('things.noSummaryYet')}
         </p>
       </button>
 
@@ -58,7 +64,7 @@ export function ThingColumn({
             className="text-xs font-semibold uppercase tracking-[0.16em]"
             style={{ color: theme.text.muted }}
           >
-            Source previews
+            {t('things.sourcePreviews')}
           </div>
         </div>
         <div className="mt-3 flex min-h-0 flex-1 flex-col gap-2 overflow-x-hidden overflow-y-auto pr-1">
@@ -71,7 +77,7 @@ export function ThingColumn({
               className="rounded-2xl px-3 py-3 text-sm"
               style={{ background: alpha('surface', 0.46), color: theme.text.muted }}
             >
-              No sources yet.
+              {t('things.noSourcesYet')}
             </div>
           )}
         </div>
@@ -79,11 +85,11 @@ export function ThingColumn({
 
       <div className="mt-auto flex shrink-0 flex-wrap gap-2 pt-5">
         <PrimaryButton onClick={() => onContinue(thing.name)}>
-          {thing.isInactive ? 'Restore and continue' : 'Continue'}
+          {thing.isInactive ? t('things.restoreAndContinue') : t('things.continue')}
         </PrimaryButton>
         {thing.isInactive ? (
           <SecondaryButton onClick={() => onRestore(thing.name)} icon={<RotateCcw size={14} />}>
-            Restore
+            {t('things.restore')}
           </SecondaryButton>
         ) : null}
       </div>
@@ -114,6 +120,7 @@ export function ThingDetailOverlay({
   onOpenThread: (threadId: string, messageId?: string) => void
   mergeTargets: ThingRecord[]
 }): React.JSX.Element {
+  const t = useT()
   const [menuPosition, setMenuPosition] = useState<{ top: number; left: number } | null>(null)
 
   return (
@@ -136,10 +143,11 @@ export function ThingDetailOverlay({
               #{thing.name}
             </h2>
             <div className="mt-2 text-sm font-medium" style={{ color: theme.text.muted }}>
-              Updated {formatDate(thing.lastUpdatedAt)} · {sourceCountLabel(thing.sources.length)}
+              {t('things.updated', { date: formatDate(new Date(thing.lastUpdatedAt), 'date') })} ·{' '}
+              {tPlural('things.sourceCount', thing.sources.length)}
             </div>
             <p className="mt-4 max-w-3xl text-sm leading-6" style={{ color: theme.text.secondary }}>
-              {thing.summary || 'No summary yet.'}
+              {thing.summary || t('things.noSummaryYet')}
             </p>
           </div>
           <div className="flex shrink-0 items-center gap-2">
@@ -152,7 +160,7 @@ export function ThingDetailOverlay({
                 const rect = event.currentTarget.getBoundingClientRect()
                 setMenuPosition({ top: rect.bottom + 8, left: rect.right - 220 })
               }}
-              aria-label="Thing options"
+              aria-label={t('things.thingOptions')}
               aria-expanded={menuPosition !== null}
             >
               <Ellipsis size={18} />
@@ -162,7 +170,7 @@ export function ThingDetailOverlay({
               className="rounded-full p-2 transition hover:scale-105"
               style={{ background: theme.background.counterSoft, color: theme.text.primary }}
               onClick={onClose}
-              aria-label="Close Thing details"
+              aria-label={t('things.closeThingDetails')}
             >
               <X size={18} />
             </button>
@@ -172,11 +180,11 @@ export function ThingDetailOverlay({
         <div className="mt-5 flex shrink-0 items-center justify-between gap-3">
           <div className="flex min-w-0 flex-wrap gap-2">
             <PrimaryButton onClick={() => onContinue(thing.name)}>
-              {thing.isInactive ? 'Restore and continue' : 'Continue'}
+              {thing.isInactive ? t('things.restoreAndContinue') : t('things.continue')}
             </PrimaryButton>
             {thing.isInactive ? (
               <SecondaryButton onClick={() => onRestore(thing.name)} icon={<RotateCcw size={14} />}>
-                Restore
+                {t('things.restore')}
               </SecondaryButton>
             ) : null}
           </div>
@@ -184,10 +192,10 @@ export function ThingDetailOverlay({
         </div>
 
         <div className="mt-6 min-h-0 overflow-auto">
-          <SectionTitle label="Source previews" count={thing.sources.length} />
+          <SectionTitle label={t('things.sourcePreviews')} count={thing.sources.length} />
           <div className="mt-3 flex flex-col gap-3">
             {thing.sources.length === 0 ? (
-              <EmptyLine>No source previews saved yet.</EmptyLine>
+              <EmptyLine>{t('things.noSourcePreviewsYet')}</EmptyLine>
             ) : (
               thing.sources.map((source) => (
                 <SourceCard
@@ -239,6 +247,7 @@ function ThingManagementMenu({
   onRename: () => void
   position: { top: number; left: number }
 }): React.JSX.Element {
+  const t = useT()
   const menuRef = useRef<HTMLDivElement>(null)
   const [resolvedTop, setResolvedTop] = useState(position.top)
   const menuWidth = 220
@@ -291,13 +300,13 @@ function ThingManagementMenu({
         zIndex: 100
       }}
     >
-      <ThingMenuButton onClick={onRename}>Rename slug</ThingMenuButton>
+      <ThingMenuButton onClick={onRename}>{t('things.renameSlug')}</ThingMenuButton>
       <MenuDivider />
       <div
         className="px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.14em]"
         style={{ color: theme.text.muted }}
       >
-        Merge into…
+        {t('things.mergeInto')}
       </div>
       {mergeTargets.length > 0 ? (
         mergeTargets.map((target) => (
@@ -307,12 +316,12 @@ function ThingManagementMenu({
         ))
       ) : (
         <div className="px-3 py-2 text-sm" style={{ color: theme.text.muted }}>
-          No other Things
+          {t('things.noOtherThings')}
         </div>
       )}
       <MenuDivider />
       <ThingMenuButton tone="danger" onClick={onDelete}>
-        Delete
+        {t('common.delete')}
       </ThingMenuButton>
     </div>,
     document.body
@@ -357,6 +366,7 @@ function SourcePreview({
   source: ThingSourceRecord
   onOpenThread: (threadId: string, messageId?: string) => void
 }): React.JSX.Element {
+  const t = useT()
   return (
     <button
       type="button"
@@ -376,7 +386,7 @@ function SourcePreview({
       >
         <span className="flex min-w-0 items-center gap-1.5">
           <SourceThreadIcon icon={source.threadIcon} />
-          <span className="min-w-0 truncate">{sourceConversationTitle(source)}</span>
+          <span className="min-w-0 truncate">{sourceConversationTitle(t, source)}</span>
         </span>
         <ArrowUpRight size={12} className="shrink-0" />
       </div>
@@ -396,6 +406,7 @@ function SourceCard({
   onRemove: () => void
   onOpenThread: (threadId: string, messageId?: string) => void
 }): React.JSX.Element {
+  const t = useT()
   const [copyState, setCopyState] = useState<'idle' | 'copied' | 'failed'>('idle')
 
   useEffect(() => {
@@ -424,9 +435,9 @@ function SourceCard({
           style={{ color: theme.text.primary }}
         >
           <SourceThreadIcon icon={source.threadIcon} />
-          <span className="min-w-0 truncate">{sourceConversationTitle(source)}</span>
+          <span className="min-w-0 truncate">{sourceConversationTitle(t, source)}</span>
         </span>
-        <span className="shrink-0">{formatDate(source.createdAt)}</span>
+        <span className="shrink-0">{formatDate(new Date(source.createdAt), 'date')}</span>
       </figcaption>
       <p className="mt-3 text-sm leading-6" style={{ color: theme.text.primary }}>
         {source.preview}
@@ -436,20 +447,20 @@ function SourceCard({
           onClick={() => onOpenThread(source.threadId, source.messageId)}
           icon={<ArrowUpRight size={14} />}
         >
-          Open conversation
+          {t('things.openConversation')}
         </SecondaryButton>
         <SecondaryButton
           onClick={handleCopy}
           icon={copyState === 'copied' ? <Check size={14} /> : <Copy size={14} />}
         >
           {copyState === 'copied'
-            ? 'Copied'
+            ? t('common.copied')
             : copyState === 'failed'
-              ? 'Copy failed'
-              : 'Copy preview'}
+              ? t('things.copyFailed')
+              : t('things.copyPreview')}
         </SecondaryButton>
         <SecondaryButton onClick={onRemove} icon={<Trash2 size={14} />} tone="danger">
-          Remove source
+          {t('things.removeSource')}
         </SecondaryButton>
       </div>
     </figure>
@@ -462,9 +473,12 @@ function SourceThreadIcon({ icon }: { icon?: string }): React.JSX.Element | null
 }
 
 function sourceConversationTitle(
+  t: Translator,
   source: Pick<ThingSourceRecord, 'threadId' | 'threadTitle'>
 ): string {
-  return source.threadTitle?.trim() || `Conversation ${shortId(source.threadId)}`
+  return (
+    source.threadTitle?.trim() || t('things.conversationFallback', { id: shortId(source.threadId) })
+  )
 }
 
 function shortId(value: string): string {
@@ -569,12 +583,4 @@ function EmptyLine({ children }: { children: React.ReactNode }): React.JSX.Eleme
       {children}
     </div>
   )
-}
-
-function formatDate(value: string): string {
-  return new Date(value).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
-}
-
-function sourceCountLabel(count: number): string {
-  return `${count} source${count === 1 ? '' : 's'}`
 }

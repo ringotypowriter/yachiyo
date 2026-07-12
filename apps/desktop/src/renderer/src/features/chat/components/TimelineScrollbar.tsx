@@ -3,6 +3,8 @@ import { createPortal } from 'react-dom'
 import { ChevronUp, ChevronDown } from 'lucide-react'
 import type { Message } from '@renderer/app/types'
 import { theme, alpha } from '@renderer/theme/theme'
+import { getLocale, t, tPlural, type Locale } from '@yachiyo/i18n/index'
+import { useT } from '@yachiyo/i18n/react'
 
 export interface TimelineScrollbarProps {
   messages: readonly Message[]
@@ -31,29 +33,28 @@ interface BarMessageSummary {
   visible: boolean
   length: number
   snippet: string
+  locale: Locale
 }
 
 // Message records are immutable and identity-stable except the streaming tail,
 // so the O(content) trim/replace work runs once per message instead of once per
-// message per streamed frame.
+// message per streamed frame. Cached by locale too, so a locale switch recomputes.
 const barSummaryCache = new WeakMap<Message, BarMessageSummary>()
 
 function summarizeBarMessage(m: Message): BarMessageSummary {
   const cached = barSummaryCache.get(m)
-  if (cached) return cached
+  if (cached && cached.locale === getLocale()) return cached
 
   const raw = m.content.replace(/\n+/g, ' ').trim()
   let snippet: string
   if (raw.length > 0) {
     snippet = raw.length > 80 ? raw.slice(0, 77) + '...' : raw
   } else if (m.images && m.images.length > 0) {
-    const count = m.images.length
-    snippet = count === 1 ? '1 image' : `${count} images`
+    snippet = tPlural('chat.counts.images', m.images.length)
   } else if (m.attachments && m.attachments.length > 0) {
-    const count = m.attachments.length
-    snippet = count === 1 ? '1 attachment' : `${count} attachments`
+    snippet = tPlural('chat.counts.attachments', m.attachments.length)
   } else {
-    snippet = '(empty)'
+    snippet = t('chat.timeline.snippetEmpty')
   }
 
   const summary: BarMessageSummary = {
@@ -62,7 +63,8 @@ function summarizeBarMessage(m: Message): BarMessageSummary {
       (m.images ? m.images.length > 0 : false) ||
       (m.attachments ? m.attachments.length > 0 : false),
     length: Math.max(m.content.length, 1),
-    snippet
+    snippet,
+    locale: getLocale()
   }
   barSummaryCache.set(m, summary)
   return summary
@@ -97,6 +99,7 @@ function PreviewPopup({
   bar: BarEntry
   anchorRect: DOMRect
 }): React.JSX.Element {
+  const t = useT()
   const ref = useRef<HTMLDivElement | null>(null)
   const [visible, setVisible] = useState(false)
   const [top, setTop] = useState(anchorRect.top + anchorRect.height / 2)
@@ -114,7 +117,8 @@ function PreviewPopup({
     return () => cancelAnimationFrame(id)
   }, [anchorRect])
 
-  const roleLabel = bar.role === 'user' ? 'You' : 'Assistant'
+  const roleLabel =
+    bar.role === 'user' ? t('chat.timeline.roleYou') : t('chat.timeline.roleAssistant')
 
   return (
     <div

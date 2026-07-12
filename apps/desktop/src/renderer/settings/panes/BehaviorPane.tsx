@@ -6,6 +6,7 @@ import type {
   UpdateChannel,
   UserDocument
 } from '@yachiyo/shared/protocol'
+import { useT } from '@yachiyo/i18n/react'
 import { useAppStore } from '@renderer/app/store/useAppStore'
 import { useAppDialog } from '@renderer/components/AppDialogContext'
 import { theme, alpha } from '@renderer/theme/theme'
@@ -65,6 +66,7 @@ export function BehaviorPane({
   onNavigateToRoute
 }: BehaviorPaneProps): React.ReactNode {
   const [view, setView] = useState<'overview' | 'user-document' | 'soul-document'>('overview')
+  const t = useT()
   const dialog = useAppDialog()
   const config = useAppStore((state) => state.config)
   const createNewThread = useAppStore((state) => state.createNewThread)
@@ -127,11 +129,10 @@ export function BehaviorPane({
   const handleLaunchAtLogin = useCallback(async (): Promise<void> => {
     if (!hasEnabledChatModel(config?.providers ?? [])) {
       const openProviders = await dialog.confirm({
-        title: 'Set up a model first',
-        message:
-          'Yachiyo needs at least one enabled model before it can configure Launch at Login for you.',
-        confirmLabel: 'Open Providers',
-        cancelLabel: 'Not now'
+        title: t('settings.behavior.modelFirstDialogTitle'),
+        message: t('settings.behavior.modelFirstDialogMessage'),
+        confirmLabel: t('settings.behavior.openProvidersButton'),
+        cancelLabel: t('settings.behavior.notNowButton')
       })
       if (openProviders) {
         onNavigateToRoute('providers')
@@ -140,11 +141,10 @@ export function BehaviorPane({
     }
 
     const confirmed = await dialog.confirm({
-      title: 'Let Yachiyo set up Launch at Login?',
-      message:
-        'Yachiyo will start a new chat and configure macOS so the app opens when you log in.',
-      confirmLabel: 'Set Up',
-      cancelLabel: 'Cancel'
+      title: t('settings.behavior.launchDialogTitle'),
+      message: t('settings.behavior.launchDialogMessage'),
+      confirmLabel: t('settings.behavior.setUpConfirm'),
+      cancelLabel: t('common.cancel')
     })
     if (!confirmed) {
       return
@@ -160,8 +160,8 @@ export function BehaviorPane({
 
     if (!threadId) {
       await dialog.alert({
-        title: 'Could not start setup',
-        message: 'Yachiyo could not create a new chat. Please try again.'
+        title: t('settings.behavior.setupFailedTitle'),
+        message: t('settings.behavior.setupFailedCreateThread')
       })
       return
     }
@@ -180,11 +180,19 @@ export function BehaviorPane({
     }
     if (!sent) {
       await dialog.alert({
-        title: 'Could not start setup',
-        message: 'Yachiyo could not send the setup request. Please try again.'
+        title: t('settings.behavior.setupFailedTitle'),
+        message: t('settings.behavior.setupFailedSendMessage')
       })
     }
-  }, [config?.providers, createNewThread, dialog, onActivateChat, onNavigateToRoute, sendMessage])
+  }, [
+    config?.providers,
+    createNewThread,
+    dialog,
+    onActivateChat,
+    onNavigateToRoute,
+    sendMessage,
+    t
+  ])
 
   if (view === 'user-document') {
     return (
@@ -200,14 +208,13 @@ export function BehaviorPane({
                 hasAttemptedUserDocumentLoadRef.current = false
               }}
             >
-              ← Behavior
+              {`← ${t('settings.nav.behavior')}`}
             </button>
             <div className="text-lg font-semibold" style={{ color: theme.text.primary }}>
               USER.md
             </div>
             <div className="text-sm leading-5" style={{ color: theme.text.tertiary }}>
-              Durable understanding of the user. Keep stable preferences, communication style, work
-              style, and long-term background here.
+              {t('settings.behavior.userDocPageDesc')}
             </div>
             {userDocument?.filePath ? (
               <div
@@ -230,7 +237,7 @@ export function BehaviorPane({
               disabled={!hasPendingUserChanges}
               onClick={onRevertUserDocument}
             >
-              Revert
+              {t('settings.behavior.revert')}
             </button>
           </div>
         </div>
@@ -240,7 +247,7 @@ export function BehaviorPane({
 
           {isLoadingUserDocument ? (
             <div className="mt-2 px-7 text-sm" style={{ color: theme.text.muted }}>
-              Loading USER.md...
+              {t('settings.behavior.loadingUserDoc')}
             </div>
           ) : null}
 
@@ -267,14 +274,13 @@ export function BehaviorPane({
               hasAttemptedSoulLoadRef.current = false
             }}
           >
-            ← Behavior
+            {`← ${t('settings.nav.behavior')}`}
           </button>
           <div className="mt-1 text-lg font-semibold" style={{ color: theme.text.primary }}>
             SOUL.md
           </div>
           <div className="mt-0.5 text-sm leading-5" style={{ color: theme.text.tertiary }}>
-            Evolved traits that define Yachiyo&apos;s personality and self-model. Each trait is
-            appended under today&apos;s date in the file.
+            {t('settings.behavior.soulDocPageDesc')}
           </div>
           {soulDocument?.filePath ? (
             <div
@@ -288,7 +294,7 @@ export function BehaviorPane({
 
         {isLoadingSoulDocument ? (
           <div className="px-7 text-sm" style={{ color: theme.text.muted }}>
-            Loading SOUL.md...
+            {t('settings.behavior.loadingSoulDoc')}
           </div>
         ) : (
           <>
@@ -303,7 +309,7 @@ export function BehaviorPane({
                 disabled={!hasPendingSoulChanges}
                 onClick={onRevertSoulDocument}
               >
-                Revert
+                {t('settings.behavior.revert')}
               </button>
             </div>
 
@@ -330,7 +336,7 @@ export function BehaviorPane({
                       className="shrink-0 text-sm transition-opacity opacity-30 hover:opacity-70"
                       style={{ color: theme.text.secondary }}
                       onClick={() => handleDeleteTrait(trait)}
-                      aria-label={`Remove trait: ${trait}`}
+                      aria-label={t('settings.behavior.removeTraitAria', { trait })}
                     >
                       ×
                     </button>
@@ -339,7 +345,7 @@ export function BehaviorPane({
               </div>
             ) : (
               <div className="px-7 py-3 text-sm" style={{ color: theme.text.muted }}>
-                No traits yet. Add the first one below.
+                {t('settings.behavior.noTraits')}
               </div>
             )}
 
@@ -349,7 +355,7 @@ export function BehaviorPane({
                 value={newTrait}
                 onChange={(e) => setNewTrait(e.target.value)}
                 onKeyDown={imeSafeEnter(() => handleAddTrait())}
-                placeholder="Add a trait..."
+                placeholder={t('settings.behavior.addTraitPlaceholder')}
                 className="flex-1 rounded-lg px-3 py-2 text-sm outline-none"
                 style={{
                   background: alpha('ink', 0.04),
@@ -367,7 +373,7 @@ export function BehaviorPane({
                 disabled={!newTrait.trim() || soulTraits.includes(newTrait.trim())}
                 onClick={handleAddTrait}
               >
-                Add
+                {t('common.add')}
               </button>
             </div>
 
@@ -392,17 +398,17 @@ export function BehaviorPane({
   return (
     <div className="flex-1 overflow-y-auto pb-6">
       <SettingSection>
-        <SettingLabel>Updates</SettingLabel>
+        <SettingLabel>{t('settings.behavior.updatesSection')}</SettingLabel>
 
         <SettingRow>
           <div className="min-w-0 space-y-0.5">
             <div className="text-sm font-medium" style={{ color: theme.text.primary }}>
-              Update channel
+              {t('settings.behavior.updateChannelLabel')}
             </div>
             <div className="text-sm leading-5" style={{ color: theme.text.tertiary }}>
               {updateChannel === 'beta'
-                ? 'Includes pre-releases and stable releases.'
-                : 'Only checks for stable releases.'}
+                ? t('settings.behavior.updateChannelBetaDesc')
+                : t('settings.behavior.updateChannelStableDesc')}
             </div>
           </div>
 
@@ -410,8 +416,8 @@ export function BehaviorPane({
             <SimpleSelect
               value={updateChannel}
               options={[
-                { value: 'stable' as const, label: 'Stable' },
-                { value: 'beta' as const, label: 'Beta' }
+                { value: 'stable' as const, label: t('settings.behavior.updateChannelStable') },
+                { value: 'beta' as const, label: t('settings.behavior.updateChannelBeta') }
               ]}
               onChange={(channel) => {
                 onChange({
@@ -427,16 +433,16 @@ export function BehaviorPane({
       </SettingSection>
 
       <SettingSection>
-        <SettingLabel>Startup</SettingLabel>
+        <SettingLabel>{t('settings.behavior.startupSection')}</SettingLabel>
 
         {isMac ? (
           <SettingRow>
             <div className="min-w-0 space-y-0.5">
               <div className="text-sm font-medium" style={{ color: theme.text.primary }}>
-                Keep Mac awake
+                {t('settings.behavior.keepAwakeLabel')}
               </div>
               <div className="text-sm leading-5" style={{ color: theme.text.tertiary }}>
-                Keeps the device awake with caffinate while Yachiyo is open.
+                {t('settings.behavior.keepAwakeDesc')}
               </div>
             </div>
 
@@ -449,7 +455,7 @@ export function BehaviorPane({
                     general: { ...draft.general, preventSystemSleep: !preventSystemSleep }
                   })
                 }
-                ariaLabel="Toggle keep Mac awake"
+                ariaLabel={t('settings.behavior.keepAwakeToggleAria')}
               />
             </div>
           </SettingRow>
@@ -458,10 +464,10 @@ export function BehaviorPane({
         <SettingRow>
           <div className="min-w-0 space-y-0.5">
             <div className="text-sm font-medium" style={{ color: theme.text.primary }}>
-              Launch at Login
+              {t('settings.behavior.launchAtLoginLabel')}
             </div>
             <div className="text-sm leading-5" style={{ color: theme.text.tertiary }}>
-              Ask Yachiyo to configure macOS so the app opens when you log in.
+              {t('settings.behavior.launchAtLoginDesc')}
             </div>
           </div>
 
@@ -471,7 +477,7 @@ export function BehaviorPane({
             style={{ color: theme.text.accent }}
             onClick={() => void handleLaunchAtLogin()}
           >
-            Set up…
+            {t('settings.behavior.setUpButton')}
           </button>
         </SettingRow>
       </SettingSection>
@@ -488,11 +494,11 @@ export function BehaviorPane({
                 )
               }
             >
-              System Settings…
+              {t('settings.behavior.systemSettingsButton')}
             </button>
           }
         >
-          Notifications
+          {t('settings.behavior.notificationsSection')}
         </SettingLabel>
 
         {(
@@ -500,20 +506,20 @@ export function BehaviorPane({
             {
               key: 'notifyRunCompleted',
               checked: notifyRunCompleted,
-              label: 'Run completed',
-              description: 'Off to silence when the app is in the background.'
+              label: t('settings.behavior.notifyRunCompletedLabel'),
+              description: t('settings.behavior.notifyRunCompletedDesc')
             },
             {
               key: 'notifyCodingTaskStarted',
               checked: notifyCodingTaskStarted,
-              label: 'Coding task started',
-              description: 'Notifies when a subagent picks up a coding task.'
+              label: t('settings.behavior.notifyCodingStartedLabel'),
+              description: t('settings.behavior.notifyCodingStartedDesc')
             },
             {
               key: 'notifyCodingTaskFinished',
               checked: notifyCodingTaskFinished,
-              label: 'Coding task finished',
-              description: 'Notifies when a subagent completes a coding task.'
+              label: t('settings.behavior.notifyCodingFinishedLabel'),
+              description: t('settings.behavior.notifyCodingFinishedDesc')
             }
           ] as const
         ).map(({ key, checked, label, description }) => (
@@ -535,7 +541,7 @@ export function BehaviorPane({
                     general: { ...draft.general, [key]: !checked }
                   })
                 }
-                ariaLabel={`Toggle ${label} notification`}
+                ariaLabel={t('settings.behavior.notifyToggleAria', { label })}
               />
             </div>
           </SettingRow>
@@ -543,19 +549,19 @@ export function BehaviorPane({
       </SettingSection>
 
       <SettingSection>
-        <SettingLabel>Global shortcuts</SettingLabel>
+        <SettingLabel>{t('settings.behavior.shortcutsSection')}</SettingLabel>
 
         {(
           [
             {
               key: 'translatorShortcut' as const,
-              label: 'Translator shortcut',
-              description: 'Global shortcut to open the translator float window.'
+              label: t('settings.behavior.translatorShortcutLabel'),
+              description: t('settings.behavior.translatorShortcutDesc')
             },
             {
               key: 'jotdownShortcut' as const,
-              label: 'Jot Down shortcut',
-              description: 'Global shortcut to open the jot-down float window.'
+              label: t('settings.behavior.jotdownShortcutLabel'),
+              description: t('settings.behavior.jotdownShortcutDesc')
             }
           ] as const
         ).map(({ key, label, description }) => (
@@ -597,13 +603,13 @@ export function BehaviorPane({
               })
             }
           >
-            Reset to defaults
+            {t('settings.behavior.resetShortcuts')}
           </button>
         </SettingRow>
       </SettingSection>
 
       <SettingSection>
-        <SettingLabel>Personalization</SettingLabel>
+        <SettingLabel>{t('settings.behavior.personalizationSection')}</SettingLabel>
 
         <SettingRow>
           <div className="min-w-0 space-y-0.5">
@@ -611,7 +617,7 @@ export function BehaviorPane({
               USER.md
             </div>
             <div className="text-sm leading-5" style={{ color: theme.text.tertiary }}>
-              Edit Yachiyo&apos;s durable understanding of you in a dedicated file.
+              {t('settings.behavior.userDocDesc')}
             </div>
           </div>
 
@@ -621,7 +627,7 @@ export function BehaviorPane({
             style={{ color: theme.text.accent }}
             onClick={() => setView('user-document')}
           >
-            Open editor →
+            {t('settings.behavior.openEditorButton')}
           </button>
         </SettingRow>
 
@@ -631,7 +637,7 @@ export function BehaviorPane({
               SOUL.md
             </div>
             <div className="text-sm leading-5" style={{ color: theme.text.tertiary }}>
-              Manage the evolved traits that shape Yachiyo&apos;s personality.
+              {t('settings.behavior.soulDocDesc')}
             </div>
           </div>
 
@@ -641,7 +647,7 @@ export function BehaviorPane({
             style={{ color: theme.text.accent }}
             onClick={() => setView('soul-document')}
           >
-            Manage traits →
+            {t('settings.behavior.manageTraitsButton')}
           </button>
         </SettingRow>
       </SettingSection>

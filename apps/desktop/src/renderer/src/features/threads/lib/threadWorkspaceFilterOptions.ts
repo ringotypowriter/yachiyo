@@ -1,3 +1,4 @@
+import { t } from '@yachiyo/i18n/index'
 import type { Thread } from '../../../app/types.ts'
 import { isExternalThread } from './threadVisibility.ts'
 
@@ -77,13 +78,17 @@ export function resolveWorkspaceFilterOptions({
   return temporaryCount > 0
     ? [
         ...options,
-        { path: TEMPORARY_WORKSPACE_FILTER, displayName: 'Temporary', count: temporaryCount }
+        {
+          path: TEMPORARY_WORKSPACE_FILTER,
+          displayName: t('threads.filter.temporary'),
+          count: temporaryCount
+        }
       ]
     : options
 }
 
 export function resolveWorkspaceDisplayName(workspacePath: string): string {
-  if (workspacePath === TEMPORARY_WORKSPACE_FILTER) return 'Temporary'
+  if (workspacePath === TEMPORARY_WORKSPACE_FILTER) return t('threads.filter.temporary')
   const segments = workspacePath.replace(/\/+$/, '').split('/')
   return segments[segments.length - 1] || workspacePath
 }

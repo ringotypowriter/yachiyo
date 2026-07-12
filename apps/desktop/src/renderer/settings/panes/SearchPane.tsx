@@ -7,6 +7,7 @@ import {
   type SettingsConfig,
   type WebSearchBrowserImportSource
 } from '@yachiyo/shared/protocol'
+import { useT } from '@yachiyo/i18n/react'
 import { SettingLabel, SettingRow, SettingSection, SimpleSelect } from '../components/primitives'
 import { inputStyle } from '../components/styles'
 
@@ -16,6 +17,7 @@ interface SearchPaneProps {
 }
 
 export function SearchPane({ draft, onChange }: SearchPaneProps): React.ReactNode {
+  const t = useT()
   const defaultProvider = draft.webSearch?.defaultProvider ?? DEFAULT_WEB_SEARCH_PROVIDER
   const browserSession = draft.webSearch?.browserSession
   const exaApiKey = draft.webSearch?.exa?.apiKey ?? ''
@@ -47,16 +49,14 @@ export function SearchPane({ draft, onChange }: SearchPaneProps): React.ReactNod
           return
         }
 
-        setError(
-          reason instanceof Error ? reason.message : 'Failed to load browser import sources.'
-        )
+        setError(reason instanceof Error ? reason.message : t('settings.search.loadSourcesFailed'))
         setLoadingSources(false)
       })
 
     return () => {
       cancelled = true
     }
-  }, [browserSession?.sourceProfileName])
+  }, [browserSession?.sourceProfileName, t])
 
   const profileOptions = useMemo(
     () => importSources.filter((source) => source.browserId === 'google-chrome'),
@@ -78,7 +78,7 @@ export function SearchPane({ draft, onChange }: SearchPaneProps): React.ReactNod
       })
       onChange(nextConfig)
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'Failed to import Chrome session.')
+      setError(reason instanceof Error ? reason.message : t('settings.search.importFailed'))
     } finally {
       setImporting(false)
     }
@@ -90,7 +90,7 @@ export function SearchPane({ draft, onChange }: SearchPaneProps): React.ReactNod
         <SettingRow>
           <div className="min-w-0 space-y-0.5">
             <div className="text-sm font-medium" style={{ color: theme.text.primary }}>
-              Search Provider
+              {t('settings.search.searchProvider')}
             </div>
           </div>
 
@@ -116,7 +116,7 @@ export function SearchPane({ draft, onChange }: SearchPaneProps): React.ReactNod
 
           <SettingRow>
             <div className="text-sm font-medium" style={{ color: theme.text.primary }}>
-              API Key
+              {t('settings.search.apiKey')}
             </div>
             <div className="relative flex items-center" style={{ width: 240 }}>
               <input
@@ -133,7 +133,7 @@ export function SearchPane({ draft, onChange }: SearchPaneProps): React.ReactNod
                 }
                 className="w-full rounded-xl px-3 py-2.5 text-sm outline-none"
                 style={inputStyle()}
-                placeholder="your-exa-api-key"
+                placeholder={t('settings.search.apiKeyPlaceholder')}
                 spellCheck={false}
                 autoComplete="off"
               />
@@ -141,7 +141,9 @@ export function SearchPane({ draft, onChange }: SearchPaneProps): React.ReactNod
                 type="button"
                 onClick={() => setShowApiKey((v) => !v)}
                 className="absolute right-2.5 shrink-0 opacity-40 hover:opacity-80 transition-opacity"
-                aria-label={showApiKey ? 'Hide API key' : 'Show API key'}
+                aria-label={
+                  showApiKey ? t('settings.search.hideApiKey') : t('settings.search.showApiKey')
+                }
               >
                 {showApiKey ? (
                   <EyeOff size={14} color={theme.icon.muted} />
@@ -160,23 +162,22 @@ export function SearchPane({ draft, onChange }: SearchPaneProps): React.ReactNod
             className="text-[11px] font-semibold uppercase tracking-[0.12em] mb-2"
             style={{ color: theme.text.secondary }}
           >
-            Browser Session
+            {t('settings.search.browserSession')}
           </div>
           <div className="text-sm leading-5" style={{ color: theme.text.tertiary }}>
-            Hidden browser search keeps its own session. Import from Chrome to bootstrap cookies and
-            consent state.
+            {t('settings.search.browserSessionDescription')}
           </div>
         </div>
 
         <SettingRow>
           <div className="text-sm font-medium" style={{ color: theme.text.primary }}>
-            Chrome profile
+            {t('settings.search.chromeProfile')}
           </div>
           <SimpleSelect
             value={selectedProfileName}
             options={
               profileOptions.length === 0
-                ? [{ value: '', label: 'No Chrome profiles found' }]
+                ? [{ value: '', label: t('settings.search.noChromeProfiles') }]
                 : profileOptions.map((p) => ({ value: p.profileName, label: p.profileName }))
             }
             onChange={setSelectedProfileName}
@@ -188,8 +189,11 @@ export function SearchPane({ draft, onChange }: SearchPaneProps): React.ReactNod
           <div className="flex items-center justify-between gap-4">
             <span className="text-xs" style={{ color: theme.text.tertiary }}>
               {browserSession?.importedAt
-                ? `Last import: ${browserSession.sourceBrowser} / ${browserSession.sourceProfileName}`
-                : 'No session imported yet.'}
+                ? t('settings.search.lastImport', {
+                    browser: browserSession.sourceBrowser ?? '',
+                    profile: browserSession.sourceProfileName ?? ''
+                  })
+                : t('settings.search.noSessionImported')}
             </span>
             <button
               type="button"
@@ -199,7 +203,7 @@ export function SearchPane({ draft, onChange }: SearchPaneProps): React.ReactNod
               style={{ color: theme.text.accent }}
             >
               {importing ? <Loader2 size={14} className="animate-spin" /> : null}
-              Import from Chrome
+              {t('settings.search.importFromChrome')}
             </button>
           </div>
 

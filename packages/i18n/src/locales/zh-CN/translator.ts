@@ -1,0 +1,30 @@
+export const translator = {
+  title: '翻译',
+  history: '历史记录',
+  toolModelUnavailable: '未配置工具模型，请前往「设置 > 聊天」启用。',
+  sourcePlaceholder: '输入要翻译的文本…',
+  outputPlaceholder: '译文将显示在这里…',
+  copyTranslation: '复制译文',
+  translate: '翻译',
+  translating: '翻译中…',
+  targetLanguagePlaceholder: '目标语言…',
+  unavailableResult: '[不可用] {reason}',
+  errorResult: '[错误] {message}',
+  languages: {
+    english: '英语',
+    chineseSimplified: '简体中文',
+    chineseTraditional: '繁体中文',
+    japanese: '日语',
+    korean: '韩语',
+    spanish: '西班牙语',
+    french: '法语',
+    german: '德语',
+    russian: '俄语',
+    portuguese: '葡萄牙语',
+    italian: '意大利语',
+    arabic: '阿拉伯语',
+    thai: '泰语',
+    vietnamese: '越南语',
+    indonesian: '印尼语'
+  }
+}

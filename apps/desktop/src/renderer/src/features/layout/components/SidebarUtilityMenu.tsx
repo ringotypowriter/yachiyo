@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Languages, NotebookPen, Radio } from 'lucide-react'
+import { useT } from '@yachiyo/i18n/react'
 import type { ConnectionStatus } from '@renderer/app/types'
 import { theme } from '@renderer/theme/theme'
 import { isDismissEscapeKey } from '@renderer/lib/imeUtils'
@@ -25,6 +26,7 @@ export function SidebarUtilityMenu({
   onOpenJotdown,
   onClose
 }: SidebarUtilityMenuProps): React.JSX.Element {
+  const t = useT()
   const menuRef = useRef<HTMLDivElement>(null)
   const [visible, setVisible] = useState(false)
   useRestoreFocusOnUnmount()
@@ -90,7 +92,11 @@ export function SidebarUtilityMenu({
             background: isConnected ? theme.status.success : theme.status.danger
           }}
         />
-        <span>{isConnected ? 'Server ready' : 'Server offline'}</span>
+        <span>
+          {isConnected
+            ? t('layout.utilityMenu.serverReady')
+            : t('layout.utilityMenu.serverOffline')}
+        </span>
       </div>
 
       {/* Divider */}
@@ -112,13 +118,13 @@ export function SidebarUtilityMenu({
       >
         <span className="flex items-center gap-2.5">
           <Radio size={14} strokeWidth={1.5} />
-          <span>External threads</span>
+          <span>{t('layout.utilityMenu.externalThreads')}</span>
           {showExternalThreads && (
             <span
               className="ml-auto text-[10px] font-medium px-1.5 py-0.5 rounded"
               style={{ background: theme.background.counterSurface, color: theme.text.counter }}
             >
-              ON
+              {t('layout.utilityMenu.onBadge')}
             </span>
           )}
         </span>
@@ -141,7 +147,7 @@ export function SidebarUtilityMenu({
       >
         <span className="flex items-center gap-2.5">
           <Languages size={14} strokeWidth={1.5} />
-          <span>Translator</span>
+          <span>{t('layout.utilityMenu.translator')}</span>
         </span>
       </button>
 
@@ -162,7 +168,7 @@ export function SidebarUtilityMenu({
       >
         <span className="flex items-center gap-2.5">
           <NotebookPen size={14} strokeWidth={1.5} />
-          <span>Jot Down</span>
+          <span>{t('layout.utilityMenu.jotDown')}</span>
         </span>
       </button>
     </div>,

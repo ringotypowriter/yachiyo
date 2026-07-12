@@ -1,5 +1,6 @@
 import type React from 'react'
 import { useCallback } from 'react'
+import { t } from '@yachiyo/i18n/index'
 import {
   useAppStore,
   type AppState,
@@ -122,15 +123,15 @@ function formatByteSize(bytes: number): string {
 function formatAttachmentRejectionReason(rejection: AttachmentFileRejectionRecord): string {
   if (rejection.reason === 'too-large') {
     return rejection.maxBytes === undefined
-      ? 'larger than the upload limit'
-      : `larger than ${formatByteSize(rejection.maxBytes)}`
+      ? t('chat.composer.attachments.reasonTooLargeLimit')
+      : t('chat.composer.attachments.reasonTooLarge', { size: formatByteSize(rejection.maxBytes) })
   }
 
   if (rejection.reason === 'sensitive-file') {
-    return 'sensitive file'
+    return t('chat.composer.attachments.reasonSensitive')
   }
 
-  return 'unsupported file type'
+  return t('chat.composer.attachments.reasonUnsupported')
 }
 
 function createAttachmentUploadNotice(
@@ -144,7 +145,10 @@ function createAttachmentUploadNotice(
     const rejection = rejected[0]!
     return {
       tone: 'error',
-      text: `${rejection.filename} was not added: ${formatAttachmentRejectionReason(rejection)}.`
+      text: t('chat.composer.attachments.notAddedSingle', {
+        filename: rejection.filename,
+        reason: formatAttachmentRejectionReason(rejection)
+      })
     }
   }
 
@@ -152,11 +156,14 @@ function createAttachmentUploadNotice(
   const reasonText =
     reasons.size === 1
       ? formatAttachmentRejectionReason(rejected[0]!)
-      : 'some were unsupported, too large, or sensitive'
+      : t('chat.composer.attachments.reasonMixed')
 
   return {
     tone: 'error',
-    text: `${rejected.length} files were not added: ${reasonText}.`
+    text: t('chat.composer.attachments.notAddedMany', {
+      count: rejected.length,
+      reason: reasonText
+    })
   }
 }
 
@@ -276,7 +283,10 @@ export function useComposerInputHandlers(
               dataUrl: '',
               mediaType: file.type || 'image/*',
               filename: file.name,
-              error: error instanceof Error ? error.message : 'Unable to prepare this image.'
+              error:
+                error instanceof Error
+                  ? error.message
+                  : t('chat.composer.attachments.imagePrepError')
             },
             activeThreadId
           )
@@ -321,7 +331,10 @@ export function useComposerInputHandlers(
               mediaType,
               dataUrl: '',
               status: 'failed',
-              error: error instanceof Error ? error.message : 'Unable to prepare this file.'
+              error:
+                error instanceof Error
+                  ? error.message
+                  : t('chat.composer.attachments.filePrepError')
             },
             activeThreadId
           )
@@ -443,7 +456,7 @@ export function useComposerInputHandlers(
           console.warn('[yachiyo] failed to paste clipboard text', error)
           setAttachmentUploadNotice({
             tone: 'error',
-            text: 'Plain-text paste failed.'
+            text: t('chat.composer.attachments.plainTextPasteFailed')
           })
         })
         return

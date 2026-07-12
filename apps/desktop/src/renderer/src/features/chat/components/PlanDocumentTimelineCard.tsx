@@ -3,6 +3,7 @@ import type { PlanDocumentState } from '@renderer/app/store/useAppStore'
 import type { InlineCodeFileLinkSnapshot } from '@renderer/lib/markdown/inlineCodeFileLinkSnapshot'
 import { theme } from '@renderer/theme/theme'
 import type { AcceptThreadPlanDocumentMode } from '@yachiyo/shared/protocol'
+import { useT } from '@yachiyo/i18n/react'
 import { PlanDocumentCard } from './PlanDocumentCard'
 
 interface PlanDocumentTimelineCardProps {
@@ -20,6 +21,7 @@ export const PlanDocumentTimelineCard = memo(function PlanDocumentTimelineCard({
   onAcceptPlanDocument,
   onRejectPlanDocument
 }: PlanDocumentTimelineCardProps): React.JSX.Element | null {
+  const t = useT()
   if (!planDocument) return null
 
   if (planDocument.decision === 'rejected') {
@@ -35,7 +37,7 @@ export const PlanDocumentTimelineCard = memo(function PlanDocumentTimelineCard({
             padding: '8px 10px'
           }}
         >
-          Plan rejected. Send revision notes to continue.
+          {t('chat.plan.rejectedNote')}
         </div>
       </div>
     )

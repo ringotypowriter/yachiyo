@@ -1,5 +1,6 @@
 import { app, Notification } from 'electron'
 import { is } from '@electron-toolkit/utils'
+import { t } from '@yachiyo/i18n/index'
 import {
   chmodSync,
   existsSync,
@@ -155,10 +156,8 @@ function ensurePathInShellProfiles(): void {
 
 function notifyCLIReady(symlinked: boolean): void {
   if (!Notification.isSupported()) return
-  const body = symlinked
-    ? 'The yachiyo command is ready. Try it in any terminal!'
-    : 'Restart your terminal (or run `source ~/.zshrc`) to use the yachiyo command.'
-  new Notification({ title: 'Yachiyo CLI Installed', body }).show()
+  const body = symlinked ? t('main.cli.readySymlinked') : t('main.cli.readyRestart')
+  new Notification({ title: t('main.cli.installedTitle'), body }).show()
 }
 
 export function setupCLI(): void {

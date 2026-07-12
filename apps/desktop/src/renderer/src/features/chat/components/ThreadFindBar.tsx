@@ -4,6 +4,7 @@ import { ChevronDown, ChevronUp, Search, X } from 'lucide-react'
 import { theme } from '@renderer/theme/theme'
 import { isDismissEscapeKey } from '@renderer/lib/imeUtils'
 import { useRestoreFocusOnUnmount } from '@renderer/lib/focusRestore'
+import { useT } from '@yachiyo/i18n/react'
 import type { FindMatch } from '../lib/thread-search/threadFindBar'
 
 export interface ThreadFindBarProps {
@@ -25,6 +26,7 @@ export function ThreadFindBar({
   onPrev,
   onClose
 }: ThreadFindBarProps): React.JSX.Element {
+  const t = useT()
   const inputRef = useRef<HTMLInputElement>(null)
   useRestoreFocusOnUnmount()
 
@@ -47,8 +49,8 @@ export function ThreadFindBar({
   const hasQuery = query.trim().length >= 2
   const countLabel = hasQuery
     ? matches.length === 0
-      ? 'No results'
-      : `${currentIndex + 1} of ${matches.length}`
+      ? t('chat.noResults')
+      : t('chat.findBar.position', { current: currentIndex + 1, total: matches.length })
     : ''
 
   return (
@@ -74,7 +76,7 @@ export function ThreadFindBar({
         value={query}
         onChange={(e) => onQueryChange(e.target.value)}
         onKeyDown={handleKeyDown}
-        placeholder="Find in thread…"
+        placeholder={t('chat.findBar.placeholder')}
         className="flex-1 min-w-0 bg-transparent outline-none text-sm"
         style={{
           color: theme.text.primary,
@@ -96,7 +98,7 @@ export function ThreadFindBar({
         disabled={matches.length === 0}
         className="p-0.5 rounded opacity-50 hover:opacity-80 disabled:opacity-25 transition-opacity"
         style={{ color: theme.icon.default }}
-        aria-label="Previous match"
+        aria-label={t('chat.findBar.previousMatch')}
       >
         <ChevronUp size={14} strokeWidth={1.5} />
       </button>
@@ -106,7 +108,7 @@ export function ThreadFindBar({
         disabled={matches.length === 0}
         className="p-0.5 rounded opacity-50 hover:opacity-80 disabled:opacity-25 transition-opacity"
         style={{ color: theme.icon.default }}
-        aria-label="Next match"
+        aria-label={t('chat.findBar.nextMatch')}
       >
         <ChevronDown size={14} strokeWidth={1.5} />
       </button>
@@ -115,7 +117,7 @@ export function ThreadFindBar({
         onClick={onClose}
         className="p-0.5 rounded opacity-40 hover:opacity-70 transition-opacity"
         style={{ color: theme.icon.default }}
-        aria-label="Close find bar"
+        aria-label={t('chat.findBar.close')}
       >
         <X size={13} strokeWidth={1.5} />
       </button>

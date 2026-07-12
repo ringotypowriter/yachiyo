@@ -3,6 +3,8 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useState } from 'reac
 import { Archive, FolderPlus, RotateCcw, Sparkles, Trash2, X } from 'lucide-react'
 import { useVirtualizer as useTanStackVirtualizer } from '@tanstack/react-virtual'
 import { useShallow } from 'zustand/react/shallow'
+import { tPlural } from '@yachiyo/i18n/index'
+import { useLocale, useT } from '@yachiyo/i18n/react'
 import {
   DndContext,
   DragOverlay,
@@ -189,9 +191,12 @@ function FolderAwareThreadList({
   restoreFolder: (folder: FolderRecord, threads: Thread[]) => void
   renderThreadItem: (thread: Thread, options?: { isInFolder?: boolean }) => React.JSX.Element
 }): React.JSX.Element {
+  const t = useT()
+  const locale = useLocale()
   const items = useMemo(
     () => buildSidebarItems(threads, folders, new Date(), draftThreadIds),
-    [threads, folders, draftThreadIds]
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- buildSidebarItems reads t() internally; locale forces a re-run on language switch
+    [threads, folders, draftThreadIds, locale]
   )
   const rows = useMemo(
     () => buildSidebarRows(items, collapsedFolderIds),
@@ -319,7 +324,7 @@ function FolderAwareThreadList({
             textTransform: 'uppercase'
           }}
         >
-          Starred
+          {t('threads.list.starred')}
         </div>
       )
     }
@@ -518,6 +523,7 @@ function ThreadListEmpty({
 }: {
   threadListMode: 'active' | 'archived'
 }): React.JSX.Element {
+  const t = useT()
   const sidebarFilter = useAppStore((s) => s.sidebarFilter)
   const clearFilter = useAppStore((s) => s.clearSidebarFilter)
   const hasFilter = hasActiveMultiFilter(sidebarFilter) || sidebarFilter.base === 'archived'
@@ -525,7 +531,7 @@ function ThreadListEmpty({
   if (hasFilter) {
     return (
       <div className="px-4 py-6 text-sm leading-6" style={{ color: theme.text.muted }}>
-        No threads match the current filter.
+        {t('threads.list.noMatchFilter')}
         <br />
         <button
           onClick={clearFilter}
@@ -539,7 +545,7 @@ function ThreadListEmpty({
             fontSize: 'inherit'
           }}
         >
-          Clear filters
+          {t('threads.list.clearFilters')}
         </button>
       </div>
     )
@@ -547,9 +553,7 @@ function ThreadListEmpty({
 
   return (
     <div className="px-4 py-6 text-sm leading-6" style={{ color: theme.text.muted }}>
-      {threadListMode === 'archived'
-        ? 'No archived threads yet.'
-        : 'No chats yet. Start one from the compose box or the new chat button.'}
+      {threadListMode === 'archived' ? t('threads.list.noArchived') : t('threads.list.noChats')}
     </div>
   )
 }
@@ -629,6 +633,7 @@ function ThreadListContent({
   moveThreadToFolder: (threadId: string, folderId: string | null) => Promise<void>
   createFolderForThreads: (threadIds: string[]) => Promise<void>
 }): React.JSX.Element {
+  const t = useT()
   const dialog = useAppDialog()
   const [selectMode, setSelectMode] = useState(false)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
@@ -726,9 +731,9 @@ function ThreadListContent({
 
       if (latestRunsByThread[thread.id]?.status === 'running') {
         const confirmed = await dialog.confirm({
-          title: `"${thread.title}" has an active run.`,
-          message: 'Cancel the run and delete this thread?',
-          confirmLabel: 'Delete',
+          title: t('threads.confirm.activeRunTitle', { title: thread.title }),
+          message: t('threads.confirm.activeRunMessage'),
+          confirmLabel: t('common.delete'),
           tone: 'danger'
         })
         if (!confirmed) return
@@ -737,15 +742,15 @@ function ThreadListContent({
         return
       }
       const confirmed = await dialog.confirm({
-        title: `Delete "${thread.title}" permanently?`,
-        confirmLabel: 'Delete',
+        title: t('threads.confirm.deleteTitle', { title: thread.title }),
+        confirmLabel: t('common.delete'),
         tone: 'danger'
       })
       if (!confirmed) return
       await deleteThread(thread.id)
     } catch (error) {
       await dialog.alert({
-        title: error instanceof Error ? error.message : 'Failed to update the thread.'
+        title: error instanceof Error ? error.message : t('threads.errors.update')
       })
     }
   }
@@ -772,7 +777,7 @@ function ThreadListContent({
       exitSelectMode()
     } catch (error) {
       await dialog.alert({
-        title: error instanceof Error ? error.message : 'Failed to archive threads.'
+        title: error instanceof Error ? error.message : t('threads.errors.archiveMany')
       })
     }
   }
@@ -780,8 +785,8 @@ function ThreadListContent({
   async function handleBulkRestore(): Promise<void> {
     const ids = [...selectedIds]
     const confirmed = await dialog.confirm({
-      title: `Restore ${ids.length} thread${ids.length !== 1 ? 's' : ''}?`,
-      confirmLabel: 'Restore',
+      title: tPlural('threads.confirm.restoreManyTitle', ids.length),
+      confirmLabel: t('threads.actions.restore'),
       tone: 'accent'
     })
     if (!confirmed) return
@@ -792,7 +797,7 @@ function ThreadListContent({
       exitSelectMode()
     } catch (error) {
       await dialog.alert({
-        title: error instanceof Error ? error.message : 'Failed to restore threads.'
+        title: error instanceof Error ? error.message : t('threads.errors.restoreMany')
       })
     }
   }
@@ -800,8 +805,8 @@ function ThreadListContent({
   async function handleBulkDelete(): Promise<void> {
     const ids = [...selectedIds]
     const confirmed = await dialog.confirm({
-      title: `Delete ${ids.length} thread${ids.length !== 1 ? 's' : ''} permanently?`,
-      confirmLabel: 'Delete',
+      title: tPlural('threads.confirm.deleteManyTitle', ids.length),
+      confirmLabel: t('common.delete'),
       tone: 'danger'
     })
     if (!confirmed) return
@@ -812,7 +817,7 @@ function ThreadListContent({
       exitSelectMode()
     } catch (error) {
       await dialog.alert({
-        title: error instanceof Error ? error.message : 'Failed to delete threads.'
+        title: error instanceof Error ? error.message : t('threads.errors.deleteMany')
       })
     }
   }
@@ -825,7 +830,7 @@ function ThreadListContent({
       }
     } catch (error) {
       await dialog.alert({
-        title: error instanceof Error ? error.message : 'Failed to regenerate thread titles.'
+        title: error instanceof Error ? error.message : t('threads.errors.regenerateTitles')
       })
     }
   }
@@ -835,7 +840,7 @@ function ThreadListContent({
       await renameThread(thread.id, nextTitle)
     } catch (error) {
       await dialog.alert({
-        title: error instanceof Error ? error.message : 'Failed to rename the thread.'
+        title: error instanceof Error ? error.message : t('threads.errors.rename')
       })
     }
   }
@@ -845,7 +850,7 @@ function ThreadListContent({
       await setThreadIcon(thread.id, icon)
     } catch (error) {
       await dialog.alert({
-        title: error instanceof Error ? error.message : 'Failed to update the thread icon.'
+        title: error instanceof Error ? error.message : t('threads.errors.updateIcon')
       })
     }
   }
@@ -858,7 +863,7 @@ function ThreadListContent({
       await setThreadColor(thread.id, colorTag)
     } catch (error) {
       await dialog.alert({
-        title: error instanceof Error ? error.message : 'Failed to update the thread color.'
+        title: error instanceof Error ? error.message : t('threads.errors.updateColor')
       })
     }
   }
@@ -868,7 +873,7 @@ function ThreadListContent({
       await starThread(thread.id, !thread.starredAt)
     } catch (error) {
       await dialog.alert({
-        title: error instanceof Error ? error.message : 'Failed to update the thread.'
+        title: error instanceof Error ? error.message : t('threads.errors.update')
       })
     }
   }
@@ -893,10 +898,10 @@ function ThreadListContent({
       for (const thread of target.threads) {
         await archiveThread(thread.id)
       }
-      dropSelectionIds(target.threads.map((t) => t.id))
+      dropSelectionIds(target.threads.map((thread) => thread.id))
     } catch (error) {
       await dialog.alert({
-        title: error instanceof Error ? error.message : 'Failed to archive folder threads.'
+        title: error instanceof Error ? error.message : t('threads.errors.archiveFolder')
       })
     }
   }
@@ -909,10 +914,10 @@ function ThreadListContent({
       for (const thread of target.threads) {
         await restoreThread(thread.id)
       }
-      dropSelectionIds(target.threads.map((t) => t.id))
+      dropSelectionIds(target.threads.map((thread) => thread.id))
     } catch (error) {
       await dialog.alert({
-        title: error instanceof Error ? error.message : 'Failed to restore folder threads.'
+        title: error instanceof Error ? error.message : t('threads.errors.restoreFolder')
       })
     }
   }
@@ -931,7 +936,7 @@ function ThreadListContent({
       }
     } catch (error) {
       await dialog.alert({
-        title: error instanceof Error ? error.message : 'Failed to archive the thread.'
+        title: error instanceof Error ? error.message : t('threads.errors.archive')
       })
     }
   }
@@ -951,7 +956,7 @@ function ThreadListContent({
         draftText = text
       } else {
         const count = (draft.images?.length ?? 0) + (draft.files?.length ?? 0)
-        draftText = count > 0 ? (count === 1 ? '1 attachment' : `${count} attachments`) : ''
+        draftText = count > 0 ? tPlural('threads.list.attachmentCount', count) : ''
       }
     }
 
@@ -1021,11 +1026,13 @@ function ThreadListContent({
             style={{ background: theme.background.code }}
           >
             <span className="flex-1 text-xs" style={{ color: theme.text.secondary }}>
-              {selectedIds.size === 0 ? 'Select threads' : `${selectedIds.size} selected`}
+              {selectedIds.size === 0
+                ? t('threads.list.selectThreads')
+                : t('threads.list.selectedCount', { count: selectedIds.size })}
             </span>
             {selectedIds.size > 0 ? (
               <button
-                title="Regenerate titles"
+                title={t('threads.list.regenerateTitles')}
                 onClick={() => void handleBulkRegenerateTitle()}
                 className="flex items-center justify-center rounded p-1 transition-colors"
                 onMouseEnter={(e) =>
@@ -1040,7 +1047,7 @@ function ThreadListContent({
             ) : null}
             {selectedIds.size >= 2 && threadListMode === 'active' ? (
               <button
-                title="Create folder from selected"
+                title={t('threads.list.createFolderFromSelected')}
                 onClick={() => {
                   void createFolderForThreads([...selectedIds])
                   setSelectMode(false)
@@ -1059,7 +1066,7 @@ function ThreadListContent({
             ) : null}
             {selectedIds.size > 0 && threadListMode === 'active' ? (
               <button
-                title="Archive selected"
+                title={t('threads.list.archiveSelected')}
                 onClick={() => void handleBulkArchive()}
                 className="flex items-center justify-center rounded p-1 transition-colors"
                 onMouseEnter={(e) =>
@@ -1074,7 +1081,7 @@ function ThreadListContent({
             ) : null}
             {selectedIds.size > 0 && threadListMode === 'archived' ? (
               <button
-                title="Restore selected"
+                title={t('threads.list.restoreSelected')}
                 onClick={() => void handleBulkRestore()}
                 className="flex items-center justify-center rounded p-1 transition-colors"
                 onMouseEnter={(e) =>
@@ -1089,7 +1096,7 @@ function ThreadListContent({
             ) : null}
             {selectedIds.size > 0 ? (
               <button
-                title="Delete selected"
+                title={t('threads.list.deleteSelected')}
                 onClick={() => void handleBulkDelete()}
                 className="flex items-center justify-center rounded p-1 transition-colors"
                 onMouseEnter={(e) =>
@@ -1103,7 +1110,7 @@ function ThreadListContent({
               </button>
             ) : null}
             <button
-              title="Exit select mode"
+              title={t('threads.list.exitSelectMode')}
               onClick={exitSelectMode}
               className="flex items-center justify-center rounded p-1 transition-colors"
               onMouseEnter={(e) =>
@@ -1151,18 +1158,18 @@ function ThreadListContent({
       </div>
       {archiveTarget && (
         <ConfirmDialog
-          title={`Archive "${archiveTarget.title}"?`}
+          title={t('threads.confirm.archiveTitle', { title: archiveTarget.title })}
           actions={[
-            { key: 'archive', label: 'Archive', tone: 'accent' },
+            { key: 'archive', label: t('threads.actions.archive'), tone: 'accent' },
             ...(memoryEnabled && !archiveTarget.privacyMode
               ? [
                   {
                     key: 'save-and-archive' as const,
-                    label: 'Save Memory & Archive' as const
+                    label: t('threads.actions.saveMemoryAndArchive')
                   }
                 ]
               : []),
-            { key: 'cancel', label: 'Cancel' }
+            { key: 'cancel', label: t('common.cancel') }
           ]}
           onSelect={(key) => void handleArchiveConfirm(key)}
           onClose={() => setArchiveTarget(null)}
@@ -1170,10 +1177,10 @@ function ThreadListContent({
       )}
       {bulkArchiveIds && (
         <ConfirmDialog
-          title={`Archive ${bulkArchiveIds.length} thread${bulkArchiveIds.length !== 1 ? 's' : ''}?`}
+          title={tPlural('threads.confirm.archiveManyTitle', bulkArchiveIds.length)}
           actions={[
-            { key: 'archive', label: 'Archive', tone: 'accent' },
-            { key: 'cancel', label: 'Cancel' }
+            { key: 'archive', label: t('threads.actions.archive'), tone: 'accent' },
+            { key: 'cancel', label: t('common.cancel') }
           ]}
           onSelect={(key) => void handleBulkArchiveConfirm(key)}
           onClose={() => setBulkArchiveIds(null)}
@@ -1181,10 +1188,12 @@ function ThreadListContent({
       )}
       {folderArchiveTarget && (
         <ConfirmDialog
-          title={`Archive all ${folderArchiveTarget.threads.length} thread${folderArchiveTarget.threads.length !== 1 ? 's' : ''} in "${folderArchiveTarget.folder.title}"?`}
+          title={tPlural('threads.confirm.archiveFolderTitle', folderArchiveTarget.threads.length, {
+            title: folderArchiveTarget.folder.title
+          })}
           actions={[
-            { key: 'archive', label: 'Archive', tone: 'accent' },
-            { key: 'cancel', label: 'Cancel' }
+            { key: 'archive', label: t('threads.actions.archive'), tone: 'accent' },
+            { key: 'cancel', label: t('common.cancel') }
           ]}
           onSelect={(key) => void handleFolderArchiveConfirm(key)}
           onClose={() => setFolderArchiveTarget(null)}
@@ -1192,10 +1201,12 @@ function ThreadListContent({
       )}
       {folderRestoreTarget && (
         <ConfirmDialog
-          title={`Restore all ${folderRestoreTarget.threads.length} thread${folderRestoreTarget.threads.length !== 1 ? 's' : ''} in "${folderRestoreTarget.folder.title}"?`}
+          title={tPlural('threads.confirm.restoreFolderTitle', folderRestoreTarget.threads.length, {
+            title: folderRestoreTarget.folder.title
+          })}
           actions={[
-            { key: 'restore', label: 'Restore', tone: 'accent' },
-            { key: 'cancel', label: 'Cancel' }
+            { key: 'restore', label: t('threads.actions.restore'), tone: 'accent' },
+            { key: 'cancel', label: t('common.cancel') }
           ]}
           onSelect={(key) => void handleFolderRestoreConfirm(key)}
           onClose={() => setFolderRestoreTarget(null)}

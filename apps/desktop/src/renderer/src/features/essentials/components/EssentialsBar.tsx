@@ -1,3 +1,4 @@
+import { useT } from '@yachiyo/i18n/react'
 import { useAppStore } from '@renderer/app/store/useAppStore'
 import { Tooltip } from '@renderer/components/Tooltip'
 import { alpha } from '@renderer/theme/theme'
@@ -9,11 +10,12 @@ const GAP = 6
 const ITEM_HEIGHT = 44
 
 function EssentialIcon({ essential }: { essential: EssentialPreset }): React.JSX.Element {
+  const t = useT()
   if (essential.iconType === 'image') {
     return (
       <img
         src={essential.icon}
-        alt={essential.label ?? 'Essential'}
+        alt={essential.label ?? t('essentials.iconAlt')}
         className="rounded-full object-cover"
         style={{ width: 24, height: 24 }}
         draggable={false}
@@ -25,6 +27,7 @@ function EssentialIcon({ essential }: { essential: EssentialPreset }): React.JSX
 }
 
 export function EssentialsBar(): React.JSX.Element | null {
+  const t = useT()
   const config = useAppStore((s) => s.config)
   const createNewThreadFromEssential = useAppStore((s) => s.createNewThreadFromEssential)
 
@@ -54,7 +57,7 @@ export function EssentialsBar(): React.JSX.Element | null {
         >
           {row.map((essential) => (
             <div key={essential.id}>
-              <Tooltip content={essential.label || 'New chat'} placement="bottom">
+              <Tooltip content={essential.label || t('essentials.newChat')} placement="bottom">
                 <button
                   onClick={() => createNewThreadFromEssential(essential.id)}
                   className="flex items-center justify-center rounded-xl transition-all hover:scale-105 active:scale-95"
@@ -65,7 +68,7 @@ export function EssentialsBar(): React.JSX.Element | null {
                     border: 'none',
                     cursor: 'default'
                   }}
-                  aria-label={essential.label || 'New chat from essential'}
+                  aria-label={essential.label || t('essentials.newChatFromEssential')}
                 >
                   <EssentialIcon essential={essential} />
                 </button>

@@ -4,6 +4,8 @@ import { Clock, Wrench, GitCompareArrows } from 'lucide-react'
 import type { RunRecord, ToolCall } from '@renderer/app/types'
 import { useAppStore } from '@renderer/app/store/useAppStore'
 import { theme, alpha } from '@renderer/theme/theme'
+import { useT } from '@yachiyo/i18n/react'
+import { tPlural } from '@yachiyo/i18n/index'
 import { DiffPreviewerModal } from './DiffPreviewerModal'
 import {
   countToolCallsForRun,
@@ -33,6 +35,7 @@ export function RunStatsFooter({
   toolCalls,
   requestMessageIds
 }: RunStatsFooterProps): React.JSX.Element | null {
+  useT()
   const [showDiffModal, setShowDiffModal] = useState(false)
 
   const latestRunsByThread = useAppStore((s) => s.latestRunsByThread)
@@ -92,7 +95,9 @@ export function RunStatsFooter({
         {showToolCalls ? (
           <span className="inline-flex items-center gap-1">
             <Wrench size={11} strokeWidth={1.7} />
-            {runInfo.toolCallCount} tool {runInfo.toolCallCount === 1 ? 'call' : 'calls'}
+            {tPlural('chat.runStats.toolCalls', runInfo.toolCallCount, {
+              count: runInfo.toolCallCount
+            })}
           </span>
         ) : null}
         {hasSnapshot ? (
@@ -116,7 +121,9 @@ export function RunStatsFooter({
             }}
           >
             <GitCompareArrows size={11} strokeWidth={1.7} />
-            {runInfo.fileCount} file {runInfo.fileCount === 1 ? 'change' : 'changes'}
+            {tPlural('chat.runStats.fileChanges', runInfo.fileCount, {
+              count: runInfo.fileCount
+            })}
           </button>
         ) : null}
       </div>

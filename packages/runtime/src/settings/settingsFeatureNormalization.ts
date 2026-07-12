@@ -7,6 +7,7 @@ import {
   normalizeThemeAppearance,
   normalizeThemeId,
   type ActivityTrackingConfig,
+  type AppLanguage,
   type BrowserBackedWebSearchSessionConfig,
   type ChatConfig,
   type ExaWebSearchConfig,
@@ -37,9 +38,14 @@ function normalizeWebSearchProviderId(
   return value === 'google-browser' || value === 'exa' ? value : fallback
 }
 
+function normalizeAppLanguage(value: unknown): AppLanguage {
+  return value === 'en' || value === 'zh-CN' ? value : 'auto'
+}
+
 export function normalizeGeneralConfig(value: unknown): GeneralConfig {
   const input = asRecord(value)
   const result: GeneralConfig = {
+    language: normalizeAppLanguage(input['language']),
     sidebarVisibility: normalizeSidebarVisibility(
       input['sidebarVisibility'],
       DEFAULT_SETTINGS_CONFIG.general?.sidebarVisibility

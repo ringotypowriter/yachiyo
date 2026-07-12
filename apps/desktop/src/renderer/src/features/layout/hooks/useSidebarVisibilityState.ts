@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { useT } from '@yachiyo/i18n/react'
 import type { SidebarVisibility } from '@renderer/app/types'
 import { useAppStore } from '@renderer/app/store/useAppStore'
 import { useAppDialog } from '@renderer/components/AppDialogContext'
@@ -30,6 +31,7 @@ export interface UseSidebarVisibilityStateResult {
 }
 
 export function useSidebarVisibilityState(): UseSidebarVisibilityStateResult {
+  const t = useT()
   const dialog = useAppDialog()
   const config = useAppStore((state) => state.config)
   const clearPendingOverrideSyncRef = useRef<(() => void) | null>(null)
@@ -176,7 +178,7 @@ export function useSidebarVisibilityState(): UseSidebarVisibilityStateResult {
       clearPendingOverrideSync()
       setSidebarOpenOverride(null)
       await dialog.alert({
-        title: error instanceof Error ? error.message : 'Failed to save sidebar visibility.'
+        title: error instanceof Error ? error.message : t('layout.errors.saveSidebarVisibility')
       })
     }
   }

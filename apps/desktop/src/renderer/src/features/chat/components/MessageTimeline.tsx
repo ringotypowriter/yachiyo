@@ -6,6 +6,8 @@ import { useAppStore, type SubagentFinishedResult } from '@renderer/app/store/us
 import type { Message, RunRecord, ToolCall } from '@renderer/app/types'
 import { useAppDialog, type AppConfirmOptions } from '@renderer/components/AppDialogContext'
 import { theme } from '@renderer/theme/theme'
+import { t } from '@yachiyo/i18n/index'
+import { useT } from '@yachiyo/i18n/react'
 import { useInlineCodeFileLinkSnapshot } from '@renderer/lib/markdown/inlineCodeFileLinkSnapshot'
 import { useStableArray } from '@renderer/lib/useStableArray'
 import { getThreadCapabilities } from '@yachiyo/shared/protocol'
@@ -156,17 +158,17 @@ function resolveMessageTimelineWorkspacePath(
 function getDeleteMessageDialog(message: Message): AppConfirmOptions {
   if (message.role === 'user') {
     return {
-      title: 'Delete this request?',
-      message: 'Every attached response branch after it in the current thread will be deleted.',
-      confirmLabel: 'Delete',
+      title: t('chat.timeline.deleteRequestTitle'),
+      message: t('chat.timeline.deleteRequestMessage'),
+      confirmLabel: t('common.delete'),
       tone: 'danger'
     }
   }
 
   return {
-    title: 'Delete this response branch?',
-    message: 'Everything that continues from it will be deleted. Sibling responses will stay.',
-    confirmLabel: 'Delete',
+    title: t('chat.timeline.deleteBranchTitle'),
+    message: t('chat.timeline.deleteBranchMessage'),
+    confirmLabel: t('common.delete'),
     tone: 'danger'
   }
 }
@@ -183,6 +185,7 @@ export function MessageTimeline({
   onSelectedBrowserSessionChange,
   onBrowserSessionPickerOpenChange
 }: MessageTimelineProps): React.JSX.Element {
+  const t = useT()
   const dialog = useAppDialog()
   const [expandedHandoffFoldKeys, setExpandedHandoffFoldKeys] = useState<Set<string>>(
     () => new Set()
@@ -831,11 +834,11 @@ export function MessageTimeline({
         await createBranch(messageId)
       } catch (error) {
         await dialog.alert({
-          title: error instanceof Error ? error.message : 'Failed to create a branch.'
+          title: error instanceof Error ? error.message : t('chat.timeline.createBranchFailed')
         })
       }
     },
-    [createBranch, dialog]
+    [createBranch, dialog, t]
   )
 
   const handleRetry = useCallback(
@@ -844,11 +847,11 @@ export function MessageTimeline({
         await retryMessage(messageId)
       } catch (error) {
         await dialog.alert({
-          title: error instanceof Error ? error.message : 'Failed to retry this message.'
+          title: error instanceof Error ? error.message : t('chat.timeline.retryFailed')
         })
       }
     },
-    [dialog, retryMessage]
+    [dialog, retryMessage, t]
   )
 
   const handleDelete = useCallback(
@@ -865,11 +868,11 @@ export function MessageTimeline({
         await deleteMessage(messageId)
       } catch (error) {
         await dialog.alert({
-          title: error instanceof Error ? error.message : 'Failed to delete this message.'
+          title: error instanceof Error ? error.message : t('chat.timeline.deleteFailed')
         })
       }
     },
-    [deleteMessage, dialog, threadId]
+    [deleteMessage, dialog, threadId, t]
   )
 
   const handleSelectReplyBranch = useCallback(
@@ -878,11 +881,11 @@ export function MessageTimeline({
         await selectReplyBranch(messageId)
       } catch (error) {
         await dialog.alert({
-          title: error instanceof Error ? error.message : 'Failed to switch reply branches.'
+          title: error instanceof Error ? error.message : t('chat.timeline.switchBranchFailed')
         })
       }
     },
-    [dialog, selectReplyBranch]
+    [dialog, selectReplyBranch, t]
   )
 
   const handleToggleHandoffFold = useCallback(
@@ -976,7 +979,7 @@ export function MessageTimeline({
     return (
       <div className="flex-1 flex flex-col items-center justify-center gap-3">
         <p className="text-sm" style={{ color: theme.text.muted }}>
-          Start a new thread or type below to create one automatically.
+          {t('chat.timeline.emptyThreadPrompt')}
         </p>
       </div>
     )
@@ -1005,7 +1008,7 @@ export function MessageTimeline({
         ) : timelineRows.length === 0 ? (
           <div className="flex-1 flex items-center justify-center">
             <p className="text-sm" style={{ color: theme.text.placeholder }}>
-              No messages yet
+              {t('chat.timeline.noMessagesYet')}
             </p>
           </div>
         ) : (
@@ -1059,7 +1062,7 @@ export function MessageTimeline({
                 >
                   <Waypoints size={14} className="shrink-0 mt-px" />
                   <span>
-                    <strong className="not-italic">Recap:</strong> {recapText}
+                    <strong className="not-italic">{t('chat.timeline.recap')}</strong> {recapText}
                   </span>
                 </div>
               ) : null}

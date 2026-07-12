@@ -3,6 +3,8 @@ import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { theme, alpha } from '@renderer/theme/theme'
 import type { SettingsConfig } from '@yachiyo/shared/protocol'
+import { tPlural } from '@yachiyo/i18n/index'
+import { useT } from '@yachiyo/i18n/react'
 import { SettingLabel, SettingSection } from '../components/primitives'
 import { useAppDialog } from '@renderer/components/AppDialogContext'
 import { useRestoreFocusOnUnmount } from '@renderer/lib/focusRestore'
@@ -95,6 +97,7 @@ function AppPickerOption({
 
 function NoneOption({ onSelect }: { onSelect: () => void }): React.JSX.Element {
   const [hovered, setHovered] = useState(false)
+  const t = useT()
 
   return (
     <div style={{ margin: '4px 4px 0', borderTop: `1px solid ${theme.border.subtle}` }}>
@@ -132,13 +135,16 @@ function NoneOption({ onSelect }: { onSelect: () => void }): React.JSX.Element {
         >
           <X size={12} strokeWidth={2} color={theme.icon.muted} />
         </div>
-        <span style={{ fontSize: 13, color: theme.text.muted, lineHeight: 1 }}>None</span>
+        <span style={{ fontSize: 13, color: theme.text.muted, lineHeight: 1 }}>
+          {t('common.none')}
+        </span>
       </div>
     </div>
   )
 }
 
 function AppPicker({ value, options, placeholder, onChange }: AppPickerProps): React.JSX.Element {
+  const t = useT()
   const [open, setOpen] = useState(false)
   const [triggerRect, setTriggerRect] = useState<DOMRect | null>(null)
   const [openUpward, setOpenUpward] = useState(false)
@@ -267,7 +273,7 @@ function AppPicker({ value, options, placeholder, onChange }: AppPickerProps): R
                   textAlign: 'center'
                 }}
               >
-                No apps found on your system
+                {t('settings.workspace.noAppsFound')}
               </div>
             ) : (
               options.map((app) => (
@@ -299,6 +305,7 @@ function AppPicker({ value, options, placeholder, onChange }: AppPickerProps): R
 
 function PruneButton(): React.JSX.Element {
   const [hovered, setHovered] = useState(false)
+  const t = useT()
   const dialog = useAppDialog()
 
   return (
@@ -307,9 +314,9 @@ function PruneButton(): React.JSX.Element {
       onClick={() => {
         void (async () => {
           const confirmed = await dialog.confirm({
-            title: 'Delete empty temporary workspaces?',
-            message: 'This cannot be undone.',
-            confirmLabel: 'Delete',
+            title: t('settings.workspace.pruneConfirmTitle'),
+            message: t('settings.workspace.pruneConfirmMessage'),
+            confirmLabel: t('common.delete'),
             tone: 'danger'
           })
           if (!confirmed) return
@@ -317,11 +324,11 @@ function PruneButton(): React.JSX.Element {
           try {
             const count = await window.api.yachiyo.pruneEmptyTemporaryWorkspaces()
             await dialog.alert({
-              title: `Pruned ${count} empty temporary workspace${count === 1 ? '' : 's'}.`
+              title: tPlural('settings.workspace.prunedResult', count)
             })
           } catch (error) {
             await dialog.alert({
-              title: 'Failed to prune temporary workspaces',
+              title: t('settings.workspace.pruneFailed'),
               message: error instanceof Error ? error.message : String(error)
             })
           }
@@ -335,7 +342,7 @@ function PruneButton(): React.JSX.Element {
         background: hovered ? alpha('danger', 0.1) : alpha('danger', 0.06)
       }}
     >
-      Prune empty temporary workspaces
+      {t('settings.workspace.pruneButton')}
     </button>
   )
 }
@@ -348,6 +355,7 @@ function WorkspaceLabel({
   onChange: (label: string) => void
 }): React.ReactNode {
   const [draft, setDraft] = useState(value)
+  const t = useT()
   const commit = (): void => {
     const trimmed = draft.trim()
     if (trimmed !== value) onChange(trimmed)
@@ -360,7 +368,7 @@ function WorkspaceLabel({
       onChange={(e) => setDraft(e.target.value)}
       onBlur={commit}
       onKeyDown={imeSafeEnter(commit)}
-      placeholder="Add label for agent context..."
+      placeholder={t('settings.workspace.labelPlaceholder')}
       className="mt-1 w-full text-xs bg-transparent outline-none"
       style={{ color: theme.text.secondary }}
     />
@@ -373,6 +381,7 @@ interface WorkspacePaneProps {
 }
 
 export function WorkspacePane({ draft, onChange }: WorkspacePaneProps): React.ReactNode {
+  const t = useT()
   const savedPaths = draft.workspace?.savedPaths ?? []
   const [discoveredApps, setDiscoveredApps] = useState<{
     editors: DiscoveredApp[]
@@ -409,7 +418,7 @@ export function WorkspacePane({ draft, onChange }: WorkspacePaneProps): React.Re
   return (
     <div className="flex-1 overflow-y-auto pb-6">
       <SettingSection>
-        <SettingLabel>Saved Folders</SettingLabel>
+        <SettingLabel>{t('settings.workspace.savedFolders')}</SettingLabel>
 
         {savedPaths.length === 0 ? (
           <div
@@ -419,8 +428,7 @@ export function WorkspacePane({ draft, onChange }: WorkspacePaneProps): React.Re
               borderTop: `1px solid ${theme.border.subtle}`
             }}
           >
-            No saved folders yet. When you pick a specific workspace from Composer, it will show up
-            here.
+            {t('settings.workspace.noSavedFolders')}
           </div>
         ) : (
           savedPaths.map((workspacePath) => (
@@ -464,7 +472,7 @@ export function WorkspacePane({ draft, onChange }: WorkspacePaneProps): React.Re
                 type="button"
                 onClick={() => removePath(workspacePath)}
                 className="shrink-0 rounded-lg p-2 transition-opacity opacity-60 hover:opacity-100"
-                aria-label={`Remove ${workspacePath}`}
+                aria-label={t('settings.workspace.removeFolderAria', { path: workspacePath })}
               >
                 <Trash2 size={14} strokeWidth={1.7} color={theme.icon.muted} />
               </button>
@@ -495,26 +503,26 @@ export function WorkspacePane({ draft, onChange }: WorkspacePaneProps): React.Re
             style={{ color: theme.text.accent }}
           >
             <Plus size={14} strokeWidth={2} />
-            Select directory...
+            {t('settings.workspace.selectDirectory')}
           </button>
         </div>
       </SettingSection>
 
       <SettingSection>
-        <SettingLabel>Open With</SettingLabel>
+        <SettingLabel>{t('settings.workspace.openWith')}</SettingLabel>
 
         <div
           className="flex items-center justify-between gap-4 px-7 py-3"
           style={{ borderTop: `1px solid ${theme.border.subtle}` }}
         >
           <div className="text-sm font-medium" style={{ color: theme.text.primary }}>
-            Editor
+            {t('settings.workspace.editor')}
           </div>
           <div style={{ width: 220 }}>
             <AppPicker
               value={draft.workspace?.editorApp ?? ''}
               options={discoveredApps.editors}
-              placeholder="Select an editor…"
+              placeholder={t('settings.workspace.selectEditorPlaceholder')}
               onChange={(v) => updateWorkspace({ editorApp: v })}
             />
           </div>
@@ -525,13 +533,13 @@ export function WorkspacePane({ draft, onChange }: WorkspacePaneProps): React.Re
           style={{ borderTop: `1px solid ${theme.border.subtle}` }}
         >
           <div className="text-sm font-medium" style={{ color: theme.text.primary }}>
-            Terminal
+            {t('settings.workspace.terminal')}
           </div>
           <div style={{ width: 220 }}>
             <AppPicker
               value={draft.workspace?.terminalApp ?? ''}
               options={discoveredApps.terminals}
-              placeholder="Select a terminal…"
+              placeholder={t('settings.workspace.selectTerminalPlaceholder')}
               onChange={(v) => updateWorkspace({ terminalApp: v })}
             />
           </div>
@@ -542,13 +550,13 @@ export function WorkspacePane({ draft, onChange }: WorkspacePaneProps): React.Re
           style={{ borderTop: `1px solid ${theme.border.subtle}` }}
         >
           <div className="text-sm font-medium" style={{ color: theme.text.primary }}>
-            Markdown document
+            {t('settings.workspace.markdownDocument')}
           </div>
           <div style={{ width: 220 }}>
             <AppPicker
               value={draft.workspace?.markdownApp ?? ''}
               options={discoveredApps.markdownEditors}
-              placeholder="Select a markdown editor…"
+              placeholder={t('settings.workspace.selectMarkdownEditorPlaceholder')}
               onChange={(v) => updateWorkspace({ markdownApp: v })}
             />
           </div>
@@ -556,7 +564,7 @@ export function WorkspacePane({ draft, onChange }: WorkspacePaneProps): React.Re
       </SettingSection>
 
       <SettingSection>
-        <SettingLabel action={<PruneButton />}>Maintenance</SettingLabel>
+        <SettingLabel action={<PruneButton />}>{t('settings.workspace.maintenance')}</SettingLabel>
       </SettingSection>
     </div>
   )

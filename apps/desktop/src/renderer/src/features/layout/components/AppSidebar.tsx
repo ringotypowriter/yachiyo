@@ -1,5 +1,7 @@
 import { motion, AnimatePresence } from 'framer-motion'
 import { CheckCheck, PanelLeft, Search, SquarePen } from 'lucide-react'
+import { tPlural } from '@yachiyo/i18n/index'
+import { useT } from '@yachiyo/i18n/react'
 import { useAppStore } from '@renderer/app/store/useAppStore'
 import { EssentialsBar } from '@renderer/features/essentials/components/EssentialsBar'
 import { SidebarSearch } from '@renderer/features/search/SidebarSearch'
@@ -38,6 +40,7 @@ export function AppSidebarTopControls({
   threadActivationEnabled = true,
   toggleTitle
 }: AppSidebarTopControlsProps): React.JSX.Element {
+  const t = useT()
   const createNewThread = useAppStore((s) => s.createNewThread)
   const archivedThreads = useAppStore((s) => s.archivedThreads)
   const isArchivedMode = mode === 'archived'
@@ -63,7 +66,7 @@ export function AppSidebarTopControls({
       <div className="min-w-0" style={{ paddingLeft: SIDEBAR_FILTER_BUTTON_RIGHT_OFFSET_PX }}>
         {isArchivedMode ? (
           <div className="truncate px-2 text-xs font-medium" style={{ color: theme.text.muted }}>
-            {archivedThreads.length} thread{archivedThreads.length !== 1 ? 's' : ''}
+            {tPlural('layout.sidebar.threadCount', archivedThreads.length)}
           </div>
         ) : (
           <SidebarFilterBar />
@@ -72,7 +75,7 @@ export function AppSidebarTopControls({
       <div className="flex min-w-0 items-center justify-end gap-1">
         {isArchivedMode ? (
           <>
-            <Tooltip content="Search archived chats" placement="bottom">
+            <Tooltip content={t('layout.sidebar.searchArchivedChats')} placement="bottom">
               <button
                 onClick={onOpenSearch}
                 className="p-1.5 rounded-md transition-opacity"
@@ -80,18 +83,18 @@ export function AppSidebarTopControls({
                   color: theme.icon.default,
                   opacity: isSearchOpen ? 0.9 : 0.5
                 }}
-                aria-label="Search archived chats"
+                aria-label={t('layout.sidebar.searchArchivedChats')}
               >
                 <Search size={15} strokeWidth={1.5} />
               </button>
             </Tooltip>
             {hasUnreadArchived && (
-              <Tooltip content="Mark all as read" placement="bottom">
+              <Tooltip content={t('layout.sidebar.markAllAsRead')} placement="bottom">
                 <button
                   onClick={() => void handleMarkAllArchivedAsRead()}
                   className="p-1.5 rounded-md opacity-50 hover:opacity-80 transition-opacity"
                   style={{ color: theme.icon.default }}
-                  aria-label="Mark all as read"
+                  aria-label={t('layout.sidebar.markAllAsRead')}
                 >
                   <CheckCheck size={15} strokeWidth={1.5} />
                 </button>
@@ -113,7 +116,7 @@ export function AppSidebarTopControls({
             </Tooltip>
             {threadActivationEnabled ? (
               <>
-                <Tooltip content="Search chats" placement="bottom">
+                <Tooltip content={t('layout.sidebar.searchChats')} placement="bottom">
                   <button
                     onClick={onOpenSearch}
                     className="p-1.5 rounded-md transition-opacity"
@@ -121,17 +124,17 @@ export function AppSidebarTopControls({
                       color: theme.icon.default,
                       opacity: isSearchOpen ? 0.9 : 0.5
                     }}
-                    aria-label="Search chats"
+                    aria-label={t('layout.sidebar.searchChats')}
                   >
                     <Search size={15} strokeWidth={1.5} />
                   </button>
                 </Tooltip>
-                <Tooltip content="New chat" placement="bottom">
+                <Tooltip content={t('layout.sidebar.newChat')} placement="bottom">
                   <button
                     onClick={createNewThread}
                     className="p-1.5 rounded-md opacity-50 hover:opacity-80 transition-opacity"
                     style={{ color: theme.icon.default }}
-                    aria-label="New chat"
+                    aria-label={t('layout.sidebar.newChat')}
                   >
                     <SquarePen size={15} strokeWidth={1.5} />
                   </button>

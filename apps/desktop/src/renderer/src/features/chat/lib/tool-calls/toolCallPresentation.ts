@@ -12,6 +12,7 @@ import type {
   WebSearchToolCallDetails,
   WriteToolCallDetails
 } from '@renderer/app/types'
+import { t } from '@yachiyo/i18n/index'
 
 type ToolCallDetailTone = 'danger'
 
@@ -34,12 +35,12 @@ export interface ToolCallRowSummary {
 }
 
 function buildFixedBashRowStatus(toolCall: ToolCall): string {
-  if (toolCall.status === 'preparing') return 'preparing'
-  if (toolCall.status === 'running') return 'running'
-  if (toolCall.status === 'failed') return 'failed'
-  if (toolCall.status === 'waiting-for-user') return 'waiting'
-  if (toolCall.status === 'background') return 'background'
-  return 'completed'
+  if (toolCall.status === 'preparing') return t('chat.tools.status.preparing')
+  if (toolCall.status === 'running') return t('chat.tools.status.running')
+  if (toolCall.status === 'failed') return t('chat.tools.status.failed')
+  if (toolCall.status === 'waiting-for-user') return t('chat.tools.status.waiting')
+  if (toolCall.status === 'background') return t('chat.tools.status.background')
+  return t('chat.tools.status.completed')
 }
 
 function stringifyJson(value: unknown): string {
@@ -106,7 +107,7 @@ function compactJsonBlock(value: Record<string, unknown>): string | undefined {
 
 function metadataBlock(value: Record<string, unknown>): ToolCallDetailCodeBlock | undefined {
   const rendered = compactJsonBlock(value)
-  return rendered ? { label: 'Metadata', value: rendered } : undefined
+  return rendered ? { label: t('chat.tools.metadata'), value: rendered } : undefined
 }
 
 function buildFallbackInput(toolCall: ToolCall): string | undefined {
@@ -241,7 +242,7 @@ function buildFallbackOutput(toolCall: ToolCall): ToolCallDetailCodeBlock | unde
   if (toolCall.toolName === 'read' && details) {
     const read = details as ReadToolCallDetails
     if (read.content?.trim()) {
-      return { label: 'Output', value: read.content.trimEnd() }
+      return { label: t('chat.tools.output'), value: read.content.trimEnd() }
     }
   }
 
@@ -254,7 +255,7 @@ function buildFallbackOutput(toolCall: ToolCall): ToolCallDetailCodeBlock | unde
     const value = parts.join('\n\n')
     return value
       ? {
-          label: 'Output',
+          label: t('chat.tools.output'),
           value,
           ...(toolCall.status === 'failed' ? { tone: 'danger' as const } : {})
         }
@@ -271,7 +272,7 @@ function buildFallbackOutput(toolCall: ToolCall): ToolCallDetailCodeBlock | unde
     const value = parts.join('\n\n')
     return value
       ? {
-          label: 'Output',
+          label: t('chat.tools.output'),
           value,
           ...(repl.error || toolCall.status === 'failed' ? { tone: 'danger' as const } : {})
         }
@@ -300,26 +301,26 @@ function buildFallbackOutput(toolCall: ToolCall): ToolCallDetailCodeBlock | unde
       failureCode: webRead.failureCode
     })
     const value = [meta, webRead.content].filter(Boolean).join('\n\n')
-    return value ? { label: 'Output', value } : undefined
+    return value ? { label: t('chat.tools.output'), value } : undefined
   }
 
   if (toolCall.toolName === 'grep' && details) {
     return {
-      label: 'Output',
+      label: t('chat.tools.output'),
       value: compactJson({ matches: (details as GrepToolCallDetails).matches })
     }
   }
 
   if (toolCall.toolName === 'glob' && details) {
     return {
-      label: 'Output',
+      label: t('chat.tools.output'),
       value: compactJson({ matches: (details as GlobToolCallDetails).matches })
     }
   }
 
   if (details) {
     return {
-      label: 'Output',
+      label: t('chat.tools.output'),
       value: compactJson({
         summary: toolCall.outputSummary,
         error,
@@ -330,7 +331,9 @@ function buildFallbackOutput(toolCall: ToolCall): ToolCallDetailCodeBlock | unde
   }
 
   const value = error ?? toolCall.outputSummary
-  return value ? { label: 'Output', value, tone: error ? 'danger' : undefined } : undefined
+  return value
+    ? { label: t('chat.tools.output'), value, tone: error ? 'danger' : undefined }
+    : undefined
 }
 
 export function buildToolCallDetailsPresentation(toolCall: ToolCall): ToolCallDetailsPresentation {
@@ -348,11 +351,11 @@ export function buildToolCallDetailsPresentation(toolCall: ToolCall): ToolCallDe
   const output =
     diffOutput ??
     (rawOutput !== undefined
-      ? { label: 'Output', value: renderRawValue(rawOutput) }
+      ? { label: t('chat.tools.output'), value: renderRawValue(rawOutput) }
       : buildFallbackOutput(toolCall))
 
   return {
-    ...(inputValue ? { input: { label: 'Input', value: inputValue } } : {}),
+    ...(inputValue ? { input: { label: t('chat.tools.input'), value: inputValue } } : {}),
     ...(metadata?.value ? { metadata } : {}),
     ...(output?.value ? { output } : {})
   }

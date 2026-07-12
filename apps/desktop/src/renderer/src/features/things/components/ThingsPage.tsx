@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 
+import { tPlural } from '@yachiyo/i18n/index'
+import { useT } from '@yachiyo/i18n/react'
 import { useAppDialog } from '@renderer/components/AppDialogContext'
 import { useAppStore } from '@renderer/app/store/useAppStore'
 import type { ThingRecord } from '@renderer/app/types'
@@ -22,6 +24,7 @@ export function ThingsPanelTopControls({
 }: {
   headerPaddingLeft: number
 }): React.JSX.Element {
+  const t = useT()
   const things = useAppStore((s) => s.things)
   const showInactiveThings = useAppStore((s) => s.showInactiveThings)
   const toggleShowInactiveThings = useAppStore((s) => s.toggleShowInactiveThings)
@@ -35,10 +38,11 @@ export function ThingsPanelTopControls({
     >
       <div className="min-w-0 flex-1">
         <div className="truncate text-sm font-semibold" style={{ color: theme.text.primary }}>
-          Things
+          {t('things.title')}
         </div>
         <div className="truncate text-xs font-medium" style={{ color: theme.text.muted }}>
-          {activeCount} active · {sourceCount} source{sourceCount === 1 ? '' : 's'}
+          {t('things.activeCount', { count: activeCount })} ·{' '}
+          {tPlural('things.sourceCount', sourceCount)}
         </div>
       </div>
       <InactiveThingsToggleButton
@@ -66,6 +70,7 @@ export function ThingsPage({
   const continueThingInNewChat = useAppStore((s) => s.continueThingInNewChat)
   const mergeThingInNewChat = useAppStore((s) => s.mergeThingInNewChat)
   const setActiveThread = useAppStore((s) => s.setActiveThread)
+  const t = useT()
   const dialog = useAppDialog()
   const [selectedThingId, setSelectedThingId] = useState<string | null>(null)
   const [isDailyReviewEnabled, setIsDailyReviewEnabled] = useState<boolean | null>(null)
@@ -141,9 +146,9 @@ export function ThingsPage({
 
   async function handleRenameThing(thing: ThingRecord): Promise<void> {
     const nextName = await dialog.prompt({
-      title: 'Rename Thing',
+      title: t('things.renameThing'),
       initialValue: thing.name,
-      confirmLabel: 'Rename'
+      confirmLabel: t('common.rename')
     })
     if (nextName === null) return
 
@@ -154,16 +159,17 @@ export function ThingsPage({
       await renameThing(thing.name, trimmedName)
     } catch (error) {
       await dialog.alert({
-        title: error instanceof Error ? error.message : `Failed to rename #${thing.name}.`
+        title:
+          error instanceof Error ? error.message : t('things.renameFailed', { name: thing.name })
       })
     }
   }
 
   async function handleMergeThing(source: ThingRecord, target: ThingRecord): Promise<void> {
     const confirmed = await dialog.confirm({
-      title: `Merge #${source.name} into #${target.name}?`,
-      message: 'Yachiyo will open a new conversation and automatically run the merge workflow.',
-      confirmLabel: 'Merge'
+      title: t('things.mergeConfirmTitle', { source: source.name, target: target.name }),
+      message: t('things.mergeConfirmMessage'),
+      confirmLabel: t('things.merge')
     })
     if (!confirmed) return
 
@@ -172,17 +178,17 @@ export function ThingsPage({
       setSelectedThingId(null)
     } catch (error) {
       await dialog.alert({
-        title: error instanceof Error ? error.message : `Failed to merge #${source.name}.`
+        title:
+          error instanceof Error ? error.message : t('things.mergeFailed', { name: source.name })
       })
     }
   }
 
   async function handleDeleteThing(thing: ThingRecord): Promise<void> {
     const confirmed = await dialog.confirm({
-      title: `Delete #${thing.name}?`,
-      message:
-        'This removes the Thing and its saved source references. Conversations stay untouched.',
-      confirmLabel: 'Delete',
+      title: t('things.deleteConfirmTitle', { name: thing.name }),
+      message: t('things.deleteConfirmMessage'),
+      confirmLabel: t('common.delete'),
       tone: 'danger'
     })
     if (!confirmed) return
@@ -191,16 +197,17 @@ export function ThingsPage({
       setSelectedThingId(null)
     } catch (error) {
       await dialog.alert({
-        title: error instanceof Error ? error.message : `Failed to delete #${thing.name}.`
+        title:
+          error instanceof Error ? error.message : t('things.deleteFailed', { name: thing.name })
       })
     }
   }
 
   async function handleRemoveSource(thing: ThingRecord, sourceId: string): Promise<void> {
     const confirmed = await dialog.confirm({
-      title: 'Remove this source?',
-      message: `This removes the saved source from #${thing.name}. The conversation stays untouched.`,
-      confirmLabel: 'Remove source',
+      title: t('things.removeSourceConfirmTitle'),
+      message: t('things.removeSourceConfirmMessage', { name: thing.name }),
+      confirmLabel: t('things.removeSource'),
       tone: 'danger'
     })
     if (!confirmed) return
@@ -208,7 +215,7 @@ export function ThingsPage({
       await removeThingSource({ name: thing.name, sourceId })
     } catch (error) {
       await dialog.alert({
-        title: error instanceof Error ? error.message : 'Failed to remove this source.'
+        title: error instanceof Error ? error.message : t('things.removeSourceFailed')
       })
     }
   }
@@ -226,25 +233,25 @@ export function ThingsPage({
                 className="text-xs font-semibold uppercase tracking-[0.18em]"
                 style={{ color: theme.text.muted }}
               >
-                Context board
+                {t('things.contextBoard')}
               </div>
               <h1
                 className="mt-2 text-3xl font-semibold tracking-[-0.03em]"
                 style={{ color: theme.text.primary }}
               >
-                Things
+                {t('things.title')}
               </h1>
               <p
                 className="mt-2 max-w-2xl text-sm leading-6"
                 style={{ color: theme.text.secondary }}
               >
-                Durable work context with source previews. Mention #name to carry a Thing into chat.
+                {t('things.pageDescription')}
               </p>
             </div>
 
             <div className="flex shrink-0 items-center gap-3">
-              <Metric label="Active" value={activeCount} />
-              <Metric label="Sources" value={sourceCount} />
+              <Metric label={t('things.activeMetric')} value={activeCount} />
+              <Metric label={t('things.sourcesMetric')} value={sourceCount} />
             </div>
           </div>
         </header>
@@ -256,14 +263,13 @@ export function ThingsPage({
         >
           <div className="px-6 py-12 text-center">
             <div className="text-lg font-semibold" style={{ color: theme.text.primary }}>
-              No Things yet
+              {t('things.noThingsYet')}
             </div>
             <p
               className="mx-auto mt-2 max-w-md text-sm leading-6"
               style={{ color: theme.text.secondary }}
             >
-              Ask Yachiyo to save work context as a Thing, for example: “Keep this as #launch-plan
-              with the key source quotes.”
+              {t('things.emptyStateHint')}
             </p>
             {isDailyReviewEnabled === false && onOpenSettingsRoute ? (
               <button
@@ -272,7 +278,7 @@ export function ThingsPage({
                 style={{ color: theme.text.accent, background: theme.background.accentSoft }}
                 onClick={() => onOpenSettingsRoute('schedules/list')}
               >
-                Turn on Daily Review
+                {t('things.turnOnDailyReview')}
               </button>
             ) : null}
           </div>
@@ -381,6 +387,7 @@ function InactiveThingsToggleButton({
   showInactiveThings: boolean
   onClick: () => void
 }): React.JSX.Element {
+  const t = useT()
   return (
     <button
       type="button"
@@ -408,7 +415,7 @@ function InactiveThingsToggleButton({
           }}
         />
       </span>
-      {showInactiveThings ? 'Hide inactive' : 'Show inactive'}
+      {showInactiveThings ? t('things.hideInactive') : t('things.showInactive')}
     </button>
   )
 }

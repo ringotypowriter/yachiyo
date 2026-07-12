@@ -4,6 +4,7 @@ import { theme, alpha } from '@renderer/theme/theme'
 import { inputStyle } from '../components/styles'
 import { SettingSwitch, SimpleSelect } from '../components/primitives'
 import type { EssentialPreset, SettingsConfig, ThreadModelOverride } from '@yachiyo/shared/protocol'
+import { useT } from '@yachiyo/i18n/react'
 
 const MAX_ESSENTIALS = 8
 
@@ -108,6 +109,7 @@ function EssentialEditor({
   onMoveUp,
   onMoveDown
 }: EssentialEditorProps): React.JSX.Element {
+  const t = useT()
   const fileInputRef = useRef<HTMLInputElement>(null)
   const emojiInputRef = useRef<HTMLInputElement>(null)
 
@@ -176,7 +178,7 @@ function EssentialEditor({
               onClick={handleEmojiClick}
               className="p-1 rounded opacity-50 hover:opacity-80 transition-opacity"
               style={{ color: theme.icon.default }}
-              aria-label="Pick emoji"
+              aria-label={t('settings.essentials.pickEmoji')}
             >
               <Smile size={14} strokeWidth={1.5} />
             </button>
@@ -185,7 +187,7 @@ function EssentialEditor({
               onClick={() => fileInputRef.current?.click()}
               className="p-1 rounded opacity-50 hover:opacity-80 transition-opacity"
               style={{ color: theme.icon.default }}
-              aria-label="Upload image"
+              aria-label={t('settings.essentials.uploadImage')}
             >
               <Upload size={14} strokeWidth={1.5} />
             </button>
@@ -203,11 +205,11 @@ function EssentialEditor({
         <div className="flex-1 min-w-0 flex flex-col gap-2.5">
           <div>
             <span className="text-xs font-medium" style={{ color: theme.text.secondary }}>
-              Label
+              {t('settings.essentials.labelField')}
             </span>
             <input
               type="text"
-              placeholder="e.g. Work, Daily, Code..."
+              placeholder={t('settings.essentials.labelPlaceholder')}
               value={essential.label ?? ''}
               onChange={(e) => onUpdate({ ...essential, label: e.target.value || undefined })}
               className="w-full mt-1 rounded-md px-2.5 py-1.5 text-sm outline-none"
@@ -218,12 +220,12 @@ function EssentialEditor({
           <div className="flex gap-3">
             <div className="flex-1 min-w-0">
               <span className="text-xs font-medium" style={{ color: theme.text.secondary }}>
-                Model
+                {t('settings.essentials.modelField')}
               </span>
               <div className="mt-1">
                 <SimpleSelect
                   value={modelValue}
-                  options={[{ value: '', label: 'Default' }, ...modelOptions]}
+                  options={[{ value: '', label: t('common.default') }, ...modelOptions]}
                   onChange={(val) => {
                     if (!val) {
                       onUpdate({ ...essential, modelOverride: undefined })
@@ -242,13 +244,13 @@ function EssentialEditor({
 
             <div className="flex-1 min-w-0">
               <span className="text-xs font-medium" style={{ color: theme.text.secondary }}>
-                Workspace
+                {t('settings.essentials.workspaceField')}
               </span>
               <div className="mt-1">
                 <SimpleSelect
                   value={essential.workspacePath ?? ''}
                   options={[
-                    { value: '', label: 'Temporary (auto)' },
+                    { value: '', label: t('settings.essentials.temporaryAuto') },
                     ...workspaceOptions.map((p) => ({
                       value: p,
                       label: p.split('/').pop() ?? p
@@ -264,7 +266,7 @@ function EssentialEditor({
           <div className="flex items-center justify-between gap-3">
             <div className="min-w-0">
               <div className="text-xs font-medium" style={{ color: theme.text.secondary }}>
-                Privacy mode
+                {t('settings.essentials.privacyMode')}
               </div>
             </div>
             <SettingSwitch
@@ -272,7 +274,9 @@ function EssentialEditor({
               onChange={() =>
                 onUpdate({ ...essential, privacyMode: essential.privacyMode !== true })
               }
-              ariaLabel={`Toggle privacy mode for ${essential.label ?? 'this essential'}`}
+              ariaLabel={t('settings.essentials.togglePrivacyModeFor', {
+                name: essential.label ?? t('settings.essentials.thisEssential')
+              })}
             />
           </div>
         </div>
@@ -285,7 +289,7 @@ function EssentialEditor({
               onClick={onMoveUp}
               className="p-1 rounded opacity-40 hover:opacity-70 transition-opacity"
               style={{ color: theme.icon.default }}
-              aria-label="Move up"
+              aria-label={t('settings.essentials.moveUp')}
             >
               <ArrowUp size={14} strokeWidth={1.5} />
             </button>
@@ -296,7 +300,7 @@ function EssentialEditor({
               onClick={onMoveDown}
               className="p-1 rounded opacity-40 hover:opacity-70 transition-opacity"
               style={{ color: theme.icon.default }}
-              aria-label="Move down"
+              aria-label={t('settings.essentials.moveDown')}
             >
               <ArrowDown size={14} strokeWidth={1.5} />
             </button>
@@ -306,7 +310,7 @@ function EssentialEditor({
             onClick={onDelete}
             className="p-1 rounded opacity-40 hover:opacity-70 transition-opacity"
             style={{ color: theme.text.dangerStrong }}
-            aria-label="Delete essential"
+            aria-label={t('settings.essentials.deleteEssential')}
           >
             <Trash2 size={14} strokeWidth={1.5} />
           </button>
@@ -331,6 +335,7 @@ function tempId(): string {
 }
 
 export function EssentialsPane({ draft, onChange }: EssentialsPaneProps): React.ReactNode {
+  const t = useT()
   const essentials = useMemo(() => draft.essentials ?? [], [draft.essentials])
 
   const updateEssential = useCallback(
@@ -394,7 +399,7 @@ export function EssentialsPane({ draft, onChange }: EssentialsPaneProps): React.
           }}
         >
           <Plus size={12} strokeWidth={2} />
-          Add ({essentials.length}/{MAX_ESSENTIALS})
+          {t('settings.essentials.addButton', { count: essentials.length, max: MAX_ESSENTIALS })}
         </button>
       </div>
 
@@ -405,10 +410,10 @@ export function EssentialsPane({ draft, onChange }: EssentialsPaneProps): React.
             style={{ background: alpha('ink', 0.02) }}
           >
             <span className="text-sm" style={{ color: theme.text.muted }}>
-              No essentials configured
+              {t('settings.essentials.emptyTitle')}
             </span>
             <span className="text-xs mt-1" style={{ color: theme.text.tertiary }}>
-              Add preset chat shortcuts for quick access
+              {t('settings.essentials.emptySubtitle')}
             </span>
           </div>
         ) : (

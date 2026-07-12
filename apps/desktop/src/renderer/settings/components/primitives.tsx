@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Check, ChevronDown, ChevronLeft, ChevronRight } from 'lucide-react'
+import { useT } from '@yachiyo/i18n/react'
 import { theme, alpha } from '@renderer/theme/theme'
 import { useRestoreFocusOnUnmount } from '@renderer/lib/focusRestore'
 
@@ -47,6 +48,7 @@ export function Field({ label, children }: FieldProps): React.ReactNode {
 }
 
 export function PlaceholderPane({ label }: PlaceholderPaneProps): React.ReactNode {
+  const t = useT()
   return (
     <div className="flex-1 overflow-y-auto flex items-center justify-center">
       <div className="flex flex-col items-center gap-2.5" style={{ opacity: 0.4 }}>
@@ -66,7 +68,7 @@ export function PlaceholderPane({ label }: PlaceholderPaneProps): React.ReactNod
           </svg>
         </div>
         <span className="text-sm" style={{ color: theme.text.muted }}>
-          {label ?? 'Content coming soon'}
+          {label ?? t('settings.shared.placeholderComingSoon')}
         </span>
       </div>
     </div>
@@ -332,6 +334,7 @@ export function ListPagination({
   itemLabel,
   onPageChange
 }: ListPaginationProps): React.ReactNode {
+  const t = useT()
   const canGoBackward = page > 1
   const canGoForward = page < pageCount
   const rangeLabel = totalCount === 0 ? '0' : `${startIndex + 1}–${endIndex}`
@@ -346,7 +349,11 @@ export function ListPagination({
       }}
     >
       <div className="tabular-nums">
-        {rangeLabel} of {totalCount} {itemLabel}
+        {t('settings.shared.paginationRange', {
+          range: rangeLabel,
+          total: totalCount,
+          items: itemLabel
+        })}
       </div>
       <div className="flex items-center gap-2">
         <button
@@ -358,7 +365,7 @@ export function ListPagination({
             background: theme.background.surface
           }}
           disabled={!canGoBackward}
-          aria-label="Previous page"
+          aria-label={t('settings.shared.prevPageAria')}
           onClick={() => onPageChange(page - 1)}
         >
           <ChevronLeft size={13} />
@@ -375,7 +382,7 @@ export function ListPagination({
             background: theme.background.surface
           }}
           disabled={!canGoForward}
-          aria-label="Next page"
+          aria-label={t('settings.shared.nextPageAria')}
           onClick={() => onPageChange(page + 1)}
         >
           <ChevronRight size={13} />

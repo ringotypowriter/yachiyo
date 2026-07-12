@@ -12,6 +12,7 @@ import {
   promptRowsToStoredOrder,
   shiftPromptKeycodeErrorsForPrependedRow
 } from './promptsPaneModel'
+import { useT } from '@yachiyo/i18n/react'
 
 const KEYCODE_RE = /^[a-zA-Z][a-zA-Z0-9-]*$/
 
@@ -21,6 +22,7 @@ interface PromptsProps {
 }
 
 export function PromptsPane({ draft, onChange }: PromptsProps): React.ReactNode {
+  const t = useT()
   const [rows, setRows] = useState<PromptDraftRow[]>(() =>
     promptRowsFromStoredPrompts(draft.prompts)
   )
@@ -54,13 +56,13 @@ export function PromptsPane({ draft, onChange }: PromptsProps): React.ReactNode 
   function validateKeycode(value: string, index: number): void {
     const errors = { ...keycodeErrors }
     if (!value) {
-      errors[index] = 'Keycode is required.'
+      errors[index] = t('settings.prompts.keycodeRequired')
     } else if (!KEYCODE_RE.test(value)) {
-      errors[index] = 'Must start with a letter, then letters, digits, or hyphens.'
+      errors[index] = t('settings.prompts.keycodeInvalid')
     } else {
       const duplicate = rows.some((row, i) => i !== index && row.keycode === value)
       if (duplicate) {
-        errors[index] = 'Keycode already used.'
+        errors[index] = t('settings.prompts.keycodeDuplicate')
       } else {
         delete errors[index]
       }
@@ -104,7 +106,7 @@ export function PromptsPane({ draft, onChange }: PromptsProps): React.ReactNode 
             style={{ color: theme.text.accent }}
           >
             <Plus size={13} strokeWidth={1.8} />
-            Add prompt
+            {t('settings.prompts.addPrompt')}
           </button>
         </div>
 
@@ -116,7 +118,7 @@ export function PromptsPane({ draft, onChange }: PromptsProps): React.ReactNode 
               borderTop: `1px solid ${theme.border.subtle}`
             }}
           >
-            No prompts defined. Add a prompt to use it as a /command in the composer.
+            {t('settings.prompts.noPrompts')}
           </div>
         ) : (
           rows.map((row, index) => (
@@ -134,7 +136,7 @@ export function PromptsPane({ draft, onChange }: PromptsProps): React.ReactNode 
                     <input
                       type="text"
                       value={row.keycode}
-                      placeholder="keycode"
+                      placeholder={t('settings.prompts.keycodePlaceholder')}
                       className="flex-1 rounded-lg px-2 py-1 text-xs font-mono outline-none"
                       style={inputStyle()}
                       onChange={(e) => updateRow(index, { keycode: e.target.value })}
@@ -153,7 +155,7 @@ export function PromptsPane({ draft, onChange }: PromptsProps): React.ReactNode 
                   type="button"
                   onClick={() => removeRow(index)}
                   className="ml-auto p-1 rounded-lg opacity-50 hover:opacity-80 transition-opacity"
-                  aria-label="Remove prompt"
+                  aria-label={t('settings.prompts.removePrompt')}
                 >
                   <Trash2 size={14} strokeWidth={1.6} color={theme.icon.muted} />
                 </button>
@@ -161,7 +163,7 @@ export function PromptsPane({ draft, onChange }: PromptsProps): React.ReactNode 
 
               <textarea
                 value={row.text}
-                placeholder="Prompt text…"
+                placeholder={t('settings.prompts.promptTextPlaceholder')}
                 rows={3}
                 className="w-full rounded-lg px-3 py-2 text-sm resize-none outline-none leading-relaxed"
                 style={inputStyle()}

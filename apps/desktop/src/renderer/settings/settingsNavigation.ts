@@ -1,3 +1,5 @@
+import { t, type AppCatalog } from '@yachiyo/i18n/index'
+
 export type SettingsPanelId =
   | 'general'
   | 'providers'
@@ -26,72 +28,69 @@ export interface SettingsRoute {
   tab?: string
 }
 
+type SettingsNavLabelKey = keyof AppCatalog['settings']['nav'] & string
+
+function localizedTab(id: string, labelKey: SettingsNavLabelKey): SettingsPanelTab {
+  return {
+    id,
+    get label(): string {
+      return t(`settings.nav.${labelKey}`)
+    }
+  }
+}
+
+function localizedPanel(
+  id: SettingsPanelId,
+  labelKey: SettingsNavLabelKey,
+  tabs?: readonly SettingsPanelTab[]
+): SettingsPanelDefinition {
+  return {
+    id,
+    get label(): string {
+      return t(`settings.nav.${labelKey}`)
+    },
+    tabs
+  }
+}
+
 export const SETTINGS_PANELS: readonly SettingsPanelDefinition[] = [
-  {
-    id: 'general',
-    label: 'General',
-    tabs: [
-      { id: 'behavior', label: 'Behavior' },
-      { id: 'ui', label: 'User Interface' }
-    ]
-  },
-  { id: 'providers', label: 'Providers' },
-  {
-    id: 'chat',
-    label: 'Chat',
-    tabs: [
-      { id: 'threads', label: 'Threads' },
-      { id: 'essentials', label: 'Essentials' }
-    ]
-  },
-  {
-    id: 'capabilities',
-    label: 'Capabilities',
-    tabs: [
-      { id: 'skills', label: 'Skills' },
-      { id: 'coding-agents', label: 'Coding' },
-      { id: 'prompts', label: 'Prompts' },
-      { id: 'workspace', label: 'Workspace' }
-    ]
-  },
-  {
-    id: 'source',
-    label: 'Sources',
-    tabs: [
-      { id: 'memory', label: 'Memory' },
-      { id: 'search', label: 'Search' },
-      { id: 'activity', label: 'Activity' }
-    ]
-  },
-  {
-    id: 'channels',
-    label: 'Channels',
-    tabs: [
-      { id: 'general', label: 'General' },
-      { id: 'telegram', label: 'Telegram' },
-      { id: 'qq', label: 'QQ' },
-      { id: 'qqbot', label: 'QQBot' },
-      { id: 'discord', label: 'Discord' }
-    ]
-  },
-  {
-    id: 'schedules',
-    label: 'Schedules',
-    tabs: [
-      { id: 'list', label: 'Schedules' },
-      { id: 'history', label: 'History' }
-    ]
-  },
-  { id: 'sync', label: 'Sync' },
-  {
-    id: 'usage',
-    label: 'Statistics',
-    tabs: [
-      { id: 'usage', label: 'Usage' },
-      { id: 'performance', label: 'Performance' }
-    ]
-  },
-  { id: 'about', label: 'About' }
+  localizedPanel('general', 'general', [
+    localizedTab('behavior', 'behavior'),
+    localizedTab('ui', 'ui')
+  ]),
+  localizedPanel('providers', 'providers'),
+  localizedPanel('chat', 'chat', [
+    localizedTab('threads', 'threads'),
+    localizedTab('essentials', 'essentials')
+  ]),
+  localizedPanel('capabilities', 'capabilities', [
+    localizedTab('skills', 'skills'),
+    localizedTab('coding-agents', 'coding'),
+    localizedTab('prompts', 'prompts'),
+    localizedTab('workspace', 'workspace')
+  ]),
+  localizedPanel('source', 'sources', [
+    localizedTab('memory', 'memory'),
+    localizedTab('search', 'search'),
+    localizedTab('activity', 'activity')
+  ]),
+  localizedPanel('channels', 'channels', [
+    localizedTab('general', 'general'),
+    localizedTab('telegram', 'telegram'),
+    localizedTab('qq', 'qq'),
+    localizedTab('qqbot', 'qqbot'),
+    localizedTab('discord', 'discord')
+  ]),
+  localizedPanel('schedules', 'schedules', [
+    localizedTab('list', 'schedules'),
+    localizedTab('history', 'history')
+  ]),
+  localizedPanel('sync', 'sync'),
+  localizedPanel('usage', 'statistics', [
+    localizedTab('usage', 'usage'),
+    localizedTab('performance', 'performance')
+  ]),
+  localizedPanel('about', 'about')
 ]
 
 const topLevelRoutes = new Set<string>(SETTINGS_PANELS.map((panel) => panel.id))

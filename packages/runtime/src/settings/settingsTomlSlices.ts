@@ -45,6 +45,7 @@ export const settingsTomlSlices: readonly TomlConfigSlice<SettingsConfig, TomlDo
         general: {
           sidebarVisibility:
             config.general?.sidebarVisibility ?? DEFAULT_SETTINGS_CONFIG.general?.sidebarVisibility,
+          language: config.general?.language ?? 'auto',
           sidebarPreview: config.general?.sidebarPreview !== false,
           workSummary: config.general?.workSummary !== false,
           themeId: config.general?.themeId ?? DEFAULT_THEME_ID,

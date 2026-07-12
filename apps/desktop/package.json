@@ -67,6 +67,7 @@
     "@yachiyo/cli": "workspace:*",
     "@yachiyo/core-skills": "workspace:*",
     "@yachiyo/runtime": "workspace:*",
+    "@yachiyo/i18n": "workspace:*",
     "@yachiyo/shared": "workspace:*",
     "ai": "^6.0.174",
     "better-sqlite3": "^12.8.0",

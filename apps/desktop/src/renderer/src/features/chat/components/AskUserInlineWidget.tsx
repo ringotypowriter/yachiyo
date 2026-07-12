@@ -1,6 +1,7 @@
 import type React from 'react'
 import { useRef, useState } from 'react'
 import { MessageCircleQuestion, ArrowUp } from 'lucide-react'
+import { useT } from '@yachiyo/i18n/react'
 import type { ToolCall, AskUserToolCallDetails } from '@renderer/app/types'
 import { shouldSubmitAskUserAnswer } from '@renderer/features/chat/lib/ask-user/askUserEnterBehavior'
 import { theme } from '@renderer/theme/theme'
@@ -10,6 +11,7 @@ interface AskUserInlineWidgetProps {
 }
 
 export function AskUserInlineWidget({ toolCall }: AskUserInlineWidgetProps): React.JSX.Element {
+  const t = useT()
   const details = toolCall.details as AskUserToolCallDetails | undefined
   const isWaiting = toolCall.status === 'waiting-for-user'
   const [input, setInput] = useState('')
@@ -165,7 +167,11 @@ export function AskUserInlineWidget({ toolCall }: AskUserInlineWidgetProps): Rea
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
               disabled={isSending}
-              placeholder={choices?.length ? 'Or type your answer...' : 'Type your answer...'}
+              placeholder={
+                choices?.length
+                  ? t('chat.tools.askUserOrTypeAnswer')
+                  : t('chat.tools.askUserTypeAnswer')
+              }
               className="min-w-0 flex-1 bg-transparent px-3 py-1.5 outline-none"
               style={{
                 color: theme.text.primary,

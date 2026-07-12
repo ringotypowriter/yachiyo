@@ -5,11 +5,12 @@ import { FolderOpen, FolderClosed, PenLine, Trash2, Archive, RotateCcw } from 'l
 import type { FolderColorTag, FolderRecord } from '@renderer/app/types'
 import { imeSafeEnter, isDismissEscapeKey } from '@renderer/lib/imeUtils'
 import { useRestoreFocusOnUnmount } from '@renderer/lib/focusRestore'
+import { useT } from '@yachiyo/i18n/react'
 import { theme } from '@renderer/theme/theme'
 import {
-  THREAD_COLOR_FILTER_LABELS,
   THREAD_COLOR_TAGS,
-  resolveThreadColor
+  resolveThreadColor,
+  threadColorFilterLabel
 } from '@renderer/features/threads/lib/threadColorPalette'
 import { ColorDotPicker } from './ColorDotPicker'
 
@@ -198,6 +199,7 @@ function FolderContextMenu({
   onRestoreAll: () => void
   onClose: () => void
 }): React.JSX.Element {
+  const t = useT()
   const menuRef = useRef<HTMLDivElement>(null)
   const [resolvedTop, setResolvedTop] = useState(y)
   const menuWidth = 220
@@ -254,15 +256,15 @@ function FolderContextMenu({
       }}
     >
       <MenuItem icon={<PenLine size={14} strokeWidth={1.7} />} onClick={onRename}>
-        Rename
+        {t('common.rename')}
       </MenuItem>
       {mode === 'active' ? (
         <MenuItem icon={<Archive size={14} strokeWidth={1.7} />} onClick={onArchiveAll}>
-          Archive All
+          {t('threads.folder.archiveAll')}
         </MenuItem>
       ) : (
         <MenuItem icon={<RotateCcw size={14} strokeWidth={1.7} />} onClick={onRestoreAll}>
-          Restore All
+          {t('threads.folder.restoreAll')}
         </MenuItem>
       )}
       <MenuItem
@@ -270,7 +272,7 @@ function FolderContextMenu({
         onClick={onDelete}
         color={theme.text.danger}
       >
-        Discard Folder
+        {t('threads.folder.discardFolder')}
       </MenuItem>
 
       <div
@@ -286,13 +288,13 @@ function FolderContextMenu({
           {
             active: currentColor === null,
             colorTag: null,
-            label: 'Default',
+            label: t('common.default'),
             onSelect: () => onSetColor(null)
           },
           ...THREAD_COLOR_TAGS.map((tag) => ({
             active: currentColor === tag,
             colorTag: tag,
-            label: THREAD_COLOR_FILTER_LABELS[tag],
+            label: threadColorFilterLabel(tag),
             onSelect: () => onSetColor(tag)
           }))
         ]}

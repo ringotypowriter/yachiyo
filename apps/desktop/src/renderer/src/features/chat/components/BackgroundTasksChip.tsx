@@ -4,6 +4,8 @@ import { ChevronDown, ChevronUp, Square, Terminal, X } from 'lucide-react'
 
 import { theme } from '@renderer/theme/theme'
 import { useRestoreFocusOnUnmount } from '@renderer/lib/focusRestore'
+import { useT } from '@yachiyo/i18n/react'
+import { tPlural } from '@yachiyo/i18n/index'
 import { useBackgroundTasksStore, type BackgroundTaskState } from '../state/useBackgroundTasksStore'
 import { BACKGROUND_TASK_LOG_DEFAULT_MAX_BYTES } from '@yachiyo/shared/protocol'
 
@@ -36,6 +38,7 @@ function useNowTick(intervalMs: number, enabled: boolean): number {
 export function BackgroundTasksChip({
   threadId
 }: BackgroundTasksChipProps): React.JSX.Element | null {
+  useT()
   // Select the raw per-thread map so the snapshot is referentially stable; the
   // map only changes when a task is added/updated/removed for this thread.
   const taskMap = useBackgroundTasksStore((s) => (threadId ? s.tasksByThread[threadId] : undefined))
@@ -56,8 +59,8 @@ export function BackgroundTasksChip({
 
   const label =
     runningCount > 0
-      ? `${runningCount} background task${runningCount === 1 ? '' : 's'} running`
-      : `${tasks.length} background task${tasks.length === 1 ? '' : 's'}`
+      ? tPlural('chat.backgroundTasks.running', runningCount, { count: runningCount })
+      : tPlural('chat.backgroundTasks.total', tasks.length, { count: tasks.length })
 
   return (
     <div ref={wrapperRef} className="composer-task-chip-host">
@@ -136,6 +139,7 @@ function BackgroundTasksPanel({
   onClose,
   ignoreClickOutsideRef
 }: BackgroundTasksPanelProps): React.JSX.Element {
+  const t = useT()
   const dismissTask = useBackgroundTasksStore((s) => s.dismissTask)
   const dismissAllFinished = useBackgroundTasksStore((s) => s.dismissAllFinished)
   const finishedCount = tasks.filter((t) => t.status !== 'running').length
@@ -189,7 +193,7 @@ function BackgroundTasksPanel({
         style={{ borderBottom: `1px solid ${theme.border.default}` }}
       >
         <div className="text-xs font-semibold" style={{ color: theme.text.primary }}>
-          Background tasks
+          {t('chat.backgroundTasks.title')}
         </div>
         <div className="flex items-center gap-2">
           {finishedCount > 0 && (
@@ -199,13 +203,13 @@ function BackgroundTasksPanel({
               className="text-[10px] hover:opacity-70"
               style={{ color: theme.text.muted }}
             >
-              Clear {finishedCount} done
+              {t('chat.backgroundTasks.clearDone', { count: finishedCount })}
             </button>
           )}
           <button
             type="button"
             onClick={onClose}
-            title="Collapse"
+            title={t('chat.collapse')}
             className="p-1 rounded hover:opacity-70"
             style={{ color: theme.icon.default }}
           >
@@ -247,6 +251,7 @@ function BackgroundTaskRow({
   onDismiss,
   now
 }: BackgroundTaskRowProps): React.JSX.Element {
+  const t = useT()
   const isRunning = task.status === 'running'
   const isFailed = task.status === 'failed'
   const isCancelled = task.cancelledByUser === true
@@ -258,10 +263,10 @@ function BackgroundTaskRow({
   const statusLabel = isRunning
     ? formatElapsed(task.startedAt, now)
     : isCancelled
-      ? 'cancelled'
+      ? t('chat.backgroundTasks.statusCancelled')
       : isFailed
-        ? `failed (exit ${task.exitCode ?? '?'})`
-        : `done (exit ${task.exitCode ?? 0})`
+        ? t('chat.backgroundTasks.statusFailed', { code: task.exitCode ?? '?' })
+        : t('chat.backgroundTasks.statusDone', { code: task.exitCode ?? 0 })
 
   const label = task.description?.trim() || task.command
 
@@ -295,7 +300,7 @@ function BackgroundTaskRow({
           <button
             type="button"
             onClick={onCancel}
-            title="Cancel task"
+            title={t('chat.backgroundTasks.cancelTask')}
             className="p-1 rounded hover:opacity-70 shrink-0"
             style={{ color: theme.text.danger }}
           >
@@ -305,7 +310,7 @@ function BackgroundTaskRow({
           <button
             type="button"
             onClick={onDismiss}
-            title="Dismiss"
+            title={t('chat.dismiss')}
             className="p-1 rounded hover:opacity-70 shrink-0"
             style={{ color: theme.icon.default }}
           >
@@ -352,6 +357,7 @@ function formatByteCount(bytes: number): string {
 }
 
 function BackgroundTaskExpandedView({ task }: { task: BackgroundTaskState }): React.JSX.Element {
+  const t = useT()
   const [logState, setLogState] = useState<FullLogState>(() => ({
     status: 'loading',
     content: linesToText(task.logTail),
@@ -396,7 +402,8 @@ function BackgroundTaskExpandedView({ task }: { task: BackgroundTaskState }): Re
         })
         .catch((error: unknown) => {
           if (cancelled) return
-          const message = error instanceof Error ? error.message : 'Could not load full log.'
+          const message =
+            error instanceof Error ? error.message : t('chat.backgroundTasks.loadLogFailed')
           setLogState({
             status: 'failed',
             content: '',
@@ -418,7 +425,7 @@ function BackgroundTaskExpandedView({ task }: { task: BackgroundTaskState }): Re
       cancelled = true
       if (intervalId) clearInterval(intervalId)
     }
-  }, [task.threadId, task.taskId, task.status])
+  }, [task.threadId, task.taskId, task.status, t])
 
   const fallbackTail = linesToText(task.logTail)
   const logContent = logState.content || fallbackTail
@@ -426,9 +433,12 @@ function BackgroundTaskExpandedView({ task }: { task: BackgroundTaskState }): Re
     logState.status === 'failed'
       ? logState.message
       : logState.status === 'loading'
-        ? 'Loading full log...'
+        ? t('chat.backgroundTasks.loadingLog')
         : logState.truncated
-          ? `Showing last ${formatByteCount(logState.totalBytes - logState.startByte)} of ${formatByteCount(logState.totalBytes)}`
+          ? t('chat.backgroundTasks.showingLast', {
+              shown: formatByteCount(logState.totalBytes - logState.startByte),
+              total: formatByteCount(logState.totalBytes)
+            })
           : undefined
 
   return (
@@ -440,10 +450,11 @@ function BackgroundTaskExpandedView({ task }: { task: BackgroundTaskState }): Re
 }
 
 function BackgroundTaskCommandView({ command }: { command: string }): React.JSX.Element {
+  const t = useT()
   return (
     <section>
       <div className="mb-1 text-[10px] font-medium" style={{ color: theme.text.placeholder }}>
-        Full command
+        {t('chat.backgroundTasks.fullCommand')}
       </div>
       <pre
         className="message-selectable overflow-auto rounded-md px-3 py-2 text-[11px] font-mono"
@@ -471,6 +482,7 @@ function BackgroundTaskLogView({
   content: string
   statusText?: string
 }): React.JSX.Element {
+  const t = useT()
   const scrollRef = useRef<HTMLDivElement>(null)
   const stickyRef = useRef(true)
 
@@ -492,7 +504,7 @@ function BackgroundTaskLogView({
   return (
     <section>
       <div className="mb-1 flex items-center justify-between gap-2 text-[10px] font-medium">
-        <span style={{ color: theme.text.placeholder }}>Log output</span>
+        <span style={{ color: theme.text.placeholder }}>{t('chat.backgroundTasks.logOutput')}</span>
         {statusText ? <span style={{ color: theme.text.muted }}>{statusText}</span> : null}
       </div>
       <div
@@ -509,7 +521,11 @@ function BackgroundTaskLogView({
           wordBreak: 'break-word'
         }}
       >
-        {content ? content : <span style={{ color: theme.text.muted }}>(no output yet)</span>}
+        {content ? (
+          content
+        ) : (
+          <span style={{ color: theme.text.muted }}>{t('chat.backgroundTasks.noOutputYet')}</span>
+        )}
       </div>
     </section>
   )

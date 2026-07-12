@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { ChevronDown, ChevronUp, Clock } from 'lucide-react'
 import type { ToolCall } from '@renderer/app/types'
 import { theme } from '@renderer/theme/theme'
+import { useT } from '@yachiyo/i18n/react'
 import { canCancelFromIndicator } from './subagentIndicatorState'
 import { ToolCallRow } from './ToolCallRow'
 
@@ -69,6 +70,7 @@ function toNestedToolCall(toolCall: SubagentToolCallPreview, index: number): Too
 }
 
 function AgentCard({ agent }: { agent: SubagentAgent }): React.JSX.Element {
+  const t = useT()
   const elapsed = useElapsed(agent.startedAt)
   const recent = agent.recentToolCalls ?? []
   const codeName = agent.codeName ?? agent.agentName
@@ -103,7 +105,7 @@ function AgentCard({ agent }: { agent: SubagentAgent }): React.JSX.Element {
             className="mb-1 text-[10px] uppercase tracking-[0.04em]"
             style={{ color: theme.text.placeholder }}
           >
-            Prompt
+            {t('chat.subagents.prompt')}
           </div>
           <div
             className="message-selectable overflow-auto rounded-md px-2.5 py-2 text-[11px]"
@@ -127,10 +129,10 @@ function AgentCard({ agent }: { agent: SubagentAgent }): React.JSX.Element {
             className="text-[10px] uppercase tracking-[0.04em]"
             style={{ color: theme.text.placeholder }}
           >
-            Recent tool calls
+            {t('chat.subagents.recentToolCalls')}
           </span>
           <span className="text-[10px]" style={{ color: theme.text.placeholder }}>
-            latest {Math.min(recent.length, 5)}/5
+            {t('chat.subagents.latestOfTotal', { shown: Math.min(recent.length, 5), total: 5 })}
           </span>
         </div>
         <div
@@ -150,7 +152,7 @@ function AgentCard({ agent }: { agent: SubagentAgent }): React.JSX.Element {
             ))
           ) : (
             <div className="py-0.5 text-[11px]" style={{ color: theme.text.placeholder }}>
-              Waiting for tool calls
+              {t('chat.tools.waitingForToolCalls')}
             </div>
           )}
         </div>
@@ -163,6 +165,7 @@ export function SubagentRunningIndicator({
   agents,
   onCancel
 }: SubagentRunningIndicatorProps): React.JSX.Element {
+  const t = useT()
   const [confirming, setConfirming] = useState(false)
   const [expanded, setExpanded] = useState(true)
   const canCancel = onCancel ? canCancelFromIndicator(agents) : false
@@ -182,13 +185,13 @@ export function SubagentRunningIndicator({
   }
 
   const headerText = useMemo(() => {
-    if (agents.length === 0) return 'No active agents'
+    if (agents.length === 0) return t('chat.subagents.noActiveAgents')
     if (agents.length === 1) {
-      const name = agents[0]?.codeName ?? agents[0]?.agentName ?? 'Agent'
-      return `${name} is working`
+      const name = agents[0]?.codeName ?? agents[0]?.agentName ?? t('chat.subagents.agentFallback')
+      return t('chat.subagents.agentWorking', { name })
     }
-    return `${agents.length} agents are working`
-  }, [agents])
+    return t('chat.subagents.agentsWorking', { count: agents.length })
+  }, [agents, t])
 
   return (
     <div className="px-6 py-1">
@@ -233,7 +236,7 @@ export function SubagentRunningIndicator({
               className="flex items-center gap-1.5 ml-1"
             >
               <span className="text-xs" style={{ color: theme.text.muted }}>
-                Interrupt?
+                {t('chat.subagents.interrupt')}
               </span>
               <button
                 onClick={handleConfirm}
@@ -245,7 +248,7 @@ export function SubagentRunningIndicator({
                   cursor: 'default'
                 }}
               >
-                Stop
+                {t('chat.subagents.stop')}
               </button>
               <button
                 onClick={handleDismiss}
@@ -257,7 +260,7 @@ export function SubagentRunningIndicator({
                   cursor: 'default'
                 }}
               >
-                Continue
+                {t('chat.subagents.continue')}
               </button>
             </motion.span>
           ) : canCancel ? (
@@ -276,7 +279,7 @@ export function SubagentRunningIndicator({
                 cursor: 'default'
               }}
             >
-              Cancel
+              {t('common.cancel')}
             </motion.button>
           ) : (
             <motion.span
@@ -288,7 +291,7 @@ export function SubagentRunningIndicator({
               className="text-xs ml-1"
               style={{ color: theme.text.muted }}
             >
-              Stop the run to cancel all
+              {t('chat.subagents.stopRunToCancel')}
             </motion.span>
           )}
         </AnimatePresence>

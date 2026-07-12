@@ -3,6 +3,7 @@ import type {
   MessageTextBlockRecord,
   ToolCall
 } from '@renderer/app/types'
+import { t, tPlural } from '@yachiyo/i18n/index'
 import { resolveBashSemanticGroup } from '@yachiyo/shared/bashSemanticAnalyzer'
 
 export type ToolCallSemanticGroup =
@@ -17,71 +18,18 @@ export type ToolCallSemanticGroup =
   | 'evaluate-code'
   | 'query-sources'
 
-const TOOL_CALL_GROUP_LABELS: Record<
-  ToolCallSemanticGroup,
-  { singular: string; plural: string; doneSingular: string; donePlural: string }
-> = {
-  'search-sources': {
-    singular: 'Searching 1 source',
-    plural: 'Searching %n sources',
-    doneSingular: 'Searched 1 source',
-    donePlural: 'Searched %n sources'
-  },
-  'read-sources': {
-    singular: 'Reading 1 source',
-    plural: 'Reading %n sources',
-    doneSingular: 'Read 1 source',
-    donePlural: 'Read %n sources'
-  },
-  'search-files': {
-    singular: 'Searching 1 pattern',
-    plural: 'Searching %n patterns',
-    doneSingular: 'Searched 1 pattern',
-    donePlural: 'Searched %n patterns'
-  },
-  'read-files': {
-    singular: 'Reading 1 file',
-    plural: 'Reading %n files',
-    doneSingular: 'Read 1 file',
-    donePlural: 'Read %n files'
-  },
-  'edit-files': {
-    singular: 'Editing 1 file',
-    plural: 'Editing %n files',
-    doneSingular: 'Edited 1 file',
-    donePlural: 'Edited %n files'
-  },
-  'write-files': {
-    singular: 'Writing 1 file',
-    plural: 'Writing %n files',
-    doneSingular: 'Wrote 1 file',
-    donePlural: 'Wrote %n files'
-  },
-  'run-commands': {
-    singular: 'Running 1 command',
-    plural: 'Running %n commands',
-    doneSingular: 'Ran 1 command',
-    donePlural: 'Ran %n commands'
-  },
-  'inspect-workspace': {
-    singular: 'Inspecting workspace',
-    plural: 'Inspecting workspace · %n commands',
-    doneSingular: 'Inspected workspace',
-    donePlural: 'Inspected workspace · %n commands'
-  },
-  'evaluate-code': {
-    singular: 'Evaluating JavaScript',
-    plural: 'Evaluating JavaScript · %n snippets',
-    doneSingular: 'Evaluated JavaScript',
-    donePlural: 'Evaluated JavaScript · %n snippets'
-  },
-  'query-sources': {
-    singular: 'Querying source data',
-    plural: 'Querying source data · %n times',
-    doneSingular: 'Queried source data',
-    donePlural: 'Queried source data · %n times'
-  }
-}
+const TOOL_CALL_GROUP_LABEL_KEYS = {
+  'search-sources': 'searchSources',
+  'read-sources': 'readSources',
+  'search-files': 'searchFiles',
+  'read-files': 'readFiles',
+  'edit-files': 'editFiles',
+  'write-files': 'writeFiles',
+  'run-commands': 'runCommands',
+  'inspect-workspace': 'inspectWorkspace',
+  'evaluate-code': 'evaluateCode',
+  'query-sources': 'querySources'
+} as const
 
 function getToolCallSemanticGroup(toolCall: ToolCall): ToolCallSemanticGroup | null {
   switch (toolCall.toolName) {
@@ -286,19 +234,16 @@ export function getToolCallGroupLabel(
   if (count === 0) {
     switch (group) {
       case 'read-files':
-        return done ? 'Read files' : 'Reading files'
+        return done ? t('chat.tools.groups.readFilesDone') : t('chat.tools.groups.readingFiles')
       case 'edit-files':
-        return done ? 'Edited files' : 'Editing files'
+        return done ? t('chat.tools.groups.editedFilesDone') : t('chat.tools.groups.editingFiles')
       case 'write-files':
-        return done ? 'Wrote files' : 'Writing files'
+        return done ? t('chat.tools.groups.wroteFilesDone') : t('chat.tools.groups.writingFiles')
     }
   }
 
-  const labels = TOOL_CALL_GROUP_LABELS[group]
-  if (done) {
-    return count === 1 ? labels.doneSingular : labels.donePlural.replace('%n', String(count))
-  }
-  return count === 1 ? labels.singular : labels.plural.replace('%n', String(count))
+  const groupKey = TOOL_CALL_GROUP_LABEL_KEYS[group]
+  return tPlural(`chat.tools.groups.${groupKey}.${done ? 'done' : 'active'}`, count)
 }
 
 export function getToolCallGroupDisplayGroup(

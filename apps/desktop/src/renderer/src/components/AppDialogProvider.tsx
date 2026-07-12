@@ -1,4 +1,5 @@
 import React, { useCallback, useMemo, useRef, useState } from 'react'
+import { useT } from '@yachiyo/i18n/react'
 import { theme, alpha } from '@renderer/theme/theme'
 import { AppDialog } from './AppDialog'
 import {
@@ -37,6 +38,7 @@ function PromptDialog({
   request: PromptRequest
   onResolve: (value: string | null) => void
 }): React.JSX.Element {
+  const t = useT()
   const [value, setValue] = useState(request.initialValue ?? '')
 
   return (
@@ -48,12 +50,12 @@ function PromptDialog({
       actions={[
         {
           key: 'confirm',
-          label: request.confirmLabel ?? 'OK',
+          label: request.confirmLabel ?? t('shell.ok'),
           tone: 'accent'
         },
         {
           key: 'cancel',
-          label: request.cancelLabel ?? 'Cancel'
+          label: request.cancelLabel ?? t('common.cancel')
         }
       ]}
       onAction={(key) => onResolve(key === 'confirm' ? value : null)}
@@ -75,6 +77,7 @@ function PromptDialog({
 }
 
 export function AppDialogProvider({ children }: { children: React.ReactNode }): React.JSX.Element {
+  const t = useT()
   const [activeRequest, setActiveRequest] = useState<DialogRequest | null>(null)
   const queueRef = useRef<DialogRequest[]>([])
   const requestIdRef = useRef(0)
@@ -151,7 +154,7 @@ export function AppDialogProvider({ children }: { children: React.ReactNode }): 
               ? [
                   {
                     key: 'ok',
-                    label: activeRequest.confirmLabel ?? 'OK',
+                    label: activeRequest.confirmLabel ?? t('shell.ok'),
                     tone: 'accent',
                     autoFocus: true
                   }
@@ -159,13 +162,13 @@ export function AppDialogProvider({ children }: { children: React.ReactNode }): 
               : [
                   {
                     key: 'confirm',
-                    label: activeRequest.confirmLabel ?? 'OK',
+                    label: activeRequest.confirmLabel ?? t('shell.ok'),
                     tone: activeRequest.tone ?? 'accent',
                     autoFocus: true
                   },
                   {
                     key: 'cancel',
-                    label: activeRequest.cancelLabel ?? 'Cancel'
+                    label: activeRequest.cancelLabel ?? t('common.cancel')
                   }
                 ]
           }

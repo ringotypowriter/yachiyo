@@ -1,9 +1,11 @@
 import type React from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
+import { useT } from '@yachiyo/i18n/react'
 import { DEFAULT_SETTINGS, useAppStore } from '@renderer/app/store/useAppStore'
 import { theme } from '@renderer/theme/theme'
 
 function useStripContent(): { key: string; color: string; text: string } | null {
+  const t = useT()
   const activeThreadId = useAppStore((s) => s.activeThreadId)
   const connectionStatus = useAppStore((s) => s.connectionStatus)
   const latestRun = useAppStore((s) =>
@@ -15,7 +17,7 @@ function useStripContent(): { key: string; color: string; text: string } | null 
     return {
       key: 'disconnected',
       color: theme.text.danger,
-      text: 'Local server is unavailable. Reload the app if this keeps happening.'
+      text: t('runs.serverUnavailable')
     }
   }
 
@@ -26,7 +28,7 @@ function useStripContent(): { key: string; color: string; text: string } | null 
     return {
       key: 'setup',
       color: theme.text.warning,
-      text: 'Open Settings to configure a provider and model before chatting.'
+      text: t('runs.setupRequired')
     }
   }
 

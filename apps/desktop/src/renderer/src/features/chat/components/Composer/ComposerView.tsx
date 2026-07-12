@@ -19,6 +19,8 @@ import {
   X,
   Zap
 } from 'lucide-react'
+import { useT } from '@yachiyo/i18n/react'
+import { formatNumber } from '@yachiyo/i18n/index'
 import { theme } from '@renderer/theme/theme'
 import { Tooltip } from '@renderer/components/Tooltip'
 import { ConfirmDialog } from '@renderer/components/ConfirmDialog'
@@ -27,7 +29,6 @@ import { ModelSelectorPopup } from '../ModelSelectorPopup'
 import { SlashCommandPopup } from '../SlashCommandPopup'
 import { SkillsSelectorPopup } from '../SkillsSelectorPopup'
 import { ToolSelectorPopup } from '../ToolSelectorPopup'
-import { RUN_MODE_DEFINITIONS } from '@yachiyo/shared/toolModes'
 import { ReasoningSelectorPopup } from '../ReasoningSelectorPopup'
 import { RunArrowIndicator } from '../RunArrowIndicator'
 import { WorkspaceSelectorPopup } from '../WorkspaceSelectorPopup'
@@ -38,6 +39,7 @@ import type { AcpAgentEntry } from '../../lib/composer/modelSelectorState'
 import { clearGoalX } from '@renderer/features/chat/lib/composer/pretextSync'
 import { selectComposerPlaceholder } from '@renderer/features/chat/lib/composer/composerPlaceholder'
 import { formatReasoningSelection } from '../../lib/composer/reasoningSelectionLabel'
+import { getRunModeCopy } from '../../lib/composer/runModeCopy'
 import {
   ACCEPT_ATTRIBUTE,
   COMPOSER_TEXT_FIELD_MAX_HEIGHT_PX,
@@ -61,6 +63,7 @@ const MODE_ICON_MAP: Record<string, React.ElementType> = {
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function ComposerView(props: any): React.JSX.Element {
+  const t = useT()
   const {
     presentation = 'normal',
     composerRootRef,
@@ -241,7 +244,7 @@ export function ComposerView(props: any): React.JSX.Element {
               color: theme.text.accent
             }}
           >
-            Drop files to attach
+            {t('chat.composer.dropFilesToAttach')}
           </span>
         </div>
       ) : null}
@@ -254,16 +257,16 @@ export function ComposerView(props: any): React.JSX.Element {
           }}
         >
           <span className="text-xs font-medium" style={{ color: theme.text.accent }}>
-            Editing message
+            {t('chat.composer.editingMessage')}
           </span>
           <button
             type="button"
             className="text-xs px-2 py-0.5 rounded transition-opacity opacity-70 hover:opacity-100"
             style={{ color: theme.text.accent }}
             onClick={cancelEditMessage}
-            aria-label="Cancel editing"
+            aria-label={t('chat.composer.cancelEditing')}
           >
-            Cancel
+            {t('common.cancel')}
           </button>
         </div>
       ) : null}
@@ -312,7 +315,7 @@ export function ComposerView(props: any): React.JSX.Element {
             onClick={() => fileInputRef.current?.click()}
             disabled={!canAddImages && !canAddFiles}
             className="composer-shelf-icon-button"
-            aria-label="Attach"
+            aria-label={t('chat.composer.attach')}
           >
             <Paperclip size={15} strokeWidth={1.5} color={theme.icon.muted} />
           </button>
@@ -341,7 +344,7 @@ export function ComposerView(props: any): React.JSX.Element {
                 color: theme.text.primary,
                 opacity: workspaceSelectorOpen ? 1 : undefined
               }}
-              aria-label="Workspace selection"
+              aria-label={t('chat.workspacePicker.ariaLabel')}
               aria-expanded={workspaceSelectorOpen}
               aria-haspopup="menu"
             >
@@ -459,7 +462,9 @@ export function ComposerView(props: any): React.JSX.Element {
                   opacity: toolSelectorOpen ? 1 : undefined,
                   gap: 4
                 }}
-                aria-label={`Mode: ${RUN_MODE_DEFINITIONS[runMode === 'custom' ? 'auto' : runMode].label}`}
+                aria-label={t('chat.composer.modeAria', {
+                  mode: getRunModeCopy(runMode === 'custom' ? 'auto' : runMode).label
+                })}
                 aria-expanded={toolSelectorOpen}
                 aria-haspopup="menu"
               >
@@ -474,7 +479,7 @@ export function ComposerView(props: any): React.JSX.Element {
                   )
                 })()}
                 <span style={{ fontSize: 11.5, fontWeight: 500 }}>
-                  {RUN_MODE_DEFINITIONS[runMode === 'custom' ? 'auto' : runMode].shortLabel}
+                  {getRunModeCopy(runMode === 'custom' ? 'auto' : runMode).shortLabel}
                 </span>
                 <ChevronDown
                   size={10}
@@ -508,14 +513,16 @@ export function ComposerView(props: any): React.JSX.Element {
 
       {pendingWorkspaceChangeConfirmation ? (
         <ConfirmDialog
-          title={pendingWorkspaceChangeConfirmation.title ?? 'Switch workspace?'}
+          title={
+            pendingWorkspaceChangeConfirmation.title ?? t('chat.composer.switchWorkspaceTitle')
+          }
           description={
             pendingWorkspaceChangeConfirmation.description ??
-            'Future runs in this thread will use the selected workspace.'
+            t('chat.composer.switchWorkspaceDescription')
           }
           actions={[
-            { key: 'keep', label: 'Keep current workspace' },
-            { key: 'switch', label: 'Switch workspace', tone: 'accent' }
+            { key: 'keep', label: t('chat.composer.keepCurrentWorkspace') },
+            { key: 'switch', label: t('chat.composer.switchWorkspace'), tone: 'accent' }
           ]}
           onClose={() => setPendingWorkspaceChangeConfirmation(null)}
           onSelect={(key) => {
@@ -570,8 +577,8 @@ export function ComposerView(props: any): React.JSX.Element {
             emptyState={
               fileMentionQuery !== null
                 ? isFileMentionSearchPending
-                  ? 'Searching workspace...'
-                  : 'No files found in the current workspace.'
+                  ? t('chat.composer.searchingWorkspace')
+                  : t('chat.composer.noFilesFound')
                 : undefined
             }
           />
@@ -602,7 +609,7 @@ export function ComposerView(props: any): React.JSX.Element {
                 </span>
                 <button
                   type="button"
-                  aria-label={`Remove skill ${activeSkillTag}`}
+                  aria-label={t('chat.composer.removeSkillTag', { name: activeSkillTag })}
                   onClick={() =>
                     setComposerValue(composerValue.replace(SKILL_TAG_PATTERN, '').trimStart())
                   }
@@ -637,7 +644,7 @@ export function ComposerView(props: any): React.JSX.Element {
                 </span>
                 <button
                   type="button"
-                  aria-label={`Remove file ${fileTag}`}
+                  aria-label={t('chat.composer.removeFileTag', { name: fileTag })}
                   onClick={() =>
                     setComposerValue(
                       composerValue
@@ -764,9 +771,7 @@ export function ComposerView(props: any): React.JSX.Element {
               onFocus={() => setIsTextareaFocused(true)}
               onBlur={() => setIsTextareaFocused(false)}
               placeholder={
-                isConfigured
-                  ? placeholderText
-                  : 'Open Settings and configure a provider before chatting.'
+                isConfigured ? placeholderText : t('chat.composer.notConfiguredPlaceholder')
               }
               rows={1}
               className="w-full resize-none bg-transparent outline-none text-sm leading-relaxed message-selectable composer-textarea-pretext"
@@ -812,7 +817,7 @@ export function ComposerView(props: any): React.JSX.Element {
                 setSkillsSelectorOpen((open) => !open)
               }}
               className="relative p-1.5 rounded-lg opacity-60 hover:opacity-85 transition-opacity"
-              aria-label="Skills"
+              aria-label={t('chat.composer.skills')}
               aria-expanded={skillsSelectorOpen}
               aria-haspopup="menu"
             >
@@ -860,8 +865,8 @@ export function ComposerView(props: any): React.JSX.Element {
           <Tooltip
             content={
               inputBufferSession
-                ? 'Buffering on · merges rapid messages before send'
-                : 'Buffering off · send immediately'
+                ? t('chat.composer.bufferingOnTooltip')
+                : t('chat.composer.bufferingOffTooltip')
             }
             placement="top"
           >
@@ -869,7 +874,7 @@ export function ComposerView(props: any): React.JSX.Element {
               type="button"
               onClick={toggleInputBufferSession}
               className="relative p-1.5 rounded-lg opacity-60 hover:opacity-85 transition-opacity"
-              aria-label="Toggle input buffering"
+              aria-label={t('chat.composer.toggleBuffering')}
               aria-pressed={inputBufferSession}
             >
               <Timer
@@ -899,7 +904,7 @@ export function ComposerView(props: any): React.JSX.Element {
               color: theme.text.primary,
               opacity: modelSelectorOpen ? 1 : 0.6
             }}
-            aria-label="Model selection"
+            aria-label={t('chat.composer.modelSelection')}
             type="button"
           >
             {activeAcpBinding ? (
@@ -912,7 +917,9 @@ export function ComposerView(props: any): React.JSX.Element {
               />
             )}
             {effectiveAcpBinding
-              ? (effectiveAcpBinding.profileName ?? effectiveAcpBinding.profileId ?? 'ACP Agent')
+              ? (effectiveAcpBinding.profileName ??
+                effectiveAcpBinding.profileId ??
+                t('chat.composer.acpAgentFallback'))
               : `${providerLabel} - ${modelLabel}`}
             {canOpenModelPicker ? (
               <ChevronDown
@@ -996,7 +1003,7 @@ export function ComposerView(props: any): React.JSX.Element {
                 color: theme.text.primary,
                 opacity: reasoningSelectorOpen ? 1 : 0.6
               }}
-              aria-label="Reasoning effort"
+              aria-label={t('chat.composer.reasoningEffort')}
               aria-expanded={reasoningSelectorOpen}
               aria-haspopup="menu"
             >
@@ -1045,17 +1052,23 @@ export function ComposerView(props: any): React.JSX.Element {
                 >
                   {displayPromptTokens != null ? (
                     <>
-                      <div style={{ fontWeight: 600, marginBottom: 2 }}>Last run token usage</div>
+                      <div style={{ fontWeight: 600, marginBottom: 2 }}>
+                        {t('chat.composer.lastRunTokenUsage')}
+                      </div>
                       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 24 }}>
-                        <span style={{ color: theme.text.secondary }}>Prompt</span>
-                        <span>{displayPromptTokens.toLocaleString()}</span>
+                        <span style={{ color: theme.text.secondary }}>
+                          {t('chat.composer.promptTokens')}
+                        </span>
+                        <span>{formatNumber(displayPromptTokens)}</span>
                       </div>
                     </>
                   ) : null}
                   {latestRun?.completionTokens != null ? (
                     <div style={{ display: 'flex', justifyContent: 'space-between', gap: 24 }}>
-                      <span style={{ color: theme.text.secondary }}>Completion</span>
-                      <span>{latestRun.completionTokens.toLocaleString()}</span>
+                      <span style={{ color: theme.text.secondary }}>
+                        {t('chat.composer.completionTokens')}
+                      </span>
+                      <span>{formatNumber(latestRun.completionTokens)}</span>
                     </div>
                   ) : null}
                   {latestRun?.totalPromptTokens != null &&
@@ -1069,21 +1082,27 @@ export function ComposerView(props: any): React.JSX.Element {
                         }}
                       />
                       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 24 }}>
-                        <span style={{ color: theme.text.secondary }}>Total prompt</span>
-                        <span>{latestRun.totalPromptTokens.toLocaleString()}</span>
+                        <span style={{ color: theme.text.secondary }}>
+                          {t('chat.composer.totalPromptTokens')}
+                        </span>
+                        <span>{formatNumber(latestRun.totalPromptTokens)}</span>
                       </div>
                       {latestRun.totalCompletionTokens != null ? (
                         <div style={{ display: 'flex', justifyContent: 'space-between', gap: 24 }}>
-                          <span style={{ color: theme.text.secondary }}>Total completion</span>
-                          <span>{latestRun.totalCompletionTokens.toLocaleString()}</span>
+                          <span style={{ color: theme.text.secondary }}>
+                            {t('chat.composer.totalCompletionTokens')}
+                          </span>
+                          <span>{formatNumber(latestRun.totalCompletionTokens)}</span>
                         </div>
                       ) : null}
                     </>
                   ) : null}
                   {estimatedDraftTokens > 0 ? (
                     <div style={{ display: 'flex', justifyContent: 'space-between', gap: 24 }}>
-                      <span style={{ color: theme.text.secondary }}>Draft estimate</span>
-                      <span>{estimatedDraftTokens.toLocaleString()}</span>
+                      <span style={{ color: theme.text.secondary }}>
+                        {t('chat.composer.draftEstimate')}
+                      </span>
+                      <span>{formatNumber(estimatedDraftTokens)}</span>
                     </div>
                   ) : null}
                   {canHandoffActiveThread &&
@@ -1099,9 +1118,10 @@ export function ComposerView(props: any): React.JSX.Element {
                         lineHeight: 1.4
                       }}
                     >
-                      Context is over {formatTokenCount(stripCompactThresholdTokens)}. Consider
-                      using <span style={{ fontFamily: 'monospace' }}>/handoff</span> to compact and
-                      continue in a new thread.
+                      {t('chat.composer.contextOverLimit', {
+                        limit: formatTokenCount(stripCompactThresholdTokens),
+                        command: '/handoff'
+                      })}
                     </div>
                   ) : null}
                 </div>
@@ -1158,8 +1178,8 @@ export function ComposerView(props: any): React.JSX.Element {
                 border: `1px solid ${theme.border.accent}`,
                 opacity: isCancelInFlight ? 0.6 : 1
               }}
-              aria-label="Stop generation"
-              title="Stop generation"
+              aria-label={t('chat.composer.stopGeneration')}
+              title={t('chat.composer.stopGeneration')}
             >
               {isCancelInFlight ? (
                 <LoaderCircle size={12} className="animate-spin" color={theme.text.accent} />
@@ -1187,21 +1207,21 @@ export function ComposerView(props: any): React.JSX.Element {
             }}
             aria-label={
               primarySendMode === 'steer'
-                ? 'Steer reply'
+                ? t('chat.composer.steerReply')
                 : primarySendMode === 'follow-up'
-                  ? 'Queue follow-up'
+                  ? t('chat.composer.queueFollowUp')
                   : editingMessage !== null
-                    ? 'Update message'
-                    : 'Send'
+                    ? t('chat.composer.updateMessage')
+                    : t('chat.composer.send')
             }
             title={
               primarySendMode === 'steer'
-                ? 'Steer reply'
+                ? t('chat.composer.steerReply')
                 : primarySendMode === 'follow-up'
-                  ? 'Queue follow-up'
+                  ? t('chat.composer.queueFollowUp')
                   : editingMessage !== null
-                    ? 'Update message'
-                    : 'Send'
+                    ? t('chat.composer.updateMessage')
+                    : t('chat.composer.send')
             }
           >
             {isSendInFlight ? (

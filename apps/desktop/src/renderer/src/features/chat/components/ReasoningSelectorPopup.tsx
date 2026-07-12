@@ -5,7 +5,8 @@ import { theme } from '@renderer/theme/theme'
 import type { ComposerReasoningSelection } from '@renderer/app/types'
 import { isDismissEscapeKey } from '@renderer/lib/imeUtils'
 import { useRestoreFocusOnUnmount } from '@renderer/lib/focusRestore'
-import { REASONING_SELECTION_COPY } from '../lib/composer/reasoningSelectionLabel'
+import { useT } from '@yachiyo/i18n/react'
+import { getReasoningSelectionCopy } from '../lib/composer/reasoningSelectionLabel'
 import { SettingsShortcutButton } from './SettingsShortcutButton'
 
 export function ReasoningSelectorPopup({
@@ -19,6 +20,7 @@ export function ReasoningSelectorPopup({
   onSelect: (selection: ComposerReasoningSelection) => void
   onClose: () => void
 }): React.ReactNode {
+  const t = useT()
   const [visible, setVisible] = useState(false)
   useRestoreFocusOnUnmount()
 
@@ -40,7 +42,7 @@ export function ReasoningSelectorPopup({
   return (
     <div
       role="menu"
-      aria-label="Reasoning effort"
+      aria-label={t('chat.composer.reasoningEffort')}
       style={{
         position: 'absolute',
         bottom: 'calc(100% + 8px)',
@@ -77,10 +79,10 @@ export function ReasoningSelectorPopup({
               color: theme.text.primary
             }}
           >
-            Reasoning
+            {t('chat.reasoning.title')}
           </div>
           <SettingsShortcutButton
-            label="Open provider settings"
+            label={t('chat.modelPicker.openProviderSettings')}
             route="providers"
             onClose={onClose}
           />
@@ -90,7 +92,7 @@ export function ReasoningSelectorPopup({
       <div style={{ padding: '6px 0' }}>
         {options.map((option) => {
           const active = option === selected
-          const copy = REASONING_SELECTION_COPY[option]
+          const copy = getReasoningSelectionCopy(option)
 
           return (
             <button

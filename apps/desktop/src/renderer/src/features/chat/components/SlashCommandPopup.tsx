@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Folder, Hash, NotebookPen, Sparkles, Zap } from 'lucide-react'
 import { theme } from '@renderer/theme/theme'
+import { useT } from '@yachiyo/i18n/react'
 import { isDismissEscapeKey } from '@renderer/lib/imeUtils'
 import { useRestoreFocusOnUnmount } from '@renderer/lib/focusRestore'
 
@@ -116,6 +117,7 @@ export function SlashCommandPopup({
   anchorRect?: DOMRect | null
   portal?: boolean
 }): React.ReactNode {
+  const t = useT()
   const [visible, setVisible] = useState(false)
   const selectedOptionRef = useRef<HTMLButtonElement | null>(null)
   useRestoreFocusOnUnmount()
@@ -173,7 +175,7 @@ export function SlashCommandPopup({
   const popup = (
     <div
       role="listbox"
-      aria-label="Slash commands"
+      aria-label={t('chat.slashCommands.ariaLabel')}
       style={{
         ...popupStyle,
         background: theme.background.surfaceFrosted,
@@ -200,7 +202,7 @@ export function SlashCommandPopup({
             color: theme.text.muted
           }}
         >
-          {emptyState ?? 'No results'}
+          {emptyState ?? t('chat.noResults')}
         </div>
       ) : null}
       {commands.length > 0 ? (
@@ -294,9 +296,9 @@ export function SlashCommandPopup({
             gap: 10
           }}
         >
-          <span>Tab complete</span>
-          <span>Enter select</span>
-          <span>Esc close</span>
+          <span>{t('chat.slashCommands.tabComplete')}</span>
+          <span>{t('chat.slashCommands.enterSelect')}</span>
+          <span>{t('chat.slashCommands.escClose')}</span>
         </div>
       ) : null}
     </div>

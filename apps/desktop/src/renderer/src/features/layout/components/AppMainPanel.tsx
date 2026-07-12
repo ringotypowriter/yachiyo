@@ -1,5 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
+import { t, tPlural, type AppCatalog } from '@yachiyo/i18n/index'
+import type { MessageKey } from '@yachiyo/i18n/core'
+import { useLocale, useT } from '@yachiyo/i18n/react'
 import type { Message, Thread, ToolCall } from '@renderer/app/types'
 import { useAppStore } from '@renderer/app/store/useAppStore'
 import { ThreadFindBar } from '@renderer/features/chat/components/ThreadFindBar'
@@ -48,33 +51,36 @@ const EMPTY: Message[] = []
 const EMPTY_FIND_MATCHES: FindMatch[] = []
 const EMPTY_TOOL_CALLS: ToolCall[] = []
 
-const GREETING_CANDIDATES = [
-  'Where shall we begin?',
-  'What are we making today?',
-  'Bring me the messy part.',
-  'Ready when you are.'
-] as const
+const GREETING_KEYS = [
+  'layout.welcome.greeting1',
+  'layout.welcome.greeting2',
+  'layout.welcome.greeting3',
+  'layout.welcome.greeting4'
+] as const satisfies readonly MessageKey<AppCatalog>[]
 
-const SLOGAN_CANDIDATES = [
-  'Start rough. We can make it sharper.',
-  'Drop in a thought, a file, or a half-shaped plan.',
-  'Paste the tangle here — Yachiyo will carry it from there.',
-  'A small prompt is enough to begin.'
-] as const
+const SLOGAN_KEYS = [
+  'layout.welcome.slogan1',
+  'layout.welcome.slogan2',
+  'layout.welcome.slogan3',
+  'layout.welcome.slogan4'
+] as const satisfies readonly MessageKey<AppCatalog>[]
 
 interface WelcomeCopy {
   greeting: string
   slogan: string
 }
 
-function pickWelcomeCandidate(candidates: readonly string[]): string {
-  return candidates[Math.floor(Math.random() * candidates.length)] ?? candidates[0]
+function pickWelcomeCandidate(keys: readonly MessageKey<AppCatalog>[]): string {
+  const key = keys[Math.floor(Math.random() * keys.length)] ?? keys[0]!
+  return t(key)
 }
 
+// Called at render time (never cached across locales) — the caller memoizes
+// the result keyed by locale so a language switch re-rolls the copy.
 function buildWelcomeCopy(): WelcomeCopy {
   return {
-    greeting: pickWelcomeCandidate(GREETING_CANDIDATES),
-    slogan: pickWelcomeCandidate(SLOGAN_CANDIDATES)
+    greeting: pickWelcomeCandidate(GREETING_KEYS),
+    slogan: pickWelcomeCandidate(SLOGAN_KEYS)
   }
 }
 
@@ -82,6 +88,8 @@ function formatBrowserAction(action: string): string {
   return action.replace(/([A-Z])/g, ' $1').replace(/^./, (ch) => ch.toUpperCase())
 }
 
+// Called at render time (never cached) — the caller must call useT()/useLocale()
+// so it re-renders when the locale changes.
 function toBrowserActivityBubbleState(
   latestStep: ReturnType<typeof deriveBrowserActivity>['latestStep']
 ): BrowserAutomationActivityBubbleState | null {
@@ -89,14 +97,23 @@ function toBrowserActivityBubbleState(
 
   if (latestStep.kind === 'text') {
     return {
-      label: latestStep.isStreaming ? 'Responding' : 'Latest response',
+      label: t(
+        latestStep.isStreaming
+          ? 'layout.browserActivity.responding'
+          : 'layout.browserActivity.latestResponse'
+      ),
       text: latestStep.content
     }
   }
 
+  const stepText = t('layout.browserActivity.stepInSession', {
+    action: formatBrowserAction(latestStep.action),
+    session: latestStep.session
+  })
+
   return {
-    label: 'Browser step',
-    text: `${formatBrowserAction(latestStep.action)} in ${latestStep.session}${latestStep.ref ? ` · @${latestStep.ref}` : ''}`,
+    label: t('layout.browserActivity.browserStep'),
+    text: latestStep.ref ? `${stepText} · @${latestStep.ref}` : stepText,
     ...(latestStep.title || latestStep.url
       ? { meta: `${latestStep.status} · ${latestStep.title ?? latestStep.url}` }
       : { meta: latestStep.status })
@@ -153,6 +170,8 @@ export function AppMainPanel({
   onPendingFindQueryApplied,
   shortcutsEnabled
 }: AppMainPanelProps): React.JSX.Element {
+  const t = useT()
+  const locale = useLocale()
   const dialog = useAppDialog()
   const archiveThread = useAppStore((s) => s.archiveThread)
   const archivedThreads = useAppStore((s) => s.archivedThreads)
@@ -328,7 +347,10 @@ export function AppMainPanel({
       activeTimelineSurface === 'browser'
         ? toBrowserActivityBubbleState(browserActivity.latestStep)
         : null,
-    [activeTimelineSurface, browserActivity.latestStep]
+    // locale isn't read directly here, but toBrowserActivityBubbleState() calls
+    // the i18n t() function internally, so the memo must recompute on switch.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [activeTimelineSurface, browserActivity.latestStep, locale]
   )
 
   const findMatches = useMemo(
@@ -553,7 +575,7 @@ export function AppMainPanel({
     setActiveThread(activeThreadId)
   }, [activeThreadExists, activeThreadId, activeThreadMessagesLoaded, setActiveThread])
 
-  const welcomeCopyKey = `${activeThreadId ?? 'new-thread'}:${essentialSourceId ?? 'plain'}`
+  const welcomeCopyKey = `${activeThreadId ?? 'new-thread'}:${essentialSourceId ?? 'plain'}:${locale}`
   const welcomeCopy = useMemo(() => {
     const existing = welcomeCopyByKeyRef.current.get(welcomeCopyKey)
     if (existing) return existing
@@ -581,9 +603,9 @@ export function AppMainPanel({
     try {
       const nextTitle = (
         await dialog.prompt({
-          title: 'Rename thread',
+          title: t('layout.dialogs.renameThreadTitle'),
           initialValue: thread.title,
-          confirmLabel: 'Rename'
+          confirmLabel: t('common.rename')
         })
       )?.trim()
       if (!nextTitle || nextTitle === thread.title) {
@@ -593,7 +615,7 @@ export function AppMainPanel({
       await renameThread(thread.id, nextTitle)
     } catch (error) {
       await dialog.alert({
-        title: error instanceof Error ? error.message : 'Failed to rename the thread.'
+        title: error instanceof Error ? error.message : t('threads.errors.rename')
       })
     } finally {
       setRenamingThreadId(null)
@@ -614,7 +636,7 @@ export function AppMainPanel({
       }
     } catch (error) {
       await dialog.alert({
-        title: error instanceof Error ? error.message : 'Failed to archive the thread.'
+        title: error instanceof Error ? error.message : t('threads.errors.archive')
       })
     }
   }
@@ -622,9 +644,9 @@ export function AppMainPanel({
   async function handleDeleteThread(thread: Thread): Promise<void> {
     if (latestRunsByThread[thread.id]?.status === 'running') {
       const confirmed = await dialog.confirm({
-        title: `"${thread.title}" has an active run.`,
-        message: 'Cancel the run and delete this thread?',
-        confirmLabel: 'Delete',
+        title: t('threads.confirm.activeRunTitle', { title: thread.title }),
+        message: t('threads.confirm.activeRunMessage'),
+        confirmLabel: t('common.delete'),
         tone: 'danger'
       })
       if (!confirmed) return
@@ -634,8 +656,8 @@ export function AppMainPanel({
     }
 
     const confirmed = await dialog.confirm({
-      title: `Delete "${thread.title}" permanently?`,
-      confirmLabel: 'Delete',
+      title: t('threads.confirm.deleteTitle', { title: thread.title }),
+      confirmLabel: t('common.delete'),
       tone: 'danger'
     })
     if (!confirmed) return
@@ -644,7 +666,7 @@ export function AppMainPanel({
       await deleteThread(thread.id)
     } catch (error) {
       await dialog.alert({
-        title: error instanceof Error ? error.message : 'Failed to delete the thread.'
+        title: error instanceof Error ? error.message : t('threads.errors.delete')
       })
     }
   }
@@ -654,7 +676,7 @@ export function AppMainPanel({
       await restoreThread(thread.id)
     } catch (error) {
       await dialog.alert({
-        title: error instanceof Error ? error.message : 'Failed to restore the thread.'
+        title: error instanceof Error ? error.message : t('threads.errors.restore')
       })
     }
   }
@@ -665,7 +687,7 @@ export function AppMainPanel({
       await setThreadPrivacyMode(activeThread.id, !activeThread.privacyMode)
     } catch (error) {
       await dialog.alert({
-        title: error instanceof Error ? error.message : 'Failed to toggle privacy mode.'
+        title: error instanceof Error ? error.message : t('layout.errors.togglePrivacy')
       })
     }
   }
@@ -677,7 +699,7 @@ export function AppMainPanel({
       await window.api.yachiyo.openThreadWorkspace({ threadId: activeThread.id })
     } catch (error) {
       await dialog.alert({
-        title: error instanceof Error ? error.message : 'Failed to open the workspace.'
+        title: error instanceof Error ? error.message : t('layout.errors.openWorkspace')
       })
     }
   }
@@ -691,7 +713,7 @@ export function AppMainPanel({
       })
     } catch (error) {
       await dialog.alert({
-        title: error instanceof Error ? error.message : 'Failed to open in editor.'
+        title: error instanceof Error ? error.message : t('layout.errors.openEditor')
       })
     }
   }
@@ -705,7 +727,7 @@ export function AppMainPanel({
       })
     } catch (error) {
       await dialog.alert({
-        title: error instanceof Error ? error.message : 'Failed to open in terminal.'
+        title: error instanceof Error ? error.message : t('layout.errors.openTerminal')
       })
     }
   }
@@ -731,7 +753,7 @@ export function AppMainPanel({
           await compactThreadToAnotherThread()
         } catch (error) {
           await dialog.alert({
-            title: error instanceof Error ? error.message : 'Failed to compact into another thread.'
+            title: error instanceof Error ? error.message : t('threads.errors.compact')
           })
         }
       })()
@@ -744,7 +766,7 @@ export function AppMainPanel({
           await starThread(activeThread.id, operationKey === 'star')
         } catch (error) {
           await dialog.alert({
-            title: error instanceof Error ? error.message : 'Failed to update the thread.'
+            title: error instanceof Error ? error.message : t('threads.errors.update')
           })
         }
       })()
@@ -776,10 +798,10 @@ export function AppMainPanel({
             ) : (
               <>
                 <div className="text-sm font-semibold" style={{ color: theme.text.primary }}>
-                  Archived
+                  {t('layout.archived.title')}
                 </div>
                 <div className="text-xs font-medium" style={{ color: theme.text.muted }}>
-                  {archivedThreads.length} thread{archivedThreads.length !== 1 ? 's' : ''}
+                  {tPlural('layout.sidebar.threadCount', archivedThreads.length)}
                 </div>
               </>
             )}
@@ -789,15 +811,15 @@ export function AppMainPanel({
               // Restore/Delete both hit the read-only guard for synced archives.
               <span
                 className="no-drag inline-flex items-center"
-                title="Read-only — synced from another device"
-                aria-label="Read-only, synced from another device"
+                title={t('threads.item.readOnlySynced')}
+                aria-label={t('threads.item.readOnlySynced')}
                 style={{ color: theme.text.muted }}
               >
                 <Lock size={14} strokeWidth={1.5} />
               </span>
             ) : (
               <div className="flex items-center gap-1 no-drag">
-                <Tooltip content="Continue chat">
+                <Tooltip content={t('layout.archived.continueChat')}>
                   <button
                     onClick={() => void handleRestoreThread(activeArchivedThread)}
                     className="p-1.5 rounded-md transition-opacity hover:opacity-70"
@@ -806,7 +828,7 @@ export function AppMainPanel({
                     <MessageSquare size={15} strokeWidth={1.5} />
                   </button>
                 </Tooltip>
-                <Tooltip content="Delete permanently">
+                <Tooltip content={t('layout.archived.deletePermanently')}>
                   <button
                     onClick={() => void handleDeleteThread(activeArchivedThread)}
                     className="p-1.5 rounded-md transition-opacity hover:opacity-70"
@@ -912,7 +934,7 @@ export function AppMainPanel({
                         <img
                           className="thread-welcome__essential-image"
                           src={activeEssential.icon}
-                          alt={activeEssential.label ?? 'Essential'}
+                          alt={activeEssential.label ?? t('layout.welcome.essentialFallback')}
                           draggable={false}
                         />
                       ) : (
@@ -921,12 +943,14 @@ export function AppMainPanel({
                         </span>
                       )}
                       <div className="thread-welcome__copy">
-                        <p className="thread-welcome__eyebrow">Creation with</p>
+                        <p className="thread-welcome__eyebrow">
+                          {t('layout.welcome.creationWith')}
+                        </p>
                         <p className="thread-welcome__label">
-                          {activeEssential.label ?? 'Essential'}
+                          {activeEssential.label ?? t('layout.welcome.essentialFallback')}
                         </p>
                         <p className="thread-welcome__slogan">
-                          Send a first message to start a focused thread with this Essential.
+                          {t('layout.welcome.essentialSlogan')}
                         </p>
                       </div>
                     </>
@@ -994,7 +1018,7 @@ export function AppMainPanel({
                 style={{ color: theme.text.muted }}
               >
                 <Lock size={13} strokeWidth={1.5} />
-                <span>Read-only — synced from another device</span>
+                <span>{t('threads.item.readOnlySynced')}</span>
               </div>
             ) : (
               <>
@@ -1017,23 +1041,28 @@ export function AppMainPanel({
               }}
             >
               <p className="text-sm font-medium" style={{ color: theme.text.primary }}>
-                Saving to memory…
+                {t('layout.welcome.savingToMemory')}
               </p>
               <p className="text-xs" style={{ color: theme.text.muted }}>
-                Thread interactions are paused
+                {t('layout.welcome.interactionsPaused')}
               </p>
             </div>
           )}
         </div>
         {archiveTarget && (
           <ConfirmDialog
-            title={`Archive "${archiveTarget.title}"?`}
+            title={t('threads.confirm.archiveTitle', { title: archiveTarget.title })}
             actions={[
-              { key: 'archive', label: 'Archive', tone: 'accent' },
+              { key: 'archive', label: t('threads.actions.archive'), tone: 'accent' },
               ...(memoryEnabled
-                ? [{ key: 'save-and-archive' as const, label: 'Save Memory & Archive' as const }]
+                ? [
+                    {
+                      key: 'save-and-archive' as const,
+                      label: t('threads.actions.saveMemoryAndArchive')
+                    }
+                  ]
                 : []),
-              { key: 'cancel', label: 'Cancel' }
+              { key: 'cancel', label: t('common.cancel') }
             ]}
             onSelect={(key) => void handleArchiveConfirm(key)}
             onClose={() => setArchiveTarget(null)}

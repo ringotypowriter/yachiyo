@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { Check } from 'lucide-react'
+import { useT } from '@yachiyo/i18n/react'
 
 import type { BrowserActivitySession } from '../lib/browser-activity/browserActivity'
 import { getBrowserSessionLabel } from '../lib/browser-activity/browserSessionLabel'
@@ -70,6 +71,7 @@ export function BrowserTimelineView({
   onSelectedSessionChange,
   onSessionPickerOpenChange
 }: BrowserTimelineViewProps): React.JSX.Element {
+  const t = useT()
   const viewportRef = useRef<HTMLDivElement>(null)
   const visibleSessionRef = useRef<{ threadId: string; session: string } | null>(null)
   const requestSeqRef = useRef(0)
@@ -116,10 +118,10 @@ export function BrowserTimelineView({
         .catch((err: unknown) => {
           if (requestSeq !== requestSeqRef.current) return
           hideVisibleSession()
-          setError(err instanceof Error ? err.message : 'Unable to show the browser session.')
+          setError(err instanceof Error ? err.message : t('chat.browser.showSessionFailed'))
         })
     },
-    [hideVisibleSession, sessionId, sessionPickerOpen, suspended, threadId]
+    [hideVisibleSession, sessionId, sessionPickerOpen, suspended, t, threadId]
   )
 
   useLayoutEffect(() => {
@@ -150,9 +152,9 @@ export function BrowserTimelineView({
     return (
       <div className="browser-timeline-view browser-timeline-view--empty">
         <div className="browser-timeline-view__empty-card">
-          <div className="browser-timeline-view__empty-title">No browser sessions</div>
+          <div className="browser-timeline-view__empty-title">{t('chat.browser.noSessions')}</div>
           <div className="browser-timeline-view__empty-copy">
-            Browser sessions opened by useBrowser will appear here.
+            {t('chat.browser.sessionsAppearHere')}
           </div>
         </div>
       </div>
@@ -182,7 +184,7 @@ export function BrowserTimelineView({
             <div
               className="browser-session-picker__panel"
               role="listbox"
-              aria-label="Browser sessions"
+              aria-label={t('chat.browser.sessionsAria')}
             >
               {sessions.map((session) => {
                 const isSelected = session.session === sessionId

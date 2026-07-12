@@ -1,5 +1,7 @@
 import type React from 'react'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { tPlural } from '@yachiyo/i18n/index'
+import { useT } from '@yachiyo/i18n/react'
 import type { SlashCommand } from '../SlashCommandPopup'
 import type {
   FileMentionCandidate,
@@ -110,6 +112,7 @@ interface UseComposerCompletionsResult {
 export function useComposerCompletions(
   input: UseComposerCompletionsInput
 ): UseComposerCompletionsResult {
+  const t = useT()
   const {
     activeThreadId,
     activeThread,
@@ -270,8 +273,8 @@ export function useComposerCompletions(
           if (!decision.allowed) {
             useAppStore.getState().pushToast({
               threadId,
-              title: 'Workspace not changed',
-              body: decision.message ?? 'This thread cannot change workspace.',
+              title: t('chat.workspacePicker.notChangedTitle'),
+              body: decision.message ?? t('chat.workspacePicker.cannotChange'),
               eventKey: `workspace-change-blocked:${threadId}`
             })
             return
@@ -279,10 +282,8 @@ export function useComposerCompletions(
           if (decision.requiresConfirmation) {
             setPendingWorkspaceChangeConfirmation({
               ...selection,
-              title: 'Switch this thread to a different workspace?',
-              description:
-                decision.message ??
-                'Future runs in this thread will use the selected workspace. Existing messages and files stay where they are.'
+              title: t('chat.workspacePicker.confirmSwitchTitle'),
+              description: decision.message ?? t('chat.workspacePicker.confirmSwitchDescription')
             })
             return
           }
@@ -291,8 +292,8 @@ export function useComposerCompletions(
         })().catch((error) => {
           useAppStore.getState().pushToast({
             threadId,
-            title: 'Workspace not changed',
-            body: error instanceof Error ? error.message : 'Unable to change the workspace.',
+            title: t('chat.workspacePicker.notChangedTitle'),
+            body: error instanceof Error ? error.message : t('chat.workspacePicker.unableToChange'),
             eventKey: `workspace-change-error:${threadId}`
           })
         })
@@ -301,7 +302,7 @@ export function useComposerCompletions(
 
       void commitWorkspaceSelection(selection)
     },
-    [commitWorkspaceSelection, setPendingWorkspaceChangeConfirmation]
+    [commitWorkspaceSelection, setPendingWorkspaceChangeConfirmation, t]
   )
   const allSlashCommands = useMemo<SlashCommand[]>(
     () => [
@@ -309,8 +310,8 @@ export function useComposerCompletions(
         ? [
             {
               key: 'handoff',
-              label: 'Handoff',
-              description: 'Compact into a new thread',
+              label: t('chat.slashCommands.handoff'),
+              description: t('chat.slashCommands.handoffDescription'),
               type: 'action' as const
             }
           ]
@@ -319,8 +320,8 @@ export function useComposerCompletions(
         ? [
             {
               key: 'archive',
-              label: 'Archive',
-              description: 'Archive this thread',
+              label: t('chat.slashCommands.archive'),
+              description: t('chat.slashCommands.archiveDescription'),
               type: 'action' as const
             }
           ]
@@ -335,14 +336,14 @@ export function useComposerCompletions(
         ? [
             {
               key: 'skills',
-              label: 'Skills',
-              description: `Browse ${availableSkills.length} available skill${availableSkills.length !== 1 ? 's' : ''}`,
+              label: t('chat.slashCommands.skills'),
+              description: tPlural('chat.slashCommands.browseSkills', availableSkills.length),
               type: 'skill-prefix' as const
             }
           ]
         : [])
     ],
-    [canHandoffActiveThread, canRunThreadOperations, runStatus, userPrompts, availableSkills]
+    [canHandoffActiveThread, canRunThreadOperations, runStatus, userPrompts, availableSkills, t]
   )
   const matchingSlashCommands = useMemo<SlashCommand[]>(() => {
     if (skillQuery !== null) {
@@ -350,7 +351,7 @@ export function useComposerCompletions(
         ({ item: s }) => ({
           key: `skills:${s.name}`,
           label: s.name,
-          description: s.description ?? 'No description available',
+          description: s.description ?? t('chat.slashCommands.noDescription'),
           type: 'skill' as const
         })
       )
@@ -384,7 +385,8 @@ export function useComposerCompletions(
     fileMentionMatches,
     slashQuery,
     allSlashCommands,
-    availableSkills
+    availableSkills,
+    t
   ])
   const activeQuery = skillQuery ?? thingMentionQuery ?? fileMentionQuery ?? slashQuery
   const showSlashCommandPopup =

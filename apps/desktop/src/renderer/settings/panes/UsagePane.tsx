@@ -12,6 +12,8 @@ import {
   ResponsiveContainer,
   Legend
 } from 'recharts'
+import { tPlural } from '@yachiyo/i18n/index'
+import { useT } from '@yachiyo/i18n/react'
 import { theme, alpha } from '@renderer/theme/theme'
 import { SimpleSelect } from '../components/primitives'
 import type {
@@ -20,6 +22,8 @@ import type {
   UsageStatsPeriod,
   UsageStatsResponse
 } from '@yachiyo/shared/protocol'
+
+type Translate = typeof import('@yachiyo/i18n/index').t
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -31,8 +35,8 @@ function formatTokens(n: number): string {
   return String(n)
 }
 
-function cacheHitRate(read: number, cacheAwarePrompt: number): string {
-  if (cacheAwarePrompt === 0) return 'N/A'
+function cacheHitRate(read: number, cacheAwarePrompt: number): string | null {
+  if (cacheAwarePrompt === 0) return null
   return `${Math.round((read / cacheAwarePrompt) * 100)}%`
 }
 
@@ -51,20 +55,24 @@ function rangeToDate(range: RangeKey): string | undefined {
   return d.toISOString()
 }
 
-const PERIOD_OPTIONS: { value: UsageStatsPeriod; label: string }[] = [
-  { value: 'day', label: 'Day' },
-  { value: 'week', label: 'Week' },
-  { value: 'month', label: 'Month' },
-  { value: 'year', label: 'Year' }
-]
+function periodOptions(t: Translate): { value: UsageStatsPeriod; label: string }[] {
+  return [
+    { value: 'day', label: t('settings.usage.periodDay') },
+    { value: 'week', label: t('settings.usage.periodWeek') },
+    { value: 'month', label: t('settings.usage.periodMonth') },
+    { value: 'year', label: t('settings.usage.periodYear') }
+  ]
+}
 
-const RANGE_OPTIONS: { value: RangeKey; label: string }[] = [
-  { value: '7d', label: 'Last 7 days' },
-  { value: '30d', label: 'Last 30 days' },
-  { value: '90d', label: 'Last 90 days' },
-  { value: '1y', label: 'Last year' },
-  { value: 'all', label: 'All time' }
-]
+function rangeOptions(t: Translate): { value: RangeKey; label: string }[] {
+  return [
+    { value: '7d', label: t('settings.usage.rangeLast7Days') },
+    { value: '30d', label: t('settings.usage.rangeLast30Days') },
+    { value: '90d', label: t('settings.usage.rangeLast90Days') },
+    { value: '1y', label: t('settings.usage.rangeLastYear') },
+    { value: 'all', label: t('settings.usage.rangeAllTime') }
+  ]
+}
 
 // ---------------------------------------------------------------------------
 // Chart theme
@@ -109,6 +117,7 @@ export function UsagePane({ activeTab }: { activeTab: string }): React.ReactNode
 // ---------------------------------------------------------------------------
 
 function UsageContent(): React.ReactNode {
+  const t = useT()
   const [period, setPeriod] = useState<UsageStatsPeriod>('day')
   const [range, setRange] = useState<RangeKey>('30d')
   const [workspaceFilter, setWorkspaceFilter] = useState<string>('all')
@@ -141,15 +150,18 @@ function UsageContent(): React.ReactNode {
 
   // Build filter options from data
   const workspaceOptions = [
-    { value: 'all' as const, label: 'All workspaces' },
+    { value: 'all' as const, label: t('settings.usage.allWorkspaces') },
     ...(data?.byWorkspace ?? []).map((w) => ({
       value: w.workspacePath,
-      label: w.workspacePath === '__null__' ? 'No workspace' : w.workspacePath.split('/').pop()!
+      label:
+        w.workspacePath === '__null__'
+          ? t('settings.usage.noWorkspace')
+          : w.workspacePath.split('/').pop()!
     }))
   ]
 
   const modelOptions = [
-    { value: 'all' as const, label: 'All models' },
+    { value: 'all' as const, label: t('settings.usage.allModels') },
     ...(data?.byModel ?? []).map((m) => ({
       value: `${m.modelId}|${m.providerName}`,
       label: `${m.modelId} (${m.providerName})`
@@ -173,7 +185,7 @@ function UsageContent(): React.ReactNode {
   const workspaceBarData = (data?.byWorkspace ?? []).slice(0, 10).map((w) => ({
     name:
       w.workspacePath === '__null__'
-        ? 'No workspace'
+        ? t('settings.usage.noWorkspace')
         : (w.workspacePath.split('/').pop() ?? w.workspacePath),
     fullPath: w.workspacePath,
     tokens: w.totalPromptTokens + w.totalCompletionTokens,
@@ -186,8 +198,8 @@ function UsageContent(): React.ReactNode {
     <div className="flex flex-col gap-6 p-6 overflow-y-auto h-full">
       {/* Controls */}
       <div className="flex items-center gap-3 flex-wrap">
-        <SimpleSelect value={period} options={PERIOD_OPTIONS} onChange={setPeriod} width={120} />
-        <SimpleSelect value={range} options={RANGE_OPTIONS} onChange={setRange} width={150} />
+        <SimpleSelect value={period} options={periodOptions(t)} onChange={setPeriod} width={120} />
+        <SimpleSelect value={range} options={rangeOptions(t)} onChange={setRange} width={150} />
         <SimpleSelect
           value={workspaceFilter}
           options={workspaceOptions}
@@ -204,29 +216,42 @@ function UsageContent(): React.ReactNode {
 
       {/* Summary cards */}
       <div className="grid grid-cols-4 gap-4">
-        <SummaryCard label="Total Runs" value={data ? String(data.totals.runCount) : '—'} />
         <SummaryCard
-          label="Total Tokens"
+          label={t('settings.usage.totalRuns')}
+          value={data ? String(data.totals.runCount) : '—'}
+        />
+        <SummaryCard
+          label={t('settings.usage.totalTokens')}
           value={data ? formatTokens(data.totals.promptTokens + data.totals.completionTokens) : '—'}
           sub={
             data
-              ? `${formatTokens(data.totals.promptTokens)} in / ${formatTokens(data.totals.completionTokens)} out`
+              ? t('settings.usage.tokensInOut', {
+                  inTokens: formatTokens(data.totals.promptTokens),
+                  outTokens: formatTokens(data.totals.completionTokens)
+                })
               : undefined
           }
         />
         <SummaryCard
-          label="Cache Hit Rate"
+          label={t('settings.usage.cacheHitRate')}
           value={
             data
-              ? cacheHitRate(data.totals.cacheReadTokens, data.totals.cacheAwarePromptTokens)
+              ? (cacheHitRate(data.totals.cacheReadTokens, data.totals.cacheAwarePromptTokens) ??
+                t('settings.usage.notAvailable'))
               : '—'
           }
-          sub={data ? `${formatTokens(data.totals.cacheReadTokens)} read` : undefined}
+          sub={
+            data
+              ? t('settings.usage.tokensRead', {
+                  tokens: formatTokens(data.totals.cacheReadTokens)
+                })
+              : undefined
+          }
         />
         <SummaryCard
-          label="Top Model"
+          label={t('settings.usage.topModel')}
           value={topModel?.modelId ?? '—'}
-          sub={topModel ? `${topModel.runCount} runs` : undefined}
+          sub={topModel ? tPlural('settings.usage.runCount', topModel.runCount) : undefined}
         />
       </div>
 
@@ -235,19 +260,19 @@ function UsageContent(): React.ReactNode {
           className="flex items-center justify-center py-16 text-sm"
           style={{ color: theme.text.tertiary }}
         >
-          Loading usage data...
+          {t('settings.usage.loadingUsage')}
         </div>
       ) : data && data.totals.runCount === 0 ? (
         <div
           className="flex items-center justify-center py-16 text-sm"
           style={{ color: theme.text.tertiary }}
         >
-          No usage data for the selected filters.
+          {t('settings.usage.noUsageData')}
         </div>
       ) : (
         <>
           {/* Token usage area chart — dual Y-axes for prompt vs completion */}
-          <ChartSection title="Token Usage">
+          <ChartSection title={t('settings.usage.tokenUsage')}>
             <ResponsiveContainer width="100%" height={260}>
               <ComposedChart data={areaData}>
                 <CartesianGrid strokeDasharray="3 3" stroke={CHART_COLORS.grid} />
@@ -279,11 +304,13 @@ function UsageContent(): React.ReactNode {
                   cursor={{ fill: alpha('ink', 0.04), stroke: 'none' }}
                   formatter={(value, name) => [
                     formatTokens(Number(value)),
-                    name === 'prompt' ? 'Prompt' : 'Completion'
+                    name === 'prompt' ? t('settings.usage.prompt') : t('settings.usage.completion')
                   ]}
                 />
                 <Legend
-                  formatter={(value: string) => (value === 'prompt' ? 'Prompt' : 'Completion')}
+                  formatter={(value: string) =>
+                    value === 'prompt' ? t('settings.usage.prompt') : t('settings.usage.completion')
+                  }
                 />
                 <Area
                   yAxisId="prompt"
@@ -304,7 +331,7 @@ function UsageContent(): React.ReactNode {
           </ChartSection>
 
           {/* Cache performance */}
-          <ChartSection title="Cache Performance">
+          <ChartSection title={t('settings.usage.cachePerformance')}>
             <ResponsiveContainer width="100%" height={260}>
               <ComposedChart data={cacheData}>
                 <CartesianGrid strokeDasharray="3 3" stroke={CHART_COLORS.grid} />
@@ -336,18 +363,19 @@ function UsageContent(): React.ReactNode {
                   contentStyle={tooltipStyle}
                   cursor={{ stroke: alpha('ink', 0.08), strokeWidth: 1 }}
                   formatter={(value, name) => {
-                    if (value == null) return ['N/A', String(name)]
+                    if (value == null) return [t('settings.usage.notAvailable'), String(name)]
                     const n = Number(value)
-                    if (name === 'cacheRate') return [`${n.toFixed(1)}%`, 'Hit Rate']
-                    if (name === 'cacheRead') return [formatTokens(n), 'Cached']
-                    return [formatTokens(n), 'Uncached']
+                    if (name === 'cacheRate')
+                      return [`${n.toFixed(1)}%`, t('settings.usage.hitRate')]
+                    if (name === 'cacheRead') return [formatTokens(n), t('settings.usage.cached')]
+                    return [formatTokens(n), t('settings.usage.uncached')]
                   }}
                 />
                 <Legend
                   formatter={(value: string) => {
-                    if (value === 'cacheRead') return 'Cached'
-                    if (value === 'uncached') return 'Uncached'
-                    return 'Hit Rate'
+                    if (value === 'cacheRead') return t('settings.usage.cached')
+                    if (value === 'uncached') return t('settings.usage.uncached')
+                    return t('settings.usage.hitRate')
                   }}
                 />
                 <Bar
@@ -380,7 +408,7 @@ function UsageContent(): React.ReactNode {
 
           {/* Workspace breakdown */}
           {workspaceBarData.length > 0 && (
-            <ChartSection title="By Workspace">
+            <ChartSection title={t('settings.usage.byWorkspace')}>
               <ResponsiveContainer
                 width="100%"
                 height={Math.max(160, workspaceBarData.length * 36)}
@@ -409,7 +437,7 @@ function UsageContent(): React.ReactNode {
                   <Tooltip
                     contentStyle={tooltipStyle}
                     cursor={{ fill: alpha('ink', 0.04) }}
-                    formatter={(value) => [formatTokens(Number(value)), 'Tokens']}
+                    formatter={(value) => [formatTokens(Number(value)), t('settings.usage.tokens')]}
                   />
                   <Bar
                     dataKey="tokens"
@@ -432,7 +460,7 @@ function UsageContent(): React.ReactNode {
 
           {/* Model breakdown table */}
           {(data?.byModel ?? []).length > 0 && (
-            <ChartSection title="By Model">
+            <ChartSection title={t('settings.usage.byModel')}>
               <div className="overflow-x-auto">
                 <table className="w-full text-sm" style={{ borderCollapse: 'collapse' }}>
                   <thead>
@@ -442,12 +470,24 @@ function UsageContent(): React.ReactNode {
                         color: theme.text.tertiary
                       }}
                     >
-                      <th className="text-left py-2 pr-4 font-medium">Model</th>
-                      <th className="text-left py-2 pr-4 font-medium">Provider</th>
-                      <th className="text-right py-2 pr-4 font-medium">Runs</th>
-                      <th className="text-right py-2 pr-4 font-medium">Prompt</th>
-                      <th className="text-right py-2 pr-4 font-medium">Completion</th>
-                      <th className="text-right py-2 font-medium">Cache Rate</th>
+                      <th className="text-left py-2 pr-4 font-medium">
+                        {t('settings.usage.model')}
+                      </th>
+                      <th className="text-left py-2 pr-4 font-medium">
+                        {t('settings.usage.provider')}
+                      </th>
+                      <th className="text-right py-2 pr-4 font-medium">
+                        {t('settings.usage.runs')}
+                      </th>
+                      <th className="text-right py-2 pr-4 font-medium">
+                        {t('settings.usage.prompt')}
+                      </th>
+                      <th className="text-right py-2 pr-4 font-medium">
+                        {t('settings.usage.completion')}
+                      </th>
+                      <th className="text-right py-2 font-medium">
+                        {t('settings.usage.cacheRate')}
+                      </th>
                     </tr>
                   </thead>
                   <tbody>
@@ -471,7 +511,8 @@ function UsageContent(): React.ReactNode {
                           {formatTokens(m.totalCompletionTokens)}
                         </td>
                         <td className="text-right py-2">
-                          {cacheHitRate(m.totalCacheReadTokens, m.cacheAwarePromptTokens)}
+                          {cacheHitRate(m.totalCacheReadTokens, m.cacheAwarePromptTokens) ??
+                            t('settings.usage.notAvailable')}
                         </td>
                       </tr>
                     ))}
@@ -501,11 +542,11 @@ function formatDuration(ms: number): string {
   return `${ms.toFixed(0)}ms`
 }
 
-function formatUptime(seconds: number): string {
+function formatUptime(seconds: number, t: Translate): string {
   const h = Math.floor(seconds / 3600)
   const m = Math.floor((seconds % 3600) / 60)
-  if (h > 0) return `${h}h ${m}m`
-  return `${m}m`
+  if (h > 0) return t('settings.usage.uptimeHoursMinutes', { hours: h, minutes: m })
+  return t('settings.usage.uptimeMinutes', { minutes: m })
 }
 
 function eventLoopHealthColor(p99Ms: number): string {
@@ -515,6 +556,7 @@ function eventLoopHealthColor(p99Ms: number): string {
 }
 
 function PerformanceContent(): React.ReactNode {
+  const t = useT()
   const [data, setData] = useState<PerfStatsResponse | null>(null)
   const [loading, setLoading] = useState(true)
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -544,7 +586,7 @@ function PerformanceContent(): React.ReactNode {
         className="flex items-center justify-center py-16 text-sm h-full"
         style={{ color: theme.text.tertiary }}
       >
-        Loading performance data...
+        {t('settings.usage.loadingPerformance')}
       </div>
     )
   }
@@ -564,24 +606,30 @@ function PerformanceContent(): React.ReactNode {
       {/* Header with uptime */}
       <div className="flex items-center justify-between">
         <div className="text-xs" style={{ color: theme.text.muted }}>
-          Uptime: {formatUptime(data.uptimeSeconds)} — Auto-refreshing every 3s
+          {t('settings.usage.uptimeLine', { uptime: formatUptime(data.uptimeSeconds, t) })}
         </div>
       </div>
 
       {/* Event Loop Delay */}
       <div className="grid grid-cols-4 gap-4">
         <SummaryCard
-          label="Event Loop p99"
+          label={t('settings.usage.eventLoopP99')}
           value={formatMs(el.p99)}
-          sub={el.p99 < 16 ? 'Healthy' : el.p99 < 50 ? 'Moderate' : 'Stalled'}
+          sub={
+            el.p99 < 16
+              ? t('settings.usage.healthy')
+              : el.p99 < 50
+                ? t('settings.usage.moderate')
+                : t('settings.usage.stalled')
+          }
           valueColor={eventLoopHealthColor(el.p99)}
         />
-        <SummaryCard label="Event Loop p95" value={formatMs(el.p95)} />
-        <SummaryCard label="Event Loop Mean" value={formatMs(el.mean)} />
+        <SummaryCard label={t('settings.usage.eventLoopP95')} value={formatMs(el.p95)} />
+        <SummaryCard label={t('settings.usage.eventLoopMean')} value={formatMs(el.mean)} />
         <SummaryCard
-          label="Event Loop Max"
+          label={t('settings.usage.eventLoopMax')}
           value={formatMs(el.max)}
-          sub={el.max > 100 ? 'Spike detected' : undefined}
+          sub={el.max > 100 ? t('settings.usage.spikeDetected') : undefined}
           valueColor={el.max > 100 ? theme.text.warning : undefined}
         />
       </div>
@@ -589,17 +637,20 @@ function PerformanceContent(): React.ReactNode {
       {/* IPC Stats */}
       <div className="grid grid-cols-3 gap-4">
         <SummaryCard
-          label="IPC Events (60s)"
+          label={t('settings.usage.ipcEvents60s')}
           value={String(ipcRate)}
-          sub={`${(ipcRate / 60).toFixed(1)}/sec avg`}
+          sub={t('settings.usage.perSecondAvg', { rate: (ipcRate / 60).toFixed(1) })}
         />
-        <SummaryCard label="Total IPC Events" value={formatTokens(data.ipcEventCount)} />
-        <SummaryCard label="Active Runs" value={String(data.activeRunCount)} />
+        <SummaryCard
+          label={t('settings.usage.totalIpcEvents')}
+          value={formatTokens(data.ipcEventCount)}
+        />
+        <SummaryCard label={t('settings.usage.activeRuns')} value={String(data.activeRunCount)} />
       </div>
 
       {/* IPC Breakdown */}
       {ipcTypeEntries.length > 0 && (
-        <ChartSection title="IPC Events by Type (last 60s)">
+        <ChartSection title={t('settings.usage.ipcEventsByType')}>
           <div className="overflow-x-auto">
             <table className="w-full text-sm" style={{ borderCollapse: 'collapse' }}>
               <thead>
@@ -609,9 +660,11 @@ function PerformanceContent(): React.ReactNode {
                     color: theme.text.tertiary
                   }}
                 >
-                  <th className="text-left py-2 pr-4 font-medium">Event Type</th>
-                  <th className="text-right py-2 pr-4 font-medium">Count</th>
-                  <th className="text-right py-2 font-medium">Rate (/sec)</th>
+                  <th className="text-left py-2 pr-4 font-medium">
+                    {t('settings.usage.eventType')}
+                  </th>
+                  <th className="text-right py-2 pr-4 font-medium">{t('settings.usage.count')}</th>
+                  <th className="text-right py-2 font-medium">{t('settings.usage.ratePerSec')}</th>
                 </tr>
               </thead>
               <tbody>
@@ -638,7 +691,7 @@ function PerformanceContent(): React.ReactNode {
 
       {/* Recent Runs */}
       {data.recentRuns.length > 0 && (
-        <ChartSection title="Recent Runs">
+        <ChartSection title={t('settings.usage.recentRuns')}>
           <div className="overflow-x-auto">
             <table className="w-full text-sm" style={{ borderCollapse: 'collapse' }}>
               <thead>
@@ -648,19 +701,43 @@ function PerformanceContent(): React.ReactNode {
                     color: theme.text.tertiary
                   }}
                 >
-                  <th className="text-left py-2 pr-3 font-medium">Duration</th>
-                  <th className="text-right py-2 pr-3 font-medium">Context</th>
-                  <th className="text-right py-2 pr-3 font-medium">Stream</th>
-                  <th className="text-right py-2 pr-3 font-medium">First Delta</th>
-                  <th className="text-right py-2 pr-3 font-medium">Ctx Size</th>
-                  <th className="text-right py-2 pr-3 font-medium">Deltas</th>
-                  <th className="text-right py-2 pr-3 font-medium">Chars</th>
-                  <th className="text-right py-2 pr-3 font-medium">CP Writes</th>
-                  <th className="text-right py-2 pr-3 font-medium">CP Total</th>
-                  <th className="text-right py-2 pr-3 font-medium">CP Max</th>
-                  <th className="text-right py-2 pr-3 font-medium">Tool Writes</th>
-                  <th className="text-right py-2 pr-3 font-medium">Tool Total</th>
-                  <th className="text-right py-2 font-medium">Snapshot</th>
+                  <th className="text-left py-2 pr-3 font-medium">
+                    {t('settings.usage.colDuration')}
+                  </th>
+                  <th className="text-right py-2 pr-3 font-medium">
+                    {t('settings.usage.colContext')}
+                  </th>
+                  <th className="text-right py-2 pr-3 font-medium">
+                    {t('settings.usage.colStream')}
+                  </th>
+                  <th className="text-right py-2 pr-3 font-medium">
+                    {t('settings.usage.colFirstDelta')}
+                  </th>
+                  <th className="text-right py-2 pr-3 font-medium">
+                    {t('settings.usage.colCtxSize')}
+                  </th>
+                  <th className="text-right py-2 pr-3 font-medium">
+                    {t('settings.usage.colDeltas')}
+                  </th>
+                  <th className="text-right py-2 pr-3 font-medium">
+                    {t('settings.usage.colChars')}
+                  </th>
+                  <th className="text-right py-2 pr-3 font-medium">
+                    {t('settings.usage.colCpWrites')}
+                  </th>
+                  <th className="text-right py-2 pr-3 font-medium">
+                    {t('settings.usage.colCpTotal')}
+                  </th>
+                  <th className="text-right py-2 pr-3 font-medium">
+                    {t('settings.usage.colCpMax')}
+                  </th>
+                  <th className="text-right py-2 pr-3 font-medium">
+                    {t('settings.usage.colToolWrites')}
+                  </th>
+                  <th className="text-right py-2 pr-3 font-medium">
+                    {t('settings.usage.colToolTotal')}
+                  </th>
+                  <th className="text-right py-2 font-medium">{t('settings.usage.colSnapshot')}</th>
                 </tr>
               </thead>
               <tbody>
@@ -678,7 +755,7 @@ function PerformanceContent(): React.ReactNode {
           className="flex items-center justify-center py-12 text-sm"
           style={{ color: theme.text.tertiary }}
         >
-          No run data yet. Performance records appear after completing a conversation turn.
+          {t('settings.usage.noRunData')}
         </div>
       )}
     </div>
@@ -686,6 +763,7 @@ function PerformanceContent(): React.ReactNode {
 }
 
 function RunRow({ run }: { run: RunPerfRecord }): React.ReactNode {
+  const t = useT()
   const cpAvg =
     run.checkpointWriteCount > 0 ? run.checkpointWriteTotalMs / run.checkpointWriteCount : 0
   const toolAvg = run.toolCallWriteCount > 0 ? run.toolCallWriteTotalMs / run.toolCallWriteCount : 0
@@ -727,7 +805,10 @@ function RunRow({ run }: { run: RunPerfRecord }): React.ReactNode {
       <td className="text-right py-1.5 pr-3">
         <span>{formatMs(run.checkpointWriteTotalMs)}</span>
         {run.checkpointWriteCount > 0 && (
-          <span style={{ color: theme.text.muted }}> ({formatMs(cpAvg)} avg)</span>
+          <span style={{ color: theme.text.muted }}>
+            {' '}
+            {t('settings.usage.avgSuffix', { value: formatMs(cpAvg) })}
+          </span>
         )}
       </td>
       <td className="text-right py-1.5 pr-3">
@@ -745,7 +826,10 @@ function RunRow({ run }: { run: RunPerfRecord }): React.ReactNode {
         {run.toolCallWriteCount > 0 && (
           <span style={{ color: theme.text.muted }}>
             {' '}
-            ({formatMs(toolAvg)} avg, {formatMs(run.toolCallWriteMaxMs)} max)
+            {t('settings.usage.avgMaxSuffix', {
+              avg: formatMs(toolAvg),
+              max: formatMs(run.toolCallWriteMaxMs)
+            })}
           </span>
         )}
       </td>
@@ -754,7 +838,10 @@ function RunRow({ run }: { run: RunPerfRecord }): React.ReactNode {
         {run.snapshotFinalizeCount > 0 && (
           <span style={{ color: theme.text.muted }}>
             {' '}
-            ({formatMs(snapshotAvg)} avg, {formatMs(run.snapshotFinalizeMaxMs)} max)
+            {t('settings.usage.avgMaxSuffix', {
+              avg: formatMs(snapshotAvg),
+              max: formatMs(run.snapshotFinalizeMaxMs)
+            })}
           </span>
         )}
       </td>

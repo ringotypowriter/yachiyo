@@ -1,6 +1,8 @@
 import { Loader2, LockKeyhole, Plus, RefreshCw, X } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 
+import { formatDate, tPlural } from '@yachiyo/i18n/index'
+import { useT } from '@yachiyo/i18n/react'
 import type { ActivitySourceRecord, SettingsConfig } from '@yachiyo/shared/protocol'
 import { theme } from '@renderer/theme/theme'
 import {
@@ -25,36 +27,28 @@ interface ActivityPaneProps {
   onChange: (next: SettingsConfig) => void
 }
 
-function formatDuration(ms: number): string {
+type Translate = typeof import('@yachiyo/i18n/index').t
+
+function formatDuration(ms: number, t: Translate): string {
   const seconds = Math.round(ms / 1000)
-  if (seconds < 60) return `${seconds}s`
+  if (seconds < 60) return t('settings.activity.durationSeconds', { seconds })
   const minutes = Math.floor(seconds / 60)
   const remainingSeconds = seconds % 60
-  return remainingSeconds > 0 ? `${minutes}min ${remainingSeconds}s` : `${minutes}min`
+  return remainingSeconds > 0
+    ? t('settings.activity.durationMinutesSeconds', { minutes, seconds: remainingSeconds })
+    : t('settings.activity.durationMinutes', { minutes })
 }
 
 function formatTimestamp(iso: string): string {
-  const date = new Date(iso)
-  return date.toLocaleString([], {
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit'
-  })
+  return formatDate(new Date(iso), 'dateTime')
 }
 
 function formatTimeOnly(iso: string): string {
-  return new Date(iso).toLocaleTimeString([], {
-    hour: '2-digit',
-    minute: '2-digit'
-  })
+  return formatDate(new Date(iso), 'time')
 }
 
 function formatDateOnly(iso: string): string {
-  return new Date(iso).toLocaleDateString([], {
-    month: 'short',
-    day: 'numeric'
-  })
+  return formatDate(new Date(iso), 'date')
 }
 
 function formatActivityRange(record: ActivitySourceRecord): string {
@@ -66,8 +60,8 @@ function formatActivityRange(record: ActivitySourceRecord): string {
   return `${formatTimestamp(record.startedAt)} → ${formatTimestamp(record.endedAt)}`
 }
 
-function summarizeEntries(record: ActivitySourceRecord): string {
-  if (record.entries.length === 0) return 'No app entries.'
+function summarizeEntries(record: ActivitySourceRecord, t: Translate): string {
+  if (record.entries.length === 0) return t('settings.activity.noAppEntries')
 
   const shownEntries = record.entries
     .slice(0, 4)
@@ -79,7 +73,9 @@ function summarizeEntries(record: ActivitySourceRecord): string {
     .join(' · ')
   const hiddenEntryCount = record.entries.length - 4
 
-  return hiddenEntryCount > 0 ? `${shownEntries} · +${hiddenEntryCount} more` : shownEntries
+  return hiddenEntryCount > 0
+    ? `${shownEntries} · ${t('settings.activity.moreEntries', { count: hiddenEntryCount })}`
+    : shownEntries
 }
 
 function countOcrSnapshots(record: ActivitySourceRecord): number {
@@ -87,6 +83,7 @@ function countOcrSnapshots(record: ActivitySourceRecord): number {
 }
 
 export function ActivityPane({ draft, onChange }: ActivityPaneProps): React.JSX.Element {
+  const t = useT()
   const [records, setRecords] = useState<ActivitySourceRecord[]>([])
   const [activityPage, setActivityPage] = useState(1)
   const [activityTotalCount, setActivityTotalCount] = useState(0)
@@ -98,8 +95,8 @@ export function ActivityPane({ draft, onChange }: ActivityPaneProps): React.JSX.
   const activityTrackingWarning =
     activityTracking?.accessibilityDenied === true
       ? activityTrackingMode === 'full'
-        ? 'Full mode is not active yet. Save to ask macOS for Accessibility access.'
-        : 'Full mode was not enabled. Grant Accessibility access in System Settings, then choose Full again.'
+        ? t('settings.activity.warningFullPending')
+        : t('settings.activity.warningFullDenied')
       : null
   const activityOcr = activityTracking?.ocr ?? { enabled: false, excludedApps: [] }
   const excludedApps = activityOcr.excludedApps ?? []
@@ -143,35 +140,38 @@ export function ActivityPane({ draft, onChange }: ActivityPaneProps): React.JSX.
     setManualExcludedApp('')
   }
 
-  const loadRecords = useCallback(async (page: number): Promise<void> => {
-    let redirecting = false
-    setLoading(true)
-    setError(null)
+  const loadRecords = useCallback(
+    async (page: number): Promise<void> => {
+      let redirecting = false
+      setLoading(true)
+      setError(null)
 
-    try {
-      const offset = (page - 1) * ACTIVITY_RECORDS_PAGE_SIZE
-      const result = await window.api.yachiyo.listActivitySourceRecords({
-        limit: ACTIVITY_RECORDS_PAGE_SIZE,
-        offset
-      })
-      setActivityTotalCount(result.totalCount)
+      try {
+        const offset = (page - 1) * ACTIVITY_RECORDS_PAGE_SIZE
+        const result = await window.api.yachiyo.listActivitySourceRecords({
+          limit: ACTIVITY_RECORDS_PAGE_SIZE,
+          offset
+        })
+        setActivityTotalCount(result.totalCount)
 
-      if (result.totalCount > 0 && result.records.length === 0 && page > 1) {
-        redirecting = true
-        setRecords([])
-        setActivityPage(Math.max(1, Math.ceil(result.totalCount / ACTIVITY_RECORDS_PAGE_SIZE)))
-        return
+        if (result.totalCount > 0 && result.records.length === 0 && page > 1) {
+          redirecting = true
+          setRecords([])
+          setActivityPage(Math.max(1, Math.ceil(result.totalCount / ACTIVITY_RECORDS_PAGE_SIZE)))
+          return
+        }
+
+        setRecords(result.records)
+      } catch (reason) {
+        setError(reason instanceof Error ? reason.message : t('settings.activity.loadFailed'))
+      } finally {
+        if (!redirecting) {
+          setLoading(false)
+        }
       }
-
-      setRecords(result.records)
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'Failed to load activity source.')
-    } finally {
-      if (!redirecting) {
-        setLoading(false)
-      }
-    }
-  }, [])
+    },
+    [t]
+  )
 
   useEffect(() => {
     void loadRecords(activityPage)
@@ -192,25 +192,25 @@ export function ActivityPane({ draft, onChange }: ActivityPaneProps): React.JSX.
                 style={{ color: theme.text.secondary }}
                 onClick={openAccessibilitySettings}
               >
-                Accessibility Settings…
+                {t('settings.activity.accessibilitySettings')}
               </button>
             ) : undefined
           }
         >
-          Activity tracking
+          {t('settings.activity.activityTracking')}
         </SettingLabel>
 
         <SettingRow>
           <div className="min-w-0 space-y-0.5">
             <div className="text-sm font-medium" style={{ color: theme.text.primary }}>
-              Mode
+              {t('settings.activity.mode')}
             </div>
             <div className="text-sm leading-5" style={{ color: theme.text.tertiary }}>
               {activityTrackingMode === 'full'
-                ? 'Records app and window activity between runs. Requires Accessibility.'
+                ? t('settings.activity.modeFullDescription')
                 : activityTrackingMode === 'simple'
-                  ? 'Records app activity between runs. No extra permissions needed.'
-                  : 'No activity tracking.'}
+                  ? t('settings.activity.modeSimpleDescription')
+                  : t('settings.activity.modeOffDescription')}
             </div>
             {activityTrackingWarning ? (
               <div className="text-xs leading-4 mt-0.5" style={{ color: theme.text.dangerStrong }}>
@@ -223,9 +223,9 @@ export function ActivityPane({ draft, onChange }: ActivityPaneProps): React.JSX.
             <SimpleSelect
               value={activityTrackingMode}
               options={[
-                { value: 'off' as const, label: 'Off' },
-                { value: 'simple' as const, label: 'Simple' },
-                { value: 'full' as const, label: 'Full' }
+                { value: 'off' as const, label: t('common.off') },
+                { value: 'simple' as const, label: t('settings.activity.modeSimple') },
+                { value: 'full' as const, label: t('settings.activity.modeFull') }
               ]}
               onChange={(mode) => {
                 updateActivityTracking({
@@ -242,25 +242,24 @@ export function ActivityPane({ draft, onChange }: ActivityPaneProps): React.JSX.
         <SettingRow>
           <div className="min-w-0 space-y-0.5">
             <div className="text-sm font-medium" style={{ color: theme.text.primary }}>
-              Screen OCR
+              {t('settings.activity.screenOcr')}
             </div>
             <div className="text-sm leading-5" style={{ color: theme.text.tertiary }}>
-              Capture text from the active window while Yachiyo is unfocused. OCR text is stored in
-              encrypted activity records.
+              {t('settings.activity.screenOcrDescription')}
             </div>
             {!isMac ? (
               <div className="text-xs leading-4 mt-0.5" style={{ color: theme.text.warning }}>
-                Screen OCR is available on macOS only.
+                {t('settings.activity.ocrMacOnly')}
               </div>
             ) : activityTrackingMode === 'off' ? (
               <div className="text-xs leading-4 mt-0.5" style={{ color: theme.text.warning }}>
-                Turn on activity tracking before enabling OCR.
+                {t('settings.activity.ocrNeedsTracking')}
               </div>
             ) : null}
           </div>
 
           <SettingSwitch
-            ariaLabel="Enable activity screen OCR"
+            ariaLabel={t('settings.activity.enableScreenOcr')}
             checked={activityOcr.enabled === true}
             disabled={!isMac || activityTrackingMode === 'off'}
             onChange={() => {
@@ -276,11 +275,10 @@ export function ActivityPane({ draft, onChange }: ActivityPaneProps): React.JSX.
           <div className="min-w-0 flex-1 space-y-3">
             <div className="space-y-0.5">
               <div className="text-sm font-medium" style={{ color: theme.text.primary }}>
-                Excluded apps
+                {t('settings.activity.excludedApps')}
               </div>
               <div className="text-sm leading-5" style={{ color: theme.text.tertiary }}>
-                Add apps that OCR should always skip. Recent activity apps can be excluded with one
-                click.
+                {t('settings.activity.excludedAppsDescription')}
               </div>
             </div>
 
@@ -301,7 +299,7 @@ export function ActivityPane({ draft, onChange }: ActivityPaneProps): React.JSX.
                       type="button"
                       className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full opacity-70 transition-opacity hover:opacity-100"
                       style={{ color: theme.text.muted }}
-                      aria-label={`Remove ${app} from OCR exclusions`}
+                      aria-label={t('settings.activity.removeFromExclusions', { app })}
                       onClick={() => setExcludedApps(removeExcludedApp(excludedApps, app))}
                     >
                       <X size={11} />
@@ -311,7 +309,7 @@ export function ActivityPane({ draft, onChange }: ActivityPaneProps): React.JSX.
               </div>
             ) : (
               <div className="text-xs" style={{ color: theme.text.muted }}>
-                No excluded apps yet.
+                {t('settings.activity.noExcludedApps')}
               </div>
             )}
 
@@ -319,7 +317,7 @@ export function ActivityPane({ draft, onChange }: ActivityPaneProps): React.JSX.
               <input
                 value={manualExcludedApp}
                 spellCheck={false}
-                placeholder="Add app name or bundle id"
+                placeholder={t('settings.activity.addAppPlaceholder')}
                 onChange={(event) => setManualExcludedApp(event.currentTarget.value)}
                 onKeyDown={(event) => {
                   if (event.key !== 'Enter') return
@@ -348,14 +346,14 @@ export function ActivityPane({ draft, onChange }: ActivityPaneProps): React.JSX.
                 onClick={() => addExcludedAppValue(manualExcludedApp)}
               >
                 <Plus size={14} />
-                Add
+                {t('common.add')}
               </button>
             </div>
 
             {recentAppOptions.length > 0 ? (
               <div className="space-y-2">
                 <div className="text-xs font-medium" style={{ color: theme.text.muted }}>
-                  Recent apps
+                  {t('settings.activity.recentApps')}
                 </div>
                 <div className="grid gap-2 sm:grid-cols-2">
                   {recentAppOptions.map((option) => (
@@ -394,37 +392,39 @@ export function ActivityPane({ draft, onChange }: ActivityPaneProps): React.JSX.
               disabled={loading}
             >
               {loading ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
-              Refresh
+              {t('settings.activity.refresh')}
             </button>
           }
         >
-          Activity source
+          {t('settings.activity.activitySource')}
         </SettingLabel>
 
         <SettingRow>
           <div className="min-w-0 space-y-0.5">
             <div className="flex items-center gap-2 text-sm font-medium">
               <LockKeyhole size={14} style={{ color: theme.icon.muted }} />
-              <span style={{ color: theme.text.primary }}>Encrypted records</span>
+              <span style={{ color: theme.text.primary }}>
+                {t('settings.activity.encryptedRecords')}
+              </span>
             </div>
             <div className="text-sm leading-5" style={{ color: theme.text.tertiary }}>
-              Activity payloads are stored in the local data SQL database.
+              {t('settings.activity.encryptedRecordsDescription')}
             </div>
           </div>
           <div className="shrink-0 text-sm" style={{ color: theme.text.muted }}>
-            {activityTotalCount} total
+            {t('settings.activity.totalCount', { count: activityTotalCount })}
           </div>
         </SettingRow>
 
         {loading ? (
           <div className="px-7 py-4 text-sm" style={{ color: theme.text.muted }}>
-            Loading activity source...
+            {t('settings.activity.loadingActivity')}
           </div>
         ) : records.length > 0 ? (
           <>
             <div style={{ borderTop: `1px solid ${theme.border.subtle}` }}>
               {records.map((record, index) => {
-                const entrySummary = summarizeEntries(record)
+                const entrySummary = summarizeEntries(record, t)
                 const snapshotCount = record.snapshots?.length ?? 0
                 const ocrSnapshotCount = countOcrSnapshots(record)
 
@@ -450,7 +450,7 @@ export function ActivityPane({ draft, onChange }: ActivityPaneProps): React.JSX.
                             {formatActivityRange(record)}
                           </div>
                           <div className="shrink-0 text-xs" style={{ color: theme.text.muted }}>
-                            {formatDuration(record.totalDurationMs)}
+                            {formatDuration(record.totalDurationMs, t)}
                           </div>
                         </div>
                         <div
@@ -464,24 +464,28 @@ export function ActivityPane({ draft, onChange }: ActivityPaneProps): React.JSX.
                           className="mt-0.5 flex flex-wrap gap-x-2 gap-y-0.5 text-xs leading-5"
                           style={{ color: theme.text.muted }}
                         >
+                          <span>{tPlural('settings.activity.appCount', record.uniqueApps)}</span>
                           <span>
-                            {record.uniqueApps} {record.uniqueApps === 1 ? 'app' : 'apps'}
-                          </span>
-                          <span>
-                            · {record.entries.length}{' '}
-                            {record.entries.length === 1 ? 'entry' : 'entries'}
+                            · {tPlural('settings.activity.entryCount', record.entries.length)}
                           </span>
                           {snapshotCount > 0 ? (
                             <span>
-                              · {snapshotCount} {snapshotCount === 1 ? 'snapshot' : 'snapshots'}
-                              {ocrSnapshotCount > 0 ? ` / ${ocrSnapshotCount} OCR` : ''}
+                              · {tPlural('settings.activity.snapshotCount', snapshotCount)}
+                              {ocrSnapshotCount > 0
+                                ? ` / ${t('settings.activity.ocrCount', { count: ocrSnapshotCount })}`
+                                : ''}
                             </span>
                           ) : null}
                           {record.afkDurationMs ? (
-                            <span>· AFK {formatDuration(record.afkDurationMs)}</span>
+                            <span>
+                              ·{' '}
+                              {t('settings.activity.afkDuration', {
+                                duration: formatDuration(record.afkDurationMs, t)
+                              })}
+                            </span>
                           ) : null}
                           <span>
-                            · created{' '}
+                            · {t('settings.activity.createdPrefix')}{' '}
                             <time dateTime={record.createdAt}>
                               {formatTimestamp(record.createdAt)}
                             </time>
@@ -499,13 +503,13 @@ export function ActivityPane({ draft, onChange }: ActivityPaneProps): React.JSX.
               startIndex={activityStartIndex}
               endIndex={activityEndIndex}
               totalCount={activityTotalCount}
-              itemLabel={activityTotalCount === 1 ? 'record' : 'records'}
+              itemLabel={tPlural('settings.activity.recordUnit', activityTotalCount)}
               onPageChange={setActivityPage}
             />
           </>
         ) : (
           <div className="px-7 py-4 text-sm" style={{ color: theme.text.muted }}>
-            No activity records yet.
+            {t('settings.activity.noRecords')}
           </div>
         )}
 

@@ -1,6 +1,8 @@
 import type React from 'react'
 import { useCallback, useState } from 'react'
 import { GitCompareArrows, History, RotateCcw } from 'lucide-react'
+import { formatDate, tPlural } from '@yachiyo/i18n/index'
+import { useT } from '@yachiyo/i18n/react'
 import { useAppStore } from '@renderer/app/store/useAppStore'
 import type { RunRecord } from '@renderer/app/types'
 import { alpha, theme } from '@renderer/theme/theme'
@@ -31,16 +33,7 @@ function formatTimestamp(iso: string): string {
     d.getMonth() === now.getMonth() &&
     d.getDate() === now.getDate()
 
-  if (isToday) {
-    return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-  }
-
-  return d.toLocaleDateString([], {
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit'
-  })
+  return formatDate(d, isToday ? 'time' : 'dateTime')
 }
 
 function runStatusColor(status: RunRecord['status']): string {
@@ -49,11 +42,11 @@ function runStatusColor(status: RunRecord['status']): string {
   return theme.text.success
 }
 
-function runStatusLabel(status: RunRecord['status']): string {
-  if (status === 'running') return 'Running'
-  if (status === 'completed') return 'Completed'
-  if (status === 'failed') return 'Failed'
-  if (status === 'cancelled') return 'Cancelled'
+function runStatusLabel(t: ReturnType<typeof useT>, status: RunRecord['status']): string {
+  if (status === 'running') return t('runs.status.running')
+  if (status === 'completed') return t('runs.status.completed')
+  if (status === 'failed') return t('runs.status.failed')
+  if (status === 'cancelled') return t('runs.status.cancelled')
   return status
 }
 
@@ -74,6 +67,7 @@ function RunHistoryItem({
   onViewSnapshot,
   onRestoreCheckpoint
 }: RunHistoryItemProps): React.JSX.Element {
+  const t = useT()
   const hasSnapshot = (run.snapshotFileCount ?? 0) > 0
 
   return (
@@ -91,7 +85,7 @@ function RunHistoryItem({
           }}
         />
         <span className="text-[11px] font-medium" style={{ color: theme.text.secondary }}>
-          {runStatusLabel(run.status)}
+          {runStatusLabel(t, run.status)}
         </span>
         {run.completedAt ? (
           <span className="text-[11px]" style={{ color: theme.text.placeholder }}>
@@ -103,7 +97,7 @@ function RunHistoryItem({
             className="text-[9px] font-medium uppercase px-1 py-px rounded ml-auto"
             style={{ background: alpha('accent', 0.1), color: theme.text.accent }}
           >
-            latest
+            {t('runs.latest')}
           </span>
         ) : null}
       </div>
@@ -161,7 +155,7 @@ function RunHistoryItem({
               }}
             >
               <GitCompareArrows size={10} strokeWidth={1.7} />
-              {run.snapshotFileCount} file {run.snapshotFileCount === 1 ? 'change' : 'changes'}
+              {tPlural('runs.fileChanges', run.snapshotFileCount ?? 0)}
             </button>
           ) : null}
           {hasSnapshot && !isLatest ? (
@@ -183,7 +177,7 @@ function RunHistoryItem({
               }}
             >
               <RotateCcw size={10} strokeWidth={1.7} />
-              Restore
+              {t('runs.restore')}
             </button>
           ) : null}
         </div>
@@ -201,6 +195,7 @@ export interface RunInspectionPanelProps {
 }
 
 export function RunInspectionPanel({ threadId }: RunInspectionPanelProps): React.JSX.Element {
+  const t = useT()
   const runs = useAppStore((state) =>
     threadId ? (state.runsByThread[threadId] ?? EMPTY_RUNS) : EMPTY_RUNS
   )
@@ -268,7 +263,7 @@ export function RunInspectionPanel({ threadId }: RunInspectionPanelProps): React
           className="text-[11px] font-semibold uppercase tracking-wider"
           style={{ color: theme.text.placeholder, letterSpacing: '0.06em' }}
         >
-          Run History
+          {t('runs.runHistory')}
         </span>
         {sortedRuns.length > 0 ? (
           <span className="text-[10px] ml-auto" style={{ color: theme.text.muted }}>
@@ -284,7 +279,7 @@ export function RunInspectionPanel({ threadId }: RunInspectionPanelProps): React
             className="flex items-center justify-center px-4 py-8"
             style={{ color: theme.text.muted, fontSize: '12px' }}
           >
-            No runs yet
+            {t('runs.noRunsYet')}
           </div>
         ) : (
           runsWithSnapshots.map((run) => (
@@ -317,17 +312,17 @@ export function RunInspectionPanel({ threadId }: RunInspectionPanelProps): React
       {/* Restore confirmation dialog */}
       {confirmRestoreRunId ? (
         <ConfirmDialog
-          title="Restore to checkpoint"
-          description="This will revert all files to their state before this run and destroy all snapshots after it. This cannot be undone."
+          title={t('runs.restoreToCheckpoint')}
+          description={t('runs.restoreCheckpointDescription')}
           actions={[
             {
               key: 'cancel',
-              label: 'Cancel',
+              label: t('common.cancel'),
               tone: 'default'
             },
             {
               key: 'restore',
-              label: restoring ? 'Restoring...' : 'Restore',
+              label: restoring ? t('runs.restoring') : t('runs.restore'),
               tone: 'danger'
             }
           ]}

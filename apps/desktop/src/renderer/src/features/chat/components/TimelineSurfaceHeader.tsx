@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react'
 import { ChevronDown } from 'lucide-react'
+import { useT } from '@yachiyo/i18n/react'
 
 import type { BrowserActivitySession } from '../lib/browser-activity/browserActivity'
 import { getBrowserSessionLabel } from '../lib/browser-activity/browserSessionLabel'
@@ -60,9 +61,14 @@ export function TimelineSurfaceHeader({
   onActiveSurfaceChange,
   onBrowserSessionMenuOpenChange
 }: TimelineSurfaceHeaderProps): React.JSX.Element {
+  const t = useT()
   return (
     <div className="message-surface-header">
-      <div className="message-surface-tabs" role="tablist" aria-label="Thread surface">
+      <div
+        className="message-surface-tabs"
+        role="tablist"
+        aria-label={t('chat.browser.surfaceAria')}
+      >
         <button
           type="button"
           className="message-surface-tab"
@@ -71,7 +77,7 @@ export function TimelineSurfaceHeader({
           aria-selected={activeSurface === 'timeline'}
           onClick={() => onActiveSurfaceChange('timeline')}
         >
-          Conversation
+          {t('chat.browser.conversationTab')}
         </button>
         <button
           type="button"
@@ -81,7 +87,7 @@ export function TimelineSurfaceHeader({
           aria-selected={activeSurface === 'browser'}
           onClick={() => onActiveSurfaceChange('browser')}
         >
-          Browser
+          {t('chat.browser.browserTab')}
         </button>
       </div>
       {activeSurface === 'browser' && browserSessions.length > 1 ? (

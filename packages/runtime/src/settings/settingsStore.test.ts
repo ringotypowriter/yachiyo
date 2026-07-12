@@ -945,6 +945,7 @@ test('toToolModelSettings with default mode and no defaultModel falls back to pr
 test('normalizeSettingsConfig falls back to the default sidebar visibility', () => {
   assert.deepEqual(normalizeSettingsConfig({ providers: [] }).general, {
     sidebarVisibility: DEFAULT_SIDEBAR_VISIBILITY,
+    language: 'auto',
     demoMode: false,
     preventSystemSleep: false,
     notifyRunCompleted: true,
@@ -968,6 +969,7 @@ test('normalizeSettingsConfig falls back to the default sidebar visibility', () 
     }).general,
     {
       sidebarVisibility: DEFAULT_SIDEBAR_VISIBILITY,
+      language: 'auto',
       sidebarPreview: true,
       workSummary: true,
       demoMode: false,
@@ -987,6 +989,7 @@ test('normalizeSettingsConfig falls back to the default sidebar visibility', () 
 test('normalizeSettingsConfig normalizes theme preferences', () => {
   assert.deepEqual(normalizeSettingsConfig({ providers: [] }).general, {
     sidebarVisibility: DEFAULT_SIDEBAR_VISIBILITY,
+    language: 'auto',
     sidebarPreview: true,
     workSummary: true,
     demoMode: false,

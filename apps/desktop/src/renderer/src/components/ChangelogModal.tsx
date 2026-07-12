@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Streamdown } from 'streamdown'
+import { useT } from '@yachiyo/i18n/react'
 import { theme } from '@renderer/theme/theme'
 import { AppDialog } from './AppDialog'
 
@@ -9,13 +10,14 @@ interface ChangelogModalProps {
 }
 
 export function ChangelogModal({ version, onClose }: ChangelogModalProps): React.JSX.Element {
+  const t = useT()
   const [notes, setNotes] = useState<string | null>(null)
   const [error, setError] = useState(false)
 
   useEffect(() => {
     window.api.appUpdate
       .getReleaseNotes(version)
-      .then((body) => setNotes(body || 'No release notes available.'))
+      .then((body) => setNotes(body ?? ''))
       .catch(() => setError(true))
   }, [version])
 
@@ -23,23 +25,27 @@ export function ChangelogModal({ version, onClose }: ChangelogModalProps): React
 
   return (
     <AppDialog
-      title={`What's new in v${version}`}
+      title={t('shell.whatsNew', { version })}
       showCloseButton
       width={480}
       maxHeight="min(560px, 80vh)"
       bodyPadding="16px 20px"
-      actions={[{ key: 'close', label: 'Close', autoFocus: true }]}
+      actions={[{ key: 'close', label: t('common.close'), autoFocus: true }]}
       actionsLayout="horizontal"
       onAction={handleAction}
       onClose={onClose}
     >
       {error ? (
         <p className="text-xs" style={{ color: theme.text.muted }}>
-          Failed to load release notes.
+          {t('shell.releaseNotesFailed')}
         </p>
       ) : notes === null ? (
         <p className="text-xs" style={{ color: theme.text.muted }}>
-          Loading...
+          {t('common.loading')}
+        </p>
+      ) : notes === '' ? (
+        <p className="text-xs" style={{ color: theme.text.muted }}>
+          {t('shell.noReleaseNotes')}
         </p>
       ) : (
         <div

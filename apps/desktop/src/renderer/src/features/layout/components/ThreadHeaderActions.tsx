@@ -1,5 +1,6 @@
 import { Ellipsis } from 'lucide-react'
 import { useState } from 'react'
+import { useT } from '@yachiyo/i18n/react'
 import type { Thread } from '@renderer/app/types'
 import { ThreadContextMenuPopup } from '@renderer/features/threads/components/ThreadContextMenuPopup'
 import {
@@ -30,6 +31,7 @@ export function ThreadHeaderActions({
   isStarred,
   onSelectOperation
 }: ThreadHeaderActionsProps): React.JSX.Element {
+  const t = useT()
   const [menuPosition, setMenuPosition] = useState<{ left: number; top: number } | null>(null)
 
   // Synced archives reject every metadata mutation, so there is nothing to offer.
@@ -59,8 +61,8 @@ export function ThreadHeaderActions({
         }}
         className="rounded-md p-1.5 opacity-50 transition-opacity hover:opacity-90"
         style={{ color: theme.icon.default }}
-        title="Thread options"
-        aria-label="Thread options"
+        title={t('layout.header.threadOptions')}
+        aria-label={t('layout.header.threadOptions')}
       >
         <Ellipsis size={18} strokeWidth={1.7} />
       </button>

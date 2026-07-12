@@ -8,6 +8,7 @@ import {
   Settings2,
   type LucideIcon
 } from 'lucide-react'
+import { useT } from '@yachiyo/i18n/react'
 import { useAppStore } from '@renderer/app/store/useAppStore'
 import { Tooltip } from '@renderer/components/Tooltip'
 import { SidebarUtilityMenu } from '@renderer/features/layout/components/SidebarUtilityMenu'
@@ -15,6 +16,7 @@ import {
   APP_TOP_BAR_HEIGHT,
   APP_TAB_BAR_WIDTH,
   APP_TABS,
+  appTabLabel,
   resolveAppTabBarBottomTools,
   type AppTabBarBottomToolId,
   type AppTabId
@@ -69,6 +71,7 @@ export function AppTabBar({
   onOpenSettingsRoute,
   onSelectTab
 }: AppTabBarProps): React.JSX.Element {
+  const t = useT()
   const [updateAvailable, setUpdateAvailable] = useState(false)
   const [updateVersion, setUpdateVersion] = useState<string>()
   const [utilityMenuAnchor, setUtilityMenuAnchor] = useState<DOMRect | null>(null)
@@ -119,11 +122,12 @@ export function AppTabBar({
         <nav
           className="no-drag flex flex-col items-center gap-2"
           style={{ paddingTop: 10 }}
-          aria-label="App sections"
+          aria-label={t('layout.tabBar.appSections')}
         >
           {APP_TABS.map((tab) => {
             const Icon = TAB_ICONS[tab.id]
             const active = activeTab === tab.id
+            const label = appTabLabel(tab.id)
             const archivedBadge =
               tab.id === 'archived' ? (unreadArchivedCount > 0 ? unreadArchivedCount : null) : null
 
@@ -131,7 +135,7 @@ export function AppTabBar({
               <button
                 key={tab.id}
                 type="button"
-                aria-label={tab.label}
+                aria-label={label}
                 aria-pressed={active}
                 onClick={() => {
                   setUtilityMenuAnchor(null)
@@ -157,7 +161,7 @@ export function AppTabBar({
                     whiteSpace: 'nowrap'
                   }}
                 >
-                  {tab.label}
+                  {label}
                 </span>
                 {archivedBadge !== null && (
                   <span
@@ -187,7 +191,11 @@ export function AppTabBar({
             tool === 'update' ? (
               <Tooltip
                 key={tool}
-                content={updateVersion ? `v${updateVersion} available` : 'Update available'}
+                content={
+                  updateVersion
+                    ? t('layout.tabBar.versionAvailable', { version: updateVersion })
+                    : t('layout.tabBar.updateAvailable')
+                }
                 placement="top"
               >
                 <button
@@ -204,10 +212,10 @@ export function AppTabBar({
                     color: theme.text.counter,
                     background: alpha('counter', 0.12)
                   }}
-                  aria-label="Install update"
+                  aria-label={t('layout.tabBar.installUpdate')}
                 >
                   <ArrowDownCircle size={14} strokeWidth={2} />
-                  <span>Update</span>
+                  <span>{t('layout.tabBar.update')}</span>
                 </button>
               </Tooltip>
             ) : (
@@ -230,7 +238,7 @@ export function AppTabBar({
                   background: utilityMenuAnchor ? theme.background.hoverStrong : 'transparent',
                   opacity: utilityMenuAnchor ? 0.9 : 0.55
                 }}
-                aria-label="More options"
+                aria-label={t('layout.tabBar.moreOptions')}
                 aria-pressed={utilityMenuAnchor !== null}
               >
                 <MoreHorizontal size={17} strokeWidth={1.6} />
@@ -243,7 +251,7 @@ export function AppTabBar({
                     whiteSpace: 'nowrap'
                   }}
                 >
-                  More
+                  {t('layout.tabBar.more')}
                 </span>
               </button>
             )

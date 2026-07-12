@@ -4,24 +4,17 @@ import { Streamdown, defaultRemarkPlugins } from 'streamdown'
 import { code } from '@streamdown/code'
 import { theme, alpha } from '@renderer/theme/theme'
 import { useAuxiliaryThemeConfig } from '@renderer/theme/useThemeConfig'
+import { useAuxiliaryLanguageConfig } from '@renderer/i18n/useI18nConfig'
+import { formatDate } from '@yachiyo/i18n/index'
+import { useT } from '@yachiyo/i18n/react'
 import type { JotdownFull, JotdownMeta } from '@yachiyo/shared/protocol'
 
 type SaveStatus = 'idle' | 'saving' | 'saved'
 
-function formatDate(iso: string): string {
-  const d = new Date(iso)
-  if (isNaN(d.getTime())) return iso
-  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
-}
-
-function formatTime(iso: string): string {
-  const d = new Date(iso)
-  if (isNaN(d.getTime())) return ''
-  return d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
-}
-
 export default function JotdownApp(): React.JSX.Element {
   useAuxiliaryThemeConfig()
+  useAuxiliaryLanguageConfig()
+  const t = useT()
   const [notes, setNotes] = useState<JotdownMeta[]>([])
   const [activeNote, setActiveNote] = useState<JotdownFull | null>(null)
   const [content, setContent] = useState('')
@@ -208,14 +201,14 @@ export default function JotdownApp(): React.JSX.Element {
       {/* Title bar */}
       <div className="drag-region flex items-center shrink-0 px-3" style={{ height: 38 }}>
         <span className="no-drag text-[13px] font-medium" style={{ color: theme.text.secondary }}>
-          Jot Down
+          {t('jotdown.title')}
         </span>
         <div className="flex-1" />
         <button
           className="no-drag p-1 rounded-md opacity-50 hover:opacity-80 transition-opacity mr-0.5"
           style={{ color: theme.icon.default }}
           onClick={handleCreate}
-          aria-label="New note"
+          aria-label={t('jotdown.newNote')}
         >
           <Plus size={14} strokeWidth={1.5} />
         </button>
@@ -227,7 +220,7 @@ export default function JotdownApp(): React.JSX.Element {
               opacity: showList ? 0.9 : 0.5
             }}
             onClick={() => setShowList(!showList)}
-            aria-label="Note list"
+            aria-label={t('jotdown.noteList')}
             aria-expanded={showList}
             aria-controls="jotdown-list"
           >
@@ -238,7 +231,7 @@ export default function JotdownApp(): React.JSX.Element {
           className="no-drag p-1 rounded-md opacity-50 hover:opacity-80 transition-opacity mr-0.5"
           style={{ color: mode === 'preview' ? theme.text.accent : theme.icon.default }}
           onClick={() => setMode(mode === 'edit' ? 'preview' : 'edit')}
-          aria-label={mode === 'edit' ? 'Preview' : 'Edit'}
+          aria-label={mode === 'edit' ? t('jotdown.preview') : t('common.edit')}
         >
           {mode === 'edit' ? (
             <Eye size={13} strokeWidth={1.5} />
@@ -250,7 +243,7 @@ export default function JotdownApp(): React.JSX.Element {
           className="no-drag p-1 rounded-md opacity-50 hover:opacity-80 transition-opacity"
           style={{ color: theme.icon.default }}
           onClick={() => window.api.hideJotdown()}
-          aria-label="Close"
+          aria-label={t('common.close')}
         >
           <X size={14} strokeWidth={1.5} />
         </button>
@@ -268,8 +261,8 @@ export default function JotdownApp(): React.JSX.Element {
               fontFamily: 'ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace',
               lineHeight: 1.6
             }}
-            placeholder="Start writing..."
-            aria-label="Note content"
+            placeholder={t('jotdown.editorPlaceholder')}
+            aria-label={t('jotdown.noteContent')}
             value={content}
             onChange={(e) => handleContentChange(e.target.value)}
           />
@@ -289,7 +282,7 @@ export default function JotdownApp(): React.JSX.Element {
                 </Streamdown>
               </div>
             ) : (
-              <span style={{ color: theme.text.placeholder }}>Nothing to preview...</span>
+              <span style={{ color: theme.text.placeholder }}>{t('jotdown.previewEmpty')}</span>
             )}
           </div>
         )}
@@ -300,18 +293,18 @@ export default function JotdownApp(): React.JSX.Element {
         className="shrink-0 mx-3 mb-2 flex items-center justify-between px-1 text-[11px]"
         style={{ color: theme.text.muted }}
       >
-        <span>{activeNote ? formatDate(activeNote.createdAt) : ''}</span>
+        <span>{activeNote ? formatDate(new Date(activeNote.createdAt), 'date') : ''}</span>
         <span className="flex items-center gap-1">
           {saveStatus === 'saving' && (
             <>
               <Loader2 size={10} className="animate-spin" />
-              Saving...
+              {t('common.saving')}
             </>
           )}
           {saveStatus === 'saved' && (
             <>
               <Check size={10} />
-              Saved
+              {t('common.saved')}
             </>
           )}
         </span>
@@ -323,7 +316,7 @@ export default function JotdownApp(): React.JSX.Element {
           ref={listRef}
           id="jotdown-list"
           role="dialog"
-          aria-label="Notes"
+          aria-label={t('jotdown.notes')}
           tabIndex={-1}
           className="absolute inset-x-0 overflow-y-auto rounded-b-lg outline-none"
           style={{
@@ -342,7 +335,7 @@ export default function JotdownApp(): React.JSX.Element {
         >
           <div className="px-3 pt-2 pb-1">
             <span className="text-[11px] font-medium" style={{ color: theme.text.muted }}>
-              Notes
+              {t('jotdown.notes')}
             </span>
           </div>
           {notes.map((note, index) => (
@@ -350,7 +343,7 @@ export default function JotdownApp(): React.JSX.Element {
               key={note.id}
               role="button"
               tabIndex={0}
-              aria-label={`Open note: ${note.title}`}
+              aria-label={t('jotdown.openNote', { title: note.title })}
               className="flex items-center px-3 py-2 text-[12px] transition-colors group"
               style={{
                 borderBottom:
@@ -387,10 +380,10 @@ export default function JotdownApp(): React.JSX.Element {
                     className="text-[10px] px-1 rounded"
                     style={{ background: alpha('ink', 0.06), color: theme.text.muted }}
                   >
-                    {formatTime(note.createdAt)}
+                    {formatDate(new Date(note.createdAt), 'time')}
                   </span>
                   <span className="text-[10px]" style={{ color: theme.text.muted }}>
-                    {formatDate(note.createdAt)}
+                    {formatDate(new Date(note.createdAt), 'date')}
                   </span>
                 </div>
                 <div
@@ -412,7 +405,7 @@ export default function JotdownApp(): React.JSX.Element {
                 onKeyDown={(e) => {
                   e.stopPropagation()
                 }}
-                aria-label="Delete note"
+                aria-label={t('jotdown.deleteNote')}
               >
                 <Trash2 size={12} strokeWidth={1.5} />
               </button>

@@ -6,6 +6,7 @@ import {
   APP_TRAFFIC_LIGHT_SAFE_WIDTH,
   APP_TABS,
   appTabForThreadListMode,
+  appTabLabel,
   resolveAppTabBarBottomTools,
   resolveAppTabFrameSidebarDividerOffset,
   resolveAppTabFrameTopChromeColumn,
@@ -24,7 +25,7 @@ test('app tabs expose Work, Things, Archived, and Settings in order', () => {
     ['chat', 'things', 'archived', 'settings'] satisfies AppTabId[]
   )
   assert.deepEqual(
-    APP_TABS.map((tab) => tab.label),
+    APP_TABS.map((tab) => appTabLabel(tab.id)),
     ['Work', 'Things', 'Archived', 'Settings']
   )
 })

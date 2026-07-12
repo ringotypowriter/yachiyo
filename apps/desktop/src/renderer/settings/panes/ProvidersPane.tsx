@@ -20,6 +20,7 @@ import {
   toolModelTargetsProvider
 } from '@yachiyo/shared/providerConfig'
 import { matchProviderPreset } from '@yachiyo/shared/providerPresets'
+import { useT } from '@yachiyo/i18n/react'
 import { Field, PlaceholderPane, SettingSwitch, SimpleSelect } from '../components/primitives'
 import { inputStyle } from '../components/styles'
 import { ModelListSection } from './ProviderModelListSection'
@@ -109,6 +110,7 @@ function ApiKeyField({
   placeholder: string
   onChange: (value: string) => void
 }): React.ReactNode {
+  const t = useT()
   const [show, setShow] = useState(false)
   const [copied, setCopied] = useState(false)
 
@@ -137,8 +139,10 @@ function ApiKeyField({
           type="button"
           onClick={() => setShow((current) => !current)}
           className="flex items-center justify-center rounded-md p-1 transition-opacity opacity-60 hover:opacity-100"
-          title={show ? 'Hide key' : 'Show key'}
-          aria-label={show ? 'Hide API key' : 'Show API key'}
+          title={show ? t('settings.providers.hideKey') : t('settings.providers.showKey')}
+          aria-label={
+            show ? t('settings.providers.hideApiKey') : t('settings.providers.showApiKey')
+          }
         >
           {show ? <EyeOff size={14} strokeWidth={2} /> : <Eye size={14} strokeWidth={2} />}
         </button>
@@ -147,8 +151,8 @@ function ApiKeyField({
           onClick={copy}
           disabled={!value}
           className="flex items-center justify-center rounded-md p-1 transition-opacity opacity-60 hover:opacity-100 disabled:opacity-25"
-          title={copied ? 'Copied' : 'Copy key'}
-          aria-label="Copy API key"
+          title={copied ? t('common.copied') : t('settings.providers.copyKey')}
+          aria-label={t('settings.providers.copyApiKey')}
         >
           {copied ? <Check size={14} strokeWidth={2} /> : <Copy size={14} strokeWidth={2} />}
         </button>
@@ -163,6 +167,7 @@ export function ProvidersPane({
   onSelectProvider,
   onChange
 }: ProvidersPaneProps): React.ReactNode {
+  const t = useT()
   const selectedProvider =
     draft.providers.find((provider) => provider.id === selectedProviderId) ?? null
 
@@ -179,11 +184,11 @@ export function ProvidersPane({
   const handleDuplicateProvider = (): void => {
     if (!selectedProvider) return
     const existingNames = draft.providers.map((p) => p.name)
-    let candidate = `${selectedProvider.name} copy`
+    let candidate = t('settings.providers.copyName', { name: selectedProvider.name })
     let index = 1
     while (existingNames.includes(candidate)) {
       index += 1
-      candidate = `${selectedProvider.name} copy ${index}`
+      candidate = t('settings.providers.copyNameNumbered', { name: selectedProvider.name, index })
     }
     const duplicated: ProviderConfig = {
       ...selectedProvider,
@@ -286,7 +291,10 @@ export function ProvidersPane({
                       opacity: 0.7
                     }}
                   >
-                    {provider.type} · {provider.modelList.enabled.length} enabled
+                    {provider.type} ·{' '}
+                    {t('settings.providers.enabledCount', {
+                      count: provider.modelList.enabled.length
+                    })}
                   </div>
                 </div>
               </button>
@@ -305,7 +313,7 @@ export function ProvidersPane({
             style={{ color: theme.text.accent }}
           >
             <Plus size={12} strokeWidth={2} />
-            Add custom provider
+            {t('settings.providers.addCustomProvider')}
           </button>
         </div>
       </div>
@@ -330,7 +338,7 @@ export function ProvidersPane({
                   style={{ color: theme.text.secondary }}
                 >
                   <Copy size={12} strokeWidth={1.8} />
-                  Duplicate
+                  {t('settings.providers.duplicate')}
                 </button>
                 {!isLastOfItsPreset && (
                   <button
@@ -340,14 +348,14 @@ export function ProvidersPane({
                     style={{ color: theme.text.danger }}
                   >
                     <Trash2 size={12} strokeWidth={1.8} />
-                    Remove
+                    {t('common.remove')}
                   </button>
                 )}
               </div>
             </div>
 
             <div className="grid grid-cols-2 gap-5">
-              <Field label="Name">
+              <Field label={t('settings.providers.nameLabel')}>
                 <input
                   value={selectedProvider.name}
                   onChange={(e) =>
@@ -362,7 +370,7 @@ export function ProvidersPane({
                 />
               </Field>
 
-              <Field label="Type">
+              <Field label={t('settings.providers.typeLabel')}>
                 <SimpleSelect<ProviderKind>
                   value={selectedProvider.type}
                   width="100%"
@@ -381,7 +389,7 @@ export function ProvidersPane({
 
               {selectedProvider.type === 'vertex' ? (
                 <>
-                  <Field label="Project ID">
+                  <Field label={t('settings.providers.projectIdLabel')}>
                     <input
                       value={selectedProvider.project ?? ''}
                       onChange={(e) =>
@@ -396,7 +404,7 @@ export function ProvidersPane({
                     />
                   </Field>
 
-                  <Field label="Location">
+                  <Field label={t('settings.providers.locationLabel')}>
                     <input
                       value={selectedProvider.location ?? ''}
                       onChange={(e) =>
@@ -412,7 +420,7 @@ export function ProvidersPane({
                   </Field>
 
                   <div className="col-span-2">
-                    <Field label="Service Account Email">
+                    <Field label={t('settings.providers.serviceAccountEmailLabel')}>
                       <input
                         value={selectedProvider.serviceAccountEmail ?? ''}
                         onChange={(e) =>
@@ -423,13 +431,13 @@ export function ProvidersPane({
                         }
                         className="w-full rounded-xl px-3 py-2.5 text-sm outline-none"
                         style={inputStyle()}
-                        placeholder="sa@my-project.iam.gserviceaccount.com (optional — uses ADC if empty)"
+                        placeholder={t('settings.providers.serviceAccountEmailPlaceholder')}
                       />
                     </Field>
                   </div>
 
                   <div className="col-span-2">
-                    <Field label="Service Account Private Key">
+                    <Field label={t('settings.providers.serviceAccountPrivateKeyLabel')}>
                       <textarea
                         value={selectedProvider.serviceAccountPrivateKey ?? ''}
                         onChange={(e) => {
@@ -444,7 +452,7 @@ export function ProvidersPane({
                         rows={4}
                         className="w-full rounded-xl px-3 py-2.5 text-sm outline-none font-mono"
                         style={inputStyle()}
-                        placeholder="-----BEGIN PRIVATE KEY-----&#10;(optional — uses ADC if empty)"
+                        placeholder={t('settings.providers.serviceAccountPrivateKeyPlaceholder')}
                       />
                     </Field>
                   </div>
@@ -452,7 +460,7 @@ export function ProvidersPane({
               ) : selectedProvider.type === 'openai-codex' ? (
                 <>
                   <div className="col-span-2">
-                    <Field label="Codex Session Path">
+                    <Field label={t('settings.providers.codexSessionPathLabel')}>
                       <div className="flex gap-2">
                         <input
                           value={selectedProvider.codexSessionPath ?? ''}
@@ -480,10 +488,10 @@ export function ProvidersPane({
                           }}
                           className="flex items-center gap-1.5 shrink-0 rounded-xl px-3 py-2.5 text-sm font-medium transition-opacity opacity-60 hover:opacity-100"
                           style={{ background: alpha('ink', 0.04), color: theme.text.accent }}
-                          title="Select auth.json"
+                          title={t('settings.providers.selectAuthFileTitle')}
                         >
                           <File size={14} strokeWidth={2} />
-                          Select file
+                          {t('settings.providers.selectFile')}
                         </button>
                       </div>
                     </Field>
@@ -492,7 +500,7 @@ export function ProvidersPane({
               ) : (
                 <>
                   <div className="col-span-2">
-                    <Field label="API Key">
+                    <Field label={t('settings.providers.apiKeyLabel')}>
                       <ApiKeyField
                         key={selectedProvider.id ?? ''}
                         value={selectedProvider.apiKey}
@@ -516,7 +524,7 @@ export function ProvidersPane({
                   </div>
 
                   <div className="col-span-2">
-                    <Field label="Base URL">
+                    <Field label={t('settings.providers.baseUrlLabel')}>
                       <input
                         value={selectedProvider.baseUrl}
                         onChange={(e) =>
@@ -544,7 +552,7 @@ export function ProvidersPane({
 
               <div className="col-span-2 flex items-center justify-between">
                 <span className="text-sm font-medium" style={{ color: theme.text.primary }}>
-                  Thinking when applicable
+                  {t('settings.providers.thinkingWhenApplicable')}
                 </span>
                 <SettingSwitch
                   checked={selectedProvider.thinkingEnabled !== false}
@@ -554,7 +562,7 @@ export function ProvidersPane({
                       thinkingEnabled: provider.thinkingEnabled === false
                     }))
                   }
-                  ariaLabel="Thinking when applicable"
+                  ariaLabel={t('settings.providers.thinkingWhenApplicable')}
                 />
               </div>
             </div>
@@ -562,7 +570,7 @@ export function ProvidersPane({
             <ModelListSection provider={selectedProvider} onProviderChange={handleProviderChange} />
           </div>
         ) : (
-          <PlaceholderPane label="Add your first provider to get started." />
+          <PlaceholderPane label={t('settings.providers.addFirstProvider')} />
         )}
       </div>
     </div>

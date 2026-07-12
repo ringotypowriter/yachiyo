@@ -1,6 +1,7 @@
 import type React from 'react'
 import { useEffect, useState } from 'react'
 import { Check } from 'lucide-react'
+import { useT } from '@yachiyo/i18n/react'
 import type { SkillCatalogEntry } from '@renderer/app/types'
 import { theme } from '@renderer/theme/theme'
 import { isDismissEscapeKey } from '@renderer/lib/imeUtils'
@@ -9,9 +10,12 @@ import { SettingsShortcutButton } from './SettingsShortcutButton'
 
 const SKILL_LIST_MAX_HEIGHT = 320
 
-function formatSkillDescription(description?: string): string {
+function formatSkillDescription(
+  description: string | undefined,
+  t: ReturnType<typeof useT>
+): string {
   const normalized = description?.replace(/\s+/g, ' ').trim()
-  return normalized && normalized.length > 0 ? normalized : 'No summary available.'
+  return normalized && normalized.length > 0 ? normalized : t('chat.skillsPicker.noSummary')
 }
 
 export function SkillsSelectorPopup({
@@ -29,6 +33,7 @@ export function SkillsSelectorPopup({
   onToggle: (skillName: string) => void
   onClose: () => void
 }): React.ReactNode {
+  const t = useT()
   const [visible, setVisible] = useState(false)
   const enabledSkillSet = new Set(effectiveEnabledSkillNames)
   useRestoreFocusOnUnmount()
@@ -51,7 +56,7 @@ export function SkillsSelectorPopup({
   return (
     <div
       role="menu"
-      aria-label="Skill selection"
+      aria-label={t('chat.skillsPicker.ariaLabel')}
       style={{
         position: 'absolute',
         bottom: 'calc(100% + 8px)',
@@ -89,10 +94,10 @@ export function SkillsSelectorPopup({
               letterSpacing: '-0.1px'
             }}
           >
-            Skills
+            {t('chat.skillsPicker.title')}
           </div>
           <SettingsShortcutButton
-            label="Open skill settings"
+            label={t('chat.skillsPicker.openSkillSettings')}
             route="capabilities/skills"
             onClose={onClose}
           />
@@ -105,7 +110,7 @@ export function SkillsSelectorPopup({
             lineHeight: 1.45
           }}
         >
-          Composer choices override Settings for the next send.
+          {t('chat.skillsPicker.overrideNote')}
         </div>
       </div>
 
@@ -133,7 +138,7 @@ export function SkillsSelectorPopup({
         >
           <span>
             <span style={{ display: 'block', fontSize: 12, fontWeight: 600 }}>
-              Use Settings defaults
+              {t('chat.skillsPicker.useSettingsDefaults')}
             </span>
             <span
               style={{
@@ -144,7 +149,9 @@ export function SkillsSelectorPopup({
                 lineHeight: 1.4
               }}
             >
-              {hasCustomOverride ? 'Reset this composer override.' : 'Currently active.'}
+              {hasCustomOverride
+                ? t('chat.skillsPicker.resetOverride')
+                : t('chat.skillsPicker.currentlyActive')}
             </span>
           </span>
           <span
@@ -156,7 +163,7 @@ export function SkillsSelectorPopup({
               letterSpacing: '0.06em'
             }}
           >
-            {hasCustomOverride ? 'Reset' : 'Using'}
+            {hasCustomOverride ? t('chat.skillsPicker.reset') : t('chat.skillsPicker.using')}
           </span>
         </button>
       </div>
@@ -171,7 +178,7 @@ export function SkillsSelectorPopup({
       >
         {availableSkills.length === 0 ? (
           <div style={{ padding: '10px 14px', fontSize: 12, color: theme.text.muted }}>
-            No Skills are available in this workspace right now.
+            {t('chat.skillsPicker.noSkillsAvailable')}
           </div>
         ) : (
           availableSkills.map((skill) => {
@@ -246,7 +253,7 @@ export function SkillsSelectorPopup({
                       overflow: 'hidden'
                     }}
                   >
-                    {formatSkillDescription(skill.description)}
+                    {formatSkillDescription(skill.description, t)}
                   </span>
                 </span>
 
@@ -260,7 +267,7 @@ export function SkillsSelectorPopup({
                     letterSpacing: '0.06em'
                   }}
                 >
-                  {enabled ? 'On' : 'Off'}
+                  {enabled ? t('common.on') : t('common.off')}
                 </span>
               </button>
             )

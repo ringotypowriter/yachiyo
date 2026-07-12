@@ -1,11 +1,13 @@
 import type React from 'react'
 import { useEffect, useState } from 'react'
 import { Check, Map, MessageSquare, Telescope, Wrench, Zap } from 'lucide-react'
+import { useT } from '@yachiyo/i18n/react'
 import { theme } from '@renderer/theme/theme'
 import { isDismissEscapeKey } from '@renderer/lib/imeUtils'
 import { useRestoreFocusOnUnmount } from '@renderer/lib/focusRestore'
 import type { RunModeId, SelectableRunModeId } from '@yachiyo/shared/protocol'
 import { RUN_MODE_DEFINITIONS, SELECTABLE_RUN_MODE_IDS } from '@yachiyo/shared/toolModes'
+import { getRunModeCopy } from '../lib/composer/runModeCopy'
 
 const MODE_LIST_MAX_HEIGHT = 320
 
@@ -34,6 +36,7 @@ export function ToolSelectorPopup({
   onSelectMode: (runMode: SelectableRunModeId) => void
   onClose: () => void
 }): React.ReactNode {
+  const t = useT()
   const [visible, setVisible] = useState(false)
   useRestoreFocusOnUnmount()
 
@@ -55,7 +58,7 @@ export function ToolSelectorPopup({
   return (
     <div
       role="menu"
-      aria-label="Run mode"
+      aria-label={t('chat.modePicker.ariaLabel')}
       style={{
         position: 'absolute',
         bottom: 'calc(100% + 8px)',
@@ -90,7 +93,7 @@ export function ToolSelectorPopup({
             letterSpacing: '-0.1px'
           }}
         >
-          Mode
+          {t('chat.modePicker.title')}
         </div>
       </div>
 
@@ -105,6 +108,7 @@ export function ToolSelectorPopup({
         {SELECTABLE_RUN_MODE_IDS.map((modeId) => {
           const selected = runMode === modeId
           const mode = RUN_MODE_DEFINITIONS[modeId]
+          const copy = getRunModeCopy(modeId)
           const ModeIcon = getModeIcon(mode.iconName)
 
           return (
@@ -153,7 +157,7 @@ export function ToolSelectorPopup({
                     letterSpacing: '-0.05px'
                   }}
                 >
-                  {mode.label}
+                  {copy.label}
                 </span>
                 <span
                   style={{
@@ -164,7 +168,7 @@ export function ToolSelectorPopup({
                     lineHeight: 1.4
                   }}
                 >
-                  {mode.description}
+                  {copy.description}
                 </span>
               </span>
 
@@ -190,9 +194,7 @@ export function ToolSelectorPopup({
           lineHeight: 1.45
         }}
       >
-        {hasActiveRun
-          ? 'The current run keeps its existing mode. Your change applies to the next send.'
-          : 'Your next send uses this mode.'}
+        {hasActiveRun ? t('chat.modePicker.activeRunNote') : t('chat.modePicker.nextSendNote')}
       </div>
     </div>
   )

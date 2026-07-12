@@ -2,6 +2,7 @@ import type React from 'react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Search, X } from 'lucide-react'
 import type { ThreadSearchResult } from '@yachiyo/shared/protocol'
+import { useT } from '@yachiyo/i18n/react'
 import { theme } from '@renderer/theme/theme'
 import { isDismissEscapeKey } from '@renderer/lib/imeUtils'
 import { useRestoreFocusOnUnmount } from '@renderer/lib/focusRestore'
@@ -88,6 +89,7 @@ export function SidebarSearch({
   onSelectThread,
   onSelectMessage
 }: SidebarSearchProps): React.JSX.Element {
+  const t = useT()
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<ThreadSearchResult[]>([])
   const [loading, setLoading] = useState(false)
@@ -198,7 +200,9 @@ export function SidebarSearch({
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={handleInputKeyDown}
-          placeholder={scope === 'archived' ? 'Search archived chats…' : 'Search chats…'}
+          placeholder={
+            scope === 'archived' ? t('search.placeholderArchived') : t('search.placeholder')
+          }
           className="flex-1 bg-transparent text-sm outline-none min-w-0"
           style={{
             color: theme.text.primary,
@@ -209,8 +213,8 @@ export function SidebarSearch({
           onClick={onClose}
           className="p-1 rounded opacity-40 hover:opacity-70 transition-opacity shrink-0"
           style={{ color: theme.icon.default }}
-          title="Close search"
-          aria-label="Close search"
+          title={t('search.closeSearch')}
+          aria-label={t('search.closeSearch')}
         >
           <X size={13} strokeWidth={1.5} />
         </button>
@@ -219,13 +223,13 @@ export function SidebarSearch({
       <div className="flex-1 overflow-y-auto">
         {loading && (
           <p className="px-4 py-3 text-xs" style={{ color: theme.text.muted }}>
-            Searching…
+            {t('search.searching')}
           </p>
         )}
 
         {!loading && query.trim() && results.length === 0 && (
           <p className="px-4 py-3 text-xs" style={{ color: theme.text.muted }}>
-            {scope === 'archived' ? 'No archived results' : 'No results'}
+            {scope === 'archived' ? t('search.noArchivedResults') : t('search.noResults')}
           </p>
         )}
 

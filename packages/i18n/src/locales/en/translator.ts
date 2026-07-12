@@ -1,0 +1,30 @@
+export const translator = {
+  title: 'Translator',
+  history: 'History',
+  toolModelUnavailable: 'Tool model is not configured. Go to Settings > Chat to enable it.',
+  sourcePlaceholder: 'Enter text to translate...',
+  outputPlaceholder: 'Translation will appear here...',
+  copyTranslation: 'Copy translation',
+  translate: 'Translate',
+  translating: 'Translating...',
+  targetLanguagePlaceholder: 'Target language...',
+  unavailableResult: '[Unavailable] {reason}',
+  errorResult: '[Error] {message}',
+  languages: {
+    english: 'English',
+    chineseSimplified: 'Chinese (Simplified)',
+    chineseTraditional: 'Chinese (Traditional)',
+    japanese: 'Japanese',
+    korean: 'Korean',
+    spanish: 'Spanish',
+    french: 'French',
+    german: 'German',
+    russian: 'Russian',
+    portuguese: 'Portuguese',
+    italian: 'Italian',
+    arabic: 'Arabic',
+    thai: 'Thai',
+    vietnamese: 'Vietnamese',
+    indonesian: 'Indonesian'
+  }
+} as const

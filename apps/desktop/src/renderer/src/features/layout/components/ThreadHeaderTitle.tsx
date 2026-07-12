@@ -1,5 +1,6 @@
 import { FolderOpen, SquarePen, SquareTerminal } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
+import { useT } from '@yachiyo/i18n/react'
 import type { Thread } from '@renderer/app/types'
 import { theme } from '@renderer/theme/theme'
 
@@ -22,14 +23,15 @@ export function ThreadHeaderTitle({
   onOpenInEditor,
   onOpenInTerminal
 }: ThreadHeaderTitleProps): React.JSX.Element {
+  const t = useT()
   const workspaceButtons = activeThread ? (
     <motion.div layout className="flex items-center gap-0.5 shrink-0">
       <button
         onClick={() => void onOpenThreadWorkspace()}
         className={workspaceButtonClass}
         style={workspaceButtonStyle}
-        title="Open workspace in Finder"
-        aria-label="Open workspace in Finder"
+        title={t('layout.header.openWorkspaceInFinder')}
+        aria-label={t('layout.header.openWorkspaceInFinder')}
       >
         <FolderOpen size={11} strokeWidth={1.7} />
       </button>
@@ -38,8 +40,8 @@ export function ThreadHeaderTitle({
           onClick={() => void onOpenInTerminal()}
           className={workspaceButtonClass}
           style={workspaceButtonStyle}
-          title="Open workspace in terminal"
-          aria-label="Open workspace in terminal"
+          title={t('layout.header.openWorkspaceInTerminal')}
+          aria-label={t('layout.header.openWorkspaceInTerminal')}
         >
           <SquareTerminal size={11} strokeWidth={1.7} />
         </button>
@@ -49,8 +51,8 @@ export function ThreadHeaderTitle({
           onClick={() => void onOpenInEditor()}
           className={workspaceButtonClass}
           style={workspaceButtonStyle}
-          title="Open workspace in editor"
-          aria-label="Open workspace in editor"
+          title={t('layout.header.openWorkspaceInEditor')}
+          aria-label={t('layout.header.openWorkspaceInEditor')}
         >
           <SquarePen size={11} strokeWidth={1.7} />
         </button>
@@ -80,7 +82,7 @@ export function ThreadHeaderTitle({
           className="text-sm font-semibold truncate"
           style={{ color: theme.text.primary, letterSpacing: '-0.2px' }}
         >
-          {activeThread?.title ?? 'Start a conversation'}
+          {activeThread?.title ?? t('layout.header.startConversation')}
         </motion.span>
         <AnimatePresence>{!centered && workspaceButtons}</AnimatePresence>
       </motion.div>

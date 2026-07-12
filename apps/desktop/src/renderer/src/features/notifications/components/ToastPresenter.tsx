@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { X } from 'lucide-react'
+import { useT } from '@yachiyo/i18n/react'
 import { useAppStore } from '@renderer/app/store/useAppStore'
 import type { AppToast } from '@renderer/app/store/useAppStore'
 import { theme } from '@renderer/theme/theme'
@@ -61,6 +62,7 @@ function Toast({ toast }: { toast: AppToast }): React.JSX.Element {
 }
 
 export function ToastPresenter(): React.JSX.Element | null {
+  const t = useT()
   const activeToasts = useAppStore((s) => s.activeToasts)
   const dismissToast = useAppStore((s) => s.dismissToast)
   const timersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map())
@@ -112,7 +114,7 @@ export function ToastPresenter(): React.JSX.Element | null {
     <div
       className="fixed top-4 left-1/2 -translate-x-1/2 flex flex-col gap-2 z-50 pointer-events-none items-center"
       aria-live="polite"
-      aria-label="Notifications"
+      aria-label={t('notifications.regionLabel')}
     >
       <AnimatePresence initial={false}>
         {visibleToasts.map((toast) => (

@@ -1,6 +1,8 @@
 /* eslint-disable react-refresh/only-export-components */
 import type React from 'react'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { t, tPlural } from '@yachiyo/i18n/index'
+import { useT } from '@yachiyo/i18n/react'
 import { isThingMentionToken } from '@yachiyo/shared/thingMentions'
 import {
   AlertCircle,
@@ -293,20 +295,20 @@ export function readFileAsDataUrl(file: File): Promise<string> {
 
 export function getImageStatusLabel(image: ComposerImageDraft): string {
   if (image.status === 'loading') {
-    return 'Loading'
+    return t('chat.composer.attachments.statusLoading')
   }
 
   if (image.status === 'failed') {
-    return 'Needs attention'
+    return t('chat.composer.attachments.statusFailed')
   }
 
-  return 'Ready'
+  return t('chat.composer.attachments.statusReady')
 }
 
 export function getFileStatusLabel(file: ComposerFileDraft): string {
-  if (file.status === 'loading') return 'Loading'
-  if (file.status === 'failed') return 'Needs attention'
-  return 'Ready'
+  if (file.status === 'loading') return t('chat.composer.attachments.statusLoading')
+  if (file.status === 'failed') return t('chat.composer.attachments.statusFailed')
+  return t('chat.composer.attachments.statusReady')
 }
 
 export function ComposerFilePreview({
@@ -316,12 +318,13 @@ export function ComposerFilePreview({
   file: ComposerFileDraft
   onRemove: () => void
 }): React.JSX.Element {
+  const t = useT()
   return (
     <div className="composer-file-card">
       <button
         type="button"
         className="composer-image-card__remove"
-        aria-label={`Remove ${file.filename}`}
+        aria-label={t('chat.composer.attachments.removeNamed', { name: file.filename })}
         onClick={onRemove}
       >
         <X size={12} strokeWidth={1.8} />
@@ -347,7 +350,7 @@ export function ComposerFilePreview({
 
 export function getWorkspaceLabel(workspacePath: string | null): string {
   if (!workspacePath) {
-    return 'Temp workspace'
+    return t('chat.workspacePicker.tempWorkspace')
   }
 
   return workspacePath.split('/').filter(Boolean).at(-1) ?? workspacePath
@@ -364,15 +367,15 @@ export function getWorkspaceHint(input: {
 } {
   if (input.lockReason === 'active-run') {
     return {
-      title: 'Workspace locked while running',
-      detail: 'Wait for the current run to finish before switching workspace.'
+      title: t('chat.composer.workspaceLockedRunningTitle'),
+      detail: t('chat.composer.workspaceLockedRunningDetail')
     }
   }
 
   if (input.lockReason === 'pending-plan') {
     return {
-      title: 'Workspace locked by pending plan',
-      detail: 'Accept or reject the pending plan before switching workspace.'
+      title: t('chat.composer.workspaceLockedPlanTitle'),
+      detail: t('chat.composer.workspaceLockedPlanDetail')
     }
   }
 
@@ -382,8 +385,8 @@ export function getWorkspaceHint(input: {
         detail: input.workspacePath
       }
     : {
-        title: 'Temp workspace',
-        detail: 'No specific workspace selected for this thread.'
+        title: t('chat.workspacePicker.tempWorkspace'),
+        detail: t('chat.composer.tempWorkspaceDetail')
       }
 }
 
@@ -394,12 +397,15 @@ export function ComposerImagePreview({
   image: ComposerImageDraft
   onRemove: () => void
 }): React.JSX.Element {
+  const t = useT()
   return (
     <div className="composer-image-card">
       <button
         type="button"
         className="composer-image-card__remove"
-        aria-label={`Remove ${image.filename ?? 'image'}`}
+        aria-label={t('chat.composer.attachments.removeNamed', {
+          name: image.filename ?? t('chat.composer.attachments.imageFallbackName')
+        })}
         onClick={onRemove}
       >
         <X size={12} strokeWidth={1.8} />
@@ -410,7 +416,7 @@ export function ComposerImagePreview({
           <img
             className="composer-image-card__media"
             src={image.dataUrl}
-            alt={image.filename ?? 'Selected image'}
+            alt={image.filename ?? t('chat.composer.attachments.imageAltFallback')}
           />
         ) : (
           <div className="composer-image-card__placeholder">
@@ -424,7 +430,9 @@ export function ComposerImagePreview({
       </div>
 
       <div className="composer-image-card__meta">
-        <span className="composer-image-card__name">{image.filename ?? 'Image'}</span>
+        <span className="composer-image-card__name">
+          {image.filename ?? t('chat.composer.attachments.imageLabel')}
+        </span>
         <span className="composer-image-card__status">{getImageStatusLabel(image)}</span>
       </div>
     </div>
@@ -448,6 +456,7 @@ export function StagedInputBufferBubble({
   onSendNow: () => void
   onCancel: () => void
 }): React.JSX.Element {
+  const t = useT()
   const contentRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -461,12 +470,10 @@ export function StagedInputBufferBubble({
   const secondsRemaining = Math.max(0, Math.ceil(remainingMs / 1000))
   const attachmentSummary: string[] = []
   if (staged.images.length > 0) {
-    attachmentSummary.push(`${staged.images.length} image${staged.images.length === 1 ? '' : 's'}`)
+    attachmentSummary.push(tPlural('chat.counts.images', staged.images.length))
   }
   if (staged.attachments.length > 0) {
-    attachmentSummary.push(
-      `${staged.attachments.length} file${staged.attachments.length === 1 ? '' : 's'}`
-    )
+    attachmentSummary.push(tPlural('chat.counts.files', staged.attachments.length))
   }
 
   return (
@@ -480,7 +487,7 @@ export function StagedInputBufferBubble({
       <div
         className="relative flex items-center justify-center shrink-0"
         style={{ width: STAGED_RING_SIZE_PX, height: STAGED_RING_SIZE_PX }}
-        aria-label={`Merging next message in ${secondsRemaining}s`}
+        aria-label={t('chat.composer.buffer.mergingAria', { seconds: secondsRemaining })}
       >
         <svg
           width={STAGED_RING_SIZE_PX}
@@ -524,7 +531,7 @@ export function StagedInputBufferBubble({
           className="text-[11px] font-medium uppercase tracking-wide mb-0.5"
           style={{ color: theme.text.accent }}
         >
-          Merging next message · {secondsRemaining}s
+          {t('chat.composer.buffer.merging', { seconds: secondsRemaining })}
         </div>
         {staged.content.length > 0 ? (
           <div
@@ -542,7 +549,7 @@ export function StagedInputBufferBubble({
           </div>
         ) : (
           <div className="text-sm italic" style={{ color: theme.text.muted }}>
-            (attachments only)
+            {t('chat.composer.buffer.attachmentsOnly')}
           </div>
         )}
         {attachmentSummary.length > 0 ? (
@@ -557,18 +564,18 @@ export function StagedInputBufferBubble({
           onClick={onSendNow}
           className="text-xs px-2 py-1 rounded transition-colors"
           style={{ color: theme.text.accent }}
-          aria-label="Send buffered message now"
+          aria-label={t('chat.composer.buffer.sendNowAria')}
         >
-          Send now
+          {t('chat.composer.buffer.sendNow')}
         </button>
         <button
           type="button"
           onClick={onCancel}
           className="text-xs px-2 py-1 rounded transition-colors"
           style={{ color: theme.text.muted }}
-          aria-label="Cancel buffered message"
+          aria-label={t('chat.composer.buffer.cancelAria')}
         >
-          Cancel
+          {t('common.cancel')}
         </button>
       </div>
     </div>
@@ -580,6 +587,7 @@ export function TodoProgressWidget({
 }: {
   items: TodoItemRecord[]
 }): React.JSX.Element | null {
+  const t = useT()
   const [expanded, setExpanded] = useState(false)
   const [panelOffsetX, setPanelOffsetX] = useState(0)
   const wrapperRef = useRef<HTMLDivElement>(null)
@@ -669,7 +677,7 @@ export function TodoProgressWidget({
         data-open={expanded ? 'true' : undefined}
         data-running={!allCompleted ? 'true' : undefined}
         aria-expanded={expanded}
-        aria-label="Toggle task progress details"
+        aria-label={t('chat.composer.todo.toggleAria')}
       >
         <ListChecks
           size={13}
@@ -678,10 +686,13 @@ export function TodoProgressWidget({
           color={allCompleted ? theme.icon.muted : theme.icon.accent}
         />
         <span style={{ color: allCompleted ? theme.text.secondary : theme.text.accent }}>
-          Task progress
+          {t('chat.composer.todo.taskProgress')}
         </span>
         <span style={{ color: theme.text.muted }}>
-          {progress.completed}/{progress.total} Step
+          {t('chat.composer.todo.stepCount', {
+            completed: progress.completed,
+            total: progress.total
+          })}
         </span>
         <ChevronDown
           size={12}
@@ -714,7 +725,7 @@ export function TodoProgressWidget({
           }}
         >
           <div className="text-[11px] font-medium mb-2" style={{ color: theme.text.accent }}>
-            Task progress
+            {t('chat.composer.todo.taskProgress')}
           </div>
           <div className="flex flex-col gap-1.5">
             {items.map((item) => {
@@ -782,6 +793,7 @@ export function QueuedFollowUpBufferBubble({
   onEdit: () => void
   onRemove?: () => void
 }): React.JSX.Element {
+  const t = useT()
   const contentRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -794,10 +806,10 @@ export function QueuedFollowUpBufferBubble({
   const imageCount = message.images?.length ?? 0
   const fileCount = message.attachments?.length ?? 0
   if (imageCount > 0) {
-    attachmentSummary.push(`${imageCount} image${imageCount === 1 ? '' : 's'}`)
+    attachmentSummary.push(tPlural('chat.counts.images', imageCount))
   }
   if (fileCount > 0) {
-    attachmentSummary.push(`${fileCount} file${fileCount === 1 ? '' : 's'}`)
+    attachmentSummary.push(tPlural('chat.counts.files', fileCount))
   }
 
   return (
@@ -816,7 +828,7 @@ export function QueuedFollowUpBufferBubble({
           border: `1px solid ${theme.border.accent}`,
           color: theme.text.accent
         }}
-        aria-label="Queued follow-up"
+        aria-label={t('chat.composer.buffer.queuedFollowUp')}
       >
         <Timer size={14} strokeWidth={1.8} />
       </div>
@@ -825,7 +837,7 @@ export function QueuedFollowUpBufferBubble({
           className="text-[11px] font-medium uppercase tracking-wide mb-0.5"
           style={{ color: theme.text.accent }}
         >
-          Queued follow-up
+          {t('chat.composer.buffer.queuedFollowUp')}
         </div>
         {message.content.length > 0 ? (
           <div
@@ -843,7 +855,7 @@ export function QueuedFollowUpBufferBubble({
           </div>
         ) : (
           <div className="text-sm italic" style={{ color: theme.text.muted }}>
-            (attachments only)
+            {t('chat.composer.buffer.attachmentsOnly')}
           </div>
         )}
         {attachmentSummary.length > 0 ? (
@@ -858,9 +870,9 @@ export function QueuedFollowUpBufferBubble({
           onClick={onEdit}
           className="text-xs px-2 py-1 rounded transition-colors"
           style={{ color: theme.text.accent }}
-          aria-label="Edit queued follow-up"
+          aria-label={t('chat.composer.buffer.editQueuedAria')}
         >
-          Edit
+          {t('common.edit')}
         </button>
         {onRemove ? (
           <button
@@ -868,9 +880,9 @@ export function QueuedFollowUpBufferBubble({
             onClick={onRemove}
             className="text-xs px-2 py-1 rounded transition-colors"
             style={{ color: theme.text.muted }}
-            aria-label="Remove queued follow-up"
+            aria-label={t('chat.composer.buffer.removeQueuedAria')}
           >
-            Remove
+            {t('common.remove')}
           </button>
         ) : null}
       </div>

@@ -1,5 +1,6 @@
 import React, { memo, useEffect, useMemo, useState } from 'react'
 import { CheckCircle2, FileText, GitBranchPlus, XCircle } from 'lucide-react'
+import { useT } from '@yachiyo/i18n/react'
 import { MessageMarkdown } from '@renderer/lib/markdown/MessageMarkdown'
 import { theme, alpha } from '@renderer/theme/theme'
 import type { InlineCodeFileLinkSnapshot } from '@renderer/lib/markdown/inlineCodeFileLinkSnapshot'
@@ -17,7 +18,7 @@ export interface PlanDocumentCardProps {
 }
 
 export const PlanDocumentCard = memo(function PlanDocumentCard({
-  title = 'Plan',
+  title,
   path,
   content,
   decision = 'pending',
@@ -27,17 +28,19 @@ export const PlanDocumentCard = memo(function PlanDocumentCard({
   onAcceptHandoff,
   onReject
 }: PlanDocumentCardProps): React.JSX.Element {
+  const t = useT()
   const [expanded, setExpanded] = useState(defaultExpanded)
+  const resolvedTitle = title ?? t('chat.plan.title')
 
   useEffect(() => {
     setExpanded(defaultExpanded)
   }, [defaultExpanded])
 
   const headerLabel = useMemo(() => {
-    if (decision === 'accepted') return 'Accepted'
-    if (decision === 'rejected') return 'Rejected'
-    return 'Ready'
-  }, [decision])
+    if (decision === 'accepted') return t('chat.plan.accepted')
+    if (decision === 'rejected') return t('chat.plan.rejected')
+    return t('chat.plan.ready')
+  }, [decision, t])
 
   const headerTone =
     decision === 'accepted'
@@ -76,7 +79,7 @@ export const PlanDocumentCard = memo(function PlanDocumentCard({
                 letterSpacing: '-0.05px'
               }}
             >
-              <span className="truncate">{title}</span>
+              <span className="truncate">{resolvedTitle}</span>
               <span
                 className="shrink-0"
                 style={{
@@ -120,7 +123,7 @@ export const PlanDocumentCard = memo(function PlanDocumentCard({
                   }}
                 >
                   <XCircle size={12} strokeWidth={1.8} />
-                  Reject
+                  {t('chat.plan.reject')}
                 </button>
               ) : null}
               {onAcceptDirect ? (
@@ -135,7 +138,7 @@ export const PlanDocumentCard = memo(function PlanDocumentCard({
                   }}
                 >
                   <CheckCircle2 size={12} strokeWidth={1.8} />
-                  Accept directly
+                  {t('chat.plan.acceptDirectly')}
                 </button>
               ) : null}
               {onAcceptHandoff ? (
@@ -150,7 +153,7 @@ export const PlanDocumentCard = memo(function PlanDocumentCard({
                   }}
                 >
                   <GitBranchPlus size={12} strokeWidth={1.8} />
-                  Accept with handoff
+                  {t('chat.plan.acceptWithHandoff')}
                 </button>
               ) : null}
             </div>
@@ -165,7 +168,7 @@ export const PlanDocumentCard = memo(function PlanDocumentCard({
                 border: `1px solid ${theme.border.subtle}`
               }}
             >
-              {expanded ? 'Collapse' : 'Expand'}
+              {expanded ? t('chat.collapse') : t('chat.expand')}
             </button>
           )}
         </div>

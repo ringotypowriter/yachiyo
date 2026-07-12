@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { FolderOpen, SquareArrowOutUpRight } from 'lucide-react'
 import { alpha, solid } from '@renderer/theme/theme'
 import { code as codePlugin } from '@streamdown/code'
+import { useT } from '@yachiyo/i18n/react'
 import { useAppStore } from '@renderer/app/store/useAppStore'
 import { useAppDialog } from '@renderer/components/AppDialogContext'
 import { getTimelineFileEditorApp } from '@renderer/lib/markdown/linkableCodeFileAction'
@@ -270,6 +271,7 @@ function Container({
   filePath?: string
   children: React.ReactNode
 }): React.JSX.Element {
+  const t = useT()
   const dialog = useAppDialog()
   const editorApp = useAppStore((s) => s.config?.workspace?.editorApp)
 
@@ -285,10 +287,10 @@ function Container({
       await window.api.yachiyo.openFileInEditor({ path: filePath, editorApp: app })
     } catch (error) {
       await dialog.alert({
-        title: error instanceof Error ? error.message : 'Failed to open in editor.'
+        title: error instanceof Error ? error.message : t('chat.diff.openInEditorFailed')
       })
     }
-  }, [dialog, filePath, editorApp])
+  }, [dialog, filePath, editorApp, t])
 
   const hasActions = !!filePath
 
@@ -311,13 +313,13 @@ function Container({
           className="absolute top-1 right-1 flex gap-0.5 opacity-0 group-hover/code:opacity-100 transition-opacity"
           style={{ zIndex: 1 }}
         >
-          <ActionButton title="Reveal in Finder" onClick={handleReveal}>
+          <ActionButton title={t('chat.diff.revealInFinder')} onClick={handleReveal}>
             <FolderOpen size={12} strokeWidth={1.5} />
           </ActionButton>
           {(() => {
             const app = getTimelineFileEditorApp({ editorApp })
             return app ? (
-              <ActionButton title={`Open in ${app}`} onClick={handleOpenInEditor}>
+              <ActionButton title={t('chat.diff.openInApp', { app })} onClick={handleOpenInEditor}>
                 <SquareArrowOutUpRight size={12} strokeWidth={1.5} />
               </ActionButton>
             ) : null

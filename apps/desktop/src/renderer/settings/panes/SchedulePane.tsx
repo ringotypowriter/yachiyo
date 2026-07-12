@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Plus, Trash2, Clock, RotateCw } from 'lucide-react'
+import { formatDate } from '@yachiyo/i18n/index'
+import { useLocale, useT } from '@yachiyo/i18n/react'
 import { theme, alpha } from '@renderer/theme/theme'
 import { inputStyle } from '../components/styles'
 import { SettingSwitch, SimpleSelect } from '../components/primitives'
@@ -10,7 +12,11 @@ import type {
   SettingsConfig,
   ThreadModelOverride
 } from '@yachiyo/shared/protocol'
-import { buildScheduleFormSubmitInput, type ScheduleFormSubmitInput } from './schedulePaneModel'
+import {
+  buildScheduleFormSubmitInput,
+  type ScheduleFormErrorCode,
+  type ScheduleFormSubmitInput
+} from './schedulePaneModel'
 import { CronQuickPick, DateTimePick } from './SchedulePickers'
 import { cronToHuman } from './scheduleTimeFormat'
 
@@ -35,6 +41,7 @@ function ScheduleListTab({
 }: {
   onNavigateToRoute?: (route: string) => void
 }): React.ReactNode {
+  const t = useT()
   const [schedules, setSchedules] = useState<ScheduleRecord[]>([])
   const [adding, setAdding] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -99,7 +106,7 @@ function ScheduleListTab({
     return (
       <div className="flex-1 flex items-center justify-center">
         <span className="text-sm" style={{ color: theme.text.muted }}>
-          Loading...
+          {t('common.loading')}
         </span>
       </div>
     )
@@ -112,7 +119,7 @@ function ScheduleListTab({
           className="text-xs font-semibold uppercase tracking-wider"
           style={{ color: theme.text.secondary }}
         >
-          Schedules
+          {t('settings.schedule.schedules')}
         </span>
         <button
           className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium "
@@ -123,7 +130,7 @@ function ScheduleListTab({
           onClick={() => setAdding(true)}
         >
           <Plus size={13} />
-          Add
+          {t('common.add')}
         </button>
       </div>
 
@@ -139,7 +146,7 @@ function ScheduleListTab({
         <div className="flex flex-col items-center gap-2 py-8" style={{ opacity: 0.4 }}>
           <Clock size={24} stroke={theme.icon.muted} />
           <span className="text-sm" style={{ color: theme.text.muted }}>
-            No schedules yet
+            {t('settings.schedule.noSchedulesYet')}
           </span>
         </div>
       )}
@@ -152,7 +159,7 @@ function ScheduleListTab({
             onSubmit={(input) => handleUpdate({ ...input, id: s.id })}
             onCancel={() => setEditingId(null)}
             onNavigateToRoute={onNavigateToRoute}
-            submitLabel="Save"
+            submitLabel={t('common.save')}
           />
         ) : (
           <ScheduleRow
@@ -179,6 +186,8 @@ function ScheduleRow({
   onDelete: () => void
   onEdit: () => void
 }): React.ReactNode {
+  const t = useT()
+  const locale = useLocale()
   return (
     <div
       className="flex items-center gap-3 px-3 py-2.5 rounded-lg "
@@ -197,8 +206,10 @@ function ScheduleRow({
         <div className="flex items-center gap-2 mt-0.5">
           <span className="text-xs" style={{ color: theme.text.tertiary }}>
             {schedule.runAt
-              ? `Once: ${new Date(schedule.runAt).toLocaleString()}`
-              : cronToHuman(schedule.cronExpression ?? '')}
+              ? t('settings.schedule.onceAt', {
+                  time: formatDate(new Date(schedule.runAt), 'dateTime')
+                })
+              : cronToHuman(schedule.cronExpression ?? '', t, locale)}
           </span>
           {schedule.modelOverride && (
             <span className="text-xs" style={{ color: theme.text.tertiary }}>
@@ -212,7 +223,7 @@ function ScheduleRow({
       </div>
       <span role="presentation" onClick={(e) => e.stopPropagation()}>
         <SettingSwitch
-          ariaLabel={`Enable ${schedule.name}`}
+          ariaLabel={t('settings.schedule.enableSchedule', { name: schedule.name })}
           checked={schedule.enabled}
           onChange={onToggle}
         />
@@ -224,7 +235,7 @@ function ScheduleRow({
           e.stopPropagation()
           onDelete()
         }}
-        title="Delete schedule"
+        title={t('settings.schedule.deleteSchedule')}
       >
         <Trash2 size={14} />
       </button>
@@ -237,7 +248,7 @@ function ScheduleForm({
   onSubmit,
   onCancel,
   onNavigateToRoute,
-  submitLabel = 'Create'
+  submitLabel
 }: {
   initial?: ScheduleRecord
   onSubmit: (input: ScheduleFormSubmitInput) => Promise<void>
@@ -245,6 +256,9 @@ function ScheduleForm({
   onNavigateToRoute?: (route: string) => void
   submitLabel?: string
 }): React.ReactNode {
+  const t = useT()
+  const locale = useLocale()
+  const submitText = submitLabel ?? t('settings.schedule.create')
   const [mode, setMode] = useState<'recurring' | 'one-off'>(
     initial?.runAt ? 'one-off' : 'recurring'
   )
@@ -264,6 +278,10 @@ function ScheduleForm({
   )
   const [workspacePath, setWorkspacePath] = useState<string | undefined>(initial?.workspacePath)
   const [error, setError] = useState<string | null>(null)
+  const errorMessage = (code: ScheduleFormErrorCode): string =>
+    code === 'allFieldsRequired'
+      ? t('settings.schedule.errors.allFieldsRequired')
+      : t('settings.schedule.errors.invalidRunAt')
   const [submitting, setSubmitting] = useState(false)
   const [config, setConfig] = useState<SettingsConfig | null>(null)
 
@@ -289,7 +307,7 @@ function ScheduleForm({
       workspacePath
     })
     if (!submission.ok) {
-      setError(submission.error)
+      setError(errorMessage(submission.error))
       return
     }
 
@@ -322,7 +340,7 @@ function ScheduleForm({
             opacity: isBundled ? 0.6 : 1,
             cursor: isBundled ? 'default' : undefined
           }}
-          placeholder="Name"
+          placeholder={t('settings.schedule.namePlaceholder')}
           value={name}
           onChange={(e) => setName(e.target.value)}
           readOnly={isBundled}
@@ -348,7 +366,7 @@ function ScheduleForm({
               disabled={isBundled}
               onClick={() => setMode(m)}
             >
-              {m === 'recurring' ? 'Recurring' : 'One-off'}
+              {m === 'recurring' ? t('settings.schedule.recurring') : t('settings.schedule.oneOff')}
             </button>
           ))}
         </div>
@@ -359,7 +377,7 @@ function ScheduleForm({
               <input
                 className="flex-1 rounded-md px-2.5 py-1.5 text-sm outline-none min-w-0"
                 style={inputStyle()}
-                placeholder="e.g. 2026-04-15 09:00"
+                placeholder={t('settings.schedule.runAtPlaceholder')}
                 value={runAt}
                 onChange={(e) => setRunAt(e.target.value)}
               />
@@ -370,7 +388,7 @@ function ScheduleForm({
               <input
                 className="flex-1 rounded-md px-2.5 py-1.5 text-sm outline-none min-w-0"
                 style={inputStyle()}
-                placeholder="Cron (e.g. 0 9 * * *)"
+                placeholder={t('settings.schedule.cronPlaceholder')}
                 value={cron}
                 onChange={(e) => setCron(e.target.value)}
               />
@@ -379,9 +397,9 @@ function ScheduleForm({
           )}
         </div>
       </div>
-      {!isOneOff && cron.trim() && cronToHuman(cron.trim()) !== cron.trim() && (
+      {!isOneOff && cron.trim() && cronToHuman(cron.trim(), t, locale) !== cron.trim() && (
         <span className="text-xs -mt-1" style={{ color: theme.text.tertiary }}>
-          {cronToHuman(cron.trim())}
+          {cronToHuman(cron.trim(), t, locale)}
         </span>
       )}
       <textarea
@@ -392,7 +410,7 @@ function ScheduleForm({
           opacity: isBundled ? 0.6 : 1,
           cursor: isBundled ? 'default' : undefined
         }}
-        placeholder="Prompt — what should the model do?"
+        placeholder={t('settings.schedule.promptPlaceholder')}
         value={prompt}
         onChange={(e) => setPrompt(e.target.value)}
         readOnly={isBundled}
@@ -400,12 +418,15 @@ function ScheduleForm({
       <div className="flex gap-3">
         <div className="flex-1 min-w-0">
           <span className="text-xs font-medium" style={{ color: theme.text.secondary }}>
-            Model
+            {t('settings.schedule.model')}
           </span>
           <div className="mt-1">
             <SimpleSelect
               value={modelOverride ? `${modelOverride.providerName}::${modelOverride.model}` : ''}
-              options={[{ value: '', label: 'Default (same as chat)' }, ...modelOptions]}
+              options={[
+                { value: '', label: t('settings.channels.modelDefaultOption') },
+                ...modelOptions
+              ]}
               onChange={(val) => {
                 if (!val) {
                   setModelOverride(undefined)
@@ -420,13 +441,13 @@ function ScheduleForm({
         </div>
         <div className="flex-1 min-w-0">
           <span className="text-xs font-medium" style={{ color: theme.text.secondary }}>
-            Workspace
+            {t('settings.schedule.workspace')}
           </span>
           <div className="mt-1">
             <SimpleSelect
               value={workspacePath ?? ''}
               options={[
-                { value: '', label: 'Temporary (auto)' },
+                { value: '', label: t('settings.schedule.workspaceTemporary') },
                 ...workspaceOptions.map((p) => ({ value: p, label: p }))
               ]}
               onChange={(val) => setWorkspacePath(val || undefined)}
@@ -439,7 +460,7 @@ function ScheduleForm({
               style={{ color: theme.text.accent, background: 'none', border: 'none', padding: 0 }}
               onClick={() => onNavigateToRoute('workspace')}
             >
-              Manage workspaces...
+              {t('settings.schedule.manageWorkspaces')}
             </button>
           )}
         </div>
@@ -455,7 +476,7 @@ function ScheduleForm({
           style={{ color: theme.text.secondary }}
           onClick={onCancel}
         >
-          Cancel
+          {t('common.cancel')}
         </button>
         <button
           className="px-3 py-1.5 rounded-md text-xs font-medium "
@@ -467,7 +488,7 @@ function ScheduleForm({
           disabled={submitting}
           onClick={() => void handleSubmit()}
         >
-          {submitting ? `${submitLabel}...` : submitLabel}
+          {submitting ? t('settings.schedule.submitPending', { label: submitText }) : submitText}
         </button>
       </div>
     </div>
@@ -479,6 +500,7 @@ function ScheduleForm({
 // ---------------------------------------------------------------------------
 
 function HistoryTab(): React.ReactNode {
+  const t = useT()
   const [runs, setRuns] = useState<ScheduleRunRecord[]>([])
   const [schedules, setSchedules] = useState<Map<string, ScheduleRecord>>(new Map())
   const [loading, setLoading] = useState(true)
@@ -507,7 +529,7 @@ function HistoryTab(): React.ReactNode {
     return (
       <div className="flex-1 flex items-center justify-center">
         <span className="text-sm" style={{ color: theme.text.muted }}>
-          Loading...
+          {t('common.loading')}
         </span>
       </div>
     )
@@ -519,7 +541,7 @@ function HistoryTab(): React.ReactNode {
         <div className="flex flex-col items-center gap-2" style={{ opacity: 0.4 }}>
           <Clock size={24} stroke={theme.icon.muted} />
           <span className="text-sm" style={{ color: theme.text.muted }}>
-            No runs yet
+            {t('settings.schedule.noRunsYet')}
           </span>
         </div>
       </div>
@@ -532,7 +554,7 @@ function HistoryTab(): React.ReactNode {
         className="text-xs font-semibold uppercase tracking-wider mb-3"
         style={{ color: theme.text.secondary }}
       >
-        Recent Runs
+        {t('settings.schedule.recentRuns')}
       </span>
       {runs.map((run) => (
         <RunRow
@@ -568,6 +590,7 @@ function RunRow({
   scheduleName?: string
   onRetry: () => void
 }): React.ReactNode {
+  const t = useT()
   const badge = statusBadgeColors(run)
   const canNavigate = !!run.threadId && run.status !== 'running'
   const canRetry = run.status === 'skipped' || run.status === 'failed'
@@ -618,7 +641,7 @@ function RunRow({
             color: theme.text.secondary,
             background: 'transparent'
           }}
-          title="Rerun this schedule"
+          title={t('settings.schedule.rerunSchedule')}
           disabled={triggering}
           onClick={(e) => void handleRetry(e)}
           onMouseEnter={(e) => {
@@ -635,7 +658,7 @@ function RunRow({
         className="text-xs shrink-0 px-2 py-0.5 rounded-full font-medium"
         style={{ background: badge.bg, color: badge.fg }}
       >
-        {run.resultStatus ?? run.status}
+        {t(`settings.schedule.status.${run.resultStatus ?? run.status}`)}
       </span>
     </div>
   )
@@ -643,13 +666,7 @@ function RunRow({
 
 function formatTimestamp(iso: string): string {
   try {
-    const date = new Date(iso)
-    return date.toLocaleString(undefined, {
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    })
+    return formatDate(new Date(iso), 'dateTime')
   } catch {
     return iso
   }

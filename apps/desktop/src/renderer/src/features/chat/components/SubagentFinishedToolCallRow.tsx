@@ -2,6 +2,7 @@ import type React from 'react'
 import type { ToolCall } from '@renderer/app/types'
 import type { SubagentFinishedResult } from '@renderer/app/store/useAppStore'
 import { formatTokenCount } from '@renderer/lib/formatTokenCount'
+import { useT } from '@yachiyo/i18n/react'
 import { ToolCallRow } from './ToolCallRow'
 
 function formatSubagentResultDuration(durationMs?: number): string | null {
@@ -17,12 +18,15 @@ export function SubagentFinishedToolCallRow({
 }: {
   result: SubagentFinishedResult
 }): React.JSX.Element {
+  const t = useT()
   const duration = formatSubagentResultDuration(result.durationMs)
   const tokenCount = (result.promptTokens ?? 0) + (result.completionTokens ?? 0)
   const summaryParts = [
-    result.status === 'success' ? 'done' : 'stopped',
+    result.status === 'success'
+      ? t('chat.subagents.resultDone')
+      : t('chat.subagents.resultStopped'),
     duration,
-    tokenCount > 0 ? `${formatTokenCount(tokenCount)} tokens` : null
+    tokenCount > 0 ? t('chat.subagents.tokens', { count: formatTokenCount(tokenCount) }) : null
   ].filter((part): part is string => Boolean(part))
   const toolCall: ToolCall = {
     id: result.delegationId,

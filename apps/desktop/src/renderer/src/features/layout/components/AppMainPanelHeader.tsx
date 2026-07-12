@@ -1,5 +1,7 @@
 import type { ReactNode } from 'react'
 import { Activity, Eye, EyeOff, PanelLeft } from 'lucide-react'
+import { tPlural } from '@yachiyo/i18n/index'
+import { useT } from '@yachiyo/i18n/react'
 import type { Thread } from '@renderer/app/types'
 import { Tooltip } from '@renderer/components/Tooltip'
 import { ThreadHeaderActions } from '@renderer/features/layout/components/ThreadHeaderActions'
@@ -59,6 +61,7 @@ export function AppMainPanelHeader({
   showSidebarToggle,
   toggleSidebarTitle
 }: AppMainPanelHeaderProps): React.JSX.Element {
+  const t = useT()
   const showCenteredAccessory = shouldShowCenteredHeaderAccessory({
     showSidebarToggle,
     hasCenterAccessory: centerAccessory != null
@@ -134,10 +137,10 @@ export function AppMainPanelHeader({
           ) : (
             <span className="text-xs font-medium" style={{ color: theme.text.muted }}>
               {isBootstrapping
-                ? 'Loading local workspace...'
+                ? t('layout.header.loadingWorkspace')
                 : messageCount > 0
-                  ? `${messageCount} message${messageCount !== 1 ? 's' : ''}`
-                  : 'No messages yet'}
+                  ? tPlural('layout.header.messageCount', messageCount)
+                  : t('layout.header.noMessagesYet')}
             </span>
           )}
         </div>
@@ -170,11 +173,11 @@ export function AppMainPanelHeader({
               aria-label={
                 isPrivacyToggleLocked
                   ? isPrivacyMode
-                    ? 'Privacy mode locked on'
-                    : 'Privacy mode locked off'
+                    ? t('layout.header.privacy.lockedOn')
+                    : t('layout.header.privacy.lockedOff')
                   : isPrivacyMode
-                    ? 'Privacy mode on'
-                    : 'Privacy mode off'
+                    ? t('layout.header.privacy.on')
+                    : t('layout.header.privacy.off')
               }
               aria-pressed={isPrivacyMode}
             >
@@ -187,7 +190,13 @@ export function AppMainPanelHeader({
           </Tooltip>
         ) : null}
         {activeThread && !isReadOnly && !hideThreadActions ? (
-          <Tooltip content={isInspectionPanelOpen ? 'Close run inspector' : 'Open run inspector'}>
+          <Tooltip
+            content={
+              isInspectionPanelOpen
+                ? t('layout.header.closeRunInspector')
+                : t('layout.header.openRunInspector')
+            }
+          >
             <button
               onClick={onToggleInspectionPanel}
               className="p-1.5 rounded-md transition-opacity no-drag shrink-0"
@@ -195,7 +204,11 @@ export function AppMainPanelHeader({
                 color: isInspectionPanelOpen ? theme.text.accent : theme.icon.default,
                 opacity: isInspectionPanelOpen ? 1 : 0.45
               }}
-              aria-label={isInspectionPanelOpen ? 'Close run inspector' : 'Open run inspector'}
+              aria-label={
+                isInspectionPanelOpen
+                  ? t('layout.header.closeRunInspector')
+                  : t('layout.header.openRunInspector')
+              }
               aria-pressed={isInspectionPanelOpen}
             >
               <Activity size={16} strokeWidth={1.5} />
@@ -224,20 +237,21 @@ function PrivacyTooltipContent({
   isPrivacyMode: boolean
   isLocked: boolean
 }): React.JSX.Element {
+  const t = useT()
   const label = isLocked
     ? isPrivacyMode
-      ? 'Privacy Mode: Locked (On)'
-      : 'Privacy Mode: Locked (Off)'
+      ? t('layout.header.privacy.lockedOn')
+      : t('layout.header.privacy.lockedOff')
     : isPrivacyMode
-      ? 'Privacy Mode: On'
-      : 'Privacy Mode: Off'
+      ? t('layout.header.privacy.on')
+      : t('layout.header.privacy.off')
   const description = isLocked
     ? isPrivacyMode
-      ? 'Memory recall and distillation are disabled — cannot change after messages are sent'
-      : 'Cannot change after messages are sent'
+      ? t('layout.header.privacy.descLockedOn')
+      : t('layout.header.privacy.descLockedOff')
     : isPrivacyMode
-      ? 'Memory recall and distillation are disabled'
-      : 'Enable to hide this thread from memory'
+      ? t('layout.header.privacy.descOn')
+      : t('layout.header.privacy.descOff')
 
   return (
     <div style={{ minWidth: 200, whiteSpace: 'normal' }}>

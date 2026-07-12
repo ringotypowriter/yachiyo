@@ -12,9 +12,11 @@ import {
   Settings2
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
+import { useT } from '@yachiyo/i18n/react'
 import { alpha, theme } from '@renderer/theme/theme'
 import { useAppDialog } from '@renderer/components/AppDialogContext'
 import { useApplyThemeConfig } from '@renderer/theme/useThemeConfig'
+import { useApplyLanguageConfig } from '@renderer/i18n/useI18nConfig'
 import type {
   ChannelGroupRecord,
   ChannelUserRecord,
@@ -66,13 +68,10 @@ import {
   getInitialSettingsPanelTabs,
   resolveSettingsRoute,
   serializeSettingsRoute,
-  type SettingsPanelDefinition,
   type SettingsPanelId
 } from './settingsNavigation'
 
-interface AppPanel extends SettingsPanelDefinition {
-  icon: LucideIcon
-}
+type Translate = ReturnType<typeof useT>
 
 const PANEL_ICONS: Record<SettingsPanelId, LucideIcon> = {
   general: Settings2,
@@ -87,11 +86,6 @@ const PANEL_ICONS: Record<SettingsPanelId, LucideIcon> = {
   about: Info
 }
 
-const PANELS: AppPanel[] = SETTINGS_PANELS.map((panel) => ({
-  ...panel,
-  icon: PANEL_ICONS[panel.id]
-}))
-
 function getInitialActivePanelTabs(routeValue: string): Record<string, string> {
   const panelTabs = getInitialSettingsPanelTabs()
   const route = resolveSettingsRoute(routeValue)
@@ -101,32 +95,32 @@ function getInitialActivePanelTabs(routeValue: string): Record<string, string> {
   return panelTabs
 }
 
-function validateConfig(config: SettingsConfig | null): string | null {
+function validateConfig(config: SettingsConfig | null, t: Translate): string | null {
   if (!config) {
     return null
   }
 
   const names = config.providers.map((provider) => provider.name.trim())
   if (names.some((name) => name.length === 0)) {
-    return 'Every provider needs a non-empty name.'
+    return t('settings.shared.validationProviderName')
   }
 
   if (new Set(names).size !== names.length) {
-    return 'Provider names must be unique.'
+    return t('settings.shared.validationProviderNameUnique')
   }
 
   const toolModel = getToolModelConfig(config)
   if (toolModel.mode === 'custom') {
     if (!toolModel.providerId.trim() && !toolModel.providerName.trim()) {
-      return 'Choose a provider for the tool model.'
+      return t('settings.shared.validationToolModelProvider')
     }
 
     if (!resolveToolModelProvider(config, toolModel)) {
-      return 'The tool model provider must exist.'
+      return t('settings.shared.validationToolModelProviderMissing')
     }
 
     if (!toolModel.model.trim()) {
-      return 'Choose a model for the tool model.'
+      return t('settings.shared.validationToolModelModel')
     }
   }
 
@@ -137,7 +131,7 @@ function validateConfig(config: SettingsConfig | null): string | null {
     jotdownShortcut &&
     translatorShortcut.toLowerCase() === jotdownShortcut.toLowerCase()
   ) {
-    return 'Translator and Jot Down shortcuts cannot be the same.'
+    return t('settings.shared.validationShortcutConflict')
   }
 
   return null
@@ -166,11 +160,16 @@ export function SettingsSidebarContent({
   route,
   onRouteChange
 }: SettingsSidebarControlsProps): React.JSX.Element {
+  const t = useT()
   const activePanel = resolveSettingsRoute(route).panel
 
   return (
-    <nav className="no-drag flex-1 overflow-y-auto px-2 pb-3 pt-2" aria-label="Settings sections">
-      {PANELS.map(({ id, label, icon: Icon }) => {
+    <nav
+      className="no-drag flex-1 overflow-y-auto px-2 pb-3 pt-2"
+      aria-label={t('settings.shared.sectionsAria')}
+    >
+      {SETTINGS_PANELS.map(({ id, label }) => {
+        const Icon = PANEL_ICONS[id]
         const isActive = activePanel === id
         return (
           <button
@@ -241,8 +240,10 @@ function SettingsPanel({
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const previousActivePanelRef = useRef<SettingsPanelId | null>(null)
+  const t = useT()
   const dialog = useAppDialog()
   useApplyThemeConfig(active ? (draft ?? savedConfig) : savedConfig, false)
+  useApplyLanguageConfig(active ? (draft ?? savedConfig) : savedConfig)
 
   useEffect(() => {
     const nextRoute = resolveSettingsRoute(route)
@@ -287,7 +288,7 @@ function SettingsPanel({
           return
         }
 
-        setError(reason instanceof Error ? reason.message : 'Failed to load settings.')
+        setError(reason instanceof Error ? reason.message : t('settings.shared.loadSettingsFailed'))
         setLoading(false)
       })
 
@@ -310,7 +311,7 @@ function SettingsPanel({
 
         console.warn('[yachiyo][settings] failed to load channels config', reason)
         setChannelsConfigError(
-          reason instanceof Error ? reason.message : 'Failed to load channels settings.'
+          reason instanceof Error ? reason.message : t('settings.shared.loadChannelsFailed')
         )
         setIsLoadingChannelsConfig(false)
       })
@@ -318,7 +319,7 @@ function SettingsPanel({
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [t])
 
   const loadUserDocumentDraft = useCallback(async (): Promise<void> => {
     if (isLoadingUserDocument) {
@@ -333,11 +334,13 @@ function SettingsPanel({
       setSavedUserDocument(document)
       setUserDocumentDraft(document.content)
     } catch (reason) {
-      setUserDocumentError(reason instanceof Error ? reason.message : 'Failed to load USER.md.')
+      setUserDocumentError(
+        reason instanceof Error ? reason.message : t('settings.shared.loadUserDocFailed')
+      )
     } finally {
       setIsLoadingUserDocument(false)
     }
-  }, [isLoadingUserDocument])
+  }, [isLoadingUserDocument, t])
 
   const loadSoulDocumentDraft = useCallback(async (): Promise<void> => {
     if (isLoadingSoulDocument) {
@@ -352,11 +355,13 @@ function SettingsPanel({
       setSavedSoulDocument(document)
       setSoulDocumentDraft(toSoulTraitTexts(document.evolvedTraits))
     } catch (reason) {
-      setSoulDocumentError(reason instanceof Error ? reason.message : 'Failed to load SOUL.md.')
+      setSoulDocumentError(
+        reason instanceof Error ? reason.message : t('settings.shared.loadSoulDocFailed')
+      )
     } finally {
       setIsLoadingSoulDocument(false)
     }
-  }, [isLoadingSoulDocument])
+  }, [isLoadingSoulDocument, t])
 
   const reloadSettingsConfig = useCallback(async (): Promise<void> => {
     const config = await window.api.yachiyo.getConfig()
@@ -393,13 +398,13 @@ function SettingsPanel({
         setChannelGroupsDraft(groups)
       } catch (reason) {
         setChannelRecordsError(
-          reason instanceof Error ? reason.message : 'Failed to load channel records.'
+          reason instanceof Error ? reason.message : t('settings.shared.loadChannelRecordsFailed')
         )
       } finally {
         setIsLoadingChannelRecords(false)
       }
     },
-    [isLoadingChannelRecords, savedChannelGroups, savedChannelUsers]
+    [isLoadingChannelRecords, savedChannelGroups, savedChannelUsers, t]
   )
 
   useEffect(() => {
@@ -440,12 +445,13 @@ function SettingsPanel({
     setSelectedProviderId(draft.providers[0]?.id ?? '')
   }, [draft, selectedProviderId])
 
-  const activeSettingsPanel = PANELS.find((panel) => panel.id === activePanel) ?? PANELS[0]
+  const activeSettingsPanel =
+    SETTINGS_PANELS.find((panel) => panel.id === activePanel) ?? SETTINGS_PANELS[0]
   const activePanelTab =
     activeSettingsPanel.tabs?.find((tab) => tab.id === activePanelTabs[activeSettingsPanel.id]) ??
     activeSettingsPanel.tabs?.[0]
   const activePanelTabId = activePanelTab?.id
-  const validationError = validateConfig(draft)
+  const validationError = validateConfig(draft, t)
   const isSettingsDirty = JSON.stringify(savedConfig) !== JSON.stringify(draft)
   const isChannelsDirty =
     savedChannelsConfig !== null &&
@@ -570,11 +576,12 @@ function SettingsPanel({
         setChannelRecordsError(null)
       }
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'Failed to save settings.')
+      setError(reason instanceof Error ? reason.message : t('settings.shared.saveSettingsFailed'))
     } finally {
       setSaving(false)
     }
   }, [
+    t,
     channelGroupsDraft,
     channelUsersDraft,
     channelsDraft,
@@ -605,10 +612,10 @@ function SettingsPanel({
     }
 
     const confirmed = await dialog.confirm({
-      title: 'Discard unsaved changes?',
-      message: 'This resets every unsaved settings draft to the last saved version.',
-      confirmLabel: 'Discard',
-      cancelLabel: 'Cancel',
+      title: t('settings.shared.discardDialogTitle'),
+      message: t('settings.shared.discardDialogMessage'),
+      confirmLabel: t('settings.shared.discard'),
+      cancelLabel: t('common.cancel'),
       tone: 'danger'
     })
     if (!confirmed) {
@@ -635,6 +642,7 @@ function SettingsPanel({
     setError(null)
   }, [
     dialog,
+    t,
     isDirty,
     savedChannelGroups,
     savedChannelUsers,
@@ -699,7 +707,7 @@ function SettingsPanel({
     body = (
       <div className="flex-1 overflow-y-auto flex items-center justify-center">
         <span className="text-sm" style={{ color: theme.text.muted }}>
-          Loading settings...
+          {t('settings.shared.loadingSettings')}
         </span>
       </div>
     )
@@ -778,7 +786,7 @@ function SettingsPanel({
         body = (
           <div className="flex-1 overflow-y-auto flex items-center justify-center">
             <span className="text-sm" style={{ color: theme.text.muted }}>
-              Loading channels settings...
+              {t('settings.shared.loadingChannelsSettings')}
             </span>
           </div>
         )
@@ -786,10 +794,10 @@ function SettingsPanel({
         body = (
           <div className="flex-1 overflow-y-auto px-7 py-6">
             <div className="text-sm" style={{ color: theme.text.dangerStrong }}>
-              {channelsConfigError ?? 'Channels settings are unavailable.'}
+              {channelsConfigError ?? t('settings.shared.channelsUnavailable')}
             </div>
             <div className="mt-2 text-sm" style={{ color: theme.text.tertiary }}>
-              Fix `channels.toml` or reload settings before editing channel settings.
+              {t('settings.shared.channelsFixHint')}
             </div>
           </div>
         )
@@ -834,10 +842,10 @@ function SettingsPanel({
     : activeValidationError
       ? activeValidationError
       : saving
-        ? 'Saving...'
+        ? t('common.saving')
         : isDirty
-          ? 'Unsaved changes'
-          : 'All changes saved'
+          ? t('settings.shared.statusUnsaved')
+          : t('settings.shared.statusAllSaved')
   const statusColor = error || activeValidationError ? theme.text.dangerStrong : theme.text.muted
 
   return children({
@@ -871,7 +879,7 @@ function SettingsPanel({
             className="truncate text-sm font-semibold"
             style={{ color: theme.text.primary, letterSpacing: '-0.2px' }}
           >
-            Settings
+            {t('settings.shared.windowTitle')}
           </div>
         </div>
 
@@ -898,7 +906,7 @@ function SettingsPanel({
                   })
             }}
           >
-            Discard
+            {t('settings.shared.discard')}
           </button>
           <button
             onClick={() => void triggerSave()}
@@ -920,7 +928,7 @@ function SettingsPanel({
                   })
             }}
           >
-            Save
+            {t('common.save')}
           </button>
         </div>
       </div>

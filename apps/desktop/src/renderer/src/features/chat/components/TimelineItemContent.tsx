@@ -1,4 +1,6 @@
 import React, { memo } from 'react'
+import { tPlural } from '@yachiyo/i18n/index'
+import { useT } from '@yachiyo/i18n/react'
 import {
   isPlanDocumentMessage,
   isPlanModeExitRecord,
@@ -111,7 +113,8 @@ function renderPlanDocumentTimelineCard(
 
 function renderTimelineItem(
   item: MessageTimelineRow,
-  context: TimelineItemRenderContext
+  context: TimelineItemRenderContext,
+  t: ReturnType<typeof useT>
 ): React.JSX.Element | null {
   const {
     threadCapabilities,
@@ -157,7 +160,7 @@ function renderTimelineItem(
     return (
       <div data-message-id={item.key}>
         <UserMessageBubble
-          label="Pending steer"
+          label={t('chat.timeline.pendingSteer')}
           pending
           message={item.data}
           threadHasActiveRun
@@ -422,13 +425,17 @@ function renderTimelineItem(
     return (
       <div className="message-bubble-group px-6 py-1 flex flex-col gap-0.5">
         {item.assistantMessage.status === 'stopped' ? (
-          <div className="message-footer message-footer--always-visible">Stopped</div>
+          <div className="message-footer message-footer--always-visible">
+            {t('chat.timeline.stopped')}
+          </div>
         ) : item.assistantMessage.status === 'failed' ? (
           <div
             className="message-footer message-footer--always-visible"
             style={{ color: theme.text.danger }}
           >
-            {item.failedRunError ? `Failed: ${item.failedRunError}` : 'Failed to generate'}
+            {item.failedRunError
+              ? t('chat.timeline.failedWithError', { error: item.failedRunError })
+              : t('chat.timeline.failedToGenerate')}
           </div>
         ) : null}
         {item.savedMemoryCount > 0 ? (
@@ -436,9 +443,7 @@ function renderTimelineItem(
             className="message-footer message-footer--always-visible inline-flex items-center gap-1"
             style={{ color: theme.text.accent }}
           >
-            {item.savedMemoryCount === 1
-              ? 'Memory saved'
-              : `${item.savedMemoryCount} memories saved`}
+            {tPlural('chat.timeline.memoriesSaved', item.savedMemoryCount)}
           </div>
         ) : null}
         {item.showRunStats ? (
@@ -493,7 +498,8 @@ function TimelineItemContentBase({
   item,
   context
 }: TimelineItemContentProps): React.JSX.Element | null {
-  return renderTimelineItem(item, context)
+  const t = useT()
+  return renderTimelineItem(item, context, t)
 }
 
 export const TimelineItemContent = memo(

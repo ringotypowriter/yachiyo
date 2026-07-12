@@ -1,5 +1,6 @@
 import type React from 'react'
 import { theme } from '@renderer/theme/theme'
+import { useT } from '@yachiyo/i18n/react'
 import {
   THINKING_SIDEBAR_PREVIEWS,
   WORKING_SIDEBAR_PREVIEWS,
@@ -21,6 +22,7 @@ export function GeneratingRow({
   state?: 'thinking' | 'working'
   seed?: string
 }): React.JSX.Element {
+  const t = useT()
   if (retryInfo) {
     return (
       <div className="px-6 py-0.5">
@@ -37,7 +39,10 @@ export function GeneratingRow({
             }}
           />
           <span>
-            Retrying ({retryInfo.attempt}/{retryInfo.maxAttempts})
+            {t('chat.timeline.retrying', {
+              attempt: retryInfo.attempt,
+              max: retryInfo.maxAttempts
+            })}
             {retryInfo.error ? ` — ${retryInfo.error}` : ''}
           </span>
         </div>
@@ -45,7 +50,7 @@ export function GeneratingRow({
     )
   }
 
-  let label = 'Generating...'
+  let label = t('chat.timeline.generating')
   if (state && seed) {
     label = pickSidebarPlaceholder(
       seed,

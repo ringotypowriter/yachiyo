@@ -7,6 +7,7 @@ import {
 } from '@yachiyo/shared/protocol'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
+import { resolveLocale, setLocale } from '@yachiyo/i18n/index'
 import icon from '../../resources/icon.png?asset'
 import { installEditableContextMenu } from './electron/editableContextMenu'
 import {
@@ -379,8 +380,13 @@ app.whenReady().then(async () => {
     }
   }
 
+  function applyAppLanguage(config: SettingsConfig): void {
+    setLocale(resolveLocale(config.general?.language, app.getLocale()))
+  }
+
   void server.getConfig().then((initialConfig) => {
     applyNativeTheme(initialConfig)
+    applyAppLanguage(initialConfig)
     keepAwakeController.setEnabled(initialConfig.general?.preventSystemSleep === true)
     updateFloatWindowShortcuts(initialConfig)
   })
@@ -389,6 +395,7 @@ app.whenReady().then(async () => {
     if (event.type === 'settings.updated') {
       const config = (event as SettingsUpdatedEvent).config
       applyNativeTheme(config)
+      applyAppLanguage(config)
       keepAwakeController.setEnabled(config.general?.preventSystemSleep === true)
       updateFloatWindowShortcuts(config)
     }

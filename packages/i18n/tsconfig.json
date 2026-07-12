@@ -1,0 +1,12 @@
+{
+  "extends": "@electron-toolkit/tsconfig/tsconfig.node.json",
+  "include": ["src/**/*"],
+  "exclude": ["**/*.test.ts", "**/*.test.tsx", "**/*.spec.ts", "**/*.spec.tsx"],
+  "compilerOptions": {
+    "allowImportingTsExtensions": true,
+    "composite": true,
+    "noEmit": true,
+    "jsx": "react-jsx",
+    "types": ["node"]
+  }
+}
