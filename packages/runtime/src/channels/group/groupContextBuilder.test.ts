@@ -233,6 +233,35 @@ describe('formatGroupMessages — idle gap', () => {
 })
 
 describe('formatGroupProbeTurnDelta', () => {
+  it('renders self messages inside the fresh window as Yachiyo lines (#55)', () => {
+    const messages = [
+      msg('someone said a thing', 'Alice'),
+      {
+        senderName: 'Yachiyo',
+        senderExternalUserId: '__self__',
+        isMention: false,
+        text: '我刚说过这句',
+        timestamp: Date.now() / 1_000
+      },
+      msg('a reply arrives', 'Bob')
+    ]
+    // freshCount counts self entries too — the window must include all three.
+    const result = formatGroupProbeTurnDelta(messages, 'Yachiyo', undefined, undefined, 3)
+    assert.ok(result.includes('from="Yachiyo"'), `self line missing: ${result}`)
+    assert.ok(result.includes('我刚说过这句'))
+    assert.ok(!result.includes('from="Yachiyo" role='), 'self line must carry no role attr')
+    assert.ok(result.includes('someone said a thing'))
+    assert.ok(result.includes('a reply arrives'))
+  })
+
+  it('renders the whole buffer when freshCount is omitted — new-thread first turn (#55)', () => {
+    const messages = [msg('old-1'), msg('old-2'), msg('new-1')]
+    const result = formatGroupProbeTurnDelta(messages, 'Bot', undefined, undefined, undefined)
+    assert.ok(result.includes('old-1'))
+    assert.ok(result.includes('old-2'))
+    assert.ok(result.includes('new-1'))
+  })
+
   it('formats only the fresh suffix instead of the whole buffer', () => {
     const messages = [msg('old-1'), msg('old-2'), msg('new-1'), msg('new-2')]
     const result = formatGroupProbeTurnDelta(messages, 'Bot', undefined, undefined, 2)

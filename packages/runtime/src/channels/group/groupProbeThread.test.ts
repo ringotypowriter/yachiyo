@@ -350,3 +350,36 @@ test('listExternalThreads excludes hidden group probe threads', () => {
     ['dm-thread']
   )
 })
+
+test('resolveGroupProbeThread reports created vs reused (#55)', async () => {
+  const createdThread = makeThread('thread-created')
+  const base = {
+    logLabel: 'test',
+    group: makeGroup(),
+    groupThreadReuseWindowMs: 60_000
+  }
+
+  const fresh = await resolveGroupProbeThread({
+    ...base,
+    server: {
+      findActiveGroupThread: () => undefined,
+      createThread: async () => createdThread,
+      setThreadModelOverride: async () => createdThread,
+      getThreadTotalTokens: () => 0
+    }
+  })
+  assert.equal(fresh.created, true)
+
+  const reused = await resolveGroupProbeThread({
+    ...base,
+    server: {
+      findActiveGroupThread: () => createdThread,
+      createThread: async () => {
+        throw new Error('must not create')
+      },
+      setThreadModelOverride: async () => createdThread,
+      getThreadTotalTokens: () => 0
+    }
+  })
+  assert.equal(reused.created, false)
+})

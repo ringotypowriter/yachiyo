@@ -142,7 +142,11 @@ export function createGroupMonitor(
   }
 
   function newMessagesSinceLastCheck(): GroupMessageEntry[] {
-    return buffer.slice(cursor).filter((m) => m.senderExternalUserId !== '__self__')
+    return buffer.slice(cursor)
+  }
+
+  function isSelfMessage(m: GroupMessageEntry): boolean {
+    return m.senderExternalUserId === '__self__'
   }
 
   // -------------------------------------------------------------------------
@@ -196,9 +200,19 @@ export function createGroupMonitor(
         return
       }
 
-      // Advance cursor — these messages are now "seen".
-      cursor = buffer.length
-      const visibleFresh = fresh.filter(hasGroupProbeVisibleContent)
+      // Wake/phase decisions ignore Yachiyo's own sends — she must not wake
+      // herself — but her lines still render in the turn delta below, so the
+      // model always sees what it already said.
+      const visibleFresh = fresh.filter((m) => hasGroupProbeVisibleContent(m) && !isSelfMessage(m))
+
+      // A self-only tail must NOT be consumed here: leave the cursor so her
+      // line rides into the next turn that has real fresh messages. Otherwise
+      // "she speaks → empty tick → friend replies" would drop her line from
+      // the prompt and she'd forget she just spoke.
+      if (visibleFresh.length !== 0) {
+        // Advance cursor — these messages are now "seen".
+        cursor = buffer.length
+      }
 
       if (phase === 'active' && visibleFresh.length === 0) {
         missCount++
@@ -221,11 +235,16 @@ export function createGroupMonitor(
       if (visibleFresh.length === 0) return
 
       // Single pass: model decides + speaks (or stays silent) via onTurn.
+      // freshCount counts ALL visible fresh entries (self included) so the
+      // renderer's slice(-freshCount) window matches the buffer it slices —
+      // a self-excluded count here silently pushed Yachiyo's own lines (and
+      // sometimes real fresh messages) out of the rendered delta (#55).
+      const renderedFreshCount = fresh.filter(hasGroupProbeVisibleContent).length
       let replied: boolean
       try {
         replied = await callbacks.onTurn(
           buffer.filter(hasGroupProbeVisibleContent),
-          visibleFresh.length
+          renderedFreshCount
         )
       } catch (error) {
         // Connection or API failure — skip this turn without changing phase.

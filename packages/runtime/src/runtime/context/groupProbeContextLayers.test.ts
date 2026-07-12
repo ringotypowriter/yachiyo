@@ -26,7 +26,7 @@ test('compileGroupProbeContextLayers keeps stable prefix, summary, history, and 
   assert.equal(messages[4]?.content, '<msg from="Bob">fresh turn</msg>')
 })
 
-test('compileGroupProbeContextLayers replays assistant turns as sent-text chat messages, never raw responseMessages', () => {
+test('compileGroupProbeContextLayers never replays assistant turns — self speech arrives via the group log (#55)', () => {
   const responseMessages = [
     {
       role: 'assistant' as const,
@@ -70,18 +70,23 @@ test('compileGroupProbeContextLayers replays assistant turns as sent-text chat m
   assert.equal(messages[0]?.role, 'system')
   assert.equal(messages[1]?.role, 'system')
   assert.equal(messages[2]?.role, 'user')
-  assert.equal(messages[3]?.role, 'user')
-  assert.equal(messages[3]?.content, '<msg from="Yachiyo">hello group</msg>')
-  // No raw assistant turn, tool call, or monologue text survives into the replay.
+  assert.equal(messages[2]?.content, '<msg from="Alice">old turn</msg>')
+  // Assistant turns contribute NOTHING to replay (#55): no raw turn, no tool
+  // call, no monologue, and no synthetic self-message either — Yachiyo's sent
+  // lines reach context as ordinary log lines inside the buffered deltas.
   assert.ok(messages.every((m) => m.role !== 'assistant' && m.role !== 'tool'))
   assert.ok(
     messages.every((m) => typeof m.content !== 'string' || !m.content.includes('private monologue'))
   )
-  assert.equal(messages[4]?.role, 'user')
-  assert.equal(messages[4]?.content, '<msg from="Bob">fresh turn</msg>')
+  assert.ok(
+    messages.every((m) => typeof m.content !== 'string' || !m.content.includes('hello group')),
+    'sent text must not be synthesized into replay'
+  )
+  assert.equal(messages[3]?.role, 'user')
+  assert.equal(messages[3]?.content, '<msg from="Bob">fresh turn</msg>')
 })
 
-test('compileGroupProbeContextLayers preserves successful sends as safe group context when reasoning is missing', () => {
+test('compileGroupProbeContextLayers drops successful send turns from replay too (#55)', () => {
   const responseMessages = [
     {
       role: 'assistant' as const,
@@ -121,10 +126,11 @@ test('compileGroupProbeContextLayers preserves successful sends as safe group co
     currentTurnContent: '<msg from="Bob">fresh turn</msg>'
   })
 
+  // Even a successful send replays as nothing — the sent line reaches the
+  // next turn's delta via the group log buffer instead.
+  assert.equal(messages.length, 3)
   assert.equal(messages[2]?.role, 'user')
-  assert.equal(messages[2]?.content, '<msg from="Yachiyo">Yeah, that sounds right ⟦test⟧.</msg>')
-  assert.equal(messages[3]?.role, 'user')
-  assert.equal(messages[3]?.content, '<msg from="Bob">fresh turn</msg>')
+  assert.equal(messages[2]?.content, '<msg from="Bob">fresh turn</msg>')
 })
 
 test('compileGroupProbeContextLayers drops failed group message send attempts', () => {
@@ -310,9 +316,9 @@ test('compileGroupProbeContextLayers never replays an assistant reply without it
   )
 })
 
-test('compileGroupProbeContextLayers keeps a synthetic self-reply with its user delta under a tight budget', () => {
-  // Reasoning-replay fallback renders the assistant turn as a synthetic
-  // `<msg from="Yachiyo">` with role 'user'; it must still group with its delta.
+test('compileGroupProbeContextLayers keeps the newest user delta under a tight budget (#55)', () => {
+  // Assistant turns no longer produce synthetic self-replies; the newest
+  // user delta must still survive budget trimming on its own.
   const responseMessages = [
     {
       role: 'assistant' as const,
@@ -350,17 +356,14 @@ test('compileGroupProbeContextLayers keeps a synthetic self-reply with its user 
     historyTokenBudget: 50
   })
 
-  const hasSelfReply = messages.some(
+  const hasSyntheticSelf = messages.some(
     (m) => typeof m.content === 'string' && m.content.includes('from="Yachiyo"')
   )
   const hasDelta = messages.some(
     (m) => typeof m.content === 'string' && m.content.includes('from="Alice"')
   )
-  assert.ok(!hasSelfReply || hasDelta, 'self-reply must not appear without its user delta')
-  assert.ok(
-    hasSelfReply && hasDelta,
-    'the delta + its self-reply form one unit and are kept together'
-  )
+  assert.ok(!hasSyntheticSelf, 'no synthetic self-reply may be fabricated')
+  assert.ok(hasDelta, 'the newest user delta survives the budget on its own')
 })
 
 test('compileGroupProbeContextLayers re-asserts the style reminder right before the current turn', () => {
