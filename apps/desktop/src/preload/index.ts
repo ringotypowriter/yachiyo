@@ -129,6 +129,20 @@ const api = {
       }
     }
   },
+  runtimeHealth: {
+    getStatus: (): Promise<{ crashed: boolean }> => ipcRenderer.invoke('yachiyo:runtime-health'),
+    restart: (): Promise<{ restarted: boolean }> => ipcRenderer.invoke('yachiyo:restart-runtime'),
+    openLogs: (): Promise<void> => ipcRenderer.invoke('yachiyo:open-logs-folder'),
+    onStatus: (listener: (status: { crashed: boolean }) => void): (() => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, status: { crashed: boolean }): void => {
+        listener(status)
+      }
+      ipcRenderer.on('yachiyo:runtime-health-status', handler)
+      return () => {
+        ipcRenderer.off('yachiyo:runtime-health-status', handler)
+      }
+    }
+  },
   yachiyo: {
     searchThreadsAndMessages: (
       input: SearchThreadsAndMessagesInput

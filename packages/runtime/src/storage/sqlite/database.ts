@@ -50,9 +50,47 @@ import {
 import type { ChannelUserRole, SyncConflictResolution } from '@yachiyo/shared/protocol'
 import { sortToolCallsChronologically } from '@yachiyo/shared/toolCallOrder'
 
-export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
+/**
+ * Grace period before a deferred full search-index rebuild runs, so the
+ * runtime can finish booting and answer the renderer's bootstrap first.
+ */
+const DEFERRED_FTS_REBUILD_DELAY_MS = 5_000
+
+export interface CreateSqliteYachiyoStorageOptions {
+  /**
+   * Run any pending full search-index rebuild (e.g. the trigram tokenizer
+   * migration) off the open path. The runtime boot path enables this so a
+   * large re-index cannot block startup; search is partial until it lands.
+   */
+  deferSearchIndexRebuild?: boolean
+}
+
+export function createSqliteYachiyoStorage(
+  dbPath: string,
+  options: CreateSqliteYachiyoStorageOptions = {}
+): YachiyoStorage {
   const { client, db } = openMigratedSqliteDatabase(dbPath)
-  ensureThreadSearchIndex(client)
+  let deferredRebuildTimer: ReturnType<typeof setTimeout> | null = null
+  ensureThreadSearchIndex(
+    client,
+    options.deferSearchIndexRebuild
+      ? {
+          scheduleRebuild: (rebuild) => {
+            console.warn(
+              `[fts] search index rebuild pending; deferred ${DEFERRED_FTS_REBUILD_DELAY_MS}ms past boot`
+            )
+            deferredRebuildTimer = setTimeout(() => {
+              deferredRebuildTimer = null
+              try {
+                rebuild()
+              } catch (error) {
+                console.error('[fts] deferred search index rebuild failed', error)
+              }
+            }, DEFERRED_FTS_REBUILD_DELAY_MS)
+          }
+        }
+      : {}
+  )
   repairRunRequestMessageIds(client)
   const backgroundResponseMessagesRepairQueue = createBackgroundResponseMessagesRepairQueue(dbPath)
   const getChannelUserRole = (channelUserId: string | null): ChannelUserRole | undefined => {
@@ -106,6 +144,10 @@ export function createSqliteYachiyoStorage(dbPath: string): YachiyoStorage {
 
   return {
     close() {
+      if (deferredRebuildTimer !== null) {
+        clearTimeout(deferredRebuildTimer)
+        deferredRebuildTimer = null
+      }
       backgroundResponseMessagesRepairQueue.close()
       client.close()
     },

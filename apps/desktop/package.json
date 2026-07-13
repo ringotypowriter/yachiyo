@@ -30,7 +30,7 @@
     "typecheck:web-tests": "tsc --noEmit -p tsconfig.web.tests.json --composite false",
     "typecheck:tests": "pnpm run typecheck:node-tests && pnpm run typecheck:web-tests",
     "typecheck": "pnpm run typecheck:node && pnpm run typecheck:web",
-    "test:server:native": "pnpm run typecheck:tests && pnpm run native:prepare && ELECTRON_RUN_AS_NODE=1 electron --experimental-strip-types --test ../../packages/runtime/src/storage/sqlite/sqlite.native.test.ts",
+    "test:server:native": "pnpm run typecheck:tests && pnpm run native:prepare && ELECTRON_RUN_AS_NODE=1 electron --experimental-strip-types --test ../../packages/runtime/src/storage/sqlite/*.native.test.ts",
     "start": "pnpm run native:prepare && electron-vite preview",
     "dev": "node ../../scripts/run-desktop-dev.mjs",
     "dev:channels": "node ../../scripts/run-desktop-dev.mjs --channels",

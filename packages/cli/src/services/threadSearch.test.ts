@@ -741,7 +741,10 @@ describe('toMatchExpression', () => {
     assert.equal(expr, '"say" OR "hello"')
   })
 
-  it('handles CJK input', () => {
-    assert.equal(toMatchExpression('搜索'), '"搜索"')
+  it('handles CJK input with trigram length limits', () => {
+    // 3+ character runs match as trigram substrings; shorter words return ''
+    // so the caller falls back to LIKE.
+    assert.equal(toMatchExpression('数据库迁移'), '"数据库迁移"')
+    assert.equal(toMatchExpression('搜索'), '')
   })
 })

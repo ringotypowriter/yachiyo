@@ -132,5 +132,9 @@ export const IPC_CHANNELS = {
   revertSnapshotFile: 'yachiyo:revert-snapshot-file',
   revertSnapshotRun: 'yachiyo:revert-snapshot-run',
   listRunSnapshots: 'yachiyo:list-run-snapshots',
-  restoreToCheckpoint: 'yachiyo:restore-to-checkpoint'
+  restoreToCheckpoint: 'yachiyo:restore-to-checkpoint',
+  runtimeHealth: 'yachiyo:runtime-health',
+  runtimeHealthStatus: 'yachiyo:runtime-health-status',
+  restartRuntime: 'yachiyo:restart-runtime',
+  openLogsFolder: 'yachiyo:open-logs-folder'
 } as const

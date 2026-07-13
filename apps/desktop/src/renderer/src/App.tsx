@@ -28,6 +28,10 @@ import { ThingsPage, ThingsPanelTopControls } from '@renderer/features/things/co
 import { ToastPresenter } from '@renderer/features/notifications/components/ToastPresenter'
 import { GlobalProcessingModal } from '@renderer/components/GlobalProcessingModal'
 import { theme } from '@renderer/theme/theme'
+import {
+  ONBOARDING_DISMISSED_STORAGE_KEY,
+  shouldShowOnboarding
+} from '@renderer/features/onboarding/onboardingSetup'
 import { useApplyThemeConfig } from '@renderer/theme/useThemeConfig'
 import { useApplyLanguageConfig } from '@renderer/i18n/useI18nConfig'
 import { loadHeavyMarkdownPlugins } from '@renderer/lib/markdown/heavyMarkdownPlugins'
@@ -37,6 +41,12 @@ import { loadHeavyMarkdownPlugins } from '@renderer/lib/markdown/heavyMarkdownPl
 const SettingsPanel = lazy(() => import('../settings/App'))
 const SettingsSidebarContent = lazy(() =>
   import('../settings/App').then((module) => ({ default: module.SettingsSidebarContent }))
+)
+// First-run only — keeps the provider-icon pack out of the startup bundle.
+const OnboardingOverlay = lazy(() =>
+  import('@renderer/features/onboarding/OnboardingOverlay').then((module) => ({
+    default: module.OnboardingOverlay
+  }))
 )
 
 function SettingsLoadingFallback(): React.JSX.Element {
@@ -118,6 +128,106 @@ function ConnectionOverlay({
   )
 }
 
+function RuntimeCrashOverlay(): React.JSX.Element {
+  const t = useT()
+  const [restarting, setRestarting] = useState(false)
+  const buttonBase: React.CSSProperties = {
+    padding: '7px 16px',
+    borderRadius: 8,
+    border: 'none',
+    cursor: 'pointer',
+    fontSize: 13,
+    fontWeight: 500
+  }
+  return (
+    <div
+      style={{
+        position: 'fixed',
+        inset: 0,
+        zIndex: 10000,
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 16,
+        backdropFilter: 'blur(24px) saturate(1.4)',
+        WebkitBackdropFilter: 'blur(24px) saturate(1.4)',
+        background: theme.background.surfaceLight
+      }}
+    >
+      <div
+        style={{
+          width: 96,
+          height: 96,
+          borderRadius: '50%',
+          overflow: 'hidden',
+          boxShadow: theme.shadow.overlay,
+          filter: 'grayscale(0.6)'
+        }}
+      >
+        <img
+          src={avatarUrl}
+          alt="Yachiyo"
+          style={{
+            display: 'block',
+            width: '100%',
+            height: '100%',
+            objectFit: 'cover',
+            objectPosition: 'center 15%'
+          }}
+        />
+      </div>
+
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
+        <span
+          style={{
+            fontSize: 14,
+            fontWeight: 500,
+            color: theme.text.primary,
+            letterSpacing: '-0.2px'
+          }}
+        >
+          {t('shell.runtimeCrash.title')}
+        </span>
+        <span style={{ fontSize: 12, color: theme.text.muted }}>
+          {t('shell.runtimeCrash.description')}
+        </span>
+      </div>
+
+      <div style={{ display: 'flex', gap: 8 }}>
+        <button
+          type="button"
+          disabled={restarting}
+          onClick={() => {
+            setRestarting(true)
+            void window.api.runtimeHealth.restart().catch(() => setRestarting(false))
+          }}
+          style={{
+            ...buttonBase,
+            cursor: restarting ? 'default' : 'pointer',
+            opacity: restarting ? 0.6 : 1,
+            background: theme.background.accentFill,
+            color: theme.text.onAccentFill
+          }}
+        >
+          {t('shell.runtimeCrash.restart')}
+        </button>
+        <button
+          type="button"
+          onClick={() => void window.api.runtimeHealth.openLogs()}
+          style={{
+            ...buttonBase,
+            background: theme.background.hover,
+            color: theme.text.primary
+          }}
+        >
+          {t('shell.runtimeCrash.openLogs')}
+        </button>
+      </div>
+    </div>
+  )
+}
+
 function App(): React.JSX.Element {
   const {
     isDragging,
@@ -132,6 +242,32 @@ function App(): React.JSX.Element {
   const [overlayMounted, setOverlayMounted] = useState(() => connectionStatus !== 'connected')
   const [overlayExiting, setOverlayExiting] = useState(false)
   const overlayShownAtRef = useRef<number>(0)
+  const [runtimeCrashed, setRuntimeCrashed] = useState(false)
+  const [onboardingDismissed, setOnboardingDismissed] = useState(
+    () => localStorage.getItem(ONBOARDING_DISMISSED_STORAGE_KEY) === '1'
+  )
+
+  const dismissOnboarding = useCallback((): void => {
+    localStorage.setItem(ONBOARDING_DISMISSED_STORAGE_KEY, '1')
+    setOnboardingDismissed(true)
+  }, [])
+
+  useEffect(() => {
+    let disposed = false
+    window.api.runtimeHealth
+      .getStatus()
+      .then((status) => {
+        if (!disposed) setRuntimeCrashed(status.crashed)
+      })
+      .catch(() => {})
+    const unsubscribe = window.api.runtimeHealth.onStatus((status) => {
+      setRuntimeCrashed(status.crashed)
+    })
+    return () => {
+      disposed = true
+      unsubscribe()
+    }
+  }, [])
 
   // Warm the heavy markdown plugin stacks (mermaid/shiki/katex) shortly after
   // first paint so threads opened later render highlighted immediately.
@@ -522,12 +658,28 @@ function App(): React.JSX.Element {
       <ToastPresenter />
       <GlobalProcessingModal />
 
-      {overlayMounted && (
+      {config !== null &&
+        connectionStatus === 'connected' &&
+        !runtimeCrashed &&
+        shouldShowOnboarding({ config, dismissed: onboardingDismissed }) && (
+          <Suspense fallback={null}>
+            <OnboardingOverlay
+              config={config}
+              onSkip={dismissOnboarding}
+              onOpenProviderSettings={() => {
+                dismissOnboarding()
+                handleOpenSettingsRoute('providers')
+              }}
+            />
+          </Suspense>
+        )}
+      {overlayMounted && !runtimeCrashed && (
         <ConnectionOverlay
           status={connectionStatus === 'connected' ? 'connecting' : connectionStatus}
           exiting={overlayExiting}
         />
       )}
+      {runtimeCrashed && <RuntimeCrashOverlay />}
     </div>
   )
 }

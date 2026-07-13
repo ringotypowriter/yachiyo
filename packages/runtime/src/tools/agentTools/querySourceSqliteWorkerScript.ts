@@ -1,4 +1,7 @@
-export const SQLITE_SOURCE_QUERY_WORKER_SCRIPT = `
+import { SQLITE_SOURCE_QUERY_WORKER_TEXT_HELPERS } from './querySourceSqliteWorkerTextHelpers.ts'
+
+export const SQLITE_SOURCE_QUERY_WORKER_SCRIPT =
+  `
 const { parentPort, workerData } = require('node:worker_threads')
 const { createDecipheriv } = require('node:crypto')
 const { readFileSync } = require('node:fs')
@@ -16,70 +19,9 @@ const CONTENT_CONTEXT_RADIUS = 1
 const SPAN_CLUSTER_MAX_GAP = CONTENT_CONTEXT_RADIUS * 2 + 1
 const DETAIL_CONTEXT_RADIUS = 4
 
-function normalizeText(value) {
-  if (typeof value !== 'string') return undefined
-  const trimmed = value.replace(/\\s+/gu, ' ').trim()
-  return trimmed.length > 0 ? trimmed : undefined
-}
-
-function truncate(value, maxLength = 180) {
-  const compact = String(value).replace(/\\s+/gu, ' ').trim()
-  return compact.length > maxLength ? compact.slice(0, maxLength - 3) + '...' : compact
-}
-
-function includesText(value, text) {
-  return typeof value === 'string' && value.toLowerCase().includes(text.toLowerCase())
-}
-
-function tokenizeQuery(query) {
-  return (
-    query
-      .replace(/\\s+/gu, ' ')
-      .trim()
-      .toLowerCase()
-      .match(/[\\p{L}\\p{N}]+/gu) ?? []
-  ).filter(Boolean)
-}
-
-function toMatchExpression(query) {
-  const tokens = tokenizeQuery(query)
-  return tokens.map((token) => '"' + token.replace(/"/gu, '""') + '"').join(' OR ')
-}
-
-function extractSnippet(content, query, maxLength = 120) {
-  const idx = content.toLowerCase().indexOf(query.toLowerCase())
-  if (idx < 0) {
-    return content.length > maxLength ? content.slice(0, maxLength) + '...' : content
-  }
-  const start = Math.max(0, idx - 8)
-  const end = Math.min(content.length, start + maxLength)
-  const snippet = content.slice(start, end)
-  return (start > 0 ? '...' : '') + snippet + (end < content.length ? '...' : '')
-}
-
-function getLimit(limit) {
-  return typeof limit === 'number' && Number.isFinite(limit)
-    ? Math.max(1, Math.min(MAX_LIMIT, Math.trunc(limit)))
-    : DEFAULT_LIMIT
-}
-
-function parseCursor(cursor) {
-  if (typeof cursor !== 'string' || cursor.length === 0) return 0
-  const parsed = Number.parseInt(cursor, 10)
-  return Number.isFinite(parsed) && parsed >= 0 ? parsed : 0
-}
-
-function paginate(rows, input) {
-  const start = parseCursor(input.cursor)
-  const limit = getLimit(input.limit)
-  const sliced = rows.slice(start, start + limit)
-  const nextOffset = start + sliced.length
-  return {
-    rows: sliced,
-    ...(nextOffset < rows.length ? { nextCursor: String(nextOffset) } : {})
-  }
-}
-
+` +
+  SQLITE_SOURCE_QUERY_WORKER_TEXT_HELPERS +
+  `
 function encodeSegment(value) {
   return encodeURIComponent(value)
 }
@@ -531,63 +473,124 @@ function queryTextThreadSpans(db, input, text) {
   const where = input.where ?? {}
   const limit = getLimit(input.limit)
   const scanLimit = parseCursor(input.cursor) + limit + 1
-  const matchExpr = toMatchExpression(text)
-  if (matchExpr.length === 0) return { rows: [] }
+  const plan = buildFtsSearchPlan(text)
+  if (plan.matchExpr.length === 0 && plan.likePatterns.length === 0) return { rows: [] }
   const view = input.view ?? 'index'
   const contextRadius = getThreadSpanContextRadius(view)
 
-  const titleClauses = [visibilityClause(), 'threads_fts MATCH ?']
-  const titleParams = [matchExpr]
-  appendThreadFilters(titleClauses, titleParams, where)
-  titleParams.push(scanLimit)
-  const titleRows = db
-    .prepare(
-      \`SELECT threads.id AS id, bm25(threads_fts, 3.0, 1.0) AS bm25
-       FROM threads_fts
-       JOIN threads ON threads.rowid = threads_fts.rowid
-       LEFT JOIN channel_users ON channel_users.id = threads.channel_user_id
-       WHERE \${titleClauses.join(' AND ')}
-       ORDER BY bm25(threads_fts, 3.0, 1.0) ASC
-       LIMIT ?\`
-    )
-    .all(...titleParams)
+  function runTitleQuery(useFts) {
+    const clauses = [visibilityClause()]
+    const params = []
+    if (useFts) {
+      clauses.push('threads_fts MATCH ?')
+      params.push(plan.matchExpr)
+    } else {
+      clauses.push(
+        '(' +
+          plan.likePatterns
+            .map(() => '(threads.title LIKE ? OR threads.preview LIKE ?)')
+            .join(' OR ') +
+          ')'
+      )
+      for (const pattern of plan.likePatterns) params.push(pattern, pattern)
+    }
+    appendThreadFilters(clauses, params, where)
+    params.push(scanLimit)
+    return db
+      .prepare(
+        (useFts
+          ? \`SELECT threads.id AS id, bm25(threads_fts, 3.0, 1.0) AS bm25
+             FROM threads_fts
+             JOIN threads ON threads.rowid = threads_fts.rowid\`
+          : \`SELECT threads.id AS id, 0 AS bm25
+             FROM threads\`) +
+          \`
+         LEFT JOIN channel_users ON channel_users.id = threads.channel_user_id
+         WHERE \${clauses.join(' AND ')}
+         ORDER BY \${useFts ? 'bm25(threads_fts, 3.0, 1.0) ASC' : 'threads.updated_at DESC'}
+         LIMIT ?\`
+      )
+      .all(...params)
+  }
+
+  // FTS hits first (BM25-ranked), then LIKE hits for the short tokens the
+  // trigram index cannot match; dedupe keeps the better-ranked occurrence.
+  const titleRows = []
+  const seenTitleIds = new Set()
+  const collectTitleRows = (rows) => {
+    for (const row of rows) {
+      if (!seenTitleIds.has(row.id)) {
+        seenTitleIds.add(row.id)
+        titleRows.push(row)
+      }
+    }
+  }
+  if (plan.matchExpr.length > 0) collectTitleRows(runTitleQuery(true))
+  if (plan.likePatterns.length > 0) collectTitleRows(runTitleQuery(false))
   const titleIds = titleRows.map((row) => row.id)
   const titleBm25ByThread = new Map(titleRows.map((row) => [row.id, row.bm25]))
 
   const messageLimit = Math.min(Math.max(scanLimit * 8, 40), 400)
-  const messageClauses = [
-    visibilityClause(),
-    'messages.hidden IS NULL',
-    'messages_fts MATCH ?'
-  ]
-  const messageParams = [matchExpr]
-  appendThreadFilters(messageClauses, messageParams, where)
-  appendMessageTimeFilters(messageClauses, messageParams, where)
-  messageParams.push(messageLimit)
-  const messageOrder =
-    input.orderBy === 'timeAsc'
-      ? 'messages.created_at ASC'
-      : input.orderBy === 'timeDesc'
-        ? 'messages.created_at DESC'
-        : 'bm25(messages_fts) ASC, messages.created_at ASC'
-  const messageMatches = db
-    .prepare(
-      \`SELECT
-         threads.id AS threadId,
-         messages.id AS messageId,
-         messages.role AS role,
-         messages.created_at AS createdAt,
-         messages.content AS content,
-         bm25(messages_fts) AS bm25
-       FROM messages_fts
-       JOIN messages ON messages.rowid = messages_fts.rowid
-       JOIN threads ON threads.id = messages.thread_id
-       LEFT JOIN channel_users ON channel_users.id = threads.channel_user_id
-       WHERE \${messageClauses.join(' AND ')}
-       ORDER BY \${messageOrder}
-       LIMIT ?\`
-    )
-    .all(...messageParams)
+  function runMessageQuery(useFts) {
+    const clauses = [visibilityClause(), 'messages.hidden IS NULL']
+    const params = []
+    if (useFts) {
+      clauses.push('messages_fts MATCH ?')
+      params.push(plan.matchExpr)
+    } else {
+      clauses.push(
+        '(' + plan.likePatterns.map(() => 'messages.content LIKE ?').join(' OR ') + ')'
+      )
+      params.push(...plan.likePatterns)
+    }
+    appendThreadFilters(clauses, params, where)
+    appendMessageTimeFilters(clauses, params, where)
+    params.push(messageLimit)
+    const order =
+      input.orderBy === 'timeAsc'
+        ? 'messages.created_at ASC'
+        : input.orderBy === 'timeDesc'
+          ? 'messages.created_at DESC'
+          : useFts
+            ? 'bm25(messages_fts) ASC, messages.created_at ASC'
+            : 'messages.created_at DESC'
+    return db
+      .prepare(
+        \`SELECT
+           threads.id AS threadId,
+           messages.id AS messageId,
+           messages.role AS role,
+           messages.created_at AS createdAt,
+           messages.content AS content,
+           \${useFts ? 'bm25(messages_fts)' : '0'} AS bm25
+         \` +
+          (useFts
+            ? \`FROM messages_fts
+               JOIN messages ON messages.rowid = messages_fts.rowid
+               JOIN threads ON threads.id = messages.thread_id\`
+            : \`FROM messages
+               JOIN threads ON threads.id = messages.thread_id\`) +
+          \`
+         LEFT JOIN channel_users ON channel_users.id = threads.channel_user_id
+         WHERE \${clauses.join(' AND ')}
+         ORDER BY \${order}
+         LIMIT ?\`
+      )
+      .all(...params)
+  }
+
+  const messageMatches = []
+  const seenMessageIds = new Set()
+  const collectMessageRows = (rows) => {
+    for (const row of rows) {
+      if (!seenMessageIds.has(row.messageId)) {
+        seenMessageIds.add(row.messageId)
+        messageMatches.push(row)
+      }
+    }
+  }
+  if (plan.matchExpr.length > 0) collectMessageRows(runMessageQuery(true))
+  if (plan.likePatterns.length > 0) collectMessageRows(runMessageQuery(false))
 
   const messageMatchesByThread = new Map()
   for (const match of messageMatches) {

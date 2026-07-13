@@ -4,6 +4,7 @@ import test from 'node:test'
 import {
   createProviderConfig,
   computeImageIncapableForNewModels,
+  hasUsableProvider,
   isKnownImageIncapableModel,
   isModelImageCapable,
   modelOverrideTargetsProvider,
@@ -338,4 +339,16 @@ test('computeImageIncapableForNewModels returns undefined when no matches', () =
     ['gpt-4o', 'claude-sonnet-4-20250514']
   )
   assert.equal(result, undefined)
+})
+
+test('hasUsableProvider requires at least one provider with an enabled model', () => {
+  const empty = createProviderConfig([], findProviderPreset('anthropic'))
+  assert.equal(hasUsableProvider({ providers: [] }), false)
+  assert.equal(hasUsableProvider({ providers: [empty] }), false)
+
+  const usable = {
+    ...empty,
+    modelList: { enabled: ['claude-sonnet-5'], disabled: [] }
+  }
+  assert.equal(hasUsableProvider({ providers: [empty, usable] }), true)
 })

@@ -214,6 +214,26 @@ test('returns archived threads by message content when scope is archived', () =>
   assert.equal(hit.messageMatches[0]?.messageId, 'msg-3')
 })
 
+test('searchThreadsAndMessagesFts matches short CJK queries via substring fallback', () => {
+  const storage = setupStorage()
+  storage.createThread({
+    thread: makeThread({ id: 'thread-zh', title: '数据库迁移讨论', updatedAt: NOW }),
+    createdAt: NOW,
+    messages: [
+      makeMessage({
+        id: 'msg-zh',
+        threadId: 'thread-zh',
+        content: '我们在评审数据库迁移的方案，顺便聊聊搜索功能',
+        createdAt: NOW
+      })
+    ]
+  })
+  // Two-character word — below the trigram minimum; the sqlite implementation
+  // falls back to LIKE and must still return the thread, matching this mock.
+  const results = storage.searchThreadsAndMessagesFts({ query: '搜索' })
+  assert.ok(results.find((r) => r.threadId === 'thread-zh'))
+})
+
 test('searchThreadsAndMessagesFts excludes private threads by default', () => {
   const storage = setupStorage()
   storage.setThreadPrivacyMode({ threadId: 'thread-1', privacyMode: true, updatedAt: NOW })

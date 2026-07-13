@@ -179,6 +179,17 @@ const RUNTIME_RESTART_WINDOW_MS = 60_000
 const RUNTIME_RESTART_LIMIT = 3
 let runtimeRestartTimes: number[] = []
 let utilityRuntimeStopping = false
+// True once the crash-loop breaker trips; the renderer shows a blocking
+// overlay with a manual restart action.
+let runtimeCrashed = false
+
+function broadcastRuntimeHealth(): void {
+  for (const window of BrowserWindow.getAllWindows()) {
+    if (!window.isDestroyed()) {
+      window.webContents.send(IPC_CHANNELS.runtimeHealthStatus, { crashed: runtimeCrashed })
+    }
+  }
+}
 let commandSocket: CommandSocketHandle | null = null
 let commandSocketHealthTimer: ReturnType<typeof setInterval> | null = null
 let commandSocketRecoveryRegistered = false
@@ -488,6 +499,7 @@ function startUtilityRuntime(): void {
     trackActiveRunEvent(serverEvent)
     broadcastYachiyoEvent(serverEvent)
   })
+  runtimeCrashed = false
   host.child.on('exit', (code) => {
     if (utilityRuntimeStopping) return
     console.error(`[runtime-host] utility process exited unexpectedly (code=${code})`)
@@ -503,8 +515,10 @@ function startUtilityRuntime(): void {
     )
     if (runtimeRestartTimes.length >= RUNTIME_RESTART_LIMIT) {
       console.error(
-        '[runtime-host] crashed repeatedly; giving up on automatic restarts — restart Yachiyo manually'
+        '[runtime-host] crashed repeatedly; giving up on automatic restarts — waiting for a manual restart'
       )
+      runtimeCrashed = true
+      broadcastRuntimeHealth()
       return
     }
     runtimeRestartTimes.push(now)
@@ -921,6 +935,38 @@ export function registerYachiyoGateway(): YachiyoGatewayHandle {
     const skillsDir = join(resolveYachiyoDataDir(), 'skills')
     await mkdir(skillsDir, { recursive: true })
     await shell.openPath(skillsDir)
+  })
+  handleYachiyoIpc(IPC_CHANNELS.runtimeHealth, () => ({ crashed: runtimeCrashed }))
+  handleYachiyoIpc(IPC_CHANNELS.restartRuntime, async () => {
+    // Manual recovery, only meaningful after the crash-loop breaker tripped:
+    // the child is dead and no 'exit' event is pending. Restarting a LIVE
+    // runtime would race its async exit delivery — the old child's exit
+    // handler would fire after the flag reset below and kill the fresh fork.
+    if (!USE_UTILITY_RUNTIME || !runtimeCrashed) return { restarted: false }
+    utilityRuntimeStopping = true
+    try {
+      serverRpc?.dispose()
+      serverRpc = null
+      browserAutomationService?.dispose()
+      browserAutomationService = null
+      utilityActiveRunIds.clear()
+      // Clearing the restart history re-arms the automatic refork policy.
+      runtimeRestartTimes = []
+      startUtilityRuntime()
+    } finally {
+      utilityRuntimeStopping = false
+    }
+    broadcastRuntimeHealth()
+    for (const window of BrowserWindow.getAllWindows()) {
+      if (!window.isDestroyed()) {
+        window.webContents.reloadIgnoringCache()
+      }
+    }
+    return { restarted: true }
+  })
+  handleYachiyoIpc(IPC_CHANNELS.openLogsFolder, async () => {
+    const { shell } = await import('electron')
+    await shell.openPath(app.getPath('logs'))
   })
   handleYachiyoIpc(
     IPC_CHANNELS.importWebSearchBrowserSession,

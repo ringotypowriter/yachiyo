@@ -2,7 +2,7 @@ import { existsSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { join, resolve } from 'node:path'
 
-import { and, asc, desc, eq, isNull, like, ne, or } from 'drizzle-orm'
+import { and, asc, desc, eq, isNull, ne, or } from 'drizzle-orm'
 import { sql } from 'drizzle-orm'
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3'
 
@@ -70,9 +70,12 @@ export interface MessageSearchHit {
 export { tokenizeQuery, toMatchExpression } from '@yachiyo/runtime/storage/ftsQuery'
 
 import {
+  buildFtsSearchPlan,
   extractSnippet,
-  toMatchExpression as toMatch,
   ftsMessageSearchSql,
+  FTS_TOKENIZE,
+  likeMessageSearchSql,
+  toLikeFallbackPatterns,
   type FtsMessageRow
 } from '@yachiyo/runtime/storage/ftsQuery'
 
@@ -85,85 +88,75 @@ export function searchMessages(
   const trimmed = query.trim()
   if (!trimmed) return []
   if (!existsSync(dbPath)) return []
-  const matchExpr = toMatch(trimmed)
-  if (matchExpr === '') return []
+  const plan = buildFtsSearchPlan(trimmed)
+  if (plan.matchExpr === '' && plan.likePatterns.length === 0) return []
 
   const { BetterSqlite3 } = loadSqliteRuntime()
   const client = new BetterSqlite3(dbPath, { readonly: true })
 
   try {
-    // FTS tables are created by the main server on startup. When the CLI
-    // opens the DB readonly, the index should already exist. If it doesn't
-    // (e.g. user has never launched the app), fall back to LIKE matching.
-    const hasFts = (() => {
+    // The desktop app owns the FTS index; the CLI opens the database
+    // readonly and cannot rebuild it. Only trust the index when it was
+    // built with the current tokenizer — a stale (pre-trigram) index
+    // answers trigram-style MATCH expressions with silently empty results.
+    const hasCurrentFtsIndex = (() => {
       try {
-        client.prepare('SELECT COUNT(*) FROM messages_fts').get()
-        return true
+        const row = client
+          .prepare(`SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'messages_fts'`)
+          .get() as { sql?: string } | undefined
+        return typeof row?.sql === 'string' && row.sql.includes(FTS_TOKENIZE)
       } catch {
         return false
       }
     })()
 
     const privacyClause = includePrivate ? '' : 'AND threads.privacy_mode IS NULL'
-
-    if (hasFts) {
-      try {
-        const rows = client
-          .prepare(ftsMessageSearchSql(privacyClause))
-          .all(matchExpr, limit) as FtsMessageRow[]
-
-        return rows.map((row) => ({
+    const hits: MessageSearchHit[] = []
+    const seenMessageIds = new Set<string>()
+    const collect = (rows: FtsMessageRow[]): void => {
+      for (const row of rows) {
+        if (seenMessageIds.has(row.messageId)) continue
+        seenMessageIds.add(row.messageId)
+        hits.push({
           threadId: row.threadId,
           threadTitle: row.threadTitle,
           messageId: row.messageId,
           role: row.role as 'user' | 'assistant',
           date: row.createdAt.slice(0, 10),
           snippet: extractSnippet(row.content, trimmed)
-        }))
-      } catch {
-        // FTS index exists but the query failed (corrupt index, schema
-        // mismatch, etc.).  The CLI opens the DB readonly so it cannot
-        // repair — fall through to the LIKE path instead of aborting.
+        })
       }
     }
 
-    // Fallback: LIKE-based search when FTS index is unavailable or broken
-    const { drizzle } = loadSqliteRuntime()
-    const db = drizzle(client, { schema })
-    const rows = db
-      .select({
-        threadId: threadsTable.id,
-        threadTitle: threadsTable.title,
-        messageId: messagesTable.id,
-        role: messagesTable.role,
-        createdAt: messagesTable.createdAt,
-        content: messagesTable.content
-      })
-      .from(messagesTable)
-      .innerJoin(threadsTable, eq(messagesTable.threadId, threadsTable.id))
-      .leftJoin(channelUsersTable, eq(threadsTable.channelUserId, channelUsersTable.id))
-      .where(
-        and(
-          isNull(threadsTable.archivedAt),
-          isNull(threadsTable.channelGroupId),
-          isNull(messagesTable.hidden),
-          like(messagesTable.content, `%${trimmed.replace(/[%_]/g, '')}%`),
-          or(isNull(channelUsersTable.id), ne(channelUsersTable.role, 'guest')),
-          ...(includePrivate ? [] : [isNull(threadsTable.privacyMode)])
-        )
-      )
-      .orderBy(desc(threadsTable.updatedAt), asc(messagesTable.createdAt))
-      .limit(limit)
-      .all()
+    // Short tokens the trigram index cannot match are supplemented via LIKE;
+    // when the index is unusable or broken, LIKE covers every token.
+    let likePatterns = plan.likePatterns
+    if (plan.matchExpr !== '') {
+      if (hasCurrentFtsIndex) {
+        try {
+          collect(
+            client
+              .prepare(ftsMessageSearchSql(privacyClause))
+              .all(plan.matchExpr, limit) as FtsMessageRow[]
+          )
+        } catch {
+          // Corrupt index — the CLI cannot repair it; degrade to LIKE.
+          likePatterns = toLikeFallbackPatterns(trimmed)
+        }
+      } else {
+        likePatterns = toLikeFallbackPatterns(trimmed)
+      }
+    }
 
-    return rows.map((row) => ({
-      threadId: row.threadId,
-      threadTitle: row.threadTitle,
-      messageId: row.messageId,
-      role: row.role,
-      date: row.createdAt.slice(0, 10),
-      snippet: extractSnippet(row.content, trimmed)
-    }))
+    if (likePatterns.length > 0 && hits.length < limit) {
+      collect(
+        client
+          .prepare(likeMessageSearchSql(privacyClause, likePatterns.length))
+          .all(...likePatterns, limit) as FtsMessageRow[]
+      )
+    }
+
+    return hits.slice(0, limit)
   } finally {
     client.close()
   }

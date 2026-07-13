@@ -7,6 +7,7 @@ import { jotdown } from './jotdown.ts'
 import { layout } from './layout.ts'
 import { main } from './main.ts'
 import { notifications } from './notifications.ts'
+import { onboarding } from './onboarding.ts'
 import { runs } from './runs.ts'
 import { search } from './search.ts'
 import { settings } from './settings/index.ts'
@@ -25,6 +26,7 @@ export const zhCN = {
   runs,
   search,
   notifications,
+  onboarding,
   essentials,
   shell,
   main,

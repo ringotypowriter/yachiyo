@@ -1,3 +1,4 @@
+import { FTS_TOKENIZE } from '../ftsQuery.ts'
 import type { BetterSqlite3Client } from './sqliteRuntime.ts'
 
 // ---------------------------------------------------------------------------
@@ -19,13 +20,17 @@ const FTS_TRIGGER_DROP_DDL = `
   DROP TRIGGER IF EXISTS messages_fts_au;
 `
 
+// The trigram tokenizer (FTS_TOKENIZE, shared with the CLI via ftsQuery.ts)
+// gives substring matching, which is what makes CJK text searchable:
+// unicode61 turned an entire run of Han characters into a single token, so
+// Chinese content only matched on exact whole-run queries.
 const FTS_DDL = `
   CREATE VIRTUAL TABLE IF NOT EXISTS threads_fts USING fts5(
     title,
     preview,
     content='threads',
     content_rowid='rowid',
-    tokenize='unicode61 remove_diacritics 2'
+    ${FTS_TOKENIZE}
   );
 
   CREATE TRIGGER IF NOT EXISTS threads_fts_ai AFTER INSERT ON threads BEGIN
@@ -49,7 +54,7 @@ const FTS_DDL = `
     content,
     content='messages',
     content_rowid='rowid',
-    tokenize='unicode61 remove_diacritics 2'
+    ${FTS_TOKENIZE}
   );
 
   CREATE TRIGGER IF NOT EXISTS messages_fts_ai AFTER INSERT ON messages BEGIN
@@ -84,19 +89,61 @@ function resetThreadSearchIndex(client: BetterSqlite3Client): void {
   client.exec(FTS_DDL)
 }
 
+function countRows(client: BetterSqlite3Client, table: string): number {
+  const row = client.prepare(`SELECT COUNT(*) AS count FROM ${table}`).get() as { count?: number }
+  return row.count ?? 0
+}
+
+// COUNT(*) on an external-content FTS5 table reads through to the content
+// table, so it can never detect an empty index. The _docsize shadow table
+// holds one row per actually-indexed document.
 function rebuildFtsTable(
   client: BetterSqlite3Client,
   ftsTable: string,
   backingTable: string
 ): void {
-  const ftsCount = client.prepare(`SELECT COUNT(*) AS count FROM ${ftsTable}`).get() as {
-    count?: number
-  }
-  const srcCount = client.prepare(`SELECT COUNT(*) AS count FROM ${backingTable}`).get() as {
-    count?: number
-  }
-  if ((ftsCount.count ?? 0) === 0 && (srcCount.count ?? 0) > 0) {
+  const backingCount = countRows(client, backingTable)
+  if (countRows(client, `${ftsTable}_docsize`) === 0 && backingCount > 0) {
+    const startedAt = Date.now()
     client.prepare(`INSERT INTO ${ftsTable}(${ftsTable}) VALUES ('rebuild')`).run()
+    console.warn(
+      `[fts] rebuilt ${ftsTable} from ${backingTable} (${backingCount} rows in ${Date.now() - startedAt}ms)`
+    )
+  }
+}
+
+function ftsRebuildPending(client: BetterSqlite3Client): boolean {
+  return (
+    (countRows(client, 'threads_fts_docsize') === 0 && countRows(client, 'threads') > 0) ||
+    (countRows(client, 'messages_fts_docsize') === 0 && countRows(client, 'messages') > 0)
+  )
+}
+
+function rebuildAllFtsTables(client: BetterSqlite3Client): void {
+  try {
+    rebuildFtsTable(client, 'threads_fts', 'threads')
+    rebuildFtsTable(client, 'messages_fts', 'messages')
+  } catch (error) {
+    // Rebuild failed — the FTS shadow tables are likely corrupt. Drop
+    // everything and recreate so the triggers don't block normal writes.
+    console.error('[fts] search index rebuild failed; resetting the index', error)
+    resetThreadSearchIndex(client)
+    try {
+      rebuildFtsTable(client, 'threads_fts', 'threads')
+      rebuildFtsTable(client, 'messages_fts', 'messages')
+    } catch (retryError) {
+      // Second rebuild also failed — leave the recreated empty index so the
+      // app stays functional. Search is unavailable until the next restart.
+      console.error(
+        '[fts] search index rebuild failed twice; search stays empty until the next restart',
+        retryError
+      )
+      try {
+        resetThreadSearchIndex(client)
+      } catch {
+        // Database likely closed mid-rebuild (e.g. app shutdown).
+      }
+    }
   }
 }
 
@@ -122,25 +169,45 @@ export function repairRunRequestMessageIds(client: BetterSqlite3Client): void {
     .run()
 }
 
-export function ensureThreadSearchIndex(client: BetterSqlite3Client): void {
+/**
+ * True when an existing FTS table was created with a different tokenizer
+ * (pre-trigram databases). The index must then be dropped and rebuilt —
+ * FTS5 cannot retokenize in place.
+ */
+function hasStaleTokenizer(client: BetterSqlite3Client): boolean {
+  const rows = client
+    .prepare(
+      `SELECT sql FROM sqlite_master WHERE type = 'table' AND name IN ('threads_fts', 'messages_fts')`
+    )
+    .all() as Array<{ sql?: string }>
+  return rows.some((row) => typeof row.sql === 'string' && !row.sql.includes(FTS_TOKENIZE))
+}
+
+export interface EnsureThreadSearchIndexOptions {
+  /**
+   * When provided, a pending full-index rebuild (tokenizer migration, or an
+   * empty index behind a populated table) runs through this scheduler
+   * instead of blocking the caller. The runtime boot path defers it so a
+   * large re-index cannot freeze startup; search returns partial results
+   * until the rebuild lands.
+   */
+  scheduleRebuild?: (rebuild: () => void) => void
+}
+
+export function ensureThreadSearchIndex(
+  client: BetterSqlite3Client,
+  options: EnsureThreadSearchIndexOptions = {}
+): void {
   client.exec(FTS_TRIGGER_DROP_DDL)
+  if (hasStaleTokenizer(client)) {
+    console.warn('[fts] tokenizer changed; dropping the search index for a full re-index')
+    resetThreadSearchIndex(client)
+  }
   client.exec(FTS_DDL)
 
-  try {
-    rebuildFtsTable(client, 'threads_fts', 'threads')
-    rebuildFtsTable(client, 'messages_fts', 'messages')
-  } catch {
-    // Rebuild failed — the FTS shadow tables are likely corrupt.
-    // Drop everything and recreate from scratch so the triggers don't
-    // block normal database writes.
-    resetThreadSearchIndex(client)
-    try {
-      rebuildFtsTable(client, 'threads_fts', 'threads')
-      rebuildFtsTable(client, 'messages_fts', 'messages')
-    } catch {
-      // Second rebuild also failed — drop FTS entirely to keep the app
-      // functional. Thread search will be unavailable until next restart.
-      resetThreadSearchIndex(client)
-    }
+  if (options.scheduleRebuild && ftsRebuildPending(client)) {
+    options.scheduleRebuild(() => rebuildAllFtsTables(client))
+  } else {
+    rebuildAllFtsTables(client)
   }
 }

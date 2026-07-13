@@ -112,6 +112,12 @@ declare global {
           listener: (status: { state: string; version?: string; error?: string }) => void
         ) => () => void
       }
+      runtimeHealth: {
+        getStatus: () => Promise<{ crashed: boolean }>
+        restart: () => Promise<{ restarted: boolean }>
+        openLogs: () => Promise<void>
+        onStatus: (listener: (status: { crashed: boolean }) => void) => () => void
+      }
       yachiyo: {
         searchThreadsAndMessages: (
           input: SearchThreadsAndMessagesInput

@@ -152,6 +152,16 @@ export function createDefaultModeToolModelConfig(): Required<ToolModelConfig> {
   }
 }
 
+/**
+ * True when at least one provider has an enabled model — the minimum for the
+ * app to send a chat. Presets merged with empty keys/models do not count.
+ */
+export function hasUsableProvider(config: {
+  providers: ReadonlyArray<Pick<ProviderConfig, 'modelList'>>
+}): boolean {
+  return config.providers.some((provider) => provider.modelList.enabled.length > 0)
+}
+
 export function createProviderConfig(
   existingNames: readonly string[],
   preset?: ProviderPreset

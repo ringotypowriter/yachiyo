@@ -51,6 +51,6 @@ export function createSqliteYachiyoServerOptions(
     },
     storage: shouldUseDemoStorage
       ? createDemoYachiyoStorage()
-      : createSqliteYachiyoStorage(options.dbPath)
+      : createSqliteYachiyoStorage(options.dbPath, { deferSearchIndexRebuild: true })
   }
 }
