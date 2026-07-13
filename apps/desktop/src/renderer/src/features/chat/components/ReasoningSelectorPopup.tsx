@@ -1,10 +1,12 @@
 import type React from 'react'
 import { useEffect, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { Check } from 'lucide-react'
 import { theme } from '@renderer/theme/theme'
 import type { ComposerReasoningSelection } from '@renderer/app/types'
 import { isDismissEscapeKey } from '@renderer/lib/imeUtils'
 import { useRestoreFocusOnUnmount } from '@renderer/lib/focusRestore'
+import { useFloatingPanelLayout } from '@renderer/lib/useFloatingPanelLayout'
 import { useT } from '@yachiyo/i18n/react'
 import { getReasoningSelectionCopy } from '../lib/composer/reasoningSelectionLabel'
 import { SettingsShortcutButton } from './SettingsShortcutButton'
@@ -13,15 +15,28 @@ export function ReasoningSelectorPopup({
   options,
   selected,
   onSelect,
-  onClose
+  onClose,
+  triggerRef
 }: {
   options: ComposerReasoningSelection[]
   selected: ComposerReasoningSelection
   onSelect: (selection: ComposerReasoningSelection) => void
   onClose: () => void
+  triggerRef: React.RefObject<HTMLElement | null>
 }): React.ReactNode {
   const t = useT()
   const [visible, setVisible] = useState(false)
+  const {
+    floatingRef,
+    layout,
+    style: positionStyle
+  } = useFloatingPanelLayout({
+    open: true,
+    referenceRef: triggerRef,
+    width: 260,
+    maxHeight: 360,
+    preferredPlacement: 'top'
+  })
   useRestoreFocusOnUnmount()
 
   useEffect(() => {
@@ -39,15 +54,14 @@ export function ReasoningSelectorPopup({
     return () => document.removeEventListener('keydown', handleKeyDown)
   }, [onClose])
 
-  return (
+  return createPortal(
     <div
+      ref={floatingRef}
+      data-composer-floating-menu
       role="menu"
       aria-label={t('chat.composer.reasoningEffort')}
       style={{
-        position: 'absolute',
-        bottom: 'calc(100% + 8px)',
-        left: 0,
-        width: 260,
+        ...positionStyle,
         background: theme.background.surfaceFrosted,
         backdropFilter: 'blur(24px)',
         WebkitBackdropFilter: 'blur(24px)',
@@ -57,9 +71,13 @@ export function ReasoningSelectorPopup({
         overflow: 'hidden',
         display: 'flex',
         flexDirection: 'column',
-        zIndex: 50,
+        zIndex: 120,
         opacity: visible ? 1 : 0,
-        transform: visible ? 'translateY(0)' : 'translateY(6px)',
+        transform: visible
+          ? 'translateY(0)'
+          : layout?.placement === 'bottom'
+            ? 'translateY(-6px)'
+            : 'translateY(6px)',
         transition: 'opacity 0.15s ease, transform 0.15s ease'
       }}
     >
@@ -89,7 +107,7 @@ export function ReasoningSelectorPopup({
         </div>
       </div>
 
-      <div style={{ padding: '6px 0' }}>
+      <div style={{ padding: '6px 0', minHeight: 0, overflowY: 'auto' }}>
         {options.map((option) => {
           const active = option === selected
           const copy = getReasoningSelectionCopy(option)
@@ -157,6 +175,7 @@ export function ReasoningSelectorPopup({
           )
         })}
       </div>
-    </div>
+    </div>,
+    document.body
   )
 }

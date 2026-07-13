@@ -6,6 +6,7 @@ import { theme } from '@renderer/theme/theme'
 import { useT } from '@yachiyo/i18n/react'
 import { isDismissEscapeKey } from '@renderer/lib/imeUtils'
 import { useRestoreFocusOnUnmount } from '@renderer/lib/focusRestore'
+import { useFloatingPanelLayout } from '@renderer/lib/useFloatingPanelLayout'
 
 export interface SlashCommand {
   key: string
@@ -105,7 +106,8 @@ export function SlashCommandPopup({
   emptyState,
   leftOffset = 0,
   anchorRect,
-  portal = false
+  portal = false,
+  triggerRef
 }: {
   commands: SlashCommand[]
   selectedIndex: number
@@ -116,10 +118,24 @@ export function SlashCommandPopup({
   leftOffset?: number
   anchorRect?: DOMRect | null
   portal?: boolean
+  triggerRef?: React.RefObject<HTMLElement | null>
 }): React.ReactNode {
   const t = useT()
   const [visible, setVisible] = useState(false)
   const selectedOptionRef = useRef<HTMLButtonElement | null>(null)
+  const {
+    floatingRef,
+    layout: popupLayout,
+    style: responsivePopupStyle
+  } = useFloatingPanelLayout({
+    open: true,
+    anchor: anchorRect,
+    referenceRef: anchorRect ? undefined : triggerRef,
+    width: 280,
+    maxHeight: 420,
+    preferredPlacement: 'top',
+    margin: 8
+  })
   useRestoreFocusOnUnmount()
 
   useEffect(() => {
@@ -150,30 +166,20 @@ export function SlashCommandPopup({
     }
   }
 
-  const popupWidth = 280
-  const margin = 8
-  const popupMaxHeight = Math.max(180, Math.min(420, window.innerHeight - 96))
-  const popupLeft = anchorRect
-    ? Math.max(margin, Math.min(anchorRect.left, window.innerWidth - popupWidth - margin))
-    : leftOffset
-
   const popupStyle: React.CSSProperties =
-    portal && anchorRect
-      ? {
-          position: 'fixed',
-          bottom: window.innerHeight - anchorRect.top + 8,
-          left: popupLeft,
-          width: popupWidth
-        }
+    (portal && anchorRect) || triggerRef
+      ? responsivePopupStyle
       : {
           position: 'absolute',
           bottom: 'calc(100% + 8px)',
-          left: popupLeft,
-          width: popupWidth
+          left: leftOffset,
+          width: 280
         }
 
   const popup = (
     <div
+      ref={floatingRef}
+      data-composer-floating-menu
       role="listbox"
       aria-label={t('chat.slashCommands.ariaLabel')}
       style={{
@@ -189,7 +195,11 @@ export function SlashCommandPopup({
         flexDirection: 'column',
         zIndex: 50,
         opacity: visible ? 1 : 0,
-        transform: visible ? 'translateY(0)' : 'translateY(6px)',
+        transform: visible
+          ? 'translateY(0)'
+          : popupLayout?.placement === 'bottom'
+            ? 'translateY(-6px)'
+            : 'translateY(6px)',
         transition: 'opacity 0.15s ease, transform 0.15s ease'
       }}
     >
@@ -209,7 +219,7 @@ export function SlashCommandPopup({
         <div
           onScroll={handleCommandListScroll}
           style={{
-            maxHeight: popupMaxHeight - 35,
+            maxHeight: Math.max(0, (popupLayout?.maxHeight ?? 420) - 35),
             overflowY: 'auto',
             overscrollBehavior: 'contain'
           }}
@@ -304,7 +314,7 @@ export function SlashCommandPopup({
     </div>
   )
 
-  if (portal && anchorRect) {
+  if ((portal && anchorRect) || triggerRef) {
     return createPortal(popup, document.body)
   }
 

@@ -5,6 +5,7 @@ import { FolderOpen, FolderClosed, PenLine, Trash2, Archive, RotateCcw } from 'l
 import type { FolderColorTag, FolderRecord } from '@renderer/app/types'
 import { imeSafeEnter, isDismissEscapeKey } from '@renderer/lib/imeUtils'
 import { useRestoreFocusOnUnmount } from '@renderer/lib/focusRestore'
+import { useFloatingPanelLayout } from '@renderer/lib/useFloatingPanelLayout'
 import { useT } from '@yachiyo/i18n/react'
 import { theme } from '@renderer/theme/theme'
 import {
@@ -200,9 +201,14 @@ function FolderContextMenu({
   onClose: () => void
 }): React.JSX.Element {
   const t = useT()
-  const menuRef = useRef<HTMLDivElement>(null)
-  const [resolvedTop, setResolvedTop] = useState(y)
-  const menuWidth = 220
+  const { floatingRef: menuRef, style: menuPositionStyle } = useFloatingPanelLayout({
+    open: true,
+    anchor: { top: y, right: x, bottom: y, left: x },
+    width: 220,
+    maxHeight: 520,
+    preferredPlacement: 'bottom',
+    gap: 0
+  })
   useRestoreFocusOnUnmount()
 
   useEffect(() => {
@@ -221,18 +227,6 @@ function FolderContextMenu({
     }
   }, [onClose])
 
-  useEffect(() => {
-    const el = menuRef.current
-    if (!el) return
-    const menuHeight = el.offsetHeight
-    const margin = 12
-    if (y + menuHeight > window.innerHeight - margin) {
-      setResolvedTop(Math.max(margin, y - menuHeight))
-    } else {
-      setResolvedTop(y)
-    }
-  }, [y])
-
   return createPortal(
     <div
       ref={menuRef}
@@ -241,10 +235,7 @@ function FolderContextMenu({
       className="no-drag"
       data-no-drag
       style={{
-        position: 'fixed',
-        left: Math.max(12, Math.min(x, window.innerWidth - menuWidth - 12)),
-        top: resolvedTop,
-        width: menuWidth,
+        ...menuPositionStyle,
         padding: 6,
         background: theme.background.surfaceFrosted,
         backdropFilter: 'blur(24px)',
@@ -252,7 +243,9 @@ function FolderContextMenu({
         border: `1px solid ${theme.border.strong}`,
         borderRadius: 14,
         boxShadow: theme.shadow.menu,
-        zIndex: 100
+        zIndex: 100,
+        overflowY: 'auto',
+        overscrollBehavior: 'contain'
       }}
     >
       <MenuItem icon={<PenLine size={14} strokeWidth={1.7} />} onClick={onRename}>

@@ -1,6 +1,7 @@
 /* eslint-disable react-refresh/only-export-components */
 import type React from 'react'
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { t, tPlural } from '@yachiyo/i18n/index'
 import { useT } from '@yachiyo/i18n/react'
 import { isThingMentionToken } from '@yachiyo/shared/thingMentions'
@@ -22,6 +23,7 @@ import type { Message, RunRecord, TodoItemRecord } from '@renderer/app/types'
 import type { ChatInputBufferPayload } from '@renderer/features/chat/lib/composer/chatInputBuffer'
 import { getTodoProgressCount } from '@renderer/features/chat/lib/todo-progress/todoProgressPresentation'
 import { theme } from '@renderer/theme/theme'
+import { useFloatingPanelLayout } from '@renderer/lib/useFloatingPanelLayout'
 import {
   ACCEPTED_ATTACHMENT_FILE_EXTENSIONS,
   ACCEPTED_ATTACHMENT_MEDIA_TYPES
@@ -589,9 +591,14 @@ export function TodoProgressWidget({
 }): React.JSX.Element | null {
   const t = useT()
   const [expanded, setExpanded] = useState(false)
-  const [panelOffsetX, setPanelOffsetX] = useState(0)
   const wrapperRef = useRef<HTMLDivElement>(null)
-  const panelRef = useRef<HTMLDivElement>(null)
+  const { floatingRef: panelRef, style: panelPositionStyle } = useFloatingPanelLayout({
+    open: expanded,
+    referenceRef: wrapperRef,
+    width: 320,
+    maxHeight: 420,
+    preferredPlacement: 'top'
+  })
 
   useEffect(() => {
     if (!expanded) {
@@ -606,7 +613,9 @@ export function TodoProgressWidget({
       if (wrapperRef.current?.contains(target)) {
         return
       }
-      setPanelOffsetX(0)
+      if (panelRef.current?.contains(target)) {
+        return
+      }
       setExpanded(false)
     }
 
@@ -615,44 +624,7 @@ export function TodoProgressWidget({
       clearTimeout(id)
       document.removeEventListener('mousedown', handler)
     }
-  }, [expanded])
-
-  useLayoutEffect(() => {
-    if (!expanded) {
-      return undefined
-    }
-
-    const updateOffset = (): void => {
-      const panel = panelRef.current
-      if (!panel) {
-        return
-      }
-
-      const shell = wrapperRef.current?.closest('.composer-shell')
-      const boundary =
-        shell instanceof HTMLElement
-          ? shell.getBoundingClientRect()
-          : {
-              left: 16,
-              right: window.innerWidth - 16
-            }
-      const rect = panel.getBoundingClientRect()
-      const baseLeft = rect.left - panelOffsetX
-      const baseRight = rect.right - panelOffsetX
-      const padding = 8
-      let nextOffset = 0
-      if (baseLeft < boundary.left + padding) {
-        nextOffset = boundary.left + padding - baseLeft
-      } else if (baseRight > boundary.right - padding) {
-        nextOffset = boundary.right - padding - baseRight
-      }
-      setPanelOffsetX((current) => (current === nextOffset ? current : nextOffset))
-    }
-
-    updateOffset()
-    window.addEventListener('resize', updateOffset)
-    return () => window.removeEventListener('resize', updateOffset)
-  }, [expanded, items.length, panelOffsetX])
+  }, [expanded, panelRef])
 
   if (items.length === 0) {
     return null
@@ -666,14 +638,7 @@ export function TodoProgressWidget({
       <button
         type="button"
         className="composer-task-chip-button"
-        onClick={() =>
-          setExpanded((value) => {
-            if (!value) {
-              setPanelOffsetX(0)
-            }
-            return !value
-          })
-        }
+        onClick={() => setExpanded((value) => !value)}
         data-open={expanded ? 'true' : undefined}
         data-running={!allCompleted ? 'true' : undefined}
         aria-expanded={expanded}
@@ -705,55 +670,57 @@ export function TodoProgressWidget({
           }}
         />
       </button>
-      {expanded ? (
-        <div
-          ref={panelRef}
-          className="absolute left-0"
-          style={{
-            bottom: 'calc(100% + 8px)',
-            width: 320,
-            maxWidth: 'calc(100vw - 32px)',
-            padding: '10px 11px',
-            borderRadius: 12,
-            background: theme.background.surfaceFrosted,
-            backdropFilter: 'blur(18px)',
-            WebkitBackdropFilter: 'blur(18px)',
-            border: `1px solid ${theme.border.strong}`,
-            boxShadow: theme.shadow.overlay,
-            transform: `translateX(${panelOffsetX}px)`,
-            zIndex: 55
-          }}
-        >
-          <div className="text-[11px] font-medium mb-2" style={{ color: theme.text.accent }}>
-            {t('chat.composer.todo.taskProgress')}
-          </div>
-          <div className="flex flex-col gap-1.5">
-            {items.map((item) => {
-              const active = item.status === 'in_progress'
-              const completed = item.status === 'completed'
-              return (
-                <div
-                  key={item.id}
-                  className="flex items-start gap-2 min-w-0"
-                  style={{ opacity: completed ? 0.55 : 1 }}
-                >
-                  <TodoStatusIcon status={item.status} />
-                  <div
-                    className="text-xs leading-5 wrap-break-word min-w-0"
-                    style={{
-                      color: active ? theme.text.primary : theme.text.secondary,
-                      fontWeight: active ? 600 : 400,
-                      textDecoration: completed ? 'line-through' : 'none'
-                    }}
-                  >
-                    {item.content}
-                  </div>
-                </div>
-              )
-            })}
-          </div>
-        </div>
-      ) : null}
+      {expanded
+        ? createPortal(
+            <div
+              ref={panelRef}
+              data-composer-floating-menu
+              style={{
+                ...panelPositionStyle,
+                padding: '10px 11px',
+                borderRadius: 12,
+                background: theme.background.surfaceFrosted,
+                backdropFilter: 'blur(18px)',
+                WebkitBackdropFilter: 'blur(18px)',
+                border: `1px solid ${theme.border.strong}`,
+                boxShadow: theme.shadow.overlay,
+                overflowY: 'auto',
+                overscrollBehavior: 'contain',
+                zIndex: 120
+              }}
+            >
+              <div className="text-[11px] font-medium mb-2" style={{ color: theme.text.accent }}>
+                {t('chat.composer.todo.taskProgress')}
+              </div>
+              <div className="flex flex-col gap-1.5">
+                {items.map((item) => {
+                  const active = item.status === 'in_progress'
+                  const completed = item.status === 'completed'
+                  return (
+                    <div
+                      key={item.id}
+                      className="flex items-start gap-2 min-w-0"
+                      style={{ opacity: completed ? 0.55 : 1 }}
+                    >
+                      <TodoStatusIcon status={item.status} />
+                      <div
+                        className="text-xs leading-5 wrap-break-word min-w-0"
+                        style={{
+                          color: active ? theme.text.primary : theme.text.secondary,
+                          fontWeight: active ? 600 : 400,
+                          textDecoration: completed ? 'line-through' : 'none'
+                        }}
+                      >
+                        {item.content}
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>,
+            document.body
+          )
+        : null}
     </div>
   )
 }

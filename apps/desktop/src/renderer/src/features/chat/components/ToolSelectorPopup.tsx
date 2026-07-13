@@ -1,10 +1,12 @@
 import type React from 'react'
 import { useEffect, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { Check, Map, MessageSquare, Telescope, Wrench, Zap } from 'lucide-react'
 import { useT } from '@yachiyo/i18n/react'
 import { theme } from '@renderer/theme/theme'
 import { isDismissEscapeKey } from '@renderer/lib/imeUtils'
 import { useRestoreFocusOnUnmount } from '@renderer/lib/focusRestore'
+import { useFloatingPanelLayout } from '@renderer/lib/useFloatingPanelLayout'
 import type { RunModeId, SelectableRunModeId } from '@yachiyo/shared/protocol'
 import { RUN_MODE_DEFINITIONS, SELECTABLE_RUN_MODE_IDS } from '@yachiyo/shared/toolModes'
 import { getRunModeCopy } from '../lib/composer/runModeCopy'
@@ -29,15 +31,28 @@ export function ToolSelectorPopup({
   runMode,
   hasActiveRun,
   onSelectMode,
-  onClose
+  onClose,
+  triggerRef
 }: {
   runMode: RunModeId
   hasActiveRun: boolean
   onSelectMode: (runMode: SelectableRunModeId) => void
   onClose: () => void
+  triggerRef: React.RefObject<HTMLElement | null>
 }): React.ReactNode {
   const t = useT()
   const [visible, setVisible] = useState(false)
+  const {
+    floatingRef,
+    layout,
+    style: positionStyle
+  } = useFloatingPanelLayout({
+    open: true,
+    referenceRef: triggerRef,
+    width: 300,
+    maxHeight: 440,
+    preferredPlacement: 'top'
+  })
   useRestoreFocusOnUnmount()
 
   useEffect(() => {
@@ -55,15 +70,14 @@ export function ToolSelectorPopup({
     return () => document.removeEventListener('keydown', handleKeyDown)
   }, [onClose])
 
-  return (
+  return createPortal(
     <div
+      ref={floatingRef}
+      data-composer-floating-menu
       role="menu"
       aria-label={t('chat.modePicker.ariaLabel')}
       style={{
-        position: 'absolute',
-        bottom: 'calc(100% + 8px)',
-        left: 0,
-        width: 300,
+        ...positionStyle,
         background: theme.background.surfaceFrosted,
         backdropFilter: 'blur(24px)',
         WebkitBackdropFilter: 'blur(24px)',
@@ -73,9 +87,13 @@ export function ToolSelectorPopup({
         overflow: 'hidden',
         display: 'flex',
         flexDirection: 'column',
-        zIndex: 50,
+        zIndex: 120,
         opacity: visible ? 1 : 0,
-        transform: visible ? 'translateY(0)' : 'translateY(6px)',
+        transform: visible
+          ? 'translateY(0)'
+          : layout?.placement === 'bottom'
+            ? 'translateY(-6px)'
+            : 'translateY(6px)',
         transition: 'opacity 0.15s ease, transform 0.15s ease'
       }}
     >
@@ -101,6 +119,8 @@ export function ToolSelectorPopup({
         style={{
           padding: '4px 0',
           maxHeight: MODE_LIST_MAX_HEIGHT,
+          minHeight: 0,
+          flex: 1,
           overflowY: 'auto',
           overscrollBehavior: 'contain'
         }}
@@ -196,6 +216,7 @@ export function ToolSelectorPopup({
       >
         {hasActiveRun ? t('chat.modePicker.activeRunNote') : t('chat.modePicker.nextSendNote')}
       </div>
-    </div>
+    </div>,
+    document.body
   )
 }

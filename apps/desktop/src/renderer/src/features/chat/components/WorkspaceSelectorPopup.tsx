@@ -1,10 +1,12 @@
 import type React from 'react'
 import { useEffect, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { Check, Folder, Plus } from 'lucide-react'
 import { useT } from '@yachiyo/i18n/react'
 import { theme } from '@renderer/theme/theme'
 import { isDismissEscapeKey } from '@renderer/lib/imeUtils'
 import { useRestoreFocusOnUnmount } from '@renderer/lib/focusRestore'
+import { useFloatingPanelLayout } from '@renderer/lib/useFloatingPanelLayout'
 import { SettingsShortcutButton } from './SettingsShortcutButton'
 
 function WorkspaceOption({
@@ -95,16 +97,29 @@ export function WorkspaceSelectorPopup({
   onChooseDirectory,
   onClose,
   onSelectWorkspace,
-  savedPaths
+  savedPaths,
+  triggerRef
 }: {
   currentWorkspacePath: string | null
   onChooseDirectory: () => void
   onClose: () => void
   onSelectWorkspace: (workspacePath: string | null) => void
   savedPaths: string[]
+  triggerRef: React.RefObject<HTMLElement | null>
 }): React.ReactNode {
   const t = useT()
   const [visible, setVisible] = useState(false)
+  const {
+    floatingRef,
+    layout,
+    style: positionStyle
+  } = useFloatingPanelLayout({
+    open: true,
+    referenceRef: triggerRef,
+    width: 340,
+    maxHeight: 360,
+    preferredPlacement: 'top'
+  })
   useRestoreFocusOnUnmount()
 
   useEffect(() => {
@@ -122,16 +137,14 @@ export function WorkspaceSelectorPopup({
     return () => document.removeEventListener('keydown', handleKeyDown)
   }, [onClose])
 
-  return (
+  return createPortal(
     <div
+      ref={floatingRef}
+      data-composer-floating-menu
       role="menu"
       aria-label={t('chat.workspacePicker.ariaLabel')}
       style={{
-        position: 'absolute',
-        bottom: 'calc(100% + 8px)',
-        left: 0,
-        width: 340,
-        maxHeight: 360,
+        ...positionStyle,
         background: theme.background.surfaceFrosted,
         backdropFilter: 'blur(24px)',
         WebkitBackdropFilter: 'blur(24px)',
@@ -141,9 +154,13 @@ export function WorkspaceSelectorPopup({
         overflow: 'hidden',
         display: 'flex',
         flexDirection: 'column',
-        zIndex: 50,
+        zIndex: 120,
         opacity: visible ? 1 : 0,
-        transform: visible ? 'translateY(0)' : 'translateY(6px)',
+        transform: visible
+          ? 'translateY(0)'
+          : layout?.placement === 'bottom'
+            ? 'translateY(-6px)'
+            : 'translateY(6px)',
         transition: 'opacity 0.15s ease, transform 0.15s ease'
       }}
     >
@@ -247,6 +264,7 @@ export function WorkspaceSelectorPopup({
           {t('chat.workspacePicker.selectDirectory')}
         </button>
       </div>
-    </div>
+    </div>,
+    document.body
   )
 }

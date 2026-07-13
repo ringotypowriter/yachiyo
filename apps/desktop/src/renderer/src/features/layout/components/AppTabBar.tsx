@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Archive,
   ArrowDownCircle,
@@ -75,6 +75,7 @@ export function AppTabBar({
   const [updateAvailable, setUpdateAvailable] = useState(false)
   const [updateVersion, setUpdateVersion] = useState<string>()
   const [utilityMenuAnchor, setUtilityMenuAnchor] = useState<DOMRect | null>(null)
+  const utilityMenuTriggerRef = useRef<HTMLButtonElement>(null)
   const unreadArchivedCount = useAppStore(
     (s) => s.archivedThreads.filter((thread) => thread.archivedAt && !thread.readAt).length
   )
@@ -220,6 +221,7 @@ export function AppTabBar({
               </Tooltip>
             ) : (
               <button
+                ref={utilityMenuTriggerRef}
                 key={tool}
                 type="button"
                 onClick={(event) => {
@@ -262,6 +264,7 @@ export function AppTabBar({
       {utilityMenuAnchor && (
         <SidebarUtilityMenu
           anchorRect={utilityMenuAnchor}
+          referenceRef={utilityMenuTriggerRef}
           connectionStatus={connectionStatus}
           showExternalThreads={showExternalThreads}
           onToggleExternalThreads={toggleShowExternalThreads}

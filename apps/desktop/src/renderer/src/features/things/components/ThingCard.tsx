@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { ArrowUpRight, Check, Copy, Ellipsis, RotateCcw, Trash2, X } from 'lucide-react'
 
@@ -9,6 +9,7 @@ import { useT } from '@yachiyo/i18n/react'
 import { alpha, theme } from '@renderer/theme/theme'
 import { copyTextWithFallback } from '../../chat/lib/messages/copyTextWithFallback'
 import { isDismissEscapeKey } from '@renderer/lib/imeUtils'
+import { useFloatingPanelLayout } from '@renderer/lib/useFloatingPanelLayout'
 
 type Translator = ReturnType<typeof useT>
 
@@ -158,7 +159,7 @@ export function ThingDetailOverlay({
               onClick={(event) => {
                 event.stopPropagation()
                 const rect = event.currentTarget.getBoundingClientRect()
-                setMenuPosition({ top: rect.bottom + 8, left: rect.right - 220 })
+                setMenuPosition({ top: rect.bottom, left: rect.right })
               }}
               aria-label={t('things.thingOptions')}
               aria-expanded={menuPosition !== null}
@@ -248,9 +249,19 @@ function ThingManagementMenu({
   position: { top: number; left: number }
 }): React.JSX.Element {
   const t = useT()
-  const menuRef = useRef<HTMLDivElement>(null)
-  const [resolvedTop, setResolvedTop] = useState(position.top)
-  const menuWidth = 220
+  const { floatingRef: menuRef, style: menuPositionStyle } = useFloatingPanelLayout({
+    open: true,
+    anchor: {
+      top: position.top,
+      right: position.left,
+      bottom: position.top,
+      left: position.left
+    },
+    width: 220,
+    maxHeight: 520,
+    preferredPlacement: 'bottom',
+    alignment: 'end'
+  })
 
   useEffect(() => {
     const handlePointerDown = (): void => onClose()
@@ -266,18 +277,6 @@ function ThingManagementMenu({
     }
   }, [onClose])
 
-  useEffect(() => {
-    const el = menuRef.current
-    if (!el) return
-    const margin = 12
-    const menuHeight = el.offsetHeight
-    if (position.top + menuHeight > window.innerHeight - margin) {
-      setResolvedTop(Math.max(margin, window.innerHeight - menuHeight - margin))
-    } else {
-      setResolvedTop(position.top)
-    }
-  }, [position.top, mergeTargets.length])
-
   return createPortal(
     <div
       ref={menuRef}
@@ -286,10 +285,7 @@ function ThingManagementMenu({
       onMouseDown={(event) => event.stopPropagation()}
       onClick={(event) => event.stopPropagation()}
       style={{
-        position: 'fixed',
-        top: resolvedTop,
-        left: Math.max(12, Math.min(position.left, window.innerWidth - menuWidth - 12)),
-        width: menuWidth,
+        ...menuPositionStyle,
         padding: 6,
         background: theme.background.surfaceFrosted,
         backdropFilter: 'blur(24px)',
@@ -297,7 +293,9 @@ function ThingManagementMenu({
         border: `1px solid ${theme.border.strong}`,
         borderRadius: 14,
         boxShadow: theme.shadow.menu,
-        zIndex: 100
+        zIndex: 100,
+        overflowY: 'auto',
+        overscrollBehavior: 'contain'
       }}
     >
       <ThingMenuButton onClick={onRename}>{t('things.renameSlug')}</ThingMenuButton>

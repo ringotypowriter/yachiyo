@@ -8,6 +8,7 @@ import type { SettingsConfig } from '@renderer/app/types'
 import { theme } from '@renderer/theme/theme'
 import { isDismissEscapeKey } from '@renderer/lib/imeUtils'
 import { useRestoreFocusOnUnmount } from '@renderer/lib/focusRestore'
+import { useFloatingPanelLayout } from '@renderer/lib/useFloatingPanelLayout'
 import { matchProviderPreset } from '@yachiyo/shared/providerPresets'
 import { SettingsShortcutButton } from './SettingsShortcutButton'
 import {
@@ -237,10 +238,21 @@ export function ModelSelectorPopup({
   const [selectionPending, setSelectionPending] = useState(false)
   const [visible, setVisible] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
-  const internalPopupRef = useRef<HTMLDivElement>(null)
+  const {
+    floatingRef: popupRef,
+    layout: popupLayout,
+    style: popupPositionStyle
+  } = useFloatingPanelLayout({
+    open: true,
+    anchor: anchorRect,
+    referenceRef: triggerRef,
+    floatingRef: containerRef,
+    width,
+    maxHeight: 360,
+    preferredPlacement: placement,
+    alignment: align === 'right' ? 'end' : 'start'
+  })
   useRestoreFocusOnUnmount()
-
-  const popupRef = containerRef ?? internalPopupRef
 
   const handleSelection = (action: () => Promise<void> | void): void => {
     if (selectionPending) {
@@ -308,57 +320,12 @@ export function ModelSelectorPopup({
 
   const hasAcpAgents = selectorState.acpAgents.length > 0
 
-  const popupWidth = Math.min(width, window.innerWidth - 24)
-  const popupLeft = anchorRect
-    ? Math.max(
-        12,
-        Math.min(
-          align === 'right' ? anchorRect.right - popupWidth : anchorRect.left,
-          window.innerWidth - popupWidth - 12
-        )
-      )
-    : 0
-  const availableSpaceAbove = anchorRect ? anchorRect.top - 8 : 0
-  const availableSpaceBelow = anchorRect ? window.innerHeight - anchorRect.bottom - 8 : 0
-
-  const resolvedPlacement =
-    portal && anchorRect
-      ? placement === 'bottom'
-        ? availableSpaceBelow < 360 && availableSpaceAbove > availableSpaceBelow
-          ? 'top'
-          : 'bottom'
-        : placement === 'top'
-          ? availableSpaceAbove < 360 && availableSpaceBelow > availableSpaceAbove
-            ? 'bottom'
-            : 'top'
-          : placement
-      : placement
-
-  const popupStyle: React.CSSProperties =
-    portal && anchorRect
-      ? {
-          position: 'fixed',
-          ...(resolvedPlacement === 'top'
-            ? { bottom: window.innerHeight - anchorRect.top + 8 }
-            : { top: anchorRect.bottom + 8 }),
-          left: popupLeft,
-          width: popupWidth
-        }
-      : {
-          position: 'absolute',
-          ...(resolvedPlacement === 'top'
-            ? { bottom: 'calc(100% + 8px)' }
-            : { top: 'calc(100% + 8px)' }),
-          left: 0,
-          width
-        }
-
   const popup = (
     <div
       ref={popupRef}
+      data-composer-floating-menu
       style={{
-        ...popupStyle,
-        maxHeight: 360,
+        ...popupPositionStyle,
         background: theme.background.surfaceFrosted,
         backdropFilter: 'blur(24px)',
         WebkitBackdropFilter: 'blur(24px)',
@@ -370,7 +337,11 @@ export function ModelSelectorPopup({
         overflow: 'hidden',
         zIndex: 50,
         opacity: visible ? 1 : 0,
-        transform: visible ? 'translateY(0)' : 'translateY(6px)',
+        transform: visible
+          ? 'translateY(0)'
+          : popupLayout?.placement === 'bottom'
+            ? 'translateY(-6px)'
+            : 'translateY(6px)',
         transition: 'opacity 0.15s ease, transform 0.15s ease'
       }}
     >
@@ -494,7 +465,7 @@ export function ModelSelectorPopup({
     </div>
   )
 
-  if (portal && anchorRect) {
+  if ((portal && anchorRect) || triggerRef) {
     return createPortal(popup, document.body)
   }
 

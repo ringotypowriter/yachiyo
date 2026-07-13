@@ -1,11 +1,13 @@
 import type React from 'react'
 import { useEffect, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { Check } from 'lucide-react'
 import { useT } from '@yachiyo/i18n/react'
 import type { SkillCatalogEntry } from '@renderer/app/types'
 import { theme } from '@renderer/theme/theme'
 import { isDismissEscapeKey } from '@renderer/lib/imeUtils'
 import { useRestoreFocusOnUnmount } from '@renderer/lib/focusRestore'
+import { useFloatingPanelLayout } from '@renderer/lib/useFloatingPanelLayout'
 import { SettingsShortcutButton } from './SettingsShortcutButton'
 
 const SKILL_LIST_MAX_HEIGHT = 320
@@ -24,7 +26,8 @@ export function SkillsSelectorPopup({
   hasCustomOverride,
   onReset,
   onToggle,
-  onClose
+  onClose,
+  triggerRef
 }: {
   availableSkills: SkillCatalogEntry[]
   effectiveEnabledSkillNames: string[]
@@ -32,9 +35,21 @@ export function SkillsSelectorPopup({
   onReset: () => void
   onToggle: (skillName: string) => void
   onClose: () => void
+  triggerRef: React.RefObject<HTMLElement | null>
 }): React.ReactNode {
   const t = useT()
   const [visible, setVisible] = useState(false)
+  const {
+    floatingRef,
+    layout,
+    style: positionStyle
+  } = useFloatingPanelLayout({
+    open: true,
+    referenceRef: triggerRef,
+    width: 320,
+    maxHeight: 460,
+    preferredPlacement: 'top'
+  })
   const enabledSkillSet = new Set(effectiveEnabledSkillNames)
   useRestoreFocusOnUnmount()
 
@@ -53,15 +68,14 @@ export function SkillsSelectorPopup({
     return () => document.removeEventListener('keydown', handleKeyDown)
   }, [onClose])
 
-  return (
+  return createPortal(
     <div
+      ref={floatingRef}
+      data-composer-floating-menu
       role="menu"
       aria-label={t('chat.skillsPicker.ariaLabel')}
       style={{
-        position: 'absolute',
-        bottom: 'calc(100% + 8px)',
-        left: 0,
-        width: 320,
+        ...positionStyle,
         background: theme.background.surfaceFrosted,
         backdropFilter: 'blur(24px)',
         WebkitBackdropFilter: 'blur(24px)',
@@ -71,9 +85,13 @@ export function SkillsSelectorPopup({
         overflow: 'hidden',
         display: 'flex',
         flexDirection: 'column',
-        zIndex: 50,
+        zIndex: 120,
         opacity: visible ? 1 : 0,
-        transform: visible ? 'translateY(0)' : 'translateY(6px)',
+        transform: visible
+          ? 'translateY(0)'
+          : layout?.placement === 'bottom'
+            ? 'translateY(-6px)'
+            : 'translateY(6px)',
         transition: 'opacity 0.15s ease, transform 0.15s ease'
       }}
     >
@@ -172,6 +190,8 @@ export function SkillsSelectorPopup({
         style={{
           padding: '6px 0',
           maxHeight: SKILL_LIST_MAX_HEIGHT,
+          minHeight: 0,
+          flex: 1,
           overflowY: 'auto',
           overscrollBehavior: 'contain'
         }}
@@ -274,6 +294,7 @@ export function SkillsSelectorPopup({
           })
         )}
       </div>
-    </div>
+    </div>,
+    document.body
   )
 }

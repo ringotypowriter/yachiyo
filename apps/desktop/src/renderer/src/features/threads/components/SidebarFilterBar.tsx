@@ -25,6 +25,7 @@ import {
 import { Tooltip } from '@renderer/components/Tooltip'
 import { isDismissEscapeKey } from '@renderer/lib/imeUtils'
 import { useRestoreFocusOnUnmount } from '@renderer/lib/focusRestore'
+import { useFloatingPanelLayout } from '@renderer/lib/useFloatingPanelLayout'
 import {
   TEMPORARY_WORKSPACE_FILTER,
   resolveWorkspaceDisplayName,
@@ -225,7 +226,11 @@ export function SidebarFilterBar(): React.JSX.Element {
         </button>
       </Tooltip>
       {anchorRect && (
-        <SidebarFilterDropdown anchorRect={anchorRect} onClose={() => setAnchorRect(null)} />
+        <SidebarFilterDropdown
+          anchorRect={anchorRect}
+          referenceRef={triggerRef}
+          onClose={() => setAnchorRect(null)}
+        />
       )}
     </div>
   )
@@ -233,14 +238,29 @@ export function SidebarFilterBar(): React.JSX.Element {
 
 function SidebarFilterDropdown({
   anchorRect,
+  referenceRef,
   onClose
 }: {
   anchorRect: DOMRect
+  referenceRef: React.RefObject<HTMLButtonElement | null>
   onClose: () => void
 }): React.JSX.Element {
   const translate = useT()
-  const menuRef = useRef<HTMLDivElement>(null)
   const [visible, setVisible] = useState(false)
+  const {
+    floatingRef: menuRef,
+    layout: menuLayout,
+    style: menuPositionStyle
+  } = useFloatingPanelLayout({
+    open: true,
+    anchor: anchorRect,
+    referenceRef,
+    width: 292,
+    maxHeight: 640,
+    preferredPlacement: 'bottom',
+    alignment: 'center',
+    gap: 6
+  })
   const sidebarFilter = useAppStore((s) => s.sidebarFilter)
   const setSidebarFilterBase = useAppStore((s) => s.setSidebarFilterBase)
   const toggleColor = useAppStore((s) => s.toggleSidebarFilterColor)
@@ -274,28 +294,7 @@ function SidebarFilterDropdown({
       document.removeEventListener('mousedown', handlePointerDown)
       document.removeEventListener('keydown', handleEscape)
     }
-  }, [onClose])
-
-  const menuWidth = 292
-  const minMenuHeight = 320
-  const maxMenuHeight = 640
-  const availableBelow = window.innerHeight - anchorRect.bottom - 12
-  const availableAbove = anchorRect.top - 12
-  const openAbove = availableBelow < minMenuHeight && availableAbove > availableBelow
-  const menuHeight = Math.min(
-    maxMenuHeight,
-    Math.max(minMenuHeight, openAbove ? availableAbove : availableBelow)
-  )
-  const top = openAbove
-    ? Math.max(12, anchorRect.top - menuHeight - 6)
-    : Math.min(anchorRect.bottom + 6, window.innerHeight - menuHeight - 12)
-  const left = Math.max(
-    12,
-    Math.min(
-      anchorRect.left + anchorRect.width / 2 - menuWidth / 2,
-      window.innerWidth - menuWidth - 12
-    )
-  )
+  }, [menuRef, onClose])
 
   return createPortal(
     <div
@@ -303,10 +302,7 @@ function SidebarFilterDropdown({
       onMouseDown={(e) => e.stopPropagation()}
       className="no-drag"
       style={{
-        position: 'fixed',
-        top,
-        left,
-        width: menuWidth,
+        ...menuPositionStyle,
         background: theme.background.surfaceFrosted,
         backdropFilter: 'blur(24px)',
         WebkitBackdropFilter: 'blur(24px)',
@@ -314,7 +310,7 @@ function SidebarFilterDropdown({
         borderRadius: 14,
         boxShadow: theme.shadow.menu,
         zIndex: 120,
-        height: menuHeight,
+        height: menuLayout?.maxHeight,
         display: 'flex',
         flexDirection: 'column',
         overflow: 'hidden',

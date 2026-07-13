@@ -10,7 +10,7 @@ import {
   Star,
   Trash2
 } from 'lucide-react'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import { useT } from '@yachiyo/i18n/react'
 import {
@@ -21,6 +21,7 @@ import { threadColorFilterLabel } from '@renderer/features/threads/lib/threadCol
 import { theme } from '@renderer/theme/theme'
 import { isDismissEscapeKey } from '@renderer/lib/imeUtils'
 import { useRestoreFocusOnUnmount } from '@renderer/lib/focusRestore'
+import { useFloatingPanelLayout } from '@renderer/lib/useFloatingPanelLayout'
 import { ColorDotPicker } from './ColorDotPicker'
 
 export interface ThreadContextMenuPopupProps {
@@ -84,13 +85,23 @@ export function ThreadContextMenuPopup({
   position
 }: ThreadContextMenuPopupProps): React.JSX.Element {
   const t = useT()
-  const menuRef = useRef<HTMLDivElement>(null)
-  const [resolvedTop, setResolvedTop] = useState(position.top)
+  const { floatingRef: menuRef, style: menuPositionStyle } = useFloatingPanelLayout({
+    open: true,
+    anchor: {
+      top: position.top,
+      right: position.left,
+      bottom: position.top,
+      left: position.left
+    },
+    width: 220,
+    maxHeight: 640,
+    preferredPlacement: 'bottom',
+    gap: 0
+  })
   useRestoreFocusOnUnmount()
   const colorOperations = operations.filter(
     (operation) => resolveThreadColorOperationTag(operation.key) !== undefined
   )
-  const menuWidth = 220
 
   useEffect(() => {
     const handlePointerDown = (): void => onClose()
@@ -112,18 +123,6 @@ export function ThreadContextMenuPopup({
     }
   }, [onClose])
 
-  useEffect(() => {
-    const el = menuRef.current
-    if (!el) return
-    const menuHeight = el.offsetHeight
-    const margin = 12
-    if (position.top + menuHeight > window.innerHeight - margin) {
-      setResolvedTop(Math.max(margin, position.top - menuHeight))
-    } else {
-      setResolvedTop(position.top)
-    }
-  }, [position.top, operations.length])
-
   return createPortal(
     <div
       ref={menuRef}
@@ -132,10 +131,7 @@ export function ThreadContextMenuPopup({
       className="no-drag"
       data-no-drag
       style={{
-        position: 'fixed',
-        top: resolvedTop,
-        left: Math.max(12, Math.min(position.left, window.innerWidth - menuWidth - 12)),
-        width: menuWidth,
+        ...menuPositionStyle,
         padding: 6,
         background: theme.background.surfaceFrosted,
         backdropFilter: 'blur(24px)',
@@ -143,7 +139,9 @@ export function ThreadContextMenuPopup({
         border: `1px solid ${theme.border.strong}`,
         borderRadius: 14,
         boxShadow: theme.shadow.menu,
-        zIndex: 100
+        zIndex: 100,
+        overflowY: 'auto',
+        overscrollBehavior: 'contain'
       }}
     >
       {renderThreadMenuItems({

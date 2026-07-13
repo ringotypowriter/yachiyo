@@ -416,6 +416,7 @@ export function ComposerView(props: any): React.JSX.Element {
 
             {workspaceSelectorOpen ? (
               <WorkspaceSelectorPopup
+                triggerRef={workspaceSelectorRef}
                 currentWorkspacePath={currentWorkspacePath}
                 savedPaths={savedWorkspacePaths}
                 onSelectWorkspace={(workspacePath) => {
@@ -494,6 +495,7 @@ export function ComposerView(props: any): React.JSX.Element {
 
               {toolSelectorOpen ? (
                 <ToolSelectorPopup
+                  triggerRef={toolSelectorRef}
                   runMode={runMode}
                   hasActiveRun={hasActiveRun}
                   onSelectMode={(mode) => void setRunMode(mode)}
@@ -560,6 +562,7 @@ export function ComposerView(props: any): React.JSX.Element {
       <div ref={popupContainerRef} style={{ position: 'relative' }}>
         {showSlashCommandPopup ? (
           <SlashCommandPopup
+            triggerRef={popupContainerRef}
             commands={matchingSlashCommands}
             selectedIndex={slashSelectedIndex}
             onSelect={handleSlashCommandSelect}
@@ -842,6 +845,7 @@ export function ComposerView(props: any): React.JSX.Element {
 
             {skillsSelectorOpen ? (
               <SkillsSelectorPopup
+                triggerRef={skillsSelectorRef}
                 availableSkills={availableSkills}
                 effectiveEnabledSkillNames={effectiveEnabledSkillNames}
                 hasCustomOverride={hasCustomSkillOverride}
@@ -1028,6 +1032,7 @@ export function ComposerView(props: any): React.JSX.Element {
 
             {reasoningSelectorOpen ? (
               <ReasoningSelectorPopup
+                triggerRef={reasoningSelectorRef}
                 options={reasoningSelectorState.options}
                 selected={reasoningSelectorState.selected}
                 onSelect={setComposerReasoningEffort}

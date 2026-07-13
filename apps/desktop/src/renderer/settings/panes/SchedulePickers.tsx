@@ -4,6 +4,7 @@ import { createPortal } from 'react-dom'
 import { useLocale, useT } from '@yachiyo/i18n/react'
 import { theme, alpha } from '@renderer/theme/theme'
 import { useRestoreFocusOnUnmount } from '@renderer/lib/focusRestore'
+import { useFloatingPanelLayout } from '@renderer/lib/useFloatingPanelLayout'
 import { SimpleSelect } from '../components/primitives'
 import { weekdayLabels } from './scheduleTimeFormat'
 
@@ -114,9 +115,16 @@ export function CronQuickPick({ value, onPick }: CronQuickPickProps): React.Reac
     weekly: t('settings.schedule.builder.weekly')
   }
   const [open, setOpen] = useState(false)
-  const [popupRect, setPopupRect] = useState<DOMRect | null>(null)
   const btnRef = useRef<HTMLButtonElement>(null)
-  const panelRef = useRef<HTMLDivElement>(null)
+  const { floatingRef: panelRef, style: panelPositionStyle } = useFloatingPanelLayout({
+    open,
+    referenceRef: btnRef,
+    width: 256,
+    maxHeight: 420,
+    preferredPlacement: 'bottom',
+    alignment: 'end',
+    gap: 6
+  })
   useRestoreFocusOnUnmount(open)
 
   const [mode, setMode] = useState<BuilderMode>('daily')
@@ -126,7 +134,6 @@ export function CronQuickPick({ value, onPick }: CronQuickPickProps): React.Reac
   const [days, setDays] = useState<number[]>([1, 2, 3, 4, 5])
 
   function handleOpen(): void {
-    if (btnRef.current) setPopupRect(btnRef.current.getBoundingClientRect())
     const parsed = value ? cronToBuilder(value) : null
     if (parsed) {
       setMode(parsed.mode)
@@ -157,7 +164,7 @@ export function CronQuickPick({ value, onPick }: CronQuickPickProps): React.Reac
     }
     document.addEventListener('pointerdown', handlePointerDown)
     return () => document.removeEventListener('pointerdown', handlePointerDown)
-  }, [open])
+  }, [open, panelRef])
 
   const preview = builderToCron(mode, Number(hour), Number(minute), interval, days)
 
@@ -181,22 +188,19 @@ export function CronQuickPick({ value, onPick }: CronQuickPickProps): React.Reac
       </button>
 
       {open &&
-        popupRect &&
         createPortal(
           <div
             ref={panelRef}
             style={{
-              position: 'fixed',
-              top: popupRect.bottom + 6,
-              left: popupRect.right,
-              transform: 'translateX(-100%)',
+              ...panelPositionStyle,
               zIndex: 9999,
               background: theme.background.surface,
               borderRadius: 12,
               border: `1px solid ${theme.border.subtle}`,
               boxShadow: theme.shadow.menu,
               padding: 10,
-              width: 256
+              overflowY: 'auto',
+              overscrollBehavior: 'contain'
             }}
           >
             {/* Mode segmented control */}
@@ -372,11 +376,16 @@ export function DateTimePick({
   const t = useT()
   const locale = useLocale()
   const [open, setOpen] = useState(false)
-  const [popupPos, setPopupPos] = useState<{ top: number; left: number; flipUp: boolean } | null>(
-    null
-  )
   const btnRef = useRef<HTMLButtonElement>(null)
-  const panelRef = useRef<HTMLDivElement>(null)
+  const { floatingRef: panelRef, style: panelPositionStyle } = useFloatingPanelLayout({
+    open,
+    referenceRef: btnRef,
+    width: 240,
+    maxHeight: 340,
+    preferredPlacement: 'bottom',
+    alignment: 'end',
+    gap: 6
+  })
   useRestoreFocusOnUnmount(open)
 
   const [viewYear, setViewYear] = useState(new Date().getFullYear())
@@ -386,8 +395,6 @@ export function DateTimePick({
   const [selDay, setSelDay] = useState<number | null>(null)
   const [hour, setHour] = useState(9)
   const [minute, setMinute] = useState(0)
-
-  const POPUP_H = 340
 
   function handleOpen(): void {
     const parsed = value ? new Date(value.replace(' ', 'T')) : null
@@ -406,11 +413,6 @@ export function DateTimePick({
       setSelDay(base.getDate())
       setHour(base.getHours())
       setMinute(Math.round(base.getMinutes() / 5) * 5)
-    }
-    if (btnRef.current) {
-      const r = btnRef.current.getBoundingClientRect()
-      const flipUp = r.bottom + 6 + POPUP_H > window.innerHeight
-      setPopupPos({ top: flipUp ? r.top - POPUP_H - 6 : r.bottom + 6, left: r.right, flipUp })
     }
     setOpen(true)
   }
@@ -445,7 +447,7 @@ export function DateTimePick({
     }
     document.addEventListener('pointerdown', handlePointerDown)
     return () => document.removeEventListener('pointerdown', handlePointerDown)
-  }, [open])
+  }, [open, panelRef])
 
   const grid = buildCalendarGrid(viewYear, viewMonth)
   const today = new Date()
@@ -525,22 +527,19 @@ export function DateTimePick({
       </button>
 
       {open &&
-        popupPos &&
         createPortal(
           <div
             ref={panelRef}
             style={{
-              position: 'fixed',
-              top: popupPos.top,
-              left: popupPos.left,
-              transform: 'translateX(-100%)',
+              ...panelPositionStyle,
               zIndex: 9999,
               background: theme.background.surface,
               borderRadius: 12,
               border: `1px solid ${theme.border.subtle}`,
               boxShadow: theme.shadow.menu,
               padding: 10,
-              width: 240
+              overflowY: 'auto',
+              overscrollBehavior: 'contain'
             }}
           >
             {/* Month navigation */}

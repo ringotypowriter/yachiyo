@@ -4,6 +4,7 @@ import { Check, ChevronDown, ChevronLeft, ChevronRight } from 'lucide-react'
 import { useT } from '@yachiyo/i18n/react'
 import { theme, alpha } from '@renderer/theme/theme'
 import { useRestoreFocusOnUnmount } from '@renderer/lib/focusRestore'
+import { useFloatingPanelLayout } from '@renderer/lib/useFloatingPanelLayout'
 
 interface FieldProps {
   children: React.ReactNode
@@ -97,26 +98,20 @@ export function SimpleSelect<T extends string>({
   optionHeight = 34
 }: SimpleSelectProps<T>): React.ReactNode {
   const [open, setOpen] = useState(false)
-  const [openUpward, setOpenUpward] = useState(false)
-  const [maxHeight, setMaxHeight] = useState<number | undefined>(undefined)
-  const [triggerRect, setTriggerRect] = useState<DOMRect | null>(null)
   const triggerRef = useRef<HTMLButtonElement>(null)
-  const dropdownRef = useRef<HTMLDivElement>(null)
+  const estimatedHeight = options.length * optionHeight + 12
+  const { floatingRef: dropdownRef, style: dropdownPositionStyle } = useFloatingPanelLayout({
+    open,
+    referenceRef: triggerRef,
+    width: 'anchor',
+    maxHeight: estimatedHeight,
+    preferredPlacement: 'bottom',
+    gap: 6,
+    margin: 16
+  })
   useRestoreFocusOnUnmount(open)
 
   function handleOpen(): void {
-    if (triggerRef.current) {
-      const rect = triggerRef.current.getBoundingClientRect()
-      setTriggerRect(rect)
-      const gap = 6
-      const margin = 16
-      const estimatedHeight = options.length * optionHeight + 12
-      const spaceBelow = window.innerHeight - rect.bottom - gap - margin
-      const spaceAbove = rect.top - gap - margin
-      const shouldFlip = estimatedHeight > spaceBelow && spaceAbove > spaceBelow
-      setOpenUpward(shouldFlip)
-      setMaxHeight(Math.min(estimatedHeight, shouldFlip ? spaceAbove : spaceBelow))
-    }
     setOpen(true)
   }
 
@@ -130,7 +125,7 @@ export function SimpleSelect<T extends string>({
     }
     document.addEventListener('pointerdown', handlePointerDown)
     return () => document.removeEventListener('pointerdown', handlePointerDown)
-  }, [open])
+  }, [dropdownRef, open])
 
   const selectedOption = options.find((o) => o.value === value)
   const selectedLabel = selectedOption?.label ?? value
@@ -200,26 +195,19 @@ export function SimpleSelect<T extends string>({
       </button>
 
       {open &&
-        triggerRect &&
         createPortal(
           <div
             ref={dropdownRef}
             role="listbox"
             onPointerDown={(e) => e.stopPropagation()}
             style={{
-              position: 'fixed',
-              ...(openUpward
-                ? { bottom: window.innerHeight - triggerRect.top + 6 }
-                : { top: triggerRect.bottom + 6 }),
-              left: triggerRect.left,
-              width: triggerRect.width,
+              ...dropdownPositionStyle,
               zIndex: 9999,
               background: theme.background.surface,
               borderRadius: 12,
               border: `1px solid ${theme.border.subtle}`,
               boxShadow: theme.shadow.menu,
               padding: '4px 0',
-              maxHeight,
               overflowY: 'auto'
             }}
           >

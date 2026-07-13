@@ -9,6 +9,7 @@ import { SettingLabel, SettingSection } from '../components/primitives'
 import { useAppDialog } from '@renderer/components/AppDialogContext'
 import { useRestoreFocusOnUnmount } from '@renderer/lib/focusRestore'
 import { imeSafeEnter } from '@renderer/lib/imeUtils'
+import { useFloatingPanelLayout } from '@renderer/lib/useFloatingPanelLayout'
 
 interface DiscoveredApp {
   name: string
@@ -146,21 +147,26 @@ function NoneOption({ onSelect }: { onSelect: () => void }): React.JSX.Element {
 function AppPicker({ value, options, placeholder, onChange }: AppPickerProps): React.JSX.Element {
   const t = useT()
   const [open, setOpen] = useState(false)
-  const [triggerRect, setTriggerRect] = useState<DOMRect | null>(null)
-  const [openUpward, setOpenUpward] = useState(false)
   const triggerRef = useRef<HTMLButtonElement>(null)
-  const dropdownRef = useRef<HTMLDivElement>(null)
   const [triggerHovered, setTriggerHovered] = useState(false)
+  const estimatedHeight = (options.length + 1) * 36 + 24
+  const {
+    floatingRef: dropdownRef,
+    layout: dropdownLayout,
+    style: dropdownPositionStyle
+  } = useFloatingPanelLayout({
+    open,
+    referenceRef: triggerRef,
+    width: 'anchor',
+    maxHeight: estimatedHeight,
+    preferredPlacement: 'bottom',
+    gap: 6,
+    margin: 16
+  })
 
   useRestoreFocusOnUnmount(open)
 
   function handleOpen(): void {
-    if (triggerRef.current) {
-      const rect = triggerRef.current.getBoundingClientRect()
-      setTriggerRect(rect)
-      const estimatedHeight = (options.length + 1) * 36 + 24
-      setOpenUpward(rect.bottom + estimatedHeight > window.innerHeight - 16)
-    }
     setOpen(true)
   }
 
@@ -174,7 +180,7 @@ function AppPicker({ value, options, placeholder, onChange }: AppPickerProps): R
     }
     document.addEventListener('pointerdown', handlePointerDown)
     return () => document.removeEventListener('pointerdown', handlePointerDown)
-  }, [open])
+  }, [dropdownRef, open])
 
   const selectedApp = options.find((o) => o.name === value)
 
@@ -231,37 +237,30 @@ function AppPicker({ value, options, placeholder, onChange }: AppPickerProps): R
           style={{
             flexShrink: 0,
             transform: open
-              ? openUpward
+              ? dropdownLayout?.placement === 'top'
                 ? 'rotate(0deg)'
                 : 'rotate(180deg)'
-              : openUpward
-                ? 'rotate(180deg)'
-                : 'rotate(0deg)',
+              : 'rotate(0deg)',
             transition: 'transform 150ms ease'
           }}
         />
       </button>
 
       {open &&
-        triggerRect &&
         createPortal(
           <div
             ref={dropdownRef}
             role="listbox"
             style={{
-              position: 'fixed',
-              ...(openUpward
-                ? { bottom: window.innerHeight - triggerRect.top + 6 }
-                : { top: triggerRect.bottom + 6 }),
-              left: triggerRect.left,
-              width: triggerRect.width,
+              ...dropdownPositionStyle,
               zIndex: 9999,
               background: theme.background.surface,
               borderRadius: 14,
               border: `1px solid ${theme.border.subtle}`,
               boxShadow: theme.shadow.menu,
               padding: '4px 0',
-              overflow: 'hidden'
+              overflowY: 'auto',
+              overscrollBehavior: 'contain'
             }}
           >
             {options.length === 0 ? (

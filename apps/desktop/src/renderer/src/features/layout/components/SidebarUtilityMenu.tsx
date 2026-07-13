@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Languages, NotebookPen, Radio } from 'lucide-react'
 import { useT } from '@yachiyo/i18n/react'
@@ -6,9 +6,11 @@ import type { ConnectionStatus } from '@renderer/app/types'
 import { theme } from '@renderer/theme/theme'
 import { isDismissEscapeKey } from '@renderer/lib/imeUtils'
 import { useRestoreFocusOnUnmount } from '@renderer/lib/focusRestore'
+import { useFloatingPanelLayout } from '@renderer/lib/useFloatingPanelLayout'
 
 export interface SidebarUtilityMenuProps {
   anchorRect: DOMRect
+  referenceRef: React.RefObject<HTMLButtonElement | null>
   connectionStatus: ConnectionStatus
   showExternalThreads: boolean
   onToggleExternalThreads: () => void
@@ -19,6 +21,7 @@ export interface SidebarUtilityMenuProps {
 
 export function SidebarUtilityMenu({
   anchorRect,
+  referenceRef,
   connectionStatus,
   showExternalThreads,
   onToggleExternalThreads,
@@ -27,8 +30,20 @@ export function SidebarUtilityMenu({
   onClose
 }: SidebarUtilityMenuProps): React.JSX.Element {
   const t = useT()
-  const menuRef = useRef<HTMLDivElement>(null)
   const [visible, setVisible] = useState(false)
+  const {
+    floatingRef: menuRef,
+    layout: menuLayout,
+    style: menuPositionStyle
+  } = useFloatingPanelLayout({
+    open: true,
+    anchor: anchorRect,
+    referenceRef,
+    width: 200,
+    maxHeight: 260,
+    preferredPlacement: 'top',
+    gap: 6
+  })
   useRestoreFocusOnUnmount()
 
   useEffect(() => {
@@ -50,11 +65,9 @@ export function SidebarUtilityMenu({
       document.removeEventListener('mousedown', handlePointerDown)
       document.removeEventListener('keydown', handleEscape)
     }
-  }, [onClose])
+  }, [menuRef, onClose])
 
   const isConnected = connectionStatus === 'connected'
-  const menuWidth = 200
-  const left = Math.max(12, Math.min(anchorRect.left, window.innerWidth - menuWidth - 12))
 
   return createPortal(
     <div
@@ -62,10 +75,7 @@ export function SidebarUtilityMenu({
       onMouseDown={(e) => e.stopPropagation()}
       className="no-drag"
       style={{
-        position: 'fixed',
-        bottom: window.innerHeight - anchorRect.top + 6,
-        left,
-        width: menuWidth,
+        ...menuPositionStyle,
         padding: 6,
         background: theme.background.surfaceFrosted,
         backdropFilter: 'blur(24px)',
@@ -74,8 +84,14 @@ export function SidebarUtilityMenu({
         borderRadius: 14,
         boxShadow: theme.shadow.menu,
         zIndex: 100,
+        overflowY: 'auto',
+        overscrollBehavior: 'contain',
         opacity: visible ? 1 : 0,
-        transform: visible ? 'translateY(0)' : 'translateY(6px)',
+        transform: visible
+          ? 'translateY(0)'
+          : menuLayout?.placement === 'bottom'
+            ? 'translateY(-6px)'
+            : 'translateY(6px)',
         transition: 'opacity 0.15s ease, transform 0.15s ease'
       }}
     >

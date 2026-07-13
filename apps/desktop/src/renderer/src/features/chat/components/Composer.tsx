@@ -1135,6 +1135,9 @@ export function Composer({
     }
     const handler = (event: MouseEvent): void => {
       const target = event.target as Node
+      if (target instanceof Element && target.closest('[data-composer-floating-menu]')) {
+        return
+      }
       const clickedInsideModelSelector =
         modelSelectorRef.current && modelSelectorRef.current.contains(target)
       const clickedInsideReasoningSelector =
