@@ -196,6 +196,19 @@ export const usage = {
   noRunData: '暂无运行数据。完成一轮对话后会出现性能记录。'
 }
 
+export const logs = {
+  levelAll: '全部级别',
+  levelInfo: 'Info 及以上',
+  levelWarn: '警告与错误',
+  levelError: '仅错误',
+  searchPlaceholder: '搜索日志',
+  jumpToLatest: '跳到最新',
+  openFolder: '打开日志文件夹',
+  empty: '暂无日志。',
+  emptyFiltered: '没有符合筛选条件的日志。',
+  loadError: '读取日志文件失败。'
+}
+
 export const about = {
   madeByBefore: '由 ',
   madeByAfter: ' 制作',

@@ -200,6 +200,19 @@ export const usage = {
   noRunData: 'No run data yet. Performance records appear after completing a conversation turn.'
 } as const
 
+export const logs = {
+  levelAll: 'All levels',
+  levelInfo: 'Info and above',
+  levelWarn: 'Warnings and errors',
+  levelError: 'Errors only',
+  searchPlaceholder: 'Search logs',
+  jumpToLatest: 'Jump to latest',
+  openFolder: 'Open logs folder',
+  empty: 'No log entries yet.',
+  emptyFiltered: 'No entries match the current filters.',
+  loadError: 'Failed to read the log file.'
+} as const
+
 export const about = {
   madeByBefore: 'Made by ',
   madeByAfter: '',

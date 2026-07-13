@@ -1,3 +1,4 @@
+import type { ReadAppLogsResult } from '@yachiyo/shared/appLogs'
 import type {
   AnswerToolQuestionInput,
   BootstrapPayload,
@@ -117,6 +118,9 @@ declare global {
         restart: () => Promise<{ restarted: boolean }>
         openLogs: () => Promise<void>
         onStatus: (listener: (status: { crashed: boolean }) => void) => () => void
+      }
+      appLogs: {
+        read: (input?: { afterByte?: number }) => Promise<ReadAppLogsResult>
       }
       yachiyo: {
         searchThreadsAndMessages: (

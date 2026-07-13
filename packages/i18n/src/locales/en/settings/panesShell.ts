@@ -26,6 +26,7 @@ export const nav = {
   statistics: 'Statistics',
   usage: 'Usage',
   performance: 'Performance',
+  logs: 'Logs',
   about: 'About'
 } as const
 

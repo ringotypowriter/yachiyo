@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
+import type { ReadAppLogsResult } from '@yachiyo/shared/appLogs'
 import type {
   AnswerToolQuestionInput,
   BrowserAutomationSessionRecord,
@@ -142,6 +143,10 @@ const api = {
         ipcRenderer.off('yachiyo:runtime-health-status', handler)
       }
     }
+  },
+  appLogs: {
+    read: (input?: { afterByte?: number }): Promise<ReadAppLogsResult> =>
+      ipcRenderer.invoke('yachiyo:read-app-logs', input)
   },
   yachiyo: {
     searchThreadsAndMessages: (

@@ -19,6 +19,7 @@ test('settings navigation groups related panes under fewer top-level panels', ()
       'source',
       'channels',
       'schedules',
+      'sync',
       'usage',
       'about'
     ]

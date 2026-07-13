@@ -136,5 +136,6 @@ export const IPC_CHANNELS = {
   runtimeHealth: 'yachiyo:runtime-health',
   runtimeHealthStatus: 'yachiyo:runtime-health-status',
   restartRuntime: 'yachiyo:restart-runtime',
-  openLogsFolder: 'yachiyo:open-logs-folder'
+  openLogsFolder: 'yachiyo:open-logs-folder',
+  readAppLogs: 'yachiyo:read-app-logs'
 } as const

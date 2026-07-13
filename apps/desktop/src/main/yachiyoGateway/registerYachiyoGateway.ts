@@ -96,6 +96,7 @@ import {
 } from '../runtimeHost/startUtilityRuntimeHost.ts'
 import { startCommandSocket, type CommandSocketHandle } from '../cli/commandSocket.ts'
 import { openThreadWorkspace } from '../electron/openThreadWorkspace.ts'
+import { readAppLogEntries } from '../logs/appLogFiles.ts'
 import { discoverApps } from '../electron/appDiscovery.ts'
 import {
   createRuntimeLiveServices,
@@ -968,6 +969,9 @@ export function registerYachiyoGateway(): YachiyoGatewayHandle {
     const { shell } = await import('electron')
     await shell.openPath(app.getPath('logs'))
   })
+  handleYachiyoIpc(IPC_CHANNELS.readAppLogs, (input: { afterByte?: number } | undefined) =>
+    readAppLogEntries({ logsDir: app.getPath('logs'), afterByte: input?.afterByte })
+  )
   handleYachiyoIpc(
     IPC_CHANNELS.importWebSearchBrowserSession,
     (input: ImportWebSearchBrowserSessionInput) => rpc().importWebSearchBrowserSession(input)

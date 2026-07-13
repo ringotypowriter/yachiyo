@@ -1,5 +1,6 @@
 import { MessageChannelMain, utilityProcess, type UtilityProcess } from 'electron'
 
+import { createLineSplitter } from '@yachiyo/shared/appLogs'
 import { messagePortMainTransport } from '@yachiyo/shared/rpc/messagePortMainTransport'
 import {
   createRpcClient,
@@ -22,6 +23,19 @@ export interface UtilityRuntimeHost<T extends object> {
  * and serves `mainServicesTarget` (browser pages, activity summaries, …) for
  * the runtime's reverse calls.
  */
+// Forwards a child stdio stream into the (electron-log patched) console so
+// runtime output persists in main.log instead of vanishing in packaged builds.
+function forwardChildOutput(
+  stream: NodeJS.ReadableStream | null | undefined,
+  write: (line: string) => void
+): void {
+  if (!stream) return
+  const splitter = createLineSplitter((line) => write(`[runtime] ${line}`))
+  stream.setEncoding('utf8')
+  stream.on('data', (chunk: string) => splitter.push(chunk))
+  stream.on('end', () => splitter.flush())
+}
+
 export function startUtilityRuntimeHost<T extends object>(input: {
   entryPath: string
   isDev: boolean
@@ -29,12 +43,14 @@ export function startUtilityRuntimeHost<T extends object>(input: {
 }): UtilityRuntimeHost<T> {
   const child = utilityProcess.fork(input.entryPath, [], {
     serviceName: 'yachiyo-runtime-host',
-    stdio: 'inherit',
+    stdio: 'pipe',
     env: {
       ...process.env,
       ...(input.isDev ? { YACHIYO_RUNTIME_DEV: '1' } : {})
     }
   })
+  forwardChildOutput(child.stdout, console.log)
+  forwardChildOutput(child.stderr, console.error)
 
   const { port1, port2 } = new MessageChannelMain()
   child.once('spawn', () => {

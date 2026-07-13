@@ -44,6 +44,7 @@ import { ChannelsPane } from './panes/ChannelsPane'
 import { EssentialsPane } from './panes/EssentialsPane'
 import { SchedulePane } from './panes/SchedulePane'
 import { UsagePane } from './panes/UsagePane'
+import { LogsPane } from './panes/LogsPane'
 import { SyncPane } from './panes/SyncPane'
 import {
   hasPendingChannelGroupChanges,
@@ -830,7 +831,12 @@ function SettingsPanel({
   }
 
   if (activePanel === 'usage') {
-    body = <UsagePane activeTab={activePanelTabs.usage ?? 'usage'} />
+    body =
+      (activePanelTabs.usage ?? 'usage') === 'logs' ? (
+        <LogsPane />
+      ) : (
+        <UsagePane activeTab={activePanelTabs.usage ?? 'usage'} />
+      )
   }
 
   if (activePanel === 'about') {

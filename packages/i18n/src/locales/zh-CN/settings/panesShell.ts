@@ -26,6 +26,7 @@ export const nav = {
   statistics: '统计',
   usage: '用量',
   performance: '性能',
+  logs: '日志',
   about: '关于'
 }
 

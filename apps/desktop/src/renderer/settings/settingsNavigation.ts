@@ -88,7 +88,8 @@ export const SETTINGS_PANELS: readonly SettingsPanelDefinition[] = [
   localizedPanel('sync', 'sync'),
   localizedPanel('usage', 'statistics', [
     localizedTab('usage', 'usage'),
-    localizedTab('performance', 'performance')
+    localizedTab('performance', 'performance'),
+    localizedTab('logs', 'logs')
   ]),
   localizedPanel('about', 'about')
 ]
