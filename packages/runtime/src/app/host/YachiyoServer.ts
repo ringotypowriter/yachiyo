@@ -804,7 +804,7 @@ export class YachiyoServer {
    */
   private reconcileSyncConflicts(): void {
     for (const conflict of this.storage.listSyncConflicts()) {
-      const remembered = this.storage.findResolvedSyncConflictResolution({
+      const remembered = this.storage.findRememberedSettingsResolution({
         entityType: conflict.entityType,
         localHash: conflict.localHash,
         remoteHash: conflict.remoteHash

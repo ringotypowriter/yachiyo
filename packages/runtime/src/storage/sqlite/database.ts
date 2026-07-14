@@ -210,8 +210,9 @@ export function createSqliteYachiyoStorage(
         .all().length
     },
 
-    findResolvedSyncConflictResolution({ entityType, localHash, remoteHash }) {
-      const row = db
+    findRememberedSettingsResolution({ entityType, localHash, remoteHash }) {
+      // Exact (localHash, remoteHash) pair — the only match safe to replay use_remote.
+      const exactRow = db
         .select({ resolution: syncConflictsTable.resolution })
         .from(syncConflictsTable)
         .where(
@@ -225,7 +226,23 @@ export function createSqliteYachiyoStorage(
         )
         .orderBy(desc(syncConflictsTable.resolvedAt))
         .get()
-      return (row?.resolution as SyncConflictResolution | null | undefined) ?? undefined
+      // Any prior "keep mine" against this remote version, regardless of local edits since.
+      const keptLocalRow = db
+        .select({ id: syncConflictsTable.id })
+        .from(syncConflictsTable)
+        .where(
+          and(
+            eq(syncConflictsTable.entityType, entityType),
+            eq(syncConflictsTable.remoteHash, remoteHash),
+            eq(syncConflictsTable.resolution, 'keep_local'),
+            isNotNull(syncConflictsTable.resolvedAt)
+          )
+        )
+        .get()
+      return {
+        exact: (exactRow?.resolution as SyncConflictResolution | null | undefined) ?? undefined,
+        keptLocalForRemote: keptLocalRow != null
+      }
     },
 
     deleteSyncConflict(conflictId) {
