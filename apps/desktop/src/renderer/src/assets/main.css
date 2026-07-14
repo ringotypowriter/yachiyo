@@ -796,13 +796,7 @@ body > div:not(#root) {
 }
 
 .welcome-sparks[data-fade='both'] {
-  mask-image: linear-gradient(
-    90deg,
-    transparent,
-    #000 28px,
-    #000 calc(100% - 28px),
-    transparent
-  );
+  mask-image: linear-gradient(90deg, transparent, #000 28px, #000 calc(100% - 28px), transparent);
 }
 
 .welcome-sparks__button {

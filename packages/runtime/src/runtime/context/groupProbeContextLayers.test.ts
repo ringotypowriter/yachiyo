@@ -231,8 +231,7 @@ test('compileGroupProbeContextLayers drops one-sentence silent assistant monolog
   assert.equal(messages[2]?.content, '<msg from="Bob">fresh turn</msg>')
 })
 
-test('compileGroupProbeContextLayers trims the oldest history turns to the token budget', () => {
-  // ASCII content: estimateTextTokens ≈ length / 4, so each turn ≈ 100 tokens.
+test('compileGroupProbeContextLayers does not guess token counts from message length', () => {
   const messages = compileGroupProbeContextLayers({
     stableSystemPrompt: 'Stable group behavior rules.',
     dynamicSystemPrompt: 'You are the group probe.',
@@ -241,26 +240,22 @@ test('compileGroupProbeContextLayers trims the oldest history turns to the token
       { role: 'user', content: `<msg from="B">${'b'.repeat(390)}</msg>` },
       { role: 'user', content: `<msg from="C">${'c'.repeat(390)}</msg>` }
     ],
-    currentTurnContent: '<msg from="Bob">fresh turn</msg>',
-    historyTokenBudget: 150
+    currentTurnContent: '<msg from="Bob">fresh turn</msg>'
   })
 
   const contents = messages.map((message) => message.content as string)
-  // Only the most recent turn fits the 150-token budget; older ones are dropped.
+  assert.ok(contents.some((content) => content.includes('from="A"')))
+  assert.ok(contents.some((content) => content.includes('from="B"')))
   assert.ok(contents.some((content) => content.includes('from="C"')))
-  assert.ok(!contents.some((content) => content.includes('from="A"')))
-  assert.ok(!contents.some((content) => content.includes('from="B"')))
-  // Current turn is always preserved.
   assert.equal(messages[messages.length - 1]?.content, '<msg from="Bob">fresh turn</msg>')
 })
 
-test('compileGroupProbeContextLayers always keeps at least the newest turn even if it exceeds budget', () => {
+test('compileGroupProbeContextLayers keeps long replay turns intact', () => {
   const messages = compileGroupProbeContextLayers({
     stableSystemPrompt: 'Stable group behavior rules.',
     dynamicSystemPrompt: 'You are the group probe.',
     history: [{ role: 'user', content: `<msg from="A">${'a'.repeat(4000)}</msg>` }],
-    currentTurnContent: '<msg from="Bob">fresh turn</msg>',
-    historyTokenBudget: 10
+    currentTurnContent: '<msg from="Bob">fresh turn</msg>'
   })
 
   assert.ok(messages.some((message) => (message.content as string).includes('from="A"')))
@@ -296,14 +291,11 @@ test('compileGroupProbeContextLayers never replays an assistant reply without it
   const messages = compileGroupProbeContextLayers({
     stableSystemPrompt: 'Stable group behavior rules.',
     dynamicSystemPrompt: 'You are the group probe.',
-    // A large user delta followed by its small assistant reply — a tight budget
-    // must keep them together, not the reply alone.
     history: [
       { role: 'user', content: `<msg from="A">${'a'.repeat(4000)}</msg>` },
       { role: 'assistant', content: 'ok', responseMessages }
     ],
-    currentTurnContent: '<msg from="Bob">fresh turn</msg>',
-    historyTokenBudget: 100
+    currentTurnContent: '<msg from="Bob">fresh turn</msg>'
   })
 
   const hasAssistantReplay = messages.some((message) => message.role === 'assistant')
@@ -316,9 +308,7 @@ test('compileGroupProbeContextLayers never replays an assistant reply without it
   )
 })
 
-test('compileGroupProbeContextLayers keeps the newest user delta under a tight budget (#55)', () => {
-  // Assistant turns no longer produce synthetic self-replies; the newest
-  // user delta must still survive budget trimming on its own.
+test('compileGroupProbeContextLayers keeps the newest user delta without local token budgeting (#55)', () => {
   const responseMessages = [
     {
       role: 'assistant' as const,
@@ -352,8 +342,7 @@ test('compileGroupProbeContextLayers keeps the newest user delta under a tight b
       { role: 'user', content: `<msg from="Alice">${'a'.repeat(2000)}</msg>` },
       { role: 'assistant', content: 'thinking', responseMessages }
     ],
-    currentTurnContent: '<msg from="Bob">fresh turn</msg>',
-    historyTokenBudget: 50
+    currentTurnContent: '<msg from="Bob">fresh turn</msg>'
   })
 
   const hasSyntheticSelf = messages.some(

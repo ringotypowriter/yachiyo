@@ -3,11 +3,9 @@ import assert from 'node:assert/strict'
 
 import {
   buildGroupProbeMessages,
-  deriveNextGroupProbeMessageCount,
   formatGapDuration,
   formatGroupMessages,
   formatGroupProbeTurnDelta,
-  selectGroupProbeRecentMessages,
   sanitizeMessageText
 } from './groupContextBuilder.ts'
 import type { GroupMessageEntry } from '@yachiyo/shared/protocol'
@@ -354,34 +352,5 @@ describe('buildGroupProbeMessages', () => {
       freshCount: 1
     })
     assert.ok((messages[2].content as string).includes('<new/>'))
-  })
-
-  it('selectGroupProbeRecentMessages keeps the newest suffix for a capped window', () => {
-    const recentMessages = [msg('one'), msg('two'), msg('three'), msg('four')]
-    const result = selectGroupProbeRecentMessages(recentMessages, 2)
-    assert.deepEqual(
-      result.map((entry) => entry.text),
-      ['three', 'four']
-    )
-  })
-
-  it('deriveNextGroupProbeMessageCount shrinks after an oversized prompt', () => {
-    const nextCount = deriveNextGroupProbeMessageCount({
-      currentMessageCount: 10,
-      availableMessageCount: 10,
-      totalPromptTokens: 80_000,
-      contextTokenLimit: 64_000
-    })
-    assert.equal(nextCount, 8)
-  })
-
-  it('deriveNextGroupProbeMessageCount relaxes a capped window when under budget', () => {
-    const nextCount = deriveNextGroupProbeMessageCount({
-      currentMessageCount: 4,
-      availableMessageCount: 10,
-      totalPromptTokens: 16_000,
-      contextTokenLimit: 64_000
-    })
-    assert.equal(nextCount, undefined)
   })
 })

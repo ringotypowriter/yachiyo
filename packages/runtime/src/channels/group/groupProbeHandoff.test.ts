@@ -6,15 +6,40 @@ import type {
   AuxiliaryTextGenerationRequest,
   AuxiliaryTextGenerationResult
 } from '../../runtime/models/auxiliaryGeneration.ts'
-import { pickGroupHandoffCheckpoint, summarizeGroupProbeContext } from './groupProbeHandoff.ts'
+import {
+  pickGroupHandoffCheckpoint,
+  summarizeGroupProbeContext,
+  type SummarizeGroupProbeContextInput
+} from './groupProbeHandoff.ts'
+
+type ProposedHandoffOutcome =
+  | { status: 'summarized'; checkpointId: string }
+  | {
+      status: 'skipped'
+      reason:
+        | 'below-prompt-threshold'
+        | 'generation-unavailable'
+        | 'no-checkpoint'
+        | 'prompt-usage-unavailable'
+        | 'thread-changed'
+    }
+
+type ProposedHandoffInput = Omit<SummarizeGroupProbeContextInput, 'recentWindowTokens'> & {
+  promptTokens?: number
+}
+
+const pickCheckpoint = pickGroupHandoffCheckpoint as unknown as (
+  messages: MessageRecord[]
+) => string | null
+const summarizeContext = summarizeGroupProbeContext as unknown as (
+  input: ProposedHandoffInput
+) => Promise<ProposedHandoffOutcome>
 
 const success = (text: string): AuxiliaryTextGenerationResult => ({
   status: 'success',
   text,
   settings: {} as ProviderSettings
 })
-
-const NO_SEGMENT_CAP = 100_000_000
 
 function msg(id: string, content: string, role: 'user' | 'assistant' = 'user'): MessageRecord {
   return {
@@ -27,7 +52,6 @@ function msg(id: string, content: string, role: 'user' | 'assistant' = 'user'): 
   }
 }
 
-// ASCII content: estimateTextTokens ≈ length / 4, so 400 chars ≈ 100 tokens.
 const big = (id: string, role: 'user' | 'assistant' = 'user'): MessageRecord =>
   msg(id, 'x'.repeat(400), role)
 
@@ -62,21 +86,13 @@ function sentReply(id: string, text: string): MessageRecord {
 }
 
 test('pickGroupHandoffCheckpoint returns null when the thread is too short', () => {
-  assert.equal(pickGroupHandoffCheckpoint([], 100, NO_SEGMENT_CAP), null)
-  assert.equal(pickGroupHandoffCheckpoint([big('a')], 100, NO_SEGMENT_CAP), null)
+  assert.equal(pickCheckpoint([]), null)
+  assert.equal(pickCheckpoint([big('a')]), null)
 })
 
-test('pickGroupHandoffCheckpoint returns null when the whole thread fits the window', () => {
-  assert.equal(pickGroupHandoffCheckpoint([big('a'), big('b')], 10_000, NO_SEGMENT_CAP), null)
-})
-
-test('pickGroupHandoffCheckpoint keeps ~one window after the checkpoint', () => {
-  const checkpoint = pickGroupHandoffCheckpoint(
-    [big('a'), big('b'), big('c'), big('d')],
-    100,
-    NO_SEGMENT_CAP
-  )
-  assert.equal(checkpoint, 'c')
+test('pickGroupHandoffCheckpoint keeps the newest half of complete turns', () => {
+  const checkpoint = pickCheckpoint([big('a'), big('b'), big('c'), big('d')])
+  assert.equal(checkpoint, 'b')
 })
 
 test('pickGroupHandoffCheckpoint snaps the boundary so the kept tail starts with a user delta', () => {
@@ -86,15 +102,12 @@ test('pickGroupHandoffCheckpoint snaps the boundary so the kept tail starts with
     big('u2', 'user'),
     big('a2', 'assistant')
   ]
-  // Boundary lands on a2 (assistant) → snap older to u2, watermark = a1.
-  assert.equal(pickGroupHandoffCheckpoint(messages, 100, NO_SEGMENT_CAP), 'a1')
+  assert.equal(pickCheckpoint(messages), 'a1')
 })
 
-test('pickGroupHandoffCheckpoint caps the summarized segment to maxSegmentTokens for a huge thread', () => {
-  // 6 turns ≈ 100 tokens each = 600 raw; segment cap 100 → only the oldest turn
-  // ('a') is summarized this pass, so the transcript never blows the model up.
-  const messages = [big('a'), big('b'), big('c'), big('d'), big('e'), big('f')]
-  assert.equal(pickGroupHandoffCheckpoint(messages, 100, 100), 'a')
+test('pickGroupHandoffCheckpoint keeps the larger half when the turn count is odd', () => {
+  const messages = [big('a'), big('b'), big('c'), big('d'), big('e')]
+  assert.equal(pickCheckpoint(messages), 'b')
 })
 
 interface FakeStorage {
@@ -120,21 +133,20 @@ test('summarizeGroupProbeContext writes summary + advances the watermark', async
   const storage = fakeStorage(baseThread, [big('a'), big('b'), big('c'), big('d')])
   const auxService = { generateText: async () => success('  previously in the group…  ') }
 
-  const outcome = await summarizeGroupProbeContext({
+  const outcome = await summarizeContext({
     storage,
     auxService,
     threadId: 't',
-    recentWindowTokens: 100,
+    promptTokens: 100,
     handoffThresholdTokens: 100,
-    groupName: '杂鱼村',
+    groupName: 'group',
     now: () => '2026-07-01T00:00:00Z'
   })
 
-  assert.equal(outcome, 'summarized')
+  assert.deepEqual(outcome, { status: 'summarized', checkpointId: 'b' })
   assert.equal(storage.updated.length, 1)
   assert.equal(storage.updated[0]?.contextHandoffSummary, 'previously in the group…')
-  // Segment capped to one window ⇒ only the oldest turn is compressed this pass.
-  assert.equal(storage.updated[0]?.contextHandoffWatermarkMessageId, 'a')
+  assert.equal(storage.updated[0]?.contextHandoffWatermarkMessageId, 'b')
 })
 
 test('summarizeGroupProbeContext includes Yachiyo sent replies (from responseMessages) in the transcript', async () => {
@@ -154,22 +166,22 @@ test('summarizeGroupProbeContext includes Yachiyo sent replies (from responseMes
     }
   }
 
-  const outcome = await summarizeGroupProbeContext({
+  const outcome = await summarizeContext({
     storage,
     auxService,
     threadId: 't',
-    recentWindowTokens: 200,
+    promptTokens: 100,
     handoffThresholdTokens: 100,
-    groupName: '杂鱼村'
+    groupName: 'group'
   })
 
-  assert.equal(outcome, 'summarized')
+  assert.equal(outcome.status, 'summarized')
   const userPrompt = captured?.messages.find((m) => m.role === 'user')?.content
   assert.equal(typeof userPrompt, 'string')
   assert.match(userPrompt as string, /Yachiyo: GN everyone, going offline/)
 })
 
-test('summarizeGroupProbeContext skips when raw transcript is below the handoff threshold', async () => {
+test('summarizeGroupProbeContext trusts provider prompt usage instead of transcript size guesses', async () => {
   const storage = fakeStorage(baseThread, [big('a'), big('b'), big('c'), big('d')])
   let called = false
   const auxService = {
@@ -179,34 +191,67 @@ test('summarizeGroupProbeContext skips when raw transcript is below the handoff 
     }
   }
 
-  const outcome = await summarizeGroupProbeContext({
+  const outcome = await summarizeContext({
     storage,
     auxService,
     threadId: 't',
-    recentWindowTokens: 100,
-    handoffThresholdTokens: 100_000, // raw ≈ 400 tokens, far below
-    groupName: '杂鱼村'
+    promptTokens: 99,
+    handoffThresholdTokens: 100,
+    groupName: 'group'
   })
 
-  assert.equal(outcome, 'skipped')
+  assert.deepEqual(outcome, { status: 'skipped', reason: 'below-prompt-threshold' })
   assert.equal(called, false)
   assert.equal(storage.updated.length, 0)
 })
 
-test('summarizeGroupProbeContext skips when there is nothing worth compressing', async () => {
-  const storage = fakeStorage(baseThread, [big('a'), big('b')])
+test('summarizeGroupProbeContext compacts a provider-reported large prompt even when text is short', async () => {
+  const storage = fakeStorage(baseThread, [msg('a', 'x'), msg('b', 'y')])
   const auxService = { generateText: async () => success('x') }
 
-  const outcome = await summarizeGroupProbeContext({
+  const outcome = await summarizeContext({
     storage,
     auxService,
     threadId: 't',
-    recentWindowTokens: 10_000,
+    promptTokens: 100,
     handoffThresholdTokens: 100,
-    groupName: '杂鱼村'
+    groupName: 'group'
   })
 
-  assert.equal(outcome, 'skipped')
+  assert.deepEqual(outcome, { status: 'summarized', checkpointId: 'a' })
+  assert.equal(storage.updated[0]?.contextHandoffWatermarkMessageId, 'a')
+})
+
+test('summarizeGroupProbeContext skips explicitly when provider usage is unavailable', async () => {
+  const storage = fakeStorage(baseThread, [big('a'), big('b')])
+  const auxService = { generateText: async () => success('x') }
+
+  const outcome = await summarizeContext({
+    storage,
+    auxService,
+    threadId: 't',
+    handoffThresholdTokens: 100,
+    groupName: 'group'
+  })
+
+  assert.deepEqual(outcome, { status: 'skipped', reason: 'prompt-usage-unavailable' })
+  assert.equal(storage.updated.length, 0)
+})
+
+test('summarizeGroupProbeContext reports when there is no complete older turn to compact', async () => {
+  const storage = fakeStorage(baseThread, [big('a')])
+  const auxService = { generateText: async () => success('x') }
+
+  const outcome = await summarizeContext({
+    storage,
+    auxService,
+    threadId: 't',
+    promptTokens: 100,
+    handoffThresholdTokens: 100,
+    groupName: 'group'
+  })
+
+  assert.deepEqual(outcome, { status: 'skipped', reason: 'no-checkpoint' })
   assert.equal(storage.updated.length, 0)
 })
 
@@ -228,16 +273,16 @@ test('summarizeGroupProbeContext skips the write when history is cleared mid-sum
     }
   }
 
-  const outcome = await summarizeGroupProbeContext({
+  const outcome = await summarizeContext({
     storage,
     auxService,
     threadId: 't',
-    recentWindowTokens: 100,
+    promptTokens: 100,
     handoffThresholdTokens: 100,
-    groupName: '杂鱼村'
+    groupName: 'group'
   })
 
-  assert.equal(outcome, 'skipped')
+  assert.deepEqual(outcome, { status: 'skipped', reason: 'thread-changed' })
   assert.equal(updated.length, 0)
 })
 
@@ -247,15 +292,15 @@ test('summarizeGroupProbeContext skips when generation is unavailable', async ()
     generateText: async () => ({ status: 'unavailable' as const, reason: 'missing-model' as const })
   }
 
-  const outcome = await summarizeGroupProbeContext({
+  const outcome = await summarizeContext({
     storage,
     auxService,
     threadId: 't',
-    recentWindowTokens: 100,
+    promptTokens: 100,
     handoffThresholdTokens: 100,
-    groupName: '杂鱼村'
+    groupName: 'group'
   })
 
-  assert.equal(outcome, 'skipped')
+  assert.deepEqual(outcome, { status: 'skipped', reason: 'generation-unavailable' })
   assert.equal(storage.updated.length, 0)
 })

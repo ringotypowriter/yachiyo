@@ -63,6 +63,44 @@ test('generateText forwards onToolCallError to the model runtime request', async
   assert.equal(capturedOnToolCallError, onToolCallError)
 })
 
+test('generateText exposes the first provider-reported prompt count', async () => {
+  const service = createAuxiliaryGenerationService({
+    createModelRuntime: () => ({
+      async *streamReply(request: ModelStreamRequest): AsyncIterable<string> {
+        request.onStepUsage?.({ promptTokens: 321, completionTokens: 10 })
+        request.onStepUsage?.({ promptTokens: 400, completionTokens: 5 })
+        request.onFinish?.({
+          promptTokens: 400,
+          completionTokens: 5,
+          totalPromptTokens: 721,
+          totalCompletionTokens: 15
+        })
+        yield 'ok'
+      }
+    }),
+    readToolModelSettings: () => ({
+      providerName: 'tool-model',
+      provider: 'openai',
+      model: 'gpt-4o',
+      apiKey: 'sk-test',
+      baseUrl: ''
+    })
+  })
+
+  const result = await service.generateText({
+    messages: [{ role: 'user', content: 'hello' }]
+  })
+
+  assert.equal(result.status, 'success')
+  const usage =
+    result.status === 'success'
+      ? (result.usage as
+          | (NonNullable<typeof result.usage> & { initialPromptTokens?: number })
+          | undefined)
+      : undefined
+  assert.equal(usage?.initialPromptTokens, 321)
+})
+
 test('generateText runs a Codex OAuth tool model instead of blocking it', async () => {
   let capturedProvider: string | undefined
 
