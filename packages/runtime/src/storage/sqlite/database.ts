@@ -249,6 +249,21 @@ export function createSqliteYachiyoStorage(
       db.delete(syncConflictsTable).where(eq(syncConflictsTable.id, conflictId)).run()
     },
 
+    rememberSyncSettingsBaseHash(hash) {
+      // `sync_meta` is owned and created by the native sync-core binary; skip the
+      // write until sync has been initialised so we never touch a missing table.
+      const hasSyncMeta = client
+        .prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'sync_meta'")
+        .get()
+      if (!hasSyncMeta) return
+      client
+        .prepare(
+          "INSERT INTO sync_meta (key, value) VALUES ('settings_base_hash', ?) " +
+            'ON CONFLICT(key) DO UPDATE SET value = excluded.value'
+        )
+        .run(hash)
+    },
+
     ...createSqliteBootstrapStorageMethods({
       db,
       isBootstrapThread,

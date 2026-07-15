@@ -726,10 +726,16 @@ pub fn export_ops(
     if settings_changed {
         if let Some(text) = &settings_text {
             // The ancestor our current edit sits on top of: the last settings a peer
-            // that hasn't edited since would still hold. Empty on a device that has
-            // never agreed yet, which keeps the old conservative "conflict unless
-            // byte-identical" behaviour for that first divergence.
-            let base_hash = get_meta(&conn, META_SETTINGS_BASE_HASH)?.unwrap_or_default();
+            // that hasn't edited since would still hold. Profiles upgraded from before
+            // base tracking existed have no base yet but usually carry the last exported
+            // hash, so fall back to that; a peer still on that exported config can then
+            // fast-forward instead of hitting a phantom conflict. Empty only on a device
+            // that has never exported settings, preserving the conservative
+            // "conflict unless byte-identical" behaviour for that first divergence.
+            let base_hash = match get_meta(&conn, META_SETTINGS_BASE_HASH)? {
+                Some(hash) => hash,
+                None => get_meta(&conn, META_SETTINGS_HASH)?.unwrap_or_default(),
+            };
             let payload =
                 json!({ "text": text, "baseHash": base_hash, "contentHash": hash_text(text) });
             ops_v1.write_op(&make_op(
@@ -3467,6 +3473,48 @@ mod tests {
             .query_row("SELECT COUNT(*) FROM sync_conflicts", [], |r| r.get(0))
             .unwrap();
         assert_eq!(conflicts, 0, "unedited peer must not record a conflict");
+    }
+
+    #[test]
+    fn upgraded_profile_seeds_base_from_export_hash() {
+        let sync = tempfile::tempdir().unwrap();
+        let home_a = setup_home("config-v1");
+        let home_b = setup_home("config-v1");
+        init_sync(home_a.path(), Some(sync.path()), "A").unwrap();
+        init_sync(home_b.path(), Some(sync.path()), "B").unwrap();
+
+        // A publishes v1, which records both the export hash and the base hash.
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+
+        // Simulate a profile upgraded from before base tracking existed: the base key
+        // is absent, but the last-exported hash survives from earlier syncs.
+        {
+            let conn = Connection::open(home_a.path().join(DB_FILE)).unwrap();
+            conn.execute(
+                "DELETE FROM sync_meta WHERE key = ?1",
+                [META_SETTINGS_BASE_HASH],
+            )
+            .unwrap();
+        }
+
+        // The first post-upgrade edit must still declare a usable baseHash so an
+        // unedited peer fast-forwards instead of recording a phantom conflict.
+        fs::write(home_a.path().join(SETTINGS_FILE), "config-v2").unwrap();
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+
+        assert_eq!(
+            fs::read_to_string(home_b.path().join(SETTINGS_FILE)).unwrap(),
+            "config-v2"
+        );
+        let conn = Connection::open(home_b.path().join(DB_FILE)).unwrap();
+        let conflicts: i64 = conn
+            .query_row("SELECT COUNT(*) FROM sync_conflicts", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(
+            conflicts, 0,
+            "upgraded profile must seed baseHash from the export hash"
+        );
     }
 
     #[test]
