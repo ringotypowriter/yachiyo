@@ -38,6 +38,12 @@ export interface ModelUsage {
   totalCompletionTokens: number
   cacheReadTokens?: number
   cacheWriteTokens?: number
+  /**
+   * Prompt tokens the provider reported for the FIRST step of the call, before
+   * any tool round-trips grew the context. Group-probe handoff gates compaction
+   * on this real prompt size rather than a transcript-length guess.
+   */
+  initialPromptTokens?: number
   /** AI SDK finish reason: 'stop' | 'length' | 'content-filter' | 'tool-calls' | 'error' | 'other' | 'unknown'. */
   finishReason?: string
   /** Structured response messages from the AI SDK (assistant + tool messages), for lossless history replay. */

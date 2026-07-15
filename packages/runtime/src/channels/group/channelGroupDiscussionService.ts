@@ -406,23 +406,22 @@ export function createChannelGroupDiscussionService(
         sentTextByToolCallId
       })
       // Compress the older transcript into a rolling summary + advance the
-      // watermark once enough raw transcript has piled up, in the background so
-      // the reply path stays fast. The threshold is checked against the stored
-      // post-watermark size inside summarizeGroupProbeContext (the prompt itself
-      // is capped by the B-window, so it can't signal raw growth).
+      // watermark once the probe's prompt has grown enough, in the background so
+      // the reply path stays fast. Gating uses the provider-reported prompt size
+      // from this turn rather than a transcript-length guess.
       if (policy.groupHandoffTokenThreshold > 0 && !handoffInFlight.has(probeThread.id)) {
         handoffInFlight.add(probeThread.id)
         void summarizeGroupProbeContext({
           storage: server.getStorage(),
           auxService,
           threadId: probeThread.id,
-          recentWindowTokens: policy.groupContextTokenLimit,
+          promptTokens: result.usage?.initialPromptTokens,
           handoffThresholdTokens: policy.groupHandoffTokenThreshold,
           groupName: group.name,
           settingsOverride: handoffSettingsOverride
         })
           .then((outcome) => {
-            if (outcome === 'summarized') {
+            if (outcome.status === 'summarized') {
               console.log(
                 `[${logLabel}] group="${group.name}" compressed old context into a handoff summary`
               )

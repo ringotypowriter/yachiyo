@@ -1,5 +1,4 @@
 import type { MessageRecord, ProviderSettings, ThreadRecord } from '@yachiyo/shared/protocol'
-import { estimateTextTokens } from '@yachiyo/shared/estimateTokens'
 import type { AuxiliaryGenerationService } from '../../runtime/models/auxiliaryGeneration.ts'
 import type { ModelMessage } from '../../runtime/models/types.ts'
 import { extractSuccessfulGroupMessageText } from '../../runtime/context/groupProbeContextLayers.ts'
@@ -26,61 +25,31 @@ export function messagesAfterWatermark(
 }
 
 /**
- * Choose the watermark checkpoint for one handoff pass. Two bounds:
- *  - keep ~`recentWindowTokens` of raw transcript AFTER the checkpoint, and
- *  - summarize at most ~`maxSegmentTokens` of the OLDEST transcript in this pass
- *    so an already-huge thread never sends a segment larger than the model can
- *    take (the rolling summary folds the backlog in over successive passes).
- * The boundary is then snapped older to a turn start so the kept tail begins
- * with a user delta (the read path slices strictly after the watermark).
- * Returns null when there is nothing clean worth compressing this pass.
+ * Choose the watermark checkpoint for one handoff pass: drop the oldest half of
+ * the transcript and keep the newer half (the larger half when the count is
+ * odd). The boundary is snapped older to a turn start so the kept tail begins
+ * with a user delta — its assistant reply then keeps the group context it
+ * answered, and the read path slices strictly after the watermark. Returns null
+ * when the transcript is too short or has no clean turn boundary to compress.
  */
-export function pickGroupHandoffCheckpoint(
-  messages: MessageRecord[],
-  recentWindowTokens: number,
-  maxSegmentTokens: number
-): string | null {
-  if (messages.length < 2 || recentWindowTokens <= 0) {
+export function pickGroupHandoffCheckpoint(messages: MessageRecord[]): string | null {
+  if (messages.length < 2) {
     return null
   }
 
-  // Latest first-kept index that still leaves ~one window of raw after it.
-  let tailTokens = 0
-  let windowStart = -1
-  for (let i = messages.length - 1; i >= 1; i--) {
-    tailTokens += estimateTextTokens(messages[i]!.content)
-    if (tailTokens >= recentWindowTokens) {
-      windowStart = i
-      break
-    }
+  // First index of the kept (newer) half; dropping floor(n/2) keeps the larger
+  // half when the count is odd.
+  let boundary = Math.floor(messages.length / 2)
+
+  // Snap the boundary older to a turn start so the kept tail opens with a user
+  // delta rather than a dangling assistant reply.
+  while (boundary > 0 && messages[boundary]!.role !== 'user') {
+    boundary--
   }
-  if (windowStart < 0) {
+  if (boundary <= 0) {
     return null
   }
-
-  // Cap the summarized segment to the oldest ~maxSegmentTokens so this pass's
-  // transcript stays within the model's context.
-  let start = windowStart
-  if (maxSegmentTokens > 0) {
-    let segmentTokens = 0
-    for (let i = 0; i < messages.length; i++) {
-      segmentTokens += estimateTextTokens(messages[i]!.content)
-      if (segmentTokens >= maxSegmentTokens) {
-        start = Math.min(windowStart, i + 1)
-        break
-      }
-    }
-  }
-
-  // Snap the boundary older to a turn start: the kept tail must begin with a
-  // user delta so its assistant reply keeps the group context it answered.
-  while (start > 0 && messages[start]!.role !== 'user') {
-    start--
-  }
-  if (start <= 0 || messages[start]!.role !== 'user') {
-    return null
-  }
-  return messages[start - 1]!.id
+  return messages[boundary - 1]!.id
 }
 
 function renderSegmentTranscript(messages: MessageRecord[]): string {
@@ -106,26 +75,30 @@ export interface SummarizeGroupProbeContextInput {
   storage: GroupHandoffStorage
   auxService: Pick<AuxiliaryGenerationService, 'generateText'>
   threadId: string
-  /** Tokens of raw transcript to keep after the watermark (the B-window). */
-  recentWindowTokens: number
   /**
-   * Raw post-watermark transcript size (tokens) that triggers compaction.
-   * Measured from stored messages, NOT the last prompt — B already caps the
-   * prompt at recentWindowTokens, so prompt size never reflects raw growth.
+   * Provider-reported prompt tokens for the probe turn that just ran. This real
+   * prompt size — not a transcript-length guess — decides whether the context
+   * has grown enough to compact. Undefined when the provider reported no usage.
    */
+  promptTokens?: number
+  /** Prompt-token size at which a compaction pass is worth running. */
   handoffThresholdTokens: number
   groupName: string
   settingsOverride?: ProviderSettings
   now?: () => string
 }
 
-function estimateRawTokens(messages: MessageRecord[]): number {
-  let total = 0
-  for (const message of messages) {
-    total += estimateTextTokens(message.content)
-  }
-  return total
-}
+export type SummarizeGroupProbeOutcome =
+  | { status: 'summarized'; checkpointId: string }
+  | {
+      status: 'skipped'
+      reason:
+        | 'below-prompt-threshold'
+        | 'generation-unavailable'
+        | 'no-checkpoint'
+        | 'prompt-usage-unavailable'
+        | 'thread-changed'
+    }
 
 /**
  * Compress the older part of a long-running group probe thread into a rolling
@@ -135,10 +108,19 @@ function estimateRawTokens(messages: MessageRecord[]): number {
  */
 export async function summarizeGroupProbeContext(
   input: SummarizeGroupProbeContextInput
-): Promise<'summarized' | 'skipped'> {
+): Promise<SummarizeGroupProbeOutcome> {
   const thread = input.storage.getThread(input.threadId)
   if (!thread) {
-    return 'skipped'
+    return { status: 'skipped', reason: 'thread-changed' }
+  }
+
+  // Gate on the provider's real prompt size for this turn: no usage means we
+  // can't tell whether the context grew, and a small prompt isn't worth a pass.
+  if (input.promptTokens === undefined) {
+    return { status: 'skipped', reason: 'prompt-usage-unavailable' }
+  }
+  if (input.promptTokens < input.handoffThresholdTokens) {
+    return { status: 'skipped', reason: 'below-prompt-threshold' }
   }
 
   const startingWatermark = thread.contextHandoffWatermarkMessageId
@@ -146,27 +128,16 @@ export async function summarizeGroupProbeContext(
     input.storage.listThreadMessages(input.threadId),
     startingWatermark
   )
-  // Gate on the raw stored transcript that has piled up since the last
-  // watermark — this is what actually grows; the prompt is capped by B.
-  if (estimateRawTokens(afterWatermark) < input.handoffThresholdTokens) {
-    return 'skipped'
-  }
-  // Summarize at most one window of the oldest backlog per pass so the segment
-  // never exceeds the model's context, even for an already-huge thread.
-  const checkpointId = pickGroupHandoffCheckpoint(
-    afterWatermark,
-    input.recentWindowTokens,
-    input.recentWindowTokens
-  )
+  const checkpointId = pickGroupHandoffCheckpoint(afterWatermark)
   if (!checkpointId) {
-    return 'skipped'
+    return { status: 'skipped', reason: 'no-checkpoint' }
   }
 
   const checkpointIndex = afterWatermark.findIndex((message) => message.id === checkpointId)
   const segment = afterWatermark.slice(0, checkpointIndex + 1)
   const transcript = renderSegmentTranscript(segment)
   if (!transcript) {
-    return 'skipped'
+    return { status: 'skipped', reason: 'no-checkpoint' }
   }
 
   const result = await input.auxService.generateText({
@@ -185,11 +156,11 @@ export async function summarizeGroupProbeContext(
     purpose: 'group-probe-handoff'
   })
   if (result.status !== 'success') {
-    return 'skipped'
+    return { status: 'skipped', reason: 'generation-unavailable' }
   }
   const summary = result.text.trim()
   if (!summary) {
-    return 'skipped'
+    return { status: 'skipped', reason: 'generation-unavailable' }
   }
 
   // Re-read: the thread may have changed while the summary was generating. Bail
@@ -198,13 +169,13 @@ export async function summarizeGroupProbeContext(
   // message. Guard on both the watermark moving and the checkpoint surviving.
   const latest = input.storage.getThread(input.threadId)
   if (!latest || latest.contextHandoffWatermarkMessageId !== startingWatermark) {
-    return 'skipped'
+    return { status: 'skipped', reason: 'thread-changed' }
   }
   const checkpointSurvives = input.storage
     .listThreadMessages(input.threadId)
     .some((message) => message.id === checkpointId)
   if (!checkpointSurvives) {
-    return 'skipped'
+    return { status: 'skipped', reason: 'thread-changed' }
   }
   input.storage.updateThread({
     ...latest,
@@ -212,5 +183,5 @@ export async function summarizeGroupProbeContext(
     contextHandoffWatermarkMessageId: checkpointId,
     updatedAt: input.now ? input.now() : new Date().toISOString()
   })
-  return 'summarized'
+  return { status: 'summarized', checkpointId }
 }

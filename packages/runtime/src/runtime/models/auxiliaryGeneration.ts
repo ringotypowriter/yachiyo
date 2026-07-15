@@ -108,6 +108,7 @@ export function createAuxiliaryGenerationService(
       const resolvedSettings = settings
       let text = ''
       let usage: ModelUsage | undefined
+      let initialPromptTokens: number | undefined
 
       try {
         const stream = runtime.streamReply({
@@ -120,6 +121,13 @@ export function createAuxiliaryGenerationService(
           ...(request.promptCacheKey ? { promptCacheKey: request.promptCacheKey } : {}),
           tools: request.tools,
           onToolCallError: request.onToolCallError,
+          onStepUsage: (stepUsage) => {
+            // The first step's prompt count reflects the real input size before
+            // tool round-trips inflate it — capture it once for handoff gating.
+            if (initialPromptTokens === undefined) {
+              initialPromptTokens = stepUsage.promptTokens
+            }
+          },
           onFinish: (finishUsage) => {
             usage = finishUsage
           }
@@ -149,11 +157,13 @@ export function createAuxiliaryGenerationService(
 
         await Promise.race([consume, abortPromise])
 
+        const resolvedUsage =
+          usage && initialPromptTokens !== undefined ? { ...usage, initialPromptTokens } : usage
         return {
           status: 'success',
           settings: resolvedSettings,
           text,
-          ...(usage ? { usage } : {})
+          ...(resolvedUsage ? { usage: resolvedUsage } : {})
         }
       } catch (error) {
         return {
