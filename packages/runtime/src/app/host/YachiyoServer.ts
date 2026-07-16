@@ -804,7 +804,7 @@ export class YachiyoServer {
    */
   private reconcileSyncConflicts(): void {
     for (const conflict of this.storage.listSyncConflicts()) {
-      const remembered = this.storage.findResolvedSyncConflictResolution({
+      const remembered = this.storage.findRememberedSettingsResolution({
         entityType: conflict.entityType,
         localHash: conflict.localHash,
         remoteHash: conflict.remoteHash
@@ -813,7 +813,11 @@ export class YachiyoServer {
       if (decision === 'prompt') continue
       if (decision === 'apply-remote') {
         const remote = this.parseConflictRemoteSettings(conflict)
-        if (remote) this.configDomain.saveConfig(remote)
+        if (remote) {
+          this.configDomain.saveConfig(remote)
+          // We now sit on the remote version; move sync-core's baseline with us.
+          this.storage.rememberSyncSettingsBaseHash(conflict.remoteHash)
+        }
       }
       // Drop the duplicate; the user's original resolved row stays as the memory.
       this.storage.deleteSyncConflict(conflict.id)
@@ -867,6 +871,12 @@ export class YachiyoServer {
             )
           : remote
       this.configDomain.saveConfig(nextConfig)
+      // Adopting the synced version wholesale makes it our new baseline, so a later
+      // local edit doesn't re-conflict peers already on it. A merge produces content
+      // neither side has, so it can't reuse remoteHash and is left to re-sync normally.
+      if (input.resolution === 'use_remote') {
+        this.storage.rememberSyncSettingsBaseHash(conflict.remoteHash)
+      }
     }
 
     this.storage.resolveSyncConflict({
