@@ -1,5 +1,17 @@
 # @yachiyo/desktop
 
+## 1.4.1
+
+### Patch Changes
+
+- [`1472405`](https://github.com/ringotypowriter/yachiyo/commit/1472405238f608d6138fa5d36aeb64dca5d4f1aa) Thanks [@ringotypowriter](https://github.com/ringotypowriter)! - Locale
+
+- Updated dependencies []:
+  - @yachiyo/cli@1.4.1
+  - @yachiyo/runtime@1.4.1
+  - @yachiyo/shared@1.4.1
+  - @yachiyo/core-skills@1.4.1
+
 ## 1.4.0
 
 ### Minor Changes

@@ -1,5 +1,0 @@
----
-'@yachiyo/desktop': patch
----
-
-Locale
