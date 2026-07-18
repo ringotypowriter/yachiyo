@@ -1489,19 +1489,16 @@ describe('directMessageService askUser bridge', () => {
     })
 
     directMessages.enqueueMessage('chat-1', channelUser, 'start')
-    await delay(30)
-
-    assert.ok(
+    await waitFor(() =>
       sentMessages.some(
         (m) => m.includes('Pick one') && m.includes('1. Alpha') && m.includes('2. Beta')
-      ),
-      `expected an askUser question to be delivered, got: ${JSON.stringify(sentMessages)}`
+      )
     )
     assert.equal(answers.length, 0, 'no answer should be sent before the user replies')
 
     // The owner replies with a number, which maps to the matching choice.
     directMessages.enqueueMessage('chat-1', channelUser, '2')
-    await delay(30)
+    await waitFor(() => answers.length > 0)
 
     assert.deepEqual(answers, [{ runId: 'run-1', toolCallId: 'tc-1', answer: 'Beta' }])
   })
@@ -1607,12 +1604,11 @@ describe('directMessageService askUser bridge', () => {
     )
 
     directMessages.enqueueMessage('chat-1', channelUser, 'start')
-    await delay(30)
-    assert.ok(sentMessages.some((m) => m.includes('What path?')))
+    await waitFor(() => sentMessages.some((m) => m.includes('What path?')))
 
     // A path-like reply must answer the question, not be parsed as a command.
     directMessages.enqueueMessage('chat-1', channelUser, '/tmp/foo')
-    await delay(30)
+    await waitFor(() => answers.length > 0)
 
     assert.deepEqual(answers, [{ runId: 'run-1', toolCallId: 'tc-1', answer: '/tmp/foo' }])
     assert.deepEqual(slashCalls, [], 'a path-like reply must not reach slash handling')
@@ -1637,11 +1633,10 @@ describe('directMessageService askUser bridge', () => {
     const { channelUser, directMessages, sentMessages, answers } = harness
 
     directMessages.enqueueMessage('chat-1', channelUser, 'start')
-    await delay(30)
-    assert.ok(sentMessages.some((m) => m.includes('What path?')))
+    await waitFor(() => sentMessages.some((m) => m.includes('What path?')))
 
     directMessages.enqueueMessage('chat-1', channelUser, '/stop')
-    await delay(30)
+    await waitFor(() => slashCalls.length > 0)
 
     assert.deepEqual(slashCalls, ['/stop'], '/stop must reach slash handling')
     assert.deepEqual(answers, [], '/stop must not answer the pending question')
