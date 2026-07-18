@@ -1,4 +1,13 @@
 /**
+ * Prefix for instructions the harness injects as hidden user messages (recap,
+ * thread handoff, …). Without it, chat models — GPT especially — can read the
+ * instruction as an in-character conversation turn and reply to it instead of
+ * executing it.
+ */
+export const HARNESS_TASK_REMINDER =
+  '[System Reminder] This is an automated task from the Yachiyo harness, not a message from the user.'
+
+/**
  * Pure identity block — who the character is, with no behavioral instructions.
  *
  * Shared by SYSTEM_PROMPT, EXTERNAL_SYSTEM_PROMPT, and the group probe prompt.

@@ -1,10 +1,10 @@
 import type { ContextLayerHistoryMessage } from './contextLayers.ts'
 import { prepareModelMessages } from '../messages/messagePrepare.ts'
-import { SYSTEM_PROMPT } from './prompt.ts'
+import { HARNESS_TASK_REMINDER, SYSTEM_PROMPT } from './prompt.ts'
 import type { CompileContextLayersInput } from './contextLayers.ts'
 import type { ModelMessage } from '../models/types.ts'
 
-export const HANDOFF_PROMPT = `Write a visible handoff that opens a new thread continuing work from an older thread.
+export const HANDOFF_PROMPT = `${HARNESS_TASK_REMINDER} Write a visible handoff that opens a new thread continuing work from an older thread.
 
 A handoff is a living state file, not a narrative summary. In a chain of handoffs across multiple threads, the cumulative sections must survive every hop without degradation. Each handoff is an update to the prior one.
 
@@ -59,7 +59,7 @@ Open questions, unresolved issues, or gaps. Be honest about missing context. Omi
 export const EMPTY_THREAD_HANDOFF_SUFFIX =
   'No prior context was established. State that clearly and keep the handoff minimal — only a brief Goal and one or two Tasks if any.'
 
-export const SEAMLESS_THREAD_HANDOFF_PROMPT = `Update the context handoff summary for the same active thread.
+export const SEAMLESS_THREAD_HANDOFF_PROMPT = `${HARNESS_TASK_REMINDER} Update the context handoff summary for the same active thread.
 
 This is an invisible active-run context handoff. It is not a visible handoff message, not a new-thread handoff, and not a narrative recap. Write only the updated context handoff summary that should be stored on the current thread.
 
