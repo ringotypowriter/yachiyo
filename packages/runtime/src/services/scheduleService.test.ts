@@ -183,21 +183,27 @@ async function flushAsyncWork(): Promise<void> {
   await Promise.resolve()
 }
 
+// Captured before any test enables mock.timers, so waitFor can sleep for real
+// wall-clock time while the mocked setTimeout/Date stand still.
+const realSetTimeout = setTimeout
+
 /**
- * Drain microtasks/macrotasks until `predicate` returns true or `maxAttempts`
- * is reached. Throws when the predicate never becomes true so the test fails
- * with a clear timeout message rather than a confusing assertion on stale state.
- *
- * The default 100 attempts gives plenty of headroom for slow CI I/O (e.g. the
- * real `mkdir` call inside `fireSchedule`).
+ * Drain microtasks/macrotasks until `predicate` returns true or the wall-clock
+ * timeout elapses. Attempt counting is not enough here: `fireSchedule` performs
+ * real I/O (the `mkdir` call), and on a slow CI runner that I/O can take longer
+ * than any number of immediate event-loop spins. The deadline uses
+ * `process.hrtime` and the sleep uses the captured real `setTimeout`, both
+ * untouched by `mock.timers`.
  */
-async function waitFor(predicate: () => boolean, maxAttempts = 100): Promise<void> {
-  for (let i = 0; i < maxAttempts; i++) {
+async function waitFor(predicate: () => boolean, timeoutMs = 2000): Promise<void> {
+  const deadline = process.hrtime.bigint() + BigInt(timeoutMs) * 1_000_000n
+  while (process.hrtime.bigint() < deadline) {
     if (predicate()) return
     await flushAsyncWork()
+    await new Promise<void>((resolve) => realSetTimeout(resolve, 5))
   }
   if (!predicate()) {
-    throw new Error(`waitFor timed out after ${maxAttempts} attempts`)
+    throw new Error(`waitFor timed out after ${timeoutMs}ms`)
   }
 }
 
