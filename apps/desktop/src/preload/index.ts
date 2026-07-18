@@ -172,8 +172,11 @@ const api = {
     archiveThread: (input: { threadId: string }) =>
       ipcRenderer.invoke('yachiyo:archive-thread', input),
     bootstrap: () => ipcRenderer.invoke('yachiyo:bootstrap'),
-    createBranch: (input: { threadId: string; messageId: string }) =>
-      ipcRenderer.invoke('yachiyo:create-branch', input),
+    createBranch: (input: {
+      threadId: string
+      messageId: string
+      truncateBeforeToolCallId?: string
+    }) => ipcRenderer.invoke('yachiyo:create-branch', input),
     compactThreadToAnotherThread: (input: CompactThreadInput): Promise<CompactThreadAccepted> =>
       ipcRenderer.invoke('yachiyo:compact-thread-to-another-thread', input),
     createThread: (input?: {

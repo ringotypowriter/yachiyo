@@ -1412,7 +1412,11 @@ export class YachiyoServer {
     return this.threadDomain.selectReplyBranch(input)
   }
 
-  async createBranch(input: { threadId: string; messageId: string }): Promise<ThreadSnapshot> {
+  async createBranch(input: {
+    threadId: string
+    messageId: string
+    truncateBeforeToolCallId?: string
+  }): Promise<ThreadSnapshot> {
     const sourceThread = this.requireThread(input.threadId)
     this.assertWritableThreadRecord(sourceThread)
     const result = await this.threadDomain.createBranch(input)

@@ -351,7 +351,8 @@ export const chat = {
     labelContext: 'Context',
     labelNote: 'Note',
     labelUserSteer: 'User steer',
-    labelAction: 'Action'
+    labelAction: 'Action',
+    branchFromHere: 'Branch from here'
   },
   runStats: {
     toolCalls: { one: '{count} tool call', other: '{count} tool calls' },

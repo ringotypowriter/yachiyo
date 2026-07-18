@@ -1119,3 +1119,62 @@ test('getEffectiveModel falls back to settings when no active thread', () => {
 
   assert.deepEqual(getEffectiveModel(state), { providerName: 'work', model: 'gpt-5' })
 })
+
+test('createBranch with truncation opts seeds a quoted-question draft for the branch thread', async () => {
+  resetStore()
+
+  let capturedInput: {
+    threadId: string
+    messageId: string
+    truncateBeforeToolCallId?: string
+  } | null = null
+  const restoreWindow = withWindowApiMock({
+    createBranch: async (input) => {
+      capturedInput = input
+      return {
+        thread: {
+          id: 'thread-2',
+          title: 'Branched',
+          updatedAt: TIMESTAMP,
+          branchFromThreadId: input.threadId,
+          branchFromMessageId: input.messageId
+        },
+        messages: [],
+        toolCalls: []
+      }
+    }
+  })
+
+  try {
+    useAppStore.setState({
+      activeThreadId: 'thread-1',
+      messages: { 'thread-1': [] },
+      threads: [
+        {
+          id: 'thread-1',
+          title: 'Original',
+          updatedAt: TIMESTAMP
+        }
+      ]
+    })
+
+    await useAppStore.getState().createBranch('message-1', {
+      truncateBeforeToolCallId: 'call-ask',
+      quotedQuestion: 'Which DB?'
+    })
+
+    assert.deepEqual(capturedInput, {
+      threadId: 'thread-1',
+      messageId: 'message-1',
+      truncateBeforeToolCallId: 'call-ask'
+    })
+
+    const state = useAppStore.getState()
+    assert.equal(state.activeThreadId, 'thread-2')
+    const draft = state.composerDrafts['thread-2']
+    assert.equal(draft?.text, '> Which DB?\n\n')
+    assert.equal(draft?.initialCursorOffset, '> Which DB?\n\n'.length)
+  } finally {
+    restoreWindow()
+  }
+})

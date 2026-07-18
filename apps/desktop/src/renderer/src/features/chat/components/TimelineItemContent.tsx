@@ -86,6 +86,7 @@ export interface TimelineItemRenderContext {
   rejectPlanDocument: (threadId: string) => Promise<void>
   onEdit: (messageId: string) => void
   onCreateBranch: (messageId: string) => Promise<void>
+  onBranchFromAskUser: (toolCall: ToolCall) => Promise<void>
   onRetry: (messageId: string) => Promise<void>
   onDelete: (messageId: string) => Promise<void>
   onSelectReplyBranch: (messageId: string) => Promise<void>
@@ -134,6 +135,7 @@ function renderTimelineItem(
     revertPendingSteer,
     onEdit,
     onCreateBranch,
+    onBranchFromAskUser,
     onRetry,
     onDelete,
     onSelectReplyBranch,
@@ -355,6 +357,9 @@ function renderTimelineItem(
         runs={runs}
         toolCalls={toolCallsInSummary}
         workspacePath={workspacePath}
+        onBranchFromAskUser={
+          canBranchMessages ? (toolCall) => void onBranchFromAskUser(toolCall) : undefined
+        }
       />
     )
   }

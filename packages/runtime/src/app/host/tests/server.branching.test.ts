@@ -1117,3 +1117,225 @@ test('YachiyoServer recovers retry branches that only produced tool calls', asyn
     }
   )
 })
+
+function emitAskUserToolCall(
+  request: ModelStreamRequest,
+  input: { toolCallId: string; question: string; answer: string }
+): void {
+  const toolCall = {
+    input: { question: input.question, choices: ['sqlite', 'postgres'] },
+    toolCallId: input.toolCallId,
+    toolName: 'askUser'
+  }
+  request.onToolCallStart?.({
+    abortSignal: request.signal,
+    experimental_context: undefined,
+    functionId: undefined,
+    messages: request.messages,
+    metadata: undefined,
+    model: undefined,
+    stepNumber: 0,
+    toolCall
+  } as never)
+  request.onToolCallFinish?.({
+    abortSignal: request.signal,
+    durationMs: 1,
+    experimental_context: undefined,
+    functionId: undefined,
+    messages: request.messages,
+    metadata: undefined,
+    model: undefined,
+    stepNumber: 0,
+    success: true,
+    output: {
+      content: [{ type: 'text', text: input.answer }],
+      details: {
+        kind: 'askUser',
+        question: input.question,
+        choices: ['sqlite', 'postgres'],
+        answer: input.answer
+      },
+      metadata: {}
+    },
+    toolCall
+  } as never)
+}
+
+function collectToolCallIds(responseMessages: unknown[] | undefined): string[] {
+  const ids: string[] = []
+  for (const message of responseMessages ?? []) {
+    const candidate = message as { content?: unknown }
+    if (!Array.isArray(candidate.content)) continue
+    for (const part of candidate.content) {
+      if (
+        typeof part === 'object' &&
+        part !== null &&
+        'toolCallId' in part &&
+        typeof part.toolCallId === 'string'
+      ) {
+        ids.push(part.toolCallId)
+      }
+    }
+  }
+  return ids
+}
+
+test('YachiyoServer createBranch truncates the anchor assistant message before an askUser call', async () => {
+  const askUserRequests: ModelStreamRequest[] = []
+
+  await withServer(
+    async ({ server, completeRun }) => {
+      const thread = await server.createThread()
+
+      const run = await server.sendChat({ threadId: thread.id, content: 'Set up storage' })
+      await completeRun(run.runId)
+
+      const bootstrap = await server.bootstrap()
+      const [userMessage, assistantMessage] = bootstrap.messagesByThread[thread.id] ?? []
+      assert.equal(assistantMessage?.role, 'assistant')
+      assert.equal(assistantMessage?.content, 'Intro text  and we picked sqlite.')
+
+      const branched = await server.createBranch({
+        threadId: thread.id,
+        messageId: assistantMessage!.id,
+        truncateBeforeToolCallId: 'ask-1'
+      })
+
+      assert.equal(branched.messages.length, 2)
+      assert.equal(branched.messages[0]?.role, 'user')
+      assert.equal(branched.messages[0]?.content, userMessage?.content)
+      const branchedAssistant = branched.messages[1]
+      assert.equal(branchedAssistant?.role, 'assistant')
+      assert.equal(branchedAssistant?.content, 'Intro text ')
+      assert.deepEqual(
+        branchedAssistant?.textBlocks?.map((block) => block.content),
+        ['Intro text ']
+      )
+      assert.deepEqual(collectToolCallIds(branchedAssistant?.responseMessages), [])
+      assert.ok(
+        (branchedAssistant?.responseMessages ?? []).every(
+          (message) => (message as { role?: string }).role !== 'tool'
+        )
+      )
+      assert.deepEqual(branched.toolCalls, [])
+      assert.equal(branched.thread.headMessageId, branchedAssistant?.id)
+      assert.equal(branched.thread.branchFromMessageId, assistantMessage?.id)
+      assert.ok(branched.thread.preview?.includes('Intro text'))
+
+      const requestCountBefore = askUserRequests.length
+      const branchRun = await server.sendChat({
+        threadId: branched.thread.id,
+        content: 'Actually, use postgres.'
+      })
+      await completeRun(branchRun.runId)
+
+      const branchRequest = askUserRequests[requestCountBefore]
+      assert.ok(branchRequest)
+      for (const message of branchRequest.messages) {
+        if (!Array.isArray(message.content)) continue
+        for (const part of message.content) {
+          assert.notEqual(
+            'toolCallId' in part ? part.toolCallId : undefined,
+            'ask-1',
+            'branch run context must not contain the truncated askUser call'
+          )
+        }
+      }
+    },
+    {
+      createModelRuntime: () => ({
+        async *streamReply(request: ModelStreamRequest): AsyncIterable<string> {
+          askUserRequests.push(request)
+          if (
+            request.messages.some((message) => JSON.stringify(message.content).includes('postgres'))
+          ) {
+            yield 'Postgres it is.'
+            return
+          }
+          yield 'Intro text '
+          emitAskUserToolCall(request, {
+            toolCallId: 'ask-1',
+            question: 'Which DB?',
+            answer: 'sqlite'
+          })
+          yield ' and we picked sqlite.'
+        }
+      })
+    }
+  )
+})
+
+test('YachiyoServer createBranch drops an anchor left empty by truncation and re-anchors at its parent', async () => {
+  await withServer(
+    async ({ server, completeRun }) => {
+      const thread = await server.createThread()
+
+      const run = await server.sendChat({ threadId: thread.id, content: 'Set up storage' })
+      await completeRun(run.runId)
+
+      const bootstrap = await server.bootstrap()
+      const [userMessage, assistantMessage] = bootstrap.messagesByThread[thread.id] ?? []
+      assert.equal(assistantMessage?.role, 'assistant')
+
+      const branched = await server.createBranch({
+        threadId: thread.id,
+        messageId: assistantMessage!.id,
+        truncateBeforeToolCallId: 'ask-first'
+      })
+
+      assert.equal(branched.messages.length, 1)
+      assert.equal(branched.messages[0]?.role, 'user')
+      assert.equal(branched.messages[0]?.content, userMessage?.content)
+      assert.equal(branched.thread.headMessageId, branched.messages[0]?.id)
+    },
+    {
+      createModelRuntime: () => ({
+        async *streamReply(request: ModelStreamRequest): AsyncIterable<string> {
+          emitAskUserToolCall(request, {
+            toolCallId: 'ask-first',
+            question: 'Which DB?',
+            answer: 'sqlite'
+          })
+          yield 'We picked sqlite.'
+        }
+      })
+    }
+  )
+})
+
+test('YachiyoServer createBranch rejects an unknown truncateBeforeToolCallId', async () => {
+  await withServer(
+    async ({ server, completeRun }) => {
+      const thread = await server.createThread()
+
+      const run = await server.sendChat({ threadId: thread.id, content: 'Set up storage' })
+      await completeRun(run.runId)
+
+      const bootstrap = await server.bootstrap()
+      const assistantMessage = (bootstrap.messagesByThread[thread.id] ?? []).at(-1)
+      assert.equal(assistantMessage?.role, 'assistant')
+
+      await assert.rejects(
+        server.createBranch({
+          threadId: thread.id,
+          messageId: assistantMessage!.id,
+          truncateBeforeToolCallId: 'ask-missing'
+        }),
+        /ask-missing/
+      )
+    },
+    {
+      createModelRuntime: () => ({
+        async *streamReply(request: ModelStreamRequest): AsyncIterable<string> {
+          yield 'Intro text '
+          emitAskUserToolCall(request, {
+            toolCallId: 'ask-1',
+            question: 'Which DB?',
+            answer: 'sqlite'
+          })
+          yield ' and we picked sqlite.'
+        }
+      })
+    }
+  )
+})

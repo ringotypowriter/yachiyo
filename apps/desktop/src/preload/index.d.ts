@@ -136,7 +136,11 @@ declare global {
         continueThingInNewChat: (input: { name: string }) => Promise<ThreadRecord>
         archiveThread: (input: { threadId: string }) => Promise<void>
         bootstrap: () => Promise<BootstrapPayload>
-        createBranch: (input: { threadId: string; messageId: string }) => Promise<ThreadSnapshot>
+        createBranch: (input: {
+          threadId: string
+          messageId: string
+          truncateBeforeToolCallId?: string
+        }) => Promise<ThreadSnapshot>
         compactThreadToAnotherThread: (input: CompactThreadInput) => Promise<CompactThreadAccepted>
         createThread: (input?: {
           workspacePath?: string

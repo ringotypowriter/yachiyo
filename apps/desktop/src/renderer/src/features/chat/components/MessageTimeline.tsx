@@ -22,6 +22,7 @@ import {
   collectInlineCodeMarkdownDocumentsFromRows,
   type MessageTimelineRow
 } from '../lib/timeline/messageTimelineRows.ts'
+import { getAskUserDetails } from '../lib/branching/askUserBranchAction.ts'
 import { useReusedTimelineRows } from '../lib/timeline/timelineRowReuse.ts'
 import { buildTimelineVirtualRowStyle } from '../lib/timeline/messageTimelineRowStyle.ts'
 import {
@@ -841,6 +842,26 @@ export function MessageTimeline({
     [createBranch, dialog, t]
   )
 
+  const handleBranchFromAskUser = useCallback(
+    async (toolCall: ToolCall): Promise<void> => {
+      const details = getAskUserDetails(toolCall)
+      if (!toolCall.assistantMessageId || !details) {
+        return
+      }
+      try {
+        await createBranch(toolCall.assistantMessageId, {
+          truncateBeforeToolCallId: toolCall.id,
+          quotedQuestion: details.question
+        })
+      } catch (error) {
+        await dialog.alert({
+          title: error instanceof Error ? error.message : t('chat.timeline.createBranchFailed')
+        })
+      }
+    },
+    [createBranch, dialog, t]
+  )
+
   const handleRetry = useCallback(
     async (messageId: string): Promise<void> => {
       try {
@@ -942,6 +963,7 @@ export function MessageTimeline({
       rejectPlanDocument,
       onEdit: handleEdit,
       onCreateBranch: handleCreateBranch,
+      onBranchFromAskUser: handleBranchFromAskUser,
       onRetry: handleRetry,
       onDelete: handleDelete,
       onSelectReplyBranch: handleSelectReplyBranch,
@@ -968,6 +990,7 @@ export function MessageTimeline({
       rejectPlanDocument,
       handleEdit,
       handleCreateBranch,
+      handleBranchFromAskUser,
       handleRetry,
       handleDelete,
       handleSelectReplyBranch,

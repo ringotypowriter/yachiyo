@@ -54,6 +54,7 @@ import {
   THREAD_TITLE_MAX_TOKEN,
   parseGeneratedTitleAndIcon
 } from './threadTitle.ts'
+import { truncateAssistantMessageBeforeToolCall } from './truncateAssistantMessage.ts'
 
 interface ThreadDomainDeps {
   storage: YachiyoStorage
@@ -716,7 +717,11 @@ export class YachiyoServerThreadDomain {
     return updatedThread
   }
 
-  async createBranch(input: { threadId: string; messageId: string }): Promise<ThreadSnapshot> {
+  async createBranch(input: {
+    threadId: string
+    messageId: string
+    truncateBeforeToolCallId?: string
+  }): Promise<ThreadSnapshot> {
     const thread = this.deps.requireThread(input.threadId)
     if (!getThreadCapabilities(thread).canCreateBranch) {
       throw new Error('ACP threads do not support branching.')
@@ -730,12 +735,42 @@ export class YachiyoServerThreadDomain {
       throw new Error(`Unknown message: ${input.messageId}`)
     }
 
-    const path = collectMessagePath(messages, branchPoint.id)
+    let effectiveBranchPoint = branchPoint
+    let truncatedBranchPoint: MessageRecord | undefined
+    if (input.truncateBeforeToolCallId) {
+      if (branchPoint.role !== 'assistant') {
+        throw new Error('Branch truncation requires an assistant branch point.')
+      }
+      const truncation = truncateAssistantMessageBeforeToolCall(
+        branchPoint,
+        input.truncateBeforeToolCallId
+      )
+      if (truncation.kind === 'not-found') {
+        throw new Error(
+          `Tool call ${input.truncateBeforeToolCallId} not found in message ${branchPoint.id}`
+        )
+      }
+      if (truncation.kind === 'empty') {
+        const parent = messages.find((message) => message.id === branchPoint.parentMessageId)
+        if (!parent) {
+          throw new Error(`Nothing remains before tool call ${input.truncateBeforeToolCallId}`)
+        }
+        effectiveBranchPoint = parent
+      } else {
+        truncatedBranchPoint = truncation.message
+      }
+    }
+
+    const path = collectMessagePath(messages, effectiveBranchPoint.id)
     const timestamp = this.deps.timestamp()
     const branchCreatedAtMs = Date.parse(timestamp)
     const threadId = this.deps.createId()
     const idMap = new Map<string, string>()
     const clonedMessages = path.map((message) => {
+      const sourceMessage =
+        truncatedBranchPoint && message.id === truncatedBranchPoint.id
+          ? truncatedBranchPoint
+          : message
       const clonedId = this.deps.createId()
       idMap.set(message.id, clonedId)
       const createdAt =
@@ -744,7 +779,7 @@ export class YachiyoServerThreadDomain {
           : message.createdAt
 
       return {
-        ...message,
+        ...sourceMessage,
         createdAt,
         id: clonedId,
         threadId,
@@ -755,7 +790,7 @@ export class YachiyoServerThreadDomain {
     const preview = previewSource ? summarizeMessagePreview(previewSource) : ''
     const branchThread = withThreadCapabilities({
       id: threadId,
-      title: deriveBranchTitle(thread, branchPoint),
+      title: deriveBranchTitle(thread, effectiveBranchPoint),
       updatedAt: timestamp,
       branchFromThreadId: thread.id,
       branchFromMessageId: branchPoint.id,

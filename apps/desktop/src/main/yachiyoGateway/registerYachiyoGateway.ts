@@ -689,8 +689,10 @@ export function registerYachiyoGateway(): YachiyoGatewayHandle {
       reasoningEffort?: ComposerReasoningSelection
     }) => rpc().createThread(input)
   )
-  handleYachiyoIpc(IPC_CHANNELS.createBranch, (input: { threadId: string; messageId: string }) =>
-    rpc().createBranch(input)
+  handleYachiyoIpc(
+    IPC_CHANNELS.createBranch,
+    (input: { threadId: string; messageId: string; truncateBeforeToolCallId?: string }) =>
+      rpc().createBranch(input)
   )
   handleYachiyoIpc(IPC_CHANNELS.compactThreadToAnotherThread, (input: CompactThreadInput) =>
     rpc().compactThreadToAnotherThread(input)

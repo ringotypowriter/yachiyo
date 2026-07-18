@@ -335,7 +335,8 @@ export const chat = {
     labelContext: '上下文',
     labelNote: '备注',
     labelUserSteer: '用户引导',
-    labelAction: '操作'
+    labelAction: '操作',
+    branchFromHere: '从这里分支'
   },
   runStats: {
     toolCalls: { other: '{count} 次工具调用' },

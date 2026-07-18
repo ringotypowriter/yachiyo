@@ -6,6 +6,7 @@ import {
   Clock,
   Database,
   FilePenLine,
+  GitBranchPlus,
   GitCompareArrows,
   MessageSquareText,
   Wrench
@@ -21,6 +22,7 @@ import { tPlural } from '@yachiyo/i18n/index'
 
 type Translate = ReturnType<typeof useT>
 import type { WorkTrajectoryItem } from '../lib/timeline/messageTimelineRows.ts'
+import { canBranchFromAskUserToolCall } from '../lib/branching/askUserBranchAction.ts'
 import { formatToolFilePathList } from '../lib/tool-calls/toolCallPresentation.ts'
 import {
   countToolCallsForRun,
@@ -36,6 +38,8 @@ interface AgentWorkSummaryRowProps {
   runs: RunRecord[]
   toolCalls: ToolCall[]
   workspacePath?: string | null
+  /** When absent (read-only viewers), askUser steps render without a branch action. */
+  onBranchFromAskUser?: (toolCall: ToolCall) => void
 }
 
 const animatedWorkSummaryRunIds = new Set<string>()
@@ -115,7 +119,8 @@ export function AgentWorkSummaryRow({
   requestMessageIds,
   runs,
   toolCalls,
-  workspacePath
+  workspacePath,
+  onBranchFromAskUser
 }: AgentWorkSummaryRowProps): React.JSX.Element {
   const t = useT()
   const [isExpanded, setIsExpanded] = useState(false)
@@ -308,6 +313,7 @@ export function AgentWorkSummaryRow({
                   isLast={index === items.length - 1 && !canReviewDiff}
                   workspacePath={workspacePath}
                   t={t}
+                  onBranchFromAskUser={onBranchFromAskUser}
                 />
               ))}
               {canReviewDiff ? (
@@ -363,12 +369,14 @@ function TrajectoryItemRow({
   item,
   isLast,
   workspacePath,
-  t
+  t,
+  onBranchFromAskUser
 }: {
   item: WorkTrajectoryItem
   isLast: boolean
   workspacePath?: string | null
   t: Translate
+  onBranchFromAskUser?: (toolCall: ToolCall) => void
 }): React.JSX.Element {
   return (
     <div className="grid gap-2" style={{ gridTemplateColumns: '18px minmax(0, 1fr)' }}>
@@ -392,7 +400,12 @@ function TrajectoryItemRow({
         >
           {getItemLabel(item, t)}
         </div>
-        <TrajectoryItemContent item={item} workspacePath={workspacePath} />
+        <TrajectoryItemContent
+          item={item}
+          workspacePath={workspacePath}
+          t={t}
+          onBranchFromAskUser={onBranchFromAskUser}
+        />
       </div>
     </div>
   )
@@ -400,10 +413,14 @@ function TrajectoryItemRow({
 
 function TrajectoryItemContent({
   item,
-  workspacePath
+  workspacePath,
+  t,
+  onBranchFromAskUser
 }: {
   item: WorkTrajectoryItem
   workspacePath?: string | null
+  t: Translate
+  onBranchFromAskUser?: (toolCall: ToolCall) => void
 }): React.JSX.Element {
   switch (item.kind) {
     case 'memory':
@@ -430,6 +447,34 @@ function TrajectoryItemContent({
       return (
         <div className="-mx-6">
           <ToolCallRow toolCall={item.toolCall} workspacePath={workspacePath} />
+          {onBranchFromAskUser && canBranchFromAskUserToolCall(item.toolCall) ? (
+            <div className="mx-6 mt-1">
+              <button
+                type="button"
+                className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[10.5px] transition-colors"
+                onClick={(event) => {
+                  event.stopPropagation()
+                  onBranchFromAskUser(item.toolCall)
+                }}
+                style={{
+                  background: alpha('accent', 0.08),
+                  border: 'none',
+                  color: theme.text.accent,
+                  cursor: 'default',
+                  fontWeight: 650
+                }}
+                onMouseEnter={(event) => {
+                  event.currentTarget.style.background = alpha('accent', 0.14)
+                }}
+                onMouseLeave={(event) => {
+                  event.currentTarget.style.background = alpha('accent', 0.08)
+                }}
+              >
+                <GitBranchPlus size={11} strokeWidth={1.7} />
+                {t('chat.workSummary.branchFromHere')}
+              </button>
+            </div>
+          ) : null}
         </div>
       )
     case 'tool-call-group':

@@ -75,6 +75,7 @@ import { reduceServerEvent } from './useAppStore/serverEventReducer.ts'
 import { createSendMessageActions } from './useAppStore/sendMessageActions.ts'
 import { createThreadLifecycleActions } from './useAppStore/threadLifecycleActions.ts'
 import { resolveLeadingThingHashtagCursorOffset } from '../../features/chat/lib/composer/thingContinuationDraft.ts'
+import { buildAskUserBranchDraft } from '../../features/chat/lib/branching/askUserBranchDraft.ts'
 
 export {
   DEFAULT_SETTINGS,
@@ -289,7 +290,10 @@ export interface AppState {
   composerDrafts: Record<string, ComposerDraft>
   reasoningEffortByThread: Record<string, ComposerReasoningSelection>
   toolModeByThread: Record<string, { enabledTools: ToolCallName[]; runMode: RunModeId }>
-  createBranch: (messageId: string) => Promise<void>
+  createBranch: (
+    messageId: string,
+    opts?: { truncateBeforeToolCallId: string; quotedQuestion: string }
+  ) => Promise<void>
   config: SettingsConfig | null
   connectionStatus: ConnectionStatus
   deleteThread: (threadId: string) => Promise<void>
@@ -726,14 +730,18 @@ export const useAppStore = create<AppState>((set, get) => ({
       }
     }))
   },
-  createBranch: async (messageId) => {
+  createBranch: async (messageId, opts) => {
     const threadId = get().activeThreadId
     if (!threadId) {
       return
     }
 
     try {
-      const snapshot = await window.api.yachiyo.createBranch({ threadId, messageId })
+      const snapshot = await window.api.yachiyo.createBranch({
+        threadId,
+        messageId,
+        ...(opts ? { truncateBeforeToolCallId: opts.truncateBeforeToolCallId } : {})
+      })
       set((state) => {
         const latestRunsByThread = { ...state.latestRunsByThread }
         delete latestRunsByThread[snapshot.thread.id]
@@ -761,7 +769,23 @@ export const useAppStore = create<AppState>((set, get) => ({
             state.subagentStateById,
             state.subagentProgressTimelineByThread
           ),
-          threads: upsertThread(state.threads, snapshot.thread)
+          threads: upsertThread(state.threads, snapshot.thread),
+          ...(opts
+            ? {
+                composerDrafts: updateComposerDraft(
+                  state.composerDrafts,
+                  getComposerDraftKey(snapshot.thread.id),
+                  () => {
+                    const draft = buildAskUserBranchDraft(opts.quotedQuestion)
+                    return {
+                      ...EMPTY_COMPOSER_DRAFT,
+                      text: draft.text,
+                      initialCursorOffset: draft.initialCursorOffset
+                    }
+                  }
+                )
+              }
+            : {})
         }
 
         const toolMode = getComposerToolMode(nextState, snapshot.thread.id)
