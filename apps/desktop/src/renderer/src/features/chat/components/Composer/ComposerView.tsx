@@ -50,6 +50,7 @@ import {
   QueuedFollowUpBufferBubble,
   StagedInputBufferBubble,
   TodoProgressWidget,
+  getWorkspaceLabel,
   renderComposerTextHighlights,
   renderPretextLine
 } from './support.tsx'
@@ -319,6 +320,66 @@ export function ComposerView(props: any): React.JSX.Element {
           >
             <Paperclip size={15} strokeWidth={1.5} color={theme.icon.muted} />
           </button>
+
+          {!effectiveAcpBinding && (
+            <div ref={toolSelectorRef} style={{ position: 'relative' }}>
+              <button
+                type="button"
+                onClick={() => {
+                  setModelSelectorOpen(false)
+                  setReasoningSelectorOpen(false)
+                  setSkillsSelectorOpen(false)
+                  setWorkspaceSelectorOpen(false)
+                  setToolSelectorOpen((open) => !open)
+                }}
+                className="composer-shelf-icon-button"
+                style={{
+                  color: theme.text.primary,
+                  opacity: toolSelectorOpen ? 1 : undefined,
+                  gap: 4
+                }}
+                aria-label={t('chat.composer.modeAria', {
+                  mode: getRunModeCopy(runMode === 'custom' ? 'auto' : runMode).label
+                })}
+                aria-expanded={toolSelectorOpen}
+                aria-haspopup="menu"
+              >
+                {(() => {
+                  const ModeIcon = MODE_ICON_MAP[runMode === 'custom' ? 'auto' : runMode]
+                  return (
+                    <ModeIcon
+                      size={14}
+                      strokeWidth={1.5}
+                      color={runMode !== 'chat' ? theme.icon.accent : theme.icon.muted}
+                    />
+                  )
+                })()}
+                <span style={{ fontSize: 11.5, fontWeight: 500 }}>
+                  {getRunModeCopy(runMode === 'custom' ? 'auto' : runMode).shortLabel}
+                </span>
+                <ChevronDown
+                  size={10}
+                  strokeWidth={1.5}
+                  color={theme.icon.muted}
+                  style={{
+                    transform: toolSelectorOpen ? 'rotate(180deg)' : 'rotate(0deg)',
+                    transition: 'transform 0.15s ease'
+                  }}
+                />
+              </button>
+
+              {toolSelectorOpen ? (
+                <ToolSelectorPopup
+                  triggerRef={toolSelectorRef}
+                  runMode={runMode}
+                  hasActiveRun={hasActiveRun}
+                  onSelectMode={(mode) => void setRunMode(mode)}
+                  onClose={() => setToolSelectorOpen(false)}
+                />
+              ) : null}
+            </div>
+          )}
+
           <div
             ref={workspaceSelectorRef}
             style={{ position: 'relative' }}
@@ -342,7 +403,8 @@ export function ComposerView(props: any): React.JSX.Element {
               className="composer-shelf-icon-button composer-shelf-icon-button--workspace"
               style={{
                 color: theme.text.primary,
-                opacity: workspaceSelectorOpen ? 1 : undefined
+                opacity: workspaceSelectorOpen ? 1 : undefined,
+                gap: 4
               }}
               aria-label={t('chat.workspacePicker.ariaLabel')}
               aria-expanded={workspaceSelectorOpen}
@@ -353,6 +415,18 @@ export function ComposerView(props: any): React.JSX.Element {
                 strokeWidth={1.5}
                 color={currentWorkspacePath ? theme.icon.accent : theme.icon.muted}
               />
+              <span
+                style={{
+                  fontSize: 11.5,
+                  fontWeight: 500,
+                  maxWidth: 88,
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap'
+                }}
+              >
+                {getWorkspaceLabel(currentWorkspacePath)}
+              </span>
               <ChevronDown
                 size={10}
                 strokeWidth={1.5}
@@ -445,65 +519,6 @@ export function ComposerView(props: any): React.JSX.Element {
               />
             ) : null}
           </div>
-
-          {!effectiveAcpBinding && (
-            <div ref={toolSelectorRef} style={{ position: 'relative' }}>
-              <button
-                type="button"
-                onClick={() => {
-                  setModelSelectorOpen(false)
-                  setReasoningSelectorOpen(false)
-                  setSkillsSelectorOpen(false)
-                  setWorkspaceSelectorOpen(false)
-                  setToolSelectorOpen((open) => !open)
-                }}
-                className="composer-shelf-icon-button"
-                style={{
-                  color: theme.text.primary,
-                  opacity: toolSelectorOpen ? 1 : undefined,
-                  gap: 4
-                }}
-                aria-label={t('chat.composer.modeAria', {
-                  mode: getRunModeCopy(runMode === 'custom' ? 'auto' : runMode).label
-                })}
-                aria-expanded={toolSelectorOpen}
-                aria-haspopup="menu"
-              >
-                {(() => {
-                  const ModeIcon = MODE_ICON_MAP[runMode === 'custom' ? 'auto' : runMode]
-                  return (
-                    <ModeIcon
-                      size={14}
-                      strokeWidth={1.5}
-                      color={runMode !== 'chat' ? theme.icon.accent : theme.icon.muted}
-                    />
-                  )
-                })()}
-                <span style={{ fontSize: 11.5, fontWeight: 500 }}>
-                  {getRunModeCopy(runMode === 'custom' ? 'auto' : runMode).shortLabel}
-                </span>
-                <ChevronDown
-                  size={10}
-                  strokeWidth={1.5}
-                  color={theme.icon.muted}
-                  style={{
-                    transform: toolSelectorOpen ? 'rotate(180deg)' : 'rotate(0deg)',
-                    transition: 'transform 0.15s ease'
-                  }}
-                />
-              </button>
-
-              {toolSelectorOpen ? (
-                <ToolSelectorPopup
-                  triggerRef={toolSelectorRef}
-                  runMode={runMode}
-                  hasActiveRun={hasActiveRun}
-                  onSelectMode={(mode) => void setRunMode(mode)}
-                  onClose={() => setToolSelectorOpen(false)}
-                />
-              ) : null}
-            </div>
-          )}
 
           {todoList ? <TodoProgressWidget items={todoList.items} /> : null}
         </div>

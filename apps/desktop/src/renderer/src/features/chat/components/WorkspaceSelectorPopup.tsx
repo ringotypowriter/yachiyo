@@ -8,6 +8,7 @@ import { isDismissEscapeKey } from '@renderer/lib/imeUtils'
 import { useRestoreFocusOnUnmount } from '@renderer/lib/focusRestore'
 import { useFloatingPanelLayout } from '@renderer/lib/useFloatingPanelLayout'
 import { SettingsShortcutButton } from './SettingsShortcutButton'
+import { getWorkspaceLabel } from './Composer/support.tsx'
 
 function WorkspaceOption({
   description,
@@ -222,7 +223,7 @@ export function WorkspaceSelectorPopup({
           <WorkspaceOption
             key={workspacePath}
             icon={<Folder size={13} strokeWidth={1.8} />}
-            label={workspacePath.split('/').filter(Boolean).at(-1) ?? workspacePath}
+            label={getWorkspaceLabel(workspacePath)}
             description={workspacePath}
             isSelected={currentWorkspacePath === workspacePath}
             onSelect={() => {
