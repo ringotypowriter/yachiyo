@@ -471,7 +471,20 @@ function App(): React.JSX.Element {
     } else {
       document.documentElement.style.removeProperty('--yachiyo-font-size-chat')
     }
-  }, [config?.general?.uiFontSize, config?.general?.chatFontSize])
+    const chatPanelOpacity = config?.general?.chatPanelOpacity
+    if (chatPanelOpacity != null) {
+      document.documentElement.style.setProperty(
+        '--yachiyo-chat-panel-opacity',
+        String(chatPanelOpacity)
+      )
+    } else {
+      document.documentElement.style.removeProperty('--yachiyo-chat-panel-opacity')
+    }
+  }, [
+    config?.general?.uiFontSize,
+    config?.general?.chatFontSize,
+    config?.general?.chatPanelOpacity
+  ])
 
   const windowBackdrop = `linear-gradient(90deg, ${theme.background.sidebarVibrancy} 0%, ${theme.background.surfaceLight} 100%)`
   const isSettingsTabActive = activeAppTab === 'settings'

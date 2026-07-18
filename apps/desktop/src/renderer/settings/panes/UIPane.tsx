@@ -30,6 +30,8 @@ const UI_FONT_SIZES = [11, 12, 13, 14, 15, 16]
 const CHAT_FONT_SIZES = [12, 13, 14, 15, 16, 18, 20]
 const DEFAULT_UI_FONT_SIZE = 14
 const DEFAULT_CHAT_FONT_SIZE = 14
+const DEFAULT_CHAT_PANEL_OPACITY = 0.92
+const MIN_CHAT_PANEL_OPACITY_PERCENT = 20
 
 interface UIPaneProps {
   draft: SettingsConfig
@@ -146,6 +148,73 @@ function FontSizeRow({
   )
 }
 
+function RangeSlider({
+  value,
+  min,
+  max,
+  step,
+  onChange,
+  ariaLabel
+}: {
+  value: number
+  min: number
+  max: number
+  step: number
+  onChange: (next: number) => void
+  ariaLabel: string
+}): React.ReactNode {
+  return (
+    <div style={{ position: 'relative', width: 112, height: 20 }}>
+      {/* track */}
+      <div
+        style={{
+          position: 'absolute',
+          top: '50%',
+          left: 0,
+          right: 0,
+          height: 3,
+          transform: 'translateY(-50%)',
+          borderRadius: 99,
+          background: alpha('ink', 0.08),
+          pointerEvents: 'none'
+        }}
+      />
+      {/* fill */}
+      <div
+        style={{
+          position: 'absolute',
+          top: '50%',
+          left: 0,
+          width: `${((value - min) / (max - min)) * 100}%`,
+          height: 3,
+          transform: 'translateY(-50%)',
+          borderRadius: 99,
+          background: theme.text.accent,
+          pointerEvents: 'none'
+        }}
+      />
+      <input
+        type="range"
+        min={min}
+        max={max}
+        step={step}
+        value={value}
+        onChange={(e) => onChange(parseInt(e.target.value, 10))}
+        aria-label={ariaLabel}
+        style={{
+          position: 'absolute',
+          inset: 0,
+          width: '100%',
+          height: '100%',
+          opacity: 0,
+          cursor: 'default',
+          margin: 0
+        }}
+      />
+    </div>
+  )
+}
+
 export function UIPane({ draft, onChange }: UIPaneProps): React.ReactNode {
   const t = useT()
   const appearanceOptions: { value: ThemeAppearance; label: string }[] = [
@@ -158,6 +227,9 @@ export function UIPane({ draft, onChange }: UIPaneProps): React.ReactNode {
     { value: 'en', label: 'English' },
     { value: 'zh-CN', label: '简体中文' }
   ]
+  const chatPanelOpacityPercent = Math.round(
+    (draft.general?.chatPanelOpacity ?? DEFAULT_CHAT_PANEL_OPACITY) * 100
+  )
   const [sidebarWidth, setSidebarWidthState] = useState<number>(
     () =>
       parseInt(globalThis.localStorage?.getItem(SIDEBAR_WIDTH_STORAGE_KEY) ?? '', 10) ||
@@ -233,6 +305,36 @@ export function UIPane({ draft, onChange }: UIPaneProps): React.ReactNode {
                 })
               }
             />
+          </div>
+        </SettingRow>
+
+        <SettingRow>
+          <div className="min-w-0 space-y-0.5">
+            <div className="text-sm font-medium" style={{ color: theme.text.primary }}>
+              {t('settings.ui.chatPanelOpacityLabel')}
+            </div>
+            <div className="text-sm leading-5" style={{ color: theme.text.tertiary }}>
+              {t('settings.ui.chatPanelOpacityDesc')}
+            </div>
+          </div>
+
+          <div className="flex shrink-0 items-center gap-3">
+            <RangeSlider
+              value={chatPanelOpacityPercent}
+              min={MIN_CHAT_PANEL_OPACITY_PERCENT}
+              max={100}
+              step={1}
+              onChange={(next) =>
+                onChange({ ...draft, general: { ...draft.general, chatPanelOpacity: next / 100 } })
+              }
+              ariaLabel={t('settings.ui.chatPanelOpacityLabel')}
+            />
+            <span
+              className="text-sm font-medium tabular-nums"
+              style={{ minWidth: 44, textAlign: 'right', color: theme.text.primary }}
+            >
+              {chatPanelOpacityPercent}%
+            </span>
           </div>
         </SettingRow>
 
@@ -328,54 +430,14 @@ export function UIPane({ draft, onChange }: UIPaneProps): React.ReactNode {
           </div>
 
           <div className="flex shrink-0 items-center gap-3">
-            <div style={{ position: 'relative', width: 112, height: 20 }}>
-              {/* track */}
-              <div
-                style={{
-                  position: 'absolute',
-                  top: '50%',
-                  left: 0,
-                  right: 0,
-                  height: 3,
-                  transform: 'translateY(-50%)',
-                  borderRadius: 99,
-                  background: alpha('ink', 0.08),
-                  pointerEvents: 'none'
-                }}
-              />
-              {/* fill */}
-              <div
-                style={{
-                  position: 'absolute',
-                  top: '50%',
-                  left: 0,
-                  width: `${((sidebarWidth - MIN_SIDEBAR_WIDTH) / (MAX_SIDEBAR_WIDTH - MIN_SIDEBAR_WIDTH)) * 100}%`,
-                  height: 3,
-                  transform: 'translateY(-50%)',
-                  borderRadius: 99,
-                  background: theme.text.accent,
-                  pointerEvents: 'none'
-                }}
-              />
-              <input
-                type="range"
-                min={MIN_SIDEBAR_WIDTH}
-                max={MAX_SIDEBAR_WIDTH}
-                step={10}
-                value={sidebarWidth}
-                onChange={(e) => handleSidebarWidth(parseInt(e.target.value, 10))}
-                aria-label={t('settings.ui.sidebarWidthLabel')}
-                style={{
-                  position: 'absolute',
-                  inset: 0,
-                  width: '100%',
-                  height: '100%',
-                  opacity: 0,
-                  cursor: 'default',
-                  margin: 0
-                }}
-              />
-            </div>
+            <RangeSlider
+              value={sidebarWidth}
+              min={MIN_SIDEBAR_WIDTH}
+              max={MAX_SIDEBAR_WIDTH}
+              step={10}
+              onChange={handleSidebarWidth}
+              ariaLabel={t('settings.ui.sidebarWidthLabel')}
+            />
             <span
               className="text-sm font-medium tabular-nums"
               style={{ minWidth: 44, textAlign: 'right', color: theme.text.primary }}

@@ -62,6 +62,9 @@ export const settingsTomlSlices: readonly TomlConfigSlice<SettingsConfig, TomlDo
           ...(config.general?.chatFontSize != null
             ? { chatFontSize: config.general.chatFontSize }
             : {}),
+          ...(config.general?.chatPanelOpacity != null
+            ? { chatPanelOpacity: config.general.chatPanelOpacity }
+            : {}),
           ...(config.general?.translatorShortcut != null
             ? { translatorShortcut: config.general.translatorShortcut }
             : {}),

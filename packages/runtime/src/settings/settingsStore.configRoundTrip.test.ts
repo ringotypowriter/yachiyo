@@ -555,6 +555,29 @@ env = {}
   assert.equal(profile.allowDelegation, undefined, 'allowDelegation absent when not specified')
 })
 
+test('chatPanelOpacity round-trips through TOML and clamps to the unit interval', () => {
+  const serialized = stringifySettingsToml(
+    normalizeSettingsConfig({ providers: [], general: { chatPanelOpacity: 0.65 } })
+  )
+  const reloaded = normalizeSettingsConfig(parseSettingsToml(serialized))
+  assert.equal(reloaded.general?.chatPanelOpacity, 0.65, 'opacity preserved through round-trip')
+
+  const absent = normalizeSettingsConfig(
+    parseSettingsToml(stringifySettingsToml({ providers: [] }))
+  )
+  assert.equal(absent.general?.chatPanelOpacity, undefined, 'absent when never configured')
+
+  const clamped = normalizeSettingsConfig({ providers: [], general: { chatPanelOpacity: 1.4 } })
+  assert.equal(clamped.general?.chatPanelOpacity, 1, 'values above 1 clamp to 1')
+  const negative = normalizeSettingsConfig({ providers: [], general: { chatPanelOpacity: -0.2 } })
+  assert.equal(negative.general?.chatPanelOpacity, 0, 'values below 0 clamp to 0')
+  const invalid = normalizeSettingsConfig({
+    providers: [],
+    general: { chatPanelOpacity: 'opaque' }
+  })
+  assert.equal(invalid.general?.chatPanelOpacity, undefined, 'non-numeric input is dropped')
+})
+
 test('normalization preserves every GeneralConfig key', () => {
   const sentinel: Required<GeneralConfig> = {
     sidebarVisibility: 'collapsed',
@@ -563,6 +586,7 @@ test('normalization preserves every GeneralConfig key', () => {
     workSummary: false,
     uiFontSize: 16,
     chatFontSize: 18,
+    chatPanelOpacity: 0.75,
     updateChannel: 'beta',
     demoMode: true,
     preventSystemSleep: true,

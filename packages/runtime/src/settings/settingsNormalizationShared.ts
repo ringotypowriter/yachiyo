@@ -22,6 +22,14 @@ export function normalizePositiveInt(value: unknown): number | undefined {
   return value
 }
 
+export function normalizeUnitFraction(value: unknown): number | undefined {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return undefined
+  }
+
+  return Math.min(1, Math.max(0, value))
+}
+
 export function normalizeOptionalBool(value: unknown, fallback: boolean): boolean {
   return typeof value === 'boolean' ? value : fallback
 }

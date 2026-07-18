@@ -72,6 +72,8 @@ export const ui = {
   appearanceDesc: 'System follows the current desktop appearance.',
   appearanceLight: 'Light',
   appearanceDark: 'Dark',
+  chatPanelOpacityLabel: 'Chat panel opacity',
+  chatPanelOpacityDesc: 'Lower values let the window background show through.',
   languageLabel: 'Language',
   languageDesc: 'System follows your device language.',
   textSizeSection: 'Text size',

@@ -75,6 +75,10 @@ export function alpha(token: RgbToken, opacity: number): string {
   return `rgb(var(${themeRgbTokenVars[token]}) / ${formatAlpha(opacity)})`
 }
 
+function alphaVar(token: RgbToken, opacityVar: string, fallback: number): string {
+  return `rgb(var(${themeRgbTokenVars[token]}) / var(${opacityVar}, ${formatAlpha(fallback)}))`
+}
+
 export const theme = {
   font: {
     ui: 'var(--yachiyo-font-ui)',
@@ -106,7 +110,7 @@ export const theme = {
     sidebarVibrancy: alpha('counter', 0.08),
     scrim: alpha('scrim', 0.25),
     onAccentOverlay: alpha('onAccentOverlay', 0.15),
-    chatCard: alpha('canvas', 0.92),
+    chatCard: alphaVar('canvas', '--yachiyo-chat-panel-opacity', 0.92),
     surface: alpha('surface', 0.94),
     surfaceSoft: alpha('surface', 0.88),
     surfaceMuted: alpha('surface', 0.82),

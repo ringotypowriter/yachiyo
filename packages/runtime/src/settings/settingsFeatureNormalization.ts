@@ -26,7 +26,8 @@ import {
   normalizeOptionalBool,
   normalizePositiveInt,
   normalizeString,
-  normalizeStringList
+  normalizeStringList,
+  normalizeUnitFraction
 } from './settingsNormalizationShared.ts'
 
 type SyncConfig = NonNullable<SettingsConfig['sync']>
@@ -81,8 +82,10 @@ export function normalizeGeneralConfig(value: unknown): GeneralConfig {
 
   const uiFontSize = normalizePositiveInt(input['uiFontSize'])
   const chatFontSize = normalizePositiveInt(input['chatFontSize'])
+  const chatPanelOpacity = normalizeUnitFraction(input['chatPanelOpacity'])
   if (uiFontSize !== undefined) result.uiFontSize = uiFontSize
   if (chatFontSize !== undefined) result.chatFontSize = chatFontSize
+  if (chatPanelOpacity !== undefined) result.chatPanelOpacity = chatPanelOpacity
 
   const activityTracking = normalizeActivityTrackingConfig(
     input['activityTracking'],

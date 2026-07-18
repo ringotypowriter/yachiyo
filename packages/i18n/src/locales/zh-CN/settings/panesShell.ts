@@ -72,6 +72,8 @@ export const ui = {
   appearanceDesc: '“系统”跟随当前桌面外观。',
   appearanceLight: '浅色',
   appearanceDark: '深色',
+  chatPanelOpacityLabel: '聊天面板不透明度',
+  chatPanelOpacityDesc: '数值越低，越能透出窗口背景。',
   languageLabel: '语言',
   languageDesc: '“系统”跟随设备语言。',
   textSizeSection: '文字大小',
