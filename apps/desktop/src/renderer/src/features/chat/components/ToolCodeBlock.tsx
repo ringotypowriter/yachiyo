@@ -1,18 +1,15 @@
 import type React from 'react'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback } from 'react'
 import { FolderOpen, SquareArrowOutUpRight } from 'lucide-react'
 import { alpha, solid } from '@renderer/theme/theme'
-import { code as codePlugin } from '@streamdown/code'
 import { useT } from '@yachiyo/i18n/react'
 import { useAppStore } from '@renderer/app/store/useAppStore'
 import { useAppDialog } from '@renderer/components/AppDialogContext'
 import { getTimelineFileEditorApp } from '@renderer/lib/markdown/linkableCodeFileAction'
 import { detectLanguage } from '../lib/code-blocks/detectLanguage'
-import {
-  codeHighlightTokenStyle,
-  readCodeHighlightTokenTheme,
-  type CodeHighlightTokenTheme
-} from '../lib/code-blocks/codeHighlightTheme'
+import { codeHighlightTokenStyle } from '../lib/code-blocks/codeHighlightTheme'
+import type { HighlightToken } from '../lib/code-blocks/highlightTokens'
+import { useCodeHighlightTokens } from '../lib/code-blocks/useCodeHighlightTokens'
 
 interface ToolCodeBlockProps {
   value: string
@@ -20,14 +17,6 @@ interface ToolCodeBlockProps {
   variant?: 'diff' | 'preview'
   /** When true, remove the max-height cap so the block fills its parent. */
   fillHeight?: boolean
-}
-
-// ---------------------------------------------------------------------------
-// Shared types
-// ---------------------------------------------------------------------------
-
-interface HighlightToken extends CodeHighlightTokenTheme {
-  content: string
 }
 
 // ---------------------------------------------------------------------------
@@ -87,35 +76,6 @@ function parseDiffLines(raw: string): DiffLine[] {
 }
 
 // ---------------------------------------------------------------------------
-// Highlighting hook
-// ---------------------------------------------------------------------------
-
-function useHighlight(
-  code: string,
-  filePath: string | undefined
-): (HighlightToken[] | null)[] | null {
-  const [tokensByLine, setTokensByLine] = useState<(HighlightToken[] | null)[] | null>(null)
-
-  useEffect(() => {
-    const lang = detectLanguage(filePath)
-    if (!lang) return
-
-    codePlugin.highlight({ code, language: lang, themes: codePlugin.getThemes() }, (result) => {
-      setTokensByLine(
-        result.tokens.map((lineTokens) =>
-          lineTokens.map((t) => ({
-            content: t.content,
-            ...readCodeHighlightTokenTheme(t.htmlStyle as Record<string, string> | undefined)
-          }))
-        )
-      )
-    })
-  }, [code, filePath])
-
-  return tokensByLine
-}
-
-// ---------------------------------------------------------------------------
 // Styles
 // ---------------------------------------------------------------------------
 
@@ -170,7 +130,7 @@ export function ToolCodeBlock({
 
 function PreviewView({ value, filePath }: { value: string; filePath?: string }): React.JSX.Element {
   const lines = value.split('\n')
-  const tokensByLine = useHighlight(value, filePath)
+  const tokensByLine = useCodeHighlightTokens(value, detectLanguage(filePath))
 
   return (
     <Container maxHeight="320px" filePath={filePath}>
@@ -212,7 +172,7 @@ function DiffView({
     }
   }
 
-  const allTokens = useHighlight(codeLines.join('\n'), filePath)
+  const allTokens = useCodeHighlightTokens(codeLines.join('\n'), detectLanguage(filePath))
 
   // Map tokens back to diff line indices
   const tokensByDiffLine: (HighlightToken[] | null)[] = new Array(diffLines.length).fill(null)

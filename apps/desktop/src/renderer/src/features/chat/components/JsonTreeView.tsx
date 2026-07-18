@@ -1,12 +1,9 @@
 import type React from 'react'
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { alpha, solid } from '@renderer/theme/theme'
-import { code as codePlugin } from '@streamdown/code'
-import {
-  codeHighlightTokenStyle,
-  readCodeHighlightTokenTheme,
-  type CodeHighlightTokenTheme
-} from '../lib/code-blocks/codeHighlightTheme.ts'
+import { codeHighlightTokenStyle } from '../lib/code-blocks/codeHighlightTheme.ts'
+import type { HighlightToken } from '../lib/code-blocks/highlightTokens.ts'
+import { useCodeHighlightTokens } from '../lib/code-blocks/useCodeHighlightTokens.ts'
 import { tryParseJson } from '../lib/jsonTree/isValidJson.ts'
 
 interface JsonTreeViewProps {
@@ -14,37 +11,11 @@ interface JsonTreeViewProps {
   maxHeight?: string
 }
 
-interface HighlightToken extends CodeHighlightTokenTheme {
-  content: string
-}
-
 interface LineSegment {
   indent: number
   tokens: HighlightToken[]
   isCollapsibleOpen?: boolean
   isCollapsibleClose?: boolean
-}
-
-function useJsonHighlight(value: string): HighlightToken[][] | null {
-  const [tokensByLine, setTokensByLine] = useState<HighlightToken[][] | null>(null)
-
-  useEffect(() => {
-    codePlugin.highlight(
-      { code: value, language: 'json', themes: codePlugin.getThemes() },
-      (result) => {
-        setTokensByLine(
-          result.tokens.map((lineTokens) =>
-            lineTokens.map((t) => ({
-              content: t.content,
-              ...readCodeHighlightTokenTheme(t.htmlStyle as Record<string, string> | undefined)
-            }))
-          )
-        )
-      }
-    )
-  }, [value])
-
-  return tokensByLine
 }
 
 function lineIndent(line: HighlightToken[]): number {
@@ -208,7 +179,7 @@ export function JsonTreeView({
   maxHeight = '240px'
 }: JsonTreeViewProps): React.JSX.Element | null {
   const parsed = useMemo(() => tryParseJson(value), [value])
-  const tokensByLine = useJsonHighlight(value)
+  const tokensByLine = useCodeHighlightTokens(value, 'json')
 
   if (parsed === undefined || !tokensByLine) {
     return (
