@@ -7,7 +7,7 @@ import { textContent, toToolModelOutput, type AgentToolResult } from './shared.t
 
 export const ASK_USER_MAX_QUESTION_CHARS = 280
 export const ASK_USER_MAX_CHOICE_CHARS = 120
-export const ASK_USER_MAX_CHOICES = 4
+export const ASK_USER_MAX_CHOICES = 8
 
 export const askUserToolInputSchema = z.object({
   question: z
@@ -24,7 +24,7 @@ export const askUserToolInputSchema = z.object({
     .max(ASK_USER_MAX_CHOICES)
     .optional()
     .describe(
-      'Optional 2-4 short answer choices for the user to pick from. Prefer concrete, finished choices instead of placeholder labels.'
+      'Optional 2-8 short answer choices for the user to pick from. Prefer concrete, finished choices instead of placeholder labels.'
     )
 })
 
@@ -48,7 +48,7 @@ export function createAskUserTool(
       'Ask exactly one short question and wait for the user answer. ' +
       'Use only when user input is required to continue. ' +
       `The question must be under ${ASK_USER_MAX_QUESTION_CHARS} characters and must not contain analysis, implementation plans, proposals, lists, or background. ` +
-      'When quick-pick answers help, provide 2-4 short `choices` so the user can answer quickly. ' +
+      'When quick-pick answers help, provide 2-8 short `choices` so the user can answer quickly. ' +
       'Choices should be concrete, finished answers; avoid placeholder labels, ellipses, or unfinished text. ' +
       'Do not use for rhetorical questions or when you can reasonably infer the answer.',
     inputSchema: askUserToolInputSchema,

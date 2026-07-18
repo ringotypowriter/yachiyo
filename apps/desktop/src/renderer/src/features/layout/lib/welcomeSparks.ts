@@ -95,7 +95,7 @@ const GRILL_PROMPT = [
   '',
   'Rules of engagement:',
   '- One question at a time; never bundle several into one.',
-  '- Offer 2-4 concrete choices when picking is faster than typing.',
+  '- Offer 2-8 concrete choices when picking is faster than typing.',
   '- Every five or six questions, post a snapshot between questions — goal, real motive, current shape, constraints, contradictions still open, and the weakest point found so far — then keep grilling.',
   '',
   'The grill is done only when we have: the real goal (not the first-stated one), a concrete deliverable, honest constraints, the riskiest assumptions each paired with its cheapest test, kill criteria, and a first step I can take this week. Then write the final plan around exactly those pieces.',

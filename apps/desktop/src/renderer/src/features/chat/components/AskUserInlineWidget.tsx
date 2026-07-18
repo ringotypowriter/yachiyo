@@ -10,6 +10,9 @@ interface AskUserInlineWidgetProps {
   toolCall: ToolCall
 }
 
+/** Up to this many choices render as a stacked list; more switch to wrapping chips. */
+const STACKED_CHOICES_LIMIT = 4
+
 export function AskUserInlineWidget({ toolCall }: AskUserInlineWidgetProps): React.JSX.Element {
   const t = useT()
   const details = toolCall.details as AskUserToolCallDetails | undefined
@@ -107,46 +110,60 @@ export function AskUserInlineWidget({ toolCall }: AskUserInlineWidgetProps): Rea
           </span>
         </div>
 
-        {/* Choices + Input stacked at same width */}
-        <div className="flex flex-col gap-1.5 pl-6" style={{ maxWidth: 360 }}>
-          {choices &&
-            choices.length > 0 &&
-            choices.map((choice) => (
-              <button
-                key={choice}
-                type="button"
-                disabled={isSending}
-                onClick={() => submitAnswer(choice)}
-                className="w-full rounded-md px-3 py-2 text-left"
-                style={{
-                  background: theme.background.surface,
-                  border: `1px solid ${theme.border.panel}`,
-                  boxShadow: theme.shadow.button,
-                  color: theme.text.secondary,
-                  fontSize: '11.5px',
-                  fontWeight: 450,
-                  transition: 'all 0.12s ease'
-                }}
-                onMouseEnter={(e) => {
-                  if (isSending) return
-                  e.currentTarget.style.background = theme.background.accentMuted
-                  e.currentTarget.style.borderColor = theme.border.accent
-                  e.currentTarget.style.color = theme.text.accentStrong
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.background = theme.background.surface
-                  e.currentTarget.style.borderColor = theme.border.panel
-                  e.currentTarget.style.color = theme.text.secondary
-                }}
-              >
-                {choice}
-              </button>
-            ))}
+        {/* Choices + Input */}
+        <div className="flex flex-col gap-1.5 pl-6">
+          {choices && choices.length > 0 && (
+            <div
+              className={
+                choices.length > STACKED_CHOICES_LIMIT
+                  ? 'flex flex-wrap gap-1.5'
+                  : 'flex flex-col gap-1.5'
+              }
+              style={choices.length > STACKED_CHOICES_LIMIT ? undefined : { maxWidth: 360 }}
+            >
+              {choices.map((choice) => (
+                <button
+                  key={choice}
+                  type="button"
+                  disabled={isSending}
+                  onClick={() => submitAnswer(choice)}
+                  className={
+                    choices.length > STACKED_CHOICES_LIMIT
+                      ? 'rounded-full px-3 py-1.5'
+                      : 'w-full rounded-md px-3 py-2 text-left'
+                  }
+                  style={{
+                    background: theme.background.surface,
+                    border: `1px solid ${theme.border.panel}`,
+                    boxShadow: theme.shadow.button,
+                    color: theme.text.secondary,
+                    fontSize: '11.5px',
+                    fontWeight: 450,
+                    transition: 'all 0.12s ease'
+                  }}
+                  onMouseEnter={(e) => {
+                    if (isSending) return
+                    e.currentTarget.style.background = theme.background.accentMuted
+                    e.currentTarget.style.borderColor = theme.border.accent
+                    e.currentTarget.style.color = theme.text.accentStrong
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = theme.background.surface
+                    e.currentTarget.style.borderColor = theme.border.panel
+                    e.currentTarget.style.color = theme.text.secondary
+                  }}
+                >
+                  {choice}
+                </button>
+              ))}
+            </div>
+          )}
 
           {/* Input */}
           <div
-            className="flex min-w-0 flex-1 items-center rounded-md"
+            className="flex min-w-0 items-center rounded-md"
             style={{
+              maxWidth: 360,
               background: theme.background.surface,
               border: `1px solid ${theme.border.panel}`,
               transition: 'border-color 0.12s ease'

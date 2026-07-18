@@ -49,6 +49,15 @@ test('askUser input accepts arbitrary short choices without semantic filtering',
   }
 })
 
+test('askUser input accepts the maximum number of choices', () => {
+  const result = askUserToolInputSchema.safeParse({
+    question: 'Which direction should I use?',
+    choices: Array.from({ length: ASK_USER_MAX_CHOICES }, (_, index) => `Concrete choice ${index}`)
+  })
+
+  assert.equal(result.success, true)
+})
+
 test('askUser input limits choices to the quick-pick range', () => {
   const result = askUserToolInputSchema.safeParse({
     question: 'Which direction should I use?',
