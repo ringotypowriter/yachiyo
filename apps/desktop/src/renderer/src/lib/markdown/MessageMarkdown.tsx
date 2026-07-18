@@ -29,7 +29,7 @@ import { getMessageMarkdownAnimation } from './messageMarkdownAnimation'
 import type { InlineCodeFileLinkSnapshot } from './inlineCodeFileLinkSnapshot'
 import { splitStreamingMarkdownSegments } from './streamingMarkdownSegments'
 import { createMermaidOptions, useDocumentThemeVariant } from './mermaidTheme'
-import { remarkAutolinkTextBoundary } from './remarkAutolinkTextBoundary'
+import { markdownCjkPlugin } from './markdownCjkPlugin'
 import type { ThemeVariant } from '../../theme/theme'
 
 function waitForNextPaint(): Promise<void> {
@@ -164,13 +164,7 @@ export function MessageMarkdown({
   const heavyPlugins = useHeavyMarkdownPlugins()
   const plugins = useMemo<PluginConfig>(
     () => ({
-      cjk: {
-        name: 'cjk',
-        type: 'cjk',
-        remarkPlugins: [remarkAutolinkTextBoundary],
-        remarkPluginsBefore: [],
-        remarkPluginsAfter: [remarkAutolinkTextBoundary]
-      },
+      cjk: markdownCjkPlugin,
       ...(heavyPlugins
         ? { math: heavyPlugins.math, mermaid: heavyPlugins.mermaid, code: heavyPlugins.code }
         : {})

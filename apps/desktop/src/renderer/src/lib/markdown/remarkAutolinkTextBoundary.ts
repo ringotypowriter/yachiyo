@@ -1,6 +1,6 @@
 import type { Plugin } from 'unified'
 
-import { splitAutolinkCandidate } from './autolinkTextBoundary'
+import { splitAutolinkCandidate } from './autolinkTextBoundary.ts'
 
 interface MarkdownPosition {
   start?: { offset?: number }
