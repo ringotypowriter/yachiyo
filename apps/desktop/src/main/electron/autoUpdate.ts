@@ -7,6 +7,8 @@ import { resolveYachiyoSettingsPath } from '@yachiyo/runtime/config/paths'
 import { createSettingsStore } from '@yachiyo/runtime/settings/settingsStore'
 import type { UpdateChannel } from '@yachiyo/shared/protocol'
 
+import { UPDATE_MIRROR_BASE, resolveUpdateFeed } from './updateFeed'
+
 export interface UpdateStatus {
   state: 'idle' | 'checking' | 'available' | 'downloading' | 'ready' | 'error'
   version?: string
@@ -123,11 +125,26 @@ function summarizeUpdateError(err: Error): string {
 }
 
 function setupProd(): void {
-  const channel = readInitialChannel()
+  let channel = readInitialChannel()
   autoUpdater.logger = log
   autoUpdater.autoDownload = false
   autoUpdater.autoInstallOnAppQuit = false
   autoUpdater.allowPrerelease = channel === 'beta'
+
+  async function checkForUpdates(): Promise<void> {
+    const feed = await resolveUpdateFeed({
+      mirrorBase: UPDATE_MIRROR_BASE,
+      channel,
+      fetchFn: (url, init) => net.fetch(url, init)
+    })
+    if (feed.source === 'mirror') {
+      autoUpdater.setFeedURL({ provider: 'generic', url: feed.url })
+    } else {
+      autoUpdater.setFeedURL({ provider: 'github', owner: 'ringotypowriter', repo: 'yachiyo' })
+    }
+    autoUpdater.allowPrerelease = channel === 'beta'
+    autoUpdater.checkForUpdates()
+  }
 
   autoUpdater.on('checking-for-update', () => {
     broadcast({ state: 'checking' })
@@ -163,7 +180,7 @@ function setupProd(): void {
   )
 
   ipcMain.on('app-update:check', () => {
-    autoUpdater.checkForUpdates()
+    void checkForUpdates()
   })
 
   ipcMain.on('app-update:download', () => {
@@ -183,18 +200,16 @@ function setupProd(): void {
     shell.openExternal(url)
   })
 
-  ipcMain.on('app-update:set-channel', (_event, channel: UpdateChannel) => {
-    const allowPre = channel === 'beta'
-    if (autoUpdater.allowPrerelease !== allowPre) {
-      autoUpdater.allowPrerelease = allowPre
-      broadcast({ state: 'idle' })
-      autoUpdater.checkForUpdates()
-    }
+  ipcMain.on('app-update:set-channel', (_event, nextChannel: UpdateChannel) => {
+    if (nextChannel === channel) return
+    channel = nextChannel
+    broadcast({ state: 'idle' })
+    void checkForUpdates()
   })
 
   // Check on launch, then every 4 hours
-  autoUpdater.checkForUpdates()
-  setInterval(() => autoUpdater.checkForUpdates(), 4 * 60 * 60 * 1000)
+  void checkForUpdates()
+  setInterval(() => void checkForUpdates(), 4 * 60 * 60 * 1000)
 }
 
 export function setupAutoUpdate(): void {

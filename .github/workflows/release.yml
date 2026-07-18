@@ -38,6 +38,14 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: pnpm --filter @yachiyo/desktop run build && pnpm --filter @yachiyo/desktop exec electron-builder --mac zip --publish always
 
+      - name: Sync release to R2 mirror
+        env:
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+        run: node scripts/sync-release-to-r2.mjs --channel stable --dist apps/desktop/dist
+
       - name: Generate changelog and update release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
