@@ -35,10 +35,13 @@ import { mergeRpcTargets } from '@yachiyo/shared/rpc/mergeRpcTargets'
 import { createRpcClient } from '@yachiyo/shared/rpc/rpcClient'
 import { serveRpcTarget } from '@yachiyo/shared/rpc/rpcServer'
 
+import { createProviderFetch } from '../net/providerFetch.ts'
+
 // Route global fetch through Electron's net module, mirroring the main
 // process (spike-verified available inside utility processes).
-globalThis.fetch = (input, init?) =>
+const netFetch: typeof globalThis.fetch = (input, init?) =>
   net.fetch(input instanceof URL ? input.toString() : (input as string | Request), init)
+globalThis.fetch = netFetch
 
 let server: YachiyoServer | null = null
 
@@ -62,8 +65,7 @@ process.parentPort.on('message', (event) => {
     settingsPath: resolveYachiyoSettingsPath(),
     developmentMode,
     seedPresetProviders: true,
-    fetchImpl: (input, init) =>
-      net.fetch(input instanceof URL ? input.toString() : (input as string | Request), init),
+    fetchImpl: createProviderFetch({ env: process.env, netFetch }),
     // The cert-relaxed web-external session only exists in the main process;
     // forward those requests there, streaming responses back over RPC.
     webExternalFetchImpl: createRpcWebExternalFetch(mainServices),

@@ -95,6 +95,7 @@ import {
   type UtilityRuntimeHost
 } from '../runtimeHost/startUtilityRuntimeHost.ts'
 import { startCommandSocket, type CommandSocketHandle } from '../cli/commandSocket.ts'
+import { createProviderFetch } from '../net/providerFetch.ts'
 import { openThreadWorkspace } from '../electron/openThreadWorkspace.ts'
 import { readAppLogEntries } from '../logs/appLogFiles.ts'
 import { discoverApps } from '../electron/appDiscovery.ts'
@@ -429,8 +430,11 @@ function createConfiguredServer(
     settingsPath: resolveYachiyoSettingsPath(),
     developmentMode: is.dev,
     seedPresetProviders: true,
-    fetchImpl: (input, init) =>
-      net.fetch(input instanceof URL ? input.toString() : (input as string | Request), init),
+    fetchImpl: createProviderFetch({
+      env: process.env,
+      netFetch: (input, init) =>
+        net.fetch(input instanceof URL ? input.toString() : (input as string | Request), init)
+    }),
     webExternalFetchImpl: input.webExternalFetchImpl,
     jotdownStore: input.jotdownStore,
     browserAutomationService,
