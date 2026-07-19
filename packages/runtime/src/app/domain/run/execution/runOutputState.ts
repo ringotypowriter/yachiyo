@@ -69,12 +69,24 @@ export function createRunOutputState(input: {
       toolCalls: input.toolCalls
     }) as RecoveryResponseMessage[] | undefined) ?? []
 
-  const getContent = (): string => bufferParts.join('')
+  // Checkpoint persists call getSnapshot up to ~1.3×/sec while deltas keep
+  // arriving; collapse the parts array after each join so repeated reads cost
+  // O(new deltas) instead of re-joining the whole stream every time.
+  const joinAndConsolidate = (parts: string[]): string => {
+    if (parts.length > 1) {
+      const joined = parts.join('')
+      parts.length = 0
+      parts.push(joined)
+    }
+    return parts[0] ?? ''
+  }
+
+  const getContent = (): string => joinAndConsolidate(bufferParts)
 
   const getSnapshot = (): RunOutputSnapshot => ({
     content: getContent(),
     bufferLength,
-    ...(reasoningLength > 0 ? { reasoning: reasoningParts.join('') } : {}),
+    ...(reasoningLength > 0 ? { reasoning: joinAndConsolidate(reasoningParts) } : {}),
     reasoningLength,
     textBlocks,
     recoveryResponseMessages
@@ -126,7 +138,7 @@ export function createRunOutputState(input: {
       const normalizedResponseMessages = buildRecoveryResponseMessages({
         checkpoint: {
           content: getContent(),
-          reasoning: reasoningParts.join(''),
+          reasoning: joinAndConsolidate(reasoningParts),
           ...(recoveryResponseMessages.length > 0
             ? { responseMessages: recoveryResponseMessages }
             : {})
