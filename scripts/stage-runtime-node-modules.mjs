@@ -2,7 +2,7 @@
 /* eslint-disable @typescript-eslint/explicit-function-return-type */
 
 import { spawnSync } from 'node:child_process'
-import { builtinModules, createRequire } from 'node:module'
+import { createRequire, isBuiltin } from 'node:module'
 import {
   cpSync,
   existsSync,
@@ -35,15 +35,15 @@ const explicitRuntimePackages = new Map(
   nativeRuntimePackages.map((packageName) => [packageName, ['native SQLite runtime package']])
 )
 const optionalRuntimePackages = new Set(['bufferutil', 'utf-8-validate', 'zlib-sync'])
-const builtins = new Set([
-  ...builtinModules,
-  ...builtinModules.map((name) => `node:${name}`),
-  'electron'
-])
 const requirePattern = /\brequire\(\s*['"]([^'"]+)['"]\s*\)/gu
 
 function packageNameFromSpecifier(specifier) {
-  if (specifier.startsWith('.') || specifier.startsWith('/') || builtins.has(specifier)) {
+  if (
+    specifier.startsWith('.') ||
+    specifier.startsWith('/') ||
+    isBuiltin(specifier) ||
+    specifier === 'electron'
+  ) {
     return undefined
   }
 
