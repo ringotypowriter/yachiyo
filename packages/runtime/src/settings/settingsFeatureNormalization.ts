@@ -36,7 +36,9 @@ function normalizeWebSearchProviderId(
   value: unknown,
   fallback: WebSearchProviderId = DEFAULT_WEB_SEARCH_PROVIDER
 ): WebSearchProviderId {
-  return value === 'google-browser' || value === 'exa' ? value : fallback
+  return value === 'google-browser' || value === 'duckduckgo-browser' || value === 'exa'
+    ? value
+    : fallback
 }
 
 function normalizeAppLanguage(value: unknown): AppLanguage {

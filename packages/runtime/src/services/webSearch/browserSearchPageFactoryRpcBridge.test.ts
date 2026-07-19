@@ -15,6 +15,7 @@ interface FakePageLog {
   created: string[]
   disposed: number
   loaded: string[]
+  loadOptions: unknown[]
   evaluated: string[]
 }
 
@@ -22,7 +23,13 @@ function createFakeFactory(input: { evaluateResults?: unknown[] } = {}): {
   factory: BrowserSearchPageFactory
   log: FakePageLog
 } {
-  const log: FakePageLog = { created: [], disposed: 0, loaded: [], evaluated: [] }
+  const log: FakePageLog = {
+    created: [],
+    disposed: 0,
+    loaded: [],
+    loadOptions: [],
+    evaluated: []
+  }
   const evaluateResults = [...(input.evaluateResults ?? [])]
 
   const factory: BrowserSearchPageFactory = {
@@ -34,8 +41,9 @@ function createFakeFactory(input: { evaluateResults?: unknown[] } = {}): {
           return (evaluateResults.length > 0 ? evaluateResults.shift() : 'evaluated') as TResult
         },
         getURL: async () => 'https://example.test/current',
-        loadURL: async (url) => {
+        loadURL: async (url, options?: unknown) => {
           log.loaded.push(url)
+          log.loadOptions.push(options)
         },
         waitForFunction: async () => {
           throw new Error('main-side waitForFunction must not be reached over RPC')
@@ -80,6 +88,20 @@ test('proxies page lifecycle and page operations over RPC', async () => {
   assert.equal(evaluated, 'evaluated')
   assert.deepEqual(log.evaluated, ['document.title'])
   assert.equal(log.disposed, 1)
+})
+
+test('proxies URL-encoded POST data over RPC', async () => {
+  const { remote, log } = createBridge()
+  const post = {
+    body: 'q=yachiyo+electron&kl=us-en',
+    contentType: 'application/x-www-form-urlencoded'
+  }
+
+  const page = await remote.createPage('/profiles/search')
+  await page.loadURL('https://html.duckduckgo.com/html/', { post })
+
+  assert.deepEqual(log.loaded, ['https://html.duckduckgo.com/html/'])
+  assert.deepEqual(log.loadOptions, [{ post }])
 })
 
 test('waitForFunction polls the remote predicate locally until it passes', async () => {

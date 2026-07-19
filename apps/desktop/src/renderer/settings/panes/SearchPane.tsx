@@ -98,6 +98,7 @@ export function SearchPane({ draft, onChange }: SearchPaneProps): React.ReactNod
             value={defaultProvider}
             options={[
               { value: 'google-browser', label: 'Google' },
+              { value: 'duckduckgo-browser', label: 'DuckDuckGo' },
               { value: 'exa', label: 'Exa' }
             ]}
             onChange={(v) =>

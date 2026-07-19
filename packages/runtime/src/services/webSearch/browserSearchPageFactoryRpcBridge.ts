@@ -1,6 +1,10 @@
 import type { RpcClient } from '@yachiyo/shared/rpc/rpcClient'
 
-import type { BrowserSearchPage, BrowserSearchPageFactory } from './browserSearchSession.ts'
+import type {
+  BrowserSearchPage,
+  BrowserSearchPageFactory,
+  BrowserSearchPageLoadOptions
+} from './browserSearchSession.ts'
 
 /**
  * Bridges BrowserSearchPageFactory across the RPC boundary. The main process
@@ -44,8 +48,11 @@ export function createBrowserSearchPageFactoryRpcTarget(
       requirePage(input.pageId).evaluate(input.script),
     [`${RPC_METHOD_PREFIX}getUrl`]: (input: { pageId: number }) =>
       requirePage(input.pageId).getURL(),
-    [`${RPC_METHOD_PREFIX}loadUrl`]: (input: { pageId: number; url: string }) =>
-      requirePage(input.pageId).loadURL(input.url)
+    [`${RPC_METHOD_PREFIX}loadUrl`]: (input: {
+      options?: BrowserSearchPageLoadOptions
+      pageId: number
+      url: string
+    }) => requirePage(input.pageId).loadURL(input.url, input.options)
   }
 }
 
@@ -61,8 +68,8 @@ export function createRpcBrowserSearchPageFactory(
     return {
       evaluate,
       getURL: async () => (await client.call(`${RPC_METHOD_PREFIX}getUrl`, [{ pageId }])) as string,
-      loadURL: async (url) => {
-        await client.call(`${RPC_METHOD_PREFIX}loadUrl`, [{ pageId, url }])
+      loadURL: async (url, options) => {
+        await client.call(`${RPC_METHOD_PREFIX}loadUrl`, [{ pageId, url, options }])
       },
       waitForFunction: async (input) => {
         const start = Date.now()

@@ -1,6 +1,10 @@
 import electron from 'electron'
 
-import type { BrowserSearchPage, BrowserSearchPageFactory } from './browserSearchSession.ts'
+import type {
+  BrowserSearchPage,
+  BrowserSearchPageFactory,
+  BrowserSearchPageLoadOptions
+} from './browserSearchSession.ts'
 import { resolveElectronSessionProxyConfig } from './electronProxyConfig.ts'
 
 const DEFAULT_WAIT_POLL_INTERVAL_MS = 100
@@ -33,8 +37,18 @@ class ElectronBrowserSearchPage implements BrowserSearchPage {
     return this.window.webContents.getURL()
   }
 
-  async loadURL(url: string): Promise<void> {
-    await this.window.loadURL(url)
+  async loadURL(url: string, options?: BrowserSearchPageLoadOptions): Promise<void> {
+    const post = options?.post
+
+    await this.window.loadURL(
+      url,
+      post
+        ? {
+            extraHeaders: `Content-Type: ${post.contentType}`,
+            postData: [{ type: 'rawData', bytes: Buffer.from(post.body, 'utf8') }]
+          }
+        : undefined
+    )
   }
 
   async waitForFunction(input: {

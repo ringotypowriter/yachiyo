@@ -672,6 +672,20 @@ test('normalization preserves every WebSearchConfig key', () => {
   assertKeysPreserved(result.webSearch, sentinel, 'WebSearchConfig')
 })
 
+test('DuckDuckGo browser search selection round-trips through TOML', () => {
+  const toml = stringifySettingsToml({
+    ...DEFAULT_SETTINGS_CONFIG,
+    webSearch: {
+      ...DEFAULT_SETTINGS_CONFIG.webSearch,
+      defaultProvider: 'duckduckgo-browser'
+    }
+  })
+
+  const result = parseSettingsToml(toml)
+
+  assert.equal(result.webSearch?.defaultProvider, 'duckduckgo-browser')
+})
+
 test('normalization preserves every BrowserBackedWebSearchSessionConfig key', () => {
   const sentinel: Required<BrowserBackedWebSearchSessionConfig> = {
     sourceBrowser: 'google-chrome',

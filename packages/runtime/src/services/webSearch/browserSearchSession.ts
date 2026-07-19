@@ -23,13 +23,20 @@ const CHROME_OPTIONAL_COPY_ENTRIES = ['QuotaManager', 'QuotaManager-journal'] as
 export interface BrowserSearchPage {
   evaluate<TResult>(script: string): Promise<TResult>
   getURL(): Promise<string>
-  loadURL(url: string): Promise<void>
+  loadURL(url: string, options?: BrowserSearchPageLoadOptions): Promise<void>
   waitForFunction(input: {
     predicate: string
     timeoutMs: number
     pollIntervalMs?: number
     signal?: AbortSignal
   }): Promise<void>
+}
+
+export interface BrowserSearchPageLoadOptions {
+  post: {
+    body: string
+    contentType: string
+  }
 }
 
 export interface BrowserSearchPageFactory {

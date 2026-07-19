@@ -129,6 +129,7 @@ import {
   resolveGoogleChromeDataPath,
   unavailableBrowserSearchPageFactory
 } from '../../services/webSearch/browserSearchSession.ts'
+import { createDuckDuckGoBrowserWebSearchProvider } from '../../services/webSearch/providers/duckDuckGoBrowserWebSearchProvider.ts'
 import { createGoogleBrowserWebSearchProvider } from '../../services/webSearch/providers/googleBrowserWebSearchProvider.ts'
 import { createExaWebSearchProvider } from '../../services/webSearch/providers/exaWebSearchProvider.ts'
 import { createWebSearchService } from '../../services/webSearch/webSearchService.ts'
@@ -404,6 +405,9 @@ export class YachiyoServer {
     const webSearchService = createWebSearchService({
       providers: [
         createGoogleBrowserWebSearchProvider({
+          browserSession: this.browserSearchSession
+        }),
+        createDuckDuckGoBrowserWebSearchProvider({
           browserSession: this.browserSearchSession
         }),
         createExaWebSearchProvider({

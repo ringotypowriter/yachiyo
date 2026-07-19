@@ -37,7 +37,7 @@ No MCP. No telemetry. No plugin marketplace. Just what's necessary for a cyber-a
 - **Reply branching** — Messages form a tree. Branch from any turn and navigate alternate replies instead of flattening everything into one timeline.
 - **Channel multiplexing** — Serve Telegram, QQ (OneBot / QQBot), and Discord from one local instance with shared context, access control, and per-user limits.
 - **Group discussion mode** — Built-in lurk/active/engaged state machine for group chats, with buffered context and autonomous participation.
-- **Browser-backed web research** — Search with Google browser sessions or Exa, then read pages into Markdown/HTML with extraction fallbacks.
+- **Browser-backed web research** — Search with Google, DuckDuckGo, or Exa, then read pages into Markdown/HTML with extraction fallbacks.
 - **Local memory & profile** — Store durable memory, recall it into future runs, and keep `SOUL.md` / `USER.md` as first-class context.
 - **Workspace file snapshots** — Automatically track file changes across every run, with built-in diff review so you can see exactly what happened.
 - **Rich composer input** — Send images, file attachments, and steer an active reply in real time or queue a follow-up without interrupting the current run.
