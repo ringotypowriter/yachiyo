@@ -215,6 +215,7 @@ export function AppMainPanel({
   const threads = useAppStore((s) => s.threads)
   const isBootstrapping = useAppStore((s) => s.isBootstrapping)
   const messageCount = threadMessages.length
+  const isEditingMessage = useAppStore((s) => s.editingMessage != null)
   const externalThreads = useAppStore((s) => s.externalThreads)
   const activeThread =
     threads.find((t) => t.id === activeThreadId) ??
@@ -272,6 +273,7 @@ export function AppMainPanel({
     activeThreadId,
     activeThreadMessagesLoaded,
     messageCount,
+    isEditingMessage,
     activeEssentialId,
     activeThreadCreatedFromEssentialId: activeThread?.createdFromEssentialId ?? null,
     hasActiveEssential: activeEssential !== null
@@ -480,7 +482,6 @@ export function AppMainPanel({
     if (hasActiveRun || latestRunIsPlanMode) return undefined
     return s.recapByThread[activeThreadId] ?? activeThread?.recapText
   })
-  const isEditingMessage = useAppStore((s) => s.editingMessage != null)
   useEffect(() => {
     if (!activeThreadId || !activeThread) return
 

@@ -7,6 +7,7 @@ export interface WelcomeStateInput {
   activeThreadId: string | null
   activeThreadMessagesLoaded: boolean
   messageCount: number
+  isEditingMessage: boolean
   activeEssentialId: string | null
   activeThreadCreatedFromEssentialId?: string | null
   hasActiveEssential: boolean
@@ -20,7 +21,7 @@ export interface WelcomeState {
 export function resolveWelcomeState(input: WelcomeStateInput): WelcomeState {
   const essentialSourceId =
     input.activeEssentialId ?? input.activeThreadCreatedFromEssentialId ?? null
-  if (input.activeSurface !== 'timeline' || input.messageCount !== 0) {
+  if (input.activeSurface !== 'timeline' || input.messageCount !== 0 || input.isEditingMessage) {
     return { variant: null, essentialSourceId }
   }
 

@@ -9,6 +9,7 @@ function baseInput(overrides: Partial<WelcomeStateInput> = {}): WelcomeStateInpu
     activeThreadId: null,
     activeThreadMessagesLoaded: true,
     messageCount: 0,
+    isEditingMessage: false,
     activeEssentialId: null,
     activeThreadCreatedFromEssentialId: null,
     hasActiveEssential: false,
@@ -94,4 +95,20 @@ test('does not show welcome for non-empty threads or browser surface', () => {
     variant: null,
     essentialSourceId: null
   })
+})
+
+test('does not flash welcome while the first message is being replaced during an edit', () => {
+  assert.deepEqual(
+    resolveWelcomeState(
+      baseInput({
+        activeThreadId: 'thread-1',
+        messageCount: 0,
+        isEditingMessage: true
+      })
+    ),
+    {
+      variant: null,
+      essentialSourceId: null
+    }
+  )
 })
