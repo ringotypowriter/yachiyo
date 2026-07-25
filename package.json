@@ -73,6 +73,9 @@
     "typescript": "^5.9.3"
   },
   "pnpm": {
+    "overrides": {
+      "@astrojs/markdown-remark": "^7.2.0"
+    },
     "onlyBuiltDependencies": [
       "better-sqlite3",
       "electron",

@@ -1,6 +1,7 @@
 import { defineConfig } from 'astro/config'
 import react from '@astrojs/react'
 import starlight from '@astrojs/starlight'
+import starlightLlmsTxt from 'starlight-llms-txt'
 import tailwindcss from '@tailwindcss/vite'
 
 export default defineConfig({
@@ -13,6 +14,42 @@ export default defineConfig({
       logo: { src: './src/assets/icon.png', alt: 'Yachiyo' },
       favicon: '/icon.png',
       customCss: ['./src/styles/docs.css'],
+      plugins: [
+        // Emits /llms.txt, /llms-full.txt, /llms-small.txt and the customSets
+        // below. Pinned to 0.10.x: 0.11+ needs astro@^7 and starlight >=0.41,
+        // the same wall that keeps Starlight itself on 0.40.
+        //
+        // English only, and that is the plugin's own behaviour rather than a
+        // choice made here — it filters the collection through `isDefaultLocale`,
+        // so `zh/**` entries never reach the generator and no `paths` glob can
+        // pull them back in.
+        starlightLlmsTxt({
+          projectName: 'Yachiyo',
+          description:
+            'A local-first desktop AI assistant for macOS. Runs on your machine, stores everything under ~/.yachiyo, and talks to whichever model provider you configure. Skills are plain Markdown files — there is no MCP layer and no plugin marketplace.',
+          details: [
+            '- Extension model: a skill is a directory containing a `SKILL.md`. No runtime, manifest, or registration step.',
+            '- Configuration lives in two TOML files under `~/.yachiyo`; the desktop app and the `yachiyo` CLI both read and write them.',
+            '- The assistant administers itself: it ships with the `yachiyo-help` skill enabled and has shell access, so setup tasks are asked for in plain language rather than performed by hand.'
+          ].join('\n'),
+          // Entry points first, exhaustive key-by-key references last.
+          promote: ['docs', 'docs/install', 'docs/quickstart', 'docs/concepts'],
+          demote: ['docs/reference/config-toml', 'docs/reference/channels-toml'],
+          customSets: [
+            {
+              label: 'CLI reference',
+              description: 'every `yachiyo` command namespace, its flags, and its payload shapes',
+              paths: ['docs/cli/**']
+            },
+            {
+              label: 'Guides',
+              description:
+                'task-oriented guides for providers, skills, workspaces, channels, and schedules',
+              paths: ['docs/guides/**']
+            }
+          ]
+        })
+      ],
       defaultLocale: 'root',
       locales: {
         root: { label: 'English', lang: 'en' },
