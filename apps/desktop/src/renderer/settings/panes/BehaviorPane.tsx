@@ -12,11 +12,12 @@ import { useAppDialog } from '@renderer/components/AppDialogContext'
 import { theme, alpha } from '@renderer/theme/theme'
 import { imeSafeEnter } from '@renderer/lib/imeUtils'
 import {
+  SettingItem,
   SettingLabel,
-  SettingRow,
   SettingSection,
   SettingSwitch,
-  SimpleSelect
+  SimpleSelect,
+  SubPageHeader
 } from '../components/primitives'
 import { ShortcutRecorder } from '../components/ShortcutRecorder'
 import { hasPendingSoulDocumentChanges, toSoulTraitTexts } from './soulDocumentEditorModel'
@@ -43,6 +44,27 @@ interface BehaviorPaneProps {
   onRevertSoulDocument: () => void
   onActivateChat: () => void
   onNavigateToRoute: (route: string) => void
+}
+
+function RevertButton({
+  disabled,
+  onClick
+}: {
+  disabled: boolean
+  onClick: () => void
+}): React.ReactNode {
+  const t = useT()
+  return (
+    <button
+      type="button"
+      className="text-sm font-medium transition-opacity"
+      style={{ color: theme.text.secondary, opacity: disabled ? 0.3 : 0.8 }}
+      disabled={disabled}
+      onClick={onClick}
+    >
+      {t('settings.behavior.revert')}
+    </button>
+  )
 }
 
 export function BehaviorPane({
@@ -197,50 +219,17 @@ export function BehaviorPane({
   if (view === 'user-document') {
     return (
       <div className="flex-1 overflow-y-auto">
-        <div className="px-7 pt-5 pb-3 flex items-start justify-between gap-4">
-          <div className="min-w-0 space-y-1">
-            <button
-              type="button"
-              className="text-[11px] font-semibold uppercase tracking-[0.12em] transition-opacity opacity-60 hover:opacity-100"
-              style={{ color: theme.text.accent }}
-              onClick={() => {
-                setView('overview')
-                hasAttemptedUserDocumentLoadRef.current = false
-              }}
-            >
-              {`← ${t('settings.nav.behavior')}`}
-            </button>
-            <div className="text-lg font-semibold" style={{ color: theme.text.primary }}>
-              USER.md
-            </div>
-            <div className="text-sm leading-5" style={{ color: theme.text.tertiary }}>
-              {t('settings.behavior.userDocPageDesc')}
-            </div>
-            {userDocument?.filePath ? (
-              <div
-                className="content-selectable text-xs leading-5 break-all"
-                style={{ color: theme.text.muted }}
-              >
-                {userDocument.filePath}
-              </div>
-            ) : null}
-          </div>
-
-          <div className="flex shrink-0 items-center gap-3 pt-1">
-            <button
-              type="button"
-              className="text-sm font-medium transition-opacity"
-              style={{
-                color: theme.text.secondary,
-                opacity: hasPendingUserChanges ? 0.8 : 0.3
-              }}
-              disabled={!hasPendingUserChanges}
-              onClick={onRevertUserDocument}
-            >
-              {t('settings.behavior.revert')}
-            </button>
-          </div>
-        </div>
+        <SubPageHeader
+          backLabel={t('settings.nav.behavior')}
+          onBack={() => {
+            setView('overview')
+            hasAttemptedUserDocumentLoadRef.current = false
+          }}
+          title="USER.md"
+          description={t('settings.behavior.userDocPageDesc')}
+          meta={userDocument?.filePath}
+          action={<RevertButton disabled={!hasPendingUserChanges} onClick={onRevertUserDocument} />}
+        />
 
         <div className="pb-4">
           <UserDocumentTableEditor content={userDraft ?? ''} onChange={onUserDraftChange} />
@@ -264,33 +253,17 @@ export function BehaviorPane({
   if (view === 'soul-document') {
     return (
       <div className="flex-1 overflow-y-auto">
-        <div className="px-7 pt-5 pb-4">
-          <button
-            type="button"
-            className="text-[11px] font-semibold uppercase tracking-[0.12em] transition-opacity opacity-60 hover:opacity-100"
-            style={{ color: theme.text.accent }}
-            onClick={() => {
-              setView('overview')
-              hasAttemptedSoulLoadRef.current = false
-            }}
-          >
-            {`← ${t('settings.nav.behavior')}`}
-          </button>
-          <div className="mt-1 text-lg font-semibold" style={{ color: theme.text.primary }}>
-            SOUL.md
-          </div>
-          <div className="mt-0.5 text-sm leading-5" style={{ color: theme.text.tertiary }}>
-            {t('settings.behavior.soulDocPageDesc')}
-          </div>
-          {soulDocument?.filePath ? (
-            <div
-              className="content-selectable mt-0.5 text-xs leading-5 break-all"
-              style={{ color: theme.text.muted }}
-            >
-              {soulDocument.filePath}
-            </div>
-          ) : null}
-        </div>
+        <SubPageHeader
+          backLabel={t('settings.nav.behavior')}
+          onBack={() => {
+            setView('overview')
+            hasAttemptedSoulLoadRef.current = false
+          }}
+          title="SOUL.md"
+          description={t('settings.behavior.soulDocPageDesc')}
+          meta={soulDocument?.filePath}
+          action={<RevertButton disabled={!hasPendingSoulChanges} onClick={onRevertSoulDocument} />}
+        />
 
         {isLoadingSoulDocument ? (
           <div className="px-7 text-sm" style={{ color: theme.text.muted }}>
@@ -298,21 +271,6 @@ export function BehaviorPane({
           </div>
         ) : (
           <>
-            <div className="px-7 pb-2 flex items-center justify-end">
-              <button
-                type="button"
-                className="text-sm font-medium transition-opacity"
-                style={{
-                  color: theme.text.secondary,
-                  opacity: hasPendingSoulChanges ? 0.8 : 0.3
-                }}
-                disabled={!hasPendingSoulChanges}
-                onClick={onRevertSoulDocument}
-              >
-                {t('settings.behavior.revert')}
-              </button>
-            </div>
-
             {soulTraits.length > 0 ? (
               <div style={{ borderTop: `1px solid ${theme.border.subtle}` }}>
                 {soulTraits.map((trait) => (
@@ -400,19 +358,14 @@ export function BehaviorPane({
       <SettingSection>
         <SettingLabel>{t('settings.behavior.updatesSection')}</SettingLabel>
 
-        <SettingRow>
-          <div className="min-w-0 space-y-0.5">
-            <div className="text-sm font-medium" style={{ color: theme.text.primary }}>
-              {t('settings.behavior.updateChannelLabel')}
-            </div>
-            <div className="text-sm leading-5" style={{ color: theme.text.tertiary }}>
-              {updateChannel === 'beta'
-                ? t('settings.behavior.updateChannelBetaDesc')
-                : t('settings.behavior.updateChannelStableDesc')}
-            </div>
-          </div>
-
-          <div className="shrink-0">
+        <SettingItem
+          label={t('settings.behavior.updateChannelLabel')}
+          description={
+            updateChannel === 'beta'
+              ? t('settings.behavior.updateChannelBetaDesc')
+              : t('settings.behavior.updateChannelStableDesc')
+          }
+          control={
             <SimpleSelect
               value={updateChannel}
               options={[
@@ -420,33 +373,23 @@ export function BehaviorPane({
                 { value: 'beta' as const, label: t('settings.behavior.updateChannelBeta') }
               ]}
               onChange={(channel) => {
-                onChange({
-                  ...draft,
-                  general: { ...draft.general, updateChannel: channel }
-                })
+                onChange({ ...draft, general: { ...draft.general, updateChannel: channel } })
                 window.api.appUpdate.setChannel(channel)
               }}
               width={120}
             />
-          </div>
-        </SettingRow>
+          }
+        />
       </SettingSection>
 
       <SettingSection>
         <SettingLabel>{t('settings.behavior.startupSection')}</SettingLabel>
 
         {isMac ? (
-          <SettingRow>
-            <div className="min-w-0 space-y-0.5">
-              <div className="text-sm font-medium" style={{ color: theme.text.primary }}>
-                {t('settings.behavior.keepAwakeLabel')}
-              </div>
-              <div className="text-sm leading-5" style={{ color: theme.text.tertiary }}>
-                {t('settings.behavior.keepAwakeDesc')}
-              </div>
-            </div>
-
-            <div className="shrink-0">
+          <SettingItem
+            label={t('settings.behavior.keepAwakeLabel')}
+            description={t('settings.behavior.keepAwakeDesc')}
+            control={
               <SettingSwitch
                 checked={preventSystemSleep}
                 onChange={() =>
@@ -457,36 +400,31 @@ export function BehaviorPane({
                 }
                 ariaLabel={t('settings.behavior.keepAwakeToggleAria')}
               />
-            </div>
-          </SettingRow>
+            }
+          />
         ) : null}
 
-        <SettingRow>
-          <div className="min-w-0 space-y-0.5">
-            <div className="text-sm font-medium" style={{ color: theme.text.primary }}>
-              {t('settings.behavior.launchAtLoginLabel')}
-            </div>
-            <div className="text-sm leading-5" style={{ color: theme.text.tertiary }}>
-              {t('settings.behavior.launchAtLoginDesc')}
-            </div>
-          </div>
-
-          <button
-            type="button"
-            className="shrink-0 text-sm font-medium transition-opacity opacity-60 hover:opacity-100"
-            style={{ color: theme.text.accent }}
-            onClick={() => void handleLaunchAtLogin()}
-          >
-            {t('settings.behavior.setUpButton')}
-          </button>
-        </SettingRow>
+        <SettingItem
+          label={t('settings.behavior.launchAtLoginLabel')}
+          description={t('settings.behavior.launchAtLoginDesc')}
+          control={
+            <button
+              type="button"
+              className="text-sm font-medium transition-opacity opacity-60 hover:opacity-100"
+              style={{ color: theme.text.accent }}
+              onClick={() => void handleLaunchAtLogin()}
+            >
+              {t('settings.behavior.setUpButton')}
+            </button>
+          }
+        />
       </SettingSection>
 
       <SettingSection>
         <SettingLabel
           action={
             <button
-              className="text-[11px] font-medium hover:underline "
+              className="text-[11px] font-medium hover:underline"
               style={{ color: theme.text.secondary }}
               onClick={() =>
                 window.open(
@@ -523,33 +461,46 @@ export function BehaviorPane({
             }
           ] as const
         ).map(({ key, checked, label, description }) => (
-          <SettingRow key={key}>
-            <div className="min-w-0 space-y-0.5">
-              <div className="text-sm font-medium" style={{ color: theme.text.primary }}>
-                {label}
-              </div>
-              <div className="text-sm leading-5" style={{ color: theme.text.tertiary }}>
-                {description}
-              </div>
-            </div>
-            <div className="shrink-0">
+          <SettingItem
+            key={key}
+            label={label}
+            description={description}
+            control={
               <SettingSwitch
                 checked={checked}
                 onChange={() =>
-                  onChange({
-                    ...draft,
-                    general: { ...draft.general, [key]: !checked }
-                  })
+                  onChange({ ...draft, general: { ...draft.general, [key]: !checked } })
                 }
                 ariaLabel={t('settings.behavior.notifyToggleAria', { label })}
               />
-            </div>
-          </SettingRow>
+            }
+          />
         ))}
       </SettingSection>
 
       <SettingSection>
-        <SettingLabel>{t('settings.behavior.shortcutsSection')}</SettingLabel>
+        <SettingLabel
+          action={
+            <button
+              className="text-[11px] font-medium hover:underline"
+              style={{ color: theme.text.secondary }}
+              onClick={() =>
+                onChange({
+                  ...draft,
+                  general: {
+                    ...draft.general,
+                    translatorShortcut: 'CommandOrControl+Shift+T',
+                    jotdownShortcut: 'CommandOrControl+Shift+J'
+                  }
+                })
+              }
+            >
+              {t('settings.behavior.resetShortcuts')}
+            </button>
+          }
+        >
+          {t('settings.behavior.shortcutsSection')}
+        </SettingLabel>
 
         {(
           [
@@ -565,91 +516,54 @@ export function BehaviorPane({
             }
           ] as const
         ).map(({ key, label, description }) => (
-          <SettingRow key={key}>
-            <div className="min-w-0 space-y-0.5">
-              <div className="text-sm font-medium" style={{ color: theme.text.primary }}>
-                {label}
-              </div>
-              <div className="text-sm leading-5" style={{ color: theme.text.tertiary }}>
-                {description}
-              </div>
-            </div>
-            <ShortcutRecorder
-              value={draft.general?.[key] ?? ''}
-              onChange={(next) =>
-                onChange({
-                  ...draft,
-                  general: { ...draft.general, [key]: next }
-                })
-              }
-            />
-          </SettingRow>
-        ))}
-
-        <SettingRow>
-          <div />
-          <button
-            type="button"
-            className="shrink-0 text-sm font-medium transition-opacity opacity-60 hover:opacity-100"
-            style={{ color: theme.text.accent }}
-            onClick={() =>
-              onChange({
-                ...draft,
-                general: {
-                  ...draft.general,
-                  translatorShortcut: 'CommandOrControl+Shift+T',
-                  jotdownShortcut: 'CommandOrControl+Shift+J'
+          <SettingItem
+            key={key}
+            label={label}
+            description={description}
+            control={
+              <ShortcutRecorder
+                value={draft.general?.[key] ?? ''}
+                onChange={(next) =>
+                  onChange({ ...draft, general: { ...draft.general, [key]: next } })
                 }
-              })
+              />
             }
-          >
-            {t('settings.behavior.resetShortcuts')}
-          </button>
-        </SettingRow>
+          />
+        ))}
       </SettingSection>
 
       <SettingSection>
         <SettingLabel>{t('settings.behavior.personalizationSection')}</SettingLabel>
 
-        <SettingRow>
-          <div className="min-w-0 space-y-0.5">
-            <div className="text-sm font-medium" style={{ color: theme.text.primary }}>
-              USER.md
-            </div>
-            <div className="text-sm leading-5" style={{ color: theme.text.tertiary }}>
-              {t('settings.behavior.userDocDesc')}
-            </div>
-          </div>
+        <SettingItem
+          label="USER.md"
+          description={t('settings.behavior.userDocDesc')}
+          control={
+            <button
+              type="button"
+              className="text-sm font-medium transition-opacity opacity-60 hover:opacity-100"
+              style={{ color: theme.text.accent }}
+              onClick={() => setView('user-document')}
+            >
+              {t('settings.behavior.openEditorButton')}
+            </button>
+          }
+        />
 
-          <button
-            type="button"
-            className="shrink-0 text-sm font-medium transition-opacity opacity-60 hover:opacity-100"
-            style={{ color: theme.text.accent }}
-            onClick={() => setView('user-document')}
-          >
-            {t('settings.behavior.openEditorButton')}
-          </button>
-        </SettingRow>
-
-        <SettingRow>
-          <div className="min-w-0 space-y-0.5">
-            <div className="text-sm font-medium" style={{ color: theme.text.primary }}>
-              SOUL.md
-            </div>
-            <div className="text-sm leading-5" style={{ color: theme.text.tertiary }}>
-              {t('settings.behavior.soulDocDesc')}
-            </div>
-          </div>
-
-          <button
-            type="button"
-            className="shrink-0 text-sm font-medium transition-opacity opacity-60 hover:opacity-100"
-            style={{ color: theme.text.accent }}
-            onClick={() => setView('soul-document')}
-          >
-            {t('settings.behavior.manageTraitsButton')}
-          </button>
-        </SettingRow>
+        <SettingItem
+          label="SOUL.md"
+          description={t('settings.behavior.soulDocDesc')}
+          control={
+            <button
+              type="button"
+              className="text-sm font-medium transition-opacity opacity-60 hover:opacity-100"
+              style={{ color: theme.text.accent }}
+              onClick={() => setView('soul-document')}
+            >
+              {t('settings.behavior.manageTraitsButton')}
+            </button>
+          }
+        />
       </SettingSection>
     </div>
   )

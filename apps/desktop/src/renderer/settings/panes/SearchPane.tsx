@@ -8,7 +8,7 @@ import {
   type WebSearchBrowserImportSource
 } from '@yachiyo/shared/protocol'
 import { useT } from '@yachiyo/i18n/react'
-import { SettingLabel, SettingRow, SettingSection, SimpleSelect } from '../components/primitives'
+import { SettingItem, SettingLabel, SettingSection, SimpleSelect } from '../components/primitives'
 import { inputStyle } from '../components/styles'
 
 interface SearchPaneProps {
@@ -87,104 +87,93 @@ export function SearchPane({ draft, onChange }: SearchPaneProps): React.ReactNod
   return (
     <div className="flex-1 overflow-y-auto pb-6">
       <SettingSection>
-        <SettingRow>
-          <div className="min-w-0 space-y-0.5">
-            <div className="text-sm font-medium" style={{ color: theme.text.primary }}>
-              {t('settings.search.searchProvider')}
-            </div>
-          </div>
-
-          <SimpleSelect
-            value={defaultProvider}
-            options={[
-              { value: 'google-browser', label: 'Google' },
-              { value: 'duckduckgo-browser', label: 'DuckDuckGo' },
-              { value: 'exa', label: 'Exa' }
-            ]}
-            onChange={(v) =>
-              onChange({
-                ...draft,
-                webSearch: { ...draft.webSearch, defaultProvider: v as typeof defaultProvider }
-              })
-            }
-          />
-        </SettingRow>
+        <SettingItem
+          label={t('settings.search.searchProvider')}
+          control={
+            <SimpleSelect
+              value={defaultProvider}
+              options={[
+                { value: 'google-browser', label: 'Google' },
+                { value: 'duckduckgo-browser', label: 'DuckDuckGo' },
+                { value: 'exa', label: 'Exa' }
+              ]}
+              onChange={(v) =>
+                onChange({
+                  ...draft,
+                  webSearch: { ...draft.webSearch, defaultProvider: v as typeof defaultProvider }
+                })
+              }
+            />
+          }
+        />
       </SettingSection>
 
       {defaultProvider === 'exa' && (
         <SettingSection>
           <SettingLabel>Exa</SettingLabel>
 
-          <SettingRow>
-            <div className="text-sm font-medium" style={{ color: theme.text.primary }}>
-              {t('settings.search.apiKey')}
-            </div>
-            <div className="relative flex items-center" style={{ width: 240 }}>
-              <input
-                type={showApiKey ? 'text' : 'password'}
-                value={exaApiKey}
-                onChange={(e) =>
-                  onChange({
-                    ...draft,
-                    webSearch: {
-                      ...draft.webSearch,
-                      exa: { ...draft.webSearch?.exa, apiKey: e.target.value }
-                    }
-                  })
-                }
-                className="w-full rounded-xl px-3 py-2.5 text-sm outline-none"
-                style={inputStyle()}
-                placeholder={t('settings.search.apiKeyPlaceholder')}
-                spellCheck={false}
-                autoComplete="off"
-              />
-              <button
-                type="button"
-                onClick={() => setShowApiKey((v) => !v)}
-                className="absolute right-2.5 shrink-0 opacity-40 hover:opacity-80 transition-opacity"
-                aria-label={
-                  showApiKey ? t('settings.search.hideApiKey') : t('settings.search.showApiKey')
-                }
-              >
-                {showApiKey ? (
-                  <EyeOff size={14} color={theme.icon.muted} />
-                ) : (
-                  <Eye size={14} color={theme.icon.muted} />
-                )}
-              </button>
-            </div>
-          </SettingRow>
+          <SettingItem
+            label={t('settings.search.apiKey')}
+            control={
+              <div className="relative flex items-center" style={{ width: 240 }}>
+                <input
+                  type={showApiKey ? 'text' : 'password'}
+                  value={exaApiKey}
+                  onChange={(e) =>
+                    onChange({
+                      ...draft,
+                      webSearch: {
+                        ...draft.webSearch,
+                        exa: { ...draft.webSearch?.exa, apiKey: e.target.value }
+                      }
+                    })
+                  }
+                  className="w-full rounded-xl px-3 py-2.5 text-sm outline-none"
+                  style={inputStyle()}
+                  placeholder={t('settings.search.apiKeyPlaceholder')}
+                  spellCheck={false}
+                  autoComplete="off"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowApiKey((v) => !v)}
+                  className="absolute right-2.5 shrink-0 opacity-40 hover:opacity-80 transition-opacity"
+                  aria-label={
+                    showApiKey ? t('settings.search.hideApiKey') : t('settings.search.showApiKey')
+                  }
+                >
+                  {showApiKey ? (
+                    <EyeOff size={14} color={theme.icon.muted} />
+                  ) : (
+                    <Eye size={14} color={theme.icon.muted} />
+                  )}
+                </button>
+              </div>
+            }
+          />
         </SettingSection>
       )}
 
       <SettingSection>
-        <div className="px-7 pt-5 pb-3">
-          <div
-            className="text-[11px] font-semibold uppercase tracking-[0.12em] mb-2"
-            style={{ color: theme.text.secondary }}
-          >
-            {t('settings.search.browserSession')}
-          </div>
-          <div className="text-sm leading-5" style={{ color: theme.text.tertiary }}>
-            {t('settings.search.browserSessionDescription')}
-          </div>
-        </div>
+        <SettingLabel description={t('settings.search.browserSessionDescription')}>
+          {t('settings.search.browserSession')}
+        </SettingLabel>
 
-        <SettingRow>
-          <div className="text-sm font-medium" style={{ color: theme.text.primary }}>
-            {t('settings.search.chromeProfile')}
-          </div>
-          <SimpleSelect
-            value={selectedProfileName}
-            options={
-              profileOptions.length === 0
-                ? [{ value: '', label: t('settings.search.noChromeProfiles') }]
-                : profileOptions.map((p) => ({ value: p.profileName, label: p.profileName }))
-            }
-            onChange={setSelectedProfileName}
-            width={180}
-          />
-        </SettingRow>
+        <SettingItem
+          label={t('settings.search.chromeProfile')}
+          control={
+            <SimpleSelect
+              value={selectedProfileName}
+              options={
+                profileOptions.length === 0
+                  ? [{ value: '', label: t('settings.search.noChromeProfiles') }]
+                  : profileOptions.map((p) => ({ value: p.profileName, label: p.profileName }))
+              }
+              onChange={setSelectedProfileName}
+              width={180}
+            />
+          }
+        />
 
         <div className="px-7 py-3.5" style={{ borderTop: `1px solid ${theme.border.subtle}` }}>
           <div className="flex items-center justify-between gap-4">

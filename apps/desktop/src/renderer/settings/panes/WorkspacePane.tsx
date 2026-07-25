@@ -5,7 +5,7 @@ import { theme, alpha } from '@renderer/theme/theme'
 import type { SettingsConfig } from '@yachiyo/shared/protocol'
 import { tPlural } from '@yachiyo/i18n/index'
 import { useT } from '@yachiyo/i18n/react'
-import { SettingLabel, SettingSection } from '../components/primitives'
+import { SettingItem, SettingLabel, SettingSection } from '../components/primitives'
 import { useAppDialog } from '@renderer/components/AppDialogContext'
 import { useRestoreFocusOnUnmount } from '@renderer/lib/focusRestore'
 import { imeSafeEnter } from '@renderer/lib/imeUtils'
@@ -510,60 +510,57 @@ export function WorkspacePane({ draft, onChange }: WorkspacePaneProps): React.Re
       <SettingSection>
         <SettingLabel>{t('settings.workspace.openWith')}</SettingLabel>
 
-        <div
-          className="flex items-center justify-between gap-4 px-7 py-3"
-          style={{ borderTop: `1px solid ${theme.border.subtle}` }}
-        >
-          <div className="text-sm font-medium" style={{ color: theme.text.primary }}>
-            {t('settings.workspace.editor')}
-          </div>
-          <div style={{ width: 220 }}>
-            <AppPicker
-              value={draft.workspace?.editorApp ?? ''}
-              options={discoveredApps.editors}
-              placeholder={t('settings.workspace.selectEditorPlaceholder')}
-              onChange={(v) => updateWorkspace({ editorApp: v })}
-            />
-          </div>
-        </div>
+        <SettingItem
+          label={t('settings.workspace.editor')}
+          control={
+            <div style={{ width: 220 }}>
+              <AppPicker
+                value={draft.workspace?.editorApp ?? ''}
+                options={discoveredApps.editors}
+                placeholder={t('settings.workspace.selectEditorPlaceholder')}
+                onChange={(v) => updateWorkspace({ editorApp: v })}
+              />
+            </div>
+          }
+        />
 
-        <div
-          className="flex items-center justify-between gap-4 px-7 py-3"
-          style={{ borderTop: `1px solid ${theme.border.subtle}` }}
-        >
-          <div className="text-sm font-medium" style={{ color: theme.text.primary }}>
-            {t('settings.workspace.terminal')}
-          </div>
-          <div style={{ width: 220 }}>
-            <AppPicker
-              value={draft.workspace?.terminalApp ?? ''}
-              options={discoveredApps.terminals}
-              placeholder={t('settings.workspace.selectTerminalPlaceholder')}
-              onChange={(v) => updateWorkspace({ terminalApp: v })}
-            />
-          </div>
-        </div>
+        <SettingItem
+          label={t('settings.workspace.terminal')}
+          control={
+            <div style={{ width: 220 }}>
+              <AppPicker
+                value={draft.workspace?.terminalApp ?? ''}
+                options={discoveredApps.terminals}
+                placeholder={t('settings.workspace.selectTerminalPlaceholder')}
+                onChange={(v) => updateWorkspace({ terminalApp: v })}
+              />
+            </div>
+          }
+        />
 
-        <div
-          className="flex items-center justify-between gap-4 px-7 py-3"
-          style={{ borderTop: `1px solid ${theme.border.subtle}` }}
-        >
-          <div className="text-sm font-medium" style={{ color: theme.text.primary }}>
-            {t('settings.workspace.markdownDocument')}
-          </div>
-          <div style={{ width: 220 }}>
-            <AppPicker
-              value={draft.workspace?.markdownApp ?? ''}
-              options={discoveredApps.markdownEditors}
-              placeholder={t('settings.workspace.selectMarkdownEditorPlaceholder')}
-              onChange={(v) => updateWorkspace({ markdownApp: v })}
-            />
-          </div>
-        </div>
+        <SettingItem
+          label={t('settings.workspace.markdownDocument')}
+          control={
+            <div style={{ width: 220 }}>
+              <AppPicker
+                value={draft.workspace?.markdownApp ?? ''}
+                options={discoveredApps.markdownEditors}
+                placeholder={t('settings.workspace.selectMarkdownEditorPlaceholder')}
+                onChange={(v) => updateWorkspace({ markdownApp: v })}
+              />
+            </div>
+          }
+        />
       </SettingSection>
 
       <SettingSection>
-        <SettingLabel action={<PruneButton />}>{t('settings.workspace.maintenance')}</SettingLabel>
+        <SettingLabel>{t('settings.workspace.maintenance')}</SettingLabel>
+
+        <SettingItem
+          label={t('settings.workspace.pruneLabel')}
+          description={t('settings.workspace.pruneDesc')}
+          control={<PruneButton />}
+        />
       </SettingSection>
     </div>
   )

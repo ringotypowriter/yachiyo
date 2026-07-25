@@ -26,10 +26,10 @@ export const memory = {
   toggleMemoryAria: 'Toggle memory',
   termsRowDescription: 'View the memory hierarchy grouped by stored topic.',
   viewTerms: 'View terms',
-  autoDistillTitle: 'Auto-distill memory after runs',
+  autoDistillTitle: 'Auto-distill after runs',
   autoDistillDescription: 'When off, memory is updated only when you use the remember tool.',
   toggleAutoDistillAria: 'Toggle auto memory distillation',
-  autoRecallTitle: 'Auto Recall',
+  autoRecallTitle: 'Auto-recall at run start',
   autoRecallDescription: 'When off, new runs start without pulling in saved memories.',
   toggleAutoRecallAria: 'Toggle automatic memory recall',
   toolModelNote:
@@ -51,7 +51,9 @@ export const workspace = {
   selectTerminalPlaceholder: 'Select a terminal…',
   selectMarkdownEditorPlaceholder: 'Select a markdown editor…',
   maintenance: 'Maintenance',
-  pruneButton: 'Prune empty temporary workspaces',
+  pruneButton: 'Prune',
+  pruneLabel: 'Empty temporary workspaces',
+  pruneDesc: 'Temporary workspaces left behind by runs that never wrote a file.',
   pruneConfirmTitle: 'Delete empty temporary workspaces?',
   pruneConfirmMessage: 'This cannot be undone.',
   prunedResult: {

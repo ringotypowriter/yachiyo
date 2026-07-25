@@ -16,7 +16,13 @@ import type {
   SubagentProfile,
   SubagentRuntimeMode
 } from '@yachiyo/shared/protocol'
-import { SettingLabel, SettingSection, SettingSwitch, SimpleSelect } from '../components/primitives'
+import {
+  SettingItem,
+  SettingLabel,
+  SettingSection,
+  SettingSwitch,
+  SimpleSelect
+} from '../components/primitives'
 import { inputStyle } from '../components/styles'
 import { ModelSelectorPopup } from '../../src/features/chat/components/ModelSelectorPopup'
 import { formatStoredModelChip } from '../../src/lib/model/modelLabel'
@@ -399,19 +405,10 @@ export function CodingAgentsPane({ draft, onChange }: CodingAgentsPaneProps): Re
     <div className="flex-1 overflow-y-auto pb-6">
       <SettingSection>
         <SettingLabel>{t('settings.codingAgents.subagentsSection')}</SettingLabel>
-        <div
-          className="px-7 pb-4 space-y-3"
-          style={{ borderTop: `1px solid ${theme.border.subtle}` }}
-        >
-          <div className="flex items-center justify-between gap-4 pt-4">
-            <div>
-              <div className="text-sm font-medium" style={{ color: theme.text.primary }}>
-                {t('settings.codingAgents.runtimeMode')}
-              </div>
-              <div className="text-xs mt-1" style={{ color: theme.text.tertiary }}>
-                {t('settings.codingAgents.runtimeModeDescription')}
-              </div>
-            </div>
+        <SettingItem
+          label={t('settings.codingAgents.runtimeMode')}
+          description={t('settings.codingAgents.runtimeModeDescription')}
+          control={
             <SimpleSelect<SubagentRuntimeMode>
               value={subagentMode}
               options={[
@@ -421,8 +418,10 @@ export function CodingAgentsPane({ draft, onChange }: CodingAgentsPaneProps): Re
               onChange={updateSubagentMode}
               width={190}
             />
-          </div>
+          }
+        />
 
+        <div className="px-7 py-4" style={{ borderTop: `1px solid ${theme.border.subtle}` }}>
           {subagentMode === 'worker' ? (
             <div className="grid gap-2">
               {workerAgents.map((agent) => {

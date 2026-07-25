@@ -13,8 +13,8 @@ import type {
 import { useT } from '@yachiyo/i18n/react'
 import { THEME_OPTIONS, alpha, getThemeSchemePreviewSegments, theme } from '@renderer/theme/theme'
 import {
+  SettingItem,
   SettingLabel,
-  SettingRow,
   SettingSection,
   SettingSwitch,
   SimpleSelect
@@ -92,59 +92,54 @@ function FontSizeRow({
   const canIncrease = currentIndex < steps.length - 1
 
   return (
-    <SettingRow>
-      <div className="min-w-0 space-y-0.5">
-        <div className="text-sm font-medium" style={{ color: theme.text.primary }}>
-          {label}
+    <SettingItem
+      label={label}
+      description={description}
+      control={
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            disabled={!canDecrease}
+            onClick={() => canDecrease && onChange(steps[currentIndex - 1])}
+            className="flex items-center justify-center text-sm font-medium transition-opacity disabled:opacity-25 opacity-50 hover:opacity-100"
+            style={{
+              width: 24,
+              height: 24,
+              background: 'none',
+              border: 'none',
+              color: theme.text.primary,
+              cursor: 'default'
+            }}
+            aria-label={t('settings.ui.decreaseAria', { label })}
+          >
+            −
+          </button>
+          <span
+            className="text-sm font-medium tabular-nums"
+            style={{ minWidth: 36, textAlign: 'center', color: theme.text.primary }}
+          >
+            {current}px
+          </span>
+          <button
+            type="button"
+            disabled={!canIncrease}
+            onClick={() => canIncrease && onChange(steps[currentIndex + 1])}
+            className="flex items-center justify-center text-sm font-medium transition-opacity disabled:opacity-25 opacity-50 hover:opacity-100"
+            style={{
+              width: 24,
+              height: 24,
+              background: 'none',
+              border: 'none',
+              color: theme.text.primary,
+              cursor: 'default'
+            }}
+            aria-label={t('settings.ui.increaseAria', { label })}
+          >
+            +
+          </button>
         </div>
-        <div className="text-sm leading-5" style={{ color: theme.text.tertiary }}>
-          {description}
-        </div>
-      </div>
-
-      <div className="flex shrink-0 items-center gap-2">
-        <button
-          type="button"
-          disabled={!canDecrease}
-          onClick={() => canDecrease && onChange(steps[currentIndex - 1])}
-          className="flex items-center justify-center text-sm font-medium transition-opacity disabled:opacity-25 opacity-50 hover:opacity-100"
-          style={{
-            width: 24,
-            height: 24,
-            background: 'none',
-            border: 'none',
-            color: theme.text.primary,
-            cursor: 'default'
-          }}
-          aria-label={t('settings.ui.decreaseAria', { label })}
-        >
-          −
-        </button>
-        <span
-          className="text-sm font-medium tabular-nums"
-          style={{ minWidth: 36, textAlign: 'center', color: theme.text.primary }}
-        >
-          {current}px
-        </span>
-        <button
-          type="button"
-          disabled={!canIncrease}
-          onClick={() => canIncrease && onChange(steps[currentIndex + 1])}
-          className="flex items-center justify-center text-sm font-medium transition-opacity disabled:opacity-25 opacity-50 hover:opacity-100"
-          style={{
-            width: 24,
-            height: 24,
-            background: 'none',
-            border: 'none',
-            color: theme.text.primary,
-            cursor: 'default'
-          }}
-          aria-label={t('settings.ui.increaseAria', { label })}
-        >
-          +
-        </button>
-      </div>
-    </SettingRow>
+      }
+    />
   )
 }
 
@@ -249,17 +244,10 @@ export function UIPane({ draft, onChange }: UIPaneProps): React.ReactNode {
       <SettingSection>
         <SettingLabel>{t('settings.ui.appearanceSection')}</SettingLabel>
 
-        <SettingRow>
-          <div className="min-w-0 space-y-0.5">
-            <div className="text-sm font-medium" style={{ color: theme.text.primary }}>
-              {t('settings.ui.themeLabel')}
-            </div>
-            <div className="text-sm leading-5" style={{ color: theme.text.tertiary }}>
-              {t('settings.ui.themeDesc')}
-            </div>
-          </div>
-
-          <div className="shrink-0">
+        <SettingItem
+          label={t('settings.ui.themeLabel')}
+          description={t('settings.ui.themeDesc')}
+          control={
             <SimpleSelect<ThemeId>
               value={draft.general?.themeId ?? DEFAULT_THEME_ID}
               options={THEME_SELECT_OPTIONS}
@@ -276,20 +264,13 @@ export function UIPane({ draft, onChange }: UIPaneProps): React.ReactNode {
                 })
               }
             />
-          </div>
-        </SettingRow>
+          }
+        />
 
-        <SettingRow>
-          <div className="min-w-0 space-y-0.5">
-            <div className="text-sm font-medium" style={{ color: theme.text.primary }}>
-              {t('settings.ui.appearanceLabel')}
-            </div>
-            <div className="text-sm leading-5" style={{ color: theme.text.tertiary }}>
-              {t('settings.ui.appearanceDesc')}
-            </div>
-          </div>
-
-          <div className="shrink-0">
+        <SettingItem
+          label={t('settings.ui.appearanceLabel')}
+          description={t('settings.ui.appearanceDesc')}
+          control={
             <SimpleSelect<ThemeAppearance>
               value={draft.general?.themeAppearance ?? DEFAULT_THEME_APPEARANCE}
               options={appearanceOptions}
@@ -305,50 +286,41 @@ export function UIPane({ draft, onChange }: UIPaneProps): React.ReactNode {
                 })
               }
             />
-          </div>
-        </SettingRow>
+          }
+        />
 
-        <SettingRow>
-          <div className="min-w-0 space-y-0.5">
-            <div className="text-sm font-medium" style={{ color: theme.text.primary }}>
-              {t('settings.ui.chatPanelOpacityLabel')}
+        <SettingItem
+          label={t('settings.ui.chatPanelOpacityLabel')}
+          description={t('settings.ui.chatPanelOpacityDesc')}
+          control={
+            <div className="flex items-center gap-3">
+              <RangeSlider
+                value={chatPanelOpacityPercent}
+                min={MIN_CHAT_PANEL_OPACITY_PERCENT}
+                max={100}
+                step={1}
+                onChange={(next) =>
+                  onChange({
+                    ...draft,
+                    general: { ...draft.general, chatPanelOpacity: next / 100 }
+                  })
+                }
+                ariaLabel={t('settings.ui.chatPanelOpacityLabel')}
+              />
+              <span
+                className="text-sm font-medium tabular-nums"
+                style={{ minWidth: 44, textAlign: 'right', color: theme.text.primary }}
+              >
+                {chatPanelOpacityPercent}%
+              </span>
             </div>
-            <div className="text-sm leading-5" style={{ color: theme.text.tertiary }}>
-              {t('settings.ui.chatPanelOpacityDesc')}
-            </div>
-          </div>
+          }
+        />
 
-          <div className="flex shrink-0 items-center gap-3">
-            <RangeSlider
-              value={chatPanelOpacityPercent}
-              min={MIN_CHAT_PANEL_OPACITY_PERCENT}
-              max={100}
-              step={1}
-              onChange={(next) =>
-                onChange({ ...draft, general: { ...draft.general, chatPanelOpacity: next / 100 } })
-              }
-              ariaLabel={t('settings.ui.chatPanelOpacityLabel')}
-            />
-            <span
-              className="text-sm font-medium tabular-nums"
-              style={{ minWidth: 44, textAlign: 'right', color: theme.text.primary }}
-            >
-              {chatPanelOpacityPercent}%
-            </span>
-          </div>
-        </SettingRow>
-
-        <SettingRow>
-          <div className="min-w-0 space-y-0.5">
-            <div className="text-sm font-medium" style={{ color: theme.text.primary }}>
-              {t('settings.ui.languageLabel')}
-            </div>
-            <div className="text-sm leading-5" style={{ color: theme.text.tertiary }}>
-              {t('settings.ui.languageDesc')}
-            </div>
-          </div>
-
-          <div className="shrink-0">
+        <SettingItem
+          label={t('settings.ui.languageLabel')}
+          description={t('settings.ui.languageDesc')}
+          control={
             <SimpleSelect<AppLanguage>
               value={draft.general?.language ?? 'auto'}
               options={languageOptions}
@@ -357,8 +329,8 @@ export function UIPane({ draft, onChange }: UIPaneProps): React.ReactNode {
                 onChange({ ...draft, general: { ...draft.general, language: next } })
               }
             />
-          </div>
-        </SettingRow>
+          }
+        />
       </SettingSection>
 
       <SettingSection>
@@ -389,17 +361,10 @@ export function UIPane({ draft, onChange }: UIPaneProps): React.ReactNode {
       <SettingSection>
         <SettingLabel>{t('settings.ui.layoutSection')}</SettingLabel>
 
-        <SettingRow>
-          <div className="min-w-0 space-y-0.5">
-            <div className="text-sm font-medium" style={{ color: theme.text.primary }}>
-              {t('settings.ui.sidebarOnLaunchLabel')}
-            </div>
-            <div className="text-sm leading-5" style={{ color: theme.text.tertiary }}>
-              {t('settings.ui.sidebarOnLaunchDesc')}
-            </div>
-          </div>
-
-          <div className="shrink-0">
+        <SettingItem
+          label={t('settings.ui.sidebarOnLaunchLabel')}
+          description={t('settings.ui.sidebarOnLaunchDesc')}
+          control={
             <SettingSwitch
               checked={
                 (draft.general?.sidebarVisibility ?? DEFAULT_SIDEBAR_VISIBILITY) === 'expanded'
@@ -416,48 +381,36 @@ export function UIPane({ draft, onChange }: UIPaneProps): React.ReactNode {
               }}
               ariaLabel={t('settings.ui.sidebarToggleAria')}
             />
-          </div>
-        </SettingRow>
+          }
+        />
 
-        <SettingRow>
-          <div className="min-w-0 space-y-0.5">
-            <div className="text-sm font-medium" style={{ color: theme.text.primary }}>
-              {t('settings.ui.sidebarWidthLabel')}
+        <SettingItem
+          label={t('settings.ui.sidebarWidthLabel')}
+          description={t('settings.ui.sidebarWidthDesc')}
+          control={
+            <div className="flex items-center gap-3">
+              <RangeSlider
+                value={sidebarWidth}
+                min={MIN_SIDEBAR_WIDTH}
+                max={MAX_SIDEBAR_WIDTH}
+                step={10}
+                onChange={handleSidebarWidth}
+                ariaLabel={t('settings.ui.sidebarWidthLabel')}
+              />
+              <span
+                className="text-sm font-medium tabular-nums"
+                style={{ minWidth: 44, textAlign: 'right', color: theme.text.primary }}
+              >
+                {sidebarWidth}px
+              </span>
             </div>
-            <div className="text-sm leading-5" style={{ color: theme.text.tertiary }}>
-              {t('settings.ui.sidebarWidthDesc')}
-            </div>
-          </div>
+          }
+        />
 
-          <div className="flex shrink-0 items-center gap-3">
-            <RangeSlider
-              value={sidebarWidth}
-              min={MIN_SIDEBAR_WIDTH}
-              max={MAX_SIDEBAR_WIDTH}
-              step={10}
-              onChange={handleSidebarWidth}
-              ariaLabel={t('settings.ui.sidebarWidthLabel')}
-            />
-            <span
-              className="text-sm font-medium tabular-nums"
-              style={{ minWidth: 44, textAlign: 'right', color: theme.text.primary }}
-            >
-              {sidebarWidth}px
-            </span>
-          </div>
-        </SettingRow>
-
-        <SettingRow>
-          <div className="min-w-0 space-y-0.5">
-            <div className="text-sm font-medium" style={{ color: theme.text.primary }}>
-              {t('settings.ui.messagePreviewLabel')}
-            </div>
-            <div className="text-sm leading-5" style={{ color: theme.text.tertiary }}>
-              {t('settings.ui.messagePreviewDesc')}
-            </div>
-          </div>
-
-          <div className="shrink-0">
+        <SettingItem
+          label={t('settings.ui.messagePreviewLabel')}
+          description={t('settings.ui.messagePreviewDesc')}
+          control={
             <SettingSwitch
               checked={draft.general?.sidebarPreview !== false}
               onChange={() =>
@@ -471,35 +424,25 @@ export function UIPane({ draft, onChange }: UIPaneProps): React.ReactNode {
               }
               ariaLabel={t('settings.ui.messagePreviewToggleAria')}
             />
-          </div>
-        </SettingRow>
+          }
+        />
 
-        <SettingRow>
-          <div className="min-w-0 space-y-0.5">
-            <div className="text-sm font-medium" style={{ color: theme.text.primary }}>
-              {t('settings.ui.workSummaryLabel')}
-            </div>
-            <div className="text-sm leading-5" style={{ color: theme.text.tertiary }}>
-              {t('settings.ui.workSummaryDesc')}
-            </div>
-          </div>
-
-          <div className="shrink-0">
+        <SettingItem
+          label={t('settings.ui.workSummaryLabel')}
+          description={t('settings.ui.workSummaryDesc')}
+          control={
             <SettingSwitch
               checked={draft.general?.workSummary !== false}
               onChange={() =>
                 onChange({
                   ...draft,
-                  general: {
-                    ...draft.general,
-                    workSummary: draft.general?.workSummary === false
-                  }
+                  general: { ...draft.general, workSummary: draft.general?.workSummary === false }
                 })
               }
               ariaLabel={t('settings.ui.workSummaryToggleAria')}
             />
-          </div>
-        </SettingRow>
+          }
+        />
       </SettingSection>
     </div>
   )

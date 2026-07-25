@@ -6,10 +6,11 @@ import { useAppDialog } from '@renderer/components/AppDialogContext'
 import { theme } from '@renderer/theme/theme'
 import {
   ListPagination,
+  SettingItem,
   SettingLabel,
-  SettingRow,
   SettingSection,
-  SettingSwitch
+  SettingSwitch,
+  SubPageHeader
 } from '../components/primitives'
 import {
   deleteMemoryTerm,
@@ -126,34 +127,24 @@ export function MemoryPane({ draft, onChange }: MemoryPaneProps): React.JSX.Elem
   if (view === 'terms') {
     return (
       <div className="flex-1 overflow-y-auto">
-        <div className="px-7 pt-5 pb-4">
-          <button
-            type="button"
-            className="text-[11px] font-semibold uppercase tracking-[0.12em] transition-opacity opacity-60 hover:opacity-100"
-            style={{ color: theme.text.accent }}
-            onClick={() => {
-              setView('overview')
-              setMemoryTermsPage(1)
-              setMemoryTermDocument(null)
-            }}
-          >
-            ← {t('settings.memory.title')}
-          </button>
-          <div className="mt-1 text-lg font-semibold" style={{ color: theme.text.primary }}>
-            {t('settings.memory.termsTitle')}
-          </div>
-          <div className="mt-0.5 text-sm leading-5" style={{ color: theme.text.tertiary }}>
-            {t('settings.memory.termsDescription')}
-          </div>
-          {memoryTermDocument ? (
-            <div className="mt-0.5 text-xs leading-5" style={{ color: theme.text.muted }}>
-              {t('settings.memory.termsAcrossTopics', {
-                terms: tPlural('settings.memory.termCount', memoryTermDocument.memoryCount),
-                topics: tPlural('settings.memory.topicCount', memoryTermDocument.topicCount)
-              })}
-            </div>
-          ) : null}
-        </div>
+        <SubPageHeader
+          backLabel={t('settings.memory.title')}
+          onBack={() => {
+            setView('overview')
+            setMemoryTermsPage(1)
+            setMemoryTermDocument(null)
+          }}
+          title={t('settings.memory.termsTitle')}
+          description={t('settings.memory.termsDescription')}
+          meta={
+            memoryTermDocument
+              ? t('settings.memory.termsAcrossTopics', {
+                  terms: tPlural('settings.memory.termCount', memoryTermDocument.memoryCount),
+                  topics: tPlural('settings.memory.topicCount', memoryTermDocument.topicCount)
+                })
+              : null
+          }
+        />
 
         {isLoadingTerms ? (
           <div className="px-7 text-sm" style={{ color: theme.text.muted }}>
@@ -276,16 +267,14 @@ export function MemoryPane({ draft, onChange }: MemoryPaneProps): React.JSX.Elem
   return (
     <div className="flex-1 overflow-y-auto pb-6">
       <SettingSection>
-        <SettingRow>
-          <div className="min-w-0 space-y-0.5">
-            <div className="text-sm font-medium" style={{ color: theme.text.primary }}>
-              {t('settings.memory.enableTitle')}
-            </div>
-            <div className="text-sm leading-5" style={{ color: theme.text.tertiary }}>
-              {t('settings.memory.enableDescription')}
-            </div>
-          </div>
-          <div className="shrink-0">
+        <SettingLabel description={t('settings.memory.toolModelNote')}>
+          {t('settings.memory.title')}
+        </SettingLabel>
+
+        <SettingItem
+          label={t('settings.memory.enableTitle')}
+          description={t('settings.memory.enableDescription')}
+          control={
             <SettingSwitch
               checked={memory.enabled === true}
               onChange={() =>
@@ -293,46 +282,30 @@ export function MemoryPane({ draft, onChange }: MemoryPaneProps): React.JSX.Elem
               }
               ariaLabel={t('settings.memory.toggleMemoryAria')}
             />
-          </div>
-        </SettingRow>
+          }
+        />
 
-        <SettingRow>
-          <div className="min-w-0 space-y-0.5">
-            <div className="text-sm font-medium" style={{ color: theme.text.primary }}>
-              {t('settings.memory.termsTitle')}
-            </div>
-            <div className="text-sm leading-5" style={{ color: theme.text.tertiary }}>
-              {t('settings.memory.termsRowDescription')}
-            </div>
-          </div>
-          <button
-            type="button"
-            className="shrink-0 text-sm font-medium transition-opacity opacity-60 hover:opacity-100"
-            style={{ color: theme.text.accent }}
-            onClick={() => {
-              setMemoryTermsPage(1)
-              setView('terms')
-            }}
-          >
-            {t('settings.memory.viewTerms')} →
-          </button>
-        </SettingRow>
-      </SettingSection>
+        <SettingItem
+          label={t('settings.memory.autoRecallTitle')}
+          description={t('settings.memory.autoRecallDescription')}
+          control={
+            <SettingSwitch
+              checked={memory.autoRecall !== false}
+              onChange={() =>
+                onChange({
+                  ...draft,
+                  memory: { ...memory, autoRecall: memory.autoRecall === false }
+                })
+              }
+              ariaLabel={t('settings.memory.toggleAutoRecallAria')}
+            />
+          }
+        />
 
-      <SettingSection>
-        <SettingLabel>{t('settings.memory.title')}</SettingLabel>
-
-        <SettingRow>
-          <div className="min-w-0 space-y-0.5">
-            <div className="text-sm font-medium" style={{ color: theme.text.primary }}>
-              {t('settings.memory.autoDistillTitle')}
-            </div>
-            <div className="text-sm leading-5" style={{ color: theme.text.tertiary }}>
-              {t('settings.memory.autoDistillDescription')}
-            </div>
-          </div>
-
-          <div className="shrink-0">
+        <SettingItem
+          label={t('settings.memory.autoDistillTitle')}
+          description={t('settings.memory.autoDistillDescription')}
+          control={
             <SettingSwitch
               checked={draft.chat?.autoMemoryDistillation !== false}
               onChange={() =>
@@ -346,41 +319,26 @@ export function MemoryPane({ draft, onChange }: MemoryPaneProps): React.JSX.Elem
               }
               ariaLabel={t('settings.memory.toggleAutoDistillAria')}
             />
-          </div>
-        </SettingRow>
+          }
+        />
 
-        <SettingRow>
-          <div className="min-w-0 space-y-0.5">
-            <div className="text-sm font-medium" style={{ color: theme.text.primary }}>
-              {t('settings.memory.autoRecallTitle')}
-            </div>
-            <div className="text-sm leading-5" style={{ color: theme.text.tertiary }}>
-              {t('settings.memory.autoRecallDescription')}
-            </div>
-          </div>
-
-          <div className="shrink-0">
-            <SettingSwitch
-              checked={memory.autoRecall !== false}
-              onChange={() =>
-                onChange({
-                  ...draft,
-                  memory: {
-                    ...memory,
-                    autoRecall: memory.autoRecall === false
-                  }
-                })
-              }
-              ariaLabel={t('settings.memory.toggleAutoRecallAria')}
-            />
-          </div>
-        </SettingRow>
-      </SettingSection>
-
-      <SettingSection>
-        <div className="px-7 py-4 text-sm leading-5" style={{ color: theme.text.tertiary }}>
-          {t('settings.memory.toolModelNote')}
-        </div>
+        <SettingItem
+          label={t('settings.memory.termsTitle')}
+          description={t('settings.memory.termsRowDescription')}
+          control={
+            <button
+              type="button"
+              className="text-sm font-medium transition-opacity opacity-60 hover:opacity-100"
+              style={{ color: theme.text.accent }}
+              onClick={() => {
+                setMemoryTermsPage(1)
+                setView('terms')
+              }}
+            >
+              {t('settings.memory.viewTerms')} →
+            </button>
+          }
+        />
       </SettingSection>
     </div>
   )

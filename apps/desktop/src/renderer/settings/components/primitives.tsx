@@ -25,6 +25,33 @@ interface SettingSwitchProps {
 interface SettingLabelProps {
   children: React.ReactNode
   action?: React.ReactNode
+  description?: React.ReactNode
+}
+
+type SettingHintTone = 'warning' | 'danger'
+
+interface SettingItemTextProps {
+  label: React.ReactNode
+  description?: React.ReactNode
+  hint?: React.ReactNode
+  hintTone?: SettingHintTone
+}
+
+interface SettingItemProps extends SettingItemTextProps {
+  control?: React.ReactNode
+}
+
+interface SettingBlockProps extends SettingItemTextProps {
+  children: React.ReactNode
+}
+
+interface SubPageHeaderProps {
+  backLabel: string
+  onBack: () => void
+  title: React.ReactNode
+  description?: React.ReactNode
+  meta?: React.ReactNode
+  action?: React.ReactNode
 }
 
 interface ListPaginationProps {
@@ -288,27 +315,131 @@ export function SettingSection({ children }: { children: React.ReactNode }): Rea
   return <section className="mt-6 first:mt-0">{children}</section>
 }
 
-export function SettingLabel({ children, action }: SettingLabelProps): React.ReactNode {
-  if (action) {
-    return (
-      <div className="flex items-center justify-between px-7 pt-5 pb-2.5">
-        <div
-          className="text-[11px] font-semibold uppercase tracking-[0.12em]"
-          style={{ color: theme.text.secondary }}
-        >
-          {children}
-        </div>
-        {action}
-      </div>
-    )
-  }
-
-  return (
+export function SettingLabel({
+  children,
+  action,
+  description
+}: SettingLabelProps): React.ReactNode {
+  const heading = (
     <div
-      className="px-7 pt-5 pb-2.5 text-[11px] font-semibold uppercase tracking-[0.12em]"
+      className="text-[11px] font-semibold uppercase tracking-[0.12em]"
       style={{ color: theme.text.secondary }}
     >
       {children}
+    </div>
+  )
+
+  return (
+    <div className={description ? 'px-7 pt-5 pb-3' : 'px-7 pt-5 pb-2.5'}>
+      {action ? (
+        <div className="flex items-center justify-between gap-4">
+          {heading}
+          {action}
+        </div>
+      ) : (
+        heading
+      )}
+      {description ? (
+        <div className="mt-2 text-sm leading-5" style={{ color: theme.text.tertiary }}>
+          {description}
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+/**
+ * The label / description / hint stack that every setting row shares. Kept separate from
+ * SettingItem so blocks and bespoke rows can reuse the exact same typography.
+ */
+export function SettingItemText({
+  label,
+  description,
+  hint,
+  hintTone = 'warning'
+}: SettingItemTextProps): React.ReactNode {
+  return (
+    <div className="min-w-0 space-y-0.5">
+      <div className="text-sm font-medium" style={{ color: theme.text.primary }}>
+        {label}
+      </div>
+      {description ? (
+        <div className="text-sm leading-5" style={{ color: theme.text.tertiary }}>
+          {description}
+        </div>
+      ) : null}
+      {hint ? (
+        <div
+          className="mt-0.5 text-xs leading-4"
+          style={{ color: hintTone === 'danger' ? theme.text.dangerStrong : theme.text.warning }}
+        >
+          {hint}
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+/** A setting row: what it changes on the left, the control that changes it on the right. */
+export function SettingItem({ control, ...text }: SettingItemProps): React.ReactNode {
+  return (
+    <SettingRow>
+      <SettingItemText {...text} />
+      {control ? <div className="shrink-0">{control}</div> : null}
+    </SettingRow>
+  )
+}
+
+/** A setting whose control needs the full row width below the label instead of beside it. */
+export function SettingBlock({ children, ...text }: SettingBlockProps): React.ReactNode {
+  return (
+    <SettingRow>
+      <div className="min-w-0 flex-1 space-y-3">
+        <SettingItemText {...text} />
+        {children}
+      </div>
+    </SettingRow>
+  )
+}
+
+/** Header for a settings sub-page reached from a row (USER.md, SOUL.md, memory terms, ...). */
+export function SubPageHeader({
+  backLabel,
+  onBack,
+  title,
+  description,
+  meta,
+  action
+}: SubPageHeaderProps): React.ReactNode {
+  return (
+    <div className="flex items-start justify-between gap-4 px-7 pt-5 pb-4">
+      <div className="min-w-0">
+        <button
+          type="button"
+          className="text-[11px] font-semibold uppercase tracking-[0.12em] transition-opacity opacity-60 hover:opacity-100"
+          style={{ color: theme.text.accent }}
+          onClick={onBack}
+        >
+          {`← ${backLabel}`}
+        </button>
+        <div className="mt-1 text-lg font-semibold" style={{ color: theme.text.primary }}>
+          {title}
+        </div>
+        {description ? (
+          <div className="mt-0.5 text-sm leading-5" style={{ color: theme.text.tertiary }}>
+            {description}
+          </div>
+        ) : null}
+        {meta ? (
+          <div
+            className="content-selectable mt-0.5 text-xs leading-5 break-all"
+            style={{ color: theme.text.muted }}
+          >
+            {meta}
+          </div>
+        ) : null}
+      </div>
+      {action ? <div className="flex shrink-0 items-center gap-3 pt-1">{action}</div> : null}
     </div>
   )
 }

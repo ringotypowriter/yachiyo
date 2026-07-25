@@ -13,7 +13,13 @@ import type {
   ChannelUserStatus,
   ProviderConfig
 } from '@yachiyo/shared/protocol'
-import { SettingLabel, SettingRow, SettingSection, SettingSwitch } from '../components/primitives'
+import {
+  SettingItem,
+  SettingLabel,
+  SettingRow,
+  SettingSection,
+  SettingSwitch
+} from '../components/primitives'
 import {
   ChannelGroupRow,
   ChannelUserRow,
@@ -823,65 +829,57 @@ export function ChannelsPane({
       <SettingSection>
         <SettingLabel>{t('settings.channels.tokenLimits')}</SettingLabel>
 
-        <SettingRow>
-          <div className="min-w-0 space-y-0.5">
-            <div className="text-sm font-medium" style={{ color: theme.text.primary }}>
-              {t('settings.channels.dmCompactThreshold')}
+        <SettingItem
+          label={t('settings.channels.dmCompactThreshold')}
+          description={t('settings.channels.dmCompactThresholdDescription')}
+          control={
+            <div className="flex items-center gap-1">
+              <input
+                type="number"
+                min={1}
+                step={1}
+                value={dmCompactTokenThresholdK}
+                onChange={(e) => {
+                  const raw = parseInt(e.target.value, 10)
+                  if (!isNaN(raw) && raw > 0) {
+                    onConfigChange({ ...config, dmCompactTokenThresholdK: raw })
+                  }
+                }}
+                className="w-16 rounded-lg px-2 py-1 text-sm text-right outline-none"
+                style={inputStyle()}
+              />
+              <span className="text-sm" style={{ color: theme.text.secondary }}>
+                K
+              </span>
             </div>
-            <div className="text-sm leading-5" style={{ color: theme.text.tertiary }}>
-              {t('settings.channels.dmCompactThresholdDescription')}
-            </div>
-          </div>
-          <div className="flex shrink-0 items-center gap-1">
-            <input
-              type="number"
-              min={1}
-              step={1}
-              value={dmCompactTokenThresholdK}
-              onChange={(e) => {
-                const raw = parseInt(e.target.value, 10)
-                if (!isNaN(raw) && raw > 0) {
-                  onConfigChange({ ...config, dmCompactTokenThresholdK: raw })
-                }
-              }}
-              className="w-16 rounded-lg px-2 py-1 text-sm text-right outline-none"
-              style={inputStyle()}
-            />
-            <span className="text-sm" style={{ color: theme.text.secondary }}>
-              K
-            </span>
-          </div>
-        </SettingRow>
+          }
+        />
 
-        <SettingRow>
-          <div className="min-w-0 space-y-0.5">
-            <div className="text-sm font-medium" style={{ color: theme.text.primary }}>
-              {t('settings.channels.groupContextWindow')}
+        <SettingItem
+          label={t('settings.channels.groupContextWindow')}
+          description={t('settings.channels.groupContextWindowDescription')}
+          control={
+            <div className="flex items-center gap-1">
+              <input
+                type="number"
+                min={1}
+                step={1}
+                value={groupContextWindowK}
+                onChange={(e) => {
+                  const raw = parseInt(e.target.value, 10)
+                  if (!isNaN(raw) && raw > 0) {
+                    onConfigChange({ ...config, groupContextWindowK: raw })
+                  }
+                }}
+                className="w-16 rounded-lg px-2 py-1 text-sm text-right outline-none"
+                style={inputStyle()}
+              />
+              <span className="text-sm" style={{ color: theme.text.secondary }}>
+                K
+              </span>
             </div>
-            <div className="text-sm leading-5" style={{ color: theme.text.tertiary }}>
-              {t('settings.channels.groupContextWindowDescription')}
-            </div>
-          </div>
-          <div className="flex shrink-0 items-center gap-1">
-            <input
-              type="number"
-              min={1}
-              step={1}
-              value={groupContextWindowK}
-              onChange={(e) => {
-                const raw = parseInt(e.target.value, 10)
-                if (!isNaN(raw) && raw > 0) {
-                  onConfigChange({ ...config, groupContextWindowK: raw })
-                }
-              }}
-              className="w-16 rounded-lg px-2 py-1 text-sm text-right outline-none"
-              style={inputStyle()}
-            />
-            <span className="text-sm" style={{ color: theme.text.secondary }}>
-              K
-            </span>
-          </div>
-        </SettingRow>
+          }
+        />
       </SettingSection>
 
       <SettingSection>
@@ -940,34 +938,30 @@ export function ChannelsPane({
         </SettingRow>
 
         {modelSelector && (
-          <SettingRow>
-            <div className="min-w-0 space-y-0.5">
-              <div className="text-sm font-medium" style={{ color: theme.text.primary }}>
-                {t('settings.channels.rewriteModel')}
-              </div>
-              <div className="text-sm leading-5" style={{ color: theme.text.tertiary }}>
-                {t('settings.channels.rewriteModelDescription')}
-              </div>
-            </div>
-            <div className="shrink-0">
-              <ModelSelect
-                value={
-                  config.groupRewriteModel
-                    ? `${config.groupRewriteModel.providerName}::${config.groupRewriteModel.model}`
-                    : ''
-                }
-                providers={providers}
-                onChange={(val) => {
-                  if (!val) {
-                    onConfigChange({ ...config, groupRewriteModel: undefined })
-                  } else {
-                    const [providerName, model] = val.split('::')
-                    onConfigChange({ ...config, groupRewriteModel: { providerName, model } })
+          <SettingItem
+            label={t('settings.channels.rewriteModel')}
+            description={t('settings.channels.rewriteModelDescription')}
+            control={
+              <div>
+                <ModelSelect
+                  value={
+                    config.groupRewriteModel
+                      ? `${config.groupRewriteModel.providerName}::${config.groupRewriteModel.model}`
+                      : ''
                   }
-                }}
-              />
-            </div>
-          </SettingRow>
+                  providers={providers}
+                  onChange={(val) => {
+                    if (!val) {
+                      onConfigChange({ ...config, groupRewriteModel: undefined })
+                    } else {
+                      const [providerName, model] = val.split('::')
+                      onConfigChange({ ...config, groupRewriteModel: { providerName, model } })
+                    }
+                  }}
+                />
+              </div>
+            }
+          />
         )}
       </SettingSection>
 

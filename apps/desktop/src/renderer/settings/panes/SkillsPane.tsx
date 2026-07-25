@@ -4,7 +4,7 @@ import { theme, alpha } from '@renderer/theme/theme'
 import type { SettingsConfig, SkillCatalogEntry } from '@yachiyo/shared/protocol'
 import { normalizeSkillNames } from '@yachiyo/shared/protocol'
 import { useT } from '@yachiyo/i18n/react'
-import { SettingRow, SettingSection, SettingSwitch } from '../components/primitives'
+import { SettingItem, SettingSection, SettingSwitch } from '../components/primitives'
 import { filterSkills, sortSkills } from './skillsPaneModel'
 
 interface SkillsPaneProps {
@@ -97,16 +97,11 @@ export function SkillsPane({ availableSkills, draft, onChange }: SkillsPaneProps
           filteredSkills.map((skill) => {
             const enabled = isSkillEnabled(skill, enabledSkillNames, disabledSkillNames)
             return (
-              <SettingRow key={skill.name}>
-                <div className="min-w-0 space-y-0.5">
-                  <div className="text-sm font-medium" style={{ color: theme.text.primary }}>
-                    {skill.name}
-                  </div>
-                  <div className="text-sm leading-5" style={{ color: theme.text.tertiary }}>
-                    {skill.description ?? t('settings.skills.defaultDescription')}
-                  </div>
-                </div>
-                <div className="shrink-0">
+              <SettingItem
+                key={skill.name}
+                label={skill.name}
+                description={skill.description ?? t('settings.skills.defaultDescription')}
+                control={
                   <SettingSwitch
                     checked={enabled}
                     onChange={() => {
@@ -124,8 +119,8 @@ export function SkillsPane({ availableSkills, draft, onChange }: SkillsPaneProps
                     }}
                     ariaLabel={t('settings.skills.toggleSkillAria', { name: skill.name })}
                   />
-                </div>
-              </SettingRow>
+                }
+              />
             )
           })
         )}

@@ -7,8 +7,9 @@ import type { ActivitySourceRecord, SettingsConfig } from '@yachiyo/shared/proto
 import { theme } from '@renderer/theme/theme'
 import {
   ListPagination,
+  SettingBlock,
+  SettingItem,
   SettingLabel,
-  SettingRow,
   SettingSection,
   SettingSwitch,
   SimpleSelect
@@ -200,26 +201,18 @@ export function ActivityPane({ draft, onChange }: ActivityPaneProps): React.JSX.
           {t('settings.activity.activityTracking')}
         </SettingLabel>
 
-        <SettingRow>
-          <div className="min-w-0 space-y-0.5">
-            <div className="text-sm font-medium" style={{ color: theme.text.primary }}>
-              {t('settings.activity.mode')}
-            </div>
-            <div className="text-sm leading-5" style={{ color: theme.text.tertiary }}>
-              {activityTrackingMode === 'full'
-                ? t('settings.activity.modeFullDescription')
-                : activityTrackingMode === 'simple'
-                  ? t('settings.activity.modeSimpleDescription')
-                  : t('settings.activity.modeOffDescription')}
-            </div>
-            {activityTrackingWarning ? (
-              <div className="text-xs leading-4 mt-0.5" style={{ color: theme.text.dangerStrong }}>
-                {activityTrackingWarning}
-              </div>
-            ) : null}
-          </div>
-
-          <div className="shrink-0">
+        <SettingItem
+          label={t('settings.activity.mode')}
+          description={
+            activityTrackingMode === 'full'
+              ? t('settings.activity.modeFullDescription')
+              : activityTrackingMode === 'simple'
+                ? t('settings.activity.modeSimpleDescription')
+                : t('settings.activity.modeOffDescription')
+          }
+          hint={activityTrackingWarning}
+          hintTone="danger"
+          control={
             <SimpleSelect
               value={activityTrackingMode}
               options={[
@@ -228,157 +221,135 @@ export function ActivityPane({ draft, onChange }: ActivityPaneProps): React.JSX.
                 { value: 'full' as const, label: t('settings.activity.modeFull') }
               ]}
               onChange={(mode) => {
-                updateActivityTracking({
-                  ...(activityTracking ?? {}),
-                  mode,
-                  ocr: activityOcr
-                })
+                updateActivityTracking({ ...(activityTracking ?? {}), mode, ocr: activityOcr })
               }}
               width={130}
             />
+          }
+        />
+
+        <SettingItem
+          label={t('settings.activity.screenOcr')}
+          description={t('settings.activity.screenOcrDescription')}
+          hint={
+            !isMac
+              ? t('settings.activity.ocrMacOnly')
+              : activityTrackingMode === 'off'
+                ? t('settings.activity.ocrNeedsTracking')
+                : null
+          }
+          control={
+            <SettingSwitch
+              ariaLabel={t('settings.activity.enableScreenOcr')}
+              checked={activityOcr.enabled === true}
+              disabled={!isMac || activityTrackingMode === 'off'}
+              onChange={() => {
+                updateActivityOcr({ enabled: activityOcr.enabled !== true, excludedApps })
+              }}
+            />
+          }
+        />
+
+        <SettingBlock
+          label={t('settings.activity.excludedApps')}
+          description={t('settings.activity.excludedAppsDescription')}
+        >
+          {excludedApps.length > 0 ? (
+            <div className="flex flex-wrap gap-2">
+              {excludedApps.map((app) => (
+                <span
+                  key={app.toLocaleLowerCase()}
+                  className="inline-flex max-w-full items-center gap-1.5 rounded-full px-2.5 py-1 text-xs"
+                  style={{
+                    color: theme.text.secondary,
+                    background: theme.background.surfaceMuted,
+                    border: `1px solid ${theme.border.subtle}`
+                  }}
+                >
+                  <span className="truncate">{app}</span>
+                  <button
+                    type="button"
+                    className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full opacity-70 transition-opacity hover:opacity-100"
+                    style={{ color: theme.text.muted }}
+                    aria-label={t('settings.activity.removeFromExclusions', { app })}
+                    onClick={() => setExcludedApps(removeExcludedApp(excludedApps, app))}
+                  >
+                    <X size={11} />
+                  </button>
+                </span>
+              ))}
+            </div>
+          ) : (
+            <div className="text-xs" style={{ color: theme.text.muted }}>
+              {t('settings.activity.noExcludedApps')}
+            </div>
+          )}
+
+          <div className="flex gap-2">
+            <input
+              value={manualExcludedApp}
+              spellCheck={false}
+              placeholder={t('settings.activity.addAppPlaceholder')}
+              onChange={(event) => setManualExcludedApp(event.currentTarget.value)}
+              onKeyDown={(event) => {
+                if (event.key !== 'Enter') return
+                event.preventDefault()
+                addExcludedAppValue(manualExcludedApp)
+              }}
+              className="min-w-0 flex-1 text-sm outline-none"
+              style={{
+                color: theme.text.primary,
+                background: theme.background.surfaceMuted,
+                border: `1px solid ${theme.border.input}`,
+                borderRadius: 10,
+                padding: '8px 10px',
+                lineHeight: '20px'
+              }}
+            />
+            <button
+              type="button"
+              className="inline-flex shrink-0 items-center gap-1 rounded-lg px-3 text-sm font-medium disabled:opacity-40"
+              style={{
+                color: theme.text.primary,
+                background: theme.background.surfaceMuted,
+                border: `1px solid ${theme.border.input}`
+              }}
+              disabled={parseExcludedAppTokens(manualExcludedApp).length === 0}
+              onClick={() => addExcludedAppValue(manualExcludedApp)}
+            >
+              <Plus size={14} />
+              {t('common.add')}
+            </button>
           </div>
-        </SettingRow>
 
-        <SettingRow>
-          <div className="min-w-0 space-y-0.5">
-            <div className="text-sm font-medium" style={{ color: theme.text.primary }}>
-              {t('settings.activity.screenOcr')}
-            </div>
-            <div className="text-sm leading-5" style={{ color: theme.text.tertiary }}>
-              {t('settings.activity.screenOcrDescription')}
-            </div>
-            {!isMac ? (
-              <div className="text-xs leading-4 mt-0.5" style={{ color: theme.text.warning }}>
-                {t('settings.activity.ocrMacOnly')}
+          {recentAppOptions.length > 0 ? (
+            <div className="space-y-2">
+              <div className="text-xs font-medium" style={{ color: theme.text.muted }}>
+                {t('settings.activity.recentApps')}
               </div>
-            ) : activityTrackingMode === 'off' ? (
-              <div className="text-xs leading-4 mt-0.5" style={{ color: theme.text.warning }}>
-                {t('settings.activity.ocrNeedsTracking')}
-              </div>
-            ) : null}
-          </div>
-
-          <SettingSwitch
-            ariaLabel={t('settings.activity.enableScreenOcr')}
-            checked={activityOcr.enabled === true}
-            disabled={!isMac || activityTrackingMode === 'off'}
-            onChange={() => {
-              updateActivityOcr({
-                enabled: activityOcr.enabled !== true,
-                excludedApps
-              })
-            }}
-          />
-        </SettingRow>
-
-        <SettingRow>
-          <div className="min-w-0 flex-1 space-y-3">
-            <div className="space-y-0.5">
-              <div className="text-sm font-medium" style={{ color: theme.text.primary }}>
-                {t('settings.activity.excludedApps')}
-              </div>
-              <div className="text-sm leading-5" style={{ color: theme.text.tertiary }}>
-                {t('settings.activity.excludedAppsDescription')}
-              </div>
-            </div>
-
-            {excludedApps.length > 0 ? (
-              <div className="flex flex-wrap gap-2">
-                {excludedApps.map((app) => (
-                  <span
-                    key={app.toLocaleLowerCase()}
-                    className="inline-flex max-w-full items-center gap-1.5 rounded-full px-2.5 py-1 text-xs"
+              <div className="grid gap-2 sm:grid-cols-2">
+                {recentAppOptions.map((option) => (
+                  <button
+                    key={option.key}
+                    type="button"
+                    className="min-w-0 rounded-lg px-3 py-2 text-left transition-opacity hover:opacity-85"
                     style={{
-                      color: theme.text.secondary,
+                      color: theme.text.primary,
                       background: theme.background.surfaceMuted,
                       border: `1px solid ${theme.border.subtle}`
                     }}
+                    onClick={() => addExcludedAppValue(option.appName)}
                   >
-                    <span className="truncate">{app}</span>
-                    <button
-                      type="button"
-                      className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full opacity-70 transition-opacity hover:opacity-100"
-                      style={{ color: theme.text.muted }}
-                      aria-label={t('settings.activity.removeFromExclusions', { app })}
-                      onClick={() => setExcludedApps(removeExcludedApp(excludedApps, app))}
-                    >
-                      <X size={11} />
-                    </button>
-                  </span>
+                    <div className="truncate text-sm font-medium">{option.appName}</div>
+                    <div className="truncate text-xs" style={{ color: theme.text.muted }}>
+                      {option.bundleId}
+                    </div>
+                  </button>
                 ))}
               </div>
-            ) : (
-              <div className="text-xs" style={{ color: theme.text.muted }}>
-                {t('settings.activity.noExcludedApps')}
-              </div>
-            )}
-
-            <div className="flex gap-2">
-              <input
-                value={manualExcludedApp}
-                spellCheck={false}
-                placeholder={t('settings.activity.addAppPlaceholder')}
-                onChange={(event) => setManualExcludedApp(event.currentTarget.value)}
-                onKeyDown={(event) => {
-                  if (event.key !== 'Enter') return
-                  event.preventDefault()
-                  addExcludedAppValue(manualExcludedApp)
-                }}
-                className="min-w-0 flex-1 text-sm outline-none"
-                style={{
-                  color: theme.text.primary,
-                  background: theme.background.surfaceMuted,
-                  border: `1px solid ${theme.border.input}`,
-                  borderRadius: 10,
-                  padding: '8px 10px',
-                  lineHeight: '20px'
-                }}
-              />
-              <button
-                type="button"
-                className="inline-flex shrink-0 items-center gap-1 rounded-lg px-3 text-sm font-medium disabled:opacity-40"
-                style={{
-                  color: theme.text.primary,
-                  background: theme.background.surfaceMuted,
-                  border: `1px solid ${theme.border.input}`
-                }}
-                disabled={parseExcludedAppTokens(manualExcludedApp).length === 0}
-                onClick={() => addExcludedAppValue(manualExcludedApp)}
-              >
-                <Plus size={14} />
-                {t('common.add')}
-              </button>
             </div>
-
-            {recentAppOptions.length > 0 ? (
-              <div className="space-y-2">
-                <div className="text-xs font-medium" style={{ color: theme.text.muted }}>
-                  {t('settings.activity.recentApps')}
-                </div>
-                <div className="grid gap-2 sm:grid-cols-2">
-                  {recentAppOptions.map((option) => (
-                    <button
-                      key={option.key}
-                      type="button"
-                      className="min-w-0 rounded-lg px-3 py-2 text-left transition-opacity hover:opacity-85"
-                      style={{
-                        color: theme.text.primary,
-                        background: theme.background.surfaceMuted,
-                        border: `1px solid ${theme.border.subtle}`
-                      }}
-                      onClick={() => addExcludedAppValue(option.appName)}
-                    >
-                      <div className="truncate text-sm font-medium">{option.appName}</div>
-                      <div className="truncate text-xs" style={{ color: theme.text.muted }}>
-                        {option.bundleId}
-                      </div>
-                    </button>
-                  ))}
-                </div>
-              </div>
-            ) : null}
-          </div>
-        </SettingRow>
+          ) : null}
+        </SettingBlock>
       </SettingSection>
 
       <SettingSection>
@@ -399,22 +370,20 @@ export function ActivityPane({ draft, onChange }: ActivityPaneProps): React.JSX.
           {t('settings.activity.activitySource')}
         </SettingLabel>
 
-        <SettingRow>
-          <div className="min-w-0 space-y-0.5">
-            <div className="flex items-center gap-2 text-sm font-medium">
+        <SettingItem
+          label={
+            <span className="flex items-center gap-2">
               <LockKeyhole size={14} style={{ color: theme.icon.muted }} />
-              <span style={{ color: theme.text.primary }}>
-                {t('settings.activity.encryptedRecords')}
-              </span>
-            </div>
-            <div className="text-sm leading-5" style={{ color: theme.text.tertiary }}>
-              {t('settings.activity.encryptedRecordsDescription')}
-            </div>
-          </div>
-          <div className="shrink-0 text-sm" style={{ color: theme.text.muted }}>
-            {t('settings.activity.totalCount', { count: activityTotalCount })}
-          </div>
-        </SettingRow>
+              {t('settings.activity.encryptedRecords')}
+            </span>
+          }
+          description={t('settings.activity.encryptedRecordsDescription')}
+          control={
+            <span className="text-sm" style={{ color: theme.text.muted }}>
+              {t('settings.activity.totalCount', { count: activityTotalCount })}
+            </span>
+          }
+        />
 
         {loading ? (
           <div className="px-7 py-4 text-sm" style={{ color: theme.text.muted }}>
