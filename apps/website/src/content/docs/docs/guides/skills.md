@@ -143,6 +143,7 @@ detail into references.
 | Skill                      | What it covers                                                          |
 | -------------------------- | ----------------------------------------------------------------------- |
 | `yachiyo-help`             | The `yachiyo` CLI — every namespace, plus install troubleshooting.      |
+| `yachiyo-docs`             | These docs. Reads them live, so answers track the current release.      |
 | `yachiyo-code`             | Coding discipline reference; a hub that points at task-specific guides. |
 | `yachiyo-browser`          | Browser automation via the `useBrowser` tool.                           |
 | `yachiyo-kagete`           | Native macOS window automation — click, type, drag, screenshot any app. |

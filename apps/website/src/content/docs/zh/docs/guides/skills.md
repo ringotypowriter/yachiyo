@@ -115,6 +115,7 @@ Read [references/tone.md](references/tone.md) before writing the summaries.
 | 技能                       | 覆盖什么                                                 |
 | -------------------------- | -------------------------------------------------------- |
 | `yachiyo-help`             | `yachiyo` 命令行 —— 每个命名空间，外加安装问题排查。     |
+| `yachiyo-docs`             | 这份文档本身。实时读取，所以回答跟着当前版本走。         |
 | `yachiyo-code`             | 编码规范参考；一个指向各任务专用指南的枢纽。             |
 | `yachiyo-browser`          | 通过 `useBrowser` 工具做浏览器自动化。                   |
 | `yachiyo-kagete`           | macOS 原生窗口自动化 —— 点击、输入、拖拽、截图任意应用。 |
