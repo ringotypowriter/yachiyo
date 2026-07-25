@@ -3,15 +3,14 @@
 import type { ReactElement } from 'react'
 import { useEffect, useRef } from 'react'
 import { motion } from 'framer-motion'
+import type { FeatureId, LandingCopy } from '@/i18n/landing'
 
 const zeroPositions: { x: number; y: number }[] = []
 const zeroVelocities: { x: number; y: number }[] = []
 
-const features = [
+const featureLayout = [
   {
-    title: 'Reply Branching',
-    description:
-      'Conversations form a tree. Explore different tones without losing the other paths.',
+    id: 'branching',
     emoji: '🌿',
     x: '4%',
     y: 0,
@@ -19,8 +18,7 @@ const features = [
     duration: 14
   },
   {
-    title: 'Skills are just Markdown',
-    description: 'Drop a SKILL.md into your workspace. No runtime. No API surface. It just works.',
+    id: 'skills',
     emoji: '📝',
     x: '52%',
     y: 30,
@@ -28,8 +26,7 @@ const features = [
     duration: 16
   },
   {
-    title: 'Multi-Provider Runtime',
-    description: 'Claude today, Gemini tomorrow, your own model next week. Switch per-message.',
+    id: 'providers',
     emoji: '⚡️',
     x: '22%',
     y: 140,
@@ -37,9 +34,7 @@ const features = [
     duration: 18
   },
   {
-    title: 'Channel Multiplexing',
-    description:
-      'One local instance for Telegram, Discord, and QQ — shared context, shared memory.',
+    id: 'channels',
     emoji: '🌐',
     x: '62%',
     y: 200,
@@ -47,8 +42,7 @@ const features = [
     duration: 15
   },
   {
-    title: 'Scheduled Runs',
-    description: 'Set one-off or cron tasks, then let Yachiyo run them while you focus elsewhere.',
+    id: 'schedules',
     emoji: '⏰',
     x: '6%',
     y: 300,
@@ -56,9 +50,7 @@ const features = [
     duration: 17
   },
   {
-    title: 'Coding Agent Dispatch',
-    description:
-      'Delegate to Claude Code or Codex through ACP, then bring it back into the thread.',
+    id: 'coding',
     emoji: '👾',
     x: '48%',
     y: 380,
@@ -66,8 +58,7 @@ const features = [
     duration: 19
   },
   {
-    title: 'Local-First Storage',
-    description: 'Everything stays in SQLite under ~/.yachiyo/. No cloud. No telemetry.',
+    id: 'storage',
     emoji: '💾',
     x: '18%',
     y: 480,
@@ -75,17 +66,23 @@ const features = [
     duration: 16
   },
   {
-    title: 'Browser-Backed Research',
-    description: 'Search live sessions, read pages into Markdown, and keep what matters.',
+    id: 'research',
     emoji: '🔍',
     x: '56%',
     y: 540,
     drift: { x: [0, -8, 0], y: [0, -12, 0] },
     duration: 18
   }
-]
+] satisfies {
+  id: FeatureId
+  emoji: string
+  x: string
+  y: number
+  drift: { x: number[]; y: number[] }
+  duration: number
+}[]
 
-for (let i = 0; i < features.length; i++) {
+for (let i = 0; i < featureLayout.length; i++) {
   zeroPositions.push({ x: 0, y: 0 })
   zeroVelocities.push({ x: 0, y: 0 })
 }
@@ -171,7 +168,7 @@ function NoteCard({
   )
 }
 
-export function Features(): ReactElement {
+export function Features({ copy }: { copy: LandingCopy }): ReactElement {
   const containerRef = useRef<HTMLDivElement>(null)
   const notesRef = useRef<(HTMLDivElement | null)[]>([])
   const positionsRef = useRef<{ x: number; y: number }[]>(zeroPositions)
@@ -191,7 +188,7 @@ export function Features(): ReactElement {
     const onResize = (): void => {
       if (containerRef.current) {
         containerWidthRef.current = containerRef.current.clientWidth
-        for (let i = 0; i < features.length; i++) {
+        for (let i = 0; i < featureLayout.length; i++) {
           positionsRef.current[i] = { x: 0, y: 0 }
           velocitiesRef.current[i] = { x: 0, y: 0 }
           const el = notesRef.current[i]
@@ -248,13 +245,13 @@ export function Features(): ReactElement {
       const springStrength = 0.02
       const damping = 0.88
 
-      const homes = features.map((f) => ({
+      const homes = featureLayout.map((f) => ({
         x: cw * (parseFloat(f.x) / 100),
         y: f.y
       }))
 
-      for (let i = 0; i < features.length; i++) {
-        for (let j = i + 1; j < features.length; j++) {
+      for (let i = 0; i < featureLayout.length; i++) {
+        for (let j = i + 1; j < featureLayout.length; j++) {
           const xi = homes[i].x + positionsRef.current[i].x
           const yi = homes[i].y + positionsRef.current[i].y
           const xj = homes[j].x + positionsRef.current[j].x
@@ -274,7 +271,7 @@ export function Features(): ReactElement {
         }
       }
 
-      for (let i = 0; i < features.length; i++) {
+      for (let i = 0; i < featureLayout.length; i++) {
         if (draggingRef.current === i) {
           velocitiesRef.current[i] = { x: 0, y: 0 }
           continue
@@ -317,18 +314,18 @@ export function Features(): ReactElement {
           className="mb-8 text-center"
         >
           <h2 className="text-3xl sm:text-4xl font-display font-medium text-ink mb-3">
-            What Yachiyo can do
+            {copy.features.heading}
           </h2>
-          <p className="text-base text-ink/50">
-            The whole feature set fits on a handful of notes. Drag them around.
-          </p>
+          <p className="text-base text-ink/50">{copy.features.subheading}</p>
         </motion.div>
 
         <div className="relative h-187.5">
-          {features.map((feature, index) => (
+          {featureLayout.map((feature, index) => (
             <NoteCard
-              key={feature.title}
+              key={feature.id}
               {...feature}
+              title={copy.features.items[feature.id].title}
+              description={copy.features.items[feature.id].description}
               index={index}
               cardRef={(el: HTMLDivElement | null): void => {
                 notesRef.current[index] = el

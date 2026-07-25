@@ -1,0 +1,25 @@
+---
+/**
+ * Every landing page comes from this one route.
+ *
+ * Astro's i18n is already configured for this project — Starlight derives it
+ * from its own `locales` block and pushes it in via `updateConfig({ i18n })`.
+ * So there is deliberately no second `i18n` block in astro.config.mjs; adding
+ * one would fight Starlight's. `Astro.currentLocale` works as a result.
+ *
+ * An undefined `locale` param renders the default locale at `/`, `zh`
+ * renders `/zh/`. Starlight's injected `/docs/*` routes are more specific
+ * than this rest parameter, so they keep winning.
+ */
+import Landing from '@/layouts/Landing.astro'
+import { landingRoutes } from '@/i18n/landing'
+
+// The route table itself is typed in `@/i18n/landing`. Inline TS return-type
+// annotations on `getStaticPaths` fail to parse in .astro frontmatter, so the
+// annotation lives on `landingRoutes()` instead.
+export const getStaticPaths = landingRoutes
+
+const { locale } = Astro.props
+---
+
+<Landing locale={locale} />

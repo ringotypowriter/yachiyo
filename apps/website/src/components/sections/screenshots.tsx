@@ -2,31 +2,16 @@
 
 import { motion } from 'framer-motion'
 import type { ReactElement } from 'react'
+import type { LandingCopy, ShotId } from '@/i18n/landing'
 
 const shots = [
-  {
-    src: '/screenshots/reply-branching.jpg',
-    alt: 'Reply branching',
-    label: 'Reply Branching'
-  },
-  {
-    src: '/screenshots/providers.jpg',
-    alt: 'Provider configuration',
-    label: 'Providers'
-  },
-  {
-    src: '/screenshots/schedules.jpg',
-    alt: 'Scheduled runs',
-    label: 'Schedules'
-  },
-  {
-    src: '/screenshots/app-home.jpg',
-    alt: 'Essentials view',
-    label: 'Essentials'
-  }
-]
+  { id: 'branching', src: '/screenshots/reply-branching.jpg' },
+  { id: 'providers', src: '/screenshots/providers.jpg' },
+  { id: 'schedules', src: '/screenshots/schedules.jpg' },
+  { id: 'essentials', src: '/screenshots/app-home.jpg' }
+] satisfies { id: ShotId; src: string }[]
 
-export function Screenshots(): ReactElement {
+export function Screenshots({ copy }: { copy: LandingCopy }): ReactElement {
   return (
     <section className="relative w-full py-32 px-6 bg-white">
       <div className="max-w-5xl mx-auto">
@@ -38,17 +23,15 @@ export function Screenshots(): ReactElement {
           className="mb-16"
         >
           <h2 className="text-3xl sm:text-4xl font-display font-medium text-ink mb-3">
-            See Yachiyo in action
+            {copy.screenshots.heading}
           </h2>
-          <p className="text-base text-ink/50">
-            A quiet workspace built around threads, runs, and streaming messages.
-          </p>
+          <p className="text-base text-ink/50">{copy.screenshots.subheading}</p>
         </motion.div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
           {shots.map((shot, index) => (
             <motion.div
-              key={shot.label}
+              key={shot.id}
               initial={{ opacity: 0, y: 12 }}
               whileInView={{ opacity: 1, y: 0 }}
               viewport={{ once: true, margin: '-50px' }}
@@ -60,7 +43,7 @@ export function Screenshots(): ReactElement {
               >
                 <img
                   src={shot.src}
-                  alt={shot.alt}
+                  alt={copy.screenshots.labels[shot.id].alt}
                   width={1400}
                   height={908}
                   loading={index < 2 ? 'eager' : 'lazy'}
@@ -68,7 +51,7 @@ export function Screenshots(): ReactElement {
                   className="absolute inset-0 w-full h-full object-cover"
                 />
               </div>
-              <p className="mt-4 text-sm text-ink/40">{shot.label}</p>
+              <p className="mt-4 text-sm text-ink/40">{copy.screenshots.labels[shot.id].label}</p>
             </motion.div>
           ))}
         </div>

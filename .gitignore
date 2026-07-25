@@ -13,7 +13,9 @@ __pycache__/
 .vscode/
 .claude/settings.local.json
 other_resources/
-docs/
+# Internal design notes at the repo root only. Anchored so it does not swallow
+# the public docs content under apps/website/src/content/docs/.
+/docs/
 native/*/.build/
 
 *.p12

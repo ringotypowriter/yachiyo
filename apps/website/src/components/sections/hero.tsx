@@ -5,8 +5,10 @@ import { motion } from 'framer-motion'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Download, Github } from 'lucide-react'
+import type { LandingCopy } from '@/i18n/landing'
 
-export function Hero(): ReactElement {
+export function Hero({ copy }: { copy: LandingCopy }): ReactElement {
+  const t = copy.hero
   return (
     <section className="relative w-full min-h-screen flex items-center justify-center px-6 py-24 bg-white">
       <div className="relative z-10 max-w-4xl mx-auto text-center">
@@ -29,7 +31,7 @@ export function Hero(): ReactElement {
           transition={{ duration: 0.5, delay: 0.1 }}
         >
           <Badge variant="default" className="mb-6">
-            Open source · macOS · Skills-only
+            {t.badge}
           </Badge>
         </motion.div>
 
@@ -48,7 +50,7 @@ export function Hero(): ReactElement {
           transition={{ duration: 0.6, delay: 0.2 }}
           className="text-lg sm:text-xl md:text-2xl text-mizu-600 mb-6 font-medium"
         >
-          your cyber-assistant
+          {t.tagline}
         </motion.p>
 
         <motion.p
@@ -57,7 +59,7 @@ export function Hero(): ReactElement {
           transition={{ duration: 0.6, delay: 0.25 }}
           className="text-base sm:text-lg text-ink/55 max-w-lg mx-auto mb-10 leading-relaxed"
         >
-          Only what&apos;s necessary for a cyber-assistant that lives in your computer.
+          {t.blurb}
         </motion.p>
 
         <motion.div
@@ -73,7 +75,7 @@ export function Hero(): ReactElement {
               rel="noopener noreferrer"
             >
               <Download className="w-4 h-4 mr-2" />
-              Download for macOS
+              {t.download}
             </a>
           </Button>
           <Button variant="outline" size="lg" className="w-full sm:w-auto text-base" asChild>
@@ -83,7 +85,7 @@ export function Hero(): ReactElement {
               rel="noopener noreferrer"
             >
               <Github className="w-4 h-4 mr-2" />
-              View on GitHub
+              {t.viewSource}
             </a>
           </Button>
         </motion.div>
@@ -94,7 +96,7 @@ export function Hero(): ReactElement {
           transition={{ duration: 0.6, delay: 0.4 }}
           className="mt-5 text-sm text-ink/35"
         >
-          Apache-2.0 licensed
+          {t.license}
         </motion.p>
       </div>
     </section>

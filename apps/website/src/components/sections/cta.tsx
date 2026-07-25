@@ -4,8 +4,10 @@ import type { ReactElement } from 'react'
 import { motion } from 'framer-motion'
 import { Button } from '@/components/ui/button'
 import { Download } from 'lucide-react'
+import type { LandingCopy, Locale } from '@/i18n/landing'
+import { docsHref } from '@/i18n/landing'
 
-export function CTA(): ReactElement {
+export function CTA({ copy, locale }: { copy: LandingCopy; locale: Locale }): ReactElement {
   return (
     <section className="relative w-full py-32 px-6 bg-mizu-50/30">
       <div className="max-w-2xl mx-auto text-center">
@@ -16,11 +18,9 @@ export function CTA(): ReactElement {
           transition={{ duration: 0.6 }}
         >
           <h2 className="text-3xl sm:text-4xl font-display font-medium text-ink mb-4">
-            Let her into your computer
+            {copy.cta.heading}
           </h2>
-          <p className="text-base text-ink/50 mb-10">
-            Download the app, add a provider key, and start your first thread in minutes.
-          </p>
+          <p className="text-base text-ink/50 mb-10">{copy.cta.blurb}</p>
           <Button size="lg" asChild>
             <a
               href="https://github.com/ringotypowriter/yachiyo/releases"
@@ -28,10 +28,15 @@ export function CTA(): ReactElement {
               rel="noopener noreferrer"
             >
               <Download className="w-4 h-4 mr-2" />
-              Download for macOS
+              {copy.cta.download}
             </a>
           </Button>
-          <p className="mt-5 text-sm text-ink/40">Free · Open source · Apache-2.0</p>
+          <p className="mt-5 text-sm text-ink/40">
+            {copy.cta.meta}
+            <a href={docsHref(locale)} className="text-mizu-600 hover:underline">
+              {copy.cta.docsLink}
+            </a>
+          </p>
         </motion.div>
       </div>
     </section>

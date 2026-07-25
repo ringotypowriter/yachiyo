@@ -2,8 +2,10 @@
 
 import type { ReactElement } from 'react'
 import { Github } from 'lucide-react'
+import type { LandingCopy, Locale } from '@/i18n/landing'
+import { docsHref } from '@/i18n/landing'
 
-export function Footer(): ReactElement {
+export function Footer({ copy, locale }: { copy: LandingCopy; locale: Locale }): ReactElement {
   const currentYear = new Date().getFullYear()
 
   return (
@@ -15,6 +17,9 @@ export function Footer(): ReactElement {
         </div>
 
         <div className="flex items-center gap-6 text-sm text-ink/55">
+          <a href={docsHref(locale)} className="hover:text-mizu-600 transition-colors">
+            {copy.footer.docs}
+          </a>
           <a
             href="https://github.com/ringotypowriter/yachiyo"
             target="_blank"
@@ -30,14 +35,14 @@ export function Footer(): ReactElement {
             rel="noopener noreferrer"
             className="hover:text-mizu-600 transition-colors"
           >
-            Releases
+            {copy.footer.releases}
           </a>
         </div>
 
         <p className="text-xs text-ink/40 text-center md:text-right">
           © {currentYear} Ringo. Code licensed under Apache-2.0.
           <br />
-          Name, logo, and branding assets remain all rights reserved.
+          {copy.footer.rights}
         </p>
       </div>
     </footer>

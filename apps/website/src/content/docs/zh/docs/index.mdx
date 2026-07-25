@@ -1,0 +1,66 @@
+---
+title: 八千代文档
+description: 安装、配置并与八千代共处 —— 一个跑在你自己机器上的本地优先赛博助手。
+---
+
+import { Card, CardGrid, LinkCard } from '@astrojs/starlight/components'
+
+八千代是一个桌面助手：跑在你的机器上，数据存在你的文件系统里，接哪家模型供应商由你决定。没有托管后端，没有插件市场，也没有需要配置的 MCP 层 —— 技能就是普通的 Markdown 文件，其余的一切都装在 `~/.yachiyo` 下的两个 TOML 文件里。
+
+这份文档覆盖桌面应用、`yachiyo` 命令行，以及它们背后的配置文件。
+
+:::tip[先开口问，再翻文档]
+八千代能配置它自己。它自带一个记录了自身命令行与安装流程的技能，也有你机器的 shell 权限 —— 所以「开机时自动启动你自己」「每天早上 8 点给我做一份摘要」「这些模型里我该开哪几个」都是完整的指令，不是需要先查资料的事。
+
+把这些页面当作出问题时、想了解细节时、或者需要写进脚本时的参考。
+:::
+
+## 上手
+
+<CardGrid>
+  <LinkCard
+    title="安装"
+    href="/zh/docs/install/"
+    description="下载应用、首次启动，并把命令行接进 PATH。"
+  />
+  <LinkCard
+    title="快速上手"
+    href="/zh/docs/quickstart/"
+    description="大约五分钟：接上供应商，发出第一条消息。"
+  />
+  <LinkCard
+    title="核心概念"
+    href="/zh/docs/concepts/"
+    description="线程、运行、工作区、技能、记忆、频道 —— 全部术语。"
+  />
+  <LinkCard
+    title="命令行参考"
+    href="/zh/docs/cli/"
+    description="在终端里管理供应商、线程、定时任务和频道。"
+  />
+</CardGrid>
+
+## 它能做什么
+
+<CardGrid>
+  <Card title="是智能体，不只是聊天">
+    八千代会搜索网页、读写文件、执行 shell
+    命令、调取记忆，并在一个真实的工作区目录里干活。它改过的每个文件都有快照，事后你可以直接看
+    diff。
+  </Card>
+  <Card title="任意供应商">
+    Anthropic、OpenAI、Gemini、Vertex AI，或者某个网关 ——
+    全在本地配置，而且可以逐条消息切换。选模型不是一个锁死的决定。
+  </Card>
+  <Card title="技能就是 Markdown">
+    一个技能就是一个装着 `SKILL.md`
+    的目录。没有运行时，没有清单文件，没有注册步骤。丢进工作区，八千代自己会找到。
+  </Card>
+  <Card title="一个实例，多个入口">
+    同一个本地实例同时服务 Telegram、Discord 和 QQ，共享上下文，带按用户的访问控制和用量限额。
+  </Card>
+</CardGrid>
+
+## 东西都放在哪
+
+八千代持久化的一切都在 `~/.yachiyo` 下 —— 设置、人格文档、技能，以及一个装着全部线程的 SQLite 数据库。没有任何东西会被上传到你没配置过的地方。完整目录见[文件与路径](/zh/docs/reference/paths/)。

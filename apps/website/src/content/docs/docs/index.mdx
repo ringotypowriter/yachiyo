@@ -1,0 +1,79 @@
+---
+title: Yachiyo Documentation
+description: How to install, configure, and live with Yachiyo — a local-first cyber-assistant that runs on your own machine.
+---
+
+import { Card, CardGrid, LinkCard } from '@astrojs/starlight/components'
+
+Yachiyo is a desktop assistant that runs on your machine, keeps its data in your
+filesystem, and talks to whichever model provider you point it at. There is no
+hosted backend, no plugin marketplace, and no MCP layer to configure — skills
+are plain Markdown files, and everything else lives in two TOML files under
+`~/.yachiyo`.
+
+These docs cover the desktop app, the `yachiyo` CLI, and the configuration files
+behind both.
+
+:::tip[Try asking before reading]
+Yachiyo can configure itself. It ships with a skill documenting its own CLI and
+setup procedures, and it has shell access to your machine — so "start yourself
+when I log in", "set up a daily digest at 8am", or "which of these models should
+I enable?" are complete instructions, not things you look up first.
+
+Treat these pages as the reference for when something breaks, when you want the
+detail, or when you need it in a script.
+:::
+
+## Get going
+
+<CardGrid>
+  <LinkCard
+    title="Install"
+    href="/docs/install/"
+    description="Download the app, launch it, and get the CLI on your PATH."
+  />
+  <LinkCard
+    title="Quickstart"
+    href="/docs/quickstart/"
+    description="Connect a provider and send your first message in about five minutes."
+  />
+  <LinkCard
+    title="Core concepts"
+    href="/docs/concepts/"
+    description="Threads, runs, workspaces, skills, memory, channels — the vocabulary."
+  />
+  <LinkCard
+    title="CLI reference"
+    href="/docs/cli/"
+    description="Drive providers, threads, schedules, and channels from a terminal."
+  />
+</CardGrid>
+
+## What it does
+
+<CardGrid>
+  <Card title="Agentic, not just chat">
+    Yachiyo searches the web, reads and edits files, runs shell commands, recalls memory, and works
+    inside a real workspace directory. Every file it touches is snapshotted so you can diff a run
+    afterwards.
+  </Card>
+  <Card title="Any provider">
+    Anthropic, OpenAI, Gemini, Vertex AI, or a gateway — configured locally, and switchable per
+    message. Model choice is not a lock-in decision.
+  </Card>
+  <Card title="Skills are Markdown">
+    A skill is a directory with a `SKILL.md` in it. No runtime, no manifest, no registration step.
+    Drop it in a workspace and Yachiyo finds it.
+  </Card>
+  <Card title="One instance, many surfaces">
+    The same local instance serves Telegram, Discord, and QQ with shared context, per-user access
+    control, and usage limits.
+  </Card>
+</CardGrid>
+
+## Where things live
+
+Everything Yachiyo persists sits under `~/.yachiyo` — settings, persona
+documents, skills, and a SQLite database of every thread. Nothing is uploaded
+anywhere you did not configure. See [Files and paths](/docs/reference/paths/)
+for the full layout.

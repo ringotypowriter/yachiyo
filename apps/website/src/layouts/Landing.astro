@@ -1,0 +1,80 @@
+---
+import '@/styles/global.css'
+import { Nav } from '@/components/sections/nav'
+import { Hero } from '@/components/sections/hero'
+import { Features } from '@/components/sections/features'
+import { Philosophy } from '@/components/sections/philosophy'
+import { Screenshots } from '@/components/sections/screenshots'
+import { CTA } from '@/components/sections/cta'
+import { Footer } from '@/components/sections/footer'
+import { LANG_KEY, getLandingCopy, homeHref, otherLocale, type Locale } from '@/i18n/landing'
+
+interface Props {
+  locale: Locale
+}
+
+const { locale } = Astro.props
+const copy = getLandingCopy(locale)
+const htmlLang = locale === 'en' ? 'en' : 'zh-CN'
+const other = otherLocale(locale)
+const alternate = homeHref(other)
+const alternateLang = other === 'en' ? 'en' : 'zh-CN'
+
+/*
+ * Send zh-preferring browsers landing on `/` to `/zh/`.
+ *
+ * Deliberately client-side. A server redirect keyed on Accept-Language gets
+ * cached by the browser, and a cached language redirect is a trap: the other
+ * language becomes unreachable. `location.replace` leaves no history entry
+ * and nothing to cache.
+ *
+ * Only `/` redirects, so deep links are always honoured. `LANG_KEY` is written
+ * by the language switcher and permanently disables detection once the visitor
+ * has chosen — an explicit choice must outrank a guess.
+ *
+ * Inlined in <head> so it runs before first paint: no flash of English.
+ */
+const langDetect = `(function () {
+  try {
+    if (location.pathname !== '/') return
+    if (localStorage.getItem('${LANG_KEY}')) return
+    var tags = navigator.languages || [navigator.language || '']
+    for (var i = 0; i < tags.length; i++) {
+      var tag = String(tags[i]).toLowerCase()
+      if (tag === 'zh' || tag.indexOf('zh-') === 0) { location.replace('${homeHref('zh')}'); return }
+      if (tag === 'en' || tag.indexOf('en-') === 0) return
+    }
+  } catch (e) {}
+})()`
+---
+
+<!doctype html>
+<html lang={htmlLang}>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content={copy.meta.description} />
+    <meta name="theme-color" content="#4bafc9" />
+    <link rel="icon" type="image/png" href="/icon.png" />
+    <link rel="alternate" hreflang={alternateLang} href={alternate} />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <title>{copy.meta.title}</title>
+    {locale === 'en' && <script is:inline set:html={langDetect} />}
+  </head>
+  <body>
+    <Nav copy={copy} locale={locale} client:load />
+    <main class="relative">
+      <Hero copy={copy} client:load />
+      <Features copy={copy} client:load />
+      <Philosophy copy={copy} client:visible />
+      <Screenshots copy={copy} client:load />
+      <CTA copy={copy} locale={locale} client:load />
+      <Footer copy={copy} locale={locale} client:load />
+    </main>
+  </body>
+</html>

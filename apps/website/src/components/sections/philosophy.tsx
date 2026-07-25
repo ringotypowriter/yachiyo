@@ -3,29 +3,9 @@
 import type { ReactElement } from 'react'
 import { motion, useInView } from 'framer-motion'
 import { useRef } from 'react'
+import type { LandingCopy, ValueId } from '@/i18n/landing'
 
-const values = [
-  {
-    title: 'Yours, not a platform',
-    description:
-      'Most AI clients want to become ecosystems. Yachiyo respects your privacy and gets out of your way.'
-  },
-  {
-    title: 'No MCP. No marketplace.',
-    description:
-      'A skill is one Markdown file you can read, edit, and delete. That is the entire extension surface.'
-  },
-  {
-    title: 'No telemetry',
-    description:
-      'Your data never leaves your machine unless you send it. Local SQLite, local memory, local soul.'
-  },
-  {
-    title: 'A living persona',
-    description:
-      'SOUL.md and USER.md shape every interaction. She remembers, adapts, and grows alongside you.'
-  }
-]
+const VALUE_IDS: ValueId[] = ['yours', 'no-mcp', 'no-telemetry', 'persona']
 
 function InkBloomItem({
   title,
@@ -93,7 +73,7 @@ function InkBloomItem({
   )
 }
 
-export function Philosophy(): ReactElement {
+export function Philosophy({ copy }: { copy: LandingCopy }): ReactElement {
   const containerRef = useRef<HTMLDivElement>(null)
   const isVisible = useInView(containerRef, { once: true, amount: 0.4 })
 
@@ -112,14 +92,19 @@ export function Philosophy(): ReactElement {
             className="mb-10"
           >
             <h2 className="text-3xl sm:text-4xl font-display font-medium text-ink mb-3">
-              Why Yachiyo?
+              {copy.philosophy.heading}
             </h2>
-            <p className="text-base text-ink/50">Because your assistant should be yours.</p>
+            <p className="text-base text-ink/50">{copy.philosophy.subheading}</p>
           </motion.div>
 
           <div>
-            {values.map((value, index) => (
-              <InkBloomItem key={value.title} {...value} index={index} isVisible={isVisible} />
+            {VALUE_IDS.map((id, index) => (
+              <InkBloomItem
+                key={id}
+                {...copy.philosophy.items[id]}
+                index={index}
+                isVisible={isVisible}
+              />
             ))}
           </div>
 

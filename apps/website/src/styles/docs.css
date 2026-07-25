@@ -1,0 +1,67 @@
+/*
+ * Starlight theme overrides for the Yachiyo docs.
+ *
+ * Only tokens are redefined here — no component surgery. Accent and neutrals
+ * both sit on hue 207 — azure, bracketed between the mizu cyan that read too
+ * green and a true blue that read too cold. Inter for body copy, Iowan display
+ * serif for page titles.
+ *
+ * To retune, move the hue and re-check the light accent against white: link
+ * text needs 4.5:1 and hue 207 only has ~0.2 of headroom at 42% lightness.
+ */
+
+:root {
+  /* Dark mode is Starlight's default token set. */
+  --sl-color-accent-low: hsl(207, 62%, 21%);
+  --sl-color-accent: hsl(207, 95%, 66%);
+  --sl-color-accent-high: hsl(207, 95%, 85%);
+
+  --sl-color-white: hsl(0, 0%, 100%);
+  --sl-color-gray-1: hsl(207, 18%, 94%);
+  --sl-color-gray-2: hsl(207, 8%, 77%);
+  --sl-color-gray-3: hsl(207, 7%, 56%);
+  --sl-color-gray-4: hsl(207, 8%, 36%);
+  --sl-color-gray-5: hsl(207, 11%, 22%);
+  --sl-color-gray-6: hsl(207, 15%, 15%);
+  --sl-color-black: hsl(207, 12%, 10%);
+
+  --sl-font: 'Inter', 'Avenir Next', 'Helvetica Neue', system-ui, sans-serif;
+  --yachiyo-font-display: 'Iowan Old Style', 'Palatino Linotype', 'Book Antiqua', serif;
+}
+
+:root[data-theme='light'] {
+  /* Link text on white is the binding constraint. 4.73:1 at 42% lightness. */
+  --sl-color-accent-high: hsl(209, 90%, 28%);
+  --sl-color-accent: hsl(207, 92%, 42%);
+  --sl-color-accent-low: hsl(207, 92%, 93%);
+
+  --sl-color-white: hsl(207, 12%, 10%);
+  --sl-color-gray-1: hsl(207, 15%, 15%);
+  --sl-color-gray-2: hsl(207, 11%, 22%);
+  --sl-color-gray-3: hsl(207, 8%, 36%);
+  --sl-color-gray-4: hsl(207, 7%, 56%);
+  --sl-color-gray-5: hsl(207, 8%, 77%);
+  --sl-color-gray-6: hsl(207, 18%, 94%);
+  --sl-color-gray-7: hsl(207, 22%, 97%);
+  --sl-color-black: hsl(0, 0%, 100%);
+}
+
+/* Brand echo from the landing page: display serif on the page title only. */
+.content-panel h1#_top,
+.site-title {
+  font-family: var(--yachiyo-font-display);
+  font-weight: 500;
+  letter-spacing: -0.01em;
+}
+
+/* Tables in the reference pages carry most of the payload — let them breathe
+   and scroll on their own instead of stretching the prose column. */
+.sl-markdown-content table {
+  display: block;
+  overflow-x: auto;
+  font-size: var(--sl-text-sm);
+}
+
+.sl-markdown-content th {
+  white-space: nowrap;
+}
