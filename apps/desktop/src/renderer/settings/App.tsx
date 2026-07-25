@@ -71,6 +71,7 @@ import {
   serializeSettingsRoute,
   type SettingsPanelId
 } from './settingsNavigation'
+import { getDirtySettingsPanels, panelSupportsDrafts } from './settingsDirtyPanels'
 
 type Translate = ReturnType<typeof useT>
 
@@ -150,16 +151,19 @@ export interface SettingsPanelSlots {
   content: ReactNode
   contentSubControls?: ReactNode
   contentTopControls: ReactNode
+  dirtyPanels: ReadonlySet<SettingsPanelId>
 }
 
 export interface SettingsSidebarControlsProps {
   route: string
   onRouteChange: (route: string) => void
+  dirtyPanels?: ReadonlySet<SettingsPanelId>
 }
 
 export function SettingsSidebarContent({
   route,
-  onRouteChange
+  onRouteChange,
+  dirtyPanels
 }: SettingsSidebarControlsProps): React.JSX.Element {
   const t = useT()
   const activePanel = resolveSettingsRoute(route).panel
@@ -197,6 +201,18 @@ export function SettingsSidebarContent({
               style={{ opacity: isActive ? 1 : 0.58, flexShrink: 0 }}
             />
             <span className="truncate">{label}</span>
+            {dirtyPanels?.has(id) ? (
+              <span
+                aria-label={t('settings.shared.panelUnsavedAria')}
+                title={t('settings.shared.statusUnsaved')}
+                className="ml-auto shrink-0 rounded-full"
+                style={{
+                  width: 6,
+                  height: 6,
+                  background: isActive ? theme.text.counter : theme.text.accent
+                }}
+              />
+            ) : null}
           </button>
         )
       })}
@@ -243,6 +259,7 @@ function SettingsPanel({
   const previousActivePanelRef = useRef<SettingsPanelId | null>(null)
   const t = useT()
   const dialog = useAppDialog()
+  const isMacPlatform = window.api.process.platform === 'darwin'
   useApplyThemeConfig(active ? (draft ?? savedConfig) : savedConfig, false)
   useApplyLanguageConfig(active ? (draft ?? savedConfig) : savedConfig)
 
@@ -489,6 +506,26 @@ function SettingsPanel({
     isSoulDocumentDirty ||
     isChannelUsersDirty ||
     isChannelGroupsDirty
+  const dirtyPanels = useMemo(
+    () =>
+      getDirtySettingsPanels({
+        savedConfig,
+        draftConfig: draft,
+        isChannelsDirty: isChannelsDirty || isChannelUsersDirty || isChannelGroupsDirty,
+        isUserDocumentDirty,
+        isSoulDocumentDirty
+      }),
+    [
+      savedConfig,
+      draft,
+      isChannelsDirty,
+      isChannelUsersDirty,
+      isChannelGroupsDirty,
+      isUserDocumentDirty,
+      isSoulDocumentDirty
+    ]
+  )
+  const showsDraftControls = panelSupportsDrafts(activePanel)
   const activeValidationError = isSettingsDirty ? validationError : null
   const channelProviders =
     activeValidationError && savedConfig ? savedConfig.providers : (draft?.providers ?? [])
@@ -856,6 +893,7 @@ function SettingsPanel({
 
   return children({
     content: body,
+    dirtyPanels,
     contentSubControls: activeSettingsPanel.tabs ? (
       <div className="no-drag flex min-w-0 items-center gap-1 overflow-x-auto px-4 py-2">
         {activeSettingsPanel.tabs.map((tab) => {
@@ -889,54 +927,57 @@ function SettingsPanel({
           </div>
         </div>
 
-        <div className="no-drag flex shrink-0 items-center gap-2">
-          <span className="max-w-[320px] truncate text-xs" style={{ color: statusColor }}>
-            {statusText}
-          </span>
-          <button
-            onClick={() => void handleDiscardChanges()}
-            disabled={!isDirty || saving || loading}
-            className="rounded-full px-3.5 py-1.5 text-sm font-medium transition-all"
-            style={{
-              minHeight: 34,
-              border: '1px solid transparent',
-              ...(!isDirty || saving || loading
-                ? {
-                    background: alpha('ink', 0.02),
-                    color: theme.text.muted,
-                    opacity: 0.45
-                  }
-                : {
-                    background: theme.background.surface,
-                    color: theme.text.secondary
-                  })
-            }}
-          >
-            {t('settings.shared.discard')}
-          </button>
-          <button
-            onClick={() => void triggerSave()}
-            disabled={!hasSaveableChanges || saving || loading}
-            className="rounded-full px-4 py-1.5 text-sm font-medium transition-all"
-            style={{
-              minHeight: 34,
-              border: '1px solid transparent',
-              ...(!hasSaveableChanges || saving || loading
-                ? {
-                    background: alpha('ink', 0.04),
-                    color: theme.text.muted,
-                    opacity: 0.45
-                  }
-                : {
-                    background: theme.background.accentFill,
-                    color: theme.text.onAccentFill,
-                    boxShadow: theme.shadow.button
-                  })
-            }}
-          >
-            {t('common.save')}
-          </button>
-        </div>
+        {showsDraftControls ? (
+          <div className="no-drag flex shrink-0 items-center gap-2">
+            <span className="max-w-[320px] truncate text-xs" style={{ color: statusColor }}>
+              {statusText}
+            </span>
+            <button
+              onClick={() => void handleDiscardChanges()}
+              disabled={!isDirty || saving || loading}
+              className="rounded-full px-3.5 py-1.5 text-sm font-medium transition-all"
+              style={{
+                minHeight: 34,
+                border: '1px solid transparent',
+                ...(!isDirty || saving || loading
+                  ? {
+                      background: alpha('ink', 0.02),
+                      color: theme.text.muted,
+                      opacity: 0.45
+                    }
+                  : {
+                      background: theme.background.surface,
+                      color: theme.text.secondary
+                    })
+              }}
+            >
+              {t('settings.shared.discard')}
+            </button>
+            <button
+              onClick={() => void triggerSave()}
+              title={isMacPlatform ? '⌘S' : 'Ctrl+S'}
+              disabled={!hasSaveableChanges || saving || loading}
+              className="rounded-full px-4 py-1.5 text-sm font-medium transition-all"
+              style={{
+                minHeight: 34,
+                border: '1px solid transparent',
+                ...(!hasSaveableChanges || saving || loading
+                  ? {
+                      background: alpha('ink', 0.04),
+                      color: theme.text.muted,
+                      opacity: 0.45
+                    }
+                  : {
+                      background: theme.background.accentFill,
+                      color: theme.text.onAccentFill,
+                      boxShadow: theme.shadow.button
+                    })
+              }}
+            >
+              {t('common.save')}
+            </button>
+          </div>
+        ) : null}
       </div>
     )
   })

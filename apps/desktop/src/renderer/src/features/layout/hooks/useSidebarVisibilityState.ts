@@ -24,7 +24,6 @@ export interface UseSidebarVisibilityStateResult {
   isSidebarOpen: boolean
   onDragStart: (e: React.MouseEvent) => void
   openSidebar: () => Promise<void>
-  setWidth: (w: number) => void
   sidebarLayout: SidebarLayout
   sidebarWidth: number
   toggleSidebar: () => Promise<void>
@@ -59,18 +58,6 @@ export function useSidebarVisibilityState(): UseSidebarVisibilityStateResult {
   const sidebarLayout = resolveSidebarLayout(isSidebarOpen, sidebarWidth)
 
   useEffect(() => {
-    const handler = (e: StorageEvent): void => {
-      if (e.key !== SIDEBAR_WIDTH_STORAGE_KEY) return
-      const parsed = parseStoredSidebarWidth(e.newValue)
-      if (parsed != null) {
-        setSidebarWidth(parsed)
-      }
-    }
-    window.addEventListener('storage', handler)
-    return () => window.removeEventListener('storage', handler)
-  }, [])
-
-  useEffect(() => {
     return () => {
       clearPendingOverrideSyncRef.current?.()
     }
@@ -83,12 +70,6 @@ export function useSidebarVisibilityState(): UseSidebarVisibilityStateResult {
 
     globalThis.localStorage?.setItem(SIDEBAR_VISIBILITY_STORAGE_KEY, preferredSidebarVisibility)
   }, [config, preferredSidebarVisibility])
-
-  const setWidth = useCallback((w: number) => {
-    const clamped = Math.min(MAX_SIDEBAR_WIDTH, Math.max(MIN_SIDEBAR_WIDTH, w))
-    setSidebarWidth(clamped)
-    globalThis.localStorage?.setItem(SIDEBAR_WIDTH_STORAGE_KEY, String(clamped))
-  }, [])
 
   const onDragStart = useCallback(
     (e: React.MouseEvent) => {
@@ -189,7 +170,6 @@ export function useSidebarVisibilityState(): UseSidebarVisibilityStateResult {
     isSidebarOpen,
     onDragStart,
     openSidebar: () => persistSidebarVisibility(true),
-    setWidth,
     sidebarLayout,
     sidebarWidth,
     toggleSidebar: () => persistSidebarVisibility(!isSidebarOpen)

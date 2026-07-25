@@ -1,4 +1,3 @@
-import { useState } from 'react'
 import {
   DEFAULT_SIDEBAR_VISIBILITY,
   DEFAULT_THEME_APPEARANCE,
@@ -19,12 +18,6 @@ import {
   SettingSwitch,
   SimpleSelect
 } from '../components/primitives'
-import {
-  DEFAULT_SIDEBAR_WIDTH,
-  MIN_SIDEBAR_WIDTH,
-  MAX_SIDEBAR_WIDTH,
-  SIDEBAR_WIDTH_STORAGE_KEY
-} from '@renderer/lib/sidebarLayout'
 
 const UI_FONT_SIZES = [11, 12, 13, 14, 15, 16]
 const CHAT_FONT_SIZES = [12, 13, 14, 15, 16, 18, 20]
@@ -225,20 +218,6 @@ export function UIPane({ draft, onChange }: UIPaneProps): React.ReactNode {
   const chatPanelOpacityPercent = Math.round(
     (draft.general?.chatPanelOpacity ?? DEFAULT_CHAT_PANEL_OPACITY) * 100
   )
-  const [sidebarWidth, setSidebarWidthState] = useState<number>(
-    () =>
-      parseInt(globalThis.localStorage?.getItem(SIDEBAR_WIDTH_STORAGE_KEY) ?? '', 10) ||
-      DEFAULT_SIDEBAR_WIDTH
-  )
-
-  const handleSidebarWidth = (next: number): void => {
-    setSidebarWidthState(next)
-    globalThis.localStorage?.setItem(SIDEBAR_WIDTH_STORAGE_KEY, String(next))
-    window.dispatchEvent(
-      new StorageEvent('storage', { key: SIDEBAR_WIDTH_STORAGE_KEY, newValue: String(next) })
-    )
-  }
-
   return (
     <div className="flex-1 overflow-y-auto pb-6">
       <SettingSection>
@@ -381,29 +360,6 @@ export function UIPane({ draft, onChange }: UIPaneProps): React.ReactNode {
               }}
               ariaLabel={t('settings.ui.sidebarToggleAria')}
             />
-          }
-        />
-
-        <SettingItem
-          label={t('settings.ui.sidebarWidthLabel')}
-          description={t('settings.ui.sidebarWidthDesc')}
-          control={
-            <div className="flex items-center gap-3">
-              <RangeSlider
-                value={sidebarWidth}
-                min={MIN_SIDEBAR_WIDTH}
-                max={MAX_SIDEBAR_WIDTH}
-                step={10}
-                onChange={handleSidebarWidth}
-                ariaLabel={t('settings.ui.sidebarWidthLabel')}
-              />
-              <span
-                className="text-sm font-medium tabular-nums"
-                style={{ minWidth: 44, textAlign: 'right', color: theme.text.primary }}
-              >
-                {sidebarWidth}px
-              </span>
-            </div>
           }
         />
 

@@ -657,6 +657,7 @@ function App(): React.JSX.Element {
                           <SettingsSidebarContent
                             route={settingsRoute}
                             onRouteChange={setSettingsRoute}
+                            dirtyPanels={slots.dirtyPanels}
                           />
                         ),
                         sidebarTopControls: null

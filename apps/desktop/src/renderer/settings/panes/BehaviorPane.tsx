@@ -372,10 +372,9 @@ export function BehaviorPane({
                 { value: 'stable' as const, label: t('settings.behavior.updateChannelStable') },
                 { value: 'beta' as const, label: t('settings.behavior.updateChannelBeta') }
               ]}
-              onChange={(channel) => {
+              onChange={(channel) =>
                 onChange({ ...draft, general: { ...draft.general, updateChannel: channel } })
-                window.api.appUpdate.setChannel(channel)
-              }}
+              }
               width={120}
             />
           }
