@@ -170,11 +170,15 @@ body > div:not(#root) {
   color: var(--yachiyo-code-token-color-dark, var(--yachiyo-code-token-color, inherit));
 }
 
-/* Table card: remove outer border, keep inner table border only */
+/* Table card: only the inner table box is a surface. Streamdown's wrapper ships
+   an opaque `bg-sidebar` fill that, with padding removed, slabs a canvas-colored
+   band behind the toolbar row and leaks non-nesting corners — visible wherever
+   the chat card is translucent over the app background. */
 .streamdown-content [data-streamdown='table-wrapper'] {
   border-width: 0;
   box-shadow: none;
   padding: 0;
+  background: transparent;
 }
 
 /* Table header: clean light tint */
