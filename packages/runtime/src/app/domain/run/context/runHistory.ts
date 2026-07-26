@@ -110,7 +110,9 @@ export function toRunHistoryMessages(
       const isCurrentRequest = id === requestMessageId
       return {
         id,
-        content: isCurrentRequest ? (requestMessageContentOverride ?? content) : content,
+        // `||`, not `??`: an empty override means the request message could not
+        // be resolved, and blanking a real user turn silently strips the prompt.
+        content: isCurrentRequest ? requestMessageContentOverride || content : content,
         ...(hidden ? { hidden: true } : {}),
         ...(images ? { images } : {}),
         ...(attachments ? { attachments } : {}),

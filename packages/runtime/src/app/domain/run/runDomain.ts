@@ -35,7 +35,7 @@ import { BackgroundBashManager } from '../background/backgroundBashManager.ts'
 import { resolveRunModeEnabledToolsForInput } from '../config/configDomain.ts'
 import { resolveRunModeId } from '@yachiyo/shared/toolModes'
 import { isLatestRunPlanMode } from '@yachiyo/shared/planMode'
-import { HARNESS_TASK_REMINDER } from '../../../runtime/context/prompt.ts'
+import { RECAP_PROMPT } from './recap/recapPrompt.ts'
 import { executeServerRun } from './execution/executeServerRun.ts'
 import type { ExecuteRunInput, ExecuteRunResult } from './execution/runExecutionTypes.ts'
 import { ReadRecordCache } from '../../../tools/agentTools.ts'
@@ -552,7 +552,7 @@ export class YachiyoServerRunDomain {
         threadId: thread.id,
         parentMessageId: thread.headMessageId,
         role: 'user',
-        content: `${HARNESS_TASK_REMINDER} Write a recap of this conversation for the user, who stepped away and is coming back. Output only the recap text — do not greet the user or reply in character. Under 40 words, 1-2 plain sentences, no markdown, in the language used in the conversation. Lead with the overall goal and current task, then the one next action. Skip root-cause narrative, fix internals, secondary to-dos, and em-dash tangents.`,
+        content: RECAP_PROMPT,
         hidden: true,
         status: 'completed',
         createdAt: timestamp
@@ -815,7 +815,7 @@ export class YachiyoServerRunDomain {
 
         if (result.kind === 'completed') {
           if (isRecapRun) {
-            const text = (recapStorage as EphemeralStorage).lastAssistantContent ?? null
+            const text = (recapStorage as EphemeralStorage).lastAssistantContent?.trim() || null
             if (text) {
               const thread = this.deps.storage.getThread(currentThread.id)
               if (thread) {

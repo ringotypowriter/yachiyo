@@ -247,8 +247,15 @@ export async function prepareServerRunContext(
       ? await deps.readUserDocument()
       : await readUserDocument()
   const isLocalOrOwnerDm = !isExternalChannel || isOwnerDm
+  // Ephemeral runs (recap) never persist their request message — it only exists
+  // in the run's own `loadThreadMessages` view. Fall back to that view so the
+  // instruction reaches the model instead of being read as an empty user turn.
   const storedRequestMessage =
-    input.requestMessage ?? deps.storage.getMessage(input.requestMessageId)
+    input.requestMessage ??
+    deps.storage.getMessage(input.requestMessageId) ??
+    deps
+      .loadThreadMessages(input.thread.id)
+      .find((message) => message.id === input.requestMessageId)
   const requestMessage =
     storedRequestMessage &&
     storedRequestMessage.threadId === input.thread.id &&
