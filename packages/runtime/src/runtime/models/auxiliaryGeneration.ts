@@ -2,6 +2,7 @@ import type { ToolSet } from 'ai'
 
 import type { ProviderSettings } from '@yachiyo/shared/protocol'
 import { formatErrorForLog } from '../providers/gateway.ts'
+import { resolveMissingCredentialIssue } from '../providers/providerCredentials.ts'
 import type { ModelMessage, ModelRuntime, ModelToolCallErrorEvent, ModelUsage } from './types.ts'
 
 export type AuxiliaryGenerationUnavailableReason =
@@ -66,10 +67,7 @@ function resolveUnavailableReason(
     return 'not-configured'
   }
 
-  if (
-    !settings.apiKey.trim() &&
-    !(settings.provider === 'openai-codex' && settings.codexSessionPath?.trim())
-  ) {
+  if (resolveMissingCredentialIssue(settings)) {
     return 'missing-api-key'
   }
 

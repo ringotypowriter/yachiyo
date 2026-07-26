@@ -25,7 +25,3 @@ export async function collectStreamText(
 
   return text
 }
-
-export function isProviderSettingsConfigured(settings: ProviderSettings): boolean {
-  return Boolean(settings.providerName.trim() && settings.model.trim() && settings.apiKey.trim())
-}

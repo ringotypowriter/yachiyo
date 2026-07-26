@@ -1,5 +1,6 @@
 import type { ProviderSettings, TranslateInput, TranslateResult } from '@yachiyo/shared/protocol'
 import type { ModelRuntime } from '../../runtime/models/types.ts'
+import { resolveMissingCredentialIssue } from '../../runtime/providers/providerCredentials.ts'
 
 export async function translateWithRuntime(input: {
   createModelRuntime: () => ModelRuntime
@@ -11,10 +12,7 @@ export async function translateWithRuntime(input: {
   if (!settings || !settings.providerName.trim()) {
     return { status: 'unavailable', reason: 'not-configured' }
   }
-  if (
-    !settings.apiKey.trim() &&
-    !(settings.provider === 'openai-codex' && settings.codexSessionPath?.trim())
-  ) {
+  if (resolveMissingCredentialIssue(settings)) {
     return { status: 'unavailable', reason: 'missing-api-key' }
   }
   if (!settings.model.trim()) {

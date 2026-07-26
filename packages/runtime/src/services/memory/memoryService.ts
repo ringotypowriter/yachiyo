@@ -23,7 +23,8 @@ import {
   sanitizeMemoryQueryText
 } from './memoryService/parsing.ts'
 export { sanitizeMemoryQueryText } from './memoryService/parsing.ts'
-import { isProviderSettingsConfigured, collectStreamText } from './memoryService/generation.ts'
+import { collectStreamText } from './memoryService/generation.ts'
+import { hasUsableProviderSettings } from '../../runtime/providers/providerCredentials.ts'
 import {
   buildCandidatePatch,
   buildRunCognitivePatchMessages,
@@ -373,7 +374,7 @@ export function createMemoryService(deps: MemoryServiceDeps): MemoryService {
       if (input.messages.length === 0) return { savedCount: 0 }
 
       const settings = deps.readSettings()
-      if (!isProviderSettingsConfigured(settings)) {
+      if (!hasUsableProviderSettings(settings)) {
         throw new Error('The main chat model is not configured.')
       }
 

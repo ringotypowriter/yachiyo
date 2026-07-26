@@ -7,29 +7,27 @@ import { createGatewayDiagnosticFetch, createGatewayLanguageModel } from './gate
 import { createGoogleLanguageModel } from './google.ts'
 import { createOpenAiLanguageModel } from './openai.ts'
 import { createVertexLanguageModel } from './vertex.ts'
+import {
+  resolveMissingCredentialIssue,
+  type MissingCredentialIssue
+} from './providerCredentials.ts'
+
+const MISSING_CREDENTIAL_MESSAGES: Record<MissingCredentialIssue, string> = {
+  'missing-api-key': 'No API key configured. Open Settings and add a provider key first.',
+  'missing-codex-session':
+    'No Codex session path configured. Open Settings and set the path to your Codex auth.json.',
+  'missing-vertex-project':
+    'Vertex AI requires a Project ID. Open Settings and configure your Vertex provider.'
+}
 
 export function assertConfigured(settings: ProviderSettings): void {
   if (!settings.model.trim()) {
     throw new Error('No model configured. Open Settings and choose a model first.')
   }
 
-  if (settings.provider === 'vertex') {
-    if (!settings.project?.trim()) {
-      throw new Error(
-        'Vertex AI requires a Project ID. Open Settings and configure your Vertex provider.'
-      )
-    }
-    return
-  }
-
-  if (!settings.apiKey.trim() && settings.provider !== 'openai-codex') {
-    throw new Error('No API key configured. Open Settings and add a provider key first.')
-  }
-
-  if (settings.provider === 'openai-codex' && !settings.codexSessionPath?.trim()) {
-    throw new Error(
-      'No Codex session path configured. Open Settings and set the path to your Codex auth.json.'
-    )
+  const issue = resolveMissingCredentialIssue(settings)
+  if (issue) {
+    throw new Error(MISSING_CREDENTIAL_MESSAGES[issue])
   }
 }
 
