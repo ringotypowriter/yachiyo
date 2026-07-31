@@ -107,6 +107,10 @@ import { mergeRpcTargets } from '@yachiyo/shared/rpc/mergeRpcTargets'
 import { createWebExternalFetchRpcTarget } from '@yachiyo/runtime/services/webExternalFetchRpcBridge'
 import { createJotdownStore } from '@yachiyo/runtime/services/jotdownStore'
 import {
+  createElectronProviderCredentialVault,
+  unlockElectronProviderCredentialKey
+} from '../security/providerCredentials.ts'
+import {
   generateDiffForRun,
   restoreToCheckpoint,
   revertFile,
@@ -197,7 +201,6 @@ let commandSocketHealthTimer: ReturnType<typeof setInterval> | null = null
 let commandSocketRecoveryRegistered = false
 let commandSocketRestartInFlight: Promise<void> | null = null
 let fatalRunRecoveryRegistered = false
-
 function rpc(): RpcMethods<RpcSafeYachiyoServer> {
   if (!serverRpc) {
     throw new Error('Yachiyo server is not running')
@@ -430,6 +433,7 @@ function createConfiguredServer(
     settingsPath: resolveYachiyoSettingsPath(),
     developmentMode: is.dev,
     seedPresetProviders: true,
+    providerCredentialVault: createElectronProviderCredentialVault(resolveYachiyoSettingsPath()),
     fetchImpl: createProviderFetch({
       env: process.env,
       netFetch: (input, init) =>
@@ -485,6 +489,9 @@ function startUtilityRuntime(): void {
   const host = startUtilityRuntimeHost<RpcSafeYachiyoServer>({
     entryPath: join(__dirname, 'runtime-host.js'),
     isDev: is.dev,
+    startupData: {
+      providerCredentialKey: unlockElectronProviderCredentialKey(resolveYachiyoSettingsPath())
+    },
     mainServicesTarget: {
       ...createBrowserAutomationRpcTarget(browserAutomationService),
       ...createBrowserSearchPageFactoryRpcTarget(

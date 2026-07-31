@@ -365,7 +365,8 @@ export class YachiyoServer {
 
     this.settingsPath = options.settingsPath ?? resolveYachiyoSettingsPath()
     const settingsStore = createSettingsStore(this.settingsPath, {
-      seedPresetProviders: options.seedPresetProviders
+      seedPresetProviders: options.seedPresetProviders,
+      providerCredentialVault: options.providerCredentialVault
     })
     const createModelRuntime =
       options.createModelRuntime ??
@@ -818,7 +819,7 @@ export class YachiyoServer {
       if (decision === 'apply-remote') {
         const remote = this.parseConflictRemoteSettings(conflict)
         if (remote) {
-          this.configDomain.saveConfig(remote)
+          this.configDomain.applySyncedConfig(remote)
           // We now sit on the remote version; move sync-core's baseline with us.
           this.storage.rememberSyncSettingsBaseHash(conflict.remoteHash)
         }
@@ -874,7 +875,7 @@ export class YachiyoServer {
               mergeSettings(this.configDomain.getConfig(), remote, input.fieldSelections ?? {})
             )
           : remote
-      this.configDomain.saveConfig(nextConfig)
+      this.configDomain.applySyncedConfig(nextConfig)
       // Adopting the synced version wholesale makes it our new baseline, so a later
       // local edit doesn't re-conflict peers already on it. A merge produces content
       // neither side has, so it can't reuse remoteHash and is left to re-sync normally.

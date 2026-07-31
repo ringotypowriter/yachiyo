@@ -40,6 +40,44 @@ describe('diffSettings', () => {
     assert.equal(diffs[0].path, 'providers')
   })
 
+  it('ignores provider credential-only differences', () => {
+    const local = config({
+      providers: [
+        {
+          id: 'p1',
+          name: 'provider',
+          apiKey: 'sk-device-local',
+          serviceAccountPrivateKey: 'device-private-key'
+        }
+      ]
+    })
+    const remote = config({
+      providers: [
+        {
+          id: 'p1',
+          name: 'provider',
+          apiKey: 'sk-from-legacy-sync-history',
+          serviceAccountPrivateKey: ''
+        }
+      ]
+    })
+
+    assert.deepEqual(diffSettings(local, remote), [])
+  })
+
+  it('never includes provider credentials in conflict previews', () => {
+    const local = config({
+      providers: [{ id: 'p1', name: 'local-provider', apiKey: 'sk-device-local-secret' }]
+    })
+    const remote = config({
+      providers: [{ id: 'p1', name: 'remote-provider', apiKey: 'sk-legacy-remote-secret' }]
+    })
+
+    const serialized = JSON.stringify(diffSettings(local, remote))
+    assert.doesNotMatch(serialized, /sk-device-local-secret/u)
+    assert.doesNotMatch(serialized, /sk-legacy-remote-secret/u)
+  })
+
   it('marks fields present on only one side', () => {
     const local = config({ general: { themeId: 'dawn' } })
     const remote = config({ general: { themeId: 'dawn' }, runMode: 'auto' })

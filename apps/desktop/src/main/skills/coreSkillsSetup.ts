@@ -5,6 +5,7 @@ import { join } from 'node:path'
 
 import { resolveYachiyoDataDir, resolveYachiyoSettingsPath } from '@yachiyo/runtime/config/paths'
 import { createSettingsStore } from '@yachiyo/runtime/settings/settingsStore'
+import { createElectronProviderCredentialVault } from '../security/providerCredentials.ts'
 import { rewriteBundledCoreSkillMarkdownFiles } from './coreSkillsContent.ts'
 
 const CORE_SKILLS_SUBDIR = join('skills', 'core')
@@ -103,7 +104,10 @@ function collectBundledSkillNames(bundledPath: string): string[] {
  */
 function ensureCoreSkillsEnabled(newSkillNames: string[]): void {
   if (newSkillNames.length === 0) return
-  const store = createSettingsStore(resolveYachiyoSettingsPath())
+  const settingsPath = resolveYachiyoSettingsPath()
+  const store = createSettingsStore(settingsPath, {
+    providerCredentialVault: createElectronProviderCredentialVault(settingsPath)
+  })
   const config = store.read()
   const enabled = new Set(config.skills?.enabled ?? [])
   let changed = false

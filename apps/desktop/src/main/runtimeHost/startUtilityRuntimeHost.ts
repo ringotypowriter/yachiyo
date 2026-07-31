@@ -40,6 +40,7 @@ export function startUtilityRuntimeHost<T extends object>(input: {
   entryPath: string
   isDev: boolean
   mainServicesTarget: object
+  startupData?: Record<string, unknown>
 }): UtilityRuntimeHost<T> {
   const child = utilityProcess.fork(input.entryPath, [], {
     serviceName: 'yachiyo-runtime-host',
@@ -54,7 +55,7 @@ export function startUtilityRuntimeHost<T extends object>(input: {
 
   const { port1, port2 } = new MessageChannelMain()
   child.once('spawn', () => {
-    child.postMessage({ type: 'runtime:start' }, [port1])
+    child.postMessage({ type: 'runtime:start', ...input.startupData }, [port1])
   })
 
   const transport = messagePortMainTransport(port2)

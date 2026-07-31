@@ -1,5 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
+import { isDeepStrictEqual } from 'node:util'
 
 import type { SettingsConfig, ThreadModelOverride } from '@yachiyo/shared/protocol'
 import { createPresetProviders, mergePresetProviders } from '@yachiyo/shared/providerPresets'
@@ -13,6 +14,13 @@ import {
 } from './settingsConfig.ts'
 import { parseSettingsToml, stringifySettingsToml } from './settingsTomlCodec.ts'
 import { parseChannelsToml } from '../runtime/config/channelsTomlCodec.ts'
+import {
+  extractProviderCredentials,
+  hydrateProviderCredentials,
+  mergeProviderCredentials,
+  stripProviderCredentials
+} from './providerCredentialConfig.ts'
+import type { ProviderCredentialVault } from './providerCredentialVault.ts'
 
 export {
   DEFAULT_SETTINGS_CONFIG,
@@ -28,12 +36,19 @@ export {
 export interface SettingsStore {
   read: () => SettingsConfig
   /** Persists the settings. Returns false when the file content was already identical. */
-  write: (settings: SettingsConfig) => boolean
+  write: (settings: SettingsConfig, options?: SettingsWriteOptions) => boolean
+}
+
+export interface SettingsWriteOptions {
+  /** Synced public settings never replace this device's credentials. */
+  providerCredentials?: 'replace' | 'preserve'
 }
 
 export interface SettingsStoreOptions {
   /** Seed preset providers on first launch when no config file exists. */
   seedPresetProviders?: boolean
+  /** Device-local encrypted storage for provider credentials. */
+  providerCredentialVault?: ProviderCredentialVault
 }
 
 function readLegacyImageToTextModel(settingsPath: string): ThreadModelOverride | undefined {
@@ -126,18 +141,66 @@ export function createSettingsStore(
         return DEFAULT_SETTINGS_CONFIG
       }
       if (cache === null || cache.mtimeMs !== stat.mtimeMs || cache.size !== stat.size) {
+        const raw = readFileSync(settingsPath, 'utf8')
+        let config = parseSettingsToml(raw)
+        const providerCredentialVault = options?.providerCredentialVault
+        if (providerCredentialVault) {
+          const vaultExists = providerCredentialVault.exists()
+          const legacyCredentials = extractProviderCredentials(config)
+          const storedCredentials = providerCredentialVault.read()
+          const credentials = vaultExists
+            ? storedCredentials
+            : mergeProviderCredentials(storedCredentials, legacyCredentials)
+
+          if (!vaultExists) {
+            providerCredentialVault.write(credentials)
+          }
+
+          if (Object.keys(legacyCredentials).length > 0) {
+            const serialized = stringifySettingsToml(stripProviderCredentials(config))
+            if (serialized !== raw) {
+              writeFileSync(settingsPath, serialized, 'utf8')
+              stat = statSync(settingsPath)
+            }
+          }
+
+          config = hydrateProviderCredentials(stripProviderCredentials(config), credentials)
+        }
         cache = {
           mtimeMs: stat.mtimeMs,
           size: stat.size,
-          config: parseSettingsToml(readFileSync(settingsPath, 'utf8'))
+          config
         }
       }
       // Clone so callers can never mutate the cached object.
       return structuredClone(cache.config)
     },
-    write(settings: SettingsConfig): boolean {
-      const serialized = stringifySettingsToml(normalizeSettingsConfig(settings))
-      if (existsSync(settingsPath) && readFileSync(settingsPath, 'utf8') === serialized) {
+    write(settings: SettingsConfig, writeOptions?: SettingsWriteOptions): boolean {
+      const normalized = normalizeSettingsConfig(settings)
+      const providerCredentialVault = options?.providerCredentialVault
+      let credentialsChanged = false
+      let persisted = normalized
+
+      if (providerCredentialVault) {
+        const currentCredentials = providerCredentialVault.read()
+        const suppliedCredentials = extractProviderCredentials(normalized)
+        const nextCredentials =
+          writeOptions?.providerCredentials === 'preserve'
+            ? currentCredentials
+            : suppliedCredentials
+        credentialsChanged = !isDeepStrictEqual(currentCredentials, nextCredentials)
+        if (credentialsChanged) {
+          providerCredentialVault.write(nextCredentials)
+        }
+        persisted = stripProviderCredentials(normalized)
+      }
+
+      const serialized = stringifySettingsToml(persisted)
+      if (
+        !credentialsChanged &&
+        existsSync(settingsPath) &&
+        readFileSync(settingsPath, 'utf8') === serialized
+      ) {
         return false
       }
       writeFileSync(settingsPath, serialized, 'utf8')

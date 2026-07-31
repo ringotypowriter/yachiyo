@@ -18,6 +18,8 @@ import { NAMESPACE_HELP, USAGE, namespaceHelp } from './core/help.ts'
 import type { RunYachiyoCliOptions } from './core/types.ts'
 import { createDefaultConfigService } from './services/config.ts'
 
+export { createDefaultConfigService }
+
 export async function runYachiyoCli(
   args = process.argv.slice(2),
   options: RunYachiyoCliOptions = {}

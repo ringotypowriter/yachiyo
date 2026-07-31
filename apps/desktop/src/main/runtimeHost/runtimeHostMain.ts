@@ -20,6 +20,7 @@ import {
 import {
   resolveYachiyoDbPath,
   resolveYachiyoJotdownsDir,
+  resolveYachiyoProviderCredentialVaultPath,
   resolveYachiyoSettingsPath,
   resolveYachiyoTempWorkspaceRoot
 } from '@yachiyo/runtime/config/paths'
@@ -36,6 +37,7 @@ import { createRpcClient } from '@yachiyo/shared/rpc/rpcClient'
 import { serveRpcTarget } from '@yachiyo/shared/rpc/rpcServer'
 
 import { createProviderFetch } from '../net/providerFetch.ts'
+import { createProviderCredentialVault } from '@yachiyo/runtime/settings/providerCredentialVault'
 
 // Route global fetch through Electron's net module, mirroring the main
 // process (spike-verified available inside utility processes).
@@ -59,12 +61,20 @@ process.parentPort.on('message', (event) => {
   const transport = messagePortMainTransport(port as MessagePortMainLike)
   const mainServices = createRpcClient(transport)
   const developmentMode = process.env['YACHIYO_RUNTIME_DEV'] === '1'
+  const message = event.data as { providerCredentialKey?: unknown }
+  if (!(message.providerCredentialKey instanceof Uint8Array)) {
+    throw new Error('Runtime start message is missing the provider credential key')
+  }
 
   server = createSqliteYachiyoServer({
     dbPath: resolveYachiyoDbPath(),
     settingsPath: resolveYachiyoSettingsPath(),
     developmentMode,
     seedPresetProviders: true,
+    providerCredentialVault: createProviderCredentialVault({
+      vaultPath: resolveYachiyoProviderCredentialVaultPath(),
+      encryptionKey: message.providerCredentialKey
+    }),
     fetchImpl: createProviderFetch({ env: process.env, netFetch }),
     // The cert-relaxed web-external session only exists in the main process;
     // forward those requests there, streaming responses back over RPC.

@@ -7,6 +7,7 @@ import { resolveYachiyoSettingsPath } from '@yachiyo/runtime/config/paths'
 import { createSettingsStore } from '@yachiyo/runtime/settings/settingsStore'
 import type { UpdateChannel } from '@yachiyo/shared/protocol'
 
+import { createElectronProviderCredentialVault } from '../security/providerCredentials.ts'
 import { UPDATE_MIRROR_BASE, resolveUpdateFeed } from './updateFeed'
 
 export interface UpdateStatus {
@@ -35,7 +36,10 @@ function broadcast(status: UpdateStatus): void {
 
 function readInitialChannel(): UpdateChannel {
   try {
-    const store = createSettingsStore(resolveYachiyoSettingsPath())
+    const settingsPath = resolveYachiyoSettingsPath()
+    const store = createSettingsStore(settingsPath, {
+      providerCredentialVault: createElectronProviderCredentialVault(settingsPath)
+    })
     const config = store.read()
     return config.general?.updateChannel ?? 'stable'
   } catch {

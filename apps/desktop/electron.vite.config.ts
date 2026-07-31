@@ -75,7 +75,6 @@ export default defineConfig({
       rollupOptions: {
         input: {
           index: resolve('src/main/index.ts'),
-          'yachiyo-cli': resolve('../../packages/cli/src/yachiyoCli.ts'),
           'runtime-host': resolve('src/main/runtimeHost/runtimeHostMain.ts'),
           'runtime-host-spike': resolve('src/main/runtimeHost/spikeUtilityMain.ts')
         },

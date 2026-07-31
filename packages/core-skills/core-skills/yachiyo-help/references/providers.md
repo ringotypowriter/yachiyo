@@ -1,6 +1,8 @@
 # Providers — CLI Reference
 
-Manage the AI providers configured in `~/.yachiyo/config.toml`. API keys are redacted in output.
+Manage the AI providers configured by Yachiyo. Public provider settings live in
+`~/.yachiyo/config.toml`; API keys and service-account private keys live in the
+keychain-protected credential store. API keys are redacted in output.
 
 ## Commands
 

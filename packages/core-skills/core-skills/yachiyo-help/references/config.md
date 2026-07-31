@@ -1,6 +1,8 @@
 # Config — CLI Reference
 
-Configuration is stored at `~/.yachiyo/config.toml`. All values are accessible via dot-separated paths.
+Non-secret configuration is stored at `~/.yachiyo/config.toml`. Provider API keys and
+service-account private keys are stored separately in the keychain-protected credential store.
+Configuration values are accessible via dot-separated paths.
 
 ## Commands
 

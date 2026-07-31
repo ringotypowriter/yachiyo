@@ -1,4 +1,5 @@
 import type { SettingsConfig, SyncSettingsFieldDiff } from '@yachiyo/shared/protocol'
+import { stripProviderCredentials } from './providerCredentialConfig.ts'
 
 /**
  * Field-level diff/merge for settings conflicts. Settings are compared at leaf
@@ -36,9 +37,13 @@ function flatten(value: unknown, prefix: string, out: Map<string, unknown>): voi
 
 function flattenConfig(config: unknown): Map<string, unknown> {
   const out = new Map<string, unknown>()
-  if (isPlainObject(config)) {
-    for (const key of Object.keys(config)) {
-      flatten(config[key], key, out)
+  const publicConfig =
+    isPlainObject(config) && Array.isArray(config['providers'])
+      ? stripProviderCredentials(config as unknown as SettingsConfig)
+      : config
+  if (isPlainObject(publicConfig)) {
+    for (const key of Object.keys(publicConfig)) {
+      flatten(publicConfig[key], key, out)
     }
   }
   return out

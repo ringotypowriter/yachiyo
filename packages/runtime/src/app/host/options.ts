@@ -17,10 +17,12 @@ import type { QuerySourceExecutor } from '../../tools/agentTools/querySourceTool
 import type { RemoteImageFetcher } from '../domain/images/remoteImageDomain.ts'
 import type { SoulDocument } from '../../runtime/profiles/soul.ts'
 import type { YachiyoStorage } from '../../storage/storage.ts'
+import type { ProviderCredentialVault } from '../../settings/providerCredentialVault.ts'
 
 export interface YachiyoServerOptions {
   storage: YachiyoStorage
   settingsPath?: string
+  providerCredentialVault?: ProviderCredentialVault
   seedPresetProviders?: boolean
   developmentMode?: boolean
   fetchImpl?: typeof globalThis.fetch

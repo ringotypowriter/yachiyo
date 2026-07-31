@@ -26,6 +26,7 @@ import { setupAutoUpdate, isInstallingUpdate } from './electron/autoUpdate'
 import { installActiveRunCloseGuard } from './electron/activeRunCloseGuard'
 import { installApplicationMenu } from './electron/applicationMenu'
 import { createKeepAwakeController } from './electron/keepAwake'
+import { createElectronProviderCredentialVault } from './security/providerCredentials'
 import {
   installYachiyoAssetProtocolHandler,
   registerYachiyoAssetScheme
@@ -37,13 +38,16 @@ Object.assign(console, log.functions)
 log.errorHandler.startCatching({ showDialog: false })
 
 const APP_NAME = 'Yachiyo'
+const CLI_MARKER = '--yachiyo-cli'
+const cliMarkerIndex = process.argv.indexOf(CLI_MARKER)
+const headlessCliArgs = cliMarkerIndex >= 0 ? process.argv.slice(cliMarkerIndex + 1) : null
 
 app.setName(APP_NAME)
 
 // ---------------------------------------------------------------------------
 // Single-instance guard (production only)
 // ---------------------------------------------------------------------------
-if (!is.dev) {
+if (!is.dev && !headlessCliArgs) {
   const gotLock = app.requestSingleInstanceLock()
   if (!gotLock) {
     log.warn('Another instance of Yachiyo is already running — refusing to open.')
@@ -273,7 +277,7 @@ function createWindow(): void {
 // initialization and is ready to create browser windows.
 // Some APIs can only be used after this event occurs.
 // When a second instance is attempted in production, focus the existing window.
-if (!is.dev) {
+if (!is.dev && !headlessCliArgs) {
   app.on('second-instance', () => {
     if (mainWindowRef && !mainWindowRef.isDestroyed()) {
       if (mainWindowRef.isMinimized()) mainWindowRef.restore()
@@ -283,6 +287,24 @@ if (!is.dev) {
 }
 
 app.whenReady().then(async () => {
+  if (headlessCliArgs) {
+    try {
+      const { createDefaultConfigService, runYachiyoCli } = await import('@yachiyo/cli/yachiyoCli')
+      await runYachiyoCli(headlessCliArgs, {
+        createConfigService: (settingsPath) =>
+          createDefaultConfigService(settingsPath, {
+            providerCredentialVault: createElectronProviderCredentialVault(settingsPath)
+          })
+      })
+      app.exit(0)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      process.stderr.write(`Error: ${message}\n`)
+      app.exit(1)
+    }
+    return
+  }
+
   // Environment first: the login shell provides proxy vars the system-proxy
   // hydration and the gateway's web session both read.
   hydrateProcessEnvFromLoginShell()

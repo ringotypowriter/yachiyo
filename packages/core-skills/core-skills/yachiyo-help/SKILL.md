@@ -89,13 +89,15 @@ launchctl list | grep sh.ringo.yachiyo
 
 ## Key Paths
 
-| Path                        | Purpose                                                    |
-| --------------------------- | ---------------------------------------------------------- |
-| `~/.yachiyo/config.toml`    | All settings: providers, tools, skills, memory, web search |
-| `~/.yachiyo/SOUL.md`        | Assistant persona and evolving trait log                   |
-| `~/.yachiyo/USER.md`        | User profile — who you are, your context, working style    |
-| `~/.yachiyo/yachiyo.sqlite` | Thread and message database                                |
-| `~/.yachiyo/bin/yachiyo`    | CLI wrapper (auto-generated, do not edit)                  |
+| Path                                  | Purpose                                                           |
+| ------------------------------------- | ----------------------------------------------------------------- |
+| `~/.yachiyo/config.toml`              | Non-secret settings: providers, tools, skills, memory, web search |
+| `~/.yachiyo/provider-credentials.enc` | Encrypted provider API keys and service-account private keys      |
+| `~/.yachiyo/provider-credentials.key` | Credential data key protected by the operating-system keychain    |
+| `~/.yachiyo/SOUL.md`                  | Assistant persona and evolving trait log                          |
+| `~/.yachiyo/USER.md`                  | User profile — who you are, your context, working style           |
+| `~/.yachiyo/yachiyo.sqlite`           | Thread and message database                                       |
+| `~/.yachiyo/bin/yachiyo`              | CLI wrapper (auto-generated, do not edit)                         |
 
 ## Troubleshooting: `yachiyo: command not found`
 

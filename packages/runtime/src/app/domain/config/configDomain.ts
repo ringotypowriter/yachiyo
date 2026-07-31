@@ -24,7 +24,8 @@ import { fetchModels } from '../../../runtime/models/modelRuntime.ts'
 import {
   toProviderSettings,
   toToolModelSettings,
-  type SettingsStore
+  type SettingsStore,
+  type SettingsWriteOptions
 } from '../../../settings/settingsStore.ts'
 import type { EmitServerEvent } from '../shared/shared.ts'
 
@@ -160,6 +161,10 @@ export class YachiyoServerConfigDomain {
 
   saveConfig(input: SettingsConfig): SettingsConfig {
     return this.persistConfig(input)
+  }
+
+  applySyncedConfig(input: SettingsConfig): SettingsConfig {
+    return this.persistConfig(input, { providerCredentials: 'preserve' })
   }
 
   getSettings(): ProviderSettings {
@@ -381,8 +386,8 @@ export class YachiyoServerConfigDomain {
     return this.settingsStore.read()
   }
 
-  private persistConfig(input: SettingsConfig): SettingsConfig {
-    const changed = this.settingsStore.write(input)
+  private persistConfig(input: SettingsConfig, options?: SettingsWriteOptions): SettingsConfig {
+    const changed = this.settingsStore.write(input, options)
     const config = this.readConfig()
     // A no-op save must not fan out (subscribers include the auto-sync scheduler,
     // which spawns sync-core processes on every settings.updated).

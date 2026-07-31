@@ -16,7 +16,9 @@ export function createSqliteYachiyoServerOptions(
 ): YachiyoServerOptions {
   const settingsPath = options.settingsPath ?? resolveYachiyoSettingsPath()
   const shouldUseDemoStorage = isDevelopmentDemoModeEnabled(
-    createSettingsStore(settingsPath).read(),
+    createSettingsStore(settingsPath, {
+      providerCredentialVault: options.providerCredentialVault
+    }).read(),
     options.developmentMode === true
   )
   const builtinMemoryDbPath = shouldUseDemoStorage
