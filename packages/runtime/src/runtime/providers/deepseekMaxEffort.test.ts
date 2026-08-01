@@ -1,13 +1,13 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { createDeepSeekV4ProMaxEffortFetch } from './deepseekMaxEffort.ts'
+import { createDeepSeekV4MaxEffortFetch } from './deepseekMaxEffort.ts'
 import { createAnthropicLanguageModel } from './anthropic.ts'
 import { createOpenAiLanguageModel } from './openai.ts'
 
-test('createDeepSeekV4ProMaxEffortFetch adds reasoning_effort for OpenAI chat completions', async () => {
+test('createDeepSeekV4MaxEffortFetch adds reasoning_effort for OpenAI chat completions', async () => {
   let capturedBody: Record<string, unknown> | undefined
-  const wrappedFetch = createDeepSeekV4ProMaxEffortFetch(
+  const wrappedFetch = createDeepSeekV4MaxEffortFetch(
     { model: 'custom/deepseek-v4-pro', provider: 'openai' },
     async (_input, init) => {
       capturedBody = JSON.parse(init?.body as string) as Record<string, unknown>
@@ -27,9 +27,31 @@ test('createDeepSeekV4ProMaxEffortFetch adds reasoning_effort for OpenAI chat co
   })
 })
 
-test('createDeepSeekV4ProMaxEffortFetch uses requested high effort', async () => {
+test('createDeepSeekV4MaxEffortFetch adds max effort for DeepSeek v4 Flash', async () => {
   let capturedBody: Record<string, unknown> | undefined
-  const wrappedFetch = createDeepSeekV4ProMaxEffortFetch(
+  const wrappedFetch = createDeepSeekV4MaxEffortFetch(
+    { model: 'vendor/deepseek-v4-flash', provider: 'openai' },
+    async (_input, init) => {
+      capturedBody = JSON.parse(init?.body as string) as Record<string, unknown>
+      return new Response('{}')
+    }
+  )
+
+  await wrappedFetch('https://api.deepseek.com/v1/chat/completions', {
+    method: 'POST',
+    body: JSON.stringify({ model: 'vendor/deepseek-v4-flash', messages: [] })
+  })
+
+  assert.deepEqual(capturedBody, {
+    model: 'vendor/deepseek-v4-flash',
+    messages: [],
+    reasoning_effort: 'max'
+  })
+})
+
+test('createDeepSeekV4MaxEffortFetch uses requested high effort', async () => {
+  let capturedBody: Record<string, unknown> | undefined
+  const wrappedFetch = createDeepSeekV4MaxEffortFetch(
     { model: 'deepseek-v4-pro', provider: 'openai', reasoningEffort: 'high' },
     async (_input, init) => {
       capturedBody = JSON.parse(init?.body as string) as Record<string, unknown>
@@ -45,9 +67,9 @@ test('createDeepSeekV4ProMaxEffortFetch uses requested high effort', async () =>
   assert.equal(capturedBody?.reasoning_effort, 'high')
 })
 
-test('createDeepSeekV4ProMaxEffortFetch leaves OpenAI responses requests unchanged', async () => {
+test('createDeepSeekV4MaxEffortFetch leaves OpenAI responses requests unchanged', async () => {
   let capturedBody: Record<string, unknown> | undefined
-  const wrappedFetch = createDeepSeekV4ProMaxEffortFetch(
+  const wrappedFetch = createDeepSeekV4MaxEffortFetch(
     { model: 'deepseek-v4-pro', provider: 'openai' },
     async (_input, init) => {
       capturedBody = JSON.parse(init?.body as string) as Record<string, unknown>
@@ -66,9 +88,9 @@ test('createDeepSeekV4ProMaxEffortFetch leaves OpenAI responses requests unchang
   })
 })
 
-test('createDeepSeekV4ProMaxEffortFetch adds output_config effort for Anthropic messages', async () => {
+test('createDeepSeekV4MaxEffortFetch adds output_config effort for Anthropic messages', async () => {
   let capturedBody: Record<string, unknown> | undefined
-  const wrappedFetch = createDeepSeekV4ProMaxEffortFetch(
+  const wrappedFetch = createDeepSeekV4MaxEffortFetch(
     { model: 'deepseek-v4-pro', provider: 'anthropic' },
     async (_input, init) => {
       capturedBody = JSON.parse(init?.body as string) as Record<string, unknown>
@@ -92,9 +114,9 @@ test('createDeepSeekV4ProMaxEffortFetch adds output_config effort for Anthropic 
   })
 })
 
-test('createDeepSeekV4ProMaxEffortFetch ignores non-matching model names', async () => {
+test('createDeepSeekV4MaxEffortFetch ignores non-matching model names', async () => {
   let capturedBody: Record<string, unknown> | undefined
-  const wrappedFetch = createDeepSeekV4ProMaxEffortFetch(
+  const wrappedFetch = createDeepSeekV4MaxEffortFetch(
     { model: 'deepseek-v4', provider: 'openai' },
     async (_input, init) => {
       capturedBody = JSON.parse(init?.body as string) as Record<string, unknown>
@@ -113,13 +135,13 @@ test('createDeepSeekV4ProMaxEffortFetch ignores non-matching model names', async
   })
 })
 
-test('createDeepSeekV4ProMaxEffortFetch respects reasoning off', async () => {
+test('createDeepSeekV4MaxEffortFetch respects reasoning off', async () => {
   let capturedBody: Record<string, unknown> | undefined
   const baseFetch = async (_input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
     capturedBody = JSON.parse(init?.body as string) as Record<string, unknown>
     return new Response('{}')
   }
-  const wrappedFetch = createDeepSeekV4ProMaxEffortFetch(
+  const wrappedFetch = createDeepSeekV4MaxEffortFetch(
     { model: 'deepseek-v4-pro', provider: 'openai', reasoningEffort: 'off' },
     baseFetch
   )
@@ -136,13 +158,13 @@ test('createDeepSeekV4ProMaxEffortFetch respects reasoning off', async () => {
   })
 })
 
-test('createDeepSeekV4ProMaxEffortFetch respects disabled thinking', async () => {
+test('createDeepSeekV4MaxEffortFetch respects disabled thinking', async () => {
   let capturedBody: Record<string, unknown> | undefined
   const baseFetch = async (_input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
     capturedBody = JSON.parse(init?.body as string) as Record<string, unknown>
     return new Response('{}')
   }
-  const wrappedFetch = createDeepSeekV4ProMaxEffortFetch(
+  const wrappedFetch = createDeepSeekV4MaxEffortFetch(
     { model: 'deepseek-v4-pro', provider: 'openai', thinkingEnabled: false },
     baseFetch
   )

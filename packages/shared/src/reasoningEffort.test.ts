@@ -50,6 +50,22 @@ test('deepseek v4 pro defaults to max and exposes off high max', () => {
   assert.equal(state.selected, 'max')
 })
 
+test('deepseek v4 flash defaults to max and exposes off high max', () => {
+  const state = getReasoningSelectorState({
+    provider: provider({
+      baseUrl: 'https://api.deepseek.com/v1',
+      modelList: {
+        enabled: ['deepseek-v4-flash'],
+        disabled: []
+      }
+    }),
+    model: 'deepseek-v4-flash'
+  })
+
+  assert.deepEqual(state.options, ['off', 'high', 'max'])
+  assert.equal(state.selected, 'max')
+})
+
 test('model reasoning overrides remove disabled efforts from the composer selection', () => {
   const state = getReasoningSelectorState({
     provider: provider({

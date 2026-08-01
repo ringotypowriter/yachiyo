@@ -16,7 +16,7 @@ export interface ReasoningSelectorState {
 
 const DEFAULT_REASONING_EFFORT: ReasoningEffortLevel = 'medium'
 const DEFAULT_REASONING_OPTIONS: ReasoningEffortLevel[] = [DEFAULT_REASONING_EFFORT]
-const DEEPSEEK_V4_PRO_OPTIONS: ReasoningEffortLevel[] = ['high', 'max']
+const DEEPSEEK_V4_MAX_EFFORT_OPTIONS: ReasoningEffortLevel[] = ['high', 'max']
 
 type ReasoningProvider =
   | Pick<ProviderConfig, 'reasoning' | 'thinkingEnabled' | 'type'>
@@ -48,8 +48,9 @@ function uniqueEfforts(values: unknown): ReasoningEffortLevel[] {
   return result
 }
 
-function isDeepSeekV4ProModel(model: string): boolean {
-  return model.trim().toLowerCase().endsWith('deepseek-v4-pro')
+export function isDeepSeekV4MaxEffortModel(model: string): boolean {
+  const normalized = model.trim().toLowerCase()
+  return normalized.endsWith('deepseek-v4-pro') || normalized.endsWith('deepseek-v4-flash')
 }
 
 function isClaudeOpus47Model(model: string): boolean {
@@ -62,7 +63,7 @@ function isClaudeOpus47Model(model: string): boolean {
 }
 
 export function isMaxReasoningEffortModel(model: string): boolean {
-  return isDeepSeekV4ProModel(model) || isClaudeOpus47Model(model)
+  return isDeepSeekV4MaxEffortModel(model) || isClaudeOpus47Model(model)
 }
 
 export function isOpenAIXHighReasoningEffortModel(model: string): boolean {
@@ -222,11 +223,11 @@ function getBuiltInReasoningBase(model: string): {
   defaultEffort: ComposerReasoningSelection
   enabledEfforts: ReasoningEffortLevel[]
 } {
-  if (isDeepSeekV4ProModel(model)) {
+  if (isDeepSeekV4MaxEffortModel(model)) {
     return {
       allowOff: true,
       defaultEffort: 'max',
-      enabledEfforts: DEEPSEEK_V4_PRO_OPTIONS
+      enabledEfforts: DEEPSEEK_V4_MAX_EFFORT_OPTIONS
     }
   }
 

@@ -7,11 +7,9 @@ import type {
 import type { LanguageModel } from 'ai'
 
 import type { ProviderConfig, ProviderSettings } from '@yachiyo/shared/protocol'
+import { isDeepSeekV4MaxEffortModel } from '@yachiyo/shared/reasoningEffort'
 import type { ResolvedAiSdkRuntimeDependencies } from './dependencies.ts'
-import {
-  createDeepSeekV4ProMaxEffortFetch,
-  isDeepSeekV4ProMaxEffortModel
-} from './deepseekMaxEffort.ts'
+import { createDeepSeekV4MaxEffortFetch } from './deepseekMaxEffort.ts'
 import {
   ANTHROPIC_THINKING_BUDGET_BY_EFFORT,
   cleanBaseUrl,
@@ -206,8 +204,8 @@ export function createAnthropicLanguageModel(
   const shouldReplayUnsignedThinking = shouldReplayUnsignedAnthropicThinking(baseURL)
   const promptStack: LanguageModelV3CallOptions['prompt'][] = []
   const maxEffortFetch =
-    settings.thinkingEnabled !== false && isDeepSeekV4ProMaxEffortModel(settings.model)
-      ? createDeepSeekV4ProMaxEffortFetch(
+    settings.thinkingEnabled !== false && isDeepSeekV4MaxEffortModel(settings.model)
+      ? createDeepSeekV4MaxEffortFetch(
           {
             provider: 'anthropic',
             model: settings.model,

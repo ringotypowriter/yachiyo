@@ -1,12 +1,7 @@
 import type { ProviderSettings, ReasoningEffortLevel } from '@yachiyo/shared/protocol'
+import { isDeepSeekV4MaxEffortModel } from '@yachiyo/shared/reasoningEffort'
 
 type SupportedProvider = Extract<ProviderSettings['provider'], 'openai' | 'anthropic'>
-
-const TARGET_MODEL_SUFFIX = 'deepseek-v4-pro'
-
-export function isDeepSeekV4ProMaxEffortModel(model: string): boolean {
-  return model.trim().toLowerCase().endsWith(TARGET_MODEL_SUFFIX)
-}
 
 function getRequestPath(input: Parameters<typeof globalThis.fetch>[0]): string {
   const rawUrl = input instanceof Request ? input.url : String(input)
@@ -44,7 +39,7 @@ function addReasoningEffort(
   return body
 }
 
-export function createDeepSeekV4ProMaxEffortFetch(
+export function createDeepSeekV4MaxEffortFetch(
   settings: Pick<ProviderSettings, 'model' | 'thinkingEnabled' | 'reasoningEffort'> & {
     provider: SupportedProvider
   },
@@ -53,7 +48,7 @@ export function createDeepSeekV4ProMaxEffortFetch(
   const effort = settings.reasoningEffort === 'high' ? 'high' : 'max'
   if (
     settings.thinkingEnabled === false ||
-    !isDeepSeekV4ProMaxEffortModel(settings.model) ||
+    !isDeepSeekV4MaxEffortModel(settings.model) ||
     (settings.reasoningEffort !== undefined &&
       settings.reasoningEffort !== 'high' &&
       settings.reasoningEffort !== 'max')
