@@ -158,6 +158,65 @@ describe('QQBot gateway heartbeat health', () => {
   })
 })
 
+describe('QQBot C2C inbound attachments', () => {
+  it('preserves image attachments on an image-only gateway event', async () => {
+    const { WebSocketImpl, sockets } = createFakeWebSocketFactory()
+    const client = createQQBotClient({
+      appId: 'app',
+      clientSecret: 'secret',
+      WebSocketImpl,
+      fetchImpl: createFetchImpl()
+    })
+    const messages: unknown[] = []
+    client.onC2CMessage((message) => messages.push(message))
+
+    client.connect()
+    await wait(1)
+    sockets[0].emit('message', {
+      data: JSON.stringify({
+        op: 0,
+        t: 'C2C_MESSAGE_CREATE',
+        d: {
+          id: 'message-with-image',
+          author: { user_openid: 'open-1' },
+          content: '',
+          timestamp: '2026-08-03T03:07:33Z',
+          attachments: [
+            {
+              content_type: 'image/png',
+              filename: 'photo.png',
+              height: 800,
+              width: 600,
+              size: 1234,
+              url: '//multimedia.nt.qq.com/download?appid=app&fileid=image-1'
+            }
+          ]
+        }
+      })
+    })
+
+    assert.deepEqual(messages, [
+      {
+        openId: 'open-1',
+        content: '',
+        messageId: 'message-with-image',
+        timestamp: '2026-08-03T03:07:33Z',
+        attachments: [
+          {
+            contentType: 'image/png',
+            filename: 'photo.png',
+            height: 800,
+            width: 600,
+            size: 1234,
+            url: '//multimedia.nt.qq.com/download?appid=app&fileid=image-1'
+          }
+        ]
+      }
+    ])
+    await client.close()
+  })
+})
+
 describe('QQBot C2C file messages', () => {
   it('uploads a local file and sends it as a passive media reply', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'yachiyo-qqbot-file-'))
