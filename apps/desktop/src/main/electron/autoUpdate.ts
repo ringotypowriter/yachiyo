@@ -6,6 +6,8 @@ import log from 'electron-log'
 import { resolveYachiyoSettingsPath } from '@yachiyo/runtime/config/paths'
 import { createSettingsStore } from '@yachiyo/runtime/settings/settingsStore'
 import type { UpdateChannel } from '@yachiyo/shared/protocol'
+import type { AppUpdateController } from './appUpdateController.ts'
+import { createAppUpdateController } from './appUpdateController.ts'
 
 import { createElectronProviderCredentialVault } from '../security/providerCredentials.ts'
 import { UPDATE_MIRROR_BASE, resolveUpdateFeed } from './updateFeed'
@@ -68,29 +70,52 @@ async function fetchReleaseNotes(version: string): Promise<string> {
   return body
 }
 
-function setupDevMock(): void {
+function wait(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+function setupDevMock(): AppUpdateController {
+  const targetVersion = '99.0.0'
+  const controller = createAppUpdateController({
+    getRunningVersion: () => app.getVersion(),
+    getDownloadedVersion: () =>
+      currentStatus.state === 'ready' ? currentStatus.version : undefined,
+    checkForUpdates: async () => {
+      broadcast({ state: 'checking' })
+      await wait(1_000)
+      broadcast({ state: 'available', version: targetVersion })
+      return { available: true, version: targetVersion }
+    },
+    downloadUpdate: async () => {
+      const steps = [0, 15, 35, 55, 75, 90, 100]
+      for (const percent of steps) {
+        broadcast({ state: 'downloading', version: targetVersion, percent })
+        await wait(400)
+      }
+      broadcast({ state: 'ready', version: targetVersion })
+    },
+    quitAndInstall: () => {
+      console.log('[auto-update:dev] install requested — exercising quit flow')
+      installing = true
+      setImmediate(() => app.quit())
+    }
+  })
+
   ipcMain.handle('app-update:get-status', (): UpdateStatus => currentStatus)
   ipcMain.handle('app-update:get-release-notes', (_event, version: string) =>
     fetchReleaseNotes(version)
   )
 
   ipcMain.on('app-update:check', () => {
-    broadcast({ state: 'checking' })
-    setTimeout(() => broadcast({ state: 'available', version: '99.0.0' }), 1000)
+    void controller.status()
   })
 
   ipcMain.on('app-update:download', () => {
-    const steps = [0, 15, 35, 55, 75, 90, 100]
-    steps.forEach((p, i) => {
-      setTimeout(() => broadcast({ state: 'downloading', version: '99.0.0', percent: p }), i * 400)
-    })
-    setTimeout(() => broadcast({ state: 'ready', version: '99.0.0' }), steps.length * 400)
+    void controller.prepareApply()
   })
 
   ipcMain.on('app-update:install', () => {
-    console.log('[auto-update:dev] install requested — exercising quit flow')
-    installing = true
-    setImmediate(() => app.quit())
+    controller.installPrepared()
   })
 
   ipcMain.on('app-update:open-release', () => {
@@ -103,7 +128,9 @@ function setupDevMock(): void {
 
   // Simulate finding an update on launch
   setTimeout(() => broadcast({ state: 'checking' }), 2000)
-  setTimeout(() => broadcast({ state: 'available', version: '99.0.0' }), 3000)
+  setTimeout(() => broadcast({ state: 'available', version: targetVersion }), 3000)
+
+  return controller
 }
 
 /** Extract a short, user-friendly message from electron-updater errors. */
@@ -128,14 +155,14 @@ function summarizeUpdateError(err: Error): string {
   return firstLine.length > 120 ? firstLine.slice(0, 117) + '…' : firstLine
 }
 
-function setupProd(): void {
+function setupProd(): AppUpdateController {
   let channel = readInitialChannel()
   autoUpdater.logger = log
   autoUpdater.autoDownload = false
   autoUpdater.autoInstallOnAppQuit = false
   autoUpdater.allowPrerelease = channel === 'beta'
 
-  async function checkForUpdates(): Promise<void> {
+  async function checkForUpdates(): Promise<{ available: boolean; version: string }> {
     const feed = await resolveUpdateFeed({
       mirrorBase: UPDATE_MIRROR_BASE,
       channel,
@@ -147,7 +174,11 @@ function setupProd(): void {
       autoUpdater.setFeedURL({ provider: 'github', owner: 'ringotypowriter', repo: 'yachiyo' })
     }
     autoUpdater.allowPrerelease = channel === 'beta'
-    autoUpdater.checkForUpdates()
+    const result = await autoUpdater.checkForUpdates()
+    if (!result) {
+      throw new Error('The updater is unavailable in this build.')
+    }
+    return { available: result.isUpdateAvailable, version: result.updateInfo.version }
   }
 
   autoUpdater.on('checking-for-update', () => {
@@ -178,22 +209,41 @@ function setupProd(): void {
     broadcast({ state: 'error', error: summarizeUpdateError(err) })
   })
 
+  const installUpdate = (): void => {
+    installing = true
+    setImmediate(() => autoUpdater.quitAndInstall())
+  }
+  const controller = createAppUpdateController({
+    getRunningVersion: () => app.getVersion(),
+    getDownloadedVersion: () =>
+      currentStatus.state === 'ready' ? currentStatus.version : undefined,
+    checkForUpdates,
+    downloadUpdate: async () => {
+      await autoUpdater.downloadUpdate()
+    },
+    quitAndInstall: installUpdate
+  })
+
+  const broadcastFailure = (error: unknown): void => {
+    const updateError = error instanceof Error ? error : new Error(String(error))
+    broadcast({ state: 'error', error: summarizeUpdateError(updateError) })
+  }
+
   ipcMain.handle('app-update:get-status', (): UpdateStatus => currentStatus)
   ipcMain.handle('app-update:get-release-notes', (_event, version: string) =>
     fetchReleaseNotes(version)
   )
 
   ipcMain.on('app-update:check', () => {
-    void checkForUpdates()
+    void controller.status().catch(broadcastFailure)
   })
 
   ipcMain.on('app-update:download', () => {
-    autoUpdater.downloadUpdate()
+    void autoUpdater.downloadUpdate().catch(broadcastFailure)
   })
 
   ipcMain.on('app-update:install', () => {
-    installing = true
-    setImmediate(() => autoUpdater.quitAndInstall())
+    installUpdate()
   })
 
   ipcMain.on('app-update:open-release', () => {
@@ -208,18 +258,19 @@ function setupProd(): void {
     if (nextChannel === channel) return
     channel = nextChannel
     broadcast({ state: 'idle' })
-    void checkForUpdates()
+    void checkForUpdates().catch(broadcastFailure)
   })
 
   // Check on launch, then every 4 hours
-  void checkForUpdates()
-  setInterval(() => void checkForUpdates(), 4 * 60 * 60 * 1000)
+  void checkForUpdates().catch(broadcastFailure)
+  setInterval(() => void checkForUpdates().catch(broadcastFailure), 4 * 60 * 60 * 1000)
+
+  return controller
 }
 
-export function setupAutoUpdate(): void {
+export function setupAutoUpdate(): AppUpdateController {
   if (is.dev) {
-    setupDevMock()
-  } else {
-    setupProd()
+    return setupDevMock()
   }
+  return setupProd()
 }

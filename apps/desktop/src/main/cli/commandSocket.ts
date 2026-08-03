@@ -1,6 +1,11 @@
 import { createServer, connect, type Server } from 'node:net'
 import { existsSync, mkdirSync, unlinkSync } from 'node:fs'
 import { dirname } from 'node:path'
+import type {
+  AppUpdateAction,
+  AppUpdateCommandResult,
+  AppUpdateCommandResponse
+} from '@yachiyo/shared/appUpdate'
 
 export interface SendChannelInput {
   id: string
@@ -21,6 +26,11 @@ export interface MarkThreadReviewedInput {
   threadId: string
 }
 
+export interface AppUpdateCommandReply {
+  result: AppUpdateCommandResult
+  afterReply?: () => void
+}
+
 export interface CommandSocketOptions {
   socketPath: string
   onNotification: (input: { title: string; body?: string }) => void
@@ -28,6 +38,7 @@ export interface CommandSocketOptions {
   onUpdateChannelGroupStatus: (input: UpdateChannelGroupStatusInput) => void
   onUpdateChannelGroupLabel: (input: UpdateChannelGroupLabelInput) => void
   onMarkThreadReviewed: (input: MarkThreadReviewedInput) => void
+  onAppUpdate?: (input: { action: AppUpdateAction }) => Promise<AppUpdateCommandReply>
   onError?: (error: Error) => void
 }
 
@@ -49,6 +60,7 @@ export function startCommandSocket(options: CommandSocketOptions): CommandSocket
     onUpdateChannelGroupStatus,
     onUpdateChannelGroupLabel,
     onMarkThreadReviewed,
+    onAppUpdate,
     onError
   } = options
   let closed = false
@@ -59,7 +71,7 @@ export function startCommandSocket(options: CommandSocketOptions): CommandSocket
     unlinkSync(socketPath)
   }
 
-  const server: Server = createServer((connection) => {
+  const server: Server = createServer({ allowHalfOpen: true }, (connection) => {
     let buffer = ''
 
     connection.setEncoding('utf-8')
@@ -68,11 +80,18 @@ export function startCommandSocket(options: CommandSocketOptions): CommandSocket
     })
 
     connection.on('end', () => {
-      if (!buffer.trim()) return
+      const close = (): void => {
+        connection.end()
+      }
+      if (!buffer.trim()) {
+        close()
+        return
+      }
       let message: TypedMessage
       try {
         message = JSON.parse(buffer) as TypedMessage
       } catch {
+        close()
         return
       }
 
@@ -83,47 +102,113 @@ export function startCommandSocket(options: CommandSocketOptions): CommandSocket
         if (typeof message.title === 'string' && message.title.trim()) {
           onNotification({ title: message.title, body: message.body as string | undefined })
         }
+        close()
         return
       }
 
       if (type === 'notification') {
-        if (typeof message.title !== 'string' || !message.title.trim()) return
+        if (typeof message.title !== 'string' || !message.title.trim()) {
+          close()
+          return
+        }
         onNotification({ title: message.title, body: message.body as string | undefined })
+        close()
         return
       }
 
       if (type === 'send-channel') {
         const id = message.id
         const msg = message.message
-        if (typeof id !== 'string' || !id.trim()) return
-        if (typeof msg !== 'string' || !msg.trim()) return
+        if (typeof id !== 'string' || !id.trim()) {
+          close()
+          return
+        }
+        if (typeof msg !== 'string' || !msg.trim()) {
+          close()
+          return
+        }
         onSendChannel({ id, message: msg })
+        close()
         return
       }
 
       if (type === 'update-channel-group-status') {
         const id = message.id
         const status = message.status
-        if (typeof id !== 'string' || !id.trim()) return
-        if (status !== 'pending' && status !== 'approved' && status !== 'blocked') return
+        if (typeof id !== 'string' || !id.trim()) {
+          close()
+          return
+        }
+        if (status !== 'pending' && status !== 'approved' && status !== 'blocked') {
+          close()
+          return
+        }
         onUpdateChannelGroupStatus({ id, status })
+        close()
         return
       }
 
       if (type === 'update-channel-group-label') {
         const id = message.id
         const label = message.label
-        if (typeof id !== 'string' || !id.trim()) return
-        if (typeof label !== 'string') return
+        if (typeof id !== 'string' || !id.trim()) {
+          close()
+          return
+        }
+        if (typeof label !== 'string') {
+          close()
+          return
+        }
         onUpdateChannelGroupLabel({ id, label })
+        close()
         return
       }
 
       if (type === 'mark-thread-reviewed') {
         const threadId = message.threadId
-        if (typeof threadId !== 'string' || !threadId.trim()) return
+        if (typeof threadId !== 'string' || !threadId.trim()) {
+          close()
+          return
+        }
         onMarkThreadReviewed({ threadId })
+        close()
+        return
       }
+
+      if (type === 'app-update') {
+        const action = message.action
+        if (!onAppUpdate || (action !== 'status' && action !== 'apply' && action !== 'snapshot')) {
+          const response: AppUpdateCommandResponse = {
+            ok: false,
+            error: 'Unsupported app update command.'
+          }
+          connection.end(JSON.stringify(response))
+          return
+        }
+
+        void onAppUpdate({ action })
+          .then(({ result, afterReply }) => {
+            const response: AppUpdateCommandResponse = { ok: true, result }
+            connection.end(JSON.stringify(response), () => {
+              if (!afterReply) return
+              try {
+                afterReply()
+              } catch (error) {
+                onError?.(error instanceof Error ? error : new Error(String(error)))
+              }
+            })
+          })
+          .catch((error) => {
+            const response: AppUpdateCommandResponse = {
+              ok: false,
+              error: error instanceof Error ? error.message : String(error)
+            }
+            connection.end(JSON.stringify(response))
+          })
+        return
+      }
+
+      close()
     })
   })
 
