@@ -5,12 +5,12 @@ import type { MessageImageRecord } from '@yachiyo/shared/protocol'
 import { startQQBotImageDownloads } from './qqbotService.ts'
 
 describe('startQQBotImageDownloads', () => {
-  it('downloads image attachments from protocol-relative QQ URLs', async () => {
+  it('downloads filtered images with contiguous indices from protocol-relative QQ URLs', async () => {
     const image: MessageImageRecord = {
       dataUrl: 'data:image/png;base64,AAA',
       mediaType: 'image/png',
       filename: 'photo.png',
-      attachmentIndex: 2
+      attachmentIndex: 1
     }
     const calls: Array<{ url: string; options: unknown }> = []
 
@@ -45,7 +45,7 @@ describe('startQQBotImageDownloads', () => {
         url: 'https://multimedia.nt.qq.com/download?fileid=image-1',
         options: {
           maxBytes: 5 * 1024 * 1024,
-          attachmentIndex: 2,
+          attachmentIndex: 1,
           filename: 'photo.png'
         }
       }

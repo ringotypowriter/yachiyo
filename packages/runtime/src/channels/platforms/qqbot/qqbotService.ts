@@ -65,10 +65,10 @@ export function startQQBotImageDownloads(
   fetchImage: QQBotImageFetcher = fetchImageAsDataUrl
 ): Promise<DirectMessageInboundAttachment | null>[] {
   return attachments
-    .map((attachment, index) => ({ attachment, attachmentIndex: index + 1 }))
-    .filter(({ attachment }) => attachment.contentType.startsWith('image/'))
+    .filter((attachment) => attachment.contentType.startsWith('image/'))
     .slice(0, policy.maxImagesPerBatch)
-    .map(({ attachment, attachmentIndex }) => {
+    .map((attachment, index) => {
+      const attachmentIndex = index + 1
       const url = attachment.url.startsWith('//') ? `https:${attachment.url}` : attachment.url
       return fetchImage(url, {
         maxBytes: policy.maxImageBytes,
