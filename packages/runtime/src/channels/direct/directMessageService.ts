@@ -202,7 +202,10 @@ export async function resolveDirectMessageThread(
 export interface DirectMessageServiceOptions<TTarget> {
   logLabel: string
   server: DirectMessageServer
-  policy: Pick<ChannelPolicy, 'allowedTools' | 'replyInstruction' | 'imageTtlMs'>
+  policy: Pick<
+    ChannelPolicy,
+    'allowedTools' | 'replyInstruction' | 'imageTtlMs' | 'maxImagesPerBatch'
+  >
   resolveThread(channelUser: ChannelUserRecord): Promise<DirectMessageThreadResolution>
   sendMessage(target: TTarget, text: string): Promise<void>
   sendReply?(target: TTarget, payload: ChannelReplyPayload): Promise<void>
@@ -924,7 +927,10 @@ export function createDirectMessageService<TTarget>(
     pendingBatches.delete(userId)
 
     const joinedText = batch.messages.join('\n')
-    const { images, attachments } = await collectResolvedAttachments(batch.attachmentDownloads)
+    const { images: resolvedImages, attachments } = await collectResolvedAttachments(
+      batch.attachmentDownloads
+    )
+    const images = resolvedImages.slice(0, options.policy.maxImagesPerBatch)
 
     console.log(
       `[${options.logLabel}] flushing batch for ${batch.channelUser.username}: ${batch.messages.length} message(s), ${images.length} image(s), ${attachments.length} file attachment(s)`
