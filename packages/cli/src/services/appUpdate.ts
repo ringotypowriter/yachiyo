@@ -17,6 +17,9 @@ const RESTART_TIMEOUT_MS = 5 * 60 * 1_000
 const RESTART_POLL_INTERVAL_MS = 1_000
 
 class YachiyoAppNotRunningError extends Error {}
+class YachiyoAppRestartTransitionError extends Error {}
+
+const RESTART_TRANSITION_ERROR_CODES = new Set(['ECONNRESET', 'EPIPE'])
 
 export interface ApplyAppUpdateOptions {
   force?: boolean
@@ -148,6 +151,10 @@ function requestAppUpdate(
       response += chunk
     })
     client.on('end', () => {
+      if (!response) {
+        finish(new YachiyoAppRestartTransitionError('Yachiyo app closed the update connection.'))
+        return
+      }
       let parsed: AppUpdateCommandResponse
       try {
         parsed = JSON.parse(response) as AppUpdateCommandResponse
@@ -172,6 +179,8 @@ function requestAppUpdate(
       const code = (error as NodeJS.ErrnoException).code
       if (code === 'ENOENT' || code === 'ECONNREFUSED') {
         finish(new YachiyoAppNotRunningError('Yachiyo app is not running. Start the app first.'))
+      } else if (code && RESTART_TRANSITION_ERROR_CODES.has(code)) {
+        finish(new YachiyoAppRestartTransitionError('Yachiyo app closed the update connection.'))
       } else {
         finish(error)
       }
@@ -262,7 +271,10 @@ export async function defaultApplyAppUpdate(
         }
       }
     } catch (error) {
-      if (!(error instanceof YachiyoAppNotRunningError)) {
+      if (
+        !(error instanceof YachiyoAppNotRunningError) &&
+        !(error instanceof YachiyoAppRestartTransitionError)
+      ) {
         throw error
       }
     }
