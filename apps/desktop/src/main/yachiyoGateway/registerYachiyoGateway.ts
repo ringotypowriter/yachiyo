@@ -94,6 +94,13 @@ import {
   startUtilityRuntimeHost,
   type UtilityRuntimeHost
 } from '../runtimeHost/startUtilityRuntimeHost.ts'
+import {
+  clearPendingUpdateReceipt,
+  readPendingUpdateReceipt,
+  writePendingUpdateReceipt
+} from '../appUpdate/pendingUpdateReceipt.ts'
+import type { UpdateReceiptOrigin } from '../appUpdate/installReceiptSequence.ts'
+import { describeUpdateOutcome } from '../appUpdate/updateReceiptMessage.ts'
 import { startCommandSocket, type CommandSocketHandle } from '../cli/commandSocket.ts'
 import { createAppUpdateCommandHandler } from '../cli/appUpdateCommand.ts'
 import { createProviderFetch } from '../net/providerFetch.ts'
@@ -241,6 +248,32 @@ function logBrowserSearchDiagnostic(event: BrowserSearchDiagnosticEvent): void {
   console.warn(`[web-search] ${event.event}${suffix ? ` ${suffix}` : ''}`)
 }
 
+/** Beside the other per-install state, in the app's own data directory. */
+function pendingUpdateReceiptPath(): string {
+  return join(app.getPath('userData'), 'pending-update-receipt.json')
+}
+
+/**
+ * Report the outcome of an update the user asked for in chat, then forget it.
+ *
+ * Runs once per start. The run that received the instruction died in the
+ * restart, so this record is the only thing that knows anyone is waiting.
+ */
+async function deliverPendingUpdateReceipt(): Promise<void> {
+  const path = pendingUpdateReceiptPath()
+  const pending = readPendingUpdateReceipt(path, Date.now())
+  if (!pending) return
+
+  const outcome = describeUpdateOutcome(pending, app.getVersion())
+  try {
+    await hostCall('sendChannelMessage', [{ id: pending.channelId, message: outcome.message }])
+    // Only forget it once it has actually been said.
+    clearPendingUpdateReceipt(path)
+  } catch (error) {
+    console.error('[update-receipt] could not deliver, keeping for next start:', error)
+  }
+}
+
 const COMMAND_SOCKET_HEALTH_INTERVAL_MS = 15_000
 const COMMAND_SOCKET_HEALTH_TIMEOUT_MS = 1_000
 
@@ -292,7 +325,28 @@ function createCommandSocketHandle(): CommandSocketHandle {
       return createAppUpdateCommandHandler({
         controller: appUpdateController,
         getRunningVersion: () => app.getVersion(),
-        getActiveRunIds: () => gatewayHandle?.listActiveRunIds() ?? []
+        getActiveRunIds: () => gatewayHandle?.listActiveRunIds() ?? [],
+        receipt: {
+          resolveOrigin: (runId) =>
+            hostCall<UpdateReceiptOrigin | undefined>('resolveRunChannelOrigin', [runId]).catch(
+              (error) => {
+                // Not knowing where to report back is a reason to skip the
+                // receipt, not to block the update the user asked for.
+                console.error('[update-receipt] could not resolve origin:', error)
+                return undefined
+              }
+            ),
+          persist: (record) => writePendingUpdateReceipt(pendingUpdateReceiptPath(), record),
+          clear: () => clearPendingUpdateReceipt(pendingUpdateReceiptPath()),
+          announce: async (origin) => {
+            await hostCall('sendChannelMessage', [
+              { id: origin.channelId, message: '开始更新，稍后回来。' }
+            ])
+          },
+          announceTimeoutMs: 2_000,
+          now: () => Date.now(),
+          targetVersion: () => appUpdateController?.getPreparedVersion()
+        }
       })(input)
     },
     onError: (error) => {
@@ -657,6 +711,9 @@ export function registerYachiyoGateway(options: {
     gatewayHandle = server
   }
   registerFatalRunRecovery()
+  // If the last shutdown was a self-triggered update, somebody is still
+  // waiting in a chat for the outcome.
+  void deliverPendingUpdateReceipt()
 
   // In utility mode the runtime host starts its own live services.
   if (!USE_UTILITY_RUNTIME) {

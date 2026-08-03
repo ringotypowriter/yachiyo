@@ -31,6 +31,8 @@ export interface AppUpdateController {
   tryRunUpdaterOperation<T>(operation: () => Promise<T>): Promise<T> | undefined
   hasActiveInstallReservation(): boolean
   reservePreparedInstall(): AppUpdateInstallReservation
+  /** What a reservation taken right now would install, if anything. */
+  getPreparedVersion(): string | undefined
   installPrepared(): void
 }
 
@@ -186,6 +188,7 @@ export function createAppUpdateController(
       }
     },
     reservePreparedInstall,
+    getPreparedVersion: () => preparedVersion,
     installPrepared(): void {
       reservePreparedInstall().install()
     }

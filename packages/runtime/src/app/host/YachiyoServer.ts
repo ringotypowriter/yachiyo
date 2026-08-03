@@ -1537,6 +1537,32 @@ export class YachiyoServer {
     return this.runDomain.hasActiveThread(threadId)
   }
 
+  /**
+   * Where to report back to after a self-triggered update restart.
+   *
+   * The restart kills the run that received the instruction, so the origin has
+   * to be captured while it is still alive and carried across the restart in
+   * storage. Resolved here rather than in the desktop process because the
+   * run → thread → channel chain lives in this side's storage.
+   *
+   * Returns `undefined` for runs with no external origin — a local thread has
+   * nobody waiting in a chat, so there is nothing to report to.
+   */
+  resolveRunChannelOrigin(
+    runId: string
+  ): { channelId: string; threadId: string; messageId: string } | undefined {
+    const run = this.storage.getRun(runId)
+    if (!run) return undefined
+    const thread = this.storage.getThread(run.threadId)
+    const channelId = thread?.channelUserId ?? thread?.channelGroupId
+    if (!channelId) return undefined
+    return {
+      channelId,
+      threadId: run.threadId,
+      messageId: run.requestMessageId ?? ''
+    }
+  }
+
   listActiveRunIds(): string[] {
     return this.runDomain.listActiveRunIds()
   }
