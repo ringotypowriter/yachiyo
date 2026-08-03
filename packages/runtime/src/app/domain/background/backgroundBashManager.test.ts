@@ -109,6 +109,31 @@ describe('BackgroundBashManager', () => {
     }
   })
 
+  it('uses the scoped environment supplied by the launching run', async () => {
+    const tempDir = await createTempDir()
+    try {
+      const manager = new BackgroundBashManager()
+      const completed = new Promise<BackgroundBashTaskResult>((resolve) => {
+        manager.setCompletionHandler(resolve)
+      })
+      const logPath = join(tempDir, 'tool-output', 'run-env.log')
+
+      await manager.startTask({
+        taskId: 'run-env-task',
+        command: 'printf %s "$YACHIYO_RUN_ID"',
+        cwd: tempDir,
+        env: { ...process.env, YACHIYO_RUN_ID: 'run-self' },
+        logPath,
+        threadId: 'thread-run-env'
+      })
+
+      await completed
+      assert.equal(await readFile(logPath, 'utf8'), 'run-self')
+    } finally {
+      await rm(tempDir, { recursive: true })
+    }
+  })
+
   it('reports non-zero exit code for failing commands', async () => {
     const tempDir = await createTempDir()
     try {

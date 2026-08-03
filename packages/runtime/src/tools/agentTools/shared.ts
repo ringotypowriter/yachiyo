@@ -459,6 +459,7 @@ export interface BackgroundBashTaskHandle {
   command: string
   description?: string
   cwd: string
+  env?: NodeJS.ProcessEnv
   logPath: string
   toolCallId?: string
 }
@@ -478,6 +479,8 @@ export interface BackgroundBashAdoptionHandle extends BackgroundBashTaskHandle {
 }
 
 export interface AgentToolContext {
+  /** Current run identity, injected into tool-spawned processes for safe self-directed operations. */
+  runId?: string
   enabledTools?: ToolCallName[]
   /** Internal worker contexts should expose only tools explicitly present in enabledTools. */
   registerOnlyEnabledToolSchemas?: boolean
@@ -560,6 +563,7 @@ export type AgentToolOutput =
 export interface BashRunnerInput {
   command: string
   cwd: string
+  env?: NodeJS.ProcessEnv
   timeoutSeconds: number
   /**
    * If provided, called when the timeout fires instead of killing the child.

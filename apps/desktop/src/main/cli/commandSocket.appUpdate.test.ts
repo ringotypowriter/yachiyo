@@ -70,33 +70,43 @@ test('commandSocket returns an app-update result over a temporary Unix socket', 
   }
 })
 
-test('commandSocket flushes the apply reply before starting installation', async () => {
+test('commandSocket flushes the install reply before starting installation', async () => {
   const root = await mkdtemp('/tmp/yachiyo-update-socket-')
   const socketPath = join(root, 'test.sock')
   const events: string[] = []
   const options = createOptions(socketPath)
-  options.onAppUpdate = async () => ({
-    result: {
-      state: 'restart-required',
-      runningVersion: '1.5.1',
-      targetVersion: '1.6.0-beta.1',
-      interruptedRunCount: 0
-    },
-    afterReply: () => events.push('install')
-  })
+  options.onAppUpdate = async (input) => {
+    assert.deepEqual(input, {
+      action: 'install',
+      force: true,
+      initiatorRunId: 'run-self'
+    })
+    return {
+      result: {
+        state: 'installing',
+        interruptedRunCount: 2,
+        initiatorRunInterrupted: true
+      },
+      afterReply: () => events.push('install')
+    }
+  }
   const handle = startCommandSocket(options)
 
   try {
-    const response = await request(socketPath, { type: 'app-update', action: 'apply' })
+    const response = await request(socketPath, {
+      type: 'app-update',
+      action: 'install',
+      force: true,
+      initiatorRunId: 'run-self'
+    })
     events.unshift('reply')
 
     assert.deepEqual(response, {
       ok: true,
       result: {
-        state: 'restart-required',
-        runningVersion: '1.5.1',
-        targetVersion: '1.6.0-beta.1',
-        interruptedRunCount: 0
+        state: 'installing',
+        interruptedRunCount: 2,
+        initiatorRunInterrupted: true
       }
     })
     assert.deepEqual(events, ['reply', 'install'])

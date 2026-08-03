@@ -1,9 +1,11 @@
 import { connect } from 'node:net'
 
+import { formatAppUpdateBlockedError } from '@yachiyo/shared/appUpdate'
 import type {
-  AppUpdateAction,
   AppUpdateApplyResult,
+  AppUpdateCommandRequest,
   AppUpdateCommandResponse,
+  AppUpdateInstallResult,
   AppUpdatePrepareResult,
   AppUpdateSnapshot,
   AppUpdateStatusResult
@@ -16,7 +18,12 @@ const RESTART_POLL_INTERVAL_MS = 1_000
 
 class YachiyoAppNotRunningError extends Error {}
 
-interface ApplyAppUpdateOptions {
+export interface ApplyAppUpdateOptions {
+  force?: boolean
+  initiatorRunId?: string
+  onBeforeInstall?: (
+    prepared: Extract<AppUpdatePrepareResult, { state: 'restart-required' }>
+  ) => void
   restartTimeoutMs?: number
   pollIntervalMs?: number
 }
@@ -28,6 +35,22 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function readString(record: Record<string, unknown>, key: string): string {
   const value = record[key]
   if (typeof value !== 'string' || !value.trim()) {
+    throw new Error(`Invalid app update response: ${key} is missing.`)
+  }
+  return value
+}
+
+function readNonNegativeInteger(record: Record<string, unknown>, key: string): number {
+  const value = record[key]
+  if (!Number.isInteger(value) || (value as number) < 0) {
+    throw new Error(`Invalid app update response: ${key} is missing.`)
+  }
+  return value as number
+}
+
+function readBoolean(record: Record<string, unknown>, key: string): boolean {
+  const value = record[key]
+  if (typeof value !== 'boolean') {
     throw new Error(`Invalid app update response: ${key} is missing.`)
   }
   return value
@@ -64,15 +87,30 @@ function parsePrepareResult(value: unknown): AppUpdatePrepareResult {
   if (state !== 'restart-required') {
     throw new Error('Invalid app update apply response.')
   }
-  const interruptedRunCount = value.interruptedRunCount
-  if (!Number.isInteger(interruptedRunCount) || (interruptedRunCount as number) < 0) {
-    throw new Error('Invalid app update apply response: interruptedRunCount is missing.')
+  const interruptedRunCount = readNonNegativeInteger(value, 'interruptedRunCount')
+  const blockingRunCount = readNonNegativeInteger(value, 'blockingRunCount')
+  const initiatorRunActive = readBoolean(value, 'initiatorRunActive')
+  if (blockingRunCount > interruptedRunCount) {
+    throw new Error('Invalid app update apply response: blockingRunCount exceeds active runs.')
   }
   return {
     state,
     runningVersion,
     targetVersion: readString(value, 'targetVersion'),
-    interruptedRunCount: interruptedRunCount as number
+    interruptedRunCount,
+    blockingRunCount,
+    initiatorRunActive
+  }
+}
+
+function parseInstallResult(value: unknown): AppUpdateInstallResult {
+  if (!isRecord(value) || value.state !== 'installing') {
+    throw new Error('Invalid app update install response.')
+  }
+  return {
+    state: 'installing',
+    interruptedRunCount: readNonNegativeInteger(value, 'interruptedRunCount'),
+    initiatorRunInterrupted: readBoolean(value, 'initiatorRunInterrupted')
   }
 }
 
@@ -85,14 +123,14 @@ function parseSnapshot(value: unknown): AppUpdateSnapshot {
 
 function requestAppUpdate(
   socketPath: string,
-  action: AppUpdateAction,
+  request: Omit<AppUpdateCommandRequest, 'type'>,
   timeoutMs: number
 ): Promise<unknown> {
   return new Promise((resolve, reject) => {
     let response = ''
     let settled = false
     const client = connect(socketPath, () => {
-      client.end(JSON.stringify({ type: 'app-update', action }))
+      client.end(JSON.stringify({ type: 'app-update', ...request }))
     })
 
     const finish = (error?: Error, result?: unknown): void => {
@@ -148,7 +186,9 @@ function wait(ms: number): Promise<void> {
 export async function defaultGetAppUpdateStatus(
   socketPath: string
 ): Promise<AppUpdateStatusResult> {
-  return parseStatusResult(await requestAppUpdate(socketPath, 'status', STATUS_REQUEST_TIMEOUT_MS))
+  return parseStatusResult(
+    await requestAppUpdate(socketPath, { action: 'status' }, STATUS_REQUEST_TIMEOUT_MS)
+  )
 }
 
 export async function defaultApplyAppUpdate(
@@ -156,10 +196,48 @@ export async function defaultApplyAppUpdate(
   options: ApplyAppUpdateOptions = {}
 ): Promise<AppUpdateApplyResult> {
   const prepared = parsePrepareResult(
-    await requestAppUpdate(socketPath, 'apply', APPLY_REQUEST_TIMEOUT_MS)
+    await requestAppUpdate(
+      socketPath,
+      {
+        action: 'prepare',
+        ...(options.initiatorRunId ? { initiatorRunId: options.initiatorRunId } : {})
+      },
+      APPLY_REQUEST_TIMEOUT_MS
+    )
   )
   if (prepared.state === 'up-to-date') {
     return prepared
+  }
+  if (prepared.blockingRunCount > 0 && options.force !== true) {
+    throw new Error(formatAppUpdateBlockedError(prepared))
+  }
+  options.onBeforeInstall?.(prepared)
+
+  const installing = parseInstallResult(
+    await requestAppUpdate(
+      socketPath,
+      {
+        action: 'install',
+        force: options.force === true,
+        ...(options.initiatorRunId ? { initiatorRunId: options.initiatorRunId } : {})
+      },
+      STATUS_REQUEST_TIMEOUT_MS
+    )
+  )
+
+  if (options.initiatorRunId) {
+    // A Yachiyo tool child is detached and survives the Electron utility
+    // process exit, but its stdout pipe belongs to that exiting process. This
+    // remains true even if the initiating run finishes before installation.
+    // Return only the honest restart-started state; the post-restart channel
+    // receipt is persisted and sent by the runtime layer.
+    return {
+      state: 'restart-started',
+      previousVersion: prepared.runningVersion,
+      targetVersion: prepared.targetVersion,
+      interruptedRunCount: installing.interruptedRunCount,
+      initiatorRunInterrupted: installing.initiatorRunInterrupted
+    }
   }
 
   const restartTimeoutMs = options.restartTimeoutMs ?? RESTART_TIMEOUT_MS
@@ -169,7 +247,9 @@ export async function defaultApplyAppUpdate(
 
   while (Date.now() <= deadline) {
     try {
-      const snapshot = parseSnapshot(await requestAppUpdate(socketPath, 'snapshot', 5_000))
+      const snapshot = parseSnapshot(
+        await requestAppUpdate(socketPath, { action: 'snapshot' }, 5_000)
+      )
       lastRunningVersion = snapshot.runningVersion
       if (snapshot.runningVersion === prepared.targetVersion) {
         return {
@@ -177,7 +257,8 @@ export async function defaultApplyAppUpdate(
           previousVersion: prepared.runningVersion,
           targetVersion: prepared.targetVersion,
           runningVersion: snapshot.runningVersion,
-          interruptedRunCount: prepared.interruptedRunCount
+          interruptedRunCount: installing.interruptedRunCount,
+          initiatorRunInterrupted: installing.initiatorRunInterrupted
         }
       }
     } catch (error) {

@@ -9,6 +9,12 @@ function writeJson(stdout: Pick<typeof process.stdout, 'write'>, value: unknown)
   stdout.write(`${JSON.stringify(value, null, 2)}\n`)
 }
 
+function formatInterruptedRuns(count: number, includesInitiator: boolean): string {
+  const noun = count === 1 ? 'run' : 'runs'
+  const initiator = includesInitiator ? ' (including the initiating run)' : ''
+  return `${count} active Yachiyo ${noun}${initiator}`
+}
+
 function writeStatus(
   stdout: Pick<typeof process.stdout, 'write'>,
   status: AppUpdateStatusResult
@@ -36,8 +42,17 @@ function writeApplyResult(
     stdout.write(`Yachiyo ${result.runningVersion} is up to date.\n`)
     return
   }
+  if (result.state === 'restart-started') {
+    stdout.write(
+      `Installation triggered for Yachiyo ${result.targetVersion}; the restarted version is not yet verified by this run. The restart will interrupt ${formatInterruptedRuns(result.interruptedRunCount, result.initiatorRunInterrupted)}.\n`
+    )
+    return
+  }
   stdout.write(
     `Updated Yachiyo from ${result.previousVersion} to ${result.targetVersion}. Running process: ${result.runningVersion}.\n`
+  )
+  stdout.write(
+    `Interrupted ${formatInterruptedRuns(result.interruptedRunCount, result.initiatorRunInterrupted)}.\n`
   )
 }
 
@@ -69,7 +84,21 @@ export async function handleUpdateCommand(
       stdout.write('Yachiyo will restart to install the update; active work may be interrupted.\n')
     }
     const applyUpdate = options.applyAppUpdate ?? defaultApplyAppUpdate
-    const result = await applyUpdate(socketPath)
+    const env = options.env ?? process.env
+    const result = await applyUpdate(socketPath, {
+      force: flags.has('--force'),
+      ...(env.YACHIYO_RUN_ID ? { initiatorRunId: env.YACHIYO_RUN_ID } : {}),
+      ...(!json
+        ? {
+            onBeforeInstall: (prepared) => {
+              if (!prepared.initiatorRunActive) return
+              stdout.write(
+                `Update ${prepared.targetVersion} is prepared. Yachiyo is about to restart; after restart it will verify the running version and report back.\n`
+              )
+            }
+          }
+        : {})
+    })
     if (json) writeJson(stdout, result)
     else writeApplyResult(stdout, result)
     return

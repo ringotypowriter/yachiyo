@@ -9,7 +9,11 @@ import type {
 } from '@yachiyo/runtime/runtime/profiles/soul'
 import type { MessageSearchHit, ThreadSummary, ThreadDump } from '../services/threadSearch.ts'
 import type { YachiyoStorage } from '@yachiyo/runtime/storage/storage'
-import type { AppUpdateApplyResult, AppUpdateStatusResult } from '@yachiyo/shared/appUpdate'
+import type {
+  AppUpdateApplyResult,
+  AppUpdatePrepareResult,
+  AppUpdateStatusResult
+} from '@yachiyo/shared/appUpdate'
 
 export type CliStdout = Pick<typeof process.stdout, 'write'>
 export type CliStderr = Pick<typeof process.stderr, 'write'>
@@ -69,7 +73,17 @@ export interface RunYachiyoCliOptions {
     payload: { type: 'mark-thread-reviewed'; threadId: string }
   ) => Promise<void>
   getAppUpdateStatus?: (socketPath: string) => Promise<AppUpdateStatusResult>
-  applyAppUpdate?: (socketPath: string) => Promise<AppUpdateApplyResult>
+  applyAppUpdate?: (
+    socketPath: string,
+    options: {
+      force: boolean
+      initiatorRunId?: string
+      onBeforeInstall?: (
+        prepared: Extract<AppUpdatePrepareResult, { state: 'restart-required' }>
+      ) => void
+    }
+  ) => Promise<AppUpdateApplyResult>
+  env?: NodeJS.ProcessEnv
   stdout?: CliStdout
   stderr?: CliStderr
 }

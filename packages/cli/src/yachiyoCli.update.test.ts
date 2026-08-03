@@ -65,26 +65,65 @@ test('update status distinguishes a downloaded update from an up-to-date process
   assert.match(currentOutput.read(), /Yachiyo 1\.5\.1 is up to date/i)
 })
 
-test('update apply warns before restart and succeeds only with the relaunched process version', async () => {
+test('update apply --force reports interrupted runs after the relaunched process reaches the target', async () => {
   const output = captureOutput()
   const options: RunYachiyoCliOptions = {
     ...output.options,
-    applyAppUpdate: async () => {
+    applyAppUpdate: async (_socketPath, options) => {
       assert.match(output.read(), /restart.*interrupt/i)
+      assert.equal(options.force, true)
+      assert.equal(options.initiatorRunId, undefined)
       return {
         state: 'updated',
         previousVersion: '1.5.1',
         targetVersion: '1.6.0-beta.1',
         runningVersion: '1.6.0-beta.1',
-        interruptedRunCount: 1
+        interruptedRunCount: 1,
+        initiatorRunInterrupted: false
       }
     }
   }
 
-  await runYachiyoCli(['update', 'apply'], options)
+  await runYachiyoCli(['update', 'apply', '--force'], options)
 
   assert.match(output.read(), /Updated Yachiyo from 1\.5\.1 to 1\.6\.0-beta\.1/i)
   assert.match(output.read(), /running process: 1\.6\.0-beta\.1/i)
+  assert.match(output.read(), /interrupted 1 active Yachiyo run/i)
+  assert.doesNotMatch(output.read(), /initiating run/i)
+})
+
+test('update apply inside the initiating run warns before install and never claims a verified update', async () => {
+  const output = captureOutput()
+
+  await runYachiyoCli(['update', 'apply'], {
+    ...output.options,
+    env: { YACHIYO_RUN_ID: 'run-self' },
+    applyAppUpdate: async (_socketPath, options) => {
+      assert.equal(options.initiatorRunId, 'run-self')
+      options.onBeforeInstall?.({
+        state: 'restart-required',
+        runningVersion: '1.5.1',
+        targetVersion: '1.6.0-beta.1',
+        interruptedRunCount: 1,
+        blockingRunCount: 0,
+        initiatorRunActive: true
+      })
+      assert.match(output.read(), /about to restart/i)
+      assert.match(output.read(), /after restart.*verify/i)
+      return {
+        state: 'restart-started',
+        previousVersion: '1.5.1',
+        targetVersion: '1.6.0-beta.1',
+        interruptedRunCount: 1,
+        initiatorRunInterrupted: true
+      }
+    }
+  })
+
+  assert.match(output.read(), /installation triggered/i)
+  assert.match(output.read(), /not yet verified/i)
+  assert.match(output.read(), /interrupt.*1 active Yachiyo run.*initiating run/i)
+  assert.doesNotMatch(output.read(), /Updated Yachiyo/i)
 })
 
 test('update apply --json returns a single machine-readable final result', async () => {
@@ -94,7 +133,8 @@ test('update apply --json returns a single machine-readable final result', async
     previousVersion: '1.5.1',
     targetVersion: '1.6.0-beta.1',
     runningVersion: '1.6.0-beta.1',
-    interruptedRunCount: 0
+    interruptedRunCount: 0,
+    initiatorRunInterrupted: false
   }
 
   await runYachiyoCli(['update', 'apply', '--json'], {

@@ -2,7 +2,7 @@ import { createServer, connect, type Server } from 'node:net'
 import { existsSync, mkdirSync, unlinkSync } from 'node:fs'
 import { dirname } from 'node:path'
 import type {
-  AppUpdateAction,
+  AppUpdateCommandRequest,
   AppUpdateCommandResult,
   AppUpdateCommandResponse
 } from '@yachiyo/shared/appUpdate'
@@ -31,6 +31,8 @@ export interface AppUpdateCommandReply {
   afterReply?: () => void
 }
 
+export type AppUpdateCommandInput = Omit<AppUpdateCommandRequest, 'type'>
+
 export interface CommandSocketOptions {
   socketPath: string
   onNotification: (input: { title: string; body?: string }) => void
@@ -38,7 +40,7 @@ export interface CommandSocketOptions {
   onUpdateChannelGroupStatus: (input: UpdateChannelGroupStatusInput) => void
   onUpdateChannelGroupLabel: (input: UpdateChannelGroupLabelInput) => void
   onMarkThreadReviewed: (input: MarkThreadReviewedInput) => void
-  onAppUpdate?: (input: { action: AppUpdateAction }) => Promise<AppUpdateCommandReply>
+  onAppUpdate?: (input: AppUpdateCommandInput) => Promise<AppUpdateCommandReply>
   onError?: (error: Error) => void
 }
 
@@ -177,7 +179,17 @@ export function startCommandSocket(options: CommandSocketOptions): CommandSocket
 
       if (type === 'app-update') {
         const action = message.action
-        if (!onAppUpdate || (action !== 'status' && action !== 'apply' && action !== 'snapshot')) {
+        const initiatorRunId = message.initiatorRunId
+        if (
+          !onAppUpdate ||
+          (action !== 'status' &&
+            action !== 'prepare' &&
+            action !== 'install' &&
+            action !== 'snapshot') ||
+          (initiatorRunId !== undefined &&
+            (typeof initiatorRunId !== 'string' || !initiatorRunId.trim())) ||
+          (action === 'install' && typeof message.force !== 'boolean')
+        ) {
           const response: AppUpdateCommandResponse = {
             ok: false,
             error: 'Unsupported app update command.'
@@ -186,7 +198,13 @@ export function startCommandSocket(options: CommandSocketOptions): CommandSocket
           return
         }
 
-        void onAppUpdate({ action })
+        const input: AppUpdateCommandInput = {
+          action,
+          ...(action === 'install' ? { force: message.force as boolean } : {}),
+          ...(typeof initiatorRunId === 'string' ? { initiatorRunId } : {})
+        }
+
+        void onAppUpdate(input)
           .then(({ result, afterReply }) => {
             const response: AppUpdateCommandResponse = { ok: true, result }
             connection.end(JSON.stringify(response), () => {

@@ -107,9 +107,10 @@ export const NAMESPACE_HELP: Record<string, string> = {
 
   update status [--json]                   Check for updates and distinguish available, downloaded-ready,
                                            and up-to-date states. Reports the running process version.
-  update apply [--json]                    Check, download, install, and restart. Succeeds only after the
+  update apply [--json] [--force]          Check, download, install, and restart. Succeeds only after the
                                            relaunched process reports the target version. Active work may
-                                           be interrupted by the restart.`
+                                           be interrupted by the restart. The initiating Yachiyo run is
+                                           allowed; other active runs block installation unless --force.`
 }
 
 export function namespaceHelp(ns: string): string {

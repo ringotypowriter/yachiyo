@@ -10,6 +10,7 @@ export interface BackgroundBashTaskInput {
   command: string
   description?: string
   cwd: string
+  env?: NodeJS.ProcessEnv
   logPath: string
   toolCallId?: string
   threadId: string
@@ -122,7 +123,7 @@ export class BackgroundBashManager {
   async startTask(input: BackgroundBashTaskInput): Promise<void> {
     const child = spawn('/bin/zsh', ['-lc', input.command], {
       cwd: input.cwd,
-      env: process.env,
+      env: input.env ?? process.env,
       stdio: ['ignore', 'pipe', 'pipe'],
       // Give the child its own process group so cancelTask() can kill the
       // entire tree (shell + any grandchild processes) via process.kill(-pid).

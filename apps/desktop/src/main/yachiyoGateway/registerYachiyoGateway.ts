@@ -95,6 +95,7 @@ import {
   type UtilityRuntimeHost
 } from '../runtimeHost/startUtilityRuntimeHost.ts'
 import { startCommandSocket, type CommandSocketHandle } from '../cli/commandSocket.ts'
+import { createAppUpdateCommandHandler } from '../cli/appUpdateCommand.ts'
 import { createProviderFetch } from '../net/providerFetch.ts'
 import { openThreadWorkspace } from '../electron/openThreadWorkspace.ts'
 import { readAppLogEntries } from '../logs/appLogFiles.ts'
@@ -284,28 +285,15 @@ function createCommandSocketHandle(): CommandSocketHandle {
           console.error('[mark-thread-reviewed] failed:', error)
         })
     },
-    onAppUpdate: async ({ action }) => {
+    onAppUpdate: async (input) => {
       if (!appUpdateController) {
         throw new Error('App updater is not running.')
       }
-      if (action === 'snapshot') {
-        return { result: { runningVersion: app.getVersion() } }
-      }
-      if (action === 'status') {
-        return { result: await appUpdateController.status() }
-      }
-
-      const prepared = await appUpdateController.prepareApply()
-      if (prepared.state === 'up-to-date') {
-        return { result: prepared }
-      }
-      return {
-        result: {
-          ...prepared,
-          interruptedRunCount: gatewayHandle?.listActiveRunIds().length ?? 0
-        },
-        afterReply: () => appUpdateController?.installPrepared()
-      }
+      return createAppUpdateCommandHandler({
+        controller: appUpdateController,
+        getRunningVersion: () => app.getVersion(),
+        getActiveRunIds: () => gatewayHandle?.listActiveRunIds() ?? []
+      })(input)
     },
     onError: (error) => {
       console.error('[command-socket] server error:', error)
