@@ -6,11 +6,13 @@ import test from 'node:test'
 
 import { defaultApplyAppUpdate, defaultGetAppUpdateStatus } from './appUpdate.ts'
 
+const NO_REPLY = Symbol('no reply')
+
 async function startReplyServer(
   socketPath: string,
   reply: (request: { action?: string; force?: boolean; initiatorRunId?: string }) => unknown
 ): Promise<Server> {
-  const server = createServer((connection) => {
+  const server = createServer({ allowHalfOpen: true }, (connection) => {
     let body = ''
     connection.setEncoding('utf8')
     connection.on('data', (chunk: string) => {
@@ -22,6 +24,10 @@ async function startReplyServer(
       )
       if (result === undefined) {
         connection.end()
+        return
+      }
+      if (result === NO_REPLY) {
+        setTimeout(() => connection.destroy(), 50)
         return
       }
       connection.end(JSON.stringify({ ok: true, result }))
@@ -188,6 +194,55 @@ test('defaultApplyAppUpdate retries an empty socket reply while the App is resta
       await defaultApplyAppUpdate(socketPath, {
         restartTimeoutMs: 1_000,
         pollIntervalMs: 1
+      }),
+      {
+        state: 'updated',
+        previousVersion: '1.5.1',
+        targetVersion: '1.6.0-beta.1',
+        runningVersion: '1.6.0-beta.1',
+        interruptedRunCount: 0,
+        initiatorRunInterrupted: false
+      }
+    )
+    assert.equal(snapshotCount, 2)
+  } finally {
+    await closeServer(server)
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('defaultApplyAppUpdate retries a snapshot timeout while the App is restarting', async () => {
+  const root = await mkdtemp('/tmp/yachiyo-update-client-')
+  const socketPath = join(root, 'test.sock')
+  let snapshotCount = 0
+  const server = await startReplyServer(socketPath, (request) => {
+    if (request.action === 'prepare') {
+      return {
+        state: 'restart-required',
+        runningVersion: '1.5.1',
+        targetVersion: '1.6.0-beta.1',
+        interruptedRunCount: 0,
+        blockingRunCount: 0,
+        initiatorRunActive: false
+      }
+    }
+    if (request.action === 'install') {
+      return {
+        state: 'installing',
+        interruptedRunCount: 0,
+        initiatorRunInterrupted: false
+      }
+    }
+    snapshotCount++
+    return snapshotCount === 1 ? NO_REPLY : { runningVersion: '1.6.0-beta.1' }
+  })
+
+  try {
+    assert.deepEqual(
+      await defaultApplyAppUpdate(socketPath, {
+        restartTimeoutMs: 1_000,
+        pollIntervalMs: 1,
+        snapshotRequestTimeoutMs: 20
       }),
       {
         state: 'updated',

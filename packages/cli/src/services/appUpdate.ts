@@ -18,6 +18,7 @@ const RESTART_POLL_INTERVAL_MS = 1_000
 
 class YachiyoAppNotRunningError extends Error {}
 class YachiyoAppRestartTransitionError extends Error {}
+class YachiyoAppRequestTimeoutError extends Error {}
 
 const RESTART_TRANSITION_ERROR_CODES = new Set(['ECONNRESET', 'EPIPE'])
 
@@ -29,6 +30,7 @@ export interface ApplyAppUpdateOptions {
   ) => void
   restartTimeoutMs?: number
   pollIntervalMs?: number
+  snapshotRequestTimeoutMs?: number
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -173,7 +175,9 @@ function requestAppUpdate(
       finish(undefined, parsed.result)
     })
     client.on('timeout', () => {
-      finish(new Error('Timed out waiting for the Yachiyo app update response.'))
+      finish(
+        new YachiyoAppRequestTimeoutError('Timed out waiting for the Yachiyo app update response.')
+      )
     })
     client.on('error', (error) => {
       const code = (error as NodeJS.ErrnoException).code
@@ -251,13 +255,14 @@ export async function defaultApplyAppUpdate(
 
   const restartTimeoutMs = options.restartTimeoutMs ?? RESTART_TIMEOUT_MS
   const pollIntervalMs = options.pollIntervalMs ?? RESTART_POLL_INTERVAL_MS
+  const snapshotRequestTimeoutMs = options.snapshotRequestTimeoutMs ?? 5_000
   const deadline = Date.now() + restartTimeoutMs
   let lastRunningVersion = prepared.runningVersion
 
   while (Date.now() <= deadline) {
     try {
       const snapshot = parseSnapshot(
-        await requestAppUpdate(socketPath, { action: 'snapshot' }, 5_000)
+        await requestAppUpdate(socketPath, { action: 'snapshot' }, snapshotRequestTimeoutMs)
       )
       lastRunningVersion = snapshot.runningVersion
       if (snapshot.runningVersion === prepared.targetVersion) {
@@ -273,7 +278,8 @@ export async function defaultApplyAppUpdate(
     } catch (error) {
       if (
         !(error instanceof YachiyoAppNotRunningError) &&
-        !(error instanceof YachiyoAppRestartTransitionError)
+        !(error instanceof YachiyoAppRestartTransitionError) &&
+        !(error instanceof YachiyoAppRequestTimeoutError)
       ) {
         throw error
       }
