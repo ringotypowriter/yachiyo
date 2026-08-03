@@ -925,6 +925,7 @@ export function createDirectMessageService<TTarget>(
     }
 
     pendingBatches.delete(userId)
+    batch.stopBatchIndicator()
 
     const joinedText = batch.messages.join('\n')
     const prev = userRunChain.get(batch.channelUser.id) ?? Promise.resolve()
@@ -938,7 +939,6 @@ export function createDirectMessageService<TTarget>(
         `[${options.logLabel}] flushing batch for ${batch.channelUser.username}: ${batch.messages.length} message(s), ${images.length} image(s), ${attachments.length} file attachment(s)`
       )
 
-      batch.stopBatchIndicator()
       await handleAllowedMessage(batch.target, batch.channelUser, joinedText, images, attachments)
     })
     userRunChain.set(

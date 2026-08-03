@@ -691,6 +691,7 @@ describe('directMessageService', () => {
     const thread = createThread('thread-slow-image-order')
     const listeners = new Set<(event: YachiyoServerEvent) => void>()
     const handledContents: string[] = []
+    let stoppedBatchIndicators = 0
     let resolveFirstDownload!: (attachment: DirectMessageInboundAttachment) => void
     const firstDownload = new Promise<DirectMessageInboundAttachment>((resolve) => {
       resolveFirstDownload = resolve
@@ -742,7 +743,9 @@ describe('directMessageService', () => {
       replyDelayMs: () => 0,
       resolveThread: async () => ({ thread, usageBaselineKTokens: 0 }),
       sendMessage: async () => {},
-      startBatchIndicator: () => undefined,
+      startBatchIndicator: () => () => {
+        stoppedBatchIndicators++
+      },
       startHandlingIndicator: () => undefined,
       nonRunReply: 'non-run',
       errorReply: 'error'
@@ -752,6 +755,8 @@ describe('directMessageService', () => {
     await delay(10)
     directMessages.enqueueMessage(channelUser.id, channelUser, 'later text')
     await delay(10)
+
+    assert.equal(stoppedBatchIndicators, 2)
 
     resolveFirstDownload({
       kind: 'image',
