@@ -44,15 +44,17 @@ test('appUpdateController reports available, ready, and up-to-date as distinct t
 
 test('appUpdateController prepares the update before permitting quit-and-install', async () => {
   const events: string[] = []
+  let downloadedVersion: string | undefined
   const controller = createAppUpdateController({
     getRunningVersion: () => '1.5.1',
-    getDownloadedVersion: () => undefined,
+    getDownloadedVersion: () => downloadedVersion,
     checkForUpdates: async () => {
       events.push('check')
       return { available: true, version: '1.6.0-beta.1' }
     },
     downloadUpdate: async () => {
       events.push('download')
+      downloadedVersion = '1.6.0-beta.1'
     },
     quitAndInstall: () => events.push('install')
   })
@@ -67,6 +69,70 @@ test('appUpdateController prepares the update before permitting quit-and-install
   controller.installPrepared()
   assert.deepEqual(events, ['check', 'download', 'install'])
   assert.throws(() => controller.installPrepared(), /not prepared/i)
+})
+
+test('appUpdateController rejects installation when the downloaded version changes after prepare', async () => {
+  let downloadedVersion = '1.6.0-beta.1'
+  let installed = false
+  const controller = createAppUpdateController({
+    getRunningVersion: () => '1.5.1',
+    getDownloadedVersion: () => downloadedVersion,
+    checkForUpdates: async () => {
+      throw new Error('a downloaded update must not be checked again')
+    },
+    downloadUpdate: async () => {
+      throw new Error('a downloaded update must not be downloaded again')
+    },
+    quitAndInstall: () => {
+      installed = true
+    }
+  })
+
+  assert.deepEqual(await controller.prepareApply(), {
+    state: 'restart-required',
+    runningVersion: '1.5.1',
+    targetVersion: '1.6.0-beta.1'
+  })
+
+  downloadedVersion = '1.6.0-beta.2'
+  assert.throws(() => controller.reservePreparedInstall(), /downloaded update changed/i)
+  assert.throws(() => controller.reservePreparedInstall(), /not prepared/i)
+  assert.equal(installed, false)
+
+  assert.deepEqual(await controller.prepareApply(), {
+    state: 'restart-required',
+    runningVersion: '1.5.1',
+    targetVersion: '1.6.0-beta.2'
+  })
+  controller.installPrepared()
+  assert.equal(installed, true)
+})
+
+test('appUpdateController revalidates the downloaded version before installing a reservation', async () => {
+  let downloadedVersion = '1.6.0-beta.1'
+  let installed = false
+  const controller = createAppUpdateController({
+    getRunningVersion: () => '1.5.1',
+    getDownloadedVersion: () => downloadedVersion,
+    checkForUpdates: async () => {
+      throw new Error('a downloaded update must not be checked again')
+    },
+    downloadUpdate: async () => {
+      throw new Error('a downloaded update must not be downloaded again')
+    },
+    quitAndInstall: () => {
+      installed = true
+    }
+  })
+
+  await controller.prepareApply()
+  const reservation = controller.reservePreparedInstall()
+  downloadedVersion = '1.6.0-beta.2'
+
+  assert.throws(() => reservation.install(), /downloaded update changed/i)
+  assert.throws(() => reservation.install(), /no longer active/i)
+  assert.throws(() => controller.reservePreparedInstall(), /not prepared/i)
+  assert.equal(installed, false)
 })
 
 test('appUpdateController never downloads or installs when the running process is current', async () => {

@@ -42,6 +42,12 @@ export function createAppUpdateController(
   let preparedVersion: string | undefined
   let preparationRevision = 0
 
+  function assertDownloadedVersion(expectedVersion: string): void {
+    if (dependencies.getDownloadedVersion() !== expectedVersion) {
+      throw new Error('Downloaded update changed after preparation. Prepare the update again.')
+    }
+  }
+
   async function status(): Promise<AppUpdateStatusResult> {
     const runningVersion = dependencies.getRunningVersion()
     const downloadedVersion = dependencies.getDownloadedVersion()
@@ -73,6 +79,7 @@ export function createAppUpdateController(
     const reservedVersion = preparedVersion
     preparedVersion = undefined
     const reservationRevision = ++preparationRevision
+    assertDownloadedVersion(reservedVersion)
     let active = true
 
     return {
@@ -81,6 +88,7 @@ export function createAppUpdateController(
           throw new Error('Update install reservation is no longer active.')
         }
         active = false
+        assertDownloadedVersion(reservedVersion)
         dependencies.quitAndInstall()
       },
       release(): void {

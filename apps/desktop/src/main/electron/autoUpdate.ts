@@ -209,9 +209,9 @@ function setupProd(): AppUpdateController {
     broadcast({ state: 'error', error: summarizeUpdateError(err) })
   })
 
-  const installUpdate = (): void => {
+  const installPreparedUpdate = (): void => {
     installing = true
-    setImmediate(() => autoUpdater.quitAndInstall())
+    autoUpdater.quitAndInstall()
   }
   const controller = createAppUpdateController({
     getRunningVersion: () => app.getVersion(),
@@ -221,7 +221,7 @@ function setupProd(): AppUpdateController {
     downloadUpdate: async () => {
       await autoUpdater.downloadUpdate()
     },
-    quitAndInstall: installUpdate
+    quitAndInstall: installPreparedUpdate
   })
 
   const broadcastFailure = (error: unknown): void => {
@@ -243,7 +243,8 @@ function setupProd(): AppUpdateController {
   })
 
   ipcMain.on('app-update:install', () => {
-    installUpdate()
+    installing = true
+    setImmediate(() => autoUpdater.quitAndInstall())
   })
 
   ipcMain.on('app-update:open-release', () => {
