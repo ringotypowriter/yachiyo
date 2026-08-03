@@ -357,7 +357,8 @@ app.whenReady().then(async () => {
   createWindow()
   setupCLI()
   setupCoreSkills()
-  const server = registerYachiyoGateway()
+  const appUpdateController = setupAutoUpdate()
+  const server = registerYachiyoGateway({ appUpdateController })
   gatewayServer = server
 
   // Dev-only Phase-2 spike for the runtime process extraction: verify the
@@ -457,8 +458,6 @@ app.whenReady().then(async () => {
   })
 
   ipcMain.on('open-settings', (_event, tab?: string) => openSettingsInMainWindow(tab))
-
-  setupAutoUpdate()
 
   app.on('activate', function () {
     clearYachiyoNotificationBadge()

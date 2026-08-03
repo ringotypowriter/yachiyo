@@ -265,6 +265,7 @@ const defaultBashRunner: BashRunner = async ({
   abortSignal,
   command,
   cwd,
+  env,
   onStderr,
   onStdout,
   onTimeoutLift,
@@ -272,7 +273,7 @@ const defaultBashRunner: BashRunner = async ({
 }) => {
   const child = spawn('/bin/zsh', ['-lc', command], {
     cwd,
-    env: withInjectedEnv(process.env),
+    env,
     stdio: ['ignore', 'pipe', 'pipe'],
     detached: true
   })
@@ -452,6 +453,7 @@ export async function* streamBashTool(
         command,
         description,
         cwd: context.workspacePath,
+        env: withInjectedEnv(process.env, { runId: context.runId }),
         logPath,
         toolCallId: options.toolCallId
       })
@@ -629,6 +631,7 @@ export async function* streamBashTool(
         abortSignal: options.abortSignal,
         command,
         cwd: context.workspacePath,
+        env: withInjectedEnv(process.env, { runId: context.runId }),
         timeoutSeconds,
         onStdout: (chunk) => {
           appendChunk('stdout', chunk, true)

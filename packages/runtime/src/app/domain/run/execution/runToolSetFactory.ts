@@ -79,6 +79,7 @@ export function createRunToolSet(input: CreateRunToolSetInput): ToolSet | undefi
     ? true
     : (gitCtx.hasGit || gitValidatedWorkspaces.length > 0) && hasEnabledAcpSubagents
   const toolContext = {
+    runId: executionInput.runId,
     enabledTools: modelEnabledTools,
     threadId: executionInput.thread.id,
     workspacePath,

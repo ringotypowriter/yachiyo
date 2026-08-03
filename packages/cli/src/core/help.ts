@@ -99,7 +99,18 @@ export const NAMESPACE_HELP: Record<string, string> = {
   send channel <id> <message>            Send a text message directly to a channel user or group on their
                                          external platform (Telegram/QQ/Discord) as the bot. No thread or
                                          inference — the message goes straight out. Fire-and-forget.
-                                         Get valid IDs from "channel users" or "channel groups".`
+                                         Get valid IDs from "channel users" or "channel groups".`,
+
+  update: `Usage: yachiyo update <action> [flags...]
+
+  Requires the app to be running. Update checks, downloads, and installation remain owned by the app.
+
+  update status [--json]                   Check for updates and distinguish available, downloaded-ready,
+                                           and up-to-date states. Reports the running process version.
+  update apply [--json] [--force]          Check, download, install, and restart. Succeeds only after the
+                                           relaunched process reports the target version. Active work may
+                                           be interrupted by the restart. The initiating Yachiyo run is
+                                           allowed; other active runs block installation unless --force.`
 }
 
 export function namespaceHelp(ns: string): string {
@@ -108,9 +119,9 @@ export function namespaceHelp(ns: string): string {
 
 export const USAGE = `Usage: yachiyo <namespace> <subcommand> [args...] [flags...]
 
-All output is JSON unless noted. The app must be running for "send" commands.
+All output is JSON unless noted. The app must be running for "send" and "update" commands.
 Use "yachiyo <namespace> --help" for detailed help on a specific namespace.
 
-Namespaces: soul, provider, agent, config, thread, schedule, channel, send
+Namespaces: soul, provider, agent, config, thread, schedule, channel, send, update
 
 ${Object.values(NAMESPACE_HELP).join('\n\n')}\n\n${GLOBAL_FLAGS_HELP}`

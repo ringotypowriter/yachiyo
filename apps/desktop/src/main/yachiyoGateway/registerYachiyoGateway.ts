@@ -95,6 +95,7 @@ import {
   type UtilityRuntimeHost
 } from '../runtimeHost/startUtilityRuntimeHost.ts'
 import { startCommandSocket, type CommandSocketHandle } from '../cli/commandSocket.ts'
+import { createAppUpdateCommandHandler } from '../cli/appUpdateCommand.ts'
 import { createProviderFetch } from '../net/providerFetch.ts'
 import { openThreadWorkspace } from '../electron/openThreadWorkspace.ts'
 import { readAppLogEntries } from '../logs/appLogFiles.ts'
@@ -122,6 +123,7 @@ import { registerGatewayFileHandlers } from './fileHandlers.ts'
 import { broadcastYachiyoEvent, handleYachiyoIpc, showYachiyoNotification } from './ipc.ts'
 import { IPC_CHANNELS } from './ipcChannels.ts'
 import { normalizePngBytes, normalizePngFilename, type SavePngFileInput } from './pngFile.ts'
+import type { AppUpdateController } from '../electron/appUpdateController.ts'
 
 /**
  * Phase 1.5 of the runtime process extraction: renderer-facing handlers call
@@ -200,6 +202,7 @@ let commandSocket: CommandSocketHandle | null = null
 let commandSocketHealthTimer: ReturnType<typeof setInterval> | null = null
 let commandSocketRecoveryRegistered = false
 let commandSocketRestartInFlight: Promise<void> | null = null
+let appUpdateController: AppUpdateController | null = null
 let fatalRunRecoveryRegistered = false
 function rpc(): RpcMethods<RpcSafeYachiyoServer> {
   if (!serverRpc) {
@@ -281,6 +284,16 @@ function createCommandSocketHandle(): CommandSocketHandle {
         .catch((error) => {
           console.error('[mark-thread-reviewed] failed:', error)
         })
+    },
+    onAppUpdate: async (input) => {
+      if (!appUpdateController) {
+        throw new Error('App updater is not running.')
+      }
+      return createAppUpdateCommandHandler({
+        controller: appUpdateController,
+        getRunningVersion: () => app.getVersion(),
+        getActiveRunIds: () => gatewayHandle?.listActiveRunIds() ?? []
+      })(input)
     },
     onError: (error) => {
       console.error('[command-socket] server error:', error)
@@ -584,10 +597,13 @@ async function resolveActivityTrackingPermission(
   })
 }
 
-export function registerYachiyoGateway(): YachiyoGatewayHandle {
+export function registerYachiyoGateway(options: {
+  appUpdateController: AppUpdateController
+}): YachiyoGatewayHandle {
   if (gatewayHandle) {
     return gatewayHandle
   }
+  appUpdateController = options.appUpdateController
 
   // Route global fetch through Electron's net module so libraries using the
   // global fetch (e.g. discord.js) go through Chromium's network stack.

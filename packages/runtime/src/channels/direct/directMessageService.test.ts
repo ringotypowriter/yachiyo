@@ -1226,7 +1226,7 @@ describe('directMessageService', () => {
 
     directMessages.enqueueMessage('chat-1', channelUser, 'please check')
 
-    await delay(20)
+    await waitFor(() => sentMessages.length === 2 && visibleReplies.length === 1)
 
     assert.deepEqual(sentMessages, ['I will check first.', 'Then I found the answer.'])
     assert.deepEqual(visibleReplies, ['I will check first.\nThen I found the answer.'])

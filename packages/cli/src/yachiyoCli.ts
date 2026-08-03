@@ -13,6 +13,7 @@ import { handleScheduleCommand } from './commands/schedule.ts'
 import { handleSendCommand } from './commands/send.ts'
 import { handleSoulCommand } from './commands/soul.ts'
 import { handleThreadCommand } from './commands/thread.ts'
+import { handleUpdateCommand } from './commands/update.ts'
 import { parseArgs } from './core/args.ts'
 import { NAMESPACE_HELP, USAGE, namespaceHelp } from './core/help.ts'
 import type { RunYachiyoCliOptions } from './core/types.ts'
@@ -71,9 +72,14 @@ export async function runYachiyoCli(
     return
   }
 
+  if (namespace === 'update') {
+    await handleUpdateCommand(positionals.slice(1), flags, stdout, options)
+    return
+  }
+
   if (namespace !== 'provider' && namespace !== 'config' && namespace !== 'agent') {
     throw new Error(
-      `Unknown namespace: ${namespace}. Expected: soul, provider, agent, config, thread, schedule, channel, send\n\n${USAGE}`
+      `Unknown namespace: ${namespace}. Expected: soul, provider, agent, config, thread, schedule, channel, send, update\n\n${USAGE}`
     )
   }
 
