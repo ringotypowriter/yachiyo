@@ -4,7 +4,11 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import test from 'node:test'
 
-import { startCommandSocket, type CommandSocketOptions } from './commandSocket.ts'
+import {
+  createAppUpdateReplyFinalizer,
+  startCommandSocket,
+  type CommandSocketOptions
+} from './commandSocket.ts'
 
 function request(socketPath: string, body: unknown): Promise<unknown> {
   return new Promise((resolve, reject) => {
@@ -114,6 +118,23 @@ test('commandSocket flushes the install reply before starting installation', asy
     await handle.close()
     await rm(root, { recursive: true, force: true })
   }
+})
+
+test('commandSocket finalizes a failed reply exactly once without starting installation', async () => {
+  const events: string[] = []
+  const finalizer = createAppUpdateReplyFinalizer({
+    afterReply: () => events.push('install'),
+    onReplyFailure: async () => {
+      events.push('release')
+    }
+  })
+
+  finalizer.fail()
+  finalizer.fail()
+  finalizer.complete()
+  await Promise.resolve()
+
+  assert.deepEqual(events, ['release'])
 })
 
 test('commandSocket returns updater failures instead of dropping the connection', async () => {

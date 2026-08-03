@@ -29,11 +29,15 @@ export function isInstallingUpdate(): boolean {
   return installing
 }
 
-function broadcast(status: UpdateStatus): void {
-  currentStatus = status
+function sendStatus(status: UpdateStatus): void {
   for (const win of BrowserWindow.getAllWindows()) {
     win.webContents.send('app-update:status', status)
   }
+}
+
+function broadcast(status: UpdateStatus): void {
+  currentStatus = status
+  sendStatus(status)
 }
 
 function readInitialChannel(): UpdateChannel {
@@ -229,22 +233,57 @@ function setupProd(): AppUpdateController {
     broadcast({ state: 'error', error: summarizeUpdateError(updateError) })
   }
 
+  const rejectExplicitActionDuringInstall = (): boolean => {
+    if (!controller.hasActiveInstallReservation()) return false
+    sendStatus({ state: 'error', error: 'Update installation is already in progress.' })
+    return true
+  }
+
+  const checkForUpdatesInBackground = (): void => {
+    const operation = controller.tryRunUpdaterOperation(checkForUpdates)
+    if (!operation) {
+      log.debug('[auto-update] skipped background check while installation is starting')
+      return
+    }
+    void operation.catch(broadcastFailure)
+  }
+
   ipcMain.handle('app-update:get-status', (): UpdateStatus => currentStatus)
   ipcMain.handle('app-update:get-release-notes', (_event, version: string) =>
     fetchReleaseNotes(version)
   )
 
   ipcMain.on('app-update:check', () => {
+    if (rejectExplicitActionDuringInstall()) return
     void controller.status().catch(broadcastFailure)
   })
 
   ipcMain.on('app-update:download', () => {
-    void autoUpdater.downloadUpdate().catch(broadcastFailure)
+    if (rejectExplicitActionDuringInstall()) return
+    void controller
+      .runUpdaterOperation(async () => {
+        await autoUpdater.downloadUpdate()
+      })
+      .catch(broadcastFailure)
   })
 
   ipcMain.on('app-update:install', () => {
-    installing = true
-    setImmediate(() => autoUpdater.quitAndInstall())
+    if (rejectExplicitActionDuringInstall()) return
+    void controller
+      .runUpdaterOperation(
+        () =>
+          new Promise<void>((_resolve, reject) => {
+            installing = true
+            setImmediate(() => {
+              try {
+                autoUpdater.quitAndInstall()
+              } catch (error) {
+                reject(error)
+              }
+            })
+          })
+      )
+      .catch(broadcastFailure)
   })
 
   ipcMain.on('app-update:open-release', () => {
@@ -257,14 +296,19 @@ function setupProd(): AppUpdateController {
 
   ipcMain.on('app-update:set-channel', (_event, nextChannel: UpdateChannel) => {
     if (nextChannel === channel) return
-    channel = nextChannel
-    broadcast({ state: 'idle' })
-    void checkForUpdates().catch(broadcastFailure)
+    if (rejectExplicitActionDuringInstall()) return
+    void controller
+      .runUpdaterOperation(async () => {
+        channel = nextChannel
+        broadcast({ state: 'idle' })
+        await checkForUpdates()
+      })
+      .catch(broadcastFailure)
   })
 
   // Check on launch, then every 4 hours
-  void checkForUpdates().catch(broadcastFailure)
-  setInterval(() => void checkForUpdates().catch(broadcastFailure), 4 * 60 * 60 * 1000)
+  checkForUpdatesInBackground()
+  setInterval(checkForUpdatesInBackground, 4 * 60 * 60 * 1000)
 
   return controller
 }

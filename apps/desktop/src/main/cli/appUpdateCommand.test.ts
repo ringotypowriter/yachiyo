@@ -18,6 +18,9 @@ function createController(events: string[]): AppUpdateController {
         targetVersion: '1.6.0-beta.1'
       }
     },
+    runUpdaterOperation: (operation) => operation(),
+    tryRunUpdaterOperation: (operation) => operation(),
+    hasActiveInstallReservation: () => false,
     reservePreparedInstall: () => ({
       install: () => events.push('install'),
       release: () => events.push('release')
@@ -168,5 +171,35 @@ test('install reserves the prepared update before replying but quits only after 
   assert.equal(installed, false)
   await assert.rejects(() => handler({ action: 'install', force: false }), /not prepared/i)
   firstInstall.afterReply?.()
+  assert.equal(installed, true)
+})
+
+test('install releases its reservation when the reply cannot be delivered', async () => {
+  let installed = false
+  const controller = createAppUpdateController({
+    getRunningVersion: () => '1.5.1',
+    getDownloadedVersion: () => '1.6.0-beta.1',
+    checkForUpdates: async () => {
+      throw new Error('a downloaded update must not be checked again')
+    },
+    downloadUpdate: async () => {
+      throw new Error('a downloaded update must not be downloaded again')
+    },
+    quitAndInstall: () => {
+      installed = true
+    }
+  })
+  const handler = createAppUpdateCommandHandler({
+    controller,
+    getRunningVersion: () => '1.5.1',
+    getActiveRunIds: () => []
+  })
+
+  await handler({ action: 'prepare' })
+  const failedReply = await handler({ action: 'install', force: false })
+  await failedReply.onReplyFailure?.()
+
+  const retry = await handler({ action: 'install', force: false })
+  retry.afterReply?.()
   assert.equal(installed, true)
 })

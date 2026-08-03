@@ -29,6 +29,37 @@ export interface MarkThreadReviewedInput {
 export interface AppUpdateCommandReply {
   result: AppUpdateCommandResult
   afterReply?: () => void
+  onReplyFailure?: () => void | Promise<void>
+}
+
+export function createAppUpdateReplyFinalizer(input: {
+  afterReply?: () => void
+  onReplyFailure?: () => void | Promise<void>
+  onError?: (error: Error) => void
+}): { complete(): void; fail(): void } {
+  let finalized = false
+  return {
+    complete(): void {
+      if (finalized) return
+      finalized = true
+      if (!input.afterReply) return
+      try {
+        input.afterReply()
+      } catch (error) {
+        input.onError?.(error instanceof Error ? error : new Error(String(error)))
+      }
+    },
+    fail(): void {
+      if (finalized) return
+      finalized = true
+      if (!input.onReplyFailure) return
+      void Promise.resolve()
+        .then(input.onReplyFailure)
+        .catch((error) => {
+          input.onError?.(error instanceof Error ? error : new Error(String(error)))
+        })
+    }
+  }
 }
 
 export type AppUpdateCommandInput = Omit<AppUpdateCommandRequest, 'type'>
@@ -75,8 +106,18 @@ export function startCommandSocket(options: CommandSocketOptions): CommandSocket
 
   const server: Server = createServer({ allowHalfOpen: true }, (connection) => {
     let buffer = ''
+    let transportClosed = false
+    let failPendingReply: (() => void) | undefined
 
     connection.setEncoding('utf-8')
+    connection.on('error', () => {
+      transportClosed = true
+      failPendingReply?.()
+    })
+    connection.on('close', () => {
+      transportClosed = true
+      failPendingReply?.()
+    })
     connection.on('data', (chunk: string) => {
       buffer += chunk
     })
@@ -205,16 +246,21 @@ export function startCommandSocket(options: CommandSocketOptions): CommandSocket
         }
 
         void onAppUpdate(input)
-          .then(({ result, afterReply }) => {
+          .then(({ result, afterReply, onReplyFailure }) => {
             const response: AppUpdateCommandResponse = { ok: true, result }
-            connection.end(JSON.stringify(response), () => {
-              if (!afterReply) return
-              try {
-                afterReply()
-              } catch (error) {
-                onError?.(error instanceof Error ? error : new Error(String(error)))
-              }
+            const finalizer = createAppUpdateReplyFinalizer({
+              afterReply,
+              onReplyFailure,
+              onError
             })
+            failPendingReply = finalizer.fail
+
+            if (transportClosed || connection.destroyed) {
+              finalizer.fail()
+              return
+            }
+
+            connection.end(JSON.stringify(response), finalizer.complete)
           })
           .catch((error) => {
             const response: AppUpdateCommandResponse = {

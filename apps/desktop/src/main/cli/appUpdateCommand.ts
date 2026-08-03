@@ -56,7 +56,8 @@ export function createAppUpdateCommandHandler(input: {
     }
     return {
       result,
-      afterReply: () => reservation.install()
+      afterReply: () => reservation.install(),
+      onReplyFailure: () => reservation.release()
     }
   }
 }
