@@ -115,3 +115,65 @@ test('appUpdateController clears an older prepared update before a failed replac
   assert.throws(() => controller.installPrepared(), /not prepared/i)
   assert.equal(installed, false)
 })
+
+test('appUpdateController can release an install reservation without reviving stale preparation', async () => {
+  let downloadedVersion: string | undefined = '1.6.0-beta.1'
+  let installed = false
+  const controller = createAppUpdateController({
+    getRunningVersion: () => '1.5.1',
+    getDownloadedVersion: () => downloadedVersion,
+    checkForUpdates: async () => ({ available: true, version: '1.6.0-beta.2' }),
+    downloadUpdate: async () => {
+      throw new Error('download failed')
+    },
+    quitAndInstall: () => {
+      installed = true
+    }
+  })
+
+  await controller.prepareApply()
+  const retryableReservation = controller.reservePreparedInstall()
+  retryableReservation.release()
+  const retry = controller.reservePreparedInstall()
+  retry.install()
+  assert.equal(installed, true)
+
+  installed = false
+  downloadedVersion = '1.6.0-beta.1'
+  await controller.prepareApply()
+  const staleReservation = controller.reservePreparedInstall()
+  downloadedVersion = undefined
+  await assert.rejects(() => controller.prepareApply(), /download failed/)
+  staleReservation.release()
+
+  assert.throws(() => controller.reservePreparedInstall(), /not prepared/i)
+  assert.equal(installed, false)
+})
+
+test('appUpdateController does not let an older concurrent prepare revive invalidated state', async () => {
+  let resolveFirstCheck: ((result: { available: boolean; version: string }) => void) | undefined
+  let checkCount = 0
+  const controller = createAppUpdateController({
+    getRunningVersion: () => '1.5.1',
+    getDownloadedVersion: () => undefined,
+    checkForUpdates: async () => {
+      checkCount += 1
+      if (checkCount === 1) {
+        return new Promise((resolve) => {
+          resolveFirstCheck = resolve
+        })
+      }
+      throw new Error('replacement failed')
+    },
+    downloadUpdate: async () => {},
+    quitAndInstall: () => {}
+  })
+
+  const firstPrepare = controller.prepareApply()
+  await assert.rejects(() => controller.prepareApply(), /replacement failed/)
+  assert.ok(resolveFirstCheck)
+  resolveFirstCheck({ available: true, version: '1.6.0-beta.1' })
+
+  await assert.rejects(firstPrepare, /superseded/i)
+  assert.throws(() => controller.reservePreparedInstall(), /not prepared/i)
+})

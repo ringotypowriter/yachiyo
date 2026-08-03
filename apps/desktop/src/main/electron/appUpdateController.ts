@@ -27,13 +27,20 @@ export type AppUpdateControllerPrepareResult =
 export interface AppUpdateController {
   status(): Promise<AppUpdateStatusResult>
   prepareApply(): Promise<AppUpdateControllerPrepareResult>
+  reservePreparedInstall(): AppUpdateInstallReservation
   installPrepared(): void
+}
+
+export interface AppUpdateInstallReservation {
+  install(): void
+  release(): void
 }
 
 export function createAppUpdateController(
   dependencies: AppUpdateControllerDependencies
 ): AppUpdateController {
   let preparedVersion: string | undefined
+  let preparationRevision = 0
 
   async function status(): Promise<AppUpdateStatusResult> {
     const runningVersion = dependencies.getRunningVersion()
@@ -58,9 +65,38 @@ export function createAppUpdateController(
     }
   }
 
+  function reservePreparedInstall(): AppUpdateInstallReservation {
+    if (!preparedVersion) {
+      throw new Error('Update is not prepared for installation.')
+    }
+
+    const reservedVersion = preparedVersion
+    preparedVersion = undefined
+    const reservationRevision = ++preparationRevision
+    let active = true
+
+    return {
+      install(): void {
+        if (!active) {
+          throw new Error('Update install reservation is no longer active.')
+        }
+        active = false
+        dependencies.quitAndInstall()
+      },
+      release(): void {
+        if (!active) return
+        active = false
+        if (preparationRevision === reservationRevision && !preparedVersion) {
+          preparedVersion = reservedVersion
+        }
+      }
+    }
+  }
+
   return {
     status,
     async prepareApply(): Promise<AppUpdateControllerPrepareResult> {
+      const revision = ++preparationRevision
       preparedVersion = undefined
       const updateStatus = await status()
       if (updateStatus.state === 'up-to-date') {
@@ -73,6 +109,9 @@ export function createAppUpdateController(
         await dependencies.downloadUpdate()
       }
 
+      if (revision !== preparationRevision) {
+        throw new Error('Update preparation was superseded by a newer request.')
+      }
       preparedVersion = targetVersion
       return {
         state: 'restart-required',
@@ -80,12 +119,9 @@ export function createAppUpdateController(
         targetVersion
       }
     },
+    reservePreparedInstall,
     installPrepared(): void {
-      if (!preparedVersion) {
-        throw new Error('Update is not prepared for installation.')
-      }
-      preparedVersion = undefined
-      dependencies.quitAndInstall()
+      reservePreparedInstall().install()
     }
   }
 }

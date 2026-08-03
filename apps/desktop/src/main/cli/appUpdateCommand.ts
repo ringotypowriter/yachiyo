@@ -48,6 +48,7 @@ export function createAppUpdateCommandHandler(input: {
     if (summary.blockingRunCount > 0 && command.force !== true) {
       throw new Error(formatAppUpdateBlockedError(summary))
     }
+    const reservation = input.controller.reservePreparedInstall()
     const result: AppUpdateInstallResult = {
       state: 'installing',
       interruptedRunCount: summary.interruptedRunCount,
@@ -55,7 +56,7 @@ export function createAppUpdateCommandHandler(input: {
     }
     return {
       result,
-      afterReply: () => input.controller.installPrepared()
+      afterReply: () => reservation.install()
     }
   }
 }
