@@ -25,6 +25,17 @@ export interface QQBotC2CMessage {
   messageId: string
   /** ISO 8601 timestamp string. */
   timestamp: string
+  /** Rich-media attachments supplied by the QQ gateway. */
+  attachments?: QQBotC2CAttachment[]
+}
+
+export interface QQBotC2CAttachment {
+  contentType: string
+  filename?: string
+  height?: number
+  width?: number
+  size?: number
+  url: string
 }
 
 export interface QQBotClientOptions {
@@ -359,13 +370,33 @@ export function createQQBotClient(options: QQBotClientOptions): QQBotClient {
         author: { user_openid: string }
         content: string
         timestamp: string
+        attachments?: Array<{
+          content_type: string
+          filename?: string
+          height?: number
+          width?: number
+          size?: number
+          url: string
+        }>
       }
 
       const msg: QQBotC2CMessage = {
         openId: d.author.user_openid,
         content: (d.content ?? '').trim(),
         messageId: d.id,
-        timestamp: d.timestamp
+        timestamp: d.timestamp,
+        ...(d.attachments?.length
+          ? {
+              attachments: d.attachments.map((attachment) => ({
+                contentType: attachment.content_type,
+                filename: attachment.filename,
+                height: attachment.height,
+                width: attachment.width,
+                size: attachment.size,
+                url: attachment.url
+              }))
+            }
+          : {})
       }
 
       for (const handler of c2cMessageHandlers) {

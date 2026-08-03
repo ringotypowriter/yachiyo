@@ -24,6 +24,7 @@ import {
   createDirectMessageService,
   resolveChannelToolPreset,
   resolveDirectMessageThread,
+  type DirectMessageInboundAttachment,
   type DirectMessageServer,
   type DirectMessageServiceOptions
 } from './directMessageService.ts'
@@ -577,6 +578,198 @@ describe('directMessageService', () => {
         attachmentIndex: 2
       }
     ])
+  })
+
+  it('caps images across rapid messages in one debounced batch', async () => {
+    const channelUser = createChannelUser()
+    const thread = createThread('thread-image-batch-limit')
+    const listeners = new Set<(event: YachiyoServerEvent) => void>()
+    let capturedImages: ChatAcceptedWithUserMessage['userMessage']['images']
+
+    const server: DirectMessageServer = {
+      subscribe(listener) {
+        listeners.add(listener)
+        return () => listeners.delete(listener)
+      },
+      async sendChat(input): Promise<ChatAcceptedWithUserMessage> {
+        capturedImages = input.images
+        queueMicrotask(() => {
+          for (const listener of listeners) {
+            listener({
+              type: 'run.completed',
+              eventId: 'evt-image-batch-limit-completed',
+              timestamp: '2026-03-31T00:00:02.000Z',
+              threadId: thread.id,
+              runId: 'run-image-batch-limit'
+            })
+          }
+        })
+        return {
+          kind: 'run-started',
+          thread,
+          runId: 'run-image-batch-limit',
+          userMessage: createUserMessage(thread.id)
+        }
+      },
+      getThreadTotalTokens: () => 0,
+      findActiveChannelThread: () => undefined,
+      async setThreadModelOverride() {
+        throw new Error('should not be called')
+      },
+      cancelRunForThread: () => false,
+      cancelRunForChannelUser: () => false,
+      answerToolQuestion: () => {},
+      updateChannelUser: (input) => ({ ...channelUser, usedKTokens: input.usedKTokens ?? 0 }),
+      updateLatestAssistantVisibleReply: () => {},
+      getTtlReaper: () => ({ register: () => {} })
+    }
+
+    const directMessages = createDirectMessageService({
+      logLabel: 'telegram',
+      server,
+      policy: { ...telegramPolicy, maxImagesPerBatch: 2 },
+      replyDelayMs: () => 0,
+      resolveThread: async () => ({ thread, usageBaselineKTokens: 0 }),
+      sendMessage: async () => {},
+      startBatchIndicator: () => undefined,
+      startHandlingIndicator: () => undefined,
+      nonRunReply: 'non-run',
+      errorReply: 'error'
+    })
+
+    directMessages.enqueueMessage(channelUser.id, channelUser, 'first pair', [
+      Promise.resolve({
+        kind: 'image',
+        image: {
+          dataUrl: 'data:image/png;base64,first',
+          mediaType: 'image/png',
+          filename: 'first.png',
+          attachmentIndex: 1
+        }
+      }),
+      Promise.resolve({
+        kind: 'image',
+        image: {
+          dataUrl: 'data:image/png;base64,second',
+          mediaType: 'image/png',
+          filename: 'second.png',
+          attachmentIndex: 2
+        }
+      })
+    ])
+    directMessages.enqueueMessage(channelUser.id, channelUser, 'second pair', [
+      Promise.resolve({
+        kind: 'image',
+        image: {
+          dataUrl: 'data:image/png;base64,third',
+          mediaType: 'image/png',
+          filename: 'third.png',
+          attachmentIndex: 1
+        }
+      }),
+      Promise.resolve({
+        kind: 'image',
+        image: {
+          dataUrl: 'data:image/png;base64,fourth',
+          mediaType: 'image/png',
+          filename: 'fourth.png',
+          attachmentIndex: 2
+        }
+      })
+    ])
+
+    await delay(20)
+
+    assert.deepEqual(
+      capturedImages?.map((image) => image.filename),
+      ['first.png', 'second.png']
+    )
+  })
+
+  it('preserves message order while an earlier batch waits for image downloads', async () => {
+    const channelUser = createChannelUser()
+    const thread = createThread('thread-slow-image-order')
+    const listeners = new Set<(event: YachiyoServerEvent) => void>()
+    const handledContents: string[] = []
+    let stoppedBatchIndicators = 0
+    let resolveFirstDownload!: (attachment: DirectMessageInboundAttachment) => void
+    const firstDownload = new Promise<DirectMessageInboundAttachment>((resolve) => {
+      resolveFirstDownload = resolve
+    })
+
+    const server: DirectMessageServer = {
+      subscribe(listener) {
+        listeners.add(listener)
+        return () => listeners.delete(listener)
+      },
+      async sendChat(input): Promise<ChatAcceptedWithUserMessage> {
+        handledContents.push(input.content)
+        const runId = `run-slow-image-order-${handledContents.length}`
+        queueMicrotask(() => {
+          for (const listener of listeners) {
+            listener({
+              type: 'run.completed',
+              eventId: `evt-slow-image-order-${handledContents.length}`,
+              timestamp: '2026-03-31T00:00:02.000Z',
+              threadId: thread.id,
+              runId
+            })
+          }
+        })
+        return {
+          kind: 'run-started',
+          thread,
+          runId,
+          userMessage: createUserMessage(thread.id)
+        }
+      },
+      getThreadTotalTokens: () => 0,
+      findActiveChannelThread: () => undefined,
+      async setThreadModelOverride() {
+        throw new Error('should not be called')
+      },
+      cancelRunForThread: () => false,
+      cancelRunForChannelUser: () => false,
+      answerToolQuestion: () => {},
+      updateChannelUser: (input) => ({ ...channelUser, usedKTokens: input.usedKTokens ?? 0 }),
+      updateLatestAssistantVisibleReply: () => {},
+      getTtlReaper: () => ({ register: () => {} })
+    }
+
+    const directMessages = createDirectMessageService({
+      logLabel: 'telegram',
+      server,
+      policy: telegramPolicy,
+      replyDelayMs: () => 0,
+      resolveThread: async () => ({ thread, usageBaselineKTokens: 0 }),
+      sendMessage: async () => {},
+      startBatchIndicator: () => () => {
+        stoppedBatchIndicators++
+      },
+      startHandlingIndicator: () => undefined,
+      nonRunReply: 'non-run',
+      errorReply: 'error'
+    })
+
+    directMessages.enqueueMessage(channelUser.id, channelUser, 'earlier image', [firstDownload])
+    await delay(10)
+    directMessages.enqueueMessage(channelUser.id, channelUser, 'later text')
+    await delay(10)
+
+    assert.equal(stoppedBatchIndicators, 2)
+
+    resolveFirstDownload({
+      kind: 'image',
+      image: {
+        dataUrl: 'data:image/png;base64,slow',
+        mediaType: 'image/png',
+        filename: 'slow.png',
+        attachmentIndex: 1
+      }
+    })
+    await waitFor(() => handledContents.length === 2)
+
+    assert.deepEqual(handledContents, ['earlier image', 'later text'])
   })
 
   it('stores live reply tool messages and final output as the outbound transcript', async () => {

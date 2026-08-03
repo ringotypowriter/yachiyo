@@ -202,7 +202,10 @@ export async function resolveDirectMessageThread(
 export interface DirectMessageServiceOptions<TTarget> {
   logLabel: string
   server: DirectMessageServer
-  policy: Pick<ChannelPolicy, 'allowedTools' | 'replyInstruction' | 'imageTtlMs'>
+  policy: Pick<
+    ChannelPolicy,
+    'allowedTools' | 'replyInstruction' | 'imageTtlMs' | 'maxImagesPerBatch'
+  >
   resolveThread(channelUser: ChannelUserRecord): Promise<DirectMessageThreadResolution>
   sendMessage(target: TTarget, text: string): Promise<void>
   sendReply?(target: TTarget, payload: ChannelReplyPayload): Promise<void>
@@ -915,27 +918,29 @@ export function createDirectMessageService<TTarget>(
     }
   }
 
-  async function flushBatch(userId: string): Promise<void> {
+  function flushBatch(userId: string): void {
     const batch = pendingBatches.get(userId)
     if (!batch) {
       return
     }
 
     pendingBatches.delete(userId)
-
-    const joinedText = batch.messages.join('\n')
-    const { images, attachments } = await collectResolvedAttachments(batch.attachmentDownloads)
-
-    console.log(
-      `[${options.logLabel}] flushing batch for ${batch.channelUser.username}: ${batch.messages.length} message(s), ${images.length} image(s), ${attachments.length} file attachment(s)`
-    )
-
     batch.stopBatchIndicator()
 
+    const joinedText = batch.messages.join('\n')
     const prev = userRunChain.get(batch.channelUser.id) ?? Promise.resolve()
-    const next = prev.then(() =>
-      handleAllowedMessage(batch.target, batch.channelUser, joinedText, images, attachments)
-    )
+    const next = prev.then(async () => {
+      const { images: resolvedImages, attachments } = await collectResolvedAttachments(
+        batch.attachmentDownloads
+      )
+      const images = resolvedImages.slice(0, options.policy.maxImagesPerBatch)
+
+      console.log(
+        `[${options.logLabel}] flushing batch for ${batch.channelUser.username}: ${batch.messages.length} message(s), ${images.length} image(s), ${attachments.length} file attachment(s)`
+      )
+
+      await handleAllowedMessage(batch.target, batch.channelUser, joinedText, images, attachments)
+    })
     userRunChain.set(
       batch.channelUser.id,
       next.catch(() => {})
