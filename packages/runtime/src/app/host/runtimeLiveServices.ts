@@ -304,6 +304,13 @@ export function createRuntimeLiveServices(
   }
 
   const rpcOps = {
+    // Without this entry the desktop side's hostCall rejects every time, and
+    // the update-receipt layer quietly behaves as though the run had no
+    // channel — a whole feature that never runs and never says so.
+    'host.resolveRunChannelOrigin': (
+      runId: string
+    ): { channelId: string; threadId: string; messageId: string } | undefined =>
+      server.resolveRunChannelOrigin(runId),
     'host.updateChannelGroupAndNotify': (input: UpdateChannelGroupInput): ChannelGroupRecord => {
       const updated = server.updateChannelGroup(input)
       notifyGroupStatusChange(updated)

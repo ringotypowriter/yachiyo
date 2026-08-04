@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { runInstallReceiptSequence, type InstallReceiptDeps } from './installReceiptSequence.ts'
+import {
+  runInstallReceiptSequence,
+  type InstallReceiptDeps,
+  type OriginLookup
+} from './installReceiptSequence.ts'
 
 const origin = { channelId: 'chan-1', threadId: 'thread-1', messageId: 'msg-1' }
 
@@ -13,7 +17,7 @@ function deps(overrides: Partial<InstallReceiptDeps> = {}): {
   const base: InstallReceiptDeps = {
     resolveOrigin: async () => {
       log.push('resolve')
-      return origin
+      return { kind: 'origin' as const, origin }
     },
     persist: () => {
       log.push('persist')
@@ -109,7 +113,7 @@ test('a hung announce is abandoned after the bound rather than blocking install'
 
 /** A run with no external origin has nobody waiting; skip the whole thing. */
 test('a run with no channel origin installs without persisting or announcing', async () => {
-  const { deps: d, log } = deps({ resolveOrigin: async () => undefined })
+  const { deps: d, log } = deps({ resolveOrigin: async () => ({ kind: 'no-channel' as const }) })
   await runInstallReceiptSequence('run-1', d)
   assert.deepEqual(log, ['reserve'])
 })
@@ -137,4 +141,24 @@ test('the persisted record carries what the post-restart receipt needs', async (
     targetVersion: '1.1.0',
     startedAtMs: 1_760_000_000_000
   })
+})
+
+/**
+ * The failure that shipped invisibly: the origin lookup was unreachable, its
+ * rejection was swallowed into "no origin", and the install proceeded with no
+ * receipt and no complaint. A lookup that failed is not a run without a
+ * channel, and must not be able to impersonate one.
+ */
+test('a failed origin lookup aborts instead of silently installing', async () => {
+  const { deps: d, log } = deps()
+  d.resolveOrigin = async (): Promise<OriginLookup> => {
+    log.push('resolve')
+    return { kind: 'lookup-failed', reason: 'rpc unavailable' }
+  }
+
+  await assert.rejects(
+    () => runInstallReceiptSequence('run-1', d),
+    /Cannot determine where to report this update back to.*rpc unavailable/
+  )
+  assert.deepEqual(log, ['resolve'], 'nothing is reserved, persisted, or announced')
 })

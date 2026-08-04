@@ -6,9 +6,20 @@ export interface UpdateReceiptOrigin {
   messageId: string
 }
 
+/**
+ * Distinguishes "this run has nobody waiting" from "we could not find out".
+ *
+ * Collapsing those into `undefined` is what let a completely unreachable
+ * lookup masquerade as a local thread: the receipt was skipped, the install
+ * proceeded, and nothing anywhere said the feature had failed.
+ */
+export type OriginLookup =
+  | { kind: 'origin'; origin: UpdateReceiptOrigin }
+  | { kind: 'no-channel' }
+  | { kind: 'lookup-failed'; reason: string }
+
 export interface InstallReceiptDeps {
-  /** `undefined` when the run has no external chat behind it. */
-  resolveOrigin: (runId: string) => Promise<UpdateReceiptOrigin | undefined>
+  resolveOrigin: (runId: string) => Promise<OriginLookup>
   persist: (receipt: PendingUpdateReceipt) => void
   clear: () => void
   /** Claims the install slot. Throws if it cannot be claimed. */
@@ -51,12 +62,21 @@ export async function runInstallReceiptSequence(
     return
   }
 
-  const origin = await deps.resolveOrigin(initiatorRunId)
-  if (!origin) {
-    // Nobody is waiting in a chat for this one.
+  const lookup = await deps.resolveOrigin(initiatorRunId)
+
+  if (lookup.kind === 'lookup-failed') {
+    // We know someone *might* be waiting and we cannot find out who. Installing
+    // anyway would restart into silence; refusing is recoverable and says why.
+    throw new Error(`Cannot determine where to report this update back to: ${lookup.reason}`)
+  }
+
+  if (lookup.kind === 'no-channel') {
+    // Genuinely nobody waiting in a chat for this one.
     deps.reserve()
     return
   }
+
+  const origin = lookup.origin
 
   // Throwing here aborts before anything irreversible: an update we cannot
   // report on afterwards is worse than an update that didn't happen, because

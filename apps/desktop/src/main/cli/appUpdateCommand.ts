@@ -68,7 +68,7 @@ export function createAppUpdateCommandHandler(input: {
     let reservation: AppUpdateInstallReservation | undefined
     const receipt = input.receipt
     await runInstallReceiptSequence(command.initiatorRunId, {
-      resolveOrigin: receipt?.resolveOrigin ?? (async () => undefined),
+      resolveOrigin: receipt?.resolveOrigin ?? (async () => ({ kind: 'no-channel' as const })),
       persist: receipt?.persist ?? (() => {}),
       clear: receipt?.clear ?? (() => {}),
       announce: receipt?.announce ?? (async () => {}),
@@ -91,7 +91,19 @@ export function createAppUpdateCommandHandler(input: {
     }
     return {
       result,
-      afterReply: () => claimed.install(),
+      // Both of these mean the same thing to the user: we said we were
+      // going and we are not. The socket finalizer routes an afterReply
+      // throw to onError rather than to onReplyFailure, so the withdrawal
+      // has to happen here — relying on onReplyFailure alone left the
+      // promise standing whenever the install itself threw.
+      afterReply: () => {
+        try {
+          claimed.install()
+        } catch (error) {
+          receipt?.clear()
+          throw error
+        }
+      },
       onReplyFailure: () => {
         claimed.release()
         // We already told the user we were going; that promise has to be

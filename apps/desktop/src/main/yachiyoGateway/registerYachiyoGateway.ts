@@ -99,7 +99,7 @@ import {
   readPendingUpdateReceipt,
   writePendingUpdateReceipt
 } from '../appUpdate/pendingUpdateReceipt.ts'
-import type { UpdateReceiptOrigin } from '../appUpdate/installReceiptSequence.ts'
+import type { OriginLookup, UpdateReceiptOrigin } from '../appUpdate/installReceiptSequence.ts'
 import { describeUpdateOutcome } from '../appUpdate/updateReceiptMessage.ts'
 import { startCommandSocket, type CommandSocketHandle } from '../cli/commandSocket.ts'
 import { createAppUpdateCommandHandler } from '../cli/appUpdateCommand.ts'
@@ -328,13 +328,17 @@ function createCommandSocketHandle(): CommandSocketHandle {
         getActiveRunIds: () => gatewayHandle?.listActiveRunIds() ?? [],
         receipt: {
           resolveOrigin: (runId) =>
-            hostCall<UpdateReceiptOrigin | undefined>('resolveRunChannelOrigin', [runId]).catch(
-              (error) => {
-                // Not knowing where to report back is a reason to skip the
-                // receipt, not to block the update the user asked for.
-                console.error('[update-receipt] could not resolve origin:', error)
-                return undefined
-              }
+            hostCall<UpdateReceiptOrigin | undefined>('resolveRunChannelOrigin', [runId]).then(
+              (origin): OriginLookup =>
+                origin ? { kind: 'origin', origin } : { kind: 'no-channel' },
+              // A lookup we could not perform is reported as exactly that.
+              // Reporting it as "no channel" is what let an unreachable RPC
+              // disguise itself as a local thread and skip the receipt in
+              // silence.
+              (error): OriginLookup => ({
+                kind: 'lookup-failed',
+                reason: error instanceof Error ? error.message : String(error)
+              })
             ),
           persist: (record) => writePendingUpdateReceipt(pendingUpdateReceiptPath(), record),
           clear: () => clearPendingUpdateReceipt(pendingUpdateReceiptPath()),

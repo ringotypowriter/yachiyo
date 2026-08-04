@@ -25,6 +25,7 @@ function createController(events: string[]): AppUpdateController {
       install: () => events.push('install'),
       release: () => events.push('release')
     }),
+    getPreparedVersion: () => '1.1.0',
     installPrepared: () => events.push('install')
   }
 }
