@@ -118,6 +118,70 @@ test('BrowserSearchSession lets ordinary page tasks overlap and disposes each pa
   ])
 })
 
+test('BrowserSearchSession caps concurrent ordinary page tasks at four', async () => {
+  let activeTasks = 0
+  let maxActiveTasks = 0
+  let startedTasks = 0
+  let notifyFourStarted: (() => void) | undefined
+  const fourStarted = new Promise<void>((resolve) => {
+    notifyFourStarted = resolve
+  })
+  let releaseTasks: (() => void) | undefined
+  const tasksReleased = new Promise<void>((resolve) => {
+    releaseTasks = resolve
+  })
+
+  const session = new BrowserSearchSession({
+    profilePath: '/tmp/yachiyo-browser-session',
+    pageFactory: {
+      async createPage() {
+        return {
+          async loadURL() {
+            return undefined
+          },
+          async waitForFunction() {
+            return undefined
+          },
+          async evaluate<TResult>() {
+            return 'ok' as TResult
+          },
+          async getURL() {
+            return 'https://example.com'
+          }
+        }
+      },
+      async disposePage() {
+        return undefined
+      }
+    }
+  })
+
+  const tasks = Array.from({ length: 5 }, () =>
+    session.withPage(async () => {
+      activeTasks += 1
+      startedTasks += 1
+      maxActiveTasks = Math.max(maxActiveTasks, activeTasks)
+      if (startedTasks === 4) {
+        notifyFourStarted?.()
+      }
+      await tasksReleased
+      activeTasks -= 1
+    })
+  )
+
+  await fourStarted
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  const startedBeforeRelease = startedTasks
+  const maxActiveBeforeRelease = maxActiveTasks
+
+  releaseTasks?.()
+  await Promise.all(tasks)
+
+  assert.equal(startedBeforeRelease, 4)
+  assert.equal(maxActiveBeforeRelease, 4)
+  assert.equal(startedTasks, 5)
+})
+
 test('BrowserSearchSession exclusive access waits for active pages and blocks later pages', async () => {
   const calls: string[] = []
   let releaseFirstPage: (() => void) | undefined

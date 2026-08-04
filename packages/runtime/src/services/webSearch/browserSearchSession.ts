@@ -7,6 +7,7 @@ import type {
   WebSearchBrowserImportSource
 } from '@yachiyo/shared/protocol'
 
+const MAX_CONCURRENT_BROWSER_PAGES = 4
 const CHROME_REQUIRED_COPY_ENTRIES = [
   'Cookies',
   'Cookies-journal',
@@ -146,7 +147,10 @@ export class BrowserSearchSession {
       return
     }
 
-    while (this.accessQueue[0]?.mode === 'shared') {
+    while (
+      this.activePageTasks < MAX_CONCURRENT_BROWSER_PAGES &&
+      this.accessQueue[0]?.mode === 'shared'
+    ) {
       const request = this.accessQueue.shift()
       if (!request) {
         return
