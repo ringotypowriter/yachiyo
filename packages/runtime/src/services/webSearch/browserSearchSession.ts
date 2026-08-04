@@ -7,6 +7,7 @@ import type {
   WebSearchBrowserImportSource
 } from '@yachiyo/shared/protocol'
 
+const MAX_CONCURRENT_BROWSER_PAGES = 4
 const CHROME_REQUIRED_COPY_ENTRIES = [
   'Cookies',
   'Cookies-journal',
@@ -71,11 +72,20 @@ export interface BrowserSearchSessionImportService {
   listSources(): Promise<WebSearchBrowserImportSource[]>
 }
 
+interface BrowserSearchSessionAccessRequest {
+  mode: 'shared' | 'exclusive'
+  task: () => Promise<unknown>
+  resolve: (value: unknown) => void
+  reject: (reason: unknown) => void
+}
+
 export class BrowserSearchSession {
   readonly profilePath: string
 
   private readonly pageFactory: BrowserSearchPageFactory
-  private accessQueue: Promise<void> = Promise.resolve()
+  private readonly accessQueue: BrowserSearchSessionAccessRequest[] = []
+  private activePageTasks = 0
+  private exclusiveTaskActive = false
 
   constructor(input: { pageFactory: BrowserSearchPageFactory; profilePath: string }) {
     this.profilePath = input.profilePath
@@ -83,11 +93,11 @@ export class BrowserSearchSession {
   }
 
   async withExclusiveAccess<TResult>(task: () => Promise<TResult>): Promise<TResult> {
-    return this.runExclusive(task)
+    return this.runWithAccess('exclusive', task)
   }
 
   async withPage<TResult>(task: (page: BrowserSearchPage) => Promise<TResult>): Promise<TResult> {
-    return this.runExclusive(async () => {
+    return this.runWithAccess('shared', async () => {
       const page = await this.pageFactory.createPage(this.profilePath)
 
       try {
@@ -98,18 +108,66 @@ export class BrowserSearchSession {
     })
   }
 
-  private async runExclusive<TResult>(task: () => Promise<TResult>): Promise<TResult> {
-    const previous = this.accessQueue
-    let release: (() => void) | undefined
-    this.accessQueue = new Promise<void>((resolve) => {
-      release = resolve
+  private runWithAccess<TResult>(
+    mode: BrowserSearchSessionAccessRequest['mode'],
+    task: () => Promise<TResult>
+  ): Promise<TResult> {
+    return new Promise<TResult>((resolve, reject) => {
+      this.accessQueue.push({
+        mode,
+        task,
+        resolve: (value) => resolve(value as TResult),
+        reject
+      })
+      this.drainAccessQueue()
     })
+  }
 
-    await previous
+  private drainAccessQueue(): void {
+    if (this.exclusiveTaskActive) {
+      return
+    }
+
+    const next = this.accessQueue[0]
+    if (!next) {
+      return
+    }
+
+    if (next.mode === 'exclusive') {
+      if (this.activePageTasks > 0) {
+        return
+      }
+
+      this.accessQueue.shift()
+      this.exclusiveTaskActive = true
+      void this.executeAccessRequest(next).finally(() => {
+        this.exclusiveTaskActive = false
+        this.drainAccessQueue()
+      })
+      return
+    }
+
+    while (
+      this.activePageTasks < MAX_CONCURRENT_BROWSER_PAGES &&
+      this.accessQueue[0]?.mode === 'shared'
+    ) {
+      const request = this.accessQueue.shift()
+      if (!request) {
+        return
+      }
+      this.activePageTasks += 1
+      void this.executeAccessRequest(request).finally(() => {
+        this.activePageTasks -= 1
+        this.drainAccessQueue()
+      })
+    }
+  }
+
+  private async executeAccessRequest(request: BrowserSearchSessionAccessRequest): Promise<void> {
     try {
-      return await task()
-    } finally {
-      release?.()
+      request.resolve(await request.task())
+    } catch (error) {
+      request.reject(error)
     }
   }
 }
