@@ -99,3 +99,103 @@ test('DuckDuckGo browser provider posts the query and returns normalized organic
     ]
   })
 })
+
+test('DuckDuckGo browser provider stops immediately on a bot challenge', async () => {
+  let attempts = 0
+  let disposed = 0
+  const session = new BrowserSearchSession({
+    profilePath: '/tmp/yachiyo-web-search-profile',
+    pageFactory: {
+      async createPage() {
+        attempts += 1
+        return {
+          async loadURL() {
+            return undefined
+          },
+          async waitForFunction({ predicate }) {
+            assert.match(predicate, /bots use DuckDuckGo too/i)
+          },
+          async evaluate<TResult>(script: string) {
+            return script.includes('bots use DuckDuckGo too') as TResult
+          },
+          async getURL() {
+            return 'https://html.duckduckgo.com/html/'
+          }
+        }
+      },
+      async disposePage() {
+        disposed += 1
+      }
+    }
+  })
+  const provider = createDuckDuckGoBrowserWebSearchProvider({
+    browserSession: session,
+    loadTimeoutMs: 100,
+    retryAttempts: 3,
+    retryDelayMs: 0
+  })
+
+  const result = await provider.search({ query: 'site:github.com yachiyo', limit: 10 })
+
+  assert.equal(attempts, 1)
+  assert.equal(disposed, 1)
+  assert.equal(result.failureCode, 'provider-failed')
+  assert.match(result.error ?? '', /bot challenge/i)
+})
+
+test('DuckDuckGo browser provider still retries transient readiness timeouts', async () => {
+  let attempts = 0
+  const session = new BrowserSearchSession({
+    profilePath: '/tmp/yachiyo-web-search-profile',
+    pageFactory: {
+      async createPage() {
+        attempts += 1
+        const currentAttempt = attempts
+        return {
+          async loadURL() {
+            return undefined
+          },
+          async waitForFunction() {
+            if (currentAttempt < 3) {
+              throw new Error('Timed out after 100ms waiting for page readiness.')
+            }
+          },
+          async evaluate<TResult>() {
+            return [
+              {
+                href: 'https://example.com/result',
+                title: 'Recovered result',
+                snippet: 'Available after retry'
+              }
+            ] as TResult
+          },
+          async getURL() {
+            return 'https://html.duckduckgo.com/html/'
+          }
+        }
+      },
+      async disposePage() {
+        return undefined
+      }
+    }
+  })
+  const provider = createDuckDuckGoBrowserWebSearchProvider({
+    browserSession: session,
+    loadTimeoutMs: 100,
+    retryAttempts: 3,
+    retryDelayMs: 0
+  })
+
+  const result = await provider.search({ query: 'yachiyo electron', limit: 10 })
+
+  assert.equal(attempts, 3)
+  assert.equal(result.failureCode, undefined)
+  assert.deepEqual(result.results, [
+    {
+      rank: 1,
+      title: 'Recovered result',
+      url: 'https://example.com/result',
+      snippet: 'Available after retry'
+    }
+  ])
+})

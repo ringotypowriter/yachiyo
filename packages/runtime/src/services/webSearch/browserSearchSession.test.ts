@@ -46,11 +46,15 @@ test('BrowserSearchSession reuses a persistent profile path while bounding page 
   assert.deepEqual(calls, ['create:/tmp/yachiyo-browser-session', 'dispose'])
 })
 
-test('BrowserSearchSession serializes page access and exclusive profile operations', async () => {
+test('BrowserSearchSession lets ordinary page tasks overlap and disposes each page once', async () => {
   const calls: string[] = []
   let releaseFirstTask: (() => void) | undefined
   const firstTaskComplete = new Promise<void>((resolve) => {
     releaseFirstTask = resolve
+  })
+  let firstTaskStarted: (() => void) | undefined
+  const firstTaskStart = new Promise<void>((resolve) => {
+    firstTaskStarted = resolve
   })
 
   const session = new BrowserSearchSession({
@@ -81,29 +85,127 @@ test('BrowserSearchSession serializes page access and exclusive profile operatio
 
   const first = session.withPage(async () => {
     calls.push('task:first:start')
+    firstTaskStarted?.()
     await firstTaskComplete
     calls.push('task:first:end')
     return 'first'
   })
 
-  const second = session.withExclusiveAccess(async () => {
-    calls.push('task:exclusive')
-    return 'exclusive'
+  await firstTaskStart
+  let secondOverlapped = false
+  const second = session.withPage(async () => {
+    secondOverlapped = true
+    calls.push('task:second')
+    return 'second'
   })
 
   await new Promise((resolve) => setTimeout(resolve, 0))
-  assert.deepEqual(calls, ['create:/tmp/yachiyo-browser-session', 'task:first:start'])
+  const overlappedBeforeFirstFinished = secondOverlapped
 
   releaseFirstTask?.()
 
   assert.equal(await first, 'first')
-  assert.equal(await second, 'exclusive')
+  assert.equal(await second, 'second')
+  assert.equal(overlappedBeforeFirstFinished, true)
   assert.deepEqual(calls, [
     'create:/tmp/yachiyo-browser-session',
     'task:first:start',
-    'task:first:end',
+    'create:/tmp/yachiyo-browser-session',
+    'task:second',
     'dispose',
-    'task:exclusive'
+    'task:first:end',
+    'dispose'
+  ])
+})
+
+test('BrowserSearchSession exclusive access waits for active pages and blocks later pages', async () => {
+  const calls: string[] = []
+  let releaseFirstPage: (() => void) | undefined
+  const firstPageComplete = new Promise<void>((resolve) => {
+    releaseFirstPage = resolve
+  })
+  let firstPageStarted: (() => void) | undefined
+  const firstPageStart = new Promise<void>((resolve) => {
+    firstPageStarted = resolve
+  })
+  let releaseExclusive: (() => void) | undefined
+  const exclusiveComplete = new Promise<void>((resolve) => {
+    releaseExclusive = resolve
+  })
+  let exclusiveStarted: (() => void) | undefined
+  const exclusiveStart = new Promise<void>((resolve) => {
+    exclusiveStarted = resolve
+  })
+
+  const session = new BrowserSearchSession({
+    profilePath: '/tmp/yachiyo-browser-session',
+    pageFactory: {
+      async createPage() {
+        calls.push('create')
+        return {
+          async loadURL() {
+            return undefined
+          },
+          async waitForFunction() {
+            return undefined
+          },
+          async evaluate<TResult>() {
+            return 'ok' as TResult
+          },
+          async getURL() {
+            return 'https://example.com'
+          }
+        }
+      },
+      async disposePage() {
+        calls.push('dispose')
+      }
+    }
+  })
+
+  const first = session.withPage(async () => {
+    calls.push('page:first:start')
+    firstPageStarted?.()
+    await firstPageComplete
+    calls.push('page:first:end')
+  })
+  await firstPageStart
+
+  const exclusive = session.withExclusiveAccess(async () => {
+    calls.push('exclusive:start')
+    exclusiveStarted?.()
+    await exclusiveComplete
+    calls.push('exclusive:end')
+  })
+  const later = session.withPage(async () => {
+    calls.push('page:later')
+  })
+
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  assert.deepEqual(calls, ['create', 'page:first:start'])
+
+  releaseFirstPage?.()
+  await exclusiveStart
+  assert.deepEqual(calls, [
+    'create',
+    'page:first:start',
+    'page:first:end',
+    'dispose',
+    'exclusive:start'
+  ])
+
+  releaseExclusive?.()
+  await Promise.all([first, exclusive, later])
+  assert.deepEqual(calls, [
+    'create',
+    'page:first:start',
+    'page:first:end',
+    'dispose',
+    'exclusive:start',
+    'exclusive:end',
+    'create',
+    'page:later',
+    'dispose'
   ])
 })
 
