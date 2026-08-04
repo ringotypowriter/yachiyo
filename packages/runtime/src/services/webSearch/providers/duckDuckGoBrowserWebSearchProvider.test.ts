@@ -1,5 +1,8 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import { runInNewContext } from 'node:vm'
+
+import { parseHTML } from 'linkedom'
 
 import { BrowserSearchSession } from '../browserSearchSession.ts'
 import { createDuckDuckGoBrowserWebSearchProvider } from './duckDuckGoBrowserWebSearchProvider.ts'
@@ -141,6 +144,61 @@ test('DuckDuckGo browser provider stops immediately on a bot challenge', async (
   assert.equal(disposed, 1)
   assert.equal(result.failureCode, 'provider-failed')
   assert.match(result.error ?? '', /bot challenge/i)
+})
+
+test('DuckDuckGo browser provider keeps organic results that mention the challenge text', async () => {
+  const { document } = parseHTML(`
+    <html>
+      <body>
+        <div class="result">
+          <a class="result__a" href="https://example.com/challenge-phrase">
+            Why bots use DuckDuckGo too
+          </a>
+          <div class="result__snippet">An article about the challenge message.</div>
+        </div>
+      </body>
+    </html>
+  `)
+  const session = new BrowserSearchSession({
+    profilePath: '/tmp/yachiyo-web-search-profile',
+    pageFactory: {
+      async createPage() {
+        return {
+          async loadURL() {
+            return undefined
+          },
+          async waitForFunction() {
+            return undefined
+          },
+          async evaluate<TResult>(script: string) {
+            return runInNewContext(script, { document }) as TResult
+          },
+          async getURL() {
+            return 'https://html.duckduckgo.com/html/'
+          }
+        }
+      },
+      async disposePage() {
+        return undefined
+      }
+    }
+  })
+  const provider = createDuckDuckGoBrowserWebSearchProvider({
+    browserSession: session,
+    loadTimeoutMs: 100
+  })
+
+  const result = await provider.search({ query: 'bots use DuckDuckGo too', limit: 10 })
+
+  assert.equal(result.failureCode, undefined)
+  assert.deepEqual(result.results, [
+    {
+      rank: 1,
+      title: 'Why bots use DuckDuckGo too',
+      url: 'https://example.com/challenge-phrase',
+      snippet: 'An article about the challenge message.'
+    }
+  ])
 })
 
 test('DuckDuckGo browser provider still retries transient readiness timeouts', async () => {

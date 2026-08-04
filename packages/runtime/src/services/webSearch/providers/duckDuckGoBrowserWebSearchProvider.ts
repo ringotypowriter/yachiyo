@@ -6,6 +6,13 @@ import type { WebSearchProvider, WebSearchResult } from '../webSearchService.ts'
 const DUCKDUCKGO_SEARCH_URL = 'https://html.duckduckgo.com/html/'
 const DUCKDUCKGO_HOST_PATTERN = /(^|\.)duckduckgo\.com$/iu
 const DUCKDUCKGO_BOT_CHALLENGE_TEXT = 'bots use DuckDuckGo too'
+const DUCKDUCKGO_ORGANIC_RESULT_SELECTOR = '.result:not(.result--ad) a.result__a[href]'
+const DUCKDUCKGO_BOT_CHALLENGE_SELECTOR = '#challenge-form, [data-testid="anomaly-modal"]'
+const BOT_CHALLENGE_CHECK = `
+  Boolean(document.querySelector('${DUCKDUCKGO_BOT_CHALLENGE_SELECTOR}')) ||
+  (!hasOrganicResult &&
+    (document.body?.innerText || '').includes('${DUCKDUCKGO_BOT_CHALLENGE_TEXT}'))
+`
 const PAGE_READY_PREDICATE = `
   (() => {
     const readyState = document.readyState
@@ -14,17 +21,20 @@ const PAGE_READY_PREDICATE = `
     }
 
     const hasOrganicResult = Boolean(
-      document.querySelector('.result:not(.result--ad) a.result__a[href]')
+      document.querySelector('${DUCKDUCKGO_ORGANIC_RESULT_SELECTOR}')
     )
-    const hasBotChallenge = (document.body?.innerText || '').includes(
-      '${DUCKDUCKGO_BOT_CHALLENGE_TEXT}'
-    )
+    const hasBotChallenge = ${BOT_CHALLENGE_CHECK}
 
     return hasOrganicResult || hasBotChallenge
   })()
 `
 const BOT_CHALLENGE_PREDICATE = `
-  (() => (document.body?.innerText || '').includes('${DUCKDUCKGO_BOT_CHALLENGE_TEXT}'))()
+  (() => {
+    const hasOrganicResult = Boolean(
+      document.querySelector('${DUCKDUCKGO_ORGANIC_RESULT_SELECTOR}')
+    )
+    return ${BOT_CHALLENGE_CHECK}
+  })()
 `
 const EXTRACTION_SCRIPT = `
   (() => {
