@@ -106,6 +106,16 @@ test('DuckDuckGo browser provider posts the query and returns normalized organic
 test('DuckDuckGo browser provider stops immediately on a bot challenge', async () => {
   let attempts = 0
   let disposed = 0
+  const { document } = parseHTML(`
+    <html>
+      <body>
+        <form id="challenge-form">
+          Unfortunately, bots use DuckDuckGo too.
+        </form>
+      </body>
+    </html>
+  `)
+  Object.defineProperty(document, 'readyState', { value: 'complete' })
   const session = new BrowserSearchSession({
     profilePath: '/tmp/yachiyo-web-search-profile',
     pageFactory: {
@@ -116,10 +126,10 @@ test('DuckDuckGo browser provider stops immediately on a bot challenge', async (
             return undefined
           },
           async waitForFunction({ predicate }) {
-            assert.match(predicate, /bots use DuckDuckGo too/i)
+            assert.equal(runInNewContext(predicate, { document }), true)
           },
           async evaluate<TResult>(script: string) {
-            return script.includes('bots use DuckDuckGo too') as TResult
+            return runInNewContext(script, { document }) as TResult
           },
           async getURL() {
             return 'https://html.duckduckgo.com/html/'

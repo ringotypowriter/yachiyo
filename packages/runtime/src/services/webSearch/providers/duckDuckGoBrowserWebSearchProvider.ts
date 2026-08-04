@@ -8,11 +8,11 @@ const DUCKDUCKGO_HOST_PATTERN = /(^|\.)duckduckgo\.com$/iu
 const DUCKDUCKGO_BOT_CHALLENGE_TEXT = 'bots use DuckDuckGo too'
 const DUCKDUCKGO_ORGANIC_RESULT_SELECTOR = '.result:not(.result--ad) a.result__a[href]'
 const DUCKDUCKGO_BOT_CHALLENGE_SELECTOR = '#challenge-form, [data-testid="anomaly-modal"]'
-const BOT_CHALLENGE_CHECK = `
-  Boolean(document.querySelector('${DUCKDUCKGO_BOT_CHALLENGE_SELECTOR}')) ||
+const BOT_CHALLENGE_CHECK = `(Boolean(
+  document.querySelector('${DUCKDUCKGO_BOT_CHALLENGE_SELECTOR}')
+) ||
   (!hasOrganicResult &&
-    (document.body?.innerText || '').includes('${DUCKDUCKGO_BOT_CHALLENGE_TEXT}'))
-`
+    (document.body?.innerText || '').includes('${DUCKDUCKGO_BOT_CHALLENGE_TEXT}')))`
 const PAGE_READY_PREDICATE = `
   (() => {
     const readyState = document.readyState
