@@ -87,13 +87,53 @@ test('install refuses newly active runs by default and never returns an install 
   assert.deepEqual(events, ['prepare'])
 })
 
-test('forced install reports the exact interrupted count and starts only after the reply', async () => {
+test('install rechecks active runs after resolving its receipt origin', async () => {
   const events: string[] = []
+  let activeRunIds = ['run-self']
+  const controller = createController(events)
+  controller.reservePreparedInstall = () => {
+    events.push('reserve')
+    return {
+      install: () => events.push('install'),
+      release: () => events.push('release')
+    }
+  }
+  const receipt = createReceipt()
+  receipt.resolveOrigin = async () => {
+    activeRunIds = ['run-self', 'run-other']
+    return {
+      kind: 'origin',
+      origin: { channelId: 'channel-1', threadId: 'thread-1', messageId: 'message-1' }
+    }
+  }
+
+  const handler = createAppUpdateCommandHandler({
+    controller,
+    getRunningVersion: () => '1.5.1',
+    getActiveRunIds: () => activeRunIds,
+    receipt
+  })
+
+  await assert.rejects(
+    () => handler({ action: 'install', force: false, initiatorRunId: 'run-self' }),
+    /1 other active Yachiyo run.*2 including the initiating run.*not installed.*--force/i
+  )
+  assert.deepEqual(events, [])
+})
+
+test('forced install reports the latest interrupted count and starts only after the reply', async () => {
+  const events: string[] = []
+  let activeRunIds = ['run-self']
+  const receipt = createReceipt()
+  receipt.resolveOrigin = async () => {
+    activeRunIds = ['run-self', 'run-other-1', 'run-other-2']
+    return { kind: 'no-channel' }
+  }
   const handler = createAppUpdateCommandHandler({
     controller: createController(events),
     getRunningVersion: () => '1.5.1',
-    getActiveRunIds: () => ['run-self', 'run-other-1', 'run-other-2'],
-    receipt: createReceipt()
+    getActiveRunIds: () => activeRunIds,
+    receipt
   })
 
   const reply = await handler({

@@ -93,9 +93,9 @@ export function createAppUpdateCommandHandler(input: {
       }
     }
 
-    const summary = activeRunSummary(command.initiatorRunId)
-    if (summary.blockingRunCount > 0 && command.force !== true) {
-      throw new Error(formatAppUpdateBlockedError(summary))
+    let installSummary = activeRunSummary(command.initiatorRunId)
+    if (installSummary.blockingRunCount > 0 && command.force !== true) {
+      throw new Error(formatAppUpdateBlockedError(installSummary))
     }
     if (command.initiatorRunId !== undefined && input.receipt === undefined) {
       throw new Error('App update receipt wiring is required for an initiated install.')
@@ -120,6 +120,10 @@ export function createAppUpdateCommandHandler(input: {
       fromVersion: input.getRunningVersion(),
       targetVersion: receipt?.targetVersion() ?? '',
       reserve: () => {
+        installSummary = activeRunSummary(command.initiatorRunId)
+        if (installSummary.blockingRunCount > 0 && command.force !== true) {
+          throw new Error(formatAppUpdateBlockedError(installSummary))
+        }
         reservation = input.controller.reservePreparedInstall()
       },
       release: () => {
@@ -133,8 +137,8 @@ export function createAppUpdateCommandHandler(input: {
     const claimed = reservation
     const result: AppUpdateInstallResult = {
       state: 'installing',
-      interruptedRunCount: summary.interruptedRunCount,
-      initiatorRunInterrupted: summary.initiatorRunActive
+      interruptedRunCount: installSummary.interruptedRunCount,
+      initiatorRunInterrupted: installSummary.initiatorRunActive
     }
     return {
       result,
