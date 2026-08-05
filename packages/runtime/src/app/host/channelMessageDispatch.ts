@@ -21,7 +21,7 @@ type NumberSender = (target: number, text: string, options?: ChannelSendOptions)
 export interface ChannelMessageServices {
   telegram: { sendMessage: StringSender } | null
   qq: { sendPrivateMessage: NumberSender; sendGroupMessage: NumberSender } | null
-  discord: { sendMessage: StringSender } | null
+  discord: { sendMessage: StringSender; sendDirectMessage: StringSender } | null
   qqbot: { sendMessage: StringSender; sendActiveMessage: StringSender } | null
 }
 
@@ -52,7 +52,11 @@ export async function dispatchChannelMessage(
 
   if (target.platform === 'discord') {
     if (!services.discord) throw new Error('Discord service is not running')
-    await services.discord.sendMessage(target.externalId, input.message, sendOptions)
+    if (target.kind === 'user') {
+      await services.discord.sendDirectMessage(target.externalId, input.message, sendOptions)
+    } else {
+      await services.discord.sendMessage(target.externalId, input.message, sendOptions)
+    }
     return
   }
 

@@ -36,7 +36,8 @@ import { connectWithRetry } from '../../shared/connectionRetry.ts'
 import type { ChannelReplyPayload } from '../../shared/channelReply.ts'
 import {
   createChannelUpdateReceiptSender,
-  findChannelId
+  findChannelGroupId,
+  findChannelUserId
 } from '../../shared/channelUpdateReceiptSender.ts'
 import type {
   ChannelDispatchGate,
@@ -109,6 +110,8 @@ export interface DiscordService {
   onGroupStatusChange: (group: ChannelGroupRecord) => void
   /** Send a text message to a Discord channel by channel ID. */
   sendMessage: (channelId: string, text: string, options?: ChannelSendOptions) => Promise<void>
+  /** Resolve a Discord user ID to its DM channel and send a text message. */
+  sendDirectMessage: (userId: string, text: string, options?: ChannelSendOptions) => Promise<void>
   /** Wipe the in-memory message buffer for a group without stopping the monitor. */
   clearGroupMessages: (groupId: string) => void
 }
@@ -120,6 +123,11 @@ export interface DiscordSendableChannel {
 export interface DiscordChannelResolverSource {
   cache: { get: (channelId: string) => unknown }
   fetch: (channelId: string) => Promise<unknown>
+}
+
+interface DiscordDirectMessageTarget {
+  userId: string
+  channelId: string
 }
 
 /**
@@ -215,15 +223,34 @@ export function createDiscordService({
   }
 
   const sendMessage = createChannelUpdateReceiptSender<string>({
-    resolveChannelId: (channelId) => findChannelId(server, 'discord', channelId),
+    resolveChannelId: (channelId) => findChannelGroupId(server, 'discord', channelId),
     send: sendRawMessage,
     lease: updateReceiptLease,
     onError: (stage, error) => console.error(`[discord] update receipt ${stage} failed:`, error)
   })
 
+  const sendDirectMessageToTarget = createChannelUpdateReceiptSender<DiscordDirectMessageTarget>({
+    resolveChannelId: (target) => findChannelUserId(server, 'discord', target.userId),
+    send: (target, text, gate) => sendRawMessage(target.channelId, text, gate),
+    lease: updateReceiptLease,
+    onError: (stage, error) => console.error(`[discord] update receipt ${stage} failed:`, error)
+  })
+
+  async function sendDirectMessage(
+    userId: string,
+    text: string,
+    options?: ChannelSendOptions
+  ): Promise<void> {
+    const channel = await client.users.createDM(userId)
+    await sendDirectMessageToTarget({ userId, channelId: channel.id }, text, options)
+  }
+
   /** Send a richer owner-DM reply with optional local file attachments. */
-  async function sendReply(channelId: string, payload: ChannelReplyPayload): Promise<void> {
-    await sendMessage(channelId, payload.message?.trim() ?? '')
+  async function sendReply(
+    target: DiscordDirectMessageTarget,
+    payload: ChannelReplyPayload
+  ): Promise<void> {
+    await sendDirectMessageToTarget(target, payload.message?.trim() ?? '')
 
     const files = (payload.attachments ?? []).map((attachment) => ({
       attachment: attachment.path,
@@ -233,7 +260,7 @@ export function createDiscordService({
 
     // Same contract as the text path: an attachment that never left must not
     // look like one that did.
-    const channel = await resolveSendableChannel(client.channels, channelId)
+    const channel = await resolveSendableChannel(client.channels, target.channelId)
     await (
       channel as unknown as {
         send(options: { files: Array<{ attachment: string; name?: string }> }): Promise<unknown>
@@ -241,16 +268,16 @@ export function createDiscordService({
     ).send({ files })
   }
 
-  const directMessages = createChannelDirectMessageRuntime<string>({
+  const directMessages = createChannelDirectMessageRuntime<DiscordDirectMessageTarget>({
     platform: 'discord',
     logLabel: 'discord',
     server,
     policy,
     modelOverride,
-    sendMessage,
+    sendMessage: sendDirectMessageToTarget,
     sendReply,
-    startBatchIndicator: startTypingLoop,
-    startHandlingIndicator: startTypingLoop,
+    startBatchIndicator: (target) => startTypingLoop(target.channelId),
+    startHandlingIndicator: (target) => startTypingLoop(target.channelId),
     nonRunReply: 'Sorry, something went wrong on my end.',
     errorReply: 'Something went wrong. Please try again in a moment.',
     formatGuestThreadTitle: (channelUser) => `Discord:@${channelUser.username}`
@@ -342,29 +369,25 @@ export function createDiscordService({
     )
 
     const channelId = msg.channel.id
+    const target = { userId: externalUserId, channelId }
 
     switch (result.kind) {
       case 'blocked':
         return
 
       case 'pending':
-        void sendMessage(channelId, result.reply)
+        void sendDirectMessageToTarget(target, result.reply)
         return
 
       case 'limit-exceeded':
-        void sendMessage(channelId, result.reply)
+        void sendDirectMessageToTarget(target, result.reply)
         return
 
       case 'allowed': {
         const attachmentDownloads = startAttachmentDownloads(msg, {
           includeFiles: result.channelUser.role === 'owner'
         })
-        directMessages.enqueueMessage(
-          channelId,
-          result.channelUser,
-          incomingText,
-          attachmentDownloads
-        )
+        directMessages.enqueueMessage(target, result.channelUser, incomingText, attachmentDownloads)
       }
     }
   }
@@ -488,6 +511,7 @@ export function createDiscordService({
     },
 
     sendMessage,
+    sendDirectMessage,
     clearGroupMessages(groupId: string) {
       groupDiscussion?.clearGroupMessages(groupId)
     }

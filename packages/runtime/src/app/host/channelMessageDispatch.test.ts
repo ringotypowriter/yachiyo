@@ -20,7 +20,10 @@ test('forwards one dispatch deadline through every channel route', async () => {
       sendPrivateMessage: capture('qq-private'),
       sendGroupMessage: capture('qq-group')
     },
-    discord: { sendMessage: capture('discord') },
+    discord: {
+      sendMessage: capture('discord-group'),
+      sendDirectMessage: capture('discord-direct')
+    },
     qqbot: {
       sendMessage: capture('qqbot-reply'),
       sendActiveMessage: capture('qqbot-active')
@@ -41,6 +44,11 @@ test('forwards one dispatch deadline through every channel route', async () => {
     services
   )
   await dispatchChannelMessage(
+    { platform: 'discord', externalId: 'dc-user-1', kind: 'user' },
+    input,
+    services
+  )
+  await dispatchChannelMessage(
     { platform: 'qqbot', externalId: 'qb-1', kind: 'user' },
     input,
     services
@@ -55,7 +63,8 @@ test('forwards one dispatch deadline through every channel route', async () => {
     { route: 'telegram', target: 'tg-1', notAfterMs: 123 },
     { route: 'qq-private', target: 42, notAfterMs: 123 },
     { route: 'qq-group', target: 43, notAfterMs: 123 },
-    { route: 'discord', target: 'dc-1', notAfterMs: 123 },
+    { route: 'discord-group', target: 'dc-1', notAfterMs: 123 },
+    { route: 'discord-direct', target: 'dc-user-1', notAfterMs: 123 },
     { route: 'qqbot-reply', target: 'qb-1', notAfterMs: 123 },
     { route: 'qqbot-active', target: 'qb-2', notAfterMs: 123 }
   ])
