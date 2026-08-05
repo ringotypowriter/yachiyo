@@ -5,6 +5,7 @@ import type {
   UpdateChannelGroupInput
 } from '@yachiyo/shared/protocol'
 
+import type { UpdateReceiptLease } from '../../channels/platforms/qqbot/sendWithUpdateReceipt.ts'
 import {
   createDiscordService,
   type DiscordService
@@ -56,6 +57,12 @@ export interface SendChannelMessageInput {
 
 export interface RuntimeLiveServicesOptions {
   server: YachiyoServer
+  /**
+   * Lets an update receipt that could not be delivered actively ride along
+   * with the next real outbound. Absent when nothing owns such a record —
+   * the in-process runtime and tests, for instance.
+   */
+  updateReceiptLease?: UpdateReceiptLease
   /** Notification display; Electron-backed in main, reverse-RPC from a utility host. */
   showNotification: (input: ShowNotificationInput) => void
   tempWorkspaceDir: string
@@ -202,7 +209,10 @@ export function createRuntimeLiveServices(
             clientSecret: cfg.qqbot!.clientSecret!.trim(),
             model: cfg.qqbot?.model,
             server,
-            policy: applyChannelsConfigToPolicy(qqbotPolicy, cfg)
+            policy: applyChannelsConfigToPolicy(qqbotPolicy, cfg),
+            ...(options.updateReceiptLease
+              ? { updateReceiptLease: options.updateReceiptLease }
+              : {})
           })
         },
         onServiceChange: (service) => {

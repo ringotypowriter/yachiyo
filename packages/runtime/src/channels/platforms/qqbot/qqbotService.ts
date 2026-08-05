@@ -1,3 +1,4 @@
+import { sendWithUpdateReceipt, type UpdateReceiptLease } from './sendWithUpdateReceipt.ts'
 /**
  * QQ Official Bot service — DM (C2C) only.
  *
@@ -33,6 +34,8 @@ export interface QQBotServiceOptions {
   server: YachiyoServer
   /** Effective policy with config overrides applied. Defaults to qqbotPolicy. */
   policy?: ChannelPolicy
+  /** Absent when nothing can be owed — e.g. the in-process runtime in tests. */
+  updateReceiptLease?: UpdateReceiptLease
 }
 
 export interface QQBotService {
@@ -90,7 +93,8 @@ export function createQQBotService({
   clientSecret,
   model: modelOverride,
   server,
-  policy: policyOverride
+  policy: policyOverride,
+  updateReceiptLease
 }: QQBotServiceOptions): QQBotService {
   const policy = policyOverride ?? qqbotPolicy
 
@@ -114,8 +118,23 @@ export function createQQBotService({
    */
   const lastMessageId = new Map<string, string>()
 
+  /**
+   * Send, carrying an owed update receipt if one is waiting for this user.
+   *
+   * Claimed at the moment of a *real* outbound rather than when their message
+   * arrived: a turn may produce text, an error reply or only attachments, and
+   * the receipt should ride the first thing that actually leaves. Acked the
+   * instant the text lands, so a later attachment failure cannot cause the
+   * receipt to be sent twice.
+   */
   async function sendMessageWithTarget(target: QQBotTarget, text: string): Promise<void> {
-    await client.sendC2CMessage(target.openId, text, target.replyMsgId)
+    await sendWithUpdateReceipt({
+      channelId: storage.findChannelUser('qqbot', target.openId)?.id,
+      text,
+      send: (body) => client.sendC2CMessage(target.openId, body, target.replyMsgId),
+      ...(updateReceiptLease ? { lease: updateReceiptLease } : {}),
+      onError: (stage, error) => console.error(`[qqbot] update receipt ${stage} failed:`, error)
+    })
   }
 
   async function sendReplyWithTarget(
