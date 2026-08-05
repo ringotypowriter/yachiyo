@@ -5,7 +5,7 @@ import type {
   UpdateChannelGroupInput
 } from '@yachiyo/shared/protocol'
 
-import type { UpdateReceiptLease } from '../../channels/platforms/qqbot/sendWithUpdateReceipt.ts'
+import type { UpdateReceiptLease } from '../../channels/shared/sendWithUpdateReceipt.ts'
 import {
   createDiscordService,
   type DiscordService
@@ -139,7 +139,8 @@ export function createRuntimeLiveServices(
             botUsername: undefined,
             groupVerbosity: cfg.groupVerbosity,
             groupCheckIntervalMs: cfg.groupCheckIntervalMs,
-            policy: applyChannelsConfigToPolicy(telegramPolicy, cfg)
+            policy: applyChannelsConfigToPolicy(telegramPolicy, cfg),
+            updateReceiptLease: options.updateReceiptLease
           })
         },
         onServiceChange: (service) => {
@@ -165,7 +166,8 @@ export function createRuntimeLiveServices(
             botQQId: undefined,
             groupVerbosity: cfg.groupVerbosity,
             groupCheckIntervalMs: cfg.groupCheckIntervalMs,
-            policy: applyChannelsConfigToPolicy(qqPolicy, cfg)
+            policy: applyChannelsConfigToPolicy(qqPolicy, cfg),
+            updateReceiptLease: options.updateReceiptLease
           })
         },
         onServiceChange: (service) => {
@@ -189,7 +191,8 @@ export function createRuntimeLiveServices(
             groupConfig: cfg.discord?.group,
             groupVerbosity: cfg.groupVerbosity,
             groupCheckIntervalMs: cfg.groupCheckIntervalMs,
-            policy: applyChannelsConfigToPolicy(discordPolicy, cfg)
+            policy: applyChannelsConfigToPolicy(discordPolicy, cfg),
+            updateReceiptLease: options.updateReceiptLease
           })
         },
         onServiceChange: (service) => {

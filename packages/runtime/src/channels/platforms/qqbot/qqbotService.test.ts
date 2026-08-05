@@ -12,7 +12,7 @@ import type {
 import type { YachiyoServer } from '../../../app/host/YachiyoServer.ts'
 import type { QQBotC2CMessage, QQBotClient } from './qqbotClient.ts'
 import { createQQBotService, startQQBotImageDownloads } from './qqbotService.ts'
-import type { UpdateReceiptLease } from './sendWithUpdateReceipt.ts'
+import type { UpdateReceiptLease } from '../../shared/sendWithUpdateReceipt.ts'
 
 function createChannelUser(overrides: Partial<ChannelUserRecord> = {}): ChannelUserRecord {
   return {

@@ -34,6 +34,11 @@ import {
 import { routeChannelGroupMessage } from '../../group/channelGroupRouting.ts'
 import { connectWithRetry } from '../../shared/connectionRetry.ts'
 import type { ChannelReplyPayload } from '../../shared/channelReply.ts'
+import {
+  createChannelUpdateReceiptSender,
+  findChannelId
+} from '../../shared/channelUpdateReceiptSender.ts'
+import type { UpdateReceiptLease } from '../../shared/sendWithUpdateReceipt.ts'
 import { routeDiscordMessage, type DiscordChannelStorage } from './discord.ts'
 
 /** Discord typing indicator lasts ~10 s; resend every 8 s. */
@@ -83,6 +88,8 @@ export interface DiscordServiceOptions {
   groupCheckIntervalMs?: number
   /** Effective policy with config overrides applied. Defaults to discordPolicy. */
   policy?: ChannelPolicy
+  /** Main-process lease for a receipt waiting for this channel's next outbound. */
+  updateReceiptLease: UpdateReceiptLease
 }
 
 export interface DiscordService {
@@ -144,7 +151,8 @@ export function createDiscordService({
   groupConfig,
   groupVerbosity,
   groupCheckIntervalMs,
-  policy: policyOverride
+  policy: policyOverride,
+  updateReceiptLease
 }: DiscordServiceOptions): DiscordService {
   const policy = policyOverride ?? discordPolicy
 
@@ -188,7 +196,7 @@ export function createDiscordService({
   }
 
   /** Send a text message to a Discord channel, splitting if necessary. */
-  async function sendMessage(channelId: string, text: string): Promise<void> {
+  async function sendRawMessage(channelId: string, text: string): Promise<void> {
     const channel = await resolveSendableChannel(client.channels, channelId)
 
     const chunks = splitMessage(text)
@@ -197,12 +205,16 @@ export function createDiscordService({
     }
   }
 
+  const sendMessage = createChannelUpdateReceiptSender<string>({
+    resolveChannelId: (channelId) => findChannelId(server, 'discord', channelId),
+    send: sendRawMessage,
+    lease: updateReceiptLease,
+    onError: (stage, error) => console.error(`[discord] update receipt ${stage} failed:`, error)
+  })
+
   /** Send a richer owner-DM reply with optional local file attachments. */
   async function sendReply(channelId: string, payload: ChannelReplyPayload): Promise<void> {
-    const text = payload.message?.trim()
-    if (text) {
-      await sendMessage(channelId, text)
-    }
+    await sendMessage(channelId, payload.message?.trim() ?? '')
 
     const files = (payload.attachments ?? []).map((attachment) => ({
       attachment: attachment.path,

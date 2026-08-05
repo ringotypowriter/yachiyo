@@ -87,12 +87,14 @@ async function claimQuietly(input: {
   // A distinct sentinel, because "the claim timed out" and "nothing is owed"
   // are different facts and only one of them is worth reporting.
   const TIMED_OUT = Symbol('lease-claim-timeout')
-  const timeout = new Promise<typeof TIMED_OUT>((resolve) =>
-    setTimeout(() => resolve(TIMED_OUT), timeoutMs)
-  )
+  let timeoutHandle: ReturnType<typeof setTimeout> | undefined
+  const timeout = new Promise<typeof TIMED_OUT>((resolve) => {
+    timeoutHandle = setTimeout(() => resolve(TIMED_OUT), timeoutMs)
+  })
 
   const result = await Promise.race([pending, timeout])
   settled = true
+  clearTimeout(timeoutHandle)
 
   if (result === TIMED_OUT) {
     input.onError?.('claim-timeout', new Error('update receipt lease claim timed out'))

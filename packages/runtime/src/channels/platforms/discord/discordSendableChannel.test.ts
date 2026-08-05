@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import { ChannelManager } from 'discord.js'
 
-import { resolveSendableChannel } from './discordService.ts'
+import type { YachiyoServer } from '../../../app/host/YachiyoServer.ts'
+import type { UpdateReceiptLease } from '../../shared/sendWithUpdateReceipt.ts'
+import { createDiscordService, resolveSendableChannel } from './discordService.ts'
 
 function source(input: {
   cached?: unknown
@@ -74,4 +77,50 @@ test('a cached entry without send falls through to fetch rather than being trust
     'chan-1'
   )
   assert.equal(channel, sendable)
+})
+
+test('carries a deferred update receipt on the next Discord outbound', async (t) => {
+  const events: string[] = []
+  t.mock.method(ChannelManager.prototype, 'fetch', async () => ({
+    send: async (text: string) => {
+      events.push(`send:${text}`)
+    }
+  }))
+
+  const lease: UpdateReceiptLease = {
+    async claim(channelId) {
+      events.push(`claim:${channelId}`)
+      return { claimToken: 'claim-1', message: 'update receipt' }
+    },
+    async ack(claimToken) {
+      events.push(`ack:${claimToken}`)
+    },
+    async release(claimToken) {
+      events.push(`release:${claimToken}`)
+    }
+  }
+  const server = {
+    listChannelUsers: () => [],
+    listChannelGroups: () => [
+      {
+        id: 'discord-group-1',
+        platform: 'discord',
+        externalGroupId: 'channel-1'
+      }
+    ]
+  } as unknown as YachiyoServer
+
+  const service = createDiscordService({
+    botToken: 'token',
+    server,
+    updateReceiptLease: lease
+  })
+
+  await service.sendMessage('channel-1', 'ordinary reply')
+
+  assert.deepEqual(events, [
+    'claim:discord-group-1',
+    'send:update receipt\n\nordinary reply',
+    'ack:claim-1'
+  ])
 })

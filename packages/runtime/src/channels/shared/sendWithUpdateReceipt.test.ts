@@ -41,6 +41,25 @@ test('an owed receipt is prepended to the reply and acknowledged once sent', asy
   assert.deepEqual(calls, ['claim', 'ack'])
 })
 
+test('a settled claim cancels its timeout timer', async (t) => {
+  const { lease: l } = lease()
+  const cleared: Array<Parameters<typeof clearTimeout>[0]> = []
+  const clearTimeoutOriginal = globalThis.clearTimeout
+  t.mock.method(globalThis, 'clearTimeout', (timer) => {
+    cleared.push(timer)
+    clearTimeoutOriginal(timer)
+  })
+
+  await sendWithUpdateReceipt({
+    channelId: 'chan-1',
+    text: 'Here is the answer.',
+    send: async () => {},
+    lease: l
+  })
+
+  assert.equal(cleared.length, 1)
+})
+
 test('an owed receipt becomes the text send for an attachment-only reply', async () => {
   const { lease: l, calls } = lease()
   const sent: string[] = []

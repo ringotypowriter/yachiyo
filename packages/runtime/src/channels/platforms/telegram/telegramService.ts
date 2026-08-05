@@ -23,9 +23,9 @@ import type {
   MessageImageRecord,
   ThreadModelOverride
 } from '@yachiyo/shared/protocol'
-import type { YachiyoServer } from '../../../app/host/YachiyoServer'
-import { telegramPolicy, type ChannelPolicy } from '../../shared/channelPolicy'
-import { fetchFileAsDataUrl, fetchImageAsDataUrl } from '../../shared/channelImageDownload'
+import type { YachiyoServer } from '../../../app/host/YachiyoServer.ts'
+import { telegramPolicy, type ChannelPolicy } from '../../shared/channelPolicy.ts'
+import { fetchFileAsDataUrl, fetchImageAsDataUrl } from '../../shared/channelImageDownload.ts'
 import { createChannelDirectMessageRuntime } from '../../direct/channelDirectMessageRuntime.ts'
 import type { DirectMessageInboundAttachment } from '../../direct/directMessageService.ts'
 import {
@@ -35,7 +35,12 @@ import {
 import { routeChannelGroupMessage } from '../../group/channelGroupRouting.ts'
 import { connectWithRetry } from '../../shared/connectionRetry.ts'
 import type { ChannelReplyPayload } from '../../shared/channelReply.ts'
-import { routeTelegramMessage, type TelegramChannelStorage } from './telegram'
+import {
+  createChannelUpdateReceiptSender,
+  findChannelId
+} from '../../shared/channelUpdateReceiptSender.ts'
+import type { UpdateReceiptLease } from '../../shared/sendWithUpdateReceipt.ts'
+import { routeTelegramMessage, type TelegramChannelStorage } from './telegram.ts'
 import { splitTelegramMessage } from './telegramMessageSplit.ts'
 
 /** Telegram typing indicator expires after ~5 s; resend every 4 s. */
@@ -58,6 +63,8 @@ export interface TelegramServiceOptions {
   groupCheckIntervalMs?: number
   /** Effective policy with config overrides applied. Defaults to telegramPolicy. */
   policy?: ChannelPolicy
+  /** Main-process lease for a receipt waiting for this channel's next outbound. */
+  updateReceiptLease: UpdateReceiptLease
 }
 
 export interface TelegramService {
@@ -85,7 +92,8 @@ export function createTelegramService({
   botUsername,
   groupVerbosity,
   groupCheckIntervalMs,
-  policy: policyOverride
+  policy: policyOverride,
+  updateReceiptLease
 }: TelegramServiceOptions): TelegramService {
   const policy = policyOverride ?? telegramPolicy
 
@@ -121,18 +129,22 @@ export function createTelegramService({
   }
 
   /** Send a text message to a Telegram chat. */
-  async function sendMessage(chatId: string, text: string): Promise<void> {
+  async function sendRawMessage(chatId: string, text: string): Promise<void> {
     for (const chunk of splitTelegramMessage(text)) {
       await bot.telegram.sendMessage(chatId, chunk)
     }
   }
 
+  const sendMessage = createChannelUpdateReceiptSender<string>({
+    resolveChannelId: (chatId) => findChannelId(server, 'telegram', chatId),
+    send: sendRawMessage,
+    lease: updateReceiptLease,
+    onError: (stage, error) => console.error(`[telegram] update receipt ${stage} failed:`, error)
+  })
+
   /** Send a richer owner-DM reply with optional local file attachments. */
   async function sendReply(chatId: string, payload: ChannelReplyPayload): Promise<void> {
-    const text = payload.message?.trim()
-    if (text) {
-      await sendMessage(chatId, text)
-    }
+    await sendMessage(chatId, payload.message?.trim() ?? '')
     for (const attachment of payload.attachments ?? []) {
       if (attachment.deliveryKind === 'image') {
         await bot.telegram.sendPhoto(chatId, {

@@ -1,4 +1,3 @@
-import { sendWithUpdateReceipt, type UpdateReceiptLease } from './sendWithUpdateReceipt.ts'
 /**
  * QQ Official Bot service — DM (C2C) only.
  *
@@ -20,6 +19,11 @@ import type { ChannelReplyPayload } from '../../shared/channelReply.ts'
 import { createChannelDirectMessageRuntime } from '../../direct/channelDirectMessageRuntime.ts'
 import type { DirectMessageInboundAttachment } from '../../direct/directMessageService.ts'
 import { fetchImageAsDataUrl } from '../../shared/channelImageDownload.ts'
+import {
+  createChannelUpdateReceiptSender,
+  findChannelUserId
+} from '../../shared/channelUpdateReceiptSender.ts'
+import type { UpdateReceiptLease } from '../../shared/sendWithUpdateReceipt.ts'
 import { createQQBotClient, type QQBotC2CAttachment, type QQBotClient } from './qqbotClient.ts'
 import { routeQQBotMessage, type QQBotChannelStorage } from './qqbot.ts'
 
@@ -133,15 +137,12 @@ export function createQQBotService({
    * instant the text lands, so a later attachment failure cannot cause the
    * receipt to be sent twice.
    */
-  async function sendMessageWithTarget(target: QQBotTarget, text: string): Promise<void> {
-    await sendWithUpdateReceipt({
-      channelId: storage.findChannelUser('qqbot', target.openId)?.id,
-      text,
-      send: (body) => client.sendC2CMessage(target.openId, body, target.replyMsgId),
-      lease: updateReceiptLease,
-      onError: (stage, error) => console.error(`[qqbot] update receipt ${stage} failed:`, error)
-    })
-  }
+  const sendMessageWithTarget = createChannelUpdateReceiptSender<QQBotTarget>({
+    resolveChannelId: (target) => findChannelUserId(server, 'qqbot', target.openId),
+    send: (target, body) => client.sendC2CMessage(target.openId, body, target.replyMsgId),
+    lease: updateReceiptLease,
+    onError: (stage, error) => console.error(`[qqbot] update receipt ${stage} failed:`, error)
+  })
 
   async function sendReplyWithTarget(
     target: QQBotTarget,

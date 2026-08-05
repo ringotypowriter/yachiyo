@@ -36,8 +36,14 @@ import {
 import { routeChannelGroupMessage } from '../../group/channelGroupRouting.ts'
 import { buildLegacyQQImageUrl } from './qqImageFallback.ts'
 import type { ChannelReplyPayload } from '../../shared/channelReply.ts'
+import {
+  createChannelUpdateReceiptSender,
+  findChannelGroupId,
+  findChannelUserId
+} from '../../shared/channelUpdateReceiptSender.ts'
 import { parseCQImages, type CQImageRef } from './qqImageParsing.ts'
 import { resolveCQCodes, extractReplyId } from './qqCQCodes.ts'
+import type { UpdateReceiptLease } from '../../shared/sendWithUpdateReceipt.ts'
 import { createOneBotClient, type OneBotClient } from './onebotClient.ts'
 import { routeQQMessage, type QQChannelStorage } from './qq.ts'
 
@@ -60,6 +66,10 @@ export interface QQServiceOptions {
   groupCheckIntervalMs?: number
   /** Effective policy with config overrides applied. Defaults to qqPolicy. */
   policy?: ChannelPolicy
+  /** Main-process lease for a receipt waiting for this channel's next outbound. */
+  updateReceiptLease: UpdateReceiptLease
+  /** External OneBot client boundary. */
+  client?: OneBotClient
 }
 
 export interface QQService {
@@ -86,7 +96,9 @@ export function createQQService({
   botQQId,
   groupVerbosity,
   groupCheckIntervalMs,
-  policy: policyOverride
+  policy: policyOverride,
+  updateReceiptLease,
+  client: clientOverride
 }: QQServiceOptions): QQService {
   const policy = policyOverride ?? qqPolicy
   let resolvedBotQQId = botQQId
@@ -102,7 +114,7 @@ export function createQQService({
     }
   }
 
-  const client: OneBotClient = createOneBotClient({ url: wsUrl, token })
+  const client = clientOverride ?? createOneBotClient({ url: wsUrl, token })
 
   /**
    * Send "typing…" indicator to a private chat user.
@@ -119,15 +131,28 @@ export function createQQService({
     void client.setInputStatus(qqUserId, 0).catch(() => {})
   }
 
-  async function sendPrivateMessage(userId: number, text: string): Promise<void> {
+  async function sendRawPrivateMessage(userId: number, text: string): Promise<void> {
     await client.sendPrivateMessage(userId, text)
   }
 
+  const sendPrivateMessage = createChannelUpdateReceiptSender<number>({
+    resolveChannelId: (userId) => findChannelUserId(server, 'qq', String(userId)),
+    send: sendRawPrivateMessage,
+    lease: updateReceiptLease,
+    onError: (stage, error) => console.error(`[qq] update receipt ${stage} failed:`, error)
+  })
+
+  const sendGroupMessage = createChannelUpdateReceiptSender<number>({
+    resolveChannelId: (groupId) => findChannelGroupId(server, 'qq', String(groupId)),
+    send: async (groupId, text) => {
+      await client.sendGroupMessage(groupId, text)
+    },
+    lease: updateReceiptLease,
+    onError: (stage, error) => console.error(`[qq] update receipt ${stage} failed:`, error)
+  })
+
   async function sendPrivateReply(userId: number, payload: ChannelReplyPayload): Promise<void> {
-    const text = payload.message?.trim()
-    if (text) {
-      await sendPrivateMessage(userId, text)
-    }
+    await sendPrivateMessage(userId, payload.message?.trim() ?? '')
     for (const attachment of payload.attachments ?? []) {
       if (attachment.deliveryKind === 'image') {
         await client.sendPrivateImage(userId, attachment.path)
@@ -329,7 +354,7 @@ export function createQQService({
           groupCheckIntervalMs,
           rejectMultilineMessages: true,
           sendMessage: async (group, message) => {
-            await client.sendGroupMessage(Number(group.externalGroupId), message)
+            await sendGroupMessage(Number(group.externalGroupId), message)
           }
         })
       : null
@@ -485,9 +510,7 @@ export function createQQService({
 
     sendPrivateMessage,
 
-    async sendGroupMessage(groupId: number, text: string) {
-      await client.sendGroupMessage(groupId, text)
-    },
+    sendGroupMessage,
 
     clearGroupMessages(groupId: string) {
       groupDiscussion?.clearGroupMessages(groupId)
