@@ -14,7 +14,6 @@
     "composite": true,
     "noEmit": true,
     "types": ["node", "electron-vite/node"],
-    "baseUrl": ".",
     "paths": {
       "@yachiyo/shared/*": ["../../packages/shared/src/*"],
       "@yachiyo/runtime/*": ["../../packages/runtime/src/*"],

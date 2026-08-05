@@ -18,10 +18,9 @@
     "composite": true,
     "noEmit": true,
     "jsx": "react-jsx",
-    "baseUrl": ".",
     "types": ["node", "react", "react-dom", "vite/client"],
     "paths": {
-      "@renderer/*": ["src/renderer/src/*"],
+      "@renderer/*": ["./src/renderer/src/*"],
       "@yachiyo/shared/*": ["../../packages/shared/src/*"]
     }
   }
