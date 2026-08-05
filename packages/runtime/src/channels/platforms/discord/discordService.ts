@@ -102,6 +102,41 @@ export interface DiscordService {
   clearGroupMessages: (groupId: string) => void
 }
 
+export interface DiscordSendableChannel {
+  send: (options: never) => Promise<unknown>
+}
+
+export interface DiscordChannelResolverSource {
+  cache: { get: (channelId: string) => unknown }
+  fetch: (channelId: string) => Promise<unknown>
+}
+
+/**
+ * Resolve a channel we are about to send to, or fail loudly.
+ *
+ * A cache miss is not evidence that a channel is gone — the cache is simply
+ * cold after a restart. Treating it as "nothing to do" made the send functions
+ * report success for messages they never sent, so a caller whose delivery had
+ * genuinely failed believed it had succeeded. Everything that must actually
+ * arrive resolves through here; the typing indicator stays cache-only because
+ * it promises no delivery.
+ */
+export async function resolveSendableChannel(
+  channels: DiscordChannelResolverSource,
+  channelId: string
+): Promise<DiscordSendableChannel> {
+  const cached = channels.cache.get(channelId)
+  if (cached && typeof cached === 'object' && 'send' in cached) {
+    return cached as DiscordSendableChannel
+  }
+
+  const fetched = await channels.fetch(channelId).catch(() => null)
+  if (!fetched || typeof fetched !== 'object' || !('send' in fetched)) {
+    throw new Error(`[discord] channel ${channelId} is not available to send to`)
+  }
+  return fetched as DiscordSendableChannel
+}
+
 export function createDiscordService({
   botToken,
   model: modelOverride,
@@ -154,12 +189,11 @@ export function createDiscordService({
 
   /** Send a text message to a Discord channel, splitting if necessary. */
   async function sendMessage(channelId: string, text: string): Promise<void> {
-    const channel = client.channels.cache.get(channelId)
-    if (!channel || !('send' in channel)) return
+    const channel = await resolveSendableChannel(client.channels, channelId)
 
     const chunks = splitMessage(text)
     for (const chunk of chunks) {
-      await (channel as { send: (content: string) => Promise<unknown> }).send(chunk)
+      await (channel as unknown as { send: (content: string) => Promise<unknown> }).send(chunk)
     }
   }
 
@@ -176,10 +210,11 @@ export function createDiscordService({
     }))
     if (files.length === 0) return
 
-    const channel = client.channels.cache.get(channelId)
-    if (!channel || !('send' in channel)) return
+    // Same contract as the text path: an attachment that never left must not
+    // look like one that did.
+    const channel = await resolveSendableChannel(client.channels, channelId)
     await (
-      channel as {
+      channel as unknown as {
         send(options: { files: Array<{ attachment: string; name?: string }> }): Promise<unknown>
       }
     ).send({ files })
