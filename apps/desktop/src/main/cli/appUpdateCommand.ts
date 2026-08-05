@@ -21,7 +21,10 @@ export function createAppUpdateCommandHandler(input: {
    * tests that only exercise the update mechanism; when absent the install
    * behaves exactly as it did before this layer existed.
    */
-  receipt?: Omit<InstallReceiptDeps, 'reserve' | 'fromVersion' | 'targetVersion' | 'attemptId'> & {
+  receipt?: Omit<
+    InstallReceiptDeps,
+    'reserve' | 'release' | 'fromVersion' | 'targetVersion' | 'attemptId'
+  > & {
     targetVersion: () => string | undefined
   }
 }): (command: AppUpdateCommandInput) => Promise<AppUpdateCommandReply> {
@@ -86,6 +89,10 @@ export function createAppUpdateCommandHandler(input: {
       targetVersion: receipt?.targetVersion() ?? '',
       reserve: () => {
         reservation = input.controller.reservePreparedInstall()
+      },
+      release: () => {
+        reservation?.release()
+        reservation = undefined
       }
     })
     if (!reservation) {

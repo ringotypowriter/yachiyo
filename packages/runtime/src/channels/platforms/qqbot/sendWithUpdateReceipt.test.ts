@@ -153,3 +153,76 @@ test('an unresolved channel id skips the lease entirely', async () => {
   })
   assert.deepEqual(calls, [])
 })
+
+/**
+ * The failure that guarding against rejection alone left open: a lease call
+ * that never settles. The user's reply must not wait on it.
+ */
+test('a claim that never settles does not delay the reply', async () => {
+  const stages: string[] = []
+  const { lease: l } = lease({ claim: () => new Promise(() => {}) })
+  const sent: string[] = []
+  const started = Date.now()
+
+  await sendWithUpdateReceipt({
+    channelId: 'chan-1',
+    text: 'Here is the answer.',
+    send: async (body) => {
+      sent.push(body)
+    },
+    lease: l,
+    leaseTimeoutMs: 20,
+    onError: (stage) => stages.push(stage)
+  })
+
+  assert.deepEqual(sent, ['Here is the answer.'], 'the reply goes out unprefixed')
+  assert.ok(Date.now() - started < 1_000, 'must not wait on a hung lease')
+  assert.deepEqual(stages, ['claim-timeout'])
+})
+
+/**
+ * A claim arriving after we gave up still holds the lease. Dropping it would
+ * leave the receipt leased to a message that already went without it.
+ */
+test('a claim that arrives after the bound is released, not dropped', async () => {
+  const released: string[] = []
+  let resolveClaim: ((v: { claimToken: string; message: string }) => void) | undefined
+  const { lease: l } = lease({
+    claim: () =>
+      new Promise((resolve) => {
+        resolveClaim = resolve
+      }),
+    release: async (token: string) => {
+      released.push(token)
+    }
+  })
+
+  await sendWithUpdateReceipt({
+    channelId: 'chan-1',
+    text: 'Here is the answer.',
+    send: async () => {},
+    lease: l,
+    leaseTimeoutMs: 20
+  })
+
+  resolveClaim?.({ claimToken: 'late-token', message: '已更新到 1.1.0' })
+  await new Promise((r) => setTimeout(r, 30))
+
+  assert.deepEqual(released, ['late-token'], 'a late claim hands the lease back')
+})
+
+/** Nothing owed must not be reported as a timeout — different facts. */
+test('an empty claim is not reported as a timeout', async () => {
+  const stages: string[] = []
+  const { lease: l } = lease({ claim: async () => undefined })
+
+  await sendWithUpdateReceipt({
+    channelId: 'chan-1',
+    text: 'Here is the answer.',
+    send: async () => {},
+    lease: l,
+    onError: (stage) => stages.push(stage)
+  })
+
+  assert.deepEqual(stages, [], 'nothing owed is not an error')
+})

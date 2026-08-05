@@ -28,6 +28,9 @@ function deps(overrides: Partial<InstallReceiptDeps> = {}): {
     reserve: () => {
       log.push('reserve')
     },
+    release: () => {
+      log.push('release')
+    },
     announce: async () => {
       log.push('announce')
     },
@@ -49,7 +52,7 @@ function deps(overrides: Partial<InstallReceiptDeps> = {}): {
 test('persists before reserving and announces only once the slot is held', async () => {
   const { deps: d, log } = deps()
   await runInstallReceiptSequence('run-1', d)
-  assert.deepEqual(log, ['resolve', 'persist', 'reserve', 'announce'])
+  assert.deepEqual(log, ['resolve', 'reserve', 'persist', 'announce'])
 })
 
 /**
@@ -64,7 +67,7 @@ test('a failed reservation clears the record and never announces', async () => {
     throw new Error('Update is not prepared for installation.')
   }
   await assert.rejects(() => runInstallReceiptSequence('run-1', d), /not prepared/)
-  assert.deepEqual(log, ['resolve', 'persist', 'reserve', 'clear'])
+  assert.deepEqual(log, ['resolve', 'reserve'], 'nothing is written by a loser')
   assert.ok(!log.includes('announce'), 'never promise a return for an install that did not start')
 })
 
@@ -73,14 +76,14 @@ test('a failed reservation clears the record and never announces', async () => {
  * restart is silent, which is the failure this layer exists to remove — so it
  * aborts rather than installing blind.
  */
-test('a failed persist aborts before reserving and never announces', async () => {
+test('a failed persist hands the slot back and never announces', async () => {
   const { deps: d, log } = deps({
     persist: () => {
       throw new Error('disk full')
     }
   })
   await assert.rejects(() => runInstallReceiptSequence('run-1', d), /disk full/)
-  assert.deepEqual(log, ['resolve'])
+  assert.deepEqual(log, ['resolve', 'reserve', 'release'], 'the slot is handed back')
 })
 
 /**
@@ -95,7 +98,7 @@ test('a failed announce still installs', async () => {
     }
   })
   await runInstallReceiptSequence('run-1', d)
-  assert.deepEqual(log, ['resolve', 'persist', 'reserve'])
+  assert.deepEqual(log, ['resolve', 'reserve', 'persist'])
 })
 
 /**
@@ -197,4 +200,41 @@ test('an announce that completes in time is never told to abandon mid-flight', a
 
   await runInstallReceiptSequence('run-1', d)
   assert.equal(abortedDuringSend, false, 'a prompt send must not see an aborted signal')
+})
+
+/**
+ * Two overlapping applies. Writing the record before winning the reservation
+ * let the loser overwrite the winner's record and then legitimately clear it
+ * as its own owner — leaving the attempt that really was restarting with
+ * nothing to report back to.
+ */
+test('a losing contender never writes over the winner’s record', async () => {
+  const store: { current?: { attemptId: string } } = {}
+  let slotTaken = false
+
+  const attempt = (attemptId: string): Promise<void> =>
+    runInstallReceiptSequence('run-1', {
+      ...deps().deps,
+      attemptId,
+      resolveOrigin: async () => ({ kind: 'origin' as const, origin }),
+      persist: (receipt) => {
+        store.current = { attemptId: receipt.attemptId }
+      },
+      clear: (id) => {
+        if (store.current?.attemptId === id) delete store.current
+      },
+      reserve: () => {
+        if (slotTaken) throw new Error('Update is not prepared for installation.')
+        slotTaken = true
+      },
+      release: () => {
+        slotTaken = false
+      },
+      announce: async () => {}
+    })
+
+  await attempt('winner')
+  await assert.rejects(() => attempt('loser'), /not prepared/)
+
+  assert.equal(store.current?.attemptId, 'winner', 'the real installer keeps its receipt')
 })

@@ -24,6 +24,8 @@ export interface InstallReceiptDeps {
   clear: (attemptId: string) => void
   /** Claims the install slot. Throws if it cannot be claimed. */
   reserve: () => void
+  /** Hands the slot back when we claimed it but cannot proceed. */
+  release: () => void
   /**
    * Signalled once the bounded wait has elapsed. The send is abandoned at that
    * point, so an implementation that has not yet dispatched must not dispatch:
@@ -86,25 +88,30 @@ export async function runInstallReceiptSequence(
 
   const origin = lookup.origin
 
-  // Throwing here aborts before anything irreversible: an update we cannot
-  // report on afterwards is worse than an update that didn't happen, because
-  // the user is left waiting either way and only one of them is recoverable.
-  deps.persist({
-    attemptId: deps.attemptId,
-    channelId: origin.channelId,
-    threadId: origin.threadId,
-    messageId: origin.messageId,
-    fromVersion: deps.fromVersion,
-    targetVersion: deps.targetVersion,
-    startedAtMs: deps.now()
-  })
+  // Reserve first, write second.
+  //
+  // Writing first meant a contender could overwrite the record, lose the
+  // reservation race, and then legitimately clear it as its own owner —
+  // leaving the attempt that really was restarting with nothing to report
+  // back to. Only the winner of the reservation is allowed to touch the file,
+  // so only one writer can ever exist.
+  deps.reserve()
 
   try {
-    deps.reserve()
+    deps.persist({
+      attemptId: deps.attemptId,
+      channelId: origin.channelId,
+      threadId: origin.threadId,
+      messageId: origin.messageId,
+      fromVersion: deps.fromVersion,
+      targetVersion: deps.targetVersion,
+      startedAtMs: deps.now()
+    })
   } catch (error) {
-    // The record describes an install that will not happen; leaving it would
-    // make the next start report a phantom update.
-    deps.clear(deps.attemptId)
+    // An update we cannot report on afterwards is worse than one that didn't
+    // happen: the user waits either way, and only this outcome is
+    // recoverable. Hand the slot back so a later attempt can try again.
+    deps.release()
     throw error
   }
 

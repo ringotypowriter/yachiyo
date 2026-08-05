@@ -22,6 +22,8 @@ export async function sendWithUpdateReceipt(input: {
   send: (body: string) => Promise<void>
   lease?: UpdateReceiptLease
   onError?: (stage: string, error: unknown) => void
+  /** Ceiling on every lease round trip. The reply must never wait on it. */
+  leaseTimeoutMs?: number
 }): Promise<void> {
   const claim = await claimQuietly(input)
 
@@ -39,18 +41,58 @@ export async function sendWithUpdateReceipt(input: {
   if (claim) await guard(input, 'ack', () => input.lease!.ack(claim.claimToken))
 }
 
+const DEFAULT_LEASE_TIMEOUT_MS = 2_000
+
+/**
+ * A lease call that never settles must not hold the reply hostage.
+ *
+ * Guarding only against rejection left the worst case open: a reverse RPC
+ * that hangs would block the user's answer indefinitely. Bounded, and a claim
+ * that arrives after the bound is released rather than dropped — otherwise
+ * the receipt would stay leased to a send that already went out without it.
+ */
 async function claimQuietly(input: {
   channelId: string | undefined
   lease?: UpdateReceiptLease
   onError?: (stage: string, error: unknown) => void
+  leaseTimeoutMs?: number
 }): Promise<{ claimToken: string; message: string } | undefined> {
   if (!input.lease || input.channelId === undefined) return undefined
-  try {
-    return await input.lease.claim(input.channelId)
-  } catch (error) {
-    input.onError?.('claim', error)
+
+  const lease = input.lease
+  const timeoutMs = input.leaseTimeoutMs ?? DEFAULT_LEASE_TIMEOUT_MS
+  let settled = false
+
+  const pending = lease.claim(input.channelId).then(
+    (claim) => {
+      if (settled && claim) {
+        // Too late to use: give the lease back so the next outbound can.
+        void lease.release(claim.claimToken).catch((error) => input.onError?.('release', error))
+        return undefined
+      }
+      return claim
+    },
+    (error) => {
+      if (!settled) input.onError?.('claim', error)
+      return undefined
+    }
+  )
+
+  // A distinct sentinel, because "the claim timed out" and "nothing is owed"
+  // are different facts and only one of them is worth reporting.
+  const TIMED_OUT = Symbol('lease-claim-timeout')
+  const timeout = new Promise<typeof TIMED_OUT>((resolve) =>
+    setTimeout(() => resolve(TIMED_OUT), timeoutMs)
+  )
+
+  const result = await Promise.race([pending, timeout])
+  settled = true
+
+  if (result === TIMED_OUT) {
+    input.onError?.('claim-timeout', new Error('update receipt lease claim timed out'))
     return undefined
   }
+  return result
 }
 
 async function guard(
