@@ -10,6 +10,14 @@ import { renameSync, rmSync, writeFileSync, readFileSync } from 'node:fs'
  * reply that can never come.
  */
 export interface PendingUpdateReceipt {
+  /**
+   * Identifies which install attempt wrote this record.
+   *
+   * Two overlapping `update apply` calls both write here. Without an owner,
+   * the loser of the reservation race clears the winner's record on its way
+   * out, and the update that really is restarting loses its receipt.
+   */
+  attemptId: string
   channelId: string
   threadId: string
   messageId: string
@@ -35,6 +43,7 @@ function isCompleteRecord(value: unknown): value is PendingUpdateReceipt {
   if (typeof value !== 'object' || value === null) return false
   const record = value as Record<string, unknown>
   return (
+    typeof record['attemptId'] === 'string' &&
     typeof record['channelId'] === 'string' &&
     typeof record['threadId'] === 'string' &&
     typeof record['messageId'] === 'string' &&
@@ -76,8 +85,20 @@ export function readPendingUpdateReceipt(
   return nowMs - parsed.startedAtMs > EXPIRY_MS ? { ...parsed, expired: true } : parsed
 }
 
-/** Clearing an absent record is success: the goal state is "nothing pending". */
-export function clearPendingUpdateReceipt(path: string): void {
+/**
+ * Clear the record only if this attempt is the one that wrote it.
+ *
+ * A losing contender must not delete the winner's pending receipt: it would
+ * leave the restarting update with nobody to report back to, which is exactly
+ * the silence this whole layer exists to prevent.
+ *
+ * Clearing an absent record is success — the goal state is "nothing pending".
+ */
+export function clearPendingUpdateReceipt(path: string, attemptId?: string): void {
+  if (attemptId !== undefined) {
+    const existing = readPendingUpdateReceipt(path, 0)
+    if (existing && existing.attemptId !== attemptId) return
+  }
   rmSync(path, { force: true })
   rmSync(`${path}.writing`, { force: true })
 }

@@ -341,8 +341,12 @@ function createCommandSocketHandle(): CommandSocketHandle {
               })
             ),
           persist: (record) => writePendingUpdateReceipt(pendingUpdateReceiptPath(), record),
-          clear: () => clearPendingUpdateReceipt(pendingUpdateReceiptPath()),
-          announce: async (origin) => {
+          clear: (attemptId) => clearPendingUpdateReceipt(pendingUpdateReceiptPath(), attemptId),
+          announce: async (origin, signal) => {
+            // If the bounded wait already elapsed, the caller has moved on;
+            // sending now would promise a return for an install that may
+            // never have started.
+            if (signal.aborted) return
             await hostCall('sendChannelMessage', [
               { id: origin.channelId, message: '开始更新，稍后回来。' }
             ])

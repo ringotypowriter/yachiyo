@@ -16,6 +16,7 @@ function scratch(): string {
 }
 
 const receipt: PendingUpdateReceipt = {
+  attemptId: 'attempt-1',
   channelId: 'chan-1',
   threadId: 'thread-1',
   messageId: 'msg-1',
@@ -91,6 +92,41 @@ test('an unreadable record is treated as absent, not as a crash', () => {
 
 test('a record missing required fields is treated as absent', () => {
   const path = scratch()
-  writeFileSync(path, JSON.stringify({ channelId: 'chan-1' }))
+  writeFileSync(path, JSON.stringify({ attemptId: 'a', channelId: 'chan-1' }))
+  assert.equal(readPendingUpdateReceipt(path, Date.now()), undefined)
+})
+
+/**
+ * Two overlapping installs both write here. Only one wins the reservation;
+ * the loser must not take the winner's receipt down with it, or the update
+ * that really is restarting comes back with nobody to report to.
+ */
+test('a different attempt cannot clear the record it does not own', () => {
+  const path = scratch()
+  writePendingUpdateReceipt(path, receipt)
+
+  clearPendingUpdateReceipt(path, 'some-other-attempt')
+
+  const survivor = readPendingUpdateReceipt(path, receipt.startedAtMs + 1_000)
+  assert.ok(survivor, 'the winner keeps its pending receipt')
+  assert.equal(survivor.attemptId, 'attempt-1')
+})
+
+test('the owning attempt can clear its own record', () => {
+  const path = scratch()
+  writePendingUpdateReceipt(path, receipt)
+
+  clearPendingUpdateReceipt(path, receipt.attemptId)
+
+  assert.equal(readPendingUpdateReceipt(path, Date.now()), undefined)
+})
+
+/** Startup delivery owns whatever it finds, so it clears unconditionally. */
+test('clearing without an attempt id removes whatever is there', () => {
+  const path = scratch()
+  writePendingUpdateReceipt(path, receipt)
+
+  clearPendingUpdateReceipt(path)
+
   assert.equal(readPendingUpdateReceipt(path, Date.now()), undefined)
 })

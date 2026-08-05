@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto'
+
 import { formatAppUpdateBlockedError, type AppUpdateInstallResult } from '@yachiyo/shared/appUpdate'
 
 import {
@@ -19,7 +21,7 @@ export function createAppUpdateCommandHandler(input: {
    * tests that only exercise the update mechanism; when absent the install
    * behaves exactly as it did before this layer existed.
    */
-  receipt?: Omit<InstallReceiptDeps, 'reserve' | 'fromVersion' | 'targetVersion'> & {
+  receipt?: Omit<InstallReceiptDeps, 'reserve' | 'fromVersion' | 'targetVersion' | 'attemptId'> & {
     targetVersion: () => string | undefined
   }
 }): (command: AppUpdateCommandInput) => Promise<AppUpdateCommandReply> {
@@ -65,6 +67,9 @@ export function createAppUpdateCommandHandler(input: {
     }
     // The reservation is taken inside the sequence, because the order of
     // persist / reserve / announce is the contract and lives in one place.
+    // A fresh id per install attempt, so a contender that loses the
+    // reservation race cannot clear the winner's pending receipt.
+    const attemptId = randomUUID()
     let reservation: AppUpdateInstallReservation | undefined
     const receipt = input.receipt
     await runInstallReceiptSequence(command.initiatorRunId, {
@@ -74,6 +79,9 @@ export function createAppUpdateCommandHandler(input: {
       announce: receipt?.announce ?? (async () => {}),
       announceTimeoutMs: receipt?.announceTimeoutMs ?? 2_000,
       now: receipt?.now ?? (() => Date.now()),
+      // A fresh id per install attempt, so a contender that loses the
+      // reservation race cannot clear the winner's pending receipt.
+      attemptId,
       fromVersion: input.getRunningVersion(),
       targetVersion: receipt?.targetVersion() ?? '',
       reserve: () => {
@@ -100,7 +108,7 @@ export function createAppUpdateCommandHandler(input: {
         try {
           claimed.install()
         } catch (error) {
-          receipt?.clear()
+          receipt?.clear(attemptId)
           throw error
         }
       },
@@ -108,7 +116,7 @@ export function createAppUpdateCommandHandler(input: {
         claimed.release()
         // We already told the user we were going; that promise has to be
         // withdrawn, or the pending record reports a restart that never came.
-        receipt?.clear()
+        receipt?.clear(attemptId)
       }
     }
   }

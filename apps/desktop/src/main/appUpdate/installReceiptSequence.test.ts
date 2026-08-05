@@ -22,7 +22,7 @@ function deps(overrides: Partial<InstallReceiptDeps> = {}): {
     persist: () => {
       log.push('persist')
     },
-    clear: () => {
+    clear: (): void => {
       log.push('clear')
     },
     reserve: () => {
@@ -33,6 +33,7 @@ function deps(overrides: Partial<InstallReceiptDeps> = {}): {
     },
     announceTimeoutMs: 50,
     now: () => 1_760_000_000_000,
+    attemptId: 'attempt-1',
     fromVersion: '1.0.0',
     targetVersion: '1.1.0',
     ...overrides
@@ -134,6 +135,7 @@ test('the persisted record carries what the post-restart receipt needs', async (
   })
   await runInstallReceiptSequence('run-1', d)
   assert.deepEqual(saved, {
+    attemptId: 'attempt-1',
     channelId: 'chan-1',
     threadId: 'thread-1',
     messageId: 'msg-1',
@@ -161,4 +163,38 @@ test('a failed origin lookup aborts instead of silently installing', async () =>
     /Cannot determine where to report this update back to.*rpc unavailable/
   )
   assert.deepEqual(log, ['resolve'], 'nothing is reserved, persisted, or announced')
+})
+
+/**
+ * A send we stopped waiting for must not surface afterwards. "Back shortly"
+ * arriving once we have already given up is a promise about an install that
+ * may never have started.
+ */
+test('the announce is told to abandon once the bounded wait elapses', async () => {
+  let signalled: boolean | undefined
+  const { deps: d } = deps({
+    announceTimeoutMs: 20,
+    announce: (_origin, signal) =>
+      new Promise<void>((resolve) => {
+        signal.addEventListener('abort', () => {
+          signalled = true
+          resolve()
+        })
+      })
+  })
+
+  await runInstallReceiptSequence('run-1', d)
+  assert.equal(signalled, true, 'a hung send must be told the wait is over')
+})
+
+test('an announce that completes in time is never told to abandon mid-flight', async () => {
+  let abortedDuringSend: boolean | undefined
+  const { deps: d } = deps({
+    announce: async (_origin, signal) => {
+      abortedDuringSend = signal.aborted
+    }
+  })
+
+  await runInstallReceiptSequence('run-1', d)
+  assert.equal(abortedDuringSend, false, 'a prompt send must not see an aborted signal')
 })

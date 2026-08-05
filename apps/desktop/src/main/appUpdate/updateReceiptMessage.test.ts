@@ -4,6 +4,7 @@ import test from 'node:test'
 import { describeUpdateOutcome } from './updateReceiptMessage.ts'
 
 const base = {
+  attemptId: 'attempt-1',
   channelId: 'chan-1',
   threadId: 'thread-1',
   messageId: 'msg-1',

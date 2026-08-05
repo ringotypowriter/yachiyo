@@ -27,7 +27,7 @@ test('a receipt written before SIGKILL is still readable afterwards', () => {
       `
       const { writePendingUpdateReceipt } = await import(${JSON.stringify(moduleUrl)})
       writePendingUpdateReceipt(${JSON.stringify(path)}, {
-        channelId: 'chan-1', threadId: 'thread-1', messageId: 'msg-1',
+        attemptId: 'attempt-1', channelId: 'chan-1', threadId: 'thread-1', messageId: 'msg-1',
         fromVersion: '1.0.0', targetVersion: '1.1.0', startedAtMs: 1760000000000
       })
       process.kill(process.pid, 'SIGKILL')
