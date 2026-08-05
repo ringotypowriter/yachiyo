@@ -13,6 +13,32 @@ import type {
 } from '../electron/appUpdateController.ts'
 import type { AppUpdateCommandInput, AppUpdateCommandReply } from './commandSocket.ts'
 
+interface InstallFailureReporter {
+  reportInstallFailure(origin: UpdateReceiptOrigin, error: unknown): Promise<void>
+  reportInstallFailureTimeoutMs: number
+}
+
+async function reportInstallFailureWithinBound(
+  receipt: InstallFailureReporter,
+  origin: UpdateReceiptOrigin,
+  error: unknown
+): Promise<void> {
+  let timeout: ReturnType<typeof setTimeout> | undefined
+  try {
+    await Promise.race([
+      receipt.reportInstallFailure(origin, error),
+      new Promise<never>((_resolve, reject) => {
+        timeout = setTimeout(
+          () => reject(new Error('Reporting the update install failure timed out.')),
+          receipt.reportInstallFailureTimeoutMs
+        )
+      })
+    ])
+  } finally {
+    if (timeout) clearTimeout(timeout)
+  }
+}
+
 export function createAppUpdateCommandHandler(input: {
   controller: AppUpdateController
   getRunningVersion: () => string
@@ -28,6 +54,7 @@ export function createAppUpdateCommandHandler(input: {
   > & {
     targetVersion: () => string | undefined
     reportInstallFailure: (origin: UpdateReceiptOrigin, error: unknown) => Promise<void>
+    reportInstallFailureTimeoutMs: number
   }
 }): (command: AppUpdateCommandInput) => Promise<AppUpdateCommandReply> {
   const activeRunSummary = (
@@ -121,7 +148,7 @@ export function createAppUpdateCommandHandler(input: {
           claimed.install()
         } catch (error) {
           if (receiptOrigin && receipt) {
-            await receipt.reportInstallFailure(receiptOrigin, error)
+            await reportInstallFailureWithinBound(receipt, receiptOrigin, error)
           }
           receipt?.clear(attemptId)
           throw error
@@ -132,7 +159,8 @@ export function createAppUpdateCommandHandler(input: {
         // We already told the user we were going; that promise has to be
         // withdrawn, or the pending record reports a restart that never came.
         if (receiptOrigin && receipt) {
-          await receipt.reportInstallFailure(
+          await reportInstallFailureWithinBound(
+            receipt,
             receiptOrigin,
             new Error('The update command reply could not be delivered.')
           )

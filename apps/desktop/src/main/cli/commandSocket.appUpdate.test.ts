@@ -213,6 +213,7 @@ test('commandSocket reports an install failure before clearing the owed receipt'
       assert.match(error instanceof Error ? error.message : String(error), /quit failed/)
       events.push(`report-failure:${origin.channelId}:${origin.threadId}:${origin.messageId}`)
     },
+    reportInstallFailureTimeoutMs: 50,
     announceTimeoutMs: 50,
     now: () => 1_760_000_000_000,
     targetVersion: () => '1.6.0-beta.1'

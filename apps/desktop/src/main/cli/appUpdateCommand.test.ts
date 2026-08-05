@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import { setTimeout as delay } from 'node:timers/promises'
 
 import {
   createAppUpdateController,
@@ -39,6 +40,7 @@ function createReceipt(): NonNullable<
     clear: () => {},
     announce: async () => {},
     reportInstallFailure: async () => {},
+    reportInstallFailureTimeoutMs: 50,
     announceTimeoutMs: 50,
     now: () => 1_760_000_000_000,
     targetVersion: () => '1.6.0-beta.1'
@@ -280,4 +282,52 @@ test('a failed command reply withdraws the announcement before clearing its rece
     'report-failure:chan-1:thread-1:msg-1',
     'clear'
   ])
+})
+
+test('a hung install failure correction is bounded and leaves the receipt pending', async () => {
+  const events: string[] = []
+  const controller = createController(events)
+  controller.reservePreparedInstall = () => ({
+    install: () => {
+      events.push('install')
+      throw new Error('quit failed')
+    },
+    release: () => events.push('release')
+  })
+  const receipt = {
+    ...createReceipt(),
+    resolveOrigin: async () => ({
+      kind: 'origin' as const,
+      origin: { channelId: 'chan-1', threadId: 'thread-1', messageId: 'msg-1' }
+    }),
+    persist: () => events.push('persist'),
+    announce: async () => {
+      events.push('announce')
+    },
+    reportInstallFailure: () => {
+      events.push('report-failure')
+      return new Promise<void>(() => {})
+    },
+    reportInstallFailureTimeoutMs: 20,
+    clear: () => events.push('clear')
+  }
+  const handler = createAppUpdateCommandHandler({
+    controller,
+    getRunningVersion: () => '1.5.1',
+    getActiveRunIds: () => ['run-self'],
+    receipt
+  })
+
+  const reply = await handler({ action: 'install', force: false, initiatorRunId: 'run-self' })
+  assert.ok(reply.afterReply)
+  await assert.rejects(
+    Promise.race([
+      Promise.resolve(reply.afterReply()),
+      delay(200).then(() => {
+        throw new Error('the correction RPC remained pending')
+      })
+    ]),
+    /reporting.*timed out/i
+  )
+  assert.deepEqual(events, ['persist', 'announce', 'install', 'report-failure'])
 })

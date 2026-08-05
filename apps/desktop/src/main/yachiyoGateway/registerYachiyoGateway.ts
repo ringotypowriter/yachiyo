@@ -400,6 +400,7 @@ function createCommandSocketHandle(): CommandSocketHandle {
               { id: origin.channelId, message: '更新未能启动，请稍后重试。' }
             ])
           },
+          reportInstallFailureTimeoutMs: 2_000,
           announceTimeoutMs: 2_000,
           now: () => Date.now(),
           targetVersion: () => appUpdateController?.getPreparedVersion()
