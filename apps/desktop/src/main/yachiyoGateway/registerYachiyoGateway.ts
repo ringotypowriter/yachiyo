@@ -10,6 +10,7 @@ import {
 import { is } from '@electron-toolkit/utils'
 import { t } from '@yachiyo/i18n/index'
 import { spawn } from 'child_process'
+import { randomUUID } from 'node:crypto'
 import { join } from 'node:path'
 import { getActivityTracker } from '@yachiyo/runtime/activity/ActivityTracker'
 import { resolveActivityTrackingPermissionForSave } from '@yachiyo/runtime/activity/activityTrackingPermission'
@@ -101,6 +102,7 @@ import {
 } from '../appUpdate/pendingUpdateReceipt.ts'
 import type { OriginLookup, UpdateReceiptOrigin } from '../appUpdate/installReceiptSequence.ts'
 import { describeUpdateOutcome } from '../appUpdate/updateReceiptMessage.ts'
+import { createUpdateReceiptCoordinator } from '../appUpdate/updateReceiptCoordinator.ts'
 import { startCommandSocket, type CommandSocketHandle } from '../cli/commandSocket.ts'
 import { createAppUpdateCommandHandler } from '../cli/appUpdateCommand.ts'
 import { createProviderFetch } from '../net/providerFetch.ts'
@@ -259,6 +261,17 @@ function pendingUpdateReceiptPath(): string {
  * Runs once per start. The run that received the instruction died in the
  * restart, so this record is the only thing that knows anyone is waiting.
  */
+/**
+ * Single owner of the pending receipt's fate. Lives in main because the record
+ * does; the runtime leases it rather than keeping a copy.
+ */
+const updateReceiptCoordinator = createUpdateReceiptCoordinator({
+  read: () => readPendingUpdateReceipt(pendingUpdateReceiptPath(), Date.now()),
+  clear: (attemptId) => clearPendingUpdateReceipt(pendingUpdateReceiptPath(), attemptId),
+  describe: (receipt) => describeUpdateOutcome(receipt, app.getVersion()).message,
+  newToken: () => randomUUID()
+})
+
 async function deliverPendingUpdateReceipt(): Promise<void> {
   const path = pendingUpdateReceiptPath()
   const pending = readPendingUpdateReceipt(path, Date.now())
@@ -274,7 +287,11 @@ async function deliverPendingUpdateReceipt(): Promise<void> {
     // Only forget it once it has actually been said.
     clearPendingUpdateReceipt(path)
   } catch (error) {
-    console.error('[update-receipt] could not deliver, keeping for next start:', error)
+    // Active delivery is refused when the user has active messages off, or
+    // when we are rate limited. The receipt is still owed, so hand it to the
+    // next real outbound instead of dropping it.
+    console.error('[update-receipt] active delivery failed, deferring to next message:', error)
+    updateReceiptCoordinator.defer(pending.attemptId)
   }
 }
 
@@ -582,6 +599,17 @@ function startUtilityRuntime(): void {
       ...createWebExternalFetchRpcTarget(webExternalFetchImpl),
       'mainHost.showNotification': (input: ShowNotificationInput) => {
         showYachiyoNotification(input)
+      },
+      // The runtime carries an undeliverable receipt on its next real
+      // outbound. It gets a lease and a finished sentence — never the record
+      // itself, so there is only ever one writer.
+      'mainHost.claimUpdateReceipt': (input: { channelId: string }) =>
+        updateReceiptCoordinator.claim(input.channelId),
+      'mainHost.ackUpdateReceipt': (input: { claimToken: string }) => {
+        updateReceiptCoordinator.ack(input.claimToken)
+      },
+      'mainHost.releaseUpdateReceipt': (input: { claimToken: string }) => {
+        updateReceiptCoordinator.release(input.claimToken)
       }
     }
   })
@@ -592,6 +620,9 @@ function startUtilityRuntime(): void {
   })
   runtimeCrashed = false
   host.child.on('exit', (code) => {
+    // A runtime that died holding a lease would otherwise lock the receipt
+    // until the app restarted — undeliverable while looking in-progress.
+    updateReceiptCoordinator.releaseAllClaims()
     if (utilityRuntimeStopping) return
     console.error(`[runtime-host] utility process exited unexpectedly (code=${code})`)
     serverRpc?.dispose()
