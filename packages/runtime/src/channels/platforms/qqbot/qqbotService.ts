@@ -41,10 +41,17 @@ export interface QQBotService {
   stop: () => Promise<void>
   healthCheck: () => Promise<boolean>
   /**
-   * Send a DM to a QQBot user by openId.
-   * Throws if no inbound msg_id is cached (QQBot only supports passive replies).
+   * Send a DM to a QQBot user by openId, as a passive reply to their most
+   * recent message. Throws if no inbound msg_id is cached.
    */
   sendMessage: (openId: string, text: string) => Promise<void>
+  /**
+   * Send a DM with no reply target, for when there is no fresh inbound id —
+   * after a restart, for instance. Subject to QQ's active-message limits and
+   * the user's opt-out, so failure here is meaningful and must not be
+   * mistaken for delivery.
+   */
+  sendActiveMessage: (openId: string, text: string) => Promise<void>
 }
 
 /**
@@ -146,11 +153,22 @@ export function createQQBotService({
   async function sendMessage(openId: string, text: string): Promise<void> {
     const replyMsgId = lastMessageId.get(openId)
     if (!replyMsgId) {
-      throw new Error(
-        `[qqbot] cannot send to ${openId.slice(0, 8)}: no inbound msg_id cached (QQBot only supports passive replies)`
-      )
+      throw new Error(`[qqbot] cannot send to ${openId.slice(0, 8)}: no inbound msg_id cached`)
     }
     await client.sendC2CMessage(openId, text, replyMsgId)
+  }
+
+  /**
+   * Send without a reply target.
+   *
+   * After a restart there is no cached inbound id, so a passive reply is
+   * impossible — but QQ does allow active messages, subject to per-user rate
+   * limits and the user's own opt-out. Failure here is a real failure and is
+   * left to the caller, which keeps its pending state rather than assuming
+   * delivery.
+   */
+  async function sendActiveMessage(openId: string, text: string): Promise<void> {
+    await client.sendC2CActiveMessage(openId, text)
   }
 
   const directMessages = createChannelDirectMessageRuntime<QQBotTarget>({
@@ -234,6 +252,7 @@ export function createQQBotService({
   })
 
   return {
+    sendActiveMessage,
     start() {
       console.log(`[qqbot] connecting (appId=${appId})`)
       client.connect()

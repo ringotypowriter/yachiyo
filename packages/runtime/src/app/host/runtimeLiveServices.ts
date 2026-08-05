@@ -43,6 +43,15 @@ const CHANNEL_HEALTH_INTERVAL_MS = 60_000
 export interface SendChannelMessageInput {
   id: string
   message: string
+  /**
+   * `reply` (default) answers the user's most recent message; `active` sends
+   * without a reply target.
+   *
+   * Only QQBot distinguishes them — it needs a fresh inbound id to reply, and
+   * after a restart there isn't one. Other platforms send the same way either
+   * way and ignore this.
+   */
+  delivery?: 'reply' | 'active'
 }
 
 export interface RuntimeLiveServicesOptions {
@@ -239,7 +248,11 @@ export function createRuntimeLiveServices(
       await discordService.sendMessage(externalId, input.message)
     } else if (platform === 'qqbot') {
       if (!qqbotService) throw new Error('QQBot service is not running')
-      await qqbotService.sendMessage(externalId, input.message)
+      if (input.delivery === 'active') {
+        await qqbotService.sendActiveMessage(externalId, input.message)
+      } else {
+        await qqbotService.sendMessage(externalId, input.message)
+      }
     } else {
       throw new Error(`Unsupported platform: ${platform}`)
     }

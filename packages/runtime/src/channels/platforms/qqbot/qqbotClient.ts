@@ -76,6 +76,15 @@ export interface QQBotClient {
   onC2CMessage(handler: (msg: QQBotC2CMessage) => void): void
   /** Send a text message to a C2C user. replyMsgId is required (passive reply). */
   sendC2CMessage(openId: string, text: string, replyMsgId: string): Promise<void>
+  /**
+   * Send without replying to anything.
+   *
+   * QQ distinguishes active messages from passive replies by the *absence* of
+   * `msg_id`/`msg_seq` — an empty string is not the same as omitting them.
+   * Needed after a restart, when the inbound id that would have allowed a
+   * passive reply is long gone.
+   */
+  sendC2CActiveMessage(openId: string, text: string): Promise<void>
   /** Send a local image to a C2C user as a passive media reply. */
   sendC2CImage(
     openId: string,
@@ -522,6 +531,16 @@ export function createQQBotClient(options: QQBotClientOptions): QQBotClient {
         markdown: { content: text },
         msg_id: replyMsgId,
         msg_seq: msgSeqCounter++
+      })
+    },
+
+    async sendC2CActiveMessage(openId: string, text: string): Promise<void> {
+      // Deliberately omits msg_id and msg_seq: their presence is what makes a
+      // message a passive reply, and a blank value is rejected rather than
+      // treated as absent.
+      await apiRequest('POST', `/v2/users/${openId}/messages`, {
+        msg_type: 2,
+        markdown: { content: text }
       })
     },
 

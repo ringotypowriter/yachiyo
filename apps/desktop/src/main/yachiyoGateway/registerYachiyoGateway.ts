@@ -266,7 +266,11 @@ async function deliverPendingUpdateReceipt(): Promise<void> {
 
   const outcome = describeUpdateOutcome(pending, app.getVersion())
   try {
-    await hostCall('sendChannelMessage', [{ id: pending.channelId, message: outcome.message }])
+    // Active delivery: the restart destroyed any reply target we had, and on
+    // QQBot a passive reply is impossible without a fresh inbound id.
+    await hostCall('sendChannelMessage', [
+      { id: pending.channelId, message: outcome.message, delivery: 'active' }
+    ])
     // Only forget it once it has actually been said.
     clearPendingUpdateReceipt(path)
   } catch (error) {
