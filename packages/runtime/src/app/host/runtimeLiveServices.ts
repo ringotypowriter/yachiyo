@@ -39,23 +39,14 @@ import {
 import { getPerfMonitor } from '../../services/perfMonitor.ts'
 import { createScheduleService, type ScheduleService } from '../../services/scheduleService.ts'
 import type { YachiyoServer } from './YachiyoServer.ts'
+import {
+  dispatchChannelMessage,
+  type ChannelMessageTarget,
+  type SendChannelMessageInput
+} from './channelMessageDispatch.ts'
 import { createRuntimeLiveServicesReadiness } from './runtimeLiveServicesReadiness.ts'
 
 const CHANNEL_HEALTH_INTERVAL_MS = 60_000
-
-export interface SendChannelMessageInput {
-  id: string
-  message: string
-  /**
-   * `reply` (default) answers the user's most recent message; `active` sends
-   * without a reply target.
-   *
-   * Only QQBot distinguishes them — it needs a fresh inbound id to reply, and
-   * after a restart there isn't one. Other platforms send the same way either
-   * way and ignore this.
-   */
-  delivery?: 'reply' | 'active'
-}
 
 export interface RuntimeLiveServicesOptions {
   server: YachiyoServer
@@ -236,11 +227,7 @@ export function createRuntimeLiveServices(
     discordService?.onGroupStatusChange(updated)
   }
 
-  function resolveChannelTarget(id: string): {
-    platform: ChannelServicePlatform
-    externalId: string
-    kind: 'user' | 'group'
-  } {
+  function resolveChannelTarget(id: string): ChannelMessageTarget {
     const storage = server.getStorage()
     const channelUser = storage.getChannelUser(id)
     const channelGroup = channelUser ? undefined : storage.getChannelGroup(id)
@@ -280,31 +267,14 @@ export function createRuntimeLiveServices(
   }
 
   async function sendChannelMessage(input: SendChannelMessageInput): Promise<void> {
-    const { platform, externalId, kind } = resolveChannelTarget(input.id)
-
-    if (platform === 'telegram') {
-      if (!telegramService) throw new Error('Telegram service is not running')
-      await telegramService.sendMessage(externalId, input.message)
-    } else if (platform === 'qq') {
-      if (!qqService) throw new Error('QQ service is not running')
-      const numericId = Number(externalId)
-      if (kind === 'user') {
-        await qqService.sendPrivateMessage(numericId, input.message)
-      } else {
-        await qqService.sendGroupMessage(numericId, input.message)
-      }
-    } else if (platform === 'discord') {
-      if (!discordService) throw new Error('Discord service is not running')
-      await discordService.sendMessage(externalId, input.message)
-    } else if (platform === 'qqbot') {
-      if (!qqbotService) throw new Error('QQBot service is not running')
-      if (input.delivery === 'active') {
-        await qqbotService.sendActiveMessage(externalId, input.message)
-      } else {
-        await qqbotService.sendMessage(externalId, input.message)
-      }
-    }
-    console.log(`[send-channel] sent to ${platform}:${externalId}`)
+    const target = resolveChannelTarget(input.id)
+    await dispatchChannelMessage(target, input, {
+      telegram: telegramService,
+      qq: qqService,
+      discord: discordService,
+      qqbot: qqbotService
+    })
+    console.log(`[send-channel] sent to ${target.platform}:${target.externalId}`)
   }
 
   async function startOnce(): Promise<void> {

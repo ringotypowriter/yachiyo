@@ -6,88 +6,64 @@ import type { UpdateReceiptLease } from '../../shared/sendWithUpdateReceipt.ts'
 import type { OneBotClient } from './onebotClient.ts'
 import { createQQService } from './qqService.ts'
 
-test('carries a deferred receipt through QQ user and group outbounds', async () => {
-  const events: string[] = []
-  const client = {
-    connect() {
-      return undefined
-    },
-    async close() {
-      return undefined
-    },
-    async healthCheck() {
-      return true
-    },
-    onConnect(handler) {
-      void handler
-    },
-    onPrivateMessage(handler) {
-      void handler
-    },
-    onGroupMessage(handler) {
-      void handler
-    },
-    async sendPrivateMessage(userId: number, text: string) {
+function createClient(events: string[]): OneBotClient {
+  return {
+    connect: () => undefined,
+    close: async () => undefined,
+    healthCheck: async () => true,
+    onConnect: (handler) => void handler,
+    onPrivateMessage: (handler) => void handler,
+    onGroupMessage: (handler) => void handler,
+    sendPrivateMessage: async (userId, text) => {
       events.push(`send-user:${userId}:${text}`)
       return { messageId: 1 }
     },
-    async sendGroupMessage(groupId: number, text: string) {
+    sendGroupMessage: async (groupId, text) => {
       events.push(`send-group:${groupId}:${text}`)
       return { messageId: 2 }
     },
-    async sendPrivateImage() {
-      return { messageId: 3 }
-    },
-    async uploadPrivateFile() {
-      return undefined
-    },
-    async getLoginInfo() {
-      return { userId: 999, nickname: 'bot' }
-    },
-    async getImage() {
+    sendPrivateImage: async () => ({ messageId: 3 }),
+    uploadPrivateFile: async () => undefined,
+    getLoginInfo: async () => ({ userId: 999, nickname: 'bot' }),
+    getImage: async () => {
       throw new Error('not used')
     },
-    async getMsg() {
+    getMsg: async () => {
       throw new Error('not used')
     },
-    async setInputStatus() {
-      return undefined
-    }
-  } satisfies OneBotClient
-  const lease: UpdateReceiptLease = {
-    async claim(channelId) {
+    setInputStatus: async () => undefined
+  }
+}
+
+function createServer(): YachiyoServer {
+  return {
+    listChannelUsers: () => [{ id: 'qq-user-42', platform: 'qq', externalUserId: '42' }],
+    listChannelGroups: () => [{ id: 'qq-group-42', platform: 'qq', externalGroupId: '42' }]
+  } as unknown as YachiyoServer
+}
+
+function createLease(events: string[]): UpdateReceiptLease {
+  return {
+    claim: async (channelId) => {
       events.push(`claim:${channelId}`)
       return { claimToken: channelId, message: `receipt:${channelId}` }
     },
-    async ack(claimToken) {
+    ack: async (claimToken) => {
       events.push(`ack:${claimToken}`)
     },
-    async release(claimToken) {
+    release: async (claimToken) => {
       events.push(`release:${claimToken}`)
     }
   }
-  const server = {
-    listChannelUsers: () => [
-      {
-        id: 'qq-user-42',
-        platform: 'qq',
-        externalUserId: '42'
-      }
-    ],
-    listChannelGroups: () => [
-      {
-        id: 'qq-group-42',
-        platform: 'qq',
-        externalGroupId: '42'
-      }
-    ]
-  } as unknown as YachiyoServer
+}
 
+test('carries a deferred receipt through QQ user and group outbounds', async () => {
+  const events: string[] = []
   const service = createQQService({
     wsUrl: 'ws://unused.example',
-    server,
-    updateReceiptLease: lease,
-    client
+    server: createServer(),
+    updateReceiptLease: createLease(events),
+    client: createClient(events)
   })
 
   await service.sendPrivateMessage(42, 'private reply')
@@ -100,5 +76,30 @@ test('carries a deferred receipt through QQ user and group outbounds', async () 
     'claim:qq-group-42',
     'send-group:42:receipt:qq-group-42\n\ngroup reply',
     'ack:qq-group-42'
+  ])
+})
+
+test('does not start expired QQ user or group API sends', async () => {
+  const events: string[] = []
+  const service = createQQService({
+    wsUrl: 'ws://unused.example',
+    server: createServer(),
+    client: createClient(events),
+    updateReceiptLease: createLease(events)
+  })
+
+  await assert.rejects(
+    () => service.sendPrivateMessage(42, 'announce', { notAfterMs: 0 }),
+    /expired before dispatch/
+  )
+  await assert.rejects(
+    () => service.sendGroupMessage(42, 'announce', { notAfterMs: 0 }),
+    /expired before dispatch/
+  )
+  assert.deepEqual(events, [
+    'claim:qq-user-42',
+    'release:qq-user-42',
+    'claim:qq-group-42',
+    'release:qq-group-42'
   ])
 })

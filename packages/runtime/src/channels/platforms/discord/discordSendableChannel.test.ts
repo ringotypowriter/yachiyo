@@ -124,3 +124,38 @@ test('carries a deferred update receipt on the next Discord outbound', async (t)
     'ack:claim-1'
   ])
 })
+
+test('rechecks the deadline after an async Discord channel lookup', async (t) => {
+  let now = 100
+  let sent = false
+  t.mock.method(Date, 'now', () => now)
+  t.mock.method(ChannelManager.prototype, 'fetch', async () => {
+    now = 201
+    return {
+      send: async () => {
+        sent = true
+      }
+    }
+  })
+  const server = {
+    listChannelUsers: () => [],
+    listChannelGroups: () => [
+      { id: 'discord-group-1', platform: 'discord', externalGroupId: 'channel-1' }
+    ]
+  } as unknown as YachiyoServer
+  const service = createDiscordService({
+    botToken: 'token',
+    server,
+    updateReceiptLease: {
+      claim: async () => undefined,
+      ack: async () => {},
+      release: async () => {}
+    }
+  })
+
+  await assert.rejects(
+    () => service.sendMessage('channel-1', 'announce', { notAfterMs: 200 }),
+    /expired before dispatch/
+  )
+  assert.equal(sent, false)
+})

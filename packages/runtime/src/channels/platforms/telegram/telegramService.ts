@@ -39,7 +39,11 @@ import {
   createChannelUpdateReceiptSender,
   findChannelId
 } from '../../shared/channelUpdateReceiptSender.ts'
-import type { UpdateReceiptLease } from '../../shared/sendWithUpdateReceipt.ts'
+import type {
+  ChannelDispatchGate,
+  ChannelSendOptions,
+  UpdateReceiptLease
+} from '../../shared/sendWithUpdateReceipt.ts'
 import { routeTelegramMessage, type TelegramChannelStorage } from './telegram.ts'
 import { splitTelegramMessage } from './telegramMessageSplit.ts'
 
@@ -79,7 +83,7 @@ export interface TelegramService {
   /** Notify the service that a group's status changed (approved/blocked). */
   onGroupStatusChange: (group: ChannelGroupRecord) => void
   /** Send a text message to a Telegram chat by chat ID. */
-  sendMessage: (chatId: string, text: string) => Promise<void>
+  sendMessage: (chatId: string, text: string, options?: ChannelSendOptions) => Promise<void>
   /** Wipe the in-memory message buffer for a group without stopping the monitor. */
   clearGroupMessages: (groupId: string) => void
 }
@@ -129,8 +133,13 @@ export function createTelegramService({
   }
 
   /** Send a text message to a Telegram chat. */
-  async function sendRawMessage(chatId: string, text: string): Promise<void> {
+  async function sendRawMessage(
+    chatId: string,
+    text: string,
+    gate: ChannelDispatchGate
+  ): Promise<void> {
     for (const chunk of splitTelegramMessage(text)) {
+      gate.assertCanDispatch()
       await bot.telegram.sendMessage(chatId, chunk)
     }
   }

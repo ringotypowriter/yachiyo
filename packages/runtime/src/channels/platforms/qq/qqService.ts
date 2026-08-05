@@ -43,7 +43,11 @@ import {
 } from '../../shared/channelUpdateReceiptSender.ts'
 import { parseCQImages, type CQImageRef } from './qqImageParsing.ts'
 import { resolveCQCodes, extractReplyId } from './qqCQCodes.ts'
-import type { UpdateReceiptLease } from '../../shared/sendWithUpdateReceipt.ts'
+import type {
+  ChannelDispatchGate,
+  ChannelSendOptions,
+  UpdateReceiptLease
+} from '../../shared/sendWithUpdateReceipt.ts'
 import { createOneBotClient, type OneBotClient } from './onebotClient.ts'
 import { routeQQMessage, type QQChannelStorage } from './qq.ts'
 
@@ -80,9 +84,9 @@ export interface QQService {
   /** Notify the service that a group's status changed (approved/blocked). */
   onGroupStatusChange: (group: ChannelGroupRecord) => void
   /** Send a private message to a QQ user by numeric user ID. */
-  sendPrivateMessage: (userId: number, text: string) => Promise<void>
+  sendPrivateMessage: (userId: number, text: string, options?: ChannelSendOptions) => Promise<void>
   /** Send a message to a QQ group by numeric group ID. */
-  sendGroupMessage: (groupId: number, text: string) => Promise<void>
+  sendGroupMessage: (groupId: number, text: string, options?: ChannelSendOptions) => Promise<void>
   /** Wipe the in-memory message buffer for a group without stopping the monitor. */
   clearGroupMessages: (groupId: string) => void
 }
@@ -131,7 +135,12 @@ export function createQQService({
     void client.setInputStatus(qqUserId, 0).catch(() => {})
   }
 
-  async function sendRawPrivateMessage(userId: number, text: string): Promise<void> {
+  async function sendRawPrivateMessage(
+    userId: number,
+    text: string,
+    gate: ChannelDispatchGate
+  ): Promise<void> {
+    gate.assertCanDispatch()
     await client.sendPrivateMessage(userId, text)
   }
 
@@ -144,7 +153,8 @@ export function createQQService({
 
   const sendGroupMessage = createChannelUpdateReceiptSender<number>({
     resolveChannelId: (groupId) => findChannelGroupId(server, 'qq', String(groupId)),
-    send: async (groupId, text) => {
+    send: async (groupId, text, gate) => {
+      gate.assertCanDispatch()
       await client.sendGroupMessage(groupId, text)
     },
     lease: updateReceiptLease,

@@ -4,6 +4,28 @@ export interface UpdateReceiptLease {
   release: (claimToken: string) => Promise<void>
 }
 
+export interface ChannelSendOptions {
+  /** Absolute wall-clock deadline after which no new platform send may start. */
+  notAfterMs?: number
+}
+
+export interface ChannelDispatchGate {
+  assertCanDispatch(): void
+}
+
+export function createChannelDispatchGate(
+  options: ChannelSendOptions | undefined,
+  now: () => number = Date.now
+): ChannelDispatchGate {
+  return {
+    assertCanDispatch(): void {
+      if (options?.notAfterMs !== undefined && now() >= options.notAfterMs) {
+        throw new Error('Channel send expired before dispatch')
+      }
+    }
+  }
+}
+
 /**
  * Send one message, carrying an owed update receipt if one is waiting.
  *
@@ -19,11 +41,13 @@ export interface UpdateReceiptLease {
 export async function sendWithUpdateReceipt(input: {
   channelId: string | undefined
   text: string
-  send: (body: string) => Promise<void>
+  send: (body: string, gate: ChannelDispatchGate) => Promise<void>
   lease?: UpdateReceiptLease
   onError?: (stage: string, error: unknown) => void
   /** Ceiling on every lease round trip. The reply must never wait on it. */
   leaseTimeoutMs?: number
+  sendOptions?: ChannelSendOptions
+  now?: () => number
 }): Promise<void> {
   const claim = await claimQuietly(input)
 
@@ -35,8 +59,13 @@ export async function sendWithUpdateReceipt(input: {
       : claim.message
     : input.text
 
+  const gate = createChannelDispatchGate(input.sendOptions, input.now)
   try {
-    await input.send(body)
+    // Check after claiming the receipt. A bounded caller may have moved on
+    // while that reverse RPC was in flight; in that case this throw returns
+    // the lease below and no platform send starts.
+    gate.assertCanDispatch()
+    await input.send(body, gate)
   } catch (error) {
     // The receipt never reached anyone, so it is still owed. Returning the
     // lease leaves it for the next outbound instead of losing it here.

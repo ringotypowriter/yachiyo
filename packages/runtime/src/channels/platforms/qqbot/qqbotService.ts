@@ -23,7 +23,11 @@ import {
   createChannelUpdateReceiptSender,
   findChannelUserId
 } from '../../shared/channelUpdateReceiptSender.ts'
-import type { UpdateReceiptLease } from '../../shared/sendWithUpdateReceipt.ts'
+import {
+  createChannelDispatchGate,
+  type ChannelSendOptions,
+  type UpdateReceiptLease
+} from '../../shared/sendWithUpdateReceipt.ts'
 import { createQQBotClient, type QQBotC2CAttachment, type QQBotClient } from './qqbotClient.ts'
 import { routeQQBotMessage, type QQBotChannelStorage } from './qqbot.ts'
 
@@ -55,14 +59,14 @@ export interface QQBotService {
    * Send a DM to a QQBot user by openId, as a passive reply to their most
    * recent message. Throws if no inbound msg_id is cached.
    */
-  sendMessage: (openId: string, text: string) => Promise<void>
+  sendMessage: (openId: string, text: string, options?: ChannelSendOptions) => Promise<void>
   /**
    * Send a DM with no reply target, for when there is no fresh inbound id —
    * after a restart, for instance. Subject to QQ's active-message limits and
    * the user's opt-out, so failure here is meaningful and must not be
    * mistaken for delivery.
    */
-  sendActiveMessage: (openId: string, text: string) => Promise<void>
+  sendActiveMessage: (openId: string, text: string, options?: ChannelSendOptions) => Promise<void>
 }
 
 /**
@@ -139,7 +143,10 @@ export function createQQBotService({
    */
   const sendMessageWithTarget = createChannelUpdateReceiptSender<QQBotTarget>({
     resolveChannelId: (target) => findChannelUserId(server, 'qqbot', target.openId),
-    send: (target, body) => client.sendC2CMessage(target.openId, body, target.replyMsgId),
+    send: (target, body, gate) => {
+      gate.assertCanDispatch()
+      return client.sendC2CMessage(target.openId, body, target.replyMsgId)
+    },
     lease: updateReceiptLease,
     onError: (stage, error) => console.error(`[qqbot] update receipt ${stage} failed:`, error)
   })
@@ -173,12 +180,16 @@ export function createQQBotService({
    * settings UI). Throws when no inbound msg_id is cached — QQBot
    * can only send passive replies.
    */
-  async function sendMessage(openId: string, text: string): Promise<void> {
+  async function sendMessage(
+    openId: string,
+    text: string,
+    options?: ChannelSendOptions
+  ): Promise<void> {
     const replyMsgId = lastMessageId.get(openId)
     if (!replyMsgId) {
       throw new Error(`[qqbot] cannot send to ${openId.slice(0, 8)}: no inbound msg_id cached`)
     }
-    await sendMessageWithTarget({ openId, replyMsgId }, text)
+    await sendMessageWithTarget({ openId, replyMsgId }, text, options)
   }
 
   /**
@@ -190,7 +201,12 @@ export function createQQBotService({
    * left to the caller, which keeps its pending state rather than assuming
    * delivery.
    */
-  async function sendActiveMessage(openId: string, text: string): Promise<void> {
+  async function sendActiveMessage(
+    openId: string,
+    text: string,
+    options?: ChannelSendOptions
+  ): Promise<void> {
+    createChannelDispatchGate(options).assertCanDispatch()
     await client.sendC2CActiveMessage(openId, text)
   }
 

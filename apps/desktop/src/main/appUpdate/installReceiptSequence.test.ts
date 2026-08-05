@@ -189,6 +189,20 @@ test('the announce is told to abandon once the bounded wait elapses', async () =
   assert.equal(signalled, true, 'a hung send must be told the wait is over')
 })
 
+test('the announce carries the same absolute deadline as its bounded wait', async () => {
+  let notAfterMs: number | undefined
+  const { deps: d } = deps({
+    announceTimeoutMs: 50,
+    announce: async (_origin, _signal, deadline) => {
+      notAfterMs = deadline
+    }
+  })
+
+  await runInstallReceiptSequence('run-1', d)
+
+  assert.equal(notAfterMs, 1_760_000_000_050)
+})
+
 test('an announce that completes in time is never told to abandon mid-flight', async () => {
   let abortedDuringSend: boolean | undefined
   const { deps: d } = deps({

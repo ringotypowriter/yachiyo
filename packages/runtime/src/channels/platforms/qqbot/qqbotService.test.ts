@@ -53,7 +53,9 @@ function createClient(events: string[]): {
       sendC2CMessage: async (_openId, text, replyMsgId) => {
         events.push(`send:${text}:${replyMsgId}`)
       },
-      sendC2CActiveMessage: async () => {},
+      sendC2CActiveMessage: async (_openId, text) => {
+        events.push(`send-active:${text}`)
+      },
       sendC2CImage: async (_openId, _path, replyMsgId) => {
         events.push(`image:${replyMsgId}`)
       },
@@ -233,6 +235,35 @@ it('manual sends carry and acknowledge an owed update receipt', async () => {
     'send:receipt\n\nmanual message:inbound-1',
     'ack:claim-1'
   ])
+})
+
+it('does not start expired QQBot reply or active API sends', async () => {
+  const events: string[] = []
+  const channelUser = createChannelUser()
+  const { client, receive } = createClient(events)
+  const service = createQQBotService({
+    appId: 'app-1',
+    clientSecret: 'secret-1',
+    server: createServer(channelUser),
+    updateReceiptLease: createLease(events),
+    client
+  })
+  receive({
+    openId: channelUser.externalUserId,
+    content: 'remember this reply target',
+    messageId: 'inbound-1',
+    timestamp: '2026-08-05T00:00:00.000Z'
+  })
+
+  await assert.rejects(
+    () => service.sendMessage(channelUser.externalUserId, 'announce', { notAfterMs: 0 }),
+    /expired before dispatch/
+  )
+  await assert.rejects(
+    () => service.sendActiveMessage(channelUser.externalUserId, 'announce', { notAfterMs: 0 }),
+    /expired before dispatch/
+  )
+  assert.deepEqual(events, ['claim:qqbot-open-1', 'release:claim-1'])
 })
 
 it('quota replies carry and acknowledge an owed update receipt', async () => {

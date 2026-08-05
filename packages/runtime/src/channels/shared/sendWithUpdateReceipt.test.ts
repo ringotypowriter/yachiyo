@@ -146,6 +146,37 @@ test('a failed send releases the lease instead of acknowledging it', async () =>
   assert.ok(!calls.includes('ack'), 'never acknowledge a receipt that did not go out')
 })
 
+/**
+ * The caller may stop waiting while receipt claim or channel lookup is still
+ * in flight. The deadline must therefore be checked again at the actual
+ * platform dispatch boundary, not only when the send operation starts.
+ */
+test('an expired dispatch sends nothing and releases its claimed receipt', async () => {
+  const { lease: l, calls } = lease()
+  const sent: string[] = []
+  let now = 100
+
+  await assert.rejects(
+    () =>
+      sendWithUpdateReceipt({
+        channelId: 'chan-1',
+        text: '开始更新，稍后回来。',
+        send: async (body, gate) => {
+          now = 201
+          gate.assertCanDispatch()
+          sent.push(body)
+        },
+        lease: l,
+        sendOptions: { notAfterMs: 200 },
+        now: () => now
+      }),
+    /expired before dispatch/
+  )
+
+  assert.deepEqual(sent, [])
+  assert.deepEqual(calls, ['claim', 'release'])
+})
+
 /** The reply matters more than the bookkeeping: a broken lease must not block it. */
 test('a claim that throws still delivers the reply, unprefixed', async () => {
   const stages: string[] = []

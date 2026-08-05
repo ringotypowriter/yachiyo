@@ -32,7 +32,7 @@ export interface InstallReceiptDeps {
    * a "back shortly" arriving after we gave up is a promise for an install
    * that may never have started.
    */
-  announce: (origin: UpdateReceiptOrigin, signal: AbortSignal) => Promise<void>
+  announce: (origin: UpdateReceiptOrigin, signal: AbortSignal, notAfterMs: number) => Promise<void>
   announceTimeoutMs: number
   now: () => number
   /** Identifies this attempt so a losing contender cannot clear our record. */
@@ -120,8 +120,9 @@ export async function runInstallReceiptSequence(
   // closes the loop. Blocking here would hold the install window open for as
   // long as the network felt like it.
   const abandon = new AbortController()
+  const notAfterMs = deps.now() + deps.announceTimeoutMs
   try {
-    await withinBound(deps.announce(origin, abandon.signal), deps.announceTimeoutMs)
+    await withinBound(deps.announce(origin, abandon.signal, notAfterMs), deps.announceTimeoutMs)
   } catch {
     // Deliberately swallowed: see above.
   } finally {

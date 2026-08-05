@@ -74,3 +74,39 @@ test('carries a deferred update receipt on the next Telegram outbound', async (t
     'ack:claim-1'
   ])
 })
+
+test('does not start an expired Telegram API send', async (t) => {
+  const events: string[] = []
+  t.mock.method(Telegram.prototype, 'sendMessage', async () => {
+    events.push('send')
+    return {} as never
+  })
+  const server = {
+    listChannelUsers: () => [
+      { id: 'telegram-user-1', platform: 'telegram', externalUserId: '123' }
+    ],
+    listChannelGroups: () => []
+  } as unknown as YachiyoServer
+  const service = createTelegramService({
+    botToken: 'token',
+    server,
+    updateReceiptLease: {
+      claim: async () => {
+        events.push('claim')
+        return { claimToken: 'claim-1', message: 'receipt' }
+      },
+      ack: async () => {
+        events.push('ack')
+      },
+      release: async () => {
+        events.push('release')
+      }
+    }
+  })
+
+  await assert.rejects(
+    () => service.sendMessage('123', '开始更新，稍后回来。', { notAfterMs: 0 }),
+    /expired before dispatch/
+  )
+  assert.deepEqual(events, ['claim', 'release'])
+})

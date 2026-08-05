@@ -38,7 +38,11 @@ import {
   createChannelUpdateReceiptSender,
   findChannelId
 } from '../../shared/channelUpdateReceiptSender.ts'
-import type { UpdateReceiptLease } from '../../shared/sendWithUpdateReceipt.ts'
+import type {
+  ChannelDispatchGate,
+  ChannelSendOptions,
+  UpdateReceiptLease
+} from '../../shared/sendWithUpdateReceipt.ts'
 import { routeDiscordMessage, type DiscordChannelStorage } from './discord.ts'
 
 /** Discord typing indicator lasts ~10 s; resend every 8 s. */
@@ -104,7 +108,7 @@ export interface DiscordService {
   /** Notify the service that a group's status changed (approved/blocked). */
   onGroupStatusChange: (group: ChannelGroupRecord) => void
   /** Send a text message to a Discord channel by channel ID. */
-  sendMessage: (channelId: string, text: string) => Promise<void>
+  sendMessage: (channelId: string, text: string, options?: ChannelSendOptions) => Promise<void>
   /** Wipe the in-memory message buffer for a group without stopping the monitor. */
   clearGroupMessages: (groupId: string) => void
 }
@@ -196,11 +200,16 @@ export function createDiscordService({
   }
 
   /** Send a text message to a Discord channel, splitting if necessary. */
-  async function sendRawMessage(channelId: string, text: string): Promise<void> {
+  async function sendRawMessage(
+    channelId: string,
+    text: string,
+    gate: ChannelDispatchGate
+  ): Promise<void> {
     const channel = await resolveSendableChannel(client.channels, channelId)
 
     const chunks = splitMessage(text)
     for (const chunk of chunks) {
+      gate.assertCanDispatch()
       await (channel as unknown as { send: (content: string) => Promise<unknown> }).send(chunk)
     }
   }

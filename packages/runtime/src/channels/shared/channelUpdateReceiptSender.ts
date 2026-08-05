@@ -4,7 +4,12 @@ import type {
   ChannelUserRecord
 } from '@yachiyo/shared/protocol'
 
-import { sendWithUpdateReceipt, type UpdateReceiptLease } from './sendWithUpdateReceipt.ts'
+import {
+  sendWithUpdateReceipt,
+  type ChannelDispatchGate,
+  type ChannelSendOptions,
+  type UpdateReceiptLease
+} from './sendWithUpdateReceipt.ts'
 
 export interface ChannelRecordDirectory {
   listChannelUsers(): ChannelUserRecord[]
@@ -44,16 +49,19 @@ export function findChannelId(
 
 export function createChannelUpdateReceiptSender<TTarget>(input: {
   resolveChannelId(target: TTarget): string | undefined
-  send(target: TTarget, text: string): Promise<void>
+  send(target: TTarget, text: string, gate: ChannelDispatchGate): Promise<void>
   lease: UpdateReceiptLease
   onError?: (stage: string, error: unknown) => void
-}): (target: TTarget, text: string) => Promise<void> {
-  return (target, text) =>
+  now?: () => number
+}): (target: TTarget, text: string, options?: ChannelSendOptions) => Promise<void> {
+  return (target, text, options) =>
     sendWithUpdateReceipt({
       channelId: input.resolveChannelId(target),
       text,
-      send: (body) => input.send(target, body),
+      send: (body, gate) => input.send(target, body, gate),
       lease: input.lease,
-      onError: input.onError
+      onError: input.onError,
+      sendOptions: options,
+      now: input.now
     })
 }
