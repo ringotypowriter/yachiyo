@@ -306,9 +306,9 @@ export function createQQService({
         return
 
       case 'pending':
-        void client
-          .sendPrivateMessage(msg.userId, result.reply)
-          .catch((e) => console.error('[qq] failed to send pending reply', e))
+        void sendPrivateMessage(msg.userId, result.reply).catch((e) =>
+          console.error('[qq] failed to send pending reply', e)
+        )
         return
 
       case 'limit-exceeded':
