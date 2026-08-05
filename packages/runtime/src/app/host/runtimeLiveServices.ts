@@ -332,7 +332,7 @@ export function createRuntimeLiveServices(
     // channel — a whole feature that never runs and never says so.
     'host.resolveRunChannelOrigin': (
       runId: string
-    ): { channelId: string; threadId: string; messageId: string } | undefined =>
+    ): ReturnType<YachiyoServer['resolveRunChannelOrigin']> =>
       server.resolveRunChannelOrigin(runId),
     'host.updateChannelGroupAndNotify': (input: UpdateChannelGroupInput): ChannelGroupRecord => {
       const updated = server.updateChannelGroup(input)

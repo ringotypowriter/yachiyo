@@ -1550,16 +1550,37 @@ export class YachiyoServer {
    */
   resolveRunChannelOrigin(
     runId: string
-  ): { channelId: string; threadId: string; messageId: string } | undefined {
+  ):
+    | { kind: 'origin'; channelId: string; threadId: string; messageId: string }
+    | { kind: 'no-channel' }
+    | { kind: 'lookup-failed'; reason: string } {
+    // A run or thread we cannot find is not the same as a local thread with
+    // nobody waiting. Collapsing them into one value is what let a broken
+    // lookup pass for a normal case and skip the receipt in silence.
     const run = this.storage.getRun(runId)
-    if (!run) return undefined
+    if (!run) return { kind: 'lookup-failed', reason: `run ${runId} not found` }
+
     const thread = this.storage.getThread(run.threadId)
-    const channelId = thread?.channelUserId ?? thread?.channelGroupId
-    if (!channelId) return undefined
+    if (!thread) {
+      return { kind: 'lookup-failed', reason: `thread ${run.threadId} not found` }
+    }
+
+    const channelId = thread.channelUserId ?? thread.channelGroupId
+    // The thread exists and genuinely has no external channel: nobody is
+    // waiting in a chat, so there is nothing to report.
+    if (!channelId) return { kind: 'no-channel' }
+
+    // Fabricating an empty id would make a missing request message look like
+    // a real one downstream.
+    if (!run.requestMessageId) {
+      return { kind: 'lookup-failed', reason: `run ${runId} has no request message` }
+    }
+
     return {
+      kind: 'origin',
       channelId,
       threadId: run.threadId,
-      messageId: run.requestMessageId ?? ''
+      messageId: run.requestMessageId
     }
   }
 

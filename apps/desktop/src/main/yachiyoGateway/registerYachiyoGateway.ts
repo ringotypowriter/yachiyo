@@ -100,7 +100,7 @@ import {
   readPendingUpdateReceipt,
   writePendingUpdateReceipt
 } from '../appUpdate/pendingUpdateReceipt.ts'
-import type { OriginLookup, UpdateReceiptOrigin } from '../appUpdate/installReceiptSequence.ts'
+import type { OriginLookup } from '../appUpdate/installReceiptSequence.ts'
 import { describeUpdateOutcome } from '../appUpdate/updateReceiptMessage.ts'
 import { createUpdateReceiptCoordinator } from '../appUpdate/updateReceiptCoordinator.ts'
 import { startCommandSocket, type CommandSocketHandle } from '../cli/commandSocket.ts'
@@ -284,8 +284,9 @@ async function deliverPendingUpdateReceipt(): Promise<void> {
     await hostCall('sendChannelMessage', [
       { id: pending.channelId, message: outcome.message, delivery: 'active' }
     ])
-    // Only forget it once it has actually been said.
-    clearPendingUpdateReceipt(path)
+    // Only forget it once it has actually been said, and only our own record:
+    // a newer attempt may have replaced it while this send was in flight.
+    clearPendingUpdateReceipt(path, pending.attemptId)
   } catch (error) {
     // Active delivery is refused when the user has active messages off, or
     // when we are rate limited. The receipt is still owed, so hand it to the
@@ -349,9 +350,22 @@ function createCommandSocketHandle(): CommandSocketHandle {
         getActiveRunIds: () => gatewayHandle?.listActiveRunIds() ?? [],
         receipt: {
           resolveOrigin: (runId) =>
-            hostCall<UpdateReceiptOrigin | undefined>('resolveRunChannelOrigin', [runId]).then(
-              (origin): OriginLookup =>
-                origin ? { kind: 'origin', origin } : { kind: 'no-channel' },
+            hostCall<
+              | { kind: 'origin'; channelId: string; threadId: string; messageId: string }
+              | { kind: 'no-channel' }
+              | { kind: 'lookup-failed'; reason: string }
+            >('resolveRunChannelOrigin', [runId]).then(
+              (result): OriginLookup =>
+                result.kind === 'origin'
+                  ? {
+                      kind: 'origin',
+                      origin: {
+                        channelId: result.channelId,
+                        threadId: result.threadId,
+                        messageId: result.messageId
+                      }
+                    }
+                  : result,
               // A lookup we could not perform is reported as exactly that.
               // Reporting it as "no channel" is what let an unreachable RPC
               // disguise itself as a local thread and skip the receipt in
