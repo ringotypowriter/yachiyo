@@ -40,14 +40,67 @@ export async function sendWithUpdateReceipt(input: {
   } catch (error) {
     // The receipt never reached anyone, so it is still owed. Returning the
     // lease leaves it for the next outbound instead of losing it here.
-    if (claim) await guard(input, 'release', () => input.lease!.release(claim.claimToken))
+    if (claim) {
+      await runLeaseOperation(input, 'release', () => input.lease!.release(claim.claimToken))
+    }
     throw error
   }
 
-  if (claim) await guard(input, 'ack', () => input.lease!.ack(claim.claimToken))
+  if (claim) await runLeaseOperation(input, 'ack', () => input.lease!.ack(claim.claimToken))
 }
 
 const DEFAULT_LEASE_TIMEOUT_MS = 2_000
+
+interface LeaseOperationInput {
+  onError?: (stage: string, error: unknown) => void
+  leaseTimeoutMs?: number
+}
+
+type LeaseOperationResult<T> = { status: 'settled'; value: T } | { status: 'failed' }
+
+/** One boundary for every reverse-RPC lease operation. */
+async function runLeaseOperation<T>(
+  input: LeaseOperationInput,
+  stage: 'claim' | 'ack' | 'release',
+  run: () => Promise<T>,
+  onLateValue?: (value: T) => void
+): Promise<LeaseOperationResult<T>> {
+  const timeoutMs = input.leaseTimeoutMs ?? DEFAULT_LEASE_TIMEOUT_MS
+  let callerSettled = false
+  const failed: LeaseOperationResult<T> = { status: 'failed' }
+
+  const pending = Promise.resolve()
+    .then(run)
+    .then(
+      (value): LeaseOperationResult<T> => {
+        if (callerSettled) {
+          onLateValue?.(value)
+          return failed
+        }
+        return { status: 'settled', value }
+      },
+      (error): LeaseOperationResult<T> => {
+        if (!callerSettled) input.onError?.(stage, error)
+        return failed
+      }
+    )
+
+  const TIMED_OUT = Symbol(`lease-${stage}-timeout`)
+  let timeoutHandle: ReturnType<typeof setTimeout> | undefined
+  const timeout = new Promise<typeof TIMED_OUT>((resolve) => {
+    timeoutHandle = setTimeout(() => resolve(TIMED_OUT), timeoutMs)
+  })
+
+  const result = await Promise.race([pending, timeout])
+  callerSettled = true
+  clearTimeout(timeoutHandle)
+
+  if (result === TIMED_OUT) {
+    input.onError?.(`${stage}-timeout`, new Error(`update receipt lease ${stage} timed out`))
+    return failed
+  }
+  return result
+}
 
 /**
  * A lease call that never settles must not hold the reply hostage.
@@ -66,51 +119,16 @@ async function claimQuietly(input: {
   if (!input.lease || input.channelId === undefined) return undefined
 
   const lease = input.lease
-  const timeoutMs = input.leaseTimeoutMs ?? DEFAULT_LEASE_TIMEOUT_MS
-  let settled = false
-
-  const pending = lease.claim(input.channelId).then(
+  const result = await runLeaseOperation(
+    input,
+    'claim',
+    () => lease.claim(input.channelId!),
     (claim) => {
-      if (settled && claim) {
-        // Too late to use: give the lease back so the next outbound can.
-        void lease.release(claim.claimToken).catch((error) => input.onError?.('release', error))
-        return undefined
-      }
-      return claim
-    },
-    (error) => {
-      if (!settled) input.onError?.('claim', error)
-      return undefined
+      if (!claim) return
+      // Too late to use: give the lease back so the next outbound can. This
+      // cleanup crosses the same RPC boundary, so it gets the same bound.
+      void runLeaseOperation(input, 'release', () => lease.release(claim.claimToken))
     }
   )
-
-  // A distinct sentinel, because "the claim timed out" and "nothing is owed"
-  // are different facts and only one of them is worth reporting.
-  const TIMED_OUT = Symbol('lease-claim-timeout')
-  let timeoutHandle: ReturnType<typeof setTimeout> | undefined
-  const timeout = new Promise<typeof TIMED_OUT>((resolve) => {
-    timeoutHandle = setTimeout(() => resolve(TIMED_OUT), timeoutMs)
-  })
-
-  const result = await Promise.race([pending, timeout])
-  settled = true
-  clearTimeout(timeoutHandle)
-
-  if (result === TIMED_OUT) {
-    input.onError?.('claim-timeout', new Error('update receipt lease claim timed out'))
-    return undefined
-  }
-  return result
-}
-
-async function guard(
-  input: { onError?: (stage: string, error: unknown) => void },
-  stage: string,
-  run: () => Promise<void>
-): Promise<void> {
-  try {
-    await run()
-  } catch (error) {
-    input.onError?.(stage, error)
-  }
+  return result.status === 'settled' ? result.value : undefined
 }

@@ -41,7 +41,7 @@ test('an owed receipt is prepended to the reply and acknowledged once sent', asy
   assert.deepEqual(calls, ['claim', 'ack'])
 })
 
-test('a settled claim cancels its timeout timer', async (t) => {
+test('settled lease operations cancel their timeout timers', async (t) => {
   const { lease: l } = lease()
   const cleared: Array<Parameters<typeof clearTimeout>[0]> = []
   const clearTimeoutOriginal = globalThis.clearTimeout
@@ -57,7 +57,7 @@ test('a settled claim cancels its timeout timer', async (t) => {
     lease: l
   })
 
-  assert.equal(cleared.length, 1)
+  assert.equal(cleared.length, 2, 'both claim and ack clear their timers')
 })
 
 test('an owed receipt becomes the text send for an attachment-only reply', async () => {
@@ -187,6 +187,70 @@ test('an ack that throws does not fail the send that already succeeded', async (
   })
 
   assert.deepEqual(stages, ['ack'])
+})
+
+test('a synchronous lease failure is guarded like a rejected RPC', async () => {
+  const stages: string[] = []
+  const { lease: l } = lease({
+    ack: () => {
+      throw new Error('transport closed')
+    }
+  })
+
+  await sendWithUpdateReceipt({
+    channelId: 'chan-1',
+    text: 'Here is the answer.',
+    send: async () => {},
+    lease: l,
+    onError: (stage) => stages.push(stage)
+  })
+
+  assert.deepEqual(stages, ['ack'])
+})
+
+test('an ack that never settles does not hold a successful send open', async () => {
+  const stages: string[] = []
+  const { lease: l } = lease({ ack: () => new Promise(() => {}) })
+
+  const outcome = await Promise.race([
+    sendWithUpdateReceipt({
+      channelId: 'chan-1',
+      text: 'Here is the answer.',
+      send: async () => {},
+      lease: l,
+      leaseTimeoutMs: 20,
+      onError: (stage) => stages.push(stage)
+    }).then(() => 'settled'),
+    new Promise<string>((resolve) => setTimeout(() => resolve('still-pending'), 200))
+  ])
+
+  assert.equal(outcome, 'settled', 'the already delivered reply must not wait on the ack RPC')
+  assert.deepEqual(stages, ['ack-timeout'])
+})
+
+test('a release that never settles does not hide the original send failure', async () => {
+  const stages: string[] = []
+  const { lease: l } = lease({ release: () => new Promise(() => {}) })
+
+  const outcome = await Promise.race([
+    sendWithUpdateReceipt({
+      channelId: 'chan-1',
+      text: 'Here is the answer.',
+      send: async () => {
+        throw new Error('rate limited')
+      },
+      lease: l,
+      leaseTimeoutMs: 20,
+      onError: (stage) => stages.push(stage)
+    }).then(
+      () => 'resolved',
+      (error: unknown) => (error instanceof Error ? error.message : String(error))
+    ),
+    new Promise<string>((resolve) => setTimeout(() => resolve('still-pending'), 200))
+  ])
+
+  assert.equal(outcome, 'rate limited', 'the caller must still receive the send failure')
+  assert.deepEqual(stages, ['release-timeout'])
 })
 
 test('with no lease configured nothing is claimed and the text is unchanged', async () => {

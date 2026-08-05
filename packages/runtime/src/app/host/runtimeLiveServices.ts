@@ -31,6 +31,7 @@ import {
   type ChannelServicePlatform,
   type ChannelServiceSupervisor
 } from '../../channels/shared/channelServiceLifecycle.ts'
+import { waitForManagedChannelServiceReady } from '../../channels/shared/channelServiceReadiness.ts'
 import {
   createAutoSyncScheduler,
   type AutoSyncScheduler
@@ -73,6 +74,7 @@ export interface RuntimeLiveServicesOptions {
 
 export interface RuntimeLiveServices {
   start(): Promise<void>
+  waitForChannelReady(channelId: string): Promise<void>
   stop(): Promise<void>
   /**
    * Host-level operations served over RPC next to the server's own methods
@@ -101,7 +103,8 @@ export function createRuntimeLiveServices(
   let channelHealthTimer: ReturnType<typeof setInterval> | null = null
   let scheduleService: ScheduleService | null = null
   let autoSyncScheduler: AutoSyncScheduler | null = null
-  const readiness = createRuntimeLiveServicesReadiness(startOnce)
+  const stopController = new AbortController()
+  const readiness = createRuntimeLiveServicesReadiness(startOnce, waitForChannelReadyOnce)
 
   function buildChannelServiceConfigKey(
     cfg: ChannelsConfig,
@@ -233,17 +236,51 @@ export function createRuntimeLiveServices(
     discordService?.onGroupStatusChange(updated)
   }
 
-  async function sendChannelMessage(input: SendChannelMessageInput): Promise<void> {
+  function resolveChannelTarget(id: string): {
+    platform: ChannelServicePlatform
+    externalId: string
+    kind: 'user' | 'group'
+  } {
     const storage = server.getStorage()
-    const channelUser = storage.getChannelUser(input.id)
-    const channelGroup = channelUser ? undefined : storage.getChannelGroup(input.id)
+    const channelUser = storage.getChannelUser(id)
+    const channelGroup = channelUser ? undefined : storage.getChannelGroup(id)
 
     if (!channelUser && !channelGroup) {
-      throw new Error(`Unknown channel user or group: ${input.id}`)
+      throw new Error(`Unknown channel user or group: ${id}`)
     }
 
     const platform = channelUser?.platform ?? channelGroup!.platform
-    const externalId = channelUser?.externalUserId ?? channelGroup!.externalGroupId
+    if (
+      platform !== 'telegram' &&
+      platform !== 'qq' &&
+      platform !== 'discord' &&
+      platform !== 'qqbot'
+    ) {
+      throw new Error(`Unsupported platform: ${platform}`)
+    }
+
+    return {
+      platform,
+      externalId: channelUser?.externalUserId ?? channelGroup!.externalGroupId,
+      kind: channelUser ? 'user' : 'group'
+    }
+  }
+
+  async function waitForChannelReadyOnce(channelId: string): Promise<void> {
+    const { platform } = resolveChannelTarget(channelId)
+    await waitForManagedChannelServiceReady({
+      getService: () => getChannelSupervisor().getService(platform),
+      signal: stopController.signal,
+      onHealthCheckError: (error) =>
+        console.warn(
+          `[${platform}] health check failed while waiting for channel readiness:`,
+          error
+        )
+    })
+  }
+
+  async function sendChannelMessage(input: SendChannelMessageInput): Promise<void> {
+    const { platform, externalId, kind } = resolveChannelTarget(input.id)
 
     if (platform === 'telegram') {
       if (!telegramService) throw new Error('Telegram service is not running')
@@ -251,7 +288,7 @@ export function createRuntimeLiveServices(
     } else if (platform === 'qq') {
       if (!qqService) throw new Error('QQ service is not running')
       const numericId = Number(externalId)
-      if (channelUser) {
+      if (kind === 'user') {
         await qqService.sendPrivateMessage(numericId, input.message)
       } else {
         await qqService.sendGroupMessage(numericId, input.message)
@@ -266,8 +303,6 @@ export function createRuntimeLiveServices(
       } else {
         await qqbotService.sendMessage(externalId, input.message)
       }
-    } else {
-      throw new Error(`Unsupported platform: ${platform}`)
     }
     console.log(`[send-channel] sent to ${platform}:${externalId}`)
   }
@@ -313,6 +348,7 @@ export function createRuntimeLiveServices(
   }
 
   async function stop(): Promise<void> {
+    stopController.abort(new Error('Yachiyo live services stopped'))
     if (channelHealthTimer) {
       clearInterval(channelHealthTimer)
       channelHealthTimer = null
@@ -375,6 +411,8 @@ export function createRuntimeLiveServices(
     'host.sendChannelMessage': (input: SendChannelMessageInput): Promise<void> =>
       sendChannelMessage(input),
     'host.waitForLiveServicesReady': (): Promise<void> => readiness.waitForReady(),
+    'host.waitForChannelReady': (input: { channelId: string }): Promise<void> =>
+      readiness.waitForChannelReady(input.channelId),
     'host.pokeChannels': (input: { reason: string }): void => {
       void channelSupervisor?.poke(input.reason)
     },
@@ -384,5 +422,10 @@ export function createRuntimeLiveServices(
     'host.stopLiveServices': (): Promise<void> => stop()
   }
 
-  return { start: readiness.start, stop, rpcOps: rpcOps as RuntimeLiveServices['rpcOps'] }
+  return {
+    start: readiness.start,
+    waitForChannelReady: readiness.waitForChannelReady,
+    stop,
+    rpcOps: rpcOps as RuntimeLiveServices['rpcOps']
+  }
 }

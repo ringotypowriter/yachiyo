@@ -103,6 +103,7 @@ import {
 import type { OriginLookup } from '../appUpdate/installReceiptSequence.ts'
 import { describeUpdateOutcome } from '../appUpdate/updateReceiptMessage.ts'
 import { createUpdateReceiptCoordinator } from '../appUpdate/updateReceiptCoordinator.ts'
+import { deliverPendingUpdateReceiptAfterChannelReady } from '../appUpdate/pendingUpdateReceiptDelivery.ts'
 import { startCommandSocket, type CommandSocketHandle } from '../cli/commandSocket.ts'
 import { createAppUpdateCommandHandler } from '../cli/appUpdateCommand.ts'
 import { createProviderFetch } from '../net/providerFetch.ts'
@@ -273,36 +274,42 @@ const updateReceiptCoordinator = createUpdateReceiptCoordinator({
   newToken: () => randomUUID()
 })
 
-async function deliverPendingUpdateReceipt(): Promise<void> {
-  const path = pendingUpdateReceiptPath()
-  const pending = readPendingUpdateReceipt(path, Date.now())
-  if (!pending) return
-
-  const outcome = describeUpdateOutcome(pending, app.getVersion())
-  try {
-    // Active delivery: the restart destroyed any reply target we had, and on
-    // QQBot a passive reply is impossible without a fresh inbound id.
-    await hostCall('sendChannelMessage', [
-      { id: pending.channelId, message: outcome.message, delivery: 'active' }
-    ])
-    // Only forget it once it has actually been said, and only our own record:
-    // a newer attempt may have replaced it while this send was in flight.
-    clearPendingUpdateReceipt(path, pending.attemptId)
-  } catch (error) {
-    // Active delivery is refused when the user has active messages off, or
-    // when we are rate limited. The receipt is still owed, so hand it to the
-    // next real outbound instead of dropping it.
-    console.error('[update-receipt] active delivery failed, deferring to next message:', error)
-    updateReceiptCoordinator.defer(pending.attemptId)
-  }
-}
-
 async function deliverPendingUpdateReceiptAfterRuntimeReady(): Promise<void> {
-  await runAfterRuntimeLiveServicesReady(() => {
-    if (USE_UTILITY_RUNTIME) return hostCall('waitForLiveServicesReady')
-    if (!liveServices) return Promise.reject(new Error('Yachiyo live services are not running'))
-    return liveServices.start()
-  }, deliverPendingUpdateReceipt)
+  const path = pendingUpdateReceiptPath()
+  await runAfterRuntimeLiveServicesReady(
+    () => {
+      if (USE_UTILITY_RUNTIME) return hostCall('waitForLiveServicesReady')
+      if (!liveServices) return Promise.reject(new Error('Yachiyo live services are not running'))
+      return liveServices.start()
+    },
+    () =>
+      deliverPendingUpdateReceiptAfterChannelReady({
+        read: () => readPendingUpdateReceipt(path, Date.now()),
+        waitForChannelReady: (channelId) => {
+          if (USE_UTILITY_RUNTIME) {
+            return hostCall('waitForChannelReady', [{ channelId }])
+          }
+          if (!liveServices) {
+            return Promise.reject(new Error('Yachiyo live services are not running'))
+          }
+          return liveServices.waitForChannelReady(channelId)
+        },
+        describe: (receipt) => describeUpdateOutcome(receipt, app.getVersion()).message,
+        sendActive: async ({ channelId, message }) => {
+          // The restart destroyed the reply target. QQBot therefore needs an
+          // active send, while the other platforms ignore this distinction.
+          await hostCall('sendChannelMessage', [{ id: channelId, message, delivery: 'active' }])
+        },
+        clear: (attemptId) => clearPendingUpdateReceipt(path, attemptId),
+        defer: (attemptId) => updateReceiptCoordinator.defer(attemptId),
+        onDeliveryError: (error) => {
+          console.error(
+            '[update-receipt] active delivery failed, deferring to next message:',
+            error
+          )
+        }
+      })
+  )
 }
 
 const COMMAND_SOCKET_HEALTH_INTERVAL_MS = 15_000
