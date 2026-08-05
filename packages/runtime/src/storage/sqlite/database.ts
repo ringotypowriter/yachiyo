@@ -5,6 +5,7 @@ import { createSqliteActivitySourceStorageMethods } from './activitySourceStorag
 import { createBackgroundResponseMessagesRepairQueue } from './backgroundResponseMessagesRepair.ts'
 import { createSqliteBootstrapStorageMethods } from './bootstrapStorage.ts'
 import { toChannelGroupRecord, toChannelUserRecord } from './channelRecords.ts'
+import { pageMessageWindow } from '../messagePageWindow.ts'
 import {
   channelUsersTable,
   messagesTable,
@@ -1138,21 +1139,27 @@ export function createSqliteYachiyoStorage(
       }
       if (options?.includeResponseMessages === false) {
         // Skip the heaviest column entirely — neither read from disk nor parsed.
-        return db
-          .select(baseColumns)
+        return pageMessageWindow(
+          db
+            .select(baseColumns)
+            .from(messagesTable)
+            .where(eq(messagesTable.threadId, threadId))
+            .orderBy(asc(messagesTable.createdAt))
+            .all()
+            .map((row) => toMessageRecord({ ...row, responseMessages: null })),
+          options
+        )
+      }
+      return pageMessageWindow(
+        db
+          .select({ ...baseColumns, responseMessages: messagesTable.responseMessages })
           .from(messagesTable)
           .where(eq(messagesTable.threadId, threadId))
           .orderBy(asc(messagesTable.createdAt))
           .all()
-          .map((row) => toMessageRecord({ ...row, responseMessages: null }))
-      }
-      return db
-        .select({ ...baseColumns, responseMessages: messagesTable.responseMessages })
-        .from(messagesTable)
-        .where(eq(messagesTable.threadId, threadId))
-        .orderBy(asc(messagesTable.createdAt))
-        .all()
-        .map(toMessageRecord)
+          .map(toMessageRecord),
+        options
+      )
     },
 
     getMessage(messageId) {
