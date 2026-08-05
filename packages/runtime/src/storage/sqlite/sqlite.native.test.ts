@@ -926,6 +926,22 @@ test('sqlite storage pages a thread backwards from the newest message', async ()
         createdAt: `2026-03-20T00:00:${String(index).padStart(2, '0')}.000Z`
       }))
     })
+    // A second thread, so "a cursor from another thread" can be tested with a
+    // message that genuinely exists rather than an id that simply is not there.
+    storage.createThread({
+      thread: { id: 'thread-2', title: 'Other', updatedAt: '2026-03-20T00:00:00.000Z' },
+      createdAt: '2026-03-20T00:00:00.000Z',
+      messages: [
+        {
+          id: 'other-message-1',
+          threadId: 'thread-2',
+          role: 'user' as const,
+          content: 'Elsewhere',
+          status: 'completed' as const,
+          createdAt: '2026-03-20T00:00:04.000Z'
+        }
+      ]
+    })
 
     // Existing callers pass no options, and the agent's context builders are
     // among them: full history, oldest first, exactly as before.
@@ -973,6 +989,14 @@ test('sqlite storage pages a thread backwards from the newest message', async ()
     // believed it was walking backwards.
     assert.deepEqual(
       storage.listThreadMessages('thread-1', { limit: 3, beforeMessageId: 'nope' }),
+      []
+    )
+
+    // Nor may a cursor naming a real message in a *different* thread anchor
+    // this one. It is a position in that thread, not this one, so it is as
+    // unknown here as an invented id.
+    assert.deepEqual(
+      storage.listThreadMessages('thread-1', { limit: 3, beforeMessageId: 'other-message-1' }),
       []
     )
 

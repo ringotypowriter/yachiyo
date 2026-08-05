@@ -18,7 +18,17 @@ const ids = (messages: MessageRecord[]): string[] => messages.map((message) => m
 test('without a limit the whole thread comes back unchanged', () => {
   assert.equal(pageMessageWindow(thread), thread)
   assert.equal(pageMessageWindow(thread, {}), thread)
-  assert.equal(pageMessageWindow(thread, { beforeMessageId: 'message-5' }), thread)
+})
+
+test('a cursor without a limit still means "older than this"', () => {
+  // The two options are independent. A cursor that only took effect alongside a
+  // limit would hand the caller the entire thread — including the messages it
+  // said it already had — and the sqlite reader, which applies the cursor as a
+  // where-clause, would disagree with this one.
+  assert.deepEqual(ids(pageMessageWindow(thread, { beforeMessageId: 'message-3' })), [
+    'message-1',
+    'message-2'
+  ])
 })
 
 test('the first page is the newest messages, still in reading order', () => {
@@ -69,7 +79,10 @@ test('walking the whole thread backwards visits every message exactly once', () 
   const seen: string[] = []
   let cursor: string | undefined
   for (let guard = 0; guard < 20; guard += 1) {
-    const page = pageMessageWindow(thread, { limit: 3, ...(cursor ? { beforeMessageId: cursor } : {}) })
+    const page = pageMessageWindow(thread, {
+      limit: 3,
+      ...(cursor ? { beforeMessageId: cursor } : {})
+    })
     if (page.length === 0) break
     seen.unshift(...ids(page))
     cursor = page[0]?.id

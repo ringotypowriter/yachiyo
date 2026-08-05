@@ -5,7 +5,7 @@ import { createSqliteActivitySourceStorageMethods } from './activitySourceStorag
 import { createBackgroundResponseMessagesRepairQueue } from './backgroundResponseMessagesRepair.ts'
 import { createSqliteBootstrapStorageMethods } from './bootstrapStorage.ts'
 import { toChannelGroupRecord, toChannelUserRecord } from './channelRecords.ts'
-import { pageMessageWindow } from '../messagePageWindow.ts'
+import { buildThreadMessagePageQuery } from './threadMessagePageQuery.ts'
 import {
   channelUsersTable,
   messagesTable,
@@ -1137,29 +1137,56 @@ export function createSqliteYachiyoStorage(
         textBlocks: messagesTable.textBlocks,
         threadId: messagesTable.threadId
       }
+      // Where the page stops, in the terms sqlite sorts by. Resolved before the
+      // page is read so an unknown cursor is answered without touching the
+      // thread at all.
+      const cursor =
+        options?.beforeMessageId === undefined
+          ? undefined
+          : db
+              .select({ createdAt: messagesTable.createdAt, id: messagesTable.id })
+              .from(messagesTable)
+              // Scoped to the thread: a cursor naming a message in some other
+              // thread is not a position in this one, and must read as unknown
+              // rather than quietly anchoring the page to a foreign timestamp.
+              .where(
+                and(
+                  eq(messagesTable.id, options.beforeMessageId),
+                  eq(messagesTable.threadId, threadId)
+                )
+              )
+              .get()
+      if (options?.beforeMessageId !== undefined && cursor === undefined) {
+        // An unknown cursor must not fall back to the newest page: the caller
+        // would receive the same messages every time while believing it was
+        // walking backwards — an infinite scroll that never moves.
+        return []
+      }
+
+      const pageArgs = { threadId, limit: options?.limit, cursor }
+      // sqlite returns the page newest-first, because that is the end it is
+      // anchored at. Reading order is restored here: callers render a
+      // conversation, not a reversed list.
       if (options?.includeResponseMessages === false) {
         // Skip the heaviest column entirely — neither read from disk nor parsed.
-        return pageMessageWindow(
-          db
-            .select(baseColumns)
-            .from(messagesTable)
-            .where(eq(messagesTable.threadId, threadId))
-            .orderBy(asc(messagesTable.createdAt))
-            .all()
-            .map((row) => toMessageRecord({ ...row, responseMessages: null })),
-          options
+        return buildThreadMessagePageQuery(
+          db.select(baseColumns).from(messagesTable).$dynamic(),
+          pageArgs
         )
+          .all()
+          .reverse()
+          .map((row) => toMessageRecord({ ...row, responseMessages: null }))
       }
-      return pageMessageWindow(
+      return buildThreadMessagePageQuery(
         db
           .select({ ...baseColumns, responseMessages: messagesTable.responseMessages })
           .from(messagesTable)
-          .where(eq(messagesTable.threadId, threadId))
-          .orderBy(asc(messagesTable.createdAt))
-          .all()
-          .map(toMessageRecord),
-        options
+          .$dynamic(),
+        pageArgs
       )
+        .all()
+        .reverse()
+        .map(toMessageRecord)
     },
 
     getMessage(messageId) {

@@ -11,6 +11,7 @@ import type {
   ThreadSearchResult,
   ToolCallRecord
 } from '@yachiyo/shared/protocol'
+import { pageMessageWindow } from './messagePageWindow.ts'
 import {
   groupLatestRunsByThread,
   groupToolCallsByThread,
@@ -751,17 +752,26 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
 
     listThreadMessages(threadId, options) {
       // Filter before sorting so the cost scales with the thread, not the store.
-      const threadMessages = sortByCreatedAt(
-        messages.filter((message) => message.threadId === threadId)
-      )
+      // The id tie-break matches the sqlite reader: messages written in the same
+      // millisecond need one definite order, or a page boundary can duplicate or
+      // drop the message that sits on it.
+      const threadMessages = messages
+        .filter((message) => message.threadId === threadId)
+        .sort(
+          (left, right) =>
+            left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id)
+        )
+      // Paging is part of the contract, not a sqlite feature: a caller that pages
+      // against this store must see the same window it would see in production.
+      const page = pageMessageWindow(threadMessages, options)
       if (options?.includeResponseMessages === false) {
-        return threadMessages.map((message) => {
+        return page.map((message) => {
           const projected = { ...message }
           delete projected.responseMessages
           return projected
         })
       }
-      return threadMessages
+      return page
     },
 
     getMessage(messageId) {
