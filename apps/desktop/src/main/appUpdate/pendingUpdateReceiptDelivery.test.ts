@@ -29,9 +29,15 @@ test('does not actively deliver until the receipt channel is actually healthy', 
     },
     describe: () => 'updated to 1.1.0',
     sendActive: async (input) => {
-      assert.deepEqual(input, { channelId: 'chan-1', message: 'updated to 1.1.0' })
+      assert.deepEqual(input, {
+        channelId: 'chan-1',
+        message: 'updated to 1.1.0',
+        notAfterMs: 150
+      })
       sent = true
     },
+    sendTimeoutMs: 50,
+    now: () => 100,
     clear: (attemptId) => cleared.push(attemptId),
     defer: () => {}
   })
@@ -56,6 +62,7 @@ test('a genuine active-send failure is deferred after the health gate', async ()
     sendActive: async () => {
       throw new Error('active messages disabled')
     },
+    sendTimeoutMs: 50,
     clear: () => assert.fail('a failed delivery must not clear the receipt'),
     defer: (attemptId) => deferred.push(attemptId),
     onDeliveryError: (error) => errors.push(error)
@@ -75,7 +82,37 @@ test('does not send a stale receipt that was replaced during the health wait', a
     },
     describe: () => 'updated to 1.1.0',
     sendActive: async () => assert.fail('the replaced receipt must not be sent'),
+    sendTimeoutMs: 50,
     clear: () => assert.fail('the replaced receipt must not be cleared'),
     defer: () => assert.fail('the replaced receipt must not be deferred')
   })
+})
+
+test('defers when an active receipt send never settles', async () => {
+  const deferred: string[] = []
+  const errors: unknown[] = []
+
+  const delivery = deliverPendingUpdateReceiptAfterChannelReady({
+    read: () => receipt,
+    waitForChannelReady: async () => {},
+    describe: () => 'updated to 1.1.0',
+    sendActive: () => new Promise<void>(() => {}),
+    sendTimeoutMs: 5,
+    clear: () => assert.fail('a timed-out delivery must not clear the receipt'),
+    defer: (attemptId) => deferred.push(attemptId),
+    onDeliveryError: (error) => errors.push(error)
+  })
+
+  let guardHandle!: ReturnType<typeof setTimeout>
+  const outcome = await Promise.race([
+    delivery.then(() => 'settled'),
+    new Promise<'stuck'>((resolve) => {
+      guardHandle = setTimeout(() => resolve('stuck'), 50)
+    })
+  ])
+  clearTimeout(guardHandle)
+
+  assert.equal(outcome, 'settled')
+  assert.deepEqual(deferred, ['attempt-1'])
+  assert.match((errors[0] as Error).message, /timed out/)
 })

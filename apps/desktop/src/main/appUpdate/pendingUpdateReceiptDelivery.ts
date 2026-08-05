@@ -4,7 +4,9 @@ export async function deliverPendingUpdateReceiptAfterChannelReady(input: {
   read: () => ReadPendingUpdateReceipt | undefined
   waitForChannelReady: (channelId: string) => Promise<void>
   describe: (receipt: ReadPendingUpdateReceipt) => string
-  sendActive: (input: { channelId: string; message: string }) => Promise<void>
+  sendActive: (input: { channelId: string; message: string; notAfterMs: number }) => Promise<void>
+  sendTimeoutMs: number
+  now?: () => number
   clear: (attemptId: string) => void
   defer: (attemptId: string) => void
   onDeliveryError?: (error: unknown) => void
@@ -19,14 +21,35 @@ export async function deliverPendingUpdateReceiptAfterChannelReady(input: {
   const readyPending = input.read()
   if (readyPending?.attemptId !== pending.attemptId) return
 
+  const notAfterMs = (input.now ?? Date.now)() + input.sendTimeoutMs
   try {
-    await input.sendActive({
-      channelId: readyPending.channelId,
-      message: input.describe(readyPending)
-    })
+    await withinSendBound(
+      input.sendActive({
+        channelId: readyPending.channelId,
+        message: input.describe(readyPending),
+        notAfterMs
+      }),
+      input.sendTimeoutMs
+    )
     input.clear(readyPending.attemptId)
   } catch (error) {
     input.onDeliveryError?.(error)
     input.defer(readyPending.attemptId)
+  }
+}
+
+async function withinSendBound<T>(work: Promise<T>, timeoutMs: number): Promise<T> {
+  let timeoutHandle!: ReturnType<typeof setTimeout>
+  const timeout = new Promise<never>((_, reject) => {
+    timeoutHandle = setTimeout(
+      () => reject(new Error(`Active update receipt delivery timed out after ${timeoutMs}ms`)),
+      timeoutMs
+    )
+  })
+
+  try {
+    return await Promise.race([work, timeout])
+  } finally {
+    clearTimeout(timeoutHandle)
   }
 }

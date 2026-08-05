@@ -295,11 +295,14 @@ async function deliverPendingUpdateReceiptAfterRuntimeReady(): Promise<void> {
           return liveServices.waitForChannelReady(channelId)
         },
         describe: (receipt) => describeUpdateOutcome(receipt, app.getVersion()).message,
-        sendActive: async ({ channelId, message }) => {
+        sendActive: async ({ channelId, message, notAfterMs }) => {
           // The restart destroyed the reply target. QQBot therefore needs an
           // active send, while the other platforms ignore this distinction.
-          await hostCall('sendChannelMessage', [{ id: channelId, message, delivery: 'active' }])
+          await hostCall('sendChannelMessage', [
+            { id: channelId, message, delivery: 'active', notAfterMs }
+          ])
         },
+        sendTimeoutMs: 2_000,
         clear: (attemptId) => clearPendingUpdateReceipt(path, attemptId),
         defer: (attemptId) => updateReceiptCoordinator.defer(attemptId),
         onDeliveryError: (error) => {
