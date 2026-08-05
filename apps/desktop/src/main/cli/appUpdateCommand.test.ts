@@ -30,6 +30,21 @@ function createController(events: string[]): AppUpdateController {
   }
 }
 
+function createReceipt(): NonNullable<
+  Parameters<typeof createAppUpdateCommandHandler>[0]['receipt']
+> {
+  return {
+    resolveOrigin: async () => ({ kind: 'no-channel' as const }),
+    persist: () => {},
+    clear: () => {},
+    announce: async () => {},
+    reportInstallFailure: async () => {},
+    announceTimeoutMs: 50,
+    now: () => 1_760_000_000_000,
+    targetVersion: () => '1.6.0-beta.1'
+  }
+}
+
 test('prepare reports active runs without installing the prepared update', async () => {
   const events: string[] = []
   const handler = createAppUpdateCommandHandler({
@@ -75,7 +90,8 @@ test('forced install reports the exact interrupted count and starts only after t
   const handler = createAppUpdateCommandHandler({
     controller: createController(events),
     getRunningVersion: () => '1.5.1',
-    getActiveRunIds: () => ['run-self', 'run-other-1', 'run-other-2']
+    getActiveRunIds: () => ['run-self', 'run-other-1', 'run-other-2'],
+    receipt: createReceipt()
   })
 
   const reply = await handler({
@@ -99,7 +115,8 @@ test('install allows the initiating run alone without force and reports its inte
   const handler = createAppUpdateCommandHandler({
     controller: createController(events),
     getRunningVersion: () => '1.5.1',
-    getActiveRunIds: () => ['run-self']
+    getActiveRunIds: () => ['run-self'],
+    receipt: createReceipt()
   })
 
   const reply = await handler({
@@ -203,4 +220,64 @@ test('install releases its reservation when the reply cannot be delivered', asyn
   const retry = await handler({ action: 'install', force: false })
   retry.afterReply?.()
   assert.equal(installed, true)
+})
+
+test('an initiated install fails before reserving when receipt wiring is missing', async () => {
+  let reserved = false
+  const controller = createController([])
+  controller.reservePreparedInstall = () => {
+    reserved = true
+    return {
+      install: () => {},
+      release: () => {}
+    }
+  }
+  const handler = createAppUpdateCommandHandler({
+    controller,
+    getRunningVersion: () => '1.5.1',
+    getActiveRunIds: () => ['run-self']
+  })
+
+  await assert.rejects(
+    () => handler({ action: 'install', force: false, initiatorRunId: 'run-self' }),
+    /receipt wiring/i
+  )
+  assert.equal(reserved, false, 'missing production wiring must not claim the install slot')
+})
+
+test('a failed command reply withdraws the announcement before clearing its receipt', async () => {
+  const events: string[] = []
+  const controller = createController(events)
+  const receipt = {
+    ...createReceipt(),
+    resolveOrigin: async () => ({
+      kind: 'origin' as const,
+      origin: { channelId: 'chan-1', threadId: 'thread-1', messageId: 'msg-1' }
+    }),
+    persist: () => events.push('persist'),
+    announce: async () => {
+      events.push('announce')
+    },
+    reportInstallFailure: async (origin) => {
+      events.push(`report-failure:${origin.channelId}:${origin.threadId}:${origin.messageId}`)
+    },
+    clear: () => events.push('clear')
+  }
+  const handler = createAppUpdateCommandHandler({
+    controller,
+    getRunningVersion: () => '1.5.1',
+    getActiveRunIds: () => ['run-self'],
+    receipt
+  })
+
+  const reply = await handler({ action: 'install', force: false, initiatorRunId: 'run-self' })
+  await reply.onReplyFailure?.()
+
+  assert.deepEqual(events, [
+    'persist',
+    'announce',
+    'release',
+    'report-failure:chan-1:thread-1:msg-1',
+    'clear'
+  ])
 })

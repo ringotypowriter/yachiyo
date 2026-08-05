@@ -49,18 +49,17 @@ function deps(overrides: Partial<InstallReceiptDeps> = {}): {
  * durable and the user must have been told before anything irreversible
  * happens. A notice sent afterwards is not the same promise.
  */
-test('persists before reserving and announces only once the slot is held', async () => {
+test('reserves before persisting and announces only once the slot is held', async () => {
   const { deps: d, log } = deps()
   await runInstallReceiptSequence('run-1', d)
   assert.deepEqual(log, ['resolve', 'reserve', 'persist', 'announce'])
 })
 
 /**
- * Reserving can fail — another install may hold the slot. The record was
- * written first, so it has to be removed, or the next start reports a receipt
- * for an update that never began.
+ * Reserving can fail — another install may hold the slot. A loser must not
+ * write or clear any receipt, because the winner may already own that record.
  */
-test('a failed reservation clears the record and never announces', async () => {
+test('a failed reservation writes nothing and never announces', async () => {
   const { deps: d, log } = deps()
   d.reserve = (): void => {
     log.push('reserve')
@@ -203,16 +202,15 @@ test('an announce that completes in time is never told to abandon mid-flight', a
 })
 
 /**
- * Two overlapping applies. Writing the record before winning the reservation
- * let the loser overwrite the winner's record and then legitimately clear it
- * as its own owner — leaving the attempt that really was restarting with
- * nothing to report back to.
+ * Two overlapping applies. A loser must never reach the durable record, or it
+ * can overwrite the winner and leave the real installer with nothing to
+ * report back to.
  */
 test('a losing contender never writes over the winner’s record', async () => {
   const store: { current?: { attemptId: string } } = {}
   let slotTaken = false
 
-  const attempt = (attemptId: string): Promise<void> =>
+  const attempt = (attemptId: string): ReturnType<typeof runInstallReceiptSequence> =>
     runInstallReceiptSequence('run-1', {
       ...deps().deps,
       attemptId,

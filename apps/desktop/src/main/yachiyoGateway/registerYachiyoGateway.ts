@@ -113,6 +113,7 @@ import {
   createRuntimeLiveServices,
   type RuntimeLiveServices
 } from '@yachiyo/runtime/app/host/runtimeLiveServices'
+import { runAfterRuntimeLiveServicesReady } from '@yachiyo/runtime/app/host/runtimeLiveServicesReadiness'
 import { mergeRpcTargets } from '@yachiyo/shared/rpc/mergeRpcTargets'
 import { createWebExternalFetchRpcTarget } from '@yachiyo/runtime/services/webExternalFetchRpcBridge'
 import { createJotdownStore } from '@yachiyo/runtime/services/jotdownStore'
@@ -296,6 +297,14 @@ async function deliverPendingUpdateReceipt(): Promise<void> {
   }
 }
 
+async function deliverPendingUpdateReceiptAfterRuntimeReady(): Promise<void> {
+  await runAfterRuntimeLiveServicesReady(() => {
+    if (USE_UTILITY_RUNTIME) return hostCall('waitForLiveServicesReady')
+    if (!liveServices) return Promise.reject(new Error('Yachiyo live services are not running'))
+    return liveServices.start()
+  }, deliverPendingUpdateReceipt)
+}
+
 const COMMAND_SOCKET_HEALTH_INTERVAL_MS = 15_000
 const COMMAND_SOCKET_HEALTH_TIMEOUT_MS = 1_000
 
@@ -384,6 +393,11 @@ function createCommandSocketHandle(): CommandSocketHandle {
             if (signal.aborted) return
             await hostCall('sendChannelMessage', [
               { id: origin.channelId, message: '开始更新，稍后回来。' }
+            ])
+          },
+          reportInstallFailure: async (origin) => {
+            await hostCall('sendChannelMessage', [
+              { id: origin.channelId, message: '更新未能启动，请稍后重试。' }
             ])
           },
           announceTimeoutMs: 2_000,
@@ -559,6 +573,11 @@ function createConfiguredServer(
   liveServices = createRuntimeLiveServices({
     server: nextServer,
     showNotification: showYachiyoNotification,
+    updateReceiptLease: {
+      claim: async (channelId) => updateReceiptCoordinator.claim(channelId),
+      ack: async (claimToken) => updateReceiptCoordinator.ack(claimToken),
+      release: async (claimToken) => updateReceiptCoordinator.release(claimToken)
+    },
     tempWorkspaceDir: resolveYachiyoTempWorkspaceRoot(),
     // In dev mode, schedules and channels are skipped by default to avoid
     // unintended automated runs / outbound connections. Opt in with
@@ -769,15 +788,12 @@ export function registerYachiyoGateway(options: {
   }
   registerFatalRunRecovery()
   // If the last shutdown was a self-triggered update, somebody is still
-  // waiting in a chat for the outcome.
-  void deliverPendingUpdateReceipt()
-
-  // In utility mode the runtime host starts its own live services.
-  if (!USE_UTILITY_RUNTIME) {
-    void liveServices
-      ?.start()
-      .catch((error) => console.error('[yachiyo] live services failed to start:', error))
-  }
+  // waiting in a chat for the outcome. Active delivery cannot run until the
+  // channel services exist; the ready RPC and in-process promise represent
+  // the same completed startup in the two runtime modes.
+  void deliverPendingUpdateReceiptAfterRuntimeReady().catch((error) =>
+    console.error('[yachiyo] live services or update receipt delivery failed:', error)
+  )
 
   ipcMain.removeAllListeners(IPC_CHANNELS.showNotification)
   ipcMain.on(IPC_CHANNELS.showNotification, (_event, input: ShowNotificationInput) => {

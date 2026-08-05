@@ -34,8 +34,12 @@ export interface QQBotServiceOptions {
   server: YachiyoServer
   /** Effective policy with config overrides applied. Defaults to qqbotPolicy. */
   policy?: ChannelPolicy
-  /** Absent when nothing can be owed — e.g. the in-process runtime in tests. */
-  updateReceiptLease?: UpdateReceiptLease
+  /** Main-process lease for a receipt that may be waiting for the next outbound. */
+  updateReceiptLease: UpdateReceiptLease
+  /** External QQ client boundary. */
+  client?: QQBotClient
+  /** Override the inbound batching delay. */
+  replyDelayMs?: () => number
 }
 
 export interface QQBotService {
@@ -94,7 +98,9 @@ export function createQQBotService({
   model: modelOverride,
   server,
   policy: policyOverride,
-  updateReceiptLease
+  updateReceiptLease,
+  client: clientOverride,
+  replyDelayMs
 }: QQBotServiceOptions): QQBotService {
   const policy = policyOverride ?? qqbotPolicy
 
@@ -109,7 +115,7 @@ export function createQQBotService({
     }
   }
 
-  const client: QQBotClient = createQQBotClient({ appId, clientSecret })
+  const client = clientOverride ?? createQQBotClient({ appId, clientSecret })
 
   /**
    * Track the most recent inbound messageId per user for the
@@ -132,7 +138,7 @@ export function createQQBotService({
       channelId: storage.findChannelUser('qqbot', target.openId)?.id,
       text,
       send: (body) => client.sendC2CMessage(target.openId, body, target.replyMsgId),
-      ...(updateReceiptLease ? { lease: updateReceiptLease } : {}),
+      lease: updateReceiptLease,
       onError: (stage, error) => console.error(`[qqbot] update receipt ${stage} failed:`, error)
     })
   }
@@ -141,10 +147,7 @@ export function createQQBotService({
     target: QQBotTarget,
     payload: ChannelReplyPayload
   ): Promise<void> {
-    const text = payload.message?.trim()
-    if (text) {
-      await sendMessageWithTarget(target, text)
-    }
+    await sendMessageWithTarget(target, payload.message?.trim() ?? '')
     for (const attachment of payload.attachments ?? []) {
       if (attachment.deliveryKind === 'image') {
         await client.sendC2CImage(
@@ -174,7 +177,7 @@ export function createQQBotService({
     if (!replyMsgId) {
       throw new Error(`[qqbot] cannot send to ${openId.slice(0, 8)}: no inbound msg_id cached`)
     }
-    await client.sendC2CMessage(openId, text, replyMsgId)
+    await sendMessageWithTarget({ openId, replyMsgId }, text)
   }
 
   /**
@@ -219,6 +222,7 @@ export function createQQBotService({
       }, 10_000)
       return () => clearInterval(timer)
     },
+    replyDelayMs,
     nonRunReply: '抱歉，出了点问题。',
     errorReply: '出了点问题，请稍后再试。',
     formatGuestThreadTitle: (channelUser) => `QQBot:${channelUser.username}`
@@ -249,15 +253,15 @@ export function createQQBotService({
         return
 
       case 'pending':
-        void client
-          .sendC2CMessage(openId, result.reply, msg.messageId)
-          .catch((e) => console.error('[qqbot] failed to send pending reply', e))
+        void sendMessageWithTarget({ openId, replyMsgId: msg.messageId }, result.reply).catch((e) =>
+          console.error('[qqbot] failed to send pending reply', e)
+        )
         return
 
       case 'limit-exceeded':
-        void client
-          .sendC2CMessage(openId, result.reply, msg.messageId)
-          .catch((e) => console.error('[qqbot] failed to send limit reply', e))
+        void sendMessageWithTarget({ openId, replyMsgId: msg.messageId }, result.reply).catch((e) =>
+          console.error('[qqbot] failed to send limit reply', e)
+        )
         return
 
       case 'allowed': {

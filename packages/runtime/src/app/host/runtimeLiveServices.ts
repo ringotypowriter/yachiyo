@@ -38,6 +38,7 @@ import {
 import { getPerfMonitor } from '../../services/perfMonitor.ts'
 import { createScheduleService, type ScheduleService } from '../../services/scheduleService.ts'
 import type { YachiyoServer } from './YachiyoServer.ts'
+import { createRuntimeLiveServicesReadiness } from './runtimeLiveServicesReadiness.ts'
 
 const CHANNEL_HEALTH_INTERVAL_MS = 60_000
 
@@ -59,10 +60,10 @@ export interface RuntimeLiveServicesOptions {
   server: YachiyoServer
   /**
    * Lets an update receipt that could not be delivered actively ride along
-   * with the next real outbound. Absent when nothing owns such a record —
-   * the in-process runtime and tests, for instance.
+   * with the next real outbound. Required in both runtime modes so omitting
+   * the production wiring cannot silently disable the receipt path.
    */
-  updateReceiptLease?: UpdateReceiptLease
+  updateReceiptLease: UpdateReceiptLease
   /** Notification display; Electron-backed in main, reverse-RPC from a utility host. */
   showNotification: (input: ShowNotificationInput) => void
   tempWorkspaceDir: string
@@ -100,6 +101,7 @@ export function createRuntimeLiveServices(
   let channelHealthTimer: ReturnType<typeof setInterval> | null = null
   let scheduleService: ScheduleService | null = null
   let autoSyncScheduler: AutoSyncScheduler | null = null
+  const readiness = createRuntimeLiveServicesReadiness(startOnce)
 
   function buildChannelServiceConfigKey(
     cfg: ChannelsConfig,
@@ -210,9 +212,7 @@ export function createRuntimeLiveServices(
             model: cfg.qqbot?.model,
             server,
             policy: applyChannelsConfigToPolicy(qqbotPolicy, cfg),
-            ...(options.updateReceiptLease
-              ? { updateReceiptLease: options.updateReceiptLease }
-              : {})
+            updateReceiptLease: options.updateReceiptLease
           })
         },
         onServiceChange: (service) => {
@@ -269,7 +269,7 @@ export function createRuntimeLiveServices(
     console.log(`[send-channel] sent to ${platform}:${externalId}`)
   }
 
-  async function start(): Promise<void> {
+  async function startOnce(): Promise<void> {
     scheduleService = createScheduleService({
       server: {
         createThread: (input) => server.createThread(input),
@@ -371,6 +371,7 @@ export function createRuntimeLiveServices(
     },
     'host.sendChannelMessage': (input: SendChannelMessageInput): Promise<void> =>
       sendChannelMessage(input),
+    'host.waitForLiveServicesReady': (): Promise<void> => readiness.waitForReady(),
     'host.pokeChannels': (input: { reason: string }): void => {
       void channelSupervisor?.poke(input.reason)
     },
@@ -380,5 +381,5 @@ export function createRuntimeLiveServices(
     'host.stopLiveServices': (): Promise<void> => stop()
   }
 
-  return { start, stop, rpcOps: rpcOps as RuntimeLiveServices['rpcOps'] }
+  return { start: readiness.start, stop, rpcOps: rpcOps as RuntimeLiveServices['rpcOps'] }
 }

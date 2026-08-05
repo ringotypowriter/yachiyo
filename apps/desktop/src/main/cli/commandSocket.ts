@@ -28,12 +28,12 @@ export interface MarkThreadReviewedInput {
 
 export interface AppUpdateCommandReply {
   result: AppUpdateCommandResult
-  afterReply?: () => void
+  afterReply?: () => void | Promise<void>
   onReplyFailure?: () => void | Promise<void>
 }
 
 export function createAppUpdateReplyFinalizer(input: {
-  afterReply?: () => void
+  afterReply?: () => void | Promise<void>
   onReplyFailure?: () => void | Promise<void>
   onError?: (error: Error) => void
 }): { complete(): void; fail(): void } {
@@ -44,7 +44,9 @@ export function createAppUpdateReplyFinalizer(input: {
       finalized = true
       if (!input.afterReply) return
       try {
-        input.afterReply()
+        void Promise.resolve(input.afterReply()).catch((error) => {
+          input.onError?.(error instanceof Error ? error : new Error(String(error)))
+        })
       } catch (error) {
         input.onError?.(error instanceof Error ? error : new Error(String(error)))
       }

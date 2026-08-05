@@ -66,22 +66,25 @@ export function writePendingUpdateReceipt(path: string, receipt: PendingUpdateRe
 }
 
 /**
- * Returns `undefined` when there is nothing to report — including when the
- * record is missing, truncated, or malformed. Those are all "we have no
- * trustworthy story", and inventing one from a damaged record would be worse
- * than staying quiet.
+ * Returns `undefined` only when no receipt file exists. A present file that
+ * cannot be read or parsed is operationally different from "nothing is owed"
+ * and must stay visible instead of silently dropping the user's receipt.
  */
 export function readPendingUpdateReceipt(
   path: string,
   nowMs: number
 ): ReadPendingUpdateReceipt | undefined {
-  let parsed: unknown
+  let raw: string
   try {
-    parsed = JSON.parse(readFileSync(path, 'utf8'))
-  } catch {
-    return undefined
+    raw = readFileSync(path, 'utf8')
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined
+    throw error
   }
-  if (!isCompleteRecord(parsed)) return undefined
+  const parsed: unknown = JSON.parse(raw)
+  if (!isCompleteRecord(parsed)) {
+    throw new Error(`Pending update receipt at ${path} is malformed.`)
+  }
   return nowMs - parsed.startedAtMs > EXPIRY_MS ? { ...parsed, expired: true } : parsed
 }
 

@@ -41,6 +41,46 @@ test('an owed receipt is prepended to the reply and acknowledged once sent', asy
   assert.deepEqual(calls, ['claim', 'ack'])
 })
 
+test('an owed receipt becomes the text send for an attachment-only reply', async () => {
+  const { lease: l, calls } = lease()
+  const sent: string[] = []
+
+  await sendWithUpdateReceipt({
+    channelId: 'chan-1',
+    text: '',
+    send: async (body) => {
+      sent.push(body)
+    },
+    lease: l
+  })
+
+  assert.deepEqual(sent, ['已更新到 1.1.0'])
+  assert.deepEqual(calls, ['claim', 'ack'])
+})
+
+test('an attachment-only reply with nothing owed skips the empty text send', async () => {
+  let claimed = false
+  const { lease: l } = lease({
+    claim: async () => {
+      claimed = true
+      return undefined
+    }
+  })
+  const sent: string[] = []
+
+  await sendWithUpdateReceipt({
+    channelId: 'chan-1',
+    text: '',
+    send: async (body) => {
+      sent.push(body)
+    },
+    lease: l
+  })
+
+  assert.deepEqual(sent, [])
+  assert.equal(claimed, true)
+})
+
 /** Nothing owed: the reply must be untouched and no lease traffic at all. */
 test('with nothing owed the reply is sent verbatim', async () => {
   const { lease: l, calls } = lease()

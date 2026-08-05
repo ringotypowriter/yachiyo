@@ -27,7 +27,13 @@ export async function sendWithUpdateReceipt(input: {
 }): Promise<void> {
   const claim = await claimQuietly(input)
 
-  const body = claim ? `${claim.message}\n\n${input.text}` : input.text
+  if (!claim && !input.text) return
+
+  const body = claim
+    ? input.text
+      ? `${claim.message}\n\n${input.text}`
+      : claim.message
+    : input.text
 
   try {
     await input.send(body)

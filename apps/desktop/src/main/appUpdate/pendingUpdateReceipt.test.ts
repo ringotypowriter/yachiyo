@@ -35,6 +35,11 @@ test('no receipt reads as undefined rather than throwing', () => {
   assert.equal(readPendingUpdateReceipt(scratch(), Date.now()), undefined)
 })
 
+test('a present path that cannot be read as a file surfaces the I/O error', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'yachiyo-receipt-directory-'))
+  assert.throws(() => readPendingUpdateReceipt(directory, Date.now()), { code: 'EISDIR' })
+})
+
 /**
  * The update exits by SIGKILL, so the write must be complete on disk before
  * the process can die — a torn file would be read back as "no pending
@@ -80,20 +85,16 @@ test('a fresh receipt is not marked expired', () => {
   assert.equal(found?.expired, undefined)
 })
 
-/**
- * Garbage on disk must not crash startup, and must not be mistaken for a
- * valid pending update either.
- */
-test('an unreadable record is treated as absent, not as a crash', () => {
+test('a malformed record is surfaced instead of impersonating an absent receipt', () => {
   const path = scratch()
   writeFileSync(path, '{ this is not json')
-  assert.equal(readPendingUpdateReceipt(path, Date.now()), undefined)
+  assert.throws(() => readPendingUpdateReceipt(path, Date.now()), SyntaxError)
 })
 
-test('a record missing required fields is treated as absent', () => {
+test('a record missing required fields is surfaced instead of impersonating absence', () => {
   const path = scratch()
   writeFileSync(path, JSON.stringify({ attemptId: 'a', channelId: 'chan-1' }))
-  assert.equal(readPendingUpdateReceipt(path, Date.now()), undefined)
+  assert.throws(() => readPendingUpdateReceipt(path, Date.now()), /malformed/i)
 })
 
 /**

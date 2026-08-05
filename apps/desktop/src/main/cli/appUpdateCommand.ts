@@ -4,7 +4,8 @@ import { formatAppUpdateBlockedError, type AppUpdateInstallResult } from '@yachi
 
 import {
   runInstallReceiptSequence,
-  type InstallReceiptDeps
+  type InstallReceiptDeps,
+  type UpdateReceiptOrigin
 } from '../appUpdate/installReceiptSequence.ts'
 import type {
   AppUpdateController,
@@ -26,6 +27,7 @@ export function createAppUpdateCommandHandler(input: {
     'reserve' | 'release' | 'fromVersion' | 'targetVersion' | 'attemptId'
   > & {
     targetVersion: () => string | undefined
+    reportInstallFailure: (origin: UpdateReceiptOrigin, error: unknown) => Promise<void>
   }
 }): (command: AppUpdateCommandInput) => Promise<AppUpdateCommandReply> {
   const activeRunSummary = (
@@ -68,6 +70,9 @@ export function createAppUpdateCommandHandler(input: {
     if (summary.blockingRunCount > 0 && command.force !== true) {
       throw new Error(formatAppUpdateBlockedError(summary))
     }
+    if (command.initiatorRunId !== undefined && input.receipt === undefined) {
+      throw new Error('App update receipt wiring is required for an initiated install.')
+    }
     // The reservation is taken inside the sequence, because the order of
     // persist / reserve / announce is the contract and lives in one place.
     // A fresh id per install attempt, so a contender that loses the
@@ -75,7 +80,7 @@ export function createAppUpdateCommandHandler(input: {
     const attemptId = randomUUID()
     let reservation: AppUpdateInstallReservation | undefined
     const receipt = input.receipt
-    await runInstallReceiptSequence(command.initiatorRunId, {
+    const receiptOrigin = await runInstallReceiptSequence(command.initiatorRunId, {
       resolveOrigin: receipt?.resolveOrigin ?? (async () => ({ kind: 'no-channel' as const })),
       persist: receipt?.persist ?? (() => {}),
       clear: receipt?.clear ?? (() => {}),
@@ -111,18 +116,27 @@ export function createAppUpdateCommandHandler(input: {
       // throw to onError rather than to onReplyFailure, so the withdrawal
       // has to happen here — relying on onReplyFailure alone left the
       // promise standing whenever the install itself threw.
-      afterReply: () => {
+      afterReply: async () => {
         try {
           claimed.install()
         } catch (error) {
+          if (receiptOrigin && receipt) {
+            await receipt.reportInstallFailure(receiptOrigin, error)
+          }
           receipt?.clear(attemptId)
           throw error
         }
       },
-      onReplyFailure: () => {
+      onReplyFailure: async () => {
         claimed.release()
         // We already told the user we were going; that promise has to be
         // withdrawn, or the pending record reports a restart that never came.
+        if (receiptOrigin && receipt) {
+          await receipt.reportInstallFailure(
+            receiptOrigin,
+            new Error('The update command reply could not be delivered.')
+          )
+        }
         receipt?.clear(attemptId)
       }
     }

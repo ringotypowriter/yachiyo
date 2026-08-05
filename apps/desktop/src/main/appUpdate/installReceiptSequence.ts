@@ -56,20 +56,20 @@ function withinBound<T>(work: Promise<T>, ms: number): Promise<T | undefined> {
  * The sequence is the contract, so it lives in one testable function rather
  * than as statements interleaved through the socket handler:
  *
- *   resolve → persist → reserve → announce → (caller replies, then quits)
+ *   resolve → reserve → persist → announce → (caller replies, then quits)
  *
- * Persist comes before reserve because the record is the only thing that
- * survives the restart; reserve comes before announce because promising to
- * come back before knowing the install can start is the same lie this layer
- * was built to stop telling.
+ * Reserve comes before persist so only the winning installer may write the
+ * durable record, and before announce because promising to come back before
+ * knowing the install can start is the same lie this layer was built to stop
+ * telling.
  */
 export async function runInstallReceiptSequence(
   initiatorRunId: string | undefined,
   deps: InstallReceiptDeps
-): Promise<void> {
+): Promise<UpdateReceiptOrigin | undefined> {
   if (initiatorRunId === undefined) {
     deps.reserve()
-    return
+    return undefined
   }
 
   const lookup = await deps.resolveOrigin(initiatorRunId)
@@ -83,7 +83,7 @@ export async function runInstallReceiptSequence(
   if (lookup.kind === 'no-channel') {
     // Genuinely nobody waiting in a chat for this one.
     deps.reserve()
-    return
+    return undefined
   }
 
   const origin = lookup.origin
@@ -129,4 +129,6 @@ export async function runInstallReceiptSequence(
     // so a send that has not left yet stays unsent rather than surfacing later.
     abandon.abort()
   }
+
+  return origin
 }
