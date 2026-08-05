@@ -312,9 +312,9 @@ export function createQQService({
         return
 
       case 'limit-exceeded':
-        void client
-          .sendPrivateMessage(msg.userId, result.reply)
-          .catch((e) => console.error('[qq] failed to send limit reply', e))
+        void sendPrivateMessage(msg.userId, result.reply).catch((e) =>
+          console.error('[qq] failed to send limit reply', e)
+        )
         return
 
       case 'allowed': {
