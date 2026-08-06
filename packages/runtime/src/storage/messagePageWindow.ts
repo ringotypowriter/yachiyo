@@ -1,5 +1,20 @@
 import type { MessageRecord } from '@yachiyo/shared/protocol'
 
+/**
+ * Order two strings the way sqlite's default BINARY collation does — by code
+ * unit, not by locale.
+ *
+ * `localeCompare` disagrees with it on case: `'Message'.localeCompare('aessage')`
+ * is positive, while sqlite puts `M` (0x4D) before `a` (0x61). A store that
+ * orders in JavaScript has to compare the way sqlite will, or the two agree
+ * only for as long as every id happens to be lowercase — which is true of
+ * today's uuids and is not a property anything enforces.
+ */
+export function compareBinary(left: string, right: string): number {
+  if (left < right) return -1
+  return left > right ? 1 : 0
+}
+
 export interface MessagePageOptions {
   limit?: number
   beforeMessageId?: string

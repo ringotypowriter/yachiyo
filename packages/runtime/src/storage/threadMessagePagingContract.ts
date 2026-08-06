@@ -19,6 +19,9 @@ import type { YachiyoStorage } from './storage.ts'
 /** `message-04` and `message-05` deliberately share a timestamp. */
 const SHARED_TIMESTAMP = '2026-03-20T00:00:04.000Z'
 
+/** Two more messages sharing a timestamp, with ids that differ only in case. */
+const CASE_TIMESTAMP = '2026-03-20T00:01:00.000Z'
+
 function messageId(index: number): string {
   // Zero-padded so lexicographic id order matches numeric order — the tie-break
   // sorts by id, and `message-10` sorts before `message-2` without the padding.
@@ -66,6 +69,34 @@ export function seedThreadMessagePagingFixture(storage: YachiyoStorage): void {
     createdAt: '2026-03-20T00:00:00.000Z',
     messages
   })
+  // A tie whose ids differ only in case, to pin the collation. sqlite's default
+  // BINARY collation puts `M` (0x4D) before `a` (0x61); `localeCompare` puts it
+  // after. With every id lowercase the two orderings are indistinguishable, so
+  // without this pair a store could order by locale and the contract would
+  // never notice.
+  storage.createThread({
+    thread: { id: 'thread-3', title: 'Collation', updatedAt: CASE_TIMESTAMP },
+    createdAt: CASE_TIMESTAMP,
+    messages: [
+      {
+        id: 'aardvark',
+        threadId: 'thread-3',
+        role: 'user' as const,
+        content: 'lowercase',
+        status: 'completed' as const,
+        createdAt: CASE_TIMESTAMP
+      },
+      {
+        id: 'Zebra',
+        threadId: 'thread-3',
+        role: 'assistant' as const,
+        content: 'uppercase',
+        status: 'completed' as const,
+        createdAt: CASE_TIMESTAMP
+      }
+    ]
+  })
+
   storage.createThread({
     thread: { id: 'thread-2', title: 'Other', updatedAt: '2026-03-20T00:00:00.000Z' },
     createdAt: '2026-03-20T00:00:00.000Z',
@@ -164,6 +195,21 @@ export function assertThreadMessagePagingContract(storage: YachiyoStorage): void
     ids(storage.listThreadMessages('thread-1', { limit: 2, includeResponseMessages: false })),
     ['message-09', 'message-10'],
     'paging with the light projection'
+  )
+
+  // The tie-break must break ties the way sqlite does. `Zebra` sorts before
+  // `aardvark` by code unit and after it by locale, so a store ordering with
+  // `localeCompare` returns these two the other way round — and every id being
+  // lowercase today is what has been hiding the difference.
+  assert.deepEqual(
+    ids(storage.listThreadMessages('thread-3')),
+    ['Zebra', 'aardvark'],
+    'ties break by binary collation, as sqlite does, not by locale'
+  )
+  assert.deepEqual(
+    ids(storage.listThreadMessages('thread-3', { limit: 1 })),
+    ['aardvark'],
+    'the newest page under binary collation'
   )
 
   for (const limit of [-1, 1.5, Number.NaN, Number.POSITIVE_INFINITY]) {

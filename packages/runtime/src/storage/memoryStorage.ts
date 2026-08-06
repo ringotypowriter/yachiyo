@@ -11,7 +11,7 @@ import type {
   ThreadSearchResult,
   ToolCallRecord
 } from '@yachiyo/shared/protocol'
-import { pageMessageWindow } from './messagePageWindow.ts'
+import { compareBinary, pageMessageWindow } from './messagePageWindow.ts'
 import {
   groupLatestRunsByThread,
   groupToolCallsByThread,
@@ -759,7 +759,7 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
         .filter((message) => message.threadId === threadId)
         .sort(
           (left, right) =>
-            left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id)
+            compareBinary(left.createdAt, right.createdAt) || compareBinary(left.id, right.id)
         )
       // Paging is part of the contract, not a sqlite feature: a caller that pages
       // against this store must see the same window it would see in production.
