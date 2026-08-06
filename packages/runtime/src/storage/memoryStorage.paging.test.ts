@@ -4,7 +4,7 @@ import { createInMemoryYachiyoStorage } from './memoryStorage.ts'
 import {
   assertThreadMessagePagingContract,
   seedThreadMessagePagingFixture
-} from './threadMessagePagingContract.ts'
+} from './threadMessagePagingContract.test.ts'
 
 /**
  * The paging contract run against the in-memory store — in the normal Node

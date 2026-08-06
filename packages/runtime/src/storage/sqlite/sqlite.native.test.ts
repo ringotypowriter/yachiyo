@@ -9,7 +9,7 @@ import { createSqliteYachiyoStorage } from './database.ts'
 import {
   assertThreadMessagePagingContract,
   seedThreadMessagePagingFixture
-} from '../threadMessagePagingContract.ts'
+} from '../threadMessagePagingContract.test.ts'
 import { createSqliteYachiyoServer } from '../../app/host/YachiyoServer.ts'
 import { createSqliteCognitiveMemoryStore } from '../../services/memory/cognitiveMemoryStore.ts'
 

@@ -23,6 +23,12 @@ const SHARED_TIMESTAMP = '2026-03-20T00:00:04.000Z'
 const CASE_TIMESTAMP = '2026-03-20T00:01:00.000Z'
 /** A second tie, one second later, inserted against the opposite fallback. */
 const SECOND_CASE_TIMESTAMP = '2026-03-20T00:01:01.000Z'
+/** A third tie, where UTF-16 code-unit order and UTF-8 byte order disagree. */
+const UNICODE_TIMESTAMP = '2026-03-20T00:01:02.000Z'
+/** U+10000: surrogate pair D800 DC00 in UTF-16, F0 90 80 80 in UTF-8. */
+const SUPPLEMENTARY_ID = '\u{10000}'
+/** U+E000: a single code unit E000 in UTF-16, EE 80 80 in UTF-8. */
+const PRIVATE_USE_ID = '\u{E000}'
 
 function messageId(index: number): string {
   // Zero-padded so lexicographic id order matches numeric order — the tie-break
@@ -117,6 +123,28 @@ export function seedThreadMessagePagingFixture(storage: YachiyoStorage): void {
         content: 'lowercase second',
         status: 'completed' as const,
         createdAt: SECOND_CASE_TIMESTAMP
+      },
+      // A third tie, outside ASCII, where UTF-16 and UTF-8 disagree. `U+10000`
+      // is the surrogate pair D800 DC00 and sorts before `U+E000` by code unit;
+      // as UTF-8 it is F0 90 80 80 against EE 80 80 and sorts after. Comparing
+      // with JavaScript's `<` passes every ASCII case above and still gets this
+      // pair backwards, so without it "matches sqlite's BINARY order" is only
+      // checked where nothing could disagree.
+      {
+        id: SUPPLEMENTARY_ID,
+        threadId: 'thread-3',
+        role: 'user' as const,
+        content: 'supplementary plane',
+        status: 'completed' as const,
+        createdAt: UNICODE_TIMESTAMP
+      },
+      {
+        id: PRIVATE_USE_ID,
+        threadId: 'thread-3',
+        role: 'assistant' as const,
+        content: 'private use area',
+        status: 'completed' as const,
+        createdAt: UNICODE_TIMESTAMP
       }
     ]
   })
@@ -227,13 +255,25 @@ export function assertThreadMessagePagingContract(storage: YachiyoStorage): void
   // lowercase today is what has been hiding the difference.
   assert.deepEqual(
     ids(storage.listThreadMessages('thread-3')),
-    ['Zebra', 'aardvark', 'Bravo', 'charlie'],
+    ['Zebra', 'aardvark', 'Bravo', 'charlie', PRIVATE_USE_ID, SUPPLEMENTARY_ID],
     'ties break by binary collation, as sqlite does, not by locale'
   )
   assert.deepEqual(
     ids(storage.listThreadMessages('thread-3', { limit: 1 })),
-    ['charlie'],
+    [SUPPLEMENTARY_ID],
     'the newest page under binary collation'
+  )
+  // The non-ASCII tie on its own. `<` orders these the other way round, so this
+  // is the assertion that separates UTF-8 byte order from UTF-16 code units.
+  assert.deepEqual(
+    ids(storage.listThreadMessages('thread-3', { limit: 2, beforeMessageId: 'nothing' })),
+    [],
+    'a cursor that names nothing still yields nothing'
+  )
+  assert.deepEqual(
+    ids(storage.listThreadMessages('thread-3', { limit: 2, beforeMessageId: SUPPLEMENTARY_ID })),
+    ['charlie', PRIVATE_USE_ID],
+    'ties outside ASCII break by UTF-8 byte, not by UTF-16 code unit'
   )
   // The second tie on its own, reached by paging past it. This is the pair
   // inserted against sqlite's fallback: a store that stops breaking ties and
