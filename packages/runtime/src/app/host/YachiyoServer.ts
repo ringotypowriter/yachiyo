@@ -1537,6 +1537,53 @@ export class YachiyoServer {
     return this.runDomain.hasActiveThread(threadId)
   }
 
+  /**
+   * Where to report back to after a self-triggered update restart.
+   *
+   * The restart kills the run that received the instruction, so the origin has
+   * to be captured while it is still alive and carried across the restart in
+   * storage. Resolved here rather than in the desktop process because the
+   * run → thread → channel chain lives in this side's storage.
+   *
+   * Returns `undefined` for runs with no external origin — a local thread has
+   * nobody waiting in a chat, so there is nothing to report to.
+   */
+  resolveRunChannelOrigin(
+    runId: string
+  ):
+    | { kind: 'origin'; channelId: string; threadId: string; messageId: string }
+    | { kind: 'no-channel' }
+    | { kind: 'lookup-failed'; reason: string } {
+    // A run or thread we cannot find is not the same as a local thread with
+    // nobody waiting. Collapsing them into one value is what let a broken
+    // lookup pass for a normal case and skip the receipt in silence.
+    const run = this.storage.getRun(runId)
+    if (!run) return { kind: 'lookup-failed', reason: `run ${runId} not found` }
+
+    const thread = this.storage.getThread(run.threadId)
+    if (!thread) {
+      return { kind: 'lookup-failed', reason: `thread ${run.threadId} not found` }
+    }
+
+    const channelId = thread.channelUserId ?? thread.channelGroupId
+    // The thread exists and genuinely has no external channel: nobody is
+    // waiting in a chat, so there is nothing to report.
+    if (!channelId) return { kind: 'no-channel' }
+
+    // Fabricating an empty id would make a missing request message look like
+    // a real one downstream.
+    if (!run.requestMessageId) {
+      return { kind: 'lookup-failed', reason: `run ${runId} has no request message` }
+    }
+
+    return {
+      kind: 'origin',
+      channelId,
+      threadId: run.threadId,
+      messageId: run.requestMessageId
+    }
+  }
+
   listActiveRunIds(): string[] {
     return this.runDomain.listActiveRunIds()
   }

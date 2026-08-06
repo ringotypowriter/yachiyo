@@ -63,6 +63,7 @@ export interface ChannelDirectMessageRuntimeOptions<TTarget> {
   sendReply?(target: TTarget, payload: ChannelReplyPayload): Promise<void>
   startBatchIndicator?(target: TTarget): void | (() => void)
   startHandlingIndicator?(target: TTarget): void | (() => void)
+  replyDelayMs?(): number
   nonRunReply: string
   errorReply: string
   formatGuestThreadTitle(channelUser: ChannelUserRecord): string
@@ -120,6 +121,7 @@ export function createChannelDirectMessageRuntime<TTarget>(
     sendReply: options.sendReply,
     startBatchIndicator: options.startBatchIndicator,
     startHandlingIndicator: options.startHandlingIndicator,
+    replyDelayMs: options.replyDelayMs,
     nonRunReply: options.nonRunReply,
     errorReply: options.errorReply,
     shouldDiscardPendingBatch: shouldDiscardPendingBatchForDmCommand,

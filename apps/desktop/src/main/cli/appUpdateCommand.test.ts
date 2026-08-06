@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import { setTimeout as delay } from 'node:timers/promises'
 
 import {
   createAppUpdateController,
@@ -25,7 +26,24 @@ function createController(events: string[]): AppUpdateController {
       install: () => events.push('install'),
       release: () => events.push('release')
     }),
+    getPreparedVersion: () => '1.1.0',
     installPrepared: () => events.push('install')
+  }
+}
+
+function createReceipt(): NonNullable<
+  Parameters<typeof createAppUpdateCommandHandler>[0]['receipt']
+> {
+  return {
+    resolveOrigin: async () => ({ kind: 'no-channel' as const }),
+    persist: () => {},
+    clear: () => {},
+    announce: async () => {},
+    reportInstallFailure: async () => {},
+    reportInstallFailureTimeoutMs: 50,
+    announceTimeoutMs: 50,
+    now: () => 1_760_000_000_000,
+    targetVersion: () => '1.6.0-beta.1'
   }
 }
 
@@ -69,12 +87,53 @@ test('install refuses newly active runs by default and never returns an install 
   assert.deepEqual(events, ['prepare'])
 })
 
-test('forced install reports the exact interrupted count and starts only after the reply', async () => {
+test('install rechecks active runs after resolving its receipt origin', async () => {
   const events: string[] = []
+  let activeRunIds = ['run-self']
+  const controller = createController(events)
+  controller.reservePreparedInstall = () => {
+    events.push('reserve')
+    return {
+      install: () => events.push('install'),
+      release: () => events.push('release')
+    }
+  }
+  const receipt = createReceipt()
+  receipt.resolveOrigin = async () => {
+    activeRunIds = ['run-self', 'run-other']
+    return {
+      kind: 'origin',
+      origin: { channelId: 'channel-1', threadId: 'thread-1', messageId: 'message-1' }
+    }
+  }
+
+  const handler = createAppUpdateCommandHandler({
+    controller,
+    getRunningVersion: () => '1.5.1',
+    getActiveRunIds: () => activeRunIds,
+    receipt
+  })
+
+  await assert.rejects(
+    () => handler({ action: 'install', force: false, initiatorRunId: 'run-self' }),
+    /1 other active Yachiyo run.*2 including the initiating run.*not installed.*--force/i
+  )
+  assert.deepEqual(events, [])
+})
+
+test('forced install reports the latest interrupted count and starts only after the reply', async () => {
+  const events: string[] = []
+  let activeRunIds = ['run-self']
+  const receipt = createReceipt()
+  receipt.resolveOrigin = async () => {
+    activeRunIds = ['run-self', 'run-other-1', 'run-other-2']
+    return { kind: 'no-channel' }
+  }
   const handler = createAppUpdateCommandHandler({
     controller: createController(events),
     getRunningVersion: () => '1.5.1',
-    getActiveRunIds: () => ['run-self', 'run-other-1', 'run-other-2']
+    getActiveRunIds: () => activeRunIds,
+    receipt
   })
 
   const reply = await handler({
@@ -98,7 +157,8 @@ test('install allows the initiating run alone without force and reports its inte
   const handler = createAppUpdateCommandHandler({
     controller: createController(events),
     getRunningVersion: () => '1.5.1',
-    getActiveRunIds: () => ['run-self']
+    getActiveRunIds: () => ['run-self'],
+    receipt: createReceipt()
   })
 
   const reply = await handler({
@@ -202,4 +262,112 @@ test('install releases its reservation when the reply cannot be delivered', asyn
   const retry = await handler({ action: 'install', force: false })
   retry.afterReply?.()
   assert.equal(installed, true)
+})
+
+test('an initiated install fails before reserving when receipt wiring is missing', async () => {
+  let reserved = false
+  const controller = createController([])
+  controller.reservePreparedInstall = () => {
+    reserved = true
+    return {
+      install: () => {},
+      release: () => {}
+    }
+  }
+  const handler = createAppUpdateCommandHandler({
+    controller,
+    getRunningVersion: () => '1.5.1',
+    getActiveRunIds: () => ['run-self']
+  })
+
+  await assert.rejects(
+    () => handler({ action: 'install', force: false, initiatorRunId: 'run-self' }),
+    /receipt wiring/i
+  )
+  assert.equal(reserved, false, 'missing production wiring must not claim the install slot')
+})
+
+test('a failed command reply withdraws the announcement before clearing its receipt', async () => {
+  const events: string[] = []
+  const controller = createController(events)
+  const receipt = {
+    ...createReceipt(),
+    resolveOrigin: async () => ({
+      kind: 'origin' as const,
+      origin: { channelId: 'chan-1', threadId: 'thread-1', messageId: 'msg-1' }
+    }),
+    persist: () => events.push('persist'),
+    announce: async () => {
+      events.push('announce')
+    },
+    reportInstallFailure: async (origin) => {
+      events.push(`report-failure:${origin.channelId}:${origin.threadId}:${origin.messageId}`)
+    },
+    clear: () => events.push('clear')
+  }
+  const handler = createAppUpdateCommandHandler({
+    controller,
+    getRunningVersion: () => '1.5.1',
+    getActiveRunIds: () => ['run-self'],
+    receipt
+  })
+
+  const reply = await handler({ action: 'install', force: false, initiatorRunId: 'run-self' })
+  await reply.onReplyFailure?.()
+
+  assert.deepEqual(events, [
+    'persist',
+    'announce',
+    'release',
+    'report-failure:chan-1:thread-1:msg-1',
+    'clear'
+  ])
+})
+
+test('a hung install failure correction is bounded and leaves the receipt pending', async () => {
+  const events: string[] = []
+  const controller = createController(events)
+  controller.reservePreparedInstall = () => ({
+    install: () => {
+      events.push('install')
+      throw new Error('quit failed')
+    },
+    release: () => events.push('release')
+  })
+  const receipt = {
+    ...createReceipt(),
+    resolveOrigin: async () => ({
+      kind: 'origin' as const,
+      origin: { channelId: 'chan-1', threadId: 'thread-1', messageId: 'msg-1' }
+    }),
+    persist: () => events.push('persist'),
+    announce: async () => {
+      events.push('announce')
+    },
+    reportInstallFailure: () => {
+      events.push('report-failure')
+      return new Promise<void>(() => {})
+    },
+    reportInstallFailureTimeoutMs: 20,
+    clear: () => events.push('clear')
+  }
+  const handler = createAppUpdateCommandHandler({
+    controller,
+    getRunningVersion: () => '1.5.1',
+    getActiveRunIds: () => ['run-self'],
+    receipt
+  })
+
+  const reply = await handler({ action: 'install', force: false, initiatorRunId: 'run-self' })
+  assert.ok(reply.afterReply)
+  await assert.rejects(
+    Promise.race([
+      Promise.resolve(reply.afterReply()),
+      delay(200).then(() => {
+        throw new Error('the correction RPC remained pending')
+      })
+    ]),
+    /reporting.*timed out/i
+  )
+  assert.deepEqual(events, ['persist', 'announce', 'install', 'report-failure'])
 })

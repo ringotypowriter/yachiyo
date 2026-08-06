@@ -93,6 +93,19 @@ process.parentPort.on('message', (event) => {
         .call('mainHost.showNotification', [input])
         .catch((error) => console.error('[runtime-host] notification failed:', error))
     },
+    // Main owns the pending receipt; this only borrows the right to carry it.
+    updateReceiptLease: {
+      claim: (channelId) =>
+        mainServices.call('mainHost.claimUpdateReceipt', [{ channelId }]) as Promise<
+          { claimToken: string; message: string } | undefined
+        >,
+      ack: async (claimToken) => {
+        await mainServices.call('mainHost.ackUpdateReceipt', [{ claimToken }])
+      },
+      release: async (claimToken) => {
+        await mainServices.call('mainHost.releaseUpdateReceipt', [{ claimToken }])
+      }
+    },
     tempWorkspaceDir: resolveYachiyoTempWorkspaceRoot(),
     enableSchedules: !developmentMode || Boolean(process.env['YACHIYO_DEV_SCHEDULES']),
     enableChannels: !developmentMode || Boolean(process.env['YACHIYO_DEV_CHANNELS'])

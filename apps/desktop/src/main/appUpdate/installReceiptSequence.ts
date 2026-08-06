@@ -1,0 +1,135 @@
+import type { PendingUpdateReceipt } from './pendingUpdateReceipt.ts'
+
+export interface UpdateReceiptOrigin {
+  channelId: string
+  threadId: string
+  messageId: string
+}
+
+/**
+ * Distinguishes "this run has nobody waiting" from "we could not find out".
+ *
+ * Collapsing those into `undefined` is what let a completely unreachable
+ * lookup masquerade as a local thread: the receipt was skipped, the install
+ * proceeded, and nothing anywhere said the feature had failed.
+ */
+export type OriginLookup =
+  | { kind: 'origin'; origin: UpdateReceiptOrigin }
+  | { kind: 'no-channel' }
+  | { kind: 'lookup-failed'; reason: string }
+
+export interface InstallReceiptDeps {
+  resolveOrigin: (runId: string) => Promise<OriginLookup>
+  persist: (receipt: PendingUpdateReceipt) => void
+  clear: (attemptId: string) => void
+  /** Claims the install slot. Throws if it cannot be claimed. */
+  reserve: () => void
+  /** Hands the slot back when we claimed it but cannot proceed. */
+  release: () => void
+  /**
+   * Signalled once the bounded wait has elapsed. The send is abandoned at that
+   * point, so an implementation that has not yet dispatched must not dispatch:
+   * a "back shortly" arriving after we gave up is a promise for an install
+   * that may never have started.
+   */
+  announce: (origin: UpdateReceiptOrigin, signal: AbortSignal, notAfterMs: number) => Promise<void>
+  announceTimeoutMs: number
+  now: () => number
+  /** Identifies this attempt so a losing contender cannot clear our record. */
+  attemptId: string
+  fromVersion: string
+  targetVersion: string
+}
+
+/** Resolves either way — the caller decides what a timeout means. */
+function withinBound<T>(work: Promise<T>, ms: number): Promise<T | undefined> {
+  return Promise.race([
+    work,
+    new Promise<undefined>((resolve) => setTimeout(() => resolve(undefined), ms))
+  ])
+}
+
+/**
+ * The order in which an update announces itself, and what happens when each
+ * step fails.
+ *
+ * The sequence is the contract, so it lives in one testable function rather
+ * than as statements interleaved through the socket handler:
+ *
+ *   resolve → reserve → persist → announce → (caller replies, then quits)
+ *
+ * Reserve comes before persist so only the winning installer may write the
+ * durable record, and before announce because promising to come back before
+ * knowing the install can start is the same lie this layer was built to stop
+ * telling.
+ */
+export async function runInstallReceiptSequence(
+  initiatorRunId: string | undefined,
+  deps: InstallReceiptDeps
+): Promise<UpdateReceiptOrigin | undefined> {
+  if (initiatorRunId === undefined) {
+    deps.reserve()
+    return undefined
+  }
+
+  const lookup = await deps.resolveOrigin(initiatorRunId)
+
+  if (lookup.kind === 'lookup-failed') {
+    // We know someone *might* be waiting and we cannot find out who. Installing
+    // anyway would restart into silence; refusing is recoverable and says why.
+    throw new Error(`Cannot determine where to report this update back to: ${lookup.reason}`)
+  }
+
+  if (lookup.kind === 'no-channel') {
+    // Genuinely nobody waiting in a chat for this one.
+    deps.reserve()
+    return undefined
+  }
+
+  const origin = lookup.origin
+
+  // Reserve first, write second.
+  //
+  // Writing first meant a contender could overwrite the record, lose the
+  // reservation race, and then legitimately clear it as its own owner —
+  // leaving the attempt that really was restarting with nothing to report
+  // back to. Only the winner of the reservation is allowed to touch the file,
+  // so only one writer can ever exist.
+  deps.reserve()
+
+  try {
+    deps.persist({
+      attemptId: deps.attemptId,
+      channelId: origin.channelId,
+      threadId: origin.threadId,
+      messageId: origin.messageId,
+      fromVersion: deps.fromVersion,
+      targetVersion: deps.targetVersion,
+      startedAtMs: deps.now()
+    })
+  } catch (error) {
+    // An update we cannot report on afterwards is worse than one that didn't
+    // happen: the user waits either way, and only this outcome is
+    // recoverable. Hand the slot back so a later attempt can try again.
+    deps.release()
+    throw error
+  }
+
+  // Best-effort and time-boxed. A send that fails or hangs costs the user the
+  // opening sentence, not the update — and the post-restart receipt still
+  // closes the loop. Blocking here would hold the install window open for as
+  // long as the network felt like it.
+  const abandon = new AbortController()
+  const notAfterMs = deps.now() + deps.announceTimeoutMs
+  try {
+    await withinBound(deps.announce(origin, abandon.signal, notAfterMs), deps.announceTimeoutMs)
+  } catch {
+    // Deliberately swallowed: see above.
+  } finally {
+    // Whether it timed out or threw, we are no longer waiting on it — say so,
+    // so a send that has not left yet stays unsent rather than surfacing later.
+    abandon.abort()
+  }
+
+  return origin
+}

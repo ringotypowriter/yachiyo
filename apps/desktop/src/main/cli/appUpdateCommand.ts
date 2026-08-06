@@ -1,12 +1,61 @@
+import { randomUUID } from 'node:crypto'
+
 import { formatAppUpdateBlockedError, type AppUpdateInstallResult } from '@yachiyo/shared/appUpdate'
 
-import type { AppUpdateController } from '../electron/appUpdateController.ts'
+import {
+  runInstallReceiptSequence,
+  type InstallReceiptDeps,
+  type UpdateReceiptOrigin
+} from '../appUpdate/installReceiptSequence.ts'
+import type {
+  AppUpdateController,
+  AppUpdateInstallReservation
+} from '../electron/appUpdateController.ts'
 import type { AppUpdateCommandInput, AppUpdateCommandReply } from './commandSocket.ts'
+
+interface InstallFailureReporter {
+  reportInstallFailure(origin: UpdateReceiptOrigin, error: unknown): Promise<void>
+  reportInstallFailureTimeoutMs: number
+}
+
+async function reportInstallFailureWithinBound(
+  receipt: InstallFailureReporter,
+  origin: UpdateReceiptOrigin,
+  error: unknown
+): Promise<void> {
+  let timeout: ReturnType<typeof setTimeout> | undefined
+  try {
+    await Promise.race([
+      receipt.reportInstallFailure(origin, error),
+      new Promise<never>((_resolve, reject) => {
+        timeout = setTimeout(
+          () => reject(new Error('Reporting the update install failure timed out.')),
+          receipt.reportInstallFailureTimeoutMs
+        )
+      })
+    ])
+  } finally {
+    if (timeout) clearTimeout(timeout)
+  }
+}
 
 export function createAppUpdateCommandHandler(input: {
   controller: AppUpdateController
   getRunningVersion: () => string
   getActiveRunIds: () => string[]
+  /**
+   * Announcing the restart and remembering who to report back to. Absent in
+   * tests that only exercise the update mechanism; when absent the install
+   * behaves exactly as it did before this layer existed.
+   */
+  receipt?: Omit<
+    InstallReceiptDeps,
+    'reserve' | 'release' | 'fromVersion' | 'targetVersion' | 'attemptId'
+  > & {
+    targetVersion: () => string | undefined
+    reportInstallFailure: (origin: UpdateReceiptOrigin, error: unknown) => Promise<void>
+    reportInstallFailureTimeoutMs: number
+  }
 }): (command: AppUpdateCommandInput) => Promise<AppUpdateCommandReply> {
   const activeRunSummary = (
     initiatorRunId: string | undefined
@@ -44,20 +93,84 @@ export function createAppUpdateCommandHandler(input: {
       }
     }
 
-    const summary = activeRunSummary(command.initiatorRunId)
-    if (summary.blockingRunCount > 0 && command.force !== true) {
-      throw new Error(formatAppUpdateBlockedError(summary))
+    let installSummary = activeRunSummary(command.initiatorRunId)
+    if (installSummary.blockingRunCount > 0 && command.force !== true) {
+      throw new Error(formatAppUpdateBlockedError(installSummary))
     }
-    const reservation = input.controller.reservePreparedInstall()
+    if (command.initiatorRunId !== undefined && input.receipt === undefined) {
+      throw new Error('App update receipt wiring is required for an initiated install.')
+    }
+    // The reservation is taken inside the sequence, because the order of
+    // persist / reserve / announce is the contract and lives in one place.
+    // A fresh id per install attempt, so a contender that loses the
+    // reservation race cannot clear the winner's pending receipt.
+    const attemptId = randomUUID()
+    let reservation: AppUpdateInstallReservation | undefined
+    const receipt = input.receipt
+    const receiptOrigin = await runInstallReceiptSequence(command.initiatorRunId, {
+      resolveOrigin: receipt?.resolveOrigin ?? (async () => ({ kind: 'no-channel' as const })),
+      persist: receipt?.persist ?? (() => {}),
+      clear: receipt?.clear ?? (() => {}),
+      announce: receipt?.announce ?? (async () => {}),
+      announceTimeoutMs: receipt?.announceTimeoutMs ?? 2_000,
+      now: receipt?.now ?? (() => Date.now()),
+      // A fresh id per install attempt, so a contender that loses the
+      // reservation race cannot clear the winner's pending receipt.
+      attemptId,
+      fromVersion: input.getRunningVersion(),
+      targetVersion: receipt?.targetVersion() ?? '',
+      reserve: () => {
+        installSummary = activeRunSummary(command.initiatorRunId)
+        if (installSummary.blockingRunCount > 0 && command.force !== true) {
+          throw new Error(formatAppUpdateBlockedError(installSummary))
+        }
+        reservation = input.controller.reservePreparedInstall()
+      },
+      release: () => {
+        reservation?.release()
+        reservation = undefined
+      }
+    })
+    if (!reservation) {
+      throw new Error('Update install reservation was not created.')
+    }
+    const claimed = reservation
     const result: AppUpdateInstallResult = {
       state: 'installing',
-      interruptedRunCount: summary.interruptedRunCount,
-      initiatorRunInterrupted: summary.initiatorRunActive
+      interruptedRunCount: installSummary.interruptedRunCount,
+      initiatorRunInterrupted: installSummary.initiatorRunActive
     }
     return {
       result,
-      afterReply: () => reservation.install(),
-      onReplyFailure: () => reservation.release()
+      // Both of these mean the same thing to the user: we said we were
+      // going and we are not. The socket finalizer routes an afterReply
+      // throw to onError rather than to onReplyFailure, so the withdrawal
+      // has to happen here — relying on onReplyFailure alone left the
+      // promise standing whenever the install itself threw.
+      afterReply: async () => {
+        try {
+          claimed.install()
+        } catch (error) {
+          if (receiptOrigin && receipt) {
+            await reportInstallFailureWithinBound(receipt, receiptOrigin, error)
+          }
+          receipt?.clear(attemptId)
+          throw error
+        }
+      },
+      onReplyFailure: async () => {
+        claimed.release()
+        // We already told the user we were going; that promise has to be
+        // withdrawn, or the pending record reports a restart that never came.
+        if (receiptOrigin && receipt) {
+          await reportInstallFailureWithinBound(
+            receipt,
+            receiptOrigin,
+            new Error('The update command reply could not be delivered.')
+          )
+        }
+        receipt?.clear(attemptId)
+      }
     }
   }
 }

@@ -19,6 +19,15 @@ import type { ChannelReplyPayload } from '../../shared/channelReply.ts'
 import { createChannelDirectMessageRuntime } from '../../direct/channelDirectMessageRuntime.ts'
 import type { DirectMessageInboundAttachment } from '../../direct/directMessageService.ts'
 import { fetchImageAsDataUrl } from '../../shared/channelImageDownload.ts'
+import {
+  createChannelUpdateReceiptSender,
+  findChannelUserId
+} from '../../shared/channelUpdateReceiptSender.ts'
+import {
+  createChannelDispatchGate,
+  type ChannelSendOptions,
+  type UpdateReceiptLease
+} from '../../shared/sendWithUpdateReceipt.ts'
 import { createQQBotClient, type QQBotC2CAttachment, type QQBotClient } from './qqbotClient.ts'
 import { routeQQBotMessage, type QQBotChannelStorage } from './qqbot.ts'
 
@@ -33,6 +42,12 @@ export interface QQBotServiceOptions {
   server: YachiyoServer
   /** Effective policy with config overrides applied. Defaults to qqbotPolicy. */
   policy?: ChannelPolicy
+  /** Main-process lease for a receipt that may be waiting for the next outbound. */
+  updateReceiptLease: UpdateReceiptLease
+  /** External QQ client boundary. */
+  client?: QQBotClient
+  /** Override the inbound batching delay. */
+  replyDelayMs?: () => number
 }
 
 export interface QQBotService {
@@ -41,10 +56,17 @@ export interface QQBotService {
   stop: () => Promise<void>
   healthCheck: () => Promise<boolean>
   /**
-   * Send a DM to a QQBot user by openId.
-   * Throws if no inbound msg_id is cached (QQBot only supports passive replies).
+   * Send a DM to a QQBot user by openId, as a passive reply to their most
+   * recent message. Throws if no inbound msg_id is cached.
    */
-  sendMessage: (openId: string, text: string) => Promise<void>
+  sendMessage: (openId: string, text: string, options?: ChannelSendOptions) => Promise<void>
+  /**
+   * Send a DM with no reply target, for when there is no fresh inbound id —
+   * after a restart, for instance. Subject to QQ's active-message limits and
+   * the user's opt-out, so failure here is meaningful and must not be
+   * mistaken for delivery.
+   */
+  sendActiveMessage: (openId: string, text: string, options?: ChannelSendOptions) => Promise<void>
 }
 
 /**
@@ -83,7 +105,10 @@ export function createQQBotService({
   clientSecret,
   model: modelOverride,
   server,
-  policy: policyOverride
+  policy: policyOverride,
+  updateReceiptLease,
+  client: clientOverride,
+  replyDelayMs
 }: QQBotServiceOptions): QQBotService {
   const policy = policyOverride ?? qqbotPolicy
 
@@ -98,7 +123,7 @@ export function createQQBotService({
     }
   }
 
-  const client: QQBotClient = createQQBotClient({ appId, clientSecret })
+  const client = clientOverride ?? createQQBotClient({ appId, clientSecret })
 
   /**
    * Track the most recent inbound messageId per user for the
@@ -107,18 +132,30 @@ export function createQQBotService({
    */
   const lastMessageId = new Map<string, string>()
 
-  async function sendMessageWithTarget(target: QQBotTarget, text: string): Promise<void> {
-    await client.sendC2CMessage(target.openId, text, target.replyMsgId)
-  }
+  /**
+   * Send, carrying an owed update receipt if one is waiting for this user.
+   *
+   * Claimed at the moment of a *real* outbound rather than when their message
+   * arrived: a turn may produce text, an error reply or only attachments, and
+   * the receipt should ride the first thing that actually leaves. Acked the
+   * instant the text lands, so a later attachment failure cannot cause the
+   * receipt to be sent twice.
+   */
+  const sendMessageWithTarget = createChannelUpdateReceiptSender<QQBotTarget>({
+    resolveChannelId: (target) => findChannelUserId(server, 'qqbot', target.openId),
+    send: (target, body, gate) => {
+      gate.assertCanDispatch()
+      return client.sendC2CMessage(target.openId, body, target.replyMsgId)
+    },
+    lease: updateReceiptLease,
+    onError: (stage, error) => console.error(`[qqbot] update receipt ${stage} failed:`, error)
+  })
 
   async function sendReplyWithTarget(
     target: QQBotTarget,
     payload: ChannelReplyPayload
   ): Promise<void> {
-    const text = payload.message?.trim()
-    if (text) {
-      await sendMessageWithTarget(target, text)
-    }
+    await sendMessageWithTarget(target, payload.message?.trim() ?? '')
     for (const attachment of payload.attachments ?? []) {
       if (attachment.deliveryKind === 'image') {
         await client.sendC2CImage(
@@ -143,14 +180,34 @@ export function createQQBotService({
    * settings UI). Throws when no inbound msg_id is cached — QQBot
    * can only send passive replies.
    */
-  async function sendMessage(openId: string, text: string): Promise<void> {
+  async function sendMessage(
+    openId: string,
+    text: string,
+    options?: ChannelSendOptions
+  ): Promise<void> {
     const replyMsgId = lastMessageId.get(openId)
     if (!replyMsgId) {
-      throw new Error(
-        `[qqbot] cannot send to ${openId.slice(0, 8)}: no inbound msg_id cached (QQBot only supports passive replies)`
-      )
+      throw new Error(`[qqbot] cannot send to ${openId.slice(0, 8)}: no inbound msg_id cached`)
     }
-    await client.sendC2CMessage(openId, text, replyMsgId)
+    await sendMessageWithTarget({ openId, replyMsgId }, text, options)
+  }
+
+  /**
+   * Send without a reply target.
+   *
+   * After a restart there is no cached inbound id, so a passive reply is
+   * impossible — but QQ does allow active messages, subject to per-user rate
+   * limits and the user's own opt-out. Failure here is a real failure and is
+   * left to the caller, which keeps its pending state rather than assuming
+   * delivery.
+   */
+  async function sendActiveMessage(
+    openId: string,
+    text: string,
+    options?: ChannelSendOptions
+  ): Promise<void> {
+    createChannelDispatchGate(options).assertCanDispatch()
+    await client.sendC2CActiveMessage(openId, text)
   }
 
   const directMessages = createChannelDirectMessageRuntime<QQBotTarget>({
@@ -182,6 +239,7 @@ export function createQQBotService({
       }, 10_000)
       return () => clearInterval(timer)
     },
+    replyDelayMs,
     nonRunReply: '抱歉，出了点问题。',
     errorReply: '出了点问题，请稍后再试。',
     formatGuestThreadTitle: (channelUser) => `QQBot:${channelUser.username}`
@@ -212,15 +270,15 @@ export function createQQBotService({
         return
 
       case 'pending':
-        void client
-          .sendC2CMessage(openId, result.reply, msg.messageId)
-          .catch((e) => console.error('[qqbot] failed to send pending reply', e))
+        void sendMessageWithTarget({ openId, replyMsgId: msg.messageId }, result.reply).catch((e) =>
+          console.error('[qqbot] failed to send pending reply', e)
+        )
         return
 
       case 'limit-exceeded':
-        void client
-          .sendC2CMessage(openId, result.reply, msg.messageId)
-          .catch((e) => console.error('[qqbot] failed to send limit reply', e))
+        void sendMessageWithTarget({ openId, replyMsgId: msg.messageId }, result.reply).catch((e) =>
+          console.error('[qqbot] failed to send limit reply', e)
+        )
         return
 
       case 'allowed': {
@@ -234,6 +292,7 @@ export function createQQBotService({
   })
 
   return {
+    sendActiveMessage,
     start() {
       console.log(`[qqbot] connecting (appId=${appId})`)
       client.connect()

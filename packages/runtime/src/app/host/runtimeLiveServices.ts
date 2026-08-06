@@ -5,6 +5,7 @@ import type {
   UpdateChannelGroupInput
 } from '@yachiyo/shared/protocol'
 
+import type { UpdateReceiptLease } from '../../channels/shared/sendWithUpdateReceipt.ts'
 import {
   createDiscordService,
   type DiscordService
@@ -30,6 +31,7 @@ import {
   type ChannelServicePlatform,
   type ChannelServiceSupervisor
 } from '../../channels/shared/channelServiceLifecycle.ts'
+import { waitForManagedChannelServiceReady } from '../../channels/shared/channelServiceReadiness.ts'
 import {
   createAutoSyncScheduler,
   type AutoSyncScheduler
@@ -37,16 +39,23 @@ import {
 import { getPerfMonitor } from '../../services/perfMonitor.ts'
 import { createScheduleService, type ScheduleService } from '../../services/scheduleService.ts'
 import type { YachiyoServer } from './YachiyoServer.ts'
+import {
+  dispatchChannelMessage,
+  type ChannelMessageTarget,
+  type SendChannelMessageInput
+} from './channelMessageDispatch.ts'
+import { createRuntimeLiveServicesReadiness } from './runtimeLiveServicesReadiness.ts'
 
 const CHANNEL_HEALTH_INTERVAL_MS = 60_000
 
-export interface SendChannelMessageInput {
-  id: string
-  message: string
-}
-
 export interface RuntimeLiveServicesOptions {
   server: YachiyoServer
+  /**
+   * Lets an update receipt that could not be delivered actively ride along
+   * with the next real outbound. Required in both runtime modes so omitting
+   * the production wiring cannot silently disable the receipt path.
+   */
+  updateReceiptLease: UpdateReceiptLease
   /** Notification display; Electron-backed in main, reverse-RPC from a utility host. */
   showNotification: (input: ShowNotificationInput) => void
   tempWorkspaceDir: string
@@ -56,6 +65,7 @@ export interface RuntimeLiveServicesOptions {
 
 export interface RuntimeLiveServices {
   start(): Promise<void>
+  waitForChannelReady(channelId: string): Promise<void>
   stop(): Promise<void>
   /**
    * Host-level operations served over RPC next to the server's own methods
@@ -84,6 +94,8 @@ export function createRuntimeLiveServices(
   let channelHealthTimer: ReturnType<typeof setInterval> | null = null
   let scheduleService: ScheduleService | null = null
   let autoSyncScheduler: AutoSyncScheduler | null = null
+  const stopController = new AbortController()
+  const readiness = createRuntimeLiveServicesReadiness(startOnce, waitForChannelReadyOnce)
 
   function buildChannelServiceConfigKey(
     cfg: ChannelsConfig,
@@ -121,7 +133,8 @@ export function createRuntimeLiveServices(
             botUsername: undefined,
             groupVerbosity: cfg.groupVerbosity,
             groupCheckIntervalMs: cfg.groupCheckIntervalMs,
-            policy: applyChannelsConfigToPolicy(telegramPolicy, cfg)
+            policy: applyChannelsConfigToPolicy(telegramPolicy, cfg),
+            updateReceiptLease: options.updateReceiptLease
           })
         },
         onServiceChange: (service) => {
@@ -147,7 +160,8 @@ export function createRuntimeLiveServices(
             botQQId: undefined,
             groupVerbosity: cfg.groupVerbosity,
             groupCheckIntervalMs: cfg.groupCheckIntervalMs,
-            policy: applyChannelsConfigToPolicy(qqPolicy, cfg)
+            policy: applyChannelsConfigToPolicy(qqPolicy, cfg),
+            updateReceiptLease: options.updateReceiptLease
           })
         },
         onServiceChange: (service) => {
@@ -171,7 +185,8 @@ export function createRuntimeLiveServices(
             groupConfig: cfg.discord?.group,
             groupVerbosity: cfg.groupVerbosity,
             groupCheckIntervalMs: cfg.groupCheckIntervalMs,
-            policy: applyChannelsConfigToPolicy(discordPolicy, cfg)
+            policy: applyChannelsConfigToPolicy(discordPolicy, cfg),
+            updateReceiptLease: options.updateReceiptLease
           })
         },
         onServiceChange: (service) => {
@@ -193,7 +208,8 @@ export function createRuntimeLiveServices(
             clientSecret: cfg.qqbot!.clientSecret!.trim(),
             model: cfg.qqbot?.model,
             server,
-            policy: applyChannelsConfigToPolicy(qqbotPolicy, cfg)
+            policy: applyChannelsConfigToPolicy(qqbotPolicy, cfg),
+            updateReceiptLease: options.updateReceiptLease
           })
         },
         onServiceChange: (service) => {
@@ -211,42 +227,57 @@ export function createRuntimeLiveServices(
     discordService?.onGroupStatusChange(updated)
   }
 
-  async function sendChannelMessage(input: SendChannelMessageInput): Promise<void> {
+  function resolveChannelTarget(id: string): ChannelMessageTarget {
     const storage = server.getStorage()
-    const channelUser = storage.getChannelUser(input.id)
-    const channelGroup = channelUser ? undefined : storage.getChannelGroup(input.id)
+    const channelUser = storage.getChannelUser(id)
+    const channelGroup = channelUser ? undefined : storage.getChannelGroup(id)
 
     if (!channelUser && !channelGroup) {
-      throw new Error(`Unknown channel user or group: ${input.id}`)
+      throw new Error(`Unknown channel user or group: ${id}`)
     }
 
     const platform = channelUser?.platform ?? channelGroup!.platform
-    const externalId = channelUser?.externalUserId ?? channelGroup!.externalGroupId
-
-    if (platform === 'telegram') {
-      if (!telegramService) throw new Error('Telegram service is not running')
-      await telegramService.sendMessage(externalId, input.message)
-    } else if (platform === 'qq') {
-      if (!qqService) throw new Error('QQ service is not running')
-      const numericId = Number(externalId)
-      if (channelUser) {
-        await qqService.sendPrivateMessage(numericId, input.message)
-      } else {
-        await qqService.sendGroupMessage(numericId, input.message)
-      }
-    } else if (platform === 'discord') {
-      if (!discordService) throw new Error('Discord service is not running')
-      await discordService.sendMessage(externalId, input.message)
-    } else if (platform === 'qqbot') {
-      if (!qqbotService) throw new Error('QQBot service is not running')
-      await qqbotService.sendMessage(externalId, input.message)
-    } else {
+    if (
+      platform !== 'telegram' &&
+      platform !== 'qq' &&
+      platform !== 'discord' &&
+      platform !== 'qqbot'
+    ) {
       throw new Error(`Unsupported platform: ${platform}`)
     }
-    console.log(`[send-channel] sent to ${platform}:${externalId}`)
+
+    return {
+      platform,
+      externalId: channelUser?.externalUserId ?? channelGroup!.externalGroupId,
+      kind: channelUser ? 'user' : 'group'
+    }
   }
 
-  async function start(): Promise<void> {
+  async function waitForChannelReadyOnce(channelId: string): Promise<void> {
+    const { platform } = resolveChannelTarget(channelId)
+    await waitForManagedChannelServiceReady({
+      getService: () => getChannelSupervisor().getService(platform),
+      signal: stopController.signal,
+      onHealthCheckError: (error) =>
+        console.warn(
+          `[${platform}] health check failed while waiting for channel readiness:`,
+          error
+        )
+    })
+  }
+
+  async function sendChannelMessage(input: SendChannelMessageInput): Promise<void> {
+    const target = resolveChannelTarget(input.id)
+    await dispatchChannelMessage(target, input, {
+      telegram: telegramService,
+      qq: qqService,
+      discord: discordService,
+      qqbot: qqbotService
+    })
+    console.log(`[send-channel] sent to ${target.platform}:${target.externalId}`)
+  }
+
+  async function startOnce(): Promise<void> {
     scheduleService = createScheduleService({
       server: {
         createThread: (input) => server.createThread(input),
@@ -287,6 +318,7 @@ export function createRuntimeLiveServices(
   }
 
   async function stop(): Promise<void> {
+    stopController.abort(new Error('Yachiyo live services stopped'))
     if (channelHealthTimer) {
       clearInterval(channelHealthTimer)
       channelHealthTimer = null
@@ -304,6 +336,13 @@ export function createRuntimeLiveServices(
   }
 
   const rpcOps = {
+    // Without this entry the desktop side's hostCall rejects every time, and
+    // the update-receipt layer quietly behaves as though the run had no
+    // channel — a whole feature that never runs and never says so.
+    'host.resolveRunChannelOrigin': (
+      runId: string
+    ): ReturnType<YachiyoServer['resolveRunChannelOrigin']> =>
+      server.resolveRunChannelOrigin(runId),
     'host.updateChannelGroupAndNotify': (input: UpdateChannelGroupInput): ChannelGroupRecord => {
       const updated = server.updateChannelGroup(input)
       notifyGroupStatusChange(updated)
@@ -341,6 +380,9 @@ export function createRuntimeLiveServices(
     },
     'host.sendChannelMessage': (input: SendChannelMessageInput): Promise<void> =>
       sendChannelMessage(input),
+    'host.waitForLiveServicesReady': (): Promise<void> => readiness.waitForReady(),
+    'host.waitForChannelReady': (input: { channelId: string }): Promise<void> =>
+      readiness.waitForChannelReady(input.channelId),
     'host.pokeChannels': (input: { reason: string }): void => {
       void channelSupervisor?.poke(input.reason)
     },
@@ -350,5 +392,10 @@ export function createRuntimeLiveServices(
     'host.stopLiveServices': (): Promise<void> => stop()
   }
 
-  return { start, stop, rpcOps: rpcOps as RuntimeLiveServices['rpcOps'] }
+  return {
+    start: readiness.start,
+    waitForChannelReady: readiness.waitForChannelReady,
+    stop,
+    rpcOps: rpcOps as RuntimeLiveServices['rpcOps']
+  }
 }

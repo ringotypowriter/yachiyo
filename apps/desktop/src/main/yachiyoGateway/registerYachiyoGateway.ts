@@ -10,6 +10,7 @@ import {
 import { is } from '@electron-toolkit/utils'
 import { t } from '@yachiyo/i18n/index'
 import { spawn } from 'child_process'
+import { randomUUID } from 'node:crypto'
 import { join } from 'node:path'
 import { getActivityTracker } from '@yachiyo/runtime/activity/ActivityTracker'
 import { resolveActivityTrackingPermissionForSave } from '@yachiyo/runtime/activity/activityTrackingPermission'
@@ -94,6 +95,15 @@ import {
   startUtilityRuntimeHost,
   type UtilityRuntimeHost
 } from '../runtimeHost/startUtilityRuntimeHost.ts'
+import {
+  clearPendingUpdateReceipt,
+  readPendingUpdateReceipt,
+  writePendingUpdateReceipt
+} from '../appUpdate/pendingUpdateReceipt.ts'
+import type { OriginLookup } from '../appUpdate/installReceiptSequence.ts'
+import { describeUpdateOutcome } from '../appUpdate/updateReceiptMessage.ts'
+import { createUpdateReceiptCoordinator } from '../appUpdate/updateReceiptCoordinator.ts'
+import { deliverPendingUpdateReceiptAfterChannelReady } from '../appUpdate/pendingUpdateReceiptDelivery.ts'
 import { startCommandSocket, type CommandSocketHandle } from '../cli/commandSocket.ts'
 import { createAppUpdateCommandHandler } from '../cli/appUpdateCommand.ts'
 import { createProviderFetch } from '../net/providerFetch.ts'
@@ -104,6 +114,7 @@ import {
   createRuntimeLiveServices,
   type RuntimeLiveServices
 } from '@yachiyo/runtime/app/host/runtimeLiveServices'
+import { runAfterRuntimeLiveServicesReady } from '@yachiyo/runtime/app/host/runtimeLiveServicesReadiness'
 import { mergeRpcTargets } from '@yachiyo/shared/rpc/mergeRpcTargets'
 import { createWebExternalFetchRpcTarget } from '@yachiyo/runtime/services/webExternalFetchRpcBridge'
 import { createJotdownStore } from '@yachiyo/runtime/services/jotdownStore'
@@ -241,6 +252,69 @@ function logBrowserSearchDiagnostic(event: BrowserSearchDiagnosticEvent): void {
   console.warn(`[web-search] ${event.event}${suffix ? ` ${suffix}` : ''}`)
 }
 
+/** Beside the other per-install state, in the app's own data directory. */
+function pendingUpdateReceiptPath(): string {
+  return join(app.getPath('userData'), 'pending-update-receipt.json')
+}
+
+/**
+ * Report the outcome of an update the user asked for in chat, then forget it.
+ *
+ * Runs once per start. The run that received the instruction died in the
+ * restart, so this record is the only thing that knows anyone is waiting.
+ */
+/**
+ * Single owner of the pending receipt's fate. Lives in main because the record
+ * does; the runtime leases it rather than keeping a copy.
+ */
+const updateReceiptCoordinator = createUpdateReceiptCoordinator({
+  read: () => readPendingUpdateReceipt(pendingUpdateReceiptPath(), Date.now()),
+  clear: (attemptId) => clearPendingUpdateReceipt(pendingUpdateReceiptPath(), attemptId),
+  describe: (receipt) => describeUpdateOutcome(receipt, app.getVersion()).message,
+  newToken: () => randomUUID()
+})
+
+async function deliverPendingUpdateReceiptAfterRuntimeReady(): Promise<void> {
+  const path = pendingUpdateReceiptPath()
+  await runAfterRuntimeLiveServicesReady(
+    () => {
+      if (USE_UTILITY_RUNTIME) return hostCall('waitForLiveServicesReady')
+      if (!liveServices) return Promise.reject(new Error('Yachiyo live services are not running'))
+      return liveServices.start()
+    },
+    () =>
+      deliverPendingUpdateReceiptAfterChannelReady({
+        read: () => readPendingUpdateReceipt(path, Date.now()),
+        waitForChannelReady: (channelId) => {
+          if (USE_UTILITY_RUNTIME) {
+            return hostCall('waitForChannelReady', [{ channelId }])
+          }
+          if (!liveServices) {
+            return Promise.reject(new Error('Yachiyo live services are not running'))
+          }
+          return liveServices.waitForChannelReady(channelId)
+        },
+        describe: (receipt) => describeUpdateOutcome(receipt, app.getVersion()).message,
+        sendActive: async ({ channelId, message, notAfterMs }) => {
+          // The restart destroyed the reply target. QQBot therefore needs an
+          // active send, while the other platforms ignore this distinction.
+          await hostCall('sendChannelMessage', [
+            { id: channelId, message, delivery: 'active', notAfterMs }
+          ])
+        },
+        sendTimeoutMs: 2_000,
+        clear: (attemptId) => clearPendingUpdateReceipt(path, attemptId),
+        defer: (attemptId) => updateReceiptCoordinator.defer(attemptId),
+        onDeliveryError: (error) => {
+          console.error(
+            '[update-receipt] active delivery failed, deferring to next message:',
+            error
+          )
+        }
+      })
+  )
+}
+
 const COMMAND_SOCKET_HEALTH_INTERVAL_MS = 15_000
 const COMMAND_SOCKET_HEALTH_TIMEOUT_MS = 1_000
 
@@ -292,7 +366,55 @@ function createCommandSocketHandle(): CommandSocketHandle {
       return createAppUpdateCommandHandler({
         controller: appUpdateController,
         getRunningVersion: () => app.getVersion(),
-        getActiveRunIds: () => gatewayHandle?.listActiveRunIds() ?? []
+        getActiveRunIds: () => gatewayHandle?.listActiveRunIds() ?? [],
+        receipt: {
+          resolveOrigin: (runId) =>
+            hostCall<
+              | { kind: 'origin'; channelId: string; threadId: string; messageId: string }
+              | { kind: 'no-channel' }
+              | { kind: 'lookup-failed'; reason: string }
+            >('resolveRunChannelOrigin', [runId]).then(
+              (result): OriginLookup =>
+                result.kind === 'origin'
+                  ? {
+                      kind: 'origin',
+                      origin: {
+                        channelId: result.channelId,
+                        threadId: result.threadId,
+                        messageId: result.messageId
+                      }
+                    }
+                  : result,
+              // A lookup we could not perform is reported as exactly that.
+              // Reporting it as "no channel" is what let an unreachable RPC
+              // disguise itself as a local thread and skip the receipt in
+              // silence.
+              (error): OriginLookup => ({
+                kind: 'lookup-failed',
+                reason: error instanceof Error ? error.message : String(error)
+              })
+            ),
+          persist: (record) => writePendingUpdateReceipt(pendingUpdateReceiptPath(), record),
+          clear: (attemptId) => clearPendingUpdateReceipt(pendingUpdateReceiptPath(), attemptId),
+          announce: async (origin, signal, notAfterMs) => {
+            // If the bounded wait already elapsed, the caller has moved on;
+            // sending now would promise a return for an install that may
+            // never have started.
+            if (signal.aborted) return
+            await hostCall('sendChannelMessage', [
+              { id: origin.channelId, message: '开始更新，稍后回来。', notAfterMs }
+            ])
+          },
+          reportInstallFailure: async (origin) => {
+            await hostCall('sendChannelMessage', [
+              { id: origin.channelId, message: '更新未能启动，请稍后重试。' }
+            ])
+          },
+          reportInstallFailureTimeoutMs: 2_000,
+          announceTimeoutMs: 2_000,
+          now: () => Date.now(),
+          targetVersion: () => appUpdateController?.getPreparedVersion()
+        }
       })(input)
     },
     onError: (error) => {
@@ -462,6 +584,11 @@ function createConfiguredServer(
   liveServices = createRuntimeLiveServices({
     server: nextServer,
     showNotification: showYachiyoNotification,
+    updateReceiptLease: {
+      claim: async (channelId) => updateReceiptCoordinator.claim(channelId),
+      ack: async (claimToken) => updateReceiptCoordinator.ack(claimToken),
+      release: async (claimToken) => updateReceiptCoordinator.release(claimToken)
+    },
     tempWorkspaceDir: resolveYachiyoTempWorkspaceRoot(),
     // In dev mode, schedules and channels are skipped by default to avoid
     // unintended automated runs / outbound connections. Opt in with
@@ -516,6 +643,17 @@ function startUtilityRuntime(): void {
       ...createWebExternalFetchRpcTarget(webExternalFetchImpl),
       'mainHost.showNotification': (input: ShowNotificationInput) => {
         showYachiyoNotification(input)
+      },
+      // The runtime carries an undeliverable receipt on its next real
+      // outbound. It gets a lease and a finished sentence — never the record
+      // itself, so there is only ever one writer.
+      'mainHost.claimUpdateReceipt': (input: { channelId: string }) =>
+        updateReceiptCoordinator.claim(input.channelId),
+      'mainHost.ackUpdateReceipt': (input: { claimToken: string }) => {
+        updateReceiptCoordinator.ack(input.claimToken)
+      },
+      'mainHost.releaseUpdateReceipt': (input: { claimToken: string }) => {
+        updateReceiptCoordinator.release(input.claimToken)
       }
     }
   })
@@ -526,6 +664,9 @@ function startUtilityRuntime(): void {
   })
   runtimeCrashed = false
   host.child.on('exit', (code) => {
+    // A runtime that died holding a lease would otherwise lock the receipt
+    // until the app restarted — undeliverable while looking in-progress.
+    updateReceiptCoordinator.releaseAllClaims()
     if (utilityRuntimeStopping) return
     console.error(`[runtime-host] utility process exited unexpectedly (code=${code})`)
     serverRpc?.dispose()
@@ -657,13 +798,13 @@ export function registerYachiyoGateway(options: {
     gatewayHandle = server
   }
   registerFatalRunRecovery()
-
-  // In utility mode the runtime host starts its own live services.
-  if (!USE_UTILITY_RUNTIME) {
-    void liveServices
-      ?.start()
-      .catch((error) => console.error('[yachiyo] live services failed to start:', error))
-  }
+  // If the last shutdown was a self-triggered update, somebody is still
+  // waiting in a chat for the outcome. Active delivery cannot run until the
+  // channel services exist; the ready RPC and in-process promise represent
+  // the same completed startup in the two runtime modes.
+  void deliverPendingUpdateReceiptAfterRuntimeReady().catch((error) =>
+    console.error('[yachiyo] live services or update receipt delivery failed:', error)
+  )
 
   ipcMain.removeAllListeners(IPC_CHANNELS.showNotification)
   ipcMain.on(IPC_CHANNELS.showNotification, (_event, input: ShowNotificationInput) => {
