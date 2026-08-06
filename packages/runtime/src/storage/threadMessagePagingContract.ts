@@ -21,6 +21,8 @@ const SHARED_TIMESTAMP = '2026-03-20T00:00:04.000Z'
 
 /** Two more messages sharing a timestamp, with ids that differ only in case. */
 const CASE_TIMESTAMP = '2026-03-20T00:01:00.000Z'
+/** A second tie, one second later, inserted against the opposite fallback. */
+const SECOND_CASE_TIMESTAMP = '2026-03-20T00:01:01.000Z'
 
 function messageId(index: number): string {
   // Zero-padded so lexicographic id order matches numeric order — the tie-break
@@ -93,6 +95,28 @@ export function seedThreadMessagePagingFixture(storage: YachiyoStorage): void {
         content: 'uppercase',
         status: 'completed' as const,
         createdAt: CASE_TIMESTAMP
+      },
+      // A second tie, inserted the other way round. The two stores fall back to
+      // opposite orders when a tie-break is missing — an in-memory stable sort
+      // keeps insertion order ascending, while sqlite scans and the result is
+      // reversed into reading order — so one pair cannot catch both. Inserting
+      // one pair against each fallback means any store that stops breaking ties
+      // gets at least one of them wrong.
+      {
+        id: 'Bravo',
+        threadId: 'thread-3',
+        role: 'user' as const,
+        content: 'uppercase second',
+        status: 'completed' as const,
+        createdAt: SECOND_CASE_TIMESTAMP
+      },
+      {
+        id: 'charlie',
+        threadId: 'thread-3',
+        role: 'assistant' as const,
+        content: 'lowercase second',
+        status: 'completed' as const,
+        createdAt: SECOND_CASE_TIMESTAMP
       }
     ]
   })
@@ -203,13 +227,21 @@ export function assertThreadMessagePagingContract(storage: YachiyoStorage): void
   // lowercase today is what has been hiding the difference.
   assert.deepEqual(
     ids(storage.listThreadMessages('thread-3')),
-    ['Zebra', 'aardvark'],
+    ['Zebra', 'aardvark', 'Bravo', 'charlie'],
     'ties break by binary collation, as sqlite does, not by locale'
   )
   assert.deepEqual(
     ids(storage.listThreadMessages('thread-3', { limit: 1 })),
-    ['aardvark'],
+    ['charlie'],
     'the newest page under binary collation'
+  )
+  // The second tie on its own, reached by paging past it. This is the pair
+  // inserted against sqlite's fallback: a store that stops breaking ties and
+  // simply returns rows in the order they were stored gets this one backwards.
+  assert.deepEqual(
+    ids(storage.listThreadMessages('thread-3', { limit: 2, beforeMessageId: 'charlie' })),
+    ['aardvark', 'Bravo'],
+    'the tie inserted against the storage order still breaks by id'
   )
 
   for (const limit of [-1, 1.5, Number.NaN, Number.POSITIVE_INFINITY]) {
