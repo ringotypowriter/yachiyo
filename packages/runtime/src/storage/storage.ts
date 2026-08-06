@@ -350,6 +350,19 @@ export interface ListThreadMessagesOptions {
    * field would clobber the stored transcript).
    */
   includeResponseMessages?: boolean
+  /**
+   * Return only the newest `limit` messages instead of the whole thread.
+   *
+   * Omitted by default, and every existing caller omits it: the agent's
+   * context builders must keep seeing full history, so paging is something a
+   * caller opts into for display, never something imposed on them.
+   */
+  limit?: number
+  /**
+   * With `limit`, return the newest messages strictly older than this one —
+   * the cursor for walking backwards through a thread.
+   */
+  beforeMessageId?: string
 }
 
 export interface YachiyoStorage {
