@@ -1161,7 +1161,11 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
 
     // Schedules — stub implementations for in-memory storage (used in tests)
     listSchedules() {
-      return [...schedules.values()].sort((left, right) => left.name.localeCompare(right.name))
+      // Binary order, because the sqlite store sorts this column with `order by
+      // name` and sqlite compares text by code unit. `localeCompare` would put
+      // `archive cleanup` before `Backup`; sqlite puts it after, and a schedule
+      // name is user text, so mixed case is the normal case rather than an edge.
+      return [...schedules.values()].sort((left, right) => compareBinary(left.name, right.name))
     },
     getSchedule(id) {
       return schedules.get(id)
