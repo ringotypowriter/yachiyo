@@ -359,8 +359,14 @@ export interface ListThreadMessagesOptions {
    */
   limit?: number
   /**
-   * With `limit`, return the newest messages strictly older than this one —
-   * the cursor for walking backwards through a thread.
+   * Return only messages strictly older than this one — the cursor for walking
+   * backwards through a thread.
+   *
+   * Independent of `limit`: on its own it means "everything older than this",
+   * and with `limit` it means "the newest page of what is older than this". A
+   * cursor naming a message that is not in this thread reads as unknown and
+   * yields an empty page, so a caller cannot be handed a page anchored
+   * somewhere it never asked about.
    */
   beforeMessageId?: string
 }

@@ -6,6 +6,10 @@ import { tmpdir } from 'node:os'
 import test from 'node:test'
 
 import { createSqliteYachiyoStorage } from './database.ts'
+import {
+  assertThreadMessagePagingContract,
+  seedThreadMessagePagingFixture
+} from '../threadMessagePagingContract.ts'
 import { createSqliteYachiyoServer } from '../../app/host/YachiyoServer.ts'
 import { createSqliteCognitiveMemoryStore } from '../../services/memory/cognitiveMemoryStore.ts'
 
@@ -908,108 +912,18 @@ test('sqlite migrations backfill tool call message anchors from historical runs'
   }
 })
 
-test('sqlite storage pages a thread backwards from the newest message', async () => {
+test('sqlite storage honours the thread message paging contract', async () => {
   const root = await mkdtemp(join(tmpdir(), 'yachiyo-sqlite-native-'))
   const dbPath = join(root, 'message-paging.sqlite')
 
   try {
     const storage = createSqliteYachiyoStorage(dbPath)
-    storage.createThread({
-      thread: { id: 'thread-1', title: 'Thread', updatedAt: '2026-03-20T00:00:00.000Z' },
-      createdAt: '2026-03-20T00:00:00.000Z',
-      messages: Array.from({ length: 10 }, (_, index) => ({
-        id: `message-${index + 1}`,
-        threadId: 'thread-1',
-        role: index % 2 === 0 ? ('user' as const) : ('assistant' as const),
-        content: `Message ${index + 1}`,
-        status: 'completed' as const,
-        createdAt: `2026-03-20T00:00:${String(index).padStart(2, '0')}.000Z`
-      }))
-    })
-    // A second thread, so "a cursor from another thread" can be tested with a
-    // message that genuinely exists rather than an id that simply is not there.
-    storage.createThread({
-      thread: { id: 'thread-2', title: 'Other', updatedAt: '2026-03-20T00:00:00.000Z' },
-      createdAt: '2026-03-20T00:00:00.000Z',
-      messages: [
-        {
-          id: 'other-message-1',
-          threadId: 'thread-2',
-          role: 'user' as const,
-          content: 'Elsewhere',
-          status: 'completed' as const,
-          createdAt: '2026-03-20T00:00:04.000Z'
-        }
-      ]
-    })
-
-    // Existing callers pass no options, and the agent's context builders are
-    // among them: full history, oldest first, exactly as before.
-    const all = storage.listThreadMessages('thread-1')
-    assert.equal(all.length, 10)
-    assert.equal(all[0]?.id, 'message-1')
-    assert.equal(all[9]?.id, 'message-10')
-
-    // A first page is the newest slice — but still in reading order.
-    const newest = storage.listThreadMessages('thread-1', { limit: 3 })
-    assert.deepEqual(
-      newest.map((message) => message.id),
-      ['message-8', 'message-9', 'message-10']
-    )
-
-    // Scrolling up continues strictly above the oldest one already shown.
-    const older = storage.listThreadMessages('thread-1', {
-      limit: 3,
-      beforeMessageId: 'message-8'
-    })
-    assert.deepEqual(
-      older.map((message) => message.id),
-      ['message-5', 'message-6', 'message-7']
-    )
-
-    // The top of the thread returns what is left, not a padded page.
-    const top = storage.listThreadMessages('thread-1', {
-      limit: 3,
-      beforeMessageId: 'message-2'
-    })
-    assert.deepEqual(
-      top.map((message) => message.id),
-      ['message-1']
-    )
-
-    // Reaching the very top is an empty page, which is how the UI learns to
-    // stop asking.
-    assert.deepEqual(
-      storage.listThreadMessages('thread-1', { limit: 3, beforeMessageId: 'message-1' }),
-      []
-    )
-
-    // A cursor that isn't in this thread must not fall back to "the newest
-    // page": that would hand the caller the same messages forever while it
-    // believed it was walking backwards.
-    assert.deepEqual(
-      storage.listThreadMessages('thread-1', { limit: 3, beforeMessageId: 'nope' }),
-      []
-    )
-
-    // Nor may a cursor naming a real message in a *different* thread anchor
-    // this one. It is a position in that thread, not this one, so it is as
-    // unknown here as an invented id.
-    assert.deepEqual(
-      storage.listThreadMessages('thread-1', { limit: 3, beforeMessageId: 'other-message-1' }),
-      []
-    )
-
-    // Paging composes with the lighter projection used for large threads.
-    const light = storage.listThreadMessages('thread-1', {
-      limit: 2,
-      includeResponseMessages: false
-    })
-    assert.deepEqual(
-      light.map((message) => message.id),
-      ['message-9', 'message-10']
-    )
-
+    // The same assertions the in-memory store runs in the normal Node suite.
+    // Written once, so the two implementations cannot drift apart by eye — and
+    // run here against real sqlite, which is the half that proves the rows come
+    // back correct rather than merely that the SQL was shaped right.
+    seedThreadMessagePagingFixture(storage)
+    assertThreadMessagePagingContract(storage)
     storage.close()
   } finally {
     await rm(root, { recursive: true, force: true })
