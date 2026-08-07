@@ -1,5 +1,22 @@
 import type { MessageRecord } from '@yachiyo/shared/protocol'
 
+/**
+ * Order two strings the way sqlite's default BINARY collation does: by their
+ * UTF-8 bytes.
+ *
+ * Two things this is not. It is not `localeCompare`, which disagrees on case —
+ * that puts `archive` before `Backup` where sqlite puts it after. And it is not
+ * JavaScript's `<`, which compares UTF-16 code units: `U+10000` is the
+ * surrogate pair `D800 DC00` and so sorts *before* `U+E000`, while as UTF-8 it
+ * is `F0 90 80 80` against `EE 80 80` and sorts *after*. The two orderings are
+ * opposite, and `MessageRecord.id` is an unconstrained `string`, so nothing
+ * confines ids to the ASCII range where every method happens to agree.
+ */
+export function compareBinary(left: string, right: string): number {
+  if (left === right) return 0
+  return Buffer.compare(Buffer.from(left, 'utf8'), Buffer.from(right, 'utf8'))
+}
+
 export interface MessagePageOptions {
   limit?: number
   beforeMessageId?: string

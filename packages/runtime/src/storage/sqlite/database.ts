@@ -5,6 +5,7 @@ import { createSqliteActivitySourceStorageMethods } from './activitySourceStorag
 import { createBackgroundResponseMessagesRepairQueue } from './backgroundResponseMessagesRepair.ts'
 import { createSqliteBootstrapStorageMethods } from './bootstrapStorage.ts'
 import { toChannelGroupRecord, toChannelUserRecord } from './channelRecords.ts'
+import { assertPageLimit } from '../messagePageWindow.ts'
 import { buildThreadMessagePageQuery } from './threadMessagePageQuery.ts'
 import {
   channelUsersTable,
@@ -1137,6 +1138,13 @@ export function createSqliteYachiyoStorage(
         textBlocks: messagesTable.textBlocks,
         threadId: messagesTable.threadId
       }
+      // Before anything else can return early. An unknown cursor answers `[]`
+      // below, and a limit validated only inside the query builder would never
+      // be reached on that path — so an illegal limit would be silently
+      // forgiven whenever it arrived alongside a cursor that missed, while the
+      // in-memory store threw for the same call.
+      assertPageLimit(options?.limit)
+
       // Where the page stops, in the terms sqlite sorts by. Resolved before the
       // page is read so an unknown cursor is answered without touching the
       // thread at all.
