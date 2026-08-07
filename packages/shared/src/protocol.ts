@@ -137,7 +137,6 @@ export type ToolModelMode = 'disabled' | 'default' | 'custom'
 export type WebReadRequestFormat = 'markdown' | 'html'
 export type WebReadContentFormat = WebReadRequestFormat | 'raw'
 export type WebReadExtractor = 'defuddle' | 'linkedom-fallback' | 'none'
-export type WebSearchProviderId = 'google-browser' | 'duckduckgo-browser' | 'exa'
 export type BrowserSearchImportSourceId = 'google-chrome'
 export type SearchGrepBackend = 'rg' | 'typescript'
 export type SearchFileDiscoveryBackend = 'fd' | 'typescript'
@@ -164,7 +163,6 @@ export type WebSearchFailureCode =
 
 export const DEFAULT_STRIP_COMPACT_TOKEN_THRESHOLD = 230_400
 export const DEFAULT_WEB_READ_CONTENT_FORMAT: WebReadRequestFormat = 'markdown'
-export const DEFAULT_WEB_SEARCH_PROVIDER: WebSearchProviderId = 'google-browser'
 export const CORE_TOOL_NAMES = [
   'read',
   'write',
@@ -883,7 +881,6 @@ export interface ExaWebSearchConfig {
 }
 
 export interface WebSearchConfig {
-  defaultProvider?: WebSearchProviderId
   browserSession?: BrowserBackedWebSearchSessionConfig
   exa?: ExaWebSearchConfig
 }

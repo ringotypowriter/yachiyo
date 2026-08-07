@@ -5,7 +5,6 @@ import {
   DEFAULT_THEME_APPEARANCE,
   DEFAULT_THEME_ID,
   DEFAULT_TOOL_MODEL_MODE,
-  DEFAULT_WEB_SEARCH_PROVIDER,
   type SettingsConfig
 } from '@yachiyo/shared/protocol'
 import { DEFAULT_SUBAGENTS_CONFIG } from './namedSubagents.ts'
@@ -71,7 +70,6 @@ export const DEFAULT_SETTINGS_CONFIG: SettingsConfig = {
     }
   ],
   webSearch: {
-    defaultProvider: DEFAULT_WEB_SEARCH_PROVIDER,
     browserSession: {
       sourceBrowser: undefined,
       sourceProfileName: '',

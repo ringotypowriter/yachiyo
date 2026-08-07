@@ -1,5 +1,8 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import { runInNewContext } from 'node:vm'
+
+import { parseHTML } from 'linkedom'
 
 import { BrowserSearchSession } from '../browserSearchSession.ts'
 import {
@@ -162,6 +165,56 @@ test('Google browser provider retries transient load failures before succeeding'
   assert.equal(result.results[0]?.url, 'https://example.com/recovered')
 })
 
+test('Google browser provider stops immediately on a bot challenge', async () => {
+  let attempts = 0
+  const { document } = parseHTML(`
+    <html>
+      <body>
+        <form action="/sorry/index">
+          <div id="recaptcha">Our systems have detected unusual traffic from your computer network.</div>
+        </form>
+      </body>
+    </html>
+  `)
+  Object.defineProperty(document, 'readyState', { value: 'complete' })
+  const session = new BrowserSearchSession({
+    profilePath: '/tmp/yachiyo-web-search-profile',
+    pageFactory: {
+      async createPage() {
+        attempts += 1
+        return {
+          async loadURL() {
+            return undefined
+          },
+          async waitForFunction({ predicate }) {
+            assert.equal(runInNewContext(predicate, { document }), true)
+          },
+          async evaluate<TResult>(script: string) {
+            return runInNewContext(script, { document }) as TResult
+          },
+          async getURL() {
+            return 'https://www.google.com/sorry/index'
+          }
+        }
+      },
+      async disposePage() {
+        return undefined
+      }
+    }
+  })
+  const provider = createGoogleBrowserWebSearchProvider({
+    browserSession: session,
+    retryAttempts: 3,
+    retryDelayMs: 0
+  })
+
+  const result = await provider.search({ query: 'yachiyo', limit: 5 })
+
+  assert.equal(attempts, 1)
+  assert.equal(result.failureCode, 'provider-failed')
+  assert.match(result.error ?? '', /bot challenge/i)
+})
+
 test('Google browser provider retries extraction failures before succeeding', async () => {
   let attempts = 0
 
@@ -176,7 +229,11 @@ test('Google browser provider retries extraction failures before succeeding', as
           async waitForFunction() {
             return undefined
           },
-          async evaluate<TResult>() {
+          async evaluate<TResult>(script: string) {
+            if (script.includes('unusual traffic')) {
+              return false as TResult
+            }
+
             attempts += 1
             if (attempts < 3) {
               return [] as TResult

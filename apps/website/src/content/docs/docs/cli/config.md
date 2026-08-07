@@ -42,18 +42,19 @@ yachiyo config set chat.stripCompactThresholdTokens 40000
 
 ## Common paths
 
-| Path                          | Type      | Description                                            |
-| ----------------------------- | --------- | ------------------------------------------------------ |
-| `defaultModel.providerName`   | `string`  | Provider for new chats                                 |
-| `defaultModel.model`          | `string`  | Model for new chats                                    |
-| `toolModel.mode`              | `string`  | `"default"`, `"custom"`, or `"disabled"`               |
-| `skills.enabled`              | `array`   | Enabled skill names                                    |
-| `memory.enabled`              | `boolean` | Master memory switch                                   |
-| `memory.autoRecall`           | `boolean` | Pull recalled context into runs                        |
-| `chat.autoMemoryDistillation` | `boolean` | Distill memory after runs                              |
-| `webSearch.defaultProvider`   | `string`  | `"google-browser"`, `"duckduckgo-browser"`, or `"exa"` |
-| `workspace.savedPaths`        | `array`   | Registered workspace directories                       |
-| `providers.N.name`            | `string`  | Name of the N-th provider (zero-indexed)               |
+| Path                          | Type      | Description                              |
+| ----------------------------- | --------- | ---------------------------------------- |
+| `defaultModel.providerName`   | `string`  | Provider for new chats                   |
+| `defaultModel.model`          | `string`  | Model for new chats                      |
+| `toolModel.mode`              | `string`  | `"default"`, `"custom"`, or `"disabled"` |
+| `skills.enabled`              | `array`   | Enabled skill names                      |
+| `memory.enabled`              | `boolean` | Master memory switch                     |
+| `memory.autoRecall`           | `boolean` | Pull recalled context into runs          |
+| `chat.autoMemoryDistillation` | `boolean` | Distill memory after runs                |
+| `webSearch.exa.apiKey`        | `string`  | Add Exa to automatic web search          |
+| `webSearch.exa.baseUrl`       | `string`  | Custom Exa endpoint                      |
+| `workspace.savedPaths`        | `array`   | Registered workspace directories         |
+| `providers.N.name`            | `string`  | Name of the N-th provider (zero-indexed) |
 
 The full shape is documented in the
 [`config.toml` reference](/docs/reference/config-toml/).

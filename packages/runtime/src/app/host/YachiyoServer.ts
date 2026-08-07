@@ -129,6 +129,8 @@ import {
   resolveGoogleChromeDataPath,
   unavailableBrowserSearchPageFactory
 } from '../../services/webSearch/browserSearchSession.ts'
+import { createBingBrowserWebSearchProvider } from '../../services/webSearch/providers/bingBrowserWebSearchProvider.ts'
+import { createBraveBrowserWebSearchProvider } from '../../services/webSearch/providers/braveBrowserWebSearchProvider.ts'
 import { createDuckDuckGoBrowserWebSearchProvider } from '../../services/webSearch/providers/duckDuckGoBrowserWebSearchProvider.ts'
 import { createGoogleBrowserWebSearchProvider } from '../../services/webSearch/providers/googleBrowserWebSearchProvider.ts'
 import { createExaWebSearchProvider } from '../../services/webSearch/providers/exaWebSearchProvider.ts'
@@ -405,18 +407,38 @@ export class YachiyoServer {
 
     const webSearchService = createWebSearchService({
       providers: [
-        createGoogleBrowserWebSearchProvider({
-          browserSession: this.browserSearchSession
-        }),
-        createDuckDuckGoBrowserWebSearchProvider({
-          browserSession: this.browserSearchSession
-        }),
-        createExaWebSearchProvider({
-          readConfig: () => this.configDomain.readConfig(),
-          fetchImpl: options.fetchImpl
-        })
-      ],
-      readConfig: () => this.configDomain.readConfig()
+        {
+          baseWeight: 5,
+          provider: createExaWebSearchProvider({
+            readConfig: () => this.configDomain.readConfig(),
+            fetchImpl: options.fetchImpl
+          })
+        },
+        {
+          baseWeight: 4,
+          provider: createBingBrowserWebSearchProvider({
+            browserSession: this.browserSearchSession
+          })
+        },
+        {
+          baseWeight: 4,
+          provider: createGoogleBrowserWebSearchProvider({
+            browserSession: this.browserSearchSession
+          })
+        },
+        {
+          baseWeight: 3,
+          provider: createBraveBrowserWebSearchProvider({
+            browserSession: this.browserSearchSession
+          })
+        },
+        {
+          baseWeight: 2,
+          provider: createDuckDuckGoBrowserWebSearchProvider({
+            browserSession: this.browserSearchSession
+          })
+        }
+      ]
     })
     this.configDomain = new YachiyoServerConfigDomain({
       settingsStore,

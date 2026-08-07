@@ -125,15 +125,18 @@ directly.
 
 ## `[webSearch]`
 
-| Key                                | Type                                                    | Default          | Description                           |
-| ---------------------------------- | ------------------------------------------------------- | ---------------- | ------------------------------------- |
-| `defaultProvider`                  | `"google-browser"` \| `"duckduckgo-browser"` \| `"exa"` | `google-browser` | Search backend                        |
-| `browserSession.sourceBrowser`     | `string`                                                | —                | Browser the session was imported from |
-| `browserSession.sourceProfileName` | `string`                                                | `""`             | Profile it came from                  |
-| `browserSession.importedAt`        | `string`                                                | `""`             | Import timestamp                      |
-| `browserSession.lastImportError`   | `string`                                                | `""`             | Last import error, if any             |
-| `exa.apiKey`                       | `string`                                                | `""`             | Exa API key                           |
-| `exa.baseUrl`                      | `string`                                                | `""`             | Custom Exa endpoint                   |
+Yachiyo selects and falls back between Bing, Google, Brave, DuckDuckGo, and Exa
+automatically. This section stores browser-session metadata and optional Exa access;
+it does not choose a provider.
+
+| Key                                | Type     | Default | Description                           |
+| ---------------------------------- | -------- | ------- | ------------------------------------- |
+| `browserSession.sourceBrowser`     | `string` | —       | Browser the session was imported from |
+| `browserSession.sourceProfileName` | `string` | `""`    | Profile it came from                  |
+| `browserSession.importedAt`        | `string` | `""`    | Import timestamp                      |
+| `browserSession.lastImportError`   | `string` | `""`    | Last import error, if any             |
+| `exa.apiKey`                       | `string` | `""`    | Exa API key                           |
+| `exa.baseUrl`                      | `string` | `""`    | Custom Exa endpoint                   |
 
 ## `[[providers]]`
 

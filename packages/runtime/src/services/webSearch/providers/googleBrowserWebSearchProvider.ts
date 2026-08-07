@@ -1,7 +1,12 @@
-import type { WebSearchFailureCode, WebSearchResultItem } from '@yachiyo/shared/protocol'
+import type { WebSearchResultItem } from '@yachiyo/shared/protocol'
 import type { BrowserSearchSession } from '../browserSearchSession.ts'
-import { runWithBrowserRetries } from '../../browserRetry.ts'
-import type { WebSearchProvider, WebSearchResult } from '../webSearchService.ts'
+import type { WebSearchProvider } from '../webSearchService.ts'
+import {
+  createBrowserWebSearchProvider,
+  normalizeRawBrowserSearchResults,
+  type BrowserWebSearchProviderDefinition,
+  type RawBrowserSearchResult
+} from './browserWebSearchProvider.ts'
 
 const GOOGLE_SEARCH_URL = 'https://www.google.com/search'
 const GOOGLE_HOST_PATTERN = /(^|\.)google\./iu
@@ -15,6 +20,12 @@ const GOOGLE_INTERNAL_PATHS = new Set([
   '/setprefs',
   '/advanced_search'
 ])
+const GOOGLE_ORGANIC_RESULT_SELECTOR = 'a[href] h3'
+const GOOGLE_CHALLENGE_CHECK = `(Boolean(
+  document.querySelector('form[action*="/sorry/"], #recaptcha, .g-recaptcha')
+) ||
+  (!hasOrganicResult &&
+    /unusual traffic|verify you are human/i.test(document.body?.innerText || '')))`
 const PAGE_READY_PREDICATE = `
   (() => {
     const readyState = document.readyState
@@ -22,7 +33,19 @@ const PAGE_READY_PREDICATE = `
       return false
     }
 
-    return Boolean(document.querySelector('a[href] h3'))
+    const hasOrganicResult = Boolean(
+      document.querySelector('${GOOGLE_ORGANIC_RESULT_SELECTOR}')
+    )
+    const hasBotChallenge = ${GOOGLE_CHALLENGE_CHECK}
+    return hasOrganicResult || hasBotChallenge
+  })()
+`
+const BOT_CHALLENGE_PREDICATE = `
+  (() => {
+    const hasOrganicResult = Boolean(
+      document.querySelector('${GOOGLE_ORGANIC_RESULT_SELECTOR}')
+    )
+    return ${GOOGLE_CHALLENGE_CHECK}
   })()
 `
 const EXTRACTION_SCRIPT = `
@@ -34,16 +57,11 @@ const EXTRACTION_SCRIPT = `
 
     for (const anchor of anchors) {
       const heading = anchor.querySelector('h3')
-      if (!heading) {
-        continue
-      }
+      if (!heading) continue
 
       const href = anchor.href
       const title = normalizeText(heading.textContent)
-
-      if (!href || !title) {
-        continue
-      }
+      if (!href || !title) continue
 
       const container = anchor.closest('div')
       const snippetCandidates = container
@@ -51,46 +69,15 @@ const EXTRACTION_SCRIPT = `
         : []
       const snippet = snippetCandidates.find((value) => value && value !== title) || ''
       const key = href + '\\n' + title
-
-      if (seen.has(key)) {
-        continue
-      }
+      if (seen.has(key)) continue
 
       seen.add(key)
-      results.push({
-        href,
-        snippet,
-        title
-      })
+      results.push({ href, snippet, title })
     }
 
     return results
   })()
 `
-
-interface RawGoogleSearchResult {
-  href: string
-  snippet: string
-  title: string
-}
-
-function createFailure(input: {
-  error: string
-  failureCode: WebSearchFailureCode
-  query: string
-  searchUrl: string
-  finalUrl?: string
-}): WebSearchResult {
-  return {
-    provider: 'google-browser',
-    query: input.query,
-    searchUrl: input.searchUrl,
-    ...(input.finalUrl ? { finalUrl: input.finalUrl } : {}),
-    results: [],
-    failureCode: input.failureCode,
-    error: input.error
-  }
-}
 
 function normalizeGoogleWrappedUrl(value: string): string | undefined {
   try {
@@ -102,11 +89,7 @@ function normalizeGoogleWrappedUrl(value: string): string | undefined {
 
     if (url.pathname === '/url') {
       const wrapped = url.searchParams.get('url') ?? url.searchParams.get('q')
-      if (!wrapped) {
-        return undefined
-      }
-
-      return new URL(wrapped).toString()
+      return wrapped ? new URL(wrapped).toString() : undefined
     }
 
     return url.toString()
@@ -118,47 +101,39 @@ function normalizeGoogleWrappedUrl(value: string): string | undefined {
 function isOrganicResultUrl(value: string): boolean {
   try {
     const url = new URL(value)
-    if (url.protocol !== 'http:' && url.protocol !== 'https:') {
-      return false
-    }
-
-    if (!GOOGLE_HOST_PATTERN.test(url.hostname)) {
-      return true
-    }
-
-    return !GOOGLE_INTERNAL_PATHS.has(url.pathname)
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') return false
+    return !GOOGLE_HOST_PATTERN.test(url.hostname) || !GOOGLE_INTERNAL_PATHS.has(url.pathname)
   } catch {
     return false
   }
 }
 
 export function normalizeGoogleOrganicResults(
-  rawResults: RawGoogleSearchResult[],
+  rawResults: RawBrowserSearchResult[],
   limit: number
 ): WebSearchResultItem[] {
-  const results: WebSearchResultItem[] = []
-  const seenUrls = new Set<string>()
+  return normalizeRawBrowserSearchResults(rawResults, limit, (value) => {
+    const normalizedUrl = normalizeGoogleWrappedUrl(value)
+    return normalizedUrl && isOrganicResultUrl(normalizedUrl) ? normalizedUrl : undefined
+  })
+}
 
-  for (const rawResult of rawResults) {
-    const normalizedUrl = normalizeGoogleWrappedUrl(rawResult.href)
-    if (!normalizedUrl || !isOrganicResultUrl(normalizedUrl) || seenUrls.has(normalizedUrl)) {
-      continue
-    }
-
-    seenUrls.add(normalizedUrl)
-    results.push({
-      title: rawResult.title.trim(),
-      url: normalizedUrl,
-      ...(rawResult.snippet.trim() ? { snippet: rawResult.snippet.trim() } : {}),
-      rank: results.length + 1
-    })
-
-    if (results.length >= limit) {
-      break
-    }
-  }
-
-  return results
+const GOOGLE_DEFINITION: BrowserWebSearchProviderDefinition = {
+  id: 'google-browser',
+  name: 'Google',
+  buildRequest: ({ limit, query }) => {
+    const searchUrl = new URL(GOOGLE_SEARCH_URL)
+    searchUrl.searchParams.set('hl', 'en')
+    searchUrl.searchParams.set('num', String(limit))
+    searchUrl.searchParams.set('q', query)
+    return { url: searchUrl.toString() }
+  },
+  readyPredicate: PAGE_READY_PREDICATE,
+  challengePredicate: BOT_CHALLENGE_PREDICATE,
+  extractionScript: EXTRACTION_SCRIPT,
+  challengeError: 'Google blocked this search with a bot challenge.',
+  noResultsError: 'Google search returned no extractable organic results.',
+  normalizeResults: normalizeGoogleOrganicResults
 }
 
 export function createGoogleBrowserWebSearchProvider(input: {
@@ -167,87 +142,5 @@ export function createGoogleBrowserWebSearchProvider(input: {
   retryAttempts?: number
   retryDelayMs?: number
 }): WebSearchProvider {
-  const loadTimeoutMs = input.loadTimeoutMs ?? 15_000
-  const retryAttempts = input.retryAttempts ?? 3
-  const retryDelayMs = input.retryDelayMs ?? 350
-
-  return {
-    id: 'google-browser',
-    async search({ limit, query, signal }) {
-      const searchUrl = new URL(GOOGLE_SEARCH_URL)
-      searchUrl.searchParams.set('hl', 'en')
-      searchUrl.searchParams.set('num', String(limit))
-      searchUrl.searchParams.set('q', query)
-
-      return runWithBrowserRetries<WebSearchResult>({
-        attempts: retryAttempts,
-        delayMs: retryDelayMs,
-        signal,
-        shouldRetryResult: (result, attempt) =>
-          attempt < retryAttempts &&
-          (result.failureCode === 'load-failed' || result.failureCode === 'extraction-failed'),
-        run: async () =>
-          input.browserSession.withPage(async (page) => {
-            try {
-              await page.loadURL(searchUrl.toString())
-              await page.waitForFunction({
-                predicate: PAGE_READY_PREDICATE,
-                timeoutMs: loadTimeoutMs,
-                signal
-              })
-            } catch (error) {
-              const failureCode =
-                error instanceof Error && error.name === 'AbortError' ? 'aborted' : 'load-failed'
-              return createFailure({
-                error:
-                  error instanceof Error
-                    ? error.message
-                    : `Failed to load Google search results for "${query}".`,
-                failureCode,
-                query,
-                searchUrl: searchUrl.toString(),
-                finalUrl: await page.getURL()
-              })
-            }
-
-            let rawResults: RawGoogleSearchResult[] = []
-
-            try {
-              rawResults = await page.evaluate<RawGoogleSearchResult[]>(EXTRACTION_SCRIPT)
-            } catch (error) {
-              return createFailure({
-                error:
-                  error instanceof Error
-                    ? error.message
-                    : `Failed to extract Google search results for "${query}".`,
-                failureCode: 'extraction-failed',
-                query,
-                searchUrl: searchUrl.toString(),
-                finalUrl: await page.getURL()
-              })
-            }
-
-            const results = normalizeGoogleOrganicResults(rawResults, limit)
-
-            if (results.length === 0) {
-              return createFailure({
-                error: 'Google search returned no extractable organic results.',
-                failureCode: 'extraction-failed',
-                query,
-                searchUrl: searchUrl.toString(),
-                finalUrl: await page.getURL()
-              })
-            }
-
-            return {
-              provider: 'google-browser',
-              query,
-              searchUrl: searchUrl.toString(),
-              finalUrl: await page.getURL(),
-              results
-            }
-          })
-      })
-    }
-  }
+  return createBrowserWebSearchProvider({ ...input, definition: GOOGLE_DEFINITION })
 }

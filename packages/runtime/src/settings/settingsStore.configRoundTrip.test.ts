@@ -664,7 +664,6 @@ test('normalization preserves every ToolModelConfig key', () => {
 
 test('normalization preserves every WebSearchConfig key', () => {
   const sentinel: Required<WebSearchConfig> = {
-    defaultProvider: 'exa',
     browserSession: { sourceBrowser: 'google-chrome' },
     exa: { apiKey: 'key' }
   }
@@ -672,18 +671,27 @@ test('normalization preserves every WebSearchConfig key', () => {
   assertKeysPreserved(result.webSearch, sentinel, 'WebSearchConfig')
 })
 
-test('DuckDuckGo browser search selection round-trips through TOML', () => {
-  const toml = stringifySettingsToml({
-    ...DEFAULT_SETTINGS_CONFIG,
-    webSearch: {
-      ...DEFAULT_SETTINGS_CONFIG.webSearch,
-      defaultProvider: 'duckduckgo-browser'
-    }
-  })
+test('legacy web search provider choices are ignored and removed on serialization', () => {
+  for (const defaultProvider of ['google-browser', 'duckduckgo-browser', 'exa']) {
+    const parsed = parseSettingsToml(`[webSearch]
+defaultProvider = "${defaultProvider}"
 
-  const result = parseSettingsToml(toml)
+[webSearch.browserSession]
+sourceBrowser = "google-chrome"
+sourceProfileName = "Default"
+importedAt = "2026-03-21T12:00:00.000Z"
+lastImportError = ""
 
-  assert.equal(result.webSearch?.defaultProvider, 'duckduckgo-browser')
+[webSearch.exa]
+apiKey = "exa-key"
+baseUrl = "https://api.exa.ai"
+`)
+
+    assert.equal('defaultProvider' in (parsed.webSearch ?? {}), false)
+    assert.equal(parsed.webSearch?.browserSession?.sourceProfileName, 'Default')
+    assert.equal(parsed.webSearch?.exa?.apiKey, 'exa-key')
+    assert.doesNotMatch(stringifySettingsToml(parsed), /defaultProvider/)
+  }
 })
 
 test('normalization preserves every BrowserBackedWebSearchSessionConfig key', () => {

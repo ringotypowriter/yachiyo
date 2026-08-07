@@ -4,7 +4,6 @@ import {
   DEFAULT_THEME_APPEARANCE,
   DEFAULT_THEME_ID,
   DEFAULT_TOOL_MODEL_MODE,
-  DEFAULT_WEB_SEARCH_PROVIDER,
   type SettingsConfig
 } from '@yachiyo/shared/protocol'
 import { ensureProviderId } from '@yachiyo/shared/providerConfig'
@@ -248,7 +247,6 @@ export const settingsTomlSlices: readonly TomlConfigSlice<SettingsConfig, TomlDo
     write(config) {
       return {
         webSearch: {
-          defaultProvider: config.webSearch?.defaultProvider ?? DEFAULT_WEB_SEARCH_PROVIDER,
           browserSession: {
             sourceBrowser: config.webSearch?.browserSession?.sourceBrowser ?? '',
             sourceProfileName: config.webSearch?.browserSession?.sourceProfileName ?? '',

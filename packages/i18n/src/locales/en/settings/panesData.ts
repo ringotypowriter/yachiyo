@@ -75,7 +75,6 @@ export const skills = {
 } as const
 
 export const search = {
-  searchProvider: 'Search Provider',
   apiKey: 'API Key',
   apiKeyPlaceholder: 'your-exa-api-key',
   showApiKey: 'Show API key',

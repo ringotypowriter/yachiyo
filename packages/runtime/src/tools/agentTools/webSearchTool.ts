@@ -99,7 +99,7 @@ export async function runWebSearchTool(
   if (!query) {
     return createWebSearchResult(
       createFailureDetails({
-        provider: 'google-browser',
+        provider: 'auto',
         query,
         failureCode: 'invalid-query'
       }),

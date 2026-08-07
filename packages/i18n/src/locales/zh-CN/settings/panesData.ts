@@ -68,7 +68,6 @@ export const skills = {
 }
 
 export const search = {
-  searchProvider: '搜索服务商',
   apiKey: 'API Key',
   apiKeyPlaceholder: '你的 Exa API Key',
   showApiKey: '显示 API Key',

@@ -1,7 +1,6 @@
 import {
   DEFAULT_ACTIVE_RUN_ENTER_BEHAVIOR,
   DEFAULT_STRIP_COMPACT_TOKEN_THRESHOLD,
-  DEFAULT_WEB_SEARCH_PROVIDER,
   normalizeActiveRunEnterBehavior,
   normalizeSidebarVisibility,
   normalizeThemeAppearance,
@@ -17,7 +16,6 @@ import {
   type SettingsConfig,
   type ThreadModelOverride,
   type WebSearchConfig,
-  type WebSearchProviderId,
   type WorkspaceConfig
 } from '@yachiyo/shared/protocol'
 import { DEFAULT_SETTINGS_CONFIG } from './settingsDefaults.ts'
@@ -31,15 +29,6 @@ import {
 } from './settingsNormalizationShared.ts'
 
 type SyncConfig = NonNullable<SettingsConfig['sync']>
-
-function normalizeWebSearchProviderId(
-  value: unknown,
-  fallback: WebSearchProviderId = DEFAULT_WEB_SEARCH_PROVIDER
-): WebSearchProviderId {
-  return value === 'google-browser' || value === 'duckduckgo-browser' || value === 'exa'
-    ? value
-    : fallback
-}
 
 function normalizeAppLanguage(value: unknown): AppLanguage {
   return value === 'en' || value === 'zh-CN' ? value : 'auto'
@@ -284,10 +273,6 @@ export function normalizeWebSearchConfig(
   const input = asRecord(value)
 
   return {
-    defaultProvider: normalizeWebSearchProviderId(
-      input['defaultProvider'],
-      fallback.defaultProvider ?? DEFAULT_WEB_SEARCH_PROVIDER
-    ),
     browserSession: normalizeBrowserSessionConfig(input['browserSession'], fallback.browserSession),
     exa: normalizeExaWebSearchConfig(input['exa'], fallback.exa)
   }

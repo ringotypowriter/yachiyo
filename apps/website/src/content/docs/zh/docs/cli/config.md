@@ -39,18 +39,19 @@ yachiyo config set chat.stripCompactThresholdTokens 40000
 
 ## 常用路径
 
-| 路径                          | 类型      | 说明                                                  |
-| ----------------------------- | --------- | ----------------------------------------------------- |
-| `defaultModel.providerName`   | `string`  | 新对话使用的供应商                                    |
-| `defaultModel.model`          | `string`  | 新对话使用的模型                                      |
-| `toolModel.mode`              | `string`  | `"default"`、`"custom"` 或 `"disabled"`               |
-| `skills.enabled`              | `array`   | 已启用的技能名                                        |
-| `memory.enabled`              | `boolean` | 记忆总开关                                            |
-| `memory.autoRecall`           | `boolean` | 把调取到的上下文带进运行                              |
-| `chat.autoMemoryDistillation` | `boolean` | 运行后蒸馏记忆                                        |
-| `webSearch.defaultProvider`   | `string`  | `"google-browser"`、`"duckduckgo-browser"` 或 `"exa"` |
-| `workspace.savedPaths`        | `array`   | 已注册的工作区目录                                    |
-| `providers.N.name`            | `string`  | 第 N 个供应商的名字（从 0 开始）                      |
+| 路径                          | 类型      | 说明                                    |
+| ----------------------------- | --------- | --------------------------------------- |
+| `defaultModel.providerName`   | `string`  | 新对话使用的供应商                      |
+| `defaultModel.model`          | `string`  | 新对话使用的模型                        |
+| `toolModel.mode`              | `string`  | `"default"`、`"custom"` 或 `"disabled"` |
+| `skills.enabled`              | `array`   | 已启用的技能名                          |
+| `memory.enabled`              | `boolean` | 记忆总开关                              |
+| `memory.autoRecall`           | `boolean` | 把调取到的上下文带进运行                |
+| `chat.autoMemoryDistillation` | `boolean` | 运行后蒸馏记忆                          |
+| `webSearch.exa.apiKey`        | `string`  | 让 Exa 加入自动网页搜索                 |
+| `webSearch.exa.baseUrl`       | `string`  | 自定义 Exa 端点                         |
+| `workspace.savedPaths`        | `array`   | 已注册的工作区目录                      |
+| `providers.N.name`            | `string`  | 第 N 个供应商的名字（从 0 开始）        |
 
 完整结构见 [`config.toml` 参考](/zh/docs/reference/config-toml/)。
 

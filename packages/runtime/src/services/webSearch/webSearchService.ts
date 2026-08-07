@@ -1,11 +1,9 @@
-import type {
-  SettingsConfig,
-  WebSearchFailureCode,
-  WebSearchProviderId,
-  WebSearchResultItem
-} from '@yachiyo/shared/protocol'
-import { DEFAULT_WEB_SEARCH_PROVIDER } from '@yachiyo/shared/protocol'
+import type { WebSearchFailureCode, WebSearchResultItem } from '@yachiyo/shared/protocol'
 import { normalizeSearchQuery } from './normalizeSearchQuery.ts'
+import {
+  createWebSearchProviderSelector,
+  type WebSearchProviderRegistration
+} from './webSearchProviderSelector.ts'
 
 export interface WebSearchRequest {
   limit?: number
@@ -24,7 +22,8 @@ export interface WebSearchResult {
 }
 
 export interface WebSearchProvider {
-  readonly id: WebSearchProviderId | string
+  readonly id: string
+  isAvailable?(): boolean
   search(input: { limit: number; query: string; signal?: AbortSignal }): Promise<WebSearchResult>
 }
 
@@ -49,15 +48,16 @@ function createFailureResult(input: {
   }
 }
 
-export function resolveWebSearchProviderId(config: SettingsConfig): WebSearchProviderId | string {
-  return config.webSearch?.defaultProvider?.trim() || DEFAULT_WEB_SEARCH_PROVIDER
+function isAbortError(error: unknown): boolean {
+  return error instanceof Error && error.name === 'AbortError'
 }
 
 export function createWebSearchService(input: {
-  providers: WebSearchProvider[]
-  readConfig: () => SettingsConfig
+  now?: () => number
+  providers: WebSearchProviderRegistration[]
 }): WebSearchService {
-  const providers = new Map(input.providers.map((provider) => [provider.id, provider]))
+  const now = input.now ?? Date.now
+  const selector = createWebSearchProviderSelector({ providers: input.providers, now })
 
   return {
     async search(request) {
@@ -67,49 +67,67 @@ export function createWebSearchService(input: {
         return createFailureResult({
           error: 'query must not be empty.',
           failureCode: 'invalid-query',
-          provider: resolveWebSearchProviderId(input.readConfig()),
+          provider: 'auto',
           query
         })
       }
 
-      const providerId = resolveWebSearchProviderId(input.readConfig())
-      const provider = providers.get(providerId)
+      const attemptedProviderIds = new Set<string>()
+      let lastFailure: WebSearchResult | undefined
 
-      if (!provider) {
-        return createFailureResult({
-          error: `Unsupported web search provider: ${providerId}`,
-          failureCode: 'unsupported-provider',
-          provider: providerId,
-          query
-        })
-      }
+      while (true) {
+        const registration = selector.select(attemptedProviderIds)
+        if (!registration) {
+          if (lastFailure) {
+            return {
+              ...lastFailure,
+              error: `${lastFailure.error ?? 'Web search failed.'} All available web search providers failed.`
+            }
+          }
 
-      try {
-        const result = await provider.search({
-          query,
-          limit: request.limit ?? DEFAULT_WEB_SEARCH_LIMIT,
-          signal: request.signal
-        })
-
-        return {
-          ...result
-        }
-      } catch (error) {
-        if (error instanceof Error && error.name === 'AbortError') {
           return createFailureResult({
-            error: 'web search was aborted.',
-            failureCode: 'aborted',
-            provider: providerId,
+            error: 'No web search providers are available.',
+            failureCode: 'unsupported-provider',
+            provider: 'auto',
             query
           })
         }
 
-        return createFailureResult({
-          error: error instanceof Error ? error.message : 'web search failed.',
-          failureCode: 'provider-failed',
-          provider: providerId,
-          query
-        })
+        const { provider } = registration
+        attemptedProviderIds.add(provider.id)
+        selector.begin(provider.id)
+        const startedAt = now()
+        let result: WebSearchResult
+        let failureCode: WebSearchFailureCode | undefined = 'provider-failed'
+
+        try {
+          result = await provider.search({
+            query,
+            limit: request.limit ?? DEFAULT_WEB_SEARCH_LIMIT,
+            signal: request.signal
+          })
+          failureCode = result.failureCode
+        } catch (error) {
+          result = createFailureResult({
+            error: isAbortError(error)
+              ? 'web search was aborted.'
+              : error instanceof Error
+                ? error.message
+                : 'web search failed.',
+            failureCode: isAbortError(error) ? 'aborted' : 'provider-failed',
+            provider: provider.id,
+            query
+          })
+          failureCode = result.failureCode
+        } finally {
+          selector.complete(provider.id, Math.max(0, now() - startedAt), failureCode)
+        }
+
+        if (!result.failureCode || result.failureCode === 'aborted') {
+          return result
+        }
+
+        lastFailure = result
       }
     }
   }

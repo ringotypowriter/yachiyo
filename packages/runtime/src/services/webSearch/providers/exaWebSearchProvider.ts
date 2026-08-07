@@ -24,6 +24,7 @@ export function createExaWebSearchProvider(input: {
 
   return {
     id: 'exa',
+    isAvailable: () => Boolean(input.readConfig().webSearch?.exa?.apiKey?.trim()),
 
     async search({ limit, query, signal }): Promise<WebSearchResult> {
       const config = input.readConfig()

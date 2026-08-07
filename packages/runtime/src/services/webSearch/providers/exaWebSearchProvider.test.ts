@@ -7,7 +7,7 @@ import { createExaWebSearchProvider } from './exaWebSearchProvider.ts'
 function makeConfig(exa?: { apiKey?: string; baseUrl?: string }): SettingsConfig {
   return {
     providers: [],
-    webSearch: { defaultProvider: 'exa', exa }
+    webSearch: { exa }
   }
 }
 
@@ -19,12 +19,18 @@ function createMockFetch(status: number, body: unknown): typeof globalThis.fetch
     })
 }
 
-test('exa provider returns failure when API key is missing', async () => {
-  const provider = createExaWebSearchProvider({
+test('exa provider is available only when its API key is configured', async () => {
+  const missingKeyProvider = createExaWebSearchProvider({
     readConfig: () => makeConfig()
   })
+  const configuredProvider = createExaWebSearchProvider({
+    readConfig: () => makeConfig({ apiKey: ' key ' })
+  })
 
-  const result = await provider.search({ query: 'test', limit: 5 })
+  assert.equal(missingKeyProvider.isAvailable?.(), false)
+  assert.equal(configuredProvider.isAvailable?.(), true)
+
+  const result = await missingKeyProvider.search({ query: 'test', limit: 5 })
 
   assert.equal(result.provider, 'exa')
   assert.equal(result.failureCode, 'provider-failed')
@@ -118,25 +124,30 @@ test('exa provider integrates with webSearchService for provider selection', asy
   const service = createWebSearchService({
     providers: [
       {
-        id: 'google-browser',
-        search: async ({ query }) => ({
-          provider: 'google-browser',
-          query,
-          results: [{ rank: 1, title: 'Google result', url: 'https://g.co' }]
-        })
+        baseWeight: 4,
+        provider: {
+          id: 'google-browser',
+          search: async ({ query }) => ({
+            provider: 'google-browser',
+            query,
+            results: [{ rank: 1, title: 'Google result', url: 'https://g.co' }]
+          })
+        }
       },
-      createExaWebSearchProvider({
-        readConfig: () => makeConfig({ apiKey: 'test-key' }),
-        fetchImpl: async () =>
-          new Response(
-            JSON.stringify({
-              results: [{ id: '1', url: 'https://exa.ai', title: 'Exa result' }]
-            }),
-            { status: 200 }
-          )
-      })
-    ],
-    readConfig: () => makeConfig({ apiKey: 'test-key' })
+      {
+        baseWeight: 5,
+        provider: createExaWebSearchProvider({
+          readConfig: () => makeConfig({ apiKey: 'test-key' }),
+          fetchImpl: async () =>
+            new Response(
+              JSON.stringify({
+                results: [{ id: '1', url: 'https://exa.ai', title: 'Exa result' }]
+              }),
+              { status: 200 }
+            )
+        })
+      }
+    ]
   })
 
   const result = await service.search({ query: 'test' })

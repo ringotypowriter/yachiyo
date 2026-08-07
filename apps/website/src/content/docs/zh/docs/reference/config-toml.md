@@ -116,15 +116,16 @@ runMode = "auto"
 
 ## `[webSearch]`
 
-| 键                                 | 类型                                                    | 默认             | 说明                     |
-| ---------------------------------- | ------------------------------------------------------- | ---------------- | ------------------------ |
-| `defaultProvider`                  | `"google-browser"` \| `"duckduckgo-browser"` \| `"exa"` | `google-browser` | 搜索后端                 |
-| `browserSession.sourceBrowser`     | `string`                                                | ——               | 会话是从哪个浏览器导入的 |
-| `browserSession.sourceProfileName` | `string`                                                | `""`             | 来源配置文件             |
-| `browserSession.importedAt`        | `string`                                                | `""`             | 导入时间戳               |
-| `browserSession.lastImportError`   | `string`                                                | `""`             | 上次导入的错误（如果有） |
-| `exa.apiKey`                       | `string`                                                | `""`             | Exa API key              |
-| `exa.baseUrl`                      | `string`                                                | `""`             | 自定义 Exa 端点          |
+八千代会自动在 Bing、Google、Brave、DuckDuckGo 与 Exa 之间选择并故障转移。这里仅保存浏览器会话信息和可选的 Exa 接入，不再指定搜索供应商。
+
+| 键                                 | 类型     | 默认 | 说明                     |
+| ---------------------------------- | -------- | ---- | ------------------------ |
+| `browserSession.sourceBrowser`     | `string` | ——   | 会话是从哪个浏览器导入的 |
+| `browserSession.sourceProfileName` | `string` | `""` | 来源配置文件             |
+| `browserSession.importedAt`        | `string` | `""` | 导入时间戳               |
+| `browserSession.lastImportError`   | `string` | `""` | 上次导入的错误（如果有） |
+| `exa.apiKey`                       | `string` | `""` | Exa API key              |
+| `exa.baseUrl`                      | `string` | `""` | 自定义 Exa 端点          |
 
 ## `[[providers]]`
 
