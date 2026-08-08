@@ -6,6 +6,7 @@ import {
   isOpenAIXHighReasoningEffortModel
 } from '@yachiyo/shared/reasoningEffort'
 import type { ResolvedAiSdkRuntimeDependencies } from './dependencies.ts'
+import type { ModelProcessingTier } from '../models/types.ts'
 import { createDeepSeekV4MaxEffortFetch } from './deepseekMaxEffort.ts'
 import { createCacheFetch } from './openaiCompatibleCache.ts'
 import { createThinkingFetch, type ThinkingFetchOptions } from './openaiCompatibleThinking.ts'
@@ -19,13 +20,30 @@ import {
 
 const CODEX_BACKEND_BASE_URL = 'https://chatgpt.com/backend-api/codex'
 
-function buildCodexHeaders(accountId?: string): Record<string, string> {
+function shouldUseCodexFastMode(
+  settings: ProviderSettings,
+  processingTier: ModelProcessingTier
+): boolean {
+  return (
+    settings.provider === 'openai-codex' &&
+    settings.codexFastMode === true &&
+    processingTier === 'priority'
+  )
+}
+
+function buildCodexHeaders(
+  settings: ProviderSettings,
+  processingTier: ModelProcessingTier
+): Record<string, string> {
   const headers: Record<string, string> = {
     'User-Agent': 'codex_cli_rs/0.0.0 (Hermes Agent)',
     originator: 'codex_cli_rs'
   }
-  if (accountId) {
-    headers['ChatGPT-Account-ID'] = accountId
+  if (settings.codexAccountId) {
+    headers['ChatGPT-Account-ID'] = settings.codexAccountId
+  }
+  if (shouldUseCodexFastMode(settings, processingTier)) {
+    headers['x-codex-routing-hint'] = `model=${settings.model};tier=priority`
   }
   return headers
 }
@@ -110,6 +128,7 @@ function toOpenAIReasoningEffort(
 export interface OpenAiLanguageModelOptions {
   onReasoningDelta?: (delta: string) => void
   historicalReasoningContents?: string[]
+  processingTier?: ModelProcessingTier
 }
 
 export function createOpenAiLanguageModel(
@@ -155,12 +174,15 @@ export function createOpenAiLanguageModel(
   const codexFetch = isCodexOauth
     ? createCodexResponsesFetch(composedFetch ?? innerFetch)
     : undefined
+  const codexHeaders = isCodexOauth
+    ? buildCodexHeaders(settings, options.processingTier ?? 'standard')
+    : undefined
   const provider = dependencies.createOpenAIProvider({
     apiKey: settings.apiKey,
     baseURL: isCodexOauth
       ? CODEX_BACKEND_BASE_URL
       : cleanBaseUrl(settings.baseUrl, DEFAULT_OPENAI_BASE_URL),
-    ...(isCodexOauth ? { headers: buildCodexHeaders(settings.codexAccountId) } : {}),
+    ...(codexHeaders ? { headers: codexHeaders } : {}),
     ...((codexFetch ?? composedFetch) ? { fetch: codexFetch ?? composedFetch } : {})
   })
 
@@ -180,7 +202,8 @@ export function createOpenAiLanguageModel(
 
 export function createOpenAiProviderOptions(
   settings: ProviderSettings,
-  mode: 'default' | 'auxiliary'
+  mode: 'default' | 'auxiliary',
+  processingTier: ModelProcessingTier = 'standard'
 ): RuntimeProviderOptions {
   const enableReasoningPreview =
     settings.thinkingEnabled !== false &&
@@ -197,6 +220,9 @@ export function createOpenAiProviderOptions(
     openai: {
       ...(reasoningEffort ? { reasoningEffort } : {}),
       ...(enableReasoningPreview ? { reasoningSummary: 'detailed' as const } : {}),
+      ...(shouldUseCodexFastMode(settings, processingTier)
+        ? { serviceTier: 'priority' as const }
+        : {}),
       ...(isGpt5 ? { textVerbosity: 'low' as const } : {}),
       ...(mode === 'default' && useResponsesApi
         ? { include: ['reasoning.encrypted_content' as const] }

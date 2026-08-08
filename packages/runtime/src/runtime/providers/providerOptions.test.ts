@@ -42,6 +42,48 @@ test('createProviderOptions omits provider thinking params when reasoning is off
   })
 })
 
+test('createProviderOptions enables priority processing for Codex Fast mode', () => {
+  const options = createProviderOptions(
+    settings({ provider: 'openai-codex', codexFastMode: true }),
+    'default',
+    'high',
+    'priority'
+  )
+
+  assert.deepEqual(options, {
+    openai: {
+      reasoningEffort: 'high',
+      reasoningSummary: 'detailed',
+      serviceTier: 'priority',
+      textVerbosity: 'low',
+      include: ['reasoning.encrypted_content'],
+      store: false
+    }
+  })
+})
+
+test('createProviderOptions keeps Codex calls Standard unless priority processing is explicit', () => {
+  const options = createProviderOptions(
+    settings({ provider: 'openai-codex', codexFastMode: true }),
+    'default',
+    'high'
+  )
+
+  assert.equal('openai' in options && 'serviceTier' in options.openai, false)
+})
+
+test('createProviderOptions keeps Codex Fast mode off by default', () => {
+  const omitted = createProviderOptions(settings({ provider: 'openai-codex' }), 'default', 'high')
+  const disabled = createProviderOptions(
+    settings({ provider: 'openai-codex', codexFastMode: false }),
+    'default',
+    'high'
+  )
+
+  assert.equal('openai' in omitted && 'serviceTier' in omitted.openai, false)
+  assert.equal('openai' in disabled && 'serviceTier' in disabled.openai, false)
+})
+
 test('createProviderOptions rejects OpenAI max reasoning effort', () => {
   assert.throws(
     () => createProviderOptions(settings(), 'default', 'max'),

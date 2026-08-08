@@ -153,6 +153,8 @@ test('SeamlessHandoffCoordinator writes one markdown dump and advances context h
     assert.match(thread.contextHandoffSummary ?? '', /Continue the active run/)
     assert.equal(requests.length, 1)
     assert.equal(requests[0]?.purpose, 'thread-handoff')
+    assert.equal(requests[0]?.providerOptionsMode, undefined)
+    assert.equal(requests[0]?.processingTier, undefined)
     assert.ok(requests[0]?.tools)
     assert.equal(events.length, 1)
     assert.equal(events[0]?.thread.contextHandoffWatermarkMessageId, 'a2')

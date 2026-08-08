@@ -392,6 +392,8 @@ test('YachiyoServer compacts a thread into a new assistant-first thread and allo
       const sourceRequest = requests.find((request) => request.purpose === 'chat')
       assert.ok(sourceRequest)
       assert.ok(handoffRequest)
+      assert.equal(sourceRequest.processingTier, 'priority')
+      assert.equal(handoffRequest.processingTier, undefined)
       assertToolNamesInclude(sourceRequest.tools, ['read', 'skillsRead'])
       assertToolNamesInclude(handoffRequest.tools, ['read', 'skillsRead'])
       assert.equal(handoffRequest.toolChoice, sourceRequest.toolChoice)

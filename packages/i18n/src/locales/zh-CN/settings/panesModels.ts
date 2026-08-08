@@ -13,6 +13,8 @@ export const providers = {
   serviceAccountPrivateKeyLabel: '服务账号私钥',
   serviceAccountPrivateKeyPlaceholder: '-----BEGIN PRIVATE KEY-----\n（可选，留空则使用 ADC）',
   codexSessionPathLabel: 'Codex 会话文件路径',
+  codexFastModeLabel: '极速模式',
+  codexFastModeDescription: '普通 Agent 调用使用优先处理，辅助任务保持标准模式。',
   selectAuthFileTitle: '选择 auth.json',
   selectFile: '选择文件',
   apiKeyLabel: 'API 密钥',

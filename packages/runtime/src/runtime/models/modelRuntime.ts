@@ -479,7 +479,8 @@ export function createAiSdkModelRuntime(dependencies: AiSdkRuntimeDependencies =
       const baseProviderOptions = createProviderOptions(
         settings,
         request.providerOptionsMode ?? 'default',
-        reasoningEffort
+        reasoningEffort,
+        request.processingTier ?? 'standard'
       )
       // Merge prompt cache key into OpenAI provider options when present.
       let providerOptions: RuntimeProviderOptions =
@@ -612,6 +613,7 @@ export function createAiSdkModelRuntime(dependencies: AiSdkRuntimeDependencies =
               request.providerOptionsMode,
               {
                 onReasoningDelta: interceptReasoningDelta,
+                processingTier: request.processingTier,
                 ...(provider === 'openai'
                   ? {
                       historicalReasoningContents:

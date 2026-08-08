@@ -72,6 +72,39 @@ test('createOpenAiLanguageModel uses the Codex backend and account headers', () 
   assert.equal(providerOptions?.headers?.['ChatGPT-Account-ID'], 'acct_123')
   assert.equal(providerOptions?.headers?.originator, 'codex_cli_rs')
   assert.match(providerOptions?.headers?.['User-Agent'] ?? '', /^codex_cli_rs\//u)
+  assert.equal(providerOptions?.headers?.['x-codex-routing-hint'], undefined)
+})
+
+test('createOpenAiLanguageModel adds the routing hint when priority processing is explicit', () => {
+  let headers: Record<string, string> | undefined
+
+  createOpenAiLanguageModel(
+    {
+      providerName: 'codex',
+      provider: 'openai-codex',
+      model: 'gpt-5.4-mini',
+      apiKey: 'oauth-access-token',
+      baseUrl: '',
+      codexSessionPath: '/tmp/auth.json',
+      codexFastMode: true
+    },
+    {
+      createOpenAIProvider: (options: { headers?: Record<string, string> }) => {
+        headers = options.headers
+        return {
+          chat: () => {
+            throw new Error('Codex OAuth must use the Responses API.')
+          },
+          responses: (modelId: string) => ({ method: 'responses', modelId })
+        } as never
+      }
+    } as never,
+    'auxiliary',
+    undefined,
+    { processingTier: 'priority' }
+  )
+
+  assert.equal(headers?.['x-codex-routing-hint'], 'model=gpt-5.4-mini;tier=priority')
 })
 
 test('shouldUseOpenAIResponsesApi enables Responses API for Codex OAuth', () => {
@@ -92,6 +125,7 @@ test('createOpenAiLanguageModel strips max_output_tokens for Codex responses req
   let providerOptions:
     | {
         fetch?: typeof globalThis.fetch
+        headers?: Record<string, string>
       }
     | undefined
   let capturedBody: Record<string, unknown> | undefined
@@ -103,10 +137,14 @@ test('createOpenAiLanguageModel strips max_output_tokens for Codex responses req
       model: 'gpt-5.4-mini',
       apiKey: 'oauth-access-token',
       baseUrl: '',
-      codexSessionPath: '/tmp/auth.json'
+      codexSessionPath: '/tmp/auth.json',
+      codexFastMode: true
     },
     {
-      createOpenAIProvider: (options: { fetch?: typeof globalThis.fetch }) => {
+      createOpenAIProvider: (options: {
+        fetch?: typeof globalThis.fetch
+        headers?: Record<string, string>
+      }) => {
         providerOptions = options
         return {
           chat: () => {
@@ -124,6 +162,7 @@ test('createOpenAiLanguageModel strips max_output_tokens for Codex responses req
   )
 
   assert.ok(providerOptions?.fetch)
+  assert.equal(providerOptions.headers?.['x-codex-routing-hint'], undefined)
 
   await providerOptions.fetch('https://chatgpt.com/backend-api/codex/responses', {
     method: 'POST',

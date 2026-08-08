@@ -62,6 +62,7 @@ export type OpenAiResponsesRuntimeProviderOptions = {
   openai: {
     reasoningEffort?: string
     reasoningSummary?: 'auto' | 'detailed'
+    serviceTier?: 'priority'
     store: false
     promptCacheKey?: string
     textVerbosity?: 'low' | 'medium' | 'high'

@@ -614,6 +614,8 @@ export interface ProviderConfig {
   baseUrl: string
   // Path to Codex CLI auth.json for openai-codex OAuth login
   codexSessionPath?: string
+  // Use priority processing for primary openai-codex agent calls
+  codexFastMode?: boolean
   // Used by vertex only
   project?: string
   location?: string
@@ -1157,6 +1159,8 @@ export interface ProviderSettings {
   baseUrl: string
   // Path to Codex CLI auth.json for openai-codex OAuth login
   codexSessionPath?: string
+  // Use priority processing for primary openai-codex agent calls
+  codexFastMode?: boolean
   // Populated at runtime from the Codex session file; not persisted in config.
   codexAccountId?: string
   // Used by vertex only

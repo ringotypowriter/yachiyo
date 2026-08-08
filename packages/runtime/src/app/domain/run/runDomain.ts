@@ -699,6 +699,7 @@ export class YachiyoServerRunDomain {
             enabledSkillNames: activeRun.enabledSkillNames ?? input.enabledSkillNames,
             runMode: executionRunMode,
             reasoningEffort: activeRun.reasoningEffort ?? input.reasoningEffort,
+            processingTier: isRecapRun ? 'standard' : 'priority',
             runTrigger: activeRun.runTrigger ?? input.runTrigger,
             inactivityTimeoutMs: this.deps.runInactivityTimeoutMs,
             channelHint: activeRun.channelHint ?? input.channelHint,

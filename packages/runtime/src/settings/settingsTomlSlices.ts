@@ -279,6 +279,9 @@ export const settingsTomlSlices: readonly TomlConfigSlice<SettingsConfig, TomlDo
           apiKey: provider.apiKey,
           baseUrl: provider.baseUrl,
           ...(provider.codexSessionPath ? { codexSessionPath: provider.codexSessionPath } : {}),
+          ...(provider.type === 'openai-codex' && provider.codexFastMode === true
+            ? { codexFastMode: true }
+            : {}),
           project: provider.project ?? '',
           location: provider.location ?? '',
           serviceAccountEmail: provider.serviceAccountEmail ?? '',

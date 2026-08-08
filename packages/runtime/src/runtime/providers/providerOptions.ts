@@ -1,5 +1,5 @@
 import type { ComposerReasoningSelection, ProviderSettings } from '@yachiyo/shared/protocol'
-import type { ModelProviderOptionsMode } from '../models/types.ts'
+import type { ModelProcessingTier, ModelProviderOptionsMode } from '../models/types.ts'
 import { createAnthropicProviderOptions } from './anthropic.ts'
 import { createGatewayProviderOptions } from './gateway.ts'
 import { createGoogleProviderOptions } from './google.ts'
@@ -68,7 +68,8 @@ export function extractThinkingBudget(
 export function createProviderOptions(
   settings: ProviderSettings,
   mode: ModelProviderOptionsMode = 'default',
-  reasoningEffort?: ComposerReasoningSelection
+  reasoningEffort?: ComposerReasoningSelection,
+  processingTier: ModelProcessingTier = 'standard'
 ): RuntimeProviderOptions {
   const effectiveSettings =
     reasoningEffort === undefined ? settings : { ...settings, reasoningEffort }
@@ -78,7 +79,7 @@ export function createProviderOptions(
     effectiveSettings.provider === 'openai-responses' ||
     effectiveSettings.provider === 'openai-codex'
   ) {
-    return createOpenAiProviderOptions(effectiveSettings, mode)
+    return createOpenAiProviderOptions(effectiveSettings, mode, processingTier)
   }
 
   if (effectiveSettings.provider === 'gemini') {

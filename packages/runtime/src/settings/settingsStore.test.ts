@@ -315,7 +315,7 @@ test('normalizeSettingsConfig keeps vercel-gateway providers', () => {
   assert.equal(normalized.providers[0]?.type, 'vercel-gateway')
 })
 
-test('Codex session path round-trips through parse → normalize → stringify → parse', () => {
+test('Codex settings round-trip through parse → normalize → stringify → parse', () => {
   const toml = `[[providers]]
 id = "provider-codex"
 name = "Codex"
@@ -324,6 +324,7 @@ thinkingEnabled = true
 apiKey = ""
 baseUrl = "https://chatgpt.com/backend-api/codex"
 codexSessionPath = "~/.codex/auth.json"
+codexFastMode = true
 
 [providers.modelList]
 enabled = ["gpt-5.1-codex-max"]
@@ -334,16 +335,42 @@ disabled = []
   const provider = config.providers[0]
   assert.equal(provider?.type, 'openai-codex')
   assert.equal(provider?.codexSessionPath, '~/.codex/auth.json')
+  assert.equal(provider?.codexFastMode, true)
 
   const serialized = stringifySettingsToml(config)
   assert.match(serialized, /codexSessionPath = "~\/\.codex\/auth\.json"/)
+  assert.match(serialized, /codexFastMode = true/)
 
   const reloaded = parseSettingsToml(serialized)
   const snapshot = toProviderSettings(reloaded)
   assert.equal(reloaded.providers[0]?.codexSessionPath, '~/.codex/auth.json')
+  assert.equal(reloaded.providers[0]?.codexFastMode, true)
   assert.equal(snapshot.provider, 'openai-codex')
   assert.equal(snapshot.model, 'gpt-5.1-codex-max')
   assert.equal(snapshot.codexSessionPath, '~/.codex/auth.json')
+  assert.equal(snapshot.codexFastMode, true)
+})
+
+test('Codex Fast mode defaults to off when omitted', () => {
+  const normalized = normalizeSettingsConfig({
+    providers: [
+      {
+        id: 'provider-codex',
+        name: 'Codex',
+        type: 'openai-codex',
+        apiKey: '',
+        baseUrl: 'https://chatgpt.com/backend-api/codex',
+        modelList: {
+          enabled: ['gpt-5.1-codex-max'],
+          disabled: []
+        }
+      }
+    ]
+  })
+
+  assert.equal(normalized.providers[0]?.codexFastMode, false)
+  assert.equal(toProviderSettings(normalized).codexFastMode, false)
+  assert.doesNotMatch(stringifySettingsToml(normalized), /codexFastMode/)
 })
 
 test('normalizeSettingsConfig defaults provider thinking to enabled', () => {

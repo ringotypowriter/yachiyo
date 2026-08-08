@@ -496,6 +496,27 @@ export function ProvidersPane({
                       </div>
                     </Field>
                   </div>
+
+                  <div className="col-span-2 flex items-center justify-between gap-4">
+                    <div className="min-w-0">
+                      <div className="text-sm font-medium" style={{ color: theme.text.primary }}>
+                        {t('settings.providers.codexFastModeLabel')}
+                      </div>
+                      <div className="text-xs leading-5" style={{ color: theme.text.tertiary }}>
+                        {t('settings.providers.codexFastModeDescription')}
+                      </div>
+                    </div>
+                    <SettingSwitch
+                      checked={selectedProvider.codexFastMode === true}
+                      onChange={() =>
+                        handleProviderChange((provider) => ({
+                          ...provider,
+                          codexFastMode: provider.codexFastMode !== true
+                        }))
+                      }
+                      ariaLabel={t('settings.providers.codexFastModeLabel')}
+                    />
+                  </div>
                 </>
               ) : (
                 <>

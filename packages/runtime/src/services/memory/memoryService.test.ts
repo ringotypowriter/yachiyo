@@ -411,6 +411,7 @@ test('memory service saves thread transcripts as cognitive patches', async () =>
   assert.equal(saved.savedCount, 2)
   assert.equal(requests.length, 1)
   assert.equal(requests[0]?.providerOptionsMode, undefined)
+  assert.equal(requests[0]?.processingTier, undefined)
   assert.equal(requests[0]?.settings.model, 'gpt-5')
   assert.equal(state.relations[0]?.name, 'agent_workflow_roles')
   assert.equal(state.rows[0]?.key, 'codex')

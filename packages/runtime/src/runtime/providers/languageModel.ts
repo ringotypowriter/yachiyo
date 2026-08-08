@@ -1,6 +1,7 @@
 import type { LanguageModel } from 'ai'
 
 import type { ProviderSettings } from '@yachiyo/shared/protocol'
+import type { ModelProcessingTier } from '../models/types.ts'
 import type { ResolvedAiSdkRuntimeDependencies } from './dependencies.ts'
 import { createAnthropicLanguageModel } from './anthropic.ts'
 import { createGatewayDiagnosticFetch, createGatewayLanguageModel } from './gateway.ts'
@@ -34,6 +35,7 @@ export function assertConfigured(settings: ProviderSettings): void {
 export interface CreateLanguageModelOptions {
   onReasoningDelta?: (delta: string) => void
   historicalReasoningContents?: string[]
+  processingTier?: ModelProcessingTier
 }
 
 export function createLanguageModel(
@@ -54,6 +56,7 @@ export function createLanguageModel(
       createGatewayDiagnosticFetch(settings),
       {
         onReasoningDelta: options.onReasoningDelta,
+        processingTier: options.processingTier,
         ...(settings.provider === 'openai'
           ? { historicalReasoningContents: options.historicalReasoningContents }
           : {})

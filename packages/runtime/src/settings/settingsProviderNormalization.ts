@@ -63,14 +63,15 @@ function normalizeProviderConfig(value: unknown, fallback?: ProviderConfig): Pro
   const presetKey = normalizeString(input['presetKey'], fallback?.presetKey ?? '')
   const codexSessionPath =
     normalizeString(input['codexSessionPath'], fallback?.codexSessionPath ?? '') || undefined
+  const type = isLegacyGatewayVertexProvider(input)
+    ? 'vercel-gateway'
+    : normalizeProviderType(input['type'], fallback?.type ?? 'anthropic')
 
   return sanitizeProviderConfig({
     id: ensureProviderId(normalizeString(input['id'], fallback?.id ?? '')),
     ...(presetKey ? { presetKey } : {}),
     name,
-    type: isLegacyGatewayVertexProvider(input)
-      ? 'vercel-gateway'
-      : normalizeProviderType(input['type'], fallback?.type ?? 'anthropic'),
+    type,
     thinkingEnabled: normalizeOptionalBool(
       input['thinkingEnabled'],
       fallback?.thinkingEnabled !== false
@@ -81,6 +82,9 @@ function normalizeProviderConfig(value: unknown, fallback?: ProviderConfig): Pro
     apiKey: normalizeString(input['apiKey'], fallback?.apiKey ?? ''),
     baseUrl: normalizeString(input['baseUrl'], fallback?.baseUrl ?? ''),
     ...(codexSessionPath !== undefined ? { codexSessionPath } : {}),
+    codexFastMode:
+      type === 'openai-codex' &&
+      normalizeOptionalBool(input['codexFastMode'], fallback?.codexFastMode === true),
     project: normalizeString(input['project'], fallback?.project ?? ''),
     location: normalizeString(input['location'], fallback?.location ?? ''),
     serviceAccountEmail: normalizeString(
@@ -172,6 +176,7 @@ export function toResolvedProviderSettings(
     apiKey: provider.apiKey,
     baseUrl: provider.baseUrl,
     codexSessionPath: provider.codexSessionPath,
+    codexFastMode: provider.codexFastMode === true,
     project: provider.project,
     location: provider.location,
     serviceAccountEmail: provider.serviceAccountEmail,

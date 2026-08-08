@@ -15,6 +15,9 @@ export const providers = {
   serviceAccountPrivateKeyPlaceholder:
     '-----BEGIN PRIVATE KEY-----\n(optional — uses ADC if empty)',
   codexSessionPathLabel: 'Codex Session Path',
+  codexFastModeLabel: 'Fast mode',
+  codexFastModeDescription:
+    'Use priority processing for regular Agent calls. Auxiliary tasks remain Standard.',
   selectAuthFileTitle: 'Select auth.json',
   selectFile: 'Select file',
   apiKeyLabel: 'API Key',

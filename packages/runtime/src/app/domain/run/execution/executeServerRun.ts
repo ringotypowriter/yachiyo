@@ -568,6 +568,7 @@ export async function executeServerRun(
       settings,
       signal: input.abortController.signal,
       purpose: 'chat',
+      processingTier: input.processingTier,
       promptCacheKey: input.thread.id,
       maxToolSteps,
       ...(input.reasoningEffort !== undefined ? { reasoningEffort: input.reasoningEffort } : {}),

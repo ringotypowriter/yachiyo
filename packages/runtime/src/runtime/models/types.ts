@@ -30,6 +30,7 @@ export interface ModelToolCallErrorEvent {
 }
 
 export type ModelProviderOptionsMode = 'default' | 'auxiliary'
+export type ModelProcessingTier = 'standard' | 'priority'
 
 export interface ModelUsage {
   promptTokens: number
@@ -60,6 +61,7 @@ export interface ModelStreamRequest {
   purpose?: string
   max_token?: number
   providerOptionsMode?: ModelProviderOptionsMode
+  processingTier?: ModelProcessingTier
   reasoningEffort?: ComposerReasoningSelection
   maxToolSteps?: number
   tools?: ToolSet
