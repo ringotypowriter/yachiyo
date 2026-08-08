@@ -1,9 +1,10 @@
-import { access, lstat, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
+import { lstat, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { homedir, tmpdir } from 'node:os'
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path'
 
 import type { FileSnapshotEntry, RunSnapshot, SnapshotSummary } from '@yachiyo/shared/fileSnapshot'
 import { hashContent, hashWorkspacePath, readBlob, storeBlob } from './casStore.ts'
+import { readSnapshotEligibleFile } from './snapshotFileFilter.ts'
 import {
   countSnapshots,
   loadSnapshotIndex,
@@ -217,6 +218,9 @@ export class SnapshotTracker {
    */
   private readonly trackedFiles = new Map<string, TrackedEntry | null>()
 
+  /** Existing or discovered paths excluded by the Snapshot file policy. */
+  private readonly ignoredFiles = new Set<string>()
+
   private readonly restorePoints = new Map<string, Map<string, RestorePointEntry>>()
 
   /** Signals the background baseline scan to stop early. */
@@ -301,17 +305,23 @@ export class SnapshotTracker {
     const resolved = resolve(absolutePath)
 
     // Skip if already captured by a previous tool call.
+    if (this.ignoredFiles.has(resolved)) return
     const existing = this.trackedFiles.get(resolved)
     if (existing === null || existing?.source === 'tool') return
 
     try {
-      await access(resolved)
-      const content = await readFile(resolved)
+      const content = await readSnapshotEligibleFile(resolved)
+      if (content === null) {
+        this.ignoredFiles.add(resolved)
+        return
+      }
       const hash = await storeBlob(this.workspaceHash, content)
+      if (this.ignoredFiles.has(resolved)) return
       this.trackedFiles.set(resolved, { hash, size: content.length, source: 'tool' })
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
-        // File doesn't exist — will be newly created
+        // File doesn't exist — will be newly created unless the baseline saw it.
+        if (this.ignoredFiles.has(resolved)) return
         this.trackedFiles.set(resolved, null)
       } else {
         console.error(`[snapshot] Failed to track ${resolved}:`, err)
@@ -335,17 +345,10 @@ export class SnapshotTracker {
 
       for (const file of files) {
         if (this.trackedFiles.has(file)) continue
+        if (this.ignoredFiles.has(file)) continue
         if (this.isGitignored(file)) continue
 
-        try {
-          const fileStat = await stat(file)
-          if (fileStat.mtimeMs >= this.runStartTime) {
-            // Truly new file created during the run (not in baseline).
-            this.trackedFiles.set(file, null)
-          }
-        } catch {
-          // Skip files we can't stat
-        }
+        await this.trackNewFileIfEligible(file)
       }
     } catch (err) {
       console.error('[snapshot] Post-run scan failed:', err)
@@ -362,15 +365,9 @@ export class SnapshotTracker {
         const files = await globFiles(dir, 2, SCAN_IGNORE)
         for (const file of files) {
           if (this.trackedFiles.has(file)) continue
+          if (this.ignoredFiles.has(file)) continue
 
-          try {
-            const fileStat = await stat(file)
-            if (fileStat.mtimeMs >= this.runStartTime) {
-              this.trackedFiles.set(file, null)
-            }
-          } catch {
-            // Skip files we can't stat
-          }
+          await this.trackNewFileIfEligible(file)
         }
       } catch (err) {
         console.error(`[snapshot] External scan failed for ${dir}:`, err)
@@ -389,7 +386,11 @@ export class SnapshotTracker {
       }
 
       try {
-        const content = await readFile(absolutePath)
+        const content = await readSnapshotEligibleFile(absolutePath)
+        if (content === null) {
+          this.ignoredFiles.add(absolutePath)
+          continue
+        }
         const hash = await storeBlob(this.workspaceHash, content)
         if (tracked === null || hash !== tracked.hash) {
           restorePoint.set(absolutePath, { hash, size: content.length })
@@ -463,17 +464,45 @@ export class SnapshotTracker {
     return [...dirs]
   }
 
+  private async trackNewFileIfEligible(absolutePath: string): Promise<void> {
+    try {
+      const fileStat = await stat(absolutePath)
+      if (fileStat.mtimeMs < this.runStartTime) return
+
+      if ((await readSnapshotEligibleFile(absolutePath)) === null) {
+        const tracked = this.trackedFiles.get(absolutePath)
+        if (tracked?.source !== 'tool') {
+          this.ignoredFiles.add(absolutePath)
+          this.trackedFiles.delete(absolutePath)
+        }
+        return
+      }
+
+      if (this.ignoredFiles.has(absolutePath) || this.trackedFiles.has(absolutePath)) return
+
+      // Truly new file created during the run (not in baseline).
+      this.trackedFiles.set(absolutePath, null)
+    } catch {
+      // Skip files we can't stat or read
+    }
+  }
+
   /** Persist the snapshot index to disk. Returns the snapshot data. */
   async finalize(): Promise<RunSnapshot> {
     const entries: FileSnapshotEntry[] = []
 
     for (const [absolutePath, tracked] of this.trackedFiles) {
+      if (this.ignoredFiles.has(absolutePath)) continue
       const relativePath = relative(this.workspacePath, absolutePath)
 
       // Capture the after-state and check if the file actually changed.
       let afterHash: string | null = null
       try {
-        const currentContent = await readFile(absolutePath)
+        const currentContent = await readSnapshotEligibleFile(absolutePath)
+        if (currentContent === null) {
+          this.ignoredFiles.add(absolutePath)
+          continue
+        }
         afterHash = hashContent(currentContent)
 
         // If the file didn't change, skip this entry.
@@ -514,9 +543,14 @@ export class SnapshotTracker {
         } else {
           // File changed only pre-steer — re-read to get the current after-state.
           const absPath = resolve(this.workspacePath, priorEntry.relativePath)
+          if (this.ignoredFiles.has(absPath)) continue
           let afterHash: string | null = null
           try {
-            const content = await readFile(absPath)
+            const content = await readSnapshotEligibleFile(absPath)
+            if (content === null) {
+              this.ignoredFiles.add(absPath)
+              continue
+            }
             afterHash = hashContent(content)
             await storeBlob(this.workspaceHash, content)
           } catch (err) {
@@ -572,24 +606,38 @@ export class SnapshotTracker {
     for (const file of files) {
       if (signal.aborted) return
       if (this.isGitignored(file)) continue
+      if (this.ignoredFiles.has(file)) continue
 
-      // Never overwrite a Layer 1/2 entry or a null (new-file) entry.
+      // Don't re-read paths already classified by Layer 1/2.
       const existing = this.trackedFiles.get(file)
       if (existing === null || existing?.source === 'tool') continue
 
       try {
-        const content = await readFile(file)
+        const content = await readSnapshotEligibleFile(file)
         if (signal.aborted) return
+
+        if (content === null) {
+          const afterRead = this.trackedFiles.get(file)
+          if (afterRead?.source !== 'tool') {
+            this.ignoredFiles.add(file)
+            this.trackedFiles.delete(file)
+          }
+          continue
+        }
 
         // Re-check: a tool call may have won the race while we were reading.
         const afterRead = this.trackedFiles.get(file)
-        if (afterRead === null || afterRead?.source === 'tool') continue
+        if (afterRead === null || afterRead?.source === 'tool' || this.ignoredFiles.has(file)) {
+          continue
+        }
 
         const hash = await storeBlob(this.workspaceHash, content)
 
         // Final check: a tool call may have won while we were storing the blob.
         const beforeSet = this.trackedFiles.get(file)
-        if (beforeSet === null || beforeSet?.source === 'tool') continue
+        if (beforeSet === null || beforeSet?.source === 'tool' || this.ignoredFiles.has(file)) {
+          continue
+        }
 
         this.trackedFiles.set(file, { hash, size: content.length, source: 'baseline' })
       } catch {

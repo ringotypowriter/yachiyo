@@ -6,6 +6,7 @@ import test from 'node:test'
 
 import { SnapshotTracker } from './snapshotTracker.ts'
 import { hashWorkspacePath, readBlob } from './casStore.ts'
+import { MAX_SNAPSHOT_FILE_BYTES } from './snapshotFileFilter.ts'
 
 const originalEnv = process.env['YACHIYO_HOME']
 
@@ -444,4 +445,163 @@ test('SnapshotTracker', async (t) => {
       'untracked file in blacklisted dir should not be in snapshot'
     )
   })
+
+  await t.test(
+    'explicitly filtered existing files are not reclassified as newly created',
+    async () => {
+      const filePath = join(workspaceDir, 'database.sqlite')
+      await writeFile(filePath, Buffer.from([0x53, 0x51, 0x4c, 0x00, 0xff]))
+
+      const tracker = new SnapshotTracker(workspaceDir, 'run-1', 'thread-1')
+      await tracker.trackBeforeWrite(filePath)
+      await writeFile(filePath, 'now text')
+      await tracker.scanWorkspace()
+
+      const snapshot = await tracker.finalize()
+
+      assert.equal(snapshot.entries.length, 0)
+      assert.equal(tracker.hasTrackedFiles, false)
+      tracker.dispose()
+    }
+  )
+
+  await t.test(
+    'trackBeforeWrite skips existing oversized text files without storing a blob',
+    async () => {
+      const filePath = join(workspaceDir, 'huge.log')
+      await writeFile(filePath, Buffer.alloc(MAX_SNAPSHOT_FILE_BYTES + 1, 0x61))
+
+      const tracker = new SnapshotTracker(workspaceDir, 'run-1', 'thread-1')
+      await tracker.trackBeforeWrite(filePath)
+      const snapshot = await tracker.finalize()
+      const backupsDir = join(tempDir, 'file-history', tracker.workspaceHash, 'backups')
+
+      assert.equal(snapshot.entries.length, 0)
+      await assert.rejects(() => readdir(backupsDir), { code: 'ENOENT' })
+      tracker.dispose()
+    }
+  )
+
+  await t.test('finalize skips newly created binary files', async () => {
+    const filePath = join(workspaceDir, 'created.bin')
+    const tracker = new SnapshotTracker(workspaceDir, 'run-1', 'thread-1')
+
+    await tracker.trackBeforeWrite(filePath)
+    await writeFile(filePath, Buffer.from([0x00, 0x01, 0x02, 0xff]))
+
+    const snapshot = await tracker.finalize()
+
+    assert.equal(snapshot.entries.length, 0)
+    tracker.dispose()
+  })
+
+  await t.test('baseline-skipped files are not reclassified as newly created text', async () => {
+    const filePath = join(workspaceDir, 'converted.bin')
+    await writeFile(filePath, Buffer.from([0x00, 0x01, 0x02, 0xff]))
+
+    const tracker = new SnapshotTracker(workspaceDir, 'run-1', 'thread-1')
+    tracker.startBaselineScan()
+    await tracker.scanWorkspace()
+
+    await writeFile(filePath, 'now text')
+    await tracker.scanWorkspace()
+    const snapshot = await tracker.finalize()
+
+    assert.equal(snapshot.entries.length, 0)
+    tracker.dispose()
+  })
+
+  await t.test('finalize drops tracked text that becomes binary', async () => {
+    const filePath = join(workspaceDir, 'converted.txt')
+    await writeFile(filePath, 'before')
+
+    const tracker = new SnapshotTracker(workspaceDir, 'run-1', 'thread-1')
+    await tracker.trackBeforeWrite(filePath)
+    await writeFile(filePath, Buffer.from([0x00, 0x01, 0x02, 0xff]))
+
+    const snapshot = await tracker.finalize()
+
+    assert.equal(snapshot.entries.length, 0)
+    tracker.dispose()
+  })
+
+  await t.test(
+    'external scans skip binary siblings of an explicitly tracked text file',
+    async () => {
+      const externalDir = await mkdtemp(join(process.cwd(), '.snapshot-external-test-'))
+      try {
+        const trackedFile = join(externalDir, 'tracked.txt')
+        const binarySibling = join(externalDir, 'database.sqlite')
+        await writeFile(trackedFile, 'before')
+
+        const tracker = new SnapshotTracker(workspaceDir, 'run-1', 'thread-1')
+        tracker.dispose()
+        await tracker.trackBeforeWrite(trackedFile)
+        await writeFile(trackedFile, 'after')
+        await writeFile(binarySibling, Buffer.from([0x53, 0x51, 0x4c, 0x00, 0xff]))
+
+        await tracker.scanWorkspace()
+        const snapshot = await tracker.finalize()
+
+        assert.ok(snapshot.entries.some((entry) => entry.relativePath.endsWith('tracked.txt')))
+        assert.ok(!snapshot.entries.some((entry) => entry.relativePath.endsWith('database.sqlite')))
+      } finally {
+        await rm(externalDir, { recursive: true, force: true })
+      }
+    }
+  )
+
+  await t.test('workspace scans do not track newly created binary files', async () => {
+    const tracker = new SnapshotTracker(workspaceDir, 'run-1', 'thread-1')
+    tracker.dispose()
+    await writeFile(join(workspaceDir, 'created.bin'), Buffer.from([0x00, 0x01, 0x02, 0xff]))
+
+    await tracker.scanWorkspace()
+
+    assert.equal(tracker.hasTrackedFiles, false)
+    assert.equal((await tracker.finalize()).entries.length, 0)
+  })
+
+  await t.test('restore points do not store filtered current content', async () => {
+    const filePath = join(workspaceDir, 'converted.txt')
+    await writeFile(filePath, 'original')
+
+    const tracker = new SnapshotTracker(workspaceDir, 'run-1', 'thread-1')
+    await tracker.trackBeforeWrite(filePath)
+    await writeFile(filePath, Buffer.from([0x00, 0x01, 0x02, 0xff]))
+    await tracker.markRestorePoint('binary-state')
+
+    const branchDir = join(tempDir, 'branch')
+    await mkdir(branchDir, { recursive: true })
+    await tracker.restorePointStateTo(branchDir, 'binary-state')
+
+    assert.equal(await readFile(join(branchDir, 'converted.txt'), 'utf8'), 'original')
+    const backupsDir = join(tempDir, 'file-history', tracker.workspaceHash, 'backups')
+    assert.equal((await readdir(backupsDir)).length, 1)
+
+    await rm(filePath)
+    assert.equal((await tracker.finalize()).entries.length, 0)
+    tracker.dispose()
+  })
+
+  await t.test(
+    'steer merge drops a prior text entry whose current content is filtered',
+    async () => {
+      const filePath = join(workspaceDir, 'converted.txt')
+      await writeFile(filePath, 'before')
+
+      const firstLeg = new SnapshotTracker(workspaceDir, 'run-1', 'thread-1')
+      await firstLeg.trackBeforeWrite(filePath)
+      await writeFile(filePath, 'between steers')
+      assert.equal((await firstLeg.finalize()).entries.length, 1)
+      firstLeg.dispose()
+
+      const secondLeg = new SnapshotTracker(workspaceDir, 'run-1', 'thread-1')
+      await secondLeg.trackBeforeWrite(filePath)
+      await writeFile(filePath, Buffer.from([0x00, 0x01, 0x02, 0xff]))
+
+      assert.equal((await secondLeg.finalize()).entries.length, 0)
+      secondLeg.dispose()
+    }
+  )
 })
