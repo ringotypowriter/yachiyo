@@ -206,6 +206,9 @@ export async function streamCompactThreadHandoff(
             completionTokens: handoffUsage.completionTokens,
             totalPromptTokens: handoffUsage.totalCompletionTokens,
             totalCompletionTokens: handoffUsage.totalCompletionTokens,
+            ...(handoffUsage.modelGenerationDurationMs != null
+              ? { modelGenerationDurationMs: handoffUsage.modelGenerationDurationMs }
+              : {}),
             ...(handoffUsage.cacheReadTokens != null
               ? { cacheReadTokens: handoffUsage.cacheReadTokens }
               : {}),
@@ -253,7 +256,10 @@ export async function streamCompactThreadHandoff(
             promptTokens: handoffUsage.completionTokens,
             completionTokens: handoffUsage.completionTokens,
             totalPromptTokens: handoffUsage.totalCompletionTokens,
-            totalCompletionTokens: handoffUsage.totalCompletionTokens
+            totalCompletionTokens: handoffUsage.totalCompletionTokens,
+            ...(handoffUsage.modelGenerationDurationMs != null
+              ? { modelGenerationDurationMs: handoffUsage.modelGenerationDurationMs }
+              : {})
           }
         : {})
     })

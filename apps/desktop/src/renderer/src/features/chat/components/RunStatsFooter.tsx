@@ -1,6 +1,6 @@
 import type React from 'react'
 import { useCallback, useMemo, useState } from 'react'
-import { Clock, Wrench, GitCompareArrows } from 'lucide-react'
+import { Clock, Gauge, Wrench, GitCompareArrows } from 'lucide-react'
 import type { RunRecord, ToolCall } from '@renderer/app/types'
 import { useAppStore } from '@renderer/app/store/useAppStore'
 import { theme, alpha } from '@renderer/theme/theme'
@@ -9,7 +9,8 @@ import { tPlural } from '@yachiyo/i18n/index'
 import { DiffPreviewerModal } from './DiffPreviewerModal'
 import {
   countToolCallsForRun,
-  findLatestRunForRequests
+  findLatestRunForRequests,
+  formatTokensPerSecond
 } from '../lib/run-memory/runMemoryPresentation.ts'
 
 interface RunStatsFooterProps {
@@ -55,12 +56,17 @@ export function RunStatsFooter({
     // Count by runId so steer legs that re-anchor to a later requestMessageId
     // still roll up into the original run's footer.
     const toolCallCount = countToolCallsForRun(toolCalls, run.id)
+    const tokensPerSecondLabel = formatTokensPerSecond(
+      run.totalCompletionTokens,
+      run.modelGenerationDurationMs
+    )
     return {
       elapsedMs,
       runId: run.id,
       threadId: run.threadId,
       fileCount,
       toolCallCount,
+      tokensPerSecondLabel,
       workspacePath: run.workspacePath ?? snapshotReviewByRun[run.id]?.workspacePath ?? ''
     }
   }, [runs, toolCalls, requestMessageIds, snapshotReviewByRun])
@@ -76,9 +82,10 @@ export function RunStatsFooter({
   if (!runInfo) return null
 
   const showElapsed = runInfo.elapsedMs >= ELAPSED_THRESHOLD_S * 1000
+  const showTokensPerSecond = runInfo.tokensPerSecondLabel !== null
   const showToolCalls = runInfo.toolCallCount >= TOOL_CALL_THRESHOLD
   const hasSnapshot = runInfo.fileCount > 0 && runInfo.workspacePath.length > 0
-  if (!showElapsed && !showToolCalls && !hasSnapshot) return null
+  if (!showElapsed && !showTokensPerSecond && !showToolCalls && !hasSnapshot) return null
 
   return (
     <>
@@ -90,6 +97,12 @@ export function RunStatsFooter({
           <span className="inline-flex items-center gap-1">
             <Clock size={11} strokeWidth={1.7} />
             {formatElapsed(runInfo.elapsedMs)}
+          </span>
+        ) : null}
+        {showTokensPerSecond ? (
+          <span className="inline-flex items-center gap-1">
+            <Gauge size={11} strokeWidth={1.7} />
+            {runInfo.tokensPerSecondLabel}
           </span>
         ) : null}
         {showToolCalls ? (

@@ -541,6 +541,7 @@ export function createAiSdkModelRuntime(dependencies: AiSdkRuntimeDependencies =
       let retryDelay = RETRY_BASE_DELAY_MS
       let totalYieldedChars = 0
       let contextStripCompactRetries = 0
+      let modelGenerationDurationMs = 0
 
       let stepReasoningChunks: string[][] = [[]]
       const interceptReasoningDelta = request.onReasoningDelta
@@ -561,7 +562,38 @@ export function createAiSdkModelRuntime(dependencies: AiSdkRuntimeDependencies =
         let streamCommitted = false
         let nextStepNumber = 0
         let pendingStepFinish: PendingStepFinish | undefined
+        let stepStartedAt: number | undefined
+        let stepToolExecutionMs = 0
+        let activeToolExecutionStartedAt: number | undefined
+        const activeToolCallIds = new Set<string>()
         const requestPrefixState: StepRequestPrefixState = {}
+
+        const trackToolCallStart = (
+          event: Parameters<NonNullable<typeof request.onToolCallStart>>[0]
+        ): ReturnType<NonNullable<typeof request.onToolCallStart>> => {
+          const toolCallId = event.toolCall.toolCallId
+          if (!activeToolCallIds.has(toolCallId)) {
+            if (activeToolCallIds.size === 0) {
+              activeToolExecutionStartedAt = resolvedDependencies.nowImpl()
+            }
+            activeToolCallIds.add(toolCallId)
+          }
+          return request.onToolCallStart?.(event)
+        }
+
+        const trackToolCallFinish = (
+          event: Parameters<NonNullable<typeof request.onToolCallFinish>>[0]
+        ): ReturnType<NonNullable<typeof request.onToolCallFinish>> => {
+          const toolCallId = event.toolCall.toolCallId
+          if (activeToolCallIds.delete(toolCallId) && activeToolCallIds.size === 0) {
+            stepToolExecutionMs += Math.max(
+              0,
+              resolvedDependencies.nowImpl() - (activeToolExecutionStartedAt ?? 0)
+            )
+            activeToolExecutionStartedAt = undefined
+          }
+          return emitToolCallFinish?.(event)
+        }
 
         const flushPendingStepFinish = (continued: boolean): void => {
           if (!pendingStepFinish) return
@@ -605,10 +637,8 @@ export function createAiSdkModelRuntime(dependencies: AiSdkRuntimeDependencies =
                     request.stopWhen ?? stepCountIs(request.maxToolSteps ?? DEFAULT_MAX_TOOL_STEPS)
                 }
               : {}),
-            ...(request.onToolCallStart
-              ? { experimental_onToolCallStart: request.onToolCallStart }
-              : {}),
-            ...(emitToolCallFinish ? { experimental_onToolCallFinish: emitToolCallFinish } : {})
+            experimental_onToolCallStart: trackToolCallStart,
+            experimental_onToolCallFinish: trackToolCallFinish
           })
 
           if ('fullStream' in result && result.fullStream) {
@@ -635,18 +665,36 @@ export function createAiSdkModelRuntime(dependencies: AiSdkRuntimeDependencies =
                 flushPendingStepFinish(true)
               }
 
-              if (part.type === 'start-step' && shouldLogPromptCacheDiagnostics()) {
-                const requestBody = readRequestBodyText(part.request)
-                if (request.promptCacheKey && requestBody !== undefined) {
-                  logStepRequestPrefix(llmTag, {
-                    body: requestBody,
-                    state: requestPrefixState,
-                    stepNumber: nextStepNumber
-                  })
+              if (part.type === 'start-step') {
+                stepStartedAt = resolvedDependencies.nowImpl()
+                stepToolExecutionMs = 0
+                activeToolExecutionStartedAt = undefined
+                activeToolCallIds.clear()
+                if (shouldLogPromptCacheDiagnostics()) {
+                  const requestBody = readRequestBodyText(part.request)
+                  if (request.promptCacheKey && requestBody !== undefined) {
+                    logStepRequestPrefix(llmTag, {
+                      body: requestBody,
+                      state: requestPrefixState,
+                      stepNumber: nextStepNumber
+                    })
+                  }
                 }
               }
 
               if (part.type === 'finish-step') {
+                if (stepStartedAt !== undefined) {
+                  const finishedAt = resolvedDependencies.nowImpl()
+                  const activeToolExecutionMs =
+                    activeToolExecutionStartedAt === undefined
+                      ? 0
+                      : Math.max(0, finishedAt - activeToolExecutionStartedAt)
+                  modelGenerationDurationMs += Math.max(
+                    0,
+                    finishedAt - stepStartedAt - stepToolExecutionMs - activeToolExecutionMs
+                  )
+                  stepStartedAt = undefined
+                }
                 pendingStepFinish = {
                   finishReason: part.finishReason,
                   stepNumber: nextStepNumber,
@@ -916,6 +964,9 @@ export function createAiSdkModelRuntime(dependencies: AiSdkRuntimeDependencies =
                   completionTokens: usage.outputTokens,
                   totalPromptTokens: total.inputTokens ?? usage.inputTokens,
                   totalCompletionTokens: total.outputTokens ?? usage.outputTokens,
+                  ...(modelGenerationDurationMs > 0
+                    ? { modelGenerationDurationMs: Math.round(modelGenerationDurationMs) }
+                    : {}),
                   ...(cacheRead != null ? { cacheReadTokens: cacheRead } : {}),
                   ...(cacheWrite != null ? { cacheWriteTokens: cacheWrite } : {}),
                   ...(finishReason ? { finishReason } : {}),

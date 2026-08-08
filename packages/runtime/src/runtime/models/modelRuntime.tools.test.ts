@@ -34,7 +34,10 @@ test('createAiSdkModelRuntime forwards tools and tool callbacks into the AI SDK 
   })
 
   const tools = { read: { description: 'read a file' } }
-  const onToolCallStart = (): void => undefined
+  let startCalls = 0
+  const onToolCallStart = (): void => {
+    startCalls += 1
+  }
   let finishCalls = 0
   const onToolCallFinish = (): void => {
     finishCalls += 1
@@ -69,7 +72,11 @@ test('createAiSdkModelRuntime forwards tools and tool callbacks into the AI SDK 
     tools?: unknown
   }
   assert.equal(streamCall.tools, tools)
-  assert.equal(streamCall.experimental_onToolCallStart, onToolCallStart)
+  assert.equal(typeof streamCall.experimental_onToolCallStart, 'function')
+  ;(streamCall.experimental_onToolCallStart as (event: unknown) => void)({
+    toolCall: { toolCallId: 'tool-test-1' }
+  } as never)
+  assert.equal(startCalls, 1)
   assert.equal(typeof streamCall.experimental_onToolCallFinish, 'function')
   ;(streamCall.experimental_onToolCallFinish as (event: unknown) => void)({
     abortSignal: undefined,

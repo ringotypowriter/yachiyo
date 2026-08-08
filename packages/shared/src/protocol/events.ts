@@ -104,6 +104,7 @@ export interface RunCompletedEvent extends RunEvent {
   completionTokens?: number
   totalPromptTokens?: number
   totalCompletionTokens?: number
+  modelGenerationDurationMs?: number
 }
 
 export interface RunRetryingEvent extends RunEvent {

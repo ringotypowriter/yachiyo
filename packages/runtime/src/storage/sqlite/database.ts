@@ -922,6 +922,7 @@ export function createSqliteYachiyoStorage(
       completionTokens,
       totalPromptTokens,
       totalCompletionTokens,
+      modelGenerationDurationMs,
       cacheReadTokens,
       cacheWriteTokens,
       modelId,
@@ -977,6 +978,7 @@ export function createSqliteYachiyoStorage(
             ...(completionTokens !== undefined ? { completionTokens } : {}),
             ...(totalPromptTokens !== undefined ? { totalPromptTokens } : {}),
             ...(totalCompletionTokens !== undefined ? { totalCompletionTokens } : {}),
+            ...(modelGenerationDurationMs !== undefined ? { modelGenerationDurationMs } : {}),
             ...(cacheReadTokens !== undefined ? { cacheReadTokens } : {}),
             ...(cacheWriteTokens !== undefined ? { cacheWriteTokens } : {}),
             ...(modelId !== undefined ? { modelId } : {}),
@@ -1001,6 +1003,7 @@ export function createSqliteYachiyoStorage(
       completionTokens,
       totalPromptTokens,
       totalCompletionTokens,
+      modelGenerationDurationMs,
       cacheReadTokens,
       cacheWriteTokens
     }) {
@@ -1016,6 +1019,7 @@ export function createSqliteYachiyoStorage(
           ...(completionTokens !== undefined ? { completionTokens } : {}),
           ...(totalPromptTokens !== undefined ? { totalPromptTokens } : {}),
           ...(totalCompletionTokens !== undefined ? { totalCompletionTokens } : {}),
+          ...(modelGenerationDurationMs !== undefined ? { modelGenerationDurationMs } : {}),
           ...(cacheReadTokens !== undefined ? { cacheReadTokens } : {}),
           ...(cacheWriteTokens !== undefined ? { cacheWriteTokens } : {})
         })
@@ -1041,6 +1045,7 @@ export function createSqliteYachiyoStorage(
       completionTokens,
       totalPromptTokens,
       totalCompletionTokens,
+      modelGenerationDurationMs,
       cacheReadTokens,
       cacheWriteTokens
     }) {
@@ -1057,6 +1062,7 @@ export function createSqliteYachiyoStorage(
           ...(completionTokens !== undefined ? { completionTokens } : {}),
           ...(totalPromptTokens !== undefined ? { totalPromptTokens } : {}),
           ...(totalCompletionTokens !== undefined ? { totalCompletionTokens } : {}),
+          ...(modelGenerationDurationMs !== undefined ? { modelGenerationDurationMs } : {}),
           ...(cacheReadTokens !== undefined ? { cacheReadTokens } : {}),
           ...(cacheWriteTokens !== undefined ? { cacheWriteTokens } : {})
         })
@@ -1103,6 +1109,7 @@ export function createSqliteYachiyoStorage(
           threadId: runsTable.threadId,
           totalCompletionTokens: runsTable.totalCompletionTokens,
           totalPromptTokens: runsTable.totalPromptTokens,
+          modelGenerationDurationMs: runsTable.modelGenerationDurationMs,
           cacheReadTokens: runsTable.cacheReadTokens,
           cacheWriteTokens: runsTable.cacheWriteTokens,
           modelId: runsTable.modelId,

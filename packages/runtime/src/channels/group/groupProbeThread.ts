@@ -260,6 +260,9 @@ export function persistSuccessfulGroupProbeTurn(
     ...(input.result.usage?.totalCompletionTokens != null
       ? { totalCompletionTokens: input.result.usage.totalCompletionTokens }
       : {}),
+    ...(input.result.usage?.modelGenerationDurationMs != null
+      ? { modelGenerationDurationMs: input.result.usage.modelGenerationDurationMs }
+      : {}),
     ...(input.result.usage?.cacheReadTokens != null
       ? { cacheReadTokens: input.result.usage.cacheReadTokens }
       : {}),

@@ -13,6 +13,7 @@ export type VertexProviderFactory = typeof createVertex
 export type GatewayProviderFactory = typeof createGateway
 export type StreamTextImplementation = typeof streamText
 export type SleepImplementation = typeof sleep
+export type NowImplementation = () => number
 
 export interface AiSdkRuntimeDependencies {
   createAnthropicProvider?: AnthropicProviderFactory
@@ -23,6 +24,7 @@ export interface AiSdkRuntimeDependencies {
   streamTextImpl?: StreamTextImplementation
   fetchImpl?: typeof globalThis.fetch
   sleepImpl?: SleepImplementation
+  nowImpl?: NowImplementation
 }
 
 export interface ResolvedAiSdkRuntimeDependencies {
@@ -34,6 +36,7 @@ export interface ResolvedAiSdkRuntimeDependencies {
   streamTextImpl: StreamTextImplementation
   fetchImpl: typeof globalThis.fetch
   sleepImpl: SleepImplementation
+  nowImpl: NowImplementation
 }
 
 export interface FetchModelsDependencies {
@@ -51,6 +54,7 @@ export function resolveAiSdkRuntimeDependencies(
     createVertexProvider: dependencies.createVertexProvider ?? createVertex,
     streamTextImpl: dependencies.streamTextImpl ?? streamText,
     fetchImpl: dependencies.fetchImpl ?? globalThis.fetch,
-    sleepImpl: dependencies.sleepImpl ?? sleep
+    sleepImpl: dependencies.sleepImpl ?? sleep,
+    nowImpl: dependencies.nowImpl ?? (() => performance.now())
   }
 }

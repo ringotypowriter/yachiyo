@@ -113,6 +113,7 @@ export function createSqliteBootstrapStorageMethods(input: {
                   threadId: runsTable.threadId,
                   totalCompletionTokens: runsTable.totalCompletionTokens,
                   totalPromptTokens: runsTable.totalPromptTokens,
+                  modelGenerationDurationMs: runsTable.modelGenerationDurationMs,
                   cacheReadTokens: runsTable.cacheReadTokens,
                   cacheWriteTokens: runsTable.cacheWriteTokens,
                   modelId: runsTable.modelId,

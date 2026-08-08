@@ -792,6 +792,9 @@ export function reduceServerEvent(state: AppState, event: YachiyoServerEvent): P
           : {}),
         ...(event.totalCompletionTokens !== undefined
           ? { totalCompletionTokens: event.totalCompletionTokens }
+          : {}),
+        ...(event.modelGenerationDurationMs !== undefined
+          ? { modelGenerationDurationMs: event.modelGenerationDurationMs }
           : {})
       }),
       runsByThread: updateRunRecord(state.runsByThread, event.threadId, event.runId, (run) => ({
@@ -815,6 +818,9 @@ export function reduceServerEvent(state: AppState, event: YachiyoServerEvent): P
           : {}),
         ...(event.totalCompletionTokens !== undefined
           ? { totalCompletionTokens: event.totalCompletionTokens }
+          : {}),
+        ...(event.modelGenerationDurationMs !== undefined
+          ? { modelGenerationDurationMs: event.modelGenerationDurationMs }
           : {})
       })),
       pendingAssistantMessages,

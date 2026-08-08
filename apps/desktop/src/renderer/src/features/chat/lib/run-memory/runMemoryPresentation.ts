@@ -7,6 +7,25 @@ export interface RunMemorySummary {
   runId: string
 }
 
+export function calculateTokensPerSecond(
+  totalCompletionTokens: number | undefined,
+  modelGenerationDurationMs: number | undefined
+): number | null {
+  if (!totalCompletionTokens || !modelGenerationDurationMs || modelGenerationDurationMs <= 0) {
+    return null
+  }
+
+  return totalCompletionTokens / (modelGenerationDurationMs / 1_000)
+}
+
+export function formatTokensPerSecond(
+  totalCompletionTokens: number | undefined,
+  modelGenerationDurationMs: number | undefined
+): string | null {
+  const tokensPerSecond = calculateTokensPerSecond(totalCompletionTokens, modelGenerationDurationMs)
+  return tokensPerSecond === null ? null : `${Math.round(tokensPerSecond * 10) / 10} tok/s`
+}
+
 function compareRunsNewestFirst(left: RunRecord, right: RunRecord): number {
   const leftFinishedAt = left.completedAt ?? left.createdAt
   const rightFinishedAt = right.completedAt ?? right.createdAt

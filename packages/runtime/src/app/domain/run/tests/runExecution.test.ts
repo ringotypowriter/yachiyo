@@ -36,7 +36,10 @@ function makeUsage(promptTokens: number, completionTokens: number): ModelUsage {
 }
 
 test('mergeRunUsage keeps promptTokens as the current leg size', () => {
-  const result = mergeRunUsage(makeUsage(180_000, 1_000), makeUsage(50_000, 2_000))
+  const result = mergeRunUsage(
+    { ...makeUsage(180_000, 1_000), modelGenerationDurationMs: 1_200 },
+    { ...makeUsage(50_000, 2_000), modelGenerationDurationMs: 800 }
+  )
 
   assert.deepEqual(result, {
     promptTokens: 50_000,
@@ -44,7 +47,8 @@ test('mergeRunUsage keeps promptTokens as the current leg size', () => {
     totalPromptTokens: 230_000,
     totalCompletionTokens: 3_000,
     cacheReadTokens: 0,
-    cacheWriteTokens: 0
+    cacheWriteTokens: 0,
+    modelGenerationDurationMs: 2_000
   })
 })
 

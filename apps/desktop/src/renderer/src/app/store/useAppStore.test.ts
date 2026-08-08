@@ -1535,7 +1535,8 @@ test('applyServerEvent preserves compiled context sources after the run complete
     eventId: 'event-run-completed',
     timestamp: '2026-03-15T00:00:05.000Z',
     threadId: 'thread-1',
-    runId: 'run-1'
+    runId: 'run-1',
+    modelGenerationDurationMs: 2_500
   })
 
   const state = useAppStore.getState()
@@ -1543,9 +1544,11 @@ test('applyServerEvent preserves compiled context sources after the run complete
   assert.equal(state.runsByThread['thread-1']?.[0]?.status, 'completed')
   assert.equal(state.runsByThread['thread-1']?.[0]?.completedAt, '2026-03-15T00:00:05.000Z')
   assert.deepEqual(state.runsByThread['thread-1']?.[0]?.contextSources, contextSources)
+  assert.equal(state.runsByThread['thread-1']?.[0]?.modelGenerationDurationMs, 2_500)
   assert.equal(state.latestRunsByThread['thread-1']?.status, 'completed')
   assert.equal(state.latestRunsByThread['thread-1']?.completedAt, '2026-03-15T00:00:05.000Z')
   assert.deepEqual(state.latestRunsByThread['thread-1']?.contextSources, contextSources)
+  assert.equal(state.latestRunsByThread['thread-1']?.modelGenerationDurationMs, 2_500)
 })
 
 test('applyServerEvent marks completed runs in inactive threads as just done', () => {

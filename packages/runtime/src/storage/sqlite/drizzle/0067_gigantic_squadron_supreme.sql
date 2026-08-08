@@ -1,0 +1,1 @@
+ALTER TABLE `runs` ADD `model_generation_duration_ms` integer;

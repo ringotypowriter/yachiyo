@@ -143,6 +143,27 @@ function setupStorage(): ReturnType<typeof createInMemoryYachiyoStorage> {
   return storage
 }
 
+test('in-memory storage persists model generation duration on completed runs', () => {
+  const storage = createInMemoryYachiyoStorage()
+  const thread = makeThread({ id: 'duration-thread' })
+  storage.createThread({ thread, createdAt: '2026-04-10T00:00:00Z' })
+  storage.startRun({
+    runId: 'duration-run',
+    thread,
+    updatedThread: thread,
+    createdAt: '2026-04-10T00:00:00Z'
+  })
+  storage.completeRun({
+    runId: 'duration-run',
+    updatedThread: { ...thread, updatedAt: '2026-04-10T00:00:05Z' },
+    assistantMessage: makeMessage({ id: 'duration-message', threadId: thread.id }),
+    totalCompletionTokens: 100,
+    modelGenerationDurationMs: 2_500
+  })
+
+  assert.equal(storage.listThreadRuns(thread.id)[0]?.modelGenerationDurationMs, 2_500)
+})
+
 test('getUsageStats returns correct totals', () => {
   const storage = setupStorage()
   const stats = storage.getUsageStats({ period: 'day' })

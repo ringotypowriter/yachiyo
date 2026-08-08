@@ -73,6 +73,7 @@ export interface ExecuteRunInput {
     | 'completionTokens'
     | 'totalPromptTokens'
     | 'totalCompletionTokens'
+    | 'modelGenerationDurationMs'
     | 'cacheReadTokens'
     | 'cacheWriteTokens'
   >

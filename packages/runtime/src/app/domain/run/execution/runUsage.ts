@@ -18,6 +18,7 @@ export function mergeRunUsage(
       completionTokens: prior.completionTokens ?? 0,
       totalPromptTokens: prior.totalPromptTokens ?? 0,
       totalCompletionTokens: prior.totalCompletionTokens ?? 0,
+      modelGenerationDurationMs: prior.modelGenerationDurationMs,
       cacheReadTokens: prior.cacheReadTokens ?? 0,
       cacheWriteTokens: prior.cacheWriteTokens ?? 0
     }
@@ -28,6 +29,8 @@ export function mergeRunUsage(
     completionTokens: (prior.completionTokens ?? 0) + current.completionTokens,
     totalPromptTokens: (prior.totalPromptTokens ?? 0) + current.totalPromptTokens,
     totalCompletionTokens: (prior.totalCompletionTokens ?? 0) + current.totalCompletionTokens,
+    modelGenerationDurationMs:
+      (prior.modelGenerationDurationMs ?? 0) + (current.modelGenerationDurationMs ?? 0),
     cacheReadTokens: (prior.cacheReadTokens ?? 0) + (current.cacheReadTokens ?? 0),
     cacheWriteTokens: (prior.cacheWriteTokens ?? 0) + (current.cacheWriteTokens ?? 0)
   }

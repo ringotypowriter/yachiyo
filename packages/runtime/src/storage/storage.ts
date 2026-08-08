@@ -138,6 +138,7 @@ export interface CompleteRunInput {
   completionTokens?: number
   totalPromptTokens?: number
   totalCompletionTokens?: number
+  modelGenerationDurationMs?: number
   cacheReadTokens?: number
   cacheWriteTokens?: number
   modelId?: string
@@ -150,6 +151,7 @@ interface TerminalRunUsage {
   completionTokens?: number
   totalPromptTokens?: number
   totalCompletionTokens?: number
+  modelGenerationDurationMs?: number
   cacheReadTokens?: number
   cacheWriteTokens?: number
 }
@@ -272,6 +274,7 @@ export interface StoredRunRow {
   completionTokens: number | null
   totalPromptTokens: number | null
   totalCompletionTokens: number | null
+  modelGenerationDurationMs: number | null
   cacheReadTokens: number | null
   cacheWriteTokens: number | null
   modelId: string | null
@@ -1050,6 +1053,9 @@ export function toRunRecord(row: StoredRunRow): RunRecord {
     ...(row.totalCompletionTokens == null
       ? {}
       : { totalCompletionTokens: row.totalCompletionTokens }),
+    ...(row.modelGenerationDurationMs == null
+      ? {}
+      : { modelGenerationDurationMs: row.modelGenerationDurationMs }),
     ...(row.cacheReadTokens == null ? {} : { cacheReadTokens: row.cacheReadTokens }),
     ...(row.cacheWriteTokens == null ? {} : { cacheWriteTokens: row.cacheWriteTokens }),
     ...(row.modelId == null ? {} : { modelId: row.modelId }),

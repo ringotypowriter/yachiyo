@@ -6,6 +6,7 @@ import {
   Clock,
   Database,
   FilePenLine,
+  Gauge,
   GitBranchPlus,
   GitCompareArrows,
   MessageSquareText,
@@ -26,7 +27,8 @@ import { canBranchFromAskUserToolCall } from '../lib/branching/askUserBranchActi
 import { formatToolFilePathList } from '../lib/tool-calls/toolCallPresentation.ts'
 import {
   countToolCallsForRun,
-  findLatestRunForRequests
+  findLatestRunForRequests,
+  formatTokensPerSecond
 } from '../lib/run-memory/runMemoryPresentation.ts'
 import { ToolCallGroupRow } from './ToolCallGroupRow.tsx'
 import { ToolCallRow } from './ToolCallRow.tsx'
@@ -144,6 +146,10 @@ export function AgentWorkSummaryRow({
       fileCount,
       runId: run.id,
       threadId: run.threadId,
+      tokensPerSecondLabel: formatTokensPerSecond(
+        run.totalCompletionTokens,
+        run.modelGenerationDurationMs
+      ),
       toolCallCount: countToolCallsForRun(toolCalls, run.id) || toolCalls.length,
       workspacePath:
         run.workspacePath ?? snapshotReviewByRun[run.id]?.workspacePath ?? workspacePath ?? ''
@@ -179,13 +185,6 @@ export function AgentWorkSummaryRow({
       packElement.classList.add('yachiyo-work-summary-pack--animate')
     }
   }, [runInfo])
-
-  const compactTitleParts = [
-    t('chat.workSummary.title'),
-    toolCallCount > 0 ? t('chat.workSummary.actionsCount', { count: toolCallCount }) : null,
-    fileCount > 0 ? t('chat.workSummary.filesCount', { count: fileCount }) : null,
-    runInfo ? formatElapsed(runInfo.elapsedMs) : null
-  ].filter((part): part is string => part !== null)
 
   return (
     <div className="px-6 py-1.5">
@@ -233,7 +232,7 @@ export function AgentWorkSummaryRow({
               className="block truncate text-[11px]"
               style={{ color: theme.text.secondary, fontWeight: 650 }}
             >
-              {compactTitleParts.join(' · ')}
+              {t('chat.workSummary.title')}
             </span>
             <span
               className="mt-0.5 block truncate text-[10.5px]"
@@ -251,6 +250,10 @@ export function AgentWorkSummaryRow({
           <Metric
             icon={<Clock size={11} strokeWidth={1.7} />}
             value={runInfo ? formatElapsed(runInfo.elapsedMs) : null}
+          />
+          <Metric
+            icon={<Gauge size={11} strokeWidth={1.7} />}
+            value={runInfo?.tokensPerSecondLabel ?? null}
           />
           <Metric
             icon={<Wrench size={11} strokeWidth={1.7} />}

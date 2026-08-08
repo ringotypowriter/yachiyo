@@ -716,6 +716,69 @@ test('streamReply injects reasoning_content into responseMessages for OpenAI-com
   assert.equal(responseMessages[2].content[0].type, 'text')
 })
 
+test('streamReply measures model generation time without counting tool waits', async () => {
+  const nowValues = [100, 500, 2_000, 2_100, 2_200, 2_800]
+  let finishedUsage: { modelGenerationDurationMs?: number } | undefined
+  const runtime = createAiSdkModelRuntime({
+    createOpenAIProvider: () =>
+      ({
+        chat: (modelId: string) => ({ modelId, provider: 'openai.chat' })
+      }) as never,
+    createAnthropicProvider: () => {
+      throw new Error('unused')
+    },
+    nowImpl: () => nowValues.shift()!,
+    streamTextImpl: ((options: {
+      experimental_onToolCallStart?: (event: { toolCall: { toolCallId: string } }) => void
+      experimental_onToolCallFinish?: (event: { toolCall: { toolCallId: string } }) => void
+    }) => ({
+      fullStream: (async function* () {
+        yield { type: 'start-step' }
+        options.experimental_onToolCallStart?.({ toolCall: { toolCallId: 'tool-1' } })
+        options.experimental_onToolCallStart?.({ toolCall: { toolCallId: 'tool-2' } })
+        options.experimental_onToolCallFinish?.({ toolCall: { toolCallId: 'tool-1' } })
+        options.experimental_onToolCallFinish?.({ toolCall: { toolCallId: 'tool-2' } })
+        yield {
+          type: 'finish-step',
+          finishReason: 'tool-calls',
+          usage: { inputTokens: 100, outputTokens: 20 }
+        }
+        yield { type: 'start-step' }
+        yield {
+          type: 'finish-step',
+          finishReason: 'stop',
+          usage: { inputTokens: 120, outputTokens: 30 }
+        }
+        yield { type: 'finish', finishReason: 'stop' }
+      })(),
+      usage: Promise.resolve({ inputTokens: 120, outputTokens: 30 }),
+      totalUsage: Promise.resolve({ inputTokens: 220, outputTokens: 50 }),
+      finishReason: Promise.resolve('stop')
+    })) as never
+  })
+
+  const chunks: string[] = []
+  for await (const chunk of runtime.streamReply({
+    messages: [{ role: 'user', content: 'Use a tool, then answer.' }],
+    settings: {
+      providerName: 'test',
+      provider: 'openai',
+      model: 'test-model',
+      apiKey: 'sk-test',
+      baseUrl: 'https://example.com'
+    },
+    signal: new AbortController().signal,
+    onFinish: (usage) => {
+      finishedUsage = usage
+    }
+  })) {
+    chunks.push(chunk)
+  }
+
+  assert.deepEqual(chunks, [])
+  assert.equal(finishedUsage?.modelGenerationDurationMs, 1_100)
+})
+
 test('streamReply does not double-inject reasoning_content when it already exists', async () => {
   let finishedUsage:
     | {

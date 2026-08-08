@@ -4,6 +4,8 @@ import test from 'node:test'
 import type { ToolCall } from '@renderer/app/types'
 
 import {
+  calculateTokensPerSecond,
+  formatTokensPerSecond,
   compactNovelTermsForDisplay,
   countToolCallsForRun,
   findLatestRunForRequest,
@@ -11,6 +13,19 @@ import {
   findRunMemorySummary,
   findRunMemorySummaryForRequests
 } from './runMemoryPresentation.ts'
+
+test('calculateTokensPerSecond uses total output tokens and model generation time', () => {
+  assert.equal(calculateTokensPerSecond(250, 2_000), 125)
+  assert.equal(calculateTokensPerSecond(undefined, 2_000), null)
+  assert.equal(calculateTokensPerSecond(250, undefined), null)
+  assert.equal(calculateTokensPerSecond(250, 0), null)
+})
+
+test('formatTokensPerSecond produces the shared footer and WorkSummary label', () => {
+  assert.equal(formatTokensPerSecond(250, 2_000), '125 tok/s')
+  assert.equal(formatTokensPerSecond(50, 1_600), '31.3 tok/s')
+  assert.equal(formatTokensPerSecond(undefined, 1_600), null)
+})
 
 test('findRunMemorySummary returns the latest recalled memory for a request', () => {
   const summary = findRunMemorySummary(

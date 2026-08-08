@@ -155,6 +155,7 @@ test('persistSuccessfulGroupProbeTurn stores hidden request/assistant messages a
         completionTokens: 45,
         totalPromptTokens: 321,
         totalCompletionTokens: 45,
+        modelGenerationDurationMs: 1_500,
         responseMessages: [
           {
             role: 'assistant',
@@ -186,6 +187,7 @@ test('persistSuccessfulGroupProbeTurn stores hidden request/assistant messages a
   ])
   assert.equal(runs.length, 1)
   assert.equal(runs[0]?.status, 'completed')
+  assert.equal(runs[0]?.modelGenerationDurationMs, 1_500)
   assert.equal(storage.getThreadTotalTokens(thread.id), 321)
 })
 

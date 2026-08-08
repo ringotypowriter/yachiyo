@@ -36,6 +36,8 @@ export interface ModelUsage {
   completionTokens: number
   totalPromptTokens: number
   totalCompletionTokens: number
+  /** Combined wall-clock duration of completed model generation steps, excluding tool execution. */
+  modelGenerationDurationMs?: number
   cacheReadTokens?: number
   cacheWriteTokens?: number
   /**
