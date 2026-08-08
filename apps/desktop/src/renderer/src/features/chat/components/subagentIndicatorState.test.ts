@@ -1,7 +1,12 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { buildSubagentIndicatorStream, canCancelFromIndicator } from './subagentIndicatorState.ts'
+import {
+  buildSubagentIndicatorStream,
+  canCancelFromIndicator,
+  resolveSubagentIndicatorAgent,
+  resolveSubagentIndicatorTabIndex
+} from './subagentIndicatorState.ts'
 
 test('canCancelFromIndicator disables inline cancel when multiple agents are active', () => {
   assert.equal(
@@ -15,6 +20,33 @@ test('canCancelFromIndicator disables inline cancel when multiple agents are act
     canCancelFromIndicator([{ delegationId: 'a', agentName: 'Worker A', progress: 'alpha' }]),
     true
   )
+})
+
+test('resolveSubagentIndicatorAgent keeps the selected tab while that agent remains active', () => {
+  const agents = [
+    { delegationId: 'a', agentName: 'Worker A', progress: 'alpha' },
+    { delegationId: 'b', agentName: 'Worker B', progress: 'beta' }
+  ]
+
+  assert.equal(resolveSubagentIndicatorAgent(agents, 'b'), agents[1])
+})
+
+test('resolveSubagentIndicatorAgent falls back to the first active agent', () => {
+  const agents = [
+    { delegationId: 'a', agentName: 'Worker A', progress: 'alpha' },
+    { delegationId: 'b', agentName: 'Worker B', progress: 'beta' }
+  ]
+
+  assert.equal(resolveSubagentIndicatorAgent(agents, 'finished'), agents[0])
+  assert.equal(resolveSubagentIndicatorAgent([], 'finished'), undefined)
+})
+
+test('resolveSubagentIndicatorTabIndex supports wrapping arrow and boundary navigation', () => {
+  assert.equal(resolveSubagentIndicatorTabIndex(3, 0, 'ArrowLeft'), 2)
+  assert.equal(resolveSubagentIndicatorTabIndex(3, 2, 'ArrowRight'), 0)
+  assert.equal(resolveSubagentIndicatorTabIndex(3, 1, 'Home'), 0)
+  assert.equal(resolveSubagentIndicatorTabIndex(3, 1, 'End'), 2)
+  assert.equal(resolveSubagentIndicatorTabIndex(0, 0, 'Home'), -1)
 })
 
 test('buildSubagentIndicatorStream preserves interleaved progress order', () => {

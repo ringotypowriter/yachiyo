@@ -15,6 +15,27 @@ export function canCancelFromIndicator(agents: SubagentIndicatorAgent[]): boolea
   return agents.length === 1
 }
 
+export function resolveSubagentIndicatorAgent<T extends SubagentIndicatorAgent>(
+  agents: T[],
+  selectedDelegationId: string | null
+): T | undefined {
+  return agents.find((agent) => agent.delegationId === selectedDelegationId) ?? agents[0]
+}
+
+export type SubagentIndicatorTabKey = 'ArrowLeft' | 'ArrowRight' | 'Home' | 'End'
+
+export function resolveSubagentIndicatorTabIndex(
+  agentCount: number,
+  currentIndex: number,
+  key: SubagentIndicatorTabKey
+): number {
+  if (agentCount === 0) return -1
+  if (key === 'Home') return 0
+  if (key === 'End') return agentCount - 1
+  if (key === 'ArrowLeft') return (currentIndex - 1 + agentCount) % agentCount
+  return (currentIndex + 1) % agentCount
+}
+
 /** Build a plain-text stream with labeled agent sections. */
 export function buildSubagentIndicatorStream(
   entries: SubagentIndicatorProgressEntry[],
