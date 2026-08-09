@@ -150,7 +150,7 @@ jobs:
     name: Build and publish Windows x64
     needs: [version, build_macos]
     if: needs.version.outputs.released == 'true' && needs.build_macos.result == 'success'
-    runs-on: windows-latest
+    runs-on: windows-2022
     permissions:
       contents: write
     steps:

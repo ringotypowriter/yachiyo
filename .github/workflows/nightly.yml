@@ -166,7 +166,7 @@ jobs:
   build_windows:
     name: Build and publish Windows x64 nightly
     needs: [version, build_macos]
-    runs-on: windows-latest
+    runs-on: windows-2022
     permissions:
       contents: write
     env:
