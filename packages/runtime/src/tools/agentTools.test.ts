@@ -32,7 +32,12 @@ async function withWorkspace(fn: (workspacePath: string) => Promise<void> | void
   try {
     await fn(workspacePath)
   } finally {
-    await rm(workspacePath, { recursive: true, force: true })
+    await rm(workspacePath, {
+      recursive: true,
+      force: true,
+      maxRetries: process.platform === 'win32' ? 5 : 0,
+      retryDelay: 100
+    })
   }
 }
 
@@ -573,7 +578,7 @@ test('streamBashTool abortSignal kills spawned child processes, not just the she
     const childPidPath = join(workspacePath, 'child.pid')
     const windowsChildCommand = buildBashCommand(process.execPath.replaceAll('\\', '/'), [
       '-e',
-      `require('node:fs').writeFileSync(${JSON.stringify(childPidPath)}, String(process.pid)); setInterval(() => {}, 60_000)`
+      `require('fs').writeFileSync('child.pid', String(process.pid)); setTimeout(() => {}, 30_000)`
     ])
     const command =
       process.platform === 'win32'
@@ -594,39 +599,46 @@ test('streamBashTool abortSignal kills spawned child processes, not just the she
     )
 
     let childPid = 0
-    const deadline = Date.now() + 5000
-    while (Date.now() < deadline) {
-      try {
-        childPid = Number.parseInt((await readFile(childPidPath, 'utf8')).trim(), 10)
-      } catch {
-        // Wait for the shell to spawn the child and write its pid.
+    try {
+      const deadline = Date.now() + 5000
+      while (Date.now() < deadline) {
+        try {
+          childPid = Number.parseInt((await readFile(childPidPath, 'utf8')).trim(), 10)
+        } catch {
+          // Wait for the shell to spawn the child and write its pid.
+        }
+        if (Number.isInteger(childPid) && childPid > 0) {
+          break
+        }
+        await new Promise((resolve) => setTimeout(resolve, 20))
       }
-      if (Number.isInteger(childPid) && childPid > 0) {
-        break
+
+      assert.ok(childPid > 0, 'expected bash command to record a child pid before abort')
+
+      controller.abort()
+
+      await assert.rejects(
+        drain,
+        (error: unknown) => error instanceof Error && error.name === 'AbortError'
+      )
+
+      const killDeadline = Date.now() + 3000
+      while (Date.now() < killDeadline && processExists(childPid)) {
+        await new Promise((resolve) => setTimeout(resolve, 20))
       }
-      await new Promise((resolve) => setTimeout(resolve, 20))
+
+      assert.equal(
+        processExists(childPid),
+        false,
+        'expected abort to kill the spawned child process too'
+      )
+    } finally {
+      controller.abort()
+      await Promise.allSettled([drain])
+      if (childPid > 0 && processExists(childPid)) {
+        process.kill(childPid, 'SIGKILL')
+      }
     }
-
-    assert.ok(childPid > 0, 'expected bash command to record a child pid before abort')
-
-    controller.abort()
-
-    await assert.rejects(
-      drain,
-      (error: unknown) => error instanceof Error && error.name === 'AbortError'
-    )
-
-    const killDeadline = Date.now() + 3000
-    while (Date.now() < killDeadline && processExists(childPid)) {
-      await new Promise((resolve) => setTimeout(resolve, 20))
-    }
-
-    const stillRunning = processExists(childPid)
-    if (stillRunning) {
-      process.kill(childPid, 'SIGKILL')
-    }
-
-    assert.equal(stillRunning, false, 'expected abort to kill the spawned child process too')
   })
 })
 

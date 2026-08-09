@@ -1,6 +1,6 @@
 import { lstat, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { homedir, tmpdir } from 'node:os'
-import { dirname, isAbsolute, join, relative, resolve } from 'node:path'
+import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 
 import type { FileSnapshotEntry, RunSnapshot, SnapshotSummary } from '@yachiyo/shared/fileSnapshot'
 import { hashContent, hashWorkspacePath, readBlob, storeBlob } from './casStore.ts'
@@ -45,10 +45,40 @@ const SHARED_EXTERNAL_BLACKLIST = new Set(
   ].map((p) => resolve(p))
 )
 
+export interface SnapshotPathApi {
+  resolve(path: string): string
+  relative(from: string, to: string): string
+  isAbsolute(path: string): boolean
+  sep: string
+}
+
+const nativeSnapshotPathApi: SnapshotPathApi = { resolve, relative, isAbsolute, sep }
+
+export function normalizeSnapshotPath(
+  path: string,
+  pathApi: Pick<SnapshotPathApi, 'resolve'> = nativeSnapshotPathApi
+): string {
+  return pathApi.resolve(path)
+}
+
+export function isSameOrDescendantSnapshotPath(
+  root: string,
+  candidate: string,
+  pathApi: SnapshotPathApi = nativeSnapshotPathApi
+): boolean {
+  const relativePath = pathApi.relative(pathApi.resolve(root), pathApi.resolve(candidate))
+  return (
+    relativePath === '' ||
+    (relativePath !== '..' &&
+      !relativePath.startsWith(`..${pathApi.sep}`) &&
+      !pathApi.isAbsolute(relativePath))
+  )
+}
+
 function isBlacklistedExternalDir(dir: string): boolean {
   const resolvedDir = resolve(dir)
   for (const blacklisted of SHARED_EXTERNAL_BLACKLIST) {
-    if (resolvedDir === blacklisted || resolvedDir.startsWith(blacklisted + '/')) {
+    if (isSameOrDescendantSnapshotPath(blacklisted, resolvedDir)) {
       return true
     }
   }
@@ -77,7 +107,7 @@ async function globFiles(
   // symlink entries entirely (returns []), so a file accessed through a
   // symlinked path would never be baseline-backed. Loop and cost are bounded
   // by `deep` and the SCAN_IGNORE list.
-  return cachedGlob('**/*', {
+  const files = await cachedGlob('**/*', {
     cwd,
     absolute: true,
     onlyFiles: true,
@@ -85,6 +115,7 @@ async function globFiles(
     ignore,
     followSymbolicLinks: true
   })
+  return files.map((file) => normalizeSnapshotPath(file))
 }
 
 /** Load .gitignore from the workspace root (if present) and return a filter. */

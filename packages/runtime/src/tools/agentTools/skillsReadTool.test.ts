@@ -6,6 +6,10 @@ import test from 'node:test'
 
 import { runSkillsReadTool } from './skillsReadTool.ts'
 
+function markdownPath(path: string): string {
+  return path.replaceAll('\\', '/')
+}
+
 test('runSkillsReadTool returns full SKILL.md content under the size guard', async () => {
   const root = await mkdtemp(join(tmpdir(), 'yachiyo-skills-read-'))
   const skillDir = join(root, 'workspace-refactor')
@@ -72,11 +76,11 @@ test('runSkillsReadTool rewrites relative markdown links to absolute paths', asy
 
     const content = result.details.skills[0]?.content ?? ''
     assert.ok(
-      content.includes(`${skillDir}/guide.md`),
+      content.includes(markdownPath(join(skillDir, 'guide.md'))),
       'relative guide.md should be rewritten to absolute'
     )
     assert.ok(
-      content.includes(`${skillDir}/images/diagram.png`),
+      content.includes(markdownPath(join(skillDir, 'images', 'diagram.png'))),
       'relative diagram.png should be rewritten to absolute'
     )
   } finally {

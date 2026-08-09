@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict'
+import { tmpdir } from 'node:os'
+import { basename } from 'node:path'
 import { describe, it, mock } from 'node:test'
 
 import type {
@@ -121,22 +123,28 @@ function createMockServer(): {
   }
   notifications: MockNotification[]
   sentChats: Array<{ threadId: string; content: string; runTrigger?: string }>
+  createdThreadWorkspacePaths: string[]
 } {
   const listeners = new Set<(event: YachiyoServerEvent) => void>()
   const notifications: MockNotification[] = []
   const sentChats: Array<{ threadId: string; content: string; runTrigger?: string }> = []
+  const createdThreadWorkspacePaths: string[] = []
 
   return {
     notifications,
     sentChats,
+    createdThreadWorkspacePaths,
     server: {
-      createThread: async ({ workspacePath, title }) => ({
-        id: 'thread-1',
-        title: title ?? 'Schedule: One-off',
-        updatedAt: '2026-01-01T00:00:00.000Z',
-        workspacePath,
-        source: 'local'
-      }),
+      createThread: async ({ workspacePath, title }) => {
+        if (workspacePath) createdThreadWorkspacePaths.push(workspacePath)
+        return {
+          id: 'thread-1',
+          title: title ?? 'Schedule: One-off',
+          updatedAt: '2026-01-01T00:00:00.000Z',
+          workspacePath,
+          source: 'local'
+        }
+      },
       setThreadModelOverride: async () => ({
         id: 'thread-1',
         title: 'Schedule: One-off',
@@ -230,7 +238,7 @@ describe('createScheduleService', () => {
           let next = 0
           return () => `2026-01-01T00:00:0${next++}.000Z`
         })(),
-        tempWorkspaceDir: '/tmp'
+        tempWorkspaceDir: tmpdir()
       })
 
       service.reload()
@@ -275,7 +283,7 @@ describe('createScheduleService', () => {
           let next = 0
           return () => `2026-01-01T00:00:0${next++}.000Z`
         })(),
-        tempWorkspaceDir: '/tmp'
+        tempWorkspaceDir: tmpdir()
       })
 
       service.reload()
@@ -326,7 +334,7 @@ describe('createScheduleService', () => {
           let next = 0
           return () => `2026-01-01T00:00:0${next++}.000Z`
         })(),
-        tempWorkspaceDir: '/tmp'
+        tempWorkspaceDir: tmpdir()
       })
 
       service.reload()
@@ -364,7 +372,7 @@ describe('createScheduleService', () => {
           let next = 0
           return () => `2026-01-01T00:00:0${next++}.000Z`
         })(),
-        tempWorkspaceDir: '/tmp'
+        tempWorkspaceDir: tmpdir()
       })
 
       service.start()
@@ -399,7 +407,7 @@ describe('createScheduleService', () => {
         storage,
         createId: () => 'run-1',
         timestamp: () => '2026-01-01T00:00:00.000Z',
-        tempWorkspaceDir: '/tmp'
+        tempWorkspaceDir: tmpdir()
       })
 
       service.start()
@@ -430,7 +438,7 @@ describe('createScheduleService', () => {
           let next = 0
           return () => `2026-01-01T00:00:0${next++}.000Z`
         })(),
-        tempWorkspaceDir: '/tmp'
+        tempWorkspaceDir: tmpdir()
       })
 
       service.reload()
@@ -466,7 +474,7 @@ describe('createScheduleService', () => {
         let next = 0
         return () => `2026-01-01T00:00:0${next++}.000Z`
       })(),
-      tempWorkspaceDir: '/tmp'
+      tempWorkspaceDir: tmpdir()
     })
     service.reload()
     await flushAsyncWork()
@@ -532,9 +540,14 @@ describe('createScheduleService', () => {
     const fetchRestore = mock.method(globalThis, 'fetch', async () => ({ ok: true }) as Response)
     mock.timers.enable({ apis: ['Date', 'setTimeout'] })
     try {
-      const { sentChats } = await runReviewFire(storage)
+      const { sentChats, createdThreadWorkspacePaths } = await runReviewFire(storage)
       await waitFor(() => sentChats.length === 1)
       assert.equal(sentChats.length, 1)
+      assert.equal(
+        basename(createdThreadWorkspacePaths[0]!),
+        'schedule-bundled-self-review',
+        'temporary schedule workspaces must use a Windows-safe directory name'
+      )
     } finally {
       fetchRestore.mock.restore()
       mock.timers.reset()
@@ -584,7 +597,7 @@ describe('createScheduleService', () => {
           return () => `run-${++next}`
         })(),
         timestamp: () => new Date().toISOString(),
-        tempWorkspaceDir: '/tmp'
+        tempWorkspaceDir: tmpdir()
       })
       service.reload()
       await flushAsyncWork()

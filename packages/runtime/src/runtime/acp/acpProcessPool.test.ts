@@ -6,22 +6,24 @@ import { AcpProcessPool, IDLE_TTL_MS, SIGTERM_TIMEOUT_MS } from './acpProcessPoo
 import type { AcpProcessPoolKey } from './acpProcessPool.ts'
 import type { AcpWarmSession } from './acpSessionClient.ts'
 
+interface Termination {
+  operation: 'graceful' | 'force'
+  pid: number
+}
+
+let nextPid = 10_000
+
 function makeResult(overrides?: Partial<AcpWarmSession>): AcpWarmSession & {
   resolve: () => void
-  signals: NodeJS.Signals[]
 } {
   let resolveExited!: () => void
   const procExited = new Promise<void>((res) => {
     resolveExited = res
   })
 
-  const signals: NodeJS.Signals[] = []
   const proc = {
-    pid: undefined, // no real PID — forces fallback to proc.kill()
-    kill: (signal?: NodeJS.Signals | number) => {
-      signals.push((signal as NodeJS.Signals) ?? 'SIGTERM')
-      return true
-    },
+    pid: nextPid++,
+    kill: () => assert.fail('pool tests must terminate through ProcessTree'),
     stderr: new EventEmitter(),
     stdin: null,
     stdout: null
@@ -34,9 +36,25 @@ function makeResult(overrides?: Partial<AcpWarmSession>): AcpWarmSession & {
     procExited,
     adapterRef: { current: {} as never },
     resolve: resolveExited,
-    signals,
     ...overrides
   }
+}
+
+function makePool(): { pool: AcpProcessPool; terminations: Termination[] } {
+  const terminations: Termination[] = []
+  const pool = new AcpProcessPool({
+    processTree: {
+      gracefullyTerminate: (pid) => {
+        terminations.push({ operation: 'graceful', pid })
+        return { delivered: true }
+      },
+      forceTerminate: (pid) => {
+        terminations.push({ operation: 'force', pid })
+        return { delivered: true }
+      }
+    }
+  })
+  return { pool, terminations }
 }
 
 function makeKey(threadId: string, sessionKey: string): AcpProcessPoolKey {
@@ -44,12 +62,12 @@ function makeKey(threadId: string, sessionKey: string): AcpProcessPoolKey {
 }
 
 test('AcpProcessPool checkout returns null when empty', () => {
-  const pool = new AcpProcessPool()
+  const { pool } = makePool()
   assert.equal(pool.checkout(makeKey('thread-1', 'session-1')), null)
 })
 
 test('AcpProcessPool checkout returns and removes idle entry', () => {
-  const pool = new AcpProcessPool()
+  const { pool } = makePool()
   const result = makeResult()
   const key = makeKey('thread-1', 'session-1')
   pool.checkin(key, result)
@@ -65,7 +83,7 @@ test('AcpProcessPool checkout cancels idle timer', async (t) => {
   const clock = t.mock.timers
   clock.enable({ apis: ['setTimeout'] })
 
-  const pool = new AcpProcessPool()
+  const { pool, terminations } = makePool()
   const result = makeResult()
   const key = makeKey('thread-1', 'session-1')
   pool.checkin(key, result)
@@ -75,58 +93,60 @@ test('AcpProcessPool checkout cancels idle timer', async (t) => {
   // Advance past idle TTL — no kill should happen because timer was cleared
   clock.tick(IDLE_TTL_MS + 100)
   await Promise.resolve() // flush microtasks
-  assert.deepEqual(result.signals, [], 'no kill signal after checkout cleared the timer')
+  assert.deepEqual(terminations, [], 'no termination after checkout cleared the timer')
 })
 
-test('AcpProcessPool evicts with SIGTERM then SIGKILL on timeout', async (t) => {
+test('AcpProcessPool evicts gracefully then force-terminates on timeout', async (t) => {
   const clock = t.mock.timers
   clock.enable({ apis: ['setTimeout'] })
 
-  const pool = new AcpProcessPool()
+  const { pool, terminations } = makePool()
   const result = makeResult()
   const key = makeKey('thread-1', 'session-1')
   pool.checkin(key, result)
 
   const evictPromise = pool.evict(key)
 
-  // Process hasn't exited yet — SIGTERM should have been sent
-  assert.deepEqual(result.signals, ['SIGTERM'])
+  assert.deepEqual(terminations, [{ operation: 'graceful', pid: result.proc.pid }])
 
-  // Advance past SIGTERM timeout — SIGKILL should fire
+  // Advance past the graceful timeout — force termination should fire.
   clock.tick(SIGTERM_TIMEOUT_MS + 100)
   await Promise.resolve()
 
-  assert.ok(result.signals.includes('SIGKILL'), 'should send SIGKILL after timeout')
+  assert.deepEqual(terminations, [
+    { operation: 'graceful', pid: result.proc.pid },
+    { operation: 'force', pid: result.proc.pid }
+  ])
 
   // Resolve process and settle
   result.resolve()
   await evictPromise
 })
 
-test('AcpProcessPool evict does not SIGKILL if process exits before timeout', async (t) => {
+test('AcpProcessPool evict does not force-terminate if process exits before timeout', async (t) => {
   const clock = t.mock.timers
   clock.enable({ apis: ['setTimeout'] })
 
-  const pool = new AcpProcessPool()
+  const { pool, terminations } = makePool()
   const result = makeResult()
   const key = makeKey('thread-1', 'session-1')
   pool.checkin(key, result)
 
   const evictPromise = pool.evict(key)
-  assert.deepEqual(result.signals, ['SIGTERM'])
+  assert.deepEqual(terminations, [{ operation: 'graceful', pid: result.proc.pid }])
 
-  // Process exits before the SIGKILL timer fires
+  // Process exits before the force-termination timer fires.
   result.resolve()
   await evictPromise
 
   // Advance past the timeout — no further signals
   clock.tick(SIGTERM_TIMEOUT_MS + 100)
   await Promise.resolve()
-  assert.deepEqual(result.signals, ['SIGTERM'], 'only SIGTERM, no SIGKILL')
+  assert.deepEqual(terminations, [{ operation: 'graceful', pid: result.proc.pid }])
 })
 
 test('AcpProcessPool shutdown drains all idle entries', async () => {
-  const pool = new AcpProcessPool()
+  const { pool, terminations } = makePool()
   const r1 = makeResult()
   const r2 = makeResult()
   pool.checkin(makeKey('thread-1', 'session-1'), r1)
@@ -140,12 +160,14 @@ test('AcpProcessPool shutdown drains all idle entries', async () => {
 
   assert.equal(pool.checkout(makeKey('thread-1', 'session-1')), null)
   assert.equal(pool.checkout(makeKey('thread-2', 'session-2')), null)
-  assert.ok(r1.signals.includes('SIGTERM'))
-  assert.ok(r2.signals.includes('SIGTERM'))
+  assert.deepEqual(terminations, [
+    { operation: 'graceful', pid: r1.proc.pid },
+    { operation: 'graceful', pid: r2.proc.pid }
+  ])
 })
 
 test('AcpProcessPool auto-evicts when process exits on its own while idle', async () => {
-  const pool = new AcpProcessPool()
+  const { pool } = makePool()
   const result = makeResult()
   const key = makeKey('thread-1', 'session-1')
   pool.checkin(key, result)
@@ -161,7 +183,7 @@ test('AcpProcessPool replaces existing idle entry on double checkin', async (t) 
   const clock = t.mock.timers
   clock.enable({ apis: ['setTimeout'] })
 
-  const pool = new AcpProcessPool()
+  const { pool, terminations } = makePool()
   const old = makeResult()
   const fresh = makeResult()
 
@@ -172,7 +194,7 @@ test('AcpProcessPool replaces existing idle entry on double checkin', async (t) 
   // Re-checkin with a new result — should kill the old one
   pool.checkin(key, fresh)
 
-  assert.ok(old.signals.includes('SIGTERM'), 'old process received SIGTERM on replacement')
+  assert.deepEqual(terminations, [{ operation: 'graceful', pid: old.proc.pid }])
 
   const out = pool.checkout(key)
   assert.equal(out?.proc, fresh.proc, 'pool holds the fresh process')
@@ -181,8 +203,8 @@ test('AcpProcessPool replaces existing idle entry on double checkin', async (t) 
   fresh.resolve()
 })
 
-test('AcpProcessPool syncKillAll sends SIGKILL to all entries', () => {
-  const pool = new AcpProcessPool()
+test('AcpProcessPool syncKillAll force-terminates all entries', () => {
+  const { pool, terminations } = makePool()
   const r1 = makeResult()
   const r2 = makeResult()
   pool.checkin(makeKey('thread-1', 'session-1'), r1)
@@ -190,14 +212,16 @@ test('AcpProcessPool syncKillAll sends SIGKILL to all entries', () => {
 
   pool.syncKillAll()
 
-  assert.ok(r1.signals.includes('SIGKILL'))
-  assert.ok(r2.signals.includes('SIGKILL'))
+  assert.deepEqual(terminations, [
+    { operation: 'force', pid: r1.proc.pid },
+    { operation: 'force', pid: r2.proc.pid }
+  ])
   assert.equal(pool.checkout(makeKey('thread-1', 'session-1')), null)
   assert.equal(pool.checkout(makeKey('thread-2', 'session-2')), null)
 })
 
 test('AcpProcessPool keeps idle entries isolated by session key', () => {
-  const pool = new AcpProcessPool()
+  const { pool } = makePool()
   const result = makeResult()
   const firstKey = makeKey('thread-1', 'profile-old')
   const secondKey = makeKey('thread-1', 'profile-new')
@@ -209,7 +233,7 @@ test('AcpProcessPool keeps idle entries isolated by session key', () => {
 })
 
 test('AcpProcessPool evictThread removes every idle entry for the archived thread', async () => {
-  const pool = new AcpProcessPool()
+  const { pool } = makePool()
   const threadOneA = makeResult()
   const threadOneB = makeResult()
   const threadTwo = makeResult()

@@ -1,5 +1,5 @@
 import { mkdir, stat, writeFile } from 'node:fs/promises'
-import { isAbsolute, join, relative, resolve } from 'node:path'
+import { isAbsolute, join, resolve } from 'node:path'
 
 import { tool, type Tool } from 'ai'
 
@@ -10,11 +10,13 @@ import {
   FORBIDDEN_HUGE_SEARCH_ROOT_MESSAGE,
   grepToolInputSchema,
   isForbiddenHugeSearchRoot,
+  normalizeToolDisplayPath,
   resolveSearchToolTargets,
   type AgentToolContext,
   type GrepToolInput,
   type GrepToolOutput,
   textContent,
+  toWorkspaceDisplayPath,
   toToolModelOutput
 } from './shared.ts'
 
@@ -242,36 +244,13 @@ async function spillToFile(
   content: string
 ): Promise<{ relativePath: string; absolutePath: string }> {
   const filename = `grep-${Date.now()}.txt`
-  const relativePath = join(AUTO_SAVE_DIR, filename)
-  const absolutePath = join(workspacePath, relativePath)
+  const nativeRelativePath = join(AUTO_SAVE_DIR, filename)
+  const absolutePath = join(workspacePath, nativeRelativePath)
   await mkdir(join(workspacePath, AUTO_SAVE_DIR), { recursive: true })
   await writeFile(absolutePath, content, 'utf8')
-  return { relativePath, absolutePath }
+  return { relativePath: normalizeToolDisplayPath(nativeRelativePath), absolutePath }
 }
 
 function formatResolvedTargetPath(paths: string[]): string {
   return paths.join('\n')
-}
-
-function toWorkspaceDisplayPath(
-  workspacePath: string,
-  rootPath: string,
-  matchPath: string
-): string {
-  const absoluteMatchPath = isAbsolute(matchPath) ? matchPath : resolve(rootPath, matchPath)
-  const relativeToWorkspace = relative(workspacePath, absoluteMatchPath)
-
-  if (
-    relativeToWorkspace &&
-    !relativeToWorkspace.startsWith('..') &&
-    !isAbsolute(relativeToWorkspace)
-  ) {
-    return relativeToWorkspace
-  }
-
-  if (relativeToWorkspace === '') {
-    return '.'
-  }
-
-  return matchPath
 }

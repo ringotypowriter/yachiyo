@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, stat, utimes, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import test from 'node:test'
@@ -253,13 +253,21 @@ test('channels config cache stays correct across external edits and mutation', a
     const filePath = join(root, 'channels.toml')
     try {
       writeChannelsConfig({ telegram: { enabled: true, botToken: 'one' } }, filePath)
+      const fixedTimestamp = new Date('2026-01-01T00:00:00.000Z')
+      await utimes(filePath, fixedTimestamp, fixedTimestamp)
       assert.equal(readChannelsConfig(filePath, {}).telegram?.botToken, 'one')
-      // Simulate an external process rewriting the file.
+
+      const before = await stat(filePath)
+      // Simulate a same-size external rewrite within one filesystem timestamp tick.
       await writeFile(
         filePath,
         stringifyChannelsToml({ telegram: { enabled: true, botToken: 'two' } }),
         'utf8'
       )
+      await utimes(filePath, fixedTimestamp, fixedTimestamp)
+      const after = await stat(filePath)
+      assert.equal(after.size, before.size)
+      assert.equal(after.mtimeMs, before.mtimeMs)
       assert.equal(readChannelsConfig(filePath, {}).telegram?.botToken, 'two')
     } finally {
       await rm(root, { recursive: true, force: true })

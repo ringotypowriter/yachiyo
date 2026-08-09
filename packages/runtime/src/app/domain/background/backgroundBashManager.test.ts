@@ -227,7 +227,7 @@ describe('BackgroundBashManager', () => {
       const childPidPath = join(tempDir, 'child.pid')
       const windowsChildCommand = buildBashCommand(process.execPath.replaceAll('\\', '/'), [
         '-e',
-        `require('node:fs').writeFileSync(${JSON.stringify(childPidPath)}, String(process.pid)); setInterval(() => {}, 60_000)`
+        `require('fs').writeFileSync('child.pid', String(process.pid)); setTimeout(() => {}, 30_000)`
       ])
       const command =
         process.platform === 'win32' ? `${windowsChildCommand} & wait` : 'sleep 30 & echo child:$!'
@@ -259,6 +259,7 @@ describe('BackgroundBashManager', () => {
       assert.equal(snapshot?.status, 'failed')
       assert.equal(snapshot?.cancelledByUser, true)
     } finally {
+      manager.cancelTask('shell-backgrounded-task')
       if (childPid != null && isProcessAlive(childPid)) {
         process.kill(childPid, 'SIGKILL')
       }

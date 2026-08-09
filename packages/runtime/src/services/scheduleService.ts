@@ -73,6 +73,10 @@ const MAX_TIMEOUT_MS = 2_147_483_647
 const CONNECTIVITY_RETRIES = 2
 const CONNECTIVITY_RETRY_DELAY_MS = 1_000
 
+function scheduleWorkspaceDirectoryName(scheduleId: string): string {
+  return `schedule-${scheduleId.replace(/[^a-zA-Z0-9_-]/g, '-')}`
+}
+
 /** Quick connectivity probe — resolves true if we can reach the internet. */
 export async function hasInternetConnection(): Promise<boolean> {
   for (let attempt = 0; attempt <= CONNECTIVITY_RETRIES; attempt++) {
@@ -358,7 +362,8 @@ export function createScheduleService(deps: ScheduleServiceDeps): ScheduleServic
     try {
       // Resolve workspace
       const workspacePath =
-        schedule.workspacePath ?? join(deps.tempWorkspaceDir, `schedule-${schedule.id}`)
+        schedule.workspacePath ??
+        join(deps.tempWorkspaceDir, scheduleWorkspaceDirectoryName(schedule.id))
       await mkdir(workspacePath, { recursive: true })
 
       // Create thread as first-party local — NOT as an external channel source.

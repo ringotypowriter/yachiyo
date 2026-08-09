@@ -5,7 +5,7 @@
  * bot tokens) never need to touch the main settings normalization pipeline.
  */
 
-import { mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
 
 import type { ChannelsConfig, GroupProbeHeadlessAdapterKind } from '@yachiyo/shared/protocol'
@@ -131,12 +131,9 @@ function applyChannelsEnvOverrides(config: ChannelsConfig, env: ChannelsConfigEn
 }
 
 // channels.toml is re-read on hot paths (twice per group probe turn), so cache the
-// parsed document keyed by file stat. Env overrides are applied per call since they
-// depend on the caller-supplied env.
-const parsedChannelsCache = new Map<
-  string,
-  { mtimeMs: number; size: number; config: ChannelsConfig }
->()
+// parsed document keyed by its exact contents. Filesystem timestamps can collide on
+// same-size rapid rewrites, especially on Windows. Env overrides are applied per call.
+const parsedChannelsCache = new Map<string, { raw: string; config: ChannelsConfig }>()
 
 export function readChannelsConfig(
   filePath?: string,
@@ -144,24 +141,24 @@ export function readChannelsConfig(
 ): ChannelsConfig {
   const path = filePath ?? resolveYachiyoChannelsPath()
 
-  let stat: ReturnType<typeof statSync>
+  let raw: string
   try {
-    stat = statSync(path)
+    raw = readFileSync(path, 'utf8')
   } catch {
     return applyChannelsEnvOverrides({}, env)
   }
 
   const cached = parsedChannelsCache.get(path)
   let config: ChannelsConfig
-  if (cached && cached.mtimeMs === stat.mtimeMs && cached.size === stat.size) {
+  if (cached?.raw === raw) {
     config = cached.config
   } else {
     try {
-      config = parseChannelsToml(readFileSync(path, 'utf8'))
+      config = parseChannelsToml(raw)
     } catch {
       config = {}
     }
-    parsedChannelsCache.set(path, { mtimeMs: stat.mtimeMs, size: stat.size, config })
+    parsedChannelsCache.set(path, { raw, config })
   }
 
   // Clone so callers can never mutate the cached object.

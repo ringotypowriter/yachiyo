@@ -15,7 +15,7 @@
  */
 
 import { homedir } from 'os'
-import { resolve } from 'path'
+import { isAbsolute, parse, resolve } from 'path'
 import { findHeredocBodyRanges as findShellHeredocBodyRanges } from './bashHeredocBodyRanges.ts'
 
 // ---------------------------------------------------------------------------
@@ -832,9 +832,17 @@ function isHugeRootToken(token: string): boolean {
   // Resolve absolute paths and check against the actual home directory.
   // Only applies to tokens that look like absolute paths — skip shell
   // variables and tilde (already handled by the regex above).
-  if (token.startsWith('/')) {
-    const resolved = resolve(token.replace(/\/+$/, '') || '/')
-    if (resolved === '/' || resolved === resolve(homedir())) return true
+  if (isAbsolute(token)) {
+    const resolved = resolve(token)
+    const normalizeForComparison = (path: string): string =>
+      process.platform === 'win32' ? path.toLowerCase() : path
+    const normalized = normalizeForComparison(resolved)
+    if (
+      normalized === normalizeForComparison(parse(resolved).root) ||
+      normalized === normalizeForComparison(resolve(homedir()))
+    ) {
+      return true
+    }
   }
 
   return false

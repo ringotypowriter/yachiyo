@@ -8,10 +8,21 @@ import {
   grepToolInputSchema,
   globToolInputSchema,
   imageDataContent,
+  normalizeToolDisplayPath,
   textContent,
   toToolModelOutput,
   webSearchToolInputSchema
 } from './shared.ts'
+
+describe('normalizeToolDisplayPath', () => {
+  it('uses forward slashes for model-facing Windows paths', () => {
+    assert.equal(normalizeToolDisplayPath('src\\search\\tool.ts', '\\'), 'src/search/tool.ts')
+  })
+
+  it('preserves backslashes that are valid POSIX filename characters', () => {
+    assert.equal(normalizeToolDisplayPath('src/file\\name.ts', '/'), 'src/file\\name.ts')
+  })
+})
 
 describe('shadow fallbacks', () => {
   describe('readToolInputSchema', () => {

@@ -1,7 +1,7 @@
 import type { ChildProcess } from 'node:child_process'
 import { access, readdir, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { isAbsolute, join, relative, resolve } from 'node:path'
+import { isAbsolute, join, parse, relative, resolve, sep } from 'node:path'
 
 import { z } from 'zod'
 
@@ -609,6 +609,33 @@ export function isForbiddenHugeSearchRoot(resolvedPath: string, workspacePath: s
   return normalized === resolve('/') || normalized === resolve(homedir())
 }
 
+export function normalizeToolDisplayPath(path: string, pathSeparator: string = sep): string {
+  return pathSeparator === '\\' ? path.replaceAll('\\', '/') : path
+}
+
+export function toWorkspaceDisplayPath(
+  workspacePath: string,
+  rootPath: string,
+  matchPath: string
+): string {
+  const absoluteMatchPath = isAbsolute(matchPath) ? matchPath : resolve(rootPath, matchPath)
+  const relativeToWorkspace = relative(workspacePath, absoluteMatchPath)
+
+  if (
+    relativeToWorkspace &&
+    !relativeToWorkspace.startsWith('..') &&
+    !isAbsolute(relativeToWorkspace)
+  ) {
+    return normalizeToolDisplayPath(relativeToWorkspace)
+  }
+
+  if (relativeToWorkspace === '') {
+    return '.'
+  }
+
+  return normalizeToolDisplayPath(matchPath)
+}
+
 export function resolveToolPath(workspacePath: string, targetPath: string): string {
   const expanded = expandTilde(normalizeModelPathToken(targetPath))
   return isAbsolute(expanded) ? resolve(expanded) : resolve(workspacePath, expanded)
@@ -730,8 +757,9 @@ export async function resolveUnicodeSpacePath(
     return resolvedPath
   } catch {
     try {
-      const segments = relative(resolve('/'), resolvedPath).split('/')
-      let current = '/'
+      const root = parse(resolvedPath).root || resolve('/')
+      const segments = relative(root, resolvedPath).split(/[\\/]/u)
+      let current = root
 
       for (const segment of segments) {
         const direct = join(current, segment)

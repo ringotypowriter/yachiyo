@@ -1,7 +1,7 @@
 import { describe, it, afterEach } from 'node:test'
 import assert from 'node:assert/strict'
 import { mkdtempSync, mkdirSync, rmSync, existsSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 import { tmpdir } from 'node:os'
 
 import { createTool } from './jsReplTool.ts'
@@ -557,8 +557,9 @@ return await fsp.readFile("output/copied/context.json", "utf8")`,
         code: '(async () => (await tools.bash({ command: "pwd", description: "Print working directory" })).content)()',
         cwd: 'nested'
       })
+      const normalizedResult = result.details.result?.replaceAll('\\', '/') ?? ''
       assert.ok(
-        result.details.result?.includes(join(tempDir, 'nested')),
+        normalizedResult.includes(`/${basename(tempDir)}/nested`),
         `expected nested pwd, got: ${result.details.result}`
       )
     } finally {

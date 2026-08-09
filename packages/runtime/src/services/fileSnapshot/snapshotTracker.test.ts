@@ -1,14 +1,28 @@
 import assert from 'node:assert/strict'
 import { lstat, mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, win32 } from 'node:path'
 import test from 'node:test'
 
-import { SnapshotTracker } from './snapshotTracker.ts'
+import {
+  isSameOrDescendantSnapshotPath,
+  normalizeSnapshotPath,
+  SnapshotTracker
+} from './snapshotTracker.ts'
 import { hashWorkspacePath, readBlob } from './casStore.ts'
 import { MAX_SNAPSHOT_FILE_BYTES } from './snapshotFileFilter.ts'
 
 const originalEnv = process.env['YACHIYO_HOME']
+
+test('snapshot paths use the active platform semantics', () => {
+  const trackedPath = win32.resolve('C:\\workspace\\race.txt')
+  const globPath = 'C:/workspace/race.txt'
+  assert.equal(normalizeSnapshotPath(globPath, win32), trackedPath)
+
+  const tempRoot = win32.resolve('C:\\Users\\runner\\AppData\\Local\\Temp')
+  const nestedPath = win32.join(tempRoot, 'snapshot-blacklist', 'untracked.txt')
+  assert.equal(isSameOrDescendantSnapshotPath(tempRoot, nestedPath, win32), true)
+})
 
 test('SnapshotTracker', async (t) => {
   let tempDir: string

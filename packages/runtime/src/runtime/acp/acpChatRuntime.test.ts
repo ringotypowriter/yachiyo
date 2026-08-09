@@ -681,12 +681,17 @@ test('runAcpChatThread kills a preserved ACP process when persistence fails befo
   const workspacePath = await mkdtemp(join(tmpdir(), 'acp-test-'))
   const deps = makeDeps(workspacePath)
   const launchResult = makeFakeLaunchResult()
-  const signals: NodeJS.Signals[] = []
+  const preservedPid = 10_001
+  Object.assign(launchResult.proc, { pid: preservedPid })
+  let forceTerminatedPid: number | undefined
   let checkinCalled = false
 
-  launchResult.proc.kill = (signal?: NodeJS.Signals | number) => {
-    signals.push((signal as NodeJS.Signals) ?? 'SIGTERM')
-    return true
+  deps.processTree = {
+    gracefullyTerminate: () => assert.fail('preserved process cleanup must be forced'),
+    forceTerminate: (pid) => {
+      forceTerminatedPid = pid
+      return { alreadyExited: false, delivered: true, error: undefined }
+    }
   }
 
   deps.launchAcpProcess = () => launchResult
@@ -722,5 +727,5 @@ test('runAcpChatThread kills a preserved ACP process when persistence fails befo
 
   assert.equal(result.kind, 'failed')
   assert.equal(checkinCalled, false)
-  assert.ok(signals.includes('SIGKILL'))
+  assert.equal(forceTerminatedPid, preservedPid)
 })
