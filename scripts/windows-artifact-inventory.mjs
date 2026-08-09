@@ -48,7 +48,7 @@ export function inspectWindowsArtifactInventory(input) {
     [
       'sharp libvips runtime',
       [
-        win32.join(nodeModules, '@img', 'sharp-libvips-win32-x64', 'lib', 'libvips-42.dll'),
+        win32.join(nodeModules, '@img', 'sharp-win32-x64', 'lib', 'libvips-42.dll'),
         win32.join(nodeModules, 'sharp', 'vendor', 'lib', 'libvips-42.dll')
       ]
     ],

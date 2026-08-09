@@ -47,6 +47,22 @@ test('Windows artifact inventory checks Bash, helpers, and native modules', () =
   }
 })
 
+test('Windows artifact inventory accepts libvips bundled with sharp-win32-x64', () => {
+  const checked: string[] = []
+  const report = inspectWindowsArtifactInventory({
+    appDir: 'C:\\staged',
+    pathExists: (path: string) => {
+      checked.push(path)
+      if (!path.endsWith('libvips-42.dll')) return true
+      return path.endsWith('@img\\sharp-win32-x64\\lib\\libvips-42.dll')
+    },
+    readAsarEntries: () => ['/out/main/drizzle/0000_initial.sql', '/out/main/jieba_rs_wasm_bg.wasm']
+  })
+
+  assert.deepEqual(report, { ok: true, missing: [] })
+  assert.ok(checked.some((path) => path.endsWith('@img\\sharp-win32-x64\\lib\\libvips-42.dll')))
+})
+
 test('Windows artifact inventory reports every missing category and a failing status', () => {
   const report = inspectWindowsArtifactInventory({
     appDir: 'C:\\staged',
