@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict'
+import { EventEmitter } from 'node:events'
 import { connect } from 'node:net'
 import { mkdtemp, rm } from 'node:fs/promises'
-import { join } from 'node:path'
+import { tmpdir } from 'node:os'
+import { basename, join } from 'node:path'
 import test from 'node:test'
 import { setTimeout as delay } from 'node:timers/promises'
 
@@ -10,16 +12,28 @@ import { createAppUpdateCommandHandler } from './appUpdateCommand.ts'
 import {
   createAppUpdateReplyFinalizer,
   startCommandSocket,
-  type CommandSocketOptions
+  type AppUpdateCommandReply,
+  type CommandSocketOptions,
+  writeAppUpdateReply
 } from './commandSocket.ts'
+
+async function createTestSocketFixture(): Promise<{ root: string; socketPath: string }> {
+  const root = await mkdtemp(join(tmpdir(), 'yachiyo-update-socket-'))
+  return {
+    root,
+    socketPath:
+      process.platform === 'win32' ? `\\\\.\\pipe\\${basename(root)}` : join(root, 'test.sock')
+  }
+}
 
 function request(socketPath: string, body: unknown): Promise<unknown> {
   return new Promise((resolve, reject) => {
     const client = connect(socketPath, () => {
-      client.end(JSON.stringify(body))
+      client.write(`${JSON.stringify(body)}\n`)
     })
     let response = ''
     client.setEncoding('utf8')
+    client.setTimeout(1_000)
     client.on('data', (chunk: string) => {
       response += chunk
     })
@@ -30,13 +44,19 @@ function request(socketPath: string, body: unknown): Promise<unknown> {
         reject(error)
       }
     })
+    client.on('timeout', () => {
+      client.destroy()
+      reject(new Error('Timed out waiting for command socket response.'))
+    })
     client.on('error', reject)
   })
 }
 
 function createOptions(socketPath: string): CommandSocketOptions {
   return {
-    socketPath,
+    ...(process.platform === 'win32'
+      ? { endpoint: { kind: 'windows-pipe' as const, address: socketPath } }
+      : { socketPath }),
     onNotification: () => {},
     onSendChannel: () => {},
     onUpdateChannelGroupStatus: () => {},
@@ -54,9 +74,8 @@ async function waitFor(predicate: () => boolean, timeoutMs = 1_000): Promise<voi
   assert.ok(predicate(), 'timed out waiting for expected condition')
 }
 
-test('commandSocket returns an app-update result over a temporary Unix socket', async () => {
-  const root = await mkdtemp('/tmp/yachiyo-update-socket-')
-  const socketPath = join(root, 'test.sock')
+test('commandSocket returns an app-update result over local IPC', async () => {
+  const { root, socketPath } = await createTestSocketFixture()
   const options = createOptions(socketPath)
   options.onAppUpdate = async (input) => {
     assert.deepEqual(input, { action: 'status' })
@@ -87,8 +106,7 @@ test('commandSocket returns an app-update result over a temporary Unix socket', 
 })
 
 test('commandSocket flushes the install reply before starting installation', async () => {
-  const root = await mkdtemp('/tmp/yachiyo-update-socket-')
-  const socketPath = join(root, 'test.sock')
+  const { root, socketPath } = await createTestSocketFixture()
   const events: string[] = []
   const options = createOptions(socketPath)
   options.onAppUpdate = async (input) => {
@@ -153,9 +171,94 @@ test('commandSocket finalizes a failed reply exactly once without starting insta
   assert.deepEqual(events, ['release'])
 })
 
+test('commandSocket does not complete an app-update finalizer when the reply write fails', async () => {
+  const events: string[] = []
+  const finalizer = createAppUpdateReplyFinalizer({
+    afterReply: () => {
+      events.push('install')
+    },
+    onReplyFailure: () => {
+      events.push('release')
+    }
+  })
+  const emitter = new EventEmitter()
+  const connection = Object.assign(emitter, {
+    end(payload: string): void {
+      assert.match(payload, /"state":"installing"/u)
+      emitter.emit('error', Object.assign(new Error('write EPIPE'), { code: 'EPIPE' }))
+    }
+  })
+  connection.on('error', finalizer.fail)
+
+  writeAppUpdateReply(
+    connection,
+    {
+      ok: true,
+      result: {
+        state: 'installing',
+        interruptedRunCount: 0,
+        initiatorRunInterrupted: false
+      }
+    },
+    finalizer
+  )
+  await Promise.resolve()
+
+  assert.deepEqual(events, ['release'])
+})
+
+test('commandSocket releases a pending install when the framed client disconnects', async () => {
+  const { root, socketPath } = await createTestSocketFixture()
+  const events: string[] = []
+  let handlerStarted = false
+  let resolveReply!: (reply: AppUpdateCommandReply) => void
+  const pendingReply = new Promise<AppUpdateCommandReply>((resolve) => {
+    resolveReply = resolve
+  })
+  const options = createOptions(socketPath)
+  options.onAppUpdate = async () => {
+    handlerStarted = true
+    return pendingReply
+  }
+  const handle = startCommandSocket(options)
+  const client = connect(socketPath, () => {
+    client.write(`${JSON.stringify({ type: 'app-update', action: 'install', force: true })}\n`)
+  })
+  let clientClosed = false
+  client.once('close', () => {
+    clientClosed = true
+  })
+
+  try {
+    await waitFor(() => handlerStarted)
+    client.destroy()
+    await waitFor(() => clientClosed)
+    await delay(100)
+    resolveReply({
+      result: {
+        state: 'installing',
+        interruptedRunCount: 0,
+        initiatorRunInterrupted: false
+      },
+      afterReply: () => {
+        events.push('install')
+      },
+      onReplyFailure: () => {
+        events.push('release')
+      }
+    })
+    await waitFor(() => events.length > 0)
+
+    assert.deepEqual(events, ['release'])
+  } finally {
+    client.destroy()
+    await handle.close()
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
 test('commandSocket returns updater failures instead of dropping the connection', async () => {
-  const root = await mkdtemp('/tmp/yachiyo-update-socket-')
-  const socketPath = join(root, 'test.sock')
+  const { root, socketPath } = await createTestSocketFixture()
   const options = createOptions(socketPath)
   options.onAppUpdate = async () => {
     throw new Error('Could not reach the update server.')
@@ -172,8 +275,7 @@ test('commandSocket returns updater failures instead of dropping the connection'
 })
 
 test('commandSocket reports an install failure before clearing the owed receipt', async () => {
-  const root = await mkdtemp('/tmp/yachiyo-update-socket-')
-  const socketPath = join(root, 'test.sock')
+  const { root, socketPath } = await createTestSocketFixture()
   const events: string[] = []
   const controller: AppUpdateController = {
     status: async () => ({ state: 'up-to-date', runningVersion: '1.5.1' }),

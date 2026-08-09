@@ -24,11 +24,11 @@ async function startReplyServer(
 ): Promise<Server> {
   const server = createServer({ allowHalfOpen: true }, (connection) => {
     let body = ''
-    connection.setEncoding('utf8')
-    connection.on('data', (chunk: string) => {
-      body += chunk
-    })
-    connection.on('end', () => {
+    let handled = false
+
+    const handleRequest = (): void => {
+      if (handled) return
+      handled = true
       const result = reply(
         JSON.parse(body) as { action?: string; force?: boolean; initiatorRunId?: string }
       )
@@ -41,6 +41,21 @@ async function startReplyServer(
         return
       }
       connection.end(JSON.stringify({ ok: true, result }))
+    }
+
+    connection.setEncoding('utf8')
+    connection.setTimeout(1_000, () => connection.destroy())
+    connection.on('data', (chunk: string) => {
+      body += chunk
+      if (body.endsWith('\n')) handleRequest()
+    })
+    connection.on('end', () => {
+      if (handled) return
+      if (process.platform === 'win32') {
+        connection.destroy()
+        return
+      }
+      handleRequest()
     })
   })
   await new Promise<void>((resolve, reject) => {

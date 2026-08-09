@@ -135,7 +135,9 @@ function requestAppUpdate(
     let response = ''
     let settled = false
     const client = connect(socketPath, () => {
-      client.end(JSON.stringify({ type: 'app-update', ...request }))
+      const message = JSON.stringify({ type: 'app-update', ...request })
+      if (process.platform === 'win32') client.write(`${message}\n`)
+      else client.end(message)
     })
 
     const finish = (error?: Error, result?: unknown): void => {

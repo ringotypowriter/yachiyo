@@ -33,6 +33,11 @@ export interface AppUpdateCommandReply {
   onReplyFailure?: () => void | Promise<void>
 }
 
+export interface AppUpdateReplyConnection {
+  once(event: 'finish', listener: () => void): unknown
+  end(payload: string): unknown
+}
+
 export function createAppUpdateReplyFinalizer(input: {
   afterReply?: () => void | Promise<void>
   onReplyFailure?: () => void | Promise<void>
@@ -63,6 +68,15 @@ export function createAppUpdateReplyFinalizer(input: {
         })
     }
   }
+}
+
+export function writeAppUpdateReply(
+  connection: AppUpdateReplyConnection,
+  response: AppUpdateCommandResponse,
+  finalizer: { complete(): void }
+): void {
+  connection.once('finish', finalizer.complete)
+  connection.end(JSON.stringify(response))
 }
 
 export type AppUpdateCommandInput = Omit<AppUpdateCommandRequest, 'type'>
@@ -207,23 +221,13 @@ export function startCommandSocket(options: CommandSocketOptions): CommandSocket
 
   const server: Server = createServer({ allowHalfOpen: true }, (connection) => {
     let buffer = ''
+    let requestHandled = false
     let transportClosed = false
     let failPendingReply: (() => void) | undefined
 
-    connection.setEncoding('utf-8')
-    connection.on('error', () => {
-      transportClosed = true
-      failPendingReply?.()
-    })
-    connection.on('close', () => {
-      transportClosed = true
-      failPendingReply?.()
-    })
-    connection.on('data', (chunk: string) => {
-      buffer += chunk
-    })
-
-    connection.on('end', () => {
+    const handleRequest = (): void => {
+      if (requestHandled) return
+      requestHandled = true
       const close = (): void => {
         connection.end()
       }
@@ -361,7 +365,7 @@ export function startCommandSocket(options: CommandSocketOptions): CommandSocket
               return
             }
 
-            connection.end(JSON.stringify(response), finalizer.complete)
+            writeAppUpdateReply(connection, response, finalizer)
           })
           .catch((error) => {
             const response: AppUpdateCommandResponse = {
@@ -374,6 +378,29 @@ export function startCommandSocket(options: CommandSocketOptions): CommandSocket
       }
 
       close()
+    }
+
+    connection.setEncoding('utf-8')
+    connection.on('error', () => {
+      transportClosed = true
+      failPendingReply?.()
+    })
+    connection.on('close', () => {
+      transportClosed = true
+      failPendingReply?.()
+    })
+    connection.on('data', (chunk: string) => {
+      buffer += chunk
+      if (buffer.endsWith('\n')) handleRequest()
+    })
+    connection.on('end', () => {
+      if (!requestHandled) {
+        handleRequest()
+        return
+      }
+      transportClosed = true
+      failPendingReply?.()
+      if (!connection.destroyed) connection.destroy()
     })
   })
 
