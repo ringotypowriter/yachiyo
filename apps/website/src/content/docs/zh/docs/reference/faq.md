@@ -11,7 +11,9 @@ description: 关于平台、供应商、隐私、技能，以及八千代刻意�
 
 ## 有 Windows 或 Linux 版本吗？
 
-没有，也没有这个计划。八千代在 Mac 上开发，手头没有别的平台的设备可以测试，所以不会去适配。而且有几个内置技能 —— 窗口自动化、Ghostty 控制、截图 —— 无论如何都只支持 macOS。
+八千代支持 macOS 和 Windows 11 x64。Windows NSIS 安装包不签名，所以 **Unknown publisher（未知发布者）**提示是预期行为。Windows 10、Windows ARM 和 Linux 不是发布目标。
+
+Windows v1 不提供 Activity/OCR、开机自启、保持唤醒、Kagete、Ghostty 控制、macOS 应用自动化和 macOS 截图技能。这些入口会在 Windows 上被过滤掉，而不是显示成无法使用的工具。
 
 ## 八千代支持 MCP 吗？
 
@@ -47,7 +49,7 @@ description: 关于平台、供应商、隐私、技能，以及八千代刻意�
 
 ## 应用关掉后定时任务还会跑吗？
 
-不会。定时任务、频道机器人和 `yachiyo send` 都需要应用在运行。想让它一直在，配一个 [LaunchAgent](/zh/docs/install/#开机自启)。
+不会。定时任务、频道机器人和 `yachiyo send` 都需要应用在运行。在 macOS 上，想让它一直在，可以配置 [LaunchAgent](/zh/docs/install/)。Windows v1 没有开机自启选项，需要手动启动应用并让它保持运行。
 
 ## 别人能通过 Telegram 用我的助手吗？
 
@@ -63,9 +65,9 @@ description: 关于平台、供应商、隐私、技能，以及八千代刻意�
 
 ## 我的 API key 安全吗？
 
-它们以明文存在你机器上的 `config.toml` 里。命令行输出会打码，但文件本身不加密。别提交它，而且要知道启用[同步](/zh/docs/guides/sync/)会把它复制进你的同步文件夹。
+模型供应商 API key 和 Vertex 私钥会加密存放在由操作系统保护的本机凭据库中。它们不会写进 `config.toml`，也不会被[同步](/zh/docs/guides/sync/)复制。命令行输出会把 API key 打码。
 
-`channels.toml` 里的频道机器人 token 在输出中完全不打码。
+其他密钥有各自的规则：Exa 网页搜索 key 可能存在 `config.toml` 中，频道凭据则在 `channels.toml` 中。这两个文件都应保持私密。
 
 ## 对话太长了会怎样？
 

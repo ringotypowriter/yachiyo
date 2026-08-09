@@ -6,6 +6,13 @@ export interface SearchBinaries {
   fd: string | undefined
 }
 
+export interface ResolveSearchBinariesOptions {
+  platform?: NodeJS.Platform
+  arch?: string
+  projectRoot?: string
+  resourcesPath?: string
+}
+
 /**
  * Resolve bundled rg and fd binaries.
  *
@@ -15,18 +22,18 @@ export interface SearchBinaries {
  *
  * Returns `undefined` for a binary that cannot be found or is not executable.
  */
-export function resolveSearchBinaries(options?: {
-  /** Override the project root for dev-mode resolution. */
-  projectRoot?: string
-}): SearchBinaries {
+export function resolveSearchBinaries(options: ResolveSearchBinariesOptions = {}): SearchBinaries {
+  const platform = options.platform ?? process.platform
+  const arch = options.arch ?? process.arch
   // Match electron-builder's ${os} naming: mac, linux, win.
   const osMap: Record<string, string> = { darwin: 'mac', linux: 'linux', win32: 'win' }
-  const platformDir = `${osMap[process.platform] ?? process.platform}-${process.arch}`
+  const platformDir = `${osMap[platform] ?? platform}-${arch}`
   const candidates: string[] = []
 
   // Packaged: electron-builder copies resources/bin/{os}-{arch}/* → resources/bin/
-  if (typeof process.resourcesPath === 'string') {
-    candidates.push(join(process.resourcesPath, 'bin'))
+  const resourcesPath = options.resourcesPath ?? process.resourcesPath
+  if (typeof resourcesPath === 'string') {
+    candidates.push(join(resourcesPath, 'bin'))
   }
 
   // Dev: binaries live under the desktop app package.
@@ -40,7 +47,7 @@ export function resolveSearchBinaries(options?: {
   // In packaged apps it may point inside app.asar — skip those paths since
   // binaries inside an ASAR archive are not executable.
   const thisDir = import.meta.dirname
-  if (thisDir && !thisDir.includes('.asar')) {
+  if (!options.projectRoot && thisDir && !thisDir.includes('.asar')) {
     const devRoot = findProjectRoot(thisDir)
     if (devRoot) {
       candidates.push(join(devRoot, 'apps', 'desktop', 'resources', 'bin', platformDir))
@@ -48,24 +55,28 @@ export function resolveSearchBinaries(options?: {
   }
 
   return {
-    rg: findExecutable('rg', candidates),
-    fd: findExecutable('fd', candidates)
+    rg: findExecutable(platform === 'win32' ? 'rg.exe' : 'rg', candidates, platform),
+    fd: findExecutable(platform === 'win32' ? 'fd.exe' : 'fd', candidates, platform)
   }
 }
 
-function findExecutable(name: string, dirs: string[]): string | undefined {
+function findExecutable(
+  name: string,
+  dirs: string[],
+  platform: NodeJS.Platform
+): string | undefined {
   for (const dir of dirs) {
     const candidate = join(dir, name)
-    if (isExecutable(candidate)) {
+    if (isExecutable(candidate, platform)) {
       return candidate
     }
   }
   return undefined
 }
 
-function isExecutable(path: string): boolean {
+function isExecutable(path: string, platform: NodeJS.Platform): boolean {
   try {
-    accessSync(path, constants.X_OK)
+    accessSync(path, platform === 'win32' ? constants.R_OK : constants.X_OK)
     return true
   } catch {
     return false

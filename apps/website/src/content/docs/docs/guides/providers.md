@@ -7,8 +7,10 @@ Yachiyo has no built-in model and no hosted account. You bring providers, and
 you can have as many as you like at once — switching per message is normal usage,
 not an edge case.
 
-Providers live in `~/.yachiyo/config.toml`. API keys are stored there in plain
-text on your machine and are redacted in all CLI output.
+Provider definitions, models, and base URLs live in `~/.yachiyo/config.toml`.
+API keys and Vertex private keys are encrypted in the device-local
+`provider-credentials.enc` vault, whose key is protected by the operating
+system. CLI output redacts API keys.
 
 ## Adding a provider
 
@@ -134,11 +136,8 @@ yachiyo provider set-default openai --model <model-name>
 
 Full details in the [`provider` CLI reference](/docs/cli/provider/).
 
-:::caution[Keys in config.toml]
-`config.toml` stores API keys in plain text. Do not commit it and do not put it
-in a shared folder.
-
-CLI output is safer than the file: every command replaces `apiKey` values with
-`***`, including `yachiyo config get`. Reading the file directly is the only way
-to print a key.
+:::note[Device-local provider credentials]
+Model-provider API keys and Vertex private keys are not stored in `config.toml`
+and are not synced. Configure them separately on each device. CLI output also
+replaces API key values with `***`.
 :::

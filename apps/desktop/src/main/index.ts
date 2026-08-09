@@ -27,6 +27,8 @@ import { installActiveRunCloseGuard } from './electron/activeRunCloseGuard'
 import { installApplicationMenu } from './electron/applicationMenu'
 import { createKeepAwakeController } from './electron/keepAwake'
 import { createElectronProviderCredentialVault } from './security/providerCredentials'
+import { buildAuxiliaryWindowOptions, buildMainWindowOptions } from './electron/windowOptions'
+import { resolveNotificationSettingsUri } from './electron/systemSettings'
 import {
   installYachiyoAssetProtocolHandler,
   registerYachiyoAssetScheme
@@ -103,12 +105,7 @@ function openTranslatorWindow(): void {
     show: false,
     frame: false,
     alwaysOnTop: true,
-    transparent: true,
-    ...(process.platform === 'darwin' && {
-      vibrancy: 'hud',
-      visualEffectState: 'active',
-      backgroundColor: '#00000000'
-    }),
+    ...buildAuxiliaryWindowOptions(process.platform),
     icon,
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
@@ -161,12 +158,7 @@ function openJotdownWindow(): void {
     show: false,
     frame: false,
     alwaysOnTop: true,
-    transparent: true,
-    ...(process.platform === 'darwin' && {
-      vibrancy: 'hud',
-      visualEffectState: 'active',
-      backgroundColor: '#00000000'
-    }),
+    ...buildAuxiliaryWindowOptions(process.platform),
     icon,
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
@@ -228,13 +220,7 @@ function createWindow(): void {
     show: false,
     title: APP_NAME,
     autoHideMenuBar: true,
-    titleBarStyle: 'hiddenInset',
-    trafficLightPosition: { x: 10, y: 16 },
-    ...(process.platform === 'darwin' && {
-      vibrancy: 'under-window',
-      visualEffectState: 'active',
-      backgroundColor: '#00000000'
-    }),
+    ...buildMainWindowOptions(process.platform),
     icon,
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
@@ -458,6 +444,13 @@ app.whenReady().then(async () => {
   })
 
   ipcMain.on('open-settings', (_event, tab?: string) => openSettingsInMainWindow(tab))
+  ipcMain.on('open-notification-settings', () => {
+    const uri = resolveNotificationSettingsUri(process.platform)
+    if (!uri) return
+    void shell
+      .openExternal(uri)
+      .catch((error) => console.error('[yachiyo] failed to open notification settings', error))
+  })
 
   app.on('activate', function () {
     clearYachiyoNotificationBadge()

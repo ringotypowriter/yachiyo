@@ -1,6 +1,7 @@
 ---
 name: kagete
 description: Use this skill when you need to inspect, click, type, drag, scroll, or screenshot native macOS app windows — Safari, Finder, TextEdit, Xcode, Slack desktop, System Settings, or any other native macOS application. Triggers include requests like "click the Save button in X", "automate Finder", "read the AX tree of Y", "screenshot Xcode window", "type into TextEdit", "drag to reorder in Z", and any GUI task outside a browser.
+platforms: darwin
 allowed-tools: Bash(kagete:*), Bash(curl:*)
 ---
 

@@ -1,4 +1,5 @@
 import { t, type AppCatalog } from '@yachiyo/i18n/index'
+import { resolvePlatformCapabilities } from '@yachiyo/shared/platformCapabilities'
 
 export type SettingsPanelId =
   | 'general'
@@ -94,8 +95,19 @@ export const SETTINGS_PANELS: readonly SettingsPanelDefinition[] = [
   localizedPanel('about', 'about')
 ]
 
+export function getSettingsPanels(platform: string): readonly SettingsPanelDefinition[] {
+  if (resolvePlatformCapabilities(platform as NodeJS.Platform).activityTracking) {
+    return SETTINGS_PANELS
+  }
+
+  return SETTINGS_PANELS.map((panel) =>
+    panel.id === 'source'
+      ? { ...panel, tabs: panel.tabs?.filter((tab) => tab.id !== 'activity') }
+      : panel
+  )
+}
+
 const topLevelRoutes = new Set<string>(SETTINGS_PANELS.map((panel) => panel.id))
-const panelsById = new Map(SETTINGS_PANELS.map((panel) => [panel.id, panel]))
 const routeAliases: Record<string, SettingsRoute> = {
   behavior: { panel: 'general', tab: 'behavior' },
   ui: { panel: 'general', tab: 'ui' },
@@ -113,9 +125,9 @@ const panelTabAliases: Partial<Record<SettingsPanelId, Record<string, string>>> 
   general: { general: 'behavior' }
 }
 
-export function getInitialSettingsPanelTabs(): Record<string, string> {
+export function getInitialSettingsPanelTabs(platform: string): Record<string, string> {
   const map: Record<string, string> = {}
-  for (const panel of SETTINGS_PANELS) {
+  for (const panel of getSettingsPanels(platform)) {
     if (panel.tabs?.length) {
       map[panel.id] = panel.tabs[0].id
     }
@@ -127,21 +139,30 @@ export function serializeSettingsRoute(panel: SettingsPanelId, tab?: string): st
   return tab ? `${panel}/${tab}` : panel
 }
 
-export function resolveSettingsRoute(value: string): SettingsRoute {
+export function resolveSettingsRoute(value: string, platform: string): SettingsRoute {
+  const availablePanels = getSettingsPanels(platform)
+  const availablePanelsById = new Map(availablePanels.map((panel) => [panel.id, panel]))
+
   if (value in routeAliases) {
-    return routeAliases[value]
+    const route = routeAliases[value]
+    const panel = availablePanelsById.get(route.panel)
+    if (!route.tab || panel?.tabs?.some((tab) => tab.id === route.tab)) {
+      return route
+    }
+    return { panel: route.panel, tab: panel?.tabs?.[0]?.id }
   }
 
   const [panelId, rawTabId] = value.split('/')
-  const panel = panelsById.get(panelId as SettingsPanelId)
+  const panel = availablePanelsById.get(panelId as SettingsPanelId)
   if (panel && rawTabId) {
     const tabId = panelTabAliases[panel.id]?.[rawTabId] ?? rawTabId
     if (panel.tabs?.some((tab) => tab.id === tabId)) {
       return { panel: panel.id, tab: tabId }
     }
+    return { panel: panel.id, tab: panel.tabs?.[0]?.id }
   }
 
-  if (topLevelRoutes.has(value)) {
+  if (topLevelRoutes.has(value) && availablePanelsById.has(value as SettingsPanelId)) {
     return { panel: value as SettingsPanelId }
   }
 

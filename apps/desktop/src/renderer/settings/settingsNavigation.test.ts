@@ -3,10 +3,15 @@ import test from 'node:test'
 
 import {
   SETTINGS_PANELS,
+  getSettingsPanels,
   getInitialSettingsPanelTabs,
-  resolveSettingsRoute,
-  serializeSettingsRoute
+  resolveSettingsRoute as resolveSettingsRouteForPlatform,
+  serializeSettingsRoute,
+  type SettingsRoute
 } from './settingsNavigation.ts'
+
+const resolveSettingsRoute = (value: string): SettingsRoute =>
+  resolveSettingsRouteForPlatform(value, 'darwin')
 
 test('settings navigation groups related panes under fewer top-level panels', () => {
   assert.deepEqual(
@@ -39,7 +44,7 @@ test('general panel exposes behavior and user interface tabs', () => {
 })
 
 test('settings navigation initializes grouped default panel tabs', () => {
-  assert.deepEqual(getInitialSettingsPanelTabs(), {
+  assert.deepEqual(getInitialSettingsPanelTabs('darwin'), {
     general: 'behavior',
     chat: 'threads',
     capabilities: 'skills',
@@ -91,4 +96,22 @@ test('settings navigation serializes panel routes consistently', () => {
 test('settings navigation falls back to general for unknown routes', () => {
   assert.deepEqual(resolveSettingsRoute('not-real'), { panel: 'general' })
   assert.deepEqual(resolveSettingsRoute('chat'), { panel: 'chat' })
+})
+
+test('Windows settings omit Activity and redirect legacy Activity routes to Source memory', () => {
+  const panels = getSettingsPanels('win32')
+  const source = panels.find((panel) => panel.id === 'source')
+
+  assert.deepEqual(
+    source?.tabs?.map((tab) => tab.id),
+    ['memory', 'search']
+  )
+  assert.deepEqual(resolveSettingsRouteForPlatform('activity', 'win32'), {
+    panel: 'source',
+    tab: 'memory'
+  })
+  assert.deepEqual(resolveSettingsRouteForPlatform('source/activity', 'win32'), {
+    panel: 'source',
+    tab: 'memory'
+  })
 })

@@ -9,6 +9,7 @@ import { tPlural } from '@yachiyo/i18n/index'
 import { useT } from '@yachiyo/i18n/react'
 import { useAppDialog } from '@renderer/components/AppDialogContext'
 import { alpha, theme } from '@renderer/theme/theme'
+import { resolvePlatformCapabilities } from '@yachiyo/shared/platformCapabilities'
 
 interface SyncPaneProps {
   onConfigReload: () => Promise<void>
@@ -75,6 +76,8 @@ function statusLabel(status: SyncStatus | null, busy: boolean, t: ReturnType<typ
 
 export function SyncPane({ onConfigReload }: SyncPaneProps): React.ReactNode {
   const t = useT()
+  const usesOneDrive =
+    resolvePlatformCapabilities(window.api.process.platform).recommendedSyncProvider === 'onedrive'
   const dialog = useAppDialog()
   const [status, setStatus] = useState<SyncStatus | null>(null)
   const [conflicts, setConflicts] = useState<SyncConflictRecord[]>([])
@@ -243,7 +246,7 @@ export function SyncPane({ onConfigReload }: SyncPaneProps): React.ReactNode {
             {t('settings.sync.fileSync')}
           </div>
           <div className="text-sm leading-5" style={{ color: theme.text.tertiary }}>
-            {t('settings.sync.description')}
+            {t(usesOneDrive ? 'settings.sync.descriptionWindows' : 'settings.sync.description')}
           </div>
         </div>
         <div className="flex shrink-0 gap-2">
@@ -301,7 +304,8 @@ export function SyncPane({ onConfigReload }: SyncPaneProps): React.ReactNode {
               busy || !status?.recommendedSyncDir || usingRecommendedSyncDir
             )}
           >
-            <Cloud size={13} /> {t('settings.sync.useICloudFolder')}
+            <Cloud size={13} />
+            {t(usesOneDrive ? 'settings.sync.useOneDriveFolder' : 'settings.sync.useICloudFolder')}
           </button>
           <button
             type="button"
@@ -324,7 +328,11 @@ export function SyncPane({ onConfigReload }: SyncPaneProps): React.ReactNode {
         ) : null}
         {unavailable ? (
           <div className="mt-3 text-sm leading-5" style={{ color: theme.text.tertiary }}>
-            {t('settings.sync.unavailableHint')}
+            {t(
+              usesOneDrive
+                ? 'settings.sync.unavailableHintWindows'
+                : 'settings.sync.unavailableHint'
+            )}
           </div>
         ) : null}
         {joinable ? (

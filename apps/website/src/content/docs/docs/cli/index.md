@@ -27,16 +27,22 @@ hand-writing a JSON payload.
 
 ## Namespaces
 
-| Namespace                         | Purpose                                              |
-| --------------------------------- | ---------------------------------------------------- |
-| [`soul`](/docs/cli/soul/)         | Manage evolving persona traits                       |
-| [`provider`](/docs/cli/provider/) | Manage AI providers and models                       |
-| [`agent`](/docs/cli/agent/)       | Subagent runtime mode and ACP profiles               |
-| [`config`](/docs/cli/config/)     | Read and write configuration values                  |
-| [`thread`](/docs/cli/thread/)     | Search and inspect conversation history              |
-| [`schedule`](/docs/cli/schedule/) | Manage scheduled tasks and run history               |
-| [`channel`](/docs/cli/channel/)   | List channel users and groups, set status and labels |
-| [`send`](/docs/cli/send/)         | Send notifications and channel messages              |
+| Namespace                         | Purpose                                               |
+| --------------------------------- | ----------------------------------------------------- |
+| [`soul`](/docs/cli/soul/)         | Manage evolving persona traits                        |
+| [`provider`](/docs/cli/provider/) | Manage AI providers and models                        |
+| [`agent`](/docs/cli/agent/)       | Subagent runtime mode and ACP profiles                |
+| [`config`](/docs/cli/config/)     | Read and write configuration values                   |
+| [`thread`](/docs/cli/thread/)     | Search and inspect conversation history               |
+| [`schedule`](/docs/cli/schedule/) | Manage scheduled tasks and run history                |
+| [`channel`](/docs/cli/channel/)   | List channel users and groups, set status and labels  |
+| [`send`](/docs/cli/send/)         | Send notifications and channel messages               |
+| `doctor`                          | Diagnose platform runtime, binaries, and capabilities |
+
+`yachiyo doctor` prints a readable platform report. `yachiyo doctor --json`
+prints only structured JSON, which is safe to attach to a bug report: it does
+not include provider secrets, credential keys, auth files, or an environment
+dump.
 
 ## Global flags
 
@@ -59,8 +65,8 @@ The path flags exist so you can point the CLI at an isolated workspace. Setting
 ## Secrets in output
 
 Every command replaces `apiKey` values with `***` before printing, including
-`yachiyo config get`. Reading `config.toml` directly is the only way to print a
-provider key.
+`yachiyo config get`. Provider API keys are stored in the encrypted,
+device-local credential vault rather than `config.toml`, and are not synced.
 
 Channel bot tokens in `channels.toml` are **not** covered by that redaction.
 
@@ -89,8 +95,29 @@ stop the app from fixing your PATH.
 <details>
 <summary>Diagnosing it yourself</summary>
 
-The desktop app writes `~/.yachiyo/bin/yachiyo` on every launch and then tries to
-make it reachable. When that has not worked, walk down this list.
+The desktop app writes the platform wrapper on every launch and then tries to
+make it reachable. When that has not worked, use the matching platform section.
+
+### Windows
+
+The wrapper is `%USERPROFILE%\.yachiyo\bin\yachiyo.cmd`. The app adds that
+directory to the current user's `PATH` without administrator access.
+
+```powershell
+Test-Path "$env:USERPROFILE\.yachiyo\bin\yachiyo.cmd"
+($env:Path -split ';') | Where-Object { $_ -like '*\.yachiyo\bin' }
+```
+
+If the wrapper exists but the second command finds nothing, relaunch Yachiyo so
+it can repair the user `PATH`. Then close and reopen PowerShell, Command Prompt,
+or bundled Bash; an already-running terminal keeps its old environment. Confirm
+with:
+
+```powershell
+yachiyo doctor --json
+```
+
+### macOS
 
 **1. Does the wrapper exist?**
 
@@ -142,6 +169,6 @@ Either way you need a new terminal, or to source the profile.
 </details>
 
 :::note
-The wrapper is regenerated on every app launch and points at the running app
-bundle. Do not edit it.
+The wrapper is regenerated on every app launch and points at the running
+installation. Do not edit it.
 :::

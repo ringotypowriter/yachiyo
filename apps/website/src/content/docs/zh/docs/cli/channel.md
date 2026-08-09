@@ -86,7 +86,7 @@ yachiyo channel groups set-status x9y8z7w6-... approval   # 开始监视
 yachiyo channel groups set-status x9y8z7w6-... block      # 停止监视
 ```
 
-如果应用在运行，改动会走 Unix socket 立即生效 —— `approval` 马上启动群监视器，`block` 马上停掉。如果应用没在运行，则直接更新数据库记录。
+如果应用在运行，改动会走本地命令端点立即生效 —— `approval` 马上启动群监视器，`block` 马上停掉。如果应用没在运行，则直接更新数据库记录。
 
 这条命令只对群组有效。传一个频道**用户** ID 会以 `Unknown channel group` 失败。
 

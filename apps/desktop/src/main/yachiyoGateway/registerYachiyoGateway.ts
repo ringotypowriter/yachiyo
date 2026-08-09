@@ -15,6 +15,8 @@ import { join } from 'node:path'
 import { getActivityTracker } from '@yachiyo/runtime/activity/ActivityTracker'
 import { resolveActivityTrackingPermissionForSave } from '@yachiyo/runtime/activity/activityTrackingPermission'
 import { probeFullActivityAccess } from '@yachiyo/runtime/activity/osascript'
+import { preserveUnsupportedPlatformSettings } from '@yachiyo/runtime/settings/settingsPlatformPreservation'
+import { resolvePlatformCapabilities } from '@yachiyo/shared/platformCapabilities'
 
 import type {
   AcceptThreadPlanDocumentInput,
@@ -77,7 +79,7 @@ import {
   resolveYachiyoDbPath,
   resolveYachiyoJotdownsDir,
   resolveYachiyoSettingsPath,
-  resolveYachiyoSocketPath,
+  resolveYachiyoCommandEndpoint,
   resolveYachiyoTempWorkspaceRoot
 } from '@yachiyo/runtime/config/paths'
 import {
@@ -104,12 +106,16 @@ import type { OriginLookup } from '../appUpdate/installReceiptSequence.ts'
 import { describeUpdateOutcome } from '../appUpdate/updateReceiptMessage.ts'
 import { createUpdateReceiptCoordinator } from '../appUpdate/updateReceiptCoordinator.ts'
 import { deliverPendingUpdateReceiptAfterChannelReady } from '../appUpdate/pendingUpdateReceiptDelivery.ts'
-import { startCommandSocket, type CommandSocketHandle } from '../cli/commandSocket.ts'
+import {
+  createCommandSocketRestartPolicy,
+  startCommandSocket,
+  type CommandSocketHandle
+} from '../cli/commandSocket.ts'
 import { createAppUpdateCommandHandler } from '../cli/appUpdateCommand.ts'
 import { createProviderFetch } from '../net/providerFetch.ts'
 import { openThreadWorkspace } from '../electron/openThreadWorkspace.ts'
 import { readAppLogEntries } from '../logs/appLogFiles.ts'
-import { discoverApps } from '../electron/appDiscovery.ts'
+import { discoverApps, findDiscoveredApp, launchDiscoveredApp } from '../electron/appDiscovery.ts'
 import {
   createRuntimeLiveServices,
   type RuntimeLiveServices
@@ -213,6 +219,7 @@ let commandSocket: CommandSocketHandle | null = null
 let commandSocketHealthTimer: ReturnType<typeof setInterval> | null = null
 let commandSocketRecoveryRegistered = false
 let commandSocketRestartInFlight: Promise<void> | null = null
+let commandSocketRestartTimer: ReturnType<typeof setTimeout> | null = null
 let appUpdateController: AppUpdateController | null = null
 let fatalRunRecoveryRegistered = false
 function rpc(): RpcMethods<RpcSafeYachiyoServer> {
@@ -317,10 +324,14 @@ async function deliverPendingUpdateReceiptAfterRuntimeReady(): Promise<void> {
 
 const COMMAND_SOCKET_HEALTH_INTERVAL_MS = 15_000
 const COMMAND_SOCKET_HEALTH_TIMEOUT_MS = 1_000
+const commandSocketRestartPolicy = createCommandSocketRestartPolicy({
+  initialDelayMs: 250,
+  maxAttempts: 3
+})
 
 function createCommandSocketHandle(): CommandSocketHandle {
   return startCommandSocket({
-    socketPath: resolveYachiyoSocketPath(),
+    endpoint: resolveYachiyoCommandEndpoint(),
     onNotification: (input) => showYachiyoNotification(input),
     onSendChannel: (input) => {
       void hostCall('sendChannelMessage', [input]).catch((error) => {
@@ -419,11 +430,24 @@ function createCommandSocketHandle(): CommandSocketHandle {
     },
     onError: (error) => {
       console.error('[command-socket] server error:', error)
-      queueMicrotask(() => {
-        void restartCommandSocket('socket error')
-      })
+      scheduleCommandSocketRestart('socket error')
     }
   })
+}
+
+function scheduleCommandSocketRestart(reason: string): void {
+  if (commandSocketRestartTimer || commandSocketRestartInFlight) return
+  const delayMs = commandSocketRestartPolicy.nextDelay()
+  if (delayMs === null) {
+    console.error('[command-socket] restart limit reached; waiting for health recovery trigger')
+    return
+  }
+
+  console.warn(`[command-socket] retrying in ${delayMs}ms (${reason})`)
+  commandSocketRestartTimer = setTimeout(() => {
+    commandSocketRestartTimer = null
+    void restartCommandSocket(reason)
+  }, delayMs)
 }
 
 function startCommandSocketNow(reason: string): void {
@@ -467,7 +491,9 @@ async function ensureCommandSocketHealthy(reason: string): Promise<void> {
   }
 
   const healthy = await handle.healthCheck(COMMAND_SOCKET_HEALTH_TIMEOUT_MS)
-  if (!healthy) {
+  if (healthy) {
+    commandSocketRestartPolicy.reset()
+  } else {
     console.warn(`[command-socket] unhealthy; restarting (${reason})`)
     await restartCommandSocket(reason)
   }
@@ -818,7 +844,7 @@ export function registerYachiyoGateway(options: {
     }
   })
 
-  // Unix domain socket for CLI commands (notifications, send-channel, etc.)
+  // Local command transport for CLI commands (Unix socket or Windows named pipe).
   startCommandSocketNow('initial startup')
   registerCommandSocketRecovery()
   registerChannelHealthPokes()
@@ -922,19 +948,16 @@ export function registerYachiyoGateway(options: {
     IPC_CHANNELS.openWorkspaceWithApp,
     async (input: { threadId: string; appName: string }) => {
       const workspacePath = await rpc().openThreadWorkspace({ threadId: input.threadId })
+      const selectedApp = findDiscoveredApp(await discoverApps(), input.appName, [
+        'editor',
+        'terminal'
+      ])
+      if (!selectedApp) throw new Error(`Application "${input.appName}" is not installed.`)
       await openThreadWorkspace(input.threadId, workspacePath, {
-        openPath: (path) =>
-          new Promise<string>((resolve, reject) => {
-            const child = spawn('open', ['-a', input.appName, path])
-            child.on('close', (code) => {
-              if (code === 0) {
-                resolve('')
-              } else {
-                reject(new Error(`Failed to open "${input.appName}" (exit code ${code})`))
-              }
-            })
-            child.on('error', reject)
-          })
+        openPath: async (path) => {
+          await launchDiscoveredApp(selectedApp, { targetPath: path })
+          return ''
+        }
       })
     }
   )
@@ -1047,7 +1070,15 @@ export function registerYachiyoGateway(options: {
   handleYachiyoIpc(IPC_CHANNELS.saveConfig, async (input: SettingsConfig) => {
     const currentConfig = await rpc().getConfig()
     const demoModeBeforeSave = is.dev && currentConfig.general?.demoMode === true
-    const configToSave = await resolveActivityTrackingPermission(input, currentConfig)
+    const platformCapabilities = resolvePlatformCapabilities(process.platform)
+    const platformSafeConfig = preserveUnsupportedPlatformSettings({
+      platform: process.platform,
+      previous: currentConfig,
+      submitted: input
+    })
+    const configToSave = platformCapabilities.activityTracking
+      ? await resolveActivityTrackingPermission(platformSafeConfig, currentConfig)
+      : platformSafeConfig
     const saved = await rpc().saveConfig(configToSave)
     const demoModeAfterSave = is.dev && saved.general?.demoMode === true
 
@@ -1058,18 +1089,20 @@ export function registerYachiyoGateway(options: {
     }
 
     // Sync activity tracking settings
-    const activityTracking = saved.general?.activityTracking ?? {
-      mode: 'simple' as const,
-      ocr: { enabled: false, excludedApps: [] }
+    if (platformCapabilities.activityTracking) {
+      const activityTracking = saved.general?.activityTracking ?? {
+        mode: 'simple' as const,
+        ocr: { enabled: false, excludedApps: [] }
+      }
+      const tracker = getActivityTracker(activityTracking.mode)
+      tracker.setMode(
+        activityTracking.mode,
+        activityTracking.mode === 'full'
+          ? { fullModeAvailable: activityTracking.accessibilityDenied !== true }
+          : undefined
+      )
+      tracker.setOcrConfig(activityTracking.ocr)
     }
-    const tracker = getActivityTracker(activityTracking.mode)
-    tracker.setMode(
-      activityTracking.mode,
-      activityTracking.mode === 'full'
-        ? { fullModeAvailable: activityTracking.accessibilityDenied !== true }
-        : undefined
-    )
-    tracker.setOcrConfig(activityTracking.ocr)
 
     return saved
   })

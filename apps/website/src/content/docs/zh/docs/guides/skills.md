@@ -46,6 +46,18 @@ description: 八千代如何发现技能、扫描哪些目录，以及怎么写�
 
 所以内置技能开箱即用，外部技能需要主动启用；而关掉一个内置技能的做法是把它加进 `disabled`，而不是从 `enabled` 里删掉。
 
+## 平台兼容性
+
+技能可以在 frontmatter 里限制平台：
+
+```yaml
+platforms: darwin,win32
+```
+
+只接受 `darwin`、`win32` 和 `linux`。没有 `platforms` 就表示跨平台。不兼容的技能会在 catalog 进入设置、输入框和当前 prompt 之前被过滤，所以历史配置里曾启用的 Mac 专属技能也不会在 Windows 上复活。
+
+文档技能（`yachiyo-docx`、`yachiyo-xlsx`、`yachiyo-pptx`、`yachiyo-pdf`）需要 Python 3。Windows 上八千代自带的 `python3` 兼容脚本会先调用 Python Launcher（`py.exe -3`），再尝试 `python.exe`。八千代不捆绑完整 Python；如果 `yachiyo doctor` 报告缺失，请从 python.org 安装。
+
 **设置 → 能力 → 技能** 会列出所有可发现的技能，每个带一个开关，这是管理它们的正常方式。底层的键是：
 
 ```bash
@@ -129,7 +141,7 @@ Read [references/tone.md](references/tone.md) before writing the summaries.
 | `yachiyo-zotero`           | 通过 HTTP 服务查询本地 Zotero 库。                       |
 | `yachiyo-skill-creator`    | 编写新技能的约定。                                       |
 
-其中几个只支持 macOS，技能本身会在开头说明。
+`yachiyo-kagete`、`yachiyo-ghostty`、`yachiyo-macos-apps` 和 `yachiyo-macos-screenshot` 只支持 macOS，不会出现在 Windows 的技能目录里。
 
 ## 排查发现问题
 

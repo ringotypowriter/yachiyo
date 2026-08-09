@@ -2,7 +2,7 @@
  * Fullscreen image viewer overlay.
  *
  * Supports wheel-zoom, click-drag pan, fit-to-screen reset, and
- * "Reveal in Finder" for asset-scheme images. Follows the same
+ * "Show in folder" for asset-scheme images. Follows the same
  * portal + fixed overlay pattern as LinkSafetyModal and ConfirmDialog.
  */
 
@@ -303,8 +303,8 @@ function ImageDetailViewerBody({
           </ToolbarButton>
         </Tooltip>
         {localPath ? (
-          <Tooltip content="Reveal in Finder" placement="bottom" dark>
-            <ToolbarButton onClick={handleReveal} label="Reveal in Finder">
+          <Tooltip content="Show in folder" placement="bottom" dark>
+            <ToolbarButton onClick={handleReveal} label="Show in folder">
               <FolderOpen size={16} />
             </ToolbarButton>
           </Tooltip>

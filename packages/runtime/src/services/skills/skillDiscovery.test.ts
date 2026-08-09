@@ -5,7 +5,59 @@ import { join } from 'node:path'
 import test from 'node:test'
 
 import { discoverSkills, isBundledSkillPath } from './skillDiscovery.ts'
+import { parseSkillPlatforms } from './skillDiscovery.ts'
 import { buildSkillRegistry } from './skillRegistry.ts'
+
+test('skill platform metadata accepts supported comma-separated values and missing metadata', () => {
+  assert.deepEqual(parseSkillPlatforms('darwin, win32'), ['darwin', 'win32'])
+  assert.deepEqual(parseSkillPlatforms('linux, darwin, linux'), ['linux', 'darwin'])
+  assert.equal(parseSkillPlatforms(undefined), undefined)
+})
+
+test('skill platform metadata rejects unknown platform names', () => {
+  assert.throws(() => parseSkillPlatforms('darwin, windows'), /Unknown skill platform.*windows/iu)
+})
+
+test('Windows registry filters incompatible skills while missing metadata remains cross-platform', () => {
+  const discovered = [
+    {
+      name: 'cross-platform',
+      directoryPath: '/skills/cross-platform',
+      skillFilePath: '/skills/cross-platform/SKILL.md',
+      origin: 'custom' as const,
+      scope: 'home' as const,
+      rootPath: '/skills'
+    },
+    {
+      name: 'mac-only',
+      directoryPath: '/skills/mac-only',
+      skillFilePath: '/skills/mac-only/SKILL.md',
+      origin: 'bundled' as const,
+      platforms: ['darwin' as const],
+      autoEnabled: true,
+      scope: 'home' as const,
+      rootPath: '/skills'
+    },
+    {
+      name: 'windows-only',
+      directoryPath: '/skills/windows-only',
+      skillFilePath: '/skills/windows-only/SKILL.md',
+      origin: 'custom' as const,
+      platforms: ['win32' as const],
+      scope: 'home' as const,
+      rootPath: '/skills'
+    }
+  ]
+
+  assert.deepEqual(
+    buildSkillRegistry(discovered, { platform: 'win32' }).map((skill) => skill.name),
+    ['cross-platform', 'windows-only']
+  )
+  assert.deepEqual(
+    buildSkillRegistry(discovered, { platform: 'darwin' }).map((skill) => skill.name),
+    ['cross-platform', 'mac-only']
+  )
+})
 
 test('isBundledSkillPath is precise to the Yachiyo home skills dir, not a substring match', () => {
   const homeSkillsDir = '/Users/ringo/.yachiyo/skills'
@@ -153,7 +205,9 @@ test('buildSkillRegistry propagates the origin field to SkillCatalogEntry', asyn
       ['---', 'name: repo-guide', 'description: Workspace', '---', '', '# Repo Guide'].join('\n')
     )
 
-    const registry = buildSkillRegistry(await discoverSkills([workspacePath]))
+    const registry = buildSkillRegistry(await discoverSkills([workspacePath]), {
+      platform: 'darwin'
+    })
     const byName = new Map(registry.map((s) => [s.name, s]))
 
     assert.equal(
@@ -229,7 +283,9 @@ test('discoverSkills scans workspace-local and home/global roots with precedence
       ['# Global Skill', '', 'Global description.'].join('\n')
     )
 
-    const registry = buildSkillRegistry(await discoverSkills([workspacePath]))
+    const registry = buildSkillRegistry(await discoverSkills([workspacePath]), {
+      platform: 'darwin'
+    })
 
     assert.equal(registry.length, 2)
     assert.equal(registry[0]?.name, 'writer-skill')
@@ -344,7 +400,9 @@ test('discoverSkills tolerates malformed frontmatter and missing frontmatter', a
       ['# Plain Skill', '', 'Readable summary from body.'].join('\n')
     )
 
-    const registry = buildSkillRegistry(await discoverSkills([workspacePath]))
+    const registry = buildSkillRegistry(await discoverSkills([workspacePath]), {
+      platform: 'darwin'
+    })
 
     assert.deepEqual(
       registry.map((skill) => ({ name: skill.name, description: skill.description })),

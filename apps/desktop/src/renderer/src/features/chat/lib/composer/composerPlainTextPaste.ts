@@ -1,3 +1,5 @@
+import { hasExactPrimaryShortcutModifiers } from '../../../../lib/platformShortcut.ts'
+
 interface ShortcutEvent {
   altKey: boolean
   code?: string
@@ -19,12 +21,9 @@ interface PlainTextPasteResult {
   value: string
 }
 
-export function isPastePlainTextShortcut(event: ShortcutEvent): boolean {
+export function isPastePlainTextShortcut(event: ShortcutEvent, platform: string): boolean {
   return (
-    event.metaKey &&
-    event.shiftKey &&
-    !event.ctrlKey &&
-    !event.altKey &&
+    hasExactPrimaryShortcutModifiers(event, platform, true) &&
     (event.code === 'KeyV' || event.key.toLowerCase() === 'v')
   )
 }

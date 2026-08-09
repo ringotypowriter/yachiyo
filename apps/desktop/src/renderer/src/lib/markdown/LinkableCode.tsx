@@ -2,7 +2,7 @@ import { useContext, useState, useCallback } from 'react'
 import { StreamdownContext } from 'streamdown'
 import { useAppDialog } from '@renderer/components/AppDialogContext'
 import { LinkSafetyModal } from './LinkSafetyModal'
-import { getLinkableCodeFileAction, getTimelineFileEditorApp } from './linkableCodeFileAction'
+import { getLinkableCodeFileAction, resolveTimelineFileOpenTarget } from './linkableCodeFileAction'
 import type { InlineCodeFileLinkSnapshot } from './inlineCodeFileLinkSnapshot'
 import { splitAutolinkCandidate } from './autolinkTextBoundary'
 import { toInlineCodeFileReferenceCandidate } from '@yachiyo/shared/inlineCodeFileReferences'
@@ -26,6 +26,7 @@ export function LinkableCode({
   void node
   const dialog = useAppDialog()
   const editorApp = useAppStore((s) => s.config?.workspace?.editorApp)
+  const markdownApp = useAppStore((s) => s.config?.workspace?.markdownApp)
   const { linkSafety } = useContext(StreamdownContext)
   const [modalOpen, setModalOpen] = useState(false)
 
@@ -58,8 +59,8 @@ export function LinkableCode({
         if (action === 'reveal') {
           await window.api.yachiyo.revealFile({ path: filePath })
         } else {
-          const app = getTimelineFileEditorApp({ editorApp })
-          if (!app) {
+          const target = resolveTimelineFileOpenTarget({ filePath, editorApp, markdownApp })
+          if (target.mode === 'unavailable') {
             const openSettings = await dialog.confirm({
               title: 'Workspace editor not configured.',
               message: 'Configure a workspace editor before opening timeline file links.',
@@ -69,7 +70,15 @@ export function LinkableCode({
             if (openSettings) window.api.openSettings('workspace')
             return
           }
-          await window.api.yachiyo.openFileInEditor({ path: filePath, editorApp: app })
+          await window.api.yachiyo.openFile({
+            path: filePath,
+            ...(target.mode === 'configured'
+              ? {
+                  appSelection: target.appSelection,
+                  appKind: target.appKind
+                }
+              : {})
+          })
         }
       } catch (error) {
         await dialog.alert({
@@ -77,7 +86,7 @@ export function LinkableCode({
         })
       }
     },
-    [dialog, editorApp, filePath, fileReference]
+    [dialog, editorApp, filePath, fileReference, markdownApp]
   )
 
   const handleConfirm = useCallback(() => {

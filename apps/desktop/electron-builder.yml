@@ -26,8 +26,13 @@ asarUnpack:
   - '!resources/screenshots{,/**}'
 win:
   executableName: yachiyo
+  target:
+    - target: nsis
+      arch:
+        - x64
 nsis:
-  artifactName: ${name}-${version}-setup.${ext}
+  include: build/installer.nsh
+  artifactName: yachiyo-${version}-setup.${ext}
   shortcutName: ${productName}
   uninstallDisplayName: ${productName}
   createDesktopShortcut: always

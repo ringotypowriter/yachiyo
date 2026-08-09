@@ -7,6 +7,11 @@ import { resolveYachiyoDataDir, resolveYachiyoSettingsPath } from '@yachiyo/runt
 import { createSettingsStore } from '@yachiyo/runtime/settings/settingsStore'
 import { createElectronProviderCredentialVault } from '../security/providerCredentials.ts'
 import { rewriteBundledCoreSkillMarkdownFiles } from './coreSkillsContent.ts'
+import { parseSkillPlatforms } from '@yachiyo/runtime/services/skills/skillDiscovery'
+import {
+  selectNewCompatibleCoreSkillNames,
+  type CoreSkillPlatformMetadata
+} from './coreSkillPlatform.ts'
 
 const CORE_SKILLS_SUBDIR = join('skills', 'core')
 const MANIFEST_FILE = '.manifest.json'
@@ -59,22 +64,23 @@ function writeManifest(targetPath: string, manifest: CoreSkillsManifest): void {
  * Read the `name` field from a SKILL.md file's YAML frontmatter.
  * Returns null if not found or unreadable.
  */
-function parseSkillName(skillFilePath: string): string | null {
-  try {
-    const content = readFileSync(skillFilePath, 'utf8')
-    if (!content.startsWith('---\n')) return null
-    const end = content.indexOf('\n---\n', 4)
-    if (end < 0) return null
-    for (const line of content.slice(4, end).split('\n')) {
-      const match = /^name\s*:\s*(.+)$/u.exec(line.trim())
-      if (match) {
-        return match[1].replace(/^["']|["']$/gu, '').trim() || null
-      }
-    }
-  } catch {
-    // unreadable — fall through
+function parseSkillMetadata(
+  skillFilePath: string,
+  fallbackName: string
+): CoreSkillPlatformMetadata | null {
+  const content = readFileSync(skillFilePath, 'utf8')
+  if (!content.startsWith('---\n')) return { name: fallbackName }
+  const end = content.indexOf('\n---\n', 4)
+  if (end < 0) return { name: fallbackName }
+  let name = fallbackName
+  let platforms: CoreSkillPlatformMetadata['platforms']
+  for (const line of content.slice(4, end).split('\n')) {
+    const nameMatch = /^name\s*:\s*(.+)$/u.exec(line.trim())
+    if (nameMatch) name = nameMatch[1].replace(/^["']|["']$/gu, '').trim() || fallbackName
+    const platformsMatch = /^platforms\s*:\s*(.+)$/u.exec(line.trim())
+    if (platformsMatch) platforms = parseSkillPlatforms(platformsMatch[1])
   }
-  return null
+  return { name, ...(platforms ? { platforms } : {}) }
 }
 
 /**
@@ -82,20 +88,21 @@ function parseSkillName(skillFilePath: string): string | null {
  * contain a SKILL.md. Returns their parsed skill names (falling back to the
  * directory name when frontmatter is absent).
  */
-function collectBundledSkillNames(bundledPath: string): string[] {
-  const names: string[] = []
+function collectBundledSkills(bundledPath: string): CoreSkillPlatformMetadata[] {
+  const skills: CoreSkillPlatformMetadata[] = []
   try {
     const entries = readdirSync(bundledPath, { withFileTypes: true })
     for (const entry of entries) {
       if (!entry.isDirectory()) continue
       const skillFile = join(bundledPath, entry.name, 'SKILL.md')
       if (!existsSync(skillFile)) continue
-      names.push(parseSkillName(skillFile) ?? entry.name)
+      const metadata = parseSkillMetadata(skillFile, entry.name)
+      if (metadata) skills.push(metadata)
     }
   } catch {
     // bundledPath unreadable — caller handles the empty result
   }
-  return names
+  return skills
 }
 
 /**
@@ -147,9 +154,13 @@ function runSetup(): void {
   cpSync(bundledPath, targetPath, { recursive: true })
   rewriteBundledCoreSkillMarkdownFiles(targetPath)
 
-  const allSkillNames = collectBundledSkillNames(bundledPath)
-  const previouslyRegistered = new Set(manifest?.registeredSkills ?? [])
-  const newSkillNames = allSkillNames.filter((name) => !previouslyRegistered.has(name))
+  const allSkills = collectBundledSkills(bundledPath)
+  const allSkillNames = allSkills.map((skill) => skill.name)
+  const newSkillNames = selectNewCompatibleCoreSkillNames(
+    allSkills,
+    manifest?.registeredSkills ?? [],
+    process.platform
+  )
 
   // Auto-enable skills that have never been registered before.
   // Skills the user explicitly disabled (removed from enabled list) are not re-added.

@@ -17,7 +17,11 @@ test('sync readiness treats a saved recommended iCloud path as the default sync 
   try {
     const status = resolveSyncReadiness(
       { providers: [], sync: { syncDir: recommendedSyncDir } },
-      (path) => path === iCloudRoot
+      {
+        platform: 'darwin',
+        homeDir: home,
+        pathExists: (path) => path === iCloudRoot
+      }
     )
     assert.equal(status.syncDir, recommendedSyncDir)
     assert.equal(status.available, true)

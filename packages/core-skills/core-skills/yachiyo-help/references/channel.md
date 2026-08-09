@@ -82,7 +82,7 @@ yachiyo channel groups set-status x9y8z7w6-... block
 
 Behavior:
 
-- If the Yachiyo app is running, the CLI sends the status change over the Unix domain socket at `~/.yachiyo/yachiyo.sock`.
+- If the Yachiyo app is running, the CLI sends the status change over the local command endpoint: `~/.yachiyo/yachiyo.sock` on macOS or a named pipe on Windows.
 - A live app applies the update immediately, so `approval` starts the group monitor right away and `block`/`blocked` stops it right away.
 - If the app is not running, the CLI falls back to updating the saved database record directly.
 - This command only accepts group IDs. Passing a channel user ID fails with `Unknown channel group`.

@@ -11,7 +11,7 @@ Use this skill when the user wants to inspect, clean, modify, or generate a spre
 Read [guide.md](references/guide.md) for the full workflow. Use the inspector script before non-trivial workbook edits:
 
 ```bash
-python3 resources/core-skills/yachiyo-xlsx/scripts/xlsx_inspect.py path/to/file.xlsx --json
+python3 "resources/core-skills/yachiyo-xlsx/scripts/xlsx_inspect.py" path/to/file.xlsx --json
 ```
 
 ## Workflow

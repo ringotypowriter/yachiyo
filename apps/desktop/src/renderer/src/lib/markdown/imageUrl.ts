@@ -81,7 +81,7 @@ function appendAssetVersion(
 
 /**
  * Extract the original absolute filesystem path from a `yachiyo-asset://`
- * URL, or return `null` if it isn't one. Useful for "Reveal in Finder".
+ * URL, or return `null` if it isn't one. Useful for "Show in folder".
  */
 export function extractLocalPath(src: string): string | null {
   if (!isAssetUrl(src)) return null

@@ -1,6 +1,7 @@
 ---
 name: yachiyo-macos-screenshot
 description: Capture screenshots on macOS via AppleScript. Use when the user wants you to take a screenshot of their screen, a specific window, or a selected area. Supports saving to a file or copying to the clipboard. macOS only.
+platforms: darwin
 ---
 
 # Yachiyo macOS Screenshot

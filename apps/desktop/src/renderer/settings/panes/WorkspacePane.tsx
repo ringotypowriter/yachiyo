@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { theme, alpha } from '@renderer/theme/theme'
 import type { SettingsConfig } from '@yachiyo/shared/protocol'
+import type { DiscoveredApp } from '@yachiyo/shared/discoveredApp'
 import { tPlural } from '@yachiyo/i18n/index'
 import { useT } from '@yachiyo/i18n/react'
 import { SettingItem, SettingLabel, SettingSection } from '../components/primitives'
@@ -10,11 +11,6 @@ import { useAppDialog } from '@renderer/components/AppDialogContext'
 import { useRestoreFocusOnUnmount } from '@renderer/lib/focusRestore'
 import { imeSafeEnter } from '@renderer/lib/imeUtils'
 import { useFloatingPanelLayout } from '@renderer/lib/useFloatingPanelLayout'
-
-interface DiscoveredApp {
-  name: string
-  iconDataUrl?: string
-}
 
 interface AppPickerProps {
   value: string
@@ -182,7 +178,7 @@ function AppPicker({ value, options, placeholder, onChange }: AppPickerProps): R
     return () => document.removeEventListener('pointerdown', handlePointerDown)
   }, [dropdownRef, open])
 
-  const selectedApp = options.find((o) => o.name === value)
+  const selectedApp = options.find((app) => app.id === value || app.name === value)
 
   const triggerStyle: React.CSSProperties = {
     display: 'flex',
@@ -228,7 +224,7 @@ function AppPicker({ value, options, placeholder, onChange }: AppPickerProps): R
             lineHeight: 1
           }}
         >
-          {value || placeholder}
+          {selectedApp?.name || value || placeholder}
         </span>
         <ChevronDown
           size={14}
@@ -277,11 +273,11 @@ function AppPicker({ value, options, placeholder, onChange }: AppPickerProps): R
             ) : (
               options.map((app) => (
                 <AppPickerOption
-                  key={app.name}
+                  key={app.id}
                   app={app}
-                  selected={app.name === value}
+                  selected={app.id === value || app.name === value}
                   onSelect={() => {
-                    onChange(app.name)
+                    onChange(app.id)
                     setOpen(false)
                   }}
                 />

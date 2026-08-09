@@ -6,6 +6,7 @@ import { existsSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
+import { resolveBuildSpawnSpec } from './build-executables.mjs'
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const desktopDir = resolve(repoRoot, 'apps', 'desktop')
@@ -40,9 +41,12 @@ function resetTerminal() {
 
 function run(command, commandArgs, options = {}) {
   return new Promise((resolveExit) => {
-    activeChild = spawn(command, commandArgs, {
+    const env = options.env ?? process.env
+    const invocation = resolveBuildSpawnSpec(process.platform, command, commandArgs, env)
+    activeChild = spawn(invocation.command, invocation.args, {
+      ...invocation.options,
       cwd: desktopDir,
-      env: options.env ?? process.env,
+      env,
       stdio: 'inherit'
     })
 

@@ -1,6 +1,8 @@
 # send — Send notifications and channel messages
 
-Fire-and-forget commands that deliver payloads to the running Yachiyo app via Unix domain socket. The app must be running; otherwise the command fails with a connection error.
+Fire-and-forget commands that deliver payloads to the running Yachiyo app via
+its local command endpoint. The app must be running; otherwise the command
+fails with a connection error.
 
 ## Commands
 
@@ -44,7 +46,7 @@ Output: `Message sent.`
 
 ## Notes
 
-- Both commands communicate via the Unix domain socket at `~/.yachiyo/yachiyo.sock`.
+- Both commands use `~/.yachiyo/yachiyo.sock` on macOS or a named pipe on Windows.
 - If the app is not running, the command fails with: `Yachiyo app is not running. Start the app first.`
 - `send channel` requires the corresponding channel service (Telegram/QQ/Discord) to be running. If the service for the target's platform is not active, the send fails silently (logged server-side).
 - For QQ users, the message is sent as a private message. For QQ groups, it is sent as a group message.

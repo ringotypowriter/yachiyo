@@ -35,7 +35,7 @@ export const layout = {
     noMessagesYet: 'No messages yet',
     startConversation: 'Start a conversation',
     threadOptions: 'Thread options',
-    openWorkspaceInFinder: 'Open workspace in Finder',
+    openWorkspaceInFinder: 'Open workspace in folder',
     openWorkspaceInTerminal: 'Open workspace in terminal',
     openWorkspaceInEditor: 'Open workspace in editor',
     openRunInspector: 'Open run inspector',

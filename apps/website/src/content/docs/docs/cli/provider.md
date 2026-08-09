@@ -3,8 +3,9 @@ title: yachiyo provider
 description: List, inspect, and update AI providers, and set the default model for new chats.
 ---
 
-Manages the providers configured in `~/.yachiyo/config.toml`. API keys are
-redacted as `***` in all output.
+Manages provider definitions from `~/.yachiyo/config.toml`. API keys and Vertex
+private keys are stored in the encrypted, device-local provider credential
+vault. API keys are redacted as `***` in all output.
 
 ## `provider list`
 
@@ -35,6 +36,10 @@ change.
 yachiyo provider update my-openai --payload '{"apiKey":"sk-..."}'
 yachiyo provider update my-openai --payload '{"baseUrl":"https://proxy.internal/v1"}'
 ```
+
+Supplying an `apiKey` or Vertex private key writes it to this device's encrypted
+vault. Provider credentials are not synced, so configure them separately on each
+device.
 
 ## `provider set-default`
 

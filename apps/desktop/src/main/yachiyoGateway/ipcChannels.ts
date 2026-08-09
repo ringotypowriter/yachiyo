@@ -124,7 +124,6 @@ export const IPC_CHANNELS = {
   copyImageToClipboard: 'yachiyo:copy-image-to-clipboard',
   resolveFileReferences: 'yachiyo:resolve-file-references',
   openFile: 'yachiyo:open-file',
-  openFileInEditor: 'yachiyo:open-file-in-editor',
   savePngFile: 'yachiyo:save-png-file',
   getUsageStats: 'yachiyo:get-usage-stats',
   getPerfStats: 'yachiyo:get-perf-stats',

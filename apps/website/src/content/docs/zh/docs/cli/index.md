@@ -19,8 +19,8 @@ yachiyo <namespace> <subcommand> [args...] [flags...]
 
 ## 命名空间
 
-| 命名空间                                | 用途                               |
-| --------------------------------------- | ---------------------------------- |
+| 命名空间                             | 用途                               |
+| ------------------------------------ | ---------------------------------- |
 | [`soul`](/zh/docs/cli/soul/)         | 管理演化中的人格特质               |
 | [`provider`](/zh/docs/cli/provider/) | 管理 AI 供应商和模型               |
 | [`agent`](/zh/docs/cli/agent/)       | 子智能体运行模式与 ACP 档案        |
@@ -29,6 +29,9 @@ yachiyo <namespace> <subcommand> [args...] [flags...]
 | [`schedule`](/zh/docs/cli/schedule/) | 管理定时任务和运行历史             |
 | [`channel`](/zh/docs/cli/channel/)   | 列出频道用户和群组，设置状态与标签 |
 | [`send`](/zh/docs/cli/send/)         | 发送通知和频道消息                 |
+| `doctor`                             | 诊断平台运行时、二进制和可用能力   |
+
+`yachiyo doctor` 输出便于阅读的平台报告；`yachiyo doctor --json` 只输出结构化 JSON，可以安全附在 bug 报告里，不会包含供应商密钥、凭据 key、认证文件或完整环境变量。
 
 ## 全局参数
 
@@ -48,7 +51,7 @@ yachiyo <namespace> <subcommand> [args...] [flags...]
 
 ## 输出中的密钥
 
-每条命令在打印之前都会把 `apiKey` 的值替换成 `***`，`yachiyo config get` 也不例外。直接读 `config.toml` 是唯一能打印出供应商 key 的方式。
+每条命令在打印之前都会把 `apiKey` 的值替换成 `***`，`yachiyo config get` 也不例外。供应商 API key 存放在本机加密凭据库中，而不是 `config.toml`，也不会参与同步。
 
 `channels.toml` 里的频道机器人 token **不在**这个打码范围内。
 
@@ -75,7 +78,24 @@ make release && yachiyo send notification "Release build done" --title "CI"
 <details>
 <summary>自己排查</summary>
 
-桌面应用每次启动都会写入 `~/.yachiyo/bin/yachiyo`，然后尝试让它可被调用。这一步没成功的时候，按下面这个清单往下走。
+桌面应用每次启动都会写入对应平台的包装脚本，然后尝试让它可被调用。这一步没成功时，看对应平台。
+
+### Windows
+
+包装脚本是 `%USERPROFILE%\.yachiyo\bin\yachiyo.cmd`。应用会以当前用户身份把这个目录加入用户 `PATH`，不需要管理员权限。
+
+```powershell
+Test-Path "$env:USERPROFILE\.yachiyo\bin\yachiyo.cmd"
+($env:Path -split ';') | Where-Object { $_ -like '*\.yachiyo\bin' }
+```
+
+包装脚本存在但第二条命令找不到目录时，重启八千代，让它修复用户 `PATH`。然后关闭并重新打开 PowerShell、命令提示符或内置 Bash；已经打开的终端仍保留旧环境。最后验证：
+
+```powershell
+yachiyo doctor --json
+```
+
+### macOS
 
 **1. 包装脚本存在吗？**
 
@@ -125,5 +145,5 @@ fish_add_path ~/.yachiyo/bin               # fish
 </details>
 
 :::note
-包装脚本每次应用启动都会重新生成，指向正在运行的那个应用包。不要改它。
+包装脚本每次应用启动都会重新生成，指向正在运行的安装。不要改它。
 :::

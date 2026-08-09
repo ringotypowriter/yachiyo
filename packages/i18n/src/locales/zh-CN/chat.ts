@@ -379,6 +379,7 @@ export const chat = {
     loadFailed: '加载变更失败。',
     noFileChanges: '没有文件变更。',
     openInApp: '在 {app} 中打开',
+    openWithDefaultApp: '使用默认应用打开',
     reverted: '已还原',
     revert: '还原',
     allReverted: '所有变更均已还原。',
@@ -387,8 +388,8 @@ export const chat = {
     revertFileDescription: '这会将 {path} 恢复到之前的状态，且无法撤销。',
     revertAllDescription: '这会将所有文件恢复到之前的状态，且无法撤销。',
     reverting: '正在还原…',
-    revealInFinder: '在访达中显示',
-    openInEditorFailed: '在编辑器中打开失败。'
+    revealInFinder: '在文件夹中显示',
+    openFileFailed: '打开文件失败。'
   },
   plan: {
     title: '计划',

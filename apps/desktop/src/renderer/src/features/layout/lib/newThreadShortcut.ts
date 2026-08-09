@@ -1,3 +1,5 @@
+import { hasExactPrimaryShortcutModifiers } from '../../../lib/platformShortcut.ts'
+
 export interface NewThreadShortcutEvent {
   altKey: boolean
   ctrlKey: boolean
@@ -6,12 +8,9 @@ export interface NewThreadShortcutEvent {
   shiftKey: boolean
 }
 
-export function isCreateNewThreadShortcut(event: NewThreadShortcutEvent): boolean {
-  return (
-    event.metaKey &&
-    !event.ctrlKey &&
-    !event.altKey &&
-    !event.shiftKey &&
-    event.key.toLowerCase() === 'n'
-  )
+export function isCreateNewThreadShortcut(
+  event: NewThreadShortcutEvent,
+  platform: string
+): boolean {
+  return hasExactPrimaryShortcutModifiers(event, platform) && event.key.toLowerCase() === 'n'
 }

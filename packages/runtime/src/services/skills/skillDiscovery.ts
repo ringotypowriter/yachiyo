@@ -2,7 +2,7 @@ import { readdir, readFile } from 'node:fs/promises'
 import { basename, dirname, join, resolve } from 'node:path'
 import { homedir } from 'node:os'
 
-import type { SkillCatalogEntry, SkillOrigin } from '@yachiyo/shared/protocol'
+import type { SkillCatalogEntry, SkillOrigin, SkillPlatform } from '@yachiyo/shared/protocol'
 import { resolveYachiyoDataDir } from '../../config/paths.ts'
 
 export const SKILL_FILE_NAME = 'SKILL.md'
@@ -31,8 +31,8 @@ export interface DiscoveredSkill extends SkillCatalogEntry {
 
 export interface IsBundledSkillPathOptions {
   /**
-   * Force case-insensitive comparison. Defaults to `process.platform === 'win32'`
-   * because Windows filesystems are case-insensitive but preserve case, so two
+   * Force case-insensitive comparison because Windows filesystems are
+   * case-insensitive but preserve case, so two
    * paths that address the same directory may differ only in casing (e.g.
    * `C:\Users\...` vs `c:\users\...`). POSIX filesystems are case-sensitive by
    * convention, so we leave comparisons exact there. Tests can override
@@ -64,9 +64,9 @@ export interface IsBundledSkillPathOptions {
 export function isBundledSkillPath(
   directoryPath: string,
   yachiyoSkillsDir: string,
-  options: IsBundledSkillPathOptions = {}
+  options: IsBundledSkillPathOptions = { caseInsensitive: false }
 ): boolean {
-  const caseInsensitive = options.caseInsensitive ?? process.platform === 'win32'
+  const caseInsensitive = options.caseInsensitive ?? false
   const normalize = (p: string): string => {
     const slashed = p.replace(/\\/g, '/').replace(/\/+$/, '')
     return caseInsensitive ? slashed.toLowerCase() : slashed
@@ -86,12 +86,13 @@ export function isBundledSkillPath(
 function resolveSkillOrigin(
   originHint: SkillOriginHint,
   rootPath: string,
-  directoryPath: string
+  directoryPath: string,
+  caseInsensitive: boolean
 ): SkillOrigin {
   if (originHint !== 'yachiyo-home') return originHint
   // For yachiyo-home roots, `rootPath` IS the Yachiyo home's skills dir,
   // because that's how buildSkillDiscoveryRoots() constructs it.
-  return isBundledSkillPath(directoryPath, rootPath) ? 'bundled' : 'custom'
+  return isBundledSkillPath(directoryPath, rootPath, { caseInsensitive }) ? 'bundled' : 'custom'
 }
 
 interface ParsedFrontmatter {
@@ -102,6 +103,25 @@ interface ParsedFrontmatter {
 function normalizeString(value: string | undefined): string | undefined {
   const normalized = value?.trim()
   return normalized ? normalized : undefined
+}
+
+const SKILL_PLATFORMS = new Set<SkillPlatform>(['darwin', 'win32', 'linux'])
+
+export function parseSkillPlatforms(value: string | undefined): SkillPlatform[] | undefined {
+  const normalized = normalizeString(value)
+  if (!normalized) return undefined
+
+  const platforms: SkillPlatform[] = []
+  for (const rawPlatform of normalized.split(',')) {
+    const platform = rawPlatform.trim()
+    if (!SKILL_PLATFORMS.has(platform as SkillPlatform)) {
+      throw new Error(`Unknown skill platform: ${platform || '(empty)'}`)
+    }
+    if (!platforms.includes(platform as SkillPlatform)) {
+      platforms.push(platform as SkillPlatform)
+    }
+  }
+  return platforms
 }
 
 function unquoteFrontmatterValue(value: string): string {
@@ -243,6 +263,7 @@ async function readSkillRecord(input: {
   skillFilePath: string
   autoEnabled?: boolean
   originHint: SkillOriginHint
+  caseInsensitive: boolean
 }): Promise<DiscoveredSkill | null> {
   let content: string
 
@@ -270,7 +291,13 @@ async function readSkillRecord(input: {
   }
 
   const rootPath = resolve(input.rootPath)
-  const origin = resolveSkillOrigin(input.originHint, rootPath, directoryPath)
+  const origin = resolveSkillOrigin(
+    input.originHint,
+    rootPath,
+    directoryPath,
+    input.caseInsensitive
+  )
+  const platforms = parseSkillPlatforms(data['platforms'])
 
   return {
     name,
@@ -281,6 +308,7 @@ async function readSkillRecord(input: {
     directoryPath,
     skillFilePath,
     ...(input.autoEnabled ? { autoEnabled: true } : {}),
+    ...(platforms ? { platforms } : {}),
     origin,
     scope: input.scope,
     rootPath
@@ -341,7 +369,11 @@ export function buildSkillDiscoveryRoots(workspacePaths: string[] = []): SkillDi
   return roots
 }
 
-export async function discoverSkills(workspacePaths: string[] = []): Promise<DiscoveredSkill[]> {
+export async function discoverSkills(
+  workspacePaths: string[] = [],
+  options: { platform?: NodeJS.Platform } = {}
+): Promise<DiscoveredSkill[]> {
+  const platform = options.platform ?? process.platform
   // Scan roots and read skill files concurrently; Promise.all preserves root
   // order, which buildSkillRegistry relies on for first-wins name precedence.
   const perRoot = await Promise.all(
@@ -366,7 +398,8 @@ export async function discoverSkills(workspacePaths: string[] = []): Promise<Dis
               rootPath: root.rootPath,
               skillFilePath,
               autoEnabled: root.autoEnabled,
-              originHint: root.originHint
+              originHint: root.originHint,
+              caseInsensitive: platform === 'win32'
             })
           } catch (error) {
             console.warn('[yachiyo][skills] failed to read skill', {

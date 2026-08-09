@@ -14,8 +14,19 @@ import {
 } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
+import { spawnSync } from 'node:child_process'
 import { resolveYachiyoDataDir } from '@yachiyo/runtime/config/paths'
-import { buildCLIWrapperContent, shellQuote } from './cliWrapper.ts'
+import {
+  buildCLIWrapperContent,
+  buildWindowsBashCLIWrapperContent,
+  buildWindowsCLIUninstallScript,
+  shellQuote
+} from './cliWrapper.ts'
+import {
+  buildWindowsUserPathReadCommand,
+  installWindowsUserPathEntry,
+  parseWindowsUserPathReadResult
+} from './windowsUserPath.ts'
 
 const PATH_MARKER = '# Added by Yachiyo CLI'
 const SYMLINK_TARGET = '/usr/local/bin/yachiyo'
@@ -25,11 +36,20 @@ export function resolveCLIBinDir(): string {
 }
 
 function resolveCLIWrapperPath(): string {
+  return join(resolveCLIBinDir(), process.platform === 'win32' ? 'yachiyo.cmd' : 'yachiyo')
+}
+
+function resolveWindowsBashCLIWrapperPath(): string {
   return join(resolveCLIBinDir(), 'yachiyo')
+}
+
+function resolveCLIUninstallScriptPath(): string {
+  return join(resolveCLIBinDir(), 'uninstall-cli.ps1')
 }
 
 function buildWrapperContent(): string {
   return buildCLIWrapperContent({
+    platform: process.platform,
     developmentMode: is.dev,
     executablePath: process.execPath,
     appPath: app.getAppPath()
@@ -41,14 +61,45 @@ function installWrapper(): void {
   const wrapperPath = resolveCLIWrapperPath()
   mkdirSync(binDir, { recursive: true })
   writeFileSync(wrapperPath, buildWrapperContent(), 'utf8')
-  chmodSync(wrapperPath, 0o755)
+  if (process.platform === 'win32') {
+    const bashWrapperPath = resolveWindowsBashCLIWrapperPath()
+    writeFileSync(
+      bashWrapperPath,
+      buildWindowsBashCLIWrapperContent({
+        developmentMode: is.dev,
+        executablePath: process.execPath,
+        appPath: app.getAppPath()
+      }),
+      'utf8'
+    )
+    chmodSync(bashWrapperPath, 0o755)
+  } else {
+    chmodSync(wrapperPath, 0o755)
+  }
+}
+
+function installWindowsCleanupScript(): void {
+  writeFileSync(
+    resolveCLIUninstallScriptPath(),
+    buildWindowsCLIUninstallScript(resolveCLIBinDir()),
+    'utf8'
+  )
 }
 
 function isWrapperCurrent(): boolean {
   const wrapperPath = resolveCLIWrapperPath()
   if (!existsSync(wrapperPath)) return false
   try {
-    return readFileSync(wrapperPath, 'utf8') === buildWrapperContent()
+    if (readFileSync(wrapperPath, 'utf8') !== buildWrapperContent()) return false
+    if (process.platform !== 'win32') return true
+    return (
+      readFileSync(resolveWindowsBashCLIWrapperPath(), 'utf8') ===
+      buildWindowsBashCLIWrapperContent({
+        developmentMode: is.dev,
+        executablePath: process.execPath,
+        appPath: app.getAppPath()
+      })
+    )
   } catch {
     return false
   }
@@ -132,6 +183,46 @@ function ensurePathInShellProfiles(): void {
   }
 }
 
+function readWindowsUserPath(): string {
+  return parseWindowsUserPathReadResult(
+    spawnSync(
+      'powershell.exe',
+      ['-NoProfile', '-NonInteractive', '-Command', buildWindowsUserPathReadCommand()],
+      { encoding: 'utf8', windowsHide: true }
+    )
+  )
+}
+
+function writeWindowsUserPath(value: string): void {
+  const result = spawnSync(
+    'reg.exe',
+    ['add', 'HKCU\\Environment', '/v', 'Path', '/t', 'REG_EXPAND_SZ', '/d', value, '/f'],
+    { encoding: 'utf8', windowsHide: true }
+  )
+  if (result.status !== 0) {
+    const detail = typeof result.stderr === 'string' ? result.stderr.trim() : ''
+    throw new Error(`Could not update the Windows user PATH${detail ? `: ${detail}` : '.'}`)
+  }
+
+  spawnSync(
+    'powershell.exe',
+    [
+      '-NoProfile',
+      '-NonInteractive',
+      '-Command',
+      "$signature='[DllImport(\"user32.dll\", SetLastError=true, CharSet=CharSet.Auto)] public static extern IntPtr SendMessageTimeout(IntPtr hWnd,uint Msg,UIntPtr wParam,string lParam,uint flags,uint timeout,out UIntPtr result);'; Add-Type -MemberDefinition $signature -Name NativeMethods -Namespace Yachiyo; $result=[UIntPtr]::Zero; [Yachiyo.NativeMethods]::SendMessageTimeout([IntPtr]0xffff,0x1a,[UIntPtr]::Zero,'Environment',2,5000,[ref]$result) | Out-Null"
+    ],
+    { encoding: 'utf8', windowsHide: true }
+  )
+}
+
+function ensureWindowsUserPath(): void {
+  installWindowsUserPathEntry(resolveCLIBinDir(), {
+    read: readWindowsUserPath,
+    write: writeWindowsUserPath
+  })
+}
+
 function notifyCLIReady(symlinked: boolean): void {
   if (!Notification.isSupported()) return
   const body = symlinked ? t('main.cli.readySymlinked') : t('main.cli.readyRestart')
@@ -145,6 +236,14 @@ export function setupCLI(): void {
     if (!isWrapperCurrent()) {
       installWrapper()
       console.log(`[cli-setup] Installed yachiyo CLI at ${resolveCLIWrapperPath()}`)
+    }
+
+    if (process.platform === 'win32') {
+      installWindowsCleanupScript()
+      ensureWindowsUserPath()
+      console.log('[cli-setup] Added the Yachiyo CLI directory to the Windows user PATH')
+      if (wasAbsent) notifyCLIReady(false)
+      return
     }
 
     const symlinked = trySymlink()

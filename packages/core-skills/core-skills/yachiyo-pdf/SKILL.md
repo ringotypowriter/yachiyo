@@ -11,7 +11,7 @@ Use this skill when the user asks to inspect, transform, generate, or fill a PDF
 Read [guide.md](references/guide.md) for the full operating guide. Use the inspector script before non-trivial work:
 
 ```bash
-python3 resources/core-skills/yachiyo-pdf/scripts/pdf_inspect.py path/to/file.pdf --json
+python3 "resources/core-skills/yachiyo-pdf/scripts/pdf_inspect.py" path/to/file.pdf --json
 ```
 
 ## Workflow

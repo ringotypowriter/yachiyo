@@ -1,6 +1,7 @@
 ---
 name: yachiyo-ghostty
 description: Use this skill to monitor, inspect, and interact with the user's Ghostty terminal sessions via AppleScript. List terminals, check working directories and running processes, send commands, manage windows/tabs/splits, and navigate between panes. macOS only — requires Ghostty with AppleScript enabled.
+platforms: darwin
 ---
 
 # Yachiyo Ghostty

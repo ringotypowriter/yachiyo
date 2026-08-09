@@ -1,6 +1,7 @@
 ---
 name: yachiyo-macos-apps
 description: Use this skill to automate Mail, Notes, Reminders, and Calendar on macOS via AppleScript. Create and list emails, notes, reminders, and calendar events using bundled Python wrapper scripts. macOS only.
+platforms: darwin
 ---
 
 # Yachiyo macOS Apps

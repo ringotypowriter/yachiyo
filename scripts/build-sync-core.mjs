@@ -13,6 +13,7 @@ import { createHash } from 'node:crypto'
 import { spawnSync } from 'node:child_process'
 import { join, relative, resolve, sep } from 'node:path'
 import process from 'node:process'
+import { resolveBuildExecutables } from './build-executables.mjs'
 
 // `--if-changed`: skip the rebuild when sources are unchanged and degrade
 // gracefully when cargo is absent. Used by `pnpm dev` so the running app never
@@ -22,7 +23,7 @@ const ifChanged = process.argv.includes('--if-changed')
 const rootDir = resolve(import.meta.dirname, '..')
 const crateDir = join(rootDir, 'native', 'sync-core')
 const manifestPath = join(crateDir, 'Cargo.toml')
-const binaryName = process.platform === 'win32' ? 'sync-core.exe' : 'sync-core'
+const binaryName = resolveBuildExecutables(process.platform, rootDir).syncCore
 const releaseBinaryPath = join(crateDir, 'target', 'release', binaryName)
 
 const EB_OS_MAP = { darwin: 'mac', linux: 'linux', win32: 'win' }

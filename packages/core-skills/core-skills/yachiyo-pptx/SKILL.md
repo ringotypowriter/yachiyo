@@ -11,7 +11,7 @@ Use this skill when the user wants to inspect, update, or create a presentation.
 Read [guide.md](references/guide.md) for the full workflow. Use the inspector script before editing an existing deck:
 
 ```bash
-python3 resources/core-skills/yachiyo-pptx/scripts/pptx_inspect.py path/to/file.pptx --json
+python3 "resources/core-skills/yachiyo-pptx/scripts/pptx_inspect.py" path/to/file.pptx --json
 ```
 
 ## Workflow

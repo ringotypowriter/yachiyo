@@ -16,7 +16,13 @@ import {
 } from 'node:fs'
 import { dirname, join, resolve, sep } from 'node:path'
 import process from 'node:process'
+import { resolveBuildExecutables, resolveBuildSpawnSpec } from './build-executables.mjs'
 import { fileURLToPath } from 'node:url'
+import {
+  ELECTRON_REBUILD_MODULES,
+  RUNTIME_NATIVE_MODULES,
+  buildRuntimeNativeModuleProbe
+} from './runtime-native-modules.mjs'
 
 const require = createRequire(import.meta.url)
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
@@ -30,11 +36,11 @@ const packageSearchRoots = [
   resolve(repoRoot, 'packages', 'cli'),
   repoRoot
 ]
-const nativeRuntimePackages = ['better-sqlite3']
+const nativeRuntimePackages = ELECTRON_REBUILD_MODULES
 const explicitRuntimePackages = new Map(
-  nativeRuntimePackages.map((packageName) => [packageName, ['native SQLite runtime package']])
+  RUNTIME_NATIVE_MODULES.map((packageName) => [packageName, ['required Electron runtime package']])
 )
-const optionalRuntimePackages = new Set(['bufferutil', 'utf-8-validate', 'zlib-sync'])
+const optionalRuntimePackages = new Set()
 const requirePattern = /\brequire\(\s*['"]([^'"]+)['"]\s*\)/gu
 
 function packageNameFromSpecifier(specifier) {
@@ -161,8 +167,9 @@ function rebuildStagedNativeRuntimePackages(packageNames) {
     )}\n`
   )
 
-  const pnpmBin = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm'
-  const result = spawnSync(
+  const pnpmBin = resolveBuildExecutables(process.platform, repoRoot).pnpm
+  const invocation = resolveBuildSpawnSpec(
+    process.platform,
     pnpmBin,
     [
       'exec',
@@ -173,15 +180,40 @@ function rebuildStagedNativeRuntimePackages(packageNames) {
       '--only',
       packageNames.join(',')
     ],
-    {
-      cwd: appDir,
-      encoding: 'utf8',
-      stdio: 'inherit'
-    }
+    process.env
   )
+  const result = spawnSync(invocation.command, invocation.args, {
+    ...invocation.options,
+    cwd: appDir,
+    encoding: 'utf8',
+    stdio: 'inherit'
+  })
 
   if (result.status !== 0) {
     console.error(`Failed to rebuild staged native runtime packages: ${packageNames.join(', ')}`)
+    process.exit(result.status ?? 1)
+  }
+}
+
+function verifyStagedRuntimeNativeModules() {
+  const electronBin = resolveBuildExecutables(process.platform, repoRoot).electron
+  const commandEnv = { ...process.env, ELECTRON_RUN_AS_NODE: '1' }
+  const invocation = resolveBuildSpawnSpec(
+    process.platform,
+    electronBin,
+    ['-e', buildRuntimeNativeModuleProbe(stagedRuntimeDir)],
+    commandEnv
+  )
+  const result = spawnSync(invocation.command, invocation.args, {
+    ...invocation.options,
+    cwd: appDir,
+    encoding: 'utf8',
+    env: commandEnv,
+    stdio: 'inherit'
+  })
+
+  if (result.status !== 0) {
+    console.error('Staged Electron runtime native module verification failed')
     process.exit(result.status ?? 1)
   }
 }
@@ -261,6 +293,7 @@ const { staged, skippedOptional } = stageRuntimePackages(runtimeRequires)
 rebuildStagedNativeRuntimePackages(
   nativeRuntimePackages.filter((packageName) => staged.has(packageName))
 )
+verifyStagedRuntimeNativeModules()
 const manifestPath = join(stagedRuntimeDir, 'runtime-node-modules.json')
 writeFileSync(
   manifestPath,

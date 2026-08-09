@@ -1,23 +1,30 @@
 /* eslint-disable @typescript-eslint/explicit-function-return-type */
 
 import { spawnSync } from 'node:child_process'
-import { resolve } from 'node:path'
 import process from 'node:process'
+import { resolveBuildExecutables, resolveBuildSpawnSpec } from './build-executables.mjs'
+import {
+  ELECTRON_REBUILD_MODULES,
+  buildRuntimeNativeModuleProbe
+} from './runtime-native-modules.mjs'
 
 const rootDir = process.cwd()
-
-const electronBinPath = resolve(rootDir, 'node_modules/.bin/electron')
-const pnpmBin = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm'
+const executables = resolveBuildExecutables(process.platform, rootDir)
+const electronBinPath = executables.electron
+const pnpmBin = executables.pnpm
 
 /** @type {(command: string, args: string[], env?: NodeJS.ProcessEnv) => import('node:child_process').SpawnSyncReturns<string>} */
 const runCommand = (command, args, env = {}) => {
-  const result = spawnSync(command, args, {
+  const commandEnv = {
+    ...process.env,
+    ...env
+  }
+  const invocation = resolveBuildSpawnSpec(process.platform, command, args, commandEnv)
+  const result = spawnSync(invocation.command, invocation.args, {
+    ...invocation.options,
     cwd: rootDir,
     encoding: 'utf8',
-    env: {
-      ...process.env,
-      ...env
-    }
+    env: commandEnv
   })
 
   if (result.stdout) {
@@ -32,26 +39,11 @@ const runCommand = (command, args, env = {}) => {
 }
 
 /** @type {() => boolean} */
-const verifyBetterSqlite3 = () => {
+const verifyRuntimeNativeModules = () => {
   return (
-    runCommand(
-      electronBinPath,
-      [
-        '-e',
-        [
-          'try {',
-          "  require('better-sqlite3')",
-          "  console.log('native dependency check: better-sqlite3 ok')",
-          '} catch (error) {',
-          '  console.error(error instanceof Error ? error.stack : String(error))',
-          '  process.exit(1)',
-          '}'
-        ].join('\n')
-      ],
-      {
-        ELECTRON_RUN_AS_NODE: '1'
-      }
-    ).status === 0
+    runCommand(electronBinPath, ['-e', buildRuntimeNativeModuleProbe()], {
+      ELECTRON_RUN_AS_NODE: '1'
+    }).status === 0
   )
 }
 
@@ -75,23 +67,23 @@ const printAbiContext = () => {
 
 printAbiContext()
 
-if (verifyBetterSqlite3()) {
+if (verifyRuntimeNativeModules()) {
   process.exit(0)
 }
 
-console.log('native dependency check failed; rebuilding better-sqlite3 via electron-rebuild')
+console.log(
+  `native dependency check failed; rebuilding ${ELECTRON_REBUILD_MODULES.join(', ')} via electron-rebuild`
+)
 
-const rebuildResult = runCommand(pnpmBin, [
-  'exec',
-  'electron-rebuild',
-  '-f',
-  '-w',
-  'better-sqlite3'
-])
-
-if (rebuildResult.status === 0 && verifyBetterSqlite3()) {
-  process.exit(0)
+for (const packageName of ELECTRON_REBUILD_MODULES) {
+  const rebuildResult = runCommand(pnpmBin, ['exec', 'electron-rebuild', '-f', '-w', packageName])
+  if (rebuildResult.status !== 0) {
+    console.error(`Failed to rebuild Electron native dependency ${packageName}`)
+    process.exit(1)
+  }
 }
 
-console.error('Failed to prepare Electron native dependencies for better-sqlite3')
-process.exit(1)
+if (!verifyRuntimeNativeModules()) {
+  console.error('Failed to prepare Electron runtime native dependencies')
+  process.exit(1)
+}

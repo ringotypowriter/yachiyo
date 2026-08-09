@@ -3,6 +3,11 @@ import type { ChildProcess } from 'node:child_process'
 import { ClientSideConnection, PROTOCOL_VERSION } from '@agentclientprotocol/sdk'
 import type { ContentBlock, ndJsonStream } from '@agentclientprotocol/sdk'
 
+import {
+  forceTerminateChildProcess,
+  processTree as defaultProcessTree,
+  type ProcessTree
+} from '../../app/domain/processes/processTree.ts'
 import type { AcpStreamAdapter, AcpYoloClient } from './acpStreamAdapter.ts'
 
 export interface AcpSessionOptions {
@@ -15,6 +20,7 @@ export interface AcpSessionOptions {
    * regardless of this flag.
    */
   keepAlive?: boolean
+  processTree?: ProcessTree
 }
 
 export interface AcpSessionResult {
@@ -33,19 +39,27 @@ export interface AcpWarmSession {
 
 function raceAbort<T>(promise: Promise<T>, signal?: AbortSignal): Promise<T> {
   if (!signal) return promise
-  if (signal.aborted) {
-    return Promise.reject(new DOMException('The operation was aborted', 'AbortError'))
-  }
-  return Promise.race([
-    promise,
-    new Promise<never>((_, reject) => {
-      signal.addEventListener(
-        'abort',
-        () => reject(new DOMException('The operation was aborted', 'AbortError')),
-        { once: true }
-      )
-    })
-  ])
+  return new Promise<T>((resolve, reject) => {
+    const cleanup = (): void => signal.removeEventListener('abort', onAbort)
+    const onAbort = (): void => {
+      cleanup()
+      reject(new DOMException('The operation was aborted', 'AbortError'))
+    }
+
+    signal.addEventListener('abort', onAbort, { once: true })
+    if (signal.aborted) onAbort()
+
+    promise.then(
+      (value) => {
+        cleanup()
+        resolve(value)
+      },
+      (error: unknown) => {
+        cleanup()
+        reject(error)
+      }
+    )
+  })
 }
 
 function raceProcExit<T>(
@@ -63,11 +77,13 @@ function raceProcExit<T>(
   ])
 }
 
-function killGroup(proc: ChildProcess): void {
-  try {
-    process.kill(-proc.pid!, 'SIGKILL')
-  } catch {
-    proc.kill('SIGKILL')
+function killGroup(proc: ChildProcess, processTree: ProcessTree): void {
+  const result = forceTerminateChildProcess(proc, processTree)
+  if (!result.delivered) {
+    console.warn('[yachiyo][acp-session] process-tree termination failed', {
+      pid: proc.pid,
+      error: result.error
+    })
   }
 }
 
@@ -82,6 +98,7 @@ export async function runAcpSession(
   options: AcpSessionOptions = {}
 ): Promise<AcpSessionResult & { warmSession?: AcpWarmSession }> {
   const { abortSignal, resumeSessionId, keepAlive } = options
+  const processTree = options.processTree ?? defaultProcessTree
   // Stable proxy so the SDK always calls the same object regardless of caching behaviour.
   // Swapping adapterRef.current before each warm prompt routes updates to the new adapter.
   const proxyYoloClient: AcpYoloClient = {
@@ -97,7 +114,7 @@ export async function runAcpSession(
     if (sessionId) {
       connection.cancel({ sessionId }).catch(() => {})
     }
-    killGroup(proc)
+    killGroup(proc, processTree)
   }
   abortSignal?.addEventListener('abort', onAbort, { once: true })
 
@@ -171,7 +188,7 @@ export async function runAcpSession(
     abortSignal?.removeEventListener('abort', onAbort)
     const preserve = keepAlive === true && sessionCompleted && !abortSignal?.aborted
     if (!preserve) {
-      killGroup(proc)
+      killGroup(proc, processTree)
       await procExited
     }
   }
@@ -199,9 +216,10 @@ export async function continueAcpSession(
   session: AcpWarmSession,
   prompt: ContentBlock[],
   adapter: AcpStreamAdapter,
-  options: Pick<AcpSessionOptions, 'abortSignal' | 'keepAlive'> = {}
+  options: Pick<AcpSessionOptions, 'abortSignal' | 'keepAlive' | 'processTree'> = {}
 ): Promise<AcpSessionResult> {
   const { abortSignal, keepAlive } = options
+  const processTree = options.processTree ?? defaultProcessTree
   let stopReason = 'end_turn'
   let sessionCompleted = false
 
@@ -209,7 +227,7 @@ export async function continueAcpSession(
 
   const onAbort = (): void => {
     session.connection.cancel({ sessionId: session.sessionId }).catch(() => {})
-    killGroup(session.proc)
+    killGroup(session.proc, processTree)
   }
   abortSignal?.addEventListener('abort', onAbort, { once: true })
 
@@ -227,7 +245,7 @@ export async function continueAcpSession(
     abortSignal?.removeEventListener('abort', onAbort)
     const preserve = keepAlive === true && sessionCompleted && !abortSignal?.aborted
     if (!preserve) {
-      killGroup(session.proc)
+      killGroup(session.proc, processTree)
       await session.procExited
     }
   }

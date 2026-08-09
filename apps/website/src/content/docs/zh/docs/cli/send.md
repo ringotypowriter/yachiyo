@@ -3,7 +3,8 @@ title: yachiyo send
 description: 从脚本里推送系统通知和频道消息。需要应用处于运行状态。
 ---
 
-发完即走的命令，通过 `~/.yachiyo/yachiyo.sock` 这个 Unix 域套接字和运行中的八千代应用通信。
+发完即走的命令，通过本地命令端点和运行中的八千代应用通信：macOS 使用
+`~/.yachiyo/yachiyo.sock`，Windows 使用命名管道。
 
 :::caution[应用必须在运行]
 和命令行的其余部分不同，`send` 需要一个活着的应用。没有的话你会看到：

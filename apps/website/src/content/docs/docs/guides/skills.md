@@ -60,6 +60,24 @@ So the bundled skills work out of the box, external ones are opt-in, and turning
 a bundled skill off means adding it to `disabled` rather than removing it from
 `enabled`.
 
+## Platform compatibility
+
+Skills can restrict themselves in frontmatter:
+
+```yaml
+platforms: darwin,win32
+```
+
+The only accepted values are `darwin`, `win32`, and `linux`. Missing
+`platforms` means the skill is cross-platform. Incompatible skills are removed
+before the catalog reaches Settings, the composer, or the active prompt, so a
+historically enabled Mac-only skill cannot become active on Windows.
+
+The document skills (`yachiyo-docx`, `yachiyo-xlsx`, `yachiyo-pptx`, and
+`yachiyo-pdf`) need Python 3. On Windows, Yachiyo's private `python3` shim uses
+the Python Launcher (`py.exe -3`) first and `python.exe` second. Yachiyo does not
+bundle Python; install it from python.org if `yachiyo doctor` reports it missing.
+
 **Settings → Capabilities → Skills** shows everything discoverable with a toggle
 each, which is the sane way to manage this. The underlying keys:
 
@@ -157,7 +175,9 @@ detail into references.
 | `yachiyo-zotero`           | Query a local Zotero library over its HTTP server.                      |
 | `yachiyo-skill-creator`    | Conventions for writing new skills.                                     |
 
-Several of these are macOS-only, which the skill states up front.
+`yachiyo-kagete`, `yachiyo-ghostty`, `yachiyo-macos-apps`, and
+`yachiyo-macos-screenshot` are restricted to macOS and do not appear in the
+Windows catalog.
 
 ## Debugging discovery
 

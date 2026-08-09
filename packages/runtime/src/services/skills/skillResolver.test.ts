@@ -128,3 +128,23 @@ test('non-autoEnabled skills are not active unless explicitly enabled', () => {
 
   assert.ok(!activeSkills.some((s) => s.name === 'release-checklist'))
 })
+
+test('historically enabled incompatible skill names cannot reactivate outside the filtered catalog', () => {
+  const activeSkills = resolveActiveSkills({
+    availableSkills: AVAILABLE_SKILLS,
+    config: {
+      providers: [],
+      skills: {
+        enabled: ['yachiyo-kagete', 'release-checklist']
+      }
+    },
+    enabledSkillNames: ['yachiyo-kagete', 'release-checklist']
+  })
+
+  assert.deepEqual(activeSkills, [
+    {
+      name: 'release-checklist',
+      description: 'Release checklist'
+    }
+  ])
+})

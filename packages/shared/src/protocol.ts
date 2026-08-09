@@ -900,12 +900,14 @@ export interface SkillSummary {
  * safe to refine in place.
  */
 export type SkillOrigin = 'bundled' | 'custom' | 'workspace' | 'external'
+export type SkillPlatform = 'darwin' | 'win32' | 'linux'
 
 export interface SkillCatalogEntry extends SkillSummary {
   directoryPath: string
   skillFilePath: string
   autoEnabled?: boolean
   origin?: SkillOrigin
+  platforms?: readonly SkillPlatform[]
 }
 
 export interface SubagentProfile {

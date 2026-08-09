@@ -90,10 +90,10 @@ const en: LandingCopy = {
   },
   nav: { docs: 'Docs', github: 'GitHub', switchTo: '中文', switchHref: '/zh/' },
   hero: {
-    badge: 'Open source · macOS · Skills-only',
+    badge: 'Open source · macOS + Windows · Skills-only',
     tagline: 'your cyber-assistant',
     blurb: "Only what's necessary for a cyber-assistant that lives in your computer.",
-    download: 'Download for macOS',
+    download: 'Download Yachiyo',
     viewSource: 'View on GitHub',
     license: 'Apache-2.0 licensed'
   },
@@ -178,8 +178,8 @@ const en: LandingCopy = {
   cta: {
     heading: 'Let her into your computer',
     blurb: 'Download the app, add a provider key, and start your first thread in minutes.',
-    download: 'Download for macOS',
-    meta: 'Free · Open source · Apache-2.0 · ',
+    download: 'Download Yachiyo',
+    meta: 'macOS · Windows 11 x64 · Free · Open source · Apache-2.0 · ',
     docsLink: 'Read the docs'
   },
   footer: {
@@ -196,10 +196,10 @@ const zhCN: LandingCopy = {
   },
   nav: { docs: '文档', github: 'GitHub', switchTo: 'English', switchHref: '/' },
   hero: {
-    badge: '开源 · macOS · 只用技能扩展',
+    badge: '开源 · macOS + Windows · 只用技能扩展',
     tagline: '你的赛博助手',
     blurb: '一个住在你电脑里的赛博助手，只保留必要的部分。',
-    download: '下载 macOS 版',
+    download: '下载八千代',
     viewSource: '在 GitHub 上查看',
     license: 'Apache-2.0 许可'
   },
@@ -276,8 +276,8 @@ const zhCN: LandingCopy = {
   cta: {
     heading: '把她放进你的电脑',
     blurb: '下载应用，填一个供应商的 key，几分钟就能开始第一个线程。',
-    download: '下载 macOS 版',
-    meta: '免费 · 开源 · Apache-2.0 · ',
+    download: '下载八千代',
+    meta: 'macOS · Windows 11 x64 · 免费 · 开源 · Apache-2.0 · ',
     docsLink: '阅读文档'
   },
   footer: {

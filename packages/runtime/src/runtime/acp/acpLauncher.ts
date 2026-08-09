@@ -5,7 +5,13 @@ import { Readable, Writable } from 'node:stream'
 import { ndJsonStream } from '@agentclientprotocol/sdk'
 
 import type { SubagentProfile } from '@yachiyo/shared/protocol'
-import { mergeShellEnv, readLoginShellEnvSync } from '../shell/loginShellEnv.ts'
+import { registerActiveChildProcess } from '../../app/domain/processes/activeProcessRegistry.ts'
+import { mergeShellEnv } from '../shell/loginShellEnv.ts'
+import {
+  buildBashCommand,
+  resolveHostShellRuntime,
+  type ShellRuntime
+} from '../shell/shellRuntime.ts'
 import { filterJsonLines } from '../../tools/agentTools/spawnUtils.ts'
 
 export interface AcpLaunchResult {
@@ -14,17 +20,19 @@ export interface AcpLaunchResult {
   procExited: Promise<void>
 }
 
-export function launchAcpProcess(profile: SubagentProfile, cwd: string): AcpLaunchResult {
-  const shellCommand = [profile.command, ...profile.args].join(' ')
-  const shellEnv = readLoginShellEnvSync(process.env)
-  const spawnEnv = mergeShellEnv(mergeShellEnv(process.env, shellEnv), profile.env)
-  const shell = spawnEnv.SHELL || '/bin/zsh'
-  const proc = spawn(shell, ['-lc', shellCommand], {
-    cwd,
-    env: spawnEnv,
-    stdio: ['pipe', 'pipe', 'pipe'],
-    detached: true
+export function launchAcpProcess(
+  profile: SubagentProfile,
+  cwd: string,
+  shellRuntime?: ShellRuntime
+): AcpLaunchResult {
+  const runtime =
+    shellRuntime ?? resolveHostShellRuntime({ env: mergeShellEnv(process.env, profile.env) })
+  const command = runtime.command(buildBashCommand(profile.command, profile.args), { cwd })
+  const proc = spawn(command.executable, command.args, {
+    ...command.options,
+    stdio: ['pipe', 'pipe', 'pipe']
   })
+  registerActiveChildProcess(proc)
 
   const procExited = new Promise<void>((resolve) => {
     proc.on('exit', () => resolve())

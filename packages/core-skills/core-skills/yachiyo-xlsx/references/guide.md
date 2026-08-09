@@ -22,7 +22,7 @@ Use `yachiyo-xlsx` for spreadsheet inspection, cleanup, editing, generation, and
 Run this before a non-trivial workbook edit:
 
 ```bash
-python3 resources/core-skills/yachiyo-xlsx/scripts/xlsx_inspect.py path/to/file.xlsx --json
+python3 "resources/core-skills/yachiyo-xlsx/scripts/xlsx_inspect.py" path/to/file.xlsx --json
 ```
 
 What it reports:
@@ -37,7 +37,7 @@ What it reports:
 For safe extraction of one sheet to CSV without depending on an office suite:
 
 ```bash
-python3 resources/core-skills/yachiyo-xlsx/scripts/xlsx_export_sheet_csv.py \
+python3 "resources/core-skills/yachiyo-xlsx/scripts/xlsx_export_sheet_csv.py" \
   workbook.xlsx out.csv \
   --sheet Summary
 ```

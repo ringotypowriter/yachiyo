@@ -29,3 +29,26 @@ jobs:
 
       - name: Test
         run: pnpm run test:server
+
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+
+      - uses: pnpm/action-setup@v4
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Test pure server behavior
+        run: pnpm run test:server
+
+      - name: Typecheck
+        run: pnpm run typecheck
+
+      - name: Build and inventory unsigned Windows installer
+        run: pnpm --filter @yachiyo/desktop run build:win

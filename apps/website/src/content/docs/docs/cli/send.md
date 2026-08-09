@@ -3,8 +3,8 @@ title: yachiyo send
 description: Push OS notifications and send channel messages from scripts. Requires the app to be running.
 ---
 
-Fire-and-forget commands that talk to the running Yachiyo app over the Unix
-domain socket at `~/.yachiyo/yachiyo.sock`.
+Fire-and-forget commands that talk to the running Yachiyo app over its local
+command endpoint: `~/.yachiyo/yachiyo.sock` on macOS or a named pipe on Windows.
 
 :::caution[The app must be running]
 Unlike the rest of the CLI, `send` needs a live app. Without one you get:

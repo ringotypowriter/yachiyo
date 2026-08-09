@@ -22,7 +22,8 @@ export function shouldGuardActiveRunClose(input: {
   isBypassed: boolean
   platform: NodeJS.Platform
 }): boolean {
-  return input.platform === 'darwin' && !input.isBypassed && input.activeRunCount > 0
+  const supportedPlatform = input.platform === 'darwin' || input.platform === 'win32'
+  return supportedPlatform && !input.isBypassed && input.activeRunCount > 0
 }
 
 export function createActiveRunCloseDialogOptions(

@@ -96,6 +96,8 @@ export const sync = {
   fileSync: 'File Sync',
   description:
     'Settings and remote chat archives sync through a local folder. Use the recommended iCloud Drive folder, or choose another folder you manage yourself. Synced chats from other devices stay read-only.',
+  descriptionWindows:
+    'Settings and remote chat archives sync through a local folder. Use the recommended OneDrive folder, or choose another synced folder you manage yourself. Synced chats from other devices stay read-only.',
   syncing: 'Syncing...',
   loadingStatus: 'Loading sync status...',
   statusUnavailable: 'Sync folder unavailable',
@@ -108,12 +110,15 @@ export const sync = {
   syncNow: 'Sync Now',
   resolvingFolder: 'Resolving sync folder...',
   useICloudFolder: 'Use iCloud Folder',
+  useOneDriveFolder: 'Use OneDrive Folder',
   chooseFolder: 'Choose Folder',
   deviceCount: { one: '{count} device', other: '{count} devices' },
   pendingConflicts: { one: '{count} pending conflict', other: '{count} pending conflicts' },
   deviceIdLabel: 'Device {id}',
   unavailableHint:
     'Choose an existing folder, or sign in to iCloud Drive and enable Documents sync in macOS before using the recommended folder.',
+  unavailableHintWindows:
+    'Choose an existing folder, or sign in to OneDrive before using the recommended folder.',
   joinableHint: 'Sync is already active on another device. Join to pull your synced chats here.',
   conflicts: 'Conflicts',
   refresh: 'Refresh',

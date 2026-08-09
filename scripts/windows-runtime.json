@@ -1,0 +1,9 @@
+{
+  "version": "2.55.0.windows.3",
+  "assetName": "PortableGit-2.55.0.3-64-bit.7z.exe",
+  "url": "https://github.com/git-for-windows/git/releases/download/v2.55.0.windows.3/PortableGit-2.55.0.3-64-bit.7z.exe",
+  "sha256": "ab00566336b5472120f9a52d34f2e79c5406535792acb0548001ffd0bd090e5d",
+  "licenseUrl": "https://github.com/git-for-windows/build-extra/blob/main/ReleaseNotes.md#licenses",
+  "portableReadmeUrl": "https://github.com/git-for-windows/build-extra/blob/main/portable/root/README.portable",
+  "sourceUrl": "https://github.com/git-for-windows/git/tree/v2.55.0.windows.3"
+}

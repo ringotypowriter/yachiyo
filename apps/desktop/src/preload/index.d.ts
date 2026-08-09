@@ -1,4 +1,5 @@
 import type { ReadAppLogsResult } from '@yachiyo/shared/appLogs'
+import type { DiscoveredApp } from '@yachiyo/shared/discoveredApp'
 import type {
   AnswerToolQuestionInput,
   BootstrapPayload,
@@ -91,6 +92,7 @@ declare global {
       }
       onNavigateSettingsTo: (listener: (tab: string) => void) => () => void
       openSettings: (tab?: string) => void
+      openNotificationSettings: () => void
       openTranslator: () => void
       openJotdown: () => void
       hideTranslator: () => void
@@ -212,13 +214,16 @@ declare global {
         resolveFileReferences: (
           input: ResolveFileReferencesInput
         ) => Promise<ResolvedFileReference[]>
-        openFile: (input: { path: string }) => Promise<void>
+        openFile: (input: {
+          path: string
+          appSelection?: string
+          appKind?: 'editor' | 'markdown'
+        }) => Promise<void>
         copyImageToClipboard: (input: { src: string }) => Promise<void>
         savePngFile: (input: {
           pngData: ArrayBuffer
           defaultFilename?: string
         }) => Promise<{ canceled: true } | { canceled: false; filePath: string }>
-        openFileInEditor: (input: { path: string; editorApp: string }) => Promise<void>
         getUsageStats: (input: UsageStatsInput) => Promise<UsageStatsResponse>
         getPerfStats: () => Promise<PerfStatsResponse>
 
@@ -300,9 +305,9 @@ declare global {
           message: import('@yachiyo/shared/protocol').MessageRecord
         }>
         listDiscoveredApps: () => Promise<{
-          editors: { name: string; iconDataUrl?: string }[]
-          terminals: { name: string; iconDataUrl?: string }[]
-          markdownEditors: { name: string; iconDataUrl?: string }[]
+          editors: DiscoveredApp[]
+          terminals: DiscoveredApp[]
+          markdownEditors: DiscoveredApp[]
         }>
         openWorkspaceWithApp: (input: { threadId: string; appName: string }) => Promise<void>
         loadThreadData: (input: { threadId: string; includeMessages?: boolean }) => Promise<{

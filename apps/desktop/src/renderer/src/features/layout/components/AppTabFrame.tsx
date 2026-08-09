@@ -2,8 +2,8 @@ import type { ReactNode } from 'react'
 import { AppSidebarDivider } from '@renderer/features/layout/components/AppSidebarDivider'
 import {
   APP_CONTENT_CARD_TOP_INSET,
-  APP_TAB_FRAME_TRAFFIC_LIGHT_SAFE_WIDTH,
   APP_TOP_BAR_HEIGHT,
+  resolveAppTabFrameTitleBarInsets,
   resolveAppTabFrameTopChromeColumn,
   shouldShowAppTabFrameSidebarTopControls
 } from '@renderer/features/layout/lib/appTabs'
@@ -37,6 +37,7 @@ export function AppTabFrame({
   const chromeBackground = theme.background.sidebarVibrancy
   const showSidebarTopControls = shouldShowAppTabFrameSidebarTopControls(isSidebarOpen)
   const topChromeColumn = resolveAppTabFrameTopChromeColumn(isSidebarOpen)
+  const titleBarInsets = resolveAppTabFrameTitleBarInsets(window.api.process.platform)
 
   return (
     <div
@@ -54,13 +55,11 @@ export function AppTabFrame({
           gridColumn: topChromeColumn,
           gridRow: '1',
           background: chromeBackground,
-          borderBottom: `1px solid ${theme.border.panel}`
+          borderBottom: `1px solid ${theme.border.panel}`,
+          paddingRight: titleBarInsets.right
         }}
       >
-        <div
-          className="h-full shrink-0"
-          style={{ width: APP_TAB_FRAME_TRAFFIC_LIGHT_SAFE_WIDTH }}
-        />
+        <div className="h-full shrink-0" style={{ width: titleBarInsets.left }} />
         {showSidebarTopControls ? (
           <div className="no-drag flex h-full min-w-0 flex-1 items-center pr-3">
             {sidebarTopControls}
@@ -73,7 +72,8 @@ export function AppTabFrame({
           style={{
             gridColumn: topChromeColumn,
             gridRow: '1',
-            marginLeft: APP_TAB_FRAME_TRAFFIC_LIGHT_SAFE_WIDTH,
+            marginLeft: titleBarInsets.left,
+            marginRight: titleBarInsets.right,
             minWidth: 0
           }}
         >
@@ -124,6 +124,7 @@ export function AppTabFrame({
               style={{
                 height: APP_TOP_BAR_HEIGHT - APP_CONTENT_CARD_TOP_INSET,
                 borderBottom: `1px solid ${theme.border.panel}`,
+                paddingRight: titleBarInsets.right,
                 position: 'relative'
               }}
             >

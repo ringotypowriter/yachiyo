@@ -3,13 +3,17 @@ title: config.toml reference
 description: Every section of ~/.yachiyo/config.toml, with types and defaults.
 ---
 
-`~/.yachiyo/config.toml` holds everything except channel credentials, which live
-in [`channels.toml`](/docs/reference/channels-toml/).
+`~/.yachiyo/config.toml` holds settings and provider metadata. Model-provider
+API keys and Vertex private keys live in the encrypted, device-local
+`provider-credentials.enc` vault. Channel credentials live in
+[`channels.toml`](/docs/reference/channels-toml/).
 
 Edit it through the app, through
 [`yachiyo config set`](/docs/cli/config/), or by hand. The file is rewritten in a
 deterministic section order whenever the app saves, so hand edits survive but may
-be reordered.
+be reordered. Provider credentials are the exception: update them through
+Settings or [`yachiyo provider update`](/docs/cli/provider/), not by editing the
+blank compatibility fields below.
 
 ## `enabledTools`
 
@@ -142,22 +146,23 @@ it does not choose a provider.
 
 An array of tables, one per provider.
 
-| Key                                               | Type       | Description                                                                                        |
-| ------------------------------------------------- | ---------- | -------------------------------------------------------------------------------------------------- |
-| `id`                                              | `string`   | Stable UUID                                                                                        |
-| `presetKey`                                       | `string`   | Links to a built-in preset (e.g. `openai`, `google-vertex`)                                        |
-| `name`                                            | `string`   | Display name                                                                                       |
-| `type`                                            | `string`   | `openai`, `openai-responses`, `openai-codex`, `anthropic`, `gemini`, `vertex`, or `vercel-gateway` |
-| `apiKey`                                          | `string`   | API key. Redacted in all CLI output.                                                               |
-| `baseUrl`                                         | `string`   | API base URL                                                                                       |
-| `thinkingEnabled`                                 | `boolean`  | Whether reasoning is on by default                                                                 |
-| `reasoning`                                       | `table`    | Effort defaults and per-model reasoning config                                                     |
-| `codexSessionPath`                                | `string`   | Path to Codex `auth.json`, for `openai-codex`                                                      |
-| `project`, `location`                             | `string`   | Vertex only                                                                                        |
-| `serviceAccountEmail`, `serviceAccountPrivateKey` | `string`   | Vertex only                                                                                        |
-| `modelList.enabled`                               | `string[]` | Models shown in the picker                                                                         |
-| `modelList.disabled`                              | `string[]` | Known but hidden models                                                                            |
-| `modelList.imageIncapable`                        | `string[]` | Models that cannot accept images                                                                   |
+| Key                        | Type       | Description                                                                                        |
+| -------------------------- | ---------- | -------------------------------------------------------------------------------------------------- |
+| `id`                       | `string`   | Stable UUID                                                                                        |
+| `presetKey`                | `string`   | Links to a built-in preset (e.g. `openai`, `google-vertex`)                                        |
+| `name`                     | `string`   | Display name                                                                                       |
+| `type`                     | `string`   | `openai`, `openai-responses`, `openai-codex`, `anthropic`, `gemini`, `vertex`, or `vercel-gateway` |
+| `apiKey`                   | `string`   | Blank compatibility field; the credential is stored in the encrypted local vault                   |
+| `baseUrl`                  | `string`   | API base URL                                                                                       |
+| `thinkingEnabled`          | `boolean`  | Whether reasoning is on by default                                                                 |
+| `reasoning`                | `table`    | Effort defaults and per-model reasoning config                                                     |
+| `codexSessionPath`         | `string`   | Path to Codex `auth.json`, for `openai-codex`                                                      |
+| `project`, `location`      | `string`   | Vertex only                                                                                        |
+| `serviceAccountEmail`      | `string`   | Vertex service-account email                                                                       |
+| `serviceAccountPrivateKey` | `string`   | Blank compatibility field; the private key is stored in the encrypted local vault                  |
+| `modelList.enabled`        | `string[]` | Models shown in the picker                                                                         |
+| `modelList.disabled`       | `string[]` | Known but hidden models                                                                            |
+| `modelList.imageIncapable` | `string[]` | Models that cannot accept images                                                                   |
 
 ## `[[prompts]]`
 
@@ -205,7 +210,8 @@ Preset thread launchers.
 | `order`         | `number`               | Sort position                    |
 
 :::caution
-This file contains provider API keys in plain text. Do not commit it, and do not
-put it in a shared folder. Note that enabling [sync](/docs/guides/sync/) copies
-this file into your sync directory.
+Model-provider secrets are not stored in this file; their encrypted vault stays
+on this device and is not synced. `config.toml` can still contain other secrets,
+including `webSearch.exa.apiKey`, and [sync](/docs/guides/sync/) copies the file.
+Do not commit it or put it in a shared folder.
 :::

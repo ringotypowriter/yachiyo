@@ -53,7 +53,7 @@ async function flushPromises(): Promise<void> {
   await new Promise<void>((resolve) => setImmediate(resolve))
 }
 
-test('shouldGuardActiveRunClose only guards macOS user close attempts with active runs', () => {
+test('shouldGuardActiveRunClose guards supported desktop user close attempts with active runs', () => {
   assert.equal(
     shouldGuardActiveRunClose({ activeRunCount: 1, isBypassed: false, platform: 'darwin' }),
     true
@@ -65,6 +65,10 @@ test('shouldGuardActiveRunClose only guards macOS user close attempts with activ
   assert.equal(
     shouldGuardActiveRunClose({ activeRunCount: 1, isBypassed: true, platform: 'darwin' }),
     false
+  )
+  assert.equal(
+    shouldGuardActiveRunClose({ activeRunCount: 1, isBypassed: false, platform: 'win32' }),
+    true
   )
   assert.equal(
     shouldGuardActiveRunClose({ activeRunCount: 1, isBypassed: false, platform: 'linux' }),

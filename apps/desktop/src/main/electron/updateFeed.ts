@@ -23,15 +23,17 @@ export function mirrorFeedUrl(mirrorBase: string, channel: UpdateChannel): strin
 export async function resolveUpdateFeed(options: {
   mirrorBase: string
   channel: UpdateChannel
+  platform: NodeJS.Platform
   fetchFn: MirrorProbeFetch
   timeoutMs?: number
 }): Promise<UpdateFeed> {
-  const { mirrorBase, channel, fetchFn, timeoutMs = PROBE_TIMEOUT_MS } = options
+  const { mirrorBase, channel, platform, fetchFn, timeoutMs = PROBE_TIMEOUT_MS } = options
   if (!mirrorBase) return { source: 'github' }
 
   const url = mirrorFeedUrl(mirrorBase, channel)
   try {
-    const resp = await fetchFn(`${url}/latest-mac.yml`, { signal: AbortSignal.timeout(timeoutMs) })
+    const manifest = platform === 'win32' ? 'latest.yml' : 'latest-mac.yml'
+    const resp = await fetchFn(`${url}/${manifest}`, { signal: AbortSignal.timeout(timeoutMs) })
     return resp.ok ? { source: 'mirror', url } : { source: 'github' }
   } catch {
     return { source: 'github' }

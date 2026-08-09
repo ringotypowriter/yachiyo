@@ -89,9 +89,10 @@ yachiyo channel groups set-status x9y8z7w6-... approval   # start monitoring
 yachiyo channel groups set-status x9y8z7w6-... block      # stop monitoring
 ```
 
-If the app is running, the change goes over the Unix socket and applies
-immediately — `approval` starts the group monitor right away, `block` stops it.
-If the app is not running, the database record is updated directly instead.
+If the app is running, the change goes over its local command endpoint and
+applies immediately — `approval` starts the group monitor right away, `block`
+stops it. If the app is not running, the database record is updated directly
+instead.
 
 This command is group-only. Passing a channel **user** ID fails with
 `Unknown channel group`.

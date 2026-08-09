@@ -1,3 +1,5 @@
+import { hasExactPrimaryShortcutModifiers } from '../../../lib/platformShortcut.ts'
+
 interface ShortcutEvent {
   altKey: boolean
   ctrlKey: boolean
@@ -6,22 +8,10 @@ interface ShortcutEvent {
   shiftKey: boolean
 }
 
-export function isOpenFindBarShortcut(event: ShortcutEvent): boolean {
-  return (
-    event.metaKey &&
-    !event.ctrlKey &&
-    !event.altKey &&
-    !event.shiftKey &&
-    event.key.toLowerCase() === 'f'
-  )
+export function isOpenFindBarShortcut(event: ShortcutEvent, platform: string): boolean {
+  return hasExactPrimaryShortcutModifiers(event, platform) && event.key.toLowerCase() === 'f'
 }
 
-export function isOpenSidebarSearchShortcut(event: ShortcutEvent): boolean {
-  return (
-    event.metaKey &&
-    !event.ctrlKey &&
-    !event.altKey &&
-    event.shiftKey &&
-    event.key.toLowerCase() === 'f'
-  )
+export function isOpenSidebarSearchShortcut(event: ShortcutEvent, platform: string): boolean {
+  return hasExactPrimaryShortcutModifiers(event, platform, true) && event.key.toLowerCase() === 'f'
 }

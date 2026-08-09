@@ -52,13 +52,36 @@ jobs:
             core.info(`No successful nightly found for commit ${currentSha}; build will run.`)
             core.setOutput('should_build', 'true')
 
-  build:
+  version:
     needs: preflight
     if: needs.preflight.outputs.should_build == 'true'
+    runs-on: ubuntu-latest
+    outputs:
+      nightly_version: ${{ steps.nightly.outputs.nightly_version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+
+      - name: Resolve shared nightly version
+        id: nightly
+        shell: bash
+        run: |
+          NEXT_VERSION=$(node -e "const [major, minor, patch] = require('./apps/desktop/package.json').version.split('.').map(Number); console.log([major, minor, patch + 1].join('.'))")
+          NIGHTLY_VERSION="${NEXT_VERSION}-beta.$(date -u +%Y%m%d%H%M)"
+          echo "nightly_version=$NIGHTLY_VERSION" >> "$GITHUB_OUTPUT"
+
+  build_macos:
+    name: Build and publish macOS nightly
+    needs: version
     runs-on: macos-latest
     environment: Mac Distribution
     permissions:
       contents: write
+    env:
+      NIGHTLY_VERSION: ${{ needs.version.outputs.nightly_version }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -73,27 +96,11 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Set nightly version
+      - name: Apply nightly version
         run: |
-          node - <<'NODE'
-          const fs = require('node:fs')
-          const path = 'apps/desktop/package.json'
-          const pkg = JSON.parse(fs.readFileSync(path, 'utf8'))
-          const [major, minor, patch] = pkg.version.split('.').map(Number)
-          pkg.version = `${major}.${minor}.${patch + 1}`
-          fs.writeFileSync(path, JSON.stringify(pkg, null, 2) + '\n')
-          NODE
-          NIGHTLY_VERSION="$(node -p "require('./apps/desktop/package.json').version")-beta.$(date -u +%Y%m%d%H%M)"
-          NIGHTLY_VERSION="$NIGHTLY_VERSION" node - <<NODE
-          const fs = require('node:fs')
-          const path = 'apps/desktop/package.json'
-          const pkg = JSON.parse(fs.readFileSync(path, 'utf8'))
-          pkg.version = process.env.NIGHTLY_VERSION
-          fs.writeFileSync(path, JSON.stringify(pkg, null, 2) + '\n')
-          NODE
-          echo "NIGHTLY_VERSION=$NIGHTLY_VERSION" >> "$GITHUB_ENV"
+          node -e "const fs = require('node:fs'); const path = 'apps/desktop/package.json'; const pkg = JSON.parse(fs.readFileSync(path, 'utf8')); pkg.version = process.env.NIGHTLY_VERSION; fs.writeFileSync(path, JSON.stringify(pkg, null, 2) + '\n')"
 
-      - name: Build and publish
+      - name: Build and publish macOS
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CSC_LINK: ${{ secrets.CSC_LINK }}
@@ -103,13 +110,16 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: pnpm --filter @yachiyo/desktop run build && pnpm --filter @yachiyo/desktop exec electron-builder --mac zip --publish always -c.publish.releaseType=prerelease
 
-      - name: Sync release to R2 mirror
-        env:
-          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
-          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-          R2_BUCKET: ${{ secrets.R2_BUCKET }}
-        run: node scripts/sync-release-to-r2.mjs --channel nightly --dist apps/desktop/dist
+      - name: Preserve macOS nightly artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: nightly-macos
+          path: |
+            apps/desktop/dist/*.zip
+            apps/desktop/dist/*.zip.blockmap
+            apps/desktop/dist/latest-mac.yml
+          if-no-files-found: error
+          retention-days: 7
 
       - name: Generate changelog and update release
         env:
@@ -152,3 +162,95 @@ jobs:
           fi
 
           printf '%b' "$BODY" | gh release edit "$TAG" --notes-file -
+
+  build_windows:
+    name: Build and publish Windows x64 nightly
+    needs: [version, build_macos]
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    env:
+      NIGHTLY_VERSION: ${{ needs.version.outputs.nightly_version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+
+      - uses: pnpm/action-setup@v4
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Apply nightly version
+        run: |
+          node -e "const fs = require('node:fs'); const path = 'apps/desktop/package.json'; const pkg = JSON.parse(fs.readFileSync(path, 'utf8')); pkg.version = process.env.NIGHTLY_VERSION; fs.writeFileSync(path, JSON.stringify(pkg, null, 2) + '\n')"
+
+      - name: Build unsigned Windows installer
+        run: pnpm --filter @yachiyo/desktop run build:win
+
+      - name: Publish Windows artifacts
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: v${{ needs.version.outputs.nightly_version }}
+        run: |
+          $files = @(
+            Get-ChildItem apps/desktop/dist -File |
+              Where-Object {
+                $_.Name -eq 'latest.yml' -or
+                $_.Name -match '^yachiyo-.+-setup\.exe(?:\.blockmap)?$'
+              }
+          )
+          if ($files.Count -ne 3) {
+            throw "Expected the NSIS installer, blockmap, and latest.yml; found $($files.Count) files."
+          }
+          foreach ($file in $files) {
+            gh release upload $env:RELEASE_TAG $file.FullName --clobber
+          }
+
+      - name: Preserve Windows nightly artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: nightly-windows-x64
+          path: |
+            apps/desktop/dist/yachiyo-*-setup.exe
+            apps/desktop/dist/yachiyo-*-setup.exe.blockmap
+            apps/desktop/dist/latest.yml
+          if-no-files-found: error
+          retention-days: 7
+
+  mirror:
+    name: Sync aggregated nightly artifacts to R2
+    needs: [version, build_macos, build_windows]
+    runs-on: ubuntu-latest
+    environment: Mac Distribution
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+
+      - uses: pnpm/action-setup@v4
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Download nightly artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: nightly-*
+          path: apps/desktop/dist
+          merge-multiple: true
+
+      - name: Sync release to R2 mirror
+        env:
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+        run: node scripts/sync-release-to-r2.mjs --channel nightly --dist apps/desktop/dist

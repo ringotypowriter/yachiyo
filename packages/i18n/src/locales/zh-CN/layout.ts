@@ -35,7 +35,7 @@ export const layout = {
     noMessagesYet: '还没有消息',
     startConversation: '开始对话',
     threadOptions: '会话选项',
-    openWorkspaceInFinder: '在访达中打开工作区',
+    openWorkspaceInFinder: '在文件夹中打开工作区',
     openWorkspaceInTerminal: '在终端中打开工作区',
     openWorkspaceInEditor: '在编辑器中打开工作区',
     openRunInspector: '打开运行检查器',

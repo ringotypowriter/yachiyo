@@ -238,7 +238,7 @@ test('provider list - shows providers with redacted apiKey', async () => {
   }
 })
 
-test('provider show - redacts apiKey', async () => {
+test('provider show - redacts API key and service-account private key', async () => {
   const root = await mkdtemp(join(tmpdir(), 'yachiyo-cli-provider-'))
   const settingsPath = join(root, 'config.toml')
 
@@ -257,9 +257,12 @@ test('provider show - redacts apiKey', async () => {
     await setupServer.upsertProvider({
       id: 'prov-uuid',
       name: 'work',
-      type: 'openai',
+      type: 'vertex',
       apiKey: 'sk-real-key',
       baseUrl: '',
+      project: 'public-project-id',
+      serviceAccountEmail: 'agent@example.invalid',
+      serviceAccountPrivateKey: 'private-key-material',
       modelList: { enabled: ['gpt-5'], disabled: [] }
     })
     await setupServer.close()
@@ -274,14 +277,21 @@ test('provider show - redacts apiKey', async () => {
       }
     })
 
-    const provider = JSON.parse(stdout) as { name: string; type: string; apiKey: string }
+    const provider = JSON.parse(stdout) as {
+      name: string
+      type: string
+      apiKey: string
+      project: string
+      serviceAccountEmail: string
+      serviceAccountPrivateKey: string
+    }
     assert.equal(provider.name, 'work')
-    assert.equal(provider.type, 'openai')
+    assert.equal(provider.type, 'vertex')
     assert.equal(provider.apiKey, '***', 'apiKey must be redacted')
-    assert.ok(
-      !JSON.stringify(provider).includes('sk-real-key'),
-      'raw key must never appear in output'
-    )
+    assert.equal(provider.serviceAccountPrivateKey, '***', 'private key must be redacted')
+    assert.equal(provider.project, 'public-project-id')
+    assert.equal(provider.serviceAccountEmail, 'agent@example.invalid')
+    assert.doesNotMatch(stdout, /sk-real-key|private-key-material/u)
   } finally {
     await rm(root, { recursive: true, force: true })
   }
@@ -532,7 +542,7 @@ test('provider set-default - unknown provider throws', async () => {
   }
 })
 
-test('provider update - patches provider fields', async () => {
+test('provider update - patches fields without printing updated credentials', async () => {
   const root = await mkdtemp(join(tmpdir(), 'yachiyo-cli-provider-'))
   const settingsPath = join(root, 'config.toml')
 
@@ -551,9 +561,11 @@ test('provider update - patches provider fields', async () => {
     await setupServer.upsertProvider({
       id: 'prov-1',
       name: 'my-prov',
-      type: 'anthropic',
+      type: 'vertex',
       apiKey: 'old-key',
       baseUrl: '',
+      serviceAccountEmail: 'agent@example.invalid',
+      serviceAccountPrivateKey: 'old-private-key',
       modelList: { enabled: ['model-1'], disabled: [] }
     })
     await setupServer.close()
@@ -567,7 +579,12 @@ test('provider update - patches provider fields', async () => {
         '--settings',
         settingsPath,
         '--payload',
-        JSON.stringify({ baseUrl: 'https://custom.api.example.com' })
+        JSON.stringify({
+          apiKey: 'new-api-key',
+          baseUrl: 'https://custom.api.example.com',
+          project: 'updated-public-project',
+          serviceAccountPrivateKey: 'new-private-key'
+        })
       ],
       {
         stdout: {
@@ -579,10 +596,25 @@ test('provider update - patches provider fields', async () => {
       }
     )
 
-    const result = JSON.parse(stdout) as { name: string; baseUrl: string; apiKey: string }
+    const result = JSON.parse(stdout) as {
+      name: string
+      baseUrl: string
+      apiKey: string
+      project: string
+      serviceAccountEmail: string
+      serviceAccountPrivateKey: string
+    }
     assert.equal(result.name, 'my-prov')
     assert.equal(result.baseUrl, 'https://custom.api.example.com')
+    assert.equal(result.project, 'updated-public-project')
+    assert.equal(result.serviceAccountEmail, 'agent@example.invalid')
     assert.equal(result.apiKey, '***', 'apiKey must be redacted in update output')
+    assert.equal(
+      result.serviceAccountPrivateKey,
+      '***',
+      'private key must be redacted in update output'
+    )
+    assert.doesNotMatch(stdout, /new-api-key|new-private-key/u)
   } finally {
     await rm(root, { recursive: true, force: true })
   }

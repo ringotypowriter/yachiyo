@@ -28,7 +28,7 @@ Use `yachiyo-pdf` for practical PDF jobs:
 Run this before a non-trivial task:
 
 ```bash
-python3 resources/core-skills/yachiyo-pdf/scripts/pdf_inspect.py path/to/file.pdf --json
+python3 "resources/core-skills/yachiyo-pdf/scripts/pdf_inspect.py" path/to/file.pdf --json
 ```
 
 What it helps with:
@@ -42,7 +42,7 @@ What it helps with:
 For interactive forms, list likely field names first:
 
 ```bash
-python3 resources/core-skills/yachiyo-pdf/scripts/pdf_list_form_fields.py path/to/form.pdf --json
+python3 "resources/core-skills/yachiyo-pdf/scripts/pdf_list_form_fields.py" path/to/form.pdf --json
 ```
 
 ## Route Selection

@@ -14,6 +14,7 @@ import type {
   AppUpdatePrepareResult,
   AppUpdateStatusResult
 } from '@yachiyo/shared/appUpdate'
+import type { DoctorReport } from '../commands/doctor.ts'
 
 export type CliStdout = Pick<typeof process.stdout, 'write'>
 export type CliStderr = Pick<typeof process.stderr, 'write'>
@@ -31,6 +32,7 @@ export interface CliConfigService {
 }
 
 export interface RunYachiyoCliOptions {
+  collectDoctorReport?: () => Promise<DoctorReport>
   createConfigService?: (settingsPath: string) => CliConfigService
   createStorage?: (dbPath: string) => YachiyoStorage
   readSoulDocument?: typeof defaultReadSoulDocument

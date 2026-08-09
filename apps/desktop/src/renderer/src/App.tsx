@@ -412,7 +412,7 @@ function App(): React.JSX.Element {
         return
       }
 
-      if (!isCreateNewThreadShortcut(event)) {
+      if (!isCreateNewThreadShortcut(event, window.api.process.platform)) {
         return
       }
 
@@ -427,7 +427,7 @@ function App(): React.JSX.Element {
   useEffect(() => {
     const handler = (e: KeyboardEvent): void => {
       if (!shouldHandleWorkShortcut(activeAppTab)) return
-      if (!isOpenSidebarSearchShortcut(e)) return
+      if (!isOpenSidebarSearchShortcut(e, window.api.process.platform)) return
       e.preventDefault()
       setIsSidebarSearchOpen(true)
     }

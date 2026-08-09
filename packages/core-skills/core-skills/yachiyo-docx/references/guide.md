@@ -22,7 +22,7 @@ Use `yachiyo-docx` for Word document creation, inspection, template filling, and
 Run this before editing an existing `.docx`:
 
 ```bash
-python3 resources/core-skills/yachiyo-docx/scripts/docx_inspect.py path/to/file.docx --json
+python3 "resources/core-skills/yachiyo-docx/scripts/docx_inspect.py" path/to/file.docx --json
 ```
 
 What it reports:
@@ -37,7 +37,7 @@ What it reports:
 For simple template filling where placeholders live inside ordinary text nodes:
 
 ```bash
-python3 resources/core-skills/yachiyo-docx/scripts/docx_fill_template.py \
+python3 "resources/core-skills/yachiyo-docx/scripts/docx_fill_template.py" \
   template.docx filled.docx \
   --map values.json
 ```

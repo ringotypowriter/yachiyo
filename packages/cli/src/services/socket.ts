@@ -1,6 +1,15 @@
 import { connect } from 'node:net'
 import type { ChannelGroupStatus } from '@yachiyo/shared/protocol'
 
+const APP_NOT_RUNNING_CODES = new Set(['ENOENT', 'ECONNREFUSED', 'EPIPE', 'ERROR_PIPE_BUSY'])
+
+export function normalizeSocketTransportError(error: Error): Error {
+  const code = (error as NodeJS.ErrnoException).code
+  return code && APP_NOT_RUNNING_CODES.has(code)
+    ? new Error('Yachiyo app is not running. Start the app first.')
+    : error
+}
+
 export function defaultSendNotification(
   socketPath: string,
   payload: { title: string; body?: string }
@@ -11,12 +20,7 @@ export function defaultSendNotification(
     })
     client.on('close', () => resolve())
     client.on('error', (err) => {
-      const code = (err as NodeJS.ErrnoException).code
-      if (code === 'ENOENT' || code === 'ECONNREFUSED') {
-        reject(new Error('Yachiyo app is not running. Start the app first to send notifications.'))
-      } else {
-        reject(err)
-      }
+      reject(normalizeSocketTransportError(err))
     })
   })
 }
@@ -31,12 +35,7 @@ export function defaultSendChannel(
     })
     client.on('close', () => resolve())
     client.on('error', (err) => {
-      const code = (err as NodeJS.ErrnoException).code
-      if (code === 'ENOENT' || code === 'ECONNREFUSED') {
-        reject(new Error('Yachiyo app is not running. Start the app first.'))
-      } else {
-        reject(err)
-      }
+      reject(normalizeSocketTransportError(err))
     })
   })
 }
@@ -55,12 +54,7 @@ export function defaultSendChannelGroupStatus(
     })
     client.on('close', () => resolve())
     client.on('error', (err) => {
-      const code = (err as NodeJS.ErrnoException).code
-      if (code === 'ENOENT' || code === 'ECONNREFUSED') {
-        reject(new Error('Yachiyo app is not running. Start the app first.'))
-      } else {
-        reject(err)
-      }
+      reject(normalizeSocketTransportError(err))
     })
   })
 }
@@ -79,12 +73,7 @@ export function defaultSendChannelGroupLabel(
     })
     client.on('close', () => resolve())
     client.on('error', (err) => {
-      const code = (err as NodeJS.ErrnoException).code
-      if (code === 'ENOENT' || code === 'ECONNREFUSED') {
-        reject(new Error('Yachiyo app is not running. Start the app first.'))
-      } else {
-        reject(err)
-      }
+      reject(normalizeSocketTransportError(err))
     })
   })
 }
@@ -99,8 +88,7 @@ export function defaultSendMarkThreadReviewed(
     })
     client.on('close', () => resolve())
     client.on('error', (err) => {
-      const code = (err as NodeJS.ErrnoException).code
-      if (code === 'ENOENT' || code === 'ECONNREFUSED') {
+      if (normalizeSocketTransportError(err) !== err) {
         // App not running — best-effort, silently resolve
         resolve()
       } else {

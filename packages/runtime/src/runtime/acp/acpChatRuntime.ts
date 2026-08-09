@@ -31,6 +31,11 @@ import {
 } from '../../app/domain/shared/shared.ts'
 import { createRunEventMetadata } from '../../app/domain/shared/runEventMetadata.ts'
 import type { ExecuteRunResult } from '../../app/domain/run/execution/runExecutionTypes.ts'
+import {
+  forceTerminateChildProcess,
+  processTree as defaultProcessTree,
+  type ProcessTree
+} from '../../app/domain/processes/processTree.ts'
 import { launchAcpProcess } from './acpLauncher.ts'
 import { continueAcpSession, runAcpSession } from './acpSessionClient.ts'
 import type { AcpWarmSession } from './acpSessionClient.ts'
@@ -55,6 +60,7 @@ export interface AcpChatRunDeps {
   continueAcpSession?: typeof continueAcpSession
   onTerminalState?: () => void
   acpProcessPool?: Pick<AcpProcessPool, 'checkout' | 'checkin'>
+  processTree?: ProcessTree
 }
 
 export interface AcpChatRunInput {
@@ -221,7 +227,8 @@ export async function runAcpChatThread(
       procExited = warmSession.procExited
       acpResult = await continueSession(warmSession, prompt, adapter, {
         abortSignal: input.abortController.signal,
-        keepAlive: true
+        keepAlive: true,
+        processTree: deps.processTree
       })
       warmToCheckin = warmSession
     } else {
@@ -243,7 +250,8 @@ export async function runAcpChatThread(
         {
           abortSignal: input.abortController.signal,
           resumeSessionId,
-          keepAlive: true
+          keepAlive: true,
+          processTree: deps.processTree
         }
       )
       warmToCheckin = acpResult.warmSession ?? null
@@ -254,7 +262,8 @@ export async function runAcpChatThread(
     if (input.abortController.signal.aborted) {
       await killDetachedProcess(
         pendingWarmSession?.proc ?? proc,
-        pendingWarmSession?.procExited ?? procExited
+        pendingWarmSession?.procExited ?? procExited,
+        deps.processTree
       )
       pendingWarmSession = null
       return emitCancelledAndReturn(deps, input, {
@@ -341,7 +350,11 @@ export async function runAcpChatThread(
   } catch (error) {
     textDeltaBatcher.flush()
     if (pendingWarmSession) {
-      await killDetachedProcess(pendingWarmSession.proc, pendingWarmSession.procExited)
+      await killDetachedProcess(
+        pendingWarmSession.proc,
+        pendingWarmSession.procExited,
+        deps.processTree
+      )
       pendingWarmSession = null
     }
     if (input.abortController.signal.aborted) {
@@ -464,11 +477,17 @@ export function buildAcpProcessPoolKey(
   }
 }
 
-async function killDetachedProcess(proc: ChildProcess, procExited: Promise<void>): Promise<void> {
-  try {
-    process.kill(-proc.pid!, 'SIGKILL')
-  } catch {
-    proc.kill('SIGKILL')
+async function killDetachedProcess(
+  proc: ChildProcess,
+  procExited: Promise<void>,
+  processTree: ProcessTree = defaultProcessTree
+): Promise<void> {
+  const result = forceTerminateChildProcess(proc, processTree)
+  if (!result.delivered) {
+    console.warn('[yachiyo][acp-chat] process-tree termination failed', {
+      pid: proc.pid,
+      error: result.error
+    })
   }
   await procExited
 }

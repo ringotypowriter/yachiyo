@@ -1,6 +1,7 @@
-import { createServer, connect, type Server } from 'node:net'
+import { createServer, connect as connectSocket, type Server, type Socket } from 'node:net'
 import { existsSync, mkdirSync, unlinkSync } from 'node:fs'
 import { dirname } from 'node:path'
+import type { CommandEndpoint } from '@yachiyo/runtime/config/commandEndpoint'
 import type {
   AppUpdateCommandRequest,
   AppUpdateCommandResult,
@@ -67,7 +68,9 @@ export function createAppUpdateReplyFinalizer(input: {
 export type AppUpdateCommandInput = Omit<AppUpdateCommandRequest, 'type'>
 
 export interface CommandSocketOptions {
-  socketPath: string
+  endpoint?: CommandEndpoint
+  /** Legacy test/dev input. Production callers use `endpoint`. */
+  socketPath?: string
   onNotification: (input: { title: string; body?: string }) => void
   onSendChannel: (input: SendChannelInput) => void
   onUpdateChannelGroupStatus: (input: UpdateChannelGroupStatusInput) => void
@@ -87,9 +90,108 @@ interface TypedMessage {
   [key: string]: unknown
 }
 
+export interface CommandEndpointFileSystem {
+  existsSync(path: string): boolean
+  mkdirSync(path: string, options: { recursive: boolean }): void
+  unlinkSync(path: string): void
+}
+
+const commandEndpointFileSystem: CommandEndpointFileSystem = {
+  existsSync,
+  mkdirSync,
+  unlinkSync
+}
+
+export function prepareCommandEndpoint(
+  endpoint: CommandEndpoint,
+  fileSystem: CommandEndpointFileSystem = commandEndpointFileSystem
+): void {
+  if (endpoint.kind !== 'unix-socket') return
+  fileSystem.mkdirSync(dirname(endpoint.address), { recursive: true })
+  if (fileSystem.existsSync(endpoint.address)) {
+    fileSystem.unlinkSync(endpoint.address)
+  }
+}
+
+export function cleanupCommandEndpoint(
+  endpoint: CommandEndpoint,
+  fileSystem: CommandEndpointFileSystem = commandEndpointFileSystem
+): void {
+  if (endpoint.kind !== 'unix-socket' || !fileSystem.existsSync(endpoint.address)) return
+  fileSystem.unlinkSync(endpoint.address)
+}
+
+interface CommandEndpointProbeSocket {
+  destroyed?: boolean
+  destroy(): void
+  end(): void
+  once(event: string, listener: (...args: unknown[]) => void): this
+  removeAllListeners(): this
+}
+
+export function probeCommandEndpoint(
+  endpoint: CommandEndpoint,
+  options: {
+    timeoutMs?: number
+    connect?: (address: string, onConnect: () => void) => CommandEndpointProbeSocket
+  } = {}
+): Promise<boolean> {
+  const timeoutMs = options.timeoutMs ?? 1_000
+  const connect =
+    options.connect ??
+    ((address: string, onConnect: () => void): Socket => connectSocket(address, onConnect))
+
+  return new Promise((resolve) => {
+    let settled = false
+    const timeoutHandle = setTimeout(() => finish(false), timeoutMs)
+    const finish = (healthy: boolean): void => {
+      if (settled) return
+      settled = true
+      clearTimeout(timeoutHandle)
+      socket.removeAllListeners()
+      if (!socket.destroyed) {
+        if (healthy) socket.end()
+        else socket.destroy()
+      }
+      resolve(healthy)
+    }
+
+    const socket = connect(endpoint.address, () => finish(true))
+    socket.once('error', () => finish(false))
+  })
+}
+
+export interface CommandSocketRestartPolicy {
+  nextDelay(): number | null
+  reset(): void
+}
+
+export function createCommandSocketRestartPolicy(options: {
+  initialDelayMs: number
+  maxAttempts: number
+}): CommandSocketRestartPolicy {
+  let attempts = 0
+  return {
+    nextDelay(): number | null {
+      if (attempts >= options.maxAttempts) return null
+      const delay = options.initialDelayMs * 2 ** attempts
+      attempts += 1
+      return delay
+    },
+    reset(): void {
+      attempts = 0
+    }
+  }
+}
+
+function resolveCommandSocketEndpoint(options: CommandSocketOptions): CommandEndpoint {
+  if (options.endpoint) return options.endpoint
+  if (options.socketPath) return { kind: 'unix-socket', address: options.socketPath }
+  throw new Error('Command socket endpoint is required.')
+}
+
 export function startCommandSocket(options: CommandSocketOptions): CommandSocketHandle {
   const {
-    socketPath,
     onNotification,
     onSendChannel,
     onUpdateChannelGroupStatus,
@@ -98,13 +200,10 @@ export function startCommandSocket(options: CommandSocketOptions): CommandSocket
     onAppUpdate,
     onError
   } = options
+  const endpoint = resolveCommandSocketEndpoint(options)
   let closed = false
 
-  // Clean up stale socket file from a previous crash
-  mkdirSync(dirname(socketPath), { recursive: true })
-  if (existsSync(socketPath)) {
-    unlinkSync(socketPath)
-  }
+  prepareCommandEndpoint(endpoint)
 
   const server: Server = createServer({ allowHalfOpen: true }, (connection) => {
     let buffer = ''
@@ -286,7 +385,7 @@ export function startCommandSocket(options: CommandSocketOptions): CommandSocket
     closed = true
   })
 
-  server.listen(socketPath)
+  server.listen(endpoint.address)
 
   return {
     async healthCheck(timeoutMs = 1_000): Promise<boolean> {
@@ -294,41 +393,24 @@ export function startCommandSocket(options: CommandSocketOptions): CommandSocket
         return false
       }
 
-      return new Promise((resolve) => {
-        let settled = false
-        const client = connect(socketPath)
-        const finish = (healthy: boolean): void => {
-          if (settled) {
-            return
-          }
-          settled = true
-          clearTimeout(timeoutHandle)
-          client.removeAllListeners()
-          if (!client.destroyed) {
-            client.destroy()
-          }
-          resolve(healthy)
-        }
-
-        const timeoutHandle = setTimeout(() => finish(false), timeoutMs)
-
-        client.once('connect', () => finish(true))
-        client.once('error', () => finish(false))
-      })
+      return probeCommandEndpoint(endpoint, { timeoutMs })
     },
     async close(): Promise<void> {
       return new Promise((resolve) => {
         closed = true
-        server.close(() => {
-          if (existsSync(socketPath)) {
-            try {
-              unlinkSync(socketPath)
-            } catch {
-              // Best-effort cleanup
-            }
+        const finish = (): void => {
+          try {
+            cleanupCommandEndpoint(endpoint)
+          } catch {
+            // Best-effort cleanup
           }
           resolve()
-        })
+        }
+        try {
+          server.close(finish)
+        } catch {
+          finish()
+        }
       })
     }
   }

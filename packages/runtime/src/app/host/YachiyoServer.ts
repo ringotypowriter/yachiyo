@@ -145,10 +145,7 @@ import { diffSettings, mergeSettings } from '../../settings/settingsFieldMerge.t
 import { decideSettingsConflict } from '../../services/settingsConflictReconcile.ts'
 import type { JotdownStore } from '../../services/jotdownStore.ts'
 import type { YachiyoStorage } from '../../storage/storage.ts'
-import {
-  resolveRecommendedICloudSyncDir,
-  resolveSyncReadiness as resolveHostSyncReadiness
-} from './syncReadiness.ts'
+import { resolveSyncReadiness as resolveHostSyncReadiness } from './syncReadiness.ts'
 import {
   cloneThreadWorkspace as defaultCloneThreadWorkspace,
   deleteThreadWorkspace as defaultDeleteThreadWorkspace,
@@ -329,7 +326,10 @@ export class YachiyoServer {
   private readonly resolveThreadWorkspacePath: (threadId: string) => string
   private readonly ensureThreadWorkspacePath: (threadId: string) => Promise<string>
   private readonly loadSkillCatalog = createCachedSkillCatalogLoader({
-    loadCatalog: async (workspacePaths) => buildSkillRegistry(await discoverSkills(workspacePaths))
+    loadCatalog: async (workspacePaths) =>
+      buildSkillRegistry(await discoverSkills(workspacePaths, { platform: process.platform }), {
+        platform: process.platform
+      })
   })
   private readonly searchService: SearchService
   private readonly webSearchServiceInstance: import('../../services/webSearch/webSearchService.ts').WebSearchService
@@ -399,7 +399,7 @@ export class YachiyoServer {
       profilePath: resolveYachiyoWebSearchBrowserSessionPath()
     })
     const webSearchImportService = createBrowserSearchSessionImportService({
-      chromeDataPath: resolveGoogleChromeDataPath()
+      chromeDataPath: resolveGoogleChromeDataPath({ platform: process.platform })
     })
     const browserWebPageSnapshotLoader = createBrowserWebPageSnapshotLoader({
       browserSession: this.browserSearchSession
@@ -705,7 +705,9 @@ export class YachiyoServer {
     available: boolean
     initialized: boolean
   } {
-    return resolveHostSyncReadiness(this.configDomain.readConfig())
+    return resolveHostSyncReadiness(this.configDomain.readConfig(), {
+      platform: process.platform
+    })
   }
 
   async getSyncStatus(): Promise<SyncStatus> {
@@ -752,7 +754,7 @@ export class YachiyoServer {
   async initSync(): Promise<SyncStatus> {
     const binary = resolveSyncCoreBinary()
     const home = dirname(this.settingsPath)
-    const { syncDir } = this.resolveSyncReadiness()
+    const { syncDir, recommendedSyncDir } = this.resolveSyncReadiness()
     return this.runExclusiveSync(async () => {
       await execFileAsync(binary, [
         'init',
@@ -764,20 +766,25 @@ export class YachiyoServer {
         'Yachiyo'
       ])
       // Publish + pull once so enabling sync immediately produces a usable state.
-      return this.exportThenImport(binary, home, syncDir)
+      return this.exportThenImport(binary, home, syncDir, recommendedSyncDir)
     })
   }
 
   async runSyncNow(): Promise<SyncStatus> {
-    const { syncDir } = this.resolveSyncReadiness()
+    const { syncDir, recommendedSyncDir } = this.resolveSyncReadiness()
     return this.runExclusiveSync(() =>
-      this.exportThenImport(resolveSyncCoreBinary(), dirname(this.settingsPath), syncDir)
+      this.exportThenImport(
+        resolveSyncCoreBinary(),
+        dirname(this.settingsPath),
+        syncDir,
+        recommendedSyncDir
+      )
     )
   }
 
   /**
    * One automatic sync pass for the background scheduler. Skips (returns null)
-   * when this device hasn't joined sync or iCloud is unavailable, and is
+   * when this device hasn't joined sync or its sync folder is unavailable, and is
    * serialized with manual syncs through the same mutex.
    */
   async runAutoSyncCycle(): Promise<SyncStatus | null> {
@@ -785,12 +792,17 @@ export class YachiyoServer {
     // joined yet (no local device row). Exporting there fails every cycle with
     // "device is not initialized", so only run once this device is actually
     // joined — `deviceId` is set only when a local device row exists. getSyncStatus
-    // still short-circuits without spawning the binary when iCloud is unavailable
+    // still short-circuits without spawning the binary when the sync folder is unavailable
     // or the universe is missing.
     const status = await this.getSyncStatus()
     if (!status.deviceId) return null
     return this.runExclusiveSync(() =>
-      this.exportThenImport(resolveSyncCoreBinary(), dirname(this.settingsPath), status.syncDir)
+      this.exportThenImport(
+        resolveSyncCoreBinary(),
+        dirname(this.settingsPath),
+        status.syncDir,
+        status.recommendedSyncDir
+      )
     )
   }
 
@@ -807,9 +819,9 @@ export class YachiyoServer {
   private async exportThenImport(
     binary: string,
     home: string,
-    syncDir: string
+    syncDir: string,
+    recommendedSyncDir: string
   ): Promise<SyncStatus> {
-    const recommendedSyncDir = resolveRecommendedICloudSyncDir()
     await execFileAsync(binary, ['export', '--home', home, '--sync-dir', syncDir])
     const { stdout } = await execFileAsync(binary, [
       'import',

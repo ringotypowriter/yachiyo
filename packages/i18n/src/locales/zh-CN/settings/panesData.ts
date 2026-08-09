@@ -89,6 +89,8 @@ export const sync = {
   fileSync: '文件同步',
   description:
     '设置与远端聊天归档通过本地文件夹同步。可使用推荐的 iCloud Drive 文件夹，或选择你自己管理的其他文件夹。来自其他设备的同步聊天保持只读。',
+  descriptionWindows:
+    '设置与远端聊天归档通过本地文件夹同步。可使用推荐的 OneDrive 文件夹，或选择你自己管理的其他同步文件夹。来自其他设备的同步聊天保持只读。',
   syncing: '正在同步…',
   loadingStatus: '正在加载同步状态…',
   statusUnavailable: '同步文件夹不可用',
@@ -101,12 +103,14 @@ export const sync = {
   syncNow: '立即同步',
   resolvingFolder: '正在解析同步文件夹…',
   useICloudFolder: '使用 iCloud 文件夹',
+  useOneDriveFolder: '使用 OneDrive 文件夹',
   chooseFolder: '选择文件夹',
   deviceCount: { other: '{count} 台设备' },
   pendingConflicts: { other: '{count} 个待处理冲突' },
   deviceIdLabel: '设备 {id}',
   unavailableHint:
     '请选择一个现有文件夹，或先在 macOS 中登录 iCloud Drive 并启用“文稿”同步，再使用推荐文件夹。',
+  unavailableHintWindows: '请选择一个现有文件夹，或先登录 OneDrive，再使用推荐文件夹。',
   joinableHint: '同步已在另一台设备上启用。加入后即可在此拉取你的同步聊天。',
   conflicts: '冲突',
   refresh: '刷新',

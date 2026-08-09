@@ -1,11 +1,13 @@
 ---
 name: yachiyo-help
-description: Complete reference for the Yachiyo CLI — soul traits, provider management, agent profiles, config, thread search, scheduled tasks, channel users/groups, group monitor status control, and send commands
+description: Complete cross-platform reference for the Yachiyo CLI — diagnostics, soul traits, provider management, agent profiles, config, thread search, scheduled tasks, channel users/groups, group monitor status control, and send commands
 ---
 
 # Yachiyo Help
 
-Reference for the Yachiyo CLI. The binary lives at `~/.yachiyo/bin/yachiyo`.
+Reference for the Yachiyo CLI. The generated wrapper is
+`~/.yachiyo/bin/yachiyo` on macOS and `%USERPROFILE%\.yachiyo\bin\yachiyo.cmd`
+on Windows.
 
 > **IMPORTANT:** The Yachiyo CLI (`yachiyo` command) is NOT the Yachiyo desktop app (`Yachiyo.app`). You are running _inside_ Yachiyo.app — never attempt to open, run, or execute `Yachiyo.app` via the bash tool. Doing so would spawn a recursive instance and is blocked by the security layer.
 
@@ -38,6 +40,38 @@ yachiyo <namespace> <subcommand> [args...] [flags...]
 | `schedule` | Manage scheduled tasks                                    | [schedule.md](references/schedule.md)   |
 | `channel`  | List channel users/groups and change group monitor status | [channel.md](references/channel.md)     |
 | `send`     | Send notifications and channel messages                   | [send.md](references/send.md)           |
+| `doctor`   | Diagnose the current platform runtime and capabilities    | This file                               |
+
+## Platform diagnostics
+
+Run this before troubleshooting shell, CLI transport, search binaries, native
+modules, or Python-backed document skills:
+
+```bash
+yachiyo doctor --json
+```
+
+The JSON report identifies the OS and architecture, command endpoint, private
+shell, bundled helpers, native modules, and platform capabilities. It never
+contains provider secrets or a full environment dump.
+
+### Windows 11 x64
+
+- The NSIS installer is intentionally unsigned. An **Unknown publisher** warning
+  is expected; first confirm the file came from the official Yachiyo Release.
+- Open a new PowerShell, Command Prompt, or bundled Bash after installation so
+  the user `PATH` refreshes.
+- Yachiyo carries its own PortableGit Bash. Do not install Git Bash, WSL, or
+  Cygwin just to make the Bash tool work.
+- Activity/OCR, launch on login, keep awake, Kagete, Ghostty control, macOS app
+  automation, and macOS screenshots are unavailable on Windows v1.
+- Python-backed document skills use `py.exe -3`, then `python.exe`. If both are
+  absent, install Python 3 from python.org and rerun `yachiyo doctor --json`.
+
+### macOS
+
+The existing Activity, launch-on-login, keep-awake, Ghostty, Kagete, app
+automation, and screenshot behavior remains available on macOS.
 
 ## Launch on Login (macOS)
 
@@ -97,13 +131,45 @@ launchctl list | grep sh.ringo.yachiyo
 | `~/.yachiyo/SOUL.md`                  | Assistant persona and evolving trait log                          |
 | `~/.yachiyo/USER.md`                  | User profile — who you are, your context, working style           |
 | `~/.yachiyo/yachiyo.sqlite`           | Thread and message database                                       |
-| `~/.yachiyo/bin/yachiyo`              | CLI wrapper (auto-generated, do not edit)                         |
+| `~/.yachiyo/bin/yachiyo`              | macOS CLI wrapper (auto-generated, do not edit)                   |
+| `~/.yachiyo/bin/yachiyo.cmd`          | Windows CLI wrapper (auto-generated, do not edit)                 |
 
 ## Troubleshooting: `yachiyo: command not found`
 
-When a user reports that `yachiyo` is not found after first install, follow these steps in order:
+When a user reports that `yachiyo` is not found after first install, use the
+matching platform section.
 
-### 1. Check if the wrapper exists
+### Windows
+
+1. Confirm that the generated wrapper exists:
+
+```powershell
+Test-Path "$env:USERPROFILE\.yachiyo\bin\yachiyo.cmd"
+```
+
+If it is missing, relaunch the Yachiyo desktop app so startup regenerates it.
+
+2. Inspect the current user's persistent `PATH`:
+
+```powershell
+[Environment]::GetEnvironmentVariable('Path', 'User') -split ';' |
+  Where-Object { $_ -like '*\.yachiyo\bin' }
+```
+
+If the directory is missing, relaunch Yachiyo so it can repair the one user
+`PATH` entry. No administrator access is required. Never add the private
+PortableGit directory to the user or system `PATH`.
+
+3. Close and reopen PowerShell, Command Prompt, or bundled Bash. Existing
+   terminals keep their previous environment. Then verify the complete runtime:
+
+```powershell
+yachiyo doctor --json
+```
+
+### macOS
+
+#### 1. Check if the wrapper exists
 
 ```bash
 ls -la ~/.yachiyo/bin/yachiyo
@@ -111,7 +177,7 @@ ls -la ~/.yachiyo/bin/yachiyo
 
 If the file is missing, the user should **re-launch the Yachiyo desktop app** — it auto-generates the wrapper on startup.
 
-### 2. Check for the `/usr/local/bin` symlink
+#### 2. Check for the `/usr/local/bin` symlink
 
 ```bash
 ls -la /usr/local/bin/yachiyo
@@ -130,7 +196,7 @@ sudo mkdir -p /usr/local/bin
 sudo ln -sf ~/.yachiyo/bin/yachiyo /usr/local/bin/yachiyo
 ```
 
-### 3. Check PATH (fallback when symlink is unavailable)
+#### 3. Check PATH (fallback when symlink is unavailable)
 
 If `/usr/local/bin` symlink is not an option, verify that `~/.yachiyo/bin` is on the user's PATH:
 
@@ -151,7 +217,7 @@ If the entry is missing, re-launch the Yachiyo desktop app to have it added auto
 
 After editing a profile, the user must either **open a new terminal** or source the file (e.g., `source ~/.zshrc`).
 
-### 4. Quick fix for the current session
+#### 4. Quick fix for the current session
 
 If the user just needs it working right now without restarting the terminal:
 

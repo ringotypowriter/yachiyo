@@ -1,7 +1,7 @@
 import { spawnSync } from 'node:child_process'
 
 export interface KillProcessTreeResult {
-  /** True when at least one SIGKILL was delivered (process group, a descendant, or the root). */
+  /** True when at least one signal was delivered (process group, a descendant, or the root). */
   delivered: boolean
   /** Descendant pids that were targeted individually, for diagnostics. */
   descendants: number[]
@@ -19,11 +19,15 @@ export interface KillProcessTreeResult {
  * SIGKILLs the process group, each descendant pid, and finally the root.
  */
 export function killProcessTree(rootPid: number): KillProcessTreeResult {
+  return signalProcessTree(rootPid, 'SIGKILL')
+}
+
+export function signalProcessTree(rootPid: number, signal: NodeJS.Signals): KillProcessTreeResult {
   const descendants = listDescendantPidsSync(rootPid)
   let delivered = false
 
   try {
-    process.kill(-rootPid, 'SIGKILL')
+    process.kill(-rootPid, signal)
     delivered = true
   } catch {
     // ESRCH: no process group with that id (root may not have been a leader
@@ -32,7 +36,7 @@ export function killProcessTree(rootPid: number): KillProcessTreeResult {
 
   for (const pid of descendants) {
     try {
-      process.kill(pid, 'SIGKILL')
+      process.kill(pid, signal)
       delivered = true
     } catch {
       // ESRCH: already reaped (likely taken out by the group kill above).
@@ -40,7 +44,7 @@ export function killProcessTree(rootPid: number): KillProcessTreeResult {
   }
 
   try {
-    process.kill(rootPid, 'SIGKILL')
+    process.kill(rootPid, signal)
     delivered = true
   } catch {
     // ESRCH: root already gone.

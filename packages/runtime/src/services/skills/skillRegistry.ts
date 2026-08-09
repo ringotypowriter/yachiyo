@@ -1,12 +1,18 @@
-import type { SkillCatalogEntry } from '@yachiyo/shared/protocol'
+import type { SkillCatalogEntry, SkillPlatform } from '@yachiyo/shared/protocol'
 
 import type { DiscoveredSkill } from './skillDiscovery.ts'
 
-export function buildSkillRegistry(discoveredSkills: DiscoveredSkill[]): SkillCatalogEntry[] {
+export function buildSkillRegistry(
+  discoveredSkills: DiscoveredSkill[],
+  options: { platform: NodeJS.Platform }
+): SkillCatalogEntry[] {
   const registry: SkillCatalogEntry[] = []
   const seenNames = new Set<string>()
 
   for (const skill of discoveredSkills) {
+    if (skill.platforms && !skill.platforms.includes(options.platform as SkillPlatform)) {
+      continue
+    }
     if (seenNames.has(skill.name)) {
       continue
     }
@@ -18,7 +24,8 @@ export function buildSkillRegistry(discoveredSkills: DiscoveredSkill[]): SkillCa
       directoryPath: skill.directoryPath,
       skillFilePath: skill.skillFilePath,
       ...(skill.autoEnabled ? { autoEnabled: true } : {}),
-      ...(skill.origin ? { origin: skill.origin } : {})
+      ...(skill.origin ? { origin: skill.origin } : {}),
+      ...(skill.platforms ? { platforms: skill.platforms } : {})
     })
   }
 

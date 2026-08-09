@@ -2,7 +2,31 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 // @ts-expect-error plain .mjs script module without type declarations
-import { selectStaleReleaseKeys } from './sync-release-to-r2.mjs'
+import { selectReleaseArtifacts, selectStaleReleaseKeys } from './sync-release-to-r2.mjs'
+
+test('selects both Windows and macOS updater artifacts while ignoring unrelated files', () => {
+  assert.deepEqual(
+    selectReleaseArtifacts([
+      'yachiyo-1.5.2-setup.exe',
+      'yachiyo-1.5.2-setup.exe.blockmap',
+      'latest.yml',
+      'Yachiyo-1.5.2-arm64-mac.zip',
+      'Yachiyo-1.5.2-arm64-mac.zip.blockmap',
+      'latest-mac.yml',
+      'builder-debug.yml',
+      'win-unpacked',
+      'README.txt'
+    ]),
+    [
+      'Yachiyo-1.5.2-arm64-mac.zip',
+      'Yachiyo-1.5.2-arm64-mac.zip.blockmap',
+      'yachiyo-1.5.2-setup.exe',
+      'yachiyo-1.5.2-setup.exe.blockmap',
+      'latest-mac.yml',
+      'latest.yml'
+    ]
+  )
+})
 
 test('keeps the newest nightly versions and returns older keys for deletion', () => {
   const keys = [
@@ -43,6 +67,26 @@ test('keeps only the newest stable version when keep is 1', () => {
   ]
   const stale = selectStaleReleaseKeys(keys, 1)
   assert.deepEqual(stale, ['stable/Yachiyo-1.4.0-arm64-mac.zip'])
+})
+
+test('release retention removes Windows and macOS artifacts for the same stale version', () => {
+  const keys = [
+    'stable/latest-mac.yml',
+    'stable/latest.yml',
+    'stable/Yachiyo-1.4.0-arm64-mac.zip',
+    'stable/Yachiyo-1.4.0-arm64-mac.zip.blockmap',
+    'stable/yachiyo-1.4.0-setup.exe',
+    'stable/yachiyo-1.4.0-setup.exe.blockmap',
+    'stable/Yachiyo-1.4.1-arm64-mac.zip',
+    'stable/yachiyo-1.4.1-setup.exe'
+  ]
+
+  assert.deepEqual(selectStaleReleaseKeys(keys, 1).sort(), [
+    'stable/Yachiyo-1.4.0-arm64-mac.zip',
+    'stable/Yachiyo-1.4.0-arm64-mac.zip.blockmap',
+    'stable/yachiyo-1.4.0-setup.exe',
+    'stable/yachiyo-1.4.0-setup.exe.blockmap'
+  ])
 })
 
 test('never selects keys without a parsable version', () => {

@@ -14,8 +14,8 @@ On first launch, an onboarding overlay asks for three things in order:
 1. **Provider** — pick one of the built-in presets (Anthropic, OpenAI, Gemini,
    DeepSeek, Moonshot, OpenRouter, Ollama, and a dozen more). The preset fills in
    the API type and base URL for you.
-2. **API key** — paste it. It is written to `~/.yachiyo/config.toml` on your
-   machine and nowhere else.
+2. **API key** — paste it. It is encrypted in this device's provider credential
+   vault and is not synced.
 3. **Model** — choose the one new chats should start with.
 
 If you skipped the overlay, the same thing lives in **Settings → Providers**.
@@ -111,13 +111,14 @@ Once the basics work, the pieces that make Yachiyo a resident rather than a tab:
 
 ## Where your data is
 
-| What                          | Where                                      |
-| ----------------------------- | ------------------------------------------ |
-| Settings, providers, API keys | `~/.yachiyo/config.toml`                   |
-| Bot tokens                    | `~/.yachiyo/channels.toml`                 |
-| Threads and messages          | `~/.yachiyo/yachiyo.sqlite`                |
-| Persona and profile           | `~/.yachiyo/SOUL.md`, `~/.yachiyo/USER.md` |
-| Skills                        | `~/.yachiyo/skills/`                       |
+| What                        | Where                                                    |
+| --------------------------- | -------------------------------------------------------- |
+| Settings and provider setup | `~/.yachiyo/config.toml`                                 |
+| Model-provider credentials  | `~/.yachiyo/provider-credentials.enc` (encrypted, local) |
+| Bot tokens                  | `~/.yachiyo/channels.toml`                               |
+| Threads and messages        | `~/.yachiyo/yachiyo.sqlite`                              |
+| Persona and profile         | `~/.yachiyo/SOUL.md`, `~/.yachiyo/USER.md`               |
+| Skills                      | `~/.yachiyo/skills/`                                     |
 
 No hosted backend, no telemetry. The only network calls are to the providers you
 configured and the pages you ask it to read.

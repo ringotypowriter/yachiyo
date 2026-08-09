@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import type { ReadAppLogsResult } from '@yachiyo/shared/appLogs'
+import type { DiscoveredApp } from '@yachiyo/shared/discoveredApp'
 import type {
   AnswerToolQuestionInput,
   BrowserAutomationSessionRecord,
@@ -82,6 +83,7 @@ const api = {
     return () => ipcRenderer.off('navigate-settings-to', handler)
   },
   openSettings: (tab?: string) => ipcRenderer.send('open-settings', tab),
+  openNotificationSettings: (): void => ipcRenderer.send('open-notification-settings'),
   openTranslator: () => ipcRenderer.send('open-translator'),
   openJotdown: () => ipcRenderer.send('open-jotdown'),
   hideTranslator: () => ipcRenderer.send('hide-translator'),
@@ -276,8 +278,11 @@ const api = {
       ipcRenderer.invoke('yachiyo:reveal-file', input),
     resolveFileReferences: (input: ResolveFileReferencesInput): Promise<ResolvedFileReference[]> =>
       ipcRenderer.invoke('yachiyo:resolve-file-references', input),
-    openFile: (input: { path: string }): Promise<void> =>
-      ipcRenderer.invoke('yachiyo:open-file', input),
+    openFile: (input: {
+      path: string
+      appSelection?: string
+      appKind?: 'editor' | 'markdown'
+    }): Promise<void> => ipcRenderer.invoke('yachiyo:open-file', input),
     copyImageToClipboard: (input: { src: string }): Promise<void> =>
       ipcRenderer.invoke('yachiyo:copy-image-to-clipboard', input),
     savePngFile: (input: {
@@ -285,8 +290,6 @@ const api = {
       defaultFilename?: string
     }): Promise<{ canceled: true } | { canceled: false; filePath: string }> =>
       ipcRenderer.invoke('yachiyo:save-png-file', input),
-    openFileInEditor: (input: { path: string; editorApp: string }): Promise<void> =>
-      ipcRenderer.invoke('yachiyo:open-file-in-editor', input),
     getUsageStats: (
       input: import('@yachiyo/shared/protocol').UsageStatsInput
     ): Promise<import('@yachiyo/shared/protocol').UsageStatsResponse> =>
@@ -390,9 +393,9 @@ const api = {
       message: import('@yachiyo/shared/protocol').MessageRecord
     }> => ipcRenderer.invoke('yachiyo:download-remote-image-for-message', input),
     listDiscoveredApps: (): Promise<{
-      editors: { name: string; iconDataUrl?: string }[]
-      terminals: { name: string; iconDataUrl?: string }[]
-      markdownEditors: { name: string; iconDataUrl?: string }[]
+      editors: DiscoveredApp[]
+      terminals: DiscoveredApp[]
+      markdownEditors: DiscoveredApp[]
     }> => ipcRenderer.invoke('yachiyo:list-discovered-apps'),
     openWorkspaceWithApp: (input: { threadId: string; appName: string }): Promise<void> =>
       ipcRenderer.invoke('yachiyo:open-workspace-with-app', input),

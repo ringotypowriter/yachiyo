@@ -61,7 +61,8 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  build:
+  build_macos:
+    name: Build and publish macOS
     needs: version
     if: needs.version.outputs.released == 'true'
     runs-on: macos-latest
@@ -83,7 +84,7 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Build and publish
+      - name: Build and publish macOS
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CSC_LINK: ${{ secrets.CSC_LINK }}
@@ -92,6 +93,17 @@ jobs:
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: pnpm --filter @yachiyo/desktop run build && pnpm --filter @yachiyo/desktop exec electron-builder --mac zip --publish always
+
+      - name: Preserve macOS release artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: changeset-macos
+          path: |
+            apps/desktop/dist/*.zip
+            apps/desktop/dist/*.zip.blockmap
+            apps/desktop/dist/latest-mac.yml
+          if-no-files-found: error
+          retention-days: 7
 
       - name: Generate changelog and update release
         env:
@@ -133,3 +145,94 @@ jobs:
           fi
 
           printf '%b' "$BODY" | gh release edit "$TAG" --notes-file -
+
+  build_windows:
+    name: Build and publish Windows x64
+    needs: [version, build_macos]
+    if: needs.version.outputs.released == 'true' && needs.build_macos.result == 'success'
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.version.outputs.tag }}
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+
+      - uses: pnpm/action-setup@v4
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build unsigned Windows installer
+        run: pnpm --filter @yachiyo/desktop run build:win
+
+      - name: Publish Windows artifacts
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ needs.version.outputs.tag }}
+        run: |
+          $files = @(
+            Get-ChildItem apps/desktop/dist -File |
+              Where-Object {
+                $_.Name -eq 'latest.yml' -or
+                $_.Name -match '^yachiyo-.+-setup\.exe(?:\.blockmap)?$'
+              }
+          )
+          if ($files.Count -ne 3) {
+            throw "Expected the NSIS installer, blockmap, and latest.yml; found $($files.Count) files."
+          }
+          foreach ($file in $files) {
+            gh release upload $env:RELEASE_TAG $file.FullName --clobber
+          }
+
+      - name: Preserve Windows release artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: changeset-windows-x64
+          path: |
+            apps/desktop/dist/yachiyo-*-setup.exe
+            apps/desktop/dist/yachiyo-*-setup.exe.blockmap
+            apps/desktop/dist/latest.yml
+          if-no-files-found: error
+          retention-days: 7
+
+  mirror:
+    name: Sync aggregated release artifacts to R2
+    needs: [version, build_macos, build_windows]
+    if: needs.version.outputs.released == 'true' && needs.build_macos.result == 'success' && needs.build_windows.result == 'success'
+    runs-on: ubuntu-latest
+    environment: Mac Distribution
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.version.outputs.tag }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+
+      - uses: pnpm/action-setup@v4
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Download release artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: changeset-*
+          path: apps/desktop/dist
+          merge-multiple: true
+
+      - name: Sync release to R2 mirror
+        env:
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+        run: node scripts/sync-release-to-r2.mjs --channel stable --dist apps/desktop/dist

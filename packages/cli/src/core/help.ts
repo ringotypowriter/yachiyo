@@ -8,6 +8,11 @@ export const GLOBAL_FLAGS_HELP = `Global flags:
   --help              Show help for a command or namespace`
 
 export const NAMESPACE_HELP: Record<string, string> = {
+  doctor: `Usage: yachiyo doctor [--json]
+
+  doctor                               Diagnose the platform runtime and bundled capabilities.
+  doctor --json                        Print the same report as a single JSON document.`,
+
   soul: `Usage: yachiyo soul <subcommand> [args...]
 
   soul traits list                       List evolved personality traits (JSON array of {key, trait}).
@@ -122,6 +127,6 @@ export const USAGE = `Usage: yachiyo <namespace> <subcommand> [args...] [flags..
 All output is JSON unless noted. The app must be running for "send" and "update" commands.
 Use "yachiyo <namespace> --help" for detailed help on a specific namespace.
 
-Namespaces: soul, provider, agent, config, thread, schedule, channel, send, update
+Namespaces: doctor, soul, provider, agent, config, thread, schedule, channel, send, update
 
 ${Object.values(NAMESPACE_HELP).join('\n\n')}\n\n${GLOBAL_FLAGS_HELP}`

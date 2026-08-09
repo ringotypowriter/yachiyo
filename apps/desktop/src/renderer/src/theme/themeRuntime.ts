@@ -1,4 +1,5 @@
 import type { SettingsConfig, ThemeAppearance, ThemeId } from '@yachiyo/shared/protocol'
+import { resolvePlatformCapabilities } from '@yachiyo/shared/platformCapabilities'
 import {
   DEFAULT_THEME_APPEARANCE,
   DEFAULT_THEME_ID,
@@ -69,6 +70,11 @@ export function applyThemeConfig(
 
 export function applyStoredThemePreference(): void {
   applyThemeAttributes(resolveThemeAttributes(readStoredThemePreference(), getSystemPrefersDark()))
+}
+
+export function applyPlatformUi(platform: NodeJS.Platform): void {
+  const capabilities = resolvePlatformCapabilities(platform)
+  document.documentElement.style.setProperty('--yachiyo-font-ui', capabilities.uiFontFamily)
 }
 
 export function subscribeToSystemThemeChanges(onChange: () => void): () => void {

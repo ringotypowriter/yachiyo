@@ -15,10 +15,13 @@ breaks, when you want the underlying detail, or when you need it scripted.
 
 ## Is there a Windows or Linux build?
 
-No, and none is planned. Yachiyo is built on a Mac and there is no hardware here
-to test the other platforms on, so porting it is not on the table. Several
-bundled skills — window automation, Ghostty control, screenshots — are macOS-only
-regardless.
+Yachiyo supports macOS and Windows 11 x64. The Windows NSIS installer is
+unsigned, so an **Unknown publisher** warning is expected. Windows 10, Windows
+on ARM, and Linux are not supported release targets.
+
+Windows v1 does not provide Activity/OCR, launch on login, keep awake, Kagete,
+Ghostty control, macOS app automation, or the macOS screenshot skill. Those
+entries are filtered out on Windows instead of being offered as broken tools.
 
 ## Does Yachiyo support MCP?
 
@@ -69,8 +72,10 @@ in `~/.yachiyo/skills/custom/` instead.
 
 ## Do schedules run when the app is closed?
 
-No. Schedules, channel bots, and `yachiyo send` all need the app running. Set up
-a [LaunchAgent](/docs/install/#launch-on-login) if you want it always on.
+No. Schedules, channel bots, and `yachiyo send` all need the app running. On
+macOS, set up a [LaunchAgent](/docs/install/#launch-on-login-macos) if you want
+it always on. Windows v1 has no launch-on-login option, so start the app manually
+and leave it running.
 
 ## Can other people use my assistant through Telegram?
 
@@ -94,11 +99,13 @@ diff.
 
 ## Are my API keys safe?
 
-They are stored in plain text in `config.toml`, on your machine. CLI output
-redacts them, but the file does not encrypt them. Do not commit it, and be aware
-that enabling [sync](/docs/guides/sync/) copies it into your sync folder.
+Model-provider API keys and Vertex private keys are encrypted in a device-local
+vault protected by the operating system. They are not written to `config.toml`
+or copied by [sync](/docs/guides/sync/). CLI output redacts API keys.
 
-Channel bot tokens in `channels.toml` are not redacted in output at all.
+Other secrets have separate rules: the Exa web-search key can live in
+`config.toml`, while channel credentials live in `channels.toml`. Keep both
+files private.
 
 ## What happens when a conversation gets too long?
 

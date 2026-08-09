@@ -1,5 +1,10 @@
 import type { ChildProcess } from 'node:child_process'
 
+import {
+  forceTerminateChildProcess,
+  gracefullyTerminateChildProcess,
+  processTree
+} from '../../app/domain/processes/processTree.ts'
 import type { AcpWarmSession } from './acpSessionClient.ts'
 
 export const IDLE_TTL_MS = 5 * 60 * 1_000
@@ -14,7 +19,21 @@ interface IdleEntry {
   key: AcpProcessPoolKey
   proc: ChildProcess
   session: AcpWarmSession
-  timer: ReturnType<typeof setTimeout>
+  timer: AcpProcessPoolTimer
+}
+
+export interface AcpProcessPoolTimer {
+  cleared?: boolean
+  unref?(): void
+}
+
+export interface AcpProcessPoolDependencies {
+  processTree?: {
+    gracefullyTerminate(pid: number): { delivered: boolean; error?: string }
+    forceTerminate(pid: number): { delivered: boolean; error?: string }
+  }
+  setTimeout?: (callback: () => void, delay: number) => AcpProcessPoolTimer
+  clearTimeout?: (timer: AcpProcessPoolTimer) => void
 }
 
 function stringifyPoolKey(key: AcpProcessPoolKey): string {
@@ -23,6 +42,16 @@ function stringifyPoolKey(key: AcpProcessPoolKey): string {
 
 export class AcpProcessPool {
   private readonly entries = new Map<string, IdleEntry>()
+  private readonly processTree: NonNullable<AcpProcessPoolDependencies['processTree']>
+  private readonly schedule: (callback: () => void, delay: number) => AcpProcessPoolTimer
+  private readonly cancelTimer: (timer: AcpProcessPoolTimer) => void
+
+  constructor(dependencies: AcpProcessPoolDependencies = {}) {
+    this.processTree = dependencies.processTree ?? processTree
+    this.schedule = dependencies.setTimeout ?? ((callback, delay) => setTimeout(callback, delay))
+    this.cancelTimer =
+      dependencies.clearTimeout ?? ((timer) => clearTimeout(timer as NodeJS.Timeout))
+  }
 
   /**
    * Returns the warm idle process for `key` if one exists, removing it
@@ -31,7 +60,7 @@ export class AcpProcessPool {
   checkout(key: AcpProcessPoolKey): AcpWarmSession | null {
     const entry = this.entries.get(stringifyPoolKey(key))
     if (!entry) return null
-    clearTimeout(entry.timer)
+    this.cancelTimer(entry.timer)
     this.entries.delete(stringifyPoolKey(key))
     return entry.session
   }
@@ -44,17 +73,17 @@ export class AcpProcessPool {
     const entryId = stringifyPoolKey(key)
     const existing = this.entries.get(entryId)
     if (existing) {
-      clearTimeout(existing.timer)
+      this.cancelTimer(existing.timer)
       void this._killGracefully(existing.session)
     }
 
-    const timer = setTimeout(() => {
+    const timer = this.schedule(() => {
       if (this.entries.get(entryId)?.proc === session.proc) {
         this.entries.delete(entryId)
       }
       void this._killGracefully(session)
     }, IDLE_TTL_MS)
-    timer.unref()
+    timer.unref?.()
 
     this.entries.set(entryId, { key, proc: session.proc, session, timer })
 
@@ -62,7 +91,7 @@ export class AcpProcessPool {
     session.procExited.then(() => {
       const current = this.entries.get(entryId)
       if (current?.proc === session.proc) {
-        clearTimeout(current.timer)
+        this.cancelTimer(current.timer)
         this.entries.delete(entryId)
       }
     })
@@ -73,7 +102,7 @@ export class AcpProcessPool {
     const entryId = stringifyPoolKey(key)
     const entry = this.entries.get(entryId)
     if (!entry) return
-    clearTimeout(entry.timer)
+    this.cancelTimer(entry.timer)
     this.entries.delete(entryId)
     await this._killGracefully(entry.session)
   }
@@ -88,7 +117,7 @@ export class AcpProcessPool {
       keys.map(async (entryId) => {
         const entry = this.entries.get(entryId)
         if (!entry) return
-        clearTimeout(entry.timer)
+        this.cancelTimer(entry.timer)
         this.entries.delete(entryId)
         await this._killGracefully(entry.session)
       })
@@ -107,7 +136,7 @@ export class AcpProcessPool {
    */
   syncKillAll(): void {
     for (const entry of this.entries.values()) {
-      clearTimeout(entry.timer)
+      this.cancelTimer(entry.timer)
       this._syncKill(entry.proc)
     }
     this.entries.clear()
@@ -117,33 +146,52 @@ export class AcpProcessPool {
     proc: ChildProcess
     procExited: Promise<void>
   }): Promise<void> {
-    this._sendSignal(session.proc, 'SIGTERM')
+    this._reportTermination(
+      'graceful',
+      session.proc,
+      session.proc.pid == null
+        ? gracefullyTerminateChildProcess(session.proc)
+        : this.processTree.gracefullyTerminate(session.proc.pid)
+    )
 
     let timedOut = false
-    const killTimer = setTimeout(() => {
+    const killTimer = this.schedule(() => {
       timedOut = true
       this._syncKill(session.proc)
     }, SIGTERM_TIMEOUT_MS)
 
     await session.procExited
-    if (!timedOut) clearTimeout(killTimer)
-  }
-
-  private _sendSignal(proc: ChildProcess, signal: NodeJS.Signals): void {
-    try {
-      process.kill(-proc.pid!, signal)
-    } catch {
-      try {
-        proc.kill(signal)
-      } catch {
-        // process already gone — ignore
-      }
-    }
+    if (!timedOut) this.cancelTimer(killTimer)
   }
 
   private _syncKill(proc: ChildProcess): void {
-    this._sendSignal(proc, 'SIGKILL')
+    this._reportTermination(
+      'force',
+      proc,
+      proc.pid == null
+        ? forceTerminateChildProcess(proc)
+        : this.processTree.forceTerminate(proc.pid)
+    )
   }
+
+  private _reportTermination(
+    operation: 'graceful' | 'force',
+    proc: ChildProcess,
+    result: { delivered: boolean; error?: string }
+  ): void {
+    if (result.delivered) return
+    console.warn('[yachiyo][acp-process-pool] process-tree termination failed', {
+      operation,
+      pid: proc.pid,
+      error: result.error
+    })
+  }
+}
+
+export function createAcpProcessPool(
+  dependencies: AcpProcessPoolDependencies = {}
+): AcpProcessPool {
+  return new AcpProcessPool(dependencies)
 }
 
 export const acpProcessPool = new AcpProcessPool()

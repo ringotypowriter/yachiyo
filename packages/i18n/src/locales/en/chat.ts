@@ -398,6 +398,7 @@ export const chat = {
     loadFailed: 'Failed to load changes.',
     noFileChanges: 'No file changes.',
     openInApp: 'Open in {app}',
+    openWithDefaultApp: 'Open with default app',
     reverted: 'Reverted',
     revert: 'Revert',
     allReverted: 'All changes have been reverted.',
@@ -407,8 +408,8 @@ export const chat = {
     revertAllDescription:
       'This will restore all files to their previous state. This cannot be undone.',
     reverting: 'Reverting...',
-    revealInFinder: 'Reveal in Finder',
-    openInEditorFailed: 'Failed to open in editor.'
+    revealInFinder: 'Show in folder',
+    openFileFailed: 'Failed to open file.'
   },
   plan: {
     title: 'Plan',

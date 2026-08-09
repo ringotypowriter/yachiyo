@@ -1,5 +1,7 @@
 import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { join, win32 } from 'node:path'
+
+import { resolveCommandEndpoint, type CommandEndpoint } from './commandEndpoint.ts'
 
 export const YACHIYO_DATA_DIR_NAME = '.yachiyo'
 export const YACHIYO_DB_FILE_NAME = 'yachiyo.sqlite'
@@ -15,9 +17,20 @@ export const YACHIYO_TEMP_WORKSPACE_DIR_NAME = 'temp-workspace'
 export const YACHIYO_WEB_SEARCH_DIR_NAME = 'web-search'
 export const YACHIYO_WEB_SEARCH_BROWSER_SESSION_DIR_NAME = 'browser-session'
 
-export function resolveYachiyoDataDir(): string {
-  const override = process.env['YACHIYO_HOME']?.trim()
-  return override && override.length > 0 ? override : join(homedir(), YACHIYO_DATA_DIR_NAME)
+export function resolveYachiyoDataDir(options?: {
+  platform?: NodeJS.Platform
+  env?: NodeJS.ProcessEnv
+  homeDir?: string
+}): string {
+  const platform = options?.platform ?? process.platform
+  const env = options?.env ?? process.env
+  const override = env['YACHIYO_HOME']?.trim()
+  if (override) return override
+
+  const homeDir = options?.homeDir ?? homedir()
+  return platform === 'win32'
+    ? win32.join(homeDir, YACHIYO_DATA_DIR_NAME)
+    : join(homeDir, YACHIYO_DATA_DIR_NAME)
 }
 
 export function resolveYachiyoDbPath(fileName = YACHIYO_DB_FILE_NAME): string {
@@ -54,8 +67,15 @@ export function resolveYachiyoProviderCredentialVaultPath(
   return join(baseDir, YACHIYO_PROVIDER_CREDENTIAL_VAULT_FILE_NAME)
 }
 
+export function resolveYachiyoCommandEndpoint(): CommandEndpoint {
+  return resolveCommandEndpoint({
+    platform: process.platform,
+    yachiyoHome: resolveYachiyoDataDir()
+  })
+}
+
 export function resolveYachiyoSocketPath(): string {
-  return join(resolveYachiyoDataDir(), YACHIYO_SOCKET_FILE_NAME)
+  return resolveYachiyoCommandEndpoint().address
 }
 
 export function resolveYachiyoTempWorkspaceRoot(): string {

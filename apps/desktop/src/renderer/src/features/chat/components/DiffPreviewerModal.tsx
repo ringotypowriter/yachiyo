@@ -7,7 +7,7 @@ import { useAppStore } from '@renderer/app/store/useAppStore'
 import { AppDialog } from '@renderer/components/AppDialog'
 import { useAppDialog } from '@renderer/components/AppDialogContext'
 import { ConfirmDialog } from '@renderer/components/ConfirmDialog'
-import { getTimelineFileEditorApp } from '@renderer/lib/markdown/linkableCodeFileAction'
+import { resolveTimelineFileOpenTarget } from '@renderer/lib/markdown/linkableCodeFileAction'
 import { ToolCodeBlock } from './ToolCodeBlock'
 import type { FileChangeForReview, FileChangeStatus } from '@yachiyo/shared/fileSnapshot'
 
@@ -42,6 +42,7 @@ export function DiffPreviewerModal({
   const t = useT()
   const dialog = useAppDialog()
   const editorApp = useAppStore((s) => s.config?.workspace?.editorApp)
+  const markdownApp = useAppStore((s) => s.config?.workspace?.markdownApp)
   const [changes, setChanges] = useState<FileChangeForReview[] | null>(null)
   const [error, setError] = useState(false)
   const [selectedIdx, setSelectedIdx] = useState(0)
@@ -118,22 +119,30 @@ export function DiffPreviewerModal({
     setConfirmRevertPath(null)
   }, [confirmRevertMode, confirmRevertPath, executeRevertFile, executeRevertAll])
 
-  const handleOpenInEditor = useCallback(
+  const handleOpenFile = useCallback(
     async (relativePath: string) => {
       const fullPath = workspacePath.endsWith('/')
         ? `${workspacePath}${relativePath}`
         : `${workspacePath}/${relativePath}`
-      const app = getTimelineFileEditorApp({ editorApp })
-      if (!app) return
+      const target = resolveTimelineFileOpenTarget({ filePath: fullPath, editorApp, markdownApp })
+      if (target.mode === 'unavailable') return
       try {
-        await window.api.yachiyo.openFileInEditor({ path: fullPath, editorApp: app })
+        await window.api.yachiyo.openFile({
+          path: fullPath,
+          ...(target.mode === 'configured'
+            ? {
+                appSelection: target.appSelection,
+                appKind: target.appKind
+              }
+            : {})
+        })
       } catch (error) {
         await dialog.alert({
-          title: error instanceof Error ? error.message : t('chat.diff.openInEditorFailed')
+          title: error instanceof Error ? error.message : t('chat.diff.openFileFailed')
         })
       }
     },
-    [dialog, workspacePath, editorApp, t]
+    [dialog, editorApp, markdownApp, t, workspacePath]
   )
 
   const selected = changes?.[selectedIdx]
@@ -260,11 +269,15 @@ export function DiffPreviewerModal({
                   <div className="flex items-center gap-1.5">
                     {selected.status !== 'deleted'
                       ? (() => {
-                          const app = getTimelineFileEditorApp({ editorApp })
-                          return app ? (
+                          const target = resolveTimelineFileOpenTarget({
+                            filePath: selected.relativePath,
+                            editorApp,
+                            markdownApp
+                          })
+                          return target.mode !== 'unavailable' ? (
                             <button
                               type="button"
-                              onClick={() => handleOpenInEditor(selected.relativePath)}
+                              onClick={() => handleOpenFile(selected.relativePath)}
                               className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs transition-opacity hover:opacity-80"
                               style={{
                                 color: theme.text.accent,
@@ -274,7 +287,9 @@ export function DiffPreviewerModal({
                               }}
                             >
                               <SquareArrowOutUpRight size={10} strokeWidth={2} />
-                              {t('chat.diff.openInApp', { app })}
+                              {target.mode === 'configured'
+                                ? t('chat.diff.openInApp', { app: target.appSelection })
+                                : t('chat.diff.openWithDefaultApp')}
                             </button>
                           ) : null
                         })()

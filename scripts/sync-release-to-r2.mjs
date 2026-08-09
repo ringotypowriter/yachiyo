@@ -2,7 +2,7 @@
 
 // Mirrors electron-builder artifacts to the R2 release mirror and prunes old
 // versions. Layout: <bucket>/stable keeps 1 version, <bucket>/nightly keeps 5,
-// each with its own latest-mac.yml. Skips silently when R2 secrets are absent
+// each with platform-specific updater manifests. Skips when R2 secrets are absent
 // so forks and secret-less runs stay green.
 
 import { execFileSync } from 'node:child_process'
@@ -12,7 +12,7 @@ import process from 'node:process'
 import { pathToFileURL } from 'node:url'
 
 const KEEP_PER_CHANNEL = { stable: 1, nightly: 5 }
-const MANIFEST = 'latest-mac.yml'
+const MANIFESTS = ['latest-mac.yml', 'latest.yml']
 const VERSION_PATTERN = /(\d+)\.(\d+)\.(\d+)(?:-beta\.(\d+))?/
 
 /** @type {(keys: string[], keep: number) => string[]} */
@@ -38,6 +38,21 @@ export function selectStaleReleaseKeys(keys, keep) {
     return 0
   })
   return newestFirst.slice(keep).flatMap((entry) => entry.keys)
+}
+
+/** @type {(names: string[]) => string[]} */
+export function selectReleaseArtifacts(names) {
+  const binaries = names
+    .filter(
+      (name) =>
+        name.endsWith('.zip') ||
+        name.endsWith('.zip.blockmap') ||
+        name.endsWith('.exe') ||
+        name.endsWith('.exe.blockmap')
+    )
+    .sort()
+  const manifests = MANIFESTS.filter((name) => names.includes(name))
+  return [...binaries, ...manifests]
 }
 
 function parseArgs(argv) {
@@ -79,16 +94,21 @@ function main() {
       stdio: ['ignore', 'pipe', 'inherit']
     })
 
-  const artifacts = readdirSync(dist).filter(
-    (name) => name.endsWith('.zip') || name.endsWith('.zip.blockmap')
-  )
-  if (artifacts.length === 0 || !readdirSync(dist).includes(MANIFEST)) {
-    throw new Error(`No release artifacts or ${MANIFEST} found in ${dist}`)
+  const artifacts = selectReleaseArtifacts(readdirSync(dist))
+  const binaries = artifacts.filter((name) => !MANIFESTS.includes(name))
+  const missingManifests = MANIFESTS.filter((name) => !artifacts.includes(name))
+  if (binaries.length === 0 || missingManifests.length > 0) {
+    throw new Error(
+      `Release artifacts are incomplete in ${dist}; missing: ${[
+        ...(binaries.length === 0 ? ['update binaries'] : []),
+        ...missingManifests
+      ].join(', ')}`
+    )
   }
 
   // Upload binaries first, the manifest last, so the feed never points at a
   // file that is not there yet.
-  for (const name of [...artifacts, MANIFEST]) {
+  for (const name of artifacts) {
     console.log(`Uploading ${name} -> ${channel}/${name}`)
     aws(['s3', 'cp', join(dist, name), `s3://${R2_BUCKET}/${channel}/${name}`])
   }

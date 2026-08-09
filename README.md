@@ -94,7 +94,12 @@ _A focused essentials surface for keeping important context, reusable items, and
 
 ## Getting Started
 
-Download the latest release from the [Releases](https://github.com/ringotypowriter/yachiyo/releases) page. macOS only for now.
+Download the latest release from the [Releases](https://github.com/ringotypowriter/yachiyo/releases) page:
+
+- **macOS** — use the macOS archive and move Yachiyo into `/Applications`.
+- **Windows 11 x64** — run `yachiyo-<version>-setup.exe`.
+
+Windows v1 supports chat, workspaces, providers, channels, schedules, Bash tools, ACP coding agents, browser features, notifications, updates, and OneDrive/custom-folder sync. Activity/OCR, launch at login, keep awake, Kagete, Ghostty control, macOS app automation, and macOS screenshots remain Mac-only. Linux is not supported.
 
 ## Development
 

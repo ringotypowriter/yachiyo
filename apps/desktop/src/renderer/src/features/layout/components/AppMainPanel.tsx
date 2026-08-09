@@ -370,7 +370,12 @@ export function AppMainPanel({
   useEffect(() => {
     const handler = (e: KeyboardEvent): void => {
       if (!shortcutsEnabled) return
-      if (!isOpenFindBarShortcut(e) || !activeThreadId || showWelcomeState) return
+      if (
+        !isOpenFindBarShortcut(e, window.api.process.platform) ||
+        !activeThreadId ||
+        showWelcomeState
+      )
+        return
       e.preventDefault()
       setFindOpen(true)
     }

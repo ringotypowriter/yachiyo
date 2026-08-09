@@ -3,6 +3,9 @@ import { spawn } from 'node:child_process'
 import type { ProviderSettings } from '@yachiyo/shared/protocol'
 import type { AuxiliaryTextGenerationResult } from '../../runtime/models/auxiliaryGeneration.ts'
 import type { ModelMessage } from '../../runtime/models/types.ts'
+import { buildBashCommand, resolveHostShellRuntime } from '../../runtime/shell/shellRuntime.ts'
+import { registerActiveChildProcess } from '../../app/domain/processes/activeProcessRegistry.ts'
+import { gracefullyTerminateChildProcess } from '../../app/domain/processes/processTree.ts'
 
 export type ClaudeCodeProbeDecision = { action: 'silent' } | { action: 'send'; message: string }
 
@@ -224,15 +227,28 @@ export async function runClaudeCodeGroupProbe(
 
 async function runProcess(input: ClaudeCodeProbeRunCommandInput): Promise<string> {
   return new Promise((resolve, reject) => {
-    const child = spawn(input.command, input.args, {
-      cwd: input.cwd,
+    const runtime = resolveHostShellRuntime({
+      readLoginShellEnvironment: () => process.env
+    })
+    const command = runtime.command(buildBashCommand(input.command, input.args), {
+      cwd: input.cwd
+    })
+    const child = spawn(command.executable, command.args, {
+      ...command.options,
       stdio: ['pipe', 'pipe', 'pipe']
     })
+    registerActiveChildProcess(child)
     let stdout = ''
     let stderr = ''
     let stdinError: Error | undefined
     const onAbort = (): void => {
-      child.kill('SIGTERM')
+      const termination = gracefullyTerminateChildProcess(child)
+      if (!termination.delivered && !termination.alreadyExited) {
+        console.warn('[yachiyo][group-probe] process-tree termination failed', {
+          error: termination.error,
+          pid: child.pid
+        })
+      }
       reject(new Error('Claude Code probe aborted'))
     }
 

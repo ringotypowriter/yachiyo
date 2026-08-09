@@ -5,7 +5,7 @@ import { alpha, solid } from '@renderer/theme/theme'
 import { useT } from '@yachiyo/i18n/react'
 import { useAppStore } from '@renderer/app/store/useAppStore'
 import { useAppDialog } from '@renderer/components/AppDialogContext'
-import { getTimelineFileEditorApp } from '@renderer/lib/markdown/linkableCodeFileAction'
+import { resolveTimelineFileOpenTarget } from '@renderer/lib/markdown/linkableCodeFileAction'
 import { detectLanguage } from '../lib/code-blocks/detectLanguage'
 import { codeHighlightTokenStyle } from '../lib/code-blocks/codeHighlightTheme'
 import type { HighlightToken } from '../lib/code-blocks/highlightTokens'
@@ -234,23 +234,32 @@ function Container({
   const t = useT()
   const dialog = useAppDialog()
   const editorApp = useAppStore((s) => s.config?.workspace?.editorApp)
+  const markdownApp = useAppStore((s) => s.config?.workspace?.markdownApp)
 
   const handleReveal = useCallback(() => {
     if (filePath) window.api.yachiyo.revealFile({ path: filePath })
   }, [filePath])
 
-  const handleOpenInEditor = useCallback(async () => {
+  const handleOpenFile = useCallback(async () => {
     if (!filePath) return
-    const app = getTimelineFileEditorApp({ editorApp })
-    if (!app) return
+    const target = resolveTimelineFileOpenTarget({ filePath, editorApp, markdownApp })
+    if (target.mode === 'unavailable') return
     try {
-      await window.api.yachiyo.openFileInEditor({ path: filePath, editorApp: app })
+      await window.api.yachiyo.openFile({
+        path: filePath,
+        ...(target.mode === 'configured'
+          ? {
+              appSelection: target.appSelection,
+              appKind: target.appKind
+            }
+          : {})
+      })
     } catch (error) {
       await dialog.alert({
-        title: error instanceof Error ? error.message : t('chat.diff.openInEditorFailed')
+        title: error instanceof Error ? error.message : t('chat.diff.openFileFailed')
       })
     }
-  }, [dialog, filePath, editorApp, t])
+  }, [dialog, editorApp, filePath, markdownApp, t])
 
   const hasActions = !!filePath
 
@@ -277,9 +286,17 @@ function Container({
             <FolderOpen size={12} strokeWidth={1.5} />
           </ActionButton>
           {(() => {
-            const app = getTimelineFileEditorApp({ editorApp })
-            return app ? (
-              <ActionButton title={t('chat.diff.openInApp', { app })} onClick={handleOpenInEditor}>
+            if (!filePath) return null
+            const target = resolveTimelineFileOpenTarget({ filePath, editorApp, markdownApp })
+            return target.mode !== 'unavailable' ? (
+              <ActionButton
+                title={
+                  target.mode === 'configured'
+                    ? t('chat.diff.openInApp', { app: target.appSelection })
+                    : t('chat.diff.openWithDefaultApp')
+                }
+                onClick={handleOpenFile}
+              >
                 <SquareArrowOutUpRight size={12} strokeWidth={1.5} />
               </ActionButton>
             ) : null

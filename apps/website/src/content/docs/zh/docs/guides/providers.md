@@ -5,7 +5,7 @@ description: 接入模型供应商，挑选出现在选择器里的模型，并�
 
 八千代没有内置模型，也没有托管账号。供应商由你提供，而且想接多少家都行 —— 逐条消息切换是常规用法，不是边缘情况。
 
-供应商配置在 `~/.yachiyo/config.toml` 里。API key 以明文存在你自己的机器上，并且在所有命令行输出中都会被打码。
+供应商定义、模型和 base URL 配置在 `~/.yachiyo/config.toml` 里。API key 和 Vertex 私钥会加密存入本机的 `provider-credentials.enc` 凭据库，其密钥由操作系统保护。命令行输出会把 API key 打码。
 
 ## 添加一个供应商
 
@@ -112,8 +112,6 @@ yachiyo provider set-default openai --model <model-name>
 
 细节见 [`provider` 命令行参考](/zh/docs/cli/provider/)。
 
-:::caution[config.toml 里的密钥]
-`config.toml` 以明文存放 API key。别把它提交进版本库，也别放进共享文件夹。
-
-命令行输出比文件本身安全：每条命令都会把 `apiKey` 的值替换成 `***`，`yachiyo config get` 也不例外。直接读文件是唯一能打印出 key 的方式。
+:::note[每台设备单独保存供应商凭据]
+模型供应商 API key 和 Vertex 私钥不存进 `config.toml`，也不参与同步。请在每台设备上分别配置。命令行输出也会把 API key 值替换成 `***`。
 :::

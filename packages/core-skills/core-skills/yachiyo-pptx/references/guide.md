@@ -22,7 +22,7 @@ Use `yachiyo-pptx` for reading, editing, or generating PowerPoint decks while pr
 Run this before editing a deck:
 
 ```bash
-python3 resources/core-skills/yachiyo-pptx/scripts/pptx_inspect.py path/to/file.pptx --json
+python3 "resources/core-skills/yachiyo-pptx/scripts/pptx_inspect.py" path/to/file.pptx --json
 ```
 
 What it reports:
@@ -36,7 +36,7 @@ What it reports:
 For narrow content updates where the slide layout should stay intact:
 
 ```bash
-python3 resources/core-skills/yachiyo-pptx/scripts/pptx_replace_text.py \
+python3 "resources/core-skills/yachiyo-pptx/scripts/pptx_replace_text.py" \
   input.pptx output.pptx \
   --from "Old title" \
   --to "New title"

@@ -431,7 +431,7 @@ export function useComposerInputHandlers(
 
   const handleKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
-      if (isPastePlainTextShortcut(event)) {
+      if (isPastePlainTextShortcut(event, window.api.process.platform)) {
         event.preventDefault()
         const textarea = event.currentTarget
         void (async () => {

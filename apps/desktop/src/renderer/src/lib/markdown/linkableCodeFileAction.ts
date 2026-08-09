@@ -2,8 +2,37 @@ import { stripInlineCodeFileLocationSuffix } from '@yachiyo/shared/inlineCodeFil
 
 export type LinkableCodeFileAction = 'open' | 'reveal'
 
-export function getTimelineFileEditorApp(input: { editorApp?: string }): string | undefined {
+export type TimelineFileOpenTarget =
+  | {
+      mode: 'configured'
+      appSelection: string
+      appKind: 'editor' | 'markdown'
+    }
+  | { mode: 'default' }
+  | { mode: 'unavailable' }
+
+export function resolveTimelineFileOpenTarget(input: {
+  filePath: string
+  editorApp?: string
+  markdownApp?: string
+}): TimelineFileOpenTarget {
+  if (/\.(?:md|markdown)$/iu.test(input.filePath)) {
+    return input.markdownApp
+      ? {
+          mode: 'configured',
+          appSelection: input.markdownApp,
+          appKind: 'markdown'
+        }
+      : { mode: 'default' }
+  }
+
   return input.editorApp
+    ? {
+        mode: 'configured',
+        appSelection: input.editorApp,
+        appKind: 'editor'
+      }
+    : { mode: 'unavailable' }
 }
 
 export function getLinkableCodeFileAction(input: {

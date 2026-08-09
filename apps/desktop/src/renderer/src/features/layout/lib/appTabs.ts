@@ -1,4 +1,5 @@
 import { t } from '@yachiyo/i18n/index'
+import { resolvePlatformCapabilities } from '@yachiyo/shared/platformCapabilities'
 
 export type AppTabId = 'chat' | 'things' | 'archived' | 'settings'
 export type AppSidebarMode = 'chat' | 'archived'
@@ -17,6 +18,12 @@ export const APP_TAB_BAR_WIDTH = 56
 export const APP_TRAFFIC_LIGHT_SAFE_WIDTH = 84
 export const APP_TAB_FRAME_TRAFFIC_LIGHT_SAFE_WIDTH =
   APP_TRAFFIC_LIGHT_SAFE_WIDTH - APP_TAB_BAR_WIDTH
+export const APP_CAPTION_CONTROLS_SAFE_WIDTH = 138
+
+export interface AppTabFrameTitleBarInsets {
+  left: number
+  right: number
+}
 
 export const APP_TABS: readonly AppTabDefinition[] = [
   { id: 'chat' },
@@ -86,4 +93,12 @@ export function shouldShowAppTabFrameSidebarTopControls(isSidebarOpen: boolean):
 
 export function resolveAppTabFrameTopChromeColumn(isSidebarOpen: boolean): string {
   return isSidebarOpen ? '1 / 2' : '1 / 3'
+}
+
+export function resolveAppTabFrameTitleBarInsets(platform: string): AppTabFrameTitleBarInsets {
+  const capabilities = resolvePlatformCapabilities(platform as NodeJS.Platform)
+  return {
+    left: capabilities.trafficLights ? APP_TAB_FRAME_TRAFFIC_LIGHT_SAFE_WIDTH : 0,
+    right: capabilities.titleBarOverlay ? APP_CAPTION_CONTROLS_SAFE_WIDTH : 0
+  }
 }

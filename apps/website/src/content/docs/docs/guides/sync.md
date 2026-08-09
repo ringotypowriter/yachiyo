@@ -1,27 +1,28 @@
 ---
 title: Sync
-description: Share settings and chat archives between your machines through a folder you control — iCloud Drive or anywhere else.
+description: Share settings and chat archives through a folder you control — iCloud Drive, OneDrive, or anywhere else.
 ---
 
 Sync moves two things between your devices: your **settings** and your **chat
 archives**. It works through a plain folder, so there is no Yachiyo account and
-no server in the middle. iCloud Drive is the recommended folder because macOS
-already syncs it, but any folder you keep in sync yourself works the same way.
+no server in the middle. Yachiyo recommends iCloud Drive on macOS and OneDrive
+on Windows, but any folder you keep in sync yourself works the same way.
 
 Set it up in **Settings → Sync**.
 
 ## Enabling it
 
-1. Choose a folder — **Use iCloud Folder** for the recommended location, or
-   **Choose Folder** to pick your own.
+1. Choose a folder — use the recommended synced folder for the current platform,
+   or **Choose Folder** to pick your own. The defaults are iCloud Drive on macOS
+   and `<OneDrive>\Yachiyo\Sync` on Windows.
 2. Hit **Enable Sync**.
 
 On a second device, the pane offers **Join This Device** instead, because sync is
 already initialized in that folder. Joining pulls the existing archives down.
 
-If the recommended iCloud folder is unavailable, macOS is usually the reason:
-sign in to iCloud Drive and turn on Documents sync, or point Yachiyo at a folder
-you manage yourself.
+If the recommended folder is unavailable, sign in to iCloud Drive on macOS or
+OneDrive on Windows. Yachiyo does not invent a path when the service is absent;
+choose any folder managed by another sync provider instead.
 
 ## What syncs, and what it costs you
 
@@ -58,11 +59,13 @@ The pane reports one of:
 | **Not enabled on this device** | The folder has sync in it; join to participate |
 | **Not initialized**            | No sync set up in this folder yet              |
 | **Needs attention**            | Conflicts are waiting for you                  |
-| **Sync folder unavailable**    | The folder cannot be reached — usually iCloud  |
+| **Sync folder unavailable**    | The selected folder cannot be reached          |
 
 It also shows the device count and how many conflicts are pending.
 
-:::caution[Your sync folder holds your API keys]
-Settings sync includes `config.toml`, which contains provider API keys in plain
-text. Use a private folder — not a shared team drive, not a public Dropbox link.
+:::caution[Keep the sync folder private]
+Model-provider API keys and Vertex private keys stay in the device-local
+encrypted vault and are not synced. Settings sync still copies `config.toml`,
+which can contain other sensitive values such as an Exa web-search API key. Do
+not use a shared team drive or a public link.
 :::

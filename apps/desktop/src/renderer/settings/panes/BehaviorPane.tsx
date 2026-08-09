@@ -24,6 +24,7 @@ import { hasPendingSoulDocumentChanges, toSoulTraitTexts } from './soulDocumentE
 import { UserDocumentTableEditor } from './UserDocumentTableEditor'
 import { hasPendingUserDocumentChanges } from './userDocumentEditorModel'
 import { hasEnabledChatModel, LAUNCH_AT_LOGIN_PROMPT } from './behaviorPaneModel'
+import { resolveBehaviorSettingVisibility } from '../settingsPlatform'
 
 interface BehaviorPaneProps {
   draft: SettingsConfig
@@ -347,7 +348,7 @@ export function BehaviorPane({
   }
 
   const updateChannel: UpdateChannel = draft.general?.updateChannel ?? 'stable'
-  const isMac = window.api.process.platform === 'darwin'
+  const settingVisibility = resolveBehaviorSettingVisibility(window.api.process.platform)
   const preventSystemSleep = draft.general?.preventSystemSleep === true
   const notifyRunCompleted = draft.general?.notifyRunCompleted !== false
   const notifyCodingTaskStarted = draft.general?.notifyCodingTaskStarted !== false
@@ -381,43 +382,47 @@ export function BehaviorPane({
         />
       </SettingSection>
 
-      <SettingSection>
-        <SettingLabel>{t('settings.behavior.startupSection')}</SettingLabel>
+      {settingVisibility.keepAwake || settingVisibility.launchAtLogin ? (
+        <SettingSection>
+          <SettingLabel>{t('settings.behavior.startupSection')}</SettingLabel>
 
-        {isMac ? (
-          <SettingItem
-            label={t('settings.behavior.keepAwakeLabel')}
-            description={t('settings.behavior.keepAwakeDesc')}
-            control={
-              <SettingSwitch
-                checked={preventSystemSleep}
-                onChange={() =>
-                  onChange({
-                    ...draft,
-                    general: { ...draft.general, preventSystemSleep: !preventSystemSleep }
-                  })
-                }
-                ariaLabel={t('settings.behavior.keepAwakeToggleAria')}
-              />
-            }
-          />
-        ) : null}
+          {settingVisibility.keepAwake ? (
+            <SettingItem
+              label={t('settings.behavior.keepAwakeLabel')}
+              description={t('settings.behavior.keepAwakeDesc')}
+              control={
+                <SettingSwitch
+                  checked={preventSystemSleep}
+                  onChange={() =>
+                    onChange({
+                      ...draft,
+                      general: { ...draft.general, preventSystemSleep: !preventSystemSleep }
+                    })
+                  }
+                  ariaLabel={t('settings.behavior.keepAwakeToggleAria')}
+                />
+              }
+            />
+          ) : null}
 
-        <SettingItem
-          label={t('settings.behavior.launchAtLoginLabel')}
-          description={t('settings.behavior.launchAtLoginDesc')}
-          control={
-            <button
-              type="button"
-              className="text-sm font-medium transition-opacity opacity-60 hover:opacity-100"
-              style={{ color: theme.text.accent }}
-              onClick={() => void handleLaunchAtLogin()}
-            >
-              {t('settings.behavior.setUpButton')}
-            </button>
-          }
-        />
-      </SettingSection>
+          {settingVisibility.launchAtLogin ? (
+            <SettingItem
+              label={t('settings.behavior.launchAtLoginLabel')}
+              description={t('settings.behavior.launchAtLoginDesc')}
+              control={
+                <button
+                  type="button"
+                  className="text-sm font-medium transition-opacity opacity-60 hover:opacity-100"
+                  style={{ color: theme.text.accent }}
+                  onClick={() => void handleLaunchAtLogin()}
+                >
+                  {t('settings.behavior.setUpButton')}
+                </button>
+              }
+            />
+          ) : null}
+        </SettingSection>
+      ) : null}
 
       <SettingSection>
         <SettingLabel
@@ -425,11 +430,7 @@ export function BehaviorPane({
             <button
               className="text-[11px] font-medium hover:underline"
               style={{ color: theme.text.secondary }}
-              onClick={() =>
-                window.open(
-                  'x-apple.systempreferences:com.apple.Notifications-Settings?id=sh.ringo.yachiyo'
-                )
-              }
+              onClick={() => window.api.openNotificationSettings()}
             >
               {t('settings.behavior.systemSettingsButton')}
             </button>

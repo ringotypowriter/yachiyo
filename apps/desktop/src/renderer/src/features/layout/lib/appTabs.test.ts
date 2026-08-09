@@ -9,6 +9,7 @@ import {
   appTabLabel,
   resolveAppTabBarBottomTools,
   resolveAppTabFrameSidebarDividerOffset,
+  resolveAppTabFrameTitleBarInsets,
   resolveAppTabFrameTopChromeColumn,
   sidebarModeForAppTab,
   shouldActivateThreadsFromSidebar,
@@ -96,4 +97,14 @@ test('app frame reserves only the traffic-light safe width not covered by the ap
 test('app frame top chrome stays out of the main column when sidebar is open', () => {
   assert.equal(resolveAppTabFrameTopChromeColumn(true), '1 / 2')
   assert.equal(resolveAppTabFrameTopChromeColumn(false), '1 / 3')
+})
+
+test('title-bar insets reserve traffic lights only on macOS and caption controls only on Windows', () => {
+  const mac = resolveAppTabFrameTitleBarInsets('darwin')
+  const windows = resolveAppTabFrameTitleBarInsets('win32')
+
+  assert.ok(mac.left > 0)
+  assert.equal(mac.right, 0)
+  assert.equal(windows.left, 0)
+  assert.ok(windows.right > 0)
 })

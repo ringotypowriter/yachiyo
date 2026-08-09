@@ -29,6 +29,7 @@ test('resolveUpdateFeed returns mirror feed when probe succeeds', async () => {
   const feed = await resolveUpdateFeed({
     mirrorBase: 'https://dl.example.com',
     channel: 'stable',
+    platform: 'darwin',
     fetchFn: okFetch(calls)
   })
   assert.deepEqual(feed, { source: 'mirror', url: 'https://dl.example.com/stable' })
@@ -40,16 +41,31 @@ test('resolveUpdateFeed probes the nightly dir for the beta channel', async () =
   const feed = await resolveUpdateFeed({
     mirrorBase: 'https://dl.example.com',
     channel: 'beta',
+    platform: 'darwin',
     fetchFn: okFetch(calls)
   })
   assert.deepEqual(feed, { source: 'mirror', url: 'https://dl.example.com/nightly' })
   assert.deepEqual(calls, ['https://dl.example.com/nightly/latest-mac.yml'])
 })
 
+test('resolveUpdateFeed probes latest.yml for Windows NSIS updates', async () => {
+  const calls: string[] = []
+  const feed = await resolveUpdateFeed({
+    mirrorBase: 'https://dl.example.com',
+    channel: 'stable',
+    platform: 'win32',
+    fetchFn: okFetch(calls)
+  })
+
+  assert.deepEqual(feed, { source: 'mirror', url: 'https://dl.example.com/stable' })
+  assert.deepEqual(calls, ['https://dl.example.com/stable/latest.yml'])
+})
+
 test('resolveUpdateFeed falls back to github on non-ok response', async () => {
   const feed = await resolveUpdateFeed({
     mirrorBase: 'https://dl.example.com',
     channel: 'stable',
+    platform: 'darwin',
     fetchFn: async () => ({ ok: false })
   })
   assert.deepEqual(feed, { source: 'github' })
@@ -59,6 +75,7 @@ test('resolveUpdateFeed falls back to github when the probe throws', async () =>
   const feed = await resolveUpdateFeed({
     mirrorBase: 'https://dl.example.com',
     channel: 'stable',
+    platform: 'darwin',
     fetchFn: async () => {
       throw new Error('network down')
     }
@@ -70,6 +87,7 @@ test('resolveUpdateFeed falls back to github when the probe times out', async ()
   const feed = await resolveUpdateFeed({
     mirrorBase: 'https://dl.example.com',
     channel: 'stable',
+    platform: 'darwin',
     timeoutMs: 20,
     fetchFn: (_url, { signal }) =>
       new Promise((resolve, reject) => {
@@ -87,6 +105,7 @@ test('resolveUpdateFeed skips probing when no mirror is configured', async () =>
   const feed = await resolveUpdateFeed({
     mirrorBase: '',
     channel: 'stable',
+    platform: 'darwin',
     fetchFn: okFetch(calls)
   })
   assert.deepEqual(feed, { source: 'github' })

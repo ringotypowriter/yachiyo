@@ -6,27 +6,44 @@ import { ClientSideConnection, ndJsonStream, PROTOCOL_VERSION } from '@agentclie
 import type { RequestPermissionRequest, RequestPermissionResponse } from '@agentclientprotocol/sdk'
 
 import type { SubagentProfile, TestSubagentProfileResult } from '@yachiyo/shared/protocol'
-import { readLoginShellEnvSync, mergeShellEnv } from '../../runtime/shell/loginShellEnv.ts'
+import { registerActiveChildProcess } from '../../app/domain/processes/activeProcessRegistry.ts'
+import {
+  forceTerminateChildProcess,
+  processTree as defaultProcessTree,
+  type ProcessTree
+} from '../../app/domain/processes/processTree.ts'
+import { mergeShellEnv } from '../../runtime/shell/loginShellEnv.ts'
+import {
+  buildBashCommand,
+  resolveHostShellRuntime,
+  type ShellRuntime
+} from '../../runtime/shell/shellRuntime.ts'
 import { filterJsonLines } from './spawnUtils.ts'
 
 const TEST_TIMEOUT_MS = 60_000
 
+interface TestSubagentProfileDependencies {
+  processTree?: ProcessTree
+  shellRuntime?: ShellRuntime
+  timeoutMs?: number
+  setTimeout?: typeof setTimeout
+  clearTimeout?: typeof clearTimeout
+}
+
 export async function testSubagentProfile(
-  profile: SubagentProfile
+  profile: SubagentProfile,
+  dependencies: TestSubagentProfileDependencies = {}
 ): Promise<TestSubagentProfileResult> {
   const cwd = homedir()
-  const shellCommand = [profile.command, ...profile.args].join(' ')
-
-  const shellEnv = readLoginShellEnvSync(process.env)
-  const spawnEnv = mergeShellEnv(mergeShellEnv(process.env, shellEnv), profile.env)
-  const shell = spawnEnv.SHELL || '/bin/zsh'
-
-  const proc = spawn(shell, ['-lc', shellCommand], {
-    cwd,
-    env: spawnEnv,
-    stdio: ['pipe', 'pipe', 'pipe'],
-    detached: true
+  const runtime =
+    dependencies.shellRuntime ??
+    resolveHostShellRuntime({ env: mergeShellEnv(process.env, profile.env) })
+  const command = runtime.command(buildBashCommand(profile.command, profile.args), { cwd })
+  const proc = spawn(command.executable, command.args, {
+    ...command.options,
+    stdio: ['pipe', 'pipe', 'pipe']
   })
+  registerActiveChildProcess(proc)
 
   proc.stderr.resume()
 
@@ -52,9 +69,16 @@ export async function testSubagentProfile(
 
   const connection = new ClientSideConnection(() => dummyClient, stream)
 
-  const timeout = new Promise<TestSubagentProfileResult>((resolve) =>
-    setTimeout(() => resolve({ ok: false, error: 'Timed out after 60 seconds.' }), TEST_TIMEOUT_MS)
-  )
+  const scheduleTimeout = dependencies.setTimeout ?? setTimeout
+  const cancelTimeout = dependencies.clearTimeout ?? clearTimeout
+  const timeoutMs = dependencies.timeoutMs ?? TEST_TIMEOUT_MS
+  let timeoutTimer: ReturnType<typeof setTimeout> | undefined
+  const timeout = new Promise<TestSubagentProfileResult>((resolve) => {
+    timeoutTimer = scheduleTimeout(
+      () => resolve({ ok: false, error: 'Timed out after 60 seconds.' }),
+      timeoutMs
+    )
+  })
 
   const handshake = (async (): Promise<TestSubagentProfileResult> => {
     try {
@@ -67,15 +91,20 @@ export async function testSubagentProfile(
         ok: false,
         error: err instanceof Error ? err.message : 'ACP handshake failed.'
       }
-    } finally {
-      try {
-        process.kill(-proc.pid!, 'SIGKILL') // kill entire process group
-      } catch {
-        proc.kill('SIGKILL')
-      }
-      await procExited
     }
   })()
 
-  return Promise.race([handshake, timeout])
+  try {
+    return await Promise.race([handshake, timeout])
+  } finally {
+    if (timeoutTimer !== undefined) cancelTimeout(timeoutTimer)
+    const result = forceTerminateChildProcess(proc, dependencies.processTree ?? defaultProcessTree)
+    if (!result.delivered) {
+      console.warn('[yachiyo][subagent-profile-test] process-tree termination failed', {
+        pid: proc.pid,
+        error: result.error
+      })
+    }
+    await procExited
+  }
 }

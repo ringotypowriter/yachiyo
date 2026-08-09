@@ -10,7 +10,7 @@ description: 接上供应商，发出第一条消息，然后试试八千代那�
 首次启动时，引导浮层会按顺序问你三件事：
 
 1. **供应商** —— 从内置预设里挑一个（Anthropic、OpenAI、Gemini、DeepSeek、Moonshot、OpenRouter、Ollama，以及另外十几个）。预设会替你填好 API 类型和 base URL。
-2. **API key** —— 粘贴进去。它会被写进你机器上的 `~/.yachiyo/config.toml`，不去别的地方。
+2. **API key** —— 粘贴进去。它会加密存入本机的供应商凭据库，并且不参与同步。
 3. **模型** —— 选一个新对话默认用的。
 
 如果你跳过了浮层，同样的东西在 **设置 → 供应商** 里。命令行版本：
@@ -81,12 +81,13 @@ yachiyo provider set-default anthropic --model <model-name>
 
 ## 你的数据在哪
 
-| 是什么                | 在哪                                       |
-| --------------------- | ------------------------------------------ |
-| 设置、供应商、API key | `~/.yachiyo/config.toml`                   |
-| 机器人 token          | `~/.yachiyo/channels.toml`                 |
-| 线程与消息            | `~/.yachiyo/yachiyo.sqlite`                |
-| 人格与档案            | `~/.yachiyo/SOUL.md`、`~/.yachiyo/USER.md` |
-| 技能                  | `~/.yachiyo/skills/`                       |
+| 是什么           | 在哪                                              |
+| ---------------- | ------------------------------------------------- |
+| 设置和供应商配置 | `~/.yachiyo/config.toml`                          |
+| 模型供应商凭据   | `~/.yachiyo/provider-credentials.enc`（本机加密） |
+| 机器人 token     | `~/.yachiyo/channels.toml`                        |
+| 线程与消息       | `~/.yachiyo/yachiyo.sqlite`                       |
+| 人格与档案       | `~/.yachiyo/SOUL.md`、`~/.yachiyo/USER.md`        |
+| 技能             | `~/.yachiyo/skills/`                              |
 
 没有托管后端，没有遥测。唯一的网络请求是发给你自己配置的供应商，以及你让它去读的网页。

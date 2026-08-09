@@ -250,15 +250,13 @@ export async function listGoogleChromeImportSources(input: {
   }))
 }
 
-export function resolveGoogleChromeDataPath(
-  input: {
-    env?: NodeJS.ProcessEnv
-    homeDir?: string
-    platform?: NodeJS.Platform
-  } = {}
-): string {
+export function resolveGoogleChromeDataPath(input: {
+  env?: NodeJS.ProcessEnv
+  homeDir?: string
+  platform: NodeJS.Platform
+}): string {
   const env = input.env ?? process.env
-  const platform = input.platform ?? process.platform
+  const platform = input.platform
   const homeDir = input.homeDir ?? homedir()
 
   if (platform === 'darwin') {

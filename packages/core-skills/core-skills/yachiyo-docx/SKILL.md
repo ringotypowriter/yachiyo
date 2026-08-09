@@ -11,7 +11,7 @@ Use this skill when the user wants to create, inspect, modify, or transform a Wo
 Read [guide.md](references/guide.md) for the full workflow. Use the inspector script before editing an existing document:
 
 ```bash
-python3 resources/core-skills/yachiyo-docx/scripts/docx_inspect.py path/to/file.docx --json
+python3 "resources/core-skills/yachiyo-docx/scripts/docx_inspect.py" path/to/file.docx --json
 ```
 
 ## Workflow

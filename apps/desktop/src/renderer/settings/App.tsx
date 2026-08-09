@@ -65,13 +65,14 @@ import {
   persistUserDocument
 } from './panes/userDocumentEditorModel'
 import {
-  SETTINGS_PANELS,
+  getSettingsPanels,
   getInitialSettingsPanelTabs,
   resolveSettingsRoute,
   serializeSettingsRoute,
   type SettingsPanelId
 } from './settingsNavigation'
 import { getDirtySettingsPanels, panelSupportsDrafts } from './settingsDirtyPanels'
+import { isSaveSettingsShortcut } from './settingsShortcut'
 
 type Translate = ReturnType<typeof useT>
 
@@ -88,9 +89,9 @@ const PANEL_ICONS: Record<SettingsPanelId, LucideIcon> = {
   about: Info
 }
 
-function getInitialActivePanelTabs(routeValue: string): Record<string, string> {
-  const panelTabs = getInitialSettingsPanelTabs()
-  const route = resolveSettingsRoute(routeValue)
+function getInitialActivePanelTabs(routeValue: string, platform: string): Record<string, string> {
+  const panelTabs = getInitialSettingsPanelTabs(platform)
+  const route = resolveSettingsRoute(routeValue, platform)
   if (route.tab) {
     panelTabs[route.panel] = route.tab
   }
@@ -166,14 +167,16 @@ export function SettingsSidebarContent({
   dirtyPanels
 }: SettingsSidebarControlsProps): React.JSX.Element {
   const t = useT()
-  const activePanel = resolveSettingsRoute(route).panel
+  const platform = window.api.process.platform
+  const activePanel = resolveSettingsRoute(route, platform).panel
+  const settingsPanels = getSettingsPanels(platform)
 
   return (
     <nav
       className="no-drag flex-1 overflow-y-auto px-2 pb-3 pt-2"
       aria-label={t('settings.shared.sectionsAria')}
     >
-      {SETTINGS_PANELS.map(({ id, label }) => {
+      {settingsPanels.map(({ id, label }) => {
         const Icon = PANEL_ICONS[id]
         const isActive = activePanel === id
         return (
@@ -227,10 +230,14 @@ function SettingsPanel({
   onActivateChat,
   onRouteChange
 }: SettingsPanelProps): React.JSX.Element {
+  const platform = window.api.process.platform
+  const settingsPanels = getSettingsPanels(platform)
   const [activePanel, setActivePanel] = useState<SettingsPanelId>(
-    () => resolveSettingsRoute(route).panel
+    () => resolveSettingsRoute(route, platform).panel
   )
-  const [activePanelTabs, setActivePanelTabs] = useState(() => getInitialActivePanelTabs(route))
+  const [activePanelTabs, setActivePanelTabs] = useState(() =>
+    getInitialActivePanelTabs(route, platform)
+  )
   const [savedConfig, setSavedConfig] = useState<SettingsConfig | null>(null)
   const [draft, setDraft] = useState<SettingsConfig | null>(null)
   const [savedChannelsConfig, setSavedChannelsConfig] = useState<ChannelsConfig | null>(null)
@@ -259,21 +266,21 @@ function SettingsPanel({
   const previousActivePanelRef = useRef<SettingsPanelId | null>(null)
   const t = useT()
   const dialog = useAppDialog()
-  const isMacPlatform = window.api.process.platform === 'darwin'
+  const isMacPlatform = platform === 'darwin'
   useApplyThemeConfig(active ? (draft ?? savedConfig) : savedConfig, false)
   useApplyLanguageConfig(active ? (draft ?? savedConfig) : savedConfig)
 
   useEffect(() => {
-    const nextRoute = resolveSettingsRoute(route)
+    const nextRoute = resolveSettingsRoute(route, platform)
     setActivePanel(nextRoute.panel)
     if (nextRoute.tab) {
       setActivePanelTabs((current) => ({ ...current, [nextRoute.panel]: nextRoute.tab! }))
     }
-  }, [route])
+  }, [platform, route])
 
   const navigateToRoute = useCallback(
     (routeValue: string): void => {
-      const nextRoute = resolveSettingsRoute(routeValue)
+      const nextRoute = resolveSettingsRoute(routeValue, platform)
       setActivePanel(nextRoute.panel)
       setActivePanelTabs((current) => {
         const nextPanelTab = nextRoute.tab ?? current[nextRoute.panel]
@@ -283,7 +290,7 @@ function SettingsPanel({
         serializeSettingsRoute(nextRoute.panel, nextRoute.tab ?? activePanelTabs[nextRoute.panel])
       )
     },
-    [activePanelTabs, onRouteChange]
+    [activePanelTabs, onRouteChange, platform]
   )
 
   useEffect(() => {
@@ -464,7 +471,7 @@ function SettingsPanel({
   }, [draft, selectedProviderId])
 
   const activeSettingsPanel =
-    SETTINGS_PANELS.find((panel) => panel.id === activePanel) ?? SETTINGS_PANELS[0]
+    settingsPanels.find((panel) => panel.id === activePanel) ?? settingsPanels[0]
   const activePanelTab =
     activeSettingsPanel.tabs?.find((tab) => tab.id === activePanelTabs[activeSettingsPanel.id]) ??
     activeSettingsPanel.tabs?.[0]
@@ -725,7 +732,7 @@ function SettingsPanel({
     }
 
     const handler = (e: KeyboardEvent): void => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 's') {
+      if (isSaveSettingsShortcut(e, platform)) {
         if (e.defaultPrevented) return
         e.preventDefault()
         void triggerSave()
@@ -733,7 +740,7 @@ function SettingsPanel({
     }
     document.addEventListener('keydown', handler)
     return () => document.removeEventListener('keydown', handler)
-  }, [active, triggerSave])
+  }, [active, platform, triggerSave])
 
   let body: React.ReactNode = (
     <PlaceholderPane

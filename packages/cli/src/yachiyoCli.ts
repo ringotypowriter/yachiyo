@@ -8,6 +8,7 @@ import {
 import { handleAgentCommand } from './commands/agent.ts'
 import { handleChannelCommand } from './commands/channel.ts'
 import { handleConfigCommand } from './commands/config.ts'
+import { handleDoctorCommand } from './commands/doctor.ts'
 import { handleProviderCommand } from './commands/provider.ts'
 import { handleScheduleCommand } from './commands/schedule.ts'
 import { handleSendCommand } from './commands/send.ts'
@@ -40,6 +41,15 @@ export async function runYachiyoCli(
 
   if (!namespace) {
     stdout.write(`${USAGE}\n`)
+    return
+  }
+
+  if (namespace === 'doctor') {
+    await handleDoctorCommand({
+      json: flags.has('--json'),
+      stdout,
+      collect: options.collectDoctorReport
+    })
     return
   }
 
@@ -79,7 +89,7 @@ export async function runYachiyoCli(
 
   if (namespace !== 'provider' && namespace !== 'config' && namespace !== 'agent') {
     throw new Error(
-      `Unknown namespace: ${namespace}. Expected: soul, provider, agent, config, thread, schedule, channel, send, update\n\n${USAGE}`
+      `Unknown namespace: ${namespace}. Expected: doctor, soul, provider, agent, config, thread, schedule, channel, send, update\n\n${USAGE}`
     )
   }
 

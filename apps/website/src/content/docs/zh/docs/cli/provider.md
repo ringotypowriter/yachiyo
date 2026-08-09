@@ -3,7 +3,7 @@ title: yachiyo provider
 description: 列出、查看和更新 AI 供应商，并设定新对话的默认模型。
 ---
 
-管理 `~/.yachiyo/config.toml` 里配置的供应商。所有输出中的 API key 都会被打码成 `***`。
+管理 `~/.yachiyo/config.toml` 中的供应商定义。API key 和 Vertex 私钥存放在本机加密的供应商凭据库中。所有输出里的 API key 都会打码成 `***`。
 
 ## `provider list`
 
@@ -33,6 +33,8 @@ yachiyo provider update <id-or-name> [--payload '<json>']
 yachiyo provider update my-openai --payload '{"apiKey":"sk-..."}'
 yachiyo provider update my-openai --payload '{"baseUrl":"https://proxy.internal/v1"}'
 ```
+
+提供 `apiKey` 或 Vertex 私钥时，它会写入当前设备的加密凭据库。供应商凭据不会同步，因此每台设备都需要单独配置。
 
 ## `provider set-default`
 

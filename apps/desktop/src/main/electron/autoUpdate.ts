@@ -170,6 +170,7 @@ function setupProd(): AppUpdateController {
     const feed = await resolveUpdateFeed({
       mirrorBase: UPDATE_MIRROR_BASE,
       channel,
+      platform: process.platform,
       fetchFn: (url, init) => net.fetch(url, init)
     })
     if (feed.source === 'mirror') {

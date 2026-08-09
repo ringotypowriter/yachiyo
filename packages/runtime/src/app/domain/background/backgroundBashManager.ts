@@ -3,7 +3,13 @@ import { createWriteStream, type WriteStream } from 'node:fs'
 import { mkdir } from 'node:fs/promises'
 import { dirname } from 'node:path'
 
-import { killProcessTree } from '../processes/killProcessTree.ts'
+import {
+  forceTerminateChildProcess,
+  processTree,
+  type ProcessTree
+} from '../processes/processTree.ts'
+import { registerActiveChildProcess } from '../processes/activeProcessRegistry.ts'
+import { resolveHostShellRuntime, type ShellRuntime } from '../../../runtime/shell/shellRuntime.ts'
 
 export interface BackgroundBashTaskInput {
   taskId: string
@@ -102,6 +108,11 @@ interface RecentlyCompletedTask {
 export type BackgroundBashCompletionHandler = (result: BackgroundBashTaskResult) => void
 export type BackgroundBashLogAppendHandler = (append: BackgroundBashLogAppend) => void
 
+export interface BackgroundBashManagerDependencies {
+  processTree?: ProcessTree
+  resolveShellRuntime?: (env: NodeJS.ProcessEnv) => ShellRuntime
+}
+
 const FLUSH_INTERVAL_MS = 100
 const MAX_LINES_PER_BATCH = 50
 const RECENTLY_COMPLETED_TTL_MS = 10_000
@@ -111,6 +122,14 @@ export class BackgroundBashManager {
   private readonly recentlyCompleted = new Map<string, RecentlyCompletedTask>()
   private onCompleted?: BackgroundBashCompletionHandler
   private onLogAppend?: BackgroundBashLogAppendHandler
+  private readonly processTree: ProcessTree
+  private readonly resolveShellRuntime: (env: NodeJS.ProcessEnv) => ShellRuntime
+
+  constructor(dependencies: BackgroundBashManagerDependencies = {}) {
+    this.processTree = dependencies.processTree ?? processTree
+    this.resolveShellRuntime =
+      dependencies.resolveShellRuntime ?? ((env) => resolveHostShellRuntime({ env }))
+  }
 
   setCompletionHandler(handler: BackgroundBashCompletionHandler): void {
     this.onCompleted = handler
@@ -121,13 +140,11 @@ export class BackgroundBashManager {
   }
 
   async startTask(input: BackgroundBashTaskInput): Promise<void> {
-    const child = spawn('/bin/zsh', ['-lc', input.command], {
-      cwd: input.cwd,
-      env: input.env ?? process.env,
-      stdio: ['ignore', 'pipe', 'pipe'],
-      // Give the child its own process group so cancelTask() can kill the
-      // entire tree (shell + any grandchild processes) via process.kill(-pid).
-      detached: true
+    const runtime = this.resolveShellRuntime(input.env ?? process.env)
+    const command = runtime.command(input.command, { cwd: input.cwd })
+    const child = spawn(command.executable, command.args, {
+      ...command.options,
+      stdio: ['ignore', 'pipe', 'pipe']
     })
     await this.registerChild(input, child, '', false)
   }
@@ -147,6 +164,7 @@ export class BackgroundBashManager {
     initialOutput: string,
     initialOutputAlreadyOnDisk: boolean
   ): Promise<void> {
+    registerActiveChildProcess(child)
     const earlyChunks: string[] = []
     let forwardChunk: ((chunk: string) => void) | null = null
     const onChunk = (chunk: string | Buffer): void => {
@@ -214,51 +232,26 @@ export class BackgroundBashManager {
 
     const onAbort = (): void => {
       try {
-        // Walk the full pid tree and SIGKILL every descendant, not just the
-        // process group — daemons (e.g. the zen-bridge connector) spawn
-        // detached grandchildren that live in a new session and would survive
-        // a plain kill(-pid). Falls back to child.kill for fakes without a pid.
-        if (child.pid != null) {
-          const result = killProcessTree(child.pid)
-          console.warn('[yachiyo][background-bash] killProcessTree', {
-            taskId: input.taskId,
-            rootPid: child.pid,
-            descendants: result.descendants,
-            delivered: result.delivered
-          })
-          setTimeout(() => {
-            const stillAlive: number[] = []
-            if (child.pid != null) {
-              try {
-                process.kill(child.pid, 0)
-                stillAlive.push(child.pid)
-              } catch {
-                // ESRCH: reaped, as expected.
-              }
-            }
-            for (const pid of result.descendants) {
-              try {
-                process.kill(pid, 0)
-                stillAlive.push(pid)
-              } catch {
-                // ESRCH: reaped, as expected.
-              }
-            }
-            if (stillAlive.length > 0) {
-              console.warn('[yachiyo][background-bash] STILL ALIVE after SIGKILL', {
-                taskId: input.taskId,
-                stillAlive
-              })
-            } else {
-              console.warn('[yachiyo][background-bash] tree reaped', {
-                taskId: input.taskId
-              })
-            }
-          }, 500)
-          task.cancelSignalDelivered = result.delivered || child.kill('SIGKILL')
-        } else {
-          task.cancelSignalDelivered = child.kill('SIGKILL')
-        }
+        const result = forceTerminateChildProcess(child, this.processTree)
+        console.warn('[yachiyo][background-bash] processTree.forceTerminate', {
+          taskId: input.taskId,
+          rootPid: child.pid,
+          delivered: result.delivered,
+          error: result.error
+        })
+        setTimeout(() => {
+          if (child.exitCode === null && child.signalCode === null) {
+            console.warn('[yachiyo][background-bash] process still active after force terminate', {
+              taskId: input.taskId,
+              rootPid: child.pid
+            })
+          } else {
+            console.warn('[yachiyo][background-bash] tree reaped', {
+              taskId: input.taskId
+            })
+          }
+        }, 500)
+        task.cancelSignalDelivered = result.delivered
       } catch (error) {
         console.warn('[yachiyo][background-bash] onAbort threw', {
           taskId: input.taskId,

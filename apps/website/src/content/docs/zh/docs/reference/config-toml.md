@@ -3,9 +3,9 @@ title: config.toml 参考
 description: ~/.yachiyo/config.toml 的每个小节，附类型与默认值。
 ---
 
-`~/.yachiyo/config.toml` 装着除频道凭据之外的一切，后者在 [`channels.toml`](/zh/docs/reference/channels-toml/) 里。
+`~/.yachiyo/config.toml` 保存设置和供应商元数据。模型供应商 API key 与 Vertex 私钥放在本机加密的 `provider-credentials.enc` 凭据库中。频道凭据则在 [`channels.toml`](/zh/docs/reference/channels-toml/) 里。
 
-可以在应用里改，用 [`yachiyo config set`](/zh/docs/cli/config/) 改，或者手动改。应用每次保存都会按确定的小节顺序重写这个文件，所以手动编辑会保留，但可能被重新排序。
+可以在应用里改，用 [`yachiyo config set`](/zh/docs/cli/config/) 改，或者手动改。应用每次保存都会按确定的小节顺序重写这个文件，所以手动编辑会保留，但可能被重新排序。供应商凭据是例外：请通过设置或 [`yachiyo provider update`](/zh/docs/cli/provider/) 更新，不要编辑下方留空的兼容字段。
 
 ## `enabledTools`
 
@@ -131,22 +131,23 @@ runMode = "auto"
 
 一个表数组，每个供应商一项。
 
-| 键                                                | 类型       | 说明                                                                                              |
-| ------------------------------------------------- | ---------- | ------------------------------------------------------------------------------------------------- |
-| `id`                                              | `string`   | 稳定 UUID                                                                                         |
-| `presetKey`                                       | `string`   | 关联到某个内置预设（如 `openai`、`google-vertex`）                                                |
-| `name`                                            | `string`   | 显示名称                                                                                          |
-| `type`                                            | `string`   | `openai`、`openai-responses`、`openai-codex`、`anthropic`、`gemini`、`vertex` 或 `vercel-gateway` |
-| `apiKey`                                          | `string`   | API key。在所有命令行输出中打码。                                                                 |
-| `baseUrl`                                         | `string`   | API base URL                                                                                      |
-| `thinkingEnabled`                                 | `boolean`  | 推理是否默认开启                                                                                  |
-| `reasoning`                                       | `table`    | 强度默认值与按模型的推理配置                                                                      |
-| `codexSessionPath`                                | `string`   | Codex `auth.json` 的路径，用于 `openai-codex`                                                     |
-| `project`、`location`                             | `string`   | 仅 Vertex                                                                                         |
-| `serviceAccountEmail`、`serviceAccountPrivateKey` | `string`   | 仅 Vertex                                                                                         |
-| `modelList.enabled`                               | `string[]` | 在选择器里显示的模型                                                                              |
-| `modelList.disabled`                              | `string[]` | 已知但隐藏的模型                                                                                  |
-| `modelList.imageIncapable`                        | `string[]` | 不能接收图片的模型                                                                                |
+| 键                         | 类型       | 说明                                                                                              |
+| -------------------------- | ---------- | ------------------------------------------------------------------------------------------------- |
+| `id`                       | `string`   | 稳定 UUID                                                                                         |
+| `presetKey`                | `string`   | 关联到某个内置预设（如 `openai`、`google-vertex`）                                                |
+| `name`                     | `string`   | 显示名称                                                                                          |
+| `type`                     | `string`   | `openai`、`openai-responses`、`openai-codex`、`anthropic`、`gemini`、`vertex` 或 `vercel-gateway` |
+| `apiKey`                   | `string`   | 留空的兼容字段；凭据实际存放在本机加密凭据库中                                                    |
+| `baseUrl`                  | `string`   | API base URL                                                                                      |
+| `thinkingEnabled`          | `boolean`  | 推理是否默认开启                                                                                  |
+| `reasoning`                | `table`    | 强度默认值与按模型的推理配置                                                                      |
+| `codexSessionPath`         | `string`   | Codex `auth.json` 的路径，用于 `openai-codex`                                                     |
+| `project`、`location`      | `string`   | 仅 Vertex                                                                                         |
+| `serviceAccountEmail`      | `string`   | Vertex 服务账号邮箱                                                                               |
+| `serviceAccountPrivateKey` | `string`   | 留空的兼容字段；私钥实际存放在本机加密凭据库中                                                    |
+| `modelList.enabled`        | `string[]` | 在选择器里显示的模型                                                                              |
+| `modelList.disabled`       | `string[]` | 已知但隐藏的模型                                                                                  |
+| `modelList.imageIncapable` | `string[]` | 不能接收图片的模型                                                                                |
 
 ## `[[prompts]]`
 
@@ -193,5 +194,5 @@ runMode = "auto"
 | `order`         | `number`               | 排序位置                  |
 
 :::caution
-这个文件以明文包含供应商 API key。别提交进版本库，也别放进共享文件夹。注意启用[同步](/zh/docs/guides/sync/)会把这个文件复制到你的同步目录。
+模型供应商密钥不存放在这个文件中；本机加密凭据库也不会参与同步。但 `config.toml` 仍可能包含 `webSearch.exa.apiKey` 等其他密钥，而且[同步](/zh/docs/guides/sync/)会复制这个文件。别把它提交进版本库，也别放进共享文件夹。
 :::

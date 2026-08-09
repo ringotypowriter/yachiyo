@@ -1,18 +1,53 @@
-import { spawn } from 'child_process'
-
 import {
   classifyAttachmentFileSelection,
   toAttachmentFileRejectionRecords,
   type AttachmentFileRejectionRecord
 } from '@yachiyo/shared/attachmentFileTypes'
+import type { DiscoveredApp, DiscoveredApps } from '@yachiyo/shared/discoveredApp'
 import type { ResolveFileReferencesInput } from '@yachiyo/shared/protocol'
 import { resolveExistingFileReferences } from '@yachiyo/runtime/runtime/files/inlineCodeFileReferences'
 import { IPC_CHANNELS } from './ipcChannels.ts'
+import { discoverApps, findDiscoveredApp, launchDiscoveredApp } from '../electron/appDiscovery.ts'
 
 type GatewayIpcHandler = <Args extends unknown[], Result>(
   channel: string,
   listener: (...args: Args) => Result | Promise<Result>
 ) => void
+
+export interface OpenFileSelectionInput {
+  path: string
+  appSelection?: string
+  appKind?: 'editor' | 'markdown'
+}
+
+interface OpenFileSelectionDependencies {
+  discoverApps: () => Promise<DiscoveredApps>
+  launchApp: (app: DiscoveredApp, input: { targetPath: string }) => Promise<void>
+  openPath: (path: string) => Promise<string>
+}
+
+export async function openFileUsingSelection(
+  input: OpenFileSelectionInput,
+  dependencies: OpenFileSelectionDependencies
+): Promise<void> {
+  if (input.appSelection) {
+    if (!input.appKind) {
+      throw new Error('A configured application kind is required.')
+    }
+    const app = findDiscoveredApp(await dependencies.discoverApps(), input.appSelection, [
+      input.appKind
+    ])
+    if (!app) throw new Error(`Application "${input.appSelection}" is not installed.`)
+    await dependencies.launchApp(app, { targetPath: input.path })
+    return
+  }
+
+  if (input.appKind) {
+    throw new Error('A configured application selection is required.')
+  }
+  const error = await dependencies.openPath(input.path)
+  if (error) throw new Error(error)
+}
 
 export function registerGatewayFileHandlers(handle: GatewayIpcHandler): void {
   handle(IPC_CHANNELS.readClipboardFilePaths, async () => {
@@ -83,12 +118,13 @@ export function registerGatewayFileHandlers(handle: GatewayIpcHandler): void {
     resolveExistingFileReferences(input)
   )
 
-  handle(IPC_CHANNELS.openFile, async (input: { path: string }) => {
+  handle(IPC_CHANNELS.openFile, async (input: OpenFileSelectionInput) => {
     const { shell } = await import('electron')
-    const error = await shell.openPath(input.path)
-    if (error) {
-      throw new Error(error)
-    }
+    await openFileUsingSelection(input, {
+      discoverApps,
+      launchApp: launchDiscoveredApp,
+      openPath: (path) => shell.openPath(path)
+    })
   })
 
   handle(IPC_CHANNELS.copyImageToClipboard, async (input: { src: string }) => {
@@ -112,21 +148,5 @@ export function registerGatewayFileHandlers(handle: GatewayIpcHandler): void {
     const image = nativeImage.createFromBuffer(buffer)
     if (image.isEmpty()) throw new Error('Could not decode image')
     clipboard.writeImage(image)
-  })
-
-  handle(IPC_CHANNELS.openFileInEditor, async (input: { path: string; editorApp: string }) => {
-    await new Promise<void>((resolve, reject) => {
-      const chunks: Buffer[] = []
-      const child = spawn('open', ['-a', input.editorApp, input.path])
-      child.stderr.on('data', (d: Buffer) => chunks.push(d))
-      child.on('close', (code) => {
-        if (code === 0) resolve()
-        else {
-          const stderr = Buffer.concat(chunks).toString().trim()
-          reject(new Error(stderr || `Failed to open "${input.editorApp}" (exit code ${code})`))
-        }
-      })
-      child.on('error', reject)
-    })
   })
 }

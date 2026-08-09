@@ -13,7 +13,9 @@ import {
   resolveBashSemanticGroup
 } from '@yachiyo/shared/bashSemanticAnalyzer'
 
-import { killProcessTree } from '../../app/domain/processes/killProcessTree.ts'
+import { registerActiveChildProcess } from '../../app/domain/processes/activeProcessRegistry.ts'
+import { forceTerminateChildProcess } from '../../app/domain/processes/processTree.ts'
+import { resolveHostShellRuntime } from '../../runtime/shell/shellRuntime.ts'
 import { validateBashCommand } from './bashSecurity.ts'
 import { getChainedSleepTimeoutBlockMessage } from './bashTimeoutGuard.ts'
 import { withInjectedEnv } from './injectedEnv.ts'
@@ -271,12 +273,13 @@ const defaultBashRunner: BashRunner = async ({
   onTimeoutLift,
   timeoutSeconds
 }) => {
-  const child = spawn('/bin/zsh', ['-lc', command], {
-    cwd,
-    env,
-    stdio: ['ignore', 'pipe', 'pipe'],
-    detached: true
+  const shellRuntime = resolveHostShellRuntime({ env: env ?? process.env })
+  const shellCommand = shellRuntime.command(command, { cwd })
+  const child = spawn(shellCommand.executable, shellCommand.args, {
+    ...shellCommand.options,
+    stdio: ['ignore', 'pipe', 'pipe']
   })
+  registerActiveChildProcess(child)
 
   let stdout = ''
   let stderr = ''
@@ -290,16 +293,12 @@ const defaultBashRunner: BashRunner = async ({
     if (child.exitCode !== null || child.signalCode !== null) {
       return
     }
-    try {
-      if (child.pid != null) {
-        // Walks the pid tree and SIGKILLs every descendant, covering daemons
-        // that setsid themselves out of the shell's process group.
-        killProcessTree(child.pid)
-        return
-      }
-      child.kill('SIGKILL')
-    } catch {
-      // ESRCH if the kernel already reaped the child.
+    const result = forceTerminateChildProcess(child)
+    if (!result.delivered) {
+      console.warn('[yachiyo][bash-tool] process-tree termination failed', {
+        pid: child.pid,
+        error: result.error
+      })
     }
   }
 

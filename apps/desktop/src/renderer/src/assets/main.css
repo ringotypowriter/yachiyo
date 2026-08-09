@@ -91,7 +91,7 @@ body > div:not(#root) {
 
 /* Streamdown overrides */
 .streamdown-content {
-  font-family: 'Helvetica Neue', 'Segoe UI', sans-serif;
+  font-family: var(--yachiyo-font-ui);
   font-size: calc(var(--yachiyo-font-size-chat, 14px) / var(--yachiyo-ui-zoom, 1));
   line-height: 1.6;
   color: rgb(var(--yachiyo-rgb-ink));

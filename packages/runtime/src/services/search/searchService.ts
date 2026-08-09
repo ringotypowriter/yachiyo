@@ -1,6 +1,8 @@
 import { readdir, readFile, stat } from 'node:fs/promises'
 import { basename, isAbsolute, join, normalize, relative, resolve, sep } from 'node:path'
 import { spawn } from 'node:child_process'
+import { registerActiveChildProcess } from '../../app/domain/processes/activeProcessRegistry.ts'
+import { gracefullyTerminateChildProcess } from '../../app/domain/processes/processTree.ts'
 
 export type GrepBackendKind = 'rg' | 'typescript'
 export type FileDiscoveryBackendKind = 'fd' | 'typescript'
@@ -859,14 +861,25 @@ async function runSearchCommand(input: SearchCommandInput): Promise<SearchComman
       env: process.env,
       stdio: ['ignore', 'pipe', 'pipe']
     })
+    registerActiveChildProcess(child)
 
     let stdout = ''
     let stderr = ''
     let stdoutLineCount = 0
     let terminatedEarly = false
 
+    const terminateSearchProcess = (): void => {
+      const termination = gracefullyTerminateChildProcess(child)
+      if (!termination.delivered && !termination.alreadyExited) {
+        console.warn('[yachiyo][search] process-tree termination failed', {
+          error: termination.error,
+          pid: child.pid
+        })
+      }
+    }
+
     const onAbort = (): void => {
-      child.kill('SIGTERM')
+      terminateSearchProcess()
     }
 
     const finishEarly = (): void => {
@@ -875,7 +888,7 @@ async function runSearchCommand(input: SearchCommandInput): Promise<SearchComman
       }
 
       terminatedEarly = true
-      child.kill('SIGTERM')
+      terminateSearchProcess()
     }
 
     input.signal?.addEventListener('abort', onAbort, { once: true })
