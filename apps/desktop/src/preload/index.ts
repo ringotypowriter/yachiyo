@@ -2,6 +2,12 @@ import { contextBridge, ipcRenderer } from 'electron'
 import type { ReadAppLogsResult } from '@yachiyo/shared/appLogs'
 import type { DiscoveredApp } from '@yachiyo/shared/discoveredApp'
 import type {
+  ExportProviderBackupInput,
+  ExportProviderBackupResult,
+  ImportProviderBackupInput,
+  ImportProviderBackupResult
+} from '@yachiyo/shared/providerBackup'
+import type {
   AnswerToolQuestionInput,
   BrowserAutomationSessionRecord,
   ChannelGroupRecord,
@@ -326,6 +332,10 @@ const api = {
       ipcRenderer.invoke('yachiyo:save-user-document', input),
     saveSettings: (input: Partial<ProviderSettings>) =>
       ipcRenderer.invoke('yachiyo:save-settings', input),
+    exportProviderBackup: (input: ExportProviderBackupInput): Promise<ExportProviderBackupResult> =>
+      ipcRenderer.invoke('yachiyo:export-provider-backup', input),
+    importProviderBackup: (input: ImportProviderBackupInput): Promise<ImportProviderBackupResult> =>
+      ipcRenderer.invoke('yachiyo:import-provider-backup', input),
     upsertProvider: (input: ProviderConfig) => ipcRenderer.invoke('yachiyo:upsert-provider', input),
     removeProvider: (input: { name: string }) =>
       ipcRenderer.invoke('yachiyo:remove-provider', input),

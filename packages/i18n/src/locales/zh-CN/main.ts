@@ -18,6 +18,9 @@ export const main = {
     stopAndClose: '停止运行并关闭'
   },
   dialogs: {
+    exportProviderBackup: '导出加密服务商备份',
+    importProviderBackup: '导入加密服务商备份',
+    providerBackupFilter: 'Yachiyo 服务商备份',
     selectSessionFile: '选择会话文件',
     selectWorkspace: '选择工作区',
     selectSyncFolder: '选择同步文件夹',

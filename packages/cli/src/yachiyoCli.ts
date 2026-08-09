@@ -97,7 +97,13 @@ export async function runYachiyoCli(
   const configService = createConfigService(settingsPath)
 
   if (namespace === 'provider') {
-    await handleProviderCommand(positionals.slice(1), flags, configService, stdout)
+    await handleProviderCommand(
+      positionals.slice(1),
+      flags,
+      configService,
+      stdout,
+      options.readStdin
+    )
     return
   }
 

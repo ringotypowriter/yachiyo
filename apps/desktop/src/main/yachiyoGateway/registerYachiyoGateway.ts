@@ -140,6 +140,7 @@ import { registerGatewayFileHandlers } from './fileHandlers.ts'
 import { broadcastYachiyoEvent, handleYachiyoIpc, showYachiyoNotification } from './ipc.ts'
 import { IPC_CHANNELS } from './ipcChannels.ts'
 import { normalizePngBytes, normalizePngFilename, type SavePngFileInput } from './pngFile.ts'
+import { registerProviderBackupHandlers } from './providerBackupHandlers.ts'
 import type { AppUpdateController } from '../electron/appUpdateController.ts'
 
 /**
@@ -1112,6 +1113,7 @@ export function registerYachiyoGateway(options: {
   handleYachiyoIpc(IPC_CHANNELS.saveSettings, (input: Partial<ProviderSettings>) =>
     rpc().saveSettings(input)
   )
+  registerProviderBackupHandlers()
   handleYachiyoIpc(IPC_CHANNELS.upsertProvider, (input: ProviderConfig) =>
     rpc().upsertProvider(input)
   )

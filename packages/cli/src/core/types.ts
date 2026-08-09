@@ -86,6 +86,7 @@ export interface RunYachiyoCliOptions {
     }
   ) => Promise<AppUpdateApplyResult>
   env?: NodeJS.ProcessEnv
+  readStdin?: () => Promise<string>
   stdout?: CliStdout
   stderr?: CliStderr
 }

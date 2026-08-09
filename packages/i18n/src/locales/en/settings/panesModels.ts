@@ -1,5 +1,24 @@
 export const providers = {
   addCustomProvider: 'Add custom provider',
+  importBackup: 'Import',
+  exportBackup: 'Export',
+  importBackupTitle: 'Import providers',
+  importBackupDescription:
+    'Choose an encrypted Yachiyo backup. Matching providers are updated; local-only providers stay untouched.',
+  exportBackupTitle: 'Export providers',
+  exportBackupDescription:
+    'Credentials are included and encrypted before the file is written. This password cannot be recovered.',
+  backupPasswordLabel: 'Backup password',
+  backupPasswordConfirmLabel: 'Confirm password',
+  backupPasswordHint: 'Use at least {count} characters.',
+  backupPasswordMismatch: 'The passwords do not match.',
+  importingBackup: 'Importing…',
+  exportingBackup: 'Exporting…',
+  backupImportedTitle: 'Providers imported',
+  backupImportedMessage:
+    '{count} providers were imported into this draft. Save settings to apply them.',
+  backupExportedTitle: 'Providers exported',
+  backupExportedMessage: 'The encrypted backup was saved to {path}.',
   enabledCount: '{count} enabled',
   duplicate: 'Duplicate',
   copyName: '{name} copy',

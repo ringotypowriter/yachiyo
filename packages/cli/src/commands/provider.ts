@@ -1,3 +1,10 @@
+import { readFile, writeFile } from 'node:fs/promises'
+
+import {
+  decryptProviderBackup,
+  encryptProviderBackup,
+  mergeProviderBackup
+} from '@yachiyo/runtime/settings/providerBackup'
 import type { ProviderConfig } from '@yachiyo/shared/protocol'
 import { providerMatchesReference } from '@yachiyo/shared/providerConfig'
 import { namespaceHelp } from '../core/help.ts'
@@ -11,11 +18,31 @@ function findProviderByRef(providers: ProviderConfig[], ref: string): ProviderCo
   )
 }
 
+async function readProcessStdin(): Promise<string> {
+  let content = ''
+  process.stdin.setEncoding('utf8')
+  for await (const chunk of process.stdin) {
+    content += chunk
+  }
+  return content
+}
+
+async function readBackupPassword(
+  flags: Map<string, string>,
+  readStdin: () => Promise<string>
+): Promise<string> {
+  if (!flags.has('--password-stdin')) {
+    throw new Error('Provider backup password is required via --password-stdin')
+  }
+  return (await readStdin()).replace(/\r?\n$/, '')
+}
+
 export async function handleProviderCommand(
   positionals: string[],
   flags: Map<string, string>,
   configService: CliConfigService,
-  stdout: Pick<typeof process.stdout, 'write'>
+  stdout: Pick<typeof process.stdout, 'write'>,
+  readStdin: () => Promise<string> = readProcessStdin
 ): Promise<void> {
   if (flags.has('--help')) {
     stdout.write(`${namespaceHelp('provider')}\n`)
@@ -23,6 +50,40 @@ export async function handleProviderCommand(
   }
 
   const action = positionals[0]
+
+  if (action === 'export') {
+    const backupPath = positionals[1]
+    if (!backupPath) throw new Error('Backup file path is required: provider export <path>')
+    const password = await readBackupPassword(flags, readStdin)
+    const config = await configService.getConfig()
+    await writeFile(backupPath, await encryptProviderBackup(config.providers, password), {
+      encoding: 'utf8',
+      mode: 0o600
+    })
+    outputJson(stdout, { exported: config.providers.length, path: backupPath })
+    return
+  }
+
+  if (action === 'import') {
+    const backupPath = positionals[1]
+    if (!backupPath) throw new Error('Backup file path is required: provider import <path>')
+    const password = await readBackupPassword(flags, readStdin)
+    const importedProviders = await decryptProviderBackup(
+      await readFile(backupPath, 'utf8'),
+      password
+    )
+    const config = await configService.getConfig()
+    const saved = await configService.saveConfig({
+      ...config,
+      providers: mergeProviderBackup(config.providers, importedProviders)
+    })
+    outputJson(stdout, {
+      imported: importedProviders.length,
+      total: saved.providers.length,
+      path: backupPath
+    })
+    return
+  }
 
   if (action === 'list') {
     const config = await configService.getConfig()
@@ -101,6 +162,6 @@ export async function handleProviderCommand(
   }
 
   throw new Error(
-    `Unknown provider action: ${action ?? '(none)'}. Expected: list, show, update, set-default, models`
+    `Unknown provider action: ${action ?? '(none)'}. Expected: list, show, update, set-default, models, export, import`
   )
 }

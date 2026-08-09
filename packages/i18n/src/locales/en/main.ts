@@ -20,6 +20,9 @@ export const main = {
     stopAndClose: 'Stop Run and Close'
   },
   dialogs: {
+    exportProviderBackup: 'Export encrypted provider backup',
+    importProviderBackup: 'Import encrypted provider backup',
+    providerBackupFilter: 'Yachiyo provider backup',
     selectSessionFile: 'Select session file',
     selectWorkspace: 'Select workspace',
     selectSyncFolder: 'Select sync folder',

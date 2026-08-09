@@ -4,6 +4,7 @@ export const GLOBAL_FLAGS_HELP = `Global flags:
   --db <path>         Database file path       (default: ~/.yachiyo/yachiyo.sqlite)
   --payload <json>    JSON payload for mutation commands
   --limit <n>         Max results to return    (default: 5)
+  --password-stdin    Read provider-backup password from standard input
   --json              Output raw JSON instead of human-readable text
   --help              Show help for a command or namespace`
 
@@ -29,7 +30,11 @@ export const NAMESPACE_HELP: Record<string, string> = {
                                          Promote a provider to default and set the active model.
                                          Without --model, picks the first enabled model.
   provider models [id-or-name]           Without argument: list all locally enabled models.
-                                         With argument: fetch available model IDs from the provider's API.`,
+                                         With argument: fetch available model IDs from the provider's API.
+  provider export <path> --password-stdin
+                                         Export providers and credentials to an encrypted file.
+  provider import <path> --password-stdin
+                                         Merge providers from an encrypted backup file.`,
 
   agent: `Usage: yachiyo agent <action> [args...] [flags...]
 

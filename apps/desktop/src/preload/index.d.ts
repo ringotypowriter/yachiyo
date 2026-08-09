@@ -1,6 +1,12 @@
 import type { ReadAppLogsResult } from '@yachiyo/shared/appLogs'
 import type { DiscoveredApp } from '@yachiyo/shared/discoveredApp'
 import type {
+  ExportProviderBackupInput,
+  ExportProviderBackupResult,
+  ImportProviderBackupInput,
+  ImportProviderBackupResult
+} from '@yachiyo/shared/providerBackup'
+import type {
   AnswerToolQuestionInput,
   BootstrapPayload,
   BrowserAutomationSessionRecord,
@@ -247,6 +253,12 @@ declare global {
         saveConfig: (input: SettingsConfig) => Promise<SettingsConfig>
         saveUserDocument: (input: { content: string }) => Promise<UserDocument>
         saveSettings: (input: Partial<ProviderSettings>) => Promise<ProviderSettings>
+        exportProviderBackup: (
+          input: ExportProviderBackupInput
+        ) => Promise<ExportProviderBackupResult>
+        importProviderBackup: (
+          input: ImportProviderBackupInput
+        ) => Promise<ImportProviderBackupResult>
         upsertProvider: (input: ProviderConfig) => Promise<ProviderConfig>
         removeProvider: (input: { name: string }) => Promise<SettingsConfig>
         enableProviderModel: (input: { name: string; model: string }) => Promise<SettingsConfig>

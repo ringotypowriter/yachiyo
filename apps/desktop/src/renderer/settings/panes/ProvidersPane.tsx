@@ -1,6 +1,18 @@
 import { useState } from 'react'
-import { Check, Copy, Eye, EyeOff, Factory, File, Plus, Trash2 } from 'lucide-react'
+import {
+  Check,
+  Copy,
+  Download,
+  Eye,
+  EyeOff,
+  Factory,
+  File,
+  Plus,
+  Trash2,
+  Upload
+} from 'lucide-react'
 import { ProviderIconAvatar } from '../../src/lib/providerIcons'
+import { useAppDialog } from '@renderer/components/AppDialogContext'
 import { theme, alpha } from '@renderer/theme/theme'
 import {
   type ProviderConfig,
@@ -23,6 +35,7 @@ import { matchProviderPreset } from '@yachiyo/shared/providerPresets'
 import { useT } from '@yachiyo/i18n/react'
 import { Field, PlaceholderPane, SettingSwitch, SimpleSelect } from '../components/primitives'
 import { inputStyle } from '../components/styles'
+import { ProviderBackupDialog, type ProviderBackupMode } from './ProviderBackupDialog'
 import { ModelListSection } from './ProviderModelListSection'
 
 interface ProvidersPaneProps {
@@ -168,6 +181,8 @@ export function ProvidersPane({
   onChange
 }: ProvidersPaneProps): React.ReactNode {
   const t = useT()
+  const dialog = useAppDialog()
+  const [backupMode, setBackupMode] = useState<ProviderBackupMode | null>(null)
   const selectedProvider =
     draft.providers.find((provider) => provider.id === selectedProviderId) ?? null
 
@@ -210,6 +225,28 @@ export function ProvidersPane({
       providers: [...draft.providers, provider]
     })
     onSelectProvider(provider.id ?? '')
+  }
+
+  const handleBackupExported = (filePath: string): void => {
+    setBackupMode(null)
+    void dialog.alert({
+      title: t('settings.providers.backupExportedTitle'),
+      message: t('settings.providers.backupExportedMessage', { path: filePath })
+    })
+  }
+
+  const handleBackupImported = (providers: ProviderConfig[], importedCount: number): void => {
+    onChange({ ...draft, providers })
+    onSelectProvider(
+      providers.some((provider) => provider.id === selectedProviderId)
+        ? selectedProviderId
+        : (providers[0]?.id ?? '')
+    )
+    setBackupMode(null)
+    void dialog.alert({
+      title: t('settings.providers.backupImportedTitle'),
+      message: t('settings.providers.backupImportedMessage', { count: importedCount })
+    })
   }
 
   const isLastOfItsPreset =
@@ -303,17 +340,37 @@ export function ProvidersPane({
         </div>
 
         <div
-          className="shrink-0 px-4 py-3"
+          className="grid shrink-0 grid-cols-3 gap-1 px-2 py-2"
           style={{ borderTop: `1px solid ${theme.border.subtle}` }}
         >
           <button
             type="button"
             onClick={handleAddProvider}
-            className="flex items-center gap-1 text-xs font-medium transition-opacity opacity-60 hover:opacity-100"
+            className="flex items-center justify-center gap-1 rounded-lg px-2 py-1.5 text-xs font-medium opacity-60 transition-all hover:opacity-100"
             style={{ color: theme.text.accent }}
+            title={t('settings.providers.addCustomProvider')}
           >
             <Plus size={12} strokeWidth={2} />
-            {t('settings.providers.addCustomProvider')}
+            {t('common.add')}
+          </button>
+          <button
+            type="button"
+            onClick={() => setBackupMode('import')}
+            className="flex items-center justify-center gap-1 rounded-lg px-2 py-1.5 text-xs font-medium opacity-60 transition-all hover:opacity-100"
+            style={{ color: theme.text.secondary }}
+          >
+            <Upload size={12} strokeWidth={2} />
+            {t('settings.providers.importBackup')}
+          </button>
+          <button
+            type="button"
+            onClick={() => setBackupMode('export')}
+            disabled={draft.providers.length === 0}
+            className="flex items-center justify-center gap-1 rounded-lg px-2 py-1.5 text-xs font-medium opacity-60 transition-all hover:opacity-100 disabled:opacity-25"
+            style={{ color: theme.text.secondary }}
+          >
+            <Download size={12} strokeWidth={2} />
+            {t('settings.providers.exportBackup')}
           </button>
         </div>
       </div>
@@ -594,6 +651,15 @@ export function ProvidersPane({
           <PlaceholderPane label={t('settings.providers.addFirstProvider')} />
         )}
       </div>
+      {backupMode ? (
+        <ProviderBackupDialog
+          mode={backupMode}
+          providers={draft.providers}
+          onClose={() => setBackupMode(null)}
+          onExported={handleBackupExported}
+          onImported={handleBackupImported}
+        />
+      ) : null}
     </div>
   )
 }
