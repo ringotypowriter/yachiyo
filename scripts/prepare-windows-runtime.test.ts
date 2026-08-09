@@ -7,7 +7,6 @@ import test from 'node:test'
 
 // @ts-expect-error plain .mjs script module without type declarations
 import {
-  buildPortablePostInstallInvocation,
   buildPython3Shim,
   prepareWindowsRuntime,
   validateWindowsRuntimeManifest
@@ -39,16 +38,6 @@ test('Windows runtime manifest requires pinned version, URL, hash, license, and 
   )
 })
 
-test('PortableGit post-install runs headlessly from the extracted runtime', () => {
-  const runtimeDir = 'C:\\Temp & Cache\\PortableGit (Yachiyo)'
-
-  assert.deepEqual(buildPortablePostInstallInvocation(runtimeDir), {
-    command: 'cmd.exe',
-    args: ['/d', '/s', '/c', 'post-install.bat'],
-    options: { cwd: runtimeDir, windowsHide: true }
-  })
-})
-
 test('runtime preparation skips non-Windows targets without touching the runtime', async () => {
   let downloadCalls = 0
 
@@ -67,12 +56,12 @@ test('runtime preparation skips non-Windows targets without touching the runtime
   assert.equal(downloadCalls, 0)
 })
 
-test('successful preparation initializes, inventories, atomically replaces, and then skips the same runtime', async () => {
+test('successful self-extracting preparation initializes, inventories, atomically replaces, and then skips the same runtime', async () => {
   const root = await mkdtemp(join(tmpdir(), 'yachiyo-portable-git-success-'))
   const targetDir = join(root, 'runtime')
   await mkdir(targetDir)
   await writeFile(join(targetDir, 'old-marker'), 'replace me')
-  const postInstallDirs: string[] = []
+  const extractedDirs: string[] = []
 
   try {
     const result = await prepareWindowsRuntime({
@@ -86,6 +75,7 @@ test('successful preparation initializes, inventories, atomically replaces, and 
       },
       calculateSha256: async () => MANIFEST.sha256,
       extractArchive: async (_archive: string, destination: string) => {
+        extractedDirs.push(destination)
         for (const relativeDir of ['usr/bin', 'mingw64/bin', 'etc']) {
           await mkdir(join(destination, relativeDir), { recursive: true })
         }
@@ -94,15 +84,11 @@ test('successful preparation initializes, inventories, atomically replaces, and 
         await writeFile(join(destination, 'usr', 'bin', 'msys-2.0.dll'), 'dll')
         await writeFile(join(destination, 'mingw64', 'bin', 'git.exe'), 'git')
         await writeFile(join(destination, 'LICENSE.txt'), 'upstream license')
-        await writeFile(join(destination, 'post-install.bat'), '@echo off\r\n')
-      },
-      runPortablePostInstall: async (runtimeDir: string) => {
-        postInstallDirs.push(runtimeDir)
       }
     })
 
     assert.deepEqual(result, { status: 'prepared', version: MANIFEST.version })
-    assert.equal(postInstallDirs.length, 1)
+    assert.equal(extractedDirs.length, 1)
     assert.equal(await readFile(join(targetDir, 'usr', 'bin', 'bash.exe'), 'utf8'), 'bash')
     assert.equal(
       await readFile(join(targetDir, 'licenses', 'PortableGit-LICENSE.txt'), 'utf8'),
@@ -120,8 +106,7 @@ test('successful preparation initializes, inventories, atomically replaces, and 
         temporaryParentDir: root,
         downloadArchive: async () => assert.fail('current runtime must not download'),
         calculateSha256: async () => assert.fail('current runtime must not hash'),
-        extractArchive: async () => assert.fail('current runtime must not extract'),
-        runPortablePostInstall: async () => assert.fail('current runtime must not initialize')
+        extractArchive: async () => assert.fail('current runtime must not extract')
       }),
       { status: 'current', version: MANIFEST.version }
     )
@@ -165,8 +150,7 @@ test('hash mismatch preserves the last valid runtime and removes temporary files
             await writeFile(destination, 'tampered archive')
           },
           calculateSha256: async () => 'b'.repeat(64),
-          extractArchive: async () => assert.fail('must not extract a hash mismatch'),
-          runPortablePostInstall: async () => assert.fail('must not initialize a hash mismatch')
+          extractArchive: async () => assert.fail('must not extract a hash mismatch')
         }),
       /SHA-256 mismatch/iu
     )
@@ -201,8 +185,7 @@ test('partial extraction failure is cleaned without replacing the valid runtime'
             await mkdir(join(destination, 'usr', 'bin'), { recursive: true })
             await writeFile(join(destination, 'usr', 'bin', 'bash.exe'), 'partial')
             throw new Error('extractor stopped')
-          },
-          runPortablePostInstall: async () => assert.fail('must not initialize partial output')
+          }
         }),
       /extractor stopped/iu
     )

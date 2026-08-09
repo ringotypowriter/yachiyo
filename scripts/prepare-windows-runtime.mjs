@@ -27,14 +27,6 @@ export function validateWindowsRuntimeManifest(manifest) {
   return manifest
 }
 
-export function buildPortablePostInstallInvocation(runtimeDir) {
-  return {
-    command: 'cmd.exe',
-    args: ['/d', '/s', '/c', 'post-install.bat'],
-    options: { cwd: runtimeDir, windowsHide: true }
-  }
-}
-
 export function buildPython3Shim() {
   return [
     '#!/usr/bin/env bash',
@@ -90,23 +82,13 @@ async function defaultCalculateSha256(path) {
 
 async function defaultExtractArchive(archivePath, destination) {
   await mkdir(destination, { recursive: true })
+  // PortableGit's self-extractor runs and removes post-install.bat before it exits.
   const result = spawnSync(archivePath, ['-y', `-o${destination}`], {
     encoding: 'utf8',
     windowsHide: true
   })
   if (result.status !== 0) {
     throw new Error(result.stderr?.trim() || 'PortableGit extraction failed.')
-  }
-}
-
-async function defaultRunPortablePostInstall(runtimeDir) {
-  const invocation = buildPortablePostInstallInvocation(runtimeDir)
-  const result = spawnSync(invocation.command, invocation.args, {
-    ...invocation.options,
-    encoding: 'utf8'
-  })
-  if (result.status !== 0) {
-    throw new Error(result.stderr?.trim() || 'PortableGit post-install.bat failed.')
   }
 }
 
@@ -174,7 +156,6 @@ export async function prepareWindowsRuntime(input) {
 
     await mkdir(extractedDir, { recursive: true })
     await (input.extractArchive ?? defaultExtractArchive)(archivePath, extractedDir)
-    await (input.runPortablePostInstall ?? defaultRunPortablePostInstall)(extractedDir)
     await preservePortableGitLicense(extractedDir)
     if (!runtimeIsComplete(extractedDir)) {
       throw new Error('PortableGit runtime inventory is incomplete after extraction and setup.')
