@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { basename } from 'node:path'
 import { describe, it } from 'node:test'
 
 import type { ChannelGroupRecord, ChannelPlatform } from '@yachiyo/shared/protocol'
@@ -58,7 +59,7 @@ describe('routeChannelGroupMessage', () => {
     assert.ok(created)
     assert.equal(created.id, 'dc-group-123')
     assert.equal(created.status, 'pending')
-    assert.equal(created.workspacePath.endsWith('/dc-group-123'), true)
+    assert.equal(basename(created.workspacePath), 'dc-group-123')
   })
 
   it('blocks pending and blocked groups from the shared approval gate', () => {

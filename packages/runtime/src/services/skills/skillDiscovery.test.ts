@@ -8,6 +8,27 @@ import { discoverSkills, isBundledSkillPath } from './skillDiscovery.ts'
 import { parseSkillPlatforms } from './skillDiscovery.ts'
 import { buildSkillRegistry } from './skillRegistry.ts'
 
+const isolatedHomeKeys = ['HOME', 'USERPROFILE', 'YACHIYO_HOME'] as const
+
+function isolateSkillTestHome(homePath: string): () => void {
+  const previousValues = new Map(isolatedHomeKeys.map((key) => [key, process.env[key]] as const))
+
+  process.env['HOME'] = homePath
+  process.env['USERPROFILE'] = homePath
+  process.env['YACHIYO_HOME'] = join(homePath, '.yachiyo')
+
+  return () => {
+    for (const key of isolatedHomeKeys) {
+      const previousValue = previousValues.get(key)
+      if (previousValue === undefined) {
+        delete process.env[key]
+      } else {
+        process.env[key] = previousValue
+      }
+    }
+  }
+}
+
 test('skill platform metadata accepts supported comma-separated values and missing metadata', () => {
   assert.deepEqual(parseSkillPlatforms('darwin, win32'), ['darwin', 'win32'])
   assert.deepEqual(parseSkillPlatforms('linux, darwin, linux'), ['linux', 'darwin'])
@@ -181,11 +202,7 @@ test('buildSkillRegistry propagates the origin field to SkillCatalogEntry', asyn
   const root = await mkdtemp(join(tmpdir(), 'yachiyo-skill-registry-origin-'))
   const workspacePath = join(root, 'workspace')
   const homePath = join(root, 'home')
-  const previousYachiyoHome = process.env['YACHIYO_HOME']
-  const previousHome = process.env['HOME']
-
-  process.env['YACHIYO_HOME'] = join(homePath, '.yachiyo')
-  process.env['HOME'] = homePath
+  const restoreHomeEnvironment = isolateSkillTestHome(homePath)
 
   try {
     await mkdir(join(homePath, '.yachiyo', 'skills', 'core', 'core-doctor'), { recursive: true })
@@ -222,16 +239,7 @@ test('buildSkillRegistry propagates the origin field to SkillCatalogEntry', asyn
       'registry must expose workspace origin'
     )
   } finally {
-    if (previousYachiyoHome === undefined) {
-      delete process.env['YACHIYO_HOME']
-    } else {
-      process.env['YACHIYO_HOME'] = previousYachiyoHome
-    }
-    if (previousHome === undefined) {
-      delete process.env['HOME']
-    } else {
-      process.env['HOME'] = previousHome
-    }
+    restoreHomeEnvironment()
     await rm(root, { recursive: true, force: true })
   }
 })
@@ -240,11 +248,7 @@ test('discoverSkills scans workspace-local and home/global roots with precedence
   const root = await mkdtemp(join(tmpdir(), 'yachiyo-skill-discovery-'))
   const workspacePath = join(root, 'workspace')
   const homePath = join(root, 'home')
-  const previousYachiyoHome = process.env['YACHIYO_HOME']
-  const previousHome = process.env['HOME']
-
-  process.env['YACHIYO_HOME'] = join(homePath, '.yachiyo')
-  process.env['HOME'] = homePath
+  const restoreHomeEnvironment = isolateSkillTestHome(homePath)
 
   try {
     await mkdir(join(workspacePath, '.codex', 'skills', 'writer-skill'), { recursive: true })
@@ -296,16 +300,7 @@ test('discoverSkills scans workspace-local and home/global roots with precedence
     )
     assert.equal(registry[1]?.name, 'Global Skill')
   } finally {
-    if (previousYachiyoHome === undefined) {
-      delete process.env['YACHIYO_HOME']
-    } else {
-      process.env['YACHIYO_HOME'] = previousYachiyoHome
-    }
-    if (previousHome === undefined) {
-      delete process.env['HOME']
-    } else {
-      process.env['HOME'] = previousHome
-    }
+    restoreHomeEnvironment()
     await rm(root, { recursive: true, force: true })
   }
 })
@@ -314,11 +309,7 @@ test('discoverSkills tags each skill with an origin based on its discovery root'
   const root = await mkdtemp(join(tmpdir(), 'yachiyo-skill-origin-'))
   const workspacePath = join(root, 'workspace')
   const homePath = join(root, 'home')
-  const previousYachiyoHome = process.env['YACHIYO_HOME']
-  const previousHome = process.env['HOME']
-
-  process.env['YACHIYO_HOME'] = join(homePath, '.yachiyo')
-  process.env['HOME'] = homePath
+  const restoreHomeEnvironment = isolateSkillTestHome(homePath)
 
   try {
     // Yachiyo home: a bundled core skill and a user-custom skill live side by side.
@@ -361,16 +352,7 @@ test('discoverSkills tags each skill with an origin based on its discovery root'
     assert.equal(byName.get('repo-guide')?.origin, 'workspace')
     assert.equal(byName.get('codex-helper')?.origin, 'external')
   } finally {
-    if (previousYachiyoHome === undefined) {
-      delete process.env['YACHIYO_HOME']
-    } else {
-      process.env['YACHIYO_HOME'] = previousYachiyoHome
-    }
-    if (previousHome === undefined) {
-      delete process.env['HOME']
-    } else {
-      process.env['HOME'] = previousHome
-    }
+    restoreHomeEnvironment()
     await rm(root, { recursive: true, force: true })
   }
 })
@@ -379,11 +361,7 @@ test('discoverSkills tolerates malformed frontmatter and missing frontmatter', a
   const root = await mkdtemp(join(tmpdir(), 'yachiyo-skill-discovery-'))
   const workspacePath = join(root, 'workspace')
   const homePath = join(root, 'home')
-  const previousYachiyoHome = process.env['YACHIYO_HOME']
-  const previousHome = process.env['HOME']
-
-  process.env['YACHIYO_HOME'] = join(homePath, '.yachiyo')
-  process.env['HOME'] = homePath
+  const restoreHomeEnvironment = isolateSkillTestHome(homePath)
 
   try {
     await mkdir(join(workspacePath, '.agents', 'skills', 'broken-skill'), { recursive: true })
@@ -418,16 +396,7 @@ test('discoverSkills tolerates malformed frontmatter and missing frontmatter', a
       ]
     )
   } finally {
-    if (previousYachiyoHome === undefined) {
-      delete process.env['YACHIYO_HOME']
-    } else {
-      process.env['YACHIYO_HOME'] = previousYachiyoHome
-    }
-    if (previousHome === undefined) {
-      delete process.env['HOME']
-    } else {
-      process.env['HOME'] = previousHome
-    }
+    restoreHomeEnvironment()
     await rm(root, { recursive: true, force: true })
   }
 })

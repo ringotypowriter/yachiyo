@@ -4,6 +4,8 @@ import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { resolve } from 'node:path'
 
+import { resolvePythonTestRuntime } from './pythonTestRuntime.ts'
+
 const execFileAsync = promisify(execFile)
 
 test('calendar_list_events AppleScript includes events overlapping the requested window', async () => {
@@ -20,7 +22,8 @@ test('calendar_list_events AppleScript includes events overlapping the requested
     "print(module.build_applescript('2024-01-02 00:00:00', '2024-01-03 00:00:00', 'Work'))"
   ].join('; ')
 
-  const { stdout } = await execFileAsync('python3', ['-c', command], {
+  const python = resolvePythonTestRuntime()
+  const { stdout } = await execFileAsync(python.command, [...python.prefixArgs, '-c', command], {
     cwd: process.cwd()
   })
 

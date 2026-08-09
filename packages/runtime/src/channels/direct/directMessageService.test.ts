@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises'
 import { homedir, tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, isAbsolute, join, relative } from 'node:path'
 import { describe, it } from 'node:test'
 import { setTimeout as delay } from 'node:timers/promises'
 import type {
@@ -960,7 +960,10 @@ describe('directMessageService', () => {
     assert.equal(sentReplies[0].message, 'Here is the file')
     assert.equal(sentReplies[0].attachments.length, 1)
     assert.notEqual(sentReplies[0].attachments[0].path, resolvedFilePath)
-    assert.match(sentReplies[0].attachments[0].path, /\.yachiyo\/channel-reply-attachments\//)
+    assert.equal(
+      dirname(dirname(sentReplies[0].attachments[0].path)),
+      join(homedir(), '.yachiyo', 'channel-reply-attachments')
+    )
     assert.equal(sentReplies[0].attachments[0].filename, 'final-chart.png')
     assert.equal(sentReplies[0].attachments[0].mediaType, 'image/png')
     assert.equal(sentReplies[0].attachments[0].deliveryKind, 'image')
@@ -971,15 +974,32 @@ describe('directMessageService', () => {
   })
 
   it('rejects owner DM reply attachments whose real path leaves home', async (t) => {
-    const outsideDir = await mkdtemp(join(tmpdir(), 'yachiyo-dm-outside-attachment-'))
+    const homePath = await realpath(homedir())
+    const tempPath = await realpath(tmpdir())
+    const tempPathFromHome = relative(homePath, tempPath)
+    const tempIsOutsideHome = tempPathFromHome.startsWith('..') || isAbsolute(tempPathFromHome)
+    const outsideDir = tempIsOutsideHome
+      ? await mkdtemp(join(tempPath, 'yachiyo-dm-outside-attachment-'))
+      : null
     const homeDir = await mkdtemp(join(homedir(), '.yachiyo-dm-symlink-attachment-'))
     t.after(async () => {
-      await rm(outsideDir, { recursive: true, force: true })
+      if (outsideDir) {
+        await rm(outsideDir, { recursive: true, force: true })
+      }
       await rm(homeDir, { recursive: true, force: true })
     })
-    const outsideFilePath = join(outsideDir, 'secret.txt')
+    const outsideFilePath = outsideDir
+      ? join(outsideDir, 'secret.txt')
+      : await realpath(process.env.ComSpec ?? process.env.SHELL ?? process.execPath)
+    const outsidePathFromHome = relative(homePath, outsideFilePath)
+    assert.ok(
+      outsidePathFromHome.startsWith('..') || isAbsolute(outsidePathFromHome),
+      `Expected fixture outside home, got ${outsideFilePath}`
+    )
     const symlinkPath = join(homeDir, 'secret-link.txt')
-    await writeFile(outsideFilePath, 'secret')
+    if (outsideDir) {
+      await writeFile(outsideFilePath, 'secret')
+    }
     await symlink(outsideFilePath, symlinkPath)
 
     const channelUser = { ...createChannelUser(), role: 'owner' as const }
@@ -1003,6 +1023,17 @@ describe('directMessageService', () => {
         await replyTool.execute({
           message: 'Here is the file',
           attachments: [{ path: symlinkPath, filename: 'secret.txt', mediaType: 'text/plain' }]
+        })
+        queueMicrotask(() => {
+          for (const listener of listeners) {
+            listener({
+              type: 'run.completed',
+              eventId: 'evt-owner-file-outside-home-completed',
+              timestamp: '2026-03-31T00:00:02.000Z',
+              threadId: thread.id,
+              runId: 'run-owner-file-reply-outside-home'
+            })
+          }
         })
         return {
           kind: 'run-started',

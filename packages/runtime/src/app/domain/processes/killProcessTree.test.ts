@@ -56,7 +56,7 @@ describe('collectDescendants', () => {
   })
 })
 
-describe('killProcessTree', () => {
+describe('killProcessTree POSIX integration', { skip: process.platform === 'win32' }, () => {
   it('kills a grandchild that detached into its own process group', async () => {
     // Shell -> node -> detached sleep. The detached sleep is in a new pgid so
     // kill(-shell.pid) would NOT reach it; only the ppid-tree walk does.

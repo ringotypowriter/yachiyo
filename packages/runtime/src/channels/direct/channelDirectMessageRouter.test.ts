@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { basename } from 'node:path'
 import { describe, it } from 'node:test'
 
 import type { ChannelPlatform, ChannelUserRecord } from '@yachiyo/shared/protocol'
@@ -56,7 +57,7 @@ describe('routeChannelDirectMessage', () => {
     assert.ok(created)
     assert.equal(created.id, 'tg-42')
     assert.equal(created.status, 'pending')
-    assert.equal(created.workspacePath.endsWith('/tg-leader'), true)
+    assert.equal(basename(created.workspacePath), 'tg-leader')
   })
 
   it('keeps QQ first contact silent while still registering the pending user', () => {
@@ -73,7 +74,7 @@ describe('routeChannelDirectMessage', () => {
     assert.ok(created)
     assert.equal(created.id, 'qq-10001')
     assert.equal(created.status, 'pending')
-    assert.equal(created.workspacePath.endsWith('/qq-10001'), true)
+    assert.equal(basename(created.workspacePath), 'qq-10001')
   })
 
   it('blocks pending and blocked users before reaching chat handling', () => {

@@ -1,24 +1,28 @@
 import assert from 'node:assert/strict'
+import { basename, isAbsolute, resolve } from 'node:path'
 import test from 'node:test'
 
 import { extractBashTargetFiles } from './bashTargetExtractor.ts'
 
 test('extractBashTargetFiles', async (t) => {
-  const cwd = '/home/user/project'
+  const cwd = resolve('home', 'user', 'project')
+
+  const hasTargetNamed = (targets: string[], filename: string): boolean =>
+    targets.some((target) => basename(target) === filename)
 
   await t.test('extracts sed -i targets', () => {
     const targets = extractBashTargetFiles("sed -i 's/old/new/' file.txt", cwd)
-    assert.ok(targets.some((t) => t.endsWith('/file.txt')))
+    assert.equal(hasTargetNamed(targets, 'file.txt'), true)
   })
 
   await t.test('extracts redirect targets', () => {
     const targets = extractBashTargetFiles("echo 'hello' > output.txt", cwd)
-    assert.ok(targets.some((t) => t.endsWith('/output.txt')))
+    assert.equal(hasTargetNamed(targets, 'output.txt'), true)
   })
 
   await t.test('extracts tee targets', () => {
     const targets = extractBashTargetFiles('echo hello | tee file.txt', cwd)
-    assert.ok(targets.some((t) => t.endsWith('/file.txt')))
+    assert.equal(hasTargetNamed(targets, 'file.txt'), true)
   })
 
   await t.test('ignores /dev/null redirects', () => {
@@ -33,8 +37,8 @@ test('extractBashTargetFiles', async (t) => {
 
   await t.test('resolves relative paths against cwd', () => {
     const targets = extractBashTargetFiles('echo x > out.txt', cwd)
-    assert.ok(targets[0]!.startsWith('/'))
-    assert.ok(targets[0]!.includes('project'))
+    assert.equal(isAbsolute(targets[0]!), true)
+    assert.equal(targets[0], resolve(cwd, 'out.txt'))
   })
 
   await t.test('deduplicates targets', () => {
@@ -45,26 +49,26 @@ test('extractBashTargetFiles', async (t) => {
 
   await t.test('extracts cp destination', () => {
     const targets = extractBashTargetFiles('cp source.txt dest.txt', cwd)
-    assert.ok(targets.some((t) => t.endsWith('/dest.txt')))
-    assert.ok(!targets.some((t) => t.endsWith('/source.txt')))
+    assert.equal(hasTargetNamed(targets, 'dest.txt'), true)
+    assert.equal(hasTargetNamed(targets, 'source.txt'), false)
   })
 
   await t.test('extracts mv destination', () => {
     const targets = extractBashTargetFiles('mv old.txt new.txt', cwd)
-    assert.ok(targets.some((t) => t.endsWith('/new.txt')))
-    assert.ok(!targets.some((t) => t.endsWith('/old.txt')))
+    assert.equal(hasTargetNamed(targets, 'new.txt'), true)
+    assert.equal(hasTargetNamed(targets, 'old.txt'), false)
   })
 
   await t.test('extracts touch targets', () => {
     const targets = extractBashTargetFiles('touch a.txt b.txt', cwd)
-    assert.ok(targets.some((t) => t.endsWith('/a.txt')))
-    assert.ok(targets.some((t) => t.endsWith('/b.txt')))
+    assert.equal(hasTargetNamed(targets, 'a.txt'), true)
+    assert.equal(hasTargetNamed(targets, 'b.txt'), true)
   })
 
   await t.test('extracts rm targets', () => {
     const targets = extractBashTargetFiles('rm -f a.txt b.txt', cwd)
-    assert.ok(targets.some((t) => t.endsWith('/a.txt')))
-    assert.ok(targets.some((t) => t.endsWith('/b.txt')))
+    assert.equal(hasTargetNamed(targets, 'a.txt'), true)
+    assert.equal(hasTargetNamed(targets, 'b.txt'), true)
   })
 
   await t.test('extracts absolute paths from string literals', () => {
@@ -72,18 +76,18 @@ test('extractBashTargetFiles', async (t) => {
       `python3 -c "with open('/tmp/out.txt','w') as f: f.write('x')"`,
       cwd
     )
-    assert.ok(targets.some((t) => t === '/tmp/out.txt'))
+    assert.equal(targets.includes(resolve(cwd, '/tmp/out.txt')), true)
   })
 
   await t.test('handles command chains with semicolons', () => {
     const targets = extractBashTargetFiles('echo a > file1.txt; echo b > file2.txt', cwd)
-    assert.ok(targets.some((t) => t.endsWith('/file1.txt')))
-    assert.ok(targets.some((t) => t.endsWith('/file2.txt')))
+    assert.equal(hasTargetNamed(targets, 'file1.txt'), true)
+    assert.equal(hasTargetNamed(targets, 'file2.txt'), true)
   })
 
   await t.test('handles out-of-workspace redirects', () => {
     const targets = extractBashTargetFiles("echo 'hello' > /tmp/external.txt", cwd)
-    assert.ok(targets.some((t) => t === '/tmp/external.txt'))
+    assert.equal(targets.includes(resolve(cwd, '/tmp/external.txt')), true)
   })
 
   await t.test('ignores string literals that are not paths', () => {

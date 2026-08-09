@@ -528,11 +528,9 @@ test('YachiyoServer resolves @JotDown to the latest jot down content regardless 
       const request = modelRequests.at(-1)
       assert.ok(request)
       const lastContent = String(request.messages.at(-1)?.content ?? '')
+      const jotdownPath = join('~', '.yachiyo-jotdown-test-for-server', '2026-04-05_10-00-00.md')
       assert.match(lastContent, /<file_mentions>\n- @JotDown -> JotDown\n<\/file_mentions>/)
-      assert.match(
-        lastContent,
-        /<referenced_jotdown path="~\/.yachiyo-jotdown-test-for-server\/2026-04-05_10-00-00\.md">/
-      )
+      assert.ok(lastContent.includes(`<referenced_jotdown path="${jotdownPath}">`))
       assert.match(lastContent, /My latest jot down note/)
       assert.match(lastContent, /Check @JotDown for my notes\./)
     },

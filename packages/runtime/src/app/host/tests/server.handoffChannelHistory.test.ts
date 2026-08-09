@@ -800,7 +800,7 @@ test('YachiyoServer bootstrap creates the default USER.md template under the sam
     const document = await server.getUserDocument()
     const content = await readFile(document.filePath, 'utf8')
 
-    assert.equal(document.filePath.includes('/.yachiyo/USER.md'), true)
+    assert.equal(document.filePath.endsWith(join('.yachiyo', 'USER.md')), true)
     assert.match(content, /^# USER/m)
   })
 })
@@ -811,7 +811,7 @@ test('YachiyoServer persists direct USER.md edits through the settings-facing AP
       content: '# USER\n\n## Preferences\n- Prefers concise collaboration'
     })
 
-    assert.equal(saved.filePath.includes('/.yachiyo/USER.md'), true)
+    assert.equal(saved.filePath.endsWith(join('.yachiyo', 'USER.md')), true)
     // saveUserDocument writes raw content; getUserDocument may migrate freeform to tables
     const onDisk = await readFile(saved.filePath, 'utf8')
     assert.match(onDisk, /# USER/)

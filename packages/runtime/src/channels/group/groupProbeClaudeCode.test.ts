@@ -13,6 +13,8 @@ import {
   runClaudeCodeGroupProbe
 } from './groupProbeClaudeCode.ts'
 
+const posixTest = process.platform === 'win32' ? test.skip : test
+
 test('buildClaudeCodeProbeCommand uses claude print mode with optional model', () => {
   assert.deepEqual(buildClaudeCodeProbeCommand({ model: 'sonnet' }), {
     command: 'claude',
@@ -108,7 +110,20 @@ test('runClaudeCodeGroupProbe calls claude -p and records sent messages for repl
   )
 })
 
-test('runClaudeCodeGroupProbe returns a failed result when claude exits before stdin is consumed', async () => {
+test('runClaudeCodeGroupProbe preserves command runner failures', async () => {
+  const result = await runClaudeCodeGroupProbe({
+    messages: [{ role: 'user', content: 'ping' }],
+    workspacePath: '/tmp/yachiyo-group',
+    runCommand: async () => {
+      throw new Error('unsupported flag')
+    }
+  })
+
+  assert.equal(result.status, 'failed')
+  assert.equal(result.error, 'unsupported flag')
+})
+
+posixTest('runClaudeCodeGroupProbe handles exit before stdin is consumed', async () => {
   const tempDir = await mkdtemp(join(tmpdir(), 'yachiyo-claude-epipe-'))
   const binDir = join(tempDir, 'bin')
   await mkdir(binDir)

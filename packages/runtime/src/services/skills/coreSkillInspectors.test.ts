@@ -6,7 +6,10 @@ import { join, resolve } from 'node:path'
 import { spawn } from 'node:child_process'
 import { Buffer } from 'node:buffer'
 
+import { resolvePythonTestRuntime } from './pythonTestRuntime.ts'
+
 const rootDir = process.cwd()
+const python = resolvePythonTestRuntime()
 
 async function makeTempDir(): Promise<string> {
   return mkdtemp(join(tmpdir(), 'yachiyo-core-skill-'))
@@ -14,7 +17,7 @@ async function makeTempDir(): Promise<string> {
 
 async function runJsonScript(scriptPath: string, inputPath: string): Promise<unknown> {
   const output = await new Promise<string>((resolveOutput, reject) => {
-    const child = spawn('python3', [scriptPath, inputPath, '--json'], {
+    const child = spawn(python.command, [...python.prefixArgs, scriptPath, inputPath, '--json'], {
       cwd: rootDir,
       stdio: ['ignore', 'pipe', 'pipe']
     })
@@ -42,7 +45,7 @@ async function runJsonScript(scriptPath: string, inputPath: string): Promise<unk
 
 async function runCommandJson(scriptPath: string, args: string[]): Promise<unknown> {
   const output = await new Promise<string>((resolveOutput, reject) => {
-    const child = spawn('python3', [scriptPath, ...args], {
+    const child = spawn(python.command, [...python.prefixArgs, scriptPath, ...args], {
       cwd: rootDir,
       stdio: ['ignore', 'pipe', 'pipe']
     })
@@ -83,7 +86,7 @@ async function writeZip(
   ].join('\n')
   await writeFile(archivePath, program)
   await new Promise<void>((resolveDone, reject) => {
-    const child = spawn('python3', [archivePath, path, payload], {
+    const child = spawn(python.command, [...python.prefixArgs, archivePath, path, payload], {
       cwd: rootDir,
       stdio: ['ignore', 'ignore', 'pipe']
     })

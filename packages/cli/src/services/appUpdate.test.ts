@@ -1,12 +1,22 @@
 import assert from 'node:assert/strict'
 import { createServer, type Server } from 'node:net'
 import { mkdtemp, rm } from 'node:fs/promises'
-import { join } from 'node:path'
+import { tmpdir } from 'node:os'
+import { basename, join } from 'node:path'
 import test from 'node:test'
 
 import { defaultApplyAppUpdate, defaultGetAppUpdateStatus } from './appUpdate.ts'
 
 const NO_REPLY = Symbol('no reply')
+
+async function createTestSocketFixture(): Promise<{ root: string; socketPath: string }> {
+  const root = await mkdtemp(join(tmpdir(), 'yachiyo-update-client-'))
+  return {
+    root,
+    socketPath:
+      process.platform === 'win32' ? `\\\\.\\pipe\\${basename(root)}` : join(root, 'test.sock')
+  }
+}
 
 async function startReplyServer(
   socketPath: string,
@@ -46,9 +56,8 @@ async function closeServer(server: Server): Promise<void> {
   })
 }
 
-test('defaultGetAppUpdateStatus reads the running App response from a Unix socket', async () => {
-  const root = await mkdtemp('/tmp/yachiyo-update-client-')
-  const socketPath = join(root, 'test.sock')
+test('defaultGetAppUpdateStatus reads the running App response from local IPC', async () => {
+  const { root, socketPath } = await createTestSocketFixture()
   const server = await startReplyServer(socketPath, (request) => {
     assert.equal(request.action, 'status')
     return {
@@ -71,8 +80,7 @@ test('defaultGetAppUpdateStatus reads the running App response from a Unix socke
 })
 
 test('defaultApplyAppUpdate succeeds only after the relaunched process reports the target version', async () => {
-  const root = await mkdtemp('/tmp/yachiyo-update-client-')
-  const socketPath = join(root, 'test.sock')
+  const { root, socketPath } = await createTestSocketFixture()
   let snapshotCount = 0
   const actions: string[] = []
   const server = await startReplyServer(socketPath, (request) => {
@@ -125,8 +133,7 @@ test('defaultApplyAppUpdate succeeds only after the relaunched process reports t
 })
 
 test('defaultApplyAppUpdate fails when the restarted process never reaches the target version', async () => {
-  const root = await mkdtemp('/tmp/yachiyo-update-client-')
-  const socketPath = join(root, 'test.sock')
+  const { root, socketPath } = await createTestSocketFixture()
   const server = await startReplyServer(socketPath, (request) => {
     if (request.action === 'prepare') {
       return {
@@ -164,8 +171,7 @@ test('defaultApplyAppUpdate fails when the restarted process never reaches the t
 })
 
 test('defaultApplyAppUpdate retries an empty socket reply while the App is restarting', async () => {
-  const root = await mkdtemp('/tmp/yachiyo-update-client-')
-  const socketPath = join(root, 'test.sock')
+  const { root, socketPath } = await createTestSocketFixture()
   let snapshotCount = 0
   const server = await startReplyServer(socketPath, (request) => {
     if (request.action === 'prepare') {
@@ -212,8 +218,7 @@ test('defaultApplyAppUpdate retries an empty socket reply while the App is resta
 })
 
 test('defaultApplyAppUpdate retries a snapshot timeout while the App is restarting', async () => {
-  const root = await mkdtemp('/tmp/yachiyo-update-client-')
-  const socketPath = join(root, 'test.sock')
+  const { root, socketPath } = await createTestSocketFixture()
   let snapshotCount = 0
   const server = await startReplyServer(socketPath, (request) => {
     if (request.action === 'prepare') {
@@ -261,8 +266,7 @@ test('defaultApplyAppUpdate retries a snapshot timeout while the App is restarti
 })
 
 test('defaultApplyAppUpdate refuses active runs without force and never requests installation', async () => {
-  const root = await mkdtemp('/tmp/yachiyo-update-client-')
-  const socketPath = join(root, 'test.sock')
+  const { root, socketPath } = await createTestSocketFixture()
   const actions: string[] = []
   const server = await startReplyServer(socketPath, (request) => {
     actions.push(request.action ?? '')
@@ -289,8 +293,7 @@ test('defaultApplyAppUpdate refuses active runs without force and never requests
 })
 
 test('defaultApplyAppUpdate allows the initiating run alone without force', async () => {
-  const root = await mkdtemp('/tmp/yachiyo-update-client-')
-  const socketPath = join(root, 'test.sock')
+  const { root, socketPath } = await createTestSocketFixture()
   const actions: string[] = []
   const server = await startReplyServer(socketPath, (request) => {
     actions.push(request.action ?? '')
@@ -340,8 +343,7 @@ test('defaultApplyAppUpdate allows the initiating run alone without force', asyn
 })
 
 test('defaultApplyAppUpdate keeps internal background updates honest after the initiating run ends', async () => {
-  const root = await mkdtemp('/tmp/yachiyo-update-client-')
-  const socketPath = join(root, 'test.sock')
+  const { root, socketPath } = await createTestSocketFixture()
   const actions: string[] = []
   const server = await startReplyServer(socketPath, (request) => {
     actions.push(request.action ?? '')
@@ -389,8 +391,7 @@ test('defaultApplyAppUpdate keeps internal background updates honest after the i
 })
 
 test('defaultApplyAppUpdate still refuses other active runs when an initiator is present', async () => {
-  const root = await mkdtemp('/tmp/yachiyo-update-client-')
-  const socketPath = join(root, 'test.sock')
+  const { root, socketPath } = await createTestSocketFixture()
   const actions: string[] = []
   const server = await startReplyServer(socketPath, (request) => {
     actions.push(request.action ?? '')

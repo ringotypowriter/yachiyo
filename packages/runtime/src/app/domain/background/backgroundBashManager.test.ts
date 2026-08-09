@@ -11,6 +11,10 @@ import {
   type BackgroundBashLogAppend,
   type BackgroundBashTaskResult
 } from './backgroundBashManager.ts'
+import { buildBashCommand } from '../../../runtime/shell/shellRuntime.ts'
+
+const WRITE_POST_LINE_COMMAND = "process.stdout.write('post-line\\n')"
+const WRITE_TAIL_COMMAND = "process.stdout.write('tail\\n')"
 
 class FakeReadable extends EventEmitter {
   setEncoding(): this {
@@ -220,16 +224,26 @@ describe('BackgroundBashManager', () => {
         manager.setCompletionHandler(resolve)
       })
       const logPath = join(tempDir, 'tool-output', 'shell-backgrounded.log')
+      const childPidPath = join(tempDir, 'child.pid')
+      const windowsChildCommand = buildBashCommand(process.execPath.replaceAll('\\', '/'), [
+        '-e',
+        `require('node:fs').writeFileSync(${JSON.stringify(childPidPath)}, String(process.pid)); setInterval(() => {}, 60_000)`
+      ])
+      const command =
+        process.platform === 'win32' ? `${windowsChildCommand} & wait` : 'sleep 30 & echo child:$!'
 
       await manager.startTask({
         taskId: 'shell-backgrounded-task',
-        command: 'sleep 30 & echo child:$!',
+        command,
         cwd: tempDir,
         logPath,
         threadId: 'thread-shell-backgrounded'
       })
 
-      const match = await readLogUntil(logPath, /child:(\d+)/)
+      const match =
+        process.platform === 'win32'
+          ? await readLogUntil(childPidPath, /(\d+)/)
+          : await readLogUntil(logPath, /child:(\d+)/)
       childPid = Number(match[1])
       assert.equal(isProcessAlive(childPid), true)
       assert.equal(manager.activeCount, 1)
@@ -468,14 +482,14 @@ describe('BackgroundBashManager', () => {
       await writeFile(logPath, preTimeout, 'utf8')
 
       // Spawn a child that will print one more line and then exit.
-      const child = spawn('/bin/zsh', ['-lc', 'echo post-line'], {
+      const child = spawn(process.execPath, ['-e', WRITE_POST_LINE_COMMAND], {
         cwd: tempDir,
         stdio: ['ignore', 'pipe', 'pipe']
       })
 
       await manager.adoptTask({
         taskId: 'adopt-disk',
-        command: 'echo post-line',
+        command: WRITE_POST_LINE_COMMAND,
         cwd: tempDir,
         logPath,
         threadId: 'thread-adopt',
@@ -551,14 +565,14 @@ describe('BackgroundBashManager', () => {
       })
 
       const logPath = join(tempDir, 'tool-output', 'adopt-mem.log')
-      const child = spawn('/bin/zsh', ['-lc', 'echo tail'], {
+      const child = spawn(process.execPath, ['-e', WRITE_TAIL_COMMAND], {
         cwd: tempDir,
         stdio: ['ignore', 'pipe', 'pipe']
       })
 
       await manager.adoptTask({
         taskId: 'adopt-mem',
-        command: 'echo tail',
+        command: WRITE_TAIL_COMMAND,
         cwd: tempDir,
         logPath,
         threadId: 'thread-adopt-mem',

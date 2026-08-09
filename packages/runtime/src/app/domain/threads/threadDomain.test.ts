@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { resolve } from 'node:path'
 import test from 'node:test'
 
 import { withThreadCapabilities } from '@yachiyo/shared/protocol'
@@ -185,6 +186,7 @@ test('YachiyoServerThreadDomain deletes ACP threads only after evicting idle ses
 
 test('YachiyoServerThreadDomain requires confirmation before changing a thread with history', async () => {
   const { domain, storage } = createThreadDomainHarness(null)
+  const workspacePath = resolve('/tmp/real-workspace')
   const thread = storage.getThread('thread-1')!
   storage.saveThreadMessage({
     thread,
@@ -201,23 +203,23 @@ test('YachiyoServerThreadDomain requires confirmation before changing a thread w
 
   const decision = domain.getWorkspaceChangeDecision({
     threadId: 'thread-1',
-    workspacePath: '/tmp/real-workspace'
+    workspacePath
   })
 
   assert.equal(decision.allowed, true)
   assert.equal(decision.requiresConfirmation, true)
   await assert.rejects(
-    () => domain.updateWorkspace({ threadId: 'thread-1', workspacePath: '/tmp/real-workspace' }),
+    () => domain.updateWorkspace({ threadId: 'thread-1', workspacePath }),
     /already has conversation history/
   )
 
   const updated = await domain.updateWorkspace({
     threadId: 'thread-1',
-    workspacePath: '/tmp/real-workspace',
+    workspacePath,
     confirmed: true
   })
 
-  assert.equal(updated.workspacePath, '/tmp/real-workspace')
+  assert.equal(updated.workspacePath, workspacePath)
 })
 
 test('YachiyoServerThreadDomain blocks ACP workspace changes', () => {

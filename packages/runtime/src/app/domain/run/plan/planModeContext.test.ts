@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import { mkdtemp, readFile, stat, writeFile } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
+import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { ensurePlanDocument } from './planModeContext.ts'
@@ -18,11 +18,7 @@ test('ensurePlanDocument creates the thread-derived plan file once and reuses it
   assert.equal(first.planRelativePath, '.yachiyo/plan-vnfjnfxb.md')
   assert.ok(first.planAbsolutePath.endsWith(first.planRelativePath.replace(/^\.yachiyo\//, '')))
   assert.equal(first.fallbackAbsolutePaths.length, 1)
-  assert.ok(
-    first.fallbackAbsolutePaths[0]?.endsWith(
-      `/.yachiyo/${first.planRelativePath.split('/').at(-1)}`
-    )
-  )
+  assert.equal(first.fallbackAbsolutePaths[0], join(homedir(), first.planRelativePath))
 
   const firstMtime = await stat(first.planAbsolutePath).then((s) => s.mtimeMs)
 

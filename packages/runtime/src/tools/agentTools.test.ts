@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
-import { join } from 'node:path'
-import { tmpdir } from 'node:os'
+import { homedir, tmpdir } from 'node:os'
+import { basename, dirname, join, resolve } from 'node:path'
 import test from 'node:test'
 
 import {
@@ -24,6 +24,7 @@ import { resolveGlobInput } from './agentTools/globTool.ts'
 import type { MemoryService } from '../services/memory/memoryService.ts'
 import { createInMemoryYachiyoStorage } from '../storage/memoryStorage.ts'
 import { ThingDomain } from '../app/domain/things/thingDomain.ts'
+import { buildBashCommand } from '../runtime/shell/shellRuntime.ts'
 
 async function withWorkspace(fn: (workspacePath: string) => Promise<void> | void): Promise<void> {
   const workspacePath = await mkdtemp(join(tmpdir(), 'yachiyo-agent-tools-'))
@@ -570,11 +571,19 @@ test('streamBashTool abortSignal kills spawned child processes, not just the she
   await withWorkspace(async (workspacePath) => {
     const controller = new AbortController()
     const childPidPath = join(workspacePath, 'child.pid')
+    const windowsChildCommand = buildBashCommand(process.execPath.replaceAll('\\', '/'), [
+      '-e',
+      `require('node:fs').writeFileSync(${JSON.stringify(childPidPath)}, String(process.pid)); setInterval(() => {}, 60_000)`
+    ])
+    const command =
+      process.platform === 'win32'
+        ? `${windowsChildCommand} & wait`
+        : `nohup sleep 60 >/dev/null 2>&1 & echo $! > ${JSON.stringify(childPidPath)}; wait`
 
     const drain = collectAsync(
       streamBashTool(
         {
-          command: `nohup sleep 60 >/dev/null 2>&1 & echo $! > ${JSON.stringify(childPidPath)}; wait`,
+          command,
           description: 'spawn a detached child and wait',
           timeout: 120,
           background: false
@@ -726,7 +735,7 @@ test('runBashTool lifts a timed-out command into a background task when adoption
     assert.equal(result.details.background, true)
     assert.equal(result.details.liftedAfterTimeout, true)
     assert.equal(result.details.taskId, adopted[0].taskId)
-    assert.ok(result.details.logPath?.includes('.yachiyo/tool-output'))
+    assert.equal(dirname(result.details.logPath!), join(workspacePath, '.yachiyo', 'tool-output'))
     const notice = flattenToolContent(result.content)
     assert.match(notice, /converted to a background task/)
     assert.match(notice, /timed out after 1 second/)
@@ -778,7 +787,10 @@ test('runBashTool auto-saves to .yachiyo/tool-output when output exceeds inline 
 
     assert.equal(result.error, undefined)
     assert.equal(result.details.truncated, true)
-    assert.ok(result.details.outputFilePath?.includes('.yachiyo/tool-output'))
+    assert.equal(
+      dirname(result.details.outputFilePath!),
+      join(workspacePath, '.yachiyo', 'tool-output')
+    )
     assert.equal(await readFile(result.details.outputFilePath!, 'utf8'), largeOutput)
     assert.match(flattenToolContent(result.content), /Output too large to inline/)
     assert.doesNotMatch(flattenToolContent(result.content), /x{100}/)
@@ -846,18 +858,17 @@ test('runGrepTool maps normalized search results into structured details and sum
 })
 
 test('resolveGlobInput splits tilde/absolute patterns into path + basename', () => {
-  const home = process.env.HOME ?? '/Users/test'
-  const workspace = '/workspace'
-  const normalizeDir = (value: string): string => value.replace(/\/+$/, '') || '/'
+  const workspace = resolve('workspace')
 
   // ~/.aerospace* → dir: home, pattern: .aerospace*
   const tildeResult = resolveGlobInput('~/.aerospace*', undefined, workspace)
-  assert.equal(normalizeDir(tildeResult.searchPath), normalizeDir(home))
+  assert.equal(tildeResult.searchPath, homedir())
   assert.equal(tildeResult.pattern, '.aerospace*')
 
-  // /Users/foo/.config → dir: /Users/foo, pattern: .config
-  const absResult = resolveGlobInput('/Users/foo/.config', undefined, workspace)
-  assert.equal(absResult.searchPath, '/Users/foo')
+  // Native absolute path → parent dir + basename pattern.
+  const absolutePattern = join(resolve('absolute-root'), '.config')
+  const absResult = resolveGlobInput(absolutePattern, undefined, workspace)
+  assert.equal(absResult.searchPath, dirname(absolutePattern))
   assert.equal(absResult.pattern, '.config')
 
   // relative pattern — unchanged, uses explicit path
@@ -1123,10 +1134,14 @@ test('runWebReadTool auto-saves to .yachiyo/tool-result when content exceeds inl
     assert.equal(result.details.contentChars, longContent.length)
     assert.equal(result.details.savedBytes, Buffer.byteLength(longContent, 'utf8'))
     assert.equal(result.details.content, '')
-    assert.ok(result.details.savedFilePath?.includes('.yachiyo/tool-result'))
-    assert.ok(result.details.savedFileName?.startsWith('.yachiyo/tool-result/web-'))
+    assert.equal(
+      dirname(result.details.savedFilePath!),
+      join(workspacePath, '.yachiyo', 'tool-result')
+    )
+    assert.equal(dirname(result.details.savedFileName!), join('.yachiyo', 'tool-result'))
+    assert.equal(basename(result.details.savedFileName!).startsWith('web-'), true)
     assert.equal(await readFile(result.details.savedFilePath!, 'utf8'), longContent)
-    assert.match(summarizeToolOutput('webRead', result), /saved to \.yachiyo\/tool-result\/web-/)
+    assert.equal(summarizeToolOutput('webRead', result), `saved to ${result.details.savedFileName}`)
     assert.match(flattenToolContent(result.content), /Content too large to inline/)
     assert.doesNotMatch(flattenToolContent(result.content), /Second paragraph\./)
   })

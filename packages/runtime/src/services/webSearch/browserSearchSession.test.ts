@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { cp, mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 import { tmpdir } from 'node:os'
 import test from 'node:test'
 
@@ -309,7 +309,7 @@ test('copyBrowserProfileSessionData ignores locked optional quota files', async 
     await writeFile(join(sourceProfilePath, 'Local Storage', 'leveldb.txt'), 'local', 'utf8')
 
     const copy = async (sourcePath: string, targetPath: string): Promise<void> => {
-      if (sourcePath.endsWith('/QuotaManager')) {
+      if (basename(sourcePath) === 'QuotaManager') {
         const error = new Error('file is locked') as Error & { code?: string }
         error.code = 'EBUSY'
         throw error
@@ -372,33 +372,37 @@ test('browser session import service lists Chrome profiles and records imports',
 })
 
 test('resolveGoogleChromeDataPath resolves platform-specific Chrome profile roots', () => {
+  const homeDir = join(tmpdir(), 'yachiyo-browser-path-home')
+  const localAppData = join(homeDir, 'AppData', 'Local')
+  const xdgConfigHome = join(homeDir, '.config-custom')
+
   assert.equal(
     resolveGoogleChromeDataPath({
       platform: 'darwin',
-      homeDir: '/Users/yachiyo'
+      homeDir
     }),
-    '/Users/yachiyo/Library/Application Support/Google/Chrome'
+    join(homeDir, 'Library', 'Application Support', 'Google', 'Chrome')
   )
 
   assert.equal(
     resolveGoogleChromeDataPath({
       platform: 'win32',
       env: {
-        LOCALAPPDATA: 'C:\\Users\\Yachiyo\\AppData\\Local'
+        LOCALAPPDATA: localAppData
       } as NodeJS.ProcessEnv,
-      homeDir: 'C:\\Users\\Yachiyo'
+      homeDir
     }),
-    'C:\\Users\\Yachiyo\\AppData\\Local/Google/Chrome/User Data'
+    join(localAppData, 'Google', 'Chrome', 'User Data')
   )
 
   assert.equal(
     resolveGoogleChromeDataPath({
       platform: 'linux',
       env: {
-        XDG_CONFIG_HOME: '/home/yachiyo/.config-custom'
+        XDG_CONFIG_HOME: xdgConfigHome
       } as NodeJS.ProcessEnv,
-      homeDir: '/home/yachiyo'
+      homeDir
     }),
-    '/home/yachiyo/.config-custom/google-chrome'
+    join(xdgConfigHome, 'google-chrome')
   )
 })
