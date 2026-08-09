@@ -47,11 +47,11 @@ jobs:
       - name: Prepare Windows runtime
         run: pnpm --filter @yachiyo/desktop run windows-runtime:prepare
 
-      - name: Test pure server behavior
-        run: pnpm run test:server
-
       - name: Test Windows app update IPC
         run: node --experimental-strip-types --test apps/desktop/src/main/cli/commandSocket.appUpdate.test.ts
+
+      - name: Test pure server behavior
+        run: pnpm run test:server
 
       - name: Typecheck
         run: pnpm run typecheck

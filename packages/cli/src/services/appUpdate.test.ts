@@ -8,6 +8,8 @@ import test from 'node:test'
 import { defaultApplyAppUpdate, defaultGetAppUpdateStatus } from './appUpdate.ts'
 
 const NO_REPLY = Symbol('no reply')
+const SNAPSHOT_TIMEOUT_TEST_REQUEST_MS = 500
+const NO_REPLY_CLOSE_DELAY_MS = SNAPSHOT_TIMEOUT_TEST_REQUEST_MS + 250
 
 async function createTestSocketFixture(): Promise<{ root: string; socketPath: string }> {
   const root = await mkdtemp(join(tmpdir(), 'yachiyo-update-client-'))
@@ -37,7 +39,7 @@ async function startReplyServer(
         return
       }
       if (result === NO_REPLY) {
-        setTimeout(() => connection.destroy(), 50)
+        setTimeout(() => connection.destroy(), NO_REPLY_CLOSE_DELAY_MS)
         return
       }
       connection.end(JSON.stringify({ ok: true, result }))
@@ -260,9 +262,9 @@ test('defaultApplyAppUpdate retries a snapshot timeout while the App is restarti
   try {
     assert.deepEqual(
       await defaultApplyAppUpdate(socketPath, {
-        restartTimeoutMs: 1_000,
+        restartTimeoutMs: 2_000,
         pollIntervalMs: 1,
-        snapshotRequestTimeoutMs: 20
+        snapshotRequestTimeoutMs: SNAPSHOT_TIMEOUT_TEST_REQUEST_MS
       }),
       {
         state: 'updated',
