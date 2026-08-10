@@ -96,6 +96,7 @@ pub struct CommandOutput {
     pub device_count: usize,
     pub exported_ops: usize,
     pub imported_ops: usize,
+    pub changed_thread_ids: Vec<String>,
     pub last_exported_seq: i64,
     pub applied_op_count: usize,
     pub pending_op_count: usize,
@@ -1087,6 +1088,7 @@ pub fn import_ops(
     let mut schedule_thread_ids = load_skipped_schedule_thread_ids(&conn)?;
     schedule_thread_ids.extend(schedule_created_thread_ids_in_ops(&plan.files)?);
     let mut imported = 0;
+    let mut changed_thread_ids = HashSet::new();
     let mut transient_error: Option<String> = None;
     let mut blocked_devices = HashSet::new();
     for file in plan.files {
@@ -1103,11 +1105,15 @@ pub fn import_ops(
             // Business write + applied-ops bookkeeping commit together, so a
             // crash mid-import can never leave an op half-applied.
             let tx = conn.unchecked_transaction()?;
+            let changed_thread_id = affected_thread_id(&tx, &op)?;
             let outcome = apply_op(home, &tx, &op, &schedule_thread_ids)?;
             match outcome {
                 ApplyOutcome::Counted => {
                     clear_deferred_op(&tx, &op.op_id)?;
                     imported += 1;
+                    if let Some(thread_id) = changed_thread_id {
+                        changed_thread_ids.insert(thread_id);
+                    }
                 }
                 ApplyOutcome::Skipped => clear_deferred_op(&tx, &op.op_id)?,
                 ApplyOutcome::Deferred => record_deferred_op(&tx, &op)?,
@@ -1144,9 +1150,15 @@ pub fn import_ops(
             }
         }
     }
-    retry_deferred_ops(home, &conn, &schedule_thread_ids, &mut imported)?;
+    retry_deferred_ops(
+        home,
+        &conn,
+        &schedule_thread_ids,
+        &mut imported,
+        &mut changed_thread_ids,
+    )?;
     let last_imported_at = if imported > 0 { Some(now()) } else { None };
-    output(
+    let mut result = output(
         home,
         &sync_dir,
         Some(local_device),
@@ -1156,7 +1168,10 @@ pub fn import_ops(
         None,
         last_imported_at,
         transient_error,
-    )
+    )?;
+    result.changed_thread_ids = changed_thread_ids.into_iter().collect();
+    result.changed_thread_ids.sort_unstable();
+    Ok(result)
 }
 
 fn backfill_applied_op_entities(conn: &Connection, paths: &[PathBuf]) -> Result<(), SyncError> {
@@ -1402,14 +1417,19 @@ fn retry_deferred_ops(
     conn: &Connection,
     schedule_thread_ids: &HashSet<String>,
     imported: &mut usize,
+    changed_thread_ids: &mut HashSet<String>,
 ) -> Result<(), SyncError> {
     for op in load_deferred_ops(conn)? {
         let tx = conn.unchecked_transaction()?;
+        let changed_thread_id = affected_thread_id(&tx, &op)?;
         let outcome = apply_op(home, &tx, &op, schedule_thread_ids)?;
         match outcome {
             ApplyOutcome::Counted => {
                 clear_deferred_op(&tx, &op.op_id)?;
                 *imported += 1;
+                if let Some(thread_id) = changed_thread_id {
+                    changed_thread_ids.insert(thread_id);
+                }
             }
             ApplyOutcome::Skipped => clear_deferred_op(&tx, &op.op_id)?,
             ApplyOutcome::Deferred => record_deferred_op(&tx, &op)?,
@@ -1589,6 +1609,37 @@ fn apply_op(
     Ok(ApplyOutcome::Counted)
 }
 
+fn affected_thread_id(conn: &Connection, op: &SyncOp) -> Result<Option<String>, SyncError> {
+    match op.kind.as_str() {
+        "thread.archive.upsert" => Ok(Some(op.entity_id.clone())),
+        "thread.archive.delete" => {
+            if thread_origin_matches(conn, &op.entity_id, &op.device_id)? {
+                Ok(Some(op.entity_id.clone()))
+            } else {
+                Ok(None)
+            }
+        }
+        "message.archive.upsert" | "toolcall.archive.upsert" => Ok(op
+            .payload
+            .get("thread_id")
+            .and_then(Value::as_str)
+            .filter(|thread_id| !thread_id.is_empty())
+            .map(str::to_string)),
+        "message.archive.delete" | "toolcall.archive.delete" => {
+            let table = if op.kind == "message.archive.delete" {
+                "messages"
+            } else {
+                "tool_calls"
+            };
+            if !child_origin_matches(conn, table, &op.entity_id, &op.device_id)? {
+                return Ok(None);
+            }
+            child_thread_id(conn, table, &op.entity_id)
+        }
+        _ => Ok(None),
+    }
+}
+
 /// Whether the thread a message/tool-call payload belongs to is already imported.
 fn parent_thread_exists(conn: &Connection, payload: &Value) -> Result<bool, SyncError> {
     let thread_id = payload
@@ -1628,17 +1679,20 @@ fn child_origin_matches(
     id: &str,
     device_id: &str,
 ) -> Result<bool, SyncError> {
-    let thread_id = conn
+    match child_thread_id(conn, table, id)? {
+        Some(thread_id) => thread_origin_matches(conn, &thread_id, device_id),
+        None => Ok(false),
+    }
+}
+
+fn child_thread_id(conn: &Connection, table: &str, id: &str) -> Result<Option<String>, SyncError> {
+    Ok(conn
         .query_row(
             &format!("SELECT thread_id FROM {table} WHERE id = ?1"),
             [id],
             |row| row.get::<_, String>(0),
         )
-        .optional()?;
-    match thread_id {
-        Some(thread_id) => thread_origin_matches(conn, &thread_id, device_id),
-        None => Ok(false),
-    }
+        .optional()?)
 }
 
 fn payload_thread_origin_matches(
@@ -1967,6 +2021,7 @@ fn output(
         device_count,
         exported_ops,
         imported_ops,
+        changed_thread_ids: Vec::new(),
         last_exported_seq,
         applied_op_count,
         pending_op_count,
@@ -2242,6 +2297,7 @@ mod tests {
 
         let first = import_ops(home_b.path(), Some(sync.path())).unwrap();
         assert!(first.imported_ops >= 2);
+        assert_eq!(first.changed_thread_ids, vec!["t1"]);
 
         {
             let conn = Connection::open(home_b.path().join(DB_FILE)).unwrap();
@@ -2258,7 +2314,32 @@ mod tests {
 
         let second = import_ops(home_b.path(), Some(sync.path())).unwrap();
         assert_eq!(second.imported_ops, 0, "re-import must be a no-op");
+        assert!(second.changed_thread_ids.is_empty());
         assert_eq!(count_rows(home_b.path(), "threads"), 1);
+    }
+
+    #[test]
+    fn import_reports_threads_changed_by_child_upserts_and_deletes() {
+        let sync = tempfile::tempdir().unwrap();
+        let home_a = setup_home("config-a");
+        let home_b = setup_home("config-b");
+        seed_thread(home_a.path(), "t1", "m1");
+        init_sync(home_a.path(), Some(sync.path()), "A").unwrap();
+        init_sync(home_b.path(), Some(sync.path()), "B").unwrap();
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+
+        insert_message(home_a.path(), "m2", "t1");
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        let upsert = import_ops(home_b.path(), Some(sync.path())).unwrap();
+        assert_eq!(upsert.changed_thread_ids, vec!["t1"]);
+        assert_eq!(message_body(home_b.path(), "m2").as_deref(), Some("hi"));
+
+        delete_message(home_a.path(), "m2");
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        let deletion = import_ops(home_b.path(), Some(sync.path())).unwrap();
+        assert_eq!(deletion.changed_thread_ids, vec!["t1"]);
+        assert_eq!(message_body(home_b.path(), "m2"), None);
     }
 
     #[test]
@@ -3553,7 +3634,10 @@ mod tests {
                 |r| r.get(0),
             )
             .unwrap();
-        assert_eq!(conflicts, 1, "concurrent divergent edits must still conflict");
+        assert_eq!(
+            conflicts, 1,
+            "concurrent divergent edits must still conflict"
+        );
     }
 
     #[test]
@@ -3603,6 +3687,7 @@ mod tests {
         }
         let second = import_ops(home.path(), Some(sync.path())).unwrap();
         assert_eq!(second.imported_ops, 1);
+        assert_eq!(second.changed_thread_ids, vec!["t1"]);
         assert_eq!(count_rows(home.path(), "messages"), 1);
     }
 

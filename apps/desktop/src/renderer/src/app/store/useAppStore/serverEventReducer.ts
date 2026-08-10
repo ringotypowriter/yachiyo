@@ -71,6 +71,12 @@ export function reduceServerEvent(state: AppState, event: YachiyoServerEvent): P
           : (state.activeArchivedThreadId ?? event.threadId),
       archivedThreads,
       composerDrafts: removeComposerDraft(state.composerDrafts, event.threadId),
+      messages: event.messages
+        ? { ...state.messages, [event.threadId]: event.messages }
+        : state.messages,
+      toolCalls: event.toolCalls
+        ? { ...state.toolCalls, [event.threadId]: event.toolCalls }
+        : state.toolCalls,
       threads
     }
 
