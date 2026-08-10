@@ -51,6 +51,8 @@ import type {
   TestSubagentProfileInput,
   TestSubagentProfileResult,
   ThreadColorTag,
+  ThreadArchivedEvent,
+  ThreadDeletedEvent,
   ThreadModelOverride,
   ThreadRecord,
   ThreadRuntimeBinding,
@@ -269,7 +271,7 @@ function parseSyncCoreOutput(
   stdout: string,
   syncDirFallback: string,
   recommendedSyncDir: string
-): SyncStatus {
+): { status: SyncStatus; changedThreadIds: string[] } {
   const parsed = JSON.parse(stdout) as {
     state?: SyncStatus['state']
     sync_dir?: string
@@ -279,17 +281,25 @@ function parseSyncCoreOutput(
     last_exported_at?: string
     last_imported_at?: string
     last_error?: string
+    changed_thread_ids?: unknown
   }
   return {
-    state: parsed.state ?? 'not_initialized',
-    syncDir: parsed.sync_dir ?? syncDirFallback,
-    recommendedSyncDir,
-    ...(parsed.device_id ? { deviceId: parsed.device_id } : {}),
-    deviceCount: parsed.device_count ?? 0,
-    pendingConflictCount: parsed.pending_conflict_count ?? 0,
-    ...(parsed.last_exported_at ? { lastExportedAt: parsed.last_exported_at } : {}),
-    ...(parsed.last_imported_at ? { lastImportedAt: parsed.last_imported_at } : {}),
-    ...(parsed.last_error ? { lastError: parsed.last_error } : {})
+    status: {
+      state: parsed.state ?? 'not_initialized',
+      syncDir: parsed.sync_dir ?? syncDirFallback,
+      recommendedSyncDir,
+      ...(parsed.device_id ? { deviceId: parsed.device_id } : {}),
+      deviceCount: parsed.device_count ?? 0,
+      pendingConflictCount: parsed.pending_conflict_count ?? 0,
+      ...(parsed.last_exported_at ? { lastExportedAt: parsed.last_exported_at } : {}),
+      ...(parsed.last_imported_at ? { lastImportedAt: parsed.last_imported_at } : {}),
+      ...(parsed.last_error ? { lastError: parsed.last_error } : {})
+    },
+    changedThreadIds: Array.isArray(parsed.changed_thread_ids)
+      ? parsed.changed_thread_ids.filter(
+          (threadId): threadId is string => typeof threadId === 'string' && threadId.length > 0
+        )
+      : []
   }
 }
 
@@ -738,7 +748,7 @@ export class YachiyoServer {
         '--sync-dir',
         syncDir
       ])
-      return parseSyncCoreOutput(stdout, syncDir, recommendedSyncDir)
+      return parseSyncCoreOutput(stdout, syncDir, recommendedSyncDir).status
     } catch (reason) {
       return {
         state: 'needs_attention',
@@ -830,10 +840,41 @@ export class YachiyoServer {
       '--sync-dir',
       syncDir
     ])
-    const status = parseSyncCoreOutput(stdout, syncDir, recommendedSyncDir)
+    const { status, changedThreadIds } = parseSyncCoreOutput(stdout, syncDir, recommendedSyncDir)
     this.reconcileSyncConflicts()
+    this.emitSyncedThreadRefreshes(changedThreadIds)
     // The binary's own count predates reconciliation; report the live count.
     return { ...status, pendingConflictCount: this.storage.countPendingSyncConflicts() }
+  }
+
+  private emitSyncedThreadRefreshes(threadIds: string[]): void {
+    for (const threadId of threadIds) {
+      const thread = this.storage.getThread(threadId)
+      if (thread) {
+        const { messages, queuedFollowUpMessages, toolCalls } = this.loadThreadData(threadId)
+        this.emit<ThreadStateReplacedEvent>({
+          type: 'thread.state.replaced',
+          threadId,
+          thread,
+          messages,
+          queuedFollowUpMessages,
+          toolCalls
+        })
+        continue
+      }
+
+      const archivedThread = this.storage.getArchivedThread(threadId)
+      if (archivedThread) {
+        this.emit<ThreadArchivedEvent>({
+          type: 'thread.archived',
+          threadId,
+          thread: archivedThread
+        })
+        continue
+      }
+
+      this.emit<ThreadDeletedEvent>({ type: 'thread.deleted', threadId })
+    }
   }
 
   /**
