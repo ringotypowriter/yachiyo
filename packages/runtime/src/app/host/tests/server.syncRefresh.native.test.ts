@@ -29,6 +29,22 @@ async function createSyncServer(input: { home: string; syncDir: string }): Promi
   })
 }
 
+async function sendAndWaitForCompletion(
+  server: YachiyoServer,
+  threadId: string,
+  content: string
+): Promise<void> {
+  const runCompleted = new Promise<void>((resolve) => {
+    const unsubscribe = server.subscribe((event) => {
+      if (event.type !== 'run.completed' || event.threadId !== threadId) return
+      unsubscribe()
+      resolve()
+    })
+  })
+  await server.sendChat({ threadId, content })
+  await runCompleted
+}
+
 test('sync import notifies subscribers about a remote thread without restarting', async () => {
   const root = await mkdtemp(join(tmpdir(), 'yachiyo-sync-refresh-'))
   const syncDir = join(root, 'sync')
@@ -40,15 +56,7 @@ test('sync import notifies subscribers about a remote thread without restarting'
     await serverB.initSync()
 
     const remoteThread = await serverA.createThread({ title: 'Remote thread after startup' })
-    const runCompleted = new Promise<void>((resolve) => {
-      const unsubscribe = serverA.subscribe((event) => {
-        if (event.type !== 'run.completed' || event.threadId !== remoteThread.id) return
-        unsubscribe()
-        resolve()
-      })
-    })
-    await serverA.sendChat({ threadId: remoteThread.id, content: 'Persist this remote turn.' })
-    await runCompleted
+    await sendAndWaitForCompletion(serverA, remoteThread.id, 'Persist this remote turn.')
     await serverA.runSyncNow()
 
     const events: YachiyoServerEvent[] = []
@@ -80,6 +88,38 @@ test('sync import notifies subscribers about a remote thread without restarting'
       unsubscribeNoOp()
     }
     assert.deepEqual(noOpEvents, [], 'an import with no remote changes must not refresh the UI')
+
+    await serverA.archiveThread({ threadId: remoteThread.id })
+    await serverA.runSyncNow()
+    await serverB.runSyncNow()
+
+    await serverA.restoreThread({ threadId: remoteThread.id })
+    await sendAndWaitForCompletion(
+      serverA,
+      remoteThread.id,
+      'Refresh an already-open archived timeline.'
+    )
+    await serverA.archiveThread({ threadId: remoteThread.id })
+    await serverA.runSyncNow()
+
+    const archivedEvents: YachiyoServerEvent[] = []
+    const unsubscribeArchived = serverB.subscribe((event) => archivedEvents.push(event))
+    try {
+      await serverB.runSyncNow()
+    } finally {
+      unsubscribeArchived()
+    }
+    const archivedRefresh = archivedEvents.find(
+      (event): event is Extract<YachiyoServerEvent, { type: 'thread.archived' }> =>
+        event.type === 'thread.archived' && event.threadId === remoteThread.id
+    )
+    assert.ok(archivedRefresh, 'the renderer event stream must keep the thread archived')
+    assert.ok(
+      archivedRefresh.messages?.some(
+        (message) => message.content === 'Refresh an already-open archived timeline.'
+      ),
+      'an archived refresh must carry current child state to an already-open timeline'
+    )
 
     await serverA.deleteThread({ threadId: remoteThread.id })
     await serverA.runSyncNow()

@@ -471,6 +471,89 @@ test('applyServerEvent moves archived threads between active and archived collec
   assert.equal(state.snapshotReviewByRun['run-2']?.fileCount, 1)
 })
 
+test('applyServerEvent replaces cached child state when an archived thread refreshes', () => {
+  resetStore()
+
+  useAppStore.setState({
+    activeArchivedThreadId: 'thread-1',
+    archivedThreads: [
+      {
+        id: 'thread-1',
+        title: 'Archived thread',
+        updatedAt: TIMESTAMP,
+        archivedAt: TIMESTAMP
+      }
+    ],
+    messages: {
+      'thread-1': [
+        {
+          id: 'message-old',
+          threadId: 'thread-1',
+          role: 'assistant',
+          content: 'Old synced state',
+          status: 'completed',
+          createdAt: TIMESTAMP
+        }
+      ]
+    },
+    toolCalls: {
+      'thread-1': [
+        {
+          id: 'tool-old',
+          threadId: 'thread-1',
+          toolName: 'read',
+          status: 'completed',
+          inputSummary: 'old.txt',
+          startedAt: TIMESTAMP
+        }
+      ]
+    }
+  })
+
+  useAppStore.getState().applyServerEvent({
+    type: 'thread.archived',
+    eventId: 'event-archived-refresh',
+    timestamp: '2026-03-15T00:00:01.000Z',
+    threadId: 'thread-1',
+    thread: {
+      id: 'thread-1',
+      title: 'Archived thread',
+      updatedAt: TIMESTAMP,
+      archivedAt: TIMESTAMP
+    },
+    messages: [
+      {
+        id: 'message-new',
+        threadId: 'thread-1',
+        role: 'assistant',
+        content: 'Fresh synced state',
+        status: 'completed',
+        createdAt: '2026-03-15T00:00:01.000Z'
+      }
+    ],
+    toolCalls: [
+      {
+        id: 'tool-new',
+        threadId: 'thread-1',
+        toolName: 'bash',
+        status: 'completed',
+        inputSummary: 'pwd',
+        startedAt: '2026-03-15T00:00:01.000Z'
+      }
+    ]
+  })
+
+  const state = useAppStore.getState()
+  assert.deepEqual(
+    state.messages['thread-1']?.map((message) => message.id),
+    ['message-new']
+  )
+  assert.deepEqual(
+    state.toolCalls['thread-1']?.map((toolCall) => toolCall.id),
+    ['tool-new']
+  )
+})
+
 test('setActiveArchivedThread forces archived view while multi filters are active', async () => {
   resetStore()
 

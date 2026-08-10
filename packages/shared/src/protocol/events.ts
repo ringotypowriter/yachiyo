@@ -59,6 +59,8 @@ export interface ThreadStateReplacedEvent extends ThreadEvent {
 export interface ThreadArchivedEvent extends ThreadEvent {
   type: 'thread.archived'
   thread: ThreadRecord
+  messages?: MessageRecord[]
+  toolCalls?: ToolCallRecord[]
 }
 
 export interface ThreadRestoredEvent extends ThreadEvent {

@@ -865,10 +865,13 @@ export class YachiyoServer {
 
       const archivedThread = this.storage.getArchivedThread(threadId)
       if (archivedThread) {
+        const { messages, toolCalls } = this.loadThreadData(threadId)
         this.emit<ThreadArchivedEvent>({
           type: 'thread.archived',
           threadId,
-          thread: archivedThread
+          thread: archivedThread,
+          messages,
+          toolCalls
         })
         continue
       }

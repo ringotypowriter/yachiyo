@@ -22,6 +22,7 @@ import { TimelineScrollbar } from '@renderer/features/chat/components/TimelineSc
 import { ToolCallRow } from '@renderer/features/chat/components/ToolCallRow'
 import { getNativeScrollIntoViewOptions } from '@renderer/features/chat/lib/timeline/messageTimelineScroll'
 import { resolveArchivedWorkspacePath } from './archivedWorkspacePath'
+import { resolveArchivedTimelineState } from './archivedTimelineState'
 
 export interface ArchivedThreadsPageProps {
   activeThread: Thread | null
@@ -67,8 +68,10 @@ function ArchivedTimeline({
   workspacePath?: string | null
 }): React.JSX.Element {
   const t = useT()
-  const [messages, setMessages] = useState<Message[]>(EMPTY_MESSAGES)
-  const [toolCalls, setToolCalls] = useState<ToolCall[]>(EMPTY_TOOL_CALLS)
+  const refreshedMessages = useAppStore((s) => s.messages[threadId])
+  const refreshedToolCalls = useAppStore((s) => s.toolCalls[threadId])
+  const [loadedMessages, setLoadedMessages] = useState<Message[]>(EMPTY_MESSAGES)
+  const [loadedToolCalls, setLoadedToolCalls] = useState<ToolCall[]>(EMPTY_TOOL_CALLS)
   const [scheduleRun, setScheduleRun] = useState<ScheduleRunRecord | null>(null)
   const [runs, setRuns] = useState<RunRecord[]>([])
   const bottomRef = useRef<HTMLDivElement>(null)
@@ -84,13 +87,20 @@ function ArchivedTimeline({
       if (cancelled) return
       setScheduleRun(data.scheduleRun ?? null)
       setRuns(data.runs)
-      setMessages(data.messages)
-      setToolCalls(data.toolCalls)
+      setLoadedMessages(data.messages)
+      setLoadedToolCalls(data.toolCalls)
     })
     return () => {
       cancelled = true
     }
   }, [threadId])
+
+  const { messages, toolCalls } = resolveArchivedTimelineState({
+    loadedMessages,
+    loadedToolCalls,
+    refreshedMessages,
+    refreshedToolCalls
+  })
 
   useEffect(() => {
     if (scrollToMessageId) return
