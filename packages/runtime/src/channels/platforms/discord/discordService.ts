@@ -461,7 +461,10 @@ export function createDiscordService({
         policy,
         groupConfig,
         groupCheckIntervalMs,
-        sendMessage: (group, message) => sendMessage(group.externalGroupId, message)
+        sendMessage: (group, message) =>
+          sendMessage(group.externalGroupId, message, {
+            singleMessageMaxLength: DISCORD_MAX_MESSAGE_LENGTH
+          })
       })
     : null
 

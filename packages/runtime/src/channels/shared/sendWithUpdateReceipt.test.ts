@@ -177,6 +177,33 @@ test('an expired dispatch sends nothing and releases its claimed receipt', async
   assert.deepEqual(calls, ['claim', 'release'])
 })
 
+test('a single-message send rejects the final composed body before platform dispatch', async () => {
+  const { lease: l, calls } = lease({
+    claim: async () => {
+      calls.push('claim')
+      return { claimToken: 'token-1', message: '1234' }
+    }
+  })
+  const sent: string[] = []
+
+  await assert.rejects(
+    () =>
+      sendWithUpdateReceipt({
+        channelId: 'chan-1',
+        text: '123',
+        send: async (body) => {
+          sent.push(body)
+        },
+        lease: l,
+        sendOptions: { singleMessageMaxLength: 8 }
+      }),
+    /single platform message limit/
+  )
+
+  assert.deepEqual(sent, [], 'no first chunk may become visible')
+  assert.deepEqual(calls, ['claim', 'release'], 'the unsent receipt remains owed')
+})
+
 /** The reply matters more than the bookkeeping: a broken lease must not block it. */
 test('a claim that throws still delivers the reply, unprefixed', async () => {
   const stages: string[] = []

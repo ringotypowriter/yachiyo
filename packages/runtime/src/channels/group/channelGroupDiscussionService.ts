@@ -24,6 +24,7 @@ import { createTool as createUpdateProfileTool } from '../../tools/agentTools/up
 import { createTool as createWebReadTool } from '../../tools/agentTools/webReadTool.ts'
 import { createTool as createWebSearchTool } from '../../tools/agentTools/webSearchTool.ts'
 import type { ChannelPolicy } from '../shared/channelPolicy.ts'
+import { ChannelMessageTooLongError } from '../shared/sendWithUpdateReceipt.ts'
 import {
   buildGroupProbeBehaviorPrompt,
   buildGroupProbeContextPrompt,
@@ -209,6 +210,14 @@ export function createChannelGroupDiscussionService(
       try {
         await sendMessage(group, outgoing)
       } catch (err) {
+        if (err instanceof ChannelMessageTooLongError) {
+          turnSendGuard.recordRetryableRejection()
+          console.log(
+            `[${logLabel}] rejected over-limit message for "${group.name}": ${err.actualLength} > ${err.maxLength}`
+          )
+          return `Message not sent because ${platform} accepts at most ${err.maxLength} characters in one group message. Rewrite it as one complete message within that limit.`
+        }
+
         turnSendGuard.recordDeliveryFailure()
         console.error(`[${logLabel}] failed to send message to "${group.name}"`, err)
         return 'Delivery was not confirmed. Wait for new group activity before speaking again so an ambiguous failure cannot create a duplicate.'

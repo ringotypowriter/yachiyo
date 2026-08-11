@@ -45,7 +45,7 @@ import type {
   UpdateReceiptLease
 } from '../../shared/sendWithUpdateReceipt.ts'
 import { routeTelegramMessage, type TelegramChannelStorage } from './telegram.ts'
-import { splitTelegramMessage } from './telegramMessageSplit.ts'
+import { splitTelegramMessage, TELEGRAM_MAX_MESSAGE_LENGTH } from './telegramMessageSplit.ts'
 
 /** Telegram typing indicator expires after ~5 s; resend every 4 s. */
 const TYPING_INTERVAL_MS = 4_000
@@ -461,7 +461,10 @@ export function createTelegramService({
         policy,
         groupConfig,
         groupCheckIntervalMs,
-        sendMessage: (group, message) => sendMessage(group.externalGroupId, message)
+        sendMessage: (group, message) =>
+          sendMessage(group.externalGroupId, message, {
+            singleMessageMaxLength: TELEGRAM_MAX_MESSAGE_LENGTH
+          })
       })
     : null
 
