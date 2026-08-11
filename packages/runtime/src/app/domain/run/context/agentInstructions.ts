@@ -7,11 +7,6 @@ import type {
   ToolCallName
 } from '@yachiyo/shared/protocol'
 import { RUN_MODE_DEFINITIONS, SELECTABLE_RUN_MODE_IDS } from '@yachiyo/shared/toolModes'
-import {
-  DEFAULT_NAMED_SUBAGENT_PROFILES,
-  SUBAGENT_DESCRIPTIONS,
-  WORKER_DELEGATION_PROMPT_GUIDANCE
-} from '../../../../settings/namedSubagents.ts'
 import type { GitContext } from './gitContext.ts'
 
 export function resolveModelEnabledTools(input: {
@@ -82,7 +77,7 @@ export function buildSubagentContextBlock(
 
   const lines = [
     '<subagents>',
-    'Use `delegateTask` to run parallel tasks or to work within a narrower tool context. Choose the subagent that matches the task and write a self-contained prompt.',
+    'Project rules below govern your work in this workspace and must also be preserved when you delegate. Workspace and profile details describe where delegated agents can run.',
     '',
     '<agent_rules>',
     workspaceRule
@@ -104,25 +99,10 @@ export function buildSubagentContextBlock(
       '',
       'Session resume:',
       '- Omit `session_id` for new tasks.',
-      '- Only pass `session_id` when the user explicitly asks to resume, with an exact ID from a prior `delegateTask` result in context. Never invent one.'
+      '- Only pass `session_id` when the user explicitly asks to resume, with an exact ID from a prior `delegateTask` result in context. Never invent one.',
+      '',
+      'Available agent profiles:'
     )
-  }
-
-  if (mode === 'worker') {
-    const enabled = subagentsConfig?.enabledNamedAgents ?? []
-    if (enabled.length > 0) {
-      lines.push('', 'Worker prompt guidance:')
-      for (const item of WORKER_DELEGATION_PROMPT_GUIDANCE) {
-        lines.push(`- ${item}`)
-      }
-      lines.push('', 'Available subagents:')
-      for (const id of enabled) {
-        const tools = DEFAULT_NAMED_SUBAGENT_PROFILES[id]?.allowedTools?.join(', ') ?? 'all tools'
-        lines.push(`- ${id}: ${SUBAGENT_DESCRIPTIONS[id]} (Tools: ${tools})`)
-      }
-    }
-  } else {
-    lines.push('', 'Available agent profiles:')
     for (const profile of enabledProfiles) {
       lines.push(`- ${profile.name}: ${profile.description}`)
     }
@@ -155,38 +135,47 @@ export function buildAgentInstructions(input: {
     return `- ${mode.label}: ${mode.description}`
   })
   const instructions = [
-    'You are operating as a tool-using local agent.',
-    'Default execution mode is YOLO: use tools directly for normal local work instead of asking for per-step confirmation.',
+    '## Local agent runtime',
+    '',
+    'You are operating as a tool-using local agent. In Auto Mode, use the capabilities exposed for this run directly when they help with the user’s request; normal local work does not need per-step confirmation.',
     'Available run modes:',
     ...runModeLines,
-    'The active mode is Auto Mode unless the turn reminder states otherwise.',
+    'Auto Mode is active unless the latest turn reminder names another mode.',
     workspaceLine,
     systemLine,
-    'Relative paths should resolve from that workspace unless you intentionally use an absolute path.'
+    'Resolve relative paths from this workspace unless a task intentionally uses an absolute path.',
+    '',
+    'In Yachiyo, a thread is the persistent container for messages, branches, workspace context, and continuity. A conversation is the visible dialogue inside that thread. A run is one execution attempt within it, so a per-run limit applies to the active execution rather than to the whole conversation. Scheduled work can continue later in an independent thread without the user remaining present.'
   ]
 
   if (input.isUserSpecifiedWorkspace) {
     instructions.push(
-      "The user has loaded a specific project workspace. At the start of your first reply, if the user's message is ambiguous or lacks context, proactively explore the project (e.g. read key files, check structure) to gain enough understanding before responding — the user may jump directly into discussing the project without preamble."
+      'The user deliberately loaded this project workspace. If their first message assumes project knowledge without giving enough context, inspect the relevant files before interpreting the request; they may continue a project discussion without reintroducing it.'
     )
   }
 
   if (input.userDocumentPath || input.soulDocumentPath) {
-    instructions.push('Durable context files live outside the thread workspace.')
+    instructions.push('', 'Durable context documents live outside the thread workspace.')
   }
 
   if (input.userDocumentPath) {
     instructions.push(
-      `USER.md is at ${input.userDocumentPath}. It stores durable understanding of the user. Update it only for stable user facts, preferences, communication style, or work style.`
+      `The current USER.md content is already loaded above. Its file is ${input.userDocumentPath}; update that document only when a fact or collaboration preference should persist beyond the current task.`
     )
   }
 
   if (input.soulDocumentPath) {
     instructions.push(
-      `SOUL.md is at ${input.soulDocumentPath}. It stores your evolving self-model and personality continuity. Do not mix USER.md content into SOUL.md.`,
-      'To update SOUL.md, use yachiyo CLI commands (for example, yachiyo soul add) or built-in skills. Do not use raw edit or write tools on SOUL.md directly.'
+      `The current SOUL.md content is already loaded above. Its file is ${input.soulDocumentPath}; it holds your evolving self-model rather than facts about the user. Update it through the Yachiyo CLI or the relevant built-in Skill so its structure remains intact.`
     )
   }
+
+  const hasYachiyoHelp = input.activeSkills.some((skill) => skill.name === 'yachiyo-help')
+  instructions.push(
+    hasYachiyoHelp
+      ? 'When the user asks how to configure or manage Yachiyo, read the yachiyo-help Skill for the current commands and use it as the operating guide.'
+      : 'If the user asks how to configure or manage Yachiyo, direct them to Settings > Skills > yachiyo-help because that operating guide is not active in this run.'
+  )
 
   if (
     input.enabledTools.length === 0 &&
@@ -195,80 +184,16 @@ export function buildAgentInstructions(input: {
     !input.hasRemember &&
     !input.hasTodoTool
   ) {
-    instructions.push('No tools are available for this run. Respond without tool calls.')
+    instructions.push(
+      'This run exposes no tools, so answer from the conversation and available context.'
+    )
     return instructions.join('\n')
   }
 
-  if (input.enabledTools.length > 0) {
-    instructions.push(`Available tools: ${input.enabledTools.join(', ')}.`)
-  }
-
-  if (input.activeSkills.length > 0) {
-    instructions.push(`Active Skills: ${input.activeSkills.map((skill) => skill.name).join(', ')}.`)
-  }
-
-  if (input.enabledTools.includes('bash')) {
-    instructions.push('Use bash for shell commands when shell execution is the clearest path.')
-  }
-
-  if (input.enabledTools.includes('grep')) {
-    instructions.push('Use grep for text/code search before falling back to bash search commands.')
-  }
-
-  if (input.enabledTools.includes('glob')) {
-    instructions.push('Use glob for file discovery before falling back to bash find/fd commands.')
-  }
-
-  if (
-    input.enabledTools.some(
-      (toolName) =>
-        toolName === 'read' || toolName === 'write' || toolName === 'edit' || toolName === 'glob'
-    )
-  ) {
-    instructions.push(
-      'Use read, write, or edit for direct file work when that is clearer than shell commands.'
-    )
-  }
-
-  if (input.enabledTools.includes('webRead')) {
-    instructions.push(
-      'Use webRead for static HTTP(S) resources when you want to read the response body. It extracts readable content from HTML when possible, returns raw bodies for non-HTML text responses, and falls back to raw HTML if extraction fails. It is not a browser automation or JS-rendering tool.'
-    )
-  }
-
-  if (input.enabledTools.includes('webSearch')) {
-    instructions.push(
-      'Use webSearch for general search results across the web. It returns normalized search hits, not arbitrary browser automation.'
-    )
-  }
-
-  if (input.enabledTools.includes('skillsRead')) {
-    instructions.push('Use skillsRead to get the full instructions of a discovered Skill by name.')
-  }
-
-  if (input.hasSourceQuery) {
-    instructions.push(
-      'querySource is available internally. Use it to look up local context sources, including memories when configured, past conversations, and activity records when source storage is available. In user-facing answers, describe thread records as conversations unless naming a table or field.'
-    )
-  }
-
-  if (input.hasTodoTool) {
-    instructions.push(
-      [
-        'updateTodoList is available internally to maintain the persistent todo widget for the user.',
-        'Use updateTodoList when the user asks for work with three or more independent steps, or when executing a plan that has explicit sequential steps; do not use it for single-step tasks, pure information answers, or trivial operations.',
-        'Each call must send the full current list with statuses pending, in_progress, or completed. Prefer one in_progress item for strictly sequential work, but preserve multiple in_progress items when that is the honest state.',
-        'A good todo entry is user-visible, outcome-oriented, independently actionable, and verifiable as done. Keep entries at the same abstraction level.',
-        'Do not make todo entries for internal tool usage, thinking, reading context, reporting back, or vague phases like "investigate", "implement", or "test" unless the concrete outcome is named.',
-        'Todo entry few-shots:',
-        'Bad: "Investigate code", "Implement changes", "Test". Good: "Identify the renderer path exposing hidden messages", "Separate hidden and visible follow-up drafts", "Verify hidden-message grouping and streaming behavior".',
-        'Bad: "Research options", "Write plan", "Finalize". Good: "Compare candidate options against the user constraints", "Draft the selected plan with concrete steps", "List unresolved decisions and recommended defaults".',
-        'Before starting a step, mark it in_progress. Immediately after finishing a step, mark it completed.',
-        'If blocked by an external dependency or error, keep the current item in_progress and include the blocker in that item description.',
-        'Remove items that are no longer relevant. When all work is finished, send the full list with every item completed; do not clear the list.'
-      ].join('\n')
-    )
-  }
+  instructions.push(
+    '',
+    'The runtime exposes the tools available for this run with their own descriptions and input contracts. Choose among them by the job at hand instead of repeating those contracts here. Active Skills are listed in their own layer; load one when its description fits the task.'
+  )
 
   const parts: string[] = [instructions.join('\n')]
   if (input.subagentContextBlock) {

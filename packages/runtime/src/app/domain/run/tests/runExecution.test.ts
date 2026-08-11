@@ -394,7 +394,7 @@ test('prepareServerRunContext counts structured evolved traits without crashing'
   }
 })
 
-test('prepareServerRunContext exposes worker delegateTask without ACP profiles', async () => {
+test('prepareServerRunContext includes worker subagent context without ACP profiles', async () => {
   const root = await mkdtemp(join(tmpdir(), 'yachiyo-worker-subagents-'))
   await mkdir(join(root, '.git'))
   const thread: ThreadRecord = {
@@ -430,7 +430,7 @@ test('prepareServerRunContext exposes worker delegateTask without ACP profiles',
       context.messages.map((message) => message.content).join('\n'),
       /unavailable because the current workspace is not a Git repository/
     )
-    assert.match(context.messages.map((message) => message.content).join('\n'), /delegateTask/)
+    assert.match(context.messages.map((message) => message.content).join('\n'), /<subagents>/)
     assert.deepEqual(context.subagentAvailableWorkspaces, [])
   } finally {
     await rm(root, { recursive: true, force: true })

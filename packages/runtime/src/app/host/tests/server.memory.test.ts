@@ -615,10 +615,6 @@ test('YachiyoServer does not claim there are no tools when querySource is the on
     systemMessages.some((message) => /No tools are available for this run/u.test(message.content)),
     false
   )
-  assert.equal(
-    systemMessages.some((message) => /querySource is available internally/u.test(message.content)),
-    true
-  )
 })
 
 test('YachiyoServer continues the run when memory recall fails', async () => {

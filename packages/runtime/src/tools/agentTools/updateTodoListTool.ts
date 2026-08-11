@@ -51,9 +51,8 @@ export function createUpdateTodoListTool(
 ): Tool<UpdateTodoListToolInput, UpdateTodoListToolOutput> {
   return tool({
     description:
-      'Update the persistent todo widget for multi-step work. ' +
-      'Use this only when the user request has three or more independent steps. ' +
-      'Always send the full current list, preserving every item status honestly. ' +
+      'Update the persistent todo widget for work with three or more independent steps or an accepted plan with explicit sequential steps; skip it for single-step and pure information requests. ' +
+      'Always send the full current list and preserve every status honestly. Mark a step in_progress before starting it and completed immediately after it finishes. ' +
       'When all work is finished, keep the completed items in the list instead of clearing it.',
     inputSchema: updateTodoListToolInputSchema,
     toModelOutput: ({ output }) => toToolModelOutput(output),

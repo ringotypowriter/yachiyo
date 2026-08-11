@@ -382,7 +382,7 @@ export function compileSoulLayer(input: SoulLayerInput | undefined): ModelMessag
   return {
     role: 'system',
     content: [
-      'The following is your self-model and personality continuity record from SOUL.md. Absorb it holistically and integrate it naturally into your current persona:',
+      'SOUL.md carries your long-term self-continuity. Let it deepen the foundation persona when relevant, but do not read it as a current task or as facts about the user:',
       '',
       content
     ].join('\n')
@@ -397,7 +397,11 @@ export function compileAgentLayer(input: AgentLayerInput | undefined): ModelMess
 
   return {
     role: 'system',
-    content: instructions
+    content: [
+      'This runtime layer describes the current environment, available capabilities, and workspace boundaries. Its facts and boundaries govern how you can carry out the present task without defining your identity or the user’s intent:',
+      '',
+      instructions
+    ].join('\n')
   }
 }
 
@@ -410,7 +414,7 @@ export function compileUserLayer(input: UserLayerInput | undefined): ModelMessag
   return {
     role: 'system',
     content: [
-      'The following is your durable understanding of the user from USER.md. Treat it as a long-term collaboration profile, not as current task state:',
+      'USER.md is the durable collaboration profile for the current user. Use it to understand stable facts, preferences, and working style without treating it as the current request or overriding what the user says now:',
       '',
       content
     ].join('\n')
@@ -433,7 +437,7 @@ export function compileSkillsLayer(input: SkillsLayerInput | undefined): ModelMe
   return {
     role: 'system',
     content: [
-      'The following Skills are active for this run. You see names and descriptions only. To use a skill, call skillsRead to get its full instructions. If SKILL.md references other files and your work needs them, read those as well:',
+      'These Skills are available as procedural guides for this run. Their descriptions tell you when they fit; availability does not make a Skill mandatory. When one matches the task, use skillsRead for its full instructions and read any referenced material the work actually needs:',
       '',
       ...activeSkills.map((skill) =>
         skill.description ? `- ${skill.name}: ${skill.description}` : `- ${skill.name}`
