@@ -3,7 +3,11 @@ import test from 'node:test'
 
 import type { ChannelGroupRecord, GroupProbeHeadlessAdapterConfig } from '@yachiyo/shared/protocol'
 import type { ProviderSettings } from '@yachiyo/shared/protocol'
-import { runGroupProbeHeadlessAdapter } from './channelGroupDiscussionService.ts'
+import { ChannelMessageTooLongError } from '../shared/sendWithUpdateReceipt.ts'
+import {
+  runGroupProbeHeadlessAdapter,
+  sendGroupReplyWithRewriteFallback
+} from './channelGroupDiscussionService.ts'
 import { CLAUDE_CODE_SEND_GROUP_MESSAGE_TOOL_CALL_ID } from './groupProbeClaudeCode.ts'
 
 const settings: ProviderSettings = {
@@ -66,4 +70,40 @@ test('runGroupProbeHeadlessAdapter drops replay messages when an empty send is r
   assert.equal(result.status, 'success')
   assert.equal(result.responseMessages, undefined)
   assert.equal(result.usage, undefined)
+})
+
+test('sendGroupReplyWithRewriteFallback sends the original draft when only the rewrite is too long', async () => {
+  const attempts: string[] = []
+
+  const sent = await sendGroupReplyWithRewriteFallback({
+    original: 'brief original',
+    rewritten: 'expanded rewrite',
+    send: async (message) => {
+      attempts.push(message)
+      if (message === 'expanded rewrite') {
+        throw new ChannelMessageTooLongError(12, message.length, 12)
+      }
+    }
+  })
+
+  assert.equal(sent, 'brief original')
+  assert.deepEqual(attempts, ['expanded rewrite', 'brief original'])
+})
+
+test('sendGroupReplyWithRewriteFallback does not retry an ambiguous delivery failure', async () => {
+  const attempts: string[] = []
+
+  await assert.rejects(
+    sendGroupReplyWithRewriteFallback({
+      original: 'brief original',
+      rewritten: 'voice rewrite',
+      send: async (message) => {
+        attempts.push(message)
+        throw new Error('network result unknown')
+      }
+    }),
+    /network result unknown/
+  )
+
+  assert.deepEqual(attempts, ['voice rewrite'])
 })

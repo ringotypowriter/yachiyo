@@ -93,7 +93,6 @@ both are set.
 
 | Key                                            | Type     | Default                      | Description                                                                                                   |
 | ---------------------------------------------- | -------- | ---------------------------- | ------------------------------------------------------------------------------------------------------------- |
-| `verbosity`                                    | `number` | `0`                          | Speech throttle: `0` is the normal curve, `1` never throttles                                                 |
 | `check_interval_ms`                            | `number` | —                            | Global override for the active-phase probe interval                                                           |
 | `dm_compact_token_threshold_k`                 | `number` | `64`                         | DM context budget, in thousands of tokens                                                                     |
 | `group_context_window_k`                       | `number` | `64`                         | Group probe sliding window, in thousands of tokens                                                            |

@@ -121,6 +121,24 @@ export async function runGroupProbeHeadlessAdapter(input: {
   }
 }
 
+export async function sendGroupReplyWithRewriteFallback(input: {
+  original: string
+  rewritten: string
+  send: (message: string) => Promise<void>
+}): Promise<string> {
+  try {
+    await input.send(input.rewritten)
+    return input.rewritten
+  } catch (error) {
+    if (input.rewritten === input.original || !(error instanceof ChannelMessageTooLongError)) {
+      throw error
+    }
+
+    await input.send(input.original)
+    return input.original
+  }
+}
+
 export function createChannelGroupDiscussionService(
   options: ChannelGroupDiscussionServiceOptions
 ): ChannelGroupDiscussionService {
@@ -208,7 +226,11 @@ export function createChannelGroupDiscussionService(
       }
 
       try {
-        await sendMessage(group, outgoing)
+        outgoing = await sendGroupReplyWithRewriteFallback({
+          original: preparedMessage,
+          rewritten: outgoing,
+          send: (message) => sendMessage(group, message)
+        })
       } catch (err) {
         if (err instanceof ChannelMessageTooLongError) {
           turnSendGuard.recordRetryableRejection()
