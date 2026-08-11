@@ -31,20 +31,21 @@ const group: ChannelGroupRecord = {
   createdAt: '2026-04-21T00:00:00.000Z'
 }
 
-test('runGroupProbeHeadlessAdapter drops replay messages when the guarded send is rejected', async () => {
+test('runGroupProbeHeadlessAdapter drops replay messages when an empty send is rejected', async () => {
   const result = await runGroupProbeHeadlessAdapter({
     adapter,
     group,
     logLabel: 'group-probe',
     messages: [{ role: 'user', content: '<msg from="Alice">ping</msg>' }],
-    sendGroupMessage: async () => 'Rejected: too long for a group chat message.',
+    sendGroupMessage: async () =>
+      'Message not sent because it contained no visible text. Send the words you want the group to see.',
     runClaudeCodeProbe: async () => ({
       status: 'success',
-      decision: { action: 'send', message: '这段太长了' },
+      decision: { action: 'send', message: '' },
       auxiliaryResult: {
         status: 'success',
         settings,
-        text: '{"action":"send","message":"这段太长了"}',
+        text: '{"action":"send","message":""}',
         responseMessages: [
           {
             role: 'assistant',
@@ -53,7 +54,7 @@ test('runGroupProbeHeadlessAdapter drops replay messages when the guarded send i
                 type: 'tool-call',
                 toolCallId: CLAUDE_CODE_SEND_GROUP_MESSAGE_TOOL_CALL_ID,
                 toolName: 'send_group_message',
-                input: { message: '这段太长了' }
+                input: { message: '' }
               }
             ]
           }

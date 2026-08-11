@@ -1,38 +1,54 @@
 export const GROUP_TURN_MULTI_SEND_MELTDOWN_MESSAGE =
-  'Meltdown: you already sent one group message in this turn. Do not send again.'
+  'Stopped: one group message was already sent in this turn. Continue without sending another; new group activity can start a later turn.'
 
-export const GROUP_TURN_BLOCKED_SEND_MELTDOWN_MESSAGE =
-  'Meltdown: repeated blocked group-message sends in this turn. Stop trying to speak and stay silent.'
+export const GROUP_TURN_ATTEMPT_LIMIT_MESSAGE =
+  'Stopped: this turn already used its correction attempt. Continue without sending; new group activity can start a later turn.'
+
+export const GROUP_TURN_DELIVERY_FAILED_MESSAGE =
+  'Stopped: delivery already failed in this turn and may be ambiguous. Wait for new group activity instead of risking a duplicate.'
 
 export interface GroupTurnSendGuard {
   beforeAttempt(): void
-  recordBlockedAttempt(): string
+  recordRetryableRejection(): void
+  recordDeliveryFailure(): void
   recordSent(): void
 }
 
 export function createGroupTurnSendGuard(): GroupTurnSendGuard {
-  let blockedAttempts = 0
+  let attempts = 0
   let hasSent = false
+  let deliveryFailed = false
 
   return {
     beforeAttempt() {
       if (hasSent) {
         throw new Error(GROUP_TURN_MULTI_SEND_MELTDOWN_MESSAGE)
       }
+      if (deliveryFailed) {
+        throw new Error(GROUP_TURN_DELIVERY_FAILED_MESSAGE)
+      }
+      if (attempts >= 2) {
+        throw new Error(GROUP_TURN_ATTEMPT_LIMIT_MESSAGE)
+      }
+      attempts += 1
     },
 
-    recordBlockedAttempt() {
-      blockedAttempts += 1
-      if (blockedAttempts >= 2) {
-        throw new Error(GROUP_TURN_BLOCKED_SEND_MELTDOWN_MESSAGE)
+    recordRetryableRejection() {
+      if (hasSent || deliveryFailed || attempts === 0) {
+        throw new Error('Cannot reject a group-message attempt in the current guard state')
       }
+    },
 
-      return 'Dropped: you have been talking too much recently. Your message was not sent. Stay silent for the rest of this turn.'
+    recordDeliveryFailure() {
+      if (hasSent || attempts === 0) {
+        throw new Error('Cannot record a group-message delivery failure in the current guard state')
+      }
+      deliveryFailed = true
     },
 
     recordSent() {
-      if (hasSent) {
-        throw new Error(GROUP_TURN_MULTI_SEND_MELTDOWN_MESSAGE)
+      if (hasSent || deliveryFailed || attempts === 0) {
+        throw new Error('Cannot record a successful group-message send in the current guard state')
       }
       hasSent = true
     }

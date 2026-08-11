@@ -1,14 +1,7 @@
 import type { ProviderSettings } from '@yachiyo/shared/protocol'
 import type { AuxiliaryGenerationService } from '../../runtime/models/auxiliaryGeneration.ts'
-import {
-  GROUP_REPLY_REWRITE_SYSTEM_PROMPT,
-  buildGroupReplyRewritePrompt
-} from '../../runtime/context/prompt.ts'
-import {
-  hasForbiddenGroupReplyPrefix,
-  hasVisibleGroupReplyContent,
-  isOverlongGroupReply
-} from './groupReplyGuard.ts'
+import { GROUP_REPLY_REWRITE_SYSTEM_PROMPT, buildGroupReplyRewritePrompt } from './groupPrompts.ts'
+import { prepareGroupReplyForDelivery } from './groupReplyContent.ts'
 
 export interface RewriteGroupReplyInput {
   auxService: Pick<AuxiliaryGenerationService, 'generateText'>
@@ -18,8 +11,8 @@ export interface RewriteGroupReplyInput {
 
 /**
  * Voice pass: rewrite an outgoing group reply into the persona's chat voice
- * with the configured rewrite model. Returns the rewritten single-line text,
- * or null when the result is unusable — callers fall back to the original
+ * with the configured rewrite model. Returns the rewritten text, or null when
+ * the result is empty — callers fall back to the original
  * message, so a flaky rewriter can never silence the bot.
  */
 export async function rewriteGroupReply(input: RewriteGroupReplyInput): Promise<string | null> {
@@ -40,20 +33,5 @@ export async function rewriteGroupReply(input: RewriteGroupReplyInput): Promise<
     return null
   }
 
-  // Collapse any stray newlines and quoting the rewriter added.
-  const rewritten = result.text
-    .replace(/\s*\n+\s*/g, ' ')
-    .trim()
-    .replace(/^["'“”「」]+|["'“”「」]+$/g, '')
-    .trim()
-
-  if (
-    !rewritten ||
-    !hasVisibleGroupReplyContent(rewritten) ||
-    hasForbiddenGroupReplyPrefix(rewritten) ||
-    isOverlongGroupReply(rewritten)
-  ) {
-    return null
-  }
-  return rewritten
+  return prepareGroupReplyForDelivery(result.text)
 }

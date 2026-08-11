@@ -360,10 +360,6 @@ export const channelsTomlSlices: readonly TomlConfigSlice<ChannelsConfig, TomlDo
         return {}
       }
 
-      const groupVerbosity =
-        typeof section['verbosity'] === 'number' && Number.isFinite(section['verbosity'])
-          ? Math.max(0, Math.min(1, section['verbosity']))
-          : undefined
       const groupCheckIntervalMs = readInteger(section['check_interval_ms'])
       const dmCompactTokenThresholdK = readInteger(section['dm_compact_token_threshold_k'])
       const groupContextWindowK = readInteger(section['group_context_window_k'])
@@ -377,7 +373,6 @@ export const channelsTomlSlices: readonly TomlConfigSlice<ChannelsConfig, TomlDo
           : undefined
 
       return {
-        ...(groupVerbosity !== undefined ? { groupVerbosity } : {}),
         ...(groupCheckIntervalMs !== undefined ? { groupCheckIntervalMs } : {}),
         ...(dmCompactTokenThresholdK !== undefined ? { dmCompactTokenThresholdK } : {}),
         ...(groupContextWindowK !== undefined ? { groupContextWindowK } : {}),
@@ -388,7 +383,6 @@ export const channelsTomlSlices: readonly TomlConfigSlice<ChannelsConfig, TomlDo
     },
     write(config) {
       const hasGroup =
-        config.groupVerbosity !== undefined ||
         config.groupCheckIntervalMs !== undefined ||
         config.dmCompactTokenThresholdK !== undefined ||
         config.groupContextWindowK !== undefined ||
@@ -402,7 +396,6 @@ export const channelsTomlSlices: readonly TomlConfigSlice<ChannelsConfig, TomlDo
 
       return {
         group: buildSection([
-          ['verbosity', config.groupVerbosity],
           ['check_interval_ms', config.groupCheckIntervalMs],
           ['dm_compact_token_threshold_k', config.dmCompactTokenThresholdK],
           ['group_context_window_k', config.groupContextWindowK],

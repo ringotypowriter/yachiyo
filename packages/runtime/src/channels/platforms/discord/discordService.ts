@@ -87,8 +87,6 @@ export interface DiscordServiceOptions {
   server: YachiyoServer
   /** Group discussion config from channels.toml. */
   groupConfig?: GroupChannelConfig
-  /** Global speech throttle verbosity (0–1). */
-  groupVerbosity?: number
   /** Global override for active-phase check interval (ms). */
   groupCheckIntervalMs?: number
   /** Effective policy with config overrides applied. Defaults to discordPolicy. */
@@ -161,7 +159,6 @@ export function createDiscordService({
   model: modelOverride,
   server,
   groupConfig,
-  groupVerbosity,
   groupCheckIntervalMs,
   policy: policyOverride,
   updateReceiptLease
@@ -463,7 +460,6 @@ export function createDiscordService({
         server,
         policy,
         groupConfig,
-        groupVerbosity,
         groupCheckIntervalMs,
         sendMessage: (group, message) => sendMessage(group.externalGroupId, message)
       })

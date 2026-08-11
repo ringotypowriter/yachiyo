@@ -103,7 +103,6 @@ export function createRuntimeLiveServices(
   ): string {
     return JSON.stringify({
       platform: cfg[platform],
-      groupVerbosity: cfg.groupVerbosity,
       groupCheckIntervalMs: cfg.groupCheckIntervalMs,
       dmCompactTokenThresholdK: cfg.dmCompactTokenThresholdK,
       groupContextWindowK: cfg.groupContextWindowK,
@@ -131,7 +130,6 @@ export function createRuntimeLiveServices(
             server,
             groupConfig: cfg.telegram?.group,
             botUsername: undefined,
-            groupVerbosity: cfg.groupVerbosity,
             groupCheckIntervalMs: cfg.groupCheckIntervalMs,
             policy: applyChannelsConfigToPolicy(telegramPolicy, cfg),
             updateReceiptLease: options.updateReceiptLease
@@ -158,7 +156,6 @@ export function createRuntimeLiveServices(
             server,
             groupConfig: cfg.qq?.group,
             botQQId: undefined,
-            groupVerbosity: cfg.groupVerbosity,
             groupCheckIntervalMs: cfg.groupCheckIntervalMs,
             policy: applyChannelsConfigToPolicy(qqPolicy, cfg),
             updateReceiptLease: options.updateReceiptLease
@@ -183,7 +180,6 @@ export function createRuntimeLiveServices(
             model: cfg.discord?.model,
             server,
             groupConfig: cfg.discord?.group,
-            groupVerbosity: cfg.groupVerbosity,
             groupCheckIntervalMs: cfg.groupCheckIntervalMs,
             policy: applyChannelsConfigToPolicy(discordPolicy, cfg),
             updateReceiptLease: options.updateReceiptLease

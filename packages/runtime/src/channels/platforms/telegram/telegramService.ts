@@ -61,8 +61,6 @@ export interface TelegramServiceOptions {
   groupConfig?: GroupChannelConfig
   /** Bot's username (without @) for mention detection. */
   botUsername?: string
-  /** Global speech throttle verbosity (0–1). */
-  groupVerbosity?: number
   /** Global override for active-phase check interval (ms). */
   groupCheckIntervalMs?: number
   /** Effective policy with config overrides applied. Defaults to telegramPolicy. */
@@ -94,7 +92,6 @@ export function createTelegramService({
   server,
   groupConfig,
   botUsername,
-  groupVerbosity,
   groupCheckIntervalMs,
   policy: policyOverride,
   updateReceiptLease
@@ -463,9 +460,7 @@ export function createTelegramService({
         server,
         policy,
         groupConfig,
-        groupVerbosity,
         groupCheckIntervalMs,
-        rejectMultilineMessages: true,
         sendMessage: (group, message) => sendMessage(group.externalGroupId, message)
       })
     : null

@@ -64,8 +64,6 @@ export interface QQServiceOptions {
   groupConfig?: GroupChannelConfig
   /** Bot's own QQ user ID (to detect @mentions). */
   botQQId?: string
-  /** Global speech throttle verbosity (0–1). */
-  groupVerbosity?: number
   /** Global override for active-phase check interval (ms). */
   groupCheckIntervalMs?: number
   /** Effective policy with config overrides applied. Defaults to qqPolicy. */
@@ -98,7 +96,6 @@ export function createQQService({
   server,
   groupConfig,
   botQQId,
-  groupVerbosity,
   groupCheckIntervalMs,
   policy: policyOverride,
   updateReceiptLease,
@@ -360,9 +357,7 @@ export function createQQService({
           server,
           policy,
           groupConfig,
-          groupVerbosity,
           groupCheckIntervalMs,
-          rejectMultilineMessages: true,
           sendMessage: async (group, message) => {
             await sendGroupMessage(Number(group.externalGroupId), message)
           }

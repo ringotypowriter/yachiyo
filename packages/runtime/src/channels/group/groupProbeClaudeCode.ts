@@ -80,20 +80,18 @@ export function buildClaudeCodeProbePrompt(messages: ModelMessage[]): string {
     .join('\n\n')
 
   return `\
-You are a claude -p headless adapter for Yachiyo's group probe.
+你在替八千代决定群聊中的下一步。\`<group_context>\` 里是她的身份、群聊背景、参与方式和刚发生的对话。按这些内容作出同样的社交判断。
 
-The original group-probe instructions may say to call \`send_group_message\`.
-In this headless mode, you cannot call tools. Instead, decide whether that tool
-should be called and return ONLY one JSON object:
+这个运行环境不能使用工具，只能根据已有上下文决定。如果缺少当前事实，她可以在消息里坦白不确定，或者这一轮不说，不要假装已经查询过。用下面两种 JSON 之一表达决定：
 
-{"action": "send", "message": "the exact short group message"}
+{"action": "send", "message": "the exact group message"}
 {"action": "silent"}
 
-No markdown, no explanation, no extra keys.
+发送时，\`message\` 是群友实际会看到的完整原话。不说时，返回 silent。调用方会校验并投递消息，这里只表达发送意图，不要自行假设投递结果。除了这个 JSON，不要附加解释或其他字段。
 
-<probe_messages>
+<group_context>
 ${transcript}
-</probe_messages>`
+</group_context>`
 }
 
 function stripJsonFence(output: string): string {
@@ -113,11 +111,10 @@ export function parseClaudeCodeProbeDecision(output: string): ClaudeCodeProbeDec
   }
 
   if (parsed.action === 'send' && typeof parsed.message === 'string') {
-    const message = parsed.message.trim()
-    if (message.length === 0) {
+    if (parsed.message.trim().length === 0) {
       throw new Error('Claude Code probe returned an empty send message')
     }
-    return { action: 'send', message }
+    return { action: 'send', message: parsed.message }
   }
 
   throw new Error('Claude Code probe returned invalid JSON decision')

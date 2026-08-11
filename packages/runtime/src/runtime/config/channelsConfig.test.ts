@@ -52,7 +52,6 @@ test('channels config round-trips through TOML', async () => {
       imageToText: {
         enabled: true
       },
-      groupVerbosity: 0.4,
       groupCheckIntervalMs: 9000,
       dmCompactTokenThresholdK: 48,
       groupContextWindowK: 96,
@@ -208,14 +207,14 @@ test('readChannelsConfig returns empty config for invalid TOML', async () => {
   }
 })
 
-test('parseChannelsToml clamps group verbosity into the supported range', () => {
+test('parseChannelsToml ignores the removed group verbosity setting', () => {
   const config = parseChannelsToml(`
 [group]
 verbosity = 9
 check_interval_ms = 12000
 `)
 
-  assert.equal(config.groupVerbosity, 1)
+  assert.equal('groupVerbosity' in config, false)
   assert.equal(config.groupCheckIntervalMs, 12000)
 })
 

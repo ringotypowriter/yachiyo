@@ -355,39 +355,6 @@ test('compileGroupProbeContextLayers keeps the newest user delta without local t
   assert.ok(hasDelta, 'the newest user delta survives the budget on its own')
 })
 
-test('compileGroupProbeContextLayers re-asserts the style reminder right before the current turn', () => {
-  const messages = compileGroupProbeContextLayers({
-    stableSystemPrompt: 'Stable group behavior rules.',
-    dynamicSystemPrompt: 'You are the group probe.',
-    history: [{ role: 'user', content: '<msg from="Alice">old turn</msg>' }],
-    currentTurnContent: '<msg from="Bob">fresh turn</msg>',
-    styleReminder: 'Stay in your own voice.'
-  })
-
-  const last = messages[messages.length - 1]
-  const secondLast = messages[messages.length - 2]
-  assert.equal(last?.content, '<msg from="Bob">fresh turn</msg>')
-  assert.equal(secondLast?.role, 'user')
-  assert.match(secondLast?.content as string, /<style_reminder>/)
-  assert.match(secondLast?.content as string, /Stay in your own voice\./)
-})
-
-test('compileGroupProbeContextLayers omits the style reminder when there is no replayable history', () => {
-  const messages = compileGroupProbeContextLayers({
-    stableSystemPrompt: 'Stable group behavior rules.',
-    dynamicSystemPrompt: 'You are the group probe.',
-    history: [],
-    currentTurnContent: '<msg from="Bob">fresh turn</msg>',
-    styleReminder: 'Stay in your own voice.'
-  })
-
-  assert.ok(
-    !messages.some(
-      (message) => typeof message.content === 'string' && message.content.includes('style_reminder')
-    )
-  )
-})
-
 test('compileGroupProbeContextLayers drops tool-assisted silent turns unless they sent a group message', () => {
   const responseMessages = [
     {
@@ -440,7 +407,6 @@ test('compileGroupProbeContextLayers applies Anthropic cache breakpoints when re
       { role: 'assistant', content: 'Staying quiet.' }
     ],
     currentTurnContent: '<msg from="Bob">fresh turn</msg>',
-    styleReminder: 'Keep the persona sharp.',
     anthropicCacheBreakpoints: true
   })
 

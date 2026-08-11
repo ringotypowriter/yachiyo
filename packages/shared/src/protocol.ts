@@ -1043,11 +1043,6 @@ export interface ChannelsConfig {
   guestInstruction?: string
   /** Image-to-text description service settings. */
   imageToText?: ImageToTextConfig
-  /**
-   * Global speech throttle verbosity for group discussions.
-   * 0 = default throttle curve, 1 = never throttled. Default undefined (= 0).
-   */
-  groupVerbosity?: number
   /** Global override for the active-phase check interval (ms); per-platform `activeCheckIntervalMs` wins when set. */
   groupCheckIntervalMs?: number
   /** Legacy-named DM context budget (in K), shown in channel status output. Default: 64 (= 64 000 tokens). */
