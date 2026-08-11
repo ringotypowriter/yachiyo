@@ -14,12 +14,14 @@ export interface ChannelSendOptions {
 export class ChannelMessageTooLongError extends Error {
   readonly maxLength: number
   readonly actualLength: number
+  readonly availableTextLength: number
 
-  constructor(maxLength: number, actualLength: number) {
+  constructor(maxLength: number, actualLength: number, availableTextLength: number) {
     super(`Channel send exceeds the single platform message limit (${actualLength} > ${maxLength})`)
     this.name = 'ChannelMessageTooLongError'
     this.maxLength = maxLength
     this.actualLength = actualLength
+    this.availableTextLength = availableTextLength
   }
 }
 
@@ -77,7 +79,12 @@ export async function sendWithUpdateReceipt(input: {
   try {
     const maxLength = input.sendOptions?.singleMessageMaxLength
     if (maxLength !== undefined && body.length > maxLength) {
-      throw new ChannelMessageTooLongError(maxLength, body.length)
+      const requiredPrefixLength = body.length - input.text.length
+      throw new ChannelMessageTooLongError(
+        maxLength,
+        body.length,
+        Math.max(0, maxLength - requiredPrefixLength)
+      )
     }
 
     // Check after claiming the receipt. A bounded caller may have moved on

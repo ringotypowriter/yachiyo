@@ -215,7 +215,7 @@ export function createChannelGroupDiscussionService(
           console.log(
             `[${logLabel}] rejected over-limit message for "${group.name}": ${err.actualLength} > ${err.maxLength}`
           )
-          return `Message not sent because ${platform} accepts at most ${err.maxLength} characters in one group message. Rewrite it as one complete message within that limit.`
+          return `Message not sent. After required delivery text, your reply can use at most ${err.availableTextLength} characters in this ${platform} group message. Rewrite it as one complete message within that limit.`
         }
 
         turnSendGuard.recordDeliveryFailure()

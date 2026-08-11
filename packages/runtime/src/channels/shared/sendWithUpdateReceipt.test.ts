@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { sendWithUpdateReceipt } from './sendWithUpdateReceipt.ts'
+import { ChannelMessageTooLongError, sendWithUpdateReceipt } from './sendWithUpdateReceipt.ts'
 
 function lease(overrides: Partial<Record<'claim' | 'ack' | 'release', unknown>> = {}): {
   lease: Parameters<typeof sendWithUpdateReceipt>[0]['lease']
@@ -197,11 +197,30 @@ test('a single-message send rejects the final composed body before platform disp
         lease: l,
         sendOptions: { singleMessageMaxLength: 8 }
       }),
-    /single platform message limit/
+    (error: unknown) => {
+      assert.ok(error instanceof ChannelMessageTooLongError)
+      assert.equal(error.maxLength, 8)
+      assert.equal(error.actualLength, 9)
+      assert.equal(error.availableTextLength, 2, 'the receipt prefix consumes six characters')
+      return true
+    }
   )
 
-  assert.deepEqual(sent, [], 'no first chunk may become visible')
+  assert.equal(sent.length, 0, 'no first chunk may become visible')
   assert.deepEqual(calls, ['claim', 'release'], 'the unsent receipt remains owed')
+
+  await sendWithUpdateReceipt({
+    channelId: 'chan-1',
+    text: '12',
+    send: async (body) => {
+      sent.push(body)
+    },
+    lease: l,
+    sendOptions: { singleMessageMaxLength: 8 }
+  })
+
+  assert.deepEqual(sent, ['1234\n\n12'], 'a correction at the available allowance fits once')
+  assert.deepEqual(calls, ['claim', 'release', 'claim', 'ack'])
 })
 
 /** The reply matters more than the bookkeeping: a broken lease must not block it. */
