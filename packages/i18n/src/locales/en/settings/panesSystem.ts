@@ -31,7 +31,6 @@ export const channels = {
   dmCompactThresholdDescription: 'Compact DM thread history above this token count.',
   groupContextWindow: 'Group context window',
   groupContextWindowDescription: 'Sliding window budget for group probe messages.',
-  verbosity: 'Verbosity',
   checkInterval: 'Check interval',
   intervalSeconds: '{seconds}s',
   rewriteModel: 'Rewrite model',

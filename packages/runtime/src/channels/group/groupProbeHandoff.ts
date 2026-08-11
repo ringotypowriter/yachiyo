@@ -2,10 +2,7 @@ import type { MessageRecord, ProviderSettings, ThreadRecord } from '@yachiyo/sha
 import type { AuxiliaryGenerationService } from '../../runtime/models/auxiliaryGeneration.ts'
 import type { ModelMessage } from '../../runtime/models/types.ts'
 import { extractSuccessfulGroupMessageText } from '../../runtime/context/groupProbeContextLayers.ts'
-import {
-  GROUP_HANDOFF_SYSTEM_PROMPT,
-  buildGroupHandoffSummaryPrompt
-} from '../../runtime/context/prompt.ts'
+import { GROUP_HANDOFF_SYSTEM_PROMPT, buildGroupHandoffSummaryPrompt } from './groupPrompts.ts'
 
 interface GroupHandoffStorage {
   getThread(threadId: string): ThreadRecord | undefined

@@ -3,30 +3,30 @@ import { describe, it } from 'node:test'
 
 import {
   createGroupTurnSendGuard,
-  GROUP_TURN_BLOCKED_SEND_MELTDOWN_MESSAGE,
+  GROUP_TURN_ATTEMPT_LIMIT_MESSAGE,
+  GROUP_TURN_DELIVERY_FAILED_MESSAGE,
   GROUP_TURN_MULTI_SEND_MELTDOWN_MESSAGE
 } from './groupTurnSendGuard.ts'
 
 describe('createGroupTurnSendGuard', () => {
-  it('returns the throttle-drop message on the first blocked attempt', () => {
+  it('allows one correction after a retryable rejection', () => {
     const guard = createGroupTurnSendGuard()
 
-    assert.equal(
-      guard.recordBlockedAttempt(),
-      'Dropped: you have been talking too much recently. Your message was not sent. Stay silent for the rest of this turn.'
-    )
+    guard.beforeAttempt()
+    guard.recordRetryableRejection()
+    assert.doesNotThrow(() => guard.beforeAttempt())
   })
 
-  it('melts down after repeated blocked attempts in one turn', () => {
+  it('stops a third attempt so corrective retries cannot loop', () => {
     const guard = createGroupTurnSendGuard()
 
-    assert.equal(
-      guard.recordBlockedAttempt(),
-      'Dropped: you have been talking too much recently. Your message was not sent. Stay silent for the rest of this turn.'
-    )
+    guard.beforeAttempt()
+    guard.recordRetryableRejection()
+    guard.beforeAttempt()
+    guard.recordRetryableRejection()
 
-    assert.throws(() => guard.recordBlockedAttempt(), {
-      message: GROUP_TURN_BLOCKED_SEND_MELTDOWN_MESSAGE
+    assert.throws(() => guard.beforeAttempt(), {
+      message: GROUP_TURN_ATTEMPT_LIMIT_MESSAGE
     })
   })
 
@@ -38,6 +38,17 @@ describe('createGroupTurnSendGuard', () => {
 
     assert.throws(() => guard.beforeAttempt(), {
       message: GROUP_TURN_MULTI_SEND_MELTDOWN_MESSAGE
+    })
+  })
+
+  it('stops retries after an ambiguous delivery failure', () => {
+    const guard = createGroupTurnSendGuard()
+
+    guard.beforeAttempt()
+    guard.recordDeliveryFailure()
+
+    assert.throws(() => guard.beforeAttempt(), {
+      message: GROUP_TURN_DELIVERY_FAILED_MESSAGE
     })
   })
 })

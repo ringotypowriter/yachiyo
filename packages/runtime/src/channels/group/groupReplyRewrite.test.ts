@@ -3,7 +3,6 @@ import test from 'node:test'
 
 import type { ProviderSettings } from '@yachiyo/shared/protocol'
 import type { AuxiliaryTextGenerationResult } from '../../runtime/models/auxiliaryGeneration.ts'
-import { GROUP_REPLY_MAX_CHARS } from './groupReplyGuard.ts'
 import { rewriteGroupReply } from './groupReplyRewrite.ts'
 
 const settingsOverride = {} as ProviderSettings
@@ -26,16 +25,18 @@ test('rewriteGroupReply returns the rewritten text', async () => {
     message: '对，这张像是"我已经很克制了"，太真实了。',
     settingsOverride
   })
-  assert.equal(rewritten, '这猫脸也太臭了哈哈')
+  assert.equal(rewritten, '  这猫脸也太臭了哈哈  ')
 })
 
-test('rewriteGroupReply strips wrapping quotes and collapses newlines', async () => {
+test('rewriteGroupReply preserves the rewrite instead of mechanically restyling it', async () => {
+  const message = `：先说第一句
+}再说第二句，${'长一点也是自然聊天。'.repeat(12)}`
   const rewritten = await rewriteGroupReply({
-    auxService: auxReturning(success('"这猫脸\n也太臭了"')),
+    auxService: auxReturning(success(message)),
     message: 'x',
     settingsOverride
   })
-  assert.equal(rewritten, '这猫脸 也太臭了')
+  assert.equal(rewritten, message)
 })
 
 test('rewriteGroupReply returns null when generation is unavailable', async () => {
@@ -63,24 +64,6 @@ test('rewriteGroupReply returns null when generation throws', async () => {
 test('rewriteGroupReply returns null when the rewrite is empty', async () => {
   const rewritten = await rewriteGroupReply({
     auxService: auxReturning(success('   ')),
-    message: 'x',
-    settingsOverride
-  })
-  assert.equal(rewritten, null)
-})
-
-test('rewriteGroupReply returns null when the rewrite is overlong', async () => {
-  const rewritten = await rewriteGroupReply({
-    auxService: auxReturning(success('字'.repeat(GROUP_REPLY_MAX_CHARS + 1))),
-    message: 'x',
-    settingsOverride
-  })
-  assert.equal(rewritten, null)
-})
-
-test('rewriteGroupReply returns null when the rewrite has a forbidden prefix', async () => {
-  const rewritten = await rewriteGroupReply({
-    auxService: auxReturning(success('：这样开头不行')),
     message: 'x',
     settingsOverride
   })

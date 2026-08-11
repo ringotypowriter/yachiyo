@@ -817,7 +817,6 @@ export function ChannelsPane({
   }
 
   // General tab (default)
-  const verbosity = config.groupVerbosity ?? 0
   const checkIntervalSec = Math.round((config.groupCheckIntervalMs ?? 30_000) / 1_000)
   const dmCompactTokenThresholdK = config.dmCompactTokenThresholdK ?? 64
   const groupContextWindowK = config.groupContextWindowK ?? 64
@@ -884,32 +883,6 @@ export function ChannelsPane({
 
       <SettingSection>
         <SettingLabel>{t('settings.channels.groupDiscussion')}</SettingLabel>
-
-        <SettingRow>
-          <div className="min-w-0 flex-1">
-            <div className="text-sm font-medium" style={{ color: theme.text.primary }}>
-              {t('settings.channels.verbosity')}
-            </div>
-          </div>
-          <div className="flex shrink-0 items-center gap-3">
-            <SettingSlider
-              min={0}
-              max={1}
-              step={0.05}
-              value={verbosity}
-              onChange={(v) => {
-                onConfigChange({ ...config, groupVerbosity: v })
-              }}
-              aria-label={t('settings.channels.verbosity')}
-            />
-            <span
-              className="text-sm font-medium tabular-nums"
-              style={{ minWidth: 36, textAlign: 'right', color: theme.text.primary }}
-            >
-              {Math.round(verbosity * 100)}%
-            </span>
-          </div>
-        </SettingRow>
 
         <SettingRow>
           <div className="min-w-0 flex-1">

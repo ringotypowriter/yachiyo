@@ -31,7 +31,6 @@ export const channels = {
   dmCompactThresholdDescription: '私聊会话历史超过该 token 数量时进行压缩。',
   groupContextWindow: '群聊上下文窗口',
   groupContextWindowDescription: '群聊探测消息的滑动窗口预算。',
-  verbosity: '发言频率',
   checkInterval: '检查间隔',
   intervalSeconds: '{seconds} 秒',
   rewriteModel: '重写模型',

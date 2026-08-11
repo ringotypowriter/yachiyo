@@ -8,7 +8,6 @@ import { extractSuccessfulGroupMessageText } from '../../runtime/context/groupPr
 import type { ModelMessage } from '../../runtime/models/types.ts'
 import {
   buildClaudeCodeProbeCommand,
-  buildClaudeCodeProbePrompt,
   parseClaudeCodeProbeDecision,
   runClaudeCodeGroupProbe
 } from './groupProbeClaudeCode.ts'
@@ -49,18 +48,6 @@ test('buildClaudeCodeProbeCommand uses claude print mode with optional model', (
   })
 })
 
-test('buildClaudeCodeProbePrompt adapts group probe tool instructions to JSON output', () => {
-  const prompt = buildClaudeCodeProbePrompt([
-    { role: 'system', content: 'Call `send_group_message` when you speak.' },
-    { role: 'user', content: '<msg from="Alice">ping</msg>' }
-  ])
-
-  assert.match(prompt, /claude -p headless adapter/)
-  assert.match(prompt, /"action": "send"/)
-  assert.match(prompt, /"action": "silent"/)
-  assert.match(prompt, /<msg from="Alice">ping<\/msg>/)
-})
-
 test('parseClaudeCodeProbeDecision accepts bare and fenced JSON decisions', () => {
   assert.deepEqual(parseClaudeCodeProbeDecision('{"action":"silent"}'), { action: 'silent' })
   assert.deepEqual(
@@ -70,6 +57,16 @@ test('parseClaudeCodeProbeDecision accepts bare and fenced JSON decisions', () =
       message: '来点有用的'
     }
   )
+})
+
+test('parseClaudeCodeProbeDecision preserves the exact visible message', () => {
+  const message = `  ：先说第一行
+}再说第二行  `
+
+  assert.deepEqual(parseClaudeCodeProbeDecision(JSON.stringify({ action: 'send', message })), {
+    action: 'send',
+    message
+  })
 })
 
 test('runClaudeCodeGroupProbe calls claude -p and records sent messages for replay', async () => {

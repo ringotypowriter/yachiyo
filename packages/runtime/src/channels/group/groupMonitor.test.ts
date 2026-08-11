@@ -6,6 +6,7 @@ import {
   GROUP_MONITOR_DEFAULTS,
   type GroupMonitorConfig
 } from './groupMonitor.ts'
+import { formatGroupProbeTurnDelta } from './groupContextBuilder.ts'
 import type { GroupMessageEntry } from '@yachiyo/shared/protocol'
 
 function makeMessage(
@@ -413,7 +414,7 @@ describe('GroupMonitor self-message handling (#55)', () => {
     makeMessage(text, 'Yachiyo', { senderExternalUserId: '__self__' })
 
   it('self line survives a self-only tick and lands in the next real turn', async () => {
-    const turns: Array<{ count: number; hasSelf: boolean }> = []
+    const turns: Array<{ count: number; prompt: string }> = []
     const config = fastConfig({ wakeBufferMs: 10, activeCheckIntervalMs: 25 })
     const monitor = createGroupMonitor(
       config,
@@ -421,7 +422,7 @@ describe('GroupMonitor self-message handling (#55)', () => {
         onTurn: async (msgs, freshCount) => {
           turns.push({
             count: freshCount,
-            hasSelf: msgs.some((m) => m.senderExternalUserId === '__self__')
+            prompt: formatGroupProbeTurnDelta(msgs, 'Yachiyo', undefined, undefined, freshCount)
           })
           return false
         },
@@ -440,8 +441,13 @@ describe('GroupMonitor self-message handling (#55)', () => {
     await new Promise((r) => setTimeout(r, 70))
 
     assert.ok(turns.length > 0, 'human message should trigger a turn')
-    assert.equal(turns[0].hasSelf, true, 'turn messages must include the self line')
     assert.equal(turns[0].count, 2, 'freshCount must count self + human (render window)')
+    assert.match(turns[0].prompt, /<msg from="Yachiyo"[^>]*>我刚说的话<\/msg>/)
+    assert.match(turns[0].prompt, /<msg from="Bob"[^>]*>回复她<\/msg>/)
+    assert.ok(
+      turns[0].prompt.indexOf('我刚说的话') < turns[0].prompt.indexOf('回复她'),
+      'the model context must keep the actual sent line before the human reply'
+    )
     monitor.stop()
   })
 
@@ -467,7 +473,7 @@ describe('GroupMonitor self-message handling (#55)', () => {
 
   it('restored trailing self line survives restart into the next real turn (#55 P1)', async () => {
     const now = Date.now() / 1_000
-    const turns: Array<{ count: number; hasSelf: boolean }> = []
+    const turns: Array<{ count: number; prompt: string }> = []
     const config = fastConfig({ wakeBufferMs: 10, activeCheckIntervalMs: 5_000 })
     const monitor = createGroupMonitor(
       config,
@@ -475,7 +481,7 @@ describe('GroupMonitor self-message handling (#55)', () => {
         onTurn: async (msgs, freshCount) => {
           turns.push({
             count: freshCount,
-            hasSelf: msgs.some((m) => m.senderExternalUserId === '__self__')
+            prompt: formatGroupProbeTurnDelta(msgs, 'Yachiyo', undefined, undefined, freshCount)
           })
           return false
         },
@@ -499,8 +505,13 @@ describe('GroupMonitor self-message handling (#55)', () => {
     await new Promise((r) => setTimeout(r, 80))
 
     assert.ok(turns.length > 0, 'turn should fire on the human reply')
-    assert.equal(turns[0].hasSelf, true, 'restored self line must be in the turn window')
     assert.equal(turns[0].count, 2, 'freshCount = restored self line + new human line')
+    assert.match(turns[0].prompt, /<msg from="Yachiyo"[^>]*>重启前我说的话<\/msg>/)
+    assert.match(turns[0].prompt, /<msg from="Bob"[^>]*>回她的话<\/msg>/)
+    assert.ok(
+      turns[0].prompt.indexOf('重启前我说的话') < turns[0].prompt.indexOf('回她的话'),
+      'restart must preserve the actual sent line before the human reply'
+    )
     monitor.stop()
   })
 })

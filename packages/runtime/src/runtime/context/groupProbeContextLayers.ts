@@ -20,11 +20,6 @@ export interface CompileGroupProbeContextLayersInput {
    */
   historyTokenBudget?: number
   /**
-   * Short persona/voice reminder re-asserted right before the current turn.
-   * Recency keeps the bot's own voice from being lost in a long history.
-   */
-  styleReminder?: string
-  /**
    * Mark cache breakpoints for Anthropic-family providers. The probe's system
    * prefix is byte-stable within a day (only the date line changes), so probes
    * every 30-60s would otherwise re-bill the full prefix as uncached input.
@@ -213,20 +208,6 @@ export function compileGroupProbeContextLayers(
 
   const historyMessages = buildBudgetedHistoryMessages(input.history, input.historyTokenBudget)
 
-  // Re-assert the persona right before the current turn, but only when there is
-  // history to counteract — a fresh thread's system prompt is not yet diluted.
-  const styleReminderMessages: ModelMessage[] =
-    input.styleReminder?.trim() && historyMessages.length > 0
-      ? [
-          {
-            role: 'user',
-            content: ['<style_reminder>', input.styleReminder.trim(), '</style_reminder>'].join(
-              '\n'
-            )
-          }
-        ]
-      : []
-
   const currentTurn: ModelMessage[] = input.currentTurnContent.trim()
     ? [{ role: 'user', content: input.currentTurnContent.trim() }]
     : []
@@ -235,7 +216,6 @@ export function compileGroupProbeContextLayers(
     ...systemPrefix,
     ...summaryMessages,
     ...historyMessages,
-    ...styleReminderMessages,
     ...currentTurn
   ])
   if (input.anthropicCacheBreakpoints) applyAnthropicCacheBreakpoints(compiled)

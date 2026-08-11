@@ -7,6 +7,22 @@ export interface UpdateReceiptLease {
 export interface ChannelSendOptions {
   /** Absolute wall-clock deadline after which no new platform send may start. */
   notAfterMs?: number
+  /** Final composed body must fit in one platform message. */
+  singleMessageMaxLength?: number
+}
+
+export class ChannelMessageTooLongError extends Error {
+  readonly maxLength: number
+  readonly actualLength: number
+  readonly availableTextLength: number
+
+  constructor(maxLength: number, actualLength: number, availableTextLength: number) {
+    super(`Channel send exceeds the single platform message limit (${actualLength} > ${maxLength})`)
+    this.name = 'ChannelMessageTooLongError'
+    this.maxLength = maxLength
+    this.actualLength = actualLength
+    this.availableTextLength = availableTextLength
+  }
 }
 
 export interface ChannelDispatchGate {
@@ -61,6 +77,16 @@ export async function sendWithUpdateReceipt(input: {
 
   const gate = createChannelDispatchGate(input.sendOptions, input.now)
   try {
+    const maxLength = input.sendOptions?.singleMessageMaxLength
+    if (maxLength !== undefined && body.length > maxLength) {
+      const requiredPrefixLength = body.length - input.text.length
+      throw new ChannelMessageTooLongError(
+        maxLength,
+        body.length,
+        Math.max(0, maxLength - requiredPrefixLength)
+      )
+    }
+
     // Check after claiming the receipt. A bounded caller may have moved on
     // while that reverse RPC was in flight; in that case this throw returns
     // the lease below and no platform send starts.

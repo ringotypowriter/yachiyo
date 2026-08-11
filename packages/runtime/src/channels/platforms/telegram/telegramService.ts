@@ -45,7 +45,7 @@ import type {
   UpdateReceiptLease
 } from '../../shared/sendWithUpdateReceipt.ts'
 import { routeTelegramMessage, type TelegramChannelStorage } from './telegram.ts'
-import { splitTelegramMessage } from './telegramMessageSplit.ts'
+import { splitTelegramMessage, TELEGRAM_MAX_MESSAGE_LENGTH } from './telegramMessageSplit.ts'
 
 /** Telegram typing indicator expires after ~5 s; resend every 4 s. */
 const TYPING_INTERVAL_MS = 4_000
@@ -61,8 +61,6 @@ export interface TelegramServiceOptions {
   groupConfig?: GroupChannelConfig
   /** Bot's username (without @) for mention detection. */
   botUsername?: string
-  /** Global speech throttle verbosity (0–1). */
-  groupVerbosity?: number
   /** Global override for active-phase check interval (ms). */
   groupCheckIntervalMs?: number
   /** Effective policy with config overrides applied. Defaults to telegramPolicy. */
@@ -94,7 +92,6 @@ export function createTelegramService({
   server,
   groupConfig,
   botUsername,
-  groupVerbosity,
   groupCheckIntervalMs,
   policy: policyOverride,
   updateReceiptLease
@@ -463,10 +460,11 @@ export function createTelegramService({
         server,
         policy,
         groupConfig,
-        groupVerbosity,
         groupCheckIntervalMs,
-        rejectMultilineMessages: true,
-        sendMessage: (group, message) => sendMessage(group.externalGroupId, message)
+        sendMessage: (group, message) =>
+          sendMessage(group.externalGroupId, message, {
+            singleMessageMaxLength: TELEGRAM_MAX_MESSAGE_LENGTH
+          })
       })
     : null
 
