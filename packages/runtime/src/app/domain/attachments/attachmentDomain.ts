@@ -105,8 +105,8 @@ export async function saveFileAttachmentsToWorkspace(input: {
   const attachmentDir = await ensureAttachmentDir(input.workspacePath, input.messageId)
 
   return Promise.all(
-    input.attachments.map(async (attachment) => {
-      const safeName = sanitizeFilename(attachment.filename)
+    input.attachments.map(async (attachment, index) => {
+      const safeName = `${index + 1}-${sanitizeFilename(attachment.filename)}`
       const filePath = join(attachmentDir, safeName)
       await writeBase64File(filePath, attachment.filename, attachment.dataUrl)
       return {

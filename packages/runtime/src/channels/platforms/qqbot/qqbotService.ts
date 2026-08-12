@@ -109,6 +109,7 @@ export function startQQBotAttachmentDownloads(
   options: {
     includeFiles: boolean
     policy: Pick<ChannelPolicy, 'maxImagesPerBatch' | 'maxImageBytes'>
+    initialCounts?: { images: number; files: number }
   },
   fetchImage: QQBotImageFetcher = fetchImageAsDataUrl,
   fetchFile: QQBotFileFetcher = fetchFileAsDataUrl
@@ -117,8 +118,8 @@ export function startQQBotAttachmentDownloads(
     attachment,
     attachmentIndex: index + 1
   }))
-  let imageCount = 0
-  let fileCount = 0
+  let imageCount = options.initialCounts?.images ?? 0
+  let fileCount = options.initialCounts?.files ?? 0
 
   return indexedAttachments.map(({ attachment, attachmentIndex }) => {
     if (isQQBotImageAttachment(attachment)) {
@@ -172,6 +173,19 @@ export function startQQBotAttachmentDownloads(
         : unavailableAttachment(attachment, attachmentIndex, 'download-failed')
     )
   })
+}
+
+function countQQBotAttachmentKinds(attachments: readonly QQBotC2CAttachment[]): {
+  images: number
+  files: number
+} {
+  let images = 0
+  let files = 0
+  for (const attachment of attachments) {
+    if (isQQBotImageAttachment(attachment)) images += 1
+    else files += 1
+  }
+  return { images, files }
 }
 
 export function startQQBotImageDownloads(
@@ -382,11 +396,19 @@ export function createQQBotService({
         // Capture the msg_id at enqueue time so this turn's replies
         // always attach to the correct inbound message.
         const target: QQBotTarget = { openId, replyMsgId: msg.messageId }
+        const initialCounts = directMessages.getPendingAttachmentSlotCounts(result.channelUser.id)
         const attachmentDownloads = startQQBotAttachmentDownloads(attachments, {
           includeFiles: result.channelUser.role === 'owner',
-          policy
+          policy,
+          initialCounts
         })
-        directMessages.enqueueMessage(target, result.channelUser, text, attachmentDownloads)
+        directMessages.enqueueMessage(
+          target,
+          result.channelUser,
+          text,
+          attachmentDownloads,
+          countQQBotAttachmentKinds(attachments)
+        )
       }
     }
   })

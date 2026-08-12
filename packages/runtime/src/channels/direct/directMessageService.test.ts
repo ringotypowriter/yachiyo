@@ -760,6 +760,112 @@ describe('directMessageService', () => {
     )
   })
 
+  it('caps files across rapid messages in one debounced batch', async () => {
+    const channelUser = createChannelUser()
+    const thread = createThread('thread-file-batch-limit')
+    const listeners = new Set<(event: YachiyoServerEvent) => void>()
+    let capturedAttachments:
+      | Array<{
+          filename: string
+          mediaType: string
+          dataUrl: string
+          attachmentIndex?: number
+        }>
+      | undefined
+    let capturedContent = ''
+
+    const server: DirectMessageServer = {
+      subscribe(listener) {
+        listeners.add(listener)
+        return () => listeners.delete(listener)
+      },
+      async sendChat(input): Promise<ChatAcceptedWithUserMessage> {
+        capturedAttachments = input.attachments
+        capturedContent = input.content
+        queueMicrotask(() => {
+          for (const listener of listeners) {
+            listener({
+              type: 'run.completed',
+              eventId: 'evt-file-batch-limit-completed',
+              timestamp: '2026-08-11T00:00:02.000Z',
+              threadId: thread.id,
+              runId: 'run-file-batch-limit'
+            })
+          }
+        })
+        return {
+          kind: 'run-started',
+          thread,
+          runId: 'run-file-batch-limit',
+          userMessage: createUserMessage(thread.id)
+        }
+      },
+      getThreadTotalTokens: () => 0,
+      findActiveChannelThread: () => undefined,
+      async setThreadModelOverride() {
+        throw new Error('should not be called')
+      },
+      cancelRunForThread: () => false,
+      cancelRunForChannelUser: () => false,
+      answerToolQuestion: () => {},
+      updateChannelUser: (input) => ({ ...channelUser, usedKTokens: input.usedKTokens ?? 0 }),
+      updateLatestAssistantVisibleReply: () => {},
+      getTtlReaper: () => ({ register: () => {} })
+    }
+
+    const directMessages = createDirectMessageService({
+      logLabel: 'qqbot',
+      server,
+      policy: { ...telegramPolicy, maxImagesPerBatch: 2 },
+      replyDelayMs: () => 10,
+      resolveThread: async () => ({ thread, usageBaselineKTokens: 0 }),
+      sendMessage: async () => {},
+      startBatchIndicator: () => undefined,
+      startHandlingIndicator: () => undefined,
+      nonRunReply: 'non-run',
+      errorReply: 'error'
+    })
+
+    const file = (
+      filename: string,
+      attachmentIndex: number
+    ): Promise<DirectMessageInboundAttachment> =>
+      Promise.resolve({
+        kind: 'file' as const,
+        attachment: {
+          dataUrl: `data:application/pdf;base64,${filename}`,
+          mediaType: 'application/pdf',
+          filename,
+          attachmentIndex
+        }
+      })
+
+    directMessages.enqueueMessage(channelUser.id, channelUser, 'first pair', [
+      file('first.pdf', 1),
+      file('second.pdf', 2)
+    ])
+    directMessages.enqueueMessage(channelUser.id, channelUser, 'second pair', [
+      file('third.pdf', 1),
+      file('fourth.pdf', 2)
+    ])
+
+    await waitFor(() => capturedAttachments !== undefined)
+
+    assert.deepEqual(
+      capturedAttachments?.map((attachment) => [attachment.filename, attachment.attachmentIndex]),
+      [
+        ['first.pdf', 1],
+        ['second.pdf', 2]
+      ]
+    )
+    assert.equal(
+      capturedContent,
+      'first pair\nsecond pair\n\n' +
+        '[Attachment 3 unavailable: third.pdf (batch limit)]\n\n' +
+        '[Attachment 4 unavailable: fourth.pdf (batch limit)]'
+    )
+  })
+
   it('preserves unavailable slots when batching attachment indices across messages', async () => {
     const channelUser = createChannelUser()
     const thread = createThread('thread-sparse-attachment-indices')

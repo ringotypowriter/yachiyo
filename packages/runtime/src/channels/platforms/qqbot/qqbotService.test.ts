@@ -11,7 +11,8 @@ import type {
   YachiyoServerEvent
 } from '@yachiyo/shared/protocol'
 import type { YachiyoServer } from '../../../app/host/YachiyoServer.ts'
-import type { QQBotC2CMessage, QQBotClient } from './qqbotClient.ts'
+import { qqbotPolicy } from '../../shared/channelPolicy.ts'
+import type { QQBotC2CAttachment, QQBotC2CMessage, QQBotClient } from './qqbotClient.ts'
 import {
   createQQBotService,
   startQQBotAttachmentDownloads,
@@ -578,6 +579,80 @@ it('forwards QQBot C2C zip attachments with or without accompanying text', async
     '看看这个文件\n\n[Attachment 1 unavailable: unsupported.rar (unsupported type)]'
   )
   assert.equal(captured[2].attachments, undefined)
+})
+
+it('does not download files beyond the cap across rapid QQBot messages', async (t) => {
+  const originalFetch = globalThis.fetch
+  let fetchCalls = 0
+  t.after(() => {
+    globalThis.fetch = originalFetch
+  })
+  globalThis.fetch = async () => {
+    fetchCalls += 1
+    return new Response(Buffer.from('pdf'), {
+      status: 200,
+      headers: {
+        'content-length': '3',
+        'content-type': 'application/pdf'
+      }
+    })
+  }
+
+  const events: string[] = []
+  const captured: Array<{ content: string; attachments?: SendChatAttachment[] }> = []
+  const channelUser = createChannelUser({ status: 'allowed', role: 'owner' })
+  const { client, receive } = createClient(events)
+  const service = createQQBotService({
+    appId: 'app-1',
+    clientSecret: 'secret-1',
+    server: createInboundCaptureServer(channelUser, (input) => captured.push(input)),
+    updateReceiptLease: createLease(events),
+    client,
+    policy: { ...qqbotPolicy, maxImagesPerBatch: 2 },
+    replyDelayMs: () => 10
+  })
+  t.after(() => service.stop())
+
+  const file = (index: number): QQBotC2CAttachment => ({
+    contentType: 'application/pdf',
+    filename: `report-${index}.pdf`,
+    size: 3,
+    url: `https://multimedia.nt.qq.com/download?fileid=${index}`
+  })
+  receive({
+    openId: channelUser.externalUserId,
+    content: 'first pair',
+    messageId: 'inbound-first-pair',
+    timestamp: '2026-08-11T00:00:00.000Z',
+    attachments: [file(1), file(2)]
+  })
+  receive({
+    openId: channelUser.externalUserId,
+    content: 'second pair',
+    messageId: 'inbound-second-pair',
+    timestamp: '2026-08-11T00:00:01.000Z',
+    attachments: [file(3), file(4)]
+  })
+
+  await waitFor(() => captured.length === 1)
+
+  assert.equal(fetchCalls, 2)
+  assert.deepEqual(
+    captured[0]?.attachments?.map(({ filename, attachmentIndex }) => ({
+      filename,
+      attachmentIndex
+    })),
+    [
+      { filename: 'report-1.pdf', attachmentIndex: 1 },
+      { filename: 'report-2.pdf', attachmentIndex: 2 }
+    ]
+  )
+  assert.equal(
+    captured[0]?.content,
+    'first pair\nsecond pair\n\n' +
+      '[Attachment 3 unavailable: report-3.pdf (batch limit)]\n\n' +
+      '[Attachment 4 unavailable: report-4.pdf (batch limit)]'
+  )
 })
 
 it('manual sends carry and acknowledge an owed update receipt', async () => {
