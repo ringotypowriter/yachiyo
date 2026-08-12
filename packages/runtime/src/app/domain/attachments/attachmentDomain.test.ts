@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 import test from 'node:test'
 
 import { saveFileAttachmentsToWorkspace, saveImageFilesToWorkspace } from './attachmentDomain.ts'
@@ -204,7 +204,7 @@ test('workspace attachment names stay within the filesystem byte limit', async (
 
   for (const attachment of attachments) {
     assert.ok(attachment.workspacePath)
-    assert.equal(Buffer.byteLength(attachment.workspacePath.split('/').at(-1)!), 255)
+    assert.equal(Buffer.byteLength(basename(attachment.workspacePath)), 255)
   }
   assert.equal(await readFile(attachments[0]!.workspacePath!, 'utf8'), 'A')
   assert.equal(await readFile(attachments[1]!.workspacePath!, 'utf8'), 'B')
@@ -221,6 +221,6 @@ test('workspace attachment names stay within the filesystem byte limit', async (
     ]
   })
   assert.ok(image?.workspacePath)
-  assert.equal(Buffer.byteLength(image.workspacePath.split('/').at(-1)!), 255)
+  assert.equal(Buffer.byteLength(basename(image.workspacePath)), 255)
   assert.equal(await readFile(image.workspacePath, 'utf8'), 'C')
 })
