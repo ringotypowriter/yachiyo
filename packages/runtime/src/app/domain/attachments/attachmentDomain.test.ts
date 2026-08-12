@@ -4,7 +4,29 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
 
-import { saveFileAttachmentsToWorkspace } from './attachmentDomain.ts'
+import { saveFileAttachmentsToWorkspace, saveImageFilesToWorkspace } from './attachmentDomain.ts'
+
+test('saveImageFilesToWorkspace uses the converted media type for the stored extension', async (t) => {
+  const workspacePath = await mkdtemp(join(tmpdir(), 'yachiyo-attachment-domain-'))
+  t.after(() => rm(workspacePath, { recursive: true, force: true }))
+
+  const [image] = await saveImageFilesToWorkspace({
+    workspacePath,
+    messageId: 'message-1',
+    images: [
+      {
+        filename: 'diagram.bmp',
+        mediaType: 'image/png',
+        dataUrl: 'data:image/png;base64,cG5n'
+      }
+    ]
+  })
+
+  assert.equal(image?.filename, 'diagram.bmp')
+  assert.ok(image?.workspacePath)
+  assert.equal(image.workspacePath.endsWith('diagram.png'), true)
+  assert.equal(await readFile(image!.workspacePath, 'utf8'), 'png')
+})
 
 test('saveFileAttachmentsToWorkspace preserves duplicate display names without overwriting data', async (t) => {
   const workspacePath = await mkdtemp(join(tmpdir(), 'yachiyo-attachment-domain-'))

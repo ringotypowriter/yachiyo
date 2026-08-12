@@ -13,6 +13,8 @@ const IMAGE_MEDIA_TYPE_EXT: Record<string, string> = {
   'image/jpeg': '.jpg',
   'image/gif': '.gif',
   'image/webp': '.webp',
+  'image/heic': '.heic',
+  'image/heif': '.heif',
   'image/svg+xml': '.svg'
 }
 
@@ -81,7 +83,7 @@ export async function saveImageFilesToWorkspace(input: {
   return Promise.all(
     input.images.map(async (image, index) => {
       const originalName = image.filename ?? `image_${index + 1}`
-      const ext = image.filename ? extname(image.filename) : extFromMediaType(image.mediaType)
+      const ext = extFromMediaType(image.mediaType)
       const base = image.filename
         ? basename(image.filename, extname(image.filename))
         : `image_${index + 1}`
