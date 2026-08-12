@@ -267,7 +267,9 @@ export type DirectMessageInboundAttachment =
   | {
       kind: 'unavailable'
       filename: string
+      attachmentIndex: number
       reason:
+        | 'batch-limit'
         | 'download-failed'
         | 'not-permitted'
         | 'unsupported-type'
@@ -295,7 +297,10 @@ function offsetInboundAttachmentIndex(
       }
     }
     if (attachment.kind === 'unavailable') {
-      return attachment
+      return {
+        ...attachment,
+        attachmentIndex: attachment.attachmentIndex + offset
+      }
     }
     return {
       kind: 'file',
@@ -338,8 +343,8 @@ function appendUnavailableAttachmentMarkers(
 ): string {
   if (unavailable.length === 0) return text
   const markers = unavailable.map(
-    ({ filename, reason }) =>
-      `[Attachment unavailable: ${filename} (${reason.replaceAll('-', ' ')})]`
+    ({ filename, attachmentIndex, reason }) =>
+      `[Attachment ${attachmentIndex} unavailable: ${filename} (${reason.replaceAll('-', ' ')})]`
   )
   return [text, ...markers].filter(Boolean).join('\n\n')
 }

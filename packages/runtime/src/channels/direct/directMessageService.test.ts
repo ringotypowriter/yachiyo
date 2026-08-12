@@ -641,6 +641,7 @@ describe('directMessageService', () => {
       Promise.resolve({
         kind: 'unavailable',
         filename: 'skill.zip',
+        attachmentIndex: 1,
         reason: 'download-failed'
       })
     ])
@@ -649,7 +650,7 @@ describe('directMessageService', () => {
 
     assert.equal(
       capturedContent,
-      '安装这个 skills\n\n[Attachment unavailable: skill.zip (download failed)]'
+      '安装这个 skills\n\n[Attachment 1 unavailable: skill.zip (download failed)]'
     )
   })
 
@@ -756,6 +757,109 @@ describe('directMessageService', () => {
     assert.deepEqual(
       capturedImages?.map((image) => image.filename),
       ['first.png', 'second.png']
+    )
+  })
+
+  it('preserves unavailable slots when batching attachment indices across messages', async () => {
+    const channelUser = createChannelUser()
+    const thread = createThread('thread-sparse-attachment-indices')
+    const listeners = new Set<(event: YachiyoServerEvent) => void>()
+    let capturedImages: ChatAcceptedWithUserMessage['userMessage']['images']
+    let capturedContent = ''
+
+    const server: DirectMessageServer = {
+      subscribe(listener) {
+        listeners.add(listener)
+        return () => listeners.delete(listener)
+      },
+      async sendChat(input): Promise<ChatAcceptedWithUserMessage> {
+        capturedImages = input.images
+        capturedContent = input.content
+        queueMicrotask(() => {
+          for (const listener of listeners) {
+            listener({
+              type: 'run.completed',
+              eventId: 'evt-sparse-attachment-indices-completed',
+              timestamp: '2026-03-31T00:00:02.000Z',
+              threadId: thread.id,
+              runId: 'run-sparse-attachment-indices'
+            })
+          }
+        })
+        return {
+          kind: 'run-started',
+          thread,
+          runId: 'run-sparse-attachment-indices',
+          userMessage: createUserMessage(thread.id)
+        }
+      },
+      getThreadTotalTokens: () => 0,
+      findActiveChannelThread: () => undefined,
+      async setThreadModelOverride() {
+        throw new Error('should not be called')
+      },
+      cancelRunForThread: () => false,
+      cancelRunForChannelUser: () => false,
+      answerToolQuestion: () => {},
+      updateChannelUser: (input) => ({ ...channelUser, usedKTokens: input.usedKTokens ?? 0 }),
+      updateLatestAssistantVisibleReply: () => {},
+      getTtlReaper: () => ({ register: () => {} })
+    }
+
+    const directMessages = createDirectMessageService({
+      logLabel: 'qqbot',
+      server,
+      policy: telegramPolicy,
+      replyDelayMs: () => 10,
+      resolveThread: async () => ({ thread, usageBaselineKTokens: 0 }),
+      sendMessage: async () => {},
+      startBatchIndicator: () => undefined,
+      startHandlingIndicator: () => undefined,
+      nonRunReply: 'non-run',
+      errorReply: 'error'
+    })
+
+    directMessages.enqueueMessage(channelUser.id, channelUser, 'first message', [
+      Promise.resolve({
+        kind: 'unavailable',
+        filename: 'ignored.zip',
+        attachmentIndex: 1,
+        reason: 'batch-limit'
+      }),
+      Promise.resolve({
+        kind: 'image',
+        image: {
+          dataUrl: 'data:image/png;base64,first',
+          mediaType: 'image/png',
+          filename: 'first.png',
+          attachmentIndex: 2
+        }
+      })
+    ])
+    directMessages.enqueueMessage(channelUser.id, channelUser, 'second message', [
+      Promise.resolve({
+        kind: 'image',
+        image: {
+          dataUrl: 'data:image/png;base64,second',
+          mediaType: 'image/png',
+          filename: 'second.png',
+          attachmentIndex: 1
+        }
+      })
+    ])
+
+    await waitFor(() => capturedImages !== undefined)
+
+    assert.deepEqual(
+      capturedImages?.map((image) => [image.filename, image.attachmentIndex]),
+      [
+        ['first.png', 2],
+        ['second.png', 3]
+      ]
+    )
+    assert.equal(
+      capturedContent,
+      'first message\nsecond message\n\n[Attachment 1 unavailable: ignored.zip (batch limit)]'
     )
   })
 

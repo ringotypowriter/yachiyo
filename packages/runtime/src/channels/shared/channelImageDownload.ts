@@ -102,8 +102,21 @@ function bufferToDataUrl(buffer: Buffer, mediaType: string): string {
   return `data:${mediaType};base64,${buffer.toString('base64')}`
 }
 
-function resolveSupportedAttachmentMediaType(filename: string, size?: number): string | null {
-  const [classification] = classifyAttachmentFileSelection([{ name: filename, size }]).accepted
+function resolveSupportedAttachmentMediaType(
+  filename: string,
+  size?: number,
+  mediaType?: string
+): string | null {
+  const filenameMediaType = resolveAcceptedAttachmentMediaType({ name: filename })
+  const basename = filename.trim().split(/[\\/]/).pop() ?? ''
+  const hasExplicitExtension = basename.lastIndexOf('.') > 0
+  const [classification] = classifyAttachmentFileSelection([
+    {
+      name: filename,
+      size,
+      ...(!filenameMediaType && !hasExplicitExtension && mediaType ? { type: mediaType } : {})
+    }
+  ]).accepted
   return classification?.mediaType ?? null
 }
 
@@ -126,9 +139,14 @@ export async function imageBufferToRecord(input: {
 export function fileBufferToAttachment(input: {
   buffer: Buffer
   filename: string
+  mediaType?: string
   attachmentIndex?: number
 }): SendChatAttachment {
-  const mediaType = resolveAcceptedAttachmentMediaType({ name: input.filename })
+  const mediaType = resolveSupportedAttachmentMediaType(
+    input.filename,
+    input.buffer.length,
+    input.mediaType
+  )
   if (!mediaType) {
     throw new Error(`Unsupported attachment file type: ${input.filename}`)
   }
@@ -226,7 +244,11 @@ export async function fetchFileAsDataUrl(
   const maxBytes = opts.maxBytes ?? ATTACHMENT_MAX_BYTES
 
   try {
-    const supportedMediaType = resolveSupportedAttachmentMediaType(opts.filename)
+    const supportedMediaType = resolveSupportedAttachmentMediaType(
+      opts.filename,
+      undefined,
+      opts.mediaType
+    )
     if (!supportedMediaType) {
       console.warn(`[channelAttachment] skipping unsupported file type: ${opts.filename}`)
       return null
@@ -240,7 +262,11 @@ export async function fetchFileAsDataUrl(
 
     const contentLength = Number(response.headers.get('content-length'))
     if (contentLength) {
-      const checkedMediaType = resolveSupportedAttachmentMediaType(opts.filename, contentLength)
+      const checkedMediaType = resolveSupportedAttachmentMediaType(
+        opts.filename,
+        contentLength,
+        opts.mediaType
+      )
       if (!checkedMediaType) {
         console.warn(`[channelAttachment] skipping unsupported or oversized file: ${opts.filename}`)
         return null
@@ -264,6 +290,7 @@ export async function fetchFileAsDataUrl(
     return fileBufferToAttachment({
       buffer,
       filename: opts.filename,
+      mediaType: supportedMediaType,
       ...(opts.attachmentIndex !== undefined ? { attachmentIndex: opts.attachmentIndex } : {})
     })
   } catch (err) {

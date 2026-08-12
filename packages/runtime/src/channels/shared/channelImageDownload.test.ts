@@ -2,6 +2,7 @@ import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
 import {
   detectMediaTypeFromBytes,
+  fetchFileAsDataUrl,
   fetchImageAsDataUrl,
   fileBufferToAttachment
 } from './channelImageDownload.ts'
@@ -54,6 +55,34 @@ describe('fetchImageAsDataUrl', () => {
   })
 })
 
+describe('fetchFileAsDataUrl', () => {
+  it('downloads an extensionless fallback filename using its supported media type', async (t) => {
+    const originalFetch = globalThis.fetch
+    t.after(() => {
+      globalThis.fetch = originalFetch
+    })
+    globalThis.fetch = async () =>
+      new Response(Buffer.from('PDF'), {
+        status: 200,
+        headers: { 'content-length': '3' }
+      })
+
+    assert.deepEqual(
+      await fetchFileAsDataUrl('https://multimedia.nt.qq.com/download?fileid=file-1', {
+        filename: 'qqbot-file-1',
+        mediaType: 'application/pdf',
+        attachmentIndex: 1
+      }),
+      {
+        filename: 'qqbot-file-1',
+        mediaType: 'application/pdf',
+        dataUrl: 'data:application/pdf;base64,UERG',
+        attachmentIndex: 1
+      }
+    )
+  })
+})
+
 describe('fileBufferToAttachment', () => {
   it('accepts composer-supported extensions and resolves media type from filename', () => {
     assert.deepEqual(
@@ -72,6 +101,35 @@ describe('fileBufferToAttachment', () => {
       mediaType: 'application/zip',
       dataUrl: 'data:application/zip;base64,UEs='
     })
+  })
+
+  it('accepts a fallback filename when the platform supplies a supported media type', () => {
+    assert.deepEqual(
+      fileBufferToAttachment({
+        buffer: Buffer.from('PDF'),
+        filename: 'qqbot-file-1',
+        mediaType: 'application/pdf',
+        attachmentIndex: 1
+      }),
+      {
+        filename: 'qqbot-file-1',
+        mediaType: 'application/pdf',
+        dataUrl: 'data:application/pdf;base64,UERG',
+        attachmentIndex: 1
+      }
+    )
+  })
+
+  it('does not let a supported media type override an unsupported extension', () => {
+    assert.throws(
+      () =>
+        fileBufferToAttachment({
+          buffer: Buffer.from('PDF'),
+          filename: 'archive.exe',
+          mediaType: 'application/pdf'
+        }),
+      /Unsupported attachment file type/
+    )
   })
 
   it('rejects unsupported extensions even when bytes are available', () => {

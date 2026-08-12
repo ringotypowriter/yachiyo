@@ -99,6 +99,7 @@ function unavailableAttachment(
   return {
     kind: 'unavailable',
     filename: attachment.filename?.trim() || `qqbot-file-${attachmentIndex}`,
+    attachmentIndex,
     reason
   }
 }
@@ -116,10 +117,15 @@ export function startQQBotAttachmentDownloads(
     attachment,
     attachmentIndex: index + 1
   }))
-  const imageDownloads = indexedAttachments
-    .filter(({ attachment }) => isQQBotImageAttachment(attachment))
-    .slice(0, options.policy.maxImagesPerBatch)
-    .map(({ attachment, attachmentIndex }) => {
+  let imageCount = 0
+  let fileCount = 0
+
+  return indexedAttachments.map(({ attachment, attachmentIndex }) => {
+    if (isQQBotImageAttachment(attachment)) {
+      imageCount += 1
+      if (imageCount > options.policy.maxImagesPerBatch) {
+        return Promise.resolve(unavailableAttachment(attachment, attachmentIndex, 'batch-limit'))
+      }
       const url = attachment.url.startsWith('//') ? `https:${attachment.url}` : attachment.url
       return fetchImage(url, {
         maxBytes: options.policy.maxImageBytes,
@@ -130,39 +136,42 @@ export function startQQBotAttachmentDownloads(
           ? { kind: 'image' as const, image }
           : unavailableAttachment(attachment, attachmentIndex, 'download-failed')
       )
-    })
+    }
 
-  const indexedFiles = indexedAttachments
-    .filter(({ attachment }) => !isQQBotImageAttachment(attachment))
-    .slice(0, options.policy.maxImagesPerBatch)
-  const fileDownloads = options.includeFiles
-    ? indexedFiles.map(({ attachment, attachmentIndex }) => {
-        const url = attachment.url.startsWith('//') ? `https:${attachment.url}` : attachment.url
-        const filename = attachment.filename?.trim() || `qqbot-file-${attachmentIndex}`
-        const classification = classifyAttachmentFileSelection([
-          { name: filename, size: attachment.size }
-        ])
-        const rejection = classification.rejected[0]
-        if (rejection) {
-          return Promise.resolve(
-            unavailableAttachment(attachment, attachmentIndex, rejection.reason)
-          )
-        }
-        return fetchFile(url, {
-          filename,
-          mediaType: attachment.contentType,
-          attachmentIndex
-        }).then((file) =>
-          file
-            ? { kind: 'file' as const, attachment: file }
-            : unavailableAttachment(attachment, attachmentIndex, 'download-failed')
-        )
-      })
-    : indexedFiles.map(({ attachment, attachmentIndex }) =>
-        Promise.resolve(unavailableAttachment(attachment, attachmentIndex, 'not-permitted'))
-      )
+    if (!options.includeFiles) {
+      return Promise.resolve(unavailableAttachment(attachment, attachmentIndex, 'not-permitted'))
+    }
 
-  return [...imageDownloads, ...fileDownloads]
+    fileCount += 1
+    if (fileCount > options.policy.maxImagesPerBatch) {
+      return Promise.resolve(unavailableAttachment(attachment, attachmentIndex, 'batch-limit'))
+    }
+
+    const url = attachment.url.startsWith('//') ? `https:${attachment.url}` : attachment.url
+    const suppliedFilename = attachment.filename?.trim()
+    const filename = suppliedFilename || `qqbot-file-${attachmentIndex}`
+    const classification = classifyAttachmentFileSelection([
+      {
+        name: filename,
+        size: attachment.size,
+        ...(!suppliedFilename && attachment.contentType ? { type: attachment.contentType } : {})
+      }
+    ])
+    const rejection = classification.rejected[0]
+    if (rejection) {
+      return Promise.resolve(unavailableAttachment(attachment, attachmentIndex, rejection.reason))
+    }
+    const mediaType = classification.accepted[0]?.mediaType
+    return fetchFile(url, {
+      filename,
+      mediaType,
+      attachmentIndex
+    }).then((file) =>
+      file
+        ? { kind: 'file' as const, attachment: file }
+        : unavailableAttachment(attachment, attachmentIndex, 'download-failed')
+    )
+  })
 }
 
 export function startQQBotImageDownloads(
@@ -171,7 +180,9 @@ export function startQQBotImageDownloads(
   fetchImage: QQBotImageFetcher = fetchImageAsDataUrl
 ): Promise<DirectMessageInboundAttachment | null>[] {
   return startQQBotAttachmentDownloads(
-    attachments.filter((attachment) => isQQBotImageAttachment(attachment)),
+    attachments
+      .filter((attachment) => isQQBotImageAttachment(attachment))
+      .slice(0, policy.maxImagesPerBatch),
     { includeFiles: false, policy },
     fetchImage
   )

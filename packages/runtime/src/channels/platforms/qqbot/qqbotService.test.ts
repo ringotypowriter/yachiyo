@@ -278,6 +278,40 @@ describe('startQQBotImageDownloads', () => {
 })
 
 describe('startQQBotAttachmentDownloads', () => {
+  it('accepts an unnamed file from its supported MIME type', async () => {
+    const downloads = startQQBotAttachmentDownloads(
+      [
+        {
+          contentType: 'application/pdf',
+          url: 'https://multimedia.nt.qq.com/download?fileid=file-1'
+        }
+      ],
+      {
+        includeFiles: true,
+        policy: { maxImagesPerBatch: 1, maxImageBytes: 5 * 1024 * 1024 }
+      },
+      undefined,
+      async (_url, options) => ({
+        dataUrl: 'data:application/pdf;base64,AAA',
+        mediaType: options.mediaType ?? '',
+        filename: options.filename,
+        attachmentIndex: options.attachmentIndex
+      })
+    )
+
+    assert.deepEqual(await Promise.all(downloads), [
+      {
+        kind: 'file',
+        attachment: {
+          dataUrl: 'data:application/pdf;base64,AAA',
+          mediaType: 'application/pdf',
+          filename: 'qqbot-file-1',
+          attachmentIndex: 1
+        }
+      }
+    ])
+  })
+
   it('marks files unavailable without downloading them when file access is disabled', async () => {
     let downloadCalls = 0
     const downloads = startQQBotAttachmentDownloads(
@@ -300,7 +334,12 @@ describe('startQQBotAttachmentDownloads', () => {
     )
 
     assert.deepEqual(await Promise.all(downloads), [
-      { kind: 'unavailable', filename: 'skill.zip', reason: 'not-permitted' }
+      {
+        kind: 'unavailable',
+        filename: 'skill.zip',
+        attachmentIndex: 1,
+        reason: 'not-permitted'
+      }
     ])
     assert.equal(downloadCalls, 0)
   })
@@ -401,11 +440,39 @@ describe('startQQBotAttachmentDownloads', () => {
 
     const attachments = (await Promise.all(downloads)).filter((attachment) => attachment !== null)
 
-    assert.deepEqual(calls, ['image:2', 'file:1'])
-    assert.deepEqual(
-      attachments.map((attachment) => attachment.kind),
-      ['image', 'file']
-    )
+    assert.deepEqual(calls, ['file:1', 'image:2'])
+    assert.deepEqual(attachments, [
+      {
+        kind: 'file',
+        attachment: {
+          dataUrl: 'data:application/pdf;base64,AAA',
+          mediaType: 'application/pdf',
+          filename: 'first.pdf',
+          attachmentIndex: 1
+        }
+      },
+      {
+        kind: 'image',
+        image: {
+          dataUrl: 'data:image/png;base64,AAA',
+          mediaType: 'image/png',
+          filename: 'first.png',
+          attachmentIndex: 2
+        }
+      },
+      {
+        kind: 'unavailable',
+        filename: 'ignored.pdf',
+        attachmentIndex: 3,
+        reason: 'batch-limit'
+      },
+      {
+        kind: 'unavailable',
+        filename: 'ignored.png',
+        attachmentIndex: 4,
+        reason: 'batch-limit'
+      }
+    ])
   })
 })
 
@@ -508,7 +575,7 @@ it('forwards QQBot C2C zip attachments with or without accompanying text', async
   await waitFor(() => captured.length === 3)
   assert.equal(
     captured[2].content,
-    '看看这个文件\n\n[Attachment unavailable: unsupported.rar (unsupported type)]'
+    '看看这个文件\n\n[Attachment 1 unavailable: unsupported.rar (unsupported type)]'
   )
   assert.equal(captured[2].attachments, undefined)
 })
