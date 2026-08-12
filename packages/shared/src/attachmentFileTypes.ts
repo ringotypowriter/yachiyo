@@ -32,6 +32,7 @@ export const MAX_ATTACHMENT_FILE_BYTES = 25 * 1024 * 1024
 
 export const ACCEPTED_ATTACHMENT_MEDIA_TYPES = [
   'application/pdf',
+  'application/zip',
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
   'application/msword',
   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
@@ -72,6 +73,7 @@ export const ACCEPTED_ATTACHMENT_MEDIA_TYPES = [
 
 const ATTACHMENT_MEDIA_TYPE_BY_EXTENSION: Record<string, string> = {
   '.pdf': 'application/pdf',
+  '.zip': 'application/zip',
   '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
   '.doc': 'application/msword',
   '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',

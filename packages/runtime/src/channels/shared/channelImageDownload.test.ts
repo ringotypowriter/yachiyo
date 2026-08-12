@@ -66,9 +66,17 @@ describe('fileBufferToAttachment', () => {
     )
   })
 
+  it('accepts zip archives so skill bundles remain available by workspace path', () => {
+    assert.deepEqual(fileBufferToAttachment({ buffer: Buffer.from('PK'), filename: 'skill.zip' }), {
+      filename: 'skill.zip',
+      mediaType: 'application/zip',
+      dataUrl: 'data:application/zip;base64,UEs='
+    })
+  })
+
   it('rejects unsupported extensions even when bytes are available', () => {
     assert.throws(
-      () => fileBufferToAttachment({ buffer: Buffer.from('PK'), filename: 'archive.zip' }),
+      () => fileBufferToAttachment({ buffer: Buffer.from('Rar!'), filename: 'archive.rar' }),
       /Unsupported attachment file type/
     )
   })

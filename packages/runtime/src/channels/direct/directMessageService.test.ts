@@ -580,6 +580,79 @@ describe('directMessageService', () => {
     ])
   })
 
+  it('keeps a visible marker when an inbound attachment cannot be read', async () => {
+    const channelUser = createChannelUser()
+    const thread = createThread('thread-unreadable-attachment')
+    const listeners = new Set<(event: YachiyoServerEvent) => void>()
+    let capturedContent = ''
+
+    const server: DirectMessageServer = {
+      subscribe(listener) {
+        listeners.add(listener)
+        return () => listeners.delete(listener)
+      },
+      async sendChat(input): Promise<ChatAcceptedWithUserMessage> {
+        capturedContent = input.content
+        queueMicrotask(() => {
+          for (const listener of listeners) {
+            listener({
+              type: 'run.completed',
+              eventId: 'evt-unreadable-attachment-completed',
+              timestamp: '2026-08-11T00:00:02.000Z',
+              threadId: thread.id,
+              runId: 'run-unreadable-attachment'
+            })
+          }
+        })
+        return {
+          kind: 'run-started',
+          thread,
+          runId: 'run-unreadable-attachment',
+          userMessage: createUserMessage(thread.id)
+        }
+      },
+      getThreadTotalTokens: () => 0,
+      findActiveChannelThread: () => undefined,
+      async setThreadModelOverride() {
+        throw new Error('should not be called')
+      },
+      cancelRunForThread: () => false,
+      cancelRunForChannelUser: () => false,
+      answerToolQuestion: () => {},
+      updateChannelUser: (input) => ({ ...channelUser, usedKTokens: input.usedKTokens ?? 0 }),
+      updateLatestAssistantVisibleReply: () => {},
+      getTtlReaper: () => ({ register: () => {} })
+    }
+
+    const directMessages = createDirectMessageService({
+      logLabel: 'qqbot',
+      server,
+      policy: telegramPolicy,
+      replyDelayMs: () => 0,
+      resolveThread: async () => ({ thread, usageBaselineKTokens: 0 }),
+      sendMessage: async () => {},
+      startBatchIndicator: () => undefined,
+      startHandlingIndicator: () => undefined,
+      nonRunReply: 'non-run',
+      errorReply: 'error'
+    })
+
+    directMessages.enqueueMessage(channelUser.id, channelUser, '安装这个 skills', [
+      Promise.resolve({
+        kind: 'unavailable',
+        filename: 'skill.zip',
+        reason: 'download-failed'
+      })
+    ])
+
+    await delay(20)
+
+    assert.equal(
+      capturedContent,
+      '安装这个 skills\n\n[Attachment unavailable: skill.zip (download failed)]'
+    )
+  })
+
   it('caps images across rapid messages in one debounced batch', async () => {
     const channelUser = createChannelUser()
     const thread = createThread('thread-image-batch-limit')

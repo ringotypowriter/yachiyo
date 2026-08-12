@@ -7,11 +7,16 @@ import { describe, it } from 'node:test'
 import type {
   ChannelUserRecord,
   MessageImageRecord,
+  SendChatAttachment,
   YachiyoServerEvent
 } from '@yachiyo/shared/protocol'
 import type { YachiyoServer } from '../../../app/host/YachiyoServer.ts'
 import type { QQBotC2CMessage, QQBotClient } from './qqbotClient.ts'
-import { createQQBotService, startQQBotImageDownloads } from './qqbotService.ts'
+import {
+  createQQBotService,
+  startQQBotAttachmentDownloads,
+  startQQBotImageDownloads
+} from './qqbotService.ts'
 import type { UpdateReceiptLease } from '../../shared/sendWithUpdateReceipt.ts'
 
 function createChannelUser(overrides: Partial<ChannelUserRecord> = {}): ChannelUserRecord {
@@ -160,6 +165,69 @@ function createAttachmentReplyServer(
   } as unknown as YachiyoServer
 }
 
+function createInboundCaptureServer(
+  channelUser: ChannelUserRecord,
+  capture: (input: { content: string; attachments?: SendChatAttachment[] }) => void
+): YachiyoServer {
+  const listeners = new Set<(event: YachiyoServerEvent) => void>()
+  const thread = {
+    id: 'thread-inbound-file',
+    title: 'Thread',
+    source: 'qqbot' as const,
+    channelUserId: channelUser.id,
+    workspacePath: channelUser.workspacePath,
+    updatedAt: '2026-08-11T00:00:00.000Z'
+  }
+  return {
+    listChannelUsers: () => [channelUser],
+    createChannelUser: () => channelUser,
+    subscribe(listener: (event: YachiyoServerEvent) => void) {
+      listeners.add(listener)
+      return () => listeners.delete(listener)
+    },
+    async sendChat(input) {
+      capture({ content: input.content, attachments: input.attachments })
+      queueMicrotask(() => {
+        for (const listener of listeners) {
+          listener({
+            type: 'run.completed',
+            eventId: 'event-inbound-file-completed',
+            timestamp: '2026-08-11T00:00:01.000Z',
+            threadId: thread.id,
+            runId: 'run-inbound-file'
+          })
+        }
+      })
+      return {
+        kind: 'run-started',
+        thread,
+        runId: 'run-inbound-file',
+        userMessage: {
+          id: 'user-message-inbound-file',
+          threadId: thread.id,
+          role: 'user',
+          content: input.content,
+          attachments: [],
+          status: 'completed',
+          createdAt: '2026-08-11T00:00:00.000Z'
+        }
+      }
+    },
+    createThread: async () => thread,
+    findActiveChannelThread: () => undefined,
+    setThreadModelOverride: async () => {
+      throw new Error('owner QQBot DMs must not apply the guest model override')
+    },
+    getThreadTotalTokens: () => 0,
+    updateLatestAssistantVisibleReply: () => {},
+    updateChannelUser: () => channelUser,
+    getTtlReaper: () => ({ register: () => {} }),
+    cancelRunForThread: () => false,
+    cancelRunForChannelUser: () => false,
+    answerToolQuestion: () => {}
+  } as unknown as YachiyoServer
+}
+
 describe('startQQBotImageDownloads', () => {
   it('downloads filtered images with contiguous indices from protocol-relative QQ URLs', async () => {
     const image: MessageImageRecord = {
@@ -207,6 +275,215 @@ describe('startQQBotImageDownloads', () => {
       }
     ])
   })
+})
+
+describe('startQQBotAttachmentDownloads', () => {
+  it('recognizes an image filename when QQ omits content_type', async () => {
+    const calls: string[] = []
+    const downloads = startQQBotAttachmentDownloads(
+      [
+        {
+          contentType: '',
+          filename: 'photo.png',
+          url: 'https://multimedia.nt.qq.com/download?fileid=image-1'
+        }
+      ],
+      {
+        includeFiles: true,
+        policy: { maxImagesPerBatch: 1, maxImageBytes: 5 * 1024 * 1024 }
+      },
+      async (_url, options) => {
+        assert.ok(options)
+        calls.push('image')
+        return {
+          dataUrl: 'data:image/png;base64,AAA',
+          mediaType: 'image/png',
+          filename: options.filename,
+          attachmentIndex: options.attachmentIndex
+        }
+      },
+      async () => {
+        calls.push('file')
+        return null
+      }
+    )
+
+    assert.deepEqual(await Promise.all(downloads), [
+      {
+        kind: 'image',
+        image: {
+          dataUrl: 'data:image/png;base64,AAA',
+          mediaType: 'image/png',
+          filename: 'photo.png',
+          attachmentIndex: 1
+        }
+      }
+    ])
+    assert.deepEqual(calls, ['image'])
+  })
+
+  it('applies the batch cap independently to files and images', async () => {
+    const calls: string[] = []
+    const downloads = startQQBotAttachmentDownloads(
+      [
+        {
+          contentType: 'application/pdf',
+          filename: 'first.pdf',
+          url: 'https://multimedia.nt.qq.com/download?fileid=file-1'
+        },
+        {
+          contentType: 'image/png',
+          filename: 'first.png',
+          url: 'https://multimedia.nt.qq.com/download?fileid=image-1'
+        },
+        {
+          contentType: 'application/pdf',
+          filename: 'ignored.pdf',
+          url: 'https://multimedia.nt.qq.com/download?fileid=file-2'
+        },
+        {
+          contentType: 'image/png',
+          filename: 'ignored.png',
+          url: 'https://multimedia.nt.qq.com/download?fileid=image-2'
+        }
+      ],
+      {
+        includeFiles: true,
+        policy: { maxImagesPerBatch: 1, maxImageBytes: 5 * 1024 * 1024 }
+      },
+      async (_url, options) => {
+        assert.ok(options)
+        calls.push(`image:${options.attachmentIndex}`)
+        return {
+          dataUrl: 'data:image/png;base64,AAA',
+          mediaType: 'image/png',
+          filename: options.filename,
+          attachmentIndex: options.attachmentIndex
+        }
+      },
+      async (_url, options) => {
+        calls.push(`file:${options.attachmentIndex}`)
+        return {
+          dataUrl: 'data:application/pdf;base64,AAA',
+          mediaType: 'application/pdf',
+          filename: options.filename,
+          attachmentIndex: options.attachmentIndex
+        }
+      }
+    )
+
+    const attachments = (await Promise.all(downloads)).filter((attachment) => attachment !== null)
+
+    assert.deepEqual(calls, ['image:2', 'file:1'])
+    assert.deepEqual(
+      attachments.map((attachment) => attachment.kind),
+      ['image', 'file']
+    )
+  })
+})
+
+it('forwards QQBot C2C zip attachments with or without accompanying text', async (t) => {
+  const originalFetch = globalThis.fetch
+  t.after(() => {
+    globalThis.fetch = originalFetch
+  })
+  globalThis.fetch = async () =>
+    new Response(Buffer.from('PK\u0003\u0004skill'), {
+      status: 200,
+      headers: {
+        'content-length': '9',
+        'content-type': 'application/zip'
+      }
+    })
+
+  const events: string[] = []
+  const captured: Array<{ content: string; attachments?: SendChatAttachment[] }> = []
+  const channelUser = createChannelUser({ status: 'allowed', role: 'owner' })
+  const { client, receive } = createClient(events)
+  const service = createQQBotService({
+    appId: 'app-1',
+    clientSecret: 'secret-1',
+    server: createInboundCaptureServer(channelUser, (input) => captured.push(input)),
+    updateReceiptLease: createLease(events),
+    client,
+    replyDelayMs: () => 0
+  })
+  t.after(() => service.stop())
+
+  receive({
+    openId: channelUser.externalUserId,
+    content: '安装这个 skills',
+    messageId: 'inbound-zip',
+    timestamp: '2026-08-11T00:00:00.000Z',
+    attachments: [
+      {
+        contentType: 'application/zip',
+        filename: 'prompt-engineering-foundations.zip',
+        size: 9,
+        url: '//multimedia.nt.qq.com/download?fileid=skill-zip'
+      }
+    ]
+  })
+
+  await waitFor(() => captured.length === 1)
+
+  assert.equal(captured[0].content, '安装这个 skills')
+  assert.deepEqual(captured[0].attachments, [
+    {
+      filename: 'prompt-engineering-foundations.zip',
+      mediaType: 'application/zip',
+      dataUrl: 'data:application/zip;base64,UEsDBHNraWxs',
+      attachmentIndex: 1
+    }
+  ])
+
+  receive({
+    openId: channelUser.externalUserId,
+    content: '',
+    messageId: 'inbound-file-only',
+    timestamp: '2026-08-11T00:00:01.000Z',
+    attachments: [
+      {
+        contentType: 'application/zip',
+        filename: 'file-only.zip',
+        size: 9,
+        url: '//multimedia.nt.qq.com/download?fileid=file-only-zip'
+      }
+    ]
+  })
+
+  await waitFor(() => captured.length === 2)
+  assert.equal(captured[1].content, '')
+  assert.deepEqual(captured[1].attachments, [
+    {
+      filename: 'file-only.zip',
+      mediaType: 'application/zip',
+      dataUrl: 'data:application/zip;base64,UEsDBHNraWxs',
+      attachmentIndex: 1
+    }
+  ])
+
+  receive({
+    openId: channelUser.externalUserId,
+    content: '看看这个文件',
+    messageId: 'inbound-unsupported-file',
+    timestamp: '2026-08-11T00:00:02.000Z',
+    attachments: [
+      {
+        contentType: 'application/vnd.rar',
+        filename: 'unsupported.rar',
+        size: 9,
+        url: '//multimedia.nt.qq.com/download?fileid=unsupported-file'
+      }
+    ]
+  })
+
+  await waitFor(() => captured.length === 3)
+  assert.equal(
+    captured[2].content,
+    '看看这个文件\n\n[Attachment unavailable: unsupported.rar (unsupported type)]'
+  )
+  assert.equal(captured[2].attachments, undefined)
 })
 
 it('manual sends carry and acknowledge an owed update receipt', async () => {

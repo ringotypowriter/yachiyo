@@ -380,7 +380,7 @@ export function createQQBotClient(options: QQBotClientOptions): QQBotClient {
         content: string
         timestamp: string
         attachments?: Array<{
-          content_type: string
+          content_type?: string
           filename?: string
           height?: number
           width?: number
@@ -397,7 +397,7 @@ export function createQQBotClient(options: QQBotClientOptions): QQBotClient {
         ...(d.attachments?.length
           ? {
               attachments: d.attachments.map((attachment) => ({
-                contentType: attachment.content_type,
+                contentType: attachment.content_type ?? '',
                 filename: attachment.filename,
                 height: attachment.height,
                 width: attachment.width,

@@ -13,12 +13,13 @@
  */
 
 import type { ThreadModelOverride } from '@yachiyo/shared/protocol'
+import { classifyAttachmentFileSelection } from '@yachiyo/shared/attachmentFileTypes'
 import type { YachiyoServer } from '../../../app/host/YachiyoServer.ts'
 import { qqbotPolicy, type ChannelPolicy } from '../../shared/channelPolicy.ts'
 import type { ChannelReplyPayload } from '../../shared/channelReply.ts'
 import { createChannelDirectMessageRuntime } from '../../direct/channelDirectMessageRuntime.ts'
 import type { DirectMessageInboundAttachment } from '../../direct/directMessageService.ts'
-import { fetchImageAsDataUrl } from '../../shared/channelImageDownload.ts'
+import { fetchFileAsDataUrl, fetchImageAsDataUrl } from '../../shared/channelImageDownload.ts'
 import {
   createChannelUpdateReceiptSender,
   findChannelUserId
@@ -80,24 +81,98 @@ interface QQBotTarget {
 }
 
 type QQBotImageFetcher = typeof fetchImageAsDataUrl
+type QQBotFileFetcher = typeof fetchFileAsDataUrl
+const QQBOT_IMAGE_EXTENSIONS = /\.(?:gif|heic|heif|jpe?g|png|webp)$/i
+
+function isQQBotImageAttachment(attachment: QQBotC2CAttachment): boolean {
+  return (
+    attachment.contentType.startsWith('image/') ||
+    QQBOT_IMAGE_EXTENSIONS.test(attachment.filename ?? '')
+  )
+}
+
+function unavailableAttachment(
+  attachment: QQBotC2CAttachment,
+  attachmentIndex: number,
+  reason: Extract<DirectMessageInboundAttachment, { kind: 'unavailable' }>['reason']
+): DirectMessageInboundAttachment {
+  return {
+    kind: 'unavailable',
+    filename: attachment.filename?.trim() || `qqbot-file-${attachmentIndex}`,
+    reason
+  }
+}
+
+export function startQQBotAttachmentDownloads(
+  attachments: readonly QQBotC2CAttachment[],
+  options: {
+    includeFiles: boolean
+    policy: Pick<ChannelPolicy, 'maxImagesPerBatch' | 'maxImageBytes'>
+  },
+  fetchImage: QQBotImageFetcher = fetchImageAsDataUrl,
+  fetchFile: QQBotFileFetcher = fetchFileAsDataUrl
+): Promise<DirectMessageInboundAttachment | null>[] {
+  const indexedAttachments = attachments.map((attachment, index) => ({
+    attachment,
+    attachmentIndex: index + 1
+  }))
+  const imageDownloads = indexedAttachments
+    .filter(({ attachment }) => isQQBotImageAttachment(attachment))
+    .slice(0, options.policy.maxImagesPerBatch)
+    .map(({ attachment, attachmentIndex }) => {
+      const url = attachment.url.startsWith('//') ? `https:${attachment.url}` : attachment.url
+      return fetchImage(url, {
+        maxBytes: options.policy.maxImageBytes,
+        attachmentIndex,
+        filename: attachment.filename ?? `qqbot-image-${attachmentIndex}`
+      }).then((image) =>
+        image
+          ? { kind: 'image' as const, image }
+          : unavailableAttachment(attachment, attachmentIndex, 'download-failed')
+      )
+    })
+
+  const fileDownloads = options.includeFiles
+    ? indexedAttachments
+        .filter(({ attachment }) => !isQQBotImageAttachment(attachment))
+        .slice(0, options.policy.maxImagesPerBatch)
+        .map(({ attachment, attachmentIndex }) => {
+          const url = attachment.url.startsWith('//') ? `https:${attachment.url}` : attachment.url
+          const filename = attachment.filename?.trim() || `qqbot-file-${attachmentIndex}`
+          const classification = classifyAttachmentFileSelection([
+            { name: filename, size: attachment.size }
+          ])
+          const rejection = classification.rejected[0]
+          if (rejection) {
+            return Promise.resolve(
+              unavailableAttachment(attachment, attachmentIndex, rejection.reason)
+            )
+          }
+          return fetchFile(url, {
+            filename,
+            mediaType: attachment.contentType,
+            attachmentIndex
+          }).then((file) =>
+            file
+              ? { kind: 'file' as const, attachment: file }
+              : unavailableAttachment(attachment, attachmentIndex, 'download-failed')
+          )
+        })
+    : []
+
+  return [...imageDownloads, ...fileDownloads]
+}
 
 export function startQQBotImageDownloads(
   attachments: readonly QQBotC2CAttachment[],
   policy: Pick<ChannelPolicy, 'maxImagesPerBatch' | 'maxImageBytes'>,
   fetchImage: QQBotImageFetcher = fetchImageAsDataUrl
 ): Promise<DirectMessageInboundAttachment | null>[] {
-  return attachments
-    .filter((attachment) => attachment.contentType.startsWith('image/'))
-    .slice(0, policy.maxImagesPerBatch)
-    .map((attachment, index) => {
-      const attachmentIndex = index + 1
-      const url = attachment.url.startsWith('//') ? `https:${attachment.url}` : attachment.url
-      return fetchImage(url, {
-        maxBytes: policy.maxImageBytes,
-        attachmentIndex,
-        filename: attachment.filename ?? `qqbot-image-${attachmentIndex}`
-      }).then((image) => (image ? { kind: 'image' as const, image } : null))
-    })
+  return startQQBotAttachmentDownloads(
+    attachments.filter((attachment) => isQQBotImageAttachment(attachment)),
+    { includeFiles: false, policy },
+    fetchImage
+  )
 }
 
 export function createQQBotService({
@@ -247,8 +322,7 @@ export function createQQBotService({
 
   client.onC2CMessage((msg) => {
     const attachments = msg.attachments ?? []
-    const hasImages = attachments.some((attachment) => attachment.contentType.startsWith('image/'))
-    if (!msg.content && !hasImages) return
+    if (!msg.content && attachments.length === 0) return
 
     const openId = msg.openId
     const text = msg.content
@@ -259,6 +333,16 @@ export function createQQBotService({
     console.log(
       `[qqbot] inbound DM from ${openId.slice(0, 8)}...: ${JSON.stringify(text.slice(0, 100))}`
     )
+    if (attachments.length > 0) {
+      console.log(
+        `[qqbot] inbound attachments: ${attachments
+          .map(
+            (attachment) =>
+              `${JSON.stringify(attachment.filename ?? '(unnamed)')} (${attachment.contentType || 'unknown'}, ${attachment.size ?? 'unknown'} bytes)`
+          )
+          .join(', ')}`
+      )
+    }
 
     const result = routeQQBotMessage({ openId, text }, storage)
     console.log(
@@ -285,7 +369,10 @@ export function createQQBotService({
         // Capture the msg_id at enqueue time so this turn's replies
         // always attach to the correct inbound message.
         const target: QQBotTarget = { openId, replyMsgId: msg.messageId }
-        const attachmentDownloads = startQQBotImageDownloads(attachments, policy)
+        const attachmentDownloads = startQQBotAttachmentDownloads(attachments, {
+          includeFiles: result.channelUser.role === 'owner',
+          policy
+        })
         directMessages.enqueueMessage(target, result.channelUser, text, attachmentDownloads)
       }
     }

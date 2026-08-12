@@ -264,6 +264,11 @@ interface PendingBatch<TTarget> {
 export type DirectMessageInboundAttachment =
   | { kind: 'image'; image: MessageImageRecord }
   | { kind: 'file'; attachment: SendChatAttachment }
+  | {
+      kind: 'unavailable'
+      filename: string
+      reason: 'download-failed' | 'unsupported-type' | 'too-large' | 'sensitive-file'
+    }
 
 function offsetInboundAttachmentIndex(
   download: Promise<DirectMessageInboundAttachment | null>,
@@ -283,6 +288,9 @@ function offsetInboundAttachmentIndex(
               : undefined
         }
       }
+    }
+    if (attachment.kind === 'unavailable') {
+      return attachment
     }
     return {
       kind: 'file',
@@ -306,12 +314,29 @@ function offsetInboundAttachmentDownloads(
 
 async function collectResolvedAttachments(
   attachmentDownloads: Promise<DirectMessageInboundAttachment | null>[]
-): Promise<{ images: MessageImageRecord[]; attachments: SendChatAttachment[] }> {
+): Promise<{
+  images: MessageImageRecord[]
+  attachments: SendChatAttachment[]
+  unavailable: Array<Extract<DirectMessageInboundAttachment, { kind: 'unavailable' }>>
+}> {
   const results = await Promise.all(attachmentDownloads)
   return {
     images: results.flatMap((result) => (result?.kind === 'image' ? [result.image] : [])),
-    attachments: results.flatMap((result) => (result?.kind === 'file' ? [result.attachment] : []))
+    attachments: results.flatMap((result) => (result?.kind === 'file' ? [result.attachment] : [])),
+    unavailable: results.flatMap((result) => (result?.kind === 'unavailable' ? [result] : []))
   }
+}
+
+function appendUnavailableAttachmentMarkers(
+  text: string,
+  unavailable: Array<Extract<DirectMessageInboundAttachment, { kind: 'unavailable' }>>
+): string {
+  if (unavailable.length === 0) return text
+  const markers = unavailable.map(
+    ({ filename, reason }) =>
+      `[Attachment unavailable: ${filename} (${reason.replaceAll('-', ' ')})]`
+  )
+  return [text, ...markers].filter(Boolean).join('\n\n')
 }
 
 /**
@@ -930,16 +955,19 @@ export function createDirectMessageService<TTarget>(
     const joinedText = batch.messages.join('\n')
     const prev = userRunChain.get(batch.channelUser.id) ?? Promise.resolve()
     const next = prev.then(async () => {
-      const { images: resolvedImages, attachments } = await collectResolvedAttachments(
-        batch.attachmentDownloads
-      )
+      const {
+        images: resolvedImages,
+        attachments,
+        unavailable
+      } = await collectResolvedAttachments(batch.attachmentDownloads)
       const images = resolvedImages.slice(0, options.policy.maxImagesPerBatch)
+      const content = appendUnavailableAttachmentMarkers(joinedText, unavailable)
 
       console.log(
         `[${options.logLabel}] flushing batch for ${batch.channelUser.username}: ${batch.messages.length} message(s), ${images.length} image(s), ${attachments.length} file attachment(s)`
       )
 
-      await handleAllowedMessage(batch.target, batch.channelUser, joinedText, images, attachments)
+      await handleAllowedMessage(batch.target, batch.channelUser, content, images, attachments)
     })
     userRunChain.set(
       batch.channelUser.id,

@@ -37,16 +37,18 @@ test('resolveAcceptedAttachmentMediaType falls back to structured text extension
   )
 })
 
-test('collectAcceptedAttachmentFiles keeps text-like files and rejects binary files', () => {
+test('collectAcceptedAttachmentFiles keeps readable files and rejects unsupported binaries', () => {
   const files = [
     { name: 'notes.md', type: 'text/markdown' },
     { name: 'schema.jsonc', type: '' },
-    { name: 'archive.zip', type: 'application/zip' }
+    { name: 'skill.zip', type: 'application/zip' },
+    { name: 'archive.rar', type: 'application/vnd.rar' }
   ]
 
   assert.deepEqual(collectAcceptedAttachmentFiles(files), [
     { file: files[0], mediaType: 'text/markdown' },
-    { file: files[1], mediaType: 'application/jsonc' }
+    { file: files[1], mediaType: 'application/jsonc' },
+    { file: files[2], mediaType: 'application/zip' }
   ])
 })
 
@@ -67,7 +69,7 @@ test('resolveAcceptedAttachmentMediaType accepts common code and config files by
 test('classifyAttachmentFileSelection explains unsupported, oversized, and sensitive rejections', () => {
   const files = [
     { name: 'config.json', type: 'application/json', size: 128 },
-    { name: 'archive.zip', type: 'application/zip', size: 512 },
+    { name: 'archive.rar', type: 'application/vnd.rar', size: 512 },
     { name: 'large.log', type: 'text/plain', size: MAX_ATTACHMENT_FILE_BYTES + 1 },
     { name: '.env.local', type: 'text/plain', size: 64 }
   ]
