@@ -82,6 +82,8 @@ function inferMediaType(name?: string, contentType?: string): string {
       jpeg: 'image/jpeg',
       png: 'image/png',
       gif: 'image/gif',
+      heic: 'image/heic',
+      heif: 'image/heif',
       webp: 'image/webp',
       svg: 'image/svg+xml'
     }

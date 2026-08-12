@@ -82,6 +82,7 @@ interface QQBotTarget {
 
 type QQBotImageFetcher = typeof fetchImageAsDataUrl
 type QQBotFileFetcher = typeof fetchFileAsDataUrl
+// Do not infer SVG from filenames: keep ambiguous XML on the validated file-attachment path.
 const QQBOT_IMAGE_EXTENSIONS = /\.(?:bmp|gif|heic|heif|jpe?g|png|webp)$/i
 
 function isQQBotImageAttachment(attachment: QQBotC2CAttachment): boolean {

@@ -4,7 +4,8 @@ import {
   detectMediaTypeFromBytes,
   fetchFileAsDataUrl,
   fetchImageAsDataUrl,
-  fileBufferToAttachment
+  fileBufferToAttachment,
+  imageBufferToRecord
 } from './channelImageDownload.ts'
 
 describe('detectMediaTypeFromBytes', () => {
@@ -52,6 +53,21 @@ describe('fetchImageAsDataUrl', () => {
       timeoutMs: 1000
     })
     assert.equal(result, null)
+  })
+})
+
+describe('imageBufferToRecord', () => {
+  it('infers HEIC and HEIF media types from filenames when content type is missing', async () => {
+    const buffer = Buffer.from('not-inspected-for-vision-safe-types')
+
+    assert.equal(
+      (await imageBufferToRecord({ buffer, filename: 'photo.heic' })).mediaType,
+      'image/heic'
+    )
+    assert.equal(
+      (await imageBufferToRecord({ buffer, filename: 'photo.heif' })).mediaType,
+      'image/heif'
+    )
   })
 })
 
