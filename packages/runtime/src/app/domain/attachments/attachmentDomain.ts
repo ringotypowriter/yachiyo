@@ -22,6 +22,7 @@ const IMAGE_MEDIA_TYPE_EXT: Record<string, string> = {
 
 const YACHIYO_ATTACHMENT_DIR = '.yachiyo'
 const GIT_EXCLUDE_ENTRY = `\n# yachiyo managed files\n${YACHIYO_ATTACHMENT_DIR}/\n`
+const MAX_STORAGE_FILENAME_BYTES = 255
 
 function extFromMediaType(mediaType: string): string | undefined {
   return IMAGE_MEDIA_TYPE_EXT[mediaType]
@@ -29,6 +30,26 @@ function extFromMediaType(mediaType: string): string | undefined {
 
 function sanitizeFilename(filename: string): string {
   return filename.replace(/[/\\:*?"<>|]/g, '_')
+}
+
+function truncateUtf8(value: string, maxBytes: number): string {
+  let result = ''
+  let byteLength = 0
+  for (const character of value) {
+    const characterBytes = Buffer.byteLength(character)
+    if (byteLength + characterBytes > maxBytes) break
+    result += character
+    byteLength += characterBytes
+  }
+  return result
+}
+
+function buildStorageFilename(prefix: string, base: string, extension: string): string {
+  const safeBase = sanitizeFilename(base)
+  const extensionBytes = MAX_STORAGE_FILENAME_BYTES - Buffer.byteLength(prefix)
+  const safeExtension = truncateUtf8(sanitizeFilename(extension), Math.max(0, extensionBytes))
+  const baseBytes = extensionBytes - Buffer.byteLength(safeExtension)
+  return `${prefix}${truncateUtf8(safeBase, Math.max(0, baseBytes))}${safeExtension}`
 }
 
 async function writeBase64File(filePath: string, filename: string, dataUrl: string): Promise<void> {
@@ -90,7 +111,7 @@ export async function saveImageFilesToWorkspace(input: {
       // open set of original browser files, so retain their extension when no mapping exists.
       const ext = (extFromMediaType(image.mediaType) ?? filenameExt) || '.bin'
       const base = image.filename ? basename(image.filename, filenameExt) : `image_${index + 1}`
-      const safeName = sanitizeFilename(`${base}${ext}`)
+      const safeName = buildStorageFilename(`${index + 1}-`, base, ext)
       const filePath = join(attachmentDir, safeName)
       await writeBase64File(filePath, originalName, image.dataUrl)
       return { ...image, workspacePath: filePath }
@@ -111,10 +132,13 @@ export async function saveFileAttachmentsToWorkspace(input: {
 
   return Promise.all(
     input.attachments.map(async (attachment, index) => {
-      const storageExtension = extname(attachment.filename)
-        ? ''
-        : resolvePreferredAttachmentExtension(attachment.mediaType) || ''
-      const safeName = `${index + 1}-${sanitizeFilename(attachment.filename)}${storageExtension}`
+      const filenameExtension = extname(attachment.filename)
+      const storageExtension =
+        filenameExtension || resolvePreferredAttachmentExtension(attachment.mediaType) || ''
+      const filenameBase = filenameExtension
+        ? attachment.filename.slice(0, -filenameExtension.length)
+        : attachment.filename
+      const safeName = buildStorageFilename(`${index + 1}-`, filenameBase, storageExtension)
       const filePath = join(attachmentDir, safeName)
       await writeBase64File(filePath, attachment.filename, attachment.dataUrl)
       return {
