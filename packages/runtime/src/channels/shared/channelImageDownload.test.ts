@@ -2,8 +2,10 @@ import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
 import {
   detectMediaTypeFromBytes,
+  fetchFileAsDataUrl,
   fetchImageAsDataUrl,
-  fileBufferToAttachment
+  fileBufferToAttachment,
+  imageBufferToRecord
 } from './channelImageDownload.ts'
 
 describe('detectMediaTypeFromBytes', () => {
@@ -52,6 +54,101 @@ describe('fetchImageAsDataUrl', () => {
     })
     assert.equal(result, null)
   })
+
+  it('accepts decodable image bytes when a filename-only fallback requires validation', async (t) => {
+    const originalFetch = globalThis.fetch
+    t.after(() => {
+      globalThis.fetch = originalFetch
+    })
+    const png = Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg==',
+      'base64'
+    )
+    globalThis.fetch = async () => new Response(png, { status: 200 })
+
+    const result = await fetchImageAsDataUrl('https://example.test/photo.png', {
+      filename: 'photo.png',
+      validateImageBytes: true
+    })
+
+    assert.equal(result?.mediaType, 'image/png')
+  })
+
+  it('rejects non-image bytes when a filename-only fallback requires decoding', async (t) => {
+    const originalFetch = globalThis.fetch
+    t.after(() => {
+      globalThis.fetch = originalFetch
+    })
+    globalThis.fetch = async () => new Response(Buffer.from('not an image'), { status: 200 })
+
+    const result = await fetchImageAsDataUrl('https://example.test/photo.jpg', {
+      filename: 'photo.jpg',
+      validateImageBytes: true
+    })
+
+    assert.equal(result, null)
+  })
+})
+
+describe('imageBufferToRecord', () => {
+  it('infers HEIC and HEIF media types from filenames when content type is missing', async () => {
+    const buffer = Buffer.from('not-inspected-for-vision-safe-types')
+
+    assert.equal(
+      (await imageBufferToRecord({ buffer, filename: 'photo.heic' })).mediaType,
+      'image/heic'
+    )
+    assert.equal(
+      (await imageBufferToRecord({ buffer, filename: 'photo.heif' })).mediaType,
+      'image/heif'
+    )
+  })
+
+  it('validates HEIC bytes without relying on decoder support', async () => {
+    const heic = Buffer.from([
+      0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70, 0x68, 0x65, 0x69, 0x63, 0x00, 0x00, 0x00,
+      0x00, 0x6d, 0x69, 0x66, 0x31, 0x68, 0x65, 0x69, 0x63
+    ])
+
+    assert.equal(
+      (
+        await imageBufferToRecord({
+          buffer: heic,
+          filename: 'photo.heic',
+          validateImageBytes: true
+        })
+      ).mediaType,
+      'image/heic'
+    )
+  })
+})
+
+describe('fetchFileAsDataUrl', () => {
+  it('downloads an extensionless fallback filename using its supported media type', async (t) => {
+    const originalFetch = globalThis.fetch
+    t.after(() => {
+      globalThis.fetch = originalFetch
+    })
+    globalThis.fetch = async () =>
+      new Response(Buffer.from('PDF'), {
+        status: 200,
+        headers: { 'content-length': '3' }
+      })
+
+    assert.deepEqual(
+      await fetchFileAsDataUrl('https://multimedia.nt.qq.com/download?fileid=file-1', {
+        filename: 'qqbot-file-1',
+        mediaType: 'application/pdf',
+        attachmentIndex: 1
+      }),
+      {
+        filename: 'qqbot-file-1',
+        mediaType: 'application/pdf',
+        dataUrl: 'data:application/pdf;base64,UERG',
+        attachmentIndex: 1
+      }
+    )
+  })
 })
 
 describe('fileBufferToAttachment', () => {
@@ -66,9 +163,46 @@ describe('fileBufferToAttachment', () => {
     )
   })
 
+  it('accepts zip archives so skill bundles remain available by workspace path', () => {
+    assert.deepEqual(fileBufferToAttachment({ buffer: Buffer.from('PK'), filename: 'skill.zip' }), {
+      filename: 'skill.zip',
+      mediaType: 'application/zip',
+      dataUrl: 'data:application/zip;base64,UEs='
+    })
+  })
+
+  it('accepts a fallback filename when the platform supplies a supported media type', () => {
+    assert.deepEqual(
+      fileBufferToAttachment({
+        buffer: Buffer.from('PDF'),
+        filename: 'qqbot-file-1',
+        mediaType: 'application/pdf',
+        attachmentIndex: 1
+      }),
+      {
+        filename: 'qqbot-file-1',
+        mediaType: 'application/pdf',
+        dataUrl: 'data:application/pdf;base64,UERG',
+        attachmentIndex: 1
+      }
+    )
+  })
+
+  it('does not let a supported media type override an unsupported extension', () => {
+    assert.throws(
+      () =>
+        fileBufferToAttachment({
+          buffer: Buffer.from('PDF'),
+          filename: 'archive.exe',
+          mediaType: 'application/pdf'
+        }),
+      /Unsupported attachment file type/
+    )
+  })
+
   it('rejects unsupported extensions even when bytes are available', () => {
     assert.throws(
-      () => fileBufferToAttachment({ buffer: Buffer.from('PK'), filename: 'archive.zip' }),
+      () => fileBufferToAttachment({ buffer: Buffer.from('Rar!'), filename: 'archive.rar' }),
       /Unsupported attachment file type/
     )
   })

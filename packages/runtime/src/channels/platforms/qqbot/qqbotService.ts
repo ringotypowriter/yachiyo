@@ -13,12 +13,17 @@
  */
 
 import type { ThreadModelOverride } from '@yachiyo/shared/protocol'
+import {
+  classifyAttachmentFileSelection,
+  hasExplicitAttachmentFileExtension,
+  resolvePreferredAttachmentExtension
+} from '@yachiyo/shared/attachmentFileTypes'
 import type { YachiyoServer } from '../../../app/host/YachiyoServer.ts'
 import { qqbotPolicy, type ChannelPolicy } from '../../shared/channelPolicy.ts'
 import type { ChannelReplyPayload } from '../../shared/channelReply.ts'
 import { createChannelDirectMessageRuntime } from '../../direct/channelDirectMessageRuntime.ts'
 import type { DirectMessageInboundAttachment } from '../../direct/directMessageService.ts'
-import { fetchImageAsDataUrl } from '../../shared/channelImageDownload.ts'
+import { fetchFileAsDataUrl, fetchImageAsDataUrl } from '../../shared/channelImageDownload.ts'
 import {
   createChannelUpdateReceiptSender,
   findChannelUserId
@@ -80,24 +85,130 @@ interface QQBotTarget {
 }
 
 type QQBotImageFetcher = typeof fetchImageAsDataUrl
+type QQBotFileFetcher = typeof fetchFileAsDataUrl
+// Do not infer SVG from filenames: keep ambiguous XML on the validated file-attachment path.
+const QQBOT_IMAGE_EXTENSIONS = /\.(?:bmp|gif|heic|heif|jpe?g|png|webp)$/i
+
+function isQQBotImageAttachment(attachment: QQBotC2CAttachment): boolean {
+  return (
+    attachment.contentType.startsWith('image/') ||
+    QQBOT_IMAGE_EXTENSIONS.test(attachment.filename ?? '')
+  )
+}
+
+function unavailableAttachment(
+  attachment: QQBotC2CAttachment,
+  attachmentIndex: number,
+  reason: Extract<DirectMessageInboundAttachment, { kind: 'unavailable' }>['reason']
+): DirectMessageInboundAttachment {
+  return {
+    kind: 'unavailable',
+    filename: attachment.filename?.trim() || `qqbot-file-${attachmentIndex}`,
+    attachmentIndex,
+    reason
+  }
+}
+
+export function startQQBotAttachmentDownloads(
+  attachments: readonly QQBotC2CAttachment[],
+  options: {
+    includeFiles: boolean
+    policy: Pick<ChannelPolicy, 'maxImagesPerBatch' | 'maxImageBytes'>
+    initialCounts?: { images: number; files: number }
+  },
+  fetchImage: QQBotImageFetcher = fetchImageAsDataUrl,
+  fetchFile: QQBotFileFetcher = fetchFileAsDataUrl
+): Promise<DirectMessageInboundAttachment | null>[] {
+  const indexedAttachments = attachments.map((attachment, index) => ({
+    attachment,
+    attachmentIndex: index + 1
+  }))
+  let imageCount = options.initialCounts?.images ?? 0
+  let fileCount = options.initialCounts?.files ?? 0
+
+  return indexedAttachments.map(({ attachment, attachmentIndex }) => {
+    if (isQQBotImageAttachment(attachment)) {
+      imageCount += 1
+      if (imageCount > options.policy.maxImagesPerBatch) {
+        return Promise.resolve(unavailableAttachment(attachment, attachmentIndex, 'batch-limit'))
+      }
+      const url = attachment.url.startsWith('//') ? `https:${attachment.url}` : attachment.url
+      return fetchImage(url, {
+        maxBytes: options.policy.maxImageBytes,
+        attachmentIndex,
+        filename: attachment.filename ?? `qqbot-image-${attachmentIndex}`,
+        ...(!attachment.contentType.startsWith('image/') ? { validateImageBytes: true } : {})
+      }).then((image) =>
+        image
+          ? { kind: 'image' as const, image }
+          : unavailableAttachment(attachment, attachmentIndex, 'download-failed')
+      )
+    }
+
+    if (!options.includeFiles) {
+      return Promise.resolve(unavailableAttachment(attachment, attachmentIndex, 'not-permitted'))
+    }
+
+    fileCount += 1
+    if (fileCount > options.policy.maxImagesPerBatch) {
+      return Promise.resolve(unavailableAttachment(attachment, attachmentIndex, 'batch-limit'))
+    }
+
+    const url = attachment.url.startsWith('//') ? `https:${attachment.url}` : attachment.url
+    const suppliedFilename = attachment.filename?.trim()
+    const fallbackExtension = resolvePreferredAttachmentExtension(attachment.contentType) ?? ''
+    const filename = suppliedFilename || `qqbot-file-${attachmentIndex}${fallbackExtension}`
+    const classification = classifyAttachmentFileSelection([
+      {
+        name: filename,
+        size: attachment.size,
+        ...(!hasExplicitAttachmentFileExtension(filename) && attachment.contentType
+          ? { type: attachment.contentType }
+          : {})
+      }
+    ])
+    const rejection = classification.rejected[0]
+    if (rejection) {
+      return Promise.resolve(unavailableAttachment(attachment, attachmentIndex, rejection.reason))
+    }
+    const mediaType = classification.accepted[0]?.mediaType
+    return fetchFile(url, {
+      filename,
+      mediaType,
+      attachmentIndex
+    }).then((file) =>
+      file
+        ? { kind: 'file' as const, attachment: file }
+        : unavailableAttachment(attachment, attachmentIndex, 'download-failed')
+    )
+  })
+}
+
+function countQQBotAttachmentKinds(attachments: readonly QQBotC2CAttachment[]): {
+  images: number
+  files: number
+} {
+  let images = 0
+  let files = 0
+  for (const attachment of attachments) {
+    if (isQQBotImageAttachment(attachment)) images += 1
+    else files += 1
+  }
+  return { images, files }
+}
 
 export function startQQBotImageDownloads(
   attachments: readonly QQBotC2CAttachment[],
   policy: Pick<ChannelPolicy, 'maxImagesPerBatch' | 'maxImageBytes'>,
   fetchImage: QQBotImageFetcher = fetchImageAsDataUrl
 ): Promise<DirectMessageInboundAttachment | null>[] {
-  return attachments
-    .filter((attachment) => attachment.contentType.startsWith('image/'))
-    .slice(0, policy.maxImagesPerBatch)
-    .map((attachment, index) => {
-      const attachmentIndex = index + 1
-      const url = attachment.url.startsWith('//') ? `https:${attachment.url}` : attachment.url
-      return fetchImage(url, {
-        maxBytes: policy.maxImageBytes,
-        attachmentIndex,
-        filename: attachment.filename ?? `qqbot-image-${attachmentIndex}`
-      }).then((image) => (image ? { kind: 'image' as const, image } : null))
-    })
+  return startQQBotAttachmentDownloads(
+    attachments
+      .filter((attachment) => isQQBotImageAttachment(attachment))
+      .slice(0, policy.maxImagesPerBatch),
+    { includeFiles: false, policy },
+    fetchImage
+  )
 }
 
 export function createQQBotService({
@@ -247,8 +358,7 @@ export function createQQBotService({
 
   client.onC2CMessage((msg) => {
     const attachments = msg.attachments ?? []
-    const hasImages = attachments.some((attachment) => attachment.contentType.startsWith('image/'))
-    if (!msg.content && !hasImages) return
+    if (!msg.content && attachments.length === 0) return
 
     const openId = msg.openId
     const text = msg.content
@@ -259,6 +369,16 @@ export function createQQBotService({
     console.log(
       `[qqbot] inbound DM from ${openId.slice(0, 8)}...: ${JSON.stringify(text.slice(0, 100))}`
     )
+    if (attachments.length > 0) {
+      console.log(
+        `[qqbot] inbound attachments: ${attachments
+          .map(
+            (attachment) =>
+              `${JSON.stringify(attachment.filename ?? '(unnamed)')} (${attachment.contentType || 'unknown'}, ${attachment.size ?? 'unknown'} bytes)`
+          )
+          .join(', ')}`
+      )
+    }
 
     const result = routeQQBotMessage({ openId, text }, storage)
     console.log(
@@ -285,8 +405,19 @@ export function createQQBotService({
         // Capture the msg_id at enqueue time so this turn's replies
         // always attach to the correct inbound message.
         const target: QQBotTarget = { openId, replyMsgId: msg.messageId }
-        const attachmentDownloads = startQQBotImageDownloads(attachments, policy)
-        directMessages.enqueueMessage(target, result.channelUser, text, attachmentDownloads)
+        const initialCounts = directMessages.getPendingAttachmentSlotCounts(result.channelUser.id)
+        const attachmentDownloads = startQQBotAttachmentDownloads(attachments, {
+          includeFiles: result.channelUser.role === 'owner',
+          policy,
+          initialCounts
+        })
+        directMessages.enqueueMessage(
+          target,
+          result.channelUser,
+          text,
+          attachmentDownloads,
+          countQQBotAttachmentKinds(attachments)
+        )
       }
     }
   })

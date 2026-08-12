@@ -580,6 +580,80 @@ describe('directMessageService', () => {
     ])
   })
 
+  it('keeps a visible marker when an inbound attachment cannot be read', async () => {
+    const channelUser = createChannelUser()
+    const thread = createThread('thread-unreadable-attachment')
+    const listeners = new Set<(event: YachiyoServerEvent) => void>()
+    let capturedContent = ''
+
+    const server: DirectMessageServer = {
+      subscribe(listener) {
+        listeners.add(listener)
+        return () => listeners.delete(listener)
+      },
+      async sendChat(input): Promise<ChatAcceptedWithUserMessage> {
+        capturedContent = input.content
+        queueMicrotask(() => {
+          for (const listener of listeners) {
+            listener({
+              type: 'run.completed',
+              eventId: 'evt-unreadable-attachment-completed',
+              timestamp: '2026-08-11T00:00:02.000Z',
+              threadId: thread.id,
+              runId: 'run-unreadable-attachment'
+            })
+          }
+        })
+        return {
+          kind: 'run-started',
+          thread,
+          runId: 'run-unreadable-attachment',
+          userMessage: createUserMessage(thread.id)
+        }
+      },
+      getThreadTotalTokens: () => 0,
+      findActiveChannelThread: () => undefined,
+      async setThreadModelOverride() {
+        throw new Error('should not be called')
+      },
+      cancelRunForThread: () => false,
+      cancelRunForChannelUser: () => false,
+      answerToolQuestion: () => {},
+      updateChannelUser: (input) => ({ ...channelUser, usedKTokens: input.usedKTokens ?? 0 }),
+      updateLatestAssistantVisibleReply: () => {},
+      getTtlReaper: () => ({ register: () => {} })
+    }
+
+    const directMessages = createDirectMessageService({
+      logLabel: 'qqbot',
+      server,
+      policy: telegramPolicy,
+      replyDelayMs: () => 0,
+      resolveThread: async () => ({ thread, usageBaselineKTokens: 0 }),
+      sendMessage: async () => {},
+      startBatchIndicator: () => undefined,
+      startHandlingIndicator: () => undefined,
+      nonRunReply: 'non-run',
+      errorReply: 'error'
+    })
+
+    directMessages.enqueueMessage(channelUser.id, channelUser, '安装这个 skills', [
+      Promise.resolve({
+        kind: 'unavailable',
+        filename: 'skill.zip',
+        attachmentIndex: 1,
+        reason: 'download-failed'
+      })
+    ])
+
+    await delay(20)
+
+    assert.equal(
+      capturedContent,
+      '安装这个 skills\n\n[Attachment 1 unavailable: skill.zip (download failed)]'
+    )
+  })
+
   it('caps images across rapid messages in one debounced batch', async () => {
     const channelUser = createChannelUser()
     const thread = createThread('thread-image-batch-limit')
@@ -683,6 +757,215 @@ describe('directMessageService', () => {
     assert.deepEqual(
       capturedImages?.map((image) => image.filename),
       ['first.png', 'second.png']
+    )
+  })
+
+  it('caps files across rapid messages in one debounced batch', async () => {
+    const channelUser = createChannelUser()
+    const thread = createThread('thread-file-batch-limit')
+    const listeners = new Set<(event: YachiyoServerEvent) => void>()
+    let capturedAttachments:
+      | Array<{
+          filename: string
+          mediaType: string
+          dataUrl: string
+          attachmentIndex?: number
+        }>
+      | undefined
+    let capturedContent = ''
+
+    const server: DirectMessageServer = {
+      subscribe(listener) {
+        listeners.add(listener)
+        return () => listeners.delete(listener)
+      },
+      async sendChat(input): Promise<ChatAcceptedWithUserMessage> {
+        capturedAttachments = input.attachments
+        capturedContent = input.content
+        queueMicrotask(() => {
+          for (const listener of listeners) {
+            listener({
+              type: 'run.completed',
+              eventId: 'evt-file-batch-limit-completed',
+              timestamp: '2026-08-11T00:00:02.000Z',
+              threadId: thread.id,
+              runId: 'run-file-batch-limit'
+            })
+          }
+        })
+        return {
+          kind: 'run-started',
+          thread,
+          runId: 'run-file-batch-limit',
+          userMessage: createUserMessage(thread.id)
+        }
+      },
+      getThreadTotalTokens: () => 0,
+      findActiveChannelThread: () => undefined,
+      async setThreadModelOverride() {
+        throw new Error('should not be called')
+      },
+      cancelRunForThread: () => false,
+      cancelRunForChannelUser: () => false,
+      answerToolQuestion: () => {},
+      updateChannelUser: (input) => ({ ...channelUser, usedKTokens: input.usedKTokens ?? 0 }),
+      updateLatestAssistantVisibleReply: () => {},
+      getTtlReaper: () => ({ register: () => {} })
+    }
+
+    const directMessages = createDirectMessageService({
+      logLabel: 'qqbot',
+      server,
+      policy: { ...telegramPolicy, maxImagesPerBatch: 2 },
+      replyDelayMs: () => 10,
+      resolveThread: async () => ({ thread, usageBaselineKTokens: 0 }),
+      sendMessage: async () => {},
+      startBatchIndicator: () => undefined,
+      startHandlingIndicator: () => undefined,
+      nonRunReply: 'non-run',
+      errorReply: 'error'
+    })
+
+    const file = (
+      filename: string,
+      attachmentIndex: number
+    ): Promise<DirectMessageInboundAttachment> =>
+      Promise.resolve({
+        kind: 'file' as const,
+        attachment: {
+          dataUrl: `data:application/pdf;base64,${filename}`,
+          mediaType: 'application/pdf',
+          filename,
+          attachmentIndex
+        }
+      })
+
+    directMessages.enqueueMessage(channelUser.id, channelUser, 'first pair', [
+      file('first.pdf', 1),
+      file('second.pdf', 2)
+    ])
+    directMessages.enqueueMessage(channelUser.id, channelUser, 'second pair', [
+      file('third.pdf', 1),
+      file('fourth.pdf', 2)
+    ])
+
+    await waitFor(() => capturedAttachments !== undefined)
+
+    assert.deepEqual(
+      capturedAttachments?.map((attachment) => [attachment.filename, attachment.attachmentIndex]),
+      [
+        ['first.pdf', 1],
+        ['second.pdf', 2]
+      ]
+    )
+    assert.equal(
+      capturedContent,
+      'first pair\nsecond pair\n\n' +
+        '[Attachment 3 unavailable: third.pdf (batch limit)]\n\n' +
+        '[Attachment 4 unavailable: fourth.pdf (batch limit)]'
+    )
+  })
+
+  it('preserves unavailable slots when batching attachment indices across messages', async () => {
+    const channelUser = createChannelUser()
+    const thread = createThread('thread-sparse-attachment-indices')
+    const listeners = new Set<(event: YachiyoServerEvent) => void>()
+    let capturedImages: ChatAcceptedWithUserMessage['userMessage']['images']
+    let capturedContent = ''
+
+    const server: DirectMessageServer = {
+      subscribe(listener) {
+        listeners.add(listener)
+        return () => listeners.delete(listener)
+      },
+      async sendChat(input): Promise<ChatAcceptedWithUserMessage> {
+        capturedImages = input.images
+        capturedContent = input.content
+        queueMicrotask(() => {
+          for (const listener of listeners) {
+            listener({
+              type: 'run.completed',
+              eventId: 'evt-sparse-attachment-indices-completed',
+              timestamp: '2026-03-31T00:00:02.000Z',
+              threadId: thread.id,
+              runId: 'run-sparse-attachment-indices'
+            })
+          }
+        })
+        return {
+          kind: 'run-started',
+          thread,
+          runId: 'run-sparse-attachment-indices',
+          userMessage: createUserMessage(thread.id)
+        }
+      },
+      getThreadTotalTokens: () => 0,
+      findActiveChannelThread: () => undefined,
+      async setThreadModelOverride() {
+        throw new Error('should not be called')
+      },
+      cancelRunForThread: () => false,
+      cancelRunForChannelUser: () => false,
+      answerToolQuestion: () => {},
+      updateChannelUser: (input) => ({ ...channelUser, usedKTokens: input.usedKTokens ?? 0 }),
+      updateLatestAssistantVisibleReply: () => {},
+      getTtlReaper: () => ({ register: () => {} })
+    }
+
+    const directMessages = createDirectMessageService({
+      logLabel: 'qqbot',
+      server,
+      policy: telegramPolicy,
+      replyDelayMs: () => 10,
+      resolveThread: async () => ({ thread, usageBaselineKTokens: 0 }),
+      sendMessage: async () => {},
+      startBatchIndicator: () => undefined,
+      startHandlingIndicator: () => undefined,
+      nonRunReply: 'non-run',
+      errorReply: 'error'
+    })
+
+    directMessages.enqueueMessage(channelUser.id, channelUser, 'first message', [
+      Promise.resolve({
+        kind: 'unavailable',
+        filename: 'ignored.zip',
+        attachmentIndex: 1,
+        reason: 'batch-limit'
+      }),
+      Promise.resolve({
+        kind: 'image',
+        image: {
+          dataUrl: 'data:image/png;base64,first',
+          mediaType: 'image/png',
+          filename: 'first.png',
+          attachmentIndex: 2
+        }
+      })
+    ])
+    directMessages.enqueueMessage(channelUser.id, channelUser, 'second message', [
+      Promise.resolve({
+        kind: 'image',
+        image: {
+          dataUrl: 'data:image/png;base64,second',
+          mediaType: 'image/png',
+          filename: 'second.png',
+          attachmentIndex: 1
+        }
+      })
+    ])
+
+    await waitFor(() => capturedImages !== undefined)
+
+    assert.deepEqual(
+      capturedImages?.map((image) => [image.filename, image.attachmentIndex]),
+      [
+        ['first.png', 2],
+        ['second.png', 3]
+      ]
+    )
+    assert.equal(
+      capturedContent,
+      'first message\nsecond message\n\n[Attachment 1 unavailable: ignored.zip (batch limit)]'
     )
   })
 

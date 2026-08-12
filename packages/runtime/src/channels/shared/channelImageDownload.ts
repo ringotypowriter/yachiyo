@@ -70,6 +70,21 @@ export function detectMediaTypeFromBytes(buffer: Buffer): string | null {
   // BMP: 42 4D
   if (buffer[0] === 0x42 && buffer[1] === 0x4d) return 'image/bmp'
 
+  // HEIC/HEIF: ISO BMFF file type box and a compatible image brand.
+  if (buffer.length >= 12 && buffer.toString('ascii', 4, 8) === 'ftyp') {
+    const boxSize = buffer.readUInt32BE(0)
+    if (boxSize < 16 || boxSize > buffer.length) return null
+    const boxEnd = boxSize
+    const brands = [buffer.toString('ascii', 8, 12)]
+    for (let offset = 16; offset + 4 <= boxEnd; offset += 4) {
+      brands.push(buffer.toString('ascii', offset, offset + 4))
+    }
+    if (brands.some((brand) => ['heic', 'heix', 'hevc', 'hevx'].includes(brand))) {
+      return 'image/heic'
+    }
+    if (brands.some((brand) => ['mif1', 'msf1'].includes(brand))) return 'image/heif'
+  }
+
   return null
 }
 
@@ -82,6 +97,8 @@ function inferMediaType(name?: string, contentType?: string): string {
       jpeg: 'image/jpeg',
       png: 'image/png',
       gif: 'image/gif',
+      heic: 'image/heic',
+      heif: 'image/heif',
       webp: 'image/webp',
       svg: 'image/svg+xml'
     }
@@ -102,8 +119,21 @@ function bufferToDataUrl(buffer: Buffer, mediaType: string): string {
   return `data:${mediaType};base64,${buffer.toString('base64')}`
 }
 
-function resolveSupportedAttachmentMediaType(filename: string, size?: number): string | null {
-  const [classification] = classifyAttachmentFileSelection([{ name: filename, size }]).accepted
+function resolveSupportedAttachmentMediaType(
+  filename: string,
+  size?: number,
+  mediaType?: string
+): string | null {
+  const filenameMediaType = resolveAcceptedAttachmentMediaType({ name: filename })
+  const basename = filename.trim().split(/[\\/]/).pop() ?? ''
+  const hasExplicitExtension = basename.lastIndexOf('.') > 0
+  const [classification] = classifyAttachmentFileSelection([
+    {
+      name: filename,
+      size,
+      ...(!filenameMediaType && !hasExplicitExtension && mediaType ? { type: mediaType } : {})
+    }
+  ]).accepted
   return classification?.mediaType ?? null
 }
 
@@ -112,9 +142,14 @@ export async function imageBufferToRecord(input: {
   filename?: string
   mediaType?: string
   attachmentIndex?: number
+  validateImageBytes?: boolean
 }): Promise<MessageImageRecord> {
   const detectedType = inferMediaTypeWithBytes(input.buffer, input.filename, input.mediaType)
-  const { buffer, mediaType } = await ensureVisionSafe(input.buffer, detectedType)
+  const { buffer, mediaType } = await ensureVisionSafe(
+    input.buffer,
+    detectedType,
+    input.validateImageBytes
+  )
   return {
     dataUrl: bufferToDataUrl(buffer, mediaType),
     mediaType,
@@ -126,9 +161,14 @@ export async function imageBufferToRecord(input: {
 export function fileBufferToAttachment(input: {
   buffer: Buffer
   filename: string
+  mediaType?: string
   attachmentIndex?: number
 }): SendChatAttachment {
-  const mediaType = resolveAcceptedAttachmentMediaType({ name: input.filename })
+  const mediaType = resolveSupportedAttachmentMediaType(
+    input.filename,
+    input.buffer.length,
+    input.mediaType
+  )
   if (!mediaType) {
     throw new Error(`Unsupported attachment file type: ${input.filename}`)
   }
@@ -143,13 +183,24 @@ export function fileBufferToAttachment(input: {
 /**
  * Ensure the image buffer is in a vision-model-safe format.
  * If the detected media type is unsupported (e.g. GIF, BMP), convert to PNG
- * using the first frame. Returns `null` if conversion fails.
+ * using the first frame. Conversion failures are propagated to the caller.
  */
 export async function ensureVisionSafe(
   buffer: Buffer,
-  mediaType: string
+  mediaType: string,
+  validateImageBytes = false
 ): Promise<{ buffer: Buffer; mediaType: string }> {
   if (VISION_SAFE_TYPES.has(mediaType)) {
+    if (validateImageBytes) {
+      if (mediaType === 'image/heic' || mediaType === 'image/heif') {
+        const detectedType = detectMediaTypeFromBytes(buffer)
+        if (detectedType !== 'image/heic' && detectedType !== 'image/heif') {
+          throw new Error(`Image bytes do not match ${mediaType}`)
+        }
+      } else {
+        await sharp(buffer, { animated: false, pages: 1 }).stats()
+      }
+    }
     return { buffer, mediaType }
   }
 
@@ -165,7 +216,13 @@ export async function ensureVisionSafe(
  */
 export async function fetchImageAsDataUrl(
   url: string,
-  opts?: { timeoutMs?: number; maxBytes?: number; attachmentIndex?: number; filename?: string }
+  opts?: {
+    timeoutMs?: number
+    maxBytes?: number
+    attachmentIndex?: number
+    filename?: string
+    validateImageBytes?: boolean
+  }
 ): Promise<MessageImageRecord | null> {
   const timeoutMs = opts?.timeoutMs ?? IMAGE_DOWNLOAD_TIMEOUT_MS
   const maxBytes = opts?.maxBytes ?? IMAGE_MAX_BYTES
@@ -204,6 +261,7 @@ export async function fetchImageAsDataUrl(
       buffer: rawBuffer,
       filename,
       mediaType: contentType,
+      ...(opts?.validateImageBytes ? { validateImageBytes: true } : {}),
       ...(opts?.attachmentIndex !== undefined ? { attachmentIndex: opts.attachmentIndex } : {})
     })
   } catch (err) {
@@ -226,7 +284,11 @@ export async function fetchFileAsDataUrl(
   const maxBytes = opts.maxBytes ?? ATTACHMENT_MAX_BYTES
 
   try {
-    const supportedMediaType = resolveSupportedAttachmentMediaType(opts.filename)
+    const supportedMediaType = resolveSupportedAttachmentMediaType(
+      opts.filename,
+      undefined,
+      opts.mediaType
+    )
     if (!supportedMediaType) {
       console.warn(`[channelAttachment] skipping unsupported file type: ${opts.filename}`)
       return null
@@ -240,7 +302,11 @@ export async function fetchFileAsDataUrl(
 
     const contentLength = Number(response.headers.get('content-length'))
     if (contentLength) {
-      const checkedMediaType = resolveSupportedAttachmentMediaType(opts.filename, contentLength)
+      const checkedMediaType = resolveSupportedAttachmentMediaType(
+        opts.filename,
+        contentLength,
+        opts.mediaType
+      )
       if (!checkedMediaType) {
         console.warn(`[channelAttachment] skipping unsupported or oversized file: ${opts.filename}`)
         return null
@@ -264,6 +330,7 @@ export async function fetchFileAsDataUrl(
     return fileBufferToAttachment({
       buffer,
       filename: opts.filename,
+      mediaType: supportedMediaType,
       ...(opts.attachmentIndex !== undefined ? { attachmentIndex: opts.attachmentIndex } : {})
     })
   } catch (err) {

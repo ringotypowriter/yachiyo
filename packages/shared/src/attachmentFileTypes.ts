@@ -32,6 +32,7 @@ export const MAX_ATTACHMENT_FILE_BYTES = 25 * 1024 * 1024
 
 export const ACCEPTED_ATTACHMENT_MEDIA_TYPES = [
   'application/pdf',
+  'application/zip',
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
   'application/msword',
   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
@@ -72,6 +73,7 @@ export const ACCEPTED_ATTACHMENT_MEDIA_TYPES = [
 
 const ATTACHMENT_MEDIA_TYPE_BY_EXTENSION: Record<string, string> = {
   '.pdf': 'application/pdf',
+  '.zip': 'application/zip',
   '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
   '.doc': 'application/msword',
   '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
@@ -147,6 +149,15 @@ const ATTACHMENT_MEDIA_TYPE_BY_BASENAME: Record<string, string> = {
 
 export const ACCEPTED_ATTACHMENT_FILE_EXTENSIONS = Object.keys(ATTACHMENT_MEDIA_TYPE_BY_EXTENSION)
 
+const PREFERRED_ATTACHMENT_EXTENSION_BY_MEDIA_TYPE: Record<string, string> = {}
+for (const [extension, mediaType] of Object.entries(ATTACHMENT_MEDIA_TYPE_BY_EXTENSION)) {
+  PREFERRED_ATTACHMENT_EXTENSION_BY_MEDIA_TYPE[mediaType] ??= extension
+}
+
+export function resolvePreferredAttachmentExtension(mediaType: string): string | null {
+  return PREFERRED_ATTACHMENT_EXTENSION_BY_MEDIA_TYPE[normalizeMediaType(mediaType)] ?? null
+}
+
 const ACCEPTED_ATTACHMENT_MEDIA_TYPE_SET = new Set(ACCEPTED_ATTACHMENT_MEDIA_TYPES)
 
 function normalizeMediaType(value: string | undefined): string {
@@ -192,6 +203,10 @@ function getLowercaseExtension(filename: string): string {
   const dotIndex = basename.lastIndexOf('.')
 
   return dotIndex > 0 ? basename.slice(dotIndex) : ''
+}
+
+export function hasExplicitAttachmentFileExtension(filename: string): boolean {
+  return getLowercaseExtension(filename) !== ''
 }
 
 function isSensitiveEnvFile(basename: string): boolean {

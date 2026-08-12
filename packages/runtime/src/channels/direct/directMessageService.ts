@@ -31,6 +31,7 @@ const REPLY_DELAY_MIN_MS = 3_000
 const REPLY_DELAY_MAX_MS = 8_000
 
 type DirectMessageSendChatInput = SendChatInput & { toolPreset?: ToolCallName[] }
+type DirectMessageAttachmentSlotCounts = { images: number; files: number }
 
 function randomReplyDelay(): number {
   return REPLY_DELAY_MIN_MS + Math.random() * (REPLY_DELAY_MAX_MS - REPLY_DELAY_MIN_MS)
@@ -241,11 +242,13 @@ export interface DirectMessageServiceOptions<TTarget> {
 }
 
 export interface DirectMessageService<TTarget> {
+  getPendingAttachmentSlotCounts(channelUserId: string): DirectMessageAttachmentSlotCounts
   enqueueMessage(
     target: TTarget,
     channelUser: ChannelUserRecord,
     text: string,
-    attachmentDownloads?: Promise<DirectMessageInboundAttachment | null>[]
+    attachmentDownloads?: Promise<DirectMessageInboundAttachment | null>[],
+    attachmentSlotCounts?: DirectMessageAttachmentSlotCounts
   ): void
   stop(): void
   /** Abort any in-flight message handling for the given channel user. */
@@ -255,6 +258,7 @@ export interface DirectMessageService<TTarget> {
 interface PendingBatch<TTarget> {
   messages: string[]
   attachmentDownloads: Promise<DirectMessageInboundAttachment | null>[]
+  attachmentSlotCounts: DirectMessageAttachmentSlotCounts
   timer: ReturnType<typeof setTimeout>
   target: TTarget
   channelUser: ChannelUserRecord
@@ -264,6 +268,18 @@ interface PendingBatch<TTarget> {
 export type DirectMessageInboundAttachment =
   | { kind: 'image'; image: MessageImageRecord }
   | { kind: 'file'; attachment: SendChatAttachment }
+  | {
+      kind: 'unavailable'
+      filename: string
+      attachmentIndex: number
+      reason:
+        | 'batch-limit'
+        | 'download-failed'
+        | 'not-permitted'
+        | 'unsupported-type'
+        | 'too-large'
+        | 'sensitive-file'
+    }
 
 function offsetInboundAttachmentIndex(
   download: Promise<DirectMessageInboundAttachment | null>,
@@ -282,6 +298,12 @@ function offsetInboundAttachmentIndex(
               ? attachment.image.attachmentIndex! + offset
               : undefined
         }
+      }
+    }
+    if (attachment.kind === 'unavailable') {
+      return {
+        ...attachment,
+        attachmentIndex: attachment.attachmentIndex + offset
       }
     }
     return {
@@ -304,14 +326,55 @@ function offsetInboundAttachmentDownloads(
   return downloads.map((download) => offsetInboundAttachmentIndex(download, offset))
 }
 
-async function collectResolvedAttachments(
-  attachmentDownloads: Promise<DirectMessageInboundAttachment | null>[]
-): Promise<{ images: MessageImageRecord[]; attachments: SendChatAttachment[] }> {
-  const results = await Promise.all(attachmentDownloads)
+function collectResolvedAttachments(results: DirectMessageInboundAttachment[]): {
+  images: MessageImageRecord[]
+  attachments: SendChatAttachment[]
+  unavailable: Array<Extract<DirectMessageInboundAttachment, { kind: 'unavailable' }>>
+} {
   return {
-    images: results.flatMap((result) => (result?.kind === 'image' ? [result.image] : [])),
-    attachments: results.flatMap((result) => (result?.kind === 'file' ? [result.attachment] : []))
+    images: results.flatMap((result) => (result.kind === 'image' ? [result.image] : [])),
+    attachments: results.flatMap((result) => (result.kind === 'file' ? [result.attachment] : [])),
+    unavailable: results.flatMap((result) => (result.kind === 'unavailable' ? [result] : []))
   }
+}
+
+function enforceAttachmentBatchLimits(
+  results: DirectMessageInboundAttachment[],
+  maxPerKind: number
+): DirectMessageInboundAttachment[] {
+  let imageCount = 0
+  let fileCount = 0
+
+  return results.map((result) => {
+    if (result.kind === 'unavailable') return result
+
+    const count = result.kind === 'image' ? ++imageCount : ++fileCount
+    if (count <= maxPerKind) return result
+
+    const attachment = result.kind === 'image' ? result.image : result.attachment
+    const attachmentIndex = attachment.attachmentIndex
+    if (attachmentIndex === undefined) {
+      throw new Error('Inbound attachments must have an attachment index before batching')
+    }
+    return {
+      kind: 'unavailable',
+      filename: attachment.filename?.trim() || `attachment-${attachmentIndex}`,
+      attachmentIndex,
+      reason: 'batch-limit'
+    }
+  })
+}
+
+function appendUnavailableAttachmentMarkers(
+  text: string,
+  unavailable: Array<Extract<DirectMessageInboundAttachment, { kind: 'unavailable' }>>
+): string {
+  if (unavailable.length === 0) return text
+  const markers = unavailable.map(
+    ({ filename, attachmentIndex, reason }) =>
+      `[Attachment ${attachmentIndex} unavailable: ${filename} (${reason.replaceAll('-', ' ')})]`
+  )
+  return [text, ...markers].filter(Boolean).join('\n\n')
 }
 
 /**
@@ -930,16 +993,19 @@ export function createDirectMessageService<TTarget>(
     const joinedText = batch.messages.join('\n')
     const prev = userRunChain.get(batch.channelUser.id) ?? Promise.resolve()
     const next = prev.then(async () => {
-      const { images: resolvedImages, attachments } = await collectResolvedAttachments(
-        batch.attachmentDownloads
+      const resolvedAttachments = (await Promise.all(batch.attachmentDownloads)).filter(
+        (attachment): attachment is DirectMessageInboundAttachment => attachment !== null
       )
-      const images = resolvedImages.slice(0, options.policy.maxImagesPerBatch)
+      const { images, attachments, unavailable } = collectResolvedAttachments(
+        enforceAttachmentBatchLimits(resolvedAttachments, options.policy.maxImagesPerBatch)
+      )
+      const content = appendUnavailableAttachmentMarkers(joinedText, unavailable)
 
       console.log(
         `[${options.logLabel}] flushing batch for ${batch.channelUser.username}: ${batch.messages.length} message(s), ${images.length} image(s), ${attachments.length} file attachment(s)`
       )
 
-      await handleAllowedMessage(batch.target, batch.channelUser, joinedText, images, attachments)
+      await handleAllowedMessage(batch.target, batch.channelUser, content, images, attachments)
     })
     userRunChain.set(
       batch.channelUser.id,
@@ -951,13 +1017,16 @@ export function createDirectMessageService<TTarget>(
     target: TTarget,
     channelUser: ChannelUserRecord,
     text: string,
-    attachmentDownloads: Promise<DirectMessageInboundAttachment | null>[]
+    attachmentDownloads: Promise<DirectMessageInboundAttachment | null>[],
+    attachmentSlotCounts: DirectMessageAttachmentSlotCounts
   ): void {
     const existing = pendingBatches.get(channelUser.id)
 
     if (existing) {
       const attachmentIndexOffset = existing.attachmentDownloads.length
       existing.messages.push(text)
+      existing.attachmentSlotCounts.images += attachmentSlotCounts.images
+      existing.attachmentSlotCounts.files += attachmentSlotCounts.files
       existing.attachmentDownloads.push(
         ...offsetInboundAttachmentDownloads(attachmentDownloads, attachmentIndexOffset)
       )
@@ -981,6 +1050,7 @@ export function createDirectMessageService<TTarget>(
     pendingBatches.set(channelUser.id, {
       messages: [text],
       attachmentDownloads: offsetInboundAttachmentDownloads(attachmentDownloads, 0),
+      attachmentSlotCounts: { ...attachmentSlotCounts },
       timer,
       target,
       channelUser,
@@ -1021,10 +1091,11 @@ export function createDirectMessageService<TTarget>(
     command: string,
     args: string,
     text: string,
-    attachmentDownloads: Promise<DirectMessageInboundAttachment | null>[]
+    attachmentDownloads: Promise<DirectMessageInboundAttachment | null>[],
+    attachmentSlotCounts: DirectMessageAttachmentSlotCounts
   ): void {
     if (!options.handleSlashCommand) {
-      enqueueToBatch(target, channelUser, text, attachmentDownloads)
+      enqueueToBatch(target, channelUser, text, attachmentDownloads, attachmentSlotCounts)
       return
     }
 
@@ -1034,7 +1105,7 @@ export function createDirectMessageService<TTarget>(
       .handleSlashCommand(target, channelUser, command, args, { batchDiscarded })
       .then((handled) => {
         if (!handled) {
-          enqueueToBatch(target, channelUser, text, attachmentDownloads)
+          enqueueToBatch(target, channelUser, text, attachmentDownloads, attachmentSlotCounts)
         }
       })
       .catch((err) => {
@@ -1044,11 +1115,16 @@ export function createDirectMessageService<TTarget>(
   }
 
   return {
+    getPendingAttachmentSlotCounts(channelUserId: string): DirectMessageAttachmentSlotCounts {
+      const counts = pendingBatches.get(channelUserId)?.attachmentSlotCounts
+      return counts ? { ...counts } : { images: 0, files: 0 }
+    },
     enqueueMessage(
       target: TTarget,
       channelUser: ChannelUserRecord,
       text: string,
-      attachmentDownloads: Promise<DirectMessageInboundAttachment | null>[] = []
+      attachmentDownloads: Promise<DirectMessageInboundAttachment | null>[] = [],
+      attachmentSlotCounts: DirectMessageAttachmentSlotCounts = { images: 0, files: 0 }
     ): void {
       const trimmed = text.trim()
       const slashCommand =
@@ -1081,7 +1157,15 @@ export function createDirectMessageService<TTarget>(
         const spaceIdx = trimmed.indexOf(' ')
         const args = spaceIdx === -1 ? '' : trimmed.slice(spaceIdx + 1).trim()
 
-        handleCommandMessage(target, channelUser, slashCommand, args, text, attachmentDownloads)
+        handleCommandMessage(
+          target,
+          channelUser,
+          slashCommand,
+          args,
+          text,
+          attachmentDownloads,
+          attachmentSlotCounts
+        )
         return
       }
 
@@ -1096,12 +1180,13 @@ export function createDirectMessageService<TTarget>(
           resolvedPlainCommand.command,
           resolvedPlainCommand.args,
           text,
-          attachmentDownloads
+          attachmentDownloads,
+          attachmentSlotCounts
         )
         return
       }
 
-      enqueueToBatch(target, channelUser, text, attachmentDownloads)
+      enqueueToBatch(target, channelUser, text, attachmentDownloads, attachmentSlotCounts)
     },
 
     stop(): void {

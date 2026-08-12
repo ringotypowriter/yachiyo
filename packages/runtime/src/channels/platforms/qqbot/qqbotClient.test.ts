@@ -159,7 +159,7 @@ describe('QQBot gateway heartbeat health', () => {
 })
 
 describe('QQBot C2C inbound attachments', () => {
-  it('preserves image attachments on an image-only gateway event', async () => {
+  it('preserves image and file attachment metadata from gateway events', async () => {
     const { WebSocketImpl, sockets } = createFakeWebSocketFactory()
     const client = createQQBotClient({
       appId: 'app',
@@ -194,6 +194,25 @@ describe('QQBot C2C inbound attachments', () => {
         }
       })
     })
+    sockets[0].emit('message', {
+      data: JSON.stringify({
+        op: 0,
+        t: 'C2C_MESSAGE_CREATE',
+        d: {
+          id: 'message-with-file',
+          author: { user_openid: 'open-1' },
+          content: '安装这个 skills',
+          timestamp: '2026-08-11T03:07:33Z',
+          attachments: [
+            {
+              filename: 'skill.zip',
+              size: 4096,
+              url: '//multimedia.nt.qq.com/download?appid=app&fileid=file-1'
+            }
+          ]
+        }
+      })
+    })
 
     assert.deepEqual(messages, [
       {
@@ -209,6 +228,22 @@ describe('QQBot C2C inbound attachments', () => {
             width: 600,
             size: 1234,
             url: '//multimedia.nt.qq.com/download?appid=app&fileid=image-1'
+          }
+        ]
+      },
+      {
+        openId: 'open-1',
+        content: '安装这个 skills',
+        messageId: 'message-with-file',
+        timestamp: '2026-08-11T03:07:33Z',
+        attachments: [
+          {
+            contentType: '',
+            filename: 'skill.zip',
+            height: undefined,
+            width: undefined,
+            size: 4096,
+            url: '//multimedia.nt.qq.com/download?appid=app&fileid=file-1'
           }
         ]
       }
