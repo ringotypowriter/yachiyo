@@ -401,6 +401,7 @@ describe('startQQBotAttachmentDownloads', () => {
       },
       async (_url, options) => {
         assert.ok(options)
+        assert.equal(options.validateImageBytes, true)
         calls.push('image')
         return {
           dataUrl: 'data:image/png;base64,AAA',

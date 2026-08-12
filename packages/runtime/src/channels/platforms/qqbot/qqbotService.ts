@@ -136,7 +136,8 @@ export function startQQBotAttachmentDownloads(
       return fetchImage(url, {
         maxBytes: options.policy.maxImageBytes,
         attachmentIndex,
-        filename: attachment.filename ?? `qqbot-image-${attachmentIndex}`
+        filename: attachment.filename ?? `qqbot-image-${attachmentIndex}`,
+        ...(!attachment.contentType.startsWith('image/') ? { validateImageBytes: true } : {})
       }).then((image) =>
         image
           ? { kind: 'image' as const, image }

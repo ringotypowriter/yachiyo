@@ -54,6 +54,40 @@ describe('fetchImageAsDataUrl', () => {
     })
     assert.equal(result, null)
   })
+
+  it('accepts decodable image bytes when a filename-only fallback requires validation', async (t) => {
+    const originalFetch = globalThis.fetch
+    t.after(() => {
+      globalThis.fetch = originalFetch
+    })
+    const png = Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg==',
+      'base64'
+    )
+    globalThis.fetch = async () => new Response(png, { status: 200 })
+
+    const result = await fetchImageAsDataUrl('https://example.test/photo.png', {
+      filename: 'photo.png',
+      validateImageBytes: true
+    })
+
+    assert.equal(result?.mediaType, 'image/png')
+  })
+
+  it('rejects non-image bytes when a filename-only fallback requires decoding', async (t) => {
+    const originalFetch = globalThis.fetch
+    t.after(() => {
+      globalThis.fetch = originalFetch
+    })
+    globalThis.fetch = async () => new Response(Buffer.from('not an image'), { status: 200 })
+
+    const result = await fetchImageAsDataUrl('https://example.test/photo.jpg', {
+      filename: 'photo.jpg',
+      validateImageBytes: true
+    })
+
+    assert.equal(result, null)
+  })
 })
 
 describe('imageBufferToRecord', () => {
@@ -67,6 +101,24 @@ describe('imageBufferToRecord', () => {
     assert.equal(
       (await imageBufferToRecord({ buffer, filename: 'photo.heif' })).mediaType,
       'image/heif'
+    )
+  })
+
+  it('validates HEIC bytes without relying on decoder support', async () => {
+    const heic = Buffer.from([
+      0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70, 0x68, 0x65, 0x69, 0x63, 0x00, 0x00, 0x00,
+      0x00, 0x6d, 0x69, 0x66, 0x31, 0x68, 0x65, 0x69, 0x63
+    ])
+
+    assert.equal(
+      (
+        await imageBufferToRecord({
+          buffer: heic,
+          filename: 'photo.heic',
+          validateImageBytes: true
+        })
+      ).mediaType,
+      'image/heic'
     )
   })
 })

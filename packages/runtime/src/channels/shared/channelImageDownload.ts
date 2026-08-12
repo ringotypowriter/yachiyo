@@ -70,6 +70,21 @@ export function detectMediaTypeFromBytes(buffer: Buffer): string | null {
   // BMP: 42 4D
   if (buffer[0] === 0x42 && buffer[1] === 0x4d) return 'image/bmp'
 
+  // HEIC/HEIF: ISO BMFF file type box and a compatible image brand.
+  if (buffer.length >= 12 && buffer.toString('ascii', 4, 8) === 'ftyp') {
+    const boxSize = buffer.readUInt32BE(0)
+    if (boxSize < 16 || boxSize > buffer.length) return null
+    const boxEnd = boxSize
+    const brands = [buffer.toString('ascii', 8, 12)]
+    for (let offset = 16; offset + 4 <= boxEnd; offset += 4) {
+      brands.push(buffer.toString('ascii', offset, offset + 4))
+    }
+    if (brands.some((brand) => ['heic', 'heix', 'hevc', 'hevx'].includes(brand))) {
+      return 'image/heic'
+    }
+    if (brands.some((brand) => ['mif1', 'msf1'].includes(brand))) return 'image/heif'
+  }
+
   return null
 }
 
@@ -127,9 +142,14 @@ export async function imageBufferToRecord(input: {
   filename?: string
   mediaType?: string
   attachmentIndex?: number
+  validateImageBytes?: boolean
 }): Promise<MessageImageRecord> {
   const detectedType = inferMediaTypeWithBytes(input.buffer, input.filename, input.mediaType)
-  const { buffer, mediaType } = await ensureVisionSafe(input.buffer, detectedType)
+  const { buffer, mediaType } = await ensureVisionSafe(
+    input.buffer,
+    detectedType,
+    input.validateImageBytes
+  )
   return {
     dataUrl: bufferToDataUrl(buffer, mediaType),
     mediaType,
@@ -167,9 +187,20 @@ export function fileBufferToAttachment(input: {
  */
 export async function ensureVisionSafe(
   buffer: Buffer,
-  mediaType: string
+  mediaType: string,
+  validateImageBytes = false
 ): Promise<{ buffer: Buffer; mediaType: string }> {
   if (VISION_SAFE_TYPES.has(mediaType)) {
+    if (validateImageBytes) {
+      if (mediaType === 'image/heic' || mediaType === 'image/heif') {
+        const detectedType = detectMediaTypeFromBytes(buffer)
+        if (detectedType !== 'image/heic' && detectedType !== 'image/heif') {
+          throw new Error(`Image bytes do not match ${mediaType}`)
+        }
+      } else {
+        await sharp(buffer, { animated: false, pages: 1 }).stats()
+      }
+    }
     return { buffer, mediaType }
   }
 
@@ -185,7 +216,13 @@ export async function ensureVisionSafe(
  */
 export async function fetchImageAsDataUrl(
   url: string,
-  opts?: { timeoutMs?: number; maxBytes?: number; attachmentIndex?: number; filename?: string }
+  opts?: {
+    timeoutMs?: number
+    maxBytes?: number
+    attachmentIndex?: number
+    filename?: string
+    validateImageBytes?: boolean
+  }
 ): Promise<MessageImageRecord | null> {
   const timeoutMs = opts?.timeoutMs ?? IMAGE_DOWNLOAD_TIMEOUT_MS
   const maxBytes = opts?.maxBytes ?? IMAGE_MAX_BYTES
@@ -224,6 +261,7 @@ export async function fetchImageAsDataUrl(
       buffer: rawBuffer,
       filename,
       mediaType: contentType,
+      ...(opts?.validateImageBytes ? { validateImageBytes: true } : {}),
       ...(opts?.attachmentIndex !== undefined ? { attachmentIndex: opts.attachmentIndex } : {})
     })
   } catch (err) {
