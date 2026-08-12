@@ -5,8 +5,19 @@ import {
   MAX_ATTACHMENT_FILE_BYTES,
   classifyAttachmentFileSelection,
   collectAcceptedAttachmentFiles,
+  hasExplicitAttachmentFileExtension,
+  resolvePreferredAttachmentExtension,
   resolveAcceptedAttachmentMediaType
 } from './attachmentFileTypes.ts'
+
+test('attachment extension helpers distinguish explicit names and derive MIME fallbacks', () => {
+  assert.equal(hasExplicitAttachmentFileExtension('LICENSE'), false)
+  assert.equal(hasExplicitAttachmentFileExtension('.gitignore'), false)
+  assert.equal(hasExplicitAttachmentFileExtension('report.pdf'), true)
+  assert.equal(resolvePreferredAttachmentExtension('application/pdf; charset=binary'), '.pdf')
+  assert.equal(resolvePreferredAttachmentExtension('text/plain'), '.txt')
+  assert.equal(resolvePreferredAttachmentExtension('application/octet-stream'), null)
+})
 
 test('resolveAcceptedAttachmentMediaType accepts JSON and JSON-derived media types', () => {
   assert.equal(

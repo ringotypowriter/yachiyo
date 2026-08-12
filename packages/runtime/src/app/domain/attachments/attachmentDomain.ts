@@ -2,6 +2,7 @@ import { access, appendFile, mkdir, readFile, writeFile } from 'node:fs/promises
 import { basename, extname, join } from 'node:path'
 
 import { extractBase64DataUrlPayload } from '@yachiyo/shared/messageContent'
+import { resolvePreferredAttachmentExtension } from '@yachiyo/shared/attachmentFileTypes'
 import type {
   MessageFileAttachment,
   MessageImageRecord,
@@ -110,7 +111,10 @@ export async function saveFileAttachmentsToWorkspace(input: {
 
   return Promise.all(
     input.attachments.map(async (attachment, index) => {
-      const safeName = `${index + 1}-${sanitizeFilename(attachment.filename)}`
+      const storageExtension = extname(attachment.filename)
+        ? ''
+        : resolvePreferredAttachmentExtension(attachment.mediaType) || ''
+      const safeName = `${index + 1}-${sanitizeFilename(attachment.filename)}${storageExtension}`
       const filePath = join(attachmentDir, safeName)
       await writeBase64File(filePath, attachment.filename, attachment.dataUrl)
       return {

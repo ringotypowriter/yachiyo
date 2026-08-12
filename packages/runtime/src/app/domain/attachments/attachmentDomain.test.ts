@@ -130,3 +130,25 @@ test('saveFileAttachmentsToWorkspace preserves names that collide after sanitizi
   assert.equal(await readFile(attachments[0]!.workspacePath, 'utf8'), 'first')
   assert.equal(await readFile(attachments[1]!.workspacePath, 'utf8'), 'second')
 })
+
+test('saveFileAttachmentsToWorkspace adds a storage extension for an extensionless file', async (t) => {
+  const workspacePath = await mkdtemp(join(tmpdir(), 'yachiyo-attachment-domain-'))
+  t.after(() => rm(workspacePath, { recursive: true, force: true }))
+
+  const [attachment] = await saveFileAttachmentsToWorkspace({
+    workspacePath,
+    messageId: 'message-1',
+    attachments: [
+      {
+        filename: 'LICENSE',
+        mediaType: 'application/pdf',
+        dataUrl: 'data:application/pdf;base64,UERG'
+      }
+    ]
+  })
+
+  assert.equal(attachment?.filename, 'LICENSE')
+  assert.ok(attachment?.workspacePath)
+  assert.equal(attachment.workspacePath.endsWith('1-LICENSE.pdf'), true)
+  assert.equal(await readFile(attachment.workspacePath, 'utf8'), 'PDF')
+})

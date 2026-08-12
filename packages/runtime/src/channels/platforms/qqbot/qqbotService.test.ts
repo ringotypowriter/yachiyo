@@ -306,11 +306,51 @@ describe('startQQBotAttachmentDownloads', () => {
         attachment: {
           dataUrl: 'data:application/pdf;base64,AAA',
           mediaType: 'application/pdf',
-          filename: 'qqbot-file-1',
+          filename: 'qqbot-file-1.pdf',
           attachmentIndex: 1
         }
       }
     ])
+  })
+
+  it('accepts an extensionless named file from its supported MIME type', async () => {
+    const calls: unknown[] = []
+    const downloads = startQQBotAttachmentDownloads(
+      [
+        {
+          contentType: 'application/pdf',
+          filename: 'LICENSE',
+          url: 'https://multimedia.nt.qq.com/download?fileid=file-1'
+        }
+      ],
+      {
+        includeFiles: true,
+        policy: { maxImagesPerBatch: 1, maxImageBytes: 5 * 1024 * 1024 }
+      },
+      undefined,
+      async (_url, options) => {
+        calls.push(options)
+        return {
+          dataUrl: 'data:application/pdf;base64,AAA',
+          mediaType: options.mediaType ?? '',
+          filename: options.filename,
+          attachmentIndex: options.attachmentIndex
+        }
+      }
+    )
+
+    assert.deepEqual(await Promise.all(downloads), [
+      {
+        kind: 'file',
+        attachment: {
+          dataUrl: 'data:application/pdf;base64,AAA',
+          mediaType: 'application/pdf',
+          filename: 'LICENSE',
+          attachmentIndex: 1
+        }
+      }
+    ])
+    assert.equal(calls.length, 1)
   })
 
   it('marks files unavailable without downloading them when file access is disabled', async () => {

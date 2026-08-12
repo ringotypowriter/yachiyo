@@ -149,6 +149,15 @@ const ATTACHMENT_MEDIA_TYPE_BY_BASENAME: Record<string, string> = {
 
 export const ACCEPTED_ATTACHMENT_FILE_EXTENSIONS = Object.keys(ATTACHMENT_MEDIA_TYPE_BY_EXTENSION)
 
+const PREFERRED_ATTACHMENT_EXTENSION_BY_MEDIA_TYPE: Record<string, string> = {}
+for (const [extension, mediaType] of Object.entries(ATTACHMENT_MEDIA_TYPE_BY_EXTENSION)) {
+  PREFERRED_ATTACHMENT_EXTENSION_BY_MEDIA_TYPE[mediaType] ??= extension
+}
+
+export function resolvePreferredAttachmentExtension(mediaType: string): string | null {
+  return PREFERRED_ATTACHMENT_EXTENSION_BY_MEDIA_TYPE[normalizeMediaType(mediaType)] ?? null
+}
+
 const ACCEPTED_ATTACHMENT_MEDIA_TYPE_SET = new Set(ACCEPTED_ATTACHMENT_MEDIA_TYPES)
 
 function normalizeMediaType(value: string | undefined): string {
@@ -194,6 +203,10 @@ function getLowercaseExtension(filename: string): string {
   const dotIndex = basename.lastIndexOf('.')
 
   return dotIndex > 0 ? basename.slice(dotIndex) : ''
+}
+
+export function hasExplicitAttachmentFileExtension(filename: string): boolean {
+  return getLowercaseExtension(filename) !== ''
 }
 
 function isSensitiveEnvFile(basename: string): boolean {

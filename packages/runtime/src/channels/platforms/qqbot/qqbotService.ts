@@ -13,7 +13,11 @@
  */
 
 import type { ThreadModelOverride } from '@yachiyo/shared/protocol'
-import { classifyAttachmentFileSelection } from '@yachiyo/shared/attachmentFileTypes'
+import {
+  classifyAttachmentFileSelection,
+  hasExplicitAttachmentFileExtension,
+  resolvePreferredAttachmentExtension
+} from '@yachiyo/shared/attachmentFileTypes'
 import type { YachiyoServer } from '../../../app/host/YachiyoServer.ts'
 import { qqbotPolicy, type ChannelPolicy } from '../../shared/channelPolicy.ts'
 import type { ChannelReplyPayload } from '../../shared/channelReply.ts'
@@ -151,12 +155,15 @@ export function startQQBotAttachmentDownloads(
 
     const url = attachment.url.startsWith('//') ? `https:${attachment.url}` : attachment.url
     const suppliedFilename = attachment.filename?.trim()
-    const filename = suppliedFilename || `qqbot-file-${attachmentIndex}`
+    const fallbackExtension = resolvePreferredAttachmentExtension(attachment.contentType) ?? ''
+    const filename = suppliedFilename || `qqbot-file-${attachmentIndex}${fallbackExtension}`
     const classification = classifyAttachmentFileSelection([
       {
         name: filename,
         size: attachment.size,
-        ...(!suppliedFilename && attachment.contentType ? { type: attachment.contentType } : {})
+        ...(!hasExplicitAttachmentFileExtension(filename) && attachment.contentType
+          ? { type: attachment.contentType }
+          : {})
       }
     ])
     const rejection = classification.rejected[0]
