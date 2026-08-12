@@ -389,6 +389,50 @@ describe('startQQBotAttachmentDownloads', () => {
     assert.deepEqual(calls, ['image'])
   })
 
+  it('recognizes a BMP filename when QQ omits content_type', async () => {
+    const calls: string[] = []
+    const downloads = startQQBotAttachmentDownloads(
+      [
+        {
+          contentType: '',
+          filename: 'diagram.bmp',
+          url: 'https://multimedia.nt.qq.com/download?fileid=image-1'
+        }
+      ],
+      {
+        includeFiles: true,
+        policy: { maxImagesPerBatch: 1, maxImageBytes: 5 * 1024 * 1024 }
+      },
+      async (_url, options) => {
+        assert.ok(options)
+        calls.push('image')
+        return {
+          dataUrl: 'data:image/png;base64,AAA',
+          mediaType: 'image/png',
+          filename: options.filename,
+          attachmentIndex: options.attachmentIndex
+        }
+      },
+      async () => {
+        calls.push('file')
+        return null
+      }
+    )
+
+    assert.deepEqual(await Promise.all(downloads), [
+      {
+        kind: 'image',
+        image: {
+          dataUrl: 'data:image/png;base64,AAA',
+          mediaType: 'image/png',
+          filename: 'diagram.bmp',
+          attachmentIndex: 1
+        }
+      }
+    ])
+    assert.deepEqual(calls, ['image'])
+  })
+
   it('applies the batch cap independently to files and images', async () => {
     const calls: string[] = []
     const downloads = startQQBotAttachmentDownloads(

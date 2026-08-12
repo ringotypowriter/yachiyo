@@ -82,7 +82,7 @@ interface QQBotTarget {
 
 type QQBotImageFetcher = typeof fetchImageAsDataUrl
 type QQBotFileFetcher = typeof fetchFileAsDataUrl
-const QQBOT_IMAGE_EXTENSIONS = /\.(?:gif|heic|heif|jpe?g|png|webp)$/i
+const QQBOT_IMAGE_EXTENSIONS = /\.(?:bmp|gif|heic|heif|jpe?g|png|webp)$/i
 
 function isQQBotImageAttachment(attachment: QQBotC2CAttachment): boolean {
   return (
