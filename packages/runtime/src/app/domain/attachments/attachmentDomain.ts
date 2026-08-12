@@ -11,6 +11,7 @@ import type {
 const IMAGE_MEDIA_TYPE_EXT: Record<string, string> = {
   'image/png': '.png',
   'image/jpeg': '.jpg',
+  'image/bmp': '.bmp',
   'image/gif': '.gif',
   'image/webp': '.webp',
   'image/heic': '.heic',

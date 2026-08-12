@@ -163,7 +163,7 @@ export function fileBufferToAttachment(input: {
 /**
  * Ensure the image buffer is in a vision-model-safe format.
  * If the detected media type is unsupported (e.g. GIF, BMP), convert to PNG
- * using the first frame. Returns `null` if conversion fails.
+ * using the first frame. Conversion failures are propagated to the caller.
  */
 export async function ensureVisionSafe(
   buffer: Buffer,

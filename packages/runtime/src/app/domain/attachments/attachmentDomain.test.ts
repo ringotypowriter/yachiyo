@@ -28,6 +28,27 @@ test('saveImageFilesToWorkspace uses the converted media type for the stored ext
   assert.equal(await readFile(image!.workspacePath, 'utf8'), 'png')
 })
 
+test('saveImageFilesToWorkspace preserves the BMP extension for unconverted local images', async (t) => {
+  const workspacePath = await mkdtemp(join(tmpdir(), 'yachiyo-attachment-domain-'))
+  t.after(() => rm(workspacePath, { recursive: true, force: true }))
+
+  const [image] = await saveImageFilesToWorkspace({
+    workspacePath,
+    messageId: 'message-1',
+    images: [
+      {
+        filename: 'diagram.bmp',
+        mediaType: 'image/bmp',
+        dataUrl: 'data:image/bmp;base64,Ym1w'
+      }
+    ]
+  })
+
+  assert.ok(image?.workspacePath)
+  assert.equal(image.workspacePath.endsWith('diagram.bmp'), true)
+  assert.equal(await readFile(image.workspacePath, 'utf8'), 'bmp')
+})
+
 test('saveFileAttachmentsToWorkspace preserves duplicate display names without overwriting data', async (t) => {
   const workspacePath = await mkdtemp(join(tmpdir(), 'yachiyo-attachment-domain-'))
   t.after(() => rm(workspacePath, { recursive: true, force: true }))
