@@ -278,6 +278,33 @@ describe('startQQBotImageDownloads', () => {
 })
 
 describe('startQQBotAttachmentDownloads', () => {
+  it('marks files unavailable without downloading them when file access is disabled', async () => {
+    let downloadCalls = 0
+    const downloads = startQQBotAttachmentDownloads(
+      [
+        {
+          contentType: 'application/zip',
+          filename: 'skill.zip',
+          url: 'https://multimedia.nt.qq.com/download?fileid=file-1'
+        }
+      ],
+      {
+        includeFiles: false,
+        policy: { maxImagesPerBatch: 1, maxImageBytes: 5 * 1024 * 1024 }
+      },
+      undefined,
+      async () => {
+        downloadCalls += 1
+        return null
+      }
+    )
+
+    assert.deepEqual(await Promise.all(downloads), [
+      { kind: 'unavailable', filename: 'skill.zip', reason: 'not-permitted' }
+    ])
+    assert.equal(downloadCalls, 0)
+  })
+
   it('recognizes an image filename when QQ omits content_type', async () => {
     const calls: string[] = []
     const downloads = startQQBotAttachmentDownloads(

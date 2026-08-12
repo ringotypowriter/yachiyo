@@ -132,33 +132,35 @@ export function startQQBotAttachmentDownloads(
       )
     })
 
+  const indexedFiles = indexedAttachments
+    .filter(({ attachment }) => !isQQBotImageAttachment(attachment))
+    .slice(0, options.policy.maxImagesPerBatch)
   const fileDownloads = options.includeFiles
-    ? indexedAttachments
-        .filter(({ attachment }) => !isQQBotImageAttachment(attachment))
-        .slice(0, options.policy.maxImagesPerBatch)
-        .map(({ attachment, attachmentIndex }) => {
-          const url = attachment.url.startsWith('//') ? `https:${attachment.url}` : attachment.url
-          const filename = attachment.filename?.trim() || `qqbot-file-${attachmentIndex}`
-          const classification = classifyAttachmentFileSelection([
-            { name: filename, size: attachment.size }
-          ])
-          const rejection = classification.rejected[0]
-          if (rejection) {
-            return Promise.resolve(
-              unavailableAttachment(attachment, attachmentIndex, rejection.reason)
-            )
-          }
-          return fetchFile(url, {
-            filename,
-            mediaType: attachment.contentType,
-            attachmentIndex
-          }).then((file) =>
-            file
-              ? { kind: 'file' as const, attachment: file }
-              : unavailableAttachment(attachment, attachmentIndex, 'download-failed')
+    ? indexedFiles.map(({ attachment, attachmentIndex }) => {
+        const url = attachment.url.startsWith('//') ? `https:${attachment.url}` : attachment.url
+        const filename = attachment.filename?.trim() || `qqbot-file-${attachmentIndex}`
+        const classification = classifyAttachmentFileSelection([
+          { name: filename, size: attachment.size }
+        ])
+        const rejection = classification.rejected[0]
+        if (rejection) {
+          return Promise.resolve(
+            unavailableAttachment(attachment, attachmentIndex, rejection.reason)
           )
-        })
-    : []
+        }
+        return fetchFile(url, {
+          filename,
+          mediaType: attachment.contentType,
+          attachmentIndex
+        }).then((file) =>
+          file
+            ? { kind: 'file' as const, attachment: file }
+            : unavailableAttachment(attachment, attachmentIndex, 'download-failed')
+        )
+      })
+    : indexedFiles.map(({ attachment, attachmentIndex }) =>
+        Promise.resolve(unavailableAttachment(attachment, attachmentIndex, 'not-permitted'))
+      )
 
   return [...imageDownloads, ...fileDownloads]
 }

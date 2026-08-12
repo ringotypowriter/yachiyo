@@ -267,7 +267,12 @@ export type DirectMessageInboundAttachment =
   | {
       kind: 'unavailable'
       filename: string
-      reason: 'download-failed' | 'unsupported-type' | 'too-large' | 'sensitive-file'
+      reason:
+        | 'download-failed'
+        | 'not-permitted'
+        | 'unsupported-type'
+        | 'too-large'
+        | 'sensitive-file'
     }
 
 function offsetInboundAttachmentIndex(
