@@ -22,8 +22,8 @@ const IMAGE_MEDIA_TYPE_EXT: Record<string, string> = {
 const YACHIYO_ATTACHMENT_DIR = '.yachiyo'
 const GIT_EXCLUDE_ENTRY = `\n# yachiyo managed files\n${YACHIYO_ATTACHMENT_DIR}/\n`
 
-function extFromMediaType(mediaType: string): string {
-  return IMAGE_MEDIA_TYPE_EXT[mediaType] ?? '.bin'
+function extFromMediaType(mediaType: string): string | undefined {
+  return IMAGE_MEDIA_TYPE_EXT[mediaType]
 }
 
 function sanitizeFilename(filename: string): string {
@@ -84,10 +84,11 @@ export async function saveImageFilesToWorkspace(input: {
   return Promise.all(
     input.images.map(async (image, index) => {
       const originalName = image.filename ?? `image_${index + 1}`
-      const ext = extFromMediaType(image.mediaType)
-      const base = image.filename
-        ? basename(image.filename, extname(image.filename))
-        : `image_${index + 1}`
+      const filenameExt = image.filename ? extname(image.filename) : ''
+      // Channel images use the normalized media type after conversion. Composer images are an
+      // open set of original browser files, so retain their extension when no mapping exists.
+      const ext = (extFromMediaType(image.mediaType) ?? filenameExt) || '.bin'
+      const base = image.filename ? basename(image.filename, filenameExt) : `image_${index + 1}`
       const safeName = sanitizeFilename(`${base}${ext}`)
       const filePath = join(attachmentDir, safeName)
       await writeBase64File(filePath, originalName, image.dataUrl)
