@@ -3,7 +3,7 @@ use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use rusqlite::{params, Connection, OptionalExtension};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use unicode_normalization::UnicodeNormalization;
@@ -12,6 +12,7 @@ const META_EXPORT_MANIFEST: &str = "skills_export_manifest";
 const META_EXECUTABLE_MANIFEST: &str = "skills_executable_manifest";
 const META_EXPORT_TOMBSTONES: &str = "skills_export_tombstones";
 const META_PENDING_TOMBSTONES: &str = "skills_pending_tombstones";
+const META_RETIRED_TOMBSTONES: &str = "skills_retired_tombstones";
 const META_DISCLOSURE: &str = "skills_disclosure_v1";
 const MISSING_HASH: &str = "missing";
 
@@ -21,12 +22,15 @@ struct SkillFileSnapshot {
     hash: String,
 }
 
+pub(super) type SkillTombstoneMap = BTreeMap<String, BTreeSet<String>>;
+
 pub(super) struct SkillExportPlan {
     pub(super) ops: Vec<SyncOp>,
     pub(super) manifest: BTreeMap<String, String>,
     pub(super) executable_manifest: BTreeMap<String, bool>,
-    pub(super) tombstones: BTreeMap<String, String>,
-    pub(super) pending_tombstones: BTreeMap<String, String>,
+    pub(super) tombstones: SkillTombstoneMap,
+    pub(super) pending_tombstones: SkillTombstoneMap,
+    pub(super) retired_tombstones: SkillTombstoneMap,
 }
 
 enum CustomSkillChange {
@@ -39,6 +43,7 @@ struct ParsedCustomSkillOp {
     base_hash: String,
     recovery_base_hash: Option<String>,
     remote_hash: String,
+    delete_base_hashes: BTreeSet<String>,
     change: CustomSkillChange,
 }
 
@@ -213,15 +218,22 @@ fn load_executable_manifest(conn: &Connection) -> Result<BTreeMap<String, bool>,
     }
 }
 
-fn load_tombstones(conn: &Connection) -> Result<BTreeMap<String, String>, SyncError> {
+fn load_tombstones(conn: &Connection) -> Result<SkillTombstoneMap, SyncError> {
     match get_meta(conn, META_EXPORT_TOMBSTONES)? {
         Some(text) => Ok(serde_json::from_str(&text)?),
         None => Ok(BTreeMap::new()),
     }
 }
 
-fn load_pending_tombstones(conn: &Connection) -> Result<BTreeMap<String, String>, SyncError> {
+fn load_pending_tombstones(conn: &Connection) -> Result<SkillTombstoneMap, SyncError> {
     match get_meta(conn, META_PENDING_TOMBSTONES)? {
+        Some(text) => Ok(serde_json::from_str(&text)?),
+        None => Ok(BTreeMap::new()),
+    }
+}
+
+fn load_retired_tombstones(conn: &Connection) -> Result<SkillTombstoneMap, SyncError> {
+    match get_meta(conn, META_RETIRED_TOMBSTONES)? {
         Some(text) => Ok(serde_json::from_str(&text)?),
         None => Ok(BTreeMap::new()),
     }
@@ -230,30 +242,49 @@ fn load_pending_tombstones(conn: &Connection) -> Result<BTreeMap<String, String>
 fn update_tombstone_entry(
     conn: &Connection,
     path: &str,
-    base_hash: Option<&str>,
+    base_hashes: Option<&BTreeSet<String>>,
 ) -> Result<(), SyncError> {
     let mut tombstones = load_tombstones(conn)?;
     let mut pending_tombstones = load_pending_tombstones(conn)?;
-    match base_hash {
-        Some(hash) if hash != MISSING_HASH => {
-            if tombstones.contains_key(path) {
+    let mut retired_tombstones = load_retired_tombstones(conn)?;
+    match base_hashes {
+        Some(hashes) => {
+            let retired = retired_tombstones.get(path);
+            let active = tombstones.entry(path.to_string()).or_default();
+            let newly_seen = hashes
+                .iter()
+                .filter(|hash| hash.as_str() != MISSING_HASH)
+                .filter(|hash| retired.is_none_or(|known| !known.contains(*hash)))
+                .filter(|hash| !active.contains(*hash))
+                .cloned()
+                .collect::<BTreeSet<_>>();
+            if newly_seen.is_empty() {
                 return Ok(());
             }
-            tombstones.insert(path.to_string(), hash.to_string());
-            pending_tombstones.insert(path.to_string(), hash.to_string());
+            active.extend(newly_seen.iter().cloned());
+            pending_tombstones
+                .entry(path.to_string())
+                .or_default()
+                .extend(newly_seen);
         }
-        _ => {
-            tombstones.remove(path);
+        None => {
+            if let Some(active) = tombstones.remove(path) {
+                retired_tombstones
+                    .entry(path.to_string())
+                    .or_default()
+                    .extend(active);
+            }
             pending_tombstones.remove(path);
         }
     }
-    save_export_tombstone_state(conn, &tombstones, &pending_tombstones)
+    save_export_tombstone_state(conn, &tombstones, &pending_tombstones, &retired_tombstones)
 }
 
 pub(super) fn save_export_tombstone_state(
     conn: &Connection,
-    tombstones: &BTreeMap<String, String>,
-    pending_tombstones: &BTreeMap<String, String>,
+    tombstones: &SkillTombstoneMap,
+    pending_tombstones: &SkillTombstoneMap,
+    retired_tombstones: &SkillTombstoneMap,
 ) -> Result<(), SyncError> {
     set_meta(
         conn,
@@ -264,6 +295,11 @@ pub(super) fn save_export_tombstone_state(
         conn,
         META_PENDING_TOMBSTONES,
         &serde_json::to_string(pending_tombstones)?,
+    )?;
+    set_meta(
+        conn,
+        META_RETIRED_TOMBSTONES,
+        &serde_json::to_string(retired_tombstones)?,
     )
 }
 
@@ -296,8 +332,14 @@ pub(super) fn plan_export(
     let current = scan(home, &previous_executable)?;
     let mut tombstones = load_tombstones(conn)?;
     let mut pending_tombstones = load_pending_tombstones(conn)?;
+    let mut retired_tombstones = load_retired_tombstones(conn)?;
     for path in current.keys() {
-        tombstones.remove(path);
+        if let Some(active) = tombstones.remove(path) {
+            retired_tombstones
+                .entry(path.clone())
+                .or_default()
+                .extend(active);
+        }
         pending_tombstones.remove(path);
     }
     let manifest = current
@@ -320,10 +362,23 @@ pub(super) fn plan_export(
         if current.contains_key(path) {
             continue;
         }
-        deletions.insert(path.clone(), previous_hash.clone());
-        tombstones.insert(path.clone(), previous_hash.clone());
+        if let Some(retired) = retired_tombstones.get_mut(path) {
+            retired.remove(previous_hash);
+        }
+        deletions
+            .entry(path.clone())
+            .or_default()
+            .insert(previous_hash.clone());
+        tombstones
+            .entry(path.clone())
+            .or_default()
+            .insert(previous_hash.clone());
     }
-    for (path, previous_hash) in &deletions {
+    for (path, base_hashes) in &deletions {
+        let previous_hash = base_hashes
+            .iter()
+            .next()
+            .expect("skill tombstone candidates must not be empty");
         ops.push(make_op(
             device_id,
             seq,
@@ -334,6 +389,7 @@ pub(super) fn plan_export(
                 "path": path,
                 "deleted": true,
                 "baseHash": previous_hash,
+                "baseHashes": base_hashes,
                 "contentHash": MISSING_HASH,
             }),
         )?);
@@ -369,6 +425,7 @@ pub(super) fn plan_export(
         executable_manifest,
         tombstones,
         pending_tombstones,
+        retired_tombstones,
     })
 }
 
@@ -688,6 +745,7 @@ fn parse_op(op: &SyncOp) -> Result<ParsedCustomSkillOp, SyncError> {
         .get("contentHash")
         .and_then(Value::as_str)
         .ok_or_else(|| SyncError::Message("custom skill op has no content hash".to_string()))?;
+    let mut delete_base_hashes = BTreeSet::new();
     let change = if op.kind == "skill.file.upsert" {
         if op.payload.get("encoding").and_then(Value::as_str) != Some("base64") {
             return Err(SyncError::Message(
@@ -718,11 +776,29 @@ fn parse_op(op: &SyncOp) -> Result<ParsedCustomSkillOp, SyncError> {
     } else if op.kind == "skill.file.delete" {
         if op.payload.get("deleted").and_then(Value::as_bool) != Some(true)
             || remote_hash != MISSING_HASH
+            || base_hash == MISSING_HASH
         {
             return Err(SyncError::Message(
                 "custom skill delete payload is invalid".to_string(),
             ));
         }
+        if let Some(value) = op.payload.get("baseHashes") {
+            let hashes = value.as_array().ok_or_else(|| {
+                SyncError::Message("custom skill delete base hashes are invalid".to_string())
+            })?;
+            for hash in hashes {
+                let hash = hash.as_str().ok_or_else(|| {
+                    SyncError::Message("custom skill delete base hashes are invalid".to_string())
+                })?;
+                if hash == MISSING_HASH {
+                    return Err(SyncError::Message(
+                        "custom skill delete base hashes are invalid".to_string(),
+                    ));
+                }
+                delete_base_hashes.insert(hash.to_string());
+            }
+        }
+        delete_base_hashes.insert(base_hash.to_string());
         CustomSkillChange::Delete
     } else {
         return Err(SyncError::Message(format!(
@@ -735,6 +811,7 @@ fn parse_op(op: &SyncOp) -> Result<ParsedCustomSkillOp, SyncError> {
         base_hash: base_hash.to_string(),
         recovery_base_hash,
         remote_hash: remote_hash.to_string(),
+        delete_base_hashes,
         change,
     })
 }
@@ -749,7 +826,17 @@ fn apply_with_policy(
     op: &SyncOp,
     force_remote: bool,
 ) -> Result<(), SyncError> {
-    let parsed = parse_op(op)?;
+    let mut parsed = parse_op(op)?;
+    if matches!(&parsed.change, CustomSkillChange::Delete) {
+        if let Some(retired) = load_retired_tombstones(conn)?.get(&parsed.relative) {
+            parsed
+                .delete_base_hashes
+                .retain(|hash| !retired.contains(hash));
+        }
+        if parsed.delete_base_hashes.is_empty() {
+            return Ok(());
+        }
+    }
     supersede_older_conflicts(conn, op)?;
     let root = validated_root(home)?;
     let path = root.join(&parsed.relative);
@@ -793,12 +880,15 @@ fn apply_with_policy(
             remote_executable,
         )?;
         if matches!(&parsed.change, CustomSkillChange::Delete) {
-            update_tombstone_entry(conn, &parsed.relative, Some(&parsed.base_hash))?;
+            update_tombstone_entry(conn, &parsed.relative, Some(&parsed.delete_base_hashes))?;
         }
         return Ok(());
     }
     if force_remote
-        || local_hash == parsed.base_hash
+        || (matches!(&parsed.change, CustomSkillChange::Delete)
+            && parsed.delete_base_hashes.contains(&local_hash))
+        || (matches!(&parsed.change, CustomSkillChange::Upsert { .. })
+            && local_hash == parsed.base_hash)
         || parsed.recovery_base_hash.as_deref() == Some(local_hash.as_str())
     {
         match parsed.change {
@@ -818,7 +908,7 @@ fn apply_with_policy(
                     prune_empty_directories(&root, parent)?;
                 }
                 update_manifest_entry(conn, &parsed.relative, None, None)?;
-                update_tombstone_entry(conn, &parsed.relative, Some(&parsed.base_hash))?;
+                update_tombstone_entry(conn, &parsed.relative, Some(&parsed.delete_base_hashes))?;
             }
         }
         return Ok(());

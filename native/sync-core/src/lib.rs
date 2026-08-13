@@ -902,6 +902,7 @@ pub fn export_ops(
                 &conn,
                 &skill_plan.tombstones,
                 &skill_plan.pending_tombstones,
+                &skill_plan.retired_tombstones,
             )?;
         }
         write_manifest(
@@ -3164,6 +3165,93 @@ mod tests {
                 .exported_ops,
             0,
             "the delayed H1 relay must not be queued for another propagation"
+        );
+    }
+
+    #[test]
+    fn retired_skill_tombstones_do_not_delete_same_content_resurrections() {
+        let sync = tempfile::tempdir().unwrap();
+        let home_a = setup_home("same-config");
+        let home_b = setup_home("same-config");
+        let home_c = setup_home("same-config");
+        let relative = "restored/SKILL.md";
+        let content = b"# Restored unchanged\n";
+        write_custom_skill_file(home_a.path(), relative, content);
+        init_sync(home_a.path(), Some(sync.path()), "A").unwrap();
+        init_sync(home_b.path(), Some(sync.path()), "B").unwrap();
+        init_sync(home_c.path(), Some(sync.path()), "C").unwrap();
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+        import_ops(home_c.path(), Some(sync.path())).unwrap();
+
+        fs::remove_file(custom_skill_path(home_a.path(), relative)).unwrap();
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+        import_ops(home_c.path(), Some(sync.path())).unwrap();
+
+        write_custom_skill_file(home_a.path(), relative, content);
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+        export_ops(home_c.path(), Some(sync.path())).unwrap();
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+
+        assert_eq!(
+            fs::read(custom_skill_path(home_b.path(), relative)).unwrap(),
+            content,
+            "a tombstone retired by an observed upsert must stay causally obsolete"
+        );
+    }
+
+    #[test]
+    fn unseen_skill_tombstone_generations_survive_relay_history_loss() {
+        let sync = tempfile::tempdir().unwrap();
+        let home_a = setup_home("same-config");
+        let home_b = setup_home("same-config");
+        let home_c = setup_home("same-config");
+        let home_d = setup_home("same-config");
+        let home_e = setup_home("same-config");
+        let relative = "removed/SKILL.md";
+        write_custom_skill_file(home_a.path(), relative, b"# Generation one\n");
+        init_sync(home_a.path(), Some(sync.path()), "A").unwrap();
+        init_sync(home_b.path(), Some(sync.path()), "B").unwrap();
+        init_sync(home_c.path(), Some(sync.path()), "C").unwrap();
+        init_sync(home_d.path(), Some(sync.path()), "D").unwrap();
+        init_sync(home_e.path(), Some(sync.path()), "E").unwrap();
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+        import_ops(home_c.path(), Some(sync.path())).unwrap();
+        import_ops(home_d.path(), Some(sync.path())).unwrap();
+        import_ops(home_e.path(), Some(sync.path())).unwrap();
+
+        fs::remove_file(custom_skill_path(home_a.path(), relative)).unwrap();
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+
+        write_custom_skill_file(home_a.path(), relative, b"# Generation two\n");
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        import_ops(home_c.path(), Some(sync.path())).unwrap();
+        import_ops(home_d.path(), Some(sync.path())).unwrap();
+        fs::remove_file(custom_skill_path(home_a.path(), relative)).unwrap();
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        import_ops(home_c.path(), Some(sync.path())).unwrap();
+        export_ops(home_c.path(), Some(sync.path())).unwrap();
+
+        let device_a = device_id_of(home_a.path());
+        fs::remove_dir_all(device_dir(sync.path(), &device_a)).unwrap();
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+        let device_c = device_id_of(home_c.path());
+        fs::remove_dir_all(device_dir(sync.path(), &device_c)).unwrap();
+        export_ops(home_b.path(), Some(sync.path())).unwrap();
+        import_ops(home_d.path(), Some(sync.path())).unwrap();
+        import_ops(home_e.path(), Some(sync.path())).unwrap();
+
+        assert!(
+            !custom_skill_path(home_d.path(), relative).exists(),
+            "B must retain relayed H2 even though it never observed the resurrection"
+        );
+        assert!(
+            !custom_skill_path(home_e.path(), relative).exists(),
+            "B must retain H1 while also learning the unseen H2 generation"
         );
     }
 
