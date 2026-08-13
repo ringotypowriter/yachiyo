@@ -11,6 +11,7 @@ use unicode_normalization::UnicodeNormalization;
 const META_EXPORT_MANIFEST: &str = "skills_export_manifest";
 const META_EXECUTABLE_MANIFEST: &str = "skills_executable_manifest";
 const META_EXPORT_TOMBSTONES: &str = "skills_export_tombstones";
+const META_PENDING_TOMBSTONES: &str = "skills_pending_tombstones";
 const META_DISCLOSURE: &str = "skills_disclosure_v1";
 const MISSING_HASH: &str = "missing";
 
@@ -25,6 +26,7 @@ pub(super) struct SkillExportPlan {
     pub(super) manifest: BTreeMap<String, String>,
     pub(super) executable_manifest: BTreeMap<String, bool>,
     pub(super) tombstones: BTreeMap<String, String>,
+    pub(super) pending_tombstones: BTreeMap<String, String>,
 }
 
 enum CustomSkillChange {
@@ -218,31 +220,47 @@ fn load_tombstones(conn: &Connection) -> Result<BTreeMap<String, String>, SyncEr
     }
 }
 
+fn load_pending_tombstones(conn: &Connection) -> Result<BTreeMap<String, String>, SyncError> {
+    match get_meta(conn, META_PENDING_TOMBSTONES)? {
+        Some(text) => Ok(serde_json::from_str(&text)?),
+        None => Ok(BTreeMap::new()),
+    }
+}
+
 fn update_tombstone_entry(
     conn: &Connection,
     path: &str,
     base_hash: Option<&str>,
 ) -> Result<(), SyncError> {
     let mut tombstones = load_tombstones(conn)?;
+    let mut pending_tombstones = load_pending_tombstones(conn)?;
     match base_hash {
         Some(hash) if hash != MISSING_HASH => {
             tombstones.insert(path.to_string(), hash.to_string());
+            pending_tombstones.insert(path.to_string(), hash.to_string());
         }
         _ => {
             tombstones.remove(path);
+            pending_tombstones.remove(path);
         }
     }
-    save_export_tombstones(conn, &tombstones)
+    save_export_tombstone_state(conn, &tombstones, &pending_tombstones)
 }
 
-pub(super) fn save_export_tombstones(
+pub(super) fn save_export_tombstone_state(
     conn: &Connection,
     tombstones: &BTreeMap<String, String>,
+    pending_tombstones: &BTreeMap<String, String>,
 ) -> Result<(), SyncError> {
     set_meta(
         conn,
         META_EXPORT_TOMBSTONES,
         &serde_json::to_string(tombstones)?,
+    )?;
+    set_meta(
+        conn,
+        META_PENDING_TOMBSTONES,
+        &serde_json::to_string(pending_tombstones)?,
     )
 }
 
@@ -274,8 +292,10 @@ pub(super) fn plan_export(
     let previous_executable = load_executable_manifest(conn)?;
     let current = scan(home, &previous_executable)?;
     let mut tombstones = load_tombstones(conn)?;
+    let mut pending_tombstones = load_pending_tombstones(conn)?;
     for path in current.keys() {
         tombstones.remove(path);
+        pending_tombstones.remove(path);
     }
     let manifest = current
         .iter()
@@ -289,7 +309,7 @@ pub(super) fn plan_export(
     let mut deletions = if full_resync {
         tombstones.clone()
     } else {
-        BTreeMap::new()
+        pending_tombstones.clone()
     };
     // Structural conversions need their old leaves removed before new parents or
     // children are created (file -> directory and directory -> file).
@@ -314,6 +334,9 @@ pub(super) fn plan_export(
                 "contentHash": MISSING_HASH,
             }),
         )?);
+    }
+    for path in deletions.keys() {
+        pending_tombstones.remove(path);
     }
     for (path, snapshot) in &current {
         if !full_resync && previous.get(path) == Some(&snapshot.hash) {
@@ -342,6 +365,7 @@ pub(super) fn plan_export(
         manifest,
         executable_manifest,
         tombstones,
+        pending_tombstones,
     })
 }
 

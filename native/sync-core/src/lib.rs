@@ -22,6 +22,7 @@ const META_SETTINGS_HASH: &str = "settings_export_hash";
 /// export or last adopt). Declared as an op's `baseHash` so a peer that hasn't
 /// locally edited since can fast-forward instead of recording a phantom conflict.
 const META_SETTINGS_BASE_HASH: &str = "settings_base_hash";
+const META_OPS_V2_HISTORY: &str = "ops_v2_history";
 const OPS_DIR_V1: &str = "ops";
 const OPS_DIR_V2: &str = "ops-v2";
 const OPS_DIR_V3: &str = "ops-v3";
@@ -707,10 +708,17 @@ pub fn export_ops(
     let exported_at = now();
     let seq = next_export_seq(&sync_dir, &device_id)?;
 
-    // Legacy archives/settings and v3 custom skills recover independently: one
-    // operation family can disappear while the other still carries a high seq.
-    let full_resync = !has_ops_history(&sync_dir, &device_id, OPS_DIR_V1)?
-        && !has_ops_history(&sync_dir, &device_id, OPS_DIR_V2)?;
+    // Each operation directory is independent recovery evidence. V1 always has
+    // a settings/archive snapshot to rebuild. V2 is only expected after this
+    // device has actually published delete history; an empty v2 on a device
+    // that has never deleted anything is not data loss.
+    let has_v1_history = has_ops_history(&sync_dir, &device_id, OPS_DIR_V1)?;
+    let has_v2_history = has_ops_history(&sync_dir, &device_id, OPS_DIR_V2)?;
+    let v2_history_expected =
+        has_v2_history || get_meta(&conn, META_OPS_V2_HISTORY)?.as_deref() == Some("present");
+    let v1_full_resync = !has_v1_history;
+    let v2_full_resync = !has_v2_history && v2_history_expected;
+    let full_resync = v1_full_resync || v2_full_resync;
     let custom_skills_full_resync = !has_ops_history(&sync_dir, &device_id, OPS_DIR_V3)?;
     if full_resync {
         backfill_dirty(&conn)?;
@@ -739,7 +747,7 @@ pub fn export_ops(
     let settings_hash = settings_text.as_deref().map(hash_text);
     let settings_changed = match &settings_hash {
         Some(hash) => {
-            full_resync || get_meta(&conn, META_SETTINGS_HASH)?.as_deref() != Some(hash.as_str())
+            v1_full_resync || get_meta(&conn, META_SETTINGS_HASH)?.as_deref() != Some(hash.as_str())
         }
         None => false,
     };
@@ -779,7 +787,9 @@ pub fn export_ops(
 
     let skill_ops_count = ops_v3.count;
     let mut legacy_marker_count = 0;
-    if skill_ops_count > 0 && ops_v1.count == 0 && ops_v2.count == 0 {
+    let needs_legacy_marker =
+        ops_v1.count == 0 && (v1_full_resync || (skill_ops_count > 0 && ops_v2.count == 0));
+    if needs_legacy_marker {
         ops_v1.write_op(&make_op(
             &device_id,
             seq,
@@ -826,7 +836,11 @@ pub fn export_ops(
                 &skill_plan.manifest,
                 &skill_plan.executable_manifest,
             )?;
-            custom_skills::save_export_tombstones(&conn, &skill_plan.tombstones)?;
+            custom_skills::save_export_tombstone_state(
+                &conn,
+                &skill_plan.tombstones,
+                &skill_plan.pending_tombstones,
+            )?;
         }
         write_manifest(
             &sync_dir,
@@ -848,6 +862,12 @@ pub fn export_ops(
         }
         Some(exported_at)
     };
+
+    if ops_v2_count > 0 || has_v2_history {
+        set_meta(&conn, META_OPS_V2_HISTORY, "present")?;
+    } else if v2_full_resync {
+        set_meta(&conn, META_OPS_V2_HISTORY, "recovered")?;
+    }
 
     // Clear every dirty row we processed (emitted or intentionally skipped) only
     // after publish succeeds. Tombstones waiting for old peers stay queued.
@@ -2808,7 +2828,7 @@ mod tests {
     }
 
     #[test]
-    fn missing_legacy_history_republishes_settings_and_archives_with_v3_present() {
+    fn missing_v1_history_republishes_settings_and_archives_with_v2_and_v3_present() {
         let sync = tempfile::tempdir().unwrap();
         let home_a = setup_home("shared-setting");
         let home_b = setup_home("shared-setting");
@@ -2816,10 +2836,13 @@ mod tests {
         seed_thread(home_a.path(), "thread-1", "message-1");
         init_sync(home_a.path(), Some(sync.path()), "A").unwrap();
         export_ops(home_a.path(), Some(sync.path())).unwrap();
+        insert_message(home_a.path(), "deleted-message", "thread-1");
+        delete_message(home_a.path(), "deleted-message");
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
         let device = device_id_of(home_a.path());
-        for ops_dir in [OPS_DIR_V1, OPS_DIR_V2] {
-            fs::remove_dir_all(device_ops_dir(sync.path(), &device, ops_dir)).unwrap();
-        }
+        assert!(has_ops_history(sync.path(), &device, OPS_DIR_V2).unwrap());
+        assert!(has_ops_history(sync.path(), &device, OPS_DIR_V3).unwrap());
+        fs::remove_dir_all(device_ops_dir(sync.path(), &device, OPS_DIR_V1)).unwrap();
 
         let recovery = export_ops(home_a.path(), Some(sync.path())).unwrap();
         init_sync(home_b.path(), Some(sync.path()), "B").unwrap();
@@ -2839,6 +2862,33 @@ mod tests {
             )
             .unwrap(),
             1
+        );
+    }
+
+    #[test]
+    fn missing_v2_history_after_a_delete_republishes_the_current_archive_once() {
+        let sync = tempfile::tempdir().unwrap();
+        let home = setup_home("shared-setting");
+        seed_thread(home.path(), "thread-1", "message-1");
+        init_sync(home.path(), Some(sync.path()), "A").unwrap();
+        export_ops(home.path(), Some(sync.path())).unwrap();
+        insert_message(home.path(), "deleted-message", "thread-1");
+        delete_message(home.path(), "deleted-message");
+        export_ops(home.path(), Some(sync.path())).unwrap();
+        let device = device_id_of(home.path());
+        assert!(has_ops_history(sync.path(), &device, OPS_DIR_V2).unwrap());
+        fs::remove_dir_all(device_ops_dir(sync.path(), &device, OPS_DIR_V2)).unwrap();
+
+        let recovery = export_ops(home.path(), Some(sync.path())).unwrap();
+        let next = export_ops(home.path(), Some(sync.path())).unwrap();
+
+        assert!(
+            recovery.exported_ops >= 2,
+            "losing delete history must republish the current archive snapshot"
+        );
+        assert_eq!(
+            next.exported_ops, 0,
+            "a handled v2 loss must not force a full snapshot every cycle"
         );
     }
 
@@ -2915,16 +2965,28 @@ mod tests {
         export_ops(home_a.path(), Some(sync.path())).unwrap();
         import_ops(home_b.path(), Some(sync.path())).unwrap();
         import_ops(home_c.path(), Some(sync.path())).unwrap();
+        export_ops(home_b.path(), Some(sync.path())).unwrap();
         fs::remove_file(custom_skill_path(home_a.path(), "removed/SKILL.md")).unwrap();
         export_ops(home_a.path(), Some(sync.path())).unwrap();
         import_ops(home_b.path(), Some(sync.path())).unwrap();
         let device_a = device_id_of(home_a.path());
         fs::remove_dir_all(device_dir(sync.path(), &device_a)).unwrap();
 
-        export_ops(home_b.path(), Some(sync.path())).unwrap();
+        let propagation = export_ops(home_b.path(), Some(sync.path())).unwrap();
         import_ops(home_c.path(), Some(sync.path())).unwrap();
 
+        assert!(
+            propagation.exported_ops >= 1,
+            "an established relay must publish a newly adopted tombstone"
+        );
         assert!(!custom_skill_path(home_c.path(), "removed/SKILL.md").exists());
+        assert_eq!(
+            export_ops(home_b.path(), Some(sync.path()))
+                .unwrap()
+                .exported_ops,
+            0,
+            "an adopted tombstone should leave the pending queue after publication"
+        );
     }
 
     #[test]
