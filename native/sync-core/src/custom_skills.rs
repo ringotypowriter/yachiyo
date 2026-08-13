@@ -10,6 +10,7 @@ use unicode_normalization::UnicodeNormalization;
 
 const META_EXPORT_MANIFEST: &str = "skills_export_manifest";
 const META_EXECUTABLE_MANIFEST: &str = "skills_executable_manifest";
+const META_EXPORT_TOMBSTONES: &str = "skills_export_tombstones";
 const META_DISCLOSURE: &str = "skills_disclosure_v1";
 const MISSING_HASH: &str = "missing";
 
@@ -23,6 +24,7 @@ pub(super) struct SkillExportPlan {
     pub(super) ops: Vec<SyncOp>,
     pub(super) manifest: BTreeMap<String, String>,
     pub(super) executable_manifest: BTreeMap<String, bool>,
+    pub(super) tombstones: BTreeMap<String, String>,
 }
 
 enum CustomSkillChange {
@@ -209,6 +211,24 @@ fn load_executable_manifest(conn: &Connection) -> Result<BTreeMap<String, bool>,
     }
 }
 
+fn load_tombstones(conn: &Connection) -> Result<BTreeMap<String, String>, SyncError> {
+    match get_meta(conn, META_EXPORT_TOMBSTONES)? {
+        Some(text) => Ok(serde_json::from_str(&text)?),
+        None => Ok(BTreeMap::new()),
+    }
+}
+
+pub(super) fn save_export_tombstones(
+    conn: &Connection,
+    tombstones: &BTreeMap<String, String>,
+) -> Result<(), SyncError> {
+    set_meta(
+        conn,
+        META_EXPORT_TOMBSTONES,
+        &serde_json::to_string(tombstones)?,
+    )
+}
+
 pub(super) fn save_export_state(
     conn: &Connection,
     manifest: &BTreeMap<String, String>,
@@ -236,6 +256,10 @@ pub(super) fn plan_export(
     let previous = load_manifest(conn)?;
     let previous_executable = load_executable_manifest(conn)?;
     let current = scan(home, &previous_executable)?;
+    let mut tombstones = load_tombstones(conn)?;
+    for path in current.keys() {
+        tombstones.remove(path);
+    }
     let manifest = current
         .iter()
         .map(|(path, snapshot)| (path.clone(), snapshot.hash.clone()))
@@ -245,12 +269,21 @@ pub(super) fn plan_export(
         .map(|(path, snapshot)| (path.clone(), snapshot.executable))
         .collect::<BTreeMap<_, _>>();
     let mut ops = Vec::new();
+    let mut deletions = if full_resync {
+        tombstones.clone()
+    } else {
+        BTreeMap::new()
+    };
     // Structural conversions need their old leaves removed before new parents or
     // children are created (file -> directory and directory -> file).
     for (path, previous_hash) in &previous {
         if current.contains_key(path) {
             continue;
         }
+        deletions.insert(path.clone(), previous_hash.clone());
+        tombstones.insert(path.clone(), previous_hash.clone());
+    }
+    for (path, previous_hash) in &deletions {
         ops.push(make_op(
             device_id,
             seq,
@@ -291,6 +324,7 @@ pub(super) fn plan_export(
         ops,
         manifest,
         executable_manifest,
+        tombstones,
     })
 }
 

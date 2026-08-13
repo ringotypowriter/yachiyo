@@ -826,6 +826,7 @@ pub fn export_ops(
                 &skill_plan.manifest,
                 &skill_plan.executable_manifest,
             )?;
+            custom_skills::save_export_tombstones(&conn, &skill_plan.tombstones)?;
         }
         write_manifest(
             &sync_dir,
@@ -2804,6 +2805,66 @@ mod tests {
             fs::read(custom_skill_path(home_b.path(), "shared/SKILL.md")).unwrap(),
             b"# Shared\n"
         );
+    }
+
+    #[test]
+    fn missing_v3_history_republishes_custom_skill_deletions() {
+        let sync = tempfile::tempdir().unwrap();
+        let home_a = setup_home("same-config");
+        let home_b = setup_home("same-config");
+        write_custom_skill_file(home_a.path(), "removed/SKILL.md", b"# Removed\n");
+        init_sync(home_a.path(), Some(sync.path()), "A").unwrap();
+        init_sync(home_b.path(), Some(sync.path()), "B").unwrap();
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+        fs::remove_file(custom_skill_path(home_a.path(), "removed/SKILL.md")).unwrap();
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        let device = device_id_of(home_a.path());
+        fs::remove_dir_all(device_ops_dir(sync.path(), &device, OPS_DIR_V3)).unwrap();
+
+        let recovery = export_ops(home_a.path(), Some(sync.path())).unwrap();
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+
+        assert!(recovery.exported_ops >= 1);
+        assert!(!custom_skill_path(home_b.path(), "removed/SKILL.md").exists());
+    }
+
+    #[test]
+    fn recovered_custom_skill_deletion_preserves_an_offline_local_edit() {
+        let sync = tempfile::tempdir().unwrap();
+        let home_a = setup_home("same-config");
+        let home_b = setup_home("same-config");
+        let home_c = setup_home("same-config");
+        write_custom_skill_file(home_a.path(), "removed/SKILL.md", b"# Original\n");
+        init_sync(home_a.path(), Some(sync.path()), "A").unwrap();
+        init_sync(home_b.path(), Some(sync.path()), "B").unwrap();
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+        write_custom_skill_file(home_b.path(), "removed/SKILL.md", b"# Local edit\n");
+        fs::remove_file(custom_skill_path(home_a.path(), "removed/SKILL.md")).unwrap();
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        let device = device_id_of(home_a.path());
+        fs::remove_dir_all(device_ops_dir(sync.path(), &device, OPS_DIR_V3)).unwrap();
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+        init_sync(home_c.path(), Some(sync.path()), "C").unwrap();
+        import_ops(home_c.path(), Some(sync.path())).unwrap();
+
+        assert_eq!(
+            fs::read(custom_skill_path(home_b.path(), "removed/SKILL.md")).unwrap(),
+            b"# Local edit\n"
+        );
+        let conn = Connection::open(home_b.path().join(DB_FILE)).unwrap();
+        let conflicts: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sync_conflicts WHERE resolved_at IS NULL AND entity_id = 'removed/SKILL.md'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(conflicts, 1);
+        assert!(!custom_skill_path(home_c.path(), "removed/SKILL.md").exists());
     }
 
     #[test]
