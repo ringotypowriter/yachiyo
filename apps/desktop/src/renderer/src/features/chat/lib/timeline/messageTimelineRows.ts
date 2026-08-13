@@ -11,7 +11,8 @@ import {
 } from './messageThreadPresentation.ts'
 import {
   findLatestRunForRequests,
-  findRunMemorySummaryForRequests
+  findRunMemorySummaryForRequests,
+  normalizeRunModelLabel
 } from '../run-memory/runMemoryPresentation.ts'
 import {
   isPlanModeExitRecord,
@@ -94,6 +95,7 @@ export type MessageTimelineRow =
       group: MessageGroup
       assistantMessage: Message
       items: WorkTrajectoryItem[]
+      modelLabel: string | null
       requestMessageIds: string[]
     } & GroupTimelineRowBase)
   | ({
@@ -710,6 +712,7 @@ export function buildConversationGroupRows(
       assistantMessageId: activeAssistantMessage.id,
       group,
       assistantMessage: activeAssistantMessage,
+      modelLabel: normalizeRunModelLabel(activeAssistantMessage.modelId),
       items: buildWorkTrajectoryItems({
         userMessageId: group.userMessage.id,
         replyCount: group.assistantBranches.length,

@@ -31,6 +31,7 @@ function createAssistantMessage(input: {
   reasoning?: string
   textBlocks?: MessageTextBlockRecord[]
   visibleReply?: string
+  modelId?: string
 }): Message {
   return {
     id: input.id,
@@ -42,7 +43,8 @@ function createAssistantMessage(input: {
     createdAt: input.createdAt ?? TIMESTAMP,
     ...(input.reasoning ? { reasoning: input.reasoning } : {}),
     ...(input.textBlocks ? { textBlocks: input.textBlocks } : {}),
-    ...(input.visibleReply !== undefined ? { visibleReply: input.visibleReply } : {})
+    ...(input.visibleReply !== undefined ? { visibleReply: input.visibleReply } : {}),
+    ...(input.modelId !== undefined ? { modelId: input.modelId } : {})
   }
 }
 
@@ -555,7 +557,8 @@ test('buildConversationGroupRows summarizes completed agent work before the fina
           content: 'Final handoff',
           createdAt: '2026-04-18T00:00:03.000Z'
         }
-      ]
+      ],
+      modelId: 'google/gemini-3-flash'
     })
   })
 
@@ -591,6 +594,7 @@ test('buildConversationGroupRows summarizes completed agent work before the fina
 
   const summary = rows.find((row) => row.kind === 'group-work-summary')
   assert.equal(summary?.assistantMessage.id, 'assistant-1')
+  assert.equal(summary?.modelLabel, 'gemini-3-flash')
   assert.deepEqual(
     summary?.items.map((item) => item.kind),
     ['note', 'tool-call']

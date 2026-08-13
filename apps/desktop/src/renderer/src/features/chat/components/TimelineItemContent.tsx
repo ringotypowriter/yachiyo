@@ -353,6 +353,7 @@ function renderTimelineItem(
     return (
       <AgentWorkSummaryRow
         items={item.items}
+        modelLabel={item.modelLabel}
         requestMessageIds={item.requestMessageIds}
         runs={runs}
         toolCalls={toolCallsInSummary}

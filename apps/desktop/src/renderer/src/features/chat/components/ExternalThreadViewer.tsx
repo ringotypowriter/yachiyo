@@ -19,6 +19,7 @@ import { AgentWorkSummaryRow } from './AgentWorkSummaryRow.tsx'
 import { buildWorkTrajectoryItems } from '../lib/timeline/messageTimelineRows.ts'
 import { getNativeScrollIntoViewOptions } from '../lib/timeline/messageTimelineScroll.ts'
 import { isVisibleTimelineMessage } from '../lib/timeline/messageThreadPresentation.ts'
+import { normalizeRunModelLabel } from '../lib/run-memory/runMemoryPresentation.ts'
 
 function ExternalUserBubble({ message }: { message: Message }): React.JSX.Element {
   return (
@@ -83,6 +84,7 @@ function ExternalAssistantBubble({
       {toolCalls.length > 0 ? (
         <AgentWorkSummaryRow
           items={workSummaryItems}
+          modelLabel={normalizeRunModelLabel(message.modelId)}
           requestMessageIds={[message.parentMessageId ?? message.id]}
           runs={EMPTY_RUNS}
           toolCalls={toolCalls}
