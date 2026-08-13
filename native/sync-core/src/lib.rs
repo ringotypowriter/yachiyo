@@ -4,7 +4,7 @@ use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::env;
 use std::fmt;
 use std::fs::{self, File};
@@ -23,6 +23,7 @@ const META_SETTINGS_HASH: &str = "settings_export_hash";
 /// locally edited since can fast-forward instead of recording a phantom conflict.
 const META_SETTINGS_BASE_HASH: &str = "settings_base_hash";
 const META_OPS_V2_HISTORY: &str = "ops_v2_history";
+const META_ARCHIVE_TOMBSTONES: &str = "archive_export_tombstones";
 const OPS_DIR_V1: &str = "ops";
 const OPS_DIR_V2: &str = "ops-v2";
 const OPS_DIR_V3: &str = "ops-v3";
@@ -153,6 +154,18 @@ struct SyncOp {
     payload: Value,
     #[serde(rename = "payloadHash")]
     payload_hash: String,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+struct ArchiveTombstone {
+    kind: String,
+    entity_type: String,
+    entity_id: String,
+}
+
+struct DirtyExportPlan {
+    processed: Vec<i64>,
+    tombstones: BTreeMap<String, ArchiveTombstone>,
 }
 
 struct ImportFile {
@@ -436,6 +449,55 @@ fn backfill_dirty(conn: &Connection) -> Result<(), SyncError> {
         )?;
     }
     Ok(())
+}
+
+fn archive_tombstone_key(entity_type: &str, entity_id: &str) -> String {
+    format!("{entity_type}:{entity_id}")
+}
+
+fn load_archive_tombstones(
+    conn: &Connection,
+) -> Result<BTreeMap<String, ArchiveTombstone>, SyncError> {
+    match get_meta(conn, META_ARCHIVE_TOMBSTONES)? {
+        Some(text) => Ok(serde_json::from_str(&text)?),
+        None => Ok(BTreeMap::new()),
+    }
+}
+
+fn save_archive_tombstones(
+    conn: &Connection,
+    tombstones: &BTreeMap<String, ArchiveTombstone>,
+) -> Result<(), SyncError> {
+    set_meta(
+        conn,
+        META_ARCHIVE_TOMBSTONES,
+        &serde_json::to_string(tombstones)?,
+    )
+}
+
+fn archive_entity_is_deleted(
+    conn: &Connection,
+    tombstone: &ArchiveTombstone,
+) -> Result<bool, SyncError> {
+    let table = match tombstone.entity_type.as_str() {
+        "thread" => "threads",
+        "message" => "messages",
+        "toolcall" => "tool_calls",
+        _ => {
+            return Err(SyncError::Message(format!(
+                "unsupported archive tombstone entity type: {}",
+                tombstone.entity_type
+            )))
+        }
+    };
+    if !table_exists(conn, table)? {
+        return Ok(true);
+    }
+    let Some(payload) = fetch_row_json(conn, table, &tombstone.entity_id)? else {
+        return Ok(true);
+    };
+    Ok(tombstone.entity_type == "thread"
+        && payload.get("head_message_id").is_none_or(Value::is_null))
 }
 
 fn get_meta(conn: &Connection, key: &str) -> Result<Option<String>, SyncError> {
@@ -777,7 +839,7 @@ pub fn export_ops(
         }
     }
 
-    let processed_dirty = export_dirty_ops(&conn, &device_id, seq, |op| {
+    let dirty_plan = export_dirty_ops(&conn, &device_id, seq, v2_full_resync, |op| {
         if op_requires_v2_dir(&op) {
             ops_v2.write_op(&op)
         } else {
@@ -788,7 +850,7 @@ pub fn export_ops(
     let skill_ops_count = ops_v3.count;
     let mut legacy_marker_count = 0;
     let needs_legacy_marker =
-        ops_v1.count == 0 && (v1_full_resync || (skill_ops_count > 0 && ops_v2.count == 0));
+        ops_v1.count == 0 && (v1_full_resync || ops_v2.count > 0 || skill_ops_count > 0);
     if needs_legacy_marker {
         ops_v1.write_op(&make_op(
             &device_id,
@@ -863,6 +925,8 @@ pub fn export_ops(
         Some(exported_at)
     };
 
+    save_archive_tombstones(&conn, &dirty_plan.tombstones)?;
+
     if ops_v2_count > 0 || has_v2_history {
         set_meta(&conn, META_OPS_V2_HISTORY, "present")?;
     } else if v2_full_resync {
@@ -871,7 +935,7 @@ pub fn export_ops(
 
     // Clear every dirty row we processed (emitted or intentionally skipped) only
     // after publish succeeds. Tombstones waiting for old peers stay queued.
-    for dirty_seq in processed_dirty {
+    for dirty_seq in dirty_plan.processed {
         conn.execute("DELETE FROM sync_dirty WHERE seq = ?1", [dirty_seq])?;
     }
 
@@ -958,14 +1022,36 @@ fn child_belongs_to_non_exportable_thread(
 /// Content fingerprint of an export, independent of op_id / seq / timestamps, so
 /// an unchanged settings+threads snapshot yields the same value every time. Used
 /// to skip re-exporting identical data on every auto-sync cycle.
-/// Drain the dirty queue into upsert/delete ops. Returns dirty sequence ids that
-/// were emitted or intentionally skipped and can be cleared after publish.
+/// Drain the dirty queue into upsert/delete ops and retain delete identities for
+/// rebuilding a lost v2 history. Dirty sequence ids are cleared only after the
+/// returned operations publish successfully.
 fn export_dirty_ops(
     conn: &Connection,
     device_id: &str,
     seq: i64,
+    recover_tombstones: bool,
     mut emit: impl FnMut(SyncOp) -> Result<(), SyncError>,
-) -> Result<Vec<i64>, SyncError> {
+) -> Result<DirtyExportPlan, SyncError> {
+    let mut tombstones = load_archive_tombstones(conn)?;
+    for key in tombstones.keys().cloned().collect::<Vec<_>>() {
+        if !archive_entity_is_deleted(conn, &tombstones[&key])? {
+            tombstones.remove(&key);
+        }
+    }
+    let mut emitted_tombstones = HashSet::new();
+    if recover_tombstones {
+        for (key, tombstone) in &tombstones {
+            emit(make_op(
+                device_id,
+                seq,
+                &tombstone.kind,
+                &tombstone.entity_type,
+                &tombstone.entity_id,
+                json!({ "id": tombstone.entity_id }),
+            )?)?;
+            emitted_tombstones.insert(key.clone());
+        }
+    }
     let mut stmt =
         conn.prepare("SELECT seq, entity_type, entity_id FROM sync_dirty ORDER BY seq ASC")?;
     let dirty: Vec<(i64, String, String)> = stmt
@@ -991,15 +1077,26 @@ fn export_dirty_ops(
             processed.push(dirty_seq);
             continue;
         }
+        let tombstone_key = archive_tombstone_key(&entity_type, &entity_id);
         let Some(mut payload) = fetch_row_json(conn, table, &entity_id)? else {
-            emit(make_op(
-                device_id,
-                seq,
-                delete_kind,
-                &entity_type,
-                &entity_id,
-                json!({ "id": entity_id }),
-            )?)?;
+            tombstones.insert(
+                tombstone_key.clone(),
+                ArchiveTombstone {
+                    kind: delete_kind.to_string(),
+                    entity_type: entity_type.clone(),
+                    entity_id: entity_id.clone(),
+                },
+            );
+            if emitted_tombstones.insert(tombstone_key) {
+                emit(make_op(
+                    device_id,
+                    seq,
+                    delete_kind,
+                    &entity_type,
+                    &entity_id,
+                    json!({ "id": entity_id }),
+                )?)?;
+            }
             processed.push(dirty_seq);
             continue;
         };
@@ -1007,10 +1104,12 @@ fn export_dirty_ops(
         // cross-device archive. Imported archives are read-only mirrors, and
         // schedule-created run threads are device-local history entries.
         if entity_type == "thread" && thread_payload_should_not_export(&payload) {
+            tombstones.remove(&tombstone_key);
             processed.push(dirty_seq);
             continue;
         }
         if entity_type != "thread" && child_belongs_to_non_exportable_thread(conn, &payload)? {
+            tombstones.remove(&tombstone_key);
             processed.push(dirty_seq);
             continue;
         }
@@ -1018,23 +1117,35 @@ fn export_dirty_ops(
         // not publish a delete tombstone before the first real message/title/icon
         // update has a chance to export.
         if entity_type == "thread" && is_fresh_empty_thread(&payload) {
+            tombstones.remove(&tombstone_key);
             processed.push(dirty_seq);
             continue;
         }
         // Other empty local threads export as delete tombstones. A thread emptied
         // by deleting its last message clears the previously imported archive row.
         if entity_type == "thread" && payload.get("head_message_id").is_none_or(|v| v.is_null()) {
-            emit(make_op(
-                device_id,
-                seq,
-                delete_kind,
-                &entity_type,
-                &entity_id,
-                json!({ "id": entity_id }),
-            )?)?;
+            tombstones.insert(
+                tombstone_key.clone(),
+                ArchiveTombstone {
+                    kind: delete_kind.to_string(),
+                    entity_type: entity_type.clone(),
+                    entity_id: entity_id.clone(),
+                },
+            );
+            if emitted_tombstones.insert(tombstone_key) {
+                emit(make_op(
+                    device_id,
+                    seq,
+                    delete_kind,
+                    &entity_type,
+                    &entity_id,
+                    json!({ "id": entity_id }),
+                )?)?;
+            }
             processed.push(dirty_seq);
             continue;
         }
+        tombstones.remove(&tombstone_key);
         // Drop the heaviest message column from the archive. `response_messages` is
         // the raw provider transcript (the dominant ~500MB of a full DB) — it only
         // feeds run resume and the renderer's tool raw-input/output trace. On a
@@ -1056,7 +1167,10 @@ fn export_dirty_ops(
         )?)?;
         processed.push(dirty_seq);
     }
-    Ok(processed)
+    Ok(DirtyExportPlan {
+        processed,
+        tombstones,
+    })
 }
 
 /// Message columns dropped from the read-only archive export. `response_messages`
@@ -2980,12 +3094,64 @@ mod tests {
             "an established relay must publish a newly adopted tombstone"
         );
         assert!(!custom_skill_path(home_c.path(), "removed/SKILL.md").exists());
+        let duplicate = export_ops(home_c.path(), Some(sync.path())).unwrap();
+        assert!(
+            duplicate.exported_ops >= 1,
+            "a peer that first adopts the deletion should relay it once"
+        );
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
         assert_eq!(
             export_ops(home_b.path(), Some(sync.path()))
                 .unwrap()
                 .exported_ops,
             0,
-            "an adopted tombstone should leave the pending queue after publication"
+            "an already-known tombstone must not be re-queued by a duplicate relay"
+        );
+    }
+
+    #[test]
+    fn missing_v2_history_recovers_deleted_archive_ids_after_newer_exports() {
+        let sync = tempfile::tempdir().unwrap();
+        let home_a = setup_home("shared-setting");
+        let home_b = setup_home("shared-setting");
+        seed_thread(home_a.path(), "kept-thread", "kept-message");
+        insert_message(home_a.path(), "deleted-message", "kept-thread");
+        seed_tool_call(
+            home_a.path(),
+            "deleted-tool-call",
+            "kept-thread",
+            "kept-message",
+        );
+        seed_thread(home_a.path(), "deleted-thread", "deleted-thread-message");
+        init_sync(home_a.path(), Some(sync.path()), "A").unwrap();
+        init_sync(home_b.path(), Some(sync.path()), "B").unwrap();
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+
+        {
+            let conn = Connection::open(home_a.path().join(DB_FILE)).unwrap();
+            conn.execute("DELETE FROM messages WHERE id = 'deleted-message'", [])
+                .unwrap();
+            conn.execute("DELETE FROM tool_calls WHERE id = 'deleted-tool-call'", [])
+                .unwrap();
+            conn.execute("DELETE FROM threads WHERE id = 'deleted-thread'", [])
+                .unwrap();
+        }
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        fs::write(settings_path(home_a.path()), "newer-setting").unwrap();
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        let device_a = device_id_of(home_a.path());
+        fs::remove_dir_all(device_ops_dir(sync.path(), &device_a, OPS_DIR_V2)).unwrap();
+
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+
+        assert_eq!(message_body(home_b.path(), "deleted-message"), None);
+        assert_eq!(count_rows(home_b.path(), "tool_calls"), 0);
+        assert_eq!(thread_title(home_b.path(), "deleted-thread"), None);
+        assert_eq!(
+            fs::read_to_string(settings_path(home_b.path())).unwrap(),
+            "newer-setting"
         );
     }
 
@@ -4277,12 +4443,16 @@ mod tests {
         delete_message(home_a.path(), "m2");
         export_ops(home_a.path(), Some(sync.path())).unwrap();
 
-        assert!(
-            !device_dir(sync.path(), &device)
+        let v1_lines = fs::read_to_string(
+            device_dir(sync.path(), &device)
                 .join("ops")
-                .join("0000000000000002.jsonl")
-                .exists(),
-            "v1 importers must not see delete tombstones as unknown applied ops"
+                .join("0000000000000002.jsonl"),
+        )
+        .unwrap();
+        let v1_op: SyncOp = serde_json::from_str(v1_lines.trim()).unwrap();
+        assert_eq!(
+            v1_op.kind, "sync.sequence",
+            "v1 importers need sequence continuity without seeing delete tombstones"
         );
         let lines = fs::read_to_string(
             device_dir(sync.path(), &device)
@@ -4314,9 +4484,15 @@ mod tests {
 
         assert_eq!(exported.exported_ops, 2);
         assert_eq!(count_dirty(home_a.path()), 0);
-        assert!(!device_ops_dir(sync.path(), &device_a, OPS_DIR_V1)
-            .join("0000000000000002.jsonl")
-            .exists());
+        let v1_marker = fs::read_to_string(
+            device_ops_dir(sync.path(), &device_a, OPS_DIR_V1).join("0000000000000002.jsonl"),
+        )
+        .unwrap()
+        .lines()
+        .map(|line| serde_json::from_str::<SyncOp>(line).unwrap())
+        .collect::<Vec<_>>();
+        assert_eq!(v1_marker.len(), 1);
+        assert_eq!(v1_marker[0].kind, "sync.sequence");
         let delta = read_ops_file(sync.path(), &device_a, 2);
         let mut kinds = delta.iter().map(|op| op.kind.as_str()).collect::<Vec<_>>();
         kinds.sort_unstable();

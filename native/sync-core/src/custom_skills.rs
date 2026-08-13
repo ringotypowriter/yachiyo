@@ -236,8 +236,11 @@ fn update_tombstone_entry(
     let mut pending_tombstones = load_pending_tombstones(conn)?;
     match base_hash {
         Some(hash) if hash != MISSING_HASH => {
+            let newly_adopted = tombstones.get(path).map(String::as_str) != Some(hash);
             tombstones.insert(path.to_string(), hash.to_string());
-            pending_tombstones.insert(path.to_string(), hash.to_string());
+            if newly_adopted {
+                pending_tombstones.insert(path.to_string(), hash.to_string());
+            }
         }
         _ => {
             tombstones.remove(path);
