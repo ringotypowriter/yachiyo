@@ -124,6 +124,7 @@ fn scan(
                 })
                 .collect::<Result<Vec<_>, _>>()?
                 .join("/");
+            validate_relative_path(&relative)?;
             #[cfg(unix)]
             let filesystem_executable = {
                 use std::os::unix::fs::PermissionsExt;
@@ -302,7 +303,7 @@ fn local_hash(path: &Path, synced_executable: Option<bool>) -> Result<String, Sy
     Ok(hash_file(&fs::read(path)?, executable))
 }
 
-fn validate_parent(root: &Path, target: &Path) -> Result<(), SyncError> {
+fn blocking_parent(root: &Path, target: &Path) -> Result<Option<PathBuf>, SyncError> {
     if let Ok(metadata) = fs::symlink_metadata(root) {
         if metadata.file_type().is_symlink() || !metadata.is_dir() {
             return Err(SyncError::Message(format!(
@@ -324,35 +325,61 @@ fn validate_parent(root: &Path, target: &Path) -> Result<(), SyncError> {
     for component in relative_parent.components() {
         current.push(component);
         match fs::symlink_metadata(&current) {
-            Ok(metadata) if metadata.file_type().is_symlink() => {
-                return Err(SyncError::Message(format!(
-                    "custom skill path crosses a symlink: {}",
-                    current.display()
-                )))
-            }
-            Ok(metadata) if !metadata.is_dir() => {
-                return Err(SyncError::Message(format!(
-                    "custom skill parent is not a directory: {}",
-                    current.display()
-                )))
+            Ok(metadata) if metadata.file_type().is_symlink() || !metadata.is_dir() => {
+                return Ok(Some(current))
             }
             Ok(_) => {}
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => break,
             Err(error) => return Err(SyncError::Io(error)),
         }
     }
+    Ok(None)
+}
+
+fn remove_blocker(path: &Path) -> Result<(), SyncError> {
+    fs::remove_file(path)?;
     Ok(())
 }
 
-fn write_file(root: &Path, target: &Path, bytes: &[u8], executable: bool) -> Result<(), SyncError> {
-    validate_parent(root, target)?;
+fn write_file(
+    root: &Path,
+    target: &Path,
+    bytes: &[u8],
+    executable: bool,
+    replace_non_file: bool,
+) -> Result<(), SyncError> {
+    if let Some(blocker) = blocking_parent(root, target)? {
+        if !replace_non_file {
+            return Err(SyncError::Message(format!(
+                "custom skill parent is not a directory: {}",
+                blocker.display()
+            )));
+        }
+        remove_blocker(&blocker)?;
+    }
     fs::create_dir_all(
         target
             .parent()
             .ok_or_else(|| SyncError::Message("custom skill path has no parent".to_string()))?,
     )?;
-    if fs::symlink_metadata(target).is_ok_and(|metadata| metadata.file_type().is_symlink()) {
-        fs::remove_file(target)?;
+    if let Ok(metadata) = fs::symlink_metadata(target) {
+        if metadata.file_type().is_symlink() {
+            if !replace_non_file {
+                return Err(SyncError::Message(format!(
+                    "custom skill target is a symlink: {}",
+                    target.display()
+                )));
+            }
+            fs::remove_file(target)?;
+        } else if metadata.is_dir() {
+            if !replace_non_file {
+                return Err(SyncError::Message(format!(
+                    "custom skill target is a directory: {}",
+                    target.display()
+                )));
+            }
+            fs::remove_dir_all(target)?;
+        }
     }
     atomic_write_bytes(target, bytes)?;
     #[cfg(unix)]
@@ -415,6 +442,19 @@ fn rebase_manifest_entry(conn: &Connection, path: &str, hash: &str) -> Result<()
     manifest.insert(path.to_string(), hash.to_string());
     let executable_manifest = load_executable_manifest(conn)?;
     save_export_state(conn, &manifest, &executable_manifest)
+}
+
+fn record_conflict(
+    conn: &Connection,
+    op: &SyncOp,
+    local_hash: &str,
+    remote_hash: &str,
+) -> Result<(), SyncError> {
+    conn.execute(
+        "INSERT OR IGNORE INTO sync_conflicts (id, op_id, device_id, entity_type, entity_id, local_hash, remote_hash, payload_json, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+        params![uuid::Uuid::new_v4().to_string(), op.op_id, op.device_id, op.entity_type, op.entity_id, local_hash, remote_hash, serde_json::to_string(&op.payload)?, now()],
+    )?;
+    Ok(())
 }
 
 fn parse_op(op: &SyncOp) -> Result<ParsedCustomSkillOp, SyncError> {
@@ -507,13 +547,27 @@ fn apply_with_policy(
     let parsed = parse_op(op)?;
     let root = validated_root(home)?;
     let path = root.join(&parsed.relative);
-    validate_parent(&root, &path)?;
-    let executable_manifest = load_executable_manifest(conn)?;
-    let local_hash = local_hash(&path, executable_manifest.get(&parsed.relative).copied())?;
     let remote_executable = match &parsed.change {
         CustomSkillChange::Upsert { executable, .. } => Some(*executable),
         CustomSkillChange::Delete => None,
     };
+    if let Some(blocker) = blocking_parent(&root, &path)? {
+        if matches!(&parsed.change, CustomSkillChange::Delete) {
+            update_manifest_entry(conn, &parsed.relative, None, None)?;
+            return Ok(());
+        }
+        if !force_remote {
+            record_conflict(conn, op, "local:path-blocked", &parsed.remote_hash)?;
+            return Ok(());
+        }
+        remove_blocker(&blocker)?;
+    }
+    let executable_manifest = load_executable_manifest(conn)?;
+    let local_hash = local_hash(&path, executable_manifest.get(&parsed.relative).copied())?;
+    if matches!(&parsed.change, CustomSkillChange::Delete) && local_hash.starts_with("local:") {
+        update_manifest_entry(conn, &parsed.relative, None, None)?;
+        return Ok(());
+    }
     if local_hash == parsed.remote_hash {
         update_manifest_entry(
             conn,
@@ -526,7 +580,7 @@ fn apply_with_policy(
     if force_remote || local_hash == parsed.base_hash {
         match parsed.change {
             CustomSkillChange::Upsert { bytes, executable } => {
-                write_file(&root, &path, &bytes, executable)?;
+                write_file(&root, &path, &bytes, executable, force_remote)?;
                 update_manifest_entry(
                     conn,
                     &parsed.relative,
@@ -544,11 +598,7 @@ fn apply_with_policy(
         }
         return Ok(());
     }
-    conn.execute(
-        "INSERT OR IGNORE INTO sync_conflicts (id, op_id, device_id, entity_type, entity_id, local_hash, remote_hash, payload_json, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
-        params![uuid::Uuid::new_v4().to_string(), op.op_id, op.device_id, op.entity_type, op.entity_id, local_hash, parsed.remote_hash, serde_json::to_string(&op.payload)?, now()],
-    )?;
-    Ok(())
+    record_conflict(conn, op, &local_hash, &parsed.remote_hash)
 }
 
 pub(super) fn resolve_conflict(

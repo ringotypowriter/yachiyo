@@ -200,3 +200,62 @@ test('custom skills sync through the native core, disclose once, and resolve con
     await rm(root, { recursive: true, force: true })
   }
 })
+
+test('custom skill disclosure is emitted before a later import failure', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'yachiyo-sync-skills-disclosure-'))
+  const syncDir = join(root, 'sync')
+  const homeA = join(root, 'a')
+  const serverA = await createSyncServer({ home: homeA, syncDir })
+  const serverB = await createSyncServer({ home: join(root, 'b'), syncDir })
+
+  try {
+    await serverA.initSync()
+    await serverB.initSync()
+    const statusB = await serverB.getSyncStatus()
+    assert.ok(statusB.deviceId)
+    await mkdir(join(homeA, 'skills/custom/private-tool'), { recursive: true })
+    await writeFile(join(homeA, 'skills/custom/private-tool/SKILL.md'), '# Private tool\n', 'utf8')
+    const remoteOps = join(syncDir, 'devices', statusB.deviceId, 'ops-v3')
+    await mkdir(remoteOps, { recursive: true })
+    await writeFile(
+      join(remoteOps, '0000000000000002.jsonl'),
+      `${JSON.stringify({
+        opId: 'invalid-remote-skill-path',
+        deviceId: statusB.deviceId,
+        seq: 2,
+        createdAt: new Date().toISOString(),
+        kind: 'skill.file.upsert',
+        entityType: 'skill',
+        entityId: '../outside',
+        payload: {
+          path: '../outside',
+          encoding: 'base64',
+          content: 'aW52YWxpZA==',
+          executable: false,
+          baseHash: 'missing',
+          contentHash: 'invalid'
+        },
+        payloadHash: 'unused'
+      })}\n`,
+      'utf8'
+    )
+
+    const events: YachiyoServerEvent[] = []
+    const unsubscribe = serverA.subscribe((event) => events.push(event))
+    try {
+      await assert.rejects(serverA.runSyncNow(), /invalid custom skill path/)
+    } finally {
+      unsubscribe()
+    }
+
+    assert.equal(
+      events.filter((event) => event.type === 'sync.custom-skills-disclosure').length,
+      1,
+      'a successful export must disclose before a later import can fail'
+    )
+  } finally {
+    await serverA.close()
+    await serverB.close()
+    await rm(root, { recursive: true, force: true })
+  }
+})

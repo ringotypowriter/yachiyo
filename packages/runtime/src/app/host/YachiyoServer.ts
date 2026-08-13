@@ -843,6 +843,9 @@ export class YachiyoServer {
       syncDir
     ])
     const exportResult = parseSyncCoreOutput(exportStdout, syncDir, recommendedSyncDir)
+    if (exportResult.customSkillsDisclosure) {
+      this.emitCustomSkillsDisclosure()
+    }
     const { stdout } = await execFileAsync(binary, [
       'import',
       '--home',
@@ -852,23 +855,27 @@ export class YachiyoServer {
     ])
     const importResult = parseSyncCoreOutput(stdout, syncDir, recommendedSyncDir)
     const { status, changedThreadIds } = importResult
-    if (exportResult.customSkillsDisclosure || importResult.customSkillsDisclosure) {
-      const provider =
-        process.platform === 'darwin'
-          ? 'iCloud Drive'
-          : process.platform === 'win32'
-            ? 'OneDrive'
-            : 'cloud sync'
-      this.emit<SyncCustomSkillsDisclosureEvent>({
-        type: 'sync.custom-skills-disclosure',
-        title: 'Custom skills sync / 自定义 Skills 同步',
-        body: `Custom skills are synced as a full tree to ${provider}, including script contents. / custom skills 会整树同步到 ${provider}，包括脚本内容。`
-      })
+    if (!exportResult.customSkillsDisclosure && importResult.customSkillsDisclosure) {
+      this.emitCustomSkillsDisclosure()
     }
     this.reconcileSyncConflicts()
     this.emitSyncedThreadRefreshes(changedThreadIds)
     // The binary's own count predates reconciliation; report the live count.
     return { ...status, pendingConflictCount: this.storage.countPendingSyncConflicts() }
+  }
+
+  private emitCustomSkillsDisclosure(): void {
+    const provider =
+      process.platform === 'darwin'
+        ? 'iCloud Drive'
+        : process.platform === 'win32'
+          ? 'OneDrive'
+          : 'cloud sync'
+    this.emit<SyncCustomSkillsDisclosureEvent>({
+      type: 'sync.custom-skills-disclosure',
+      title: 'Custom skills sync / 自定义 Skills 同步',
+      body: `Custom skills are synced as a full tree to ${provider}, including script contents. / custom skills 会整树同步到 ${provider}，包括脚本内容。`
+    })
   }
 
   private emitSyncedThreadRefreshes(threadIds: string[]): void {

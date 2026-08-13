@@ -2457,6 +2457,23 @@ mod tests {
         assert!(error.to_string().contains("custom skills root"));
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn custom_skill_export_rejects_paths_that_peers_cannot_import() {
+        let sync = tempfile::tempdir().unwrap();
+        let home = setup_home("same-config");
+        write_custom_skill_file(home.path(), "invalid:name/SKILL.md", b"# Invalid\n");
+        init_sync(home.path(), Some(sync.path()), "A").unwrap();
+
+        let error = match export_ops(home.path(), Some(sync.path())) {
+            Ok(_) => panic!("an unsupported path must not be published"),
+            Err(error) => error,
+        };
+
+        assert!(error.to_string().contains("invalid custom skill path"));
+        assert_eq!(count_op_files(sync.path(), &device_id_of(home.path())), 0);
+    }
+
     #[test]
     fn concurrent_custom_skill_edits_keep_local_and_record_a_conflict() {
         let sync = tempfile::tempdir().unwrap();
@@ -2490,6 +2507,76 @@ mod tests {
         assert_eq!(
             conflict,
             ("skill".to_string(), "shared/SKILL.md".to_string())
+        );
+    }
+
+    #[test]
+    fn parent_file_collisions_become_resolvable_custom_skill_conflicts() {
+        let sync = tempfile::tempdir().unwrap();
+        let home_a = setup_home("same-config");
+        let home_b = setup_home("same-config");
+        write_custom_skill_file(home_a.path(), "shared/assets/icon.bin", b"remote icon\n");
+        write_custom_skill_file(home_b.path(), "shared/assets", b"local file\n");
+        init_sync(home_a.path(), Some(sync.path()), "A").unwrap();
+        init_sync(home_b.path(), Some(sync.path()), "B").unwrap();
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+
+        let conn = Connection::open(home_b.path().join(DB_FILE)).unwrap();
+        let conflict_id: String = conn
+            .query_row(
+                "SELECT id FROM sync_conflicts WHERE resolved_at IS NULL AND entity_id = 'shared/assets/icon.bin'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        drop(conn);
+        resolve_custom_skill_conflict(home_b.path(), Some(sync.path()), &conflict_id, "use_remote")
+            .unwrap();
+
+        assert_eq!(
+            fs::read(custom_skill_path(home_b.path(), "shared/assets/icon.bin")).unwrap(),
+            b"remote icon\n"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn resolving_a_parent_symlink_collision_never_writes_outside_custom_skills() {
+        let sync = tempfile::tempdir().unwrap();
+        let home_a = setup_home("same-config");
+        let home_b = setup_home("same-config");
+        let outside = tempfile::tempdir().unwrap();
+        write_custom_skill_file(home_a.path(), "shared/assets/icon.bin", b"remote icon\n");
+        fs::create_dir_all(custom_skill_path(home_b.path(), "shared")).unwrap();
+        std::os::unix::fs::symlink(
+            outside.path(),
+            custom_skill_path(home_b.path(), "shared/assets"),
+        )
+        .unwrap();
+        init_sync(home_a.path(), Some(sync.path()), "A").unwrap();
+        init_sync(home_b.path(), Some(sync.path()), "B").unwrap();
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+        assert!(!outside.path().join("icon.bin").exists());
+        let conn = Connection::open(home_b.path().join(DB_FILE)).unwrap();
+        let conflict_id: String = conn
+            .query_row(
+                "SELECT id FROM sync_conflicts WHERE resolved_at IS NULL AND entity_id = 'shared/assets/icon.bin'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        drop(conn);
+
+        resolve_custom_skill_conflict(home_b.path(), Some(sync.path()), &conflict_id, "use_remote")
+            .unwrap();
+
+        assert!(!outside.path().join("icon.bin").exists());
+        assert_eq!(
+            fs::read(custom_skill_path(home_b.path(), "shared/assets/icon.bin")).unwrap(),
+            b"remote icon\n"
         );
     }
 
