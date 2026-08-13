@@ -3203,6 +3203,80 @@ mod tests {
     }
 
     #[test]
+    fn recovered_upserts_preserve_retired_skill_tombstone_generations() {
+        let sync = tempfile::tempdir().unwrap();
+        let home_a = setup_home("same-config");
+        let home_b = setup_home("same-config");
+        let home_c = setup_home("same-config");
+        let home_d = setup_home("same-config");
+        let relative = "restored/SKILL.md";
+        let content = b"# Restored unchanged\n";
+        write_custom_skill_file(home_a.path(), relative, content);
+        init_sync(home_a.path(), Some(sync.path()), "A").unwrap();
+        init_sync(home_b.path(), Some(sync.path()), "B").unwrap();
+        init_sync(home_c.path(), Some(sync.path()), "C").unwrap();
+        init_sync(home_d.path(), Some(sync.path()), "D").unwrap();
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+        import_ops(home_c.path(), Some(sync.path())).unwrap();
+        import_ops(home_d.path(), Some(sync.path())).unwrap();
+
+        fs::remove_file(custom_skill_path(home_a.path(), relative)).unwrap();
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+        import_ops(home_c.path(), Some(sync.path())).unwrap();
+        import_ops(home_d.path(), Some(sync.path())).unwrap();
+
+        write_custom_skill_file(home_a.path(), relative, content);
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+        fs::remove_dir_all(device_dir(sync.path(), &device_id_of(home_a.path()))).unwrap();
+        fs::remove_dir_all(device_dir(sync.path(), &device_id_of(home_b.path()))).unwrap();
+
+        export_ops(home_b.path(), Some(sync.path())).unwrap();
+        import_ops(home_c.path(), Some(sync.path())).unwrap();
+        fs::remove_dir_all(device_dir(sync.path(), &device_id_of(home_b.path()))).unwrap();
+        export_ops(home_d.path(), Some(sync.path())).unwrap();
+        import_ops(home_c.path(), Some(sync.path())).unwrap();
+
+        assert_eq!(
+            fs::read(custom_skill_path(home_c.path(), relative)).unwrap(),
+            content,
+            "a recovery upsert must carry the delete generations it superseded"
+        );
+    }
+
+    #[test]
+    fn a_new_same_hash_delete_is_not_confused_with_a_retired_generation() {
+        let sync = tempfile::tempdir().unwrap();
+        let home_a = setup_home("same-config");
+        let home_b = setup_home("same-config");
+        let relative = "restored/SKILL.md";
+        let content = b"# Restored unchanged\n";
+        write_custom_skill_file(home_a.path(), relative, content);
+        init_sync(home_a.path(), Some(sync.path()), "A").unwrap();
+        init_sync(home_b.path(), Some(sync.path()), "B").unwrap();
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+
+        fs::remove_file(custom_skill_path(home_a.path(), relative)).unwrap();
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+        write_custom_skill_file(home_a.path(), relative, content);
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+
+        fs::remove_file(custom_skill_path(home_a.path(), relative)).unwrap();
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+
+        assert!(
+            !custom_skill_path(home_b.path(), relative).exists(),
+            "a new delete generation must apply even when its content hash was retired"
+        );
+    }
+
+    #[test]
     fn unseen_skill_tombstone_generations_survive_relay_history_loss() {
         let sync = tempfile::tempdir().unwrap();
         let home_a = setup_home("same-config");
