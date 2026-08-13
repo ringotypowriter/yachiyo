@@ -13,6 +13,7 @@ const META_EXPORT_MANIFEST: &str = "skills_export_manifest";
 const META_EXECUTABLE_MANIFEST: &str = "skills_executable_manifest";
 const META_EXPORT_GENERATIONS: &str = "skills_export_generations";
 const META_PENDING_UPSERTS: &str = "skills_pending_upserts";
+const META_RETIRED_UPSERTS: &str = "skills_retired_upserts";
 const META_EXPORT_TOMBSTONES: &str = "skills_export_tombstones";
 const META_PENDING_TOMBSTONES: &str = "skills_pending_tombstones";
 const META_RETIRED_TOMBSTONES: &str = "skills_retired_tombstones";
@@ -52,6 +53,7 @@ pub(super) struct SkillTombstone {
 
 type SkillGenerationMap = BTreeMap<String, String>;
 type PendingSkillUpsertMap = BTreeMap<String, SkillUpsertState>;
+type RetiredSkillUpsertMap = BTreeMap<String, BTreeSet<String>>;
 pub(super) type SkillTombstoneMap = BTreeMap<String, BTreeMap<String, SkillTombstoneTarget>>;
 type RetiredSkillTombstoneMap = BTreeMap<String, BTreeSet<String>>;
 
@@ -61,6 +63,7 @@ pub(super) struct SkillExportPlan {
     pub(super) executable_manifest: BTreeMap<String, bool>,
     pub(super) generations: SkillGenerationMap,
     pub(super) pending_upserts: PendingSkillUpsertMap,
+    pub(super) retired_upserts: RetiredSkillUpsertMap,
     pub(super) tombstones: SkillTombstoneMap,
     pub(super) pending_tombstones: SkillTombstoneMap,
     pub(super) retired_tombstones: RetiredSkillTombstoneMap,
@@ -77,6 +80,7 @@ struct ParsedCustomSkillOp {
     recovery_base_hash: Option<String>,
     remote_hash: String,
     upsert_generation_id: Option<String>,
+    retired_upsert_ids: BTreeSet<String>,
     delete_tombstones: BTreeMap<String, SkillTombstoneTarget>,
     retired_tombstone_ids: BTreeSet<String>,
     change: CustomSkillChange,
@@ -267,6 +271,13 @@ fn load_pending_upserts(conn: &Connection) -> Result<PendingSkillUpsertMap, Sync
     }
 }
 
+fn load_retired_upserts(conn: &Connection) -> Result<RetiredSkillUpsertMap, SyncError> {
+    match get_meta(conn, META_RETIRED_UPSERTS)? {
+        Some(text) => Ok(serde_json::from_str(&text)?),
+        None => Ok(BTreeMap::new()),
+    }
+}
+
 fn load_tombstones(conn: &Connection) -> Result<SkillTombstoneMap, SyncError> {
     match get_meta(conn, META_EXPORT_TOMBSTONES)? {
         Some(text) => Ok(serde_json::from_str(&text)?),
@@ -365,6 +376,7 @@ pub(super) fn save_export_upsert_state(
     conn: &Connection,
     generations: &SkillGenerationMap,
     pending_upserts: &PendingSkillUpsertMap,
+    retired_upserts: &RetiredSkillUpsertMap,
 ) -> Result<(), SyncError> {
     set_meta(
         conn,
@@ -375,7 +387,30 @@ pub(super) fn save_export_upsert_state(
         conn,
         META_PENDING_UPSERTS,
         &serde_json::to_string(pending_upserts)?,
+    )?;
+    set_meta(
+        conn,
+        META_RETIRED_UPSERTS,
+        &serde_json::to_string(retired_upserts)?,
     )
+}
+
+fn retire_upsert_entries(
+    conn: &Connection,
+    path: &str,
+    generation_ids: &BTreeSet<String>,
+) -> Result<(), SyncError> {
+    if generation_ids.is_empty() {
+        return Ok(());
+    }
+    let generations = load_generations(conn)?;
+    let pending_upserts = load_pending_upserts(conn)?;
+    let mut retired_upserts = load_retired_upserts(conn)?;
+    retired_upserts
+        .entry(path.to_string())
+        .or_default()
+        .extend(generation_ids.iter().cloned());
+    save_export_upsert_state(conn, &generations, &pending_upserts, &retired_upserts)
 }
 
 pub(super) fn save_export_tombstone_state(
@@ -429,6 +464,7 @@ pub(super) fn plan_export(
     let previous_executable = load_executable_manifest(conn)?;
     let previous_generations = load_generations(conn)?;
     let mut pending_upserts = load_pending_upserts(conn)?;
+    let mut retired_upserts = load_retired_upserts(conn)?;
     let current = scan(home, &previous_executable)?;
     let mut tombstones = load_tombstones(conn)?;
     let mut pending_tombstones = load_pending_tombstones(conn)?;
@@ -474,6 +510,10 @@ pub(super) fn plan_export(
                 base_hash: previous_hash.clone(),
             },
         );
+        retired_upserts
+            .entry(path.clone())
+            .or_default()
+            .insert(base_generation_id.clone());
         pending_upserts.remove(path);
     }
     for (path, candidates) in &deletions {
@@ -500,6 +540,7 @@ pub(super) fn plan_export(
                 "deleted": true,
                 "baseHash": first_target.base_hash,
                 "tombstones": tombstone_payload,
+                "retiredUpsertIds": retired_upserts.get(path).cloned().unwrap_or_default(),
                 "contentHash": MISSING_HASH,
             }),
         )?);
@@ -510,6 +551,14 @@ pub(super) fn plan_export(
     for (path, snapshot) in &current {
         let locally_changed =
             previous.get(path) != Some(&snapshot.hash) || !previous_generations.contains_key(path);
+        if locally_changed {
+            if let Some(previous_generation_id) = previous_generations.get(path) {
+                retired_upserts
+                    .entry(path.clone())
+                    .or_default()
+                    .insert(previous_generation_id.clone());
+            }
+        }
         let mut retired_on_upsert = retired_tombstones.get(path).cloned().unwrap_or_default();
         let generation_id = if locally_changed {
             uuid::Uuid::new_v4().to_string()
@@ -577,6 +626,7 @@ pub(super) fn plan_export(
                 "baseHash": base_hash,
                 "recoveryBaseHash": recovery_base_hash,
                 "retiredTombstoneIds": retired_on_upsert,
+                "retiredUpsertIds": retired_upserts.get(path).cloned().unwrap_or_default(),
                 "contentHash": snapshot.hash,
             }),
         )?);
@@ -588,6 +638,7 @@ pub(super) fn plan_export(
         executable_manifest,
         generations,
         pending_upserts,
+        retired_upserts,
         tombstones,
         pending_tombstones,
         retired_tombstones,
@@ -834,6 +885,7 @@ fn adopt_upsert_entry(
     let mut executable_manifest = load_executable_manifest(conn)?;
     let mut generations = load_generations(conn)?;
     let mut pending_upserts = load_pending_upserts(conn)?;
+    let mut retired_upserts = load_retired_upserts(conn)?;
     if generations
         .get(path)
         .is_some_and(|known| known == generation_id)
@@ -860,11 +912,23 @@ fn adopt_upsert_entry(
             },
         );
     }
+    if let Some(previous_generation_id) = generations.get(path) {
+        if previous_generation_id != generation_id {
+            retired_upserts
+                .entry(path.to_string())
+                .or_default()
+                .insert(previous_generation_id.clone());
+        }
+    }
+    retired_upserts
+        .entry(path.to_string())
+        .or_default()
+        .extend(parsed.retired_upsert_ids.iter().cloned());
     manifest.insert(path.to_string(), hash.to_string());
     executable_manifest.insert(path.to_string(), executable);
     generations.insert(path.to_string(), generation_id.to_string());
     save_export_state(conn, &manifest, &executable_manifest)?;
-    save_export_upsert_state(conn, &generations, &pending_upserts)
+    save_export_upsert_state(conn, &generations, &pending_upserts, &retired_upserts)
 }
 
 fn remove_manifest_entry(conn: &Connection, path: &str) -> Result<(), SyncError> {
@@ -872,12 +936,13 @@ fn remove_manifest_entry(conn: &Connection, path: &str) -> Result<(), SyncError>
     let mut executable_manifest = load_executable_manifest(conn)?;
     let mut generations = load_generations(conn)?;
     let mut pending_upserts = load_pending_upserts(conn)?;
+    let retired_upserts = load_retired_upserts(conn)?;
     manifest.remove(path);
     executable_manifest.remove(path);
     generations.remove(path);
     pending_upserts.remove(path);
     save_export_state(conn, &manifest, &executable_manifest)?;
-    save_export_upsert_state(conn, &generations, &pending_upserts)
+    save_export_upsert_state(conn, &generations, &pending_upserts, &retired_upserts)
 }
 
 fn rebase_manifest_entry(
@@ -891,6 +956,15 @@ fn rebase_manifest_entry(
     let executable_manifest = load_executable_manifest(conn)?;
     let mut generations = load_generations(conn)?;
     let mut pending_upserts = load_pending_upserts(conn)?;
+    let mut retired_upserts = load_retired_upserts(conn)?;
+    if let Some(previous_generation_id) = generations.get(path) {
+        if generation_id != Some(previous_generation_id.as_str()) {
+            retired_upserts
+                .entry(path.to_string())
+                .or_default()
+                .insert(previous_generation_id.clone());
+        }
+    }
     match generation_id {
         Some(generation_id) => {
             generations.insert(path.to_string(), generation_id.to_string());
@@ -901,7 +975,7 @@ fn rebase_manifest_entry(
     }
     pending_upserts.remove(path);
     save_export_state(conn, &manifest, &executable_manifest)?;
-    save_export_upsert_state(conn, &generations, &pending_upserts)
+    save_export_upsert_state(conn, &generations, &pending_upserts, &retired_upserts)
 }
 
 fn record_conflict(
@@ -985,6 +1059,16 @@ fn upsert_generation_is_deleted(
     }))
 }
 
+fn upsert_generation_is_retired(
+    conn: &Connection,
+    path: &str,
+    generation_id: &str,
+) -> Result<bool, SyncError> {
+    Ok(load_retired_upserts(conn)?
+        .get(path)
+        .is_some_and(|retired| retired.contains(generation_id)))
+}
+
 fn upsert_generation_is_current(
     conn: &Connection,
     path: &str,
@@ -1040,6 +1124,18 @@ fn parse_op(op: &SyncOp) -> Result<ParsedCustomSkillOp, SyncError> {
         .and_then(Value::as_str)
         .ok_or_else(|| SyncError::Message("custom skill op has no content hash".to_string()))?;
     let mut upsert_generation_id = None;
+    let mut retired_upsert_ids = BTreeSet::new();
+    if let Some(value) = op.payload.get("retiredUpsertIds") {
+        let ids = value.as_array().ok_or_else(|| {
+            SyncError::Message("custom skill retired upserts are invalid".to_string())
+        })?;
+        for id in ids {
+            let id = id.as_str().filter(|id| !id.is_empty()).ok_or_else(|| {
+                SyncError::Message("custom skill retired upserts are invalid".to_string())
+            })?;
+            retired_upsert_ids.insert(id.to_string());
+        }
+    }
     let mut delete_tombstones = BTreeMap::new();
     let mut retired_tombstone_ids = BTreeSet::new();
     let change = if op.kind == "skill.file.upsert" {
@@ -1051,6 +1147,11 @@ fn parse_op(op: &SyncOp) -> Result<ParsedCustomSkillOp, SyncError> {
             .ok_or_else(|| {
                 SyncError::Message("custom skill upsert has no generation id".to_string())
             })?;
+        if retired_upsert_ids.contains(generation_id) {
+            return Err(SyncError::Message(
+                "custom skill upsert retires its own generation".to_string(),
+            ));
+        }
         upsert_generation_id = Some(generation_id.to_string());
         if op.payload.get("encoding").and_then(Value::as_str) != Some("base64") {
             return Err(SyncError::Message(
@@ -1148,6 +1249,7 @@ fn parse_op(op: &SyncOp) -> Result<ParsedCustomSkillOp, SyncError> {
         recovery_base_hash,
         remote_hash: remote_hash.to_string(),
         upsert_generation_id,
+        retired_upsert_ids,
         delete_tombstones,
         retired_tombstone_ids,
         change,
@@ -1166,12 +1268,15 @@ fn apply_with_policy(
 ) -> Result<(), SyncError> {
     let mut parsed = parse_op(op)?;
     supersede_older_conflicts(conn, op)?;
+    let mut retired_upsert_ids = parsed.retired_upsert_ids.clone();
     if matches!(&parsed.change, CustomSkillChange::Delete) {
         let base_generation_ids = parsed
             .delete_tombstones
             .values()
             .map(|target| target.base_generation_id.clone())
             .collect::<BTreeSet<_>>();
+        retired_upsert_ids.extend(base_generation_ids.iter().cloned());
+        retire_upsert_entries(conn, &parsed.relative, &retired_upsert_ids)?;
         supersede_targeted_upsert_conflicts(conn, &parsed.relative, &base_generation_ids)?;
         if let Some(retired) = load_retired_tombstones(conn)?.get(&parsed.relative) {
             parsed
@@ -1182,12 +1287,17 @@ fn apply_with_policy(
             return Ok(());
         }
     } else {
+        retire_upsert_entries(conn, &parsed.relative, &retired_upsert_ids)?;
         let generation_id = parsed
             .upsert_generation_id
             .as_deref()
             .expect("parsed upsert must have a generation id");
         if upsert_generation_is_current(conn, &parsed.relative, generation_id, &parsed.remote_hash)?
         {
+            retire_tombstone_entries(conn, &parsed.relative, &parsed.retired_tombstone_ids)?;
+            return Ok(());
+        }
+        if upsert_generation_is_retired(conn, &parsed.relative, generation_id)? {
             retire_tombstone_entries(conn, &parsed.relative, &parsed.retired_tombstone_ids)?;
             return Ok(());
         }

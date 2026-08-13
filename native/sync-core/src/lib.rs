@@ -902,6 +902,7 @@ pub fn export_ops(
                 &conn,
                 &skill_plan.generations,
                 &skill_plan.pending_upserts,
+                &skill_plan.retired_upserts,
             )?;
             custom_skills::save_export_tombstone_state(
                 &conn,
@@ -3422,6 +3423,69 @@ mod tests {
         assert_eq!(
             conflicts, 0,
             "replaying an already-known generation must be idempotent after a local edit"
+        );
+    }
+
+    #[test]
+    fn delayed_relays_cannot_roll_back_superseded_upsert_generations() {
+        let sync = tempfile::tempdir().unwrap();
+        let home_a = setup_home("same-config");
+        let home_b = setup_home("same-config");
+        let home_c = setup_home("same-config");
+        let home_d = setup_home("same-config");
+        let relative = "updated/SKILL.md";
+        let generation_one_and_three = b"# Version one\n";
+        let generation_two = b"# Version two\n";
+        write_custom_skill_file(home_a.path(), relative, generation_one_and_three);
+        write_custom_skill_file(home_c.path(), "existing/SKILL.md", b"# Existing\n");
+        init_sync(home_a.path(), Some(sync.path()), "A").unwrap();
+        init_sync(home_b.path(), Some(sync.path()), "B").unwrap();
+        init_sync(home_c.path(), Some(sync.path()), "C").unwrap();
+        export_ops(home_c.path(), Some(sync.path())).unwrap();
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+        import_ops(home_c.path(), Some(sync.path())).unwrap();
+
+        write_custom_skill_file(home_a.path(), relative, generation_two);
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+        import_ops(home_c.path(), Some(sync.path())).unwrap();
+
+        write_custom_skill_file(home_a.path(), relative, generation_one_and_three);
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+        assert_eq!(
+            fs::read(custom_skill_path(home_b.path(), relative)).unwrap(),
+            generation_one_and_three
+        );
+
+        fs::remove_dir_all(device_dir(sync.path(), &device_id_of(home_a.path()))).unwrap();
+        export_ops(home_b.path(), Some(sync.path())).unwrap();
+        init_sync(home_d.path(), Some(sync.path()), "D").unwrap();
+        import_ops(home_d.path(), Some(sync.path())).unwrap();
+        assert_eq!(
+            fs::read(custom_skill_path(home_d.path(), relative)).unwrap(),
+            generation_one_and_three,
+            "a fresh peer must recover generation three after source-history loss"
+        );
+
+        let delayed_relay = export_ops(home_c.path(), Some(sync.path())).unwrap();
+        assert!(
+            delayed_relay.exported_ops >= 1,
+            "the peer that stopped at generation two must publish its pending relay"
+        );
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+        import_ops(home_d.path(), Some(sync.path())).unwrap();
+
+        assert_eq!(
+            fs::read(custom_skill_path(home_b.path(), relative)).unwrap(),
+            generation_one_and_three,
+            "a delayed relay from another device must not restore a superseded generation"
+        );
+        assert_eq!(
+            fs::read(custom_skill_path(home_d.path(), relative)).unwrap(),
+            generation_one_and_three,
+            "retired generations must survive source-history loss and recovery"
         );
     }
 
