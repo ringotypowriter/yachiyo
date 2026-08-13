@@ -898,6 +898,11 @@ pub fn export_ops(
                 &skill_plan.manifest,
                 &skill_plan.executable_manifest,
             )?;
+            custom_skills::save_export_upsert_state(
+                &conn,
+                &skill_plan.generations,
+                &skill_plan.pending_upserts,
+            )?;
             custom_skills::save_export_tombstone_state(
                 &conn,
                 &skill_plan.tombstones,
@@ -2327,6 +2332,13 @@ mod tests {
             .unwrap()
     }
 
+    fn skill_content_hash(bytes: &[u8], executable: bool) -> String {
+        let mut digest = Sha256::new();
+        digest.update([u8::from(executable)]);
+        digest.update(bytes);
+        format!("sha256:{:x}", digest.finalize())
+    }
+
     fn device_id_of(home: &Path) -> String {
         let conn = Connection::open(home.join(DB_FILE)).unwrap();
         get_device(&conn).unwrap().unwrap()
@@ -2749,10 +2761,7 @@ mod tests {
 
         let device = "remote-device";
         let generation_id = "retired-delete-generation";
-        let mut digest = Sha256::new();
-        digest.update([0]);
-        digest.update(obsolete);
-        let obsolete_hash = format!("sha256:{:x}", digest.finalize());
+        let obsolete_hash = skill_content_hash(obsolete, false);
         let upsert = make_op(
             device,
             1,
@@ -2761,6 +2770,7 @@ mod tests {
             relative,
             json!({
                 "path": relative,
+                "generationId": "obsolete-upsert-generation",
                 "encoding": "base64",
                 "content": "b2Jzb2xldGUgcmVtb3RlCg==",
                 "executable": false,
@@ -2799,6 +2809,7 @@ mod tests {
                 "baseHash": obsolete_hash,
                 "tombstones": [{
                     "generationId": generation_id,
+                    "baseGenerationId": "obsolete-upsert-generation",
                     "baseHash": obsolete_hash,
                 }],
                 "contentHash": "missing",
@@ -2819,6 +2830,88 @@ mod tests {
             fs::read(custom_skill_path(home.path(), relative)).unwrap(),
             local,
             "an obsolete upsert must not remain resolvable after a newer retired delete"
+        );
+    }
+
+    #[test]
+    fn relayed_deletes_supersede_only_the_targeted_upsert_generation() {
+        let sync = tempfile::tempdir().unwrap();
+        let home = setup_home("same-config");
+        let relative = "shared/SKILL.md";
+        let remote = b"same remote bytes\n";
+        write_custom_skill_file(home.path(), relative, b"local version\n");
+        init_sync(home.path(), Some(sync.path()), "local").unwrap();
+        export_ops(home.path(), Some(sync.path())).unwrap();
+        let remote_hash = skill_content_hash(remote, false);
+
+        for (device, generation_id) in [
+            ("source-a", "upsert-generation-a"),
+            ("source-d", "upsert-generation-d"),
+        ] {
+            let op = make_op(
+                device,
+                1,
+                "skill.file.upsert",
+                "skill",
+                relative,
+                json!({
+                    "path": relative,
+                    "generationId": generation_id,
+                    "encoding": "base64",
+                    "content": "c2FtZSByZW1vdGUgYnl0ZXMK",
+                    "executable": false,
+                    "baseHash": "sha256:unshared-base",
+                    "contentHash": remote_hash,
+                }),
+            )
+            .unwrap();
+            write_ops_file(sync.path(), device, 1, &[op]);
+        }
+        import_ops(home.path(), Some(sync.path())).unwrap();
+
+        let delete = make_op(
+            "relay-b",
+            1,
+            "skill.file.delete",
+            "skill",
+            relative,
+            json!({
+                "path": relative,
+                "deleted": true,
+                "baseHash": remote_hash,
+                "tombstones": [{
+                    "generationId": "delete-generation-a",
+                    "baseGenerationId": "upsert-generation-a",
+                    "baseHash": remote_hash,
+                }],
+                "contentHash": "missing",
+            }),
+        )
+        .unwrap();
+        write_ops_file(sync.path(), "relay-b", 1, &[delete]);
+        import_ops(home.path(), Some(sync.path())).unwrap();
+
+        let conn = Connection::open(home.path().join(DB_FILE)).unwrap();
+        let states = conn
+            .prepare(
+                "SELECT device_id, resolution FROM sync_conflicts
+                 WHERE entity_id = ?1 AND device_id IN ('source-a', 'source-d')
+                 ORDER BY device_id",
+            )
+            .unwrap()
+            .query_map([relative], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?))
+            })
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        assert_eq!(
+            states,
+            vec![
+                ("source-a".to_string(), Some("superseded".to_string())),
+                ("source-d".to_string(), None),
+            ],
+            "a relayed delete must supersede its causal upsert, not same-hash peers"
         );
     }
 
@@ -3197,6 +3290,142 @@ mod tests {
     }
 
     #[test]
+    fn an_imported_upsert_can_be_republished_after_the_source_history_is_lost() {
+        let sync = tempfile::tempdir().unwrap();
+        let home_a = setup_home("same-config");
+        let home_b = setup_home("same-config");
+        let home_c = setup_home("same-config");
+        let relative = "new-skill/SKILL.md";
+        write_custom_skill_file(home_b.path(), "existing/SKILL.md", b"# Existing\n");
+        init_sync(home_a.path(), Some(sync.path()), "A").unwrap();
+        init_sync(home_b.path(), Some(sync.path()), "B").unwrap();
+        export_ops(home_b.path(), Some(sync.path())).unwrap();
+        write_custom_skill_file(home_a.path(), relative, b"# New skill\n");
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+        fs::remove_dir_all(device_dir(sync.path(), &device_id_of(home_a.path()))).unwrap();
+
+        let propagation = export_ops(home_b.path(), Some(sync.path())).unwrap();
+        init_sync(home_c.path(), Some(sync.path()), "C").unwrap();
+        import_ops(home_c.path(), Some(sync.path())).unwrap();
+
+        assert!(
+            propagation.exported_ops >= 1,
+            "an established peer must relay a newly adopted upsert once"
+        );
+        assert_eq!(
+            fs::read(custom_skill_path(home_c.path(), relative)).unwrap(),
+            b"# New skill\n"
+        );
+        export_ops(home_c.path(), Some(sync.path())).unwrap();
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+        assert_eq!(
+            export_ops(home_b.path(), Some(sync.path()))
+                .unwrap()
+                .exported_ops,
+            0,
+            "a duplicate upsert generation must not restart the relay"
+        );
+    }
+
+    #[test]
+    fn a_relayed_update_recovers_fresh_peers_without_the_source_history() {
+        let sync = tempfile::tempdir().unwrap();
+        let home_a = setup_home("same-config");
+        let home_b = setup_home("same-config");
+        let home_c = setup_home("same-config");
+        let relative = "updated/SKILL.md";
+        write_custom_skill_file(home_a.path(), relative, b"# Version one\n");
+        write_custom_skill_file(home_b.path(), "existing/SKILL.md", b"# Existing\n");
+        init_sync(home_a.path(), Some(sync.path()), "A").unwrap();
+        init_sync(home_b.path(), Some(sync.path()), "B").unwrap();
+        export_ops(home_b.path(), Some(sync.path())).unwrap();
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+
+        write_custom_skill_file(home_a.path(), relative, b"# Version two\n");
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+        fs::remove_dir_all(device_dir(sync.path(), &device_id_of(home_a.path()))).unwrap();
+
+        export_ops(home_b.path(), Some(sync.path())).unwrap();
+        init_sync(home_c.path(), Some(sync.path()), "C").unwrap();
+        import_ops(home_c.path(), Some(sync.path())).unwrap();
+
+        assert_eq!(
+            fs::read(custom_skill_path(home_c.path(), relative)).unwrap(),
+            b"# Version two\n",
+            "the latest relayed generation must be recovery-compatible without its ancestors"
+        );
+    }
+
+    #[test]
+    fn a_delayed_relay_cannot_resurrect_a_deleted_upsert_generation() {
+        let sync = tempfile::tempdir().unwrap();
+        let home_a = setup_home("same-config");
+        let home_b = setup_home("same-config");
+        let home_c = setup_home("same-config");
+        let relative = "removed/SKILL.md";
+        write_custom_skill_file(home_a.path(), relative, b"# Removed\n");
+        init_sync(home_a.path(), Some(sync.path()), "A").unwrap();
+        init_sync(home_b.path(), Some(sync.path()), "B").unwrap();
+        init_sync(home_c.path(), Some(sync.path()), "C").unwrap();
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+        import_ops(home_c.path(), Some(sync.path())).unwrap();
+
+        fs::remove_file(custom_skill_path(home_a.path(), relative)).unwrap();
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+        assert!(!custom_skill_path(home_b.path(), relative).exists());
+
+        export_ops(home_c.path(), Some(sync.path())).unwrap();
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+
+        assert!(
+            !custom_skill_path(home_b.path(), relative).exists(),
+            "a tombstone must dominate delayed relays of its targeted upsert generation"
+        );
+    }
+
+    #[test]
+    fn duplicate_upsert_generations_do_not_conflict_with_later_local_edits() {
+        let sync = tempfile::tempdir().unwrap();
+        let home_a = setup_home("same-config");
+        let home_b = setup_home("same-config");
+        let home_c = setup_home("same-config");
+        let relative = "shared/SKILL.md";
+        write_custom_skill_file(home_a.path(), relative, b"# Shared\n");
+        init_sync(home_a.path(), Some(sync.path()), "A").unwrap();
+        init_sync(home_b.path(), Some(sync.path()), "B").unwrap();
+        init_sync(home_c.path(), Some(sync.path()), "C").unwrap();
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+        import_ops(home_c.path(), Some(sync.path())).unwrap();
+        write_custom_skill_file(home_b.path(), relative, b"# Local edit\n");
+
+        export_ops(home_c.path(), Some(sync.path())).unwrap();
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+
+        assert_eq!(
+            fs::read(custom_skill_path(home_b.path(), relative)).unwrap(),
+            b"# Local edit\n"
+        );
+        let conn = Connection::open(home_b.path().join(DB_FILE)).unwrap();
+        let conflicts: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sync_conflicts WHERE resolved_at IS NULL AND entity_id = ?1",
+                [relative],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(
+            conflicts, 0,
+            "replaying an already-known generation must be idempotent after a local edit"
+        );
+    }
+
+    #[test]
     fn delayed_skill_tombstones_do_not_replace_a_newer_deleted_generation() {
         let sync = tempfile::tempdir().unwrap();
         let home_a = setup_home("same-config");
@@ -3355,12 +3584,19 @@ mod tests {
         export_ops(home_a.path(), Some(sync.path())).unwrap();
         import_ops(home_b.path(), Some(sync.path())).unwrap();
 
+        assert!(
+            export_ops(home_b.path(), Some(sync.path()))
+                .unwrap()
+                .exported_ops
+                >= 1,
+            "a newly observed upsert generation must relay once even when its bytes already exist"
+        );
         assert_eq!(
             export_ops(home_b.path(), Some(sync.path()))
                 .unwrap()
                 .exported_ops,
             0,
-            "a byte-identical upsert must clear the delete generations it supersedes"
+            "the byte-identical relay must clear its delete generations without looping"
         );
     }
 
