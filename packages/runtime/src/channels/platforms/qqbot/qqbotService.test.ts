@@ -560,6 +560,91 @@ describe('startQQBotAttachmentDownloads', () => {
       }
     ])
   })
+
+  it('does not let rejected files consume file batch slots', async () => {
+    const calls: string[] = []
+    const downloads = startQQBotAttachmentDownloads(
+      [
+        {
+          contentType: 'application/vnd.rar',
+          filename: 'unsupported.rar',
+          url: 'https://multimedia.nt.qq.com/download?fileid=file-1'
+        },
+        {
+          contentType: 'text/plain',
+          filename: '.env',
+          url: 'https://multimedia.nt.qq.com/download?fileid=file-2'
+        },
+        {
+          contentType: 'application/pdf',
+          filename: 'oversized.pdf',
+          size: 26 * 1024 * 1024,
+          url: 'https://multimedia.nt.qq.com/download?fileid=file-3'
+        },
+        {
+          contentType: 'application/pdf',
+          filename: 'accepted.pdf',
+          url: 'https://multimedia.nt.qq.com/download?fileid=file-4'
+        },
+        {
+          contentType: 'application/pdf',
+          filename: 'limited.pdf',
+          url: 'https://multimedia.nt.qq.com/download?fileid=file-5'
+        }
+      ],
+      {
+        includeFiles: true,
+        policy: { maxImagesPerBatch: 1, maxImageBytes: 5 * 1024 * 1024 }
+      },
+      undefined,
+      async (_url, options) => {
+        calls.push(options.filename)
+        return {
+          dataUrl: 'data:application/pdf;base64,AAA',
+          mediaType: 'application/pdf',
+          filename: options.filename,
+          attachmentIndex: options.attachmentIndex
+        }
+      }
+    )
+
+    assert.deepEqual(calls, ['accepted.pdf'])
+    assert.deepEqual(await Promise.all(downloads), [
+      {
+        kind: 'unavailable',
+        filename: 'unsupported.rar',
+        attachmentIndex: 1,
+        reason: 'unsupported-type'
+      },
+      {
+        kind: 'unavailable',
+        filename: '.env',
+        attachmentIndex: 2,
+        reason: 'sensitive-file'
+      },
+      {
+        kind: 'unavailable',
+        filename: 'oversized.pdf',
+        attachmentIndex: 3,
+        reason: 'too-large'
+      },
+      {
+        kind: 'file',
+        attachment: {
+          dataUrl: 'data:application/pdf;base64,AAA',
+          mediaType: 'application/pdf',
+          filename: 'accepted.pdf',
+          attachmentIndex: 4
+        }
+      },
+      {
+        kind: 'unavailable',
+        filename: 'limited.pdf',
+        attachmentIndex: 5,
+        reason: 'batch-limit'
+      }
+    ])
+  })
 })
 
 it('forwards QQBot C2C zip attachments with or without accompanying text', async (t) => {
@@ -666,7 +751,7 @@ it('forwards QQBot C2C zip attachments with or without accompanying text', async
   assert.equal(captured[2].attachments, undefined)
 })
 
-it('does not download files beyond the cap across rapid QQBot messages', async (t) => {
+it('counts only eligible files toward the cap across rapid QQBot messages', async (t) => {
   const originalFetch = globalThis.fetch
   let fetchCalls = 0
   t.after(() => {
@@ -706,10 +791,18 @@ it('does not download files beyond the cap across rapid QQBot messages', async (
   })
   receive({
     openId: channelUser.externalUserId,
-    content: 'first pair',
+    content: 'first message',
     messageId: 'inbound-first-pair',
     timestamp: '2026-08-11T00:00:00.000Z',
-    attachments: [file(1), file(2)]
+    attachments: [
+      {
+        contentType: 'application/vnd.rar',
+        filename: 'unsupported.rar',
+        size: 3,
+        url: 'https://multimedia.nt.qq.com/download?fileid=unsupported'
+      },
+      file(1)
+    ]
   })
   receive({
     openId: channelUser.externalUserId,
@@ -728,14 +821,14 @@ it('does not download files beyond the cap across rapid QQBot messages', async (
       attachmentIndex
     })),
     [
-      { filename: 'report-1.pdf', attachmentIndex: 1 },
-      { filename: 'report-2.pdf', attachmentIndex: 2 }
+      { filename: 'report-1.pdf', attachmentIndex: 2 },
+      { filename: 'report-3.pdf', attachmentIndex: 3 }
     ]
   )
   assert.equal(
     captured[0]?.content,
-    'first pair\nsecond pair\n\n' +
-      '[Attachment 3 unavailable: report-3.pdf (batch limit)]\n\n' +
+    'first message\nsecond pair\n\n' +
+      '[Attachment 1 unavailable: unsupported.rar (unsupported type)]\n\n' +
       '[Attachment 4 unavailable: report-4.pdf (batch limit)]'
   )
 })
