@@ -3247,6 +3247,72 @@ mod tests {
     }
 
     #[test]
+    fn byte_identical_skill_upserts_retire_observed_delete_generations() {
+        let sync = tempfile::tempdir().unwrap();
+        let home_a = setup_home("same-config");
+        let home_b = setup_home("same-config");
+        let relative = "restored/SKILL.md";
+        let content = b"# Restored unchanged\n";
+        write_custom_skill_file(home_a.path(), relative, content);
+        init_sync(home_a.path(), Some(sync.path()), "A").unwrap();
+        init_sync(home_b.path(), Some(sync.path()), "B").unwrap();
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+        export_ops(home_b.path(), Some(sync.path())).unwrap();
+
+        fs::remove_file(custom_skill_path(home_a.path(), relative)).unwrap();
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+
+        write_custom_skill_file(home_b.path(), relative, content);
+        write_custom_skill_file(home_a.path(), relative, content);
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+
+        assert_eq!(
+            export_ops(home_b.path(), Some(sync.path()))
+                .unwrap()
+                .exported_ops,
+            0,
+            "a byte-identical upsert must clear the delete generations it supersedes"
+        );
+    }
+
+    #[test]
+    fn structurally_absent_skill_deletes_remain_relayable() {
+        let sync = tempfile::tempdir().unwrap();
+        let home_a = setup_home("same-config");
+        let home_b = setup_home("same-config");
+        let home_c = setup_home("same-config");
+        let relative = "tool/removed.md";
+        write_custom_skill_file(home_a.path(), relative, b"remote file\n");
+        write_custom_skill_file(home_b.path(), "Tool/local.md", b"local file\n");
+        init_sync(home_a.path(), Some(sync.path()), "A").unwrap();
+        init_sync(home_b.path(), Some(sync.path()), "B").unwrap();
+        init_sync(home_c.path(), Some(sync.path()), "C").unwrap();
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        import_ops(home_c.path(), Some(sync.path())).unwrap();
+        export_ops(home_b.path(), Some(sync.path())).unwrap();
+
+        fs::remove_file(custom_skill_path(home_a.path(), relative)).unwrap();
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+        fs::remove_dir_all(device_dir(sync.path(), &device_id_of(home_a.path()))).unwrap();
+
+        let propagation = export_ops(home_b.path(), Some(sync.path())).unwrap();
+        import_ops(home_c.path(), Some(sync.path())).unwrap();
+
+        assert!(
+            propagation.exported_ops >= 1,
+            "a structurally absent delete must be retained for relay"
+        );
+        assert!(
+            !custom_skill_path(home_c.path(), relative).exists(),
+            "the retained delete must remove the stale peer copy"
+        );
+    }
+
+    #[test]
     fn a_new_same_hash_delete_is_not_confused_with_a_retired_generation() {
         let sync = tempfile::tempdir().unwrap();
         let home_a = setup_home("same-config");

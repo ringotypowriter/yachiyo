@@ -313,6 +313,15 @@ fn retire_tombstone_entries(
     save_export_tombstone_state(conn, &tombstones, &pending_tombstones, &retired_tombstones)
 }
 
+fn adopt_absent_delete(
+    conn: &Connection,
+    path: &str,
+    tombstones: &BTreeMap<String, String>,
+) -> Result<(), SyncError> {
+    update_manifest_entry(conn, path, None, None)?;
+    update_tombstone_entry(conn, path, tombstones)
+}
+
 pub(super) fn save_export_tombstone_state(
     conn: &Connection,
     tombstones: &SkillTombstoneMap,
@@ -916,7 +925,7 @@ fn apply_with_policy(
     };
     if let Some(collision) = case_colliding_prefix(&root, &parsed.relative)? {
         if matches!(&parsed.change, CustomSkillChange::Delete) {
-            update_manifest_entry(conn, &parsed.relative, None, None)?;
+            adopt_absent_delete(conn, &parsed.relative, &parsed.delete_tombstones)?;
             return Ok(());
         }
         if !force_remote {
@@ -927,7 +936,7 @@ fn apply_with_policy(
     }
     if let Some(blocker) = blocking_parent(&root, &path)? {
         if matches!(&parsed.change, CustomSkillChange::Delete) {
-            update_manifest_entry(conn, &parsed.relative, None, None)?;
+            adopt_absent_delete(conn, &parsed.relative, &parsed.delete_tombstones)?;
             return Ok(());
         }
         if !force_remote {
@@ -939,18 +948,23 @@ fn apply_with_policy(
     let executable_manifest = load_executable_manifest(conn)?;
     let local_hash = local_hash(&path, executable_manifest.get(&parsed.relative).copied())?;
     if matches!(&parsed.change, CustomSkillChange::Delete) && local_hash.starts_with("local:") {
-        update_manifest_entry(conn, &parsed.relative, None, None)?;
+        adopt_absent_delete(conn, &parsed.relative, &parsed.delete_tombstones)?;
         return Ok(());
     }
     if local_hash == parsed.remote_hash {
-        update_manifest_entry(
-            conn,
-            &parsed.relative,
-            (parsed.remote_hash != MISSING_HASH).then_some(parsed.remote_hash.as_str()),
-            remote_executable,
-        )?;
-        if matches!(&parsed.change, CustomSkillChange::Delete) {
-            update_tombstone_entry(conn, &parsed.relative, &parsed.delete_tombstones)?;
+        match &parsed.change {
+            CustomSkillChange::Upsert { .. } => {
+                update_manifest_entry(
+                    conn,
+                    &parsed.relative,
+                    Some(&parsed.remote_hash),
+                    remote_executable,
+                )?;
+                retire_tombstone_entries(conn, &parsed.relative, &parsed.retired_tombstone_ids)?;
+            }
+            CustomSkillChange::Delete => {
+                adopt_absent_delete(conn, &parsed.relative, &parsed.delete_tombstones)?;
+            }
         }
         return Ok(());
     }
