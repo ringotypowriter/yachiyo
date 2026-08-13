@@ -3110,6 +3110,64 @@ mod tests {
     }
 
     #[test]
+    fn delayed_skill_tombstones_do_not_replace_a_newer_deleted_generation() {
+        let sync = tempfile::tempdir().unwrap();
+        let home_a = setup_home("same-config");
+        let home_b = setup_home("same-config");
+        let home_c = setup_home("same-config");
+        let relative = "removed/SKILL.md";
+        write_custom_skill_file(home_a.path(), relative, b"# Generation one\n");
+        init_sync(home_a.path(), Some(sync.path()), "A").unwrap();
+        init_sync(home_b.path(), Some(sync.path()), "B").unwrap();
+        init_sync(home_c.path(), Some(sync.path()), "C").unwrap();
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+        import_ops(home_c.path(), Some(sync.path())).unwrap();
+
+        fs::remove_file(custom_skill_path(home_a.path(), relative)).unwrap();
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        import_ops(home_c.path(), Some(sync.path())).unwrap();
+
+        write_custom_skill_file(home_a.path(), relative, b"# Generation two\n");
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        fs::remove_file(custom_skill_path(home_a.path(), relative)).unwrap();
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+        export_ops(home_b.path(), Some(sync.path())).unwrap();
+
+        let conn = Connection::open(home_b.path().join(DB_FILE)).unwrap();
+        let before: String = conn
+            .query_row(
+                "SELECT value FROM sync_meta WHERE key = 'skills_export_tombstones'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        drop(conn);
+
+        export_ops(home_c.path(), Some(sync.path())).unwrap();
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+
+        let conn = Connection::open(home_b.path().join(DB_FILE)).unwrap();
+        let after: String = conn
+            .query_row(
+                "SELECT value FROM sync_meta WHERE key = 'skills_export_tombstones'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(after, before, "a delayed H1 relay must not replace H2");
+        drop(conn);
+        assert_eq!(
+            export_ops(home_b.path(), Some(sync.path()))
+                .unwrap()
+                .exported_ops,
+            0,
+            "the delayed H1 relay must not be queued for another propagation"
+        );
+    }
+
+    #[test]
     fn missing_v2_history_recovers_deleted_archive_ids_after_newer_exports() {
         let sync = tempfile::tempdir().unwrap();
         let home_a = setup_home("shared-setting");
