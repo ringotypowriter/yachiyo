@@ -454,6 +454,7 @@ function renderTimelineItem(
         ) : null}
         {item.showRunStats ? (
           <RunStatsFooter
+            modelLabel={item.modelLabel}
             runs={runs}
             toolCalls={toolCalls}
             requestMessageIds={[item.requestMessageId, ...item.group.hiddenRequestMessageIds]}

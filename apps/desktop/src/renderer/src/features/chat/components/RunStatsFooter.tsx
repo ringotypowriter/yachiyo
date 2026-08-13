@@ -15,6 +15,7 @@ import {
 } from '../lib/run-memory/runMemoryPresentation.ts'
 
 interface RunStatsFooterProps {
+  modelLabel: string | null
   runs: RunRecord[]
   toolCalls: ToolCall[]
   requestMessageIds: readonly string[]
@@ -33,6 +34,7 @@ function formatElapsed(ms: number): string {
 }
 
 export function RunStatsFooter({
+  modelLabel,
   runs,
   toolCalls,
   requestMessageIds
@@ -66,12 +68,12 @@ export function RunStatsFooter({
       runId: run.id,
       threadId: run.threadId,
       fileCount,
-      modelLabel: normalizeRunModelLabel(run.modelId),
+      modelLabel: modelLabel ?? normalizeRunModelLabel(run.modelId),
       toolCallCount,
       tokensPerSecondLabel,
       workspacePath: run.workspacePath ?? snapshotReviewByRun[run.id]?.workspacePath ?? ''
     }
-  }, [runs, toolCalls, requestMessageIds, snapshotReviewByRun])
+  }, [modelLabel, runs, toolCalls, requestMessageIds, snapshotReviewByRun])
 
   const handleOpenDiff = useCallback(() => {
     setShowDiffModal(true)

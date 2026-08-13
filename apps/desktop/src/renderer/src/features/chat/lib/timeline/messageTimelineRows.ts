@@ -139,6 +139,7 @@ export type MessageTimelineRow =
       assistantMessage: Message
       savedMemoryCount: number
       failedRunError: string | null
+      modelLabel: string | null
       showRunStats: boolean
     } & GroupTimelineRowBase)
   | ({
@@ -663,6 +664,7 @@ export function buildConversationGroupRows(
     activeAssistantTextBlocks.length === 0 &&
     workSummaryToolCalls.length > 0 &&
     !shouldSummarizeCompletedWork &&
+    // Plan documents use dedicated artifact UI and intentionally omit standard run stats.
     !hasCompletedPlanExitToolCall
 
   if (!group.userMessage.hidden) {
@@ -906,6 +908,7 @@ export function buildConversationGroupRows(
       assistantMessage: activeAssistantMessage,
       savedMemoryCount,
       failedRunError,
+      modelLabel: normalizeRunModelLabel(activeAssistantMessage.modelId),
       showRunStats: !shouldSummarizeCompletedWork
     })
   }

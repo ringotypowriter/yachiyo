@@ -233,6 +233,88 @@ test('buildConversationGroupRows keeps branch navigation, thinking, and footer a
   ])
 })
 
+test('buildConversationGroupRows carries the persisted assistant model when the run omitted it', () => {
+  const group = createGroup({
+    activeAssistant: createAssistantMessage({
+      id: 'assistant-acp',
+      content: 'ACP answer',
+      status: 'completed',
+      modelId: 'Claude Code'
+    })
+  })
+
+  const rows = buildConversationGroupRows({
+    group,
+    inlineToolCalls: [],
+    runs: [
+      {
+        id: 'run-acp',
+        threadId: 'thread-1',
+        requestMessageId: 'user-1',
+        status: 'completed',
+        createdAt: '2026-04-18T00:00:00.000Z',
+        completedAt: '2026-04-18T00:00:02.000Z'
+      }
+    ],
+    activeRunId: null,
+    isActiveGroup: false,
+    subagentActive: false
+  })
+
+  assert.equal(rows.find((row) => row.kind === 'group-footer')?.modelLabel, 'Claude Code')
+})
+
+test('buildConversationGroupRows attributes a branch footer to the visible assistant model', () => {
+  const olderAssistant = createAssistantMessage({
+    id: 'assistant-old',
+    content: 'Older answer',
+    status: 'completed',
+    modelId: 'older-model'
+  })
+  const newerAssistant = createAssistantMessage({
+    id: 'assistant-new',
+    content: 'Newer answer',
+    status: 'completed',
+    modelId: 'newer-model'
+  })
+  const group = createGroup({
+    inactiveAssistant: olderAssistant,
+    activeAssistant: newerAssistant,
+    activeAssistantMessages: [olderAssistant],
+    activeBranchIndex: 0
+  })
+
+  const rows = buildConversationGroupRows({
+    group,
+    inlineToolCalls: [],
+    runs: [
+      {
+        id: 'run-old',
+        threadId: 'thread-1',
+        requestMessageId: 'user-1',
+        status: 'completed',
+        modelId: 'older-model',
+        createdAt: '2026-04-18T00:00:00.000Z',
+        completedAt: '2026-04-18T00:00:01.000Z'
+      },
+      {
+        id: 'run-new',
+        threadId: 'thread-1',
+        requestMessageId: 'user-1',
+        status: 'completed',
+        modelId: 'newer-model',
+        createdAt: '2026-04-18T00:00:02.000Z',
+        completedAt: '2026-04-18T00:00:03.000Z'
+      }
+    ],
+    activeRunId: null,
+    isActiveGroup: false,
+    subagentActive: false
+  })
+
+  assert.equal(rows.find((row) => row.kind === 'group-footer')?.modelLabel, 'older-model')
+})
+
 test('buildConversationGroupRows displays channel visible replies instead of raw assistant output', () => {
   const activeAssistant = createAssistantMessage({
     id: 'assistant-owner-dm',
