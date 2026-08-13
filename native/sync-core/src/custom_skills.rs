@@ -32,6 +32,7 @@ enum CustomSkillChange {
 struct ParsedCustomSkillOp {
     relative: String,
     base_hash: String,
+    recovery_base_hash: Option<String>,
     remote_hash: String,
     change: CustomSkillChange,
 }
@@ -206,26 +207,8 @@ pub(super) fn plan_export(
         .map(|(path, snapshot)| (path.clone(), snapshot.executable))
         .collect::<BTreeMap<_, _>>();
     let mut ops = Vec::new();
-    for (path, snapshot) in &current {
-        if !full_resync && previous.get(path) == Some(&snapshot.hash) {
-            continue;
-        }
-        ops.push(make_op(
-            device_id,
-            seq,
-            "skill.file.upsert",
-            "skill",
-            path,
-            json!({
-                "path": path,
-                "encoding": "base64",
-                "content": BASE64.encode(&snapshot.bytes),
-                "executable": snapshot.executable,
-                "baseHash": previous.get(path).map(String::as_str).unwrap_or(MISSING_HASH),
-                "contentHash": snapshot.hash,
-            }),
-        )?);
-    }
+    // Structural conversions need their old leaves removed before new parents or
+    // children are created (file -> directory and directory -> file).
     for (path, previous_hash) in &previous {
         if current.contains_key(path) {
             continue;
@@ -241,6 +224,28 @@ pub(super) fn plan_export(
                 "deleted": true,
                 "baseHash": previous_hash,
                 "contentHash": MISSING_HASH,
+            }),
+        )?);
+    }
+    for (path, snapshot) in &current {
+        if !full_resync && previous.get(path) == Some(&snapshot.hash) {
+            continue;
+        }
+        let previous_hash = previous.get(path).map(String::as_str);
+        ops.push(make_op(
+            device_id,
+            seq,
+            "skill.file.upsert",
+            "skill",
+            path,
+            json!({
+                "path": path,
+                "encoding": "base64",
+                "content": BASE64.encode(&snapshot.bytes),
+                "executable": snapshot.executable,
+                "baseHash": if full_resync { MISSING_HASH } else { previous_hash.unwrap_or(MISSING_HASH) },
+                "recoveryBaseHash": if full_resync { previous_hash } else { None },
+                "contentHash": snapshot.hash,
             }),
         )?);
     }
@@ -260,16 +265,40 @@ pub(super) fn mark_disclosure_shown(conn: &Connection) -> Result<(), SyncError> 
 }
 
 fn validate_relative_path(relative: &str) -> Result<(), SyncError> {
+    fn invalid_component(component: &str) -> bool {
+        if component.is_empty()
+            || component == "."
+            || component == ".."
+            || component.ends_with([' ', '.'])
+            || component.chars().any(|character| {
+                character <= '\u{1f}'
+                    || matches!(character, '<' | '>' | ':' | '"' | '\\' | '|' | '?' | '*')
+            })
+        {
+            return true;
+        }
+        let stem = component
+            .split('.')
+            .next()
+            .unwrap_or(component)
+            .to_uppercase();
+        if matches!(stem.as_str(), "CON" | "PRN" | "AUX" | "NUL" | "CLOCK$") {
+            return true;
+        }
+        ["COM", "LPT"].iter().any(|prefix| {
+            stem.strip_prefix(prefix).is_some_and(|suffix| {
+                matches!(
+                    suffix,
+                    "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" | "¹" | "²" | "³"
+                )
+            })
+        })
+    }
+
     if relative.is_empty()
         || relative.starts_with('/')
         || relative.ends_with('/')
-        || relative.split('/').any(|component| {
-            component.is_empty()
-                || component == "."
-                || component == ".."
-                || component.contains('\\')
-                || component.contains(':')
-        })
+        || relative.split('/').any(invalid_component)
     {
         return Err(SyncError::Message(format!(
             "invalid custom skill path: {relative}"
@@ -479,6 +508,11 @@ fn parse_op(op: &SyncOp) -> Result<ParsedCustomSkillOp, SyncError> {
         .get("baseHash")
         .and_then(Value::as_str)
         .ok_or_else(|| SyncError::Message("custom skill op has no base hash".to_string()))?;
+    let recovery_base_hash = op
+        .payload
+        .get("recoveryBaseHash")
+        .and_then(Value::as_str)
+        .map(str::to_string);
     let remote_hash = op
         .payload
         .get("contentHash")
@@ -529,6 +563,7 @@ fn parse_op(op: &SyncOp) -> Result<ParsedCustomSkillOp, SyncError> {
     Ok(ParsedCustomSkillOp {
         relative: relative.to_string(),
         base_hash: base_hash.to_string(),
+        recovery_base_hash,
         remote_hash: remote_hash.to_string(),
         change,
     })
@@ -577,7 +612,10 @@ fn apply_with_policy(
         )?;
         return Ok(());
     }
-    if force_remote || local_hash == parsed.base_hash {
+    if force_remote
+        || local_hash == parsed.base_hash
+        || parsed.recovery_base_hash.as_deref() == Some(local_hash.as_str())
+    {
         match parsed.change {
             CustomSkillChange::Upsert { bytes, executable } => {
                 write_file(&root, &path, &bytes, executable, force_remote)?;
@@ -671,5 +709,29 @@ mod tests {
         assert!(!select_executable(false, false, None));
         assert!(!select_executable(true, false, Some(true)));
         assert!(select_executable(true, true, Some(false)));
+    }
+
+    #[test]
+    fn paths_follow_the_windows_filename_contract_on_every_platform() {
+        for path in [
+            "bad?/SKILL.md",
+            "bad*/SKILL.md",
+            "bad\"/SKILL.md",
+            "bad</SKILL.md",
+            "bad>/SKILL.md",
+            "bad|/SKILL.md",
+            "CON/SKILL.md",
+            "con.txt/SKILL.md",
+            "COM1/SKILL.md",
+            "lpt9.log/SKILL.md",
+            "trailing./SKILL.md",
+            "trailing /SKILL.md",
+        ] {
+            assert!(
+                validate_relative_path(path).is_err(),
+                "Windows-invalid path must be rejected: {path}"
+            );
+        }
+        assert!(validate_relative_path("valid-skill/.hidden file.md").is_ok());
     }
 }

@@ -711,6 +711,7 @@ pub fn export_ops(
     // every local row so a fresh/recovering peer gets the full archive. In steady
     // state (seq > 1) we emit only what changed since the last export.
     let full_resync = seq == 1;
+    let custom_skills_full_resync = !has_ops_history(&sync_dir, &device_id, OPS_DIR_V3)?;
     if full_resync {
         backfill_dirty(&conn)?;
     }
@@ -727,7 +728,8 @@ pub fn export_ops(
     let mut ops_v1 = OpsFileWriter::create(&ops_v1_path)?;
     let mut ops_v2 = OpsFileWriter::create(&ops_v2_path)?;
     let mut ops_v3 = OpsFileWriter::create(&ops_v3_path)?;
-    let skill_plan = custom_skills::plan_export(home, &conn, &device_id, seq, full_resync)?;
+    let skill_plan =
+        custom_skills::plan_export(home, &conn, &device_id, seq, custom_skills_full_resync)?;
     for op in &skill_plan.ops {
         ops_v3.write_op(op)?;
     }
@@ -1071,6 +1073,26 @@ fn next_export_seq(sync_dir: &Path, device_id: &str) -> Result<i64, SyncError> {
         }
     }
     Ok(max_seq + 1)
+}
+
+fn has_ops_history(
+    sync_dir: &Path,
+    device_id: &str,
+    ops_dir_name: &str,
+) -> Result<bool, SyncError> {
+    let ops_dir = device_ops_dir(sync_dir, device_id, ops_dir_name);
+    fs::create_dir_all(&ops_dir)?;
+    for entry in fs::read_dir(ops_dir)? {
+        if entry?
+            .path()
+            .extension()
+            .and_then(|extension| extension.to_str())
+            == Some("jsonl")
+        {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 fn sqlite_value(value: rusqlite::types::Value) -> Value {
@@ -2578,6 +2600,97 @@ mod tests {
             fs::read(custom_skill_path(home_b.path(), "shared/assets/icon.bin")).unwrap(),
             b"remote icon\n"
         );
+    }
+
+    #[test]
+    fn unedited_peers_fast_forward_file_directory_conversions() {
+        let sync = tempfile::tempdir().unwrap();
+        let home_a = setup_home("same-config");
+        let home_b = setup_home("same-config");
+        write_custom_skill_file(home_a.path(), "shared/assets", b"original file\n");
+        init_sync(home_a.path(), Some(sync.path()), "A").unwrap();
+        init_sync(home_b.path(), Some(sync.path()), "B").unwrap();
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+
+        fs::remove_file(custom_skill_path(home_a.path(), "shared/assets")).unwrap();
+        write_custom_skill_file(home_a.path(), "shared/assets/icon.bin", b"nested file\n");
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+
+        assert_eq!(
+            fs::read(custom_skill_path(home_b.path(), "shared/assets/icon.bin")).unwrap(),
+            b"nested file\n"
+        );
+        fs::remove_file(custom_skill_path(home_a.path(), "shared/assets/icon.bin")).unwrap();
+        fs::remove_dir(custom_skill_path(home_a.path(), "shared/assets")).unwrap();
+        write_custom_skill_file(home_a.path(), "shared/assets", b"file again\n");
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+
+        assert_eq!(
+            fs::read(custom_skill_path(home_b.path(), "shared/assets")).unwrap(),
+            b"file again\n"
+        );
+        let conn = Connection::open(home_b.path().join(DB_FILE)).unwrap();
+        let conflicts: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sync_conflicts WHERE resolved_at IS NULL",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(conflicts, 0);
+    }
+
+    #[test]
+    fn missing_v3_history_republishes_unchanged_custom_skills() {
+        let sync = tempfile::tempdir().unwrap();
+        let home_a = setup_home("same-config");
+        let home_b = setup_home("same-config");
+        write_custom_skill_file(home_a.path(), "shared/SKILL.md", b"# Shared\n");
+        init_sync(home_a.path(), Some(sync.path()), "A").unwrap();
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        let device = device_id_of(home_a.path());
+        fs::remove_dir_all(device_ops_dir(sync.path(), &device, OPS_DIR_V3)).unwrap();
+
+        let recovery = export_ops(home_a.path(), Some(sync.path())).unwrap();
+
+        assert!(recovery.exported_ops >= 1);
+        init_sync(home_b.path(), Some(sync.path()), "B").unwrap();
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+        assert_eq!(
+            fs::read(custom_skill_path(home_b.path(), "shared/SKILL.md")).unwrap(),
+            b"# Shared\n"
+        );
+    }
+
+    #[test]
+    fn full_custom_skill_recovery_applies_without_a_peer_baseline() {
+        let sync = tempfile::tempdir().unwrap();
+        let home_a = setup_home("same-config");
+        let home_b = setup_home("same-config");
+        write_custom_skill_file(home_a.path(), "shared/SKILL.md", b"# Shared\n");
+        init_sync(home_a.path(), Some(sync.path()), "A").unwrap();
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        let device = device_id_of(home_a.path());
+        for ops_dir in [OPS_DIR_V1, OPS_DIR_V2, OPS_DIR_V3] {
+            fs::remove_dir_all(device_ops_dir(sync.path(), &device, ops_dir)).unwrap();
+        }
+
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        init_sync(home_b.path(), Some(sync.path()), "B").unwrap();
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+
+        assert_eq!(
+            fs::read(custom_skill_path(home_b.path(), "shared/SKILL.md")).unwrap(),
+            b"# Shared\n"
+        );
+        let conn = Connection::open(home_b.path().join(DB_FILE)).unwrap();
+        let conflicts: i64 = conn
+            .query_row("SELECT COUNT(*) FROM sync_conflicts", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(conflicts, 0);
     }
 
     #[test]
