@@ -613,6 +613,7 @@ export function reduceServerEvent(state: AppState, event: YachiyoServerEvent): P
 
     const queuedFollowUpMessages = event.queuedFollowUpMessages
     const shouldInsertTimelineMessage = queuedFollowUpMessages === undefined
+    const completedModelId = event.message.role === 'assistant' ? event.message.modelId : undefined
 
     return {
       ...(shouldInsertTimelineMessage
@@ -629,6 +630,30 @@ export function reduceServerEvent(state: AppState, event: YachiyoServerEvent): P
               ...state.queuedFollowUpMessagesByThread,
               [event.threadId]: queuedFollowUpMessages
             }
+          }
+        : {}),
+      ...(completedModelId !== undefined
+        ? {
+            latestRunsByThread:
+              state.latestRunsByThread[event.threadId]?.id === event.runId
+                ? upsertLatestRun(state.latestRunsByThread, {
+                    ...state.latestRunsByThread[event.threadId]!,
+                    modelId: completedModelId
+                  })
+                : state.latestRunsByThread,
+            runsByThread: updateRunRecord(
+              state.runsByThread,
+              event.threadId,
+              event.runId,
+              (run) => ({
+                ...run,
+                id: event.runId,
+                threadId: event.threadId,
+                status: run?.status ?? 'running',
+                createdAt: run?.createdAt ?? event.timestamp,
+                modelId: completedModelId
+              })
+            )
           }
         : {}),
       pendingAssistantMessages
@@ -788,6 +813,7 @@ export function reduceServerEvent(state: AppState, event: YachiyoServerEvent): P
         recallDecision: existingLatestRun?.recallDecision,
         contextSources: existingLatestRun?.contextSources,
         runMode: existingLatestRun?.runMode,
+        modelId: existingLatestRun?.modelId,
         completedAt: event.timestamp,
         ...(event.promptTokens !== undefined ? { promptTokens: event.promptTokens } : {}),
         ...(event.completionTokens !== undefined
