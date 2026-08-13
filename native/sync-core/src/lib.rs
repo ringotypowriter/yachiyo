@@ -707,10 +707,10 @@ pub fn export_ops(
     let exported_at = now();
     let seq = next_export_seq(&sync_dir, &device_id)?;
 
-    // No published ops files (first export, or the sync dir was wiped): re-enqueue
-    // every local row so a fresh/recovering peer gets the full archive. In steady
-    // state (seq > 1) we emit only what changed since the last export.
-    let full_resync = seq == 1;
+    // Legacy archives/settings and v3 custom skills recover independently: one
+    // operation family can disappear while the other still carries a high seq.
+    let full_resync = !has_ops_history(&sync_dir, &device_id, OPS_DIR_V1)?
+        && !has_ops_history(&sync_dir, &device_id, OPS_DIR_V2)?;
     let custom_skills_full_resync = !has_ops_history(&sync_dir, &device_id, OPS_DIR_V3)?;
     if full_resync {
         backfill_dirty(&conn)?;
@@ -2808,6 +2808,41 @@ mod tests {
     }
 
     #[test]
+    fn missing_legacy_history_republishes_settings_and_archives_with_v3_present() {
+        let sync = tempfile::tempdir().unwrap();
+        let home_a = setup_home("shared-setting");
+        let home_b = setup_home("shared-setting");
+        write_custom_skill_file(home_a.path(), "shared/SKILL.md", b"# Shared\n");
+        seed_thread(home_a.path(), "thread-1", "message-1");
+        init_sync(home_a.path(), Some(sync.path()), "A").unwrap();
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        let device = device_id_of(home_a.path());
+        for ops_dir in [OPS_DIR_V1, OPS_DIR_V2] {
+            fs::remove_dir_all(device_ops_dir(sync.path(), &device, ops_dir)).unwrap();
+        }
+
+        let recovery = export_ops(home_a.path(), Some(sync.path())).unwrap();
+        init_sync(home_b.path(), Some(sync.path()), "B").unwrap();
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+
+        assert!(recovery.exported_ops >= 2);
+        assert_eq!(
+            fs::read_to_string(settings_path(home_b.path())).unwrap(),
+            "shared-setting"
+        );
+        let conn = Connection::open(home_b.path().join(DB_FILE)).unwrap();
+        assert_eq!(
+            conn.query_row(
+                "SELECT COUNT(*) FROM threads WHERE id = 'thread-1'",
+                [],
+                |row| row.get::<_, i64>(0)
+            )
+            .unwrap(),
+            1
+        );
+    }
+
+    #[test]
     fn missing_v3_history_republishes_custom_skill_deletions() {
         let sync = tempfile::tempdir().unwrap();
         let home_a = setup_home("same-config");
@@ -2864,6 +2899,31 @@ mod tests {
             )
             .unwrap();
         assert_eq!(conflicts, 1);
+        assert!(!custom_skill_path(home_c.path(), "removed/SKILL.md").exists());
+    }
+
+    #[test]
+    fn an_imported_deletion_can_be_republished_after_the_source_history_is_lost() {
+        let sync = tempfile::tempdir().unwrap();
+        let home_a = setup_home("same-config");
+        let home_b = setup_home("same-config");
+        let home_c = setup_home("same-config");
+        write_custom_skill_file(home_a.path(), "removed/SKILL.md", b"# Removed\n");
+        init_sync(home_a.path(), Some(sync.path()), "A").unwrap();
+        init_sync(home_b.path(), Some(sync.path()), "B").unwrap();
+        init_sync(home_c.path(), Some(sync.path()), "C").unwrap();
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+        import_ops(home_c.path(), Some(sync.path())).unwrap();
+        fs::remove_file(custom_skill_path(home_a.path(), "removed/SKILL.md")).unwrap();
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+        let device_a = device_id_of(home_a.path());
+        fs::remove_dir_all(device_dir(sync.path(), &device_a)).unwrap();
+
+        export_ops(home_b.path(), Some(sync.path())).unwrap();
+        import_ops(home_c.path(), Some(sync.path())).unwrap();
+
         assert!(!custom_skill_path(home_c.path(), "removed/SKILL.md").exists());
     }
 

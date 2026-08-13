@@ -218,6 +218,23 @@ fn load_tombstones(conn: &Connection) -> Result<BTreeMap<String, String>, SyncEr
     }
 }
 
+fn update_tombstone_entry(
+    conn: &Connection,
+    path: &str,
+    base_hash: Option<&str>,
+) -> Result<(), SyncError> {
+    let mut tombstones = load_tombstones(conn)?;
+    match base_hash {
+        Some(hash) if hash != MISSING_HASH => {
+            tombstones.insert(path.to_string(), hash.to_string());
+        }
+        _ => {
+            tombstones.remove(path);
+        }
+    }
+    save_export_tombstones(conn, &tombstones)
+}
+
 pub(super) fn save_export_tombstones(
     conn: &Connection,
     tombstones: &BTreeMap<String, String>,
@@ -748,6 +765,9 @@ fn apply_with_policy(
             (parsed.remote_hash != MISSING_HASH).then_some(parsed.remote_hash.as_str()),
             remote_executable,
         )?;
+        if matches!(&parsed.change, CustomSkillChange::Delete) {
+            update_tombstone_entry(conn, &parsed.relative, Some(&parsed.base_hash))?;
+        }
         return Ok(());
     }
     if force_remote
@@ -763,6 +783,7 @@ fn apply_with_policy(
                     Some(&parsed.remote_hash),
                     Some(executable),
                 )?;
+                update_tombstone_entry(conn, &parsed.relative, None)?;
             }
             CustomSkillChange::Delete => {
                 fs::remove_file(&path)?;
@@ -770,6 +791,7 @@ fn apply_with_policy(
                     prune_empty_directories(&root, parent)?;
                 }
                 update_manifest_entry(conn, &parsed.relative, None, None)?;
+                update_tombstone_entry(conn, &parsed.relative, Some(&parsed.base_hash))?;
             }
         }
         return Ok(());
