@@ -78,13 +78,26 @@ fn select_executable(
 fn validate_casefolded_paths<'a>(
     paths: impl IntoIterator<Item = &'a str>,
 ) -> Result<(), SyncError> {
-    let mut seen = BTreeMap::<String, &'a str>::new();
+    let mut seen = BTreeMap::<String, String>::new();
     for path in paths {
-        let folded = path.to_lowercase();
-        if let Some(existing) = seen.insert(folded, path) {
-            return Err(SyncError::Message(format!(
-                "custom skill paths differ only by case: {existing} and {path}"
-            )));
+        let mut original_prefix = String::new();
+        let mut folded_prefix = String::new();
+        for component in path.split('/') {
+            if !original_prefix.is_empty() {
+                original_prefix.push('/');
+                folded_prefix.push('/');
+            }
+            original_prefix.push_str(component);
+            folded_prefix.push_str(&component.to_lowercase());
+            if let Some(existing) = seen.get(&folded_prefix) {
+                if existing != &original_prefix {
+                    return Err(SyncError::Message(format!(
+                        "custom skill path prefixes differ only by case: {existing} and {original_prefix}"
+                    )));
+                }
+            } else {
+                seen.insert(folded_prefix.clone(), original_prefix.clone());
+            }
         }
     }
     Ok(())
@@ -754,6 +767,8 @@ mod tests {
     #[test]
     fn case_colliding_paths_are_rejected_before_export() {
         assert!(validate_casefolded_paths(["Tool/SKILL.md", "tool/SKILL.md"]).is_err());
+        assert!(validate_casefolded_paths(["Tool", "tool/SKILL.md"]).is_err());
+        assert!(validate_casefolded_paths(["Tool/a", "tool/b"]).is_err());
         assert!(validate_casefolded_paths(["tool/SKILL.md", "tool/assets/Icon.png"]).is_ok());
     }
 }
