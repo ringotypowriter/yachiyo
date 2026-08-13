@@ -283,6 +283,12 @@ export interface NotificationRequestEvent extends RunEvent {
   body: string
 }
 
+export interface SyncCustomSkillsDisclosureEvent extends BaseEvent {
+  type: 'sync.custom-skills-disclosure'
+  title: string
+  body: string
+}
+
 export interface ChannelGroupHistoryClearStartedEvent extends BaseEvent {
   type: 'channel-group-history-clear.started'
   groupId: string
@@ -350,6 +356,7 @@ export type YachiyoServerEvent =
   | SubagentProgressEvent
   | SubagentToolCallEvent
   | NotificationRequestEvent
+  | SyncCustomSkillsDisclosureEvent
   | ChannelGroupHistoryClearStartedEvent
   | ChannelGroupHistoryClearCompletedEvent
   | ChannelGroupHistoryClearFailedEvent

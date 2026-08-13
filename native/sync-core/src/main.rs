@@ -1,7 +1,7 @@
 use clap::{Parser, Subcommand};
 use serde::Serialize;
 use std::path::PathBuf;
-use sync_core::{export_ops, import_ops, init_sync, status};
+use sync_core::{export_ops, import_ops, init_sync, resolve_custom_skill_conflict, status};
 
 #[derive(Parser)]
 #[command(name = "sync-core")]
@@ -38,6 +38,16 @@ enum Command {
         #[arg(long)]
         sync_dir: Option<PathBuf>,
     },
+    ResolveCustomSkillConflict {
+        #[arg(long)]
+        home: PathBuf,
+        #[arg(long)]
+        sync_dir: Option<PathBuf>,
+        #[arg(long)]
+        conflict_id: String,
+        #[arg(long)]
+        resolution: String,
+    },
 }
 
 #[derive(Serialize)]
@@ -57,6 +67,12 @@ fn main() {
         Command::Export { home, sync_dir } => export_ops(&home, sync_dir.as_deref()),
         Command::Import { home, sync_dir } => import_ops(&home, sync_dir.as_deref()),
         Command::Status { home, sync_dir } => status(&home, sync_dir.as_deref()),
+        Command::ResolveCustomSkillConflict {
+            home,
+            sync_dir,
+            conflict_id,
+            resolution,
+        } => resolve_custom_skill_conflict(&home, sync_dir.as_deref(), &conflict_id, &resolution),
     };
 
     match result {

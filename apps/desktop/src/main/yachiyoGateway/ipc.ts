@@ -60,6 +60,10 @@ export function showYachiyoNotification(input: ShowNotificationInput): void {
 export function broadcastYachiyoEvent(event: YachiyoServerEvent): void {
   getPerfMonitor().recordIpcEvent(event.type)
 
+  if (event.type === 'sync.custom-skills-disclosure') {
+    showYachiyoNotification({ title: event.title, body: event.body })
+  }
+
   if (event.type === 'notification.requested') {
     if (!hasFocusedYachiyoWindow()) {
       showYachiyoNotification({

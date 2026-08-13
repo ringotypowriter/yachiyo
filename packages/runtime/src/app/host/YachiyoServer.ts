@@ -81,6 +81,7 @@ import type {
   UserDocument,
   SoulDocument as ProtocolSoulDocument,
   SyncConflictRecord,
+  SyncCustomSkillsDisclosureEvent,
   SyncStatus,
   UsageStatsInput,
   UsageStatsResponse,
@@ -271,7 +272,7 @@ function parseSyncCoreOutput(
   stdout: string,
   syncDirFallback: string,
   recommendedSyncDir: string
-): { status: SyncStatus; changedThreadIds: string[] } {
+): { status: SyncStatus; changedThreadIds: string[]; customSkillsDisclosure: boolean } {
   const parsed = JSON.parse(stdout) as {
     state?: SyncStatus['state']
     sync_dir?: string
@@ -282,6 +283,7 @@ function parseSyncCoreOutput(
     last_imported_at?: string
     last_error?: string
     changed_thread_ids?: unknown
+    custom_skills_disclosure?: unknown
   }
   return {
     status: {
@@ -299,7 +301,8 @@ function parseSyncCoreOutput(
       ? parsed.changed_thread_ids.filter(
           (threadId): threadId is string => typeof threadId === 'string' && threadId.length > 0
         )
-      : []
+      : [],
+    customSkillsDisclosure: parsed.custom_skills_disclosure === true
   }
 }
 
@@ -832,7 +835,14 @@ export class YachiyoServer {
     syncDir: string,
     recommendedSyncDir: string
   ): Promise<SyncStatus> {
-    await execFileAsync(binary, ['export', '--home', home, '--sync-dir', syncDir])
+    const { stdout: exportStdout } = await execFileAsync(binary, [
+      'export',
+      '--home',
+      home,
+      '--sync-dir',
+      syncDir
+    ])
+    const exportResult = parseSyncCoreOutput(exportStdout, syncDir, recommendedSyncDir)
     const { stdout } = await execFileAsync(binary, [
       'import',
       '--home',
@@ -840,7 +850,21 @@ export class YachiyoServer {
       '--sync-dir',
       syncDir
     ])
-    const { status, changedThreadIds } = parseSyncCoreOutput(stdout, syncDir, recommendedSyncDir)
+    const importResult = parseSyncCoreOutput(stdout, syncDir, recommendedSyncDir)
+    const { status, changedThreadIds } = importResult
+    if (exportResult.customSkillsDisclosure || importResult.customSkillsDisclosure) {
+      const provider =
+        process.platform === 'darwin'
+          ? 'iCloud Drive'
+          : process.platform === 'win32'
+            ? 'OneDrive'
+            : 'cloud sync'
+      this.emit<SyncCustomSkillsDisclosureEvent>({
+        type: 'sync.custom-skills-disclosure',
+        title: 'Custom skills sync / 自定义 Skills 同步',
+        body: `Custom skills are synced as a full tree to ${provider}, including script contents. / custom skills 会整树同步到 ${provider}，包括脚本内容。`
+      })
+    }
     this.reconcileSyncConflicts()
     this.emitSyncedThreadRefreshes(changedThreadIds)
     // The binary's own count predates reconciliation; report the live count.
@@ -939,6 +963,27 @@ export class YachiyoServer {
   async resolveSyncConflict(input: ResolveSyncConflictInput): Promise<ListSyncConflictsResult> {
     const conflict = this.storage.listSyncConflicts().find((item) => item.id === input.conflictId)
     if (!conflict) {
+      return this.listSyncConflicts()
+    }
+
+    if (conflict.entityType === 'skill') {
+      if (input.resolution === 'merge') {
+        throw new Error('Custom skill conflicts cannot be merged field by field.')
+      }
+      const { syncDir } = this.resolveSyncReadiness()
+      await this.runExclusiveSync(async () => {
+        await execFileAsync(resolveSyncCoreBinary(), [
+          'resolve-custom-skill-conflict',
+          '--home',
+          dirname(this.settingsPath),
+          '--sync-dir',
+          syncDir,
+          '--conflict-id',
+          conflict.id,
+          '--resolution',
+          input.resolution
+        ])
+      })
       return this.listSyncConflicts()
     }
 

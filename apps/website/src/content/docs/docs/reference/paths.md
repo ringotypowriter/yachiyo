@@ -77,6 +77,7 @@ agent fetches, searches you run, and channel messages. There is no telemetry and
 no hosted backend.
 
 [Sync](/docs/guides/sync/) is the one exception, and it is opt-in and points at a
-folder you choose. It copies settings data in `config.toml` and chat archives;
-the provider vault and its key stay on this device. Because `config.toml` may
-still contain other secrets such as an Exa key, keep the sync folder private.
+folder you choose. It copies settings data in `config.toml`, `skills/custom/`
+(including script contents), and chat archives; the provider vault and its key
+stay on this device. Because settings or custom scripts may still contain other
+secrets such as an Exa key, keep the sync folder private.

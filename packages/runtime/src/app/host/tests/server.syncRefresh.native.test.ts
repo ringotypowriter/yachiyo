@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
@@ -142,6 +142,58 @@ test('sync import notifies subscribers about a remote thread without restarting'
         (thread) => thread.id === remoteThread.id
       )
     )
+  } finally {
+    await serverA.close()
+    await serverB.close()
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('custom skills sync through the native core, disclose once, and resolve conflicts', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'yachiyo-sync-skills-'))
+  const syncDir = join(root, 'sync')
+  const homeA = join(root, 'a')
+  const homeB = join(root, 'b')
+  const skillA = join(homeA, 'skills/custom/shared/SKILL.md')
+  const skillB = join(homeB, 'skills/custom/shared/SKILL.md')
+  await mkdir(join(homeA, 'skills/custom/shared'), { recursive: true })
+  await writeFile(skillA, '# Shared\n\nInitial version.\n', 'utf8')
+  const serverA = await createSyncServer({ home: homeA, syncDir })
+  const serverB = await createSyncServer({ home: homeB, syncDir })
+
+  try {
+    const events: YachiyoServerEvent[] = []
+    const unsubscribe = serverA.subscribe((event) => events.push(event))
+    try {
+      await serverA.initSync()
+      await serverA.runSyncNow()
+    } finally {
+      unsubscribe()
+    }
+    assert.equal(
+      events.filter((event) => event.type === 'sync.custom-skills-disclosure').length,
+      1,
+      'the full-tree disclosure must be visible once on the first successful skill export'
+    )
+
+    await serverB.initSync()
+    assert.equal(await readFile(skillB, 'utf8'), '# Shared\n\nInitial version.\n')
+
+    await writeFile(skillA, '# Shared\n\nVersion from A.\n', 'utf8')
+    await writeFile(skillB, '# Shared\n\nVersion from B.\n', 'utf8')
+    await serverA.runSyncNow()
+    await serverB.runSyncNow()
+    const conflicts = await serverB.listSyncConflicts()
+    assert.equal(conflicts.conflicts.length, 1)
+    assert.equal(conflicts.conflicts[0]?.entityType, 'skill')
+
+    await serverB.resolveSyncConflict({
+      conflictId: conflicts.conflicts[0]!.id,
+      resolution: 'use_remote'
+    })
+
+    assert.equal(await readFile(skillB, 'utf8'), '# Shared\n\nVersion from A.\n')
+    assert.deepEqual((await serverB.listSyncConflicts()).conflicts, [])
   } finally {
     await serverA.close()
     await serverB.close()
