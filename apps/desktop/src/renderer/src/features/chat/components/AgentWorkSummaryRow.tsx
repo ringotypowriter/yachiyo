@@ -28,7 +28,8 @@ import { formatToolFilePathList } from '../lib/tool-calls/toolCallPresentation.t
 import {
   countToolCallsForRun,
   findLatestRunForRequests,
-  formatTokensPerSecond
+  formatTokensPerSecond,
+  normalizeRunModelLabel
 } from '../lib/run-memory/runMemoryPresentation.ts'
 import { ToolCallGroupRow } from './ToolCallGroupRow.tsx'
 import { ToolCallRow } from './ToolCallRow.tsx'
@@ -39,6 +40,7 @@ interface AgentWorkSummaryRowProps {
   requestMessageIds: readonly string[]
   runs: RunRecord[]
   toolCalls: ToolCall[]
+  modelLabel?: string | null
   workspacePath?: string | null
   /** When absent (read-only viewers), askUser steps render without a branch action. */
   onBranchFromAskUser?: (toolCall: ToolCall) => void
@@ -121,6 +123,7 @@ export function AgentWorkSummaryRow({
   requestMessageIds,
   runs,
   toolCalls,
+  modelLabel,
   workspacePath,
   onBranchFromAskUser
 }: AgentWorkSummaryRowProps): React.JSX.Element {
@@ -144,6 +147,7 @@ export function AgentWorkSummaryRow({
       completedAt: run.completedAt,
       elapsedMs,
       fileCount,
+      modelLabel: modelLabel ?? normalizeRunModelLabel(run.modelId),
       runId: run.id,
       threadId: run.threadId,
       tokensPerSecondLabel: formatTokensPerSecond(
@@ -154,7 +158,7 @@ export function AgentWorkSummaryRow({
       workspacePath:
         run.workspacePath ?? snapshotReviewByRun[run.id]?.workspacePath ?? workspacePath ?? ''
     }
-  }, [runs, requestMessageIds, snapshotReviewByRun, toolCalls, workspacePath])
+  }, [modelLabel, runs, requestMessageIds, snapshotReviewByRun, toolCalls, workspacePath])
 
   const changedPaths = useMemo(() => {
     const paths = new Set<string>()
@@ -169,6 +173,7 @@ export function AgentWorkSummaryRow({
   const fileCount = runInfo?.fileCount ?? changedPaths.length
   const canReviewDiff = runInfo != null && runInfo.fileCount > 0 && runInfo.workspacePath.length > 0
   const failedToolCalls = toolCalls.filter((toolCall) => toolCall.status === 'failed').length
+  const displayedModelLabel = runInfo?.modelLabel ?? modelLabel ?? null
 
   useEffect(() => {
     if (!runInfo || animatedWorkSummaryRunIds.has(runInfo.runId)) return
@@ -291,6 +296,14 @@ export function AgentWorkSummaryRow({
               <GitCompareArrows size={11} strokeWidth={1.7} />
               {t('chat.workSummary.review')}
             </button>
+          ) : null}
+          {displayedModelLabel ? (
+            <span
+              className="min-w-0 max-w-40 truncate text-right text-[10.5px]"
+              style={{ color: theme.text.muted }}
+            >
+              {displayedModelLabel}
+            </span>
           ) : null}
           <ChevronRight
             size={13}

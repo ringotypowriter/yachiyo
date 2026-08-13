@@ -6,6 +6,7 @@ import type { ToolCall } from '@renderer/app/types'
 import {
   calculateTokensPerSecond,
   formatTokensPerSecond,
+  normalizeRunModelLabel,
   compactNovelTermsForDisplay,
   countToolCallsForRun,
   findLatestRunForRequest,
@@ -25,6 +26,13 @@ test('formatTokensPerSecond produces the shared footer and WorkSummary label', (
   assert.equal(formatTokensPerSecond(250, 2_000), '125 tok/s')
   assert.equal(formatTokensPerSecond(50, 1_600), '31.3 tok/s')
   assert.equal(formatTokensPerSecond(undefined, 1_600), null)
+})
+
+test('normalizeRunModelLabel keeps only a usable model name', () => {
+  assert.equal(normalizeRunModelLabel('  gpt-5.6  '), 'gpt-5.6')
+  assert.equal(normalizeRunModelLabel('google/gemini-3-flash'), 'gemini-3-flash')
+  assert.equal(normalizeRunModelLabel('   '), null)
+  assert.equal(normalizeRunModelLabel(undefined), null)
 })
 
 test('findRunMemorySummary returns the latest recalled memory for a request', () => {

@@ -1551,6 +1551,47 @@ test('applyServerEvent preserves compiled context sources after the run complete
   assert.equal(state.latestRunsByThread['thread-1']?.modelGenerationDurationMs, 2_500)
 })
 
+test('applyServerEvent keeps the completed assistant model on the live run', () => {
+  resetStore()
+
+  useAppStore.getState().applyServerEvent({
+    type: 'run.created',
+    eventId: 'event-run-created',
+    timestamp: TIMESTAMP,
+    threadId: 'thread-1',
+    runId: 'run-1',
+    requestMessageId: 'user-1'
+  })
+  useAppStore.getState().applyServerEvent({
+    type: 'message.completed',
+    eventId: 'event-message-completed',
+    timestamp: '2026-03-15T00:00:04.000Z',
+    threadId: 'thread-1',
+    runId: 'run-1',
+    message: {
+      id: 'assistant-1',
+      threadId: 'thread-1',
+      parentMessageId: 'user-1',
+      role: 'assistant',
+      content: 'Done',
+      status: 'completed',
+      createdAt: '2026-03-15T00:00:04.000Z',
+      modelId: 'google/gemini-3-flash'
+    }
+  })
+  useAppStore.getState().applyServerEvent({
+    type: 'run.completed',
+    eventId: 'event-run-completed',
+    timestamp: '2026-03-15T00:00:05.000Z',
+    threadId: 'thread-1',
+    runId: 'run-1'
+  })
+
+  const state = useAppStore.getState()
+  assert.equal(state.runsByThread['thread-1']?.[0]?.modelId, 'google/gemini-3-flash')
+  assert.equal(state.latestRunsByThread['thread-1']?.modelId, 'google/gemini-3-flash')
+})
+
 test('applyServerEvent marks completed runs in inactive threads as just done', () => {
   resetStore()
   useAppStore.setState({

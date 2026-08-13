@@ -19,6 +19,7 @@ import { AgentWorkSummaryRow } from './AgentWorkSummaryRow.tsx'
 import { buildWorkTrajectoryItems } from '../lib/timeline/messageTimelineRows.ts'
 import { getNativeScrollIntoViewOptions } from '../lib/timeline/messageTimelineScroll.ts'
 import { isVisibleTimelineMessage } from '../lib/timeline/messageThreadPresentation.ts'
+import { buildExternalAssistantPresentation } from '../lib/messages/externalMessagePresentation.ts'
 
 function ExternalUserBubble({ message }: { message: Message }): React.JSX.Element {
   return (
@@ -53,7 +54,10 @@ function ExternalAssistantBubble({
   toolCalls: ToolCall[]
   workspacePath?: string | null
 }): React.JSX.Element {
-  const content = message.visibleReply ?? message.content
+  const { content, modelLabel, standaloneModelLabel } = buildExternalAssistantPresentation(
+    message,
+    toolCalls.length
+  )
   const imageContext = useMemo<MarkdownImageContextValue>(
     () => ({
       threadId: message.threadId,
@@ -83,6 +87,7 @@ function ExternalAssistantBubble({
       {toolCalls.length > 0 ? (
         <AgentWorkSummaryRow
           items={workSummaryItems}
+          modelLabel={modelLabel}
           requestMessageIds={[message.parentMessageId ?? message.id]}
           runs={EMPTY_RUNS}
           toolCalls={toolCalls}
@@ -95,6 +100,14 @@ function ExternalAssistantBubble({
             <div className="assistant-message-bubble">
               <MessageMarkdown content={content} isStreaming={false} imageContext={imageContext} />
             </div>
+            {standaloneModelLabel ? (
+              <div
+                className="message-footer message-footer--always-visible mt-1 flex min-w-0 w-full justify-end"
+                style={{ color: theme.text.muted }}
+              >
+                <span className="min-w-0 truncate text-right">{standaloneModelLabel}</span>
+              </div>
+            ) : null}
           </div>
         </div>
       ) : null}

@@ -353,6 +353,7 @@ function renderTimelineItem(
     return (
       <AgentWorkSummaryRow
         items={item.items}
+        modelLabel={item.modelLabel}
         requestMessageIds={item.requestMessageIds}
         runs={runs}
         toolCalls={toolCallsInSummary}
@@ -453,6 +454,7 @@ function renderTimelineItem(
         ) : null}
         {item.showRunStats ? (
           <RunStatsFooter
+            modelLabel={item.modelLabel}
             runs={runs}
             toolCalls={toolCalls}
             requestMessageIds={[item.requestMessageId, ...item.group.hiddenRequestMessageIds]}

@@ -11,7 +11,8 @@ import {
 } from './messageThreadPresentation.ts'
 import {
   findLatestRunForRequests,
-  findRunMemorySummaryForRequests
+  findRunMemorySummaryForRequests,
+  normalizeRunModelLabel
 } from '../run-memory/runMemoryPresentation.ts'
 import {
   isPlanModeExitRecord,
@@ -94,6 +95,7 @@ export type MessageTimelineRow =
       group: MessageGroup
       assistantMessage: Message
       items: WorkTrajectoryItem[]
+      modelLabel: string | null
       requestMessageIds: string[]
     } & GroupTimelineRowBase)
   | ({
@@ -137,6 +139,7 @@ export type MessageTimelineRow =
       assistantMessage: Message
       savedMemoryCount: number
       failedRunError: string | null
+      modelLabel: string | null
       showRunStats: boolean
     } & GroupTimelineRowBase)
   | ({
@@ -656,6 +659,13 @@ export function buildConversationGroupRows(
     shouldSummarizeCompletedWork && summarizedFinalTextBlock
       ? renderableTextBlocks.slice(0, -1)
       : []
+  const shouldShowCompletedToolOnlyFooter =
+    activeAssistantMessage?.status === 'completed' &&
+    activeAssistantTextBlocks.length === 0 &&
+    workSummaryToolCalls.length > 0 &&
+    !shouldSummarizeCompletedWork &&
+    // Plan documents use dedicated artifact UI and intentionally omit standard run stats.
+    !hasCompletedPlanExitToolCall
 
   if (!group.userMessage.hidden) {
     rows.push({
@@ -710,6 +720,7 @@ export function buildConversationGroupRows(
       assistantMessageId: activeAssistantMessage.id,
       group,
       assistantMessage: activeAssistantMessage,
+      modelLabel: normalizeRunModelLabel(activeAssistantMessage.modelId),
       items: buildWorkTrajectoryItems({
         userMessageId: group.userMessage.id,
         replyCount: group.assistantBranches.length,
@@ -883,7 +894,7 @@ export function buildConversationGroupRows(
 
   if (
     activeAssistantMessage &&
-    activeAssistantTextBlocks.length > 0 &&
+    (activeAssistantTextBlocks.length > 0 || shouldShowCompletedToolOnlyFooter) &&
     activeAssistantMessage.status !== 'streaming' &&
     !input.subagentActive
   ) {
@@ -897,6 +908,7 @@ export function buildConversationGroupRows(
       assistantMessage: activeAssistantMessage,
       savedMemoryCount,
       failedRunError,
+      modelLabel: normalizeRunModelLabel(activeAssistantMessage.modelId),
       showRunStats: !shouldSummarizeCompletedWork
     })
   }

@@ -31,6 +31,7 @@ function createAssistantMessage(input: {
   reasoning?: string
   textBlocks?: MessageTextBlockRecord[]
   visibleReply?: string
+  modelId?: string
 }): Message {
   return {
     id: input.id,
@@ -42,7 +43,8 @@ function createAssistantMessage(input: {
     createdAt: input.createdAt ?? TIMESTAMP,
     ...(input.reasoning ? { reasoning: input.reasoning } : {}),
     ...(input.textBlocks ? { textBlocks: input.textBlocks } : {}),
-    ...(input.visibleReply !== undefined ? { visibleReply: input.visibleReply } : {})
+    ...(input.visibleReply !== undefined ? { visibleReply: input.visibleReply } : {}),
+    ...(input.modelId !== undefined ? { modelId: input.modelId } : {})
   }
 }
 
@@ -229,6 +231,88 @@ test('buildConversationGroupRows keeps branch navigation, thinking, and footer a
     'group-assistant-text-block',
     'group-footer'
   ])
+})
+
+test('buildConversationGroupRows carries the persisted assistant model when the run omitted it', () => {
+  const group = createGroup({
+    activeAssistant: createAssistantMessage({
+      id: 'assistant-acp',
+      content: 'ACP answer',
+      status: 'completed',
+      modelId: 'Claude Code'
+    })
+  })
+
+  const rows = buildConversationGroupRows({
+    group,
+    inlineToolCalls: [],
+    runs: [
+      {
+        id: 'run-acp',
+        threadId: 'thread-1',
+        requestMessageId: 'user-1',
+        status: 'completed',
+        createdAt: '2026-04-18T00:00:00.000Z',
+        completedAt: '2026-04-18T00:00:02.000Z'
+      }
+    ],
+    activeRunId: null,
+    isActiveGroup: false,
+    subagentActive: false
+  })
+
+  assert.equal(rows.find((row) => row.kind === 'group-footer')?.modelLabel, 'Claude Code')
+})
+
+test('buildConversationGroupRows attributes a branch footer to the visible assistant model', () => {
+  const olderAssistant = createAssistantMessage({
+    id: 'assistant-old',
+    content: 'Older answer',
+    status: 'completed',
+    modelId: 'older-model'
+  })
+  const newerAssistant = createAssistantMessage({
+    id: 'assistant-new',
+    content: 'Newer answer',
+    status: 'completed',
+    modelId: 'newer-model'
+  })
+  const group = createGroup({
+    inactiveAssistant: olderAssistant,
+    activeAssistant: newerAssistant,
+    activeAssistantMessages: [olderAssistant],
+    activeBranchIndex: 0
+  })
+
+  const rows = buildConversationGroupRows({
+    group,
+    inlineToolCalls: [],
+    runs: [
+      {
+        id: 'run-old',
+        threadId: 'thread-1',
+        requestMessageId: 'user-1',
+        status: 'completed',
+        modelId: 'older-model',
+        createdAt: '2026-04-18T00:00:00.000Z',
+        completedAt: '2026-04-18T00:00:01.000Z'
+      },
+      {
+        id: 'run-new',
+        threadId: 'thread-1',
+        requestMessageId: 'user-1',
+        status: 'completed',
+        modelId: 'newer-model',
+        createdAt: '2026-04-18T00:00:02.000Z',
+        completedAt: '2026-04-18T00:00:03.000Z'
+      }
+    ],
+    activeRunId: null,
+    isActiveGroup: false,
+    subagentActive: false
+  })
+
+  assert.equal(rows.find((row) => row.kind === 'group-footer')?.modelLabel, 'older-model')
 })
 
 test('buildConversationGroupRows displays channel visible replies instead of raw assistant output', () => {
@@ -555,7 +639,8 @@ test('buildConversationGroupRows summarizes completed agent work before the fina
           content: 'Final handoff',
           createdAt: '2026-04-18T00:00:03.000Z'
         }
-      ]
+      ],
+      modelId: 'google/gemini-3-flash'
     })
   })
 
@@ -591,6 +676,7 @@ test('buildConversationGroupRows summarizes completed agent work before the fina
 
   const summary = rows.find((row) => row.kind === 'group-work-summary')
   assert.equal(summary?.assistantMessage.id, 'assistant-1')
+  assert.equal(summary?.modelLabel, 'gemini-3-flash')
   assert.deepEqual(
     summary?.items.map((item) => item.kind),
     ['note', 'tool-call']
@@ -744,12 +830,13 @@ test('buildConversationGroupRows summarizes completed tool-only work when many t
   )
 })
 
-test('buildConversationGroupRows keeps short tool-only work expanded', () => {
+test('buildConversationGroupRows keeps short tool-only work expanded with run stats', () => {
   const group = createGroup({
     activeAssistant: createAssistantMessage({
       id: 'assistant-1',
       content: '',
-      status: 'completed'
+      status: 'completed',
+      modelId: 'google/gemini-3-flash'
     })
   })
 
@@ -768,13 +855,24 @@ test('buildConversationGroupRows keeps short tool-only work expanded', () => {
         startedAt: '2026-04-18T00:00:01.000Z'
       }
     ],
-    runs: [],
+    runs: [
+      {
+        id: 'run-1',
+        threadId: 'thread-1',
+        requestMessageId: 'user-1',
+        status: 'completed',
+        modelId: 'google/gemini-3-flash',
+        createdAt: '2026-04-18T00:00:00.000Z',
+        completedAt: '2026-04-18T00:00:02.000Z'
+      }
+    ],
     activeRunId: null,
     isActiveGroup: false,
     subagentActive: false
   })
 
-  assert.deepEqual(rowKinds(rows), ['group-user', 'group-tool-call'])
+  assert.deepEqual(rowKinds(rows), ['group-user', 'group-tool-call', 'group-footer'])
+  assert.equal(rows.find((row) => row.kind === 'group-footer')?.showRunStats, true)
 })
 
 test('buildConversationGroupRows summarizes completed hidden-steer tool work before the final text block', () => {
