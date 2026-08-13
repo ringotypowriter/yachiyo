@@ -906,6 +906,7 @@ fn apply_with_policy(
     force_remote: bool,
 ) -> Result<(), SyncError> {
     let mut parsed = parse_op(op)?;
+    supersede_older_conflicts(conn, op)?;
     if matches!(&parsed.change, CustomSkillChange::Delete) {
         if let Some(retired) = load_retired_tombstones(conn)?.get(&parsed.relative) {
             parsed
@@ -916,7 +917,6 @@ fn apply_with_policy(
             return Ok(());
         }
     }
-    supersede_older_conflicts(conn, op)?;
     let root = validated_root(home)?;
     let path = root.join(&parsed.relative);
     let remote_executable = match &parsed.change {

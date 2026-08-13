@@ -2737,6 +2737,92 @@ mod tests {
     }
 
     #[test]
+    fn retired_deletes_supersede_older_pending_skill_conflicts() {
+        let sync = tempfile::tempdir().unwrap();
+        let home = setup_home("same-config");
+        let relative = "shared/SKILL.md";
+        let local = b"local version\n";
+        let obsolete = b"obsolete remote\n";
+        write_custom_skill_file(home.path(), relative, local);
+        init_sync(home.path(), Some(sync.path()), "local").unwrap();
+        export_ops(home.path(), Some(sync.path())).unwrap();
+
+        let device = "remote-device";
+        let generation_id = "retired-delete-generation";
+        let mut digest = Sha256::new();
+        digest.update([0]);
+        digest.update(obsolete);
+        let obsolete_hash = format!("sha256:{:x}", digest.finalize());
+        let upsert = make_op(
+            device,
+            1,
+            "skill.file.upsert",
+            "skill",
+            relative,
+            json!({
+                "path": relative,
+                "encoding": "base64",
+                "content": "b2Jzb2xldGUgcmVtb3RlCg==",
+                "executable": false,
+                "baseHash": "sha256:unshared-base",
+                "contentHash": obsolete_hash,
+            }),
+        )
+        .unwrap();
+        write_ops_file(sync.path(), device, 1, &[upsert]);
+        import_ops(home.path(), Some(sync.path())).unwrap();
+        let conn = Connection::open(home.path().join(DB_FILE)).unwrap();
+        let conflict_id: String = conn
+            .query_row(
+                "SELECT id FROM sync_conflicts WHERE resolved_at IS NULL AND entity_id = ?1",
+                [relative],
+                |row| row.get(0),
+            )
+            .unwrap();
+        set_meta(
+            &conn,
+            "skills_retired_tombstones",
+            &serde_json::to_string(&json!({ (relative): [generation_id] })).unwrap(),
+        )
+        .unwrap();
+        drop(conn);
+
+        let delete = make_op(
+            device,
+            2,
+            "skill.file.delete",
+            "skill",
+            relative,
+            json!({
+                "path": relative,
+                "deleted": true,
+                "baseHash": obsolete_hash,
+                "tombstones": [{
+                    "generationId": generation_id,
+                    "baseHash": obsolete_hash,
+                }],
+                "contentHash": "missing",
+            }),
+        )
+        .unwrap();
+        write_ops_file(sync.path(), device, 2, &[delete]);
+        import_ops(home.path(), Some(sync.path())).unwrap();
+
+        assert!(resolve_custom_skill_conflict(
+            home.path(),
+            Some(sync.path()),
+            &conflict_id,
+            "use_remote",
+        )
+        .is_err());
+        assert_eq!(
+            fs::read(custom_skill_path(home.path(), relative)).unwrap(),
+            local,
+            "an obsolete upsert must not remain resolvable after a newer retired delete"
+        );
+    }
+
+    #[test]
     fn independently_published_case_collisions_are_resolvable_on_import() {
         let sync = tempfile::tempdir().unwrap();
         let home_a = setup_home("same-config");
