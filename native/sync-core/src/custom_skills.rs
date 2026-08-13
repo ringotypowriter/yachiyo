@@ -394,8 +394,47 @@ fn blocking_parent(root: &Path, target: &Path) -> Result<Option<PathBuf>, SyncEr
     Ok(None)
 }
 
+fn case_colliding_prefix(root: &Path, relative: &str) -> Result<Option<PathBuf>, SyncError> {
+    let mut current = root.to_path_buf();
+    for component in relative.split('/') {
+        let folded_component = component.to_lowercase();
+        let mut exact = None;
+        let entries = match fs::read_dir(&current) {
+            Ok(entries) => entries,
+            Err(error)
+                if error.kind() == std::io::ErrorKind::NotFound
+                    || error.kind() == std::io::ErrorKind::NotADirectory =>
+            {
+                return Ok(None)
+            }
+            Err(error) => return Err(SyncError::Io(error)),
+        };
+        for entry in entries {
+            let entry = entry?;
+            let Some(name) = entry.file_name().to_str().map(str::to_string) else {
+                continue;
+            };
+            if name == component {
+                exact = Some(entry.path());
+            } else if name.to_lowercase() == folded_component {
+                return Ok(Some(entry.path()));
+            }
+        }
+        let Some(next) = exact else {
+            return Ok(None);
+        };
+        current = next;
+    }
+    Ok(None)
+}
+
 fn remove_blocker(path: &Path) -> Result<(), SyncError> {
-    fs::remove_file(path)?;
+    let metadata = fs::symlink_metadata(path)?;
+    if metadata.is_dir() && !metadata.file_type().is_symlink() {
+        fs::remove_dir_all(path)?;
+    } else {
+        fs::remove_file(path)?;
+    }
     Ok(())
 }
 
@@ -615,6 +654,17 @@ fn apply_with_policy(
         CustomSkillChange::Upsert { executable, .. } => Some(*executable),
         CustomSkillChange::Delete => None,
     };
+    if let Some(collision) = case_colliding_prefix(&root, &parsed.relative)? {
+        if matches!(&parsed.change, CustomSkillChange::Delete) {
+            update_manifest_entry(conn, &parsed.relative, None, None)?;
+            return Ok(());
+        }
+        if !force_remote {
+            record_conflict(conn, op, "local:path-case-collision", &parsed.remote_hash)?;
+            return Ok(());
+        }
+        remove_blocker(&collision)?;
+    }
     if let Some(blocker) = blocking_parent(&root, &path)? {
         if matches!(&parsed.change, CustomSkillChange::Delete) {
             update_manifest_entry(conn, &parsed.relative, None, None)?;

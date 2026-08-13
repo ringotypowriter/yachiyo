@@ -2533,6 +2533,79 @@ mod tests {
     }
 
     #[test]
+    fn independently_published_case_collisions_are_resolvable_on_import() {
+        let sync = tempfile::tempdir().unwrap();
+        let home_a = setup_home("same-config");
+        let home_b = setup_home("same-config");
+        write_custom_skill_file(home_a.path(), "Tool/a", b"local A\n");
+        write_custom_skill_file(home_b.path(), "tool/b", b"remote B\n");
+        init_sync(home_a.path(), Some(sync.path()), "A").unwrap();
+        init_sync(home_b.path(), Some(sync.path()), "B").unwrap();
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        export_ops(home_b.path(), Some(sync.path())).unwrap();
+
+        import_ops(home_a.path(), Some(sync.path())).unwrap();
+
+        assert_eq!(
+            fs::read(custom_skill_path(home_a.path(), "Tool/a")).unwrap(),
+            b"local A\n"
+        );
+        assert!(!custom_skill_path(home_a.path(), "Tool/b").exists());
+        let conn = Connection::open(home_a.path().join(DB_FILE)).unwrap();
+        let conflict_id: String = conn
+            .query_row(
+                "SELECT id FROM sync_conflicts WHERE resolved_at IS NULL AND entity_id = 'tool/b'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        drop(conn);
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+
+        resolve_custom_skill_conflict(home_a.path(), Some(sync.path()), &conflict_id, "use_remote")
+            .unwrap();
+
+        assert!(!custom_skill_path(home_a.path(), "Tool/a").exists());
+        assert_eq!(
+            fs::read(custom_skill_path(home_a.path(), "tool/b")).unwrap(),
+            b"remote B\n"
+        );
+    }
+
+    #[test]
+    fn keeping_local_case_collision_does_not_block_later_exports() {
+        let sync = tempfile::tempdir().unwrap();
+        let home_a = setup_home("same-config");
+        let home_b = setup_home("same-config");
+        write_custom_skill_file(home_a.path(), "Tool/a", b"local A\n");
+        write_custom_skill_file(home_b.path(), "tool/b", b"remote B\n");
+        init_sync(home_a.path(), Some(sync.path()), "A").unwrap();
+        init_sync(home_b.path(), Some(sync.path()), "B").unwrap();
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        export_ops(home_b.path(), Some(sync.path())).unwrap();
+        import_ops(home_a.path(), Some(sync.path())).unwrap();
+        let conn = Connection::open(home_a.path().join(DB_FILE)).unwrap();
+        let conflict_id: String = conn
+            .query_row(
+                "SELECT id FROM sync_conflicts WHERE resolved_at IS NULL AND entity_id = 'tool/b'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        drop(conn);
+
+        resolve_custom_skill_conflict(home_a.path(), Some(sync.path()), &conflict_id, "keep_local")
+            .unwrap();
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+
+        assert_eq!(
+            fs::read(custom_skill_path(home_a.path(), "Tool/a")).unwrap(),
+            b"local A\n"
+        );
+        assert!(!custom_skill_path(home_a.path(), "Tool/b").exists());
+    }
+
+    #[test]
     fn parent_file_collisions_become_resolvable_custom_skill_conflicts() {
         let sync = tempfile::tempdir().unwrap();
         let home_a = setup_home("same-config");
