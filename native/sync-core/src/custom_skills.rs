@@ -1078,6 +1078,11 @@ pub(super) fn resolve_conflict(
     if resolution == "use_remote" {
         apply_with_policy(home, &tx, &op, true)?;
     } else {
+        let retired_tombstone_ids = match &parsed.change {
+            CustomSkillChange::Upsert { .. } => parsed.retired_tombstone_ids.clone(),
+            CustomSkillChange::Delete => parsed.delete_tombstones.keys().cloned().collect(),
+        };
+        retire_tombstone_entries(&tx, &parsed.relative, &retired_tombstone_ids)?;
         rebase_manifest_entry(&tx, &parsed.relative, &parsed.remote_hash)?;
     }
     tx.execute(
