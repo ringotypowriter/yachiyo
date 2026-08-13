@@ -27,7 +27,7 @@ export function formatTokensPerSecond(
 }
 
 export function normalizeRunModelLabel(modelId: string | undefined): string | null {
-  return modelId?.trim() || null
+  return modelId?.trim().split('/').pop()?.trim() || null
 }
 
 function compareRunsNewestFirst(left: RunRecord, right: RunRecord): number {
