@@ -109,6 +109,39 @@ function unavailableAttachment(
   }
 }
 
+function classifyQQBotFileAttachment(
+  attachment: QQBotC2CAttachment,
+  attachmentIndex: number
+):
+  | { kind: 'accepted'; filename: string; mediaType: string }
+  | {
+      kind: 'rejected'
+      reason: Extract<DirectMessageInboundAttachment, { kind: 'unavailable' }>['reason']
+    } {
+  const suppliedFilename = attachment.filename?.trim()
+  const fallbackExtension = resolvePreferredAttachmentExtension(attachment.contentType) ?? ''
+  const filename = suppliedFilename || `qqbot-file-${attachmentIndex}${fallbackExtension}`
+  const classification = classifyAttachmentFileSelection([
+    {
+      name: filename,
+      size: attachment.size,
+      ...(!hasExplicitAttachmentFileExtension(filename) && attachment.contentType
+        ? { type: attachment.contentType }
+        : {})
+    }
+  ])
+  const rejection = classification.rejected[0]
+  if (rejection) {
+    return { kind: 'rejected', reason: rejection.reason }
+  }
+
+  const accepted = classification.accepted[0]
+  if (!accepted) {
+    throw new Error('QQBot file classification produced no result')
+  }
+  return { kind: 'accepted', filename, mediaType: accepted.mediaType }
+}
+
 export function startQQBotAttachmentDownloads(
   attachments: readonly QQBotC2CAttachment[],
   options: {
@@ -149,32 +182,22 @@ export function startQQBotAttachmentDownloads(
       return Promise.resolve(unavailableAttachment(attachment, attachmentIndex, 'not-permitted'))
     }
 
+    const classification = classifyQQBotFileAttachment(attachment, attachmentIndex)
+    if (classification.kind === 'rejected') {
+      return Promise.resolve(
+        unavailableAttachment(attachment, attachmentIndex, classification.reason)
+      )
+    }
+
     fileCount += 1
     if (fileCount > options.policy.maxImagesPerBatch) {
       return Promise.resolve(unavailableAttachment(attachment, attachmentIndex, 'batch-limit'))
     }
 
     const url = attachment.url.startsWith('//') ? `https:${attachment.url}` : attachment.url
-    const suppliedFilename = attachment.filename?.trim()
-    const fallbackExtension = resolvePreferredAttachmentExtension(attachment.contentType) ?? ''
-    const filename = suppliedFilename || `qqbot-file-${attachmentIndex}${fallbackExtension}`
-    const classification = classifyAttachmentFileSelection([
-      {
-        name: filename,
-        size: attachment.size,
-        ...(!hasExplicitAttachmentFileExtension(filename) && attachment.contentType
-          ? { type: attachment.contentType }
-          : {})
-      }
-    ])
-    const rejection = classification.rejected[0]
-    if (rejection) {
-      return Promise.resolve(unavailableAttachment(attachment, attachmentIndex, rejection.reason))
-    }
-    const mediaType = classification.accepted[0]?.mediaType
     return fetchFile(url, {
-      filename,
-      mediaType,
+      filename: classification.filename,
+      mediaType: classification.mediaType,
       attachmentIndex
     }).then((file) =>
       file
@@ -184,15 +207,23 @@ export function startQQBotAttachmentDownloads(
   })
 }
 
-function countQQBotAttachmentKinds(attachments: readonly QQBotC2CAttachment[]): {
+function countQQBotAttachmentKinds(
+  attachments: readonly QQBotC2CAttachment[],
+  includeFiles: boolean
+): {
   images: number
   files: number
 } {
   let images = 0
   let files = 0
-  for (const attachment of attachments) {
+  for (const [index, attachment] of attachments.entries()) {
     if (isQQBotImageAttachment(attachment)) images += 1
-    else files += 1
+    else if (
+      includeFiles &&
+      classifyQQBotFileAttachment(attachment, index + 1).kind === 'accepted'
+    ) {
+      files += 1
+    }
   }
   return { images, files }
 }
@@ -405,9 +436,10 @@ export function createQQBotService({
         // Capture the msg_id at enqueue time so this turn's replies
         // always attach to the correct inbound message.
         const target: QQBotTarget = { openId, replyMsgId: msg.messageId }
+        const includeFiles = result.channelUser.role === 'owner'
         const initialCounts = directMessages.getPendingAttachmentSlotCounts(result.channelUser.id)
         const attachmentDownloads = startQQBotAttachmentDownloads(attachments, {
-          includeFiles: result.channelUser.role === 'owner',
+          includeFiles,
           policy,
           initialCounts
         })
@@ -416,7 +448,7 @@ export function createQQBotService({
           result.channelUser,
           text,
           attachmentDownloads,
-          countQQBotAttachmentKinds(attachments)
+          countQQBotAttachmentKinds(attachments, includeFiles)
         )
       }
     }
