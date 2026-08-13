@@ -6,6 +6,7 @@ use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
+use unicode_normalization::UnicodeNormalization;
 
 const META_EXPORT_MANIFEST: &str = "skills_export_manifest";
 const META_EXECUTABLE_MANIFEST: &str = "skills_executable_manifest";
@@ -75,6 +76,14 @@ fn select_executable(
     }
 }
 
+fn portable_path_key(component: &str) -> String {
+    component.to_lowercase().nfc().collect()
+}
+
+fn portable_components_collide(existing: &str, incoming: &str) -> bool {
+    existing != incoming && portable_path_key(existing) == portable_path_key(incoming)
+}
+
 fn validate_casefolded_paths<'a>(
     paths: impl IntoIterator<Item = &'a str>,
 ) -> Result<(), SyncError> {
@@ -88,7 +97,7 @@ fn validate_casefolded_paths<'a>(
                 folded_prefix.push('/');
             }
             original_prefix.push_str(component);
-            folded_prefix.push_str(&component.to_lowercase());
+            folded_prefix.push_str(&portable_path_key(component));
             if let Some(existing) = seen.get(&folded_prefix) {
                 if existing != &original_prefix {
                     return Err(SyncError::Message(format!(
@@ -397,7 +406,6 @@ fn blocking_parent(root: &Path, target: &Path) -> Result<Option<PathBuf>, SyncEr
 fn case_colliding_prefix(root: &Path, relative: &str) -> Result<Option<PathBuf>, SyncError> {
     let mut current = root.to_path_buf();
     for component in relative.split('/') {
-        let folded_component = component.to_lowercase();
         let mut exact = None;
         let entries = match fs::read_dir(&current) {
             Ok(entries) => entries,
@@ -416,7 +424,7 @@ fn case_colliding_prefix(root: &Path, relative: &str) -> Result<Option<PathBuf>,
             };
             if name == component {
                 exact = Some(entry.path());
-            } else if name.to_lowercase() == folded_component {
+            } else if portable_components_collide(&name, component) {
                 return Ok(Some(entry.path()));
             }
         }
@@ -554,6 +562,22 @@ fn record_conflict(
     Ok(())
 }
 
+fn supersede_older_conflicts(conn: &Connection, op: &SyncOp) -> Result<(), SyncError> {
+    conn.execute(
+        "UPDATE sync_conflicts
+         SET resolved_at = ?1, resolution = 'superseded'
+         WHERE resolved_at IS NULL
+           AND device_id = ?2
+           AND entity_type = 'skill'
+           AND entity_id = ?3
+           AND op_id IN (
+             SELECT op_id FROM sync_applied_ops WHERE device_id = ?2 AND seq < ?4
+           )",
+        params![now(), op.device_id, op.entity_id, op.seq],
+    )?;
+    Ok(())
+}
+
 fn parse_op(op: &SyncOp) -> Result<ParsedCustomSkillOp, SyncError> {
     if op.entity_type != "skill" {
         return Err(SyncError::Message(
@@ -648,6 +672,7 @@ fn apply_with_policy(
     force_remote: bool,
 ) -> Result<(), SyncError> {
     let parsed = parse_op(op)?;
+    supersede_older_conflicts(conn, op)?;
     let root = validated_root(home)?;
     let path = root.join(&parsed.relative);
     let remote_executable = match &parsed.change {
@@ -732,8 +757,10 @@ pub(super) fn resolve_conflict(
     let tx = conn.unchecked_transaction()?;
     let row = tx
         .query_row(
-            "SELECT op_id, device_id, entity_id, payload_json FROM sync_conflicts
-             WHERE id = ?1 AND entity_type = 'skill' AND resolved_at IS NULL",
+            "SELECT c.op_id, c.device_id, c.entity_id, c.payload_json, a.seq
+             FROM sync_conflicts c
+             JOIN sync_applied_ops a ON a.op_id = c.op_id
+             WHERE c.id = ?1 AND c.entity_type = 'skill' AND c.resolved_at IS NULL",
             [conflict_id],
             |row| {
                 Ok((
@@ -741,11 +768,35 @@ pub(super) fn resolve_conflict(
                     row.get::<_, String>(1)?,
                     row.get::<_, String>(2)?,
                     row.get::<_, String>(3)?,
+                    row.get::<_, i64>(4)?,
                 ))
             },
         )
         .optional()?
         .ok_or_else(|| SyncError::Message("pending custom skill conflict not found".to_string()))?;
+    let has_newer_conflict = tx
+        .query_row(
+            "SELECT 1
+             FROM sync_conflicts c
+             JOIN sync_applied_ops a ON a.op_id = c.op_id
+             WHERE c.device_id = ?1 AND c.entity_type = 'skill' AND c.entity_id = ?2 AND a.seq > ?3
+             LIMIT 1",
+            params![row.1, row.2, row.4],
+            |_| Ok(()),
+        )
+        .optional()?
+        .is_some();
+    if has_newer_conflict {
+        tx.execute(
+            "UPDATE sync_conflicts SET resolved_at = ?2, resolution = 'superseded'
+             WHERE id = ?1 AND resolved_at IS NULL",
+            params![conflict_id, now()],
+        )?;
+        tx.commit()?;
+        return Err(SyncError::Message(
+            "custom skill conflict was superseded by a newer operation".to_string(),
+        ));
+    }
     let payload: Value = serde_json::from_str(&row.3)?;
     let kind = if payload.get("deleted").and_then(Value::as_bool) == Some(true) {
         "skill.file.delete"
@@ -819,6 +870,14 @@ mod tests {
         assert!(validate_casefolded_paths(["Tool/SKILL.md", "tool/SKILL.md"]).is_err());
         assert!(validate_casefolded_paths(["Tool", "tool/SKILL.md"]).is_err());
         assert!(validate_casefolded_paths(["Tool/a", "tool/b"]).is_err());
+        assert!(validate_casefolded_paths(["caf\u{e9}/a", "cafe\u{301}/b"]).is_err());
         assert!(validate_casefolded_paths(["tool/SKILL.md", "tool/assets/Icon.png"]).is_ok());
+    }
+
+    #[test]
+    fn portable_component_comparison_normalizes_unicode() {
+        assert!(portable_components_collide("caf\u{e9}", "cafe\u{301}"));
+        assert!(portable_components_collide("Tool", "tool"));
+        assert!(!portable_components_collide("tool", "tool"));
     }
 }

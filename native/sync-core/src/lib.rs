@@ -2533,6 +2533,74 @@ mod tests {
     }
 
     #[test]
+    fn stale_custom_skill_conflicts_cannot_overwrite_a_newer_resolution() {
+        let sync = tempfile::tempdir().unwrap();
+        let home_a = setup_home("same-config");
+        let home_b = setup_home("same-config");
+        write_custom_skill_file(home_a.path(), "shared/SKILL.md", b"version one\n");
+        init_sync(home_a.path(), Some(sync.path()), "A").unwrap();
+        init_sync(home_b.path(), Some(sync.path()), "B").unwrap();
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+        write_custom_skill_file(home_b.path(), "shared/SKILL.md", b"local edit\n");
+
+        write_custom_skill_file(home_a.path(), "shared/SKILL.md", b"remote two\n");
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+        write_custom_skill_file(home_a.path(), "shared/SKILL.md", b"remote three\n");
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+
+        let conn = Connection::open(home_b.path().join(DB_FILE)).unwrap();
+        let conflicts = conn
+            .prepare(
+                "SELECT c.id FROM sync_conflicts c
+                 JOIN sync_applied_ops a ON a.op_id = c.op_id
+                 WHERE c.entity_id = 'shared/SKILL.md'
+                 ORDER BY a.seq",
+            )
+            .unwrap()
+            .query_map([], |row| row.get::<_, String>(0))
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        assert_eq!(conflicts.len(), 2);
+        let states = conn
+            .prepare(
+                "SELECT c.resolution FROM sync_conflicts c
+                 JOIN sync_applied_ops a ON a.op_id = c.op_id
+                 WHERE c.entity_id = 'shared/SKILL.md'
+                 ORDER BY a.seq",
+            )
+            .unwrap()
+            .query_map([], |row| row.get::<_, Option<String>>(0))
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        assert_eq!(states, vec![Some("superseded".to_string()), None]);
+        drop(conn);
+
+        resolve_custom_skill_conflict(
+            home_b.path(),
+            Some(sync.path()),
+            &conflicts[1],
+            "use_remote",
+        )
+        .unwrap();
+        assert!(resolve_custom_skill_conflict(
+            home_b.path(),
+            Some(sync.path()),
+            &conflicts[0],
+            "use_remote",
+        )
+        .is_err());
+        assert_eq!(
+            fs::read(custom_skill_path(home_b.path(), "shared/SKILL.md")).unwrap(),
+            b"remote three\n"
+        );
+    }
+
+    #[test]
     fn independently_published_case_collisions_are_resolvable_on_import() {
         let sync = tempfile::tempdir().unwrap();
         let home_a = setup_home("same-config");
