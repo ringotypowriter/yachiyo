@@ -658,6 +658,12 @@ export function buildConversationGroupRows(
     shouldSummarizeCompletedWork && summarizedFinalTextBlock
       ? renderableTextBlocks.slice(0, -1)
       : []
+  const shouldShowCompletedToolOnlyFooter =
+    activeAssistantMessage?.status === 'completed' &&
+    activeAssistantTextBlocks.length === 0 &&
+    workSummaryToolCalls.length > 0 &&
+    !shouldSummarizeCompletedWork &&
+    !hasCompletedPlanExitToolCall
 
   if (!group.userMessage.hidden) {
     rows.push({
@@ -886,7 +892,7 @@ export function buildConversationGroupRows(
 
   if (
     activeAssistantMessage &&
-    activeAssistantTextBlocks.length > 0 &&
+    (activeAssistantTextBlocks.length > 0 || shouldShowCompletedToolOnlyFooter) &&
     activeAssistantMessage.status !== 'streaming' &&
     !input.subagentActive
   ) {

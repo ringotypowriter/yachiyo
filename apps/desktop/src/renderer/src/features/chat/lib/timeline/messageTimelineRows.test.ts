@@ -748,12 +748,13 @@ test('buildConversationGroupRows summarizes completed tool-only work when many t
   )
 })
 
-test('buildConversationGroupRows keeps short tool-only work expanded', () => {
+test('buildConversationGroupRows keeps short tool-only work expanded with run stats', () => {
   const group = createGroup({
     activeAssistant: createAssistantMessage({
       id: 'assistant-1',
       content: '',
-      status: 'completed'
+      status: 'completed',
+      modelId: 'google/gemini-3-flash'
     })
   })
 
@@ -772,13 +773,24 @@ test('buildConversationGroupRows keeps short tool-only work expanded', () => {
         startedAt: '2026-04-18T00:00:01.000Z'
       }
     ],
-    runs: [],
+    runs: [
+      {
+        id: 'run-1',
+        threadId: 'thread-1',
+        requestMessageId: 'user-1',
+        status: 'completed',
+        modelId: 'google/gemini-3-flash',
+        createdAt: '2026-04-18T00:00:00.000Z',
+        completedAt: '2026-04-18T00:00:02.000Z'
+      }
+    ],
     activeRunId: null,
     isActiveGroup: false,
     subagentActive: false
   })
 
-  assert.deepEqual(rowKinds(rows), ['group-user', 'group-tool-call'])
+  assert.deepEqual(rowKinds(rows), ['group-user', 'group-tool-call', 'group-footer'])
+  assert.equal(rows.find((row) => row.kind === 'group-footer')?.showRunStats, true)
 })
 
 test('buildConversationGroupRows summarizes completed hidden-steer tool work before the final text block', () => {
