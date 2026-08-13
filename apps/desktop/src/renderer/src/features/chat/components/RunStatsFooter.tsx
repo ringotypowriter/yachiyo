@@ -10,7 +10,8 @@ import { DiffPreviewerModal } from './DiffPreviewerModal'
 import {
   countToolCallsForRun,
   findLatestRunForRequests,
-  formatTokensPerSecond
+  formatTokensPerSecond,
+  normalizeRunModelLabel
 } from '../lib/run-memory/runMemoryPresentation.ts'
 
 interface RunStatsFooterProps {
@@ -65,6 +66,7 @@ export function RunStatsFooter({
       runId: run.id,
       threadId: run.threadId,
       fileCount,
+      modelLabel: normalizeRunModelLabel(run.modelId),
       toolCallCount,
       tokensPerSecondLabel,
       workspacePath: run.workspacePath ?? snapshotReviewByRun[run.id]?.workspacePath ?? ''
@@ -84,13 +86,16 @@ export function RunStatsFooter({
   const showElapsed = runInfo.elapsedMs >= ELAPSED_THRESHOLD_S * 1000
   const showTokensPerSecond = runInfo.tokensPerSecondLabel !== null
   const showToolCalls = runInfo.toolCallCount >= TOOL_CALL_THRESHOLD
+  const showModelLabel = runInfo.modelLabel !== null
   const hasSnapshot = runInfo.fileCount > 0 && runInfo.workspacePath.length > 0
-  if (!showElapsed && !showTokensPerSecond && !showToolCalls && !hasSnapshot) return null
+  if (!showElapsed && !showTokensPerSecond && !showToolCalls && !showModelLabel && !hasSnapshot) {
+    return null
+  }
 
   return (
     <>
       <div
-        className="message-footer message-footer--always-visible inline-flex items-center gap-2.5"
+        className="message-footer message-footer--always-visible flex min-w-0 w-full items-center gap-2.5"
         style={{ color: theme.text.muted }}
       >
         {showElapsed ? (
@@ -138,6 +143,9 @@ export function RunStatsFooter({
               count: runInfo.fileCount
             })}
           </button>
+        ) : null}
+        {showModelLabel ? (
+          <span className="ml-auto min-w-0 truncate pl-4 text-right">{runInfo.modelLabel}</span>
         ) : null}
       </div>
       {showDiffModal ? (

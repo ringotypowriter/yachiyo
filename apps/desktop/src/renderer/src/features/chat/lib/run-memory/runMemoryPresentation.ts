@@ -26,6 +26,10 @@ export function formatTokensPerSecond(
   return tokensPerSecond === null ? null : `${Math.round(tokensPerSecond * 10) / 10} tok/s`
 }
 
+export function normalizeRunModelLabel(modelId: string | undefined): string | null {
+  return modelId?.trim() || null
+}
+
 function compareRunsNewestFirst(left: RunRecord, right: RunRecord): number {
   const leftFinishedAt = left.completedAt ?? left.createdAt
   const rightFinishedAt = right.completedAt ?? right.createdAt
