@@ -75,6 +75,21 @@ fn select_executable(
     }
 }
 
+fn validate_casefolded_paths<'a>(
+    paths: impl IntoIterator<Item = &'a str>,
+) -> Result<(), SyncError> {
+    let mut seen = BTreeMap::<String, &'a str>::new();
+    for path in paths {
+        let folded = path.to_lowercase();
+        if let Some(existing) = seen.insert(folded, path) {
+            return Err(SyncError::Message(format!(
+                "custom skill paths differ only by case: {existing} and {path}"
+            )));
+        }
+    }
+    Ok(())
+}
+
 fn scan(
     home: &Path,
     executable_manifest: &BTreeMap<String, bool>,
@@ -154,6 +169,7 @@ fn scan(
     let root = validated_root(home)?;
     let mut files = BTreeMap::new();
     visit(&root, &root, executable_manifest, &mut files)?;
+    validate_casefolded_paths(files.keys().map(String::as_str))?;
     Ok(files)
 }
 
@@ -733,5 +749,11 @@ mod tests {
             );
         }
         assert!(validate_relative_path("valid-skill/.hidden file.md").is_ok());
+    }
+
+    #[test]
+    fn case_colliding_paths_are_rejected_before_export() {
+        assert!(validate_casefolded_paths(["Tool/SKILL.md", "tool/SKILL.md"]).is_err());
+        assert!(validate_casefolded_paths(["tool/SKILL.md", "tool/assets/Icon.png"]).is_ok());
     }
 }
