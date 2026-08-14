@@ -1,12 +1,13 @@
 ---
 title: Sync
-description: Share settings and chat archives through a folder you control — iCloud Drive, OneDrive, or anywhere else.
+description: Share settings, custom skills, and chat archives through a folder you control — iCloud Drive, OneDrive, or anywhere else.
 ---
 
-Sync moves two things between your devices: your **settings** and your **chat
-archives**. It works through a plain folder, so there is no Yachiyo account and
-no server in the middle. Yachiyo recommends iCloud Drive on macOS and OneDrive
-on Windows, but any folder you keep in sync yourself works the same way.
+Sync moves three things between your devices: your **settings**, your **custom
+skills**, and your **chat archives**. It works through a plain folder, so there
+is no Yachiyo account and no server in the middle. Yachiyo recommends iCloud
+Drive on macOS and OneDrive on Windows, but any folder you keep in sync yourself
+works the same way.
 
 Set it up in **Settings → Sync**.
 
@@ -26,10 +27,15 @@ choose any folder managed by another sync provider instead.
 
 ## What syncs, and what it costs you
 
-**Settings** sync bidirectionally. **Chat archives** from other devices arrive
-**read-only** — you can read a conversation that started on your laptop from your
-desktop, but you cannot continue it there. Threads stay owned by the device that
-created them.
+**Settings** and files under `skills/custom/` sync bidirectionally. A custom
+skill includes its whole directory — `SKILL.md`, references, assets, binaries,
+and scripts. Generated dependency and version-control trees (`node_modules` and
+`.git`), `.DS_Store`, and symbolic links are excluded. Bundled `skills/core/`
+content is installed with the app and does not sync.
+
+**Chat archives** from other devices arrive **read-only** — you can read a
+conversation that started on your laptop from your desktop, but you cannot
+continue it there. Threads stay owned by the device that created them.
 
 Sync runs on its own: a debounced push after changes and a periodic pull, with a
 single-flight lock so two passes never overlap. **Sync Now** forces a pass when
@@ -37,14 +43,15 @@ you do not want to wait.
 
 ## Conflicts
 
-Two devices editing the same setting produce a conflict, and Yachiyo does not
-guess. **Settings → Sync → Conflicts** lists each one with the fields that
-differ, a hash of each version, and per-field resolution:
+Two devices editing the same setting or custom-skill file produce a conflict,
+and Yachiyo does not guess. **Settings → Sync → Conflicts** lists each one.
+Settings conflicts include the fields that differ; skill conflicts identify the
+file and the hashes of both versions.
 
 - **Keep This Device** — your local value wins.
-- **Use Synced Version** — replaces this device's settings with the synced one.
-  This is confirmed before it applies, because it is destructive.
-- **Copy Synced TOML** — grab the incoming version to inspect by hand.
+- **Use Synced Version** — replaces this device's setting or skill file with the
+  synced one. This is confirmed before it applies, because it is destructive.
+- **Copy Synced Data** — grab the incoming version to inspect by hand.
 
 Once you resolve a conflict, that exact pair of versions is remembered, so the
 same disagreement is not raised at you again on every subsequent pass.
@@ -67,5 +74,6 @@ It also shows the device count and how many conflicts are pending.
 Model-provider API keys and Vertex private keys stay in the device-local
 encrypted vault and are not synced. Settings sync still copies `config.toml`,
 which can contain other sensitive values such as an Exa web-search API key. Do
-not use a shared team drive or a public link.
+not use a shared team drive or a public link. Custom skills are copied as a full
+tree, including script contents, so remove hard-coded keys before enabling sync.
 :::

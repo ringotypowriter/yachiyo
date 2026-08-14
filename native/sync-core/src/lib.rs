@@ -1,8 +1,10 @@
+mod custom_skills;
+
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::env;
 use std::fmt;
 use std::fs::{self, File};
@@ -20,8 +22,11 @@ const META_SETTINGS_HASH: &str = "settings_export_hash";
 /// export or last adopt). Declared as an op's `baseHash` so a peer that hasn't
 /// locally edited since can fast-forward instead of recording a phantom conflict.
 const META_SETTINGS_BASE_HASH: &str = "settings_base_hash";
+const META_OPS_V2_HISTORY: &str = "ops_v2_history";
+const META_ARCHIVE_TOMBSTONES: &str = "archive_export_tombstones";
 const OPS_DIR_V1: &str = "ops";
 const OPS_DIR_V2: &str = "ops-v2";
+const OPS_DIR_V3: &str = "ops-v3";
 
 #[derive(Debug)]
 pub enum SyncError {
@@ -97,6 +102,7 @@ pub struct CommandOutput {
     pub exported_ops: usize,
     pub imported_ops: usize,
     pub changed_thread_ids: Vec<String>,
+    pub custom_skills_disclosure: bool,
     pub last_exported_seq: i64,
     pub applied_op_count: usize,
     pub pending_op_count: usize,
@@ -148,6 +154,18 @@ struct SyncOp {
     payload: Value,
     #[serde(rename = "payloadHash")]
     payload_hash: String,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+struct ArchiveTombstone {
+    kind: String,
+    entity_type: String,
+    entity_id: String,
+}
+
+struct DirtyExportPlan {
+    processed: Vec<i64>,
+    tombstones: BTreeMap<String, ArchiveTombstone>,
 }
 
 struct ImportFile {
@@ -433,6 +451,55 @@ fn backfill_dirty(conn: &Connection) -> Result<(), SyncError> {
     Ok(())
 }
 
+fn archive_tombstone_key(entity_type: &str, entity_id: &str) -> String {
+    format!("{entity_type}:{entity_id}")
+}
+
+fn load_archive_tombstones(
+    conn: &Connection,
+) -> Result<BTreeMap<String, ArchiveTombstone>, SyncError> {
+    match get_meta(conn, META_ARCHIVE_TOMBSTONES)? {
+        Some(text) => Ok(serde_json::from_str(&text)?),
+        None => Ok(BTreeMap::new()),
+    }
+}
+
+fn save_archive_tombstones(
+    conn: &Connection,
+    tombstones: &BTreeMap<String, ArchiveTombstone>,
+) -> Result<(), SyncError> {
+    set_meta(
+        conn,
+        META_ARCHIVE_TOMBSTONES,
+        &serde_json::to_string(tombstones)?,
+    )
+}
+
+fn archive_entity_is_deleted(
+    conn: &Connection,
+    tombstone: &ArchiveTombstone,
+) -> Result<bool, SyncError> {
+    let table = match tombstone.entity_type.as_str() {
+        "thread" => "threads",
+        "message" => "messages",
+        "toolcall" => "tool_calls",
+        _ => {
+            return Err(SyncError::Message(format!(
+                "unsupported archive tombstone entity type: {}",
+                tombstone.entity_type
+            )))
+        }
+    };
+    if !table_exists(conn, table)? {
+        return Ok(true);
+    }
+    let Some(payload) = fetch_row_json(conn, table, &tombstone.entity_id)? else {
+        return Ok(true);
+    };
+    Ok(tombstone.entity_type == "thread"
+        && payload.get("head_message_id").is_none_or(Value::is_null))
+}
+
 fn get_meta(conn: &Connection, key: &str) -> Result<Option<String>, SyncError> {
     Ok(conn
         .query_row("SELECT value FROM sync_meta WHERE key = ?1", [key], |row| {
@@ -550,6 +617,10 @@ fn ensure_universe(
 }
 
 fn atomic_write(path: &Path, content: &str) -> Result<(), SyncError> {
+    atomic_write_bytes(path, content.as_bytes())
+}
+
+fn atomic_write_bytes(path: &Path, content: &[u8]) -> Result<(), SyncError> {
     let parent = path
         .parent()
         .ok_or_else(|| SyncError::Message("path has no parent".to_string()))?;
@@ -562,7 +633,7 @@ fn atomic_write(path: &Path, content: &str) -> Result<(), SyncError> {
     ));
     {
         let mut file = File::create(&tmp)?;
-        file.write_all(content.as_bytes())?;
+        file.write_all(content)?;
         file.sync_all()?;
     }
     fs::rename(tmp, path)?;
@@ -627,6 +698,7 @@ pub fn init_sync(
     let device_id = get_or_create_device(&conn, device_label)?;
     fs::create_dir_all(device_ops_dir(&sync_dir, &device_id, OPS_DIR_V1))?;
     fs::create_dir_all(device_ops_dir(&sync_dir, &device_id, OPS_DIR_V2))?;
+    fs::create_dir_all(device_ops_dir(&sync_dir, &device_id, OPS_DIR_V3))?;
     let label = get_device_label(&conn, &device_id)?;
     // Don't reset export progress if this device already published before.
     let existing = read_manifest(&sync_dir, &device_id);
@@ -698,10 +770,18 @@ pub fn export_ops(
     let exported_at = now();
     let seq = next_export_seq(&sync_dir, &device_id)?;
 
-    // No published ops files (first export, or the sync dir was wiped): re-enqueue
-    // every local row so a fresh/recovering peer gets the full archive. In steady
-    // state (seq > 1) we emit only what changed since the last export.
-    let full_resync = seq == 1;
+    // Each operation directory is independent recovery evidence. V1 always has
+    // a settings/archive snapshot to rebuild. V2 is only expected after this
+    // device has actually published delete history; an empty v2 on a device
+    // that has never deleted anything is not data loss.
+    let has_v1_history = has_ops_history(&sync_dir, &device_id, OPS_DIR_V1)?;
+    let has_v2_history = has_ops_history(&sync_dir, &device_id, OPS_DIR_V2)?;
+    let v2_history_expected =
+        has_v2_history || get_meta(&conn, META_OPS_V2_HISTORY)?.as_deref() == Some("present");
+    let v1_full_resync = !has_v1_history;
+    let v2_full_resync = !has_v2_history && v2_history_expected;
+    let full_resync = v1_full_resync || v2_full_resync;
+    let custom_skills_full_resync = !has_ops_history(&sync_dir, &device_id, OPS_DIR_V3)?;
     if full_resync {
         backfill_dirty(&conn)?;
     }
@@ -712,15 +792,24 @@ pub fn export_ops(
     let ops_v2_path = device_dir(&sync_dir, &device_id)
         .join(OPS_DIR_V2)
         .join(format!("{seq:016}.jsonl"));
+    let ops_v3_path = device_dir(&sync_dir, &device_id)
+        .join(OPS_DIR_V3)
+        .join(format!("{seq:016}.jsonl"));
     let mut ops_v1 = OpsFileWriter::create(&ops_v1_path)?;
     let mut ops_v2 = OpsFileWriter::create(&ops_v2_path)?;
+    let mut ops_v3 = OpsFileWriter::create(&ops_v3_path)?;
+    let skill_plan =
+        custom_skills::plan_export(home, &conn, &device_id, seq, custom_skills_full_resync)?;
+    for op in &skill_plan.ops {
+        ops_v3.write_op(op)?;
+    }
     let settings_text = fs::read_to_string(settings_path(home))
         .ok()
         .map(|text| strip_local_only_settings_tables(&text));
     let settings_hash = settings_text.as_deref().map(hash_text);
     let settings_changed = match &settings_hash {
         Some(hash) => {
-            full_resync || get_meta(&conn, META_SETTINGS_HASH)?.as_deref() != Some(hash.as_str())
+            v1_full_resync || get_meta(&conn, META_SETTINGS_HASH)?.as_deref() != Some(hash.as_str())
         }
         None => false,
     };
@@ -750,7 +839,7 @@ pub fn export_ops(
         }
     }
 
-    let processed_dirty = export_dirty_ops(&conn, &device_id, seq, |op| {
+    let dirty_plan = export_dirty_ops(&conn, &device_id, seq, v2_full_resync, |op| {
         if op_requires_v2_dir(&op) {
             ops_v2.write_op(&op)
         } else {
@@ -758,16 +847,36 @@ pub fn export_ops(
         }
     })?;
 
+    let skill_ops_count = ops_v3.count;
+    let mut legacy_marker_count = 0;
+    let needs_legacy_marker =
+        ops_v1.count == 0 && (v1_full_resync || ops_v2.count > 0 || skill_ops_count > 0);
+    if needs_legacy_marker {
+        ops_v1.write_op(&make_op(
+            &device_id,
+            seq,
+            "sync.sequence",
+            "sync",
+            &format!("{device_id}:{seq}"),
+            json!({}),
+        )?)?;
+        legacy_marker_count = 1;
+    }
+
     // Publish a delta file only when there's something to ship. An empty `ops`
     // here means the queue held only skippable rows (deleted before export, or
     // synced archives) — we still clear them below so create/delete churn can't
     // accumulate.
     let ops_v1_count = ops_v1.count;
     let ops_v2_count = ops_v2.count;
-    let exported_count = ops_v1_count + ops_v2_count;
-    let last_exported_at = if exported_count == 0 {
+    let ops_v3_count = ops_v3.count;
+    let published_count = ops_v1_count + ops_v2_count + ops_v3_count;
+    let exported_count = published_count - legacy_marker_count;
+    let custom_skills_disclosure = skill_ops_count > 0 && custom_skills::needs_disclosure(&conn)?;
+    let last_exported_at = if published_count == 0 {
         ops_v1.discard()?;
         ops_v2.discard()?;
+        ops_v3.discard()?;
         None
     } else {
         if ops_v1_count == 0 {
@@ -779,6 +888,28 @@ pub fn export_ops(
             ops_v2.discard()?;
         } else {
             ops_v2.commit()?;
+        }
+        if ops_v3_count == 0 {
+            ops_v3.discard()?;
+        } else {
+            ops_v3.commit()?;
+            custom_skills::save_export_state(
+                &conn,
+                &skill_plan.manifest,
+                &skill_plan.executable_manifest,
+            )?;
+            custom_skills::save_export_upsert_state(
+                &conn,
+                &skill_plan.generations,
+                &skill_plan.pending_upserts,
+                &skill_plan.retired_upserts,
+            )?;
+            custom_skills::save_export_tombstone_state(
+                &conn,
+                &skill_plan.tombstones,
+                &skill_plan.pending_tombstones,
+                &skill_plan.retired_tombstones,
+            )?;
         }
         write_manifest(
             &sync_dir,
@@ -795,16 +926,27 @@ pub fn export_ops(
                 set_meta(&conn, META_SETTINGS_BASE_HASH, hash)?;
             }
         }
+        if custom_skills_disclosure {
+            custom_skills::mark_disclosure_shown(&conn)?;
+        }
         Some(exported_at)
     };
 
+    save_archive_tombstones(&conn, &dirty_plan.tombstones)?;
+
+    if ops_v2_count > 0 || has_v2_history {
+        set_meta(&conn, META_OPS_V2_HISTORY, "present")?;
+    } else if v2_full_resync {
+        set_meta(&conn, META_OPS_V2_HISTORY, "recovered")?;
+    }
+
     // Clear every dirty row we processed (emitted or intentionally skipped) only
     // after publish succeeds. Tombstones waiting for old peers stay queued.
-    for dirty_seq in processed_dirty {
+    for dirty_seq in dirty_plan.processed {
         conn.execute("DELETE FROM sync_dirty WHERE seq = ?1", [dirty_seq])?;
     }
 
-    output(
+    let mut result = output(
         home,
         &sync_dir,
         Some(device_id),
@@ -814,7 +956,9 @@ pub fn export_ops(
         last_exported_at,
         None,
         None,
-    )
+    )?;
+    result.custom_skills_disclosure = custom_skills_disclosure;
+    Ok(result)
 }
 
 fn make_op(
@@ -885,14 +1029,36 @@ fn child_belongs_to_non_exportable_thread(
 /// Content fingerprint of an export, independent of op_id / seq / timestamps, so
 /// an unchanged settings+threads snapshot yields the same value every time. Used
 /// to skip re-exporting identical data on every auto-sync cycle.
-/// Drain the dirty queue into upsert/delete ops. Returns dirty sequence ids that
-/// were emitted or intentionally skipped and can be cleared after publish.
+/// Drain the dirty queue into upsert/delete ops and retain delete identities for
+/// rebuilding a lost v2 history. Dirty sequence ids are cleared only after the
+/// returned operations publish successfully.
 fn export_dirty_ops(
     conn: &Connection,
     device_id: &str,
     seq: i64,
+    recover_tombstones: bool,
     mut emit: impl FnMut(SyncOp) -> Result<(), SyncError>,
-) -> Result<Vec<i64>, SyncError> {
+) -> Result<DirtyExportPlan, SyncError> {
+    let mut tombstones = load_archive_tombstones(conn)?;
+    for key in tombstones.keys().cloned().collect::<Vec<_>>() {
+        if !archive_entity_is_deleted(conn, &tombstones[&key])? {
+            tombstones.remove(&key);
+        }
+    }
+    let mut emitted_tombstones = HashSet::new();
+    if recover_tombstones {
+        for (key, tombstone) in &tombstones {
+            emit(make_op(
+                device_id,
+                seq,
+                &tombstone.kind,
+                &tombstone.entity_type,
+                &tombstone.entity_id,
+                json!({ "id": tombstone.entity_id }),
+            )?)?;
+            emitted_tombstones.insert(key.clone());
+        }
+    }
     let mut stmt =
         conn.prepare("SELECT seq, entity_type, entity_id FROM sync_dirty ORDER BY seq ASC")?;
     let dirty: Vec<(i64, String, String)> = stmt
@@ -918,15 +1084,26 @@ fn export_dirty_ops(
             processed.push(dirty_seq);
             continue;
         }
+        let tombstone_key = archive_tombstone_key(&entity_type, &entity_id);
         let Some(mut payload) = fetch_row_json(conn, table, &entity_id)? else {
-            emit(make_op(
-                device_id,
-                seq,
-                delete_kind,
-                &entity_type,
-                &entity_id,
-                json!({ "id": entity_id }),
-            )?)?;
+            tombstones.insert(
+                tombstone_key.clone(),
+                ArchiveTombstone {
+                    kind: delete_kind.to_string(),
+                    entity_type: entity_type.clone(),
+                    entity_id: entity_id.clone(),
+                },
+            );
+            if emitted_tombstones.insert(tombstone_key) {
+                emit(make_op(
+                    device_id,
+                    seq,
+                    delete_kind,
+                    &entity_type,
+                    &entity_id,
+                    json!({ "id": entity_id }),
+                )?)?;
+            }
             processed.push(dirty_seq);
             continue;
         };
@@ -934,10 +1111,12 @@ fn export_dirty_ops(
         // cross-device archive. Imported archives are read-only mirrors, and
         // schedule-created run threads are device-local history entries.
         if entity_type == "thread" && thread_payload_should_not_export(&payload) {
+            tombstones.remove(&tombstone_key);
             processed.push(dirty_seq);
             continue;
         }
         if entity_type != "thread" && child_belongs_to_non_exportable_thread(conn, &payload)? {
+            tombstones.remove(&tombstone_key);
             processed.push(dirty_seq);
             continue;
         }
@@ -945,23 +1124,35 @@ fn export_dirty_ops(
         // not publish a delete tombstone before the first real message/title/icon
         // update has a chance to export.
         if entity_type == "thread" && is_fresh_empty_thread(&payload) {
+            tombstones.remove(&tombstone_key);
             processed.push(dirty_seq);
             continue;
         }
         // Other empty local threads export as delete tombstones. A thread emptied
         // by deleting its last message clears the previously imported archive row.
         if entity_type == "thread" && payload.get("head_message_id").is_none_or(|v| v.is_null()) {
-            emit(make_op(
-                device_id,
-                seq,
-                delete_kind,
-                &entity_type,
-                &entity_id,
-                json!({ "id": entity_id }),
-            )?)?;
+            tombstones.insert(
+                tombstone_key.clone(),
+                ArchiveTombstone {
+                    kind: delete_kind.to_string(),
+                    entity_type: entity_type.clone(),
+                    entity_id: entity_id.clone(),
+                },
+            );
+            if emitted_tombstones.insert(tombstone_key) {
+                emit(make_op(
+                    device_id,
+                    seq,
+                    delete_kind,
+                    &entity_type,
+                    &entity_id,
+                    json!({ "id": entity_id }),
+                )?)?;
+            }
             processed.push(dirty_seq);
             continue;
         }
+        tombstones.remove(&tombstone_key);
         // Drop the heaviest message column from the archive. `response_messages` is
         // the raw provider transcript (the dominant ~500MB of a full DB) — it only
         // feeds run resume and the renderer's tool raw-input/output trace. On a
@@ -983,7 +1174,10 @@ fn export_dirty_ops(
         )?)?;
         processed.push(dirty_seq);
     }
-    Ok(processed)
+    Ok(DirtyExportPlan {
+        processed,
+        tombstones,
+    })
 }
 
 /// Message columns dropped from the read-only archive export. `response_messages`
@@ -1009,7 +1203,7 @@ fn fetch_row_json(conn: &Connection, table: &str, id: &str) -> Result<Option<Val
 
 fn next_export_seq(sync_dir: &Path, device_id: &str) -> Result<i64, SyncError> {
     let mut max_seq = 0;
-    for ops_dir_name in [OPS_DIR_V1, OPS_DIR_V2] {
+    for ops_dir_name in [OPS_DIR_V1, OPS_DIR_V2, OPS_DIR_V3] {
         let ops_dir = device_ops_dir(sync_dir, device_id, ops_dir_name);
         fs::create_dir_all(&ops_dir)?;
         for entry in fs::read_dir(ops_dir)? {
@@ -1021,6 +1215,26 @@ fn next_export_seq(sync_dir: &Path, device_id: &str) -> Result<i64, SyncError> {
         }
     }
     Ok(max_seq + 1)
+}
+
+fn has_ops_history(
+    sync_dir: &Path,
+    device_id: &str,
+    ops_dir_name: &str,
+) -> Result<bool, SyncError> {
+    let ops_dir = device_ops_dir(sync_dir, device_id, ops_dir_name);
+    fs::create_dir_all(&ops_dir)?;
+    for entry in fs::read_dir(ops_dir)? {
+        if entry?
+            .path()
+            .extension()
+            .and_then(|extension| extension.to_str())
+            == Some("jsonl")
+        {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 fn sqlite_value(value: rusqlite::types::Value) -> Value {
@@ -1091,6 +1305,7 @@ pub fn import_ops(
     let mut changed_thread_ids = HashSet::new();
     let mut transient_error: Option<String> = None;
     let mut blocked_devices = HashSet::new();
+    let mut saw_custom_skill_op = false;
     for file in plan.files {
         let file_device = import_key_device_seq(&file.key).map(|(device_id, _)| device_id);
         if file_device
@@ -1102,6 +1317,9 @@ pub fn import_ops(
         // A file that fails to read is likely still downloading from iCloud:
         // skip it (don't record it as applied) and report a transient error.
         let result = for_each_op_in_file(&file.path, |op| {
+            if op.kind == "skill.file.upsert" || op.kind == "skill.file.delete" {
+                saw_custom_skill_op = true;
+            }
             // Business write + applied-ops bookkeeping commit together, so a
             // crash mid-import can never leave an op half-applied.
             let tx = conn.unchecked_transaction()?;
@@ -1158,6 +1376,10 @@ pub fn import_ops(
         &mut changed_thread_ids,
     )?;
     let last_imported_at = if imported > 0 { Some(now()) } else { None };
+    let custom_skills_disclosure = saw_custom_skill_op && custom_skills::needs_disclosure(&conn)?;
+    if custom_skills_disclosure {
+        custom_skills::mark_disclosure_shown(&conn)?;
+    }
     let mut result = output(
         home,
         &sync_dir,
@@ -1171,6 +1393,7 @@ pub fn import_ops(
     )?;
     result.changed_thread_ids = changed_thread_ids.into_iter().collect();
     result.changed_thread_ids.sort_unstable();
+    result.custom_skills_disclosure = custom_skills_disclosure;
     Ok(result)
 }
 
@@ -1214,7 +1437,7 @@ fn op_files(sync_dir: &Path) -> Result<Vec<PathBuf>, SyncError> {
     }
     for device in fs::read_dir(devices)? {
         let device_path = device?.path();
-        for ops_dir_name in [OPS_DIR_V1, OPS_DIR_V2] {
+        for ops_dir_name in [OPS_DIR_V1, OPS_DIR_V2, OPS_DIR_V3] {
             let ops = device_path.join(ops_dir_name);
             if !ops.exists() {
                 continue;
@@ -1229,7 +1452,6 @@ fn op_files(sync_dir: &Path) -> Result<Vec<PathBuf>, SyncError> {
     }
     files.sort_by_key(|path| {
         import_file_device_seq(sync_dir, path)
-            .map(|(device_id, seq)| (device_id, seq))
             .unwrap_or_else(|| (path.display().to_string(), i64::MAX))
     });
     Ok(files)
@@ -1294,7 +1516,7 @@ fn import_file_device_seq(sync_dir: &Path, path: &Path) -> Option<(String, i64)>
         .collect::<Vec<_>>();
     if parts.len() != 4
         || parts[0] != "devices"
-        || (parts[2] != OPS_DIR_V1 && parts[2] != OPS_DIR_V2)
+        || (parts[2] != OPS_DIR_V1 && parts[2] != OPS_DIR_V2 && parts[2] != OPS_DIR_V3)
     {
         return None;
     }
@@ -1306,7 +1528,7 @@ fn import_key_device_seq(key: &str) -> Option<(String, i64)> {
     let parts = key.split('/').collect::<Vec<_>>();
     if parts.len() != 4
         || parts[0] != "devices"
-        || (parts[2] != OPS_DIR_V1 && parts[2] != OPS_DIR_V2)
+        || (parts[2] != OPS_DIR_V1 && parts[2] != OPS_DIR_V2 && parts[2] != OPS_DIR_V3)
     {
         return None;
     }
@@ -1573,6 +1795,7 @@ fn apply_op(
     }
     match op.kind.as_str() {
         "settings.snapshot" => apply_settings(home, conn, op)?,
+        "skill.file.upsert" | "skill.file.delete" => custom_skills::apply(home, conn, op)?,
         "thread.archive.upsert" => {
             insert_json_row(conn, "threads", &op.payload, Some((&op.device_id, now())))?
         }
@@ -1909,6 +2132,19 @@ fn json_to_sql(value: &Value) -> rusqlite::types::Value {
     }
 }
 
+pub fn resolve_custom_skill_conflict(
+    home: &Path,
+    sync_dir_override: Option<&Path>,
+    conflict_id: &str,
+    resolution: &str,
+) -> Result<CommandOutput, SyncError> {
+    let sync_dir = resolve_sync_dir(sync_dir_override)?;
+    let conn = open_db(home)?;
+    ensure_universe(&conn, &sync_dir, false)?;
+    custom_skills::resolve_conflict(home, &conn, conflict_id, resolution)?;
+    status(home, Some(&sync_dir))
+}
+
 pub fn status(home: &Path, sync_dir_override: Option<&Path>) -> Result<CommandOutput, SyncError> {
     let sync_dir = resolve_sync_dir(sync_dir_override)?;
     let conn = open_db(home)?;
@@ -2022,6 +2258,7 @@ fn output(
         exported_ops,
         imported_ops,
         changed_thread_ids: Vec::new(),
+        custom_skills_disclosure: false,
         last_exported_seq,
         applied_op_count,
         pending_op_count,
@@ -2096,6 +2333,13 @@ mod tests {
             .unwrap()
     }
 
+    fn skill_content_hash(bytes: &[u8], executable: bool) -> String {
+        let mut digest = Sha256::new();
+        digest.update([u8::from(executable)]);
+        digest.update(bytes);
+        format!("sha256:{:x}", digest.finalize())
+    }
+
     fn device_id_of(home: &Path) -> String {
         let conn = Connection::open(home.join(DB_FILE)).unwrap();
         get_device(&conn).unwrap().unwrap()
@@ -2112,7 +2356,7 @@ mod tests {
     }
 
     fn count_op_files(sync_dir: &Path, device_id: &str) -> usize {
-        [OPS_DIR_V1, OPS_DIR_V2]
+        [OPS_DIR_V1, OPS_DIR_V2, OPS_DIR_V3]
             .into_iter()
             .map(|ops_dir| {
                 let ops = device_ops_dir(sync_dir, device_id, ops_dir);
@@ -2224,10 +2468,1684 @@ mod tests {
             .unwrap()
     }
 
+    fn custom_skill_path(home: &Path, relative_path: &str) -> PathBuf {
+        home.join("skills").join("custom").join(relative_path)
+    }
+
+    fn write_custom_skill_file(home: &Path, relative_path: &str, content: &[u8]) {
+        let path = custom_skill_path(home, relative_path);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(path, content).unwrap();
+    }
+
     #[test]
     fn hash_is_stable() {
         assert_eq!(hash_text("hello"), hash_text("hello"));
         assert_ne!(hash_text("hello"), hash_text("world"));
+    }
+
+    #[test]
+    fn custom_skills_round_trip_nested_binary_updates_and_deletes() {
+        let sync = tempfile::tempdir().unwrap();
+        let home_a = setup_home("same-config");
+        let home_b = setup_home("same-config");
+        write_custom_skill_file(
+            home_a.path(),
+            "my-skill/SKILL.md",
+            b"---\nname: my-skill\n---\n# My skill\n",
+        );
+        write_custom_skill_file(
+            home_a.path(),
+            "my-skill/references/guide.md",
+            b"first guide\n",
+        );
+        write_custom_skill_file(
+            home_a.path(),
+            "my-skill/assets/icon.bin",
+            &[0, 159, 146, 150, 255],
+        );
+        write_custom_skill_file(
+            home_a.path(),
+            "my-skill/scripts/run.sh",
+            b"#!/bin/sh\necho synced\n",
+        );
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let script = custom_skill_path(home_a.path(), "my-skill/scripts/run.sh");
+            let mut permissions = fs::metadata(&script).unwrap().permissions();
+            permissions.set_mode(0o755);
+            fs::set_permissions(script, permissions).unwrap();
+        }
+
+        init_sync(home_a.path(), Some(sync.path()), "A").unwrap();
+        init_sync(home_b.path(), Some(sync.path()), "B").unwrap();
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+
+        assert_eq!(
+            fs::read(custom_skill_path(home_b.path(), "my-skill/SKILL.md")).unwrap(),
+            b"---\nname: my-skill\n---\n# My skill\n"
+        );
+        assert_eq!(
+            fs::read(custom_skill_path(
+                home_b.path(),
+                "my-skill/references/guide.md"
+            ))
+            .unwrap(),
+            b"first guide\n"
+        );
+        assert_eq!(
+            fs::read(custom_skill_path(home_b.path(), "my-skill/assets/icon.bin")).unwrap(),
+            [0, 159, 146, 150, 255]
+        );
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = fs::metadata(custom_skill_path(home_b.path(), "my-skill/scripts/run.sh"))
+                .unwrap()
+                .permissions()
+                .mode();
+            assert_ne!(mode & 0o111, 0, "executable scripts must stay executable");
+        }
+
+        write_custom_skill_file(
+            home_a.path(),
+            "my-skill/references/guide.md",
+            b"second guide\n",
+        );
+        fs::remove_file(custom_skill_path(home_a.path(), "my-skill/assets/icon.bin")).unwrap();
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+
+        assert_eq!(
+            fs::read(custom_skill_path(
+                home_b.path(),
+                "my-skill/references/guide.md"
+            ))
+            .unwrap(),
+            b"second guide\n"
+        );
+        assert!(
+            !custom_skill_path(home_b.path(), "my-skill/assets/icon.bin").exists(),
+            "deleted custom skill files must be removed on peers"
+        );
+        assert!(
+            !custom_skill_path(home_b.path(), "my-skill/assets").exists(),
+            "empty directories left by remote deletes must be pruned"
+        );
+    }
+
+    #[test]
+    fn custom_skill_export_excludes_managed_and_generated_trees() {
+        let sync = tempfile::tempdir().unwrap();
+        let home_a = setup_home("same-config");
+        let home_b = setup_home("same-config");
+        write_custom_skill_file(home_a.path(), "kept/SKILL.md", b"# Kept\n");
+        write_custom_skill_file(home_a.path(), "kept/.hidden-reference", b"keep hidden\n");
+        write_custom_skill_file(home_a.path(), "kept/node_modules/pkg/index.js", b"skip\n");
+        write_custom_skill_file(home_a.path(), "kept/.git/config", b"skip\n");
+        write_custom_skill_file(home_a.path(), ".DS_Store", b"skip\n");
+        write_custom_skill_file(home_a.path(), "../core/managed/SKILL.md", b"# Managed\n");
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(
+            custom_skill_path(home_a.path(), "kept/SKILL.md"),
+            custom_skill_path(home_a.path(), "kept/link.md"),
+        )
+        .unwrap();
+
+        init_sync(home_a.path(), Some(sync.path()), "A").unwrap();
+        init_sync(home_b.path(), Some(sync.path()), "B").unwrap();
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+
+        assert!(custom_skill_path(home_b.path(), "kept/SKILL.md").exists());
+        assert!(custom_skill_path(home_b.path(), "kept/.hidden-reference").exists());
+        assert!(!custom_skill_path(home_b.path(), "kept/node_modules/pkg/index.js").exists());
+        assert!(!custom_skill_path(home_b.path(), "kept/.git/config").exists());
+        assert!(!custom_skill_path(home_b.path(), ".DS_Store").exists());
+        assert!(!home_b.path().join("skills/core/managed/SKILL.md").exists());
+        #[cfg(unix)]
+        assert!(!custom_skill_path(home_b.path(), "kept/link.md").exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn custom_skill_export_rejects_a_symlinked_custom_root() {
+        let sync = tempfile::tempdir().unwrap();
+        let home = setup_home("same-config");
+        let outside = tempfile::tempdir().unwrap();
+        fs::write(outside.path().join("secret.txt"), b"do not sync\n").unwrap();
+        fs::create_dir_all(home.path().join("skills")).unwrap();
+        std::os::unix::fs::symlink(outside.path(), home.path().join("skills/custom")).unwrap();
+        init_sync(home.path(), Some(sync.path()), "A").unwrap();
+
+        let error = match export_ops(home.path(), Some(sync.path())) {
+            Ok(_) => panic!("a symlinked custom root must not be scanned"),
+            Err(error) => error,
+        };
+
+        assert!(error.to_string().contains("custom skills root"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn custom_skill_export_rejects_paths_that_peers_cannot_import() {
+        let sync = tempfile::tempdir().unwrap();
+        let home = setup_home("same-config");
+        write_custom_skill_file(home.path(), "invalid:name/SKILL.md", b"# Invalid\n");
+        init_sync(home.path(), Some(sync.path()), "A").unwrap();
+
+        let error = match export_ops(home.path(), Some(sync.path())) {
+            Ok(_) => panic!("an unsupported path must not be published"),
+            Err(error) => error,
+        };
+
+        assert!(error.to_string().contains("invalid custom skill path"));
+        assert_eq!(count_op_files(sync.path(), &device_id_of(home.path())), 0);
+    }
+
+    #[test]
+    fn concurrent_custom_skill_edits_keep_local_and_record_a_conflict() {
+        let sync = tempfile::tempdir().unwrap();
+        let home_a = setup_home("same-config");
+        let home_b = setup_home("same-config");
+        write_custom_skill_file(home_a.path(), "shared/SKILL.md", b"version one\n");
+
+        init_sync(home_a.path(), Some(sync.path()), "A").unwrap();
+        init_sync(home_b.path(), Some(sync.path()), "B").unwrap();
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+
+        write_custom_skill_file(home_a.path(), "shared/SKILL.md", b"version from A\n");
+        write_custom_skill_file(home_b.path(), "shared/SKILL.md", b"version from B\n");
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+
+        assert_eq!(
+            fs::read(custom_skill_path(home_b.path(), "shared/SKILL.md")).unwrap(),
+            b"version from B\n",
+            "a concurrent local skill edit must never be silently overwritten"
+        );
+        let conn = Connection::open(home_b.path().join(DB_FILE)).unwrap();
+        let conflict: (String, String) = conn
+            .query_row(
+                "SELECT entity_type, entity_id FROM sync_conflicts WHERE resolved_at IS NULL",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(
+            conflict,
+            ("skill".to_string(), "shared/SKILL.md".to_string())
+        );
+    }
+
+    #[test]
+    fn stale_custom_skill_conflicts_cannot_overwrite_a_newer_resolution() {
+        let sync = tempfile::tempdir().unwrap();
+        let home_a = setup_home("same-config");
+        let home_b = setup_home("same-config");
+        write_custom_skill_file(home_a.path(), "shared/SKILL.md", b"version one\n");
+        init_sync(home_a.path(), Some(sync.path()), "A").unwrap();
+        init_sync(home_b.path(), Some(sync.path()), "B").unwrap();
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+        write_custom_skill_file(home_b.path(), "shared/SKILL.md", b"local edit\n");
+
+        write_custom_skill_file(home_a.path(), "shared/SKILL.md", b"remote two\n");
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+        write_custom_skill_file(home_a.path(), "shared/SKILL.md", b"remote three\n");
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+
+        let conn = Connection::open(home_b.path().join(DB_FILE)).unwrap();
+        let conflicts = conn
+            .prepare(
+                "SELECT c.id FROM sync_conflicts c
+                 JOIN sync_applied_ops a ON a.op_id = c.op_id
+                 WHERE c.entity_id = 'shared/SKILL.md'
+                 ORDER BY a.seq",
+            )
+            .unwrap()
+            .query_map([], |row| row.get::<_, String>(0))
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        assert_eq!(conflicts.len(), 2);
+        let states = conn
+            .prepare(
+                "SELECT c.resolution FROM sync_conflicts c
+                 JOIN sync_applied_ops a ON a.op_id = c.op_id
+                 WHERE c.entity_id = 'shared/SKILL.md'
+                 ORDER BY a.seq",
+            )
+            .unwrap()
+            .query_map([], |row| row.get::<_, Option<String>>(0))
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        assert_eq!(states, vec![Some("superseded".to_string()), None]);
+        drop(conn);
+
+        resolve_custom_skill_conflict(
+            home_b.path(),
+            Some(sync.path()),
+            &conflicts[1],
+            "use_remote",
+        )
+        .unwrap();
+        assert!(resolve_custom_skill_conflict(
+            home_b.path(),
+            Some(sync.path()),
+            &conflicts[0],
+            "use_remote",
+        )
+        .is_err());
+        assert_eq!(
+            fs::read(custom_skill_path(home_b.path(), "shared/SKILL.md")).unwrap(),
+            b"remote three\n"
+        );
+    }
+
+    #[test]
+    fn retired_deletes_supersede_older_pending_skill_conflicts() {
+        let sync = tempfile::tempdir().unwrap();
+        let home = setup_home("same-config");
+        let relative = "shared/SKILL.md";
+        let local = b"local version\n";
+        let obsolete = b"obsolete remote\n";
+        write_custom_skill_file(home.path(), relative, local);
+        init_sync(home.path(), Some(sync.path()), "local").unwrap();
+        export_ops(home.path(), Some(sync.path())).unwrap();
+
+        let device = "remote-device";
+        let generation_id = "retired-delete-generation";
+        let obsolete_hash = skill_content_hash(obsolete, false);
+        let upsert = make_op(
+            device,
+            1,
+            "skill.file.upsert",
+            "skill",
+            relative,
+            json!({
+                "path": relative,
+                "generationId": "obsolete-upsert-generation",
+                "encoding": "base64",
+                "content": "b2Jzb2xldGUgcmVtb3RlCg==",
+                "executable": false,
+                "baseHash": "sha256:unshared-base",
+                "contentHash": obsolete_hash,
+            }),
+        )
+        .unwrap();
+        write_ops_file(sync.path(), device, 1, &[upsert]);
+        import_ops(home.path(), Some(sync.path())).unwrap();
+        let conn = Connection::open(home.path().join(DB_FILE)).unwrap();
+        let conflict_id: String = conn
+            .query_row(
+                "SELECT id FROM sync_conflicts WHERE resolved_at IS NULL AND entity_id = ?1",
+                [relative],
+                |row| row.get(0),
+            )
+            .unwrap();
+        set_meta(
+            &conn,
+            "skills_retired_tombstones",
+            &serde_json::to_string(&json!({ (relative): [generation_id] })).unwrap(),
+        )
+        .unwrap();
+        drop(conn);
+
+        let delete = make_op(
+            device,
+            2,
+            "skill.file.delete",
+            "skill",
+            relative,
+            json!({
+                "path": relative,
+                "deleted": true,
+                "baseHash": obsolete_hash,
+                "tombstones": [{
+                    "generationId": generation_id,
+                    "baseGenerationId": "obsolete-upsert-generation",
+                    "baseHash": obsolete_hash,
+                }],
+                "contentHash": "missing",
+            }),
+        )
+        .unwrap();
+        write_ops_file(sync.path(), device, 2, &[delete]);
+        import_ops(home.path(), Some(sync.path())).unwrap();
+
+        assert!(resolve_custom_skill_conflict(
+            home.path(),
+            Some(sync.path()),
+            &conflict_id,
+            "use_remote",
+        )
+        .is_err());
+        assert_eq!(
+            fs::read(custom_skill_path(home.path(), relative)).unwrap(),
+            local,
+            "an obsolete upsert must not remain resolvable after a newer retired delete"
+        );
+    }
+
+    #[test]
+    fn relayed_deletes_supersede_only_the_targeted_upsert_generation() {
+        let sync = tempfile::tempdir().unwrap();
+        let home = setup_home("same-config");
+        let relative = "shared/SKILL.md";
+        let remote = b"same remote bytes\n";
+        write_custom_skill_file(home.path(), relative, b"local version\n");
+        init_sync(home.path(), Some(sync.path()), "local").unwrap();
+        export_ops(home.path(), Some(sync.path())).unwrap();
+        let remote_hash = skill_content_hash(remote, false);
+
+        for (device, generation_id) in [
+            ("source-a", "upsert-generation-a"),
+            ("source-d", "upsert-generation-d"),
+        ] {
+            let op = make_op(
+                device,
+                1,
+                "skill.file.upsert",
+                "skill",
+                relative,
+                json!({
+                    "path": relative,
+                    "generationId": generation_id,
+                    "encoding": "base64",
+                    "content": "c2FtZSByZW1vdGUgYnl0ZXMK",
+                    "executable": false,
+                    "baseHash": "sha256:unshared-base",
+                    "contentHash": remote_hash,
+                }),
+            )
+            .unwrap();
+            write_ops_file(sync.path(), device, 1, &[op]);
+        }
+        import_ops(home.path(), Some(sync.path())).unwrap();
+
+        let delete = make_op(
+            "relay-b",
+            1,
+            "skill.file.delete",
+            "skill",
+            relative,
+            json!({
+                "path": relative,
+                "deleted": true,
+                "baseHash": remote_hash,
+                "tombstones": [{
+                    "generationId": "delete-generation-a",
+                    "baseGenerationId": "upsert-generation-a",
+                    "baseHash": remote_hash,
+                }],
+                "contentHash": "missing",
+            }),
+        )
+        .unwrap();
+        write_ops_file(sync.path(), "relay-b", 1, &[delete]);
+        import_ops(home.path(), Some(sync.path())).unwrap();
+
+        let conn = Connection::open(home.path().join(DB_FILE)).unwrap();
+        let states = conn
+            .prepare(
+                "SELECT device_id, resolution FROM sync_conflicts
+                 WHERE entity_id = ?1 AND device_id IN ('source-a', 'source-d')
+                 ORDER BY device_id",
+            )
+            .unwrap()
+            .query_map([relative], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?))
+            })
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        assert_eq!(
+            states,
+            vec![
+                ("source-a".to_string(), Some("superseded".to_string())),
+                ("source-d".to_string(), None),
+            ],
+            "a relayed delete must supersede its causal upsert, not same-hash peers"
+        );
+    }
+
+    #[test]
+    fn independently_published_case_collisions_are_resolvable_on_import() {
+        let sync = tempfile::tempdir().unwrap();
+        let home_a = setup_home("same-config");
+        let home_b = setup_home("same-config");
+        write_custom_skill_file(home_a.path(), "Tool/a", b"local A\n");
+        write_custom_skill_file(home_b.path(), "tool/b", b"remote B\n");
+        init_sync(home_a.path(), Some(sync.path()), "A").unwrap();
+        init_sync(home_b.path(), Some(sync.path()), "B").unwrap();
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        export_ops(home_b.path(), Some(sync.path())).unwrap();
+
+        import_ops(home_a.path(), Some(sync.path())).unwrap();
+
+        assert_eq!(
+            fs::read(custom_skill_path(home_a.path(), "Tool/a")).unwrap(),
+            b"local A\n"
+        );
+        assert!(!custom_skill_path(home_a.path(), "Tool/b").exists());
+        let conn = Connection::open(home_a.path().join(DB_FILE)).unwrap();
+        let conflict_id: String = conn
+            .query_row(
+                "SELECT id FROM sync_conflicts WHERE resolved_at IS NULL AND entity_id = 'tool/b'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        drop(conn);
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+
+        resolve_custom_skill_conflict(home_a.path(), Some(sync.path()), &conflict_id, "use_remote")
+            .unwrap();
+
+        assert!(!custom_skill_path(home_a.path(), "Tool/a").exists());
+        assert_eq!(
+            fs::read(custom_skill_path(home_a.path(), "tool/b")).unwrap(),
+            b"remote B\n"
+        );
+    }
+
+    #[test]
+    fn keeping_local_case_collision_does_not_block_later_exports() {
+        let sync = tempfile::tempdir().unwrap();
+        let home_a = setup_home("same-config");
+        let home_b = setup_home("same-config");
+        write_custom_skill_file(home_a.path(), "Tool/a", b"local A\n");
+        write_custom_skill_file(home_b.path(), "tool/b", b"remote B\n");
+        init_sync(home_a.path(), Some(sync.path()), "A").unwrap();
+        init_sync(home_b.path(), Some(sync.path()), "B").unwrap();
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        export_ops(home_b.path(), Some(sync.path())).unwrap();
+        import_ops(home_a.path(), Some(sync.path())).unwrap();
+        let conn = Connection::open(home_a.path().join(DB_FILE)).unwrap();
+        let conflict_id: String = conn
+            .query_row(
+                "SELECT id FROM sync_conflicts WHERE resolved_at IS NULL AND entity_id = 'tool/b'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        drop(conn);
+
+        resolve_custom_skill_conflict(home_a.path(), Some(sync.path()), &conflict_id, "keep_local")
+            .unwrap();
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+
+        assert_eq!(
+            fs::read(custom_skill_path(home_a.path(), "Tool/a")).unwrap(),
+            b"local A\n"
+        );
+        assert!(!custom_skill_path(home_a.path(), "Tool/b").exists());
+    }
+
+    #[test]
+    fn parent_file_collisions_become_resolvable_custom_skill_conflicts() {
+        let sync = tempfile::tempdir().unwrap();
+        let home_a = setup_home("same-config");
+        let home_b = setup_home("same-config");
+        write_custom_skill_file(home_a.path(), "shared/assets/icon.bin", b"remote icon\n");
+        write_custom_skill_file(home_b.path(), "shared/assets", b"local file\n");
+        init_sync(home_a.path(), Some(sync.path()), "A").unwrap();
+        init_sync(home_b.path(), Some(sync.path()), "B").unwrap();
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+
+        let conn = Connection::open(home_b.path().join(DB_FILE)).unwrap();
+        let conflict_id: String = conn
+            .query_row(
+                "SELECT id FROM sync_conflicts WHERE resolved_at IS NULL AND entity_id = 'shared/assets/icon.bin'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        drop(conn);
+        resolve_custom_skill_conflict(home_b.path(), Some(sync.path()), &conflict_id, "use_remote")
+            .unwrap();
+
+        assert_eq!(
+            fs::read(custom_skill_path(home_b.path(), "shared/assets/icon.bin")).unwrap(),
+            b"remote icon\n"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn resolving_a_parent_symlink_collision_never_writes_outside_custom_skills() {
+        let sync = tempfile::tempdir().unwrap();
+        let home_a = setup_home("same-config");
+        let home_b = setup_home("same-config");
+        let outside = tempfile::tempdir().unwrap();
+        write_custom_skill_file(home_a.path(), "shared/assets/icon.bin", b"remote icon\n");
+        fs::create_dir_all(custom_skill_path(home_b.path(), "shared")).unwrap();
+        std::os::unix::fs::symlink(
+            outside.path(),
+            custom_skill_path(home_b.path(), "shared/assets"),
+        )
+        .unwrap();
+        init_sync(home_a.path(), Some(sync.path()), "A").unwrap();
+        init_sync(home_b.path(), Some(sync.path()), "B").unwrap();
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+        assert!(!outside.path().join("icon.bin").exists());
+        let conn = Connection::open(home_b.path().join(DB_FILE)).unwrap();
+        let conflict_id: String = conn
+            .query_row(
+                "SELECT id FROM sync_conflicts WHERE resolved_at IS NULL AND entity_id = 'shared/assets/icon.bin'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        drop(conn);
+
+        resolve_custom_skill_conflict(home_b.path(), Some(sync.path()), &conflict_id, "use_remote")
+            .unwrap();
+
+        assert!(!outside.path().join("icon.bin").exists());
+        assert_eq!(
+            fs::read(custom_skill_path(home_b.path(), "shared/assets/icon.bin")).unwrap(),
+            b"remote icon\n"
+        );
+    }
+
+    #[test]
+    fn unedited_peers_fast_forward_file_directory_conversions() {
+        let sync = tempfile::tempdir().unwrap();
+        let home_a = setup_home("same-config");
+        let home_b = setup_home("same-config");
+        write_custom_skill_file(home_a.path(), "shared/assets", b"original file\n");
+        init_sync(home_a.path(), Some(sync.path()), "A").unwrap();
+        init_sync(home_b.path(), Some(sync.path()), "B").unwrap();
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+
+        fs::remove_file(custom_skill_path(home_a.path(), "shared/assets")).unwrap();
+        write_custom_skill_file(home_a.path(), "shared/assets/icon.bin", b"nested file\n");
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+
+        assert_eq!(
+            fs::read(custom_skill_path(home_b.path(), "shared/assets/icon.bin")).unwrap(),
+            b"nested file\n"
+        );
+        fs::remove_file(custom_skill_path(home_a.path(), "shared/assets/icon.bin")).unwrap();
+        fs::remove_dir(custom_skill_path(home_a.path(), "shared/assets")).unwrap();
+        write_custom_skill_file(home_a.path(), "shared/assets", b"file again\n");
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+
+        assert_eq!(
+            fs::read(custom_skill_path(home_b.path(), "shared/assets")).unwrap(),
+            b"file again\n"
+        );
+        let conn = Connection::open(home_b.path().join(DB_FILE)).unwrap();
+        let conflicts: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sync_conflicts WHERE resolved_at IS NULL",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(conflicts, 0);
+    }
+
+    #[test]
+    fn missing_v3_history_republishes_unchanged_custom_skills() {
+        let sync = tempfile::tempdir().unwrap();
+        let home_a = setup_home("same-config");
+        let home_b = setup_home("same-config");
+        write_custom_skill_file(home_a.path(), "shared/SKILL.md", b"# Shared\n");
+        init_sync(home_a.path(), Some(sync.path()), "A").unwrap();
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        let device = device_id_of(home_a.path());
+        fs::remove_dir_all(device_ops_dir(sync.path(), &device, OPS_DIR_V3)).unwrap();
+
+        let recovery = export_ops(home_a.path(), Some(sync.path())).unwrap();
+
+        assert!(recovery.exported_ops >= 1);
+        init_sync(home_b.path(), Some(sync.path()), "B").unwrap();
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+        assert_eq!(
+            fs::read(custom_skill_path(home_b.path(), "shared/SKILL.md")).unwrap(),
+            b"# Shared\n"
+        );
+    }
+
+    #[test]
+    fn missing_v1_history_republishes_settings_and_archives_with_v2_and_v3_present() {
+        let sync = tempfile::tempdir().unwrap();
+        let home_a = setup_home("shared-setting");
+        let home_b = setup_home("shared-setting");
+        write_custom_skill_file(home_a.path(), "shared/SKILL.md", b"# Shared\n");
+        seed_thread(home_a.path(), "thread-1", "message-1");
+        init_sync(home_a.path(), Some(sync.path()), "A").unwrap();
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        insert_message(home_a.path(), "deleted-message", "thread-1");
+        delete_message(home_a.path(), "deleted-message");
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        let device = device_id_of(home_a.path());
+        assert!(has_ops_history(sync.path(), &device, OPS_DIR_V2).unwrap());
+        assert!(has_ops_history(sync.path(), &device, OPS_DIR_V3).unwrap());
+        fs::remove_dir_all(device_ops_dir(sync.path(), &device, OPS_DIR_V1)).unwrap();
+
+        let recovery = export_ops(home_a.path(), Some(sync.path())).unwrap();
+        init_sync(home_b.path(), Some(sync.path()), "B").unwrap();
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+
+        assert!(recovery.exported_ops >= 2);
+        assert_eq!(
+            fs::read_to_string(settings_path(home_b.path())).unwrap(),
+            "shared-setting"
+        );
+        let conn = Connection::open(home_b.path().join(DB_FILE)).unwrap();
+        assert_eq!(
+            conn.query_row(
+                "SELECT COUNT(*) FROM threads WHERE id = 'thread-1'",
+                [],
+                |row| row.get::<_, i64>(0)
+            )
+            .unwrap(),
+            1
+        );
+    }
+
+    #[test]
+    fn missing_v2_history_after_a_delete_republishes_the_current_archive_once() {
+        let sync = tempfile::tempdir().unwrap();
+        let home = setup_home("shared-setting");
+        seed_thread(home.path(), "thread-1", "message-1");
+        init_sync(home.path(), Some(sync.path()), "A").unwrap();
+        export_ops(home.path(), Some(sync.path())).unwrap();
+        insert_message(home.path(), "deleted-message", "thread-1");
+        delete_message(home.path(), "deleted-message");
+        export_ops(home.path(), Some(sync.path())).unwrap();
+        let device = device_id_of(home.path());
+        assert!(has_ops_history(sync.path(), &device, OPS_DIR_V2).unwrap());
+        fs::remove_dir_all(device_ops_dir(sync.path(), &device, OPS_DIR_V2)).unwrap();
+
+        let recovery = export_ops(home.path(), Some(sync.path())).unwrap();
+        let next = export_ops(home.path(), Some(sync.path())).unwrap();
+
+        assert!(
+            recovery.exported_ops >= 2,
+            "losing delete history must republish the current archive snapshot"
+        );
+        assert_eq!(
+            next.exported_ops, 0,
+            "a handled v2 loss must not force a full snapshot every cycle"
+        );
+    }
+
+    #[test]
+    fn missing_v3_history_republishes_custom_skill_deletions() {
+        let sync = tempfile::tempdir().unwrap();
+        let home_a = setup_home("same-config");
+        let home_b = setup_home("same-config");
+        write_custom_skill_file(home_a.path(), "removed/SKILL.md", b"# Removed\n");
+        init_sync(home_a.path(), Some(sync.path()), "A").unwrap();
+        init_sync(home_b.path(), Some(sync.path()), "B").unwrap();
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+        fs::remove_file(custom_skill_path(home_a.path(), "removed/SKILL.md")).unwrap();
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        let device = device_id_of(home_a.path());
+        fs::remove_dir_all(device_ops_dir(sync.path(), &device, OPS_DIR_V3)).unwrap();
+
+        let recovery = export_ops(home_a.path(), Some(sync.path())).unwrap();
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+
+        assert!(recovery.exported_ops >= 1);
+        assert!(!custom_skill_path(home_b.path(), "removed/SKILL.md").exists());
+    }
+
+    #[test]
+    fn recovered_custom_skill_deletion_preserves_an_offline_local_edit() {
+        let sync = tempfile::tempdir().unwrap();
+        let home_a = setup_home("same-config");
+        let home_b = setup_home("same-config");
+        let home_c = setup_home("same-config");
+        write_custom_skill_file(home_a.path(), "removed/SKILL.md", b"# Original\n");
+        init_sync(home_a.path(), Some(sync.path()), "A").unwrap();
+        init_sync(home_b.path(), Some(sync.path()), "B").unwrap();
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+        write_custom_skill_file(home_b.path(), "removed/SKILL.md", b"# Local edit\n");
+        fs::remove_file(custom_skill_path(home_a.path(), "removed/SKILL.md")).unwrap();
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        let device = device_id_of(home_a.path());
+        fs::remove_dir_all(device_ops_dir(sync.path(), &device, OPS_DIR_V3)).unwrap();
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+        init_sync(home_c.path(), Some(sync.path()), "C").unwrap();
+        import_ops(home_c.path(), Some(sync.path())).unwrap();
+
+        assert_eq!(
+            fs::read(custom_skill_path(home_b.path(), "removed/SKILL.md")).unwrap(),
+            b"# Local edit\n"
+        );
+        let conn = Connection::open(home_b.path().join(DB_FILE)).unwrap();
+        let conflicts: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sync_conflicts WHERE resolved_at IS NULL AND entity_id = 'removed/SKILL.md'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(conflicts, 1);
+        assert!(!custom_skill_path(home_c.path(), "removed/SKILL.md").exists());
+    }
+
+    #[test]
+    fn an_imported_deletion_can_be_republished_after_the_source_history_is_lost() {
+        let sync = tempfile::tempdir().unwrap();
+        let home_a = setup_home("same-config");
+        let home_b = setup_home("same-config");
+        let home_c = setup_home("same-config");
+        write_custom_skill_file(home_a.path(), "removed/SKILL.md", b"# Removed\n");
+        init_sync(home_a.path(), Some(sync.path()), "A").unwrap();
+        init_sync(home_b.path(), Some(sync.path()), "B").unwrap();
+        init_sync(home_c.path(), Some(sync.path()), "C").unwrap();
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+        import_ops(home_c.path(), Some(sync.path())).unwrap();
+        export_ops(home_b.path(), Some(sync.path())).unwrap();
+        fs::remove_file(custom_skill_path(home_a.path(), "removed/SKILL.md")).unwrap();
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+        let device_a = device_id_of(home_a.path());
+        fs::remove_dir_all(device_dir(sync.path(), &device_a)).unwrap();
+
+        let propagation = export_ops(home_b.path(), Some(sync.path())).unwrap();
+        import_ops(home_c.path(), Some(sync.path())).unwrap();
+
+        assert!(
+            propagation.exported_ops >= 1,
+            "an established relay must publish a newly adopted tombstone"
+        );
+        assert!(!custom_skill_path(home_c.path(), "removed/SKILL.md").exists());
+        let duplicate = export_ops(home_c.path(), Some(sync.path())).unwrap();
+        assert!(
+            duplicate.exported_ops >= 1,
+            "a peer that first adopts the deletion should relay it once"
+        );
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+        assert_eq!(
+            export_ops(home_b.path(), Some(sync.path()))
+                .unwrap()
+                .exported_ops,
+            0,
+            "an already-known tombstone must not be re-queued by a duplicate relay"
+        );
+    }
+
+    #[test]
+    fn an_imported_upsert_can_be_republished_after_the_source_history_is_lost() {
+        let sync = tempfile::tempdir().unwrap();
+        let home_a = setup_home("same-config");
+        let home_b = setup_home("same-config");
+        let home_c = setup_home("same-config");
+        let relative = "new-skill/SKILL.md";
+        write_custom_skill_file(home_b.path(), "existing/SKILL.md", b"# Existing\n");
+        init_sync(home_a.path(), Some(sync.path()), "A").unwrap();
+        init_sync(home_b.path(), Some(sync.path()), "B").unwrap();
+        export_ops(home_b.path(), Some(sync.path())).unwrap();
+        write_custom_skill_file(home_a.path(), relative, b"# New skill\n");
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+        fs::remove_dir_all(device_dir(sync.path(), &device_id_of(home_a.path()))).unwrap();
+
+        let propagation = export_ops(home_b.path(), Some(sync.path())).unwrap();
+        init_sync(home_c.path(), Some(sync.path()), "C").unwrap();
+        import_ops(home_c.path(), Some(sync.path())).unwrap();
+
+        assert!(
+            propagation.exported_ops >= 1,
+            "an established peer must relay a newly adopted upsert once"
+        );
+        assert_eq!(
+            fs::read(custom_skill_path(home_c.path(), relative)).unwrap(),
+            b"# New skill\n"
+        );
+        export_ops(home_c.path(), Some(sync.path())).unwrap();
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+        assert_eq!(
+            export_ops(home_b.path(), Some(sync.path()))
+                .unwrap()
+                .exported_ops,
+            0,
+            "a duplicate upsert generation must not restart the relay"
+        );
+    }
+
+    #[test]
+    fn a_relayed_update_recovers_fresh_peers_without_the_source_history() {
+        let sync = tempfile::tempdir().unwrap();
+        let home_a = setup_home("same-config");
+        let home_b = setup_home("same-config");
+        let home_c = setup_home("same-config");
+        let relative = "updated/SKILL.md";
+        write_custom_skill_file(home_a.path(), relative, b"# Version one\n");
+        write_custom_skill_file(home_b.path(), "existing/SKILL.md", b"# Existing\n");
+        init_sync(home_a.path(), Some(sync.path()), "A").unwrap();
+        init_sync(home_b.path(), Some(sync.path()), "B").unwrap();
+        export_ops(home_b.path(), Some(sync.path())).unwrap();
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+
+        write_custom_skill_file(home_a.path(), relative, b"# Version two\n");
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+        fs::remove_dir_all(device_dir(sync.path(), &device_id_of(home_a.path()))).unwrap();
+
+        export_ops(home_b.path(), Some(sync.path())).unwrap();
+        init_sync(home_c.path(), Some(sync.path()), "C").unwrap();
+        import_ops(home_c.path(), Some(sync.path())).unwrap();
+
+        assert_eq!(
+            fs::read(custom_skill_path(home_c.path(), relative)).unwrap(),
+            b"# Version two\n",
+            "the latest relayed generation must be recovery-compatible without its ancestors"
+        );
+    }
+
+    #[test]
+    fn a_delayed_relay_cannot_resurrect_a_deleted_upsert_generation() {
+        let sync = tempfile::tempdir().unwrap();
+        let home_a = setup_home("same-config");
+        let home_b = setup_home("same-config");
+        let home_c = setup_home("same-config");
+        let relative = "removed/SKILL.md";
+        write_custom_skill_file(home_a.path(), relative, b"# Removed\n");
+        init_sync(home_a.path(), Some(sync.path()), "A").unwrap();
+        init_sync(home_b.path(), Some(sync.path()), "B").unwrap();
+        init_sync(home_c.path(), Some(sync.path()), "C").unwrap();
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+        import_ops(home_c.path(), Some(sync.path())).unwrap();
+
+        fs::remove_file(custom_skill_path(home_a.path(), relative)).unwrap();
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+        assert!(!custom_skill_path(home_b.path(), relative).exists());
+
+        export_ops(home_c.path(), Some(sync.path())).unwrap();
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+
+        assert!(
+            !custom_skill_path(home_b.path(), relative).exists(),
+            "a tombstone must dominate delayed relays of its targeted upsert generation"
+        );
+    }
+
+    #[test]
+    fn duplicate_upsert_generations_do_not_conflict_with_later_local_edits() {
+        let sync = tempfile::tempdir().unwrap();
+        let home_a = setup_home("same-config");
+        let home_b = setup_home("same-config");
+        let home_c = setup_home("same-config");
+        let relative = "shared/SKILL.md";
+        write_custom_skill_file(home_a.path(), relative, b"# Shared\n");
+        init_sync(home_a.path(), Some(sync.path()), "A").unwrap();
+        init_sync(home_b.path(), Some(sync.path()), "B").unwrap();
+        init_sync(home_c.path(), Some(sync.path()), "C").unwrap();
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+        import_ops(home_c.path(), Some(sync.path())).unwrap();
+        write_custom_skill_file(home_b.path(), relative, b"# Local edit\n");
+
+        export_ops(home_c.path(), Some(sync.path())).unwrap();
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+
+        assert_eq!(
+            fs::read(custom_skill_path(home_b.path(), relative)).unwrap(),
+            b"# Local edit\n"
+        );
+        let conn = Connection::open(home_b.path().join(DB_FILE)).unwrap();
+        let conflicts: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sync_conflicts WHERE resolved_at IS NULL AND entity_id = ?1",
+                [relative],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(
+            conflicts, 0,
+            "replaying an already-known generation must be idempotent after a local edit"
+        );
+    }
+
+    #[test]
+    fn delayed_relays_cannot_roll_back_superseded_upsert_generations() {
+        let sync = tempfile::tempdir().unwrap();
+        let home_a = setup_home("same-config");
+        let home_b = setup_home("same-config");
+        let home_c = setup_home("same-config");
+        let home_d = setup_home("same-config");
+        let relative = "updated/SKILL.md";
+        let generation_one_and_three = b"# Version one\n";
+        let generation_two = b"# Version two\n";
+        write_custom_skill_file(home_a.path(), relative, generation_one_and_three);
+        write_custom_skill_file(home_c.path(), "existing/SKILL.md", b"# Existing\n");
+        init_sync(home_a.path(), Some(sync.path()), "A").unwrap();
+        init_sync(home_b.path(), Some(sync.path()), "B").unwrap();
+        init_sync(home_c.path(), Some(sync.path()), "C").unwrap();
+        export_ops(home_c.path(), Some(sync.path())).unwrap();
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+        import_ops(home_c.path(), Some(sync.path())).unwrap();
+
+        write_custom_skill_file(home_a.path(), relative, generation_two);
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+        import_ops(home_c.path(), Some(sync.path())).unwrap();
+
+        write_custom_skill_file(home_a.path(), relative, generation_one_and_three);
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+        assert_eq!(
+            fs::read(custom_skill_path(home_b.path(), relative)).unwrap(),
+            generation_one_and_three
+        );
+
+        fs::remove_dir_all(device_dir(sync.path(), &device_id_of(home_a.path()))).unwrap();
+        export_ops(home_b.path(), Some(sync.path())).unwrap();
+        init_sync(home_d.path(), Some(sync.path()), "D").unwrap();
+        import_ops(home_d.path(), Some(sync.path())).unwrap();
+        assert_eq!(
+            fs::read(custom_skill_path(home_d.path(), relative)).unwrap(),
+            generation_one_and_three,
+            "a fresh peer must recover generation three after source-history loss"
+        );
+
+        let delayed_relay = export_ops(home_c.path(), Some(sync.path())).unwrap();
+        assert!(
+            delayed_relay.exported_ops >= 1,
+            "the peer that stopped at generation two must publish its pending relay"
+        );
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+        import_ops(home_d.path(), Some(sync.path())).unwrap();
+
+        assert_eq!(
+            fs::read(custom_skill_path(home_b.path(), relative)).unwrap(),
+            generation_one_and_three,
+            "a delayed relay from another device must not restore a superseded generation"
+        );
+        assert_eq!(
+            fs::read(custom_skill_path(home_d.path(), relative)).unwrap(),
+            generation_one_and_three,
+            "retired generations must survive source-history loss and recovery"
+        );
+    }
+
+    #[test]
+    fn delayed_skill_tombstones_do_not_replace_a_newer_deleted_generation() {
+        let sync = tempfile::tempdir().unwrap();
+        let home_a = setup_home("same-config");
+        let home_b = setup_home("same-config");
+        let home_c = setup_home("same-config");
+        let relative = "removed/SKILL.md";
+        write_custom_skill_file(home_a.path(), relative, b"# Generation one\n");
+        init_sync(home_a.path(), Some(sync.path()), "A").unwrap();
+        init_sync(home_b.path(), Some(sync.path()), "B").unwrap();
+        init_sync(home_c.path(), Some(sync.path()), "C").unwrap();
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+        import_ops(home_c.path(), Some(sync.path())).unwrap();
+
+        fs::remove_file(custom_skill_path(home_a.path(), relative)).unwrap();
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        import_ops(home_c.path(), Some(sync.path())).unwrap();
+
+        write_custom_skill_file(home_a.path(), relative, b"# Generation two\n");
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        fs::remove_file(custom_skill_path(home_a.path(), relative)).unwrap();
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+        export_ops(home_b.path(), Some(sync.path())).unwrap();
+
+        let conn = Connection::open(home_b.path().join(DB_FILE)).unwrap();
+        let before: String = conn
+            .query_row(
+                "SELECT value FROM sync_meta WHERE key = 'skills_export_tombstones'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        drop(conn);
+
+        export_ops(home_c.path(), Some(sync.path())).unwrap();
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+
+        let conn = Connection::open(home_b.path().join(DB_FILE)).unwrap();
+        let after: String = conn
+            .query_row(
+                "SELECT value FROM sync_meta WHERE key = 'skills_export_tombstones'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(after, before, "a delayed H1 relay must not replace H2");
+        drop(conn);
+        assert_eq!(
+            export_ops(home_b.path(), Some(sync.path()))
+                .unwrap()
+                .exported_ops,
+            0,
+            "the delayed H1 relay must not be queued for another propagation"
+        );
+    }
+
+    #[test]
+    fn retired_skill_tombstones_do_not_delete_same_content_resurrections() {
+        let sync = tempfile::tempdir().unwrap();
+        let home_a = setup_home("same-config");
+        let home_b = setup_home("same-config");
+        let home_c = setup_home("same-config");
+        let relative = "restored/SKILL.md";
+        let content = b"# Restored unchanged\n";
+        write_custom_skill_file(home_a.path(), relative, content);
+        init_sync(home_a.path(), Some(sync.path()), "A").unwrap();
+        init_sync(home_b.path(), Some(sync.path()), "B").unwrap();
+        init_sync(home_c.path(), Some(sync.path()), "C").unwrap();
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+        import_ops(home_c.path(), Some(sync.path())).unwrap();
+
+        fs::remove_file(custom_skill_path(home_a.path(), relative)).unwrap();
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+        import_ops(home_c.path(), Some(sync.path())).unwrap();
+
+        write_custom_skill_file(home_a.path(), relative, content);
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+        export_ops(home_c.path(), Some(sync.path())).unwrap();
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+
+        assert_eq!(
+            fs::read(custom_skill_path(home_b.path(), relative)).unwrap(),
+            content,
+            "a tombstone retired by an observed upsert must stay causally obsolete"
+        );
+    }
+
+    #[test]
+    fn recovered_upserts_preserve_retired_skill_tombstone_generations() {
+        let sync = tempfile::tempdir().unwrap();
+        let home_a = setup_home("same-config");
+        let home_b = setup_home("same-config");
+        let home_c = setup_home("same-config");
+        let home_d = setup_home("same-config");
+        let relative = "restored/SKILL.md";
+        let content = b"# Restored unchanged\n";
+        write_custom_skill_file(home_a.path(), relative, content);
+        init_sync(home_a.path(), Some(sync.path()), "A").unwrap();
+        init_sync(home_b.path(), Some(sync.path()), "B").unwrap();
+        init_sync(home_c.path(), Some(sync.path()), "C").unwrap();
+        init_sync(home_d.path(), Some(sync.path()), "D").unwrap();
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+        import_ops(home_c.path(), Some(sync.path())).unwrap();
+        import_ops(home_d.path(), Some(sync.path())).unwrap();
+
+        fs::remove_file(custom_skill_path(home_a.path(), relative)).unwrap();
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+        import_ops(home_c.path(), Some(sync.path())).unwrap();
+        import_ops(home_d.path(), Some(sync.path())).unwrap();
+
+        write_custom_skill_file(home_a.path(), relative, content);
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+        fs::remove_dir_all(device_dir(sync.path(), &device_id_of(home_a.path()))).unwrap();
+        fs::remove_dir_all(device_dir(sync.path(), &device_id_of(home_b.path()))).unwrap();
+
+        export_ops(home_b.path(), Some(sync.path())).unwrap();
+        import_ops(home_c.path(), Some(sync.path())).unwrap();
+        fs::remove_dir_all(device_dir(sync.path(), &device_id_of(home_b.path()))).unwrap();
+        export_ops(home_d.path(), Some(sync.path())).unwrap();
+        import_ops(home_c.path(), Some(sync.path())).unwrap();
+
+        assert_eq!(
+            fs::read(custom_skill_path(home_c.path(), relative)).unwrap(),
+            content,
+            "a recovery upsert must carry the delete generations it superseded"
+        );
+    }
+
+    #[test]
+    fn byte_identical_skill_upserts_retire_observed_delete_generations() {
+        let sync = tempfile::tempdir().unwrap();
+        let home_a = setup_home("same-config");
+        let home_b = setup_home("same-config");
+        let relative = "restored/SKILL.md";
+        let content = b"# Restored unchanged\n";
+        write_custom_skill_file(home_a.path(), relative, content);
+        init_sync(home_a.path(), Some(sync.path()), "A").unwrap();
+        init_sync(home_b.path(), Some(sync.path()), "B").unwrap();
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+        export_ops(home_b.path(), Some(sync.path())).unwrap();
+
+        fs::remove_file(custom_skill_path(home_a.path(), relative)).unwrap();
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+
+        write_custom_skill_file(home_b.path(), relative, content);
+        write_custom_skill_file(home_a.path(), relative, content);
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+
+        assert!(
+            export_ops(home_b.path(), Some(sync.path()))
+                .unwrap()
+                .exported_ops
+                >= 1,
+            "a newly observed upsert generation must relay once even when its bytes already exist"
+        );
+        assert_eq!(
+            export_ops(home_b.path(), Some(sync.path()))
+                .unwrap()
+                .exported_ops,
+            0,
+            "the byte-identical relay must clear its delete generations without looping"
+        );
+    }
+
+    #[test]
+    fn structurally_absent_skill_deletes_remain_relayable() {
+        let sync = tempfile::tempdir().unwrap();
+        let home_a = setup_home("same-config");
+        let home_b = setup_home("same-config");
+        let home_c = setup_home("same-config");
+        let relative = "tool/removed.md";
+        write_custom_skill_file(home_a.path(), relative, b"remote file\n");
+        write_custom_skill_file(home_b.path(), "Tool/local.md", b"local file\n");
+        init_sync(home_a.path(), Some(sync.path()), "A").unwrap();
+        init_sync(home_b.path(), Some(sync.path()), "B").unwrap();
+        init_sync(home_c.path(), Some(sync.path()), "C").unwrap();
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        import_ops(home_c.path(), Some(sync.path())).unwrap();
+        export_ops(home_b.path(), Some(sync.path())).unwrap();
+
+        fs::remove_file(custom_skill_path(home_a.path(), relative)).unwrap();
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+        fs::remove_dir_all(device_dir(sync.path(), &device_id_of(home_a.path()))).unwrap();
+
+        let propagation = export_ops(home_b.path(), Some(sync.path())).unwrap();
+        import_ops(home_c.path(), Some(sync.path())).unwrap();
+
+        assert!(
+            propagation.exported_ops >= 1,
+            "a structurally absent delete must be retained for relay"
+        );
+        assert!(
+            !custom_skill_path(home_c.path(), relative).exists(),
+            "the retained delete must remove the stale peer copy"
+        );
+    }
+
+    #[test]
+    fn a_new_same_hash_delete_is_not_confused_with_a_retired_generation() {
+        let sync = tempfile::tempdir().unwrap();
+        let home_a = setup_home("same-config");
+        let home_b = setup_home("same-config");
+        let relative = "restored/SKILL.md";
+        let content = b"# Restored unchanged\n";
+        write_custom_skill_file(home_a.path(), relative, content);
+        init_sync(home_a.path(), Some(sync.path()), "A").unwrap();
+        init_sync(home_b.path(), Some(sync.path()), "B").unwrap();
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+
+        fs::remove_file(custom_skill_path(home_a.path(), relative)).unwrap();
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+        write_custom_skill_file(home_a.path(), relative, content);
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+
+        fs::remove_file(custom_skill_path(home_a.path(), relative)).unwrap();
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+
+        assert!(
+            !custom_skill_path(home_b.path(), relative).exists(),
+            "a new delete generation must apply even when its content hash was retired"
+        );
+    }
+
+    #[test]
+    fn unseen_skill_tombstone_generations_survive_relay_history_loss() {
+        let sync = tempfile::tempdir().unwrap();
+        let home_a = setup_home("same-config");
+        let home_b = setup_home("same-config");
+        let home_c = setup_home("same-config");
+        let home_d = setup_home("same-config");
+        let home_e = setup_home("same-config");
+        let relative = "removed/SKILL.md";
+        write_custom_skill_file(home_a.path(), relative, b"# Generation one\n");
+        init_sync(home_a.path(), Some(sync.path()), "A").unwrap();
+        init_sync(home_b.path(), Some(sync.path()), "B").unwrap();
+        init_sync(home_c.path(), Some(sync.path()), "C").unwrap();
+        init_sync(home_d.path(), Some(sync.path()), "D").unwrap();
+        init_sync(home_e.path(), Some(sync.path()), "E").unwrap();
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+        import_ops(home_c.path(), Some(sync.path())).unwrap();
+        import_ops(home_d.path(), Some(sync.path())).unwrap();
+        import_ops(home_e.path(), Some(sync.path())).unwrap();
+
+        fs::remove_file(custom_skill_path(home_a.path(), relative)).unwrap();
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+
+        write_custom_skill_file(home_a.path(), relative, b"# Generation two\n");
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        import_ops(home_c.path(), Some(sync.path())).unwrap();
+        import_ops(home_d.path(), Some(sync.path())).unwrap();
+        fs::remove_file(custom_skill_path(home_a.path(), relative)).unwrap();
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        import_ops(home_c.path(), Some(sync.path())).unwrap();
+        export_ops(home_c.path(), Some(sync.path())).unwrap();
+
+        let device_a = device_id_of(home_a.path());
+        fs::remove_dir_all(device_dir(sync.path(), &device_a)).unwrap();
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+        let device_c = device_id_of(home_c.path());
+        fs::remove_dir_all(device_dir(sync.path(), &device_c)).unwrap();
+        export_ops(home_b.path(), Some(sync.path())).unwrap();
+        import_ops(home_d.path(), Some(sync.path())).unwrap();
+        import_ops(home_e.path(), Some(sync.path())).unwrap();
+
+        assert!(
+            !custom_skill_path(home_d.path(), relative).exists(),
+            "B must retain relayed H2 even though it never observed the resurrection"
+        );
+        assert!(
+            !custom_skill_path(home_e.path(), relative).exists(),
+            "B must retain H1 while also learning the unseen H2 generation"
+        );
+    }
+
+    #[test]
+    fn missing_v2_history_recovers_deleted_archive_ids_after_newer_exports() {
+        let sync = tempfile::tempdir().unwrap();
+        let home_a = setup_home("shared-setting");
+        let home_b = setup_home("shared-setting");
+        seed_thread(home_a.path(), "kept-thread", "kept-message");
+        insert_message(home_a.path(), "deleted-message", "kept-thread");
+        seed_tool_call(
+            home_a.path(),
+            "deleted-tool-call",
+            "kept-thread",
+            "kept-message",
+        );
+        seed_thread(home_a.path(), "deleted-thread", "deleted-thread-message");
+        init_sync(home_a.path(), Some(sync.path()), "A").unwrap();
+        init_sync(home_b.path(), Some(sync.path()), "B").unwrap();
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+
+        {
+            let conn = Connection::open(home_a.path().join(DB_FILE)).unwrap();
+            conn.execute("DELETE FROM messages WHERE id = 'deleted-message'", [])
+                .unwrap();
+            conn.execute("DELETE FROM tool_calls WHERE id = 'deleted-tool-call'", [])
+                .unwrap();
+            conn.execute("DELETE FROM threads WHERE id = 'deleted-thread'", [])
+                .unwrap();
+        }
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        fs::write(settings_path(home_a.path()), "newer-setting").unwrap();
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        let device_a = device_id_of(home_a.path());
+        fs::remove_dir_all(device_ops_dir(sync.path(), &device_a, OPS_DIR_V2)).unwrap();
+
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+
+        assert_eq!(message_body(home_b.path(), "deleted-message"), None);
+        assert_eq!(count_rows(home_b.path(), "tool_calls"), 0);
+        assert_eq!(thread_title(home_b.path(), "deleted-thread"), None);
+        assert_eq!(
+            fs::read_to_string(settings_path(home_b.path())).unwrap(),
+            "newer-setting"
+        );
+    }
+
+    #[test]
+    fn full_custom_skill_recovery_applies_without_a_peer_baseline() {
+        let sync = tempfile::tempdir().unwrap();
+        let home_a = setup_home("same-config");
+        let home_b = setup_home("same-config");
+        write_custom_skill_file(home_a.path(), "shared/SKILL.md", b"# Shared\n");
+        init_sync(home_a.path(), Some(sync.path()), "A").unwrap();
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        let device = device_id_of(home_a.path());
+        for ops_dir in [OPS_DIR_V1, OPS_DIR_V2, OPS_DIR_V3] {
+            fs::remove_dir_all(device_ops_dir(sync.path(), &device, ops_dir)).unwrap();
+        }
+
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        init_sync(home_b.path(), Some(sync.path()), "B").unwrap();
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+
+        assert_eq!(
+            fs::read(custom_skill_path(home_b.path(), "shared/SKILL.md")).unwrap(),
+            b"# Shared\n"
+        );
+        let conn = Connection::open(home_b.path().join(DB_FILE)).unwrap();
+        let conflicts: i64 = conn
+            .query_row("SELECT COUNT(*) FROM sync_conflicts", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(conflicts, 0);
+    }
+
+    #[test]
+    fn resolving_custom_skill_conflict_with_synced_version_applies_remote_file() {
+        let sync = tempfile::tempdir().unwrap();
+        let home_a = setup_home("same-config");
+        let home_b = setup_home("same-config");
+        write_custom_skill_file(home_a.path(), "shared/SKILL.md", b"version one\n");
+        init_sync(home_a.path(), Some(sync.path()), "A").unwrap();
+        init_sync(home_b.path(), Some(sync.path()), "B").unwrap();
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+        write_custom_skill_file(home_a.path(), "shared/SKILL.md", b"version from A\n");
+        write_custom_skill_file(home_b.path(), "shared/SKILL.md", b"version from B\n");
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+        let conn = Connection::open(home_b.path().join(DB_FILE)).unwrap();
+        let conflict_id: String = conn
+            .query_row(
+                "SELECT id FROM sync_conflicts WHERE resolved_at IS NULL",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        drop(conn);
+
+        resolve_custom_skill_conflict(home_b.path(), Some(sync.path()), &conflict_id, "use_remote")
+            .unwrap();
+
+        assert_eq!(
+            fs::read(custom_skill_path(home_b.path(), "shared/SKILL.md")).unwrap(),
+            b"version from A\n"
+        );
+        let conn = Connection::open(home_b.path().join(DB_FILE)).unwrap();
+        let pending: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sync_conflicts WHERE resolved_at IS NULL",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(pending, 0);
+    }
+
+    #[test]
+    fn keeping_local_custom_skill_rebases_it_for_the_next_export() {
+        let sync = tempfile::tempdir().unwrap();
+        let home_a = setup_home("same-config");
+        let home_b = setup_home("same-config");
+        write_custom_skill_file(home_a.path(), "shared/SKILL.md", b"version one\n");
+        init_sync(home_a.path(), Some(sync.path()), "A").unwrap();
+        init_sync(home_b.path(), Some(sync.path()), "B").unwrap();
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+        write_custom_skill_file(home_a.path(), "shared/SKILL.md", b"version from A\n");
+        write_custom_skill_file(home_b.path(), "shared/SKILL.md", b"version from B\n");
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+        let conn = Connection::open(home_b.path().join(DB_FILE)).unwrap();
+        let conflict_id: String = conn
+            .query_row(
+                "SELECT id FROM sync_conflicts WHERE resolved_at IS NULL",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        drop(conn);
+
+        resolve_custom_skill_conflict(home_b.path(), Some(sync.path()), &conflict_id, "keep_local")
+            .unwrap();
+        export_ops(home_b.path(), Some(sync.path())).unwrap();
+        import_ops(home_a.path(), Some(sync.path())).unwrap();
+
+        assert_eq!(
+            fs::read(custom_skill_path(home_a.path(), "shared/SKILL.md")).unwrap(),
+            b"version from B\n"
+        );
+    }
+
+    #[test]
+    fn keeping_local_against_an_upsert_retires_its_delete_generations_immediately() {
+        let sync = tempfile::tempdir().unwrap();
+        let home_a = setup_home("same-config");
+        let home_b = setup_home("same-config");
+        let home_c = setup_home("same-config");
+        let relative = "shared/SKILL.md";
+        let original = b"version one\n";
+        write_custom_skill_file(home_a.path(), relative, original);
+        init_sync(home_a.path(), Some(sync.path()), "A").unwrap();
+        init_sync(home_b.path(), Some(sync.path()), "B").unwrap();
+        init_sync(home_c.path(), Some(sync.path()), "C").unwrap();
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+        import_ops(home_c.path(), Some(sync.path())).unwrap();
+
+        fs::remove_file(custom_skill_path(home_a.path(), relative)).unwrap();
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+        import_ops(home_c.path(), Some(sync.path())).unwrap();
+
+        write_custom_skill_file(home_a.path(), relative, b"remote resurrection\n");
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        write_custom_skill_file(home_b.path(), relative, original);
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+        let conn = Connection::open(home_b.path().join(DB_FILE)).unwrap();
+        let conflict_id: String = conn
+            .query_row(
+                "SELECT id FROM sync_conflicts WHERE resolved_at IS NULL AND entity_id = ?1",
+                [relative],
+                |row| row.get(0),
+            )
+            .unwrap();
+        drop(conn);
+        resolve_custom_skill_conflict(home_b.path(), Some(sync.path()), &conflict_id, "keep_local")
+            .unwrap();
+
+        export_ops(home_c.path(), Some(sync.path())).unwrap();
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+
+        assert_eq!(
+            fs::read(custom_skill_path(home_b.path(), relative)).unwrap(),
+            original,
+            "a delayed delete retired by the rejected upsert must not remove the kept file"
+        );
+    }
+
+    #[test]
+    fn keeping_local_against_a_delete_retires_that_generation_immediately() {
+        let sync = tempfile::tempdir().unwrap();
+        let home_a = setup_home("same-config");
+        let home_b = setup_home("same-config");
+        let home_c = setup_home("same-config");
+        let relative = "shared/SKILL.md";
+        let original = b"version one\n";
+        write_custom_skill_file(home_a.path(), relative, original);
+        init_sync(home_a.path(), Some(sync.path()), "A").unwrap();
+        init_sync(home_b.path(), Some(sync.path()), "B").unwrap();
+        init_sync(home_c.path(), Some(sync.path()), "C").unwrap();
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+        import_ops(home_c.path(), Some(sync.path())).unwrap();
+
+        write_custom_skill_file(home_b.path(), relative, b"local edit\n");
+        fs::remove_file(custom_skill_path(home_a.path(), relative)).unwrap();
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+        import_ops(home_c.path(), Some(sync.path())).unwrap();
+        let conn = Connection::open(home_b.path().join(DB_FILE)).unwrap();
+        let conflict_id: String = conn
+            .query_row(
+                "SELECT id FROM sync_conflicts WHERE resolved_at IS NULL AND entity_id = ?1",
+                [relative],
+                |row| row.get(0),
+            )
+            .unwrap();
+        drop(conn);
+        resolve_custom_skill_conflict(home_b.path(), Some(sync.path()), &conflict_id, "keep_local")
+            .unwrap();
+        write_custom_skill_file(home_b.path(), relative, original);
+
+        export_ops(home_c.path(), Some(sync.path())).unwrap();
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+
+        assert_eq!(
+            fs::read(custom_skill_path(home_b.path(), relative)).unwrap(),
+            original,
+            "a delayed relay of the rejected delete must not remove the kept file"
+        );
+    }
+
+    #[test]
+    fn resolving_delete_conflict_with_synced_version_removes_local_file() {
+        let sync = tempfile::tempdir().unwrap();
+        let home_a = setup_home("same-config");
+        let home_b = setup_home("same-config");
+        write_custom_skill_file(home_a.path(), "shared/SKILL.md", b"version one\n");
+        init_sync(home_a.path(), Some(sync.path()), "A").unwrap();
+        init_sync(home_b.path(), Some(sync.path()), "B").unwrap();
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+        fs::remove_file(custom_skill_path(home_a.path(), "shared/SKILL.md")).unwrap();
+        write_custom_skill_file(home_b.path(), "shared/SKILL.md", b"local edit\n");
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+        let conn = Connection::open(home_b.path().join(DB_FILE)).unwrap();
+        let conflict_id: String = conn
+            .query_row(
+                "SELECT id FROM sync_conflicts WHERE resolved_at IS NULL",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        drop(conn);
+
+        resolve_custom_skill_conflict(home_b.path(), Some(sync.path()), &conflict_id, "use_remote")
+            .unwrap();
+
+        assert!(!custom_skill_path(home_b.path(), "shared/SKILL.md").exists());
+        assert!(!custom_skill_path(home_b.path(), "shared").exists());
+    }
+
+    #[test]
+    fn skill_only_exports_publish_a_legacy_sequence_marker() {
+        let sync = tempfile::tempdir().unwrap();
+        let home = setup_home("same-config");
+        init_sync(home.path(), Some(sync.path()), "A").unwrap();
+        export_ops(home.path(), Some(sync.path())).unwrap();
+        let device = device_id_of(home.path());
+
+        write_custom_skill_file(home.path(), "new-skill/SKILL.md", b"# New\n");
+        export_ops(home.path(), Some(sync.path())).unwrap();
+
+        let legacy_path =
+            device_ops_dir(sync.path(), &device, OPS_DIR_V1).join("0000000000000002.jsonl");
+        assert!(
+            legacy_path.exists(),
+            "v1 peers need a marker so a v3-only sequence cannot block later imports"
+        );
+        let kinds = fs::read_to_string(legacy_path)
+            .unwrap()
+            .lines()
+            .map(|line| serde_json::from_str::<SyncOp>(line).unwrap().kind)
+            .collect::<Vec<_>>();
+        assert_eq!(kinds, vec!["sync.sequence"]);
+    }
+
+    #[test]
+    fn first_custom_skill_export_discloses_full_tree_sync_once() {
+        let sync = tempfile::tempdir().unwrap();
+        let home = setup_home("same-config");
+        write_custom_skill_file(home.path(), "private-tool/SKILL.md", b"# Private tool\n");
+        init_sync(home.path(), Some(sync.path()), "A").unwrap();
+
+        let first = export_ops(home.path(), Some(sync.path())).unwrap();
+        let second = export_ops(home.path(), Some(sync.path())).unwrap();
+
+        assert!(first.custom_skills_disclosure);
+        assert!(!second.custom_skills_disclosure);
+    }
+
+    #[test]
+    fn first_custom_skill_import_discloses_full_tree_sync_once_on_the_receiving_device() {
+        let sync = tempfile::tempdir().unwrap();
+        let home_a = setup_home("same-config");
+        let home_b = setup_home("same-config");
+        write_custom_skill_file(home_a.path(), "shared/SKILL.md", b"# Shared\n");
+        init_sync(home_a.path(), Some(sync.path()), "A").unwrap();
+        init_sync(home_b.path(), Some(sync.path()), "B").unwrap();
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+
+        let first = import_ops(home_b.path(), Some(sync.path())).unwrap();
+        let second = import_ops(home_b.path(), Some(sync.path())).unwrap();
+
+        assert!(first.custom_skills_disclosure);
+        assert!(!second.custom_skills_disclosure);
+    }
+
+    #[test]
+    fn custom_skill_import_rejects_paths_outside_custom_root() {
+        let sync = tempfile::tempdir().unwrap();
+        let home_a = setup_home("same-config");
+        let home_b = setup_home("same-config");
+        init_sync(home_a.path(), Some(sync.path()), "A").unwrap();
+        init_sync(home_b.path(), Some(sync.path()), "B").unwrap();
+        let device = device_id_of(home_a.path());
+        let op = make_op(
+            &device,
+            1,
+            "skill.file.upsert",
+            "skill",
+            "../outside.txt",
+            json!({
+                "path": "../outside.txt",
+                "encoding": "base64",
+                "content": "cHduZWQ=",
+                "executable": false,
+                "baseHash": "missing",
+                "contentHash": "invalid"
+            }),
+        )
+        .unwrap();
+        let path = device_ops_dir(sync.path(), &device, OPS_DIR_V3).join("0000000000000001.jsonl");
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(path, format!("{}\n", serde_json::to_string(&op).unwrap())).unwrap();
+
+        let error = match import_ops(home_b.path(), Some(sync.path())) {
+            Ok(_) => panic!("path traversal must be rejected"),
+            Err(error) => error,
+        };
+
+        assert!(error.to_string().contains("custom skill path"));
+        assert!(!home_b.path().join("skills/outside.txt").exists());
+        assert!(!home_b.path().join("outside.txt").exists());
     }
 
     #[test]
@@ -3288,12 +5206,16 @@ mod tests {
         delete_message(home_a.path(), "m2");
         export_ops(home_a.path(), Some(sync.path())).unwrap();
 
-        assert!(
-            !device_dir(sync.path(), &device)
+        let v1_lines = fs::read_to_string(
+            device_dir(sync.path(), &device)
                 .join("ops")
-                .join("0000000000000002.jsonl")
-                .exists(),
-            "v1 importers must not see delete tombstones as unknown applied ops"
+                .join("0000000000000002.jsonl"),
+        )
+        .unwrap();
+        let v1_op: SyncOp = serde_json::from_str(v1_lines.trim()).unwrap();
+        assert_eq!(
+            v1_op.kind, "sync.sequence",
+            "v1 importers need sequence continuity without seeing delete tombstones"
         );
         let lines = fs::read_to_string(
             device_dir(sync.path(), &device)
@@ -3325,9 +5247,15 @@ mod tests {
 
         assert_eq!(exported.exported_ops, 2);
         assert_eq!(count_dirty(home_a.path()), 0);
-        assert!(!device_ops_dir(sync.path(), &device_a, OPS_DIR_V1)
-            .join("0000000000000002.jsonl")
-            .exists());
+        let v1_marker = fs::read_to_string(
+            device_ops_dir(sync.path(), &device_a, OPS_DIR_V1).join("0000000000000002.jsonl"),
+        )
+        .unwrap()
+        .lines()
+        .map(|line| serde_json::from_str::<SyncOp>(line).unwrap())
+        .collect::<Vec<_>>();
+        assert_eq!(v1_marker.len(), 1);
+        assert_eq!(v1_marker[0].kind, "sync.sequence");
         let delta = read_ops_file(sync.path(), &device_a, 2);
         let mut kinds = delta.iter().map(|op| op.kind.as_str()).collect::<Vec<_>>();
         kinds.sort_unstable();
@@ -3496,6 +5424,7 @@ mod tests {
         // and its export fingerprint survive.
         fs::remove_dir_all(device_ops_dir(sync.path(), &device, OPS_DIR_V1)).unwrap();
         fs::remove_dir_all(device_ops_dir(sync.path(), &device, OPS_DIR_V2)).unwrap();
+        fs::remove_dir_all(device_ops_dir(sync.path(), &device, OPS_DIR_V3)).unwrap();
         assert_eq!(count_op_files(sync.path(), &device), 0);
 
         // Unchanged settings must still republish so other devices can recover.
