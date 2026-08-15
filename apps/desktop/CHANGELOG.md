@@ -1,5 +1,17 @@
 # @yachiyo/desktop
 
+## 1.5.2
+
+### Patch Changes
+
+- [`6d9e574`](https://github.com/ringotypowriter/yachiyo/commit/6d9e5744a0b52376da2262628dbfe35a325ce656) Thanks [@ringotypowriter](https://github.com/ringotypowriter)! - Added cross-device custom skill sync, encrypted provider backups, and CLI-managed app updates; improved QQBot attachments and group participation; introduced Codex Fast Mode, DeepSeek Max Effort, and model/runtime stats; and strengthened Windows support, web search, and long-conversation performance.
+
+- Updated dependencies []:
+  - @yachiyo/cli@1.5.2
+  - @yachiyo/runtime@1.5.2
+  - @yachiyo/shared@1.5.2
+  - @yachiyo/core-skills@1.5.2
+
 ## 1.5.1
 
 ### Patch Changes
