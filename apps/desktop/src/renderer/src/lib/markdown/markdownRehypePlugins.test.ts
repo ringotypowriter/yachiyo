@@ -21,6 +21,9 @@ function isPluginTuple(plugin: unknown): plugin is PluginTuple {
 const defaultSanitizePlugin = isPluginTuple(defaultRehypePlugins.sanitize)
   ? defaultRehypePlugins.sanitize[0]
   : defaultRehypePlugins.sanitize
+const defaultRawPlugin = isPluginTuple(defaultRehypePlugins.raw)
+  ? defaultRehypePlugins.raw[0]
+  : defaultRehypePlugins.raw
 
 describe('createMarkdownRehypePlugins', () => {
   it('rewrites image sources before sanitize strips unsupported protocols', () => {
@@ -57,13 +60,18 @@ describe('createMarkdownRehypePlugins', () => {
     const workspaceLinkIndex = plugins.findIndex(
       (plugin) => isPluginTuple(plugin) && plugin[0] === rehypeWorkspaceFileLinkTransform
     )
+    const rawIndex = plugins.findIndex((plugin) =>
+      isPluginTuple(plugin) ? plugin[0] === defaultRawPlugin : plugin === defaultRawPlugin
+    )
     const sanitizeIndex = plugins.findIndex(
       (plugin) => isPluginTuple(plugin) && plugin[0] === defaultSanitizePlugin
     )
     const sanitizeEntry = plugins[sanitizeIndex]
 
     assert.notEqual(workspaceLinkIndex, -1)
+    assert.notEqual(rawIndex, -1)
     assert.notEqual(sanitizeIndex, -1)
+    assert.equal(rawIndex < workspaceLinkIndex, true)
     assert.equal(workspaceLinkIndex < sanitizeIndex, true)
     assert.ok(isPluginTuple(sanitizeEntry))
     const schema = sanitizeEntry[1] as { attributes?: Record<string, unknown[]> }
@@ -124,5 +132,37 @@ describe('createMarkdownRehypePlugins', () => {
     assert.doesNotMatch(resolvedHtml, /\[blocked\]/)
     assert.match(resolvedHtml, /data-yachiyo-workspace-file-reference="提示词\.md"/)
     assert.match(resolvedHtml, /data-yachiyo-workspace-file-reference="my file\.md"/)
+  })
+
+  it('preserves reserved filename characters and nested separators through Streamdown', () => {
+    const markdown = [
+      '[hash](<notes#1.md>)',
+      '[query](<notes?1.md>)',
+      '[nested](docs/guide.md)'
+    ].join('\n')
+    const passthroughSpan: Components['span'] = ({ node, ...props }) => {
+      void node
+      return React.createElement('span', props)
+    }
+    const resolvedHtml = renderToStaticMarkup(
+      React.createElement(
+        Streamdown,
+        {
+          mode: 'static',
+          rehypePlugins: createMarkdownRehypePlugins(null, [
+            'notes#1.md',
+            'notes?1.md',
+            'docs/guide.md'
+          ]),
+          components: { span: passthroughSpan }
+        },
+        markdown
+      )
+    )
+
+    assert.doesNotMatch(resolvedHtml, /\[blocked\]/)
+    assert.match(resolvedHtml, /data-yachiyo-workspace-file-reference="notes#1\.md"/)
+    assert.match(resolvedHtml, /data-yachiyo-workspace-file-reference="notes\?1\.md"/)
+    assert.match(resolvedHtml, /data-yachiyo-workspace-file-reference="docs\/guide\.md"/)
   })
 })

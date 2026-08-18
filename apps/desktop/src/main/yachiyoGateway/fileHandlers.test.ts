@@ -1,12 +1,13 @@
 import assert from 'node:assert/strict'
-import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import test from 'node:test'
+import test, { type TestContext } from 'node:test'
 
 import type { DiscoveredApp, DiscoveredApps } from '@yachiyo/shared/discoveredApp'
+import type { ResolveFileReferencesInput } from '@yachiyo/shared/protocol'
 import { resolveExistingFileReferences } from '../../../../../packages/runtime/src/runtime/files/inlineCodeFileReferences.ts'
-import { openFileUsingSelection } from './fileHandlers.ts'
+import { openFileUsingSelection, revealFileUsingSelection } from './fileHandlers.ts'
 
 const obsidian: DiscoveredApp = {
   id: 'markdown:obsidian',
@@ -19,6 +20,43 @@ const discoveredApps: DiscoveredApps = {
   editors: [],
   terminals: [],
   markdownEditors: [obsidian]
+}
+
+async function createWorkspaceLinkSwapFixture(t: TestContext): Promise<{
+  workspacePath: string
+  requestedPath: string
+  verifiedPath: string
+  resolveAfterReplacingLink: typeof resolveExistingFileReferences
+}> {
+  const root = await mkdtemp(join(tmpdir(), 'yachiyo-workspace-operation-'))
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const workspacePath = join(root, 'workspace')
+  const safeDirectory = join(workspacePath, 'safe')
+  const linkedDirectory = join(workspacePath, 'artifacts')
+  const outsideDirectory = join(root, 'outside')
+  const requestedPath = join(linkedDirectory, 'report.md')
+  const safePath = join(safeDirectory, 'report.md')
+  await mkdir(safeDirectory, { recursive: true })
+  await mkdir(outsideDirectory, { recursive: true })
+  await writeFile(safePath, 'safe')
+  await writeFile(join(outsideDirectory, 'report.md'), 'outside')
+  await symlink(safeDirectory, linkedDirectory, process.platform === 'win32' ? 'junction' : 'dir')
+
+  return {
+    workspacePath,
+    requestedPath,
+    verifiedPath: await realpath(safePath),
+    resolveAfterReplacingLink: async (input: ResolveFileReferencesInput) => {
+      const resolved = await resolveExistingFileReferences(input)
+      await rm(linkedDirectory, { recursive: true, force: true })
+      await symlink(
+        outsideDirectory,
+        linkedDirectory,
+        process.platform === 'win32' ? 'junction' : 'dir'
+      )
+      return resolved
+    }
+  }
 }
 
 test('configured Markdown open resolves the stable app id and launches without the shell', async () => {
@@ -114,6 +152,48 @@ test('workspace-only open rejects a file moved behind an escaping symlink before
   )
 
   assert.deepEqual(openedPaths, [])
+})
+
+test('workspace-only open uses the verified real path after a link is replaced', async (t) => {
+  const { workspacePath, requestedPath, verifiedPath, resolveAfterReplacingLink } =
+    await createWorkspaceLinkSwapFixture(t)
+
+  const openedPaths: string[] = []
+  const openedContents: string[] = []
+  await openFileUsingSelection(
+    { path: requestedPath, workspacePath, workspaceOnly: true },
+    {
+      discoverApps: async () => discoveredApps,
+      launchApp: async () => {},
+      openPath: async (path) => {
+        openedPaths.push(path)
+        openedContents.push(await readFile(path, 'utf8'))
+        return ''
+      },
+      resolveFileReferences: resolveAfterReplacingLink
+    }
+  )
+
+  assert.deepEqual(openedPaths, [verifiedPath])
+  assert.deepEqual(openedContents, ['safe'])
+})
+
+test('workspace-only reveal uses the verified real path after a link is replaced', async (t) => {
+  const { workspacePath, requestedPath, verifiedPath, resolveAfterReplacingLink } =
+    await createWorkspaceLinkSwapFixture(t)
+
+  const revealedPaths: string[] = []
+  await revealFileUsingSelection(
+    { path: requestedPath, workspacePath, workspaceOnly: true },
+    {
+      revealPath: (path) => {
+        revealedPaths.push(path)
+      },
+      resolveFileReferences: resolveAfterReplacingLink
+    }
+  )
+
+  assert.deepEqual(revealedPaths, [verifiedPath])
 })
 
 test('configured file open rejects a stale or wrong-kind app selection', async () => {

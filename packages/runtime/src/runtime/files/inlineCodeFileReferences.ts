@@ -59,15 +59,26 @@ async function resolveExistingFileReference(input: {
   workspaceOnly: boolean
   reference: string
 }): Promise<string | null> {
-  const candidates = toCandidatePaths(input.workspacePath, input.reference, input.workspaceOnly)
+  const candidates = toCandidatePaths(
+    input.workspacePath,
+    input.realWorkspacePath,
+    input.reference,
+    input.workspaceOnly
+  )
   const allowDirectory = isExplicitFolderReference(input.reference)
   for (const candidate of candidates) {
-    if (
-      (await isExistingFileReferenceTarget(candidate, allowDirectory)) &&
-      (!input.workspaceOnly ||
-        (await isRealPathInsideWorkspace(input.realWorkspacePath, candidate)))
-    ) {
+    if (!(await isExistingFileReferenceTarget(candidate, allowDirectory))) continue
+    if (!input.workspaceOnly) {
       return candidate
+    }
+
+    const realCandidatePath = await resolveExistingRealPath(candidate)
+    if (
+      input.realWorkspacePath &&
+      realCandidatePath &&
+      isPathInside(input.realWorkspacePath, realCandidatePath)
+    ) {
+      return realCandidatePath
     }
   }
 
@@ -76,6 +87,7 @@ async function resolveExistingFileReference(input: {
 
 function toCandidatePaths(
   workspacePath: string | null,
+  realWorkspacePath: string | null,
   reference: string,
   workspaceOnly: boolean
 ): string[] {
@@ -96,22 +108,20 @@ function toCandidatePaths(
       ? resolve(pathPart)
       : resolveRelativeCandidatePath(workspacePath, pathPart)
     if (!resolvedPath) continue
-    if (workspaceOnly && (!workspacePath || !isPathInside(workspacePath, resolvedPath))) continue
+    if (
+      workspaceOnly &&
+      (!workspacePath ||
+        (!isPathInside(workspacePath, resolvedPath) &&
+          (!realWorkspacePath || !isPathInside(realWorkspacePath, resolvedPath))))
+    ) {
+      continue
+    }
     if (!candidates.includes(resolvedPath)) {
       candidates.push(resolvedPath)
     }
   }
 
   return candidates
-}
-
-async function isRealPathInsideWorkspace(
-  realWorkspacePath: string | null,
-  candidatePath: string
-): Promise<boolean> {
-  if (!realWorkspacePath) return false
-  const realCandidatePath = await resolveExistingRealPath(candidatePath)
-  return realCandidatePath ? isPathInside(realWorkspacePath, realCandidatePath) : false
 }
 
 async function resolveExistingRealPath(path: string | null): Promise<string | null> {

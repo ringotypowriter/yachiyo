@@ -30,6 +30,11 @@ interface OpenFileSelectionDependencies {
   resolveFileReferences: (input: ResolveFileReferencesInput) => Promise<ResolvedFileReference[]>
 }
 
+interface RevealFileSelectionDependencies {
+  revealPath: (path: string) => void
+  resolveFileReferences: (input: ResolveFileReferencesInput) => Promise<ResolvedFileReference[]>
+}
+
 export async function openFileUsingSelection(
   input: OpenFileSelectionInput,
   dependencies: OpenFileSelectionDependencies
@@ -53,6 +58,14 @@ export async function openFileUsingSelection(
   }
   const error = await dependencies.openPath(targetPath)
   if (error) throw new Error(error)
+}
+
+export async function revealFileUsingSelection(
+  input: OpenFileSelectionInput,
+  dependencies: RevealFileSelectionDependencies
+): Promise<void> {
+  const targetPath = await resolveFileOperationPath(input, dependencies.resolveFileReferences)
+  dependencies.revealPath(targetPath)
 }
 
 async function resolveFileOperationPath(
@@ -146,9 +159,11 @@ export function registerGatewayFileHandlers(handle: GatewayIpcHandler): void {
       workspacePath?: string | null
       workspaceOnly?: boolean
     }) => {
-      const targetPath = await resolveFileOperationPath(input, resolveExistingFileReferences)
       const { shell } = await import('electron')
-      shell.showItemInFolder(targetPath)
+      await revealFileUsingSelection(input, {
+        revealPath: (path) => shell.showItemInFolder(path),
+        resolveFileReferences: resolveExistingFileReferences
+      })
     }
   )
 

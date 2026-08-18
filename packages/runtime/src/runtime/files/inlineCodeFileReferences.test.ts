@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import test from 'node:test'
@@ -172,7 +172,7 @@ test('resolveExistingFileReferences derives the temporary workspace from a threa
     assert.deepEqual(resolved, [
       {
         reference: 'pi-agent-compact-prompt.md',
-        path: artifactPath
+        path: await realpath(artifactPath)
       }
     ])
   } finally {
@@ -213,9 +213,47 @@ test('resolveExistingFileReferences keeps workspace-only links inside the real w
     assert.deepEqual(resolved, [
       {
         reference: 'artifact.md',
-        path: artifactPath
+        path: await realpath(artifactPath)
       }
     ])
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('resolveExistingFileReferences revalidates its canonical workspace-only result', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'yachiyo-workspace-file-links-'))
+  const realWorkspacePath = join(root, 'real-workspace')
+  const workspacePath = join(root, 'workspace-link')
+  const artifactPath = join(realWorkspacePath, 'artifact.md')
+
+  try {
+    await mkdir(realWorkspacePath, { recursive: true })
+    await writeFile(artifactPath, '# Artifact\n', 'utf8')
+    await symlink(
+      realWorkspacePath,
+      workspacePath,
+      process.platform === 'win32' ? 'junction' : 'dir'
+    )
+
+    const canonicalArtifactPath = await realpath(artifactPath)
+    assert.deepEqual(
+      await resolveExistingFileReferences({
+        workspacePath,
+        workspaceOnly: true,
+        references: ['artifact.md']
+      }),
+      [{ reference: 'artifact.md', path: canonicalArtifactPath }]
+    )
+
+    assert.deepEqual(
+      await resolveExistingFileReferences({
+        workspacePath,
+        workspaceOnly: true,
+        references: [canonicalArtifactPath]
+      }),
+      [{ reference: canonicalArtifactPath, path: canonicalArtifactPath }]
+    )
   } finally {
     await rm(root, { recursive: true, force: true })
   }
