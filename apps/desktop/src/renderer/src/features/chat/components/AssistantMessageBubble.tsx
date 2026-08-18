@@ -60,6 +60,7 @@ interface AssistantMessageBubbleProps {
   /** Show the streaming caret. When omitted, defaults to isStreaming state. */
   showCaret?: boolean
   inlineCodeFileLinks?: InlineCodeFileLinkSnapshot
+  workspaceFileLinks?: InlineCodeFileLinkSnapshot
   workspacePath?: string | null
 }
 
@@ -72,6 +73,7 @@ export const AssistantMessageBubble = memo(function AssistantMessageBubble({
   compactBottomSpacing = false,
   showCaret,
   inlineCodeFileLinks,
+  workspaceFileLinks,
   workspacePath
 }: AssistantMessageBubbleProps): React.JSX.Element {
   const { showContent, showBubble, footer } = buildMessagePresentation(message)
@@ -124,6 +126,7 @@ export const AssistantMessageBubble = memo(function AssistantMessageBubble({
               isStreaming={isStreaming}
               imageContext={imageContext}
               inlineCodeFileLinks={inlineCodeFileLinks}
+              workspaceFileLinks={workspaceFileLinks}
             />
           )}
         </div>

@@ -1,10 +1,16 @@
 import { describe, it } from 'node:test'
 import { strict as assert } from 'node:assert'
+import React from 'react'
+import { renderToStaticMarkup } from 'react-dom/server'
 
-import { defaultRehypePlugins } from 'streamdown'
+import { defaultRehypePlugins, Streamdown, type Components } from 'streamdown'
 import { rehypeImageSrcTransform } from './imageRehypePlugin.ts'
 import { YACHIYO_ASSET_SCHEME } from './imageUrl.ts'
 import { createMarkdownRehypePlugins } from './markdownRehypePlugins.ts'
+import {
+  rehypeWorkspaceFileLinkTransform,
+  WORKSPACE_FILE_REFERENCE_PROPERTY
+} from './workspaceFileLinkRehypePlugin.ts'
 
 type PluginTuple = readonly [unknown, ...unknown[]]
 
@@ -41,5 +47,55 @@ describe('createMarkdownRehypePlugins', () => {
     assert.equal(schema.protocols?.src?.includes(YACHIYO_ASSET_SCHEME), true)
     assert.equal(schema.protocols?.src?.includes('data'), true)
     assert.equal(schema.protocols?.href?.includes('magnet'), true)
+  })
+
+  it('protects resolved workspace links before harden and preserves their marker', () => {
+    const plugins = createMarkdownRehypePlugins(null, ['artifact.md'])
+    const workspaceLinkIndex = plugins.findIndex(
+      (plugin) => isPluginTuple(plugin) && plugin[0] === rehypeWorkspaceFileLinkTransform
+    )
+    const sanitizeIndex = plugins.findIndex(
+      (plugin) => isPluginTuple(plugin) && plugin[0] === defaultSanitizePlugin
+    )
+    const sanitizeEntry = plugins[sanitizeIndex]
+
+    assert.equal(workspaceLinkIndex, 1)
+    assert.equal(sanitizeIndex, 2)
+    assert.ok(isPluginTuple(sanitizeEntry))
+    const schema = sanitizeEntry[1] as { attributes?: Record<string, unknown[]> }
+    assert.equal(schema.attributes?.span?.includes(WORKSPACE_FILE_REFERENCE_PROPERTY), true)
+  })
+
+  it('replaces the exact blocked artifact output after workspace resolution', () => {
+    const markdown = '[下载 pi-agent-compact-prompt.md](<pi-agent-compact-prompt.md>)'
+    const unresolvedHtml = renderToStaticMarkup(
+      React.createElement(
+        Streamdown,
+        { mode: 'static', rehypePlugins: createMarkdownRehypePlugins(null) },
+        markdown
+      )
+    )
+    const passthroughSpan: Components['span'] = ({ node, ...props }) => {
+      void node
+      return React.createElement('span', props)
+    }
+    const resolvedHtml = renderToStaticMarkup(
+      React.createElement(
+        Streamdown,
+        {
+          mode: 'static',
+          rehypePlugins: createMarkdownRehypePlugins(null, ['pi-agent-compact-prompt.md']),
+          components: { span: passthroughSpan }
+        },
+        markdown
+      )
+    )
+
+    assert.match(unresolvedHtml, /\[blocked\]/)
+    assert.doesNotMatch(resolvedHtml, /\[blocked\]/)
+    assert.match(
+      resolvedHtml,
+      /data-yachiyo-workspace-file-reference="pi-agent-compact-prompt\.md"/
+    )
   })
 })

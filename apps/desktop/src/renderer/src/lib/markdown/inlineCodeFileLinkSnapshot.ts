@@ -4,6 +4,7 @@ import {
   extractInlineCodeFileReferences,
   isAbsoluteInlineCodeFileReference
 } from '@yachiyo/shared/inlineCodeFileReferences'
+import { extractMarkdownFileReferences } from './markdownFileReferences'
 
 export type InlineCodeFileLinkSnapshot = ReadonlyMap<string, string>
 
@@ -18,25 +19,75 @@ const snapshotCache = new Map<
 export function useInlineCodeFileLinkSnapshot(input: {
   enabled: boolean
   markdownDocuments: readonly string[]
+  threadId?: string | null
   workspacePath?: string | null
 }): InlineCodeFileLinkSnapshot {
-  const { enabled, markdownDocuments, workspacePath } = input
+  const { enabled, markdownDocuments, threadId, workspacePath } = input
   const references = useMemo(
     () => (enabled ? extractUniqueInlineCodeFileReferences(markdownDocuments) : []),
     [enabled, markdownDocuments]
   )
   const hasResolvableReference = useMemo(
     () =>
-      Boolean(workspacePath) ||
+      Boolean(workspacePath || threadId) ||
       references.some((reference) => isAbsoluteInlineCodeFileReference(reference)),
-    [workspacePath, references]
+    [workspacePath, threadId, references]
   )
+
+  return useResolvedFileLinkSnapshot({
+    cacheScope: 'inline-code',
+    hasResolvableReference,
+    references,
+    threadId,
+    workspaceOnly: false,
+    workspacePath
+  })
+}
+
+export function useWorkspaceFileLinkSnapshot(input: {
+  enabled: boolean
+  markdownDocuments: readonly string[]
+  threadId?: string | null
+  workspacePath?: string | null
+}): InlineCodeFileLinkSnapshot {
+  const { enabled, markdownDocuments, threadId, workspacePath } = input
+  const references = useMemo(
+    () => (enabled ? extractUniqueMarkdownFileReferences(markdownDocuments) : []),
+    [enabled, markdownDocuments]
+  )
+
+  return useResolvedFileLinkSnapshot({
+    cacheScope: 'workspace-markdown',
+    hasResolvableReference: Boolean(workspacePath || threadId),
+    references,
+    threadId,
+    workspaceOnly: true,
+    workspacePath
+  })
+}
+
+function useResolvedFileLinkSnapshot(input: {
+  cacheScope: string
+  hasResolvableReference: boolean
+  references: readonly string[]
+  threadId?: string | null
+  workspaceOnly: boolean
+  workspacePath?: string | null
+}): InlineCodeFileLinkSnapshot {
+  const { cacheScope, hasResolvableReference, references, threadId, workspaceOnly, workspacePath } =
+    input
   const cacheKey = useMemo(() => {
     if (!hasResolvableReference || references.length === 0) {
       return ''
     }
-    return JSON.stringify([workspacePath ?? null, references])
-  }, [hasResolvableReference, workspacePath, references])
+    return JSON.stringify([
+      cacheScope,
+      threadId ?? null,
+      workspacePath ?? null,
+      workspaceOnly,
+      references
+    ])
+  }, [cacheScope, hasResolvableReference, references, threadId, workspaceOnly, workspacePath])
   const [resolvedSnapshot, setResolvedSnapshot] = useState<{
     cacheKey: string
     snapshot: InlineCodeFileLinkSnapshot
@@ -53,7 +104,12 @@ export function useInlineCodeFileLinkSnapshot(input: {
     }
 
     let cancelled = false
-    const snapshotPromise = resolveCachedSnapshot(cacheKey, workspacePath ?? null, references)
+    const snapshotPromise = resolveCachedSnapshot(cacheKey, {
+      threadId: threadId ?? undefined,
+      workspacePath: workspacePath ?? null,
+      workspaceOnly,
+      references
+    })
 
     void Promise.resolve(snapshotPromise)
       .then((nextSnapshot) => {
@@ -77,14 +133,7 @@ export function useInlineCodeFileLinkSnapshot(input: {
     return () => {
       cancelled = true
     }
-  }, [
-    cacheKey,
-    enabled,
-    hasResolvableReference,
-    markdownDocuments.length,
-    references,
-    workspacePath
-  ])
+  }, [cacheKey, hasResolvableReference, references, threadId, workspaceOnly, workspacePath])
 
   if (!cacheKey || resolvedSnapshot.cacheKey !== cacheKey) {
     return EMPTY_FILE_LINK_SNAPSHOT
@@ -110,10 +159,29 @@ function extractUniqueInlineCodeFileReferences(markdownDocuments: readonly strin
   return references
 }
 
+function extractUniqueMarkdownFileReferences(markdownDocuments: readonly string[]): string[] {
+  const references: string[] = []
+  const seen = new Set<string>()
+
+  for (const document of markdownDocuments) {
+    for (const reference of extractMarkdownFileReferences(document)) {
+      if (seen.has(reference)) continue
+      seen.add(reference)
+      references.push(reference)
+    }
+  }
+
+  return references
+}
+
 function resolveCachedSnapshot(
   cacheKey: string,
-  workspacePath: string | null,
-  references: readonly string[]
+  input: {
+    threadId?: string
+    workspacePath: string | null
+    workspaceOnly: boolean
+    references: readonly string[]
+  }
 ): InlineCodeFileLinkSnapshot | Promise<InlineCodeFileLinkSnapshot> {
   const cached = snapshotCache.get(cacheKey)
   if (cached) {
@@ -122,8 +190,10 @@ function resolveCachedSnapshot(
 
   const snapshotPromise = window.api.yachiyo
     .resolveFileReferences({
-      workspacePath,
-      references: [...references]
+      ...(input.threadId ? { threadId: input.threadId } : {}),
+      workspacePath: input.workspacePath,
+      workspaceOnly: input.workspaceOnly,
+      references: [...input.references]
     })
     .then((resolved) => {
       const snapshot =

@@ -10,6 +10,7 @@ interface PlanDocumentTimelineCardProps {
   planDocument: PlanDocumentState | null
   threadId: string | null
   inlineCodeFileLinks: InlineCodeFileLinkSnapshot
+  workspaceFileLinks: InlineCodeFileLinkSnapshot
   onAcceptPlanDocument: (threadId: string, mode: AcceptThreadPlanDocumentMode) => Promise<void>
   onRejectPlanDocument: (threadId: string) => Promise<void>
 }
@@ -18,6 +19,7 @@ export const PlanDocumentTimelineCard = memo(function PlanDocumentTimelineCard({
   planDocument,
   threadId,
   inlineCodeFileLinks,
+  workspaceFileLinks,
   onAcceptPlanDocument,
   onRejectPlanDocument
 }: PlanDocumentTimelineCardProps): React.JSX.Element | null {
@@ -52,6 +54,7 @@ export const PlanDocumentTimelineCard = memo(function PlanDocumentTimelineCard({
       decision={decision}
       defaultExpanded={decision !== 'accepted'}
       inlineCodeFileLinks={inlineCodeFileLinks}
+      workspaceFileLinks={workspaceFileLinks}
       onAcceptDirect={
         threadId
           ? () => {

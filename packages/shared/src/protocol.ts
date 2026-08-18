@@ -944,7 +944,9 @@ export interface SearchWorkspaceFilesInput {
 }
 
 export interface ResolveFileReferencesInput {
+  threadId?: string
   workspacePath?: string | null
+  workspaceOnly?: boolean
   references: string[]
 }
 

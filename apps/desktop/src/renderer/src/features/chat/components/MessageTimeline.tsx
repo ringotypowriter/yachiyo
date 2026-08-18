@@ -8,7 +8,10 @@ import { useAppDialog, type AppConfirmOptions } from '@renderer/components/AppDi
 import { theme } from '@renderer/theme/theme'
 import { t } from '@yachiyo/i18n/index'
 import { useT } from '@yachiyo/i18n/react'
-import { useInlineCodeFileLinkSnapshot } from '@renderer/lib/markdown/inlineCodeFileLinkSnapshot'
+import {
+  useInlineCodeFileLinkSnapshot,
+  useWorkspaceFileLinkSnapshot
+} from '@renderer/lib/markdown/inlineCodeFileLinkSnapshot'
 import { useStableArray } from '@renderer/lib/useStableArray'
 import { getThreadCapabilities } from '@yachiyo/shared/protocol'
 import { TimelineScrollbar } from './TimelineScrollbar'
@@ -369,11 +372,10 @@ export function MessageTimeline({
     )
   )
 
-  // timelineRows is rebuilt every streamed frame; documents only contain
-  // non-streaming content, so pin the array identity while its strings are
-  // unchanged — this keeps the reference-extraction chain below fully idle
-  // during streaming instead of re-running regexes over the whole thread.
-  const inlineCodeMarkdownDocuments = useStableArray(
+  // timelineRows is rebuilt every streamed frame; file-link documents only
+  // contain non-streaming content, so pin the array identity while its strings
+  // are unchanged. This keeps both reference extractors idle during streaming.
+  const fileLinkMarkdownDocuments = useStableArray(
     useMemo(() => collectInlineCodeMarkdownDocumentsFromRows(timelineRows), [timelineRows])
   )
   const scrollbarMessages = useStableArray(
@@ -391,8 +393,15 @@ export function MessageTimeline({
     )
   )
   const inlineCodeFileLinks = useInlineCodeFileLinkSnapshot({
-    enabled: inlineCodeMarkdownDocuments.length > 0,
-    markdownDocuments: inlineCodeMarkdownDocuments,
+    enabled: fileLinkMarkdownDocuments.length > 0,
+    markdownDocuments: fileLinkMarkdownDocuments,
+    threadId,
+    workspacePath
+  })
+  const workspaceFileLinks = useWorkspaceFileLinkSnapshot({
+    enabled: fileLinkMarkdownDocuments.length > 0,
+    markdownDocuments: fileLinkMarkdownDocuments,
+    threadId,
     workspacePath
   })
 
@@ -957,6 +966,7 @@ export function MessageTimeline({
       threadId,
       workspacePath,
       inlineCodeFileLinks,
+      workspaceFileLinks,
       cancelRunForThread,
       revertPendingSteer,
       acceptPlanDocument,
@@ -984,6 +994,7 @@ export function MessageTimeline({
       threadId,
       workspacePath,
       inlineCodeFileLinks,
+      workspaceFileLinks,
       cancelRunForThread,
       revertPendingSteer,
       acceptPlanDocument,

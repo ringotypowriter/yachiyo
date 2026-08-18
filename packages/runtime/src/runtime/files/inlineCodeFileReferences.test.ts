@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import test from 'node:test'
@@ -144,6 +144,76 @@ test('resolveExistingFileReferences skips existing files with disallowed extensi
       {
         reference: 'budget.xlsx',
         path: join(workspacePath, 'budget.xlsx')
+      }
+    ])
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('resolveExistingFileReferences derives the temporary workspace from a thread id', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'yachiyo-workspace-file-links-'))
+  const previousYachiyoHome = process.env['YACHIYO_HOME']
+  const threadId = '9303505d-becc-438b-a415-6fc19be93625'
+  const workspacePath = join(root, 'temp-workspace', threadId)
+  const artifactPath = join(workspacePath, 'pi-agent-compact-prompt.md')
+
+  try {
+    process.env['YACHIYO_HOME'] = root
+    await mkdir(workspacePath, { recursive: true })
+    await writeFile(artifactPath, '# Compact prompt\n', 'utf8')
+
+    const resolved = await resolveExistingFileReferences({
+      threadId,
+      workspaceOnly: true,
+      references: ['pi-agent-compact-prompt.md']
+    })
+
+    assert.deepEqual(resolved, [
+      {
+        reference: 'pi-agent-compact-prompt.md',
+        path: artifactPath
+      }
+    ])
+  } finally {
+    if (previousYachiyoHome === undefined) {
+      delete process.env['YACHIYO_HOME']
+    } else {
+      process.env['YACHIYO_HOME'] = previousYachiyoHome
+    }
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('resolveExistingFileReferences keeps workspace-only links inside the real workspace', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'yachiyo-workspace-file-links-'))
+  const workspacePath = join(root, 'workspace')
+  const artifactPath = join(workspacePath, 'artifact.md')
+  const outsideDirectoryPath = join(root, 'outside')
+  const outsidePath = join(outsideDirectoryPath, 'outside.md')
+  const escapedDirectoryPath = join(workspacePath, 'escaped')
+
+  try {
+    await mkdir(workspacePath, { recursive: true })
+    await mkdir(outsideDirectoryPath, { recursive: true })
+    await writeFile(artifactPath, '# Artifact\n', 'utf8')
+    await writeFile(outsidePath, '# Outside\n', 'utf8')
+    await symlink(
+      outsideDirectoryPath,
+      escapedDirectoryPath,
+      process.platform === 'win32' ? 'junction' : 'dir'
+    )
+
+    const resolved = await resolveExistingFileReferences({
+      workspacePath,
+      workspaceOnly: true,
+      references: ['artifact.md', outsidePath, 'escaped/outside.md', '../outside/outside.md']
+    })
+
+    assert.deepEqual(resolved, [
+      {
+        reference: 'artifact.md',
+        path: artifactPath
       }
     ])
   } finally {
