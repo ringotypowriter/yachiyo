@@ -80,6 +80,7 @@ export interface TimelineItemRenderContext {
   threadId: string | null
   workspacePath?: string
   inlineCodeFileLinks: InlineCodeFileLinkSnapshot
+  workspaceFileLinks: InlineCodeFileLinkSnapshot
   cancelRunForThread: (threadId: string) => Promise<void>
   revertPendingSteer: () => Promise<void>
   acceptPlanDocument: (threadId: string, mode: AcceptThreadPlanDocumentMode) => Promise<void>
@@ -105,7 +106,9 @@ function renderPlanDocumentTimelineCard(
     <PlanDocumentTimelineCard
       planDocument={context.planDocument}
       threadId={context.threadId}
+      workspacePath={context.workspacePath}
       inlineCodeFileLinks={context.inlineCodeFileLinks}
+      workspaceFileLinks={context.workspaceFileLinks}
       onAcceptPlanDocument={context.acceptPlanDocument}
       onRejectPlanDocument={context.rejectPlanDocument}
     />
@@ -131,6 +134,7 @@ function renderTimelineItem(
     threadId,
     workspacePath,
     inlineCodeFileLinks,
+    workspaceFileLinks,
     cancelRunForThread,
     revertPendingSteer,
     onEdit,
@@ -230,11 +234,15 @@ function renderTimelineItem(
             decision="accepted"
             defaultExpanded={false}
             inlineCodeFileLinks={inlineCodeFileLinks}
+            workspaceFileLinks={workspaceFileLinks}
+            threadId={threadId}
+            workspacePath={workspacePath}
           />
         ) : (
           <AssistantMessageBubble
             message={item.data}
             inlineCodeFileLinks={inlineCodeFileLinks}
+            workspaceFileLinks={workspaceFileLinks}
             workspacePath={workspacePath}
           />
         )}
@@ -392,6 +400,7 @@ function renderTimelineItem(
           contentOverride={item.textBlock.content}
           showFooter={false}
           inlineCodeFileLinks={inlineCodeFileLinks}
+          workspaceFileLinks={workspaceFileLinks}
           workspacePath={workspacePath}
           suppressGeneratingLabel={
             item.hasRunningToolCall || item.assistantMessage.status === 'streaming'

@@ -1,4 +1,4 @@
-import { stat } from 'node:fs/promises'
+import { realpath, stat } from 'node:fs/promises'
 import { isAbsolute, relative, resolve } from 'node:path'
 
 import type { ResolvedFileReference, ResolveFileReferencesInput } from '@yachiyo/shared/protocol'
@@ -6,11 +6,19 @@ import {
   isAllowedInlineCodeFileReference,
   stripInlineCodeFileLocationSuffix
 } from '@yachiyo/shared/inlineCodeFileReferences'
+import { resolveThreadWorkspacePath } from '../../config/paths.ts'
 
 export async function resolveExistingFileReferences(
   input: ResolveFileReferencesInput
 ): Promise<ResolvedFileReference[]> {
-  const workspacePath = input.workspacePath ? resolve(input.workspacePath) : null
+  const workspacePath = resolveInputWorkspacePath(input)
+  const realWorkspacePath = input.workspaceOnly
+    ? await resolveExistingRealPath(workspacePath)
+    : null
+  if (input.workspaceOnly && !realWorkspacePath) {
+    return []
+  }
+
   const resolved: ResolvedFileReference[] = []
   const seenReferences = new Set<string>()
 
@@ -21,7 +29,12 @@ export async function resolveExistingFileReferences(
     }
     seenReferences.add(trimmedReference)
 
-    const filePath = await resolveExistingFileReference(workspacePath, trimmedReference)
+    const filePath = await resolveExistingFileReference({
+      workspacePath,
+      realWorkspacePath,
+      workspaceOnly: input.workspaceOnly === true,
+      reference: trimmedReference
+    })
     if (filePath) {
       resolved.push({ reference: trimmedReference, path: filePath })
     }
@@ -30,22 +43,54 @@ export async function resolveExistingFileReferences(
   return resolved
 }
 
-async function resolveExistingFileReference(
-  workspacePath: string | null,
+function resolveInputWorkspacePath(input: ResolveFileReferencesInput): string | null {
+  const explicitWorkspacePath = input.workspacePath?.trim()
+  if (explicitWorkspacePath) {
+    return resolve(explicitWorkspacePath)
+  }
+
+  const threadId = input.threadId?.trim()
+  return threadId ? resolve(resolveThreadWorkspacePath(threadId)) : null
+}
+
+async function resolveExistingFileReference(input: {
+  workspacePath: string | null
+  realWorkspacePath: string | null
+  workspaceOnly: boolean
   reference: string
-): Promise<string | null> {
-  const candidates = toCandidatePaths(workspacePath, reference)
-  const allowDirectory = isExplicitFolderReference(reference)
+}): Promise<string | null> {
+  const candidates = toCandidatePaths(
+    input.workspacePath,
+    input.realWorkspacePath,
+    input.reference,
+    input.workspaceOnly
+  )
+  const allowDirectory = isExplicitFolderReference(input.reference)
   for (const candidate of candidates) {
-    if (await isExistingFileReferenceTarget(candidate, allowDirectory)) {
+    if (!(await isExistingFileReferenceTarget(candidate, allowDirectory))) continue
+    if (!input.workspaceOnly) {
       return candidate
+    }
+
+    const realCandidatePath = await resolveExistingRealPath(candidate)
+    if (
+      input.realWorkspacePath &&
+      realCandidatePath &&
+      isPathInside(input.realWorkspacePath, realCandidatePath)
+    ) {
+      return realCandidatePath
     }
   }
 
   return null
 }
 
-function toCandidatePaths(workspacePath: string | null, reference: string): string[] {
+function toCandidatePaths(
+  workspacePath: string | null,
+  realWorkspacePath: string | null,
+  reference: string,
+  workspaceOnly: boolean
+): string[] {
   if (!isAllowedInlineCodeFileReference(reference)) {
     return []
   }
@@ -63,12 +108,32 @@ function toCandidatePaths(workspacePath: string | null, reference: string): stri
       ? resolve(pathPart)
       : resolveRelativeCandidatePath(workspacePath, pathPart)
     if (!resolvedPath) continue
+    if (
+      workspaceOnly &&
+      (!workspacePath ||
+        (!isPathInside(workspacePath, resolvedPath) &&
+          (!realWorkspacePath || !isPathInside(realWorkspacePath, resolvedPath))))
+    ) {
+      continue
+    }
     if (!candidates.includes(resolvedPath)) {
       candidates.push(resolvedPath)
     }
   }
 
   return candidates
+}
+
+async function resolveExistingRealPath(path: string | null): Promise<string | null> {
+  if (!path) return null
+  try {
+    return await realpath(path)
+  } catch (error) {
+    if (isExpectedStatMiss(error)) {
+      return null
+    }
+    throw error
+  }
 }
 
 function resolveRelativeCandidatePath(

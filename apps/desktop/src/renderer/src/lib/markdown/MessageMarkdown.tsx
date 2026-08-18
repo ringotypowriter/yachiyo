@@ -27,6 +27,8 @@ import {
 } from './MarkdownImage'
 import { getMessageMarkdownAnimation } from './messageMarkdownAnimation'
 import type { InlineCodeFileLinkSnapshot } from './inlineCodeFileLinkSnapshot'
+import { WorkspaceFileLink } from './WorkspaceFileLink'
+import type { WorkspaceFileOperationScope } from './workspaceFileLinkAction'
 import { splitStreamingMarkdownSegments } from './streamingMarkdownSegments'
 import { createMermaidOptions, useDocumentThemeVariant } from './mermaidTheme'
 import { markdownCjkPlugin } from './markdownCjkPlugin'
@@ -51,6 +53,8 @@ interface MessageMarkdownProps {
    */
   imageContext?: MarkdownImageContextValue
   inlineCodeFileLinks?: InlineCodeFileLinkSnapshot
+  workspaceFileLinks?: InlineCodeFileLinkSnapshot
+  workspaceFileScope?: WorkspaceFileOperationScope
 }
 
 interface MarkdownStreamdownProps {
@@ -102,7 +106,9 @@ export function MessageMarkdown({
   content,
   isStreaming = false,
   imageContext,
-  inlineCodeFileLinks
+  inlineCodeFileLinks,
+  workspaceFileLinks,
+  workspaceFileScope
 }: MessageMarkdownProps): React.JSX.Element {
   const linkSafety = useMemo<LinkSafetyConfig>(
     () => ({
@@ -128,24 +134,41 @@ export function MessageMarkdown({
         : null,
     [imageAssetVersion, imageContext]
   )
-  const inlineCodeFileLinksKey = useMemo(() => {
-    if (!inlineCodeFileLinks || inlineCodeFileLinks.size === 0) return ''
-    return JSON.stringify([...inlineCodeFileLinks.entries()])
-  }, [inlineCodeFileLinks])
+  const workspaceFileReferences = useMemo(
+    () => (workspaceFileLinks ? [...workspaceFileLinks.keys()] : []),
+    [workspaceFileLinks]
+  )
+  const fileLinksKey = useMemo(
+    () =>
+      JSON.stringify([
+        inlineCodeFileLinks ? [...inlineCodeFileLinks.entries()] : [],
+        workspaceFileLinks ? [...workspaceFileLinks.entries()] : []
+      ]),
+    [inlineCodeFileLinks, workspaceFileLinks]
+  )
 
   const components = useMemo<Components>(() => {
     const base: Components = {
       inlineCode: (props) => <LinkableCode {...props} fileLinks={inlineCodeFileLinks} />
     }
+    if (workspaceFileLinks && workspaceFileLinks.size > 0 && workspaceFileScope) {
+      base.span = (props) => (
+        <WorkspaceFileLink
+          {...props}
+          fileLinks={workspaceFileLinks}
+          workspaceScope={workspaceFileScope}
+        />
+      )
+    }
     if (imagesEnabled) {
       base.img = MarkdownImage
     }
     return base
-  }, [imagesEnabled, inlineCodeFileLinks])
+  }, [imagesEnabled, inlineCodeFileLinks, workspaceFileLinks, workspaceFileScope])
 
   const rehypePlugins = useMemo(
-    () => createMarkdownRehypePlugins(imageTransformOptions),
-    [imageTransformOptions]
+    () => createMarkdownRehypePlugins(imageTransformOptions, workspaceFileReferences),
+    [imageTransformOptions, workspaceFileReferences]
   )
 
   const urlTransform = useMemo<UrlTransform | undefined>(() => {
@@ -209,7 +232,7 @@ export function MessageMarkdown({
               {streamingSegments.stableSegments.map((segment, index) => (
                 <div
                   className="streamdown-content__segment"
-                  key={`${inlineCodeFileLinksKey}:stable:${index}`}
+                  key={`${fileLinksKey}:stable:${index}`}
                 >
                   <MarkdownStreamdown
                     content={segment}
@@ -226,7 +249,7 @@ export function MessageMarkdown({
               ))}
               <div
                 className="streamdown-content__segment"
-                key={`${inlineCodeFileLinksKey}:active:${streamingSegments.stableSegments.length}`}
+                key={`${fileLinksKey}:active:${streamingSegments.stableSegments.length}`}
               >
                 <MarkdownStreamdown
                   content={streamingSegments.activeSegment}
@@ -243,7 +266,7 @@ export function MessageMarkdown({
             </div>
           ) : (
             <MarkdownStreamdown
-              key={inlineCodeFileLinksKey}
+              key={fileLinksKey}
               content={content}
               isStreaming={isStreaming}
               linkSafety={linkSafety}

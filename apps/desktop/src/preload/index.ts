@@ -280,14 +280,21 @@ const api = {
       ipcRenderer.invoke('yachiyo:jotdown-delete', input),
     pruneEmptyTemporaryWorkspaces: (): Promise<number> =>
       ipcRenderer.invoke('yachiyo:prune-empty-temporary-workspaces'),
-    revealFile: (input: { path: string }): Promise<void> =>
-      ipcRenderer.invoke('yachiyo:reveal-file', input),
+    revealFile: (input: {
+      path: string
+      threadId?: string
+      workspacePath?: string | null
+      workspaceOnly?: boolean
+    }): Promise<void> => ipcRenderer.invoke('yachiyo:reveal-file', input),
     resolveFileReferences: (input: ResolveFileReferencesInput): Promise<ResolvedFileReference[]> =>
       ipcRenderer.invoke('yachiyo:resolve-file-references', input),
     openFile: (input: {
       path: string
       appSelection?: string
       appKind?: 'editor' | 'markdown'
+      threadId?: string
+      workspacePath?: string | null
+      workspaceOnly?: boolean
     }): Promise<void> => ipcRenderer.invoke('yachiyo:open-file', input),
     copyImageToClipboard: (input: { src: string }): Promise<void> =>
       ipcRenderer.invoke('yachiyo:copy-image-to-clipboard', input),

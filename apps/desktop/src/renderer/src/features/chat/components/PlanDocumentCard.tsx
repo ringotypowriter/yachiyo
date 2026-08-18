@@ -12,6 +12,9 @@ export interface PlanDocumentCardProps {
   decision?: 'pending' | 'rejected' | 'accepted'
   defaultExpanded?: boolean
   inlineCodeFileLinks?: InlineCodeFileLinkSnapshot
+  workspaceFileLinks?: InlineCodeFileLinkSnapshot
+  threadId?: string | null
+  workspacePath?: string | null
   onAcceptDirect?: () => void
   onAcceptHandoff?: () => void
   onReject?: () => void
@@ -24,6 +27,9 @@ export const PlanDocumentCard = memo(function PlanDocumentCard({
   decision = 'pending',
   defaultExpanded = true,
   inlineCodeFileLinks,
+  workspaceFileLinks,
+  threadId,
+  workspacePath,
   onAcceptDirect,
   onAcceptHandoff,
   onReject
@@ -31,6 +37,7 @@ export const PlanDocumentCard = memo(function PlanDocumentCard({
   const t = useT()
   const [expanded, setExpanded] = useState(defaultExpanded)
   const resolvedTitle = title ?? t('chat.plan.title')
+  const workspaceFileScope = useMemo(() => ({ threadId, workspacePath }), [threadId, workspacePath])
 
   useEffect(() => {
     setExpanded(defaultExpanded)
@@ -179,6 +186,8 @@ export const PlanDocumentCard = memo(function PlanDocumentCard({
               content={content}
               isStreaming={false}
               inlineCodeFileLinks={inlineCodeFileLinks}
+              workspaceFileLinks={workspaceFileLinks}
+              workspaceFileScope={workspaceFileScope}
             />
           </div>
         ) : null}
