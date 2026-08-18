@@ -216,7 +216,12 @@ declare global {
         createJotdown: () => Promise<JotdownFull>
         deleteJotdown: (input: { id: string }) => Promise<void>
         pruneEmptyTemporaryWorkspaces: () => Promise<number>
-        revealFile: (input: { path: string }) => Promise<void>
+        revealFile: (input: {
+          path: string
+          threadId?: string
+          workspacePath?: string | null
+          workspaceOnly?: boolean
+        }) => Promise<void>
         resolveFileReferences: (
           input: ResolveFileReferencesInput
         ) => Promise<ResolvedFileReference[]>
@@ -224,6 +229,9 @@ declare global {
           path: string
           appSelection?: string
           appKind?: 'editor' | 'markdown'
+          threadId?: string
+          workspacePath?: string | null
+          workspaceOnly?: boolean
         }) => Promise<void>
         copyImageToClipboard: (input: { src: string }) => Promise<void>
         savePngFile: (input: {

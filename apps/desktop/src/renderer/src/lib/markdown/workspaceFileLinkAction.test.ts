@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { resolveWorkspaceFileLink } from './workspaceFileLinkAction.ts'
+import {
+  createWorkspaceFileOperationInput,
+  resolveWorkspaceFileLink
+} from './workspaceFileLinkAction.ts'
 
 test('resolveWorkspaceFileLink requires a server-resolved workspace reference', () => {
   const links = new Map([['artifact.md', '/workspace/artifact.md']])
@@ -25,5 +28,20 @@ test('resolveWorkspaceFileLink requires a server-resolved workspace reference', 
       links
     ),
     null
+  )
+})
+
+test('createWorkspaceFileOperationInput requires click-time workspace validation', () => {
+  assert.deepEqual(
+    createWorkspaceFileOperationInput(
+      { reference: 'artifact.md', path: '/workspace/artifact.md' },
+      { threadId: 'thread-1', workspacePath: '/workspace' }
+    ),
+    {
+      path: '/workspace/artifact.md',
+      threadId: 'thread-1',
+      workspacePath: '/workspace',
+      workspaceOnly: true
+    }
   )
 })

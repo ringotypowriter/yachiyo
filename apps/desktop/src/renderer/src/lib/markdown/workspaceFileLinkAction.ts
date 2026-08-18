@@ -10,6 +10,18 @@ export interface ResolvedWorkspaceFileLink {
   path: string
 }
 
+export interface WorkspaceFileOperationScope {
+  threadId?: string | null
+  workspacePath?: string | null
+}
+
+export interface WorkspaceFileOperationInput {
+  path: string
+  threadId?: string
+  workspacePath: string | null
+  workspaceOnly: true
+}
+
 export function resolveWorkspaceFileLink(
   node: unknown,
   fileLinks?: InlineCodeFileLinkSnapshot
@@ -19,4 +31,16 @@ export function resolveWorkspaceFileLink(
   if (typeof reference !== 'string') return null
   const path = fileLinks.get(reference)
   return path ? { reference, path } : null
+}
+
+export function createWorkspaceFileOperationInput(
+  link: ResolvedWorkspaceFileLink,
+  scope: WorkspaceFileOperationScope
+): WorkspaceFileOperationInput {
+  return {
+    path: link.path,
+    ...(scope.threadId ? { threadId: scope.threadId } : {}),
+    workspacePath: scope.workspacePath ?? null,
+    workspaceOnly: true
+  }
 }

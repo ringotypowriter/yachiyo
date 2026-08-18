@@ -4,7 +4,7 @@ import {
   type AttachmentFileRejectionRecord
 } from '@yachiyo/shared/attachmentFileTypes'
 import type { DiscoveredApp, DiscoveredApps } from '@yachiyo/shared/discoveredApp'
-import type { ResolveFileReferencesInput } from '@yachiyo/shared/protocol'
+import type { ResolvedFileReference, ResolveFileReferencesInput } from '@yachiyo/shared/protocol'
 import { resolveExistingFileReferences } from '@yachiyo/runtime/runtime/files/inlineCodeFileReferences'
 import { IPC_CHANNELS } from './ipcChannels.ts'
 import { discoverApps, findDiscoveredApp, launchDiscoveredApp } from '../electron/appDiscovery.ts'
@@ -18,18 +18,24 @@ export interface OpenFileSelectionInput {
   path: string
   appSelection?: string
   appKind?: 'editor' | 'markdown'
+  threadId?: string
+  workspacePath?: string | null
+  workspaceOnly?: boolean
 }
 
 interface OpenFileSelectionDependencies {
   discoverApps: () => Promise<DiscoveredApps>
   launchApp: (app: DiscoveredApp, input: { targetPath: string }) => Promise<void>
   openPath: (path: string) => Promise<string>
+  resolveFileReferences: (input: ResolveFileReferencesInput) => Promise<ResolvedFileReference[]>
 }
 
 export async function openFileUsingSelection(
   input: OpenFileSelectionInput,
   dependencies: OpenFileSelectionDependencies
 ): Promise<void> {
+  const targetPath = await resolveFileOperationPath(input, dependencies.resolveFileReferences)
+
   if (input.appSelection) {
     if (!input.appKind) {
       throw new Error('A configured application kind is required.')
@@ -38,15 +44,38 @@ export async function openFileUsingSelection(
       input.appKind
     ])
     if (!app) throw new Error(`Application "${input.appSelection}" is not installed.`)
-    await dependencies.launchApp(app, { targetPath: input.path })
+    await dependencies.launchApp(app, { targetPath })
     return
   }
 
   if (input.appKind) {
     throw new Error('A configured application selection is required.')
   }
-  const error = await dependencies.openPath(input.path)
+  const error = await dependencies.openPath(targetPath)
   if (error) throw new Error(error)
+}
+
+async function resolveFileOperationPath(
+  input: {
+    path: string
+    threadId?: string
+    workspacePath?: string | null
+    workspaceOnly?: boolean
+  },
+  resolveFileReferences: (input: ResolveFileReferencesInput) => Promise<ResolvedFileReference[]>
+): Promise<string> {
+  if (!input.workspaceOnly) return input.path
+
+  const [resolved] = await resolveFileReferences({
+    ...(input.threadId ? { threadId: input.threadId } : {}),
+    workspacePath: input.workspacePath ?? null,
+    workspaceOnly: true,
+    references: [input.path]
+  })
+  if (!resolved) {
+    throw new Error('The file is no longer available inside this workspace.')
+  }
+  return resolved.path
 }
 
 export function registerGatewayFileHandlers(handle: GatewayIpcHandler): void {
@@ -109,10 +138,19 @@ export function registerGatewayFileHandlers(handle: GatewayIpcHandler): void {
     }
   )
 
-  handle(IPC_CHANNELS.revealFile, async (input: { path: string }) => {
-    const { shell } = await import('electron')
-    shell.showItemInFolder(input.path)
-  })
+  handle(
+    IPC_CHANNELS.revealFile,
+    async (input: {
+      path: string
+      threadId?: string
+      workspacePath?: string | null
+      workspaceOnly?: boolean
+    }) => {
+      const targetPath = await resolveFileOperationPath(input, resolveExistingFileReferences)
+      const { shell } = await import('electron')
+      shell.showItemInFolder(targetPath)
+    }
+  )
 
   handle(IPC_CHANNELS.resolveFileReferences, (input: ResolveFileReferencesInput) =>
     resolveExistingFileReferences(input)
@@ -123,7 +161,8 @@ export function registerGatewayFileHandlers(handle: GatewayIpcHandler): void {
     await openFileUsingSelection(input, {
       discoverApps,
       launchApp: launchDiscoveredApp,
-      openPath: (path) => shell.openPath(path)
+      openPath: (path) => shell.openPath(path),
+      resolveFileReferences: resolveExistingFileReferences
     })
   })
 

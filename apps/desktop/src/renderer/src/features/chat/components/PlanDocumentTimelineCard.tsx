@@ -9,6 +9,7 @@ import { PlanDocumentCard } from './PlanDocumentCard'
 interface PlanDocumentTimelineCardProps {
   planDocument: PlanDocumentState | null
   threadId: string | null
+  workspacePath?: string | null
   inlineCodeFileLinks: InlineCodeFileLinkSnapshot
   workspaceFileLinks: InlineCodeFileLinkSnapshot
   onAcceptPlanDocument: (threadId: string, mode: AcceptThreadPlanDocumentMode) => Promise<void>
@@ -18,6 +19,7 @@ interface PlanDocumentTimelineCardProps {
 export const PlanDocumentTimelineCard = memo(function PlanDocumentTimelineCard({
   planDocument,
   threadId,
+  workspacePath,
   inlineCodeFileLinks,
   workspaceFileLinks,
   onAcceptPlanDocument,
@@ -55,6 +57,8 @@ export const PlanDocumentTimelineCard = memo(function PlanDocumentTimelineCard({
       defaultExpanded={decision !== 'accepted'}
       inlineCodeFileLinks={inlineCodeFileLinks}
       workspaceFileLinks={workspaceFileLinks}
+      threadId={threadId}
+      workspacePath={workspacePath}
       onAcceptDirect={
         threadId
           ? () => {

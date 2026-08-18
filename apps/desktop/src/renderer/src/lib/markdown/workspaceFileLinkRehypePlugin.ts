@@ -15,15 +15,25 @@ export function rewriteWorkspaceFileLinksForHarden(
 ): void {
   if (tree.type === 'element' && tree.tagName === 'a') {
     const href = tree.properties?.href
-    if (typeof href === 'string' && resolvedReferences.has(href)) {
+    const reference = typeof href === 'string' ? decodeHref(href) : null
+    if (reference && resolvedReferences.has(reference)) {
       tree.tagName = 'span'
-      tree.properties = { [WORKSPACE_FILE_REFERENCE_PROPERTY]: href }
+      tree.properties = { [WORKSPACE_FILE_REFERENCE_PROPERTY]: reference }
     }
   }
 
   if (!Array.isArray(tree.children)) return
   for (const child of tree.children) {
     rewriteWorkspaceFileLinksForHarden(child, resolvedReferences)
+  }
+}
+
+function decodeHref(href: string): string {
+  try {
+    return decodeURI(href)
+  } catch (error) {
+    if (error instanceof URIError) return href
+    throw error
   }
 }
 

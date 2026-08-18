@@ -2,7 +2,11 @@ import { useCallback } from 'react'
 
 import { useAppDialog } from '@renderer/components/AppDialogContext'
 import type { InlineCodeFileLinkSnapshot } from './inlineCodeFileLinkSnapshot'
-import { resolveWorkspaceFileLink } from './workspaceFileLinkAction'
+import {
+  createWorkspaceFileOperationInput,
+  resolveWorkspaceFileLink,
+  type WorkspaceFileOperationScope
+} from './workspaceFileLinkAction'
 
 const LINK_STYLE = {
   cursor: 'pointer',
@@ -14,10 +18,12 @@ export function WorkspaceFileLink({
   children,
   node,
   fileLinks,
+  workspaceScope,
   ...rest
 }: React.ComponentProps<'span'> & {
   node?: unknown
   fileLinks?: InlineCodeFileLinkSnapshot
+  workspaceScope: WorkspaceFileOperationScope
 }): React.JSX.Element {
   const dialog = useAppDialog()
   const resolvedLink = resolveWorkspaceFileLink(node, fileLinks)
@@ -27,10 +33,11 @@ export function WorkspaceFileLink({
       if (!resolvedLink) return
 
       try {
+        const input = createWorkspaceFileOperationInput(resolvedLink, workspaceScope)
         if (event.altKey) {
-          await window.api.yachiyo.revealFile({ path: resolvedLink.path })
+          await window.api.yachiyo.revealFile(input)
         } else {
-          await window.api.yachiyo.openFile({ path: resolvedLink.path })
+          await window.api.yachiyo.openFile(input)
         }
       } catch (error) {
         await dialog.alert({
@@ -38,7 +45,7 @@ export function WorkspaceFileLink({
         })
       }
     },
-    [dialog, resolvedLink]
+    [dialog, resolvedLink, workspaceScope]
   )
 
   if (!resolvedLink) {

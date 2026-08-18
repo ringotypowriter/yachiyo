@@ -28,6 +28,7 @@ import {
 import { getMessageMarkdownAnimation } from './messageMarkdownAnimation'
 import type { InlineCodeFileLinkSnapshot } from './inlineCodeFileLinkSnapshot'
 import { WorkspaceFileLink } from './WorkspaceFileLink'
+import type { WorkspaceFileOperationScope } from './workspaceFileLinkAction'
 import { splitStreamingMarkdownSegments } from './streamingMarkdownSegments'
 import { createMermaidOptions, useDocumentThemeVariant } from './mermaidTheme'
 import { markdownCjkPlugin } from './markdownCjkPlugin'
@@ -53,6 +54,7 @@ interface MessageMarkdownProps {
   imageContext?: MarkdownImageContextValue
   inlineCodeFileLinks?: InlineCodeFileLinkSnapshot
   workspaceFileLinks?: InlineCodeFileLinkSnapshot
+  workspaceFileScope?: WorkspaceFileOperationScope
 }
 
 interface MarkdownStreamdownProps {
@@ -105,7 +107,8 @@ export function MessageMarkdown({
   isStreaming = false,
   imageContext,
   inlineCodeFileLinks,
-  workspaceFileLinks
+  workspaceFileLinks,
+  workspaceFileScope
 }: MessageMarkdownProps): React.JSX.Element {
   const linkSafety = useMemo<LinkSafetyConfig>(
     () => ({
@@ -148,14 +151,20 @@ export function MessageMarkdown({
     const base: Components = {
       inlineCode: (props) => <LinkableCode {...props} fileLinks={inlineCodeFileLinks} />
     }
-    if (workspaceFileLinks && workspaceFileLinks.size > 0) {
-      base.span = (props) => <WorkspaceFileLink {...props} fileLinks={workspaceFileLinks} />
+    if (workspaceFileLinks && workspaceFileLinks.size > 0 && workspaceFileScope) {
+      base.span = (props) => (
+        <WorkspaceFileLink
+          {...props}
+          fileLinks={workspaceFileLinks}
+          workspaceScope={workspaceFileScope}
+        />
+      )
     }
     if (imagesEnabled) {
       base.img = MarkdownImage
     }
     return base
-  }, [imagesEnabled, inlineCodeFileLinks, workspaceFileLinks])
+  }, [imagesEnabled, inlineCodeFileLinks, workspaceFileLinks, workspaceFileScope])
 
   const rehypePlugins = useMemo(
     () => createMarkdownRehypePlugins(imageTransformOptions, workspaceFileReferences),

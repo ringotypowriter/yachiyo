@@ -106,6 +106,7 @@ function renderPlanDocumentTimelineCard(
     <PlanDocumentTimelineCard
       planDocument={context.planDocument}
       threadId={context.threadId}
+      workspacePath={context.workspacePath}
       inlineCodeFileLinks={context.inlineCodeFileLinks}
       workspaceFileLinks={context.workspaceFileLinks}
       onAcceptPlanDocument={context.acceptPlanDocument}
@@ -234,6 +235,8 @@ function renderTimelineItem(
             defaultExpanded={false}
             inlineCodeFileLinks={inlineCodeFileLinks}
             workspaceFileLinks={workspaceFileLinks}
+            threadId={threadId}
+            workspacePath={workspacePath}
           />
         ) : (
           <AssistantMessageBubble

@@ -127,6 +127,7 @@ export const AssistantMessageBubble = memo(function AssistantMessageBubble({
               imageContext={imageContext}
               inlineCodeFileLinks={inlineCodeFileLinks}
               workspaceFileLinks={workspaceFileLinks}
+              workspaceFileScope={imageContext}
             />
           )}
         </div>
