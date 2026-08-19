@@ -211,6 +211,16 @@ test('summarizeToolInput uses delegated agent names for delegateTask', () => {
   )
 })
 
+test('summarizeToolInput shows the target conversation for sendThreadMessage', () => {
+  assert.equal(
+    summarizeToolInput('sendThreadMessage', {
+      targetThreadId: 'thread-target',
+      message: 'Review it.'
+    }),
+    'thread-target'
+  )
+})
+
 test('summarizeToolInput summarizes applyPatch by changed files instead of raw patch text', () => {
   assert.equal(
     summarizeToolInput('applyPatch', {
@@ -364,6 +374,46 @@ test('createAgentToolSet keeps useSentinel available outside mode-specific tool 
   const result = await tools.useSentinel.execute?.({ action: 'clear' }, {} as never)
   assert.equal(result?.error, undefined)
   assert.equal(clearedThreadId, 'thread-1')
+})
+
+test('createAgentToolSet exposes sendThreadMessage only when local delivery is available', async () => {
+  const delivered: Array<{ targetThreadId: string; message: string }> = []
+  const localTools = createAgentToolSet(
+    {
+      enabledTools: ['sendThreadMessage'],
+      threadId: 'thread-source',
+      workspacePath: '/tmp/yachiyo'
+    },
+    {
+      threadMessageContext: {
+        sourceThreadId: 'thread-source',
+        dispatch: async (input) => {
+          delivered.push(input)
+          return { kind: 'run-started', runId: 'run-target' }
+        }
+      }
+    }
+  )
+  const externalTools = createAgentToolSet(
+    {
+      enabledTools: ['sendThreadMessage'],
+      threadId: 'thread-source',
+      workspacePath: '/tmp/yachiyo'
+    },
+    {}
+  )
+
+  assert.ok(localTools?.sendThreadMessage)
+  assert.equal(externalTools?.sendThreadMessage, undefined)
+
+  const result = await localTools.sendThreadMessage.execute?.(
+    { targetThreadId: 'thread-target', message: 'Please review the result.' },
+    {} as never
+  )
+  assert.deepEqual(delivered, [
+    { targetThreadId: 'thread-target', message: 'Please review the result.' }
+  ])
+  assert.equal(result?.error, undefined)
 })
 
 test('createAgentToolSet passes configured fetch into jsRepl', async () => {

@@ -12,7 +12,7 @@ import { toEffectiveProviderSettings } from '../../../../settings/settingsStore.
 import type { BackgroundBashManager } from '../../background/backgroundBashManager.ts'
 import type { ActiveRunLoopInput } from '../active/activeRunStart.ts'
 import { hasPendingSteerInputs } from '../active/pendingSteerQueue.ts'
-import { sendActiveRunSteer, type SendChatFlowContext } from '../chat/sendChatFlow.ts'
+import { sendActiveRunSteer, sendChatFlow, type SendChatFlowContext } from '../chat/sendChatFlow.ts'
 import type { RunExecutionDeps } from '../execution/runExecutionTypes.ts'
 import {
   CONTEXT_HANDOFF_CONTINUATION_STEER,
@@ -156,6 +156,16 @@ export function buildRunExecutionDeps(
     onEnabledToolsUsed: (enabledTools) => {
       context.setLastRunEnabledTools(enabledTools)
       context.setLastRunMode(input.activeRun.runMode ?? input.loopInput.runMode)
+    },
+    sendThreadMessage: async ({ targetThreadId, message }) => {
+      const accepted = await sendChatFlow(context.createSendChatFlowContext(), {
+        threadId: targetThreadId,
+        content: message,
+        mode: 'steer',
+        hidden: true,
+        runTrigger: 'local'
+      })
+      return { kind: accepted.kind, runId: accepted.runId }
     },
     onExecutionPhaseChange: (phase) => {
       const currentRun = context.activeRuns.get(input.loopInput.runId)

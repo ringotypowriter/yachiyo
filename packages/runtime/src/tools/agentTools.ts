@@ -78,6 +78,10 @@ import {
   createUpdateTodoListTool,
   type UpdateTodoListToolContext
 } from './agentTools/updateTodoListTool.ts'
+import {
+  createSendThreadMessageTool,
+  type SendThreadMessageToolContext
+} from './agentTools/sendThreadMessageTool.ts'
 import { createUseSentinelTool, type UseSentinelToolContext } from './agentTools/useSentinelTool.ts'
 import type { YachiyoStorage } from '../storage/storage.ts'
 import type { ThingDomain } from '../app/domain/things/thingDomain.ts'
@@ -110,6 +114,10 @@ export {
   type UpdateTodoListToolContext
 } from './agentTools/updateTodoListTool.ts'
 export { createUseSentinelTool, type UseSentinelToolContext } from './agentTools/useSentinelTool.ts'
+export {
+  createSendThreadMessageTool,
+  type SendThreadMessageToolContext
+} from './agentTools/sendThreadMessageTool.ts'
 
 export {
   createTool as createApplyPatchTool,
@@ -172,6 +180,8 @@ export interface AgentToolDependencies {
   askUserContext?: AskUserToolContext
   /** When provided, updateTodoList drives the persistent composer todo widget. */
   todoContext?: UpdateTodoListToolContext
+  /** When provided, sendThreadMessage can safely deliver to another local conversation. */
+  threadMessageContext?: SendThreadMessageToolContext
   /** When provided, useSentinel can manage thread-level wake checks. */
   sentinelContext?: UseSentinelToolContext
   /** Internal gate for Plan Mode's exit tool; the schema stays registered either way. */
@@ -513,6 +523,16 @@ export function summarizeToolInput(toolName: ToolCallName | string, input: unkno
       return typeof text === 'string' && text.trim().length > 0
         ? `${String(from)}: ${takeTail(text, 120).text}`
         : String(from)
+    }
+    return toolName
+  }
+
+  if (toolName === 'sendThreadMessage') {
+    if (typeof input === 'object' && input !== null && 'targetThreadId' in input) {
+      const targetThreadId = input.targetThreadId
+      return typeof targetThreadId === 'string' && targetThreadId.trim().length > 0
+        ? targetThreadId
+        : toolName
     }
     return toolName
   }
@@ -962,6 +982,10 @@ export function createAgentToolSet(
 
   if (dependencies.todoContext && shouldRegisterTool('updateTodoList')) {
     tools.updateTodoList = createUpdateTodoListTool(dependencies.todoContext)
+  }
+
+  if (dependencies.threadMessageContext && shouldRegisterTool('sendThreadMessage')) {
+    tools.sendThreadMessage = createSendThreadMessageTool(dependencies.threadMessageContext)
   }
 
   if (shouldRegisterTool('exitPlanMode')) {

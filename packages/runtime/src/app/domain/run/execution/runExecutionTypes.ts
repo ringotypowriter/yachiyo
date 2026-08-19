@@ -1,6 +1,7 @@
 import type { ToolSet } from 'ai'
 
 import type {
+  ChatAccepted,
   ComposerReasoningSelection,
   MessageRecord,
   ProviderSettings,
@@ -186,6 +187,11 @@ export interface RunExecutionDeps {
   getTodoItems?: () => readonly TodoItemRecord[]
   /** Called when the model updates the persistent todo widget. */
   onTodoListUpdated?: (input: { items: TodoItemRecord[]; step: number }) => void
+  /** Delivers a hidden steer to another local conversation through the run domain. */
+  sendThreadMessage?: (input: {
+    targetThreadId: string
+    message: string
+  }) => Promise<Pick<ChatAccepted, 'kind' | 'runId'>>
   /** Called whenever the monotonic agent tool-step counter advances. */
   onAgentStepAdvanced?: (step: number) => void
   /** Called by execution to register the askUser answer handler. */

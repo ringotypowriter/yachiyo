@@ -67,6 +67,11 @@ test('useBrowser is registered and enabled by default', () => {
   assert.ok(DEFAULT_ENABLED_TOOL_NAMES.includes('useBrowser'))
 })
 
+test('sendThreadMessage is registered and enabled by default', () => {
+  assert.ok(CORE_TOOL_NAMES.includes('sendThreadMessage'))
+  assert.ok(DEFAULT_ENABLED_TOOL_NAMES.includes('sendThreadMessage'))
+})
+
 test('delegateTask is the only registered delegation tool', () => {
   assert.ok(CORE_TOOL_NAMES.includes('delegateTask'))
   assert.equal(CORE_TOOL_NAMES.includes('delegateCodingTask' as never), false)

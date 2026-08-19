@@ -185,6 +185,7 @@ export const CORE_TOOL_NAMES = [
   'reviewThings',
   'updateProfile',
   'updateTodoList',
+  'sendThreadMessage',
   'exitPlanMode'
 ] as const
 export type ToolCallName = (typeof CORE_TOOL_NAMES)[number]

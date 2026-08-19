@@ -159,6 +159,14 @@ export function createRunToolSet(input: CreateRunToolSetInput): ToolSet | undefi
       ? { askUserContext: createAskUserContext(input) }
       : {}),
     ...(isLocalRunTrigger ? { todoContext: createTodoContext(input) } : {}),
+    ...(isLocalRunTrigger && deps.sendThreadMessage
+      ? {
+          threadMessageContext: {
+            sourceThreadId: executionInput.thread.id,
+            dispatch: deps.sendThreadMessage
+          }
+        }
+      : {}),
     ...(deps.sentinelContext ? { sentinelContext: deps.sentinelContext } : {}),
     ...(canUseDelegateTask
       ? {
