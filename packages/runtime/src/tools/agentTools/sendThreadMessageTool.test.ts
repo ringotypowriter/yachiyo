@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { createSendThreadMessageTool } from './sendThreadMessageTool.ts'
+import {
+  createSendThreadMessageTool,
+  type SendThreadMessageToolOutput
+} from './sendThreadMessageTool.ts'
 
 test('sendThreadMessage dispatches a hidden steer to the requested conversation', async () => {
   const deliveries: Array<{ targetThreadId: string; message: string }> = []
@@ -13,10 +16,14 @@ test('sendThreadMessage dispatches a hidden steer to the requested conversation'
     }
   })
 
-  const output = await tool.execute({
-    targetThreadId: 'thread-target',
-    message: 'Please verify the migration before I continue.'
-  })
+  const execute = tool.execute!
+  const output = (await execute(
+    {
+      targetThreadId: 'thread-target',
+      message: 'Please verify the migration before I continue.'
+    },
+    { toolCallId: 'send-thread-message-1', messages: [] }
+  )) as SendThreadMessageToolOutput
 
   assert.deepEqual(deliveries, [
     {
@@ -25,10 +32,9 @@ test('sendThreadMessage dispatches a hidden steer to the requested conversation'
     }
   ])
   assert.equal(output.error, undefined)
-  assert.equal(
-    output.content[0]?.text,
-    'Message delivered to conversation thread-target (run-target).'
-  )
+  const deliveredText = output.content[0]
+  assert.ok(deliveredText?.type === 'text', 'expected a text content block')
+  assert.equal(deliveredText.text, 'Message delivered to conversation thread-target (run-target).')
 })
 
 test('sendThreadMessage refuses to send a message to its own conversation', async () => {
@@ -41,12 +47,18 @@ test('sendThreadMessage refuses to send a message to its own conversation', asyn
     }
   })
 
-  const output = await tool.execute({
-    targetThreadId: 'thread-source',
-    message: 'This must not be delivered.'
-  })
+  const execute = tool.execute!
+  const output = (await execute(
+    {
+      targetThreadId: 'thread-source',
+      message: 'This must not be delivered.'
+    },
+    { toolCallId: 'send-thread-message-2', messages: [] }
+  )) as SendThreadMessageToolOutput
 
   assert.equal(dispatched, false)
   assert.equal(output.error, 'Cannot send a message to the current conversation.')
-  assert.equal(output.content[0]?.text, 'Cannot send a message to the current conversation.')
+  const errorText = output.content[0]
+  assert.ok(errorText?.type === 'text', 'expected a text content block')
+  assert.equal(errorText.text, 'Cannot send a message to the current conversation.')
 })
