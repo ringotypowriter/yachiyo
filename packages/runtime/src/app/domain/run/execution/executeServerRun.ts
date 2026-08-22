@@ -937,8 +937,10 @@ export async function executeServerRun(
               toolInput: event.toolCall.input
             })
           }
+          const reconciledToolCall = deps.onSubagentToolCallPersisted?.(toolCall) ?? toolCall
+          toolLifecycle.setToolCall(reconciledToolCall)
           outputState.appendToolResult({
-            toolCallId: toolCall.id,
+            toolCallId: reconciledToolCall.id,
             toolName: event.toolCall.toolName,
             output: event.output,
             error: event.error
@@ -948,7 +950,7 @@ export async function executeServerRun(
             type: 'tool.updated',
             threadId: input.thread.id,
             runId: input.runId,
-            toolCall
+            toolCall: reconciledToolCall
           })
 
           if (toolLifecycle.finishRunningToolCall(event.toolCall.toolCallId)) {

@@ -1,4 +1,5 @@
 import type {
+  AgentMessageEnvelope,
   FolderRecord,
   MessageRecord,
   NamedSubagentId,
@@ -8,6 +9,7 @@ import type {
   RunModeId,
   SendChatRunTrigger,
   SettingsConfig,
+  SubagentSnapshot,
   ThreadSentinelRecord,
   ThreadRecord,
   ThingRecord,
@@ -265,6 +267,9 @@ export interface SubagentProgressEvent extends RunEvent {
   type: 'subagent.progress'
   delegationId: string
   chunk: string
+  agentId?: string
+  turnId?: string
+  launchRunId?: string
 }
 
 export interface SubagentToolCallEvent extends RunEvent {
@@ -275,6 +280,34 @@ export interface SubagentToolCallEvent extends RunEvent {
   inputSummary: string
   outputSummary?: string
   status?: 'running' | 'completed' | 'failed'
+  agentId?: string
+  turnId?: string
+  launchRunId?: string
+}
+
+export interface SubagentUpdatedEvent extends RunEvent {
+  type: 'subagent.updated'
+  agentId: string
+  turnId?: string
+  launchRunId: string
+  snapshot: SubagentSnapshot
+}
+
+export interface SubagentMessageEvent extends RunEvent {
+  type: 'subagent.message'
+  agentId: string
+  turnId?: string
+  launchRunId: string
+  envelope: AgentMessageEnvelope
+}
+
+export interface SubagentSnapshotReadyEvent extends RunEvent {
+  type: 'subagent.snapshot.ready'
+  agentId: string
+  turnId?: string
+  launchRunId: string
+  snapshot: SubagentSnapshot
+  snapshotId?: string
 }
 
 export interface NotificationRequestEvent extends RunEvent {
@@ -319,7 +352,6 @@ export interface FolderUpdatedEvent extends FolderEvent {
   type: 'folder.updated'
   folder: FolderRecord
 }
-
 export interface FolderDeletedEvent extends FolderEvent {
   type: 'folder.deleted'
 }
@@ -362,5 +394,8 @@ export type YachiyoServerEvent =
   | ChannelGroupHistoryClearFailedEvent
   | BackgroundTaskCompletedEvent
   | BackgroundTaskStartedEvent
+  | SubagentUpdatedEvent
+  | SubagentMessageEvent
+  | SubagentSnapshotReadyEvent
   | BackgroundTaskLogAppendEvent
   | SnapshotReadyEvent

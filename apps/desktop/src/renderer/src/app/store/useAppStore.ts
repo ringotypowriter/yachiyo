@@ -15,9 +15,9 @@ import type {
   SkillCatalogEntry,
   Thread,
   ThreadColorTag,
-  ThingRecord,
   ThreadModelOverride,
   ThreadSentinelRecord,
+  ThingRecord,
   TodoItemRecord,
   ToolCallName,
   ToolCall,
@@ -30,6 +30,7 @@ import {
   type NotificationThreadTarget,
   type RunModeId,
   type SendChatRunTrigger,
+  type SubagentSnapshot,
   type ThreadRuntimeBinding
 } from '@yachiyo/shared/protocol'
 import { isPlanModeExitRecord, PLAN_MODE_EXIT_TOOL_NAME } from '@yachiyo/shared/planMode'
@@ -144,6 +145,7 @@ export interface ActiveSubagentState {
   agentName: string
   agentType?: string
   progress: string
+  lastMessage?: string
   workspacePath?: string
   startedAt?: string
   prompt?: string
@@ -275,6 +277,15 @@ export interface AppState {
 
   activeArchivedThreadId: string | null
   activeRunId: string | null
+  composerDrafts: Record<string, ComposerDraft>
+  reasoningEffortByThread: Record<string, ComposerReasoningSelection>
+  toolModeByThread: Record<
+    string,
+    {
+      enabledTools: ToolCallName[]
+      runMode: RunModeId
+    }
+  >
   activeRunIdsByThread: Record<string, string>
   activeRequestMessageId: string | null
   activeRequestMessageIdsByThread: Record<string, string>
@@ -284,12 +295,12 @@ export interface AppState {
   archiveThread: (threadId: string) => Promise<void>
   availableSkills: SkillCatalogEntry[]
   cancelRunForThread: (threadId: string) => Promise<void>
+  cancelSubagent: (agentId: string) => Promise<void>
+  closeSubagent: (agentId: string) => Promise<void>
+  cancelRunningSubagents: (threadId: string) => Promise<void>
   compactThreadToAnotherThread: () => Promise<void>
   acceptPlanDocument: (threadId: string, mode: AcceptThreadPlanDocumentMode) => Promise<void>
   rejectPlanDocument: (threadId: string) => Promise<void>
-  composerDrafts: Record<string, ComposerDraft>
-  reasoningEffortByThread: Record<string, ComposerReasoningSelection>
-  toolModeByThread: Record<string, { enabledTools: ToolCallName[]; runMode: RunModeId }>
   createBranch: (
     messageId: string,
     opts?: { truncateBeforeToolCallId: string; quotedQuestion: string }
@@ -302,6 +313,8 @@ export interface AppState {
   subagentActiveIdsByThread: Record<string, string[]>
   subagentProgressTimelineByThread: Record<string, SubagentProgressEntry[]>
   subagentStateById: Record<string, ActiveSubagentState>
+  subagentSnapshotsById: Record<string, SubagentSnapshot>
+  subagentSnapshotIdsByThread: Record<string, string[]>
   subagentFinishedResultsByThread: Record<string, SubagentFinishedResult[]>
   initialized: boolean
   isBootstrapping: boolean
@@ -827,6 +840,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   subagentActiveIdsByThread: {},
   subagentProgressTimelineByThread: {},
   subagentStateById: {},
+  subagentSnapshotsById: {},
+  subagentSnapshotIdsByThread: {},
   subagentFinishedResultsByThread: {},
   initialized: false,
   isBootstrapping: false,

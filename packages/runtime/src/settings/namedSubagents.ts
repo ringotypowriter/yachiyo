@@ -129,17 +129,17 @@ export const DEFAULT_NAMED_SUBAGENT_PROFILES: Record<
   explore: {
     systemPrompt: EXPLORE_SYSTEM_PROMPT,
     maxToolSteps: WORKER_SUBAGENT_MAX_TOOL_STEPS,
-    allowedTools: ['read', 'grep', 'glob', 'skillsRead']
+    allowedTools: ['read', 'grep', 'glob', 'skillsRead', 'sendMessage']
   },
   plan: {
     systemPrompt: PLAN_SYSTEM_PROMPT,
     maxToolSteps: WORKER_SUBAGENT_MAX_TOOL_STEPS,
-    allowedTools: ['read', 'grep', 'glob', 'skillsRead', 'querySource']
+    allowedTools: ['read', 'grep', 'glob', 'skillsRead', 'querySource', 'sendMessage']
   },
   review: {
     systemPrompt: REVIEW_SYSTEM_PROMPT,
     maxToolSteps: WORKER_SUBAGENT_MAX_TOOL_STEPS,
-    allowedTools: ['read', 'bash', 'grep', 'glob', 'skillsRead']
+    allowedTools: ['read', 'bash', 'grep', 'glob', 'skillsRead', 'sendMessage']
   },
   general: {
     systemPrompt: GENERAL_SYSTEM_PROMPT,
@@ -155,7 +155,8 @@ export const DEFAULT_NAMED_SUBAGENT_PROFILES: Record<
       'webRead',
       'webSearch',
       'skillsRead',
-      'applyPatch'
+      'applyPatch',
+      'sendMessage'
     ]
   }
 }

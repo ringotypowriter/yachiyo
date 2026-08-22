@@ -33,6 +33,7 @@ import {
   getNativeScrollIntoViewOptions
 } from '../lib/timeline/messageTimelineScroll.ts'
 import { TimelineItemContent, type TimelineItemRenderContext } from './TimelineItemContent'
+import { resolveLegacySubagentIds } from './subagentIndicatorState'
 import { BrowserTimelineView } from './BrowserTimelineView'
 import type { MessageTimelineSurface } from './TimelineSurfaceHeader'
 import type { BrowserActivitySession } from '../lib/browser-activity/browserActivity'
@@ -203,13 +204,12 @@ export function MessageTimeline({
     runs,
     activeRunId,
     threadIsSaving,
-    subagentActive,
     activeSubagentIds,
+    subagentSnapshotIds,
     subagentStateById,
     subagentFinishedResultsByThread,
     subagentProgressEntries,
     retryInfo,
-    cancelRunForThread,
     activeRequestMessageId,
     beginEditMessage,
     createBranch,
@@ -237,11 +237,11 @@ export function MessageTimeline({
       runs: threadId ? (state.runsByThread[threadId] ?? EMPTY_RUNS) : EMPTY_RUNS,
       activeRunId: threadId ? (state.activeRunIdsByThread[threadId] ?? null) : null,
       threadIsSaving: threadId ? state.savingThreadIds.has(threadId) : false,
-      subagentActive: threadId
-        ? (state.subagentActiveIdsByThread[threadId]?.length ?? 0) > 0
-        : false,
       activeSubagentIds: threadId
         ? (state.subagentActiveIdsByThread[threadId] ?? EMPTY_ACTIVE_SUBAGENT_IDS)
+        : EMPTY_ACTIVE_SUBAGENT_IDS,
+      subagentSnapshotIds: threadId
+        ? (state.subagentSnapshotIdsByThread[threadId] ?? EMPTY_ACTIVE_SUBAGENT_IDS)
         : EMPTY_ACTIVE_SUBAGENT_IDS,
       subagentStateById: state.subagentStateById,
       subagentFinishedResultsByThread: threadId
@@ -251,7 +251,6 @@ export function MessageTimeline({
         ? (state.subagentProgressTimelineByThread[threadId] ?? EMPTY_SUBAGENT_PROGRESS_ENTRIES)
         : EMPTY_SUBAGENT_PROGRESS_ENTRIES,
       retryInfo: threadId ? (state.retryInfoByThread[threadId] ?? undefined) : undefined,
-      cancelRunForThread: state.cancelRunForThread,
       activeRequestMessageId: threadId
         ? (state.activeRequestMessageIdsByThread[threadId] ?? null)
         : null,
@@ -271,9 +270,14 @@ export function MessageTimeline({
   )
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const recapRef = useRef<HTMLDivElement>(null)
+  const legacySubagentIds = useMemo(
+    () => resolveLegacySubagentIds(activeSubagentIds, subagentSnapshotIds),
+    [activeSubagentIds, subagentSnapshotIds]
+  )
+  const legacySubagentActive = legacySubagentIds.length > 0
   const activeSubagents = useMemo(
     () =>
-      activeSubagentIds
+      legacySubagentIds
         .map((delegationId) => subagentStateById[delegationId])
         .filter((entry): entry is NonNullable<typeof entry> => Boolean(entry))
         .map((entry) => ({
@@ -286,7 +290,7 @@ export function MessageTimeline({
           startedAt: entry.startedAt,
           recentToolCalls: entry.recentToolCalls
         })),
-    [activeSubagentIds, subagentStateById]
+    [legacySubagentIds, subagentStateById]
   )
 
   const subagentFinishedResults = useMemo(
@@ -348,7 +352,7 @@ export function MessageTimeline({
           runs,
           activeRunId,
           activeRequestMessageId,
-          subagentActive,
+          subagentActive: legacySubagentActive,
           contextHandoffWatermarkMessageId: thread?.contextHandoffWatermarkMessageId ?? null,
           contextHandoffSummary: thread?.contextHandoffSummary,
           expandedHandoffFoldKeys,
@@ -363,9 +367,9 @@ export function MessageTimeline({
         runs,
         activeRunId,
         activeRequestMessageId,
-        subagentActive,
         thread?.contextHandoffWatermarkMessageId,
         thread?.contextHandoffSummary,
+        legacySubagentActive,
         expandedHandoffFoldKeys,
         workSummaryEnabled
       ]
@@ -967,7 +971,6 @@ export function MessageTimeline({
       workspacePath,
       inlineCodeFileLinks,
       workspaceFileLinks,
-      cancelRunForThread,
       revertPendingSteer,
       acceptPlanDocument,
       rejectPlanDocument,
@@ -995,7 +998,6 @@ export function MessageTimeline({
       workspacePath,
       inlineCodeFileLinks,
       workspaceFileLinks,
-      cancelRunForThread,
       revertPendingSteer,
       acceptPlanDocument,
       rejectPlanDocument,

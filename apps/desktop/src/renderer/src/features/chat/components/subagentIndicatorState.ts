@@ -15,6 +15,14 @@ export function canCancelFromIndicator(agents: SubagentIndicatorAgent[]): boolea
   return agents.length === 1
 }
 
+export function resolveLegacySubagentIds(
+  activeSubagentIds: readonly string[],
+  snapshotIds: readonly string[]
+): string[] {
+  const snapshotIdSet = new Set(snapshotIds)
+  return activeSubagentIds.filter((delegationId) => !snapshotIdSet.has(delegationId))
+}
+
 export function resolveSubagentIndicatorAgent<T extends SubagentIndicatorAgent>(
   agents: T[],
   selectedDelegationId: string | null

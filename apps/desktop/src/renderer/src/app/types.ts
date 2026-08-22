@@ -39,9 +39,10 @@ export type {
   ToolCallRecord as ToolCall,
   ToolCallDetailsSnapshot,
   WebSearchBrowserImportSource,
-  WebSearchResultItem,
   WebSearchToolCallDetails,
   WriteToolCallDetails,
   WebReadToolCallDetails,
+  SubagentSnapshot,
+  SubagentState,
   YachiyoServerEvent
 } from '@yachiyo/shared/protocol'

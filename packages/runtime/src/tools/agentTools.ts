@@ -42,6 +42,8 @@ import {
   type AgentToolContext,
   type AgentToolOutput,
   type ApplyPatchToolOutput,
+  type BackgroundBashAdoptionHandle,
+  type BackgroundBashTaskHandle,
   type BashToolOutput,
   type EditToolOutput,
   type GlobToolOutput,
@@ -82,12 +84,17 @@ import {
   createSendThreadMessageTool,
   type SendThreadMessageToolContext
 } from './agentTools/sendThreadMessageTool.ts'
+import { createSendMessageTool, type AgentMessageContext } from './agentTools/sendMessageTool.ts'
 import { createUseSentinelTool, type UseSentinelToolContext } from './agentTools/useSentinelTool.ts'
 import type { YachiyoStorage } from '../storage/storage.ts'
 import type { ThingDomain } from '../app/domain/things/thingDomain.ts'
 import { createPlanExitTool } from '../app/domain/run/plan/planWriteTool.ts'
 import type { ModelRuntime } from '../runtime/models/types.ts'
 import type { ProviderSettings, SettingsConfig, SubagentsConfig } from '@yachiyo/shared/protocol'
+import type {
+  SubagentManager,
+  SubagentParentDeliveryContext
+} from '../app/domain/subagents/subagentManager.ts'
 
 export type {
   AgentToolMetadata,
@@ -119,6 +126,12 @@ export {
   type SendThreadMessageToolContext
 } from './agentTools/sendThreadMessageTool.ts'
 
+export {
+  createSendMessageTool,
+  type AgentMessageContext,
+  type SendMessageToolInput,
+  type SendMessageToolOutput
+} from './agentTools/sendMessageTool.ts'
 export {
   createTool as createApplyPatchTool,
   parsePatchStreaming,
@@ -170,6 +183,16 @@ export interface AgentToolDependencies {
   sourceQueryStorage?: YachiyoStorage
   subagentProfiles?: SubagentProfile[]
   subagentsConfig?: SubagentsConfig
+  backgroundBashContext?: {
+    onStarted?: (task: BackgroundBashTaskHandle & { ownerAgentId?: string }) => Promise<void>
+    onAdopted?: (task: BackgroundBashAdoptionHandle & { ownerAgentId?: string }) => Promise<void>
+  }
+  /** Bound sender and dispatch for the internal agent message tool. */
+  agentMessageContext?: AgentMessageContext
+  /** Manager used by worker runners to route agent messages. */
+  subagentManager?: SubagentManager
+  /** Parent delivery settings used when a worker reports to its parent. */
+  parentDeliveryContext?: SubagentParentDeliveryContext
   /** Workspace paths the coding agent is allowed to operate in (from config savedPaths). */
   availableWorkspaces?: string[]
   onSubagentProgress?: (event: DelegateTaskProgressEvent) => void
@@ -968,6 +991,13 @@ export function createAgentToolSet(
       createModelRuntime: dependencies.createModelRuntime,
       parentToolContext: context,
       parentDependencies: dependencies,
+      ...(dependencies.subagentManager ? { subagentManager: dependencies.subagentManager } : {}),
+      ...(dependencies.parentDeliveryContext
+        ? { parentDeliveryContext: dependencies.parentDeliveryContext }
+        : {}),
+      ...(dependencies.backgroundBashContext
+        ? { backgroundBashContext: dependencies.backgroundBashContext }
+        : {}),
       onProgress: dependencies.onSubagentProgress,
       onSubagentStarted: dependencies.onSubagentStarted,
       onSubagentFinished: dependencies.onSubagentFinished,
@@ -982,6 +1012,10 @@ export function createAgentToolSet(
 
   if (dependencies.todoContext && shouldRegisterTool('updateTodoList')) {
     tools.updateTodoList = createUpdateTodoListTool(dependencies.todoContext)
+  }
+
+  if (dependencies.agentMessageContext && shouldRegisterTool('sendMessage')) {
+    tools.sendMessage = createSendMessageTool(dependencies.agentMessageContext)
   }
 
   if (dependencies.threadMessageContext && shouldRegisterTool('sendThreadMessage')) {

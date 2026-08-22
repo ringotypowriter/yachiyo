@@ -1256,6 +1256,18 @@ export function registerYachiyoGateway(options: {
   handleYachiyoIpc(IPC_CHANNELS.cancelBackgroundTask, (input: { taskId: string }) =>
     rpc().cancelBackgroundTask(input)
   )
+  handleYachiyoIpc(IPC_CHANNELS.listSubagents, (input?: { threadId?: string }) =>
+    rpc().listSubagents(input)
+  )
+  handleYachiyoIpc(IPC_CHANNELS.cancelSubagent, (input: { agentId: string }) =>
+    rpc().cancelSubagent(input)
+  )
+  handleYachiyoIpc(IPC_CHANNELS.closeSubagent, (input: { agentId: string }) =>
+    rpc().closeSubagent(input)
+  )
+  handleYachiyoIpc(IPC_CHANNELS.cancelRunningSubagents, (input: { threadId: string }) =>
+    rpc().cancelRunningSubagents(input)
+  )
   handleYachiyoIpc(IPC_CHANNELS.listExternalThreads, () => rpc().listExternalThreads())
   handleYachiyoIpc(IPC_CHANNELS.listChannelUsers, () => rpc().listChannelUsers())
   handleYachiyoIpc(IPC_CHANNELS.updateChannelUser, (input: UpdateChannelUserInput) =>

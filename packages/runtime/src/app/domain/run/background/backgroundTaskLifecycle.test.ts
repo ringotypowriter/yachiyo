@@ -134,6 +134,47 @@ test('handleBackgroundBashCompleted auto-delivers completion notices as hidden s
     ]
   )
 })
+test('handleBackgroundBashCompleted routes Worker-owned completion to its Agent mailbox', async () => {
+  const delivered: Array<{ agentId: string; threadId: string; message: string }> = []
+  const context: BackgroundTaskLifecycleContext = {
+    deps: {
+      timestamp: () => TIMESTAMP,
+      emit: () => {}
+    } as unknown as BackgroundTaskLifecycleContext['deps'],
+    backgroundTaskRunContext: new Map([
+      [
+        'task-1',
+        {
+          enabledTools: [],
+          runMode: 'auto',
+          runTrigger: 'local',
+          ownerAgentId: 'agent-1'
+        }
+      ]
+    ]),
+    isClosing: () => false,
+    sendChat: async () => {
+      throw new Error('Worker-owned completion should not start a parent run')
+    },
+    deliverToAgent: (input) => {
+      delivered.push(input)
+    }
+  }
+
+  handleBackgroundBashCompleted(context, {
+    taskId: 'task-1',
+    command: 'sleep 1',
+    logPath: '/workspace/.yachiyo/tool-output/task-1.log',
+    exitCode: 0,
+    threadId: 'thread-1'
+  })
+  await flushImmediate()
+
+  assert.equal(delivered.length, 1)
+  assert.equal(delivered[0]?.agentId, 'agent-1')
+  assert.equal(delivered[0]?.threadId, 'thread-1')
+  assert.match(delivered[0]?.message ?? '', /Background task completed/)
+})
 
 test('handleBackgroundBashCompleted keeps fallback auto-delivery hidden', async () => {
   const thread: ThreadRecord = {

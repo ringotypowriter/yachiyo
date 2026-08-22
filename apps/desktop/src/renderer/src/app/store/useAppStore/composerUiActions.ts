@@ -17,11 +17,13 @@ import {
   EMPTY_COMPOSER_DRAFT,
   areEnabledToolSetsEqual,
   areEnabledToolsEqual,
+  captureSubagentSnapshotVersions,
   deriveActiveThreadRunState,
   deriveSubagentStateFromToolCalls,
   deriveThreadListMode,
   getComposerDraftKey,
   getComposerToolMode,
+  hydrateSubagentSnapshotState,
   limitLoadedThreadData,
   normalizeWorkspacePath,
   refreshAvailableSkills,
@@ -71,6 +73,40 @@ export function createComposerUiActions(input: {
   | 'removeComposerFile'
 > {
   const { set, get } = input
+  const hydrationRequestSequences = new Map<string, number>()
+  const hydrateSubagentSnapshots = async (threadId: string): Promise<void> => {
+    const requestSequence = (hydrationRequestSequences.get(threadId) ?? 0) + 1
+    hydrationRequestSequences.set(threadId, requestSequence)
+    if (typeof window === 'undefined' || typeof window.api?.yachiyo?.listSubagents !== 'function') {
+      return
+    }
+    const stateAtRequest = get()
+    const removalBaselineUpdatedAtById = captureSubagentSnapshotVersions(
+      {
+        subagentSnapshotsById: stateAtRequest.subagentSnapshotsById,
+        subagentSnapshotIdsByThread: stateAtRequest.subagentSnapshotIdsByThread
+      },
+      threadId
+    )
+    try {
+      const snapshots = await window.api.yachiyo.listSubagents({ threadId })
+      if (hydrationRequestSequences.get(threadId) !== requestSequence) return
+      set((state) => ({
+        ...hydrateSubagentSnapshotState(
+          {
+            subagentSnapshotsById: state.subagentSnapshotsById,
+            subagentSnapshotIdsByThread: state.subagentSnapshotIdsByThread
+          },
+          snapshots,
+          threadId,
+          { removalBaselineUpdatedAtById }
+        )
+      }))
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to load Agent snapshots.'
+      set({ lastError: message })
+    }
+  }
 
   return {
     setEnabledTools: async (enabledTools) => {
@@ -202,7 +238,7 @@ export function createComposerUiActions(input: {
         const needsMessages = !messages[id]?.length
         void window.api.yachiyo
           .loadThreadData({ threadId: id, includeMessages: needsMessages })
-          .then((data) => {
+          .then(async (data) => {
             set((state) => {
               const toolCalls = needsMessages
                 ? limitLoadedThreadData(state.toolCalls, id, data.toolCalls, [state.activeThreadId])
@@ -243,7 +279,10 @@ export function createComposerUiActions(input: {
               messages: data.messages,
               toolCalls: data.toolCalls
             })
+            await hydrateSubagentSnapshots(id)
           })
+      } else {
+        void hydrateSubagentSnapshots(id)
       }
     },
     setScrollToMessageId: (messageId) => set({ scrollToMessageId: messageId }),
@@ -307,6 +346,7 @@ export function createComposerUiActions(input: {
         ...withFilterBase(state.sidebarFilter, 'archived'),
         scrollToMessageId: scrollToMessageId ?? null
       }))
+      void hydrateSubagentSnapshots(id)
       // Mark as read when the user opens an archived thread.
       void window.api.yachiyo.markThreadAsRead({ threadId: id }).then((updated) => {
         set((state) => ({

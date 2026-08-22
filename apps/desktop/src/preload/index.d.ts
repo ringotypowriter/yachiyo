@@ -86,6 +86,7 @@ import type {
   PerfStatsResponse,
   WebSearchBrowserImportSource,
   SyncStatus,
+  SubagentSnapshot,
   YachiyoServerEvent
 } from '@yachiyo/shared/protocol'
 
@@ -346,6 +347,10 @@ declare global {
           maxBytes?: number
         }) => Promise<import('@yachiyo/shared/protocol').BackgroundTaskLogSnapshot>
         cancelBackgroundTask: (input: { taskId: string }) => Promise<boolean>
+        listSubagents: (input?: { threadId?: string }) => Promise<SubagentSnapshot[]>
+        cancelSubagent: (input: { agentId: string }) => Promise<boolean>
+        closeSubagent: (input: { agentId: string }) => Promise<boolean>
+        cancelRunningSubagents: (input: { threadId: string }) => Promise<number>
         listExternalThreads: () => Promise<ThreadRecord[]>
         listChannelUsers: () => Promise<ChannelUserRecord[]>
         updateChannelUser: (input: UpdateChannelUserInput) => Promise<ChannelUserRecord>

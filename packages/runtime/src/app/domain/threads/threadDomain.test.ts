@@ -4,6 +4,7 @@ import test from 'node:test'
 
 import { withThreadCapabilities } from '@yachiyo/shared/protocol'
 import { createInMemoryYachiyoStorage } from '../../../storage/memoryStorage.ts'
+import type { YachiyoStorage } from '../../../storage/storage.ts'
 import { YachiyoServerThreadDomain } from './threadDomain.ts'
 
 function createThreadDomainHarness(
@@ -24,7 +25,8 @@ function createThreadDomainHarness(
   }>
   evictedThreadIds: string[]
   deletedWorkspaceThreadIds: string[]
-  storage: ReturnType<typeof createInMemoryYachiyoStorage>
+  closedSubagentThreadIds: string[]
+  storage: YachiyoStorage
 } {
   const storage = createInMemoryYachiyoStorage()
   const thread = withThreadCapabilities({
@@ -42,6 +44,10 @@ function createThreadDomainHarness(
   const evictedThreadIds: string[] = []
   const deletedWorkspaceThreadIds: string[] = []
   const events: Array<{ type: string; threadId?: string; thread?: { colorTag?: string } }> = []
+  const closedSubagentThreadIds: string[] = []
+  const closeSubagentsForThread = async (threadId: string): Promise<void> => {
+    closedSubagentThreadIds.push(threadId)
+  }
   const domain = new YachiyoServerThreadDomain({
     storage,
     createId: () => 'id-1',
@@ -67,10 +73,18 @@ function createThreadDomainHarness(
     auxiliaryGeneration: {} as never,
     evictAcpIdleThread: async (threadId) => {
       evictedThreadIds.push(threadId)
-    }
+    },
+    closeSubagentsForThread
   })
 
-  return { domain, events, evictedThreadIds, deletedWorkspaceThreadIds, storage }
+  return {
+    domain,
+    events,
+    evictedThreadIds,
+    deletedWorkspaceThreadIds,
+    closedSubagentThreadIds,
+    storage
+  }
 }
 
 test('YachiyoServerThreadDomain sets and clears a thread title color', () => {
@@ -285,4 +299,42 @@ test('YachiyoServerThreadDomain clears workspacePath to return to the stable tem
 
   const updated = await domain.updateWorkspace({ threadId: 'thread-1', workspacePath: null })
   assert.equal(updated.workspacePath, undefined)
+})
+test('archiving a thread does not cancel its detached Workers', async () => {
+  const { domain, storage, closedSubagentThreadIds } = createThreadDomainHarness(null)
+  storage.createToolCall({
+    id: 'agent-1',
+    threadId: 'thread-1',
+    toolName: 'delegateTask',
+    status: 'completed',
+    inputSummary: 'Inspect the workspace',
+    startedAt: '2026-01-01T00:00:00.000Z',
+    details: {
+      kind: 'subagent',
+      agentId: 'agent-1',
+      agentName: 'general',
+      agentType: 'general',
+      codeName: 'Akari',
+      workspacePath: '/tmp/thread-1',
+      lifecycleState: 'idle',
+      lastOutput: 'retained Worker output'
+    }
+  })
+
+  await domain.archiveThread({ threadId: 'thread-1' })
+
+  assert.deepEqual(closedSubagentThreadIds, [])
+  assert.equal(storage.getThread('thread-1'), undefined)
+  assert.equal(storage.getArchivedThread('thread-1')?.id, 'thread-1')
+  domain.restoreThread({ threadId: 'thread-1' })
+  assert.equal(storage.getThread('thread-1')?.id, 'thread-1')
+  const restoredToolCall = storage.listThreadToolCalls('thread-1')[0]
+  assert.ok(restoredToolCall?.details && typeof restoredToolCall.details === 'object')
+  assert.ok('lastOutput' in restoredToolCall.details)
+  assert.equal(
+    typeof restoredToolCall.details.lastOutput === 'string'
+      ? restoredToolCall.details.lastOutput
+      : undefined,
+    'retained Worker output'
+  )
 })

@@ -75,7 +75,11 @@ export function createRunToolSet(input: CreateRunToolSetInput): ToolSet | undefi
     subagentsConfig.mode === 'worker' && subagentsConfig.enabledNamedAgents.length > 0
   const hasEnabledAcpSubagents =
     subagentsConfig.mode === 'acp' && enabledSubagentProfiles.length > 0
-  const canUseDelegateTask = hasEnabledWorkerSubagents
+  const canUseWorkerDelegate =
+    hasEnabledWorkerSubagents &&
+    (isLocalRunTrigger || isOwnerDm) &&
+    deps.subagentManager !== undefined
+  const canUseDelegateTask = canUseWorkerDelegate
     ? true
     : (gitCtx.hasGit || gitValidatedWorkspaces.length > 0) && hasEnabledAcpSubagents
   const toolContext = {
@@ -121,14 +125,38 @@ export function createRunToolSet(input: CreateRunToolSetInput): ToolSet | undefi
   })()
 
   return createAgentToolSet(toolContext, {
-    availableSkills,
+    ...(deps.onBackgroundBashStarted || deps.onBackgroundBashAdopted
+      ? {
+          backgroundBashContext: {
+            ...(deps.onBackgroundBashStarted
+              ? {
+                  onStarted: async (task) =>
+                    deps.onBackgroundBashStarted?.({
+                      ...task,
+                      threadId: executionInput.thread.id
+                    })
+                }
+              : {}),
+            ...(deps.onBackgroundBashAdopted
+              ? {
+                  onAdopted: async (task) =>
+                    deps.onBackgroundBashAdopted?.({
+                      ...task,
+                      threadId: executionInput.thread.id
+                    })
+                }
+              : {})
+          }
+        }
+      : {}),
     activeSkills,
+    availableSkills,
     fetchImpl: deps.webExternalFetchImpl ?? deps.fetchImpl,
     loadBrowserSnapshot: deps.loadBrowserSnapshot,
     browserAutomationService: deps.browserAutomationService,
     searchService: deps.searchService,
     memoryService: resolveToolMemoryService(input),
-    webSearchService: deps.webSearchService,
+    sentinelContext: deps.sentinelContext,
     ...(deps.thingDomain ? { thingDomain: deps.thingDomain } : {}),
     updateProfileDeps: {
       userDocumentPath: isGuest ? resolveYachiyoUserPath(workspacePath) : resolveYachiyoUserPath(),
@@ -167,7 +195,6 @@ export function createRunToolSet(input: CreateRunToolSetInput): ToolSet | undefi
           }
         }
       : {}),
-    ...(deps.sentinelContext ? { sentinelContext: deps.sentinelContext } : {}),
     ...(canUseDelegateTask
       ? {
           subagentProfiles: enabledSubagentProfiles,
@@ -176,19 +203,30 @@ export function createRunToolSet(input: CreateRunToolSetInput): ToolSet | undefi
           settings: deps.readSettings(),
           config: input.preparedContext.config,
           createModelRuntime: deps.createModelRuntime,
-          onSubagentProgress: (event: DelegateTaskProgressEvent) => {
-            input.markProgress()
-            deps.onSubagentProgress?.(event)
-          },
-          onSubagentStarted: (event: DelegateTaskStartedEvent) => {
-            handleSubagentStarted(input, event)
-          },
-          onSubagentFinished: (event: DelegateTaskFinishedEvent) => {
-            handleSubagentFinished(input, event)
-          },
-          onSubagentToolCall: (event: DelegateTaskToolCallEvent) => {
-            handleSubagentToolCall(input, event)
-          }
+          ...(canUseWorkerDelegate
+            ? {
+                agentMessageContext: deps.agentMessageContext,
+                subagentManager: deps.subagentManager,
+                parentDeliveryContext: deps.parentDeliveryContext
+              }
+            : {}),
+          ...(canUseWorkerDelegate
+            ? {}
+            : {
+                onSubagentProgress: (event: DelegateTaskProgressEvent) => {
+                  input.markProgress()
+                  deps.onSubagentProgress?.(event)
+                },
+                onSubagentStarted: (event: DelegateTaskStartedEvent) => {
+                  handleSubagentStarted(input, event)
+                },
+                onSubagentFinished: (event: DelegateTaskFinishedEvent) => {
+                  handleSubagentFinished(input, event)
+                },
+                onSubagentToolCall: (event: DelegateTaskToolCallEvent) => {
+                  handleSubagentToolCall(input, event)
+                }
+              })
         }
       : {}),
     planModeExitEnabled: Boolean(planModeDocument),

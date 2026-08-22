@@ -21,6 +21,7 @@ import {
   type RunState
 } from '../runTypes.ts'
 import type { SeamlessHandoffCoordinator } from '../handoff/seamlessHandoffCoordinator.ts'
+import type { SubagentManager } from '../../subagents/subagentManager.ts'
 import { createRunEventMetadata } from '../../shared/runEventMetadata.ts'
 import {
   buildTodoReminderSteer,
@@ -28,7 +29,6 @@ import {
   markTodoReminderInjected,
   shouldInjectTodoReminder
 } from '../todo/todoProgress.ts'
-
 export interface RunExecutionDepsContext {
   deps: RunDomainDeps
   activeRuns: Map<string, RunState>
@@ -36,6 +36,8 @@ export interface RunExecutionDepsContext {
   activeRunTasks: Map<string, Promise<void>>
   backgroundTaskRunContext: Map<string, BackgroundTaskRunContext>
   backgroundBashManager: BackgroundBashManager
+  subagentManager?: SubagentManager
+  onSubagentToolCallPersisted: NonNullable<RunExecutionDeps['onSubagentToolCallPersisted']>
   createSendChatFlowContext: () => SendChatFlowContext
   setLastRunEnabledTools: (enabledTools: string[]) => void
   setLastRunMode: (runMode: RunModeId) => void
@@ -124,6 +126,44 @@ export function buildRunExecutionDeps(
     jotdownStore: deps.jotdownStore,
     imageToTextService: deps.imageToTextService,
     isModelImageCapable: resolveCurrentModelImageCapability(deps, input.currentThread),
+    ...(context.subagentManager
+      ? {
+          subagentManager: context.subagentManager,
+          agentMessageContext: {
+            sender: { kind: 'parent', threadId: input.currentThread.id },
+            dispatch: (messageInput) =>
+              context.subagentManager!.send({
+                from: { kind: 'parent', threadId: input.currentThread.id },
+                to: messageInput.to,
+                message: messageInput.message
+              })
+          },
+          parentDeliveryContext: {
+            enabledTools: [...input.executionEnabledTools],
+            ...((input.activeRun.enabledSkillNames ?? input.loopInput.enabledSkillNames)
+              ? {
+                  enabledSkillNames: [
+                    ...(input.activeRun.enabledSkillNames ??
+                      input.loopInput.enabledSkillNames ??
+                      [])
+                  ]
+                }
+              : {}),
+            runMode: input.executionRunMode,
+            ...((input.activeRun.reasoningEffort ?? input.loopInput.reasoningEffort)
+              ? {
+                  reasoningEffort:
+                    input.activeRun.reasoningEffort ?? input.loopInput.reasoningEffort
+                }
+              : {}),
+            runTrigger: input.activeRun.runTrigger ?? input.loopInput.runTrigger,
+            ...((input.activeRun.channelHint ?? input.loopInput.channelHint)
+              ? { channelHint: input.activeRun.channelHint ?? input.loopInput.channelHint }
+              : {}),
+            ...(input.loopInput.extraTools ? { extraTools: input.loopInput.extraTools } : {})
+          }
+        }
+      : {}),
     ...(deps.sentinelManager
       ? {
           sentinelContext: {
@@ -296,8 +336,12 @@ export function buildRunExecutionDeps(
         chunk: event.chunk
       })
     },
+    onSubagentToolCallPersisted: context.onSubagentToolCallPersisted,
     onBackgroundBashStarted: async (task) => {
-      context.backgroundTaskRunContext.set(task.taskId, buildBackgroundTaskRunContext(input))
+      context.backgroundTaskRunContext.set(
+        task.taskId,
+        buildBackgroundTaskRunContext(input, task.ownerAgentId)
+      )
       try {
         await context.backgroundBashManager.startTask({
           ...task,
@@ -317,7 +361,10 @@ export function buildRunExecutionDeps(
       }
     },
     onBackgroundBashAdopted: async (task) => {
-      context.backgroundTaskRunContext.set(task.taskId, buildBackgroundTaskRunContext(input))
+      context.backgroundTaskRunContext.set(
+        task.taskId,
+        buildBackgroundTaskRunContext(input, task.ownerAgentId)
+      )
       try {
         await context.backgroundBashManager.adoptTask({
           taskId: task.taskId,
@@ -379,7 +426,8 @@ function injectHiddenRunSteer(
 }
 
 function buildBackgroundTaskRunContext(
-  input: BuildRunExecutionDepsInput
+  input: BuildRunExecutionDepsInput,
+  ownerAgentId?: string
 ): BackgroundTaskRunContext {
   return {
     enabledTools: input.executionEnabledTools,
@@ -392,7 +440,8 @@ function buildBackgroundTaskRunContext(
       : {}),
     runTrigger: input.loopInput.runTrigger,
     ...(input.loopInput.channelHint ? { channelHint: input.loopInput.channelHint } : {}),
-    ...(input.loopInput.extraTools ? { extraTools: input.loopInput.extraTools } : {})
+    ...(input.loopInput.extraTools ? { extraTools: input.loopInput.extraTools } : {}),
+    ...(ownerAgentId ? { ownerAgentId } : {})
   }
 }
 

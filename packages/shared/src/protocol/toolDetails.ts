@@ -1,7 +1,9 @@
 import type {
+  NamedSubagentId,
   SearchFileDiscoveryBackend,
   SearchGrepBackend,
   SkillOrigin,
+  SubagentState,
   WebReadContentFormat,
   WebReadExtractor,
   WebReadFailureCode,
@@ -230,6 +232,27 @@ export interface UseSentinelToolCallDetails {
   nextRunAt?: string
 }
 
+export interface SubagentToolCallDetails {
+  kind: 'subagent'
+  agentId: string
+  agentName: string
+  agentType: NamedSubagentId
+  codeName: string
+  workspacePath: string
+  lifecycleState: SubagentState
+  lastOutput?: string
+  error?: string
+  snapshotId?: string
+}
+
+export interface SendMessageToolCallDetails {
+  kind: 'sendMessage'
+  messageId: string
+  to: string
+  delivery: 'queued'
+  recipientState: 'running' | 'idle'
+}
+
 export type ToolCallDetailsSnapshot =
   | ReadToolCallDetails
   | WriteToolCallDetails
@@ -245,3 +268,5 @@ export type ToolCallDetailsSnapshot =
   | AskUserToolCallDetails
   | ApplyPatchToolCallDetails
   | UseSentinelToolCallDetails
+  | SubagentToolCallDetails
+  | SendMessageToolCallDetails

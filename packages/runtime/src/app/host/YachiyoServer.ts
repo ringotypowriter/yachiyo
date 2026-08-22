@@ -86,7 +86,8 @@ import type {
   UsageStatsInput,
   UsageStatsResponse,
   WebSearchBrowserImportSource,
-  YachiyoServerEvent
+  YachiyoServerEvent,
+  SubagentSnapshot
 } from '@yachiyo/shared/protocol'
 import { getThreadCapabilities, withThreadCapabilities } from '@yachiyo/shared/protocol'
 import {
@@ -576,6 +577,7 @@ export class YachiyoServer {
       loadThreadMessages: (threadId) => this.storage.listThreadMessages(threadId),
       loadThreadToolCalls: (threadId) => this.storage.listThreadToolCalls(threadId),
       isThreadRunning: (threadId) => this.runDomain.hasActiveThread(threadId),
+      closeSubagentsForThread: (threadId) => this.runDomain.closeSubagentsForThread(threadId),
       restoreActiveRunBranchWorkspace: (input) =>
         this.runDomain.restoreActiveRunBranchWorkspace(input),
       auxiliaryGeneration,
@@ -1736,6 +1738,21 @@ export class YachiyoServer {
     } = {}
   ): Promise<import('@yachiyo/shared/protocol').BackgroundTaskSnapshot[]> {
     return hydrateBackgroundTaskSnapshots(this.runDomain.listBackgroundTasks(input.threadId))
+  }
+  listSubagents(input: { threadId?: string } = {}): SubagentSnapshot[] {
+    return this.runDomain.listSubagents(input.threadId)
+  }
+
+  cancelSubagent(input: { agentId: string }): boolean {
+    return this.runDomain.cancelSubagent(input.agentId)
+  }
+
+  closeSubagent(input: { agentId: string }): boolean {
+    return this.runDomain.closeSubagent(input.agentId)
+  }
+
+  cancelRunningSubagents(input: { threadId: string }): number {
+    return this.runDomain.cancelRunningSubagents(input.threadId)
   }
 
   async getBackgroundTaskLog(input: {

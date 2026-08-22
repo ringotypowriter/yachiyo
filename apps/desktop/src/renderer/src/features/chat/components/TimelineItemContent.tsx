@@ -81,7 +81,6 @@ export interface TimelineItemRenderContext {
   workspacePath?: string
   inlineCodeFileLinks: InlineCodeFileLinkSnapshot
   workspaceFileLinks: InlineCodeFileLinkSnapshot
-  cancelRunForThread: (threadId: string) => Promise<void>
   revertPendingSteer: () => Promise<void>
   acceptPlanDocument: (threadId: string, mode: AcceptThreadPlanDocumentMode) => Promise<void>
   rejectPlanDocument: (threadId: string) => Promise<void>
@@ -135,7 +134,6 @@ function renderTimelineItem(
     workspacePath,
     inlineCodeFileLinks,
     workspaceFileLinks,
-    cancelRunForThread,
     revertPendingSteer,
     onEdit,
     onCreateBranch,
@@ -289,10 +287,6 @@ function renderTimelineItem(
   const isActiveGroup =
     'group' in item && isActiveRequestForGroup(item.group, activeRequestMessageId)
   const groupRetryInfo = isActiveGroup ? retryInfo : undefined
-  const cancelSubagent =
-    isActiveGroup && activeSubagents.length === 1 && threadId
-      ? () => void cancelRunForThread(threadId)
-      : undefined
 
   if (item.kind === 'group-user') {
     return (
@@ -502,7 +496,6 @@ function renderTimelineItem(
       <SubagentRunningIndicator
         agents={activeSubagents}
         progressEntries={subagentProgressEntries}
-        onCancel={cancelSubagent}
       />
     )
   }

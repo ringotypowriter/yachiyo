@@ -1,15 +1,54 @@
 import assert from 'node:assert/strict'
+import { mkdtemp, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import test from 'node:test'
 
-import type { ToolSet } from 'ai'
 import type { ModelRuntime, ModelStreamRequest } from '../../runtime/models/types.ts'
 import { DEFAULT_NAMED_SUBAGENT_PROFILES } from '../../settings/namedSubagents.ts'
+import type {
+  AgentMessageReceipt,
+  ProviderSettings,
+  SendAgentMessageInput
+} from '@yachiyo/shared/protocol'
+import {
+  SubagentManager,
+  type LaunchSubagentInput
+} from '../../app/domain/subagents/subagentManager.ts'
+import {
+  createWorkerSubagentRunnerFactory,
+  type WorkerSubagentRunnerDependencies
+} from '../../app/domain/subagents/workerSubagentRunner.ts'
 import { createTool, type DelegateTaskContext } from './delegateTaskTool.ts'
+import type { AgentToolDependencies } from '../agentTools.ts'
+
+const TEST_SETTINGS: ProviderSettings = {
+  providerName: 'test',
+  provider: 'openai',
+  model: 'gpt-test',
+  apiKey: '',
+  baseUrl: ''
+}
+
+function makeLaunchManager(launches: LaunchSubagentInput[]): SubagentManager {
+  return {
+    launch: async (input) => {
+      launches.push(input)
+      return {
+        agentId: input.agentId,
+        codeName: input.codeName,
+        state: 'running',
+        workspacePath: input.workspacePath
+      }
+    }
+  } as unknown as SubagentManager
+}
 
 function makeContext(overrides: Partial<DelegateTaskContext> = {}): DelegateTaskContext {
+  const launches: LaunchSubagentInput[] = []
   const modelRuntime: ModelRuntime = {
     streamReply: async function* () {
-      yield 'worker result'
+      yield 'provider output'
     }
   } as ModelRuntime
 
@@ -21,459 +60,169 @@ function makeContext(overrides: Partial<DelegateTaskContext> = {}): DelegateTask
       enabledNamedAgents: ['explore', 'review']
     },
     subagentProfiles: [],
-    settings: {
-      providerName: 'test',
-      provider: 'openai',
-      model: 'gpt-test',
-      apiKey: '',
-      baseUrl: ''
-    },
+    settings: TEST_SETTINGS,
     createModelRuntime: () => modelRuntime,
-    parentToolContext: { enabledTools: ['read', 'grep'], workspacePath: process.cwd() },
+    parentToolContext: {
+      runId: 'parent-run',
+      threadId: 'thread-1',
+      enabledTools: ['delegateTask', 'sendMessage'],
+      workspacePath: process.cwd()
+    },
     parentDependencies: {},
-    ...overrides
-  }
+    subagentManager: makeLaunchManager(launches),
+    ...overrides,
+    __testLaunches: launches
+  } as DelegateTaskContext & { __testLaunches: LaunchSubagentInput[] }
 }
 
-test('active skills from context reach the worker system prompt for discovery', async () => {
-  let capturedRequest: ModelStreamRequest | undefined
-  const modelRuntime: ModelRuntime = {
-    streamReply: async function* (input) {
-      capturedRequest = input
-      yield 'worker result'
+function launchOptions(toolCallId: string): {
+  toolCallId: string
+  messages: []
+  abortSignal: AbortSignal
+} {
+  return { toolCallId, messages: [], abortSignal: new AbortController().signal }
+}
+
+test('delegateTask returns a launch receipt without awaiting provider execution', async () => {
+  let providerCalls = 0
+  const context = makeContext({
+    createModelRuntime: () => {
+      providerCalls += 1
+      return {
+        streamReply: async function* () {
+          yield 'provider output'
+        }
+      } as ModelRuntime
     }
-  } as ModelRuntime
-  const tool = createTool(
-    makeContext({
-      activeSkills: [{ name: 'pdf' }, { name: 'docx' }],
-      createModelRuntime: () => modelRuntime
-    })
-  )
+  }) as DelegateTaskContext & { __testLaunches: LaunchSubagentInput[] }
+  const tool = createTool(context)
 
-  await tool.execute!(
+  const result = (await tool.execute!(
     { agent_name: 'explore', prompt: 'Map the feature' },
-    { toolCallId: 'delegation-skills', messages: [], abortSignal: AbortSignal.timeout(5000) }
-  )
+    launchOptions('delegation-1')
+  )) as { content: Array<{ type: 'text'; text: string }> }
 
-  const content = String(capturedRequest?.messages[0]?.content)
-  assert.ok(content.includes('pdf') && content.includes('docx'))
+  assert.match(result.content[0]?.text ?? '', /launched as Agent/)
+  assert.match(result.content[0]?.text ?? '', /delivered automatically/)
+  assert.match(result.content[0]?.text ?? '', /sendMessage/)
+  assert.equal(providerCalls, 0)
+  assert.equal(context.__testLaunches.length, 1)
+  assert.equal(context.__testLaunches[0]?.agentId, 'delegation-1')
+  assert.equal(typeof context.__testLaunches[0]?.runnerFactory, 'function')
 })
 
-test('delegateTask runs enabled worker subagents with stable start and finish metadata', async () => {
-  const starts: Array<{ delegationId: string; agentType: string; startedAt: string }> = []
-  const finishes: Array<{ delegationId: string; agentType: string; status: string }> = []
+test('delegateTask rejects unknown Worker profile names before launch', async () => {
+  const launches: LaunchSubagentInput[] = []
   const tool = createTool(
     makeContext({
-      onSubagentStarted: (event) => starts.push(event),
-      onSubagentFinished: (event) => finishes.push(event)
+      subagentManager: makeLaunchManager(launches)
     })
   )
 
   const result = (await tool.execute!(
-    { agent_name: 'explore', prompt: 'Map the feature' },
-    { toolCallId: 'delegation-1', messages: [], abortSignal: AbortSignal.timeout(5000) }
-  )) as Awaited<ReturnType<NonNullable<typeof tool.execute>>> & {
-    content: Array<{ type: 'text'; text: string }>
+    { agent_name: 'missing' as never, prompt: 'Map the feature' },
+    launchOptions('delegation-invalid')
+  )) as { content: Array<{ type: 'text'; text: string }>; error?: string }
+
+  assert.match(result.error ?? result.content[0]?.text ?? '', /Unknown worker subagent/)
+  assert.equal(launches.length, 0)
+})
+
+test('Worker runner preserves prompt/mailbox history and Agent-specific prompt cache keys', async () => {
+  const workspace = await mkdtemp(join(tmpdir(), 'yachiyo-worker-'))
+  const requests: ModelStreamRequest[] = []
+  const modelRuntime: ModelRuntime = {
+    streamReply: async function* (request) {
+      requests.push(request)
+      request.onFinish?.({
+        promptTokens: 3,
+        completionTokens: 2,
+        totalPromptTokens: 3,
+        totalCompletionTokens: 2,
+        responseMessages: [{ role: 'assistant', content: [{ type: 'text', text: 'reply' }] }]
+      })
+      yield 'reply'
+    }
+  } as ModelRuntime
+  const dependencies: WorkerSubagentRunnerDependencies = {
+    settings: TEST_SETTINGS,
+    parentToolContext: { workspacePath: workspace, sandboxed: false },
+    parentDependencies: {} as AgentToolDependencies,
+    createModelRuntime: () => modelRuntime
   }
-
-  assert.match(result.content[0]?.text ?? '', /worker result/)
-  assert.deepEqual(
-    starts.map((event) => [event.delegationId, event.agentType]),
-    [['delegation-1', 'explore']]
-  )
-  assert.equal(typeof starts[0]?.startedAt, 'string')
-  assert.deepEqual(
-    finishes.map((event) => [event.delegationId, event.agentType, event.status]),
-    [['delegation-1', 'explore', 'success']]
-  )
-})
-
-test('delegateTask returns fallback text when a worker produces only tool calls', async () => {
-  const modelRuntime: ModelRuntime = {
-    streamReply: async function* (input) {
-      if (process.env.__YACHIYO_TEST_UNREACHABLE__ === '1') yield ''
-      input.onToolCallFinish?.({
-        abortSignal: AbortSignal.timeout(5000),
-        durationMs: 0,
-        experimental_context: undefined,
-        functionId: undefined,
-        metadata: undefined,
-        model: undefined,
-        messages: [],
-        stepNumber: undefined,
-        success: true,
-        output: {
-          content: [{ type: 'text', text: 'a.ts\nb.ts' }],
-          details: {
-            backend: 'typescript',
-            pattern: '**/*.ts',
-            path: process.cwd(),
-            resultCount: 2,
-            truncated: false,
-            matches: ['a.ts', 'b.ts']
-          }
-        },
-        toolCall: {
-          type: 'tool-call',
-          dynamic: true,
-          toolCallId: 'worker-tool-1',
-          toolName: 'glob',
-          input: { pattern: '**/*.ts' }
-        }
-      })
-    }
-  } as ModelRuntime
-  const tool = createTool(
-    makeContext({
-      createModelRuntime: () => modelRuntime
-    })
-  )
-
-  const result = (await tool.execute!(
-    { agent_name: 'explore', prompt: 'Map the feature' },
-    { toolCallId: 'delegation-fallback', messages: [], abortSignal: AbortSignal.timeout(5000) }
-  )) as Awaited<ReturnType<NonNullable<typeof tool.execute>>> & {
-    content: Array<{ type: 'text'; text: string }>
+  const factory = createWorkerSubagentRunnerFactory({
+    profileId: 'general',
+    profile: DEFAULT_NAMED_SUBAGENT_PROFILES.general,
+    dependencies
+  })
+  const sentMessages: Array<SendAgentMessageInput> = []
+  const receipt: AgentMessageReceipt = {
+    messageId: 'message-1',
+    delivery: 'queued',
+    recipientState: 'idle'
   }
+  const runner = factory({
+    launch: {
+      agentId: 'agent-1',
+      parentThreadId: 'thread-1',
+      launchRunId: 'run-1',
+      agentName: 'general',
+      agentType: 'general',
+      codeName: 'Akari',
+      workspacePath: workspace,
+      prompt: 'Initial task'
+    },
+    signal: new AbortController().signal,
+    sendMessage: (input) => {
+      sentMessages.push(input)
+      return receipt
+    },
+    hasPendingMessages: () => false,
+    onProgress: () => {},
+    onToolCall: () => {}
+  })
 
-  assert.match(result.content[0]?.text ?? '', /Subagent completed without a final text response/)
-  assert.match(result.content[0]?.text ?? '', /glob: \*\*\/\*\.ts → found 2 files/)
-})
-
-test('delegateTask rejects unknown worker subagent names', async () => {
-  const tool = createTool(makeContext())
-  const result = (await tool.execute!(
-    { agent_name: 'missing', prompt: 'Do it' },
-    { toolCallId: 'delegation-2', messages: [], abortSignal: AbortSignal.timeout(5000) }
-  )) as Awaited<ReturnType<NonNullable<typeof tool.execute>>> & { error?: string }
-
-  assert.equal(
-    result.error,
-    'Unknown worker subagent "missing". Valid names: explore, plan, review, general.'
-  )
-})
-
-test('worker subagents do not receive delegateTask recursively', async () => {
-  let capturedTools: ToolSet | undefined
-  const modelRuntime: ModelRuntime = {
-    streamReply: async function* (input) {
-      capturedTools = input.tools
-      yield 'worker result'
-    }
-  } as ModelRuntime
-  const tool = createTool(
-    makeContext({
-      createModelRuntime: () => modelRuntime,
-      parentDependencies: {
-        subagentsConfig: {
-          mode: 'worker',
-          enabledNamedAgents: ['explore']
-        },
-        settings: {
-          providerName: 'test',
-          provider: 'openai',
-          model: 'gpt-test',
-          apiKey: '',
-          baseUrl: ''
-        },
-        createModelRuntime: () => modelRuntime
-      }
-    })
-  )
-
-  await tool.execute!(
-    { agent_name: 'explore', prompt: 'Map the feature' },
-    { toolCallId: 'delegation-3', messages: [], abortSignal: AbortSignal.timeout(5000) }
-  )
-
-  assert.ok(capturedTools)
-  assert.equal('delegateTask' in capturedTools, false)
-})
-
-test('worker subagents expose only enabled schemas', async () => {
-  let capturedTools: ToolSet | undefined
-  const modelRuntime: ModelRuntime = {
-    streamReply: async function* (input) {
-      capturedTools = input.tools
-      yield 'review result'
-    }
-  } as ModelRuntime
-  const tool = createTool(
-    makeContext({
-      createModelRuntime: () => modelRuntime,
-      parentDependencies: {
-        searchService: {} as never,
-        availableSkills: []
-      }
-    })
-  )
-
-  await tool.execute!(
-    { agent_name: 'review', prompt: 'Review the change' },
-    { toolCallId: 'delegation-4', messages: [], abortSignal: AbortSignal.timeout(5000) }
-  )
-
-  assert.ok(capturedTools)
-  assert.deepEqual(Object.keys(capturedTools).sort(), [
-    'bash',
-    'glob',
-    'grep',
-    'read',
-    'skillsRead'
-  ])
-})
-
-test('built-in worker tool permissions stay fixed in code', () => {
-  assert.deepEqual(DEFAULT_NAMED_SUBAGENT_PROFILES.review.allowedTools, [
-    'read',
-    'bash',
-    'grep',
-    'glob',
-    'skillsRead'
-  ])
-  assert.deepEqual(DEFAULT_NAMED_SUBAGENT_PROFILES.general.allowedTools, [
-    'read',
-    'write',
-    'edit',
-    'bash',
-    'jsRepl',
-    'grep',
-    'glob',
-    'webRead',
-    'webSearch',
-    'skillsRead',
-    'applyPatch'
-  ])
-})
-
-test('worker subagent uses thread-scoped prompt cache key', async () => {
-  let capturedRequest: ModelStreamRequest | undefined
-  const modelRuntime: ModelRuntime = {
-    streamReply: async function* (input) {
-      capturedRequest = input
-      yield 'worker result'
-    }
-  } as ModelRuntime
-  const tool = createTool(
-    makeContext({
-      parentToolContext: {
-        enabledTools: ['read', 'grep'],
-        workspacePath: process.cwd(),
-        threadId: 'thread-1'
-      },
-      createModelRuntime: () => modelRuntime
-    })
-  )
-
-  await tool.execute!(
-    { agent_name: 'explore', prompt: 'Map the feature' },
-    { toolCallId: 'delegation-cache', messages: [], abortSignal: AbortSignal.timeout(5000) }
-  )
-
-  assert.equal(capturedRequest?.promptCacheKey, 'thread-1:subagent:explore')
-})
-
-test('worker subagent applies Anthropic cache breakpoint to its stable system prompt', async () => {
-  let capturedRequest: ModelStreamRequest | undefined
-  const modelRuntime: ModelRuntime = {
-    streamReply: async function* (input) {
-      capturedRequest = input
-      yield 'worker result'
-    }
-  } as ModelRuntime
-  const tool = createTool(
-    makeContext({
-      settings: {
-        providerName: 'claude',
-        provider: 'anthropic',
-        model: 'claude-test',
-        apiKey: '',
-        baseUrl: ''
-      },
-      createModelRuntime: () => modelRuntime
-    })
-  )
-
-  await tool.execute!(
-    { agent_name: 'explore', prompt: 'Map the feature' },
-    {
-      toolCallId: 'delegation-anthropic-cache',
+  try {
+    await runner.runTurn({
+      turnId: 'turn-1',
+      initialPrompt: 'Initial task',
       messages: [],
-      abortSignal: AbortSignal.timeout(5000)
-    }
-  )
+      signal: new AbortController().signal
+    })
+    await runner.runTurn({
+      turnId: 'turn-2',
+      messages: [
+        {
+          id: 'envelope-1',
+          teamThreadId: 'thread-1',
+          sequence: 1,
+          from: { kind: 'parent', threadId: 'thread-1' },
+          to: { kind: 'agent', agentId: 'agent-1' },
+          message: 'Follow-up request',
+          createdAt: new Date(1).toISOString()
+        }
+      ],
+      signal: new AbortController().signal
+    })
 
-  const systemMessage = capturedRequest?.messages[0]
-  assert.equal(systemMessage?.role, 'system')
-  assert.deepEqual(
-    (systemMessage?.providerOptions as { anthropic?: { cacheControl?: { type?: string } } })
-      ?.anthropic?.cacheControl,
-    { type: 'ephemeral' }
-  )
+    assert.equal(requests.length, 2)
+    assert.equal(requests[0]?.promptCacheKey, 'thread-1:subagent:agent-1')
+    const secondHistory = JSON.stringify(requests[1]?.messages)
+    assert.match(secondHistory, /Initial task/)
+    assert.match(secondHistory, /Follow-up request/)
+    assert.equal('delegateTask' in (requests[0]?.tools ?? {}), false)
+    assert.equal('sendThreadMessage' in (requests[0]?.tools ?? {}), false)
+    assert.equal('sendMessage' in (requests[0]?.tools ?? {}), true)
+    assert.deepEqual(sentMessages, [])
+  } finally {
+    await runner.close()
+    await rm(workspace, { recursive: true, force: true })
+  }
 })
 
-test('worker subagent uses preferred model when configured', async () => {
-  const capturedSettings: Array<{ providerName: string; model: string }> = []
-  const modelRuntime: ModelRuntime = {
-    streamReply: async function* (input) {
-      capturedSettings.push({
-        providerName: input.settings.providerName,
-        model: input.settings.model
-      })
-      yield 'worker result'
-    }
-  } as ModelRuntime
-
-  const tool = createTool(
-    makeContext({
-      config: {
-        providers: [
-          {
-            id: 'p1',
-            name: 'preferred',
-            type: 'openai',
-            apiKey: 'sk-p',
-            baseUrl: '',
-            project: '',
-            location: '',
-            serviceAccountEmail: '',
-            serviceAccountPrivateKey: '',
-            modelList: { enabled: ['gpt-5'], disabled: [] }
-          }
-        ],
-        subagents: {
-          mode: 'worker',
-          enabledNamedAgents: ['explore'],
-          preferredModels: {
-            explore: { providerName: 'preferred', model: 'gpt-5' }
-          }
-        }
-      },
-      settings: {
-        providerName: 'default',
-        provider: 'anthropic',
-        model: 'claude-default',
-        apiKey: '',
-        baseUrl: ''
-      },
-      createModelRuntime: () => modelRuntime
-    })
-  )
-
-  await tool.execute!(
-    { agent_name: 'explore', prompt: 'Do it' },
-    { toolCallId: 'delegation-preferred', messages: [], abortSignal: AbortSignal.timeout(5000) }
-  )
-
-  assert.equal(capturedSettings.length, 1)
-  assert.equal(capturedSettings[0]!.providerName, 'preferred')
-  assert.equal(capturedSettings[0]!.model, 'gpt-5')
-})
-
-test('worker subagent falls back to calling model when preferred model is disabled or missing', async () => {
-  const capturedSettings: Array<{ providerName: string; model: string }> = []
-  const modelRuntime: ModelRuntime = {
-    streamReply: async function* (input) {
-      capturedSettings.push({
-        providerName: input.settings.providerName,
-        model: input.settings.model
-      })
-      yield 'worker result'
-    }
-  } as ModelRuntime
-
-  const tool = createTool(
-    makeContext({
-      config: {
-        providers: [
-          {
-            id: 'p1',
-            name: 'preferred',
-            type: 'openai',
-            apiKey: 'sk-p',
-            baseUrl: '',
-            project: '',
-            location: '',
-            serviceAccountEmail: '',
-            serviceAccountPrivateKey: '',
-            modelList: { enabled: [], disabled: ['gpt-5'] }
-          }
-        ],
-        subagents: {
-          mode: 'worker',
-          enabledNamedAgents: ['explore'],
-          preferredModels: {
-            explore: { providerName: 'preferred', model: 'gpt-5' }
-          }
-        }
-      },
-      settings: {
-        providerName: 'default',
-        provider: 'anthropic',
-        model: 'claude-default',
-        apiKey: '',
-        baseUrl: ''
-      },
-      createModelRuntime: () => modelRuntime
-    })
-  )
-
-  await tool.execute!(
-    { agent_name: 'explore', prompt: 'Do it' },
-    {
-      toolCallId: 'delegation-fallback',
-      messages: [],
-      abortSignal: AbortSignal.timeout(5000)
-    }
-  )
-
-  assert.equal(capturedSettings.length, 1)
-  assert.equal(capturedSettings[0]!.providerName, 'default')
-  assert.equal(capturedSettings[0]!.model, 'claude-default')
-})
-
-test('worker without preferred model uses calling model unchanged', async () => {
-  const capturedSettings: Array<{ providerName: string; model: string }> = []
-  const modelRuntime: ModelRuntime = {
-    streamReply: async function* (input) {
-      capturedSettings.push({
-        providerName: input.settings.providerName,
-        model: input.settings.model
-      })
-      yield 'worker result'
-    }
-  } as ModelRuntime
-
-  const tool = createTool(
-    makeContext({
-      config: {
-        providers: [],
-        subagents: {
-          mode: 'worker',
-          enabledNamedAgents: ['explore']
-        }
-      },
-      settings: {
-        providerName: 'default',
-        provider: 'anthropic',
-        model: 'claude-default',
-        apiKey: '',
-        baseUrl: ''
-      },
-      createModelRuntime: () => modelRuntime
-    })
-  )
-
-  await tool.execute!(
-    { agent_name: 'explore', prompt: 'Do it' },
-    {
-      toolCallId: 'delegation-no-pref',
-      messages: [],
-      abortSignal: AbortSignal.timeout(5000)
-    }
-  )
-
-  assert.equal(capturedSettings.length, 1)
-  assert.equal(capturedSettings[0]!.providerName, 'default')
-  assert.equal(capturedSettings[0]!.model, 'claude-default')
+test('Worker profile permissions include sendMessage without enabling recursive delegation', () => {
+  const profile = DEFAULT_NAMED_SUBAGENT_PROFILES.general
+  assert.ok(profile.allowedTools?.includes('sendMessage'))
+  assert.equal(profile.allowedTools?.includes('delegateTask'), false)
+  assert.equal(profile.allowedTools?.includes('sendThreadMessage'), false)
 })

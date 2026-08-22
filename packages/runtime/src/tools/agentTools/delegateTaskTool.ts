@@ -9,23 +9,28 @@ import type {
   SettingsConfig,
   SkillSummary,
   SubagentProfile,
-  SubagentsConfig,
-  ToolCallName
+  SubagentToolCallDetails,
+  SubagentsConfig
 } from '@yachiyo/shared/protocol'
-import { summarizeToolInput, summarizeToolOutput } from '../agentTools.ts'
 import { launchAcpProcess } from '../../runtime/acp/acpLauncher.ts'
 import { createAcpStreamAdapter } from '../../runtime/acp/acpStreamAdapter.ts'
 import { runAcpSession } from '../../runtime/acp/acpSessionClient.ts'
-import { applyAnthropicCacheBreakpoints } from '../../runtime/context/contextLayers.ts'
-import type { ModelRuntime, ModelMessage } from '../../runtime/models/types.ts'
 import {
   DEFAULT_NAMED_SUBAGENT_PROFILES,
   SUBAGENT_DESCRIPTIONS,
   WORKER_DELEGATION_PROMPT_GUIDANCE
 } from '../../settings/namedSubagents.ts'
-import { toSubagentProviderSettings } from '../../settings/settingsStore.ts'
-import { createAgentToolSet, type AgentToolDependencies } from '../agentTools.ts'
+import type { AgentToolDependencies } from '../agentTools.ts'
+import type {
+  SubagentManager,
+  SubagentParentDeliveryContext
+} from '../../app/domain/subagents/subagentManager.ts'
+import {
+  createWorkerSubagentRunnerFactory,
+  type WorkerSubagentRunnerDependencies
+} from '../../app/domain/subagents/workerSubagentRunner.ts'
 import { toToolModelOutput, type AgentToolContext } from './shared.ts'
+import type { ModelRuntime } from '../../runtime/models/types.ts'
 
 /** Gojūon-order meaningful Japanese romaji code names for subagents. */
 const SUBAGENT_CODE_NAMES = [
@@ -137,11 +142,11 @@ interface WorkerDelegateTaskInput {
 }
 type AcpDelegateTaskInput = z.infer<typeof acpDelegateTaskInputSchema>
 type DelegateTaskInput = WorkerDelegateTaskInput | AcpDelegateTaskInput
-
 interface DelegateTaskOutput {
   content: Array<{ type: 'text'; text: string }>
   sessionId?: string
   error?: string
+  details?: SubagentToolCallDetails
 }
 
 export interface DelegateTaskStartedEvent {
@@ -194,6 +199,9 @@ export interface DelegateTaskContext {
   createModelRuntime: () => ModelRuntime
   parentToolContext: AgentToolContext
   parentDependencies: AgentToolDependencies
+  subagentManager?: SubagentManager
+  parentDeliveryContext?: SubagentParentDeliveryContext
+  backgroundBashContext?: AgentToolDependencies['backgroundBashContext']
   onProgress?: (event: DelegateTaskProgressEvent) => void
   onSubagentStarted?: (event: DelegateTaskStartedEvent) => void
   onSubagentFinished?: (event: DelegateTaskFinishedEvent) => void
@@ -252,179 +260,6 @@ async function resolveWorkspace(input: {
   }
 
   return requested
-}
-
-/**
- * Worker subagents only see their static profile system prompt — unlike the main
- * agent, they never get a dynamically injected skill catalog. When the worker can
- * read Skills, append just the active-skill names so it can discover what exists.
- * How to use them is already covered by the skillsRead tool description, so we do
- * not restate that here.
- */
-function buildWorkerSystemPrompt(
-  baseSystemPrompt: string,
-  activeSkillNames: string[],
-  hasSkillsRead: boolean
-): string {
-  if (!hasSkillsRead || activeSkillNames.length === 0) {
-    return baseSystemPrompt
-  }
-  return `${baseSystemPrompt}\n\nActive Skills: ${activeSkillNames.join(', ')}.`
-}
-
-async function runWorkerSubagent(
-  profileId: NamedSubagentId,
-  prompt: string,
-  ctx: DelegateTaskContext,
-  delegationId: string,
-  abortSignal?: AbortSignal
-): Promise<
-  DelegateTaskOutput & {
-    lastMessage: string
-    durationMs: number
-    promptTokens?: number
-    completionTokens?: number
-  }
-> {
-  const profile = DEFAULT_NAMED_SUBAGENT_PROFILES[profileId]
-  if (!ctx.subagentsConfig.enabledNamedAgents.includes(profileId)) {
-    const error = `Worker subagent "${profileId}" is not enabled.`
-    return { content: [{ type: 'text', text: error }], error, lastMessage: error, durationMs: 0 }
-  }
-
-  const startedAt = Date.now()
-  const modelRuntime = ctx.createModelRuntime()
-  const workerEnabledTools = new Set<ToolCallName>(
-    profile.allowedTools ?? ['read', 'write', 'edit', 'bash', 'grep', 'glob', 'skillsRead']
-  )
-  const workerContext: AgentToolContext = {
-    ...ctx.parentToolContext,
-    enabledTools: [...workerEnabledTools],
-    registerOnlyEnabledToolSchemas: true
-  }
-  const workerDeps: AgentToolDependencies = {
-    availableSkills: ctx.parentDependencies.availableSkills,
-    searchService: ctx.parentDependencies.searchService,
-    ...(workerEnabledTools.has('webRead') || workerEnabledTools.has('jsRepl')
-      ? { fetchImpl: ctx.parentDependencies.fetchImpl }
-      : {}),
-    ...(workerEnabledTools.has('webSearch') || workerEnabledTools.has('jsRepl')
-      ? { webSearchService: ctx.parentDependencies.webSearchService }
-      : {}),
-    ...(workerEnabledTools.has('querySource')
-      ? {
-          activityOcrEnabled: ctx.parentDependencies.activityOcrEnabled,
-          sourceQueryExecutor: ctx.parentDependencies.sourceQueryExecutor,
-          sourceQueryStorage: ctx.parentDependencies.sourceQueryStorage,
-          memoryService: ctx.parentDependencies.memoryService
-        }
-      : {})
-  }
-  const tools = createAgentToolSet(workerContext, workerDeps)
-  const workerSettings =
-    ctx.config && ctx.settings
-      ? toSubagentProviderSettings(ctx.config, profileId, ctx.settings)
-      : ctx.settings
-  const messages: ModelMessage[] = [
-    {
-      role: 'system' as const,
-      content: buildWorkerSystemPrompt(
-        profile.systemPrompt,
-        (ctx.activeSkills ?? []).map((skill) => skill.name),
-        workerEnabledTools.has('skillsRead')
-      )
-    },
-    { role: 'user' as const, content: prompt }
-  ]
-  if (workerSettings.provider === 'anthropic') {
-    applyAnthropicCacheBreakpoints(messages)
-  }
-  const promptCacheKey = ctx.parentToolContext.threadId
-    ? `${ctx.parentToolContext.threadId}:subagent:${profileId}`
-    : undefined
-
-  let resultText = ''
-  const recentToolSummaries: string[] = []
-
-  let promptTokens: number | undefined
-  let completionTokens: number | undefined
-
-  try {
-    for await (const delta of modelRuntime.streamReply({
-      messages,
-      settings: workerSettings,
-      signal: abortSignal ?? new AbortController().signal,
-      purpose: `worker:${profileId}`,
-      ...(promptCacheKey ? { promptCacheKey } : {}),
-      maxToolSteps: profile.maxToolSteps ?? 999,
-      tools,
-      onToolCallStart: (event) => {
-        const toolName = event.toolCall.toolName
-        const inputSummary = summarizeToolInput(toolName, event.toolCall.input)
-        ctx.onProgress?.({ delegationId, chunk: `[${toolName}] ${inputSummary}\n` })
-        ctx.onSubagentToolCall?.({
-          delegationId,
-          toolCallId: event.toolCall.toolCallId,
-          toolName,
-          inputSummary,
-          status: 'running'
-        })
-      },
-      onToolCallFinish: (event) => {
-        const toolName = event.toolCall.toolName
-        const inputSummary = summarizeToolInput(toolName, event.toolCall.input)
-        const outputSummary = event.success
-          ? summarizeToolOutput(toolName, event.output)
-          : summarizeToolOutput(toolName, {
-              error: event.error instanceof Error ? event.error.message : String(event.error)
-            })
-        recentToolSummaries.push(
-          `${toolName}: ${inputSummary}${outputSummary ? ` → ${outputSummary}` : ''}`
-        )
-        if (recentToolSummaries.length > 5) recentToolSummaries.shift()
-        ctx.onSubagentToolCall?.({
-          delegationId,
-          toolCallId: event.toolCall.toolCallId,
-          toolName,
-          inputSummary,
-          outputSummary,
-          status: event.success ? 'completed' : 'failed'
-        })
-      },
-      onFinish: (usage) => {
-        promptTokens = usage.promptTokens
-        completionTokens = usage.completionTokens
-      }
-    })) {
-      resultText += delta
-      ctx.onProgress?.({ delegationId, chunk: delta })
-    }
-  } catch (err) {
-    if (abortSignal?.aborted) {
-      const abortErr = new Error('Worker subagent aborted.', { cause: err })
-      abortErr.name = 'AbortError'
-      throw abortErr
-    }
-    const detail = err instanceof Error ? err.message : String(err)
-    resultText += `\n\n[Worker subagent error: ${detail}]`
-  }
-
-  const finalText = resultText.trim()
-  if (!finalText) {
-    resultText =
-      recentToolSummaries.length > 0
-        ? `Subagent completed without a final text response. Recent tool calls:\n${recentToolSummaries.map((summary) => `- ${summary}`).join('\n')}`
-        : 'Subagent completed without a final text response.'
-  }
-
-  const durationMs = Date.now() - startedAt
-  return {
-    content: [{ type: 'text', text: resultText }],
-    lastMessage: resultText,
-    durationMs,
-    ...(promptTokens !== undefined ? { promptTokens } : {}),
-    ...(completionTokens !== undefined ? { completionTokens } : {})
-  }
 }
 
 async function runAcpSubagent(
@@ -495,7 +330,7 @@ function createWorkerTool(
     description,
     inputSchema,
     toModelOutput: ({ output }) => toToolModelOutput(output),
-    execute: async (input, options) => {
+    execute: async (input, options): Promise<DelegateTaskOutput> => {
       const delegationId = options.toolCallId
       const workspaceResult = await resolveWorkspace({
         requestedWorkspace: input.workspace,
@@ -514,61 +349,101 @@ function createWorkerTool(
         const error = `Unknown worker subagent "${agentName}". Valid names: ${VALID_NAMED_SUBAGENT_IDS.join(', ')}.`
         return { content: [{ type: 'text', text: error }], error }
       }
+      if (!ctx.subagentManager) {
+        const error = 'Worker subagent manager is unavailable.'
+        return { content: [{ type: 'text', text: error }], error }
+      }
+      const parentThreadId = ctx.parentToolContext.threadId
+      if (!parentThreadId) {
+        const error = 'Worker delegation requires a parent thread ID.'
+        return { content: [{ type: 'text', text: error }], error }
+      }
+
+      const profile = DEFAULT_NAMED_SUBAGENT_PROFILES[agentName]
       const codeName = assignCodeName()
-      const startedAt = new Date().toISOString()
-      ctx.onSubagentStarted?.({
-        delegationId,
-        agentName,
-        agentType: agentName,
-        workspacePath: workspaceResult,
-        startedAt,
-        prompt: input.prompt,
-        codeName
-      })
-      ctx.onProgress?.({
-        delegationId,
-        chunk: `[${codeName}] > ${input.prompt}\n${'─'.repeat(40)}\n`
+
+      const parentDeliveryContext =
+        ctx.parentDeliveryContext ??
+        (
+          ctx.parentDependencies as AgentToolDependencies & {
+            parentDeliveryContext?: SubagentParentDeliveryContext
+          }
+        ).parentDeliveryContext
+      const parentBackgroundBashContext = ctx.backgroundBashContext
+      const backgroundBashContext = parentBackgroundBashContext
+        ? {
+            ...(parentBackgroundBashContext.onStarted
+              ? {
+                  onStarted: async (
+                    task: Parameters<NonNullable<typeof parentBackgroundBashContext.onStarted>>[0]
+                  ) =>
+                    parentBackgroundBashContext.onStarted?.({
+                      ...task,
+                      ownerAgentId: delegationId
+                    })
+                }
+              : {}),
+            ...(parentBackgroundBashContext.onAdopted
+              ? {
+                  onAdopted: async (
+                    task: Parameters<NonNullable<typeof parentBackgroundBashContext.onAdopted>>[0]
+                  ) =>
+                    parentBackgroundBashContext.onAdopted?.({
+                      ...task,
+                      ownerAgentId: delegationId
+                    })
+                }
+              : {})
+          }
+        : undefined
+      const runnerDependencies: WorkerSubagentRunnerDependencies = {
+        settings: { ...ctx.settings },
+        ...(ctx.config ? { config: ctx.config } : {}),
+        ...(ctx.activeSkills ? { activeSkills: [...ctx.activeSkills] } : {}),
+        parentToolContext: { ...ctx.parentToolContext, workspacePath: workspaceResult },
+        parentDependencies: ctx.parentDependencies,
+        createModelRuntime: ctx.createModelRuntime,
+        ...(parentDeliveryContext ? { parentDeliveryContext } : {}),
+        ...(backgroundBashContext ? { backgroundBashContext } : {})
+      }
+      const runnerFactory = createWorkerSubagentRunnerFactory({
+        profileId: agentName,
+        profile,
+        dependencies: runnerDependencies
       })
 
       try {
-        const { durationMs, promptTokens, completionTokens, lastMessage, ...result } =
-          await runWorkerSubagent(
-            agentName,
-            input.prompt,
-            { ...ctx, workspacePath: workspaceResult },
-            delegationId,
-            options.abortSignal
-          )
-        ctx.onSubagentFinished?.({
-          delegationId,
+        const receipt = await ctx.subagentManager.launch({
+          agentId: delegationId,
+          parentThreadId,
+          launchRunId: ctx.parentToolContext.runId ?? delegationId,
           agentName,
           agentType: agentName,
-          status: 'success',
-          lastMessage,
+          codeName,
           workspacePath: workspaceResult,
-          durationMs,
-          promptTokens,
-          completionTokens,
-          codeName
+          prompt: input.prompt,
+          ...(parentDeliveryContext ? { parentDeliveryContext } : {}),
+          runnerFactory
         })
-        return result
-      } catch (err) {
-        if (options.abortSignal?.aborted) {
-          const abortErr = new Error('Subagent execution aborted.', { cause: err })
-          abortErr.name = 'AbortError'
-          throw abortErr
+        const text =
+          `Worker ${agentName} (${receipt.codeName}) launched as Agent ${receipt.agentId} in ${receipt.workspacePath}. ` +
+          'The initial result will be delivered automatically. After finishing a turn, the Agent remains idle and retains its history until closed or expired. ' +
+          `Use sendMessage with to "${receipt.agentId}" to add related work or wake this same Agent; launch another Worker only for independent work.`
+        const details: SubagentToolCallDetails = {
+          kind: 'subagent',
+          agentId: receipt.agentId,
+          agentName,
+          agentType: agentName,
+          codeName: receipt.codeName,
+          workspacePath: receipt.workspacePath,
+          lifecycleState: receipt.state,
+          snapshotId: receipt.agentId
         }
-        const detail = err instanceof Error ? err.message : 'Subagent execution failed.'
-        ctx.onSubagentFinished?.({
-          delegationId,
-          agentName,
-          agentType: agentName,
-          status: 'cancelled',
-          workspacePath: workspaceResult,
-          codeName
-        })
+        return { content: [{ type: 'text', text }], details }
+      } catch (err) {
+        const detail = err instanceof Error ? err.message : String(err)
         return {
-          content: [{ type: 'text', text: `Subagent execution failed: ${detail}` }],
+          content: [{ type: 'text', text: `Worker delegation failed: ${detail}` }],
           error: detail
         }
       }

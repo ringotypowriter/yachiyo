@@ -14,11 +14,14 @@ import type {
   RetryInput,
   RunFailedEvent,
   RunCreatedEvent,
+  SubagentSnapshot,
+  SubagentToolCallDetails,
   ThreadSnapshot,
   ThreadRecord,
   ThreadUpdatedEvent,
   ToolCallUpdatedEvent,
-  ToolCallRecord
+  ToolCallRecord,
+  YachiyoServerEvent
 } from '@yachiyo/shared/protocol'
 import {
   DEFAULT_RUN_MODE_ID,
@@ -42,6 +45,7 @@ import { ReadRecordCache } from '../../../tools/agentTools.ts'
 import { SnapshotTracker } from '../../../services/fileSnapshot/snapshotTracker.ts'
 import { runAcpChatThread } from '../../../runtime/acp/acpChatRuntime.ts'
 import { resolveRetryRequest } from '../threads/threadDomain.ts'
+import { SubagentManager } from '../subagents/subagentManager.ts'
 import { sleep } from '../../../channels/shared/connectionRetry.ts'
 import { createRunEventMetadata } from '../shared/runEventMetadata.ts'
 import { INTERRUPTED_RUN_ERROR, SHUTDOWN_RUN_ERROR, isAbortError } from '../shared/shared.ts'
@@ -106,6 +110,8 @@ export class YachiyoServerRunDomain {
   private readonly queuedFollowUpDrafts = new Map<string, QueuedFollowUpDraft>()
   private readonly backgroundBashManager = new BackgroundBashManager()
   private readonly threadTitleRunner: ThreadTitleGenerationRunner
+  private readonly subagentManager: SubagentManager
+  private readonly latestSubagentSnapshots = new Map<string, SubagentSnapshot>()
   /**
    * Per-task snapshot of the launching run's channel/tooling context, captured at
    * `onBackgroundBashStarted`. We use it to call `sendChat` with the same `enabledTools`,
@@ -125,6 +131,60 @@ export class YachiyoServerRunDomain {
     this.deps = deps
     this.lastRunEnabledTools = null
     this.lastRunMode = null
+    this.subagentManager = new SubagentManager({
+      createId: deps.createId,
+      timestamp: deps.timestamp,
+      emit: deps.emit as unknown as (event: YachiyoServerEvent) => void,
+      onSnapshot: (snapshot) => this.persistSubagentSnapshot(snapshot),
+      runnerFactory: () => {
+        throw new Error(
+          'Worker subagent launches must provide an explicit per-launch runnerFactory.'
+        )
+      },
+      deliverToParent: async (input) => {
+        if (this.isClosing) return
+        const parentDeliveryContext = input.parentDeliveryContext
+        if (!parentDeliveryContext) {
+          throw new Error(`Subagent "${input.agentId}" is missing parent delivery context.`)
+        }
+        if (
+          !this.deps.storage.getThread(input.parentThreadId) &&
+          this.deps.storage.getArchivedThread(input.parentThreadId)
+        ) {
+          this.persistArchivedSubagentDelivery(input)
+          return
+        }
+        const deliveryInput = {
+          threadId: input.parentThreadId,
+          content:
+            input.kind === 'initial-result'
+              ? `[Worker ${input.agentId} initial result]\n\n${input.message}`
+              : `[Message from Worker ${input.agentId}]\n\n${input.message}`,
+          hidden: true,
+          toolPreset: parentDeliveryContext.enabledTools,
+          ...(parentDeliveryContext.enabledSkillNames
+            ? { enabledSkillNames: parentDeliveryContext.enabledSkillNames }
+            : {}),
+          runMode: parentDeliveryContext.runMode,
+          ...(parentDeliveryContext.reasoningEffort !== undefined
+            ? { reasoningEffort: parentDeliveryContext.reasoningEffort }
+            : {}),
+          runTrigger: parentDeliveryContext.runTrigger,
+          ...(parentDeliveryContext.channelHint
+            ? { channelHint: parentDeliveryContext.channelHint }
+            : {}),
+          ...(parentDeliveryContext.extraTools
+            ? { extraTools: parentDeliveryContext.extraTools }
+            : {})
+        }
+        try {
+          await this.sendChat({ ...deliveryInput, mode: 'steer' })
+        } catch {
+          await this.sendChat({ ...deliveryInput, mode: 'follow-up' })
+        }
+      },
+      getParentState: (threadId) => (this.hasNonRecapActiveRun(threadId) ? 'running' : 'idle')
+    })
     this.threadTitleRunner = new ThreadTitleGenerationRunner(deps)
     this.seamlessHandoffCoordinator = new SeamlessHandoffCoordinator(deps)
     this.memoryScheduler = createMemoryDistillationScheduler({
@@ -169,6 +229,130 @@ export class YachiyoServerRunDomain {
 
   cancelBackgroundTask(taskId: string): boolean {
     return this.backgroundBashManager.cancelTask(taskId)
+  }
+
+  private persistSubagentSnapshot(
+    snapshot: SubagentSnapshot,
+    persistedToolCall?: ToolCallRecord,
+    emit = true
+  ): ToolCallRecord | undefined {
+    const previousSnapshot = this.latestSubagentSnapshots.get(snapshot.agentId)
+    if (previousSnapshot && previousSnapshot.updatedAt > snapshot.updatedAt) return undefined
+    this.latestSubagentSnapshots.set(snapshot.agentId, snapshot)
+
+    const toolCall =
+      persistedToolCall ??
+      this.deps
+        .loadThreadToolCalls(snapshot.parentThreadId)
+        .find(
+          (candidate) => candidate.id === snapshot.agentId && candidate.toolName === 'delegateTask'
+        )
+    if (!toolCall) return undefined
+
+    const existingDetails = toolCall.details
+    if (
+      existingDetails &&
+      (typeof existingDetails !== 'object' ||
+        !('kind' in existingDetails) ||
+        existingDetails.kind !== 'subagent')
+    ) {
+      return undefined
+    }
+    const details: SubagentToolCallDetails =
+      existingDetails && typeof existingDetails === 'object' && 'kind' in existingDetails
+        ? (existingDetails as SubagentToolCallDetails)
+        : {
+            kind: 'subagent',
+            agentId: snapshot.agentId,
+            agentName: snapshot.agentName,
+            agentType: snapshot.agentType,
+            codeName: snapshot.codeName,
+            workspacePath: snapshot.workspacePath,
+            lifecycleState: snapshot.state
+          }
+    const updatedDetails: SubagentToolCallDetails = {
+      ...details,
+      agentId: snapshot.agentId,
+      agentName: snapshot.agentName,
+      agentType: snapshot.agentType,
+      codeName: snapshot.codeName,
+      workspacePath: snapshot.workspacePath,
+      lifecycleState: snapshot.state,
+      ...(snapshot.lastOutput !== undefined ? { lastOutput: snapshot.lastOutput } : {}),
+      ...(snapshot.error !== undefined ? { error: snapshot.error } : {}),
+      ...(details.snapshotId
+        ? { snapshotId: details.snapshotId }
+        : { snapshotId: snapshot.agentId })
+    }
+    const updatedToolCall: ToolCallRecord = {
+      ...toolCall,
+      details: updatedDetails,
+      ...(snapshot.lastOutput !== undefined ? { outputSummary: snapshot.lastOutput } : {})
+    }
+    this.deps.storage.updateToolCall(updatedToolCall)
+    if (emit) {
+      this.deps.emit<ToolCallUpdatedEvent>({
+        type: 'tool.updated',
+        threadId: snapshot.parentThreadId,
+        ...(updatedToolCall.runId ? { runId: updatedToolCall.runId } : {}),
+        toolCall: updatedToolCall
+      })
+    }
+    return updatedToolCall
+  }
+
+  private reconcilePersistedSubagentToolCall(toolCall: ToolCallRecord): ToolCallRecord {
+    if (toolCall.toolName !== 'delegateTask') return toolCall
+    const snapshot = this.latestSubagentSnapshots.get(toolCall.id)
+    if (!snapshot || snapshot.parentThreadId !== toolCall.threadId) return toolCall
+    return this.persistSubagentSnapshot(snapshot, toolCall, false) ?? toolCall
+  }
+  private persistArchivedSubagentDelivery(input: {
+    agentId: string
+    parentThreadId: string
+    message: string
+  }): void {
+    const toolCall = this.deps.storage
+      .listThreadToolCalls(input.parentThreadId)
+      .find((candidate) => candidate.id === input.agentId && candidate.toolName === 'delegateTask')
+    if (!toolCall || !toolCall.details || typeof toolCall.details !== 'object') return
+    if (!('kind' in toolCall.details) || toolCall.details.kind !== 'subagent') return
+
+    const updatedToolCall: ToolCallRecord = {
+      ...toolCall,
+      details: {
+        ...toolCall.details,
+        lastOutput: input.message
+      },
+      outputSummary: input.message
+    }
+    this.deps.storage.updateToolCall(updatedToolCall)
+    this.deps.emit<ToolCallUpdatedEvent>({
+      type: 'tool.updated',
+      threadId: input.parentThreadId,
+      ...(toolCall.runId ? { runId: toolCall.runId } : {}),
+      toolCall: updatedToolCall
+    })
+  }
+
+  listSubagents(threadId?: string): SubagentSnapshot[] {
+    return this.subagentManager.list(threadId)
+  }
+
+  cancelSubagent(agentId: string): boolean {
+    return this.subagentManager.cancel(agentId)
+  }
+
+  closeSubagent(agentId: string): boolean {
+    return this.subagentManager.closeIdle(agentId)
+  }
+
+  cancelRunningSubagents(threadId: string): number {
+    return this.subagentManager.cancelRunningByThread(threadId)
+  }
+
+  async closeSubagentsForThread(threadId: string): Promise<void> {
+    await this.subagentManager.closeThread(threadId)
   }
 
   hasActiveThread(threadId: string): boolean {
@@ -236,6 +420,7 @@ export class YachiyoServerRunDomain {
     if (this.activeRunTasks.size > 0) {
       await Promise.allSettled(this.activeRunTasks.values())
     }
+    await this.subagentManager.close()
     await this.threadTitleRunner.close()
     await this.memoryScheduler.close()
 
@@ -295,6 +480,8 @@ export class YachiyoServerRunDomain {
       activeRunTasks: this.activeRunTasks,
       backgroundTaskRunContext: this.backgroundTaskRunContext,
       backgroundBashManager: this.backgroundBashManager,
+      subagentManager: this.subagentManager,
+      onSubagentToolCallPersisted: (toolCall) => this.reconcilePersistedSubagentToolCall(toolCall),
       createSendChatFlowContext: () => this.createSendChatFlowContext(),
       setLastRunEnabledTools: (enabledTools) => {
         this.lastRunEnabledTools = [...enabledTools]
@@ -320,7 +507,14 @@ export class YachiyoServerRunDomain {
       deps: this.deps,
       backgroundTaskRunContext: this.backgroundTaskRunContext,
       isClosing: () => this.isClosing,
-      sendChat: (input) => this.sendChat(input)
+      sendChat: (input) => this.sendChat(input),
+      deliverToAgent: ({ agentId, threadId, message }) => {
+        this.subagentManager.send({
+          from: { kind: 'parent', threadId },
+          to: agentId,
+          message
+        })
+      }
     }
   }
 
@@ -337,6 +531,50 @@ export class YachiyoServerRunDomain {
         startRecoveredRun(this.createActiveRunStartContext(), checkpoint)
       }
     }
+  }
+  recoverOrphanedSubagents(
+    toolCallsByThread: Record<string, ToolCallRecord[]>
+  ): Record<string, ToolCallRecord[]> {
+    let changed = false
+    const recovered = Object.fromEntries(
+      Object.entries(toolCallsByThread).map(([threadId, toolCalls]) => {
+        const nextToolCalls = toolCalls.map((toolCall) => {
+          const details = toolCall.details
+          if (
+            !details ||
+            typeof details !== 'object' ||
+            !('kind' in details) ||
+            details.kind !== 'subagent' ||
+            !('lifecycleState' in details) ||
+            (details.lifecycleState !== 'starting' &&
+              details.lifecycleState !== 'running' &&
+              details.lifecycleState !== 'idle')
+          ) {
+            return toolCall
+          }
+
+          const recoveredToolCall: ToolCallRecord = {
+            ...toolCall,
+            details: {
+              ...details,
+              lifecycleState: 'interrupted',
+              error: 'Agent was interrupted when the application restarted.'
+            } as SubagentToolCallDetails
+          }
+          changed = true
+          this.deps.storage.updateToolCall(recoveredToolCall)
+          this.deps.emit<ToolCallUpdatedEvent>({
+            type: 'tool.updated',
+            threadId,
+            ...(toolCall.runId ? { runId: toolCall.runId } : {}),
+            toolCall: recoveredToolCall
+          })
+          return recoveredToolCall
+        })
+        return [threadId, nextToolCalls]
+      })
+    ) as Record<string, ToolCallRecord[]>
+    return changed ? recovered : toolCallsByThread
   }
 
   private bindTerminalToolCallsToAssistant(input: {

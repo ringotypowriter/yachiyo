@@ -4,9 +4,18 @@ import test from 'node:test'
 import {
   buildSubagentIndicatorStream,
   canCancelFromIndicator,
+  resolveLegacySubagentIds,
   resolveSubagentIndicatorAgent,
   resolveSubagentIndicatorTabIndex
 } from './subagentIndicatorState.ts'
+
+test('resolveLegacySubagentIds keeps legacy or ACP activity beside snapshot Workers', () => {
+  assert.deepEqual(resolveLegacySubagentIds(['legacy-a', 'snapshot-a', 'acp-a'], ['snapshot-a']), [
+    'legacy-a',
+    'acp-a'
+  ])
+  assert.deepEqual(resolveLegacySubagentIds(['snapshot-a'], ['snapshot-a']), [])
+})
 
 test('canCancelFromIndicator disables inline cancel when multiple agents are active', () => {
   assert.equal(

@@ -37,7 +37,7 @@ import type {
   YachiyoStorage
 } from '../../../../storage/storage.ts'
 import type { QuerySourceExecutor } from '../../../../tools/agentTools/querySourceTool.ts'
-import type { RunExecutionPhase } from '../runTypes.ts'
+import type { AgentMessageContext } from '../../../../tools/agentTools.ts'
 import type {
   DelegateTaskFinishedEvent,
   DelegateTaskProgressEvent,
@@ -51,7 +51,11 @@ import type {
 import type { UseSentinelToolContext } from '../../../../tools/agentTools/useSentinelTool.ts'
 import type { BackgroundBashTaskResult } from '../../background/backgroundBashManager.ts'
 import type { CreateId, EmitServerEvent, Timestamp } from '../../shared/shared.ts'
-import type { PendingSteerInput } from '../runTypes.ts'
+import type { PendingSteerInput, RunExecutionPhase } from '../runTypes.ts'
+import type {
+  SubagentManager,
+  SubagentParentDeliveryContext
+} from '../../subagents/subagentManager.ts'
 import type { ThingDomain } from '../../things/thingDomain.ts'
 
 export interface ExecuteRunInput {
@@ -164,6 +168,7 @@ export interface RunExecutionDeps {
   readSettings: () => ProviderSettings
   loadThreadMessages: (threadId: string, options?: ListThreadMessagesOptions) => MessageRecord[]
   loadThreadToolCalls: (threadId: string) => ToolCallRecord[]
+  jotdownStore?: JotdownStore
   listSkills: (workspacePaths?: string[]) => Promise<SkillCatalogEntry[]>
   onEnabledToolsUsed: (enabledTools: string[]) => void
   onExecutionPhaseChange?: (phase: RunExecutionPhase) => void
@@ -198,16 +203,22 @@ export interface RunExecutionDeps {
   onAskUserHandlerReady?: (handler: (toolCallId: string, answer: string) => void) => void
   onTerminalState?: () => void
   sentinelContext?: UseSentinelToolContext
-  onBackgroundBashStarted?: (task: BackgroundBashTaskHandle & { threadId: string }) => Promise<void>
+  onBackgroundBashStarted?: (
+    task: BackgroundBashTaskHandle & { threadId: string; ownerAgentId?: string }
+  ) => Promise<void>
   onBackgroundBashAdopted?: (
-    task: BackgroundBashAdoptionHandle & { threadId: string }
+    task: BackgroundBashAdoptionHandle & { threadId: string; ownerAgentId?: string }
   ) => Promise<void>
   getCompletedBackgroundBashTask?: (taskId: string) => BackgroundBashTaskResult | undefined
   onSubagentProgress?: (event: DelegateTaskProgressEvent) => void
   onSubagentStarted?: (event: DelegateTaskStartedEvent) => void
-  jotdownStore?: JotdownStore
   onSubagentFinished?: (event: DelegateTaskFinishedEvent) => void
+  /** Reconciles the authoritative Worker snapshot after its delegate row is persisted. */
+  onSubagentToolCallPersisted?: (toolCall: ToolCallRecord) => ToolCallRecord
   imageToTextService?: ImageToTextService
   isModelImageCapable?: boolean
   activityTracker?: ActivitySummarySource
+  subagentManager?: SubagentManager
+  agentMessageContext?: AgentMessageContext
+  parentDeliveryContext?: SubagentParentDeliveryContext
 }

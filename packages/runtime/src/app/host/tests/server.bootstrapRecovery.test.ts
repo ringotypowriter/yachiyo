@@ -174,6 +174,91 @@ test('YachiyoServer bootstrap recovers interrupted runs and marks running tool c
     await rm(root, { recursive: true, force: true })
   }
 })
+test('YachiyoServer bootstrap recovers persisted Worker rows omitted from a lazy payload', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'yachiyo-server-recover-lazy-workers-test-'))
+  const settingsPath = join(root, 'config.toml')
+  await writeFile(settingsPath, '[toolModel]\nmode = "disabled"\n', 'utf8')
+  const userDocumentPath = join(root, '.yachiyo', 'USER.md')
+  const storage = createInMemoryYachiyoStorage()
+  const createdAt = '2026-03-16T09:00:00.000Z'
+  const interruptedAt = '2026-03-17T09:30:00.000Z'
+  const workerStates = ['starting', 'running', 'idle'] as const
+
+  workerStates.forEach((lifecycleState, index) => {
+    const threadId = `thread-${index + 1}`
+    storage.createThread({
+      thread: {
+        id: threadId,
+        title: `Worker thread ${index + 1}`,
+        updatedAt: createdAt
+      },
+      createdAt,
+      messages: []
+    })
+    storage.createToolCall({
+      id: `tool-${index + 1}`,
+      threadId,
+      toolName: 'delegateTask',
+      status: 'completed',
+      inputSummary: 'Explore the workspace',
+      startedAt: createdAt,
+      details: {
+        kind: 'subagent',
+        agentId: `agent-${index + 1}`,
+        agentName: 'general',
+        agentType: 'general',
+        codeName: `Worker ${index + 1}`,
+        workspacePath: '/workspace',
+        lifecycleState
+      }
+    })
+    if (index === workerStates.length - 1) {
+      storage.archiveThread({
+        threadId,
+        archivedAt: interruptedAt,
+        updatedAt: interruptedAt
+      })
+    }
+  })
+
+  const lazyStorage = {
+    ...storage,
+    bootstrap() {
+      return { ...storage.bootstrap(), toolCallsByThread: {} }
+    }
+  }
+  const server = new YachiyoServer({
+    storage: lazyStorage,
+    settingsPath,
+    readSoulDocument: async () => null,
+    readUserDocument: () => readUserDocument({ filePath: userDocumentPath }),
+    saveUserDocument: (content) => writeUserDocument({ filePath: userDocumentPath, content }),
+    now: () => new Date(interruptedAt)
+  })
+
+  try {
+    const bootstrap = await server.bootstrap()
+
+    assert.deepEqual(bootstrap.toolCallsByThread, {})
+    for (const [index, lifecycleState] of workerStates.entries()) {
+      const details = storage.listThreadToolCalls(`thread-${index + 1}`)[0]?.details
+      if (
+        !details ||
+        typeof details !== 'object' ||
+        !('kind' in details) ||
+        details.kind !== 'subagent'
+      ) {
+        assert.fail(`Expected persisted Worker tool call for thread-${index + 1}.`)
+      }
+      assert.equal(details.lifecycleState, 'interrupted')
+      assert.equal(details.error, 'Agent was interrupted when the application restarted.')
+      assert.notEqual(details.lifecycleState, lifecycleState)
+    }
+  } finally {
+    await server.close()
+    await rm(root, { recursive: true, force: true })
+  }
+})
 
 test('YachiyoServer bootstrap resumes an interrupted run from its persisted recovery checkpoint', async () => {
   const root = await mkdtemp(join(tmpdir(), 'yachiyo-server-recover-resume-test-'))

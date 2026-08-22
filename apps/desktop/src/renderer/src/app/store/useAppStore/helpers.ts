@@ -18,7 +18,8 @@ import {
   DEFAULT_RUN_MODE_ID,
   normalizeSkillNames,
   USER_MANAGED_TOOL_NAMES,
-  type RunModeId
+  type RunModeId,
+  type SubagentSnapshot
 } from '@yachiyo/shared/protocol'
 import { sortToolCallsChronologically } from '@yachiyo/shared/toolCallOrder'
 import { deriveRunModeId, resolveRunModeEnabledTools } from '@yachiyo/shared/toolModes'
@@ -88,7 +89,123 @@ export function withFilterBase(
   base: 'all' | 'archived'
 ): { threadListMode: 'active' | 'archived'; sidebarFilter: SidebarFilter } {
   const next = { ...sidebarFilter, base }
+
   return { threadListMode: base === 'archived' ? 'archived' : 'active', sidebarFilter: next }
+}
+export interface SubagentSnapshotState {
+  subagentSnapshotsById: Record<string, SubagentSnapshot>
+  subagentSnapshotIdsByThread: Record<string, string[]>
+}
+const EMPTY_SUBAGENT_SNAPSHOT_IDS: string[] = []
+
+export function selectSubagentSnapshotIds(
+  current: Pick<AppState, 'subagentSnapshotIdsByThread'>,
+  threadId: string | null
+): string[] {
+  return threadId
+    ? (current.subagentSnapshotIdsByThread[threadId] ?? EMPTY_SUBAGENT_SNAPSHOT_IDS)
+    : EMPTY_SUBAGENT_SNAPSHOT_IDS
+}
+
+export function upsertSubagentSnapshot(
+  current: SubagentSnapshotState,
+  snapshot: SubagentSnapshot
+): SubagentSnapshotState {
+  const previous = current.subagentSnapshotsById[snapshot.agentId]
+  if (previous && previous.updatedAt > snapshot.updatedAt) {
+    return current
+  }
+
+  const subagentSnapshotsById = { ...current.subagentSnapshotsById }
+  subagentSnapshotsById[snapshot.agentId] = snapshot
+
+  const subagentSnapshotIdsByThread = Object.fromEntries(
+    Object.entries(current.subagentSnapshotIdsByThread).map(([threadId, agentIds]) => [
+      threadId,
+      agentIds.filter((agentId) => agentId !== snapshot.agentId)
+    ])
+  )
+  const previousThreadId = previous?.parentThreadId
+  if (previousThreadId && previousThreadId !== snapshot.parentThreadId) {
+    subagentSnapshotIdsByThread[previousThreadId] = (
+      subagentSnapshotIdsByThread[previousThreadId] ?? []
+    ).filter((agentId) => agentId !== snapshot.agentId)
+    if (subagentSnapshotIdsByThread[previousThreadId].length === 0) {
+      delete subagentSnapshotIdsByThread[previousThreadId]
+    }
+  }
+  const currentIds = subagentSnapshotIdsByThread[snapshot.parentThreadId] ?? []
+  subagentSnapshotIdsByThread[snapshot.parentThreadId] = [...currentIds, snapshot.agentId]
+
+  return { subagentSnapshotsById, subagentSnapshotIdsByThread }
+}
+
+export function captureSubagentSnapshotVersions(
+  current: SubagentSnapshotState,
+  threadId?: string
+): Record<string, string> {
+  const versions: Record<string, string> = {}
+  const agentIds = threadId
+    ? (current.subagentSnapshotIdsByThread[threadId] ?? [])
+    : Object.keys(current.subagentSnapshotsById)
+  for (const agentId of agentIds) {
+    const snapshot = current.subagentSnapshotsById[agentId]
+    if (snapshot) versions[agentId] = snapshot.updatedAt
+  }
+  return versions
+}
+
+export function hydrateSubagentSnapshotState(
+  current: SubagentSnapshotState,
+  snapshots: SubagentSnapshot[],
+  threadId?: string,
+  options: {
+    removeMissing?: boolean
+    removalBaselineUpdatedAtById?: Readonly<Record<string, string>>
+  } = {}
+): SubagentSnapshotState {
+  const removeMissing = options.removeMissing ?? true
+  const snapshotIds = new Set(snapshots.map((snapshot) => snapshot.agentId))
+  const nextSnapshotsById = { ...current.subagentSnapshotsById }
+  const nextIdsByThread = { ...current.subagentSnapshotIdsByThread }
+  const shouldRemoveMissingSnapshot = (agentId: string): boolean => {
+    if (snapshotIds.has(agentId)) return false
+    if (!options.removalBaselineUpdatedAtById) return true
+    return options.removalBaselineUpdatedAtById[agentId] === nextSnapshotsById[agentId]?.updatedAt
+  }
+  if (threadId && removeMissing) {
+    for (const agentId of nextIdsByThread[threadId] ?? []) {
+      if (shouldRemoveMissingSnapshot(agentId)) {
+        delete nextSnapshotsById[agentId]
+      }
+    }
+    const remainingIds = (nextIdsByThread[threadId] ?? []).filter(
+      (agentId) => nextSnapshotsById[agentId] !== undefined
+    )
+    if (remainingIds.length > 0) nextIdsByThread[threadId] = remainingIds
+    else delete nextIdsByThread[threadId]
+  } else if (!threadId && removeMissing) {
+    for (const agentId of Object.keys(nextSnapshotsById)) {
+      if (shouldRemoveMissingSnapshot(agentId)) {
+        delete nextSnapshotsById[agentId]
+      }
+    }
+    for (const existingThreadId of Object.keys(nextIdsByThread)) {
+      const remainingIds = nextIdsByThread[existingThreadId].filter(
+        (agentId) => nextSnapshotsById[agentId] !== undefined
+      )
+      if (remainingIds.length > 0) nextIdsByThread[existingThreadId] = remainingIds
+      else delete nextIdsByThread[existingThreadId]
+    }
+  }
+  let next: SubagentSnapshotState = {
+    subagentSnapshotsById: nextSnapshotsById,
+    subagentSnapshotIdsByThread: nextIdsByThread
+  }
+  for (const snapshot of snapshots) {
+    next = upsertSubagentSnapshot(next, snapshot)
+  }
+  return next
 }
 
 export function loadSidebarFilter(): SidebarFilter {

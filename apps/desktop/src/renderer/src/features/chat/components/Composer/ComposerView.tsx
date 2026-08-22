@@ -35,6 +35,7 @@ import { WorkspaceSelectorPopup } from '../WorkspaceSelectorPopup'
 import { WorkspaceSuggestionPopup } from './WorkspaceSuggestionPopup'
 import { SmoothCaretOverlay } from '../SmoothCaretOverlay'
 import { BackgroundTasksChip } from '../BackgroundTasksChip'
+import { AgentsChip } from '../AgentsChip'
 import type { AcpAgentEntry } from '../../lib/composer/modelSelectorState'
 import { clearGoalX } from '@renderer/features/chat/lib/composer/pretextSync'
 import { selectComposerPlaceholder } from '@renderer/features/chat/lib/composer/composerPlaceholder'
@@ -189,8 +190,7 @@ export function ComposerView(props: any): React.JSX.Element {
     stripCompactThresholdTokens,
     showStopButton,
     isCancelInFlight,
-    setIsCancelInFlight,
-    cancelActiveRun,
+    onCancel,
     canSend,
     dispatchSend,
     primarySendMode,
@@ -525,6 +525,7 @@ export function ComposerView(props: any): React.JSX.Element {
 
         <div className="composer-widget-shelf__right">
           <BackgroundTasksChip threadId={activeThreadId} />
+          <AgentsChip threadId={activeThreadId} />
         </div>
       </div>
 
@@ -1189,8 +1190,7 @@ export function ComposerView(props: any): React.JSX.Element {
               disabled={isCancelInFlight}
               onClick={() => {
                 if (isCancelInFlight) return
-                setIsCancelInFlight(true)
-                void cancelActiveRun()
+                void onCancel()
               }}
               className="w-8 h-8 rounded-lg flex items-center justify-center transition-all"
               style={{

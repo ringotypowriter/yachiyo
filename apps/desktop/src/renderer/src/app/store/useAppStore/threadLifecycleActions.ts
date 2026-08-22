@@ -7,6 +7,7 @@ import { hydratePlanDocumentForThread } from './planDocumentHydration.ts'
 import {
   DEFAULT_SETTINGS,
   bootstrapRunsByThread,
+  captureSubagentSnapshotVersions,
   clearRecapForThread,
   collectThreadReasoningEfforts,
   collectThreadToolModes,
@@ -19,6 +20,7 @@ import {
   getComposerToolMode,
   getThreadRunPhase,
   getThreadRunStatus,
+  hydrateSubagentSnapshotState,
   isBlankNewChat,
   isThreadReusableNewChat,
   limitLoadedThreadData,
@@ -48,11 +50,14 @@ export function createThreadLifecycleActions(input: {
   AppState,
   | 'cancelActiveRun'
   | 'cancelRunForThread'
+  | 'cancelSubagent'
+  | 'closeSubagent'
+  | 'cancelRunningSubagents'
   | 'createNewThread'
   | 'createNewThreadFromEssential'
   | 'initialize'
-  | 'regenerateThreadTitle'
   | 'renameThread'
+  | 'regenerateThreadTitle'
   | 'setThreadColor'
   | 'setThreadIcon'
   | 'starThread'
@@ -69,18 +74,96 @@ export function createThreadLifecycleActions(input: {
   | 'clearThreadModelOverride'
 > {
   const { set, get } = input
+  const hydrationRequestSequences = new Map<string, number>()
+  const hydrateSubagentSnapshots = async (threadId?: string): Promise<void> => {
+    const requestKey = threadId ?? '__all__'
+    const requestSequence = (hydrationRequestSequences.get(requestKey) ?? 0) + 1
+    hydrationRequestSequences.set(requestKey, requestSequence)
+    if (typeof window === 'undefined' || typeof window.api?.yachiyo?.listSubagents !== 'function') {
+      return
+    }
+    const stateAtRequest = get()
+    const removalBaselineUpdatedAtById = captureSubagentSnapshotVersions(
+      {
+        subagentSnapshotsById: stateAtRequest.subagentSnapshotsById,
+        subagentSnapshotIdsByThread: stateAtRequest.subagentSnapshotIdsByThread
+      },
+      threadId
+    )
+    try {
+      const snapshots = await window.api.yachiyo.listSubagents(threadId ? { threadId } : undefined)
+      if (hydrationRequestSequences.get(requestKey) !== requestSequence) return
+      set((state) => ({
+        ...hydrateSubagentSnapshotState(
+          {
+            subagentSnapshotsById: state.subagentSnapshotsById,
+            subagentSnapshotIdsByThread: state.subagentSnapshotIdsByThread
+          },
+          snapshots,
+          threadId,
+          { removalBaselineUpdatedAtById }
+        )
+      }))
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to load Agent snapshots.'
+      set({ lastError: message })
+    }
+  }
 
   return {
     cancelActiveRun: async () => {
       const activeThreadId = get().activeThreadId
       if (!activeThreadId) return
-      await get().cancelRunForThread(activeThreadId)
+      if (get().activeRunIdsByThread[activeThreadId]) {
+        await get().cancelRunForThread(activeThreadId)
+        return
+      }
+      if (
+        (get().subagentSnapshotIdsByThread[activeThreadId] ?? []).some(
+          (agentId) => get().subagentSnapshotsById[agentId]?.state === 'running'
+        )
+      ) {
+        await get().cancelRunningSubagents(activeThreadId)
+      }
     },
 
     cancelRunForThread: async (threadId) => {
       const runId = get().activeRunIdsByThread[threadId]
       if (!runId) return
       await window.api.yachiyo.cancelRun({ runId })
+    },
+
+    cancelSubagent: async (agentId) => {
+      try {
+        await window.api.yachiyo.cancelSubagent({ agentId })
+        await hydrateSubagentSnapshots(get().subagentSnapshotsById[agentId]?.parentThreadId)
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Unable to cancel Agent.'
+        set({ lastError: message })
+        throw error
+      }
+    },
+
+    closeSubagent: async (agentId) => {
+      try {
+        await window.api.yachiyo.closeSubagent({ agentId })
+        await hydrateSubagentSnapshots(get().subagentSnapshotsById[agentId]?.parentThreadId)
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Unable to close Agent.'
+        set({ lastError: message })
+        throw error
+      }
+    },
+
+    cancelRunningSubagents: async (threadId) => {
+      try {
+        await window.api.yachiyo.cancelRunningSubagents({ threadId })
+        await hydrateSubagentSnapshots(threadId)
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Unable to cancel running Agents.'
+        set({ lastError: message })
+        throw error
+      }
     },
 
     createNewThread: async () => {
@@ -375,6 +458,7 @@ export function createThreadLifecycleActions(input: {
               runMode: toolMode.runMode
             }
           })
+          await hydrateSubagentSnapshots()
 
           const planThreadIds = new Set([
             ...Object.entries(payload.messagesByThread)
@@ -470,6 +554,7 @@ export function createThreadLifecycleActions(input: {
               messages: data.messages,
               toolCalls: data.toolCalls
             })
+            await hydrateSubagentSnapshots(initialActiveThreadId)
           }
 
           await refreshAvailableSkills(set, get)

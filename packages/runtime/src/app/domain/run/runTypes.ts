@@ -1,3 +1,4 @@
+import type { ToolSet } from 'ai'
 import type {
   ComposerReasoningSelection,
   MessageFileAttachment,
@@ -134,5 +135,6 @@ export interface BackgroundTaskRunContext {
   reasoningEffort?: ComposerReasoningSelection
   runTrigger: SendChatRunTrigger
   channelHint?: string
-  extraTools?: import('ai').ToolSet
+  extraTools?: ToolSet
+  ownerAgentId?: string
 }

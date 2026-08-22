@@ -67,9 +67,11 @@ test('useBrowser is registered and enabled by default', () => {
   assert.ok(DEFAULT_ENABLED_TOOL_NAMES.includes('useBrowser'))
 })
 
-test('sendThreadMessage is registered and enabled by default', () => {
+test('thread and team messaging tools are registered and enabled by default', () => {
   assert.ok(CORE_TOOL_NAMES.includes('sendThreadMessage'))
   assert.ok(DEFAULT_ENABLED_TOOL_NAMES.includes('sendThreadMessage'))
+  assert.ok(CORE_TOOL_NAMES.includes('sendMessage'))
+  assert.ok(DEFAULT_ENABLED_TOOL_NAMES.includes('sendMessage'))
 })
 
 test('delegateTask is the only registered delegation tool', () => {

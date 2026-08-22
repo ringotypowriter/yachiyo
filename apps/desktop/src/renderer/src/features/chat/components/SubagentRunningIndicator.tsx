@@ -1,12 +1,10 @@
 import { useState, useEffect, useId, useLayoutEffect, useMemo, useRef } from 'react'
 import type React from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
 import { ChevronDown, ChevronUp, Clock } from 'lucide-react'
 import type { ToolCall } from '@renderer/app/types'
 import { theme } from '@renderer/theme/theme'
 import { useT } from '@yachiyo/i18n/react'
 import {
-  canCancelFromIndicator,
   resolveSubagentIndicatorAgent,
   resolveSubagentIndicatorTabIndex
 } from './subagentIndicatorState'
@@ -40,7 +38,6 @@ interface SubagentProgressEntry {
 interface SubagentRunningIndicatorProps {
   agents: SubagentAgent[]
   progressEntries: SubagentProgressEntry[]
-  onCancel?: () => void
 }
 
 function formatDurationMs(ms: number): string {
@@ -142,15 +139,13 @@ function AgentPanel({ agent }: { agent: SubagentAgent }): React.JSX.Element {
 }
 
 export function SubagentRunningIndicator({
-  agents,
-  onCancel
+  agents
 }: SubagentRunningIndicatorProps): React.JSX.Element {
   const t = useT()
   const indicatorId = useId()
   const tabRefs = useRef<Record<string, HTMLButtonElement | null>>({})
   const focusedTabIdRef = useRef<string | null>(null)
   const summaryButtonRef = useRef<HTMLButtonElement>(null)
-  const [confirming, setConfirming] = useState(false)
   const [expanded, setExpanded] = useState(true)
   const [selectedDelegationId, setSelectedDelegationId] = useState<string | null>(
     () => agents[0]?.delegationId ?? null
@@ -170,21 +165,6 @@ export function SubagentRunningIndicator({
       tabRefs.current[selectedAgent.delegationId]?.focus()
     }
   }, [agents.length, selectedAgent, selectedDelegationId])
-  const canCancel = onCancel ? canCancelFromIndicator(agents) : false
-
-  function handleCancelClick(): void {
-    if (!onCancel) return
-    setConfirming(true)
-  }
-
-  function handleConfirm(): void {
-    setConfirming(false)
-    onCancel?.()
-  }
-
-  function handleDismiss(): void {
-    setConfirming(false)
-  }
 
   function handleTabKeyDown(
     event: React.KeyboardEvent<HTMLButtonElement>,
@@ -251,77 +231,6 @@ export function SubagentRunningIndicator({
             <ChevronDown size={11} style={{ opacity: 0.55 }} />
           )}
         </button>
-
-        <AnimatePresence mode="wait" initial={false}>
-          {canCancel && confirming ? (
-            <motion.span
-              key="confirm"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.15 }}
-              className="flex items-center gap-1.5 ml-1"
-            >
-              <span className="text-xs" style={{ color: theme.text.muted }}>
-                {t('chat.subagents.interrupt')}
-              </span>
-              <button
-                onClick={handleConfirm}
-                className="text-xs px-2 py-0.5 rounded"
-                style={{
-                  background: theme.background.dangerSurface,
-                  color: theme.text.danger,
-                  border: `1px solid ${theme.border.danger}`,
-                  cursor: 'default'
-                }}
-              >
-                {t('chat.subagents.stop')}
-              </button>
-              <button
-                onClick={handleDismiss}
-                className="text-xs px-2 py-0.5 rounded"
-                style={{
-                  background: theme.background.surface,
-                  color: theme.text.secondary,
-                  border: `1px solid ${theme.border.contrast}`,
-                  cursor: 'default'
-                }}
-              >
-                {t('chat.subagents.continue')}
-              </button>
-            </motion.span>
-          ) : canCancel ? (
-            <motion.button
-              key="cancel"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.15 }}
-              onClick={handleCancelClick}
-              className="text-xs px-2 py-0.5 rounded ml-1"
-              style={{
-                background: theme.background.surface,
-                color: theme.text.muted,
-                border: `1px solid ${theme.border.default}`,
-                cursor: 'default'
-              }}
-            >
-              {t('common.cancel')}
-            </motion.button>
-          ) : (
-            <motion.span
-              key="info"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.15 }}
-              className="text-xs ml-1"
-              style={{ color: theme.text.muted }}
-            >
-              {t('chat.subagents.stopRunToCancel')}
-            </motion.span>
-          )}
-        </AnimatePresence>
       </div>
 
       {expanded && selectedAgent ? (

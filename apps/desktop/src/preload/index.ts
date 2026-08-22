@@ -69,6 +69,7 @@ import type {
   JotdownSaveInput,
   RemoveThingSourceInput,
   ResolveSyncConflictInput,
+  SubagentSnapshot,
   YachiyoServerEvent
 } from '@yachiyo/shared/protocol'
 
@@ -438,6 +439,14 @@ const api = {
       ipcRenderer.invoke('yachiyo:get-background-task-log', input),
     cancelBackgroundTask: (input: { taskId: string }): Promise<boolean> =>
       ipcRenderer.invoke('yachiyo:cancel-background-task', input),
+    listSubagents: (input?: { threadId?: string }): Promise<SubagentSnapshot[]> =>
+      ipcRenderer.invoke('yachiyo:list-subagents', input),
+    cancelSubagent: (input: { agentId: string }): Promise<boolean> =>
+      ipcRenderer.invoke('yachiyo:cancel-subagent', input),
+    closeSubagent: (input: { agentId: string }): Promise<boolean> =>
+      ipcRenderer.invoke('yachiyo:close-subagent', input),
+    cancelRunningSubagents: (input: { threadId: string }): Promise<number> =>
+      ipcRenderer.invoke('yachiyo:cancel-running-subagents', input),
     listExternalThreads: (): Promise<ThreadRecord[]> =>
       ipcRenderer.invoke('yachiyo:list-external-threads'),
     listChannelUsers: (): Promise<ChannelUserRecord[]> =>

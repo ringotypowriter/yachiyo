@@ -4,7 +4,8 @@ import test from 'node:test'
 import {
   DEFAULT_ENABLED_TOOL_NAMES,
   type ComposerReasoningSelection,
-  type ThreadRecord
+  type ThreadRecord,
+  type ToolCallRecord
 } from '@yachiyo/shared/protocol'
 import type { RunRecoveryCheckpoint } from '../../../../storage/storage.ts'
 import { startRecoveredRun } from '../active/activeRunStart.ts'
@@ -18,17 +19,36 @@ import {
 } from '../queue/followUpQueue.ts'
 import { YachiyoServerRunDomain } from '../runDomain.ts'
 import type { RunState } from '../runTypes.ts'
+import type {
+  DeliverSubagentToParentInput,
+  SubagentManager
+} from '../../subagents/subagentManager.ts'
 
-function createDomain(cancelledRunIds: string[] = []): YachiyoServerRunDomain {
+function createDomain(
+  cancelledRunIds: string[] = [],
+  options: {
+    toolCalls?: ToolCallRecord[]
+    updatedToolCalls?: ToolCallRecord[]
+    emittedEvents?: unknown[]
+  } = {}
+): YachiyoServerRunDomain {
+  const toolCalls = options.toolCalls ?? []
   return new YachiyoServerRunDomain({
     storage: {
       cancelRun: (input: { runId: string }) => {
         cancelledRunIds.push(input.runId)
+      },
+      updateToolCall: (toolCall: ToolCallRecord) => {
+        options.updatedToolCalls?.push(toolCall)
+        const index = toolCalls.findIndex((candidate) => candidate.id === toolCall.id)
+        if (index >= 0) toolCalls[index] = toolCall
       }
     },
     createId: () => 'id',
     timestamp: () => '2026-05-02T00:00:00.000Z',
-    emit: () => {},
+    emit: (event: unknown) => {
+      options.emittedEvents?.push(event)
+    },
     runInactivityTimeoutMs: 30_000,
     auxiliaryGeneration: {},
     createModelRuntime: () => ({}),
@@ -52,8 +72,22 @@ function createDomain(cancelledRunIds: string[] = []): YachiyoServerRunDomain {
       updatedAt: '2026-05-02T00:00:00.000Z'
     }),
     loadThreadMessages: () => [],
-    loadThreadToolCalls: () => []
+    loadThreadToolCalls: () => toolCalls
   } as unknown as ConstructorParameters<typeof YachiyoServerRunDomain>[0])
+}
+function subagentDetails(
+  toolCall: ToolCallRecord
+): Extract<NonNullable<ToolCallRecord['details']>, { kind: 'subagent' }> {
+  const details = toolCall.details
+  if (
+    !details ||
+    typeof details !== 'object' ||
+    !('kind' in details) ||
+    details.kind !== 'subagent'
+  ) {
+    throw new Error('Expected subagent tool details.')
+  }
+  return details
 }
 
 test('withdrawPendingSteer restores the reasoning effort replaced by the steer', () => {
@@ -920,6 +954,7 @@ test('startRecoveredRun derives missing run mode from checkpoint tools', () => {
       activeRuns,
       activeRunByThread,
       activeRunTasks: new Map(),
+
       isClosing: () => false,
       runLoop: async (input) => {
         runLoopInputs.push({ runMode: input.runMode })
@@ -933,4 +968,260 @@ test('startRecoveredRun derives missing run mode from checkpoint tools', () => {
 
   assert.equal(activeRuns.get('run-recovered')?.runMode, 'explore')
   assert.equal(runLoopInputs[0]?.runMode, 'explore')
+})
+test('reconciles the latest idle Worker snapshot after delegate details are persisted', async () => {
+  const toolCalls: ToolCallRecord[] = []
+  const updatedToolCalls: ToolCallRecord[] = []
+  const domain = createDomain([], { toolCalls, updatedToolCalls })
+  const manager = (domain as unknown as { subagentManager: SubagentManager }).subagentManager
+
+  await manager.launch({
+    agentId: 'agent-fast',
+    parentThreadId: 'thread-1',
+    launchRunId: 'run-1',
+    agentName: 'general',
+    agentType: 'general',
+    codeName: 'Akari',
+    workspacePath: '/workspace',
+    prompt: 'Return the final output.',
+    runnerFactory: () => ({
+      runTurn: async () => ({ output: 'final output' }),
+      close: async () => {}
+    }),
+    deliverToParent: () => {}
+  })
+  await Promise.resolve()
+  await Promise.resolve()
+
+  const snapshot = domain.listSubagents('thread-1')[0]
+  assert.equal(snapshot?.state, 'idle')
+  assert.equal(snapshot?.lastOutput, 'final output')
+
+  const launchToolCall: ToolCallRecord = {
+    id: 'agent-fast',
+    threadId: 'thread-1',
+    runId: 'run-1',
+    toolName: 'delegateTask',
+    status: 'completed',
+    inputSummary: 'Return the final output.',
+    outputSummary: 'Worker launched',
+    startedAt: '2026-05-02T00:00:00.000Z',
+    details: {
+      kind: 'subagent',
+      agentId: 'agent-fast',
+      agentName: 'general',
+      agentType: 'general',
+      codeName: 'Akari',
+      workspacePath: '/workspace',
+      lifecycleState: 'running',
+      snapshotId: 'agent-fast'
+    }
+  } as ToolCallRecord
+  toolCalls.push(launchToolCall)
+
+  const reconciled = (
+    domain as unknown as {
+      reconcilePersistedSubagentToolCall: (toolCall: ToolCallRecord) => ToolCallRecord
+    }
+  ).reconcilePersistedSubagentToolCall(launchToolCall)
+
+  assert.equal(subagentDetails(reconciled).lifecycleState, 'idle')
+  assert.equal(subagentDetails(reconciled).lastOutput, 'final output')
+  assert.equal(reconciled.outputSummary, 'final output')
+  assert.equal(updatedToolCalls.at(-1), reconciled)
+})
+
+test('recoverOrphanedSubagents marks persisted live Worker details interrupted', () => {
+  const domain = createDomain()
+  const launchToolCall = {
+    id: 'agent-1',
+    threadId: 'thread-1',
+    toolName: 'delegateTask',
+    status: 'completed',
+    inputSummary: 'Explore the workspace',
+    startedAt: '2026-05-02T00:00:00.000Z',
+    details: {
+      kind: 'subagent',
+      agentId: 'agent-1',
+      agentName: 'general',
+      agentType: 'general',
+      codeName: 'Akari',
+      workspacePath: '/workspace',
+      lifecycleState: 'idle'
+    }
+  } as ToolCallRecord
+  const terminalToolCall = {
+    ...launchToolCall,
+    id: 'agent-2',
+    details: {
+      ...launchToolCall.details,
+      agentId: 'agent-2',
+      lifecycleState: 'closed'
+    }
+  } as ToolCallRecord
+
+  const recovered = domain.recoverOrphanedSubagents({
+    'thread-1': [launchToolCall, terminalToolCall]
+  })
+
+  const recoveredLiveDetails = subagentDetails(recovered['thread-1']![0]!)
+  const recoveredTerminalDetails = subagentDetails(recovered['thread-1']![1]!)
+  assert.equal(recoveredLiveDetails.lifecycleState, 'interrupted')
+  assert.equal(recoveredLiveDetails.error, 'Agent was interrupted when the application restarted.')
+  assert.equal(recoveredTerminalDetails.lifecycleState, 'closed')
+})
+test('Worker delivery after shutdown begins does not create chat work', async () => {
+  const domain = createDomain()
+  let sendChatCalls = 0
+  const runDomain = domain as unknown as {
+    isClosing: boolean
+    activeRuns: Map<string, unknown>
+    queuedFollowUpDrafts: Map<string, unknown>
+    subagentManager: {
+      deps: {
+        deliverToParent: (input: {
+          agentId: string
+          parentThreadId: string
+          launchRunId: string
+          message: string
+          kind: 'initial-result' | 'message'
+          parentDeliveryContext: {
+            enabledTools: string[]
+            runMode: 'auto'
+            runTrigger: 'local'
+          }
+        }) => Promise<void>
+      }
+    }
+  }
+  domain.sendChat = async () => {
+    sendChatCalls += 1
+    throw new Error('Unexpected parent delivery.')
+  }
+  runDomain.isClosing = true
+  await runDomain.subagentManager.deps.deliverToParent({
+    agentId: 'agent-1',
+    parentThreadId: 'thread-1',
+    launchRunId: 'run-1',
+    message: 'late Worker result',
+    kind: 'initial-result',
+    parentDeliveryContext: {
+      enabledTools: [],
+      runMode: 'auto',
+      runTrigger: 'local'
+    }
+  })
+
+  assert.equal(runDomain.isClosing, true)
+  assert.equal(sendChatCalls, 0)
+  assert.equal(runDomain.activeRuns.size, 0)
+  assert.equal(runDomain.queuedFollowUpDrafts.size, 0)
+})
+
+test('Worker delivery retains output when its parent thread is archived', async () => {
+  let archived = false
+  const thread = {
+    id: 'thread-archived',
+    title: 'Archived',
+    updatedAt: '2026-05-02T00:00:00.000Z'
+  } as ThreadRecord
+  const toolCall = {
+    id: 'agent-archived',
+    threadId: thread.id,
+    toolName: 'delegateTask',
+    status: 'completed',
+    inputSummary: 'Inspect the workspace',
+    startedAt: '2026-05-02T00:00:00.000Z',
+    details: {
+      kind: 'subagent',
+      agentId: 'agent-archived',
+      agentName: 'general',
+      agentType: 'general',
+      codeName: 'Akari',
+      workspacePath: '/workspace',
+      lifecycleState: 'running'
+    }
+  } as ToolCallRecord
+  let persistedToolCall = toolCall
+  let resolveTurn: ((result: { output: string }) => void) | undefined
+  const domain = new YachiyoServerRunDomain({
+    storage: {
+      getThread: () => (archived ? undefined : thread),
+      getArchivedThread: () => (archived ? thread : undefined),
+      listThreadToolCalls: () => [persistedToolCall],
+      updateToolCall: (updated: ToolCallRecord) => {
+        persistedToolCall = updated
+      },
+      cancelRun: () => {}
+    },
+    createId: () => 'id',
+    timestamp: () => '2026-05-02T00:00:00.000Z',
+    emit: () => {},
+    runInactivityTimeoutMs: 30_000,
+    auxiliaryGeneration: {},
+    createModelRuntime: () => ({}),
+    ensureThreadWorkspace: async () => '/tmp/yachiyo-test',
+    memoryService: {
+      hasHiddenSearchCapability: () => false,
+      isConfigured: () => false
+    },
+    readConfig: () => ({ enabledTools: [] }),
+    readSettings: () => ({
+      providerName: 'work',
+      provider: 'openai',
+      model: 'gpt-5',
+      apiKey: 'sk-test',
+      baseUrl: 'https://api.openai.com/v1'
+    }),
+    listSkills: async () => [],
+    requireThread: () => {
+      throw new Error('Archived threads must not start a model run.')
+    },
+    loadThreadMessages: () => [],
+    loadThreadToolCalls: () => [persistedToolCall]
+  } as unknown as ConstructorParameters<typeof YachiyoServerRunDomain>[0])
+  const manager = (domain as unknown as { subagentManager: SubagentManager }).subagentManager
+  const deliveryToParent = (
+    manager as unknown as {
+      deps: {
+        deliverToParent: (input: DeliverSubagentToParentInput) => Promise<void>
+      }
+    }
+  ).deps.deliverToParent
+
+  await manager.launch({
+    agentId: toolCall.id,
+    parentThreadId: thread.id,
+    launchRunId: 'run-1',
+    agentName: 'general',
+    agentType: 'general',
+    codeName: 'Akari',
+    workspacePath: '/workspace',
+    prompt: 'Inspect the workspace.',
+    parentDeliveryContext: {
+      enabledTools: [],
+      runMode: 'auto',
+      runTrigger: 'local'
+    },
+    runnerFactory: () => ({
+      runTurn: () =>
+        new Promise<{ output: string }>((resolve) => {
+          resolveTurn = resolve
+        }),
+      close: async () => {}
+    }),
+    deliverToParent: deliveryToParent
+  })
+
+  archived = true
+  if (!resolveTurn) throw new Error('Worker turn did not start.')
+  resolveTurn({ output: 'retained Worker output' })
+  await Promise.resolve()
+  await Promise.resolve()
+  await Promise.resolve()
+
+  assert.equal(manager.list(thread.id)[0]?.state, 'idle')
+  const details = subagentDetails(persistedToolCall)
+  assert.equal(details.lastOutput, 'retained Worker output')
+  assert.equal(details.lifecycleState, 'idle')
 })

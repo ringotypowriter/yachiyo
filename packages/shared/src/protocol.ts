@@ -186,6 +186,7 @@ export const CORE_TOOL_NAMES = [
   'updateProfile',
   'updateTodoList',
   'sendThreadMessage',
+  'sendMessage',
   'exitPlanMode'
 ] as const
 export type ToolCallName = (typeof CORE_TOOL_NAMES)[number]
@@ -200,6 +201,67 @@ export type ToolCallStatus =
   | 'background'
 
 export type SubagentRuntimeMode = 'worker' | 'acp'
+
+export type SubagentState =
+  | 'starting'
+  | 'running'
+  | 'idle'
+  | 'failed'
+  | 'cancelled'
+  | 'closed'
+  | 'interrupted'
+
+export interface SubagentSnapshot {
+  agentId: string
+  parentThreadId: string
+  launchRunId: string
+  requestMessageId?: string
+  agentName: string
+  agentType: NamedSubagentId
+  codeName: string
+  workspacePath: string
+  state: SubagentState
+  startedAt: string
+  updatedAt: string
+  currentTurnId?: string
+  lastOutput?: string
+  error?: string
+  cumulativePromptTokens?: number
+  cumulativeCompletionTokens?: number
+}
+
+export interface SubagentLaunchReceipt {
+  agentId: string
+  codeName: string
+  state: 'starting' | 'running'
+  workspacePath: string
+}
+
+export type AgentEndpoint =
+  | { kind: 'parent'; threadId: string }
+  | { kind: 'agent'; agentId: string }
+
+export interface AgentMessageEnvelope {
+  id: string
+  teamThreadId: string
+  sequence: number
+  from: AgentEndpoint
+  to: AgentEndpoint
+  message: string
+  createdAt: string
+}
+
+export interface AgentMessageReceipt {
+  messageId: string
+  delivery: 'queued'
+  recipientState: 'running' | 'idle'
+}
+
+export interface SendAgentMessageInput {
+  to: 'parent' | string
+  message: string
+}
+
 export type NamedSubagentId = 'explore' | 'plan' | 'review' | 'general'
 
 const coreToolNameSet = new Set<string>(CORE_TOOL_NAMES)

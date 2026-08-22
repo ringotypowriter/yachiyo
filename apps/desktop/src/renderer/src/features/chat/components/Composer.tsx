@@ -1,6 +1,5 @@
 import type React from 'react'
 import { useRef, useCallback, useState, useEffect, useLayoutEffect, useMemo } from 'react'
-import { useShallow } from 'zustand/react/shallow'
 import { useT } from '@yachiyo/i18n/react'
 import {
   DEFAULT_SETTINGS,
@@ -9,6 +8,7 @@ import {
   getComposerReasoningEffort,
   useAppStore
 } from '@renderer/app/store/useAppStore'
+
 import { getComposerActionState } from '@renderer/features/chat/lib/composer/composerActionState'
 import { canRemoveQueuedFollowUp } from '@renderer/features/chat/lib/messages/messageActionState'
 import type { ChatInputBufferPayload } from '@renderer/features/chat/lib/composer/chatInputBuffer'
@@ -44,6 +44,12 @@ import {
   type PendingWorkspaceChangeConfirmation
 } from './Composer/support.tsx'
 import { ComposerView } from './Composer/ComposerView.tsx'
+import {
+  isComposerCancelInFlightForThread,
+  resolveComposerStopTarget,
+  settleComposerCancelOperation,
+  type ComposerCancelOperation
+} from './Composer/composerStopState.ts'
 import { useComposerCompletions } from './Composer/useComposerCompletions.ts'
 import { useComposerInputHandlers } from './Composer/useComposerInputHandlers.ts'
 
@@ -95,8 +101,13 @@ export function Composer({
   const connectionStatus = useAppStore((s) => s.connectionStatus)
   const availableSkills = useAppStore((s) => s.availableSkills)
   const settings = useAppStore((s) => s.settings ?? DEFAULT_SETTINGS)
-  const effectiveModel = useAppStore(useShallow(getEffectiveModel))
-  const composerReasoningEffort = useAppStore(useShallow(getComposerReasoningEffort))
+  const effectiveProviderName = useAppStore((s) => getEffectiveModel(s).providerName)
+  const effectiveModelName = useAppStore((s) => getEffectiveModel(s).model)
+  const effectiveModel = useMemo(
+    () => ({ providerName: effectiveProviderName, model: effectiveModelName }),
+    [effectiveModelName, effectiveProviderName]
+  )
+  const composerReasoningEffort = useAppStore(getComposerReasoningEffort)
   const activeRunId = useAppStore((s) =>
     s.activeThreadId ? (s.activeRunIdsByThread[s.activeThreadId] ?? null) : null
   )
@@ -116,6 +127,22 @@ export function Composer({
   const runPhase = useAppStore((s) =>
     s.activeThreadId ? (s.runPhasesByThread[s.activeThreadId] ?? 'idle') : 'idle'
   )
+  const runningSubagentCount = useAppStore((s) => {
+    const threadId = s.activeThreadId
+    if (!threadId) return 0
+
+    const snapshotIds = s.subagentSnapshotIdsByThread[threadId] ?? []
+    const activeAgentIds = s.subagentActiveIdsByThread[threadId] ?? []
+    const snapshotIdSet = new Set(snapshotIds)
+    const runningSnapshotCount = snapshotIds.reduce((count, agentId) => {
+      const state = s.subagentSnapshotsById[agentId]?.state
+      return count + (state === 'starting' || state === 'running' ? 1 : 0)
+    }, 0)
+    const legacyActiveCount = activeAgentIds.filter((agentId) => !snapshotIdSet.has(agentId)).length
+    return runningSnapshotCount + legacyActiveCount
+  })
+
+  const cancelRunningSubagents = useAppStore((s) => s.cancelRunningSubagents)
   const cancelActiveRun = useAppStore((s) => s.cancelActiveRun)
   const latestRun = useAppStore((s) =>
     s.activeThreadId ? (s.latestRunsByThread[s.activeThreadId] ?? null) : null
@@ -146,7 +173,6 @@ export function Composer({
   const threads = useAppStore((s) => s.threads)
   const upsertComposerImage = useAppStore((s) => s.upsertComposerImage)
   const upsertComposerFile = useAppStore((s) => s.upsertComposerFile)
-
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   // Lock the composer while a send is in flight. Each send invocation gets a
   // UUID; the lock clears only when that exact send resolves. Prevents
@@ -154,7 +180,9 @@ export function Composer({
   // events while the server is mid-accept.
   const inFlightSendIdRef = useRef<string | null>(null)
   const [isSendInFlight, setIsSendInFlight] = useState(false)
-  const [isCancelInFlight, setIsCancelInFlight] = useState(false)
+  const [cancelInFlight, setCancelInFlight] = useState<ComposerCancelOperation | null>(null)
+  const cancelInFlightRef = useRef<ComposerCancelOperation | null>(null)
+  const cancelOperationIdRef = useRef(0)
   const overlayRef = useRef<HTMLDivElement>(null)
   const composerInputRef = useRef<HTMLDivElement>(null)
   const popupContainerRef = useRef<HTMLDivElement>(null)
@@ -223,18 +251,6 @@ export function Composer({
       files: draftFiles.filter((file) => file.status === 'ready')
     })
   }, [composerValue, draftImages, draftFiles])
-
-  // Clear cancel-in-flight when the run actually ends. Delay slightly so that
-  // if a queued follow-up starts immediately after cancellation the composer
-  // doesn't flicker from stop → send → stop.
-  useEffect(() => {
-    if (!hasActiveRun) {
-      const timer = setTimeout(() => setIsCancelInFlight(false), 100)
-      return () => clearTimeout(timer)
-    }
-    setIsCancelInFlight(false)
-    return undefined
-  }, [hasActiveRun])
 
   useEffect(() => {
     if (!attachmentUploadNotice) {
@@ -526,6 +542,56 @@ export function Composer({
     threadIsSaving: threadIsBusy,
     isConfigured
   })
+  const showComposerStopButton = showStopButton || runningSubagentCount > 0
+  const cancelComposerWork = useCallback(async (): Promise<void> => {
+    const target = resolveComposerStopTarget({
+      hasActiveRun,
+      threadId: activeThreadId,
+      runningWorkerCount: runningSubagentCount
+    })
+    if (target === 'parent') {
+      await cancelActiveRun()
+      return
+    }
+    if (target === 'workers' && activeThreadId) {
+      await cancelRunningSubagents(activeThreadId)
+    }
+  }, [activeThreadId, cancelActiveRun, cancelRunningSubagents, hasActiveRun, runningSubagentCount])
+  const isCancelInFlight = isComposerCancelInFlightForThread(cancelInFlight, activeThreadId)
+  const handleCancelComposerWork = useCallback((): Promise<void> => {
+    const threadId = activeThreadId
+    if (!threadId) return Promise.resolve()
+
+    const target = resolveComposerStopTarget({
+      hasActiveRun,
+      threadId,
+      runningWorkerCount: runningSubagentCount
+    })
+    if (target === 'none') return Promise.resolve()
+
+    const current = cancelInFlightRef.current
+    if (current?.threadId === threadId) {
+      return current.promise
+    }
+
+    const operationId = cancelOperationIdRef.current + 1
+    cancelOperationIdRef.current = operationId
+    const promise = cancelComposerWork()
+      // Store cancellation actions preserve lastError before rethrowing. The
+      // composer consumes that rejection so stopping never creates an
+      // unhandled promise rejection.
+      .catch(() => undefined)
+      .finally(() => {
+        const next = settleComposerCancelOperation(cancelInFlightRef.current, operationId)
+        if (next === cancelInFlightRef.current) return
+        cancelInFlightRef.current = next
+        setCancelInFlight(next)
+      })
+    const operation: ComposerCancelOperation = { operationId, threadId, promise }
+    cancelInFlightRef.current = operation
+    setCancelInFlight(operation)
+    return promise
+  }, [activeThreadId, cancelComposerWork, hasActiveRun, runningSubagentCount])
   const canSend = canSendBase && !isSendInFlight && !isCancelInFlight
 
   // Buffering only runs on real threads. In the new-thread composer we don't
@@ -1402,10 +1468,9 @@ export function Composer({
       estimatedDraftTokens={estimatedDraftTokens}
       canHandoffActiveThread={canHandoffActiveThread}
       stripCompactThresholdTokens={stripCompactThresholdTokens}
-      showStopButton={showStopButton}
+      showStopButton={showComposerStopButton}
       isCancelInFlight={isCancelInFlight}
-      setIsCancelInFlight={setIsCancelInFlight}
-      cancelActiveRun={cancelActiveRun}
+      onCancel={handleCancelComposerWork}
       canSend={canSend}
       dispatchSend={dispatchSend}
       primarySendMode={primarySendMode}

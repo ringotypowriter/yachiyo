@@ -70,6 +70,7 @@ interface ThreadDomainDeps {
   loadThreadToolCalls: (threadId: string) => ToolCallRecord[]
   requireThread: (threadId: string) => ThreadRecord
   isThreadRunning: (threadId: string) => boolean
+  closeSubagentsForThread?: (threadId: string) => Promise<void>
   restoreActiveRunBranchWorkspace?: (input: {
     threadId: string
     branchMessageIds: string[]
@@ -605,10 +606,11 @@ export class YachiyoServerThreadDomain {
     if (!thread) {
       throw new Error(`Unknown thread: ${input.threadId}`)
     }
-
     if (this.deps.isThreadRunning(thread.id)) {
       throw new Error('Cannot delete a thread with an active run.')
     }
+
+    await this.deps.closeSubagentsForThread?.(thread.id)
 
     this.deps.cancelMemoryDistillation?.(thread.id)
     this.deps.clearReadRecordCache?.(thread.id)

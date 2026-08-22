@@ -1,4 +1,4 @@
-import type { AppState } from '../useAppStore.ts'
+import type { ActiveSubagentState, AppState } from '../useAppStore.ts'
 import type { ComposerToolMode } from './helpers.ts'
 import type { Message, Thread, YachiyoServerEvent } from '../../types.ts'
 import { DEFAULT_RUN_MODE_ID } from '@yachiyo/shared/protocol'
@@ -34,6 +34,7 @@ import {
   upsertFolder,
   upsertLatestRun,
   upsertMessage,
+  upsertSubagentSnapshot,
   upsertThread,
   upsertToolCall,
   withFilterBase
@@ -162,7 +163,13 @@ export function reduceServerEvent(state: AppState, event: YachiyoServerEvent): P
         ([, subagent]) => subagent.threadId !== event.threadId
       )
     )
-
+    const subagentSnapshotsById = Object.fromEntries(
+      Object.entries(state.subagentSnapshotsById).filter(
+        ([, snapshot]) => snapshot.parentThreadId !== event.threadId
+      )
+    )
+    const subagentSnapshotIdsByThread = { ...state.subagentSnapshotIdsByThread }
+    delete subagentSnapshotIdsByThread[event.threadId]
     const deletingActiveThread = state.activeThreadId === event.threadId
     const activeThreadId = deletingActiveThread ? (threads[0]?.id ?? null) : state.activeThreadId
     const nextState = {
@@ -195,9 +202,9 @@ export function reduceServerEvent(state: AppState, event: YachiyoServerEvent): P
       runPhasesByThread,
       runStatusesByThread,
       snapshotReviewByRun,
-      subagentActiveIdsByThread,
-      subagentProgressTimelineByThread,
       subagentStateById,
+      subagentSnapshotsById,
+      subagentSnapshotIdsByThread,
       externalThreads,
       sentinelsByThread,
       todoListsByThread,
@@ -312,7 +319,54 @@ export function reduceServerEvent(state: AppState, event: YachiyoServerEvent): P
       ...state.toolCalls,
       [event.threadId]: event.toolCalls
     }
-
+    const derivedSubagentState = deriveSubagentStateFromToolCalls(
+      { [event.threadId]: event.toolCalls },
+      state.subagentStateById,
+      state.subagentProgressTimelineByThread
+    )
+    const snapshotIds = state.subagentSnapshotIdsByThread[event.threadId] ?? []
+    const liveSnapshotIds = snapshotIds.filter((agentId) => {
+      const snapshot = state.subagentSnapshotsById[agentId]
+      return (
+        snapshot?.state === 'starting' ||
+        snapshot?.state === 'running' ||
+        snapshot?.state === 'idle'
+      )
+    })
+    const mergedSubagentActiveIds = [
+      ...new Set([
+        ...(derivedSubagentState.subagentActiveIdsByThread[event.threadId] ?? []),
+        ...liveSnapshotIds
+      ])
+    ]
+    const snapshotStateById = Object.fromEntries(
+      snapshotIds
+        .map((agentId) => [agentId, state.subagentStateById[agentId]] as const)
+        .filter((entry): entry is readonly [string, ActiveSubagentState] => entry[1] !== undefined)
+    )
+    const subagentStateById = {
+      ...Object.fromEntries(
+        Object.entries(state.subagentStateById).filter(
+          ([, subagentState]) => subagentState.threadId !== event.threadId
+        )
+      ),
+      ...derivedSubagentState.subagentStateById,
+      ...snapshotStateById
+    }
+    const subagentProgressTimelineByThread = {
+      ...state.subagentProgressTimelineByThread
+    }
+    if (derivedSubagentState.subagentProgressTimelineByThread[event.threadId]) {
+      subagentProgressTimelineByThread[event.threadId] =
+        derivedSubagentState.subagentProgressTimelineByThread[event.threadId]
+    } else {
+      delete subagentProgressTimelineByThread[event.threadId]
+    }
+    const subagentActiveIdsByThread = { ...state.subagentActiveIdsByThread }
+    delete subagentActiveIdsByThread[event.threadId]
+    if (mergedSubagentActiveIds.length > 0) {
+      subagentActiveIdsByThread[event.threadId] = mergedSubagentActiveIds
+    }
     const threadToolMode = getThreadEventToolMode(event.thread)
     const nextState = {
       ...state,
@@ -351,11 +405,9 @@ export function reduceServerEvent(state: AppState, event: YachiyoServerEvent): P
       latestRunsByThread: hadMessageDecrease
         ? stripLatestRunTokens(state.latestRunsByThread, event.threadId)
         : state.latestRunsByThread,
-      ...deriveSubagentStateFromToolCalls(
-        toolCalls,
-        state.subagentStateById,
-        state.subagentProgressTimelineByThread
-      ),
+      subagentProgressTimelineByThread,
+      subagentActiveIdsByThread,
+      subagentStateById,
       threads: upsertThread(state.threads, event.thread)
     }
 
@@ -1079,8 +1131,54 @@ export function reduceServerEvent(state: AppState, event: YachiyoServerEvent): P
       ...deriveActiveThreadRunState(nextState)
     }
   }
+  if (event.type === 'subagent.updated' || event.type === 'subagent.snapshot.ready') {
+    const snapshotState = upsertSubagentSnapshot(
+      {
+        subagentSnapshotsById: state.subagentSnapshotsById,
+        subagentSnapshotIdsByThread: state.subagentSnapshotIdsByThread
+      },
+      event.snapshot
+    )
+    const snapshot = snapshotState.subagentSnapshotsById[event.snapshot.agentId]
+    const existing = state.subagentStateById[event.snapshot.agentId]
+    const subagentStateById = {
+      ...state.subagentStateById,
+      [snapshot.agentId]: {
+        delegationId: snapshot.agentId,
+        threadId: snapshot.parentThreadId,
+        agentName: snapshot.agentName,
+        agentType: snapshot.agentType,
+        progress: existing?.progress ?? '',
+        ...(existing?.lastMessage ? { lastMessage: existing.lastMessage } : {}),
+        workspacePath: snapshot.workspacePath,
+        startedAt: snapshot.startedAt,
+        ...(existing?.prompt ? { prompt: existing.prompt } : {}),
+        codeName: snapshot.codeName,
+        ...(existing?.recentToolCalls ? { recentToolCalls: existing.recentToolCalls } : {})
+      }
+    }
+    const isLive =
+      snapshot.state === 'starting' || snapshot.state === 'running' || snapshot.state === 'idle'
+    const subagentActiveIdsByThread = isLive
+      ? upsertActiveSubagentId(
+          state.subagentActiveIdsByThread,
+          snapshot.parentThreadId,
+          snapshot.agentId
+        )
+      : removeActiveSubagentId(
+          state.subagentActiveIdsByThread,
+          snapshot.parentThreadId,
+          snapshot.agentId
+        )
+    return {
+      ...snapshotState,
+      subagentActiveIdsByThread,
+      subagentStateById
+    }
+  }
 
   if (event.type === 'subagent.started') {
+    if (state.subagentSnapshotsById[event.delegationId]) return {}
     const delegateTaskPlaceholderIds = (state.toolCalls[event.threadId] ?? [])
       .filter((toolCall) => {
         if (
@@ -1135,9 +1233,21 @@ export function reduceServerEvent(state: AppState, event: YachiyoServerEvent): P
   }
 
   if (event.type === 'subagent.toolCall') {
-    const existing = state.subagentStateById[event.delegationId]
-    if (!existing) return {}
-    const recent = existing.recentToolCalls ?? []
+    const agentId = event.agentId ?? event.delegationId
+    const snapshot = state.subagentSnapshotsById[agentId]
+    const existing = state.subagentStateById[agentId]
+    if (!existing && !snapshot) return {}
+    const currentState = existing ?? {
+      delegationId: agentId,
+      threadId: event.threadId,
+      agentName: snapshot?.agentName ?? 'Subagent',
+      agentType: snapshot?.agentType,
+      progress: '',
+      workspacePath: snapshot?.workspacePath,
+      startedAt: snapshot?.startedAt,
+      codeName: snapshot?.codeName
+    }
+    const recent = currentState.recentToolCalls ?? []
     const currentIndex = event.toolCallId
       ? recent.findIndex((toolCall) => toolCall.toolCallId === event.toolCallId)
       : -1
@@ -1157,29 +1267,66 @@ export function reduceServerEvent(state: AppState, event: YachiyoServerEvent): P
     return {
       subagentStateById: {
         ...state.subagentStateById,
-        [event.delegationId]: {
-          ...existing,
+        [agentId]: {
+          ...currentState,
           recentToolCalls: nextRecent
         }
       }
     }
   }
 
+  if (event.type === 'subagent.message') {
+    const agentId = event.agentId
+    const snapshot = state.subagentSnapshotsById[agentId]
+    const existing = state.subagentStateById[agentId]
+    if (!existing && !snapshot) return {}
+    return {
+      subagentStateById: {
+        ...state.subagentStateById,
+        [agentId]: {
+          ...(existing ?? {
+            delegationId: agentId,
+            threadId: event.threadId,
+            agentName: snapshot?.agentName ?? 'Subagent',
+            agentType: snapshot?.agentType,
+            progress: '',
+            workspacePath: snapshot?.workspacePath,
+            startedAt: snapshot?.startedAt,
+            codeName: snapshot?.codeName
+          }),
+          lastMessage: event.envelope.message
+        }
+      }
+    }
+  }
+
   if (event.type === 'subagent.progress') {
-    const existing = state.subagentStateById[event.delegationId]
-    const agentName = existing?.agentName ?? 'Subagent'
-    const agentType = existing?.agentType
+    const agentId = event.agentId ?? event.delegationId
+    const snapshot = state.subagentSnapshotsById[agentId]
+    const existing = state.subagentStateById[agentId]
+    const agentName = existing?.agentName ?? snapshot?.agentName ?? 'Subagent'
+    const agentType = existing?.agentType ?? snapshot?.agentType
+    const currentState = existing ?? {
+      delegationId: agentId,
+      threadId: event.threadId,
+      agentName,
+      agentType,
+      progress: '',
+      workspacePath: snapshot?.workspacePath,
+      startedAt: snapshot?.startedAt,
+      codeName: snapshot?.codeName
+    }
     return {
       subagentActiveIdsByThread: upsertActiveSubagentId(
         state.subagentActiveIdsByThread,
         event.threadId,
-        event.delegationId
+        agentId
       ),
       subagentProgressTimelineByThread: appendSubagentProgressEntry(
         state.subagentProgressTimelineByThread,
         event.threadId,
         {
-          delegationId: event.delegationId,
+          delegationId: agentId,
           agentName,
           agentType,
           chunk: event.chunk
@@ -1187,23 +1334,16 @@ export function reduceServerEvent(state: AppState, event: YachiyoServerEvent): P
       ),
       subagentStateById: {
         ...state.subagentStateById,
-        [event.delegationId]: {
-          delegationId: event.delegationId,
-          threadId: event.threadId,
-          agentName,
-          agentType,
-          progress: (existing?.progress ?? '') + event.chunk,
-          ...(existing?.workspacePath ? { workspacePath: existing.workspacePath } : {}),
-          ...(existing?.startedAt ? { startedAt: existing.startedAt } : {}),
-          ...(existing?.prompt ? { prompt: existing.prompt } : {}),
-          ...(existing?.codeName ? { codeName: existing.codeName } : {}),
-          ...(existing?.recentToolCalls ? { recentToolCalls: existing.recentToolCalls } : {})
+        [agentId]: {
+          ...currentState,
+          progress: currentState.progress + event.chunk
         }
       }
     }
   }
 
   if (event.type === 'subagent.finished') {
+    if (state.subagentSnapshotsById[event.delegationId]) return {}
     const subagentStateById = { ...state.subagentStateById }
     delete subagentStateById[event.delegationId]
     const subagentActiveIdsByThread = removeActiveSubagentId(

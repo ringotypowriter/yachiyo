@@ -18,6 +18,7 @@ export interface BackgroundTaskLifecycleContext {
   backgroundTaskRunContext: Map<string, BackgroundTaskRunContext>
   isClosing: () => boolean
   sendChat: (input: InternalSendChatInput) => Promise<ChatAccepted>
+  deliverToAgent?: (input: { agentId: string; threadId: string; message: string }) => void
 }
 
 export function recoverOrphanedBackgroundToolCalls(context: BackgroundTaskLifecycleContext): void {
@@ -140,6 +141,24 @@ async function autoDeliverBackgroundCompletion(
   result: BackgroundBashTaskResult,
   ctx: BackgroundTaskRunContext | undefined
 ): Promise<void> {
+  const content = buildBackgroundCompletionMessage(result)
+  if (ctx?.ownerAgentId && context.deliverToAgent) {
+    try {
+      context.deliverToAgent({
+        agentId: ctx.ownerAgentId,
+        threadId: result.threadId,
+        message: content
+      })
+      return
+    } catch (error) {
+      console.warn('[yachiyo][background-bash] owner Agent delivery failed', {
+        taskId: result.taskId,
+        agentId: ctx.ownerAgentId,
+        error: error instanceof Error ? error.message : String(error)
+      })
+    }
+  }
+
   let thread: ThreadRecord
   try {
     thread = context.deps.requireThread(result.threadId)
@@ -155,8 +174,6 @@ async function autoDeliverBackgroundCompletion(
   ) {
     return
   }
-
-  const content = buildBackgroundCompletionMessage(result)
   const chatOptions = {
     threadId: thread.id,
     content,

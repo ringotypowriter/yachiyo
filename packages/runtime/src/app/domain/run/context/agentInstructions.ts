@@ -4,6 +4,7 @@ import type {
   NamedSubagentId,
   SkillSummary,
   SubagentProfile,
+  SubagentSnapshot,
   ToolCallName
 } from '@yachiyo/shared/protocol'
 import { RUN_MODE_DEFINITIONS, SELECTABLE_RUN_MODE_IDS } from '@yachiyo/shared/toolModes'
@@ -28,7 +29,8 @@ export function buildSubagentContextBlock(
   subagentsConfig?: {
     mode: 'worker' | 'acp'
     enabledNamedAgents: NamedSubagentId[]
-  }
+  },
+  activeSubagents: readonly SubagentSnapshot[] = []
 ): string {
   const enabledProfiles = profiles.filter((p) => p.enabled)
   const mode = subagentsConfig?.mode ?? 'worker'
@@ -91,6 +93,27 @@ export function buildSubagentContextBlock(
     lines.push('', 'Available Workspaces:')
     for (const ws of availableWorkspaces) {
       lines.push(`- ${ws}`)
+    }
+  }
+
+  if (mode === 'worker') {
+    lines.push(
+      '',
+      'Worker collaboration:',
+      '- `delegateTask` launches a new Worker. The tool call completes when launch succeeds; it does not mean the Worker task or lifecycle has ended.',
+      '- After a Worker finishes a turn, it becomes idle and remains addressable with its conversation history until it is closed or expires.',
+      '- Continue related work with a running or idle Worker by calling `sendMessage` with its exact Agent ID. This queues a message and wakes an idle Worker.',
+      '- Launch a new Worker when the work should be independent or no suitable live Worker exists. Code names are display labels, not routing addresses.'
+    )
+    if (activeSubagents.length > 0) {
+      lines.push('', 'Current live Worker roster:')
+      for (const subagent of activeSubagents) {
+        lines.push(
+          `- ${subagent.agentId}: ${subagent.codeName} (${subagent.agentType}), ${subagent.state}`
+        )
+      }
+    } else {
+      lines.push('', 'Current live Worker roster: none.')
     }
   }
 

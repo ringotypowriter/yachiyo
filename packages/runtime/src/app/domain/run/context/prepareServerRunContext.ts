@@ -395,12 +395,20 @@ export async function prepareServerRunContext(
   const subagentAvailableWorkspaces = hasEnabledWorkerSubagents
     ? savedWorkspacePaths
     : gitValidatedWorkspaces
+  const activeSubagents = hasEnabledWorkerSubagents
+    ? (deps.subagentManager?.list(input.thread.id) ?? []).filter(
+        (snapshot) =>
+          snapshot.state === 'starting' || snapshot.state === 'running' || snapshot.state === 'idle'
+      )
+    : []
+
   const subagentContextBlock = buildSubagentContextBlock(
     gitCtx,
     workspacePath,
     enabledSubagentProfiles,
     subagentAvailableWorkspaces,
-    subagentsConfig
+    subagentsConfig,
+    activeSubagents
   )
 
   const hiddenQueryReminder = formatQueryReminder(
