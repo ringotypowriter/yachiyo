@@ -131,7 +131,7 @@ function countImagesInMessage(msg: ModelMessage): number {
   return countImagesInContent(msg.content)
 }
 
-function estimateMessageTokenCount(msg: ModelMessage): number {
+export function estimateMessageTokenCount(msg: ModelMessage): number {
   return estimateModelMessageTokens(msg) + countImagesInMessage(msg) * TOKENS_PER_IMAGE
 }
 

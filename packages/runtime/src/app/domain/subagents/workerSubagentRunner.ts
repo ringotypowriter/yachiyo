@@ -1,5 +1,6 @@
 import { stepCountIs, type ToolSet } from 'ai'
 
+import { DEFAULT_STRIP_COMPACT_TOKEN_THRESHOLD } from '@yachiyo/shared/protocol'
 import type {
   AgentMessageEnvelope,
   AgentMessageReceipt,
@@ -18,6 +19,7 @@ import type {
   SubagentRunnerTurnInput,
   SubagentTurnResult
 } from './subagentManager.ts'
+import { createWorkerHistoryCompactor } from './workerSubagentCompaction.ts'
 import {
   ReadRecordCache,
   createAgentToolSet,
@@ -272,18 +274,26 @@ function createWorkerRunner(
   const workerSettings = config
     ? toSubagentProviderSettings(config, launch.agentType, settings)
     : settings
-  const history: ModelMessage[] = [
-    {
-      role: 'system',
-      content: buildWorkerSystemPrompt(
-        profileSnapshot.systemPrompt,
-        (activeSkills ?? []).map((skill) => skill.name),
-        enabledTools.has('skillsRead'),
-        { agentId: launch.agentId, parentThreadId: launch.parentThreadId }
-      )
-    }
-  ]
+  const workerSystemPrompt = buildWorkerSystemPrompt(
+    profileSnapshot.systemPrompt,
+    (activeSkills ?? []).map((skill) => skill.name),
+    enabledTools.has('skillsRead'),
+    { agentId: launch.agentId, parentThreadId: launch.parentThreadId }
+  )
+  const history: ModelMessage[] = [{ role: 'system', content: workerSystemPrompt }]
   if (workerSettings.provider === 'anthropic') applyAnthropicCacheBreakpoints(history)
+  const historyCompactor =
+    config?.chat?.stripCompact === false
+      ? null
+      : createWorkerHistoryCompactor({
+          createModelRuntime,
+          settings: workerSettings,
+          systemPrompt: workerSystemPrompt,
+          thresholdTokens:
+            config?.chat?.stripCompactThresholdTokens ?? DEFAULT_STRIP_COMPACT_TOKEN_THRESHOLD,
+          toolCount: Object.keys(tools ?? {}).length
+        })
+  let previousPromptTokens: number | undefined
 
   let closed = false
   let closePromise: Promise<void | { snapshotId?: string }> | undefined
@@ -296,6 +306,22 @@ function createWorkerRunner(
       }
       turnMessages.push(...turn.messages.map(mailboxMessage))
       history.push(...turnMessages)
+      const compaction = historyCompactor
+        ? await historyCompactor.compactIfNeeded({
+            history,
+            signal: turn.signal,
+            previousPromptTokens
+          })
+        : {
+            history,
+            phase: undefined,
+            promptTokens: 0,
+            completionTokens: 0
+          }
+      if (compaction.history !== history) {
+        history.splice(0, history.length, ...compaction.history)
+        if (workerSettings.provider === 'anthropic') applyAnthropicCacheBreakpoints(history)
+      }
       const modelRuntime = createModelRuntime()
       let output = ''
       let promptTokens: number | undefined
@@ -358,6 +384,7 @@ function createWorkerRunner(
         output += delta
         onProgress({ turnId: turn.turnId, chunk: delta })
       }
+      previousPromptTokens = promptTokens
 
       if (responseMessages && responseMessages.length > 0) {
         history.push(...(responseMessages as ModelMessage[]))
@@ -369,10 +396,16 @@ function createWorkerRunner(
         : recentToolSummaries.length > 0
           ? `Subagent completed without a final text response. Recent tool calls:\n${recentToolSummaries.map((summary) => `- ${summary}`).join('\n')}`
           : ''
+      const totalPromptTokens = (promptTokens ?? 0) + compaction.promptTokens
+      const totalCompletionTokens = (completionTokens ?? 0) + compaction.completionTokens
       return {
         output: finalOutput,
-        ...(promptTokens !== undefined ? { promptTokens } : {}),
-        ...(completionTokens !== undefined ? { completionTokens } : {})
+        ...(promptTokens !== undefined || compaction.phase
+          ? { promptTokens: totalPromptTokens }
+          : {}),
+        ...(completionTokens !== undefined || compaction.phase
+          ? { completionTokens: totalCompletionTokens }
+          : {})
       }
     },
     async close(): Promise<void | { snapshotId?: string }> {

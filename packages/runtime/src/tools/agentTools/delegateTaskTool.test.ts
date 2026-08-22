@@ -9,6 +9,7 @@ import { DEFAULT_NAMED_SUBAGENT_PROFILES } from '../../settings/namedSubagents.t
 import type {
   AgentMessageReceipt,
   ProviderSettings,
+  SettingsConfig,
   SendAgentMessageInput
 } from '@yachiyo/shared/protocol'
 import {
@@ -214,6 +215,119 @@ test('Worker runner preserves prompt/mailbox history and Agent-specific prompt c
     assert.equal('sendThreadMessage' in (requests[0]?.tools ?? {}), false)
     assert.equal('sendMessage' in (requests[0]?.tools ?? {}), true)
     assert.deepEqual(sentMessages, [])
+  } finally {
+    await runner.close()
+    await rm(workspace, { recursive: true, force: true })
+  }
+})
+
+test('Worker runner compacts with its own model before a follow-up turn', async () => {
+  const workspace = await mkdtemp(join(tmpdir(), 'yachiyo-worker-compaction-'))
+  const requests: ModelStreamRequest[] = []
+  let taskCallCount = 0
+  const modelRuntime: ModelRuntime = {
+    streamReply: async function* (request) {
+      requests.push(request)
+      if (request.purpose === 'worker-compaction:initial') {
+        request.onFinish?.({
+          promptTokens: 11,
+          completionTokens: 7,
+          totalPromptTokens: 11,
+          totalCompletionTokens: 7
+        })
+        yield 'COMPACTED WORKER SUMMARY'
+        return
+      }
+
+      taskCallCount += 1
+      request.onFinish?.({
+        promptTokens: taskCallCount === 1 ? 3_500 : 100,
+        completionTokens: 2,
+        totalPromptTokens: taskCallCount === 1 ? 3_500 : 100,
+        totalCompletionTokens: 2,
+        responseMessages: [
+          {
+            role: 'assistant',
+            content: [
+              {
+                type: 'text',
+                text: taskCallCount === 1 ? `FIRST TURN ${'detail '.repeat(1_000)}` : 'SECOND TURN'
+              }
+            ]
+          }
+        ]
+      })
+      yield `reply-${taskCallCount}`
+    }
+  } as ModelRuntime
+  const config: SettingsConfig = {
+    providers: [],
+    chat: { stripCompact: true, stripCompactThresholdTokens: 3_000 }
+  }
+  const factory = createWorkerSubagentRunnerFactory({
+    profileId: 'general',
+    profile: DEFAULT_NAMED_SUBAGENT_PROFILES.general,
+    dependencies: {
+      settings: TEST_SETTINGS,
+      config,
+      parentToolContext: { workspacePath: workspace, sandboxed: false },
+      parentDependencies: {} as AgentToolDependencies,
+      createModelRuntime: () => modelRuntime
+    }
+  })
+  const runner = factory({
+    launch: {
+      agentId: 'agent-compact',
+      parentThreadId: 'thread-1',
+      launchRunId: 'run-1',
+      agentName: 'general',
+      agentType: 'general',
+      codeName: 'Akari',
+      workspacePath: workspace,
+      prompt: 'Initial task'
+    },
+    signal: new AbortController().signal,
+    sendMessage: () => ({
+      messageId: 'message-1',
+      delivery: 'queued',
+      recipientState: 'idle'
+    }),
+    hasPendingMessages: () => false,
+    onProgress: () => {},
+    onToolCall: () => {}
+  })
+
+  try {
+    await runner.runTurn({
+      turnId: 'turn-1',
+      initialPrompt: 'Initial task',
+      messages: [],
+      signal: new AbortController().signal
+    })
+    const second = await runner.runTurn({
+      turnId: 'turn-2',
+      messages: [
+        {
+          id: 'envelope-1',
+          teamThreadId: 'thread-1',
+          sequence: 1,
+          from: { kind: 'parent', threadId: 'thread-1' },
+          to: { kind: 'agent', agentId: 'agent-compact' },
+          message: 'Continue after compaction',
+          createdAt: new Date(1).toISOString()
+        }
+      ],
+      signal: new AbortController().signal
+    })
+
+    assert.equal(requests.length, 3)
+    assert.equal(requests[1]?.purpose, 'worker-compaction:initial')
+    assert.strictEqual(requests[1]?.settings, requests[0]?.settings)
+    assert.equal(requests[1]?.toolChoice, 'none')
+    assert.match(JSON.stringify(requests[2]?.messages), /COMPACTED WORKER SUMMARY/)
+    assert.doesNotMatch(JSON.stringify(requests[2]?.messages), /FIRST TURN/)
+    assert.equal(second.promptTokens, 111)
+    assert.equal(second.completionTokens, 9)
   } finally {
     await runner.close()
     await rm(workspace, { recursive: true, force: true })
