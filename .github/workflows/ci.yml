@@ -55,6 +55,3 @@ jobs:
 
       - name: Typecheck
         run: pnpm run typecheck
-
-      - name: Build and inventory unsigned Windows installer
-        run: pnpm --filter @yachiyo/desktop run build:win
