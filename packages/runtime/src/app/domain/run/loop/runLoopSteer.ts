@@ -137,11 +137,12 @@ export async function handleSteerPendingResult(
     }
     if (!handoffCompleted) {
       removeContextHandoffContinuationSteer(input.activeRun)
-      steerInputs = getPendingSteerInputsForPersistence(input.activeRun)
-      if (steerInputs.length === 0) {
-        return cancelSteerPendingRun({ context, handleInput: input, snapshotTracker })
-      }
     }
+  }
+
+  steerInputs = getPendingSteerInputsForPersistence(input.activeRun)
+  if (steerInputs.length === 0) {
+    return cancelSteerPendingRun({ context, handleInput: input, snapshotTracker })
   }
 
   const steerThread = context.deps.requireThread(input.loopInput.thread.id)
@@ -155,13 +156,12 @@ export async function handleSteerPendingResult(
   if (!requestMessage) {
     throw new Error('Pending steer persistence did not create a request message.')
   }
-  await markWorkspaceRestorePoint(input.activeRun, requestMessage.id)
-
-  emitThreadStateReplaced(context.createFollowUpQueueContext(), input.loopInput.thread.id)
   clearPendingSteerInputs(input.activeRun)
   input.activeRun.executionPhase = 'generating'
   input.activeRun.requestMessageId = requestMessage.id
   context.deps.storage.updateRunRequestMessageId(input.loopInput.runId, requestMessage.id)
+  emitThreadStateReplaced(context.createFollowUpQueueContext(), input.loopInput.thread.id)
+  await markWorkspaceRestorePoint(input.activeRun, requestMessage.id)
 
   return {
     kind: 'continue',

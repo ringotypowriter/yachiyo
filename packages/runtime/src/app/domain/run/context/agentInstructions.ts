@@ -100,8 +100,9 @@ export function buildSubagentContextBlock(
     lines.push(
       '',
       'Worker collaboration:',
-      '- `delegateTask` launches a new Worker. The tool call completes when launch succeeds; it does not mean the Worker task or lifecycle has ended.',
-      '- After a Worker finishes a turn, it becomes idle and remains addressable with its conversation history until it is closed or expires.',
+      '- `delegateTask` launches a Worker asynchronously. The tool call completes when launch succeeds; it does not mean the Worker task or lifecycle has ended.',
+      '- When your next useful action depends on a running Worker, end the current parent turn without presenting the overall task as complete, instead of waiting, polling, or asking the Worker to stop early. Its completed turn is delivered automatically and wakes this conversation for a new parent turn.',
+      '- After a Worker finishes a turn, it becomes idle and remains addressable with its conversation history until it expires. Keep it available for related follow-up work; do not rush or terminate it merely to make the parent task appear complete.',
       '- Continue related work with a running or idle Worker by calling `sendMessage` with its exact Agent ID. This queues a message and wakes an idle Worker.',
       '- Launch a new Worker when the work should be independent or no suitable live Worker exists. Code names are display labels, not routing addresses.'
     )

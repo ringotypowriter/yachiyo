@@ -11,9 +11,10 @@ import {
   handleSteerPendingResult,
   type RunLoopSteerContext
 } from './runLoopSteer.ts'
-import { CONTEXT_HANDOFF_CONTINUATION_STEER } from '../runTypes.ts'
+import { addPendingSteerInput } from '../active/pendingSteerQueue.ts'
+import { CONTEXT_HANDOFF_CONTINUATION_STEER, type RunState } from '../runTypes.ts'
 
-test('handleSteerPendingResult persists hidden steers before the visible steer anchor', async () => {
+test('handleSteerPendingResult preserves ordered steers and retains arrivals during restore-point writes', async () => {
   let currentThread: ThreadRecord = {
     id: 'thread-1',
     title: 'Thread',
@@ -23,6 +24,14 @@ test('handleSteerPendingResult persists hidden steers before the visible steer a
   const savedMessages: MessageRecord[] = []
   const queuedFollowUpDrafts = new Map()
   let runRequestMessageId: string | undefined
+  let markRestorePointStarted!: () => void
+  let releaseMarkRestorePoint!: () => void
+  const markRestorePointStartedPromise = new Promise<void>((resolve) => {
+    markRestorePointStarted = resolve
+  })
+  const markRestorePointReleasePromise = new Promise<void>((resolve) => {
+    releaseMarkRestorePoint = resolve
+  })
 
   const context: RunLoopSteerContext = {
     deps: {
@@ -68,6 +77,12 @@ test('handleSteerPendingResult persists hidden steers before the visible steer a
     abortController: new AbortController(),
     executionPhase: 'generating' as const,
     updateHeadOnComplete: true,
+    snapshotTracker: {
+      markRestorePoint: async () => {
+        markRestorePointStarted()
+        await markRestorePointReleasePromise
+      }
+    },
     pendingSteerInputs: [
       {
         content: 'system notice',
@@ -87,7 +102,7 @@ test('handleSteerPendingResult persists hidden steers before the visible steer a
     ]
   }
 
-  const result = await handleSteerPendingResult(context, {
+  const resultPromise = handleSteerPendingResult(context, {
     accumulatedUsage: undefined,
     activeRun: activeRun as unknown as Parameters<typeof handleSteerPendingResult>[1]['activeRun'],
     carriedToolFailLoopSteers: 0,
@@ -106,6 +121,17 @@ test('handleSteerPendingResult persists hidden steers before the visible steer a
       assistantMessageId: 'assistant-before-steer'
     }
   })
+  await markRestorePointStartedPromise
+  addPendingSteerInput(activeRun as unknown as RunState, {
+    content: 'Worker result',
+    images: [],
+    attachments: [],
+    messageId: 'subagent-steer',
+    timestamp: '2026-05-02T00:00:00.750Z',
+    hidden: true
+  })
+  releaseMarkRestorePoint()
+  const result = await resultPromise
 
   assert.equal(result.kind, 'continue')
   assert.deepEqual(
@@ -132,6 +158,14 @@ test('handleSteerPendingResult persists hidden steers before the visible steer a
   )
   assert.equal(result.currentRequestMessageId, 'visible-steer')
   assert.equal(runRequestMessageId, 'visible-steer')
+  assert.deepEqual(
+    activeRun.pendingSteerInputs?.map((steer) => ({
+      content: steer.content,
+      hidden: steer.hidden === true,
+      messageId: steer.messageId
+    })),
+    [{ content: 'Worker result', hidden: true, messageId: 'subagent-steer' }]
+  )
 })
 
 test('handleSteerPendingResult cancels the synthetic context handoff steer when handoff is skipped', async () => {
