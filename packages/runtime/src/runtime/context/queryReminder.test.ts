@@ -175,7 +175,24 @@ test('buildCurrentTimeSection can omit date when includeDate is false', () => {
   assert.equal(section.lines[0], 'Time: 14:05')
 })
 
+test('buildCurrentTimeSection formats the injected time in the configured time zone', () => {
+  const date = new Date('2026-08-21T18:44:00.000Z')
+  const section = buildCurrentTimeSection(date, {
+    includeDate: true,
+    timeZone: 'Asia/Shanghai'
+  })
+
+  assert.equal(section.title, 'Current date and time (Asia/Shanghai)')
+  assert.deepEqual(section.lines, ['Date: 2026-08-22 (Saturday)', 'Time: 02:44'])
+})
+
 test('formatDateLine produces YYYY-MM-DD with day name', () => {
   const date = new Date(2026, 2, 30, 14, 5, 9)
   assert.match(formatDateLine(date), /^2026-03-30 \(\w+\)$/)
+})
+
+test('formatDateLine uses the configured time zone', () => {
+  const date = new Date('2026-08-21T18:44:00.000Z')
+  assert.equal(formatDateLine(date, 'Asia/Shanghai'), '2026-08-22 (Saturday)')
+  assert.equal(formatDateLine(date, 'America/Los_Angeles'), '2026-08-21 (Friday)')
 })

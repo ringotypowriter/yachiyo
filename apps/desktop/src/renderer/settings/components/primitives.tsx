@@ -1,10 +1,12 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { Check, ChevronDown, ChevronLeft, ChevronRight } from 'lucide-react'
+import { Check, ChevronDown, ChevronLeft, ChevronRight, Search } from 'lucide-react'
 import { useT } from '@yachiyo/i18n/react'
 import { theme, alpha } from '@renderer/theme/theme'
 import { useRestoreFocusOnUnmount } from '@renderer/lib/focusRestore'
 import { useFloatingPanelLayout } from '@renderer/lib/useFloatingPanelLayout'
+import { isImeComposingKeyEvent } from '@renderer/lib/imeUtils'
+import { filterSimpleSelectOptions, moveSimpleSelectActiveIndex } from './simpleSelectModel'
 
 interface FieldProps {
   children: React.ReactNode
@@ -115,6 +117,9 @@ interface SimpleSelectProps<T extends string> {
   onChange: (value: T) => void
   width?: number | string
   optionHeight?: number
+  searchable?: boolean
+  searchPlaceholder?: string
+  emptyLabel?: string
 }
 
 export function SimpleSelect<T extends string>({
@@ -122,11 +127,19 @@ export function SimpleSelect<T extends string>({
   options,
   onChange,
   width = 200,
-  optionHeight = 34
+  optionHeight = 34,
+  searchable = false,
+  searchPlaceholder = 'Search',
+  emptyLabel = 'No results'
 }: SimpleSelectProps<T>): React.ReactNode {
   const [open, setOpen] = useState(false)
+  const [query, setQuery] = useState('')
+  const [activeIndex, setActiveIndex] = useState(-1)
   const triggerRef = useRef<HTMLButtonElement>(null)
-  const estimatedHeight = options.length * optionHeight + 12
+  const searchInputRef = useRef<HTMLInputElement>(null)
+  const listboxId = useId()
+  const visibleOptions = searchable ? filterSimpleSelectOptions(options, query) : options
+  const estimatedHeight = visibleOptions.length * optionHeight + 12 + (searchable ? 46 : 0)
   const { floatingRef: dropdownRef, style: dropdownPositionStyle } = useFloatingPanelLayout({
     open,
     referenceRef: triggerRef,
@@ -139,7 +152,15 @@ export function SimpleSelect<T extends string>({
   useRestoreFocusOnUnmount(open)
 
   function handleOpen(): void {
+    setQuery('')
+    setActiveIndex(-1)
     setOpen(true)
+  }
+
+  function handleClose(): void {
+    setOpen(false)
+    setQuery('')
+    setActiveIndex(-1)
   }
 
   useEffect(() => {
@@ -147,12 +168,18 @@ export function SimpleSelect<T extends string>({
     function handlePointerDown(e: PointerEvent): void {
       const target = e.target as Node
       if (!triggerRef.current?.contains(target) && !dropdownRef.current?.contains(target)) {
-        setOpen(false)
+        handleClose()
       }
     }
     document.addEventListener('pointerdown', handlePointerDown)
     return () => document.removeEventListener('pointerdown', handlePointerDown)
   }, [dropdownRef, open])
+
+  useEffect(() => {
+    if (!open || !searchable) return
+    const frame = requestAnimationFrame(() => searchInputRef.current?.focus())
+    return () => cancelAnimationFrame(frame)
+  }, [open, searchable])
 
   const selectedOption = options.find((o) => o.value === value)
   const selectedLabel = selectedOption?.label ?? value
@@ -162,7 +189,7 @@ export function SimpleSelect<T extends string>({
       <button
         ref={triggerRef}
         type="button"
-        onClick={() => (open ? setOpen(false) : handleOpen())}
+        onClick={() => (open ? handleClose() : handleOpen())}
         aria-haspopup="listbox"
         aria-expanded={open}
         style={{
@@ -225,7 +252,6 @@ export function SimpleSelect<T extends string>({
         createPortal(
           <div
             ref={dropdownRef}
-            role="listbox"
             onPointerDown={(e) => e.stopPropagation()}
             style={{
               ...dropdownPositionStyle,
@@ -238,21 +264,107 @@ export function SimpleSelect<T extends string>({
               overflowY: 'auto'
             }}
           >
-            {options.map((option) => {
-              const selected = option.value === value
-              return (
-                <DropdownOption
-                  key={option.value}
-                  label={option.label}
-                  preview={option.preview}
-                  selected={selected}
-                  onSelect={() => {
-                    onChange(option.value)
-                    setOpen(false)
+            {searchable ? (
+              <div
+                style={{
+                  position: 'sticky',
+                  top: 0,
+                  zIndex: 1,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  margin: '0 4px 4px',
+                  padding: '8px 10px',
+                  borderRadius: 8,
+                  background: theme.background.surface
+                }}
+              >
+                <Search size={14} color={theme.icon.muted} />
+                <input
+                  ref={searchInputRef}
+                  value={query}
+                  role="combobox"
+                  aria-label={searchPlaceholder}
+                  aria-expanded={open}
+                  aria-controls={listboxId}
+                  aria-activedescendant={
+                    activeIndex >= 0 ? `${listboxId}-option-${activeIndex}` : undefined
+                  }
+                  placeholder={searchPlaceholder}
+                  onChange={(event) => {
+                    setQuery(event.target.value)
+                    setActiveIndex(0)
+                  }}
+                  onKeyDown={(event) => {
+                    if (isImeComposingKeyEvent(event.nativeEvent)) return
+                    if (event.key === 'Escape') {
+                      handleClose()
+                      return
+                    }
+                    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+                      event.preventDefault()
+                      setActiveIndex((current) =>
+                        moveSimpleSelectActiveIndex(
+                          current,
+                          event.key === 'ArrowDown' ? 1 : -1,
+                          visibleOptions.length
+                        )
+                      )
+                      return
+                    }
+                    if (event.key === 'Enter') {
+                      event.preventDefault()
+                      const option = visibleOptions[activeIndex >= 0 ? activeIndex : 0]
+                      if (option) {
+                        onChange(option.value)
+                        handleClose()
+                      }
+                    }
+                  }}
+                  style={{
+                    minWidth: 0,
+                    flex: 1,
+                    border: 'none',
+                    outline: 'none',
+                    background: 'transparent',
+                    color: theme.text.primary,
+                    fontSize: 13
                   }}
                 />
-              )
-            })}
+              </div>
+            ) : null}
+            <div id={listboxId} role="listbox">
+              {visibleOptions.map((option, index) => {
+                const selected = option.value === value
+                return (
+                  <DropdownOption
+                    key={option.value}
+                    id={`${listboxId}-option-${index}`}
+                    label={option.label}
+                    preview={option.preview}
+                    selected={selected}
+                    active={index === activeIndex}
+                    onActivate={() => setActiveIndex(index)}
+                    onSelect={() => {
+                      onChange(option.value)
+                      handleClose()
+                    }}
+                  />
+                )
+              })}
+              {visibleOptions.length === 0 ? (
+                <div
+                  style={{
+                    padding: '10px 12px',
+                    color: theme.text.muted,
+                    fontSize: 13,
+                    textAlign: 'center'
+                  }}
+                >
+                  {emptyLabel}
+                </div>
+              ) : null}
+            </div>
           </div>,
           document.body
         )}
@@ -261,22 +373,39 @@ export function SimpleSelect<T extends string>({
 }
 
 function DropdownOption({
+  id,
   label,
   preview,
   selected,
+  active,
+  onActivate,
   onSelect
 }: {
+  id: string
   label: string
   preview?: React.ReactNode
   selected: boolean
+  active: boolean
+  onActivate: () => void
   onSelect: () => void
 }): React.JSX.Element {
   const [hovered, setHovered] = useState(false)
+  const optionRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (active) optionRef.current?.scrollIntoView({ block: 'nearest' })
+  }, [active])
+
   return (
     <div
+      ref={optionRef}
+      id={id}
       role="option"
       aria-selected={selected}
-      onPointerEnter={() => setHovered(true)}
+      onPointerEnter={() => {
+        setHovered(true)
+        onActivate()
+      }}
       onPointerLeave={() => setHovered(false)}
       onPointerDown={(e) => {
         e.preventDefault()
@@ -290,7 +419,7 @@ function DropdownOption({
         margin: '0 4px',
         borderRadius: 8,
         cursor: 'default',
-        background: hovered ? alpha('ink', 0.04) : 'transparent',
+        background: hovered || active ? alpha('ink', 0.04) : 'transparent',
         transition: 'background 80ms'
       }}
     >

@@ -98,27 +98,55 @@ export function buildDisabledToolsReminderSection(input: {
   }
 }
 
-const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+interface DateTimeParts {
+  year: string
+  month: string
+  day: string
+  weekday: string
+  hour: string
+  minute: string
+}
 
-export function formatDateLine(now: Date = new Date()): string {
-  const y = now.getFullYear()
-  const m = String(now.getMonth() + 1).padStart(2, '0')
-  const d = String(now.getDate()).padStart(2, '0')
-  return `${y}-${m}-${d} (${DAY_NAMES[now.getDay()]})`
+function getDateTimeParts(now: Date, timeZone?: string): DateTimeParts {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    ...(timeZone ? { timeZone } : {}),
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    weekday: 'long',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23'
+  }).formatToParts(now)
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]))
+
+  return {
+    year: values['year'] ?? '',
+    month: values['month'] ?? '',
+    day: values['day'] ?? '',
+    weekday: values['weekday'] ?? '',
+    hour: values['hour'] ?? '',
+    minute: values['minute'] ?? ''
+  }
+}
+
+export function formatDateLine(now: Date = new Date(), timeZone?: string): string {
+  const { year, month, day, weekday } = getDateTimeParts(now, timeZone)
+  return `${year}-${month}-${day} (${weekday})`
 }
 
 export function buildCurrentTimeSection(
   now: Date = new Date(),
-  { includeDate = true }: { includeDate?: boolean } = {}
+  { includeDate = true, timeZone }: { includeDate?: boolean; timeZone?: string } = {}
 ): QueryReminderSection {
-  const hours = String(now.getHours()).padStart(2, '0')
-  const minutes = String(now.getMinutes()).padStart(2, '0')
+  const { year, month, day, weekday, hour, minute } = getDateTimeParts(now, timeZone)
   const lines = includeDate
-    ? [`Date: ${formatDateLine(now)}`, `Time: ${hours}:${minutes}`]
-    : [`Time: ${hours}:${minutes}`]
+    ? [`Date: ${year}-${month}-${day} (${weekday})`, `Time: ${hour}:${minute}`]
+    : [`Time: ${hour}:${minute}`]
+  const location = timeZone || 'local'
   return {
     key: 'current-time',
-    title: includeDate ? 'Current date and time (local)' : 'Current time (local)',
+    title: includeDate ? `Current date and time (${location})` : `Current time (${location})`,
     lines
   }
 }

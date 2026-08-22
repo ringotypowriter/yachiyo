@@ -25,6 +25,7 @@ export const DEFAULT_SETTINGS_CONFIG: SettingsConfig = {
     notifyCodingTaskFinished: true,
     translatorShortcut: 'CommandOrControl+Shift+T',
     jotdownShortcut: 'CommandOrControl+Shift+J',
+    contextTimeZone: '',
     activityTracking: {
       mode: 'simple',
       ocr: { enabled: false, excludedApps: [] }

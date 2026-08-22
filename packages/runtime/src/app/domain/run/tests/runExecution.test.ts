@@ -9,6 +9,7 @@ import { createEphemeralStorageProxy } from '../chat/ephemeralStorage.ts'
 import { prepareServerRunContext } from '../context/prepareServerRunContext.ts'
 import { executeServerRun } from '../execution/executeServerRun.ts'
 import { mergeRunUsage } from '../execution/runUsage.ts'
+import { formatDateLine } from '../../../../runtime/context/queryReminder.ts'
 import type { RunExecutionDeps } from '../execution/runExecutionTypes.ts'
 import { RetryableRunError } from '../../../../runtime/models/runtimeErrors.ts'
 import type { RunRecoveryCheckpoint } from '../../../../storage/storage.ts'
@@ -56,6 +57,7 @@ function createRunContextDeps(input: {
   events: unknown[]
   messages: MessageRecord[]
   workspacePath: string
+  config?: SettingsConfig
   updatedMessages?: MessageRecord[]
   runs?: RunRecord[]
   activitySourceRecords?: unknown[]
@@ -63,7 +65,7 @@ function createRunContextDeps(input: {
   isModelImageCapable?: boolean
   readSoulDocument?: RunExecutionDeps['readSoulDocument']
 }): RunExecutionDeps {
-  const config: SettingsConfig = {
+  const config: SettingsConfig = input.config ?? {
     ...DEFAULT_SETTINGS_CONFIG,
     subagentProfiles: [],
     workspace: { savedPaths: [] }
@@ -318,6 +320,66 @@ test('prepareServerRunContext injects consumed activity and reports it as a cont
         summary: '2 apps'
       }
     )
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('prepareServerRunContext applies the configured time zone to system and reminder time', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'yachiyo-run-time-zone-'))
+  const thread: ThreadRecord = {
+    id: 'thread-time-zone',
+    title: 'Thread',
+    workspacePath: root,
+    updatedAt: '2026-08-21T18:44:00.000Z'
+  }
+  const requestMessage: MessageRecord = {
+    id: 'msg-time-zone',
+    threadId: thread.id,
+    role: 'user',
+    content: 'What time is it?',
+    status: 'completed',
+    createdAt: '2026-08-21T18:44:00.000Z'
+  }
+  const config: SettingsConfig = {
+    ...DEFAULT_SETTINGS_CONFIG,
+    general: { ...DEFAULT_SETTINGS_CONFIG.general, contextTimeZone: 'Asia/Shanghai' },
+    subagentProfiles: [],
+    workspace: { savedPaths: [] }
+  }
+
+  try {
+    const possibleSystemDates = new Set([formatDateLine(new Date(), 'Asia/Shanghai')])
+    const context = await prepareServerRunContext(
+      createRunContextDeps({ events: [], messages: [requestMessage], workspacePath: root, config }),
+      {
+        runId: 'run-time-zone',
+        thread,
+        requestMessageId: requestMessage.id,
+        enabledTools: [],
+        runMode: 'auto',
+        runTrigger: 'local',
+        abortController: new AbortController(),
+        requestMessage,
+        historyMessages: [requestMessage],
+        persistTurnContext: false,
+        includeMemoryRecall: false,
+        applyStripCompact: false
+      }
+    )
+    possibleSystemDates.add(formatDateLine(new Date(), 'Asia/Shanghai'))
+
+    const systemContent = context.messages
+      .filter((message) => message.role === 'system')
+      .map((message) => message.content)
+      .join('\n')
+    const userContent = context.messages
+      .filter((message) => message.role === 'user')
+      .map((message) => message.content)
+      .join('\n')
+
+    assert.ok([...possibleSystemDates].some((date) => systemContent.includes(`Today is ${date}.`)))
+    assert.match(userContent, /Current time \(Asia\/Shanghai\):\n- Time: 02:44/)
   } finally {
     await rm(root, { recursive: true, force: true })
   }

@@ -51,7 +51,8 @@ const GENERAL_KEYS_BY_PANEL: Partial<Record<SettingsPanelId, readonly (keyof Gen
     'notifyCodingTaskStarted',
     'notifyCodingTaskFinished',
     'translatorShortcut',
-    'jotdownShortcut'
+    'jotdownShortcut',
+    'contextTimeZone'
   ],
   source: ['activityTracking'],
   about: ['demoMode']

@@ -51,6 +51,13 @@ test('attributes a general appearance change to the general panel only', () => {
   assert.deepEqual([...getDirtySettingsPanels(input({ draftConfig }))], ['general'])
 })
 
+test('attributes context time zone changes to the general panel', () => {
+  const draftConfig = baseConfig()
+  draftConfig.general!.contextTimeZone = 'Asia/Shanghai'
+
+  assert.deepEqual([...getDirtySettingsPanels(input({ draftConfig }))], ['general'])
+})
+
 test('attributes activity tracking to sources even though it lives under general', () => {
   const draftConfig = baseConfig()
   draftConfig.general!.activityTracking = { mode: 'off' }

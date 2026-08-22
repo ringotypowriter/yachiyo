@@ -806,6 +806,7 @@ export interface GeneralConfig {
   notifyCodingTaskFinished?: boolean
   translatorShortcut?: string
   jotdownShortcut?: string
+  contextTimeZone?: string
   activityTracking?: ActivityTrackingConfig
 }
 

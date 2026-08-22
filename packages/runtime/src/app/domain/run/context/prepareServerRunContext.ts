@@ -325,6 +325,7 @@ export async function prepareServerRunContext(
   }
 
   const config = deps.readConfig()
+  const contextTimeZone = config.general?.contextTimeZone || undefined
   let memoryEntries: string[] = []
   let recallDecision: RecallDecisionSnapshot | undefined
   if (
@@ -419,7 +420,10 @@ export async function prepareServerRunContext(
             workspacePath
           })
         : null,
-      buildCurrentTimeSection(hintTime, { includeDate: !isLocalOrOwnerDm }),
+      buildCurrentTimeSection(hintTime, {
+        includeDate: !isLocalOrOwnerDm,
+        timeZone: contextTimeZone
+      }),
       buildInboundAttachmentReminderSection(buildInboundAttachmentReminderItems(requestMessage)),
       planModeDocument ? buildPlanModeReminderSection(planModeDocument) : null,
       isVisibleSteerLeg ? buildSteerReminderSection() : null
@@ -543,7 +547,7 @@ export async function prepareServerRunContext(
       : prepareModelMessages({
           personality: {
             basePersona: isLocalOrOwnerDm
-              ? `Today is ${formatDateLine(now)}.\n\n${SYSTEM_PROMPT}`
+              ? `Today is ${formatDateLine(now, contextTimeZone)}.\n\n${SYSTEM_PROMPT}`
               : SYSTEM_PROMPT
           },
           soul: { content: soulDocument?.rawContent ?? '' },

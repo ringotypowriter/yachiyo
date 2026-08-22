@@ -70,6 +70,7 @@ export const settingsTomlSlices: readonly TomlConfigSlice<SettingsConfig, TomlDo
           ...(config.general?.jotdownShortcut != null
             ? { jotdownShortcut: config.general.jotdownShortcut }
             : {}),
+          contextTimeZone: config.general?.contextTimeZone ?? '',
           ...(config.general?.activityTracking
             ? {
                 activityTracking: {

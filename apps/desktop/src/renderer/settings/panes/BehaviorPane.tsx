@@ -47,6 +47,12 @@ interface BehaviorPaneProps {
   onNavigateToRoute: (route: string) => void
 }
 
+const SYSTEM_TIME_ZONE = Intl.DateTimeFormat().resolvedOptions().timeZone
+const AVAILABLE_TIME_ZONES = [
+  'UTC',
+  ...Intl.supportedValuesOf('timeZone').filter((timeZone) => timeZone !== 'UTC')
+]
+
 function RevertButton({
   disabled,
   onClick
@@ -353,6 +359,11 @@ export function BehaviorPane({
   const notifyRunCompleted = draft.general?.notifyRunCompleted !== false
   const notifyCodingTaskStarted = draft.general?.notifyCodingTaskStarted !== false
   const notifyCodingTaskFinished = draft.general?.notifyCodingTaskFinished !== false
+  const contextTimeZone = draft.general?.contextTimeZone ?? ''
+  const timeZones =
+    contextTimeZone && !AVAILABLE_TIME_ZONES.includes(contextTimeZone)
+      ? [contextTimeZone, ...AVAILABLE_TIME_ZONES]
+      : AVAILABLE_TIME_ZONES
 
   return (
     <div className="flex-1 overflow-y-auto pb-6">
@@ -534,6 +545,33 @@ export function BehaviorPane({
 
       <SettingSection>
         <SettingLabel>{t('settings.behavior.personalizationSection')}</SettingLabel>
+
+        <SettingItem
+          label={t('settings.behavior.contextTimeZoneLabel')}
+          description={t('settings.behavior.contextTimeZoneDesc')}
+          control={
+            <SimpleSelect<string>
+              value={contextTimeZone}
+              options={[
+                {
+                  value: '',
+                  label: t('settings.behavior.systemTimeZone', { timeZone: SYSTEM_TIME_ZONE })
+                },
+                ...timeZones.map((timeZone) => ({ value: timeZone, label: timeZone }))
+              ]}
+              onChange={(next) =>
+                onChange({
+                  ...draft,
+                  general: { ...draft.general, contextTimeZone: next }
+                })
+              }
+              width={220}
+              searchable
+              searchPlaceholder={t('settings.behavior.searchTimeZones')}
+              emptyLabel={t('settings.behavior.noTimeZones')}
+            />
+          }
+        />
 
         <SettingItem
           label="USER.md"

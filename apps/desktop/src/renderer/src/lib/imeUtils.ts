@@ -2,7 +2,9 @@
 // when a key event is still being handled by the input method.
 const IME_PROCESSING_KEY_CODE = 229
 
-function isImeComposingKeyEvent(event: Pick<KeyboardEvent, 'isComposing' | 'keyCode'>): boolean {
+export function isImeComposingKeyEvent(
+  event: Pick<KeyboardEvent, 'isComposing' | 'keyCode'>
+): boolean {
   return event.isComposing || event.keyCode === IME_PROCESSING_KEY_CODE
 }
 

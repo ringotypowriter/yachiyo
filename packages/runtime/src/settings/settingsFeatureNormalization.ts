@@ -34,6 +34,18 @@ function normalizeAppLanguage(value: unknown): AppLanguage {
   return value === 'en' || value === 'zh-CN' ? value : 'auto'
 }
 
+function normalizeTimeZone(value: unknown): string {
+  const timeZone = normalizeString(value, '')
+  if (!timeZone) return ''
+
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone }).format()
+    return timeZone
+  } catch {
+    return ''
+  }
+}
+
 export function normalizeGeneralConfig(value: unknown): GeneralConfig {
   const input = asRecord(value)
   const result: GeneralConfig = {
@@ -61,7 +73,8 @@ export function normalizeGeneralConfig(value: unknown): GeneralConfig {
     jotdownShortcut: normalizeString(
       input['jotdownShortcut'],
       DEFAULT_SETTINGS_CONFIG.general?.jotdownShortcut ?? 'CommandOrControl+Shift+J'
-    )
+    ),
+    contextTimeZone: normalizeTimeZone(input['contextTimeZone'])
   }
 
   const rawChannel = input['updateChannel']

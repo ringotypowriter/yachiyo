@@ -94,6 +94,21 @@ test('general shortcut fields round-trip through TOML serialization', async () =
   }
 })
 
+test('context time zone round-trips through TOML and rejects invalid zones', () => {
+  const serialized = stringifySettingsToml(
+    normalizeSettingsConfig({ providers: [], general: { contextTimeZone: 'Asia/Shanghai' } })
+  )
+  const reloaded = normalizeSettingsConfig(parseSettingsToml(serialized))
+
+  assert.match(serialized, /contextTimeZone = "Asia\/Shanghai"/)
+  assert.equal(reloaded.general?.contextTimeZone, 'Asia/Shanghai')
+  assert.equal(
+    normalizeSettingsConfig({ providers: [], general: { contextTimeZone: 'Not/AZone' } }).general
+      ?.contextTimeZone,
+    ''
+  )
+})
+
 test('sync folder path round-trips through TOML serialization', async () => {
   const root = await mkdtemp(join(tmpdir(), 'yachiyo-settings-sync-'))
   const settingsPath = join(root, 'config.toml')
@@ -595,6 +610,7 @@ test('normalization preserves every GeneralConfig key', () => {
     notifyCodingTaskFinished: false,
     translatorShortcut: 'Alt+T',
     jotdownShortcut: 'Alt+J',
+    contextTimeZone: 'Asia/Shanghai',
     activityTracking: {
       mode: 'full',
       accessibilityDenied: true,

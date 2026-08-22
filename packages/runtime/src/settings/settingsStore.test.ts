@@ -979,6 +979,7 @@ test('normalizeSettingsConfig falls back to the default sidebar visibility', () 
     notifyCodingTaskFinished: true,
     translatorShortcut: 'CommandOrControl+Shift+T',
     jotdownShortcut: 'CommandOrControl+Shift+J',
+    contextTimeZone: '',
     activityTracking: { mode: 'simple', ocr: { enabled: false, excludedApps: [] } },
     themeId: DEFAULT_THEME_ID,
     themeAppearance: DEFAULT_THEME_APPEARANCE
@@ -1003,6 +1004,7 @@ test('normalizeSettingsConfig falls back to the default sidebar visibility', () 
       notifyCodingTaskFinished: true,
       translatorShortcut: 'CommandOrControl+Shift+T',
       jotdownShortcut: 'CommandOrControl+Shift+J',
+      contextTimeZone: '',
       activityTracking: { mode: 'simple', ocr: { enabled: false, excludedApps: [] } },
       themeId: DEFAULT_THEME_ID,
       themeAppearance: DEFAULT_THEME_APPEARANCE
@@ -1023,6 +1025,7 @@ test('normalizeSettingsConfig normalizes theme preferences', () => {
     notifyCodingTaskFinished: true,
     translatorShortcut: 'CommandOrControl+Shift+T',
     jotdownShortcut: 'CommandOrControl+Shift+J',
+    contextTimeZone: '',
     activityTracking: { mode: 'simple', ocr: { enabled: false, excludedApps: [] } },
     themeId: DEFAULT_THEME_ID,
     themeAppearance: DEFAULT_THEME_APPEARANCE
