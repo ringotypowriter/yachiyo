@@ -19,6 +19,7 @@ import {
 import { theme } from '@renderer/theme/theme'
 import { resolveThreadTitleColor } from '@renderer/features/threads/lib/threadColorPalette'
 import { resolveThreadSidebarPreview } from '@renderer/features/threads/lib/threadSidebarRows'
+import { SidebarShadowPlaceholder } from './SidebarShadowPlaceholder'
 
 function extractFirstEmoji(text: string): string | null {
   const segmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' })
@@ -91,6 +92,7 @@ export function ThreadListItem({
   currentTimeMs,
   sentinel,
   pendingPlanApproval,
+  redacted,
   isSelectMode,
   isSelected,
   isStarred,
@@ -120,6 +122,7 @@ export function ThreadListItem({
   currentTimeMs: number
   sentinel?: ThreadSentinelRecord
   pendingPlanApproval: boolean
+  redacted: boolean
   isSelectMode: boolean
   isSelected: boolean
   isStarred: boolean
@@ -178,6 +181,74 @@ export function ThreadListItem({
   const sentinelRemainingMinutes = sentinel?.nextRunAt
     ? Math.max(0, Math.ceil((Date.parse(sentinel.nextRunAt) - currentTimeMs) / 60_000))
     : null
+
+  if (redacted) {
+    const icon = thread.icon ? (
+      <span
+        className="shrink-0 flex items-center select-none leading-none"
+        style={{ fontSize: showPreview ? '1.45em' : '1.15em' }}
+      >
+        {thread.icon}
+      </span>
+    ) : !showPreview ? (
+      <span className="shrink-0 flex items-center justify-center" style={{ width: 16, height: 16 }}>
+        <span
+          className="rounded-full"
+          style={{ width: 5, height: 5, background: theme.text.muted }}
+        />
+      </span>
+    ) : null
+    const titleAccessory = (
+      <>
+        {isSyncedArchive ? (
+          <Lock
+            size={11}
+            strokeWidth={1.75}
+            className="shrink-0"
+            style={{ color: theme.text.muted }}
+          />
+        ) : null}
+        {sentinel ? (
+          <span
+            className="inline-flex h-3.5 w-4 shrink-0 items-center justify-center rounded"
+            style={{ color: theme.text.inverse, background: theme.text.accentStrong }}
+          >
+            <AlarmClock size={9} strokeWidth={2} />
+          </span>
+        ) : null}
+      </>
+    )
+    const trailing = sentinel ? null : isSaving ? (
+      <span
+        className="h-[7px] w-[7px] shrink-0 rounded-full"
+        style={{ background: theme.text.muted, opacity: 0.8 }}
+      />
+    ) : hasActiveRun ? (
+      <span
+        className="h-[7px] w-[7px] shrink-0 rounded-full"
+        style={{ background: theme.text.accentStrong }}
+      />
+    ) : hasJustDoneRun ? (
+      <span
+        className="h-[7px] w-[7px] shrink-0 rounded-full"
+        style={{ background: theme.text.accent }}
+      />
+    ) : isUnreadArchived ? (
+      <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: theme.text.accent }} />
+    ) : isStarred ? (
+      <Star size={11} strokeWidth={0} fill={theme.text.warning} color={theme.text.warning} />
+    ) : null
+
+    return (
+      <SidebarShadowPlaceholder
+        variant="thread"
+        showPreview={showPreview}
+        icon={icon}
+        titleAccessory={titleAccessory}
+        trailing={trailing}
+      />
+    )
+  }
 
   function handleIconClick(e: React.MouseEvent): void {
     e.stopPropagation()

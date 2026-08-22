@@ -25,6 +25,7 @@ export const layout = {
     serverReady: '服务已就绪',
     serverOffline: '服务离线',
     externalThreads: '外部会话',
+    screenshotMode: '截图模式',
     onBadge: '开',
     translator: '翻译',
     jotDown: '随手记'

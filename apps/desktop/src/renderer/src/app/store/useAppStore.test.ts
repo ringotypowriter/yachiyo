@@ -47,6 +47,7 @@ function resetStore(): void {
     lastError: null,
     latestRunsByThread: {},
     externalThreads: [],
+    screenshotMode: false,
     showExternalThreads: false,
     runsByThread: {},
     retryInfoByThread: {},
@@ -137,6 +138,16 @@ function installAnimationFrameMock(): void {
     callback(0)
   }
 }
+
+test('toggleScreenshotMode toggles the sidebar redaction state', () => {
+  resetStore()
+
+  useAppStore.getState().toggleScreenshotMode()
+  assert.equal(useAppStore.getState().screenshotMode, true)
+
+  useAppStore.getState().toggleScreenshotMode()
+  assert.equal(useAppStore.getState().screenshotMode, false)
+})
 
 test('rejectPlanDocument only marks the plan rejected', async () => {
   resetStore()

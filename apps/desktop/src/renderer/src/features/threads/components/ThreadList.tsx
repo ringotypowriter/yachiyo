@@ -162,6 +162,7 @@ function FolderAwareThreadList({
   collapsedFolderIds,
   draftThreadIds,
   scrollElement,
+  screenshotMode,
   showPreview,
   mode,
   toggleFolderCollapsed,
@@ -179,6 +180,7 @@ function FolderAwareThreadList({
   collapsedFolderIds: Set<string>
   draftThreadIds: ReadonlySet<string>
   scrollElement: HTMLDivElement | null
+  screenshotMode: boolean
   showPreview: boolean
   mode: 'active' | 'archived'
   toggleFolderCollapsed: (folderId: string) => void
@@ -292,7 +294,7 @@ function FolderAwareThreadList({
           >
             {row.label}
           </div>
-        ) : mode === 'archived' ? (
+        ) : mode === 'archived' || screenshotMode ? (
           <div>{renderThreadItem(row.thread, { isInFolder: true })}</div>
         ) : (
           <DraggableThread thread={row.thread}>
@@ -302,7 +304,7 @@ function FolderAwareThreadList({
       </div>
     )
 
-    if (mode === 'archived') return childRow
+    if (mode === 'archived' || screenshotMode) return childRow
 
     return (
       <DroppableFolder folderId={row.folder.id} dropId={resolveSidebarFolderDropId(row)}>
@@ -346,7 +348,7 @@ function FolderAwareThreadList({
 
     if (row.kind === 'thread') {
       const threadNode = renderThreadItem(row.thread)
-      if (mode === 'archived') {
+      if (mode === 'archived' || screenshotMode) {
         return <div>{threadNode}</div>
       }
       return (
@@ -365,6 +367,7 @@ function FolderAwareThreadList({
           isCollapsed={isCollapsed}
           threadCount={folderThreads.length}
           mode={mode}
+          redacted={screenshotMode}
           onToggle={() => toggleFolderCollapsed(row.folder.id)}
           onRename={(title) => void renameFolder(row.folder.id, title)}
           onSetColor={(colorTag) => void setFolderColor(row.folder.id, colorTag)}
@@ -413,7 +416,7 @@ function FolderAwareThreadList({
                 )
               }
               const threadNode = renderThreadItem(child.thread, { isInFolder: true })
-              if (mode === 'archived') {
+              if (mode === 'archived' || screenshotMode) {
                 return <div key={child.thread.id}>{threadNode}</div>
               }
               return (
@@ -430,7 +433,7 @@ function FolderAwareThreadList({
         </div>
       )
 
-      if (mode === 'archived') {
+      if (mode === 'archived' || screenshotMode) {
         return (
           <div>
             {folderNode}
@@ -482,7 +485,7 @@ function FolderAwareThreadList({
     </div>
   )
 
-  if (mode === 'archived') {
+  if (mode === 'archived' || screenshotMode) {
     return virtualizedRows
   }
 
@@ -650,6 +653,7 @@ function ThreadListContent({
   const runStatusesByThread = useAppStore((s) => s.runStatusesByThread)
   const justDoneRunIdsByThread = useAppStore((s) => s.justDoneRunIdsByThread)
   const showPreview = useAppStore((s) => s.config?.general?.sidebarPreview) !== false
+  const screenshotMode = useAppStore((s) => s.screenshotMode)
   const [scrollElement, setScrollElement] = useState<HTMLDivElement | null>(null)
   const setScrollNode = useCallback((node: HTMLDivElement | null) => {
     setScrollElement((current) => (current === node ? current : node))
@@ -975,6 +979,7 @@ function ThreadListContent({
         currentTimeMs={currentTimeMs}
         sentinel={sentinel}
         pendingPlanApproval={planDocumentsByThread[thread.id]?.decision === 'pending'}
+        redacted={screenshotMode && thread.id !== activeId}
         isSelectMode={selectMode}
         isSelected={selectedIds.has(thread.id)}
         isStarred={!!thread.starredAt}
@@ -1143,6 +1148,7 @@ function ThreadListContent({
           collapsedFolderIds={collapsedFolderIds}
           draftThreadIds={draftThreadIds}
           scrollElement={scrollElement}
+          screenshotMode={screenshotMode}
           showPreview={showPreview}
           mode={threadListMode}
           toggleFolderCollapsed={toggleFolderCollapsed}

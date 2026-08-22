@@ -25,6 +25,7 @@ export const layout = {
     serverReady: 'Server ready',
     serverOffline: 'Server offline',
     externalThreads: 'External threads',
+    screenshotMode: 'Screenshot mode',
     onBadge: 'ON',
     translator: 'Translator',
     jotDown: 'Jot Down'

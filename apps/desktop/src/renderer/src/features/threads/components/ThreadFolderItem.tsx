@@ -14,6 +14,7 @@ import {
   threadColorFilterLabel
 } from '@renderer/features/threads/lib/threadColorPalette'
 import { ColorDotPicker } from './ColorDotPicker'
+import { SidebarShadowPlaceholder } from './SidebarShadowPlaceholder'
 
 function folderIconColor(colorTag: FolderColorTag | null | undefined): string {
   return resolveThreadColor(colorTag, theme.text.secondary)
@@ -24,6 +25,7 @@ interface ThreadFolderItemProps {
   isCollapsed: boolean
   threadCount: number
   mode: 'active' | 'archived'
+  redacted: boolean
   onToggle: () => void
   onRename: (title: string) => void
   onDelete: () => void
@@ -38,6 +40,7 @@ export function ThreadFolderItem({
   isCollapsed,
   threadCount,
   mode,
+  redacted,
   onToggle,
   onRename,
   onDelete,
@@ -80,6 +83,21 @@ export function ThreadFolderItem({
   }
 
   const iconColor = folderIconColor(folder.colorTag)
+
+  if (redacted) {
+    return (
+      <SidebarShadowPlaceholder
+        variant="folder"
+        icon={
+          isCollapsed ? (
+            <FolderClosed size={16} style={{ color: iconColor, flexShrink: 0 }} />
+          ) : (
+            <FolderOpen size={16} style={{ color: iconColor, flexShrink: 0 }} />
+          )
+        }
+      />
+    )
+  }
 
   return (
     <div>

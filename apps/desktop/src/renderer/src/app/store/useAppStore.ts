@@ -377,6 +377,7 @@ export interface AppState {
   folders: FolderRecord[]
   collapsedFolderIds: Set<string>
   externalThreads: Thread[]
+  screenshotMode: boolean
   showExternalThreads: boolean
   threadListMode: 'active' | 'archived'
   sidebarFilter: SidebarFilter
@@ -436,6 +437,7 @@ export interface AppState {
     options?: { confirmed?: boolean }
   ) => Promise<void>
   setThreadListMode: (mode: 'active' | 'archived') => void
+  toggleScreenshotMode: () => void
   toggleShowExternalThreads: () => void
   setThreadPrivacyMode: (threadId: string, enabled: boolean) => Promise<void>
   toggleEnabledTool: (toolName: ToolCallName) => Promise<void>
@@ -1158,6 +1160,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   settings: DEFAULT_SETTINGS,
   threads: [],
   externalThreads: [],
+  screenshotMode: false,
+  toggleScreenshotMode: () => set((state) => ({ screenshotMode: !state.screenshotMode })),
   showExternalThreads: false,
   threadListMode: deriveThreadListMode(loadSidebarFilter()),
   sidebarFilter: loadSidebarFilter(),

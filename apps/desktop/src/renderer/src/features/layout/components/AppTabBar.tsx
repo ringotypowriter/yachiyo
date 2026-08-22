@@ -80,7 +80,9 @@ export function AppTabBar({
     (s) => s.archivedThreads.filter((thread) => thread.archivedAt && !thread.readAt).length
   )
   const connectionStatus = useAppStore((s) => s.connectionStatus)
+  const screenshotMode = useAppStore((s) => s.screenshotMode)
   const showExternalThreads = useAppStore((s) => s.showExternalThreads)
+  const toggleScreenshotMode = useAppStore((s) => s.toggleScreenshotMode)
   const toggleShowExternalThreads = useAppStore((s) => s.toggleShowExternalThreads)
   const bottomTools = useMemo<AppTabBarBottomToolId[]>(
     () => [...resolveAppTabBarBottomTools(updateAvailable)],
@@ -266,7 +268,9 @@ export function AppTabBar({
           anchorRect={utilityMenuAnchor}
           referenceRef={utilityMenuTriggerRef}
           connectionStatus={connectionStatus}
+          screenshotMode={screenshotMode}
           showExternalThreads={showExternalThreads}
+          onToggleScreenshotMode={toggleScreenshotMode}
           onToggleExternalThreads={toggleShowExternalThreads}
           onOpenTranslator={handleOpenTranslator}
           onOpenJotdown={handleOpenJotdown}

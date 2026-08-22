@@ -1,3 +1,4 @@
+import { useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { CheckCheck, PanelLeft, Search, SquarePen } from 'lucide-react'
 import { tPlural } from '@yachiyo/i18n/index'
@@ -7,6 +8,7 @@ import { EssentialsBar } from '@renderer/features/essentials/components/Essentia
 import { SidebarSearch } from '@renderer/features/search/SidebarSearch'
 import { SidebarFilterBar } from '@renderer/features/threads/components/SidebarFilterBar'
 import { ThreadList } from '@renderer/features/threads/components/ThreadList'
+import { SidebarShadowPlaceholder } from '@renderer/features/threads/components/SidebarShadowPlaceholder'
 import { theme } from '@renderer/theme/theme'
 import { Tooltip } from '@renderer/components/Tooltip'
 
@@ -43,6 +45,7 @@ export function AppSidebarTopControls({
   const t = useT()
   const createNewThread = useAppStore((s) => s.createNewThread)
   const archivedThreads = useAppStore((s) => s.archivedThreads)
+  const screenshotMode = useAppStore((s) => s.screenshotMode)
   const isArchivedMode = mode === 'archived'
   const hasUnreadArchived = archivedThreads.some((t) => t.archivedAt && !t.readAt)
 
@@ -64,7 +67,9 @@ export function AppSidebarTopControls({
   return (
     <div className="grid w-full min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-1 no-drag">
       <div className="min-w-0" style={{ paddingLeft: SIDEBAR_FILTER_BUTTON_RIGHT_OFFSET_PX }}>
-        {isArchivedMode ? (
+        {screenshotMode ? (
+          <SidebarShadowPlaceholder variant={isArchivedMode ? 'label' : 'filter'} />
+        ) : isArchivedMode ? (
           <div className="truncate px-2 text-xs font-medium" style={{ color: theme.text.muted }}>
             {tPlural('layout.sidebar.threadCount', archivedThreads.length)}
           </div>
@@ -77,11 +82,12 @@ export function AppSidebarTopControls({
           <>
             <Tooltip content={t('layout.sidebar.searchArchivedChats')} placement="bottom">
               <button
+                disabled={screenshotMode}
                 onClick={onOpenSearch}
-                className="p-1.5 rounded-md transition-opacity"
+                className="p-1.5 rounded-md transition-opacity disabled:opacity-30"
                 style={{
                   color: theme.icon.default,
-                  opacity: isSearchOpen ? 0.9 : 0.5
+                  opacity: isSearchOpen && !screenshotMode ? 0.9 : 0.5
                 }}
                 aria-label={t('layout.sidebar.searchArchivedChats')}
               >
@@ -118,11 +124,12 @@ export function AppSidebarTopControls({
               <>
                 <Tooltip content={t('layout.sidebar.searchChats')} placement="bottom">
                   <button
+                    disabled={screenshotMode}
                     onClick={onOpenSearch}
-                    className="p-1.5 rounded-md transition-opacity"
+                    className="p-1.5 rounded-md transition-opacity disabled:opacity-30"
                     style={{
                       color: theme.icon.default,
-                      opacity: isSearchOpen ? 0.9 : 0.5
+                      opacity: isSearchOpen && !screenshotMode ? 0.9 : 0.5
                     }}
                     aria-label={t('layout.sidebar.searchChats')}
                   >
@@ -158,13 +165,30 @@ export function AppSidebarContent({
 }: AppSidebarContentProps): React.JSX.Element {
   const setActiveThread = useAppStore((s) => s.setActiveThread)
   const setActiveArchivedThread = useAppStore((s) => s.setActiveArchivedThread)
+  const screenshotMode = useAppStore((s) => s.screenshotMode)
   const isArchivedMode = mode === 'archived'
+
+  useEffect(() => {
+    if (screenshotMode && isSearchOpen) onCloseSearch()
+  }, [isSearchOpen, onCloseSearch, screenshotMode])
+
+  const threadList = (
+    <ThreadList
+      threadActivationEnabled={threadActivationEnabled}
+      onThreadSelect={onThreadSelect}
+      threadListModeOverride={isArchivedMode ? 'archived' : 'active'}
+    />
+  )
+
+  if (screenshotMode) {
+    return <div className="flex min-h-0 flex-1 flex-col">{threadList}</div>
+  }
 
   return (
     <>
       {!isArchivedMode && threadActivationEnabled ? <EssentialsBar /> : null}
       <AnimatePresence mode="wait" initial={false}>
-        {isSearchOpen && threadActivationEnabled ? (
+        {isSearchOpen && threadActivationEnabled && !screenshotMode ? (
           <motion.div
             key="search"
             initial={{ opacity: 0 }}
@@ -203,11 +227,7 @@ export function AppSidebarContent({
             transition={{ duration: 0.15 }}
             className="flex flex-col flex-1 min-h-0"
           >
-            <ThreadList
-              threadActivationEnabled={threadActivationEnabled}
-              onThreadSelect={onThreadSelect}
-              threadListModeOverride={isArchivedMode ? 'archived' : 'active'}
-            />
+            {threadList}
           </motion.div>
         )}
       </AnimatePresence>

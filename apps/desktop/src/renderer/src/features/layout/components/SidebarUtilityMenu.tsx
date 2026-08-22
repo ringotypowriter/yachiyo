@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { Languages, NotebookPen, Radio } from 'lucide-react'
+import { Camera, Languages, NotebookPen, Radio } from 'lucide-react'
 import { useT } from '@yachiyo/i18n/react'
 import type { ConnectionStatus } from '@renderer/app/types'
 import { theme } from '@renderer/theme/theme'
@@ -12,7 +12,9 @@ export interface SidebarUtilityMenuProps {
   anchorRect: DOMRect
   referenceRef: React.RefObject<HTMLButtonElement | null>
   connectionStatus: ConnectionStatus
+  screenshotMode: boolean
   showExternalThreads: boolean
+  onToggleScreenshotMode: () => void
   onToggleExternalThreads: () => void
   onOpenTranslator: () => void
   onOpenJotdown: () => void
@@ -23,7 +25,9 @@ export function SidebarUtilityMenu({
   anchorRect,
   referenceRef,
   connectionStatus,
+  screenshotMode,
   showExternalThreads,
+  onToggleScreenshotMode,
   onToggleExternalThreads,
   onOpenTranslator,
   onOpenJotdown,
@@ -136,6 +140,32 @@ export function SidebarUtilityMenu({
           <Radio size={14} strokeWidth={1.5} />
           <span>{t('layout.utilityMenu.externalThreads')}</span>
           {showExternalThreads && (
+            <span
+              className="ml-auto text-[10px] font-medium px-1.5 py-0.5 rounded"
+              style={{ background: theme.background.counterSurface, color: theme.text.counter }}
+            >
+              {t('layout.utilityMenu.onBadge')}
+            </span>
+          )}
+        </span>
+      </button>
+
+      {/* Screenshot mode toggle */}
+      <button
+        onClick={onToggleScreenshotMode}
+        className="w-full rounded-lg px-3 py-2 text-left text-[13px] transition-colors"
+        style={{ color: screenshotMode ? theme.text.accentStrong : theme.text.primary }}
+        onMouseEnter={(e) => {
+          ;(e.currentTarget as HTMLElement).style.background = theme.background.hoverStrong
+        }}
+        onMouseLeave={(e) => {
+          ;(e.currentTarget as HTMLElement).style.background = 'transparent'
+        }}
+      >
+        <span className="flex items-center gap-2.5">
+          <Camera size={14} strokeWidth={1.5} />
+          <span>{t('layout.utilityMenu.screenshotMode')}</span>
+          {screenshotMode && (
             <span
               className="ml-auto text-[10px] font-medium px-1.5 py-0.5 rounded"
               style={{ background: theme.background.counterSurface, color: theme.text.counter }}
