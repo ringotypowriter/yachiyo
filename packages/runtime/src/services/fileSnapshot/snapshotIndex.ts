@@ -5,12 +5,20 @@ import { join } from 'node:path'
 import { resolveYachiyoFileHistoryDir } from '../../config/paths.ts'
 import type { RunSnapshot, SnapshotSummary } from '@yachiyo/shared/fileSnapshot'
 
+const WINDOWS_RESERVED_FILE_STEM = /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])$/i
+
+function encodeSnapshotRunId(runId: string): string {
+  const encoded = encodeURIComponent(runId).replaceAll('*', '%2A')
+  if (!WINDOWS_RESERVED_FILE_STEM.test(encoded)) return encoded
+  return `%${encoded.charCodeAt(0).toString(16).toUpperCase()}${encoded.slice(1)}`
+}
+
 function snapshotsDir(workspaceHash: string): string {
   return join(resolveYachiyoFileHistoryDir(), workspaceHash, 'snapshots')
 }
 
 function snapshotPath(workspaceHash: string, runId: string): string {
-  return join(snapshotsDir(workspaceHash), `${runId}.json`)
+  return join(snapshotsDir(workspaceHash), `${encodeSnapshotRunId(runId)}.json`)
 }
 
 /** Persist a run snapshot to disk atomically (write tmp → rename). */

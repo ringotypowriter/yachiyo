@@ -1,7 +1,7 @@
 {
   "extends": "@electron-toolkit/tsconfig/tsconfig.node.json",
   "include": ["src/**/*"],
-  "exclude": ["**/*.test.ts", "**/*.test.tsx", "**/*.spec.ts", "**/*.spec.tsx"],
+  "exclude": ["src/storage/sqlite/sqlite.native.test.ts", "**/*.mac.test.ts"],
   "compilerOptions": {
     "allowImportingTsExtensions": true,
     "composite": false,

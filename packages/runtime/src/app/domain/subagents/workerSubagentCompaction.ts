@@ -13,6 +13,8 @@ const SUMMARIZATION_SYSTEM_PROMPT = `Create a compact working-state checkpoint f
 
 The checkpoint will replace older messages and appear immediately before retained recent messages. Capture the state another model needs to resume accurately: current goals, durable constraints and preferences, verified progress, active blockers, decisions with rationale, concrete next actions, and exact identifiers or errors that remain operationally relevant. Distinguish confirmed facts from unresolved assumptions instead of guessing.
 
+Read historical entries in their serialized order. Treat [Tool result ...] records and [User] reports of observed task state as verified evidence. Treat [Assistant] status claims as unverified unless a tool result supports them. For goals, constraints, and decisions, the latest explicit statement is current. For factual progress and status, verified evidence outranks unverified claims; when evidence has equal strength, the later entry wins. If a conflict remains, do not mark the disputed work Done: keep it In Progress when useful work can continue or Blocked when it cannot, and record the conflict in Critical Context.
+
 Return only the checkpoint, with these headings in order:
 
 ## Goal
@@ -29,11 +31,11 @@ Always emit every heading. Use checklist items for Done and In Progress, numbere
 
 const INITIAL_SUMMARIZATION_PROMPT = `<conversation> contains the older Worker messages that this checkpoint will replace. Build the first checkpoint from that source material.
 
-Describe the current working state rather than retelling the transcript. Treat work as Done only when the messages show it was completed or verified; treat work as In Progress when it began but remains unfinished; treat something as Blocked only when a dependency, unresolved decision, or failure currently prevents useful progress. List blocked work only under Blocked until it becomes actionable again. Record unresolved assumptions and material risks in Critical Context. Derive Next Steps from the remaining work.`
+Describe the current working state rather than retelling the transcript. Treat work as Done only when verified evidence shows completion; keep an unsupported assistant completion claim In Progress. Treat work as In Progress when it began but remains unfinished, and treat something as Blocked only when a dependency, unresolved decision, or failure currently prevents useful progress. List blocked work only under Blocked until it becomes actionable again. Record unresolved assumptions and material risks in Critical Context. Derive Next Steps from the remaining work.`
 
 const MAINTENANCE_SUMMARIZATION_PROMPT = `<conversation> contains new Worker history accumulated since the checkpoint in <previous-summary>. Produce one replacement checkpoint that represents the current working state.
 
-Carry forward goals, constraints, completed work, decisions, and critical context that remain valid. A newer explicit statement or verified result supersedes conflicting older checkpoint state; when newer evidence does not clearly resolve the conflict, record the uncertainty in Critical Context. Move finished work to Done, retain genuinely unfinished work in In Progress, remove resolved blockers, and replace superseded next steps. Remove duplicate or transient narration that no longer helps continuation.`
+Treat every event in <conversation> as later than <previous-summary>. Carry forward goals, constraints, completed work, decisions, and critical context that remain valid, applying the shared chronology and evidence rules when newer history conflicts with the checkpoint. Move finished work to Done, retain genuinely unfinished work in In Progress, remove resolved blockers, and replace superseded next steps. Remove duplicate or transient narration that no longer helps continuation.`
 
 export type WorkerCompactionPhase = 'initial' | 'maintenance'
 
@@ -248,7 +250,7 @@ function buildSummaryPrompt(
 }
 
 function buildCompactedSystemPrompt(systemPrompt: string, summary: string): string {
-  return `${systemPrompt}\n\n<worker-context-checkpoint>\n${summary}\n</worker-context-checkpoint>\n\nContinue from this checkpoint. Treat it as prior context, not as a new user request.`
+  return `${systemPrompt}\n\nInside <worker-context-checkpoint>, "&lt;", "&gt;", and "&amp;" represent literal checkpoint characters.\n<worker-context-checkpoint>\n${escapeTaggedSource(summary)}\n</worker-context-checkpoint>\n\nContinue from this checkpoint. Treat it as prior context, not as a new user request.`
 }
 
 function assertPositiveInteger(name: string, value: number): void {
