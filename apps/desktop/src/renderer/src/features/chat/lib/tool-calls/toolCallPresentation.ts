@@ -8,6 +8,7 @@ import type {
   JsReplToolCallDetails,
   ReadToolCallDetails,
   ToolCall,
+  UseBrowserToolCallDetails,
   WebReadToolCallDetails,
   WebSearchToolCallDetails,
   WriteToolCallDetails
@@ -277,6 +278,16 @@ function buildFallbackOutput(toolCall: ToolCall): ToolCallDetailCodeBlock | unde
           ...(repl.error || toolCall.status === 'failed' ? { tone: 'danger' as const } : {})
         }
       : undefined
+  }
+
+  if (toolCall.toolName === 'useBrowser' && details) {
+    const browser = details as UseBrowserToolCallDetails
+    if (browser.action === 'snapshot' && browser.content?.trim()) {
+      return {
+        label: t('chat.tools.output'),
+        value: browser.content.trimEnd()
+      }
+    }
   }
 
   if (toolCall.toolName === 'webRead' && details) {

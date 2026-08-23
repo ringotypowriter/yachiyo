@@ -234,6 +234,43 @@ test('useBrowserTool: snapshot returns refs and refCount', async () => {
   assert.match(text, /@e2/)
 })
 
+test('useBrowserTool: snapshot preserves every returned ref for the model and tool history', async () => {
+  const refs = Array.from({ length: 40 }, (_, index) => ({
+    ref: `e${index + 1}`,
+    tag: 'button',
+    text: `Result ${index + 1}`
+  }))
+  const tool = createTool(makeContext(), {
+    browserAutomationService: makeService({
+      snapshot: async () => ({
+        url: 'https://example.com/results',
+        title: 'Results',
+        pageText: { headings: [], snippets: [] },
+        refCount: refs.length,
+        refs
+      })
+    })
+  })
+  assert.ok(tool.execute)
+
+  const result = await resolveToolOutput(
+    tool.execute(
+      { action: 'snapshot', session: 's1', ...TOOL_INPUT_DEFAULTS },
+      TOOL_EXECUTION_OPTIONS
+    )
+  )
+  const content = result.content
+    .filter((block) => block.type === 'text')
+    .map((block) => (block.type === 'text' ? block.text : ''))
+    .join('')
+
+  assert.equal(result.details.refCount, 40)
+  assert.match(content, /^@e40 <button> — Result 40$/m)
+  assert.doesNotMatch(content, /… \+10 more/)
+  assert.ok('content' in result.details)
+  assert.equal(result.details.content, content)
+})
+
 test('useBrowserTool: scroll reports updated page state', async () => {
   const tool = createTool(makeContext(), { browserAutomationService: makeService() })
   assert.ok(tool.execute)

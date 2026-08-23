@@ -33,10 +33,9 @@ function formatAttemptSuffix(attempts: number): string {
   return attempts > 1 ? ` after ${attempts} attempts` : ''
 }
 
-function formatRefs(snapshot: BrowserAutomationSnapshot, limit = 30): string {
+function formatRefs(snapshot: BrowserAutomationSnapshot): string {
   if (snapshot.refs.length === 0) return ''
-  const shown = snapshot.refs.slice(0, limit)
-  const lines = shown.map((ref) => {
+  const lines = snapshot.refs.map((ref) => {
     const bits: string[] = []
     if (ref.text) bits.push(ref.text)
     if (ref.ariaLabel) bits.push(`aria="${ref.ariaLabel}"`)
@@ -50,9 +49,7 @@ function formatRefs(snapshot: BrowserAutomationSnapshot, limit = 30): string {
     const label = bits.length > 0 ? ` — ${bits.join(' | ')}` : ''
     return `@${ref.ref} <${ref.tag}>${label}`
   })
-  const omitted =
-    snapshot.refs.length > shown.length ? `\n… +${snapshot.refs.length - shown.length} more` : ''
-  return `${lines.join('\n')}${omitted}`
+  return lines.join('\n')
 }
 
 function formatPageText(snapshot: BrowserAutomationSnapshot): string {
@@ -276,7 +273,8 @@ export function createTool(
                 ...baseDetails,
                 finalUrl: snapshot.url,
                 ...(snapshot.title ? { title: snapshot.title } : {}),
-                refCount: snapshot.refCount
+                refCount: snapshot.refCount,
+                content: body
               }),
               metadata: {}
             }

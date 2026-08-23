@@ -38,6 +38,7 @@ export type {
   ToolCallName,
   ToolCallRecord as ToolCall,
   ToolCallDetailsSnapshot,
+  UseBrowserToolCallDetails,
   WebSearchBrowserImportSource,
   WebSearchToolCallDetails,
   WriteToolCallDetails,

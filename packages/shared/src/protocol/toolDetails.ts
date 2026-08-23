@@ -222,6 +222,8 @@ export interface UseBrowserToolCallDetails {
   savedFilePath?: string
   bytesWritten?: number
   refCount?: number
+  /** Model-visible snapshot text persisted for tool-call inspection. */
+  content?: string
   finalUrl?: string
   title?: string
 }

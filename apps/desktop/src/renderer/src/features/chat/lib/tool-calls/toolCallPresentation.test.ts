@@ -56,6 +56,36 @@ test('buildToolCallDetailsPresentation shows read content excerpt from details w
   })
 })
 
+test('buildToolCallDetailsPresentation shows persisted browser snapshot content', () => {
+  const content = [
+    'Results',
+    'https://example.com/results',
+    '',
+    '@e1 <a> — First result',
+    '@e40 <button> — Last result'
+  ].join('\n')
+  const presentation = buildToolCallDetailsPresentation({
+    ...BASE_TOOL_CALL,
+    toolName: 'useBrowser',
+    inputSummary: 'snapshot (ssd-price)',
+    outputSummary: 'snapshot (40 refs)',
+    details: {
+      kind: 'useBrowser',
+      action: 'snapshot',
+      session: 'ssd-price',
+      finalUrl: 'https://example.com/results',
+      title: 'Results',
+      refCount: 40,
+      content
+    }
+  })
+
+  assert.deepEqual(presentation.output, {
+    label: 'Output',
+    value: content
+  })
+})
+
 test('buildToolCallDetailsPresentation shows complete bash command and output from details', () => {
   const presentation = buildToolCallDetailsPresentation({
     ...BASE_TOOL_CALL,
