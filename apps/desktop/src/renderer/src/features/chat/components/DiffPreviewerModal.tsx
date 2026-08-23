@@ -7,7 +7,7 @@ import { useAppStore } from '@renderer/app/store/useAppStore'
 import { AppDialog } from '@renderer/components/AppDialog'
 import { useAppDialog } from '@renderer/components/AppDialogContext'
 import { ConfirmDialog } from '@renderer/components/ConfirmDialog'
-import { resolveTimelineFileOpenTarget } from '@renderer/lib/markdown/linkableCodeFileAction'
+import { buildDiffFileOpenRequest } from './diffFileOpenRequest'
 import { ToolCodeBlock } from './ToolCodeBlock'
 import type { FileChangeForReview, FileChangeStatus } from '@yachiyo/shared/fileSnapshot'
 
@@ -42,7 +42,6 @@ export function DiffPreviewerModal({
   const t = useT()
   const dialog = useAppDialog()
   const editorApp = useAppStore((s) => s.config?.workspace?.editorApp)
-  const markdownApp = useAppStore((s) => s.config?.workspace?.markdownApp)
   const [changes, setChanges] = useState<FileChangeForReview[] | null>(null)
   const [error, setError] = useState(false)
   const [selectedIdx, setSelectedIdx] = useState(0)
@@ -121,28 +120,17 @@ export function DiffPreviewerModal({
 
   const handleOpenFile = useCallback(
     async (relativePath: string) => {
-      const fullPath = workspacePath.endsWith('/')
-        ? `${workspacePath}${relativePath}`
-        : `${workspacePath}/${relativePath}`
-      const target = resolveTimelineFileOpenTarget({ filePath: fullPath, editorApp, markdownApp })
-      if (target.mode === 'unavailable') return
+      const request = buildDiffFileOpenRequest({ workspacePath, relativePath, editorApp })
+      if (!request) return
       try {
-        await window.api.yachiyo.openFile({
-          path: fullPath,
-          ...(target.mode === 'configured'
-            ? {
-                appSelection: target.appSelection,
-                appKind: target.appKind
-              }
-            : {})
-        })
+        await window.api.yachiyo.openFile(request)
       } catch (error) {
         await dialog.alert({
           title: error instanceof Error ? error.message : t('chat.diff.openFileFailed')
         })
       }
     },
-    [dialog, editorApp, markdownApp, t, workspacePath]
+    [dialog, editorApp, t, workspacePath]
   )
 
   const selected = changes?.[selectedIdx]
@@ -269,12 +257,12 @@ export function DiffPreviewerModal({
                   <div className="flex items-center gap-1.5">
                     {selected.status !== 'deleted'
                       ? (() => {
-                          const target = resolveTimelineFileOpenTarget({
-                            filePath: selected.relativePath,
-                            editorApp,
-                            markdownApp
+                          const request = buildDiffFileOpenRequest({
+                            workspacePath,
+                            relativePath: selected.relativePath,
+                            editorApp
                           })
-                          return target.mode !== 'unavailable' ? (
+                          return request ? (
                             <button
                               type="button"
                               onClick={() => handleOpenFile(selected.relativePath)}
@@ -287,9 +275,7 @@ export function DiffPreviewerModal({
                               }}
                             >
                               <SquareArrowOutUpRight size={10} strokeWidth={2} />
-                              {target.mode === 'configured'
-                                ? t('chat.diff.openInApp', { app: target.appSelection })
-                                : t('chat.diff.openWithDefaultApp')}
+                              {t('chat.diff.openInApp', { app: request.appSelection })}
                             </button>
                           ) : null
                         })()
