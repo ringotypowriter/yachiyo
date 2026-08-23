@@ -304,7 +304,8 @@ export function createChannelGroupDiscussionService(
       groupLabel: group.label || undefined,
       personaSummary: GROUP_PERSONA_PROMPT,
       ownerInstruction: channelsConfig.guestInstruction,
-      groupUserDocument: groupUserDoc?.content
+      groupUserDocument: groupUserDoc?.content,
+      contextTimeZone: server.getContextTimeZone()
     })
     const { thread: probeThread, created: probeThreadCreated } = await resolveGroupProbeThread({
       logLabel,

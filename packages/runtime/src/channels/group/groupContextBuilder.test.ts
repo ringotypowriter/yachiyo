@@ -2,14 +2,30 @@ import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
 
 import {
+  buildGroupProbeContextPrompt,
   buildGroupProbeMessages,
   formatGapDuration,
   formatGroupMessages,
   formatGroupProbeTurnDelta,
   sanitizeMessageText
 } from './groupContextBuilder.ts'
+import { formatDateLine } from '../../runtime/context/queryReminder.ts'
 import type { GroupMessageEntry } from '@yachiyo/shared/protocol'
 
+describe('buildGroupProbeContextPrompt', () => {
+  it('formats the probe date in the configured context time zone', () => {
+    const now = new Date('2026-08-23T23:30:00.000Z')
+    const prompt = buildGroupProbeContextPrompt({
+      botName: 'Yachiyo',
+      groupName: 'TestGroup',
+      contextTimeZone: 'Asia/Shanghai',
+      now
+    })
+
+    assert.ok(prompt.includes(`今天是 ${formatDateLine(now, 'Asia/Shanghai')}`))
+    assert.ok(!prompt.includes(`今天是 ${formatDateLine(now, 'UTC')}`))
+  })
+})
 function msg(text: string, name = 'Alice', isMention = false): GroupMessageEntry {
   return {
     senderName: name,

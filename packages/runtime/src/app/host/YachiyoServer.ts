@@ -1985,6 +1985,11 @@ export class YachiyoServer {
     return toEffectiveProviderSettings(this.configDomain.readConfig(), modelOverride)
   }
 
+  getContextTimeZone(): string | undefined {
+    const contextTimeZone = this.configDomain.readConfig().general?.contextTimeZone
+    return contextTimeZone ? contextTimeZone : undefined
+  }
+
   getMemoryService(): MemoryService {
     return this.memoryService
   }

@@ -11,6 +11,7 @@
  */
 
 import type { GroupMessageEntry } from '@yachiyo/shared/protocol'
+import { formatDateLine } from '../../runtime/context/queryReminder.ts'
 import type { ModelMessage } from '../../runtime/models/types.ts'
 import { getDescribedImages, hasGroupProbeVisibleContent } from './groupMessageReadiness.ts'
 
@@ -168,7 +169,6 @@ export function formatGroupProbeTurnDelta(
 // ---------------------------------------------------------------------------
 // Unified probe system prompt
 // ---------------------------------------------------------------------------
-
 export interface BuildGroupProbeSystemPromptInput {
   botName: string
   groupName: string
@@ -180,6 +180,10 @@ export interface BuildGroupProbeSystemPromptInput {
   ownerInstruction?: string
   /** Content of the per-group USER.md (people directory, group context, etc.). */
   groupUserDocument?: string
+  /** Time zone used when presenting the current date to the probe model. */
+  contextTimeZone?: string
+  /** Clock override for deterministic callers and tests. */
+  now?: Date
 }
 
 export function buildGroupProbeBehaviorPrompt(): string {
@@ -195,13 +199,20 @@ export function buildGroupProbeBehaviorPrompt(): string {
 她的话要有自己的意思，而不是为了显得礼貌而应和。语气和长短跟着当时的话题走：随口反应可以很短，值得认真聊的技术或情绪也可以完整说清。幽默应该来自她对事情的真实反应；当她只想平常地回一句时，平常话就是最自然的话。
 
 如果她决定开口，调用 \`send_group_message\`，把 \`message\` 写成群友实际会看到的完整消息。一次生成最多成功发送一条。如果她决定这一刻不说，就不调用这个工具。你的普通输出可以用来私下思考，群友看不到；工具返回的结果才说明消息是否真正送达。如果工具说消息没有可见文字，就把真正想说的话补完，只改正一次；如果平台没有确认送达，这一轮就先停下，等后续群消息到来再继续，避免同一句被重复发出。
-
 当她需要当前事实才能说负责任的话时，可以用读取或搜索工具查证；无法查证时，就把不确定说清楚，而不把旧信息当成现在的事实。\`updateProfile\` 用来保存以后仍有用的人物关系、群习惯和反复话题；当晚一次性的聊天留在聊天里就好。`
 }
 
 export function buildGroupProbeContextPrompt(input: BuildGroupProbeSystemPromptInput): string {
-  const { botName, groupName, groupLabel, personaSummary, ownerInstruction, groupUserDocument } =
-    input
+  const {
+    botName,
+    groupName,
+    groupLabel,
+    personaSummary,
+    ownerInstruction,
+    groupUserDocument,
+    contextTimeZone,
+    now
+  } = input
 
   const personaBlock = personaSummary
     ? `\n\n这是八千代的身份和性格。它提供她理解群聊和表达自己的角度：\n${personaSummary}\n`
@@ -215,12 +226,7 @@ export function buildGroupProbeContextPrompt(input: BuildGroupProbeSystemPromptI
     ? `\n\n这是之前为这个群留下的长期资料，用它识别人物、关系和持续的话题：\n${groupUserDocument.trim()}\n`
     : ''
 
-  const now = new Date()
-  const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
-  const y = now.getFullYear()
-  const m = String(now.getMonth() + 1).padStart(2, '0')
-  const d = String(now.getDate()).padStart(2, '0')
-  const today = `${y}-${m}-${d} (${dayNames[now.getDay()]})`
+  const today = formatDateLine(now, contextTimeZone)
 
   return `今天是 ${today}。你是群“${groupName}”${groupLabel ? `（${groupLabel}）` : ''}里的 ${botName}。下面的资料是你理解这段实时群聊时使用的背景，不是要向群友复述的文字。${personaBlock}${groupDocBlock}${ownerBlock}`.trim()
 }
