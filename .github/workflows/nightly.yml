@@ -4,6 +4,16 @@ on:
   schedule:
     - cron: '0 0 * * *'
   workflow_dispatch:
+    inputs:
+      platform:
+        description: Build platform
+        required: true
+        default: both
+        type: choice
+        options:
+          - both
+          - windows
+          - macos
 
 concurrency:
   group: nightly
@@ -60,7 +70,6 @@ jobs:
       nightly_version: ${{ steps.nightly.outputs.nightly_version }}
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-node@v4
         with:
           node-version-file: .node-version
@@ -72,10 +81,71 @@ jobs:
           NEXT_VERSION=$(node -e "const [major, minor, patch] = require('./apps/desktop/package.json').version.split('.').map(Number); console.log([major, minor, patch + 1].join('.'))")
           NIGHTLY_VERSION="${NEXT_VERSION}-beta.$(date -u +%Y%m%d%H%M)"
           echo "nightly_version=$NIGHTLY_VERSION" >> "$GITHUB_OUTPUT"
+  release:
+    name: Prepare nightly release
+    needs: version
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      NIGHTLY_VERSION: ${{ needs.version.outputs.nightly_version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Create nightly release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="v${NIGHTLY_VERSION}"
+          gh release create "$TAG" --prerelease --title "$TAG" --notes "Nightly release in progress."
+
+      - name: Generate changelog and update release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="v${NIGHTLY_VERSION}"
+
+          # Use the latest local stable tag as the lower bound and HEAD as the upper.
+          PREV_TAG=$(git tag --sort=v:refname | awk '$0 !~ /beta/ {prev=$0} END {print prev}')
+
+          if [ -z "$PREV_TAG" ]; then
+            RANGE="HEAD"
+          else
+            RANGE="${PREV_TAG}..HEAD"
+          fi
+
+          # Collect commits, skip chore/ci and merge commits
+          FEATS=$(git log "$RANGE" --oneline --no-merges --grep="^feat" --format="- %s (%h)" | sed 's/^- feat[^:]*: /- /')
+          FIXES=$(git log "$RANGE" --oneline --no-merges --grep="^fix" --format="- %s (%h)" | sed 's/^- fix[^:]*: /- /')
+          REFACTORS=$(git log "$RANGE" --oneline --no-merges --grep="^refactor" --format="- %s (%h)" | sed 's/^- refactor[^:]*: /- /')
+
+          BODY=""
+          if [ -n "$FEATS" ]; then
+            BODY="${BODY}## Features\n${FEATS}\n\n"
+          fi
+          if [ -n "$FIXES" ]; then
+            BODY="${BODY}## Bug Fixes\n${FIXES}\n\n"
+          fi
+          if [ -n "$REFACTORS" ]; then
+            BODY="${BODY}## Refactors\n${REFACTORS}\n\n"
+          fi
+
+          if [ -z "$BODY" ]; then
+            if [ -n "$PREV_TAG" ]; then
+              BODY="Maintenance release — see [commit history](https://github.com/${{ github.repository }}/compare/${PREV_TAG}...${TAG}) for details."
+            else
+              BODY="Initial release."
+            fi
+          fi
+
+          printf '%b' "$BODY" | gh release edit "$TAG" --notes-file -
 
   build_macos:
     name: Build and publish macOS nightly
-    needs: version
+    needs: [version, release]
+    if: ${{ needs.version.result == 'success' && needs.release.result == 'success' && (github.event_name == 'schedule' || inputs.platform == 'both' || inputs.platform == 'macos') }}
     runs-on: macos-latest
     environment: Mac Distribution
     permissions:
@@ -121,51 +191,10 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-      - name: Generate changelog and update release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          TAG="v${NIGHTLY_VERSION}"
-
-          # The nightly tag was created remotely by electron-builder; use the
-          # latest local stable tag as the lower bound and HEAD as the upper.
-          PREV_TAG=$(git tag --sort=v:refname | awk '$0 !~ /beta/ {prev=$0} END {print prev}')
-
-          if [ -z "$PREV_TAG" ]; then
-            RANGE="HEAD"
-          else
-            RANGE="${PREV_TAG}..HEAD"
-          fi
-
-          # Collect commits, skip chore/ci and merge commits
-          FEATS=$(git log "$RANGE" --oneline --no-merges --grep="^feat" --format="- %s (%h)" | sed 's/^- feat[^:]*: /- /')
-          FIXES=$(git log "$RANGE" --oneline --no-merges --grep="^fix" --format="- %s (%h)" | sed 's/^- fix[^:]*: /- /')
-          REFACTORS=$(git log "$RANGE" --oneline --no-merges --grep="^refactor" --format="- %s (%h)" | sed 's/^- refactor[^:]*: /- /')
-
-          BODY=""
-          if [ -n "$FEATS" ]; then
-            BODY="${BODY}## Features\n${FEATS}\n\n"
-          fi
-          if [ -n "$FIXES" ]; then
-            BODY="${BODY}## Bug Fixes\n${FIXES}\n\n"
-          fi
-          if [ -n "$REFACTORS" ]; then
-            BODY="${BODY}## Refactors\n${REFACTORS}\n\n"
-          fi
-
-          if [ -z "$BODY" ]; then
-            if [ -n "$PREV_TAG" ]; then
-              BODY="Maintenance release — see [commit history](https://github.com/${{ github.repository }}/compare/${PREV_TAG}...${TAG}) for details."
-            else
-              BODY="Initial release."
-            fi
-          fi
-
-          printf '%b' "$BODY" | gh release edit "$TAG" --notes-file -
-
   build_windows:
     name: Build and publish Windows x64 nightly
-    needs: [version, build_macos]
+    needs: [version, release]
+    if: ${{ needs.version.result == 'success' && needs.release.result == 'success' && (github.event_name == 'schedule' || inputs.platform == 'both' || inputs.platform == 'windows') }}
     runs-on: windows-2022
     permissions:
       contents: write
@@ -225,8 +254,17 @@ jobs:
 
   mirror:
     name: Sync aggregated nightly artifacts to R2
-    needs: [version, build_macos, build_windows]
     runs-on: ubuntu-latest
+    needs: [version, release, build_macos, build_windows]
+    if: >-
+      ${{
+        always() &&
+        needs.version.result == 'success' &&
+        needs.release.result == 'success' &&
+        needs.build_macos.result == 'success' &&
+        needs.build_windows.result == 'success' &&
+        (github.event_name == 'schedule' || inputs.platform == 'both')
+      }}
     environment: Mac Distribution
     steps:
       - uses: actions/checkout@v4
