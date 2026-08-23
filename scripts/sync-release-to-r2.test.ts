@@ -28,6 +28,40 @@ test('selects both Windows and macOS updater artifacts while ignoring unrelated 
   )
 })
 
+test('selects only macOS updater artifacts for a macOS mirror sync', () => {
+  assert.deepEqual(
+    selectReleaseArtifacts(
+      [
+        'yachiyo-1.5.2-setup.exe',
+        'yachiyo-1.5.2-setup.exe.blockmap',
+        'latest.yml',
+        'Yachiyo-1.5.2-arm64-mac.zip',
+        'Yachiyo-1.5.2-arm64-mac.zip.blockmap',
+        'latest-mac.yml'
+      ],
+      'macos'
+    ),
+    ['Yachiyo-1.5.2-arm64-mac.zip', 'Yachiyo-1.5.2-arm64-mac.zip.blockmap', 'latest-mac.yml']
+  )
+})
+
+test('selects only Windows updater artifacts for a Windows mirror sync', () => {
+  assert.deepEqual(
+    selectReleaseArtifacts(
+      [
+        'yachiyo-1.5.2-setup.exe',
+        'yachiyo-1.5.2-setup.exe.blockmap',
+        'latest.yml',
+        'Yachiyo-1.5.2-arm64-mac.zip',
+        'Yachiyo-1.5.2-arm64-mac.zip.blockmap',
+        'latest-mac.yml'
+      ],
+      'windows'
+    ),
+    ['yachiyo-1.5.2-setup.exe', 'yachiyo-1.5.2-setup.exe.blockmap', 'latest.yml']
+  )
+})
+
 test('keeps the newest nightly versions and returns older keys for deletion', () => {
   const keys = [
     'nightly/latest-mac.yml',

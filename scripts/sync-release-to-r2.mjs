@@ -13,7 +13,29 @@ import { pathToFileURL } from 'node:url'
 
 const KEEP_PER_CHANNEL = { stable: 1, nightly: 5 }
 const MANIFESTS = ['latest-mac.yml', 'latest.yml']
+const PLATFORM_ARTIFACTS = {
+  both: {
+    binarySuffixes: ['.zip', '.zip.blockmap', '.exe', '.exe.blockmap'],
+    manifests: MANIFESTS
+  },
+  macos: {
+    binarySuffixes: ['.zip', '.zip.blockmap'],
+    manifests: ['latest-mac.yml']
+  },
+  windows: {
+    binarySuffixes: ['.exe', '.exe.blockmap'],
+    manifests: ['latest.yml']
+  }
+}
 const VERSION_PATTERN = /(\d+)\.(\d+)\.(\d+)(?:-beta\.(\d+))?/
+
+function getPlatformArtifacts(platform) {
+  const artifacts = PLATFORM_ARTIFACTS[platform]
+  if (!artifacts) {
+    throw new Error(`Unsupported platform "${platform}"; expected both, macos, or windows.`)
+  }
+  return artifacts
+}
 
 /** @type {(keys: string[], keep: number) => string[]} */
 export function selectStaleReleaseKeys(keys, keep) {
@@ -40,35 +62,33 @@ export function selectStaleReleaseKeys(keys, keep) {
   return newestFirst.slice(keep).flatMap((entry) => entry.keys)
 }
 
-/** @type {(names: string[]) => string[]} */
-export function selectReleaseArtifacts(names) {
+/** @type {(names: string[], platform?: 'both'|'macos'|'windows') => string[]} */
+export function selectReleaseArtifacts(names, platform = 'both') {
+  const { binarySuffixes, manifests: platformManifests } = getPlatformArtifacts(platform)
   const binaries = names
-    .filter(
-      (name) =>
-        name.endsWith('.zip') ||
-        name.endsWith('.zip.blockmap') ||
-        name.endsWith('.exe') ||
-        name.endsWith('.exe.blockmap')
-    )
+    .filter((name) => binarySuffixes.some((suffix) => name.endsWith(suffix)))
     .sort()
-  const manifests = MANIFESTS.filter((name) => names.includes(name))
+  const manifests = platformManifests.filter((name) => names.includes(name))
   return [...binaries, ...manifests]
 }
 
 function parseArgs(argv) {
-  const args = { channel: '', dist: '' }
+  const args = { channel: '', dist: '', platform: 'both' }
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === '--channel') args.channel = argv[++i] ?? ''
     else if (argv[i] === '--dist') args.dist = argv[++i] ?? ''
+    else if (argv[i] === '--platform') args.platform = argv[++i] ?? ''
   }
-  if (!(args.channel in KEEP_PER_CHANNEL) || !args.dist) {
-    throw new Error('Usage: sync-release-to-r2.mjs --channel <stable|nightly> --dist <dir>')
+  if (!(args.channel in KEEP_PER_CHANNEL) || !args.dist || !(args.platform in PLATFORM_ARTIFACTS)) {
+    throw new Error(
+      'Usage: sync-release-to-r2.mjs --channel <stable|nightly> --dist <dir> [--platform <both|macos|windows>]'
+    )
   }
   return args
 }
 
 function main() {
-  const { channel, dist } = parseArgs(process.argv.slice(2))
+  const { channel, dist, platform } = parseArgs(process.argv.slice(2))
 
   const { R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET } = process.env
   if (!R2_ACCOUNT_ID || !R2_ACCESS_KEY_ID || !R2_SECRET_ACCESS_KEY || !R2_BUCKET) {
@@ -94,9 +114,10 @@ function main() {
       stdio: ['ignore', 'pipe', 'inherit']
     })
 
-  const artifacts = selectReleaseArtifacts(readdirSync(dist))
+  const artifacts = selectReleaseArtifacts(readdirSync(dist), platform)
   const binaries = artifacts.filter((name) => !MANIFESTS.includes(name))
-  const missingManifests = MANIFESTS.filter((name) => !artifacts.includes(name))
+  const expectedManifests = getPlatformArtifacts(platform).manifests
+  const missingManifests = expectedManifests.filter((name) => !artifacts.includes(name))
   if (binaries.length === 0 || missingManifests.length > 0) {
     throw new Error(
       `Release artifacts are incomplete in ${dist}; missing: ${[
