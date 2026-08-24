@@ -818,8 +818,13 @@ export function ChannelsPane({
 
   // General tab (default)
   const checkIntervalSec = Math.round((config.groupCheckIntervalMs ?? 30_000) / 1_000)
-  const dmCompactTokenThresholdK = config.dmCompactTokenThresholdK ?? 64
+  const dmHandoffThresholdK = config.dmCompactTokenThresholdK ?? 64
   const groupContextWindowK = config.groupContextWindowK ?? 64
+  const minGroupHandoffThresholdK = groupContextWindowK * 2
+  const groupHandoffThresholdK = Math.max(
+    config.groupHandoffThresholdK ?? minGroupHandoffThresholdK,
+    minGroupHandoffThresholdK
+  )
 
   const anyChannelEnabled = telegramEnabled || qqEnabled || discordEnabled || qqbotEnabled
 
@@ -837,7 +842,7 @@ export function ChannelsPane({
                 type="number"
                 min={1}
                 step={1}
-                value={dmCompactTokenThresholdK}
+                value={dmHandoffThresholdK}
                 onChange={(e) => {
                   const raw = parseInt(e.target.value, 10)
                   if (!isNaN(raw) && raw > 0) {
@@ -868,6 +873,35 @@ export function ChannelsPane({
                   const raw = parseInt(e.target.value, 10)
                   if (!isNaN(raw) && raw > 0) {
                     onConfigChange({ ...config, groupContextWindowK: raw })
+                  }
+                }}
+                className="w-16 rounded-lg px-2 py-1 text-sm text-right outline-none"
+                style={inputStyle()}
+              />
+              <span className="text-sm" style={{ color: theme.text.secondary }}>
+                K
+              </span>
+            </div>
+          }
+        />
+
+        <SettingItem
+          label={t('settings.channels.groupHandoffThreshold')}
+          description={t('settings.channels.groupHandoffThresholdDescription')}
+          control={
+            <div className="flex items-center gap-1">
+              <input
+                type="number"
+                min={minGroupHandoffThresholdK}
+                step={1}
+                value={groupHandoffThresholdK}
+                onChange={(e) => {
+                  const raw = parseInt(e.target.value, 10)
+                  if (!isNaN(raw) && raw > 0) {
+                    onConfigChange({
+                      ...config,
+                      groupHandoffThresholdK: Math.max(raw, minGroupHandoffThresholdK)
+                    })
                   }
                 }}
                 className="w-16 rounded-lg px-2 py-1 text-sm text-right outline-none"

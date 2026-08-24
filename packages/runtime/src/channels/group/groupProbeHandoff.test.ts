@@ -178,7 +178,60 @@ test('summarizeGroupProbeContext includes Yachiyo sent replies (from responseMes
   assert.equal(outcome.status, 'summarized')
   const userPrompt = captured?.messages.find((m) => m.role === 'user')?.content
   assert.equal(typeof userPrompt, 'string')
-  assert.match(userPrompt as string, /Yachiyo: GN everyone, going offline/)
+  assert.match(userPrompt as string, /<msg from="Yachiyo">GN everyone, going offline<\/msg>/)
+})
+
+test('summarizeGroupProbeContext preserves Yachiyo’s last sent message across the handoff boundary', async () => {
+  const storage = fakeStorage(baseThread, [
+    big('u1', 'user'),
+    sentReply('a1', 'I am going offline now.'),
+    big('u2', 'user'),
+    big('u3', 'user'),
+    big('u4', 'user'),
+    big('u5', 'user')
+  ])
+  const auxService = { generateText: async () => success('The group was winding down.') }
+
+  const outcome = await summarizeContext({
+    storage,
+    auxService,
+    threadId: 't',
+    promptTokens: 100,
+    handoffThresholdTokens: 100,
+    groupName: 'group'
+  })
+
+  assert.equal(outcome.status, 'summarized')
+  assert.match(
+    storage.updated[0]?.contextHandoffSummary ?? '',
+    /<recent_yachiyo_message>\nI am going offline now\.\n<\/recent_yachiyo_message>/
+  )
+})
+
+test('summarizeGroupProbeContext carries the existing voice anchor when the new segment has no sent reply', async () => {
+  const thread = {
+    ...baseThread,
+    contextHandoffSummary:
+      'The group was still joking.\n\n<recent_yachiyo_message>\nEarlier Yachiyo line.\n</recent_yachiyo_message>',
+    contextHandoffWatermarkMessageId: 'a1'
+  }
+  const storage = fakeStorage(thread, [msg('a1', 'old', 'assistant'), big('u2'), big('u3')])
+  const auxService = { generateText: async () => success('The joke continued.') }
+
+  const outcome = await summarizeContext({
+    storage,
+    auxService,
+    threadId: 't',
+    promptTokens: 100,
+    handoffThresholdTokens: 100,
+    groupName: 'group'
+  })
+
+  assert.equal(outcome.status, 'summarized')
+  assert.equal(
+    storage.updated[0]?.contextHandoffSummary,
+    'The joke continued.\n\n<recent_yachiyo_message>\nEarlier Yachiyo line.\n</recent_yachiyo_message>'
+  )
 })
 
 test('summarizeGroupProbeContext trusts provider prompt usage instead of transcript size guesses', async () => {

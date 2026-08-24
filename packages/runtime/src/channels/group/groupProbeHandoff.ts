@@ -2,7 +2,53 @@ import type { MessageRecord, ProviderSettings, ThreadRecord } from '@yachiyo/sha
 import type { AuxiliaryGenerationService } from '../../runtime/models/auxiliaryGeneration.ts'
 import type { ModelMessage } from '../../runtime/models/types.ts'
 import { extractSuccessfulGroupMessageText } from '../../runtime/context/groupProbeContextLayers.ts'
-import { GROUP_HANDOFF_SYSTEM_PROMPT, buildGroupHandoffSummaryPrompt } from './groupPrompts.ts'
+import {
+  GROUP_HANDOFF_SYSTEM_PROMPT,
+  buildGroupHandoffSummaryPrompt,
+  escapeGroupPromptText
+} from './groupPrompts.ts'
+
+// A generated summary can preserve facts while flattening Yachiyo's actual register.
+// Keep the last delivered line at the compacted boundary as a source-grounded voice anchor.
+const RECENT_YACHIYO_MESSAGE_BLOCK =
+  /(?:\n\n)?<recent_yachiyo_message>\n[\s\S]*?\n<\/recent_yachiyo_message>\s*$/
+
+function extractGroupProbeAssistantMessage(message: MessageRecord): string {
+  return (
+    message.visibleReply?.trim() ||
+    extractSuccessfulGroupMessageText((message.responseMessages ?? []) as ModelMessage[]) ||
+    ''
+  )
+}
+
+function findRecentYachiyoMessage(messages: MessageRecord[]): string | null {
+  for (let index = messages.length - 1; index >= 0; index--) {
+    const message = messages[index]!
+    if (message.role !== 'assistant') continue
+    const said = extractGroupProbeAssistantMessage(message)
+    if (said) return said
+  }
+  return null
+}
+
+function splitRecentYachiyoMessageBlock(summary: string): {
+  body: string
+  recentMessageBlock?: string
+} {
+  const block = summary.match(RECENT_YACHIYO_MESSAGE_BLOCK)?.[0]?.trim()
+  return {
+    body: summary.replace(RECENT_YACHIYO_MESSAGE_BLOCK, '').trim(),
+    ...(block ? { recentMessageBlock: block } : {})
+  }
+}
+
+function buildRecentYachiyoMessageBlock(message: string): string {
+  return [
+    '<recent_yachiyo_message>',
+    escapeGroupPromptText(message),
+    '</recent_yachiyo_message>'
+  ].join('\n')
+}
 
 interface GroupHandoffStorage {
   getThread(threadId: string): ThreadRecord | undefined
@@ -56,11 +102,8 @@ function renderSegmentTranscript(messages: MessageRecord[]): string {
         // Group probe assistant turns store the sent text in responseMessages
         // (visibleReply is not set), so pull it out — otherwise the summary
         // loses Yachiyo's own replies and the stance/continuity it should keep.
-        const said =
-          message.visibleReply?.trim() ||
-          extractSuccessfulGroupMessageText((message.responseMessages ?? []) as ModelMessage[]) ||
-          ''
-        return said ? `Yachiyo: ${said}` : ''
+        const said = extractGroupProbeAssistantMessage(message)
+        return said ? `<msg from="Yachiyo">${escapeGroupPromptText(said)}</msg>` : ''
       }
       return message.content.trim()
     })
@@ -132,6 +175,11 @@ export async function summarizeGroupProbeContext(
 
   const checkpointIndex = afterWatermark.findIndex((message) => message.id === checkpointId)
   const segment = afterWatermark.slice(0, checkpointIndex + 1)
+  const previousSummary = splitRecentYachiyoMessageBlock(thread.contextHandoffSummary ?? '')
+  const recentYachiyoMessage = findRecentYachiyoMessage(segment)
+  const recentYachiyoMessageBlock = recentYachiyoMessage
+    ? buildRecentYachiyoMessageBlock(recentYachiyoMessage)
+    : previousSummary.recentMessageBlock
   const transcript = renderSegmentTranscript(segment)
   if (!transcript) {
     return { status: 'skipped', reason: 'no-checkpoint' }
@@ -144,7 +192,7 @@ export async function summarizeGroupProbeContext(
         role: 'user',
         content: buildGroupHandoffSummaryPrompt({
           groupName: input.groupName,
-          previousSummary: thread.contextHandoffSummary,
+          previousSummary: previousSummary.body || undefined,
           transcript
         })
       }
@@ -155,10 +203,11 @@ export async function summarizeGroupProbeContext(
   if (result.status !== 'success') {
     return { status: 'skipped', reason: 'generation-unavailable' }
   }
-  const summary = result.text.trim()
-  if (!summary) {
+  const generatedSummary = splitRecentYachiyoMessageBlock(result.text.trim()).body
+  if (!generatedSummary) {
     return { status: 'skipped', reason: 'generation-unavailable' }
   }
+  const summary = [generatedSummary, recentYachiyoMessageBlock].filter(Boolean).join('\n\n')
 
   // Re-read: the thread may have changed while the summary was generating. Bail
   // if it was cleared or handed off in the meantime — otherwise we'd write a

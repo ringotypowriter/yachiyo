@@ -293,6 +293,7 @@ export function createChannelGroupDiscussionService(
     }
 
     const channelsConfig = readChannelsConfig()
+    const contextTimeZone = server.getContextTimeZone()
     const headlessAdapter = resolveGroupProbeHeadlessAdapter(
       channelsConfig.groupProbeAdapter,
       groupConfig?.model
@@ -302,10 +303,9 @@ export function createChannelGroupDiscussionService(
       botName: 'Yachiyo',
       groupName: group.name,
       groupLabel: group.label || undefined,
-      personaSummary: GROUP_PERSONA_PROMPT,
+      personaPrompt: GROUP_PERSONA_PROMPT,
       ownerInstruction: channelsConfig.guestInstruction,
-      groupUserDocument: groupUserDoc?.content,
-      contextTimeZone: server.getContextTimeZone()
+      contextTimeZone
     })
     const { thread: probeThread, created: probeThreadCreated } = await resolveGroupProbeThread({
       logLabel,
@@ -324,11 +324,13 @@ export function createChannelGroupDiscussionService(
       'Yachiyo',
       buildKnownUsersMap(),
       undefined,
-      probeThreadCreated ? undefined : freshCount
+      probeThreadCreated ? undefined : freshCount,
+      contextTimeZone
     )
     const messages = compileGroupProbeContextLayers({
       stableSystemPrompt,
       dynamicSystemPrompt,
+      groupProfile: groupUserDoc?.content,
       contextHandoffSummary: probeThread.contextHandoffSummary,
       history: loadGroupProbeHistory(server.getStorage(), probeThread),
       currentTurnContent,

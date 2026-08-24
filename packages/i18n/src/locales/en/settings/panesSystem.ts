@@ -26,11 +26,16 @@ export const channels = {
   groupDiscussion: 'Group Discussion',
   discordGroupDescription: 'Monitor approved server channels and participate in conversations',
   enableDiscordGroupDiscussion: 'Enable Discord group discussion',
-  tokenLimits: 'Token Limits',
-  dmCompactThreshold: 'DM compact threshold',
-  dmCompactThresholdDescription: 'Compact DM thread history above this token count.',
-  groupContextWindow: 'Group context window',
-  groupContextWindowDescription: 'Sliding window budget for group probe messages.',
+  tokenLimits: 'Context Retention',
+  dmCompactThreshold: 'DM handoff threshold',
+  dmCompactThresholdDescription:
+    'Start a new DM continuation above this size; the handoff carries prior context forward.',
+  groupContextWindow: 'Group raw-history window',
+  groupContextWindowDescription:
+    'Maximum recent group-chat source text sent to the model each turn.',
+  groupHandoffThreshold: 'Group compression threshold',
+  groupHandoffThresholdDescription:
+    'Summarize older group chat into continuity context at this size. Minimum: 2× the raw-history window.',
   checkInterval: 'Check interval',
   intervalSeconds: '{seconds}s',
   rewriteModel: 'Rewrite model',

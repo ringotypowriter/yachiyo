@@ -9,6 +9,8 @@ import {
 export interface CompileGroupProbeContextLayersInput {
   stableSystemPrompt: string
   dynamicSystemPrompt: string
+  /** Descriptive long-term group profile. Reference data, not system instructions. */
+  groupProfile?: string
   contextHandoffSummary?: string
   history: ContextLayerHistoryMessage[]
   currentTurnContent: string
@@ -36,6 +38,10 @@ function removeEmptyMessages(messages: ModelMessage[]): ModelMessage[] {
 
     return message.content.length > 0
   })
+}
+
+function escapeReferenceText(value: string): string {
+  return value.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')
 }
 
 function isSuccessfulGroupMessageSendResult(output: unknown): boolean {
@@ -193,18 +199,21 @@ export function compileGroupProbeContextLayers(
     systemPrefix.push({ role: 'system', content: input.dynamicSystemPrompt.trim() })
   }
 
-  const summaryMessages: ModelMessage[] = input.contextHandoffSummary?.trim()
-    ? [
-        {
-          role: 'user',
-          content: [
-            '<context_handoff>',
-            input.contextHandoffSummary.trim(),
-            '</context_handoff>'
-          ].join('\n')
-        }
-      ]
-    : []
+  const referenceBlocks: string[] = []
+  if (input.groupProfile?.trim()) {
+    referenceBlocks.push(
+      ['<group_profile>', escapeReferenceText(input.groupProfile.trim()), '</group_profile>'].join(
+        '\n'
+      )
+    )
+  }
+  if (input.contextHandoffSummary?.trim()) {
+    referenceBlocks.push(
+      ['<context_handoff>', input.contextHandoffSummary.trim(), '</context_handoff>'].join('\n')
+    )
+  }
+  const referenceMessages: ModelMessage[] =
+    referenceBlocks.length > 0 ? [{ role: 'user', content: referenceBlocks.join('\n\n') }] : []
 
   const historyMessages = buildBudgetedHistoryMessages(input.history, input.historyTokenBudget)
 
@@ -214,7 +223,7 @@ export function compileGroupProbeContextLayers(
 
   const compiled = removeEmptyMessages([
     ...systemPrefix,
-    ...summaryMessages,
+    ...referenceMessages,
     ...historyMessages,
     ...currentTurn
   ])
