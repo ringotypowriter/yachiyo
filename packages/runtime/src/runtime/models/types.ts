@@ -37,6 +37,8 @@ export interface ModelUsage {
   completionTokens: number
   totalPromptTokens: number
   totalCompletionTokens: number
+  /** Time from model stream start to the first emitted text token. */
+  timeToFirstTokenMs?: number
   /** Combined wall-clock duration of completed model generation steps, excluding tool execution. */
   modelGenerationDurationMs?: number
   cacheReadTokens?: number

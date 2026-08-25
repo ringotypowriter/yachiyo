@@ -18,17 +18,21 @@ export function mergeRunUsage(
       completionTokens: prior.completionTokens ?? 0,
       totalPromptTokens: prior.totalPromptTokens ?? 0,
       totalCompletionTokens: prior.totalCompletionTokens ?? 0,
+      ...(prior.timeToFirstTokenMs !== undefined
+        ? { timeToFirstTokenMs: prior.timeToFirstTokenMs }
+        : {}),
       modelGenerationDurationMs: prior.modelGenerationDurationMs,
       cacheReadTokens: prior.cacheReadTokens ?? 0,
       cacheWriteTokens: prior.cacheWriteTokens ?? 0
     }
   }
+  const timeToFirstTokenMs = prior.timeToFirstTokenMs ?? current.timeToFirstTokenMs
   return {
     ...current,
     promptTokens: current.promptTokens,
     completionTokens: (prior.completionTokens ?? 0) + current.completionTokens,
     totalPromptTokens: (prior.totalPromptTokens ?? 0) + current.totalPromptTokens,
-    totalCompletionTokens: (prior.totalCompletionTokens ?? 0) + current.totalCompletionTokens,
+    ...(timeToFirstTokenMs !== undefined ? { timeToFirstTokenMs } : {}),
     modelGenerationDurationMs:
       (prior.modelGenerationDurationMs ?? 0) + (current.modelGenerationDurationMs ?? 0),
     cacheReadTokens: (prior.cacheReadTokens ?? 0) + (current.cacheReadTokens ?? 0),

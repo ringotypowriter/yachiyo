@@ -9,11 +9,13 @@ export function mergeUsageForTerminal(
   if (!prior && !current) return undefined
   if (!prior) return current
   if (!current) return prior
+  const timeToFirstTokenMs = prior.timeToFirstTokenMs ?? current.timeToFirstTokenMs
   return {
     promptTokens: current.promptTokens,
     completionTokens: (prior.completionTokens ?? 0) + current.completionTokens,
     totalPromptTokens: (prior.totalPromptTokens ?? 0) + current.totalPromptTokens,
     totalCompletionTokens: (prior.totalCompletionTokens ?? 0) + current.totalCompletionTokens,
+    ...(timeToFirstTokenMs !== undefined ? { timeToFirstTokenMs } : {}),
     modelGenerationDurationMs:
       (prior.modelGenerationDurationMs ?? 0) + (current.modelGenerationDurationMs ?? 0),
     cacheReadTokens: (prior.cacheReadTokens ?? 0) + (current.cacheReadTokens ?? 0),
@@ -27,11 +29,13 @@ export function accumulateRunLoopUsage(
   current: ModelUsage | undefined
 ): UsageFields | undefined {
   if (!current) return prior
+  const timeToFirstTokenMs = prior?.timeToFirstTokenMs ?? current.timeToFirstTokenMs
   return {
     promptTokens: current.promptTokens,
     completionTokens: (prior?.completionTokens ?? 0) + current.completionTokens,
     totalPromptTokens: (prior?.totalPromptTokens ?? 0) + current.totalPromptTokens,
     totalCompletionTokens: (prior?.totalCompletionTokens ?? 0) + current.totalCompletionTokens,
+    ...(timeToFirstTokenMs !== undefined ? { timeToFirstTokenMs } : {}),
     modelGenerationDurationMs:
       (prior?.modelGenerationDurationMs ?? 0) + (current.modelGenerationDurationMs ?? 0),
     cacheReadTokens: (prior?.cacheReadTokens ?? 0) + (current.cacheReadTokens ?? 0),

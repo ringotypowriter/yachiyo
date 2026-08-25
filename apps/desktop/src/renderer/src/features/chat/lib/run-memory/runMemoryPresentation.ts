@@ -25,6 +25,17 @@ export function formatTokensPerSecond(
   const tokensPerSecond = calculateTokensPerSecond(totalCompletionTokens, modelGenerationDurationMs)
   return tokensPerSecond === null ? null : `${Math.round(tokensPerSecond * 10) / 10} tok/s`
 }
+export function formatTimeToFirstToken(timeToFirstTokenMs: number | undefined): string | null {
+  if (
+    timeToFirstTokenMs === undefined ||
+    !Number.isFinite(timeToFirstTokenMs) ||
+    timeToFirstTokenMs < 0
+  ) {
+    return null
+  }
+
+  return `TTFT ${(timeToFirstTokenMs / 1_000).toFixed(1)}s`
+}
 
 export function normalizeRunModelLabel(modelId: string | undefined): string | null {
   return modelId?.trim().split('/').pop()?.trim() || null

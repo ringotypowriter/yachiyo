@@ -319,7 +319,9 @@ export async function executeServerRun(
       persistRecoveryCheckpointThrottled()
       perfCollector.recordDeltaEvent()
       if (streamStartedAt !== undefined) {
-        perfCollector.recordFirstTextDelta(performance.now() - streamStartedAt)
+        const firstTextDeltaElapsedMs = performance.now() - streamStartedAt
+        if (firstTextDeltaMs === undefined) firstTextDeltaMs = firstTextDeltaElapsedMs
+        perfCollector.recordFirstTextDelta(firstTextDeltaElapsedMs)
       }
       perfCollector.addTextChars(batch.length)
       deps.emit<MessageDeltaEvent>({
@@ -384,6 +386,7 @@ export async function executeServerRun(
   let cumulativeCompletionTokens = input.priorUsage?.totalCompletionTokens ?? 0
   let tools: ToolSet | undefined
   let streamStartedAt: number | undefined
+  let firstTextDeltaMs: number | undefined
   let streamDurationRecorded = false
   const recordModelStreamDuration = (): void => {
     if (streamStartedAt === undefined || streamDurationRecorded) {
@@ -392,6 +395,14 @@ export async function executeServerRun(
 
     streamDurationRecorded = true
     perfCollector.recordModelStream(performance.now() - streamStartedAt)
+  }
+  const attachFirstTextDeltaTiming = (): void => {
+    if (lastUsage && firstTextDeltaMs !== undefined && lastUsage.timeToFirstTokenMs === undefined) {
+      lastUsage = {
+        ...lastUsage,
+        timeToFirstTokenMs: Math.round(firstTextDeltaMs)
+      }
+    }
   }
 
   const hasPendingSteer = deps.hasPendingSteer
@@ -996,6 +1007,7 @@ export async function executeServerRun(
 
     flushDeltas()
     recordModelStreamDuration()
+    attachFirstTextDeltaTiming()
 
     const outputSnapshot = outputState.getSnapshot()
     console.log(
@@ -1046,6 +1058,7 @@ export async function executeServerRun(
   } catch (error) {
     flushDeltas()
     recordModelStreamDuration()
+    attachFirstTextDeltaTiming()
     // Reject any pending askUser promises so the tool execution unblocks
     for (const [id, pending] of pendingUserAnswers) {
       pending.reject(new Error('Run cancelled'))

@@ -877,6 +877,9 @@ export function reduceServerEvent(state: AppState, event: YachiyoServerEvent): P
         ...(event.totalCompletionTokens !== undefined
           ? { totalCompletionTokens: event.totalCompletionTokens }
           : {}),
+        ...(event.timeToFirstTokenMs !== undefined
+          ? { timeToFirstTokenMs: event.timeToFirstTokenMs }
+          : {}),
         ...(event.modelGenerationDurationMs !== undefined
           ? { modelGenerationDurationMs: event.modelGenerationDurationMs }
           : {})
@@ -902,6 +905,9 @@ export function reduceServerEvent(state: AppState, event: YachiyoServerEvent): P
           : {}),
         ...(event.totalCompletionTokens !== undefined
           ? { totalCompletionTokens: event.totalCompletionTokens }
+          : {}),
+        ...(event.timeToFirstTokenMs !== undefined
+          ? { timeToFirstTokenMs: event.timeToFirstTokenMs }
           : {}),
         ...(event.modelGenerationDurationMs !== undefined
           ? { modelGenerationDurationMs: event.modelGenerationDurationMs }

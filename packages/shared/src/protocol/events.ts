@@ -108,6 +108,7 @@ export interface RunCompletedEvent extends RunEvent {
   completionTokens?: number
   totalPromptTokens?: number
   totalCompletionTokens?: number
+  timeToFirstTokenMs?: number
   modelGenerationDurationMs?: number
 }
 

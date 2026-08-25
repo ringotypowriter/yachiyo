@@ -1,0 +1,1 @@
+ALTER TABLE `runs` ADD `time_to_first_token_ms` integer;

@@ -261,6 +261,7 @@ export const runsTable = sqliteTable(
     completionTokens: integer('completion_tokens'),
     totalPromptTokens: integer('total_prompt_tokens'),
     totalCompletionTokens: integer('total_completion_tokens'),
+    timeToFirstTokenMs: integer('time_to_first_token_ms'),
     modelGenerationDurationMs: integer('model_generation_duration_ms'),
     cacheReadTokens: integer('cache_read_tokens'),
     cacheWriteTokens: integer('cache_write_tokens'),

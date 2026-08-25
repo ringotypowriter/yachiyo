@@ -4,13 +4,14 @@ import test from 'node:test'
 import type { ModelUsage } from '../../../../runtime/models/types.ts'
 import { accumulateRunLoopUsage, mergeUsageForTerminal } from './runUsage.ts'
 
-function makeUsage(modelGenerationDurationMs: number): ModelUsage {
+function makeUsage(modelGenerationDurationMs: number, timeToFirstTokenMs?: number): ModelUsage {
   return {
     promptTokens: 100,
     completionTokens: 20,
     totalPromptTokens: 100,
     totalCompletionTokens: 20,
-    modelGenerationDurationMs
+    modelGenerationDurationMs,
+    ...(timeToFirstTokenMs !== undefined ? { timeToFirstTokenMs } : {})
   }
 }
 
@@ -23,4 +24,10 @@ test('run-loop usage keeps model generation time across steer legs', () => {
     mergeUsageForTerminal(accumulated, makeUsage(1_250))?.modelGenerationDurationMs,
     2_000
   )
+})
+test('run-loop usage keeps the first token time from the earliest steer leg', () => {
+  const accumulated = accumulateRunLoopUsage(undefined, makeUsage(750, 420))
+  const merged = mergeUsageForTerminal(accumulated, makeUsage(1_250, 180))
+
+  assert.equal(merged?.timeToFirstTokenMs, 420)
 })

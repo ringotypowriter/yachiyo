@@ -1,6 +1,6 @@
 import type React from 'react'
 import { useCallback, useMemo, useState } from 'react'
-import { Clock, Gauge, Wrench, GitCompareArrows } from 'lucide-react'
+import { Clock, Gauge, Timer, Wrench, GitCompareArrows } from 'lucide-react'
 import type { RunRecord, ToolCall } from '@renderer/app/types'
 import { useAppStore } from '@renderer/app/store/useAppStore'
 import { theme, alpha } from '@renderer/theme/theme'
@@ -10,6 +10,7 @@ import { DiffPreviewerModal } from './DiffPreviewerModal'
 import {
   countToolCallsForRun,
   findLatestRunForRequests,
+  formatTimeToFirstToken,
   formatTokensPerSecond,
   normalizeRunModelLabel
 } from '../lib/run-memory/runMemoryPresentation.ts'
@@ -63,6 +64,7 @@ export function RunStatsFooter({
       run.totalCompletionTokens,
       run.modelGenerationDurationMs
     )
+    const timeToFirstTokenLabel = formatTimeToFirstToken(run.timeToFirstTokenMs)
     return {
       elapsedMs,
       runId: run.id,
@@ -70,6 +72,7 @@ export function RunStatsFooter({
       fileCount,
       modelLabel: modelLabel ?? normalizeRunModelLabel(run.modelId),
       toolCallCount,
+      timeToFirstTokenLabel,
       tokensPerSecondLabel,
       workspacePath: run.workspacePath ?? snapshotReviewByRun[run.id]?.workspacePath ?? ''
     }
@@ -86,11 +89,19 @@ export function RunStatsFooter({
   if (!runInfo) return null
 
   const showElapsed = runInfo.elapsedMs >= ELAPSED_THRESHOLD_S * 1000
+  const showTimeToFirstToken = runInfo.timeToFirstTokenLabel !== null
   const showTokensPerSecond = runInfo.tokensPerSecondLabel !== null
   const showToolCalls = runInfo.toolCallCount >= TOOL_CALL_THRESHOLD
   const showModelLabel = runInfo.modelLabel !== null
   const hasSnapshot = runInfo.fileCount > 0 && runInfo.workspacePath.length > 0
-  if (!showElapsed && !showTokensPerSecond && !showToolCalls && !showModelLabel && !hasSnapshot) {
+  if (
+    !showElapsed &&
+    !showTimeToFirstToken &&
+    !showTokensPerSecond &&
+    !showToolCalls &&
+    !showModelLabel &&
+    !hasSnapshot
+  ) {
     return null
   }
 
@@ -110,6 +121,12 @@ export function RunStatsFooter({
           <span className="inline-flex items-center gap-1">
             <Gauge size={11} strokeWidth={1.7} />
             {runInfo.tokensPerSecondLabel}
+          </span>
+        ) : null}
+        {showTimeToFirstToken ? (
+          <span className="inline-flex items-center gap-1">
+            <Timer size={11} strokeWidth={1.7} />
+            {runInfo.timeToFirstTokenLabel}
           </span>
         ) : null}
         {showToolCalls ? (

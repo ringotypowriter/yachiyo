@@ -5,6 +5,7 @@ import type { ToolCall } from '@renderer/app/types'
 
 import {
   calculateTokensPerSecond,
+  formatTimeToFirstToken,
   formatTokensPerSecond,
   normalizeRunModelLabel,
   compactNovelTermsForDisplay,
@@ -26,6 +27,12 @@ test('formatTokensPerSecond produces the shared footer and WorkSummary label', (
   assert.equal(formatTokensPerSecond(250, 2_000), '125 tok/s')
   assert.equal(formatTokensPerSecond(50, 1_600), '31.3 tok/s')
   assert.equal(formatTokensPerSecond(undefined, 1_600), null)
+})
+test('formatTimeToFirstToken renders seconds with one decimal place', () => {
+  assert.equal(formatTimeToFirstToken(700), 'TTFT 0.7s')
+  assert.equal(formatTimeToFirstToken(1_234), 'TTFT 1.2s')
+  assert.equal(formatTimeToFirstToken(0), 'TTFT 0.0s')
+  assert.equal(formatTimeToFirstToken(undefined), null)
 })
 
 test('normalizeRunModelLabel keeps only a usable model name', () => {

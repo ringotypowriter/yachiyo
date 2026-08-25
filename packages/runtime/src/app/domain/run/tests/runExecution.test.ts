@@ -260,6 +260,92 @@ test('executeServerRun does not preflight context handoff from rough token estim
   }
 })
 
+test('executeServerRun persists and emits time to first text token', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'yachiyo-ttft-'))
+  const thread: ThreadRecord = {
+    id: 'thread-ttft',
+    title: 'Thread',
+    workspacePath: root,
+    updatedAt: '2026-04-28T00:00:00.000Z'
+  }
+  const requestMessage: MessageRecord = {
+    id: 'msg-ttft',
+    threadId: thread.id,
+    role: 'user',
+    content: 'Say hello.',
+    status: 'completed',
+    createdAt: '2026-04-28T00:00:00.000Z'
+  }
+  const events: unknown[] = []
+  let persistedTimeToFirstTokenMs: number | undefined
+  const baseDeps = createRunContextDeps({
+    events,
+    messages: [requestMessage],
+    workspacePath: root
+  })
+  const storage: RunExecutionDeps['storage'] = {
+    ...baseDeps.storage,
+    updateMessage: () => {},
+    getChannelUser: () => undefined,
+    persistResponseMessagesRepairInBackground: () => {},
+    listThreadRuns: () => [],
+    upsertRunRecoveryCheckpoint: () => {},
+    deleteRunRecoveryCheckpoint: () => {},
+    createToolCall: () => {},
+    updateToolCall: () => {},
+    listThreadToolCalls: () => [],
+    completeRun: (input) => {
+      persistedTimeToFirstTokenMs = input.timeToFirstTokenMs
+    },
+    cancelRun: () => {},
+    failRun: () => {},
+    saveThreadMessage: () => {},
+    updateRunSnapshot: () => {}
+  }
+  const deps: RunExecutionDeps = {
+    ...baseDeps,
+    storage,
+    createModelRuntime: () => ({
+      streamReply: async function* (request) {
+        yield 'Hello.'
+        request.onFinish?.(makeUsage(9, 1))
+      }
+    })
+  }
+
+  try {
+    const result = await executeServerRun(deps, {
+      enabledTools: [],
+      runMode: 'auto',
+      inactivityTimeoutMs: 30_000,
+      runTrigger: 'local',
+      runId: 'run-ttft',
+      thread,
+      requestMessageId: requestMessage.id,
+      abortController: new AbortController(),
+      updateHeadOnComplete: true,
+      previousEnabledTools: null,
+      previousRunMode: null
+    })
+
+    const completed = events.find(
+      (event): event is { type: 'run.completed'; timeToFirstTokenMs?: number } =>
+        typeof event === 'object' &&
+        event !== null &&
+        (event as { type?: unknown }).type === 'run.completed'
+    )
+
+    assert.equal(result.kind, 'completed')
+    if (persistedTimeToFirstTokenMs === undefined) {
+      throw new Error('Expected completed run to persist timeToFirstTokenMs')
+    }
+    assert.ok(persistedTimeToFirstTokenMs >= 0)
+    assert.equal(completed?.timeToFirstTokenMs, persistedTimeToFirstTokenMs)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
 test('prepareServerRunContext injects consumed activity and reports it as a context source', async () => {
   const root = await mkdtemp(join(tmpdir(), 'yachiyo-run-context-'))
   const thread: ThreadRecord = {
