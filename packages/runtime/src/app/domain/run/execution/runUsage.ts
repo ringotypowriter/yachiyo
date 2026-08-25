@@ -32,6 +32,7 @@ export function mergeRunUsage(
     promptTokens: current.promptTokens,
     completionTokens: (prior.completionTokens ?? 0) + current.completionTokens,
     totalPromptTokens: (prior.totalPromptTokens ?? 0) + current.totalPromptTokens,
+    totalCompletionTokens: (prior.totalCompletionTokens ?? 0) + current.totalCompletionTokens,
     ...(timeToFirstTokenMs !== undefined ? { timeToFirstTokenMs } : {}),
     modelGenerationDurationMs:
       (prior.modelGenerationDurationMs ?? 0) + (current.modelGenerationDurationMs ?? 0),
