@@ -1,5 +1,13 @@
 # @yachiyo/cli
 
+## 1.5.3
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @yachiyo/runtime@1.5.3
+  - @yachiyo/shared@1.5.3
+
 ## 1.5.2
 
 ### Patch Changes

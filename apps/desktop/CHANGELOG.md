@@ -1,5 +1,17 @@
 # @yachiyo/desktop
 
+## 1.5.3
+
+### Patch Changes
+
+- [`21f3dec`](https://github.com/ringotypowriter/yachiyo/commit/21f3dec81e03d71fae163e5921019de7278b2f9c) Thanks [@ringotypowriter](https://github.com/ringotypowriter)! - Lots of update
+
+- Updated dependencies []:
+  - @yachiyo/cli@1.5.3
+  - @yachiyo/runtime@1.5.3
+  - @yachiyo/shared@1.5.3
+  - @yachiyo/core-skills@1.5.3
+
 ## 1.5.2
 
 ### Patch Changes
