@@ -10,7 +10,7 @@ import type { AppUpdateController } from './appUpdateController.ts'
 import { createAppUpdateController } from './appUpdateController.ts'
 
 import { createElectronProviderCredentialVault } from '../security/providerCredentials.ts'
-import { UPDATE_MIRROR_BASE, resolveUpdateFeed } from './updateFeed'
+import { checkUpdateFeeds, UPDATE_MIRROR_BASE, resolveUpdateFeeds } from './updateFeed'
 
 export interface UpdateStatus {
   state: 'idle' | 'checking' | 'available' | 'downloading' | 'ready' | 'error'
@@ -167,23 +167,26 @@ function setupProd(): AppUpdateController {
   autoUpdater.allowPrerelease = channel === 'beta'
 
   async function checkForUpdates(): Promise<{ available: boolean; version: string }> {
-    const feed = await resolveUpdateFeed({
+    const feeds = await resolveUpdateFeeds({
       mirrorBase: UPDATE_MIRROR_BASE,
       channel,
       platform: process.platform,
       fetchFn: (url, init) => net.fetch(url, init)
     })
-    if (feed.source === 'mirror') {
-      autoUpdater.setFeedURL({ provider: 'generic', url: feed.url })
-    } else {
-      autoUpdater.setFeedURL({ provider: 'github', owner: 'ringotypowriter', repo: 'yachiyo' })
-    }
-    autoUpdater.allowPrerelease = channel === 'beta'
-    const result = await autoUpdater.checkForUpdates()
-    if (!result) {
-      throw new Error('The updater is unavailable in this build.')
-    }
-    return { available: result.isUpdateAvailable, version: result.updateInfo.version }
+
+    return checkUpdateFeeds(feeds, async (feed) => {
+      if (feed.source === 'mirror') {
+        autoUpdater.setFeedURL({ provider: 'generic', url: feed.url })
+      } else {
+        autoUpdater.setFeedURL({ provider: 'github', owner: 'ringotypowriter', repo: 'yachiyo' })
+      }
+      autoUpdater.allowPrerelease = channel === 'beta'
+      const result = await autoUpdater.checkForUpdates()
+      if (!result) {
+        throw new Error('The updater is unavailable in this build.')
+      }
+      return { available: result.isUpdateAvailable, version: result.updateInfo.version }
+    })
   }
 
   autoUpdater.on('checking-for-update', () => {

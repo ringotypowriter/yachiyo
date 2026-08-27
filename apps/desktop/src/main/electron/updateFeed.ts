@@ -18,8 +18,8 @@ export function mirrorFeedUrl(mirrorBase: string, channel: UpdateChannel): strin
   return `${base}/${channel === 'beta' ? 'nightly' : 'stable'}`
 }
 
-/** Pick the update feed: the mirror when it responds with a channel manifest
- *  in time, otherwise GitHub. Never throws — any probe failure means GitHub. */
+/** Pick the update feed: the mirror when it responds with a channel manifest,
+ * otherwise GitHub. Never throws — any probe failure means GitHub. */
 export async function resolveUpdateFeed(options: {
   mirrorBase: string
   channel: UpdateChannel
@@ -38,4 +38,49 @@ export async function resolveUpdateFeed(options: {
   } catch {
     return { source: 'github' }
   }
+}
+
+/** Return feeds in update priority order. Beta users must also receive stable
+ * releases: a nightly can be an older prerelease of the stable version that
+ * has since shipped. */
+export async function resolveUpdateFeeds(options: {
+  mirrorBase: string
+  channel: UpdateChannel
+  platform: NodeJS.Platform
+  fetchFn: MirrorProbeFetch
+  timeoutMs?: number
+}): Promise<UpdateFeed[]> {
+  if (options.channel !== 'beta') return [await resolveUpdateFeed(options)]
+
+  const nightly = await resolveUpdateFeed(options)
+  const stable = await resolveUpdateFeed({ ...options, channel: 'stable' })
+  const feeds: UpdateFeed[] = []
+
+  if (nightly.source === 'mirror') feeds.push(nightly)
+  if (stable.source === 'mirror') feeds.push(stable)
+  feeds.push({ source: 'github' })
+  return feeds
+}
+
+export interface UpdateFeedCheckResult {
+  available: boolean
+  version: string
+}
+
+/** Check feeds in order and stop at the first newer build. */
+export async function checkUpdateFeeds(
+  feeds: readonly UpdateFeed[],
+  checkFeed: (feed: UpdateFeed) => Promise<UpdateFeedCheckResult>
+): Promise<UpdateFeedCheckResult> {
+  let lastVersion: string | undefined
+  for (const feed of feeds) {
+    const result = await checkFeed(feed)
+    lastVersion = result.version
+    if (result.available) return result
+  }
+
+  if (!lastVersion) {
+    throw new Error('No update feeds were configured.')
+  }
+  return { available: false, version: lastVersion }
 }

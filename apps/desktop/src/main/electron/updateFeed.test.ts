@@ -1,7 +1,12 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { mirrorFeedUrl, resolveUpdateFeed } from './updateFeed.ts'
+import {
+  checkUpdateFeeds,
+  mirrorFeedUrl,
+  resolveUpdateFeed,
+  resolveUpdateFeeds
+} from './updateFeed.ts'
 
 function okFetch(
   calls: string[]
@@ -46,6 +51,47 @@ test('resolveUpdateFeed probes the nightly dir for the beta channel', async () =
   })
   assert.deepEqual(feed, { source: 'mirror', url: 'https://dl.example.com/nightly' })
   assert.deepEqual(calls, ['https://dl.example.com/nightly/latest-mac.yml'])
+})
+
+test('resolveUpdateFeeds lets beta users receive a newer stable release', async () => {
+  const calls: string[] = []
+  const feeds = await resolveUpdateFeeds({
+    mirrorBase: 'https://dl.example.com',
+    channel: 'beta',
+    platform: 'darwin',
+    fetchFn: okFetch(calls)
+  })
+
+  assert.deepEqual(feeds, [
+    { source: 'mirror', url: 'https://dl.example.com/nightly' },
+    { source: 'mirror', url: 'https://dl.example.com/stable' },
+    { source: 'github' }
+  ])
+  assert.deepEqual(calls, [
+    'https://dl.example.com/nightly/latest-mac.yml',
+    'https://dl.example.com/stable/latest-mac.yml'
+  ])
+})
+
+test('checkUpdateFeeds continues from an unchanged nightly to a newer stable build', async () => {
+  const checked: string[] = []
+  const result = await checkUpdateFeeds(
+    [
+      { source: 'mirror', url: 'https://dl.example.com/nightly' },
+      { source: 'mirror', url: 'https://dl.example.com/stable' },
+      { source: 'github' }
+    ],
+    async (feed) => {
+      checked.push(feed.source === 'mirror' ? feed.url : feed.source)
+      if (feed.source === 'mirror' && feed.url.endsWith('/nightly')) {
+        return { available: false, version: '1.5.3-beta.202608260038' }
+      }
+      return { available: true, version: '1.5.3' }
+    }
+  )
+
+  assert.deepEqual(result, { available: true, version: '1.5.3' })
+  assert.deepEqual(checked, ['https://dl.example.com/nightly', 'https://dl.example.com/stable'])
 })
 
 test('resolveUpdateFeed probes latest.yml for Windows NSIS updates', async () => {
