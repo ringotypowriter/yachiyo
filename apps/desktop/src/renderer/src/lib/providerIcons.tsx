@@ -23,6 +23,7 @@ import Vercel from '@lobehub/icons/es/Vercel'
 import VertexAI from '@lobehub/icons/es/VertexAI'
 import ZAI from '@lobehub/icons/es/ZAI'
 import Zhipu from '@lobehub/icons/es/Zhipu'
+import orcarouterGif from '@renderer/assets/icons/orcarouter.gif'
 import packycodeSvg from '@renderer/assets/icons/packycode.svg'
 
 type IconFC = FC<{ size?: number }>
@@ -47,8 +48,9 @@ const iconMap: Record<string, IconFC> = {
   zhipu: Zhipu.Color
 }
 
-/** Icon keys that use a bundled SVG asset instead of @lobehub/icons */
-const svgIconMap: Record<string, string> = {
+/** Icon keys that use bundled brand assets instead of @lobehub/icons */
+const assetIconMap: Record<string, string> = {
+  orcarouter: orcarouterGif,
   packycode: packycodeSvg
 }
 
@@ -59,11 +61,11 @@ export function ProviderIconAvatar({
   iconKey: string
   size: number
 }): React.ReactNode {
-  const svgSrc = svgIconMap[iconKey]
-  if (svgSrc) {
+  const assetSrc = assetIconMap[iconKey]
+  if (assetSrc) {
     return (
       <img
-        src={svgSrc}
+        src={assetSrc}
         alt={iconKey}
         width={size}
         height={size}

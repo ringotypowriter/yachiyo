@@ -19,6 +19,7 @@ import {
 } from './shared.ts'
 
 const CODEX_BACKEND_BASE_URL = 'https://chatgpt.com/backend-api/codex'
+const ORCAROUTER_API_HOST = 'api.orcarouter.ai'
 
 function shouldUseCodexFastMode(
   settings: ProviderSettings,
@@ -46,6 +47,21 @@ function buildCodexHeaders(
     headers['x-codex-routing-hint'] = `model=${settings.model};tier=priority`
   }
   return headers
+}
+
+function buildOrcaRouterHeaders(
+  settings: ProviderSettings,
+  sessionId?: string
+): Record<string, string> | undefined {
+  if (settings.provider !== 'openai' || !sessionId) return undefined
+
+  try {
+    if (new URL(settings.baseUrl).hostname !== ORCAROUTER_API_HOST) return undefined
+  } catch {
+    return undefined
+  }
+
+  return { 'X-OrcaRouter-Session-Id': sessionId }
 }
 
 function isCodexResponsesRequest(input: Parameters<typeof globalThis.fetch>[0]): boolean {
@@ -129,6 +145,7 @@ export interface OpenAiLanguageModelOptions {
   onReasoningDelta?: (delta: string) => void
   historicalReasoningContents?: string[]
   processingTier?: ModelProcessingTier
+  sessionId?: string
 }
 
 export function createOpenAiLanguageModel(
@@ -177,12 +194,13 @@ export function createOpenAiLanguageModel(
   const codexHeaders = isCodexOauth
     ? buildCodexHeaders(settings, options.processingTier ?? 'standard')
     : undefined
+  const headers = codexHeaders ?? buildOrcaRouterHeaders(settings, options.sessionId)
   const provider = dependencies.createOpenAIProvider({
     apiKey: settings.apiKey,
     baseURL: isCodexOauth
       ? CODEX_BACKEND_BASE_URL
       : cleanBaseUrl(settings.baseUrl, DEFAULT_OPENAI_BASE_URL),
-    ...(codexHeaders ? { headers: codexHeaders } : {}),
+    ...(headers ? { headers } : {}),
     ...((codexFetch ?? composedFetch) ? { fetch: codexFetch ?? composedFetch } : {})
   })
 

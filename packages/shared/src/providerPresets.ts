@@ -14,6 +14,8 @@ export interface ProviderPreset {
   baseUrl: string
   /** Icon key for @lobehub/icons ProviderIcon */
   iconKey: string
+  /** Optional user-facing page for obtaining an API key */
+  apiKeyUrl?: string
 }
 
 /**
@@ -111,6 +113,14 @@ export const providerPresets: readonly ProviderPreset[] = [
     type: 'openai',
     baseUrl: 'https://openrouter.ai/api/v1',
     iconKey: 'openrouter'
+  },
+  {
+    key: 'orcarouter',
+    name: 'OrcaRouter',
+    type: 'openai',
+    baseUrl: 'https://api.orcarouter.ai/v1',
+    iconKey: 'orcarouter',
+    apiKeyUrl: 'https://www.orcarouter.ai/ref/ref_f3a248db9418ff5008ac'
   },
   {
     key: 'packycode',

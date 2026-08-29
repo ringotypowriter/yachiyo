@@ -41,7 +41,7 @@ No MCP. No telemetry. No plugin marketplace. Just what's necessary for a cyber-a
 - **Local memory & profile** — Store durable memory, recall it into future runs, and keep `SOUL.md` / `USER.md` as first-class context.
 - **Workspace file snapshots** — Automatically track file changes across every run, with built-in diff review so you can see exactly what happened.
 - **Rich composer input** — Send images, file attachments, and steer an active reply in real time or queue a follow-up without interrupting the current run.
-- **Multi-provider runtime** — Anthropic, OpenAI, Gemini, Vertex AI, or custom gateway, with model selection inside the app.
+- **Multi-provider runtime** — Anthropic, OpenAI, Gemini, Vertex AI, [OrcaRouter](https://www.orcarouter.ai/ref/ref_f3a248db9418ff5008ac), or custom gateway, with model selection inside the app.
 - **Local-first storage** — SQLite + Drizzle ORM under `~/.yachiyo/`, with no hosted backend required.
 
 ## Screenshots

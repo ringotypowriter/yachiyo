@@ -614,6 +614,7 @@ export function createAiSdkModelRuntime(dependencies: AiSdkRuntimeDependencies =
               {
                 onReasoningDelta: interceptReasoningDelta,
                 processingTier: request.processingTier,
+                sessionId: request.promptCacheKey,
                 ...(provider === 'openai'
                   ? {
                       historicalReasoningContents:

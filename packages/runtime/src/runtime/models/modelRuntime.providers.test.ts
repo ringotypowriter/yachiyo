@@ -155,6 +155,59 @@ test('createAiSdkModelRuntime skips gateway vertex routing for non-google models
   )
 })
 
+test('createAiSdkModelRuntime sends session affinity only to OrcaRouter', async () => {
+  const providerCalls: Array<{ baseURL?: string; headers?: Record<string, string> }> = []
+  const runtime = createAiSdkModelRuntime({
+    createOpenAIProvider: (options) => {
+      providerCalls.push((options ?? {}) as (typeof providerCalls)[number])
+      return {
+        chat: (modelId: string) => ({ modelId, provider: 'openai.chat' })
+      } as never
+    },
+    streamTextImpl: (() => ({
+      textStream: (async function* () {
+        yield 'ok'
+      })()
+    })) as never
+  })
+  const chunks: string[] = []
+
+  for await (const chunk of runtime.streamReply({
+    messages: [{ role: 'user', content: 'Hello' }],
+    settings: {
+      providerName: 'OrcaRouter',
+      provider: 'openai',
+      model: 'orcarouter/auto',
+      apiKey: 'sk-orca-test',
+      baseUrl: 'https://api.orcarouter.ai/v1'
+    },
+    signal: new AbortController().signal,
+    promptCacheKey: 'thread-orca'
+  })) {
+    chunks.push(chunk)
+  }
+
+  for await (const chunk of runtime.streamReply({
+    messages: [{ role: 'user', content: 'Hello' }],
+    settings: {
+      providerName: 'OpenAI',
+      provider: 'openai',
+      model: 'gpt-4o',
+      apiKey: 'sk-openai-test',
+      baseUrl: 'https://api.openai.com/v1'
+    },
+    signal: new AbortController().signal,
+    promptCacheKey: 'thread-openai'
+  })) {
+    chunks.push(chunk)
+  }
+
+  assert.deepEqual(chunks, ['ok', 'ok'])
+  assert.equal(providerCalls.length, 2)
+  assert.equal(providerCalls[0]?.headers?.['X-OrcaRouter-Session-Id'], 'thread-orca')
+  assert.equal(providerCalls[1]?.headers, undefined)
+})
+
 test('fetchModels allows vertex model fetching via ADC', async () => {
   let requestedUrl = ''
   let authorizationHeader = ''

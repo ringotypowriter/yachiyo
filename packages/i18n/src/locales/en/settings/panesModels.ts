@@ -40,6 +40,7 @@ export const providers = {
   selectAuthFileTitle: 'Select auth.json',
   selectFile: 'Select file',
   apiKeyLabel: 'API Key',
+  getApiKey: 'Get API Key',
   baseUrlLabel: 'Base URL',
   showKey: 'Show key',
   hideKey: 'Hide key',

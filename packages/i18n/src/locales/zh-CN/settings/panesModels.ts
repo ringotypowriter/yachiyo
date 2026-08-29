@@ -34,6 +34,7 @@ export const providers = {
   selectAuthFileTitle: '选择 auth.json',
   selectFile: '选择文件',
   apiKeyLabel: 'API 密钥',
+  getApiKey: 'Get API Key',
   baseUrlLabel: 'Base URL',
   showKey: '显示密钥',
   hideKey: '隐藏密钥',

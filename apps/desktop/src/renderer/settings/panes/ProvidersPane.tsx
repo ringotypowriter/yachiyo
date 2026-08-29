@@ -31,7 +31,7 @@ import {
   syncToolModelWithProvider,
   toolModelTargetsProvider
 } from '@yachiyo/shared/providerConfig'
-import { matchProviderPreset } from '@yachiyo/shared/providerPresets'
+import { findProviderPreset, matchProviderPreset } from '@yachiyo/shared/providerPresets'
 import { useT } from '@yachiyo/i18n/react'
 import { Field, PlaceholderPane, SettingSwitch, SimpleSelect } from '../components/primitives'
 import { inputStyle } from '../components/styles'
@@ -185,6 +185,9 @@ export function ProvidersPane({
   const [backupMode, setBackupMode] = useState<ProviderBackupMode | null>(null)
   const selectedProvider =
     draft.providers.find((provider) => provider.id === selectedProviderId) ?? null
+  const selectedPreset = selectedProvider?.presetKey
+    ? findProviderPreset(selectedProvider.presetKey)
+    : undefined
 
   const handleProviderChange = (update: (provider: ProviderConfig) => ProviderConfig): void => {
     if (!selectedProvider) {
@@ -379,12 +382,24 @@ export function ProvidersPane({
         {selectedProvider ? (
           <div key={selectedProvider.id} className="space-y-5 px-7 pt-5 pb-6">
             <div className="flex items-center justify-between gap-4">
-              <div
-                className="flex items-center gap-2.5 text-xl font-semibold"
-                style={{ color: theme.text.primary, letterSpacing: '-0.3px' }}
-              >
-                <ProviderIconBadge provider={selectedProvider} />
-                {selectedProvider.name}
+              <div className="flex items-center gap-3 min-w-0">
+                <div
+                  className="flex items-center gap-2.5 text-xl font-semibold min-w-0"
+                  style={{ color: theme.text.primary, letterSpacing: '-0.3px' }}
+                >
+                  <ProviderIconBadge provider={selectedProvider} />
+                  <span className="truncate">{selectedProvider.name}</span>
+                </div>
+                {selectedPreset?.apiKeyUrl ? (
+                  <button
+                    type="button"
+                    onClick={() => window.open(selectedPreset.apiKeyUrl, '_blank', 'noreferrer')}
+                    className="shrink-0 text-xs font-medium transition-opacity opacity-60 hover:opacity-100"
+                    style={{ color: theme.text.accent }}
+                  >
+                    {t('settings.providers.getApiKey')}
+                  </button>
+                ) : null}
               </div>
 
               <div className="flex items-center gap-3">

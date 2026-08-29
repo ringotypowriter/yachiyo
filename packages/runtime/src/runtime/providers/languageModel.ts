@@ -36,6 +36,7 @@ export interface CreateLanguageModelOptions {
   onReasoningDelta?: (delta: string) => void
   historicalReasoningContents?: string[]
   processingTier?: ModelProcessingTier
+  sessionId?: string
 }
 
 export function createLanguageModel(
@@ -57,6 +58,7 @@ export function createLanguageModel(
       {
         onReasoningDelta: options.onReasoningDelta,
         processingTier: options.processingTier,
+        sessionId: options.sessionId,
         ...(settings.provider === 'openai'
           ? { historicalReasoningContents: options.historicalReasoningContents }
           : {})

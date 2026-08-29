@@ -24,6 +24,18 @@ test('createProviderConfig defaults DeepSeek to chat completions for model fetch
   assert.equal(provider.baseUrl, 'https://api.deepseek.com/v1')
 })
 
+test('createProviderConfig configures OrcaRouter through its OpenAI-compatible API', () => {
+  const preset = findProviderPreset('orcarouter')
+  assert.ok(preset)
+  assert.equal(preset.apiKeyUrl, 'https://www.orcarouter.ai/ref/ref_f3a248db9418ff5008ac')
+
+  const provider = createProviderConfig([], preset)
+
+  assert.equal(provider.name, 'OrcaRouter')
+  assert.equal(provider.type, 'openai')
+  assert.equal(provider.baseUrl, 'https://api.orcarouter.ai/v1')
+})
+
 test('mergePresetProviders migrates legacy DeepSeek preset to chat completions', () => {
   const [provider] = mergePresetProviders([
     {
