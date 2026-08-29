@@ -725,23 +725,18 @@ test('sqlite-backed server persists state across reopen', async () => {
       ensureThreadWorkspace
     })
     const bootstrap = await reopened.bootstrap()
+    const threadData = reopened.loadThreadData(thread.id)
 
     assert.equal(bootstrap.threads.length, 1)
     assert.equal(bootstrap.threads[0]?.title, 'Hello from sqlite')
     assert.equal(bootstrap.threads[0]?.preview, 'Hello from sqlite')
-    assert.equal(
-      bootstrap.threads[0]?.headMessageId,
-      bootstrap.messagesByThread[thread.id]?.[1]?.id
-    )
-    assert.equal(bootstrap.messagesByThread[thread.id]?.length, 2)
-    assert.equal(bootstrap.messagesByThread[thread.id]?.[0]?.role, 'user')
-    assert.equal(
-      bootstrap.messagesByThread[thread.id]?.[1]?.parentMessageId,
-      bootstrap.messagesByThread[thread.id]?.[0]?.id
-    )
-    assert.equal(bootstrap.messagesByThread[thread.id]?.[1]?.content, 'Hello from sqlite')
-    assert.equal(bootstrap.messagesByThread[thread.id]?.[1]?.modelId, 'gpt-5')
-    assert.equal(bootstrap.messagesByThread[thread.id]?.[1]?.providerName, 'native')
+    assert.equal(bootstrap.threads[0]?.headMessageId, threadData.messages[1]?.id)
+    assert.equal(threadData.messages.length, 2)
+    assert.equal(threadData.messages[0]?.role, 'user')
+    assert.equal(threadData.messages[1]?.parentMessageId, threadData.messages[0]?.id)
+    assert.equal(threadData.messages[1]?.content, 'Hello from sqlite')
+    assert.equal(threadData.messages[1]?.modelId, 'gpt-5')
+    assert.equal(threadData.messages[1]?.providerName, 'native')
 
     await reopened.close()
     reopened = null
