@@ -111,6 +111,7 @@ import {
   startCommandSocket,
   type CommandSocketHandle
 } from '../cli/commandSocket.ts'
+import { shouldEnableCommandSocket } from './commandSocketMode.ts'
 import { createAppUpdateCommandHandler } from '../cli/appUpdateCommand.ts'
 import { createProviderFetch } from '../net/providerFetch.ts'
 import { openThreadWorkspace } from '../electron/openThreadWorkspace.ts'
@@ -850,9 +851,12 @@ export function registerYachiyoGateway(options: {
     }
   })
 
-  // Local command transport for CLI commands (Unix socket or Windows named pipe).
-  startCommandSocketNow('initial startup')
-  registerCommandSocketRecovery()
+  // In development, leave a production instance's endpoint untouched unless
+  // dev:cli explicitly opts in. Starting the socket removes an existing Unix socket.
+  if (shouldEnableCommandSocket(is.dev)) {
+    startCommandSocketNow('initial startup')
+    registerCommandSocketRecovery()
+  }
   registerChannelHealthPokes()
 
   handleYachiyoIpc(IPC_CHANNELS.searchThreadsAndMessages, (input: SearchThreadsAndMessagesInput) =>

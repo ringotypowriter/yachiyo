@@ -13,6 +13,9 @@ const desktopDir = resolve(repoRoot, 'apps', 'desktop')
 const args = new Set(process.argv.slice(2))
 
 const devEnv = { ...process.env }
+if (args.has('--cli')) {
+  devEnv.YACHIYO_DEV_CLI = '1'
+}
 if (args.has('--channels')) {
   devEnv.YACHIYO_DEV_CHANNELS = '1'
 }

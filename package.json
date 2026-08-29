@@ -46,6 +46,7 @@
     "test:server:native": "pnpm --filter @yachiyo/desktop test:server:native",
     "start": "pnpm --filter @yachiyo/desktop start",
     "dev": "node scripts/run-desktop-dev.mjs",
+    "dev:cli": "node scripts/run-desktop-dev.mjs --cli",
     "dev:channels": "node scripts/run-desktop-dev.mjs --channels",
     "dev:schedules": "node scripts/run-desktop-dev.mjs --schedules",
     "build": "pnpm --filter @yachiyo/desktop build",

@@ -36,6 +36,7 @@
     "test:server:native": "pnpm run typecheck:tests && pnpm run native:prepare && pnpm run sync-core:build && pnpm run process-host:build && ELECTRON_RUN_AS_NODE=1 electron --experimental-strip-types --test ../../packages/runtime/src/storage/sqlite/*.native.test.ts ../../packages/runtime/src/services/processBroker/nativeProcessBroker.native.test.ts ../../packages/runtime/src/app/host/tests/server.syncRefresh.native.test.ts",
     "start": "pnpm run native:prepare && pnpm run process-host:build && electron-vite preview",
     "dev": "node ../../scripts/run-desktop-dev.mjs",
+    "dev:cli": "node ../../scripts/run-desktop-dev.mjs --cli",
     "dev:channels": "node ../../scripts/run-desktop-dev.mjs --channels",
     "dev:schedules": "node ../../scripts/run-desktop-dev.mjs --schedules",
     "build": "pnpm run native:prepare && pnpm run search:download && pnpm run sync-core:build && pnpm run process-host:build && pnpm run typecheck && electron-vite build && node ../../scripts/stage-runtime-node-modules.mjs",
