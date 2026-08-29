@@ -16,8 +16,9 @@ import {
 } from 'node:fs'
 import { dirname, join, resolve, sep } from 'node:path'
 import process from 'node:process'
+import { fileURLToPath, pathToFileURL } from 'node:url'
+import ts from 'typescript'
 import { resolveBuildExecutables, resolveBuildSpawnSpec } from './build-executables.mjs'
-import { fileURLToPath } from 'node:url'
 import {
   ELECTRON_REBUILD_MODULES,
   RUNTIME_NATIVE_MODULES,
@@ -42,7 +43,95 @@ const explicitRuntimePackages = new Map(
   RUNTIME_NATIVE_MODULES.map((packageName) => [packageName, ['required Electron runtime package']])
 )
 const optionalRuntimePackages = new Set()
-const requirePattern = /\brequire\(\s*['"]([^'"]+)['"]\s*\)/gu
+function isCreateRequireCall(node) {
+  if (!ts.isCallExpression(node)) {
+    return false
+  }
+
+  return (
+    (ts.isIdentifier(node.expression) && node.expression.text === 'createRequire') ||
+    (ts.isPropertyAccessExpression(node.expression) &&
+      node.expression.name.text === 'createRequire')
+  )
+}
+
+function isRequireValue(expression, requireBindings) {
+  return (
+    (ts.isIdentifier(expression) && requireBindings.has(expression.text)) ||
+    isCreateRequireCall(expression)
+  )
+}
+
+function isModuleLoaderExpression(expression, requireBindings) {
+  if (expression.kind === ts.SyntaxKind.ImportKeyword) {
+    return true
+  }
+  if (isRequireValue(expression, requireBindings)) {
+    return true
+  }
+  if (!ts.isPropertyAccessExpression(expression)) {
+    return false
+  }
+
+  if (
+    expression.name.text === 'require' &&
+    ts.isIdentifier(expression.expression) &&
+    expression.expression.text === 'module'
+  ) {
+    return true
+  }
+
+  return (
+    expression.name.text === 'resolve' && isRequireValue(expression.expression, requireBindings)
+  )
+}
+
+export function findRuntimePackageSpecifiers(source, fileName = 'runtime-output.js') {
+  const sourceFile = ts.createSourceFile(
+    fileName,
+    source,
+    ts.ScriptTarget.Latest,
+    false,
+    ts.ScriptKind.JS
+  )
+  const requireBindings = new Set(['require'])
+
+  function collectRequireBindings(node) {
+    if (
+      ts.isVariableDeclaration(node) &&
+      ts.isIdentifier(node.name) &&
+      node.initializer &&
+      isCreateRequireCall(node.initializer)
+    ) {
+      requireBindings.add(node.name.text)
+    }
+    ts.forEachChild(node, collectRequireBindings)
+  }
+  collectRequireBindings(sourceFile)
+
+  const specifiers = new Set()
+  function collectModuleSpecifiers(node) {
+    const declarationSpecifier =
+      ts.isImportDeclaration(node) || ts.isExportDeclaration(node)
+        ? node.moduleSpecifier
+        : undefined
+    if (declarationSpecifier && ts.isStringLiteralLike(declarationSpecifier)) {
+      specifiers.add(declarationSpecifier.text)
+    }
+    if (
+      ts.isCallExpression(node) &&
+      isModuleLoaderExpression(node.expression, requireBindings) &&
+      node.arguments.length > 0 &&
+      ts.isStringLiteralLike(node.arguments[0])
+    ) {
+      specifiers.add(node.arguments[0].text)
+    }
+    ts.forEachChild(node, collectModuleSpecifiers)
+  }
+  collectModuleSpecifiers(sourceFile)
+
+  return [...specifiers].sort()
+}
 
 function packageNameFromSpecifier(specifier) {
   if (
@@ -118,13 +207,13 @@ function findRuntimeRequires() {
   )
   for (const file of walkJavaScriptFiles(outMainDir)) {
     const source = readFileSync(file, 'utf8')
-    for (const match of source.matchAll(requirePattern)) {
-      const packageName = packageNameFromSpecifier(match[1])
+    for (const specifier of findRuntimePackageSpecifiers(source, file)) {
+      const packageName = packageNameFromSpecifier(specifier)
       if (!packageName) {
         continue
       }
       const reasons = packages.get(packageName) ?? []
-      reasons.push(`${file.slice(repoRoot.length + 1)} -> ${match[1]}`)
+      reasons.push(`${file.slice(repoRoot.length + 1)} -> ${specifier}`)
       packages.set(packageName, reasons)
     }
   }
@@ -281,40 +370,44 @@ function stageRuntimePackages(runtimeRequires) {
   return { staged, skippedOptional }
 }
 
-if (!existsSync(outMainDir) || !statSync(outMainDir).isDirectory()) {
-  console.error(`Cannot stage runtime node_modules because ${outMainDir} does not exist.`)
-  process.exit(1)
-}
+function main() {
+  if (!existsSync(outMainDir) || !statSync(outMainDir).isDirectory()) {
+    console.error(`Cannot stage runtime node_modules because ${outMainDir} does not exist.`)
+    process.exit(1)
+  }
 
-rmSync(stagedNodeModulesDir, { recursive: true, force: true })
-mkdirSync(stagedNodeModulesDir, { recursive: true })
+  rmSync(stagedNodeModulesDir, { recursive: true, force: true })
+  mkdirSync(stagedNodeModulesDir, { recursive: true })
 
-const runtimeRequires = findRuntimeRequires()
-const { staged, skippedOptional } = stageRuntimePackages(runtimeRequires)
-rebuildStagedNativeRuntimePackages(
-  nativeRuntimePackages.filter((packageName) => staged.has(packageName))
-)
-const pruneReport = pruneStagedRuntimeNodeModules(stagedNodeModulesDir)
-console.log(
-  `pruned ${pruneReport.removedPaths.length} runtime paths and compacted ${pruneReport.compactedNativeBuilds.length} native builds`
-)
-verifyStagedRuntimeNativeModules()
-const manifestPath = join(stagedRuntimeDir, 'runtime-node-modules.json')
-writeFileSync(
-  manifestPath,
-  `${JSON.stringify(
-    {
-      packages: [...staged.keys()].sort(),
-      skippedOptional: [...new Set(skippedOptional)].sort()
-    },
-    null,
-    2
-  )}\n`
-)
-
-console.log(`staged ${staged.size} runtime packages in ${stagedNodeModulesDir}`)
-if (skippedOptional.length > 0) {
-  console.log(
-    `skipped optional runtime packages: ${[...new Set(skippedOptional)].sort().join(', ')}`
+  const runtimeRequires = findRuntimeRequires()
+  const { staged, skippedOptional } = stageRuntimePackages(runtimeRequires)
+  rebuildStagedNativeRuntimePackages(
+    nativeRuntimePackages.filter((packageName) => staged.has(packageName))
   )
+  const pruneReport = pruneStagedRuntimeNodeModules(stagedNodeModulesDir)
+  console.log(
+    `pruned ${pruneReport.removedPaths.length} runtime paths and compacted ${pruneReport.compactedNativeBuilds.length} native builds`
+  )
+  verifyStagedRuntimeNativeModules()
+  const manifestPath = join(stagedRuntimeDir, 'runtime-node-modules.json')
+  writeFileSync(
+    manifestPath,
+    `${JSON.stringify(
+      {
+        packages: [...staged.keys()].sort(),
+        skippedOptional: [...new Set(skippedOptional)].sort()
+      },
+      null,
+      2
+    )}\n`
+  )
+
+  console.log(`staged ${staged.size} runtime packages in ${stagedNodeModulesDir}`)
+  if (skippedOptional.length > 0) {
+    console.log(
+      `skipped optional runtime packages: ${[...new Set(skippedOptional)].sort().join(', ')}`
+    )
+  }
 }
+
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) main()

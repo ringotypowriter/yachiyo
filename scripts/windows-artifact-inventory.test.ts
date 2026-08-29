@@ -34,11 +34,19 @@ test('Windows artifact inventory checks Bash, helpers, and native modules', () =
     'sync-core.exe',
     'process-host.exe',
     'better_sqlite3.node',
+    'better-sqlite3\\lib\\index.js',
+    'drizzle-orm\\better-sqlite3\\index.cjs',
+    'drizzle-orm\\better-sqlite3\\migrator.cjs',
     'sharp-win32-x64.node',
+    'sharp\\lib\\index.js',
     'libvips-42.dll',
     'bufferutil.node',
+    'bufferutil\\index.js',
     'utf-8-validate.node',
+    'utf-8-validate\\index.js',
     'zlib_sync.node',
+    'zlib-sync\\index.js',
+    '@mixmark-io\\domino\\lib\\index.js',
     'yachiyo-help',
     'app.asar'
   ]) {
@@ -87,10 +95,13 @@ test('Windows artifact inventory reports every missing category and a failing st
   assert.ok(report.missing.some((entry: string) => /sync-core/iu.test(entry)))
   assert.ok(report.missing.some((entry: string) => /process-host/iu.test(entry)))
   assert.ok(report.missing.some((entry: string) => /better-sqlite3/iu.test(entry)))
+  assert.ok(report.missing.some((entry: string) => /Drizzle SQLite adapter/iu.test(entry)))
+  assert.ok(report.missing.some((entry: string) => /Drizzle SQLite migrator/iu.test(entry)))
   assert.ok(report.missing.some((entry: string) => /sharp/iu.test(entry)))
   assert.ok(report.missing.some((entry: string) => /bufferutil/iu.test(entry)))
   assert.ok(report.missing.some((entry: string) => /utf-8-validate/iu.test(entry)))
   assert.ok(report.missing.some((entry: string) => /zlib-sync/iu.test(entry)))
+  assert.ok(report.missing.some((entry: string) => /Domino/iu.test(entry)))
   assert.ok(report.missing.some((entry: string) => /core skills/iu.test(entry)))
   assert.ok(report.missing.some((entry: string) => /migrations/iu.test(entry)))
   assert.ok(report.missing.some((entry: string) => /WASM/iu.test(entry)))

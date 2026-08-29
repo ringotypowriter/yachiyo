@@ -43,12 +43,29 @@ export function inspectWindowsArtifactInventory(input) {
       [win32.join(nodeModules, 'better-sqlite3', 'build', 'Release', 'better_sqlite3.node')]
     ],
     [
+      'better-sqlite3 JavaScript entrypoint',
+      [win32.join(nodeModules, 'better-sqlite3', 'lib', 'index.js')]
+    ],
+    [
+      'Drizzle SQLite adapter',
+      [win32.join(nodeModules, 'drizzle-orm', 'better-sqlite3', 'index.cjs')]
+    ],
+    [
+      'Drizzle SQLite migrator',
+      [win32.join(nodeModules, 'drizzle-orm', 'better-sqlite3', 'migrator.cjs')]
+    ],
+    [
+      'Domino runtime entrypoint',
+      [win32.join(nodeModules, '@mixmark-io', 'domino', 'lib', 'index.js')]
+    ],
+    [
       'sharp native module',
       [
         win32.join(nodeModules, '@img', 'sharp-win32-x64', 'lib', 'sharp-win32-x64.node'),
         win32.join(nodeModules, 'sharp', 'build', 'Release', 'sharp-win32-x64.node')
       ]
     ],
+    ['sharp JavaScript entrypoint', [win32.join(nodeModules, 'sharp', 'lib', 'index.js')]],
     [
       'sharp libvips runtime',
       [
@@ -63,6 +80,7 @@ export function inspectWindowsArtifactInventory(input) {
         win32.join(nodeModules, 'bufferutil', 'prebuilds', 'win32-x64', 'bufferutil.node')
       ]
     ],
+    ['bufferutil JavaScript entrypoint', [win32.join(nodeModules, 'bufferutil', 'index.js')]],
     [
       'utf-8-validate native module',
       [
@@ -71,9 +89,14 @@ export function inspectWindowsArtifactInventory(input) {
       ]
     ],
     [
+      'utf-8-validate JavaScript entrypoint',
+      [win32.join(nodeModules, 'utf-8-validate', 'index.js')]
+    ],
+    [
       'zlib-sync native module',
       [win32.join(nodeModules, 'zlib-sync', 'build', 'Release', 'zlib_sync.node')]
     ],
+    ['zlib-sync JavaScript entrypoint', [win32.join(nodeModules, 'zlib-sync', 'index.js')]],
     ['core skills catalog', [win32.join(resources, 'core-skills', 'yachiyo-help', 'SKILL.md')]],
     ['Electron locale directory', [locales]],
     ['app.asar', [appAsar]]

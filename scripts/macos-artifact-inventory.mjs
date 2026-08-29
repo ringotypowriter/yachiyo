@@ -66,9 +66,20 @@ export function inspectMacosArtifactInventory(input) {
       [join(nodeModules, 'better-sqlite3', 'build', 'Release', 'better_sqlite3.node')]
     ],
     [
+      'better-sqlite3 JavaScript entrypoint',
+      [join(nodeModules, 'better-sqlite3', 'lib', 'index.js')]
+    ],
+    ['Drizzle SQLite adapter', [join(nodeModules, 'drizzle-orm', 'better-sqlite3', 'index.cjs')]],
+    [
+      'Drizzle SQLite migrator',
+      [join(nodeModules, 'drizzle-orm', 'better-sqlite3', 'migrator.cjs')]
+    ],
+    ['Domino runtime entrypoint', [join(nodeModules, '@mixmark-io', 'domino', 'lib', 'index.js')]],
+    [
       'sharp native module',
       [join(nodeModules, '@img', sharpPackage, 'lib', `${sharpPackage}.node`)]
     ],
+    ['sharp JavaScript entrypoint', [join(nodeModules, 'sharp', 'lib', 'index.js')]],
     [
       'bufferutil native module',
       [
@@ -76,6 +87,7 @@ export function inspectMacosArtifactInventory(input) {
         join(nodeModules, 'bufferutil', 'build', 'Release', 'bufferutil.node')
       ]
     ],
+    ['bufferutil JavaScript entrypoint', [join(nodeModules, 'bufferutil', 'index.js')]],
     [
       'utf-8-validate native module',
       [
@@ -83,10 +95,12 @@ export function inspectMacosArtifactInventory(input) {
         join(nodeModules, 'utf-8-validate', 'build', 'Release', 'validation.node')
       ]
     ],
+    ['utf-8-validate JavaScript entrypoint', [join(nodeModules, 'utf-8-validate', 'index.js')]],
     [
       'zlib-sync native module',
       [join(nodeModules, 'zlib-sync', 'build', 'Release', 'zlib_sync.node')]
     ],
+    ['zlib-sync JavaScript entrypoint', [join(nodeModules, 'zlib-sync', 'index.js')]],
     ['core skills catalog', [join(resources, 'core-skills', 'yachiyo-help', 'SKILL.md')]],
     ['application locale directory', [resources]],
     ['Electron framework locale directory', [frameworkLocales]],
