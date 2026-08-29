@@ -1,9 +1,0 @@
-out
-dist
-pnpm-lock.yaml
-LICENSE.md
-tsconfig.json
-tsconfig.*.json
-.yachiyo
-target
-packages/runtime/src/services/processBroker/processHostProtocol.generated.ts

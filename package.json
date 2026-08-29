@@ -13,12 +13,13 @@
   "homepage": "https://github.com/ringotypowriter/yachiyo",
   "lint-staged": {
     "*.{js,jsx,ts,tsx,mjs,cjs,json,md,yaml,yml}": [
-      "prettier --write"
+      "oxfmt --write"
     ]
   },
   "scripts": {
     "prepare": "husky",
-    "format": "prettier --write .",
+    "format": "oxfmt --write .",
+    "format:check": "oxfmt --check .",
     "lint": "eslint --cache .",
     "db:check": "pnpm --filter @yachiyo/desktop db:check",
     "db:drop": "pnpm --filter @yachiyo/desktop db:drop",
@@ -61,23 +62,25 @@
   "devDependencies": {
     "@changesets/changelog-github": "^0.6.0",
     "@changesets/cli": "^2.30.0",
-    "@electron-toolkit/eslint-config-prettier": "^3.0.0",
     "@electron-toolkit/eslint-config-ts": "^3.1.0",
     "@electron-toolkit/tsconfig": "^2.0.0",
+    "@typescript/native": "npm:typescript@^7.0.2",
     "@types/node": "^22.19.1",
     "eslint": "^9.39.1",
+    "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-react": "^7.37.5",
     "eslint-plugin-react-hooks": "^7.0.1",
     "eslint-plugin-react-refresh": "^0.4.24",
     "husky": "^9.1.7",
     "lint-staged": "^16.4.0",
-    "prettier": "^3.7.4",
+    "oxfmt": "^0.65.0",
     "tsx": "^4.21.0",
-    "typescript": "^5.9.3"
+    "typescript": "npm:@typescript/typescript6@^6.0.2"
   },
   "pnpm": {
     "overrides": {
-      "@astrojs/markdown-remark": "^7.2.0"
+      "@astrojs/markdown-remark": "^7.2.0",
+      "typescript-eslint": "^8.68.0"
     },
     "onlyBuiltDependencies": [
       "better-sqlite3",

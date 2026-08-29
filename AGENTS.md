@@ -19,7 +19,7 @@ Use the pinned toolchain: `nvm use` and `pnpm install`.
 
 ## Coding Style & Naming Conventions
 
-Follow `.editorconfig` and Prettier: 2-space indentation, LF endings, single quotes, no semicolons, and `printWidth: 100`. Prefer small focused modules and feature-local code. Use `PascalCase` for React components (`MessageTimeline.tsx`), `camelCase` for utilities (`messagePrepare.ts`), and colocate shared types near the feature that owns them unless they cross process boundaries.
+Follow `.editorconfig` and Oxfmt: 2-space indentation, LF endings, single quotes, no semicolons, and `printWidth: 100`. Prefer small focused modules and feature-local code. Use `PascalCase` for React components (`MessageTimeline.tsx`), `camelCase` for utilities (`messagePrepare.ts`), and colocate shared types near the feature that owns them unless they cross process boundaries.
 
 - Add explicit return types to exported functions. Do not rely on inference for public helpers, tool factories, or other exported module APIs.
 

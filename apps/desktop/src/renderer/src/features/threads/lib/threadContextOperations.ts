@@ -150,14 +150,12 @@ export function resolveThreadContextOperations(input: {
         label: threadColorMarkLabel(null),
         separatorBefore: true
       },
-      ...THREAD_COLOR_TAGS.map(
-        (colorTag): ThreadContextOperation => ({
-          active: input.colorTag === colorTag,
-          disabled: input.isSaving,
-          key: `set-color-${colorTag}`,
-          label: threadColorMarkLabel(colorTag)
-        })
-      )
+      ...THREAD_COLOR_TAGS.map((colorTag): ThreadContextOperation => ({
+        active: input.colorTag === colorTag,
+        disabled: input.isSaving,
+        key: `set-color-${colorTag}`,
+        label: threadColorMarkLabel(colorTag)
+      }))
     )
   }
 
