@@ -43,7 +43,7 @@
     "build": "pnpm run native:prepare && pnpm run search:download && pnpm run sync-core:build && pnpm run process-host:build && pnpm run typecheck && electron-vite build && node ../../scripts/stage-runtime-node-modules.mjs",
     "build:unpack": "pnpm run external-hooks:build && pnpm run build && CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --dir",
     "build:win": "pnpm run windows-runtime:prepare && pnpm run build && electron-builder --win nsis --x64 --publish never -c.forceCodeSigning=false && pnpm run windows:inventory -- --app-dir dist/win-unpacked",
-    "build:mac": "pnpm run external-hooks:build && pnpm run build && CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac zip --publish never && pnpm run mac:inventory",
+    "build:mac": "pnpm run external-hooks:build && pnpm run build && electron-builder --mac zip --publish never && pnpm run mac:inventory",
     "build:linux": "pnpm run build && electron-builder --linux",
     "postinstall": "node -e \"console.log('Skipping Electron native rebuild on install. Run pnpm run native:prepare before Electron runtime or native sqlite tests, or pnpm run native:rebuild to force a rebuild.')\""
   },
