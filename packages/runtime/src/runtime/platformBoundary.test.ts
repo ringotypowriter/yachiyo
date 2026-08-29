@@ -6,16 +6,19 @@ import test from 'node:test'
 const RUNTIME_SRC = resolve(import.meta.dirname, '..')
 
 const SHELL_CONSUMERS = [
-  'tools/agentTools/bashTool.ts',
-  'app/domain/background/backgroundBashManager.ts',
+  'services/processBroker/nativeProcessBroker.ts',
   'runtime/acp/acpLauncher.ts',
   'tools/agentTools/testSubagentProfile.ts',
   'channels/group/groupProbeClaudeCode.ts'
 ]
 
-const PROCESS_TREE_CONSUMERS = [
+const BASH_PROCESS_BROKER_CLIENTS = [
   'tools/agentTools/bashTool.ts',
-  'app/domain/background/backgroundBashManager.ts',
+  'app/domain/background/backgroundBashManager.ts'
+]
+
+const PROCESS_TREE_CONSUMERS = [
+  'services/processBroker/nativeProcessBroker.ts',
   'runtime/acp/acpProcessPool.ts',
   'runtime/acp/acpSessionClient.ts',
   'runtime/acp/acpChatRuntime.ts',
@@ -24,11 +27,19 @@ const PROCESS_TREE_CONSUMERS = [
   'services/search/searchService.ts'
 ]
 
-test('foreground, background, ACP, and profile paths consume the shared ShellRuntime', async () => {
+test('process broker, ACP, and profile paths consume the shared ShellRuntime', async () => {
   for (const relativePath of SHELL_CONSUMERS) {
     const source = await readFile(resolve(RUNTIME_SRC, relativePath), 'utf8')
     assert.match(source, /runtime\/shell\/shellRuntime|\.\/shellRuntime|\.\.\/shell\/shellRuntime/u)
     assert.doesNotMatch(source, /['"]\/bin\/zsh['"]|['"]\/bin\/bash['"]/u)
+  }
+})
+
+test('Bash execution paths delegate process ownership to ProcessBroker', async () => {
+  for (const relativePath of BASH_PROCESS_BROKER_CLIENTS) {
+    const source = await readFile(resolve(RUNTIME_SRC, relativePath), 'utf8')
+    assert.match(source, /processBroker/u)
+    assert.doesNotMatch(source, /node:child_process|runtime\/shell\/shellRuntime|processTree/u)
   }
 })
 

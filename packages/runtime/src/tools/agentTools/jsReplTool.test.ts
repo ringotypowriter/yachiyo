@@ -1,4 +1,4 @@
-import { describe, it, afterEach } from 'node:test'
+import { after, afterEach, describe, it } from 'node:test'
 import assert from 'node:assert/strict'
 import { mkdtempSync, mkdirSync, rmSync, existsSync, writeFileSync } from 'node:fs'
 import { basename, join } from 'node:path'
@@ -7,10 +7,14 @@ import { tmpdir } from 'node:os'
 import { createTool } from './jsReplTool.ts'
 import type { AgentToolContext, JsReplToolInput, JsReplToolOutput } from './shared.ts'
 import type { JsReplToolCallDetails } from '@yachiyo/shared/protocol'
+import { NodeProcessBrokerTestAdapter } from '../../services/processBroker/nodeProcessBroker.testSupport.ts'
+
+const testProcessBroker = new NodeProcessBrokerTestAdapter()
 
 function makeContext(overrides?: Partial<AgentToolContext>): AgentToolContext {
   return {
     workspacePath: process.cwd(),
+    processBroker: testProcessBroker,
     ...overrides
   }
 }
@@ -43,6 +47,9 @@ async function execute(
 }
 
 describe('jsReplTool', () => {
+  after(async () => {
+    await testProcessBroker.close()
+  })
   afterEach(async () => {
     await Promise.all(createdTools.map((t) => t.dispose().catch(() => {})))
     createdTools.length = 0
