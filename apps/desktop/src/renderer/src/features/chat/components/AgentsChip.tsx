@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { AnimatePresence, motion } from 'framer-motion'
 import { Bot, ChevronDown, ChevronUp, Square, X } from 'lucide-react'
 import type { SubagentSnapshot, SubagentState } from '@yachiyo/shared/protocol'
@@ -7,6 +8,7 @@ import { selectSubagentSnapshotIds } from '@renderer/app/store/useAppStore/helpe
 
 import { theme } from '@renderer/theme/theme'
 import { useRestoreFocusOnUnmount } from '@renderer/lib/focusRestore'
+import { useFloatingPanelLayout } from '@renderer/lib/useFloatingPanelLayout'
 
 interface AgentsChipProps {
   threadId: string | null
@@ -96,26 +98,11 @@ export function AgentsChip({ threadId }: AgentsChipProps): React.JSX.Element | n
   const countLabel = `${runningCount} running · ${idleCount} idle`
   return (
     <div ref={wrapperRef} className="composer-task-chip-host">
-      <AnimatePresence>
-        {open ? (
-          <motion.div
-            key="agents-panel"
-            initial={{ opacity: 0, scale: 0.95, y: 4 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.95, y: 4 }}
-            transition={{ duration: 0.15, ease: 'easeOut' }}
-            className="absolute right-0"
-            style={{
-              bottom: '100%',
-              display: 'flex',
-              justifyContent: 'flex-end',
-              marginBottom: 8,
-              maxWidth: '100%',
-              pointerEvents: 'auto',
-              width: '100%'
-            }}
-          >
+      {createPortal(
+        <AnimatePresence>
+          {open ? (
             <AgentsPanel
+              key="agents-panel"
               snapshots={snapshots}
               activityById={subagentStateById}
               now={tick}
@@ -126,11 +113,12 @@ export function AgentsChip({ threadId }: AgentsChipProps): React.JSX.Element | n
                 void closeSubagent(agentId).catch(() => {})
               }}
               onClose={() => setOpen(false)}
-              ignoreClickOutsideRef={wrapperRef}
+              anchorRef={wrapperRef}
             />
-          </motion.div>
-        ) : null}
-      </AnimatePresence>
+          ) : null}
+        </AnimatePresence>,
+        document.body
+      )}
       <div className="flex justify-end">
         <button
           type="button"
@@ -168,7 +156,7 @@ interface AgentsPanelProps {
   onCancel: (agentId: string) => void
   onCloseAgent: (agentId: string) => void
   onClose: () => void
-  ignoreClickOutsideRef: React.RefObject<HTMLDivElement | null>
+  anchorRef: React.RefObject<HTMLDivElement | null>
 }
 
 function AgentsPanel({
@@ -178,16 +166,25 @@ function AgentsPanel({
   onCancel,
   onCloseAgent,
   onClose,
-  ignoreClickOutsideRef
+  anchorRef
 }: AgentsPanelProps): React.JSX.Element {
   const ref = useRef<HTMLDivElement>(null)
+  const { style: panelPositionStyle } = useFloatingPanelLayout({
+    open: true,
+    referenceRef: anchorRef,
+    floatingRef: ref,
+    width: 760,
+    maxHeight: 680,
+    preferredPlacement: 'top',
+    alignment: 'end'
+  })
   useRestoreFocusOnUnmount()
 
   useEffect(() => {
     const handler = (event: MouseEvent): void => {
       const target = event.target as Node
       if (ref.current?.contains(target)) return
-      if (ignoreClickOutsideRef.current?.contains(target)) return
+      if (anchorRef.current?.contains(target)) return
       onClose()
     }
     const id = setTimeout(() => document.addEventListener('mousedown', handler), 0)
@@ -195,20 +192,27 @@ function AgentsPanel({
       clearTimeout(id)
       document.removeEventListener('mousedown', handler)
     }
-  }, [ignoreClickOutsideRef, onClose])
+  }, [anchorRef, onClose])
 
   return (
-    <div
+    <motion.div
       ref={ref}
-      className="mb-2 rounded-xl overflow-hidden flex flex-col"
+      data-composer-floating-menu
+      data-composer-wheel-local-scroll
+      initial={{ opacity: 0, scale: 0.95, y: 4 }}
+      animate={{ opacity: 1, scale: 1, y: 0 }}
+      exit={{ opacity: 0, scale: 0.95, y: 4 }}
+      transition={{ duration: 0.15, ease: 'easeOut' }}
+      className="rounded-xl overflow-hidden flex flex-col"
       style={{
-        width: 'min(760px, 100%)',
-        maxHeight: 'min(78vh, 680px)',
+        ...panelPositionStyle,
         background: theme.background.surfaceFrosted,
         border: `1px solid ${theme.border.default}`,
         boxShadow: theme.shadow.card,
         backdropFilter: 'blur(12px)',
-        WebkitBackdropFilter: 'blur(12px)'
+        WebkitBackdropFilter: 'blur(12px)',
+        pointerEvents: 'auto',
+        zIndex: 120
       }}
     >
       <div
@@ -229,7 +233,11 @@ function AgentsPanel({
           <ChevronDown size={12} strokeWidth={1.75} />
         </button>
       </div>
-      <div className="flex-1 overflow-y-auto">
+      <div
+        className="min-h-0 flex-1 overflow-y-auto"
+        data-composer-wheel-local-scroll
+        style={{ overscrollBehavior: 'contain' }}
+      >
         {snapshots.map((snapshot) => (
           <AgentRow
             key={snapshot.agentId}
@@ -241,7 +249,7 @@ function AgentsPanel({
           />
         ))}
       </div>
-    </div>
+    </motion.div>
   )
 }
 function AgentRow({

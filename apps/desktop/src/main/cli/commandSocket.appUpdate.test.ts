@@ -325,6 +325,13 @@ test('commandSocket reports an install failure before clearing the owed receipt'
     controller,
     getRunningVersion: () => '1.5.1',
     getActiveRunIds: () => ['run-self'],
+    closeRunAdmissionAndGetActiveRunIds: async () => {
+      events.push('close-admission')
+      return ['run-self']
+    },
+    openRunAdmission: async () => {
+      events.push('open-admission')
+    },
     receipt
   })
   options.onError = (error) => events.push(`error:${error.message}`)
@@ -348,11 +355,13 @@ test('commandSocket reports an install failure before clearing the owed receipt'
       }
     })
     assert.deepEqual(events, [
+      'close-admission',
       'resolve',
       'reserve',
       'persist',
       'announce',
       'install',
+      'open-admission',
       'report-failure:chan-1:thread-1:msg-1',
       'clear',
       'error:quit failed'

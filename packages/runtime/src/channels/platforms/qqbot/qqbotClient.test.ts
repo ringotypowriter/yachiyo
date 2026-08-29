@@ -353,3 +353,107 @@ describe('QQBot C2C file messages', () => {
     })
   })
 })
+
+describe('QQBot C2C send dispatch deadlines', () => {
+  it('dispatches passive and active messages normally without a dispatch callback', async () => {
+    const calls: string[] = []
+    const fetchImpl = (async (input: RequestInfo | URL) => {
+      const url = String(input)
+      calls.push(url)
+      if (url.endsWith('/app/getAppAccessToken')) {
+        return jsonResponse({ access_token: 'token', expires_in: 3600 })
+      }
+      return jsonResponse({ id: 'message-1' })
+    }) as typeof fetch
+    const client = createQQBotClient({
+      appId: 'app',
+      clientSecret: 'secret',
+      WebSocketImpl: createFakeWebSocketFactory().WebSocketImpl,
+      fetchImpl
+    })
+
+    await client.sendC2CMessage('open-1', 'reply', 'reply-1')
+    await client.sendC2CActiveMessage('open-1', 'active')
+
+    assert.deepEqual(calls, [
+      'https://bots.qq.com/app/getAppAccessToken',
+      'https://api.sgroup.qq.com/v2/users/open-1/messages',
+      'https://api.sgroup.qq.com/v2/users/open-1/messages'
+    ])
+    await client.close()
+  })
+
+  it('does not dispatch a passive API POST when token refresh crosses the deadline', async () => {
+    let finishTokenRefresh!: () => void
+    const tokenRefresh = new Promise<void>((resolve) => {
+      finishTokenRefresh = resolve
+    })
+    const calls: string[] = []
+    let now = 100
+    const notAfterMs = 101
+    const fetchImpl = (async (input: RequestInfo | URL) => {
+      const url = String(input)
+      calls.push(url)
+      if (url.endsWith('/app/getAppAccessToken')) {
+        await tokenRefresh
+        now = notAfterMs
+        return jsonResponse({ access_token: 'token', expires_in: 3600 })
+      }
+      return jsonResponse({ id: 'message-1' })
+    }) as typeof fetch
+    const client = createQQBotClient({
+      appId: 'app',
+      clientSecret: 'secret',
+      WebSocketImpl: createFakeWebSocketFactory().WebSocketImpl,
+      fetchImpl
+    })
+
+    const send = client.sendC2CMessage('open-1', 'hello', 'reply-1', {
+      beforeDispatch: () => {
+        if (now >= notAfterMs) throw new Error('send deadline expired')
+      }
+    })
+    finishTokenRefresh()
+
+    await assert.rejects(send, /send deadline expired/)
+    assert.deepEqual(calls, ['https://bots.qq.com/app/getAppAccessToken'])
+    await client.close()
+  })
+
+  it('does not dispatch an active API POST when token refresh crosses the deadline', async () => {
+    let finishTokenRefresh!: () => void
+    const tokenRefresh = new Promise<void>((resolve) => {
+      finishTokenRefresh = resolve
+    })
+    const calls: string[] = []
+    let now = 100
+    const notAfterMs = 101
+    const fetchImpl = (async (input: RequestInfo | URL) => {
+      const url = String(input)
+      calls.push(url)
+      if (url.endsWith('/app/getAppAccessToken')) {
+        await tokenRefresh
+        now = notAfterMs
+        return jsonResponse({ access_token: 'token', expires_in: 3600 })
+      }
+      return jsonResponse({ id: 'message-1' })
+    }) as typeof fetch
+    const client = createQQBotClient({
+      appId: 'app',
+      clientSecret: 'secret',
+      WebSocketImpl: createFakeWebSocketFactory().WebSocketImpl,
+      fetchImpl
+    })
+
+    const send = client.sendC2CActiveMessage('open-1', 'hello', {
+      beforeDispatch: () => {
+        if (now >= notAfterMs) throw new Error('send deadline expired')
+      }
+    })
+    finishTokenRefresh()
+
+    await assert.rejects(send, /send deadline expired/)
+    assert.deepEqual(calls, ['https://bots.qq.com/app/getAppAccessToken'])
+    await client.close()
+  })
+})

@@ -1713,6 +1713,14 @@ export class YachiyoServer {
     return this.runDomain.listActiveRunIds()
   }
 
+  closeRunAdmissionAndGetActiveRunIds(ownerId: string): string[] {
+    return this.runDomain.closeRunAdmissionAndGetActiveRunIds(ownerId)
+  }
+
+  openRunAdmission(ownerId: string): void {
+    this.runDomain.openRunAdmission(ownerId)
+  }
+
   cancelActiveRuns(): void {
     this.runDomain.cancelActiveRuns()
   }

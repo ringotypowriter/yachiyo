@@ -75,6 +75,7 @@ export interface SendChatFlowContext {
   queuedFollowUpDrafts: Map<string, QueuedFollowUpDraft>
   threadTitleRunner: ThreadTitleGenerationRunner
   startActiveRun: (input: StartActiveRunInput) => void
+  assertRunAdmissionOpen?: () => void
 }
 
 export async function sendChatFlow(
@@ -284,6 +285,10 @@ function startFreshRun(
   }
 ): ChatAccepted {
   const { deps } = context
+  // Attachment preparation above can await. Recheck at the synchronous
+  // persistence/start boundary so closing admission and snapshotting active
+  // runs cannot miss a run that entered sendChat before the close.
+  context.assertRunAdmissionOpen?.()
   const timestamp = deps.timestamp()
   const messageSummary = input.hidden
     ? null

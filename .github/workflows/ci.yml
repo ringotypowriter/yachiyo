@@ -30,6 +30,17 @@ jobs:
       - name: Test
         run: pnpm run test:server
 
+      - name: Cache sync-core Cargo build
+        uses: actions/cache@v4
+        with:
+          path: native/sync-core/target
+          key: ${{ runner.os }}-${{ runner.arch }}-sync-core-${{ hashFiles('native/sync-core/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ runner.arch }}-sync-core-
+
+      - name: Test native server behavior
+        run: pnpm run test:server:native
+
   windows:
     runs-on: windows-2022
     steps:

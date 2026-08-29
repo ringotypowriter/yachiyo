@@ -10,7 +10,6 @@ import {
 import { is } from '@electron-toolkit/utils'
 import { t } from '@yachiyo/i18n/index'
 import { spawn } from 'child_process'
-import { randomUUID } from 'node:crypto'
 import { join } from 'node:path'
 import { getActivityTracker } from '@yachiyo/runtime/activity/ActivityTracker'
 import { resolveActivityTrackingPermissionForSave } from '@yachiyo/runtime/activity/activityTrackingPermission'
@@ -99,13 +98,11 @@ import {
 } from '../runtimeHost/startUtilityRuntimeHost.ts'
 import {
   clearPendingUpdateReceipt,
-  readPendingUpdateReceipt,
   writePendingUpdateReceipt
 } from '../appUpdate/pendingUpdateReceipt.ts'
 import type { OriginLookup } from '../appUpdate/installReceiptSequence.ts'
-import { describeUpdateOutcome } from '../appUpdate/updateReceiptMessage.ts'
-import { createUpdateReceiptCoordinator } from '../appUpdate/updateReceiptCoordinator.ts'
-import { deliverPendingUpdateReceiptAfterChannelReady } from '../appUpdate/pendingUpdateReceiptDelivery.ts'
+import { createGatewayPendingUpdateReceiptDelivery } from '../appUpdate/gatewayPendingUpdateReceiptDelivery.ts'
+import { createGatewayRunAdmission } from '../appUpdate/gatewayRunAdmission.ts'
 import {
   createCommandSocketRestartPolicy,
   startCommandSocket,
@@ -122,7 +119,6 @@ import {
   createRuntimeLiveServices,
   type RuntimeLiveServices
 } from '@yachiyo/runtime/app/host/runtimeLiveServices'
-import { runAfterRuntimeLiveServicesReady } from '@yachiyo/runtime/app/host/runtimeLiveServicesReadiness'
 import { mergeRpcTargets } from '@yachiyo/shared/rpc/mergeRpcTargets'
 import { createWebExternalFetchRpcTarget } from '@yachiyo/runtime/services/webExternalFetchRpcBridge'
 import jsReplWorkerPath from '@yachiyo/runtime/tools/agentTools/jsReplWorker?modulePath'
@@ -178,6 +174,8 @@ export interface YachiyoGatewayHandle {
   subscribe(listener: (event: YachiyoServerEvent) => void): () => void
   cancelActiveRuns(): void
   listActiveRunIds(): string[]
+  closeRunAdmissionAndGetActiveRunIds(ownerId: string): Promise<string[]>
+  openRunAdmission(ownerId: string): Promise<void>
 }
 
 // The extracted runtime is the default: the agent loop, sqlite, memory
@@ -187,10 +185,10 @@ export interface YachiyoGatewayHandle {
 const USE_UTILITY_RUNTIME = process.env['YACHIYO_RUNTIME_UTILITY'] !== '0'
 
 let server: YachiyoServer | null = null
-let serverRpc:
+type ServerRpcHost =
   | LoopbackRpcHost<RpcSafeYachiyoServer>
   | UtilityRuntimeHost<RpcSafeYachiyoServer>
-  | null = null
+let serverRpc: ServerRpcHost | null = null
 let gatewayHandle: YachiyoGatewayHandle | null = null
 // Mirrors the runtime's active runs from its event stream, so the window
 // close guard keeps a synchronous answer in utility mode.
@@ -207,7 +205,9 @@ let channelPokesRegistered = false
 const RUNTIME_RESTART_WINDOW_MS = 60_000
 const RUNTIME_RESTART_LIMIT = 3
 let runtimeRestartTimes: number[] = []
-let utilityRuntimeStopping = false
+const intentionallyStoppedUtilityRuntimeHosts = new WeakSet<
+  UtilityRuntimeHost<RpcSafeYachiyoServer>
+>()
 // True once the crash-loop breaker trips; the renderer shows a blocking
 // overlay with a manual restart action.
 let runtimeCrashed = false
@@ -241,6 +241,42 @@ function hostCall<TResult = unknown>(method: string, args: unknown[] = []): Prom
   return serverRpc.client.call(`host.${method}`, args) as Promise<TResult>
 }
 
+const {
+  closeRunAdmissionAndGetActiveRunIds,
+  openRunAdmission,
+  getOwnerId: getRunAdmissionOwnerId
+} = createGatewayRunAdmission<ServerRpcHost>({
+  closeRuntime: async (ownerId) =>
+    USE_UTILITY_RUNTIME
+      ? hostCall<string[]>('closeRunAdmissionAndGetActiveRunIds', [ownerId])
+      : (server?.closeRunAdmissionAndGetActiveRunIds(ownerId) ?? []),
+  getRuntime: () => serverRpc,
+  openRuntime: async (ownerId, runtime) => {
+    if (USE_UTILITY_RUNTIME) {
+      if (!runtime) throw new Error('Yachiyo server is not running')
+      await runtime.client.call('host.openRunAdmission', [ownerId])
+    } else {
+      server?.openRunAdmission(ownerId)
+    }
+  },
+  recoverRuntime: (runtime) => {
+    if (!USE_UTILITY_RUNTIME || serverRpc !== runtime) return
+    markUtilityRuntimeHostStopping(runtime)
+    runtime?.dispose()
+    serverRpc = null
+    browserAutomationService?.dispose()
+    browserAutomationService = null
+    utilityActiveRunIds.clear()
+    runtimeCrashed = true
+    try {
+      startUtilityRuntime()
+    } finally {
+      broadcastRuntimeHealth()
+    }
+  },
+  onOpenError: (error) => console.error('[yachiyo] reopening run admission failed:', error)
+})
+
 function browserAutomation(): BrowserAutomationService {
   if (!browserAutomationService) {
     throw new Error('Yachiyo server is not running')
@@ -263,68 +299,17 @@ function logBrowserSearchDiagnostic(event: BrowserSearchDiagnosticEvent): void {
   console.warn(`[web-search] ${event.event}${suffix ? ` ${suffix}` : ''}`)
 }
 
-/** Beside the other per-install state, in the app's own data directory. */
-function pendingUpdateReceiptPath(): string {
-  return join(app.getPath('userData'), 'pending-update-receipt.json')
-}
-
-/**
- * Report the outcome of an update the user asked for in chat, then forget it.
- *
- * Runs once per start. The run that received the instruction died in the
- * restart, so this record is the only thing that knows anyone is waiting.
- */
-/**
- * Single owner of the pending receipt's fate. Lives in main because the record
- * does; the runtime leases it rather than keeping a copy.
- */
-const updateReceiptCoordinator = createUpdateReceiptCoordinator({
-  read: () => readPendingUpdateReceipt(pendingUpdateReceiptPath(), Date.now()),
-  clear: (attemptId) => clearPendingUpdateReceipt(pendingUpdateReceiptPath(), attemptId),
-  describe: (receipt) => describeUpdateOutcome(receipt, app.getVersion()).message,
-  newToken: () => randomUUID()
+const {
+  updateReceiptCoordinator,
+  receiptPath: pendingUpdateReceiptPath,
+  requestDelivery: requestPendingUpdateReceiptDelivery
+} = createGatewayPendingUpdateReceiptDelivery({
+  userDataPath: () => app.getPath('userData'),
+  currentVersion: () => app.getVersion(),
+  useUtilityRuntime: USE_UTILITY_RUNTIME,
+  hostCall,
+  getLiveServices: () => liveServices
 })
-
-async function deliverPendingUpdateReceiptAfterRuntimeReady(): Promise<void> {
-  const path = pendingUpdateReceiptPath()
-  await runAfterRuntimeLiveServicesReady(
-    () => {
-      if (USE_UTILITY_RUNTIME) return hostCall('waitForLiveServicesReady')
-      if (!liveServices) return Promise.reject(new Error('Yachiyo live services are not running'))
-      return liveServices.start()
-    },
-    () =>
-      deliverPendingUpdateReceiptAfterChannelReady({
-        read: () => readPendingUpdateReceipt(path, Date.now()),
-        waitForChannelReady: (channelId) => {
-          if (USE_UTILITY_RUNTIME) {
-            return hostCall('waitForChannelReady', [{ channelId }])
-          }
-          if (!liveServices) {
-            return Promise.reject(new Error('Yachiyo live services are not running'))
-          }
-          return liveServices.waitForChannelReady(channelId)
-        },
-        describe: (receipt) => describeUpdateOutcome(receipt, app.getVersion()).message,
-        sendActive: async ({ channelId, message, notAfterMs }) => {
-          // The restart destroyed the reply target. QQBot therefore needs an
-          // active send, while the other platforms ignore this distinction.
-          await hostCall('sendChannelMessage', [
-            { id: channelId, message, delivery: 'active', notAfterMs }
-          ])
-        },
-        sendTimeoutMs: 2_000,
-        clear: (attemptId) => clearPendingUpdateReceipt(path, attemptId),
-        defer: (attemptId) => updateReceiptCoordinator.defer(attemptId),
-        onDeliveryError: (error) => {
-          console.error(
-            '[update-receipt] active delivery failed, deferring to next message:',
-            error
-          )
-        }
-      })
-  )
-}
 
 const COMMAND_SOCKET_HEALTH_INTERVAL_MS = 15_000
 const COMMAND_SOCKET_HEALTH_TIMEOUT_MS = 1_000
@@ -382,6 +367,8 @@ function createCommandSocketHandle(): CommandSocketHandle {
         controller: appUpdateController,
         getRunningVersion: () => app.getVersion(),
         getActiveRunIds: () => gatewayHandle?.listActiveRunIds() ?? [],
+        closeRunAdmissionAndGetActiveRunIds,
+        openRunAdmission,
         receipt: {
           resolveOrigin: (runId) =>
             hostCall<
@@ -661,7 +648,8 @@ function startUtilityRuntime(): void {
     entryPath: join(__dirname, 'runtime-host.js'),
     isDev: is.dev,
     startupData: {
-      providerCredentialKey: unlockElectronProviderCredentialKey(resolveYachiyoSettingsPath())
+      providerCredentialKey: unlockElectronProviderCredentialKey(resolveYachiyoSettingsPath()),
+      runAdmissionOwnerId: getRunAdmissionOwnerId()
     },
     mainServicesTarget: {
       ...createBrowserAutomationRpcTarget(browserAutomationService),
@@ -695,12 +683,12 @@ function startUtilityRuntime(): void {
   })
   runtimeCrashed = false
   host.child.on('exit', (code) => {
-    // A runtime that died holding a lease would otherwise lock the receipt
-    // until the app restarted — undeliverable while looking in-progress.
+    if (intentionallyStoppedUtilityRuntimeHosts.has(host)) return
+    // A stale exit must not mutate its replacement's runtime or receipt lease.
+    if (serverRpc !== host) return
     updateReceiptCoordinator.releaseAllClaims()
-    if (utilityRuntimeStopping) return
     console.error(`[runtime-host] utility process exited unexpectedly (code=${code})`)
-    serverRpc?.dispose()
+    host.dispose()
     serverRpc = null
     browserAutomationService?.dispose()
     browserAutomationService = null
@@ -727,28 +715,43 @@ function startUtilityRuntime(): void {
     }
   })
   serverRpc = host
+  void requestPendingUpdateReceiptDelivery()
+}
+
+function isUtilityRuntimeHost(
+  host: typeof serverRpc
+): host is UtilityRuntimeHost<RpcSafeYachiyoServer> {
+  return host !== null && 'child' in host
+}
+
+function markUtilityRuntimeHostStopping(host: typeof serverRpc): void {
+  if (!isUtilityRuntimeHost(host)) return
+  intentionallyStoppedUtilityRuntimeHosts.add(host)
+  // Release before a replacement can acquire the lease.
+  updateReceiptCoordinator.releaseAllClaims()
 }
 
 async function restartServerForDemoModeChange(): Promise<void> {
   const previousServer = server
-  utilityRuntimeStopping = true
   await liveServices?.stop()
   liveServices = null
+  markUtilityRuntimeHostStopping(serverRpc)
   serverRpc?.dispose()
   serverRpc = null
   browserAutomationService?.dispose()
   browserAutomationService = null
   await previousServer?.close()
   if (USE_UTILITY_RUNTIME) {
-    // The refork boots its own server and live services in the child.
     server = null
     startUtilityRuntime()
-    utilityRuntimeStopping = false
   } else {
     server = createConfiguredServer({ webExternalFetchImpl })
-    // Re-read the module variable: createConfiguredServer just reassigned it,
-    // which TypeScript's narrowing (null since the stop above) cannot see.
+    const admissionOwnerId = getRunAdmissionOwnerId()
+    if (admissionOwnerId) {
+      server.closeRunAdmissionAndGetActiveRunIds(admissionOwnerId)
+    }
     await (liveServices as RuntimeLiveServices | null)?.start()
+    void requestPendingUpdateReceiptDelivery()
   }
 
   for (const window of BrowserWindow.getAllWindows()) {
@@ -823,21 +826,24 @@ export function registerYachiyoGateway(options: {
           .cancelActiveRuns()
           .catch((error) => console.error('[yachiyo] cancel active runs failed:', error))
       },
-      listActiveRunIds: () => [...utilityActiveRunIds]
+      listActiveRunIds: () => [...utilityActiveRunIds],
+      closeRunAdmissionAndGetActiveRunIds,
+      openRunAdmission
     }
   } else {
     console.log('[yachiyo] runtime host: in-process (YACHIYO_RUNTIME_UTILITY=0)')
     server = createConfiguredServer({ jotdownStore, webExternalFetchImpl })
-    gatewayHandle = server
+    gatewayHandle = {
+      getConfig: () => server!.getConfig(),
+      subscribe: (listener) => server!.subscribe(listener),
+      cancelActiveRuns: () => server!.cancelActiveRuns(),
+      listActiveRunIds: () => server!.listActiveRunIds(),
+      closeRunAdmissionAndGetActiveRunIds,
+      openRunAdmission
+    }
+    void requestPendingUpdateReceiptDelivery()
   }
   registerFatalRunRecovery()
-  // If the last shutdown was a self-triggered update, somebody is still
-  // waiting in a chat for the outcome. Active delivery cannot run until the
-  // channel services exist; the ready RPC and in-process promise represent
-  // the same completed startup in the two runtime modes.
-  void deliverPendingUpdateReceiptAfterRuntimeReady().catch((error) =>
-    console.error('[yachiyo] live services or update receipt delivery failed:', error)
-  )
 
   ipcMain.removeAllListeners(IPC_CHANNELS.showNotification)
   ipcMain.on(IPC_CHANNELS.showNotification, (_event, input: ShowNotificationInput) => {
@@ -1155,22 +1161,17 @@ export function registerYachiyoGateway(options: {
   handleYachiyoIpc(IPC_CHANNELS.restartRuntime, async () => {
     // Manual recovery, only meaningful after the crash-loop breaker tripped:
     // the child is dead and no 'exit' event is pending. Restarting a LIVE
-    // runtime would race its async exit delivery — the old child's exit
-    // handler would fire after the flag reset below and kill the fresh fork.
+    // runtime would race its async exit delivery.
     if (!USE_UTILITY_RUNTIME || !runtimeCrashed) return { restarted: false }
-    utilityRuntimeStopping = true
-    try {
-      serverRpc?.dispose()
-      serverRpc = null
-      browserAutomationService?.dispose()
-      browserAutomationService = null
-      utilityActiveRunIds.clear()
-      // Clearing the restart history re-arms the automatic refork policy.
-      runtimeRestartTimes = []
-      startUtilityRuntime()
-    } finally {
-      utilityRuntimeStopping = false
-    }
+    markUtilityRuntimeHostStopping(serverRpc)
+    serverRpc?.dispose()
+    serverRpc = null
+    browserAutomationService?.dispose()
+    browserAutomationService = null
+    utilityActiveRunIds.clear()
+    // Clearing the restart history re-arms the automatic refork policy.
+    runtimeRestartTimes = []
+    startUtilityRuntime()
     broadcastRuntimeHealth()
     for (const window of BrowserWindow.getAllWindows()) {
       if (!window.isDestroyed()) {
@@ -1455,7 +1456,7 @@ export function registerYachiyoGateway(options: {
     },
     cleanup: async () => {
       stopPerfMonitor()
-      utilityRuntimeStopping = true
+      markUtilityRuntimeHostStopping(serverRpc)
       if (commandSocketHealthTimer) {
         clearInterval(commandSocketHealthTimer)
         commandSocketHealthTimer = null

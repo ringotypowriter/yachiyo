@@ -31,6 +31,7 @@ export interface UpdateReceiptCoordinatorDeps {
  */
 export function createUpdateReceiptCoordinator(deps: UpdateReceiptCoordinatorDeps): {
   defer: (attemptId: string) => void
+  canActivelyDeliver: (attemptId: string) => boolean
   claim: (channelId: string) => UpdateReceiptClaim | undefined
   ack: (claimToken: string) => void
   release: (claimToken: string) => void
@@ -43,6 +44,10 @@ export function createUpdateReceiptCoordinator(deps: UpdateReceiptCoordinatorDep
   return {
     defer(attemptId) {
       deferredAttemptId = attemptId
+    },
+
+    canActivelyDeliver(attemptId) {
+      return deferredAttemptId !== attemptId
     },
 
     claim(channelId) {

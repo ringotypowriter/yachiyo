@@ -72,7 +72,10 @@ process.parentPort.on('message', (event) => {
       const transport = messagePortMainTransport(port as MessagePortMainLike)
       const mainServices = createRpcClient(transport)
       const developmentMode = process.env['YACHIYO_RUNTIME_DEV'] === '1'
-      const message = event.data as { providerCredentialKey?: unknown }
+      const message = event.data as {
+        providerCredentialKey?: unknown
+        runAdmissionOwnerId?: unknown
+      }
       const providerCredentialKey = message.providerCredentialKey
       if (!(providerCredentialKey instanceof Uint8Array)) {
         throw new Error('Runtime start message is missing the provider credential key')
@@ -103,6 +106,9 @@ process.parentPort.on('message', (event) => {
           })
       })
       startedServer = nextServer
+      if (typeof message.runAdmissionOwnerId === 'string') {
+        nextServer.closeRunAdmissionAndGetActiveRunIds(message.runAdmissionOwnerId)
+      }
       nextServer.getTtlReaper().start()
 
       const liveServices = createRuntimeLiveServices({

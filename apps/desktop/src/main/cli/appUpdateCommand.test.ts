@@ -6,7 +6,28 @@ import {
   createAppUpdateController,
   type AppUpdateController
 } from '../electron/appUpdateController.ts'
-import { createAppUpdateCommandHandler } from './appUpdateCommand.ts'
+import { createAppUpdateCommandHandler as createAppUpdateCommandHandlerImpl } from './appUpdateCommand.ts'
+
+type AppUpdateCommandHandlerInput = Omit<
+  Parameters<typeof createAppUpdateCommandHandlerImpl>[0],
+  'closeRunAdmissionAndGetActiveRunIds' | 'openRunAdmission'
+> &
+  Partial<
+    Pick<
+      Parameters<typeof createAppUpdateCommandHandlerImpl>[0],
+      'closeRunAdmissionAndGetActiveRunIds' | 'openRunAdmission'
+    >
+  >
+
+function createAppUpdateCommandHandler(
+  input: AppUpdateCommandHandlerInput
+): ReturnType<typeof createAppUpdateCommandHandlerImpl> {
+  return createAppUpdateCommandHandlerImpl({
+    closeRunAdmissionAndGetActiveRunIds: async () => input.getActiveRunIds(),
+    openRunAdmission: async () => {},
+    ...input
+  })
+}
 
 function createController(events: string[]): AppUpdateController {
   return {
@@ -87,7 +108,117 @@ test('install refuses newly active runs by default and never returns an install 
   assert.deepEqual(events, ['prepare'])
 })
 
-test('install rechecks active runs after resolving its receipt origin', async () => {
+test('install closes runtime admission atomically before reserving and keeps it closed after successful quit', async () => {
+  const events: string[] = []
+  let admissionOpen = true
+  const controller = createController(events)
+  controller.reservePreparedInstall = () => {
+    assert.equal(admissionOpen, false, 'reservation must happen after runtime admission closes')
+    events.push('reserve')
+    return {
+      install: () => events.push('install'),
+      release: () => events.push('release')
+    }
+  }
+  const handler = createAppUpdateCommandHandler({
+    controller,
+    getRunningVersion: () => '1.5.1',
+    getActiveRunIds: () => [],
+    closeRunAdmissionAndGetActiveRunIds: async () => {
+      admissionOpen = false
+      events.push('close-admission')
+      return []
+    },
+    openRunAdmission: async () => {
+      admissionOpen = true
+      events.push('open-admission')
+    }
+  })
+
+  const reply = await handler({ action: 'install', force: false })
+  assert.equal(admissionOpen, false, 'new work stays rejected while the socket reply is pending')
+  await reply.afterReply?.()
+  assert.equal(admissionOpen, false, 'successful quit keeps admission closed until process exit')
+  assert.deepEqual(events, ['close-admission', 'reserve', 'install'])
+})
+
+test('install restores runtime admission for blockers, reservation failure, reply failure, and quit failure', async () => {
+  const scenarios: Array<{
+    name: string
+    activeRunIds: string[]
+    reserve?: () => never
+    finish: (
+      reply: Awaited<ReturnType<ReturnType<typeof createAppUpdateCommandHandler>>>
+    ) => Promise<void>
+  }> = [
+    {
+      name: 'blockers',
+      activeRunIds: ['run-other'],
+      finish: async () => {}
+    },
+    {
+      name: 'reservation failure',
+      activeRunIds: [],
+      reserve: () => {
+        throw new Error('reservation failed')
+      },
+      finish: async () => {}
+    },
+    {
+      name: 'reply failure',
+      activeRunIds: [],
+      finish: async (reply) => {
+        await reply.onReplyFailure?.()
+      }
+    },
+    {
+      name: 'synchronous quit failure',
+      activeRunIds: [],
+      finish: async (reply) => {
+        await assert.rejects(() => Promise.resolve(reply.afterReply?.()), /quit failed/)
+      }
+    }
+  ]
+
+  for (const scenario of scenarios) {
+    let admissionOpen = true
+    let admissionCloseCount = 0
+    const controller = createController([])
+    if (scenario.reserve) controller.reservePreparedInstall = scenario.reserve
+    if (scenario.name === 'synchronous quit failure') {
+      controller.reservePreparedInstall = () => ({
+        install: () => {
+          throw new Error('quit failed')
+        },
+        release: () => {}
+      })
+    }
+    const handler = createAppUpdateCommandHandler({
+      controller,
+      getRunningVersion: () => '1.5.1',
+      getActiveRunIds: () => scenario.activeRunIds,
+      closeRunAdmissionAndGetActiveRunIds: async () => {
+        admissionCloseCount += 1
+        admissionOpen = false
+        return scenario.activeRunIds
+      },
+      openRunAdmission: async () => {
+        admissionOpen = true
+      }
+    })
+
+    if (scenario.name === 'blockers' || scenario.name === 'reservation failure') {
+      await assert.rejects(() => handler({ action: 'install', force: false }))
+    } else {
+      const reply = await handler({ action: 'install', force: false })
+      await scenario.finish(reply)
+    }
+    assert.equal(admissionCloseCount, 1, `${scenario.name} must use the atomic runtime gate`)
+    assert.equal(admissionOpen, true, `${scenario.name} must reopen runtime admission`)
+  }
+})
+
+test('install keeps the atomic admission snapshot while resolving its receipt origin', async () => {
   const events: string[] = []
   let activeRunIds = ['run-self']
   const controller = createController(events)
@@ -114,19 +245,20 @@ test('install rechecks active runs after resolving its receipt origin', async ()
     receipt
   })
 
-  await assert.rejects(
-    () => handler({ action: 'install', force: false, initiatorRunId: 'run-self' }),
-    /1 other active Yachiyo run.*2 including the initiating run.*not installed.*--force/i
-  )
-  assert.deepEqual(events, [])
+  const reply = await handler({ action: 'install', force: false, initiatorRunId: 'run-self' })
+  assert.deepEqual(reply.result, {
+    state: 'installing',
+    interruptedRunCount: 1,
+    initiatorRunInterrupted: true
+  })
+  assert.deepEqual(events, ['reserve'])
 })
 
 test('forced install reports the latest interrupted count and starts only after the reply', async () => {
   const events: string[] = []
-  let activeRunIds = ['run-self']
+  const activeRunIds = ['run-self', 'run-other-1', 'run-other-2']
   const receipt = createReceipt()
   receipt.resolveOrigin = async () => {
-    activeRunIds = ['run-self', 'run-other-1', 'run-other-2']
     return { kind: 'no-channel' }
   }
   const handler = createAppUpdateCommandHandler({

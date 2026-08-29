@@ -96,6 +96,7 @@ import {
   prepareRecoveredRuns,
   projectQueuedFollowUpDraftSnapshot,
   projectQueuedFollowUpDraftsBootstrap,
+  resumeDeferredRecoveredRuns,
   scheduleRecoveredRuns,
   startQueuedFollowUpIfPresent,
   type QueuedFollowUpDraft,
@@ -110,6 +111,7 @@ export class YachiyoServerRunDomain {
   private readonly activeRunByThread = new Map<string, string>()
   private readonly activeRunTasks = new Map<string, Promise<void>>()
   private readonly debouncedSendChats = new Map<string, DebouncedSendChatEntry>()
+  private readonly pendingRecoveredRuns = new Map<string, RunRecoveryCheckpoint>()
   private readonly queuedFollowUpDrafts = new Map<string, QueuedFollowUpDraft>()
   private readonly backgroundBashManager: BackgroundBashManager
   private readonly threadTitleRunner: ThreadTitleGenerationRunner
@@ -129,6 +131,7 @@ export class YachiyoServerRunDomain {
   private lastRunEnabledTools: string[] | null
   private lastRunMode: RunModeId | null
   private isClosing = false
+  private runAdmissionOwnerId: string | undefined
 
   constructor(deps: RunDomainDeps) {
     this.deps = deps
@@ -397,6 +400,36 @@ export class YachiyoServerRunDomain {
     return runIds
   }
 
+  closeRunAdmissionAndGetActiveRunIds(ownerId: string): string[] {
+    // This method does not await: closing admission and reading the runtime's
+    // authoritative active map are one event-loop operation in both the
+    // in-process server and utility-process RPC modes.
+    if (this.runAdmissionOwnerId && this.runAdmissionOwnerId !== ownerId) {
+      throw new Error('Yachiyo runtime run admission is already closed by another install attempt.')
+    }
+    this.runAdmissionOwnerId = ownerId
+    return this.listActiveRunIds()
+  }
+
+  openRunAdmission(ownerId: string): void {
+    if (this.runAdmissionOwnerId !== ownerId) {
+      return
+    }
+
+    this.runAdmissionOwnerId = undefined
+    const followUpQueueContext = this.createFollowUpQueueContext()
+    resumeDeferredRecoveredRuns(followUpQueueContext)
+    for (const threadId of [...this.queuedFollowUpDrafts.keys()]) {
+      startQueuedFollowUpIfPresent(followUpQueueContext, threadId)
+    }
+  }
+
+  private assertRunAdmissionOpen(): void {
+    if (this.runAdmissionOwnerId) {
+      throw new Error('Yachiyo runtime is not accepting new runs while an update is installing.')
+    }
+  }
+
   cancelActiveRuns(): void {
     for (const runId of this.listActiveRunIds()) {
       this.cancelRun({ runId })
@@ -433,6 +466,7 @@ export class YachiyoServerRunDomain {
     this.activeRunByThread.clear()
     this.activeRunTasks.clear()
     this.debouncedSendChats.clear()
+    this.pendingRecoveredRuns.clear()
     this.queuedFollowUpDrafts.clear()
     this.backgroundTaskRunContext.clear()
     this.readRecordCaches.clear()
@@ -452,7 +486,8 @@ export class YachiyoServerRunDomain {
       threadTitleRunner: this.threadTitleRunner,
       startActiveRun: (input) => {
         startActiveRun(this.createActiveRunStartContext(), input)
-      }
+      },
+      assertRunAdmissionOpen: () => this.assertRunAdmissionOpen()
     }
   }
 
@@ -463,6 +498,7 @@ export class YachiyoServerRunDomain {
       activeRunByThread: this.activeRunByThread,
       activeRunTasks: this.activeRunTasks,
       isClosing: () => this.isClosing,
+      isRunAdmissionOpen: () => this.runAdmissionOwnerId === undefined,
       runLoop: (input) => this.runLoop(input),
       threadTitleRunner: this.threadTitleRunner
     }
@@ -526,8 +562,10 @@ export class YachiyoServerRunDomain {
     return {
       deps: this.deps,
       activeRunByThread: this.activeRunByThread,
+      pendingRecoveredRuns: this.pendingRecoveredRuns,
       queuedFollowUpDrafts: this.queuedFollowUpDrafts,
       isClosing: () => this.isClosing,
+      isRunAdmissionOpen: () => this.runAdmissionOwnerId === undefined,
       startActiveRun: (input) => {
         startActiveRun(this.createActiveRunStartContext(), input)
       },
@@ -628,6 +666,7 @@ export class YachiyoServerRunDomain {
   }
 
   async sendChat(input: InternalSendChatInput): Promise<ChatAccepted> {
+    this.assertRunAdmissionOpen()
     return sendChatFlow(this.createSendChatFlowContext(), input)
   }
 
@@ -648,6 +687,7 @@ export class YachiyoServerRunDomain {
   }
 
   async retryMessage(input: RetryInput): Promise<RetryAccepted> {
+    this.assertRunAdmissionOpen()
     const thread = this.deps.requireThread(input.threadId)
     if (!getThreadCapabilities(thread).canRetry) {
       throw new Error('ACP threads do not support retry.')
@@ -732,6 +772,7 @@ export class YachiyoServerRunDomain {
     destinationThread: ThreadRecord
     reasoningEffort?: ComposerReasoningSelection
   }): Promise<CompactThreadAccepted> {
+    this.assertRunAdmissionOpen()
     if (this.hasNonRecapActiveRun(input.sourceThread.id)) {
       throw new Error('Cannot compact a thread with an active run.')
     }
@@ -776,6 +817,7 @@ export class YachiyoServerRunDomain {
 
   async requestRecap(input: { threadId: string }): Promise<string | null> {
     try {
+      this.assertRunAdmissionOpen()
       const thread = this.deps.requireThread(input.threadId)
       if (this.activeRunByThread.has(input.threadId)) return null
 

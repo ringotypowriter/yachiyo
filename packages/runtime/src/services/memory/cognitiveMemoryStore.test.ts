@@ -136,3 +136,36 @@ test('readCognitiveMemoryTermDocument returns a paginated term document with tot
   assert.equal(document.topics[0]?.entryCount, 1)
   assert.equal(document.topics[0]?.entries[0]?.title, 'a')
 })
+
+test('cognitive patches normalize relation and row names exposed by term documents', async () => {
+  const store = createInMemoryCognitiveMemoryStore()
+  const evidence = [{ kind: 'message' as const, threadId: 'thread-1', messageId: 'message-1' }]
+  await store.applyPatch(
+    {
+      operations: [
+        {
+          type: 'upsertRelation',
+          relation: 'deploy-workflow',
+          purpose: 'Track deploy workflow memory.',
+          columns: ['rule'],
+          evidence
+        },
+        {
+          type: 'upsertRow',
+          relation: 'deploy-workflow',
+          key: 'staging-smoke-test',
+          values: { rule: 'Run the staging smoke test.' },
+          subjects: [],
+          triggers: [],
+          confidence: 0.8,
+          evidence
+        }
+      ]
+    },
+    { now: NOW }
+  )
+
+  const document = await readCognitiveMemoryTermDocument({ store })
+  assert.equal(document.topics[0]?.topic, 'deploy_workflow')
+  assert.equal(document.topics[0]?.entries[0]?.title, 'staging_smoke_test')
+})

@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import test from 'node:test'
 
 import type { ModelRuntime, ModelStreamRequest } from '../../runtime/models/types.ts'
+import { RetryableRunError } from '../../runtime/models/runtimeErrors.ts'
 import { DEFAULT_NAMED_SUBAGENT_PROFILES } from '../../settings/namedSubagents.ts'
 import type {
   AgentMessageReceipt,
@@ -18,6 +19,7 @@ import {
 } from '../../app/domain/subagents/subagentManager.ts'
 import {
   createWorkerSubagentRunnerFactory,
+  WORKER_SUBAGENT_RETRY_MAX_ATTEMPTS,
   type WorkerSubagentRunnerDependencies
 } from '../../app/domain/subagents/workerSubagentRunner.ts'
 import { createTool, type DelegateTaskContext } from './delegateTaskTool.ts'
@@ -215,6 +217,385 @@ test('Worker runner preserves prompt/mailbox history and Agent-specific prompt c
     assert.equal('sendThreadMessage' in (requests[0]?.tools ?? {}), false)
     assert.equal('sendMessage' in (requests[0]?.tools ?? {}), true)
     assert.deepEqual(sentMessages, [])
+  } finally {
+    await runner.close()
+    await rm(workspace, { recursive: true, force: true })
+  }
+})
+
+test('Worker runner retries transient interruptions with bounded exponential backoff until success', async () => {
+  const workspace = await mkdtemp(join(tmpdir(), 'yachiyo-worker-retry-success-'))
+  let providerCalls = 0
+  const delays: number[] = []
+  const requests: ModelStreamRequest[] = []
+  const modelRuntime: ModelRuntime = {
+    streamReply: async function* (request) {
+      requests.push(request)
+      providerCalls += 1
+      if (providerCalls < 3) throw new RetryableRunError(`transient-${providerCalls}`)
+      yield 'recovered'
+    }
+  }
+  const factory = createWorkerSubagentRunnerFactory({
+    profileId: 'general',
+    profile: DEFAULT_NAMED_SUBAGENT_PROFILES.general,
+    dependencies: {
+      settings: TEST_SETTINGS,
+      parentToolContext: { workspacePath: workspace, sandboxed: false },
+      parentDependencies: {},
+      createModelRuntime: () => modelRuntime,
+      sleep: async (delayMs) => {
+        delays.push(delayMs)
+      }
+    }
+  })
+  const runner = factory({
+    launch: {
+      agentId: 'agent-retry-success',
+      parentThreadId: 'thread-1',
+      launchRunId: 'run-1',
+      agentName: 'general',
+      agentType: 'general',
+      codeName: 'Akari',
+      workspacePath: workspace,
+      prompt: 'Recover transiently'
+    },
+    signal: new AbortController().signal,
+    sendMessage: () => ({ messageId: 'message-1', delivery: 'queued', recipientState: 'idle' }),
+    hasPendingMessages: () => false,
+    onProgress: () => {},
+    onToolCall: () => {}
+  })
+
+  try {
+    const result = await runner.runTurn({
+      turnId: 'turn-1',
+      initialPrompt: 'Recover transiently',
+      messages: [],
+      signal: new AbortController().signal
+    })
+    assert.equal(result.output, 'recovered')
+    assert.equal(providerCalls, 3)
+    assert.deepEqual(delays, [1_000, 2_000])
+    assert.match(JSON.stringify(requests[1]?.messages), /Worker turn recovery 1\/3/)
+    assert.match(JSON.stringify(requests[2]?.messages), /Worker turn recovery 2\/3/)
+  } finally {
+    await runner.close()
+    await rm(workspace, { recursive: true, force: true })
+  }
+})
+
+test('Worker runner stops after the bounded transient retry budget is exhausted', async () => {
+  const workspace = await mkdtemp(join(tmpdir(), 'yachiyo-worker-retry-exhausted-'))
+  let providerCalls = 0
+  const delays: number[] = []
+  const modelRuntime: ModelRuntime = {
+    streamReply: async function* () {
+      providerCalls += 1
+      if (providerCalls < 0) yield ''
+      throw new RetryableRunError('provider unavailable')
+    }
+  }
+  const factory = createWorkerSubagentRunnerFactory({
+    profileId: 'general',
+    profile: DEFAULT_NAMED_SUBAGENT_PROFILES.general,
+    dependencies: {
+      settings: TEST_SETTINGS,
+      parentToolContext: { workspacePath: workspace, sandboxed: false },
+      parentDependencies: {},
+      createModelRuntime: () => modelRuntime,
+      sleep: async (delayMs) => {
+        delays.push(delayMs)
+      }
+    }
+  })
+  const runner = factory({
+    launch: {
+      agentId: 'agent-retry-exhausted',
+      parentThreadId: 'thread-1',
+      launchRunId: 'run-1',
+      agentName: 'general',
+      agentType: 'general',
+      codeName: 'Akari',
+      workspacePath: workspace,
+      prompt: 'Exhaust retries'
+    },
+    signal: new AbortController().signal,
+    sendMessage: () => ({ messageId: 'message-1', delivery: 'queued', recipientState: 'idle' }),
+    hasPendingMessages: () => false,
+    onProgress: () => {},
+    onToolCall: () => {}
+  })
+
+  try {
+    await assert.rejects(
+      runner.runTurn({
+        turnId: 'turn-1',
+        initialPrompt: 'Exhaust retries',
+        messages: [],
+        signal: new AbortController().signal
+      }),
+      /provider unavailable/
+    )
+    assert.equal(providerCalls, WORKER_SUBAGENT_RETRY_MAX_ATTEMPTS)
+    assert.equal(delays.length, WORKER_SUBAGENT_RETRY_MAX_ATTEMPTS - 1)
+    assert.deepEqual(delays, [1_000, 2_000])
+  } finally {
+    await runner.close()
+    await rm(workspace, { recursive: true, force: true })
+  }
+})
+
+test('Worker runner does not automatically retry non-retryable errors or cancellation', async () => {
+  const workspace = await mkdtemp(join(tmpdir(), 'yachiyo-worker-no-retry-'))
+  for (const scenario of ['fatal', 'cancelled'] as const) {
+    let providerCalls = 0
+    let sleepCalls = 0
+    const controller = new AbortController()
+    const modelRuntime: ModelRuntime = {
+      streamReply: async function* () {
+        providerCalls += 1
+        if (providerCalls < 0) yield ''
+        if (scenario === 'cancelled') controller.abort(new Error('cancelled by parent'))
+        throw new RetryableRunError(scenario)
+      }
+    }
+    const factory = createWorkerSubagentRunnerFactory({
+      profileId: 'general',
+      profile: DEFAULT_NAMED_SUBAGENT_PROFILES.general,
+      dependencies: {
+        settings: TEST_SETTINGS,
+        parentToolContext: { workspacePath: workspace, sandboxed: false },
+        parentDependencies: {},
+        createModelRuntime: () =>
+          scenario === 'fatal'
+            ? ({
+                streamReply: async function* () {
+                  providerCalls += 1
+                  if (providerCalls < 0) yield ''
+                  throw new Error('invalid request')
+                }
+              } as ModelRuntime)
+            : modelRuntime,
+        sleep: async () => {
+          sleepCalls += 1
+        }
+      }
+    })
+    const runner = factory({
+      launch: {
+        agentId: `agent-${scenario}`,
+        parentThreadId: 'thread-1',
+        launchRunId: 'run-1',
+        agentName: 'general',
+        agentType: 'general',
+        codeName: 'Akari',
+        workspacePath: workspace,
+        prompt: scenario
+      },
+      signal: controller.signal,
+      sendMessage: () => ({ messageId: 'message-1', delivery: 'queued', recipientState: 'idle' }),
+      hasPendingMessages: () => false,
+      onProgress: () => {},
+      onToolCall: () => {}
+    })
+
+    try {
+      await assert.rejects(
+        runner.runTurn({
+          turnId: 'turn-1',
+          initialPrompt: scenario,
+          messages: [],
+          signal: controller.signal
+        })
+      )
+      assert.equal(providerCalls, 1, scenario)
+      assert.equal(sleepCalls, 0, scenario)
+    } finally {
+      await runner.close()
+    }
+  }
+  await rm(workspace, { recursive: true, force: true })
+})
+
+test('Worker retry resumes after completed tools without executing them again', async () => {
+  const workspace = await mkdtemp(join(tmpdir(), 'yachiyo-worker-tool-retry-'))
+  const requests: ModelStreamRequest[] = []
+  let providerCalls = 0
+  let toolExecutions = 0
+  const modelRuntime: ModelRuntime = {
+    streamReply: async function* (request) {
+      requests.push(request)
+      providerCalls += 1
+      if (providerCalls === 1) {
+        const toolCall = {
+          type: 'tool-call',
+          dynamic: true,
+          toolCallId: 'write-once',
+          toolName: 'write',
+          input: { path: join(workspace, 'once.txt'), content: 'once' }
+        }
+        toolExecutions += 1
+        request.onToolCallStart?.({
+          abortSignal: request.signal,
+          messages: request.messages,
+          toolCall
+        } as never)
+        request.onToolCallFinish?.({
+          abortSignal: request.signal,
+          durationMs: 0,
+          experimental_context: undefined,
+          functionId: undefined,
+          metadata: undefined,
+          model: undefined,
+          messages: request.messages,
+          output: {
+            content: [{ type: 'text', text: 'wrote once.txt' }],
+            details: {},
+            metadata: {}
+          },
+          stepNumber: 0,
+          success: true,
+          toolCall
+        } as never)
+        throw new RetryableRunError('stream dropped after tool completion')
+      }
+
+      assert.match(JSON.stringify(request.messages), /write-once/)
+      assert.match(JSON.stringify(request.messages), /tool-result/)
+      yield 'continued without repeating the write'
+    }
+  }
+  const factory = createWorkerSubagentRunnerFactory({
+    profileId: 'general',
+    profile: DEFAULT_NAMED_SUBAGENT_PROFILES.general,
+    dependencies: {
+      settings: TEST_SETTINGS,
+      parentToolContext: { workspacePath: workspace, sandboxed: false },
+      parentDependencies: {},
+      createModelRuntime: () => modelRuntime,
+      sleep: async () => {}
+    }
+  })
+  const runner = factory({
+    launch: {
+      agentId: 'agent-tool-retry',
+      parentThreadId: 'thread-1',
+      launchRunId: 'run-1',
+      agentName: 'general',
+      agentType: 'general',
+      codeName: 'Akari',
+      workspacePath: workspace,
+      prompt: 'Write once'
+    },
+    signal: new AbortController().signal,
+    sendMessage: () => ({ messageId: 'message-1', delivery: 'queued', recipientState: 'idle' }),
+    hasPendingMessages: () => false,
+    onProgress: () => {},
+    onToolCall: () => {}
+  })
+
+  try {
+    const result = await runner.runTurn({
+      turnId: 'turn-1',
+      initialPrompt: 'Write once',
+      messages: [],
+      signal: new AbortController().signal
+    })
+    assert.equal(result.output, 'continued without repeating the write')
+    assert.equal(providerCalls, 2)
+    assert.equal(toolExecutions, 1)
+    assert.equal(requests.length, 2)
+  } finally {
+    await runner.close()
+    await rm(workspace, { recursive: true, force: true })
+  }
+})
+
+test('Worker preserves a synthetic interrupted result for a dangling tool call before manual continuation', async () => {
+  const workspace = await mkdtemp(join(tmpdir(), 'yachiyo-worker-dangling-tool-'))
+  let providerCalls = 0
+  const modelRuntime: ModelRuntime = {
+    streamReply: async function* (request) {
+      providerCalls += 1
+      if (providerCalls === 1) {
+        request.onToolCallStart?.({
+          abortSignal: request.signal,
+          messages: request.messages,
+          toolCall: {
+            type: 'tool-call',
+            dynamic: true,
+            toolCallId: 'dangling-write',
+            toolName: 'write',
+            input: { path: join(workspace, 'uncertain.txt'), content: 'uncertain' }
+          }
+        } as never)
+        throw new RetryableRunError('stream dropped with tool in flight')
+      }
+
+      const serialized = JSON.stringify(request.messages)
+      assert.match(serialized, /dangling-write/)
+      assert.match(serialized, /tool-result/)
+      assert.match(serialized, /interrupted before completion/)
+      yield 'manual continuation used preserved history'
+    }
+  }
+  const factory = createWorkerSubagentRunnerFactory({
+    profileId: 'general',
+    profile: DEFAULT_NAMED_SUBAGENT_PROFILES.general,
+    dependencies: {
+      settings: TEST_SETTINGS,
+      parentToolContext: { workspacePath: workspace, sandboxed: false },
+      parentDependencies: {},
+      createModelRuntime: () => modelRuntime,
+      sleep: async () => {}
+    }
+  })
+  const runner = factory({
+    launch: {
+      agentId: 'agent-dangling-tool',
+      parentThreadId: 'thread-1',
+      launchRunId: 'run-1',
+      agentName: 'general',
+      agentType: 'general',
+      codeName: 'Akari',
+      workspacePath: workspace,
+      prompt: 'Start a tool'
+    },
+    signal: new AbortController().signal,
+    sendMessage: () => ({ messageId: 'message-1', delivery: 'queued', recipientState: 'idle' }),
+    hasPendingMessages: () => false,
+    onProgress: () => {},
+    onToolCall: () => {}
+  })
+
+  try {
+    await assert.rejects(
+      runner.runTurn({
+        turnId: 'turn-1',
+        initialPrompt: 'Start a tool',
+        messages: [],
+        signal: new AbortController().signal
+      }),
+      /stream dropped with tool in flight/
+    )
+    const result = await runner.runTurn({
+      turnId: 'turn-2',
+      messages: [
+        {
+          id: 'message-2',
+          teamThreadId: 'thread-1',
+          sequence: 1,
+          from: { kind: 'parent', threadId: 'thread-1' },
+          to: { kind: 'agent', agentId: 'agent-dangling-tool' },
+          message: 'Continue after interruption',
+          createdAt: new Date(1).toISOString()
+        }
+      ],
+      signal: new AbortController().signal
+    })
+    assert.equal(result.output, 'manual continuation used preserved history')
+    assert.equal(providerCalls, 2)
   } finally {
     await runner.close()
     await rm(workspace, { recursive: true, force: true })

@@ -287,7 +287,9 @@ export function createQQBotService({
     resolveChannelId: (target) => findChannelUserId(server, 'qqbot', target.openId),
     send: (target, body, gate) => {
       gate.assertCanDispatch()
-      return client.sendC2CMessage(target.openId, body, target.replyMsgId)
+      return client.sendC2CMessage(target.openId, body, target.replyMsgId, {
+        beforeDispatch: () => gate.assertCanDispatch()
+      })
     },
     lease: updateReceiptLease,
     onError: (stage, error) => console.error(`[qqbot] update receipt ${stage} failed:`, error)
@@ -348,8 +350,11 @@ export function createQQBotService({
     text: string,
     options?: ChannelSendOptions
   ): Promise<void> {
-    createChannelDispatchGate(options).assertCanDispatch()
-    await client.sendC2CActiveMessage(openId, text)
+    const gate = createChannelDispatchGate(options)
+    gate.assertCanDispatch()
+    await client.sendC2CActiveMessage(openId, text, {
+      beforeDispatch: () => gate.assertCanDispatch()
+    })
   }
 
   const directMessages = createChannelDirectMessageRuntime<QQBotTarget>({

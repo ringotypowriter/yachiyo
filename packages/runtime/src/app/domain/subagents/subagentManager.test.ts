@@ -7,6 +7,7 @@ import type {
   SendAgentMessageInput,
   YachiyoServerEvent
 } from '@yachiyo/shared/protocol'
+import { RetryableRunError } from '../../../runtime/models/runtimeErrors.ts'
 
 import {
   SubagentManager,
@@ -48,6 +49,12 @@ class FakeRunner implements SubagentRunner {
     const result = this.turnResults.shift()
     if (!result) throw new Error('No pending fake turn.')
     result.resolve({ output })
+  }
+
+  rejectTurn(error: unknown): void {
+    const result = this.turnResults.shift()
+    if (!result) throw new Error('No pending fake turn.')
+    result.reject(error)
   }
 
   async close(): Promise<void> {
@@ -312,6 +319,94 @@ test('cancel aborts the Agent controller and settles runner cleanup', async () =
   assert.equal(harness.manager.list('thread-1')[0]?.state, 'cancelled')
   assert.equal(runner.turns[0]?.signal.aborted, true)
   assert.equal(runner.closeCount, 1)
+})
+
+test('exhausted retryable interruption becomes idle and a later message resumes the same runner', async () => {
+  const harness = makeHarness()
+  await harness.manager.launch(launchInput())
+  const runner = harness.runners.get('agent-1')!
+
+  runner.rejectTurn(new RetryableRunError('provider stream disconnected'))
+  await flush()
+
+  const interrupted = harness.manager.list('thread-1')[0]
+  assert.equal(interrupted?.state, 'idle')
+  assert.equal(interrupted?.error, 'provider stream disconnected')
+  assert.equal(runner.closeCount, 0)
+
+  const receipt = sendFromParent(harness.manager, 'thread-1', 'agent-1', 'Continue safely')
+  assert.equal(receipt.recipientState, 'idle')
+  await flush()
+  assert.equal(runner.turns.length, 2)
+  assert.deepEqual(
+    runner.turns[1]?.messages.map((message) => message.message),
+    ['Continue safely']
+  )
+  assert.equal(harness.manager.list('thread-1')[0]?.error, undefined)
+
+  runner.resolveTurn('Recovered result')
+  await flush()
+  assert.equal(harness.manager.list('thread-1')[0]?.state, 'idle')
+  assert.equal(harness.manager.list('thread-1')[0]?.error, undefined)
+})
+
+test('message queued during a retryable interruption runs after the failed drain settles', async () => {
+  const harness = makeHarness()
+  await harness.manager.launch(launchInput())
+  const runner = harness.runners.get('agent-1')!
+
+  const receipt = sendFromParent(harness.manager, 'thread-1', 'agent-1', 'Queued continuation')
+  assert.equal(receipt.recipientState, 'running')
+  runner.rejectTurn(new RetryableRunError('provider stream disconnected'))
+  await flush()
+
+  assert.equal(runner.turns.length, 2)
+  assert.deepEqual(
+    runner.turns[1]?.messages.map((message) => message.message),
+    ['Queued continuation']
+  )
+  assert.equal(harness.manager.list('thread-1')[0]?.state, 'running')
+  assert.equal(harness.manager.list('thread-1')[0]?.error, undefined)
+
+  runner.resolveTurn('Queued continuation completed')
+  await flush()
+  assert.equal(harness.manager.list('thread-1')[0]?.state, 'idle')
+  assert.equal(harness.manager.list('thread-1')[0]?.error, undefined)
+})
+
+test('empty normal completion becomes idle without closing the resumable worker', async () => {
+  const harness = makeHarness()
+  await harness.manager.launch(launchInput())
+  const runner = harness.runners.get('agent-1')!
+
+  runner.resolveTurn('')
+  await flush()
+
+  assert.equal(harness.manager.list('thread-1')[0]?.state, 'idle')
+  assert.equal(runner.closeCount, 0)
+  assert.deepEqual(harness.deliveries, [
+    {
+      agentId: 'agent-1',
+      kind: 'initial-result',
+      message: 'Agent completed without a final text response.'
+    }
+  ])
+})
+
+test('non-retryable runner failures stay terminal and cannot be woken', async () => {
+  const harness = makeHarness()
+  await harness.manager.launch(launchInput())
+  const runner = harness.runners.get('agent-1')!
+
+  runner.rejectTurn(new Error('invalid provider configuration'))
+  await flush()
+
+  assert.equal(harness.manager.list('thread-1')[0]?.state, 'failed')
+  assert.equal(runner.closeCount, 1)
+  assert.throws(
+    () => sendFromParent(harness.manager, 'thread-1', 'agent-1', 'Do not resume'),
+    /Terminal agent/
+  )
 })
 
 test('mailbox and live-agent limits reject without dropping accepted messages', async () => {

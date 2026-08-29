@@ -1,44 +1,24 @@
-/* eslint-disable @typescript-eslint/explicit-function-return-type */
-
 import { spawnSync } from 'node:child_process'
-import { readdirSync } from 'node:fs'
-import { dirname, join, resolve } from 'node:path'
+import { dirname, relative, resolve } from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 
+import { collectServerTestFiles } from './server-test-collector.mjs'
+
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
-const testRoots = process.argv.slice(2)
+const basket = process.argv.includes('--native') ? 'native' : 'node'
+const testRoots = process.argv.slice(2).filter((argument) => argument !== '--native')
 const testsDirs = testRoots.length > 0 ? testRoots.map((root) => resolve(repoRoot, root)) : []
 
-/** @type {(directory: string) => string[]} */
-const collectTestFiles = (directory) => {
-  return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
-    const fullPath = join(directory, entry.name)
-
-    if (entry.isDirectory()) {
-      return collectTestFiles(fullPath)
-    }
-
-    if (!entry.isFile()) {
-      return []
-    }
-
-    if (
-      !entry.name.endsWith('.test.ts') ||
-      entry.name.endsWith('.native.test.ts') ||
-      entry.name.endsWith('.mac.test.ts')
-    ) {
-      return []
-    }
-
-    return [fullPath]
-  })
+const testFiles = testsDirs.flatMap((directory) => collectServerTestFiles(directory, basket)).sort()
+if (testFiles.length === 0) {
+  console.error(`No ${basket} server tests found.`)
+  process.exit(basket === 'native' ? 1 : 0)
 }
 
-const testFiles = testsDirs.flatMap(collectTestFiles).sort()
-if (testFiles.length === 0) {
-  console.log('No server tests found.')
-  process.exit(0)
+console.log(`Collected ${testFiles.length} ${basket} server test file(s):`)
+for (const testFile of testFiles) {
+  console.log(`- ${relative(repoRoot, testFile)}`)
 }
 
 const result = spawnSync(

@@ -56,6 +56,7 @@ export interface ActiveRunStartContext {
   activeRunByThread: Map<string, string>
   activeRunTasks: Map<string, Promise<void>>
   isClosing: () => boolean
+  isRunAdmissionOpen: () => boolean
   runLoop: (input: ActiveRunLoopInput) => Promise<void>
   threadTitleRunner: ThreadTitleGenerationRunner
 }
@@ -104,7 +105,11 @@ export function startRecoveredRun(
   context: ActiveRunStartContext,
   checkpoint: RunRecoveryCheckpoint
 ): void {
-  if (context.isClosing() || context.activeRunByThread.has(checkpoint.threadId)) {
+  if (
+    context.isClosing() ||
+    !context.isRunAdmissionOpen() ||
+    context.activeRunByThread.has(checkpoint.threadId)
+  ) {
     return
   }
 

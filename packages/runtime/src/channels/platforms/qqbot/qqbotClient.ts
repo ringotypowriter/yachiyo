@@ -51,6 +51,11 @@ export interface QQBotClientOptions {
   reconnectDelaysMs?: readonly number[]
 }
 
+export interface QQBotSendOptions {
+  /** Revalidate immediately before the authenticated API request is dispatched. */
+  beforeDispatch?: () => void
+}
+
 interface WebSocketLike {
   readyState: number
   addEventListener(type: string, handler: (event: WebSocketEventLike) => void): void
@@ -75,7 +80,12 @@ export interface QQBotClient {
   healthCheck(): Promise<boolean>
   onC2CMessage(handler: (msg: QQBotC2CMessage) => void): void
   /** Send a text message to a C2C user. replyMsgId is required (passive reply). */
-  sendC2CMessage(openId: string, text: string, replyMsgId: string): Promise<void>
+  sendC2CMessage(
+    openId: string,
+    text: string,
+    replyMsgId: string,
+    options?: QQBotSendOptions
+  ): Promise<void>
   /**
    * Send without replying to anything.
    *
@@ -84,7 +94,7 @@ export interface QQBotClient {
    * Needed after a restart, when the inbound id that would have allowed a
    * passive reply is long gone.
    */
-  sendC2CActiveMessage(openId: string, text: string): Promise<void>
+  sendC2CActiveMessage(openId: string, text: string, options?: QQBotSendOptions): Promise<void>
   /** Send a local image to a C2C user as a passive media reply. */
   sendC2CImage(
     openId: string,
@@ -210,9 +220,11 @@ export function createQQBotClient(options: QQBotClientOptions): QQBotClient {
   async function apiRequest(
     method: string,
     path: string,
-    body?: Record<string, unknown>
+    body?: Record<string, unknown>,
+    beforeDispatch?: () => void
   ): Promise<unknown> {
     const token = await getToken()
+    beforeDispatch?.()
     const res = await fetchImpl(`${API_BASE}${path}`, {
       method,
       headers: {
@@ -525,23 +537,42 @@ export function createQQBotClient(options: QQBotClientOptions): QQBotClient {
       c2cMessageHandlers.push(handler)
     },
 
-    async sendC2CMessage(openId: string, text: string, replyMsgId: string): Promise<void> {
-      await apiRequest('POST', `/v2/users/${openId}/messages`, {
-        msg_type: 2,
-        markdown: { content: text },
-        msg_id: replyMsgId,
-        msg_seq: msgSeqCounter++
-      })
+    async sendC2CMessage(
+      openId: string,
+      text: string,
+      replyMsgId: string,
+      options?: QQBotSendOptions
+    ): Promise<void> {
+      await apiRequest(
+        'POST',
+        `/v2/users/${openId}/messages`,
+        {
+          msg_type: 2,
+          markdown: { content: text },
+          msg_id: replyMsgId,
+          msg_seq: msgSeqCounter++
+        },
+        options?.beforeDispatch
+      )
     },
 
-    async sendC2CActiveMessage(openId: string, text: string): Promise<void> {
+    async sendC2CActiveMessage(
+      openId: string,
+      text: string,
+      options?: QQBotSendOptions
+    ): Promise<void> {
       // Deliberately omits msg_id and msg_seq: their presence is what makes a
       // message a passive reply, and a blank value is rejected rather than
       // treated as absent.
-      await apiRequest('POST', `/v2/users/${openId}/messages`, {
-        msg_type: 2,
-        markdown: { content: text }
-      })
+      await apiRequest(
+        'POST',
+        `/v2/users/${openId}/messages`,
+        {
+          msg_type: 2,
+          markdown: { content: text }
+        },
+        options?.beforeDispatch
+      )
     },
 
     async sendC2CImage(

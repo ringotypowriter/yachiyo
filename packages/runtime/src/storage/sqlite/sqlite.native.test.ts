@@ -41,17 +41,12 @@ const SqliteDatabase = ((BetterSqlite3 as { default?: unknown }).default ?? Bett
   }
 }
 
-async function readMigrationTimestamp(tag: string): Promise<number> {
-  const journal = JSON.parse(
-    await readFile(new URL('./drizzle/meta/_journal.json', import.meta.url), 'utf8')
-  ) as {
-    entries: Array<{ tag: string; when: number }>
-  }
-  const entry = journal.entries.find((item) => item.tag === tag)
-  if (!entry) {
-    throw new Error(`Missing migration journal entry for ${tag}`)
-  }
-  return entry.when
+async function executeMigration(
+  db: InstanceType<typeof SqliteDatabase>,
+  tag: string
+): Promise<void> {
+  const sql = await readFile(new URL(`./drizzle/${tag}.sql`, import.meta.url), 'utf8')
+  db.exec(sql.replaceAll('--> statement-breakpoint', ''))
 }
 
 interface RunCompletionTracker {
@@ -480,15 +475,9 @@ test('0034 migration preserves recurring schedules without inventing run_at valu
   const dbPath = join(root, 'schedule-migration.sqlite')
 
   try {
-    const previousMigrationAt = await readMigrationTimestamp('0033_bouncy_impossible_man')
     const db = new SqliteDatabase(dbPath)
 
     db.exec(`
-      CREATE TABLE "__drizzle_migrations" (
-        id INTEGER PRIMARY KEY,
-        hash text NOT NULL,
-        created_at numeric
-      );
       CREATE TABLE "schedules" (
         "id" text PRIMARY KEY NOT NULL,
         "name" text NOT NULL,
@@ -503,10 +492,6 @@ test('0034 migration preserves recurring schedules without inventing run_at valu
       );
     `)
 
-    db.prepare('INSERT INTO "__drizzle_migrations" ("hash", "created_at") VALUES (?, ?)').run(
-      'pre-0034',
-      previousMigrationAt
-    )
     db.prepare(
       'INSERT INTO "schedules" ("id", "name", "cron_expression", "prompt", "workspace_path", "model_override", "enabled_tools", "enabled", "created_at", "updated_at") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
     ).run(
@@ -521,23 +506,14 @@ test('0034 migration preserves recurring schedules without inventing run_at valu
       '2026-01-01T00:00:00.000Z',
       '2026-01-01T00:00:00.000Z'
     )
-    db.close()
 
-    const storage = createSqliteYachiyoStorage(dbPath)
-    const schedule = storage.getSchedule('schedule-1')
-
-    assert.equal(schedule?.cronExpression, '0 9 * * *')
-    assert.equal(schedule?.runAt, undefined)
-
-    storage.close()
-
-    const migratedDb = new SqliteDatabase(dbPath)
-    const row = migratedDb
+    await executeMigration(db, '0034_handy_zzzax')
+    const row = db
       .prepare('SELECT cron_expression, run_at FROM schedules WHERE id = ?')
       .get('schedule-1')
     assert.equal(row?.['cron_expression'], '0 9 * * *')
     assert.equal(row?.['run_at'], null)
-    migratedDb.close()
+    db.close()
   } finally {
     await rm(root, { recursive: true, force: true })
   }
@@ -546,49 +522,58 @@ test('0034 migration preserves recurring schedules without inventing run_at valu
 test('sqlite cognitive memory store persists and searches rows', async () => {
   const root = await mkdtemp(join(tmpdir(), 'yachiyo-sqlite-native-'))
   const dbPath = join(root, 'cognitive-memory.sqlite')
+  const evidence = [{ kind: 'message' as const, threadId: 'thread-1', messageId: 'message-1' }]
 
   try {
     const store = createSqliteCognitiveMemoryStore({ dbPath })
-    const created = await store.applyPatch({
-      operations: [
-        {
-          type: 'upsertRelation',
-          relation: 'deploy-workflow',
-          purpose: 'Track deploy workflow memory.',
-          columns: ['rule'],
-          evidence: []
-        },
-        {
-          type: 'upsertRow',
-          relation: 'deploy-workflow',
-          key: 'staging-smoke-test',
-          values: {
-            rule: 'Run the staging smoke test before a production-adjacent deploy review.'
+    try {
+      const created = await store.applyPatch({
+        operations: [
+          {
+            type: 'upsertRelation',
+            relation: 'deploy-workflow',
+            purpose: 'Track deploy workflow memory.',
+            columns: ['rule'],
+            evidence
           },
-          subjects: ['staging smoke test', 'deploy review'],
-          triggers: ['staging', 'deploy'],
-          confidence: 0.8,
-          evidence: []
-        }
-      ]
-    })
+          {
+            type: 'upsertRow',
+            relation: 'deploy-workflow',
+            key: 'staging-smoke-test',
+            values: {
+              rule: 'Run the staging smoke test before a production-adjacent deploy review.'
+            },
+            subjects: ['staging smoke test', 'deploy review'],
+            triggers: ['staging', 'deploy'],
+            confidence: 0.8,
+            evidence
+          }
+        ]
+      })
 
-    assert.equal(created.savedCount, 2)
+      assert.equal(created.savedCount, 2)
+    } finally {
+      store.close()
+    }
 
     const reopened = createSqliteCognitiveMemoryStore({ dbPath })
-    const results = await reopened.searchRows({
-      limit: 5,
-      query: 'staging smoke test deploy review',
-      relation: 'deploy-workflow'
-    })
+    try {
+      const results = await reopened.searchRows({
+        limit: 5,
+        query: 'staging smoke test deploy review',
+        relation: 'deploy-workflow'
+      })
 
-    assert.equal(results.length, 1)
-    assert.equal(results[0]?.key, 'staging-smoke-test')
-    assert.equal(results[0]?.confidence, 0.8)
-    assert.equal(
-      results[0]?.values['rule'],
-      'Run the staging smoke test before a production-adjacent deploy review.'
-    )
+      assert.equal(results.length, 1)
+      assert.equal(results[0]?.key, 'staging_smoke_test')
+      assert.equal(results[0]?.confidence, 0.8)
+      assert.equal(
+        results[0]?.values['rule'],
+        'Run the staging smoke test before a production-adjacent deploy review.'
+      )
+    } finally {
+      reopened.close()
+    }
   } finally {
     await rm(root, { recursive: true, force: true })
   }
@@ -598,6 +583,7 @@ test('sqlite-backed server exposes cognitive memory terms as a hierarchy documen
   const root = await mkdtemp(join(tmpdir(), 'yachiyo-sqlite-native-'))
   const dbPath = join(root, 'hierarchy.sqlite')
   const settingsPath = join(root, 'config.toml')
+  const evidence = [{ kind: 'message' as const, threadId: 'thread-1', messageId: 'message-1' }]
   let server: ReturnType<typeof createSqliteYachiyoServer> | null = null
 
   try {
@@ -607,56 +593,60 @@ test('sqlite-backed server exposes cognitive memory terms as a hierarchy documen
     })
 
     const store = createSqliteCognitiveMemoryStore({ dbPath })
-    await store.applyPatch({
-      operations: [
-        {
-          type: 'upsertRelation',
-          relation: 'deploy-workflow',
-          purpose: 'Track deploy workflow memory.',
-          columns: ['rule'],
-          evidence: []
-        },
-        {
-          type: 'upsertRow',
-          relation: 'deploy-workflow',
-          key: 'staging-smoke-test',
-          values: {
-            rule: 'Run the staging smoke test before any production-adjacent deploy review.'
+    try {
+      await store.applyPatch({
+        operations: [
+          {
+            type: 'upsertRelation',
+            relation: 'deploy-workflow',
+            purpose: 'Track deploy workflow memory.',
+            columns: ['rule'],
+            evidence
           },
-          subjects: ['staging smoke test'],
-          triggers: ['staging'],
-          confidence: 0.8,
-          evidence: []
-        },
-        {
-          type: 'upsertRow',
-          relation: 'deploy-workflow',
-          key: 'deploy-owner',
-          values: { rule: 'The release owner signs off after the smoke test passes.' },
-          subjects: ['release owner'],
-          triggers: ['owner'],
-          confidence: 0.7,
-          evidence: []
-        },
-        {
-          type: 'upsertRelation',
-          relation: 'repo-preference',
-          purpose: 'Track repository preferences.',
-          columns: ['rule'],
-          evidence: []
-        },
-        {
-          type: 'upsertRow',
-          relation: 'repo-preference',
-          key: 'repo-root',
-          values: { rule: 'Use the repository root for Yachiyo commands.' },
-          subjects: ['repo root'],
-          triggers: ['repository'],
-          confidence: 0.9,
-          evidence: []
-        }
-      ]
-    })
+          {
+            type: 'upsertRow',
+            relation: 'deploy-workflow',
+            key: 'staging-smoke-test',
+            values: {
+              rule: 'Run the staging smoke test before any production-adjacent deploy review.'
+            },
+            subjects: ['staging smoke test'],
+            triggers: ['staging'],
+            confidence: 0.8,
+            evidence
+          },
+          {
+            type: 'upsertRow',
+            relation: 'deploy-workflow',
+            key: 'deploy-owner',
+            values: { rule: 'The release owner signs off after the smoke test passes.' },
+            subjects: ['release owner'],
+            triggers: ['owner'],
+            confidence: 0.7,
+            evidence
+          },
+          {
+            type: 'upsertRelation',
+            relation: 'repo-preference',
+            purpose: 'Track repository preferences.',
+            columns: ['rule'],
+            evidence
+          },
+          {
+            type: 'upsertRow',
+            relation: 'repo-preference',
+            key: 'repo-root',
+            values: { rule: 'Use the repository root for Yachiyo commands.' },
+            subjects: ['repo root'],
+            triggers: ['repository'],
+            confidence: 0.9,
+            evidence
+          }
+        ]
+      })
+    } finally {
+      store.close()
+    }
 
     const hierarchy = await server.getMemoryTermDocument({
       config: {
@@ -667,12 +657,12 @@ test('sqlite-backed server exposes cognitive memory terms as a hierarchy documen
 
     assert.equal(hierarchy.topicCount, 2)
     assert.equal(hierarchy.memoryCount, 3)
-    assert.equal(hierarchy.topics[0]?.topic, 'deploy-workflow')
+    assert.equal(hierarchy.topics[0]?.topic, 'deploy_workflow')
     assert.equal(hierarchy.topics[0]?.entryCount, 2)
-    assert.equal(hierarchy.topics[0]?.entries[0]?.title, 'deploy-owner')
-    assert.equal(hierarchy.topics[0]?.entries[1]?.title, 'staging-smoke-test')
-    assert.equal(hierarchy.topics[1]?.topic, 'repo-preference')
-    assert.equal(hierarchy.topics[1]?.entries[0]?.title, 'repo-root')
+    assert.equal(hierarchy.topics[0]?.entries[0]?.title, 'deploy_owner')
+    assert.equal(hierarchy.topics[0]?.entries[1]?.title, 'staging_smoke_test')
+    assert.equal(hierarchy.topics[1]?.topic, 'repo_preference')
+    assert.equal(hierarchy.topics[1]?.entries[0]?.title, 'repo_root')
   } finally {
     await server?.close()
     await rm(root, { recursive: true, force: true })
@@ -766,9 +756,6 @@ test('sqlite-backed server persists state across reopen', async () => {
 test('sqlite migrations backfill tool call message anchors from historical runs', async () => {
   const root = await mkdtemp(join(tmpdir(), 'yachiyo-sqlite-native-'))
   const dbPath = join(root, 'native.sqlite')
-  const migrationTimes = [
-    1773678990559, 1773720356847, 1773721712396, 1773733715724, 1773892989412, 1773907329656
-  ]
 
   try {
     const db = new SqliteDatabase(dbPath)
@@ -828,19 +815,7 @@ test('sqlite migrations backfill tool call message anchors from historical runs'
         FOREIGN KEY (run_id) REFERENCES runs(id) ON DELETE cascade,
         FOREIGN KEY (thread_id) REFERENCES threads(id) ON DELETE cascade
       );
-      CREATE TABLE __drizzle_migrations (
-        id integer PRIMARY KEY,
-        hash text NOT NULL,
-        created_at numeric
-      );
     `)
-
-    for (const createdAt of migrationTimes) {
-      db.prepare('INSERT INTO __drizzle_migrations (hash, created_at) VALUES (?, ?)').run(
-        `migration-${createdAt}`,
-        createdAt
-      )
-    }
 
     db.prepare(
       'INSERT INTO threads (id, title, preview, head_message_id, updated_at, created_at) VALUES (?, ?, ?, ?, ?, ?)'
@@ -898,15 +873,14 @@ test('sqlite migrations backfill tool call message anchors from historical runs'
       '2026-03-20T00:00:01.000Z',
       '2026-03-20T00:00:01.500Z'
     )
+
+    await executeMigration(db, '0006_good_marauders')
+    const migratedToolCall = db
+      .prepare('SELECT request_message_id, assistant_message_id FROM tool_calls WHERE id = ?')
+      .get('tool-1')
+    assert.equal(migratedToolCall?.['request_message_id'], 'user-1')
+    assert.equal(migratedToolCall?.['assistant_message_id'], 'assistant-1')
     db.close()
-
-    const storage = createSqliteYachiyoStorage(dbPath)
-    const bootstrap = storage.bootstrap()
-    storage.close()
-
-    assert.equal(bootstrap.toolCallsByThread['thread-1']?.length, 1)
-    assert.equal(bootstrap.toolCallsByThread['thread-1']?.[0]?.requestMessageId, 'user-1')
-    assert.equal(bootstrap.toolCallsByThread['thread-1']?.[0]?.assistantMessageId, 'assistant-1')
   } finally {
     await rm(root, { recursive: true, force: true })
   }

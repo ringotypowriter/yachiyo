@@ -8,6 +8,7 @@ import { createSettingsStore } from '@yachiyo/runtime/settings/settingsStore'
 import type { UpdateChannel } from '@yachiyo/shared/protocol'
 import type { AppUpdateController } from './appUpdateController.ts'
 import { createAppUpdateController } from './appUpdateController.ts'
+import { initiateQuitAndInstall } from './autoUpdateInstall.ts'
 
 import { createElectronProviderCredentialVault } from '../security/providerCredentials.ts'
 import { checkUpdateFeeds, UPDATE_MIRROR_BASE, resolveUpdateFeeds } from './updateFeed'
@@ -274,19 +275,10 @@ function setupProd(): AppUpdateController {
   ipcMain.on('app-update:install', () => {
     if (rejectExplicitActionDuringInstall()) return
     void controller
-      .runUpdaterOperation(
-        () =>
-          new Promise<void>((_resolve, reject) => {
-            installing = true
-            setImmediate(() => {
-              try {
-                autoUpdater.quitAndInstall()
-              } catch (error) {
-                reject(error)
-              }
-            })
-          })
-      )
+      .runUpdaterOperation(() => {
+        installing = true
+        return initiateQuitAndInstall(() => autoUpdater.quitAndInstall())
+      })
       .catch(broadcastFailure)
   })
 

@@ -30,10 +30,22 @@ import {
 import { type AgentToolContext } from '../../../tools/agentTools/shared.ts'
 import { applyAnthropicCacheBreakpoints } from '../../../runtime/context/contextLayers.ts'
 import type { ModelMessage, ModelRuntime } from '../../../runtime/models/types.ts'
+import { isRetryableRunError } from '../../../runtime/models/runtimeErrors.ts'
+import { sleep as sleepWithSignal } from '../../../channels/shared/connectionRetry.ts'
 import { toSubagentProviderSettings } from '../../../settings/settingsStore.ts'
 import { DEFAULT_NAMED_SUBAGENT_PROFILES } from '../../../settings/namedSubagents.ts'
 import type { SnapshotTracker } from '../../../services/fileSnapshot/snapshotTracker.ts'
 import { SnapshotTracker as WorkerSnapshotTracker } from '../../../services/fileSnapshot/snapshotTracker.ts'
+import {
+  appendRecoveryTextDelta,
+  appendRecoveryToolCall,
+  appendRecoveryToolResult,
+  type RecoveryResponseMessage
+} from '../run/runRecovery.ts'
+
+export const WORKER_SUBAGENT_RETRY_MAX_ATTEMPTS = 3
+const WORKER_SUBAGENT_RETRY_BASE_DELAY_MS = 1_000
+const WORKER_SUBAGENT_RETRY_MAX_DELAY_MS = 30_000
 
 export interface WorkerSubagentRunnerDependencies {
   settings: ProviderSettings
@@ -42,6 +54,7 @@ export interface WorkerSubagentRunnerDependencies {
   parentToolContext: AgentToolContext
   parentDependencies: AgentToolDependencies
   createModelRuntime: () => ModelRuntime
+  sleep?: (delayMs: number, signal: AbortSignal) => Promise<void>
   parentDeliveryContext?: SubagentParentDeliveryContext
   backgroundBashContext?: AgentToolDependencies['backgroundBashContext']
 }
@@ -164,6 +177,7 @@ function sanitizeWorkerRunnerInput(input: WorkerRunnerFactoryInput): WorkerRunne
       },
       parentDependencies,
       createModelRuntime: input.dependencies.createModelRuntime,
+      ...(input.dependencies.sleep ? { sleep: input.dependencies.sleep } : {}),
       ...(input.dependencies.parentDeliveryContext
         ? { parentDeliveryContext: input.dependencies.parentDeliveryContext }
         : {}),
@@ -181,6 +195,7 @@ function createWorkerRunner(
   const { launch, onProgress, onToolCall, sendMessage, hasPendingMessages } = factoryInput
   const profile = input.profile
   const { settings, config, activeSkills, createModelRuntime } = input.dependencies
+  const sleep = input.dependencies.sleep ?? sleepWithSignal
   const parentToolContext = {
     ...(input.dependencies.parentToolContext.sandboxed !== undefined
       ? { sandboxed: input.dependencies.parentToolContext.sandboxed }
@@ -343,74 +358,133 @@ function createWorkerRunner(
         history.splice(0, history.length, ...compaction.history)
         if (workerSettings.provider === 'anthropic') applyAnthropicCacheBreakpoints(history)
       }
-      const modelRuntime = createModelRuntime()
       let output = ''
       let promptTokens: number | undefined
       let completionTokens: number | undefined
       let responseMessages: unknown[] | undefined
+      let finalAttemptOutput = ''
       const recentToolSummaries: string[] = []
-      for await (const delta of modelRuntime.streamReply({
-        messages: history,
-        settings: workerSettings,
-        signal: turn.signal,
-        purpose: `worker:${launch.agentType}`,
-        promptCacheKey: `${launch.parentThreadId}:subagent:${launch.agentId}`,
-        maxToolSteps: profileSnapshot.maxToolSteps ?? 999,
-        stopWhen: tools
-          ? [
-              stepCountIs(profileSnapshot.maxToolSteps ?? 999),
-              ({ steps }) => hasPendingMessages() && (steps.at(-1)?.toolResults?.length ?? 0) > 0
-            ]
-          : undefined,
-        tools,
-        onToolCallStart: (event) => {
-          const inputSummary = summarizeToolInput(event.toolCall.toolName, event.toolCall.input)
-          onProgress({
-            turnId: turn.turnId,
-            chunk: `[${event.toolCall.toolName}] ${inputSummary}\n`
-          })
-          onToolCall({
-            turnId: turn.turnId,
-            toolCallId: event.toolCall.toolCallId,
-            toolName: event.toolCall.toolName,
-            inputSummary,
-            status: 'running'
-          })
-        },
-        onToolCallFinish: (event) => {
-          const inputSummary = summarizeToolInput(event.toolCall.toolName, event.toolCall.input)
-          const outputSummary = event.success
-            ? summarizeToolOutput(event.toolCall.toolName, event.output)
-            : summarizeToolOutput(event.toolCall.toolName, {
-                error: event.error instanceof Error ? event.error.message : String(event.error)
+      let retryDelay = WORKER_SUBAGENT_RETRY_BASE_DELAY_MS
+      for (let attempt = 1; attempt <= WORKER_SUBAGENT_RETRY_MAX_ATTEMPTS; attempt++) {
+        const modelRuntime = createModelRuntime()
+        const recoveryMessages: RecoveryResponseMessage[] = []
+        const activeToolCalls = new Map<string, ToolCallName>()
+        let attemptOutput = ''
+        try {
+          for await (const delta of modelRuntime.streamReply({
+            messages: history,
+            settings: workerSettings,
+            signal: turn.signal,
+            purpose: `worker:${launch.agentType}`,
+            promptCacheKey: `${launch.parentThreadId}:subagent:${launch.agentId}`,
+            maxToolSteps: profileSnapshot.maxToolSteps ?? 999,
+            stopWhen: tools
+              ? [
+                  stepCountIs(profileSnapshot.maxToolSteps ?? 999),
+                  ({ steps }) =>
+                    hasPendingMessages() && (steps.at(-1)?.toolResults?.length ?? 0) > 0
+                ]
+              : undefined,
+            tools,
+            onToolCallStart: (event) => {
+              const inputSummary = summarizeToolInput(event.toolCall.toolName, event.toolCall.input)
+              activeToolCalls.set(
+                event.toolCall.toolCallId,
+                event.toolCall.toolName as ToolCallName
+              )
+              appendRecoveryToolCall(recoveryMessages, {
+                toolCallId: event.toolCall.toolCallId,
+                toolName: event.toolCall.toolName as ToolCallName,
+                toolInput: event.toolCall.input
               })
-          recentToolSummaries.push(
-            `${event.toolCall.toolName}: ${inputSummary}${outputSummary ? ` → ${outputSummary}` : ''}`
-          )
-          onToolCall({
-            turnId: turn.turnId,
-            toolCallId: event.toolCall.toolCallId,
-            toolName: event.toolCall.toolName,
-            inputSummary,
-            outputSummary,
-            status: event.success ? 'completed' : 'failed'
+              onProgress({
+                turnId: turn.turnId,
+                chunk: `[${event.toolCall.toolName}] ${inputSummary}\n`
+              })
+              onToolCall({
+                turnId: turn.turnId,
+                toolCallId: event.toolCall.toolCallId,
+                toolName: event.toolCall.toolName,
+                inputSummary,
+                status: 'running'
+              })
+            },
+            onToolCallFinish: (event) => {
+              const inputSummary = summarizeToolInput(event.toolCall.toolName, event.toolCall.input)
+              const outputSummary = event.success
+                ? summarizeToolOutput(event.toolCall.toolName, event.output)
+                : summarizeToolOutput(event.toolCall.toolName, {
+                    error: event.error instanceof Error ? event.error.message : String(event.error)
+                  })
+              activeToolCalls.delete(event.toolCall.toolCallId)
+              appendRecoveryToolResult(recoveryMessages, {
+                toolCallId: event.toolCall.toolCallId,
+                toolName: event.toolCall.toolName as ToolCallName,
+                ...(event.success ? { output: event.output } : { error: event.error })
+              })
+              recentToolSummaries.push(
+                `${event.toolCall.toolName}: ${inputSummary}${outputSummary ? ` → ${outputSummary}` : ''}`
+              )
+              onToolCall({
+                turnId: turn.turnId,
+                toolCallId: event.toolCall.toolCallId,
+                toolName: event.toolCall.toolName,
+                inputSummary,
+                outputSummary,
+                status: event.success ? 'completed' : 'failed'
+              })
+            },
+            onFinish: (usage) => {
+              promptTokens = usage.promptTokens
+              completionTokens = usage.completionTokens
+              responseMessages = usage.responseMessages
+            }
+          })) {
+            output += delta
+            attemptOutput += delta
+            appendRecoveryTextDelta(recoveryMessages, delta)
+            onProgress({ turnId: turn.turnId, chunk: delta })
+          }
+          finalAttemptOutput = attemptOutput
+          break
+        } catch (error) {
+          const hadActiveToolCalls = activeToolCalls.size > 0
+          for (const [toolCallId, toolName] of activeToolCalls) {
+            appendRecoveryToolResult(recoveryMessages, {
+              toolCallId,
+              toolName,
+              error: new Error('Tool execution was interrupted before completion.')
+            })
+          }
+          if (
+            !isRetryableRunError(error) ||
+            turn.signal.aborted ||
+            hadActiveToolCalls ||
+            attempt >= WORKER_SUBAGENT_RETRY_MAX_ATTEMPTS
+          ) {
+            if (recoveryMessages.length > 0) {
+              history.push(...(recoveryMessages as ModelMessage[]))
+            }
+            throw error
+          }
+
+          history.push(...(recoveryMessages as ModelMessage[]))
+          history.push({
+            role: 'user',
+            content:
+              `[Worker turn recovery ${attempt}/${WORKER_SUBAGENT_RETRY_MAX_ATTEMPTS}] ` +
+              'The provider stream was interrupted. Continue from the transcript above without repeating completed tool calls.'
           })
-        },
-        onFinish: (usage) => {
-          promptTokens = usage.promptTokens
-          completionTokens = usage.completionTokens
-          responseMessages = usage.responseMessages
+          await sleep(retryDelay, turn.signal)
+          retryDelay = Math.min(retryDelay * 2, WORKER_SUBAGENT_RETRY_MAX_DELAY_MS)
         }
-      })) {
-        output += delta
-        onProgress({ turnId: turn.turnId, chunk: delta })
       }
       previousPromptTokens = promptTokens
 
       if (responseMessages && responseMessages.length > 0) {
         history.push(...(responseMessages as ModelMessage[]))
-      } else if (output.trim()) {
-        history.push({ role: 'assistant', content: output })
+      } else if (finalAttemptOutput.trim()) {
+        history.push({ role: 'assistant', content: finalAttemptOutput })
       }
       const finalOutput = output.trim()
         ? output

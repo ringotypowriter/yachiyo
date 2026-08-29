@@ -1,4 +1,7 @@
 import assert from 'node:assert/strict'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import test from 'node:test'
 
 import {
@@ -30,6 +33,8 @@ function createDomain(
     toolCalls?: ToolCallRecord[]
     updatedToolCalls?: ToolCallRecord[]
     emittedEvents?: unknown[]
+    ensureThreadWorkspace?: (threadId: string) => Promise<string>
+    startedRunIds?: string[]
   } = {}
 ): YachiyoServerRunDomain {
   const toolCalls = options.toolCalls ?? []
@@ -42,7 +47,8 @@ function createDomain(
         options.updatedToolCalls?.push(toolCall)
         const index = toolCalls.findIndex((candidate) => candidate.id === toolCall.id)
         if (index >= 0) toolCalls[index] = toolCall
-      }
+      },
+      startRun: (input: { runId: string }) => options.startedRunIds?.push(input.runId)
     },
     createId: () => 'id',
     timestamp: () => '2026-05-02T00:00:00.000Z',
@@ -52,7 +58,7 @@ function createDomain(
     runInactivityTimeoutMs: 30_000,
     auxiliaryGeneration: {},
     createModelRuntime: () => ({}),
-    ensureThreadWorkspace: async () => '/tmp/yachiyo-test',
+    ensureThreadWorkspace: options.ensureThreadWorkspace ?? (async () => '/tmp/yachiyo-test'),
     memoryService: {
       hasHiddenSearchCapability: () => false,
       isConfigured: () => false
@@ -706,8 +712,10 @@ test('deleteQueuedFollowUpDraft preserves hidden notices attached to a visible d
       emit: () => {}
     } as unknown as FollowUpQueueContext['deps'],
     activeRunByThread,
+    pendingRecoveredRuns: new Map(),
     queuedFollowUpDrafts: sendContext.queuedFollowUpDrafts,
     isClosing: () => false,
+    isRunAdmissionOpen: () => true,
     startActiveRun: (input) => {
       startActiveRunInputs.push({
         enabledTools: input.enabledTools,
@@ -776,6 +784,261 @@ test('listActiveRunIds returns user-visible active runs only', () => {
   domainState.activeRunByThread.set('thread-2', 'run-recap')
 
   assert.deepEqual(domain.listActiveRunIds(), ['run-1'])
+})
+
+test('closing run admission returns the active snapshot and rejects local and channel work', async () => {
+  const domain = createDomain()
+  const domainState = domain as unknown as {
+    activeRuns: Map<string, RunState>
+  }
+  domainState.activeRuns.set('run-existing', {
+    threadId: 'thread-existing',
+    requestMessageId: 'message-existing',
+    abortController: new AbortController(),
+    executionPhase: 'generating',
+    updateHeadOnComplete: true
+  })
+
+  assert.deepEqual(domain.closeRunAdmissionAndGetActiveRunIds('install-1'), ['run-existing'])
+  await assert.rejects(
+    () => domain.sendChat({ threadId: 'thread-local', content: 'hello', runTrigger: 'local' }),
+    /not accepting new runs/i
+  )
+  await assert.rejects(
+    () => domain.sendChat({ threadId: 'thread-channel', content: 'hello', runTrigger: 'channel' }),
+    /not accepting new runs/i
+  )
+})
+
+test('only the install attempt that closed admission can reopen it', async () => {
+  const domain = createDomain()
+
+  domain.closeRunAdmissionAndGetActiveRunIds('install-1')
+  assert.throws(() => domain.closeRunAdmissionAndGetActiveRunIds('install-2'), /already closed/i)
+  domain.openRunAdmission('install-2')
+
+  await assert.rejects(
+    () => domain.sendChat({ threadId: 'thread-local', content: 'hello' }),
+    /not accepting new runs/i
+  )
+
+  domain.openRunAdmission('install-1')
+  assert.doesNotThrow(() => domain.closeRunAdmissionAndGetActiveRunIds('install-2'))
+})
+
+test('reopening run admission starts a deferred queued follow-up exactly once', () => {
+  const domain = createDomain()
+  const thread: ThreadRecord = {
+    id: 'thread-deferred-follow-up',
+    title: 'Thread',
+    updatedAt: '2026-05-02T00:00:00.000Z'
+  }
+  const startedRunIds: string[] = []
+  const domainState = domain as unknown as {
+    activeRunByThread: Map<string, string>
+    queuedFollowUpDrafts: Map<string, QueuedFollowUpDraft>
+    runAdmissionOwnerId?: string
+    createFollowUpQueueContext: () => FollowUpQueueContext
+  }
+  domainState.queuedFollowUpDrafts.set(thread.id, {
+    enabledTools: [],
+    runMode: 'chat',
+    runTrigger: 'local',
+    userMessage: {
+      id: 'message-deferred-follow-up',
+      threadId: thread.id,
+      role: 'user',
+      status: 'completed',
+      content: 'continue after the failed update',
+      createdAt: '2026-05-02T00:00:00.000Z'
+    }
+  })
+  domainState.createFollowUpQueueContext = () => ({
+    deps: {
+      createId: () => 'run-deferred-follow-up',
+      timestamp: () => '2026-05-02T00:00:01.000Z',
+      requireThread: () => thread,
+      loadThreadMessages: () => [],
+      loadThreadToolCalls: () => [],
+      storage: {
+        getThread: () => thread,
+        startRun: (input: { runId: string }) => startedRunIds.push(input.runId)
+      },
+      emit: () => {}
+    } as unknown as FollowUpQueueContext['deps'],
+    activeRunByThread: domainState.activeRunByThread,
+    pendingRecoveredRuns: new Map(),
+    queuedFollowUpDrafts: domainState.queuedFollowUpDrafts,
+    isClosing: () => false,
+    isRunAdmissionOpen: () => domainState.runAdmissionOwnerId === undefined,
+    startActiveRun: () => {},
+    startRecoveredRun: () => {}
+  })
+
+  domain.closeRunAdmissionAndGetActiveRunIds('install-owner')
+  startQueuedFollowUpIfPresent(domainState.createFollowUpQueueContext(), thread.id)
+  domain.openRunAdmission('foreign-owner')
+
+  assert.deepEqual(startedRunIds, [])
+  assert.equal(domainState.queuedFollowUpDrafts.has(thread.id), true)
+
+  domain.openRunAdmission('install-owner')
+  domain.openRunAdmission('install-owner')
+
+  assert.deepEqual(startedRunIds, ['run-deferred-follow-up'])
+  assert.equal(domainState.queuedFollowUpDrafts.has(thread.id), false)
+})
+
+test('reopening run admission does not start a queued follow-up for an active thread', () => {
+  const domain = createDomain()
+  const thread: ThreadRecord = {
+    id: 'thread-active-follow-up',
+    title: 'Thread',
+    updatedAt: '2026-05-02T00:00:00.000Z'
+  }
+  const startedRunIds: string[] = []
+  const domainState = domain as unknown as {
+    activeRunByThread: Map<string, string>
+    queuedFollowUpDrafts: Map<string, QueuedFollowUpDraft>
+    runAdmissionOwnerId?: string
+    createFollowUpQueueContext: () => FollowUpQueueContext
+  }
+  domainState.activeRunByThread.set(thread.id, 'run-active')
+  domainState.queuedFollowUpDrafts.set(thread.id, {
+    enabledTools: [],
+    runMode: 'chat',
+    runTrigger: 'local',
+    userMessage: {
+      id: 'message-active-follow-up',
+      threadId: thread.id,
+      role: 'user',
+      status: 'completed',
+      content: 'continue when active run finishes',
+      createdAt: '2026-05-02T00:00:00.000Z'
+    }
+  })
+  domainState.createFollowUpQueueContext = () => ({
+    deps: {
+      createId: () => 'run-active-follow-up',
+      timestamp: () => '2026-05-02T00:00:01.000Z',
+      requireThread: () => thread,
+      loadThreadMessages: () => [],
+      loadThreadToolCalls: () => [],
+      storage: {
+        getThread: () => thread,
+        startRun: (input: { runId: string }) => startedRunIds.push(input.runId)
+      },
+      emit: () => {}
+    } as unknown as FollowUpQueueContext['deps'],
+    activeRunByThread: domainState.activeRunByThread,
+    pendingRecoveredRuns: new Map(),
+    queuedFollowUpDrafts: domainState.queuedFollowUpDrafts,
+    isClosing: () => false,
+    isRunAdmissionOpen: () => domainState.runAdmissionOwnerId === undefined,
+    startActiveRun: () => {},
+    startRecoveredRun: () => {}
+  })
+
+  domain.closeRunAdmissionAndGetActiveRunIds('install-owner')
+  domain.openRunAdmission('install-owner')
+
+  assert.deepEqual(startedRunIds, [])
+  assert.equal(domainState.queuedFollowUpDrafts.has(thread.id), true)
+
+  domainState.activeRunByThread.delete(thread.id)
+  startQueuedFollowUpIfPresent(domainState.createFollowUpQueueContext(), thread.id)
+
+  assert.deepEqual(startedRunIds, ['run-active-follow-up'])
+})
+
+test('scheduled recovered runs wait for the admission owner to reopen admission', async () => {
+  const emittedEvents: Array<{ type?: string; runId?: string }> = []
+  const domain = createDomain([], { emittedEvents })
+  const domainState = domain as unknown as {
+    runLoop: () => Promise<void>
+  }
+  domainState.runLoop = async () => {}
+  const checkpoint = {
+    runId: 'run-deferred-recovery',
+    threadId: 'thread-deferred-recovery',
+    requestMessageId: 'message-deferred-recovery',
+    assistantMessageId: 'assistant-deferred-recovery',
+    content: '',
+    enabledTools: [],
+    runMode: 'chat',
+    runTrigger: 'local',
+    updateHeadOnComplete: true,
+    createdAt: '2026-05-02T00:00:00.000Z',
+    updatedAt: '2026-05-02T00:00:01.000Z',
+    recoveryAttempts: 1
+  } as unknown as RunRecoveryCheckpoint
+
+  domain.closeRunAdmissionAndGetActiveRunIds('install-owner')
+  domain.scheduleRecoveredRuns([checkpoint])
+  await new Promise((resolve) => setTimeout(resolve, 0))
+
+  assert.deepEqual(
+    emittedEvents.filter((event) => event.type === 'run.created'),
+    []
+  )
+
+  domain.openRunAdmission('foreign-owner')
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  assert.deepEqual(
+    emittedEvents.filter((event) => event.type === 'run.created'),
+    []
+  )
+
+  domain.openRunAdmission('install-owner')
+  await new Promise((resolve) => setTimeout(resolve, 0))
+
+  assert.deepEqual(
+    emittedEvents.filter((event) => event.type === 'run.created').map((event) => event.runId),
+    ['run-deferred-recovery']
+  )
+})
+
+test('a send waiting on attachment setup cannot cross the atomic admission snapshot', async () => {
+  const workspacePath = mkdtempSync(join(tmpdir(), 'yachiyo-admission-'))
+  let finishWorkspaceSetup!: () => void
+  const workspaceSetup = new Promise<void>((resolve) => {
+    finishWorkspaceSetup = resolve
+  })
+  const startedRunIds: string[] = []
+  const domain = createDomain([], {
+    startedRunIds,
+    ensureThreadWorkspace: async () => {
+      await workspaceSetup
+      return workspacePath
+    }
+  })
+
+  try {
+    const pendingSend = domain.sendChat({
+      threadId: 'thread-local',
+      content: 'inspect this',
+      images: [
+        {
+          dataUrl: 'data:image/png;base64,AAAA',
+          mediaType: 'image/png',
+          filename: 'image.png'
+        }
+      ]
+    })
+    await Promise.resolve()
+
+    assert.deepEqual(domain.closeRunAdmissionAndGetActiveRunIds('install-1'), [])
+    finishWorkspaceSetup()
+
+    await assert.rejects(pendingSend, /not accepting new runs/i)
+    assert.deepEqual(
+      startedRunIds,
+      [],
+      'the rejected send must not persist a run after the snapshot'
+    )
+  } finally {
+    rmSync(workspacePath, { recursive: true, force: true })
+  }
 })
 
 test('cancelActiveRuns stops every user-visible active run', () => {
@@ -871,6 +1134,50 @@ test('requestRecap skips when the latest run used plan mode', async () => {
   assert.equal(startRunCalled, false)
 })
 
+test('startRecoveredRun does nothing while run admission is closed', () => {
+  const activeRuns = new Map()
+  const activeRunByThread = new Map<string, string>()
+  const emittedEvents: unknown[] = []
+  const context = {
+    deps: {
+      requireThread: () => ({
+        id: 'thread-recovered-closed',
+        title: 'Recovered',
+        updatedAt: '2026-05-02T00:00:00.000Z'
+      }),
+      loadThreadToolCalls: () => [],
+      emit: (event: unknown) => emittedEvents.push(event)
+    },
+    activeRuns,
+    activeRunByThread,
+    activeRunTasks: new Map(),
+    isClosing: () => false,
+    isRunAdmissionOpen: () => false,
+    runLoop: async () => {},
+    threadTitleRunner: { schedule: () => {} }
+  } as unknown as Parameters<typeof startRecoveredRun>[0]
+  const checkpoint = {
+    runId: 'run-recovered-closed',
+    threadId: 'thread-recovered-closed',
+    requestMessageId: 'user-recovered-closed',
+    assistantMessageId: 'assistant-recovered-closed',
+    content: 'partial',
+    enabledTools: [],
+    runMode: 'chat',
+    runTrigger: 'local',
+    updateHeadOnComplete: true,
+    createdAt: '2026-05-02T00:00:00.000Z',
+    updatedAt: '2026-05-02T00:00:01.000Z',
+    recoveryAttempts: 1
+  } as unknown as RunRecoveryCheckpoint
+
+  startRecoveredRun(context, checkpoint)
+
+  assert.equal(activeRuns.size, 0)
+  assert.equal(activeRunByThread.size, 0)
+  assert.deepEqual(emittedEvents, [])
+})
+
 test('startRecoveredRun restores the persisted run trigger instead of deriving from channel hint', () => {
   const thread: ThreadRecord = {
     id: 'thread-recovered',
@@ -907,6 +1214,7 @@ test('startRecoveredRun restores the persisted run trigger instead of deriving f
       activeRunByThread,
       activeRunTasks: new Map(),
       isClosing: () => false,
+      isRunAdmissionOpen: () => true,
       runLoop: async (input) => {
         runLoopInputs.push({ runTrigger: input.runTrigger })
       },
@@ -956,6 +1264,7 @@ test('startRecoveredRun derives missing run mode from checkpoint tools', () => {
       activeRunTasks: new Map(),
 
       isClosing: () => false,
+      isRunAdmissionOpen: () => true,
       runLoop: async (input) => {
         runLoopInputs.push({ runMode: input.runMode })
       },

@@ -43,6 +43,8 @@ export function createAppUpdateCommandHandler(input: {
   controller: AppUpdateController
   getRunningVersion: () => string
   getActiveRunIds: () => string[]
+  closeRunAdmissionAndGetActiveRunIds: (ownerId: string) => Promise<string[]>
+  openRunAdmission: (ownerId: string) => Promise<void>
   /**
    * Announcing the restart and remembering who to report back to. Absent in
    * tests that only exercise the update mechanism; when absent the install
@@ -58,13 +60,13 @@ export function createAppUpdateCommandHandler(input: {
   }
 }): (command: AppUpdateCommandInput) => Promise<AppUpdateCommandReply> {
   const activeRunSummary = (
-    initiatorRunId: string | undefined
+    initiatorRunId: string | undefined,
+    activeRunIds = input.getActiveRunIds()
   ): {
     blockingRunCount: number
     initiatorRunActive: boolean
     interruptedRunCount: number
   } => {
-    const activeRunIds = input.getActiveRunIds()
     const initiatorRunActive = initiatorRunId !== undefined && activeRunIds.includes(initiatorRunId)
     return {
       blockingRunCount: activeRunIds.length - (initiatorRunActive ? 1 : 0),
@@ -93,13 +95,6 @@ export function createAppUpdateCommandHandler(input: {
       }
     }
 
-    let installSummary = activeRunSummary(command.initiatorRunId)
-    if (installSummary.blockingRunCount > 0 && command.force !== true) {
-      throw new Error(formatAppUpdateBlockedError(installSummary))
-    }
-    if (command.initiatorRunId !== undefined && input.receipt === undefined) {
-      throw new Error('App update receipt wiring is required for an initiated install.')
-    }
     // The reservation is taken inside the sequence, because the order of
     // persist / reserve / announce is the contract and lives in one place.
     // A fresh id per install attempt, so a contender that loses the
@@ -107,70 +102,88 @@ export function createAppUpdateCommandHandler(input: {
     const attemptId = randomUUID()
     let reservation: AppUpdateInstallReservation | undefined
     const receipt = input.receipt
-    const receiptOrigin = await runInstallReceiptSequence(command.initiatorRunId, {
-      resolveOrigin: receipt?.resolveOrigin ?? (async () => ({ kind: 'no-channel' as const })),
-      persist: receipt?.persist ?? (() => {}),
-      clear: receipt?.clear ?? (() => {}),
-      announce: receipt?.announce ?? (async () => {}),
-      announceTimeoutMs: receipt?.announceTimeoutMs ?? 2_000,
-      now: receipt?.now ?? (() => Date.now()),
-      // A fresh id per install attempt, so a contender that loses the
-      // reservation race cannot clear the winner's pending receipt.
-      attemptId,
-      fromVersion: input.getRunningVersion(),
-      targetVersion: receipt?.targetVersion() ?? '',
-      reserve: () => {
-        installSummary = activeRunSummary(command.initiatorRunId)
-        if (installSummary.blockingRunCount > 0 && command.force !== true) {
-          throw new Error(formatAppUpdateBlockedError(installSummary))
-        }
-        reservation = input.controller.reservePreparedInstall()
-      },
-      release: () => {
-        reservation?.release()
-        reservation = undefined
+    let admissionClosed = false
+    try {
+      const activeRunIds = await input.closeRunAdmissionAndGetActiveRunIds(attemptId)
+      admissionClosed = true
+      const installSummary = activeRunSummary(command.initiatorRunId, activeRunIds)
+      if (installSummary.blockingRunCount > 0 && command.force !== true) {
+        throw new Error(formatAppUpdateBlockedError(installSummary))
       }
-    })
-    if (!reservation) {
-      throw new Error('Update install reservation was not created.')
-    }
-    const claimed = reservation
-    const result: AppUpdateInstallResult = {
-      state: 'installing',
-      interruptedRunCount: installSummary.interruptedRunCount,
-      initiatorRunInterrupted: installSummary.initiatorRunActive
-    }
-    return {
-      result,
-      // Both of these mean the same thing to the user: we said we were
-      // going and we are not. The socket finalizer routes an afterReply
-      // throw to onError rather than to onReplyFailure, so the withdrawal
-      // has to happen here — relying on onReplyFailure alone left the
-      // promise standing whenever the install itself threw.
-      afterReply: async () => {
-        try {
-          claimed.install()
-        } catch (error) {
+      if (command.initiatorRunId !== undefined && input.receipt === undefined) {
+        throw new Error('App update receipt wiring is required for an initiated install.')
+      }
+
+      const receiptOrigin = await runInstallReceiptSequence(command.initiatorRunId, {
+        resolveOrigin: receipt?.resolveOrigin ?? (async () => ({ kind: 'no-channel' as const })),
+        persist: receipt?.persist ?? (() => {}),
+        clear: receipt?.clear ?? (() => {}),
+        announce: receipt?.announce ?? (async () => {}),
+        announceTimeoutMs: receipt?.announceTimeoutMs ?? 2_000,
+        now: receipt?.now ?? (() => Date.now()),
+        // A fresh id per install attempt, so a contender that loses the
+        // reservation race cannot clear the winner's pending receipt.
+        attemptId,
+        fromVersion: input.getRunningVersion(),
+        targetVersion: receipt?.targetVersion() ?? '',
+        reserve: () => {
+          reservation = input.controller.reservePreparedInstall()
+        },
+        release: () => {
+          reservation?.release()
+          reservation = undefined
+        }
+      })
+      if (!reservation) {
+        throw new Error('Update install reservation was not created.')
+      }
+      const claimed = reservation
+      const result: AppUpdateInstallResult = {
+        state: 'installing',
+        interruptedRunCount: installSummary.interruptedRunCount,
+        initiatorRunInterrupted: installSummary.initiatorRunActive
+      }
+      return {
+        result,
+        // Both of these mean the same thing to the user: we said we were
+        // going and we are not. The socket finalizer routes an afterReply
+        // throw to onError rather than to onReplyFailure, so the withdrawal
+        // has to happen here — relying on onReplyFailure alone left the
+        // promise standing whenever the install itself threw.
+        afterReply: async () => {
+          try {
+            claimed.install()
+          } catch (error) {
+            await input.openRunAdmission(attemptId)
+            admissionClosed = false
+            if (receiptOrigin && receipt) {
+              await reportInstallFailureWithinBound(receipt, receiptOrigin, error)
+            }
+            receipt?.clear(attemptId)
+            throw error
+          }
+        },
+        onReplyFailure: async () => {
+          claimed.release()
+          await input.openRunAdmission(attemptId)
+          admissionClosed = false
+          // We already told the user we were going; that promise has to be
+          // withdrawn, or the pending record reports a restart that never came.
           if (receiptOrigin && receipt) {
-            await reportInstallFailureWithinBound(receipt, receiptOrigin, error)
+            await reportInstallFailureWithinBound(
+              receipt,
+              receiptOrigin,
+              new Error('The update command reply could not be delivered.')
+            )
           }
           receipt?.clear(attemptId)
-          throw error
         }
-      },
-      onReplyFailure: async () => {
-        claimed.release()
-        // We already told the user we were going; that promise has to be
-        // withdrawn, or the pending record reports a restart that never came.
-        if (receiptOrigin && receipt) {
-          await reportInstallFailureWithinBound(
-            receipt,
-            receiptOrigin,
-            new Error('The update command reply could not be delivered.')
-          )
-        }
-        receipt?.clear(attemptId)
       }
+    } catch (error) {
+      if (admissionClosed) {
+        await input.openRunAdmission(attemptId)
+      }
+      throw error
     }
   }
 }

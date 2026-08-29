@@ -51,6 +51,16 @@ test('a deferred receipt becomes claimable with its rendered message', () => {
   assert.equal(claim.message, '已更新到 1.1.0')
 })
 
+test('a deferred attempt cannot re-enter active delivery after a runtime refork', () => {
+  const { instance } = coordinator()
+  assert.equal(instance.canActivelyDeliver('attempt-1'), true)
+
+  instance.defer('attempt-1')
+
+  assert.equal(instance.canActivelyDeliver('attempt-1'), false)
+  assert.equal(instance.canActivelyDeliver('attempt-2'), true)
+})
+
 /** Gate 2: two concurrent outbounds must not both carry the receipt. */
 test('only one concurrent claim succeeds', () => {
   const { instance } = coordinator()

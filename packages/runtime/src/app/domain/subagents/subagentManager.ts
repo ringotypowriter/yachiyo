@@ -18,6 +18,7 @@ import type {
   ToolCallName,
   YachiyoServerEvent
 } from '@yachiyo/shared/protocol'
+import { isRetryableRunError } from '../../../runtime/models/runtimeErrors.ts'
 
 export const MAX_LIVE_AGENTS_PER_THREAD = 8
 export const MAX_RUNNING_AGENTS_GLOBAL = 16
@@ -489,7 +490,22 @@ export class SubagentManager {
     const drainPromise = this.drain(record)
     record.drainPromise = drainPromise
     void drainPromise.finally(() => {
-      if (record.drainPromise === drainPromise) record.drainPromise = undefined
+      if (record.drainPromise !== drainPromise) return
+      record.drainPromise = undefined
+      if (
+        record.snapshot.state === 'running' &&
+        record.mailbox.length > 0 &&
+        !record.controller.signal.aborted &&
+        !this.closing
+      ) {
+        record.snapshot = {
+          ...record.snapshot,
+          error: undefined,
+          updatedAt: this.deps.timestamp()
+        }
+        this.emitSnapshot(record)
+        this.startDrain(record)
+      }
     })
   }
 
@@ -565,15 +581,28 @@ export class SubagentManager {
         this.emitSnapshot(record)
         const kind = record.initialResultDelivered ? 'message' : 'initial-result'
         record.initialResultDelivered = true
-        this.deliver(
-          record,
-          undefined,
-          kind,
-          `Agent ${record.launch.agentId} failed: ${errorMessage}`
-        )
-        this.setState(record, 'failed')
+        if (isRetryableRunError(error)) {
+          this.deliver(
+            record,
+            undefined,
+            kind,
+            `Agent ${record.launch.agentId} was interrupted after retrying: ${errorMessage}. Send a message to continue this Worker.`
+          )
+          if (record.mailbox.length === 0) {
+            this.setState(record, 'idle')
+            this.scheduleIdleTimer(record)
+          }
+        } else {
+          this.deliver(
+            record,
+            undefined,
+            kind,
+            `Agent ${record.launch.agentId} failed: ${errorMessage}`
+          )
+          this.setState(record, 'failed')
+        }
       }
-      this.startRunnerClose(record)
+      if (isTerminalState(record.snapshot.state)) this.startRunnerClose(record)
     } finally {
       if (isTerminalState(record.snapshot.state)) this.startRunnerClose(record)
     }
@@ -597,6 +626,7 @@ export class SubagentManager {
               (record.snapshot.cumulativeCompletionTokens ?? 0) + result.completionTokens
           }
         : {}),
+      error: undefined,
       updatedAt: this.deps.timestamp()
     }
     this.emitSnapshot(record)
@@ -704,6 +734,7 @@ export class SubagentManager {
       ...record.snapshot,
       state,
       currentTurnId: state === 'running' ? record.snapshot.currentTurnId : undefined,
+      ...(state === 'running' ? { error: undefined } : {}),
       updatedAt: this.deps.timestamp()
     }
     this.emitSnapshot(record)

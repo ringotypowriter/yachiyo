@@ -50,8 +50,10 @@ type QueuedFollowUpDrafts = Map<string, QueuedFollowUpDraft>
 export interface FollowUpQueueContext {
   deps: RunDomainDeps
   activeRunByThread: Map<string, string>
+  pendingRecoveredRuns: Map<string, RunRecoveryCheckpoint>
   queuedFollowUpDrafts: Map<string, QueuedFollowUpDraft>
   isClosing: () => boolean
+  isRunAdmissionOpen: () => boolean
   startActiveRun: (input: StartActiveRunInput) => void
   startRecoveredRun: (checkpoint: RunRecoveryCheckpoint) => void
 }
@@ -144,11 +146,24 @@ export function scheduleRecoveredRuns(
     return
   }
 
+  for (const checkpoint of checkpoints) {
+    context.pendingRecoveredRuns.set(checkpoint.runId, checkpoint)
+  }
+
   setTimeout(() => {
-    for (const checkpoint of checkpoints) {
-      context.startRecoveredRun(checkpoint)
-    }
+    resumeDeferredRecoveredRuns(context)
   }, 0)
+}
+
+export function resumeDeferredRecoveredRuns(context: FollowUpQueueContext): void {
+  if (context.isClosing() || !context.isRunAdmissionOpen()) {
+    return
+  }
+
+  for (const checkpoint of context.pendingRecoveredRuns.values()) {
+    context.pendingRecoveredRuns.delete(checkpoint.runId)
+    context.startRecoveredRun(checkpoint)
+  }
 }
 
 export function startQueuedFollowUpIfPresent(
@@ -345,7 +360,11 @@ function activatePreparedQueuedFollowUp(
   prepared: PreparedQueuedFollowUpStart,
   options: { emitThreadStateReplaced?: boolean } = {}
 ): void {
-  if (context.isClosing() || context.activeRunByThread.has(prepared.thread.id)) {
+  if (
+    context.isClosing() ||
+    !context.isRunAdmissionOpen() ||
+    context.activeRunByThread.has(prepared.thread.id)
+  ) {
     return
   }
 

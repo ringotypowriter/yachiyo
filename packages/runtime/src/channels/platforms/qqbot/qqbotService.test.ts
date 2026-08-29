@@ -43,7 +43,10 @@ function createServer(channelUser: ChannelUserRecord): YachiyoServer {
   } as unknown as YachiyoServer
 }
 
-function createClient(events: string[]): {
+function createClient(
+  events: string[],
+  reachApiDispatch?: () => void
+): {
   client: QQBotClient
   receive(message: QQBotC2CMessage): void
 } {
@@ -56,10 +59,14 @@ function createClient(events: string[]): {
       onC2CMessage: (handler) => {
         receiveMessage = handler
       },
-      sendC2CMessage: async (_openId, text, replyMsgId) => {
+      sendC2CMessage: async (_openId, text, replyMsgId, options) => {
+        reachApiDispatch?.()
+        options?.beforeDispatch?.()
         events.push(`send:${text}:${replyMsgId}`)
       },
-      sendC2CActiveMessage: async (_openId, text) => {
+      sendC2CActiveMessage: async (_openId, text, options) => {
+        reachApiDispatch?.()
+        options?.beforeDispatch?.()
         events.push(`send-active:${text}`)
       },
       sendC2CImage: async (_openId, _path, replyMsgId) => {
@@ -887,6 +894,41 @@ it('does not start expired QQBot reply or active API sends', async () => {
     () => service.sendActiveMessage(channelUser.externalUserId, 'announce', { notAfterMs: 0 }),
     /expired before dispatch/
   )
+  assert.deepEqual(events, ['claim:qqbot-open-1', 'release:claim-1'])
+})
+
+it('rechecks reply and active deadlines at the QQBot API dispatch seam', async (t) => {
+  let now = 100
+  t.mock.method(Date, 'now', () => now)
+  const events: string[] = []
+  const channelUser = createChannelUser()
+  const { client, receive } = createClient(events, () => {
+    now = 101
+  })
+  const service = createQQBotService({
+    appId: 'app-1',
+    clientSecret: 'secret-1',
+    server: createServer(channelUser),
+    updateReceiptLease: createLease(events),
+    client
+  })
+  receive({
+    openId: channelUser.externalUserId,
+    content: 'remember this reply target',
+    messageId: 'inbound-1',
+    timestamp: '2026-08-05T00:00:00.000Z'
+  })
+
+  await assert.rejects(
+    () => service.sendMessage(channelUser.externalUserId, 'reply', { notAfterMs: 101 }),
+    /expired before dispatch/
+  )
+  now = 100
+  await assert.rejects(
+    () => service.sendActiveMessage(channelUser.externalUserId, 'active', { notAfterMs: 101 }),
+    /expired before dispatch/
+  )
+
   assert.deepEqual(events, ['claim:qqbot-open-1', 'release:claim-1'])
 })
 
