@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /* eslint-disable @typescript-eslint/explicit-function-return-type */
 
-import { existsSync } from 'node:fs'
+import { existsSync, readdirSync } from 'node:fs'
 import { win32 } from 'node:path'
 import process from 'node:process'
 import { pathToFileURL } from 'node:url'
@@ -17,11 +17,14 @@ function firstExisting(candidates, pathExists, checked) {
 
 export function inspectWindowsArtifactInventory(input) {
   const pathExists = input.pathExists ?? existsSync
+  const readDirectory = input.readDirectory ?? readdirSync
   const checked = []
   const resources = win32.join(input.appDir, 'resources')
   const bin = win32.join(resources, 'bin')
   const nodeModules = win32.join(resources, 'node_modules')
   const appAsar = win32.join(resources, 'app.asar')
+  const unpackedBin = win32.join(resources, 'app.asar.unpacked', 'resources', 'bin')
+  const locales = win32.join(input.appDir, 'locales')
   const requirements = [
     ['Yachiyo executable', [win32.join(input.appDir, 'yachiyo.exe')]],
     ['PortableGit Bash', [win32.join(bin, 'bash', 'usr', 'bin', 'bash.exe')]],
@@ -72,6 +75,7 @@ export function inspectWindowsArtifactInventory(input) {
       [win32.join(nodeModules, 'zlib-sync', 'build', 'Release', 'zlib_sync.node')]
     ],
     ['core skills catalog', [win32.join(resources, 'core-skills', 'yachiyo-help', 'SKILL.md')]],
+    ['Electron locale directory', [locales]],
     ['app.asar', [appAsar]]
   ]
 
@@ -94,6 +98,41 @@ export function inspectWindowsArtifactInventory(input) {
   if (!asarEntries.some((entry) => /\.wasm$/iu.test(entry))) {
     missing.push('WASM assets in app.asar')
   }
+  if (asarEntries.some((entry) => /^[\\/]+node_modules[\\/]/u.test(entry))) {
+    missing.push('root node_modules must not be bundled in app.asar')
+  }
+  if (asarEntries.some((entry) => /[\\/]runtime-node-modules[\\/]/u.test(entry))) {
+    missing.push('staged runtime node_modules must not be bundled in app.asar')
+  }
+  if (asarEntries.some((entry) => /_snapshot\.json$/u.test(entry))) {
+    missing.push('Drizzle snapshots must not be bundled in app.asar')
+  }
+  if (asarEntries.some((entry) => /(^|[\\/])runtime-host-spike\.js$/u.test(entry))) {
+    missing.push('runtime-host-spike.js must not be bundled in app.asar')
+  }
+  if (pathExists(unpackedBin)) {
+    missing.push('runtime bin must not be duplicated under app.asar.unpacked')
+  }
+  if (pathExists(locales)) {
+    try {
+      const actualLocales = readDirectory(locales)
+        .filter((entry) => entry.endsWith('.pak'))
+        .sort()
+      const expectedLocales = ['en-US.pak', 'zh-CN.pak']
+      if (
+        actualLocales.length !== expectedLocales.length ||
+        actualLocales.some((entry, index) => entry !== expectedLocales[index])
+      ) {
+        missing.push(
+          `Electron locales must be ${expectedLocales.join(', ')}; found ${actualLocales.join(', ')}`
+        )
+      }
+    } catch (error) {
+      missing.push(
+        `Electron locale inventory (${error instanceof Error ? error.message : String(error)})`
+      )
+    }
+  }
 
   return { ok: missing.length === 0, missing }
 }
@@ -113,7 +152,8 @@ function main() {
   const report = inspectWindowsArtifactInventory({
     appDir,
     pathExists: existsSync,
-    readAsarEntries: readAppAsarEntries
+    readAsarEntries: readAppAsarEntries,
+    readDirectory: readdirSync
   })
   if (!report.ok) {
     console.error(`Windows artifact inventory failed:\n- ${report.missing.join('\n- ')}`)

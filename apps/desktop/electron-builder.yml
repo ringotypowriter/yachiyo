@@ -3,13 +3,11 @@ productName: Yachiyo
 directories:
   buildResources: build
 files:
-  - '!**/.vscode/*'
-  - '!src/*'
-  - '!electron.vite.config.{js,ts,mjs,cjs}'
-  - '!{.eslintcache,eslint.config.mjs,.oxfmtrc.json,dev-app-update.yml,CHANGELOG.md,README.md}'
-  - '!{.env,.env.*,.npmrc,pnpm-lock.yaml}'
-  - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}'
-  - '!resources/screenshots{,/**}'
+  - '!**/*'
+  - 'out/**'
+  - '!out/runtime-node-modules{,/**}'
+  - 'package.json'
+  - 'resources/icon.png'
 extraResources:
   - from: out/runtime-node-modules/node_modules
     to: node_modules
@@ -21,11 +19,11 @@ extraResources:
     to: bin
     filter:
       - '**/*'
-asarUnpack:
-  - resources/**
-  - '!resources/screenshots{,/**}'
 win:
   executableName: yachiyo
+  electronLanguages:
+    - en-US
+    - zh-CN
   target:
     - target: nsis
       arch:
@@ -37,6 +35,9 @@ nsis:
   uninstallDisplayName: ${productName}
   createDesktopShortcut: always
 mac:
+  electronLanguages:
+    - en
+    - zh_CN
   extraResources:
     - from: ../../native/vision-ocr/.build/release/vision-ocr
       to: external-hooks/vision-ocr
@@ -52,6 +53,9 @@ mac:
 dmg:
   artifactName: ${name}-${version}.${ext}
 linux:
+  electronLanguages:
+    - en-US
+    - zh-CN
   target:
     - AppImage
     - snap

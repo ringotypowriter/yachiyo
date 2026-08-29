@@ -10,14 +10,15 @@ test('Windows artifact inventory checks Bash, helpers, and native modules', () =
     appDir: 'C:\\staged',
     pathExists: (path: string) => {
       checked.push(path)
-      return true
+      return !path.includes('app.asar.unpacked')
     },
     readAsarEntries: () => [
       '/out/main/drizzle/0000_initial.sql',
       '/out/main/chunks/drizzle/0000_initial.sql',
       '/out/main/jieba_rs_wasm_bg.wasm',
       '/out/main/chunks/jieba_rs_wasm_bg.wasm'
-    ]
+    ],
+    readDirectory: () => ['en-US.pak', 'zh-CN.pak']
   })
 
   assert.deepEqual(report, { ok: true, missing: [] })
@@ -54,10 +55,15 @@ test('Windows artifact inventory accepts libvips bundled with sharp-win32-x64', 
     appDir: 'C:\\staged',
     pathExists: (path: string) => {
       checked.push(path)
+      if (path.includes('app.asar.unpacked')) return false
       if (!path.endsWith('libvips-42.dll')) return true
       return path.endsWith('@img\\sharp-win32-x64\\lib\\libvips-42.dll')
     },
-    readAsarEntries: () => ['/out/main/drizzle/0000_initial.sql', '/out/main/jieba_rs_wasm_bg.wasm']
+    readAsarEntries: () => [
+      '/out/main/drizzle/0000_initial.sql',
+      '/out/main/jieba_rs_wasm_bg.wasm'
+    ],
+    readDirectory: () => ['en-US.pak', 'zh-CN.pak']
   })
 
   assert.deepEqual(report, { ok: true, missing: [] })
@@ -96,11 +102,16 @@ test('Windows artifact inventory accepts the native packages published prebuild 
     appDir: 'C:\\staged',
     pathExists: (path: string) => {
       checked.push(path)
+      if (path.includes('app.asar.unpacked')) return false
       if (/bufferutil[\\/]build[\\/]Release/iu.test(path)) return false
       if (/utf-8-validate[\\/]build[\\/]Release/iu.test(path)) return false
       return !/node\.napi\.node$/iu.test(path)
     },
-    readAsarEntries: () => ['/out/main/drizzle/0000_initial.sql', '/out/main/jieba_rs_wasm_bg.wasm']
+    readAsarEntries: () => [
+      '/out/main/drizzle/0000_initial.sql',
+      '/out/main/jieba_rs_wasm_bg.wasm'
+    ],
+    readDirectory: () => ['en-US.pak', 'zh-CN.pak']
   })
 
   assert.equal(
@@ -114,12 +125,37 @@ test('Windows artifact inventory accepts the native packages published prebuild 
 test('Windows artifact inventory accepts native ASAR path separators', () => {
   const report = inspectWindowsArtifactInventory({
     appDir: 'C:\\staged',
-    pathExists: () => true,
+    pathExists: (path: string) => !path.includes('app.asar.unpacked'),
     readAsarEntries: () => [
       '\\out\\main\\drizzle\\0000_initial.sql',
       '\\out\\main\\jieba_rs_wasm_bg.wasm'
-    ]
+    ],
+    readDirectory: () => ['en-US.pak', 'zh-CN.pak']
   })
 
   assert.deepEqual(report, { ok: true, missing: [] })
+})
+
+test('Windows artifact inventory rejects duplicated and development-only payloads', () => {
+  const report = inspectWindowsArtifactInventory({
+    appDir: 'C:\\staged',
+    pathExists: () => true,
+    readAsarEntries: () => [
+      '/node_modules/mermaid/package.json',
+      '/out/runtime-node-modules/node_modules/better-sqlite3/package.json',
+      '/out/main/drizzle/0000_initial.sql',
+      '/out/main/drizzle/meta/0000_snapshot.json',
+      '/out/main/runtime-host-spike.js',
+      '/out/main/jieba_rs_wasm_bg.wasm'
+    ],
+    readDirectory: () => ['de.pak', 'en-US.pak', 'zh-CN.pak']
+  })
+
+  assert.equal(report.ok, false)
+  assert.ok(report.missing.some((entry: string) => /root node_modules/iu.test(entry)))
+  assert.ok(report.missing.some((entry: string) => /staged runtime node_modules/iu.test(entry)))
+  assert.ok(report.missing.some((entry: string) => /Drizzle snapshots/iu.test(entry)))
+  assert.ok(report.missing.some((entry: string) => /runtime-host-spike/iu.test(entry)))
+  assert.ok(report.missing.some((entry: string) => /duplicated/iu.test(entry)))
+  assert.ok(report.missing.some((entry: string) => /Electron locales/iu.test(entry)))
 })

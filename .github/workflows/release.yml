@@ -29,15 +29,31 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Build and publish macOS
+      - name: Build macOS archive
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CSC_LINK: ${{ secrets.CSC_LINK }}
           CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        run: pnpm --filter @yachiyo/desktop run build && pnpm --filter @yachiyo/desktop exec electron-builder --mac zip --publish always
+        run: pnpm --filter @yachiyo/desktop run build:mac
+
+      - name: Publish macOS artifacts
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ github.event.inputs.tag }}
+        run: |
+          shopt -s nullglob
+          files=(
+            apps/desktop/dist/*.zip
+            apps/desktop/dist/*.zip.blockmap
+            apps/desktop/dist/latest-mac.yml
+          )
+          if [ "${#files[@]}" -ne 3 ]; then
+            echo "Expected the macOS ZIP, blockmap, and latest-mac.yml; found ${#files[@]} files." >&2
+            exit 1
+          fi
+          gh release upload "$RELEASE_TAG" "${files[@]}" --clobber
 
       - name: Preserve macOS release artifacts
         uses: actions/upload-artifact@v4

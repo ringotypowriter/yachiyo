@@ -23,6 +23,7 @@ import {
   RUNTIME_NATIVE_MODULES,
   buildRuntimeNativeModuleProbe
 } from './runtime-native-modules.mjs'
+import { pruneStagedRuntimeNodeModules } from './prune-runtime-node-modules.mjs'
 
 const require = createRequire(import.meta.url)
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
@@ -292,6 +293,10 @@ const runtimeRequires = findRuntimeRequires()
 const { staged, skippedOptional } = stageRuntimePackages(runtimeRequires)
 rebuildStagedNativeRuntimePackages(
   nativeRuntimePackages.filter((packageName) => staged.has(packageName))
+)
+const pruneReport = pruneStagedRuntimeNodeModules(stagedNodeModulesDir)
+console.log(
+  `pruned ${pruneReport.removedPaths.length} runtime paths and compacted ${pruneReport.compactedNativeBuilds.length} native builds`
 )
 verifyStagedRuntimeNativeModules()
 const manifestPath = join(stagedRuntimeDir, 'runtime-node-modules.json')

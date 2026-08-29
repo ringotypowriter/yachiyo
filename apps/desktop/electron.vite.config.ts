@@ -1,20 +1,31 @@
 import { dirname, resolve } from 'path'
-import { cpSync, mkdirSync } from 'fs'
+import { cpSync, mkdirSync, rmSync } from 'fs'
 import { defineConfig } from 'electron-vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 
-function copyDrizzleMigrations(): { name: string; closeBundle: () => void } {
+function copyDrizzleMigrations(includeDevAssets: boolean): {
+  name: string
+  closeBundle: () => void
+} {
   return {
     name: 'copy-drizzle-migrations',
     closeBundle() {
       const src = resolve('../../packages/runtime/src/storage/sqlite/drizzle')
-      // Copy to both out/main/drizzle (for the main entry) and
-      // out/main/chunks/drizzle (for code-split chunks that resolve
-      // './drizzle' relative to __filename inside the chunks/ directory).
-      for (const dest of [resolve('out/main/drizzle'), resolve('out/main/chunks/drizzle')]) {
+      const mainDestination = resolve('out/main/drizzle')
+      const destinations = [resolve('out/main/chunks/drizzle')]
+      if (includeDevAssets) {
+        destinations.push(mainDestination)
+      } else {
+        rmSync(mainDestination, { recursive: true, force: true })
+      }
+      for (const dest of destinations) {
+        rmSync(dest, { recursive: true, force: true })
         mkdirSync(dest, { recursive: true })
-        cpSync(src, dest, { recursive: true })
+        cpSync(src, dest, {
+          recursive: true,
+          filter: (source) => !source.endsWith('_snapshot.json')
+        })
       }
     }
   }
@@ -46,15 +57,19 @@ try {
 } catch {}
 `
 
-function copyJiebaWasm(): { name: string; closeBundle: () => void } {
+function copyJiebaWasm(includeDevAssets: boolean): { name: string; closeBundle: () => void } {
   return {
     name: 'copy-jieba-wasm',
     closeBundle() {
       const src = resolve('node_modules/jieba-wasm/pkg/nodejs/jieba_rs_wasm_bg.wasm')
-      for (const dest of [
-        resolve('out/main/jieba_rs_wasm_bg.wasm'),
-        resolve('out/main/chunks/jieba_rs_wasm_bg.wasm')
-      ]) {
+      const mainDestination = resolve('out/main/jieba_rs_wasm_bg.wasm')
+      const destinations = [resolve('out/main/chunks/jieba_rs_wasm_bg.wasm')]
+      if (includeDevAssets) {
+        destinations.push(mainDestination)
+      } else {
+        rmSync(mainDestination, { force: true })
+      }
+      for (const dest of destinations) {
         mkdirSync(dirname(dest), { recursive: true })
         cpSync(src, dest)
       }
@@ -62,7 +77,7 @@ function copyJiebaWasm(): { name: string; closeBundle: () => void } {
   }
 }
 
-export default defineConfig({
+export default defineConfig(({ command }) => ({
   main: {
     resolve: {
       alias: {
@@ -76,7 +91,9 @@ export default defineConfig({
         input: {
           index: resolve('src/main/index.ts'),
           'runtime-host': resolve('src/main/runtimeHost/runtimeHostMain.ts'),
-          'runtime-host-spike': resolve('src/main/runtimeHost/spikeUtilityMain.ts')
+          ...(command === 'serve'
+            ? { 'runtime-host-spike': resolve('src/main/runtimeHost/spikeUtilityMain.ts') }
+            : {})
         },
         external: ['better-sqlite3', 'sharp', 'zlib-sync', 'bufferutil', 'utf-8-validate'],
         output: {
@@ -84,7 +101,11 @@ export default defineConfig({
         }
       }
     },
-    plugins: [copyDrizzleMigrations(), copyCoreSkills(), copyJiebaWasm()]
+    plugins: [
+      copyDrizzleMigrations(command === 'serve'),
+      ...(command === 'serve' ? [copyCoreSkills()] : []),
+      copyJiebaWasm(command === 'serve')
+    ]
   },
   preload: {},
   renderer: {
@@ -115,4 +136,4 @@ export default defineConfig({
       __APP_VERSION__: JSON.stringify(process.env.npm_package_version ?? '1.0.0')
     }
   }
-})
+}))

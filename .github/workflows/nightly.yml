@@ -170,15 +170,31 @@ jobs:
         run: |
           node -e "const fs = require('node:fs'); const path = 'apps/desktop/package.json'; const pkg = JSON.parse(fs.readFileSync(path, 'utf8')); pkg.version = process.env.NIGHTLY_VERSION; fs.writeFileSync(path, JSON.stringify(pkg, null, 2) + '\n')"
 
-      - name: Build and publish macOS
+      - name: Build macOS archive
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CSC_LINK: ${{ secrets.CSC_LINK }}
           CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        run: pnpm --filter @yachiyo/desktop run build && pnpm --filter @yachiyo/desktop exec electron-builder --mac zip --publish always -c.publish.releaseType=prerelease
+        run: pnpm --filter @yachiyo/desktop run build:mac
+
+      - name: Publish macOS artifacts
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: v${{ needs.version.outputs.nightly_version }}
+        run: |
+          shopt -s nullglob
+          files=(
+            apps/desktop/dist/*.zip
+            apps/desktop/dist/*.zip.blockmap
+            apps/desktop/dist/latest-mac.yml
+          )
+          if [ "${#files[@]}" -ne 3 ]; then
+            echo "Expected the macOS ZIP, blockmap, and latest-mac.yml; found ${#files[@]} files." >&2
+            exit 1
+          fi
+          gh release upload "$RELEASE_TAG" "${files[@]}" --clobber
 
       - name: Preserve macOS nightly artifacts
         uses: actions/upload-artifact@v4
