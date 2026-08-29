@@ -1,15 +1,8 @@
-import { spawn, type ChildProcess } from 'node:child_process'
-import { createWriteStream, type WriteStream } from 'node:fs'
-import { mkdir } from 'node:fs/promises'
-import { dirname } from 'node:path'
-
-import {
-  forceTerminateChildProcess,
-  processTree,
-  type ProcessTree
-} from '../processes/processTree.ts'
-import { registerActiveChildProcess } from '../processes/activeProcessRegistry.ts'
-import { resolveHostShellRuntime, type ShellRuntime } from '../../../runtime/shell/shellRuntime.ts'
+import type {
+  ProcessBroker,
+  ProcessJob,
+  ProcessJobResult
+} from '../../../services/processBroker/processBroker.ts'
 
 export interface BackgroundBashTaskInput {
   taskId: string
@@ -18,21 +11,14 @@ export interface BackgroundBashTaskInput {
   cwd: string
   env?: NodeJS.ProcessEnv
   logPath: string
-  toolCallId?: string
   threadId: string
+  toolCallId?: string
 }
 
 export interface BackgroundBashAdoptInput extends BackgroundBashTaskInput {
-  /** Already-running child process to adopt instead of spawning a new one. */
-  child: ChildProcess
-  /** Output already collected before adoption; written to the log first. */
+  job: ProcessJob
+  /** Bounded foreground tail replayed once so the background log view starts with context. */
   initialOutput: string
-  /**
-   * When true, `initialOutput` is already persisted at `logPath`. The manager
-   * opens the log in append mode and skips re-writing those bytes, but still
-   * replays them as live log-append events for the renderer's session view.
-   */
-  initialOutputAlreadyOnDisk?: boolean
 }
 
 export interface BackgroundBashTaskResult {
@@ -40,12 +26,12 @@ export interface BackgroundBashTaskResult {
   command: string
   description?: string
   logPath: string
-  exitCode: number
+  exitCode?: number
   threadId: string
   toolCallId?: string
   pid?: number
-  /** True when the task was stopped via `cancelTask` (user-initiated abort). */
   cancelledByUser?: boolean
+  error?: string
 }
 
 export interface BackgroundBashLogAppend {
@@ -67,6 +53,7 @@ export interface BackgroundBashSnapshot {
   exitCode?: number
   finishedAt?: string
   cancelledByUser?: boolean
+  error?: string
 }
 
 export interface BackgroundBashLogTarget {
@@ -86,49 +73,40 @@ interface ActiveBackgroundTask {
   toolCallId?: string
   threadId: string
   startedAt: string
-  process: ChildProcess
-  logStream: WriteStream
-  abortController: AbortController
-  promise: Promise<BackgroundBashTaskResult>
-  /** Buffer holding partial trailing data not yet terminated by a newline. */
+  job: ProcessJob
+  unsubscribeOutput?: () => void
+  promise?: Promise<BackgroundBashTaskResult>
   pendingLineBuffer: string
-  /** Pending complete lines waiting to be flushed in the next throttle window. */
   pendingFlushLines: string[]
-  flushTimer: NodeJS.Timeout | null
+  flushTimer: ReturnType<typeof setTimeout> | null
   cancelRequestedByUser: boolean
-  cancelSignalDelivered: boolean
 }
 
 interface RecentlyCompletedTask {
   snapshot: BackgroundBashSnapshot
   result: BackgroundBashTaskResult
-  evictTimer: NodeJS.Timeout
+  evictTimer: ReturnType<typeof setTimeout>
 }
 
 export type BackgroundBashCompletionHandler = (result: BackgroundBashTaskResult) => void
 export type BackgroundBashLogAppendHandler = (append: BackgroundBashLogAppend) => void
 
-export interface BackgroundBashManagerDependencies {
-  processTree?: ProcessTree
-  resolveShellRuntime?: (env: NodeJS.ProcessEnv) => ShellRuntime
-}
-
 const FLUSH_INTERVAL_MS = 100
 const MAX_LINES_PER_BATCH = 50
 const RECENTLY_COMPLETED_TTL_MS = 10_000
+const TRUNCATED_OUTPUT_NOTICE =
+  '[Output skipped in live view; full output remains in the task log.]'
+const BACKGROUND_SPILL_THRESHOLD_CHARS = 20_000
 
 export class BackgroundBashManager {
   private readonly tasks = new Map<string, ActiveBackgroundTask>()
   private readonly recentlyCompleted = new Map<string, RecentlyCompletedTask>()
   private onCompleted?: BackgroundBashCompletionHandler
   private onLogAppend?: BackgroundBashLogAppendHandler
-  private readonly processTree: ProcessTree
-  private readonly resolveShellRuntime: (env: NodeJS.ProcessEnv) => ShellRuntime
+  private readonly processBroker: ProcessBroker
 
-  constructor(dependencies: BackgroundBashManagerDependencies = {}) {
-    this.processTree = dependencies.processTree ?? processTree
-    this.resolveShellRuntime =
-      dependencies.resolveShellRuntime ?? ((env) => resolveHostShellRuntime({ env }))
+  constructor(processBroker: ProcessBroker) {
+    this.processBroker = processBroker
   }
 
   setCompletionHandler(handler: BackgroundBashCompletionHandler): void {
@@ -140,64 +118,39 @@ export class BackgroundBashManager {
   }
 
   async startTask(input: BackgroundBashTaskInput): Promise<void> {
-    const runtime = this.resolveShellRuntime(input.env ?? process.env)
-    const command = runtime.command(input.command, { cwd: input.cwd })
-    const child = spawn(command.executable, command.args, {
-      ...command.options,
-      stdio: ['ignore', 'pipe', 'pipe']
+    const job = await this.processBroker.startJob({
+      id: input.taskId,
+      command: input.command,
+      cwd: input.cwd,
+      env: input.env ?? process.env,
+      logPath: input.logPath,
+      keepRunningOnTimeout: false,
+      retainLog: true,
+      spillThresholdChars: BACKGROUND_SPILL_THRESHOLD_CHARS
     })
-    await this.registerChild(input, child, '', false)
+    this.registerJob(input, job, '')
   }
 
   async adoptTask(input: BackgroundBashAdoptInput): Promise<void> {
-    await this.registerChild(
-      input,
-      input.child,
-      input.initialOutput,
-      input.initialOutputAlreadyOnDisk === true
-    )
+    if (input.job.id !== input.taskId) {
+      throw new Error(
+        `Cannot adopt process job ${input.job.id} as background task ${input.taskId}.`
+      )
+    }
+    if (input.job.logPath !== input.logPath) {
+      throw new Error(`Process job ${input.job.id} log path does not match its background task.`)
+    }
+    this.registerJob(input, input.job, input.initialOutput)
   }
 
-  private async registerChild(
+  private registerJob(
     input: BackgroundBashTaskInput,
-    child: ChildProcess,
-    initialOutput: string,
-    initialOutputAlreadyOnDisk: boolean
-  ): Promise<void> {
-    registerActiveChildProcess(child)
-    const earlyChunks: string[] = []
-    let forwardChunk: ((chunk: string) => void) | null = null
-    const onChunk = (chunk: string | Buffer): void => {
-      const text = typeof chunk === 'string' ? chunk : chunk.toString('utf8')
-      if (text.length === 0) return
-      if (forwardChunk) {
-        forwardChunk(text)
-        return
-      }
-      earlyChunks.push(text)
+    job: ProcessJob,
+    initialOutput: string
+  ): void {
+    if (this.tasks.has(input.taskId)) {
+      throw new Error(`Background task already exists: ${input.taskId}`)
     }
-    const exitCodePromise = new Promise<number>((resolve) => {
-      child.once('close', (code) => resolve(typeof code === 'number' ? code : 1))
-      child.once('error', () => resolve(1))
-    })
-
-    child.stdout?.setEncoding('utf8')
-    child.stderr?.setEncoding('utf8')
-    child.stdout?.on('data', onChunk)
-    child.stderr?.on('data', onChunk)
-
-    await mkdir(dirname(input.logPath), { recursive: true })
-
-    // When the bytes are already on disk we append; otherwise truncate-and-write.
-    const logStream = createWriteStream(input.logPath, {
-      encoding: 'utf8',
-      flags: initialOutputAlreadyOnDisk ? 'a' : 'w'
-    })
-    if (!initialOutputAlreadyOnDisk && initialOutput.length > 0) {
-      logStream.write(initialOutput)
-    }
-    const abortController = new AbortController()
-    const startedAt = new Date().toISOString()
 
     const task: ActiveBackgroundTask = {
       taskId: input.taskId,
@@ -207,106 +160,76 @@ export class BackgroundBashManager {
       logPath: input.logPath,
       toolCallId: input.toolCallId,
       threadId: input.threadId,
-      startedAt,
-      process: child,
-      logStream,
-      abortController,
-      // Filled in below.
-      promise: undefined as unknown as Promise<BackgroundBashTaskResult>,
+      startedAt: new Date().toISOString(),
+      job,
       pendingLineBuffer: '',
       pendingFlushLines: [],
       flushTimer: null,
-      cancelRequestedByUser: false,
-      cancelSignalDelivered: false
+      cancelRequestedByUser: false
     }
 
-    forwardChunk = (chunk: string): void => {
-      logStream.write(chunk)
-      this.bufferLogChunk(task, chunk)
-    }
-
-    for (const chunk of earlyChunks) {
-      forwardChunk(chunk)
-    }
-    earlyChunks.length = 0
-
-    const onAbort = (): void => {
-      try {
-        const result = forceTerminateChildProcess(child, this.processTree)
-        console.warn('[yachiyo][background-bash] processTree.forceTerminate', {
-          taskId: input.taskId,
-          rootPid: child.pid,
-          delivered: result.delivered,
-          error: result.error
-        })
-        setTimeout(() => {
-          if (child.exitCode === null && child.signalCode === null) {
-            console.warn('[yachiyo][background-bash] process still active after force terminate', {
-              taskId: input.taskId,
-              rootPid: child.pid
-            })
-          } else {
-            console.warn('[yachiyo][background-bash] tree reaped', {
-              taskId: input.taskId
-            })
-          }
-        }, 500)
-        task.cancelSignalDelivered = result.delivered
-      } catch (error) {
-        console.warn('[yachiyo][background-bash] onAbort threw', {
-          taskId: input.taskId,
-          error: error instanceof Error ? error.message : String(error)
-        })
-      }
-    }
-    abortController.signal.addEventListener('abort', onAbort, { once: true })
-
-    const waitForLogFlush = (): Promise<void> =>
-      new Promise<void>((resolve) => logStream.end(resolve))
-
-    const finalize = async (exitCode: number): Promise<BackgroundBashTaskResult> => {
-      // Flush any trailing partial line as a final line so the UI sees it.
-      if (task.pendingLineBuffer.length > 0) {
-        task.pendingFlushLines.push(task.pendingLineBuffer)
-        task.pendingLineBuffer = ''
-      }
-      this.flushPendingLines(task)
-      if (task.flushTimer) {
-        clearTimeout(task.flushTimer)
-        task.flushTimer = null
-      }
-
-      await waitForLogFlush()
-
-      const cancelledByUser = task.cancelRequestedByUser && task.cancelSignalDelivered
-      const result: BackgroundBashTaskResult = {
-        taskId: input.taskId,
-        command: input.command,
-        ...(input.description ? { description: input.description } : {}),
-        logPath: input.logPath,
-        exitCode,
-        threadId: input.threadId,
-        toolCallId: input.toolCallId,
-        ...(task.process.pid != null ? { pid: task.process.pid } : {}),
-        ...(cancelledByUser ? { cancelledByUser } : {})
-      }
-      this.tasks.delete(input.taskId)
-      abortController.signal.removeEventListener('abort', onAbort)
-      this.rememberCompletion(task, result)
-      this.onCompleted?.(result)
-      return result
-    }
-
-    task.promise = exitCodePromise.then((exitCode) => finalize(exitCode))
-
+    task.unsubscribeOutput = job.onOutput((batch) => {
+      if (batch.truncated) this.bufferLogChunk(task, `${TRUNCATED_OUTPUT_NOTICE}\n`)
+      for (const chunk of batch.chunks) this.bufferLogChunk(task, chunk.text)
+    })
+    if (initialOutput.length > 0) this.bufferLogChunk(task, initialOutput)
+    task.promise = job.wait().then(
+      (result) => this.finalize(task, result),
+      (error: unknown) => this.finalizeRejected(task, error)
+    )
     this.tasks.set(input.taskId, task)
+  }
 
-    // Replay pre-adoption output as live log-append events so the renderer's
-    // session view shows the bytes that arrived before the task became visible.
-    // No-op for fresh startTask calls (initialOutput is empty there).
-    if (initialOutput.length > 0) {
-      this.bufferLogChunk(task, initialOutput)
+  private finalize(
+    task: ActiveBackgroundTask,
+    processResult: ProcessJobResult
+  ): BackgroundBashTaskResult {
+    const cancelledByUser = task.cancelRequestedByUser && processResult.cancelled
+    return this.settleTask(task, {
+      exitCode: processResult.exitCode,
+      ...(cancelledByUser ? { cancelledByUser: true } : {}),
+      ...(processResult.error ? { error: processResult.error } : {})
+    })
+  }
+
+  private finalizeRejected(task: ActiveBackgroundTask, error: unknown): BackgroundBashTaskResult {
+    return this.settleTask(task, {
+      error: error instanceof Error ? error.message : String(error)
+    })
+  }
+
+  private settleTask(
+    task: ActiveBackgroundTask,
+    terminal: Pick<BackgroundBashTaskResult, 'exitCode' | 'cancelledByUser' | 'error'>
+  ): BackgroundBashTaskResult {
+    if (task.pendingLineBuffer.length > 0) {
+      task.pendingFlushLines.push(task.pendingLineBuffer)
+      task.pendingLineBuffer = ''
     }
+    this.flushPendingLines(task)
+    if (task.flushTimer) {
+      clearTimeout(task.flushTimer)
+      task.flushTimer = null
+    }
+    if (!task.unsubscribeOutput) {
+      throw new Error(`Background task ${task.taskId} has no native output subscription.`)
+    }
+    task.unsubscribeOutput()
+
+    const result: BackgroundBashTaskResult = {
+      taskId: task.taskId,
+      command: task.command,
+      ...(task.description ? { description: task.description } : {}),
+      logPath: task.logPath,
+      threadId: task.threadId,
+      ...(task.toolCallId ? { toolCallId: task.toolCallId } : {}),
+      pid: task.job.pid,
+      ...terminal
+    }
+    this.tasks.delete(task.taskId)
+    this.rememberCompletion(task, result)
+    this.onCompleted?.(result)
+    return result
   }
 
   private bufferLogChunk(task: ActiveBackgroundTask, chunk: string): void {
@@ -314,15 +237,12 @@ export class BackgroundBashManager {
     const combined = task.pendingLineBuffer + chunk
     const parts = combined.split('\n')
     task.pendingLineBuffer = parts.pop() ?? ''
-    for (const line of parts) {
-      task.pendingFlushLines.push(line)
-    }
+    for (const line of parts) task.pendingFlushLines.push(line)
     this.scheduleFlush(task)
   }
 
   private scheduleFlush(task: ActiveBackgroundTask): void {
-    if (task.pendingFlushLines.length === 0) return
-    if (task.flushTimer) return
+    if (task.pendingFlushLines.length === 0 || task.flushTimer) return
     task.flushTimer = setTimeout(() => {
       task.flushTimer = null
       this.flushPendingLines(task)
@@ -330,14 +250,10 @@ export class BackgroundBashManager {
   }
 
   private flushPendingLines(task: ActiveBackgroundTask): void {
-    while (task.pendingFlushLines.length > 0) {
-      const batch = task.pendingFlushLines.splice(0, MAX_LINES_PER_BATCH)
+    for (let offset = 0; offset < task.pendingFlushLines.length; offset += MAX_LINES_PER_BATCH) {
+      const lines = task.pendingFlushLines.slice(offset, offset + MAX_LINES_PER_BATCH)
       try {
-        this.onLogAppend?.({
-          taskId: task.taskId,
-          threadId: task.threadId,
-          lines: batch
-        })
+        this.onLogAppend?.({ taskId: task.taskId, threadId: task.threadId, lines })
       } catch (error) {
         console.warn('[yachiyo][background-bash] log-append handler failed', {
           taskId: task.taskId,
@@ -345,6 +261,7 @@ export class BackgroundBashManager {
         })
       }
     }
+    task.pendingFlushLines = []
   }
 
   private rememberCompletion(task: ActiveBackgroundTask, result: BackgroundBashTaskResult): void {
@@ -356,22 +273,22 @@ export class BackgroundBashManager {
       ...(task.description ? { description: task.description } : {}),
       logPath: task.logPath,
       startedAt: task.startedAt,
-      status: cancelledByUser || result.exitCode !== 0 ? 'failed' : 'completed',
-      exitCode: result.exitCode,
+      status:
+        cancelledByUser || result.error !== undefined || result.exitCode !== 0
+          ? 'failed'
+          : 'completed',
+      ...(result.exitCode !== undefined ? { exitCode: result.exitCode } : {}),
       finishedAt: new Date().toISOString(),
-      ...(cancelledByUser ? { cancelledByUser: true } : {})
+      ...(cancelledByUser ? { cancelledByUser: true } : {}),
+      ...(result.error !== undefined ? { error: result.error } : {})
     }
     const existing = this.recentlyCompleted.get(task.taskId)
-    if (existing) {
-      clearTimeout(existing.evictTimer)
-    }
-    const evictTimer = setTimeout(() => {
-      this.recentlyCompleted.delete(task.taskId)
-    }, RECENTLY_COMPLETED_TTL_MS)
-    // Don't keep the event loop alive just to evict a snapshot.
-    if (typeof evictTimer.unref === 'function') {
-      evictTimer.unref()
-    }
+    if (existing) clearTimeout(existing.evictTimer)
+    const evictTimer = setTimeout(
+      () => this.recentlyCompleted.delete(task.taskId),
+      RECENTLY_COMPLETED_TTL_MS
+    )
+    evictTimer.unref?.()
     this.recentlyCompleted.set(task.taskId, { snapshot, result, evictTimer })
   }
 
@@ -379,7 +296,7 @@ export class BackgroundBashManager {
     const task = this.tasks.get(taskId)
     if (!task) return false
     task.cancelRequestedByUser = true
-    task.abortController.abort()
+    task.job.cancel()
     return true
   }
 
@@ -422,15 +339,11 @@ export class BackgroundBashManager {
     return this.tasks.size
   }
 
-  /**
-   * Snapshot of known tasks (running + recently-completed), either globally or
-   * scoped to a thread. Used to hydrate renderer task state.
-   */
   listSnapshots(threadId?: string): BackgroundBashSnapshot[] {
-    const out: BackgroundBashSnapshot[] = []
+    const output: BackgroundBashSnapshot[] = []
     for (const task of this.tasks.values()) {
-      if (threadId != null && task.threadId !== threadId) continue
-      out.push({
+      if (threadId !== undefined && task.threadId !== threadId) continue
+      output.push({
         taskId: task.taskId,
         threadId: task.threadId,
         command: task.command,
@@ -441,22 +354,22 @@ export class BackgroundBashManager {
       })
     }
     for (const entry of this.recentlyCompleted.values()) {
-      if (threadId != null && entry.snapshot.threadId !== threadId) continue
-      out.push(entry.snapshot)
+      if (threadId !== undefined && entry.snapshot.threadId !== threadId) continue
+      output.push(entry.snapshot)
     }
-    return out
+    return output
   }
-
   async close(): Promise<void> {
+    const pending: Promise<BackgroundBashTaskResult>[] = []
     for (const task of this.tasks.values()) {
-      task.abortController.abort()
+      task.job.cancel()
+      if (!task.promise) {
+        throw new Error(`Background task ${task.taskId} has no completion promise.`)
+      }
+      pending.push(task.promise)
     }
-    if (this.tasks.size > 0) {
-      await Promise.allSettled([...this.tasks.values()].map((t) => t.promise))
-    }
-    for (const entry of this.recentlyCompleted.values()) {
-      clearTimeout(entry.evictTimer)
-    }
+    await Promise.allSettled(pending)
+    for (const entry of this.recentlyCompleted.values()) clearTimeout(entry.evictTimer)
     this.recentlyCompleted.clear()
   }
 }

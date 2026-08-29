@@ -63,6 +63,7 @@ export async function prepareThreadHandoffContext(input: {
       timestamp: deps.timestamp,
       emit: deps.emit,
       createModelRuntime: deps.createModelRuntime,
+      processBroker: deps.processBroker,
       ensureThreadWorkspace: deps.ensureThreadWorkspace,
       fetchImpl: deps.fetchImpl,
       webExternalFetchImpl: deps.webExternalFetchImpl,

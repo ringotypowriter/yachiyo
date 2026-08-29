@@ -17,12 +17,14 @@ import type { AuxiliaryGenerationService } from '../../../runtime/models/auxilia
 import type { BrowserWebPageSnapshotLoader } from '../../../services/webRead/browserWebPageSnapshot.ts'
 import type { JotdownStore } from '../../../services/jotdownStore.ts'
 import type { MemoryService } from '../../../services/memory/memoryService.ts'
+import type { ImageToTextService } from '../../../services/imageToText/imageToTextService.ts'
 import type { ActivitySummarySource } from '../../../activity/ActivityTracker.ts'
 import type { BrowserAutomationToolBackend } from '../../../services/browserAutomation/browserAutomationToolBackend.ts'
 import type { SearchService } from '../../../services/search/searchService.ts'
 import type { WebSearchService } from '../../../services/webSearch/webSearchService.ts'
 import type { ModelRuntime } from '../../../runtime/models/types.ts'
 import type { SnapshotTracker } from '../../../services/fileSnapshot/snapshotTracker.ts'
+import type { ProcessBroker } from '../../../services/processBroker/processBroker.ts'
 import type {
   ListThreadMessagesOptions,
   RunRecoveryCheckpoint,
@@ -104,6 +106,7 @@ export interface RunDomainDeps {
   runInactivityTimeoutMs: number
   auxiliaryGeneration: AuxiliaryGenerationService
   createModelRuntime: () => ModelRuntime
+  processBroker: ProcessBroker
   ensureThreadWorkspace: (threadId: string) => Promise<string>
   fetchImpl?: typeof globalThis.fetch
   webExternalFetchImpl?: typeof globalThis.fetch
@@ -124,7 +127,7 @@ export interface RunDomainDeps {
   loadThreadMessages: (threadId: string, options?: ListThreadMessagesOptions) => MessageRecord[]
   loadThreadToolCalls: (threadId: string) => ToolCallRecord[]
   jotdownStore?: JotdownStore
-  imageToTextService?: import('../../../services/imageToText/imageToTextService.ts').ImageToTextService
+  imageToTextService?: ImageToTextService
   sentinelManager?: ThreadSentinelManager
 }
 

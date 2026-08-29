@@ -134,6 +134,80 @@ test('handleBackgroundBashCompleted auto-delivers completion notices as hidden s
     ]
   )
 })
+test('handleBackgroundBashCompleted publishes native errors as failures', async () => {
+  const thread: ThreadRecord = {
+    id: 'thread-native-error',
+    title: 'Thread',
+    source: 'local',
+    updatedAt: TIMESTAMP
+  }
+  const toolCall: ToolCallRecord = {
+    id: 'tc-native-error',
+    runId: 'run-native-error',
+    threadId: thread.id,
+    requestMessageId: 'msg-native-error',
+    toolName: 'bash',
+    status: 'background',
+    inputSummary: 'native-command',
+    outputSummary: 'background: tc-native-error',
+    details: {
+      command: 'native-command',
+      cwd: '/workspace',
+      stdout: '',
+      stderr: '',
+      background: true,
+      taskId: 'native-error-task',
+      logPath: '/workspace/native-error.log'
+    },
+    startedAt: TIMESTAMP
+  }
+  const updatedToolCalls: ToolCallRecord[] = []
+  const emitted: Array<{ type: string; error?: string }> = []
+  const sentInputs: SendChatInput[] = []
+  const context: BackgroundTaskLifecycleContext = {
+    deps: {
+      timestamp: () => TIMESTAMP,
+      requireThread: () => thread,
+      loadThreadToolCalls: () => [toolCall],
+      storage: {
+        updateToolCall: (updated: ToolCallRecord) => updatedToolCalls.push(updated),
+        getChannelUser: () => undefined
+      },
+      emit: (event: { type: string; error?: string }) => emitted.push(event)
+    } as unknown as BackgroundTaskLifecycleContext['deps'],
+    backgroundTaskRunContext: new Map(),
+    isClosing: () => false,
+    sendChat: async (input) => {
+      sentInputs.push(input)
+      return {
+        kind: 'active-run-steer-pending',
+        runId: 'run-native-error',
+        thread
+      } as ChatAccepted
+    }
+  }
+
+  handleBackgroundBashCompleted(context, {
+    taskId: 'native-error-task',
+    command: 'native-command',
+    logPath: '/workspace/native-error.log',
+    exitCode: 0,
+    error: 'Flush process log: disk full',
+    threadId: thread.id,
+    toolCallId: toolCall.id
+  })
+  await flushImmediate()
+
+  assert.equal(updatedToolCalls[0]?.status, 'failed')
+  assert.equal(updatedToolCalls[0]?.error, 'Flush process log: disk full')
+  assert.equal(
+    emitted.find((event) => event.type === 'background-task.completed')?.error,
+    'Flush process log: disk full'
+  )
+  assert.match(sentInputs[0]?.content ?? '', /^\[Background task failed\]/u)
+  assert.match(sentInputs[0]?.content ?? '', /Error: Flush process log: disk full/u)
+})
+
 test('handleBackgroundBashCompleted routes Worker-owned completion to its Agent mailbox', async () => {
   const delivered: Array<{ agentId: string; threadId: string; message: string }> = []
   const context: BackgroundTaskLifecycleContext = {

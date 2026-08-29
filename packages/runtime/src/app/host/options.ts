@@ -13,6 +13,7 @@ import type { JotdownStore } from '../../services/jotdownStore.ts'
 import type { CognitiveMemoryStore } from '../../services/memory/cognitiveMemoryStore.ts'
 import type { MemoryService } from '../../services/memory/memoryService.ts'
 import type { SearchService } from '../../services/search/searchService.ts'
+import type { ProcessBroker } from '../../services/processBroker/processBroker.ts'
 import type { QuerySourceExecutor } from '../../tools/agentTools/querySourceTool.ts'
 import type { RemoteImageFetcher } from '../domain/images/remoteImageDomain.ts'
 import type { SoulDocument } from '../../runtime/profiles/soul.ts'
@@ -33,6 +34,7 @@ export interface YachiyoServerOptions {
   createId?: () => string
   createModelRuntime?: () => ModelRuntime
   searchService?: SearchService
+  processBroker?: ProcessBroker
   readSoulDocument?: () => Promise<SoulDocument | null>
   addSoulTrait?: (trait: string) => Promise<SoulDocument | null>
   removeSoulTrait?: (trait: string) => Promise<SoulDocument | null>

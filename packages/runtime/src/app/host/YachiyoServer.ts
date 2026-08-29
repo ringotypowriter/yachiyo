@@ -1,6 +1,5 @@
 /* eslint-disable yachiyo/max-typescript-file-lines */
 import { createHash, randomUUID } from 'node:crypto'
-import { accessSync, constants } from 'node:fs'
 import { readFile, writeFile } from 'node:fs/promises'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
@@ -8,6 +7,8 @@ import { dirname, join, resolve } from 'node:path'
 
 import type {
   BootstrapPayload,
+  BackgroundTaskLogSnapshot,
+  BackgroundTaskSnapshot,
   ChannelGroupRecord,
   ChannelUserRecord,
   ChatAccepted,
@@ -101,7 +102,10 @@ import { ScheduleDomain } from '../domain/schedules/scheduleDomain.ts'
 import { ThingDomain } from '../domain/things/thingDomain.ts'
 import { createTtlReaper, type TtlReaper } from '../domain/shared/ttlReaper.ts'
 import { acpProcessPool } from '../../runtime/acp/acpProcessPool.ts'
-import { createAuxiliaryGenerationService } from '../../runtime/models/auxiliaryGeneration.ts'
+import {
+  createAuxiliaryGenerationService,
+  type AuxiliaryGenerationService
+} from '../../runtime/models/auxiliaryGeneration.ts'
 import { createAiSdkModelRuntime } from '../../runtime/models/modelRuntime.ts'
 import {
   readSoulDocument,
@@ -114,6 +118,9 @@ import { readChannelsConfig, writeChannelsConfig } from '../../runtime/config/ch
 import type { ModelRuntime } from '../../runtime/models/types.ts'
 import { resolveSearchBinaries } from '../../services/search/searchBinaries.ts'
 import { createSearchService, type SearchService } from '../../services/search/searchService.ts'
+import { NativeProcessBroker } from '../../services/processBroker/nativeProcessBroker.ts'
+import type { ProcessBroker } from '../../services/processBroker/processBroker.ts'
+import { resolveBundledExecutable } from '../../services/nativeExecutable.ts'
 import {
   createImageToTextService,
   type ImageToTextService
@@ -138,7 +145,10 @@ import { createBraveBrowserWebSearchProvider } from '../../services/webSearch/pr
 import { createDuckDuckGoBrowserWebSearchProvider } from '../../services/webSearch/providers/duckDuckGoBrowserWebSearchProvider.ts'
 import { createGoogleBrowserWebSearchProvider } from '../../services/webSearch/providers/googleBrowserWebSearchProvider.ts'
 import { createExaWebSearchProvider } from '../../services/webSearch/providers/exaWebSearchProvider.ts'
-import { createWebSearchService } from '../../services/webSearch/webSearchService.ts'
+import {
+  createWebSearchService,
+  type WebSearchService
+} from '../../services/webSearch/webSearchService.ts'
 import {
   createSettingsStore,
   normalizeSettingsConfig,
@@ -215,58 +225,20 @@ const execFileAsync = promisify(execFile)
 
 function resolveSyncCoreBinary(): string {
   const binaryName = process.platform === 'win32' ? 'sync-core.exe' : 'sync-core'
-  const osMap: Record<string, string> = { darwin: 'mac', linux: 'linux', win32: 'win' }
-  const platformDir = `${osMap[process.platform] ?? process.platform}-${process.arch}`
-  const candidates = [
-    ...(typeof process.resourcesPath === 'string'
-      ? [join(process.resourcesPath, 'bin', binaryName)]
-      : []),
-    resolve(process.cwd(), 'apps/desktop/resources/bin', platformDir, binaryName),
-    resolve(process.cwd(), 'native/sync-core/target/release', binaryName),
-    resolve(process.cwd(), 'native/sync-core/target/debug', binaryName)
-  ]
-
-  const thisDir = import.meta.dirname
-  if (thisDir && !thisDir.includes('.asar')) {
-    const projectRoot = findProjectRoot(thisDir)
-    if (projectRoot) {
-      candidates.push(join(projectRoot, 'apps/desktop/resources/bin', platformDir, binaryName))
-      candidates.push(join(projectRoot, 'native/sync-core/target/release', binaryName))
-      candidates.push(join(projectRoot, 'native/sync-core/target/debug', binaryName))
-    }
-  }
-
-  const binary = candidates.find(isExecutable)
+  const binary = resolveBundledExecutable({
+    name: binaryName,
+    startDir: import.meta.dirname,
+    additionalCandidates: [
+      resolve(process.cwd(), 'native/sync-core/target/release', binaryName),
+      resolve(process.cwd(), 'native/sync-core/target/debug', binaryName)
+    ]
+  })
   if (!binary) {
     throw new Error(
       'sync-core binary is unavailable. Run pnpm run sync-core:build before using sync.'
     )
   }
   return binary
-}
-
-function isExecutable(path: string): boolean {
-  try {
-    accessSync(path, constants.X_OK)
-    return true
-  } catch {
-    return false
-  }
-}
-
-function findProjectRoot(startDir: string): string | undefined {
-  let current = startDir
-  for (let depth = 0; depth < 10; depth++) {
-    try {
-      accessSync(join(current, 'pnpm-workspace.yaml'), constants.R_OK)
-      return current
-    } catch {
-      const parent = resolve(current, '..')
-      if (parent === current) return undefined
-      current = parent
-    }
-  }
-  return undefined
 }
 
 function parseSyncCoreOutput(
@@ -329,7 +301,7 @@ export class YachiyoServer {
   >()
   private readonly activeChannelGroupHistoryClears = new Set<string>()
   private readonly retiredGroupProbeThreadIdsByGroup = new Map<string, Set<string>>()
-  private readonly auxiliaryGeneration: import('../../runtime/models/auxiliaryGeneration.ts').AuxiliaryGenerationService
+  private readonly auxiliaryGeneration: AuxiliaryGenerationService
   private readonly createModelRuntimeFn: () => ModelRuntime
   private readonly memoryService: MemoryService
   private readonly configDomain: YachiyoServerConfigDomain
@@ -346,7 +318,8 @@ export class YachiyoServer {
       })
   })
   private readonly searchService: SearchService
-  private readonly webSearchServiceInstance: import('../../services/webSearch/webSearchService.ts').WebSearchService
+  private readonly processBroker: ProcessBroker
+  private readonly webSearchServiceInstance: WebSearchService
   private readonly imageToTextServiceInstance: ImageToTextService
   private readonly readUserDocumentFile: () => Promise<UserDocument | null>
   private readonly saveUserDocumentFile: (content: string) => Promise<UserDocument | null>
@@ -378,6 +351,7 @@ export class YachiyoServer {
     this.developmentMode = options.developmentMode === true
     this.now = options.now ?? (() => new Date())
     this.createId = options.createId ?? randomUUID
+    this.processBroker = options.processBroker ?? new NativeProcessBroker()
 
     this.settingsPath = options.settingsPath ?? resolveYachiyoSettingsPath()
     const settingsStore = createSettingsStore(this.settingsPath, {
@@ -537,6 +511,7 @@ export class YachiyoServer {
       emit: this.emit.bind(this),
       auxiliaryGeneration,
       createModelRuntime,
+      processBroker: this.processBroker,
       ensureThreadWorkspace,
       fetchImpl: options.fetchImpl,
       webExternalFetchImpl: options.webExternalFetchImpl,
@@ -632,12 +607,29 @@ export class YachiyoServer {
   }
 
   async close(): Promise<void> {
-    this.ttlReaper.stop()
-    this.sentinelManager.dispose()
-    await this.runDomain.close()
-    await acpProcessPool.shutdown()
-    await this.storage.flushBackgroundTasks?.()
-    this.storage.close()
+    const errors: unknown[] = []
+    const disposers: Array<() => void | Promise<void>> = [
+      () => this.ttlReaper.stop(),
+      () => this.sentinelManager.dispose(),
+      () => this.runDomain.close(),
+      () => acpProcessPool.shutdown(),
+      () => this.processBroker.close(),
+      async () => {
+        await this.storage.flushBackgroundTasks?.()
+      },
+      () => this.storage.close()
+    ]
+    for (const dispose of disposers) {
+      try {
+        await dispose()
+      } catch (error) {
+        errors.push(error)
+      }
+    }
+    if (errors.length === 1) throw errors[0]
+    if (errors.length > 1) {
+      throw new AggregateError(errors, 'Multiple YachiyoServer resources failed to close.')
+    }
   }
   recoverInterruptedRuns(error?: string): void {
     this.runDomain.recoverInterruptedRuns(error)
@@ -1736,7 +1728,7 @@ export class YachiyoServer {
     input: {
       threadId?: string
     } = {}
-  ): Promise<import('@yachiyo/shared/protocol').BackgroundTaskSnapshot[]> {
+  ): Promise<BackgroundTaskSnapshot[]> {
     return hydrateBackgroundTaskSnapshots(this.runDomain.listBackgroundTasks(input.threadId))
   }
   listSubagents(input: { threadId?: string } = {}): SubagentSnapshot[] {
@@ -1759,7 +1751,7 @@ export class YachiyoServer {
     threadId: string
     taskId: string
     maxBytes?: number
-  }): Promise<import('@yachiyo/shared/protocol').BackgroundTaskLogSnapshot> {
+  }): Promise<BackgroundTaskLogSnapshot> {
     const target =
       this.runDomain.getBackgroundTaskLogTarget(input) ??
       getBackgroundTaskLogTargetFromToolCalls(
@@ -1973,7 +1965,7 @@ export class YachiyoServer {
     })
   }
 
-  getAuxiliaryGenerationService(): import('../../runtime/models/auxiliaryGeneration.ts').AuxiliaryGenerationService {
+  getAuxiliaryGenerationService(): AuxiliaryGenerationService {
     return this.auxiliaryGeneration
   }
 
@@ -1994,7 +1986,7 @@ export class YachiyoServer {
     return this.memoryService
   }
 
-  getWebSearchService(): import('../../services/webSearch/webSearchService.ts').WebSearchService {
+  getWebSearchService(): WebSearchService {
     return this.webSearchServiceInstance
   }
 
@@ -2025,7 +2017,7 @@ export class YachiyoServer {
   }
 
   /** Expose storage for schedule service (and future internal callers). */
-  getStorage(): import('../../storage/storage.ts').YachiyoStorage {
+  getStorage(): YachiyoStorage {
     return this.storage
   }
 

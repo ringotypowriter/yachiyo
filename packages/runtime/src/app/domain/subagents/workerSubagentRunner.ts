@@ -149,6 +149,9 @@ function sanitizeWorkerRunnerInput(input: WorkerRunnerFactoryInput): WorkerRunne
           : {}),
         ...(parentToolContextInput.imageToTextService
           ? { imageToTextService: parentToolContextInput.imageToTextService }
+          : {}),
+        ...(parentToolContextInput.processBroker
+          ? { processBroker: parentToolContextInput.processBroker }
           : {})
       },
       parentDependencies,
@@ -176,6 +179,9 @@ function createWorkerRunner(
       : {}),
     ...(input.dependencies.parentToolContext.imageToTextService
       ? { imageToTextService: input.dependencies.parentToolContext.imageToTextService }
+      : {}),
+    ...(input.dependencies.parentToolContext.processBroker
+      ? { processBroker: input.dependencies.parentToolContext.processBroker }
       : {})
   }
   const parentDependenciesInput = input.dependencies.parentDependencies
@@ -231,6 +237,7 @@ function createWorkerRunner(
     registerOnlyEnabledToolSchemas: true,
     readRecordCache: workerReadRecordCache,
     snapshotTracker: workerSnapshotTracker,
+    ...(parentToolContext.processBroker ? { processBroker: parentToolContext.processBroker } : {}),
     ...(input.dependencies.backgroundBashContext?.onStarted
       ? { onBackgroundBashStarted: input.dependencies.backgroundBashContext.onStarted }
       : {}),

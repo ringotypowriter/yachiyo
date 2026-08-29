@@ -67,6 +67,7 @@ export function buildRunExecutionDeps(
     timestamp: deps.timestamp,
     emit: input.emit,
     createModelRuntime: deps.createModelRuntime,
+    processBroker: deps.processBroker,
     ensureThreadWorkspace: deps.ensureThreadWorkspace,
     buildMemoryLayerEntries: async (memoryContext) => {
       if (memoryContext.thread.privacyMode || input.isRecapRun) {
@@ -374,9 +375,8 @@ export function buildRunExecutionDeps(
           logPath: task.logPath,
           ...(task.toolCallId ? { toolCallId: task.toolCallId } : {}),
           threadId: task.threadId,
-          child: task.child,
-          initialOutput: task.initialOutput,
-          ...(task.initialOutputAlreadyOnDisk ? { initialOutputAlreadyOnDisk: true } : {})
+          job: task.job,
+          initialOutput: task.initialOutput
         })
         deps.emit<BackgroundTaskStartedEvent>({
           type: 'background-task.started',

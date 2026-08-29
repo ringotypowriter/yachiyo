@@ -9,6 +9,7 @@ import type { SoulDocument } from '../../../runtime/profiles/soul.ts'
 import { readUserDocument, writeUserDocument } from '../../../runtime/profiles/user.ts'
 import { createInMemoryYachiyoStorage } from '../../../storage/memoryStorage.ts'
 import type { MemoryService } from '../../../services/memory/memoryService.ts'
+import type { ProcessBroker } from '../../../services/processBroker/processBroker.ts'
 import {
   type ChatAccepted,
   type ChatAcceptedWithUserMessage,
@@ -57,6 +58,8 @@ async function withServer(
     ) => Promise<void>
     memoryService?: MemoryService
     now?: () => Date
+    processBroker?: ProcessBroker
+    autoClose?: boolean
     jotdownStore?: import('../../../services/jotdownStore.ts').JotdownStore
   } = {}
 ): Promise<void> {
@@ -226,7 +229,8 @@ async function withServer(
       options.saveUserDocument ??
       ((content) => writeUserDocument({ filePath: userDocumentPath, content })),
     memoryService: options.memoryService,
-    jotdownStore: options.jotdownStore
+    jotdownStore: options.jotdownStore,
+    processBroker: options.processBroker
   })
 
   const unsubscribe = server.subscribe((event) => {
@@ -331,7 +335,7 @@ async function withServer(
     })
   } finally {
     unsubscribe()
-    await server.close()
+    if (options.autoClose !== false) await server.close()
     await rm(root, { recursive: true, force: true })
   }
 }
@@ -1339,4 +1343,33 @@ test('YachiyoServer.acceptThreadPlanDocument returns the existing handoff for co
     assert.equal(secondAccepted.runId, firstAccepted.runId)
     assert.equal(secondAccepted.userMessage.id, firstAccepted.userMessage.id)
   })
+})
+
+test('server close still flushes and closes storage when broker shutdown fails', async () => {
+  const brokerError = new Error('process broker shutdown failed')
+  const processBroker: ProcessBroker = {
+    start: () => Promise.resolve(),
+    startJob: () => Promise.reject(new Error('not used')),
+    close: () => Promise.reject(brokerError)
+  }
+
+  await withServer(
+    async ({ server, storage }) => {
+      let flushed = false
+      let closed = false
+      const closeStorage = storage.close.bind(storage)
+      storage.flushBackgroundTasks = async () => {
+        flushed = true
+      }
+      storage.close = () => {
+        closed = true
+        closeStorage()
+      }
+
+      await assert.rejects(server.close(), brokerError)
+      assert.equal(flushed, true)
+      assert.equal(closed, true)
+    },
+    { processBroker, autoClose: false }
+  )
 })

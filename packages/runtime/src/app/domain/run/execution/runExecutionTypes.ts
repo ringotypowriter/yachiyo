@@ -19,6 +19,7 @@ import type { ActivitySummarySource } from '../../../../activity/ActivityTracker
 import type { ImageToTextService } from '../../../../services/imageToText/imageToTextService.ts'
 import type { MemoryService } from '../../../../services/memory/memoryService.ts'
 import type { SnapshotTracker } from '../../../../services/fileSnapshot/snapshotTracker.ts'
+import type { ProcessBroker } from '../../../../services/processBroker/processBroker.ts'
 import type { BrowserWebPageSnapshotLoader } from '../../../../services/webRead/browserWebPageSnapshot.ts'
 import type { BrowserAutomationToolBackend } from '../../../../services/browserAutomation/browserAutomationToolBackend.ts'
 import type { SearchService } from '../../../../services/search/searchService.ts'
@@ -142,6 +143,7 @@ export interface RunExecutionDeps {
   timestamp: Timestamp
   emit: EmitServerEvent
   createModelRuntime: () => ModelRuntime
+  processBroker: ProcessBroker
   ensureThreadWorkspace: (threadId: string) => Promise<string>
   buildMemoryLayerEntries?: (input: {
     requestMessageId: string

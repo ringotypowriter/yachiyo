@@ -23,7 +23,8 @@ export function resolveBuildExecutables(platform, repoRoot) {
   return {
     electron: path.join(repoRoot, 'node_modules', '.bin', windows ? 'electron.cmd' : 'electron'),
     pnpm: windows ? 'pnpm.cmd' : 'pnpm',
-    syncCore: windows ? 'sync-core.exe' : 'sync-core'
+    syncCore: windows ? 'sync-core.exe' : 'sync-core',
+    processHost: windows ? 'process-host.exe' : 'process-host'
   }
 }
 

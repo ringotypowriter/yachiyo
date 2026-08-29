@@ -58,19 +58,25 @@ export function mergeBackgroundBashDetails(input: {
 export function getCompletedBackgroundBashStatus(
   task: BackgroundBashTaskResult
 ): Extract<ToolCallRecord['status'], 'completed' | 'failed'> {
-  return task.cancelledByUser === true || task.exitCode !== 0 ? 'failed' : 'completed'
+  return task.cancelledByUser !== true && task.error === undefined && task.exitCode === 0
+    ? 'completed'
+    : 'failed'
 }
 
 export function getCompletedBackgroundBashOutputSummary(task: BackgroundBashTaskResult): string {
-  return task.cancelledByUser === true ? 'cancelled by user' : `exit ${task.exitCode}`
+  if (task.error !== undefined) return 'process error'
+  if (task.cancelledByUser === true) return 'cancelled by user'
+  return task.exitCode === undefined ? 'failed before exit' : `exit ${task.exitCode}`
 }
 
 export function getCompletedBackgroundBashError(
   task: BackgroundBashTaskResult
 ): string | undefined {
+  if (task.error !== undefined) return task.error
   if (task.cancelledByUser === true) {
     return 'Background task was cancelled by the user.'
   }
+  if (task.exitCode === undefined) return 'Background task failed before reporting an exit code.'
   return task.exitCode !== 0 ? `Command exited with code ${task.exitCode}.` : undefined
 }
 

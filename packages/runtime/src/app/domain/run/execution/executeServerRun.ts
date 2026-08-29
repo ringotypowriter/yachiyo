@@ -867,7 +867,9 @@ export async function executeServerRun(
               : undefined
           const completedBackgroundTaskDetails = completedBackgroundTask
             ? ({
-                exitCode: completedBackgroundTask.exitCode,
+                ...(completedBackgroundTask.exitCode !== undefined
+                  ? { exitCode: completedBackgroundTask.exitCode }
+                  : {}),
                 ...(completedBackgroundTask.cancelledByUser ? { cancelledByUser: true } : {})
               } as const)
             : undefined

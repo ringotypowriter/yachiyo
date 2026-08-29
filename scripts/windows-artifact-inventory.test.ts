@@ -31,6 +31,7 @@ test('Windows artifact inventory checks Bash, helpers, and native modules', () =
     'rg.exe',
     'fd.exe',
     'sync-core.exe',
+    'process-host.exe',
     'better_sqlite3.node',
     'sharp-win32-x64.node',
     'libvips-42.dll',
@@ -78,6 +79,7 @@ test('Windows artifact inventory reports every missing category and a failing st
   assert.ok(report.missing.some((entry: string) => /rg\.exe/iu.test(entry)))
   assert.ok(report.missing.some((entry: string) => /fd\.exe/iu.test(entry)))
   assert.ok(report.missing.some((entry: string) => /sync-core/iu.test(entry)))
+  assert.ok(report.missing.some((entry: string) => /process-host/iu.test(entry)))
   assert.ok(report.missing.some((entry: string) => /better-sqlite3/iu.test(entry)))
   assert.ok(report.missing.some((entry: string) => /sharp/iu.test(entry)))
   assert.ok(report.missing.some((entry: string) => /bufferutil/iu.test(entry)))

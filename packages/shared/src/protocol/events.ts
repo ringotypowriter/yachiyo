@@ -131,9 +131,10 @@ export interface BackgroundTaskCompletedEvent extends ThreadEvent {
   command: string
   description?: string
   logPath: string
-  exitCode: number
+  exitCode?: number
   toolCallId?: string
   cancelledByUser?: boolean
+  error?: string
 }
 
 export type BackgroundTaskSnapshotStatus = 'running' | 'completed' | 'failed'
@@ -149,6 +150,7 @@ export interface BackgroundTaskSnapshot {
   exitCode?: number
   finishedAt?: string
   cancelledByUser?: boolean
+  error?: string
   /** Last N lines of the on-disk log, populated by the server on hydration. */
   recentLogTail?: string[]
 }

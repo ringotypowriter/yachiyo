@@ -21,6 +21,7 @@ export interface BackgroundTaskState {
   exitCode?: number
   finishedAt?: string
   cancelledByUser?: boolean
+  error?: string
   logTail: string[]
 }
 
@@ -65,6 +66,7 @@ function hydrateThreadTasks(
       ...(snap.exitCode != null ? { exitCode: snap.exitCode } : {}),
       ...(snap.finishedAt ? { finishedAt: snap.finishedAt } : {}),
       ...(snap.cancelledByUser ? { cancelledByUser: true } : {}),
+      ...(snap.error !== undefined ? { error: snap.error } : {}),
       logTail
     }
   }
@@ -164,10 +166,12 @@ export const useBackgroundTasksStore = create<BackgroundTasksState>((set) => ({
           ? { description: event.description ?? prior?.description }
           : {}),
         startedAt: prior?.startedAt ?? new Date().toISOString(),
-        status: cancelled || event.exitCode !== 0 ? 'failed' : 'completed',
-        exitCode: event.exitCode,
+        status:
+          cancelled || event.error !== undefined || event.exitCode !== 0 ? 'failed' : 'completed',
+        ...(event.exitCode !== undefined ? { exitCode: event.exitCode } : {}),
         finishedAt: new Date().toISOString(),
         ...(cancelled ? { cancelledByUser: true } : {}),
+        ...(event.error !== undefined ? { error: event.error } : {}),
         logTail: prior?.logTail ?? []
       }
       // Cap the number of completed entries we keep around per thread, evicting

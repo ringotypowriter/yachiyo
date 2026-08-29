@@ -40,21 +40,21 @@ function resetTerminal() {
 }
 
 function run(command, commandArgs, options = {}) {
-  return new Promise((resolveExit) => {
-    const env = options.env ?? process.env
-    const invocation = resolveBuildSpawnSpec(process.platform, command, commandArgs, env)
-    activeChild = spawn(invocation.command, invocation.args, {
-      ...invocation.options,
-      cwd: desktopDir,
-      env,
-      stdio: 'inherit'
-    })
-
-    activeChild.on('close', (code, signal) => {
-      activeChild = undefined
-      resolveExit({ code, signal })
-    })
+  const exit = Promise.withResolvers()
+  const env = options.env ?? process.env
+  const invocation = resolveBuildSpawnSpec(process.platform, command, commandArgs, env)
+  activeChild = spawn(invocation.command, invocation.args, {
+    ...invocation.options,
+    cwd: desktopDir,
+    env,
+    stdio: 'inherit'
   })
+
+  activeChild.on('close', (code, signal) => {
+    activeChild = undefined
+    exit.resolve({ code, signal })
+  })
+  return exit.promise
 }
 
 function handleSignal(signal) {
@@ -88,6 +88,16 @@ const syncCore = await run(process.execPath, [
 ])
 if (syncCore.code !== 0 && !syncCore.signal) {
   console.warn('⚠ sync-core build failed; continuing dev with the existing staged binary.')
+}
+// Bash execution has no TypeScript fallback; dev must never start with a stale
+// or missing resident process host.
+const processHost = await run(process.execPath, [
+  resolve(repoRoot, 'scripts/build-process-host.mjs'),
+  '--if-changed'
+])
+if (processHost.code !== 0 || processHost.signal) {
+  resetTerminal()
+  process.exit(processHost.code ?? 1)
 }
 
 const electronViteBin = resolve(

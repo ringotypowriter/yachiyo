@@ -34,6 +34,7 @@ export function inspectWindowsArtifactInventory(input) {
     ['rg.exe search helper', [win32.join(bin, 'rg.exe')]],
     ['fd.exe search helper', [win32.join(bin, 'fd.exe')]],
     ['sync-core.exe helper', [win32.join(bin, 'sync-core.exe')]],
+    ['process-host.exe resident helper', [win32.join(bin, 'process-host.exe')]],
     [
       'better-sqlite3 native module',
       [win32.join(nodeModules, 'better-sqlite3', 'build', 'Release', 'better_sqlite3.node')]

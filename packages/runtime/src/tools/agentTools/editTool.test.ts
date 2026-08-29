@@ -8,6 +8,7 @@ import { runGrepTool } from './grepTool.ts'
 import { runBashTool } from './bashTool.ts'
 import { ReadRecordCache } from './readRecordCache.ts'
 import { createSearchService } from '../../services/search/searchService.ts'
+import { NodeProcessBrokerTestAdapter } from '../../services/processBroker/nodeProcessBroker.testSupport.ts'
 import { DEFAULT_SEARCH_LIMIT } from './shared.ts'
 import type { GrepToolInput } from './shared.ts'
 
@@ -358,7 +359,11 @@ describe('editTool', () => {
         timeout: 30,
         background: false
       },
-      { workspacePath: workspace, readRecordCache: cache }
+      {
+        workspacePath: workspace,
+        readRecordCache: cache,
+        processBroker: new NodeProcessBrokerTestAdapter()
+      }
     )
 
     const result = await runEditTool(

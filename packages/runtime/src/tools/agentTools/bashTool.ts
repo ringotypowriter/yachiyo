@@ -1,10 +1,7 @@
 import { tool, type Tool } from 'ai'
 
-import { spawn } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
-import { once } from 'node:events'
-import { createWriteStream, type WriteStream } from 'node:fs'
-import { mkdir, readFile, stat } from 'node:fs/promises'
+import { stat } from 'node:fs/promises'
 import { join } from 'node:path'
 
 import type { BashToolCallDetails } from '@yachiyo/shared/protocol'
@@ -13,9 +10,8 @@ import {
   resolveBashSemanticGroup
 } from '@yachiyo/shared/bashSemanticAnalyzer'
 
-import { registerActiveChildProcess } from '../../app/domain/processes/activeProcessRegistry.ts'
-import { forceTerminateChildProcess } from '../../app/domain/processes/processTree.ts'
-import { resolveHostShellRuntime } from '../../runtime/shell/shellRuntime.ts'
+import type { ProcessBroker, ProcessJob } from '../../services/processBroker/processBroker.ts'
+import { extractBashTargetFiles } from '../../services/fileSnapshot/bashTargetExtractor.ts'
 import { validateBashCommand } from './bashSecurity.ts'
 import { getChainedSleepTimeoutBlockMessage } from './bashTimeoutGuard.ts'
 import { withInjectedEnv } from './injectedEnv.ts'
@@ -31,6 +27,7 @@ import {
   type BashToolOutput,
   type ToolContentBlock,
   takeTail,
+  raceAgainstSignal,
   textContent,
   toToolModelOutput,
   truncateForDetails
@@ -55,15 +52,6 @@ export function createTool(context: AgentToolContext): Tool<BashToolInput, BashT
 
 function appendTail(value: string, chunk: string, maxChars: number): string {
   return takeTail(`${value}${chunk}`, maxChars).text
-}
-
-async function closeWriteStream(stream?: WriteStream): Promise<void> {
-  if (!stream) {
-    return
-  }
-
-  stream.end()
-  await once(stream, 'close')
 }
 
 function summarizeCombinedBashOutput(value: string): string {
@@ -247,9 +235,9 @@ class AsyncQueue<T> {
         return
       }
 
-      const next = await new Promise<IteratorResult<T>>((resolve, reject) => {
-        this.waiters.push({ reject, resolve })
-      })
+      const nextResult = Promise.withResolvers<IteratorResult<T>>()
+      this.waiters.push({ reject: nextResult.reject, resolve: nextResult.resolve })
+      const next = await nextResult.promise
 
       if (next.done) {
         return
@@ -263,146 +251,124 @@ class AsyncQueue<T> {
 // Re-export for backward compatibility
 export { isBlockedBashCommand, isSelfLaunchCommand } from './bashSecurity.ts'
 
-const defaultBashRunner: BashRunner = async ({
-  abortSignal,
-  command,
-  cwd,
-  env,
-  onStderr,
-  onStdout,
-  onTimeoutLift,
-  timeoutSeconds
-}) => {
-  const shellRuntime = resolveHostShellRuntime({ env: env ?? process.env })
-  const shellCommand = shellRuntime.command(command, { cwd })
-  const child = spawn(shellCommand.executable, shellCommand.args, {
-    ...shellCommand.options,
-    stdio: ['ignore', 'pipe', 'pipe']
-  })
-  registerActiveChildProcess(child)
-
-  let stdout = ''
-  let stderr = ''
-  let timedOut = false
-  let lifted = false
-  let terminatedByAbort = false
-  const shouldBufferStdout = onStdout === undefined
-  const shouldBufferStderr = onStderr === undefined
-
-  const forceKillChild = (): void => {
-    if (child.exitCode !== null || child.signalCode !== null) {
-      return
-    }
-    const result = forceTerminateChildProcess(child)
-    if (!result.delivered) {
-      console.warn('[yachiyo][bash-tool] process-tree termination failed', {
-        pid: child.pid,
-        error: result.error
-      })
-    }
-  }
-
-  const onAbort = (): void => {
-    if (child.exitCode !== null || child.signalCode !== null) {
-      return
+function createProcessBrokerBashRunner(processBroker: ProcessBroker): BashRunner {
+  return async ({
+    abortSignal,
+    command,
+    cwd,
+    env,
+    jobId,
+    logPath,
+    onStderr,
+    onStdout,
+    onOutputBatch,
+    onTimeoutLift,
+    retainLog,
+    spillThresholdChars,
+    timeoutSeconds
+  }) => {
+    if (abortSignal?.aborted) {
+      throw toAbortError(abortSignal.reason, 'Tool execution aborted.')
     }
 
-    terminatedByAbort = true
-    forceKillChild()
-  }
-
-  if (abortSignal?.aborted) {
-    onAbort()
-  } else {
-    abortSignal?.addEventListener('abort', onAbort, { once: true })
-  }
-
-  child.stdout?.setEncoding('utf8')
-  child.stderr?.setEncoding('utf8')
-
-  const onStdoutData = (chunk: string): void => {
-    if (shouldBufferStdout) {
-      stdout += chunk
-    }
-    onStdout?.(chunk)
-  }
-  const onStderrData = (chunk: string): void => {
-    if (shouldBufferStderr) {
-      stderr += chunk
-    }
-    onStderr?.(chunk)
-  }
-  child.stdout?.on('data', onStdoutData)
-  child.stderr?.on('data', onStderrData)
-
-  let resolveLifted: (() => void) | undefined
-  const liftedPromise = new Promise<void>((res) => {
-    resolveLifted = res
-  })
-
-  const timeoutHandle = setTimeout(() => {
-    timedOut = true
-    if (onTimeoutLift) {
-      void onTimeoutLift(child).then(
-        (adopted) => {
-          if (adopted) {
-            lifted = true
-            // Detach our listeners so the new owner has a clean handoff.
-            child.stdout?.off('data', onStdoutData)
-            child.stderr?.off('data', onStderrData)
-            if (abortSignal) {
-              abortSignal.removeEventListener('abort', onAbort)
-            }
-            resolveLifted?.()
-          } else {
-            forceKillChild()
-          }
-        },
-        () => {
-          forceKillChild()
-        }
-      )
-      return
-    }
-    forceKillChild()
-  }, timeoutSeconds * 1000)
-
-  try {
-    const exitCode = await new Promise<number>((resolve, reject) => {
-      child.once('error', reject)
-      child.once('close', (code) => {
-        if (terminatedByAbort) {
-          reject(toAbortError(abortSignal?.reason, 'Tool execution aborted.'))
-          return
-        }
-
-        resolve(typeof code === 'number' ? code : timedOut ? 124 : 1)
-      })
-      void liftedPromise.then(() => {
-        // The child is still running; resolve immediately so the runner returns.
-        resolve(0)
-      })
+    const startingJob = processBroker.startJob({
+      id: jobId,
+      command,
+      cwd,
+      env,
+      logPath,
+      timeoutSeconds,
+      keepRunningOnTimeout: onTimeoutLift !== undefined,
+      retainLog,
+      spillThresholdChars
     })
+    let job: ProcessJob
+    if (abortSignal) {
+      try {
+        job = await raceAgainstSignal(startingJob, abortSignal)
+      } catch (error) {
+        if (!abortSignal.aborted) throw error
+        void startingJob.then(
+          (lateJob) => {
+            lateJob.cancel()
+            void lateJob.wait().catch(() => {})
+            void lateJob.waitForOutcome().catch(() => {})
+          },
+          () => {}
+        )
+        throw toAbortError(abortSignal.reason, 'Tool execution aborted.')
+      }
+    } else {
+      job = await startingJob
+    }
+    let stdout = ''
+    let stderr = ''
+    let aborted = false
+    let lifted = false
+    const unsubscribeOutput = job.onOutput((batch) => {
+      for (const chunk of batch.chunks) {
+        if (chunk.stream === 'stdout') {
+          if (!onStdout) stdout = appendTail(stdout, chunk.text, MAX_BASH_DETAILS_OUTPUT_CHARS)
+          onStdout?.(chunk.text)
+        } else {
+          if (!onStderr) stderr = appendTail(stderr, chunk.text, MAX_BASH_DETAILS_OUTPUT_CHARS)
+          onStderr?.(chunk.text)
+        }
+      }
+      onOutputBatch?.()
+    })
+    const handleAbort = (): void => {
+      aborted = true
+      job.cancel()
+    }
+    abortSignal?.addEventListener('abort', handleAbort, { once: true })
+    if (abortSignal?.aborted) handleAbort()
 
-    if (lifted) {
+    try {
+      const outcome = await job.waitForOutcome()
+      if (aborted) {
+        await job.wait().catch(() => {})
+        throw toAbortError(abortSignal?.reason, 'Tool execution aborted.')
+      }
+
+      if (outcome.kind === 'timed-out') {
+        if (onTimeoutLift) {
+          abortSignal?.removeEventListener('abort', handleAbort)
+          if (await onTimeoutLift(job)) {
+            lifted = true
+            return {
+              exitCode: 0,
+              stderr,
+              stdout,
+              lifted: true,
+              spilled: true
+            }
+          }
+          job.cancel()
+        }
+
+        const result = await job.wait()
+        return {
+          exitCode: result.exitCode,
+          stderr,
+          stdout,
+          timedOut: true,
+          spilled: result.spilled,
+          ...(result.error ? { error: result.error } : {})
+        }
+      }
+
       return {
-        exitCode: 0,
+        exitCode: outcome.result.exitCode,
         stderr,
         stdout,
-        lifted: true
+        ...(outcome.result.timedOut ? { timedOut: true } : {}),
+        ...(outcome.result.spilled ? { spilled: true } : {}),
+        ...(outcome.result.error ? { error: outcome.result.error } : {})
       }
-    }
-
-    return {
-      exitCode: timedOut && exitCode === 0 ? 124 : exitCode,
-      stderr,
-      stdout,
-      ...(timedOut ? { timedOut: true } : {})
-    }
-  } finally {
-    clearTimeout(timeoutHandle)
-    if (!lifted) {
-      abortSignal?.removeEventListener('abort', onAbort)
+    } finally {
+      unsubscribeOutput()
+      if (!lifted) abortSignal?.removeEventListener('abort', handleAbort)
     }
   }
 }
@@ -441,13 +407,26 @@ export async function* streamBashTool(
     }
   }
 
-  // Background mode: spawn the detached process first, then return the handle
+  // Background mode: the manager asks the resident native broker to start and own the job.
   if (input.background && !securityCheck.blocked) {
     const taskId = options.toolCallId ?? randomUUID()
     const logPath = join(context.workspacePath, '.yachiyo', 'tool-output', `${taskId}.log`)
+    const startBackgroundTask = context.onBackgroundBashStarted
+    if (!startBackgroundTask) {
+      yield createBashResult({
+        command,
+        description,
+        combinedOutput: '',
+        cwd: context.workspacePath,
+        stdout: '',
+        stderr: '',
+        error: 'Background Bash execution is unavailable in this runtime.'
+      })
+      return
+    }
 
     try {
-      await context.onBackgroundBashStarted?.({
+      await startBackgroundTask({
         taskId,
         command,
         description,
@@ -529,35 +508,8 @@ export async function* streamBashTool(
   let stderr = ''
   let combinedOutput = ''
   let sawStreamChunks = false
-  // Pre-allocate background-task identity. The lift log path doubles as the
-  // foreground spill path so a command that overflows MAX_BASH_MODEL_OUTPUT_CHARS
-  // before timing out doesn't lose its early bytes when adopted.
-  const liftTaskId = options.toolCallId ?? randomUUID()
-  const liftLogPath = join(context.workspacePath, '.yachiyo', 'tool-output', `${liftTaskId}.log`)
-  let outputFilePath: string | undefined = liftLogPath
-  let preSpillOutput = ''
-  let spillStarted = false
-  let spillStream: WriteStream | undefined
-
-  const ensureSpillStream = (): WriteStream => {
-    if (!outputFilePath) {
-      outputFilePath = join(
-        context.workspacePath,
-        '.yachiyo',
-        'tool-output',
-        `${options.toolCallId ?? randomUUID()}.log`
-      )
-    }
-
-    if (!spillStream) {
-      spillStream = createWriteStream(outputFilePath, {
-        encoding: 'utf8',
-        flags: 'w'
-      })
-    }
-
-    return spillStream
-  }
+  const taskId = options.toolCallId ?? randomUUID()
+  const logPath = join(context.workspacePath, '.yachiyo', 'tool-output', `${taskId}.log`)
 
   const pushPreliminary = (): void => {
     queue.push(
@@ -578,43 +530,22 @@ export async function* streamBashTool(
     emitUpdate: boolean
   ): void => {
     sawStreamChunks = true
-
-    if (!spillStarted) {
-      preSpillOutput += chunk
-    }
-
     if (streamName === 'stdout') {
       stdout = appendTail(stdout, chunk, MAX_BASH_DETAILS_OUTPUT_CHARS)
     } else {
       stderr = appendTail(stderr, chunk, MAX_BASH_DETAILS_OUTPUT_CHARS)
     }
-
     combinedOutput = appendTail(combinedOutput, chunk, MAX_BASH_MODEL_OUTPUT_CHARS)
-
-    if (spillStarted) {
-      ensureSpillStream().write(chunk)
-    } else if (preSpillOutput.length >= MAX_BASH_MODEL_OUTPUT_CHARS) {
-      spillStarted = true
-      ensureSpillStream().write(preSpillOutput)
-      preSpillOutput = ''
-    }
-
-    if (emitUpdate) {
-      pushPreliminary()
-    }
+    if (emitUpdate) pushPreliminary()
   }
 
   let liftedHandle: { taskId: string; logPath: string } | undefined
 
   void (async () => {
     try {
-      await mkdir(join(context.workspacePath, '.yachiyo', 'tool-output'), { recursive: true })
-
       // Layer 2: Pre-backup files that bash might modify
       if (context.snapshotTracker) {
         try {
-          const { extractBashTargetFiles } =
-            await import('../../services/fileSnapshot/bashTargetExtractor.ts')
           const targets = extractBashTargetFiles(command, context.workspacePath)
           for (const target of targets) {
             await context.snapshotTracker.trackBeforeWrite(target)
@@ -624,60 +555,46 @@ export async function* streamBashTool(
         }
       }
 
-      const runner = options.runCommand ?? defaultBashRunner
+      let runner = options.runCommand
+      if (!runner) {
+        if (!context.processBroker) {
+          throw new Error('Native process broker is unavailable for Bash execution.')
+        }
+        runner = createProcessBrokerBashRunner(context.processBroker)
+      }
       const adoptHook = context.onBackgroundBashAdopted
       const result = await runner({
         abortSignal: options.abortSignal,
+        jobId: taskId,
         command,
         cwd: context.workspacePath,
         env: withInjectedEnv(process.env, { runId: context.runId }),
+        logPath,
         timeoutSeconds,
-        onStdout: (chunk) => {
-          appendChunk('stdout', chunk, true)
-        },
-        onStderr: (chunk) => {
-          appendChunk('stderr', chunk, true)
-        },
+        retainLog: false,
+        spillThresholdChars: MAX_BASH_MODEL_OUTPUT_CHARS,
+        onStdout: (chunk) => appendChunk('stdout', chunk, false),
+        onStderr: (chunk) => appendChunk('stderr', chunk, false),
+        onOutputBatch: pushPreliminary,
         ...(adoptHook
           ? {
-              onTimeoutLift: async (child) => {
+              onTimeoutLift: async (job) => {
                 try {
-                  // Flush and close the spill stream first so the file on disk
-                  // contains the full pre-timeout history before adoption opens it.
-                  if (spillStream) {
-                    await closeWriteStream(spillStream)
-                    spillStream = undefined
-                  }
-
-                  let initialOutput: string
-                  if (spillStarted) {
-                    try {
-                      initialOutput = await readFile(liftLogPath, 'utf8')
-                    } catch {
-                      // Fall back to the truncated tail if we somehow can't read
-                      // back the spill file — better than losing everything.
-                      initialOutput = combinedOutput
-                    }
-                  } else {
-                    initialOutput = combinedOutput
-                  }
-
                   await adoptHook({
-                    taskId: liftTaskId,
+                    taskId,
                     command,
                     description,
                     cwd: context.workspacePath,
-                    logPath: liftLogPath,
+                    logPath,
                     ...(options.toolCallId ? { toolCallId: options.toolCallId } : {}),
-                    child,
-                    initialOutput,
-                    initialOutputAlreadyOnDisk: spillStarted
+                    job,
+                    initialOutput: combinedOutput
                   })
-                  liftedHandle = { taskId: liftTaskId, logPath: liftLogPath }
+                  liftedHandle = { taskId, logPath }
                   return true
                 } catch (error) {
-                  console.warn('[yachiyo][bash] failed to adopt timed-out child', {
-                    taskId: liftTaskId,
+                  console.warn('[yachiyo][bash] failed to adopt timed-out native job', {
+                    taskId,
                     error: error instanceof Error ? error.message : String(error)
                   })
                   return false
@@ -688,7 +605,6 @@ export async function* streamBashTool(
       })
 
       if (liftedHandle) {
-        await closeWriteStream(spillStream)
         const liftNotice =
           `[Notice] Command timed out after ${timeoutSeconds} second${timeoutSeconds === 1 ? '' : 's'} ` +
           `and has been converted to a background task.\n` +
@@ -717,24 +633,16 @@ export async function* streamBashTool(
       }
 
       if (!sawStreamChunks) {
-        if (result.stdout) {
-          appendChunk('stdout', result.stdout, false)
-        }
-        if (result.stderr) {
-          appendChunk('stderr', result.stderr, false)
-        }
+        if (result.stdout) appendChunk('stdout', result.stdout, false)
+        if (result.stderr) appendChunk('stderr', result.stderr, false)
       }
 
-      await closeWriteStream(spillStream)
-
-      // --- Record read-only bash commands in the read-before-edit cache ---
-      // Only when the model actually saw the output inline (not spilled to disk).
-      if (result.exitCode === 0 && !result.timedOut && !spillStarted && context.readRecordCache) {
+      if (result.exitCode === 0 && !result.timedOut && !result.spilled && context.readRecordCache) {
         try {
           const reads = await extractBashReadRanges(command, context.workspacePath)
           for (const read of reads) {
             const mtimeMs = await stat(read.resolvedPath).then(
-              (s) => s.mtimeMs,
+              (file) => file.mtimeMs,
               () => undefined
             )
             if (read.endLine === 0) {
@@ -748,11 +656,13 @@ export async function* streamBashTool(
         }
       }
 
-      const error = result.timedOut
-        ? `Command timed out after ${timeoutSeconds} second${timeoutSeconds === 1 ? '' : 's'}.`
-        : result.exitCode === 0
-          ? undefined
-          : `Command exited with code ${result.exitCode}.`
+      const error =
+        result.error ??
+        (result.timedOut
+          ? `Command timed out after ${timeoutSeconds} second${timeoutSeconds === 1 ? '' : 's'}.`
+          : result.exitCode === 0
+            ? undefined
+            : `Command exited with code ${result.exitCode}.`)
 
       queue.push(
         createBashResult({
@@ -764,14 +674,12 @@ export async function* streamBashTool(
           stdout,
           stderr,
           ...(result.timedOut ? { timedOut: true } : {}),
-          ...(spillStarted && outputFilePath ? { outputFilePath } : {}),
+          ...(result.spilled ? { outputFilePath: logPath } : {}),
           ...(error ? { error } : {})
         })
       )
       queue.close()
     } catch (error) {
-      await closeWriteStream(spillStream)
-
       if (error instanceof Error && error.name === 'AbortError') {
         queue.fail(error)
         return
@@ -786,7 +694,6 @@ export async function* streamBashTool(
           cwd: context.workspacePath,
           stdout,
           stderr,
-          ...(spillStarted && outputFilePath ? { outputFilePath } : {}),
           error: message
         })
       )

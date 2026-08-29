@@ -14,7 +14,8 @@ import type { RunExecutionDeps } from '../execution/runExecutionTypes.ts'
 import { RetryableRunError } from '../../../../runtime/models/runtimeErrors.ts'
 import type { RunRecoveryCheckpoint } from '../../../../storage/storage.ts'
 import type { MemoryService } from '../../../../services/memory/memoryService.ts'
-import type { ModelMessage, ModelUsage } from '../../../../runtime/models/types.ts'
+import type { ModelMessage, ModelRuntime, ModelUsage } from '../../../../runtime/models/types.ts'
+import { NodeProcessBrokerTestAdapter } from '../../../../services/processBroker/nodeProcessBroker.testSupport.ts'
 import type {
   MessageRecord,
   ProviderSettings,
@@ -123,7 +124,8 @@ function createRunContextDeps(input: {
     emit: (event) => {
       input.events.push(event)
     },
-    createModelRuntime: () => ({}) as ReturnType<RunExecutionDeps['createModelRuntime']>,
+    createModelRuntime: () => ({}) as ModelRuntime,
+    processBroker: new NodeProcessBrokerTestAdapter(),
     ensureThreadWorkspace: async () => input.workspacePath,
     memoryService,
     readSoulDocument: input.readSoulDocument ?? (async () => null),

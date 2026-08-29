@@ -34,7 +34,10 @@ import {
   type MemoryDistillationScheduler
 } from '../../../services/memory/memoryDistillationScheduler.ts'
 import type { BootstrapState, RunRecoveryCheckpoint } from '../../../storage/storage.ts'
-import { BackgroundBashManager } from '../background/backgroundBashManager.ts'
+import {
+  BackgroundBashManager,
+  type BackgroundBashLogTarget
+} from '../background/backgroundBashManager.ts'
 import { resolveRunModeEnabledToolsForInput } from '../config/configDomain.ts'
 import { resolveRunModeId } from '@yachiyo/shared/toolModes'
 import { isLatestRunPlanMode } from '@yachiyo/shared/planMode'
@@ -108,7 +111,7 @@ export class YachiyoServerRunDomain {
   private readonly activeRunTasks = new Map<string, Promise<void>>()
   private readonly debouncedSendChats = new Map<string, DebouncedSendChatEntry>()
   private readonly queuedFollowUpDrafts = new Map<string, QueuedFollowUpDraft>()
-  private readonly backgroundBashManager = new BackgroundBashManager()
+  private readonly backgroundBashManager: BackgroundBashManager
   private readonly threadTitleRunner: ThreadTitleGenerationRunner
   private readonly subagentManager: SubagentManager
   private readonly latestSubagentSnapshots = new Map<string, SubagentSnapshot>()
@@ -129,6 +132,7 @@ export class YachiyoServerRunDomain {
 
   constructor(deps: RunDomainDeps) {
     this.deps = deps
+    this.backgroundBashManager = new BackgroundBashManager(deps.processBroker)
     this.lastRunEnabledTools = null
     this.lastRunMode = null
     this.subagentManager = new SubagentManager({
@@ -223,7 +227,7 @@ export class YachiyoServerRunDomain {
   getBackgroundTaskLogTarget(input: {
     threadId: string
     taskId: string
-  }): ReturnType<BackgroundBashManager['getLogTarget']> {
+  }): BackgroundBashLogTarget | undefined {
     return this.backgroundBashManager.getLogTarget(input.threadId, input.taskId)
   }
 

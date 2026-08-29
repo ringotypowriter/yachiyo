@@ -146,6 +146,27 @@ describe('useBackgroundTasksStore hydrate', () => {
     assert.equal(task?.cancelledByUser, true)
   })
 
+  it('marks native process errors as failed even when exit code is zero', () => {
+    const store = useBackgroundTasksStore.getState()
+
+    store.onCompleted({
+      type: 'background-task.completed',
+      eventId: 'evt-complete-native-error',
+      timestamp: '2026-04-12T10:00:01.000Z',
+      threadId: 'thread-native-error',
+      taskId: 'native-error-task',
+      command: 'native-command',
+      logPath: '/tmp/native-error.log',
+      exitCode: 0,
+      error: 'Flush process log: disk full'
+    })
+
+    const task =
+      useBackgroundTasksStore.getState().tasksByThread['thread-native-error']?.['native-error-task']
+    assert.equal(task?.status, 'failed')
+    assert.equal(task?.error, 'Flush process log: disk full')
+  })
+
   it('hydrates global snapshots and clears stale running tasks for known threads', () => {
     const store = useBackgroundTasksStore.getState()
 

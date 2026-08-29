@@ -10,7 +10,8 @@ test('Windows build helpers resolve command shims and executable suffixes', () =
   assert.deepEqual(resolveBuildExecutables('win32', 'C:\\source\\yachiyo'), {
     electron: 'C:\\source\\yachiyo\\node_modules\\.bin\\electron.cmd',
     pnpm: 'pnpm.cmd',
-    syncCore: 'sync-core.exe'
+    syncCore: 'sync-core.exe',
+    processHost: 'process-host.exe'
   })
 })
 
@@ -18,7 +19,8 @@ test('macOS build helper executable names remain unchanged', () => {
   assert.deepEqual(resolveBuildExecutables('darwin', '/source/yachiyo'), {
     electron: '/source/yachiyo/node_modules/.bin/electron',
     pnpm: 'pnpm',
-    syncCore: 'sync-core'
+    syncCore: 'sync-core',
+    processHost: 'process-host'
   })
 })
 

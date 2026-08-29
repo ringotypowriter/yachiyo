@@ -26,6 +26,7 @@ import {
 } from '@yachiyo/runtime/config/paths'
 import { createRpcBrowserAutomationBackend } from '@yachiyo/runtime/services/browserAutomation/browserAutomationRpcBridge'
 import { createJotdownStore } from '@yachiyo/runtime/services/jotdownStore'
+import { NativeProcessBroker } from '@yachiyo/runtime/services/processBroker/nativeProcessBroker'
 import { createRpcWebExternalFetch } from '@yachiyo/runtime/services/webExternalFetchRpcBridge'
 import { createRpcBrowserSearchPageFactory } from '@yachiyo/runtime/services/webSearch/browserSearchPageFactoryRpcBridge'
 import {
@@ -37,6 +38,7 @@ import { createRpcClient } from '@yachiyo/shared/rpc/rpcClient'
 import { serveRpcTarget } from '@yachiyo/shared/rpc/rpcServer'
 
 import { createProviderFetch } from '../net/providerFetch.ts'
+import { createRuntimeHostServer } from './runtimeHostStartup.ts'
 import { createProviderCredentialVault } from '@yachiyo/runtime/settings/providerCredentialVault'
 
 // Route global fetch through Electron's net module, mirroring the main
@@ -46,6 +48,7 @@ const netFetch: typeof globalThis.fetch = (input, init?) =>
 globalThis.fetch = netFetch
 
 let server: YachiyoServer | null = null
+let starting = false
 
 process.parentPort.on('message', (event) => {
   const [port] = event.ports
@@ -53,74 +56,100 @@ process.parentPort.on('message', (event) => {
     console.error('[runtime-host] control message carried no MessagePort')
     return
   }
-  if (server) {
+  if (server || starting) {
     console.error('[runtime-host] runtime already started; ignoring extra port')
     return
   }
+  starting = true
 
-  const transport = messagePortMainTransport(port as MessagePortMainLike)
-  const mainServices = createRpcClient(transport)
-  const developmentMode = process.env['YACHIYO_RUNTIME_DEV'] === '1'
-  const message = event.data as { providerCredentialKey?: unknown }
-  if (!(message.providerCredentialKey instanceof Uint8Array)) {
-    throw new Error('Runtime start message is missing the provider credential key')
-  }
-
-  server = createSqliteYachiyoServer({
-    dbPath: resolveYachiyoDbPath(),
-    settingsPath: resolveYachiyoSettingsPath(),
-    developmentMode,
-    seedPresetProviders: true,
-    providerCredentialVault: createProviderCredentialVault({
-      vaultPath: resolveYachiyoProviderCredentialVaultPath(),
-      encryptionKey: message.providerCredentialKey
-    }),
-    fetchImpl: createProviderFetch({ env: process.env, netFetch }),
-    // The cert-relaxed web-external session only exists in the main process;
-    // forward those requests there, streaming responses back over RPC.
-    webExternalFetchImpl: createRpcWebExternalFetch(mainServices),
-    jotdownStore: createJotdownStore(resolveYachiyoJotdownsDir()),
-    browserAutomationService: createRpcBrowserAutomationBackend(mainServices),
-    browserSearchPageFactory: createRpcBrowserSearchPageFactory(mainServices),
-    activityTracker: createRpcActivitySummarySource(mainServices)
-  })
-  server.getTtlReaper().start()
-
-  const liveServices = createRuntimeLiveServices({
-    server,
-    showNotification: (input) => {
-      void mainServices
-        .call('mainHost.showNotification', [input])
-        .catch((error) => console.error('[runtime-host] notification failed:', error))
-    },
-    // Main owns the pending receipt; this only borrows the right to carry it.
-    updateReceiptLease: {
-      claim: (channelId) =>
-        mainServices.call('mainHost.claimUpdateReceipt', [{ channelId }]) as Promise<
-          { claimToken: string; message: string } | undefined
-        >,
-      ack: async (claimToken) => {
-        await mainServices.call('mainHost.ackUpdateReceipt', [{ claimToken }])
-      },
-      release: async (claimToken) => {
-        await mainServices.call('mainHost.releaseUpdateReceipt', [{ claimToken }])
+  void (async () => {
+    let startedServer: YachiyoServer | null = null
+    try {
+      const transport = messagePortMainTransport(port as MessagePortMainLike)
+      const mainServices = createRpcClient(transport)
+      const developmentMode = process.env['YACHIYO_RUNTIME_DEV'] === '1'
+      const message = event.data as { providerCredentialKey?: unknown }
+      const providerCredentialKey = message.providerCredentialKey
+      if (!(providerCredentialKey instanceof Uint8Array)) {
+        throw new Error('Runtime start message is missing the provider credential key')
       }
-    },
-    tempWorkspaceDir: resolveYachiyoTempWorkspaceRoot(),
-    enableSchedules: !developmentMode || Boolean(process.env['YACHIYO_DEV_SCHEDULES']),
-    enableChannels: !developmentMode || Boolean(process.env['YACHIYO_DEV_CHANNELS'])
-  })
 
-  serveRpcTarget({
-    transport,
-    target: mergeRpcTargets(liveServices.rpcOps, server),
-    subscribe: (listener) => server!.subscribe(listener)
-  })
-  void liveServices
-    .start()
-    .then(() => console.log('[runtime-host] live services started'))
-    .catch((error) => console.error('[runtime-host] live services failed to start:', error))
-  console.log('[runtime-host] YachiyoServer serving over MessagePort')
+      const nextServer = await createRuntimeHostServer({
+        createProcessBroker: () => new NativeProcessBroker(),
+        createServer: (processBroker) =>
+          createSqliteYachiyoServer({
+            dbPath: resolveYachiyoDbPath(),
+            settingsPath: resolveYachiyoSettingsPath(),
+            developmentMode,
+            seedPresetProviders: true,
+            providerCredentialVault: createProviderCredentialVault({
+              vaultPath: resolveYachiyoProviderCredentialVaultPath(),
+              encryptionKey: providerCredentialKey
+            }),
+            fetchImpl: createProviderFetch({ env: process.env, netFetch }),
+            // The cert-relaxed web-external session only exists in the main process;
+            // forward those requests there, streaming responses back over RPC.
+            webExternalFetchImpl: createRpcWebExternalFetch(mainServices),
+            jotdownStore: createJotdownStore(resolveYachiyoJotdownsDir()),
+            browserAutomationService: createRpcBrowserAutomationBackend(mainServices),
+            browserSearchPageFactory: createRpcBrowserSearchPageFactory(mainServices),
+            activityTracker: createRpcActivitySummarySource(mainServices),
+            processBroker
+          })
+      })
+      startedServer = nextServer
+      nextServer.getTtlReaper().start()
+
+      const liveServices = createRuntimeLiveServices({
+        server: nextServer,
+        showNotification: (input) => {
+          void mainServices
+            .call('mainHost.showNotification', [input])
+            .catch((error) => console.error('[runtime-host] notification failed:', error))
+        },
+        // Main owns the pending receipt; this only borrows the right to carry it.
+        updateReceiptLease: {
+          claim: (channelId) =>
+            mainServices.call('mainHost.claimUpdateReceipt', [{ channelId }]) as Promise<
+              { claimToken: string; message: string } | undefined
+            >,
+          ack: async (claimToken) => {
+            await mainServices.call('mainHost.ackUpdateReceipt', [{ claimToken }])
+          },
+          release: async (claimToken) => {
+            await mainServices.call('mainHost.releaseUpdateReceipt', [{ claimToken }])
+          }
+        },
+        tempWorkspaceDir: resolveYachiyoTempWorkspaceRoot(),
+        enableSchedules: !developmentMode || Boolean(process.env['YACHIYO_DEV_SCHEDULES']),
+        enableChannels: !developmentMode || Boolean(process.env['YACHIYO_DEV_CHANNELS'])
+      })
+
+      serveRpcTarget({
+        transport,
+        target: mergeRpcTargets(liveServices.rpcOps, nextServer),
+        subscribe: (listener) => nextServer.subscribe(listener)
+      })
+      server = nextServer
+      starting = false
+      void liveServices
+        .start()
+        .then(() => console.log('[runtime-host] live services started'))
+        .catch((error) => console.error('[runtime-host] live services failed to start:', error))
+      console.log('[runtime-host] YachiyoServer serving over MessagePort')
+    } catch (error) {
+      console.error('[runtime-host] startup failed:', error)
+      if (startedServer) {
+        try {
+          await startedServer.close()
+        } catch (cleanupError) {
+          console.error('[runtime-host] startup cleanup failed:', cleanupError)
+        }
+      }
+      server = null
+      process.exit(1)
+    }
+  })()
 })
 
 process.on('uncaughtExceptionMonitor', (error) => {
@@ -134,8 +163,10 @@ process.on('uncaughtExceptionMonitor', (error) => {
 
 process.on('uncaughtException', (error) => {
   console.error('[runtime-host] uncaughtException:', error)
+  process.exit(1)
 })
 
 process.on('unhandledRejection', (reason) => {
   console.error('[runtime-host] unhandledRejection:', reason)
+  process.exit(1)
 })

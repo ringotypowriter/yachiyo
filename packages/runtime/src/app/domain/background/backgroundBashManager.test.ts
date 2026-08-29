@@ -1,11 +1,16 @@
-import { spawn } from 'node:child_process'
-import { EventEmitter } from 'node:events'
 import { describe, it, mock } from 'node:test'
 import assert from 'node:assert/strict'
-import { join, dirname } from 'node:path'
-import { mkdir, mkdtemp, rm, readFile, writeFile } from 'node:fs/promises'
+import { join } from 'node:path'
+import { mkdtemp, rm, readFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 
+import type {
+  ProcessJob,
+  ProcessJobOutcome,
+  ProcessJobResult,
+  ProcessOutputBatch
+} from '../../../services/processBroker/processBroker.ts'
+import { NodeProcessBrokerTestAdapter } from '../../../services/processBroker/nodeProcessBroker.testSupport.ts'
 import {
   BackgroundBashManager,
   type BackgroundBashLogAppend,
@@ -13,26 +18,76 @@ import {
 } from './backgroundBashManager.ts'
 import { buildBashCommand } from '../../../runtime/shell/shellRuntime.ts'
 
-const WRITE_POST_LINE_COMMAND = "process.stdout.write('post-line\\n')"
-const WRITE_TAIL_COMMAND = "process.stdout.write('tail\\n')"
+class ControllableProcessJob implements ProcessJob {
+  readonly id: string
+  readonly pid = 4242
+  readonly logPath: string
+  private readonly listeners = new Set<(batch: ProcessOutputBatch) => void>()
+  private readonly terminal = Promise.withResolvers<ProcessJobResult>()
+  private readonly outcome = Promise.withResolvers<ProcessJobOutcome>()
+  private sequence = 0
+  private settled = false
+  onCancel: () => void
 
-class FakeReadable extends EventEmitter {
-  setEncoding(): this {
-    return this
+  constructor(id: string, logPath: string) {
+    this.id = id
+    this.logPath = logPath
+    this.onCancel = () =>
+      this.complete({
+        exitCode: 130,
+        timedOut: false,
+        cancelled: true,
+        spilled: true,
+        totalBytes: 0
+      })
+  }
+
+  onOutput(listener: (batch: ProcessOutputBatch) => void): () => void {
+    this.listeners.add(listener)
+    return () => this.listeners.delete(listener)
+  }
+
+  waitForOutcome(): Promise<ProcessJobOutcome> {
+    return this.outcome.promise
+  }
+
+  wait(): Promise<ProcessJobResult> {
+    return this.terminal.promise
+  }
+
+  cancel(): void {
+    this.onCancel()
+  }
+
+  emit(text: string, truncated = false): void {
+    const batch: ProcessOutputBatch = {
+      sequence: this.sequence++,
+      chunks: [{ stream: 'stdout', text }],
+      truncated,
+      totalBytes: Buffer.byteLength(text)
+    }
+    for (const listener of this.listeners) listener(batch)
+  }
+
+  complete(result: ProcessJobResult): void {
+    if (this.settled) return
+    this.settled = true
+    this.terminal.resolve(result)
+    this.outcome.resolve({ kind: 'exited', result })
+  }
+
+  fail(error: Error): void {
+    if (this.settled) return
+    this.settled = true
+    this.terminal.reject(error)
+    this.outcome.reject(error)
   }
 }
 
-class FakeChildProcess extends EventEmitter {
-  exitCode: number | null = null
-  signalCode: NodeJS.Signals | null = null
-  pid?: number
-  readonly stdout = new FakeReadable()
-  readonly stderr = new FakeReadable()
-  killImpl: (signal?: NodeJS.Signals | number) => boolean = () => true
-
-  kill(signal?: NodeJS.Signals | number): boolean {
-    return this.killImpl(signal)
-  }
+function completionOf(manager: BackgroundBashManager): Promise<BackgroundBashTaskResult> {
+  const completed = Promise.withResolvers<BackgroundBashTaskResult>()
+  manager.setCompletionHandler(completed.resolve)
+  return completed.promise
 }
 
 async function createTempDir(): Promise<string> {
@@ -81,10 +136,8 @@ describe('BackgroundBashManager', () => {
   it('runs a command and calls completion handler with exit code', async () => {
     const tempDir = await createTempDir()
     try {
-      const manager = new BackgroundBashManager()
-      const completed = new Promise<BackgroundBashTaskResult>((resolve) => {
-        manager.setCompletionHandler(resolve)
-      })
+      const manager = new BackgroundBashManager(new NodeProcessBrokerTestAdapter())
+      const completed = completionOf(manager)
 
       const logPath = join(tempDir, 'tool-output', 'test-task.log')
       await manager.startTask({
@@ -116,10 +169,8 @@ describe('BackgroundBashManager', () => {
   it('uses the scoped environment supplied by the launching run', async () => {
     const tempDir = await createTempDir()
     try {
-      const manager = new BackgroundBashManager()
-      const completed = new Promise<BackgroundBashTaskResult>((resolve) => {
-        manager.setCompletionHandler(resolve)
-      })
+      const manager = new BackgroundBashManager(new NodeProcessBrokerTestAdapter())
+      const completed = completionOf(manager)
       const logPath = join(tempDir, 'tool-output', 'run-env.log')
 
       await manager.startTask({
@@ -141,10 +192,8 @@ describe('BackgroundBashManager', () => {
   it('reports non-zero exit code for failing commands', async () => {
     const tempDir = await createTempDir()
     try {
-      const manager = new BackgroundBashManager()
-      const completed = new Promise<BackgroundBashTaskResult>((resolve) => {
-        manager.setCompletionHandler(resolve)
-      })
+      const manager = new BackgroundBashManager(new NodeProcessBrokerTestAdapter())
+      const completed = completionOf(manager)
 
       await manager.startTask({
         taskId: 'fail-task',
@@ -165,10 +214,8 @@ describe('BackgroundBashManager', () => {
   it('captures stderr in the log file', async () => {
     const tempDir = await createTempDir()
     try {
-      const manager = new BackgroundBashManager()
-      const completed = new Promise<BackgroundBashTaskResult>((resolve) => {
-        manager.setCompletionHandler(resolve)
-      })
+      const manager = new BackgroundBashManager(new NodeProcessBrokerTestAdapter())
+      const completed = completionOf(manager)
 
       const logPath = join(tempDir, 'tool-output', 'stderr.log')
       await manager.startTask({
@@ -190,10 +237,8 @@ describe('BackgroundBashManager', () => {
   it('cancelTask kills the process', async () => {
     const tempDir = await createTempDir()
     try {
-      const manager = new BackgroundBashManager()
-      const completed = new Promise<BackgroundBashTaskResult>((resolve) => {
-        manager.setCompletionHandler(resolve)
-      })
+      const manager = new BackgroundBashManager(new NodeProcessBrokerTestAdapter())
+      const completed = completionOf(manager)
 
       await manager.startTask({
         taskId: 'cancel-task',
@@ -217,12 +262,10 @@ describe('BackgroundBashManager', () => {
 
   it('cancelTask kills a child left alive by a shell-backgrounded command', async () => {
     const tempDir = await createTempDir()
-    const manager = new BackgroundBashManager()
+    const manager = new BackgroundBashManager(new NodeProcessBrokerTestAdapter())
     let childPid: number | undefined
     try {
-      const completed = new Promise<BackgroundBashTaskResult>((resolve) => {
-        manager.setCompletionHandler(resolve)
-      })
+      const completed = completionOf(manager)
       const logPath = join(tempDir, 'tool-output', 'shell-backgrounded.log')
       const childPidPath = join(tempDir, 'child.pid')
       const windowsChildCommand = buildBashCommand(process.execPath.replaceAll('\\', '/'), [
@@ -268,39 +311,39 @@ describe('BackgroundBashManager', () => {
   })
 
   it('cancelTask returns false for unknown taskId', () => {
-    const manager = new BackgroundBashManager()
+    const manager = new BackgroundBashManager(new NodeProcessBrokerTestAdapter())
     assert.equal(manager.cancelTask('nonexistent'), false)
   })
 
   it('does not mark a naturally completed task as cancelled when cancel races with exit', async () => {
     const tempDir = await createTempDir()
     try {
-      const manager = new BackgroundBashManager()
-      const completed = new Promise<BackgroundBashTaskResult>((resolve) => {
-        manager.setCompletionHandler(resolve)
-      })
-      const child = new FakeChildProcess()
-
-      child.killImpl = () => {
-        child.exitCode = 0
-        child.emit('close', 0)
-        return false
-      }
+      const manager = new BackgroundBashManager(new NodeProcessBrokerTestAdapter())
+      const completed = Promise.withResolvers<BackgroundBashTaskResult>()
+      manager.setCompletionHandler(completed.resolve)
+      const logPath = join(tempDir, 'tool-output', 'race.log')
+      const job = new ControllableProcessJob('race-task', logPath)
+      job.onCancel = () =>
+        job.complete({
+          exitCode: 0,
+          timedOut: false,
+          cancelled: false,
+          spilled: true,
+          totalBytes: 0
+        })
 
       await manager.adoptTask({
         taskId: 'race-task',
         command: 'echo done',
         cwd: tempDir,
-        logPath: join(tempDir, 'tool-output', 'race.log'),
+        logPath,
         threadId: 'thread-race',
-        child: child as unknown as import('node:child_process').ChildProcess,
-        initialOutput: '',
-        initialOutputAlreadyOnDisk: false
+        job,
+        initialOutput: ''
       })
 
       assert.equal(manager.cancelTask('race-task'), true)
-
-      const result = await completed
+      const result = await completed.promise
       assert.equal(result.exitCode, 0)
       assert.equal(result.cancelledByUser, undefined)
 
@@ -312,13 +355,86 @@ describe('BackgroundBashManager', () => {
     }
   })
 
+  it('finalizes rejected native jobs as failed background completions', async () => {
+    const tempDir = await createTempDir()
+    try {
+      const manager = new BackgroundBashManager(new NodeProcessBrokerTestAdapter())
+      const completionHandler = mock.fn<(result: BackgroundBashTaskResult) => void>()
+      manager.setCompletionHandler(completionHandler)
+      const logPath = join(tempDir, 'tool-output', 'rejected.log')
+      const job = new ControllableProcessJob('rejected-task', logPath)
+      void job.waitForOutcome().catch(() => {})
+
+      await manager.adoptTask({
+        taskId: 'rejected-task',
+        command: 'native-command',
+        cwd: tempDir,
+        logPath,
+        threadId: 'thread-rejected',
+        job,
+        initialOutput: 'partial'
+      })
+      job.fail(new Error('process host crashed'))
+      await Promise.resolve()
+      await Promise.resolve()
+
+      assert.equal(completionHandler.mock.callCount(), 1)
+      const result = completionHandler.mock.calls[0]?.arguments[0]
+      assert.equal(result?.exitCode, undefined)
+      assert.equal(result?.error, 'process host crashed')
+      assert.equal(manager.activeCount, 0)
+      const [snapshot] = manager.listSnapshots('thread-rejected')
+      assert.equal(snapshot?.status, 'failed')
+      assert.equal(snapshot?.error, 'process host crashed')
+      await manager.close()
+    } finally {
+      await rm(tempDir, { recursive: true })
+    }
+  })
+
+  it('treats resolved native I/O errors as background failures', async () => {
+    const tempDir = await createTempDir()
+    try {
+      const manager = new BackgroundBashManager(new NodeProcessBrokerTestAdapter())
+      const completed = completionOf(manager)
+      const logPath = join(tempDir, 'tool-output', 'io-error.log')
+      const job = new ControllableProcessJob('io-error-task', logPath)
+
+      await manager.adoptTask({
+        taskId: 'io-error-task',
+        command: 'native-command',
+        cwd: tempDir,
+        logPath,
+        threadId: 'thread-io-error',
+        job,
+        initialOutput: ''
+      })
+      job.complete({
+        exitCode: 0,
+        timedOut: false,
+        cancelled: false,
+        spilled: true,
+        totalBytes: 7,
+        error: 'Flush process log: disk full'
+      })
+
+      const result = await completed
+      assert.equal(result.exitCode, 0)
+      assert.equal(result.error, 'Flush process log: disk full')
+      const [snapshot] = manager.listSnapshots('thread-io-error')
+      assert.equal(snapshot?.status, 'failed')
+      assert.equal(snapshot?.error, 'Flush process log: disk full')
+      await manager.close()
+    } finally {
+      await rm(tempDir, { recursive: true })
+    }
+  })
+
   it('getTask returns task info for active task', async () => {
     const tempDir = await createTempDir()
     try {
-      const manager = new BackgroundBashManager()
-      const completed = new Promise<BackgroundBashTaskResult>((resolve) => {
-        manager.setCompletionHandler(resolve)
-      })
+      const manager = new BackgroundBashManager(new NodeProcessBrokerTestAdapter())
+      const completed = completionOf(manager)
 
       await manager.startTask({
         taskId: 'info-task',
@@ -354,7 +470,7 @@ describe('BackgroundBashManager', () => {
   it('close kills all active tasks', async () => {
     const tempDir = await createTempDir()
     try {
-      const manager = new BackgroundBashManager()
+      const manager = new BackgroundBashManager(new NodeProcessBrokerTestAdapter())
       const handler = mock.fn<(result: BackgroundBashTaskResult) => void>()
       manager.setCompletionHandler(handler)
 
@@ -385,14 +501,12 @@ describe('BackgroundBashManager', () => {
   it('streams log lines through the log-append handler', async () => {
     const tempDir = await createTempDir()
     try {
-      const manager = new BackgroundBashManager()
+      const manager = new BackgroundBashManager(new NodeProcessBrokerTestAdapter())
       const collected: string[] = []
       manager.setLogAppendHandler((event: BackgroundBashLogAppend) => {
         for (const line of event.lines) collected.push(line)
       })
-      const completed = new Promise<BackgroundBashTaskResult>((resolve) => {
-        manager.setCompletionHandler(resolve)
-      })
+      const completed = completionOf(manager)
 
       await manager.startTask({
         taskId: 'log-task',
@@ -418,10 +532,8 @@ describe('BackgroundBashManager', () => {
   it('listSnapshots returns running tasks and recently-completed entries', async () => {
     const tempDir = await createTempDir()
     try {
-      const manager = new BackgroundBashManager()
-      const completed = new Promise<BackgroundBashTaskResult>((resolve) => {
-        manager.setCompletionHandler(resolve)
-      })
+      const manager = new BackgroundBashManager(new NodeProcessBrokerTestAdapter())
+      const completed = completionOf(manager)
 
       await manager.startTask({
         taskId: 'snap-running',
@@ -464,133 +576,44 @@ describe('BackgroundBashManager', () => {
     }
   })
 
-  it('adoptTask preserves pre-timeout output already on disk and replays it as log lines', async () => {
+  it('adopts an existing native job and replays the bounded foreground tail', async () => {
     const tempDir = await createTempDir()
     try {
-      const manager = new BackgroundBashManager()
+      const manager = new BackgroundBashManager(new NodeProcessBrokerTestAdapter())
       const collected: string[] = []
       manager.setLogAppendHandler((event: BackgroundBashLogAppend) => {
-        for (const line of event.lines) collected.push(line)
+        collected.push(...event.lines)
       })
-      const completed = new Promise<BackgroundBashTaskResult>((resolve) => {
-        manager.setCompletionHandler(resolve)
-      })
-
-      // Simulate the foreground spill: log file already contains pre-timeout output.
-      const logPath = join(tempDir, 'tool-output', 'adopt-disk.log')
-      await mkdir(dirname(logPath), { recursive: true })
-      const preTimeout = 'pre-1\npre-2\npre-3\n'
-      await writeFile(logPath, preTimeout, 'utf8')
-
-      // Spawn a child that will print one more line and then exit.
-      const child = spawn(process.execPath, ['-e', WRITE_POST_LINE_COMMAND], {
-        cwd: tempDir,
-        stdio: ['ignore', 'pipe', 'pipe']
-      })
+      const completed = Promise.withResolvers<BackgroundBashTaskResult>()
+      manager.setCompletionHandler(completed.resolve)
+      const logPath = join(tempDir, 'tool-output', 'adopt.log')
+      const job = new ControllableProcessJob('adopt-task', logPath)
 
       await manager.adoptTask({
-        taskId: 'adopt-disk',
-        command: WRITE_POST_LINE_COMMAND,
+        taskId: 'adopt-task',
+        command: 'long-running-command',
         cwd: tempDir,
         logPath,
         threadId: 'thread-adopt',
-        child,
-        initialOutput: preTimeout,
-        initialOutputAlreadyOnDisk: true
+        job,
+        initialOutput: 'before-1\nbefore-2\n'
+      })
+      job.emit('after-1\nafter-2\n', true)
+      job.complete({
+        exitCode: 0,
+        timedOut: true,
+        cancelled: false,
+        spilled: true,
+        totalBytes: 16
       })
 
-      await completed
-      // Allow the throttled flush to land.
-      await new Promise((r) => setTimeout(r, 200))
-
-      const log = await readFile(logPath, 'utf8')
-      // Pre-timeout bytes must still be there (append mode, not truncated).
-      assert.ok(
-        log.startsWith(preTimeout),
-        `expected log to start with pre-timeout bytes, got: ${JSON.stringify(log)}`
-      )
-      assert.ok(log.includes('post-line'))
-
-      // Renderer should have seen both pre-timeout and post-adoption lines.
-      const nonEmpty = collected.filter((l) => l.length > 0)
-      assert.deepEqual(nonEmpty, ['pre-1', 'pre-2', 'pre-3', 'post-line'])
-    } finally {
-      await rm(tempDir, { recursive: true })
-    }
-  })
-
-  it('adoptTask captures output emitted before async setup finishes', async () => {
-    const tempDir = await createTempDir()
-    try {
-      const manager = new BackgroundBashManager()
-      const completed = new Promise<BackgroundBashTaskResult>((resolve) => {
-        manager.setCompletionHandler(resolve)
-      })
-      const logPath = join(tempDir, 'tool-output', 'adopt-early.log')
-      const child = new FakeChildProcess()
-
-      const adoption = manager.adoptTask({
-        taskId: 'adopt-early',
-        command: 'echo early-line',
-        cwd: tempDir,
-        logPath,
-        threadId: 'thread-adopt-early',
-        child: child as unknown as import('node:child_process').ChildProcess,
-        initialOutput: '',
-        initialOutputAlreadyOnDisk: false
-      })
-
-      child.stdout.emit('data', 'early-line\n')
-
-      await adoption
-      child.emit('close', 0)
-      await completed
-
-      const log = await readFile(logPath, 'utf8')
-      assert.ok(log.includes('early-line'))
-    } finally {
-      await rm(tempDir, { recursive: true })
-    }
-  })
-
-  it('adoptTask writes initialOutput when not yet on disk and replays it as log lines', async () => {
-    const tempDir = await createTempDir()
-    try {
-      const manager = new BackgroundBashManager()
-      const collected: string[] = []
-      manager.setLogAppendHandler((event: BackgroundBashLogAppend) => {
-        for (const line of event.lines) collected.push(line)
-      })
-      const completed = new Promise<BackgroundBashTaskResult>((resolve) => {
-        manager.setCompletionHandler(resolve)
-      })
-
-      const logPath = join(tempDir, 'tool-output', 'adopt-mem.log')
-      const child = spawn(process.execPath, ['-e', WRITE_TAIL_COMMAND], {
-        cwd: tempDir,
-        stdio: ['ignore', 'pipe', 'pipe']
-      })
-
-      await manager.adoptTask({
-        taskId: 'adopt-mem',
-        command: WRITE_TAIL_COMMAND,
-        cwd: tempDir,
-        logPath,
-        threadId: 'thread-adopt-mem',
-        child,
-        initialOutput: 'head-1\nhead-2\n',
-        initialOutputAlreadyOnDisk: false
-      })
-
-      await completed
-      await new Promise((r) => setTimeout(r, 200))
-
-      const log = await readFile(logPath, 'utf8')
-      assert.ok(log.startsWith('head-1\nhead-2\n'))
-      assert.ok(log.includes('tail'))
-
-      const nonEmpty = collected.filter((l) => l.length > 0)
-      assert.deepEqual(nonEmpty, ['head-1', 'head-2', 'tail'])
+      const result = await completed.promise
+      assert.equal(result.exitCode, 0)
+      assert.equal(result.pid, 4242)
+      const visibleLines = collected.filter((line) => line.length > 0)
+      assert.deepEqual(visibleLines.slice(0, 2), ['before-1', 'before-2'])
+      assert.match(visibleLines[2] ?? '', /Output skipped/u)
+      assert.deepEqual(visibleLines.slice(3), ['after-1', 'after-2'])
     } finally {
       await rm(tempDir, { recursive: true })
     }

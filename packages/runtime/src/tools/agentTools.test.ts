@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { homedir, tmpdir } from 'node:os'
 import { basename, dirname, join, resolve } from 'node:path'
 import test from 'node:test'
@@ -22,6 +22,8 @@ import {
 } from './agentTools.ts'
 import { resolveGlobInput } from './agentTools/globTool.ts'
 import type { MemoryService } from '../services/memory/memoryService.ts'
+import type { ProcessBroker, ProcessJob } from '../services/processBroker/processBroker.ts'
+import { NodeProcessBrokerTestAdapter } from '../services/processBroker/nodeProcessBroker.testSupport.ts'
 import { createInMemoryYachiyoStorage } from '../storage/memoryStorage.ts'
 import { ThingDomain } from '../app/domain/things/thingDomain.ts'
 import { buildBashCommand } from '../runtime/shell/shellRuntime.ts'
@@ -531,13 +533,14 @@ test('streamBashTool emits preliminary updates and runBashTool returns a structu
       },
       { workspacePath },
       {
-        runCommand: async ({ command, cwd, timeoutSeconds, onStderr, onStdout }) => {
+        runCommand: async ({ command, cwd, timeoutSeconds, onOutputBatch, onStderr, onStdout }) => {
           assert.equal(command, 'pwd')
           assert.equal(cwd, workspacePath)
           assert.equal(timeoutSeconds, 5)
 
           onStdout?.(`${cwd}\n`)
           onStderr?.('warning\n')
+          onOutputBatch?.()
 
           return {
             exitCode: 0,
@@ -550,10 +553,9 @@ test('streamBashTool emits preliminary updates and runBashTool returns a structu
       parts.push(flattenToolContent(result.content))
     }
 
-    assert.equal(parts.length, 3)
-    assert.equal(parts[0], `${workspacePath}\n`)
+    assert.equal(parts.length, 2)
+    assert.equal(parts[0], `${workspacePath}\nwarning\n`)
     assert.equal(parts[1], `${workspacePath}\nwarning\n`)
-    assert.equal(parts[2], `${workspacePath}\nwarning\n`)
 
     const finalResult = await runBashTool(
       {
@@ -588,6 +590,77 @@ test('streamBashTool emits preliminary updates and runBashTool returns a structu
   })
 })
 
+test('streamBashTool aborts while broker startup is pending and cancels a late job', async () => {
+  await withWorkspace(async (workspacePath) => {
+    const controller = new AbortController()
+    const startRequested = Promise.withResolvers<void>()
+    const pendingJob = Promise.withResolvers<ProcessJob>()
+    let cancelled = false
+    const processResult = {
+      exitCode: 0,
+      timedOut: false,
+      cancelled: false,
+      spilled: false,
+      totalBytes: 0
+    }
+    const job: ProcessJob = {
+      id: 'pending-start-job',
+      pid: 4242,
+      logPath: join(workspacePath, '.yachiyo', 'tool-output', 'pending-start-job.log'),
+      onOutput: () => () => {},
+      waitForOutcome: () => Promise.resolve({ kind: 'exited', result: processResult }),
+      wait: () => Promise.resolve(processResult),
+      cancel: () => {
+        cancelled = true
+      }
+    }
+    const broker: ProcessBroker = {
+      start: () => Promise.resolve(),
+      startJob: () => {
+        startRequested.resolve()
+        return pendingJob.promise
+      },
+      close: () => Promise.resolve()
+    }
+    const drain = collectAsync(
+      streamBashTool(
+        {
+          command: 'pwd',
+          description: 'wait for broker startup',
+          timeout: 120,
+          background: false
+        },
+        { workspacePath, processBroker: broker },
+        { abortSignal: controller.signal, toolCallId: job.id }
+      )
+    )
+    let rejection: unknown
+    const observed = drain.then(
+      () => {},
+      (error: unknown) => {
+        rejection = error
+      }
+    )
+
+    await startRequested.promise
+    controller.abort()
+    const turn = Promise.withResolvers<void>()
+    setImmediate(turn.resolve)
+    await turn.promise
+
+    try {
+      assert.equal(rejection instanceof Error ? rejection.name : undefined, 'AbortError')
+    } finally {
+      pendingJob.resolve(job)
+      await observed
+    }
+    const cleanupTurn = Promise.withResolvers<void>()
+    setImmediate(cleanupTurn.resolve)
+    await cleanupTurn.promise
+    assert.equal(cancelled, true)
+  })
+})
+
 test('streamBashTool abortSignal stops a long-running command without waiting for bash timeout', async () => {
   await withWorkspace(async (workspacePath) => {
     const controller = new AbortController()
@@ -601,7 +674,7 @@ test('streamBashTool abortSignal stops a long-running command without waiting fo
           timeout: 120,
           background: false
         },
-        { workspacePath },
+        { workspacePath, processBroker: new NodeProcessBrokerTestAdapter() },
         { abortSignal: controller.signal }
       )
     )
@@ -643,7 +716,7 @@ test('streamBashTool abortSignal kills spawned child processes, not just the she
           timeout: 120,
           background: false
         },
-        { workspacePath },
+        { workspacePath, processBroker: new NodeProcessBrokerTestAdapter() },
         { abortSignal: controller.signal }
       )
     )
@@ -756,8 +829,6 @@ test('runBashTool refuses chained sleep commands that outlive the timeout', asyn
 test('runBashTool lifts a timed-out command into a background task when adoption hook is provided', async () => {
   await withWorkspace(async (workspacePath) => {
     const adopted: Array<{ taskId: string; command: string; initialOutput: string }> = []
-    const fakeChild = {} as unknown as import('node:child_process').ChildProcess
-
     const result = await runBashTool(
       {
         command: 'sleep 9999',
@@ -776,10 +847,24 @@ test('runBashTool lifts a timed-out command into a background task when adoption
         }
       },
       {
-        runCommand: async ({ onStdout, onTimeoutLift }) => {
+        runCommand: async ({ jobId, logPath, onStdout, onTimeoutLift }) => {
           onStdout?.('partial line\n')
-          // Simulate the timeout firing — runner asks the caller to adopt the child.
-          const adoptedOk = await onTimeoutLift?.(fakeChild)
+          const fakeJob: ProcessJob = {
+            id: jobId,
+            pid: 42,
+            logPath,
+            onOutput: () => () => {},
+            waitForOutcome: async () => ({ kind: 'timed-out' }),
+            wait: async () => ({
+              exitCode: 0,
+              timedOut: true,
+              cancelled: false,
+              spilled: true,
+              totalBytes: 0
+            }),
+            cancel: () => {}
+          }
+          const adoptedOk = await onTimeoutLift?.(fakeJob)
           assert.equal(adoptedOk, true)
           return {
             exitCode: 0,
@@ -839,11 +924,16 @@ test('runBashTool auto-saves to .yachiyo/tool-output when output exceeds inline 
       { command: 'echo large', description: 'echo a large output', timeout: 30, background: false },
       { workspacePath },
       {
-        runCommand: async () => ({
-          exitCode: 0,
-          stdout: largeOutput,
-          stderr: ''
-        })
+        runCommand: async ({ logPath }) => {
+          await mkdir(dirname(logPath), { recursive: true })
+          await writeFile(logPath, largeOutput, 'utf8')
+          return {
+            exitCode: 0,
+            stdout: largeOutput,
+            stderr: '',
+            spilled: true
+          }
+        }
       }
     )
 

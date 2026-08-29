@@ -14,6 +14,7 @@ import type { YachiyoStorage } from '../../../../storage/storage.ts'
 import { DEFAULT_SETTINGS_CONFIG } from '../../../../settings/settingsStore.ts'
 import { buildThreadHandoffPrompt } from '../../../../runtime/context/threadHandoff.ts'
 import type { ModelRuntime, ModelStreamRequest } from '../../../../runtime/models/types.ts'
+import { NodeProcessBrokerTestAdapter } from '../../../../services/processBroker/nodeProcessBroker.testSupport.ts'
 import {
   SeamlessHandoffCoordinator,
   type SeamlessHandoffCoordinatorDeps
@@ -123,6 +124,7 @@ function createCoordinator(input: {
         yield '`\n\n### Current focus\nContinue the active run.'
       }
     }),
+    processBroker: new NodeProcessBrokerTestAdapter(),
     ensureThreadWorkspace: async () => input.workspacePath,
     memoryService: { isConfigured: () => false } as never,
     readConfig: () => DEFAULT_SETTINGS_CONFIG,

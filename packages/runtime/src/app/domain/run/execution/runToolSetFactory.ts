@@ -89,6 +89,7 @@ export function createRunToolSet(input: CreateRunToolSetInput): ToolSet | undefi
     workspacePath,
     sandboxed: isExternalChannel && !isOwnerDm,
     snapshotTracker: input.snapshotTracker,
+    processBroker: deps.processBroker,
     readRecordCache: executionInput.readRecordCache,
     imageToTextService: deps.imageToTextService,
     isModelImageCapable: deps.isModelImageCapable,

@@ -36,6 +36,7 @@
     "external-hooks:build": "pnpm --filter @yachiyo/desktop external-hooks:build",
     "search:download": "pnpm --filter @yachiyo/desktop search:download",
     "sync-core:build": "pnpm --filter @yachiyo/desktop sync-core:build",
+    "process-host:build": "pnpm --filter @yachiyo/desktop process-host:build",
     "skills:sync": "node scripts/sync-upstream-skill.mjs",
     "skills:check": "node scripts/sync-upstream-skill.mjs --check",
     "typecheck": "pnpm -r --if-present typecheck",

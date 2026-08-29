@@ -12,6 +12,11 @@ import {
   buildBackgroundCompletionMessage,
   isBackgroundAutoDeliveryEligible
 } from './backgroundTaskDelivery.ts'
+import {
+  getCompletedBackgroundBashError,
+  getCompletedBackgroundBashOutputSummary,
+  getCompletedBackgroundBashStatus
+} from '../tools/backgroundBashToolResult.ts'
 
 export interface BackgroundTaskLifecycleContext {
   deps: RunDomainDeps
@@ -70,6 +75,9 @@ export function handleBackgroundBashCompleted(
     // `output` blob is left untouched: history must remain truthful that the launch
     // call only ever returned the `{taskId, logPath}` handle.
     const cancelled = result.cancelledByUser === true
+    const terminalStatus = getCompletedBackgroundBashStatus(result)
+    const outputSummary = getCompletedBackgroundBashOutputSummary(result)
+    const completionError = getCompletedBackgroundBashError(result)
 
     if (result.toolCallId) {
       const toolCalls = context.deps.loadThreadToolCalls(result.threadId)
@@ -81,18 +89,14 @@ export function handleBackgroundBashCompleted(
             : {}
         const updated: ToolCallRecord = {
           ...tc,
-          status: cancelled ? 'failed' : result.exitCode === 0 ? 'completed' : 'failed',
-          outputSummary: cancelled ? 'cancelled by user' : `exit ${result.exitCode}`,
+          status: terminalStatus,
+          outputSummary,
           details: {
             ...baseDetails,
-            exitCode: result.exitCode,
+            ...(result.exitCode !== undefined ? { exitCode: result.exitCode } : {}),
             ...(cancelled ? { cancelledByUser: true } : {})
           } as unknown as ToolCallRecord['details'],
-          ...(cancelled
-            ? { error: 'Background task was cancelled by the user.' }
-            : result.exitCode !== 0
-              ? { error: `Command exited with code ${result.exitCode}.` }
-              : {}),
+          ...(completionError ? { error: completionError } : {}),
           finishedAt: timestamp
         }
         context.deps.storage.updateToolCall(updated)
@@ -113,9 +117,10 @@ export function handleBackgroundBashCompleted(
       command: result.command,
       ...(result.description ? { description: result.description } : {}),
       logPath: result.logPath,
-      exitCode: result.exitCode,
+      ...(result.exitCode !== undefined ? { exitCode: result.exitCode } : {}),
       toolCallId: result.toolCallId,
-      ...(cancelled ? { cancelledByUser: true } : {})
+      ...(cancelled ? { cancelledByUser: true } : {}),
+      ...(result.error !== undefined ? { error: result.error } : {})
     })
 
     // 3. Auto-deliver the completion notice as a hidden system steer via sendChat,

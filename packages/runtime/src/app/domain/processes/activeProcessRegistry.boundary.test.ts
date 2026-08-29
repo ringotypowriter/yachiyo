@@ -6,11 +6,10 @@ import { fileURLToPath } from 'node:url'
 
 const runtimeRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../../..')
 const spawnedProcessOwners = [
-  'app/domain/background/backgroundBashManager.ts',
   'channels/group/groupProbeClaudeCode.ts',
   'runtime/acp/acpLauncher.ts',
+  'services/processBroker/nativeProcessBroker.ts',
   'services/search/searchService.ts',
-  'tools/agentTools/bashTool.ts',
   'tools/agentTools/testSubagentProfile.ts'
 ]
 

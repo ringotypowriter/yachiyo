@@ -1,4 +1,6 @@
-import type { ChildProcess } from 'node:child_process'
+import type { ProcessBroker, ProcessJob } from '../../services/processBroker/processBroker.ts'
+import type { SnapshotTracker } from '../../services/fileSnapshot/snapshotTracker.ts'
+import type { ImageToTextService } from '../../services/imageToText/imageToTextService.ts'
 import { access, readdir, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { isAbsolute, join, parse, relative, resolve, sep } from 'node:path'
@@ -27,7 +29,6 @@ import { DEFAULT_WEB_READ_CONTENT_FORMAT } from '@yachiyo/shared/protocol'
 import type { ReadRecordCache } from './readRecordCache.ts'
 
 /**
-/**
  * Race a promise against an AbortSignal — rejects with an AbortError when the
  * signal fires. Useful for wrapping calls that don't natively accept a signal.
  */
@@ -35,26 +36,19 @@ export async function raceAgainstSignal<T>(promise: Promise<T>, signal: AbortSig
   // Register listener first to avoid a TOCTOU race: if we check signal.aborted
   // before registering, the signal could abort between the check and the listener
   // registration, and we'd miss the event permanently.
-  let onAbort: (() => void) | undefined
-  let cleanup: (() => void) | undefined
+  const aborted = Promise.withResolvers<never>()
+  const onAbort = (): void => {
+    aborted.reject(signal.reason ?? new DOMException('Aborted', 'AbortError'))
+  }
+  signal.addEventListener('abort', onAbort, { once: true })
 
-  const abortPromise = new Promise<never>((_, reject) => {
-    onAbort = (): void => {
-      reject(signal.reason ?? new DOMException('Aborted', 'AbortError'))
-    }
-    signal.addEventListener('abort', onAbort, { once: true })
-    cleanup = () => signal.removeEventListener('abort', onAbort!)
-
-    // Signal was already aborted before we could register — fire immediately.
-    if (signal.aborted) {
-      onAbort()
-    }
-  })
+  // Signal was already aborted before we could register — fire immediately.
+  if (signal.aborted) onAbort()
 
   try {
-    return await Promise.race([promise, abortPromise])
+    return await Promise.race([promise, aborted.promise])
   } finally {
-    cleanup?.()
+    signal.removeEventListener('abort', onAbort)
   }
 }
 
@@ -465,17 +459,10 @@ export interface BackgroundBashTaskHandle {
 }
 
 export interface BackgroundBashAdoptionHandle extends BackgroundBashTaskHandle {
-  /** Already-running child process to adopt. Manager attaches its own log listeners. */
-  child: ChildProcess
-  /** Output already buffered by the foreground runner; written to the log first. */
+  /** Already-running native process job transferred to the background manager. */
+  job: ProcessJob
+  /** Bounded foreground tail replayed once in the background task log view. */
   initialOutput: string
-  /**
-   * When true, `initialOutput` already lives at `logPath` (the foreground runner
-   * spilled to disk before the timeout fired). The manager opens the log in append
-   * mode and skips re-writing the initial bytes, but still replays them as live
-   * log-append events so the renderer's session view stays in sync.
-   */
-  initialOutputAlreadyOnDisk?: boolean
 }
 
 export interface AgentToolContext {
@@ -498,12 +485,14 @@ export interface AgentToolContext {
     skipReadBeforeOverwrite?: boolean
   }
   /** Snapshot tracker for capturing file states before modifications. */
-  snapshotTracker?: import('../../services/fileSnapshot/snapshotTracker.ts').SnapshotTracker
+  snapshotTracker?: SnapshotTracker
+  /** Native owner for shell process lifecycle and output I/O. */
+  processBroker?: ProcessBroker
   onBackgroundBashStarted?: (task: BackgroundBashTaskHandle) => Promise<void>
-  /** Adopt a foreground bash child that exceeded its timeout, instead of killing it. */
+  /** Adopt a foreground native process job that exceeded its timeout. */
   onBackgroundBashAdopted?: (task: BackgroundBashAdoptionHandle) => Promise<void>
   /** Image-to-text service for converting images when the model is not image-capable. */
-  imageToTextService?: import('../../services/imageToText/imageToTextService.ts').ImageToTextService
+  imageToTextService?: ImageToTextService
   /** Whether the current thread model supports vision/image input. */
   isModelImageCapable?: boolean
   /** Current run mode, used to enforce mode-specific tool restrictions. */
@@ -561,19 +550,19 @@ export type AgentToolOutput =
   | ApplyPatchToolOutput
 
 export interface BashRunnerInput {
+  jobId: string
   command: string
   cwd: string
-  env?: NodeJS.ProcessEnv
+  env: NodeJS.ProcessEnv
+  logPath: string
   timeoutSeconds: number
-  /**
-   * If provided, called when the timeout fires instead of killing the child.
-   * Resolves to true if the caller has taken ownership of the child (the runner
-   * must then detach its listeners and resolve with `lifted: true`).
-   */
-  onTimeoutLift?: (child: ChildProcess) => Promise<boolean>
+  retainLog: boolean
+  spillThresholdChars: number
+  onTimeoutLift?: (job: ProcessJob) => Promise<boolean>
   abortSignal?: AbortSignal
   onStdout?: (chunk: string) => void
   onStderr?: (chunk: string) => void
+  onOutputBatch?: () => void
 }
 
 export interface BashRunnerResult {
@@ -581,8 +570,9 @@ export interface BashRunnerResult {
   stderr: string
   exitCode: number
   timedOut?: boolean
-  /** Set when the timeout fired and the child was handed off to a background owner. */
+  error?: string
   lifted?: boolean
+  spilled?: boolean
 }
 
 export type BashRunner = (input: BashRunnerInput) => Promise<BashRunnerResult>
