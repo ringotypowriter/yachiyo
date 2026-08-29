@@ -1,21 +1,20 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import { DatabaseSync } from 'node:sqlite'
 
-import { createSqliteBootstrapStorageMethods } from './bootstrapStorage.ts'
+import { createSqliteBootstrapStorageMethods, selectLatestRunRows } from './bootstrapStorage.ts'
 import {
   channelUsersTable,
   messagesTable,
-  runsTable,
   threadFoldersTable,
   threadsTable,
   toolCallsTable
 } from './schema.ts'
+import type { toThreadRecord } from '../storage.ts'
 
 const timestamp = '2026-05-19T00:00:00.000Z'
 
-function createThreadRow(
-  id: string
-): Parameters<Parameters<typeof createSqliteBootstrapStorageMethods>[0]['isBootstrapThread']>[0] {
+function createThreadRow(id: string): Parameters<typeof toThreadRecord>[0] {
   return {
     archivedAt: null,
     starredAt: null,
@@ -67,7 +66,7 @@ test('sqlite bootstrap does not read message or tool-call bodies', () => {
         const rows =
           table === threadsTable
             ? [createThreadRow('thread-1')]
-            : table === channelUsersTable || table === runsTable || table === threadFoldersTable
+            : table === channelUsersTable || table === threadFoldersTable
               ? []
               : []
 
@@ -84,13 +83,10 @@ test('sqlite bootstrap does not read message or tool-call bodies', () => {
   }
 
   const storage = createSqliteBootstrapStorageMethods({
-    db: db as never,
-    isBootstrapThread: () => true,
-    toThreadRecordWithChannelUserRole: (row) => ({
-      id: row.id,
-      title: row.title,
-      updatedAt: row.updatedAt
-    })
+    client: {
+      prepare: () => ({ all: () => [] })
+    } as never,
+    db: db as never
   })
 
   const payload = storage.bootstrap()
@@ -102,4 +98,44 @@ test('sqlite bootstrap does not read message or tool-call bodies', () => {
     payload.threads.map((thread) => thread.id),
     ['thread-1']
   )
+})
+
+test('latest-run query returns one deterministic row per thread', () => {
+  const client = new DatabaseSync(':memory:')
+  client.exec(`
+    CREATE TABLE runs (
+      id TEXT PRIMARY KEY,
+      thread_id TEXT NOT NULL,
+      request_message_id TEXT,
+      assistant_message_id TEXT,
+      status TEXT NOT NULL,
+      error TEXT,
+      created_at TEXT NOT NULL,
+      completed_at TEXT,
+      prompt_tokens INTEGER,
+      completion_tokens INTEGER,
+      total_prompt_tokens INTEGER,
+      total_completion_tokens INTEGER,
+      time_to_first_token_ms INTEGER,
+      model_generation_duration_ms INTEGER,
+      cache_read_tokens INTEGER,
+      cache_write_tokens INTEGER,
+      model_id TEXT,
+      provider_name TEXT,
+      snapshot_file_count INTEGER,
+      workspace_path TEXT
+    );
+    INSERT INTO runs (id, thread_id, status, created_at) VALUES
+      ('run-old', 'thread-1', 'completed', '2026-05-19T00:00:00.000Z'),
+      ('run-new-a', 'thread-1', 'completed', '2026-05-20T00:00:00.000Z'),
+      ('run-new-b', 'thread-1', 'completed', '2026-05-20T00:00:00.000Z'),
+      ('run-other', 'thread-2', 'failed', '2026-05-18T00:00:00.000Z');
+  `)
+
+  try {
+    const rows = selectLatestRunRows(client as never)
+    assert.deepEqual(rows.map((row) => row.id).sort(), ['run-new-b', 'run-other'])
+  } finally {
+    client.close()
+  }
 })

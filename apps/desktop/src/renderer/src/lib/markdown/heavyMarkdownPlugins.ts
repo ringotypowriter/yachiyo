@@ -1,55 +1,89 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { PluginConfig } from 'streamdown'
 
 /**
- * The mermaid (~2.5 MB), shiki, and katex plugin stacks dominate the startup
- * bundle if imported statically. They load on demand here; until they arrive,
- * markdown renders with fenced blocks unhighlighted and math/diagrams as plain
- * code, then upgrades once — usually before the user opens any thread thanks to
- * the idle prefetch in App.
+ * Mermaid, Shiki, and KaTeX dominate the startup bundle. Ordinary Markdown
+ * stays on Streamdown's light path, and rich syntax loads only its own plugin
+ * family.
  */
+export interface HeavyMarkdownFeatures {
+  code: boolean
+  math: boolean
+  mermaid: boolean
+}
+
 export interface HeavyMarkdownPlugins {
-  code: NonNullable<PluginConfig['code']>
-  math: NonNullable<PluginConfig['math']>
-  mermaid: NonNullable<PluginConfig['mermaid']>
+  code?: NonNullable<PluginConfig['code']>
+  math?: NonNullable<PluginConfig['math']>
+  mermaid?: NonNullable<PluginConfig['mermaid']>
 }
 
-let loadedPlugins: HeavyMarkdownPlugins | null = null
-let loadPromise: Promise<HeavyMarkdownPlugins> | null = null
+const loadedPlugins: HeavyMarkdownPlugins = {}
+let codeLoadPromise: Promise<void> | null = null
+let mathLoadPromise: Promise<void> | null = null
+let mermaidLoadPromise: Promise<void> | null = null
 
-export function loadHeavyMarkdownPlugins(): Promise<HeavyMarkdownPlugins> {
-  loadPromise ??= Promise.all([
-    import('@streamdown/mermaid'),
-    import('@streamdown/code'),
-    import('./mathPlugin')
-  ]).then(([mermaidModule, codeModule, mathModule]) => {
-    loadedPlugins = {
-      mermaid: mermaidModule.mermaid,
-      code: codeModule.code,
-      math: mathModule.mathPlugin
-    }
-    return loadedPlugins
-  })
-  return loadPromise
+export function detectHeavyMarkdownFeatures(content: string): HeavyMarkdownFeatures {
+  return {
+    code: /```|~~~/u.test(content),
+    math: /\$|\\\(|\\\[/u.test(content),
+    mermaid: /(?:^|\n)\s*(?:```|~~~)mermaid(?:\s|$)/iu.test(content)
+  }
 }
 
-export function useHeavyMarkdownPlugins(): HeavyMarkdownPlugins | null {
-  const [plugins, setPlugins] = useState(loadedPlugins)
+function loadRequestedPlugins(features: HeavyMarkdownFeatures): Promise<void> {
+  const loads: Promise<void>[] = []
+  if (features.code && !loadedPlugins.code) {
+    codeLoadPromise ??= import('@streamdown/code').then((module) => {
+      loadedPlugins.code = module.code
+    })
+    loads.push(codeLoadPromise)
+  }
+  if (features.math && !loadedPlugins.math) {
+    mathLoadPromise ??= import('./mathPlugin').then((module) => {
+      loadedPlugins.math = module.mathPlugin
+    })
+    loads.push(mathLoadPromise)
+  }
+  if (features.mermaid && !loadedPlugins.mermaid) {
+    mermaidLoadPromise ??= import('@streamdown/mermaid').then((module) => {
+      loadedPlugins.mermaid = module.mermaid
+    })
+    loads.push(mermaidLoadPromise)
+  }
+  return Promise.all(loads).then(() => undefined)
+}
+
+export function useHeavyMarkdownPlugins(content: string): HeavyMarkdownPlugins | null {
+  const { code, math, mermaid } = detectHeavyMarkdownFeatures(content)
+  const [loadVersion, setLoadVersion] = useState(0)
 
   useEffect(() => {
-    if (plugins) return
+    const needsLoad =
+      (code && !loadedPlugins.code) ||
+      (math && !loadedPlugins.math) ||
+      (mermaid && !loadedPlugins.mermaid)
+    if (!needsLoad) return
+
     let cancelled = false
-    loadHeavyMarkdownPlugins()
-      .then((loaded) => {
-        if (!cancelled) setPlugins(loaded)
+    loadRequestedPlugins({ code, math, mermaid })
+      .then(() => {
+        if (!cancelled) setLoadVersion((version) => version + 1)
       })
       .catch((error) => {
-        console.error('[markdown] failed to load highlight/diagram plugins', error)
+        console.error('[markdown] failed to load a rich-markdown plugin', error)
       })
     return () => {
       cancelled = true
     }
-  }, [plugins])
+  }, [code, math, mermaid])
 
-  return plugins
+  return useMemo(() => {
+    void loadVersion
+    const plugins: HeavyMarkdownPlugins = {}
+    if (code && loadedPlugins.code) plugins.code = loadedPlugins.code
+    if (math && loadedPlugins.math) plugins.math = loadedPlugins.math
+    if (mermaid && loadedPlugins.mermaid) plugins.mermaid = loadedPlugins.mermaid
+    return Object.keys(plugins).length > 0 ? plugins : null
+  }, [code, math, mermaid, loadVersion])
 }

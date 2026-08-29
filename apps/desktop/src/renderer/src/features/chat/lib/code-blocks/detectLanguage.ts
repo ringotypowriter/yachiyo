@@ -1,4 +1,3 @@
-import { code as codePlugin } from '@streamdown/code'
 import type { BundledLanguage } from 'shiki'
 
 const extToLang: Record<string, BundledLanguage> = {
@@ -61,8 +60,5 @@ export function detectLanguage(filePath: string | undefined): BundledLanguage | 
   if (lower === 'makefile') return 'makefile'
   const ext = basename.includes('.') ? basename.split('.').pop()?.toLowerCase() : undefined
   if (!ext) return null
-  const lang = extToLang[ext]
-  if (lang && codePlugin.supportsLanguage(lang)) return lang
-  if (codePlugin.supportsLanguage(ext as BundledLanguage)) return ext as BundledLanguage
-  return null
+  return extToLang[ext] ?? (ext as BundledLanguage)
 }

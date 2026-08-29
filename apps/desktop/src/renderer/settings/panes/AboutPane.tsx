@@ -51,7 +51,6 @@ const thirdPartyDeps: ThirdPartyEntry[] = [
     license: 'Apache-2.0',
     url: 'https://github.com/vercel/streamdown'
   },
-  { name: '@tanstack/react-query', license: 'MIT', url: 'https://github.com/TanStack/query' },
   { name: 'telegraf', license: 'MIT', url: 'https://github.com/telegraf/telegraf' },
   { name: 'zod', license: 'MIT', url: 'https://github.com/colinhacks/zod' },
   { name: 'zustand', license: 'MIT', url: 'https://github.com/pmndrs/zustand' }

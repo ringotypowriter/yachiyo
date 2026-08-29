@@ -291,10 +291,7 @@ app.whenReady().then(async () => {
     return
   }
 
-  // Environment first: the login shell provides proxy vars the system-proxy
-  // hydration and the gateway's web session both read.
-  hydrateProcessEnvFromLoginShell()
-  await hydrateProxyFromSystemSettings()
+  // The custom protocol must be installed before the renderer starts loading.
   installYachiyoAssetProtocolHandler()
 
   // Set app user model id for windows
@@ -335,17 +332,20 @@ app.whenReady().then(async () => {
       win.setBackgroundColor(nativeTheme.shouldUseDarkColors ? '#1d2125' : '#f5f4f0')
     }
   })
-  // Create the window before the runtime initializes: the renderer parses its
-  // bundle in its own process while the main process runs the init below.
+  // Start the renderer before synchronous shell/config setup. Chromium can parse
+  // and paint in parallel while the main process prepares the runtime.
   // IMPORTANT: no awaits between createWindow() and registerYachiyoGateway() —
   // renderer IPC queues behind this synchronous block, which guarantees every
   // yachiyo:* handler is registered before the first invoke is dispatched.
   createWindow()
+  hydrateProcessEnvFromLoginShell()
+  const proxyHydration = hydrateProxyFromSystemSettings()
   setupCLI()
   setupCoreSkills()
   const appUpdateController = setupAutoUpdate()
   const server = registerYachiyoGateway({ appUpdateController })
   gatewayServer = server
+  await proxyHydration
 
   // Dev-only Phase-2 spike for the runtime process extraction: verify the
   // utility-process hard points (docs/yachiyo-runtime-process-extraction.md §5).

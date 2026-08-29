@@ -81,10 +81,15 @@ const MarkdownStreamdown = memo(function MarkdownStreamdown({
   urlTransform
 }: MarkdownStreamdownProps): React.JSX.Element {
   const animated = useMemo(() => getMessageMarkdownAnimation(isStreaming), [isStreaming])
+  // Streamdown caches parsed static content. Remount when a lazy syntax plugin
+  // arrives so the already-rendered source is parsed with that plugin.
+  const syntaxPluginKey = `${Boolean(plugins.code)}:${Boolean(plugins.math)}:${Boolean(
+    plugins.mermaid
+  )}`
 
   return (
     <Streamdown
-      key={mermaidThemeKey}
+      key={`${mermaidThemeKey}:${syntaxPluginKey}`}
       isAnimating={isStreaming}
       animated={animated}
       caret={isStreaming ? 'circle' : undefined}
@@ -182,9 +187,8 @@ export function MessageMarkdown({
     }
   }, [imageTransformOptions, imagesEnabled])
 
-  // null until the mermaid/shiki/katex stacks finish their on-demand load;
-  // markdown renders without highlighting for that first moment, then upgrades.
-  const heavyPlugins = useHeavyMarkdownPlugins()
+  // Heavy parsers stay out of ordinary messages and load only when syntax needs them.
+  const heavyPlugins = useHeavyMarkdownPlugins(content)
   const plugins = useMemo<PluginConfig>(
     () => ({
       cjk: markdownCjkPlugin,

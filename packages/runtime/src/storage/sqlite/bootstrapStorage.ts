@@ -6,17 +6,53 @@ import {
   toThreadRecord,
   type YachiyoStorage
 } from '../storage.ts'
-import { channelUsersTable, runsTable, threadFoldersTable, threadsTable } from './schema.ts'
-import type { SqliteDb } from './sqliteRuntime.ts'
+import { channelUsersTable, threadFoldersTable, threadsTable } from './schema.ts'
+import type { BetterSqlite3Client, SqliteDb } from './sqliteRuntime.ts'
+
+type StoredRunRow = Parameters<typeof toRunRecord>[0]
+
+export function selectLatestRunRows(client: Pick<BetterSqlite3Client, 'prepare'>): StoredRunRow[] {
+  return client
+    .prepare(
+      `WITH ranked_runs AS (
+         SELECT *,
+                ROW_NUMBER() OVER (
+                  PARTITION BY thread_id
+                  ORDER BY created_at DESC, id DESC
+                ) AS recency_rank
+         FROM runs
+       )
+       SELECT id,
+              thread_id AS threadId,
+              request_message_id AS requestMessageId,
+              assistant_message_id AS assistantMessageId,
+              status,
+              error,
+              created_at AS createdAt,
+              completed_at AS completedAt,
+              prompt_tokens AS promptTokens,
+              completion_tokens AS completionTokens,
+              total_prompt_tokens AS totalPromptTokens,
+              total_completion_tokens AS totalCompletionTokens,
+              time_to_first_token_ms AS timeToFirstTokenMs,
+              model_generation_duration_ms AS modelGenerationDurationMs,
+              cache_read_tokens AS cacheReadTokens,
+              cache_write_tokens AS cacheWriteTokens,
+              model_id AS modelId,
+              provider_name AS providerName,
+              snapshot_file_count AS snapshotFileCount,
+              workspace_path AS workspacePath
+       FROM ranked_runs
+       WHERE recency_rank = 1`
+    )
+    .all() as StoredRunRow[]
+}
 
 export function createSqliteBootstrapStorageMethods(input: {
+  client: Pick<BetterSqlite3Client, 'prepare'>
   db: SqliteDb
-  isBootstrapThread: (thread: Parameters<typeof toThreadRecord>[0]) => boolean
-  toThreadRecordWithChannelUserRole: (
-    row: Parameters<typeof toThreadRecord>[0]
-  ) => ReturnType<typeof toThreadRecord>
 }): Pick<YachiyoStorage, 'bootstrap'> {
-  const { db, isBootstrapThread, toThreadRecordWithChannelUserRole } = input
+  const { client, db } = input
 
   return {
     bootstrap() {
@@ -29,12 +65,14 @@ export function createSqliteBootstrapStorageMethods(input: {
 
       // Backfill: took-over threads that had source wrongly set to a channel platform.
       // Owner DM threads without a group are local; clear the stale source.
-      const ownerUserIds = db
-        .select({ id: channelUsersTable.id })
+      const channelUsers = db
+        .select({ id: channelUsersTable.id, role: channelUsersTable.role })
         .from(channelUsersTable)
-        .where(eq(channelUsersTable.role, 'owner'))
         .all()
-        .map((row) => row.id)
+      const channelUserRoles = new Map(
+        channelUsers.map((row) => [row.id, row.role ?? 'guest'] as const)
+      )
+      const ownerUserIds = channelUsers.filter((row) => row.role === 'owner').map((row) => row.id)
       if (ownerUserIds.length > 0) {
         db.update(threadsTable)
           .set({ source: null })
@@ -87,47 +125,33 @@ export function createSqliteBootstrapStorageMethods(input: {
         .from(threadsTable)
         .orderBy(desc(threadsTable.updatedAt))
         .all()
-      const localThreads = allThreads.filter(isBootstrapThread)
-      const threads = localThreads
-        .filter((thread) => thread.archivedAt === null)
-        .map(toThreadRecordWithChannelUserRole)
-      const archivedThreads = localThreads
-        .filter((thread) => thread.archivedAt !== null)
-        .map(toThreadRecordWithChannelUserRole)
-      const threadIds = localThreads.map((thread) => thread.id)
-      const latestRunsByThread =
-        threadIds.length === 0
-          ? {}
-          : groupLatestRunsByThread(
-              db
-                .select({
-                  assistantMessageId: runsTable.assistantMessageId,
-                  completedAt: runsTable.completedAt,
-                  completionTokens: runsTable.completionTokens,
-                  createdAt: runsTable.createdAt,
-                  error: runsTable.error,
-                  id: runsTable.id,
-                  promptTokens: runsTable.promptTokens,
-                  requestMessageId: runsTable.requestMessageId,
-                  status: runsTable.status,
-                  threadId: runsTable.threadId,
-                  totalCompletionTokens: runsTable.totalCompletionTokens,
-                  totalPromptTokens: runsTable.totalPromptTokens,
-                  timeToFirstTokenMs: runsTable.timeToFirstTokenMs,
-                  modelGenerationDurationMs: runsTable.modelGenerationDurationMs,
-                  cacheReadTokens: runsTable.cacheReadTokens,
-                  cacheWriteTokens: runsTable.cacheWriteTokens,
-                  modelId: runsTable.modelId,
-                  providerName: runsTable.providerName,
-                  snapshotFileCount: runsTable.snapshotFileCount,
-                  workspacePath: runsTable.workspacePath
-                })
-                .from(runsTable)
-                .where(inArray(runsTable.threadId, threadIds))
-                .orderBy(desc(runsTable.createdAt))
-                .all()
-                .map(toRunRecord)
-            )
+      const localThreads = allThreads.filter((thread) => {
+        if (
+          (thread.source === null || thread.source === 'local') &&
+          thread.channelUserId === null
+        ) {
+          return true
+        }
+        return (
+          thread.channelGroupId === null &&
+          thread.channelUserId !== null &&
+          channelUserRoles.get(thread.channelUserId) === 'owner'
+        )
+      })
+      const localThreadRecords = localThreads.map((thread) => {
+        const record = toThreadRecord(thread)
+        const role =
+          thread.channelUserId === null ? undefined : channelUserRoles.get(thread.channelUserId)
+        return role ? { ...record, channelUserRole: role } : record
+      })
+      const threads = localThreadRecords.filter((thread) => thread.archivedAt === undefined)
+      const archivedThreads = localThreadRecords.filter((thread) => thread.archivedAt !== undefined)
+      const threadIds = new Set(localThreads.map((thread) => thread.id))
+      const latestRunsByThread = groupLatestRunsByThread(
+        selectLatestRunRows(client)
+          .filter((run) => threadIds.has(run.threadId))
+          .map(toRunRecord)
+      )
 
       const folders = db
         .select()

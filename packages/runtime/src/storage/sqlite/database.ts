@@ -1,3 +1,5 @@
+import { dirname, join } from 'node:path'
+
 import { and, asc, count, desc, eq, gt, gte, inArray, isNotNull, isNull, or } from 'drizzle-orm'
 
 import { createSqliteAuxiliaryStorageMethods } from './auxiliaryStorage.ts'
@@ -18,7 +20,7 @@ import {
   toolCallsTable
 } from './schema.ts'
 import { openMigratedSqliteDatabase } from './sqliteRuntime.ts'
-import { ensureThreadSearchIndex, repairRunRequestMessageIds } from './threadSearchIndex.ts'
+import { ensureThreadSearchIndex, repairRunRequestMessageIdsOnce } from './threadSearchIndex.ts'
 import { createSqliteThreadSearchStorageMethods } from './threadSearchStorage.ts'
 import { createSqliteThingsStorageMethods } from './thingsStorage.ts'
 import {
@@ -57,6 +59,7 @@ import { sortToolCallsChronologically } from '@yachiyo/shared/toolCallOrder'
  * runtime can finish booting and answer the renderer's bootstrap first.
  */
 const DEFERRED_FTS_REBUILD_DELAY_MS = 5_000
+const RUN_REQUEST_MESSAGE_REPAIR_MARKER = '.run-request-message-id-repair-v1.done'
 
 export interface CreateSqliteYachiyoStorageOptions {
   /**
@@ -93,7 +96,10 @@ export function createSqliteYachiyoStorage(
         }
       : {}
   )
-  repairRunRequestMessageIds(client)
+  repairRunRequestMessageIdsOnce(
+    client,
+    dbPath === ':memory:' ? null : join(dirname(dbPath), RUN_REQUEST_MESSAGE_REPAIR_MARKER)
+  )
   const backgroundResponseMessagesRepairQueue = createBackgroundResponseMessagesRepairQueue(dbPath)
   const getChannelUserRole = (channelUserId: string | null): ChannelUserRole | undefined => {
     if (channelUserId === null) return undefined
@@ -267,9 +273,8 @@ export function createSqliteYachiyoStorage(
     },
 
     ...createSqliteBootstrapStorageMethods({
-      db,
-      isBootstrapThread,
-      toThreadRecordWithChannelUserRole
+      client,
+      db
     }),
     ...createSqliteThingsStorageMethods(db),
 

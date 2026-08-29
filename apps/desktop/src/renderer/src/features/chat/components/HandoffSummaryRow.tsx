@@ -1,16 +1,19 @@
 import { useMemo } from 'react'
 import type React from 'react'
 import { Streamdown } from 'streamdown'
-import { code } from '@streamdown/code'
 import { theme } from '@renderer/theme/theme'
-import { mathPlugin } from '@renderer/lib/markdown/mathPlugin'
+import { useHeavyMarkdownPlugins } from '@renderer/lib/markdown/heavyMarkdownPlugins'
 
 interface HandoffSummaryRowProps {
   content: string
 }
 
 export function HandoffSummaryRow({ content }: HandoffSummaryRowProps): React.JSX.Element {
-  const plugins = useMemo(() => ({ math: mathPlugin, code }), [])
+  const heavyPlugins = useHeavyMarkdownPlugins(content)
+  const plugins = useMemo(
+    () => (heavyPlugins ? { math: heavyPlugins.math, code: heavyPlugins.code } : {}),
+    [heavyPlugins]
+  )
 
   return (
     <div className="handoff-fold-summary message-selectable">

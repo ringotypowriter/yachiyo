@@ -1,3 +1,5 @@
+import 'katex/dist/katex.min.css'
+
 import type { MathPlugin } from 'streamdown'
 import type { Pluggable } from 'unified'
 import remarkMath from 'remark-math'

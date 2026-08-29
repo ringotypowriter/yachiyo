@@ -1,4 +1,4 @@
-import { Suspense, lazy, useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
+import { Suspense, lazy, useCallback, useEffect, useState, type ReactNode } from 'react'
 import { LoaderCircle } from 'lucide-react'
 import { useT } from '@yachiyo/i18n/react'
 import { useAppStore } from '@renderer/app/store/useAppStore'
@@ -34,7 +34,6 @@ import {
 } from '@renderer/features/onboarding/onboardingSetup'
 import { useApplyThemeConfig } from '@renderer/theme/useThemeConfig'
 import { useApplyLanguageConfig } from '@renderer/i18n/useI18nConfig'
-import { loadHeavyMarkdownPlugins } from '@renderer/lib/markdown/heavyMarkdownPlugins'
 
 // Loaded on first settings open — the settings surface is a large subtree the
 // user may never visit, so keep it out of the startup bundle.
@@ -60,11 +59,9 @@ function SettingsLoadingFallback(): React.JSX.Element {
 }
 
 function ConnectionOverlay({
-  status,
-  exiting
+  status
 }: {
   status: 'connecting' | 'disconnected'
-  exiting: boolean
 }): React.JSX.Element {
   const t = useT()
   return (
@@ -78,13 +75,7 @@ function ConnectionOverlay({
         alignItems: 'center',
         justifyContent: 'center',
         gap: 16,
-        backdropFilter: 'blur(24px) saturate(1.4)',
-        WebkitBackdropFilter: 'blur(24px) saturate(1.4)',
-        background: theme.background.surfaceLight,
-        opacity: exiting ? 0 : 1,
-        transform: exiting ? 'translateY(-16px)' : 'translateY(0)',
-        transition: exiting ? 'opacity 380ms ease, transform 380ms ease' : 'none',
-        pointerEvents: exiting ? 'none' : undefined
+        background: theme.background.surfaceFrosted
       }}
     >
       <div
@@ -239,9 +230,6 @@ function App(): React.JSX.Element {
     toggleSidebar
   } = useSidebarVisibilityState()
   const connectionStatus = useAppStore((s) => s.connectionStatus)
-  const [overlayMounted, setOverlayMounted] = useState(() => connectionStatus !== 'connected')
-  const [overlayExiting, setOverlayExiting] = useState(false)
-  const overlayShownAtRef = useRef<number>(0)
   const [runtimeCrashed, setRuntimeCrashed] = useState(false)
   const [onboardingDismissed, setOnboardingDismissed] = useState(
     () => localStorage.getItem(ONBOARDING_DISMISSED_STORAGE_KEY) === '1'
@@ -269,44 +257,6 @@ function App(): React.JSX.Element {
     }
   }, [])
 
-  // Warm the heavy markdown plugin stacks (mermaid/shiki/katex) shortly after
-  // first paint so threads opened later render highlighted immediately.
-  useEffect(() => {
-    const handle = window.setTimeout(() => {
-      loadHeavyMarkdownPlugins().catch((error) => {
-        console.error('[markdown] plugin prefetch failed', error)
-      })
-    }, 500)
-    return () => window.clearTimeout(handle)
-  }, [])
-
-  useEffect(() => {
-    if (connectionStatus !== 'connected') {
-      overlayShownAtRef.current = Date.now()
-      const t = setTimeout(() => {
-        setOverlayMounted(true)
-        setOverlayExiting(false)
-      }, 0)
-      return () => clearTimeout(t)
-    }
-
-    const elapsed = Date.now() - overlayShownAtRef.current
-    const delay = Math.max(0, 2000 - elapsed)
-    let removeTimer: ReturnType<typeof setTimeout> | null = null
-
-    const exitTimer = setTimeout(() => {
-      setOverlayExiting(true)
-      removeTimer = setTimeout(() => {
-        setOverlayMounted(false)
-        setOverlayExiting(false)
-      }, 400)
-    }, delay)
-
-    return () => {
-      clearTimeout(exitTimer)
-      if (removeTimer !== null) clearTimeout(removeTimer)
-    }
-  }, [connectionStatus])
   const config = useAppStore((s) => s.config)
   useApplyThemeConfig(config)
   useApplyLanguageConfig(config)
@@ -687,11 +637,8 @@ function App(): React.JSX.Element {
             />
           </Suspense>
         )}
-      {overlayMounted && !runtimeCrashed && (
-        <ConnectionOverlay
-          status={connectionStatus === 'connected' ? 'connecting' : connectionStatus}
-          exiting={overlayExiting}
-        />
+      {connectionStatus !== 'connected' && !runtimeCrashed && (
+        <ConnectionOverlay status={connectionStatus} />
       )}
       {runtimeCrashed && <RuntimeCrashOverlay />}
     </div>

@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react'
-import { code as codePlugin } from '@streamdown/code'
 import type { BundledLanguage } from 'shiki'
 import { requestHighlightTokens, type HighlightToken } from './highlightTokens.ts'
 
@@ -10,15 +9,24 @@ export function useCodeHighlightTokens(
   const [tokensByLine, setTokensByLine] = useState<HighlightToken[][] | null>(null)
 
   useEffect(() => {
+    setTokensByLine(null)
     if (!language) return
+
     let cancelled = false
-    requestHighlightTokens(
-      codePlugin,
-      { code, language, themes: codePlugin.getThemes() },
-      (lines) => {
-        if (!cancelled) setTokensByLine(lines)
-      }
-    )
+    void import('@streamdown/code')
+      .then(({ code: codePlugin }) => {
+        if (cancelled || !codePlugin.supportsLanguage(language)) return
+        requestHighlightTokens(
+          codePlugin,
+          { code, language, themes: codePlugin.getThemes() },
+          (lines) => {
+            if (!cancelled) setTokensByLine(lines)
+          }
+        )
+      })
+      .catch((error) => {
+        console.error('[code-highlight] failed to load highlighter', error)
+      })
     return () => {
       cancelled = true
     }

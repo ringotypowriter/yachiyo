@@ -1,3 +1,5 @@
+import { existsSync, writeFileSync } from 'node:fs'
+
 import { FTS_TOKENIZE } from '../ftsQuery.ts'
 import type { BetterSqlite3Client } from './sqliteRuntime.ts'
 
@@ -148,12 +150,17 @@ function rebuildAllFtsTables(client: BetterSqlite3Client): void {
 }
 
 /**
- * One-time repair: for completed runs whose assistantMessageId points to a
- * message with a different parentMessageId than the run's requestMessageId,
- * update the run to match. This fixes stale requestMessageIds from steered
- * runs that were persisted before the fix was shipped.
+ * Compatibility repair for runs persisted before requestMessageId followed
+ * steered assistant messages. The marker keeps this historical random-read
+ * scan off every subsequent cold start.
  */
-export function repairRunRequestMessageIds(client: BetterSqlite3Client): void {
+export function repairRunRequestMessageIdsOnce(
+  client: BetterSqlite3Client,
+  markerPath: string | null
+): void {
+  if (markerPath !== null && existsSync(markerPath)) {
+    return
+  }
   client
     .prepare(
       `UPDATE runs
@@ -167,6 +174,10 @@ export function repairRunRequestMessageIds(client: BetterSqlite3Client): void {
          )`
     )
     .run()
+
+  if (markerPath !== null) {
+    writeFileSync(markerPath, 'complete\n', 'utf8')
+  }
 }
 
 /**

@@ -271,7 +271,7 @@ export const runsTable = sqliteTable(
     workspacePath: text('workspace_path')
   },
   (table) => [
-    index('runs_thread_id_idx').on(table.threadId),
+    index('runs_thread_id_created_at_idx').on(table.threadId, table.createdAt),
     index('runs_request_message_id_idx').on(table.requestMessageId),
     index('runs_assistant_message_id_idx').on(table.assistantMessageId)
   ]

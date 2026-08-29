@@ -1,4 +1,13 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import {
+  Suspense,
+  lazy,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode
+} from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { t, tPlural, type AppCatalog } from '@yachiyo/i18n/index'
 import type { MessageKey } from '@yachiyo/i18n/core'
@@ -13,13 +22,10 @@ import {
   selectThreadRunningCount
 } from '@renderer/features/chat/state/useBackgroundTasksStore'
 import { Composer } from '@renderer/features/chat/components/Composer'
-import { ExternalThreadViewer } from '@renderer/features/chat/components/ExternalThreadViewer'
-import { MessageTimeline } from '@renderer/features/chat/components/MessageTimeline'
 import {
   TimelineSurfaceHeader,
   type MessageTimelineSurface
 } from '@renderer/features/chat/components/TimelineSurfaceHeader'
-import { ArchivedThreadsPage } from '@renderer/features/layout/components/ArchivedThreadsPage'
 import { AppMainPanelHeader } from '@renderer/features/layout/components/AppMainPanelHeader'
 import { WelcomeSparks } from '@renderer/features/layout/components/WelcomeSparks'
 import { RunInspectionPanel } from '@renderer/features/runs/components/RunInspectionPanel'
@@ -36,6 +42,7 @@ import { deriveBrowserActivity } from '@renderer/features/chat/lib/browser-activ
 import { selectContextPromptTokens } from '@renderer/lib/contextPromptTokens'
 import { Lock, MessageSquare, Trash2 } from 'lucide-react'
 import { ConfirmDialog } from '@renderer/components/ConfirmDialog'
+
 import { useAppDialog } from '@renderer/components/AppDialogContext'
 import { Tooltip } from '@renderer/components/Tooltip'
 import { theme } from '@renderer/theme/theme'
@@ -46,6 +53,21 @@ import type {
 } from '@yachiyo/shared/protocol'
 import { isMemoryConfigured } from '@yachiyo/shared/protocol'
 import { isLatestRunPlanMode } from '@yachiyo/shared/planMode'
+const ArchivedThreadsPage = lazy(() =>
+  import('@renderer/features/layout/components/ArchivedThreadsPage').then((module) => ({
+    default: module.ArchivedThreadsPage
+  }))
+)
+const ExternalThreadViewer = lazy(() =>
+  import('@renderer/features/chat/components/ExternalThreadViewer').then((module) => ({
+    default: module.ExternalThreadViewer
+  }))
+)
+const MessageTimeline = lazy(() =>
+  import('@renderer/features/chat/components/MessageTimeline').then((module) => ({
+    default: module.MessageTimeline
+  }))
+)
 
 const EMPTY: Message[] = []
 const EMPTY_FIND_MATCHES: FindMatch[] = []
@@ -786,7 +808,11 @@ export function AppMainPanel({
 
   if (threadListMode === 'archived') {
     return children({
-      content: <ArchivedThreadsPage activeThread={activeArchivedThread} />,
+      content: (
+        <Suspense fallback={null}>
+          <ArchivedThreadsPage activeThread={activeArchivedThread} />
+        </Suspense>
+      ),
       contentTopControls: (
         <div
           className="flex h-full min-w-0 flex-1 items-center"
@@ -855,7 +881,11 @@ export function AppMainPanel({
 
   if (isExternal) {
     return children({
-      content: <ExternalThreadViewer threadId={activeThreadId} />,
+      content: (
+        <Suspense fallback={null}>
+          <ExternalThreadViewer threadId={activeThreadId} />
+        </Suspense>
+      ),
       contentTopControls: (
         <AppMainPanelHeader
           activeThread={activeThread}
@@ -979,19 +1009,21 @@ export function AppMainPanel({
                   exit={{ opacity: 0, scale: 0.985 }}
                   transition={{ duration: 0.2, ease: 'easeOut' }}
                 >
-                  <MessageTimeline
-                    key={activeThreadId ?? 'empty'}
-                    threadId={activeThreadId}
-                    recapText={recapText}
-                    activeSurface={activeTimelineSurface}
-                    browserSessions={browserActivity.sessions}
-                    selectedBrowserSession={selectedBrowserSession}
-                    browserActivityBubble={browserActivityBubble}
-                    browserViewSuspended={isBrowserSessionMenuOpen}
-                    browserSessionPickerOpen={isBrowserSessionMenuOpen}
-                    onSelectedBrowserSessionChange={setSelectedBrowserSession}
-                    onBrowserSessionPickerOpenChange={setIsBrowserSessionMenuOpen}
-                  />
+                  <Suspense fallback={null}>
+                    <MessageTimeline
+                      key={activeThreadId ?? 'empty'}
+                      threadId={activeThreadId}
+                      recapText={recapText}
+                      activeSurface={activeTimelineSurface}
+                      browserSessions={browserActivity.sessions}
+                      selectedBrowserSession={selectedBrowserSession}
+                      browserActivityBubble={browserActivityBubble}
+                      browserViewSuspended={isBrowserSessionMenuOpen}
+                      browserSessionPickerOpen={isBrowserSessionMenuOpen}
+                      onSelectedBrowserSessionChange={setSelectedBrowserSession}
+                      onBrowserSessionPickerOpenChange={setIsBrowserSessionMenuOpen}
+                    />
+                  </Suspense>
                 </motion.div>
               )}
             </AnimatePresence>

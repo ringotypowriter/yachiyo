@@ -1,8 +1,7 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react'
 import { ChevronRight } from 'lucide-react'
 import { Streamdown } from 'streamdown'
-import { mathPlugin } from '@renderer/lib/markdown/mathPlugin'
-import { code } from '@streamdown/code'
+import { useHeavyMarkdownPlugins } from '@renderer/lib/markdown/heavyMarkdownPlugins'
 import { theme } from '@renderer/theme/theme'
 import { useT } from '@yachiyo/i18n/react'
 import { useThinkingPager } from '../hooks/useThinkingPager'
@@ -35,7 +34,11 @@ export function ThinkingBlock({
     }
   }, [isActive])
 
-  const plugins = useMemo(() => ({ math: mathPlugin, code }), [])
+  const heavyPlugins = useHeavyMarkdownPlugins(reasoning)
+  const plugins = useMemo(
+    () => (heavyPlugins ? { math: heavyPlugins.math, code: heavyPlugins.code } : {}),
+    [heavyPlugins]
+  )
 
   if (!reasoning) return null
 

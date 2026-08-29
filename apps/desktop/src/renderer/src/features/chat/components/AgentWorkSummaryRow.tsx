@@ -13,10 +13,9 @@ import {
   Wrench
 } from 'lucide-react'
 import { Streamdown } from 'streamdown'
-import { code } from '@streamdown/code'
 import type { RunRecord, ToolCall } from '@renderer/app/types'
 import { useAppStore } from '@renderer/app/store/useAppStore'
-import { mathPlugin } from '@renderer/lib/markdown/mathPlugin'
+import { useHeavyMarkdownPlugins } from '@renderer/lib/markdown/heavyMarkdownPlugins'
 import { theme, alpha } from '@renderer/theme/theme'
 import { useT } from '@yachiyo/i18n/react'
 import { tPlural } from '@yachiyo/i18n/index'
@@ -514,7 +513,11 @@ function ScrollableMarkdown({
   tone: 'thought' | 'note' | 'steer'
 }): React.JSX.Element {
   const contentRef = useRef<HTMLDivElement>(null)
-  const plugins = useMemo(() => ({ math: mathPlugin, code }), [])
+  const heavyPlugins = useHeavyMarkdownPlugins(value)
+  const plugins = useMemo(
+    () => (heavyPlugins ? { math: heavyPlugins.math, code: heavyPlugins.code } : {}),
+    [heavyPlugins]
+  )
 
   useEffect(() => {
     if (tone === 'thought' && contentRef.current) {

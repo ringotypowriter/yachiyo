@@ -1,8 +1,11 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 
 import { FTS_TOKENIZE } from '../ftsQuery.ts'
-import { ensureThreadSearchIndex } from './threadSearchIndex.ts'
+import { ensureThreadSearchIndex, repairRunRequestMessageIdsOnce } from './threadSearchIndex.ts'
 
 interface FakeClient {
   execSql: string[]
@@ -131,4 +134,30 @@ test('no scheduler call when the index is already populated', () => {
   })
 
   assert.equal(scheduled.length, 0)
+})
+
+test('legacy run request-message repair executes once per data directory', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'yachiyo-run-repair-'))
+  const markerPath = join(root, '.run-request-message-id-repair-v1.done')
+  let repairRuns = 0
+  const client = {
+    prepare(sql: string) {
+      assert.match(sql, /UPDATE runs/u)
+      return {
+        run() {
+          repairRuns += 1
+        }
+      }
+    }
+  } as never
+
+  try {
+    repairRunRequestMessageIdsOnce(client, markerPath)
+    repairRunRequestMessageIdsOnce(client, markerPath)
+
+    assert.equal(repairRuns, 1)
+    assert.equal(await readFile(markerPath, 'utf8'), 'complete\n')
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
 })
