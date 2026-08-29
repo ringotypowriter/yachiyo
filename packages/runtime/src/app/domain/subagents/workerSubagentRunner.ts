@@ -72,11 +72,16 @@ function buildWorkerSystemPrompt(
   hasSkillsRead: boolean,
   identity: { agentId: string; parentThreadId: string }
 ): string {
-  const sections = [
-    baseSystemPrompt,
-    `You are Worker Agent ${identity.agentId} in team thread ${identity.parentThreadId}. Use sendMessage with to "parent" for parent updates or an exact agent ID for peer messages. A queued receipt is not a reply.`,
-    WORKSPACE_CONCURRENCY_INSTRUCTION
-  ]
+  const collaborationInstruction = [
+    `You are Worker Agent ${identity.agentId} in team thread ${identity.parentThreadId}.`,
+    'The final response from your initial task is delivered to the parent automatically.',
+    'During the initial turn, use sendMessage with to "parent" only for intermediate updates',
+    'that must arrive before the turn ends; do not repeat the final response through sendMessage.',
+    'Final text from later message-triggered turns is not delivered automatically.',
+    'Use sendMessage when a reply is needed.',
+    'Use an exact agent ID for peer messages. A queued receipt is not a reply.'
+  ].join(' ')
+  const sections = [baseSystemPrompt, collaborationInstruction, WORKSPACE_CONCURRENCY_INSTRUCTION]
   if (hasSkillsRead && activeSkillNames.length > 0) {
     sections.push(`Active Skills: ${activeSkillNames.join(', ')}.`)
   }
@@ -111,6 +116,9 @@ function sanitizeWorkerRunnerInput(input: WorkerRunnerFactoryInput): WorkerRunne
       ? { availableSkills: [...parentDependenciesInput.availableSkills] }
       : {}),
     ...(parentDependenciesInput.fetchImpl ? { fetchImpl: parentDependenciesInput.fetchImpl } : {}),
+    ...(parentDependenciesInput.jsReplWorkerPath
+      ? { jsReplWorkerPath: parentDependenciesInput.jsReplWorkerPath }
+      : {}),
     ...(parentDependenciesInput.searchService
       ? { searchService: parentDependenciesInput.searchService }
       : {}),
@@ -190,6 +198,9 @@ function createWorkerRunner(
       ? { availableSkills: parentDependenciesInput.availableSkills }
       : {}),
     ...(parentDependenciesInput.fetchImpl ? { fetchImpl: parentDependenciesInput.fetchImpl } : {}),
+    ...(parentDependenciesInput.jsReplWorkerPath
+      ? { jsReplWorkerPath: parentDependenciesInput.jsReplWorkerPath }
+      : {}),
     ...(parentDependenciesInput.searchService
       ? { searchService: parentDependenciesInput.searchService }
       : {}),
@@ -260,6 +271,9 @@ function createWorkerRunner(
     availableSkills: parentDependencies.availableSkills,
     activeSkills,
     searchService: parentDependencies.searchService,
+    ...(parentDependencies.jsReplWorkerPath
+      ? { jsReplWorkerPath: parentDependencies.jsReplWorkerPath }
+      : {}),
     ...(enabledTools.has('webRead') || enabledTools.has('jsRepl')
       ? { fetchImpl: parentDependencies.fetchImpl }
       : {}),

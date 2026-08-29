@@ -25,6 +25,7 @@ export type RpcMethods<T> = {
 }
 
 interface PendingCall {
+  promise: Promise<unknown>
   resolve: (value: unknown) => void
   reject: (error: Error) => void
   onProgress: ((value: unknown) => void) | undefined
@@ -44,6 +45,22 @@ export function createRpcClient(transport: RpcTransport): RpcClient {
   const eventListeners = new Set<(event: unknown) => void>()
   let nextId = 1
   let closed = false
+
+  const closePendingCalls = (expected: boolean): boolean => {
+    if (closed) return false
+    closed = true
+    for (const call of pending.values()) {
+      if (expected) {
+        // Explicit local shutdown abandons these calls by design. Keep the
+        // rejection observable to awaiters without leaking an unhandled promise.
+        void call.promise.catch(() => undefined)
+      }
+      call.reject(new Error('RPC transport closed'))
+    }
+    pending.clear()
+    eventListeners.clear()
+    return true
+  }
 
   transport.onMessage((message) => {
     if (message.kind === 'rpc:response') {
@@ -78,11 +95,7 @@ export function createRpcClient(transport: RpcTransport): RpcClient {
   })
 
   transport.onClose(() => {
-    closed = true
-    for (const call of pending.values()) {
-      call.reject(new Error('RPC transport closed'))
-    }
-    pending.clear()
+    closePendingCalls(false)
   })
 
   return {
@@ -91,19 +104,24 @@ export function createRpcClient(transport: RpcTransport): RpcClient {
         return Promise.reject(new Error('RPC transport closed'))
       }
       const id = nextId++
-      return new Promise((resolve, reject) => {
-        pending.set(id, { resolve, reject, onProgress: options?.onProgress })
-        const request: RpcRequestMessage = { kind: 'rpc:request', id, method, args }
-        if (options?.onProgress) {
-          request.expectsProgress = true
-        }
-        try {
-          transport.post(request)
-        } catch (error) {
-          pending.delete(id)
-          reject(error instanceof Error ? error : new Error(String(error)))
-        }
+      const deferred = Promise.withResolvers<unknown>()
+      pending.set(id, {
+        promise: deferred.promise,
+        resolve: deferred.resolve,
+        reject: deferred.reject,
+        onProgress: options?.onProgress
       })
+      const request: RpcRequestMessage = { kind: 'rpc:request', id, method, args }
+      if (options?.onProgress) {
+        request.expectsProgress = true
+      }
+      try {
+        transport.post(request)
+      } catch (error) {
+        pending.delete(id)
+        deferred.reject(error instanceof Error ? error : new Error(String(error)))
+      }
+      return deferred.promise
     },
     subscribe(listener) {
       eventListeners.add(listener)
@@ -112,7 +130,9 @@ export function createRpcClient(transport: RpcTransport): RpcClient {
       }
     },
     close() {
-      transport.close()
+      if (closePendingCalls(true)) {
+        transport.close()
+      }
     }
   }
 }

@@ -1,4 +1,5 @@
 import type React from 'react'
+import type { BundledLanguage } from 'shiki'
 import { useCallback } from 'react'
 import { FolderOpen, SquareArrowOutUpRight } from 'lucide-react'
 import { alpha, solid } from '@renderer/theme/theme'
@@ -14,6 +15,7 @@ import { useCodeHighlightTokens } from '../lib/code-blocks/useCodeHighlightToken
 interface ToolCodeBlockProps {
   value: string
   filePath?: string
+  language?: BundledLanguage | null
   variant?: 'diff' | 'preview'
   /** When true, remove the max-height cap so the block fills its parent. */
   fillHeight?: boolean
@@ -116,22 +118,31 @@ function renderTokens(tokens: HighlightToken[]): React.JSX.Element[] {
 export function ToolCodeBlock({
   value,
   filePath,
+  language,
   variant = 'preview',
   fillHeight = false
 }: ToolCodeBlockProps): React.JSX.Element {
   if (variant === 'diff')
     return <DiffView value={value} filePath={filePath} fillHeight={fillHeight} />
-  return <PreviewView value={value} filePath={filePath} />
+  return <PreviewView value={value} filePath={filePath} language={language} />
 }
 
 // ---------------------------------------------------------------------------
 // Preview variant
 // ---------------------------------------------------------------------------
 
-function PreviewView({ value, filePath }: { value: string; filePath?: string }): React.JSX.Element {
+function PreviewView({
+  value,
+  filePath,
+  language
+}: {
+  value: string
+  filePath?: string
+  language?: BundledLanguage | null
+}): React.JSX.Element {
   const lines = value.split('\n')
-  const tokensByLine = useCodeHighlightTokens(value, detectLanguage(filePath))
-
+  const resolvedLanguage = language === undefined ? detectLanguage(filePath) : language
+  const tokensByLine = useCodeHighlightTokens(value, resolvedLanguage)
   return (
     <Container maxHeight="320px" filePath={filePath}>
       {lines.map((line, i) => (

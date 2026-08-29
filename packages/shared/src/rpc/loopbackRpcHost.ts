@@ -42,7 +42,7 @@ export function createLoopbackRpcHost<T extends object>(
     proxy: createRpcMethodProxy<T>(client),
     client,
     dispose: () => {
-      clientTransport.close()
+      client.close()
       disposeServer()
     }
   }

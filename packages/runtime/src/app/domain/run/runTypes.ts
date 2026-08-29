@@ -107,6 +107,7 @@ export interface RunDomainDeps {
   auxiliaryGeneration: AuxiliaryGenerationService
   createModelRuntime: () => ModelRuntime
   processBroker: ProcessBroker
+  jsReplWorkerPath?: string | URL
   ensureThreadWorkspace: (threadId: string) => Promise<string>
   fetchImpl?: typeof globalThis.fetch
   webExternalFetchImpl?: typeof globalThis.fetch

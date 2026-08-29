@@ -144,6 +144,7 @@ export interface RunExecutionDeps {
   emit: EmitServerEvent
   createModelRuntime: () => ModelRuntime
   processBroker: ProcessBroker
+  jsReplWorkerPath?: string | URL
   ensureThreadWorkspace: (threadId: string) => Promise<string>
   buildMemoryLayerEntries?: (input: {
     requestMessageId: string

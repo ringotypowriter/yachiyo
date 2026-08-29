@@ -27,6 +27,7 @@ import {
 import { createRpcBrowserAutomationBackend } from '@yachiyo/runtime/services/browserAutomation/browserAutomationRpcBridge'
 import { createJotdownStore } from '@yachiyo/runtime/services/jotdownStore'
 import { NativeProcessBroker } from '@yachiyo/runtime/services/processBroker/nativeProcessBroker'
+import jsReplWorkerPath from '@yachiyo/runtime/tools/agentTools/jsReplWorker?modulePath'
 import { createRpcWebExternalFetch } from '@yachiyo/runtime/services/webExternalFetchRpcBridge'
 import { createRpcBrowserSearchPageFactory } from '@yachiyo/runtime/services/webSearch/browserSearchPageFactoryRpcBridge'
 import {
@@ -94,7 +95,8 @@ process.parentPort.on('message', (event) => {
             browserAutomationService: createRpcBrowserAutomationBackend(mainServices),
             browserSearchPageFactory: createRpcBrowserSearchPageFactory(mainServices),
             activityTracker: createRpcActivitySummarySource(mainServices),
-            processBroker
+            processBroker,
+            jsReplWorkerPath
           })
       })
       startedServer = nextServer

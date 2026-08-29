@@ -128,6 +128,7 @@ interface AgentRecord {
   readonly controller: AbortController
   readonly runner: SubagentRunner
   readonly mailbox: AgentMessageEnvelope[]
+  readonly parentMessagesThisTurn: Set<string>
   snapshot: SubagentSnapshot
   mailboxBytes: number
   nextSequence: number
@@ -268,6 +269,7 @@ export class SubagentManager {
       controller,
       runner,
       mailbox: [],
+      parentMessagesThisTurn: new Set(),
       snapshot,
       mailboxBytes: 0,
       nextSequence: 1,
@@ -332,6 +334,7 @@ export class SubagentManager {
       const recipientState = this.deps.getParentState(parentThreadId)
       this.emitMessage(senderRecord, envelope)
       this.deliver(senderRecord, envelope, 'message', message)
+      senderRecord.parentMessagesThisTurn.add(message)
       return { messageId: envelope.id, delivery: 'queued', recipientState }
     }
 
@@ -493,6 +496,7 @@ export class SubagentManager {
   private async drain(record: AgentRecord): Promise<void> {
     try {
       while (record.snapshot.state === 'running' && !this.closing) {
+        record.parentMessagesThisTurn.clear()
         const messages = record.mailbox.splice(0)
         record.mailboxBytes = 0
         const turnId = this.deps.createId()
@@ -599,8 +603,11 @@ export class SubagentManager {
     if (!record.initialResultDelivered) {
       record.initialResultDelivered = true
       const message = output || 'Agent completed without a final text response.'
-      this.deliver(record, undefined, 'initial-result', message)
+      if (!record.parentMessagesThisTurn.has(message)) {
+        this.deliver(record, undefined, 'initial-result', message)
+      }
     }
+    record.parentMessagesThisTurn.clear()
   }
 
   private deliver(

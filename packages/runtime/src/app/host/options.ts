@@ -35,6 +35,7 @@ export interface YachiyoServerOptions {
   createModelRuntime?: () => ModelRuntime
   searchService?: SearchService
   processBroker?: ProcessBroker
+  jsReplWorkerPath?: string | URL
   readSoulDocument?: () => Promise<SoulDocument | null>
   addSoulTrait?: (trait: string) => Promise<SoulDocument | null>
   removeSoulTrait?: (trait: string) => Promise<SoulDocument | null>

@@ -114,6 +114,7 @@ import {
 import { createAppUpdateCommandHandler } from '../cli/appUpdateCommand.ts'
 import { createProviderFetch } from '../net/providerFetch.ts'
 import { openThreadWorkspace } from '../electron/openThreadWorkspace.ts'
+import { deferAppQuitUntil } from '../electron/deferredAppQuit.ts'
 import { readAppLogEntries } from '../logs/appLogFiles.ts'
 import { discoverApps, findDiscoveredApp, launchDiscoveredApp } from '../electron/appDiscovery.ts'
 import {
@@ -123,6 +124,7 @@ import {
 import { runAfterRuntimeLiveServicesReady } from '@yachiyo/runtime/app/host/runtimeLiveServicesReadiness'
 import { mergeRpcTargets } from '@yachiyo/shared/rpc/mergeRpcTargets'
 import { createWebExternalFetchRpcTarget } from '@yachiyo/runtime/services/webExternalFetchRpcBridge'
+import jsReplWorkerPath from '@yachiyo/runtime/tools/agentTools/jsReplWorker?modulePath'
 import { createJotdownStore } from '@yachiyo/runtime/services/jotdownStore'
 import {
   createElectronProviderCredentialVault,
@@ -566,8 +568,8 @@ function registerFatalRunRecovery(): void {
     }
   })
 
-  // Keep the main process alive and prevent Electron error dialogs when
-  // sandboxed code (e.g. jsRepl timers) leaks an async error.
+  // Keep the main process alive long enough to persist interrupted-run diagnostics
+  // instead of letting Electron replace the application error with a native dialog.
   process.on('uncaughtException', (error) => {
     console.error('[yachiyo] uncaughtException:', error)
   })
@@ -595,6 +597,7 @@ function createConfiguredServer(
     settingsPath: resolveYachiyoSettingsPath(),
     developmentMode: is.dev,
     seedPresetProviders: true,
+    jsReplWorkerPath,
     providerCredentialVault: createElectronProviderCredentialVault(resolveYachiyoSettingsPath()),
     fetchImpl: createProviderFetch({
       env: process.env,
@@ -815,7 +818,9 @@ export function registerYachiyoGateway(options: {
       subscribe: (listener) =>
         serverRpc!.client.subscribe((event) => listener(event as YachiyoServerEvent)),
       cancelActiveRuns: () => {
-        void rpc().cancelActiveRuns()
+        void rpc()
+          .cancelActiveRuns()
+          .catch((error) => console.error('[yachiyo] cancel active runs failed:', error))
       },
       listActiveRunIds: () => [...utilityActiveRunIds]
     }
@@ -1437,30 +1442,49 @@ export function registerYachiyoGateway(options: {
     }
   )
 
-  app.once('before-quit', () => {
-    stopPerfMonitor()
-    utilityRuntimeStopping = true
-    if (commandSocketHealthTimer) {
-      clearInterval(commandSocketHealthTimer)
-      commandSocketHealthTimer = null
+  deferAppQuitUntil({
+    app: {
+      onBeforeQuit: (listener) => {
+        app.on('before-quit', listener)
+      },
+      quit: () => app.quit()
+    },
+    cleanup: async () => {
+      stopPerfMonitor()
+      utilityRuntimeStopping = true
+      if (commandSocketHealthTimer) {
+        clearInterval(commandSocketHealthTimer)
+        commandSocketHealthTimer = null
+      }
+      const socket = commandSocket
+      commandSocketRestartInFlight = null
+      commandSocket = null
+
+      try {
+        if (USE_UTILITY_RUNTIME) {
+          if (serverRpc) await hostCall('shutdownRuntime')
+        } else if (liveServices) {
+          await liveServices.shutdown()
+        } else {
+          await server?.close()
+        }
+      } finally {
+        try {
+          await socket?.close()
+        } finally {
+          liveServices = null
+          serverRpc?.dispose()
+          serverRpc = null
+          browserAutomationService?.dispose()
+          browserAutomationService = null
+          server = null
+          gatewayHandle = null
+        }
+      }
+    },
+    onCleanupError: (error) => {
+      console.error('[yachiyo] shutdown failed:', error)
     }
-    if (USE_UTILITY_RUNTIME) {
-      // Best-effort graceful stop before the child is killed by dispose().
-      void hostCall('stopLiveServices').catch(() => {})
-    } else {
-      void liveServices?.stop().catch(() => {})
-    }
-    liveServices = null
-    commandSocketRestartInFlight = null
-    void commandSocket?.close()
-    commandSocket = null
-    serverRpc?.dispose()
-    serverRpc = null
-    browserAutomationService?.dispose()
-    browserAutomationService = null
-    void server?.close()
-    server = null
-    gatewayHandle = null
   })
 
   return gatewayHandle

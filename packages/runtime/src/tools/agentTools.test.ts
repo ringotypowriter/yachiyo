@@ -290,6 +290,13 @@ test('summarizeToolInput keeps bash and jsRepl row summaries compact', () => {
     }),
     'JavaScript'
   )
+  assert.equal(
+    summarizeToolInput('jsRepl', {
+      code: 'display(value)',
+      title: 'inspect transformed value'
+    }),
+    'inspect transformed value'
+  )
 })
 
 test('summarizeToolInput prefers the bash description over the command summary', () => {
@@ -458,6 +465,17 @@ return JSON.stringify({
       await jsRepl.dispose()
     }
   })
+})
+
+test('createAgentToolSet omits jsRepl from sandboxed runs', () => {
+  const tools = createAgentToolSet({
+    enabledTools: ['jsRepl', 'read'],
+    sandboxed: true,
+    workspacePath: '/tmp/yachiyo'
+  })
+
+  assert.equal(tools?.jsRepl, undefined)
+  assert.ok(tools?.read)
 })
 
 test('runWriteTool overwrites existing files by default and reports bytes plus overwrite state', async () => {

@@ -117,6 +117,7 @@ export async function prepareThreadHandoffContext(input: {
       {
         availableSkills: preparedContext.availableSkills,
         fetchImpl: deps.webExternalFetchImpl ?? deps.fetchImpl,
+        ...(deps.jsReplWorkerPath ? { jsReplWorkerPath: deps.jsReplWorkerPath } : {}),
         loadBrowserSnapshot: deps.loadBrowserSnapshot,
         searchService: deps.searchService,
         memoryService: sourceThread.privacyMode ? undefined : deps.memoryService,

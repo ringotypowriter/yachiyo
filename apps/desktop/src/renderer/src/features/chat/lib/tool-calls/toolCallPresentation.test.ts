@@ -115,6 +115,31 @@ test('buildToolCallDetailsPresentation shows complete bash command and output fr
   })
 })
 
+test('buildToolCallDetailsPresentation shows jsRepl display and result output', () => {
+  const presentation = buildToolCallDetailsPresentation({
+    ...BASE_TOOL_CALL,
+    toolName: 'jsRepl',
+    inputSummary: 'inspect answer',
+    details: {
+      code: 'display({ answer: 42 }); "done"',
+      title: 'inspect answer',
+      displayOutput: '{\n  "answer": 42\n}',
+      result: 'done'
+    }
+  })
+
+  assert.deepEqual(presentation.input, {
+    label: 'Input',
+    value: 'display({ answer: 42 }); "done"',
+    language: 'javascript'
+  })
+  assert.deepEqual(presentation.output, {
+    label: 'Output',
+    value: 'display:\n{\n  "answer": 42\n}\n\nresult:\ndone',
+    language: 'javascript'
+  })
+})
+
 test('buildToolCallDetailsPresentation keeps failed bash stderr complete and dangerous', () => {
   const presentation = buildToolCallDetailsPresentation({
     ...BASE_TOOL_CALL,

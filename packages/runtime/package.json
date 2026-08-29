@@ -18,6 +18,7 @@
     "@ai-sdk/google-vertex": "^4.0.95",
     "@ai-sdk/openai": "^3.0.41",
     "@ai-sdk/provider": "^3.0.8",
+    "@babel/parser": "^7.29.7",
     "@yachiyo/shared": "workspace:*",
     "ai": "^6.0.174",
     "better-sqlite3": "^12.8.0",

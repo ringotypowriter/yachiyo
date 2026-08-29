@@ -158,6 +158,12 @@ export function ToolCallRow({
               </div>
               {block.label.startsWith('diff') ? (
                 <ToolCodeBlock value={block.value} filePath={block.filePath} variant="diff" />
+              ) : block.language && block.tone !== 'danger' ? (
+                <ToolCodeBlock
+                  value={block.value}
+                  filePath={block.filePath}
+                  language={block.language}
+                />
               ) : isValidJson(block.value) && block.tone !== 'danger' ? (
                 <JsonTreeView value={block.value} />
               ) : (

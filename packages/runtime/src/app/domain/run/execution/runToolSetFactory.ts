@@ -153,6 +153,7 @@ export function createRunToolSet(input: CreateRunToolSetInput): ToolSet | undefi
     activeSkills,
     availableSkills,
     fetchImpl: deps.webExternalFetchImpl ?? deps.fetchImpl,
+    ...(deps.jsReplWorkerPath ? { jsReplWorkerPath: deps.jsReplWorkerPath } : {}),
     loadBrowserSnapshot: deps.loadBrowserSnapshot,
     browserAutomationService: deps.browserAutomationService,
     searchService: deps.searchService,

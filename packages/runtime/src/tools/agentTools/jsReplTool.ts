@@ -1,17 +1,14 @@
-import { Worker, type Transferable } from 'node:worker_threads'
 import { statSync } from 'node:fs'
 import { isAbsolute, resolve as resolvePath } from 'node:path'
+import { Worker, type Transferable } from 'node:worker_threads'
 
 import type { JsReplToolCallDetails } from '@yachiyo/shared/protocol'
-import type { SearchService } from '../../services/search/searchService.ts'
-import type { WebSearchService } from '../../services/webSearch/webSearchService.ts'
+import type { Tool, ToolExecutionOptions } from 'ai'
 
 import {
-  bashToolInputSchema,
-  jsReplToolInputSchema,
-  flattenToolContent,
-  resolvePathWithinWorkspace,
   DEFAULT_JSREPL_TIMEOUT_SECONDS,
+  jsReplToolInputSchema,
+  resolvePathWithinWorkspace,
   type AgentToolContext,
   type AgentToolOutput,
   type JsReplToolInput,
@@ -20,92 +17,149 @@ import {
   textContent,
   toToolModelOutput
 } from './shared.ts'
-import { runReadTool } from './readTool.ts'
-import { runWriteTool } from './writeTool.ts'
-import { runEditTool } from './editTool.ts'
-import { runBashTool } from './bashTool.ts'
-import { runGlobTool } from './globTool.ts'
-import { runGrepTool } from './grepTool.ts'
-import { runWebSearchTool } from './webSearchTool.ts'
-import { JS_REPL_WORKER_SCRIPT } from './jsReplWorkerScript.ts'
+import type {
+  JsReplSerializedError,
+  JsReplWorkerFetchRequest,
+  JsReplWorkerFetchResult,
+  JsReplWorkerFetchSuccess,
+  JsReplWorkerMessage
+} from './jsReplWorkerProtocol.ts'
 
 export interface JsReplToolDependencies {
   fetchImpl?: typeof globalThis.fetch
-  searchService?: SearchService
-  webSearchService?: WebSearchService
+  resolveTool?: (name: string) => unknown
+  listToolNames?: () => string[]
+  workerPath?: string | URL
 }
 
-const DEFAULT_TIMEOUT_SECONDS = DEFAULT_JSREPL_TIMEOUT_SECONDS
+interface ActiveExecution {
+  cwd: string
+  options: ToolExecutionOptions
+  abortController: AbortController
+}
+
+interface WorkerResult {
+  result?: string
+  consoleLines: string[]
+  displayOutputs: string[]
+  error?: string
+  timedOut: boolean
+  contextReset?: boolean
+}
+
 const MAX_MODEL_OUTPUT_CHARS = 20_000
 const MAX_DETAILS_OUTPUT_CHARS = 8_000
+const WORKER_INIT_TIMEOUT_MS = 15_000
+const WORKER_TIMEOUT_GRACE_MS = 100
 
-// Safety buffer added to the script timeout so the worker has time to report
-// a graceful timeout before the main thread force-terminates it.
-const WORKER_RESPONSE_BUFFER_MS = 5_000
-
-type ToolBinding = (input: unknown) => Promise<{ content: string; error?: string }>
-
-interface WorkerFetchRequest {
-  url: string
-  init: {
-    method?: string
-    headers?: [string, string][]
-    bodyBase64?: string
-    redirect?: RequestRedirect
-    referrer?: string
-    referrerPolicy?: ReferrerPolicy
-    credentials?: RequestCredentials
-    cache?: RequestCache
-    mode?: RequestMode
-    integrity?: string
-    keepalive?: boolean
+function serializeError(error: unknown): JsReplSerializedError {
+  if (error instanceof Error) {
+    return {
+      name: error.name,
+      message: error.message,
+      ...(error.stack ? { stack: error.stack } : {})
+    }
   }
+  return { name: 'Error', message: String(error) }
 }
 
-interface WorkerFetchResult {
-  status: number
-  statusText: string
-  headers: [string, string][]
-  body?: ReadableStream<Uint8Array>
-  url: string
-  redirected: boolean
-  type: ResponseType
+function isAsyncIterable(value: unknown): value is AsyncIterable<unknown> {
+  return (
+    value !== null &&
+    typeof value === 'object' &&
+    Symbol.asyncIterator in value &&
+    typeof value[Symbol.asyncIterator] === 'function'
+  )
 }
 
-interface WorkerFetchFailure {
-  error: string
+function isAgentToolOutput(value: unknown): value is AgentToolOutput {
+  return (
+    value !== null &&
+    typeof value === 'object' &&
+    'content' in value &&
+    Array.isArray(value.content) &&
+    'details' in value &&
+    'metadata' in value
+  )
 }
 
-function simplifyToolResult(output: AgentToolOutput): { content: string; error?: string } {
+function normalizeNestedToolOutput(output: unknown): unknown {
+  if (!isAgentToolOutput(output)) return output
+  if (output.error) throw new Error(output.error)
+
+  const text = output.content
+    .filter((block): block is { type: 'text'; text: string } => block.type === 'text')
+    .map((block) => block.text)
+    .join('')
+  const images = output.content
+    .filter(
+      (block): block is { type: 'image-data'; data: string; mediaType: string } =>
+        block.type === 'image-data'
+    )
+    .map((block) => ({ data: block.data, mediaType: block.mediaType }))
+  const hasDetails =
+    output.details !== undefined &&
+    output.details !== null &&
+    Object.keys(output.details as object).length > 0
+
+  if (!hasDetails && images.length === 0) return text
   return {
-    content: flattenToolContent(output.content),
-    ...(output.error ? { error: output.error } : {})
+    text,
+    ...(hasDetails ? { details: output.details } : {}),
+    ...(images.length > 0 ? { images } : {})
   }
+}
+
+async function executeNestedTool(
+  tool: unknown,
+  input: unknown,
+  options: ToolExecutionOptions
+): Promise<unknown> {
+  if (
+    !tool ||
+    (typeof tool !== 'object' && typeof tool !== 'function') ||
+    !('execute' in tool) ||
+    typeof tool.execute !== 'function'
+  ) {
+    throw new Error('The requested tool has no executable implementation.')
+  }
+  const execution = Reflect.apply(tool.execute, tool, [input, options]) as unknown
+  if (!isAsyncIterable(execution)) return await Promise.resolve(execution)
+
+  let output: unknown
+  for await (const value of execution) output = value
+  return output
 }
 
 function rewriteRelativePath(input: unknown, cwd: string): unknown {
-  if (!input || typeof input !== 'object') return input
-  const copy = { ...(input as Record<string, unknown>) }
-  const path = copy.path
-  if (typeof path === 'string' && path.length > 0 && !isAbsolute(path) && !path.startsWith('~')) {
-    copy.path = resolvePath(cwd, path)
-  }
-  return copy
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return input
+  if (!('path' in input) || typeof input.path !== 'string') return input
+  if (isAbsolute(input.path) || input.path.startsWith('~')) return input
+  return { ...input, path: resolvePath(cwd, input.path) }
 }
 
-function singleQuote(value: string): string {
+function quoteShell(value: string): string {
   return `'${value.replace(/'/g, "'\\''")}'`
+}
+
+function rewriteNestedToolInput(name: string, input: unknown, cwd: string): unknown {
+  if (name !== 'bash') return rewriteRelativePath(input, cwd)
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return input
+  if (!('command' in input) || typeof input.command !== 'string') return input
+  return { ...input, command: `cd ${quoteShell(cwd)} && ${input.command}` }
 }
 
 async function runConfiguredFetch(
   fetchImpl: typeof globalThis.fetch,
-  request: WorkerFetchRequest
-): Promise<WorkerFetchResult> {
+  request: JsReplWorkerFetchRequest,
+  signal: AbortSignal
+): Promise<JsReplWorkerFetchSuccess> {
   const { bodyBase64, headers, ...init } = request.init
   const response = await fetchImpl(request.url, {
     ...init,
     ...(headers ? { headers } : {}),
-    ...(bodyBase64 !== undefined ? { body: Buffer.from(bodyBase64, 'base64') } : {})
+    ...(bodyBase64 !== undefined ? { body: Buffer.from(bodyBase64, 'base64') } : {}),
+    signal
   })
   return {
     status: response.status,
@@ -118,322 +172,356 @@ async function runConfiguredFetch(
   }
 }
 
-function buildToolBindings(
-  context: AgentToolContext,
-  dependencies: JsReplToolDependencies,
-  cwdRef: { value: string }
-): Record<string, ToolBinding> {
-  const enabled = new Set(context.enabledTools)
-  const isEnabled = (name: string): boolean => !context.enabledTools || enabled.has(name as never)
-
-  const bindings: Record<string, ToolBinding> = {}
-  const withCwd = (input: unknown): unknown => rewriteRelativePath(input, cwdRef.value)
-
-  if (isEnabled('read')) {
-    bindings.read = async (input) =>
-      simplifyToolResult(await runReadTool(withCwd(input) as never, context))
-  }
-  if (isEnabled('write')) {
-    bindings.write = async (input) =>
-      simplifyToolResult(await runWriteTool(withCwd(input) as never, context))
-  }
-  if (isEnabled('edit')) {
-    bindings.edit = async (input) =>
-      simplifyToolResult(await runEditTool(withCwd(input) as never, context))
-  }
-  if (isEnabled('bash')) {
-    bindings.bash = async (input) => {
-      const parsed = bashToolInputSchema.parse(input)
-      const rewritten =
-        cwdRef.value !== context.workspacePath
-          ? {
-              ...parsed,
-              command: `cd ${singleQuote(cwdRef.value)} && ${parsed.command}`
-            }
-          : parsed
-      return simplifyToolResult(await runBashTool(rewritten, context))
+function resolveCallCwd(
+  workspacePath: string,
+  requested: string | undefined
+): { resolved: string } | { error: string } {
+  if (!requested || requested === '.') return { resolved: workspacePath }
+  const resolved = resolvePathWithinWorkspace(workspacePath, requested)
+  if (!resolved) {
+    return {
+      error: `Invalid cwd ${JSON.stringify(requested)} — must be a relative path inside the workspace.`
     }
   }
-
-  if (dependencies.searchService) {
-    const searchService = dependencies.searchService
-    if (isEnabled('grep')) {
-      bindings.grep = async (input) =>
-        simplifyToolResult(await runGrepTool(withCwd(input) as never, context, { searchService }))
+  try {
+    const info = statSync(resolved)
+    if (!info.isDirectory()) {
+      return { error: `Invalid cwd ${JSON.stringify(requested)} — not a directory.` }
     }
-    if (isEnabled('glob')) {
-      bindings.glob = async (input) =>
-        simplifyToolResult(await runGlobTool(withCwd(input) as never, context, { searchService }))
-    }
+  } catch {
+    return { error: `Invalid cwd ${JSON.stringify(requested)} — directory does not exist.` }
   }
-
-  if (dependencies.webSearchService) {
-    const webSearchService = dependencies.webSearchService
-    if (isEnabled('webSearch')) {
-      bindings.webSearch = async (input) =>
-        simplifyToolResult(await runWebSearchTool(input as never, { webSearchService }))
-    }
-  }
-
-  return bindings
+  return { resolved }
 }
 
-interface WorkerResultMessage {
-  type: 'result'
-  result?: string
-  consoleLines: string[]
-  error?: string
-  timedOut: boolean
-  stateHint?: string
+function defaultToolExecutionOptions(signal?: AbortSignal): ToolExecutionOptions {
+  return {
+    toolCallId: `js-repl-${crypto.randomUUID()}`,
+    messages: [],
+    ...(signal ? { abortSignal: signal } : {})
+  }
 }
 
-interface WorkerMessage {
-  type: string
-  id?: number
-  toolName?: string
-  input?: unknown
-  request?: WorkerFetchRequest
-  result?: { content: string; error?: string }
-  fetchResult?: WorkerFetchResult | WorkerFetchFailure
-}
-
-export async function terminateAllJsReplWorkers(): Promise<void> {
-  // No-op: workers are now disposed deterministically via tool.dispose().
+function nestedToolOptions(active: ActiveExecution): ToolExecutionOptions {
+  return {
+    ...active.options,
+    toolCallId: `js-repl-${crypto.randomUUID()}`,
+    abortSignal: active.abortController.signal
+  }
 }
 
 class JsReplWorkerHandle {
   private worker: Worker | undefined
+  private initialized = false
   private executeChain: Promise<unknown> = Promise.resolve()
-  private readonly toolBindings: Record<string, ToolBinding>
+  private readonly activeExecutions = new Map<string, ActiveExecution>()
   private readonly fetchImpl: typeof globalThis.fetch
   private readonly workspacePath: string
-  private readonly cwdRef: { value: string }
-  private initialized = false
+  private readonly dependencies: JsReplToolDependencies
 
-  constructor(context: AgentToolContext, dependencies: JsReplToolDependencies) {
-    this.workspacePath = context.workspacePath
-    this.cwdRef = { value: context.workspacePath }
-    this.toolBindings = buildToolBindings(context, dependencies, this.cwdRef)
+  constructor(workspacePath: string, dependencies: JsReplToolDependencies) {
+    this.workspacePath = workspacePath
+    this.dependencies = dependencies
     this.fetchImpl = dependencies.fetchImpl ?? globalThis.fetch
+  }
+
+  private availableToolNames(): string[] {
+    return [...new Set(this.dependencies.listToolNames?.() ?? [])]
+      .filter((name) => name !== 'jsRepl')
+      .sort()
   }
 
   private async ensureWorker(): Promise<void> {
     if (this.worker && this.initialized) return
+    if (this.worker) await this.worker.terminate().catch(() => undefined)
 
-    if (this.worker) {
-      await this.worker.terminate().catch(() => {})
-    }
-
-    const worker = new Worker(JS_REPL_WORKER_SCRIPT, { eval: true })
+    const worker = new Worker(
+      this.dependencies.workerPath ?? new URL('./jsReplWorker.ts', import.meta.url),
+      {
+        name: 'yachiyo-js-repl'
+      }
+    )
     this.worker = worker
     this.initialized = false
-
-    worker.on('message', async (message: WorkerMessage) => {
-      if (message.type === 'toolCall' && message.id !== undefined && message.toolName) {
-        const binding = this.toolBindings[message.toolName]
-        if (!binding) {
-          try {
-            worker.postMessage({
-              type: 'toolResult',
-              id: message.id,
-              result: { content: '', error: `Tool "${message.toolName}" is not available.` }
-            })
-          } catch {
-            // Worker may have been terminated; ignore.
-          }
-          return
-        }
-        try {
-          const result = await binding(message.input)
-          try {
-            worker.postMessage({ type: 'toolResult', id: message.id, result })
-          } catch {
-            // Worker may have been terminated; ignore.
-          }
-        } catch (error) {
-          try {
-            worker.postMessage({
-              type: 'toolResult',
-              id: message.id,
-              result: {
-                content: '',
-                error: error instanceof Error ? error.message : String(error)
-              }
-            })
-          } catch {
-            // Worker may have been terminated; ignore.
-          }
-        }
-      }
-
-      if (message.type === 'fetchCall' && message.id !== undefined) {
-        let fetchResult: WorkerFetchResult | WorkerFetchFailure
-        try {
-          if (!message.request) {
-            throw new Error('Fetch request is missing.')
-          }
-          fetchResult = await runConfiguredFetch(this.fetchImpl, message.request)
-        } catch (error) {
-          fetchResult = {
-            error: error instanceof Error ? error.message : String(error)
-          }
-        }
-        try {
-          const transferList: readonly Transferable[] =
-            'body' in fetchResult && fetchResult.body
-              ? [fetchResult.body as unknown as Transferable]
-              : []
-          worker.postMessage({ type: 'fetchResult', id: message.id, fetchResult }, transferList)
-        } catch {
-          // Worker may have been terminated; ignore.
-        }
-      }
-    })
-
-    worker.postMessage({
-      type: 'init',
-      workspacePath: this.workspacePath,
-      enabledTools: Object.keys(this.toolBindings)
+    worker.on('message', (message: JsReplWorkerMessage) => {
+      if (message.type === 'toolCall') void this.handleToolCall(worker, message)
+      if (message.type === 'fetchCall') void this.handleFetchCall(worker, message)
     })
 
     await new Promise<void>((resolve, reject) => {
-      const onMessage = (m: WorkerMessage): void => {
-        if (m.type === 'initDone') {
-          worker.off('message', onMessage)
-          worker.off('error', onError)
-          resolve()
-        }
-      }
-      const onError = (err: Error): void => {
+      const timeout = setTimeout(() => {
+        cleanup()
+        reject(new Error('JavaScript REPL worker did not initialize in time.'))
+      }, WORKER_INIT_TIMEOUT_MS)
+      const cleanup = (): void => {
+        clearTimeout(timeout)
         worker.off('message', onMessage)
         worker.off('error', onError)
-        reject(err)
+        worker.off('exit', onExit)
+      }
+      const onMessage = (message: JsReplWorkerMessage): void => {
+        if (message.type !== 'ready') return
+        cleanup()
+        resolve()
+      }
+      const onError = (error: Error): void => {
+        cleanup()
+        reject(error)
+      }
+      const onExit = (code: number): void => {
+        cleanup()
+        reject(new Error(`JavaScript REPL worker exited during initialization with code ${code}.`))
       }
       worker.on('message', onMessage)
       worker.once('error', onError)
+      worker.once('exit', onExit)
+      worker.postMessage({
+        type: 'init',
+        workspacePath: this.workspacePath,
+        toolNames: this.availableToolNames()
+      })
     })
-
     this.initialized = true
   }
 
-  async execute(
-    code: string,
-    timeoutMs: number,
-    cwd?: string,
-    reset?: boolean
-  ): Promise<WorkerResultMessage> {
-    // Serialize execute calls so the shared VM state isn't clobbered.
-    const promise = this.executeChain.then(async () => {
+  private async handleToolCall(
+    worker: Worker,
+    message: Extract<JsReplWorkerMessage, { type: 'toolCall' }>
+  ): Promise<void> {
+    const active = this.activeExecutions.get(message.runId)
+    try {
+      if (!active) throw new Error('JavaScript REPL tool call no longer has an active cell.')
+      const tool = this.dependencies.resolveTool?.(message.toolName)
+      if (!tool || message.toolName === 'jsRepl') {
+        throw new Error(`Tool ${JSON.stringify(message.toolName)} is not available.`)
+      }
+      const input = rewriteNestedToolInput(message.toolName, message.input, active.cwd)
+      const output = await executeNestedTool(tool, input, nestedToolOptions(active))
+      worker.postMessage({
+        type: 'toolResult',
+        runId: message.runId,
+        callId: message.callId,
+        result: { ok: true, value: normalizeNestedToolOutput(output) }
+      })
+    } catch (error) {
+      try {
+        worker.postMessage({
+          type: 'toolResult',
+          runId: message.runId,
+          callId: message.callId,
+          result: { ok: false, error: serializeError(error) }
+        })
+      } catch {
+        // The cell may have timed out and terminated its worker.
+      }
+    }
+  }
+
+  private async handleFetchCall(
+    worker: Worker,
+    message: Extract<JsReplWorkerMessage, { type: 'fetchCall' }>
+  ): Promise<void> {
+    const active = this.activeExecutions.get(message.runId)
+    let result: JsReplWorkerFetchResult
+    try {
+      if (!active) throw new Error('JavaScript REPL fetch no longer has an active cell.')
+      result = await runConfiguredFetch(
+        this.fetchImpl,
+        message.request,
+        active.abortController.signal
+      )
+    } catch (error) {
+      result = { error: serializeError(error) }
+    }
+    try {
+      const transferList: readonly Transferable[] =
+        'body' in result && result.body ? [result.body as unknown as Transferable] : []
+      worker.postMessage(
+        {
+          type: 'fetchResult',
+          runId: message.runId,
+          callId: message.callId,
+          result
+        },
+        transferList
+      )
+    } catch {
+      // The cell may have timed out and terminated its worker.
+    }
+  }
+
+  async execute(input: {
+    code: string
+    cwd: string
+    reset: boolean
+    timeoutMs: number
+    options: ToolExecutionOptions
+  }): Promise<WorkerResult> {
+    const execution = this.executeChain.then(async () => {
       await this.ensureWorker()
-      this.cwdRef.value = cwd || this.workspacePath
+      const worker = this.worker!
+      const runId = crypto.randomUUID()
+      const abortController = new AbortController()
+      const active: ActiveExecution = {
+        cwd: input.cwd,
+        options: input.options,
+        abortController
+      }
+      this.activeExecutions.set(runId, active)
 
-      return new Promise<WorkerResultMessage>((resolve, reject) => {
+      return await new Promise<WorkerResult>((resolve, reject) => {
         let settled = false
-        const worker = this.worker!
-
+        let expectedTermination = false
+        const finish = (action: () => void): void => {
+          if (settled) return
+          settled = true
+          cleanup()
+          this.activeExecutions.delete(runId)
+          action()
+        }
+        const resetWorker = async (expected = false): Promise<void> => {
+          if (expected) expectedTermination = true
+          if (this.worker !== worker) return
+          this.worker = undefined
+          this.initialized = false
+          await worker.terminate().catch(() => undefined)
+        }
         const cleanup = (): void => {
-          clearTimeout(timeoutHandle)
-          worker.off('message', messageHandler)
-          worker.off('error', errorHandler)
-          worker.off('exit', exitHandler)
+          clearTimeout(timeout)
+          worker.off('message', onMessage)
+          worker.off('error', onError)
+          worker.off('exit', onExit)
+          input.options.abortSignal?.removeEventListener('abort', onAbort)
         }
-
-        const timeoutHandle = setTimeout(() => {
-          if (settled) return
-          settled = true
-          cleanup()
-          worker.terminate().catch(() => {})
-          this.worker = undefined
-          this.initialized = false
-          reject(new Error('jsRepl worker did not respond in time.'))
-        }, timeoutMs + WORKER_RESPONSE_BUFFER_MS)
-
-        const messageHandler = (message: WorkerMessage): void => {
-          if (message.type !== 'result') return
-          if (settled) return
-          settled = true
-          cleanup()
-          resolve(message as WorkerResultMessage)
+        const timeout = setTimeout(() => {
+          abortController.abort(new DOMException('JavaScript REPL timed out.', 'TimeoutError'))
+          void resetWorker(true).finally(() => {
+            finish(() =>
+              resolve({
+                consoleLines: [],
+                displayOutputs: [],
+                error: `Script execution timed out (${Math.round(input.timeoutMs / 1000)}s limit).`,
+                timedOut: true,
+                contextReset: true
+              })
+            )
+          })
+        }, input.timeoutMs + WORKER_TIMEOUT_GRACE_MS)
+        const onMessage = (message: JsReplWorkerMessage): void => {
+          if (message.type !== 'result' || message.runId !== runId) return
+          if (message.timedOut) {
+            abortController.abort(new DOMException('JavaScript REPL timed out.', 'TimeoutError'))
+            void resetWorker(true).finally(() => {
+              finish(() => resolve({ ...message, contextReset: true }))
+            })
+            return
+          }
+          finish(() => resolve(message))
         }
-
-        const errorHandler = (err: Error): void => {
-          if (settled) return
-          settled = true
-          cleanup()
-          this.worker = undefined
-          this.initialized = false
-          reject(err)
+        const onError = (error: Error): void => {
+          if (expectedTermination) return
+          void resetWorker(true).finally(() => finish(() => reject(error)))
         }
-
-        const exitHandler = (code: number): void => {
-          if (settled) return
-          settled = true
-          cleanup()
-          this.worker = undefined
-          this.initialized = false
-          reject(new Error(`jsRepl worker exited unexpectedly with code ${code}`))
+        const onExit = (code: number): void => {
+          if (expectedTermination) return
+          void resetWorker().finally(() =>
+            finish(() =>
+              reject(new Error(`JavaScript REPL worker exited unexpectedly with code ${code}.`))
+            )
+          )
         }
-
-        worker.on('message', messageHandler)
-        worker.once('error', errorHandler)
-        worker.once('exit', exitHandler)
-
-        worker.postMessage({ type: 'execute', code, timeoutMs, cwd, reset })
+        const onAbort = (): void => {
+          abortController.abort(input.options.abortSignal?.reason)
+          void resetWorker(true).finally(() =>
+            finish(() =>
+              reject(input.options.abortSignal?.reason ?? new Error('JavaScript REPL aborted.'))
+            )
+          )
+        }
+        worker.on('message', onMessage)
+        worker.once('error', onError)
+        worker.once('exit', onExit)
+        if (input.options.abortSignal?.aborted) {
+          onAbort()
+          return
+        }
+        input.options.abortSignal?.addEventListener('abort', onAbort, { once: true })
+        worker.postMessage({
+          type: 'execute',
+          runId,
+          code: input.code,
+          cwd: input.cwd,
+          reset: input.reset,
+          timeoutMs: input.timeoutMs
+        })
       })
     })
-
-    this.executeChain = promise.catch(() => {})
-    return promise
+    this.executeChain = execution.catch(() => undefined)
+    return execution
   }
 
   async terminate(): Promise<void> {
-    if (this.worker) {
-      const w = this.worker
-      this.worker = undefined
-      this.initialized = false
-      await w.terminate().catch(() => {})
+    const worker = this.worker
+    this.worker = undefined
+    this.initialized = false
+    for (const active of this.activeExecutions.values()) {
+      active.abortController.abort(new Error('JavaScript REPL disposed.'))
     }
+    this.activeExecutions.clear()
+    if (worker) await worker.terminate().catch(() => undefined)
   }
+}
+
+function buildDescription(context: AgentToolContext, toolNames: readonly string[]): string {
+  const enabled = new Set<string>([...(context.enabledTools ?? []), ...toolNames])
+  const helpers = [
+    'display(value) → show a structured value',
+    ...(enabled.has('read') ? ['read(path, options?) → text'] : []),
+    ...(enabled.has('write') ? ['write(path, content) → result text'] : []),
+    'tool.<name>(args) → invoke any enabled tool',
+    'parallel(thunks) → run independent async functions concurrently'
+  ]
+
+  return [
+    'Run one JavaScript cell in a persistent worker. State survives across calls in this agent execution.',
+    'Work incrementally: load → transform → inspect. Reuse prior bindings; pass `reset: true` only when you need a clean context.',
+    'Top-level `await`, `return`, static/dynamic imports, `require`, `fetch`, and `Buffer` are available.',
+    'On error, fix and rerun only the failed cell. A timeout terminates the worker and clears all prior bindings.',
+    '',
+    'Prelude:',
+    ...helpers.map((helper) => `- ${helper}`),
+    '',
+    'Tool helpers are async. Pass one object to `tool.<name>`, matching that tool’s normal input schema.',
+    '`cwd` is optional, relative to the thread workspace, and applies only to this cell.',
+    '',
+    'Example sequence:',
+    '1. `{ code: "const text = await read(\'package.json\')", title: "load package" }`',
+    '2. `{ code: "display(JSON.parse(text).scripts)", title: "inspect scripts" }`'
+  ].join('\n')
+}
+
+export async function terminateAllJsReplWorkers(): Promise<void> {
+  // Workers are owned and disposed by their agent tool set.
 }
 
 export function createTool(
   context: AgentToolContext,
   dependencies: JsReplToolDependencies = {}
-): import('ai').Tool<JsReplToolInput, JsReplToolOutput> {
-  const handle = new JsReplWorkerHandle(context, dependencies)
-
-  const tool: import('ai').Tool<JsReplToolInput, JsReplToolOutput> & {
-    dispose(): Promise<void>
-  } = {
-    description:
-      `Run JavaScript code in a REPL session with cwd set to ${context.workspacePath}. ` +
-      'Only JavaScript is supported — never write Python code or treat this as a Python interpreter. ' +
-      'Context is reset by default so each call starts with a clean slate. ' +
-      'Pass `reset: false` to preserve variables and imports from the previous call when you need multi-step state. ' +
-      "Has access to `require()` for Node built-ins and the active cwd's project dependencies. " +
-      'Has `fetch()` predefined for HTTP and data URL requests. ' +
-      "Only you, the model, can see this tool's output; " +
-      'the user cannot see it unless you include the relevant result in your response. ' +
-      'Relative paths in fs operations resolve against the workspace.\n' +
-      'Omit `cwd` or pass `cwd: "."` to use the thread workspace. Optional `cwd` overrides the working directory for this call only; it must be a relative path inside the workspace — ' +
-      'absolute paths, `~`, and any `..` segments are rejected.\n' +
-      'A `tools` object provides async access to built-in tools. ' +
-      'Use `await` when calling tools — code is automatically wrapped in an async context. ' +
-      'Each tool returns an object `{ content: string, error?: string }`, not a raw string.\n' +
-      'Available tools: ' +
-      "tools.read({ path }), tools.write({ path, content }), tools.edit({ mode: 'inline', path, oldText, newText }), " +
-      "tools.edit({ mode: 'range', path, replaceLines: { start, end }, newText }), " +
-      'tools.bash({ command, description }), tools.grep({ pattern }), tools.glob({ pattern }).\n' +
-      'Prefer jsRepl over individual tool calls for: ' +
-      'batch file operations, looping over search results, programmatic code generation, ' +
-      'data transformation pipelines, and any task that benefits from loops, conditionals, or variables.',
+): Tool<JsReplToolInput, JsReplToolOutput> {
+  if (context.sandboxed) {
+    throw new Error('jsRepl is unavailable in sandboxed runs.')
+  }
+  const handle = new JsReplWorkerHandle(context.workspacePath, dependencies)
+  const tool: Tool<JsReplToolInput, JsReplToolOutput> & { dispose(): Promise<void> } = {
+    description: buildDescription(context, dependencies.listToolNames?.() ?? []),
     inputSchema: jsReplToolInputSchema,
     toModelOutput: ({ output }) => toToolModelOutput(output),
-    execute: async (input): Promise<JsReplToolOutput> => {
+    execute: async (input, executionOptions): Promise<JsReplToolOutput> => {
       const cwdResolution = resolveCallCwd(context.workspacePath, input.cwd)
       if ('error' in cwdResolution) {
         const details: JsReplToolCallDetails = {
           code: input.code,
+          ...(input.title ? { title: input.title } : {}),
           error: cwdResolution.error,
           ...(input.cwd ? { cwd: input.cwd } : {})
         }
@@ -445,60 +533,67 @@ export function createTool(
         }
       }
 
-      const timeoutMs = (input.timeout ?? DEFAULT_TIMEOUT_SECONDS) * 1000
-
-      let workerResult: WorkerResultMessage
+      const timeoutMs = (input.timeout ?? DEFAULT_JSREPL_TIMEOUT_SECONDS) * 1000
+      let workerResult: WorkerResult
       try {
-        workerResult = await handle.execute(
-          input.code,
+        workerResult = await handle.execute({
+          code: input.code,
+          cwd: cwdResolution.resolved,
+          reset: input.reset ?? false,
           timeoutMs,
-          cwdResolution.resolved,
-          input.reset ?? true
-        )
+          options: executionOptions ?? defaultToolExecutionOptions()
+        })
       } catch (workerError) {
-        const errorMessage =
-          workerError instanceof Error ? workerError.message : String(workerError)
+        const message = workerError instanceof Error ? workerError.message : String(workerError)
+        const error = `${message}\nJavaScript context was reset; bindings from earlier cells are unavailable.`
         const details: JsReplToolCallDetails = {
           code: input.code,
-          error: errorMessage,
-          ...(input.cwd ? { cwd: input.cwd } : {}),
-          ...(input.reset ? { contextReset: true } : {})
+          ...(input.title ? { title: input.title } : {}),
+          error,
+          contextReset: true,
+          ...(input.cwd ? { cwd: input.cwd } : {})
         }
         return {
-          content: textContent(errorMessage),
+          content: textContent(error),
           details,
           metadata: {},
-          error: errorMessage
+          error
         }
       }
 
       const consoleOutput = workerResult.consoleLines.join('\n')
-      const result = workerResult.result
-      const error = workerResult.error
-      const timedOut = workerResult.timedOut
-
-      const stateHint = workerResult.stateHint
-
+      const displayOutput = workerResult.displayOutputs.join('\n\n')
+      const stateNotice = workerResult.contextReset
+        ? 'JavaScript context was reset; bindings from earlier cells are unavailable.'
+        : undefined
       const parts: string[] = []
       if (consoleOutput) parts.push(`[console]\n${consoleOutput}`)
-      if (result !== undefined) parts.push(`[result]\n${result}`)
-      if (error) parts.push(`[error]\n${error}`)
-      if (stateHint) parts.push(`[vars] ${stateHint}`)
+      for (const [index, output] of workerResult.displayOutputs.entries()) {
+        parts.push(`[display ${index + 1}]\n${output}`)
+      }
+      if (workerResult.result !== undefined) parts.push(`[result]\n${workerResult.result}`)
+      if (workerResult.error) parts.push(`[error]\n${workerResult.error}`)
+      if (stateNotice) parts.push(`[state]\n${stateNotice}`)
 
       const outputText = parts.join('\n\n') || '(no output)'
       const tail = takeTail(outputText, MAX_MODEL_OUTPUT_CHARS)
-
       const details: JsReplToolCallDetails = {
         code: input.code,
-        ...(result !== undefined
-          ? { result: takeTail(result, MAX_DETAILS_OUTPUT_CHARS).text }
+        ...(input.title ? { title: input.title } : {}),
+        ...(workerResult.result !== undefined
+          ? { result: takeTail(workerResult.result, MAX_DETAILS_OUTPUT_CHARS).text }
           : {}),
         ...(consoleOutput
           ? { consoleOutput: takeTail(consoleOutput, MAX_DETAILS_OUTPUT_CHARS).text }
           : {}),
-        ...(error ? { error } : {}),
-        ...(timedOut ? { timedOut } : {}),
-        ...(input.reset ? { contextReset: true } : {}),
+        ...(displayOutput
+          ? { displayOutput: takeTail(displayOutput, MAX_DETAILS_OUTPUT_CHARS).text }
+          : {}),
+        ...(workerResult.error
+          ? { error: takeTail(workerResult.error, MAX_DETAILS_OUTPUT_CHARS).text }
+          : {}),
+        ...(workerResult.timedOut ? { timedOut: true } : {}),
+        ...(input.reset || workerResult.contextReset ? { contextReset: true } : {}),
         ...(input.cwd ? { cwd: input.cwd } : {})
       }
 
@@ -506,37 +601,13 @@ export function createTool(
         content: textContent(tail.text),
         details,
         metadata: {
-          ...(timedOut ? { timedOut } : {}),
+          ...(workerResult.timedOut ? { timedOut: true } : {}),
           ...(tail.truncated ? { truncated: true } : {})
         },
-        ...(error ? { error } : {})
+        ...(workerResult.error ? { error: workerResult.error } : {})
       }
     },
     dispose: () => handle.terminate()
   }
-
   return tool
-}
-
-function resolveCallCwd(
-  workspacePath: string,
-  requested: string | undefined
-): { resolved: string } | { error: string } {
-  if (!requested) return { resolved: workspacePath }
-  if (requested === '.') return { resolved: workspacePath }
-  const resolved = resolvePathWithinWorkspace(workspacePath, requested)
-  if (!resolved) {
-    return {
-      error: `Invalid cwd "${requested}" — must be a relative path inside the workspace (no "..", no absolute, no "~").`
-    }
-  }
-  try {
-    const info = statSync(resolved)
-    if (!info.isDirectory()) {
-      return { error: `Invalid cwd "${requested}" — not a directory.` }
-    }
-  } catch {
-    return { error: `Invalid cwd "${requested}" — directory does not exist.` }
-  }
-  return { resolved }
 }

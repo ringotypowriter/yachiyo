@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
@@ -215,6 +215,100 @@ test('Worker runner preserves prompt/mailbox history and Agent-specific prompt c
     assert.equal('sendThreadMessage' in (requests[0]?.tools ?? {}), false)
     assert.equal('sendMessage' in (requests[0]?.tools ?? {}), true)
     assert.deepEqual(sentMessages, [])
+  } finally {
+    await runner.close()
+    await rm(workspace, { recursive: true, force: true })
+  }
+})
+
+test('Worker runner preserves the host jsRepl worker bundle path', async () => {
+  const workspace = await mkdtemp(join(tmpdir(), 'yachiyo-worker-js-repl-'))
+  const workerPath = join(workspace, 'injected-js-repl-worker.cjs')
+  await writeFile(
+    workerPath,
+    [
+      `const { parentPort } = require('node:worker_threads')`,
+      `parentPort.on('message', (message) => {`,
+      `  if (message.type === 'init') parentPort.postMessage({ type: 'ready' })`,
+      `  if (message.type === 'execute') parentPort.postMessage({`,
+      `    type: 'result',`,
+      `    runId: message.runId,`,
+      `    result: 'injected-worker',`,
+      `    consoleLines: [],`,
+      `    displayOutputs: [],`,
+      `    timedOut: false`,
+      `  })`,
+      `})`
+    ].join('\n')
+  )
+  let jsReplResult: string | undefined
+  const modelRuntime: ModelRuntime = {
+    streamReply: async function* (request) {
+      const jsRepl = request.tools?.jsRepl as
+        | {
+            execute?: (
+              input: { code: string },
+              options: {
+                toolCallId: string
+                messages: []
+                abortSignal: AbortSignal
+              }
+            ) => Promise<{ details: { result?: string } }>
+          }
+        | undefined
+      assert.ok(jsRepl?.execute)
+      const result = await jsRepl.execute(
+        { code: '6 * 7' },
+        {
+          toolCallId: 'worker-js-repl-smoke',
+          messages: [],
+          abortSignal: new AbortController().signal
+        }
+      )
+      jsReplResult = result.details.result
+      yield 'done'
+    }
+  } as ModelRuntime
+  const factory = createWorkerSubagentRunnerFactory({
+    profileId: 'general',
+    profile: DEFAULT_NAMED_SUBAGENT_PROFILES.general,
+    dependencies: {
+      settings: TEST_SETTINGS,
+      parentToolContext: { workspacePath: workspace, sandboxed: false },
+      parentDependencies: { jsReplWorkerPath: workerPath },
+      createModelRuntime: () => modelRuntime
+    }
+  })
+  const runner = factory({
+    launch: {
+      agentId: 'agent-js-repl',
+      parentThreadId: 'thread-1',
+      launchRunId: 'run-1',
+      agentName: 'general',
+      agentType: 'general',
+      codeName: 'Akari',
+      workspacePath: workspace,
+      prompt: 'Use jsRepl'
+    },
+    signal: new AbortController().signal,
+    sendMessage: () => ({
+      messageId: 'message-1',
+      delivery: 'queued',
+      recipientState: 'idle'
+    }),
+    hasPendingMessages: () => false,
+    onProgress: () => {},
+    onToolCall: () => {}
+  })
+
+  try {
+    await runner.runTurn({
+      turnId: 'turn-js-repl',
+      initialPrompt: 'Use jsRepl',
+      messages: [],
+      signal: new AbortController().signal
+    })
+    assert.equal(jsReplResult, 'injected-worker')
   } finally {
     await runner.close()
     await rm(workspace, { recursive: true, force: true })

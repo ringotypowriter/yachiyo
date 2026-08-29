@@ -130,6 +130,58 @@ test('peer close rejects pending calls through onClose', async () => {
   await assert.rejects(pending, /RPC transport closed/)
 })
 
+test('explicit client close rejects its pending calls without waiting for a peer event', async () => {
+  const [serverPort, clientPort] = createFakePortPair()
+  serveRpcTarget({
+    transport: messagePortMainTransport(serverPort),
+    target: {
+      hang: async (): Promise<void> => new Promise<void>(() => undefined)
+    }
+  })
+  const client = createRpcClient(messagePortMainTransport(clientPort))
+  const pending = client.call('hang', [])
+  await settle()
+
+  client.close()
+
+  const outcome = await Promise.race([
+    pending.then(
+      () => 'resolved',
+      (error: unknown) => (error instanceof Error ? error.message : String(error))
+    ),
+    new Promise<string>((resolve) => setTimeout(() => resolve('still pending'), 20))
+  ])
+  assert.equal(outcome, 'RPC transport closed')
+})
+
+test('explicit client close handles abandoned pending-call rejections', async () => {
+  const [serverPort, clientPort] = createFakePortPair()
+  serveRpcTarget({
+    transport: messagePortMainTransport(serverPort),
+    target: {
+      hang: async (): Promise<void> => new Promise<void>(() => undefined)
+    }
+  })
+  const client = createRpcClient(messagePortMainTransport(clientPort))
+  const unhandled: unknown[] = []
+  const onUnhandled = (reason: unknown): void => {
+    unhandled.push(reason)
+  }
+  process.on('unhandledRejection', onUnhandled)
+
+  try {
+    void client.call('hang', [])
+    await settle()
+
+    client.close()
+    await settle()
+
+    assert.deepEqual(unhandled, [])
+  } finally {
+    process.off('unhandledRejection', onUnhandled)
+  }
+})
+
 test('onMessage unsubscribe stops delivery to that handler', async () => {
   const [portA, portB] = createFakePortPair()
   const transportB = messagePortMainTransport(portB)

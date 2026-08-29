@@ -167,6 +167,7 @@ export interface AgentToolDependencies {
   /** Active (enabled) skills, surfaced to worker subagents so they can discover what exists. */
   activeSkills?: SkillSummary[]
   fetchImpl?: typeof globalThis.fetch
+  jsReplWorkerPath?: string | URL
   loadBrowserSnapshot?: BrowserWebPageSnapshotLoader
   browserAutomationService?: BrowserAutomationToolBackend
   memoryService?: MemoryService
@@ -461,6 +462,9 @@ export function summarizeToolInput(toolName: ToolCallName | string, input: unkno
   }
 
   if (toolName === 'jsRepl') {
+    if (input && typeof input === 'object' && 'title' in input && typeof input.title === 'string') {
+      return takeTail(input.title, 160).text
+    }
     return 'JavaScript'
   }
 
@@ -676,6 +680,7 @@ export function summarizeToolOutput(
     if (details.timedOut) return 'timed out'
     if (details.error) return `error: ${takeTail(details.error, 80).text}`
     if (details.result) return takeTail(details.result, 120).text
+    if (details.displayOutput) return takeTail(details.displayOutput, 120).text
     return details.consoleOutput ? 'console output' : 'no output'
   }
 
@@ -820,6 +825,7 @@ export function createAgentToolSet(
   const enabledTools = new Set(
     normalizeEnabledTools(context.enabledTools, DEFAULT_ENABLED_TOOL_NAMES)
   )
+  const enabledToolNames = new Set<string>(enabledTools)
   const registerOnlyEnabledToolSchemas = context.registerOnlyEnabledToolSchemas === true
   const shouldRegisterTool = (toolName: ToolCallName): boolean =>
     !registerOnlyEnabledToolSchemas || enabledTools.has(toolName)
@@ -848,14 +854,14 @@ export function createAgentToolSet(
     if (shouldRegisterTool('applyPatch')) {
       tools.applyPatch = wrapDisabledTool(createApplyPatchTool(context), 'applyPatch', enabledTools)
     }
-    if (shouldRegisterTool('jsRepl')) {
+    if (!context.sandboxed && shouldRegisterTool('jsRepl')) {
       tools.jsRepl = wrapDisabledTool(
         createJsReplTool(context, {
           ...(dependencies.fetchImpl ? { fetchImpl: dependencies.fetchImpl } : {}),
-          ...(dependencies.searchService ? { searchService: dependencies.searchService } : {}),
-          ...(dependencies.webSearchService
-            ? { webSearchService: dependencies.webSearchService }
-            : {})
+          ...(dependencies.jsReplWorkerPath ? { workerPath: dependencies.jsReplWorkerPath } : {}),
+          resolveTool: (name) => (enabledToolNames.has(name) ? tools[name] : undefined),
+          listToolNames: () =>
+            Object.keys(tools).filter((name) => name !== 'jsRepl' && enabledToolNames.has(name))
         }),
         'jsRepl',
         enabledTools

@@ -173,6 +173,45 @@ test('launch returns before the first Worker turn completes and delivers its ini
   ])
 })
 
+test('matching explicit parent message suppresses the automatic initial result', async () => {
+  const harness = makeHarness()
+  await harness.manager.launch(launchInput())
+
+  harness.manager.send({
+    from: { kind: 'agent', agentId: 'agent-1' },
+    to: 'parent',
+    message: 'Task completed'
+  })
+  harness.runners.get('agent-1')!.resolveTurn('Task completed')
+  await flush()
+
+  assert.deepEqual(
+    harness.deliveries.map(({ kind, message }) => ({ kind, message })),
+    [{ kind: 'message', message: 'Task completed' }]
+  )
+})
+
+test('distinct explicit parent updates do not replace the automatic initial result', async () => {
+  const harness = makeHarness()
+  await harness.manager.launch(launchInput())
+
+  harness.manager.send({
+    from: { kind: 'agent', agentId: 'agent-1' },
+    to: 'parent',
+    message: 'Verification is still running'
+  })
+  harness.runners.get('agent-1')!.resolveTurn('Verification passed')
+  await flush()
+
+  assert.deepEqual(
+    harness.deliveries.map(({ kind, message }) => ({ kind, message })),
+    [
+      { kind: 'message', message: 'Verification is still running' },
+      { kind: 'initial-result', message: 'Verification passed' }
+    ]
+  )
+})
+
 test('mailbox preserves FIFO order and wakes an idle agent with one drain loop', async () => {
   const harness = makeHarness()
   await harness.manager.launch(launchInput())

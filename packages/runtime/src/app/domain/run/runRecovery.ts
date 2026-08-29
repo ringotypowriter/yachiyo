@@ -357,6 +357,8 @@ function buildInterruptedToolCallInput(toolCall: ToolCallRecord): unknown {
   if (toolCall.toolName === 'jsRepl' && details && 'code' in details) {
     return {
       code: details.code,
+      ...('title' in details && details.title ? { title: details.title } : {}),
+      ...('cwd' in details && details.cwd ? { cwd: details.cwd } : {}),
       ...('contextReset' in details && details.contextReset ? { reset: true } : {})
     }
   }

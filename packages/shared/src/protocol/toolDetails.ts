@@ -67,8 +67,10 @@ export interface BashToolCallDetails {
 
 export interface JsReplToolCallDetails {
   code: string
+  title?: string
   result?: string
   consoleOutput?: string
+  displayOutput?: string
   error?: string
   timedOut?: boolean
   contextReset?: boolean

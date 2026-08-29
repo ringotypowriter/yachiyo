@@ -512,6 +512,7 @@ export class YachiyoServer {
       auxiliaryGeneration,
       createModelRuntime,
       processBroker: this.processBroker,
+      ...(options.jsReplWorkerPath ? { jsReplWorkerPath: options.jsReplWorkerPath } : {}),
       ensureThreadWorkspace,
       fetchImpl: options.fetchImpl,
       webExternalFetchImpl: options.webExternalFetchImpl,

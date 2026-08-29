@@ -68,7 +68,7 @@ Tools are what turn the model into an agent. The full set:
 | `read`, `write`, `edit`, `applyPatch` | Read and modify files. Reads come before writes — the agent must read a file before overwriting it. |
 | `grep`, `glob`                        | Search file contents and paths.                                                                     |
 | `bash`                                | Run shell commands, including long-running background tasks.                                        |
-| `jsRepl`                              | Evaluate JavaScript in a sandboxed worker.                                                          |
+| `jsRepl`                              | Run incremental JavaScript cells in a persistent worker for the current agent execution.            |
 | `webSearch`, `webRead`                | Search the web and read pages as Markdown.                                                          |
 | `useBrowser`                          | Drive a real browser session for things a fetch cannot do.                                          |
 | `skillsRead`                          | Pull in a skill's full `SKILL.md` on demand.                                                        |

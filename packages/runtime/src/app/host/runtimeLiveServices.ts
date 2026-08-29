@@ -67,6 +67,7 @@ export interface RuntimeLiveServices {
   start(): Promise<void>
   waitForChannelReady(channelId: string): Promise<void>
   stop(): Promise<void>
+  shutdown(): Promise<void>
   /**
    * Host-level operations served over RPC next to the server's own methods
    * (via mergeRpcTargets), so gateway handlers stay identical whether the
@@ -95,6 +96,7 @@ export function createRuntimeLiveServices(
   let scheduleService: ScheduleService | null = null
   let autoSyncScheduler: AutoSyncScheduler | null = null
   const stopController = new AbortController()
+  let shutdownPromise: Promise<void> | null = null
   const readiness = createRuntimeLiveServicesReadiness(startOnce, waitForChannelReadyOnce)
 
   function buildChannelServiceConfigKey(
@@ -331,6 +333,14 @@ export function createRuntimeLiveServices(
     qqbotService = null
   }
 
+  function shutdown(): Promise<void> {
+    shutdownPromise ??= (async () => {
+      await stop()
+      await server.close()
+    })()
+    return shutdownPromise
+  }
+
   const rpcOps = {
     // Without this entry the desktop side's hostCall rejects every time, and
     // the update-receipt layer quietly behaves as though the run had no
@@ -385,13 +395,15 @@ export function createRuntimeLiveServices(
     // Run perf records live in the process that runs the pipeline; the
     // gateway merges them with main-side IPC stats for the Settings panel.
     'host.getPerfStats': () => getPerfMonitor().getStats(),
-    'host.stopLiveServices': (): Promise<void> => stop()
+    'host.stopLiveServices': (): Promise<void> => stop(),
+    'host.shutdownRuntime': (): Promise<void> => shutdown()
   }
 
   return {
     start: readiness.start,
     waitForChannelReady: readiness.waitForChannelReady,
     stop,
+    shutdown,
     rpcOps: rpcOps as RuntimeLiveServices['rpcOps']
   }
 }

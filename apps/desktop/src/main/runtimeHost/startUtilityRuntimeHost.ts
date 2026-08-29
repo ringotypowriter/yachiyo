@@ -67,7 +67,7 @@ export function startUtilityRuntimeHost<T extends object>(input: {
     client,
     child,
     dispose: () => {
-      transport.close()
+      client.close()
       child.kill()
     }
   }

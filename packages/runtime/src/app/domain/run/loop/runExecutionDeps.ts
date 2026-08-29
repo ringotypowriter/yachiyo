@@ -68,6 +68,7 @@ export function buildRunExecutionDeps(
     emit: input.emit,
     createModelRuntime: deps.createModelRuntime,
     processBroker: deps.processBroker,
+    ...(deps.jsReplWorkerPath ? { jsReplWorkerPath: deps.jsReplWorkerPath } : {}),
     ensureThreadWorkspace: deps.ensureThreadWorkspace,
     buildMemoryLayerEntries: async (memoryContext) => {
       if (memoryContext.thread.privacyMode || input.isRecapRun) {

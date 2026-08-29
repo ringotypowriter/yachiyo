@@ -313,31 +313,49 @@ export const bashToolInputSchema = z.object({
 export const DEFAULT_JSREPL_TIMEOUT_SECONDS = 30
 export const MAX_JSREPL_TIMEOUT_SECONDS = 120
 
-export const jsReplToolInputSchema = z.object({
-  code: z.string().min(1),
-  reset: z.boolean().default(true),
-  timeout: z
-    .number()
-    .int()
-    .min(1)
-    .max(MAX_JSREPL_TIMEOUT_SECONDS)
-    .default(DEFAULT_JSREPL_TIMEOUT_SECONDS),
-  cwd: z
-    .string()
-    .min(1)
-    .refine(
-      (value) => {
-        if (isAbsolute(value)) return false
-        if (value.startsWith('~')) return false
-        const segments = value.split(/[\\/]/)
-        return !segments.includes('..')
-      },
-      {
-        message: 'cwd must be a relative path within the workspace (no "..", no absolute, no "~").'
-      }
-    )
-    .optional()
-})
+export const jsReplToolInputSchema = z
+  .object({
+    code: z
+      .string()
+      .min(1)
+      .describe('One JavaScript cell to run verbatim. Top-level await and return are supported.'),
+    title: z
+      .string()
+      .trim()
+      .min(1)
+      .max(80)
+      .describe('Short intent shown in the transcript, such as "load package" or "inspect data".')
+      .optional(),
+    timeout: z
+      .number()
+      .int()
+      .min(1)
+      .max(MAX_JSREPL_TIMEOUT_SECONDS)
+      .default(DEFAULT_JSREPL_TIMEOUT_SECONDS)
+      .describe('Cell timeout in seconds. A timeout clears the persistent JavaScript context.'),
+    reset: z
+      .boolean()
+      .default(false)
+      .describe('Clear prior JavaScript bindings before this cell. Defaults to false.'),
+    cwd: z
+      .string()
+      .min(1)
+      .refine(
+        (value) => {
+          if (isAbsolute(value)) return false
+          if (value.startsWith('~')) return false
+          const segments = value.split(/[\\/]/)
+          return !segments.includes('..')
+        },
+        {
+          message:
+            'cwd must be a relative path within the workspace (no "..", no absolute, no "~").'
+        }
+      )
+      .describe('Optional working directory for this cell, relative to the thread workspace.')
+      .optional()
+  })
+  .strict()
 
 export const grepToolInputSchema = withShadowFallbacks(
   z.object({

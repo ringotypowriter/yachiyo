@@ -44,24 +44,24 @@ description: 线程、运行、运行模式、工作区、技能、记忆和频�
 
 工具是把模型变成智能体的东西。完整列表：
 
-| 工具                                  | 用途                                                         |
-| ------------------------------------- | ------------------------------------------------------------ |
-| `read`、`write`、`edit`、`applyPatch` | 读写文件。读在写之前 —— 覆盖一个文件之前智能体必须先读过它。 |
-| `grep`、`glob`                        | 搜索文件内容和路径。                                         |
-| `bash`                                | 执行 shell 命令，包括长时间运行的后台任务。                  |
-| `jsRepl`                              | 在沙箱 worker 里执行 JavaScript。                            |
-| `webSearch`、`webRead`                | 搜索网页，并以 Markdown 形式读取页面。                       |
-| `useBrowser`                          | 驱动真实浏览器会话，做 fetch 做不到的事。                    |
-| `skillsRead`                          | 按需加载某个技能完整的 `SKILL.md`。                          |
-| `askUser`                             | 运行途中提一个澄清问题，而不是靠猜。                         |
-| `delegateTask`                        | 把工作交给子智能体或外部编码智能体。                         |
-| `remember`                            | 保存一条持久记忆。                                           |
-| `querySource`                         | 以只读虚拟表的形式查询本地上下文源 —— 线程、记忆、活动记录。 |
-| `useThings`、`reviewThings`           | 维护 **Things**：用 `#name` 引用的具名上下文索引。           |
-| `updateProfile`                       | 更新结构化档案文档 `USER.md`。                               |
-| `updateTodoList`                      | 维护多步骤工作的待办组件。                                   |
-| `useSentinel`                         | 设置一个对话级的周期性检查（「20 分钟后回来看这件事」）。    |
-| `exitPlanMode`                        | 方案敲定后离开计划模式。                                     |
+| 工具                                  | 用途                                                              |
+| ------------------------------------- | ----------------------------------------------------------------- |
+| `read`、`write`、`edit`、`applyPatch` | 读写文件。读在写之前 —— 覆盖一个文件之前智能体必须先读过它。      |
+| `grep`、`glob`                        | 搜索文件内容和路径。                                              |
+| `bash`                                | 执行 shell 命令，包括长时间运行的后台任务。                       |
+| `jsRepl`                              | 在当前 Agent 执行期间的持久化 Worker 中增量运行 JavaScript cell。 |
+| `webSearch`、`webRead`                | 搜索网页，并以 Markdown 形式读取页面。                            |
+| `useBrowser`                          | 驱动真实浏览器会话，做 fetch 做不到的事。                         |
+| `skillsRead`                          | 按需加载某个技能完整的 `SKILL.md`。                               |
+| `askUser`                             | 运行途中提一个澄清问题，而不是靠猜。                              |
+| `delegateTask`                        | 把工作交给子智能体或外部编码智能体。                              |
+| `remember`                            | 保存一条持久记忆。                                                |
+| `querySource`                         | 以只读虚拟表的形式查询本地上下文源 —— 线程、记忆、活动记录。      |
+| `useThings`、`reviewThings`           | 维护 **Things**：用 `#name` 引用的具名上下文索引。                |
+| `updateProfile`                       | 更新结构化档案文档 `USER.md`。                                    |
+| `updateTodoList`                      | 维护多步骤工作的待办组件。                                        |
+| `useSentinel`                         | 设置一个对话级的周期性检查（「20 分钟后回来看这件事」）。         |
+| `exitPlanMode`                        | 方案敲定后离开计划模式。                                          |
 
 这里没有逐个工具的开关。某次运行里有哪些工具，完全由运行模式决定 —— 那就是控制面，在输入框里按轮次选。
 

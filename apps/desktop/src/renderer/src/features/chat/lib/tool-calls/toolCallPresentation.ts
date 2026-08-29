@@ -21,6 +21,7 @@ export interface ToolCallDetailCodeBlock {
   label: string
   value: string
   filePath?: string
+  language?: 'javascript' | 'json'
   tone?: ToolCallDetailTone
 }
 
@@ -267,9 +268,10 @@ function buildFallbackOutput(toolCall: ToolCall): ToolCallDetailCodeBlock | unde
     const repl = details as JsReplToolCallDetails
     const parts: string[] = []
     if (repl.consoleOutput?.trim()) parts.push('console:\n' + repl.consoleOutput.trimEnd())
+    if (repl.displayOutput?.trim()) parts.push('display:\n' + repl.displayOutput.trimEnd())
     if (repl.result?.trim()) parts.push('result:\n' + repl.result.trimEnd())
     if (repl.error?.trim()) parts.push('error:\n' + repl.error.trimEnd())
-    if (error) parts.push('error:\n' + error)
+    if (error && error !== repl.error?.trim()) parts.push('error:\n' + error)
     const value = parts.join('\n\n')
     return value
       ? {
@@ -366,9 +368,22 @@ export function buildToolCallDetailsPresentation(toolCall: ToolCall): ToolCallDe
       : buildFallbackOutput(toolCall))
 
   return {
-    ...(inputValue ? { input: { label: t('chat.tools.input'), value: inputValue } } : {}),
+    ...(inputValue
+      ? {
+          input: {
+            label: t('chat.tools.input'),
+            value: inputValue,
+            ...(toolCall.toolName === 'jsRepl' ? { language: 'javascript' as const } : {})
+          }
+        }
+      : {}),
     ...(metadata?.value ? { metadata } : {}),
-    ...(output?.value ? { output } : {})
+    ...(output?.value
+      ? {
+          output:
+            toolCall.toolName === 'jsRepl' ? { ...output, language: 'javascript' as const } : output
+        }
+      : {})
   }
 }
 
