@@ -41,6 +41,9 @@ import { serveRpcTarget } from '@yachiyo/shared/rpc/rpcServer'
 import { createProviderFetch } from '../net/providerFetch.ts'
 import { createRuntimeHostServer } from './runtimeHostStartup.ts'
 import { createProviderCredentialVault } from '@yachiyo/runtime/settings/providerCredentialVault'
+import { installRuntimeHostInterruptGuard } from './runtimeHostInterruptGuard.ts'
+
+installRuntimeHostInterruptGuard(process)
 
 // Route global fetch through Electron's net module, mirroring the main
 // process (spike-verified available inside utility processes).

@@ -7,6 +7,7 @@ import { parentPort, type MessagePort } from 'node:worker_threads'
 import vm from 'node:vm'
 
 import { compileJsReplCell } from './jsReplCellCompiler.ts'
+import { resolveJsReplCallCwd } from './jsReplCwd.ts'
 import type {
   JsReplParentMessage,
   JsReplSerializedError,
@@ -151,14 +152,6 @@ class TimerTracker {
     this.timeouts.clear()
     this.intervals.clear()
   }
-}
-
-function resolveCallCwd(workspacePath: string, requested: string): string {
-  const resolved = resolvePath(workspacePath, requested)
-  if (resolved !== workspacePath && !resolved.startsWith(`${workspacePath}/`)) {
-    throw new Error(`Invalid cwd ${JSON.stringify(requested)}.`)
-  }
-  return resolved
 }
 
 function wrapFsForCwd<T extends object>(fsModule: T, cwdRef: { value: string }): T {
@@ -521,7 +514,7 @@ async function executeCell(
   if (state.activeRun) throw new Error('JavaScript REPL received overlapping cells.')
   if (message.reset || !state.context) resetContext()
 
-  const cwd = resolveCallCwd(state.workspacePath, message.cwd)
+  const cwd = resolveJsReplCallCwd(state.workspacePath, message.cwd)
   const run: ActiveRun = {
     runId: message.runId,
     consoleLines: [],

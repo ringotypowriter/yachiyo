@@ -689,7 +689,7 @@ return await fsp.readFile("output/copied/context.json", "utf8")`,
     const result = await execute(tool, {
       code: 'await read("/nonexistent/path/file.txt")'
     })
-    assert.ok(result.details.error?.includes('/nonexistent/path/file.txt'))
+    assert.ok(result.details.error?.replaceAll('\\', '/').includes('/nonexistent/path/file.txt'))
     assert.equal(result.details.result, undefined)
   })
 
