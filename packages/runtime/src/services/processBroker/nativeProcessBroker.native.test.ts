@@ -8,9 +8,10 @@ import test from 'node:test'
 
 import { buildBashCommand } from '../../runtime/shell/shellRuntime.ts'
 import { NativeProcessBroker, resolveProcessHostBinary } from './nativeProcessBroker.ts'
+import { PROCESS_HOST_PROTOCOL_VERSION } from './processHostProtocol.generated.ts'
 import { runBashTool } from '../../tools/agentTools/bashTool.ts'
 import { BackgroundBashManager } from '../../app/domain/background/backgroundBashManager.ts'
-const nodeExecutable = process.execPath.replaceAll('\\', '/')
+const nodeExecutable = process.platform === 'win32' ? 'node.exe' : 'node'
 
 function processExists(pid: number): boolean {
   try {
@@ -48,7 +49,7 @@ test('native direct jobs preserve literal argv, cwd, environment, and output str
     ].join(';')
     const job = await broker.startJob({
       id: 'native-direct-literals',
-      executable: process.execPath,
+      executable: nodeExecutable,
       args: ['-e', script, ...args],
       cwd,
       env: {
@@ -125,7 +126,7 @@ test(
 
       const job = await broker.startJob({
         id: 'native-process-host-after-sigint',
-        executable: process.execPath,
+        executable: nodeExecutable,
         args: ['-e', "process.stdout.write('alive\\n')"],
         cwd: root,
         env: process.env,
@@ -145,6 +146,45 @@ test(
     }
   }
 )
+test('native broker closes when its control pipe breaks during shutdown', async () => {
+  let processHost: ChildProcessWithoutNullStreams | undefined
+  const readyMessage = `${JSON.stringify({
+    type: 'ready',
+    protocolVersion: PROCESS_HOST_PROTOCOL_VERSION
+  })}\n`
+  const spawnProcess = ((
+    _command: string,
+    _args: readonly string[],
+    options: SpawnOptions
+  ): ChildProcessWithoutNullStreams => {
+    const child = spawn(
+      nodeExecutable,
+      ['-e', `process.stdout.write(${JSON.stringify(readyMessage)}); setInterval(() => {}, 1_000)`],
+      options
+    ) as ChildProcessWithoutNullStreams
+    processHost = child
+    return child
+  }) as typeof spawn
+  const broker = new NativeProcessBroker({ spawnProcess })
+
+  try {
+    await broker.start()
+    assert.ok(processHost)
+
+    processHost.stdin.destroy(Object.assign(new Error('write EPIPE'), { code: 'EPIPE' }))
+
+    await assert.doesNotReject(() => broker.close())
+    assert.ok(processHost.exitCode !== null || processHost.signalCode !== null)
+  } finally {
+    if (processHost && processHost.exitCode === null && processHost.signalCode === null) {
+      const exited = Promise.withResolvers<void>()
+      processHost.once('exit', () => exited.resolve())
+      processHost.kill('SIGKILL')
+      await exited.promise
+    }
+    await broker.close().catch(() => undefined)
+  }
+})
 
 // The sidecar timeout and OS process termination use external clocks that
 // JavaScript fake timers cannot advance.
@@ -152,7 +192,7 @@ test('native direct timeout and cancellation each settle once', async () => {
   const root = await mkdtemp(join(tmpdir(), 'yachiyo-native-direct-settlement-'))
   const broker = new NativeProcessBroker()
   const common = {
-    executable: process.execPath,
+    executable: nodeExecutable,
     args: ['-e', 'setInterval(() => {}, 1_000)'],
     cwd: root,
     env: process.env,

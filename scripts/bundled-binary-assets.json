@@ -74,7 +74,7 @@
       "version": "0.12.7",
       "url": "https://github.com/astral-sh/uv/releases/download/0.12.7/uv-x86_64-pc-windows-msvc.zip",
       "sha256": "bf1518af459a3915511a11fdc6e2f43ef9a2afa138b9d498eeb9642fe9d85218",
-      "archiveEntry": "uv-x86_64-pc-windows-msvc/uv.exe",
+      "archiveEntry": "uv.exe",
       "outputName": "uv.exe"
     },
     {

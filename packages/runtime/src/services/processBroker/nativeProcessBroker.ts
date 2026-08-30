@@ -237,7 +237,7 @@ export class NativeProcessBroker implements ProcessBroker {
   private readonly requests = new Map<string, PendingRequest>()
   private readonly jobs = new Map<string, NativeProcessJob>()
   private writeChain: Promise<void> = Promise.resolve()
-  private closing = false
+  private closePromise: Promise<void> | null = null
 
   constructor(options: NativeProcessBrokerOptions = {}) {
     this.binaryPathOverride = options.binaryPath
@@ -251,12 +251,12 @@ export class NativeProcessBroker implements ProcessBroker {
   }
 
   start(): Promise<void> {
-    if (this.startPromise) return this.startPromise
-    if (this.closing) {
+    if (this.closePromise) {
       return Promise.reject(
         new NativeProcessBrokerError('brokerClosed', 'The native process broker is closed.')
       )
     }
+    if (this.startPromise) return this.startPromise
 
     const ready = Promise.withResolvers<void>()
     this.ready = ready
@@ -289,7 +289,7 @@ export class NativeProcessBroker implements ProcessBroker {
       }
     }
     const stoppedReason = (code: number | null, signal: NodeJS.Signals | null): Error =>
-      this.closing
+      this.closePromise
         ? new NativeProcessBrokerError('brokerClosed', 'The native process broker stopped.')
         : new NativeProcessBrokerError(
             'brokerExited',
@@ -298,6 +298,7 @@ export class NativeProcessBroker implements ProcessBroker {
     child.once('error', resetAfterStop)
     child.once('exit', (code, signal) => resetAfterStop(stoppedReason(code, signal)))
     child.once('close', (code, signal) => resetAfterStop(stoppedReason(code, signal)))
+    child.stdin.once('error', resetAfterStop)
 
     const timeout = setTimeout(() => {
       ready.reject(
@@ -395,11 +396,19 @@ export class NativeProcessBroker implements ProcessBroker {
     return response.accepted
   }
 
-  async close(): Promise<void> {
-    if (this.closing) return
-    this.closing = true
+  close(): Promise<void> {
+    this.closePromise ??= this.closeBroker()
+    return this.closePromise
+  }
+
+  private async closeBroker(): Promise<void> {
     const child = this.child
     if (!child) return
+
+    const exited = Promise.withResolvers<void>()
+    const onExit = (): void => exited.resolve()
+    if (child.exitCode !== null || child.signalCode !== null) exited.resolve()
+    else child.once('exit', onExit)
 
     try {
       const response = await this.request({ type: 'shutdown', requestId: randomUUID() })
@@ -410,26 +419,26 @@ export class NativeProcessBroker implements ProcessBroker {
         )
       }
     } catch (error) {
-      if (child.exitCode === null && child.signalCode === null) throw error
+      if (child.exitCode === null && child.signalCode === null) {
+        const termination = forceTerminateChildProcess(child)
+        if (!termination.delivered && !termination.alreadyExited) {
+          child.off('exit', onExit)
+          throw error
+        }
+      }
     }
 
-    const exited = Promise.withResolvers<void>()
-    if (child.exitCode !== null || child.signalCode !== null) {
+    if (child.exitCode !== null || child.signalCode !== null) exited.resolve()
+    const timeout = setTimeout(() => {
+      const result = forceTerminateChildProcess(child)
+      if (!result.delivered && !result.alreadyExited) {
+        console.error('[yachiyo][process-host] failed to force shutdown', result.error)
+      }
       exited.resolve()
-    } else {
-      const timeout = setTimeout(() => {
-        const result = forceTerminateChildProcess(child)
-        if (!result.delivered && !result.alreadyExited) {
-          console.error('[yachiyo][process-host] failed to force shutdown', result.error)
-        }
-        exited.resolve()
-      }, SHUTDOWN_TIMEOUT_MS)
-      child.once('exit', () => {
-        clearTimeout(timeout)
-        exited.resolve()
-      })
-    }
+    }, SHUTDOWN_TIMEOUT_MS)
+    timeout.unref?.()
     await exited.promise
+    clearTimeout(timeout)
   }
 
   private request(
@@ -461,26 +470,14 @@ export class NativeProcessBroker implements ProcessBroker {
         )
       )
     }
-    const write = async (): Promise<void> => {
+    const write = (): Promise<void> => {
+      const writable = Promise.withResolvers<void>()
       const encoded = `${JSON.stringify(message)}\n`
-      if (!child.stdin.write(encoded, 'utf8')) {
-        const writable = Promise.withResolvers<void>()
-        const onDrain = (): void => {
-          cleanup()
-          writable.resolve()
-        }
-        const onError = (error: Error): void => {
-          cleanup()
-          writable.reject(error)
-        }
-        const cleanup = (): void => {
-          child.stdin.off('drain', onDrain)
-          child.stdin.off('error', onError)
-        }
-        child.stdin.once('drain', onDrain)
-        child.stdin.once('error', onError)
-        await writable.promise
-      }
+      child.stdin.write(encoded, 'utf8', (error) => {
+        if (error) writable.reject(error)
+        else writable.resolve()
+      })
+      return writable.promise
     }
     this.writeChain = this.writeChain.then(write, write)
     return this.writeChain

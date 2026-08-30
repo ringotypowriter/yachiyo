@@ -175,7 +175,7 @@ test('every supported uv target has an exact pinned artifact mapping', () => {
       arch: 'x64',
       targetTriple: 'x86_64-pc-windows-msvc',
       sha256: 'bf1518af459a3915511a11fdc6e2f43ef9a2afa138b9d498eeb9642fe9d85218',
-      archiveEntry: 'uv-x86_64-pc-windows-msvc/uv.exe',
+      archiveEntry: 'uv.exe',
       outputName: 'uv.exe'
     }
   ]
@@ -199,7 +199,7 @@ test('every supported uv target has an exact pinned artifact mapping', () => {
     assert.equal(asset.version, '0.12.7')
     assert.equal(
       asset.url,
-      `https://github.com/astral-sh/uv/releases/download/0.12.7/${mapping.archiveEntry.split('/')[0]}${mapping.platform === 'win32' ? '.zip' : '.tar.gz'}`
+      `https://github.com/astral-sh/uv/releases/download/0.12.7/uv-${mapping.targetTriple}${mapping.platform === 'win32' ? '.zip' : '.tar.gz'}`
     )
   }
 })
