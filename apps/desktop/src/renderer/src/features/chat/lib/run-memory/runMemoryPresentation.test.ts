@@ -7,6 +7,7 @@ import {
   calculateTokensPerSecond,
   formatTimeToFirstToken,
   formatTokensPerSecond,
+  formatWorkSummaryPerformance,
   normalizeRunModelLabel,
   compactNovelTermsForDisplay,
   countToolCallsForRun,
@@ -33,6 +34,13 @@ test('formatTimeToFirstToken renders seconds with one decimal place', () => {
   assert.equal(formatTimeToFirstToken(1_234), 'TTFT 1.2s')
   assert.equal(formatTimeToFirstToken(0), 'TTFT 0.0s')
   assert.equal(formatTimeToFirstToken(undefined), null)
+})
+
+test('formatWorkSummaryPerformance groups throughput and TTFT into one metric', () => {
+  assert.equal(formatWorkSummaryPerformance(250, 2_000, 700), '125 tok/s · TTFT 0.7s')
+  assert.equal(formatWorkSummaryPerformance(250, 2_000, undefined), '125 tok/s')
+  assert.equal(formatWorkSummaryPerformance(undefined, undefined, 700), 'TTFT 0.7s')
+  assert.equal(formatWorkSummaryPerformance(undefined, undefined, undefined), null)
 })
 
 test('normalizeRunModelLabel keeps only a usable model name', () => {

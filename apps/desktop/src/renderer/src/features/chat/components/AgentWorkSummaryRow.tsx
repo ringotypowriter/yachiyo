@@ -27,7 +27,7 @@ import { formatToolFilePathList } from '../lib/tool-calls/toolCallPresentation.t
 import {
   countToolCallsForRun,
   findLatestRunForRequests,
-  formatTokensPerSecond,
+  formatWorkSummaryPerformance,
   normalizeRunModelLabel
 } from '../lib/run-memory/runMemoryPresentation.ts'
 import { ToolCallGroupRow } from './ToolCallGroupRow.tsx'
@@ -149,9 +149,10 @@ export function AgentWorkSummaryRow({
       modelLabel: modelLabel ?? normalizeRunModelLabel(run.modelId),
       runId: run.id,
       threadId: run.threadId,
-      tokensPerSecondLabel: formatTokensPerSecond(
+      performanceLabel: formatWorkSummaryPerformance(
         run.totalCompletionTokens,
-        run.modelGenerationDurationMs
+        run.modelGenerationDurationMs,
+        run.timeToFirstTokenMs
       ),
       toolCallCount: countToolCallsForRun(toolCalls, run.id) || toolCalls.length,
       workspacePath:
@@ -256,17 +257,11 @@ export function AgentWorkSummaryRow({
             value={runInfo ? formatElapsed(runInfo.elapsedMs) : null}
           />
           <Metric
+            className="hidden lg:inline-flex"
             icon={<Gauge size={11} strokeWidth={1.7} />}
-            value={runInfo?.tokensPerSecondLabel ?? null}
+            value={runInfo?.performanceLabel ?? null}
           />
-          <Metric
-            icon={<Wrench size={11} strokeWidth={1.7} />}
-            value={toolCallCount > 0 ? String(toolCallCount) : null}
-          />
-          <Metric
-            icon={<FilePenLine size={11} strokeWidth={1.7} />}
-            value={fileCount > 0 ? String(fileCount) : null}
-          />
+          <WorkloadMetric toolCallCount={toolCallCount} fileCount={fileCount} />
           {canReviewDiff ? (
             <button
               type="button"
@@ -298,7 +293,7 @@ export function AgentWorkSummaryRow({
           ) : null}
           {displayedModelLabel ? (
             <span
-              className="min-w-0 max-w-40 truncate text-right text-[10.5px]"
+              className="hidden min-w-0 max-w-40 truncate text-right text-[10.5px] xl:inline"
               style={{ color: theme.text.muted }}
             >
               {displayedModelLabel}
@@ -358,24 +353,53 @@ export function AgentWorkSummaryRow({
 }
 
 function Metric({
+  className = 'hidden sm:inline-flex',
   icon,
   value
 }: {
+  className?: string
   icon: React.ReactNode
   value: string | null
 }): React.JSX.Element | null {
   if (!value) return null
   return (
     <span
-      className="hidden shrink-0 items-center gap-1 rounded px-1.5 py-0.5 sm:inline-flex"
-      style={{
-        background: alpha('ink', 0.035),
-        color: theme.text.muted,
-        fontSize: '10.5px'
-      }}
+      className={`${className} shrink-0 items-center gap-1`}
+      style={{ color: theme.text.muted, fontSize: '10.5px' }}
     >
       {icon}
       {value}
+    </span>
+  )
+}
+
+function WorkloadMetric({
+  toolCallCount,
+  fileCount
+}: {
+  toolCallCount: number
+  fileCount: number
+}): React.JSX.Element | null {
+  if (toolCallCount <= 0 && fileCount <= 0) return null
+
+  return (
+    <span
+      className="hidden shrink-0 items-center gap-1.5 sm:inline-flex"
+      style={{ color: theme.text.muted, fontSize: '10.5px' }}
+    >
+      {toolCallCount > 0 ? (
+        <span className="inline-flex items-center gap-1">
+          <Wrench size={11} strokeWidth={1.7} />
+          {toolCallCount}
+        </span>
+      ) : null}
+      {toolCallCount > 0 && fileCount > 0 ? <span>·</span> : null}
+      {fileCount > 0 ? (
+        <span className="inline-flex items-center gap-1">
+          <FilePenLine size={11} strokeWidth={1.7} />
+          {fileCount}
+        </span>
+      ) : null}
     </span>
   )
 }

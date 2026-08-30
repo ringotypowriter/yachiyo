@@ -37,6 +37,19 @@ export function formatTimeToFirstToken(timeToFirstTokenMs: number | undefined): 
   return `TTFT ${(timeToFirstTokenMs / 1_000).toFixed(1)}s`
 }
 
+export function formatWorkSummaryPerformance(
+  totalCompletionTokens: number | undefined,
+  modelGenerationDurationMs: number | undefined,
+  timeToFirstTokenMs: number | undefined
+): string | null {
+  const labels = [
+    formatTokensPerSecond(totalCompletionTokens, modelGenerationDurationMs),
+    formatTimeToFirstToken(timeToFirstTokenMs)
+  ].filter((label): label is string => label !== null)
+
+  return labels.length > 0 ? labels.join(' · ') : null
+}
+
 export function normalizeRunModelLabel(modelId: string | undefined): string | null {
   return modelId?.trim().split('/').pop()?.trim() || null
 }
