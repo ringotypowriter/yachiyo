@@ -19,6 +19,10 @@ extraResources:
     to: bin
     filter:
       - '**/*'
+  - from: resources/licenses
+    to: licenses
+    filter:
+      - '**/*'
 win:
   executableName: yachiyo
   electronLanguages:

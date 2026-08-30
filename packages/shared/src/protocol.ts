@@ -169,6 +169,7 @@ export const CORE_TOOL_NAMES = [
   'edit',
   'bash',
   'jsRepl',
+  'pyRepl',
   'grep',
   'glob',
   'webRead',

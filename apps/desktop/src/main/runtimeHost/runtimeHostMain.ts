@@ -28,6 +28,7 @@ import { createRpcBrowserAutomationBackend } from '@yachiyo/runtime/services/bro
 import { createJotdownStore } from '@yachiyo/runtime/services/jotdownStore'
 import { NativeProcessBroker } from '@yachiyo/runtime/services/processBroker/nativeProcessBroker'
 import jsReplWorkerPath from '@yachiyo/runtime/tools/agentTools/jsReplWorker?modulePath'
+import pyReplRunnerPath from '@yachiyo/runtime/tools/agentTools/pyReplRunner.py?asset'
 import { createRpcWebExternalFetch } from '@yachiyo/runtime/services/webExternalFetchRpcBridge'
 import { createRpcBrowserSearchPageFactory } from '@yachiyo/runtime/services/webSearch/browserSearchPageFactoryRpcBridge'
 import {
@@ -102,7 +103,8 @@ process.parentPort.on('message', (event) => {
             browserSearchPageFactory: createRpcBrowserSearchPageFactory(mainServices),
             activityTracker: createRpcActivitySummarySource(mainServices),
             processBroker,
-            jsReplWorkerPath
+            jsReplWorkerPath,
+            pyReplRunnerPath
           })
       })
       startedServer = nextServer

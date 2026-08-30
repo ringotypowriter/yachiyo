@@ -1,22 +1,26 @@
-import { statSync } from 'node:fs'
-import { isAbsolute, resolve as resolvePath } from 'node:path'
 import { Worker, type Transferable } from 'node:worker_threads'
 
 import type { JsReplToolCallDetails } from '@yachiyo/shared/protocol'
 import type { Tool, ToolExecutionOptions } from 'ai'
 
 import {
-  DEFAULT_JSREPL_TIMEOUT_SECONDS,
+  DEFAULT_REPL_TIMEOUT_SECONDS,
   jsReplToolInputSchema,
-  resolvePathWithinWorkspace,
+  MAX_REPL_DETAILS_OUTPUT_CHARS,
+  MAX_REPL_MODEL_OUTPUT_CHARS,
   type AgentToolContext,
-  type AgentToolOutput,
   type JsReplToolInput,
   type JsReplToolOutput,
   takeTail,
   textContent,
   toToolModelOutput
 } from './shared.ts'
+import {
+  createReplToolExecutionOptions,
+  executeNestedReplTool,
+  isReplToolName,
+  resolveReplToolCwd
+} from './replNestedTools.ts'
 import type {
   JsReplSerializedError,
   JsReplWorkerFetchRequest,
@@ -47,8 +51,6 @@ interface WorkerResult {
   contextReset?: boolean
 }
 
-const MAX_MODEL_OUTPUT_CHARS = 20_000
-const MAX_DETAILS_OUTPUT_CHARS = 8_000
 const WORKER_INIT_TIMEOUT_MS = 15_000
 const WORKER_TIMEOUT_GRACE_MS = 100
 
@@ -61,92 +63,6 @@ function serializeError(error: unknown): JsReplSerializedError {
     }
   }
   return { name: 'Error', message: String(error) }
-}
-
-function isAsyncIterable(value: unknown): value is AsyncIterable<unknown> {
-  return (
-    value !== null &&
-    typeof value === 'object' &&
-    Symbol.asyncIterator in value &&
-    typeof value[Symbol.asyncIterator] === 'function'
-  )
-}
-
-function isAgentToolOutput(value: unknown): value is AgentToolOutput {
-  return (
-    value !== null &&
-    typeof value === 'object' &&
-    'content' in value &&
-    Array.isArray(value.content) &&
-    'details' in value &&
-    'metadata' in value
-  )
-}
-
-function normalizeNestedToolOutput(output: unknown): unknown {
-  if (!isAgentToolOutput(output)) return output
-  if (output.error) throw new Error(output.error)
-
-  const text = output.content
-    .filter((block): block is { type: 'text'; text: string } => block.type === 'text')
-    .map((block) => block.text)
-    .join('')
-  const images = output.content
-    .filter(
-      (block): block is { type: 'image-data'; data: string; mediaType: string } =>
-        block.type === 'image-data'
-    )
-    .map((block) => ({ data: block.data, mediaType: block.mediaType }))
-  const hasDetails =
-    output.details !== undefined &&
-    output.details !== null &&
-    Object.keys(output.details as object).length > 0
-
-  if (!hasDetails && images.length === 0) return text
-  return {
-    text,
-    ...(hasDetails ? { details: output.details } : {}),
-    ...(images.length > 0 ? { images } : {})
-  }
-}
-
-async function executeNestedTool(
-  tool: unknown,
-  input: unknown,
-  options: ToolExecutionOptions
-): Promise<unknown> {
-  if (
-    !tool ||
-    (typeof tool !== 'object' && typeof tool !== 'function') ||
-    !('execute' in tool) ||
-    typeof tool.execute !== 'function'
-  ) {
-    throw new Error('The requested tool has no executable implementation.')
-  }
-  const execution = Reflect.apply(tool.execute, tool, [input, options]) as unknown
-  if (!isAsyncIterable(execution)) return await Promise.resolve(execution)
-
-  let output: unknown
-  for await (const value of execution) output = value
-  return output
-}
-
-function rewriteRelativePath(input: unknown, cwd: string): unknown {
-  if (!input || typeof input !== 'object' || Array.isArray(input)) return input
-  if (!('path' in input) || typeof input.path !== 'string') return input
-  if (isAbsolute(input.path) || input.path.startsWith('~')) return input
-  return { ...input, path: resolvePath(cwd, input.path) }
-}
-
-function quoteShell(value: string): string {
-  return `'${value.replace(/'/g, "'\\''")}'`
-}
-
-function rewriteNestedToolInput(name: string, input: unknown, cwd: string): unknown {
-  if (name !== 'bash') return rewriteRelativePath(input, cwd)
-  if (!input || typeof input !== 'object' || Array.isArray(input)) return input
-  if (!('command' in input) || typeof input.command !== 'string') return input
-  return { ...input, command: `cd ${quoteShell(cwd)} && ${input.command}` }
 }
 
 async function runConfiguredFetch(
@@ -172,44 +88,6 @@ async function runConfiguredFetch(
   }
 }
 
-function resolveCallCwd(
-  workspacePath: string,
-  requested: string | undefined
-): { resolved: string } | { error: string } {
-  if (!requested || requested === '.') return { resolved: workspacePath }
-  const resolved = resolvePathWithinWorkspace(workspacePath, requested)
-  if (!resolved) {
-    return {
-      error: `Invalid cwd ${JSON.stringify(requested)} — must be a relative path inside the workspace.`
-    }
-  }
-  try {
-    const info = statSync(resolved)
-    if (!info.isDirectory()) {
-      return { error: `Invalid cwd ${JSON.stringify(requested)} — not a directory.` }
-    }
-  } catch {
-    return { error: `Invalid cwd ${JSON.stringify(requested)} — directory does not exist.` }
-  }
-  return { resolved }
-}
-
-function defaultToolExecutionOptions(signal?: AbortSignal): ToolExecutionOptions {
-  return {
-    toolCallId: `js-repl-${crypto.randomUUID()}`,
-    messages: [],
-    ...(signal ? { abortSignal: signal } : {})
-  }
-}
-
-function nestedToolOptions(active: ActiveExecution): ToolExecutionOptions {
-  return {
-    ...active.options,
-    toolCallId: `js-repl-${crypto.randomUUID()}`,
-    abortSignal: active.abortController.signal
-  }
-}
-
 class JsReplWorkerHandle {
   private worker: Worker | undefined
   private initialized = false
@@ -227,7 +105,7 @@ class JsReplWorkerHandle {
 
   private availableToolNames(): string[] {
     return [...new Set(this.dependencies.listToolNames?.() ?? [])]
-      .filter((name) => name !== 'jsRepl')
+      .filter((name) => !isReplToolName(name))
       .sort()
   }
 
@@ -291,17 +169,20 @@ class JsReplWorkerHandle {
     const active = this.activeExecutions.get(message.runId)
     try {
       if (!active) throw new Error('JavaScript REPL tool call no longer has an active cell.')
-      const tool = this.dependencies.resolveTool?.(message.toolName)
-      if (!tool || message.toolName === 'jsRepl') {
-        throw new Error(`Tool ${JSON.stringify(message.toolName)} is not available.`)
-      }
-      const input = rewriteNestedToolInput(message.toolName, message.input, active.cwd)
-      const output = await executeNestedTool(tool, input, nestedToolOptions(active))
+      const output = await executeNestedReplTool({
+        replName: 'jsRepl',
+        toolName: message.toolName,
+        input: message.input,
+        cwd: active.cwd,
+        resolveTool: (name) => this.dependencies.resolveTool?.(name),
+        executionOptions: active.options,
+        signal: active.abortController.signal
+      })
       worker.postMessage({
         type: 'toolResult',
         runId: message.runId,
         callId: message.callId,
-        result: { ok: true, value: normalizeNestedToolOutput(output) }
+        result: { ok: true, value: output }
       })
     } catch (error) {
       try {
@@ -500,10 +381,6 @@ function buildDescription(context: AgentToolContext, toolNames: readonly string[
   ].join('\n')
 }
 
-export async function terminateAllJsReplWorkers(): Promise<void> {
-  // Workers are owned and disposed by their agent tool set.
-}
-
 export function createTool(
   context: AgentToolContext,
   dependencies: JsReplToolDependencies = {}
@@ -517,7 +394,7 @@ export function createTool(
     inputSchema: jsReplToolInputSchema,
     toModelOutput: ({ output }) => toToolModelOutput(output),
     execute: async (input, executionOptions): Promise<JsReplToolOutput> => {
-      const cwdResolution = resolveCallCwd(context.workspacePath, input.cwd)
+      const cwdResolution = resolveReplToolCwd(context.workspacePath, input.cwd)
       if ('error' in cwdResolution) {
         const details: JsReplToolCallDetails = {
           code: input.code,
@@ -533,7 +410,7 @@ export function createTool(
         }
       }
 
-      const timeoutMs = (input.timeout ?? DEFAULT_JSREPL_TIMEOUT_SECONDS) * 1000
+      const timeoutMs = (input.timeout ?? DEFAULT_REPL_TIMEOUT_SECONDS) * 1000
       let workerResult: WorkerResult
       try {
         workerResult = await handle.execute({
@@ -541,7 +418,7 @@ export function createTool(
           cwd: cwdResolution.resolved,
           reset: input.reset ?? false,
           timeoutMs,
-          options: executionOptions ?? defaultToolExecutionOptions()
+          options: executionOptions ?? createReplToolExecutionOptions('jsRepl')
         })
       } catch (workerError) {
         const message = workerError instanceof Error ? workerError.message : String(workerError)
@@ -576,21 +453,21 @@ export function createTool(
       if (stateNotice) parts.push(`[state]\n${stateNotice}`)
 
       const outputText = parts.join('\n\n') || '(no output)'
-      const tail = takeTail(outputText, MAX_MODEL_OUTPUT_CHARS)
+      const tail = takeTail(outputText, MAX_REPL_MODEL_OUTPUT_CHARS)
       const details: JsReplToolCallDetails = {
         code: input.code,
         ...(input.title ? { title: input.title } : {}),
         ...(workerResult.result !== undefined
-          ? { result: takeTail(workerResult.result, MAX_DETAILS_OUTPUT_CHARS).text }
+          ? { result: takeTail(workerResult.result, MAX_REPL_DETAILS_OUTPUT_CHARS).text }
           : {}),
         ...(consoleOutput
-          ? { consoleOutput: takeTail(consoleOutput, MAX_DETAILS_OUTPUT_CHARS).text }
+          ? { consoleOutput: takeTail(consoleOutput, MAX_REPL_DETAILS_OUTPUT_CHARS).text }
           : {}),
         ...(displayOutput
-          ? { displayOutput: takeTail(displayOutput, MAX_DETAILS_OUTPUT_CHARS).text }
+          ? { displayOutput: takeTail(displayOutput, MAX_REPL_DETAILS_OUTPUT_CHARS).text }
           : {}),
         ...(workerResult.error
-          ? { error: takeTail(workerResult.error, MAX_DETAILS_OUTPUT_CHARS).text }
+          ? { error: takeTail(workerResult.error, MAX_REPL_DETAILS_OUTPUT_CHARS).text }
           : {}),
         ...(workerResult.timedOut ? { timedOut: true } : {}),
         ...(input.reset || workerResult.contextReset ? { contextReset: true } : {}),

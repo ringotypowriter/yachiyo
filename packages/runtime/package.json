@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./tools/agentTools/pyReplRunner.py": "./src/tools/agentTools/pyReplRunner.py",
     "./*": "./src/*.ts"
   },
   "scripts": {

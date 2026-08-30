@@ -1,4 +1,4 @@
-import { stepCountIs, type ToolSet } from 'ai'
+import { stepCountIs } from 'ai'
 
 import { DEFAULT_STRIP_COMPACT_TOKEN_THRESHOLD } from '@yachiyo/shared/protocol'
 import type {
@@ -23,6 +23,7 @@ import { createWorkerHistoryCompactor } from './workerSubagentCompaction.ts'
 import {
   ReadRecordCache,
   createAgentToolSet,
+  disposeAgentToolSet,
   summarizeToolInput,
   summarizeToolOutput,
   type AgentToolDependencies
@@ -109,18 +110,6 @@ function mailboxMessage(envelope: AgentMessageEnvelope): ModelMessage {
   }
 }
 
-function asToolSetDisposer(tools: ToolSet | undefined): () => Promise<void> {
-  return async () => {
-    const disposals: Promise<void>[] = []
-    for (const tool of Object.values(tools ?? {})) {
-      const disposable = tool as { dispose?: () => Promise<void> | void }
-      if (typeof disposable.dispose === 'function') {
-        disposals.push(Promise.resolve(disposable.dispose()))
-      }
-    }
-    await Promise.all(disposals)
-  }
-}
 function sanitizeWorkerRunnerInput(input: WorkerRunnerFactoryInput): WorkerRunnerFactoryInput {
   const parentToolContextInput = input.dependencies.parentToolContext
   const parentDependenciesInput = input.dependencies.parentDependencies
@@ -131,6 +120,12 @@ function sanitizeWorkerRunnerInput(input: WorkerRunnerFactoryInput): WorkerRunne
     ...(parentDependenciesInput.fetchImpl ? { fetchImpl: parentDependenciesInput.fetchImpl } : {}),
     ...(parentDependenciesInput.jsReplWorkerPath
       ? { jsReplWorkerPath: parentDependenciesInput.jsReplWorkerPath }
+      : {}),
+    ...(parentDependenciesInput.pyReplRunnerPath
+      ? { pyReplRunnerPath: parentDependenciesInput.pyReplRunnerPath }
+      : {}),
+    ...(parentDependenciesInput.pyReplDependencies
+      ? { pyReplDependencies: parentDependenciesInput.pyReplDependencies }
       : {}),
     ...(parentDependenciesInput.searchService
       ? { searchService: parentDependenciesInput.searchService }
@@ -216,6 +211,12 @@ function createWorkerRunner(
     ...(parentDependenciesInput.jsReplWorkerPath
       ? { jsReplWorkerPath: parentDependenciesInput.jsReplWorkerPath }
       : {}),
+    ...(parentDependenciesInput.pyReplRunnerPath
+      ? { pyReplRunnerPath: parentDependenciesInput.pyReplRunnerPath }
+      : {}),
+    ...(parentDependenciesInput.pyReplDependencies
+      ? { pyReplDependencies: parentDependenciesInput.pyReplDependencies }
+      : {}),
     ...(parentDependenciesInput.searchService
       ? { searchService: parentDependenciesInput.searchService }
       : {}),
@@ -289,6 +290,12 @@ function createWorkerRunner(
     ...(parentDependencies.jsReplWorkerPath
       ? { jsReplWorkerPath: parentDependencies.jsReplWorkerPath }
       : {}),
+    ...(parentDependencies.pyReplRunnerPath
+      ? { pyReplRunnerPath: parentDependencies.pyReplRunnerPath }
+      : {}),
+    ...(parentDependencies.pyReplDependencies
+      ? { pyReplDependencies: parentDependencies.pyReplDependencies }
+      : {}),
     ...(enabledTools.has('webRead') || enabledTools.has('jsRepl')
       ? { fetchImpl: parentDependencies.fetchImpl }
       : {}),
@@ -306,7 +313,6 @@ function createWorkerRunner(
     ...(enabledTools.has('sendMessage') ? { agentMessageContext: workerMessageContext } : {})
   } as AgentToolDependencies
   const tools = createAgentToolSet(workerContext, workerDependencies)
-  const disposeTools = asToolSetDisposer(tools)
   const workerSettings = config
     ? toSubagentProviderSettings(config, launch.agentType, settings)
     : settings
@@ -512,7 +518,7 @@ function createWorkerRunner(
           return { snapshotId: `${launch.agentId}:snapshot` }
         } finally {
           workerSnapshotTracker.dispose()
-          await disposeTools()
+          await disposeAgentToolSet(tools)
         }
       })()
       return closePromise

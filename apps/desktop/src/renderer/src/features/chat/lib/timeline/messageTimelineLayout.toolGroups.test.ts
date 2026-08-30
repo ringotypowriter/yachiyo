@@ -865,9 +865,9 @@ test('getToolCallGroupLabel describes pathless read groups as workspace inspecti
   assert.equal(getToolCallGroupLabel(displayGroup, 3, true), 'Inspected workspace · 3 commands')
 })
 
-test('getToolCallGroupLabel describes jsRepl groups as JavaScript snippets', () => {
-  assert.equal(getToolCallGroupLabel('evaluate-code', 1), 'Evaluating JavaScript')
-  assert.equal(getToolCallGroupLabel('evaluate-code', 3, true), 'Evaluated JavaScript · 3 snippets')
+test('getToolCallGroupLabel describes REPL groups without assuming a language', () => {
+  assert.equal(getToolCallGroupLabel('evaluate-code', 1), 'Evaluating code')
+  assert.equal(getToolCallGroupLabel('evaluate-code', 3, true), 'Evaluated code · 3 snippets')
 })
 
 test('buildConversationGroupTimelineItems groups bash read commands with native read tools', () => {
@@ -1057,6 +1057,90 @@ test('buildConversationGroupTimelineItems groups consecutive jsRepl tool calls',
       toolCallIds: ['tool-1', 'tool-2']
     }
   ])
+})
+
+test('buildConversationGroupTimelineItems groups and labels Python-only REPL calls', () => {
+  const items = buildConversationGroupTimelineItems({
+    hasMemoryRecall: false,
+    replyCount: 1,
+    showPreparing: false,
+    showGenerating: false,
+    activeAssistantTextBlocks: [],
+    visibleToolCalls: [
+      {
+        id: 'tool-1',
+        runId: 'run-1',
+        threadId: 'thread-1',
+        toolName: 'pyRepl',
+        status: 'completed',
+        inputSummary: 'value = 41',
+        startedAt: '2026-03-22T00:00:01.000Z',
+        details: { code: 'value = 41' }
+      },
+      {
+        id: 'tool-2',
+        runId: 'run-1',
+        threadId: 'thread-1',
+        toolName: 'pyRepl',
+        status: 'completed',
+        inputSummary: 'value + 1',
+        startedAt: '2026-03-22T00:00:02.000Z',
+        details: { code: 'value + 1', result: '42' }
+      }
+    ]
+  })
+
+  assert.deepEqual(items, [
+    {
+      kind: 'tool-call-group',
+      key: 'tool-group:tool-1',
+      group: 'evaluate-code',
+      toolCallIds: ['tool-1', 'tool-2']
+    }
+  ])
+  assert.equal(getToolCallGroupLabel('evaluate-code', 2, true), 'Evaluated code · 2 snippets')
+})
+
+test('buildConversationGroupTimelineItems groups and labels mixed JavaScript and Python calls', () => {
+  const items = buildConversationGroupTimelineItems({
+    hasMemoryRecall: false,
+    replyCount: 1,
+    showPreparing: false,
+    showGenerating: false,
+    activeAssistantTextBlocks: [],
+    visibleToolCalls: [
+      {
+        id: 'tool-1',
+        runId: 'run-1',
+        threadId: 'thread-1',
+        toolName: 'jsRepl',
+        status: 'completed',
+        inputSummary: 'const value = 41',
+        startedAt: '2026-03-22T00:00:01.000Z',
+        details: { code: 'const value = 41' }
+      },
+      {
+        id: 'tool-2',
+        runId: 'run-1',
+        threadId: 'thread-1',
+        toolName: 'pyRepl',
+        status: 'completed',
+        inputSummary: 'value = 42',
+        startedAt: '2026-03-22T00:00:02.000Z',
+        details: { code: 'value = 42' }
+      }
+    ]
+  })
+
+  assert.deepEqual(items, [
+    {
+      kind: 'tool-call-group',
+      key: 'tool-group:tool-1',
+      group: 'evaluate-code',
+      toolCallIds: ['tool-1', 'tool-2']
+    }
+  ])
+  assert.equal(getToolCallGroupLabel('evaluate-code', 2, true), 'Evaluated code · 2 snippets')
 })
 
 test('buildConversationGroupTimelineItems keeps bash run commands separate from search tools', () => {

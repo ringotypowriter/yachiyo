@@ -118,6 +118,7 @@ export async function prepareThreadHandoffContext(input: {
         availableSkills: preparedContext.availableSkills,
         fetchImpl: deps.webExternalFetchImpl ?? deps.fetchImpl,
         ...(deps.jsReplWorkerPath ? { jsReplWorkerPath: deps.jsReplWorkerPath } : {}),
+        ...(deps.pyReplRunnerPath ? { pyReplRunnerPath: deps.pyReplRunnerPath } : {}),
         loadBrowserSnapshot: deps.loadBrowserSnapshot,
         searchService: deps.searchService,
         memoryService: sourceThread.privacyMode ? undefined : deps.memoryService,

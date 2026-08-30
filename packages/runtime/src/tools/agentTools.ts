@@ -28,6 +28,11 @@ import { createTool as createGlobTool } from './agentTools/globTool.ts'
 import { createTool as createGrepTool } from './agentTools/grepTool.ts'
 import { createTool as createJsReplTool } from './agentTools/jsReplTool.ts'
 import {
+  createTool as createPyReplTool,
+  type PyReplToolDependencies
+} from './agentTools/pyReplTool.ts'
+import { isReplToolName } from './agentTools/replNestedTools.ts'
+import {
   createTool as createRememberTool,
   type RememberToolDeps
 } from './agentTools/rememberTool.ts'
@@ -49,6 +54,7 @@ import {
   type GlobToolOutput,
   type GrepToolOutput,
   type JsReplToolOutput,
+  type PyReplToolOutput,
   type ReadToolOutput,
   type SkillsReadToolOutput,
   type WebReadToolOutput,
@@ -106,6 +112,7 @@ export type {
   GlobToolOutput,
   GrepToolOutput,
   JsReplToolOutput,
+  PyReplToolOutput,
   ReadToolOutput,
   SkillsReadToolOutput,
   ToolContentBlock,
@@ -145,6 +152,7 @@ export {
 } from './agentTools/bashTool.ts'
 export { createTool as createEditTool, runEditTool } from './agentTools/editTool.ts'
 export { createTool as createJsReplTool } from './agentTools/jsReplTool.ts'
+export { createTool as createPyReplTool } from './agentTools/pyReplTool.ts'
 export { createTool as createGlobTool, runGlobTool } from './agentTools/globTool.ts'
 export { createTool as createGrepTool, runGrepTool } from './agentTools/grepTool.ts'
 export { createTool as createReadTool, runReadTool } from './agentTools/readTool.ts'
@@ -168,6 +176,8 @@ export interface AgentToolDependencies {
   activeSkills?: SkillSummary[]
   fetchImpl?: typeof globalThis.fetch
   jsReplWorkerPath?: string | URL
+  pyReplRunnerPath?: string | URL
+  pyReplDependencies?: Pick<PyReplToolDependencies, 'ensureRuntime' | 'createKernel'>
   loadBrowserSnapshot?: BrowserWebPageSnapshotLoader
   browserAutomationService?: BrowserAutomationToolBackend
   memoryService?: MemoryService
@@ -468,6 +478,13 @@ export function summarizeToolInput(toolName: ToolCallName | string, input: unkno
     return 'JavaScript'
   }
 
+  if (toolName === 'pyRepl') {
+    if (input && typeof input === 'object' && 'title' in input && typeof input.title === 'string') {
+      return takeTail(input.title, 160).text
+    }
+    return 'Python'
+  }
+
   if (toolName === 'webRead') {
     const url = typeof input === 'object' && input !== null && 'url' in input ? input.url : ''
     return typeof url === 'string' && url.trim().length > 0 ? takeTail(url, 160).text : toolName
@@ -684,6 +701,15 @@ export function summarizeToolOutput(
     return details.consoleOutput ? 'console output' : 'no output'
   }
 
+  if (toolName === 'pyRepl') {
+    const details = (output as PyReplToolOutput).details
+    if (details.timedOut) return 'timed out'
+    if (details.error) return `error: ${takeTail(details.error, 80).text}`
+    if (details.result) return takeTail(details.result, 120).text
+    if (details.displayOutput) return takeTail(details.displayOutput, 120).text
+    return details.stdout || details.stderr ? 'output' : 'no output'
+  }
+
   if (toolName === 'bash') {
     return summarizeBashOutputSnapshot((output as BashToolOutput).details)
   }
@@ -805,6 +831,28 @@ export function resolveAvailableToolNamesFromToolSet(toolSet: ToolSet | undefine
     .map(([toolName]) => toolName)
 }
 
+export async function disposeAgentToolSet(
+  tools: Readonly<Record<string, unknown>> | undefined
+): Promise<void> {
+  const disposals = Object.values(tools ?? {}).flatMap((tool) => {
+    if (
+      !tool ||
+      (typeof tool !== 'object' && typeof tool !== 'function') ||
+      !('dispose' in tool) ||
+      typeof tool.dispose !== 'function'
+    ) {
+      return []
+    }
+    const dispose = tool.dispose
+    return [Promise.resolve().then(() => Reflect.apply(dispose, tool, []))]
+  })
+  const results = await Promise.allSettled(disposals)
+  const errors = results.flatMap((result) => (result.status === 'rejected' ? [result.reason] : []))
+  if (errors.length > 0) {
+    throw new AggregateError(errors, 'Failed to dispose agent tool set.')
+  }
+}
+
 function wrapDisabledTool<TInput, TOutput>(
   realTool: Tool<TInput, TOutput>,
   toolName: string,
@@ -831,6 +879,10 @@ export function createAgentToolSet(
     !registerOnlyEnabledToolSchemas || enabledTools.has(toolName)
 
   const tools: ToolSet = {}
+  const resolveReplTool = (name: string): unknown =>
+    !isReplToolName(name) && enabledToolNames.has(name) ? tools[name] : undefined
+  const listReplToolNames = (): string[] =>
+    Object.keys(tools).filter((name) => !isReplToolName(name) && enabledToolNames.has(name))
 
   // --- User-managed tools: always registered for cache stability ---
   // When no user-managed tools are enabled the run is intentionally tool-free
@@ -859,11 +911,22 @@ export function createAgentToolSet(
         createJsReplTool(context, {
           ...(dependencies.fetchImpl ? { fetchImpl: dependencies.fetchImpl } : {}),
           ...(dependencies.jsReplWorkerPath ? { workerPath: dependencies.jsReplWorkerPath } : {}),
-          resolveTool: (name) => (enabledToolNames.has(name) ? tools[name] : undefined),
-          listToolNames: () =>
-            Object.keys(tools).filter((name) => name !== 'jsRepl' && enabledToolNames.has(name))
+          resolveTool: resolveReplTool,
+          listToolNames: listReplToolNames
         }),
         'jsRepl',
+        enabledTools
+      )
+    }
+    if (!context.sandboxed && shouldRegisterTool('pyRepl')) {
+      tools.pyRepl = wrapDisabledTool(
+        createPyReplTool(context, {
+          ...(dependencies.pyReplDependencies ?? {}),
+          ...(dependencies.pyReplRunnerPath ? { runnerPath: dependencies.pyReplRunnerPath } : {}),
+          resolveTool: resolveReplTool,
+          listToolNames: listReplToolNames
+        }),
+        'pyRepl',
         enabledTools
       )
     }

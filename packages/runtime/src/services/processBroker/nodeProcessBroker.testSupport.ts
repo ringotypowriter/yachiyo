@@ -21,6 +21,7 @@ class NodeTestProcessJob implements ProcessJob {
   readonly logPath: string
   private readonly child: ChildProcess
   private readonly listeners = new Set<(batch: ProcessOutputBatch) => void>()
+  private readonly pendingBatches: ProcessOutputBatch[] = []
   private readonly terminal = Promise.withResolvers<ProcessJobResult>()
   private readonly outcome = Promise.withResolvers<ProcessJobOutcome>()
   private outcomeSettled = false
@@ -70,6 +71,7 @@ class NodeTestProcessJob implements ProcessJob {
 
   onOutput(listener: (batch: ProcessOutputBatch) => void): () => void {
     this.listeners.add(listener)
+    for (const batch of this.pendingBatches.splice(0)) listener(batch)
     return () => this.listeners.delete(listener)
   }
 
@@ -95,6 +97,10 @@ class NodeTestProcessJob implements ProcessJob {
       chunks: [{ stream, text }],
       truncated: false,
       totalBytes: this.totalBytes
+    }
+    if (this.listeners.size === 0) {
+      this.pendingBatches.push(batch)
+      return
     }
     for (const listener of this.listeners) listener(batch)
   }
@@ -146,12 +152,23 @@ export class NodeProcessBrokerTestAdapter implements ProcessBroker {
 
   async startJob(input: StartProcessJobInput): Promise<ProcessJob> {
     await mkdir(dirname(input.logPath), { recursive: true })
-    const command = this.shellRuntime.command(input.command, { cwd: input.cwd })
-    const child = spawn(command.executable, command.args, {
-      ...command.options,
-      env: input.env,
-      stdio: ['ignore', 'pipe', 'pipe']
-    })
+    const child =
+      input.command === undefined
+        ? spawn(input.executable, [...input.args], {
+            cwd: input.cwd,
+            ...this.shellRuntime.spawnOptions,
+            shell: false,
+            env: input.env,
+            stdio: ['ignore', 'pipe', 'pipe']
+          })
+        : (() => {
+            const command = this.shellRuntime.command(input.command, { cwd: input.cwd })
+            return spawn(command.executable, command.args, {
+              ...command.options,
+              env: input.env,
+              stdio: ['ignore', 'pipe', 'pipe']
+            })
+          })()
     const job = new NodeTestProcessJob(input, child)
     this.jobs.add(job)
     void job.wait().then(

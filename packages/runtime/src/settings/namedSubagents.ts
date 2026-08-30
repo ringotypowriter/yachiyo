@@ -150,6 +150,7 @@ export const DEFAULT_NAMED_SUBAGENT_PROFILES: Record<
       'edit',
       'bash',
       'jsRepl',
+      'pyRepl',
       'grep',
       'glob',
       'webRead',

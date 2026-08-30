@@ -15,6 +15,7 @@ export const YACHIYO_PROVIDER_CREDENTIAL_VAULT_FILE_NAME = 'provider-credentials
 export const YACHIYO_SOCKET_FILE_NAME = 'yachiyo.sock'
 export const YACHIYO_TEMP_WORKSPACE_DIR_NAME = 'temp-workspace'
 export const YACHIYO_WEB_SEARCH_DIR_NAME = 'web-search'
+export const YACHIYO_PYTHON_DIR_NAME = 'python'
 export const YACHIYO_WEB_SEARCH_BROWSER_SESSION_DIR_NAME = 'browser-session'
 
 export function resolveYachiyoDataDir(options?: {
@@ -84,6 +85,10 @@ export function resolveYachiyoTempWorkspaceRoot(): string {
 
 export function resolveThreadWorkspacePath(threadId: string): string {
   return join(resolveYachiyoTempWorkspaceRoot(), threadId)
+}
+
+export function resolveYachiyoPythonRoot(baseDir = resolveYachiyoDataDir()): string {
+  return join(baseDir, YACHIYO_PYTHON_DIR_NAME)
 }
 
 export function resolveYachiyoWebSearchRoot(): string {

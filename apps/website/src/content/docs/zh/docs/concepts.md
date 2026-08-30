@@ -50,6 +50,7 @@ description: 线程、运行、运行模式、工作区、技能、记忆和频�
 | `grep`、`glob`                        | 搜索文件内容和路径。                                              |
 | `bash`                                | 执行 shell 命令，包括长时间运行的后台任务。                       |
 | `jsRepl`                              | 在当前 Agent 执行期间的持久化 Worker 中增量运行 JavaScript cell。 |
+| `pyRepl`                              | 在持久化的已选 CPython 环境中增量运行 Python cell。               |
 | `webSearch`、`webRead`                | 搜索网页，并以 Markdown 形式读取页面。                            |
 | `useBrowser`                          | 驱动真实浏览器会话，做 fetch 做不到的事。                         |
 | `skillsRead`                          | 按需加载某个技能完整的 `SKILL.md`。                               |
@@ -62,6 +63,24 @@ description: 线程、运行、运行模式、工作区、技能、记忆和频�
 | `updateTodoList`                      | 维护多步骤工作的待办组件。                                        |
 | `useSentinel`                         | 设置一个对话级的周期性检查（「20 分钟后回来看这件事」）。         |
 | `exitPlanMode`                        | 方案敲定后离开计划模式。                                          |
+
+`pyRepl` 会在首次使用时选定环境。工作区根目录的 `.venv` 优先，且必须是可用的 CPython
+3.11 或更新版本虚拟环境；如果该目录存在却无效，启动会直接失败，不会静默切换到其他解释器。
+如果没有 `.venv`，八千代会回退到私有托管的 CPython `3.12.14` 环境。变量绑定会在当前父级
+执行或可复用 Worker 的生命周期内保留；`reset: true` 会主动丢弃这些绑定。
+
+cell 支持末尾表达式结果、顶层 `await`、超时和有并发上限的 `parallel()`。它可以返回文本、
+JSON、PNG/JPEG 图片以及数学或数据渲染结果，也可以通过 `read`、`write`、
+`tool.<name>(args)` 等辅助函数调用当前已启用的八千代工具。
+
+`%pip` 始终安装到已选解释器。选中工作区 `.venv` 时，包变更属于该项目；使用托管回退环境
+时，包会在 `YACHIYO_HOME` 下供整个应用持续使用。托管环境首次使用会下载运行时，并安装
+一组锁定版本且仅使用 wheel 的基础包：NumPy、SciPy、pandas、Matplotlib、Pillow 和
+scikit-image。
+
+环境选择不会跟随系统或 Homebrew Python/pip、环境变量 `VIRTUAL_ENV`、Conda，也不会选择
+工作区根目录 `.venv` 之外的虚拟环境。这是目标隔离，不是操作系统沙箱：显式执行的 Python
+文件或子进程代码、`tool.bash`，以及第三方包或源码构建钩子仍保有普通进程权限。
 
 这里没有逐个工具的开关。某次运行里有哪些工具，完全由运行模式决定 —— 那就是控制面，在输入框里按轮次选。
 

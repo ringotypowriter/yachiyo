@@ -145,6 +145,7 @@ export interface RunExecutionDeps {
   createModelRuntime: () => ModelRuntime
   processBroker: ProcessBroker
   jsReplWorkerPath?: string | URL
+  pyReplRunnerPath?: string | URL
   ensureThreadWorkspace: (threadId: string) => Promise<string>
   buildMemoryLayerEntries?: (input: {
     requestMessageId: string

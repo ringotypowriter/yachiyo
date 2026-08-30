@@ -7,7 +7,7 @@ interface PathApi {
   sep: string
 }
 
-export function resolveJsReplCallCwd(
+export function resolveReplCallCwd(
   workspacePath: string,
   requested: string,
   pathApi: PathApi = path

@@ -74,6 +74,14 @@ process.once('SIGINT', () => handleSignal('SIGINT'))
 process.once('SIGTERM', () => handleSignal('SIGTERM'))
 process.once('exit', resetTerminal)
 
+const bundledBinaries = await run(process.execPath, [
+  resolve(repoRoot, 'scripts/download-bundled-binaries.mjs')
+])
+if (bundledBinaries.code !== 0 || bundledBinaries.signal) {
+  resetTerminal()
+  process.exit(bundledBinaries.code ?? 1)
+}
+
 const nativePrepare = await run(process.execPath, [
   resolve(repoRoot, 'scripts/ensure-electron-native-deps.mjs')
 ])

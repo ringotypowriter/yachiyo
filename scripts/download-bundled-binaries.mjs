@@ -5,15 +5,15 @@ import process from 'node:process'
 import { resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 
-import { resolveSearchBinaryAssets, stageSearchBinary } from './search-binary-assets.mjs'
+import { resolveBundledBinaryAssets, stageBundledBinary } from './bundled-binary-assets.mjs'
 
 const EB_OS_MAP = { darwin: 'mac', linux: 'linux', win32: 'win' }
 
 async function main() {
-  const assets = resolveSearchBinaryAssets(process.platform, process.arch)
+  const assets = resolveBundledBinaryAssets(process.platform, process.arch)
   if (assets.length === 0) {
     console.log(
-      `Skipping search binary download for unsupported target ${process.platform}/${process.arch}.`
+      `Skipping bundled binary download for unsupported target ${process.platform}/${process.arch}.`
     )
     return
   }
@@ -24,7 +24,7 @@ async function main() {
   const force = process.argv.includes('--force')
 
   for (const asset of assets) {
-    const result = await stageSearchBinary({ asset, outputDir, force })
+    const result = await stageBundledBinary({ asset, outputDir, force })
     console.log(`✓ ${asset.name} ${asset.version} (${result.status}) → ${result.outputPath}`)
   }
 }

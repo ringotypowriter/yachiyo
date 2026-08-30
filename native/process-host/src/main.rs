@@ -187,6 +187,13 @@ struct StartedJob {
 
 #[tokio::main]
 async fn main() -> io::Result<()> {
+    // The broker parent owns graceful shutdown. Keep this sidecar alive when a
+    // terminal SIGINT reaches the whole foreground process group so the parent
+    // can cancel jobs and send the protocol-level shutdown request.
+    #[cfg(unix)]
+    let mut interrupts = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt())?;
+    #[cfg(windows)]
+    let mut interrupts = tokio::signal::windows::ctrl_c()?;
     let (server_tx, server_rx) = mpsc::channel(SERVER_CHANNEL_CAPACITY);
     let writer = tokio::spawn(write_server_messages(server_rx));
     server_tx
@@ -204,6 +211,11 @@ async fn main() -> io::Result<()> {
 
     while !shutting_down {
         tokio::select! {
+            interrupt = interrupts.recv() => {
+                if interrupt.is_none() {
+                    return Err(io::Error::other("interrupt signal stream closed"));
+                }
+            }
             line = lines.next_line() => {
                 match line? {
                     Some(line) if !line.trim().is_empty() => {

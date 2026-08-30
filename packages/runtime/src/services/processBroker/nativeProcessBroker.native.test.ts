@@ -1,5 +1,6 @@
+import { spawn, type ChildProcessWithoutNullStreams, type SpawnOptions } from 'node:child_process'
 import assert from 'node:assert/strict'
-import { chmod, copyFile, mkdtemp, readFile, rm } from 'node:fs/promises'
+import { chmod, copyFile, mkdir, mkdtemp, readFile, realpath, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
@@ -19,6 +20,180 @@ function processExists(pid: number): boolean {
     return false
   }
 }
+
+test('native direct jobs preserve literal argv, cwd, environment, and output streams', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'yachiyo-native-direct-process-'))
+  const cwd = join(root, 'working directory & literal')
+  const broker = new NativeProcessBroker()
+  const inheritedOnlyKey = 'YACHIYO_NATIVE_PROCESS_BROKER_INHERITED_ONLY'
+  const previousInheritedOnly = process.env[inheritedOnlyKey]
+  process.env[inheritedOnlyKey] = 'must-not-leak'
+  try {
+    await mkdir(cwd, { recursive: true })
+    await broker.start()
+    const expectedCwd = await realpath(cwd)
+    const args = [
+      'space value',
+      'quote"value',
+      '*',
+      '$()',
+      '&',
+      '$(touch should-not-run)',
+      '"; process.exit(97); "'
+    ]
+    const script = [
+      'const payload = { argv: process.argv.slice(1), cwd: process.cwd(), sentinel: process.env.YACHIYO_NATIVE_PROCESS_BROKER_SENTINEL, inheritedOnly: process.env.YACHIYO_NATIVE_PROCESS_BROKER_INHERITED_ONLY ?? null }',
+      "process.stdout.write(JSON.stringify(payload) + '\\n')",
+      "process.stderr.write('separate-stderr\\n')"
+    ].join(';')
+    const job = await broker.startJob({
+      id: 'native-direct-literals',
+      executable: process.execPath,
+      args: ['-e', script, ...args],
+      cwd,
+      env: {
+        PATH: process.env['PATH'] ?? process.env['Path'],
+        SystemRoot: process.env['SystemRoot'],
+        WINDIR: process.env['WINDIR'],
+        ComSpec: process.env['ComSpec'],
+        PATHEXT: process.env['PATHEXT'],
+        TEMP: process.env['TEMP'],
+        TMP: process.env['TMP'],
+        YACHIYO_NATIVE_PROCESS_BROKER_SENTINEL: 'requested-value'
+      },
+      logPath: join(root, 'direct.log'),
+      timeoutSeconds: 5,
+      keepRunningOnTimeout: false,
+      retainLog: false,
+      spillThresholdChars: 20_000
+    })
+    let stdout = ''
+    let stderr = ''
+    job.onOutput((batch) => {
+      for (const chunk of batch.chunks) {
+        if (chunk.stream === 'stdout') stdout += chunk.text
+        else stderr += chunk.text
+      }
+    })
+    const result = await job.wait()
+
+    assert.equal(result.exitCode, 0)
+    assert.equal(result.timedOut, false)
+    assert.deepEqual(JSON.parse(stdout), {
+      argv: args,
+      cwd: expectedCwd,
+      sentinel: 'requested-value',
+      inheritedOnly: null
+    })
+    assert.equal(stderr, 'separate-stderr\n')
+  } finally {
+    if (previousInheritedOnly === undefined) delete process.env[inheritedOnlyKey]
+    else process.env[inheritedOnlyKey] = previousInheritedOnly
+    await broker.close()
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test(
+  'native process host survives SIGINT until its parent requests shutdown',
+  {
+    skip:
+      process.platform === 'win32' ? 'SIGINT delivery is not process-addressable on Windows' : false
+  },
+  async () => {
+    const root = await mkdtemp(join(tmpdir(), 'yachiyo-native-process-host-sigint-'))
+    let processHostPid: number | undefined
+    let processHostStarts = 0
+    const spawnProcess = ((
+      command: string,
+      args: readonly string[],
+      options: SpawnOptions
+    ): ChildProcessWithoutNullStreams => {
+      const child = spawn(command, args, options) as ChildProcessWithoutNullStreams
+      processHostPid = child.pid
+      processHostStarts += 1
+      return child
+    }) as typeof spawn
+    const broker = new NativeProcessBroker({ spawnProcess })
+
+    try {
+      await broker.start()
+      assert.ok(processHostPid)
+
+      process.kill(processHostPid, 'SIGINT')
+      await sleep(100)
+
+      const job = await broker.startJob({
+        id: 'native-process-host-after-sigint',
+        executable: process.execPath,
+        args: ['-e', "process.stdout.write('alive\\n')"],
+        cwd: root,
+        env: process.env,
+        logPath: join(root, 'after-sigint.log'),
+        timeoutSeconds: 5,
+        keepRunningOnTimeout: false,
+        retainLog: false,
+        spillThresholdChars: 20_000
+      })
+      const result = await job.wait()
+
+      assert.equal(result.exitCode, 0)
+      assert.equal(processHostStarts, 1)
+    } finally {
+      await broker.close()
+      await rm(root, { recursive: true, force: true })
+    }
+  }
+)
+
+// The sidecar timeout and OS process termination use external clocks that
+// JavaScript fake timers cannot advance.
+test('native direct timeout and cancellation each settle once', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'yachiyo-native-direct-settlement-'))
+  const broker = new NativeProcessBroker()
+  const common = {
+    executable: process.execPath,
+    args: ['-e', 'setInterval(() => {}, 1_000)'],
+    cwd: root,
+    env: process.env,
+    keepRunningOnTimeout: false,
+    retainLog: false,
+    spillThresholdChars: 20_000
+  } as const
+
+  try {
+    await broker.start()
+    const timed = await broker.startJob({
+      ...common,
+      id: 'native-direct-timeout',
+      logPath: join(root, 'timeout.log'),
+      timeoutSeconds: 0.05
+    })
+    const timeoutOutcome = await timed.waitForOutcome()
+    const timeoutResult = await timed.wait()
+    assert.deepEqual(timeoutOutcome, { kind: 'timed-out' })
+    assert.equal(timeoutResult.timedOut, true)
+    assert.deepEqual(await timed.waitForOutcome(), timeoutOutcome)
+    assert.deepEqual(await timed.wait(), timeoutResult)
+
+    const cancelled = await broker.startJob({
+      ...common,
+      id: 'native-direct-cancel',
+      logPath: join(root, 'cancel.log'),
+      timeoutSeconds: 5
+    })
+    cancelled.cancel()
+    const cancelOutcome = await cancelled.waitForOutcome()
+    const cancelResult = await cancelled.wait()
+    assert.equal(cancelOutcome.kind, 'exited')
+    assert.equal(cancelResult.cancelled, true)
+    assert.deepEqual(await cancelled.waitForOutcome(), cancelOutcome)
+    assert.deepEqual(await cancelled.wait(), cancelResult)
+  } finally {
+    await broker.close()
+    await rm(root, { recursive: true, force: true })
+  }
+})
 
 test('resident process host executes jobs, batches both streams, and removes inline-only logs', async () => {
   const workspacePath = await mkdtemp(join(tmpdir(), 'yachiyo-process-host-small-'))

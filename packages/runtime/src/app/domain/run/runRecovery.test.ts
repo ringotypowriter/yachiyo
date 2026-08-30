@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 
 import { textContent } from '../../../tools/agentTools/shared.ts'
-import { appendRecoveryToolResult } from './runRecovery.ts'
+import { appendRecoveryToolResult, buildRecoveryResponseMessages } from './runRecovery.ts'
 
 test('appendRecoveryToolResult stores text-only content as plain text model output', () => {
   const responseMessages = []
@@ -40,4 +40,46 @@ test('appendRecoveryToolResult stores text-only content as plain text model outp
       ]
     }
   ])
+})
+
+test('buildRecoveryResponseMessages reconstructs pyRepl input and reset state', () => {
+  const responseMessages = buildRecoveryResponseMessages({
+    checkpoint: { content: '' },
+    toolCalls: [
+      {
+        id: 'tc-python',
+        runId: 'run-1',
+        threadId: 'thread-1',
+        toolName: 'pyRepl',
+        status: 'completed',
+        inputSummary: 'inspect state',
+        details: {
+          code: 'value + 1',
+          title: 'inspect state',
+          cwd: 'analysis',
+          result: '42',
+          contextReset: true
+        },
+        startedAt: '2026-05-18T00:00:00.000Z',
+        finishedAt: '2026-05-18T00:00:01.000Z'
+      }
+    ]
+  })
+
+  assert.deepStrictEqual(responseMessages?.[0], {
+    role: 'assistant',
+    content: [
+      {
+        type: 'tool-call',
+        toolCallId: 'tc-python',
+        toolName: 'pyRepl',
+        input: {
+          code: 'value + 1',
+          title: 'inspect state',
+          cwd: 'analysis',
+          reset: true
+        }
+      }
+    ]
+  })
 })

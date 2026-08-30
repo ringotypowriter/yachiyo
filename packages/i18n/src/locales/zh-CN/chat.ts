@@ -308,8 +308,8 @@ export const chat = {
         done: { one: '已检查工作区', other: '已检查工作区 · {count} 条命令' }
       },
       evaluateCode: {
-        active: { one: '正在执行 JavaScript', other: '正在执行 JavaScript · {count} 段代码' },
-        done: { one: '已执行 JavaScript', other: '已执行 JavaScript · {count} 段代码' }
+        active: { one: '正在执行代码', other: '正在执行代码 · {count} 段' },
+        done: { one: '已执行代码', other: '已执行代码 · {count} 段' }
       },
       querySources: {
         active: { one: '正在查询源数据', other: '正在查询源数据 · {count} 次' },

@@ -76,6 +76,12 @@ function environmentRecord(
   return output
 }
 
+function definedEnvironmentRecord(environment: NodeJS.ProcessEnv): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(environment).filter((entry): entry is [string, string] => entry[1] !== undefined)
+  )
+}
+
 export class NativeProcessBrokerError extends Error {
   readonly code: string
 
@@ -320,7 +326,21 @@ export class NativeProcessBroker implements ProcessBroker {
       )
     }
 
-    const command = this.shellRuntime.command(input.command, { cwd: input.cwd })
+    const processSpec =
+      input.command === undefined
+        ? {
+            executable: input.executable,
+            args: [...input.args],
+            env: definedEnvironmentRecord(input.env)
+          }
+        : (() => {
+            const command = this.shellRuntime.command(input.command, { cwd: input.cwd })
+            return {
+              executable: command.executable,
+              args: command.args,
+              env: environmentRecord(command.options.env, input.env)
+            }
+          })()
     const job = new NativeProcessJob(this, input.id, input.logPath)
     this.jobs.set(input.id, job)
     const requestId = randomUUID()
@@ -328,10 +348,10 @@ export class NativeProcessBroker implements ProcessBroker {
       type: 'start',
       requestId,
       jobId: input.id,
-      executable: command.executable,
-      args: command.args,
+      executable: processSpec.executable,
+      args: processSpec.args,
       cwd: input.cwd,
-      env: environmentRecord(command.options.env, input.env),
+      env: processSpec.env,
       logPath: input.logPath,
       timeoutMs:
         input.timeoutSeconds === undefined ? null : Math.round(input.timeoutSeconds * 1000),

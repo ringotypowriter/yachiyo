@@ -122,6 +122,7 @@ import {
 import { mergeRpcTargets } from '@yachiyo/shared/rpc/mergeRpcTargets'
 import { createWebExternalFetchRpcTarget } from '@yachiyo/runtime/services/webExternalFetchRpcBridge'
 import jsReplWorkerPath from '@yachiyo/runtime/tools/agentTools/jsReplWorker?modulePath'
+import pyReplRunnerPath from '@yachiyo/runtime/tools/agentTools/pyReplRunner.py?asset'
 import { createJotdownStore } from '@yachiyo/runtime/services/jotdownStore'
 import {
   createElectronProviderCredentialVault,
@@ -138,6 +139,7 @@ import { listSnapshotRuns } from '@yachiyo/runtime/services/fileSnapshot/snapsho
 import { registerGatewayFileHandlers } from './fileHandlers.ts'
 import { broadcastYachiyoEvent, handleYachiyoIpc, showYachiyoNotification } from './ipc.ts'
 import { IPC_CHANNELS } from './ipcChannels.ts'
+import { registerBackgroundTaskIpc } from './backgroundTaskIpc.ts'
 import { normalizePngBytes, normalizePngFilename, type SavePngFileInput } from './pngFile.ts'
 import { registerProviderBackupHandlers } from './providerBackupHandlers.ts'
 import type { AppUpdateController } from '../electron/appUpdateController.ts'
@@ -586,6 +588,7 @@ function createConfiguredServer(
     developmentMode: is.dev,
     seedPresetProviders: true,
     jsReplWorkerPath,
+    pyReplRunnerPath,
     providerCredentialVault: createElectronProviderCredentialVault(resolveYachiyoSettingsPath()),
     fetchImpl: createProviderFetch({
       env: process.env,
@@ -1255,17 +1258,7 @@ export function registerYachiyoGateway(options: {
     (input: { threadId: string; includeMessages?: boolean }) =>
       rpc().loadThreadData(input.threadId, { includeMessages: input.includeMessages })
   )
-  handleYachiyoIpc(IPC_CHANNELS.listBackgroundTasks, (input?: { threadId?: string }) =>
-    rpc().listBackgroundTasks(input)
-  )
-  handleYachiyoIpc(
-    IPC_CHANNELS.getBackgroundTaskLog,
-    (input: { threadId: string; taskId: string; maxBytes?: number }) =>
-      rpc().getBackgroundTaskLog(input)
-  )
-  handleYachiyoIpc(IPC_CHANNELS.cancelBackgroundTask, (input: { taskId: string }) =>
-    rpc().cancelBackgroundTask(input)
-  )
+  const backgroundTaskIpc = registerBackgroundTaskIpc(rpc)
   handleYachiyoIpc(IPC_CHANNELS.listSubagents, (input?: { threadId?: string }) =>
     rpc().listSubagents(input)
   )
@@ -1457,6 +1450,7 @@ export function registerYachiyoGateway(options: {
     cleanup: async () => {
       stopPerfMonitor()
       markUtilityRuntimeHostStopping(serverRpc)
+      await backgroundTaskIpc.beginShutdown()
       if (commandSocketHealthTimer) {
         clearInterval(commandSocketHealthTimer)
         commandSocketHealthTimer = null

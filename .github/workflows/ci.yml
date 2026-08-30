@@ -21,6 +21,21 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Download bundled runtime binaries
+        run: pnpm binaries:download
+
+      - name: Build process host
+        run: pnpm process-host:build
+
+      - name: Test native process broker
+        run: node --experimental-strip-types --test packages/runtime/src/services/processBroker/nativeProcessBroker.native.test.ts
+
+      - name: Test managed Python REPL
+        run: pnpm test:py-repl:managed
+
+      - name: Test packaged REPLs
+        run: pnpm test:repls:packaged
+
       - name: Lint
         run: pnpm run lint
 
@@ -54,6 +69,21 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      - name: Download bundled runtime binaries
+        run: pnpm binaries:download
+
+      - name: Build process host
+        run: pnpm process-host:build
+
+      - name: Test native process broker
+        run: node --experimental-strip-types --test packages/runtime/src/services/processBroker/nativeProcessBroker.native.test.ts
+
+      - name: Test managed Python REPL
+        run: pnpm test:py-repl:managed
+
+      - name: Test packaged REPLs
+        run: pnpm test:repls:packaged
 
       - name: Prepare Windows runtime
         run: pnpm --filter @yachiyo/desktop run windows-runtime:prepare

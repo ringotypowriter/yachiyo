@@ -12,6 +12,7 @@ export type {
   GlobToolCallDetails,
   GrepToolCallDetails,
   JsReplToolCallDetails,
+  PyReplToolCallDetails,
   MessageRecord as Message,
   MessageFileAttachment,
   MessageImageRecord,

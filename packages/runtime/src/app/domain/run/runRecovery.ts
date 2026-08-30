@@ -354,7 +354,11 @@ function buildInterruptedToolCallInput(toolCall: ToolCallRecord): unknown {
     }
   }
 
-  if (toolCall.toolName === 'jsRepl' && details && 'code' in details) {
+  if (
+    (toolCall.toolName === 'jsRepl' || toolCall.toolName === 'pyRepl') &&
+    details &&
+    'code' in details
+  ) {
     return {
       code: details.code,
       ...('title' in details && details.title ? { title: details.title } : {}),
@@ -436,9 +440,17 @@ function buildInterruptedToolCallOutput(toolCall: ToolCallRecord): unknown {
     }
   }
 
-  if (toolCall.toolName === 'bash' && toolCall.details && 'stdout' in toolCall.details) {
+  if (
+    toolCall.toolName === 'bash' &&
+    toolCall.details &&
+    'stdout' in toolCall.details &&
+    typeof toolCall.details.stdout === 'string'
+  ) {
     const stdout = toolCall.details.stdout.trim()
-    const stderr = 'stderr' in toolCall.details ? toolCall.details.stderr.trim() : ''
+    const stderr =
+      'stderr' in toolCall.details && typeof toolCall.details.stderr === 'string'
+        ? toolCall.details.stderr.trim()
+        : ''
     const blocks = [
       ...(stdout ? [{ type: 'text', text: stdout }] : []),
       ...(stderr ? [{ type: 'text', text: stderr }] : [])

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
@@ -696,6 +696,130 @@ test('Worker runner preserves the host jsRepl worker bundle path', async () => {
   }
 })
 
+test('Worker runner preserves the host pyRepl runner and runtime dependencies', async () => {
+  const workspace = await realpath(await mkdtemp(join(tmpdir(), 'yachiyo-worker-py-repl-')))
+  const runnerPath = join(workspace, 'injected-py-repl-runner.py')
+  await writeFile(runnerPath, '# injected worker runner\n', 'utf8')
+
+  let stagedRunnerPath: string | undefined
+  let pyReplResult: string | undefined
+  let kernelDisposed = false
+  let runtimeReleased = false
+  const modelRuntime: ModelRuntime = {
+    streamReply: async function* (request) {
+      const pyRepl = request.tools?.pyRepl as
+        | {
+            execute?: (
+              input: { code: string },
+              options: {
+                toolCallId: string
+                messages: []
+                abortSignal: AbortSignal
+              }
+            ) => Promise<{ details: { result?: string } }>
+          }
+        | undefined
+      assert.ok(pyRepl?.execute)
+      const result = await pyRepl.execute(
+        { code: '6 * 7' },
+        {
+          toolCallId: 'worker-py-repl-smoke',
+          messages: [],
+          abortSignal: new AbortController().signal
+        }
+      )
+      pyReplResult = result.details.result
+      yield 'done'
+    }
+  } as ModelRuntime
+  const factory = createWorkerSubagentRunnerFactory({
+    profileId: 'general',
+    profile: DEFAULT_NAMED_SUBAGENT_PROFILES.general,
+    dependencies: {
+      settings: TEST_SETTINGS,
+      parentToolContext: { workspacePath: workspace, sandboxed: false },
+      parentDependencies: {
+        pyReplRunnerPath: runnerPath,
+        pyReplDependencies: {
+          ensureRuntime: async () => ({
+            kind: 'managed',
+            rootPath: workspace,
+            pythonPath: join(workspace, 'python'),
+            uvPath: join(workspace, 'uv'),
+            environmentPath: join(workspace, 'environment'),
+            env: {},
+            version: '3.12.14' as const,
+            acquireProcessLease: async () => async () => {},
+            release: async () => {
+              runtimeReleased = true
+            }
+          }),
+          createKernel: ((options) => {
+            stagedRunnerPath = options.runnerPath
+            return {
+              execute: async () => ({
+                events: [{ type: 'result', bundle: { 'text/plain': 'injected-python' } }],
+                status: 'ok',
+                cancelled: false,
+                timedOut: false,
+                contextReset: false,
+                resetReason: undefined,
+                resetScope: undefined,
+                failureKind: undefined,
+                failure: undefined
+              }),
+              dispose: async () => {
+                kernelDisposed = true
+              }
+            } as never
+          }) as NonNullable<
+            NonNullable<AgentToolDependencies['pyReplDependencies']>['createKernel']
+          >
+        }
+      },
+      createModelRuntime: () => modelRuntime
+    }
+  })
+  const runner = factory({
+    launch: {
+      agentId: 'agent-py-repl',
+      parentThreadId: 'thread-1',
+      launchRunId: 'run-1',
+      agentName: 'general',
+      agentType: 'general',
+      codeName: 'Akari',
+      workspacePath: workspace,
+      prompt: 'Use pyRepl'
+    },
+    signal: new AbortController().signal,
+    sendMessage: () => ({
+      messageId: 'message-1',
+      delivery: 'queued',
+      recipientState: 'idle'
+    }),
+    hasPendingMessages: () => false,
+    onProgress: () => {},
+    onToolCall: () => {}
+  })
+
+  try {
+    await runner.runTurn({
+      turnId: 'turn-py-repl',
+      initialPrompt: 'Use pyRepl',
+      messages: [],
+      signal: new AbortController().signal
+    })
+    assert.equal(pyReplResult, 'injected-python')
+    assert.ok(stagedRunnerPath)
+    assert.equal(await readFile(stagedRunnerPath, 'utf8'), '# injected worker runner\n')
+  } finally {
+    await runner.close()
+    assert.equal(kernelDisposed, true)
+    assert.equal(runtimeReleased, true)
+    await rm(workspace, { recursive: true, force: true })
+  }
+})
+
 test('Worker runner compacts with its own model before a follow-up turn', async () => {
   const workspace = await mkdtemp(join(tmpdir(), 'yachiyo-worker-compaction-'))
   const requests: ModelStreamRequest[] = []
@@ -809,9 +933,14 @@ test('Worker runner compacts with its own model before a follow-up turn', async 
   }
 })
 
-test('Worker profile permissions include sendMessage without enabling recursive delegation', () => {
+test('Worker profile permissions expose pyRepl only to general workers', () => {
   const profile = DEFAULT_NAMED_SUBAGENT_PROFILES.general
+  assert.ok(profile.allowedTools?.includes('pyRepl'))
   assert.ok(profile.allowedTools?.includes('sendMessage'))
   assert.equal(profile.allowedTools?.includes('delegateTask'), false)
   assert.equal(profile.allowedTools?.includes('sendThreadMessage'), false)
+
+  for (const profileId of ['explore', 'plan', 'review'] as const) {
+    assert.equal(DEFAULT_NAMED_SUBAGENT_PROFILES[profileId].allowedTools?.includes('pyRepl'), false)
+  }
 })

@@ -1,0 +1,103 @@
+{
+  "assets": [
+    {
+      "platform": "darwin",
+      "arch": "arm64",
+      "targetTriple": "aarch64-apple-darwin",
+      "name": "rg",
+      "version": "15.1.0",
+      "url": "https://github.com/BurntSushi/ripgrep/releases/download/15.1.0/ripgrep-15.1.0-aarch64-apple-darwin.tar.gz",
+      "sha256": "378e973289176ca0c6054054ee7f631a065874a352bf43f0fa60ef079b6ba715",
+      "archiveEntry": "ripgrep-15.1.0-aarch64-apple-darwin/rg",
+      "outputName": "rg"
+    },
+    {
+      "platform": "darwin",
+      "arch": "arm64",
+      "targetTriple": "aarch64-apple-darwin",
+      "name": "fd",
+      "version": "10.4.2",
+      "url": "https://github.com/sharkdp/fd/releases/download/v10.4.2/fd-v10.4.2-aarch64-apple-darwin.tar.gz",
+      "sha256": "623dc0afc81b92e4d4606b380d7bc91916ba7b97814263e554d50923a39e480a",
+      "archiveEntry": "fd-v10.4.2-aarch64-apple-darwin/fd",
+      "outputName": "fd"
+    },
+    {
+      "platform": "darwin",
+      "arch": "arm64",
+      "targetTriple": "aarch64-apple-darwin",
+      "name": "uv",
+      "version": "0.12.7",
+      "url": "https://github.com/astral-sh/uv/releases/download/0.12.7/uv-aarch64-apple-darwin.tar.gz",
+      "sha256": "127ebdda7ad953cdf198e964b570ea5771b85467ea93eb7cb6d6f8e6f55408f3",
+      "archiveEntry": "uv-aarch64-apple-darwin/uv",
+      "outputName": "uv"
+    },
+    {
+      "platform": "darwin",
+      "arch": "x64",
+      "targetTriple": "x86_64-apple-darwin",
+      "name": "uv",
+      "version": "0.12.7",
+      "url": "https://github.com/astral-sh/uv/releases/download/0.12.7/uv-x86_64-apple-darwin.tar.gz",
+      "sha256": "06b8ae1da8c2661c5434507a66f8c2b0b835933bf955b5958a9ac357a37d1959",
+      "archiveEntry": "uv-x86_64-apple-darwin/uv",
+      "outputName": "uv"
+    },
+    {
+      "platform": "win32",
+      "arch": "x64",
+      "targetTriple": "x86_64-pc-windows-msvc",
+      "name": "rg",
+      "version": "15.1.0",
+      "url": "https://github.com/BurntSushi/ripgrep/releases/download/15.1.0/ripgrep-15.1.0-x86_64-pc-windows-msvc.zip",
+      "sha256": "124510b94b6baa3380d051fdf4650eaa80a302c876d611e9dba0b2e18d87493a",
+      "archiveEntry": "ripgrep-15.1.0-x86_64-pc-windows-msvc/rg.exe",
+      "outputName": "rg.exe"
+    },
+    {
+      "platform": "win32",
+      "arch": "x64",
+      "targetTriple": "x86_64-pc-windows-msvc",
+      "name": "fd",
+      "version": "10.4.2",
+      "url": "https://github.com/sharkdp/fd/releases/download/v10.4.2/fd-v10.4.2-x86_64-pc-windows-msvc.zip",
+      "sha256": "b2816e506390a89941c63c9187d58a3cc10e9a55f2ef0685f9ea0eccaf7c98c8",
+      "archiveEntry": "fd-v10.4.2-x86_64-pc-windows-msvc/fd.exe",
+      "outputName": "fd.exe"
+    },
+    {
+      "platform": "win32",
+      "arch": "x64",
+      "targetTriple": "x86_64-pc-windows-msvc",
+      "name": "uv",
+      "version": "0.12.7",
+      "url": "https://github.com/astral-sh/uv/releases/download/0.12.7/uv-x86_64-pc-windows-msvc.zip",
+      "sha256": "bf1518af459a3915511a11fdc6e2f43ef9a2afa138b9d498eeb9642fe9d85218",
+      "archiveEntry": "uv-x86_64-pc-windows-msvc/uv.exe",
+      "outputName": "uv.exe"
+    },
+    {
+      "platform": "linux",
+      "arch": "x64",
+      "targetTriple": "x86_64-unknown-linux-gnu",
+      "name": "uv",
+      "version": "0.12.7",
+      "url": "https://github.com/astral-sh/uv/releases/download/0.12.7/uv-x86_64-unknown-linux-gnu.tar.gz",
+      "sha256": "788f18abea7c5f55d6216e4f5613fd89d4d59b631efeec117b2b07fe72f1da21",
+      "archiveEntry": "uv-x86_64-unknown-linux-gnu/uv",
+      "outputName": "uv"
+    },
+    {
+      "platform": "linux",
+      "arch": "arm64",
+      "targetTriple": "aarch64-unknown-linux-gnu",
+      "name": "uv",
+      "version": "0.12.7",
+      "url": "https://github.com/astral-sh/uv/releases/download/0.12.7/uv-aarch64-unknown-linux-gnu.tar.gz",
+      "sha256": "66393193038dd7eb108abd7a218d9cec04ac70ab98242b0720fa94de19223b7c",
+      "archiveEntry": "uv-aarch64-unknown-linux-gnu/uv",
+      "outputName": "uv"
+    }
+  ]
+}

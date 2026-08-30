@@ -322,10 +322,10 @@ export const chat = {
       },
       evaluateCode: {
         active: {
-          one: 'Evaluating JavaScript',
-          other: 'Evaluating JavaScript · {count} snippets'
+          one: 'Evaluating code',
+          other: 'Evaluating code · {count} snippets'
         },
-        done: { one: 'Evaluated JavaScript', other: 'Evaluated JavaScript · {count} snippets' }
+        done: { one: 'Evaluated code', other: 'Evaluated code · {count} snippets' }
       },
       querySources: {
         active: { one: 'Querying source data', other: 'Querying source data · {count} times' },

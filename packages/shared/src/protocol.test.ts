@@ -67,6 +67,11 @@ test('useBrowser is registered and enabled by default', () => {
   assert.ok(DEFAULT_ENABLED_TOOL_NAMES.includes('useBrowser'))
 })
 
+test('pyRepl is registered and enabled by default', () => {
+  assert.ok(CORE_TOOL_NAMES.includes('pyRepl'))
+  assert.ok(DEFAULT_ENABLED_TOOL_NAMES.includes('pyRepl'))
+})
+
 test('thread and team messaging tools are registered and enabled by default', () => {
   assert.ok(CORE_TOOL_NAMES.includes('sendThreadMessage'))
   assert.ok(DEFAULT_ENABLED_TOOL_NAMES.includes('sendThreadMessage'))

@@ -74,6 +74,7 @@ describe('jsReplTool', () => {
   it('defaults to a persistent context in the model input schema', () => {
     const input = jsReplToolInputSchema.parse({ code: '1 + 2' })
     assert.equal(input.reset, false)
+    assert.equal(input.timeout, 60)
   })
 
   it('evaluates basic expressions and returns the result', async () => {
@@ -729,5 +730,24 @@ return await fsp.readFile("output/copied/context.json", "utf8")`,
       code: 'await tool.notEnabled({})'
     })
     assert.ok(result.details.error?.includes('not available'))
+  })
+
+  it('does not advertise either REPL to nested JavaScript cells', async () => {
+    const resolvedNames: string[] = []
+    const tool = createTrackedTool(makeContext(), {
+      listToolNames: () => ['jsRepl', 'pyRepl'],
+      resolveTool: (name) => {
+        resolvedNames.push(name)
+        return { execute: async () => 'unexpected' }
+      }
+    })
+
+    for (const name of ['jsRepl', 'pyRepl']) {
+      const result = await execute(tool, {
+        code: `await tool.${name}({ code: "1 + 1" })`
+      })
+      assert.ok(result.details.error?.includes('not available'))
+    }
+    assert.deepEqual(resolvedNames, [])
   })
 })

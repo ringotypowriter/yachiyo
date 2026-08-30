@@ -33,6 +33,7 @@ import {
   shouldTriggerContextHandoffForActualPromptTokens
 } from './contextHandoffPolicy.ts'
 import {
+  disposeAgentToolSet,
   normalizeToolResult,
   resolveAvailableToolNamesFromToolSet,
   summarizeToolInput
@@ -1128,9 +1129,6 @@ export async function executeServerRun(
       toolLifecycle
     })
   } finally {
-    const jsReplTool = tools?.jsRepl as { dispose?: () => Promise<void> } | undefined
-    if (jsReplTool?.dispose) {
-      await jsReplTool.dispose().catch(() => {})
-    }
+    await disposeAgentToolSet(tools).catch(() => {})
   }
 }

@@ -7,7 +7,7 @@ import { parentPort, type MessagePort } from 'node:worker_threads'
 import vm from 'node:vm'
 
 import { compileJsReplCell } from './jsReplCellCompiler.ts'
-import { resolveJsReplCallCwd } from './jsReplCwd.ts'
+import { resolveReplCallCwd } from './replCwd.ts'
 import type {
   JsReplParentMessage,
   JsReplSerializedError,
@@ -514,7 +514,7 @@ async function executeCell(
   if (state.activeRun) throw new Error('JavaScript REPL received overlapping cells.')
   if (message.reset || !state.context) resetContext()
 
-  const cwd = resolveJsReplCallCwd(state.workspacePath, message.cwd)
+  const cwd = resolveReplCallCwd(state.workspacePath, message.cwd)
   const run: ActiveRun = {
     runId: message.runId,
     consoleLines: [],

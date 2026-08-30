@@ -58,6 +58,18 @@ ignore - Copyright Kael Zhang
 telegraf - Copyright Vitaly Domnikov
 zod - Copyright Colin McDonnell
 zustand - Copyright Paul Henschel
+Yachiyo Python REPL runner (derived from Oh My Pi) -
+  Copyright (c) 2025 Mario Zechner
+  Copyright (c) 2025-2026 Can Bölük
+  Copyright (c) 2026 Stencil Labs, Inc.
+uv 0.12.7 - Copyright (c) 2025 Astral Software Inc.
+
+--- Runtime-downloaded Python ---
+
+On first use, the Python REPL uses uv to download a CPython 3.12.14
+distribution published by the Astral-maintained python-build-standalone
+project. The downloaded CPython and distribution artifacts retain their
+upstream license and notice files in Yachiyo's private managed environment.
 
 --- ISC Licensed ---
 

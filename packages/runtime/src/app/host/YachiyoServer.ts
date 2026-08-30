@@ -513,6 +513,7 @@ export class YachiyoServer {
       createModelRuntime,
       processBroker: this.processBroker,
       ...(options.jsReplWorkerPath ? { jsReplWorkerPath: options.jsReplWorkerPath } : {}),
+      ...(options.pyReplRunnerPath ? { pyReplRunnerPath: options.pyReplRunnerPath } : {}),
       ensureThreadWorkspace,
       fetchImpl: options.fetchImpl,
       webExternalFetchImpl: options.webExternalFetchImpl,

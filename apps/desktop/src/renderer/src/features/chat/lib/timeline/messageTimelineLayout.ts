@@ -48,6 +48,7 @@ function getToolCallSemanticGroup(toolCall: ToolCall): ToolCallSemanticGroup | n
     case 'write':
       return 'write-files'
     case 'jsRepl':
+    case 'pyRepl':
       return 'evaluate-code'
     case 'querySource':
       return 'query-sources'

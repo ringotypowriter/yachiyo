@@ -69,6 +69,7 @@ Tools are what turn the model into an agent. The full set:
 | `grep`, `glob`                        | Search file contents and paths.                                                                     |
 | `bash`                                | Run shell commands, including long-running background tasks.                                        |
 | `jsRepl`                              | Run incremental JavaScript cells in a persistent worker for the current agent execution.            |
+| `pyRepl`                              | Run incremental Python cells in a persistent selected CPython environment.                          |
 | `webSearch`, `webRead`                | Search the web and read pages as Markdown.                                                          |
 | `useBrowser`                          | Drive a real browser session for things a fetch cannot do.                                          |
 | `skillsRead`                          | Pull in a skill's full `SKILL.md` on demand.                                                        |
@@ -81,6 +82,30 @@ Tools are what turn the model into an agent. The full set:
 | `updateTodoList`                      | Maintain the todo widget for multi-step work.                                                       |
 | `useSentinel`                         | Set a conversation-level recurring check ("come back to this in 20 minutes").                       |
 | `exitPlanMode`                        | Leave Plan mode once a plan is agreed.                                                              |
+
+`pyRepl` selects its environment once on first use. A `.venv` at the workspace
+root takes precedence and must be a working CPython 3.11 or newer virtual
+environment; if that directory exists but is invalid, startup fails instead of
+silently using another interpreter. When `.venv` is absent, Yachiyo falls back to
+its private, managed CPython `3.12.14` environment. Bindings last for the current
+parent execution or reusable worker lifetime; `reset: true` intentionally
+discards them.
+
+Cells support final-expression results, top-level `await`, timeouts, and bounded
+`parallel()` work. They can return text, JSON, PNG/JPEG images, and math or data
+renderings. Enabled Yachiyo tools are available through helpers such as `read`,
+`write`, and `tool.<name>(args)`.
+
+`%pip` always targets the selected interpreter. With a workspace `.venv`, package
+changes belong to that project. With the managed fallback, packages persist
+app-wide under `YACHIYO_HOME`; its first use downloads the runtime and a pinned,
+wheel-only baseline of NumPy, SciPy, pandas, Matplotlib, Pillow, and scikit-image.
+
+Selection never follows system or Homebrew Python and pip, an ambient
+`VIRTUAL_ENV`, Conda, or virtual environments outside the workspace root
+`.venv`. This is target isolation, not an OS sandbox: explicit Python file or
+subprocess code, `tool.bash`, and third-party package or source-build hooks retain
+their normal process authority.
 
 There is no per-tool switch to flip. Which tools exist on a given run is decided
 by the run mode alone — that is the control surface, and you pick it in the

@@ -77,6 +77,19 @@ export interface JsReplToolCallDetails {
   cwd?: string
 }
 
+export interface PyReplToolCallDetails {
+  code: string
+  title?: string
+  stdout?: string
+  stderr?: string
+  displayOutput?: string
+  result?: string
+  error?: string
+  timedOut?: boolean
+  contextReset?: boolean
+  cwd?: string
+}
+
 export interface GrepToolCallMatch {
   path: string
   line: number
@@ -263,6 +276,7 @@ export type ToolCallDetailsSnapshot =
   | EditToolCallDetails
   | BashToolCallDetails
   | JsReplToolCallDetails
+  | PyReplToolCallDetails
   | GrepToolCallDetails
   | GlobToolCallDetails
   | WebReadToolCallDetails

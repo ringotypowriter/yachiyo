@@ -140,6 +140,80 @@ test('buildToolCallDetailsPresentation shows jsRepl display and result output', 
   })
 })
 
+test('buildToolCallDetailsPresentation shows pyRepl streams, rich output, and errors', () => {
+  const presentation = buildToolCallDetailsPresentation({
+    ...BASE_TOOL_CALL,
+    toolName: 'pyRepl',
+    status: 'failed',
+    inputSummary: 'inspect answer',
+    rawOutput: { type: 'text', value: 'hydrated model output' },
+    details: {
+      code: 'print("before"); display({"answer": 42}); raise ValueError("boom")',
+      title: 'inspect answer',
+      stdout: 'before\n',
+      stderr: 'warning\n',
+      displayOutput: '{\n  "answer": 42\n}',
+      result: '42',
+      error: 'ValueError: boom',
+      contextReset: true
+    }
+  })
+
+  assert.deepEqual(presentation.input, {
+    label: 'Input',
+    value: 'print("before"); display({"answer": 42}); raise ValueError("boom")',
+    language: 'python'
+  })
+  assert.deepEqual(presentation.output, {
+    label: 'Output',
+    value:
+      'stdout:\nbefore\n\nstderr:\nwarning\n\ndisplay:\n{\n  "answer": 42\n}\n\nresult:\n42\n\nerror:\nValueError: boom',
+    language: 'python',
+    tone: 'danger'
+  })
+})
+
+test('buildToolCallDetailsPresentation keeps hydrated pyRepl errors structured', () => {
+  const presentation = buildToolCallDetailsPresentation({
+    ...BASE_TOOL_CALL,
+    toolName: 'pyRepl',
+    status: 'failed',
+    rawOutput: { type: 'error-text', value: 'hydrated error wrapper' },
+    details: {
+      code: 'raise ValueError("boom")',
+      error: 'ValueError: boom'
+    }
+  })
+
+  assert.deepEqual(presentation.output, {
+    label: 'Output',
+    value: 'error:\nValueError: boom',
+    language: 'python',
+    tone: 'danger'
+  })
+})
+
+test('buildToolCallDetailsPresentation omits hydrated pyRepl image payloads', () => {
+  const presentation = buildToolCallDetailsPresentation({
+    ...BASE_TOOL_CALL,
+    toolName: 'pyRepl',
+    rawOutput: {
+      type: 'content',
+      value: [{ type: 'image', data: 'sensitive-base64', mimeType: 'image/png' }]
+    },
+    details: {
+      code: 'chart',
+      result: 'chart'
+    }
+  })
+
+  assert.deepEqual(presentation.output, {
+    label: 'Output',
+    value: 'result:\nchart',
+    language: 'python'
+  })
+})
+
 test('buildToolCallDetailsPresentation keeps failed bash stderr complete and dangerous', () => {
   const presentation = buildToolCallDetailsPresentation({
     ...BASE_TOOL_CALL,

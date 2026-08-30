@@ -6,6 +6,7 @@ import type {
   GlobToolCallDetails,
   GrepToolCallDetails,
   JsReplToolCallDetails,
+  PyReplToolCallDetails,
   ReadToolCallDetails,
   ToolCall,
   UseBrowserToolCallDetails,
@@ -21,7 +22,7 @@ export interface ToolCallDetailCodeBlock {
   label: string
   value: string
   filePath?: string
-  language?: 'javascript' | 'json'
+  language?: 'javascript' | 'json' | 'python'
   tone?: ToolCallDetailTone
 }
 
@@ -117,8 +118,8 @@ function buildFallbackInput(toolCall: ToolCall): string | undefined {
     if (toolCall.toolName === 'bash') {
       return (toolCall.details as BashToolCallDetails).command
     }
-    if (toolCall.toolName === 'jsRepl') {
-      return (toolCall.details as JsReplToolCallDetails).code
+    if (toolCall.toolName === 'jsRepl' || toolCall.toolName === 'pyRepl') {
+      return (toolCall.details as JsReplToolCallDetails | PyReplToolCallDetails).code
     }
     if (toolCall.toolName === 'read') {
       const details = toolCall.details as ReadToolCallDetails
@@ -282,6 +283,25 @@ function buildFallbackOutput(toolCall: ToolCall): ToolCallDetailCodeBlock | unde
       : undefined
   }
 
+  if (toolCall.toolName === 'pyRepl' && details) {
+    const repl = details as PyReplToolCallDetails
+    const parts: string[] = []
+    if (repl.stdout?.trim()) parts.push('stdout:\n' + repl.stdout.trimEnd())
+    if (repl.stderr?.trim()) parts.push('stderr:\n' + repl.stderr.trimEnd())
+    if (repl.displayOutput?.trim()) parts.push('display:\n' + repl.displayOutput.trimEnd())
+    if (repl.result?.trim()) parts.push('result:\n' + repl.result.trimEnd())
+    if (repl.error?.trim()) parts.push('error:\n' + repl.error.trimEnd())
+    if (error && error !== repl.error?.trim()) parts.push('error:\n' + error)
+    const value = parts.join('\n\n')
+    return value
+      ? {
+          label: t('chat.tools.output'),
+          value,
+          ...(repl.error || toolCall.status === 'failed' ? { tone: 'danger' as const } : {})
+        }
+      : undefined
+  }
+
   if (toolCall.toolName === 'useBrowser' && details) {
     const browser = details as UseBrowserToolCallDetails
     if (browser.action === 'snapshot' && browser.content?.trim()) {
@@ -363,9 +383,17 @@ export function buildToolCallDetailsPresentation(toolCall: ToolCall): ToolCallDe
         : undefined
   const output =
     diffOutput ??
-    (rawOutput !== undefined
-      ? { label: t('chat.tools.output'), value: renderRawValue(rawOutput) }
-      : buildFallbackOutput(toolCall))
+    (toolCall.toolName === 'pyRepl'
+      ? buildFallbackOutput(toolCall)
+      : rawOutput !== undefined
+        ? { label: t('chat.tools.output'), value: renderRawValue(rawOutput) }
+        : buildFallbackOutput(toolCall))
+  const replLanguage =
+    toolCall.toolName === 'jsRepl'
+      ? ('javascript' as const)
+      : toolCall.toolName === 'pyRepl'
+        ? ('python' as const)
+        : undefined
 
   return {
     ...(inputValue
@@ -373,15 +401,14 @@ export function buildToolCallDetailsPresentation(toolCall: ToolCall): ToolCallDe
           input: {
             label: t('chat.tools.input'),
             value: inputValue,
-            ...(toolCall.toolName === 'jsRepl' ? { language: 'javascript' as const } : {})
+            ...(replLanguage ? { language: replLanguage } : {})
           }
         }
       : {}),
     ...(metadata?.value ? { metadata } : {}),
     ...(output?.value
       ? {
-          output:
-            toolCall.toolName === 'jsRepl' ? { ...output, language: 'javascript' as const } : output
+          output: replLanguage ? { ...output, language: replLanguage } : output
         }
       : {})
   }

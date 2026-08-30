@@ -20,5 +20,5 @@ native/*/.build/
 
 *.p12
 
-# Downloaded search binaries (rg, bfs) — platform-specific, not committed.
+# Downloaded bundled binaries — platform-specific, not committed.
 apps/desktop/resources/bin/

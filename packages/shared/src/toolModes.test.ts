@@ -18,6 +18,13 @@ test('run mode definitions expose expected tool sets', () => {
   assert.deepEqual(resolveRunModeEnabledTools('chat'), [])
 })
 
+test('only Auto mode includes pyRepl', () => {
+  assert.ok(resolveRunModeEnabledTools('auto').includes('pyRepl'))
+  assert.equal(resolveRunModeEnabledTools('explore').includes('pyRepl'), false)
+  assert.equal(resolveRunModeEnabledTools('plan').includes('pyRepl'), false)
+  assert.equal(resolveRunModeEnabledTools('chat').includes('pyRepl'), false)
+})
+
 test('deriveRunModeId recognizes standard modes independent of tool order', () => {
   assert.equal(deriveRunModeId(['webSearch', 'glob', 'read', 'webRead', 'grep']), 'explore')
   assert.equal(

@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict'
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises'
 import { homedir, tmpdir } from 'node:os'
 import { basename, dirname, join, resolve } from 'node:path'
 import test from 'node:test'
 
 import {
   createAgentToolSet,
+  disposeAgentToolSet,
   normalizeToolResult,
   resolveAvailableToolNamesFromToolSet,
   runGlobTool,
@@ -29,7 +30,7 @@ import { ThingDomain } from '../app/domain/things/thingDomain.ts'
 import { buildBashCommand } from '../runtime/shell/shellRuntime.ts'
 
 async function withWorkspace(fn: (workspacePath: string) => Promise<void> | void): Promise<void> {
-  const workspacePath = await mkdtemp(join(tmpdir(), 'yachiyo-agent-tools-'))
+  const workspacePath = await realpath(await mkdtemp(join(tmpdir(), 'yachiyo-agent-tools-')))
 
   try {
     await fn(workspacePath)
@@ -66,6 +67,33 @@ function processExists(pid: number): boolean {
     return false
   }
 }
+
+test('disposeAgentToolSet attempts every disposer and aggregates failures', async () => {
+  const calls: string[] = []
+  const failure = new Error('first cleanup failed')
+
+  await assert.rejects(
+    disposeAgentToolSet({
+      first: {
+        dispose(): void {
+          calls.push('first')
+          throw failure
+        }
+      },
+      second: {
+        async dispose(): Promise<void> {
+          calls.push('second')
+        }
+      }
+    }),
+    (error: unknown) => {
+      assert.ok(error instanceof AggregateError)
+      assert.deepEqual(error.errors, [failure])
+      return true
+    }
+  )
+  assert.deepEqual(calls, ['first', 'second'])
+})
 
 test('runReadTool uses 1-based offset/limit continuation semantics and returns truncation hints', async () => {
   await withWorkspace(async (workspacePath) => {
@@ -254,7 +282,7 @@ test('summarizeToolInput summarizes applyPatch by changed files instead of raw p
   )
 })
 
-test('summarizeToolInput keeps bash and jsRepl row summaries compact', () => {
+test('summarizeToolInput keeps bash and REPL row summaries compact', () => {
   assert.equal(
     summarizeToolInput('bash', { command: 'git diff -- packages/runtime/src/tools/agentTools.ts' }),
     'git diff agentTools.ts'
@@ -292,6 +320,19 @@ test('summarizeToolInput keeps bash and jsRepl row summaries compact', () => {
   )
   assert.equal(
     summarizeToolInput('jsRepl', {
+      code: 'display(value)',
+      title: 'inspect transformed value'
+    }),
+    'inspect transformed value'
+  )
+  assert.equal(
+    summarizeToolInput('pyRepl', {
+      code: "value = Path('long/file/name.py').read_text()"
+    }),
+    'Python'
+  )
+  assert.equal(
+    summarizeToolInput('pyRepl', {
       code: 'display(value)',
       title: 'inspect transformed value'
     }),
@@ -467,14 +508,116 @@ return JSON.stringify({
   })
 })
 
-test('createAgentToolSet omits jsRepl from sandboxed runs', () => {
+test('createAgentToolSet registers default pyRepl with injected runtime dependencies', async () => {
+  await withWorkspace(async (workspacePath) => {
+    const runtimeRoot = join(workspacePath, 'python-runtime')
+    const runnerSource = join(workspacePath, 'injected-runner.py')
+    await mkdir(runtimeRoot, { recursive: true, mode: 0o700 })
+    await writeFile(runnerSource, '# injected runner\n', 'utf8')
+
+    let stagedRunnerPath: string | undefined
+    let availableToolNames: readonly string[] = []
+    let kernelDisposed = false
+    let runtimeReleased = false
+    const tools = createAgentToolSet(
+      {
+        workspacePath,
+        sandboxed: false
+      },
+      {
+        pyReplRunnerPath: runnerSource,
+        pyReplDependencies: {
+          ensureRuntime: async () => ({
+            kind: 'managed',
+            rootPath: runtimeRoot,
+            pythonPath: join(runtimeRoot, 'python'),
+            uvPath: join(runtimeRoot, 'uv'),
+            environmentPath: join(runtimeRoot, 'environment'),
+            env: {},
+            version: '3.12.14' as const,
+            acquireProcessLease: async () => async () => {},
+            release: async () => {
+              runtimeReleased = true
+            }
+          }),
+          createKernel: ((options) => {
+            stagedRunnerPath = options.runnerPath
+            return {
+              execute: async (call: {
+                availableTools: readonly string[]
+                resolveTool(name: string): unknown
+              }) => {
+                availableToolNames = call.availableTools
+                assert.equal(call.resolveTool('jsRepl'), undefined)
+                assert.equal(call.resolveTool('pyRepl'), undefined)
+                assert.ok(call.resolveTool('read'))
+                return {
+                  events: [{ type: 'result', bundle: { 'text/plain': 'injected-kernel' } }],
+                  status: 'ok',
+                  cancelled: false,
+                  timedOut: false,
+                  contextReset: false,
+                  resetReason: undefined,
+                  resetScope: undefined,
+                  failureKind: undefined,
+                  failure: undefined
+                }
+              },
+              dispose: async () => {
+                kernelDisposed = true
+              }
+            } as never
+          }) as NonNullable<
+            NonNullable<Parameters<typeof createAgentToolSet>[1]>['pyReplDependencies']
+          >['createKernel']
+        }
+      }
+    )
+
+    assert.ok(tools?.pyRepl)
+    const pyRepl = tools.pyRepl as unknown as {
+      execute(
+        input: { code: string },
+        options: {
+          toolCallId: string
+          messages: []
+          abortSignal: AbortSignal
+        }
+      ): Promise<{ details: { result?: string }; error?: string }>
+    }
+
+    const result = await pyRepl.execute(
+      { code: '6 * 7' },
+      {
+        toolCallId: 'py-repl-registration',
+        messages: [],
+        abortSignal: new AbortController().signal
+      }
+    )
+
+    assert.equal(result.error, undefined)
+    assert.equal(result.details.result, 'injected-kernel')
+    assert.ok(stagedRunnerPath)
+    assert.equal(await readFile(stagedRunnerPath, 'utf8'), '# injected runner\n')
+    assert.ok(availableToolNames.includes('read'))
+    assert.equal(availableToolNames.includes('jsRepl'), false)
+    assert.equal(availableToolNames.includes('pyRepl'), false)
+
+    await disposeAgentToolSet(tools)
+    assert.equal(kernelDisposed, true)
+    assert.equal(runtimeReleased, true)
+  })
+})
+
+test('createAgentToolSet omits both REPLs from sandboxed runs', () => {
   const tools = createAgentToolSet({
-    enabledTools: ['jsRepl', 'read'],
+    enabledTools: ['jsRepl', 'pyRepl', 'read'],
     sandboxed: true,
     workspacePath: '/tmp/yachiyo'
   })
 
   assert.equal(tools?.jsRepl, undefined)
+  assert.equal(tools?.pyRepl, undefined)
   assert.ok(tools?.read)
 })
 

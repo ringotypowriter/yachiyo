@@ -33,9 +33,8 @@ export interface ProcessJob {
   cancel(): void
 }
 
-export interface StartProcessJobInput {
+export type StartProcessJobInput = {
   id: string
-  command: string
   cwd: string
   env: NodeJS.ProcessEnv
   logPath: string
@@ -43,7 +42,10 @@ export interface StartProcessJobInput {
   keepRunningOnTimeout: boolean
   retainLog: boolean
   spillThresholdChars: number
-}
+} & (
+  | { command: string; executable?: never; args?: never }
+  | { executable: string; args: readonly string[]; command?: never }
+)
 
 export interface ProcessBroker {
   start(): Promise<void>

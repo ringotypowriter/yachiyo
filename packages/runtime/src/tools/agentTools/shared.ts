@@ -15,6 +15,7 @@ import type {
   GlobToolCallDetails,
   GrepToolCallDetails,
   JsReplToolCallDetails,
+  PyReplToolCallDetails,
   ReadToolCallDetails,
   RunModeId,
   SkillsReadToolCallDetails,
@@ -310,52 +311,86 @@ export const bashToolInputSchema = z.object({
   background: z.boolean().default(false)
 })
 
-export const DEFAULT_JSREPL_TIMEOUT_SECONDS = 30
-export const MAX_JSREPL_TIMEOUT_SECONDS = 120
+export const DEFAULT_REPL_TIMEOUT_SECONDS = 60
+export const MAX_REPL_TIMEOUT_SECONDS = 120
+export const MAX_REPL_MODEL_OUTPUT_CHARS = 20_000
+export const MAX_REPL_DETAILS_OUTPUT_CHARS = 8_000
 
-export const jsReplToolInputSchema = z
-  .object({
-    code: z
-      .string()
-      .min(1)
-      .describe('One JavaScript cell to run verbatim. Top-level await and return are supported.'),
-    title: z
-      .string()
-      .trim()
-      .min(1)
-      .max(80)
-      .describe('Short intent shown in the transcript, such as "load package" or "inspect data".')
-      .optional(),
-    timeout: z
-      .number()
-      .int()
-      .min(1)
-      .max(MAX_JSREPL_TIMEOUT_SECONDS)
-      .default(DEFAULT_JSREPL_TIMEOUT_SECONDS)
-      .describe('Cell timeout in seconds. A timeout clears the persistent JavaScript context.'),
-    reset: z
-      .boolean()
-      .default(false)
-      .describe('Clear prior JavaScript bindings before this cell. Defaults to false.'),
-    cwd: z
-      .string()
-      .min(1)
-      .refine(
-        (value) => {
-          if (isAbsolute(value)) return false
-          if (value.startsWith('~')) return false
-          const segments = value.split(/[\\/]/)
-          return !segments.includes('..')
-        },
-        {
-          message:
-            'cwd must be a relative path within the workspace (no "..", no absolute, no "~").'
-        }
-      )
-      .describe('Optional working directory for this cell, relative to the thread workspace.')
-      .optional()
-  })
-  .strict()
+interface ReplToolInputDescriptions {
+  code: string
+  timeout: string
+  reset: string
+}
+
+interface ReplToolInputValue {
+  code: string
+  title?: string
+  timeout: number
+  reset: boolean
+  cwd?: string
+}
+
+interface RawReplToolInputValue {
+  code: string
+  title?: string
+  timeout?: number
+  reset?: boolean
+  cwd?: string
+}
+
+function createReplToolInputSchema(
+  descriptions: ReplToolInputDescriptions
+): z.ZodType<ReplToolInputValue, RawReplToolInputValue> {
+  return z
+    .object({
+      code: z.string().min(1).describe(descriptions.code),
+      title: z
+        .string()
+        .trim()
+        .min(1)
+        .max(80)
+        .describe('Short intent shown in the transcript, such as "load package" or "inspect data".')
+        .optional(),
+      timeout: z
+        .number()
+        .int()
+        .min(1)
+        .max(MAX_REPL_TIMEOUT_SECONDS)
+        .default(DEFAULT_REPL_TIMEOUT_SECONDS)
+        .describe(descriptions.timeout),
+      reset: z.boolean().default(false).describe(descriptions.reset),
+      cwd: z
+        .string()
+        .min(1)
+        .refine(
+          (value) => {
+            if (isAbsolute(value)) return false
+            if (value.startsWith('~')) return false
+            const segments = value.split(/[\\/]/)
+            return !segments.includes('..')
+          },
+          {
+            message:
+              'cwd must be a relative path within the workspace (no "..", no absolute, no "~").'
+          }
+        )
+        .describe('Optional working directory for this cell, relative to the thread workspace.')
+        .optional()
+    })
+    .strict()
+}
+
+export const jsReplToolInputSchema = createReplToolInputSchema({
+  code: 'One JavaScript cell to run verbatim. Top-level await and return are supported.',
+  timeout: 'Cell timeout in seconds. A timeout clears the persistent JavaScript context.',
+  reset: 'Clear prior JavaScript bindings before this cell. Defaults to false.'
+})
+
+export const pyReplToolInputSchema = createReplToolInputSchema({
+  code: 'One Python cell to run verbatim. Final expressions and top-level await are supported.',
+  timeout: 'Cell timeout in seconds. A timeout clears the persistent Python context.',
+  reset: 'Clear prior Python bindings before this cell. Defaults to false.'
+})
 
 export const grepToolInputSchema = withShadowFallbacks(
   z.object({
@@ -458,6 +493,7 @@ export type EditSpec = z.infer<typeof editSpecSchema>
 export type EditToolInput = z.infer<typeof editToolInputSchema>
 export type BashToolInput = z.infer<typeof bashToolInputSchema>
 export type JsReplToolInput = z.infer<typeof jsReplToolInputSchema>
+export type PyReplToolInput = z.infer<typeof pyReplToolInputSchema>
 export type GrepToolInput = z.infer<typeof grepToolInputSchema>
 export type GlobToolInput = z.infer<typeof globToolInputSchema>
 export type WebReadToolInput = z.infer<typeof webReadToolInputSchema>
@@ -542,6 +578,7 @@ export type WriteToolOutput = AgentToolResult<WriteToolCallDetails>
 export type EditToolOutput = AgentToolResult<EditToolCallDetails>
 export type BashToolOutput = AgentToolResult<BashToolCallDetails>
 export type JsReplToolOutput = AgentToolResult<JsReplToolCallDetails>
+export type PyReplToolOutput = AgentToolResult<PyReplToolCallDetails>
 export type GrepToolOutput = AgentToolResult<GrepToolCallDetails>
 export type GlobToolOutput = AgentToolResult<GlobToolCallDetails>
 export type WebReadToolOutput = AgentToolResult<WebReadToolCallDetails>
@@ -558,6 +595,7 @@ export type AgentToolOutput =
   | EditToolOutput
   | BashToolOutput
   | JsReplToolOutput
+  | PyReplToolOutput
   | GrepToolOutput
   | GlobToolOutput
   | WebReadToolOutput

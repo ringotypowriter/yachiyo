@@ -31,6 +31,11 @@ test('Windows artifact inventory checks Bash, helpers, and native modules', () =
     'python3',
     'rg.exe',
     'fd.exe',
+    'uv.exe',
+    'rg.exe.asset.json',
+    'fd.exe.asset.json',
+    'uv.exe.asset.json',
+    'uv-LICENSE-MIT',
     'sync-core.exe',
     'process-host.exe',
     'better_sqlite3.node',
@@ -92,6 +97,11 @@ test('Windows artifact inventory reports every missing category and a failing st
   assert.ok(report.missing.some((entry: string) => /python3/iu.test(entry)))
   assert.ok(report.missing.some((entry: string) => /rg\.exe/iu.test(entry)))
   assert.ok(report.missing.some((entry: string) => /fd\.exe/iu.test(entry)))
+  assert.ok(report.missing.some((entry: string) => /uv\.exe Python runtime helper/iu.test(entry)))
+  assert.ok(report.missing.some((entry: string) => /rg\.exe helper attestation/iu.test(entry)))
+  assert.ok(report.missing.some((entry: string) => /fd\.exe helper attestation/iu.test(entry)))
+  assert.ok(report.missing.some((entry: string) => /uv\.exe helper attestation/iu.test(entry)))
+  assert.ok(report.missing.some((entry: string) => /uv MIT license/iu.test(entry)))
   assert.ok(report.missing.some((entry: string) => /sync-core/iu.test(entry)))
   assert.ok(report.missing.some((entry: string) => /process-host/iu.test(entry)))
   assert.ok(report.missing.some((entry: string) => /better-sqlite3/iu.test(entry)))

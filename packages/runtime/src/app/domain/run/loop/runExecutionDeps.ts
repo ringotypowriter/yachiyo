@@ -69,6 +69,7 @@ export function buildRunExecutionDeps(
     createModelRuntime: deps.createModelRuntime,
     processBroker: deps.processBroker,
     ...(deps.jsReplWorkerPath ? { jsReplWorkerPath: deps.jsReplWorkerPath } : {}),
+    ...(deps.pyReplRunnerPath ? { pyReplRunnerPath: deps.pyReplRunnerPath } : {}),
     ensureThreadWorkspace: deps.ensureThreadWorkspace,
     buildMemoryLayerEntries: async (memoryContext) => {
       if (memoryContext.thread.privacyMode || input.isRecapRun) {
