@@ -73,6 +73,9 @@ jobs:
       - name: Download bundled runtime binaries
         run: pnpm binaries:download
 
+      - name: Prepare Windows runtime
+        run: pnpm --filter @yachiyo/desktop run windows-runtime:prepare
+
       - name: Build process host
         run: pnpm process-host:build
 
@@ -84,9 +87,6 @@ jobs:
 
       - name: Test packaged REPLs
         run: pnpm test:repls:packaged
-
-      - name: Prepare Windows runtime
-        run: pnpm --filter @yachiyo/desktop run windows-runtime:prepare
 
       - name: Test Windows app update IPC
         run: node --experimental-strip-types --test apps/desktop/src/main/cli/commandSocket.appUpdate.test.ts
