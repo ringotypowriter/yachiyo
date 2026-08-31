@@ -42,7 +42,6 @@ import {
   attestUvExecutable,
   commandFailure,
   MANAGED_PYTHON_JOB_OUTPUT_LIMIT_CHARS as JOB_OUTPUT_LIMIT_CHARS,
-  resolveAttestedUv,
   runManagedJob,
   throwIfAborted
 } from './managedPythonBootstrap.ts'
@@ -61,6 +60,7 @@ import {
   readPersistedFailure
 } from './managedPythonEnvironmentState.ts'
 import { hasExactKeys, parseStrictObject } from './managedPythonMetadata.ts'
+import { resolveDownloadedUv } from './managedUvRuntime.ts'
 
 export { stagePythonRunner } from './managedPythonFilesystem.ts'
 
@@ -206,8 +206,6 @@ export interface PythonRuntime {
 export interface EnsureManagedPythonRuntimeOptions {
   processBroker: ProcessBroker
   signal?: AbortSignal
-  projectRoot?: string
-  resourcesPath?: string
   yachiyoHome?: string
 }
 
@@ -900,7 +898,7 @@ async function provisionRuntime(
       deadline
     })
     if (installationJob.result.exitCode !== 0) {
-      throw commandFailure('Bundled uv Python installation', installationJob)
+      throw commandFailure('uv Python installation', installationJob)
     }
 
     await publishOperationPhase(paths, action, 'creating-environment', 'not-installed')
@@ -929,7 +927,7 @@ async function provisionRuntime(
       deadline
     })
     if (venvJob.result.exitCode !== 0) {
-      throw commandFailure('Bundled uv virtualenv creation', venvJob)
+      throw commandFailure('uv virtualenv creation', venvJob)
     }
 
     await publishOperationPhase(paths, action, 'installing-packages', 'not-installed')
@@ -957,7 +955,7 @@ async function provisionRuntime(
       deadline
     })
     if (packageJob.result.exitCode !== 0) {
-      throw commandFailure('Bundled uv scientific package installation', packageJob)
+      throw commandFailure('uv scientific package installation', packageJob)
     }
 
     await publishOperationPhase(paths, action, 'verifying-environment', 'not-installed')
@@ -989,7 +987,7 @@ async function prepareRuntime(
     await publishOperationPhase(paths, action, 'checking', 'needs-repair')
     const environments = buildRuntimeEnvironments(paths)
     await publishOperationPhase(paths, action, 'preparing-helper', 'needs-repair')
-    const uvPath = await resolveAttestedUv(options, paths)
+    const uvPath = await resolveDownloadedUv(paths, signal, deadline)
     const preparation: RuntimePreparation = {
       paths,
       uvPath,
@@ -1022,11 +1020,7 @@ function preparationFailure(error: unknown, rootPath: string): Error {
   ) {
     return error
   }
-  if (
-    error instanceof Error &&
-    (error.message.startsWith("pyRepl's bundled uv runtime") ||
-      error.message.startsWith('Timed out waiting'))
-  ) {
+  if (error instanceof Error && error.message.startsWith('Timed out waiting')) {
     return error
   }
   const reason = error instanceof Error ? error.message : String(error)
@@ -1176,7 +1170,7 @@ async function ensureWorkspacePythonRuntime(
   const signal = options.signal ?? new AbortController().signal
   const paths = await createRuntimePaths(options.yachiyoHome)
   const environments = buildRuntimeEnvironments(paths, workspace.environmentPath, false)
-  const deadline = Date.now() + WORKSPACE_PROBE_TIMEOUT_MS
+  const probeDeadline = Date.now() + WORKSPACE_PROBE_TIMEOUT_MS
   const probeResult = await runManagedJob({
     executable: workspace.pythonPath,
     args: ['-I', '-c', WORKSPACE_HEALTH_PROBE],
@@ -1185,7 +1179,7 @@ async function ensureWorkspacePythonRuntime(
     paths,
     processBroker: options.processBroker,
     signal,
-    deadline
+    deadline: probeDeadline
   })
   if (probeResult.result.exitCode !== 0) {
     throw new Error(
@@ -1211,7 +1205,8 @@ async function ensureWorkspacePythonRuntime(
   }
 
   throwIfAborted(options.signal)
-  const uvPath = await resolveAttestedUv(options, paths)
+  const uvDeadline = Date.now() + PREPARATION_TIMEOUT_MS
+  const uvPath = await resolveDownloadedUv(paths, signal, uvDeadline)
   const preparation: RuntimePreparation = {
     paths,
     uvPath,
@@ -1219,7 +1214,7 @@ async function ensureWorkspacePythonRuntime(
     kernelEnv: environments.kernelEnv,
     processBroker: options.processBroker
   }
-  await attestUvExecutable(preparation, signal, deadline)
+  await attestUvExecutable(preparation, signal, uvDeadline)
   return {
     kind: 'workspace',
     rootPath: paths.rootPath,

@@ -98,8 +98,11 @@ renderings. Enabled Yachiyo tools are available through helpers such as `read`,
 
 `%pip` always targets the selected interpreter. With a workspace `.venv`, package
 changes belong to that project. With the managed fallback, packages persist
-app-wide under `YACHIYO_HOME`; its first use downloads the runtime and a pinned,
-wheel-only baseline of NumPy, SciPy, pandas, Matplotlib, Pillow, and scikit-image.
+app-wide under `YACHIYO_HOME`. Yachiyo does not bundle `uv`; first managed use
+requires network access. It downloads a pinned `uv` release into the private
+tools directory under `YACHIYO_HOME`, verifies the archive's pinned SHA-256
+before extraction, then downloads CPython and a pinned, wheel-only baseline of
+NumPy, SciPy, pandas, Matplotlib, Pillow, and scikit-image.
 
 Selection never follows system or Homebrew Python and pip, an ambient
 `VIRTUAL_ENV`, Conda, or virtual environments outside the workspace root

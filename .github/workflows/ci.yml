@@ -21,7 +21,7 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Download bundled runtime binaries
+      - name: Download bundled search binaries
         run: pnpm binaries:download
 
       - name: Build process host
@@ -70,7 +70,7 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Download bundled runtime binaries
+      - name: Download bundled search binaries
         run: pnpm binaries:download
 
       - name: Prepare Windows runtime

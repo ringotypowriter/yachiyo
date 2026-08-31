@@ -21,10 +21,10 @@ extraResources:
       - '**/*'
       - '!uv'
       - '!uv.exe'
-  - from: resources/licenses
-    to: licenses
-    filter:
-      - '**/*'
+      - '!uv.runtime.gz'
+      - '!uv.exe.runtime.gz'
+      - '!uv.asset.json'
+      - '!uv.exe.asset.json'
 win:
   executableName: yachiyo
   electronLanguages:

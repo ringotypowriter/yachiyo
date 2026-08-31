@@ -4,14 +4,17 @@ import test from 'node:test'
 // @ts-expect-error plain .mjs script module without type declarations
 import { inspectMacosArtifactInventory } from './macos-artifact-inventory.mjs'
 
-test('macOS artifact inventory checks helpers, native modules, locales, and runtime assets', () => {
+test('macOS artifact inventory checks helpers, native modules, locales, and search assets', () => {
   const checked: string[] = []
   const report = inspectMacosArtifactInventory({
     appDir: '/staged/Yachiyo.app',
     arch: 'arm64',
     pathExists: (path: string) => {
       checked.push(path)
-      return !path.includes('app.asar.unpacked') && !path.endsWith('/bin/uv')
+      return (
+        !path.includes('app.asar.unpacked') &&
+        !/(?:\/bin\/uv(?:\.runtime\.gz|\.asset\.json)?|\/licenses\/uv-LICENSE-MIT)$/u.test(path)
+      )
     },
     readAsarEntries: () => [
       '/out/main/drizzle/0000_initial.sql',
@@ -29,11 +32,8 @@ test('macOS artifact inventory checks helpers, native modules, locales, and runt
     '/Contents/MacOS/Yachiyo',
     '/bin/rg',
     '/bin/fd',
-    '/bin/uv.runtime.gz',
     '/bin/rg.asset.json',
     '/bin/fd.asset.json',
-    '/bin/uv.asset.json',
-    '/licenses/uv-LICENSE-MIT',
     '/bin/sync-core',
     '/bin/process-host',
     '/external-hooks/vision-ocr',
@@ -58,6 +58,17 @@ test('macOS artifact inventory checks helpers, native modules, locales, and runt
       `inventory did not check ${required}`
     )
   }
+  for (const forbidden of [
+    '/bin/uv',
+    '/bin/uv.runtime.gz',
+    '/bin/uv.asset.json',
+    '/licenses/uv-LICENSE-MIT'
+  ]) {
+    assert.ok(
+      checked.some((path) => path.includes(forbidden)),
+      `inventory did not reject ${forbidden}`
+    )
+  }
 })
 
 test('macOS artifact inventory reports missing runtime categories', () => {
@@ -74,11 +85,8 @@ test('macOS artifact inventory reports missing runtime categories', () => {
     /Yachiyo executable/iu,
     /rg helper/iu,
     /fd helper/iu,
-    /uv Python runtime archive/iu,
     /rg helper attestation/iu,
     /fd helper attestation/iu,
-    /uv helper attestation/iu,
-    /uv MIT license/iu,
     /sync-core/iu,
     /process-host/iu,
     /vision OCR/iu,
@@ -123,7 +131,7 @@ test('macOS artifact inventory rejects duplicated and development-only payloads'
   assert.ok(report.missing.some((entry: string) => /Drizzle snapshots/iu.test(entry)))
   assert.ok(report.missing.some((entry: string) => /runtime-host-spike/iu.test(entry)))
   assert.ok(report.missing.some((entry: string) => /duplicated/iu.test(entry)))
-  assert.ok(report.missing.some((entry: string) => /raw uv helper/iu.test(entry)))
+  assert.ok(report.missing.some((entry: string) => /uv runtime asset/iu.test(entry)))
   assert.ok(report.missing.some((entry: string) => /application locales/iu.test(entry)))
   assert.ok(report.missing.some((entry: string) => /framework locales/iu.test(entry)))
 })

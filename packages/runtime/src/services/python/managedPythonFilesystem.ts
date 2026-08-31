@@ -126,8 +126,40 @@ export async function writePrivateFile(
 }
 
 export async function hashFile(path: string): Promise<string> {
-  const bytes = await readRegularFile(path, Number.MAX_SAFE_INTEGER)
-  return createHash('sha256').update(bytes).digest('hex')
+  const pathStat = await lstat(path)
+  if (pathStat.isSymbolicLink() || !pathStat.isFile()) {
+    throw new Error(`Managed runtime file is invalid at ${path}.`)
+  }
+  const file = await open(
+    path,
+    constants.O_RDONLY | (process.platform === 'win32' ? 0 : constants.O_NOFOLLOW)
+  )
+  try {
+    const fileStat = await file.stat()
+    if (!fileStat.isFile() || fileStat.dev !== pathStat.dev || fileStat.ino !== pathStat.ino) {
+      throw new Error(`Managed runtime file changed while opening ${path}.`)
+    }
+    const hash = createHash('sha256')
+    const buffer = Buffer.allocUnsafe(64 * 1024)
+    let position = 0
+    while (true) {
+      const { bytesRead } = await file.read(buffer, 0, buffer.byteLength, position)
+      if (bytesRead === 0) break
+      hash.update(buffer.subarray(0, bytesRead))
+      position += bytesRead
+    }
+    const verifiedStat = await file.stat()
+    if (
+      verifiedStat.dev !== fileStat.dev ||
+      verifiedStat.ino !== fileStat.ino ||
+      verifiedStat.size !== fileStat.size
+    ) {
+      throw new Error(`Managed runtime file changed while hashing ${path}.`)
+    }
+    return hash.digest('hex')
+  } finally {
+    await file.close()
+  }
 }
 
 export async function stagePythonRunner(source: string | URL, rootPath: string): Promise<string> {

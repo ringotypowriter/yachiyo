@@ -229,7 +229,6 @@ async function main() {
       ensureRuntime: async (options) => {
         managedRuntime = await ensureManagedPythonRuntime({
           ...options,
-          projectRoot: repoRoot,
           yachiyoHome
         })
         return managedRuntime
@@ -762,7 +761,6 @@ os.kill(os.getpid(), signal.SIGTERM)
       ensureRuntime: async (options) => {
         selectedWorkspaceRuntime = await ensurePythonRuntime({
           ...options,
-          projectRoot: repoRoot,
           yachiyoHome
         })
         return selectedWorkspaceRuntime

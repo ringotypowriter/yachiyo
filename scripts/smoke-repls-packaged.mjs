@@ -4,7 +4,7 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { copyFile, mkdir, mkdtemp, readFile, readdir, rm, stat } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, readdir, rm, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { basename, dirname, join, resolve, sep } from 'node:path'
 import process from 'node:process'
@@ -31,10 +31,8 @@ const sourceRunnerPath = join(
 )
 const temporaryRoot = await mkdtemp(join(tmpdir(), 'yachiyo-packaged-repls-'))
 const buildDir = join(temporaryRoot, 'build')
-const resourcesPath = join(temporaryRoot, 'resources')
 const yachiyoHome = join(temporaryRoot, 'yachiyo-home')
 const workspacePath = join(temporaryRoot, 'workspace')
-const nonexistentProjectRoot = join(temporaryRoot, 'nonexistent-project-root')
 
 function sha256(content) {
   return createHash('sha256').update(content).digest('hex')
@@ -151,25 +149,6 @@ async function smokeJavaScriptWorker(workerPath) {
   }
 }
 
-function platformResourceDirectory() {
-  const osByPlatform = { darwin: 'mac', linux: 'linux', win32: 'win' }
-  return `${osByPlatform[process.platform] ?? process.platform}-${process.arch}`
-}
-
-async function stagePackagedUvResources() {
-  const executableName = process.platform === 'win32' ? 'uv.exe' : 'uv'
-  const sourceDirectory = join(desktopDir, 'resources', 'bin', platformResourceDirectory())
-  const destinationDirectory = join(resourcesPath, 'bin')
-  const resourceNames = [`${executableName}.runtime.gz`, `${executableName}.asset.json`]
-
-  await mkdir(destinationDirectory, { recursive: true })
-  await Promise.all(
-    resourceNames.map((name) =>
-      copyFile(join(sourceDirectory, name), join(destinationDirectory, name))
-    )
-  )
-}
-
 async function verifyPackagedAssets() {
   const pythonAssets = (await findFiles(buildDir, (name) => name.endsWith('.py'))).sort()
   assert.ok(pythonAssets.length > 0, `No emitted Python asset was found under ${buildDir}.`)
@@ -247,8 +226,6 @@ async function smokePythonRunner(runnerPath) {
         ensureRuntime: async (options) =>
           await ensureManagedPythonRuntime({
             ...options,
-            projectRoot: nonexistentProjectRoot,
-            resourcesPath,
             yachiyoHome
           })
       }
@@ -316,11 +293,7 @@ async function main() {
   let primaryError
   let cleanupError
   try {
-    await Promise.all([
-      mkdir(workspacePath, { recursive: true }),
-      stagePackagedUvResources(),
-      buildIsolatedDesktop()
-    ])
+    await Promise.all([mkdir(workspacePath, { recursive: true }), buildIsolatedDesktop()])
     const { pythonRunnerPath, workerPaths } = await verifyPackagedAssets()
     for (const workerPath of workerPaths) await smokeJavaScriptWorker(workerPath)
     await smokePythonRunner(pythonRunnerPath)

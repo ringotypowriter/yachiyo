@@ -36,11 +36,8 @@ export function inspectWindowsArtifactInventory(input) {
     ['python3 compatibility shim', [win32.join(bin, 'python3')]],
     ['rg.exe search helper', [win32.join(bin, 'rg.exe')]],
     ['fd.exe search helper', [win32.join(bin, 'fd.exe')]],
-    ['uv.exe Python runtime archive', [win32.join(bin, 'uv.exe.runtime.gz')]],
     ['rg.exe helper attestation', [win32.join(bin, 'rg.exe.asset.json')]],
     ['fd.exe helper attestation', [win32.join(bin, 'fd.exe.asset.json')]],
-    ['uv.exe helper attestation', [win32.join(bin, 'uv.exe.asset.json')]],
-    ['uv MIT license', [win32.join(resources, 'licenses', 'uv-LICENSE-MIT')]],
     ['sync-core.exe helper', [win32.join(bin, 'sync-core.exe')]],
     ['process-host.exe resident helper', [win32.join(bin, 'process-host.exe')]],
     [
@@ -141,8 +138,15 @@ export function inspectWindowsArtifactInventory(input) {
   if (pathExists(unpackedBin)) {
     missing.push('runtime bin must not be duplicated under app.asar.unpacked')
   }
-  if (pathExists(win32.join(bin, 'uv.exe'))) {
-    missing.push('raw uv.exe helper must not be packaged; use the attested runtime archive')
+  for (const uvRuntimeAsset of [
+    win32.join(bin, 'uv.exe'),
+    win32.join(bin, 'uv.exe.runtime.gz'),
+    win32.join(bin, 'uv.exe.asset.json'),
+    win32.join(resources, 'licenses', 'uv-LICENSE-MIT')
+  ]) {
+    if (pathExists(uvRuntimeAsset)) {
+      missing.push(`uv runtime asset must not be packaged (${uvRuntimeAsset})`)
+    }
   }
   if (pathExists(locales)) {
     try {

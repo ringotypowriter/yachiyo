@@ -17,7 +17,6 @@ import {
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
-import { gzipSync } from 'node:zlib'
 import test from 'node:test'
 
 import type {
@@ -40,6 +39,7 @@ import {
   subscribeManagedPythonEnvironmentStatus,
   type PythonRuntime
 } from './managedPythonRuntime.ts'
+import { getManagedUvCachePaths, getUvReleaseAsset } from './managedUvRuntime.ts'
 
 type DirectProcessJobInput = Extract<StartProcessJobInput, { executable: string }>
 
@@ -296,7 +296,6 @@ class ManagedRuntimeBrokerFake implements ProcessBroker {
 interface RuntimeFixture {
   root: string
   home: string
-  resources: string
   uvPath: string
   broker: ManagedRuntimeBrokerFake
   cleanup(): Promise<void>
@@ -306,49 +305,35 @@ async function createRuntimeFixture(): Promise<RuntimeFixture> {
   const temporaryRoot = await mkdtemp(join(tmpdir(), 'yachiyo-managed-python-'))
   const root = await realpath(temporaryRoot)
   const home = join(root, 'yachiyo-home')
-  const resources = join(root, 'resources')
-  const binaryName = process.platform === 'win32' ? 'uv.exe' : 'uv'
-  const packagedUvPath = join(resources, 'bin', binaryName)
-  const archivePath = `${packagedUvPath}.runtime.gz`
+  const toolsPath = join(home, 'python', 'tools')
   const uvBytes = Buffer.from('pinned-uv-test-binary')
-  const archiveBytes = gzipSync(uvBytes)
   const outputSha256 = createHash('sha256').update(uvBytes).digest('hex')
-  const targetTriple = targetTriples[`${process.platform}-${process.arch}`]
-  assert.ok(
-    targetTriple,
-    `test fixture lacks target triple for ${process.platform}/${process.arch}`
+  const release = getUvReleaseAsset()
+  assert.ok(release, `test fixture lacks a uv release for ${process.platform}/${process.arch}`)
+  await mkdir(toolsPath, { recursive: true, mode: 0o700 })
+  const { executablePath: uvPath, metadataPath } = getManagedUvCachePaths(
+    { homePath: home, rootPath: join(home, 'python'), toolsPath },
+    release
   )
-  await mkdir(dirname(packagedUvPath), { recursive: true })
+  await writeFile(uvPath, uvBytes, { mode: 0o700 })
+  if (process.platform !== 'win32') await chmod(uvPath, 0o700)
   await writeFile(
-    packagedUvPath,
-    'bytes changed by platform signing and intentionally ignored at runtime'
-  )
-  await writeFile(archivePath, archiveBytes)
-  await writeFile(
-    `${packagedUvPath}.asset.json`,
+    metadataPath,
     JSON.stringify({
-      name: 'uv',
-      version: PY_REPL_UV_VERSION,
-      platform: process.platform,
-      arch: process.arch,
-      targetTriple,
-      archiveSha256: 'a'.repeat(64),
-      outputSha256,
-      runtimeArchiveSha256: createHash('sha256').update(archiveBytes).digest('hex')
-    })
-  )
-  const extension = process.platform === 'win32' ? '.exe' : ''
-  const uvPath = join(
-    home,
-    'python',
-    'tools',
-    `uv-${PY_REPL_UV_VERSION}-${targetTriple}-${outputSha256.slice(0, 16)}${extension}`
+      schemaVersion: 1,
+      version: release.version,
+      platform: release.platform,
+      arch: release.arch,
+      targetTriple: release.targetTriple,
+      archiveSha256: release.archiveSha256,
+      outputSha256
+    }),
+    { mode: 0o600 }
   )
   const broker = new ManagedRuntimeBrokerFake()
   return {
     root,
     home,
-    resources,
     uvPath,
     broker,
     cleanup: () => rm(root, { recursive: true, force: true })
@@ -383,7 +368,6 @@ async function ensureFixtureRuntime(
 ): Promise<PythonRuntime> {
   return ensureManagedPythonRuntime({
     processBroker: fixture.broker,
-    resourcesPath: fixture.resources,
     yachiyoHome: fixture.home,
     signal
   })
@@ -437,8 +421,7 @@ test('provisions the private runtime with literal jobs, scrubbed env, and privat
   let runtime: PythonRuntime | undefined
   try {
     runtime = await ensureManagedPythonRuntime({
-      processBroker: fixture.broker,
-      resourcesPath: fixture.resources
+      processBroker: fixture.broker
     })
 
     assert.equal(runtime.rootPath, await realpath(paths.rootPath))
@@ -578,7 +561,6 @@ test('selects a valid workspace root .venv without provisioning a managed enviro
   try {
     runtime = await ensurePythonRuntime({
       processBroker: fixture.broker,
-      resourcesPath: fixture.resources,
       yachiyoHome: fixture.home,
       workspacePath
     })
@@ -638,7 +620,6 @@ test('falls back to the managed environment only when workspace .venv is absent'
   try {
     runtime = await ensurePythonRuntime({
       processBroker: fixture.broker,
-      resourcesPath: fixture.resources,
       yachiyoHome: fixture.home,
       workspacePath
     })
@@ -661,7 +642,6 @@ test('fails closed when workspace .venv exists but is unusable', async (context)
       await assert.rejects(
         ensurePythonRuntime({
           processBroker: fixture.broker,
-          resourcesPath: fixture.resources,
           yachiyoHome: fixture.home,
           workspacePath
         }),
@@ -683,7 +663,6 @@ test('fails closed when workspace .venv exists but is unusable', async (context)
       await assert.rejects(
         ensurePythonRuntime({
           processBroker: fixture.broker,
-          resourcesPath: fixture.resources,
           yachiyoHome: fixture.home,
           workspacePath
         }),
@@ -710,7 +689,6 @@ test('fails closed when workspace .venv exists but is unusable', async (context)
       await assert.rejects(
         ensurePythonRuntime({
           processBroker: fixture.broker,
-          resourcesPath: fixture.resources,
           yachiyoHome: fixture.home,
           workspacePath
         }),
@@ -735,6 +713,7 @@ test('fails closed on symbolic-link and non-directory managed anchors before spa
       const outside = join(fixture.root, 'outside')
       await mkdir(fixture.home, { recursive: true })
       await mkdir(outside, { recursive: true })
+      await rm(join(fixture.home, 'python'), { recursive: true, force: true })
       await symlink(
         outside,
         join(fixture.home, 'python'),
@@ -1228,7 +1207,6 @@ test('inspects and manages the private environment without discarding its cache'
   const paths = expectedPaths(fixture.home)
   const options = {
     processBroker: fixture.broker,
-    resourcesPath: fixture.resources,
     yachiyoHome: fixture.home
   }
   const observedStatuses: Array<{

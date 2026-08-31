@@ -1,10 +1,7 @@
 import { randomUUID } from 'node:crypto'
-import { chmod, lstat, readFile, rename, rm, unlink, writeFile } from 'node:fs/promises'
-import { isAbsolute, join } from 'node:path'
-import { promisify } from 'node:util'
-import { gunzip } from 'node:zlib'
+import { chmod, rm } from 'node:fs/promises'
+import { join } from 'node:path'
 
-import { resolveBundledResource } from '../nativeExecutable.ts'
 import type {
   ProcessBroker,
   ProcessJob,
@@ -13,55 +10,16 @@ import type {
 } from '../processBroker/processBroker.ts'
 import { PY_REPL_UV_VERSION } from './managedPythonConstants.ts'
 import { ManagedPythonEnvironmentError } from './managedPythonEnvironmentState.ts'
-import {
-  assertManagedDirectory,
-  hashFile,
-  isNodeError,
-  readBoundedFile,
-  token
-} from './managedPythonFilesystem.ts'
-import { hasExactKeys, parseStrictObject } from './managedPythonMetadata.ts'
+import { isNodeError, token } from './managedPythonFilesystem.ts'
+import { parseStrictObject } from './managedPythonMetadata.ts'
+import { getUvReleaseAsset } from './managedUvRuntime.ts'
 
 export const MANAGED_PYTHON_JOB_OUTPUT_LIMIT_CHARS = 64_000
-const SHA256_PATTERN = /^[a-f0-9]{64}$/u
-const UV_RUNTIME_ARCHIVE_SUFFIX = '.runtime.gz'
-const UV_RUNTIME_ARCHIVE_MAX_BYTES = 64 * 1024 * 1024
-const UV_EXECUTABLE_MAX_BYTES = 128 * 1024 * 1024
-const TARGET_TRIPLES: Readonly<Partial<Record<NodeJS.Platform, Readonly<Record<string, string>>>>> =
-  {
-    darwin: {
-      arm64: 'aarch64-apple-darwin',
-      x64: 'x86_64-apple-darwin'
-    },
-    linux: {
-      arm64: 'aarch64-unknown-linux-gnu',
-      x64: 'x86_64-unknown-linux-gnu'
-    },
-    win32: {
-      x64: 'x86_64-pc-windows-msvc'
-    }
-  }
-
-interface UvAssetAttestation {
-  name: string
-  version: string
-  platform: string
-  arch: string
-  targetTriple: string
-  archiveSha256: string
-  outputSha256: string
-  runtimeArchiveSha256: string
-}
 
 export interface ManagedPythonBootstrapPaths {
   homePath: string
   rootPath: string
   toolsPath: string
-}
-
-export interface ManagedPythonResourceOptions {
-  projectRoot?: string
-  resourcesPath?: string
 }
 
 export interface ManagedPythonUvPreparation {
@@ -77,8 +35,6 @@ export interface ManagedJobResult {
   result: ProcessJobResult
 }
 
-const gunzipAsync = promisify(gunzip)
-
 export function abortError(): Error {
   const error = new Error('The Yachiyo Python runtime preparation was aborted.')
   error.name = 'AbortError'
@@ -87,41 +43,6 @@ export function abortError(): Error {
 
 export function throwIfAborted(signal?: AbortSignal): void {
   if (signal?.aborted) throw abortError()
-}
-
-function bundledUvError(
-  options: ManagedPythonResourceOptions,
-  code: 'resources-unavailable' | 'resources-invalid',
-  cause?: unknown
-): ManagedPythonEnvironmentError {
-  const target = `${process.platform}/${process.arch}`
-  const sourceMode = options.projectRoot !== undefined || !import.meta.dirname.includes('.asar')
-  return new ManagedPythonEnvironmentError(
-    sourceMode
-      ? `pyRepl's bundled uv runtime is missing or invalid for ${target}. Run pnpm binaries:download.`
-      : `This Yachiyo build does not contain a valid Python runtime resource for ${target}. Update Yachiyo to a build with valid Python resources.`,
-    code,
-    'preparing-helper',
-    cause === undefined ? undefined : { cause }
-  )
-}
-
-function parseAttestation(value: string): UvAssetAttestation {
-  const parsed = parseStrictObject(value)
-  const keys = [
-    'name',
-    'version',
-    'platform',
-    'arch',
-    'targetTriple',
-    'archiveSha256',
-    'outputSha256',
-    'runtimeArchiveSha256'
-  ] as const
-  if (!hasExactKeys(parsed, keys) || keys.some((key) => typeof parsed[key] !== 'string')) {
-    throw new Error('Bundled uv attestation is malformed.')
-  }
-  return parsed as unknown as UvAssetAttestation
 }
 
 function appendBounded(current: string, text: string): string {
@@ -202,136 +123,6 @@ export async function runManagedJob(input: {
   }
 }
 
-async function verifyStagedUv(path: string, expectedSha256: string): Promise<boolean> {
-  try {
-    const stats = await lstat(path)
-    if (!stats.isFile() || stats.isSymbolicLink()) return false
-    if ((await hashFile(path)) !== expectedSha256) return false
-    if (process.platform !== 'win32') await chmod(path, 0o700)
-    return true
-  } catch (error) {
-    if (isNodeError(error, 'ENOENT') || isNodeError(error, 'ELOOP')) return false
-    throw error
-  }
-}
-
-async function stageUvExecutable(
-  paths: ManagedPythonBootstrapPaths,
-  compressedBytes: Buffer,
-  attestation: UvAssetAttestation
-): Promise<string> {
-  const executableBytes = await gunzipAsync(compressedBytes)
-  if (executableBytes.byteLength > UV_EXECUTABLE_MAX_BYTES) {
-    throw new Error('Bundled uv runtime expands beyond its allowed size.')
-  }
-  const extension = process.platform === 'win32' ? '.exe' : ''
-  const targetPath = join(
-    paths.toolsPath,
-    `uv-${PY_REPL_UV_VERSION}-${attestation.targetTriple}-${attestation.outputSha256.slice(0, 16)}${extension}`
-  )
-  if (await verifyStagedUv(targetPath, attestation.outputSha256)) return targetPath
-
-  await assertManagedDirectory(paths.toolsPath, paths.homePath)
-  const temporaryPath = join(paths.toolsPath, `.uv-${token()}.tmp`)
-  await writeFile(temporaryPath, executableBytes, { flag: 'wx', mode: 0o700 })
-  try {
-    if (process.platform !== 'win32') await chmod(temporaryPath, 0o700)
-    if ((await hashFile(temporaryPath)) !== attestation.outputSha256) {
-      throw new Error('Bundled uv runtime did not preserve its attested bytes.')
-    }
-    try {
-      await rename(temporaryPath, targetPath)
-    } catch (error) {
-      if (process.platform !== 'win32') throw error
-      if (await verifyStagedUv(targetPath, attestation.outputSha256)) return targetPath
-      try {
-        const existing = await lstat(targetPath)
-        if (!existing.isFile() && !existing.isSymbolicLink()) {
-          throw new Error(`Managed uv target is not a replaceable file: ${targetPath}`)
-        }
-        await unlink(targetPath)
-      } catch (targetError) {
-        if (!isNodeError(targetError, 'ENOENT')) throw targetError
-      }
-      await rename(temporaryPath, targetPath)
-    }
-    if (!(await verifyStagedUv(targetPath, attestation.outputSha256))) {
-      throw new Error('Managed uv runtime failed verification after staging.')
-    }
-    return targetPath
-  } finally {
-    await rm(temporaryPath, { force: true })
-  }
-}
-
-export async function resolveAttestedUv(
-  options: ManagedPythonResourceOptions,
-  paths: ManagedPythonBootstrapPaths
-): Promise<string> {
-  const name = process.platform === 'win32' ? 'uv.exe' : 'uv'
-  const targetTriple = TARGET_TRIPLES[process.platform]?.[process.arch]
-  if (!targetTriple) throw bundledUvError(options, 'resources-unavailable')
-  const resourceOptions = {
-    projectRoot: options.projectRoot,
-    resourcesPath: options.resourcesPath,
-    startDir: import.meta.dirname
-  }
-  const archivePath = resolveBundledResource({
-    ...resourceOptions,
-    name: `${name}${UV_RUNTIME_ARCHIVE_SUFFIX}`
-  })
-  const attestationPath = resolveBundledResource({
-    ...resourceOptions,
-    name: `${name}.asset.json`
-  })
-  if (
-    !archivePath ||
-    !attestationPath ||
-    !isAbsolute(archivePath) ||
-    !isAbsolute(attestationPath)
-  ) {
-    throw bundledUvError(options, 'resources-unavailable')
-  }
-  try {
-    const [archiveStat, attestationStat] = await Promise.all([
-      lstat(archivePath),
-      lstat(attestationPath)
-    ])
-    if (
-      !archiveStat.isFile() ||
-      archiveStat.isSymbolicLink() ||
-      archiveStat.size > UV_RUNTIME_ARCHIVE_MAX_BYTES ||
-      !attestationStat.isFile() ||
-      attestationStat.isSymbolicLink()
-    ) {
-      throw new Error('Bundled uv resource files are invalid.')
-    }
-    const attestation = parseAttestation(await readBoundedFile(attestationPath, 16 * 1024))
-    if (
-      attestation.name !== 'uv' ||
-      attestation.version !== PY_REPL_UV_VERSION ||
-      attestation.platform !== process.platform ||
-      attestation.arch !== process.arch ||
-      attestation.targetTriple !== targetTriple ||
-      !SHA256_PATTERN.test(attestation.archiveSha256) ||
-      !SHA256_PATTERN.test(attestation.outputSha256) ||
-      !SHA256_PATTERN.test(attestation.runtimeArchiveSha256) ||
-      (await hashFile(archivePath)) !== attestation.runtimeArchiveSha256
-    ) {
-      throw new Error('Bundled uv runtime attestation does not match its resource.')
-    }
-    const compressedBytes = await readFile(archivePath)
-    if (compressedBytes.byteLength > UV_RUNTIME_ARCHIVE_MAX_BYTES) {
-      throw new Error('Bundled uv runtime archive is too large.')
-    }
-    return await stageUvExecutable(paths, compressedBytes, attestation)
-  } catch (error) {
-    if (error instanceof ManagedPythonEnvironmentError) throw error
-    if (error instanceof Error && error.name === 'AbortError') throw error
-    throw bundledUvError(options, 'resources-invalid', error)
-  }
-}
-
 export function commandFailure(name: string, job: ManagedJobResult): Error {
   const diagnostics = (
     job.stderr.trim() ||
@@ -359,7 +150,7 @@ export async function attestUvExecutable(
     })
     if (probe.result.exitCode !== 0) throw commandFailure('uv self version', probe)
     const version = parseStrictObject(probe.stdout.trim())
-    const targetTriple = TARGET_TRIPLES[process.platform]?.[process.arch]
+    const targetTriple = getUvReleaseAsset()?.targetTriple
     if (
       version['package_name'] !== 'uv' ||
       version['version'] !== PY_REPL_UV_VERSION ||
@@ -370,7 +161,7 @@ export async function attestUvExecutable(
   } catch (error) {
     if (error instanceof Error && error.name === 'AbortError') throw error
     throw new ManagedPythonEnvironmentError(
-      'The staged uv runtime failed its version and target attestation.',
+      'The managed uv runtime failed its version and target attestation.',
       'resources-invalid',
       'preparing-helper',
       { cause: error }

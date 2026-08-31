@@ -74,9 +74,10 @@ JSON、PNG/JPEG 图片以及数学或数据渲染结果，也可以通过 `read`
 `tool.<name>(args)` 等辅助函数调用当前已启用的八千代工具。
 
 `%pip` 始终安装到已选解释器。选中工作区 `.venv` 时，包变更属于该项目；使用托管回退环境
-时，包会在 `YACHIYO_HOME` 下供整个应用持续使用。托管环境首次使用会下载运行时，并安装
-一组锁定版本且仅使用 wheel 的基础包：NumPy、SciPy、pandas、Matplotlib、Pillow 和
-scikit-image。
+时，包会在 `YACHIYO_HOME` 下供整个应用持续使用。八千代不会内置 `uv`；首次使用托管环境
+必须联网。应用会将固定版本的 `uv` 下载到 `YACHIYO_HOME` 下的私有工具目录，在解压前校验
+固定的 archive SHA-256，再由它下载 CPython，以及一组锁定版本且仅使用 wheel 的基础包：
+NumPy、SciPy、pandas、Matplotlib、Pillow 和 scikit-image。
 
 环境选择不会跟随系统或 Homebrew Python/pip、环境变量 `VIRTUAL_ENV`、Conda，也不会选择
 工作区根目录 `.venv` 之外的虚拟环境。这是目标隔离，不是操作系统沙箱：显式执行的 Python

@@ -58,11 +58,8 @@ export function inspectMacosArtifactInventory(input) {
     ['Yachiyo executable', [join(contents, 'MacOS', 'Yachiyo')]],
     ['rg helper', [join(resources, 'bin', 'rg')]],
     ['fd helper', [join(resources, 'bin', 'fd')]],
-    ['uv Python runtime archive', [join(resources, 'bin', 'uv.runtime.gz')]],
     ['rg helper attestation', [join(resources, 'bin', 'rg.asset.json')]],
     ['fd helper attestation', [join(resources, 'bin', 'fd.asset.json')]],
-    ['uv helper attestation', [join(resources, 'bin', 'uv.asset.json')]],
-    ['uv MIT license', [join(resources, 'licenses', 'uv-LICENSE-MIT')]],
     ['sync-core helper', [join(resources, 'bin', 'sync-core')]],
     ['process-host helper', [join(resources, 'bin', 'process-host')]],
     ['vision OCR hook', [join(resources, 'external-hooks', 'vision-ocr')]],
@@ -160,8 +157,15 @@ export function inspectMacosArtifactInventory(input) {
   if (pathExists(unpackedBin)) {
     missing.push('runtime bin must not be duplicated under app.asar.unpacked')
   }
-  if (pathExists(join(resources, 'bin', 'uv'))) {
-    missing.push('raw uv helper must not be packaged; use the attested runtime archive')
+  for (const uvRuntimeAsset of [
+    join(resources, 'bin', 'uv'),
+    join(resources, 'bin', 'uv.runtime.gz'),
+    join(resources, 'bin', 'uv.asset.json'),
+    join(resources, 'licenses', 'uv-LICENSE-MIT')
+  ]) {
+    if (pathExists(uvRuntimeAsset)) {
+      missing.push(`uv runtime asset must not be packaged (${uvRuntimeAsset})`)
+    }
   }
 
   checkLocales(pathExists, readDirectory, missing, resources, 'application locales')

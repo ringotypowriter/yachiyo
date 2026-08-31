@@ -17,7 +17,6 @@ import { tmpdir } from 'node:os'
 import { basename, dirname, join, resolve } from 'node:path'
 import { pipeline } from 'node:stream/promises'
 import { spawnSync } from 'node:child_process'
-import { createGzip } from 'node:zlib'
 
 const manifestPath = resolve(import.meta.dirname, 'bundled-binary-assets.json')
 
@@ -36,9 +35,6 @@ function validateAsset(asset) {
     if (typeof asset?.[field] !== 'string' || !asset[field].trim()) {
       throw new Error(`Bundled binary asset is missing ${field}.`)
     }
-  }
-  if (asset.runtimeArchive !== undefined && typeof asset.runtimeArchive !== 'boolean') {
-    throw new Error(`Bundled binary ${asset.name} has an invalid runtimeArchive flag.`)
   }
   if (!/^[a-f0-9]{64}$/u.test(asset.sha256)) {
     throw new Error(`Bundled binary ${asset.name} has an invalid sha256.`)
@@ -89,7 +85,7 @@ async function defaultCalculateSha256(path) {
   return hash.digest('hex')
 }
 
-const BASE_ATTESTATION_FIELDS = [
+const ATTESTATION_FIELDS = [
   'name',
   'version',
   'platform',
@@ -99,14 +95,8 @@ const BASE_ATTESTATION_FIELDS = [
   'outputSha256'
 ]
 
-function attestationFields(asset) {
-  return asset.runtimeArchive
-    ? [...BASE_ATTESTATION_FIELDS, 'runtimeArchiveSha256']
-    : BASE_ATTESTATION_FIELDS
-}
-
-function createAttestation(asset, outputSha256, runtimeArchiveSha256) {
-  const attestation = {
+function createAttestation(asset, outputSha256) {
+  return {
     name: asset.name,
     version: asset.version,
     platform: asset.platform,
@@ -115,27 +105,12 @@ function createAttestation(asset, outputSha256, runtimeArchiveSha256) {
     archiveSha256: asset.sha256.toLowerCase(),
     outputSha256: outputSha256.toLowerCase()
   }
-  if (asset.runtimeArchive) {
-    if (!runtimeArchiveSha256) {
-      throw new Error(`Bundled binary ${asset.name} is missing its runtime archive hash.`)
-    }
-    attestation.runtimeArchiveSha256 = runtimeArchiveSha256.toLowerCase()
-  }
-  return attestation
 }
 
-async function isCurrentAsset(
-  asset,
-  outputPath,
-  attestationPath,
-  runtimeArchivePath,
-  calculateSha256
-) {
+async function isCurrentAsset(asset, outputPath, attestationPath, calculateSha256) {
+  const fields = ATTESTATION_FIELDS
   try {
-    const fields = attestationFields(asset)
-    const paths = [outputPath, attestationPath]
-    if (runtimeArchivePath) paths.push(runtimeArchivePath)
-    const stats = await Promise.all(paths.map((path) => lstat(path)))
+    const stats = await Promise.all([outputPath, attestationPath].map((path) => lstat(path)))
     if (
       stats.some((entry) => !entry.isFile() || entry.isSymbolicLink()) ||
       (process.platform !== 'win32' &&
@@ -156,27 +131,15 @@ async function isCurrentAsset(
       return false
     }
 
-    const expected = createAttestation(
-      asset,
-      attestation.outputSha256,
-      attestation.runtimeArchiveSha256
-    )
+    const expected = createAttestation(asset, attestation.outputSha256)
     if (
       !/^[a-f0-9]{64}$/u.test(attestation.outputSha256) ||
-      (asset.runtimeArchive && !/^[a-f0-9]{64}$/u.test(attestation.runtimeArchiveSha256)) ||
       !fields.every((field) => attestation[field] === expected[field])
     ) {
       return false
     }
 
-    const hashes = await Promise.all([
-      calculateSha256(outputPath),
-      ...(runtimeArchivePath ? [calculateSha256(runtimeArchivePath)] : [])
-    ])
-    return (
-      hashes[0].toLowerCase() === attestation.outputSha256 &&
-      (!runtimeArchivePath || hashes[1].toLowerCase() === attestation.runtimeArchiveSha256)
-    )
+    return (await calculateSha256(outputPath)).toLowerCase() === attestation.outputSha256
   } catch {
     return false
   }
@@ -256,12 +219,8 @@ export async function stageBundledBinary(input) {
   const asset = validateAsset(input.asset)
   const outputPath = join(input.outputDir, asset.outputName)
   const attestationPath = `${outputPath}.asset.json`
-  const runtimeArchivePath = asset.runtimeArchive ? `${outputPath}.runtime.gz` : undefined
   const calculateSha256 = input.calculateSha256 ?? defaultCalculateSha256
-  if (
-    !input.force &&
-    (await isCurrentAsset(asset, outputPath, attestationPath, runtimeArchivePath, calculateSha256))
-  ) {
+  if (!input.force && (await isCurrentAsset(asset, outputPath, attestationPath, calculateSha256))) {
     return { status: 'current', outputPath }
   }
 
@@ -271,7 +230,6 @@ export async function stageBundledBinary(input) {
   const archivePath = join(temporaryDir, 'asset.archive')
   const extractedDir = join(temporaryDir, 'extracted')
   const attestationSource = join(temporaryDir, 'asset.json')
-  const runtimeArchiveSource = join(temporaryDir, 'runtime.gz')
 
   try {
     await (input.downloadArchive ?? defaultDownloadArchive)(asset.url, archivePath)
@@ -286,23 +244,13 @@ export async function stageBundledBinary(input) {
     await (input.extractArchive ?? defaultExtractArchive)(archivePath, extractedDir)
     const extractedBinary = await resolveExtractedBinary(extractedDir, asset.archiveEntry)
     const outputSha256 = await calculateSha256(extractedBinary)
-    let runtimeArchiveSha256
-    if (asset.runtimeArchive) {
-      await pipeline(
-        createReadStream(extractedBinary),
-        createGzip({ level: 9 }),
-        createWriteStream(runtimeArchiveSource, { mode: 0o600 })
-      )
-      runtimeArchiveSha256 = await calculateSha256(runtimeArchiveSource)
-    }
     await writeFile(
       attestationSource,
-      `${JSON.stringify(createAttestation(asset, outputSha256, runtimeArchiveSha256), null, 2)}\n`
+      `${JSON.stringify(createAttestation(asset, outputSha256), null, 2)}\n`
     )
 
     await mkdir(input.outputDir, { recursive: true })
     await replaceFile(extractedBinary, outputPath, true)
-    if (runtimeArchivePath) await replaceFile(runtimeArchiveSource, runtimeArchivePath, false)
     await replaceFile(attestationSource, attestationPath, false)
     return { status: 'downloaded', outputPath }
   } finally {
