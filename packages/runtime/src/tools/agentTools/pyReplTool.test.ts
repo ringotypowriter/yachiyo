@@ -258,7 +258,7 @@ describe('pyRepl tool lifecycle', () => {
     assert.equal(kernelOptions?.runtime, runtime)
     assert.equal(kernelOptions?.initialCwd, workspacePath)
     assert.equal(
-      kernelOptions?.runnerPath.startsWith(join(realpathSync(runtime.rootPath), 'runners')),
+      kernelOptions?.runnerPath.startsWith(join(realpathSync.native(runtime.rootPath), 'runners')),
       true
     )
     assert.equal(existsSync(kernelOptions?.runnerPath ?? ''), true)
