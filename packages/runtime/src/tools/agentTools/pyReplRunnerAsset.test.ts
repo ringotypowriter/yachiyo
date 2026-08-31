@@ -10,6 +10,7 @@ import {
   realpath,
   rm,
   stat,
+  symlink,
   writeFile
 } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -55,6 +56,24 @@ test('stages the adjacent source runner under its verified content hash', async 
       assert.equal((await stat(join(fixture.rootPath, 'runners'))).mode & 0o777, 0o700)
       assert.equal((await stat(targetPath)).mode & 0o777, 0o600)
     }
+  } finally {
+    await fixture.cleanup()
+  }
+})
+
+test('stages through an alternate spelling of the verified parent path', async () => {
+  const fixture = await createRunnerFixture('parent-alias')
+  const canonicalHomePath = join(fixture.directory, 'home')
+  const aliasHomePath = join(fixture.directory, 'home-alias')
+  const sourcePath = join(fixture.directory, 'runner.py')
+  await symlink(canonicalHomePath, aliasHomePath, process.platform === 'win32' ? 'junction' : 'dir')
+  await writeFile(sourcePath, 'print(1)\n')
+  try {
+    const targetPath = await stagePythonRunner(sourcePath, join(aliasHomePath, 'python'))
+    const canonicalRootPath = await realpath(fixture.rootPath)
+
+    assert.equal(targetPath.startsWith(join(canonicalRootPath, 'runners')), true)
+    assert.equal(await realpath(targetPath), targetPath)
   } finally {
     await fixture.cleanup()
   }

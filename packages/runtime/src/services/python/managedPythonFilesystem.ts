@@ -163,8 +163,12 @@ export async function hashFile(path: string): Promise<string> {
 }
 
 export async function stagePythonRunner(source: string | URL, rootPath: string): Promise<string> {
-  const homePath = await realpath(dirname(rootPath))
-  const canonicalRoot = await assertManagedDirectory(rootPath, homePath)
+  const suppliedParentPath = dirname(rootPath)
+  const homePath = await realpath(suppliedParentPath)
+  const canonicalRoot = await assertManagedDirectory(
+    join(homePath, relative(suppliedParentPath, rootPath)),
+    homePath
+  )
   const runnersPath = join(canonicalRoot, 'runners')
   await ensureManagedDirectory(runnersPath, homePath)
   const sourceBytes = await readFile(source)
