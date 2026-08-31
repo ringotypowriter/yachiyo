@@ -67,9 +67,15 @@ test('direct jobs preserve literal argv, cwd, environment, and output streams', 
 
     assert.equal(result.exitCode, 0)
     assert.equal(result.timedOut, false)
-    assert.deepEqual(JSON.parse(stdout), {
+    const { cwd: actualCwd, ...payload } = JSON.parse(stdout) as {
+      argv: string[]
+      cwd: string
+      sentinel: string
+      inheritedOnly: string | null
+    }
+    assert.equal(await realpath(actualCwd), expectedCwd)
+    assert.deepEqual(payload, {
       argv: args,
-      cwd: expectedCwd,
       sentinel: 'requested-value',
       inheritedOnly: null
     })

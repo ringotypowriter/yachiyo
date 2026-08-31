@@ -109,6 +109,7 @@ export interface RunDomainDeps {
   processBroker: ProcessBroker
   jsReplWorkerPath?: string | URL
   pyReplRunnerPath?: string | URL
+  isManagedPythonEnvironmentReady?: () => Promise<boolean>
   ensureThreadWorkspace: (threadId: string) => Promise<string>
   fetchImpl?: typeof globalThis.fetch
   webExternalFetchImpl?: typeof globalThis.fetch

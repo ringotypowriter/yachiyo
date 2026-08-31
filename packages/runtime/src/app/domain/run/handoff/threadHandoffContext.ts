@@ -116,6 +116,7 @@ export async function prepareThreadHandoffContext(input: {
       },
       {
         availableSkills: preparedContext.availableSkills,
+        pyReplAvailable: preparedContext.pyReplAvailable,
         fetchImpl: deps.webExternalFetchImpl ?? deps.fetchImpl,
         ...(deps.jsReplWorkerPath ? { jsReplWorkerPath: deps.jsReplWorkerPath } : {}),
         ...(deps.pyReplRunnerPath ? { pyReplRunnerPath: deps.pyReplRunnerPath } : {}),

@@ -127,6 +127,9 @@ function sanitizeWorkerRunnerInput(input: WorkerRunnerFactoryInput): WorkerRunne
     ...(parentDependenciesInput.pyReplDependencies
       ? { pyReplDependencies: parentDependenciesInput.pyReplDependencies }
       : {}),
+    ...(parentDependenciesInput.pyReplAvailable !== undefined
+      ? { pyReplAvailable: parentDependenciesInput.pyReplAvailable }
+      : {}),
     ...(parentDependenciesInput.searchService
       ? { searchService: parentDependenciesInput.searchService }
       : {}),
@@ -217,6 +220,9 @@ function createWorkerRunner(
     ...(parentDependenciesInput.pyReplDependencies
       ? { pyReplDependencies: parentDependenciesInput.pyReplDependencies }
       : {}),
+    ...(parentDependenciesInput.pyReplAvailable !== undefined
+      ? { pyReplAvailable: parentDependenciesInput.pyReplAvailable }
+      : {}),
     ...(parentDependenciesInput.searchService
       ? { searchService: parentDependenciesInput.searchService }
       : {}),
@@ -295,6 +301,9 @@ function createWorkerRunner(
       : {}),
     ...(parentDependencies.pyReplDependencies
       ? { pyReplDependencies: parentDependencies.pyReplDependencies }
+      : {}),
+    ...(parentDependencies.pyReplAvailable !== undefined
+      ? { pyReplAvailable: parentDependencies.pyReplAvailable }
       : {}),
     ...(enabledTools.has('webRead') || enabledTools.has('jsRepl')
       ? { fetchImpl: parentDependencies.fetchImpl }

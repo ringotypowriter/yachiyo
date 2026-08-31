@@ -146,6 +146,7 @@ export interface RunExecutionDeps {
   processBroker: ProcessBroker
   jsReplWorkerPath?: string | URL
   pyReplRunnerPath?: string | URL
+  isManagedPythonEnvironmentReady?: () => Promise<boolean>
   ensureThreadWorkspace: (threadId: string) => Promise<string>
   buildMemoryLayerEntries?: (input: {
     requestMessageId: string

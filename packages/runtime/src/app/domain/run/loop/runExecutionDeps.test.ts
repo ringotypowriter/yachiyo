@@ -164,19 +164,22 @@ test('run execution deps records the active run mode for background bash complet
   })
 })
 
-test('run execution deps preserve bundled REPL entry paths', () => {
+test('run execution deps preserve bundled REPL runtime dependencies', () => {
   const thread: ThreadRecord = {
     id: 'thread-1',
     title: 'Thread',
     updatedAt: NOW
   }
+  const isManagedPythonEnvironmentReady = async (): Promise<boolean> => true
   const { executionDeps } = setupRunExecutionDeps(thread, {
     jsReplWorkerPath: '/bundled/js-repl-worker.cjs',
-    pyReplRunnerPath: '/bundled/py-repl-runner.py'
+    pyReplRunnerPath: '/bundled/py-repl-runner.py',
+    isManagedPythonEnvironmentReady
   })
 
   assert.equal(executionDeps.jsReplWorkerPath, '/bundled/js-repl-worker.cjs')
   assert.equal(executionDeps.pyReplRunnerPath, '/bundled/py-repl-runner.py')
+  assert.equal(executionDeps.isManagedPythonEnvironmentReady, isManagedPythonEnvironmentReady)
 })
 
 function setupRunExecutionDeps(
@@ -185,6 +188,7 @@ function setupRunExecutionDeps(
     requireThread?: (threadId: string) => ThreadRecord
     jsReplWorkerPath?: string | URL
     pyReplRunnerPath?: string | URL
+    isManagedPythonEnvironmentReady?: () => Promise<boolean>
     updateThread?: (thread: ThreadRecord) => void
     scopedEmit?: (event: unknown) => void
     scopedStorage?: {
@@ -251,6 +255,9 @@ function setupRunExecutionDeps(
       createModelRuntime: () => ({}),
       ...(overrides.jsReplWorkerPath ? { jsReplWorkerPath: overrides.jsReplWorkerPath } : {}),
       ...(overrides.pyReplRunnerPath ? { pyReplRunnerPath: overrides.pyReplRunnerPath } : {}),
+      ...(overrides.isManagedPythonEnvironmentReady
+        ? { isManagedPythonEnvironmentReady: overrides.isManagedPythonEnvironmentReady }
+        : {}),
       ensureThreadWorkspace: async () => '/tmp/yachiyo',
       memoryService,
       readConfig: () => DEFAULT_SETTINGS_CONFIG,

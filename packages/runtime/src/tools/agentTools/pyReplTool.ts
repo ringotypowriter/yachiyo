@@ -254,16 +254,17 @@ function buildDescription(context: AgentToolContext, dependencies: PyReplToolDep
   ]
 
   return [
-    'Run one Python cell in a persistent CPython kernel.',
+    'Run ordinary Python in a persistent CPython interpreter process.',
+    'This is not Jupyter or IPython: notebook APIs, `get_ipython()`, IPython magics, and `!` shell escapes are unavailable.',
+    'Yachiyo’s `%pip` command is the only supported `%` command.',
     'If the workspace root contains a valid CPython 3.11+ `.venv`, pyRepl uses it; otherwise Yachiyo uses its managed CPython 3.12.14 environment.',
     'An existing but invalid workspace `.venv` is an initialization error, not a managed-environment fallback.',
     'Bindings, imports, and loop-bound objects survive for this tool lifetime; `reset: true` intentionally discards them.',
     'Final expressions are returned automatically, top-level `await` is supported, and an implicit `None` is silent.',
-    'First use may provision the managed fallback in Yachiyo’s private data directory and require network access.',
-    '`%pip` targets the selected environment: workspace `.venv` installs change that workspace; managed installs are shared across Yachiyo pyRepl kernels.',
+    '`%pip` targets the selected environment: workspace `.venv` installs change that workspace; managed installs are shared across Yachiyo pyRepl interpreters.',
     'Yachiyo does not select system/Homebrew Python, ambient active virtualenvs, Conda, or non-root virtualenv directories.',
     'Environment selection is not an OS sandbox: explicit Python file/subprocess operations and third-party build hooks retain normal process authority.',
-    'On error, fix and rerun only the failed cell. Timeout, abort, unsafe background work, or process failure clears the kernel context.',
+    'On error, fix and rerun only the failed code. Timeout, abort, unsafe background work, or process failure clears the interpreter context.',
     '',
     'Prelude:',
     ...helpers.map((helper) => `- ${helper}`),

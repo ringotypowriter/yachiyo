@@ -146,6 +146,7 @@ export interface PreparedServerRunContext {
   config: SettingsConfig
   messages: ModelMessage[]
   modelEnabledTools: ToolCallName[]
+  pyReplAvailable: boolean
   maxToolSteps: number
   planModeDocument?: {
     planRelativePath: string
@@ -236,9 +237,16 @@ export async function prepareServerRunContext(
   const maxToolSteps =
     input.maxToolStepsOverride ??
     (isExternalChannel && !isOwnerDm ? EXTERNAL_CHANNEL_MAX_TOOL_STEPS : DEFAULT_MAX_TOOL_STEPS)
+  const pyReplAvailable =
+    isExternalChannel && !isOwnerDm
+      ? false
+      : ((await deps.isManagedPythonEnvironmentReady?.()) ?? true)
+  const requestedModelTools = isOwnerDm ? resolveRunModeEnabledTools('auto') : input.enabledTools
   const modelEnabledTools = resolveModelEnabledTools({
     activeSkills,
-    enabledTools: isOwnerDm ? resolveRunModeEnabledTools('auto') : input.enabledTools
+    enabledTools: pyReplAvailable
+      ? requestedModelTools
+      : requestedModelTools.filter((toolName) => toolName !== 'pyRepl')
   })
   const guestUserPath = resolveYachiyoUserPath(workspacePath)
   const userDocument = isGuest
@@ -655,6 +663,7 @@ export async function prepareServerRunContext(
     config,
     messages: finalMessages,
     modelEnabledTools,
+    pyReplAvailable,
     maxToolSteps,
     availableSkills,
     activeSkills,

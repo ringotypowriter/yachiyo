@@ -387,9 +387,9 @@ export const jsReplToolInputSchema = createReplToolInputSchema({
 })
 
 export const pyReplToolInputSchema = createReplToolInputSchema({
-  code: 'One Python cell to run verbatim. Final expressions and top-level await are supported.',
-  timeout: 'Cell timeout in seconds. A timeout clears the persistent Python context.',
-  reset: 'Clear prior Python bindings before this cell. Defaults to false.'
+  code: 'Python source to run verbatim in the persistent interpreter. IPython and notebook APIs are unavailable; final expressions and top-level await are supported.',
+  timeout: 'Execution timeout in seconds. A timeout clears the persistent Python context.',
+  reset: 'Clear prior Python bindings before this execution. Defaults to false.'
 })
 
 export const grepToolInputSchema = withShadowFallbacks(

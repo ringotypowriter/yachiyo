@@ -83,26 +83,30 @@ Tools are what turn the model into an agent. The full set:
 | `useSentinel`                         | Set a conversation-level recurring check ("come back to this in 20 minutes").                       |
 | `exitPlanMode`                        | Leave Plan mode once a plan is agreed.                                                              |
 
-`pyRepl` selects its environment once on first use. A `.venv` at the workspace
-root takes precedence and must be a working CPython 3.11 or newer virtual
-environment; if that directory exists but is invalid, startup fails instead of
-silently using another interpreter. When `.venv` is absent, Yachiyo falls back to
-its private, managed CPython `3.12.14` environment. Bindings last for the current
-parent execution or reusable worker lifetime; `reset: true` intentionally
-discards them.
+`pyRepl` is offered only while the managed Python environment is ready and no
+environment operation is running. Once offered, it selects its environment on
+first use. A `.venv` at the workspace root takes precedence and must be a working
+CPython 3.11 or newer virtual environment; if that directory exists but is
+invalid, startup fails instead of silently using another interpreter. When
+`.venv` is absent, Yachiyo uses its managed CPython `3.12.14` environment.
+Bindings last for the current parent execution or reusable worker lifetime;
+`reset: true` intentionally discards them.
 
-Cells support final-expression results, top-level `await`, timeouts, and bounded
-`parallel()` work. They can return text, JSON, PNG/JPEG images, and math or data
-renderings. Enabled Yachiyo tools are available through helpers such as `read`,
-`write`, and `tool.<name>(args)`.
+Each interpreter is an ordinary CPython process, not Jupyter or IPython.
+Notebook APIs, `get_ipython()`, IPython magics, and `!` shell escapes are
+unavailable. Cells support final-expression results, top-level `await`, timeouts,
+and bounded `parallel()` work. They can return text, JSON, PNG/JPEG images, and
+math or data renderings. Enabled Yachiyo tools are available through helpers
+such as `read`, `write`, and `tool.<name>(args)`.
 
-`%pip` always targets the selected interpreter. With a workspace `.venv`, package
-changes belong to that project. With the managed fallback, packages persist
-app-wide under `YACHIYO_HOME`. Yachiyo does not bundle `uv`; first managed use
-requires network access. It downloads a pinned `uv` release into the private
-tools directory under `YACHIYO_HOME`, verifies the archive's pinned SHA-256
-before extraction, then downloads CPython and a pinned, wheel-only baseline of
-NumPy, SciPy, pandas, Matplotlib, Pillow, and scikit-image.
+`%pip` is the only supported `%` command and always targets the selected
+interpreter. With a workspace `.venv`, package changes belong to that project.
+With the managed environment, packages persist app-wide under `YACHIYO_HOME`.
+Installing the managed environment requires network access. Yachiyo downloads a
+pinned `uv` release into the private tools directory under `YACHIYO_HOME`,
+verifies the archive's pinned SHA-256 before extraction, then downloads CPython
+and a pinned, wheel-only baseline of NumPy, SciPy, pandas, Matplotlib, Pillow,
+and scikit-image.
 
 Selection never follows system or Homebrew Python and pip, an ambient
 `VIRTUAL_ENV`, Conda, or virtual environments outside the workspace root

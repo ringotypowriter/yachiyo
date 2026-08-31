@@ -279,7 +279,7 @@ export const activity = {
 
 export const pythonEnvironment = {
   title: 'Python 环境',
-  description: 'Yachiyo 在私有 CPython 环境中运行 pyRepl，绝不会修改系统 Python。',
+  description: 'pyRepl 使用由 Yachiyo 管理的独立 Python 环境。',
   loading: '正在检查环境…',
   loadFailed: '无法检查 Python 环境。',
   stateNotInstalled: '未安装',
@@ -287,7 +287,7 @@ export const pythonEnvironment = {
   stateNeedsRepair: '需要修复',
   stateUnavailable: '资源不可用',
   stateNotInstalledDescription: '需要使用 pyRepl 时，可安装此私有运行时。',
-  stateReadyDescription: 'pyRepl 可直接启动，不会修改系统 Python。',
+  stateReadyDescription: '环境已准备就绪，可以直接使用 pyRepl。',
   stateNeedsRepairDescription: '私有环境未通过健康检查。',
   stateUnavailableDescription: '当前版本缺少有效的 Python 资源。请更新 Yachiyo 后重试。',
   pythonVersion: 'Python',

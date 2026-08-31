@@ -65,6 +65,7 @@ export function createRunToolSet(input: CreateRunToolSetInput): ToolSet | undefi
     isOwnerDm,
     isDirectMessage,
     modelEnabledTools,
+    pyReplAvailable,
     workspacePath,
     planModeDocument
   } = input.preparedContext
@@ -155,6 +156,7 @@ export function createRunToolSet(input: CreateRunToolSetInput): ToolSet | undefi
     fetchImpl: deps.webExternalFetchImpl ?? deps.fetchImpl,
     ...(deps.jsReplWorkerPath ? { jsReplWorkerPath: deps.jsReplWorkerPath } : {}),
     ...(deps.pyReplRunnerPath ? { pyReplRunnerPath: deps.pyReplRunnerPath } : {}),
+    pyReplAvailable,
     loadBrowserSnapshot: deps.loadBrowserSnapshot,
     browserAutomationService: deps.browserAutomationService,
     searchService: deps.searchService,

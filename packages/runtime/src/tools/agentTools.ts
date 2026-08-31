@@ -177,6 +177,8 @@ export interface AgentToolDependencies {
   fetchImpl?: typeof globalThis.fetch
   jsReplWorkerPath?: string | URL
   pyReplRunnerPath?: string | URL
+  /** Omit pyRepl entirely when the managed Python environment is not ready. */
+  pyReplAvailable?: boolean
   pyReplDependencies?: Pick<PyReplToolDependencies, 'ensureRuntime' | 'createKernel'>
   loadBrowserSnapshot?: BrowserWebPageSnapshotLoader
   browserAutomationService?: BrowserAutomationToolBackend
@@ -918,7 +920,11 @@ export function createAgentToolSet(
         enabledTools
       )
     }
-    if (!context.sandboxed && shouldRegisterTool('pyRepl')) {
+    if (
+      dependencies.pyReplAvailable !== false &&
+      !context.sandboxed &&
+      shouldRegisterTool('pyRepl')
+    ) {
       tools.pyRepl = wrapDisabledTool(
         createPyReplTool(context, {
           ...(dependencies.pyReplDependencies ?? {}),

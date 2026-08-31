@@ -65,6 +65,7 @@ function createRunContextDeps(input: {
   imageToTextService?: RunExecutionDeps['imageToTextService']
   isModelImageCapable?: boolean
   readSoulDocument?: RunExecutionDeps['readSoulDocument']
+  isManagedPythonEnvironmentReady?: RunExecutionDeps['isManagedPythonEnvironmentReady']
 }): RunExecutionDeps {
   const config: SettingsConfig = input.config ?? {
     ...DEFAULT_SETTINGS_CONFIG,
@@ -141,6 +142,9 @@ function createRunContextDeps(input: {
     loadThreadToolCalls: () => [],
     listSkills: async () => [],
     onEnabledToolsUsed: () => {},
+    ...(input.isManagedPythonEnvironmentReady
+      ? { isManagedPythonEnvironmentReady: input.isManagedPythonEnvironmentReady }
+      : {}),
     ...(input.imageToTextService ? { imageToTextService: input.imageToTextService } : {}),
     ...(input.isModelImageCapable !== undefined
       ? { isModelImageCapable: input.isModelImageCapable }
@@ -408,6 +412,59 @@ test('prepareServerRunContext injects consumed activity and reports it as a cont
         summary: '2 apps'
       }
     )
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('prepareServerRunContext removes pyRepl when managed Python is not ready', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'yachiyo-python-tool-readiness-'))
+  const thread: ThreadRecord = {
+    id: 'thread-python-tool-readiness',
+    title: 'Thread',
+    workspacePath: root,
+    updatedAt: '2026-04-28T00:00:00.000Z'
+  }
+  const requestMessage: MessageRecord = {
+    id: 'msg-python-tool-readiness',
+    threadId: thread.id,
+    role: 'user',
+    content: 'Use Python',
+    status: 'completed',
+    createdAt: '2026-04-28T00:00:00.000Z'
+  }
+  let readinessChecks = 0
+
+  try {
+    const context = await prepareServerRunContext(
+      createRunContextDeps({
+        events: [],
+        messages: [requestMessage],
+        workspacePath: root,
+        isManagedPythonEnvironmentReady: async () => {
+          readinessChecks += 1
+          return false
+        }
+      }),
+      {
+        runId: 'run-python-tool-readiness',
+        thread,
+        requestMessageId: requestMessage.id,
+        enabledTools: ['read', 'pyRepl'],
+        runMode: 'auto',
+        runTrigger: 'local',
+        abortController: new AbortController(),
+        requestMessage,
+        historyMessages: [requestMessage],
+        persistTurnContext: false,
+        includeMemoryRecall: false,
+        applyStripCompact: false
+      }
+    )
+
+    assert.equal(readinessChecks, 1)
+    assert.equal(context.pyReplAvailable, false)
+    assert.deepEqual(context.modelEnabledTools, ['read'])
   } finally {
     await rm(root, { recursive: true, force: true })
   }

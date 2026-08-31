@@ -351,6 +351,9 @@ export class YachiyoServer {
   private readonly remoteImageDomain: ReturnType<typeof createRemoteImageDomain>
   private readonly settingsPath: string
   private readonly unsubscribePythonEnvironmentStatus: () => void
+  private pythonEnvironmentStatus: ManagedPythonEnvironmentStatus | undefined
+  private pythonEnvironmentStatusRequest: Promise<ManagedPythonEnvironmentStatus> | undefined
+  private pythonEnvironmentStatusRevision = 0
   // Serializes every sync that spawns the binary (manual, auto, init) so two
   // export/import passes never run against the same files at once.
   private syncMutex: Promise<unknown> = Promise.resolve()
@@ -523,6 +526,7 @@ export class YachiyoServer {
       processBroker: this.processBroker,
       ...(options.jsReplWorkerPath ? { jsReplWorkerPath: options.jsReplWorkerPath } : {}),
       ...(options.pyReplRunnerPath ? { pyReplRunnerPath: options.pyReplRunnerPath } : {}),
+      isManagedPythonEnvironmentReady: this.isManagedPythonEnvironmentReady.bind(this),
       ensureThreadWorkspace,
       fetchImpl: options.fetchImpl,
       webExternalFetchImpl: options.webExternalFetchImpl,
@@ -605,6 +609,9 @@ export class YachiyoServer {
       manifestPath: join(resolveYachiyoTempWorkspaceRoot(), '.yachiyo-ttl.json')
     })
     this.unsubscribePythonEnvironmentStatus = subscribeManagedPythonEnvironmentStatus((status) => {
+      if (this.pythonEnvironmentStatus?.rootPath === status.rootPath) {
+        this.updatePythonEnvironmentStatus(status)
+      }
       this.emit<ManagedPythonEnvironmentUpdatedEvent>({
         type: 'python-environment.updated',
         status
@@ -619,20 +626,58 @@ export class YachiyoServer {
     }
   }
 
-  async getPythonEnvironmentStatus(): Promise<ManagedPythonEnvironmentStatus> {
-    return await getManagedPythonEnvironmentStatus({
+  private updatePythonEnvironmentStatus(status: ManagedPythonEnvironmentStatus): void {
+    this.pythonEnvironmentStatus = status
+    this.pythonEnvironmentStatusRevision += 1
+  }
+
+  private async inspectPythonEnvironmentStatus(): Promise<ManagedPythonEnvironmentStatus> {
+    const activeRequest = this.pythonEnvironmentStatusRequest
+    if (activeRequest) return await activeRequest
+
+    const revision = this.pythonEnvironmentStatusRevision
+    const request = getManagedPythonEnvironmentStatus({
       processBroker: this.processBroker,
       yachiyoHome: dirname(this.settingsPath)
+    }).then((status) => {
+      if (this.pythonEnvironmentStatusRevision === revision) {
+        this.updatePythonEnvironmentStatus(status)
+      }
+      return this.pythonEnvironmentStatus ?? status
     })
+    this.pythonEnvironmentStatusRequest = request
+    try {
+      return await request
+    } finally {
+      if (this.pythonEnvironmentStatusRequest === request) {
+        this.pythonEnvironmentStatusRequest = undefined
+      }
+    }
+  }
+
+  private async isManagedPythonEnvironmentReady(): Promise<boolean> {
+    try {
+      const status = this.pythonEnvironmentStatus ?? (await this.inspectPythonEnvironmentStatus())
+      return status.state === 'ready' && status.operation === undefined
+    } catch (error) {
+      console.error('[yachiyo][python] Could not inspect environment readiness:', error)
+      return false
+    }
+  }
+
+  async getPythonEnvironmentStatus(): Promise<ManagedPythonEnvironmentStatus> {
+    return await this.inspectPythonEnvironmentStatus()
   }
 
   async managePythonEnvironment(
     action: ManagedPythonEnvironmentAction
   ): Promise<ManagedPythonEnvironmentStatus> {
-    return await manageManagedPythonEnvironment(action, {
+    const status = await manageManagedPythonEnvironment(action, {
       processBroker: this.processBroker,
       yachiyoHome: dirname(this.settingsPath)
     })
+    this.updatePythonEnvironmentStatus(status)
+    return status
   }
 
   getTtlReaper(): TtlReaper {

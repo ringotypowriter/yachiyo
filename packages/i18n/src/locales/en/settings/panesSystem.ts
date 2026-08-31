@@ -288,8 +288,7 @@ export const activity = {
 
 export const pythonEnvironment = {
   title: 'Python environment',
-  description:
-    'Yachiyo keeps pyRepl in a private CPython environment. It never changes system Python.',
+  description: 'pyRepl uses a separate Python environment managed by Yachiyo.',
   loading: 'Checking the environment…',
   loadFailed: 'Could not inspect the Python environment.',
   stateNotInstalled: 'Not installed',
@@ -297,7 +296,7 @@ export const pythonEnvironment = {
   stateNeedsRepair: 'Needs repair',
   stateUnavailable: 'Resources unavailable',
   stateNotInstalledDescription: 'Install the private runtime when you need pyRepl.',
-  stateReadyDescription: 'pyRepl can start without changing system Python.',
+  stateReadyDescription: 'The environment is ready for pyRepl.',
   stateNeedsRepairDescription: 'The private environment failed its health check.',
   stateUnavailableDescription:
     'This build has missing or invalid Python resources. Update Yachiyo, then retry.',

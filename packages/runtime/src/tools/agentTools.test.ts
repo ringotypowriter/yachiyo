@@ -609,6 +609,20 @@ test('createAgentToolSet registers default pyRepl with injected runtime dependen
   })
 })
 
+test('createAgentToolSet omits pyRepl when managed Python is not ready', () => {
+  const tools = createAgentToolSet(
+    {
+      enabledTools: ['pyRepl', 'read'],
+      sandboxed: false,
+      workspacePath: '/tmp/yachiyo'
+    },
+    { pyReplAvailable: false }
+  )
+
+  assert.equal(tools?.pyRepl, undefined)
+  assert.ok(tools?.read)
+})
+
 test('createAgentToolSet omits both REPLs from sandboxed runs', () => {
   const tools = createAgentToolSet({
     enabledTools: ['jsRepl', 'pyRepl', 'read'],

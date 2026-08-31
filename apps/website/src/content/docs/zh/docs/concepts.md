@@ -64,18 +64,21 @@ description: 线程、运行、运行模式、工作区、技能、记忆和频�
 | `useSentinel`                         | 设置一个对话级的周期性检查（「20 分钟后回来看这件事」）。         |
 | `exitPlanMode`                        | 方案敲定后离开计划模式。                                          |
 
-`pyRepl` 会在首次使用时选定环境。工作区根目录的 `.venv` 优先，且必须是可用的 CPython
-3.11 或更新版本虚拟环境；如果该目录存在却无效，启动会直接失败，不会静默切换到其他解释器。
-如果没有 `.venv`，八千代会回退到私有托管的 CPython `3.12.14` 环境。变量绑定会在当前父级
-执行或可复用 Worker 的生命周期内保留；`reset: true` 会主动丢弃这些绑定。
+只有托管 Python 环境处于「可用」状态且没有环境管理操作正在执行时，运行才会提供
+`pyRepl`。提供后，它会在首次使用时选定环境。工作区根目录的 `.venv` 优先，且必须是可用的
+CPython 3.11 或更新版本虚拟环境；如果该目录存在却无效，启动会直接失败，不会静默切换到
+其他解释器。如果没有 `.venv`，八千代会使用托管的 CPython `3.12.14` 环境。变量绑定会在
+当前父级执行或可复用 Worker 的生命周期内保留；`reset: true` 会主动丢弃这些绑定。
 
-cell 支持末尾表达式结果、顶层 `await`、超时和有并发上限的 `parallel()`。它可以返回文本、
-JSON、PNG/JPEG 图片以及数学或数据渲染结果，也可以通过 `read`、`write`、
-`tool.<name>(args)` 等辅助函数调用当前已启用的八千代工具。
+每个解释器都是普通 CPython 进程，不是 Jupyter 或 IPython。它不提供 notebook API、
+`get_ipython()`、IPython magic 或 `!` shell escape。cell 支持末尾表达式结果、顶层
+`await`、超时和有并发上限的 `parallel()`，可以返回文本、JSON、PNG/JPEG 图片以及数学或
+数据渲染结果，也可以通过 `read`、`write`、`tool.<name>(args)` 等辅助函数调用当前已启用的
+八千代工具。
 
-`%pip` 始终安装到已选解释器。选中工作区 `.venv` 时，包变更属于该项目；使用托管回退环境
-时，包会在 `YACHIYO_HOME` 下供整个应用持续使用。八千代不会内置 `uv`；首次使用托管环境
-必须联网。应用会将固定版本的 `uv` 下载到 `YACHIYO_HOME` 下的私有工具目录，在解压前校验
+`%pip` 是唯一支持的 `%` 命令，始终安装到已选解释器。选中工作区 `.venv` 时，包变更属于
+该项目；使用托管环境时，包会在 `YACHIYO_HOME` 下供整个应用持续使用。安装托管环境需要
+联网。八千代会将固定版本的 `uv` 下载到 `YACHIYO_HOME` 下的私有工具目录，在解压前校验
 固定的 archive SHA-256，再由它下载 CPython，以及一组锁定版本且仅使用 wheel 的基础包：
 NumPy、SciPy、pandas、Matplotlib、Pillow 和 scikit-image。
 

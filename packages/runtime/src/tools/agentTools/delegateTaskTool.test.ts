@@ -820,6 +820,59 @@ test('Worker runner preserves the host pyRepl runner and runtime dependencies', 
   }
 })
 
+test('Worker runner omits pyRepl when managed Python is not ready', async () => {
+  const workspace = await realpath(await mkdtemp(join(tmpdir(), 'yachiyo-worker-no-py-repl-')))
+  const modelRuntime: ModelRuntime = {
+    streamReply: async function* (request) {
+      assert.equal(request.tools?.pyRepl, undefined)
+      yield 'done'
+    }
+  } as ModelRuntime
+  const factory = createWorkerSubagentRunnerFactory({
+    profileId: 'general',
+    profile: DEFAULT_NAMED_SUBAGENT_PROFILES.general,
+    dependencies: {
+      settings: TEST_SETTINGS,
+      parentToolContext: { workspacePath: workspace, sandboxed: false },
+      parentDependencies: { pyReplAvailable: false },
+      createModelRuntime: () => modelRuntime
+    }
+  })
+  const runner = factory({
+    launch: {
+      agentId: 'agent-no-py-repl',
+      parentThreadId: 'thread-1',
+      launchRunId: 'run-1',
+      agentName: 'general',
+      agentType: 'general',
+      codeName: 'Akari',
+      workspacePath: workspace,
+      prompt: 'Do not use pyRepl'
+    },
+    signal: new AbortController().signal,
+    sendMessage: () => ({
+      messageId: 'message-1',
+      delivery: 'queued',
+      recipientState: 'idle'
+    }),
+    hasPendingMessages: () => false,
+    onProgress: () => {},
+    onToolCall: () => {}
+  })
+
+  try {
+    await runner.runTurn({
+      turnId: 'turn-no-py-repl',
+      initialPrompt: 'Do not use pyRepl',
+      messages: [],
+      signal: new AbortController().signal
+    })
+  } finally {
+    await runner.close()
+    await rm(workspace, { recursive: true, force: true })
+  }
+})
+
 test('Worker runner compacts with its own model before a follow-up turn', async () => {
   const workspace = await mkdtemp(join(tmpdir(), 'yachiyo-worker-compaction-'))
   const requests: ModelStreamRequest[] = []
