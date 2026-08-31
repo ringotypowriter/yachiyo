@@ -30,6 +30,8 @@ import type {
   ListActivitySourceRecordsInput,
   ListActivitySourceRecordsResult,
   ListSkillsInput,
+  ManagedPythonEnvironmentAction,
+  ManagedPythonEnvironmentStatus,
   ProviderConfig,
   ProviderSettings,
   RemoveThingSourceInput,
@@ -254,6 +256,10 @@ declare global {
         getUserDocument: () => Promise<UserDocument>
         testSubagentProfile: (input: TestSubagentProfileInput) => Promise<TestSubagentProfileResult>
         getSettings: () => Promise<ProviderSettings>
+        getPythonEnvironmentStatus: () => Promise<ManagedPythonEnvironmentStatus>
+        managePythonEnvironment: (
+          action: ManagedPythonEnvironmentAction
+        ) => Promise<ManagedPythonEnvironmentStatus>
         getSyncStatus: () => Promise<SyncStatus>
         initSync: () => Promise<SyncStatus>
         runSyncNow: () => Promise<SyncStatus>

@@ -11,9 +11,7 @@ export interface ResolveBundledExecutableOptions {
   additionalCandidates?: string[]
 }
 
-export function resolveBundledExecutable(
-  options: ResolveBundledExecutableOptions
-): string | undefined {
+function bundledCandidates(options: ResolveBundledExecutableOptions): string[] {
   const platform = options.platform ?? process.platform
   const arch = options.arch ?? process.arch
   const osByPlatform: Record<string, string> = { darwin: 'mac', linux: 'linux', win32: 'win' }
@@ -35,16 +33,38 @@ export function resolveBundledExecutable(
     )
   }
   candidates.push(...(options.additionalCandidates ?? []))
+  return candidates
+}
 
-  for (const candidate of candidates) {
+function resolveBundledPath(
+  options: ResolveBundledExecutableOptions,
+  accessMode: number
+): string | undefined {
+  for (const candidate of bundledCandidates(options)) {
     try {
-      accessSync(candidate, platform === 'win32' ? constants.R_OK : constants.X_OK)
+      accessSync(candidate, accessMode)
       return candidate
     } catch {
       // Continue through the explicit resolution order.
     }
   }
   return undefined
+}
+
+export function resolveBundledExecutable(
+  options: ResolveBundledExecutableOptions
+): string | undefined {
+  const platform = options.platform ?? process.platform
+  return resolveBundledPath(
+    options,
+    platform === 'win32' ? constants.R_OK : constants.R_OK | constants.X_OK
+  )
+}
+
+export function resolveBundledResource(
+  options: ResolveBundledExecutableOptions
+): string | undefined {
+  return resolveBundledPath(options, constants.R_OK)
 }
 
 function findProjectRoot(startDir: string): string | undefined {

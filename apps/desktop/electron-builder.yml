@@ -19,6 +19,8 @@ extraResources:
     to: bin
     filter:
       - '**/*'
+      - '!uv'
+      - '!uv.exe'
   - from: resources/licenses
     to: licenses
     filter:

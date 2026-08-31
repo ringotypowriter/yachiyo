@@ -11,6 +11,7 @@ export const nav = {
   coding: 'Coding',
   prompts: 'Prompts',
   workspace: 'Workspace',
+  python: 'Python',
   sources: 'Sources',
   memory: 'Memory',
   search: 'Search',

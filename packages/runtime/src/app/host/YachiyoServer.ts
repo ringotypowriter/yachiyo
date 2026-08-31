@@ -42,6 +42,9 @@ import type {
   AcceptThreadPlanDocumentInput,
   ScheduleRecord,
   ScheduleRunRecord,
+  ManagedPythonEnvironmentAction,
+  ManagedPythonEnvironmentStatus,
+  ManagedPythonEnvironmentUpdatedEvent,
   SearchWorkspaceFilesInput,
   SettingsConfig,
   SkillCatalogEntry,
@@ -121,6 +124,11 @@ import { createSearchService, type SearchService } from '../../services/search/s
 import { NativeProcessBroker } from '../../services/processBroker/nativeProcessBroker.ts'
 import type { ProcessBroker } from '../../services/processBroker/processBroker.ts'
 import { resolveBundledExecutable } from '../../services/nativeExecutable.ts'
+import {
+  getManagedPythonEnvironmentStatus,
+  manageManagedPythonEnvironment,
+  subscribeManagedPythonEnvironmentStatus
+} from '../../services/python/managedPythonRuntime.ts'
 import {
   createImageToTextService,
   type ImageToTextService
@@ -342,6 +350,7 @@ export class YachiyoServer {
   private readonly developmentMode: boolean
   private readonly remoteImageDomain: ReturnType<typeof createRemoteImageDomain>
   private readonly settingsPath: string
+  private readonly unsubscribePythonEnvironmentStatus: () => void
   // Serializes every sync that spawns the binary (manual, auto, init) so two
   // export/import passes never run against the same files at once.
   private syncMutex: Promise<unknown> = Promise.resolve()
@@ -595,6 +604,12 @@ export class YachiyoServer {
     this.ttlReaper = createTtlReaper({
       manifestPath: join(resolveYachiyoTempWorkspaceRoot(), '.yachiyo-ttl.json')
     })
+    this.unsubscribePythonEnvironmentStatus = subscribeManagedPythonEnvironmentStatus((status) => {
+      this.emit<ManagedPythonEnvironmentUpdatedEvent>({
+        type: 'python-environment.updated',
+        status
+      })
+    })
   }
 
   subscribe(listener: (event: YachiyoServerEvent) => void): () => void {
@@ -602,6 +617,22 @@ export class YachiyoServer {
     return () => {
       this.listeners.delete(listener)
     }
+  }
+
+  async getPythonEnvironmentStatus(): Promise<ManagedPythonEnvironmentStatus> {
+    return await getManagedPythonEnvironmentStatus({
+      processBroker: this.processBroker,
+      yachiyoHome: dirname(this.settingsPath)
+    })
+  }
+
+  async managePythonEnvironment(
+    action: ManagedPythonEnvironmentAction
+  ): Promise<ManagedPythonEnvironmentStatus> {
+    return await manageManagedPythonEnvironment(action, {
+      processBroker: this.processBroker,
+      yachiyoHome: dirname(this.settingsPath)
+    })
   }
 
   getTtlReaper(): TtlReaper {
@@ -614,6 +645,7 @@ export class YachiyoServer {
       () => this.ttlReaper.stop(),
       () => this.sentinelManager.dispose(),
       () => this.runDomain.close(),
+      () => this.unsubscribePythonEnvironmentStatus(),
       () => acpProcessPool.shutdown(),
       () => this.processBroker.close(),
       async () => {

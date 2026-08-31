@@ -1,4 +1,9 @@
-import { randomUUID } from 'node:crypto'
+import type {
+  ManagedPythonEnvironmentAction,
+  ManagedPythonEnvironmentPhase,
+  ManagedPythonEnvironmentStatus
+} from '@yachiyo/shared/protocol'
+
 import { constants } from 'node:fs'
 import {
   access,
@@ -16,13 +21,7 @@ import { delimiter, isAbsolute, join } from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
 
 import { resolveYachiyoDataDir, resolveYachiyoPythonRoot } from '../../config/paths.ts'
-import { resolveBundledExecutable } from '../nativeExecutable.ts'
-import type {
-  ProcessBroker,
-  ProcessJob,
-  ProcessJobResult,
-  ProcessOutputBatch
-} from '../processBroker/processBroker.ts'
+import type { ProcessBroker } from '../processBroker/processBroker.ts'
 import {
   resolveWorkspacePythonEnvironment,
   type WorkspacePythonEnvironment
@@ -32,27 +31,46 @@ import {
   assertOptionalManagedDirectory,
   canonicalForComparison,
   ensureManagedDirectory,
-  hashFile,
   isNodeError,
   isPathInside,
   readBoundedFile,
   token,
   writePrivateFile
 } from './managedPythonFilesystem.ts'
+import {
+  abortError,
+  attestUvExecutable,
+  commandFailure,
+  MANAGED_PYTHON_JOB_OUTPUT_LIMIT_CHARS as JOB_OUTPUT_LIMIT_CHARS,
+  resolveAttestedUv,
+  runManagedJob,
+  throwIfAborted
+} from './managedPythonBootstrap.ts'
+import {
+  PY_REPL_ENV_SCHEMA_VERSION,
+  PY_REPL_PREINSTALLED_PACKAGES,
+  PY_REPL_PYTHON_VERSION,
+  PY_REPL_UV_VERSION
+} from './managedPythonConstants.ts'
+import {
+  classifyEnvironmentFailure,
+  createEnvironmentStatus,
+  getActiveEnvironmentStatus,
+  ManagedPythonEnvironmentError,
+  publishEnvironmentStatus,
+  readPersistedFailure
+} from './managedPythonEnvironmentState.ts'
+import { hasExactKeys, parseStrictObject } from './managedPythonMetadata.ts'
 
 export { stagePythonRunner } from './managedPythonFilesystem.ts'
 
-export const PY_REPL_UV_VERSION = '0.12.7'
-export const PY_REPL_PYTHON_VERSION = '3.12.14'
-export const PY_REPL_ENV_SCHEMA_VERSION = 3
-export const PY_REPL_PREINSTALLED_PACKAGES: Readonly<Record<string, string>> = Object.freeze({
-  numpy: '2.5.2',
-  scipy: '1.18.1',
-  pandas: '3.0.5',
-  matplotlib: '3.11.1',
-  Pillow: '12.3.0',
-  'scikit-image': '0.26.0'
-})
+export {
+  PY_REPL_ENV_SCHEMA_VERSION,
+  PY_REPL_PREINSTALLED_PACKAGES,
+  PY_REPL_PYTHON_VERSION,
+  PY_REPL_UV_VERSION
+} from './managedPythonConstants.ts'
+export { subscribeManagedPythonEnvironmentStatus } from './managedPythonEnvironmentState.ts'
 
 // Keep the existing path stable so marker upgrades can repair environments in place.
 const RUNTIME_DIRECTORY_NAME = 'py-repl-cpython-3.12.14-uv-0.12.7-v2'
@@ -61,29 +79,13 @@ const PREINSTALLED_PACKAGE_REQUIREMENTS = Object.entries(PY_REPL_PREINSTALLED_PA
 )
 const PREPARATION_TIMEOUT_MS = 10 * 60 * 1000
 const LOCK_POLL_INTERVAL_MS = 250
-const JOB_OUTPUT_LIMIT_CHARS = 64_000
 const TOKEN_PATTERN = /^[a-f0-9]{32}$/u
-const SHA256_PATTERN = /^[a-f0-9]{64}$/u
 const LOCK_FILE_PATTERN = /^\.provision-(\d+)-([a-f0-9]{32})\.lock$/u
 const LEASE_FILE_PATTERN = /^(\d+)-([a-f0-9]{32})\.json$/u
 const PROVISION_LOCK_FILE_NAME = 'provision.lock'
 const READY_FILE_NAME = 'ready.json'
+const STATUS_FILE_NAME = 'status.json'
 const LEASES_DIRECTORY_NAME = 'leases'
-
-const TARGET_TRIPLES: Readonly<Partial<Record<NodeJS.Platform, Readonly<Record<string, string>>>>> =
-  {
-    darwin: {
-      arm64: 'aarch64-apple-darwin',
-      x64: 'x86_64-apple-darwin'
-    },
-    linux: {
-      arm64: 'aarch64-unknown-linux-gnu',
-      x64: 'x86_64-unknown-linux-gnu'
-    },
-    win32: {
-      x64: 'x86_64-pc-windows-msvc'
-    }
-  }
 
 const HEALTH_PROBE = [
   'from importlib import metadata',
@@ -133,8 +135,10 @@ interface RuntimePaths {
   environmentsPath: string
   environmentPath: string
   runnersPath: string
+  toolsPath: string
   pythonPath: string
   markerPath: string
+  statusPath: string
   leasesPath: string
   provisionLockPath: string
 }
@@ -145,8 +149,9 @@ interface RuntimePreparation {
   bootstrapEnv: Readonly<NodeJS.ProcessEnv>
   kernelEnv: Readonly<NodeJS.ProcessEnv>
   processBroker: ProcessBroker
-  uvInvalidError: string
 }
+
+type ManagedRuntimeResetMode = 'none' | 'environment' | 'installation'
 
 interface RuntimeLeaseRecord {
   pid: number
@@ -175,16 +180,6 @@ interface WorkspaceHealthProbe {
   version: string
   prefix: string
   basePrefix: string
-}
-
-interface UvAssetAttestation {
-  name: string
-  version: string
-  platform: string
-  arch: string
-  targetTriple: string
-  archiveSha256: string
-  outputSha256: string
 }
 
 interface PreparationEntry {
@@ -221,16 +216,7 @@ export interface EnsurePythonRuntimeOptions extends EnsureManagedPythonRuntimeOp
 }
 
 const preparations = new Map<string, PreparationEntry>()
-
-function abortError(): Error {
-  const error = new Error('The Yachiyo Python runtime preparation was aborted.')
-  error.name = 'AbortError'
-  return error
-}
-
-function throwIfAborted(signal?: AbortSignal): void {
-  if (signal?.aborted) throw abortError()
-}
+const environmentManagementOperations = new Map<string, Promise<ManagedPythonEnvironmentStatus>>()
 
 async function createRuntimePaths(yachiyoHome?: string): Promise<RuntimePaths> {
   const requestedHome = yachiyoHome ?? resolveYachiyoDataDir()
@@ -243,8 +229,16 @@ async function createRuntimePaths(yachiyoHome?: string): Promise<RuntimePaths> {
   const environmentsPath = join(rootPath, 'environments')
   const environmentPath = join(environmentsPath, RUNTIME_DIRECTORY_NAME)
   const runnersPath = join(rootPath, 'runners')
+  const toolsPath = join(rootPath, 'tools')
 
-  for (const path of [rootPath, cachePath, installationsPath, environmentsPath, runnersPath]) {
+  for (const path of [
+    rootPath,
+    cachePath,
+    installationsPath,
+    environmentsPath,
+    runnersPath,
+    toolsPath
+  ]) {
     await ensureManagedDirectory(path, homePath)
   }
   if (await assertOptionalManagedDirectory(installationPath, homePath)) {
@@ -269,11 +263,13 @@ async function createRuntimePaths(yachiyoHome?: string): Promise<RuntimePaths> {
     environmentsPath,
     environmentPath,
     runnersPath,
+    toolsPath,
     pythonPath:
       process.platform === 'win32'
         ? join(environmentPath, 'Scripts', 'python.exe')
         : join(environmentPath, 'bin', 'python'),
     markerPath: join(environmentPath, READY_FILE_NAME),
+    statusPath: join(rootPath, STATUS_FILE_NAME),
     leasesPath: join(environmentPath, LEASES_DIRECTORY_NAME),
     provisionLockPath: join(rootPath, PROVISION_LOCK_FILE_NAME)
   }
@@ -374,22 +370,6 @@ function buildRuntimeEnvironments(
   return { bootstrapEnv: Object.freeze(bootstrapEnv), kernelEnv: Object.freeze(kernelEnv) }
 }
 
-function parseStrictObject(value: string): Record<string, unknown> {
-  const parsed: unknown = JSON.parse(value)
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-    throw new Error('Expected a JSON object.')
-  }
-  return parsed as Record<string, unknown>
-}
-
-function hasExactKeys(value: Record<string, unknown>, names: readonly string[]): boolean {
-  const actual = Object.keys(value).sort()
-  const expected = [...names].sort()
-  return (
-    actual.length === expected.length && actual.every((name, index) => name === expected[index])
-  )
-}
-
 function hasPreinstalledPackages(value: unknown, requirePinnedVersions: boolean): boolean {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false
   const packages = value as Record<string, unknown>
@@ -457,11 +437,14 @@ function encodeRecord(record: RuntimeLeaseRecord): string {
   return JSON.stringify(record)
 }
 
-async function scanLeases(paths: RuntimePaths): Promise<{ blocked: boolean }> {
+async function scanLeases(
+  paths: RuntimePaths
+): Promise<{ blocked: boolean; activeProcessCount: number }> {
   if (!(await assertOptionalManagedDirectory(paths.leasesPath, paths.homePath))) {
-    return { blocked: false }
+    return { blocked: false, activeProcessCount: 0 }
   }
   let blocked = false
+  let activeProcessCount = 0
   for (const name of await readdir(paths.leasesPath)) {
     const match = LEASE_FILE_PATTERN.exec(name)
     if (!match) {
@@ -476,187 +459,17 @@ async function scanLeases(paths: RuntimePaths): Promise<{ blocked: boolean }> {
         continue
       }
       const liveness = processLiveness(record.pid)
-      if (liveness === 'dead') await tokenSafeRemove(path, record)
-      else blocked = true
+      if (liveness === 'dead') {
+        await tokenSafeRemove(path, record)
+      } else {
+        blocked = true
+        activeProcessCount += 1
+      }
     } catch {
       blocked = true
     }
   }
-  return { blocked }
-}
-
-function bundledUvError(options: EnsureManagedPythonRuntimeOptions): Error {
-  const target = `${process.platform}/${process.arch}`
-  const sourceMode = options.projectRoot !== undefined || !import.meta.dirname.includes('.asar')
-  return new Error(
-    sourceMode
-      ? `pyRepl's bundled uv runtime is missing or invalid for ${target}. Run pnpm binaries:download.`
-      : `pyRepl's bundled uv runtime is missing or invalid for ${target}. Reinstall Yachiyo.`
-  )
-}
-
-function parseAttestation(value: string): UvAssetAttestation {
-  const parsed = parseStrictObject(value)
-  const keys = [
-    'name',
-    'version',
-    'platform',
-    'arch',
-    'targetTriple',
-    'archiveSha256',
-    'outputSha256'
-  ] as const
-  if (!hasExactKeys(parsed, keys) || keys.some((key) => typeof parsed[key] !== 'string')) {
-    throw new Error('Bundled uv attestation is malformed.')
-  }
-  return parsed as unknown as UvAssetAttestation
-}
-
-interface ManagedJobResult {
-  stdout: string
-  stderr: string
-  result: ProcessJobResult
-}
-
-function appendBounded(current: string, text: string): string {
-  const combined = current + text
-  return combined.length <= JOB_OUTPUT_LIMIT_CHARS
-    ? combined
-    : combined.slice(combined.length - JOB_OUTPUT_LIMIT_CHARS)
-}
-
-function remainingSeconds(deadline: number): number {
-  return Math.max(0.001, (deadline - Date.now()) / 1000)
-}
-
-async function runManagedJob(input: {
-  executable: string
-  args: readonly string[]
-  cwd: string
-  env: Readonly<NodeJS.ProcessEnv>
-  paths: RuntimePaths
-  processBroker: ProcessBroker
-  signal: AbortSignal
-  deadline: number
-}): Promise<ManagedJobResult> {
-  throwIfAborted(input.signal)
-  if (Date.now() >= input.deadline) throw new Error('Python runtime preparation timed out.')
-  const jobToken = token()
-  const logPath = join(input.paths.rootPath, `.bootstrap-${jobToken}.log`)
-  let job: ProcessJob | undefined
-  let jobSettled = false
-  let stdout = ''
-  let stderr = ''
-  const handleOutput = (batch: ProcessOutputBatch): void => {
-    for (const chunk of batch.chunks) {
-      if (chunk.stream === 'stdout') stdout = appendBounded(stdout, chunk.text)
-      else stderr = appendBounded(stderr, chunk.text)
-    }
-  }
-  const abort = (): void => job?.cancel()
-  input.signal.addEventListener('abort', abort, { once: true })
-  try {
-    job = await input.processBroker.startJob({
-      id: `py-repl-bootstrap-${randomUUID()}`,
-      executable: input.executable,
-      args: input.args,
-      cwd: input.cwd,
-      env: { ...input.env },
-      logPath,
-      timeoutSeconds: remainingSeconds(input.deadline),
-      keepRunningOnTimeout: false,
-      retainLog: false,
-      spillThresholdChars: JOB_OUTPUT_LIMIT_CHARS
-    })
-    job.onOutput(handleOutput)
-    if (process.platform !== 'win32') {
-      await chmod(logPath, 0o600).catch((error: unknown) => {
-        if (!isNodeError(error, 'ENOENT')) throw error
-      })
-    }
-    if (input.signal.aborted) job.cancel()
-    const result = await job.wait()
-    jobSettled = true
-    throwIfAborted(input.signal)
-    if (result.timedOut) throw new Error('Python runtime preparation timed out.')
-    return { stdout, stderr, result }
-  } finally {
-    input.signal.removeEventListener('abort', abort)
-    if (job && !jobSettled) {
-      job.cancel()
-      await job.wait().catch(() => undefined)
-    }
-    await rm(logPath, { force: true }).catch(() => undefined)
-  }
-}
-
-async function resolveAttestedUv(options: EnsureManagedPythonRuntimeOptions): Promise<string> {
-  const name = process.platform === 'win32' ? 'uv.exe' : 'uv'
-  const targetTriple = TARGET_TRIPLES[process.platform]?.[process.arch]
-  if (!targetTriple) throw bundledUvError(options)
-  const uvPath = resolveBundledExecutable({
-    name,
-    projectRoot: options.projectRoot,
-    resourcesPath: options.resourcesPath,
-    startDir: import.meta.dirname
-  })
-  if (!uvPath || !isAbsolute(uvPath)) throw bundledUvError(options)
-  try {
-    const executableStat = await lstat(uvPath)
-    if (!executableStat.isFile() || executableStat.isSymbolicLink()) throw new Error('invalid uv')
-    const attestationPath = `${uvPath}.asset.json`
-    const attestationStat = await lstat(attestationPath)
-    if (!attestationStat.isFile() || attestationStat.isSymbolicLink()) throw new Error('invalid uv')
-    const attestation = parseAttestation(await readBoundedFile(attestationPath, 16 * 1024))
-    if (
-      attestation.name !== 'uv' ||
-      attestation.version !== PY_REPL_UV_VERSION ||
-      attestation.platform !== process.platform ||
-      attestation.arch !== process.arch ||
-      attestation.targetTriple !== targetTriple ||
-      !SHA256_PATTERN.test(attestation.archiveSha256) ||
-      !SHA256_PATTERN.test(attestation.outputSha256) ||
-      (await hashFile(uvPath)) !== attestation.outputSha256
-    ) {
-      throw new Error('invalid uv')
-    }
-    return uvPath
-  } catch (error) {
-    if (error instanceof Error && error.name === 'AbortError') throw error
-    throw bundledUvError(options)
-  }
-}
-
-async function attestUvExecutable(
-  preparation: RuntimePreparation,
-  signal: AbortSignal,
-  deadline: number
-): Promise<void> {
-  try {
-    const probe = await runManagedJob({
-      executable: preparation.uvPath,
-      args: ['self', 'version', '--output-format', 'json'],
-      cwd: preparation.paths.rootPath,
-      env: preparation.bootstrapEnv,
-      paths: preparation.paths,
-      processBroker: preparation.processBroker,
-      signal,
-      deadline
-    })
-    if (probe.result.exitCode !== 0) throw new Error('invalid uv')
-    const version = parseStrictObject(probe.stdout.trim())
-    const targetTriple = TARGET_TRIPLES[process.platform]?.[process.arch]
-    if (
-      version['package_name'] !== 'uv' ||
-      version['version'] !== PY_REPL_UV_VERSION ||
-      version['target_triple'] !== targetTriple
-    ) {
-      throw new Error('invalid uv')
-    }
-  } catch (error) {
-    if (error instanceof Error && error.name === 'AbortError') throw error
-    throw new Error(preparation.uvInvalidError)
-  }
+  return { blocked, activeProcessCount }
 }
 
 function parseReadyMarker(value: string): ReadyMarker {
@@ -828,6 +641,92 @@ async function writeReadyMarker(paths: RuntimePaths): Promise<void> {
   }
 }
 
+async function publishOperationPhase(
+  paths: RuntimePaths,
+  action: ManagedPythonEnvironmentAction,
+  phase: ManagedPythonEnvironmentPhase,
+  state: ManagedPythonEnvironmentStatus['state']
+): Promise<void> {
+  const leases = await scanLeases(paths)
+  await publishEnvironmentStatus(
+    paths,
+    createEnvironmentStatus(paths, state, leases, { operation: action, phase })
+  )
+}
+
+async function publishOperationFailure(
+  paths: RuntimePaths,
+  action: ManagedPythonEnvironmentAction,
+  phase: ManagedPythonEnvironmentPhase,
+  error: unknown,
+  stateOverride?: ManagedPythonEnvironmentStatus['state']
+): Promise<void> {
+  const failure = classifyEnvironmentFailure(error, action, phase)
+  const environmentExists = await assertOptionalManagedDirectory(
+    paths.environmentPath,
+    paths.homePath
+  ).catch(() => false)
+  const state: ManagedPythonEnvironmentStatus['state'] =
+    stateOverride ??
+    (failure.code === 'resources-unavailable' || failure.code === 'resources-invalid'
+      ? 'unavailable'
+      : environmentExists
+        ? 'needs-repair'
+        : 'not-installed')
+  const leases = await scanLeases(paths).catch(() => ({
+    blocked: true,
+    activeProcessCount: 0
+  }))
+  console.error(
+    `[yachiyo][python] ${action}/${failure.phase} failed (${failure.code}): ${failure.message}`
+  )
+  await publishEnvironmentStatus(
+    paths,
+    createEnvironmentStatus(paths, state, leases, { lastFailure: failure })
+  )
+}
+
+export async function getManagedPythonEnvironmentStatus(
+  options: EnsureManagedPythonRuntimeOptions
+): Promise<ManagedPythonEnvironmentStatus> {
+  const paths = await createRuntimePaths(options.yachiyoHome)
+  const active = getActiveEnvironmentStatus(paths.rootPath)
+  if (active) return active
+  const leases = await scanLeases(paths)
+  const lastFailure = await readPersistedFailure(paths)
+  const environmentExists = await assertOptionalManagedDirectory(
+    paths.environmentPath,
+    paths.homePath
+  )
+  let state: ManagedPythonEnvironmentStatus['state'] = 'not-installed'
+  if (environmentExists) {
+    const environments = buildRuntimeEnvironments(paths)
+    const signal = options.signal ?? new AbortController().signal
+    const healthy =
+      (await markerMatches(paths)) &&
+      (await runHealthProbe(
+        {
+          paths,
+          processBroker: options.processBroker,
+          bootstrapEnv: environments.bootstrapEnv
+        },
+        signal,
+        Date.now() + WORKSPACE_PROBE_TIMEOUT_MS,
+        false
+      ))
+    state = healthy ? 'ready' : 'needs-repair'
+  } else if (
+    lastFailure?.code === 'resources-unavailable' ||
+    lastFailure?.code === 'resources-invalid'
+  ) {
+    state = 'unavailable'
+  }
+  return await publishEnvironmentStatus(
+    paths,
+    createEnvironmentStatus(paths, state, leases, { lastFailure })
+  )
+}
+
 async function cleanupOrphanLocks(paths: RuntimePaths): Promise<void> {
   const fixedIdentity = await lstat(paths.provisionLockPath).catch(() => undefined)
   if (fixedIdentity?.isSymbolicLink() || (fixedIdentity && !fixedIdentity.isFile())) return
@@ -910,25 +809,24 @@ async function acquireProvisionLock(
   }
 }
 
-async function removeInvalidEnvironment(paths: RuntimePaths): Promise<void> {
+async function removeManagedEnvironment(paths: RuntimePaths): Promise<void> {
   if (!(await assertOptionalManagedDirectory(paths.environmentPath, paths.homePath))) return
   const leases = await scanLeases(paths)
   if (leases.blocked) {
-    throw new Error(
-      `Yachiyo Python ${PY_REPL_PYTHON_VERSION} needs repair but is still in use by another Yachiyo process. Close it and retry.`
+    throw new ManagedPythonEnvironmentError(
+      `Yachiyo Python ${PY_REPL_PYTHON_VERSION} is still in use by another Yachiyo process. Close active Python sessions and retry.`,
+      'busy',
+      'removing-environment'
     )
   }
   await assertManagedDirectory(paths.environmentPath, paths.homePath)
   await rm(paths.environmentPath, { recursive: true, force: true })
 }
 
-function commandFailure(name: string, job: ManagedJobResult): Error {
-  const diagnostics = (
-    job.stderr.trim() ||
-    job.stdout.trim() ||
-    `exit status ${job.result.exitCode}`
-  ).slice(-JOB_OUTPUT_LIMIT_CHARS)
-  return new Error(`${name} failed with exit status ${job.result.exitCode}: ${diagnostics}`)
+async function removeManagedInstallation(paths: RuntimePaths): Promise<void> {
+  if (!(await assertOptionalManagedDirectory(paths.installationPath, paths.homePath))) return
+  await assertManagedDirectory(paths.installationPath, paths.homePath)
+  await rm(paths.installationPath, { recursive: true, force: true })
 }
 
 async function assertProvisionAnchors(paths: RuntimePaths): Promise<void> {
@@ -946,25 +844,38 @@ async function assertProvisionAnchors(paths: RuntimePaths): Promise<void> {
 async function provisionRuntime(
   preparation: RuntimePreparation,
   signal: AbortSignal,
-  deadline: number
+  deadline: number,
+  action: ManagedPythonEnvironmentAction,
+  resetMode: ManagedRuntimeResetMode
 ): Promise<void> {
   const { paths } = preparation
   const releaseLock = await acquireProvisionLock(paths, signal, deadline)
   let replacedEnvironment = false
   try {
-    const healthy = await runHealthProbe(preparation, signal, deadline, false)
+    await publishOperationPhase(paths, action, 'checking', 'needs-repair')
+    const markerReady = resetMode === 'none' && (await markerMatches(paths))
+    const healthy =
+      resetMode === 'none' && (await runHealthProbe(preparation, signal, deadline, false))
     if (healthy) {
-      await compileEnvironmentBytecode(preparation, signal, deadline)
-      await warmScipy(preparation, signal, deadline)
+      await publishOperationPhase(paths, action, 'verifying-environment', 'ready')
+      if (!markerReady) {
+        await compileEnvironmentBytecode(preparation, signal, deadline)
+        await warmScipy(preparation, signal, deadline)
+        await writeReadyMarker(paths)
+      }
       await ensureManagedDirectory(paths.leasesPath, paths.homePath)
       await scanLeases(paths)
-      if (!(await markerMatches(paths))) await writeReadyMarker(paths)
       return
     }
-    await attestUvExecutable(preparation, signal, deadline)
 
-    await removeInvalidEnvironment(paths)
+    await publishOperationPhase(paths, action, 'preparing-helper', 'needs-repair')
+    await attestUvExecutable(preparation, signal, deadline)
+    await publishOperationPhase(paths, action, 'removing-environment', 'needs-repair')
+    await removeManagedEnvironment(paths)
     replacedEnvironment = true
+    if (resetMode === 'installation') await removeManagedInstallation(paths)
+
+    await publishOperationPhase(paths, action, 'installing-python', 'not-installed')
     await ensureManagedDirectory(paths.installationPath, paths.homePath)
     await assertProvisionAnchors(paths)
     const installationJob = await runManagedJob({
@@ -974,7 +885,7 @@ async function provisionRuntime(
         '--no-progress',
         'python',
         'install',
-        '--reinstall',
+        ...(action === 'install' || action === 'rebuild' ? ['--reinstall'] : []),
         '--no-bin',
         '--no-registry',
         '--install-dir',
@@ -992,6 +903,7 @@ async function provisionRuntime(
       throw commandFailure('Bundled uv Python installation', installationJob)
     }
 
+    await publishOperationPhase(paths, action, 'creating-environment', 'not-installed')
     await assertProvisionAnchors(paths)
     await ensureManagedDirectory(paths.environmentPath, paths.homePath)
     const venvJob = await runManagedJob({
@@ -1016,8 +928,11 @@ async function provisionRuntime(
       signal,
       deadline
     })
-    if (venvJob.result.exitCode !== 0)
+    if (venvJob.result.exitCode !== 0) {
       throw commandFailure('Bundled uv virtualenv creation', venvJob)
+    }
+
+    await publishOperationPhase(paths, action, 'installing-packages', 'not-installed')
     const packageJob = await runManagedJob({
       executable: preparation.uvPath,
       args: [
@@ -1044,6 +959,8 @@ async function provisionRuntime(
     if (packageJob.result.exitCode !== 0) {
       throw commandFailure('Bundled uv scientific package installation', packageJob)
     }
+
+    await publishOperationPhase(paths, action, 'verifying-environment', 'not-installed')
     await warmScipy(preparation, signal, deadline)
     if (!(await runHealthProbe(preparation, signal, deadline, true, true))) {
       throw new Error('The private Python environment failed its isolated health check.')
@@ -1052,7 +969,7 @@ async function provisionRuntime(
     await writeReadyMarker(paths)
   } catch (error) {
     if (replacedEnvironment) {
-      await removeInvalidEnvironment(paths).catch(() => undefined)
+      await removeManagedEnvironment(paths).catch(() => undefined)
     }
     throw error
   } finally {
@@ -1063,51 +980,62 @@ async function provisionRuntime(
 async function prepareRuntime(
   options: EnsureManagedPythonRuntimeOptions,
   paths: RuntimePaths,
-  signal: AbortSignal
+  signal: AbortSignal,
+  action: ManagedPythonEnvironmentAction,
+  resetMode: ManagedRuntimeResetMode
 ): Promise<RuntimePreparation> {
   const deadline = Date.now() + PREPARATION_TIMEOUT_MS
-  const environments = buildRuntimeEnvironments(paths)
-  const uvPath = await resolveAttestedUv(options)
-  const preparation: RuntimePreparation = {
-    paths,
-    uvPath,
-    ...environments,
-    processBroker: options.processBroker,
-    uvInvalidError: bundledUvError(options).message
+  try {
+    await publishOperationPhase(paths, action, 'checking', 'needs-repair')
+    const environments = buildRuntimeEnvironments(paths)
+    await publishOperationPhase(paths, action, 'preparing-helper', 'needs-repair')
+    const uvPath = await resolveAttestedUv(options, paths)
+    const preparation: RuntimePreparation = {
+      paths,
+      uvPath,
+      ...environments,
+      processBroker: options.processBroker
+    }
+    await provisionRuntime(preparation, signal, deadline, action, resetMode)
+    if (
+      !(await markerMatches(paths)) ||
+      !(await runHealthProbe(preparation, signal, deadline, false))
+    ) {
+      throw new Error('The private Python environment did not remain healthy after preparation.')
+    }
+    const leases = await scanLeases(paths)
+    await publishEnvironmentStatus(paths, createEnvironmentStatus(paths, 'ready', leases))
+    return preparation
+  } catch (error) {
+    const phase = getActiveEnvironmentStatus(paths.rootPath)?.phase ?? 'checking'
+    await publishOperationFailure(paths, action, phase, error).catch((statusError: unknown) => {
+      console.error('[yachiyo][python] Could not persist environment failure:', statusError)
+    })
+    throw error
   }
-  const healthy = await runHealthProbe(preparation, signal, deadline, false)
-  if (healthy && (await markerMatches(paths))) {
-    await ensureManagedDirectory(paths.leasesPath, paths.homePath)
-    await scanLeases(paths)
-  } else {
-    await provisionRuntime(preparation, signal, deadline)
-  }
-  if (
-    !(await markerMatches(paths)) ||
-    !(await runHealthProbe(preparation, signal, deadline, false))
-  ) {
-    throw new Error('The private Python environment did not remain healthy after preparation.')
-  }
-  return preparation
 }
 
 function preparationFailure(error: unknown, rootPath: string): Error {
-  if (error instanceof Error && error.name === 'AbortError') return error
+  if (
+    error instanceof ManagedPythonEnvironmentError ||
+    (error instanceof Error && error.name === 'AbortError')
+  ) {
+    return error
+  }
   if (
     error instanceof Error &&
     (error.message.startsWith("pyRepl's bundled uv runtime") ||
-      error.message.startsWith('Timed out waiting') ||
-      error.message.includes('needs repair but is still in use'))
+      error.message.startsWith('Timed out waiting'))
   ) {
     return error
   }
   const reason = error instanceof Error ? error.message : String(error)
   return new Error(
-    `Could not prepare Yachiyo Python ${PY_REPL_PYTHON_VERSION} in ${rootPath}: ${reason.slice(-JOB_OUTPUT_LIMIT_CHARS)}. pyRepl did not use system Python. Check network/proxy settings and retry.`
+    `Could not prepare Yachiyo Python ${PY_REPL_PYTHON_VERSION} in ${rootPath}: ${reason.slice(-JOB_OUTPUT_LIMIT_CHARS)}. Manage or repair the environment in Settings > Capabilities > Python.`
   )
 }
 
-function waitForPreparation(
+async function waitForPreparation(
   entry: PreparationEntry,
   signal: AbortSignal | undefined
 ): Promise<RuntimePreparation> {
@@ -1125,11 +1053,16 @@ function waitForPreparation(
         })
       ])
     : entry.promise
-  return caller.finally(() => {
+  try {
+    return await caller
+  } finally {
     removeAbortListener()
     entry.waiters -= 1
-    if (entry.waiters === 0 && !entry.settled) entry.controller.abort()
-  })
+    if (entry.waiters === 0 && !entry.settled) {
+      entry.controller.abort()
+      await entry.promise.catch(() => undefined)
+    }
+  }
 }
 
 async function acquireLease(
@@ -1186,7 +1119,15 @@ async function acquireLease(
         !(await runHealthProbe(preparation, leaseSignal, deadline, false))
       ) {
         await tokenSafeRemove(leasePath, record)
-        await provisionRuntime(preparation, leaseSignal, deadline)
+        try {
+          await provisionRuntime(preparation, leaseSignal, deadline, 'repair', 'none')
+          const leases = await scanLeases(paths)
+          await publishEnvironmentStatus(paths, createEnvironmentStatus(paths, 'ready', leases))
+        } catch (error) {
+          const phase = getActiveEnvironmentStatus(paths.rootPath)?.phase ?? 'checking'
+          await publishOperationFailure(paths, 'repair', phase, error).catch(() => undefined)
+          throw error
+        }
         continue
       }
       if (processLiveness(pid) !== 'live') {
@@ -1270,14 +1211,13 @@ async function ensureWorkspacePythonRuntime(
   }
 
   throwIfAborted(options.signal)
-  const uvPath = await resolveAttestedUv(options)
+  const uvPath = await resolveAttestedUv(options, paths)
   const preparation: RuntimePreparation = {
     paths,
     uvPath,
     bootstrapEnv: environments.bootstrapEnv,
     kernelEnv: environments.kernelEnv,
-    processBroker: options.processBroker,
-    uvInvalidError: bundledUvError(options).message
+    processBroker: options.processBroker
   }
   await attestUvExecutable(preparation, signal, deadline)
   return {
@@ -1305,33 +1245,148 @@ export async function ensurePythonRuntime(
   return await ensureWorkspacePythonRuntime(options, workspace)
 }
 
+async function performRemoveEnvironment(
+  options: EnsureManagedPythonRuntimeOptions,
+  paths: RuntimePaths
+): Promise<ManagedPythonEnvironmentStatus> {
+  const signal = options.signal ?? new AbortController().signal
+  const deadline = Date.now() + PREPARATION_TIMEOUT_MS
+  let releaseLock: (() => Promise<void>) | undefined
+  let stateBeforeAction: ManagedPythonEnvironmentStatus['state'] | undefined
+  try {
+    const currentStatus = await getManagedPythonEnvironmentStatus(options)
+    stateBeforeAction = currentStatus.state
+    await publishOperationPhase(paths, 'remove', 'checking', currentStatus.state)
+    if (currentStatus.managementBlocked) {
+      throw new ManagedPythonEnvironmentError(
+        'The managed Python environment is still in use. Close active Python sessions and retry.',
+        'busy',
+        'checking'
+      )
+    }
+    releaseLock = await acquireProvisionLock(paths, signal, deadline)
+    await publishOperationPhase(paths, 'remove', 'removing-environment', 'needs-repair')
+    await removeManagedEnvironment(paths)
+    await removeManagedInstallation(paths)
+    const finalLeases = await scanLeases(paths)
+    return await publishEnvironmentStatus(
+      paths,
+      createEnvironmentStatus(paths, 'not-installed', finalLeases)
+    )
+  } catch (error) {
+    const phase = getActiveEnvironmentStatus(paths.rootPath)?.phase ?? 'checking'
+    await publishOperationFailure(paths, 'remove', phase, error, stateBeforeAction).catch(
+      () => undefined
+    )
+    throw error
+  } finally {
+    await releaseLock?.()
+  }
+}
+
+async function performManagedEnvironmentAction(
+  action: ManagedPythonEnvironmentAction,
+  options: EnsureManagedPythonRuntimeOptions,
+  paths: RuntimePaths
+): Promise<ManagedPythonEnvironmentStatus> {
+  if (action === 'remove') return await performRemoveEnvironment(options, paths)
+  if (action === 'repair' || action === 'rebuild') {
+    let stateBeforeAction: ManagedPythonEnvironmentStatus['state'] | undefined
+    try {
+      const currentStatus = await getManagedPythonEnvironmentStatus(options)
+      stateBeforeAction = currentStatus.state
+      if (currentStatus.managementBlocked) {
+        throw new ManagedPythonEnvironmentError(
+          'The managed Python environment is still in use. Close active Python sessions and retry.',
+          'busy',
+          'checking'
+        )
+      }
+    } catch (error) {
+      await publishOperationFailure(paths, action, 'checking', error, stateBeforeAction).catch(
+        () => undefined
+      )
+      throw error
+    }
+  }
+  const controller = new AbortController()
+  const forwardAbort = (): void => controller.abort()
+  options.signal?.addEventListener('abort', forwardAbort, { once: true })
+  try {
+    const resetMode: ManagedRuntimeResetMode =
+      action === 'repair' ? 'environment' : action === 'rebuild' ? 'installation' : 'none'
+    await prepareRuntime(options, paths, controller.signal, action, resetMode)
+    const leases = await scanLeases(paths)
+    return await publishEnvironmentStatus(paths, createEnvironmentStatus(paths, 'ready', leases))
+  } finally {
+    options.signal?.removeEventListener('abort', forwardAbort)
+  }
+}
+
+export async function manageManagedPythonEnvironment(
+  action: ManagedPythonEnvironmentAction,
+  options: EnsureManagedPythonRuntimeOptions
+): Promise<ManagedPythonEnvironmentStatus> {
+  throwIfAborted(options.signal)
+  const paths = await createRuntimePaths(options.yachiyoHome)
+  if (environmentManagementOperations.has(paths.rootPath) || preparations.has(paths.rootPath)) {
+    throw new ManagedPythonEnvironmentError(
+      'Another managed Python operation is already running.',
+      'busy',
+      'checking'
+    )
+  }
+  const operation = performManagedEnvironmentAction(action, options, paths)
+  environmentManagementOperations.set(paths.rootPath, operation)
+  try {
+    return await operation
+  } finally {
+    if (environmentManagementOperations.get(paths.rootPath) === operation) {
+      environmentManagementOperations.delete(paths.rootPath)
+    }
+  }
+}
+
 export async function ensureManagedPythonRuntime(
   options: EnsureManagedPythonRuntimeOptions
 ): Promise<PythonRuntime> {
   throwIfAborted(options.signal)
   const paths = await createRuntimePaths(options.yachiyoHome)
+  const managementOperation = environmentManagementOperations.get(paths.rootPath)
+  if (managementOperation) await managementOperation
   throwIfAborted(options.signal)
   let entry = preparations.get(paths.rootPath)
   if (!entry) {
-    const controller = new AbortController()
-    const promise = prepareRuntime(options, paths, controller.signal)
-      .catch((error: unknown) => {
-        throw preparationFailure(error, paths.rootPath)
-      })
-      .finally(() => {
-        const activeEntry = preparations.get(paths.rootPath)
-        if (activeEntry?.controller !== controller) return
-        activeEntry.settled = true
-        preparations.delete(paths.rootPath)
-      })
-    const activeEntry: PreparationEntry = {
-      controller,
-      waiters: 0,
-      settled: false,
-      promise
+    const environmentPresent = await lstat(paths.environmentPath).then(
+      () => true,
+      (error: unknown) => {
+        if (isNodeError(error, 'ENOENT')) return false
+        throw error
+      }
+    )
+    entry = preparations.get(paths.rootPath)
+    if (!entry) {
+      const controller = new AbortController()
+      const action: ManagedPythonEnvironmentAction = environmentPresent ? 'repair' : 'install'
+      const promise = prepareRuntime(options, paths, controller.signal, action, 'none')
+        .catch((error: unknown) => {
+          throw preparationFailure(error, paths.rootPath)
+        })
+        .finally(() => {
+          const activeEntry = preparations.get(paths.rootPath)
+          if (activeEntry?.controller !== controller) return
+          activeEntry.settled = true
+          preparations.delete(paths.rootPath)
+        })
+      const activeEntry: PreparationEntry = {
+        controller,
+        waiters: 0,
+        settled: false,
+        promise
+      }
+      entry = activeEntry
+      preparations.set(paths.rootPath, activeEntry)
     }
-    entry = activeEntry
-    preparations.set(paths.rootPath, activeEntry)
   }
   const preparation = await waitForPreparation(entry, options.signal)
   const releaseHostLease = await acquireLease(preparation, process.pid, options.signal)

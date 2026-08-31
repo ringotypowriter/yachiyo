@@ -15,6 +15,7 @@ export * from './protocol/perf.ts'
 export * from './protocol/things.ts'
 export * from './protocol/groupProbeAdapters.ts'
 export * from './protocol/browserAutomation.ts'
+export * from './protocol/pythonEnvironment.ts'
 
 export type ChannelUserStatus = 'pending' | 'allowed' | 'blocked'
 export type ChannelUserRole = 'owner' | 'guest'

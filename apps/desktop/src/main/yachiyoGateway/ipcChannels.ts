@@ -40,6 +40,8 @@ export const IPC_CHANNELS = {
   listActivitySourceRecords: 'yachiyo:list-activity-source-records',
   getUserDocument: 'yachiyo:get-user-document',
   getSettings: 'yachiyo:get-settings',
+  getPythonEnvironmentStatus: 'yachiyo:get-python-environment-status',
+  managePythonEnvironment: 'yachiyo:manage-python-environment',
   getSyncStatus: 'yachiyo:get-sync-status',
   initSync: 'yachiyo:init-sync',
   runSyncNow: 'yachiyo:run-sync-now',

@@ -285,3 +285,58 @@ export const activity = {
   durationMinutesSeconds: '{minutes}min {seconds}s',
   recordUnit: { one: 'record', other: 'records' }
 } as const
+
+export const pythonEnvironment = {
+  title: 'Python environment',
+  description:
+    'Yachiyo keeps pyRepl in a private CPython environment. It never changes system Python.',
+  loading: 'Checking the environment…',
+  loadFailed: 'Could not inspect the Python environment.',
+  stateNotInstalled: 'Not installed',
+  stateReady: 'Ready',
+  stateNeedsRepair: 'Needs repair',
+  stateUnavailable: 'Resources unavailable',
+  stateNotInstalledDescription: 'Install the private runtime when you need pyRepl.',
+  stateReadyDescription: 'pyRepl can start without changing system Python.',
+  stateNeedsRepairDescription: 'The private environment failed its health check.',
+  stateUnavailableDescription:
+    'This build has missing or invalid Python resources. Update Yachiyo, then retry.',
+  pythonVersion: 'Python',
+  uvVersion: 'Environment helper',
+  location: 'Environment location',
+  activeProcesses: 'Active Python sessions',
+  activeProcessCount: '{count}',
+  managementBlocked: 'Close active Yachiyo Python sessions before changing this environment.',
+  progress: 'In progress',
+  phaseChecking: 'Checking environment',
+  phasePreparingHelper: 'Preparing the verified environment helper',
+  phaseInstallingPython: 'Installing private Python',
+  phaseCreatingEnvironment: 'Creating the environment',
+  phaseInstallingPackages: 'Installing scientific packages',
+  phaseVerifyingEnvironment: 'Verifying the environment',
+  phaseRemovingEnvironment: 'Removing the environment',
+  lastFailure: 'Last failure',
+  lastFailureAt: 'Failed {time}',
+  install: 'Install',
+  retry: 'Retry',
+  repair: 'Repair',
+  rebuild: 'Rebuild',
+  remove: 'Remove',
+  refresh: 'Refresh',
+  starting: 'Starting…',
+  repairDescription:
+    'Recreate the environment while keeping the installed interpreter and download cache.',
+  rebuildDescription:
+    'Replace the interpreter and environment. Previously downloaded files stay cached.',
+  removeDescription:
+    'Delete the interpreter and environment. Downloaded files stay cached for a later install.',
+  rebuildConfirmTitle: 'Rebuild the Python environment?',
+  rebuildConfirmMessage:
+    'Active pyRepl sessions must be closed. Yachiyo will replace the private interpreter and environment while keeping downloaded files.',
+  rebuildConfirmLabel: 'Rebuild',
+  removeConfirmTitle: 'Remove the Python environment?',
+  removeConfirmMessage:
+    'pyRepl will be unavailable until you install the private environment again. Downloaded files will remain cached.',
+  removeConfirmLabel: 'Remove',
+  actionFailed: 'The Python environment action failed.'
+} as const

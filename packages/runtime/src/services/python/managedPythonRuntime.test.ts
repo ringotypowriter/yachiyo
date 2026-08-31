@@ -17,6 +17,7 @@ import {
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
+import { gzipSync } from 'node:zlib'
 import test from 'node:test'
 
 import type {
@@ -30,10 +31,13 @@ import type {
 import {
   ensureManagedPythonRuntime,
   ensurePythonRuntime,
+  getManagedPythonEnvironmentStatus,
+  manageManagedPythonEnvironment,
   PY_REPL_ENV_SCHEMA_VERSION,
   PY_REPL_PREINSTALLED_PACKAGES,
   PY_REPL_PYTHON_VERSION,
   PY_REPL_UV_VERSION,
+  subscribeManagedPythonEnvironmentStatus,
   type PythonRuntime
 } from './managedPythonRuntime.ts'
 
@@ -304,18 +308,24 @@ async function createRuntimeFixture(): Promise<RuntimeFixture> {
   const home = join(root, 'yachiyo-home')
   const resources = join(root, 'resources')
   const binaryName = process.platform === 'win32' ? 'uv.exe' : 'uv'
-  const uvPath = join(resources, 'bin', binaryName)
+  const packagedUvPath = join(resources, 'bin', binaryName)
+  const archivePath = `${packagedUvPath}.runtime.gz`
   const uvBytes = Buffer.from('pinned-uv-test-binary')
+  const archiveBytes = gzipSync(uvBytes)
+  const outputSha256 = createHash('sha256').update(uvBytes).digest('hex')
   const targetTriple = targetTriples[`${process.platform}-${process.arch}`]
   assert.ok(
     targetTriple,
     `test fixture lacks target triple for ${process.platform}/${process.arch}`
   )
-  await mkdir(dirname(uvPath), { recursive: true })
-  await writeFile(uvPath, uvBytes)
-  if (process.platform !== 'win32') await chmod(uvPath, 0o700)
+  await mkdir(dirname(packagedUvPath), { recursive: true })
   await writeFile(
-    `${uvPath}.asset.json`,
+    packagedUvPath,
+    'bytes changed by platform signing and intentionally ignored at runtime'
+  )
+  await writeFile(archivePath, archiveBytes)
+  await writeFile(
+    `${packagedUvPath}.asset.json`,
     JSON.stringify({
       name: 'uv',
       version: PY_REPL_UV_VERSION,
@@ -323,8 +333,16 @@ async function createRuntimeFixture(): Promise<RuntimeFixture> {
       arch: process.arch,
       targetTriple,
       archiveSha256: 'a'.repeat(64),
-      outputSha256: createHash('sha256').update(uvBytes).digest('hex')
+      outputSha256,
+      runtimeArchiveSha256: createHash('sha256').update(archiveBytes).digest('hex')
     })
+  )
+  const extension = process.platform === 'win32' ? '.exe' : ''
+  const uvPath = join(
+    home,
+    'python',
+    'tools',
+    `uv-${PY_REPL_UV_VERSION}-${targetTriple}-${outputSha256.slice(0, 16)}${extension}`
   )
   const broker = new ManagedRuntimeBrokerFake()
   return {
@@ -426,6 +444,7 @@ test('provisions the private runtime with literal jobs, scrubbed env, and privat
     assert.equal(runtime.rootPath, await realpath(paths.rootPath))
     assert.equal(runtime.pythonPath, paths.pythonPath)
     assert.equal(runtime.environmentPath, paths.environmentPath)
+    assert.equal(await readFile(runtime.uvPath, 'utf8'), 'pinned-uv-test-binary')
     assert.equal(runtime.uvPath, fixture.uvPath)
     assert.equal(runtime.version, PY_REPL_PYTHON_VERSION)
     assert.equal(runtime.kind, 'managed')
@@ -454,24 +473,20 @@ test('provisions the private runtime with literal jobs, scrubbed env, and privat
           input.args.join('\0') === ['self', 'version', '--output-format', 'json'].join('\0')
       )
     )
-    assert.ok(
-      directInputs.some(
-        (input) =>
-          input.args.join('\0') ===
-          [
-            '--no-config',
-            '--no-progress',
-            'python',
-            'install',
-            '--reinstall',
-            '--no-bin',
-            '--no-registry',
-            '--install-dir',
-            paths.installationPath,
-            PY_REPL_PYTHON_VERSION
-          ].join('\0')
-      )
+    const installInput = directInputs.find(
+      (input) => input.args.includes('python') && input.args.includes('install')
     )
+    assert.deepEqual(installInput?.args, [
+      '--no-config',
+      '--no-progress',
+      'python',
+      'install',
+      '--no-bin',
+      '--no-registry',
+      '--install-dir',
+      paths.installationPath,
+      PY_REPL_PYTHON_VERSION
+    ])
     assert.ok(
       directInputs.some(
         (input) =>
@@ -1041,10 +1056,7 @@ test('keeps shared preparation alive for remaining waiters and cancels it for th
       pending,
       (error: unknown) => error instanceof Error && error.name === 'AbortError'
     )
-    await waitUntil(
-      async () => abandoned.broker.cancelledJobs === 1,
-      'bootstrap job was not cancelled'
-    )
+    assert.equal(abandoned.broker.cancelledJobs, 1)
     const rootPath = expectedPaths(abandoned.home).rootPath
     await waitUntil(async () => {
       const names = await readdir(rootPath).catch(() => [])
@@ -1206,6 +1218,106 @@ test('publishes process leases, preserves live children, and cleans dead leases 
   } finally {
     if (child) await terminateChild(child)
     await releaseChildLease?.()
+    await runtime?.release()
+    await fixture.cleanup()
+  }
+})
+
+test('inspects and manages the private environment without discarding its cache', async () => {
+  const fixture = await createRuntimeFixture()
+  const paths = expectedPaths(fixture.home)
+  const options = {
+    processBroker: fixture.broker,
+    resourcesPath: fixture.resources,
+    yachiyoHome: fixture.home
+  }
+  const observedStatuses: Array<{
+    action: string | undefined
+    phase: string | undefined
+    state: string
+  }> = []
+  const unsubscribe = subscribeManagedPythonEnvironmentStatus((status) => {
+    if (status.rootPath !== paths.rootPath) return
+    observedStatuses.push({
+      action: status.operation,
+      phase: status.phase,
+      state: status.state
+    })
+  })
+  let runtime: PythonRuntime | undefined
+
+  try {
+    const initial = await getManagedPythonEnvironmentStatus(options)
+    assert.equal(initial.state, 'not-installed')
+    assert.equal(initial.managementBlocked, false)
+
+    const installed = await manageManagedPythonEnvironment('install', options)
+    assert.equal(installed.state, 'ready')
+    assert.equal(installed.activeProcessCount, 0)
+    assert.ok(
+      observedStatuses.some(
+        (status) => status.action === 'install' && status.phase === 'installing-python'
+      )
+    )
+    assert.ok(
+      fixture.broker.inputs.some(
+        (input) =>
+          input.args.includes('python') &&
+          input.args.includes('install') &&
+          input.args.includes('--reinstall')
+      )
+    )
+
+    const installationSentinel = join(paths.installationPath, 'retained-by-repair')
+    const cacheSentinel = join(paths.rootPath, 'cache', 'retained-download')
+    await writeFile(installationSentinel, 'installation')
+    await writeFile(cacheSentinel, 'cache')
+
+    runtime = await ensureFixtureRuntime(fixture)
+    const inUse = await getManagedPythonEnvironmentStatus(options)
+    assert.equal(inUse.state, 'ready')
+    assert.equal(inUse.activeProcessCount, 1)
+    assert.equal(inUse.managementBlocked, true)
+    await assert.rejects(manageManagedPythonEnvironment('rebuild', options), /still in use/u)
+    assert.equal(observedStatuses.at(-1)?.state, 'ready')
+    await runtime.release()
+    runtime = undefined
+
+    const repairInputStart = fixture.broker.inputs.length
+    const repaired = await manageManagedPythonEnvironment('repair', options)
+    assert.equal(repaired.state, 'ready')
+    assert.ok(await lstat(installationSentinel))
+    assert.equal(
+      fixture.broker.inputs
+        .slice(repairInputStart)
+        .some((input) => input.args.includes('install') && input.args.includes('--reinstall')),
+      false
+    )
+
+    const rebuildInputStart = fixture.broker.inputs.length
+    const rebuilt = await manageManagedPythonEnvironment('rebuild', options)
+    assert.equal(rebuilt.state, 'ready')
+    assert.equal(await lstat(installationSentinel).catch(() => undefined), undefined)
+    assert.ok(await lstat(cacheSentinel))
+    assert.ok(
+      fixture.broker.inputs
+        .slice(rebuildInputStart)
+        .some((input) => input.args.includes('install') && input.args.includes('--reinstall'))
+    )
+
+    const removed = await manageManagedPythonEnvironment('remove', options)
+    assert.equal(removed.state, 'not-installed')
+    assert.equal(await lstat(paths.environmentPath).catch(() => undefined), undefined)
+    assert.equal(await lstat(paths.installationPath).catch(() => undefined), undefined)
+    assert.ok(await lstat(cacheSentinel))
+    assert.equal(await readFile(fixture.uvPath, 'utf8'), 'pinned-uv-test-binary')
+    assert.ok(
+      observedStatuses.some(
+        (status) => status.action === 'remove' && status.phase === 'removing-environment'
+      )
+    )
+  } finally {
+    unsubscribe()
     await runtime?.release()
     await fixture.cleanup()
   }

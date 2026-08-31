@@ -11,6 +11,7 @@ export const nav = {
   coding: '编程',
   prompts: '提示词',
   workspace: '工作区',
+  python: 'Python',
   sources: '数据源',
   memory: '记忆',
   search: '搜索',

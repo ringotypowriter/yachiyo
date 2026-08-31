@@ -46,6 +46,7 @@ import { SchedulePane } from './panes/SchedulePane'
 import { UsagePane } from './panes/UsagePane'
 import { LogsPane } from './panes/LogsPane'
 import { SyncPane } from './panes/SyncPane'
+import { PythonEnvironmentPane } from './panes/PythonEnvironmentPane'
 import {
   hasPendingChannelGroupChanges,
   hasPendingChannelUserChanges,
@@ -814,6 +815,8 @@ function SettingsPanel({
         body = <PromptsPane draft={draft} onChange={setDraft} />
       } else if (tab === 'workspace') {
         body = <WorkspacePane draft={draft} onChange={setDraft} />
+      } else if (tab === 'python') {
+        body = <PythonEnvironmentPane />
       } else {
         body = <SkillsPane availableSkills={availableSkills} draft={draft} onChange={setDraft} />
       }

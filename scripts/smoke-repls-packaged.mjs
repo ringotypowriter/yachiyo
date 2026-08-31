@@ -4,7 +4,7 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { chmod, copyFile, mkdir, mkdtemp, readFile, readdir, rm, stat } from 'node:fs/promises'
+import { copyFile, mkdir, mkdtemp, readFile, readdir, rm, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { basename, dirname, join, resolve, sep } from 'node:path'
 import process from 'node:process'
@@ -156,24 +156,18 @@ function platformResourceDirectory() {
   return `${osByPlatform[process.platform] ?? process.platform}-${process.arch}`
 }
 
-async function stagePackagedUv() {
+async function stagePackagedUvResources() {
   const executableName = process.platform === 'win32' ? 'uv.exe' : 'uv'
   const sourceDirectory = join(desktopDir, 'resources', 'bin', platformResourceDirectory())
   const destinationDirectory = join(resourcesPath, 'bin')
-  const sourceExecutable = join(sourceDirectory, executableName)
-  const sourceAttestation = join(sourceDirectory, `${executableName}.asset.json`)
-  const destinationExecutable = join(destinationDirectory, executableName)
-  const destinationAttestation = join(destinationDirectory, `${executableName}.asset.json`)
+  const resourceNames = [`${executableName}.runtime.gz`, `${executableName}.asset.json`]
 
   await mkdir(destinationDirectory, { recursive: true })
-  await Promise.all([
-    copyFile(sourceExecutable, destinationExecutable),
-    copyFile(sourceAttestation, destinationAttestation)
-  ])
-  if (process.platform !== 'win32') {
-    const sourceMode = (await stat(sourceExecutable)).mode & 0o777
-    await chmod(destinationExecutable, sourceMode)
-  }
+  await Promise.all(
+    resourceNames.map((name) =>
+      copyFile(join(sourceDirectory, name), join(destinationDirectory, name))
+    )
+  )
 }
 
 async function verifyPackagedAssets() {
@@ -324,7 +318,7 @@ async function main() {
   try {
     await Promise.all([
       mkdir(workspacePath, { recursive: true }),
-      stagePackagedUv(),
+      stagePackagedUvResources(),
       buildIsolatedDesktop()
     ])
     const { pythonRunnerPath, workerPaths } = await verifyPackagedAssets()

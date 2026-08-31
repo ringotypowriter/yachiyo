@@ -123,6 +123,16 @@ describe('TtlReaper', () => {
     assert.deepEqual(result.deleted, [])
   })
 
+  it('sweep creates a missing manifest parent directory', async () => {
+    const nestedManifestPath = join(tempDir, 'missing', 'ttl-manifest.json')
+    const reaper = createTtlReaper({ manifestPath: nestedManifestPath })
+
+    const result = await reaper.sweep()
+
+    assert.deepEqual(result.deleted, [])
+    assert.deepEqual(JSON.parse(await readFile(nestedManifestPath, 'utf8')), {})
+  })
+
   it('sweep deletes directories recursively', async () => {
     const dirPath = join(tempDir, 'attachments', 'msg-123')
     await mkdir(dirPath, { recursive: true })

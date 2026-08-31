@@ -28,6 +28,8 @@ import type {
   ListBrowserAutomationSessionsInput,
   ListActivitySourceRecordsInput,
   ListActivitySourceRecordsResult,
+  ManagedPythonEnvironmentAction,
+  ManagedPythonEnvironmentStatus,
   ListSkillsInput,
   ProviderConfig,
   ProviderSettings,
@@ -329,6 +331,12 @@ const api = {
     testSubagentProfile: (input: TestSubagentProfileInput) =>
       ipcRenderer.invoke('yachiyo:test-subagent-profile', input),
     getSettings: () => ipcRenderer.invoke('yachiyo:get-settings'),
+    getPythonEnvironmentStatus: (): Promise<ManagedPythonEnvironmentStatus> =>
+      ipcRenderer.invoke('yachiyo:get-python-environment-status'),
+    managePythonEnvironment: (
+      action: ManagedPythonEnvironmentAction
+    ): Promise<ManagedPythonEnvironmentStatus> =>
+      ipcRenderer.invoke('yachiyo:manage-python-environment', { action }),
     getSyncStatus: () => ipcRenderer.invoke('yachiyo:get-sync-status'),
     initSync: () => ipcRenderer.invoke('yachiyo:init-sync'),
     runSyncNow: () => ipcRenderer.invoke('yachiyo:run-sync-now'),

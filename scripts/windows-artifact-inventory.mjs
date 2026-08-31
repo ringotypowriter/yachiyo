@@ -36,7 +36,7 @@ export function inspectWindowsArtifactInventory(input) {
     ['python3 compatibility shim', [win32.join(bin, 'python3')]],
     ['rg.exe search helper', [win32.join(bin, 'rg.exe')]],
     ['fd.exe search helper', [win32.join(bin, 'fd.exe')]],
-    ['uv.exe Python runtime helper', [win32.join(bin, 'uv.exe')]],
+    ['uv.exe Python runtime archive', [win32.join(bin, 'uv.exe.runtime.gz')]],
     ['rg.exe helper attestation', [win32.join(bin, 'rg.exe.asset.json')]],
     ['fd.exe helper attestation', [win32.join(bin, 'fd.exe.asset.json')]],
     ['uv.exe helper attestation', [win32.join(bin, 'uv.exe.asset.json')]],
@@ -140,6 +140,9 @@ export function inspectWindowsArtifactInventory(input) {
   }
   if (pathExists(unpackedBin)) {
     missing.push('runtime bin must not be duplicated under app.asar.unpacked')
+  }
+  if (pathExists(win32.join(bin, 'uv.exe'))) {
+    missing.push('raw uv.exe helper must not be packaged; use the attested runtime archive')
   }
   if (pathExists(locales)) {
     try {

@@ -66,6 +66,7 @@ test('settings navigation maps old pane ids into their grouped panels and tabs',
   })
   assert.deepEqual(resolveSettingsRoute('prompts'), { panel: 'capabilities', tab: 'prompts' })
   assert.deepEqual(resolveSettingsRoute('workspace'), { panel: 'capabilities', tab: 'workspace' })
+  assert.deepEqual(resolveSettingsRoute('python'), { panel: 'capabilities', tab: 'python' })
   assert.deepEqual(resolveSettingsRoute('memory'), { panel: 'source', tab: 'memory' })
   assert.deepEqual(resolveSettingsRoute('search'), { panel: 'source', tab: 'search' })
   assert.deepEqual(resolveSettingsRoute('activity'), { panel: 'source', tab: 'activity' })
@@ -83,6 +84,10 @@ test('settings navigation accepts panel tab routes from external entry points', 
   assert.deepEqual(resolveSettingsRoute('capabilities/workspace'), {
     panel: 'capabilities',
     tab: 'workspace'
+  })
+  assert.deepEqual(resolveSettingsRoute('capabilities/python'), {
+    panel: 'capabilities',
+    tab: 'python'
   })
   assert.deepEqual(resolveSettingsRoute('source/search'), { panel: 'source', tab: 'search' })
   assert.deepEqual(resolveSettingsRoute('source/activity'), { panel: 'source', tab: 'activity' })

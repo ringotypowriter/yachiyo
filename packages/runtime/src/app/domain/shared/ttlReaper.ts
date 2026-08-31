@@ -11,7 +11,8 @@
  *   - Safe concurrent register + sweep (single-threaded Node event loop)
  */
 
-import { readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { dirname } from 'node:path'
 
 export interface TtlEntry {
   createdAt: string // ISO-8601
@@ -54,6 +55,7 @@ async function readManifest(path: string): Promise<TtlManifest> {
 }
 
 async function writeManifest(path: string, manifest: TtlManifest): Promise<void> {
+  await mkdir(dirname(path), { recursive: true })
   await writeFile(path, JSON.stringify(manifest, null, 2), 'utf8')
 }
 

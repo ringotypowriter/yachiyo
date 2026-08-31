@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
+import { gunzipSync } from 'node:zlib'
 import { chmod, mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
@@ -196,6 +197,7 @@ test('every supported uv target has an exact pinned artifact mapping', () => {
       },
       mapping
     )
+    assert.equal(asset.runtimeArchive, true)
     assert.equal(asset.version, '0.12.7')
     assert.equal(
       asset.url,
@@ -265,8 +267,10 @@ test('staging atomically publishes executable and exact sidecar, reuses verified
 
   try {
     const outputPath = join(outputDir, asset.outputName)
+    const runtimeArchivePath = `${outputPath}.runtime.gz`
     const attestationPath = `${outputPath}.asset.json`
     assert.deepEqual(await stage(true), { status: 'downloaded', outputPath })
+    const runtimeArchiveBytes = await readFile(runtimeArchivePath)
     const expectedAttestation = {
       name: 'uv',
       version: '0.12.7',
@@ -274,16 +278,23 @@ test('staging atomically publishes executable and exact sidecar, reuses verified
       arch: 'arm64',
       targetTriple: 'aarch64-apple-darwin',
       archiveSha256: asset.sha256,
-      outputSha256: createHash('sha256').update(binaryBytes).digest('hex')
+      outputSha256: createHash('sha256').update(binaryBytes).digest('hex'),
+      runtimeArchiveSha256: createHash('sha256').update(runtimeArchiveBytes).digest('hex')
     }
+    assert.deepEqual(gunzipSync(runtimeArchiveBytes), binaryBytes)
     assert.deepEqual(JSON.parse(await readFile(attestationPath, 'utf8')), expectedAttestation)
     assert.equal(
       await readFile(attestationPath, 'utf8'),
       `${JSON.stringify(expectedAttestation, null, 2)}\n`
     )
-    assert.deepEqual(await readdir(outputDir), [asset.outputName, `${asset.outputName}.asset.json`])
+    assert.deepEqual(await readdir(outputDir), [
+      asset.outputName,
+      `${asset.outputName}.asset.json`,
+      `${asset.outputName}.runtime.gz`
+    ])
     if (process.platform !== 'win32') {
       assert.equal((await stat(outputPath)).mode & 0o777, 0o755)
+      assert.equal((await stat(runtimeArchivePath)).mode & 0o777, 0o644)
       assert.equal((await stat(attestationPath)).mode & 0o777, 0o644)
     }
 
@@ -297,6 +308,7 @@ test('staging atomically publishes executable and exact sidecar, reuses verified
     assert.deepEqual(await stage(), { status: 'downloaded', outputPath })
     assert.equal(downloadCount, firstDownloadCount + 1)
     assert.deepEqual(await readFile(outputPath), binaryBytes)
+    assert.deepEqual(gunzipSync(await readFile(runtimeArchivePath)), binaryBytes)
 
     await writeFile(
       attestationPath,
@@ -307,6 +319,7 @@ test('staging atomically publishes executable and exact sidecar, reuses verified
     assert.deepEqual(await stage(), { status: 'downloaded', outputPath })
     assert.equal(downloadCount, firstDownloadCount + 2)
     assert.deepEqual(await readFile(outputPath), binaryBytes)
+    assert.deepEqual(gunzipSync(await readFile(runtimeArchivePath)), binaryBytes)
     assert.deepEqual(await readdir(root), ['output'])
   } finally {
     await rm(root, { recursive: true, force: true })

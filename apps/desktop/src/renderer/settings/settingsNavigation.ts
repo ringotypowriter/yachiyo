@@ -68,7 +68,8 @@ export const SETTINGS_PANELS: readonly SettingsPanelDefinition[] = [
     localizedTab('skills', 'skills'),
     localizedTab('coding-agents', 'coding'),
     localizedTab('prompts', 'prompts'),
-    localizedTab('workspace', 'workspace')
+    localizedTab('workspace', 'workspace'),
+    localizedTab('python', 'python')
   ]),
   localizedPanel('source', 'sources', [
     localizedTab('memory', 'memory'),
@@ -116,6 +117,7 @@ const routeAliases: Record<string, SettingsRoute> = {
   'coding-agents': { panel: 'capabilities', tab: 'coding-agents' },
   prompts: { panel: 'capabilities', tab: 'prompts' },
   workspace: { panel: 'capabilities', tab: 'workspace' },
+  python: { panel: 'capabilities', tab: 'python' },
   memory: { panel: 'source', tab: 'memory' },
   search: { panel: 'source', tab: 'search' },
   activity: { panel: 'source', tab: 'activity' }

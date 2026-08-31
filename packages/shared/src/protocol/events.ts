@@ -16,6 +16,8 @@ import type {
   ToolCallRecord
 } from '../protocol.ts'
 
+import type { ManagedPythonEnvironmentStatus } from './pythonEnvironment.ts'
+
 interface BaseEvent {
   eventId: string
   timestamp: string
@@ -341,6 +343,11 @@ export interface ChannelGroupHistoryClearFailedEvent extends BaseEvent {
   error: string
 }
 
+export interface ManagedPythonEnvironmentUpdatedEvent extends BaseEvent {
+  type: 'python-environment.updated'
+  status: ManagedPythonEnvironmentStatus
+}
+
 // Folder events
 interface FolderEvent extends BaseEvent {
   folderId: string
@@ -395,6 +402,7 @@ export type YachiyoServerEvent =
   | ChannelGroupHistoryClearStartedEvent
   | ChannelGroupHistoryClearCompletedEvent
   | ChannelGroupHistoryClearFailedEvent
+  | ManagedPythonEnvironmentUpdatedEvent
   | BackgroundTaskCompletedEvent
   | BackgroundTaskStartedEvent
   | SubagentUpdatedEvent

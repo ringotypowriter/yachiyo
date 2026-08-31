@@ -11,7 +11,7 @@ test('macOS artifact inventory checks helpers, native modules, locales, and runt
     arch: 'arm64',
     pathExists: (path: string) => {
       checked.push(path)
-      return !path.includes('app.asar.unpacked')
+      return !path.includes('app.asar.unpacked') && !path.endsWith('/bin/uv')
     },
     readAsarEntries: () => [
       '/out/main/drizzle/0000_initial.sql',
@@ -29,7 +29,7 @@ test('macOS artifact inventory checks helpers, native modules, locales, and runt
     '/Contents/MacOS/Yachiyo',
     '/bin/rg',
     '/bin/fd',
-    '/bin/uv',
+    '/bin/uv.runtime.gz',
     '/bin/rg.asset.json',
     '/bin/fd.asset.json',
     '/bin/uv.asset.json',
@@ -74,7 +74,7 @@ test('macOS artifact inventory reports missing runtime categories', () => {
     /Yachiyo executable/iu,
     /rg helper/iu,
     /fd helper/iu,
-    /uv Python runtime helper/iu,
+    /uv Python runtime archive/iu,
     /rg helper attestation/iu,
     /fd helper attestation/iu,
     /uv helper attestation/iu,
@@ -123,6 +123,7 @@ test('macOS artifact inventory rejects duplicated and development-only payloads'
   assert.ok(report.missing.some((entry: string) => /Drizzle snapshots/iu.test(entry)))
   assert.ok(report.missing.some((entry: string) => /runtime-host-spike/iu.test(entry)))
   assert.ok(report.missing.some((entry: string) => /duplicated/iu.test(entry)))
+  assert.ok(report.missing.some((entry: string) => /raw uv helper/iu.test(entry)))
   assert.ok(report.missing.some((entry: string) => /application locales/iu.test(entry)))
   assert.ok(report.missing.some((entry: string) => /framework locales/iu.test(entry)))
 })

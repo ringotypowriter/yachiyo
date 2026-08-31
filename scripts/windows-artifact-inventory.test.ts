@@ -10,7 +10,7 @@ test('Windows artifact inventory checks Bash, helpers, and native modules', () =
     appDir: 'C:\\staged',
     pathExists: (path: string) => {
       checked.push(path)
-      return !path.includes('app.asar.unpacked')
+      return !path.includes('app.asar.unpacked') && !path.endsWith('\\bin\\uv.exe')
     },
     readAsarEntries: () => [
       '/out/main/drizzle/0000_initial.sql',
@@ -31,7 +31,7 @@ test('Windows artifact inventory checks Bash, helpers, and native modules', () =
     'python3',
     'rg.exe',
     'fd.exe',
-    'uv.exe',
+    'uv.exe.runtime.gz',
     'rg.exe.asset.json',
     'fd.exe.asset.json',
     'uv.exe.asset.json',
@@ -69,6 +69,7 @@ test('Windows artifact inventory accepts libvips bundled with sharp-win32-x64', 
     pathExists: (path: string) => {
       checked.push(path)
       if (path.includes('app.asar.unpacked')) return false
+      if (path.endsWith('\\bin\\uv.exe')) return false
       if (!path.endsWith('libvips-42.dll')) return true
       return path.endsWith('@img\\sharp-win32-x64\\lib\\libvips-42.dll')
     },
@@ -97,7 +98,7 @@ test('Windows artifact inventory reports every missing category and a failing st
   assert.ok(report.missing.some((entry: string) => /python3/iu.test(entry)))
   assert.ok(report.missing.some((entry: string) => /rg\.exe/iu.test(entry)))
   assert.ok(report.missing.some((entry: string) => /fd\.exe/iu.test(entry)))
-  assert.ok(report.missing.some((entry: string) => /uv\.exe Python runtime helper/iu.test(entry)))
+  assert.ok(report.missing.some((entry: string) => /uv\.exe Python runtime archive/iu.test(entry)))
   assert.ok(report.missing.some((entry: string) => /rg\.exe helper attestation/iu.test(entry)))
   assert.ok(report.missing.some((entry: string) => /fd\.exe helper attestation/iu.test(entry)))
   assert.ok(report.missing.some((entry: string) => /uv\.exe helper attestation/iu.test(entry)))
@@ -124,6 +125,7 @@ test('Windows artifact inventory accepts the native packages published prebuild 
     pathExists: (path: string) => {
       checked.push(path)
       if (path.includes('app.asar.unpacked')) return false
+      if (path.endsWith('\\bin\\uv.exe')) return false
       if (/bufferutil[\\/]build[\\/]Release/iu.test(path)) return false
       if (/utf-8-validate[\\/]build[\\/]Release/iu.test(path)) return false
       return !/node\.napi\.node$/iu.test(path)
@@ -146,7 +148,8 @@ test('Windows artifact inventory accepts the native packages published prebuild 
 test('Windows artifact inventory accepts native ASAR path separators', () => {
   const report = inspectWindowsArtifactInventory({
     appDir: 'C:\\staged',
-    pathExists: (path: string) => !path.includes('app.asar.unpacked'),
+    pathExists: (path: string) =>
+      !path.includes('app.asar.unpacked') && !path.endsWith('\\bin\\uv.exe'),
     readAsarEntries: () => [
       '\\out\\main\\drizzle\\0000_initial.sql',
       '\\out\\main\\jieba_rs_wasm_bg.wasm'
@@ -178,5 +181,6 @@ test('Windows artifact inventory rejects duplicated and development-only payload
   assert.ok(report.missing.some((entry: string) => /Drizzle snapshots/iu.test(entry)))
   assert.ok(report.missing.some((entry: string) => /runtime-host-spike/iu.test(entry)))
   assert.ok(report.missing.some((entry: string) => /duplicated/iu.test(entry)))
+  assert.ok(report.missing.some((entry: string) => /raw uv\.exe helper/iu.test(entry)))
   assert.ok(report.missing.some((entry: string) => /Electron locales/iu.test(entry)))
 })

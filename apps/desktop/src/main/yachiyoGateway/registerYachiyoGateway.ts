@@ -140,6 +140,7 @@ import { registerGatewayFileHandlers } from './fileHandlers.ts'
 import { broadcastYachiyoEvent, handleYachiyoIpc, showYachiyoNotification } from './ipc.ts'
 import { IPC_CHANNELS } from './ipcChannels.ts'
 import { registerBackgroundTaskIpc } from './backgroundTaskIpc.ts'
+import { registerPythonEnvironmentIpc } from './pythonEnvironmentIpc.ts'
 import { normalizePngBytes, normalizePngFilename, type SavePngFileInput } from './pngFile.ts'
 import { registerProviderBackupHandlers } from './providerBackupHandlers.ts'
 import type { AppUpdateController } from '../electron/appUpdateController.ts'
@@ -1079,6 +1080,7 @@ export function registerYachiyoGateway(options: {
     rpc().testSubagentProfile(input)
   )
   handleYachiyoIpc(IPC_CHANNELS.getSettings, () => rpc().getSettings())
+  registerPythonEnvironmentIpc(rpc)
   handleYachiyoIpc(IPC_CHANNELS.getSyncStatus, () => rpc().getSyncStatus())
   handleYachiyoIpc(IPC_CHANNELS.initSync, () => rpc().initSync())
   handleYachiyoIpc(IPC_CHANNELS.runSyncNow, () => rpc().runSyncNow())
