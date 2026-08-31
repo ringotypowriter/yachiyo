@@ -62,7 +62,9 @@ function executionResult(overrides: Partial<PyReplExecutionResult> = {}): PyRepl
   }
 }
 
-function runtimeDouble(rootPath: string, release: () => Promise<void>): PythonRuntime {
+function runtimeDouble(directory: string, release: () => Promise<void>): PythonRuntime {
+  const rootPath = join(directory, 'python')
+  mkdirSync(rootPath, { recursive: true })
   return {
     kind: 'managed',
     rootPath,
@@ -255,7 +257,7 @@ describe('pyRepl tool lifecycle', () => {
     assert.equal(ensuredWorkspacePath, workspacePath)
     assert.equal(kernelOptions?.runtime, runtime)
     assert.equal(kernelOptions?.initialCwd, workspacePath)
-    assert.equal(kernelOptions?.runnerPath.startsWith(join(rootPath, 'runners')), true)
+    assert.equal(kernelOptions?.runnerPath.startsWith(join(runtime.rootPath, 'runners')), true)
     assert.equal(existsSync(kernelOptions?.runnerPath ?? ''), true)
     assert.equal(kernelOptions?.bridge.constructor.name, 'PyReplToolBridge')
     assert.equal(calls.length, 2)

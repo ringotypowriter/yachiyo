@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { request as httpRequest } from 'node:http'
+import { resolve } from 'node:path'
 import { test } from 'node:test'
 
 import type { ToolExecutionOptions } from 'ai'
@@ -284,7 +285,7 @@ test('bridge rewrites relative path inputs and preserves nested execution option
     assert.equal(response.status, 200)
     assert.deepEqual(response.body, {
       ok: true,
-      value: { received: { path: '/workspace/nested/notes/input.txt', offset: 2 } }
+      value: { received: { path: resolve('/workspace/nested', 'notes/input.txt'), offset: 2 } }
     })
     assert.equal(executions.length, 1)
     assert.equal(executions[0]?.receiver, tool)
