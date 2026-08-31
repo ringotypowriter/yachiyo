@@ -45,6 +45,7 @@ class FakeChild extends EventEmitter {
   readonly stdout = new PassThrough()
   readonly stderr = new PassThrough()
   readonly requests: ProtocolRequest[] = []
+  readonly killSignals: Array<NodeJS.Signals | number> = []
   readonly index: number
   pid: number | undefined
   private input = ''
@@ -81,6 +82,7 @@ class FakeChild extends EventEmitter {
   }
 
   kill(signal: NodeJS.Signals | number = 'SIGTERM'): boolean {
+    this.killSignals.push(signal)
     this.exit(null, typeof signal === 'string' ? signal : null)
     return true
   }
@@ -975,6 +977,43 @@ test('Windows timeout skips SIGINT and escalates tree termination without shell 
     assert.deepEqual(harness.terminationSteps, ['graceful:4000', 'force:4000'])
     assert.equal(harness.spawnCalls[0]?.options.shell, false)
     assert.equal(harness.spawnCalls[0]?.options.detached, false)
+  } finally {
+    await disposeHarness(harness)
+  }
+})
+
+test('Windows abort recovers when taskkill does not report the child exit', async () => {
+  const controller = new AbortController()
+  const harness = createHarness({
+    platform: 'win32',
+    uvPath: 'C:\\private\\bin\\uv.exe',
+    terminationBehavior: 'never',
+    dependencies: { terminationGraceMs: 1 },
+    onRequest: (child, request) => {
+      assert.ok(request.id)
+      if (child.index === 0) {
+        child.sendFrame({ type: 'started', id: request.id })
+      } else {
+        successfulResponse(child, request, '42')
+      }
+    }
+  })
+
+  try {
+    const execution = harness.kernel.execute(kernelCall({ signal: controller.signal }))
+    await waitUntil(() => harness.children[0]?.requests.length === 1)
+    controller.abort(new Error('test cancellation'))
+
+    const cancelled = await execution
+    assert.equal(cancelled.failureKind, 'abort')
+    assert.equal(cancelled.contextReset, true)
+    assert.deepEqual(harness.terminationSteps, ['graceful:4000', 'force:4000'])
+    assert.deepEqual(harness.children[0]?.killSignals, ['SIGKILL'])
+
+    const recovered = await harness.kernel.execute(kernelCall({ code: '7 * 6' }))
+    assert.equal(recovered.status, 'ok')
+    assert.deepEqual(recovered.events, [{ type: 'result', bundle: { 'text/plain': '42' } }])
+    assert.equal(harness.children.length, 2)
   } finally {
     await disposeHarness(harness)
   }

@@ -920,10 +920,7 @@ export class PyReplKernel {
     if (!(await waitForExit(record, this.interruptGraceMs))) {
       gracefullyTerminateChildProcess(record.child, this.tree)
       if (!(await waitForExit(record, this.terminationGraceMs))) {
-        forceTerminateChildProcess(record.child, this.tree)
-        if (!(await waitForExit(record, this.terminationGraceMs))) {
-          throw new Error('Python REPL process did not exit after forced termination.')
-        }
+        await this.forceTerminateRecord(record)
       }
     }
   }
@@ -945,10 +942,32 @@ export class PyReplKernel {
     }
     gracefullyTerminateChildProcess(record.child, this.tree)
     if (await waitForExit(record, this.terminationGraceMs)) return
-    forceTerminateChildProcess(record.child, this.tree)
-    if (!(await waitForExit(record, this.terminationGraceMs))) {
-      throw new Error('Python REPL process did not exit after forced termination.')
+    await this.forceTerminateRecord(record)
+  }
+
+  private async forceTerminateRecord(record: ChildRecord): Promise<void> {
+    const treeResult = forceTerminateChildProcess(record.child, this.tree)
+    if (await waitForExit(record, this.terminationGraceMs)) return
+
+    let directError: unknown
+    if (this.platform === 'win32') {
+      try {
+        if (!record.child.kill('SIGKILL')) {
+          directError = new Error('child.kill() returned false.')
+        }
+      } catch (error) {
+        directError = error
+      }
+      if (await waitForExit(record, this.terminationGraceMs)) return
     }
+
+    const details = [
+      treeResult.error,
+      directError === undefined ? undefined : `Direct termination failed: ${String(directError)}`
+    ].filter((detail): detail is string => detail !== undefined)
+    throw new Error(
+      `Python REPL process did not exit after forced termination.${details.length > 0 ? ` ${details.join(' ')}` : ''}`
+    )
   }
 
   private cleanupChildRecord(record: ChildRecord): Promise<void> {
