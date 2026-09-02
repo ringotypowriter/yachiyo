@@ -1609,6 +1609,10 @@ body > div:not(#root) {
   .yachiyo-tool-deck-drawer {
     animation: none;
   }
+
+  .yachiyo-tool-deck-stack-item {
+    transition: none;
+  }
 }
 
 /* Preparing bubble mount — scale + fade so the dots don't hard-pop */
@@ -1642,6 +1646,10 @@ body > div:not(#root) {
   animation: yachiyo-detail-reveal 150ms ease-out;
 }
 
+.yachiyo-tool-deck-stack-item {
+  transition: width 160ms ease-out;
+}
+
 @keyframes yachiyo-tool-deck-drawer {
   from {
     max-width: 0;
@@ -1649,7 +1657,7 @@ body > div:not(#root) {
     transform: translateX(-4px);
   }
   to {
-    max-width: 70%;
+    max-width: 100%;
     opacity: 1;
     transform: translateX(0);
   }

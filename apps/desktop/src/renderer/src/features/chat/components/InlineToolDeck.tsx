@@ -1,5 +1,5 @@
 import type React from 'react'
-import { Fragment, useEffect, useId, useMemo, useRef, useState } from 'react'
+import { useEffect, useId, useMemo, useRef, useState } from 'react'
 
 import type { SubagentFinishedResult } from '@renderer/app/store/useAppStore'
 import type { ToolCall } from '@renderer/app/types'
@@ -21,6 +21,15 @@ interface InlineToolDeckProps {
   subagentFinishedResults?: SubagentFinishedResult[]
 }
 type DeckSelection = { kind: 'latest' } | { kind: 'fixed'; toolCallId: string } | null
+
+const TOOL_ICON_SIZE_PX = 28
+
+const MAX_TOOL_ICON_STACK_OVERLAP_PX = 10
+
+function getToolIconStackOverlap(toolCallCount: number): number {
+  if (toolCallCount <= 1) return 0
+  return Math.min(MAX_TOOL_ICON_STACK_OVERLAP_PX, Math.ceil(toolCallCount / 2) + 2)
+}
 
 function isForegroundToolCall(toolCall: ToolCall): boolean {
   return (
@@ -118,31 +127,44 @@ export function InlineToolDeck({
 
   const summary = buildToolCallRowSummary(displayedSummaryToolCall, workspacePath)
   const summaryIsFailed = displayedSummaryToolCall.status === 'failed'
+  const iconStackOverlap = getToolIconStackOverlap(displayedToolCalls.length)
 
   return (
     <div className="px-6 py-1" data-tool-deck>
       <div className="flex min-w-0 items-center gap-2">
         <div
-          className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto whitespace-nowrap py-0.5"
+          className="flex min-w-0 flex-1 flex-wrap items-center gap-y-1 py-0.5"
           role="group"
           aria-label={t('chat.tools.deckAria')}
+          style={{ paddingInlineEnd: iconStackOverlap }}
         >
-          {displayedToolCalls.map((toolCall) => {
+          {displayedToolCalls.map((toolCall, index) => {
             const Icon = getToolCallIcon(toolCall.toolName)
             const isSelected = selectedToolCallId === toolCall.id
             const presentation = buildToolCallDetailsPresentation(toolCall)
             const canExpand =
               toolCall.toolName === 'askUser' || getToolCallDetailBlocks(presentation).length > 0
+            const showsSummary = displayedSummaryToolCall.id === toolCall.id
+            const stackItemWidth = TOOL_ICON_SIZE_PX - iconStackOverlap
 
             return (
-              <Fragment key={toolCall.id}>
+              <div
+                key={toolCall.id}
+                className={`relative flex h-7 shrink-0 items-center ${
+                  showsSummary ? 'mr-1 min-w-0 max-w-[70%]' : 'yachiyo-tool-deck-stack-item'
+                }`}
+                style={{
+                  width: showsSummary ? undefined : stackItemWidth,
+                  zIndex: isSelected ? displayedToolCalls.length + 1 : index + 1
+                }}
+              >
                 <button
                   ref={(element) => {
                     if (element) buttonRefs.current.set(toolCall.id, element)
                     else buttonRefs.current.delete(toolCall.id)
                   }}
                   type="button"
-                  className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full"
+                  className="relative flex h-7 w-7 shrink-0 items-center justify-center rounded-full"
                   data-tool-call-id={toolCall.id}
                   title={toolCall.toolName}
                   aria-controls={canExpand ? detailsId : undefined}
@@ -177,7 +199,9 @@ export function InlineToolDeck({
                   }}
                   style={{
                     appearance: 'none',
-                    background: isSelected ? theme.background.accentMuted : 'transparent',
+                    background: isSelected
+                      ? `linear-gradient(${theme.background.accentMuted}, ${theme.background.accentMuted}), ${theme.background.canvas}`
+                      : theme.background.canvas,
                     border: `1px solid ${isSelected ? theme.border.accent : theme.border.panel}`,
                     color: getToolIconColor(toolCall),
                     cursor: 'default',
@@ -196,9 +220,9 @@ export function InlineToolDeck({
                     }}
                   />
                 </button>
-                {displayedSummaryToolCall.id === toolCall.id ? (
+                {showsSummary ? (
                   <div
-                    className="yachiyo-tool-deck-drawer flex min-w-0 max-w-[70%] items-center gap-1.5 overflow-hidden whitespace-nowrap px-1"
+                    className="yachiyo-tool-deck-drawer ml-1 flex min-w-0 max-w-full flex-1 items-center gap-1.5 overflow-hidden whitespace-nowrap px-1"
                     data-tool-call-summary-id={toolCall.id}
                     style={{ color: theme.text.muted, fontSize: '11px' }}
                   >
@@ -226,7 +250,7 @@ export function InlineToolDeck({
                     ) : null}
                   </div>
                 ) : null}
-              </Fragment>
+              </div>
             )
           })}
         </div>
