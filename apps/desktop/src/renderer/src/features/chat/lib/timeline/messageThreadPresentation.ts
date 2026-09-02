@@ -1,4 +1,10 @@
-import type { Message, RunRecord, Thread, ToolCall } from '@renderer/app/types'
+import type {
+  Message,
+  MessageTextBlockRecord,
+  RunRecord,
+  Thread,
+  ToolCall
+} from '@renderer/app/types'
 import {
   buildMessageTreeMaps,
   collectMessagePath,
@@ -129,14 +135,32 @@ interface ResponseMessageToolTrace {
   output?: unknown
 }
 
-function collectResponseMessageToolTrace(
-  responseMessages?: unknown[]
-): Map<string, ResponseMessageToolTrace> {
-  if (!responseMessages?.length) {
-    return new Map()
-  }
+type ResponseMessageTimelinePart = { kind: 'text' } | { kind: 'tool-call'; toolCallId: string }
 
-  const toolTrace = new Map<string, ResponseMessageToolTrace>()
+interface ResponseMessageTrace {
+  timelineParts: ResponseMessageTimelinePart[]
+  toolCalls: Map<string, ResponseMessageToolTrace>
+}
+
+export type AssistantResponseTimelineTraceItem =
+  | { kind: 'assistant-text-block'; textBlockId: string }
+  | { kind: 'tool-call'; toolCallId: string }
+
+export interface AssistantResponseTimelineTraceSegment {
+  assistantMessageId?: string
+  tracedItems: AssistantResponseTimelineTraceItem[]
+  fallbackTextBlockIds: string[]
+  fallbackToolCallIds: string[]
+}
+
+function collectResponseMessageTrace(responseMessages?: unknown[]): ResponseMessageTrace {
+  const timelineParts: ResponseMessageTimelinePart[] = []
+  const toolCalls = new Map<string, ResponseMessageToolTrace>()
+  const tracedTimelineToolCallIds = new Set<string>()
+
+  if (!responseMessages?.length) {
+    return { timelineParts, toolCalls }
+  }
 
   for (const message of responseMessages) {
     if (
@@ -151,30 +175,115 @@ function collectResponseMessageToolTrace(
     }
 
     for (const part of message.content) {
-      if (
-        !part ||
-        typeof part !== 'object' ||
-        !('toolCallId' in part) ||
-        typeof part.toolCallId !== 'string'
-      ) {
+      if (!part || typeof part !== 'object' || !('type' in part)) continue
+
+      if (message.role === 'assistant' && part.type === 'text') {
+        timelineParts.push({ kind: 'text' })
         continue
       }
 
-      const existing = toolTrace.get(part.toolCallId)
-      const trace = existing ?? { order: toolTrace.size }
+      if (!('toolCallId' in part) || typeof part.toolCallId !== 'string') continue
 
-      if ('type' in part && part.type === 'tool-call' && 'input' in part) {
-        trace.input = part.input
+      const existing = toolCalls.get(part.toolCallId)
+      const trace = existing ?? { order: toolCalls.size }
+
+      if (part.type === 'tool-call') {
+        if ('input' in part) trace.input = part.input
+        if (message.role === 'assistant' && !tracedTimelineToolCallIds.has(part.toolCallId)) {
+          timelineParts.push({ kind: 'tool-call', toolCallId: part.toolCallId })
+          tracedTimelineToolCallIds.add(part.toolCallId)
+        }
       }
-      if ('type' in part && part.type === 'tool-result' && 'output' in part) {
+      if (part.type === 'tool-result' && 'output' in part) {
         trace.output = part.output
       }
 
-      toolTrace.set(part.toolCallId, trace)
+      toolCalls.set(part.toolCallId, trace)
     }
   }
 
-  return toolTrace
+  return { timelineParts, toolCalls }
+}
+
+function collectResponseMessageToolTrace(
+  responseMessages?: unknown[]
+): Map<string, ResponseMessageToolTrace> {
+  return collectResponseMessageTrace(responseMessages).toolCalls
+}
+
+export function buildAssistantResponseTimelineTrace(input: {
+  assistantMessages: readonly Message[]
+  textBlocksByAssistantMessageId: ReadonlyMap<string, readonly MessageTextBlockRecord[]>
+  toolCalls: readonly ToolCall[]
+}): AssistantResponseTimelineTraceSegment[] {
+  const segments: AssistantResponseTimelineTraceSegment[] = []
+  const assignedToolCallIds = new Set<string>()
+
+  for (let messageIndex = 0; messageIndex < input.assistantMessages.length; messageIndex += 1) {
+    const assistantMessage = input.assistantMessages[messageIndex]!
+    const resolvedTextBlocks = input.textBlocksByAssistantMessageId.get(assistantMessage.id) ?? []
+    const visibleTextBlockIds = new Set(resolvedTextBlocks.map((textBlock) => textBlock.id))
+    const persistedTextBlocks = assistantMessage.textBlocks ?? []
+    const segmentToolCalls = input.toolCalls.filter(
+      (toolCall) =>
+        toolCall.assistantMessageId === assistantMessage.id ||
+        (!toolCall.assistantMessageId && messageIndex === input.assistantMessages.length - 1)
+    )
+    const segmentToolCallIds = new Set(segmentToolCalls.map((toolCall) => toolCall.id))
+    const tracedTextBlockIds = new Set<string>()
+    const tracedToolCallIds = new Set<string>()
+    const tracedItems: AssistantResponseTimelineTraceItem[] = []
+    const responseTrace = collectResponseMessageTrace(assistantMessage.responseMessages)
+    let textBlockIndex = 0
+
+    for (const part of responseTrace.timelineParts) {
+      if (part.kind === 'text') {
+        const textBlock = persistedTextBlocks[textBlockIndex]
+        textBlockIndex += 1
+        if (
+          textBlock &&
+          visibleTextBlockIds.has(textBlock.id) &&
+          !tracedTextBlockIds.has(textBlock.id)
+        ) {
+          tracedItems.push({ kind: 'assistant-text-block', textBlockId: textBlock.id })
+          tracedTextBlockIds.add(textBlock.id)
+        }
+        continue
+      }
+
+      if (segmentToolCallIds.has(part.toolCallId) && !tracedToolCallIds.has(part.toolCallId)) {
+        tracedItems.push({ kind: 'tool-call', toolCallId: part.toolCallId })
+        tracedToolCallIds.add(part.toolCallId)
+        assignedToolCallIds.add(part.toolCallId)
+      }
+    }
+
+    for (const toolCall of segmentToolCalls) assignedToolCallIds.add(toolCall.id)
+
+    segments.push({
+      assistantMessageId: assistantMessage.id,
+      tracedItems,
+      fallbackTextBlockIds: resolvedTextBlocks
+        .filter((textBlock) => !tracedTextBlockIds.has(textBlock.id))
+        .map((textBlock) => textBlock.id),
+      fallbackToolCallIds: segmentToolCalls
+        .filter((toolCall) => !tracedToolCallIds.has(toolCall.id))
+        .map((toolCall) => toolCall.id)
+    })
+  }
+
+  const unassignedToolCallIds = input.toolCalls
+    .filter((toolCall) => !assignedToolCallIds.has(toolCall.id))
+    .map((toolCall) => toolCall.id)
+  if (unassignedToolCallIds.length > 0) {
+    segments.push({
+      tracedItems: [],
+      fallbackTextBlockIds: [],
+      fallbackToolCallIds: unassignedToolCallIds
+    })
+  }
+
+  return segments
 }
 
 export function getVisibleToolCallsForGroup(input: {
@@ -217,7 +326,12 @@ export function getVisibleToolCallsForGroup(input: {
       .map((branch) => branch.message.id)
   ])
   const responseMessageToolTrace = collectResponseMessageToolTrace(
-    activeAssistantMessage?.responseMessages
+    (input.group.activeAssistantMessages.length > 0
+      ? input.group.activeAssistantMessages
+      : activeAssistantMessage
+        ? [activeAssistantMessage]
+        : []
+    ).flatMap((message) => message.responseMessages ?? [])
   )
 
   return input.toolCalls

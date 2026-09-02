@@ -4,14 +4,13 @@ import { ChevronRight } from 'lucide-react'
 import { useT } from '@yachiyo/i18n/react'
 import type { ToolCall } from '@renderer/app/types'
 import { theme } from '@renderer/theme/theme'
-import { JsonTreeView } from './JsonTreeView.tsx'
-import { isValidJson } from '../lib/jsonTree/isValidJson.ts'
 import {
   buildToolCallDetailsPresentation,
-  buildToolCallRowSummary
+  buildToolCallRowSummary,
+  getToolCallDetailBlocks
 } from '../lib/tool-calls/toolCallPresentation.ts'
-import { ToolCodeBlock } from './ToolCodeBlock.tsx'
 import { AskUserInlineWidget } from './AskUserInlineWidget.tsx'
+import { ToolCallDetailsPanel } from './ToolCallDetailsPanel.tsx'
 
 interface ToolCallRowProps {
   toolCall: ToolCall
@@ -36,7 +35,7 @@ export function ToolCallRow({
 
   // askUser tool gets a dedicated inline widget
   if (toolCall.toolName === 'askUser') {
-    return <AskUserInlineWidget toolCall={toolCall} />
+    return <AskUserInlineWidget toolCall={toolCall} nested={nested} />
   }
 
   const isPreparing = toolCall.status === 'preparing'
@@ -50,10 +49,7 @@ export function ToolCallRow({
       : theme.status.success
   const presentation = buildToolCallDetailsPresentation(toolCall)
   const rowPaddingClass = nested ? 'px-0' : 'px-6'
-  const detailBlocks = [presentation.input, presentation.metadata, presentation.output].filter(
-    (block): block is NonNullable<typeof block> => Boolean(block?.value)
-  )
-  const hasExpandableDetails = detailBlocks.length > 0
+  const hasExpandableDetails = getToolCallDetailBlocks(presentation).length > 0
 
   const rowSummary = buildToolCallRowSummary(toolCall, workspacePath)
 
@@ -137,61 +133,14 @@ export function ToolCallRow({
         </span>
       </button>
 
-      {isExpanded && (
-        <div
+      {isExpanded ? (
+        <ToolCallDetailsPanel
           id={detailsId}
-          className={`mt-1 ml-3 flex flex-col gap-1.5 border-l pl-3 ${nested ? 'pr-0' : 'pr-6'} yachiyo-detail-reveal`}
-          style={{ borderColor: theme.border.panel }}
-        >
-          {detailBlocks.map((block) => (
-            <div key={`${block.label}:${block.value.slice(0, 32)}`}>
-              <div
-                style={{
-                  color: block.tone === 'danger' ? theme.text.danger : theme.text.placeholder,
-                  fontSize: '10px',
-                  letterSpacing: '0.04em',
-                  marginBottom: '4px',
-                  textTransform: 'uppercase'
-                }}
-              >
-                {block.label}
-              </div>
-              {block.label.startsWith('diff') ? (
-                <ToolCodeBlock value={block.value} filePath={block.filePath} variant="diff" />
-              ) : block.language && block.tone !== 'danger' ? (
-                <ToolCodeBlock
-                  value={block.value}
-                  filePath={block.filePath}
-                  language={block.language}
-                />
-              ) : isValidJson(block.value) && block.tone !== 'danger' ? (
-                <JsonTreeView value={block.value} />
-              ) : (
-                <pre
-                  className="message-selectable overflow-auto rounded-md px-3 py-2"
-                  style={{
-                    background:
-                      block.tone === 'danger'
-                        ? theme.background.dangerSoft
-                        : theme.background.codeBlock,
-                    border: block.tone === 'danger' ? 'none' : `1px solid ${theme.border.default}`,
-                    color: block.tone === 'danger' ? theme.text.dangerStrong : theme.text.secondary,
-                    fontFamily: "ui-monospace, 'SF Mono', Menlo, monospace",
-                    fontSize: '10.5px',
-                    lineHeight: 1.5,
-                    margin: 0,
-                    maxHeight: '160px',
-                    whiteSpace: 'pre-wrap',
-                    wordBreak: 'break-word'
-                  }}
-                >
-                  {block.value}
-                </pre>
-              )}
-            </div>
-          ))}
-        </div>
-      )}
+          presentation={presentation}
+          className="mt-1 ml-3"
+          nested={nested}
+        />
+      ) : null}
     </div>
   )
 }

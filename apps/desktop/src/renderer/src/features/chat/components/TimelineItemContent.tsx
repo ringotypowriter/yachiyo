@@ -38,6 +38,7 @@ import { RunMemoryRecallRow } from './RunMemoryRecallRow'
 import { ReplyBranchNavigation } from './ReplyBranchNavigation'
 import { ToolCallRow } from './ToolCallRow'
 import { ToolCallGroupRow } from './ToolCallGroupRow'
+import { InlineToolDeck } from './InlineToolDeck'
 import { ThinkingBlock } from './ThinkingBlock'
 import { AgentWorkSummaryRow } from './AgentWorkSummaryRow'
 import { MessageActionBar } from './MessageActionBar'
@@ -375,6 +376,15 @@ function renderTimelineItem(
     }
 
     return <ToolCallRow toolCall={item.toolCall} workspacePath={workspacePath} />
+  }
+  if (item.kind === 'group-tool-call-deck') {
+    return (
+      <InlineToolDeck
+        toolCalls={item.toolCalls}
+        workspacePath={workspacePath}
+        subagentFinishedResults={subagentFinishedResults}
+      />
+    )
   }
   if (item.kind === 'group-tool-call-group') {
     return (

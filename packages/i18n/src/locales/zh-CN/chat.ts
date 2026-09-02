@@ -271,6 +271,7 @@ export const chat = {
     },
     expandDetailsAria: '展开 {name} 详情',
     collapseDetailsAria: '收起 {name} 详情',
+    deckAria: '工具调用',
     waitingForToolCalls: '等待工具调用',
     askUserTypeAnswer: '输入你的回答…',
     askUserOrTypeAnswer: '或输入你的回答…',

@@ -413,6 +413,13 @@ export function buildToolCallDetailsPresentation(toolCall: ToolCall): ToolCallDe
       : {})
   }
 }
+export function getToolCallDetailBlocks(
+  presentation: ToolCallDetailsPresentation
+): ToolCallDetailCodeBlock[] {
+  return [presentation.input, presentation.metadata, presentation.output].filter(
+    (block): block is ToolCallDetailCodeBlock => Boolean(block?.value)
+  )
+}
 
 export function buildToolCallRowSummary(
   toolCall: ToolCall,

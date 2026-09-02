@@ -281,6 +281,7 @@ export const chat = {
     },
     expandDetailsAria: 'Expand {name} details',
     collapseDetailsAria: 'Collapse {name} details',
+    deckAria: 'Tool calls',
     waitingForToolCalls: 'Waiting for tool calls',
     askUserTypeAnswer: 'Type your answer...',
     askUserOrTypeAnswer: 'Or type your answer...',

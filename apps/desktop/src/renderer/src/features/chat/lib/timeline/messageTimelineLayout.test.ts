@@ -938,3 +938,139 @@ test('buildConversationGroupTimelineItems can expand an editing group to a newly
     }
   ])
 })
+
+test('tool deck mode follows persisted trace order and splits on non-empty assistant text', () => {
+  const items = buildConversationGroupTimelineItems({
+    hasMemoryRecall: false,
+    replyCount: 1,
+    showPreparing: false,
+    showGenerating: false,
+    toolCallDisplayMode: 'tool-deck',
+    activeAssistantTextBlocks: [
+      {
+        id: 'text-boundary',
+        content: 'Now checking the custom integration.',
+        createdAt: '2026-03-22T00:00:02.000Z'
+      }
+    ],
+    visibleToolCalls: [
+      {
+        id: 'tool-first-in-trace',
+        runId: 'run-1',
+        threadId: 'thread-1',
+        toolName: 'write',
+        status: 'completed',
+        inputSummary: 'first',
+        startedAt: '2026-03-22T00:00:04.000Z'
+      },
+      {
+        id: 'tool-second-in-trace',
+        runId: 'run-1',
+        threadId: 'thread-1',
+        toolName: 'read',
+        status: 'completed',
+        inputSummary: 'second',
+        startedAt: '2026-03-22T00:00:01.000Z'
+      },
+      {
+        id: 'tool-custom',
+        runId: 'run-1',
+        threadId: 'thread-1',
+        toolName: 'customImportedTool',
+        status: 'completed',
+        inputSummary: 'custom',
+        startedAt: '2026-03-22T00:00:03.000Z'
+      }
+    ],
+    sourceTrace: [
+      {
+        assistantMessageId: 'assistant-1',
+        tracedItems: [
+          { kind: 'tool-call', toolCallId: 'tool-first-in-trace' },
+          { kind: 'tool-call', toolCallId: 'tool-second-in-trace' },
+          { kind: 'assistant-text-block', textBlockId: 'text-boundary' },
+          { kind: 'tool-call', toolCallId: 'tool-custom' }
+        ],
+        fallbackTextBlockIds: [],
+        fallbackToolCallIds: []
+      }
+    ]
+  })
+
+  assert.deepEqual(items, [
+    {
+      kind: 'tool-call-deck',
+      key: 'tool-deck:tool-first-in-trace',
+      startedAt: '2026-03-22T00:00:04.000Z',
+      toolCallIds: ['tool-first-in-trace', 'tool-second-in-trace']
+    },
+    {
+      kind: 'assistant-text-block',
+      key: 'text-boundary',
+      textBlockId: 'text-boundary'
+    },
+    {
+      kind: 'tool-call-deck',
+      key: 'tool-deck:tool-custom',
+      startedAt: '2026-03-22T00:00:03.000Z',
+      toolCallIds: ['tool-custom']
+    }
+  ])
+})
+
+test('tool deck mode treats empty text as transparent and appends untraced live calls', () => {
+  const items = buildConversationGroupTimelineItems({
+    hasMemoryRecall: false,
+    replyCount: 1,
+    showPreparing: false,
+    showGenerating: false,
+    toolCallDisplayMode: 'tool-deck',
+    activeAssistantTextBlocks: [
+      {
+        id: 'text-empty',
+        content: '   ',
+        createdAt: '2026-03-22T00:00:02.000Z'
+      }
+    ],
+    visibleToolCalls: [
+      {
+        id: 'tool-traced',
+        runId: 'run-1',
+        threadId: 'thread-1',
+        toolName: 'read',
+        status: 'running',
+        inputSummary: 'traced',
+        startedAt: '2026-03-22T00:00:03.000Z'
+      },
+      {
+        id: 'tool-live',
+        runId: 'run-1',
+        threadId: 'thread-1',
+        toolName: 'bash',
+        status: 'preparing',
+        inputSummary: 'live',
+        startedAt: '2026-03-22T00:00:01.000Z'
+      }
+    ],
+    sourceTrace: [
+      {
+        assistantMessageId: 'assistant-1',
+        tracedItems: [
+          { kind: 'tool-call', toolCallId: 'tool-traced' },
+          { kind: 'assistant-text-block', textBlockId: 'text-empty' }
+        ],
+        fallbackTextBlockIds: [],
+        fallbackToolCallIds: ['tool-live']
+      }
+    ]
+  })
+
+  assert.deepEqual(items, [
+    {
+      kind: 'tool-call-deck',
+      key: 'tool-deck:tool-traced',
+      startedAt: '2026-03-22T00:00:03.000Z',
+      toolCallIds: ['tool-traced', 'tool-live']
+    }
+  ])
+})

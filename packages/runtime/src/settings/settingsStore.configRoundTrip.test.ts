@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import test from 'node:test'
 import {
+  DEFAULT_TOOL_CALL_DISPLAY_MODE,
   type BrowserBackedWebSearchSessionConfig,
   type ChatConfig,
   type ExaWebSearchConfig,
@@ -106,6 +107,60 @@ test('context time zone round-trips through TOML and rejects invalid zones', () 
     normalizeSettingsConfig({ providers: [], general: { contextTimeZone: 'Not/AZone' } }).general
       ?.contextTimeZone,
     ''
+  )
+})
+
+test('tool call display mode round-trips and migrates the legacy boolean', () => {
+  const workSummary = parseSettingsToml(`[general]
+toolCallDisplayMode = "work-summary"
+`)
+  assert.equal(workSummary.general?.toolCallDisplayMode, 'work-summary')
+
+  const toolDeck = parseSettingsToml(`[general]
+toolCallDisplayMode = "tool-deck"
+`)
+  assert.equal(toolDeck.general?.toolCallDisplayMode, 'tool-deck')
+
+  const serialized = stringifySettingsToml(toolDeck)
+  assert.match(serialized, /toolCallDisplayMode = "tool-deck"/)
+  assert.doesNotMatch(serialized, /workSummary/)
+  assert.equal(parseSettingsToml(serialized).general?.toolCallDisplayMode, 'tool-deck')
+
+  assert.equal(
+    parseSettingsToml('[general]\n').general?.toolCallDisplayMode,
+    DEFAULT_TOOL_CALL_DISPLAY_MODE
+  )
+  assert.equal(
+    parseSettingsToml(`[general]
+toolCallDisplayMode = "invalid"
+`).general?.toolCallDisplayMode,
+    DEFAULT_TOOL_CALL_DISPLAY_MODE
+  )
+  assert.equal(
+    parseSettingsToml(`[general]
+workSummary = false
+`).general?.toolCallDisplayMode,
+    'tool-deck'
+  )
+  assert.equal(
+    parseSettingsToml(`[general]
+workSummary = true
+`).general?.toolCallDisplayMode,
+    DEFAULT_TOOL_CALL_DISPLAY_MODE
+  )
+  assert.equal(
+    parseSettingsToml(`[general]
+workSummary = false
+toolCallDisplayMode = "work-summary"
+`).general?.toolCallDisplayMode,
+    'work-summary'
+  )
+  assert.equal(
+    parseSettingsToml(`[general]
+workSummary = false
+toolCallDisplayMode = "invalid"
+`).general?.toolCallDisplayMode,
+    DEFAULT_TOOL_CALL_DISPLAY_MODE
   )
 })
 
@@ -598,7 +653,7 @@ test('normalization preserves every GeneralConfig key', () => {
     sidebarVisibility: 'collapsed',
     language: 'zh-CN',
     sidebarPreview: false,
-    workSummary: false,
+    toolCallDisplayMode: 'tool-deck',
     uiFontSize: 16,
     chatFontSize: 18,
     chatPanelOpacity: 0.75,

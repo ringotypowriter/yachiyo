@@ -3,6 +3,7 @@ import {
   DEFAULT_STRIP_COMPACT_TOKEN_THRESHOLD,
   DEFAULT_THEME_APPEARANCE,
   DEFAULT_THEME_ID,
+  DEFAULT_TOOL_CALL_DISPLAY_MODE,
   DEFAULT_TOOL_MODEL_MODE,
   type SettingsConfig
 } from '@yachiyo/shared/protocol'
@@ -37,7 +38,21 @@ export const settingsTomlSlices: readonly TomlConfigSlice<SettingsConfig, TomlDo
     key: 'general',
     read(doc) {
       const general = readTomlTable(doc['general'])
-      return general ? { general: general as SettingsConfig['general'] } : {}
+      if (!general) return {}
+
+      const toolCallDisplayMode =
+        general['toolCallDisplayMode'] !== undefined
+          ? general['toolCallDisplayMode']
+          : general['workSummary'] === false
+            ? 'tool-deck'
+            : DEFAULT_TOOL_CALL_DISPLAY_MODE
+
+      return {
+        general: {
+          ...general,
+          toolCallDisplayMode
+        } as SettingsConfig['general']
+      }
     },
     write(config) {
       return {
@@ -46,7 +61,8 @@ export const settingsTomlSlices: readonly TomlConfigSlice<SettingsConfig, TomlDo
             config.general?.sidebarVisibility ?? DEFAULT_SETTINGS_CONFIG.general?.sidebarVisibility,
           language: config.general?.language ?? 'auto',
           sidebarPreview: config.general?.sidebarPreview !== false,
-          workSummary: config.general?.workSummary !== false,
+          toolCallDisplayMode:
+            config.general?.toolCallDisplayMode ?? DEFAULT_TOOL_CALL_DISPLAY_MODE,
           themeId: config.general?.themeId ?? DEFAULT_THEME_ID,
           themeAppearance: config.general?.themeAppearance ?? DEFAULT_THEME_APPEARANCE,
           demoMode: config.general?.demoMode === true,

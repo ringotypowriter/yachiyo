@@ -5,7 +5,8 @@ import type {
 } from '@renderer/app/types'
 import { t, tPlural } from '@yachiyo/i18n/index'
 import { resolveBashSemanticGroup } from '@yachiyo/shared/bashSemanticAnalyzer'
-
+import { DEFAULT_TOOL_CALL_DISPLAY_MODE, type ToolCallDisplayMode } from '@yachiyo/shared/protocol'
+import type { AssistantResponseTimelineTraceSegment } from './messageThreadPresentation.ts'
 export type ToolCallSemanticGroup =
   | 'search-sources'
   | 'read-sources'
@@ -372,6 +373,12 @@ export type ConversationGroupTimelineItem =
       group: ToolCallSemanticGroup
       toolCallIds: string[]
     }
+  | {
+      kind: 'tool-call-deck'
+      key: string
+      startedAt: string
+      toolCallIds: string[]
+    }
   | { kind: 'generating'; key: 'generating' }
   | { kind: 'preparing'; key: 'preparing' }
 
@@ -392,6 +399,87 @@ function compareTimelineEntries(
 
   return left.priority - right.priority
 }
+function buildChronologicalTimelineItems(input: {
+  activeAssistantTextBlocks: readonly MessageTextBlockRecord[]
+  visibleToolCalls: readonly ToolCall[]
+  sourceTrace?: readonly AssistantResponseTimelineTraceSegment[]
+}): ConversationGroupTimelineItem[] {
+  const textBlockById = new Map(
+    input.activeAssistantTextBlocks.map((textBlock) => [textBlock.id, textBlock])
+  )
+  const toolCallById = new Map(input.visibleToolCalls.map((toolCall) => [toolCall.id, toolCall]))
+  const emittedTextBlockIds = new Set<string>()
+  const emittedToolCallIds = new Set<string>()
+
+  const toTextBlockEntry = (textBlockId: string): ChronologicalTimelineEntry | null => {
+    const textBlock = textBlockById.get(textBlockId)
+    if (!textBlock || emittedTextBlockIds.has(textBlockId)) return null
+    emittedTextBlockIds.add(textBlockId)
+    return {
+      item: {
+        kind: 'assistant-text-block',
+        key: textBlock.id,
+        textBlockId: textBlock.id
+      },
+      time: textBlock.createdAt,
+      priority: 0
+    }
+  }
+  const toToolCallEntry = (toolCallId: string): ChronologicalTimelineEntry | null => {
+    const toolCall = toolCallById.get(toolCallId)
+    if (!toolCall || emittedToolCallIds.has(toolCallId)) return null
+    emittedToolCallIds.add(toolCallId)
+    return {
+      item: {
+        kind: 'tool-call',
+        key: toolCall.id,
+        toolCallId: toolCall.id
+      },
+      time: toolCall.startedAt,
+      priority: 1
+    }
+  }
+  const appendFallbackEntries = (
+    destination: ConversationGroupTimelineItem[],
+    textBlockIds: readonly string[],
+    toolCallIds: readonly string[]
+  ): void => {
+    const entries = [
+      ...textBlockIds
+        .map(toTextBlockEntry)
+        .filter((entry): entry is ChronologicalTimelineEntry => entry != null),
+      ...toolCallIds
+        .map(toToolCallEntry)
+        .filter((entry): entry is ChronologicalTimelineEntry => entry != null)
+    ]
+    destination.push(...entries.sort(compareTimelineEntries).map((entry) => entry.item))
+  }
+
+  const items: ConversationGroupTimelineItem[] = []
+  if (input.sourceTrace) {
+    for (const segment of input.sourceTrace) {
+      for (const tracedItem of segment.tracedItems) {
+        const entry =
+          tracedItem.kind === 'assistant-text-block'
+            ? toTextBlockEntry(tracedItem.textBlockId)
+            : toToolCallEntry(tracedItem.toolCallId)
+        if (entry) items.push(entry.item)
+      }
+      appendFallbackEntries(items, segment.fallbackTextBlockIds, segment.fallbackToolCallIds)
+    }
+  }
+
+  appendFallbackEntries(
+    items,
+    input.activeAssistantTextBlocks
+      .filter((textBlock) => !emittedTextBlockIds.has(textBlock.id))
+      .map((textBlock) => textBlock.id),
+    input.visibleToolCalls
+      .filter((toolCall) => !emittedToolCallIds.has(toolCall.id))
+      .map((toolCall) => toolCall.id)
+  )
+  return items
+}
 
 export function buildConversationGroupTimelineItems(input: {
   hasMemoryRecall: boolean
@@ -400,6 +488,8 @@ export function buildConversationGroupTimelineItems(input: {
   showGenerating: boolean
   activeAssistantTextBlocks: MessageTextBlockRecord[]
   visibleToolCalls: ToolCall[]
+  toolCallDisplayMode?: ToolCallDisplayMode
+  sourceTrace?: readonly AssistantResponseTimelineTraceSegment[]
 }): ConversationGroupTimelineItem[] {
   const items: ConversationGroupTimelineItem[] = []
 
@@ -407,37 +497,19 @@ export function buildConversationGroupTimelineItems(input: {
     items.push({ kind: 'memory-recall', key: 'memory-recall' })
   }
 
-  const filteredToolCalls = input.visibleToolCalls
-
-  const chronologicalEntries: ChronologicalTimelineEntry[] = []
-
-  for (const textBlock of input.activeAssistantTextBlocks) {
-    chronologicalEntries.push({
-      item: {
-        kind: 'assistant-text-block',
-        key: textBlock.id,
-        textBlockId: textBlock.id
-      },
-      time: textBlock.createdAt,
-      priority: 0
-    })
-  }
-
-  for (const toolCall of filteredToolCalls) {
-    chronologicalEntries.push({
-      item: {
-        kind: 'tool-call',
-        key: toolCall.id,
-        toolCallId: toolCall.id
-      },
-      time: toolCall.startedAt,
-      priority: 1
-    })
-  }
-
-  const sortedItems = chronologicalEntries.sort(compareTimelineEntries).map((entry) => entry.item)
-  const textBlockById = new Map(input.activeAssistantTextBlocks.map((tb) => [tb.id, tb]))
-  items.push(...mergeConsecutiveToolCalls(sortedItems, filteredToolCalls, textBlockById))
+  const chronologicalItems = buildChronologicalTimelineItems({
+    activeAssistantTextBlocks: input.activeAssistantTextBlocks,
+    visibleToolCalls: input.visibleToolCalls,
+    ...(input.sourceTrace ? { sourceTrace: input.sourceTrace } : {})
+  })
+  const textBlockById = new Map(
+    input.activeAssistantTextBlocks.map((textBlock) => [textBlock.id, textBlock])
+  )
+  items.push(
+    ...((input.toolCallDisplayMode ?? DEFAULT_TOOL_CALL_DISPLAY_MODE) === 'tool-deck'
+      ? mergeConsecutiveToolCallDecks(chronologicalItems, input.visibleToolCalls, textBlockById)
+      : mergeConsecutiveToolCalls(chronologicalItems, input.visibleToolCalls, textBlockById))
+  )
 
   if (input.showGenerating) {
     items.push({ kind: 'generating', key: 'generating' })
@@ -448,6 +520,48 @@ export function buildConversationGroupTimelineItems(input: {
   }
 
   return items
+}
+
+function mergeConsecutiveToolCallDecks(
+  items: ConversationGroupTimelineItem[],
+  toolCalls: ToolCall[],
+  textBlockById: Map<string, MessageTextBlockRecord>
+): ConversationGroupTimelineItem[] {
+  const toolCallById = new Map(toolCalls.map((toolCall) => [toolCall.id, toolCall]))
+  const result: ConversationGroupTimelineItem[] = []
+  let collectedToolCallIds: string[] = []
+
+  const flushDeck = (): void => {
+    if (collectedToolCallIds.length === 0) return
+    const firstToolCall = toolCallById.get(collectedToolCallIds[0]!)
+    if (firstToolCall) {
+      result.push({
+        kind: 'tool-call-deck',
+        key: `tool-deck:${firstToolCall.id}`,
+        startedAt: firstToolCall.startedAt,
+        toolCallIds: collectedToolCallIds
+      })
+    }
+    collectedToolCallIds = []
+  }
+
+  for (const item of items) {
+    if (item.kind === 'tool-call') {
+      if (toolCallById.has(item.toolCallId)) collectedToolCallIds.push(item.toolCallId)
+      continue
+    }
+
+    if (item.kind === 'assistant-text-block') {
+      const textBlock = textBlockById.get(item.textBlockId)
+      if (textBlock && !textBlock.content.trim()) continue
+    }
+
+    flushDeck()
+    result.push(item)
+  }
+
+  flushDeck()
+  return result
 }
 
 const MIN_GROUP_SIZE = 2

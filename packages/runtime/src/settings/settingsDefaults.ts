@@ -4,6 +4,7 @@ import {
   DEFAULT_STRIP_COMPACT_TOKEN_THRESHOLD,
   DEFAULT_THEME_APPEARANCE,
   DEFAULT_THEME_ID,
+  DEFAULT_TOOL_CALL_DISPLAY_MODE,
   DEFAULT_TOOL_MODEL_MODE,
   type SettingsConfig
 } from '@yachiyo/shared/protocol'
@@ -15,7 +16,7 @@ export const DEFAULT_SETTINGS_CONFIG: SettingsConfig = {
     sidebarVisibility: DEFAULT_SIDEBAR_VISIBILITY,
     language: 'auto',
     sidebarPreview: true,
-    workSummary: true,
+    toolCallDisplayMode: DEFAULT_TOOL_CALL_DISPLAY_MODE,
     themeId: DEFAULT_THEME_ID,
     themeAppearance: DEFAULT_THEME_APPEARANCE,
     demoMode: false,

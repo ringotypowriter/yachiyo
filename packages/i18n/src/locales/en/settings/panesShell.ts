@@ -92,10 +92,9 @@ export const ui = {
   messagePreviewLabel: 'Show message preview',
   messagePreviewDesc: 'Shows a preview line under each thread in the sidebar.',
   messagePreviewToggleAria: 'Toggle message preview in sidebar',
-  workSummaryLabel: 'Work Summary',
-  workSummaryDesc:
-    'Collapse completed tool activity into a compact summary above the final response.',
-  workSummaryToggleAria: 'Toggle Work Summary in conversations'
+  toolCallPresentationLabel: 'Tool call presentation',
+  toolCallPresentationWorkSummary: 'Work summary',
+  toolCallPresentationToolDeck: 'Tool deck'
 } as const
 
 export const behavior = {

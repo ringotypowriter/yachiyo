@@ -13,7 +13,11 @@ import {
   useWorkspaceFileLinkSnapshot
 } from '@renderer/lib/markdown/inlineCodeFileLinkSnapshot'
 import { useStableArray } from '@renderer/lib/useStableArray'
-import { getThreadCapabilities } from '@yachiyo/shared/protocol'
+import {
+  getThreadCapabilities,
+  normalizeToolCallDisplayMode,
+  type BrowserAutomationActivityBubbleState
+} from '@yachiyo/shared/protocol'
 import { TimelineScrollbar } from './TimelineScrollbar'
 import {
   buildMessageGroups,
@@ -37,7 +41,6 @@ import { resolveLegacySubagentIds } from './subagentIndicatorState'
 import { BrowserTimelineView } from './BrowserTimelineView'
 import type { MessageTimelineSurface } from './TimelineSurfaceHeader'
 import type { BrowserActivitySession } from '../lib/browser-activity/browserActivity'
-import type { BrowserAutomationActivityBubbleState } from '@yachiyo/shared/protocol'
 
 export type { MessageTimelineSurface } from './TimelineSurfaceHeader'
 
@@ -98,6 +101,7 @@ function estimateTimelineRowSize(item: MessageTimelineRow): number {
       return 56
     case 'group-tool-call':
     case 'group-tool-call-group':
+    case 'group-tool-call-deck':
       return 48
     case 'group-assistant-text-block':
       return Math.max(48, Math.ceil(item.textBlock.content.length / 80) * 22 + 16)
@@ -222,7 +226,7 @@ export function MessageTimeline({
     runPhase,
     scrollToMessageId,
     clearScrollToMessageId,
-    workSummaryEnabled
+    toolCallDisplayMode
   } = useAppStore(
     useShallow((state) => ({
       thread: threadId
@@ -265,7 +269,7 @@ export function MessageTimeline({
       runPhase: threadId ? (state.runPhasesByThread[threadId] ?? 'idle') : 'idle',
       scrollToMessageId: state.scrollToMessageId,
       clearScrollToMessageId: state.clearScrollToMessageId,
-      workSummaryEnabled: state.config?.general?.workSummary !== false
+      toolCallDisplayMode: normalizeToolCallDisplayMode(state.config?.general?.toolCallDisplayMode)
     }))
   )
   const scrollContainerRef = useRef<HTMLDivElement>(null)
@@ -356,7 +360,7 @@ export function MessageTimeline({
           contextHandoffWatermarkMessageId: thread?.contextHandoffWatermarkMessageId ?? null,
           contextHandoffSummary: thread?.contextHandoffSummary,
           expandedHandoffFoldKeys,
-          workSummaryEnabled
+          toolCallDisplayMode
         }),
       [
         messageGroups,
@@ -371,7 +375,7 @@ export function MessageTimeline({
         thread?.contextHandoffSummary,
         legacySubagentActive,
         expandedHandoffFoldKeys,
-        workSummaryEnabled
+        toolCallDisplayMode
       ]
     )
   )

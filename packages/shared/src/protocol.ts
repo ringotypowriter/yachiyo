@@ -1,4 +1,4 @@
-import type { AppLanguage, UpdateChannel } from './protocol/appPreferences.ts'
+import type { AppLanguage, ToolCallDisplayMode, UpdateChannel } from './protocol/appPreferences.ts'
 import type { ToolCallDetailsSnapshot } from './protocol/toolDetails.ts'
 import type { TodoItemRecord } from './protocol/events.ts'
 import type { ThingMentionResolution } from './protocol/things.ts'
@@ -794,7 +794,7 @@ export interface GeneralConfig {
   sidebarVisibility?: SidebarVisibility
   language?: AppLanguage
   sidebarPreview?: boolean
-  workSummary?: boolean
+  toolCallDisplayMode?: ToolCallDisplayMode
   themeId?: ThemeId
   themeAppearance?: ThemeAppearance
   uiFontSize?: number

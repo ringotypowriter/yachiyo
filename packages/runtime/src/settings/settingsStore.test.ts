@@ -10,6 +10,7 @@ import {
   DEFAULT_STRIP_COMPACT_TOKEN_THRESHOLD,
   DEFAULT_THEME_APPEARANCE,
   DEFAULT_THEME_ID,
+  DEFAULT_TOOL_CALL_DISPLAY_MODE,
   normalizeUserPrompts
 } from '@yachiyo/shared/protocol'
 import {
@@ -34,7 +35,7 @@ test('settings store persists multi-provider config as TOML', async () => {
       general: {
         sidebarVisibility: 'collapsed',
         sidebarPreview: true,
-        workSummary: true,
+        toolCallDisplayMode: 'tool-deck',
         themeId: DEFAULT_THEME_ID,
         themeAppearance: DEFAULT_THEME_APPEARANCE,
         demoMode: true,
@@ -128,7 +129,7 @@ test('settings store persists multi-provider config as TOML', async () => {
     assert.doesNotMatch(toml, /runMode = /)
     assert.match(toml, /\[general\]/)
     assert.match(toml, /sidebarVisibility = "collapsed"/)
-    assert.match(toml, /workSummary = true/)
+    assert.match(toml, /toolCallDisplayMode = "tool-deck"/)
     assert.match(toml, /themeId = "mizu"/)
     assert.match(toml, /themeAppearance = "system"/)
     assert.match(toml, /demoMode = true/)
@@ -975,7 +976,7 @@ test('normalizeSettingsConfig falls back to the default sidebar visibility', () 
     notifyRunCompleted: true,
     notifyCodingTaskStarted: true,
     sidebarPreview: true,
-    workSummary: true,
+    toolCallDisplayMode: DEFAULT_TOOL_CALL_DISPLAY_MODE,
     notifyCodingTaskFinished: true,
     translatorShortcut: 'CommandOrControl+Shift+T',
     jotdownShortcut: 'CommandOrControl+Shift+J',
@@ -996,7 +997,7 @@ test('normalizeSettingsConfig falls back to the default sidebar visibility', () 
       sidebarVisibility: DEFAULT_SIDEBAR_VISIBILITY,
       language: 'auto',
       sidebarPreview: true,
-      workSummary: true,
+      toolCallDisplayMode: DEFAULT_TOOL_CALL_DISPLAY_MODE,
       demoMode: false,
       preventSystemSleep: false,
       notifyRunCompleted: true,
@@ -1017,7 +1018,7 @@ test('normalizeSettingsConfig normalizes theme preferences', () => {
     sidebarVisibility: DEFAULT_SIDEBAR_VISIBILITY,
     language: 'auto',
     sidebarPreview: true,
-    workSummary: true,
+    toolCallDisplayMode: DEFAULT_TOOL_CALL_DISPLAY_MODE,
     demoMode: false,
     preventSystemSleep: false,
     notifyRunCompleted: true,

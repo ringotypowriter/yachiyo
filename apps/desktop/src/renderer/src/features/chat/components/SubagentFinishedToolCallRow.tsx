@@ -1,17 +1,8 @@
 import type React from 'react'
-import type { ToolCall } from '@renderer/app/types'
 import type { SubagentFinishedResult } from '@renderer/app/store/useAppStore'
-import { formatTokenCount } from '@renderer/lib/formatTokenCount'
 import { useT } from '@yachiyo/i18n/react'
+import { buildSubagentFinishedToolCall } from '../lib/tool-calls/subagentFinishedToolCall.ts'
 import { ToolCallRow } from './ToolCallRow'
-
-function formatSubagentResultDuration(durationMs?: number): string | null {
-  if (durationMs === undefined) return null
-  if (durationMs < 60_000) return `${(durationMs / 1000).toFixed(1)}s`
-  const minutes = Math.floor(durationMs / 60_000)
-  const seconds = Math.floor((durationMs % 60_000) / 1000)
-  return seconds > 0 ? `${minutes}m ${seconds}s` : `${minutes}m`
-}
 
 export function SubagentFinishedToolCallRow({
   result
@@ -19,26 +10,7 @@ export function SubagentFinishedToolCallRow({
   result: SubagentFinishedResult
 }): React.JSX.Element {
   const t = useT()
-  const duration = formatSubagentResultDuration(result.durationMs)
-  const tokenCount = (result.promptTokens ?? 0) + (result.completionTokens ?? 0)
-  const summaryParts = [
-    result.status === 'success'
-      ? t('chat.subagents.resultDone')
-      : t('chat.subagents.resultStopped'),
-    duration,
-    tokenCount > 0 ? t('chat.subagents.tokens', { count: formatTokenCount(tokenCount) }) : null
-  ].filter((part): part is string => Boolean(part))
-  const toolCall: ToolCall = {
-    id: result.delegationId,
-    threadId: 'subagent-result',
-    toolName: 'delegateTask',
-    status: result.status === 'success' ? 'completed' : 'failed',
-    inputSummary: result.codeName ?? result.agentName,
-    ...(summaryParts.length > 0 ? { outputSummary: summaryParts.join(' · ') } : {}),
-    ...(result.prompt ? { rawInput: result.prompt } : {}),
-    ...(result.lastMessage ? { rawOutput: result.lastMessage } : {}),
-    startedAt: new Date(0).toISOString()
-  }
+  const toolCall = buildSubagentFinishedToolCall(result, t)
 
   return <ToolCallRow toolCall={toolCall} />
 }

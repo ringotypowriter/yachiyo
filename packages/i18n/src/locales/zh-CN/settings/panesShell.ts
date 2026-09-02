@@ -92,9 +92,9 @@ export const ui = {
   messagePreviewLabel: '显示消息预览',
   messagePreviewDesc: '在侧边栏每个会话下方显示一行预览。',
   messagePreviewToggleAria: '切换侧边栏消息预览',
-  workSummaryLabel: '工作摘要',
-  workSummaryDesc: '将已完成的工具活动折叠为最终回复上方的紧凑摘要。',
-  workSummaryToggleAria: '切换对话中的工作摘要'
+  toolCallPresentationLabel: '工具调用展示',
+  toolCallPresentationWorkSummary: '工作摘要',
+  toolCallPresentationToolDeck: '工具面板'
 }
 
 export const behavior = {

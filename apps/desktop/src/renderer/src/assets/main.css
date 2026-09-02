@@ -1605,6 +1605,10 @@ body > div:not(#root) {
   .yachiyo-sidebar-run-preview-shimmer::after {
     display: none;
   }
+
+  .yachiyo-tool-deck-drawer {
+    animation: none;
+  }
 }
 
 /* Preparing bubble mount — scale + fade so the dots don't hard-pop */
@@ -1636,6 +1640,23 @@ body > div:not(#root) {
 
 .yachiyo-detail-reveal {
   animation: yachiyo-detail-reveal 150ms ease-out;
+}
+
+@keyframes yachiyo-tool-deck-drawer {
+  from {
+    max-width: 0;
+    opacity: 0;
+    transform: translateX(-4px);
+  }
+  to {
+    max-width: 70%;
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.yachiyo-tool-deck-drawer {
+  animation: yachiyo-tool-deck-drawer 160ms ease-out;
 }
 
 @keyframes yachiyo-work-summary-pack {

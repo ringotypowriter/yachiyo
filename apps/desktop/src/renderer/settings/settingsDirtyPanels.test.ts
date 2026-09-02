@@ -14,6 +14,7 @@ function baseConfig(): SettingsConfig {
     providers: [],
     general: {
       themeId: 'mizu',
+      toolCallDisplayMode: 'work-summary',
       updateChannel: 'stable',
       activityTracking: { mode: 'simple' },
       demoMode: false
@@ -47,6 +48,13 @@ test('reports no dirty panels before the config has loaded', () => {
 test('attributes a general appearance change to the general panel only', () => {
   const draftConfig = baseConfig()
   draftConfig.general!.uiFontSize = 16
+
+  assert.deepEqual([...getDirtySettingsPanels(input({ draftConfig }))], ['general'])
+})
+
+test('attributes tool call presentation changes to the general panel', () => {
+  const draftConfig = baseConfig()
+  draftConfig.general!.toolCallDisplayMode = 'tool-deck'
 
   assert.deepEqual([...getDirtySettingsPanels(input({ draftConfig }))], ['general'])
 })

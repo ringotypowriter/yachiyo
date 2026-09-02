@@ -9,6 +9,7 @@
 import type React from 'react'
 import { useEffect, useMemo, useRef } from 'react'
 import { useT } from '@yachiyo/i18n/react'
+import { normalizeToolCallDisplayMode, type ToolCallDisplayMode } from '@yachiyo/shared/protocol'
 import { useAppStore } from '@renderer/app/store/useAppStore'
 import { limitLoadedThreadData } from '@renderer/app/store/useAppStore/helpers'
 import type { Message, RunRecord, ToolCall } from '@renderer/app/types'
@@ -16,6 +17,7 @@ import { theme } from '@renderer/theme/theme'
 import { MessageMarkdown } from '@renderer/lib/markdown/MessageMarkdown'
 import type { MarkdownImageContextValue } from '@renderer/lib/markdown/MarkdownImage'
 import { AgentWorkSummaryRow } from './AgentWorkSummaryRow.tsx'
+import { InlineToolDeck } from './InlineToolDeck.tsx'
 import { buildWorkTrajectoryItems } from '../lib/timeline/messageTimelineRows.ts'
 import { getNativeScrollIntoViewOptions } from '../lib/timeline/messageTimelineScroll.ts'
 import { isVisibleTimelineMessage } from '../lib/timeline/messageThreadPresentation.ts'
@@ -48,10 +50,12 @@ function ExternalUserBubble({ message }: { message: Message }): React.JSX.Elemen
 function ExternalAssistantBubble({
   message,
   toolCalls,
+  toolCallDisplayMode,
   workspacePath
 }: {
   message: Message
   toolCalls: ToolCall[]
+  toolCallDisplayMode: ToolCallDisplayMode
   workspacePath?: string | null
 }): React.JSX.Element {
   const { content, modelLabel, standaloneModelLabel } = buildExternalAssistantPresentation(
@@ -85,14 +89,18 @@ function ExternalAssistantBubble({
   return (
     <div className="flex flex-col gap-0 px-0 py-1">
       {toolCalls.length > 0 ? (
-        <AgentWorkSummaryRow
-          items={workSummaryItems}
-          modelLabel={modelLabel}
-          requestMessageIds={[message.parentMessageId ?? message.id]}
-          runs={EMPTY_RUNS}
-          toolCalls={toolCalls}
-          workspacePath={workspacePath}
-        />
+        toolCallDisplayMode === 'work-summary' ? (
+          <AgentWorkSummaryRow
+            items={workSummaryItems}
+            modelLabel={modelLabel}
+            requestMessageIds={[message.parentMessageId ?? message.id]}
+            runs={EMPTY_RUNS}
+            toolCalls={toolCalls}
+            workspacePath={workspacePath}
+          />
+        ) : (
+          <InlineToolDeck toolCalls={toolCalls} workspacePath={workspacePath} />
+        )
       ) : null}
       {content.trim() ? (
         <div className="px-6">
@@ -139,6 +147,9 @@ export function ExternalThreadViewer({ threadId }: { threadId: string | null }):
   const scrollContainerRef = useRef<HTMLDivElement>(null)
 
   // On-demand load for external threads whose messages aren't in memory yet.
+  const toolCallDisplayMode = useAppStore((state) =>
+    normalizeToolCallDisplayMode(state.config?.general?.toolCallDisplayMode)
+  )
   useEffect(() => {
     if (!threadId) return
     if (messages.length > 0) return
@@ -227,6 +238,7 @@ export function ExternalThreadViewer({ threadId }: { threadId: string | null }):
           <ExternalAssistantBubble
             key={message.id}
             message={message}
+            toolCallDisplayMode={toolCallDisplayMode}
             workspacePath={workspacePath}
             toolCalls={toolCallsByRequestId.get(message.parentMessageId ?? '') ?? EMPTY_TOOL_CALLS}
           />

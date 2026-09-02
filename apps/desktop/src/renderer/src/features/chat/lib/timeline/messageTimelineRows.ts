@@ -5,6 +5,7 @@ import {
   type ToolCallSemanticGroup
 } from './messageTimelineLayout.ts'
 import {
+  buildAssistantResponseTimelineTrace,
   getVisibleToolCallsForGroup,
   isActiveRequestForGroup,
   type MessageGroup
@@ -20,6 +21,7 @@ import {
   PLAN_MODE_EXIT_PHRASE,
   PLAN_MODE_EXIT_TOOL_NAME
 } from '@yachiyo/shared/planMode'
+import { DEFAULT_TOOL_CALL_DISPLAY_MODE, type ToolCallDisplayMode } from '@yachiyo/shared/protocol'
 
 const TOOL_ONLY_WORK_SUMMARY_THRESHOLD = 5
 
@@ -110,6 +112,11 @@ export type MessageTimelineRow =
       toolCalls: ToolCall[]
     } & GroupTimelineRowBase)
   | ({
+      kind: 'group-tool-call-deck'
+      group: MessageGroup
+      toolCalls: ToolCall[]
+    } & GroupTimelineRowBase)
+  | ({
       kind: 'group-assistant-text-block'
       group: MessageGroup
       assistantMessage: Message
@@ -187,7 +194,7 @@ interface BuildConversationGroupRowsInput {
   activeRunId: string | null
   isActiveGroup: boolean
   subagentActive: boolean
-  workSummaryEnabled?: boolean
+  toolCallDisplayMode?: ToolCallDisplayMode
 }
 
 interface BuildMessageTimelineRowsInput {
@@ -203,7 +210,7 @@ interface BuildMessageTimelineRowsInput {
   contextHandoffWatermarkMessageId?: string | null
   contextHandoffSummary?: string
   expandedHandoffFoldKeys?: ReadonlySet<string>
-  workSummaryEnabled?: boolean
+  toolCallDisplayMode?: ToolCallDisplayMode
 }
 
 function compareBlocks(
@@ -433,7 +440,8 @@ export function buildWorkTrajectoryItems(input: {
     showPreparing: false,
     showGenerating: false,
     activeAssistantTextBlocks: [...input.textBlocks],
-    visibleToolCalls: [...input.toolCalls]
+    visibleToolCalls: [...input.toolCalls],
+    toolCallDisplayMode: 'work-summary'
   })
   const textBlockById = new Map(input.textBlocks.map((textBlock) => [textBlock.id, textBlock]))
   const toolCallById = new Map(input.toolCalls.map((toolCall) => [toolCall.id, toolCall]))
@@ -600,6 +608,7 @@ export function buildConversationGroupRows(
       : null
 
   const assistantMessageByTextBlockId = new Map<string, Message>()
+  const textBlocksByAssistantMessageId = new Map<string, MessageTextBlockRecord[]>()
   const activeAssistantTextBlocks: MessageTextBlockRecord[] = (() => {
     if (activeAssistantMessages.length === 0 || group.hideActiveBranchWhilePreparing) return []
 
@@ -608,16 +617,23 @@ export function buildConversationGroupRows(
       // Once the plan document has been persisted via exitPlanMode, the timeline should render
       // the dedicated plan document card instead of duplicating the plan markdown as a normal
       // assistant bubble.
-      if (hasCompletedPlanExitToolCall && isPlanDocumentMessage(assistantMessage.content)) {
-        continue
-      }
-      for (const textBlock of resolveAssistantTextBlocks(assistantMessage)) {
+      const resolvedTextBlocks =
+        hasCompletedPlanExitToolCall && isPlanDocumentMessage(assistantMessage.content)
+          ? []
+          : resolveAssistantTextBlocks(assistantMessage)
+      textBlocksByAssistantMessageId.set(assistantMessage.id, resolvedTextBlocks)
+      for (const textBlock of resolvedTextBlocks) {
         assistantMessageByTextBlockId.set(textBlock.id, assistantMessage)
         textBlocks.push(textBlock)
       }
     }
     return textBlocks
   })()
+  const sourceTrace = buildAssistantResponseTimelineTrace({
+    assistantMessages: activeAssistantMessages,
+    textBlocksByAssistantMessageId,
+    toolCalls: visibleToolCalls
+  })
 
   const hasRunningToolCall = visibleToolCalls.some(
     (toolCall) => toolCall.status === 'preparing' || toolCall.status === 'running'
@@ -642,7 +658,7 @@ export function buildConversationGroupRows(
     renderableTextBlocks.length === 0 &&
     workSummaryToolCalls.length > TOOL_ONLY_WORK_SUMMARY_THRESHOLD
   const shouldSummarizeCompletedWork =
-    input.workSummaryEnabled !== false &&
+    (input.toolCallDisplayMode ?? DEFAULT_TOOL_CALL_DISPLAY_MODE) === 'work-summary' &&
     activeAssistantMessage != null &&
     activeAssistantMessage.status === 'completed' &&
     workSummaryToolCalls.every(
@@ -747,7 +763,9 @@ export function buildConversationGroupRows(
         ? [summarizedFinalTextBlock]
         : []
       : activeAssistantTextBlocks,
-    visibleToolCalls: shouldSummarizeCompletedWork ? [] : visibleToolCalls
+    visibleToolCalls: shouldSummarizeCompletedWork ? [] : visibleToolCalls,
+    toolCallDisplayMode: input.toolCallDisplayMode ?? DEFAULT_TOOL_CALL_DISPLAY_MODE,
+    sourceTrace
   })
 
   const textBlocksById = new Map(
@@ -808,6 +826,26 @@ export function buildConversationGroupRows(
       })
       continue
     }
+    if (item.kind === 'tool-call-deck') {
+      const toolCalls = item.toolCallIds
+        .map((id) => visibleToolCalls.find((entry) => entry.id === id))
+        .filter((toolCall): toolCall is ToolCall => toolCall != null)
+      if (toolCalls.length === 0) continue
+      rows.push({
+        kind: 'group-tool-call-deck',
+        key: item.key,
+        time: item.startedAt,
+        requestMessageId,
+        ...(toolCalls[0]?.assistantMessageId
+          ? { assistantMessageId: toolCalls[0].assistantMessageId }
+          : activeAssistantMessage
+            ? { assistantMessageId: activeAssistantMessage.id }
+            : {}),
+        group,
+        toolCalls
+      })
+      continue
+    }
 
     if (item.kind === 'assistant-text-block' && activeAssistantMessage) {
       const textBlock = textBlocksById.get(item.textBlockId)
@@ -821,7 +859,7 @@ export function buildConversationGroupRows(
           ? visibleToolCalls.find((entry) => entry.id === nextItem.toolCallId)
           : null
       const nextGroupHasRunning =
-        nextItem?.kind === 'tool-call-group' &&
+        (nextItem?.kind === 'tool-call-group' || nextItem?.kind === 'tool-call-deck') &&
         nextItem.toolCallIds.some((id) => {
           const status = visibleToolCalls.find((entry) => entry.id === id)?.status
           return status === 'preparing' || status === 'running'
@@ -942,7 +980,7 @@ export function buildMessageTimelineRows(
           activeRunId: input.activeRunId,
           isActiveGroup,
           subagentActive: input.subagentActive && isActiveGroup,
-          workSummaryEnabled: input.workSummaryEnabled
+          toolCallDisplayMode: input.toolCallDisplayMode
         })
       }
     }),

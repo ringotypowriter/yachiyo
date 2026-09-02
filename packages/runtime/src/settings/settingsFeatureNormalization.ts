@@ -3,6 +3,7 @@ import {
   DEFAULT_STRIP_COMPACT_TOKEN_THRESHOLD,
   normalizeActiveRunEnterBehavior,
   normalizeSidebarVisibility,
+  normalizeToolCallDisplayMode,
   normalizeThemeAppearance,
   normalizeThemeId,
   type ActivityTrackingConfig,
@@ -55,7 +56,7 @@ export function normalizeGeneralConfig(value: unknown): GeneralConfig {
       DEFAULT_SETTINGS_CONFIG.general?.sidebarVisibility
     ),
     sidebarPreview: normalizeOptionalBool(input['sidebarPreview'], true),
-    workSummary: normalizeOptionalBool(input['workSummary'], true),
+    toolCallDisplayMode: normalizeToolCallDisplayMode(input['toolCallDisplayMode']),
     themeId: normalizeThemeId(input['themeId'], DEFAULT_SETTINGS_CONFIG.general?.themeId),
     themeAppearance: normalizeThemeAppearance(
       input['themeAppearance'],

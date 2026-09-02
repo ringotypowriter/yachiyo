@@ -8,12 +8,16 @@ import { theme } from '@renderer/theme/theme'
 
 interface AskUserInlineWidgetProps {
   toolCall: ToolCall
+  nested?: boolean
 }
 
 /** Up to this many choices render as a stacked list; more switch to wrapping chips. */
 const STACKED_CHOICES_LIMIT = 4
 
-export function AskUserInlineWidget({ toolCall }: AskUserInlineWidgetProps): React.JSX.Element {
+export function AskUserInlineWidget({
+  toolCall,
+  nested = false
+}: AskUserInlineWidgetProps): React.JSX.Element {
   const t = useT()
   const details = toolCall.details as AskUserToolCallDetails | undefined
   const isWaiting = toolCall.status === 'waiting-for-user'
@@ -61,7 +65,7 @@ export function AskUserInlineWidget({ toolCall }: AskUserInlineWidgetProps): Rea
   if (!isWaiting) {
     return (
       <div
-        className="flex flex-wrap items-center gap-1.5 px-6 py-0.5"
+        className={`flex flex-wrap items-center gap-1.5 ${nested ? 'px-0' : 'px-6'} py-0.5`}
         style={{ fontSize: '11px', color: theme.text.muted }}
       >
         <MessageCircleQuestion
@@ -79,7 +83,7 @@ export function AskUserInlineWidget({ toolCall }: AskUserInlineWidgetProps): Rea
   // Waiting state: accent card with question + input
   const hasInput = input.trim().length > 0
   return (
-    <div className="px-6 py-1.5">
+    <div className={`${nested ? 'px-0' : 'px-6'} py-1.5`}>
       <div
         className="flex flex-col gap-3 rounded-lg px-4 py-3.5"
         style={{

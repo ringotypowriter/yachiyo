@@ -1,5 +1,6 @@
 import {
   DEFAULT_SIDEBAR_VISIBILITY,
+  DEFAULT_TOOL_CALL_DISPLAY_MODE,
   DEFAULT_THEME_APPEARANCE,
   DEFAULT_THEME_ID
 } from '@yachiyo/shared/protocol'
@@ -7,6 +8,7 @@ import type {
   AppLanguage,
   SettingsConfig,
   ThemeAppearance,
+  ToolCallDisplayMode,
   ThemeId
 } from '@yachiyo/shared/protocol'
 import { useT } from '@yachiyo/i18n/react'
@@ -384,18 +386,27 @@ export function UIPane({ draft, onChange }: UIPaneProps): React.ReactNode {
         />
 
         <SettingItem
-          label={t('settings.ui.workSummaryLabel')}
-          description={t('settings.ui.workSummaryDesc')}
+          label={t('settings.ui.toolCallPresentationLabel')}
           control={
-            <SettingSwitch
-              checked={draft.general?.workSummary !== false}
-              onChange={() =>
+            <SimpleSelect<ToolCallDisplayMode>
+              value={draft.general?.toolCallDisplayMode ?? DEFAULT_TOOL_CALL_DISPLAY_MODE}
+              options={[
+                {
+                  value: 'work-summary',
+                  label: t('settings.ui.toolCallPresentationWorkSummary')
+                },
+                {
+                  value: 'tool-deck',
+                  label: t('settings.ui.toolCallPresentationToolDeck')
+                }
+              ]}
+              width={160}
+              onChange={(toolCallDisplayMode) =>
                 onChange({
                   ...draft,
-                  general: { ...draft.general, workSummary: draft.general?.workSummary === false }
+                  general: { ...draft.general, toolCallDisplayMode }
                 })
               }
-              ariaLabel={t('settings.ui.workSummaryToggleAria')}
             />
           }
         />

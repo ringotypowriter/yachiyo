@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import {
+  buildAssistantResponseTimelineTrace,
   buildMessageGroups,
   getRootAssistantMessages,
   getVisibleToolCallsForGroup,
@@ -1230,4 +1231,112 @@ test('getVisibleToolCallsForGroup keeps request-only tool calls visible for a st
     toolCalls.map((toolCall) => toolCall.id),
     ['tool-cancelled']
   )
+})
+
+test('buildAssistantResponseTimelineTrace pairs persisted text blocks with source text parts', () => {
+  const assistantMessage = {
+    id: 'assistant-trace',
+    threadId: 'thread-1',
+    role: 'assistant' as const,
+    content: 'Before tool.After tool.',
+    status: 'completed' as const,
+    createdAt: '2026-03-15T00:00:05.000Z',
+    textBlocks: [
+      {
+        id: 'text-before',
+        content: 'Before tool.',
+        createdAt: '2026-03-15T00:00:01.000Z'
+      },
+      {
+        id: 'text-after',
+        content: 'After tool.',
+        createdAt: '2026-03-15T00:00:04.000Z'
+      }
+    ],
+    responseMessages: [
+      {
+        role: 'assistant',
+        content: [
+          { type: 'text', text: 'Before tool.' },
+          { type: 'reasoning', text: 'Internal reasoning' },
+          {
+            type: 'tool-call',
+            toolCallId: 'tool-first-in-source',
+            toolName: 'write',
+            input: {}
+          }
+        ]
+      },
+      {
+        role: 'tool',
+        content: [
+          {
+            type: 'tool-result',
+            toolCallId: 'tool-first-in-source',
+            toolName: 'write',
+            output: { type: 'text', value: 'done' }
+          }
+        ]
+      },
+      {
+        role: 'assistant',
+        content: [
+          { type: 'text', text: 'After tool.' },
+          {
+            type: 'tool-call',
+            toolCallId: 'tool-last-in-source',
+            toolName: 'read',
+            input: {}
+          },
+          {
+            type: 'tool-call',
+            toolCallId: 'tool-not-visible',
+            toolName: 'custom',
+            input: {}
+          }
+        ]
+      }
+    ]
+  }
+
+  const segments = buildAssistantResponseTimelineTrace({
+    assistantMessages: [assistantMessage],
+    textBlocksByAssistantMessageId: new Map([['assistant-trace', assistantMessage.textBlocks]]),
+    toolCalls: [
+      {
+        id: 'tool-last-in-source',
+        runId: 'run-1',
+        threadId: 'thread-1',
+        assistantMessageId: 'assistant-trace',
+        toolName: 'read',
+        status: 'completed',
+        inputSummary: 'last',
+        startedAt: '2026-03-15T00:00:01.000Z'
+      },
+      {
+        id: 'tool-first-in-source',
+        runId: 'run-1',
+        threadId: 'thread-1',
+        assistantMessageId: 'assistant-trace',
+        toolName: 'write',
+        status: 'completed',
+        inputSummary: 'first',
+        startedAt: '2026-03-15T00:00:03.000Z'
+      }
+    ]
+  })
+
+  assert.deepEqual(segments, [
+    {
+      assistantMessageId: 'assistant-trace',
+      tracedItems: [
+        { kind: 'assistant-text-block', textBlockId: 'text-before' },
+        { kind: 'tool-call', toolCallId: 'tool-first-in-source' },
+        { kind: 'assistant-text-block', textBlockId: 'text-after' },
+        { kind: 'tool-call', toolCallId: 'tool-last-in-source' }
+      ],
+      fallbackTextBlockIds: [],
+      fallbackToolCallIds: []
+    }
+  ])
 })

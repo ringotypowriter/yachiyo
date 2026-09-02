@@ -39,7 +39,7 @@ const GENERAL_KEYS_BY_PANEL: Partial<Record<SettingsPanelId, readonly (keyof Gen
     'sidebarVisibility',
     'language',
     'sidebarPreview',
-    'workSummary',
+    'toolCallDisplayMode',
     'themeId',
     'themeAppearance',
     'uiFontSize',

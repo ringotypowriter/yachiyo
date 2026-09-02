@@ -32,6 +32,7 @@ function createAssistantMessage(input: {
   textBlocks?: MessageTextBlockRecord[]
   visibleReply?: string
   modelId?: string
+  responseMessages?: unknown[]
 }): Message {
   return {
     id: input.id,
@@ -44,7 +45,8 @@ function createAssistantMessage(input: {
     ...(input.reasoning ? { reasoning: input.reasoning } : {}),
     ...(input.textBlocks ? { textBlocks: input.textBlocks } : {}),
     ...(input.visibleReply !== undefined ? { visibleReply: input.visibleReply } : {}),
-    ...(input.modelId !== undefined ? { modelId: input.modelId } : {})
+    ...(input.modelId !== undefined ? { modelId: input.modelId } : {}),
+    ...(input.responseMessages ? { responseMessages: input.responseMessages } : {})
   }
 }
 
@@ -1172,7 +1174,7 @@ test('buildConversationGroupRows keeps failed responses visible instead of packa
   ])
 })
 
-test('buildConversationGroupRows keeps completed work expanded when work summary is disabled', () => {
+test('buildConversationGroupRows renders completed work as a deck in tool deck mode', () => {
   const group = createGroup({
     activeAssistant: createAssistantMessage({
       id: 'assistant-1',
@@ -1212,16 +1214,134 @@ test('buildConversationGroupRows keeps completed work expanded when work summary
     activeRunId: null,
     isActiveGroup: false,
     subagentActive: false,
-    workSummaryEnabled: false
+    toolCallDisplayMode: 'tool-deck'
   })
 
   assert.deepEqual(rowKinds(rows), [
     'group-user',
     'group-assistant-text-block',
-    'group-tool-call',
+    'group-tool-call-deck',
     'group-assistant-text-block',
     'group-footer'
   ])
+})
+
+test('buildConversationGroupRows creates separate completed decks around assistant text', () => {
+  const group = createGroup({
+    activeAssistant: createAssistantMessage({
+      id: 'assistant-decks',
+      content: 'A text boundary',
+      status: 'completed',
+      textBlocks: [
+        {
+          id: 'text-boundary',
+          content: 'A text boundary',
+          createdAt: '2026-04-18T00:00:02.000Z'
+        }
+      ],
+      responseMessages: [
+        {
+          role: 'assistant',
+          content: [
+            { type: 'tool-call', toolCallId: 'tool-before', toolName: 'read', input: {} },
+            { type: 'text', text: 'A text boundary' },
+            { type: 'tool-call', toolCallId: 'tool-after', toolName: 'write', input: {} }
+          ]
+        }
+      ]
+    })
+  })
+
+  const rows = buildConversationGroupRows({
+    group,
+    inlineToolCalls: [
+      {
+        id: 'tool-after',
+        runId: 'run-1',
+        threadId: 'thread-1',
+        requestMessageId: 'user-1',
+        assistantMessageId: 'assistant-decks',
+        toolName: 'write',
+        status: 'completed',
+        inputSummary: 'after.ts',
+        startedAt: '2026-04-18T00:00:01.000Z'
+      },
+      {
+        id: 'tool-before',
+        runId: 'run-1',
+        threadId: 'thread-1',
+        requestMessageId: 'user-1',
+        assistantMessageId: 'assistant-decks',
+        toolName: 'read',
+        status: 'completed',
+        inputSummary: 'before.ts',
+        startedAt: '2026-04-18T00:00:03.000Z'
+      }
+    ],
+    runs: [],
+    activeRunId: null,
+    isActiveGroup: false,
+    subagentActive: false,
+    toolCallDisplayMode: 'tool-deck'
+  })
+
+  assert.deepEqual(rowKinds(rows), [
+    'group-user',
+    'group-tool-call-deck',
+    'group-assistant-text-block',
+    'group-tool-call-deck',
+    'group-footer'
+  ])
+  assert.equal(
+    rows.some((row) => row.kind === 'group-work-summary'),
+    false
+  )
+  assert.deepEqual(
+    rows
+      .filter((row) => row.kind === 'group-tool-call-deck')
+      .map((row) => row.toolCalls.map((toolCall) => toolCall.id)),
+    [['tool-before'], ['tool-after']]
+  )
+})
+
+test('buildConversationGroupRows renders a live running call inside a deck', () => {
+  const group = createGroup({
+    activeAssistant: createAssistantMessage({
+      id: 'assistant-live-deck',
+      content: '',
+      status: 'streaming',
+      textBlocks: []
+    })
+  })
+
+  const rows = buildConversationGroupRows({
+    group,
+    inlineToolCalls: [
+      {
+        id: 'tool-live',
+        runId: 'run-live',
+        threadId: 'thread-1',
+        requestMessageId: 'user-1',
+        assistantMessageId: 'assistant-live-deck',
+        toolName: 'bash',
+        status: 'running',
+        inputSummary: 'pnpm typecheck',
+        startedAt: '2026-04-18T00:00:01.000Z'
+      }
+    ],
+    runs: [],
+    activeRunId: 'run-live',
+    isActiveGroup: true,
+    subagentActive: false,
+    toolCallDisplayMode: 'tool-deck'
+  })
+
+  assert.deepEqual(rowKinds(rows), ['group-user', 'group-tool-call-deck'])
+  const deck = rows.find((row) => row.kind === 'group-tool-call-deck')
+  assert.deepEqual(
+    deck?.toolCalls.map((toolCall) => toolCall.id),
+    ['tool-live']
+  )
 })
 
 test('buildMessageTimelineRows keeps only the latest plan document row', () => {
@@ -1287,12 +1407,14 @@ test('buildMessageTimelineRows keeps only the latest plan document row', () => {
     runs: [],
     activeRunId: null,
     activeRequestMessageId: null,
-    subagentActive: false
+    subagentActive: false,
+    toolCallDisplayMode: 'tool-deck'
   })
 
   const planRows = rows.filter((row) => row.kind === 'group-plan-document')
   assert.equal(planRows.length, 1)
   assert.equal(planRows[0]?.assistantMessageId, 'assistant-plan-2')
+  assert.equal(rows.filter((row) => row.kind === 'group-tool-call-deck').length, 2)
 })
 
 test('buildConversationGroupRows does not duplicate plan markdown when exitPlanMode has completed', () => {
