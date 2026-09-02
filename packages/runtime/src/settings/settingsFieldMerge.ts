@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto'
+
 import type { SettingsConfig, SyncSettingsFieldDiff } from '@yachiyo/shared/protocol'
 import { stripProviderCredentials } from './providerCredentialConfig.ts'
 
@@ -71,23 +73,52 @@ function display(value: unknown): string | null {
   return json.length > MAX_DISPLAY ? `${json.slice(0, MAX_DISPLAY - 1)}…` : json
 }
 
-/** Leaf fields whose values differ between the two configs. */
-export function diffSettings(
+export interface SettingsFieldDifference extends SyncSettingsFieldDiff {
+  localFingerprint: string
+  remoteFingerprint: string
+}
+
+function fingerprint(value: unknown): string {
+  return createHash('sha256').update(stableStringify(value)).digest('hex')
+}
+
+/** Leaf fields whose values differ, including full-value fingerprints for resolution memory. */
+export function diffSettingsForResolution(
   local: SettingsConfig,
   remote: SettingsConfig
-): SyncSettingsFieldDiff[] {
+): SettingsFieldDifference[] {
   const localFields = flattenConfig(local)
   const remoteFields = flattenConfig(remote)
   const paths = new Set([...localFields.keys(), ...remoteFields.keys()])
-  const diffs: SyncSettingsFieldDiff[] = []
+  const diffs: SettingsFieldDifference[] = []
   for (const path of [...paths].sort()) {
     if (isLocalOnlySettingPath(path)) continue
     const localValue = localFields.get(path)
     const remoteValue = remoteFields.get(path)
     if (stableStringify(localValue) === stableStringify(remoteValue)) continue
-    diffs.push({ path, localValue: display(localValue), remoteValue: display(remoteValue) })
+    diffs.push({
+      path,
+      localValue: display(localValue),
+      remoteValue: display(remoteValue),
+      localFingerprint: fingerprint(localValue),
+      remoteFingerprint: fingerprint(remoteValue)
+    })
   }
   return diffs
+}
+
+/** Leaf fields whose values differ between the two configs. */
+export function diffSettings(
+  local: SettingsConfig,
+  remote: SettingsConfig
+): SyncSettingsFieldDiff[] {
+  return diffSettingsForResolution(local, remote).map(
+    ({ path, localValue, remoteValue }): SyncSettingsFieldDiff => ({
+      path,
+      localValue,
+      remoteValue
+    })
+  )
 }
 
 function setByPath(target: Record<string, unknown>, path: string, value: unknown): void {

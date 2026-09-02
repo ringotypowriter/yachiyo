@@ -163,8 +163,11 @@ import {
   parseSettingsToml,
   toEffectiveProviderSettings
 } from '../../settings/settingsStore.ts'
-import { diffSettings, mergeSettings } from '../../settings/settingsFieldMerge.ts'
-import { decideSettingsConflict } from '../../services/settingsConflictReconcile.ts'
+import { diffSettingsForResolution, mergeSettings } from '../../settings/settingsFieldMerge.ts'
+import {
+  decideSettingsConflict,
+  partitionRememberedSettingsFields
+} from '../../services/settingsConflictReconcile.ts'
 import type { JotdownStore } from '../../services/jotdownStore.ts'
 import type { YachiyoStorage } from '../../storage/storage.ts'
 import { resolveSyncReadiness as resolveHostSyncReadiness } from './syncReadiness.ts'
@@ -997,16 +1000,37 @@ export class YachiyoServer {
         remoteHash: conflict.remoteHash
       })
       const decision = decideSettingsConflict(conflict, remembered)
-      if (decision === 'prompt') continue
       if (decision === 'apply-remote') {
         const remote = this.parseConflictRemoteSettings(conflict)
         if (remote) {
           this.configDomain.applySyncedConfig(remote)
-          // We now sit on the remote version; move sync-core's baseline with us.
           this.storage.rememberSyncSettingsBaseHash(conflict.remoteHash)
         }
+        this.storage.deleteSyncConflict(conflict.id)
+        continue
       }
-      // Drop the duplicate; the user's original resolved row stays as the memory.
+      if (decision === 'drop') {
+        if (conflict.entityType === 'settings' && conflict.localHash !== conflict.remoteHash) {
+          this.storage.rememberSyncSettingsBaseHash(conflict.remoteHash)
+        }
+        this.storage.deleteSyncConflict(conflict.id)
+        continue
+      }
+      if (conflict.entityType !== 'settings') continue
+
+      const remote = this.parseConflictRemoteSettings(conflict)
+      if (!remote) continue
+      const local = this.configDomain.getConfig()
+      const fields = diffSettingsForResolution(local, remote)
+      const { rememberedSelections, unresolvedFields } = partitionRememberedSettingsFields(
+        fields,
+        this.storage.listRememberedSettingsFieldResolutions()
+      )
+      if (unresolvedFields.length > 0) continue
+      if (Object.values(rememberedSelections).includes('remote')) {
+        this.configDomain.applySyncedConfig(mergeSettings(local, remote, rememberedSelections))
+      }
+      this.storage.rememberSyncSettingsBaseHash(conflict.remoteHash)
       this.storage.deleteSyncConflict(conflict.id)
     }
   }
@@ -1023,7 +1047,18 @@ export class YachiyoServer {
     if (conflict.entityType !== 'settings') return conflict
     const remote = this.parseConflictRemoteSettings(conflict)
     if (!remote) return conflict
-    return { ...conflict, settingsFields: diffSettings(this.configDomain.getConfig(), remote) }
+    const { unresolvedFields } = partitionRememberedSettingsFields(
+      diffSettingsForResolution(this.configDomain.getConfig(), remote),
+      this.storage.listRememberedSettingsFieldResolutions()
+    )
+    return {
+      ...conflict,
+      settingsFields: unresolvedFields.map(({ path, localValue, remoteValue }) => ({
+        path,
+        localValue,
+        remoteValue
+      }))
+    }
   }
 
   private parseConflictRemoteSettings(conflict: SyncConflictRecord): SettingsConfig | null {
@@ -1067,24 +1102,41 @@ export class YachiyoServer {
       return this.listSyncConflicts()
     }
 
+    const remote = this.parseConflictRemoteSettings(conflict)
+    const local = this.configDomain.getConfig()
+    const fields = remote ? diffSettingsForResolution(local, remote) : []
+    const { rememberedSelections } = partitionRememberedSettingsFields(
+      fields,
+      this.storage.listRememberedSettingsFieldResolutions()
+    )
+    const fieldSelections =
+      input.resolution === 'use_remote'
+        ? Object.fromEntries(fields.map((field) => [field.path, 'remote' as const]))
+        : input.resolution === 'keep_local'
+          ? Object.fromEntries(fields.map((field) => [field.path, 'local' as const]))
+          : { ...rememberedSelections, ...input.fieldSelections }
+
     if (input.resolution === 'use_remote' || input.resolution === 'merge') {
-      const remote = this.parseConflictRemoteSettings(conflict)
       if (!remote) {
         throw new Error('Synced settings payload is invalid.')
       }
       const nextConfig =
         input.resolution === 'merge'
-          ? normalizeSettingsConfig(
-              mergeSettings(this.configDomain.getConfig(), remote, input.fieldSelections ?? {})
-            )
+          ? normalizeSettingsConfig(mergeSettings(local, remote, fieldSelections))
           : remote
       this.configDomain.applySyncedConfig(nextConfig)
-      // Adopting the synced version wholesale makes it our new baseline, so a later
-      // local edit doesn't re-conflict peers already on it. A merge produces content
-      // neither side has, so it can't reuse remoteHash and is left to re-sync normally.
-      if (input.resolution === 'use_remote') {
-        this.storage.rememberSyncSettingsBaseHash(conflict.remoteHash)
-      }
+    }
+
+    if (remote) {
+      this.storage.rememberSettingsFieldResolutions(
+        fields.map((field) => ({
+          path: field.path,
+          localFingerprint: field.localFingerprint,
+          remoteFingerprint: field.remoteFingerprint,
+          choice: fieldSelections[field.path] ?? 'local'
+        }))
+      )
+      this.storage.rememberSyncSettingsBaseHash(conflict.remoteHash)
     }
 
     this.storage.resolveSyncConflict({
@@ -1092,6 +1144,7 @@ export class YachiyoServer {
       resolution: input.resolution,
       resolvedAt: this.now().toISOString()
     })
+    this.reconcileSyncConflicts()
     return this.listSyncConflicts()
   }
 

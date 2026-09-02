@@ -321,7 +321,7 @@ export async function executeServerRun(
       perfCollector.recordDeltaEvent()
       if (streamStartedAt !== undefined) {
         const firstTextDeltaElapsedMs = performance.now() - streamStartedAt
-        if (firstTextDeltaMs === undefined) firstTextDeltaMs = firstTextDeltaElapsedMs
+        recordFirstToken()
         perfCollector.recordFirstTextDelta(firstTextDeltaElapsedMs)
       }
       perfCollector.addTextChars(batch.length)
@@ -387,8 +387,13 @@ export async function executeServerRun(
   let cumulativeCompletionTokens = input.priorUsage?.totalCompletionTokens ?? 0
   let tools: ToolSet | undefined
   let streamStartedAt: number | undefined
-  let firstTextDeltaMs: number | undefined
+  let firstTokenMs: number | undefined
   let streamDurationRecorded = false
+  const recordFirstToken = (): void => {
+    if (streamStartedAt !== undefined && firstTokenMs === undefined) {
+      firstTokenMs = performance.now() - streamStartedAt
+    }
+  }
   const recordModelStreamDuration = (): void => {
     if (streamStartedAt === undefined || streamDurationRecorded) {
       return
@@ -397,11 +402,11 @@ export async function executeServerRun(
     streamDurationRecorded = true
     perfCollector.recordModelStream(performance.now() - streamStartedAt)
   }
-  const attachFirstTextDeltaTiming = (): void => {
-    if (lastUsage && firstTextDeltaMs !== undefined && lastUsage.timeToFirstTokenMs === undefined) {
+  const attachFirstTokenTiming = (): void => {
+    if (lastUsage && firstTokenMs !== undefined && lastUsage.timeToFirstTokenMs === undefined) {
       lastUsage = {
         ...lastUsage,
-        timeToFirstTokenMs: Math.round(firstTextDeltaMs)
+        timeToFirstTokenMs: Math.round(firstTokenMs)
       }
     }
   }
@@ -586,6 +591,7 @@ export async function executeServerRun(
       ...(input.reasoningEffort !== undefined ? { reasoningEffort: input.reasoningEffort } : {}),
       ...(tools ? { tools } : {}),
       ...(stopWhen ? { stopWhen } : {}),
+      onFirstToken: recordFirstToken,
       onStepUsage: (stepUsage) => {
         cumulativeCompletionTokens += stepUsage.completionTokens
         deps.emit<RunUsageUpdatedEvent>({
@@ -1010,7 +1016,7 @@ export async function executeServerRun(
 
     flushDeltas()
     recordModelStreamDuration()
-    attachFirstTextDeltaTiming()
+    attachFirstTokenTiming()
 
     const outputSnapshot = outputState.getSnapshot()
     console.log(
@@ -1061,7 +1067,7 @@ export async function executeServerRun(
   } catch (error) {
     flushDeltas()
     recordModelStreamDuration()
-    attachFirstTextDeltaTiming()
+    attachFirstTokenTiming()
     // Reject any pending askUser promises so the tool execution unblocks
     for (const [id, pending] of pendingUserAnswers) {
       pending.reject(new Error('Run cancelled'))

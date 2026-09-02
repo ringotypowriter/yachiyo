@@ -204,17 +204,16 @@ export interface FindResolvedSyncConflictInput {
   remoteHash: string
 }
 
-/**
- * What we remember about earlier resolutions of the same settings divergence.
- *
- * `keptLocalForRemote` keys on the remote version alone, so a "keep mine" survives
- * unrelated local edits. `exact` is the resolution recorded for the exact
- * `(localHash, remoteHash)` pair, used to safely replay a `use_remote` choice only
- * while the local side hasn't moved on.
- */
+/** Resolution recorded for the exact `(localHash, remoteHash)` pair. */
 export interface RememberedSettingsResolution {
   exact?: SyncConflictResolution
-  keptLocalForRemote: boolean
+}
+
+export interface SettingsFieldResolutionMemory {
+  path: string
+  localFingerprint: string
+  remoteFingerprint: string
+  choice: 'local' | 'remote'
 }
 
 export interface StoredToolCallRow {
@@ -568,6 +567,8 @@ export interface YachiyoStorage {
   findRememberedSettingsResolution(
     input: FindResolvedSyncConflictInput
   ): RememberedSettingsResolution
+  listRememberedSettingsFieldResolutions(): SettingsFieldResolutionMemory[]
+  rememberSettingsFieldResolutions(resolutions: SettingsFieldResolutionMemory[]): void
   /** Remove a conflict row outright (used to drop auto-handled duplicates). */
   deleteSyncConflict(conflictId: string): void
   /**

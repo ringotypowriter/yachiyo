@@ -33,6 +33,7 @@ import type {
 import type { ThreadContextOperationKey } from '@renderer/features/threads/lib/threadContextOperations'
 import {
   resolveBackgroundTaskHydrationThreadIds,
+  resolveRunningSubagentThreadIds,
   resolveVisibleSidebarThreads
 } from '@renderer/features/threads/lib/threadListFilters'
 import { ThreadFolderItem } from './ThreadFolderItem'
@@ -580,6 +581,7 @@ function ThreadListContent({
   saveThread,
   savingThreadIds,
   backgroundTaskRunningThreadIds,
+  subagentRunningThreadIds,
   setActiveArchivedThread,
   setActiveThread,
   setThreadColor,
@@ -617,6 +619,7 @@ function ThreadListContent({
   saveThread: (threadId: string, options: { archiveAfterSave: boolean }) => Promise<void>
   savingThreadIds: Set<string>
   backgroundTaskRunningThreadIds: ReadonlySet<string>
+  subagentRunningThreadIds: ReadonlySet<string>
   setActiveArchivedThread: (threadId: string) => void
   setActiveThread: (threadId: string) => void
   setThreadColor: (threadId: string, colorTag: ThreadColorTag | null) => Promise<void>
@@ -950,7 +953,8 @@ function ThreadListContent({
     options: { isInFolder?: boolean } = {}
   ): React.JSX.Element {
     const isRunActive = runStatusesByThread[thread.id] === 'running'
-    const hasBackgroundWork = backgroundTaskRunningThreadIds.has(thread.id)
+    const hasBackgroundWork =
+      backgroundTaskRunningThreadIds.has(thread.id) || subagentRunningThreadIds.has(thread.id)
     const sentinel = sentinelsByThread[thread.id]
     const draft = composerDrafts[thread.id]
     let draftText: string | null = null
@@ -1264,6 +1268,16 @@ export function ThreadList({
   const externalThreads = useAppStore((s) => s.externalThreads)
   const showExternalThreads = useAppStore((s) => s.showExternalThreads)
   const runStatusesByThread = useAppStore((s) => s.runStatusesByThread)
+  const subagentActiveIdsByThread = useAppStore((s) => s.subagentActiveIdsByThread)
+  const subagentSnapshotsById = useAppStore((s) => s.subagentSnapshotsById)
+  const subagentRunningThreadIds = useMemo(
+    () =>
+      resolveRunningSubagentThreadIds({
+        subagentActiveIdsByThread,
+        subagentSnapshotsById
+      }),
+    [subagentActiveIdsByThread, subagentSnapshotsById]
+  )
   const backgroundTaskRunningThreadIds = useBackgroundTasksStore(
     useShallow(selectRunningBackgroundTaskThreadIds)
   )
@@ -1333,6 +1347,7 @@ export function ThreadList({
         threadListMode,
         runStatusesByThread,
         backgroundTaskRunningThreadIds,
+        subagentRunningThreadIds,
         justDoneRunIdsByThread
       }),
     [
@@ -1346,6 +1361,7 @@ export function ThreadList({
       threadListMode,
       runStatusesByThread,
       backgroundTaskRunningThreadIds,
+      subagentRunningThreadIds,
       justDoneRunIdsByThread
     ]
   )
@@ -1388,6 +1404,7 @@ export function ThreadList({
       saveThread={saveThread}
       savingThreadIds={savingThreadIds}
       backgroundTaskRunningThreadIds={backgroundTaskRunningThreadIds}
+      subagentRunningThreadIds={subagentRunningThreadIds}
       setActiveArchivedThread={setActiveArchivedThread}
       setActiveThread={setActiveThread}
       setThreadColor={setThreadColor}

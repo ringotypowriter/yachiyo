@@ -198,6 +198,19 @@ test('multiple draft threads all appear before non-draft threads', () => {
   assert.equal(threadIds[2], 'today-a')
 })
 
+test('asynchronous background work shows a working placeholder after the parent run ends', () => {
+  const preview = resolveThreadSidebarPreview({
+    activeRunId: null,
+    hasBackgroundWork: true,
+    isRunActive: false,
+    thread: thread('thread-1', { preview: 'Parent run finished' }),
+    toolCalls: []
+  })
+
+  assert.equal(preview.state, 'working')
+  assert.notEqual(preview.text, 'Parent run finished')
+})
+
 test('running thread preview shows a thinking placeholder before current-run tool calls', () => {
   const preview = resolveThreadSidebarPreview({
     activeRunId: 'run-1',

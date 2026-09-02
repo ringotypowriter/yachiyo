@@ -48,6 +48,7 @@ import {
   type CreateThreadInput,
   type DeleteMessagesInput,
   type RunRecoveryCheckpoint,
+  type SettingsFieldResolutionMemory,
   type StartRunInput,
   type YachiyoStorage
 } from '../storage.ts'
@@ -60,6 +61,27 @@ import { sortToolCallsChronologically } from '@yachiyo/shared/toolCallOrder'
  */
 const DEFERRED_FTS_REBUILD_DELAY_MS = 5_000
 const RUN_REQUEST_MESSAGE_REPAIR_MARKER = '.run-request-message-id-repair-v1.done'
+const SETTINGS_FIELD_RESOLUTIONS_META_KEY = 'settings_field_resolutions_v1'
+
+function parseSettingsFieldResolutions(value: string | undefined): SettingsFieldResolutionMemory[] {
+  if (!value) return []
+  try {
+    const parsed = JSON.parse(value) as unknown
+    if (!Array.isArray(parsed)) return []
+    return parsed.filter(
+      (item): item is SettingsFieldResolutionMemory =>
+        typeof item === 'object' &&
+        item !== null &&
+        typeof (item as SettingsFieldResolutionMemory).path === 'string' &&
+        typeof (item as SettingsFieldResolutionMemory).localFingerprint === 'string' &&
+        typeof (item as SettingsFieldResolutionMemory).remoteFingerprint === 'string' &&
+        ((item as SettingsFieldResolutionMemory).choice === 'local' ||
+          (item as SettingsFieldResolutionMemory).choice === 'remote')
+    )
+  } catch {
+    return []
+  }
+}
 
 export interface CreateSqliteYachiyoStorageOptions {
   /**
@@ -149,6 +171,36 @@ export function createSqliteYachiyoStorage(
     const role = getChannelUserRole(row.channelUserId)
     return role ? { ...record, channelUserRole: role } : record
   }
+  const hasSyncMeta = (): boolean =>
+    client
+      .prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'sync_meta'")
+      .get() != null
+  const listRememberedSettingsFieldResolutions = (): SettingsFieldResolutionMemory[] => {
+    if (!hasSyncMeta()) return []
+    const row = client
+      .prepare('SELECT value FROM sync_meta WHERE key = ?')
+      .get(SETTINGS_FIELD_RESOLUTIONS_META_KEY) as { value: string } | undefined
+    return parseSettingsFieldResolutions(row?.value)
+  }
+  const rememberSettingsFieldResolutions = (resolutions: SettingsFieldResolutionMemory[]): void => {
+    if (resolutions.length === 0 || !hasSyncMeta()) return
+    const merged = new Map(
+      listRememberedSettingsFieldResolutions().map((item) => [
+        `${item.path}\0${item.localFingerprint}\0${item.remoteFingerprint}`,
+        item
+      ])
+    )
+    for (const resolution of resolutions) {
+      const key = `${resolution.path}\0${resolution.localFingerprint}\0${resolution.remoteFingerprint}`
+      merged.set(key, resolution)
+    }
+    client
+      .prepare(
+        'INSERT INTO sync_meta (key, value) VALUES (?, ?) ' +
+          'ON CONFLICT(key) DO UPDATE SET value = excluded.value'
+      )
+      .run(SETTINGS_FIELD_RESOLUTIONS_META_KEY, JSON.stringify([...merged.values()]))
+  }
 
   return {
     close() {
@@ -218,6 +270,10 @@ export function createSqliteYachiyoStorage(
         .all().length
     },
 
+    listRememberedSettingsFieldResolutions,
+
+    rememberSettingsFieldResolutions,
+
     findRememberedSettingsResolution({ entityType, localHash, remoteHash }) {
       // Exact (localHash, remoteHash) pair — the only match safe to replay use_remote.
       const exactRow = db
@@ -234,22 +290,8 @@ export function createSqliteYachiyoStorage(
         )
         .orderBy(desc(syncConflictsTable.resolvedAt))
         .get()
-      // Any prior "keep mine" against this remote version, regardless of local edits since.
-      const keptLocalRow = db
-        .select({ id: syncConflictsTable.id })
-        .from(syncConflictsTable)
-        .where(
-          and(
-            eq(syncConflictsTable.entityType, entityType),
-            eq(syncConflictsTable.remoteHash, remoteHash),
-            eq(syncConflictsTable.resolution, 'keep_local'),
-            isNotNull(syncConflictsTable.resolvedAt)
-          )
-        )
-        .get()
       return {
-        exact: (exactRow?.resolution as SyncConflictResolution | null | undefined) ?? undefined,
-        keptLocalForRemote: keptLocalRow != null
+        exact: (exactRow?.resolution as SyncConflictResolution | null | undefined) ?? undefined
       }
     },
 
@@ -260,10 +302,7 @@ export function createSqliteYachiyoStorage(
     rememberSyncSettingsBaseHash(hash) {
       // `sync_meta` is owned and created by the native sync-core binary; skip the
       // write until sync has been initialised so we never touch a missing table.
-      const hasSyncMeta = client
-        .prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'sync_meta'")
-        .get()
-      if (!hasSyncMeta) return
+      if (!hasSyncMeta()) return
       client
         .prepare(
           "INSERT INTO sync_meta (key, value) VALUES ('settings_base_hash', ?) " +

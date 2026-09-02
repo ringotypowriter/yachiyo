@@ -1,62 +1,65 @@
 import {
+  AppWindow,
   BookOpenCheck,
+  Boxes,
   Brain,
-  Braces,
-  ClipboardCheck,
-  DatabaseSearch,
-  FileDiff,
-  FilePenLine,
+  ClipboardPenLine,
+  ContactRound,
+  DatabaseZap,
+  Diff,
+  DoorOpen,
+  Eye,
   FilePlus2,
-  Files,
-  FileText,
-  Globe2,
-  ListTodo,
-  LogOut,
+  FolderSearch2,
+  ListChecks,
   MessageCircleQuestion,
   MessagesSquare,
-  PackageSearch,
-  PanelsTopLeft,
-  Search,
-  Send,
-  ShieldCheck,
-  Terminal,
+  Network,
+  Newspaper,
+  PenLine,
+  Radar,
+  SendHorizontal,
+  SquareTerminal,
+  Telescope,
   TextSearch,
-  UserRoundCog,
-  Workflow,
   Wrench,
   type LucideIcon
 } from 'lucide-react'
+import JavascriptIcon from '@icons-pack/react-simple-icons/icons/SiJavascript'
+import PythonIcon from '@icons-pack/react-simple-icons/icons/SiPython'
 import type { ToolCallName } from '@yachiyo/shared/protocol'
 
-const coreToolIcons = {
-  read: FileText,
-  write: FilePlus2,
-  edit: FilePenLine,
-  bash: Terminal,
-  jsRepl: Braces,
-  pyRepl: Terminal,
-  grep: TextSearch,
-  glob: Files,
-  webRead: Globe2,
-  useBrowser: PanelsTopLeft,
-  webSearch: Search,
-  skillsRead: BookOpenCheck,
-  applyPatch: FileDiff,
-  useSentinel: ShieldCheck,
-  askUser: MessageCircleQuestion,
-  delegateTask: Workflow,
-  remember: Brain,
-  querySource: DatabaseSearch,
-  useThings: PackageSearch,
-  reviewThings: ClipboardCheck,
-  updateProfile: UserRoundCog,
-  updateTodoList: ListTodo,
-  sendThreadMessage: MessagesSquare,
-  sendMessage: Send,
-  exitPlanMode: LogOut
-} satisfies Record<ToolCallName, LucideIcon>
+export type ToolCallIcon = LucideIcon | typeof JavascriptIcon
 
-export function getToolCallIcon(toolName: string): LucideIcon {
+const coreToolIcons = {
+  read: Eye,
+  write: FilePlus2,
+  edit: PenLine,
+  bash: SquareTerminal,
+  jsRepl: JavascriptIcon,
+  pyRepl: PythonIcon,
+  grep: TextSearch,
+  glob: FolderSearch2,
+  webRead: Newspaper,
+  useBrowser: AppWindow,
+  webSearch: Telescope,
+  skillsRead: BookOpenCheck,
+  applyPatch: Diff,
+  useSentinel: Radar,
+  askUser: MessageCircleQuestion,
+  delegateTask: Network,
+  remember: Brain,
+  querySource: DatabaseZap,
+  useThings: Boxes,
+  reviewThings: ClipboardPenLine,
+  updateProfile: ContactRound,
+  updateTodoList: ListChecks,
+  sendThreadMessage: MessagesSquare,
+  sendMessage: SendHorizontal,
+  exitPlanMode: DoorOpen
+} satisfies Record<ToolCallName, ToolCallIcon>
+
+export function getToolCallIcon(toolName: string): ToolCallIcon {
   return Object.prototype.hasOwnProperty.call(coreToolIcons, toolName)
     ? coreToolIcons[toolName as ToolCallName]
     : Wrench

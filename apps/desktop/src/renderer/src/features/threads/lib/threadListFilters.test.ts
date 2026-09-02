@@ -5,6 +5,7 @@ import { DEFAULT_SIDEBAR_FILTER } from '../../../app/store/useAppStore.ts'
 import type { FolderRecord, Thread } from '../../../app/types.ts'
 import {
   resolveBackgroundTaskHydrationThreadIds,
+  resolveRunningSubagentThreadIds,
   resolveVisibleSidebarThreads
 } from './threadListFilters.ts'
 import { TEMPORARY_WORKSPACE_FILTER } from './threadWorkspaceFilterOptions.ts'
@@ -182,6 +183,49 @@ test('running filter includes threads with running background bash tasks', () =>
   assert.deepEqual(
     visibleThreads.map((t) => t.id),
     ['foreground-run', 'background-task']
+  )
+})
+
+test('running subagent threads include event-only starts and hydrated snapshots', () => {
+  const threadIds = resolveRunningSubagentThreadIds({
+    subagentActiveIdsByThread: {
+      'event-only': ['agent-event-only'],
+      running: ['agent-running'],
+      idle: ['agent-idle']
+    },
+    subagentSnapshotsById: {
+      'agent-running': { parentThreadId: 'running', state: 'running' },
+      'agent-idle': { parentThreadId: 'idle', state: 'idle' },
+      'agent-hydrated': { parentThreadId: 'hydrated', state: 'starting' }
+    }
+  })
+
+  assert.deepEqual([...threadIds], ['event-only', 'running', 'hydrated'])
+})
+
+test('running filter includes threads with running asynchronous subagents', () => {
+  const visibleThreads = resolveVisibleSidebarThreads({
+    threads: [thread('subagent-run'), thread('idle')],
+    folders: [],
+    archivedThreads: [],
+    externalThreads: [],
+    showExternalThreads: false,
+    sidebarFilter: {
+      ...DEFAULT_SIDEBAR_FILTER,
+      running: true
+    },
+    threadListMode: 'active',
+    runStatusesByThread: {
+      'subagent-run': 'completed',
+      idle: 'completed'
+    },
+    subagentRunningThreadIds: new Set(['subagent-run']),
+    justDoneRunIdsByThread: {}
+  })
+
+  assert.deepEqual(
+    visibleThreads.map((t) => t.id),
+    ['subagent-run']
   )
 })
 

@@ -1276,7 +1276,7 @@ export interface RunRecord {
   completionTokens?: number
   totalPromptTokens?: number
   totalCompletionTokens?: number
-  /** Time from model stream start to the first emitted text token. */
+  /** Time from model stream start to the first emitted output token, including reasoning and tool input. */
   timeToFirstTokenMs?: number
   /** Combined wall-clock duration of completed model generation steps, excluding tool execution. */
   modelGenerationDurationMs?: number

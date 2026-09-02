@@ -37,7 +37,7 @@ export interface ModelUsage {
   completionTokens: number
   totalPromptTokens: number
   totalCompletionTokens: number
-  /** Time from model stream start to the first emitted text token. */
+  /** Time from model stream start to the first emitted output token, including reasoning and tool input. */
   timeToFirstTokenMs?: number
   /** Combined wall-clock duration of completed model generation steps, excluding tool execution. */
   modelGenerationDurationMs?: number
@@ -77,6 +77,8 @@ export interface ModelStreamRequest {
   stopWhen?: StopCondition<ToolSet> | Array<StopCondition<ToolSet>>
   /** Opaque key for provider-side prompt prefix caching (e.g. OpenAI Responses API). */
   promptCacheKey?: string
+  /** Called once when the provider emits its first text, reasoning, or tool-input token. */
+  onFirstToken?: () => void
   onReasoningDelta?: (delta: string) => void
   onRetry?: (attempt: number, maxAttempts: number, delayMs: number, error: unknown) => void
   onStepUsage?: (usage: { promptTokens: number; completionTokens: number }) => void

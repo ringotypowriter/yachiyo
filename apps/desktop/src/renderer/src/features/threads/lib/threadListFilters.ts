@@ -1,5 +1,5 @@
 import type { SidebarFilter } from '../../../app/store/useAppStore.ts'
-import type { FolderRecord, RunStatus, Thread } from '../../../app/types.ts'
+import type { FolderRecord, RunStatus, SubagentState, Thread } from '../../../app/types.ts'
 import { TEMPORARY_WORKSPACE_FILTER } from './threadWorkspaceFilterOptions.ts'
 import { isExternalThread } from './threadVisibility.ts'
 
@@ -14,7 +14,28 @@ export interface ResolveVisibleSidebarThreadsInput {
   threadListMode: 'active' | 'archived'
   runStatusesByThread: Record<string, RunStatus>
   backgroundTaskRunningThreadIds?: ReadonlySet<string>
+  subagentRunningThreadIds?: ReadonlySet<string>
   justDoneRunIdsByThread: Record<string, string>
+}
+
+export function resolveRunningSubagentThreadIds({
+  subagentActiveIdsByThread,
+  subagentSnapshotsById
+}: {
+  subagentActiveIdsByThread: Record<string, string[]>
+  subagentSnapshotsById: Record<string, { parentThreadId: string; state: SubagentState }>
+}): Set<string> {
+  const threadIds = new Set<string>()
+  const isRunning = (state: SubagentState): boolean => state === 'starting' || state === 'running'
+
+  for (const [threadId, agentIds] of Object.entries(subagentActiveIdsByThread)) {
+    if (agentIds.some((agentId) => !subagentSnapshotsById[agentId])) threadIds.add(threadId)
+  }
+  for (const snapshot of Object.values(subagentSnapshotsById)) {
+    if (isRunning(snapshot.state)) threadIds.add(snapshot.parentThreadId)
+  }
+
+  return threadIds
 }
 
 export function resolveBackgroundTaskHydrationThreadIds({
@@ -43,6 +64,7 @@ export function resolveVisibleSidebarThreads({
   threadListMode,
   runStatusesByThread,
   backgroundTaskRunningThreadIds,
+  subagentRunningThreadIds,
   justDoneRunIdsByThread
 }: ResolveVisibleSidebarThreadsInput): Thread[] {
   let filtered = resolveThreadPool({
@@ -85,7 +107,12 @@ export function resolveVisibleSidebarThreads({
     filtered = filtered.filter((thread) => {
       if (
         sidebarFilter.running &&
-        isThreadRunning(thread.id, runStatusesByThread, backgroundTaskRunningThreadIds)
+        isThreadRunning(
+          thread.id,
+          runStatusesByThread,
+          backgroundTaskRunningThreadIds,
+          subagentRunningThreadIds
+        )
       ) {
         return true
       }
@@ -103,7 +130,8 @@ export function resolveVisibleSidebarThreads({
     const isRunning = isThreadRunning(
       thread.id,
       runStatusesByThread,
-      backgroundTaskRunningThreadIds
+      backgroundTaskRunningThreadIds,
+      subagentRunningThreadIds
     )
     if (isRunning && thread.createdFromScheduleId) return false
     return thread.title !== 'New Chat' || thread.preview || thread.headMessageId || isRunning
@@ -113,11 +141,13 @@ export function resolveVisibleSidebarThreads({
 function isThreadRunning(
   threadId: string,
   runStatusesByThread: Record<string, RunStatus>,
-  backgroundTaskRunningThreadIds: ReadonlySet<string> | undefined
+  backgroundTaskRunningThreadIds: ReadonlySet<string> | undefined,
+  subagentRunningThreadIds: ReadonlySet<string> | undefined
 ): boolean {
   return (
     runStatusesByThread[threadId] === 'running' ||
-    backgroundTaskRunningThreadIds?.has(threadId) === true
+    backgroundTaskRunningThreadIds?.has(threadId) === true ||
+    subagentRunningThreadIds?.has(threadId) === true
   )
 }
 

@@ -1,4 +1,8 @@
-import type { RememberedSettingsResolution } from '../storage/storage.ts'
+import type { SettingsFieldDifference } from '../settings/settingsFieldMerge.ts'
+import type {
+  RememberedSettingsResolution,
+  SettingsFieldResolutionMemory
+} from '../storage/storage.ts'
 
 /**
  * What to do with a settings conflict the sync binary just recorded, without
@@ -6,28 +10,45 @@ import type { RememberedSettingsResolution } from '../storage/storage.ts'
  *
  *  - `prompt`       — a genuinely new conflict (or one we can't safely auto-apply);
  *                     leave it for the user to resolve.
- *  - `drop`         — auto-handle and remove it: either the two sides are already
- *                     identical, or the user's remembered keep-local choice is
- *                     already reflected in the current local settings.
+ *  - `drop`         — auto-handle and remove it because the two sides, or the exact
+ *                     whole-config conflict and its remembered choice, still match.
  *  - `apply-remote` — re-apply the user's remembered "use synced version" choice,
  *                     then remove the conflict.
  */
 export type SettingsConflictDecision = 'prompt' | 'drop' | 'apply-remote'
 
+export function partitionRememberedSettingsFields(
+  fields: SettingsFieldDifference[],
+  remembered: SettingsFieldResolutionMemory[]
+): {
+  rememberedSelections: Record<string, 'local' | 'remote'>
+  unresolvedFields: SettingsFieldDifference[]
+} {
+  const choices = new Map(
+    remembered.map((item) => [
+      `${item.path}\0${item.localFingerprint}\0${item.remoteFingerprint}`,
+      item.choice
+    ])
+  )
+  const rememberedSelections: Record<string, 'local' | 'remote'> = {}
+  const unresolvedFields = fields.filter((field) => {
+    const choice = choices.get(
+      `${field.path}\0${field.localFingerprint}\0${field.remoteFingerprint}`
+    )
+    if (!choice) return true
+    rememberedSelections[field.path] = choice
+    return false
+  })
+  return { rememberedSelections, unresolvedFields }
+}
+
 /**
  * Decide a single settings conflict.
  *
- * The `remoteHash` identifies the exact synced settings the user reacted to, so it,
- * not the whole-blob `localHash`, anchors the memory. A `keep_local` ("keep mine")
- * against a given remote still holds even after the user later edits an unrelated
- * local setting — the rejected remote hasn't changed — so we key it on `remoteHash`
- * alone (`keptLocalForRemote`) and drop without re-nagging.
- *
- * `use_remote` is stricter: it re-applies the synced version, so we only replay it
- * for the exact `(localHash, remoteHash)` pair. A different `localHash` means the
- * user edited after adopting it, and blindly re-applying remote would clobber those
- * edits — re-prompt instead. `merge` can't be faithfully replayed from hashes, so it
- * always re-prompts.
+ * Whole-config choices are replayed only for the exact `(localHash, remoteHash)` pair.
+ * Once either side changes, field fingerprints decide which choices still apply so a
+ * new field cannot be hidden by an older whole-config `keep_local` decision. `merge`
+ * cannot be replayed from whole-config hashes and falls through to field memory.
  */
 export function decideSettingsConflict(
   conflict: { entityType: string; localHash: string; remoteHash: string },
@@ -38,10 +59,8 @@ export function decideSettingsConflict(
   // Both sides already agree — there is nothing to decide.
   if (conflict.localHash === conflict.remoteHash) return 'drop'
   if (!remembered) return 'prompt'
-  // A prior "keep mine" against this exact remote version survives unrelated local edits.
-  if (remembered.keptLocalForRemote) return 'drop'
-  // "Use synced version" only replays for the same local state (see doc comment).
+  if (remembered.exact === 'keep_local') return 'drop'
   if (remembered.exact === 'use_remote') return 'apply-remote'
-  // 'merge' or no matching memory — the user decides.
+  // 'merge' or no matching memory — field-level reconciliation decides.
   return 'prompt'
 }

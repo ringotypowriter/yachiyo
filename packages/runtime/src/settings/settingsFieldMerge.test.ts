@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import type { SettingsConfig } from '@yachiyo/shared/protocol'
-import { diffSettings, mergeSettings } from './settingsFieldMerge.ts'
+import { diffSettings, diffSettingsForResolution, mergeSettings } from './settingsFieldMerge.ts'
 
 function config(partial: Record<string, unknown>): SettingsConfig {
   return partial as unknown as SettingsConfig
@@ -30,6 +30,17 @@ describe('diffSettings', () => {
     assert.deepEqual(diffs, [
       { path: 'general.themeId', localValue: 'dawn', remoteValue: 'midnight' }
     ])
+  })
+
+  it('keeps full-value fingerprints distinct when display values are truncated', () => {
+    const sharedPrefix = 'x'.repeat(200)
+    const [field] = diffSettingsForResolution(
+      config({ prompts: [{ content: `${sharedPrefix}-local` }] }),
+      config({ prompts: [{ content: `${sharedPrefix}-remote` }] })
+    )
+
+    assert.equal(field?.localValue?.length, 160)
+    assert.notEqual(field?.localFingerprint, field?.remoteFingerprint)
   })
 
   it('treats arrays as atomic units', () => {

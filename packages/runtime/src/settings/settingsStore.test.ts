@@ -23,6 +23,47 @@ import {
   toToolModelSettings
 } from './settingsStore.ts'
 
+test('legacy providers without ids parse to stable ids', () => {
+  const toml = `[[providers]]
+name = "legacy"
+type = "anthropic"
+apiKey = ""
+baseUrl = ""
+[providers.modelList]
+enabled = []
+disabled = []
+`
+
+  const firstId = parseSettingsToml(toml).providers[0]?.id
+  const secondId = parseSettingsToml(toml).providers[0]?.id
+  assert.ok(firstId)
+  assert.equal(secondId, firstId)
+})
+
+test('legacy provider ids distinguish different credential endpoints', () => {
+  const providerToml = (baseUrl: string): string => `[[providers]]
+name = "legacy"
+type = "anthropic"
+apiKey = ""
+baseUrl = "${baseUrl}"
+[providers.modelList]
+enabled = []
+disabled = []
+`
+
+  const firstId = parseSettingsToml(providerToml('https://first.example.com')).providers[0]?.id
+  const secondId = parseSettingsToml(providerToml('https://second.example.com')).providers[0]?.id
+  assert.notEqual(secondId, firstId)
+})
+
+test('malformed legacy providers remain parseable', () => {
+  const parsed = parseSettingsToml(`[[providers]]
+name = 1
+type = "anthropic"
+`)
+  assert.deepEqual(parsed.providers, [])
+})
+
 test('settings store persists multi-provider config as TOML', async () => {
   const root = await mkdtemp(join(tmpdir(), 'yachiyo-settings-store-'))
   const settingsPath = join(root, 'config.toml')

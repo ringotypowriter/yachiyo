@@ -543,10 +543,17 @@ export function createAiSdkModelRuntime(dependencies: AiSdkRuntimeDependencies =
       let totalYieldedChars = 0
       let contextStripCompactRetries = 0
       let modelGenerationDurationMs = 0
+      let firstTokenReported = false
+      const reportFirstToken = (): void => {
+        if (firstTokenReported) return
+        firstTokenReported = true
+        request.onFirstToken?.()
+      }
 
       let stepReasoningChunks: string[][] = [[]]
       const interceptReasoningDelta = request.onReasoningDelta
         ? (delta: string) => {
+            reportFirstToken()
             stepReasoningChunks[stepReasoningChunks.length - 1].push(delta)
             request.onReasoningDelta!(delta)
           }
@@ -733,11 +740,13 @@ export function createAiSdkModelRuntime(dependencies: AiSdkRuntimeDependencies =
                   part.type === 'reasoning-part-finish') &&
                 readTextDelta(part)
               ) {
+                reportFirstToken()
                 interceptReasoningDelta?.(readTextDelta(part) as string)
                 continue
               }
 
               if (part.type === 'text-delta' && readTextDelta(part)) {
+                reportFirstToken()
                 streamCommitted = true
                 const delta = readTextDelta(part) as string
                 totalYieldedChars += delta.length
@@ -750,6 +759,7 @@ export function createAiSdkModelRuntime(dependencies: AiSdkRuntimeDependencies =
                 typeof part.id === 'string' &&
                 typeof part.toolName === 'string'
               ) {
+                reportFirstToken()
                 streamCommitted = true
                 request.onToolCallPreparing?.({
                   toolCallId: part.id,
@@ -763,6 +773,7 @@ export function createAiSdkModelRuntime(dependencies: AiSdkRuntimeDependencies =
                 typeof part.toolCallId === 'string' &&
                 typeof part.toolName === 'string'
               ) {
+                reportFirstToken()
                 streamCommitted = true
                 toolCallContextById.set(part.toolCallId, {
                   input: part.input,
@@ -988,6 +999,7 @@ export function createAiSdkModelRuntime(dependencies: AiSdkRuntimeDependencies =
 
           for await (const textPart of result.textStream) {
             if (textPart) {
+              reportFirstToken()
               streamCommitted = true
               totalYieldedChars += textPart.length
               yield textPart

@@ -1,8 +1,14 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 
-import type { RememberedSettingsResolution } from '../storage/storage.ts'
-import { decideSettingsConflict } from './settingsConflictReconcile.ts'
+import type {
+  RememberedSettingsResolution,
+  SettingsFieldResolutionMemory
+} from '../storage/storage.ts'
+import {
+  decideSettingsConflict,
+  partitionRememberedSettingsFields
+} from './settingsConflictReconcile.ts'
 
 const conflict = (
   localHash: string,
@@ -16,9 +22,64 @@ const conflict = (
 
 const remembered = (
   input: Partial<RememberedSettingsResolution> = {}
-): RememberedSettingsResolution => ({
-  keptLocalForRemote: false,
-  ...input
+): RememberedSettingsResolution => input
+
+describe('partitionRememberedSettingsFields', () => {
+  const memory = (
+    path: string,
+    localFingerprint: string,
+    remoteFingerprint: string,
+    choice: 'local' | 'remote' = 'local'
+  ): SettingsFieldResolutionMemory => ({ path, localFingerprint, remoteFingerprint, choice })
+
+  it('keeps previously resolved fields hidden when an unrelated field changes', () => {
+    const result = partitionRememberedSettingsFields(
+      [
+        {
+          path: 'chat.model',
+          localValue: 'local-model',
+          remoteValue: 'remote-model',
+          localFingerprint: 'local-model-hash',
+          remoteFingerprint: 'remote-model-hash'
+        },
+        {
+          path: 'general.chatFontSize',
+          localValue: '18',
+          remoteValue: '20',
+          localFingerprint: '18-hash',
+          remoteFingerprint: '20-hash'
+        }
+      ],
+      [memory('chat.model', 'local-model-hash', 'remote-model-hash')]
+    )
+
+    assert.deepEqual(result.rememberedSelections, { 'chat.model': 'local' })
+    assert.deepEqual(
+      result.unresolvedFields.map((field) => field.path),
+      ['general.chatFontSize']
+    )
+  })
+
+  it('prompts again only for a resolved field whose value changed', () => {
+    const result = partitionRememberedSettingsFields(
+      [
+        {
+          path: 'chat.model',
+          localValue: 'new-local-model',
+          remoteValue: 'remote-model',
+          localFingerprint: 'new-local-model-hash',
+          remoteFingerprint: 'remote-model-hash'
+        }
+      ],
+      [memory('chat.model', 'old-local-model-hash', 'remote-model-hash')]
+    )
+
+    assert.deepEqual(result.rememberedSelections, {})
+    assert.deepEqual(
+      result.unresolvedFields.map((field) => field.path),
+      ['chat.model']
+    )
+  })
 })
 
 describe('decideSettingsConflict', () => {
@@ -31,22 +92,15 @@ describe('decideSettingsConflict', () => {
     assert.equal(decideSettingsConflict(conflict('same', 'same'), undefined), 'drop')
   })
 
-  it('drops a recurring conflict the user kept local before', () => {
+  it('drops an exact recurring conflict the user kept local before', () => {
     assert.equal(
-      decideSettingsConflict(conflict('a', 'b'), remembered({ keptLocalForRemote: true })),
+      decideSettingsConflict(conflict('a', 'b'), remembered({ exact: 'keep_local' })),
       'drop'
     )
   })
 
-  it('keeps a remembered keep-local decision after an unrelated local edit', () => {
-    // The local settings changed (localHash 'a' -> 'a2') but the rejected remote
-    // version 'b' is unchanged, so the earlier "keep mine" still holds and we must
-    // not re-nag. This is the core recurrence bug: the memory keys on remoteHash,
-    // not on the whole-blob localHash.
-    assert.equal(
-      decideSettingsConflict(conflict('a2', 'b'), remembered({ keptLocalForRemote: true })),
-      'drop'
-    )
+  it('prompts after a local edit instead of letting whole-config memory hide new fields', () => {
+    assert.equal(decideSettingsConflict(conflict('a2', 'b'), remembered()), 'prompt')
   })
 
   it('re-applies a remembered "use synced version" choice for the same local state', () => {
@@ -82,10 +136,7 @@ describe('decideSettingsConflict', () => {
 
   it('leaves non-settings conflicts untouched', () => {
     assert.equal(
-      decideSettingsConflict(
-        conflict('a', 'b', 'thread'),
-        remembered({ keptLocalForRemote: true })
-      ),
+      decideSettingsConflict(conflict('a', 'b', 'thread'), remembered({ exact: 'keep_local' })),
       'prompt'
     )
   })

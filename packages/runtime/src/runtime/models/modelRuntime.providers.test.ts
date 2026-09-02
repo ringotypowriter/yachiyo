@@ -832,6 +832,60 @@ test('streamReply measures model generation time without counting tool waits', a
   assert.equal(finishedUsage?.modelGenerationDurationMs, 1_100)
 })
 
+test('streamReply reports the first token before a tool-only step waits for visible text', async () => {
+  const observedEvents: string[] = []
+  const runtime = createAiSdkModelRuntime({
+    createOpenAIProvider: () =>
+      ({
+        chat: (modelId: string) => ({ modelId, provider: 'openai.chat' })
+      }) as never,
+    createAnthropicProvider: () => {
+      throw new Error('unused')
+    },
+    streamTextImpl: (() => ({
+      fullStream: (async function* () {
+        yield { type: 'start-step' }
+        yield { type: 'tool-input-start', id: 'tool-1', toolName: 'bash' }
+        yield {
+          type: 'finish-step',
+          finishReason: 'tool-calls',
+          usage: { inputTokens: 100, outputTokens: 10 }
+        }
+        yield { type: 'start-step' }
+        yield { type: 'text-delta', text: 'Done.' }
+        yield {
+          type: 'finish-step',
+          finishReason: 'stop',
+          usage: { inputTokens: 120, outputTokens: 5 }
+        }
+        yield { type: 'finish', finishReason: 'stop' }
+      })(),
+      usage: Promise.resolve({ inputTokens: 120, outputTokens: 5 }),
+      totalUsage: Promise.resolve({ inputTokens: 220, outputTokens: 15 }),
+      finishReason: Promise.resolve('stop')
+    })) as never
+  })
+
+  for await (const chunk of runtime.streamReply({
+    messages: [{ role: 'user', content: 'Use a tool, then answer.' }],
+    settings: {
+      providerName: 'test',
+      provider: 'openai',
+      model: 'test-model',
+      apiKey: 'sk-test',
+      baseUrl: 'https://example.com'
+    },
+    signal: new AbortController().signal,
+    onFirstToken: () => {
+      observedEvents.push('first-token')
+    }
+  })) {
+    observedEvents.push(`text:${chunk}`)
+  }
+
+  assert.deepEqual(observedEvents, ['first-token', 'text:Done.'])
+})
+
 test('streamReply does not double-inject reasoning_content when it already exists', async () => {
   let finishedUsage:
     | {

@@ -25,6 +25,7 @@ import {
   type CompleteRunInput,
   type RunRecoveryCheckpoint,
   type StartRunInput,
+  type SettingsFieldResolutionMemory,
   type StoredRunRecoveryCheckpointRow,
   type StoredRunRow,
   type StoredToolCallRow,
@@ -56,6 +57,7 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
     { phase: string; buffer: GroupMessageEntry[]; savedAt: string }
   >()
   const pendingResponseMessageRepairs = new Map<string, unknown[]>()
+  const settingsFieldResolutions = new Map<string, SettingsFieldResolutionMemory>()
   let responseMessageRepairFlushQueued = false
 
   const flushPendingResponseMessageRepairs = (): void => {
@@ -1354,7 +1356,18 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
     // Sync conflicts are written by the native sync-core binary into sqlite, so the
     // in-memory store has nothing to remember or delete.
     findRememberedSettingsResolution() {
-      return { keptLocalForRemote: false }
+      return {}
+    },
+
+    listRememberedSettingsFieldResolutions() {
+      return [...settingsFieldResolutions.values()].map((item) => ({ ...item }))
+    },
+
+    rememberSettingsFieldResolutions(resolutions) {
+      for (const resolution of resolutions) {
+        const key = `${resolution.path}\0${resolution.localFingerprint}\0${resolution.remoteFingerprint}`
+        settingsFieldResolutions.set(key, { ...resolution })
+      }
     },
 
     deleteSyncConflict() {

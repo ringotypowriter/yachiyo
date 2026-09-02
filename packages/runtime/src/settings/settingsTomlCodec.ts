@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto'
+
 import TOML from 'smol-toml'
 
 import type { SettingsConfig } from '@yachiyo/shared/protocol'
@@ -42,10 +44,36 @@ function fixLegacyJsonEnv(raw: string): string {
   )
 }
 
+function stabilizeLegacyProviderIds(config: Partial<SettingsConfig>): Partial<SettingsConfig> {
+  if (!Array.isArray(config.providers)) return config
+  return {
+    ...config,
+    providers: config.providers.map((provider) => {
+      const raw = provider as unknown as Record<string, unknown>
+      const text = (key: string): string => (typeof raw[key] === 'string' ? raw[key].trim() : '')
+      if (text('id')) return provider
+      const name = text('name')
+      const type = text('type')
+      if (!name || !type) return provider
+      const identity = JSON.stringify({
+        name,
+        type,
+        presetKey: text('presetKey'),
+        baseUrl: text('baseUrl'),
+        project: text('project'),
+        location: text('location'),
+        serviceAccountEmail: text('serviceAccountEmail')
+      })
+      const digest = createHash('sha256').update(identity).digest('hex')
+      return { ...provider, id: `legacy-${digest.slice(0, 24)}` }
+    })
+  }
+}
+
 export function parseSettingsToml(raw: string): SettingsConfig {
   const doc = TOML.parse(fixLegacyJsonEnv(raw))
   const partialConfig = readConfigFromTomlSlices<SettingsConfig>(doc, settingsTomlSlices)
-  return normalizeSettingsConfig(partialConfig)
+  return normalizeSettingsConfig(stabilizeLegacyProviderIds(partialConfig))
 }
 
 export function stringifySettingsToml(config: SettingsConfig): string {

@@ -11,6 +11,12 @@ test('getToolCallIcon maps every registered core tool to a specific icon', () =>
   }
 })
 
+test('getToolCallIcon gives every core tool a distinct icon', () => {
+  const icons = CORE_TOOL_NAMES.map(getToolCallIcon)
+
+  assert.equal(new Set(icons).size, CORE_TOOL_NAMES.length)
+})
+
 test('getToolCallIcon uses Wrench for an imported custom tool', () => {
   assert.equal(getToolCallIcon('customImportedTool'), Wrench)
 })
