@@ -32,6 +32,7 @@ import {
 import { getAskUserDetails } from '../lib/branching/askUserBranchAction.ts'
 import { useReusedTimelineRows } from '../lib/timeline/timelineRowReuse.ts'
 import { buildTimelineVirtualRowStyle } from '../lib/timeline/messageTimelineRowStyle.ts'
+import { remeasureTimelineRowFromDescendant } from '../lib/timeline/timelineRowRemeasure.ts'
 import {
   getInitialBottomScrollDecision,
   getNativeScrollIntoViewOptions
@@ -476,6 +477,18 @@ export function MessageTimeline({
     paddingStart: 16,
     paddingEnd: 16
   })
+  const handleTimelineRowSizeChange = useCallback(
+    (descendant: HTMLElement): void => {
+      remeasureTimelineRowFromDescendant(descendant, (row) => {
+        const index = Number(row.dataset.index)
+        const item = Number.isInteger(index) ? timelineRowsRef.current[index] : undefined
+        const size = row.getBoundingClientRect().height
+        if (item && size > 0) measuredSizeCache.current.set(item.key, size)
+        virtualizer.measureElement(row)
+      })
+    },
+    [virtualizer]
+  )
 
   useIsomorphicLayoutEffect(() => {
     const previousRows = previousTimelineRowsRef.current
@@ -984,7 +997,8 @@ export function MessageTimeline({
       onRetry: handleRetry,
       onDelete: handleDelete,
       onSelectReplyBranch: handleSelectReplyBranch,
-      onToggleHandoffFold: handleToggleHandoffFold
+      onToggleHandoffFold: handleToggleHandoffFold,
+      onTimelineRowSizeChange: handleTimelineRowSizeChange
     }),
     [
       threadCapabilities,
@@ -1011,7 +1025,8 @@ export function MessageTimeline({
       handleRetry,
       handleDelete,
       handleSelectReplyBranch,
-      handleToggleHandoffFold
+      handleToggleHandoffFold,
+      handleTimelineRowSizeChange
     ]
   )
 

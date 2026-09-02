@@ -1,5 +1,5 @@
 import type React from 'react'
-import { useEffect, useId, useMemo, useRef, useState } from 'react'
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
 
 import type { SubagentFinishedResult } from '@renderer/app/store/useAppStore'
 import type { ToolCall } from '@renderer/app/types'
@@ -19,6 +19,7 @@ interface InlineToolDeckProps {
   toolCalls: ToolCall[]
   workspacePath?: string | null
   subagentFinishedResults?: SubagentFinishedResult[]
+  onContentSizeChange?: (descendant: HTMLElement) => void
 }
 type DeckSelection = { kind: 'latest' } | { kind: 'fixed'; toolCallId: string } | null
 
@@ -76,7 +77,8 @@ function hydrateSubagentResult(
 export function InlineToolDeck({
   toolCalls,
   workspacePath,
-  subagentFinishedResults = []
+  subagentFinishedResults = [],
+  onContentSizeChange
 }: InlineToolDeckProps): React.JSX.Element | null {
   const t = useT()
   const detailsId = useId()
@@ -85,6 +87,7 @@ export function InlineToolDeck({
   const [dismissedWaitingIds, setDismissedWaitingIds] = useState<ReadonlySet<string>>(
     () => new Set()
   )
+  const deckRef = useRef<HTMLDivElement>(null)
   const buttonRefs = useRef(new Map<string, HTMLButtonElement>())
   const hoverSelectionTimerRef = useRef<number | null>(null)
 
@@ -144,6 +147,11 @@ export function InlineToolDeck({
     hoverSelectionTimerRef.current = null
   }, [autoSelectedWaitingToolCallId])
 
+  useLayoutEffect(() => {
+    const deck = deckRef.current
+    if (deck) onContentSizeChange?.(deck)
+  }, [onContentSizeChange, selectedToolCallId])
+
   const shouldFollowLatest = selection === null || selection.kind === 'latest'
   useEffect(() => {
     const targetToolCallId =
@@ -164,7 +172,7 @@ export function InlineToolDeck({
   const iconStackOverlap = getToolIconStackOverlap(displayedToolCalls.length)
 
   return (
-    <div className="px-6 py-1" data-tool-deck>
+    <div ref={deckRef} className="px-6 py-1" data-tool-deck>
       <div className="flex min-w-0 items-center gap-2">
         <div
           className="flex min-w-0 flex-1 flex-wrap items-center gap-y-1 py-0.5"

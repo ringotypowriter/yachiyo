@@ -92,6 +92,7 @@ export interface TimelineItemRenderContext {
   onDelete: (messageId: string) => Promise<void>
   onSelectReplyBranch: (messageId: string) => Promise<void>
   onToggleHandoffFold: (foldKey: string) => void
+  onTimelineRowSizeChange: (descendant: HTMLElement) => void
 }
 
 interface TimelineItemContentProps {
@@ -142,7 +143,8 @@ function renderTimelineItem(
     onRetry,
     onDelete,
     onSelectReplyBranch,
-    onToggleHandoffFold
+    onToggleHandoffFold,
+    onTimelineRowSizeChange
   } = context
 
   if (item.kind === 'handoff-fold') {
@@ -383,6 +385,7 @@ function renderTimelineItem(
         toolCalls={item.toolCalls}
         workspacePath={workspacePath}
         subagentFinishedResults={subagentFinishedResults}
+        onContentSizeChange={onTimelineRowSizeChange}
       />
     )
   }
