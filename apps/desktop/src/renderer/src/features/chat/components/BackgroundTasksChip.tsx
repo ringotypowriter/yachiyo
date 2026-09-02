@@ -6,6 +6,10 @@ import { theme } from '@renderer/theme/theme'
 import { useRestoreFocusOnUnmount } from '@renderer/lib/focusRestore'
 import { useT } from '@yachiyo/i18n/react'
 import { tPlural } from '@yachiyo/i18n/index'
+import {
+  getBackgroundTaskFailureSummary,
+  getBackgroundTaskLogContent
+} from '../lib/backgroundTaskPresentation'
 import { useBackgroundTasksStore, type BackgroundTaskState } from '../state/useBackgroundTasksStore'
 import { BACKGROUND_TASK_LOG_DEFAULT_MAX_BYTES } from '@yachiyo/shared/protocol'
 
@@ -260,12 +264,17 @@ function BackgroundTaskRow({
     : isFailed
       ? theme.text.danger
       : theme.text.success
+  const failureSummary = getBackgroundTaskFailureSummary(task)
   const statusLabel = isRunning
     ? formatElapsed(task.startedAt, now)
     : isCancelled
       ? t('chat.backgroundTasks.statusCancelled')
       : isFailed
-        ? t('chat.backgroundTasks.statusFailed', { code: task.exitCode ?? '?' })
+        ? failureSummary.kind === 'exit-code'
+          ? t('chat.backgroundTasks.statusFailed', { code: failureSummary.exitCode })
+          : failureSummary.kind === 'error'
+            ? failureSummary.message
+            : t('chat.backgroundTasks.statusFailed', { code: '?' })
         : t('chat.backgroundTasks.statusDone', { code: task.exitCode ?? 0 })
 
   const label = task.description?.trim() || task.command
@@ -279,11 +288,10 @@ function BackgroundTaskRow({
           className="flex-1 flex items-center gap-2 min-w-0 text-left hover:opacity-80"
         >
           <span
-            className="inline-block w-1.5 h-1.5 rounded-full shrink-0"
-            style={{
-              background: statusColor,
-              animation: isRunning ? 'yachiyo-preparing-pulse 1.2s ease-in-out infinite' : undefined
-            }}
+            className={`inline-block w-1.5 h-1.5 rounded-full shrink-0 ${
+              isRunning ? 'yachiyo-running-pulse' : ''
+            }`}
+            style={{ background: statusColor }}
           />
           <span
             className="flex-1 min-w-0 text-xs truncate"
@@ -292,7 +300,11 @@ function BackgroundTaskRow({
           >
             {label}
           </span>
-          <span className="text-[10px] tabular-nums" style={{ color: theme.text.muted }}>
+          <span
+            className="max-w-60 truncate text-[10px] tabular-nums"
+            style={{ color: theme.text.muted }}
+            title={failureSummary.kind === 'error' ? failureSummary.message : undefined}
+          >
             {statusLabel}
           </span>
         </button>
@@ -427,8 +439,7 @@ function BackgroundTaskExpandedView({ task }: { task: BackgroundTaskState }): Re
     }
   }, [task.threadId, task.taskId, task.status, t])
 
-  const fallbackTail = linesToText(task.logTail)
-  const logContent = logState.content || fallbackTail
+  const logContent = getBackgroundTaskLogContent(task, logState.content)
   const logStatus =
     logState.status === 'failed'
       ? logState.message

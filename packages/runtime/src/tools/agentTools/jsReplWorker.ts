@@ -156,8 +156,21 @@ class TimerTracker {
 
 function wrapFsForCwd<T extends object>(fsModule: T, cwdRef: { value: string }): T {
   const twoPathMethods = new Set<PropertyKey>(['cp', 'copyFile', 'link', 'rename'])
+  const pathConstructors = new Set<PropertyKey>([
+    'FileReadStream',
+    'FileWriteStream',
+    'ReadStream',
+    'WriteStream'
+  ])
   const resolveArgument = (value: unknown): unknown =>
     typeof value === 'string' && !isAbsolute(value) ? resolvePath(cwdRef.value, value) : value
+
+  const resolvePathArguments = (property: PropertyKey, input: unknown[]): unknown[] => {
+    const args = [...input]
+    if (args.length > 0) args[0] = resolveArgument(args[0])
+    if (twoPathMethods.has(property) && args.length > 1) args[1] = resolveArgument(args[1])
+    return args
+  }
 
   return new Proxy(fsModule, {
     get(target, property, receiver) {
@@ -166,12 +179,17 @@ function wrapFsForCwd<T extends object>(fsModule: T, cwdRef: { value: string }):
         return wrapFsForCwd(value, cwdRef)
       }
       if (typeof value !== 'function') return value
-      return (...input: unknown[]) => {
-        const args = [...input]
-        if (args.length > 0) args[0] = resolveArgument(args[0])
-        if (twoPathMethods.has(property) && args.length > 1) args[1] = resolveArgument(args[1])
-        return Reflect.apply(value, target, args)
-      }
+      return new Proxy(value, {
+        apply(callable, _thisArg, input) {
+          return Reflect.apply(callable, target, resolvePathArguments(property, input))
+        },
+        construct(constructor, input, newTarget) {
+          const args = pathConstructors.has(property)
+            ? resolvePathArguments(property, input)
+            : input
+          return Reflect.construct(constructor, args, newTarget)
+        }
+      })
     }
   })
 }
@@ -264,7 +282,25 @@ async function importFromCwd(source: string, options?: ImportCallOptions): Promi
     const resolved = createRequire(resolvePath(state.cwdRef.value, 'package.json')).resolve(source)
     target = pathToFileURL(resolved).href
   }
-  return options === undefined ? import(target) : import(target, options)
+  const imported = await (options === undefined ? import(target) : import(target, options))
+  if (!source.startsWith('node:') && !isBuiltin(source)) return imported
+
+  const cwdRequire = state.context?.require
+  if (typeof cwdRequire !== 'function') {
+    throw new Error('JavaScript REPL import called before context initialization.')
+  }
+  const wrapped = cwdRequire(source) as Record<PropertyKey, unknown>
+  const namespace = Object.create(null) as Record<PropertyKey, unknown>
+  for (const property of new Set([...Reflect.ownKeys(imported), ...Reflect.ownKeys(wrapped)])) {
+    namespace[property] =
+      property === 'default'
+        ? wrapped
+        : Reflect.has(wrapped, property)
+          ? Reflect.get(wrapped, property)
+          : Reflect.get(imported, property)
+  }
+  namespace.default = wrapped
+  return Object.freeze(namespace)
 }
 
 function activeRun(): ActiveRun {
@@ -319,10 +355,10 @@ async function readLocalText(
   if (options.limit !== undefined && (!Number.isInteger(options.limit) || options.limit < 0)) {
     throw new TypeError('read() limit must be a non-negative integer.')
   }
-  const lines = content.split('\\n')
+  const lines = content.split('\n')
   return lines
     .slice(offset - 1, options.limit === undefined ? undefined : offset - 1 + options.limit)
-    .join('\\n')
+    .join('\n')
 }
 
 function errorMessage(error: unknown): string {

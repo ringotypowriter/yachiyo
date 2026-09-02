@@ -8,7 +8,7 @@ import { useT } from '@yachiyo/i18n/react'
 import {
   buildToolCallDetailsPresentation,
   buildToolCallRowSummary,
-  getToolCallDetailBlocks
+  canExpandToolCall
 } from '../lib/tool-calls/toolCallPresentation.ts'
 import { buildSubagentFinishedToolCall } from '../lib/tool-calls/subagentFinishedToolCall.ts'
 import { getToolCallIcon } from '../lib/tool-calls/toolCallIcons.ts'
@@ -88,7 +88,7 @@ export function InlineToolDeck({
     () => new Set()
   )
   const deckRef = useRef<HTMLDivElement>(null)
-  const buttonRefs = useRef(new Map<string, HTMLButtonElement>())
+  const toolItemRefs = useRef(new Map<string, HTMLElement>())
   const hoverSelectionTimerRef = useRef<number | null>(null)
 
   useEffect(
@@ -118,13 +118,11 @@ export function InlineToolDeck({
   const selectedToolCallId = autoSelectedWaitingToolCallId ?? selectedFromStateId
   const selectedToolCall =
     displayedToolCalls.find((toolCall) => toolCall.id === selectedToolCallId) ?? null
-  const selectedPresentation = selectedToolCall
-    ? buildToolCallDetailsPresentation(selectedToolCall)
-    : null
-  const selectedHasDetails = selectedPresentation
-    ? getToolCallDetailBlocks(selectedPresentation).length > 0
-    : false
-  const selectedCanExpand = selectedToolCall?.toolName === 'askUser' || Boolean(selectedHasDetails)
+  const selectedCanExpand = selectedToolCall ? canExpandToolCall(selectedToolCall) : false
+  const selectedPresentation =
+    selectedToolCall && selectedCanExpand && selectedToolCall.toolName !== 'askUser'
+      ? buildToolCallDetailsPresentation(selectedToolCall)
+      : null
 
   const clearHoverSelectionTimer = (): void => {
     if (hoverSelectionTimerRef.current === null) return
@@ -158,7 +156,7 @@ export function InlineToolDeck({
       autoSelectedWaitingToolCallId ?? (shouldFollowLatest ? summaryToolCall?.id : null)
     if (!targetToolCallId) return
 
-    buttonRefs.current.get(targetToolCallId)?.scrollIntoView({
+    toolItemRefs.current.get(targetToolCallId)?.scrollIntoView({
       block: 'nearest',
       inline: 'nearest'
     })
@@ -184,11 +182,34 @@ export function InlineToolDeck({
             const Icon = getToolCallIcon(toolCall.toolName)
             const isSelected = selectedToolCallId === toolCall.id
             const isHovered = hoveredToolCallId === toolCall.id
-            const presentation = buildToolCallDetailsPresentation(toolCall)
-            const canExpand =
-              toolCall.toolName === 'askUser' || getToolCallDetailBlocks(presentation).length > 0
+            const canExpand = canExpandToolCall(toolCall)
             const showsSummary = displayedSummaryToolCall.id === toolCall.id
             const stackItemWidth = TOOL_ICON_SIZE_PX - iconStackOverlap
+            const icon = (
+              <Icon
+                size={14}
+                strokeWidth={1.8}
+                aria-hidden="true"
+                className={isForegroundToolCall(toolCall) ? 'yachiyo-running-pulse' : undefined}
+              />
+            )
+            const toolItemStyle = {
+              appearance: 'none',
+              background: isSelected
+                ? theme.background.accentSoft
+                : isHovered
+                  ? theme.background.hoverStrong
+                  : theme.background.hover,
+              border: 'none',
+              color: getToolIconColor(toolCall),
+              cursor: 'default',
+              opacity: 1,
+              padding: 0
+            } as const
+            const setToolItemRef = (element: HTMLElement | null): void => {
+              if (element) toolItemRefs.current.set(toolCall.id, element)
+              else toolItemRefs.current.delete(toolCall.id)
+            }
 
             return (
               <div
@@ -205,80 +226,66 @@ export function InlineToolDeck({
                       : index + 1
                 }}
               >
-                <button
-                  ref={(element) => {
-                    if (element) buttonRefs.current.set(toolCall.id, element)
-                    else buttonRefs.current.delete(toolCall.id)
-                  }}
-                  type="button"
-                  className="yachiyo-tool-deck-button relative flex h-7 w-7 shrink-0 items-center justify-center rounded-full"
-                  data-tool-call-id={toolCall.id}
-                  title={toolCall.toolName}
-                  aria-controls={canExpand ? detailsId : undefined}
-                  aria-expanded={canExpand ? isSelected : undefined}
-                  aria-label={
-                    canExpand
-                      ? isSelected
+                {canExpand ? (
+                  <button
+                    ref={setToolItemRef}
+                    type="button"
+                    className="yachiyo-tool-deck-button relative flex h-7 w-7 shrink-0 items-center justify-center rounded-full"
+                    data-tool-call-id={toolCall.id}
+                    title={toolCall.toolName}
+                    aria-controls={detailsId}
+                    aria-expanded={isSelected}
+                    aria-label={
+                      isSelected
                         ? t('chat.tools.collapseDetailsAria', { name: toolCall.toolName })
                         : t('chat.tools.expandDetailsAria', { name: toolCall.toolName })
-                      : toolCall.toolName
-                  }
-                  aria-pressed={isSelected}
-                  onPointerEnter={(event) => {
-                    if (event.pointerType !== 'mouse') return
-                    setHoveredToolCallId(toolCall.id)
-                    clearHoverSelectionTimer()
-                    if (!canExpand || isSelected) return
-                    hoverSelectionTimerRef.current = window.setTimeout(() => {
-                      hoverSelectionTimerRef.current = null
-                      dismissAutoSelectedWaitingToolCall()
-                      setSelection({ kind: 'fixed', toolCallId: toolCall.id })
-                    }, HOVER_SELECTION_DELAY_MS)
-                  }}
-                  onPointerLeave={(event) => {
-                    if (event.pointerType !== 'mouse') return
-                    setHoveredToolCallId((current) => (current === toolCall.id ? null : current))
-                    clearHoverSelectionTimer()
-                  }}
-                  onClick={() => {
-                    clearHoverSelectionTimer()
-                    if (!canExpand) return
-                    dismissAutoSelectedWaitingToolCall()
-                    if (isSelected) {
-                      setSelection(null)
-                      return
                     }
-                    setSelection(
-                      toolCall.id === summaryToolCall.id
-                        ? { kind: 'latest' }
-                        : { kind: 'fixed', toolCallId: toolCall.id }
-                    )
-                  }}
-                  style={{
-                    appearance: 'none',
-                    background: isSelected
-                      ? theme.background.accentSoft
-                      : isHovered
-                        ? theme.background.hoverStrong
-                        : theme.background.hover,
-                    border: 'none',
-                    color: getToolIconColor(toolCall),
-                    cursor: 'default',
-                    opacity: 1,
-                    padding: 0
-                  }}
-                >
-                  <Icon
-                    size={14}
-                    strokeWidth={1.8}
-                    aria-hidden="true"
-                    style={{
-                      animation: isForegroundToolCall(toolCall)
-                        ? 'yachiyo-preparing-pulse 1.2s ease-in-out infinite'
-                        : undefined
+                    onPointerEnter={(event) => {
+                      if (event.pointerType !== 'mouse') return
+                      setHoveredToolCallId(toolCall.id)
+                      clearHoverSelectionTimer()
+                      if (isSelected) return
+                      hoverSelectionTimerRef.current = window.setTimeout(() => {
+                        hoverSelectionTimerRef.current = null
+                        dismissAutoSelectedWaitingToolCall()
+                        setSelection({ kind: 'fixed', toolCallId: toolCall.id })
+                      }, HOVER_SELECTION_DELAY_MS)
                     }}
-                  />
-                </button>
+                    onPointerLeave={(event) => {
+                      if (event.pointerType !== 'mouse') return
+                      setHoveredToolCallId((current) => (current === toolCall.id ? null : current))
+                      clearHoverSelectionTimer()
+                    }}
+                    onClick={() => {
+                      clearHoverSelectionTimer()
+                      dismissAutoSelectedWaitingToolCall()
+                      if (isSelected) {
+                        setSelection(null)
+                        return
+                      }
+                      setSelection(
+                        toolCall.id === summaryToolCall.id
+                          ? { kind: 'latest' }
+                          : { kind: 'fixed', toolCallId: toolCall.id }
+                      )
+                    }}
+                    style={toolItemStyle}
+                  >
+                    {icon}
+                  </button>
+                ) : (
+                  <span
+                    ref={setToolItemRef}
+                    className="relative flex h-7 w-7 shrink-0 items-center justify-center rounded-full"
+                    data-tool-call-id={toolCall.id}
+                    title={toolCall.toolName}
+                    role="img"
+                    aria-label={toolCall.toolName}
+                    style={toolItemStyle}
+                  >
+                    {icon}
+                  </span>
+                )}
                 {showsSummary ? (
                   <div
                     className="yachiyo-tool-deck-drawer ml-1 flex min-w-0 max-w-full flex-1 items-center gap-1.5 overflow-hidden whitespace-nowrap px-1"

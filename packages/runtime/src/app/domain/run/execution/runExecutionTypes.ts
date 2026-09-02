@@ -38,7 +38,7 @@ import type {
   YachiyoStorage
 } from '../../../../storage/storage.ts'
 import type { QuerySourceExecutor } from '../../../../tools/agentTools/querySourceTool.ts'
-import type { AgentMessageContext } from '../../../../tools/agentTools.ts'
+import type { GetTaskContext, SteerTaskContext } from '../../../../tools/agentTools.ts'
 import type {
   DelegateTaskFinishedEvent,
   DelegateTaskProgressEvent,
@@ -224,6 +224,6 @@ export interface RunExecutionDeps {
   isModelImageCapable?: boolean
   activityTracker?: ActivitySummarySource
   subagentManager?: SubagentManager
-  agentMessageContext?: AgentMessageContext
+  taskContext?: SteerTaskContext & GetTaskContext
   parentDeliveryContext?: SubagentParentDeliveryContext
 }

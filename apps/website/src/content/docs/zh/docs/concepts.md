@@ -55,7 +55,9 @@ description: 线程、运行、运行模式、工作区、技能、记忆和频�
 | `useBrowser`                          | 驱动真实浏览器会话，做 fetch 做不到的事。                         |
 | `skillsRead`                          | 按需加载某个技能完整的 `SKILL.md`。                               |
 | `askUser`                             | 运行途中提一个澄清问题，而不是靠猜。                              |
-| `delegateTask`                        | 把工作交给子智能体或外部编码智能体。                              |
+| `delegateTask`                        | 启动子智能体任务。                                                |
+| `steerTask`                           | 继续或唤醒已委派的任务。                                          |
+| `getTask`                             | 查看已委派任务的状态和进度。                                      |
 | `remember`                            | 保存一条持久记忆。                                                |
 | `querySource`                         | 以只读虚拟表的形式查询本地上下文源 —— 线程、记忆、活动记录。      |
 | `useThings`、`reviewThings`           | 维护 **Things**：用 `#name` 引用的具名上下文索引。                |

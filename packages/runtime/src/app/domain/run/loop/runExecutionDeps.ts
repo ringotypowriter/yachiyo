@@ -135,14 +135,18 @@ export function buildRunExecutionDeps(
     ...(context.subagentManager
       ? {
           subagentManager: context.subagentManager,
-          agentMessageContext: {
-            sender: { kind: 'parent', threadId: input.currentThread.id },
+          taskContext: {
             dispatch: (messageInput) =>
               context.subagentManager!.send({
                 from: { kind: 'parent', threadId: input.currentThread.id },
                 to: messageInput.to,
                 message: messageInput.message
-              })
+              }),
+            getTask: (taskId) =>
+              context.subagentManager!.get(
+                { kind: 'parent', threadId: input.currentThread.id },
+                taskId
+              )
           },
           parentDeliveryContext: {
             enabledTools: [...input.executionEnabledTools],

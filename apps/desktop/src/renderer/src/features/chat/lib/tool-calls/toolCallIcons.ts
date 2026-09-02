@@ -55,7 +55,8 @@ const coreToolIcons = {
   updateProfile: ContactRound,
   updateTodoList: ListChecks,
   sendThreadMessage: MessagesSquare,
-  sendMessage: SendHorizontal,
+  steerTask: SendHorizontal,
+  getTask: Eye,
   exitPlanMode: DoorOpen
 } satisfies Record<ToolCallName, ToolCallIcon>
 

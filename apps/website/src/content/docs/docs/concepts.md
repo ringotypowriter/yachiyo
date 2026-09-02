@@ -74,7 +74,9 @@ Tools are what turn the model into an agent. The full set:
 | `useBrowser`                          | Drive a real browser session for things a fetch cannot do.                                          |
 | `skillsRead`                          | Pull in a skill's full `SKILL.md` on demand.                                                        |
 | `askUser`                             | Ask a clarifying question mid-run instead of guessing.                                              |
-| `delegateTask`                        | Hand work to a subagent or an external coding agent.                                                |
+| `delegateTask`                        | Launch a subagent task.                                                                             |
+| `steerTask`                           | Continue or wake a delegated task.                                                                  |
+| `getTask`                             | Inspect a delegated task's state and progress.                                                      |
 | `remember`                            | Save a durable memory.                                                                              |
 | `querySource`                         | Query local context sources — threads, memories, activity records — as read-only virtual tables.    |
 | `useThings`, `reviewThings`           | Maintain **Things**: named context indexes you reference as `#name`.                                |

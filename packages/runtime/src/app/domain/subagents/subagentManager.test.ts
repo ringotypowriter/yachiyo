@@ -32,6 +32,11 @@ class FakeRunner implements SubagentRunner {
   readonly turns: SubagentRunnerTurnInput[] = []
   closeCount = 0
   private readonly turnResults: Array<Deferred<{ output: string }>> = []
+  private readonly onProgress: SubagentRunnerFactoryInput['onProgress']
+
+  constructor(onProgress: SubagentRunnerFactoryInput['onProgress'] = () => {}) {
+    this.onProgress = onProgress
+  }
 
   runTurn(input: SubagentRunnerTurnInput): Promise<{ output: string }> {
     this.turns.push(input)
@@ -55,6 +60,10 @@ class FakeRunner implements SubagentRunner {
     const result = this.turnResults.shift()
     if (!result) throw new Error('No pending fake turn.')
     result.reject(error)
+  }
+
+  reportProgress(chunk: string): void {
+    this.onProgress({ turnId: this.turns.at(-1)?.turnId ?? 'turn-1', chunk })
   }
 
   async close(): Promise<void> {
@@ -91,8 +100,8 @@ function makeHarness(
     createId: () => `id-${++id}`,
     timestamp: () => new Date(1_000 + id).toISOString(),
     emit: (event) => events.push(event),
-    runnerFactory: ({ launch }: SubagentRunnerFactoryInput): FakeRunner => {
-      const runner = new FakeRunner()
+    runnerFactory: ({ launch, onProgress }: SubagentRunnerFactoryInput): FakeRunner => {
+      const runner = new FakeRunner(onProgress)
       runners.set(launch.agentId, runner)
       return runner
     },
@@ -178,6 +187,22 @@ test('launch returns before the first Worker turn completes and delivers its ini
   assert.deepEqual(harness.deliveries, [
     { agentId: 'agent-1', kind: 'initial-result', message: 'Initial result' }
   ])
+})
+
+test('task inspection returns live progress only to members of the same team', async () => {
+  const harness = makeHarness()
+  await harness.manager.launch(launchInput())
+  harness.runners.get('agent-1')!.reportProgress('Reading the runtime contract')
+
+  assert.equal(
+    harness.manager.get({ kind: 'parent', threadId: 'thread-1' }, 'agent-1')?.progress,
+    'Reading the runtime contract'
+  )
+  assert.equal(
+    harness.manager.get({ kind: 'agent', agentId: 'agent-1' }, 'agent-1')?.state,
+    'running'
+  )
+  assert.equal(harness.manager.get({ kind: 'parent', threadId: 'thread-2' }, 'agent-1'), undefined)
 })
 
 test('matching explicit parent message suppresses the automatic initial result', async () => {
@@ -268,7 +293,7 @@ test('routing rejects cross-team, self-send, unknown, and terminal recipients', 
 
   assert.throws(
     () => sendFromParent(harness.manager, 'thread-1', 'agent-2', 'cross-team'),
-    /not in the sender's team/
+    /not in the sender's task team/
   )
   assert.throws(
     () =>
@@ -292,7 +317,7 @@ test('routing rejects cross-team, self-send, unknown, and terminal recipients', 
         to: 'agent-1',
         message: 'terminal'
       }),
-    /Terminal agent/
+    /Terminal task/
   )
 })
 
@@ -332,6 +357,18 @@ test('exhausted retryable interruption becomes idle and a later message resumes 
   const interrupted = harness.manager.list('thread-1')[0]
   assert.equal(interrupted?.state, 'idle')
   assert.equal(interrupted?.error, 'provider stream disconnected')
+  assert.equal(
+    harness.manager.get({ kind: 'parent', threadId: 'thread-1' }, 'agent-1')?.error,
+    'provider stream disconnected'
+  )
+  assert.deepEqual(harness.deliveries, [
+    {
+      agentId: 'agent-1',
+      kind: 'initial-result',
+      message:
+        'Task agent-1 was interrupted after retrying: provider stream disconnected. Use steerTask to continue this Worker.'
+    }
+  ])
   assert.equal(runner.closeCount, 0)
 
   const receipt = sendFromParent(harness.manager, 'thread-1', 'agent-1', 'Continue safely')
@@ -348,6 +385,7 @@ test('exhausted retryable interruption becomes idle and a later message resumes 
   await flush()
   assert.equal(harness.manager.list('thread-1')[0]?.state, 'idle')
   assert.equal(harness.manager.list('thread-1')[0]?.error, undefined)
+  assert.equal(harness.deliveries.at(-1)?.message, 'Recovered result')
 })
 
 test('message queued during a retryable interruption runs after the failed drain settles', async () => {
@@ -374,6 +412,27 @@ test('message queued during a retryable interruption runs after the failed drain
   assert.equal(harness.manager.list('thread-1')[0]?.error, undefined)
 })
 
+test('message-triggered turns automatically deliver their final result to the parent', async () => {
+  const harness = makeHarness()
+  await harness.manager.launch(launchInput())
+  const runner = harness.runners.get('agent-1')!
+  runner.resolveTurn('Initial result')
+  await flush()
+
+  sendFromParent(harness.manager, 'thread-1', 'agent-1', 'Return the final review')
+  await flush()
+  runner.resolveTurn('No additional findings')
+  await flush()
+
+  assert.deepEqual(
+    harness.deliveries.map(({ kind, message }) => ({ kind, message })),
+    [
+      { kind: 'initial-result', message: 'Initial result' },
+      { kind: 'message', message: 'No additional findings' }
+    ]
+  )
+})
+
 test('empty normal completion becomes idle without closing the resumable worker', async () => {
   const harness = makeHarness()
   await harness.manager.launch(launchInput())
@@ -388,7 +447,7 @@ test('empty normal completion becomes idle without closing the resumable worker'
     {
       agentId: 'agent-1',
       kind: 'initial-result',
-      message: 'Agent completed without a final text response.'
+      message: 'Task completed without a final text response.'
     }
   ])
 })
@@ -405,7 +464,7 @@ test('non-retryable runner failures stay terminal and cannot be woken', async ()
   assert.equal(runner.closeCount, 1)
   assert.throws(
     () => sendFromParent(harness.manager, 'thread-1', 'agent-1', 'Do not resume'),
-    /Terminal agent/
+    /Terminal task/
   )
 })
 

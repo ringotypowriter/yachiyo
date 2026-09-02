@@ -7,9 +7,12 @@ export interface AppQuitTarget {
   quit(): void
 }
 
+const DEFAULT_CLEANUP_TIMEOUT_MS = 15_000
+
 export function deferAppQuitUntil(input: {
   app: AppQuitTarget
   cleanup: () => Promise<void>
+  cleanupTimeoutMs?: number
   onCleanupError: (error: unknown) => void
 }): void {
   let state: 'idle' | 'running' | 'done' = 'idle'
@@ -22,11 +25,22 @@ export function deferAppQuitUntil(input: {
     state = 'running'
 
     void (async () => {
+      let timeout: NodeJS.Timeout | undefined
       try {
-        await input.cleanup()
+        const cleanupTimeoutMs = input.cleanupTimeoutMs ?? DEFAULT_CLEANUP_TIMEOUT_MS
+        await Promise.race([
+          input.cleanup(),
+          new Promise<never>((_resolve, reject) => {
+            timeout = setTimeout(
+              () => reject(new Error(`App cleanup timed out after ${cleanupTimeoutMs} ms.`)),
+              cleanupTimeoutMs
+            )
+          })
+        ])
       } catch (error) {
         input.onCleanupError(error)
       } finally {
+        if (timeout) clearTimeout(timeout)
         state = 'done'
         input.app.quit()
       }

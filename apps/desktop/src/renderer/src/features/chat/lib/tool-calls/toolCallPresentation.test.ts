@@ -4,6 +4,7 @@ import test from 'node:test'
 import {
   buildToolCallDetailsPresentation,
   buildToolCallRowSummary,
+  canExpandToolCall,
   compressPath,
   formatToolFilePath,
   formatToolFilePathList,
@@ -34,6 +35,34 @@ test('buildToolCallDetailsPresentation uses recovered raw input and output when 
     value: '{\n  "path": "notes.txt",\n  "content": "full input"\n}'
   })
   assert.deepEqual(presentation.output, { label: 'Output', value: 'full output' })
+})
+
+test('canExpandToolCall cheaply recognizes calls with presentable details', () => {
+  assert.equal(canExpandToolCall({ ...BASE_TOOL_CALL, inputSummary: '' }), false)
+  assert.equal(canExpandToolCall({ ...BASE_TOOL_CALL, error: 'tool failed' }), true)
+  assert.equal(canExpandToolCall({ ...BASE_TOOL_CALL, rawInput: { path: 'notes.txt' } }), true)
+  assert.equal(
+    canExpandToolCall({
+      ...BASE_TOOL_CALL,
+      details: {
+        path: 'notes.txt',
+        startLine: 1,
+        endLine: 1,
+        totalLines: 1,
+        totalBytes: 5,
+        truncated: false,
+        content: 'notes'
+      }
+    }),
+    true
+  )
+})
+
+test('canExpandToolCall keeps askUser interactive without persisted detail blocks', () => {
+  assert.equal(
+    canExpandToolCall({ ...BASE_TOOL_CALL, toolName: 'askUser', inputSummary: '' }),
+    true
+  )
 })
 
 test('buildToolCallDetailsPresentation shows read content excerpt from details when raw output is absent', () => {

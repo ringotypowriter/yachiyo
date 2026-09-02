@@ -24,6 +24,13 @@ agents, each with a fixed role:
 All four are enabled by default. Which ones are available is set in **Settings →
 Capabilities → Coding agents**.
 
+Worker tasks are asynchronous. `delegateTask` returns a Task ID as soon as the
+worker starts. Use `getTask` when the main agent needs the current state, recent
+progress, output, or error. Use `steerTask` with that ID to add work or wake an
+idle task; workers use the same tool to message the parent or a peer task. Every
+completed turn, empty completion, and exhausted network interruption is reported
+back to the parent automatically.
+
 :::note[Subagents start blank]
 A worker subagent sees only its system prompt and the prompt it is handed — not
 your conversation, not the plan document, not earlier tool results. The task

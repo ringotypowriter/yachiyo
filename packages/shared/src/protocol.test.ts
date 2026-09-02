@@ -5,7 +5,8 @@ import {
   deriveThreadCapabilities,
   getThreadCapabilities,
   isMemoryConfigured,
-  isTrackedToolName
+  isTrackedToolName,
+  normalizeEnabledTools
 } from './protocol.ts'
 import { CORE_TOOL_NAMES, DEFAULT_ENABLED_TOOL_NAMES } from './protocol.ts'
 
@@ -72,17 +73,24 @@ test('pyRepl is registered and enabled by default', () => {
   assert.ok(DEFAULT_ENABLED_TOOL_NAMES.includes('pyRepl'))
 })
 
-test('thread and team messaging tools are registered and enabled by default', () => {
+test('thread messaging and task lifecycle tools are registered and enabled by default', () => {
   assert.ok(CORE_TOOL_NAMES.includes('sendThreadMessage'))
   assert.ok(DEFAULT_ENABLED_TOOL_NAMES.includes('sendThreadMessage'))
-  assert.ok(CORE_TOOL_NAMES.includes('sendMessage'))
-  assert.ok(DEFAULT_ENABLED_TOOL_NAMES.includes('sendMessage'))
+  assert.ok(CORE_TOOL_NAMES.includes('delegateTask'))
+  assert.ok(CORE_TOOL_NAMES.includes('steerTask'))
+  assert.ok(CORE_TOOL_NAMES.includes('getTask'))
+  assert.ok(DEFAULT_ENABLED_TOOL_NAMES.includes('delegateTask'))
+  assert.ok(DEFAULT_ENABLED_TOOL_NAMES.includes('steerTask'))
+  assert.ok(DEFAULT_ENABLED_TOOL_NAMES.includes('getTask'))
+  assert.equal(CORE_TOOL_NAMES.includes('sendMessage' as never), false)
 })
 
-test('delegateTask is the only registered delegation tool', () => {
-  assert.ok(CORE_TOOL_NAMES.includes('delegateTask'))
+test('legacy sendMessage settings migrate to task lifecycle tools', () => {
+  assert.deepEqual(normalizeEnabledTools(['read', 'sendMessage']), ['read', 'steerTask', 'getTask'])
+})
+
+test('delegateTask is the only registered task creation tool', () => {
   assert.equal(CORE_TOOL_NAMES.includes('delegateCodingTask' as never), false)
-  assert.ok(DEFAULT_ENABLED_TOOL_NAMES.includes('delegateTask'))
 })
 
 test('updateTodoList is a core tool but not tracked in the timeline', () => {

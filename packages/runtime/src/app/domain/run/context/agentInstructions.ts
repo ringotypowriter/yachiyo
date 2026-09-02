@@ -100,21 +100,22 @@ export function buildSubagentContextBlock(
     lines.push(
       '',
       'Worker collaboration:',
-      '- `delegateTask` launches a Worker asynchronously. The tool call completes when launch succeeds; it does not mean the Worker task or lifecycle has ended.',
-      '- When your next useful action depends on a running Worker, end the current parent turn without presenting the overall task as complete, instead of waiting, polling, or asking the Worker to stop early. Its completed turn is delivered automatically and wakes this conversation for a new parent turn.',
-      '- After a Worker finishes a turn, it becomes idle and remains addressable with its conversation history until it expires. Keep it available for related follow-up work; do not rush or terminate it merely to make the parent task appear complete.',
-      '- Continue related work with a running or idle Worker by calling `sendMessage` with its exact Agent ID. This queues a message and wakes an idle Worker.',
+      '- `delegateTask` launches a Worker Task asynchronously. The tool call completes when launch succeeds; it does not mean the Task or Worker lifecycle has ended.',
+      '- When your next useful action depends on a running Task, end the current parent turn without presenting the overall work as complete. Every completed Task turn is delivered automatically and wakes this conversation.',
+      '- Use `getTask` with an exact Task ID when you need its current state, latest progress, output, or error. Do not busy-poll.',
+      '- After a Worker finishes a turn, its Task becomes idle and remains addressable with its conversation history until it expires.',
+      '- Continue related work or recover an interrupted idle Task with `steerTask`. A running Task reads the steer at a safe boundary; an idle Task wakes immediately.',
       '- Launch a new Worker when the work should be independent or no suitable live Worker exists. Code names are display labels, not routing addresses.'
     )
     if (activeSubagents.length > 0) {
-      lines.push('', 'Current live Worker roster:')
+      lines.push('', 'Current live Worker Task roster:')
       for (const subagent of activeSubagents) {
         lines.push(
           `- ${subagent.agentId}: ${subagent.codeName} (${subagent.agentType}), ${subagent.state}`
         )
       }
     } else {
-      lines.push('', 'Current live Worker roster: none.')
+      lines.push('', 'Current live Worker Task roster: none.')
     }
   }
 

@@ -68,7 +68,7 @@ function makeContext(overrides: Partial<DelegateTaskContext> = {}): DelegateTask
     parentToolContext: {
       runId: 'parent-run',
       threadId: 'thread-1',
-      enabledTools: ['delegateTask', 'sendMessage'],
+      enabledTools: ['delegateTask', 'steerTask', 'getTask'],
       workspacePath: process.cwd()
     },
     parentDependencies: {},
@@ -105,9 +105,9 @@ test('delegateTask returns a launch receipt without awaiting provider execution'
     launchOptions('delegation-1')
   )) as { content: Array<{ type: 'text'; text: string }> }
 
-  assert.match(result.content[0]?.text ?? '', /launched as Agent/)
+  assert.match(result.content[0]?.text ?? '', /launched as Task/)
   assert.match(result.content[0]?.text ?? '', /delivered automatically/)
-  assert.match(result.content[0]?.text ?? '', /sendMessage/)
+  assert.match(result.content[0]?.text ?? '', /steerTask/)
   assert.equal(providerCalls, 0)
   assert.equal(context.__testLaunches.length, 1)
   assert.equal(context.__testLaunches[0]?.agentId, 'delegation-1')
@@ -180,6 +180,7 @@ test('Worker runner preserves prompt/mailbox history and Agent-specific prompt c
       sentMessages.push(input)
       return receipt
     },
+    getTask: () => undefined,
     hasPendingMessages: () => false,
     onProgress: () => {},
     onToolCall: () => {}
@@ -215,7 +216,8 @@ test('Worker runner preserves prompt/mailbox history and Agent-specific prompt c
     assert.match(secondHistory, /Follow-up request/)
     assert.equal('delegateTask' in (requests[0]?.tools ?? {}), false)
     assert.equal('sendThreadMessage' in (requests[0]?.tools ?? {}), false)
-    assert.equal('sendMessage' in (requests[0]?.tools ?? {}), true)
+    assert.equal('steerTask' in (requests[0]?.tools ?? {}), true)
+    assert.equal('getTask' in (requests[0]?.tools ?? {}), true)
     assert.deepEqual(sentMessages, [])
   } finally {
     await runner.close()
@@ -262,6 +264,7 @@ test('Worker runner retries transient interruptions with bounded exponential bac
     },
     signal: new AbortController().signal,
     sendMessage: () => ({ messageId: 'message-1', delivery: 'queued', recipientState: 'idle' }),
+    getTask: () => undefined,
     hasPendingMessages: () => false,
     onProgress: () => {},
     onToolCall: () => {}
@@ -322,6 +325,7 @@ test('Worker runner stops after the bounded transient retry budget is exhausted'
     },
     signal: new AbortController().signal,
     sendMessage: () => ({ messageId: 'message-1', delivery: 'queued', recipientState: 'idle' }),
+    getTask: () => undefined,
     hasPendingMessages: () => false,
     onProgress: () => {},
     onToolCall: () => {}
@@ -395,6 +399,7 @@ test('Worker runner does not automatically retry non-retryable errors or cancell
       },
       signal: controller.signal,
       sendMessage: () => ({ messageId: 'message-1', delivery: 'queued', recipientState: 'idle' }),
+      getTask: () => undefined,
       hasPendingMessages: () => false,
       onProgress: () => {},
       onToolCall: () => {}
@@ -490,6 +495,7 @@ test('Worker retry resumes after completed tools without executing them again', 
     },
     signal: new AbortController().signal,
     sendMessage: () => ({ messageId: 'message-1', delivery: 'queued', recipientState: 'idle' }),
+    getTask: () => undefined,
     hasPendingMessages: () => false,
     onProgress: () => {},
     onToolCall: () => {}
@@ -564,6 +570,7 @@ test('Worker preserves a synthetic interrupted result for a dangling tool call b
     },
     signal: new AbortController().signal,
     sendMessage: () => ({ messageId: 'message-1', delivery: 'queued', recipientState: 'idle' }),
+    getTask: () => undefined,
     hasPendingMessages: () => false,
     onProgress: () => {},
     onToolCall: () => {}
@@ -677,6 +684,7 @@ test('Worker runner preserves the host jsRepl worker bundle path', async () => {
       delivery: 'queued',
       recipientState: 'idle'
     }),
+    getTask: () => undefined,
     hasPendingMessages: () => false,
     onProgress: () => {},
     onToolCall: () => {}
@@ -797,6 +805,7 @@ test('Worker runner preserves the host pyRepl runner and runtime dependencies', 
       delivery: 'queued',
       recipientState: 'idle'
     }),
+    getTask: () => undefined,
     hasPendingMessages: () => false,
     onProgress: () => {},
     onToolCall: () => {}
@@ -855,6 +864,7 @@ test('Worker runner omits pyRepl when managed Python is not ready', async () => 
       delivery: 'queued',
       recipientState: 'idle'
     }),
+    getTask: () => undefined,
     hasPendingMessages: () => false,
     onProgress: () => {},
     onToolCall: () => {}
@@ -944,6 +954,7 @@ test('Worker runner compacts with its own model before a follow-up turn', async 
       delivery: 'queued',
       recipientState: 'idle'
     }),
+    getTask: () => undefined,
     hasPendingMessages: () => false,
     onProgress: () => {},
     onToolCall: () => {}
@@ -989,7 +1000,8 @@ test('Worker runner compacts with its own model before a follow-up turn', async 
 test('Worker profile permissions expose pyRepl only to general workers', () => {
   const profile = DEFAULT_NAMED_SUBAGENT_PROFILES.general
   assert.ok(profile.allowedTools?.includes('pyRepl'))
-  assert.ok(profile.allowedTools?.includes('sendMessage'))
+  assert.ok(profile.allowedTools?.includes('steerTask'))
+  assert.ok(profile.allowedTools?.includes('getTask'))
   assert.equal(profile.allowedTools?.includes('delegateTask'), false)
   assert.equal(profile.allowedTools?.includes('sendThreadMessage'), false)
 

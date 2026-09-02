@@ -181,6 +181,8 @@ export const CORE_TOOL_NAMES = [
   'useSentinel',
   'askUser',
   'delegateTask',
+  'steerTask',
+  'getTask',
   'remember',
   'querySource',
   'useThings',
@@ -188,7 +190,6 @@ export const CORE_TOOL_NAMES = [
   'updateProfile',
   'updateTodoList',
   'sendThreadMessage',
-  'sendMessage',
   'exitPlanMode'
 ] as const
 export type ToolCallName = (typeof CORE_TOOL_NAMES)[number]
@@ -226,6 +227,7 @@ export interface SubagentSnapshot {
   startedAt: string
   updatedAt: string
   currentTurnId?: string
+  progress?: string
   lastOutput?: string
   error?: string
   cumulativePromptTokens?: number
@@ -295,17 +297,13 @@ export function normalizeEnabledTools(
 
   const enabledTools: ToolCallName[] = []
   const seen = new Set<ToolCallName>()
-
-  for (const item of value) {
-    if (typeof item !== 'string' || !coreToolNameSet.has(item)) {
-      continue
-    }
-
+  const migrated = value.flatMap((item): unknown[] =>
+    item === 'sendMessage' ? ['steerTask', 'getTask'] : [item]
+  )
+  for (const item of migrated) {
+    if (typeof item !== 'string' || !coreToolNameSet.has(item)) continue
     const toolName = item as ToolCallName
-    if (seen.has(toolName)) {
-      continue
-    }
-
+    if (seen.has(toolName)) continue
     seen.add(toolName)
     enabledTools.push(toolName)
   }

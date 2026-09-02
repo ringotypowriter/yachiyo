@@ -433,6 +433,46 @@ return JSON.stringify({
     }
   })
 
+  it('resolves statically imported fs paths against the per-call cwd', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'jsrepl-import-fs-cwd-'))
+    try {
+      mkdirSync(join(tempDir, 'sub'))
+      writeFileSync(join(tempDir, 'sub', 'value.txt'), 'from-subdirectory')
+      const tool = createTrackedTool(makeContext({ workspacePath: tempDir }))
+      const result = await execute(tool, {
+        code: 'import { readFileSync } from "node:fs"; readFileSync("value.txt", "utf8")',
+        cwd: 'sub'
+      })
+
+      assert.equal(result.error, undefined)
+      assert.equal(result.details.result, 'from-subdirectory')
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true })
+    }
+  })
+
+  it('preserves constructors from statically imported fs modules', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'jsrepl-import-fs-constructor-'))
+    try {
+      mkdirSync(join(tempDir, 'sub'))
+      writeFileSync(join(tempDir, 'sub', 'value.txt'), 'streamed-from-subdirectory')
+      const tool = createTrackedTool(makeContext({ workspacePath: tempDir }))
+      const result = await execute(tool, {
+        code: `
+import { ReadStream } from "node:fs"
+const chunks = []
+for await (const chunk of new ReadStream("value.txt", { encoding: "utf8" })) chunks.push(chunk)
+chunks.join("")`,
+        cwd: 'sub'
+      })
+
+      assert.equal(result.error, undefined)
+      assert.equal(result.details.result, 'streamed-from-subdirectory')
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true })
+    }
+  })
+
   it('resolves fs/promises paths against the per-call cwd', async () => {
     const tempDir = mkdtempSync(join(tmpdir(), 'jsrepl-fsp-cwd-'))
     try {
@@ -658,6 +698,22 @@ return await fsp.readFile("output/copied/context.json", "utf8")`,
         code: 'await read("hello.txt")'
       })
       assert.equal(result.details.result, 'world')
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true })
+    }
+  })
+
+  it('read helper applies one-based line ranges', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'jsrepl-tools-range-'))
+    try {
+      writeFileSync(join(tempDir, 'lines.txt'), 'first\nsecond\nthird')
+      const tool = createTrackedTool(makeContext({ workspacePath: tempDir }))
+      const result = await execute(tool, {
+        code: 'await read("lines.txt", { offset: 2, limit: 1 })'
+      })
+
+      assert.equal(result.error, undefined)
+      assert.equal(result.details.result, 'second')
     } finally {
       rmSync(tempDir, { recursive: true, force: true })
     }

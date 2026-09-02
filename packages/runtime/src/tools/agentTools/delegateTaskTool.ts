@@ -426,9 +426,9 @@ function createWorkerTool(
           runnerFactory
         })
         const text =
-          `Worker ${agentName} (${receipt.codeName}) launched as Agent ${receipt.agentId} in ${receipt.workspacePath}. ` +
-          'The initial result will be delivered automatically. After finishing a turn, the Agent remains idle and retains its history until closed or expired. ' +
-          `Use sendMessage with to "${receipt.agentId}" to add related work or wake this same Agent; launch another Worker only for independent work.`
+          `Worker ${agentName} (${receipt.codeName}) launched as Task ${receipt.agentId} in ${receipt.workspacePath}. ` +
+          'Every turn result will be delivered automatically. After finishing a turn, the Task remains idle and retains its history until closed or expired. ' +
+          `Use steerTask with taskId "${receipt.agentId}" to add related work or wake this same Task, and getTask to inspect its current state and progress.`
         const details: SubagentToolCallDetails = {
           kind: 'subagent',
           agentId: receipt.agentId,

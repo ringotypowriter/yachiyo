@@ -262,12 +262,19 @@ export interface SubagentToolCallDetails {
   snapshotId?: string
 }
 
-export interface SendMessageToolCallDetails {
-  kind: 'sendMessage'
+export interface SteerTaskToolCallDetails {
+  kind: 'steerTask'
   messageId: string
-  to: string
+  taskId: string
   delivery: 'queued'
   recipientState: 'running' | 'idle'
+}
+
+export interface GetTaskToolCallDetails {
+  kind: 'getTask'
+  taskId: string
+  state?: SubagentState
+  updatedAt?: string
 }
 
 export type ToolCallDetailsSnapshot =
@@ -287,4 +294,5 @@ export type ToolCallDetailsSnapshot =
   | ApplyPatchToolCallDetails
   | UseSentinelToolCallDetails
   | SubagentToolCallDetails
-  | SendMessageToolCallDetails
+  | SteerTaskToolCallDetails
+  | GetTaskToolCallDetails

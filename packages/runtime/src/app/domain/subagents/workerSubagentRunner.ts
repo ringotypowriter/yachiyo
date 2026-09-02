@@ -3,11 +3,9 @@ import { stepCountIs } from 'ai'
 import { DEFAULT_STRIP_COMPACT_TOKEN_THRESHOLD } from '@yachiyo/shared/protocol'
 import type {
   AgentMessageEnvelope,
-  AgentMessageReceipt,
   NamedSubagentId,
   ProviderSettings,
   SettingsConfig,
-  SendAgentMessageInput,
   SkillSummary,
   ToolCallName
 } from '@yachiyo/shared/protocol'
@@ -62,11 +60,6 @@ export interface WorkerSubagentRunnerDependencies {
 
 type WorkerProfile = (typeof DEFAULT_NAMED_SUBAGENT_PROFILES)[NamedSubagentId]
 
-interface AgentMessageContextLike {
-  sender: { kind: 'agent'; agentId: string }
-  dispatch: (input: SendAgentMessageInput) => AgentMessageReceipt
-}
-
 export interface WorkerRunnerFactoryInput {
   profileId: NamedSubagentId
   profile: WorkerProfile
@@ -75,7 +68,7 @@ export interface WorkerRunnerFactoryInput {
 
 const WORKSPACE_CONCURRENCY_INSTRUCTION = [
   'Other Worker Agents may modify this workspace concurrently.',
-  'Re-read files immediately before writing; stale edit anchors or unexpected test results require coordination through sendMessage.',
+  'Re-read files immediately before writing; stale edit anchors or unexpected test results require coordination through steerTask.',
   'Do not revert, overwrite, or delete changes whose ownership you cannot confirm.',
   'A successful tool call is not proof of the final workspace state; re-read and verify before reporting.'
 ].join(' ')
@@ -87,13 +80,10 @@ function buildWorkerSystemPrompt(
   identity: { agentId: string; parentThreadId: string }
 ): string {
   const collaborationInstruction = [
-    `You are Worker Agent ${identity.agentId} in team thread ${identity.parentThreadId}.`,
-    'The final response from your initial task is delivered to the parent automatically.',
-    'During the initial turn, use sendMessage with to "parent" only for intermediate updates',
-    'that must arrive before the turn ends; do not repeat the final response through sendMessage.',
-    'Final text from later message-triggered turns is not delivered automatically.',
-    'Use sendMessage when a reply is needed.',
-    'Use an exact agent ID for peer messages. A queued receipt is not a reply.'
+    `You are Worker Task ${identity.agentId} in team thread ${identity.parentThreadId}.`,
+    'Your final response from every turn is delivered to the parent automatically.',
+    'Use steerTask with taskId "parent" only for intermediate updates that must arrive before the turn ends; do not repeat the final response through steerTask.',
+    'Use an exact Task ID for peer messages and getTask to inspect a peer Task. A queued steer receipt is not a reply.'
   ].join(' ')
   const sections = [baseSystemPrompt, collaborationInstruction, WORKSPACE_CONCURRENCY_INSTRUCTION]
   if (hasSkillsRead && activeSkillNames.length > 0) {
@@ -190,7 +180,7 @@ function createWorkerRunner(
   input: WorkerRunnerFactoryInput,
   factoryInput: SubagentRunnerFactoryInput
 ): SubagentRunner {
-  const { launch, onProgress, onToolCall, sendMessage, hasPendingMessages } = factoryInput
+  const { launch, onProgress, onToolCall, sendMessage, getTask, hasPendingMessages } = factoryInput
   const profile = input.profile
   const { settings, config, activeSkills, createModelRuntime } = input.dependencies
   const sleep = input.dependencies.sleep ?? sleepWithSignal
@@ -285,9 +275,9 @@ function createWorkerRunner(
       : {}),
     ...(workerRunMode ? { runMode: workerRunMode } : {})
   }
-  const workerMessageContext: AgentMessageContextLike = {
-    sender: { kind: 'agent', agentId: launch.agentId },
-    dispatch: sendMessage
+  const workerTaskContext = {
+    dispatch: sendMessage,
+    getTask
   }
   const workerDependencies = {
     availableSkills: parentDependencies.availableSkills,
@@ -319,7 +309,9 @@ function createWorkerRunner(
           memoryService: parentDependencies.memoryService
         }
       : {}),
-    ...(enabledTools.has('sendMessage') ? { agentMessageContext: workerMessageContext } : {})
+    ...(enabledTools.has('steerTask') || enabledTools.has('getTask')
+      ? { taskContext: workerTaskContext }
+      : {})
   } as AgentToolDependencies
   const tools = createAgentToolSet(workerContext, workerDependencies)
   const workerSettings = config

@@ -210,7 +210,7 @@ export function createRunToolSet(input: CreateRunToolSetInput): ToolSet | undefi
           createModelRuntime: deps.createModelRuntime,
           ...(canUseWorkerDelegate
             ? {
-                agentMessageContext: deps.agentMessageContext,
+                taskContext: deps.taskContext,
                 subagentManager: deps.subagentManager,
                 parentDeliveryContext: deps.parentDeliveryContext
               }

@@ -27,6 +27,7 @@ export const MAX_MAILBOX_BYTES = 64 * 1024
 export const MAX_TURNS_PER_AGENT = 32
 export const DEFAULT_IDLE_TTL_MS = 5 * 60 * 1000
 export const MAX_AGENT_MESSAGE_LENGTH = 8_000
+export const MAX_TASK_PROGRESS_LENGTH = 12_000
 
 export interface SubagentParentDeliveryContext {
   enabledTools: ToolCallName[]
@@ -75,6 +76,7 @@ export interface SubagentRunnerFactoryInput {
   launch: LaunchSubagentInput
   signal: AbortSignal
   sendMessage: (input: SendAgentMessageInput) => AgentMessageReceipt
+  getTask: (taskId: string) => SubagentSnapshot | undefined
   hasPendingMessages: () => boolean
   onProgress: (input: { turnId: string; chunk: string }) => void
   onToolCall: (input: {
@@ -238,8 +240,10 @@ export class SubagentManager {
           from: { kind: 'agent', agentId: input.agentId },
           ...messageInput
         }),
+      getTask: (taskId) => this.get({ kind: 'agent', agentId: input.agentId }, taskId),
       hasPendingMessages: () => this.hasPendingMessages(input.agentId),
       onProgress: ({ turnId, chunk }) => {
+        this.appendProgress(input.agentId, chunk)
         this.emitProgress(storedLaunch, turnId, chunk)
       },
       onToolCall: (event) => {
@@ -296,30 +300,30 @@ export class SubagentManager {
     message: string
   }): AgentMessageReceipt {
     if (this.closing) {
-      throw new Error('Subagent manager is closing and does not accept new messages.')
+      throw new Error('Subagent manager is closing and does not accept new task steers.')
     }
     const message = input.message.trim()
-    if (!message) throw new Error('Agent message must not be empty.')
+    if (!message) throw new Error('Task steer must not be empty.')
     if (message.length > MAX_AGENT_MESSAGE_LENGTH) {
-      throw new Error(`Agent messages may contain at most ${MAX_AGENT_MESSAGE_LENGTH} characters.`)
+      throw new Error(`Task steers may contain at most ${MAX_AGENT_MESSAGE_LENGTH} characters.`)
     }
 
     const senderRecord =
       input.from.kind === 'agent' ? this.agents.get(input.from.agentId) : undefined
     if (input.from.kind === 'agent') {
-      if (!senderRecord) throw new Error(`Unknown sender agent "${input.from.agentId}".`)
+      if (!senderRecord) throw new Error(`Unknown sender task "${input.from.agentId}".`)
       if (isTerminalState(senderRecord.snapshot.state)) {
-        throw new Error(`Terminal agent "${input.from.agentId}" cannot send messages.`)
+        throw new Error(`Terminal task "${input.from.agentId}" cannot send steers.`)
       }
     }
 
     if (input.from.kind === 'parent' && input.to === 'parent') {
-      throw new Error('Parent agents cannot send messages to the parent endpoint.')
+      throw new Error('Parent agents cannot steer the parent endpoint.')
     }
 
     if (input.to === 'parent') {
       if (!senderRecord) {
-        throw new Error('Only a Worker agent can send to the parent endpoint.')
+        throw new Error('Only a Worker task can steer the parent endpoint.')
       }
       const parentThreadId = senderRecord.launch.parentThreadId
       const sequence = this.nextParentSequence(parentThreadId)
@@ -340,9 +344,9 @@ export class SubagentManager {
     }
 
     const recipient = this.agents.get(input.to)
-    if (!recipient) throw new Error(`Unknown recipient agent "${input.to}".`)
+    if (!recipient) throw new Error(`Unknown recipient task "${input.to}".`)
     if (isTerminalState(recipient.snapshot.state)) {
-      throw new Error(`Terminal agent "${input.to}" cannot receive messages.`)
+      throw new Error(`Terminal task "${input.to}" cannot receive steers.`)
     }
     let teamThreadId: string
     if (senderRecord) {
@@ -350,13 +354,13 @@ export class SubagentManager {
     } else if (input.from.kind === 'parent') {
       teamThreadId = input.from.threadId
     } else {
-      throw new Error(`Unknown sender agent "${input.from.agentId}".`)
+      throw new Error(`Unknown sender task "${input.from.agentId}".`)
     }
     if (recipient.launch.parentThreadId !== teamThreadId) {
-      throw new Error(`Agent "${input.to}" is not in the sender's team.`)
+      throw new Error(`Agent "${input.to}" is not in the sender's task team.`)
     }
     if (input.from.kind === 'agent' && input.from.agentId === recipient.launch.agentId) {
-      throw new Error('An agent cannot send a message to itself.')
+      throw new Error('A task cannot steer itself.')
     }
 
     const bytes = messageBytes(message)
@@ -400,9 +404,9 @@ export class SubagentManager {
     if (notifyParent) {
       const kind = record.initialResultDelivered ? 'message' : 'initial-result'
       record.initialResultDelivered = true
-      this.deliver(record, undefined, kind, `Agent ${record.launch.agentId} was cancelled.`)
+      this.deliver(record, undefined, kind, `Task ${record.launch.agentId} was cancelled.`)
     }
-    record.controller.abort(new Error('Agent cancelled.'))
+    record.controller.abort(new Error('Task cancelled.'))
     return true
   }
   cancelRunningByThread(threadId: string): number {
@@ -457,6 +461,17 @@ export class SubagentManager {
     return [...this.agents.values()]
       .filter((record) => threadId === undefined || record.launch.parentThreadId === threadId)
       .map((record) => cloneSnapshot(record.snapshot))
+  }
+
+  get(requester: AgentEndpoint, taskId: string): SubagentSnapshot | undefined {
+    const record = this.agents.get(taskId)
+    if (!record) return undefined
+    const requesterThreadId =
+      requester.kind === 'parent'
+        ? requester.threadId
+        : this.agents.get(requester.agentId)?.launch.parentThreadId
+    if (!requesterThreadId || record.launch.parentThreadId !== requesterThreadId) return undefined
+    return cloneSnapshot(record.snapshot)
   }
 
   async close(): Promise<void> {
@@ -543,7 +558,7 @@ export class SubagentManager {
           record.snapshot = {
             ...record.snapshot,
             currentTurnId: undefined,
-            error: `Agent reached the maximum of ${this.limits.maxTurnsPerAgent} turns.`,
+            error: `Task reached the maximum of ${this.limits.maxTurnsPerAgent} turns.`,
             updatedAt: this.deps.timestamp()
           }
           this.emitSnapshot(record)
@@ -551,7 +566,7 @@ export class SubagentManager {
             record,
             undefined,
             'message',
-            `Agent reached the maximum of ${this.limits.maxTurnsPerAgent} turns and was closed.`
+            `Task reached the maximum of ${this.limits.maxTurnsPerAgent} turns and was closed.`
           )
           this.setState(record, 'closed')
           this.startRunnerClose(record)
@@ -586,7 +601,7 @@ export class SubagentManager {
             record,
             undefined,
             kind,
-            `Agent ${record.launch.agentId} was interrupted after retrying: ${errorMessage}. Send a message to continue this Worker.`
+            `Task ${record.launch.agentId} was interrupted after retrying: ${errorMessage}. Use steerTask to continue this Worker.`
           )
           if (record.mailbox.length === 0) {
             this.setState(record, 'idle')
@@ -597,7 +612,7 @@ export class SubagentManager {
             record,
             undefined,
             kind,
-            `Agent ${record.launch.agentId} failed: ${errorMessage}`
+            `Task ${record.launch.agentId} failed: ${errorMessage}`
           )
           this.setState(record, 'failed')
         }
@@ -630,12 +645,11 @@ export class SubagentManager {
       updatedAt: this.deps.timestamp()
     }
     this.emitSnapshot(record)
-    if (!record.initialResultDelivered) {
-      record.initialResultDelivered = true
-      const message = output || 'Agent completed without a final text response.'
-      if (!record.parentMessagesThisTurn.has(message)) {
-        this.deliver(record, undefined, 'initial-result', message)
-      }
+    const kind = record.initialResultDelivered ? 'message' : 'initial-result'
+    record.initialResultDelivered = true
+    const message = output || 'Task completed without a final text response.'
+    if (!record.parentMessagesThisTurn.has(message)) {
+      this.deliver(record, undefined, kind, message)
     }
     record.parentMessagesThisTurn.clear()
   }
@@ -647,7 +661,7 @@ export class SubagentManager {
     message?: string
   ): void {
     const deliveryMessage = message ?? envelope?.message
-    if (!deliveryMessage) throw new Error('Cannot deliver an empty subagent message.')
+    if (!deliveryMessage) throw new Error('Cannot deliver an empty task message.')
     const tracked = Promise.resolve()
       .then(() =>
         record.deliverToParent({
@@ -742,6 +756,21 @@ export class SubagentManager {
 
   private hasPendingMessages(agentId: string): boolean {
     return (this.agents.get(agentId)?.mailbox.length ?? 0) > 0
+  }
+
+  private appendProgress(agentId: string, chunk: string): void {
+    if (!chunk) return
+    const record = this.agents.get(agentId)
+    if (!record) return
+    const progress = `${record.snapshot.progress ?? ''}${chunk}`
+    record.snapshot = {
+      ...record.snapshot,
+      progress:
+        progress.length > MAX_TASK_PROGRESS_LENGTH
+          ? progress.slice(-MAX_TASK_PROGRESS_LENGTH)
+          : progress,
+      updatedAt: this.deps.timestamp()
+    }
   }
   private nextParentSequence(threadId: string): number {
     const sequence = this.parentSequences.get(threadId) ?? 1

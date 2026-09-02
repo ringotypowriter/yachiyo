@@ -78,3 +78,24 @@ test('releases the final quit when cleanup fails', async () => {
   assert.equal(app.quitCount, 1)
   assert.equal(app.requestQuit(), 0)
 })
+
+test('releases the final quit when cleanup exceeds its deadline', async () => {
+  const app = new FakeApp()
+  let reported: unknown
+
+  deferAppQuitUntil({
+    app,
+    cleanup: () => new Promise<void>(() => {}),
+    cleanupTimeoutMs: 5,
+    onCleanupError: (error) => {
+      reported = error
+    }
+  })
+
+  assert.equal(app.requestQuit(), 1)
+  await new Promise((resolve) => setTimeout(resolve, 20))
+
+  assert.match(String(reported), /timed out after 5 ms/)
+  assert.equal(app.quitCount, 1)
+  assert.equal(app.requestQuit(), 0)
+})

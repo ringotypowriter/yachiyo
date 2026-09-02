@@ -32,7 +32,10 @@ import {
 import { getAskUserDetails } from '../lib/branching/askUserBranchAction.ts'
 import { useReusedTimelineRows } from '../lib/timeline/timelineRowReuse.ts'
 import { buildTimelineVirtualRowStyle } from '../lib/timeline/messageTimelineRowStyle.ts'
-import { remeasureTimelineRowFromDescendant } from '../lib/timeline/timelineRowRemeasure.ts'
+import {
+  remeasureTimelineRowFromDescendant,
+  resolveTimelineScrollOffsetAfterSizeChange
+} from '../lib/timeline/timelineRowRemeasure.ts'
 import {
   getInitialBottomScrollDecision,
   getNativeScrollIntoViewOptions
@@ -482,9 +485,33 @@ export function MessageTimeline({
       remeasureTimelineRowFromDescendant(descendant, (row) => {
         const index = Number(row.dataset.index)
         const item = Number.isInteger(index) ? timelineRowsRef.current[index] : undefined
+        const previousMeasurement = Number.isInteger(index)
+          ? virtualizer.measurementsCache[index]
+          : undefined
         const size = row.getBoundingClientRect().height
+        const container = scrollContainerRef.current
+        const nextScrollOffset =
+          container && previousMeasurement
+            ? resolveTimelineScrollOffsetAfterSizeChange({
+                itemEnd: previousMeasurement.end,
+                previousSize: previousMeasurement.size,
+                nextSize: size,
+                scrollOffset: container.scrollTop
+              })
+            : null
+
         if (item && size > 0) measuredSizeCache.current.set(item.key, size)
         virtualizer.measureElement(row)
+
+        if (
+          container &&
+          nextScrollOffset !== null &&
+          Math.abs(container.scrollTop - nextScrollOffset) > 0.5
+        ) {
+          container.scrollTop = nextScrollOffset
+          lastScrollTopRef.current = nextScrollOffset
+          programmaticScrollUntilRef.current = Date.now() + 120
+        }
       })
     },
     [virtualizer]

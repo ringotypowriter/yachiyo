@@ -369,6 +369,29 @@ function buildFallbackOutput(toolCall: ToolCall): ToolCallDetailCodeBlock | unde
     : undefined
 }
 
+function hasPresentableRawValue(value: unknown): boolean {
+  return value !== undefined && (typeof value !== 'string' || Boolean(value.trim()))
+}
+
+export function canExpandToolCall(toolCall: ToolCall): boolean {
+  if (toolCall.toolName === 'askUser') return true
+  if ('rawInput' in toolCall && hasPresentableRawValue(toolCall.rawInput)) return true
+  if (
+    toolCall.toolName !== 'pyRepl' &&
+    'rawOutput' in toolCall &&
+    hasPresentableRawValue(toolCall.rawOutput)
+  ) {
+    return true
+  }
+
+  return Boolean(
+    toolCall.details ||
+    toolCall.inputSummary?.trim() ||
+    toolCall.outputSummary?.trim() ||
+    toolCall.error?.trim()
+  )
+}
+
 export function buildToolCallDetailsPresentation(toolCall: ToolCall): ToolCallDetailsPresentation {
   const rawInput = 'rawInput' in toolCall ? toolCall.rawInput : undefined
   const rawOutput = 'rawOutput' in toolCall ? toolCall.rawOutput : undefined

@@ -1454,6 +1454,10 @@ body > div:not(#root) {
   }
 }
 
+.yachiyo-running-pulse {
+  animation: yachiyo-preparing-pulse 1.2s ease-in-out infinite;
+}
+
 /* Generating dot in streaming footer */
 @keyframes yachiyo-generating-pulse {
   0%,
@@ -1594,6 +1598,10 @@ body > div:not(#root) {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .yachiyo-running-pulse {
+    animation: none;
+  }
+
   .yachiyo-sidebar-active-run-dot {
     animation: none;
   }

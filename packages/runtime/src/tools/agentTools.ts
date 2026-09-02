@@ -90,7 +90,8 @@ import {
   createSendThreadMessageTool,
   type SendThreadMessageToolContext
 } from './agentTools/sendThreadMessageTool.ts'
-import { createSendMessageTool, type AgentMessageContext } from './agentTools/sendMessageTool.ts'
+import { createGetTaskTool, type GetTaskContext } from './agentTools/getTaskTool.ts'
+import { createSteerTaskTool, type SteerTaskContext } from './agentTools/steerTaskTool.ts'
 import { createUseSentinelTool, type UseSentinelToolContext } from './agentTools/useSentinelTool.ts'
 import type { YachiyoStorage } from '../storage/storage.ts'
 import type { ThingDomain } from '../app/domain/things/thingDomain.ts'
@@ -133,12 +134,8 @@ export {
   type SendThreadMessageToolContext
 } from './agentTools/sendThreadMessageTool.ts'
 
-export {
-  createSendMessageTool,
-  type AgentMessageContext,
-  type SendMessageToolInput,
-  type SendMessageToolOutput
-} from './agentTools/sendMessageTool.ts'
+export { createGetTaskTool, type GetTaskContext } from './agentTools/getTaskTool.ts'
+export { createSteerTaskTool, type SteerTaskContext } from './agentTools/steerTaskTool.ts'
 export {
   createTool as createApplyPatchTool,
   parsePatchStreaming,
@@ -200,8 +197,8 @@ export interface AgentToolDependencies {
     onStarted?: (task: BackgroundBashTaskHandle & { ownerAgentId?: string }) => Promise<void>
     onAdopted?: (task: BackgroundBashAdoptionHandle & { ownerAgentId?: string }) => Promise<void>
   }
-  /** Bound sender and dispatch for the internal agent message tool. */
-  agentMessageContext?: AgentMessageContext
+  /** Bound task-team access for steering and inspecting Worker tasks. */
+  taskContext?: SteerTaskContext & GetTaskContext
   /** Manager used by worker runners to route agent messages. */
   subagentManager?: SubagentManager
   /** Parent delivery settings used when a worker reports to its parent. */
@@ -579,6 +576,14 @@ export function summarizeToolInput(toolName: ToolCallName | string, input: unkno
       return typeof targetThreadId === 'string' && targetThreadId.trim().length > 0
         ? targetThreadId
         : toolName
+    }
+    return toolName
+  }
+
+  if (toolName === 'steerTask' || toolName === 'getTask') {
+    if (typeof input === 'object' && input !== null && 'taskId' in input) {
+      const taskId = input.taskId
+      return typeof taskId === 'string' && taskId.trim().length > 0 ? taskId : toolName
     }
     return toolName
   }
@@ -1089,8 +1094,12 @@ export function createAgentToolSet(
     tools.updateTodoList = createUpdateTodoListTool(dependencies.todoContext)
   }
 
-  if (dependencies.agentMessageContext && shouldRegisterTool('sendMessage')) {
-    tools.sendMessage = createSendMessageTool(dependencies.agentMessageContext)
+  if (dependencies.taskContext && shouldRegisterTool('steerTask')) {
+    tools.steerTask = createSteerTaskTool(dependencies.taskContext)
+  }
+
+  if (dependencies.taskContext && shouldRegisterTool('getTask')) {
+    tools.getTask = createGetTaskTool(dependencies.taskContext)
   }
 
   if (dependencies.threadMessageContext && shouldRegisterTool('sendThreadMessage')) {
