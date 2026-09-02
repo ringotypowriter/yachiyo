@@ -1613,6 +1613,10 @@ body > div:not(#root) {
   .yachiyo-tool-deck-stack-item {
     transition: none;
   }
+
+  .yachiyo-tool-deck-button {
+    transition: none;
+  }
 }
 
 /* Preparing bubble mount — scale + fade so the dots don't hard-pop */
@@ -1648,6 +1652,12 @@ body > div:not(#root) {
 
 .yachiyo-tool-deck-stack-item {
   transition: width 160ms ease-out;
+}
+
+.yachiyo-tool-deck-button {
+  transition:
+    background-color 120ms ease-out,
+    border-color 120ms ease-out;
 }
 
 @keyframes yachiyo-tool-deck-drawer {

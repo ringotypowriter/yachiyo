@@ -25,6 +25,7 @@ type DeckSelection = { kind: 'latest' } | { kind: 'fixed'; toolCallId: string } 
 const TOOL_ICON_SIZE_PX = 28
 
 const MAX_TOOL_ICON_STACK_OVERLAP_PX = 10
+const HOVER_SELECTION_DELAY_MS = 500
 
 function getToolIconStackOverlap(toolCallCount: number): number {
   if (toolCallCount <= 1) return 0
@@ -80,10 +81,21 @@ export function InlineToolDeck({
   const t = useT()
   const detailsId = useId()
   const [selection, setSelection] = useState<DeckSelection>(null)
+  const [hoveredToolCallId, setHoveredToolCallId] = useState<string | null>(null)
   const [dismissedWaitingIds, setDismissedWaitingIds] = useState<ReadonlySet<string>>(
     () => new Set()
   )
   const buttonRefs = useRef(new Map<string, HTMLButtonElement>())
+  const hoverSelectionTimerRef = useRef<number | null>(null)
+
+  useEffect(
+    () => () => {
+      if (hoverSelectionTimerRef.current !== null) {
+        window.clearTimeout(hoverSelectionTimerRef.current)
+      }
+    },
+    []
+  )
 
   const displayedToolCalls = useMemo(
     () => toolCalls.map((toolCall) => hydrateSubagentResult(toolCall, subagentFinishedResults, t)),
@@ -97,9 +109,10 @@ export function InlineToolDeck({
         toolCall.status === 'waiting-for-user' &&
         !dismissedWaitingIds.has(toolCall.id)
     ) ?? null
+  const autoSelectedWaitingToolCallId = autoSelectedWaitingToolCall?.id ?? null
   const selectedFromStateId =
     selection?.kind === 'latest' ? (summaryToolCall?.id ?? null) : (selection?.toolCallId ?? null)
-  const selectedToolCallId = autoSelectedWaitingToolCall?.id ?? selectedFromStateId
+  const selectedToolCallId = autoSelectedWaitingToolCallId ?? selectedFromStateId
   const selectedToolCall =
     displayedToolCalls.find((toolCall) => toolCall.id === selectedToolCallId) ?? null
   const selectedPresentation = selectedToolCall
@@ -110,17 +123,38 @@ export function InlineToolDeck({
     : false
   const selectedCanExpand = selectedToolCall?.toolName === 'askUser' || Boolean(selectedHasDetails)
 
+  const clearHoverSelectionTimer = (): void => {
+    if (hoverSelectionTimerRef.current === null) return
+    window.clearTimeout(hoverSelectionTimerRef.current)
+    hoverSelectionTimerRef.current = null
+  }
+  const dismissAutoSelectedWaitingToolCall = (): void => {
+    if (!autoSelectedWaitingToolCallId) return
+    setDismissedWaitingIds((current) => {
+      if (current.has(autoSelectedWaitingToolCallId)) return current
+      const next = new Set(current)
+      next.add(autoSelectedWaitingToolCallId)
+      return next
+    })
+  }
+
+  useEffect(() => {
+    if (!autoSelectedWaitingToolCallId || hoverSelectionTimerRef.current === null) return
+    window.clearTimeout(hoverSelectionTimerRef.current)
+    hoverSelectionTimerRef.current = null
+  }, [autoSelectedWaitingToolCallId])
+
   const shouldFollowLatest = selection === null || selection.kind === 'latest'
   useEffect(() => {
     const targetToolCallId =
-      autoSelectedWaitingToolCall?.id ?? (shouldFollowLatest ? summaryToolCall?.id : null)
+      autoSelectedWaitingToolCallId ?? (shouldFollowLatest ? summaryToolCall?.id : null)
     if (!targetToolCallId) return
 
     buttonRefs.current.get(targetToolCallId)?.scrollIntoView({
       block: 'nearest',
       inline: 'nearest'
     })
-  }, [autoSelectedWaitingToolCall?.id, shouldFollowLatest, summaryToolCall?.id])
+  }, [autoSelectedWaitingToolCallId, shouldFollowLatest, summaryToolCall?.id])
 
   if (!summaryToolCall) return null
   const displayedSummaryToolCall = selectedToolCall ?? summaryToolCall
@@ -141,6 +175,7 @@ export function InlineToolDeck({
           {displayedToolCalls.map((toolCall, index) => {
             const Icon = getToolCallIcon(toolCall.toolName)
             const isSelected = selectedToolCallId === toolCall.id
+            const isHovered = hoveredToolCallId === toolCall.id
             const presentation = buildToolCallDetailsPresentation(toolCall)
             const canExpand =
               toolCall.toolName === 'askUser' || getToolCallDetailBlocks(presentation).length > 0
@@ -155,7 +190,11 @@ export function InlineToolDeck({
                 }`}
                 style={{
                   width: showsSummary ? undefined : stackItemWidth,
-                  zIndex: isSelected ? displayedToolCalls.length + 1 : index + 1
+                  zIndex: isSelected
+                    ? displayedToolCalls.length + 2
+                    : isHovered
+                      ? displayedToolCalls.length + 1
+                      : index + 1
                 }}
               >
                 <button
@@ -164,7 +203,7 @@ export function InlineToolDeck({
                     else buttonRefs.current.delete(toolCall.id)
                   }}
                   type="button"
-                  className="relative flex h-7 w-7 shrink-0 items-center justify-center rounded-full"
+                  className="yachiyo-tool-deck-button relative flex h-7 w-7 shrink-0 items-center justify-center rounded-full"
                   data-tool-call-id={toolCall.id}
                   title={toolCall.toolName}
                   aria-controls={canExpand ? detailsId : undefined}
@@ -177,16 +216,26 @@ export function InlineToolDeck({
                       : toolCall.toolName
                   }
                   aria-pressed={isSelected}
+                  onPointerEnter={(event) => {
+                    if (event.pointerType !== 'mouse') return
+                    setHoveredToolCallId(toolCall.id)
+                    clearHoverSelectionTimer()
+                    if (!canExpand || isSelected) return
+                    hoverSelectionTimerRef.current = window.setTimeout(() => {
+                      hoverSelectionTimerRef.current = null
+                      dismissAutoSelectedWaitingToolCall()
+                      setSelection({ kind: 'fixed', toolCallId: toolCall.id })
+                    }, HOVER_SELECTION_DELAY_MS)
+                  }}
+                  onPointerLeave={(event) => {
+                    if (event.pointerType !== 'mouse') return
+                    setHoveredToolCallId((current) => (current === toolCall.id ? null : current))
+                    clearHoverSelectionTimer()
+                  }}
                   onClick={() => {
+                    clearHoverSelectionTimer()
                     if (!canExpand) return
-                    if (autoSelectedWaitingToolCall) {
-                      setDismissedWaitingIds((current) => {
-                        if (current.has(autoSelectedWaitingToolCall.id)) return current
-                        const next = new Set(current)
-                        next.add(autoSelectedWaitingToolCall.id)
-                        return next
-                      })
-                    }
+                    dismissAutoSelectedWaitingToolCall()
                     if (isSelected) {
                       setSelection(null)
                       return
@@ -201,8 +250,16 @@ export function InlineToolDeck({
                     appearance: 'none',
                     background: isSelected
                       ? `linear-gradient(${theme.background.accentMuted}, ${theme.background.accentMuted}), ${theme.background.canvas}`
-                      : theme.background.canvas,
-                    border: `1px solid ${isSelected ? theme.border.accent : theme.border.panel}`,
+                      : isHovered
+                        ? theme.background.hover
+                        : theme.background.canvas,
+                    border: `1px solid ${
+                      isSelected
+                        ? theme.border.accent
+                        : isHovered
+                          ? theme.border.strong
+                          : theme.border.panel
+                    }`,
                     color: getToolIconColor(toolCall),
                     cursor: 'default',
                     opacity: 1,
