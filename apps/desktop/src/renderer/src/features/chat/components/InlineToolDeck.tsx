@@ -249,17 +249,11 @@ export function InlineToolDeck({
                   style={{
                     appearance: 'none',
                     background: isSelected
-                      ? `linear-gradient(${theme.background.accentMuted}, ${theme.background.accentMuted}), ${theme.background.canvas}`
+                      ? theme.background.accentSoft
                       : isHovered
-                        ? theme.background.hover
-                        : theme.background.canvas,
-                    border: `1px solid ${
-                      isSelected
-                        ? theme.border.accent
-                        : isHovered
-                          ? theme.border.strong
-                          : theme.border.panel
-                    }`,
+                        ? theme.background.hoverStrong
+                        : theme.background.hover,
+                    border: 'none',
                     color: getToolIconColor(toolCall),
                     cursor: 'default',
                     opacity: 1,
