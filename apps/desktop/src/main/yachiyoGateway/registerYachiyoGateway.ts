@@ -1257,8 +1257,17 @@ export function registerYachiyoGateway(options: {
   )
   handleYachiyoIpc(
     IPC_CHANNELS.loadThreadData,
-    (input: { threadId: string; includeMessages?: boolean }) =>
-      rpc().loadThreadData(input.threadId, { includeMessages: input.includeMessages })
+    (input: {
+      threadId: string
+      includeMessages?: boolean
+      limit?: number
+      beforeMessageId?: string
+    }) =>
+      rpc().loadThreadData(input.threadId, {
+        includeMessages: input.includeMessages,
+        ...(input.limit === undefined ? {} : { limit: input.limit }),
+        ...(input.beforeMessageId === undefined ? {} : { beforeMessageId: input.beforeMessageId })
+      })
   )
   const backgroundTaskIpc = registerBackgroundTaskIpc(rpc)
   handleYachiyoIpc(IPC_CHANNELS.listSubagents, (input?: { threadId?: string }) =>

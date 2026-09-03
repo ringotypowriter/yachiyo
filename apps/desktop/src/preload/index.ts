@@ -428,6 +428,8 @@ const api = {
     loadThreadData: (input: {
       threadId: string
       includeMessages?: boolean
+      limit?: number
+      beforeMessageId?: string
     }): Promise<{
       messages: import('@yachiyo/shared/protocol').MessageRecord[]
       queuedFollowUpMessages: import('@yachiyo/shared/protocol').MessageRecord[]
