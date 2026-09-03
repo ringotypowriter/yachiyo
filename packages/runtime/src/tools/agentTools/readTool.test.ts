@@ -147,8 +147,22 @@ test('runReadTool prefixes text lines with original file line numbers', async ()
     assert.equal(result.error, undefined)
     const textBlock = result.content.find((b) => b.type === 'text')
     assert.ok(textBlock?.type === 'text')
-    assert.equal(textBlock.text, '2➔\n3➔omega\n4➔last')
-    assert.equal(result.details.content, '2➔\n3➔omega\n4➔last')
+    assert.equal(textBlock.text, '2➔\n3➔omega\n4➔last\n\n[eof]')
+    assert.equal(result.details.content, '2➔\n3➔omega\n4➔last\n\n[eof]')
+  })
+})
+
+test('runReadTool marks complete text reads with eof', async () => {
+  await withWorkspace(async (workspacePath) => {
+    const textPath = join(workspacePath, 'complete.txt')
+    await writeFile(textPath, 'alpha\nomega', 'utf8')
+
+    const result = await runReadTool(readInput({ path: textPath, limit: 2 }), { workspacePath })
+
+    assert.equal(result.error, undefined)
+    const textBlock = result.content.find((block) => block.type === 'text')
+    assert.ok(textBlock?.type === 'text')
+    assert.equal(textBlock.text, '1➔alpha\n2➔omega\n\n[eof]')
   })
 })
 

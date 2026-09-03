@@ -193,6 +193,14 @@ function buildReadExcerpt(
   }
 }
 
+function buildReadModelContent(excerpt: ReturnType<typeof buildReadExcerpt>): string {
+  const status =
+    excerpt.truncated && excerpt.nextOffset !== undefined
+      ? `[truncated: continue with offset ${excerpt.nextOffset}]`
+      : '[eof]'
+  return [excerpt.excerpt, status].filter(Boolean).join('\n\n')
+}
+
 function createReadErrorResult(path: string, error: string): ReadToolOutput {
   return {
     content: textContent(error),
@@ -267,12 +275,7 @@ async function runPdfReadTool(
   // Paginate the extracted text using the same logic as regular text files
   const lines = body.length === 0 ? [] : body.split(/\r?\n/)
   const excerpt = buildReadExcerpt(lines, input)
-  const continuationHint =
-    excerpt.truncated && excerpt.nextOffset !== undefined
-      ? `\n\n[truncated: continue with offset ${excerpt.nextOffset}]`
-      : ''
-
-  const outputContent = `${excerpt.excerpt}${continuationHint}`
+  const outputContent = buildReadModelContent(excerpt)
   const details: ReadToolCallDetails = {
     path: resolvedPath,
     startLine: Math.max(input.offset ?? 1, 1),
@@ -420,11 +423,7 @@ export async function runReadTool(
     const rawContent = await readFile(resolvedPath, { encoding: 'utf8', signal: effectiveSignal })
     const lines = rawContent.length === 0 ? [] : rawContent.split(/\r?\n/)
     const excerpt = buildReadExcerpt(lines, input)
-    const continuationHint =
-      excerpt.truncated && excerpt.nextOffset !== undefined
-        ? `\n\n[truncated: continue with offset ${excerpt.nextOffset}]`
-        : ''
-    const outputContent = `${excerpt.excerpt}${continuationHint}${focusIgnoredHint}`
+    const outputContent = `${buildReadModelContent(excerpt)}${focusIgnoredHint}`
     const details: ReadToolCallDetails = {
       path: resolvedPath,
       startLine: Math.max(input.offset ?? 1, 1),
