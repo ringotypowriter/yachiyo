@@ -5,7 +5,7 @@ import { createServerEventBatcher } from '../serverEventBatcher.ts'
 import type { AppState } from '../useAppStore.ts'
 import { hydratePlanDocumentForThread } from './planDocumentHydration.ts'
 import { THREAD_MESSAGE_PAGE_SIZE, hasOlderThreadMessages } from './threadMessagePaging.ts'
-import { resolveThreadReadOutcome } from './threadMessageAuthority.ts'
+import { isThreadDeleted, resolveThreadReadOutcome } from './threadMessageAuthority.ts'
 import {
   DEFAULT_SETTINGS,
   bootstrapRunsByThread,
@@ -97,14 +97,7 @@ export function createThreadLifecycleActions(input: {
       if (hydrationRequestSequences.get(requestKey) !== requestSequence) return
       // The thread can be deleted while this listing is in flight; its own
       // sequence guard only covers a newer listing of the same thread.
-      if (
-        threadId !== undefined &&
-        resolveThreadReadOutcome({
-          captured: undefined,
-          current: get().threadMessageAuthority[threadId]
-        }) === 'deleted'
-      )
-        return
+      if (threadId !== undefined && isThreadDeleted(get().threadMessageAuthority[threadId])) return
       set((state) => ({
         ...hydrateSubagentSnapshotState(
           {

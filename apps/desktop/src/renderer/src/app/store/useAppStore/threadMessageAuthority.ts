@@ -49,6 +49,14 @@ export type ThreadReadOutcome =
  * revision comparison alone reports it as current and lets it repopulate the
  * caches the delete cleared.
  */
+/**
+ * Whether the thread is gone, for callers that have no read to date-check —
+ * a hydration keyed by thread id, or an attempt to open one.
+ */
+export function isThreadDeleted(current: ThreadMessageAuthorityEntry | undefined): boolean {
+  return current?.deleted === true
+}
+
 export function resolveThreadReadOutcome(input: {
   captured: ThreadMessageAuthorityEntry | undefined
   current: ThreadMessageAuthorityEntry | undefined

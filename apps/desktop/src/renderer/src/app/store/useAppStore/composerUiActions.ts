@@ -12,7 +12,7 @@ import {
 import { isComposerReasoningSelection } from '@yachiyo/shared/reasoningEffort'
 import { isExternalThread } from '../../../features/threads/lib/threadVisibility.ts'
 import { hasOlderThreadMessages, resolveThreadOpenRead } from './threadMessagePaging.ts'
-import { resolveThreadReadOutcome } from './threadMessageAuthority.ts'
+import { isThreadDeleted, resolveThreadReadOutcome } from './threadMessageAuthority.ts'
 import type { AppState, ComposerFileDraft, ComposerImageDraft } from '../useAppStore.ts'
 import {
   DEFAULT_SIDEBAR_FILTER,
@@ -95,13 +95,7 @@ export function createComposerUiActions(input: {
       if (hydrationRequestSequences.get(threadId) !== requestSequence) return
       // The thread can be deleted while this listing is in flight; its own
       // sequence guard only covers a newer listing of the same thread.
-      if (
-        resolveThreadReadOutcome({
-          captured: undefined,
-          current: get().threadMessageAuthority[threadId]
-        }) === 'deleted'
-      )
-        return
+      if (isThreadDeleted(get().threadMessageAuthority[threadId])) return
       set((state) => ({
         ...hydrateSubagentSnapshotState(
           {
@@ -220,14 +214,7 @@ export function createComposerUiActions(input: {
       // A stale search result or Thing source can still name a thread the user
       // deleted. Opening it would show an empty conversation and set a jump
       // intent for a message that no longer exists anywhere.
-      if (
-        resolveThreadReadOutcome({
-          captured: undefined,
-          current: get().threadMessageAuthority[id]
-        }) === 'deleted'
-      ) {
-        return
-      }
+      if (isThreadDeleted(get().threadMessageAuthority[id])) return
 
       set((state) => {
         const nextState = {

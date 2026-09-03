@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { bumpThreadMessageAuthority, resolveThreadReadOutcome } from './threadMessageAuthority.ts'
+import {
+  bumpThreadMessageAuthority,
+  isThreadDeleted,
+  resolveThreadReadOutcome
+} from './threadMessageAuthority.ts'
 
 test('a read of a thread nobody has synced applies its own result', () => {
   // A thread with no entry at all must not read as changed, or every ordinary
@@ -54,5 +58,20 @@ test('deletion outranks a matching revision and a changed one alike', () => {
   assert.equal(
     resolveThreadReadOutcome({ captured: replaced['thread-1'], current: deleted['thread-1'] }),
     'deleted'
+  )
+})
+
+test('a thread with no entry and a live thread are both not deleted', () => {
+  // Callers with no read to date-check ask only this. An unknown thread must
+  // not read as deleted, or a first open would be refused.
+  const replaced = bumpThreadMessageAuthority({}, 'thread-1')
+
+  assert.equal(isThreadDeleted(undefined), false)
+  assert.equal(isThreadDeleted(replaced['thread-1']), false)
+  assert.equal(
+    isThreadDeleted(
+      bumpThreadMessageAuthority(replaced, 'thread-1', { deleted: true })['thread-1']
+    ),
+    true
   )
 })
