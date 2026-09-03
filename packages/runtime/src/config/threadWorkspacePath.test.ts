@@ -1,12 +1,15 @@
 import assert from 'node:assert/strict'
-import { join, resolve } from 'node:path'
+import { isAbsolute, join, relative, resolve } from 'node:path'
 import test from 'node:test'
 
 import { resolveThreadWorkspacePath, resolveYachiyoTempWorkspaceRoot } from './paths.ts'
 
 function isInsideTempRoot(path: string): boolean {
-  const root = resolve(resolveYachiyoTempWorkspaceRoot())
-  return resolve(path).startsWith(`${root}/`)
+  // Not a string prefix check: the separator differs by platform, and a
+  // prefix would also accept a sibling directory whose name merely starts
+  // with the root's.
+  const step = relative(resolve(resolveYachiyoTempWorkspaceRoot()), resolve(path))
+  return step.length > 0 && !isAbsolute(step) && !step.split(/[\\/]/).includes('..')
 }
 
 test('an ordinary thread id resolves under the temp workspace root', () => {
