@@ -178,12 +178,13 @@ export function extractUniqueMarkdownFileReferences(
   const seen = new Set<string>()
 
   for (const document of markdownDocuments) {
-    const remaining = maxReferences - references.length
-    // Correctness comes from passing the remaining budget below, which already
-    // yields nothing at zero. This exit only avoids parsing every remaining
-    // document in a long timeline once the budget is spent.
-    if (remaining <= 0) break
-    for (const reference of extractMarkdownFileReferences(document, remaining)) {
+    if (references.length >= maxReferences) break
+    // Each document offers up to a full budget of its own unique candidates,
+    // and the running total is what stops. Handing down the *remaining* count
+    // instead would let a repeat of something already seen consume a slot and
+    // hide a new file behind it — a duplicate reaches the resolver as nothing.
+    for (const reference of extractMarkdownFileReferences(document, maxReferences)) {
+      if (references.length >= maxReferences) break
       if (seen.has(reference)) continue
       seen.add(reference)
       references.push(reference)

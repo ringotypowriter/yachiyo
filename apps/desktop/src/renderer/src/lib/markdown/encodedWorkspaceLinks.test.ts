@@ -80,3 +80,12 @@ test('a later document takes only the slots left, preferred reading first', () =
   // No slots left at all.
   assert.deepEqual(extractUniqueMarkdownFileReferences(documents, 2), ['a#b.md', 'a%23b.md'])
 })
+
+test('a repeat of an earlier reference does not cost a slot', () => {
+  // The budget is about what reaches the resolver, and a duplicate reaches
+  // nothing. Charging a slot for it means a later document loses a file that
+  // there was room for.
+  const documents = ['[first](a.md)', '[duplicate](a.md) [new](b.md)']
+
+  assert.deepEqual(extractUniqueMarkdownFileReferences(documents, 2), ['a.md', 'b.md'])
+})
