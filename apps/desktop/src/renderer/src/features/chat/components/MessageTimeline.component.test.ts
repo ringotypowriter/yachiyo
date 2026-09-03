@@ -114,6 +114,36 @@ async function renderTimeline(): Promise<HTMLElement> {
   return container
 }
 
+async function scrollTimeline(scrollTop: number): Promise<string[]> {
+  const requestedThreadIds: string[] = []
+  useAppStore.setState({
+    threads: [createThread()],
+    messages: { [THREAD_ID]: [createUserMessage()] },
+    threadMessagePaging: {
+      [THREAD_ID]: { hasOlder: true, loadingOlder: false }
+    },
+    loadOlderThreadMessages: async (threadId) => {
+      requestedThreadIds.push(threadId)
+    }
+  })
+
+  const container = await renderTimeline()
+  const scrollContainer = container.querySelector<HTMLElement>('[data-timeline-scroll]')
+  assert.ok(scrollContainer)
+  Object.defineProperties(scrollContainer, {
+    scrollTop: { configurable: true, writable: true, value: scrollTop },
+    scrollHeight: { configurable: true, value: 1_000 },
+    clientHeight: { configurable: true, value: 300 }
+  })
+  now = 2_000
+
+  await act(async () => {
+    scrollContainer.dispatchEvent(new Event('scroll'))
+  })
+
+  return requestedThreadIds
+}
+
 before(async () => {
   installDom()
   originalDateNow = Date.now
@@ -154,32 +184,25 @@ test('an empty loaded timeline retires a missing scroll target', async () => {
   assert.equal(useAppStore.getState().scrollToMessage, null)
 })
 
-test('scrolling the timeline near the top requests the previous page', async () => {
-  const requestedThreadIds: string[] = []
+test('an empty timeline that has not loaded yet keeps its scroll target', async () => {
   useAppStore.setState({
     threads: [createThread()],
-    messages: { [THREAD_ID]: [createUserMessage()] },
-    threadMessagePaging: {
-      [THREAD_ID]: { hasOlder: true, loadingOlder: false }
-    },
-    loadOlderThreadMessages: async (threadId) => {
-      requestedThreadIds.push(threadId)
-    }
+    messages: {},
+    scrollToMessage: { threadId: THREAD_ID, messageId: 'not-loaded-yet' }
   })
 
-  const container = await renderTimeline()
-  const scrollContainer = container.querySelector<HTMLElement>('[data-timeline-scroll]')
-  assert.ok(scrollContainer)
-  Object.defineProperties(scrollContainer, {
-    scrollTop: { configurable: true, writable: true, value: 399 },
-    scrollHeight: { configurable: true, value: 1_000 },
-    clientHeight: { configurable: true, value: 300 }
-  })
-  now = 2_000
+  await renderTimeline()
 
-  await act(async () => {
-    scrollContainer.dispatchEvent(new Event('scroll'))
+  assert.deepEqual(useAppStore.getState().scrollToMessage, {
+    threadId: THREAD_ID,
+    messageId: 'not-loaded-yet'
   })
+})
 
-  assert.deepEqual(requestedThreadIds, [THREAD_ID])
+test('scrolling the timeline near the top requests the previous page', async () => {
+  assert.deepEqual(await scrollTimeline(399), [THREAD_ID])
+})
+
+test('scrolling the timeline away from the top does not request the previous page', async () => {
+  assert.deepEqual(await scrollTimeline(600), [])
 })
