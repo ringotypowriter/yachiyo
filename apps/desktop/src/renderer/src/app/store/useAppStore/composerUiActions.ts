@@ -12,6 +12,7 @@ import {
 import { isComposerReasoningSelection } from '@yachiyo/shared/reasoningEffort'
 import { isExternalThread } from '../../../features/threads/lib/threadVisibility.ts'
 import { hasOlderThreadMessages, resolveThreadOpenRead } from './threadMessagePaging.ts'
+import { isThreadMessageReadStale } from './threadMessageAuthority.ts'
 import type { AppState, ComposerFileDraft, ComposerImageDraft } from '../useAppStore.ts'
 import {
   DEFAULT_SIDEBAR_FILTER,
@@ -243,6 +244,10 @@ export function createComposerUiActions(input: {
           scrollToMessageId
         })
         const needsMessages = openRead.includeMessages
+        // Captured before the read is dispatched: a sync event can replace this
+        // thread's whole state while the read is in flight, and this response
+        // would then be older than what is already in the store.
+        const capturedAuthority = get().threadMessageAuthority[id]
         void window.api.yachiyo
           .loadThreadData({
             threadId: id,
@@ -250,7 +255,24 @@ export function createComposerUiActions(input: {
             ...(openRead.limit === undefined ? {} : { limit: openRead.limit })
           })
           .then(async (data) => {
+            // The snapshot this read describes has since been superseded. Every
+            // field thread.state.replaced owns must be dropped — messages,
+            // queued follow-ups, tool calls and the subagent state derived from
+            // them. Runs are not part of that snapshot, so they still refresh.
+            const stale = isThreadMessageReadStale({
+              captured: capturedAuthority,
+              current: get().threadMessageAuthority[id]
+            })
             set((state) => {
+              if (stale) {
+                return data.runs
+                  ? {
+                      runsByThread: limitLoadedThreadData(state.runsByThread, id, data.runs, [
+                        state.activeThreadId
+                      ])
+                    }
+                  : {}
+              }
               const toolCalls = needsMessages
                 ? limitLoadedThreadData(state.toolCalls, id, data.toolCalls, [state.activeThreadId])
                 : state.toolCalls
@@ -294,6 +316,10 @@ export function createComposerUiActions(input: {
                 )
               }
             })
+            if (stale) {
+              await hydrateSubagentSnapshots(id)
+              return
+            }
             hydratePlanDocumentForThread({
               set,
               get,

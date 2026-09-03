@@ -876,13 +876,10 @@ export function MessageTimeline({
         : false
     })
     if (!shouldKeepScrollToMessageIntent(outcome)) clearScrollToMessageId()
-    if (outcome === 'load-older') {
-      // Nothing else would fetch the pages this jump needs: the reader is
-      // waiting on a scroll they never made. Each page re-runs this effect, so
-      // it walks up until the target appears or the thread runs out.
-      if (threadId) void useAppStore.getState().loadOlderThreadMessages(threadId)
-      return
-    }
+    // Waiting is all this effect does when the target is absent. Every entry
+    // that can name an unloaded message goes through setActiveThread, which
+    // reads the thread unpaged for exactly this reason; fetching here as well
+    // would race that read.
     if (outcome !== 'scroll') return
 
     pendingThreadSwitchScrollRef.current = null

@@ -6,21 +6,14 @@ import {
   shouldKeepScrollToMessageIntent
 } from './scrollToMessageIntent.ts'
 
-test('a jump into a thread whose messages are not loaded yet waits for them', () => {
-  // Uncached: the timeline has nothing, so the target cannot be found on this
-  // render. Consuming the intent here loses the jump permanently.
+test('a jump to a message that is not loaded yet keeps the intent', () => {
+  // The thread still has older messages, so the read already in flight can
+  // land the target. Consuming the intent here loses the jump permanently;
+  // which of the two absent states this is (nothing loaded, or loaded but the
+  // target is above the page) is decided by resolveThreadOpenRead, not here.
   const outcome = resolveScrollToMessageIntent({ targetIndex: -1, hasOlderMessages: true })
 
-  assert.equal(outcome, 'load-older')
-  assert.equal(shouldKeepScrollToMessageIntent(outcome), true)
-})
-
-test('a jump to a message above the loaded page waits for older pages', () => {
-  // Cached-partial: the newest page is on screen and the target sits above it.
-  // This is the ordinary case once a thread opens on its newest page.
-  const outcome = resolveScrollToMessageIntent({ targetIndex: -1, hasOlderMessages: true })
-
-  assert.equal(outcome, 'load-older')
+  assert.equal(outcome, 'wait')
   assert.equal(shouldKeepScrollToMessageIntent(outcome), true)
 })
 

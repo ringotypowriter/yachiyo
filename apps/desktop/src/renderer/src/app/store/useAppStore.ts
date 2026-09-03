@@ -75,6 +75,7 @@ import { createComposerUiActions } from './useAppStore/composerUiActions.ts'
 import { reduceServerEvent } from './useAppStore/serverEventReducer.ts'
 import { createSendMessageActions } from './useAppStore/sendMessageActions.ts'
 import { createThreadLifecycleActions } from './useAppStore/threadLifecycleActions.ts'
+import type { ThreadMessageAuthority } from './useAppStore/threadMessageAuthority.ts'
 import { createThreadMessagePagingActions } from './useAppStore/threadMessagePagingActions.ts'
 import { resolveLeadingThingHashtagCursorOffset } from '../../features/chat/lib/composer/thingContinuationDraft.ts'
 import { buildAskUserBranchDraft } from '../../features/chat/lib/branching/askUserBranchDraft.ts'
@@ -335,6 +336,8 @@ export interface AppState {
   messages: Record<string, Message[]>
   /** Per-thread paging state for messages loaded on demand as the user scrolls up. */
   threadMessagePaging: Record<string, { hasOlder: boolean; loadingOlder: boolean }>
+  /** Bumped whenever a thread's authoritative message state is replaced. */
+  threadMessageAuthority: ThreadMessageAuthority
   queuedFollowUpMessagesByThread: Record<string, Message[]>
   pendingAssistantMessages: Record<string, PendingAssistantMessage>
   pendingSteerMessages: Record<string, PendingSteerMessage>
@@ -871,6 +874,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     }),
   messages: {},
   threadMessagePaging: {},
+  threadMessageAuthority: {},
   queuedFollowUpMessagesByThread: {},
   activeEssentialId: null,
   pendingAssistantMessages: {},

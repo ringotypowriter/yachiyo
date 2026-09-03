@@ -3,6 +3,7 @@ import test from 'node:test'
 
 import type { Message } from '../../types.ts'
 import type { AppState } from '../useAppStore.ts'
+import { bumpThreadMessageAuthority } from './threadMessageAuthority.ts'
 import { createThreadMessagePagingActions } from './threadMessagePagingActions.ts'
 
 function message(id: string): Message {
@@ -23,15 +24,17 @@ type LoadCall = { threadId: string; beforeMessageId?: string }
 function harness(initial: {
   messages: Record<string, Message[]>
   threadMessagePaging: AppState['threadMessagePaging']
+  threadMessageAuthority?: AppState['threadMessageAuthority']
 }): {
   getState: () => AppState
   setMessages: (messages: Record<string, Message[]>) => void
+  replaceThreadState: (threadId: string, messages: Message[]) => void
   loadOlderThreadMessages: (threadId: string) => Promise<void>
   calls: LoadCall[]
   settle: (result: { messages: Message[] } | Error) => Promise<void>
   restoreWindow: () => void
 } {
-  let state = { ...initial } as AppState
+  let state = { threadMessageAuthority: {}, ...initial } as AppState
   const get = (): AppState => state
   const set = (partial: Partial<AppState> | ((current: AppState) => Partial<AppState>)): void => {
     const next = typeof partial === 'function' ? partial(state) : partial
@@ -68,6 +71,18 @@ function harness(initial: {
   return {
     getState: get,
     setMessages: (messages) => set({ messages } as Partial<AppState>),
+    // Stands in for a sync event replacing the thread's authoritative state.
+    replaceThreadState: (threadId, messages) =>
+      set(
+        (current) =>
+          ({
+            messages: { ...current.messages, [threadId]: messages },
+            threadMessageAuthority: bumpThreadMessageAuthority(
+              current.threadMessageAuthority,
+              threadId
+            )
+          }) as Partial<AppState>
+      ),
     loadOlderThreadMessages: actions.loadOlderThreadMessages,
     calls,
     settle: async (result) => {
@@ -203,5 +218,40 @@ test('a short page ends the thread, so the reader is not offered more that will 
   await inFlight
 
   assert.deepEqual(store.getState().threadMessagePaging.a, { hasOlder: false, loadingOlder: false })
+  store.restoreWindow()
+})
+
+test('a page in flight is discarded when a sync refresh replaces the thread first', async () => {
+  // The page describes a history the sync refresh has already superseded.
+  // Prepending it would put pre-sync messages back above the synced ones —
+  // exactly the silent history corruption the whole feature must not cause.
+  const store = harness({
+    messages: { a: [message('a3')] },
+    threadMessagePaging: { a: { hasOlder: true, loadingOlder: false } }
+  })
+
+  const inFlight = store.loadOlderThreadMessages('a')
+  store.replaceThreadState('a', [message('sync1'), message('sync2')])
+  await store.settle({ messages: [message('a1'), message('a2')] })
+  await inFlight
+
+  assert.deepEqual(ids(store.getState().messages.a), ['sync1', 'sync2'])
+  store.restoreWindow()
+})
+
+test('a sync refresh of another thread does not discard this page', async () => {
+  // The barrier is per thread; a global one would make any sync traffic
+  // silently cancel the reader's scroll.
+  const store = harness({
+    messages: { a: [message('a3')], b: [message('b1')] },
+    threadMessagePaging: { a: { hasOlder: true, loadingOlder: false } }
+  })
+
+  const inFlight = store.loadOlderThreadMessages('a')
+  store.replaceThreadState('b', [message('sync-b')])
+  await store.settle({ messages: [message('a2')] })
+  await inFlight
+
+  assert.deepEqual(ids(store.getState().messages.a), ['a2', 'a3'])
   store.restoreWindow()
 })

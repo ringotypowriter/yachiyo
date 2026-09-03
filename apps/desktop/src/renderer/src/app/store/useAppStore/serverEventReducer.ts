@@ -4,6 +4,7 @@ import type { Message, Thread, YachiyoServerEvent } from '../../types.ts'
 import { DEFAULT_RUN_MODE_ID } from '@yachiyo/shared/protocol'
 import { isVisibleExternalThread } from '../../../features/threads/lib/threadVisibility.ts'
 import { deriveRunModeId, resolveRunModeEnabledTools } from '@yachiyo/shared/toolModes'
+import { bumpThreadMessageAuthority } from './threadMessageAuthority.ts'
 import {
   DEFAULT_SETTINGS,
   appendSubagentProgressEntry,
@@ -75,6 +76,9 @@ export function reduceServerEvent(state: AppState, event: YachiyoServerEvent): P
       messages: event.messages
         ? { ...state.messages, [event.threadId]: event.messages }
         : state.messages,
+      threadMessageAuthority: event.messages
+        ? bumpThreadMessageAuthority(state.threadMessageAuthority, event.threadId)
+        : state.threadMessageAuthority,
       toolCalls: event.toolCalls
         ? { ...state.toolCalls, [event.threadId]: event.toolCalls }
         : state.toolCalls,
@@ -123,6 +127,10 @@ export function reduceServerEvent(state: AppState, event: YachiyoServerEvent): P
     const externalThreads = removeThread(state.externalThreads, event.threadId)
     const messages = { ...state.messages }
     delete messages[event.threadId]
+    const threadMessageAuthority = bumpThreadMessageAuthority(
+      state.threadMessageAuthority,
+      event.threadId
+    )
     const justDoneRunIdsByThread = { ...state.justDoneRunIdsByThread }
     delete justDoneRunIdsByThread[event.threadId]
     const recapByThread = { ...state.recapByThread }
@@ -195,6 +203,7 @@ export function reduceServerEvent(state: AppState, event: YachiyoServerEvent): P
       latestRunsByThread,
       runsByThread,
       messages,
+      threadMessageAuthority,
       pendingSteerMessages: removePendingSteerMessage(state.pendingSteerMessages, event.threadId),
       recapByThread,
       receivingModelOutputByThread,
@@ -380,6 +389,10 @@ export function reduceServerEvent(state: AppState, event: YachiyoServerEvent): P
         ...state.messages,
         [event.threadId]: nextMessages
       },
+      threadMessageAuthority: bumpThreadMessageAuthority(
+        state.threadMessageAuthority,
+        event.threadId
+      ),
       queuedFollowUpMessagesByThread: {
         ...state.queuedFollowUpMessagesByThread,
         [event.threadId]: event.queuedFollowUpMessages ?? []

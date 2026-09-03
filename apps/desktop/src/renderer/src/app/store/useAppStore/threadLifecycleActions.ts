@@ -5,6 +5,7 @@ import { createServerEventBatcher } from '../serverEventBatcher.ts'
 import type { AppState } from '../useAppStore.ts'
 import { hydratePlanDocumentForThread } from './planDocumentHydration.ts'
 import { THREAD_MESSAGE_PAGE_SIZE, hasOlderThreadMessages } from './threadMessagePaging.ts'
+import { isThreadMessageReadStale } from './threadMessageAuthority.ts'
 import {
   DEFAULT_SETTINGS,
   bootstrapRunsByThread,
@@ -507,12 +508,23 @@ export function createThreadLifecycleActions(input: {
 
           const initialActiveThreadId = get().activeThreadId
           if (initialActiveThreadId && window.api?.yachiyo?.loadThreadData) {
+            // Boot races sync the same way an ordinary open does; see
+            // threadMessageAuthority.
+            const capturedAuthority = get().threadMessageAuthority[initialActiveThreadId]
             const data = await window.api.yachiyo.loadThreadData({
               threadId: initialActiveThreadId,
               // Newest page first; older ones load as the user scrolls up.
               limit: THREAD_MESSAGE_PAGE_SIZE
             })
             set((state) => {
+              if (
+                isThreadMessageReadStale({
+                  captured: capturedAuthority,
+                  current: state.threadMessageAuthority[initialActiveThreadId]
+                })
+              ) {
+                return {}
+              }
               const toolCalls = limitLoadedThreadData(
                 state.toolCalls,
                 initialActiveThreadId,

@@ -4,6 +4,7 @@ import {
   hasOlderThreadMessages,
   prependOlderThreadMessages
 } from './threadMessagePaging.ts'
+import { isThreadMessageReadStale } from './threadMessageAuthority.ts'
 
 export function createThreadMessagePagingActions(input: {
   set: (partial: Partial<AppState> | ((state: AppState) => Partial<AppState>)) => void
@@ -23,6 +24,9 @@ export function createThreadMessagePagingActions(input: {
 
       const oldestLoadedId = loaded[0]?.id
       if (!oldestLoadedId) return
+      // A sync refresh landing mid-flight makes this page describe a history
+      // that no longer exists; prepending it would restore pre-sync messages.
+      const capturedAuthority = state.threadMessageAuthority[threadId]
 
       set((current) => ({
         threadMessagePaging: {
@@ -55,6 +59,16 @@ export function createThreadMessagePagingActions(input: {
       }
 
       set((current) => {
+        if (
+          isThreadMessageReadStale({
+            captured: capturedAuthority,
+            current: current.threadMessageAuthority[threadId]
+          })
+        ) {
+          const remaining = { ...current.threadMessagePaging }
+          delete remaining[threadId]
+          return { threadMessagePaging: remaining }
+        }
         const currentLoaded = current.messages[threadId]
         // The thread may have been dropped from memory while the page was in
         // flight; folding a page into a thread nobody is holding would
