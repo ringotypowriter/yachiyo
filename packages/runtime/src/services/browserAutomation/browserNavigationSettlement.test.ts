@@ -130,6 +130,29 @@ test('loadUrlSettlingReplacementNavigation preserves a terminal replacement fail
   assertNavigationListenersRemoved(webContents)
 })
 
+test('loadUrlSettlingReplacementNavigation preserves failure after a replacement commits and stops', async () => {
+  const webContents = new FakeWebContents()
+  const requestedUrl = 'https://example.test/start'
+  const replacementUrl = 'https://missing.example.test/final'
+
+  webContents.load = async () => {
+    webContents.startNavigation(requestedUrl)
+    webContents.startNavigation(replacementUrl)
+    setTimeout(() => {
+      webContents.commitNavigation(replacementUrl)
+      webContents.failLoad(-105, 'ERR_NAME_NOT_RESOLVED', replacementUrl)
+      webContents.stopLoading()
+    }, 0)
+    throw abortError(replacementUrl)
+  }
+
+  await assert.rejects(
+    loadUrlSettlingReplacementNavigation(webContents, requestedUrl, { settleTimeoutMs: 100 }),
+    /Navigation failed for https:\/\/missing\.example\.test\/final: ERR_NAME_NOT_RESOLVED \(-105\)/
+  )
+  assertNavigationListenersRemoved(webContents)
+})
+
 test('loadUrlSettlingReplacementNavigation does not forgive an abort without a replacement', async () => {
   const webContents = new FakeWebContents()
   const requestedUrl = 'https://example.test/start'
