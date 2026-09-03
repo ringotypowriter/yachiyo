@@ -3,6 +3,10 @@ import { useVirtualizer as useTanStackVirtualizer } from '@tanstack/react-virtua
 import { useShallow } from 'zustand/react/shallow'
 import { Waypoints } from 'lucide-react'
 import { useAppStore, type SubagentFinishedResult } from '@renderer/app/store/useAppStore'
+import {
+  resolveScrollToMessageIntent,
+  shouldKeepScrollToMessageIntent
+} from './scrollToMessageIntent.ts'
 import type { Message, RunRecord, ToolCall } from '@renderer/app/types'
 import { useAppDialog, type AppConfirmOptions } from '@renderer/components/AppDialogContext'
 import { theme } from '@renderer/theme/theme'
@@ -60,6 +64,9 @@ interface MessageTimelineProps {
   onSelectedBrowserSessionChange?: (session: string) => void
   onBrowserSessionPickerOpenChange?: (open: boolean) => void
 }
+
+/** How close to the top the reader must get before the previous page is fetched. */
+const LOAD_OLDER_MESSAGES_SCROLL_THRESHOLD_PX = 400
 
 const EMPTY_MESSAGES: Message[] = []
 const EMPTY_RUNS: RunRecord[] = []
@@ -230,6 +237,8 @@ export function MessageTimeline({
     runPhase,
     scrollToMessageId,
     clearScrollToMessageId,
+    hasOlderMessages,
+    hasLoadedMessages,
     toolCallDisplayMode
   } = useAppStore(
     useShallow((state) => ({
@@ -271,8 +280,18 @@ export function MessageTimeline({
       retryMessage: state.retryMessage,
       selectReplyBranch: state.selectReplyBranch,
       runPhase: threadId ? (state.runPhasesByThread[threadId] ?? 'idle') : 'idle',
-      scrollToMessageId: state.scrollToMessageId,
+      // Only this thread's jump: an intent naming another conversation must
+      // neither fire nor be consumed here.
+      scrollToMessageId:
+        threadId && state.scrollToMessage?.threadId === threadId
+          ? state.scrollToMessage.messageId
+          : null,
       clearScrollToMessageId: state.clearScrollToMessageId,
+      // Selected rather than read on demand: a jump intent waiting for a page
+      // is resolved by paging settling, which does not always change the row
+      // count — grouped and collapsed rows can absorb a whole page.
+      hasOlderMessages: threadId ? (state.threadMessagePaging[threadId]?.hasOlder ?? false) : false,
+      hasLoadedMessages: threadId ? state.messages[threadId] !== undefined : false,
       toolCallDisplayMode: normalizeToolCallDisplayMode(state.config?.general?.toolCallDisplayMode)
     }))
   )
@@ -708,6 +727,15 @@ export function MessageTimeline({
         return
       }
 
+      // Reaching toward the top asks for the previous page. The store action
+      // is the guard: it returns immediately when a page is already in flight
+      // or the thread has no older messages, so a burst of scroll events costs
+      // nothing. Placed after the programmatic-scroll check so the anchor
+      // correction that follows a load cannot trigger another one.
+      if (threadId && currentScrollTop < LOAD_OLDER_MESSAGES_SCROLL_THRESHOLD_PX) {
+        void useAppStore.getState().loadOlderThreadMessages(threadId)
+      }
+
       const distanceFromBottom =
         container.scrollHeight - container.scrollTop - container.clientHeight
       // Hysteresis: avoid rapid flipping from virtualizer measurement lag.
@@ -849,12 +877,24 @@ export function MessageTimeline({
 
   // Scroll-to-message: bring the group into view via virtualizer, then refine to exact element
   useEffect(() => {
-    if (!scrollToMessageId || timelineRows.length === 0) return
+    // Deliberately not skipping an empty timeline: a thread that was read and
+    // turned out to be empty has to release the intent, or it survives into
+    // whichever thread is opened next.
+    if (!scrollToMessageId) return
     const targetMessageId = scrollToMessageId
-    clearScrollToMessageId()
 
     const targetIndex = findTimelineIndex(targetMessageId)
-    if (targetIndex < 0) return
+    const outcome = resolveScrollToMessageIntent({
+      targetIndex,
+      hasOlderMessages,
+      hasLoadedMessages
+    })
+    if (!shouldKeepScrollToMessageIntent(outcome)) clearScrollToMessageId()
+    // Waiting is all this effect does when the target is absent. Every entry
+    // that can name an unloaded message goes through setActiveThread, which
+    // reads the thread unpaged for exactly this reason; fetching here as well
+    // would race that read.
+    if (outcome !== 'scroll') return
 
     pendingThreadSwitchScrollRef.current = null
     stickToBottomRef.current = false
@@ -872,6 +912,9 @@ export function MessageTimeline({
     })
   }, [
     scrollToMessageId,
+    threadId,
+    hasOlderMessages,
+    hasLoadedMessages,
     timelineRows.length,
     clearScrollToMessageId,
     cancelInitialBottomScroll,

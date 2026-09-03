@@ -1,5 +1,6 @@
 import type { Message, ToolCall } from '../../types.ts'
 import type { AppState } from '../useAppStore.ts'
+import { isThreadDeleted } from './threadMessageAuthority.ts'
 import {
   findPlanAcceptanceTimestamp as findSharedPlanAcceptanceTimestamp,
   findPlanExitTimestamp as findSharedPlanExitTimestamp
@@ -44,6 +45,10 @@ export function hydratePlanDocumentForThread(input: {
     .then((plan) => {
       const resolvedDecision = plan.decision === 'accepted' ? 'accepted' : decision
       input.set((state) => {
+        // The thread can be deleted while this read is in flight, and the
+        // response would write its plan back into a store that just dropped
+        // every trace of it.
+        if (isThreadDeleted(state.threadMessageAuthority[input.threadId])) return {}
         const existing = state.planDocumentsByThread[input.threadId]
         if (
           existing &&

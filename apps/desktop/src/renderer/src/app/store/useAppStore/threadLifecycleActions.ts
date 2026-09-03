@@ -4,6 +4,12 @@ import { DEFAULT_ENABLED_TOOL_NAMES, DEFAULT_RUN_MODE_ID } from '@yachiyo/shared
 import { createServerEventBatcher } from '../serverEventBatcher.ts'
 import type { AppState } from '../useAppStore.ts'
 import { hydratePlanDocumentForThread } from './planDocumentHydration.ts'
+import { THREAD_MESSAGE_PAGE_SIZE, hasOlderThreadMessages } from './threadMessagePaging.ts'
+import {
+  dropPlanDocumentsOfDeletedThreads,
+  dropSnapshotsOfDeletedThreads,
+  resolveThreadReadOutcome
+} from './threadMessageAuthority.ts'
 import {
   DEFAULT_SETTINGS,
   bootstrapRunsByThread,
@@ -99,7 +105,7 @@ export function createThreadLifecycleActions(input: {
             subagentSnapshotsById: state.subagentSnapshotsById,
             subagentSnapshotIdsByThread: state.subagentSnapshotIdsByThread
           },
-          snapshots,
+          dropSnapshotsOfDeletedThreads(snapshots, get().threadMessageAuthority),
           threadId,
           { removalBaselineUpdatedAtById }
         )
@@ -499,17 +505,33 @@ export function createThreadLifecycleActions(input: {
             set((state) => ({
               planDocumentsByThread: {
                 ...state.planDocumentsByThread,
-                ...Object.fromEntries(entries.filter((entry) => entry !== null))
+                ...Object.fromEntries(
+                  dropPlanDocumentsOfDeletedThreads(
+                    entries.filter((entry) => entry !== null),
+                    state.threadMessageAuthority
+                  )
+                )
               }
             }))
           }
 
           const initialActiveThreadId = get().activeThreadId
           if (initialActiveThreadId && window.api?.yachiyo?.loadThreadData) {
+            // Boot races sync the same way an ordinary open does; see
+            // threadMessageAuthority.
+            const capturedAuthority = get().threadMessageAuthority[initialActiveThreadId]
             const data = await window.api.yachiyo.loadThreadData({
-              threadId: initialActiveThreadId
+              threadId: initialActiveThreadId,
+              // Newest page first; older ones load as the user scrolls up.
+              limit: THREAD_MESSAGE_PAGE_SIZE
             })
+            const outcome = resolveThreadReadOutcome({
+              captured: capturedAuthority,
+              current: get().threadMessageAuthority[initialActiveThreadId]
+            })
+            const stale = outcome !== 'apply'
             set((state) => {
+              if (stale) return {}
               const toolCalls = limitLoadedThreadData(
                 state.toolCalls,
                 initialActiveThreadId,
@@ -523,6 +545,13 @@ export function createThreadLifecycleActions(input: {
                   data.messages,
                   [state.activeThreadId]
                 ),
+                threadMessagePaging: {
+                  ...state.threadMessagePaging,
+                  [initialActiveThreadId]: {
+                    hasOlder: hasOlderThreadMessages(data.messages.length),
+                    loadingOlder: false
+                  }
+                },
                 queuedFollowUpMessagesByThread: limitLoadedThreadData(
                   state.queuedFollowUpMessagesByThread,
                   initialActiveThreadId,
@@ -547,14 +576,21 @@ export function createThreadLifecycleActions(input: {
                 )
               }
             })
-            hydratePlanDocumentForThread({
-              set,
-              get,
-              threadId: initialActiveThreadId,
-              messages: data.messages,
-              toolCalls: data.toolCalls
-            })
-            await hydrateSubagentSnapshots(initialActiveThreadId)
+            // The same discard has to cover this: it reads the payload
+            // directly, so gating only the store update leaves a side door for
+            // a plan the sync or delete just retired.
+            if (!stale) {
+              hydratePlanDocumentForThread({
+                set,
+                get,
+                threadId: initialActiveThreadId,
+                messages: data.messages,
+                toolCalls: data.toolCalls
+              })
+            }
+            if (outcome !== 'deleted') {
+              await hydrateSubagentSnapshots(initialActiveThreadId)
+            }
           }
 
           await refreshAvailableSkills(set, get)

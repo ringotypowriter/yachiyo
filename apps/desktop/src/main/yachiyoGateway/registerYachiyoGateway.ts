@@ -22,6 +22,7 @@ import type {
   AnswerToolQuestionInput,
   BrowserAutomationSessionRecord,
   ChannelsConfig,
+  LoadThreadDataInput,
   CompactThreadInput,
   ComposerReasoningSelection,
   DeleteThingInput,
@@ -1255,10 +1256,12 @@ export function registerYachiyoGateway(options: {
   handleYachiyoIpc(IPC_CHANNELS.starThread, (input: { threadId: string; starred: boolean }) =>
     rpc().starThread(input)
   )
-  handleYachiyoIpc(
-    IPC_CHANNELS.loadThreadData,
-    (input: { threadId: string; includeMessages?: boolean }) =>
-      rpc().loadThreadData(input.threadId, { includeMessages: input.includeMessages })
+  handleYachiyoIpc(IPC_CHANNELS.loadThreadData, (input: LoadThreadDataInput) =>
+    rpc().loadThreadData(input.threadId, {
+      includeMessages: input.includeMessages,
+      ...(input.limit === undefined ? {} : { limit: input.limit }),
+      ...(input.beforeMessageId === undefined ? {} : { beforeMessageId: input.beforeMessageId })
+    })
   )
   const backgroundTaskIpc = registerBackgroundTaskIpc(rpc)
   handleYachiyoIpc(IPC_CHANNELS.listSubagents, (input?: { threadId?: string }) =>

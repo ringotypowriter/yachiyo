@@ -11,6 +11,8 @@ import {
 } from '@yachiyo/shared/toolModes'
 import { isComposerReasoningSelection } from '@yachiyo/shared/reasoningEffort'
 import { isExternalThread } from '../../../features/threads/lib/threadVisibility.ts'
+import { hasOlderThreadMessages, resolveThreadOpenRead } from './threadMessagePaging.ts'
+import { isThreadDeleted, resolveThreadReadOutcome } from './threadMessageAuthority.ts'
 import type { AppState, ComposerFileDraft, ComposerImageDraft } from '../useAppStore.ts'
 import {
   DEFAULT_SIDEBAR_FILTER,
@@ -47,7 +49,7 @@ export function createComposerUiActions(input: {
   | 'setEnabledTools'
   | 'setRunMode'
   | 'setActiveThread'
-  | 'setScrollToMessageId'
+  | 'setScrollToMessage'
   | 'clearScrollToMessageId'
   | 'setComposerEnabledSkillNames'
   | 'setComposerReasoningEffort'
@@ -91,6 +93,9 @@ export function createComposerUiActions(input: {
     try {
       const snapshots = await window.api.yachiyo.listSubagents({ threadId })
       if (hydrationRequestSequences.get(threadId) !== requestSequence) return
+      // The thread can be deleted while this listing is in flight; its own
+      // sequence guard only covers a newer listing of the same thread.
+      if (isThreadDeleted(get().threadMessageAuthority[threadId])) return
       set((state) => ({
         ...hydrateSubagentSnapshotState(
           {
@@ -206,6 +211,10 @@ export function createComposerUiActions(input: {
 
     setActiveThread: (id, scrollToMessageId) => {
       const { messages } = get()
+      // A stale search result or Thing source can still name a thread the user
+      // deleted. Opening it would show an empty conversation and set a jump
+      // intent for a message that no longer exists anywhere.
+      if (isThreadDeleted(get().threadMessageAuthority[id])) return
 
       set((state) => {
         const nextState = {
@@ -218,7 +227,9 @@ export function createComposerUiActions(input: {
           editingMessage: state.editingMessage?.threadId === id ? state.editingMessage : null,
           justDoneRunIdsByThread: setThreadStringValue(state.justDoneRunIdsByThread, id, null),
           ...withFilterBase(state.sidebarFilter, 'all'),
-          scrollToMessageId: scrollToMessageId ?? null,
+          scrollToMessage: scrollToMessageId
+            ? { threadId: id, messageId: scrollToMessageId }
+            : null,
           enabledTools: getComposerToolMode(state, id).enabledTools,
           runMode: getComposerToolMode(state, id).runMode
         }
@@ -235,11 +246,48 @@ export function createComposerUiActions(input: {
       // not yet in memory; runs are always refreshed so the run history sidebar
       // shows the full list from the database.
       if (typeof window !== 'undefined' && window.api?.yachiyo?.loadThreadData) {
-        const needsMessages = !messages[id]?.length
+        // A jump to a specific message needs that message loaded; see
+        // resolveThreadOpenRead for why a page is not enough there.
+        const openRead = resolveThreadOpenRead({
+          loadedMessages: messages[id],
+          scrollToMessageId
+        })
+        const needsMessages = openRead.includeMessages
+        // Captured before the read is dispatched: a sync event can replace this
+        // thread's whole state while the read is in flight, and this response
+        // would then be older than what is already in the store.
+        const capturedAuthority = get().threadMessageAuthority[id]
         void window.api.yachiyo
-          .loadThreadData({ threadId: id, includeMessages: needsMessages })
+          .loadThreadData({
+            threadId: id,
+            includeMessages: needsMessages,
+            ...(openRead.limit === undefined ? {} : { limit: openRead.limit })
+          })
           .then(async (data) => {
+            // The snapshot this read describes has since been superseded. Every
+            // field thread.state.replaced owns must be dropped — messages,
+            // queued follow-ups, tool calls and the subagent state derived from
+            // them. Runs are not part of that snapshot, so they still refresh.
+            const outcome = resolveThreadReadOutcome({
+              captured: capturedAuthority,
+              current: get().threadMessageAuthority[id]
+            })
+            const stale = outcome !== 'apply'
+            const deleted = outcome === 'deleted'
             set((state) => {
+              if (stale) {
+                // A replaced thread still exists, and thread.state.replaced
+                // carries no runs, so refreshing those is still correct. A
+                // deleted one must take nothing: every per-thread cache was
+                // just dropped and this response would repopulate them.
+                return data.runs && !deleted
+                  ? {
+                      runsByThread: limitLoadedThreadData(state.runsByThread, id, data.runs, [
+                        state.activeThreadId
+                      ])
+                    }
+                  : {}
+              }
               const toolCalls = needsMessages
                 ? limitLoadedThreadData(state.toolCalls, id, data.toolCalls, [state.activeThreadId])
                 : state.toolCalls
@@ -254,7 +302,18 @@ export function createComposerUiActions(input: {
                   ? {
                       messages: limitLoadedThreadData(state.messages, id, data.messages, [
                         state.activeThreadId
-                      ])
+                      ]),
+                      threadMessagePaging: {
+                        ...state.threadMessagePaging,
+                        [id]: {
+                          // An unpaged read reached the top by definition, so
+                          // there is nothing above it to offer.
+                          hasOlder:
+                            openRead.limit !== undefined &&
+                            hasOlderThreadMessages(data.messages.length),
+                          loadingOlder: false
+                        }
+                      }
                     }
                   : {}),
                 toolCalls,
@@ -272,6 +331,10 @@ export function createComposerUiActions(input: {
                 )
               }
             })
+            if (stale) {
+              if (!deleted) await hydrateSubagentSnapshots(id)
+              return
+            }
             hydratePlanDocumentForThread({
               set,
               get,
@@ -285,8 +348,8 @@ export function createComposerUiActions(input: {
         void hydrateSubagentSnapshots(id)
       }
     },
-    setScrollToMessageId: (messageId) => set({ scrollToMessageId: messageId }),
-    clearScrollToMessageId: () => set({ scrollToMessageId: null }),
+    setScrollToMessage: (threadId, messageId) => set({ scrollToMessage: { threadId, messageId } }),
+    clearScrollToMessageId: () => set({ scrollToMessage: null }),
     setComposerEnabledSkillNames: (enabledSkillNames) =>
       set((state) => {
         const draftKey = getComposerDraftKey(state.activeThreadId)
@@ -340,11 +403,13 @@ export function createComposerUiActions(input: {
     },
 
     setActiveArchivedThread: (id, scrollToMessageId) => {
+      // Archived search results go stale the same way live ones do.
+      if (isThreadDeleted(get().threadMessageAuthority[id])) return
       set((state) => ({
         activeArchivedThreadId: id,
         justDoneRunIdsByThread: setThreadStringValue(state.justDoneRunIdsByThread, id, null),
         ...withFilterBase(state.sidebarFilter, 'archived'),
-        scrollToMessageId: scrollToMessageId ?? null
+        scrollToMessage: scrollToMessageId ? { threadId: id, messageId: scrollToMessageId } : null
       }))
       void hydrateSubagentSnapshots(id)
       // Mark as read when the user opens an archived thread.

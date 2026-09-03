@@ -1907,7 +1907,7 @@ export class YachiyoServer {
 
   loadThreadData(
     threadId: string,
-    options: { includeMessages?: boolean } = {}
+    options: { includeMessages?: boolean; limit?: number; beforeMessageId?: string } = {}
   ): {
     messages: MessageRecord[]
     queuedFollowUpMessages: MessageRecord[]
@@ -1917,7 +1917,18 @@ export class YachiyoServer {
   } {
     const includeMessages = options.includeMessages !== false
     const scheduleRun = this.storage.getScheduleRunByThreadId(threadId)
-    const messages = includeMessages ? this.storage.listThreadMessages(threadId) : []
+    // Paging is opt-in, and stays opt-in. The sync-refresh events below call
+    // this without a limit because they push a thread's whole state to the UI;
+    // a default page would silently drop the older half of a thread edited on
+    // another device, with nothing reporting an error.
+    const messages = includeMessages
+      ? this.storage.listThreadMessages(threadId, {
+          ...(options.limit === undefined ? {} : { limit: options.limit }),
+          ...(options.beforeMessageId === undefined
+            ? {}
+            : { beforeMessageId: options.beforeMessageId })
+        })
+      : []
     const toolCalls = includeMessages ? this.storage.listThreadToolCalls(threadId) : []
     const thread = this.storage.getThread(threadId)
     const snapshot = thread

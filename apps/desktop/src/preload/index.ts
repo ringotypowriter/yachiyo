@@ -425,10 +425,9 @@ const api = {
     }> => ipcRenderer.invoke('yachiyo:list-discovered-apps'),
     openWorkspaceWithApp: (input: { threadId: string; appName: string }): Promise<void> =>
       ipcRenderer.invoke('yachiyo:open-workspace-with-app', input),
-    loadThreadData: (input: {
-      threadId: string
-      includeMessages?: boolean
-    }): Promise<{
+    loadThreadData: (
+      input: import('@yachiyo/shared/protocol').LoadThreadDataInput
+    ): Promise<{
       messages: import('@yachiyo/shared/protocol').MessageRecord[]
       queuedFollowUpMessages: import('@yachiyo/shared/protocol').MessageRecord[]
       toolCalls: import('@yachiyo/shared/protocol').ToolCallRecord[]

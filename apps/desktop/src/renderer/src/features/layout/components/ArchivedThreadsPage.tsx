@@ -76,7 +76,9 @@ function ArchivedTimeline({
   const [runs, setRuns] = useState<RunRecord[]>([])
   const bottomRef = useRef<HTMLDivElement>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
-  const scrollToMessageId = useAppStore((s) => s.scrollToMessageId)
+  const scrollToMessageId = useAppStore((s) =>
+    s.scrollToMessage?.threadId === threadId ? s.scrollToMessage.messageId : null
+  )
   const clearScrollToMessageId = useAppStore((s) => s.clearScrollToMessageId)
 
   // Fetch on mount only — the parent remounts via key={threadId} so a new
