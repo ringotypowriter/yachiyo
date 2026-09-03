@@ -10,6 +10,7 @@ import {
   unwrapBrowserAutomationPageScriptResult,
   wrapBrowserAutomationPageScript
 } from './browserAutomationScriptEvaluation.ts'
+import { loadUrlSettlingReplacementNavigation } from './browserNavigationSettlement.ts'
 import { buildBrowserAutomationSnapshotScript } from './browserAutomationSnapshotScript.ts'
 import type {
   BrowserAutomationPageState,
@@ -533,9 +534,14 @@ export function createElectronBrowserAutomationService(input: {
           }
         }
         if (url) {
-          await existing.view.webContents.loadURL(url)
+          const finalUrl = await loadUrlSettlingReplacementNavigation(
+            existing.view.webContents,
+            url
+          )
+          updateSessionMetadata(existing, { url: finalUrl })
+        } else {
+          updateSessionMetadata(existing)
         }
-        updateSessionMetadata(existing, { url: existing.view.webContents.getURL() || url || '' })
         return {
           url: existing.url,
           ...(existing.title ? { title: existing.title } : {})
@@ -587,10 +593,12 @@ export function createElectronBrowserAutomationService(input: {
       })
 
       if (url) {
-        await view.webContents.loadURL(url)
+        const finalUrl = await loadUrlSettlingReplacementNavigation(view.webContents, url)
+        updateSessionMetadata(state, { url: finalUrl })
+      } else {
+        updateSessionMetadata(state)
       }
 
-      updateSessionMetadata(state, { url: view.webContents.getURL() || url || '' })
       return { url: state.url, ...(state.title ? { title: state.title } : {}) }
     },
 
@@ -620,8 +628,8 @@ export function createElectronBrowserAutomationService(input: {
 
     async loadUrl({ threadId, session: sessionName, url }) {
       const state = requireSessionState(threadId, sessionName)
-      await state.view.webContents.loadURL(url)
-      updateSessionMetadata(state, { url: state.view.webContents.getURL() || url })
+      const finalUrl = await loadUrlSettlingReplacementNavigation(state.view.webContents, url)
+      updateSessionMetadata(state, { url: finalUrl })
       return state.url
     },
 
