@@ -181,7 +181,7 @@ export function isAllowedInlineCodeFileReference(value: string): boolean {
 
 export function toInlineCodeFileReferenceCandidate(value: string): string | null {
   const candidate = value.trim()
-  if (!candidate || candidate.length > 500 || hasLineBreak(candidate)) {
+  if (!candidate || candidate.length > 500 || hasLineBreak(candidate) || hasNullByte(candidate)) {
     return null
   }
 
@@ -219,7 +219,11 @@ export function toMarkdownDestinationCandidates(value: string): string[] {
   try {
     const decodedValue = decodeURIComponent(value)
     if (decodedValue !== value) {
-      decoded = toInlineCodeFileReferenceCandidate(decodedValue)
+      // Only when the rules leave it untouched. They trim, so a destination
+      // meaning " package.json" would otherwise become the far more common
+      // "package.json" — opening the wrong file is worse than not resolving.
+      const validated = toInlineCodeFileReferenceCandidate(decodedValue)
+      decoded = validated === decodedValue ? validated : null
     }
   } catch (error) {
     // A destination that is not valid percent-encoding is a literal name, not
@@ -384,6 +388,15 @@ function countRepeatedCharacter(line: string, start: number, marker: string): nu
 
 function hasLineBreak(value: string): boolean {
   return value.includes('\n') || value.includes('\r')
+}
+
+/**
+ * A real NUL cannot be part of a path. Node's fs layer answers a NUL-bearing
+ * path with a TypeError rather than "not found", so one such reference in a
+ * batch would fail the whole batch instead of just itself.
+ */
+function hasNullByte(value: string): boolean {
+  return value.includes('\u0000')
 }
 
 function isExplicitFolderInlineCodeReference(value: string): boolean {

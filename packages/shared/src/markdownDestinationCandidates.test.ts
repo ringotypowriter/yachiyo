@@ -48,3 +48,20 @@ test('a destination that is not a file reference at all yields nothing', () => {
 test('a line/column suffix survives decoding', () => {
   assert.deepEqual(toMarkdownDestinationCandidates('a%20b.md:12'), ['a b.md:12', 'a%20b.md:12'])
 })
+
+test('a destination decoding to a NUL byte keeps only the literal reading', () => {
+  // A real NUL cannot be in a path, and node answers one with a TypeError
+  // rather than "not found" — so offering it would fail the whole batch, not
+  // just this link.
+  assert.deepEqual(toMarkdownDestinationCandidates('a%00.md'), ['a%00.md'])
+})
+
+test('a decoded reading that the reference rules would rename is dropped', () => {
+  // The validator trims, so " package.json" becomes "package.json" — a
+  // different, extremely common file. Silently renaming the destination is
+  // worse than not resolving it, so the decoded reading is only accepted when
+  // it survives the rules unchanged.
+  assert.deepEqual(toMarkdownDestinationCandidates('%20package.json'), ['%20package.json'])
+  assert.deepEqual(toMarkdownDestinationCandidates('%0Apackage.json'), ['%0Apackage.json'])
+  assert.deepEqual(toMarkdownDestinationCandidates('package.json%20'), [])
+})
