@@ -201,6 +201,39 @@ export function toInlineCodeFileReferenceCandidate(value: string): string | null
   return candidate
 }
 
+/**
+ * The readings a Markdown link destination can have, most standard first.
+ *
+ * A destination is a URI, so `a%23b.md` means the file `a#b.md` — but a file
+ * may also genuinely be named with those three characters, and both readings
+ * are valid syntax. Rather than pick one blindly, offer both in order and let
+ * whoever knows the filesystem decide; when both files exist the URI reading
+ * wins, which is what a link copied from anywhere else means.
+ *
+ * Decoding happens once, and each reading is put through the same reference
+ * rules — decoding is not a way around them.
+ */
+export function toMarkdownDestinationCandidates(value: string): string[] {
+  const raw = toInlineCodeFileReferenceCandidate(value)
+  let decoded: string | null = null
+  try {
+    const decodedValue = decodeURIComponent(value)
+    if (decodedValue !== value) {
+      decoded = toInlineCodeFileReferenceCandidate(decodedValue)
+    }
+  } catch (error) {
+    // A destination that is not valid percent-encoding is a literal name, not
+    // a broken link: keep the raw reading and render the rest of the document.
+    if (!(error instanceof URIError)) throw error
+  }
+
+  const candidates: string[] = []
+  for (const candidate of [decoded, raw]) {
+    if (candidate && !candidates.includes(candidate)) candidates.push(candidate)
+  }
+  return candidates
+}
+
 export function extractInlineCodeFileReferences(
   markdown: string,
   maxReferences = DEFAULT_MAX_INLINE_CODE_FILE_REFERENCES

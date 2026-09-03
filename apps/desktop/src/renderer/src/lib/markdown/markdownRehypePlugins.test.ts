@@ -134,6 +134,48 @@ describe('createMarkdownRehypePlugins', () => {
     assert.match(resolvedHtml, /data-yachiyo-workspace-file-reference="my file\.md"/)
   })
 
+  it('links an explicitly percent-encoded destination through Streamdown', () => {
+    // The existing coverage writes the reserved character literally and lets
+    // rehype encode it. This is the other direction: the author wrote the
+    // encoding, which is what a link copied from elsewhere looks like.
+    const markdown = [
+      '[hash](notes%231.md)',
+      '[query](notes%3F1.md)',
+      '[nested](docs%2Fnotes.md)',
+      '[spaced](my%20file.md)',
+      '[literal](50%.md)'
+    ].join('\n')
+    const passthroughSpan: Components['span'] = ({ node, ...props }) => {
+      void node
+      return React.createElement('span', props)
+    }
+    const resolvedHtml = renderToStaticMarkup(
+      React.createElement(
+        Streamdown,
+        {
+          mode: 'static',
+          rehypePlugins: createMarkdownRehypePlugins(null, [
+            'notes#1.md',
+            'notes?1.md',
+            'docs/notes.md',
+            'my file.md',
+            '50%.md'
+          ]),
+          components: { span: passthroughSpan }
+        },
+        markdown
+      )
+    )
+
+    assert.doesNotMatch(resolvedHtml, /\[blocked\]/)
+    assert.match(resolvedHtml, /data-yachiyo-workspace-file-reference="notes#1\.md"/)
+    assert.match(resolvedHtml, /data-yachiyo-workspace-file-reference="notes\?1\.md"/)
+    assert.match(resolvedHtml, /data-yachiyo-workspace-file-reference="docs\/notes\.md"/)
+    assert.match(resolvedHtml, /data-yachiyo-workspace-file-reference="my file\.md"/)
+    // A name that is not valid percent-encoding still reaches its file.
+    assert.match(resolvedHtml, /data-yachiyo-workspace-file-reference="50%\.md"/)
+  })
+
   it('preserves reserved filename characters and nested separators through Streamdown', () => {
     const markdown = [
       '[hash](<notes#1.md>)',

@@ -3,7 +3,7 @@ import remarkParse from 'remark-parse'
 import { unified } from 'unified'
 import { visit } from 'unist-util-visit'
 
-import { toInlineCodeFileReferenceCandidate } from '@yachiyo/shared/inlineCodeFileReferences'
+import { toMarkdownDestinationCandidates } from '@yachiyo/shared/inlineCodeFileReferences'
 
 const DEFAULT_MAX_MARKDOWN_FILE_REFERENCES = 64
 const markdownParser = unified().use(remarkParse)
@@ -17,11 +17,15 @@ export function extractMarkdownFileReferences(
   const tree = markdownParser.parse(markdown) as Root
 
   visit(tree, 'link', (node: Link) => {
-    if (references.length >= maxReferences) return
-    const reference = toInlineCodeFileReferenceCandidate(node.url)
-    if (!reference || seen.has(reference)) return
-    seen.add(reference)
-    references.push(reference)
+    // The cap counts what actually goes to the resolver, and the candidates are
+    // ordered so the last slot keeps the standard URI reading rather than the
+    // literal fallback.
+    for (const reference of toMarkdownDestinationCandidates(node.url)) {
+      if (references.length >= maxReferences) return
+      if (seen.has(reference)) continue
+      seen.add(reference)
+      references.push(reference)
+    }
   })
 
   return references
