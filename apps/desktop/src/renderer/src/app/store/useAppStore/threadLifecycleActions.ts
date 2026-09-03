@@ -4,6 +4,7 @@ import { DEFAULT_ENABLED_TOOL_NAMES, DEFAULT_RUN_MODE_ID } from '@yachiyo/shared
 import { createServerEventBatcher } from '../serverEventBatcher.ts'
 import type { AppState } from '../useAppStore.ts'
 import { hydratePlanDocumentForThread } from './planDocumentHydration.ts'
+import { THREAD_MESSAGE_PAGE_SIZE, hasOlderThreadMessages } from './threadMessagePaging.ts'
 import {
   DEFAULT_SETTINGS,
   bootstrapRunsByThread,
@@ -507,7 +508,9 @@ export function createThreadLifecycleActions(input: {
           const initialActiveThreadId = get().activeThreadId
           if (initialActiveThreadId && window.api?.yachiyo?.loadThreadData) {
             const data = await window.api.yachiyo.loadThreadData({
-              threadId: initialActiveThreadId
+              threadId: initialActiveThreadId,
+              // Newest page first; older ones load as the user scrolls up.
+              limit: THREAD_MESSAGE_PAGE_SIZE
             })
             set((state) => {
               const toolCalls = limitLoadedThreadData(
@@ -523,6 +526,13 @@ export function createThreadLifecycleActions(input: {
                   data.messages,
                   [state.activeThreadId]
                 ),
+                threadMessagePaging: {
+                  ...state.threadMessagePaging,
+                  [initialActiveThreadId]: {
+                    hasOlder: hasOlderThreadMessages(data.messages.length),
+                    loadingOlder: false
+                  }
+                },
                 queuedFollowUpMessagesByThread: limitLoadedThreadData(
                   state.queuedFollowUpMessagesByThread,
                   initialActiveThreadId,

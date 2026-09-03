@@ -61,6 +61,9 @@ interface MessageTimelineProps {
   onBrowserSessionPickerOpenChange?: (open: boolean) => void
 }
 
+/** How close to the top the reader must get before the previous page is fetched. */
+const LOAD_OLDER_MESSAGES_SCROLL_THRESHOLD_PX = 400
+
 const EMPTY_MESSAGES: Message[] = []
 const EMPTY_RUNS: RunRecord[] = []
 const EMPTY_TOOL_CALLS: ToolCall[] = []
@@ -706,6 +709,15 @@ export function MessageTimeline({
           unpinFromBottom()
         }
         return
+      }
+
+      // Reaching toward the top asks for the previous page. The store action
+      // is the guard: it returns immediately when a page is already in flight
+      // or the thread has no older messages, so a burst of scroll events costs
+      // nothing. Placed after the programmatic-scroll check so the anchor
+      // correction that follows a load cannot trigger another one.
+      if (threadId && currentScrollTop < LOAD_OLDER_MESSAGES_SCROLL_THRESHOLD_PX) {
+        void useAppStore.getState().loadOlderThreadMessages(threadId)
       }
 
       const distanceFromBottom =

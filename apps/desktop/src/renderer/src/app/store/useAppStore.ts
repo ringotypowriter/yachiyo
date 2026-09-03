@@ -75,6 +75,7 @@ import { createComposerUiActions } from './useAppStore/composerUiActions.ts'
 import { reduceServerEvent } from './useAppStore/serverEventReducer.ts'
 import { createSendMessageActions } from './useAppStore/sendMessageActions.ts'
 import { createThreadLifecycleActions } from './useAppStore/threadLifecycleActions.ts'
+import { createThreadMessagePagingActions } from './useAppStore/threadMessagePagingActions.ts'
 import { resolveLeadingThingHashtagCursorOffset } from '../../features/chat/lib/composer/thingContinuationDraft.ts'
 import { buildAskUserBranchDraft } from '../../features/chat/lib/branching/askUserBranchDraft.ts'
 
@@ -332,6 +333,8 @@ export interface AppState {
   beginEditMessage: (messageId: string) => void
   cancelEditMessage: () => void
   messages: Record<string, Message[]>
+  /** Per-thread paging state for messages loaded on demand as the user scrolls up. */
+  threadMessagePaging: Record<string, { hasOlder: boolean; loadingOlder: boolean }>
   queuedFollowUpMessagesByThread: Record<string, Message[]>
   pendingAssistantMessages: Record<string, PendingAssistantMessage>
   pendingSteerMessages: Record<string, PendingSteerMessage>
@@ -422,6 +425,7 @@ export interface AppState {
   recapByThread: Record<string, string>
   scrollToMessageId: string | null
   setScrollToMessageId: (messageId: string) => void
+  loadOlderThreadMessages: (threadId: string) => Promise<void>
   clearScrollToMessageId: () => void
   setActiveThread: (id: string, scrollToMessageId?: string) => void
   setActiveArchivedThread: (id: string, scrollToMessageId?: string) => void
@@ -866,6 +870,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       }
     }),
   messages: {},
+  threadMessagePaging: {},
   queuedFollowUpMessagesByThread: {},
   activeEssentialId: null,
   pendingAssistantMessages: {},
@@ -1417,5 +1422,6 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   ...createThreadLifecycleActions({ set, get }),
   ...createSendMessageActions({ set, get }),
-  ...createComposerUiActions({ set, get })
+  ...createComposerUiActions({ set, get }),
+  ...createThreadMessagePagingActions({ set, get })
 }))

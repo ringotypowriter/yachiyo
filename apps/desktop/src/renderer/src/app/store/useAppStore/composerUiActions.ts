@@ -11,6 +11,7 @@ import {
 } from '@yachiyo/shared/toolModes'
 import { isComposerReasoningSelection } from '@yachiyo/shared/reasoningEffort'
 import { isExternalThread } from '../../../features/threads/lib/threadVisibility.ts'
+import { THREAD_MESSAGE_PAGE_SIZE, hasOlderThreadMessages } from './threadMessagePaging.ts'
 import type { AppState, ComposerFileDraft, ComposerImageDraft } from '../useAppStore.ts'
 import {
   DEFAULT_SIDEBAR_FILTER,
@@ -237,7 +238,14 @@ export function createComposerUiActions(input: {
       if (typeof window !== 'undefined' && window.api?.yachiyo?.loadThreadData) {
         const needsMessages = !messages[id]?.length
         void window.api.yachiyo
-          .loadThreadData({ threadId: id, includeMessages: needsMessages })
+          .loadThreadData({
+            threadId: id,
+            includeMessages: needsMessages,
+            // Opening a thread reads its newest page; older ones arrive as the
+            // user scrolls up. Only when messages are actually being fetched —
+            // a refresh that skips messages must not claim a page was read.
+            ...(needsMessages ? { limit: THREAD_MESSAGE_PAGE_SIZE } : {})
+          })
           .then(async (data) => {
             set((state) => {
               const toolCalls = needsMessages
@@ -254,7 +262,14 @@ export function createComposerUiActions(input: {
                   ? {
                       messages: limitLoadedThreadData(state.messages, id, data.messages, [
                         state.activeThreadId
-                      ])
+                      ]),
+                      threadMessagePaging: {
+                        ...state.threadMessagePaging,
+                        [id]: {
+                          hasOlder: hasOlderThreadMessages(data.messages.length),
+                          loadingOlder: false
+                        }
+                      }
                     }
                   : {}),
                 toolCalls,
