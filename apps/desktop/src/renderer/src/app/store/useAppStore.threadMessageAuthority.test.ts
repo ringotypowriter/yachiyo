@@ -390,3 +390,51 @@ test('deleting another thread leaves an unrelated jump alone', () => {
 
   assert.equal(useAppStore.getState().scrollToMessageId, 'message-in-thread-9')
 })
+
+test('archiving the open thread retires a jump aimed at it', () => {
+  // Same class as deletion: the reducer moves the user off this thread without
+  // going through setActiveThread.
+  useAppStore.setState({
+    activeThreadId: 'thread-11',
+    scrollToMessageId: 'message-in-thread-11',
+    messages: { 'thread-11': [] },
+    threads: [
+      { id: 'thread-11', title: 'Thread', updatedAt: TIMESTAMP },
+      { id: 'thread-12', title: 'Other', updatedAt: TIMESTAMP }
+    ],
+    archivedThreads: []
+  })
+
+  useAppStore.getState().applyServerEvent({
+    type: 'thread.archived',
+    eventId: 'event-archived',
+    timestamp: TIMESTAMP,
+    threadId: 'thread-11',
+    thread: { id: 'thread-11', title: 'Thread', updatedAt: TIMESTAMP, archivedAt: TIMESTAMP }
+  } as Parameters<ReturnType<typeof useAppStore.getState>['applyServerEvent']>[0])
+
+  assert.equal(useAppStore.getState().scrollToMessageId, null)
+})
+
+test('restoring a thread retires a jump aimed at the one being left', () => {
+  useAppStore.setState({
+    activeThreadId: 'thread-13',
+    scrollToMessageId: 'message-in-thread-13',
+    messages: { 'thread-13': [] },
+    threads: [{ id: 'thread-13', title: 'Thread', updatedAt: TIMESTAMP }],
+    archivedThreads: [
+      { id: 'thread-14', title: 'Restored', updatedAt: TIMESTAMP, archivedAt: TIMESTAMP }
+    ]
+  })
+
+  useAppStore.getState().applyServerEvent({
+    type: 'thread.restored',
+    eventId: 'event-restored',
+    timestamp: TIMESTAMP,
+    threadId: 'thread-14',
+    thread: { id: 'thread-14', title: 'Restored', updatedAt: TIMESTAMP }
+  } as Parameters<ReturnType<typeof useAppStore.getState>['applyServerEvent']>[0])
+
+  assert.equal(useAppStore.getState().activeThreadId, 'thread-14')
+  assert.equal(useAppStore.getState().scrollToMessageId, null)
+})

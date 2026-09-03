@@ -73,6 +73,7 @@ import {
 } from './useAppStore/helpers.ts'
 import { createComposerUiActions } from './useAppStore/composerUiActions.ts'
 import { reduceServerEvent } from './useAppStore/serverEventReducer.ts'
+import { retireJumpIntentOnThreadSwitch } from './useAppStore/serverEventJumpIntent.ts'
 import { createSendMessageActions } from './useAppStore/sendMessageActions.ts'
 import { createThreadLifecycleActions } from './useAppStore/threadLifecycleActions.ts'
 import type { ThreadMessageAuthority } from './useAppStore/threadMessageAuthority.ts'
@@ -1421,7 +1422,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       })()
     }
 
-    set((state) => reduceServerEvent(state, event))
+    set((state) => retireJumpIntentOnThreadSwitch(state, reduceServerEvent(state, event)))
   },
 
   ...createThreadLifecycleActions({ set, get }),
