@@ -403,6 +403,8 @@ export function createComposerUiActions(input: {
     },
 
     setActiveArchivedThread: (id, scrollToMessageId) => {
+      // Archived search results go stale the same way live ones do.
+      if (isThreadDeleted(get().threadMessageAuthority[id])) return
       set((state) => ({
         activeArchivedThreadId: id,
         justDoneRunIdsByThread: setThreadStringValue(state.justDoneRunIdsByThread, id, null),

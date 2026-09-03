@@ -406,11 +406,13 @@ test('deleting another thread leaves an unrelated jump alone', () => {
   assert.equal(useAppStore.getState().scrollToMessage?.messageId, 'm')
 })
 
-test('archiving the open thread keeps a jump aimed at it, because it stays selected', () => {
-  // Archiving moves the conversation into the archived view and selects it
-  // there, so the jump is still reachable — the owner is what makes that
-  // answerable at all.
+test('archiving the open thread retires a jump aimed at it', () => {
+  // Archiving selects the conversation in the archived list but leaves the
+  // reader in the live one, so nothing on screen can consume the intent. My
+  // first reading of this was that the conversation was "still visible"; the
+  // real store says otherwise — thread.archived does not switch threadListMode.
   useAppStore.setState({
+    threadListMode: 'active',
     activeThreadId: 'thread-11',
     activeArchivedThreadId: null,
     scrollToMessage: { threadId: 'thread-11', messageId: 'm' },
@@ -424,32 +426,31 @@ test('archiving the open thread keeps a jump aimed at it, because it stays selec
 
   archiveThread('thread-11')
 
-  assert.equal(useAppStore.getState().activeArchivedThreadId, 'thread-11')
-  assert.equal(useAppStore.getState().scrollToMessage?.messageId, 'm')
+  assert.equal(useAppStore.getState().threadListMode, 'active')
+  assert.equal(useAppStore.getState().scrollToMessage, null)
 })
 
-test('archiving the open thread retires the jump when the archived view shows something else', () => {
-  // The archived view keeps whatever was already selected there, so the
-  // archived thread is not on screen in either view and the jump is
-  // unreachable.
+test('a jump in the archived list is untouched by the live list moving', () => {
+  // The reader is looking at an archived conversation; deleting some live
+  // thread in the background must not take their jump with it.
   useAppStore.setState({
+    threadListMode: 'archived',
     activeThreadId: 'thread-11',
-    activeArchivedThreadId: 'archived-other',
-    scrollToMessage: { threadId: 'thread-11', messageId: 'm' },
-    messages: { 'thread-11': [] },
+    activeArchivedThreadId: 'archived-1',
+    scrollToMessage: { threadId: 'archived-1', messageId: 'm' },
+    messages: { 'archived-1': [] },
     threads: [
       { id: 'thread-11', title: 'Thread', updatedAt: TIMESTAMP },
       { id: 'thread-12', title: 'Other', updatedAt: TIMESTAMP }
     ],
     archivedThreads: [
-      { id: 'archived-other', title: 'Older', updatedAt: TIMESTAMP, archivedAt: TIMESTAMP }
+      { id: 'archived-1', title: 'Archived', updatedAt: TIMESTAMP, archivedAt: TIMESTAMP }
     ]
   })
 
-  archiveThread('thread-11')
+  deleteThread('thread-11')
 
-  assert.equal(useAppStore.getState().activeArchivedThreadId, 'archived-other')
-  assert.equal(useAppStore.getState().scrollToMessage, null)
+  assert.equal(useAppStore.getState().scrollToMessage?.messageId, 'm')
 })
 
 test('restoring a thread retires a jump aimed at the one being left', () => {
@@ -923,4 +924,35 @@ test('the startup plan batch drops only the thread deleted while it was reading'
         })
     }
   })()
+})
+
+test('a stale archived search result cannot open a deleted thread either', () => {
+  // Same class as the live deep-link: the archived list can be holding results
+  // from before the delete.
+  const read = deferredLoadThreadData()
+  const restoreWindow = read.install()
+
+  useAppStore.setState({
+    activeThreadId: null,
+    activeArchivedThreadId: 'archived-kept',
+    scrollToMessage: null,
+    messages: {},
+    threads: [],
+    archivedThreads: [
+      { id: 'archived-kept', title: 'Kept', updatedAt: TIMESTAMP, archivedAt: TIMESTAMP },
+      { id: 'archived-gone', title: 'Doomed', updatedAt: TIMESTAMP, archivedAt: TIMESTAMP }
+    ]
+  })
+  deleteThread('archived-gone')
+
+  try {
+    useAppStore.getState().setActiveArchivedThread('archived-gone', 'message-in-archived-gone')
+
+    const state = useAppStore.getState()
+    assert.equal(state.activeArchivedThreadId, 'archived-kept')
+    assert.equal(state.scrollToMessage, null)
+    assert.equal(read.subagentListings(), 0)
+  } finally {
+    restoreWindow()
+  }
 })
