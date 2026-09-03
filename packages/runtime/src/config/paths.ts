@@ -83,7 +83,38 @@ export function resolveYachiyoTempWorkspaceRoot(): string {
   return join(resolveYachiyoDataDir(), YACHIYO_TEMP_WORKSPACE_DIR_NAME)
 }
 
+/**
+ * Reject a thread id that would not stay inside the temp workspace root.
+ *
+ * Thread rows arrive from peers over sync, where the id is taken from the
+ * remote payload without any shape check, so the path derivation below is the
+ * boundary that has to hold. Deliberately narrower than "must be a UUID": ids
+ * predate the current generator, and the contract being enforced is only that
+ * a thread's workspace cannot leave its root. Rejecting instead of sanitising
+ * — a silent rewrite would turn a suspicious id into an ordinary-looking
+ * directory and hide the fact that one arrived.
+ */
+export function isThreadIdPathSafe(threadId: string): boolean {
+  return !(
+    threadId.trim().length === 0 ||
+    threadId === '.' ||
+    threadId === '..' ||
+    threadId.includes('/') ||
+    threadId.includes('\\') ||
+    threadId.includes('\u0000')
+  )
+}
+
+export function assertThreadIdIsPathSafe(threadId: string): void {
+  if (!isThreadIdPathSafe(threadId)) {
+    throw new Error(
+      `Refusing to derive a workspace path from thread id ${JSON.stringify(threadId)}`
+    )
+  }
+}
+
 export function resolveThreadWorkspacePath(threadId: string): string {
+  assertThreadIdIsPathSafe(threadId)
   return join(resolveYachiyoTempWorkspaceRoot(), threadId)
 }
 
