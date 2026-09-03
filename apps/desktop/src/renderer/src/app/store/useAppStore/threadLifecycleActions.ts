@@ -5,7 +5,7 @@ import { createServerEventBatcher } from '../serverEventBatcher.ts'
 import type { AppState } from '../useAppStore.ts'
 import { hydratePlanDocumentForThread } from './planDocumentHydration.ts'
 import { THREAD_MESSAGE_PAGE_SIZE, hasOlderThreadMessages } from './threadMessagePaging.ts'
-import { isThreadDeleted, isThreadMessageReadStale } from './threadMessageAuthority.ts'
+import { resolveThreadReadOutcome } from './threadMessageAuthority.ts'
 import {
   DEFAULT_SETTINGS,
   bootstrapRunsByThread,
@@ -516,10 +516,11 @@ export function createThreadLifecycleActions(input: {
               // Newest page first; older ones load as the user scrolls up.
               limit: THREAD_MESSAGE_PAGE_SIZE
             })
-            const stale = isThreadMessageReadStale({
+            const outcome = resolveThreadReadOutcome({
               captured: capturedAuthority,
               current: get().threadMessageAuthority[initialActiveThreadId]
             })
+            const stale = outcome !== 'apply'
             set((state) => {
               if (stale) return {}
               const toolCalls = limitLoadedThreadData(
@@ -578,7 +579,7 @@ export function createThreadLifecycleActions(input: {
                 toolCalls: data.toolCalls
               })
             }
-            if (!isThreadDeleted(get().threadMessageAuthority[initialActiveThreadId])) {
+            if (outcome !== 'deleted') {
               await hydrateSubagentSnapshots(initialActiveThreadId)
             }
           }

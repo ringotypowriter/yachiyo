@@ -4,7 +4,7 @@ import {
   hasOlderThreadMessages,
   prependOlderThreadMessages
 } from './threadMessagePaging.ts'
-import { isThreadMessageReadStale } from './threadMessageAuthority.ts'
+import { resolveThreadReadOutcome } from './threadMessageAuthority.ts'
 
 export function createThreadMessagePagingActions(input: {
   set: (partial: Partial<AppState> | ((state: AppState) => Partial<AppState>)) => void
@@ -54,10 +54,10 @@ export function createThreadMessagePagingActions(input: {
           // retry a page of a history that no longer exists is the same stale
           // write as applying one.
           if (
-            isThreadMessageReadStale({
+            resolveThreadReadOutcome({
               captured: capturedAuthority,
               current: current.threadMessageAuthority[threadId]
-            })
+            }) !== 'apply'
           ) {
             return {}
           }
@@ -73,10 +73,10 @@ export function createThreadMessagePagingActions(input: {
 
       set((current) => {
         if (
-          isThreadMessageReadStale({
+          resolveThreadReadOutcome({
             captured: capturedAuthority,
             current: current.threadMessageAuthority[threadId]
-          })
+          }) !== 'apply'
         ) {
           // The event that invalidated this read already settled the thread's
           // paging state; writing anything here would undo it.

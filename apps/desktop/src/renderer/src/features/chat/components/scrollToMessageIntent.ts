@@ -16,8 +16,15 @@ export type ScrollToMessageIntentOutcome =
 export function resolveScrollToMessageIntent(input: {
   targetIndex: number
   hasOlderMessages: boolean
+  /**
+   * Whether this thread's messages have been read at all. An empty timeline
+   * means two different things — the read has not landed yet, or the thread is
+   * genuinely empty — and only the second one is grounds for giving up.
+   */
+  hasLoadedMessages: boolean
 }): ScrollToMessageIntentOutcome {
   if (input.targetIndex >= 0) return 'scroll'
+  if (!input.hasLoadedMessages) return 'wait'
   return input.hasOlderMessages ? 'wait' : 'abandon'
 }
 

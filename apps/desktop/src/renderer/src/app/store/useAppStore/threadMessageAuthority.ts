@@ -36,14 +36,23 @@ export function bumpThreadMessageAuthority(
   }
 }
 
-export function isThreadMessageReadStale(input: {
+export type ThreadReadOutcome =
+  | 'apply'
+  /** The thread was replaced; it still exists and can take what the replacement did not carry. */
+  | 'stale'
+  /** The thread is gone; this response must write nothing at all. */
+  | 'deleted'
+
+/**
+ * Deletion is checked first and independently of the revision. A read issued
+ * *after* the tombstone captures the same revision it later sees, so a
+ * revision comparison alone reports it as current and lets it repopulate the
+ * caches the delete cleared.
+ */
+export function resolveThreadReadOutcome(input: {
   captured: ThreadMessageAuthorityEntry | undefined
   current: ThreadMessageAuthorityEntry | undefined
-}): boolean {
-  return (input.captured?.revision ?? 0) !== (input.current?.revision ?? 0)
-}
-
-/** True when the thread this read described has since been deleted. */
-export function isThreadDeleted(current: ThreadMessageAuthorityEntry | undefined): boolean {
-  return current?.deleted === true
+}): ThreadReadOutcome {
+  if (input.current?.deleted === true) return 'deleted'
+  return (input.captured?.revision ?? 0) !== (input.current?.revision ?? 0) ? 'stale' : 'apply'
 }

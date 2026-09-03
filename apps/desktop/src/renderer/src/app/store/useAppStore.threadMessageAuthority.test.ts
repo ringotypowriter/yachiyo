@@ -319,3 +319,39 @@ test('the boot read does not hydrate a plan a sync refresh retired mid-flight', 
     }
   })()
 })
+
+test('a read issued after the thread was deleted repopulates nothing either', async () => {
+  // The tombstone already existed when this read was dispatched, so it never
+  // sees a revision change. A stale search result or Thing source can still
+  // open a thread the user just deleted.
+  const read = deferredLoadThreadData()
+  const restoreWindow = read.install()
+
+  useAppStore.setState({
+    activeThreadId: null,
+    messages: {},
+    toolCalls: {},
+    runsByThread: {},
+    planDocumentsByThread: {},
+    threadMessagePaging: {},
+    threads: [{ id: 'thread-6', title: 'Thread', updatedAt: TIMESTAMP }]
+  })
+  deleteThread('thread-6')
+
+  try {
+    useAppStore.getState().setActiveThread('thread-6')
+    await read.settle({
+      messages: [message('m0', 'thread-6')],
+      runs: [{ id: 'run-late', threadId: 'thread-6', status: 'completed', createdAt: TIMESTAMP }]
+    } as Partial<ThreadData>)
+
+    const state = useAppStore.getState()
+    assert.equal(state.messages['thread-6'], undefined)
+    assert.equal(state.runsByThread['thread-6'], undefined)
+    assert.equal(state.threadMessagePaging['thread-6'], undefined)
+    assert.equal(read.subagentListings(), 0)
+    assert.equal(read.planDocumentReads(), 0)
+  } finally {
+    restoreWindow()
+  }
+})

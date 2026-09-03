@@ -12,7 +12,7 @@ import {
 import { isComposerReasoningSelection } from '@yachiyo/shared/reasoningEffort'
 import { isExternalThread } from '../../../features/threads/lib/threadVisibility.ts'
 import { hasOlderThreadMessages, resolveThreadOpenRead } from './threadMessagePaging.ts'
-import { isThreadDeleted, isThreadMessageReadStale } from './threadMessageAuthority.ts'
+import { resolveThreadReadOutcome } from './threadMessageAuthority.ts'
 import type { AppState, ComposerFileDraft, ComposerImageDraft } from '../useAppStore.ts'
 import {
   DEFAULT_SIDEBAR_FILTER,
@@ -259,11 +259,12 @@ export function createComposerUiActions(input: {
             // field thread.state.replaced owns must be dropped — messages,
             // queued follow-ups, tool calls and the subagent state derived from
             // them. Runs are not part of that snapshot, so they still refresh.
-            const stale = isThreadMessageReadStale({
+            const outcome = resolveThreadReadOutcome({
               captured: capturedAuthority,
               current: get().threadMessageAuthority[id]
             })
-            const deleted = isThreadDeleted(get().threadMessageAuthority[id])
+            const stale = outcome !== 'apply'
+            const deleted = outcome === 'deleted'
             set((state) => {
               if (stale) {
                 // A replaced thread still exists, and thread.state.replaced
