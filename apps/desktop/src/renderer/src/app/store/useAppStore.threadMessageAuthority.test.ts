@@ -355,3 +355,38 @@ test('a read issued after the thread was deleted repopulates nothing either', as
     restoreWindow()
   }
 })
+
+test('deleting the open thread retires a jump aimed at it', () => {
+  // The reducer switches the active thread itself, bypassing setActiveThread,
+  // which is what normally retires the intent. Left set, it follows the user
+  // into the thread they land on.
+  useAppStore.setState({
+    activeThreadId: 'thread-7',
+    scrollToMessageId: 'message-in-thread-7',
+    messages: { 'thread-7': [] },
+    threads: [
+      { id: 'thread-7', title: 'Thread', updatedAt: TIMESTAMP },
+      { id: 'thread-8', title: 'Other', updatedAt: TIMESTAMP }
+    ]
+  })
+
+  deleteThread('thread-7')
+
+  assert.equal(useAppStore.getState().scrollToMessageId, null)
+})
+
+test('deleting another thread leaves an unrelated jump alone', () => {
+  useAppStore.setState({
+    activeThreadId: 'thread-9',
+    scrollToMessageId: 'message-in-thread-9',
+    messages: { 'thread-9': [] },
+    threads: [
+      { id: 'thread-9', title: 'Thread', updatedAt: TIMESTAMP },
+      { id: 'thread-10', title: 'Other', updatedAt: TIMESTAMP }
+    ]
+  })
+
+  deleteThread('thread-10')
+
+  assert.equal(useAppStore.getState().scrollToMessageId, 'message-in-thread-9')
+})

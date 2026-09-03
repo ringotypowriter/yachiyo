@@ -214,6 +214,11 @@ export function reduceServerEvent(state: AppState, event: YachiyoServerEvent): P
       messages,
       threadMessageAuthority,
       threadMessagePaging,
+      // A pending jump names a message in the thread being deleted. Switching
+      // the active thread here does not go through setActiveThread, which is
+      // what normally retires the intent, so it would otherwise be carried
+      // into whichever thread the user lands on.
+      scrollToMessageId: state.activeThreadId === event.threadId ? null : state.scrollToMessageId,
       pendingSteerMessages: removePendingSteerMessage(state.pendingSteerMessages, event.threadId),
       recapByThread,
       receivingModelOutputByThread,
