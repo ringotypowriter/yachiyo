@@ -3,6 +3,10 @@ import { useVirtualizer as useTanStackVirtualizer } from '@tanstack/react-virtua
 import { useShallow } from 'zustand/react/shallow'
 import { Waypoints } from 'lucide-react'
 import { useAppStore, type SubagentFinishedResult } from '@renderer/app/store/useAppStore'
+import {
+  resolveScrollToMessageIntent,
+  shouldKeepScrollToMessageIntent
+} from './scrollToMessageIntent.ts'
 import type { Message, RunRecord, ToolCall } from '@renderer/app/types'
 import { useAppDialog, type AppConfirmOptions } from '@renderer/components/AppDialogContext'
 import { theme } from '@renderer/theme/theme'
@@ -863,10 +867,23 @@ export function MessageTimeline({
   useEffect(() => {
     if (!scrollToMessageId || timelineRows.length === 0) return
     const targetMessageId = scrollToMessageId
-    clearScrollToMessageId()
 
     const targetIndex = findTimelineIndex(targetMessageId)
-    if (targetIndex < 0) return
+    const outcome = resolveScrollToMessageIntent({
+      targetIndex,
+      hasOlderMessages: threadId
+        ? (useAppStore.getState().threadMessagePaging[threadId]?.hasOlder ?? false)
+        : false
+    })
+    if (!shouldKeepScrollToMessageIntent(outcome)) clearScrollToMessageId()
+    if (outcome === 'load-older') {
+      // Nothing else would fetch the pages this jump needs: the reader is
+      // waiting on a scroll they never made. Each page re-runs this effect, so
+      // it walks up until the target appears or the thread runs out.
+      if (threadId) void useAppStore.getState().loadOlderThreadMessages(threadId)
+      return
+    }
+    if (outcome !== 'scroll') return
 
     pendingThreadSwitchScrollRef.current = null
     stickToBottomRef.current = false
@@ -884,6 +901,7 @@ export function MessageTimeline({
     })
   }, [
     scrollToMessageId,
+    threadId,
     timelineRows.length,
     clearScrollToMessageId,
     cancelInitialBottomScroll,

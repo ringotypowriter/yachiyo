@@ -31,31 +31,15 @@ export function createThreadMessagePagingActions(input: {
         }
       }))
 
+      // Only the read is guarded. A wider try would swallow a defect in the
+      // fold below and report it to the reader as a failed read, which is both
+      // a lie and silent.
+      let data: Awaited<ReturnType<typeof loadThreadData>>
       try {
-        const data = await loadThreadData({
+        data = await loadThreadData({
           threadId,
           limit: THREAD_MESSAGE_PAGE_SIZE,
           beforeMessageId: oldestLoadedId
-        })
-        set((current) => {
-          const currentLoaded = current.messages[threadId]
-          // The thread may have been dropped from memory while the page was in
-          // flight; folding a page into a thread nobody is holding would
-          // resurrect a partial history.
-          if (!currentLoaded) return {}
-          return {
-            messages: {
-              ...current.messages,
-              [threadId]: prependOlderThreadMessages(currentLoaded, data.messages)
-            },
-            threadMessagePaging: {
-              ...current.threadMessagePaging,
-              [threadId]: {
-                hasOlder: hasOlderThreadMessages(data.messages.length),
-                loadingOlder: false
-              }
-            }
-          }
         })
       } catch {
         // Leave hasOlder true so the user can try again; only clear the
@@ -67,7 +51,34 @@ export function createThreadMessagePagingActions(input: {
             [threadId]: { hasOlder: true, loadingOlder: false }
           }
         }))
+        return
       }
+
+      set((current) => {
+        const currentLoaded = current.messages[threadId]
+        // The thread may have been dropped from memory while the page was in
+        // flight; folding a page into a thread nobody is holding would
+        // resurrect a partial history. Drop the paging entry with it so a
+        // reopened thread does not inherit a stuck in-flight flag.
+        if (!currentLoaded) {
+          const remaining = { ...current.threadMessagePaging }
+          delete remaining[threadId]
+          return { threadMessagePaging: remaining }
+        }
+        return {
+          messages: {
+            ...current.messages,
+            [threadId]: prependOlderThreadMessages(currentLoaded, data.messages)
+          },
+          threadMessagePaging: {
+            ...current.threadMessagePaging,
+            [threadId]: {
+              hasOlder: hasOlderThreadMessages(data.messages.length),
+              loadingOlder: false
+            }
+          }
+        }
+      })
     }
   }
 }

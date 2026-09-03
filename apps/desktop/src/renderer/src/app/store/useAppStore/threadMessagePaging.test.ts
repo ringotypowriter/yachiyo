@@ -5,7 +5,8 @@ import type { Message } from '../../types.ts'
 import {
   THREAD_MESSAGE_PAGE_SIZE,
   hasOlderThreadMessages,
-  prependOlderThreadMessages
+  prependOlderThreadMessages,
+  resolveThreadOpenRead
 } from './threadMessagePaging.ts'
 
 function message(id: string): Message {
@@ -50,4 +51,47 @@ test('a full page means there is probably more above it', () => {
 test('a short page means the top of the thread has been reached', () => {
   assert.equal(hasOlderThreadMessages(THREAD_MESSAGE_PAGE_SIZE - 1), false)
   assert.equal(hasOlderThreadMessages(0), false)
+})
+
+test('opening a thread with nothing loaded reads the newest page', () => {
+  assert.deepEqual(resolveThreadOpenRead({ loadedMessages: undefined }), {
+    includeMessages: true,
+    limit: THREAD_MESSAGE_PAGE_SIZE
+  })
+})
+
+test('re-opening a loaded thread skips messages entirely', () => {
+  assert.deepEqual(resolveThreadOpenRead({ loadedMessages: [message('m1')] }), {
+    includeMessages: false
+  })
+})
+
+test('jumping to a message that is not loaded reads the whole thread', () => {
+  // Search results and Thing sources jump straight to an old message. Paging
+  // made "the target is not loaded" a reachable state for the first time; a
+  // page-sized read would land on the newest messages and the jump would
+  // silently do nothing. These jumps are rare, so reading it whole is fine.
+  assert.deepEqual(
+    resolveThreadOpenRead({
+      loadedMessages: [message('m9'), message('m10')],
+      scrollToMessageId: 'm2'
+    }),
+    { includeMessages: true }
+  )
+})
+
+test('jumping to a message that is already loaded does not re-read', () => {
+  assert.deepEqual(
+    resolveThreadOpenRead({
+      loadedMessages: [message('m9'), message('m10')],
+      scrollToMessageId: 'm10'
+    }),
+    { includeMessages: false }
+  )
+})
+
+test('jumping into a thread with nothing loaded reads the whole thread', () => {
+  assert.deepEqual(resolveThreadOpenRead({ loadedMessages: undefined, scrollToMessageId: 'm2' }), {
+    includeMessages: true
+  })
 })

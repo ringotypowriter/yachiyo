@@ -11,7 +11,7 @@ import {
 } from '@yachiyo/shared/toolModes'
 import { isComposerReasoningSelection } from '@yachiyo/shared/reasoningEffort'
 import { isExternalThread } from '../../../features/threads/lib/threadVisibility.ts'
-import { THREAD_MESSAGE_PAGE_SIZE, hasOlderThreadMessages } from './threadMessagePaging.ts'
+import { hasOlderThreadMessages, resolveThreadOpenRead } from './threadMessagePaging.ts'
 import type { AppState, ComposerFileDraft, ComposerImageDraft } from '../useAppStore.ts'
 import {
   DEFAULT_SIDEBAR_FILTER,
@@ -236,15 +236,18 @@ export function createComposerUiActions(input: {
       // not yet in memory; runs are always refreshed so the run history sidebar
       // shows the full list from the database.
       if (typeof window !== 'undefined' && window.api?.yachiyo?.loadThreadData) {
-        const needsMessages = !messages[id]?.length
+        // A jump to a specific message needs that message loaded; see
+        // resolveThreadOpenRead for why a page is not enough there.
+        const openRead = resolveThreadOpenRead({
+          loadedMessages: messages[id],
+          scrollToMessageId
+        })
+        const needsMessages = openRead.includeMessages
         void window.api.yachiyo
           .loadThreadData({
             threadId: id,
             includeMessages: needsMessages,
-            // Opening a thread reads its newest page; older ones arrive as the
-            // user scrolls up. Only when messages are actually being fetched —
-            // a refresh that skips messages must not claim a page was read.
-            ...(needsMessages ? { limit: THREAD_MESSAGE_PAGE_SIZE } : {})
+            ...(openRead.limit === undefined ? {} : { limit: openRead.limit })
           })
           .then(async (data) => {
             set((state) => {
@@ -266,7 +269,11 @@ export function createComposerUiActions(input: {
                       threadMessagePaging: {
                         ...state.threadMessagePaging,
                         [id]: {
-                          hasOlder: hasOlderThreadMessages(data.messages.length),
+                          // An unpaged read reached the top by definition, so
+                          // there is nothing above it to offer.
+                          hasOlder:
+                            openRead.limit !== undefined &&
+                            hasOlderThreadMessages(data.messages.length),
                           loadingOlder: false
                         }
                       }

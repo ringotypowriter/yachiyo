@@ -35,3 +35,36 @@ export function prependOlderThreadMessages(loaded: Message[], older: Message[]):
   if (additions.length === 0) return loaded
   return [...additions, ...loaded]
 }
+
+export interface ThreadOpenRead {
+  includeMessages: boolean
+  limit?: number
+}
+
+/**
+ * Decide how much of a thread to read when it is opened.
+ *
+ * Three cases, and the third is the one paging introduced. Opening a thread
+ * normally reads its newest page. Re-opening a loaded thread reads no messages
+ * at all. But a jump to a specific message — a search result, a Thing source —
+ * names a message that may sit far above the newest page, and before paging
+ * that state could not happen: everything was loaded, so the target was always
+ * there. A page-sized read would land on the newest messages and the jump
+ * would quietly do nothing.
+ *
+ * Those jumps are rare, so an unpaged read is the cheap answer.
+ */
+export function resolveThreadOpenRead(input: {
+  loadedMessages: Message[] | undefined
+  scrollToMessageId?: string | null
+}): ThreadOpenRead {
+  const loaded = input.loadedMessages
+  const target = input.scrollToMessageId
+  if (target && !loaded?.some((message) => message.id === target)) {
+    return { includeMessages: true }
+  }
+  if (!loaded?.length) {
+    return { includeMessages: true, limit: THREAD_MESSAGE_PAGE_SIZE }
+  }
+  return { includeMessages: false }
+}

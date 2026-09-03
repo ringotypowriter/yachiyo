@@ -13,6 +13,7 @@ export * from './protocol/translate.ts'
 export * from './protocol/jotdown.ts'
 export * from './protocol/perf.ts'
 export * from './protocol/things.ts'
+export * from './protocol/threadData.ts'
 export * from './protocol/groupProbeAdapters.ts'
 export * from './protocol/browserAutomation.ts'
 export * from './protocol/pythonEnvironment.ts'
@@ -1403,28 +1404,6 @@ export interface EditMessageInput {
 export interface CompactThreadInput {
   threadId: string
   reasoningEffort?: ComposerReasoningSelection
-}
-
-export interface SaveThreadInput {
-  threadId: string
-  archiveAfterSave?: boolean
-}
-
-export interface ReadThreadPlanDocumentInput {
-  threadId: string
-}
-
-export interface ReadThreadPlanDocumentResult {
-  path: string
-  content: string
-  decision?: 'pending' | 'rejected' | 'accepted'
-}
-
-export type AcceptThreadPlanDocumentMode = 'direct' | 'handoff'
-
-export interface AcceptThreadPlanDocumentInput {
-  threadId: string
-  mode?: AcceptThreadPlanDocumentMode
 }
 
 export interface RetryAccepted {
