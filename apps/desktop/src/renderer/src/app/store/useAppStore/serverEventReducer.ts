@@ -79,6 +79,12 @@ export function reduceServerEvent(state: AppState, event: YachiyoServerEvent): P
       threadMessageAuthority: event.messages
         ? bumpThreadMessageAuthority(state.threadMessageAuthority, event.threadId)
         : state.threadMessageAuthority,
+      threadMessagePaging: event.messages
+        ? {
+            ...state.threadMessagePaging,
+            [event.threadId]: { hasOlder: false, loadingOlder: false }
+          }
+        : state.threadMessagePaging,
       toolCalls: event.toolCalls
         ? { ...state.toolCalls, [event.threadId]: event.toolCalls }
         : state.toolCalls,
@@ -129,8 +135,11 @@ export function reduceServerEvent(state: AppState, event: YachiyoServerEvent): P
     delete messages[event.threadId]
     const threadMessageAuthority = bumpThreadMessageAuthority(
       state.threadMessageAuthority,
-      event.threadId
+      event.threadId,
+      { deleted: true }
     )
+    const threadMessagePaging = { ...state.threadMessagePaging }
+    delete threadMessagePaging[event.threadId]
     const justDoneRunIdsByThread = { ...state.justDoneRunIdsByThread }
     delete justDoneRunIdsByThread[event.threadId]
     const recapByThread = { ...state.recapByThread }
@@ -204,6 +213,7 @@ export function reduceServerEvent(state: AppState, event: YachiyoServerEvent): P
       runsByThread,
       messages,
       threadMessageAuthority,
+      threadMessagePaging,
       pendingSteerMessages: removePendingSteerMessage(state.pendingSteerMessages, event.threadId),
       recapByThread,
       receivingModelOutputByThread,
@@ -393,6 +403,13 @@ export function reduceServerEvent(state: AppState, event: YachiyoServerEvent): P
         state.threadMessageAuthority,
         event.threadId
       ),
+      // The snapshot is the whole thread, so there is nothing above it to
+      // offer — and leaving a stale hasOlder would keep a jump intent alive
+      // for a message the snapshot proves is gone.
+      threadMessagePaging: {
+        ...state.threadMessagePaging,
+        [event.threadId]: { hasOlder: false, loadingOlder: false }
+      },
       queuedFollowUpMessagesByThread: {
         ...state.queuedFollowUpMessagesByThread,
         [event.threadId]: event.queuedFollowUpMessages ?? []

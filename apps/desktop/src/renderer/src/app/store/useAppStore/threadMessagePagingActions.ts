@@ -49,12 +49,25 @@ export function createThreadMessagePagingActions(input: {
         // Leave hasOlder true so the user can try again; only clear the
         // in-flight flag. Reporting "no older messages" after a failed read
         // would be a lie the UI never corrects.
-        set((current) => ({
-          threadMessagePaging: {
-            ...current.threadMessagePaging,
-            [threadId]: { hasOlder: true, loadingOlder: false }
+        set((current) => {
+          // Unless the thread was replaced or deleted meanwhile: offering to
+          // retry a page of a history that no longer exists is the same stale
+          // write as applying one.
+          if (
+            isThreadMessageReadStale({
+              captured: capturedAuthority,
+              current: current.threadMessageAuthority[threadId]
+            })
+          ) {
+            return {}
           }
-        }))
+          return {
+            threadMessagePaging: {
+              ...current.threadMessagePaging,
+              [threadId]: { hasOlder: true, loadingOlder: false }
+            }
+          }
+        })
         return
       }
 
@@ -65,9 +78,9 @@ export function createThreadMessagePagingActions(input: {
             current: current.threadMessageAuthority[threadId]
           })
         ) {
-          const remaining = { ...current.threadMessagePaging }
-          delete remaining[threadId]
-          return { threadMessagePaging: remaining }
+          // The event that invalidated this read already settled the thread's
+          // paging state; writing anything here would undo it.
+          return {}
         }
         const currentLoaded = current.messages[threadId]
         // The thread may have been dropped from memory while the page was in

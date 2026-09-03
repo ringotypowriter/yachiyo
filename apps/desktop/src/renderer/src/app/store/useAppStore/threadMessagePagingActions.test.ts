@@ -29,6 +29,7 @@ function harness(initial: {
   getState: () => AppState
   setMessages: (messages: Record<string, Message[]>) => void
   replaceThreadState: (threadId: string, messages: Message[]) => void
+  setPaging: (threadId: string, entry: { hasOlder: boolean; loadingOlder: boolean }) => void
   loadOlderThreadMessages: (threadId: string) => Promise<void>
   calls: LoadCall[]
   settle: (result: { messages: Message[] } | Error) => Promise<void>
@@ -71,6 +72,11 @@ function harness(initial: {
   return {
     getState: get,
     setMessages: (messages) => set({ messages } as Partial<AppState>),
+    // What the reducer does alongside bumping the authority.
+    setPaging: (threadId, entry) =>
+      set((current) => ({
+        threadMessagePaging: { ...current.threadMessagePaging, [threadId]: entry }
+      })),
     // Stands in for a sync event replacing the thread's authoritative state.
     replaceThreadState: (threadId, messages) =>
       set(
@@ -253,5 +259,23 @@ test('a sync refresh of another thread does not discard this page', async () => 
   await inFlight
 
   assert.deepEqual(ids(store.getState().messages.a), ['a2', 'a3'])
+  store.restoreWindow()
+})
+
+test('a failed page does not offer a retry for a history that was replaced meanwhile', async () => {
+  // "Try again" after a sync refresh would fetch a page of the history the
+  // refresh replaced; the event has already settled what remains to load.
+  const store = harness({
+    messages: { a: [message('a3')] },
+    threadMessagePaging: { a: { hasOlder: true, loadingOlder: false } }
+  })
+
+  const inFlight = store.loadOlderThreadMessages('a')
+  store.replaceThreadState('a', [message('sync1')])
+  store.setPaging('a', { hasOlder: false, loadingOlder: false })
+  await store.settle(new Error('ipc down'))
+  await inFlight
+
+  assert.deepEqual(store.getState().threadMessagePaging.a, { hasOlder: false, loadingOlder: false })
   store.restoreWindow()
 })

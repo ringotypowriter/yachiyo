@@ -10,18 +10,40 @@
  * Every writer of authoritative state bumps the thread's revision; every read
  * captures it before dispatching and discards its own payload if it changed.
  */
-export type ThreadMessageAuthority = Record<string, number>
+export interface ThreadMessageAuthorityEntry {
+  revision: number
+  /**
+   * The thread no longer exists. A stale read of a replaced thread may still
+   * refresh state the replacement did not carry; a stale read of a deleted one
+   * must write nothing at all, or it repopulates caches of a gone thread.
+   */
+  deleted: boolean
+}
+
+export type ThreadMessageAuthority = Record<string, ThreadMessageAuthorityEntry>
 
 export function bumpThreadMessageAuthority(
   current: ThreadMessageAuthority,
-  threadId: string
+  threadId: string,
+  options: { deleted?: boolean } = {}
 ): ThreadMessageAuthority {
-  return { ...current, [threadId]: (current[threadId] ?? 0) + 1 }
+  return {
+    ...current,
+    [threadId]: {
+      revision: (current[threadId]?.revision ?? 0) + 1,
+      deleted: options.deleted ?? false
+    }
+  }
 }
 
 export function isThreadMessageReadStale(input: {
-  captured: number | undefined
-  current: number | undefined
+  captured: ThreadMessageAuthorityEntry | undefined
+  current: ThreadMessageAuthorityEntry | undefined
 }): boolean {
-  return (input.captured ?? 0) !== (input.current ?? 0)
+  return (input.captured?.revision ?? 0) !== (input.current?.revision ?? 0)
+}
+
+/** True when the thread this read described has since been deleted. */
+export function isThreadDeleted(current: ThreadMessageAuthorityEntry | undefined): boolean {
+  return current?.deleted === true
 }

@@ -237,6 +237,7 @@ export function MessageTimeline({
     runPhase,
     scrollToMessageId,
     clearScrollToMessageId,
+    hasOlderMessages,
     toolCallDisplayMode
   } = useAppStore(
     useShallow((state) => ({
@@ -280,6 +281,10 @@ export function MessageTimeline({
       runPhase: threadId ? (state.runPhasesByThread[threadId] ?? 'idle') : 'idle',
       scrollToMessageId: state.scrollToMessageId,
       clearScrollToMessageId: state.clearScrollToMessageId,
+      // Selected rather than read on demand: a jump intent waiting for a page
+      // is resolved by paging settling, which does not always change the row
+      // count — grouped and collapsed rows can absorb a whole page.
+      hasOlderMessages: threadId ? (state.threadMessagePaging[threadId]?.hasOlder ?? false) : false,
       toolCallDisplayMode: normalizeToolCallDisplayMode(state.config?.general?.toolCallDisplayMode)
     }))
   )
@@ -869,12 +874,7 @@ export function MessageTimeline({
     const targetMessageId = scrollToMessageId
 
     const targetIndex = findTimelineIndex(targetMessageId)
-    const outcome = resolveScrollToMessageIntent({
-      targetIndex,
-      hasOlderMessages: threadId
-        ? (useAppStore.getState().threadMessagePaging[threadId]?.hasOlder ?? false)
-        : false
-    })
+    const outcome = resolveScrollToMessageIntent({ targetIndex, hasOlderMessages })
     if (!shouldKeepScrollToMessageIntent(outcome)) clearScrollToMessageId()
     // Waiting is all this effect does when the target is absent. Every entry
     // that can name an unloaded message goes through setActiveThread, which
@@ -899,6 +899,7 @@ export function MessageTimeline({
   }, [
     scrollToMessageId,
     threadId,
+    hasOlderMessages,
     timelineRows.length,
     clearScrollToMessageId,
     cancelInitialBottomScroll,

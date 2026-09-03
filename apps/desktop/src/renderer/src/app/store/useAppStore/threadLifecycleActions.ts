@@ -5,7 +5,7 @@ import { createServerEventBatcher } from '../serverEventBatcher.ts'
 import type { AppState } from '../useAppStore.ts'
 import { hydratePlanDocumentForThread } from './planDocumentHydration.ts'
 import { THREAD_MESSAGE_PAGE_SIZE, hasOlderThreadMessages } from './threadMessagePaging.ts'
-import { isThreadMessageReadStale } from './threadMessageAuthority.ts'
+import { isThreadDeleted, isThreadMessageReadStale } from './threadMessageAuthority.ts'
 import {
   DEFAULT_SETTINGS,
   bootstrapRunsByThread,
@@ -516,15 +516,12 @@ export function createThreadLifecycleActions(input: {
               // Newest page first; older ones load as the user scrolls up.
               limit: THREAD_MESSAGE_PAGE_SIZE
             })
+            const stale = isThreadMessageReadStale({
+              captured: capturedAuthority,
+              current: get().threadMessageAuthority[initialActiveThreadId]
+            })
             set((state) => {
-              if (
-                isThreadMessageReadStale({
-                  captured: capturedAuthority,
-                  current: state.threadMessageAuthority[initialActiveThreadId]
-                })
-              ) {
-                return {}
-              }
+              if (stale) return {}
               const toolCalls = limitLoadedThreadData(
                 state.toolCalls,
                 initialActiveThreadId,
@@ -569,14 +566,21 @@ export function createThreadLifecycleActions(input: {
                 )
               }
             })
-            hydratePlanDocumentForThread({
-              set,
-              get,
-              threadId: initialActiveThreadId,
-              messages: data.messages,
-              toolCalls: data.toolCalls
-            })
-            await hydrateSubagentSnapshots(initialActiveThreadId)
+            // The same discard has to cover this: it reads the payload
+            // directly, so gating only the store update leaves a side door for
+            // a plan the sync or delete just retired.
+            if (!stale) {
+              hydratePlanDocumentForThread({
+                set,
+                get,
+                threadId: initialActiveThreadId,
+                messages: data.messages,
+                toolCalls: data.toolCalls
+              })
+            }
+            if (!isThreadDeleted(get().threadMessageAuthority[initialActiveThreadId])) {
+              await hydrateSubagentSnapshots(initialActiveThreadId)
+            }
           }
 
           await refreshAvailableSkills(set, get)

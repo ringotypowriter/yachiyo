@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { bumpThreadMessageAuthority, isThreadMessageReadStale } from './threadMessageAuthority.ts'
+import {
+  bumpThreadMessageAuthority,
+  isThreadDeleted,
+  isThreadMessageReadStale
+} from './threadMessageAuthority.ts'
 
 test('a read issued before any authoritative write is still current', () => {
   // A thread nobody has synced yet has no entry at all; that absence must not
@@ -16,10 +20,14 @@ test('a read is stale once the thread it read has been replaced', () => {
 })
 
 test('a write to one thread does not invalidate reads of another', () => {
-  const after = bumpThreadMessageAuthority({ 'thread-1': 3 }, 'thread-2')
+  const before = bumpThreadMessageAuthority({}, 'thread-1')
+  const after = bumpThreadMessageAuthority(before, 'thread-2')
 
-  assert.equal(isThreadMessageReadStale({ captured: 3, current: after['thread-1'] }), false)
-  assert.equal(after['thread-2'], 1)
+  assert.equal(
+    isThreadMessageReadStale({ captured: before['thread-1'], current: after['thread-1'] }),
+    false
+  )
+  assert.equal(after['thread-2']?.revision, 1)
 })
 
 test('successive replacements keep invalidating', () => {
@@ -28,4 +36,16 @@ test('successive replacements keep invalidating', () => {
   authority = bumpThreadMessageAuthority(authority, 'thread-1')
 
   assert.equal(isThreadMessageReadStale({ captured, current: authority['thread-1'] }), true)
+})
+
+test('a replacement leaves the thread alive, a deletion does not', () => {
+  // The two reasons a read goes stale need different handling: a replaced
+  // thread can still take state the replacement did not carry, a deleted one
+  // must take nothing.
+  const replaced = bumpThreadMessageAuthority({}, 'thread-1')
+  const deleted = bumpThreadMessageAuthority(replaced, 'thread-1', { deleted: true })
+
+  assert.equal(isThreadDeleted(replaced['thread-1']), false)
+  assert.equal(isThreadDeleted(deleted['thread-1']), true)
+  assert.equal(isThreadDeleted(undefined), false)
 })

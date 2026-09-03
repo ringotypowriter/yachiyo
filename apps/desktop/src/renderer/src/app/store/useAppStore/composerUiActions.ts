@@ -12,7 +12,7 @@ import {
 import { isComposerReasoningSelection } from '@yachiyo/shared/reasoningEffort'
 import { isExternalThread } from '../../../features/threads/lib/threadVisibility.ts'
 import { hasOlderThreadMessages, resolveThreadOpenRead } from './threadMessagePaging.ts'
-import { isThreadMessageReadStale } from './threadMessageAuthority.ts'
+import { isThreadDeleted, isThreadMessageReadStale } from './threadMessageAuthority.ts'
 import type { AppState, ComposerFileDraft, ComposerImageDraft } from '../useAppStore.ts'
 import {
   DEFAULT_SIDEBAR_FILTER,
@@ -263,9 +263,14 @@ export function createComposerUiActions(input: {
               captured: capturedAuthority,
               current: get().threadMessageAuthority[id]
             })
+            const deleted = isThreadDeleted(get().threadMessageAuthority[id])
             set((state) => {
               if (stale) {
-                return data.runs
+                // A replaced thread still exists, and thread.state.replaced
+                // carries no runs, so refreshing those is still correct. A
+                // deleted one must take nothing: every per-thread cache was
+                // just dropped and this response would repopulate them.
+                return data.runs && !deleted
                   ? {
                       runsByThread: limitLoadedThreadData(state.runsByThread, id, data.runs, [
                         state.activeThreadId
@@ -317,7 +322,7 @@ export function createComposerUiActions(input: {
               }
             })
             if (stale) {
-              await hydrateSubagentSnapshots(id)
+              if (!deleted) await hydrateSubagentSnapshots(id)
               return
             }
             hydratePlanDocumentForThread({
