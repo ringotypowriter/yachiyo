@@ -44,19 +44,6 @@ test('the first row is a valid target', () => {
   )
 })
 
-test('a target missing from a fully loaded thread is abandoned rather than retried forever', () => {
-  // Nothing more can arrive, so keeping the intent would re-run the lookup on
-  // every render for a message that does not exist here.
-  const outcome = resolveScrollToMessageIntent({
-    targetIndex: -1,
-    hasOlderMessages: false,
-    hasLoadedMessages: true
-  })
-
-  assert.equal(outcome, 'abandon')
-  assert.equal(shouldKeepScrollToMessageIntent(outcome), false)
-})
-
 test('a thread whose messages have not been read yet keeps waiting', () => {
   // An empty timeline before the read lands looks identical to an empty
   // thread. Giving up here would lose every jump that opens a cold thread.

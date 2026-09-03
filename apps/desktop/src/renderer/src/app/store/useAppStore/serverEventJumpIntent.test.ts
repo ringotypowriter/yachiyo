@@ -3,7 +3,13 @@ import test from 'node:test'
 
 import { retireJumpIntentOnThreadSwitch } from './serverEventJumpIntent.ts'
 
-const previous = { activeThreadId: 'thread-1', scrollToMessageId: 'message-1' }
+import type { JumpIntentSelection } from './serverEventJumpIntent.ts'
+
+const previous: JumpIntentSelection = {
+  activeThreadId: 'thread-1',
+  activeArchivedThreadId: 'archived-1',
+  scrollToMessageId: 'message-1'
+}
 
 test('a switch away from the thread the jump named retires it', () => {
   const next = retireJumpIntentOnThreadSwitch(previous, {
@@ -49,4 +55,25 @@ test('carrying the old value through a switch is not "bringing its own target"',
   })
 
   assert.equal(next.scrollToMessageId, null)
+})
+
+test('a switch in the archived view retires the jump too', () => {
+  // The archived view owns the same single intent. Deleting the open archived
+  // item switches only activeArchivedThreadId, leaving the live thread alone.
+  const next = retireJumpIntentOnThreadSwitch(previous, {
+    activeArchivedThreadId: 'archived-2',
+    scrollToMessageId: previous.scrollToMessageId
+  })
+
+  assert.equal(next.scrollToMessageId, null)
+})
+
+test('an event that moves neither selection leaves the jump alone', () => {
+  const next = retireJumpIntentOnThreadSwitch(previous, {
+    activeThreadId: 'thread-1',
+    activeArchivedThreadId: 'archived-1',
+    scrollToMessageId: previous.scrollToMessageId
+  })
+
+  assert.equal(next.scrollToMessageId, 'message-1')
 })

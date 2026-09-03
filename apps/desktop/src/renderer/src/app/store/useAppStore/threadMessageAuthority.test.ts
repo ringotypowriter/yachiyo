@@ -3,6 +3,7 @@ import test from 'node:test'
 
 import {
   bumpThreadMessageAuthority,
+  dropSnapshotsOfDeletedThreads,
   isThreadDeleted,
   resolveThreadReadOutcome
 } from './threadMessageAuthority.ts'
@@ -74,4 +75,35 @@ test('a thread with no entry and a live thread are both not deleted', () => {
     ),
     true
   )
+})
+
+test("a listing that crossed a deletion loses only that thread's snapshots", () => {
+  // The listing was dispatched before the delete, so the response still
+  // contains the deleted thread's agents. Folding it back re-creates the
+  // per-thread entry the delete cleared.
+  const authority = bumpThreadMessageAuthority({}, 'thread-gone', { deleted: true })
+
+  const kept = dropSnapshotsOfDeletedThreads(
+    [
+      { agentId: 'a1', parentThreadId: 'thread-gone' },
+      { agentId: 'a2', parentThreadId: 'thread-live' }
+    ],
+    authority
+  )
+
+  assert.deepEqual(
+    kept.map((snapshot) => snapshot.agentId),
+    ['a2']
+  )
+})
+
+test('a listing of threads none of which were deleted passes through', () => {
+  const authority = bumpThreadMessageAuthority({}, 'thread-live')
+
+  const kept = dropSnapshotsOfDeletedThreads(
+    [{ agentId: 'a1', parentThreadId: 'thread-live' }],
+    authority
+  )
+
+  assert.equal(kept.length, 1)
 })

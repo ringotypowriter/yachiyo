@@ -64,3 +64,18 @@ export function resolveThreadReadOutcome(input: {
   if (input.current?.deleted === true) return 'deleted'
   return (input.captured?.revision ?? 0) !== (input.current?.revision ?? 0) ? 'stale' : 'apply'
 }
+
+/**
+ * Drop snapshots belonging to threads that have since been deleted.
+ *
+ * Applied to the response rather than at the call site on purpose: a listing
+ * asked for one thread degrades to a listing of *all* threads whenever the
+ * caller cannot name one, so a guard on the argument misses exactly the cases
+ * where the response is widest.
+ */
+export function dropSnapshotsOfDeletedThreads<Snapshot extends { parentThreadId: string }>(
+  snapshots: Snapshot[],
+  authority: ThreadMessageAuthority
+): Snapshot[] {
+  return snapshots.filter((snapshot) => !isThreadDeleted(authority[snapshot.parentThreadId]))
+}

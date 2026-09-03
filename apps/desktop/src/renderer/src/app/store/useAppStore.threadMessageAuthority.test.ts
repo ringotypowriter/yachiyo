@@ -476,7 +476,7 @@ test('a stale deep-link into a deleted thread does not open it or set a jump', a
 test('subagent hydration in flight when the thread is deleted writes nothing back', async () => {
   // The hydration has its own sequence guard, but that only defends against a
   // newer listing of the same thread — not against the thread going away.
-  let resolveListing: ((snapshots: unknown[]) => void) | null = null
+  const listing: { resolve?: (snapshots: unknown[]) => void } = {}
   const globalScope = globalThis as typeof globalThis & { window?: unknown }
   const originalWindow = globalScope.window
   Object.defineProperty(globalScope, 'window', {
@@ -493,7 +493,7 @@ test('subagent hydration in flight when the thread is deleted writes nothing bac
           }),
           listSubagents: () =>
             new Promise((resolve) => {
-              resolveListing = resolve as (snapshots: unknown[]) => void
+              listing.resolve = resolve as (snapshots: unknown[]) => void
             })
         }
       }
@@ -517,10 +517,10 @@ test('subagent hydration in flight when the thread is deleted writes nothing bac
     useAppStore.getState().setActiveThread('thread-17')
     await new Promise((resolve) => setImmediate(resolve))
     await new Promise((resolve) => setImmediate(resolve))
-    assert.ok(resolveListing, 'expected a subagent listing to be in flight')
+    assert.ok(listing.resolve, 'expected a subagent listing to be in flight')
 
     deleteThread('thread-17')
-    resolveListing([
+    listing.resolve([
       {
         agentId: 'agent-late',
         threadId: 'thread-17',
@@ -532,6 +532,190 @@ test('subagent hydration in flight when the thread is deleted writes nothing bac
 
     assert.equal(useAppStore.getState().subagentSnapshotIdsByThread['thread-17'], undefined)
     assert.equal(useAppStore.getState().subagentSnapshotsById['agent-late'], undefined)
+  } finally {
+    if (originalWindow === undefined) Reflect.deleteProperty(globalScope, 'window')
+    else
+      Object.defineProperty(globalScope, 'window', {
+        value: originalWindow,
+        configurable: true,
+        writable: true
+      })
+  }
+})
+
+test('a global subagent listing that crossed a deletion does not restore the thread', async () => {
+  // Boot hydrates every thread's agents at once, and cancel/close degrade to a
+  // global listing whenever the parent thread cannot be named. Neither passes a
+  // threadId, so a guard on the argument never sees them.
+  const listing: { resolve?: (snapshots: unknown[]) => void } = {}
+  const globalScope = globalThis as typeof globalThis & { window?: unknown }
+  const originalWindow = globalScope.window
+  Object.defineProperty(globalScope, 'window', {
+    value: {
+      api: {
+        yachiyo: {
+          listSkills: async () => [],
+          listThings: async () => [],
+          cancelSubagent: async () => undefined,
+          listSubagents: () =>
+            new Promise((resolve) => {
+              listing.resolve = resolve as (snapshots: unknown[]) => void
+            })
+        }
+      }
+    },
+    configurable: true,
+    writable: true
+  })
+
+  useAppStore.setState({
+    activeThreadId: 'thread-20',
+    messages: {},
+    subagentSnapshotsById: {},
+    subagentSnapshotIdsByThread: {},
+    threads: [
+      { id: 'thread-19', title: 'Doomed', updatedAt: TIMESTAMP },
+      { id: 'thread-20', title: 'Kept', updatedAt: TIMESTAMP }
+    ]
+  })
+
+  try {
+    // No snapshot for this agent, so parentThreadId is undefined and the
+    // listing widens to every thread.
+    const cancelling = useAppStore.getState().cancelSubagent('agent-unknown')
+    await new Promise((resolve) => setImmediate(resolve))
+    assert.ok(listing.resolve, 'expected a subagent listing to be in flight')
+
+    deleteThread('thread-19')
+    listing.resolve([
+      {
+        agentId: 'agent-doomed',
+        parentThreadId: 'thread-19',
+        launchRunId: 'run-1',
+        agentName: 'a',
+        agentType: 'explore',
+        codeName: 'x',
+        workspacePath: '/tmp',
+        state: 'completed',
+        startedAt: TIMESTAMP,
+        updatedAt: TIMESTAMP
+      },
+      {
+        agentId: 'agent-kept',
+        parentThreadId: 'thread-20',
+        launchRunId: 'run-2',
+        agentName: 'b',
+        agentType: 'explore',
+        codeName: 'y',
+        workspacePath: '/tmp',
+        state: 'completed',
+        startedAt: TIMESTAMP,
+        updatedAt: TIMESTAMP
+      }
+    ])
+    await cancelling
+
+    const state = useAppStore.getState()
+    assert.equal(state.subagentSnapshotIdsByThread['thread-19'], undefined)
+    assert.equal(state.subagentSnapshotsById['agent-doomed'], undefined)
+    // The live thread in the same response is untouched.
+    assert.ok(state.subagentSnapshotsById['agent-kept'])
+  } finally {
+    if (originalWindow === undefined) Reflect.deleteProperty(globalScope, 'window')
+    else
+      Object.defineProperty(globalScope, 'window', {
+        value: originalWindow,
+        configurable: true,
+        writable: true
+      })
+  }
+})
+
+test('deleting the open archived thread retires a jump aimed at it', () => {
+  // The archived view switches activeArchivedThreadId and leaves the live
+  // thread alone, so a rule that watches only the live thread never fires and
+  // the intent follows the user to the next archived conversation.
+  useAppStore.setState({
+    activeThreadId: null,
+    activeArchivedThreadId: 'archived-1',
+    scrollToMessageId: 'message-in-archived-1',
+    messages: { 'archived-1': [] },
+    threads: [],
+    archivedThreads: [
+      { id: 'archived-1', title: 'One', updatedAt: TIMESTAMP, archivedAt: TIMESTAMP },
+      { id: 'archived-2', title: 'Two', updatedAt: TIMESTAMP, archivedAt: TIMESTAMP }
+    ]
+  })
+
+  deleteThread('archived-1')
+
+  assert.notEqual(useAppStore.getState().activeArchivedThreadId, 'archived-1')
+  assert.equal(useAppStore.getState().scrollToMessageId, null)
+})
+
+test('a plan document read that crossed a deletion is not written back', async () => {
+  // The read was allowed to start because the thread was alive; the delete
+  // lands while it is in flight and the response arrives afterwards.
+  const plan: { resolve?: (document: { path: string; content: string }) => void } = {}
+  const globalScope = globalThis as typeof globalThis & { window?: unknown }
+  const originalWindow = globalScope.window
+  Object.defineProperty(globalScope, 'window', {
+    value: {
+      api: {
+        yachiyo: {
+          listSkills: async () => [],
+          listThings: async () => [],
+          listSubagents: async () => [],
+          loadThreadData: async () => ({
+            messages: [],
+            queuedFollowUpMessages: [],
+            toolCalls: [
+              {
+                id: 'tool-exit-plan',
+                runId: 'run-plan',
+                threadId: 'thread-21',
+                toolName: 'exitPlanMode',
+                status: 'completed',
+                inputSummary: 'ready=true',
+                startedAt: TIMESTAMP,
+                finishedAt: TIMESTAMP
+              }
+            ],
+            runs: []
+          }),
+          readThreadPlanDocument: () =>
+            new Promise((resolve) => {
+              plan.resolve = resolve as (document: { path: string; content: string }) => void
+            })
+        }
+      }
+    },
+    configurable: true,
+    writable: true
+  })
+
+  useAppStore.setState({
+    activeThreadId: null,
+    messages: {},
+    toolCalls: {},
+    planDocumentsByThread: {},
+    threads: [
+      { id: 'thread-21', title: 'Doomed', updatedAt: TIMESTAMP },
+      { id: 'thread-22', title: 'Kept', updatedAt: TIMESTAMP }
+    ]
+  })
+
+  try {
+    useAppStore.getState().setActiveThread('thread-21')
+    await new Promise((resolve) => setImmediate(resolve))
+    await new Promise((resolve) => setImmediate(resolve))
+    assert.ok(plan.resolve, 'expected a plan document read to be in flight')
+
+    deleteThread('thread-21')
+    plan.resolve({ path: '.yachiyo/plan.md', content: '# Plan' })
+    await new Promise((resolve) => setImmediate(resolve))
+
+    assert.equal(useAppStore.getState().planDocumentsByThread['thread-21'], undefined)
   } finally {
     if (originalWindow === undefined) Reflect.deleteProperty(globalScope, 'window')
     else
