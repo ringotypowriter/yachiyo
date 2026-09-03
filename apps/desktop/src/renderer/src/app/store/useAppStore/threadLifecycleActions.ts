@@ -95,6 +95,16 @@ export function createThreadLifecycleActions(input: {
     try {
       const snapshots = await window.api.yachiyo.listSubagents(threadId ? { threadId } : undefined)
       if (hydrationRequestSequences.get(requestKey) !== requestSequence) return
+      // The thread can be deleted while this listing is in flight; its own
+      // sequence guard only covers a newer listing of the same thread.
+      if (
+        threadId !== undefined &&
+        resolveThreadReadOutcome({
+          captured: undefined,
+          current: get().threadMessageAuthority[threadId]
+        }) === 'deleted'
+      )
+        return
       set((state) => ({
         ...hydrateSubagentSnapshotState(
           {

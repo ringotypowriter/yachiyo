@@ -93,6 +93,15 @@ export function createComposerUiActions(input: {
     try {
       const snapshots = await window.api.yachiyo.listSubagents({ threadId })
       if (hydrationRequestSequences.get(threadId) !== requestSequence) return
+      // The thread can be deleted while this listing is in flight; its own
+      // sequence guard only covers a newer listing of the same thread.
+      if (
+        resolveThreadReadOutcome({
+          captured: undefined,
+          current: get().threadMessageAuthority[threadId]
+        }) === 'deleted'
+      )
+        return
       set((state) => ({
         ...hydrateSubagentSnapshotState(
           {
@@ -208,6 +217,17 @@ export function createComposerUiActions(input: {
 
     setActiveThread: (id, scrollToMessageId) => {
       const { messages } = get()
+      // A stale search result or Thing source can still name a thread the user
+      // deleted. Opening it would show an empty conversation and set a jump
+      // intent for a message that no longer exists anywhere.
+      if (
+        resolveThreadReadOutcome({
+          captured: undefined,
+          current: get().threadMessageAuthority[id]
+        }) === 'deleted'
+      ) {
+        return
+      }
 
       set((state) => {
         const nextState = {

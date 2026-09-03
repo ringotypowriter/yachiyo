@@ -31,10 +31,12 @@ function deferredLoadThreadData(): {
   settle: (data: Partial<ThreadData>) => Promise<void>
   planDocumentReads: () => number
   subagentListings: () => number
+  threadReads: () => number
 } {
   let resolveRead: ((data: ThreadData) => void) | null = null
   let planDocumentReads = 0
   let subagentListings = 0
+  let threadReads = 0
   const globalScope = globalThis as typeof globalThis & { window?: unknown }
   let originalWindow: unknown
 
@@ -47,10 +49,12 @@ function deferredLoadThreadData(): {
             yachiyo: {
               listSkills: async () => [],
               listThings: async () => [],
-              loadThreadData: () =>
-                new Promise<ThreadData>((resolve) => {
+              loadThreadData: () => {
+                threadReads += 1
+                return new Promise<ThreadData>((resolve) => {
                   resolveRead = resolve
-                }),
+                })
+              },
               readThreadPlanDocument: async () => {
                 planDocumentReads += 1
                 return { path: '.yachiyo/plan.md', content: '# Plan' }
@@ -78,6 +82,7 @@ function deferredLoadThreadData(): {
     },
     planDocumentReads: () => planDocumentReads,
     subagentListings: () => subagentListings,
+    threadReads: () => threadReads,
     settle: async (data) => {
       assert.ok(resolveRead, 'expected a thread read to be in flight')
       resolveRead({
@@ -320,32 +325,32 @@ test('the boot read does not hydrate a plan a sync refresh retired mid-flight', 
   })()
 })
 
-test('a read issued after the thread was deleted repopulates nothing either', async () => {
-  // The tombstone already existed when this read was dispatched, so it never
-  // sees a revision change. A stale search result or Thing source can still
-  // open a thread the user just deleted.
+test('a thread deleted before it is opened is never read at all', () => {
+  // The tombstone already existed when this open was requested, so nothing
+  // downstream would see a revision change. Refusing the open is what keeps a
+  // stale search result from resurrecting a deleted thread's caches.
   const read = deferredLoadThreadData()
   const restoreWindow = read.install()
 
   useAppStore.setState({
-    activeThreadId: null,
+    activeThreadId: 'thread-5b',
     messages: {},
     toolCalls: {},
     runsByThread: {},
     planDocumentsByThread: {},
     threadMessagePaging: {},
-    threads: [{ id: 'thread-6', title: 'Thread', updatedAt: TIMESTAMP }]
+    threads: [
+      { id: 'thread-5b', title: 'Kept', updatedAt: TIMESTAMP },
+      { id: 'thread-6', title: 'Doomed', updatedAt: TIMESTAMP }
+    ]
   })
   deleteThread('thread-6')
 
   try {
     useAppStore.getState().setActiveThread('thread-6')
-    await read.settle({
-      messages: [message('m0', 'thread-6')],
-      runs: [{ id: 'run-late', threadId: 'thread-6', status: 'completed', createdAt: TIMESTAMP }]
-    } as Partial<ThreadData>)
 
     const state = useAppStore.getState()
+    assert.equal(read.threadReads(), 0)
     assert.equal(state.messages['thread-6'], undefined)
     assert.equal(state.runsByThread['thread-6'], undefined)
     assert.equal(state.threadMessagePaging['thread-6'], undefined)
@@ -437,4 +442,103 @@ test('restoring a thread retires a jump aimed at the one being left', () => {
 
   assert.equal(useAppStore.getState().activeThreadId, 'thread-14')
   assert.equal(useAppStore.getState().scrollToMessageId, null)
+})
+
+test('a stale deep-link into a deleted thread does not open it or set a jump', async () => {
+  // The read was already refused, but setActiveThread itself still switched
+  // the active thread and wrote the jump intent — an empty conversation with a
+  // pending jump to a message that exists nowhere.
+  const read = deferredLoadThreadData()
+  const restoreWindow = read.install()
+
+  useAppStore.setState({
+    activeThreadId: 'thread-15',
+    scrollToMessageId: null,
+    messages: { 'thread-15': [] },
+    threads: [
+      { id: 'thread-15', title: 'Kept', updatedAt: TIMESTAMP },
+      { id: 'thread-16', title: 'Doomed', updatedAt: TIMESTAMP }
+    ]
+  })
+  deleteThread('thread-16')
+
+  try {
+    useAppStore.getState().setActiveThread('thread-16', 'message-in-thread-16')
+
+    const state = useAppStore.getState()
+    assert.equal(state.activeThreadId, 'thread-15')
+    assert.equal(state.scrollToMessageId, null)
+  } finally {
+    restoreWindow()
+  }
+})
+
+test('subagent hydration in flight when the thread is deleted writes nothing back', async () => {
+  // The hydration has its own sequence guard, but that only defends against a
+  // newer listing of the same thread — not against the thread going away.
+  let resolveListing: ((snapshots: unknown[]) => void) | null = null
+  const globalScope = globalThis as typeof globalThis & { window?: unknown }
+  const originalWindow = globalScope.window
+  Object.defineProperty(globalScope, 'window', {
+    value: {
+      api: {
+        yachiyo: {
+          listSkills: async () => [],
+          listThings: async () => [],
+          loadThreadData: async () => ({
+            messages: [],
+            queuedFollowUpMessages: [],
+            toolCalls: [],
+            runs: []
+          }),
+          listSubagents: () =>
+            new Promise((resolve) => {
+              resolveListing = resolve as (snapshots: unknown[]) => void
+            })
+        }
+      }
+    },
+    configurable: true,
+    writable: true
+  })
+
+  useAppStore.setState({
+    activeThreadId: null,
+    messages: {},
+    subagentSnapshotsById: {},
+    subagentSnapshotIdsByThread: {},
+    threads: [
+      { id: 'thread-17', title: 'Thread', updatedAt: TIMESTAMP },
+      { id: 'thread-18', title: 'Other', updatedAt: TIMESTAMP }
+    ]
+  })
+
+  try {
+    useAppStore.getState().setActiveThread('thread-17')
+    await new Promise((resolve) => setImmediate(resolve))
+    await new Promise((resolve) => setImmediate(resolve))
+    assert.ok(resolveListing, 'expected a subagent listing to be in flight')
+
+    deleteThread('thread-17')
+    resolveListing([
+      {
+        agentId: 'agent-late',
+        threadId: 'thread-17',
+        status: 'completed',
+        updatedAt: TIMESTAMP
+      }
+    ])
+    await new Promise((resolve) => setImmediate(resolve))
+
+    assert.equal(useAppStore.getState().subagentSnapshotIdsByThread['thread-17'], undefined)
+    assert.equal(useAppStore.getState().subagentSnapshotsById['agent-late'], undefined)
+  } finally {
+    if (originalWindow === undefined) Reflect.deleteProperty(globalScope, 'window')
+    else
+      Object.defineProperty(globalScope, 'window', {
+        value: originalWindow,
+        configurable: true,
+        writable: true
+      })
+  }
 })
