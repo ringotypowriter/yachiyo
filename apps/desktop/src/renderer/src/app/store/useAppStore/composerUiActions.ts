@@ -49,7 +49,7 @@ export function createComposerUiActions(input: {
   | 'setEnabledTools'
   | 'setRunMode'
   | 'setActiveThread'
-  | 'setScrollToMessageId'
+  | 'setScrollToMessage'
   | 'clearScrollToMessageId'
   | 'setComposerEnabledSkillNames'
   | 'setComposerReasoningEffort'
@@ -227,7 +227,9 @@ export function createComposerUiActions(input: {
           editingMessage: state.editingMessage?.threadId === id ? state.editingMessage : null,
           justDoneRunIdsByThread: setThreadStringValue(state.justDoneRunIdsByThread, id, null),
           ...withFilterBase(state.sidebarFilter, 'all'),
-          scrollToMessageId: scrollToMessageId ?? null,
+          scrollToMessage: scrollToMessageId
+            ? { threadId: id, messageId: scrollToMessageId }
+            : null,
           enabledTools: getComposerToolMode(state, id).enabledTools,
           runMode: getComposerToolMode(state, id).runMode
         }
@@ -346,8 +348,8 @@ export function createComposerUiActions(input: {
         void hydrateSubagentSnapshots(id)
       }
     },
-    setScrollToMessageId: (messageId) => set({ scrollToMessageId: messageId }),
-    clearScrollToMessageId: () => set({ scrollToMessageId: null }),
+    setScrollToMessage: (threadId, messageId) => set({ scrollToMessage: { threadId, messageId } }),
+    clearScrollToMessageId: () => set({ scrollToMessage: null }),
     setComposerEnabledSkillNames: (enabledSkillNames) =>
       set((state) => {
         const draftKey = getComposerDraftKey(state.activeThreadId)
@@ -405,7 +407,7 @@ export function createComposerUiActions(input: {
         activeArchivedThreadId: id,
         justDoneRunIdsByThread: setThreadStringValue(state.justDoneRunIdsByThread, id, null),
         ...withFilterBase(state.sidebarFilter, 'archived'),
-        scrollToMessageId: scrollToMessageId ?? null
+        scrollToMessage: scrollToMessageId ? { threadId: id, messageId: scrollToMessageId } : null
       }))
       void hydrateSubagentSnapshots(id)
       // Mark as read when the user opens an archived thread.

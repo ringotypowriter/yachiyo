@@ -280,7 +280,12 @@ export function MessageTimeline({
       retryMessage: state.retryMessage,
       selectReplyBranch: state.selectReplyBranch,
       runPhase: threadId ? (state.runPhasesByThread[threadId] ?? 'idle') : 'idle',
-      scrollToMessageId: state.scrollToMessageId,
+      // Only this thread's jump: an intent naming another conversation must
+      // neither fire nor be consumed here.
+      scrollToMessageId:
+        threadId && state.scrollToMessage?.threadId === threadId
+          ? state.scrollToMessage.messageId
+          : null,
       clearScrollToMessageId: state.clearScrollToMessageId,
       // Selected rather than read on demand: a jump intent waiting for a page
       // is resolved by paging settling, which does not always change the row

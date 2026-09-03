@@ -3,6 +3,7 @@ import test from 'node:test'
 
 import {
   bumpThreadMessageAuthority,
+  dropPlanDocumentsOfDeletedThreads,
   dropSnapshotsOfDeletedThreads,
   isThreadDeleted,
   resolveThreadReadOutcome
@@ -106,4 +107,24 @@ test('a listing of threads none of which were deleted passes through', () => {
   )
 
   assert.equal(kept.length, 1)
+})
+
+test('a batch of plan reads keeps only the threads that still exist', () => {
+  // Startup reads every pending plan at once; one of those threads can be
+  // deleted before the batch lands, and a whole-batch guard would either drop
+  // all of them or none.
+  const authority = bumpThreadMessageAuthority({}, 'thread-gone', { deleted: true })
+
+  const kept = dropPlanDocumentsOfDeletedThreads(
+    [
+      ['thread-gone', { path: 'a.md' }],
+      ['thread-live', { path: 'b.md' }]
+    ],
+    authority
+  )
+
+  assert.deepEqual(
+    kept.map(([threadId]) => threadId),
+    ['thread-live']
+  )
 })

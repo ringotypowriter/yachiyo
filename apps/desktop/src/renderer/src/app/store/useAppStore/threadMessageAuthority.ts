@@ -79,3 +79,18 @@ export function dropSnapshotsOfDeletedThreads<Snapshot extends { parentThreadId:
 ): Snapshot[] {
   return snapshots.filter((snapshot) => !isThreadDeleted(authority[snapshot.parentThreadId]))
 }
+
+/**
+ * Filter plan-document entries by whether their thread still exists.
+ *
+ * Plan reads land from four places — on-demand hydration, the boot batch, and
+ * two event branches — and each of them can be in flight when a delete
+ * arrives. Keyed by the entry's own thread so a batch covering many threads is
+ * as safe as a single-thread read.
+ */
+export function dropPlanDocumentsOfDeletedThreads<Entry>(
+  entries: (readonly [string, Entry])[],
+  authority: ThreadMessageAuthority
+): (readonly [string, Entry])[] {
+  return entries.filter(([threadId]) => !isThreadDeleted(authority[threadId]))
+}

@@ -447,7 +447,7 @@ export function AppMainPanel({
   }, [findOpen, findMatches.length, refreshFindHighlights])
 
   // Highlight + scroll current match (virtualizer-aware via store)
-  const setScrollToMessageId = useAppStore((state) => state.setScrollToMessageId)
+  const setScrollToMessage = useAppStore((state) => state.setScrollToMessage)
   useEffect(() => {
     if (!CSS.highlights) return
     CSS.highlights.delete('yachiyo-find-current')
@@ -456,7 +456,7 @@ export function AppMainPanel({
     if (!match) return
 
     // Scroll via store so the virtualizer brings the item into the DOM first
-    setScrollToMessageId(match.messageId)
+    if (activeThreadId) setScrollToMessage(activeThreadId, match.messageId)
 
     // Highlight after the virtualizer renders the target
     const rafId = requestAnimationFrame(() => {
@@ -474,7 +474,7 @@ export function AppMainPanel({
       cancelAnimationFrame(rafId)
       CSS.highlights?.delete('yachiyo-find-current')
     }
-  }, [findCurrentIndex, findMatches, findQuery, setScrollToMessageId])
+  }, [activeThreadId, findCurrentIndex, findMatches, findQuery, setScrollToMessage])
 
   // Hydrate background-task snapshots when switching threads so the chip can
   // catch up on tasks that started before the renderer mounted (or were left

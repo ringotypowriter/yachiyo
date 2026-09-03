@@ -6,6 +6,7 @@ import type { AppState } from '../useAppStore.ts'
 import { hydratePlanDocumentForThread } from './planDocumentHydration.ts'
 import { THREAD_MESSAGE_PAGE_SIZE, hasOlderThreadMessages } from './threadMessagePaging.ts'
 import {
+  dropPlanDocumentsOfDeletedThreads,
   dropSnapshotsOfDeletedThreads,
   resolveThreadReadOutcome
 } from './threadMessageAuthority.ts'
@@ -504,7 +505,12 @@ export function createThreadLifecycleActions(input: {
             set((state) => ({
               planDocumentsByThread: {
                 ...state.planDocumentsByThread,
-                ...Object.fromEntries(entries.filter((entry) => entry !== null))
+                ...Object.fromEntries(
+                  dropPlanDocumentsOfDeletedThreads(
+                    entries.filter((entry) => entry !== null),
+                    state.threadMessageAuthority
+                  )
+                )
               }
             }))
           }

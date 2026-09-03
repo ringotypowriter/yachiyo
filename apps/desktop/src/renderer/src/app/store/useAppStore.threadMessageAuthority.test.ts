@@ -107,6 +107,16 @@ function deleteThread(threadId: string): void {
   } as Parameters<ReturnType<typeof useAppStore.getState>['applyServerEvent']>[0])
 }
 
+function archiveThread(threadId: string): void {
+  useAppStore.getState().applyServerEvent({
+    type: 'thread.archived',
+    eventId: `event-archived-${threadId}`,
+    timestamp: TIMESTAMP,
+    threadId,
+    thread: { id: threadId, title: 'Thread', updatedAt: TIMESTAMP, archivedAt: TIMESTAMP }
+  } as Parameters<ReturnType<typeof useAppStore.getState>['applyServerEvent']>[0])
+}
+
 function replaceThreadState(threadId: string, messages: ThreadData['messages']): void {
   useAppStore.getState().applyServerEvent({
     type: 'thread.state.replaced',
@@ -367,7 +377,7 @@ test('deleting the open thread retires a jump aimed at it', () => {
   // into the thread they land on.
   useAppStore.setState({
     activeThreadId: 'thread-7',
-    scrollToMessageId: 'message-in-thread-7',
+    scrollToMessage: { threadId: 'thread-7', messageId: 'm' },
     messages: { 'thread-7': [] },
     threads: [
       { id: 'thread-7', title: 'Thread', updatedAt: TIMESTAMP },
@@ -377,13 +387,13 @@ test('deleting the open thread retires a jump aimed at it', () => {
 
   deleteThread('thread-7')
 
-  assert.equal(useAppStore.getState().scrollToMessageId, null)
+  assert.equal(useAppStore.getState().scrollToMessage, null)
 })
 
 test('deleting another thread leaves an unrelated jump alone', () => {
   useAppStore.setState({
     activeThreadId: 'thread-9',
-    scrollToMessageId: 'message-in-thread-9',
+    scrollToMessage: { threadId: 'thread-9', messageId: 'm' },
     messages: { 'thread-9': [] },
     threads: [
       { id: 'thread-9', title: 'Thread', updatedAt: TIMESTAMP },
@@ -393,15 +403,17 @@ test('deleting another thread leaves an unrelated jump alone', () => {
 
   deleteThread('thread-10')
 
-  assert.equal(useAppStore.getState().scrollToMessageId, 'message-in-thread-9')
+  assert.equal(useAppStore.getState().scrollToMessage?.messageId, 'm')
 })
 
-test('archiving the open thread retires a jump aimed at it', () => {
-  // Same class as deletion: the reducer moves the user off this thread without
-  // going through setActiveThread.
+test('archiving the open thread keeps a jump aimed at it, because it stays selected', () => {
+  // Archiving moves the conversation into the archived view and selects it
+  // there, so the jump is still reachable — the owner is what makes that
+  // answerable at all.
   useAppStore.setState({
     activeThreadId: 'thread-11',
-    scrollToMessageId: 'message-in-thread-11',
+    activeArchivedThreadId: null,
+    scrollToMessage: { threadId: 'thread-11', messageId: 'm' },
     messages: { 'thread-11': [] },
     threads: [
       { id: 'thread-11', title: 'Thread', updatedAt: TIMESTAMP },
@@ -410,21 +422,40 @@ test('archiving the open thread retires a jump aimed at it', () => {
     archivedThreads: []
   })
 
-  useAppStore.getState().applyServerEvent({
-    type: 'thread.archived',
-    eventId: 'event-archived',
-    timestamp: TIMESTAMP,
-    threadId: 'thread-11',
-    thread: { id: 'thread-11', title: 'Thread', updatedAt: TIMESTAMP, archivedAt: TIMESTAMP }
-  } as Parameters<ReturnType<typeof useAppStore.getState>['applyServerEvent']>[0])
+  archiveThread('thread-11')
 
-  assert.equal(useAppStore.getState().scrollToMessageId, null)
+  assert.equal(useAppStore.getState().activeArchivedThreadId, 'thread-11')
+  assert.equal(useAppStore.getState().scrollToMessage?.messageId, 'm')
+})
+
+test('archiving the open thread retires the jump when the archived view shows something else', () => {
+  // The archived view keeps whatever was already selected there, so the
+  // archived thread is not on screen in either view and the jump is
+  // unreachable.
+  useAppStore.setState({
+    activeThreadId: 'thread-11',
+    activeArchivedThreadId: 'archived-other',
+    scrollToMessage: { threadId: 'thread-11', messageId: 'm' },
+    messages: { 'thread-11': [] },
+    threads: [
+      { id: 'thread-11', title: 'Thread', updatedAt: TIMESTAMP },
+      { id: 'thread-12', title: 'Other', updatedAt: TIMESTAMP }
+    ],
+    archivedThreads: [
+      { id: 'archived-other', title: 'Older', updatedAt: TIMESTAMP, archivedAt: TIMESTAMP }
+    ]
+  })
+
+  archiveThread('thread-11')
+
+  assert.equal(useAppStore.getState().activeArchivedThreadId, 'archived-other')
+  assert.equal(useAppStore.getState().scrollToMessage, null)
 })
 
 test('restoring a thread retires a jump aimed at the one being left', () => {
   useAppStore.setState({
     activeThreadId: 'thread-13',
-    scrollToMessageId: 'message-in-thread-13',
+    scrollToMessage: { threadId: 'thread-13', messageId: 'm' },
     messages: { 'thread-13': [] },
     threads: [{ id: 'thread-13', title: 'Thread', updatedAt: TIMESTAMP }],
     archivedThreads: [
@@ -441,7 +472,7 @@ test('restoring a thread retires a jump aimed at the one being left', () => {
   } as Parameters<ReturnType<typeof useAppStore.getState>['applyServerEvent']>[0])
 
   assert.equal(useAppStore.getState().activeThreadId, 'thread-14')
-  assert.equal(useAppStore.getState().scrollToMessageId, null)
+  assert.equal(useAppStore.getState().scrollToMessage, null)
 })
 
 test('a stale deep-link into a deleted thread does not open it or set a jump', async () => {
@@ -453,7 +484,7 @@ test('a stale deep-link into a deleted thread does not open it or set a jump', a
 
   useAppStore.setState({
     activeThreadId: 'thread-15',
-    scrollToMessageId: null,
+    scrollToMessage: null,
     messages: { 'thread-15': [] },
     threads: [
       { id: 'thread-15', title: 'Kept', updatedAt: TIMESTAMP },
@@ -467,7 +498,7 @@ test('a stale deep-link into a deleted thread does not open it or set a jump', a
 
     const state = useAppStore.getState()
     assert.equal(state.activeThreadId, 'thread-15')
-    assert.equal(state.scrollToMessageId, null)
+    assert.equal(state.scrollToMessage, null)
   } finally {
     restoreWindow()
   }
@@ -638,7 +669,7 @@ test('deleting the open archived thread retires a jump aimed at it', () => {
   useAppStore.setState({
     activeThreadId: null,
     activeArchivedThreadId: 'archived-1',
-    scrollToMessageId: 'message-in-archived-1',
+    scrollToMessage: { threadId: 'archived-1', messageId: 'm' },
     messages: { 'archived-1': [] },
     threads: [],
     archivedThreads: [
@@ -650,7 +681,7 @@ test('deleting the open archived thread retires a jump aimed at it', () => {
   deleteThread('archived-1')
 
   assert.notEqual(useAppStore.getState().activeArchivedThreadId, 'archived-1')
-  assert.equal(useAppStore.getState().scrollToMessageId, null)
+  assert.equal(useAppStore.getState().scrollToMessage, null)
 })
 
 test('a plan document read that crossed a deletion is not written back', async () => {
@@ -725,4 +756,171 @@ test('a plan document read that crossed a deletion is not written back', async (
         writable: true
       })
   }
+})
+
+test('a plan read from the tool event does not land after a deletion', () => {
+  // The other three plan landings are the on-demand hydration, the boot batch,
+  // and the message.completed branch; this is the tool.updated one.
+  const plan: { resolve?: (document: { path: string; content: string }) => void } = {}
+  const globalScope = globalThis as typeof globalThis & { window?: unknown }
+  const originalWindow = globalScope.window
+  Object.defineProperty(globalScope, 'window', {
+    value: {
+      api: {
+        yachiyo: {
+          listSkills: async () => [],
+          listThings: async () => [],
+          readThreadPlanDocument: () =>
+            new Promise((resolve) => {
+              plan.resolve = resolve as (document: { path: string; content: string }) => void
+            })
+        }
+      }
+    },
+    configurable: true,
+    writable: true
+  })
+
+  return (async () => {
+    useAppStore.setState({
+      activeThreadId: 'thread-23',
+      planDocumentsByThread: {},
+      messages: {},
+      threads: [
+        { id: 'thread-23', title: 'Doomed', updatedAt: TIMESTAMP },
+        { id: 'thread-24', title: 'Kept', updatedAt: TIMESTAMP }
+      ]
+    })
+
+    try {
+      useAppStore.getState().applyServerEvent({
+        type: 'tool.updated',
+        eventId: 'event-tool',
+        timestamp: TIMESTAMP,
+        threadId: 'thread-23',
+        toolCall: {
+          id: 'tool-exit-plan',
+          runId: 'run-plan',
+          threadId: 'thread-23',
+          toolName: 'exitPlanMode',
+          status: 'completed',
+          inputSummary: 'ready=true',
+          startedAt: TIMESTAMP,
+          finishedAt: TIMESTAMP
+        }
+      } as Parameters<ReturnType<typeof useAppStore.getState>['applyServerEvent']>[0])
+      await new Promise((resolve) => setImmediate(resolve))
+      assert.ok(plan.resolve, 'expected a plan read to be in flight')
+
+      deleteThread('thread-23')
+      plan.resolve({ path: '.yachiyo/plan.md', content: '# Plan' })
+      await new Promise((resolve) => setImmediate(resolve))
+
+      assert.equal(useAppStore.getState().planDocumentsByThread['thread-23'], undefined)
+    } finally {
+      if (originalWindow === undefined) Reflect.deleteProperty(globalScope, 'window')
+      else
+        Object.defineProperty(globalScope, 'window', {
+          value: originalWindow,
+          configurable: true,
+          writable: true
+        })
+    }
+  })()
+})
+
+test('the startup plan batch drops only the thread deleted while it was reading', () => {
+  // Startup reads every pending plan in one batch. A guard on the batch as a
+  // whole would either keep a deleted thread's plan or throw away the live
+  // ones with it, so the filter has to be per entry.
+  const plans: Record<string, (document: { path: string; content: string }) => void> = {}
+  const globalScope = globalThis as typeof globalThis & { window?: unknown }
+  const originalWindow = globalScope.window
+  const planToolCall = (threadId: string): Record<string, string> => ({
+    id: `tool-${threadId}`,
+    runId: 'run-plan',
+    threadId,
+    toolName: 'exitPlanMode',
+    status: 'completed',
+    inputSummary: 'ready=true',
+    startedAt: TIMESTAMP,
+    finishedAt: TIMESTAMP
+  })
+
+  Object.defineProperty(globalScope, 'window', {
+    value: {
+      api: {
+        yachiyo: {
+          listSkills: async () => [],
+          listThings: async () => [],
+          listSubagents: async () => [],
+          loadThreadData: async () => ({
+            messages: [],
+            queuedFollowUpMessages: [],
+            toolCalls: [],
+            runs: []
+          }),
+          subscribe: () => () => undefined,
+          bootstrap: async () => ({
+            threads: [
+              { id: 'plan-doomed', title: 'Doomed', updatedAt: TIMESTAMP },
+              { id: 'plan-live', title: 'Live', updatedAt: TIMESTAMP }
+            ],
+            archivedThreads: [],
+            folders: [],
+            messagesByThread: {},
+            toolCallsByThread: {
+              'plan-doomed': [planToolCall('plan-doomed')],
+              'plan-live': [planToolCall('plan-live')]
+            },
+            latestRunsByThread: {},
+            recoveredInterruptedSaveThreadIds: [],
+            config: { enabledTools: DEFAULT_ENABLED_TOOL_NAMES, providers: [] },
+            settings: {
+              ...DEFAULT_SETTINGS,
+              apiKey: 'sk-test',
+              model: 'gpt-5',
+              providerName: 'work'
+            }
+          }),
+          readThreadPlanDocument: ({ threadId }: { threadId: string }) =>
+            new Promise((resolve) => {
+              plans[threadId] = resolve as (document: { path: string; content: string }) => void
+            })
+        }
+      }
+    },
+    configurable: true,
+    writable: true
+  })
+
+  return (async () => {
+    try {
+      // A previous test in this file already booted; the action short-circuits
+      // while the store still says it is initialized.
+      useAppStore.setState({ initialized: false, isBootstrapping: false })
+      const booting = useAppStore.getState().initialize()
+      for (let tick = 0; tick < 50 && !plans['plan-live']; tick++) {
+        await new Promise((resolve) => setImmediate(resolve))
+      }
+      assert.ok(plans['plan-doomed'] && plans['plan-live'], 'expected both plan reads in flight')
+
+      deleteThread('plan-doomed')
+      plans['plan-doomed']({ path: 'a.md', content: '# A' })
+      plans['plan-live']({ path: 'b.md', content: '# B' })
+      await booting
+
+      const state = useAppStore.getState()
+      assert.equal(state.planDocumentsByThread['plan-doomed'], undefined)
+      assert.ok(state.planDocumentsByThread['plan-live'])
+    } finally {
+      if (originalWindow === undefined) Reflect.deleteProperty(globalScope, 'window')
+      else
+        Object.defineProperty(globalScope, 'window', {
+          value: originalWindow,
+          configurable: true,
+          writable: true
+        })
+    }
+  })()
 })

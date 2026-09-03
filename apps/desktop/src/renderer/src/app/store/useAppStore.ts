@@ -74,6 +74,7 @@ import {
 import { createComposerUiActions } from './useAppStore/composerUiActions.ts'
 import { reduceServerEvent } from './useAppStore/serverEventReducer.ts'
 import { retireJumpIntentOnThreadSwitch } from './useAppStore/serverEventJumpIntent.ts'
+import { isThreadDeleted } from './useAppStore/threadMessageAuthority.ts'
 import { createSendMessageActions } from './useAppStore/sendMessageActions.ts'
 import { createThreadLifecycleActions } from './useAppStore/threadLifecycleActions.ts'
 import type { ThreadMessageAuthority } from './useAppStore/threadMessageAuthority.ts'
@@ -427,8 +428,13 @@ export interface AppState {
   setEnabledTools: (enabledTools: ToolCallName[]) => Promise<void>
   setRunMode: (runMode: RunModeId) => Promise<void>
   recapByThread: Record<string, string>
-  scrollToMessageId: string | null
-  setScrollToMessageId: (messageId: string) => void
+  /**
+   * A pending jump names its own thread. A bare message id cannot say which
+   * conversation it belongs to, so a surface showing a different thread could
+   * consume or clear it.
+   */
+  scrollToMessage: { threadId: string; messageId: string } | null
+  setScrollToMessage: (threadId: string, messageId: string) => void
   loadOlderThreadMessages: (threadId: string) => Promise<void>
   clearScrollToMessageId: () => void
   setActiveThread: (id: string, scrollToMessageId?: string) => void
@@ -462,7 +468,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   activeRunThreadId: null,
   activeThreadId: null,
   recapByThread: {},
-  scrollToMessageId: null,
+  scrollToMessage: null,
   archivedThreads: [],
   folders: [],
   globalProcessingTasks: [],
@@ -1382,16 +1388,20 @@ export const useAppStore = create<AppState>((set, get) => ({
       void (async () => {
         try {
           const plan = await window.api.yachiyo.readThreadPlanDocument({ threadId: event.threadId })
-          set((state) => ({
-            planDocumentsByThread: {
-              ...state.planDocumentsByThread,
-              [event.threadId]: {
-                ...plan,
-                updatedAt: event.timestamp,
-                decision: plan.decision ?? 'pending'
+          set((state) => {
+            // The thread can be deleted while this read is in flight.
+            if (isThreadDeleted(state.threadMessageAuthority[event.threadId])) return {}
+            return {
+              planDocumentsByThread: {
+                ...state.planDocumentsByThread,
+                [event.threadId]: {
+                  ...plan,
+                  updatedAt: event.timestamp,
+                  decision: plan.decision ?? 'pending'
+                }
               }
             }
-          }))
+          })
         } catch {
           // Ignore missing plan files or read errors.
         }
@@ -1406,16 +1416,20 @@ export const useAppStore = create<AppState>((set, get) => ({
       void (async () => {
         try {
           const plan = await window.api.yachiyo.readThreadPlanDocument({ threadId: event.threadId })
-          set((state) => ({
-            planDocumentsByThread: {
-              ...state.planDocumentsByThread,
-              [event.threadId]: {
-                ...plan,
-                updatedAt: event.timestamp,
-                decision: plan.decision ?? 'pending'
+          set((state) => {
+            // The thread can be deleted while this read is in flight.
+            if (isThreadDeleted(state.threadMessageAuthority[event.threadId])) return {}
+            return {
+              planDocumentsByThread: {
+                ...state.planDocumentsByThread,
+                [event.threadId]: {
+                  ...plan,
+                  updatedAt: event.timestamp,
+                  decision: plan.decision ?? 'pending'
+                }
               }
             }
-          }))
+          })
         } catch {
           // Ignore missing plan files or read errors.
         }
