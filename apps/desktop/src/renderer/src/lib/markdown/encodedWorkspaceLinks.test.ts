@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
+import { extractUniqueMarkdownFileReferences } from './inlineCodeFileLinkSnapshot.ts'
 import { extractMarkdownFileReferences } from './markdownFileReferences.ts'
 import { rewriteWorkspaceFileLinksForHarden } from './workspaceFileLinkRehypePlugin.ts'
 
@@ -57,4 +58,25 @@ test('the reference cap counts what is sent and keeps the preferred reading', ()
 
   assert.deepEqual(extractMarkdownFileReferences(markdown, 3), ['a#b.md', 'a%23b.md', 'c#d.md'])
   assert.deepEqual(extractMarkdownFileReferences(markdown, 1), ['a#b.md'])
+})
+
+test('the cap bounds one resolver request, not one document', () => {
+  // A timeline is many documents and each link contributes two candidates, so
+  // a per-document cap bounds nothing about what is actually sent.
+  const documents = ['[a](a%23b.md)', '[b](c%23d.md)', '[e](e%23f.md)']
+
+  assert.deepEqual(extractUniqueMarkdownFileReferences(documents, 3), [
+    'a#b.md',
+    'a%23b.md',
+    'c#d.md'
+  ])
+})
+
+test('a later document takes only the slots left, preferred reading first', () => {
+  const documents = ['[a](a%23b.md)', '[b](c%23d.md)']
+
+  // One slot left after the first document fills two.
+  assert.deepEqual(extractUniqueMarkdownFileReferences(documents, 3).at(-1), 'c#d.md')
+  // No slots left at all.
+  assert.deepEqual(extractUniqueMarkdownFileReferences(documents, 2), ['a#b.md', 'a%23b.md'])
 })

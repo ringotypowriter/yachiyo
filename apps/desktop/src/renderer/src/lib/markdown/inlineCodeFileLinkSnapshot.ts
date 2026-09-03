@@ -6,6 +6,8 @@ import {
 } from '@yachiyo/shared/inlineCodeFileReferences'
 import { extractMarkdownFileReferences } from './markdownFileReferences'
 
+const MAX_MARKDOWN_FILE_REFERENCES_PER_REQUEST = 64
+
 export type InlineCodeFileLinkSnapshot = ReadonlyMap<string, string>
 
 const EMPTY_FILE_LINK_SNAPSHOT: InlineCodeFileLinkSnapshot = new Map()
@@ -159,12 +161,29 @@ function extractUniqueInlineCodeFileReferences(markdownDocuments: readonly strin
   return references
 }
 
-function extractUniqueMarkdownFileReferences(markdownDocuments: readonly string[]): string[] {
+/**
+ * The cap belongs to the resolver request, not to one document.
+ *
+ * Each link contributes up to two candidates, and a timeline holds many
+ * messages, so a per-document cap bounds nothing about what is actually sent.
+ * The remaining budget is handed down so a later document takes only the slots
+ * that are left — and takes them in candidate order, keeping the decoded
+ * reading over its own literal fallback.
+ */
+export function extractUniqueMarkdownFileReferences(
+  markdownDocuments: readonly string[],
+  maxReferences = MAX_MARKDOWN_FILE_REFERENCES_PER_REQUEST
+): string[] {
   const references: string[] = []
   const seen = new Set<string>()
 
   for (const document of markdownDocuments) {
-    for (const reference of extractMarkdownFileReferences(document)) {
+    const remaining = maxReferences - references.length
+    // Correctness comes from passing the remaining budget below, which already
+    // yields nothing at zero. This exit only avoids parsing every remaining
+    // document in a long timeline once the budget is spent.
+    if (remaining <= 0) break
+    for (const reference of extractMarkdownFileReferences(document, remaining)) {
       if (seen.has(reference)) continue
       seen.add(reference)
       references.push(reference)
