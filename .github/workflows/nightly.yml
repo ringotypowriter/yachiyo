@@ -102,7 +102,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_TAG: v${{ needs.version.outputs.nightly_version }}
-        run: node scripts/github-release.mjs --tag "$RELEASE_TAG" --target HEAD --prerelease --repository "$GITHUB_REPOSITORY"
+        run: node scripts/github-release.mjs --tag "$RELEASE_TAG" --target "$GITHUB_SHA" --prerelease --repository "$GITHUB_REPOSITORY"
 
   build_macos:
     name: Build and publish macOS nightly
