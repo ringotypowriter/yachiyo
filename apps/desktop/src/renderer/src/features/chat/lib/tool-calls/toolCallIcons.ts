@@ -3,6 +3,7 @@ import {
   BookOpenCheck,
   Boxes,
   Brain,
+  ClipboardList,
   ClipboardPenLine,
   ContactRound,
   DatabaseZap,
@@ -56,7 +57,7 @@ const coreToolIcons = {
   updateTodoList: ListChecks,
   sendThreadMessage: MessagesSquare,
   steerTask: SendHorizontal,
-  getTask: Eye,
+  getTask: ClipboardList,
   exitPlanMode: DoorOpen
 } satisfies Record<ToolCallName, ToolCallIcon>
 
