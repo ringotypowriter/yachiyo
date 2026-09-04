@@ -181,7 +181,7 @@ export function isAllowedInlineCodeFileReference(value: string): boolean {
 
 export function toInlineCodeFileReferenceCandidate(value: string): string | null {
   const candidate = value.trim()
-  if (!candidate || candidate.length > 500 || hasLineBreak(candidate)) {
+  if (!candidate || candidate.length > 500 || hasLineBreak(candidate) || hasNullByte(candidate)) {
     return null
   }
 
@@ -199,6 +199,43 @@ export function toInlineCodeFileReferenceCandidate(value: string): string | null
   }
 
   return candidate
+}
+
+/**
+ * The readings a Markdown link destination can have, most standard first.
+ *
+ * A destination is a URI, so `a%23b.md` means the file `a#b.md` — but a file
+ * may also genuinely be named with those three characters, and both readings
+ * are valid syntax. Rather than pick one blindly, offer both in order and let
+ * whoever knows the filesystem decide; when both files exist the URI reading
+ * wins, which is what a link copied from anywhere else means.
+ *
+ * Decoding happens once, and each reading is put through the same reference
+ * rules — decoding is not a way around them.
+ */
+export function toMarkdownDestinationCandidates(value: string): string[] {
+  const raw = toInlineCodeFileReferenceCandidate(value)
+  let decoded: string | null = null
+  try {
+    const decodedValue = decodeURIComponent(value)
+    if (decodedValue !== value) {
+      // Only when the rules leave it untouched. They trim, so a destination
+      // meaning " package.json" would otherwise become the far more common
+      // "package.json" — opening the wrong file is worse than not resolving.
+      const validated = toInlineCodeFileReferenceCandidate(decodedValue)
+      decoded = validated === decodedValue ? validated : null
+    }
+  } catch (error) {
+    // A destination that is not valid percent-encoding is a literal name, not
+    // a broken link: keep the raw reading and render the rest of the document.
+    if (!(error instanceof URIError)) throw error
+  }
+
+  const candidates: string[] = []
+  for (const candidate of [decoded, raw]) {
+    if (candidate && !candidates.includes(candidate)) candidates.push(candidate)
+  }
+  return candidates
 }
 
 export function extractInlineCodeFileReferences(
@@ -351,6 +388,15 @@ function countRepeatedCharacter(line: string, start: number, marker: string): nu
 
 function hasLineBreak(value: string): boolean {
   return value.includes('\n') || value.includes('\r')
+}
+
+/**
+ * A real NUL cannot be part of a path. Node's fs layer answers a NUL-bearing
+ * path with a TypeError rather than "not found", so one such reference in a
+ * batch would fail the whole batch instead of just itself.
+ */
+function hasNullByte(value: string): boolean {
+  return value.includes('\u0000')
 }
 
 function isExplicitFolderInlineCodeReference(value: string): boolean {
