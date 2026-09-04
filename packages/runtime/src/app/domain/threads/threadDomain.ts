@@ -55,6 +55,7 @@ import {
   parseGeneratedTitleAndIcon
 } from './threadTitle.ts'
 import { truncateAssistantMessageBeforeToolCall } from './truncateAssistantMessage.ts'
+import { assertThreadIdIsPathSafe, isThreadIdPathSafe } from '../../../config/paths.ts'
 
 interface ThreadDomainDeps {
   storage: YachiyoStorage
@@ -209,6 +210,10 @@ export class YachiyoServerThreadDomain {
       : legacyEnabledTools
         ? deriveRunModeId(legacyEnabledTools)
         : undefined
+    // An explicit id is an internal contract, so fail here rather than later at
+    // the path derivation — the sink still guards itself for ids that arrive
+    // by other routes.
+    if (input.threadId !== undefined) assertThreadIdIsPathSafe(input.threadId)
     const thread = withThreadCapabilities({
       id: input.threadId ?? this.deps.createId(),
       title: input.title ?? DEFAULT_THREAD_TITLE,
@@ -651,6 +656,10 @@ export class YachiyoServerThreadDomain {
 
   private getTemporaryWorkspaceOwnerId(workspacePath: string): string | null {
     const ownerId = basename(workspacePath)
+    // This asks a question rather than deriving a path to use, so an id that
+    // could not name a workspace answers "not a temporary one" instead of
+    // making the thread undeletable.
+    if (!isThreadIdPathSafe(ownerId)) return null
     return resolve(this.deps.resolveThreadWorkspacePath(ownerId)) === resolve(workspacePath)
       ? ownerId
       : null
