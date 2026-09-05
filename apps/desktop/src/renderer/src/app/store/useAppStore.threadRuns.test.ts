@@ -3,6 +3,7 @@ import type { YachiyoPreloadYachiyoApi } from '../../../../preload/index.ts'
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { DEFAULT_ENABLED_TOOL_NAMES, DEFAULT_RUN_MODE_ID } from '@yachiyo/shared/protocol'
+import { useContentReaderStore } from '../../features/chat/state/useContentReaderStore.ts'
 import { DEFAULT_SIDEBAR_FILTER, DEFAULT_SETTINGS, useAppStore } from './useAppStore.ts'
 
 const TIMESTAMP = '2026-03-15T00:00:00.000Z'
@@ -1077,5 +1078,100 @@ test('createBranch switches to a blank draft in the destination thread', async (
     assert.equal(state.composerDrafts['thread-2'], undefined)
   } finally {
     restoreWindow()
+  }
+})
+
+for (const mode of ['normal', 'steer', 'follow-up'] as const) {
+  test('sendMessage preserves the selected diff reference for ' + mode, async () => {
+    resetStore()
+    const thread = { id: 'reader-' + mode, title: 'Review', updatedAt: TIMESTAMP }
+    let sent = ''
+    const restore = withWindowApiMock({
+      sendChat: async (input) => {
+        sent = input.content
+        return {
+          kind: 'run-started',
+          thread,
+          runId: 'new-run',
+          userMessage: {
+            id: 'review-request',
+            threadId: thread.id,
+            role: 'user',
+            content: input.content,
+            status: 'completed',
+            createdAt: TIMESTAMP
+          }
+        }
+      }
+    })
+    try {
+      useAppStore.setState({
+        activeThreadId: thread.id,
+        threads: [thread],
+        settings: READY_SETTINGS,
+        editingMessage: null,
+        composerDrafts: { [thread.id]: { text: 'Keep the timeout', images: [], files: [] } }
+      })
+      useContentReaderStore.getState().open({
+        kind: 'diff',
+        threadId: thread.id,
+        runId: 'reviewed-run',
+        workspacePath: '/work',
+        relativePath: 'settings.ts'
+      })
+      assert.equal(await useAppStore.getState().sendMessage(mode), true)
+      assert.match(sent, /reviewed-run/)
+      assert.match(sent, /settings.ts/)
+      assert.equal(useAppStore.getState().messages[thread.id]?.[0]?.content, sent)
+    } finally {
+      useContentReaderStore.getState().close()
+      restore()
+    }
+  })
+}
+
+test('buffered content keeps its captured reference even when a different file is open at flush', async () => {
+  resetStore()
+  const thread = { id: 'reader-buffer', title: 'Review', updatedAt: TIMESTAMP }
+  const content = 'First request\n\n[Viewing file: "/work/first.md"]'
+  let sent = ''
+  const restore = withWindowApiMock({
+    sendChat: async (input) => {
+      sent = input.content
+      return {
+        kind: 'run-started',
+        thread,
+        runId: 'buffer-run',
+        userMessage: {
+          id: 'buffer-request',
+          threadId: thread.id,
+          role: 'user',
+          content: input.content,
+          status: 'completed',
+          createdAt: TIMESTAMP
+        }
+      }
+    }
+  })
+  try {
+    useAppStore.setState({
+      activeThreadId: thread.id,
+      threads: [thread],
+      settings: READY_SETTINGS,
+      editingMessage: null
+    })
+    useContentReaderStore
+      .getState()
+      .open({ kind: 'file', threadId: thread.id, path: '/work/second.md', workspacePath: '/work' })
+    assert.equal(
+      await useAppStore
+        .getState()
+        .sendMessage('normal', { threadId: thread.id, content, images: [], attachments: [] }),
+      true
+    )
+    assert.equal(sent, content)
+  } finally {
+    useContentReaderStore.getState().close()
+    restore()
   }
 })

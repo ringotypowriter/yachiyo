@@ -6,7 +6,7 @@ import { useT } from '@yachiyo/i18n/react'
 import { useAppStore } from '@renderer/app/store/useAppStore'
 import type { RunRecord } from '@renderer/app/types'
 import { alpha, theme } from '@renderer/theme/theme'
-import { DiffPreviewerModal } from '@renderer/features/chat/components/DiffPreviewerModal'
+import { useContentReader } from '@renderer/features/chat/hooks/useContentReader'
 import { ConfirmDialog } from '@renderer/components/ConfirmDialog'
 
 const EMPTY_RUNS: RunRecord[] = []
@@ -201,7 +201,7 @@ export function RunInspectionPanel({ threadId }: RunInspectionPanelProps): React
   )
   const snapshotReviewByRun = useAppStore((s) => s.snapshotReviewByRun)
 
-  const [viewingSnapshotRunId, setViewingSnapshotRunId] = useState<string | null>(null)
+  const reader = useContentReader()
   const [confirmRestoreRunId, setConfirmRestoreRunId] = useState<string | null>(null)
   const [restoring, setRestoring] = useState(false)
 
@@ -216,9 +216,17 @@ export function RunInspectionPanel({ threadId }: RunInspectionPanelProps): React
 
   const latestRunId = sortedRuns[0]?.id ?? null
 
-  const handleViewSnapshot = useCallback((runId: string) => {
-    setViewingSnapshotRunId(runId)
-  }, [])
+  const handleViewSnapshot = useCallback(
+    (runId: string) => {
+      if (!threadId) return
+      const workspacePath =
+        runs.find((run) => run.id === runId)?.workspacePath ??
+        snapshotReviewByRun[runId]?.workspacePath ??
+        ''
+      reader?.openDiff({ runId, threadId, workspacePath })
+    },
+    [reader, runs, snapshotReviewByRun, threadId]
+  )
 
   const handleRestoreCheckpoint = useCallback((runId: string) => {
     setConfirmRestoreRunId(runId)
@@ -293,21 +301,6 @@ export function RunInspectionPanel({ threadId }: RunInspectionPanelProps): React
           ))
         )}
       </div>
-
-      {/* Diff preview modal */}
-      {viewingSnapshotRunId ? (
-        <DiffPreviewerModal
-          runId={viewingSnapshotRunId}
-          threadId={threadId ?? ''}
-          workspacePath={
-            runsWithSnapshots.find((r) => r.id === viewingSnapshotRunId)?.workspacePath ??
-            snapshotReviewByRun[viewingSnapshotRunId]?.workspacePath ??
-            ''
-          }
-          isLatestRun={viewingSnapshotRunId === latestRunId}
-          onClose={() => setViewingSnapshotRunId(null)}
-        />
-      ) : null}
 
       {/* Restore confirmation dialog */}
       {confirmRestoreRunId ? (

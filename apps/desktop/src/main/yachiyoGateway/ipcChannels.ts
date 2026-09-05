@@ -89,6 +89,7 @@ export const IPC_CHANNELS = {
   starThread: 'yachiyo:star-thread',
   readClipboardFilePaths: 'yachiyo:read-clipboard-file-paths',
   readAttachmentFile: 'yachiyo:read-attachment-file',
+  readFilePreview: 'yachiyo:read-file-preview',
   downloadRemoteImageForMessage: 'yachiyo:download-remote-image-for-message',
   listDiscoveredApps: 'yachiyo:list-discovered-apps',
   openWorkspaceWithApp: 'yachiyo:open-workspace-with-app',

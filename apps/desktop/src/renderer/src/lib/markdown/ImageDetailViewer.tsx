@@ -45,6 +45,7 @@ const toolbarStyle: React.CSSProperties = {
   padding: 4,
   borderRadius: 10,
   background: 'rgba(0, 0, 0, 0.45)',
+  color: 'rgba(255, 255, 255, 0.85)',
   backdropFilter: 'blur(12px)',
   WebkitBackdropFilter: 'blur(12px)'
 }
@@ -58,13 +59,9 @@ const toolbarBtnStyle: React.CSSProperties = {
   borderRadius: 7,
   border: 'none',
   background: 'transparent',
-  color: 'rgba(255, 255, 255, 0.85)',
+  color: 'inherit',
   cursor: 'default',
   transition: 'background 120ms ease'
-}
-
-const toolbarBtnHover: React.CSSProperties = {
-  background: 'rgba(255, 255, 255, 0.12)'
 }
 
 function ToolbarButton({
@@ -76,14 +73,12 @@ function ToolbarButton({
   label: string
   children: React.ReactNode
 }): React.JSX.Element {
-  const [hovered, setHovered] = useState(false)
   return (
     <button
       type="button"
-      style={{ ...toolbarBtnStyle, ...(hovered ? toolbarBtnHover : {}) }}
+      className="image-viewer-tool"
+      style={toolbarBtnStyle}
       onClick={onClick}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
       aria-label={label}
     >
       {children}
@@ -122,14 +117,15 @@ export function ImageDetailViewer({ isOpen, ...rest }: ImageDetailViewerProps): 
   // Mounting the body component only when open means useState
   // initializers fire fresh each time — no reset effect needed.
   if (!isOpen) return null
-  return createPortal(<ImageDetailViewerBody {...rest} />, document.body)
+  return createPortal(<ImageCanvas {...rest} />, document.body)
 }
 
-function ImageDetailViewerBody({
+export function ImageCanvas({
   src,
   alt,
-  onClose
-}: Omit<ImageDetailViewerProps, 'isOpen'>): React.JSX.Element {
+  onClose,
+  embedded = false
+}: Omit<ImageDetailViewerProps, 'isOpen'> & { embedded?: boolean }): React.JSX.Element {
   const [zoom, setZoom] = useState(1)
   const [offset, setOffset] = useState({ x: 0, y: 0 })
   const [rotation, setRotation] = useState(0)
@@ -140,12 +136,13 @@ function ImageDetailViewerBody({
 
   // Escape key.
   useEffect(() => {
+    if (embedded) return
     const handleKey = (e: KeyboardEvent): void => {
       if (isDismissEscapeKey(e)) onClose()
     }
     document.addEventListener('keydown', handleKey)
     return () => document.removeEventListener('keydown', handleKey)
-  }, [onClose])
+  }, [onClose, embedded])
 
   // Wheel zoom.
   const handleWheel = useCallback((e: React.WheelEvent) => {
@@ -249,12 +246,22 @@ function ImageDetailViewerBody({
 
   return (
     <div
-      style={overlayStyle}
+      style={
+        embedded
+          ? {
+              ...overlayStyle,
+              position: 'absolute',
+              zIndex: 0,
+              overflow: 'hidden',
+              background: 'transparent'
+            }
+          : overlayStyle
+      }
       onWheel={handleWheel}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
-      onClick={handleBackdropClick}
+      onClick={embedded ? undefined : handleBackdropClick}
       onDoubleClick={handleDoubleClick}
     >
       <img
@@ -263,8 +270,8 @@ function ImageDetailViewerBody({
         alt={alt ?? ''}
         draggable={false}
         style={{
-          maxWidth: '90vw',
-          maxHeight: '90vh',
+          maxWidth: embedded ? 'calc(100% - 64px)' : '90vw',
+          maxHeight: embedded ? 'calc(100% - 144px)' : '90vh',
           objectFit: 'contain',
           transform: `translate(${offset.x}px, ${offset.y}px) scale(${zoom}) rotate(${rotation}deg)`,
           transformOrigin: 'center center',
@@ -276,7 +283,11 @@ function ImageDetailViewerBody({
       />
 
       {/* Toolbar */}
-      <div data-toolbar style={toolbarStyle}>
+      <div
+        data-toolbar
+        className={embedded ? 'content-reader-image-toolbar' : undefined}
+        style={embedded ? undefined : toolbarStyle}
+      >
         <Tooltip content="Zoom in" placement="bottom" dark>
           <ToolbarButton onClick={handleZoomIn} label="Zoom in">
             <ZoomIn size={16} />
@@ -302,22 +313,26 @@ function ImageDetailViewerBody({
             {copied ? <Check size={16} /> : <Copy size={16} />}
           </ToolbarButton>
         </Tooltip>
-        {localPath ? (
+        {localPath && !embedded ? (
           <Tooltip content="Show in folder" placement="bottom" dark>
             <ToolbarButton onClick={handleReveal} label="Show in folder">
               <FolderOpen size={16} />
             </ToolbarButton>
           </Tooltip>
         ) : null}
-        <div style={separatorStyle} />
-        <Tooltip content="Close" placement="bottom" dark>
-          <ToolbarButton onClick={onClose} label="Close">
-            <X size={16} />
-          </ToolbarButton>
-        </Tooltip>
+        {!embedded ? (
+          <>
+            <div style={separatorStyle} />
+            <Tooltip content="Close" placement="bottom" dark>
+              <ToolbarButton onClick={onClose} label="Close">
+                <X size={16} />
+              </ToolbarButton>
+            </Tooltip>
+          </>
+        ) : null}
       </div>
 
-      {showAlt ? <div style={altLabelStyle}>{showAlt}</div> : null}
+      {showAlt && !embedded ? <div style={altLabelStyle}>{showAlt}</div> : null}
     </div>
   )
 }

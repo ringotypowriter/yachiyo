@@ -1,4 +1,6 @@
 import type { Message } from '../../types.ts'
+import { useContentReaderStore } from '../../../features/chat/state/useContentReaderStore.ts'
+import { appendReaderReference, readerReference } from '../../../features/chat/lib/contentReader.ts'
 import { hasMessagePayload } from '@yachiyo/shared/messageContent'
 import { normalizeSkillNames } from '@yachiyo/shared/protocol'
 import { collectDescendantIds } from '@yachiyo/shared/threadTree'
@@ -51,7 +53,7 @@ export function createSendMessageActions(input: {
       if (sendInFlight) return false
       const currentState = get()
       const draft = getComposerDraft(currentState)
-      const trimmed = override ? override.content.trim() : draft.text.trim()
+      let trimmed = override ? override.content.trim() : draft.text.trim()
       const images = override ? override.images : toReadyMessageImages(draft.images)
       const attachments = override ? override.attachments : toReadyFileAttachments(draft.files)
 
@@ -73,6 +75,18 @@ export function createSendMessageActions(input: {
       }
       // Plan revisions should be explicit: only treat messages as plan revisions
       // when the user is actually sending from Plan mode.
+
+      // Buffered overrides already captured their reference at staging time.
+      // Editing/retrying a persisted message must not acquire a different file context.
+      if (!override && !currentState.editingMessage) {
+        const reader = useContentReaderStore.getState()
+        trimmed = appendReaderReference(
+          trimmed,
+          reader.referenceEnabled
+            ? readerReference(reader.target, currentState.activeThreadId)
+            : null
+        )
+      }
 
       const fingerprint = JSON.stringify({
         t: currentState.activeThreadId,

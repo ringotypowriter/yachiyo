@@ -1,4 +1,5 @@
 import type React from 'react'
+import { ContentReaderReference } from '../ContentReaderReference'
 import {
   AlertCircle,
   Brain,
@@ -525,6 +526,7 @@ export function ComposerView(props: any): React.JSX.Element {
         </div>
 
         <div className="composer-widget-shelf__right">
+          <ContentReaderReference threadId={activeThreadId} />
           <BackgroundTasksChip threadId={activeThreadId} />
           <AgentsChip threadId={activeThreadId} />
         </div>

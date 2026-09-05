@@ -4,6 +4,7 @@ import { createTimelineVirtualizerScroll } from '../lib/timeline/timelineVirtual
 import { useShallow } from 'zustand/react/shallow'
 import { Waypoints } from 'lucide-react'
 import { useAppStore, type SubagentFinishedResult } from '@renderer/app/store/useAppStore'
+import { useContentReaderStore } from '../state/useContentReaderStore'
 import {
   resolveScrollToMessageIntent,
   shouldKeepScrollToMessageIntent
@@ -439,6 +440,14 @@ export function MessageTimeline({
   })
 
   const stickToBottomRef = useRef(true)
+  const readerOpen = useContentReaderStore(
+    (state) => state.target !== null && state.target.threadId === threadId
+  )
+  const readerWasOpenRef = useRef(false)
+  useIsomorphicLayoutEffect(() => {
+    if (readerOpen || readerWasOpenRef.current) stickToBottomRef.current = false
+    readerWasOpenRef.current = readerOpen
+  }, [readerOpen])
   const prevThreadIdRef = useRef(threadId)
   const pendingThreadSwitchScrollRef = useRef<string | null>(threadId)
   const programmaticScrollUntilRef = useRef(0)
@@ -700,6 +709,7 @@ export function MessageTimeline({
     }
 
     const handleScroll = (): void => {
+      if (useContentReaderStore.getState().target?.threadId === threadId) return
       const currentScrollTop = container.scrollTop
       const previousScrollTop = lastScrollTopRef.current
       lastScrollTopRef.current = currentScrollTop
@@ -755,10 +765,11 @@ export function MessageTimeline({
   }, [threadId, timelineRows.length, unpinFromBottom, cancelInitialBottomScroll])
 
   const scrollToBottom = useCallback((): void => {
+    if (useContentReaderStore.getState().target?.threadId === threadId) return
     if (timelineRowsRef.current.length === 0) return
     programmaticScrollUntilRef.current = Date.now() + 300
     virtualizer.scrollToIndex(timelineRowsRef.current.length - 1, { align: 'end' })
-  }, [virtualizer])
+  }, [virtualizer, threadId])
 
   // Re-pin after the virtualizer measures newly-mounted rows. The first
   // scrollToIndex uses estimateSize, which can over/under-shoot the real
@@ -771,12 +782,13 @@ export function MessageTimeline({
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
         if (!stickToBottomRef.current) return
+        if (useContentReaderStore.getState().target?.threadId === threadId) return
         if (timelineRowsRef.current.length === 0) return
         programmaticScrollUntilRef.current = Date.now() + 300
         virtualizer.scrollToIndex(timelineRowsRef.current.length - 1, { align: 'end' })
       })
     })
-  }, [virtualizer])
+  }, [virtualizer, threadId])
 
   const scheduleInitialScrollToBottom = useCallback((): void => {
     cancelInitialBottomScroll()
@@ -830,7 +842,11 @@ export function MessageTimeline({
   // Without this, a user who scrolled up won't auto-scroll to their own new message.
   const prevActiveRequestRef = useRef(activeRequestMessageId)
   useEffect(() => {
-    if (activeRequestMessageId && activeRequestMessageId !== prevActiveRequestRef.current) {
+    if (
+      activeRequestMessageId &&
+      activeRequestMessageId !== prevActiveRequestRef.current &&
+      useContentReaderStore.getState().target?.threadId !== threadId
+    ) {
       historyScrollAnchorRef.current?.cancel()
       stickToBottomRef.current = true
       // Immediately scroll so the user sees their own message without waiting for streaming
@@ -839,7 +855,7 @@ export function MessageTimeline({
       reScrollToBottomAfterMeasure()
     }
     prevActiveRequestRef.current = activeRequestMessageId
-  }, [activeRequestMessageId, scrollToBottom, reScrollToBottomAfterMeasure])
+  }, [activeRequestMessageId, scrollToBottom, reScrollToBottomAfterMeasure, threadId])
 
   // Keep pinned to bottom during streaming — throttled with RAF to avoid per-token thrash
   useEffect(() => {

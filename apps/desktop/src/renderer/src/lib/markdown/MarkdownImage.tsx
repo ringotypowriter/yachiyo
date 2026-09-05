@@ -4,6 +4,7 @@ import { Download, ImageOff, Loader2 } from 'lucide-react'
 import { theme } from '@renderer/theme/theme'
 import { isAssetUrl, isRemoteImageUrl } from './imageUrl'
 import { ImageDetailViewer } from './ImageDetailViewer'
+import { useContentReader } from '@renderer/features/chat/hooks/useContentReader'
 import { resolveMarkdownImageSrc, type ResolvedMarkdownImageSrc } from './markdownImageState.ts'
 
 /**
@@ -159,6 +160,7 @@ function RemoteImageCard({
 }
 
 function LocalImage({ src, alt }: { src: string; alt?: string }): React.JSX.Element {
+  const reader = useContentReader()
   const [loadState, setLoadState] = useState<{
     src: string
     failed: boolean
@@ -168,13 +170,17 @@ function LocalImage({ src, alt }: { src: string; alt?: string }): React.JSX.Elem
   const currentLoadState = loadState.src === src ? loadState : { src, failed: false, attempt: 0 }
   const broken = currentLoadState.failed
 
-  const handleClick = useCallback((e: React.MouseEvent<HTMLImageElement>) => {
-    // When the image is wrapped in a link ([![alt](...)](href)), let the
-    // link action handle the click instead of opening the viewer.
-    if ((e.target as HTMLElement).closest('a')) return
-    e.stopPropagation()
-    setViewerOpen(true)
-  }, [])
+  const handleClick = useCallback(
+    (e: React.MouseEvent<HTMLImageElement>) => {
+      // When the image is wrapped in a link ([![alt](...)](href)), let the
+      // link action handle the click instead of opening the viewer.
+      if ((e.target as HTMLElement).closest('a')) return
+      e.stopPropagation()
+      if (reader) reader.openImage(src, alt)
+      else setViewerOpen(true)
+    },
+    [reader, src, alt]
+  )
 
   useEffect(() => {
     if (!broken || currentLoadState.attempt >= LOCAL_IMAGE_RETRY_LIMIT) return

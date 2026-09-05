@@ -32,7 +32,7 @@ import {
 } from '../lib/run-memory/runMemoryPresentation.ts'
 import { ToolCallGroupRow } from './ToolCallGroupRow.tsx'
 import { ToolCallRow } from './ToolCallRow.tsx'
-import { DiffPreviewerModal } from './DiffPreviewerModal.tsx'
+import { useContentReader } from '@renderer/features/chat/hooks/useContentReader'
 
 interface AgentWorkSummaryRowProps {
   items: WorkTrajectoryItem[]
@@ -128,9 +128,8 @@ export function AgentWorkSummaryRow({
 }: AgentWorkSummaryRowProps): React.JSX.Element {
   const t = useT()
   const [isExpanded, setIsExpanded] = useState(false)
-  const [showDiffModal, setShowDiffModal] = useState(false)
+  const reader = useContentReader()
   const packRef = useRef<HTMLDivElement>(null)
-  const latestRunsByThread = useAppStore((s) => s.latestRunsByThread)
   const snapshotReviewByRun = useAppStore((s) => s.snapshotReviewByRun)
 
   const runInfo = useMemo(() => {
@@ -268,7 +267,7 @@ export function AgentWorkSummaryRow({
               className="inline-flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-[10.5px] transition-colors"
               onClick={(event) => {
                 event.stopPropagation()
-                setShowDiffModal(true)
+                runInfo && reader?.openDiff(runInfo)
               }}
               onKeyDown={(event) => {
                 event.stopPropagation()
@@ -330,7 +329,7 @@ export function AgentWorkSummaryRow({
                 <OutcomeRow
                   changedPaths={changedPaths}
                   fileCount={runInfo.fileCount}
-                  onReview={() => setShowDiffModal(true)}
+                  onReview={() => runInfo && reader?.openDiff(runInfo)}
                   t={t}
                 />
               ) : null}
@@ -338,16 +337,6 @@ export function AgentWorkSummaryRow({
           </div>
         ) : null}
       </div>
-
-      {showDiffModal && runInfo ? (
-        <DiffPreviewerModal
-          runId={runInfo.runId}
-          threadId={runInfo.threadId}
-          workspacePath={runInfo.workspacePath}
-          isLatestRun={latestRunsByThread[runInfo.threadId]?.id === runInfo.runId}
-          onClose={() => setShowDiffModal(false)}
-        />
-      ) : null}
     </div>
   )
 }

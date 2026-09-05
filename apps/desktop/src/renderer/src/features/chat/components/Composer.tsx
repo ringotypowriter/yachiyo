@@ -1,6 +1,8 @@
 import type React from 'react'
 import { useRef, useCallback, useState, useEffect, useLayoutEffect, useMemo } from 'react'
 import { useT } from '@yachiyo/i18n/react'
+import { useContentReaderStore } from '../state/useContentReaderStore'
+import { appendReaderReference, readerReference } from '../lib/contentReader'
 import {
   DEFAULT_SETTINGS,
   EMPTY_COMPOSER_DRAFT,
@@ -686,7 +688,12 @@ export function Composer({
         }
         inputBuffer.stage({
           sourceThreadId: activeThreadId,
-          content: trimmed,
+          content: appendReaderReference(
+            trimmed,
+            useContentReaderStore.getState().referenceEnabled
+              ? readerReference(useContentReaderStore.getState().target, activeThreadId)
+              : null
+          ),
           images: readyImages,
           attachments: readyAttachments,
           enabledSkillNames: composerDraft.enabledSkillNames,

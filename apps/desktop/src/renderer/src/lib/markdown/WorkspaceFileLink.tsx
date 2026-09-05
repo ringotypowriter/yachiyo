@@ -1,4 +1,5 @@
 import { useCallback } from 'react'
+import { useContentReader } from '@renderer/features/chat/hooks/useContentReader'
 
 import { useAppDialog } from '@renderer/components/AppDialogContext'
 import type { InlineCodeFileLinkSnapshot } from './inlineCodeFileLinkSnapshot'
@@ -26,6 +27,7 @@ export function WorkspaceFileLink({
   workspaceScope: WorkspaceFileOperationScope
 }): React.JSX.Element {
   const dialog = useAppDialog()
+  const reader = useContentReader()
   const resolvedLink = resolveWorkspaceFileLink(node, fileLinks)
   const handleOpen = useCallback(
     async (event: React.MouseEvent<HTMLElement> | React.KeyboardEvent<HTMLElement>) => {
@@ -37,7 +39,7 @@ export function WorkspaceFileLink({
         if (event.altKey) {
           await window.api.yachiyo.revealFile(input)
         } else {
-          await window.api.yachiyo.openFile(input)
+          if (!reader?.openFile(input.path)) await window.api.yachiyo.openFile(input)
         }
       } catch (error) {
         await dialog.alert({
@@ -45,7 +47,7 @@ export function WorkspaceFileLink({
         })
       }
     },
-    [dialog, resolvedLink, workspaceScope]
+    [dialog, resolvedLink, workspaceScope, reader]
   )
 
   if (!resolvedLink) {

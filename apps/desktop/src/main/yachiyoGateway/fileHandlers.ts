@@ -7,6 +7,7 @@ import type { DiscoveredApp, DiscoveredApps } from '@yachiyo/shared/discoveredAp
 import type { ResolvedFileReference, ResolveFileReferencesInput } from '@yachiyo/shared/protocol'
 import { resolveExistingFileReferences } from '@yachiyo/runtime/runtime/files/inlineCodeFileReferences'
 import { IPC_CHANNELS } from './ipcChannels.ts'
+import { readFilePreview } from './readFilePreview.ts'
 import { discoverApps, findDiscoveredApp, launchDiscoveredApp } from '../electron/appDiscovery.ts'
 
 type GatewayIpcHandler = <Args extends unknown[], Result>(
@@ -92,6 +93,7 @@ async function resolveFileOperationPath(
 }
 
 export function registerGatewayFileHandlers(handle: GatewayIpcHandler): void {
+  handle(IPC_CHANNELS.readFilePreview, readFilePreview)
   handle(IPC_CHANNELS.readClipboardFilePaths, async () => {
     const { clipboard } = await import('electron')
     const { readFile, stat } = await import('node:fs/promises')

@@ -7,6 +7,7 @@ import type { InlineCodeFileLinkSnapshot } from './inlineCodeFileLinkSnapshot'
 import { splitAutolinkCandidate } from './autolinkTextBoundary'
 import { toInlineCodeFileReferenceCandidate } from '@yachiyo/shared/inlineCodeFileReferences'
 import { useAppStore } from '@renderer/app/store/useAppStore'
+import { useContentReader } from '@renderer/features/chat/hooks/useContentReader'
 const LINK_STYLE = { textDecoration: 'underline', textUnderlineOffset: 2 }
 
 /**
@@ -25,6 +26,7 @@ export function LinkableCode({
   // `node` is the hast AST node injected by Streamdown — strip it so it doesn't hit the DOM.
   void node
   const dialog = useAppDialog()
+  const reader = useContentReader()
   const editorApp = useAppStore((s) => s.config?.workspace?.editorApp)
   const markdownApp = useAppStore((s) => s.config?.workspace?.markdownApp)
   const { linkSafety } = useContext(StreamdownContext)
@@ -59,6 +61,7 @@ export function LinkableCode({
         if (action === 'reveal') {
           await window.api.yachiyo.revealFile({ path: filePath })
         } else {
+          if (reader?.openFile(filePath)) return
           const target = resolveTimelineFileOpenTarget({ filePath, editorApp, markdownApp })
           if (target.mode === 'unavailable') {
             const openSettings = await dialog.confirm({
@@ -86,7 +89,7 @@ export function LinkableCode({
         })
       }
     },
-    [dialog, editorApp, filePath, fileReference, markdownApp]
+    [dialog, editorApp, filePath, fileReference, markdownApp, reader]
   )
 
   const handleConfirm = useCallback(() => {

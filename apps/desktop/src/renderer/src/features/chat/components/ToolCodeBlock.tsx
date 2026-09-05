@@ -280,10 +280,10 @@ function Container({
         className="message-selectable overflow-auto rounded-lg"
         style={{
           fontFamily: "'SF Mono', ui-monospace, Menlo, monospace",
-          fontSize: '11px',
-          lineHeight: '18px',
+          fontSize: 'var(--code-font-size, 11px)',
+          lineHeight: 'var(--code-line-height, 18px)',
           maxHeight,
-          background: alpha('ink', 0.02)
+          background: `var(--code-background, ${alpha('ink', 0.02)})`
         }}
       >
         {children}
@@ -363,7 +363,7 @@ function Gutter({ children }: { children: React.ReactNode }): React.JSX.Element 
         userSelect: 'none',
         flexShrink: 0,
         fontSize: '10px',
-        lineHeight: '18px'
+        lineHeight: 'var(--code-line-height, 18px)'
       }}
     >
       {children}

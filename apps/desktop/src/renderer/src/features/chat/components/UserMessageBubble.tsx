@@ -7,17 +7,20 @@ import { ImageDetailViewer } from '@renderer/lib/markdown/ImageDetailViewer'
 import { useT } from '@yachiyo/i18n/react'
 import { canRetryUserMessage } from '../lib/messages/messageActionState'
 import { MessageActionBar } from './MessageActionBar'
+import { useContentReader } from '@renderer/features/chat/hooks/useContentReader'
 
 function UserMessageImages({ message }: { message: Message }): React.JSX.Element | null {
+  const reader = useContentReader()
   const t = useT()
   const [viewerImage, setViewerImage] = useState<{ src: string; alt: string } | null>(null)
 
   const handleImageClick = useCallback(
-    (src: string, alt: string) => (e: React.MouseEvent) => {
+    (src: string, alt: string, path?: string) => (e: React.MouseEvent) => {
       e.stopPropagation()
-      setViewerImage({ src, alt })
+      if (reader) reader.openImage(src, alt, path)
+      else setViewerImage({ src, alt })
     },
-    []
+    [reader]
   )
 
   if (!message.images || message.images.length === 0) {
@@ -38,7 +41,7 @@ function UserMessageImages({ message }: { message: Message }): React.JSX.Element
                 className="user-message-images__media"
                 src={image.dataUrl}
                 alt={alt}
-                onClick={handleImageClick(image.dataUrl, alt)}
+                onClick={handleImageClick(image.dataUrl, alt, image.workspacePath)}
               />
             </div>
           )
@@ -57,6 +60,7 @@ function UserMessageImages({ message }: { message: Message }): React.JSX.Element
 }
 
 function UserMessageFiles({ message }: { message: Message }): React.JSX.Element | null {
+  const reader = useContentReader()
   if (!message.attachments || message.attachments.length === 0) {
     return null
   }
@@ -64,10 +68,18 @@ function UserMessageFiles({ message }: { message: Message }): React.JSX.Element 
   return (
     <div className="user-message-files">
       {message.attachments.map((attachment, index) => (
-        <div key={`${attachment.filename}-${index}`} className="user-message-file-chip">
+        <button
+          type="button"
+          key={`${attachment.filename}-${index}`}
+          className="user-message-file-chip"
+          onClick={() => {
+            if (!reader?.openFile(attachment.workspacePath))
+              void window.api.yachiyo.openFile({ path: attachment.workspacePath })
+          }}
+        >
           <FileText size={13} strokeWidth={1.5} className="user-message-file-chip__icon" />
           <span className="user-message-file-chip__name">{attachment.filename}</span>
-        </div>
+        </button>
       ))}
     </div>
   )

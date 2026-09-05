@@ -1,12 +1,12 @@
 import type React from 'react'
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useMemo } from 'react'
 import { Clock, Gauge, Timer, Wrench, GitCompareArrows } from 'lucide-react'
 import type { RunRecord, ToolCall } from '@renderer/app/types'
 import { useAppStore } from '@renderer/app/store/useAppStore'
 import { theme, alpha } from '@renderer/theme/theme'
 import { useT } from '@yachiyo/i18n/react'
 import { tPlural } from '@yachiyo/i18n/index'
-import { DiffPreviewerModal } from './DiffPreviewerModal'
+import { useContentReader } from '@renderer/features/chat/hooks/useContentReader'
 import {
   countToolCallsForRun,
   findLatestRunForRequests,
@@ -41,9 +41,8 @@ export function RunStatsFooter({
   requestMessageIds
 }: RunStatsFooterProps): React.JSX.Element | null {
   useT()
-  const [showDiffModal, setShowDiffModal] = useState(false)
+  const reader = useContentReader()
 
-  const latestRunsByThread = useAppStore((s) => s.latestRunsByThread)
   // Also check the ephemeral event store for runs that just completed
   // (before the RunRecord is refreshed from the database).
   const snapshotReviewByRun = useAppStore((s) => s.snapshotReviewByRun)
@@ -79,12 +78,8 @@ export function RunStatsFooter({
   }, [modelLabel, runs, toolCalls, requestMessageIds, snapshotReviewByRun])
 
   const handleOpenDiff = useCallback(() => {
-    setShowDiffModal(true)
-  }, [])
-
-  const handleCloseDiff = useCallback(() => {
-    setShowDiffModal(false)
-  }, [])
+    if (runInfo) reader?.openDiff(runInfo)
+  }, [reader, runInfo])
 
   if (!runInfo) return null
 
@@ -167,15 +162,6 @@ export function RunStatsFooter({
           <span className="ml-auto min-w-0 truncate pl-4 text-right">{runInfo.modelLabel}</span>
         ) : null}
       </div>
-      {showDiffModal ? (
-        <DiffPreviewerModal
-          runId={runInfo.runId}
-          threadId={runInfo.threadId}
-          workspacePath={runInfo.workspacePath}
-          isLatestRun={latestRunsByThread[runInfo.threadId]?.id === runInfo.runId}
-          onClose={handleCloseDiff}
-        />
-      ) : null}
     </>
   )
 }

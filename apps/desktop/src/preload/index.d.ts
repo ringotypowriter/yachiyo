@@ -323,6 +323,9 @@ declare global {
           rejected: import('@yachiyo/shared/attachmentFileTypes').AttachmentFileRejectionRecord[]
         }>
         readAttachmentFile: (input: { filePath: string; mediaType: string }) => Promise<string>
+        readFilePreview: (
+          input: import('@yachiyo/shared/filePreview').ReadFilePreviewInput
+        ) => Promise<import('@yachiyo/shared/filePreview').FilePreviewContent>
         downloadRemoteImageForMessage: (input: {
           threadId: string
           messageId: string

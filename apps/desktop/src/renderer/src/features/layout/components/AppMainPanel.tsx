@@ -22,6 +22,9 @@ import {
   selectThreadRunningCount
 } from '@renderer/features/chat/state/useBackgroundTasksStore'
 import { Composer } from '@renderer/features/chat/components/Composer'
+import { ContentReaderProvider } from '@renderer/features/chat/components/ContentReaderContext'
+import { ContentReaderStage } from '@renderer/features/chat/components/ContentReaderStage'
+import { useContentReaderStore } from '@renderer/features/chat/state/useContentReaderStore'
 import {
   TimelineSurfaceHeader,
   type MessageTimelineSurface
@@ -212,6 +215,9 @@ export function AppMainPanel({
   const [findOpen, setFindOpen] = useState(false)
   const [findQuery, setFindQuery] = useState('')
   const [findCurrentIndex, setFindCurrentIndex] = useState(0)
+  const readerOpen = useContentReaderStore(
+    (state) => state.target !== null && state.target.threadId === activeThreadId
+  )
   const [activeTimelineSurface, setActiveTimelineSurface] =
     useState<MessageTimelineSurface>('timeline')
   const [selectedBrowserSession, setSelectedBrowserSession] = useState<string | null>(null)
@@ -355,7 +361,7 @@ export function AppMainPanel({
   }, [activeTimelineSurface, browserActivity.sessions.length])
 
   const headerSurfaceSwitcher =
-    browserActivity.sessions.length > 0 ? (
+    browserActivity.sessions.length > 0 && !readerOpen ? (
       <TimelineSurfaceHeader
         activeSurface={activeTimelineSurface}
         browserSessions={browserActivity.sessions}
@@ -915,200 +921,206 @@ export function AppMainPanel({
 
   return children({
     content: (
-      <div className="flex flex-col flex-1 min-h-0 relative">
-        <AnimatePresence>
-          {shouldShowFindBar && (
-            <motion.div
-              key="find-bar"
-              initial={{ opacity: 0, scale: 0.95, y: -4 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: -4 }}
-              transition={{ duration: 0.15, ease: 'easeOut' }}
-            >
-              <ThreadFindBar
-                matches={findMatches}
-                currentIndex={findCurrentIndex}
-                query={findQuery}
-                onQueryChange={setFindQuery}
-                onNext={() =>
-                  setFindCurrentIndex((i) =>
-                    findMatches.length === 0 ? 0 : (i + 1) % findMatches.length
-                  )
-                }
-                onPrev={() =>
-                  setFindCurrentIndex((i) =>
-                    findMatches.length === 0 ? 0 : (i - 1 + findMatches.length) % findMatches.length
-                  )
-                }
-                onClose={handleFindClose}
-              />
-            </motion.div>
-          )}
-        </AnimatePresence>
-
-        <div
-          className={`work-chat-shell ${
-            showWelcomeState ? 'work-chat-shell--welcome' : 'work-chat-shell--normal'
-          } ${isInspectionPanelOpen ? 'work-chat-shell--inspecting' : ''}`}
-        >
-          <motion.div
-            layout
-            className="work-chat-shell__timeline-row"
-            transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
-          >
-            <AnimatePresence initial={false} mode="popLayout">
-              {showWelcomeState ? (
-                <motion.div
-                  key={`empty-thread-welcome-${welcomeVariant ?? 'generic'}`}
-                  className={`thread-welcome thread-welcome--${welcomeVariant ?? 'generic'}`}
-                  initial={{ opacity: 0, y: 8, scale: 0.98 }}
-                  animate={{ opacity: 1, y: 0, scale: 1 }}
-                  exit={{ opacity: 0, y: -8, scale: 0.98 }}
-                  transition={{ duration: 0.22, ease: 'easeOut' }}
-                >
-                  {welcomeVariant === 'essential' && activeEssential ? (
-                    <>
-                      {activeEssential.iconType === 'image' ? (
-                        <img
-                          className="thread-welcome__essential-image"
-                          src={activeEssential.icon}
-                          alt={activeEssential.label ?? t('layout.welcome.essentialFallback')}
-                          draggable={false}
-                        />
-                      ) : (
-                        <span className="thread-welcome__essential-emoji">
-                          {activeEssential.icon}
-                        </span>
-                      )}
-                      <div className="thread-welcome__copy">
-                        <p className="thread-welcome__eyebrow">
-                          {t('layout.welcome.creationWith')}
-                        </p>
-                        <p className="thread-welcome__label">
-                          {activeEssential.label ?? t('layout.welcome.essentialFallback')}
-                        </p>
-                        <p className="thread-welcome__slogan">
-                          {t('layout.welcome.essentialSlogan')}
-                        </p>
-                      </div>
-                    </>
-                  ) : (
-                    <>
-                      <img className="thread-welcome__avatar" src={avatarUrl} alt="Yachiyo" />
-                      <div className="thread-welcome__copy">
-                        <p className="thread-welcome__greeting">{welcomeCopy.greeting}</p>
-                        <p className="thread-welcome__slogan">{welcomeCopy.slogan}</p>
-                      </div>
-                    </>
-                  )}
-                </motion.div>
-              ) : (
-                <motion.div
-                  key="message-timeline"
-                  className="work-timeline-surface"
-                  initial={{ opacity: 0, scale: 0.985 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  exit={{ opacity: 0, scale: 0.985 }}
-                  transition={{ duration: 0.2, ease: 'easeOut' }}
-                >
-                  <Suspense fallback={null}>
-                    <MessageTimeline
-                      key={activeThreadId ?? 'empty'}
-                      threadId={activeThreadId}
-                      recapText={recapText}
-                      activeSurface={activeTimelineSurface}
-                      browserSessions={browserActivity.sessions}
-                      selectedBrowserSession={selectedBrowserSession}
-                      browserActivityBubble={browserActivityBubble}
-                      browserViewSuspended={isBrowserSessionMenuOpen}
-                      browserSessionPickerOpen={isBrowserSessionMenuOpen}
-                      onSelectedBrowserSessionChange={setSelectedBrowserSession}
-                      onBrowserSessionPickerOpenChange={setIsBrowserSessionMenuOpen}
-                    />
-                  </Suspense>
-                </motion.div>
-              )}
-            </AnimatePresence>
-            <AnimatePresence initial={false}>
-              {isInspectionPanelOpen && (
-                <motion.div
-                  key="inspection-panel"
-                  initial={{ width: 0, opacity: 0 }}
-                  animate={{ width: 300, opacity: 1 }}
-                  exit={{ width: 0, opacity: 0 }}
-                  transition={{ duration: 0.2, ease: 'easeOut' }}
-                  className="shrink-0 overflow-hidden"
-                >
-                  <RunInspectionPanel threadId={activeThreadId} />
-                </motion.div>
-              )}
-            </AnimatePresence>
-          </motion.div>
-          <RunStatusStrip />
-          <motion.div
-            layout
-            className={`work-composer-slot ${
-              showWelcomeState ? 'work-composer-slot--welcome' : 'work-composer-slot--normal'
-            }`}
-            transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
-          >
-            {isSyncedArchive ? (
-              <div
-                className="flex items-center justify-center gap-2 px-4 py-3 text-xs"
-                style={{ color: theme.text.muted }}
+      <ContentReaderProvider threadId={activeThreadId} workspacePath={activeThread?.workspacePath}>
+        <div className="flex flex-col flex-1 min-h-0 relative">
+          <AnimatePresence>
+            {shouldShowFindBar && (
+              <motion.div
+                key="find-bar"
+                initial={{ opacity: 0, scale: 0.95, y: -4 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.95, y: -4 }}
+                transition={{ duration: 0.15, ease: 'easeOut' }}
               >
-                <Lock size={13} strokeWidth={1.5} />
-                <span>{t('threads.item.readOnlySynced')}</span>
-              </div>
-            ) : (
-              <>
-                <Composer
-                  onSelectThreadOperation={handleSelectThreadOperation}
-                  presentation={showWelcomeState ? 'compact' : 'normal'}
+                <ThreadFindBar
+                  matches={findMatches}
+                  currentIndex={findCurrentIndex}
+                  query={findQuery}
+                  onQueryChange={setFindQuery}
+                  onNext={() =>
+                    setFindCurrentIndex((i) =>
+                      findMatches.length === 0 ? 0 : (i + 1) % findMatches.length
+                    )
+                  }
+                  onPrev={() =>
+                    setFindCurrentIndex((i) =>
+                      findMatches.length === 0
+                        ? 0
+                        : (i - 1 + findMatches.length) % findMatches.length
+                    )
+                  }
+                  onClose={handleFindClose}
                 />
-                {welcomeVariant === 'generic' && <WelcomeSparks />}
-              </>
+              </motion.div>
             )}
-          </motion.div>
-          {threadIsSaving && (
-            <div
-              className="absolute inset-0 flex flex-col items-center justify-center gap-2 pointer-events-auto"
-              style={{
-                background: theme.background.surfaceLight,
-                backdropFilter: 'blur(4px)',
-                WebkitBackdropFilter: 'blur(4px)',
-                zIndex: 80
-              }}
+          </AnimatePresence>
+
+          <div
+            className={`work-chat-shell ${
+              showWelcomeState ? 'work-chat-shell--welcome' : 'work-chat-shell--normal'
+            } ${isInspectionPanelOpen ? 'work-chat-shell--inspecting' : ''}`}
+          >
+            <motion.div
+              layout
+              className="work-chat-shell__timeline-row"
+              transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
             >
-              <p className="text-sm font-medium" style={{ color: theme.text.primary }}>
-                {t('layout.welcome.savingToMemory')}
-              </p>
-              <p className="text-xs" style={{ color: theme.text.muted }}>
-                {t('layout.welcome.interactionsPaused')}
-              </p>
-            </div>
+              <ContentReaderStage key={activeThreadId ?? 'empty-reader'} threadId={activeThreadId}>
+                <AnimatePresence initial={false} mode="popLayout">
+                  {showWelcomeState ? (
+                    <motion.div
+                      key={`empty-thread-welcome-${welcomeVariant ?? 'generic'}`}
+                      className={`thread-welcome thread-welcome--${welcomeVariant ?? 'generic'}`}
+                      initial={{ opacity: 0, y: 8, scale: 0.98 }}
+                      animate={{ opacity: 1, y: 0, scale: 1 }}
+                      exit={{ opacity: 0, y: -8, scale: 0.98 }}
+                      transition={{ duration: 0.22, ease: 'easeOut' }}
+                    >
+                      {welcomeVariant === 'essential' && activeEssential ? (
+                        <>
+                          {activeEssential.iconType === 'image' ? (
+                            <img
+                              className="thread-welcome__essential-image"
+                              src={activeEssential.icon}
+                              alt={activeEssential.label ?? t('layout.welcome.essentialFallback')}
+                              draggable={false}
+                            />
+                          ) : (
+                            <span className="thread-welcome__essential-emoji">
+                              {activeEssential.icon}
+                            </span>
+                          )}
+                          <div className="thread-welcome__copy">
+                            <p className="thread-welcome__eyebrow">
+                              {t('layout.welcome.creationWith')}
+                            </p>
+                            <p className="thread-welcome__label">
+                              {activeEssential.label ?? t('layout.welcome.essentialFallback')}
+                            </p>
+                            <p className="thread-welcome__slogan">
+                              {t('layout.welcome.essentialSlogan')}
+                            </p>
+                          </div>
+                        </>
+                      ) : (
+                        <>
+                          <img className="thread-welcome__avatar" src={avatarUrl} alt="Yachiyo" />
+                          <div className="thread-welcome__copy">
+                            <p className="thread-welcome__greeting">{welcomeCopy.greeting}</p>
+                            <p className="thread-welcome__slogan">{welcomeCopy.slogan}</p>
+                          </div>
+                        </>
+                      )}
+                    </motion.div>
+                  ) : (
+                    <motion.div
+                      key="message-timeline"
+                      className="work-timeline-surface"
+                      initial={{ opacity: 0, scale: 0.985 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      exit={{ opacity: 0, scale: 0.985 }}
+                      transition={{ duration: 0.2, ease: 'easeOut' }}
+                    >
+                      <Suspense fallback={null}>
+                        <MessageTimeline
+                          key={activeThreadId ?? 'empty'}
+                          threadId={activeThreadId}
+                          recapText={recapText}
+                          activeSurface={activeTimelineSurface}
+                          browserSessions={browserActivity.sessions}
+                          selectedBrowserSession={selectedBrowserSession}
+                          browserActivityBubble={browserActivityBubble}
+                          browserViewSuspended={isBrowserSessionMenuOpen || readerOpen}
+                          browserSessionPickerOpen={isBrowserSessionMenuOpen}
+                          onSelectedBrowserSessionChange={setSelectedBrowserSession}
+                          onBrowserSessionPickerOpenChange={setIsBrowserSessionMenuOpen}
+                        />
+                      </Suspense>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+                <AnimatePresence initial={false}>
+                  {isInspectionPanelOpen && (
+                    <motion.div
+                      key="inspection-panel"
+                      initial={{ width: 0, opacity: 0 }}
+                      animate={{ width: 300, opacity: 1 }}
+                      exit={{ width: 0, opacity: 0 }}
+                      transition={{ duration: 0.2, ease: 'easeOut' }}
+                      className="shrink-0 overflow-hidden"
+                    >
+                      <RunInspectionPanel threadId={activeThreadId} />
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </ContentReaderStage>
+            </motion.div>
+            <RunStatusStrip />
+            <motion.div
+              layout
+              className={`work-composer-slot ${
+                showWelcomeState ? 'work-composer-slot--welcome' : 'work-composer-slot--normal'
+              }`}
+              transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
+            >
+              {isSyncedArchive ? (
+                <div
+                  className="flex items-center justify-center gap-2 px-4 py-3 text-xs"
+                  style={{ color: theme.text.muted }}
+                >
+                  <Lock size={13} strokeWidth={1.5} />
+                  <span>{t('threads.item.readOnlySynced')}</span>
+                </div>
+              ) : (
+                <>
+                  <Composer
+                    onSelectThreadOperation={handleSelectThreadOperation}
+                    presentation={showWelcomeState ? 'compact' : 'normal'}
+                  />
+                  {welcomeVariant === 'generic' && <WelcomeSparks />}
+                </>
+              )}
+            </motion.div>
+            {threadIsSaving && (
+              <div
+                className="absolute inset-0 flex flex-col items-center justify-center gap-2 pointer-events-auto"
+                style={{
+                  background: theme.background.surfaceLight,
+                  backdropFilter: 'blur(4px)',
+                  WebkitBackdropFilter: 'blur(4px)',
+                  zIndex: 80
+                }}
+              >
+                <p className="text-sm font-medium" style={{ color: theme.text.primary }}>
+                  {t('layout.welcome.savingToMemory')}
+                </p>
+                <p className="text-xs" style={{ color: theme.text.muted }}>
+                  {t('layout.welcome.interactionsPaused')}
+                </p>
+              </div>
+            )}
+          </div>
+          {archiveTarget && (
+            <ConfirmDialog
+              title={t('threads.confirm.archiveTitle', { title: archiveTarget.title })}
+              actions={[
+                { key: 'archive', label: t('threads.actions.archive'), tone: 'accent' },
+                ...(memoryEnabled
+                  ? [
+                      {
+                        key: 'save-and-archive' as const,
+                        label: t('threads.actions.saveMemoryAndArchive')
+                      }
+                    ]
+                  : []),
+                { key: 'cancel', label: t('common.cancel') }
+              ]}
+              onSelect={(key) => void handleArchiveConfirm(key)}
+              onClose={() => setArchiveTarget(null)}
+            />
           )}
         </div>
-        {archiveTarget && (
-          <ConfirmDialog
-            title={t('threads.confirm.archiveTitle', { title: archiveTarget.title })}
-            actions={[
-              { key: 'archive', label: t('threads.actions.archive'), tone: 'accent' },
-              ...(memoryEnabled
-                ? [
-                    {
-                      key: 'save-and-archive' as const,
-                      label: t('threads.actions.saveMemoryAndArchive')
-                    }
-                  ]
-                : []),
-              { key: 'cancel', label: t('common.cancel') }
-            ]}
-            onSelect={(key) => void handleArchiveConfirm(key)}
-            onClose={() => setArchiveTarget(null)}
-          />
-        )}
-      </div>
+      </ContentReaderProvider>
     ),
     contentTopControls: (
       <AppMainPanelHeader
