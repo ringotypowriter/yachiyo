@@ -824,6 +824,7 @@ export function reduceServerEvent(state: AppState, event: YachiyoServerEvent): P
         [event.threadId]: {
           ...existing,
           promptTokens: event.promptTokens,
+          lastCompletionTokens: event.lastCompletionTokens,
           completionTokens: event.completionTokens
         }
       }
@@ -898,6 +899,9 @@ export function reduceServerEvent(state: AppState, event: YachiyoServerEvent): P
         modelId: existingLatestRun?.modelId,
         completedAt: event.timestamp,
         ...(event.promptTokens !== undefined ? { promptTokens: event.promptTokens } : {}),
+        ...(event.lastCompletionTokens !== undefined
+          ? { lastCompletionTokens: event.lastCompletionTokens }
+          : {}),
         ...(event.completionTokens !== undefined
           ? { completionTokens: event.completionTokens }
           : {}),
@@ -927,6 +931,9 @@ export function reduceServerEvent(state: AppState, event: YachiyoServerEvent): P
         runMode: run?.runMode,
         completedAt: event.timestamp,
         ...(event.promptTokens !== undefined ? { promptTokens: event.promptTokens } : {}),
+        ...(event.lastCompletionTokens !== undefined
+          ? { lastCompletionTokens: event.lastCompletionTokens }
+          : {}),
         ...(event.completionTokens !== undefined
           ? { completionTokens: event.completionTokens }
           : {}),
@@ -1005,6 +1012,9 @@ export function reduceServerEvent(state: AppState, event: YachiyoServerEvent): P
         contextSources: existingLatestRun?.contextSources,
         runMode: existingLatestRun?.runMode,
         completedAt: event.timestamp,
+        ...(existingLatestRun?.lastCompletionTokens !== undefined
+          ? { lastCompletionTokens: existingLatestRun.lastCompletionTokens }
+          : {}),
         ...(existingLatestRun?.promptTokens !== undefined
           ? { promptTokens: existingLatestRun.promptTokens }
           : {}),
@@ -1104,6 +1114,9 @@ export function reduceServerEvent(state: AppState, event: YachiyoServerEvent): P
         contextSources: existingLatestRun?.contextSources,
         runMode: existingLatestRun?.runMode,
         completedAt: event.timestamp,
+        ...(existingLatestRun?.lastCompletionTokens !== undefined
+          ? { lastCompletionTokens: existingLatestRun.lastCompletionTokens }
+          : {}),
         ...(existingLatestRun?.promptTokens !== undefined
           ? { promptTokens: existingLatestRun.promptTokens }
           : {}),

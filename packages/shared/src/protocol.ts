@@ -1271,6 +1271,8 @@ export interface RunRecord {
   recalledMemoryEntries?: string[]
   recallDecision?: RecallDecisionSnapshot
   contextSources?: RunContextSourceSummary[]
+  /** Output tokens of the last model call, paired with promptTokens for context estimates. */
+  lastCompletionTokens?: number
   promptTokens?: number
   completionTokens?: number
   totalPromptTokens?: number

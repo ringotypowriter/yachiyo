@@ -136,6 +136,7 @@ export interface CompleteRunInput {
   assistantMessage: MessageRecord
   promptTokens?: number
   completionTokens?: number
+  lastCompletionTokens?: number
   totalPromptTokens?: number
   totalCompletionTokens?: number
   timeToFirstTokenMs?: number
@@ -150,6 +151,7 @@ export interface CompleteRunInput {
 interface TerminalRunUsage {
   promptTokens?: number
   completionTokens?: number
+  lastCompletionTokens?: number
   totalPromptTokens?: number
   totalCompletionTokens?: number
   timeToFirstTokenMs?: number
@@ -273,6 +275,7 @@ export interface StoredRunRow {
   completedAt: string | null
   promptTokens: number | null
   completionTokens: number | null
+  lastCompletionTokens: number | null
   totalPromptTokens: number | null
   totalCompletionTokens: number | null
   timeToFirstTokenMs: number | null
@@ -1053,6 +1056,7 @@ export function toRunRecord(row: StoredRunRow): RunRecord {
     ...(row.requestMessageId === null ? {} : { requestMessageId: row.requestMessageId }),
     ...(row.promptTokens == null ? {} : { promptTokens: row.promptTokens }),
     ...(row.completionTokens == null ? {} : { completionTokens: row.completionTokens }),
+    ...(row.lastCompletionTokens == null ? {} : { lastCompletionTokens: row.lastCompletionTokens }),
     ...(row.totalPromptTokens == null ? {} : { totalPromptTokens: row.totalPromptTokens }),
     ...(row.totalCompletionTokens == null
       ? {}

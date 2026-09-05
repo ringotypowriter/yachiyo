@@ -978,6 +978,7 @@ export function createAiSdkModelRuntime(dependencies: AiSdkRuntimeDependencies =
                     : undefined
                 request.onFinish({
                   promptTokens: usage.inputTokens,
+                  lastCompletionTokens: usage.outputTokens,
                   completionTokens: usage.outputTokens,
                   totalPromptTokens: total.inputTokens ?? usage.inputTokens,
                   totalCompletionTokens: total.outputTokens ?? usage.outputTokens,

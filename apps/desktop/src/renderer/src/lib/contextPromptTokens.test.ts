@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import type { RunRecord } from '@renderer/app/types'
-import { selectContextPromptTokens } from './contextPromptTokens.ts'
+import { selectContextPromptTokens, selectContextTokens } from './contextPromptTokens.ts'
 
 function run(overrides: Partial<RunRecord>): RunRecord {
   return {
@@ -13,6 +13,46 @@ function run(overrides: Partial<RunRecord>): RunRecord {
     ...overrides
   }
 }
+
+test('context estimate adds only the last call output, not accumulated output', () => {
+  const latestRun = run({
+    promptTokens: 28_000,
+    lastCompletionTokens: 3_000,
+    completionTokens: 6_000,
+    totalCompletionTokens: 6_000
+  })
+  assert.equal(selectContextTokens({ latestRun, runs: [] }), 31_000)
+  assert.equal(selectContextPromptTokens({ latestRun, runs: [] }), 28_000)
+})
+
+test('legacy runs keep input-only estimates rather than adding ambiguous output totals', () => {
+  assert.equal(
+    selectContextTokens({
+      latestRun: run({ promptTokens: 28_000, completionTokens: 6_000 }),
+      runs: []
+    }),
+    28_000
+  )
+  assert.equal(
+    selectContextTokens({ latestRun: run({ lastCompletionTokens: 3_000 }), runs: [] }),
+    null
+  )
+})
+
+test('cancelled run estimate uses input and output from the same previous run', () => {
+  assert.equal(
+    selectContextTokens({
+      latestRun: run({
+        id: 'cancelled',
+        status: 'cancelled',
+        promptTokens: 50_000,
+        lastCompletionTokens: 9_000
+      }),
+      runs: [run({ id: 'previous', promptTokens: 28_000, lastCompletionTokens: 3_000 })]
+    }),
+    31_000
+  )
+})
 
 test('selectContextPromptTokens uses the latest run tokens for non-cancelled runs', () => {
   assert.equal(

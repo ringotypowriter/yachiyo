@@ -1326,6 +1326,7 @@ test('applyServerEvent keeps cancelled run token counts for run history', () => 
     threadId: 'thread-1',
     runId: 'run-1',
     promptTokens: 30_000,
+    lastCompletionTokens: 40,
     completionTokens: 120
   })
   useAppStore.getState().applyServerEvent({
@@ -1341,6 +1342,41 @@ test('applyServerEvent keeps cancelled run token counts for run history', () => 
   assert.equal(latestRun?.status, 'cancelled')
   assert.equal(latestRun?.promptTokens, 30_000)
   assert.equal(latestRun?.completionTokens, 120)
+  assert.equal(latestRun?.lastCompletionTokens, 40)
+})
+
+test('context input and last output stay paired through live updates and completion', () => {
+  resetStore()
+  const metadata = { timestamp: TIMESTAMP, threadId: 'thread-1', runId: 'run-context' }
+  useAppStore.getState().applyServerEvent({
+    ...metadata,
+    type: 'run.created',
+    eventId: 'context-created'
+  })
+  useAppStore.getState().applyServerEvent({
+    ...metadata,
+    type: 'run.usage.updated',
+    eventId: 'context-step',
+    promptTokens: 23_000,
+    lastCompletionTokens: 2_000,
+    completionTokens: 3_000
+  })
+  assert.equal(useAppStore.getState().latestRunsByThread['thread-1']?.lastCompletionTokens, 2_000)
+  useAppStore.getState().applyServerEvent({
+    ...metadata,
+    type: 'run.completed',
+    eventId: 'context-completed',
+    promptTokens: 28_000,
+    lastCompletionTokens: 3_000,
+    completionTokens: 6_000,
+    totalCompletionTokens: 6_000
+  })
+  const state = useAppStore.getState()
+  for (const run of [state.latestRunsByThread['thread-1'], state.runsByThread['thread-1']?.[0]]) {
+    assert.equal(run?.promptTokens, 28_000)
+    assert.equal(run?.lastCompletionTokens, 3_000)
+    assert.equal(run?.completionTokens, 6_000)
+  }
 })
 
 test('applyServerEvent clears pending reasoning when a run starts retrying', () => {

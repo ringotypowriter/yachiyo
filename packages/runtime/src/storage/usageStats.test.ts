@@ -23,6 +23,38 @@ function makeMessage(
   }
 }
 
+test('terminal runs reload last-call output independently of cumulative usage', () => {
+  const storage = createInMemoryYachiyoStorage()
+  const thread = makeThread({ id: 'context-thread' })
+  storage.createThread({ thread, createdAt: thread.updatedAt })
+  const usage = {
+    promptTokens: 28_000,
+    lastCompletionTokens: 3_000,
+    completionTokens: 6_000,
+    totalPromptTokens: 71_000,
+    totalCompletionTokens: 6_000
+  }
+  for (const status of ['completed', 'cancelled', 'failed'] as const) {
+    storage.startRun({ runId: status, thread, updatedThread: thread, createdAt: thread.updatedAt })
+    if (status === 'completed') {
+      storage.completeRun({
+        runId: status,
+        updatedThread: thread,
+        assistantMessage: makeMessage({ id: 'answer', threadId: thread.id }),
+        ...usage
+      })
+    } else if (status === 'cancelled') {
+      storage.cancelRun({ runId: status, completedAt: thread.updatedAt, ...usage })
+    } else {
+      storage.failRun({ runId: status, completedAt: thread.updatedAt, error: 'failed', ...usage })
+    }
+    const saved = storage.listThreadRuns(thread.id).find((run) => run.id === status)!
+    assert.equal(saved.lastCompletionTokens, 3_000)
+    assert.equal(saved.completionTokens, 6_000)
+    assert.equal(saved.totalCompletionTokens, 6_000)
+  }
+})
+
 function setupStorage(): ReturnType<typeof createInMemoryYachiyoStorage> {
   const storage = createInMemoryYachiyoStorage()
 

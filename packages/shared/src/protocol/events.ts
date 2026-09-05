@@ -99,12 +99,14 @@ export interface RunContextCompiledEvent extends RunEvent {
 
 export interface RunUsageUpdatedEvent extends RunEvent {
   type: 'run.usage.updated'
+  lastCompletionTokens?: number
   promptTokens: number
   completionTokens: number
 }
 
 export interface RunCompletedEvent extends RunEvent {
   type: 'run.completed'
+  lastCompletionTokens?: number
   recap?: boolean
   promptTokens?: number
   completionTokens?: number

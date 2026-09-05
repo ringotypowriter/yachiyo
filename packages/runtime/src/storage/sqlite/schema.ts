@@ -259,6 +259,7 @@ export const runsTable = sqliteTable(
     completedAt: text('completed_at'),
     promptTokens: integer('prompt_tokens'),
     completionTokens: integer('completion_tokens'),
+    lastCompletionTokens: integer('last_completion_tokens'),
     totalPromptTokens: integer('total_prompt_tokens'),
     totalCompletionTokens: integer('total_completion_tokens'),
     timeToFirstTokenMs: integer('time_to_first_token_ms'),

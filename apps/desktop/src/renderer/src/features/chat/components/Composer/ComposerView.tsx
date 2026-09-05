@@ -184,6 +184,7 @@ export function ComposerView(props: any): React.JSX.Element {
     showRunStats,
     hasRunStatsText,
     displayPromptTokens,
+    displayContextTokens,
     latestRun,
     estimatedDraftTokens,
     canHandoffActiveThread,
@@ -1127,7 +1128,7 @@ export function ComposerView(props: any): React.JSX.Element {
                     </div>
                   ) : null}
                   {canHandoffActiveThread &&
-                  (displayPromptTokens ?? 0) + estimatedDraftTokens >
+                  (displayContextTokens ?? 0) + estimatedDraftTokens >
                     stripCompactThresholdTokens ? (
                     <div
                       style={{
@@ -1152,7 +1153,8 @@ export function ComposerView(props: any): React.JSX.Element {
                 className="text-xs px-1.5 flex items-center gap-1"
                 style={{ color: theme.text.secondary, opacity: 0.7, userSelect: 'none' }}
               >
-                {(displayPromptTokens ?? 0) + estimatedDraftTokens > stripCompactThresholdTokens ? (
+                {(displayContextTokens ?? 0) + estimatedDraftTokens >
+                stripCompactThresholdTokens ? (
                   <TriangleAlert
                     size={11}
                     style={{
@@ -1163,7 +1165,7 @@ export function ComposerView(props: any): React.JSX.Element {
                     }}
                   />
                 ) : null}
-                {displayPromptTokens != null ? formatTokenCount(displayPromptTokens) : null}
+                {displayContextTokens != null ? formatTokenCount(displayContextTokens) : null}
                 {estimatedDraftTokens > 0 ? (
                   <span style={{ opacity: 0.6 }}>
                     {displayPromptTokens != null ? '+' : ''}

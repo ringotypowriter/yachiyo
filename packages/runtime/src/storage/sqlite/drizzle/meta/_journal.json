@@ -491,6 +491,13 @@
       "when": 1788002474282,
       "tag": "0069_lying_zeigeist",
       "breakpoints": true
+    },
+    {
+      "idx": 70,
+      "version": "6",
+      "when": 1788593919343,
+      "tag": "0070_easy_gorgon",
+      "breakpoints": true
     }
   ]
 }

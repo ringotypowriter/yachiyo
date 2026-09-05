@@ -599,6 +599,7 @@ export async function executeServerRun(
           threadId: input.thread.id,
           runId: input.runId,
           promptTokens: stepUsage.promptTokens,
+          lastCompletionTokens: stepUsage.completionTokens,
           completionTokens: cumulativeCompletionTokens
         })
         requestStepBoundaryHandoffIfNeeded(stepUsage.promptTokens)

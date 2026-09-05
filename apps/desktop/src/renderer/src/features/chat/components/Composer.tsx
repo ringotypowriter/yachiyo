@@ -30,7 +30,7 @@ import {
 import { getReasoningSelectorState } from '@yachiyo/shared/reasoningEffort'
 import type { ThreadContextOperationKey } from '@renderer/features/threads/lib/threadContextOperations'
 import { useAppDialog } from '@renderer/components/AppDialogContext'
-import { selectContextPromptTokens } from '@renderer/lib/contextPromptTokens'
+import { selectContextPromptTokens, selectContextTokens } from '@renderer/lib/contextPromptTokens'
 import { estimateDraftPromptTokens } from '@renderer/lib/estimatePromptTokens'
 import {
   COMPOSER_TEXT_FIELD_MAX_HEIGHT_PX,
@@ -285,6 +285,7 @@ export function Composer({
     latestRun,
     runs: activeThreadRuns
   })
+  const displayContextTokens = selectContextTokens({ latestRun, runs: activeThreadRuns })
   const placeholderRunId = activeRunId ?? latestRun?.id ?? null
   const matchedPlaceholderRunIndex =
     placeholderRunId === null
@@ -1464,6 +1465,7 @@ export function Composer({
       showRunStats={showRunStats}
       hasRunStatsText={hasRunStatsText}
       displayPromptTokens={displayPromptTokens}
+      displayContextTokens={displayContextTokens}
       latestRun={latestRun}
       estimatedDraftTokens={estimatedDraftTokens}
       canHandoffActiveThread={canHandoffActiveThread}

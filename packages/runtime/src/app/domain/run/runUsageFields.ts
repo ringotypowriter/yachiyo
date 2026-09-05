@@ -2,6 +2,7 @@ import type { ModelUsage } from '../../../runtime/models/types.ts'
 
 export type UsageFields = Pick<
   ModelUsage,
+  | 'lastCompletionTokens'
   | 'promptTokens'
   | 'completionTokens'
   | 'totalPromptTokens'
@@ -16,6 +17,7 @@ export function usageFieldsFrom(usage: UsageFields | undefined): Partial<UsageFi
   if (!usage) return {}
   return {
     promptTokens: usage.promptTokens,
+    lastCompletionTokens: usage.lastCompletionTokens,
     completionTokens: usage.completionTokens,
     totalPromptTokens: usage.totalPromptTokens,
     totalCompletionTokens: usage.totalCompletionTokens,

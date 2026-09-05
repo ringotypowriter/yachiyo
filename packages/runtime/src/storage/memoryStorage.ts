@@ -593,6 +593,7 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
         completedAt: null,
         promptTokens: null,
         completionTokens: null,
+        lastCompletionTokens: null,
         totalPromptTokens: null,
         totalCompletionTokens: null,
         modelGenerationDurationMs: null,
@@ -612,6 +613,7 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
       assistantMessage,
       promptTokens,
       completionTokens,
+      lastCompletionTokens,
       totalPromptTokens,
       timeToFirstTokenMs,
       totalCompletionTokens,
@@ -637,6 +639,7 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
         run.completedAt = updatedThread.updatedAt
         if (promptTokens !== undefined) run.promptTokens = promptTokens
         if (completionTokens !== undefined) run.completionTokens = completionTokens
+        if (lastCompletionTokens !== undefined) run.lastCompletionTokens = lastCompletionTokens
         if (timeToFirstTokenMs !== undefined) run.timeToFirstTokenMs = timeToFirstTokenMs
         if (totalPromptTokens !== undefined) run.totalPromptTokens = totalPromptTokens
         if (totalCompletionTokens !== undefined) run.totalCompletionTokens = totalCompletionTokens
@@ -671,6 +674,7 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
       timeToFirstTokenMs,
       promptTokens,
       completionTokens,
+      lastCompletionTokens,
       totalPromptTokens,
       totalCompletionTokens,
       modelGenerationDurationMs,
@@ -687,6 +691,7 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
       run.completedAt = completedAt
       if (promptTokens !== undefined) run.promptTokens = promptTokens
       if (completionTokens !== undefined) run.completionTokens = completionTokens
+      if (lastCompletionTokens !== undefined) run.lastCompletionTokens = lastCompletionTokens
       if (totalPromptTokens !== undefined) run.totalPromptTokens = totalPromptTokens
       if (totalCompletionTokens !== undefined) run.totalCompletionTokens = totalCompletionTokens
       if (timeToFirstTokenMs !== undefined) run.timeToFirstTokenMs = timeToFirstTokenMs
@@ -714,6 +719,7 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
       timeToFirstTokenMs,
       promptTokens,
       completionTokens,
+      lastCompletionTokens,
       totalPromptTokens,
       totalCompletionTokens,
       modelGenerationDurationMs,
@@ -731,6 +737,7 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
       run.completedAt = completedAt
       if (promptTokens !== undefined) run.promptTokens = promptTokens
       if (completionTokens !== undefined) run.completionTokens = completionTokens
+      if (lastCompletionTokens !== undefined) run.lastCompletionTokens = lastCompletionTokens
       if (timeToFirstTokenMs !== undefined) run.timeToFirstTokenMs = timeToFirstTokenMs
       if (totalPromptTokens !== undefined) run.totalPromptTokens = totalPromptTokens
       if (totalCompletionTokens !== undefined) run.totalCompletionTokens = totalCompletionTokens

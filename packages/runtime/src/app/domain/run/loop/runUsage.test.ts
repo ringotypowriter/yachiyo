@@ -3,6 +3,8 @@ import test from 'node:test'
 
 import type { ModelUsage } from '../../../../runtime/models/types.ts'
 import { accumulateRunLoopUsage, mergeUsageForTerminal } from './runUsage.ts'
+import { mergeRunUsage } from '../execution/runUsage.ts'
+import { usageFieldsFrom } from '../runUsageFields.ts'
 
 function makeUsage(modelGenerationDurationMs: number, timeToFirstTokenMs?: number): ModelUsage {
   return {
@@ -14,6 +16,22 @@ function makeUsage(modelGenerationDurationMs: number, timeToFirstTokenMs?: numbe
     ...(timeToFirstTokenMs !== undefined ? { timeToFirstTokenMs } : {})
   }
 }
+
+test('last call output survives steer accumulation and terminal persistence without summing', () => {
+  const first = { ...makeUsage(750), lastCompletionTokens: 20 }
+  const last = { ...makeUsage(1250), completionTokens: 30, lastCompletionTokens: 30 }
+  const prior = accumulateRunLoopUsage(undefined, first)
+  assert.equal(prior?.lastCompletionTokens, 20)
+  for (const merged of [
+    accumulateRunLoopUsage(prior, last),
+    mergeUsageForTerminal(prior, last),
+    mergeRunUsage(prior, last)
+  ]) {
+    assert.equal(merged?.completionTokens, 50)
+    assert.equal(usageFieldsFrom(merged).lastCompletionTokens, 30)
+  }
+  assert.equal(mergeRunUsage(prior, undefined)?.lastCompletionTokens, 20)
+})
 
 test('run-loop usage keeps model generation time across steer legs', () => {
   const accumulated = accumulateRunLoopUsage(undefined, makeUsage(750))

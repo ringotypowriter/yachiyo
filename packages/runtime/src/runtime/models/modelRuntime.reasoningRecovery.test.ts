@@ -455,6 +455,7 @@ test('createAiSdkModelRuntime reports cache reads from totalUsage instead of fin
   assert.deepEqual(chunks, ['answer'])
   assert.deepEqual(finishedUsage, {
     promptTokens: 200,
+    lastCompletionTokens: 50,
     completionTokens: 50,
     totalPromptTokens: 1200,
     totalCompletionTokens: 150,

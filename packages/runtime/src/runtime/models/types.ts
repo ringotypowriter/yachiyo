@@ -33,6 +33,8 @@ export type ModelProviderOptionsMode = 'default' | 'auxiliary'
 export type ModelProcessingTier = 'standard' | 'priority'
 
 export interface ModelUsage {
+  /** Output of the last model call; never accumulated across run legs. */
+  lastCompletionTokens?: number
   promptTokens: number
   completionTokens: number
   totalPromptTokens: number

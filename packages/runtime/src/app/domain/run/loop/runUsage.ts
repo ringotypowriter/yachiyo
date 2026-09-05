@@ -12,6 +12,7 @@ export function mergeUsageForTerminal(
   const timeToFirstTokenMs = prior.timeToFirstTokenMs ?? current.timeToFirstTokenMs
   return {
     promptTokens: current.promptTokens,
+    lastCompletionTokens: current.lastCompletionTokens,
     completionTokens: (prior.completionTokens ?? 0) + current.completionTokens,
     totalPromptTokens: (prior.totalPromptTokens ?? 0) + current.totalPromptTokens,
     totalCompletionTokens: (prior.totalCompletionTokens ?? 0) + current.totalCompletionTokens,
@@ -32,6 +33,7 @@ export function accumulateRunLoopUsage(
   const timeToFirstTokenMs = prior?.timeToFirstTokenMs ?? current.timeToFirstTokenMs
   return {
     promptTokens: current.promptTokens,
+    lastCompletionTokens: current.lastCompletionTokens,
     completionTokens: (prior?.completionTokens ?? 0) + current.completionTokens,
     totalPromptTokens: (prior?.totalPromptTokens ?? 0) + current.totalPromptTokens,
     totalCompletionTokens: (prior?.totalCompletionTokens ?? 0) + current.totalCompletionTokens,

@@ -15,6 +15,7 @@ export function mergeRunUsage(
   if (!current) {
     return {
       promptTokens: prior.promptTokens ?? 0,
+      lastCompletionTokens: prior.lastCompletionTokens,
       completionTokens: prior.completionTokens ?? 0,
       totalPromptTokens: prior.totalPromptTokens ?? 0,
       totalCompletionTokens: prior.totalCompletionTokens ?? 0,
