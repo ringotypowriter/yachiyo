@@ -28,6 +28,15 @@ const TOOL_ICON_SIZE_PX = 28
 const MAX_TOOL_ICON_STACK_OVERLAP_PX = 10
 const HOVER_SELECTION_DELAY_MS = 500
 
+function useAnimateOnChange(id: string | null): boolean {
+  const [reveal, setReveal] = useState({ id, animate: false })
+  // A mount is an existing snapshot, not a new transition (including virtualizer remounts).
+  if (reveal.id !== id) {
+    setReveal({ id, animate: true })
+  }
+  return reveal.animate
+}
+
 function getToolIconStackOverlap(toolCallCount: number): number {
   if (toolCallCount <= 1) return 0
   return Math.min(MAX_TOOL_ICON_STACK_OVERLAP_PX, Math.ceil(toolCallCount / 2) + 2)
@@ -115,6 +124,8 @@ export function InlineToolDeck({
   const selectedFromStateId =
     selection?.kind === 'latest' ? (summaryToolCall?.id ?? null) : (selection?.toolCallId ?? null)
   const selectedToolCallId = autoSelectedWaitingToolCallId ?? selectedFromStateId
+  const animateSummary = useAnimateOnChange(selectedToolCallId ?? summaryToolCall?.id ?? null)
+  const animateDetails = useAnimateOnChange(selectedToolCallId)
   const selectedToolCall =
     displayedToolCalls.find((toolCall) => toolCall.id === selectedToolCallId) ?? null
   const selectedCanExpand = selectedToolCall ? canExpandToolCall(selectedToolCall) : false
@@ -270,7 +281,11 @@ export function InlineToolDeck({
                   <div
                     className="yachiyo-tool-deck-drawer ml-1 flex min-w-0 max-w-full flex-1 items-center gap-1.5 overflow-hidden whitespace-nowrap px-1"
                     data-tool-call-summary-id={toolCall.id}
-                    style={{ color: theme.text.muted, fontSize: '11px' }}
+                    style={{
+                      color: theme.text.muted,
+                      fontSize: '11px',
+                      animation: animateSummary ? undefined : 'none'
+                    }}
                   >
                     <span className="shrink-0" style={{ color: theme.text.placeholder }}>
                       {displayedSummaryToolCall.toolName}
@@ -304,7 +319,11 @@ export function InlineToolDeck({
 
       {selectedToolCall && selectedCanExpand ? (
         selectedToolCall.toolName === 'askUser' ? (
-          <div id={detailsId} className="mt-1.5 yachiyo-detail-reveal">
+          <div
+            id={detailsId}
+            className="mt-1.5 yachiyo-detail-reveal"
+            style={{ animation: animateDetails ? undefined : 'none' }}
+          >
             <AskUserInlineWidget toolCall={selectedToolCall} nested />
           </div>
         ) : selectedPresentation ? (
