@@ -17,6 +17,7 @@ function baseInput(overrides: Partial<RecapEligibilityInput> = {}): RecapEligibi
   return {
     recapEnabled: true,
     isExternalThread: false,
+    isSyncedArchiveThread: false,
     isAcpThread: false,
     hasActiveRun: false,
     latestRunIsPlanMode: false,
@@ -79,6 +80,18 @@ test('skips for external threads', () => {
 
 test('skips for acp threads', () => {
   const decision = computeRecapDecision(baseInput({ isAcpThread: true }))
+  assert.deepEqual(decision, { action: 'skip' })
+})
+
+test('skips synced archive threads even after the idle threshold', () => {
+  const decision = computeRecapDecision(baseInput({ isSyncedArchiveThread: true }))
+  assert.deepEqual(decision, { action: 'skip' })
+})
+
+test('does not schedule recap for recently synced archive threads', () => {
+  const decision = computeRecapDecision(
+    baseInput({ isSyncedArchiveThread: true, updatedAtMs: NOW })
+  )
   assert.deepEqual(decision, { action: 'skip' })
 })
 

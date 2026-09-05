@@ -515,6 +515,7 @@ export function AppMainPanel({
     const decision = computeRecapDecision({
       recapEnabled: config?.chat?.recapEnabled !== false,
       isExternalThread: isExternalThread(activeThread),
+      isSyncedArchiveThread: isSyncedArchiveThread(activeThread),
       isAcpThread: activeThread.runtimeBinding?.kind === 'acp',
       hasActiveRun,
       latestRunIsPlanMode,
@@ -535,6 +536,7 @@ export function AppMainPanel({
       if (!thread) return
       if (s.config?.chat?.recapEnabled === false) return
       if (isExternalThread(thread)) return
+      if (isSyncedArchiveThread(thread)) return
       if (thread.runtimeBinding?.kind === 'acp') return
       if (
         isLatestRunPlanMode({

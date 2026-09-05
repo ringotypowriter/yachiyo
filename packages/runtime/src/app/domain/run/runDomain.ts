@@ -819,6 +819,7 @@ export class YachiyoServerRunDomain {
     try {
       this.assertRunAdmissionOpen()
       const thread = this.deps.requireThread(input.threadId)
+      if (thread.syncOriginDeviceId) return null
       if (this.activeRunByThread.has(input.threadId)) return null
 
       const messages = this.deps.loadThreadMessages(input.threadId)

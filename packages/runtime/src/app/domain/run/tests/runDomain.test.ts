@@ -1086,56 +1086,65 @@ test('cancelActiveRuns stops every user-visible active run', () => {
   assert.equal(recapController.signal.aborted, false)
 })
 
-test('requestRecap skips when the latest run used plan mode', async () => {
-  let startRunCalled = false
-  const domain = new YachiyoServerRunDomain({
-    storage: {
-      listThreadRuns: () => [{ requestMessageId: 'user-plan' }],
-      startRun: () => {
-        startRunCalled = true
-      }
-    },
-    createId: () => 'id',
-    timestamp: () => '2026-05-02T00:00:00.000Z',
-    emit: () => {},
-    runInactivityTimeoutMs: 30_000,
-    auxiliaryGeneration: {},
-    createModelRuntime: () => ({}),
-    ensureThreadWorkspace: async () => '/tmp/yachiyo-test',
-    memoryService: {
-      hasHiddenSearchCapability: () => false,
-      isConfigured: () => false
-    },
-    readConfig: () => ({ enabledTools: [] }),
-    readSettings: () => ({
-      providerName: 'work',
-      provider: 'openai',
-      model: 'gpt-5',
-      apiKey: 'sk-test',
-      baseUrl: 'https://api.openai.com/v1'
-    }),
-    listSkills: async () => [],
-    requireThread: (threadId: string) => ({
-      id: threadId,
-      title: 'Thread',
-      updatedAt: '2026-05-02T00:00:00.000Z'
-    }),
-    loadThreadMessages: () => [
-      { id: 'user-plan', turnContext: { runMode: 'plan' } },
-      { id: 'message-2' },
-      { id: 'message-3' },
-      { id: 'message-4' },
-      { id: 'message-5' },
-      { id: 'message-6' }
-    ],
-    loadThreadToolCalls: () => []
-  } as unknown as ConstructorParameters<typeof YachiyoServerRunDomain>[0])
+for (const scenario of [
+  { name: 'the latest run used plan mode', runMode: 'plan' },
+  { name: 'the thread is a synced archive', runMode: 'auto', syncOriginDeviceId: 'other-device' }
+]) {
+  test(`requestRecap skips when ${scenario.name}`, async () => {
+    let startRunCalled = false
+    let createdIds = 0
+    const domain = new YachiyoServerRunDomain({
+      storage: {
+        listThreadRuns: () => [{ requestMessageId: 'user-plan' }],
+        startRun: () => {
+          startRunCalled = true
+        }
+      },
+      createId: () => `id-${++createdIds}`,
+      timestamp: () => '2026-05-02T00:00:00.000Z',
+      emit: () => {},
+      runInactivityTimeoutMs: 30_000,
+      auxiliaryGeneration: {},
+      createModelRuntime: () => ({}),
+      ensureThreadWorkspace: async () => '/tmp/yachiyo-test',
+      memoryService: {
+        hasHiddenSearchCapability: () => false,
+        isConfigured: () => false
+      },
+      readConfig: () => ({ enabledTools: [] }),
+      readSettings: () => ({
+        providerName: 'work',
+        provider: 'openai',
+        model: 'gpt-5',
+        apiKey: 'sk-test',
+        baseUrl: 'https://api.openai.com/v1'
+      }),
+      listSkills: async () => [],
+      requireThread: (threadId: string) => ({
+        id: threadId,
+        title: 'Thread',
+        source: 'local',
+        syncOriginDeviceId: scenario.syncOriginDeviceId,
+        updatedAt: '2026-05-02T00:00:00.000Z'
+      }),
+      loadThreadMessages: () => [
+        { id: 'user-plan', turnContext: { runMode: scenario.runMode } },
+        { id: 'message-2' },
+        { id: 'message-3' },
+        { id: 'message-4' },
+        { id: 'message-5' },
+        { id: 'message-6' }
+      ],
+      loadThreadToolCalls: () => []
+    } as unknown as ConstructorParameters<typeof YachiyoServerRunDomain>[0])
 
-  const result = await domain.requestRecap({ threadId: 'thread-1' })
+    const result = await domain.requestRecap({ threadId: 'thread-1' })
 
-  assert.equal(result, null)
-  assert.equal(startRunCalled, false)
-})
+    assert.equal(result, null)
+    assert.equal(startRunCalled, false)
+    assert.equal(createdIds, 0, 'skipped recaps must not allocate run or message IDs')
+  })
+}
 
 test('startRecoveredRun does nothing while run admission is closed', () => {
   const activeRuns = new Map()

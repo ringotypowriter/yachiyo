@@ -13,6 +13,7 @@ export function hasRecapIdleThresholdElapsed(
 export interface RecapEligibilityInput {
   recapEnabled: boolean
   isExternalThread: boolean
+  isSyncedArchiveThread: boolean
   isAcpThread: boolean
   hasActiveRun: boolean
   latestRunIsPlanMode: boolean
@@ -32,6 +33,7 @@ export type RecapDecision =
 export function computeRecapDecision(input: RecapEligibilityInput): RecapDecision {
   if (!input.recapEnabled) return { action: 'skip' }
   if (input.isExternalThread) return { action: 'skip' }
+  if (input.isSyncedArchiveThread) return { action: 'skip' }
   if (input.isAcpThread) return { action: 'skip' }
   if (input.hasActiveRun) return { action: 'skip' }
   if (input.latestRunIsPlanMode) return { action: 'skip' }
