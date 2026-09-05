@@ -5,11 +5,12 @@ import {
   restoreTimelineViewportAnchor
 } from './timelineViewportAnchor.ts'
 
-function viewport(): { container: HTMLElement; prepend: (height: number) => void } {
+function viewport(zoom = 1): { container: HTMLElement; prepend: (height: number) => void } {
   let insertedHeight = 0
   const container = {
     scrollTop: 300,
     clientHeight: 400,
+    currentCSSZoom: zoom,
     getBoundingClientRect: () => ({ top: 50 }),
     querySelectorAll: () => rows
   } as unknown as HTMLElement
@@ -21,8 +22,8 @@ function viewport(): { container: HTMLElement; prepend: (height: number) => void
     dataset: { timelineRowKey: key },
     getBoundingClientRect: () =>
       ({
-        top: 50 + start + insertedHeight - container.scrollTop,
-        bottom: 50 + start + insertedHeight - container.scrollTop + height
+        top: 50 + (start + insertedHeight - container.scrollTop) * zoom,
+        bottom: 50 + (start + insertedHeight - container.scrollTop + height) * zoom
       }) as DOMRect
   }))
   return {
@@ -52,4 +53,13 @@ test('missing anchors do not move the viewport', () => {
   const { container } = viewport()
   assert.equal(restoreTimelineViewportAnchor(container, { key: 'gone', top: 10 }), null)
   assert.equal(container.scrollTop, 300)
+})
+
+test('font-size CSS zoom does not mix screen pixels with layout scroll offsets', () => {
+  const { container, prepend } = viewport(16 / 14)
+  const anchor = captureTimelineViewportAnchor(container)!
+  assert.ok(Math.abs(anchor.top + 20) < 0.001)
+  prepend(1000)
+  restoreTimelineViewportAnchor(container, anchor)
+  assert.ok(Math.abs(container.scrollTop - 1300) < 0.001)
 })

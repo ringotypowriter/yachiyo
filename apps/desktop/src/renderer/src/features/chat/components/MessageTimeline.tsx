@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useVirtualizer as useTanStackVirtualizer } from '@tanstack/react-virtual'
+import { createTimelineVirtualizerScroll } from '../lib/timeline/timelineVirtualizerScroll.ts'
 import { useShallow } from 'zustand/react/shallow'
 import { Waypoints } from 'lucide-react'
 import { useAppStore, type SubagentFinishedResult } from '@renderer/app/store/useAppStore'
@@ -36,14 +37,10 @@ import {
 import { getAskUserDetails } from '../lib/branching/askUserBranchAction.ts'
 import { useReusedTimelineRows } from '../lib/timeline/timelineRowReuse.ts'
 import { buildTimelineVirtualRowStyle } from '../lib/timeline/messageTimelineRowStyle.ts'
-import {
-  captureTimelineViewportAnchor,
-  restoreTimelineViewportAnchor,
-  type TimelineViewportAnchor
-} from '../lib/timeline/timelineViewportAnchor.ts'
+import { HistoryScrollAnchor } from './HistoryScrollAnchor.tsx'
 import {
   remeasureTimelineRowFromDescendant,
-  resolveTimelineScrollOffsetAfterSizeChange
+  shouldAdjustTimelineScrollForSizeChange
 } from '../lib/timeline/timelineRowRemeasure.ts'
 import {
   getInitialBottomScrollDecision,
@@ -466,7 +463,7 @@ export function MessageTimeline({
 
   useIsomorphicLayoutEffect(() => {
     if (prevThreadIdRef.current === threadId) return
-    pendingHistoryAnchorRef.current = null
+    historyScrollAnchorRef.current?.cancel()
     stickToBottomRef.current = true
     pendingThreadSwitchScrollRef.current = threadId
     programmaticScrollUntilRef.current = Date.now() + 500
@@ -479,9 +476,7 @@ export function MessageTimeline({
   // scrolled offscreen and back doesn't snap back to a coarse estimate and
   // push later rows onto the same translateY — the original overlap bug.
   const measuredSizeCache = useRef<Map<string, number>>(new Map())
-  const pendingHistoryAnchorRef = useRef<
-    (TimelineViewportAnchor & { oldestId: string; applied?: boolean }) | null
-  >(null)
+  const historyScrollAnchorRef = useRef<HistoryScrollAnchor>(null)
 
   const getScrollElement = useCallback(() => scrollContainerRef.current, [])
   // Conservative estimate: over-approximate on uncertainty. Overestimating
@@ -499,7 +494,9 @@ export function MessageTimeline({
   )
   const getItemKey = useCallback((index: number) => timelineRows[index]!.key, [timelineRows])
 
+  const virtualizerScroll = useMemo(() => createTimelineVirtualizerScroll<HTMLDivElement>(), [])
   const virtualizer = useMessageTimelineVirtualizer({
+    ...virtualizerScroll,
     count: timelineRows.length,
     getScrollElement,
     estimateSize,
@@ -508,39 +505,15 @@ export function MessageTimeline({
     paddingStart: 16,
     paddingEnd: 16
   })
+  useIsomorphicLayoutEffect(() => {
+    // TanStack exposes this policy as a mutable instance callback, not an option.
+    // eslint-disable-next-line react-hooks/immutability
+    virtualizer.shouldAdjustScrollPositionOnItemSizeChange = (item) =>
+      shouldAdjustTimelineScrollForSizeChange(item.end, scrollContainerRef.current?.scrollTop ?? 0)
+  }, [virtualizer])
   const handleTimelineRowSizeChange = useCallback(
     (descendant: HTMLElement): void => {
-      remeasureTimelineRowFromDescendant(descendant, (row) => {
-        const index = Number(row.dataset.index)
-        const item = Number.isInteger(index) ? timelineRowsRef.current[index] : undefined
-        const previousMeasurement = Number.isInteger(index)
-          ? virtualizer.measurementsCache[index]
-          : undefined
-        const size = row.getBoundingClientRect().height
-        const container = scrollContainerRef.current
-        const nextScrollOffset =
-          container && previousMeasurement
-            ? resolveTimelineScrollOffsetAfterSizeChange({
-                itemEnd: previousMeasurement.end,
-                previousSize: previousMeasurement.size,
-                nextSize: size,
-                scrollOffset: container.scrollTop
-              })
-            : null
-
-        if (item && size > 0) measuredSizeCache.current.set(item.key, size)
-        virtualizer.measureElement(row)
-
-        if (
-          container &&
-          nextScrollOffset !== null &&
-          Math.abs(container.scrollTop - nextScrollOffset) > 0.5
-        ) {
-          container.scrollTop = nextScrollOffset
-          lastScrollTopRef.current = nextScrollOffset
-          programmaticScrollUntilRef.current = Date.now() + 120
-        }
-      })
+      remeasureTimelineRowFromDescendant(descendant, virtualizer.measureElement)
     },
     [virtualizer]
   )
@@ -551,44 +524,6 @@ export function MessageTimeline({
 
     const container = scrollContainerRef.current
     const pendingHandoffAnchor = pendingHandoffAnchorRef.current
-    const historyAnchor = pendingHistoryAnchorRef.current
-    if (
-      container &&
-      historyAnchor &&
-      messages.findIndex((message) => message.id === historyAnchor.oldestId) > 0
-    ) {
-      previousTimelineRowsRef.current = timelineRows
-      if (historyAnchor.applied) return
-      historyAnchor.applied = true
-      stickToBottomRef.current = false
-      const offset = resolveTimelineRowOffset({
-        key: historyAnchor.key,
-        measuredSizeCache: measuredSizeCache.current,
-        rows: timelineRows
-      })
-      if (offset != null) {
-        virtualizer.scrollToOffset(Math.max(0, offset + 16 - historyAnchor.top))
-        lastScrollTopRef.current = container.scrollTop
-        programmaticScrollUntilRef.current = Date.now() + 240
-      }
-      let retries = 14
-      let stableFrames = 0
-      const refine = (): void => {
-        if (pendingHistoryAnchorRef.current !== historyAnchor) return
-        const delta = restoreTimelineViewportAnchor(container, historyAnchor)
-        if (delta === null) {
-          const index = timelineRowsRef.current.findIndex((row) => row.key === historyAnchor.key)
-          if (index >= 0) virtualizer.scrollToIndex(index, { align: 'start' })
-        }
-        lastScrollTopRef.current = container.scrollTop
-        programmaticScrollUntilRef.current = Date.now() + 120
-        stableFrames = delta !== null && Math.abs(delta) <= 0.5 ? stableFrames + 1 : 0
-        if (--retries > 0 && stableFrames < 2) requestAnimationFrame(refine)
-        else pendingHistoryAnchorRef.current = null
-      }
-      requestAnimationFrame(refine)
-      return
-    }
     if (container && !stickToBottomRef.current) {
       if (pendingHandoffAnchor) {
         const nextOffset = resolveTimelineRowOffset({
@@ -717,7 +652,7 @@ export function MessageTimeline({
       if (targetIndex < 0) return
 
       // User is deliberately navigating — unpin from bottom
-      pendingHistoryAnchorRef.current = null
+      historyScrollAnchorRef.current?.cancel()
       stickToBottomRef.current = false
       pendingThreadSwitchScrollRef.current = null
       programmaticScrollUntilRef.current = Date.now() + 300
@@ -744,14 +679,14 @@ export function MessageTimeline({
     if (!container) return
 
     const handleWheel = (event: WheelEvent): void => {
-      pendingHistoryAnchorRef.current = null
+      historyScrollAnchorRef.current?.cancel()
       if (event.deltaY < -2) {
         unpinFromBottom()
       }
     }
 
     const handleTouchStart = (event: TouchEvent): void => {
-      pendingHistoryAnchorRef.current = null
+      historyScrollAnchorRef.current?.cancel()
       lastTouchYRef.current = event.touches[0]?.clientY ?? null
     }
 
@@ -786,7 +721,7 @@ export function MessageTimeline({
         stickToBottomRef.current = false
       }
 
-      pendingHistoryAnchorRef.current = null
+      historyScrollAnchorRef.current?.cancel()
       const state = useAppStore.getState()
       const paging = threadId ? state.threadMessagePaging[threadId] : undefined
       if (
@@ -797,9 +732,6 @@ export function MessageTimeline({
         unpinFromBottom()
         pendingThreadSwitchScrollRef.current = null
         cancelInitialBottomScroll()
-        const anchor = captureTimelineViewportAnchor(container)
-        const oldestId = state.messages[threadId]?.[0]?.id
-        pendingHistoryAnchorRef.current = anchor && oldestId ? { ...anchor, oldestId } : null
         if (!paging.loadingOlder) void state.loadOlderThreadMessages(threadId)
       }
 
@@ -899,7 +831,7 @@ export function MessageTimeline({
   const prevActiveRequestRef = useRef(activeRequestMessageId)
   useEffect(() => {
     if (activeRequestMessageId && activeRequestMessageId !== prevActiveRequestRef.current) {
-      pendingHistoryAnchorRef.current = null
+      historyScrollAnchorRef.current?.cancel()
       stickToBottomRef.current = true
       // Immediately scroll so the user sees their own message without waiting for streaming
       scrollToBottom()
@@ -927,7 +859,6 @@ export function MessageTimeline({
   }, [activeRequestMessageId, messages, runPhase, toolCalls, timelineRows.length, scrollToBottom])
   useEffect(() => {
     return () => {
-      pendingHistoryAnchorRef.current = null
       cancelInitialBottomScroll()
       if (streamingScrollRafRef.current !== null) {
         cancelAnimationFrame(streamingScrollRafRef.current)
@@ -956,7 +887,7 @@ export function MessageTimeline({
     // would race that read.
     if (outcome !== 'scroll') return
 
-    pendingHistoryAnchorRef.current = null
+    historyScrollAnchorRef.current?.cancel()
     pendingThreadSwitchScrollRef.current = null
     stickToBottomRef.current = false
     cancelInitialBottomScroll()
@@ -1206,54 +1137,71 @@ export function MessageTimeline({
                 onScrollToMessage={handleScrollToMessage}
               />
             )}
-            <div
-              ref={scrollContainerRef}
-              data-timeline-scroll
-              className="h-full overflow-y-auto overflow-x-hidden yachiyo-thread-enter"
-              style={{
-                maskImage: 'linear-gradient(to bottom, transparent, black 24px)',
-                WebkitMaskImage: 'linear-gradient(to bottom, transparent, black 24px)',
-                overflowAnchor: 'none'
+            <HistoryScrollAnchor
+              ref={historyScrollAnchorRef}
+              containerRef={scrollContainerRef}
+              threadId={threadId}
+              messages={messages}
+              navigationKey={scrollToMessageId ?? activeRequestMessageId}
+              resolveOffset={(key) =>
+                virtualizer.measurementsCache.find((row) => row.key === key)?.start ?? null
+              }
+              onRestore={() => {
+                previousTimelineRowsRef.current = timelineRows
+                stickToBottomRef.current = false
+                lastScrollTopRef.current = scrollContainerRef.current?.scrollTop ?? 0
+                programmaticScrollUntilRef.current = Date.now() + 120
               }}
             >
               <div
+                ref={scrollContainerRef}
+                data-timeline-scroll
+                className="h-full overflow-y-auto overflow-x-hidden yachiyo-thread-enter"
                 style={{
-                  height: virtualizer.getTotalSize(),
-                  width: '100%',
-                  position: 'relative'
+                  maskImage: 'linear-gradient(to bottom, transparent, black 24px)',
+                  WebkitMaskImage: 'linear-gradient(to bottom, transparent, black 24px)',
+                  overflowAnchor: 'none'
                 }}
               >
-                {virtualizer.getVirtualItems().map((virtualRow) => {
-                  const item = timelineRows[virtualRow.index]
-                  if (!item) return null
-
-                  return (
-                    <div
-                      key={item.key}
-                      className="message-timeline-row"
-                      data-index={virtualRow.index}
-                      data-timeline-row-key={item.key}
-                      ref={virtualizer.measureElement}
-                      style={buildTimelineVirtualRowStyle(virtualRow.start)}
-                    >
-                      <TimelineItemContent item={item} context={timelineItemContext} />
-                    </div>
-                  )
-                })}
-              </div>
-
-              {recapText ? (
                 <div
-                  ref={recapRef}
-                  className="px-6 py-3 text-xs opacity-50 italic leading-relaxed inline-flex items-start gap-1.5"
+                  style={{
+                    height: virtualizer.getTotalSize(),
+                    width: '100%',
+                    position: 'relative'
+                  }}
                 >
-                  <Waypoints size={14} className="shrink-0 mt-px" />
-                  <span>
-                    <strong className="not-italic">{t('chat.timeline.recap')}</strong> {recapText}
-                  </span>
+                  {virtualizer.getVirtualItems().map((virtualRow) => {
+                    const item = timelineRows[virtualRow.index]
+                    if (!item) return null
+
+                    return (
+                      <div
+                        key={item.key}
+                        className="message-timeline-row"
+                        data-index={virtualRow.index}
+                        data-timeline-row-key={item.key}
+                        ref={virtualizer.measureElement}
+                        style={buildTimelineVirtualRowStyle(virtualRow.start)}
+                      >
+                        <TimelineItemContent item={item} context={timelineItemContext} />
+                      </div>
+                    )
+                  })}
                 </div>
-              ) : null}
-            </div>
+
+                {recapText ? (
+                  <div
+                    ref={recapRef}
+                    className="px-6 py-3 text-xs opacity-50 italic leading-relaxed inline-flex items-start gap-1.5"
+                  >
+                    <Waypoints size={14} className="shrink-0 mt-px" />
+                    <span>
+                      <strong className="not-italic">{t('chat.timeline.recap')}</strong> {recapText}
+                    </span>
+                  </div>
+                ) : null}
+              </div>
+            </HistoryScrollAnchor>
           </div>
         )}
       </div>

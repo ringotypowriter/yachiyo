@@ -88,7 +88,6 @@ export function InlineToolDeck({
     () => new Set()
   )
   const deckRef = useRef<HTMLDivElement>(null)
-  const toolItemRefs = useRef(new Map<string, HTMLElement>())
   const hoverSelectionTimerRef = useRef<number | null>(null)
 
   useEffect(
@@ -150,18 +149,6 @@ export function InlineToolDeck({
     if (deck) onContentSizeChange?.(deck)
   }, [onContentSizeChange, selectedToolCallId])
 
-  const shouldFollowLatest = selection === null || selection.kind === 'latest'
-  useEffect(() => {
-    const targetToolCallId =
-      autoSelectedWaitingToolCallId ?? (shouldFollowLatest ? summaryToolCall?.id : null)
-    if (!targetToolCallId) return
-
-    toolItemRefs.current.get(targetToolCallId)?.scrollIntoView({
-      block: 'nearest',
-      inline: 'nearest'
-    })
-  }, [autoSelectedWaitingToolCallId, shouldFollowLatest, summaryToolCall?.id])
-
   if (!summaryToolCall) return null
   const displayedSummaryToolCall = selectedToolCall ?? summaryToolCall
 
@@ -206,11 +193,6 @@ export function InlineToolDeck({
               opacity: 1,
               padding: 0
             } as const
-            const setToolItemRef = (element: HTMLElement | null): void => {
-              if (element) toolItemRefs.current.set(toolCall.id, element)
-              else toolItemRefs.current.delete(toolCall.id)
-            }
-
             return (
               <div
                 key={toolCall.id}
@@ -228,7 +210,6 @@ export function InlineToolDeck({
               >
                 {canExpand ? (
                   <button
-                    ref={setToolItemRef}
                     type="button"
                     className="yachiyo-tool-deck-button relative flex h-7 w-7 shrink-0 items-center justify-center rounded-full"
                     data-tool-call-id={toolCall.id}
@@ -275,7 +256,6 @@ export function InlineToolDeck({
                   </button>
                 ) : (
                   <span
-                    ref={setToolItemRef}
                     className="relative flex h-7 w-7 shrink-0 items-center justify-center rounded-full"
                     data-tool-call-id={toolCall.id}
                     title={toolCall.toolName}

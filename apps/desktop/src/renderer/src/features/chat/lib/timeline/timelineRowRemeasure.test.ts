@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import { Virtualizer } from '@tanstack/virtual-core'
 
 import {
   remeasureTimelineRowFromDescendant,
-  resolveTimelineScrollOffsetAfterSizeChange,
   shouldAdjustTimelineScrollForSizeChange
 } from './timelineRowRemeasure.ts'
 
@@ -40,26 +40,27 @@ test('only size changes fully above the viewport preserve the current visual anc
   assert.equal(shouldAdjustTimelineScrollForSizeChange(240, 180), false)
 })
 
-test('resizing a row that intersects the viewport keeps scrollTop unchanged', () => {
-  assert.equal(
-    resolveTimelineScrollOffsetAfterSizeChange({
-      itemEnd: 500,
-      previousSize: 400,
-      nextSize: 30,
-      scrollOffset: 180
-    }),
-    180
-  )
-})
-
-test('resizing a row fully above the viewport compensates by its size delta', () => {
-  assert.equal(
-    resolveTimelineScrollOffsetAfterSizeChange({
-      itemEnd: 120,
-      previousSize: 100,
-      nextSize: 50,
-      scrollOffset: 180
-    }),
-    130
-  )
-})
+for (const size of [50, 600]) {
+  test(`tool row resize to ${size}px does not move a viewport intersecting that row`, () => {
+    let scrollTop = 300
+    const virtualizer = new Virtualizer<HTMLElement, HTMLElement>({
+      count: 10,
+      getScrollElement: () => null,
+      estimateSize: () => 200,
+      initialRect: { width: 600, height: 400 },
+      initialOffset: scrollTop,
+      scrollToFn: (offset, { adjustments = 0 }) => {
+        scrollTop = offset + adjustments
+      },
+      observeElementRect: () => {},
+      observeElementOffset: () => {}
+    })
+    virtualizer.shouldAdjustScrollPositionOnItemSizeChange = (item) =>
+      shouldAdjustTimelineScrollForSizeChange(item.end, scrollTop)
+    virtualizer.getVirtualItems()
+    virtualizer.resizeItem(1, size)
+    assert.equal(scrollTop, 300)
+    virtualizer.resizeItem(0, 100)
+    assert.equal(scrollTop, 200, 'a row fully above the viewport is compensated exactly once')
+  })
+}
