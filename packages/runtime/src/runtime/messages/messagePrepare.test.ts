@@ -7,6 +7,7 @@ import {
   prepareModelMessages
 } from './messagePrepare.ts'
 import { SYSTEM_PROMPT } from '../context/prompt.ts'
+import { compileMemoryLayer } from '../context/contextLayers.ts'
 
 test('message prepare compiles explicit context layers and drops empty messages', () => {
   const prepared = prepareModelMessages({
@@ -231,7 +232,7 @@ test('message prepare replays historical turn context inline on older user messa
       content: [
         'Check the news',
         turn1Reminder,
-        "<memory>\nYachiyo's durable memory — understanding built through working with the user.\nThese entries capture accumulated observations about preferences, decisions, workflows,\nand project context from prior collaboration. They are not the user's own knowledge or\nself-statements. Focus on the user's current query first; overlapping terms do not make\nan entry relevant — judge by actual applicability.\n- User cares about Apex coverage\n</memory>",
+        compileMemoryLayer({ entries: ['User cares about Apex coverage'] })!.content,
         '<activity_summary>\n{"appName":"Browser","duration":"2s"}\n</activity_summary>'
       ].join('\n\n')
     },
@@ -241,7 +242,7 @@ test('message prepare replays historical turn context inline on older user messa
       content: [
         'Now check the weather',
         turn2Reminder,
-        "<memory>\nYachiyo's durable memory — understanding built through working with the user.\nThese entries capture accumulated observations about preferences, decisions, workflows,\nand project context from prior collaboration. They are not the user's own knowledge or\nself-statements. Focus on the user's current query first; overlapping terms do not make\nan entry relevant — judge by actual applicability.\n- User prefers metric units\n</memory>"
+        compileMemoryLayer({ entries: ['User prefers metric units'] })!.content
       ].join('\n\n')
     }
   ])
@@ -290,7 +291,7 @@ test('message prepare emits historical multimodal turn context as separate text 
         { type: 'text', text: turn1Reminder },
         {
           type: 'text',
-          text: "<memory>\nYachiyo's durable memory — understanding built through working with the user.\nThese entries capture accumulated observations about preferences, decisions, workflows,\nand project context from prior collaboration. They are not the user's own knowledge or\nself-statements. Focus on the user's current query first; overlapping terms do not make\nan entry relevant — judge by actual applicability.\n- User likes cats\n</memory>"
+          text: compileMemoryLayer({ entries: ['User likes cats'] })!.content
         }
       ]
     },
