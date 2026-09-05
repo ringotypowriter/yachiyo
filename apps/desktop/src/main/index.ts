@@ -28,6 +28,11 @@ import { installApplicationMenu } from './electron/applicationMenu'
 import { createKeepAwakeController } from './electron/keepAwake'
 import { createElectronProviderCredentialVault } from './security/providerCredentials'
 import { buildAuxiliaryWindowOptions, buildMainWindowOptions } from './electron/windowOptions'
+import {
+  loadMainWindowSize,
+  MAIN_WINDOW_SIZE_LIMITS,
+  trackMainWindowSize
+} from './electron/windowSize'
 import { resolveNotificationSettingsUri } from './electron/systemSettings'
 import {
   installYachiyoAssetProtocolHandler,
@@ -211,12 +216,10 @@ app.setPath('userData', resolveYachiyoDataDir())
 registerYachiyoAssetScheme()
 
 function createWindow(): void {
-  // Create the browser window.
+  const windowStatePath = join(app.getPath('userData'), 'window-state.json')
   const mainWindow = new BrowserWindow({
-    width: 1280,
-    height: 820,
-    minWidth: 760,
-    minHeight: 500,
+    ...loadMainWindowSize(windowStatePath, screen.getPrimaryDisplay().workAreaSize),
+    ...MAIN_WINDOW_SIZE_LIMITS,
     show: false,
     title: APP_NAME,
     autoHideMenuBar: true,
@@ -230,6 +233,7 @@ function createWindow(): void {
   })
 
   mainWindowRef = mainWindow
+  trackMainWindowSize(mainWindow, windowStatePath)
   mainWindow.on('ready-to-show', () => {
     mainWindow.show()
   })
