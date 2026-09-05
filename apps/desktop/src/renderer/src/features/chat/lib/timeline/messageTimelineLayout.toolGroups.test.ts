@@ -13,6 +13,7 @@ import {
 
 test('buildConversationGroupTimelineItems does not count unrelated reads as edited files', () => {
   const items = buildConversationGroupTimelineItems({
+    toolCallDisplayMode: 'work-summary',
     hasMemoryRecall: false,
     replyCount: 1,
     showPreparing: false,
@@ -872,6 +873,7 @@ test('getToolCallGroupLabel describes REPL groups without assuming a language', 
 
 test('buildConversationGroupTimelineItems groups bash read commands with native read tools', () => {
   const items = buildConversationGroupTimelineItems({
+    toolCallDisplayMode: 'work-summary',
     hasMemoryRecall: false,
     replyCount: 1,
     showPreparing: false,
@@ -922,6 +924,7 @@ test('buildConversationGroupTimelineItems groups bash read commands with native 
 
 test('buildConversationGroupTimelineItems groups bash search commands with native grep tools', () => {
   const items = buildConversationGroupTimelineItems({
+    toolCallDisplayMode: 'work-summary',
     hasMemoryRecall: false,
     replyCount: 1,
     showPreparing: false,
@@ -972,6 +975,7 @@ test('buildConversationGroupTimelineItems groups bash search commands with nativ
 
 test('buildConversationGroupTimelineItems groups consecutive querySource tool calls', () => {
   const items = buildConversationGroupTimelineItems({
+    toolCallDisplayMode: 'work-summary',
     hasMemoryRecall: false,
     replyCount: 1,
     showPreparing: false,
@@ -1020,6 +1024,7 @@ test('buildConversationGroupTimelineItems groups consecutive querySource tool ca
 
 test('buildConversationGroupTimelineItems groups consecutive jsRepl tool calls', () => {
   const items = buildConversationGroupTimelineItems({
+    toolCallDisplayMode: 'work-summary',
     hasMemoryRecall: false,
     replyCount: 1,
     showPreparing: false,
@@ -1061,6 +1066,7 @@ test('buildConversationGroupTimelineItems groups consecutive jsRepl tool calls',
 
 test('buildConversationGroupTimelineItems groups and labels Python-only REPL calls', () => {
   const items = buildConversationGroupTimelineItems({
+    toolCallDisplayMode: 'work-summary',
     hasMemoryRecall: false,
     replyCount: 1,
     showPreparing: false,
@@ -1103,6 +1109,7 @@ test('buildConversationGroupTimelineItems groups and labels Python-only REPL cal
 
 test('buildConversationGroupTimelineItems groups and labels mixed JavaScript and Python calls', () => {
   const items = buildConversationGroupTimelineItems({
+    toolCallDisplayMode: 'work-summary',
     hasMemoryRecall: false,
     replyCount: 1,
     showPreparing: false,
@@ -1145,6 +1152,7 @@ test('buildConversationGroupTimelineItems groups and labels mixed JavaScript and
 
 test('buildConversationGroupTimelineItems keeps bash run commands separate from search tools', () => {
   const items = buildConversationGroupTimelineItems({
+    toolCallDisplayMode: 'work-summary',
     hasMemoryRecall: false,
     replyCount: 1,
     showPreparing: false,

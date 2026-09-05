@@ -37,6 +37,11 @@ import { getAskUserDetails } from '../lib/branching/askUserBranchAction.ts'
 import { useReusedTimelineRows } from '../lib/timeline/timelineRowReuse.ts'
 import { buildTimelineVirtualRowStyle } from '../lib/timeline/messageTimelineRowStyle.ts'
 import {
+  captureTimelineViewportAnchor,
+  restoreTimelineViewportAnchor,
+  type TimelineViewportAnchor
+} from '../lib/timeline/timelineViewportAnchor.ts'
+import {
   remeasureTimelineRowFromDescendant,
   resolveTimelineScrollOffsetAfterSizeChange
 } from '../lib/timeline/timelineRowRemeasure.ts'
@@ -461,6 +466,7 @@ export function MessageTimeline({
 
   useIsomorphicLayoutEffect(() => {
     if (prevThreadIdRef.current === threadId) return
+    pendingHistoryAnchorRef.current = null
     stickToBottomRef.current = true
     pendingThreadSwitchScrollRef.current = threadId
     programmaticScrollUntilRef.current = Date.now() + 500
@@ -473,6 +479,9 @@ export function MessageTimeline({
   // scrolled offscreen and back doesn't snap back to a coarse estimate and
   // push later rows onto the same translateY — the original overlap bug.
   const measuredSizeCache = useRef<Map<string, number>>(new Map())
+  const pendingHistoryAnchorRef = useRef<
+    (TimelineViewportAnchor & { oldestId: string; applied?: boolean }) | null
+  >(null)
 
   const getScrollElement = useCallback(() => scrollContainerRef.current, [])
   // Conservative estimate: over-approximate on uncertainty. Overestimating
@@ -542,6 +551,44 @@ export function MessageTimeline({
 
     const container = scrollContainerRef.current
     const pendingHandoffAnchor = pendingHandoffAnchorRef.current
+    const historyAnchor = pendingHistoryAnchorRef.current
+    if (
+      container &&
+      historyAnchor &&
+      messages.findIndex((message) => message.id === historyAnchor.oldestId) > 0
+    ) {
+      previousTimelineRowsRef.current = timelineRows
+      if (historyAnchor.applied) return
+      historyAnchor.applied = true
+      stickToBottomRef.current = false
+      const offset = resolveTimelineRowOffset({
+        key: historyAnchor.key,
+        measuredSizeCache: measuredSizeCache.current,
+        rows: timelineRows
+      })
+      if (offset != null) {
+        virtualizer.scrollToOffset(Math.max(0, offset + 16 - historyAnchor.top))
+        lastScrollTopRef.current = container.scrollTop
+        programmaticScrollUntilRef.current = Date.now() + 240
+      }
+      let retries = 14
+      let stableFrames = 0
+      const refine = (): void => {
+        if (pendingHistoryAnchorRef.current !== historyAnchor) return
+        const delta = restoreTimelineViewportAnchor(container, historyAnchor)
+        if (delta === null) {
+          const index = timelineRowsRef.current.findIndex((row) => row.key === historyAnchor.key)
+          if (index >= 0) virtualizer.scrollToIndex(index, { align: 'start' })
+        }
+        lastScrollTopRef.current = container.scrollTop
+        programmaticScrollUntilRef.current = Date.now() + 120
+        stableFrames = delta !== null && Math.abs(delta) <= 0.5 ? stableFrames + 1 : 0
+        if (--retries > 0 && stableFrames < 2) requestAnimationFrame(refine)
+        else pendingHistoryAnchorRef.current = null
+      }
+      requestAnimationFrame(refine)
+      return
+    }
     if (container && !stickToBottomRef.current) {
       if (pendingHandoffAnchor) {
         const nextOffset = resolveTimelineRowOffset({
@@ -639,7 +686,7 @@ export function MessageTimeline({
       }
       requestAnimationFrame(refineHandoffAnchor)
     }
-  }, [timelineRows])
+  }, [timelineRows, messages, virtualizer])
   // Sync measuredSizeCache from virtualizer's own measurements on every render.
   // getVirtualItems().size reflects the current ResizeObserver-driven size, so
   // post-mount growth (streaming text, tool group expansion, footer appearing)
@@ -670,6 +717,7 @@ export function MessageTimeline({
       if (targetIndex < 0) return
 
       // User is deliberately navigating — unpin from bottom
+      pendingHistoryAnchorRef.current = null
       stickToBottomRef.current = false
       pendingThreadSwitchScrollRef.current = null
       programmaticScrollUntilRef.current = Date.now() + 300
@@ -696,12 +744,14 @@ export function MessageTimeline({
     if (!container) return
 
     const handleWheel = (event: WheelEvent): void => {
+      pendingHistoryAnchorRef.current = null
       if (event.deltaY < -2) {
         unpinFromBottom()
       }
     }
 
     const handleTouchStart = (event: TouchEvent): void => {
+      pendingHistoryAnchorRef.current = null
       lastTouchYRef.current = event.touches[0]?.clientY ?? null
     }
 
@@ -727,15 +777,6 @@ export function MessageTimeline({
         return
       }
 
-      // Reaching toward the top asks for the previous page. The store action
-      // is the guard: it returns immediately when a page is already in flight
-      // or the thread has no older messages, so a burst of scroll events costs
-      // nothing. Placed after the programmatic-scroll check so the anchor
-      // correction that follows a load cannot trigger another one.
-      if (threadId && currentScrollTop < LOAD_OLDER_MESSAGES_SCROLL_THRESHOLD_PX) {
-        void useAppStore.getState().loadOlderThreadMessages(threadId)
-      }
-
       const distanceFromBottom =
         container.scrollHeight - container.scrollTop - container.clientHeight
       // Hysteresis: avoid rapid flipping from virtualizer measurement lag.
@@ -743,6 +784,23 @@ export function MessageTimeline({
         stickToBottomRef.current = true
       } else if (stickToBottomRef.current && distanceFromBottom > 200) {
         stickToBottomRef.current = false
+      }
+
+      pendingHistoryAnchorRef.current = null
+      const state = useAppStore.getState()
+      const paging = threadId ? state.threadMessagePaging[threadId] : undefined
+      if (
+        threadId &&
+        paging?.hasOlder &&
+        currentScrollTop < LOAD_OLDER_MESSAGES_SCROLL_THRESHOLD_PX
+      ) {
+        unpinFromBottom()
+        pendingThreadSwitchScrollRef.current = null
+        cancelInitialBottomScroll()
+        const anchor = captureTimelineViewportAnchor(container)
+        const oldestId = state.messages[threadId]?.[0]?.id
+        pendingHistoryAnchorRef.current = anchor && oldestId ? { ...anchor, oldestId } : null
+        if (!paging.loadingOlder) void state.loadOlderThreadMessages(threadId)
       }
 
       const mask = stickToBottomRef.current
@@ -762,7 +820,7 @@ export function MessageTimeline({
       container.removeEventListener('touchmove', handleTouchMove)
       container.removeEventListener('scroll', handleScroll)
     }
-  }, [threadId, timelineRows.length, unpinFromBottom])
+  }, [threadId, timelineRows.length, unpinFromBottom, cancelInitialBottomScroll])
 
   const scrollToBottom = useCallback((): void => {
     if (timelineRowsRef.current.length === 0) return
@@ -841,6 +899,7 @@ export function MessageTimeline({
   const prevActiveRequestRef = useRef(activeRequestMessageId)
   useEffect(() => {
     if (activeRequestMessageId && activeRequestMessageId !== prevActiveRequestRef.current) {
+      pendingHistoryAnchorRef.current = null
       stickToBottomRef.current = true
       // Immediately scroll so the user sees their own message without waiting for streaming
       scrollToBottom()
@@ -868,6 +927,7 @@ export function MessageTimeline({
   }, [activeRequestMessageId, messages, runPhase, toolCalls, timelineRows.length, scrollToBottom])
   useEffect(() => {
     return () => {
+      pendingHistoryAnchorRef.current = null
       cancelInitialBottomScroll()
       if (streamingScrollRafRef.current !== null) {
         cancelAnimationFrame(streamingScrollRafRef.current)
@@ -896,6 +956,7 @@ export function MessageTimeline({
     // would race that read.
     if (outcome !== 'scroll') return
 
+    pendingHistoryAnchorRef.current = null
     pendingThreadSwitchScrollRef.current = null
     stickToBottomRef.current = false
     cancelInitialBottomScroll()
@@ -1171,6 +1232,7 @@ export function MessageTimeline({
                       key={item.key}
                       className="message-timeline-row"
                       data-index={virtualRow.index}
+                      data-timeline-row-key={item.key}
                       ref={virtualizer.measureElement}
                       style={buildTimelineVirtualRowStyle(virtualRow.start)}
                     >

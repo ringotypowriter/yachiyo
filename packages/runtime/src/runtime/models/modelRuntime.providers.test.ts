@@ -769,8 +769,8 @@ test('streamReply injects reasoning_content into responseMessages for OpenAI-com
   assert.equal(responseMessages[2].content[0].type, 'text')
 })
 
-test('streamReply measures model generation time without counting tool waits', async () => {
-  const nowValues = [100, 500, 2_000, 2_100, 2_200, 2_800]
+test('streamReply measures generation after each first token without counting tool waits', async () => {
+  let now = 0
   let finishedUsage: { modelGenerationDurationMs?: number } | undefined
   const runtime = createAiSdkModelRuntime({
     createOpenAIProvider: () =>
@@ -780,23 +780,35 @@ test('streamReply measures model generation time without counting tool waits', a
     createAnthropicProvider: () => {
       throw new Error('unused')
     },
-    nowImpl: () => nowValues.shift()!,
+    nowImpl: () => now,
     streamTextImpl: ((options: {
       experimental_onToolCallStart?: (event: { toolCall: { toolCallId: string } }) => void
       experimental_onToolCallFinish?: (event: { toolCall: { toolCallId: string } }) => void
     }) => ({
       fullStream: (async function* () {
+        now = 100
         yield { type: 'start-step' }
+        now = 400
+        yield { type: 'tool-input-start', id: 'tool-1', toolName: 'bash' }
+        now = 500
         options.experimental_onToolCallStart?.({ toolCall: { toolCallId: 'tool-1' } })
         options.experimental_onToolCallStart?.({ toolCall: { toolCallId: 'tool-2' } })
+        now = 2_000
         options.experimental_onToolCallFinish?.({ toolCall: { toolCallId: 'tool-1' } })
         options.experimental_onToolCallFinish?.({ toolCall: { toolCallId: 'tool-2' } })
+        now = 2_100
         yield {
           type: 'finish-step',
           finishReason: 'tool-calls',
           usage: { inputTokens: 100, outputTokens: 20 }
         }
+        now = 2_200
         yield { type: 'start-step' }
+        now = 2_600
+        yield { type: 'reasoning-delta', text: 'Thinking' }
+        now = 2_700
+        yield { type: 'text-delta', text: 'Done.' }
+        now = 2_800
         yield {
           type: 'finish-step',
           finishReason: 'stop',
@@ -828,8 +840,8 @@ test('streamReply measures model generation time without counting tool waits', a
     chunks.push(chunk)
   }
 
-  assert.deepEqual(chunks, [])
-  assert.equal(finishedUsage?.modelGenerationDurationMs, 1_100)
+  assert.deepEqual(chunks, ['Done.'])
+  assert.equal(finishedUsage?.modelGenerationDurationMs, 400)
 })
 
 test('streamReply reports the first token before a tool-only step waits for visible text', async () => {

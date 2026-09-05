@@ -543,8 +543,11 @@ export function createAiSdkModelRuntime(dependencies: AiSdkRuntimeDependencies =
       let totalYieldedChars = 0
       let contextStripCompactRetries = 0
       let modelGenerationDurationMs = 0
+      let stepStartedAt: number | undefined
       let firstTokenReported = false
       const reportFirstToken = (): void => {
+        // Each model step has its own request wait; none of those waits are decoding time.
+        stepStartedAt ??= resolvedDependencies.nowImpl()
         if (firstTokenReported) return
         firstTokenReported = true
         request.onFirstToken?.()
@@ -570,7 +573,7 @@ export function createAiSdkModelRuntime(dependencies: AiSdkRuntimeDependencies =
         let streamCommitted = false
         let nextStepNumber = 0
         let pendingStepFinish: PendingStepFinish | undefined
-        let stepStartedAt: number | undefined
+        stepStartedAt = undefined
         let stepToolExecutionMs = 0
         let activeToolExecutionStartedAt: number | undefined
         const activeToolCallIds = new Set<string>()
@@ -676,7 +679,7 @@ export function createAiSdkModelRuntime(dependencies: AiSdkRuntimeDependencies =
               }
 
               if (part.type === 'start-step') {
-                stepStartedAt = resolvedDependencies.nowImpl()
+                stepStartedAt = undefined
                 stepToolExecutionMs = 0
                 activeToolExecutionStartedAt = undefined
                 activeToolCallIds.clear()

@@ -21,6 +21,7 @@ let MessageTimeline: typeof import('./MessageTimeline.tsx').MessageTimeline
 let root: Root | null = null
 let now = 1_000
 let originalDateNow: typeof Date.now
+let animationFrames: FrameRequestCallback[] = []
 
 function installDom(): void {
   const { window } = parseHTML('<html><body><div id="root"></div></body></html>')
@@ -65,7 +66,7 @@ function installDom(): void {
   install('ResizeObserver', TestResizeObserver)
   install('getComputedStyle', () => ({ overflowX: 'visible', overflowY: 'visible' }))
   install('requestAnimationFrame', (callback: FrameRequestCallback) => {
-    void callback
+    animationFrames.push(callback)
     return 1
   })
   install('cancelAnimationFrame', () => {})
@@ -153,6 +154,7 @@ before(async () => {
 
 beforeEach(() => {
   now = 1_000
+  animationFrames = []
   useAppStore.setState(useAppStore.getInitialState(), true)
   document.body.innerHTML = '<div id="root"></div>'
 })
@@ -205,4 +207,101 @@ test('scrolling the timeline near the top requests the previous page', async () 
 
 test('scrolling the timeline away from the top does not request the previous page', async () => {
   assert.deepEqual(await scrollTimeline(600), [])
+})
+
+async function loadHistoryAtViewport(): Promise<{
+  container: HTMLElement
+  frame: () => Promise<void>
+  setInsertedHeight: (height: number) => void
+}> {
+  let requests = 0
+  const latestMessage = { ...createUserMessage(), parentMessageId: 'older-message' }
+  useAppStore.setState({
+    threads: [createThread()],
+    messages: { [THREAD_ID]: [latestMessage] },
+    threadMessagePaging: { [THREAD_ID]: { hasOlder: true, loadingOlder: false } },
+    loadOlderThreadMessages: async () => {
+      requests++
+    }
+  })
+  const rootElement = await renderTimeline()
+  const container = rootElement.querySelector<HTMLElement>('[data-timeline-scroll]')!
+  let insertedHeight = 0
+  Object.defineProperties(container, {
+    scrollTop: { configurable: true, writable: true, value: 300 },
+    scrollHeight: { configurable: true, get: () => 720 + insertedHeight },
+    clientHeight: { configurable: true, value: 400 },
+    scrollTo: {
+      configurable: true,
+      value: (options: ScrollToOptions) => {
+        container.scrollTop = options.top ?? container.scrollTop
+      }
+    }
+  })
+  container.getBoundingClientRect = () => ({ top: 50 }) as DOMRect
+  // linkedom has no layout; model the measured position of the actual visible row.
+  const row = document.createElement('div')
+  row.dataset.timelineRowKey = 'user:message-1'
+  row.getBoundingClientRect = () =>
+    ({
+      top: 330 + insertedHeight - container.scrollTop,
+      bottom: 430 + insertedHeight - container.scrollTop
+    }) as DOMRect
+  container.appendChild(row)
+  now = 2_000
+  await act(async () => container.dispatchEvent(new Event('scroll')))
+  assert.equal(requests, 1)
+  insertedHeight = 1_000
+  await act(async () => {
+    useAppStore.setState({
+      messages: {
+        [THREAD_ID]: [
+          { ...createUserMessage(), id: 'older-message', createdAt: '2026-09-02T00:00:00.000Z' },
+          latestMessage
+        ]
+      }
+    })
+  })
+  const frame = async (): Promise<void> => {
+    const callbacks = animationFrames
+    animationFrames = []
+    await act(async () => {
+      for (const callback of callbacks) callback(now)
+    })
+  }
+  await frame()
+  assert.equal(container.scrollTop, 1_300)
+  return {
+    container,
+    frame,
+    setInsertedHeight: (height) => {
+      insertedHeight = height
+    }
+  }
+}
+
+test('loading history retains the visible DOM anchor after prepend and measured height changes', async () => {
+  const { container, frame, setInsertedHeight } = await loadHistoryAtViewport()
+  setInsertedHeight(1_360)
+  await frame()
+  assert.equal(container.scrollTop, 1_660)
+  await frame()
+  await frame()
+  assert.equal(container.scrollTop, 1_660)
+})
+
+test('sending a message cancels a pending history anchor correction', async () => {
+  const { container, frame, setInsertedHeight } = await loadHistoryAtViewport()
+  await act(async () => {
+    useAppStore.setState({ activeRequestMessageIdsByThread: { [THREAD_ID]: 'new-request' } })
+  })
+  setInsertedHeight(1_360)
+  await frame()
+  await frame()
+  await frame()
+  assert.notEqual(
+    container.scrollTop,
+    1_660,
+    'history must not pull the viewport back to the old row'
+  )
 })
