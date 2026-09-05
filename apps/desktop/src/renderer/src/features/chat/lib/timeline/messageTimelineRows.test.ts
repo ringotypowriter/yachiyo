@@ -103,6 +103,7 @@ test('buildConversationGroupRows splits a streaming conversation into user, cont
   })
 
   const rows = buildConversationGroupRows({
+    toolCallDisplayMode: 'work-summary',
     group,
     inlineToolCalls: [
       {
@@ -142,6 +143,7 @@ test('buildConversationGroupRows keeps generating after a completed tool call ev
   })
 
   const rows = buildConversationGroupRows({
+    toolCallDisplayMode: 'work-summary',
     group,
     inlineToolCalls: [
       {
@@ -647,6 +649,7 @@ test('buildConversationGroupRows summarizes completed agent work before the fina
   })
 
   const rows = buildConversationGroupRows({
+    toolCallDisplayMode: 'work-summary',
     group,
     inlineToolCalls: [
       {
@@ -728,6 +731,7 @@ test('buildConversationGroupRows excludes stopped branch tool calls from the act
   })
 
   const rows = buildConversationGroupRows({
+    toolCallDisplayMode: 'work-summary',
     group,
     inlineToolCalls: [
       ...Array.from({ length: 3 }, (_, index) => ({
@@ -798,6 +802,7 @@ test('buildConversationGroupRows summarizes completed tool-only work when many t
   })
 
   const rows = buildConversationGroupRows({
+    toolCallDisplayMode: 'work-summary',
     group,
     inlineToolCalls: Array.from({ length: 6 }, (_, index) => ({
       id: `tool-read-${index + 1}`,
@@ -843,6 +848,7 @@ test('buildConversationGroupRows keeps short tool-only work expanded with run st
   })
 
   const rows = buildConversationGroupRows({
+    toolCallDisplayMode: 'work-summary',
     group,
     inlineToolCalls: [
       {
@@ -898,6 +904,7 @@ test('buildConversationGroupRows summarizes completed hidden-steer tool work bef
   })
 
   const rows = buildConversationGroupRows({
+    toolCallDisplayMode: 'work-summary',
     group,
     inlineToolCalls: [
       {
@@ -962,6 +969,7 @@ test('buildConversationGroupRows summarizes user steers as degraded work items',
   })
 
   const rows = buildConversationGroupRows({
+    toolCallDisplayMode: 'work-summary',
     group,
     inlineToolCalls: [
       {
@@ -1022,6 +1030,7 @@ test('buildConversationGroupRows preserves chronological work trajectory inside 
   })
 
   const rows = buildConversationGroupRows({
+    toolCallDisplayMode: 'work-summary',
     group,
     inlineToolCalls: [
       {
@@ -1094,6 +1103,7 @@ test('buildConversationGroupRows keeps unfinished tool work visible instead of s
   })
 
   const rows = buildConversationGroupRows({
+    toolCallDisplayMode: 'work-summary',
     group,
     inlineToolCalls: [
       {
@@ -1145,6 +1155,7 @@ test('buildConversationGroupRows keeps failed responses visible instead of packa
   })
 
   const rows = buildConversationGroupRows({
+    toolCallDisplayMode: 'work-summary',
     group,
     inlineToolCalls: [
       {
@@ -1174,7 +1185,7 @@ test('buildConversationGroupRows keeps failed responses visible instead of packa
   ])
 })
 
-test('buildConversationGroupRows renders completed work as a deck in tool deck mode', () => {
+test('buildConversationGroupRows renders completed work as a deck when display mode is omitted', () => {
   const group = createGroup({
     activeAssistant: createAssistantMessage({
       id: 'assistant-1',
@@ -1213,8 +1224,7 @@ test('buildConversationGroupRows renders completed work as a deck in tool deck m
     runs: [],
     activeRunId: null,
     isActiveGroup: false,
-    subagentActive: false,
-    toolCallDisplayMode: 'tool-deck'
+    subagentActive: false
   })
 
   assert.deepEqual(rowKinds(rows), [
@@ -1304,7 +1314,7 @@ test('buildConversationGroupRows creates separate completed decks around assista
   )
 })
 
-test('buildConversationGroupRows renders a live running call inside a deck', () => {
+test('buildConversationGroupRows renders a live running call inside a deck when display mode is omitted', () => {
   const group = createGroup({
     activeAssistant: createAssistantMessage({
       id: 'assistant-live-deck',
@@ -1332,8 +1342,7 @@ test('buildConversationGroupRows renders a live running call inside a deck', () 
     runs: [],
     activeRunId: 'run-live',
     isActiveGroup: true,
-    subagentActive: false,
-    toolCallDisplayMode: 'tool-deck'
+    subagentActive: false
   })
 
   assert.deepEqual(rowKinds(rows), ['group-user', 'group-tool-call-deck'])

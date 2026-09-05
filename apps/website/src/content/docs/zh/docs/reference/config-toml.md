@@ -30,7 +30,7 @@ runMode = "auto"
 | `sidebarVisibility`        | `"expanded"` \| `"collapsed"`       | `expanded`                 | 侧边栏状态                                                                           |
 | `language`                 | `"auto"` \| `"en"` \| `"zh-CN"`     | `auto`                     | 界面语言；`auto` 跟随系统                                                            |
 | `sidebarPreview`           | `boolean`                           | `true`                     | 侧边栏中的消息预览                                                                   |
-| `toolCallDisplayMode`      | `"work-summary"` \| `"tool-deck"`   | `work-summary`             | 显示紧凑的已完成工作摘要或按时间排列的工具面板                                       |
+| `toolCallDisplayMode`      | `"work-summary"` \| `"tool-deck"`   | `tool-deck`                | 显示紧凑的已完成工作摘要或按时间排列的工具面板                                       |
 | `themeId`                  | `string`                            | `mizu`                     | `mizu`、`sumi`、`ume`、`aoba`、`mint`、`fuji`、`yamabuki`、`gobyou`、`murasaki` 之一 |
 | `themeAppearance`          | `"system"` \| `"light"` \| `"dark"` | `system`                   | 明暗模式                                                                             |
 | `uiFontSize`               | `number`                            | ——                         | 界面字号                                                                             |

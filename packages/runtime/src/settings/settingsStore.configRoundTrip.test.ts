@@ -112,6 +112,7 @@ test('context time zone round-trips through TOML and rejects invalid zones', () 
 
 test('tool call display mode round-trips and migrates the legacy boolean', () => {
   const workSummary = parseSettingsToml(`[general]
+toolCallDisplayMigrated = true
 toolCallDisplayMode = "work-summary"
 `)
   assert.equal(workSummary.general?.toolCallDisplayMode, 'work-summary')
@@ -151,6 +152,7 @@ workSummary = true
   assert.equal(
     parseSettingsToml(`[general]
 workSummary = false
+toolCallDisplayMigrated = true
 toolCallDisplayMode = "work-summary"
 `).general?.toolCallDisplayMode,
     'work-summary'
@@ -162,6 +164,56 @@ toolCallDisplayMode = "invalid"
 `).general?.toolCallDisplayMode,
     DEFAULT_TOOL_CALL_DISPLAY_MODE
   )
+})
+
+test('tool decks are the default and old summary settings migrate once', () => {
+  assert.equal(DEFAULT_TOOL_CALL_DISPLAY_MODE, 'tool-deck')
+  assert.equal(normalizeSettingsConfig({}).general?.toolCallDisplayMode, 'tool-deck')
+  for (const legacy of [
+    '',
+    'workSummary = true',
+    'workSummary = false',
+    'toolCallDisplayMode = "work-summary"',
+    'toolCallDisplayMode = "tool-deck"'
+  ]) {
+    const migrated = parseSettingsToml(`[general]\n${legacy}\n`)
+    assert.equal(migrated.general?.toolCallDisplayMode, 'tool-deck')
+    const serialized = stringifySettingsToml(migrated)
+    assert.match(serialized, /toolCallDisplayMigrated = true/)
+    assert.equal(parseSettingsToml(serialized).general?.toolCallDisplayMode, 'tool-deck')
+    const selectedSummary = serialized.replace(
+      'toolCallDisplayMode = "tool-deck"',
+      'toolCallDisplayMode = "work-summary"'
+    )
+    assert.equal(parseSettingsToml(selectedSummary).general?.toolCallDisplayMode, 'work-summary')
+    assert.equal(
+      parseSettingsToml(stringifySettingsToml(parseSettingsToml(selectedSummary))).general
+        ?.toolCallDisplayMode,
+      'work-summary'
+    )
+  }
+})
+
+test('startup persists the deck migration and preserves a later summary preference', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'yachiyo-tool-display-migration-'))
+  const path = join(root, 'config.toml')
+  try {
+    await writeFile(path, '[general]\nworkSummary = true\n')
+    const store = createSettingsStore(path, { seedPresetProviders: true })
+    assert.equal(store.read().general?.toolCallDisplayMode, 'tool-deck')
+    const migrated = await readFile(path, 'utf8')
+    assert.match(migrated, /toolCallDisplayMigrated = true/)
+    await writeFile(
+      path,
+      migrated.replace('toolCallDisplayMode = "tool-deck"', 'toolCallDisplayMode = "work-summary"')
+    )
+    const reopened = createSettingsStore(path, { seedPresetProviders: true })
+    assert.equal(reopened.read().general?.toolCallDisplayMode, 'work-summary')
+    reopened.write(reopened.read())
+    assert.equal(createSettingsStore(path).read().general?.toolCallDisplayMode, 'work-summary')
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
 })
 
 test('sync folder path round-trips through TOML serialization', async () => {

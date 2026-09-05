@@ -267,7 +267,6 @@ function AgentRow({
 }): React.JSX.Element {
   const running = isRunning(snapshot)
   const elapsed = formatElapsed(snapshot.startedAt, now)
-  const profile = `${snapshot.agentName} · ${snapshot.agentType}`
   const latestTool = activity?.recentToolCalls?.[activity.recentToolCalls.length - 1]
   const progress = activity?.progress.trim()
   const recentMessage = activity?.lastMessage?.trim()
@@ -287,7 +286,7 @@ function AgentRow({
               {snapshot.codeName}
             </span>
             <span className="truncate text-[10px]" style={{ color: theme.text.muted }}>
-              {profile}
+              {snapshot.agentType}
             </span>
           </div>
           <div

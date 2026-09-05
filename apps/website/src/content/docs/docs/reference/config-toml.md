@@ -42,7 +42,7 @@ Default run mode: `auto`, `explore`, `plan`, `chat`, or `custom`. Defaults to
 | `sidebarVisibility`        | `"expanded"` \| `"collapsed"`       | `expanded`                 | Sidebar state                                                                          |
 | `language`                 | `"auto"` \| `"en"` \| `"zh-CN"`     | `auto`                     | UI language; `auto` follows the system                                                 |
 | `sidebarPreview`           | `boolean`                           | `true`                     | Message previews in the sidebar                                                        |
-| `toolCallDisplayMode`      | `"work-summary"` \| `"tool-deck"`   | `work-summary`             | Show compact completed-work summaries or chronological tool decks                      |
+| `toolCallDisplayMode`      | `"work-summary"` \| `"tool-deck"`   | `tool-deck`                | Show compact completed-work summaries or chronological tool decks                      |
 | `themeId`                  | `string`                            | `mizu`                     | One of `mizu`, `sumi`, `ume`, `aoba`, `mint`, `fuji`, `yamabuki`, `gobyou`, `murasaki` |
 | `themeAppearance`          | `"system"` \| `"light"` \| `"dark"` | `system`                   | Light/dark mode                                                                        |
 | `uiFontSize`               | `number`                            | —                          | UI font size                                                                           |

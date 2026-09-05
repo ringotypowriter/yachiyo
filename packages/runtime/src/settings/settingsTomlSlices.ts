@@ -41,11 +41,7 @@ export const settingsTomlSlices: readonly TomlConfigSlice<SettingsConfig, TomlDo
       if (!general) return {}
 
       const toolCallDisplayMode =
-        general['toolCallDisplayMode'] !== undefined
-          ? general['toolCallDisplayMode']
-          : general['workSummary'] === false
-            ? 'tool-deck'
-            : DEFAULT_TOOL_CALL_DISPLAY_MODE
+        general['toolCallDisplayMigrated'] === true ? general['toolCallDisplayMode'] : 'tool-deck'
 
       return {
         general: {
@@ -63,6 +59,8 @@ export const settingsTomlSlices: readonly TomlConfigSlice<SettingsConfig, TomlDo
           sidebarPreview: config.general?.sidebarPreview !== false,
           toolCallDisplayMode:
             config.general?.toolCallDisplayMode ?? DEFAULT_TOOL_CALL_DISPLAY_MODE,
+          // File-only marker: old defaults migrate once, later explicit choices survive.
+          toolCallDisplayMigrated: true,
           themeId: config.general?.themeId ?? DEFAULT_THEME_ID,
           themeAppearance: config.general?.themeAppearance ?? DEFAULT_THEME_APPEARANCE,
           demoMode: config.general?.demoMode === true,

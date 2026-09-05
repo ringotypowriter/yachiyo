@@ -5,6 +5,7 @@ import { buildConversationGroupTimelineItems } from './messageTimelineLayout.ts'
 
 test('buildConversationGroupTimelineItems keeps replies before memory recall and orders tools with the assistant by time', () => {
   const items = buildConversationGroupTimelineItems({
+    toolCallDisplayMode: 'work-summary',
     hasMemoryRecall: true,
     replyCount: 2,
     showPreparing: false,
@@ -67,6 +68,7 @@ test('buildConversationGroupTimelineItems keeps preparing at the end while a his
 
 test('buildConversationGroupTimelineItems keeps the assistant ahead of tools when timestamps tie', () => {
   const items = buildConversationGroupTimelineItems({
+    toolCallDisplayMode: 'work-summary',
     hasMemoryRecall: false,
     replyCount: 1,
     showPreparing: false,
@@ -99,6 +101,7 @@ test('buildConversationGroupTimelineItems keeps the assistant ahead of tools whe
 
 test('buildConversationGroupTimelineItems keeps assistant text blocks split around tools', () => {
   const items = buildConversationGroupTimelineItems({
+    toolCallDisplayMode: 'work-summary',
     hasMemoryRecall: false,
     replyCount: 1,
     showPreparing: false,
@@ -137,6 +140,7 @@ test('buildConversationGroupTimelineItems keeps assistant text blocks split arou
 
 test('buildConversationGroupTimelineItems keeps generating at the bottom of the run', () => {
   const items = buildConversationGroupTimelineItems({
+    toolCallDisplayMode: 'work-summary',
     hasMemoryRecall: false,
     replyCount: 1,
     showPreparing: false,
@@ -183,6 +187,7 @@ test('buildConversationGroupTimelineItems does not add generating before the fir
 
 test('buildConversationGroupTimelineItems keeps post-text tool calls for a completed message', () => {
   const items = buildConversationGroupTimelineItems({
+    toolCallDisplayMode: 'work-summary',
     hasMemoryRecall: false,
     replyCount: 1,
     showPreparing: false,
@@ -216,6 +221,7 @@ test('buildConversationGroupTimelineItems keeps post-text tool calls for a compl
 
 test('buildConversationGroupTimelineItems groups consecutive same-group tool calls', () => {
   const items = buildConversationGroupTimelineItems({
+    toolCallDisplayMode: 'work-summary',
     hasMemoryRecall: false,
     replyCount: 1,
     showPreparing: false,
@@ -264,6 +270,7 @@ test('buildConversationGroupTimelineItems groups consecutive same-group tool cal
 
 test('buildConversationGroupTimelineItems does not group same-group tool calls separated by a different tool call', () => {
   const items = buildConversationGroupTimelineItems({
+    toolCallDisplayMode: 'work-summary',
     hasMemoryRecall: false,
     replyCount: 1,
     showPreparing: false,
@@ -342,6 +349,7 @@ test('buildConversationGroupTimelineItems does not group same-group tool calls s
 
 test('buildConversationGroupTimelineItems does not group same-group tool calls separated by a non-empty text block', () => {
   const items = buildConversationGroupTimelineItems({
+    toolCallDisplayMode: 'work-summary',
     hasMemoryRecall: false,
     replyCount: 1,
     showPreparing: false,
@@ -400,6 +408,7 @@ test('buildConversationGroupTimelineItems does not group same-group tool calls s
 
 test('buildConversationGroupTimelineItems groups same-group tool calls across empty text blocks', () => {
   const items = buildConversationGroupTimelineItems({
+    toolCallDisplayMode: 'work-summary',
     hasMemoryRecall: false,
     replyCount: 1,
     showPreparing: false,
@@ -455,6 +464,7 @@ test('buildConversationGroupTimelineItems groups same-group tool calls across em
 
 test('buildConversationGroupTimelineItems treats read and edit calls on the same file as editing', () => {
   const items = buildConversationGroupTimelineItems({
+    toolCallDisplayMode: 'work-summary',
     hasMemoryRecall: false,
     replyCount: 1,
     showPreparing: false,
@@ -540,6 +550,7 @@ test('buildConversationGroupTimelineItems treats read and edit calls on the same
 
 test('buildConversationGroupTimelineItems treats grep and edit calls as editing', () => {
   const items = buildConversationGroupTimelineItems({
+    toolCallDisplayMode: 'work-summary',
     hasMemoryRecall: false,
     replyCount: 1,
     showPreparing: false,
@@ -637,6 +648,7 @@ test('buildConversationGroupTimelineItems treats grep and edit calls as editing'
 
 test('buildConversationGroupTimelineItems keeps editing groups alive after an intervening grep', () => {
   const items = buildConversationGroupTimelineItems({
+    toolCallDisplayMode: 'work-summary',
     hasMemoryRecall: false,
     replyCount: 1,
     showPreparing: false,
@@ -739,6 +751,7 @@ test('buildConversationGroupTimelineItems keeps editing groups alive after an in
 
 test('buildConversationGroupTimelineItems can return to an earlier file after grep in a multi-file edit group', () => {
   const items = buildConversationGroupTimelineItems({
+    toolCallDisplayMode: 'work-summary',
     hasMemoryRecall: false,
     replyCount: 1,
     showPreparing: false,
@@ -856,6 +869,7 @@ test('buildConversationGroupTimelineItems can return to an earlier file after gr
 
 test('buildConversationGroupTimelineItems can expand an editing group to a newly read file', () => {
   const items = buildConversationGroupTimelineItems({
+    toolCallDisplayMode: 'work-summary',
     hasMemoryRecall: false,
     replyCount: 1,
     showPreparing: false,
@@ -939,13 +953,12 @@ test('buildConversationGroupTimelineItems can expand an editing group to a newly
   ])
 })
 
-test('tool deck mode follows persisted trace order and splits on non-empty assistant text', () => {
+test('omitted display mode defaults to a tool deck that follows persisted trace order and splits on non-empty assistant text', () => {
   const items = buildConversationGroupTimelineItems({
     hasMemoryRecall: false,
     replyCount: 1,
     showPreparing: false,
     showGenerating: false,
-    toolCallDisplayMode: 'tool-deck',
     activeAssistantTextBlocks: [
       {
         id: 'text-boundary',
