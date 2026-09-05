@@ -150,8 +150,9 @@ frequent and unglamorous.
 
 Three separate things that are easy to confuse:
 
-- **Memory** — durable facts saved via the `remember` tool and recalled into
-  later runs. Stored in the database, searchable, on by default.
+- **Memory** — revisable, source-linked notes saved via `remember` and recalled
+  into later runs. Original conversations remain searchable independently of notes.
+  Stored locally, on by default.
 - **`SOUL.md`** — the assistant's persona, including an evolving trait log that
   builds up over time. Editable in the app or via
   [`yachiyo soul`](/docs/cli/soul/).

@@ -6,11 +6,138 @@ import {
   applyCognitivePatchToState,
   createEmptyCognitiveMemoryState,
   diffuseCognitiveRows,
+  searchCognitiveRows,
   renderCognitiveRowMemoryEntry,
   type CognitivePatch
 } from './cognitiveMemory.ts'
 
 const NOW = '2026-05-19T02:30:00.000Z'
+
+test('legacy recall preserves symbolic cues and matches English word boundaries', () => {
+  const state = applyCognitivePatchToState(
+    createEmptyCognitiveMemoryState(),
+    {
+      operations: [
+        {
+          type: 'upsertRow',
+          relation: 'rules',
+          key: 'multiline',
+          values: { rule: 'Cross-line search' },
+          subjects: ['-U'],
+          evidence: evidence('m1')
+        },
+        {
+          type: 'upsertRow',
+          relation: 'rules',
+          key: 'deviation',
+          values: { rule: 'Uncertainty deviation scope' },
+          subjects: ['1%'],
+          evidence: evidence('m2')
+        },
+        {
+          type: 'upsertRow',
+          relation: 'rules',
+          key: 'bridge',
+          values: { rule: 'JavaScript invocation' },
+          subjects: ['tool'],
+          evidence: evidence('m3')
+        }
+      ]
+    },
+    { now: NOW, createId: () => 'row' }
+  )
+  const recall = (query: string): string[] =>
+    activateCognitiveRows(state, {
+      history: [],
+      limit: 4,
+      now: NOW,
+      thread: { id: 't', title: '', updatedAt: NOW },
+      userQuery: query
+    }).map((row) => row.key)
+  for (const query of [
+    '只提交你改动的部分，那个 changeset 留着，然后push',
+    '1. 这个问题怎么改',
+    '不需要改 tooltip 标记',
+    '11% 这个指标',
+    '使用 --UPDATE'
+  ])
+    assert.deepEqual(recall(query), [], query)
+  assert.deepEqual(recall('什么时候应该使用 -U？'), ['multiline'])
+  assert.deepEqual(recall('这里的 1% 适用于哪些指标？'), ['deviation'])
+  assert.deepEqual(recall('这个 tool 怎么调用？'), ['bridge'])
+  assert.deepEqual(recall('这个TOOL怎么调用？'), ['bridge'])
+  assert.deepEqual(searchCognitiveRows(state, { query: 'tooltip', limit: 4 }), [])
+})
+
+test('note recall and direct search do not match fragments inside English identifiers', () => {
+  const state = applyCognitivePatchToState(
+    createEmptyCognitiveMemoryState(),
+    {
+      operations: [
+        {
+          type: 'upsertRow',
+          relation: 'notes',
+          key: 'n',
+          values: { note: 'tool bridge 的调用约定。' },
+          evidence: evidence('m1')
+        }
+      ]
+    },
+    { now: NOW, createId: () => 'row' }
+  )
+  const recall = (query: string): string[] =>
+    activateCognitiveRows(state, {
+      history: [],
+      limit: 4,
+      now: NOW,
+      thread: { id: 't', title: '', updatedAt: NOW },
+      userQuery: query
+    }).map((row) => row.key)
+  assert.deepEqual(recall('tooltip drawbridge'), [])
+  assert.deepEqual(searchCognitiveRows(state, { query: 'too bridg', limit: 4 }), [])
+  assert.deepEqual(recall('这个 tool bridge 如何工作？'), ['n'])
+})
+
+test('note tokenization retains flags and percent units instead of treating them as plain words', () => {
+  const state = applyCognitivePatchToState(
+    createEmptyCognitiveMemoryState(),
+    {
+      operations: [
+        {
+          type: 'upsertRow',
+          relation: 'notes',
+          key: 'percent',
+          values: { note: 'deviation 100%' },
+          evidence: evidence('m1')
+        },
+        {
+          type: 'upsertRow',
+          relation: 'notes',
+          key: 'flag',
+          values: { note: 'flag -U' },
+          evidence: evidence('m2')
+        }
+      ]
+    },
+    { now: NOW, createId: () => 'row' }
+  )
+  const recall = (query: string): string[] =>
+    activateCognitiveRows(state, {
+      history: [],
+      limit: 4,
+      now: NOW,
+      thread: { id: 't', title: '', updatedAt: NOW },
+      userQuery: query
+    }).map((row) => row.key)
+  assert.deepEqual(recall('deviation 100 milliseconds'), [])
+  assert.deepEqual(recall('deviation 100%'), ['percent'])
+  assert.deepEqual(recall('flag push'), [])
+  assert.deepEqual(recall('flag -U'), ['flag'])
+  assert.equal(
+    searchCognitiveRows(state, { query: 'deviation 100 milliseconds', limit: 4 }).length,
+    0
+  )
+})
 
 function evidence(messageId: string): CognitivePatch['operations'][number]['evidence'] {
   return [{ kind: 'message', threadId: 'thread-1', messageId }]

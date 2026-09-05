@@ -6,6 +6,7 @@ import type {
   ThreadRecord
 } from '@yachiyo/shared/protocol'
 import { isMemoryConfigured } from '@yachiyo/shared/protocol'
+import { messageRowId, threadRowId } from '@yachiyo/shared/sourceRowIds'
 import type { AuxiliaryGenerationService } from '../../runtime/models/auxiliaryGeneration.ts'
 import type { ModelRuntime } from '../../runtime/models/types.ts'
 import {
@@ -14,7 +15,11 @@ import {
   shouldRecallBeforeRun,
   type RecallFilterCandidate
 } from './recallPolicy.ts'
-import { renderCognitiveRowMemoryEntry, type CognitiveEvidenceRef } from './cognitiveMemory.ts'
+import {
+  collectCognitiveEvidenceSourceRefs,
+  selectMemorySourceReferences,
+  renderCognitiveRowMemoryEntry
+} from './cognitiveMemory.ts'
 import type { CognitiveMemoryStore } from './cognitiveMemoryStore.ts'
 import {
   clampMemorySearchLimit,
@@ -27,13 +32,19 @@ import { collectStreamText } from './memoryService/generation.ts'
 import { hasUsableProviderSettings } from '../../runtime/providers/providerCredentials.ts'
 import {
   buildCandidatePatch,
-  buildRunCognitivePatchMessages,
-  buildSaveThreadCognitivePatchMessages,
-  parsePatchOrCandidateFallback,
+  buildNoteGenerationMessages,
   toCognitiveSearchResult
 } from './memoryService/cognitive.ts'
 
 const DEFAULT_CONTEXT_MEMORY_LIMIT = 4
+
+import {
+  saveGeneratedNotes,
+  writeNote,
+  type NoteInput,
+  type NoteContext,
+  type NoteWriteResult
+} from './memoryService/notes.ts'
 
 export interface MemoryQueryPlanItem {
   query: string
@@ -134,7 +145,7 @@ export interface MemoryService {
     scopeContext?: { threadId?: string; workspacePath?: string }
   ): Promise<{ savedCount: number }>
   validateAndCreateMemory(
-    raw: {
+    raw: NoteInput & {
       key?: string
       facts?: Record<string, string>
       subjects?: string[]
@@ -143,8 +154,8 @@ export interface MemoryService {
       scope?: MemoryScopeLevel
     },
     signal?: AbortSignal,
-    scopeContext?: { threadId?: string; workspacePath?: string }
-  ): Promise<{ savedCount: number; rejected?: string }>
+    scopeContext?: NoteContext
+  ): Promise<NoteWriteResult>
   distillCompletedRun(input: DistillRunMemoryInput): Promise<{ savedCount: number }>
   saveThread(input: SaveThreadMemoryInput): Promise<{ savedCount: number }>
 }
@@ -199,7 +210,7 @@ export function createMemoryService(deps: MemoryServiceDeps): MemoryService {
     },
 
     async validateAndCreateMemory(
-      raw: {
+      raw: NoteInput & {
         key?: string
         facts?: Record<string, string>
         subjects?: string[]
@@ -208,8 +219,12 @@ export function createMemoryService(deps: MemoryServiceDeps): MemoryService {
         scope?: MemoryScopeLevel
       },
       _signal?: AbortSignal,
-      scopeContext?: { threadId?: string; workspacePath?: string }
-    ): Promise<{ savedCount: number; rejected?: string }> {
+      scopeContext?: NoteContext
+    ): Promise<NoteWriteResult> {
+      _signal?.throwIfAborted()
+      if (raw.note !== undefined || raw.id !== undefined || raw.action !== undefined) {
+        return writeNote(deps.cognitiveStore, raw, scopeContext)
+      }
       const key = typeof raw.key === 'string' && raw.key.trim() ? normalizeWhitespace(raw.key) : ''
       const facts =
         raw.facts && typeof raw.facts === 'object' && !Array.isArray(raw.facts)
@@ -277,11 +292,32 @@ export function createMemoryService(deps: MemoryServiceDeps): MemoryService {
           thread: input.thread,
           userQuery: input.userQuery
         })
-        const candidates: RecallFilterCandidate[] = rows.map((row) => ({
-          entry: renderCognitiveRowMemoryEntry(row),
-          id: row.id,
-          score: row.confidence
-        }))
+        const watermark = input.thread.contextHandoffWatermarkMessageId
+        const watermarkIndex = watermark
+          ? input.history.findIndex((message) => message.id === watermark)
+          : -1
+        const visibleHistory =
+          watermark && watermarkIndex < 0 ? [] : input.history.slice(watermarkIndex + 1)
+        const visible = new Set(
+          visibleHistory
+            .filter((message) => !message.hidden)
+            .map((message) => messageRowId(message.threadId, message.id))
+        )
+        const grouped = new Map<string, RecallFilterCandidate>()
+        let budget = 2400
+        for (const row of rows) {
+          const refs = collectCognitiveEvidenceSourceRefs(row)
+          const sourceRefs = selectMemorySourceReferences(refs)
+          if (sourceRefs.length && sourceRefs.every((ref) => visible.has(ref))) continue
+          const sourceKey = sourceRefs.sort().join('|') || row.id
+          const entry = renderCognitiveRowMemoryEntry(row)
+          if (entry.length > budget) continue
+          const existing = grouped.get(sourceKey)
+          if (existing) existing.entry += `\n${entry}`
+          else grouped.set(sourceKey, { entry, id: row.id, score: row.confidence })
+          budget -= entry.length
+        }
+        const candidates = [...grouped.values()]
         const filtered = filterRecalledMemories({
           candidates,
           history: input.history,
@@ -348,26 +384,22 @@ export function createMemoryService(deps: MemoryServiceDeps): MemoryService {
 
     async distillCompletedRun(input: DistillRunMemoryInput): Promise<{ savedCount: number }> {
       const state = await deps.cognitiveStore.readState()
-      const evidence: CognitiveEvidenceRef[] = input.thread
-        ? [
-            {
-              kind: 'thread',
-              threadId: input.thread.id,
-              note: 'Completed run memory distillation.'
-            }
-          ]
-        : [{ kind: 'manual', note: 'Completed run memory distillation.' }]
+      const ref = threadRowId(input.thread.id)
       const result = await deps.auxiliaryGeneration.generateText({
-        messages: buildRunCognitivePatchMessages({
-          assistantResponse: input.assistantResponse,
+        messages: buildNoteGenerationMessages({
+          transcript: JSON.stringify({
+            ref,
+            user: input.userQuery,
+            assistant: input.assistantResponse
+          }),
           state,
-          userQuery: input.userQuery
+          threadId: input.thread.id
         }),
         signal: input.signal,
         purpose: 'memory-distill'
       })
       if (result.status !== 'success') return { savedCount: 0 }
-      return deps.cognitiveStore.applyPatch(parsePatchOrCandidateFallback(result.text, evidence))
+      return saveGeneratedNotes(deps.cognitiveStore, result.text, [ref], input.signal)
     },
 
     async saveThread(input: SaveThreadMemoryInput): Promise<{ savedCount: number }> {
@@ -379,20 +411,27 @@ export function createMemoryService(deps: MemoryServiceDeps): MemoryService {
       }
 
       const state = await deps.cognitiveStore.readState()
-      const evidence: CognitiveEvidenceRef[] = input.messages.map((message) => ({
-        kind: 'message' as const,
-        messageId: message.id,
-        threadId: message.threadId
-      }))
+      const messages = input.messages.filter(
+        (message) => !message.hidden && message.threadId === input.thread.id
+      )
+      const sources = messages.map((message) => messageRowId(message.threadId, message.id))
       const text = await collectStreamText(deps.createModelRuntime(), {
-        messages: buildSaveThreadCognitivePatchMessages({
-          messages: input.messages,
-          state
+        messages: buildNoteGenerationMessages({
+          transcript: JSON.stringify(
+            messages.map((message, index) => ({
+              ref: sources[index],
+              role: message.role,
+              content: message.content,
+              createdAt: message.createdAt
+            }))
+          ),
+          state,
+          threadId: input.thread.id
         }),
         settings,
         signal: input.signal
       })
-      return deps.cognitiveStore.applyPatch(parsePatchOrCandidateFallback(text, evidence))
+      return saveGeneratedNotes(deps.cognitiveStore, text, sources, input.signal)
     }
   }
 }

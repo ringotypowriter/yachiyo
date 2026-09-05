@@ -13,6 +13,127 @@ import { createTool as createQuerySourceTool } from './querySourceTool.ts'
 
 const BASE_TIME = '2026-05-16T09:00:00.000Z'
 
+test('querySource defaults to source search and merges note and original matches', async () => {
+  const storage = createInMemoryYachiyoStorage()
+  storage.createThread({
+    thread: makeThread({ id: 'thread-source', title: 'Source design' }),
+    createdAt: BASE_TIME,
+    messages: [
+      makeMessage({ id: 'msg-1', threadId: 'thread-source', content: 'Keep durable source logs.' }),
+      makeMessage({ id: 'msg-2', threadId: 'thread-source', role: 'assistant', content: 'Agreed.' })
+    ]
+  })
+  const tool = createQuerySourceTool({ storage, memoryService: createMemoryService() })
+  const options = { toolCallId: 'search', messages: [] }
+  const result = parseToolJson(await tool.execute!({ text: 'durable source' }, options))
+  assert.equal(result.error, undefined)
+  assert.equal(result.rows?.length, 1)
+  const hit = result.rows![0]!
+  assert.ok(String(hit.ref).startsWith('thread_span:'))
+  assert.ok(JSON.stringify(hit.notes).includes('memory-1'))
+  assert.ok(String(hit.excerpt).includes('Keep durable source logs.'))
+  const opened = parseToolJson(await tool.execute!({ ref: String(hit.ref) }, options))
+  assert.deepEqual(
+    opened.rows?.map((row) => row.messageId),
+    ['msg-1', 'msg-2']
+  )
+  assert.equal(opened.rows?.[0]?.role, 'user')
+})
+
+test('querySource discovers unnoted history and labels unresolved notes without fabricated excerpts', async () => {
+  const tool = createQuerySourceTool({
+    memoryService: createMemoryService()
+  })
+  const result = parseToolJson(
+    await tool.execute!({ text: 'logs' }, { toolCallId: 's', messages: [] })
+  )
+  assert.equal(result.rows?.[0]?.sourceAvailable, false)
+  assert.equal(result.rows?.[0]?.excerpt, undefined)
+
+  const storage = createInMemoryYachiyoStorage()
+  storage.createThread({
+    thread: makeThread({ id: 'unnoted' }),
+    createdAt: BASE_TIME,
+    messages: [makeMessage({ id: 'original', threadId: 'unnoted', content: 'Unnoted discovery' })]
+  })
+  const unnoted = createQuerySourceTool({ storage })
+  const found = parseToolJson(
+    await unnoted.execute!({ text: 'discovery' }, { toolCallId: 's', messages: [] })
+  )
+  assert.equal(found.rows?.[0]?.threadId, 'unnoted')
+  const opened = parseToolJson(
+    await unnoted.execute!(
+      { ref: 'thread_message:unnoted:original' },
+      { toolCallId: 'o', messages: [] }
+    )
+  )
+  assert.equal(opened.rows?.[0]?.content, 'Unnoted discovery')
+})
+
+test('querySource preserves thread-only historical sources alongside current message anchors', async () => {
+  const storage = createInMemoryYachiyoStorage()
+  storage.createThread({
+    thread: makeThread({ id: 'past' }),
+    createdAt: BASE_TIME,
+    messages: [makeMessage({ id: 'a', threadId: 'past', content: 'Original decision' })]
+  })
+  storage.createThread({
+    thread: makeThread({ id: 'current' }),
+    createdAt: BASE_TIME,
+    messages: [
+      makeMessage({ id: 'b', threadId: 'current', content: 'Remember our earlier reasoning' })
+    ]
+  })
+  const memoryService = createMemoryService()
+  memoryService.searchMemories = async () => [
+    {
+      id: 'n',
+      content: 'database rationale',
+      sourceThreadRowIds: ['thread:past', 'thread:current'],
+      sourceMessageRowIds: ['thread_message:current:b']
+    }
+  ]
+  const tool = createQuerySourceTool({ storage, memoryService })
+  const result = parseToolJson(
+    await tool.execute!({ text: 'database rationale' }, { toolCallId: 's', messages: [] })
+  )
+  assert.ok(result.rows?.some((row) => row.threadId === 'past'))
+})
+
+test('querySource opens paginated original dialogue and does not expose private or hidden sources', async () => {
+  const storage = createInMemoryYachiyoStorage()
+  storage.createThread({
+    thread: makeThread({ id: 'long' }),
+    createdAt: BASE_TIME,
+    messages: Array.from({ length: 20 }, (_, index) =>
+      makeMessage({
+        id: `m${index}`,
+        threadId: 'long',
+        content: `Original message ${index}`,
+        createdAt: new Date(Date.parse(BASE_TIME) + index * 1000).toISOString()
+      })
+    )
+  })
+  storage.createThread({
+    thread: makeThread({ id: 'private', privacyMode: true }),
+    createdAt: BASE_TIME,
+    messages: [makeMessage({ id: 'p', threadId: 'private', content: 'Private original message' })]
+  })
+  const tool = createQuerySourceTool({ storage })
+  const options = { toolCallId: 'open', messages: [] }
+  const first = parseToolJson(await tool.execute!({ ref: 'thread:long' }, options))
+  const second = parseToolJson(
+    await tool.execute!({ ref: 'thread:long', cursor: first.nextCursor }, options)
+  )
+  assert.equal(first.rows?.length, 10)
+  assert.equal(second.rows?.[0]?.messageId, 'm10')
+  const context = parseToolJson(await tool.execute!({ ref: 'thread_message:long:m10' }, options))
+  assert.equal(context.rows?.[0]?.messageId, 'm6')
+  assert.equal(context.rows?.at(-1)?.messageId, 'm14')
+  const privateResult = parseToolJson(await tool.execute!({ ref: 'thread:private' }, options))
+  assert.equal(privateResult.rows?.length, 0)
+})
+
 function makeThread(overrides: Partial<ThreadRecord> & { id: string }): ThreadRecord {
   return {
     title: 'Untitled',
@@ -110,6 +231,7 @@ function createMemoryService(): MemoryService {
 function parseToolJson(result: unknown): {
   error?: string
   rows?: Array<Record<string, unknown>>
+  nextCursor?: string
 } {
   const output = result as { content: Array<{ type: string; text?: string }>; error?: string }
   const text = output.content

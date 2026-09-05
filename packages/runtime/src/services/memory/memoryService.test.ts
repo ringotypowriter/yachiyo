@@ -15,6 +15,185 @@ const MEMORY_CONFIG: SettingsConfig = {
   memory: { enabled: true }
 }
 
+test('notes preserve text and source anchors, revise by id, and delete without rewriting history', async () => {
+  const store = createInMemoryCognitiveMemoryStore()
+  const service = createConfiguredService({ cognitiveStore: store })
+  const note = 'We discussed logs.\n  Keep the original wording.'
+  const created = await service.validateAndCreateMemory({ note }, undefined, {
+    threadId: 'source',
+    messageId: 'm1',
+    toolCallId: 'call-1'
+  })
+  assert.equal(created.savedCount, 1)
+  assert.ok(created.id)
+  const row = (await store.readState()).rows[0]!
+  assert.equal(row.values.note, note)
+  assert.equal(row.evidence[0]?.messageId, 'm1')
+  const revised = await service.validateAndCreateMemory({
+    id: created.id,
+    note: 'Only applies to logs.',
+    sources: ['thread_message:later:m2']
+  })
+  assert.equal(revised.id, created.id)
+  assert.equal((await store.readState()).rows.length, 1)
+  const results = await service.searchMemories({ query: 'logs' })
+  assert.equal(results[0]?.content, 'Only applies to logs.')
+  assert.deepEqual(results[0]?.sourceMessageRowIds, [
+    'thread_message:source:m1',
+    'thread_message:later:m2'
+  ])
+  const deleted = await service.validateAndCreateMemory({ id: created.id, action: 'delete' })
+  assert.equal(deleted.deleted, true)
+  assert.equal((await service.searchMemories({ query: 'logs' })).length, 0)
+  const missing = await service.validateAndCreateMemory({
+    id: created.id,
+    note: 'Do not recreate missing notes.'
+  })
+  assert.ok(missing.rejected)
+})
+
+test('revising a legacy memory replaces obsolete fields and activation terms', async () => {
+  const store = createInMemoryCognitiveMemoryStore()
+  const service = createConfiguredService({ cognitiveStore: store })
+  await service.validateAndCreateMemory({
+    key: 'legacy',
+    facts: { outdated: 'wrong claim' },
+    subjects: ['obsoleteword']
+  })
+  const id = (await store.readState()).rows[0]!.id
+  await service.validateAndCreateMemory({ id, note: 'Corrected understanding.' })
+  const row = (await store.readState()).rows[0]!
+  assert.deepEqual(row.values, { note: 'Corrected understanding.' })
+  assert.deepEqual(row.subjects, [])
+  assert.equal((await service.searchMemories({ query: 'obsoleteword' })).length, 0)
+})
+
+test('automatic notes use selected original sources, reject invented anchors, and deduplicate repeated extraction', async () => {
+  const store = createInMemoryCognitiveMemoryStore()
+  const service = createConfiguredService({
+    cognitiveStore: store,
+    runtime: {
+      async *streamReply() {
+        yield JSON.stringify({
+          notes: [
+            { note: 'We chose original logs for auditability.', sources: ['thread_message:t:m2'] },
+            { note: 'Invented evidence', sources: ['thread_message:t:missing'] }
+          ]
+        })
+      }
+    }
+  })
+  const input = {
+    thread: { id: 't', title: 'Logs', updatedAt: '2026-09-05T00:00:00Z' },
+    messages: [
+      {
+        id: 'm1',
+        threadId: 't',
+        role: 'user' as const,
+        content: 'Consider logs.',
+        status: 'completed' as const,
+        createdAt: '2026-09-05T00:00:00Z'
+      },
+      {
+        id: 'm2',
+        threadId: 't',
+        role: 'user' as const,
+        content: 'Choose original logs for auditability.',
+        status: 'completed' as const,
+        createdAt: '2026-09-05T00:01:00Z'
+      }
+    ]
+  }
+  assert.equal((await service.saveThread(input)).savedCount, 1)
+  assert.equal((await service.saveThread(input)).savedCount, 0)
+  const rows = (await store.readState()).rows
+  assert.equal(rows.length, 1)
+  assert.equal(rows[0]?.evidence[0]?.messageId, 'm2')
+})
+
+test('recall finds note text without keywords, groups shared sources and skips visible originals', async () => {
+  const store = createInMemoryCognitiveMemoryStore()
+  const service = createConfiguredService({ cognitiveStore: store })
+  await service.validateAndCreateMemory(
+    { note: 'We discussed original logs for auditability.' },
+    undefined,
+    { threadId: 't', messageId: 'm1' }
+  )
+  await service.validateAndCreateMemory(
+    { note: 'Original logs retain the surrounding dialogue.' },
+    undefined,
+    { threadId: 't', messageId: 'm1' }
+  )
+  const input = {
+    thread: { id: 't', title: 'Logs', updatedAt: '2026-09-05T00:00:00Z' },
+    now: '2026-09-05T00:00:00Z',
+    userQuery: 'original logs',
+    history: []
+  }
+  const recalled = await service.recallForContext(input)
+  assert.equal(recalled.entries.length, 1)
+  assert.ok(recalled.entries[0]?.includes('thread_message:t:m1'))
+  const visible = await service.recallForContext({
+    ...input,
+    history: [
+      {
+        id: 'm1',
+        threadId: 't',
+        role: 'user',
+        content: 'We discussed original logs for auditability.',
+        status: 'completed',
+        createdAt: input.now
+      }
+    ]
+  })
+  assert.equal(visible.entries.length, 0)
+  const compressed = await service.recallForContext({
+    ...input,
+    thread: { ...input.thread, contextHandoffWatermarkMessageId: 'm1' },
+    history: [
+      {
+        id: 'm1',
+        threadId: 't',
+        role: 'user',
+        content: 'We discussed original logs.',
+        status: 'completed',
+        createdAt: input.now
+      }
+    ]
+  })
+  assert.equal(compressed.entries.length, 1)
+})
+
+test('legacy facts containing a note field retain all fields in search results', async () => {
+  const service = createConfiguredService({})
+  await service.validateAndCreateMemory({
+    key: 'db',
+    facts: { note: 'caveat', decision: 'PostgreSQL', rationale: 'transactions' },
+    subjects: ['database']
+  })
+  const results = await service.searchMemories({ query: 'database' })
+  assert.match(results[0]?.content ?? '', /PostgreSQL/)
+  assert.match(results[0]?.content ?? '', /transactions/)
+})
+
+test('source-linked notes remain discoverable after a month and support Chinese prose queries', async () => {
+  const store = createInMemoryCognitiveMemoryStore()
+  const service = createConfiguredService({ cognitiveStore: store })
+  await service.validateAndCreateMemory(
+    { note: '我们讨论过原始对话的保存方式，笔记只用来定位来源。' },
+    undefined,
+    { threadId: 't', messageId: 'm' }
+  )
+  const savedAt = (await store.readState()).rows[0]!.updatedAt
+  await store.applyPatch(
+    { operations: [] },
+    { now: new Date(Date.parse(savedAt) + 40 * 86400000).toISOString() }
+  )
+  assert.equal((await store.readState()).rows[0]?.status, 'active')
+  const found = await service.searchMemories({ query: '之前讨论的对话保存方式是什么' })
+  assert.equal(found.length, 1)
+})
+
 function createAuxiliaryGenerationStub(
   options: { text: string; status?: 'success' | 'failed' },
   requests: AuxiliaryTextGenerationRequest[] = []
@@ -191,22 +370,10 @@ test('memory service includes source row ids in recalled entries from saved thre
     runtime: {
       async *streamReply() {
         yield JSON.stringify({
-          operations: [
+          notes: [
             {
-              type: 'upsertRelation',
-              relation: 'project_context',
-              purpose: 'Track project context.',
-              columns: ['note'],
-              evidence: []
-            },
-            {
-              type: 'upsertRow',
-              relation: 'project_context',
-              key: 'memory_source_bridge',
-              values: { note: 'Recall entries should expose their source conversation.' },
-              subjects: ['memory source bridge'],
-              confidence: 0.9,
-              evidence: []
+              note: 'Recall entries should expose their source conversation. Memory source bridge.',
+              sources: ['thread_message:thread-source:msg-1', 'thread_message:thread-source:msg-2']
             }
           ]
         })
@@ -252,8 +419,8 @@ test('memory service includes source row ids in recalled entries from saved thre
   })
 
   assert.equal(result.entries.length, 1)
-  assert.match(result.entries[0] ?? '', /source_threads=thread:thread-source/)
-  assert.match(result.entries[0] ?? '', /source_messages=thread_message:thread-source:msg-1/)
+  assert.match(result.entries[0] ?? '', /thread_message:thread-source:msg-2/)
+  assert.match(result.entries[0] ?? '', /thread_message:thread-source:msg-1/)
 })
 
 test('memory service does not advance lastRecall markers when cognitive activation misses', async () => {
@@ -315,22 +482,7 @@ test('memory service distills completed runs into cognitive patches', async () =
     auxiliaryGeneration: createAuxiliaryGenerationStub(
       {
         text: JSON.stringify({
-          candidates: [
-            {
-              topic: 'repo-preference',
-              title: 'Repo preference',
-              content: 'Use the Yachiyo repo root for commands.',
-              unitType: 'preference',
-              importance: 0.8
-            },
-            {
-              topic: 'weak-memory',
-              title: 'Weak memory',
-              content: 'Maybe.',
-              unitType: 'fact',
-              importance: 0.2
-            }
-          ]
+          notes: [{ note: 'Use the Yachiyo repo root for commands.', sources: ['thread:thread-1'] }]
         })
       },
       auxiliaryRequests
@@ -349,11 +501,11 @@ test('memory service distills completed runs into cognitive patches', async () =
   })
 
   const state = await cognitiveStore.readState()
-  assert.equal(result.savedCount, 2)
+  assert.equal(result.savedCount, 1)
   assert.equal(auxiliaryRequests[0]?.purpose, 'memory-distill')
   assert.equal(state.rows.length, 1)
-  assert.equal(state.rows[0]?.relation, 'user_preferences')
-  assert.match(state.rows[0]?.values['content'] ?? '', /Yachiyo repo root/)
+  assert.equal(state.rows[0]?.relation, 'notes')
+  assert.match(state.rows[0]?.values['note'] ?? '', /Yachiyo repo root/)
 })
 
 test('memory service saves thread transcripts as cognitive patches', async () => {
@@ -365,24 +517,8 @@ test('memory service saves thread transcripts as cognitive patches', async () =>
       async *streamReply(request) {
         requests.push(request)
         yield JSON.stringify({
-          operations: [
-            {
-              type: 'upsertRelation',
-              relation: 'agent_workflow_roles',
-              purpose: 'Track agent handoff rules.',
-              columns: ['agent', 'role'],
-              evidence: []
-            },
-            {
-              type: 'upsertRow',
-              relation: 'agent_workflow_roles',
-              key: 'codex',
-              values: { agent: 'Codex', role: 'Explorer' },
-              subjects: ['Codex'],
-              triggers: ['context artifact'],
-              confidence: 0.9,
-              evidence: []
-            }
+          notes: [
+            { note: 'Codex creates context artifacts.', sources: ['thread_message:thread-1:msg-1'] }
           ]
         })
       }
@@ -408,12 +544,12 @@ test('memory service saves thread transcripts as cognitive patches', async () =>
   })
 
   const state = await cognitiveStore.readState()
-  assert.equal(saved.savedCount, 2)
+  assert.equal(saved.savedCount, 1)
   assert.equal(requests.length, 1)
   assert.equal(requests[0]?.providerOptionsMode, undefined)
   assert.equal(requests[0]?.processingTier, undefined)
   assert.equal(requests[0]?.settings.model, 'gpt-5')
-  assert.equal(state.relations[0]?.name, 'agent_workflow_roles')
-  assert.equal(state.rows[0]?.key, 'codex')
+  assert.equal(state.relations[0]?.name, 'notes')
+  assert.equal(state.rows[0]?.values.note, 'Codex creates context artifacts.')
   assert.equal(state.rows[0]?.evidence[0]?.messageId, 'msg-1')
 })

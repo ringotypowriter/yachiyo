@@ -468,11 +468,9 @@ export function compileMemoryLayer(input: MemoryLayerInput | undefined): ModelMe
     role: 'system',
     content: [
       '<memory>',
-      "Yachiyo's durable memory — understanding built through working with the user.",
-      'These entries capture accumulated observations about preferences, decisions, workflows,',
-      "and project context from prior collaboration. They are not the user's own knowledge or",
-      "self-statements. Focus on the user's current query first; overlapping terms do not make",
-      'an entry relevant — judge by actual applicability.',
+      'Possible recollections from past conversations. These notes are revisable interpretations, not original statements or verified facts.',
+      'Use only what fits the current request. The user’s present clarification takes precedence over an older note.',
+      'For exact wording, historical decisions, or whether an action really completed, open the source with querySource(ref). Ordinary continuity may need only the note. A missing source means the original evidence has not been checked.',
       ...entries.map((entry) => `- ${entry}`),
       '</memory>'
     ].join('\n')

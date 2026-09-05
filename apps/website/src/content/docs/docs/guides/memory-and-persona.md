@@ -6,36 +6,48 @@ description: Durable memory, SOUL.md, and USER.md — the three things that make
 Three separate mechanisms decide what Yachiyo carries between conversations.
 They are easy to confuse, so:
 
-|               | What it holds                               | Who writes it                                  |
-| ------------- | ------------------------------------------- | ---------------------------------------------- |
-| **Memory**    | Discrete facts, decisions, preferences      | The agent, via `remember` or auto-distillation |
-| **`SOUL.md`** | The assistant's persona and evolving traits | You and the agent                              |
-| **`USER.md`** | Who you are, as structured tables           | The agent, via `updateProfile`                 |
+|               | What it holds                                | Who writes it                                 |
+| ------------- | -------------------------------------------- | --------------------------------------------- |
+| **Memory**    | Revisable notes linked to past conversations | The agent, via `remember` or automatic review |
+| **`SOUL.md`** | The assistant's persona and evolving traits  | You and the agent                             |
+| **`USER.md`** | Who you are, as structured tables            | The agent, via `updateProfile`                |
 
 ## Memory
 
-Memory is a local store of terms: each one has a topic, a type, content, an
-importance score, and activation metadata (how often it has been recalled, when
-it was last used). Relevant terms are pulled into a run's context automatically.
+Conversations remain the original record. Memory contains notes that help Yachiyo
+find those conversations again: what mattered, why it is worth revisiting, and
+any conditions or uncertainty. Notes can be revised or deleted without changing
+the original dialogue. Existing structured memories remain readable.
+
+Automatic recall brings a small amount of related context and source references
+into a run. Exact quotes, historical decisions, and claims about completed actions
+still need the original evidence; a note is not proof.
 
 Two settings in **Settings → Sources → Memory**:
 
 - **Enable memory** — pulls recalled context into runs and allows explicit saves.
   On by default.
-- **Auto-distill after runs** — the tool model reviews finished runs and writes
-  what is worth keeping. Off means memory only changes when the agent explicitly
-  calls `remember`.
+- **Auto-distill after runs** — eligible conversations are reviewed in the background
+  for a few useful, source-linked notes. Turning this off stops background review;
+  `remember` and manual conversation saves remain available.
 
 The same pane lists every stored term grouped by topic, with a **Forget** action
-per row. Forgetting is permanent.
+per row. Forgetting removes the stored note, not its source conversation.
 
 ### What makes a good memory
 
-The `remember` tool asks for structured facts rather than narrative, with
-generous "activation subjects" so the memory surfaces later, and a stable key
-that will still make sense in six months. Ask the agent to remember something
-and it applies those rules; if you want to see or fix what it stored, the terms
-list is the place.
+`remember` accepts a prose note. The runtime links the current message and tool
+invocation automatically; notes about earlier discussions can cite references
+returned by `querySource`. An existing note ID allows revision or deletion.
+Yachiyo may also write a note when a meaningful decision or correction is worth
+carrying forward, rather than recording routine progress every turn.
+
+`querySource` accepts `text` to search original conversations and notes together,
+or `ref` to open a source with surrounding dialogue. Search keeps notes separate
+from original excerpts and combines overlapping source hits. Conversations do
+not need a note to be discoverable. A note whose source is unavailable is shown
+without a fabricated excerpt. Advanced table, time, and folder queries remain
+available; default discovery uses a bounded result window.
 
 ## SOUL.md
 

@@ -1,5 +1,5 @@
 import type { MessageRecord, ThreadRecord } from '@yachiyo/shared/protocol'
-import { messageRowId, threadRowId } from '@yachiyo/shared/sourceRowIds'
+import { messageRowId, threadRowId, parseRowId } from '@yachiyo/shared/sourceRowIds'
 
 export type CognitiveRowStatus = 'active' | 'deprecated' | 'conflicted'
 
@@ -70,6 +70,7 @@ export interface UpsertCognitiveRelationOperation extends CognitivePatchOperatio
 
 export interface UpsertCognitiveRowOperation extends CognitivePatchOperationBase {
   type: 'upsertRow'
+  replace?: boolean
   relation: string
   key: string
   values: Record<string, unknown>
@@ -122,6 +123,7 @@ const MAX_RENDERED_SOURCE_REFS = 3
 const MIN_ACTIVATION_CUE_SCORE = 0.75
 const AUTO_FORGET_AFTER_MS = 30 * 24 * 60 * 60 * 1000
 const AUTO_FORGET_PROTECTED_RELATIONS = new Set([
+  'notes',
   'user_preferences',
   'key_decisions',
   'workflow_procedures',
@@ -177,6 +179,22 @@ function renderSourceRefs(row: CognitiveRow): string[] {
     fields.push(`source_messages=${messageRows.join(', ')}`)
   }
   return fields
+}
+
+export function selectMemorySourceReferences(input: {
+  sourceMessageRowIds?: string[]
+  sourceThreadRowIds?: string[]
+}): string[] {
+  const messages = input.sourceMessageRowIds ?? []
+  const messageThreads = new Set(messages.map((ref) => parseRowId(ref).parts[0]))
+  return [
+    ...new Set([
+      ...messages,
+      ...(input.sourceThreadRowIds ?? []).filter(
+        (ref) => !messageThreads.has(parseRowId(ref).parts[0])
+      )
+    ])
+  ]
 }
 
 function normalizeWhitespace(value: string): string {
@@ -252,7 +270,10 @@ function normalizeValues(values: Record<string, unknown>): Record<string, string
   for (const [rawKey, rawValue] of Object.entries(values)) {
     const key = normalizeCognitiveName(rawKey)
     if (!key) continue
-    const value = normalizeWhitespace(String(rawValue ?? ''))
+    const value =
+      key === 'note' && typeof rawValue === 'string'
+        ? rawValue
+        : normalizeWhitespace(String(rawValue ?? ''))
     if (value) result[key] = value
   }
   return result
@@ -362,6 +383,10 @@ function upsertRow(
   next.activationText = buildActivationText(next)
 
   if (existing) {
+    if (operation.replace) {
+      Object.assign(existing, next, { updatedAt: options.now })
+      return
+    }
     existing.values = { ...existing.values, ...values }
     existing.subjects = normalizeStringArray([...existing.subjects, ...subjects])
     existing.aliases = normalizeStringArray([...existing.aliases, ...aliases])
@@ -533,16 +558,8 @@ export function markCognitiveRowsActivated(
   return next
 }
 
-function tokenize(value: string): string[] {
-  return (
-    normalizeLooseText(value)
-      .match(/[a-z0-9]+|[\u3400-\u9fff]{2,}/gu)
-      ?.filter((token) => token.length > 1) ?? []
-  )
-}
-
 function buildTextTerms(value: string): string[] {
-  const tokens = tokenize(value)
+  const tokens = buildNoteTerms(value)
   const terms = new Set(tokens)
 
   for (let index = 0; index < tokens.length - 1; index += 1) {
@@ -553,36 +570,88 @@ function buildTextTerms(value: string): string[] {
 }
 
 function scoreTermMatches(activationText: string, terms: string[]): number {
-  return terms.reduce((score, term) => score + (activationText.includes(term) ? 0.45 : 0), 0)
+  return terms.reduce(
+    (score, term) => score + (matchesMemoryCue(activationText, term) ? 0.45 : 0),
+    0
+  )
 }
 
 function scorePhraseMatches(row: CognitiveRow, queryText: string): number {
   let score = 0
   for (const subject of row.subjects) {
-    if (queryText.includes(normalizeLooseText(subject))) score += 3
+    if (matchesMemoryCue(queryText, subject)) score += 3
   }
   for (const alias of row.aliases) {
-    if (queryText.includes(normalizeLooseText(alias))) score += 2.5
+    if (matchesMemoryCue(queryText, alias)) score += 2.5
   }
   for (const trigger of row.triggers) {
-    if (queryText.includes(normalizeLooseText(trigger))) score += 2
+    if (matchesMemoryCue(queryText, trigger)) score += 2
   }
   return score
 }
 
-function normalizeCue(value: string): string {
-  return normalizeLooseText(value)
-    .replace(/[^a-z0-9\u3400-\u9fff]+/gu, ' ')
-    .replace(/\s+/gu, ' ')
-    .trim()
+function matchesMemoryCue(text: string, value: string): boolean {
+  const haystack = normalizeLooseText(text)
+  const cue = normalizeLooseText(value)
+  if (!cue || !/[\p{L}\p{N}]/u.test(cue)) return false
+  const wordCharacter = /[a-z0-9_]/u
+  for (
+    let offset = haystack.indexOf(cue);
+    offset !== -1;
+    offset = haystack.indexOf(cue, offset + 1)
+  ) {
+    const before = haystack[offset - 1] ?? ''
+    const after = haystack[offset + cue.length] ?? ''
+    // Keep CJK/Latin adjacency valid, but never match pieces of an English identifier,
+    // number, or a longer command-line flag. Symbols inside the cue remain literal.
+    const leftBoundary =
+      !(wordCharacter.test(cue[0]!) || /^[-+\\]/u.test(cue)) ||
+      (!wordCharacter.test(before) && !(cue.startsWith('-') && before === '-'))
+    const rightBoundary =
+      !wordCharacter.test(cue.at(-1)!) ||
+      (!wordCharacter.test(after) &&
+        !/[%+#]/u.test(after) &&
+        !(cue.startsWith('-') && after === '-'))
+    if (leftBoundary && rightBoundary) return true
+  }
+  return false
+}
+
+const noteSegmenter = new Intl.Segmenter(undefined, { granularity: 'word' })
+
+function buildNoteTerms(text: string): string[] {
+  const normalized = normalizeLooseText(text)
+  return [
+    ...new Set(
+      [...noteSegmenter.segment(normalized)]
+        .filter((part) => part.isWordLike)
+        .map((part) => {
+          const before = normalized.slice(0, part.index)
+          const after = normalized.slice(part.index + part.segment.length)
+          const prefix = /(?:^|[^\p{L}\p{N}_-])(--?|\\)$/u.exec(before)?.[1] ?? ''
+          const suffix = /^[%+#]+/u.exec(after)?.[0] ?? ''
+          return `${prefix}${part.segment}${suffix}`
+        })
+        .filter((word) => word.length > 1)
+        .filter(
+          (word) =>
+            !/^(the|and|for|that|this|with|was|were|are|our|only|from|have|has|had|not|but|we|to|of|in|is|it|on|as|be|an|or)$/iu.test(
+              word
+            )
+        )
+    )
+  ]
 }
 
 function buildActivationCues(row: CognitiveRow): string[] {
-  const cues = [row.relation, row.key, ...row.subjects, ...row.aliases, ...row.triggers]
+  const cues =
+    row.values.note && row.subjects.length === 0
+      ? buildNoteTerms(row.values.note)
+      : [row.relation, row.key, ...row.subjects, ...row.aliases, ...row.triggers]
   const seen = new Set<string>()
 
   for (const cue of cues) {
-    const normalized = normalizeCue(cue)
+    const normalized = normalizeLooseText(cue)
     if (normalized) seen.add(normalized)
   }
 
@@ -607,7 +676,7 @@ function scoreActivationCue(input: {
   frequencies: Map<string, number>
   queryText: string
 }): number {
-  if (!input.queryText.includes(input.cue)) return 0
+  if (!matchesMemoryCue(input.queryText, input.cue)) return 0
 
   const documentFrequency = input.frequencies.get(input.cue) ?? input.activeRowCount
   const maxIdf = Math.log1p(input.activeRowCount)
@@ -622,7 +691,7 @@ export function activateCognitiveRows(
 ): CognitiveRow[] {
   const activeRows = state.rows.filter((row) => row.status === 'active')
   const frequencies = buildCueDocumentFrequencies(activeRows)
-  const queryText = normalizeCue(input.userQuery)
+  const queryText = normalizeLooseText(input.userQuery)
 
   return activeRows
     .map((row) => {
@@ -643,7 +712,14 @@ export function activateCognitiveRows(
         score: cueScore + row.confidence * 0.05
       }
     })
-    .filter((entry) => entry.cueScore >= MIN_ACTIVATION_CUE_SCORE)
+    .filter(
+      (entry) =>
+        entry.cueScore >= MIN_ACTIVATION_CUE_SCORE &&
+        (!entry.row.values.note ||
+          entry.row.subjects.length > 0 ||
+          buildActivationCues(entry.row).filter((cue) => matchesMemoryCue(queryText, cue)).length >=
+            2)
+    )
     .sort(
       (left, right) =>
         right.score - left.score || left.row.updatedAt.localeCompare(right.row.updatedAt)
@@ -658,6 +734,7 @@ export function searchCognitiveRows(
 ): CognitiveRow[] {
   const relation = input.relation ? normalizeCognitiveName(input.relation) : undefined
   const queryTerms = buildTextTerms(input.query)
+  const noteQueryTerms = buildNoteTerms(input.query)
   const queryText = normalizeLooseText(input.query)
 
   return state.rows
@@ -667,7 +744,8 @@ export function searchCognitiveRows(
       return {
         row,
         score:
-          scoreTermMatches(activationText, queryTerms) +
+          scoreTermMatches(activationText, row.values.note ? noteQueryTerms : queryTerms) +
+          (row.values.note && matchesMemoryCue(row.values.note, queryText) ? 1 : 0) +
           scorePhraseMatches(row, queryText) +
           row.confidence * 0.25
       }
@@ -995,6 +1073,13 @@ export function parseCognitivePatch(
 }
 
 export function renderCognitiveRowMemoryEntry(row: CognitiveRow): string {
+  if (row.values.note && Object.keys(row.values).length === 1 && row.relation === 'notes') {
+    const refs = collectCognitiveEvidenceSourceRefs(row)
+    const sources = selectMemorySourceReferences(refs)
+    const note =
+      row.values.note.length > 450 ? `${row.values.note.slice(0, 450)}…` : row.values.note
+    return `[note ${row.id}] ${note}\nSources: ${sources.slice(0, MAX_RENDERED_SOURCE_REFS).join(', ') || 'unavailable'}`
+  }
   const fields = [
     ...Object.entries(row.values)
       .slice(0, MAX_RENDERED_FIELDS)

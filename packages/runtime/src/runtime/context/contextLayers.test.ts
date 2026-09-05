@@ -454,16 +454,7 @@ test('turn context is merged into current query after tool-history replay', () =
     }
   ]
 
-  const memoryBlock = [
-    '<memory>',
-    "Yachiyo's durable memory — understanding built through working with the user.",
-    'These entries capture accumulated observations about preferences, decisions, workflows,',
-    "and project context from prior collaboration. They are not the user's own knowledge or",
-    "self-statements. Focus on the user's current query first; overlapping terms do not make",
-    'an entry relevant — judge by actual applicability.',
-    '- user likes tests',
-    '</memory>'
-  ].join('\n')
+  const memoryBlock = compileMemoryLayer({ entries: ['user likes tests'] })!.content
 
   const compiled = compileContextLayers({
     personality: { basePersona: 'Base' },
@@ -521,16 +512,7 @@ test('no turn context leaves system layers and history unchanged', () => {
 })
 
 test('first message in thread: turn context is merged into the only user message', () => {
-  const memoryBlock = [
-    '<memory>',
-    "Yachiyo's durable memory — understanding built through working with the user.",
-    'These entries capture accumulated observations about preferences, decisions, workflows,',
-    "and project context from prior collaboration. They are not the user's own knowledge or",
-    "self-statements. Focus on the user's current query first; overlapping terms do not make",
-    'an entry relevant — judge by actual applicability.',
-    '- mem1',
-    '</memory>'
-  ].join('\n')
+  const memoryBlock = compileMemoryLayer({ entries: ['mem1'] })!.content
 
   const compiled = compileContextLayers({
     personality: { basePersona: 'Base' },

@@ -176,7 +176,9 @@ export function createRunToolSet(input: CreateRunToolSetInput): ToolSet | undefi
           rememberDeps: {
             memoryService: deps.memoryService,
             workspacePath,
-            threadId: executionInput.thread.id
+            threadId: executionInput.thread.id,
+            messageId: executionInput.requestMessageId,
+            storage: deps.storage
           }
         }
       : {}),

@@ -10,6 +10,11 @@ import type {
   ThreadRecord
 } from '@yachiyo/shared/protocol'
 import type { MemorySearchResult, MemoryService } from '../../services/memory/memoryService.ts'
+import {
+  queryRecollections,
+  paginateSourceRows as paginate,
+  DEFAULT_SOURCE_QUERY_LIMIT as DEFAULT_LIMIT
+} from './querySourceRecollections.ts'
 import type { YachiyoStorage } from '../../storage/storage.ts'
 import {
   activityRowId,
@@ -44,7 +49,6 @@ const SOURCE_TABLES = [
 
 const SOURCE_VIEWS = ['index', 'content', 'detail'] as const
 const SOURCE_ORDER = ['auto', 'match', 'timeAsc', 'timeDesc'] as const
-const DEFAULT_LIMIT = 10
 const MAX_LIMIT = 50
 const CONTENT_CONTEXT_RADIUS = 1
 const SPAN_CLUSTER_MAX_GAP = CONTENT_CONTEXT_RADIUS * 2 + 1
@@ -77,6 +81,12 @@ export interface QuerySourceToolInput {
   orderBy?: SourceOrder
   limit?: number
   cursor?: string
+}
+
+export type QuerySourceInput = Omit<QuerySourceToolInput, 'from'> & {
+  from?: SourceTable
+  text?: string
+  ref?: string
 }
 
 interface QuerySourceToolOutput {
@@ -143,7 +153,19 @@ const whereSchema = z
   .optional()
 
 const inputSchema = z.object({
-  from: z.enum(SOURCE_TABLES).describe('Virtual source table to query.'),
+  from: z.enum(SOURCE_TABLES).optional().describe('Optional advanced source table query.'),
+  text: z
+    .string()
+    .optional()
+    .describe(
+      'Find a past discussion using a natural-language query. Searches original conversations and notes together.'
+    ),
+  ref: z
+    .string()
+    .optional()
+    .describe(
+      'Open a source reference returned by search or recall, including surrounding dialogue.'
+    ),
   view: z
     .enum(SOURCE_VIEWS)
     .optional()
@@ -168,6 +190,12 @@ function buildDescription(input: { activityOcrEnabled: boolean }): string {
 
   return `
 Query read-only local context sources saved by Yachiyo.
+
+For everyday recall, provide text to find past discussions, or ref to open a returned source reference.
+Search results separate notes from original excerpts. Notes are recollection aids, not verified facts.
+Use original dialogue for exact quotes, historical decisions, or claims about completed actions.
+Opening a reference returns messages with their speakers and timestamps. Use nextCursor with the same ref to continue reading; boundary message refs let you expand surrounding dialogue.
+The from/where/view fields below remain available for precise advanced queries. Do not combine from with text or ref.
 
 The sources are exposed as virtual tables. This tool does not execute raw SQL.
 Use \`from\` to choose one table, \`where\` to filter rows, and \`view\` to choose the table-specific depth.
@@ -197,7 +225,7 @@ Table Map:
 ${activitySourceEventsDescription}
 
 - memories
-  Long-term extracted facts, preferences, decisions, plans, and user context.
+  Revisable notes linked to past conversations, including older structured memory entries.
   index/content/detail: memories rows ranked by text match.
   Rows can include sourceThreadRowIds and sourceMessageRowIds that can be opened through thread tables.
   Requires where.text; where.topic narrows the search.
@@ -406,30 +434,8 @@ function overlapsTimeRange(
   return true
 }
 
-function parseCursor(cursor: string | undefined): number {
-  if (!cursor) {
-    return 0
-  }
-  const parsed = Number.parseInt(cursor, 10)
-  return Number.isFinite(parsed) && parsed >= 0 ? parsed : 0
-}
-
 function getLimit(limit: number | undefined): number {
   return typeof limit === 'number' ? limit : DEFAULT_LIMIT
-}
-
-function paginate(
-  rows: Array<Record<string, unknown>>,
-  input: QuerySourceToolInput
-): QueryRowsResult {
-  const start = parseCursor(input.cursor)
-  const limit = getLimit(input.limit)
-  const sliced = rows.slice(start, start + limit)
-  const nextOffset = start + sliced.length
-  return {
-    rows: sliced,
-    ...(nextOffset < rows.length ? { nextCursor: String(nextOffset) } : {})
-  }
 }
 
 function isSourceOrder(value: unknown): value is SourceOrder {
@@ -1437,14 +1443,34 @@ function isToolOutput(
 
 export function createTool(
   deps: QuerySourceToolDeps
-): Tool<QuerySourceToolInput, QuerySourceToolOutput> {
+): Tool<QuerySourceInput, QuerySourceToolOutput> {
   return tool({
     description: buildDescription({ activityOcrEnabled: deps.activityOcrEnabled === true }).trim(),
     inputSchema,
     toModelOutput: ({ output }) => toToolModelOutput(output),
     execute: async (input, options) => {
-      const normalizedInput = normalizeQuerySourceInput(input)
+      const normalizedInput = normalizeQuerySourceInput({
+        ...input,
+        from: input.from ?? 'thread_spans'
+      })
       try {
+        if (!input.from) {
+          const result = await queryRecollections(input, {
+            canReadSources: Boolean(deps.storage || deps.sourceQueryExecutor),
+            query: async (request) => {
+              const rows = await executeQuery(
+                deps,
+                normalizeQuerySourceInput(request),
+                options.abortSignal
+              )
+              if (isToolOutput(rows)) throw new Error(rows.error ?? 'Source query failed.')
+              return rows
+            }
+          })
+          return toResponse({ table: 'recollections', ...result })
+        }
+        if (input.text || input.ref)
+          throw new Error('Use text or ref without from, or use an advanced from/where query.')
         const result = await executeQuery(deps, normalizedInput, options.abortSignal)
         if (isToolOutput(result)) {
           return result
