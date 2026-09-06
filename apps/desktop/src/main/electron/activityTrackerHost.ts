@@ -19,6 +19,10 @@ export function installActivityTrackerHost(initialConfig: ActivityTrackingConfig
   const tracker = getActivityTracker(initialConfig.mode)
   tracker.setIdleTimeProvider(() => powerMonitor.getSystemIdleTime() * 1000)
   tracker.setOcrConfig(initialConfig.ocr)
+  powerMonitor.on('lock-screen', () => tracker.setSystemPaused('lock', true))
+  powerMonitor.on('unlock-screen', () => tracker.setSystemPaused('lock', false))
+  powerMonitor.on('suspend', () => tracker.setSystemPaused('sleep', true))
+  powerMonitor.on('resume', () => tracker.setSystemPaused('sleep', false))
 
   const helperPath = resolveVisionOcrHelperPath()
   if (helperPath) {

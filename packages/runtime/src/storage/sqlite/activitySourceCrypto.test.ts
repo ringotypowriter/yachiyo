@@ -78,3 +78,25 @@ test('activity source cipher encrypts sensitive app and window details at rest',
     await rm(root, { recursive: true, force: true })
   }
 })
+
+test('activity source cipher preserves every foreground entry and overlapping input idle', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'yachiyo-activity-source-'))
+  try {
+    const cipher = createActivitySourceCipher({ keyPath: join(root, 'key') })
+    const entries = Array.from({ length: 12 }, (_, i) => ({
+      appName: 'Browser',
+      bundleId: 'browser',
+      windowTitle: `Episode ${i}`,
+      durationMs: 1_200_000,
+      inputIdleDurationMs: 1_000_000
+    }))
+    const payload: ActivitySourcePayload = {
+      version: 2,
+      summaryText: 'Foreground activity',
+      entries
+    }
+    assert.deepEqual(cipher.decrypt(cipher.encrypt(payload)), payload)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})

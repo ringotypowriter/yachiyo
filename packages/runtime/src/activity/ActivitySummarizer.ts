@@ -1,20 +1,11 @@
-import type { ActivitySnapshot } from '@yachiyo/shared/protocol'
+import type { ActivitySnapshot, ActivitySourceEntry } from '@yachiyo/shared/protocol'
 
-interface Span {
-  appName: string
-  bundleId: string
-  windowTitle?: string
+interface Span extends ActivitySourceEntry {
   startMs: number
   endMs: number
-  durationMs: number
 }
 
-export interface ActivitySummaryEntry {
-  appName: string
-  bundleId: string
-  windowTitle?: string
-  durationMs: number
-}
+export type ActivitySummaryEntry = ActivitySourceEntry
 
 export interface ActivitySummary {
   /** Human-readable summary for injection into the LLM turn context. */
@@ -53,6 +44,10 @@ function aggregateSpans(spans: Span[]): Span[] {
     if (existing) {
       existing.endMs = span.endMs
       existing.durationMs += span.durationMs
+      if (span.inputIdleDurationMs !== undefined) {
+        existing.inputIdleDurationMs =
+          (existing.inputIdleDurationMs ?? 0) + span.inputIdleDurationMs
+      }
     } else {
       byKey.set(key, { ...span })
     }
@@ -92,11 +87,14 @@ export function summarizeSpans(
 
   const entries = aggregated.slice(0, MAX_OUTPUT_ENTRIES)
   const truncated = aggregated.length - MAX_OUTPUT_ENTRIES
-  const summaryEntries = entries.map((entry) => ({
+  const summaryEntries = aggregated.map((entry) => ({
     appName: entry.appName,
     bundleId: entry.bundleId,
     ...(entry.windowTitle ? { windowTitle: entry.windowTitle } : {}),
-    durationMs: entry.durationMs
+    durationMs: entry.durationMs,
+    ...(entry.inputIdleDurationMs !== undefined
+      ? { inputIdleDurationMs: entry.inputIdleDurationMs }
+      : {})
   }))
 
   const lines: string[] = []
@@ -111,7 +109,10 @@ export function summarizeSpans(
         appName: entry.appName,
         bundleId: entry.bundleId,
         ...(entry.windowTitle ? { windowTitle: entry.windowTitle } : {}),
-        duration: formatActivityDuration(entry.durationMs)
+        duration: formatActivityDuration(entry.durationMs),
+        ...(entry.inputIdleDurationMs !== undefined
+          ? { inputIdleDuration: formatActivityDuration(entry.inputIdleDurationMs) }
+          : {})
       })
     )
   }
@@ -135,7 +136,9 @@ export function summarizeSpans(
 
   lines.push('</activity_summary>')
   lines.push('')
-  lines.push('This may help you understand what the user was working on before returning.')
+  lines.push(
+    'Durations describe foreground windows, not confirmed attention or playback. Input idle overlaps foreground time and does not mean the user was away. The total is the elapsed record interval, not viewing time.'
+  )
 
   return {
     text: lines.join('\n'),

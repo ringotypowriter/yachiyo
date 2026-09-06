@@ -93,3 +93,19 @@ test('summarizeSpans includes AFK time as generic status data only when app span
 
   assert.equal(summarizeSpans([], 0, 60 * 60_000, { afkDurationMs: 60 * 60_000 }), null)
 })
+
+test('summarizeSpans retains all entries while limiting prompt output', () => {
+  const spans = Array.from({ length: 12 }, (_, i) => ({
+    appName: `App ${i}`,
+    bundleId: `app.${i}`,
+    startMs: i * 1000,
+    endMs: (i + 1) * 1000,
+    durationMs: 1000,
+    inputIdleDurationMs: 500
+  }))
+  const summary = summarizeSpans(spans, 0, 12_000)!
+  assert.equal(summary.entries.length, 12)
+  assert.equal(summary.entries[11].inputIdleDurationMs, 500)
+  assert.match(summary.text, /"omittedEntries":2/)
+  assert.doesNotMatch(summary.text, /"appName":"App 11"/)
+})

@@ -48,7 +48,7 @@ interface Span {
 // round trip). Window-title granularity does not need 1 Hz; 10s keeps background
 // CPU negligible while the app is unfocused.
 const POLL_INTERVAL_MS = 10_000
-const AFK_IDLE_THRESHOLD_MS = 5 * 60_000
+const INPUT_IDLE_THRESHOLD_MS = 5 * 60_000
 const OCR_INITIAL_DELAY_MS = 30_000
 const OCR_LONG_SESSION_INTERVAL_MS = 10 * 60_000
 const OCR_MIN_WINDOW_DWELL_MS = 3 * 60_000
@@ -89,8 +89,11 @@ export class ActivityTracker {
   private latestSummary: ActivitySummary | null = null
   /** Accumulated session start. Reset only when consumed or mode turned off. */
   private trackingStartTime: number | null = null
-  private afkStartTime: number | null = null
-  private afkDurationMs = 0
+  private inputIdleStartTime: number | null = null
+  private inputIdlePeriods: Array<{ startMs: number; endMs: number }> = []
+  private samplingStartTime: number | null = null
+  private samplingGeneration = 0
+  private systemPauses = new Set<'lock' | 'sleep'>()
   private fullModeAvailable: boolean | null = null
   private isWindowBlurred = false
   private isPolling = false
@@ -154,10 +157,23 @@ export class ActivityTracker {
     }
   }
 
+  setSystemPaused(reason: 'lock' | 'sleep', paused: boolean): void {
+    if (paused) {
+      this.systemPauses.add(reason)
+      this.cancelInitialOcr()
+      this.pausePolling()
+    } else {
+      this.systemPauses.delete(reason)
+      if (this.systemPauses.size === 0 && this.isWindowBlurred) {
+        this.handleWindowBlur()
+      }
+    }
+  }
+
   /** Call when ALL Yachiyo windows have lost focus. */
   handleWindowBlur(): void {
     this.isWindowBlurred = true
-    if ((this.mode as ActivityTrackingMode) === 'off') return
+    if ((this.mode as ActivityTrackingMode) === 'off' || this.systemPauses.size > 0) return
     this.scheduleInitialOcr()
     if (this.pollTimer) return
     void this.startPolling()
@@ -167,9 +183,6 @@ export class ActivityTracker {
   handleWindowFocus(): void {
     this.isWindowBlurred = false
     this.cancelInitialOcr()
-    if (this.trackingStartTime != null) {
-      this.syncAfkState(this.deps.now())
-    }
     this.pausePolling()
   }
 
@@ -181,10 +194,6 @@ export class ActivityTracker {
   finalizeAndConsume(): ActivitySummary | null {
     const now = this.deps.now()
     this.cancelInitialOcr()
-    if (this.trackingStartTime != null) {
-      this.syncAfkState(now)
-      this.closeAfkPeriod(now)
-    }
 
     // Close any open span first (in case we're still polling)
     if (this.pollTimer) {
@@ -199,8 +208,16 @@ export class ActivityTracker {
       return null
     }
 
-    const summary = summarizeSpans(this.spans, this.trackingStartTime, now, {
-      afkDurationMs: this.afkDurationMs,
+    const spans = this.spans.map((span) => ({
+      ...span,
+      inputIdleDurationMs: this.inputIdlePeriods.reduce(
+        (total, idle) =>
+          total +
+          Math.max(0, Math.min(span.endMs, idle.endMs) - Math.max(span.startMs, idle.startMs)),
+        0
+      )
+    }))
+    const summary = summarizeSpans(spans, this.trackingStartTime, now, {
       snapshots: this.snapshots
     })
     this.latestSummary = summary
@@ -230,8 +247,10 @@ export class ActivityTracker {
     this.currentSpan = null
     this.snapshots = []
     this.trackingStartTime = null
-    this.afkStartTime = null
-    this.afkDurationMs = 0
+    this.inputIdleStartTime = null
+    this.inputIdlePeriods = []
+    this.samplingStartTime = null
+    this.samplingGeneration += 1
     this.lastOcrAt = null
     this.currentWindowKey = null
     this.windowDwellStartMs = null
@@ -244,6 +263,7 @@ export class ActivityTracker {
   }
 
   private scheduleInitialOcr(): void {
+    if (this.systemPauses.size > 0 || this.mode === 'off') return
     if (!this.ocrConfig.enabled) return
     if (!this.captureOcrSnapshot) return
     if (this.initialOcrTimer) return
@@ -254,6 +274,15 @@ export class ActivityTracker {
   }
 
   private pausePolling(): void {
+    const now = this.deps.now()
+    if (this.samplingStartTime != null) {
+      this.syncInputIdleState(now)
+      this.closeInputIdlePeriod(now)
+    }
+    this.samplingStartTime = null
+    this.samplingGeneration += 1
+    this.currentWindowKey = null
+    this.windowDwellStartMs = null
     if (this.pollTimer) {
       this.deps.clearInterval(this.pollTimer)
       this.pollTimer = null
@@ -283,33 +312,26 @@ export class ActivityTracker {
     this.currentSpan = null
   }
 
-  private syncAfkState(now: number): boolean {
+  private syncInputIdleState(now: number): boolean {
     const idleTimeMs = this.getIdleTimeMs()
     const lastActiveAt = now - idleTimeMs
-    if (idleTimeMs < AFK_IDLE_THRESHOLD_MS) {
-      this.closeAfkPeriod(lastActiveAt)
+    if (idleTimeMs < INPUT_IDLE_THRESHOLD_MS) {
+      this.closeInputIdlePeriod(lastActiveAt)
       return false
     }
 
-    const sessionStart = this.trackingStartTime ?? lastActiveAt
-    const afkStart = Math.max(sessionStart, lastActiveAt)
-
-    if (this.currentSpan) {
-      this.pushCurrentSpan(Math.max(this.currentSpan.startMs, afkStart))
-    }
-
-    if (this.afkStartTime == null) {
-      this.afkStartTime = afkStart
+    if (this.samplingStartTime != null && this.inputIdleStartTime == null) {
+      this.inputIdleStartTime = Math.max(this.samplingStartTime, lastActiveAt)
     }
     return true
   }
 
-  private closeAfkPeriod(endMs: number): void {
-    if (this.afkStartTime == null) return
-    if (endMs > this.afkStartTime) {
-      this.afkDurationMs += endMs - this.afkStartTime
+  private closeInputIdlePeriod(endMs: number): void {
+    if (this.inputIdleStartTime == null) return
+    if (endMs > this.inputIdleStartTime) {
+      this.inputIdlePeriods.push({ startMs: this.inputIdleStartTime, endMs })
     }
-    this.afkStartTime = null
+    this.inputIdleStartTime = null
   }
 
   private getEffectiveMode(): 'simple' | 'full' {
@@ -317,7 +339,7 @@ export class ActivityTracker {
   }
 
   private async startPolling(): Promise<void> {
-    if ((this.mode as ActivityTrackingMode) === 'off') return
+    if ((this.mode as ActivityTrackingMode) === 'off' || this.systemPauses.size > 0) return
     if (!this.isWindowBlurred) return
     if (this.pollTimer) return
 
@@ -326,6 +348,7 @@ export class ActivityTracker {
       if (
         (this.mode as ActivityTrackingMode) === 'off' ||
         !this.isWindowBlurred ||
+        this.systemPauses.size > 0 ||
         this.pollTimer
       ) {
         return
@@ -339,6 +362,7 @@ export class ActivityTracker {
       this.trackingStartTime = this.deps.now()
     }
 
+    this.samplingStartTime = this.deps.now()
     this.pollTimer = this.deps.setInterval(() => {
       void this.poll(effectiveMode)
     }, POLL_INTERVAL_MS)
@@ -348,7 +372,9 @@ export class ActivityTracker {
     if (!this.isWindowBlurred) return
     if (this.mode === 'off') return
     if (this.isPolling) return
-    if (this.syncAfkState(this.deps.now())) return
+    if (this.systemPauses.size > 0) return
+    this.syncInputIdleState(this.deps.now())
+    const generation = this.samplingGeneration
     this.isPolling = true
 
     let sample: SampleResult | null = null
@@ -359,12 +385,13 @@ export class ActivityTracker {
     } finally {
       this.isPolling = false
     }
-    if ((this.mode as ActivityTrackingMode) === 'off') return
+    if ((this.mode as ActivityTrackingMode) === 'off' || this.systemPauses.size > 0) return
+    if (generation !== this.samplingGeneration) return
     if (!this.isWindowBlurred) return
     if (!sample) return
 
     const now = this.deps.now()
-    if (this.syncAfkState(now)) return
+    this.syncInputIdleState(now)
     const key = sampleWindowKey(sample)
     this.updateWindowDwell(key, now)
 
@@ -422,17 +449,20 @@ export class ActivityTracker {
     if (!this.captureOcrSnapshot) return
     if (this.isCapturingOcr) return
     if (!this.isWindowBlurred) return
-    if ((this.mode as ActivityTrackingMode) === 'off') return
+    if ((this.mode as ActivityTrackingMode) === 'off' || this.systemPauses.size > 0) return
     if (this.snapshots.length >= OCR_MAX_PER_ACTIVITY_RECORD) return
     const now = this.deps.now()
-    if (this.syncAfkState(now)) return
+    if (this.syncInputIdleState(now)) return
 
+    const generation = this.samplingGeneration
     this.isCapturingOcr = true
     this.lastOcrAt = now
     try {
       const sample = knownSample ?? (await this.deps.sampleActivity(this.getEffectiveMode()))
+      if (generation !== this.samplingGeneration || this.systemPauses.size > 0) return
       if (!sample || !this.canCaptureOcrSample(sample)) return
       const snapshot = await this.captureOcrSnapshot(sample, trigger)
+      if (generation !== this.samplingGeneration || this.systemPauses.size > 0) return
       if (!this.isWindowBlurred || (this.mode as ActivityTrackingMode) === 'off') return
       if (!this.canCaptureOcrSample(sample)) return
       if (!snapshot) return

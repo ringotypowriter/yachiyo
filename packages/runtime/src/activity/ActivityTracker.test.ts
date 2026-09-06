@@ -203,7 +203,7 @@ test('ActivityTracker allows only one in-flight sample at a time', async () => {
   }
 })
 
-test('ActivityTracker stops attributing the focused app once the user is AFK', async () => {
+test('ActivityTracker keeps foreground time while input is idle', async () => {
   const deps = createTrackerDeps()
   const tracker = new ActivityTracker('simple', deps)
 
@@ -221,15 +221,15 @@ test('ActivityTracker stops attributing the focused app once the user is AFK', a
     deps.setNow(60 * 60_000)
     const summary = tracker.finalizeAndConsume()
 
-    assert.equal(summary?.afkDurationMs, 56 * 60_000)
-    assert.match(summary?.text ?? '', /"appName":"Example Editor".*"duration":"4min"/)
-    assert.match(summary?.text ?? '', /"status":"afk".*"duration":"56min"/)
+    assert.equal(summary?.entries[0].inputIdleDurationMs, 56 * 60_000)
+    assert.match(summary?.text ?? '', /"appName":"Example Editor".*"duration":"60min"/)
+    assert.match(summary?.text ?? '', /"inputIdleDuration":"56min"/)
   } finally {
     tracker.finalizeAndConsume()
   }
 })
 
-test('ActivityTracker returns no activity summary for an AFK-only session', async () => {
+test('ActivityTracker records a window even when the session starts input-idle', async () => {
   const deps = createTrackerDeps()
   const tracker = new ActivityTracker('simple', deps)
 
@@ -243,7 +243,7 @@ test('ActivityTracker returns no activity summary for an AFK-only session', asyn
     await flushAsyncWork()
 
     deps.setNow(60 * 60_000)
-    assert.equal(tracker.finalizeAndConsume(), null)
+    assert.equal(tracker.finalizeAndConsume()?.entries[0].durationMs, 50 * 60_000)
   } finally {
     tracker.finalizeAndConsume()
   }
@@ -553,7 +553,7 @@ test('ActivityTracker skips OCR for private foreground apps', async () => {
   }
 })
 
-test('ActivityTracker does not OCR while the user is AFK', async () => {
+test('ActivityTracker does not OCR while input is idle', async () => {
   const deps = createTrackerDeps()
   let captureCalls = 0
   deps.captureOcrSnapshot = async () => {
@@ -576,7 +576,7 @@ test('ActivityTracker does not OCR while the user is AFK', async () => {
   }
 })
 
-test('ActivityTracker closes AFK time at the last activity timestamp after the user returns', async () => {
+test('ActivityTracker closes input idle time at the last activity timestamp after the user returns', async () => {
   const deps = createTrackerDeps()
   const tracker = new ActivityTracker('simple', deps)
 
@@ -600,9 +600,109 @@ test('ActivityTracker closes AFK time at the last activity timestamp after the u
     deps.setIdleTimeMs(0)
     const summary = tracker.finalizeAndConsume()
 
-    assert.equal(summary?.afkDurationMs, 15 * 60_000)
-    assert.match(summary?.text ?? '', /"status":"afk".*"duration":"15min"/)
+    assert.equal(summary?.entries[0].inputIdleDurationMs, 15 * 60_000)
+    assert.match(summary?.text ?? '', /"inputIdleDuration":"15min"/)
   } finally {
     tracker.finalizeAndConsume()
   }
+})
+
+test('ActivityTracker samples episode changes during input idle', async () => {
+  const deps = createTrackerDeps()
+  deps.setNow(0)
+  let title = 'Episode 1'
+  deps.sampleActivity = async () => ({
+    appName: 'Browser',
+    bundleId: 'browser',
+    windowTitle: title
+  })
+  const tracker = new ActivityTracker('full', deps)
+  tracker.handleWindowBlur()
+  await flushAsyncWork()
+  deps.intervals[0].callback()
+  await flushAsyncWork()
+  deps.setNow(10 * 60_000)
+  deps.setIdleTimeMs(10 * 60_000)
+  title = 'Episode 2'
+  deps.intervals[0].callback()
+  await flushAsyncWork()
+  deps.setNow(20 * 60_000)
+  deps.setIdleTimeMs(20 * 60_000)
+  const summary = tracker.finalizeAndConsume()!
+  assert.deepEqual(
+    summary.entries.map((e) => [e.windowTitle, e.durationMs, e.inputIdleDurationMs]),
+    [
+      ['Episode 1', 600_000, 600_000],
+      ['Episode 2', 600_000, 600_000]
+    ]
+  )
+  assert.equal(summary.afkDurationMs, undefined)
+})
+
+test('ActivityTracker excludes overlapping lock and sleep gaps and resumes sampling', async () => {
+  const deps = createTrackerDeps()
+  deps.setNow(0)
+  const tracker = new ActivityTracker('simple', deps)
+  tracker.handleWindowBlur()
+  deps.intervals[0].callback()
+  await flushAsyncWork()
+  deps.setNow(600_000)
+  deps.setIdleTimeMs(600_000)
+  tracker.setSystemPaused('lock', true)
+  tracker.setSystemPaused('sleep', true)
+  deps.setNow(1_200_000)
+  tracker.setSystemPaused('sleep', false)
+  assert.equal(deps.intervals.filter((i) => i.active).length, 0)
+  deps.setNow(1_800_000)
+  tracker.setSystemPaused('lock', false)
+  deps.intervals.at(-1)!.callback()
+  await flushAsyncWork()
+  deps.setNow(2_400_000)
+  deps.setIdleTimeMs(2_400_000)
+  const summary = tracker.finalizeAndConsume()!
+  assert.equal(summary.entries[0].durationMs, 1_200_000)
+  assert.equal(summary.entries[0].inputIdleDurationMs, 1_200_000)
+})
+
+test('ActivityTracker discards a sample that crosses a lock/unlock boundary', async () => {
+  const deps = createTrackerDeps()
+  deps.setNow(0)
+  let resolveSample!: (value: { appName: string; bundleId: string }) => void
+  deps.sampleActivity = () =>
+    new Promise((resolve) => {
+      resolveSample = resolve
+    })
+  const tracker = new ActivityTracker('simple', deps)
+  tracker.handleWindowBlur()
+  deps.intervals[0].callback()
+  tracker.setSystemPaused('lock', true)
+  deps.setNow(600_000)
+  tracker.setSystemPaused('lock', false)
+  resolveSample({ appName: 'Stale', bundleId: 'stale' })
+  await flushAsyncWork()
+  deps.setNow(660_000)
+  assert.equal(tracker.finalizeAndConsume(), null)
+})
+
+test('ActivityTracker does not count focused or paused gaps as input idle', async () => {
+  const deps = createTrackerDeps()
+  deps.setNow(0)
+  const tracker = new ActivityTracker('simple', deps)
+  tracker.handleWindowBlur()
+  deps.intervals[0].callback()
+  await flushAsyncWork()
+  deps.setNow(600_000)
+  deps.setIdleTimeMs(600_000)
+  tracker.handleWindowFocus()
+  deps.setNow(1_800_000)
+  tracker.handleWindowBlur()
+  deps.intervals.at(-1)!.callback()
+  await flushAsyncWork()
+  deps.setNow(2_400_000)
+  deps.setIdleTimeMs(2_400_000)
+  tracker.setSystemPaused('sleep', true)
+  deps.setNow(3_600_000)
+  const summary = tracker.finalizeAndConsume()!
+  assert.equal(summary.entries[0].durationMs, 1_200_000)
+  assert.equal(summary.entries[0].inputIdleDurationMs, 1_200_000)
 })

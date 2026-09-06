@@ -718,6 +718,8 @@ export interface ActivitySourceEntry {
   bundleId: string
   windowTitle?: string
   durationMs: number
+  /** Portion of foreground time in input-idle periods of at least five minutes. Absent in older records. */
+  inputIdleDurationMs?: number
 }
 
 export type ActivitySnapshotTrigger = 'initial-blur' | 'long-session'
@@ -770,6 +772,7 @@ export interface ActivitySourceRecord {
   endedAt: string
   totalDurationMs: number
   uniqueApps: number
+  /** Legacy exclusive AFK time; not equivalent to overlapping input idle time. */
   afkDurationMs?: number
   summaryText: string
   entries: ActivitySourceEntry[]
