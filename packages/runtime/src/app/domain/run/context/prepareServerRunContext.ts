@@ -1,4 +1,4 @@
-import { access, constants, mkdir, readFile } from 'node:fs/promises'
+import { mkdir, readFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join, relative, resolve } from 'node:path'
 
@@ -170,7 +170,6 @@ export interface PreparedServerRunContext {
   enabledSubagentProfiles: SubagentProfile[]
   subagentsConfig: NonNullable<SettingsConfig['subagents']>
   gitCtx: GitContext
-  gitValidatedWorkspaces: string[]
   subagentAvailableWorkspaces: string[]
   runMode: RunModeId
   /** Previous completed run's actual prompt tokens, computed once per leg for reuse. */
@@ -388,22 +387,7 @@ export async function prepareServerRunContext(
   const gitCtx = hasEnabledSubagents
     ? await detectGitContext(workspacePath)
     : ({ hasGit: false } as GitContext)
-  const gitValidatedWorkspaces =
-    hasEnabledAcpSubagents && savedWorkspacePaths.length > 0
-      ? (
-          await Promise.all(
-            savedWorkspacePaths.map(async (p) => {
-              const hasGit = await access(join(resolve(p), '.git'), constants.F_OK)
-                .then(() => true)
-                .catch(() => false)
-              return hasGit ? p : null
-            })
-          )
-        ).filter((p): p is string => p !== null)
-      : []
-  const subagentAvailableWorkspaces = hasEnabledWorkerSubagents
-    ? savedWorkspacePaths
-    : gitValidatedWorkspaces
+  const subagentAvailableWorkspaces = [...new Set([workspacePath, ...savedWorkspacePaths])]
   const activeSubagents = hasEnabledWorkerSubagents
     ? (deps.subagentManager?.list(input.thread.id) ?? []).filter(
         (snapshot) =>
@@ -683,7 +667,6 @@ export async function prepareServerRunContext(
     enabledSubagentProfiles,
     subagentsConfig,
     gitCtx,
-    gitValidatedWorkspaces,
     subagentAvailableWorkspaces,
     runMode: input.runMode,
     ...(previousActualPromptTokens !== undefined ? { previousActualPromptTokens } : {})

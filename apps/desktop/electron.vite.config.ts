@@ -1,5 +1,7 @@
 import { dirname, resolve } from 'path'
-import { cpSync, mkdirSync, rmSync } from 'fs'
+import { cpSync, mkdirSync, readFileSync, rmSync } from 'fs'
+import { createRequire } from 'node:module'
+import type { Plugin } from 'vite'
 import { defineConfig } from 'electron-vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
@@ -77,6 +79,35 @@ function copyJiebaWasm(includeDevAssets: boolean): { name: string; closeBundle: 
   }
 }
 
+function emitQuickJsWasm(): Plugin {
+  return {
+    name: 'emit-quickjs-wasm',
+    generateBundle(_options, bundle) {
+      const runtimeRequire = createRequire(resolve('../../packages/runtime/package.json'))
+      const quickjsRequire = createRequire(runtimeRequire.resolve('quickjs-emscripten'))
+      const source = readFileSync(
+        quickjsRequire.resolve('@jitl/quickjs-wasmfile-release-sync/wasm')
+      )
+      const directories = new Set(
+        Object.values(bundle)
+          .filter(
+            (item) =>
+              item.type === 'chunk' &&
+              item.moduleIds.some(
+                (id) =>
+                  id.includes('@jitl/quickjs-wasmfile-release-sync/') &&
+                  /\/emscripten-module\.[cm]?js$/.test(id)
+              )
+          )
+          .map((item) => dirname(item.fileName))
+      )
+      for (const directory of directories) {
+        this.emitFile({ type: 'asset', fileName: `${directory}/emscripten-module.wasm`, source })
+      }
+    }
+  }
+}
+
 export default defineConfig(({ command }) => ({
   main: {
     resolve: {
@@ -102,6 +133,7 @@ export default defineConfig(({ command }) => ({
       }
     },
     plugins: [
+      emitQuickJsWasm(),
       copyDrizzleMigrations(command === 'serve'),
       ...(command === 'serve' ? [copyCoreSkills()] : []),
       copyJiebaWasm(command === 'serve')

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises'
+import { access, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
@@ -86,6 +86,87 @@ function launchOptions(toolCallId: string): {
   return { toolCallId, messages: [], abortSignal: new AbortController().signal }
 }
 
+test('Worker delegation accepts the current unsaved directory and its realpath alias', async () => {
+  const workspace = await mkdtemp(join(tmpdir(), 'yachiyo-delegate-'))
+  const alias = `${workspace}-alias`
+  const launches: LaunchSubagentInput[] = []
+  try {
+    await symlink(workspace, alias)
+    const tool = createTool(
+      makeContext({
+        workspacePath: workspace,
+        availableWorkspaces: [],
+        subagentManager: makeLaunchManager(launches)
+      })
+    )
+    for (const requested of [undefined, workspace, alias]) {
+      const result = (await tool.execute!(
+        { agent_name: 'explore', prompt: 'Read the workspace', workspace: requested },
+        launchOptions(`temp-${launches.length}`)
+      )) as { error?: string }
+      assert.equal(result.error, undefined)
+    }
+    assert.equal(launches.length, 3)
+    const canonicalWorkspace = await realpath(workspace)
+    assert.ok(launches.every((launch) => launch.workspacePath === canonicalWorkspace))
+  } finally {
+    await rm(alias, { force: true })
+    await rm(workspace, { recursive: true, force: true })
+  }
+})
+
+for (const mode of ['worker', 'acp'] as const) {
+  test(`${mode} delegation validates directory authorization without requiring Git`, async () => {
+    const workspace = await mkdtemp(join(tmpdir(), 'yachiyo-workspace-'))
+    const saved = await mkdtemp(join(tmpdir(), 'yachiyo-saved-'))
+    const outside = await mkdtemp(join(tmpdir(), 'yachiyo-outside-'))
+    const file = join(workspace, 'file')
+    const launches: LaunchSubagentInput[] = []
+    const acpPaths: string[] = []
+    try {
+      await writeFile(file, 'sentinel')
+      const context = makeContext({
+        workspacePath: workspace,
+        availableWorkspaces: [saved, file, join(workspace, 'missing')],
+        subagentsConfig: { mode, enabledNamedAgents: ['explore'] },
+        subagentProfiles: [{ name: 'explore', enabled: true } as never],
+        subagentManager: makeLaunchManager(launches),
+        launchAcpProcess: ((_profile: unknown, cwd: string) => {
+          acpPaths.push(cwd)
+          return { proc: {}, stream: {}, procExited: Promise.resolve(0) }
+        }) as unknown as DelegateTaskContext['launchAcpProcess'],
+        runAcpSession: (async (_stream, _proc, _exited, cwd) => {
+          assert.equal(cwd, acpPaths.at(-1))
+          return { sessionId: 'session', stopReason: 'end_turn', lastMessageText: 'done' }
+        }) as DelegateTaskContext['runAcpSession']
+      })
+      const tool = createTool(context)
+      for (const requested of [undefined, workspace, saved]) {
+        const result = (await tool.execute!(
+          { agent_name: 'explore', prompt: 'Inspect', workspace: requested },
+          launchOptions('valid')
+        )) as { error?: string }
+        assert.equal(result.error, undefined)
+      }
+      for (const requested of [outside, file, join(workspace, 'missing')]) {
+        const result = (await tool.execute!(
+          { agent_name: 'explore', prompt: 'Inspect', workspace: requested },
+          launchOptions('invalid')
+        )) as { error?: string }
+        assert.ok(result.error)
+      }
+      assert.equal(mode === 'worker' ? launches.length : acpPaths.length, 3)
+      assert.equal(await readFile(file, 'utf8'), 'sentinel')
+      await assert.rejects(access(join(workspace, '.git')))
+      assert.deepEqual(context.availableWorkspaces, [saved, file, join(workspace, 'missing')])
+    } finally {
+      await Promise.all(
+        [workspace, saved, outside].map((path) => rm(path, { recursive: true, force: true }))
+      )
+    }
+  })
+}
+
 test('delegateTask returns a launch receipt without awaiting provider execution', async () => {
   let providerCalls = 0
   const context = makeContext({
@@ -130,6 +211,106 @@ test('delegateTask rejects unknown Worker profile names before launch', async ()
   assert.match(result.error ?? result.content[0]?.text ?? '', /Unknown worker subagent/)
   assert.equal(launches.length, 0)
 })
+
+for (const profileId of ['explore', 'plan', 'review'] as const) {
+  test(`${profileId} Worker runs Web and read orchestration without inheriting full Node access`, async () => {
+    const workspace = await mkdtemp(join(tmpdir(), 'yachiyo-research-worker-'))
+    await writeFile(join(workspace, 'sample.txt'), 'local evidence')
+    let webCalls = 0
+    const searchQueries: string[] = []
+    let inspected = false
+    const factory = createWorkerSubagentRunnerFactory({
+      profileId,
+      profile: DEFAULT_NAMED_SUBAGENT_PROFILES[profileId],
+      dependencies: {
+        settings: TEST_SETTINGS,
+        parentToolContext: { workspacePath: workspace, runMode: 'auto' },
+        parentDependencies: {
+          webSearchService: {
+            search: async ({ query }: { query: string }) => {
+              searchQueries.push(query)
+              return {
+                provider: 'test',
+                query,
+                results: [
+                  { rank: 1, title: 'Search evidence', url: 'https://example.com/reference' }
+                ]
+              }
+            }
+          } as AgentToolDependencies['webSearchService'],
+          fetchImpl: async () => {
+            webCalls++
+            return new Response('remote evidence', { headers: { 'content-type': 'text/plain' } })
+          }
+        },
+        createModelRuntime: () =>
+          ({
+            streamReply: async function* (request: ModelStreamRequest) {
+              const tools = request.tools!
+              assert.ok(tools.jsRepl)
+              assert.ok(tools.webRead)
+              assert.ok(tools.webSearch)
+              assert.equal(Boolean(tools.bash), profileId === 'review')
+              assert.equal(tools.pyRepl, undefined)
+              const result = (await tools.jsRepl!.execute!(
+                {
+                  code: 'const results = await parallel([() => read("sample.txt"), () => tool.webRead({url:"https://example.com/reference",format:"markdown"}), () => tool.webSearch({query:"QuickJS documentation"})]); display(results); typeof process',
+                  timeout: 5,
+                  reset: false
+                },
+                launchOptions('research-cell')
+              )) as { error?: string; details: { result: string; displayOutput: string } }
+              assert.equal(result.error, undefined)
+              assert.equal(result.details.result, 'undefined')
+              assert.match(result.details.displayOutput, /local evidence/)
+              assert.match(result.details.displayOutput, /remote evidence/)
+              assert.match(result.details.displayOutput, /Search evidence/)
+              const blocked = (await tools.jsRepl!.execute!(
+                { code: 'await tool.bash({command:"pwd"})' },
+                launchOptions('blocked-cell')
+              )) as { error?: string }
+              assert.ok(blocked.error)
+              inspected = true
+              yield 'done'
+            }
+          }) as ModelRuntime
+      }
+    })
+    const runner = factory({
+      launch: {
+        agentId: 'research',
+        parentThreadId: 'parent',
+        launchRunId: 'run',
+        agentName: profileId,
+        agentType: profileId,
+        codeName: 'Akari',
+        workspacePath: workspace,
+        prompt: 'Inspect evidence'
+      },
+      signal: new AbortController().signal,
+      sendMessage: () => ({ messageId: 'message', delivery: 'queued', recipientState: 'idle' }),
+      getTask: () => undefined,
+      hasPendingMessages: () => false,
+      onProgress: () => {},
+      onToolCall: () => {}
+    })
+    try {
+      await runner.runTurn({
+        turnId: 'turn',
+        initialPrompt: 'Inspect evidence',
+        messages: [],
+        signal: new AbortController().signal
+      })
+      assert.equal(inspected, true)
+      assert.equal(webCalls, 1)
+      assert.deepEqual(searchQueries, ['QuickJS documentation'])
+      assert.equal(await readFile(join(workspace, 'sample.txt'), 'utf8'), 'local evidence')
+    } finally {
+      await runner.close()
+      await rm(workspace, { recursive: true, force: true })
+    }
+  })
+}
 
 test('Worker runner preserves prompt/mailbox history and Agent-specific prompt cache keys', async () => {
   const workspace = await mkdtemp(join(tmpdir(), 'yachiyo-worker-'))

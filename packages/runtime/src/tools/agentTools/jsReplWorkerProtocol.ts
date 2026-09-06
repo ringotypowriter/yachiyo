@@ -36,6 +36,7 @@ export type JsReplWorkerFetchResult = JsReplWorkerFetchSuccess | { error: JsRepl
 export type JsReplParentMessage =
   | {
       type: 'init'
+      mode?: 'full' | 'orchestration'
       workspacePath: string
       toolNames: string[]
     }

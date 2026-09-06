@@ -6,7 +6,9 @@ import { pathToFileURL } from 'node:url'
 import { parentPort, type MessagePort } from 'node:worker_threads'
 import vm from 'node:vm'
 
-import { compileJsReplCell } from './jsReplCellCompiler.ts'
+import { compileJsReplCell, type CompiledJsReplCell } from './jsReplCellCompiler.ts'
+import { formatJsReplError, JS_REPL_SCRIPT_FILENAME } from './jsReplErrorFormat.ts'
+import { createOrchestrationKernel, type OrchestrationKernel } from './jsReplOrchestrationKernel.ts'
 import { resolveReplCallCwd } from './replCwd.ts'
 import type {
   JsReplParentMessage,
@@ -46,6 +48,8 @@ function requireParentPort(): MessagePort {
 }
 
 const port = requireParentPort()
+let orchestration: OrchestrationKernel | undefined
+let orchestrationMode = false
 
 const state: WorkerState = {
   workspacePath: '',
@@ -374,18 +378,6 @@ function errorMessage(error: unknown): string {
   return String(error)
 }
 
-function formatThrownError(error: unknown): string {
-  if (error instanceof Error) return error.stack ?? `${error.name}: ${error.message}`
-  if (error && typeof error === 'object') {
-    if ('stack' in error && typeof error.stack === 'string') return error.stack
-    if ('message' in error && typeof error.message === 'string') {
-      const name = 'name' in error && typeof error.name === 'string' ? error.name : 'Error'
-      return `${name}: ${error.message}`
-    }
-  }
-  return String(error)
-}
-
 async function serializeFetchRequest(
   input: string | URL | Request,
   init?: RequestInit
@@ -548,6 +540,32 @@ async function executeCell(
   message: Extract<JsReplParentMessage, { type: 'execute' }>
 ): Promise<void> {
   if (state.activeRun) throw new Error('JavaScript REPL received overlapping cells.')
+  if (orchestrationMode) {
+    if (message.reset) {
+      orchestration?.dispose()
+      orchestration = await createOrchestrationKernel([...state.toolNames], callHost)
+    }
+    if (!orchestration) throw new Error('JavaScript orchestration backend is unavailable.')
+    state.activeRun = {
+      runId: message.runId,
+      consoleLines: [],
+      displayOutputs: [],
+      asyncErrors: []
+    }
+    try {
+      const result = await orchestration.execute(message.code, message.timeoutMs)
+      port.postMessage({ type: 'result', runId: message.runId, ...result })
+    } finally {
+      state.activeRun = undefined
+      for (const [id, pending] of state.pendingHostCalls) {
+        if (pending.runId === message.runId) {
+          state.pendingHostCalls.delete(id)
+          pending.reject(new Error('JavaScript cell finished.'))
+        }
+      }
+    }
+    return
+  }
   if (message.reset || !state.context) resetContext()
 
   const cwd = resolveReplCallCwd(state.workspacePath, message.cwd)
@@ -563,9 +581,10 @@ async function executeCell(
   let result: string | undefined
   let error: string | undefined
   let timedOut = false
+  let compiled: CompiledJsReplCell | undefined
   try {
-    const compiled = compileJsReplCell(message.code)
-    const script = new vm.Script(compiled.source, { filename: 'jsRepl' })
+    compiled = compileJsReplCell(message.code)
+    const script = new vm.Script(compiled.source, { filename: JS_REPL_SCRIPT_FILENAME })
     const rawResult = script.runInContext(state.context!, { timeout: message.timeoutMs })
     const resolved = await rawResult
     await new Promise<void>((resolve) => setImmediate(resolve))
@@ -578,7 +597,10 @@ async function executeCell(
     timedOut = isTimeoutError(caught)
     error = timedOut
       ? `Script execution timed out (${Math.round(message.timeoutMs / 1000)}s limit).`
-      : formatThrownError(caught)
+      : formatJsReplError(caught, {
+          code: message.code,
+          ...(compiled ? { sourceOrigins: compiled.sourceOrigins } : {})
+        })
   } finally {
     state.timerTracker?.clearAll()
     state.activeRun = undefined
@@ -625,9 +647,20 @@ port.on('message', (message: JsReplParentMessage) => {
   if (message.type === 'init') {
     state.workspacePath = message.workspacePath
     state.toolNames = new Set(message.toolNames)
-    resetContext()
-    const ready: JsReplWorkerMessage = { type: 'ready' }
-    port.postMessage(ready)
+    orchestrationMode = message.mode === 'orchestration'
+    if (orchestrationMode) {
+      void createOrchestrationKernel([...state.toolNames], callHost)
+        .then((kernel) => {
+          orchestration = kernel
+          port.postMessage({ type: 'ready' })
+        })
+        .catch((error) => {
+          throw error
+        })
+    } else {
+      resetContext()
+      port.postMessage({ type: 'ready' })
+    }
     return
   }
   if (message.type === 'toolResult') {
@@ -644,7 +677,7 @@ port.on('message', (message: JsReplParentMessage) => {
       runId: message.runId,
       consoleLines: [],
       displayOutputs: [],
-      error: error instanceof Error ? (error.stack ?? error.message) : String(error),
+      error: formatJsReplError(error, { code: message.code }),
       timedOut: false
     }
     port.postMessage(response)

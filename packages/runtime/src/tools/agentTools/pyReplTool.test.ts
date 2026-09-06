@@ -133,8 +133,11 @@ describe('pyRepl tool schema and authority', () => {
     )
     assert.throws(() => pyReplToolInputSchema.parse({ code: '', timeout: 30 }))
     assert.throws(() => pyReplToolInputSchema.parse({ code: 'pass', timeout: 121 }))
-    assert.throws(() => pyReplToolInputSchema.parse({ code: 'pass', cwd: '../outside' }))
     assert.throws(() => pyReplToolInputSchema.parse({ code: 'pass', unexpected: 'not allowed' }))
+    // Containment is a runtime concern: the schema accepts any cwd shape so the
+    // cell reports a readable error instead of failing input validation.
+    assert.equal(pyReplToolInputSchema.parse({ code: 'pass', cwd: '../outside' }).cwd, '../outside')
+    assert.equal(pyReplToolInputSchema.parse({ code: 'pass', cwd: '/elsewhere' }).cwd, '/elsewhere')
   })
 
   it('rejects sandboxed contexts at construction', () => {
@@ -172,8 +175,13 @@ describe('pyRepl tool schema and authority', () => {
     )
     const output = await tool.execute({ code: 'pass', cwd: 'missing' })
     assert.equal(ensured, false)
-    assert.match(output.error ?? '', /directory does not exist/u)
+    assert.match(output.error ?? '', /does not exist/u)
     assert.equal(output.details.cwd, 'missing')
+
+    const escaping = await tool.execute({ code: 'pass', cwd: '../outside' })
+    assert.equal(ensured, false)
+    assert.match(escaping.error ?? '', /outside the workspace/u)
+    assert.equal(escaping.details.cwd, '../outside')
   })
 
   it('advertises only helpers backed by enabled non-REPL tools', () => {

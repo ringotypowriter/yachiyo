@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdir, mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
@@ -603,7 +603,6 @@ test('prepareServerRunContext counts structured evolved traits without crashing'
 
 test('prepareServerRunContext includes worker subagent context without ACP profiles', async () => {
   const root = await mkdtemp(join(tmpdir(), 'yachiyo-worker-subagents-'))
-  await mkdir(join(root, '.git'))
   const thread: ThreadRecord = {
     id: 'thread-1',
     title: 'Thread',
@@ -638,7 +637,7 @@ test('prepareServerRunContext includes worker subagent context without ACP profi
       /unavailable because the current workspace is not a Git repository/
     )
     assert.match(context.messages.map((message) => message.content).join('\n'), /<subagents>/)
-    assert.deepEqual(context.subagentAvailableWorkspaces, [])
+    assert.deepEqual(context.subagentAvailableWorkspaces, [root])
   } finally {
     await rm(root, { recursive: true, force: true })
   }

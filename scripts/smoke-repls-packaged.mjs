@@ -118,28 +118,30 @@ async function executeJavaScriptCell(worker, runId, code) {
     type: 'execute',
     runId,
     code,
-    cwd: repoRoot,
+    cwd: workspacePath,
     reset: false,
     timeoutMs: 5_000
   })
   return result
 }
 
-async function smokeJavaScriptWorker(workerPath) {
+async function smokeJavaScriptWorker(workerPath, mode) {
   const worker = new Worker(workerPath, { name: 'yachiyo-js-repl-packaged-smoke' })
   try {
     const ready = waitForWorkerMessage(worker, (message) => message?.type === 'ready', 'ready')
-    worker.postMessage({ type: 'init', workspacePath: repoRoot, toolNames: [] })
+    worker.postMessage({ type: 'init', workspacePath, toolNames: [], mode })
     await ready
 
     const first = await executeJavaScriptCell(
       worker,
       'packaged-js-smoke-1',
-      `import path from "node:path"; const answer = await Promise.resolve(6 * 7); display(path.basename("/tmp/demo")); answer`
+      mode === 'orchestration'
+        ? 'const answer = await Promise.resolve(6 * 7); display(typeof process); answer'
+        : `import path from "node:path"; const answer = await Promise.resolve(6 * 7); display(path.basename("/tmp/demo")); answer`
     )
     assert.equal(first.error, undefined, JSON.stringify(first))
     assert.equal(first.result, '42')
-    assert.deepEqual(first.displayOutputs, ['demo'])
+    assert.deepEqual(first.displayOutputs, [mode === 'orchestration' ? 'undefined' : 'demo'])
 
     const second = await executeJavaScriptCell(worker, 'packaged-js-smoke-2', 'answer + 1')
     assert.equal(second.error, undefined, JSON.stringify(second))
@@ -295,7 +297,10 @@ async function main() {
   try {
     await Promise.all([mkdir(workspacePath, { recursive: true }), buildIsolatedDesktop()])
     const { pythonRunnerPath, workerPaths } = await verifyPackagedAssets()
-    for (const workerPath of workerPaths) await smokeJavaScriptWorker(workerPath)
+    for (const workerPath of workerPaths) {
+      await smokeJavaScriptWorker(workerPath, 'full')
+      await smokeJavaScriptWorker(workerPath, 'orchestration')
+    }
     await smokePythonRunner(pythonRunnerPath)
     console.log(
       `✓ packaged REPL smoke passed (${workerPaths.map((path) => basename(path)).join(', ')}, ${basename(pythonRunnerPath)})`

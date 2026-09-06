@@ -3,7 +3,7 @@ import { isAbsolute, resolve as resolvePath } from 'node:path'
 
 import type { ToolExecutionOptions } from 'ai'
 
-import { resolvePathWithinWorkspace, type AgentToolOutput } from './shared.ts'
+import { resolvePathWithinWorkspace, resolveToolPath, type AgentToolOutput } from './shared.ts'
 
 export const REPL_TOOL_NAMES = ['jsRepl', 'pyRepl'] as const
 
@@ -29,20 +29,25 @@ export function resolveReplToolCwd(
   workspacePath: string,
   requested: string | undefined
 ): ReplCwdResolution {
-  if (!requested || requested === '.') return { resolved: workspacePath }
-  const resolved = resolvePathWithinWorkspace(workspacePath, requested)
+  const target = requested?.trim()
+  if (!target || target === '.') return { resolved: workspacePath }
+  // Expand "~" and quoted tokens first so an absolute path is judged where it
+  // really points instead of being re-anchored under the workspace.
+  const resolved = resolvePathWithinWorkspace(workspacePath, resolveToolPath(workspacePath, target))
   if (!resolved) {
     return {
-      error: `Invalid cwd ${JSON.stringify(requested)} — must be a relative path inside the workspace.`
+      error: `Invalid cwd ${JSON.stringify(target)} — it points outside the workspace ${workspacePath}. Pass a path inside the workspace, or omit cwd to run at the workspace root.`
     }
   }
   try {
     const info = statSync(resolved)
     if (!info.isDirectory()) {
-      return { error: `Invalid cwd ${JSON.stringify(requested)} — not a directory.` }
+      return { error: `Invalid cwd ${JSON.stringify(target)} — not a directory.` }
     }
   } catch {
-    return { error: `Invalid cwd ${JSON.stringify(requested)} — directory does not exist.` }
+    return {
+      error: `Invalid cwd ${JSON.stringify(target)} — ${resolved} does not exist. Omit cwd to run at the workspace root.`
+    }
   }
   return { resolved }
 }

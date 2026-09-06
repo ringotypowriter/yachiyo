@@ -410,6 +410,7 @@ function buildChronologicalTimelineItems(input: {
   const toolCallById = new Map(input.visibleToolCalls.map((toolCall) => [toolCall.id, toolCall]))
   const emittedTextBlockIds = new Set<string>()
   const emittedToolCallIds = new Set<string>()
+  const liveEntries: ChronologicalTimelineEntry[] = []
 
   const toTextBlockEntry = (textBlockId: string): ChronologicalTimelineEntry | null => {
     const textBlock = textBlockById.get(textBlockId)
@@ -440,7 +441,7 @@ function buildChronologicalTimelineItems(input: {
     }
   }
   const appendFallbackEntries = (
-    destination: ConversationGroupTimelineItem[],
+    destination: ChronologicalTimelineEntry[],
     textBlockIds: readonly string[],
     toolCallIds: readonly string[]
   ): void => {
@@ -452,10 +453,22 @@ function buildChronologicalTimelineItems(input: {
         .map(toToolCallEntry)
         .filter((entry): entry is ChronologicalTimelineEntry => entry != null)
     ]
-    destination.push(...entries.sort(compareTimelineEntries).map((entry) => entry.item))
+    for (const entry of entries) {
+      const toolCall =
+        entry.item.kind === 'tool-call' ? toolCallById.get(entry.item.toolCallId) : undefined
+      if (
+        tracedEntries.length > 0 &&
+        (toolCall?.status === 'preparing' || toolCall?.status === 'running')
+      ) {
+        liveEntries.push(entry)
+      } else {
+        destination.push(entry)
+      }
+    }
   }
 
-  const items: ConversationGroupTimelineItem[] = []
+  const tracedEntries: ChronologicalTimelineEntry[] = []
+  const fallbackEntries: ChronologicalTimelineEntry[] = []
   if (input.sourceTrace) {
     for (const segment of input.sourceTrace) {
       for (const tracedItem of segment.tracedItems) {
@@ -463,14 +476,20 @@ function buildChronologicalTimelineItems(input: {
           tracedItem.kind === 'assistant-text-block'
             ? toTextBlockEntry(tracedItem.textBlockId)
             : toToolCallEntry(tracedItem.toolCallId)
-        if (entry) items.push(entry.item)
+        if (entry) tracedEntries.push(entry)
       }
-      appendFallbackEntries(items, segment.fallbackTextBlockIds, segment.fallbackToolCallIds)
+    }
+    for (const segment of input.sourceTrace) {
+      appendFallbackEntries(
+        fallbackEntries,
+        segment.fallbackTextBlockIds,
+        segment.fallbackToolCallIds
+      )
     }
   }
 
   appendFallbackEntries(
-    items,
+    fallbackEntries,
     input.activeAssistantTextBlocks
       .filter((textBlock) => !emittedTextBlockIds.has(textBlock.id))
       .map((textBlock) => textBlock.id),
@@ -478,6 +497,22 @@ function buildChronologicalTimelineItems(input: {
       .filter((toolCall) => !emittedToolCallIds.has(toolCall.id))
       .map((toolCall) => toolCall.id)
   )
+  // Preserve recorded relative order, but place untraced history by time rather
+  // than appending it after the latest continuation's commentary.
+  fallbackEntries.sort(compareTimelineEntries)
+  const items: ConversationGroupTimelineItem[] = []
+  let fallbackIndex = 0
+  for (const entry of tracedEntries) {
+    while (
+      fallbackIndex < fallbackEntries.length &&
+      compareTimelineEntries(fallbackEntries[fallbackIndex]!, entry) < 0
+    ) {
+      items.push(fallbackEntries[fallbackIndex++]!.item)
+    }
+    items.push(entry.item)
+  }
+  items.push(...fallbackEntries.slice(fallbackIndex).map((entry) => entry.item))
+  items.push(...liveEntries.sort(compareTimelineEntries).map((entry) => entry.item))
   return items
 }
 

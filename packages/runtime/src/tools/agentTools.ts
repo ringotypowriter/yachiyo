@@ -27,6 +27,7 @@ import { createTool as createEditTool } from './agentTools/editTool.ts'
 import { createTool as createGlobTool } from './agentTools/globTool.ts'
 import { createTool as createGrepTool } from './agentTools/grepTool.ts'
 import { createTool as createJsReplTool } from './agentTools/jsReplTool.ts'
+import { isOrchestrationTool } from './agentTools/jsReplOrchestrationKernel.ts'
 import {
   createTool as createPyReplTool,
   type PyReplToolDependencies
@@ -886,10 +887,13 @@ export function createAgentToolSet(
     !registerOnlyEnabledToolSchemas || enabledTools.has(toolName)
 
   const tools: ToolSet = {}
+  const canCallReplTool = (name: string): boolean =>
+    !isReplToolName(name) &&
+    enabledToolNames.has(name) &&
+    (context.jsReplMode !== 'orchestration' || isOrchestrationTool(name))
   const resolveReplTool = (name: string): unknown =>
-    !isReplToolName(name) && enabledToolNames.has(name) ? tools[name] : undefined
-  const listReplToolNames = (): string[] =>
-    Object.keys(tools).filter((name) => !isReplToolName(name) && enabledToolNames.has(name))
+    canCallReplTool(name) ? tools[name] : undefined
+  const listReplToolNames = (): string[] => Object.keys(tools).filter(canCallReplTool)
 
   // --- User-managed tools: always registered for cache stability ---
   // When no user-managed tools are enabled the run is intentionally tool-free

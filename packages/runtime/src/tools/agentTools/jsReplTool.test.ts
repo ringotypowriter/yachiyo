@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { mkdtempSync, mkdirSync, rmSync, existsSync, writeFileSync } from 'node:fs'
 import { basename, join } from 'node:path'
 import { tmpdir } from 'node:os'
+import { z } from 'zod'
 
 import { createTool } from './jsReplTool.ts'
 import { createTool as createReadTool } from './readTool.ts'
@@ -82,6 +83,148 @@ describe('jsReplTool', () => {
     const result = await execute(tool, { code: '1 + 2' })
     assert.equal(result.details.result, '3')
     assert.equal(result.error, undefined)
+  })
+
+  it('orchestration mode restricts host capabilities and validates nested inputs', async () => {
+    const tool = createTrackedTool(makeContext({ jsReplMode: 'orchestration' }))
+    assert.equal((await execute(tool, { code: 'typeof process' })).details.result, 'undefined')
+    assert.ok((await execute(tool, { code: 'await tool.bash({command: "pwd"})' })).error)
+    assert.ok((await execute(tool, { code: 'await tool.read({path: 123})' })).error)
+    const read = await execute(tool, {
+      code: 'const content = await read("package.json"); content.includes("yachiyo")'
+    })
+    assert.equal(read.error, undefined)
+    assert.equal(read.details.result, 'true')
+    assert.equal(
+      (await execute(tool, { code: 'typeof content', reset: true })).details.result,
+      'undefined'
+    )
+  })
+
+  it('orchestration bounds tool count, concurrent calls and bridge payloads', async () => {
+    let active = 0
+    let maximum = 0
+    let calls = 0
+    const tool = createTrackedTool(makeContext({ jsReplMode: 'orchestration' }), {
+      listToolNames: () => ['webRead'],
+      resolveTool: () => ({
+        inputSchema: z.object({ url: z.string() }),
+        execute: async ({ url }: { url: string }) => {
+          calls++
+          maximum = Math.max(maximum, ++active)
+          await new Promise((resolve) => setTimeout(resolve, 2))
+          active--
+          return url === 'large' ? 'x'.repeat(9 * 1024 * 1024) : 'ok'
+        }
+      })
+    })
+    const batch = await execute(tool, {
+      code: 'await parallel(Array.from({length:101}, () => () => tool.webRead({url:"ok"})))'
+    })
+    assert.match(batch.error ?? '', /100 tool calls/)
+    assert.equal(calls, 100)
+    assert.equal(maximum, 8)
+    assert.match(
+      (await execute(tool, { code: 'await tool.webRead({url:"large"})' })).error ?? '',
+      /8 MiB/
+    )
+    assert.match(
+      (await execute(tool, { code: 'await tool.webRead({url:"x".repeat(9*1024*1024)})' })).error ??
+        '',
+      /8 MiB/
+    )
+    assert.equal((await execute(tool, { code: '42' })).details.result, '42')
+  })
+
+  it('orchestration timeouts cancel queued calls, ignore late results and reset state', async () => {
+    let calls = 0
+    let aborted = 0
+    const late: Array<() => void> = []
+    const tool = createTrackedTool(makeContext({ jsReplMode: 'orchestration' }), {
+      listToolNames: () => ['webRead'],
+      resolveTool: () => ({
+        inputSchema: z.object({}),
+        execute: async (_input: unknown, options: { abortSignal: AbortSignal }) => {
+          calls++
+          options.abortSignal.addEventListener('abort', () => aborted++, { once: true })
+          await new Promise<void>((resolve) => late.push(resolve))
+          return 'late'
+        }
+      })
+    })
+    const result = await execute(tool, {
+      code: 'const old = 1; await parallel(Array.from({length:20}, () => () => tool.webRead({})))',
+      timeout: 1
+    })
+    assert.equal(result.details.contextReset, true)
+    assert.equal(calls, 8)
+    assert.equal(aborted, 8)
+    late.forEach((resolve) => resolve())
+    assert.equal((await execute(tool, { code: 'typeof old' })).details.result, 'undefined')
+  })
+
+  it('orchestration enforces host policy even for forged Worker bridge messages', async () => {
+    const directory = mkdtempSync(join(tmpdir(), 'yachiyo-forged-worker-'))
+    const workerPath = join(directory, 'worker.mjs')
+    writeFileSync(
+      workerPath,
+      `
+      import {parentPort as port} from 'node:worker_threads';
+      let current, replies = [];
+      port.on('message', message => {
+        if(message.type === 'init') port.postMessage({type:'ready'});
+        if(message.type === 'execute') {
+          current=message.runId;
+          port.postMessage({type:'fetchCall',runId:current,callId:1,request:{url:'https://example.com',init:{}}});
+          for(const [index, toolName] of ['bash','write','delegateTask','jsRepl','pyRepl','webSearch'].entries())
+            port.postMessage({type:'toolCall',runId:current,callId:index+2,toolName,input:{}});
+          port.postMessage({type:'toolCall',runId:'expired',callId:8,toolName:'read',input:{path:'sentinel'}});
+          port.postMessage({type:'toolCall',runId:current,callId:9,toolName:'read',input:{path:123}});
+        }
+        if(message.type === 'fetchResult' || message.type === 'toolResult') {
+          replies.push(Boolean(message.result.error || message.result.ok === false));
+          if(replies.length === 9) port.postMessage({type:'result',runId:current,result:JSON.stringify(replies),consoleLines:[],displayOutputs:[],timedOut:false});
+        }
+      });
+    `
+    )
+    let executions = 0
+    const tool = createTrackedTool(makeContext({ jsReplMode: 'orchestration' }), {
+      workerPath,
+      listToolNames: () => ['read', 'bash', 'write', 'delegateTask', 'jsRepl', 'pyRepl'],
+      resolveTool: () => ({
+        inputSchema: z.object({ path: z.string() }),
+        execute: () => {
+          executions++
+          return 'unsafe'
+        }
+      }),
+      fetchImpl: async () => {
+        executions++
+        return new Response('unsafe')
+      }
+    })
+    try {
+      const result = await execute(tool, { code: 'probe' })
+      assert.equal(result.error, undefined)
+      assert.deepEqual(JSON.parse(result.details.result!), Array(9).fill(true))
+      assert.equal(executions, 0)
+    } finally {
+      await tool.dispose()
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
+
+  it('orchestration bounds guest heap and stack without falling back to Node', async () => {
+    const tool = createTrackedTool(makeContext({ jsReplMode: 'orchestration' }))
+    assert.ok((await execute(tool, { code: 'new ArrayBuffer(80*1024*1024)' })).error)
+    assert.ok(
+      (await execute(tool, { code: 'function recurse(){return recurse()} recurse()' })).error
+    )
+    assert.equal(
+      (await execute(tool, { code: 'typeof process', reset: true })).details.result,
+      'undefined'
+    )
   })
 
   it('starts from an injected worker bundle path', async () => {
@@ -172,6 +315,15 @@ describe('jsReplTool', () => {
     const result = await execute(tool, { code: 'throw new Error("boom")' })
     assert.ok(result.details.error?.includes('Error: boom'))
     assert.ok(result.error?.includes('Error: boom'))
+  })
+
+  it('points a failing cell at the line the model wrote, without runtime internals', async () => {
+    const tool = createTrackedTool(makeContext())
+    const result = await execute(tool, {
+      code: ['const first = 1', 'const second = notDefinedHere', 'second'].join('\n')
+    })
+    assert.match(result.details.error ?? '', /at jsRepl:2:16/)
+    assert.doesNotMatch(result.details.error ?? '', /node:vm|node:internal|jsReplWorker/)
   })
 
   it('catches syntax errors', async () => {
@@ -589,12 +741,42 @@ return await fsp.readFile("output/copied/context.json", "utf8")`,
     assert.equal(result.details.result, 'not-leaked')
   })
 
-  it('rejects absolute cwd', async () => {
+  it('rejects an absolute cwd outside the workspace', async () => {
     const tempDir = mkdtempSync(join(tmpdir(), 'jsrepl-cwd-abs-'))
     try {
       const tool = createTrackedTool(makeContext({ workspacePath: tempDir }))
       const result = await execute(tool, { code: '1', cwd: '/etc' })
-      assert.ok(result.error?.includes('relative path inside the workspace'))
+      assert.ok(result.error?.includes('/etc'), `unexpected error: ${result.error}`)
+      assert.ok(result.error?.includes(tempDir), `unexpected error: ${result.error}`)
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true })
+    }
+  })
+
+  it('accepts an absolute cwd inside the workspace', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'jsrepl-cwd-abs-inside-'))
+    try {
+      mkdirSync(join(tempDir, 'sub'))
+      writeFileSync(join(tempDir, 'sub', 'hi.txt'), 'sub-contents')
+      const tool = createTrackedTool(makeContext({ workspacePath: tempDir }))
+      const result = await execute(tool, {
+        code: 'await read("hi.txt")',
+        cwd: join(tempDir, 'sub')
+      })
+      assert.equal(result.error, undefined)
+      assert.equal(result.details.result, 'sub-contents')
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true })
+    }
+  })
+
+  it('rejects a home-relative cwd outside the workspace', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'jsrepl-cwd-tilde-'))
+    try {
+      const tool = createTrackedTool(makeContext({ workspacePath: tempDir }))
+      const result = await execute(tool, { code: '1', cwd: '~/Documents' })
+      assert.ok(result.error?.includes('~/Documents'), `unexpected error: ${result.error}`)
+      assert.ok(result.error?.includes(tempDir), `unexpected error: ${result.error}`)
     } finally {
       rmSync(tempDir, { recursive: true, force: true })
     }
@@ -605,11 +787,8 @@ return await fsp.readFile("output/copied/context.json", "utf8")`,
     try {
       const tool = createTrackedTool(makeContext({ workspacePath: tempDir }))
       const result = await execute(tool, { code: '1', cwd: '../secret' })
-      // Zod refinement rejects before execute is reached, or runtime rejection — both surface as error.
-      assert.ok(
-        result.error?.includes('relative path') || result.error?.includes('..'),
-        `unexpected error: ${result.error}`
-      )
+      assert.ok(result.error?.includes('../secret'), `unexpected error: ${result.error}`)
+      assert.ok(result.error?.includes(tempDir), `unexpected error: ${result.error}`)
     } finally {
       rmSync(tempDir, { recursive: true, force: true })
     }

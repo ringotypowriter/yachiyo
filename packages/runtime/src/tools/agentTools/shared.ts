@@ -315,6 +315,7 @@ export const DEFAULT_REPL_TIMEOUT_SECONDS = 60
 export const MAX_REPL_TIMEOUT_SECONDS = 120
 export const MAX_REPL_MODEL_OUTPUT_CHARS = 20_000
 export const MAX_REPL_DETAILS_OUTPUT_CHARS = 8_000
+export const MAX_REPL_TITLE_CHARS = 80
 
 interface ReplToolInputDescriptions {
   code: string
@@ -348,7 +349,8 @@ function createReplToolInputSchema(
         .string()
         .trim()
         .min(1)
-        .max(80)
+        // A transcript label must never fail the cell it labels: clamp instead of reject.
+        .transform((value) => value.slice(0, MAX_REPL_TITLE_CHARS))
         .describe('Short intent shown in the transcript, such as "load package" or "inspect data".')
         .optional(),
       timeout: z
@@ -359,22 +361,14 @@ function createReplToolInputSchema(
         .default(DEFAULT_REPL_TIMEOUT_SECONDS)
         .describe(descriptions.timeout),
       reset: z.boolean().default(false).describe(descriptions.reset),
+      // Containment is enforced when the cell runs, so a bad cwd comes back as a
+      // readable tool result instead of failing the whole call at schema validation.
       cwd: z
         .string()
         .min(1)
-        .refine(
-          (value) => {
-            if (isAbsolute(value)) return false
-            if (value.startsWith('~')) return false
-            const segments = value.split(/[\\/]/)
-            return !segments.includes('..')
-          },
-          {
-            message:
-              'cwd must be a relative path within the workspace (no "..", no absolute, no "~").'
-          }
+        .describe(
+          'Omit this field or use "." for the current workspace. To use a subdirectory, pass a relative path such as "src". The absolute workspace path also works; anything outside the workspace is rejected.'
         )
-        .describe('Optional working directory for this cell, relative to the thread workspace.')
         .optional()
     })
     .strict()
@@ -525,6 +519,8 @@ export interface AgentToolContext {
   enabledTools?: ToolCallName[]
   /** Internal worker contexts should expose only tools explicitly present in enabledTools. */
   registerOnlyEnabledToolSchemas?: boolean
+  /** Host-selected JavaScript backend; independent of the parent conversation mode. */
+  jsReplMode?: 'full' | 'orchestration'
   /** Stable conversation identifier for thread-scoped tool state. */
   threadId?: string
   workspacePath: string

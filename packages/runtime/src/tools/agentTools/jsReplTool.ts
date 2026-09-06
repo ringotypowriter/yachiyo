@@ -1,7 +1,9 @@
 import { Worker, type Transferable } from 'node:worker_threads'
 
 import type { JsReplToolCallDetails } from '@yachiyo/shared/protocol'
-import type { Tool, ToolExecutionOptions } from 'ai'
+import { asSchema, type Tool, type ToolExecutionOptions } from 'ai'
+import { isOrchestrationTool, orchestrationJson } from './jsReplOrchestrationKernel.ts'
+import { formatToolInputValidationError } from './jsReplErrorFormat.ts'
 
 import {
   DEFAULT_REPL_TIMEOUT_SECONDS,
@@ -40,6 +42,9 @@ interface ActiveExecution {
   cwd: string
   options: ToolExecutionOptions
   abortController: AbortController
+  calls: number
+  running: number
+  queue: Array<{ resolve(): void; reject(error: unknown): void }>
 }
 
 interface WorkerResult {
@@ -96,16 +101,23 @@ class JsReplWorkerHandle {
   private readonly fetchImpl: typeof globalThis.fetch
   private readonly workspacePath: string
   private readonly dependencies: JsReplToolDependencies
+  private readonly mode: 'full' | 'orchestration'
 
-  constructor(workspacePath: string, dependencies: JsReplToolDependencies) {
+  constructor(
+    workspacePath: string,
+    dependencies: JsReplToolDependencies,
+    mode: 'full' | 'orchestration'
+  ) {
     this.workspacePath = workspacePath
     this.dependencies = dependencies
+    this.mode = mode
     this.fetchImpl = dependencies.fetchImpl ?? globalThis.fetch
   }
 
   private availableToolNames(): string[] {
     return [...new Set(this.dependencies.listToolNames?.() ?? [])]
       .filter((name) => !isReplToolName(name))
+      .filter((name) => this.mode === 'full' || isOrchestrationTool(name))
       .sort()
   }
 
@@ -155,6 +167,7 @@ class JsReplWorkerHandle {
       worker.once('exit', onExit)
       worker.postMessage({
         type: 'init',
+        mode: this.mode,
         workspacePath: this.workspacePath,
         toolNames: this.availableToolNames()
       })
@@ -167,17 +180,43 @@ class JsReplWorkerHandle {
     message: Extract<JsReplWorkerMessage, { type: 'toolCall' }>
   ): Promise<void> {
     const active = this.activeExecutions.get(message.runId)
+    let acquired = false
     try {
-      if (!active) throw new Error('JavaScript REPL tool call no longer has an active cell.')
+      if (!active || worker !== this.worker)
+        throw new Error('JavaScript REPL tool call no longer has an active cell.')
+      active.abortController.signal.throwIfAborted()
+      let input = message.input
+      if (this.mode === 'orchestration') {
+        if (!this.availableToolNames().includes(message.toolName))
+          throw new Error(`Tool ${JSON.stringify(message.toolName)} is not available.`)
+        if (++active.calls > 100) throw new Error('JavaScript cell exceeds 100 tool calls.')
+        orchestrationJson(input)
+        if (active.running >= 8)
+          await new Promise<void>((resolve, reject) => active.queue.push({ resolve, reject }))
+        else active.running++
+        acquired = true
+        active.abortController.signal.throwIfAborted()
+        const nested = this.dependencies.resolveTool?.(message.toolName) as Tool | undefined
+        const validate = nested && asSchema(nested.inputSchema).validate
+        if (!validate) throw new Error('Tool input validation is unavailable.')
+        const validated = await validate(input)
+        if (!validated.success) {
+          throw new Error(formatToolInputValidationError(message.toolName, validated.error))
+        }
+        input = validated.value
+      }
+      active.abortController.signal.throwIfAborted()
       const output = await executeNestedReplTool({
         replName: 'jsRepl',
         toolName: message.toolName,
-        input: message.input,
+        input,
         cwd: active.cwd,
         resolveTool: (name) => this.dependencies.resolveTool?.(name),
         executionOptions: active.options,
         signal: active.abortController.signal
       })
+      active.abortController.signal.throwIfAborted()
+      if (this.mode === 'orchestration') orchestrationJson(output)
       worker.postMessage({
         type: 'toolResult',
         runId: message.runId,
@@ -195,6 +234,12 @@ class JsReplWorkerHandle {
       } catch {
         // The cell may have timed out and terminated its worker.
       }
+    } finally {
+      if (active && acquired) {
+        const next = active.queue.shift()
+        if (next) next.resolve()
+        else active.running--
+      }
     }
   }
 
@@ -205,6 +250,10 @@ class JsReplWorkerHandle {
     const active = this.activeExecutions.get(message.runId)
     let result: JsReplWorkerFetchResult
     try {
+      if (this.mode === 'orchestration')
+        throw new Error(
+          'Direct fetch is unavailable in orchestration cells; use webRead or webSearch.'
+        )
       if (!active) throw new Error('JavaScript REPL fetch no longer has an active cell.')
       result = await runConfiguredFetch(
         this.fetchImpl,
@@ -246,8 +295,18 @@ class JsReplWorkerHandle {
       const active: ActiveExecution = {
         cwd: input.cwd,
         options: input.options,
-        abortController
+        abortController,
+        calls: 0,
+        running: 0,
+        queue: []
       }
+      abortController.signal.addEventListener(
+        'abort',
+        () => {
+          for (const queued of active.queue.splice(0)) queued.reject(abortController.signal.reason)
+        },
+        { once: true }
+      )
       this.activeExecutions.set(runId, active)
 
       return await new Promise<WorkerResult>((resolve, reject) => {
@@ -257,6 +316,8 @@ class JsReplWorkerHandle {
           if (settled) return
           settled = true
           cleanup()
+          if (this.mode === 'orchestration')
+            abortController.abort(new Error('JavaScript cell finished.'))
           this.activeExecutions.delete(runId)
           action()
         }
@@ -358,22 +419,28 @@ function buildDescription(context: AgentToolContext, toolNames: readonly string[
   const helpers = [
     'display(value) → show a structured value',
     ...(enabled.has('read') ? ['read(path, options?) → text'] : []),
-    ...(enabled.has('write') ? ['write(path, content) → result text'] : []),
-    'tool.<name>(args) → invoke any enabled tool',
+    ...(enabled.has('write') && context.jsReplMode !== 'orchestration'
+      ? ['write(path, content) → result text']
+      : []),
+    context.jsReplMode === 'orchestration'
+      ? 'tool.<name>(args) → invoke an available read/search tool; Object.keys(tool) lists them'
+      : 'tool.<name>(args) → invoke any enabled tool',
     'parallel(thunks) → run independent async functions concurrently'
   ]
 
   return [
     'Run one JavaScript cell in a persistent worker. State survives across calls in this agent execution.',
     'Work incrementally: load → transform → inspect. Reuse prior bindings; pass `reset: true` only when you need a clean context.',
-    'Top-level `await`, `return`, static/dynamic imports, `require`, `fetch`, and `Buffer` are available.',
+    context.jsReplMode === 'orchestration'
+      ? 'Use top-level await and return for in-memory computation and asynchronous read/search tool orchestration. Modules, Node APIs, direct fetch and write are unavailable. Read uses the read tool and its pagination limits. Each cell allows up to 100 tool calls, 8 concurrently, and 8 MiB per bridge payload and across pending inputs.'
+      : 'Top-level `await`, `return`, static/dynamic imports, `require`, `fetch`, and `Buffer` are available.',
     'On error, fix and rerun only the failed cell. A timeout terminates the worker and clears all prior bindings.',
     '',
     'Prelude:',
     ...helpers.map((helper) => `- ${helper}`),
     '',
     'Tool helpers are async. Pass one object to `tool.<name>`, matching that tool’s normal input schema.',
-    '`cwd` is optional, relative to the thread workspace, and applies only to this cell.',
+    'Omit `cwd` or use "." for the current workspace; use a relative path for a subdirectory. Unlike delegateTask.workspace, cwd does not accept an absolute workspace path. It applies only to this cell.',
     '',
     'Example sequence:',
     '1. `{ code: "const text = await read(\'package.json\')", title: "load package" }`',
@@ -388,7 +455,11 @@ export function createTool(
   if (context.sandboxed) {
     throw new Error('jsRepl is unavailable in sandboxed runs.')
   }
-  const handle = new JsReplWorkerHandle(context.workspacePath, dependencies)
+  const handle = new JsReplWorkerHandle(
+    context.workspacePath,
+    dependencies,
+    context.jsReplMode ?? 'full'
+  )
   const tool: Tool<JsReplToolInput, JsReplToolOutput> & { dispose(): Promise<void> } = {
     description: buildDescription(context, dependencies.listToolNames?.() ?? []),
     inputSchema: jsReplToolInputSchema,

@@ -63,6 +63,8 @@ export interface SubagentRunnerTurnInput {
 
 export interface SubagentTurnResult {
   output: string
+  /** The tool loop paused to consume queued messages; this is not a final report. */
+  yielded?: boolean
   promptTokens?: number
   completionTokens?: number
 }
@@ -70,6 +72,19 @@ export interface SubagentTurnResult {
 export interface SubagentRunner {
   runTurn(input: SubagentRunnerTurnInput): Promise<SubagentTurnResult>
   close(): Promise<void | { snapshotId?: string }>
+}
+
+export class SubagentTurnError extends Error {
+  readonly usage: Pick<SubagentTurnResult, 'promptTokens' | 'completionTokens'>
+
+  constructor(
+    cause: unknown,
+    usage: Pick<SubagentTurnResult, 'promptTokens' | 'completionTokens'>
+  ) {
+    super(cause instanceof Error ? cause.message : String(cause), { cause })
+    this.name = 'SubagentTurnError'
+    this.usage = usage
+  }
 }
 
 export interface SubagentRunnerFactoryInput {
@@ -578,6 +593,10 @@ export class SubagentManager {
         return
       }
     } catch (error) {
+      if (error instanceof SubagentTurnError) {
+        this.applyTurnResult(record, { output: '', yielded: true, ...error.usage })
+      }
+      const cause = error instanceof SubagentTurnError ? error.cause : error
       if (
         record.snapshot.state === 'cancelled' ||
         record.controller.signal.aborted ||
@@ -586,7 +605,7 @@ export class SubagentManager {
         if (record.snapshot.state !== 'cancelled' && !this.closing)
           this.setState(record, 'cancelled')
       } else {
-        const errorMessage = asErrorMessage(error)
+        const errorMessage = asErrorMessage(cause)
         record.snapshot = {
           ...record.snapshot,
           currentTurnId: undefined,
@@ -596,7 +615,7 @@ export class SubagentManager {
         this.emitSnapshot(record)
         const kind = record.initialResultDelivered ? 'message' : 'initial-result'
         record.initialResultDelivered = true
-        if (isRetryableRunError(error)) {
+        if (isRetryableRunError(cause)) {
           this.deliver(
             record,
             undefined,
@@ -624,7 +643,7 @@ export class SubagentManager {
   }
 
   private applyTurnResult(record: AgentRecord, result: SubagentTurnResult): void {
-    const output = result.output.trim()
+    const output = result.yielded ? '' : result.output.trim()
     record.snapshot = {
       ...record.snapshot,
       currentTurnId: undefined,
@@ -645,6 +664,7 @@ export class SubagentManager {
       updatedAt: this.deps.timestamp()
     }
     this.emitSnapshot(record)
+    if (result.yielded) return
     const kind = record.initialResultDelivered ? 'message' : 'initial-result'
     record.initialResultDelivered = true
     const message = output || 'Task completed without a final text response.'

@@ -17,6 +17,7 @@ import type {
   SubagentRunnerTurnInput,
   SubagentTurnResult
 } from './subagentManager.ts'
+import { SubagentTurnError } from './subagentManager.ts'
 import { createWorkerHistoryCompactor } from './workerSubagentCompaction.ts'
 import {
   ReadRecordCache,
@@ -258,6 +259,7 @@ function createWorkerRunner(
     workspacePath: launch.workspacePath,
     enabledTools: [...enabledTools],
     registerOnlyEnabledToolSchemas: true,
+    jsReplMode: input.profileId === 'general' ? 'full' : 'orchestration',
     readRecordCache: workerReadRecordCache,
     snapshotTracker: workerSnapshotTracker,
     ...(parentToolContext.processBroker ? { processBroker: parentToolContext.processBroker } : {}),
@@ -368,15 +370,16 @@ function createWorkerRunner(
       let output = ''
       let promptTokens: number | undefined
       let completionTokens: number | undefined
-      let responseMessages: unknown[] | undefined
-      let finalAttemptOutput = ''
-      const recentToolSummaries: string[] = []
+      let reportOnly = false
+      let yielded = false
       let retryDelay = WORKER_SUBAGENT_RETRY_BASE_DELAY_MS
       for (let attempt = 1; attempt <= WORKER_SUBAGENT_RETRY_MAX_ATTEMPTS; attempt++) {
         const modelRuntime = createModelRuntime()
         const recoveryMessages: RecoveryResponseMessage[] = []
         const activeToolCalls = new Map<string, ToolCallName>()
+        let responseMessages: unknown[] | undefined
         let attemptOutput = ''
+        let historyCommitted = false
         try {
           for await (const delta of modelRuntime.streamReply({
             messages: history,
@@ -384,15 +387,18 @@ function createWorkerRunner(
             signal: turn.signal,
             purpose: `worker:${launch.agentType}`,
             promptCacheKey: `${launch.parentThreadId}:subagent:${launch.agentId}`,
-            maxToolSteps: profileSnapshot.maxToolSteps ?? 999,
-            stopWhen: tools
-              ? [
-                  stepCountIs(profileSnapshot.maxToolSteps ?? 999),
-                  ({ steps }) =>
-                    hasPendingMessages() && (steps.at(-1)?.toolResults?.length ?? 0) > 0
-                ]
-              : undefined,
-            tools,
+            maxToolSteps: reportOnly ? 1 : (profileSnapshot.maxToolSteps ?? 999),
+            stopWhen:
+              tools && !reportOnly
+                ? [
+                    stepCountIs(profileSnapshot.maxToolSteps ?? 999),
+                    ({ steps }) => {
+                      yielded = hasPendingMessages() && (steps.at(-1)?.toolResults?.length ?? 0) > 0
+                      return yielded
+                    }
+                  ]
+                : undefined,
+            tools: reportOnly ? undefined : tools,
             onToolCallStart: (event) => {
               const inputSummary = summarizeToolInput(event.toolCall.toolName, event.toolCall.input)
               activeToolCalls.set(
@@ -429,9 +435,6 @@ function createWorkerRunner(
                 toolName: event.toolCall.toolName as ToolCallName,
                 ...(event.success ? { output: event.output } : { error: event.error })
               })
-              recentToolSummaries.push(
-                `${event.toolCall.toolName}: ${inputSummary}${outputSummary ? ` → ${outputSummary}` : ''}`
-              )
               onToolCall({
                 turnId: turn.turnId,
                 toolCallId: event.toolCall.toolCallId,
@@ -442,8 +445,11 @@ function createWorkerRunner(
               })
             },
             onFinish: (usage) => {
-              promptTokens = usage.promptTokens
-              completionTokens = usage.completionTokens
+              if (usage.promptTokens !== undefined)
+                promptTokens = (promptTokens ?? 0) + usage.promptTokens
+              if (usage.completionTokens !== undefined)
+                completionTokens = (completionTokens ?? 0) + usage.completionTokens
+              previousPromptTokens = usage.promptTokens
               responseMessages = usage.responseMessages
             }
           })) {
@@ -452,7 +458,40 @@ function createWorkerRunner(
             appendRecoveryTextDelta(recoveryMessages, delta)
             onProgress({ turnId: turn.turnId, chunk: delta })
           }
-          finalAttemptOutput = attemptOutput
+          const completedMessages = (
+            responseMessages?.length ? responseMessages : recoveryMessages
+          ) as ModelMessage[]
+          history.push(...completedMessages)
+          historyCommitted = true
+          const lastResponse = completedMessages.at(-1)
+          output =
+            lastResponse?.role === 'assistant'
+              ? typeof lastResponse.content === 'string'
+                ? lastResponse.content
+                : lastResponse.content.some((part) => part.type === 'tool-call')
+                  ? ''
+                  : lastResponse.content
+                      .filter((part) => part.type === 'text')
+                      .map((part) => part.text)
+                      .join('')
+              : lastResponse
+                ? ''
+                : attemptOutput
+          if (!yielded && !output.trim()) {
+            if (reportOnly)
+              throw new Error(
+                'Worker did not produce a final report after a report-only continuation.'
+              )
+            reportOnly = true
+            attempt = 0
+            retryDelay = WORKER_SUBAGENT_RETRY_BASE_DELAY_MS
+            history.push({
+              role: 'user',
+              content:
+                'Return a concise final report based on the work already recorded above. State what you verified and what remains incomplete. No further tool calls are available for this report.'
+            })
+            continue
+          }
           break
         } catch (error) {
           const hadActiveToolCalls = activeToolCalls.size > 0
@@ -463,19 +502,24 @@ function createWorkerRunner(
               error: new Error('Tool execution was interrupted before completion.')
             })
           }
+          if (!historyCommitted && recoveryMessages.length > 0) {
+            history.push(...(recoveryMessages as ModelMessage[]))
+          }
           if (
             !isRetryableRunError(error) ||
             turn.signal.aborted ||
             hadActiveToolCalls ||
             attempt >= WORKER_SUBAGENT_RETRY_MAX_ATTEMPTS
           ) {
-            if (recoveryMessages.length > 0) {
-              history.push(...(recoveryMessages as ModelMessage[]))
+            if (promptTokens !== undefined || completionTokens !== undefined || compaction.phase) {
+              throw new SubagentTurnError(error, {
+                promptTokens: (promptTokens ?? 0) + compaction.promptTokens,
+                completionTokens: (completionTokens ?? 0) + compaction.completionTokens
+              })
             }
             throw error
           }
 
-          history.push(...(recoveryMessages as ModelMessage[]))
           history.push({
             role: 'user',
             content:
@@ -486,22 +530,11 @@ function createWorkerRunner(
           retryDelay = Math.min(retryDelay * 2, WORKER_SUBAGENT_RETRY_MAX_DELAY_MS)
         }
       }
-      previousPromptTokens = promptTokens
-
-      if (responseMessages && responseMessages.length > 0) {
-        history.push(...(responseMessages as ModelMessage[]))
-      } else if (finalAttemptOutput.trim()) {
-        history.push({ role: 'assistant', content: finalAttemptOutput })
-      }
-      const finalOutput = output.trim()
-        ? output
-        : recentToolSummaries.length > 0
-          ? `Subagent completed without a final text response. Recent tool calls:\n${recentToolSummaries.map((summary) => `- ${summary}`).join('\n')}`
-          : ''
       const totalPromptTokens = (promptTokens ?? 0) + compaction.promptTokens
       const totalCompletionTokens = (completionTokens ?? 0) + compaction.completionTokens
       return {
-        output: finalOutput,
+        output: yielded ? '' : output,
+        ...(yielded ? { yielded: true } : {}),
         ...(promptTokens !== undefined || compaction.phase
           ? { promptTokens: totalPromptTokens }
           : {}),

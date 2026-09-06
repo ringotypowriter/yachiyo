@@ -13,10 +13,28 @@ interface TextEdit {
   text: string
 }
 
+/**
+ * Where a compiled line came from in the cell the model wrote. `columnDelta` is
+ * the horizontal shift the rewrite introduced on that line, so a V8 column maps
+ * back with `authorColumn = compiledColumn - columnDelta`.
+ */
+export interface JsReplSourceOrigin {
+  line: number
+  columnDelta: number
+}
+
 export interface CompiledJsReplCell {
   source: string
   bindingNames: string[]
   capturesFinalExpression: boolean
+  /** Origin of each compiled line, indexed by zero-based compiled line number. */
+  sourceOrigins: readonly (JsReplSourceOrigin | undefined)[]
+}
+
+interface SourcePiece {
+  text: string
+  /** Offset of `text[0]` in the author's cell, or undefined for generated text. */
+  originOffset?: number
 }
 
 const IMPORT_HELPER = '__yachiyoJsReplImport__'
@@ -165,15 +183,83 @@ function walkAst(value: unknown, visit: (node: AstNode) => void): void {
   }
 }
 
-function applyEdits(source: string, edits: TextEdit[]): string {
+function splitPieces(source: string, edits: TextEdit[]): SourcePiece[] {
+  // Edits never overlap, so a left-to-right walk reproduces the same output as
+  // splicing from the right while keeping each surviving run of author text
+  // paired with the offset it came from.
   const ordered = edits
     .map((edit, index) => ({ edit, index }))
-    .sort((a, b) => b.edit.start - a.edit.start || b.edit.end - a.edit.end || b.index - a.index)
-  let output = source
+    .sort((a, b) => a.edit.start - b.edit.start || a.edit.end - b.edit.end || a.index - b.index)
+  const pieces: SourcePiece[] = []
+  let cursor = 0
   for (const { edit } of ordered) {
-    output = output.slice(0, edit.start) + edit.text + output.slice(edit.end)
+    if (edit.start > cursor) {
+      pieces.push({ text: source.slice(cursor, edit.start), originOffset: cursor })
+    }
+    pieces.push({ text: edit.text })
+    cursor = Math.max(cursor, edit.end)
   }
-  return output
+  if (cursor < source.length) pieces.push({ text: source.slice(cursor), originOffset: cursor })
+  return pieces
+}
+
+function buildLineStarts(source: string): number[] {
+  const starts = [0]
+  for (let index = 0; index < source.length; index += 1) {
+    if (source[index] === '\n') starts.push(index + 1)
+  }
+  return starts
+}
+
+function positionAt(
+  lineStarts: readonly number[],
+  offset: number
+): { line: number; column: number } {
+  let low = 0
+  let high = lineStarts.length - 1
+  while (low < high) {
+    const middle = Math.ceil((low + high) / 2)
+    if (lineStarts[middle]! <= offset) low = middle
+    else high = middle - 1
+  }
+  return { line: low, column: offset - lineStarts[low]! }
+}
+
+interface CompiledSource {
+  text: string
+  origins: (JsReplSourceOrigin | undefined)[]
+}
+
+function assemble(source: string, pieces: readonly SourcePiece[]): CompiledSource {
+  const lineStarts = buildLineStarts(source)
+  const origins: (JsReplSourceOrigin | undefined)[] = [undefined]
+  let compiledLine = 0
+  let compiledColumn = 0
+
+  for (const piece of pieces) {
+    let offsetInPiece = 0
+    const segments = piece.text.split('\n')
+    for (const [index, segment] of segments.entries()) {
+      if (index > 0) {
+        compiledLine += 1
+        compiledColumn = 0
+        origins[compiledLine] = undefined
+      }
+      // The first author character on a compiled line decides that line's origin;
+      // generated text before it only shifts the column.
+      if (piece.originOffset !== undefined && segment.length > 0 && !origins[compiledLine]) {
+        const position = positionAt(lineStarts, piece.originOffset + offsetInPiece)
+        origins[compiledLine] = {
+          line: position.line + 1,
+          columnDelta: compiledColumn - position.column
+        }
+      }
+      compiledColumn += segment.length
+      offsetInPiece += segment.length + 1
+    }
+  }
+
+  return { text: pieces.map((piece) => piece.text).join(''), origins }
 }
 
 export function compileJsReplCell(code: string): CompiledJsReplCell {
@@ -256,7 +342,6 @@ export function compileJsReplCell(code: string): CompiledJsReplCell {
     throw new Error(`JavaScript binding ${JSON.stringify(PUBLISHED_BINDINGS)} is reserved.`)
   }
 
-  const transformed = applyEdits(code, edits)
   const bindings = [...bindingNames]
   const finalPublications = bindings
     .map(
@@ -264,13 +349,20 @@ export function compileJsReplCell(code: string): CompiledJsReplCell {
         `if (${PUBLISHED_BINDINGS}[${JSON.stringify(name)}]) globalThis[${JSON.stringify(name)}] = ${name};`
     )
     .join('\n')
-  const source = bindings.length
-    ? `(async () => {\nvar ${PUBLISHED_BINDINGS} = Object.create(null);\ntry {\n${transformed}\n} finally {\n${finalPublications}\n}\n})()`
-    : `(async () => {\n${transformed}\n})()`
+  const prologue = bindings.length
+    ? `(async () => {\nvar ${PUBLISHED_BINDINGS} = Object.create(null);\ntry {\n`
+    : '(async () => {\n'
+  const epilogue = bindings.length ? `\n} finally {\n${finalPublications}\n}\n})()` : '\n})()'
+  const compiled = assemble(code, [
+    { text: prologue },
+    ...splitPieces(code, edits),
+    { text: epilogue }
+  ])
 
   return {
-    source,
+    source: compiled.text,
     bindingNames: bindings,
-    capturesFinalExpression
+    capturesFinalExpression,
+    sourceOrigins: compiled.origins
   }
 }

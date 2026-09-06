@@ -218,22 +218,37 @@ export function buildAssistantResponseTimelineTrace(input: {
 }): AssistantResponseTimelineTraceSegment[] {
   const segments: AssistantResponseTimelineTraceSegment[] = []
   const assignedToolCallIds = new Set<string>()
+  const responseTraces = input.assistantMessages.map((message) =>
+    collectResponseMessageTrace(message.responseMessages)
+  )
+  // Run continuation can rebind older tools to a later assistant message.
+  // The recorded call position remains the authoritative display anchor.
+  const tracedAssistantIds = new Map<string, string>()
+  for (const [index, trace] of responseTraces.entries()) {
+    for (const part of trace.timelineParts) {
+      if (part.kind === 'tool-call' && !tracedAssistantIds.has(part.toolCallId)) {
+        tracedAssistantIds.set(part.toolCallId, input.assistantMessages[index]!.id)
+      }
+    }
+  }
 
   for (let messageIndex = 0; messageIndex < input.assistantMessages.length; messageIndex += 1) {
     const assistantMessage = input.assistantMessages[messageIndex]!
     const resolvedTextBlocks = input.textBlocksByAssistantMessageId.get(assistantMessage.id) ?? []
     const visibleTextBlockIds = new Set(resolvedTextBlocks.map((textBlock) => textBlock.id))
     const persistedTextBlocks = assistantMessage.textBlocks ?? []
-    const segmentToolCalls = input.toolCalls.filter(
-      (toolCall) =>
-        toolCall.assistantMessageId === assistantMessage.id ||
-        (!toolCall.assistantMessageId && messageIndex === input.assistantMessages.length - 1)
-    )
+    const segmentToolCalls = input.toolCalls.filter((toolCall) => {
+      const assistantId = tracedAssistantIds.get(toolCall.id) ?? toolCall.assistantMessageId
+      return (
+        assistantId === assistantMessage.id ||
+        (!assistantId && messageIndex === input.assistantMessages.length - 1)
+      )
+    })
     const segmentToolCallIds = new Set(segmentToolCalls.map((toolCall) => toolCall.id))
     const tracedTextBlockIds = new Set<string>()
     const tracedToolCallIds = new Set<string>()
     const tracedItems: AssistantResponseTimelineTraceItem[] = []
-    const responseTrace = collectResponseMessageTrace(assistantMessage.responseMessages)
+    const responseTrace = responseTraces[messageIndex]!
     let textBlockIndex = 0
 
     for (const part of responseTrace.timelineParts) {

@@ -56,8 +56,6 @@ export function createRunToolSet(input: CreateRunToolSetInput): ToolSet | undefi
     availableSkills,
     activeSkills,
     enabledSubagentProfiles,
-    gitCtx,
-    gitValidatedWorkspaces,
     subagentAvailableWorkspaces,
     isExternalChannel,
     isGuest,
@@ -80,9 +78,7 @@ export function createRunToolSet(input: CreateRunToolSetInput): ToolSet | undefi
     hasEnabledWorkerSubagents &&
     (isLocalRunTrigger || isOwnerDm) &&
     deps.subagentManager !== undefined
-  const canUseDelegateTask = canUseWorkerDelegate
-    ? true
-    : (gitCtx.hasGit || gitValidatedWorkspaces.length > 0) && hasEnabledAcpSubagents
+  const canUseDelegateTask = canUseWorkerDelegate || hasEnabledAcpSubagents
   const toolContext = {
     runId: executionInput.runId,
     enabledTools: modelEnabledTools,
@@ -160,6 +156,7 @@ export function createRunToolSet(input: CreateRunToolSetInput): ToolSet | undefi
     loadBrowserSnapshot: deps.loadBrowserSnapshot,
     browserAutomationService: deps.browserAutomationService,
     searchService: deps.searchService,
+    webSearchService: deps.webSearchService,
     memoryService: resolveToolMemoryService(input),
     sentinelContext: deps.sentinelContext,
     ...(deps.thingDomain ? { thingDomain: deps.thingDomain } : {}),

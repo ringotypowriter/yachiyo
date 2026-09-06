@@ -11,14 +11,15 @@ function createToolSet(flags: {
   isExternalChannel: boolean
   modelEnabledTools?: string[]
   sentinelContext?: RunExecutionDeps['sentinelContext']
+  acp?: boolean
+  webSearchService?: RunExecutionDeps['webSearchService']
 }): ReturnType<typeof createRunToolSet> {
   const preparedContext = {
     availableSkills: [],
     activeSkills: [],
-    enabledSubagentProfiles: [],
-    subagentsConfig: { mode: 'worker', enabledNamedAgents: ['general'] },
+    enabledSubagentProfiles: flags.acp ? [{ id: 'test', name: 'test', enabled: true }] : [],
+    subagentsConfig: { mode: flags.acp ? 'acp' : 'worker', enabledNamedAgents: ['general'] },
     gitCtx: { hasGit: false },
-    gitValidatedWorkspaces: [],
     subagentAvailableWorkspaces: ['/workspace'],
     isGuest: flags.isExternalChannel && !flags.isOwnerDm,
     isDirectMessage: flags.isExternalChannel,
@@ -36,6 +37,7 @@ function createToolSet(flags: {
     memoryService: { isConfigured: () => false },
     subagentManager: {},
     sentinelContext: flags.sentinelContext,
+    webSearchService: flags.webSearchService,
     parentDeliveryContext: {
       enabledTools: ['delegateTask'],
       runMode: 'auto',
@@ -64,6 +66,41 @@ function createToolSet(flags: {
 
   return createRunToolSet(input)
 }
+
+test('the production tool factory exposes and calls its injected web search service', async () => {
+  const queries: string[] = []
+  const tools = createToolSet({
+    isLocalRunTrigger: true,
+    isOwnerDm: false,
+    isExternalChannel: false,
+    modelEnabledTools: ['webSearch'],
+    webSearchService: {
+      search: async ({ query }) => {
+        queries.push(query)
+        return { provider: 'test', query, results: [] }
+      }
+    } as RunExecutionDeps['webSearchService']
+  })
+  assert.equal(typeof tools?.webSearch?.execute, 'function')
+  const result = (await tools!.webSearch!.execute!(
+    { query: 'QuickJS documentation' },
+    { toolCallId: 'search', messages: [] }
+  )) as { error?: string }
+  assert.equal(result.error, undefined)
+  assert.deepEqual(queries, ['QuickJS documentation'])
+})
+
+test('ACP delegation is available without Git or saved workspaces', () => {
+  assert.equal(
+    typeof createToolSet({
+      isLocalRunTrigger: true,
+      isOwnerDm: false,
+      isExternalChannel: false,
+      acp: true
+    })?.delegateTask?.execute,
+    'function'
+  )
+})
 
 test('Worker delegation is available on Local threads and Owner DMs', () => {
   assert.equal(

@@ -1,6 +1,6 @@
 import { tool, type Tool } from 'ai'
-import { access as fsAccess } from 'node:fs/promises'
-import { join, resolve } from 'node:path'
+import { realpath, stat } from 'node:fs/promises'
+import { resolve } from 'node:path'
 import { z } from 'zod'
 
 import type {
@@ -216,50 +216,21 @@ const ACP_SYSTEM_INSTRUCTION =
 async function resolveWorkspace(input: {
   requestedWorkspace?: string
   ctx: DelegateTaskContext
-  requireGit: boolean
 }): Promise<string | { error: string }> {
-  if (!input.requestedWorkspace) {
-    const workspacePath = resolve(input.ctx.workspacePath)
-    if (input.requireGit) {
-      const hasGit = await fsAccess(join(workspacePath, '.git'))
-        .then(() => true)
-        .catch(() => false)
-      if (!hasGit) {
-        return {
-          error: `Workspace "${workspacePath}" is not a Git repository. A Git repository is required for safe ACP execution.`
-        }
-      }
-    }
-    return workspacePath
+  const requested = resolve(input.requestedWorkspace ?? input.ctx.workspacePath)
+  const canonical = await realpath(requested).catch(() => undefined)
+  if (!canonical || !(await stat(canonical)).isDirectory()) {
+    return { error: `Workspace directory does not exist or is not a directory: "${requested}".` }
   }
-
-  const requested = resolve(input.requestedWorkspace)
-  const allowed = input.ctx.availableWorkspaces.map((p) => resolve(p))
-  if (!allowed.includes(requested)) {
-    return {
-      error: `Workspace "${input.requestedWorkspace}" is not in the allowed workspace list. Available: ${input.ctx.availableWorkspaces.join(', ')}`
-    }
+  const allowed = await Promise.all(
+    [input.ctx.workspacePath, ...input.ctx.availableWorkspaces].map((path) =>
+      realpath(resolve(path)).catch(() => undefined)
+    )
+  )
+  if (!allowed.includes(canonical)) {
+    return { error: `Workspace "${requested}" is not in the allowed workspace list.` }
   }
-
-  const exists = await fsAccess(requested)
-    .then(() => true)
-    .catch(() => false)
-  if (!exists) {
-    return { error: `Workspace directory does not exist: "${requested}".` }
-  }
-
-  if (input.requireGit) {
-    const hasGit = await fsAccess(join(requested, '.git'))
-      .then(() => true)
-      .catch(() => false)
-    if (!hasGit) {
-      return {
-        error: `Workspace "${requested}" is not a Git repository. A Git repository is required for safe ACP execution.`
-      }
-    }
-  }
-
-  return requested
+  return canonical
 }
 
 async function runAcpSubagent(
@@ -334,8 +305,7 @@ function createWorkerTool(
       const delegationId = options.toolCallId
       const workspaceResult = await resolveWorkspace({
         requestedWorkspace: input.workspace,
-        ctx,
-        requireGit: false
+        ctx
       })
       if (typeof workspaceResult !== 'string') {
         return {
@@ -466,8 +436,7 @@ function createAcpTool(ctx: DelegateTaskContext): Tool<AcpDelegateTaskInput, Del
 
       const workspaceResult = await resolveWorkspace({
         requestedWorkspace: input.workspace,
-        ctx,
-        requireGit: true
+        ctx
       })
       if (typeof workspaceResult !== 'string') {
         return {

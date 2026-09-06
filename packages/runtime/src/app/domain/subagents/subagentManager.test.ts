@@ -11,11 +11,13 @@ import { RetryableRunError } from '../../../runtime/models/runtimeErrors.ts'
 
 import {
   SubagentManager,
+  SubagentTurnError,
   type LaunchSubagentInput,
   type SubagentManagerLimits,
   type SubagentRunner,
   type SubagentRunnerFactoryInput,
-  type SubagentRunnerTurnInput
+  type SubagentRunnerTurnInput,
+  type SubagentTurnResult
 } from './subagentManager.ts'
 
 interface Deferred<T> {
@@ -31,7 +33,7 @@ function deferred<T>(): Deferred<T> {
 class FakeRunner implements SubagentRunner {
   readonly turns: SubagentRunnerTurnInput[] = []
   closeCount = 0
-  private readonly turnResults: Array<Deferred<{ output: string }>> = []
+  private readonly turnResults: Array<Deferred<SubagentTurnResult>> = []
   private readonly onProgress: SubagentRunnerFactoryInput['onProgress']
 
   constructor(onProgress: SubagentRunnerFactoryInput['onProgress'] = () => {}) {
@@ -40,7 +42,7 @@ class FakeRunner implements SubagentRunner {
 
   runTurn(input: SubagentRunnerTurnInput): Promise<{ output: string }> {
     this.turns.push(input)
-    const result = deferred<{ output: string }>()
+    const result = deferred<SubagentTurnResult>()
     this.turnResults.push(result)
     input.signal.addEventListener(
       'abort',
@@ -50,10 +52,10 @@ class FakeRunner implements SubagentRunner {
     return result.promise
   }
 
-  resolveTurn(output: string): void {
+  resolveTurn(output: string, extra: Partial<SubagentTurnResult> = {}): void {
     const result = this.turnResults.shift()
     if (!result) throw new Error('No pending fake turn.')
-    result.resolve({ output })
+    result.resolve({ output, ...extra })
   }
 
   rejectTurn(error: unknown): void {
@@ -151,6 +153,44 @@ function launchInput(overrides: Partial<LaunchSubagentInput> = {}): LaunchSubage
     ...overrides
   }
 }
+
+test('failed reporting retains completed usage and retryable failure semantics', async () => {
+  const harness = makeHarness()
+  await harness.manager.launch(launchInput())
+  harness.runners.get('agent-1')!.rejectTurn(
+    new SubagentTurnError(new RetryableRunError('report disconnected'), {
+      promptTokens: 8,
+      completionTokens: 6
+    })
+  )
+  await flush()
+  const snapshot = harness.manager.list('thread-1')[0]!
+  assert.equal(snapshot.state, 'idle')
+  assert.equal(snapshot.cumulativePromptTokens, 8)
+  assert.equal(snapshot.cumulativeCompletionTokens, 6)
+  assert.match(harness.deliveries[0]!.message, /interrupted/)
+  await harness.manager.close()
+})
+
+test('yielded turns consume steers without publishing a false completion', async () => {
+  const harness = makeHarness()
+  await harness.manager.launch(launchInput())
+  const runner = harness.runners.get('agent-1')!
+  sendFromParent(harness.manager, 'thread-1', 'agent-1', 'Check the second file too')
+  runner.resolveTurn('intermediate text', { yielded: true, promptTokens: 3 })
+  await flush()
+  assert.equal(harness.deliveries.length, 0)
+  assert.equal(runner.turns.length, 2)
+  assert.equal(harness.manager.list('thread-1')[0]?.lastOutput, undefined)
+  assert.equal(harness.manager.list('thread-1')[0]?.cumulativePromptTokens, 3)
+  runner.resolveTurn('Final verified report')
+  await flush()
+  assert.deepEqual(
+    harness.deliveries.map(({ kind, message }) => ({ kind, message })),
+    [{ kind: 'initial-result', message: 'Final verified report' }]
+  )
+  await harness.manager.close()
+})
 
 async function flush(): Promise<void> {
   await Promise.resolve()

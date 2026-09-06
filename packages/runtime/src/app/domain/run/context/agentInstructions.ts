@@ -43,14 +43,6 @@ export function buildSubagentContextBlock(
     return ''
   }
 
-  if (mode === 'acp' && !gitCtx.hasGit && availableWorkspaces.length === 0) {
-    return [
-      '<subagents>',
-      'The `delegateTask` tool is unavailable because the current workspace is not a Git repository. If asked to delegate, inform the user that a Git repository must be initialized first for safe execution.',
-      '</subagents>'
-    ].join('\n')
-  }
-
   const gitContextLines: string[] = []
   if (gitCtx.hasGit) {
     gitContextLines.push(
