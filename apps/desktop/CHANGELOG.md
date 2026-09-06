@@ -1,5 +1,19 @@
 # @yachiyo/desktop
 
+## 1.6.1
+
+### Patch Changes
+
+- [`cb57048`](https://github.com/ringotypowriter/yachiyo/commit/cb570487072c09380dd13a269ec2db32ceaf152f) Thanks [@ringotypowriter](https://github.com/ringotypowriter)! - - Improve JavaScript tool orchestration and execution error reporting.
+  - Ground memory notes in their source conversations.
+  - Centralize artifact reading and review.
+  - Preserve macOS signing certificate passwords during packaging.
+- Updated dependencies []:
+  - @yachiyo/cli@1.6.1
+  - @yachiyo/runtime@1.6.1
+  - @yachiyo/shared@1.6.1
+  - @yachiyo/core-skills@1.6.1
+
 ## 1.6.0
 
 ### Minor Changes
