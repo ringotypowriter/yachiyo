@@ -6,6 +6,7 @@ import { describe, it } from 'node:test'
 import { setTimeout as delay } from 'node:timers/promises'
 import type {
   ChannelUserRecord,
+  ComposerReasoningSelection,
   ChatAcceptedWithUserMessage,
   MessageDeltaEvent,
   MessageRecord,
@@ -74,6 +75,46 @@ async function waitFor(predicate: () => boolean, timeoutMs = 1000): Promise<void
 }
 
 describe('directMessageService', () => {
+  it('uses current DM effort per request for owners and guests without changing thread preferences', async (t) => {
+    let effort: ComposerReasoningSelection | undefined = 'low'
+    const seen: Array<ComposerReasoningSelection | undefined> = []
+    const thread = createThread('dm-effort', { reasoningEffort: 'high' })
+    let finished = 0
+    const service = createDirectMessageService({
+      logLabel: 'test',
+      policy: telegramPolicy,
+      replyDelayMs: () => 0,
+      resolveThread: async () => ({ thread, usageBaselineKTokens: 0 }),
+      resolveReasoningEffort: (resolved) => {
+        assert.equal(resolved, thread)
+        return effort
+      },
+      sendMessage: async () => {
+        finished++
+      },
+      nonRunReply: 'queued',
+      errorReply: 'error',
+      server: {
+        subscribe: () => () => {},
+        sendChat: async (input: Parameters<DirectMessageServer['sendChat']>[0]) => {
+          seen.push(input.reasoningEffort)
+          return { kind: 'queued', thread, userMessage: createUserMessage(thread.id) }
+        }
+      } as unknown as DirectMessageServer
+    })
+    t.after(() => service.stop())
+    for (const [index, value] of ['low', 'off', undefined].entries()) {
+      effort = value as ComposerReasoningSelection | undefined
+      service.enqueueMessage(
+        'chat',
+        { ...createChannelUser(), role: index === 1 ? 'owner' : 'guest' },
+        `message ${index}`
+      )
+      await waitFor(() => finished === index + 1)
+    }
+    assert.deepEqual(seen, ['low', 'off', undefined])
+    assert.equal(thread.reasoningEffort, 'high')
+  })
   describe('resolveDirectMessageThread', () => {
     it('does not apply the channel model to a fresh owner DM thread', async () => {
       const fresh = createThread('thread-owner-fresh', {

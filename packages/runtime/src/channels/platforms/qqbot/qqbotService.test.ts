@@ -118,6 +118,7 @@ function createAttachmentReplyServer(
     updatedAt: '2026-08-05T00:00:00.000Z'
   }
   return {
+    getChannelsConfig: () => ({}),
     listChannelUsers: () => [channelUser],
     createChannelUser: () => channelUser,
     subscribe(listener: (event: YachiyoServerEvent) => void) {
@@ -187,6 +188,7 @@ function createInboundCaptureServer(
     updatedAt: '2026-08-11T00:00:00.000Z'
   }
   return {
+    getChannelsConfig: () => ({}),
     listChannelUsers: () => [channelUser],
     createChannelUser: () => channelUser,
     subscribe(listener: (event: YachiyoServerEvent) => void) {

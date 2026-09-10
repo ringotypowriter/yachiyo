@@ -1058,6 +1058,8 @@ export function normalizeUserPrompts(value: unknown): UserPrompt[] {
 }
 
 export interface TelegramChannelConfig {
+  /** Per-request DM effort override; does not change the conversation preference. */
+  reasoningEffort?: ComposerReasoningSelection
   /** Whether the Telegram bot is active. */
   enabled: boolean
   /** Bot API token from @BotFather. Stored in channels.toml, never in config.toml. */
@@ -1069,6 +1071,8 @@ export interface TelegramChannelConfig {
 }
 
 export interface QQChannelConfig {
+  /** Per-request DM effort override; independent of group replies. */
+  reasoningEffort?: ComposerReasoningSelection
   /** Whether the QQ bot is active. */
   enabled: boolean
   /** NapCatQQ forward WebSocket URL (e.g. "ws://localhost:3001"). */
@@ -1082,6 +1086,8 @@ export interface QQChannelConfig {
 }
 
 export interface DiscordChannelConfig {
+  /** Per-request DM effort override; independent of group replies. */
+  reasoningEffort?: ComposerReasoningSelection
   /** Whether the Discord bot is active. */
   enabled: boolean
   /** Discord bot token from the Developer Portal. */
@@ -1093,6 +1099,8 @@ export interface DiscordChannelConfig {
 }
 
 export interface QQBotChannelConfig {
+  /** Per-request DM effort override. */
+  reasoningEffort?: ComposerReasoningSelection
   /** Whether the QQ Official Bot is active. */
   enabled: boolean
   /** QQ Official Bot appId from the Developer Portal. */

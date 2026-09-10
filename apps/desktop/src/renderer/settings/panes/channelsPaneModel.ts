@@ -15,14 +15,14 @@ import {
   type ReasoningSelectorState
 } from '@yachiyo/shared/reasoningEffort'
 
-export function getGroupReasoningSelectorState(input: {
+export function getChannelReasoningSelectorState(input: {
   providers: ProviderConfig[]
-  group?: GroupChannelConfig
+  modelConfig?: Pick<GroupChannelConfig, 'model' | 'reasoningEffort'>
   defaultModel?: ThreadModelOverride
   adapter?: GroupProbeHeadlessAdapterConfig
 }): ReasoningSelectorState | null {
-  if (resolveGroupProbeHeadlessAdapter(input.adapter, input.group?.model)) return null
-  const selectedModel = [input.group?.model, input.defaultModel].find(
+  if (resolveGroupProbeHeadlessAdapter(input.adapter, input.modelConfig?.model)) return null
+  const selectedModel = [input.modelConfig?.model, input.defaultModel].find(
     (selection) => selection && input.providers.some((p) => p.name === selection.providerName)
   )
   const provider =
@@ -35,7 +35,11 @@ export function getGroupReasoningSelectorState(input: {
       ? selectedModel.model
       : provider.modelList.enabled[0]
   if (!model) return null
-  return getReasoningSelectorState({ provider, model, selected: input.group?.reasoningEffort })
+  return getReasoningSelectorState({
+    provider,
+    model,
+    selected: input.modelConfig?.reasoningEffort
+  })
 }
 
 export function hasPendingChannelUserChanges(

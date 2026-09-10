@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 
-import type { ChannelUserRecord, ThreadRecord } from '@yachiyo/shared/protocol'
+import type { ChannelUserRecord, ThreadRecord, ChannelsConfig } from '@yachiyo/shared/protocol'
 import { telegramPolicy } from '../shared/channelPolicy.ts'
 import {
   createChannelDirectMessageThreadResolver,
+  resolveChannelDirectMessageEffort,
   type ChannelDirectMessageThreadResolverServer
 } from './channelDirectMessageRuntime.ts'
 
@@ -34,6 +35,40 @@ function createThread(id: string, overrides: Partial<ThreadRecord> = {}): Thread
 }
 
 describe('createChannelDirectMessageThreadResolver', () => {
+  it('reads only DM effort live and checks the actual conversation model', () => {
+    const config: ChannelsConfig = {
+      qq: {
+        enabled: true,
+        wsUrl: '',
+        reasoningEffort: 'low',
+        group: { enabled: true, reasoningEffort: 'max' }
+      }
+    }
+    const server = {
+      getChannelsConfig: () => config,
+      resolveProviderSettings: (model?: { model: string }) => ({
+        providerName: 'test',
+        provider: 'openai' as const,
+        model: model?.model ?? 'deepseek-v4-flash',
+        apiKey: '',
+        baseUrl: ''
+      })
+    }
+    assert.equal(resolveChannelDirectMessageEffort(server, 'qq', createThread('one')), 'low')
+    config.qq!.reasoningEffort = 'off'
+    assert.equal(resolveChannelDirectMessageEffort(server, 'qq', createThread('one')), 'off')
+    assert.equal(
+      resolveChannelDirectMessageEffort(
+        server,
+        'qq',
+        createThread('owner', { modelOverride: { providerName: 'test', model: 'gpt-4o' } })
+      ),
+      undefined
+    )
+    delete config.qq!.reasoningEffort
+    assert.equal(resolveChannelDirectMessageEffort(server, 'qq', createThread('one')), undefined)
+    assert.equal(config.qq!.group!.reasoningEffort, 'max')
+  })
   it('creates guest threads from the channel user workspace and platform title', async () => {
     const createThreadInputs: unknown[] = []
     const server: ChannelDirectMessageThreadResolverServer = {

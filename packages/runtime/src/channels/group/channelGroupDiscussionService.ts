@@ -325,7 +325,7 @@ export function createChannelGroupDiscussionService(
     })
     const turnSystemPrompt =
       mode === 'mention'
-        ? `${dynamicSystemPrompt}\n\n这次有人直接 @ 你。以当前新消息中叫到你的请求为回应对象，其他群聊记录用于理解背景，不把旁人的闲聊当成另外的请求。`
+        ? `${dynamicSystemPrompt}\n\n这次有人直接 @ 你，是把话递给你，而不是让你寻找插话机会。以当前新消息中叫到你的话为回应对象，其他群聊记录用于理解背景。通常自然接住这句话：问候可以简短回应，问题直接回答，意思不清楚时可以问一句，不必等到有新信息或完整答案才开口。明确让你不用回复、同一请求已经回应过，或上下文确实表明不宜继续时，也可以安静。决定回应时，把要让群友看到的完整答复放进 \`send_group_message\` 的 \`message\` 参数并调用工具；普通输出只是私下判断，不会发送到群里。`
         : dynamicSystemPrompt
     const { thread: probeThread, created: probeThreadCreated } = await resolveGroupProbeThread({
       logLabel,

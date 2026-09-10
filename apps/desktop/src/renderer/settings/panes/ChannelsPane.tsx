@@ -34,44 +34,51 @@ import {
 } from './ChannelsPaneRows'
 import {
   buildGroupProbeModelProviders,
-  getGroupReasoningSelectorState,
+  getChannelReasoningSelectorState,
   type GroupProbeModelProvider
 } from './channelsPaneModel'
 
-function GroupModelSetting({
-  group,
-  defaultEnabled = false,
+function ChannelModelSetting({
+  modelConfig,
+  label,
   providers,
   modelProviders,
   defaultModel,
   adapter,
   onChange
 }: {
-  group?: GroupChannelConfig
-  defaultEnabled?: boolean
+  modelConfig?: Pick<GroupChannelConfig, 'model' | 'reasoningEffort'>
+  label: string
   providers: ProviderConfig[]
   modelProviders: GroupProbeModelProvider[]
   defaultModel?: ThreadModelOverride
   adapter?: GroupProbeHeadlessAdapterConfig
-  onChange: (group: GroupChannelConfig) => void
+  onChange: (config: Pick<GroupChannelConfig, 'model' | 'reasoningEffort'>) => void
 }): React.ReactNode {
-  const t = useT()
-  const reasoning = getGroupReasoningSelectorState({ group, providers, defaultModel, adapter })
-  const currentGroup = { ...group, enabled: group?.enabled ?? defaultEnabled }
+  const reasoning = getChannelReasoningSelectorState({
+    modelConfig,
+    providers,
+    defaultModel,
+    adapter
+  })
   return (
     <SettingRow>
       <div className="flex flex-wrap items-center gap-2.5 flex-1 min-w-0">
         <span className="text-sm font-medium shrink-0" style={{ color: theme.text.primary }}>
-          {t('settings.channels.groupModel')}
+          {label}
         </span>
         <div className="min-w-40 flex-1">
           <ModelSelect
-            value={group?.model ? `${group.model.providerName}::${group.model.model}` : ''}
+            value={
+              modelConfig?.model
+                ? `${modelConfig.model.providerName}::${modelConfig.model.model}`
+                : ''
+            }
             providers={modelProviders}
             onChange={(value) => {
               const [providerName, model] = value.split('::')
               onChange({
-                ...currentGroup,
+                ...modelConfig,
                 model: value ? { providerName, model } : undefined,
                 reasoningEffort: undefined
               })
@@ -85,7 +92,7 @@ function GroupModelSetting({
             </span>
             <SimpleSelect<ComposerReasoningSelection | 'default'>
               width={110}
-              value={group?.reasoningEffort ? reasoning.selected : 'default'}
+              value={modelConfig?.reasoningEffort ? reasoning.selected : 'default'}
               options={[
                 { value: 'default', label: 'Default' },
                 ...reasoning.options.map((value) => ({
@@ -95,7 +102,7 @@ function GroupModelSetting({
               ]}
               onChange={(value) =>
                 onChange({
-                  ...currentGroup,
+                  ...modelConfig,
                   reasoningEffort: value === 'default' ? undefined : value
                 })
               }
@@ -441,40 +448,33 @@ export function ChannelsPane({
           </SettingRow>
 
           {modelSelector && (
-            <SettingRow>
-              <div className="flex items-center gap-2.5 flex-1 min-w-0">
-                <span
-                  className="text-sm font-medium shrink-0"
-                  style={{ color: theme.text.primary }}
-                >
-                  {t('settings.channels.model')}
-                </span>
-                <ModelSelect
-                  value={
-                    telegram?.model ? `${telegram.model.providerName}::${telegram.model.model}` : ''
-                  }
-                  providers={providers}
-                  onChange={(val) => {
-                    if (!val) {
-                      patchTelegram({ model: undefined })
-                    } else {
-                      const [providerName, model] = val.split('::')
-                      patchTelegram({ model: { providerName, model } })
-                    }
-                  }}
-                />
-              </div>
-            </SettingRow>
+            <ChannelModelSetting
+              label="DM model"
+              modelConfig={telegram}
+              providers={providers}
+              modelProviders={providers}
+              defaultModel={defaultModel}
+              onChange={patchTelegram}
+            />
           )}
 
           {groupModelSelector && (
-            <GroupModelSetting
-              group={telegram?.group}
+            <ChannelModelSetting
+              label={t('settings.channels.groupModel')}
+              modelConfig={telegram?.group}
               providers={providers}
               modelProviders={groupModelProviders}
               defaultModel={defaultModel}
               adapter={config.groupProbeAdapter}
-              onChange={(group) => patchTelegram({ group })}
+              onChange={(model) =>
+                patchTelegram({
+                  group: {
+                    ...telegram?.group,
+                    enabled: telegram?.group?.enabled ?? false,
+                    ...model
+                  }
+                })
+              }
             />
           )}
 
@@ -572,39 +572,27 @@ export function ChannelsPane({
           </SettingRow>
 
           {modelSelector && (
-            <SettingRow>
-              <div className="flex items-center gap-2.5 flex-1 min-w-0">
-                <span
-                  className="text-sm font-medium shrink-0"
-                  style={{ color: theme.text.primary }}
-                >
-                  {t('settings.channels.model')}
-                </span>
-                <ModelSelect
-                  value={qq?.model ? `${qq.model.providerName}::${qq.model.model}` : ''}
-                  providers={providers}
-                  onChange={(val) => {
-                    if (!val) {
-                      patchQQ({ model: undefined })
-                    } else {
-                      const [providerName, model] = val.split('::')
-                      patchQQ({ model: { providerName, model } })
-                    }
-                  }}
-                />
-              </div>
-            </SettingRow>
+            <ChannelModelSetting
+              label="DM model"
+              modelConfig={qq}
+              providers={providers}
+              modelProviders={providers}
+              defaultModel={defaultModel}
+              onChange={patchQQ}
+            />
           )}
 
           {groupModelSelector && (
-            <GroupModelSetting
-              group={qq?.group}
-              defaultEnabled
+            <ChannelModelSetting
+              label={t('settings.channels.groupModel')}
+              modelConfig={qq?.group}
               providers={providers}
               modelProviders={groupModelProviders}
               defaultModel={defaultModel}
               adapter={config.groupProbeAdapter}
-              onChange={(group) => patchQQ({ group })}
+              onChange={(model) =>
+                patchQQ({ group: { ...qq?.group, enabled: qq?.group?.enabled ?? true, ...model } })
+              }
             />
           )}
 
@@ -703,28 +691,14 @@ export function ChannelsPane({
           </SettingRow>
 
           {modelSelector && (
-            <SettingRow>
-              <div className="flex items-center gap-2.5 flex-1 min-w-0">
-                <span
-                  className="text-sm font-medium shrink-0"
-                  style={{ color: theme.text.primary }}
-                >
-                  {t('settings.channels.model')}
-                </span>
-                <ModelSelect
-                  value={qqbot?.model ? `${qqbot.model.providerName}::${qqbot.model.model}` : ''}
-                  providers={providers}
-                  onChange={(val) => {
-                    if (!val) {
-                      patchQQBot({ model: undefined })
-                    } else {
-                      const [providerName, model] = val.split('::')
-                      patchQQBot({ model: { providerName, model } })
-                    }
-                  }}
-                />
-              </div>
-            </SettingRow>
+            <ChannelModelSetting
+              label="DM model"
+              modelConfig={qqbot}
+              providers={providers}
+              modelProviders={providers}
+              defaultModel={defaultModel}
+              onChange={patchQQBot}
+            />
           )}
 
           <RestartServiceButton platform="qqbot" enabled={qqbotEnabled} />
@@ -792,42 +766,31 @@ export function ChannelsPane({
           </SettingRow>
 
           {modelSelector && (
-            <SettingRow>
-              <div className="flex items-center gap-2.5 flex-1 min-w-0">
-                <span
-                  className="text-sm font-medium shrink-0"
-                  style={{ color: theme.text.primary }}
-                >
-                  {t('settings.channels.model')}
-                </span>
-                <ModelSelect
-                  value={
-                    discord?.model ? `${discord.model.providerName}::${discord.model.model}` : ''
-                  }
-                  providers={providers}
-                  onChange={(val) => {
-                    if (!val) {
-                      patchDiscord({ model: undefined })
-                    } else {
-                      const [providerName, model] = val.split('::')
-                      patchDiscord({ model: { providerName, model } })
-                    }
-                  }}
-                />
-              </div>
-            </SettingRow>
+            <ChannelModelSetting
+              label="DM model"
+              modelConfig={discord}
+              providers={providers}
+              modelProviders={providers}
+              defaultModel={defaultModel}
+              onChange={patchDiscord}
+            />
           )}
 
           <GroupModeSetting group={discord?.group} onChange={(group) => patchDiscord({ group })} />
 
           {groupModelSelector && (
-            <GroupModelSetting
-              group={discord?.group}
+            <ChannelModelSetting
+              label={t('settings.channels.groupModel')}
+              modelConfig={discord?.group}
               providers={providers}
               modelProviders={groupModelProviders}
               defaultModel={defaultModel}
               adapter={config.groupProbeAdapter}
-              onChange={(group) => patchDiscord({ group })}
+              onChange={(model) =>
+                patchDiscord({
+                  group: { ...discord?.group, enabled: discord?.group?.enabled ?? false, ...model }
+                })
+              }
             />
           )}
 

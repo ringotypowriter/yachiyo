@@ -11,6 +11,26 @@ import {
   writeChannelsConfig
 } from './channelsConfig.ts'
 
+test('DM effort round-trips independently for all platforms and rejects invalid values', () => {
+  const config = {
+    telegram: { enabled: true, botToken: 'test', reasoningEffort: 'low' as const },
+    qq: {
+      enabled: true,
+      wsUrl: 'ws://localhost',
+      reasoningEffort: 'off' as const,
+      group: { enabled: true, reasoningEffort: 'max' as const }
+    },
+    discord: { enabled: true, botToken: 'test', reasoningEffort: 'high' as const },
+    qqbot: { enabled: true, appId: 'test', clientSecret: 'test', reasoningEffort: 'max' as const }
+  }
+  assert.deepEqual(parseChannelsToml(stringifyChannelsToml(config)), config)
+  assert.equal(
+    parseChannelsToml('[qq]\nenabled = true\nws_url = ""\nreasoning_effort = "invalid"').qq
+      ?.reasoningEffort,
+    undefined
+  )
+})
+
 test('channels config round-trips through TOML', async () => {
   const root = await mkdtemp(join(tmpdir(), 'yachiyo-channels-config-'))
   const filePath = join(root, 'channels.toml')

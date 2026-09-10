@@ -1,11 +1,11 @@
 import type { ChannelsConfig } from '@yachiyo/shared/protocol'
 
-/** Group trigger mode is applied in place; all other settings retain restart semantics. */
+/** Trigger mode and reply effort update live; other settings retain restart semantics. */
 export function buildChannelServiceConfigKey(
   cfg: ChannelsConfig,
   platform: ChannelServicePlatform
 ): string {
-  const settings = cfg[platform]
+  const settings = cfg[platform] ? { ...cfg[platform], reasoningEffort: undefined } : undefined
   const group = settings && 'group' in settings ? settings.group : undefined
   return JSON.stringify({
     platform:

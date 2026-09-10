@@ -19,6 +19,20 @@ it('keeps the live service for trigger-mode changes but restarts for other confi
   const platform = { enabled: true, wsUrl: 'ws://localhost', group: { enabled: true } }
   const initial = buildChannelServiceConfigKey({ qq: platform }, 'qq')
   assert.equal(
+    buildChannelServiceConfigKey({ qq: { ...platform, reasoningEffort: 'off' } }, 'qq'),
+    initial
+  )
+  assert.equal(
+    buildChannelServiceConfigKey(
+      { qqbot: { enabled: true, appId: 'id', clientSecret: 'secret', reasoningEffort: 'low' } },
+      'qqbot'
+    ),
+    buildChannelServiceConfigKey(
+      { qqbot: { enabled: true, appId: 'id', clientSecret: 'secret' } },
+      'qqbot'
+    )
+  )
+  assert.equal(
     buildChannelServiceConfigKey(
       { qq: { ...platform, group: { enabled: true, reasoningEffort: 'low' } } },
       'qq'

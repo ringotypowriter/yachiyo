@@ -5,6 +5,7 @@ import { basename, isAbsolute, join, relative } from 'node:path'
 
 import type {
   ChannelUserRecord,
+  ComposerReasoningSelection,
   ChatAccepted,
   MessageImageRecord,
   SelectableRunModeId,
@@ -208,6 +209,7 @@ export interface DirectMessageServiceOptions<TTarget> {
     'allowedTools' | 'replyInstruction' | 'imageTtlMs' | 'maxImagesPerBatch'
   >
   resolveThread(channelUser: ChannelUserRecord): Promise<DirectMessageThreadResolution>
+  resolveReasoningEffort?(thread: ThreadRecord): ComposerReasoningSelection | undefined
   sendMessage(target: TTarget, text: string): Promise<void>
   sendReply?(target: TTarget, payload: ChannelReplyPayload): Promise<void>
   startBatchIndicator?(target: TTarget): void | (() => void)
@@ -877,6 +879,7 @@ export function createDirectMessageService<TTarget>(
         ? `<channel_user_context>You are talking to: ${channelUser.label} (${channelUser.username})</channel_user_context>\n\n`
         : ''
       const accepted = await options.server.sendChat({
+        reasoningEffort: options.resolveReasoningEffort?.(thread),
         threadId: thread.id,
         content: text,
         images: images.length > 0 ? images : undefined,

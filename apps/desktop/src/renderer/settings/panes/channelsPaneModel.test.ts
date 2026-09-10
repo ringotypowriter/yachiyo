@@ -16,12 +16,12 @@ import {
   persistChannelGroupDrafts,
   persistChannelUserDrafts,
   sanitizeChannelsConfig,
-  getGroupReasoningSelectorState
+  getChannelReasoningSelectorState
 } from './channelsPaneModel.ts'
 
 type CallRecord = string | UpdateChannelUserInput | UpdateChannelGroupInput
 
-test('group effort follows the actual default model and hides unsupported headless controls', () => {
+test('channel effort follows the actual default model and hides unsupported headless controls', () => {
   const providers: ProviderConfig[] = [
     {
       name: 'first',
@@ -40,32 +40,32 @@ test('group effort follows the actual default model and hides unsupported headle
   ]
   const defaultModel = { providerName: 'deepseek', model: 'deepseek-v4-flash' }
   assert.deepEqual(
-    getGroupReasoningSelectorState({
+    getChannelReasoningSelectorState({
       providers,
       defaultModel,
-      group: { enabled: true, model: { providerName: 'removed', model: 'missing' } }
+      modelConfig: { model: { providerName: 'removed', model: 'missing' } }
     })?.options,
     ['off', 'low', 'high', 'max']
   )
-  assert.deepEqual(getGroupReasoningSelectorState({ providers, defaultModel })?.options, [
+  assert.deepEqual(getChannelReasoningSelectorState({ providers, defaultModel })?.options, [
     'off',
     'low',
     'high',
     'max'
   ])
   assert.equal(
-    getGroupReasoningSelectorState({
+    getChannelReasoningSelectorState({
       providers,
       defaultModel,
-      group: { enabled: true, reasoningEffort: 'low' }
+      modelConfig: { reasoningEffort: 'low' }
     })?.selected,
     'low'
   )
-  assert.deepEqual(getGroupReasoningSelectorState({ providers })?.options, ['medium'])
+  assert.deepEqual(getChannelReasoningSelectorState({ providers })?.options, ['medium'])
   assert.equal(
-    getGroupReasoningSelectorState({
+    getChannelReasoningSelectorState({
       providers,
-      group: { enabled: true, model: defaultModel },
+      modelConfig: { model: defaultModel },
       adapter: { adapter: 'claude-code', ...defaultModel }
     }),
     null

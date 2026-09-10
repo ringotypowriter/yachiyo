@@ -52,6 +52,16 @@ QQ 官方 Bot API。**仅私聊** —— 没有群支持。
 | `client_secret`                | `string`  | 客户端密钥            |
 | `model_provider`、`model_name` | `string`  | 可选模型覆盖          |
 
+## 私聊思考档位
+
+`[telegram]`、`[qq]`、`[discord]` 和 `[qqbot]` 可设置可选的 `reasoning_effort`，
+对应 **DM model** 旁的 Effort。它对 owner 和 guest 私聊生效，与群聊档位独立。
+修改后下一次请求使用新档位，不重启服务、不清空历史。
+
+Default 表示不覆盖，沿用会话原有的思考设置。平台档位不会改写会话保存的偏好。
+Owner 私聊仍保留自己的会话模型；如果该模型不支持所选档位，则忽略这项覆盖，
+不会为了套用档位而更换模型。
+
 ## `[<platform>.group]`
 
 按平台的群讨论设置。`telegram`、`qq` 和 `discord` 都有。

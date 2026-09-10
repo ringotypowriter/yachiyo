@@ -56,6 +56,18 @@ QQ Official Bot API. **Direct messages only** — no group support.
 | `client_secret`                | `string`  | Client secret                       |
 | `model_provider`, `model_name` | `string`  | Optional model override             |
 
+## DM effort
+
+`reasoning_effort` is optional in `[telegram]`, `[qq]`, `[discord]`, and `[qqbot]`.
+Set it with the Effort selector beside **DM model**. It applies to owner and guest
+DM replies, independently of group effort. Changes take effect on the next request
+without restarting the service or clearing history.
+
+Default leaves the override unset and keeps the conversation's existing effort
+behavior. Overrides do not overwrite saved conversation preferences. Owner DMs
+keep their own conversation model; an effort unsupported by that actual model is
+ignored rather than forcing a model change.
+
 ## `[<platform>.group]`
 
 Per-platform group discussion settings. Available for `telegram`, `qq`, and

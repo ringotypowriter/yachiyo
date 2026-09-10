@@ -1,5 +1,8 @@
 import type {
   ChannelPlatform,
+  ChannelsConfig,
+  ComposerReasoningSelection,
+  ProviderSettings,
   ChannelUserRecord,
   ThreadModelOverride,
   ThreadRecord
@@ -23,6 +26,28 @@ import {
 } from './dmSlashCommands.ts'
 import type { ChannelPolicy } from '../shared/channelPolicy.ts'
 import type { ChannelReplyPayload } from '../shared/channelReply.ts'
+import { getReasoningSelectorState } from '@yachiyo/shared/reasoningEffort'
+
+interface DirectMessageEffortServer {
+  getChannelsConfig(): ChannelsConfig
+  resolveProviderSettings(modelOverride?: ThreadModelOverride): ProviderSettings
+}
+
+export function resolveChannelDirectMessageEffort(
+  server: DirectMessageEffortServer,
+  platform: ChannelPlatform,
+  thread: ThreadRecord
+): ComposerReasoningSelection | undefined {
+  const effort = server.getChannelsConfig()[platform]?.reasoningEffort
+  if (effort === undefined) return undefined
+  const settings = server.resolveProviderSettings(thread.modelOverride)
+  const { options } = getReasoningSelectorState({ provider: settings, model: settings.model })
+  if (options.includes(effort)) return effort
+  console.warn(
+    `[${platform}] DM effort ${effort} is unsupported by ${settings.model}; using the conversation preference`
+  )
+  return undefined
+}
 
 interface ChannelDirectMessageCreateThreadRequest {
   workspacePath?: string
@@ -33,7 +58,7 @@ interface ChannelDirectMessageCreateThreadRequest {
 }
 
 export interface ChannelDirectMessageRuntimeServer
-  extends DirectMessageServer, DmSlashCommandServer {
+  extends DirectMessageServer, DmSlashCommandServer, DirectMessageEffortServer {
   createThread(input?: ChannelDirectMessageCreateThreadRequest): Promise<ThreadRecord>
 }
 
@@ -117,6 +142,8 @@ export function createChannelDirectMessageRuntime<TTarget>(
     server: options.server,
     policy: options.policy,
     resolveThread,
+    resolveReasoningEffort: (thread) =>
+      resolveChannelDirectMessageEffort(options.server, options.platform, thread),
     sendMessage: options.sendMessage,
     sendReply: options.sendReply,
     startBatchIndicator: options.startBatchIndicator,

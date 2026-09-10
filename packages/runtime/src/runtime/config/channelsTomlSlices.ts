@@ -48,9 +48,7 @@ function readGroupConfig(section: Record<string, unknown>): GroupChannelConfig |
   return {
     enabled: readBoolean(group['enabled']),
     ...(group['mode'] === 'probe' || group['mode'] === 'mention' ? { mode: group['mode'] } : {}),
-    ...(isComposerReasoningSelection(group['reasoning_effort'])
-      ? { reasoningEffort: group['reasoning_effort'] }
-      : {}),
+    ...readReasoningEffort(group),
     ...(model ? { model } : {}),
     ...(vision !== undefined ? { vision } : {}),
     ...(activeCheckIntervalMs !== undefined ? { activeCheckIntervalMs } : {}),
@@ -75,10 +73,21 @@ function buildSection(
   return section
 }
 
-function buildModelEntries(model?: ThreadModelOverride): Array<[string, string | undefined]> {
+function readReasoningEffort(
+  section: Record<string, unknown>
+): Pick<GroupChannelConfig, 'reasoningEffort'> {
+  const effort = section['reasoning_effort']
+  return isComposerReasoningSelection(effort) ? { reasoningEffort: effort } : {}
+}
+
+function buildModelEntries(
+  model?: ThreadModelOverride,
+  effort?: GroupChannelConfig['reasoningEffort']
+): Array<[string, string | undefined]> {
   return [
     ['model_provider', model?.providerName],
-    ['model_name', model?.model]
+    ['model_name', model?.model],
+    ['reasoning_effort', effort]
   ]
 }
 
@@ -136,6 +145,7 @@ function readTelegram(section: Record<string, unknown>): TelegramChannelConfig {
   return {
     enabled: readBoolean(section['enabled']),
     botToken: readString(section['bot_token']),
+    ...readReasoningEffort(section),
     ...(model ? { model } : {}),
     ...(group ? { group } : {})
   }
@@ -149,7 +159,7 @@ function writeTelegram(config?: TelegramChannelConfig): Record<string, unknown> 
   const section = buildSection([
     ['enabled', config.enabled],
     ['bot_token', config.botToken],
-    ...buildModelEntries(config.model)
+    ...buildModelEntries(config.model, config.reasoningEffort)
   ])
 
   if (config.group) {
@@ -167,6 +177,7 @@ function readQQ(section: Record<string, unknown>): QQChannelConfig {
   return {
     enabled: readBoolean(section['enabled']),
     wsUrl: readString(section['ws_url']),
+    ...readReasoningEffort(section),
     ...(token ? { token } : {}),
     ...(model ? { model } : {}),
     ...(group ? { group } : {})
@@ -182,7 +193,7 @@ function writeQQ(config?: QQChannelConfig): Record<string, unknown> | undefined 
     ['enabled', config.enabled],
     ['ws_url', config.wsUrl],
     ['token', config.token],
-    ...buildModelEntries(config.model)
+    ...buildModelEntries(config.model, config.reasoningEffort)
   ])
 
   if (config.group) {
@@ -199,6 +210,7 @@ function readQQBot(section: Record<string, unknown>): QQBotChannelConfig {
     enabled: readBoolean(section['enabled']),
     appId: readString(section['app_id']),
     clientSecret: readString(section['client_secret']),
+    ...readReasoningEffort(section),
     ...(model ? { model } : {})
   }
 }
@@ -212,7 +224,7 @@ function writeQQBot(config?: QQBotChannelConfig): Record<string, unknown> | unde
     ['enabled', config.enabled],
     ['app_id', config.appId],
     ['client_secret', config.clientSecret],
-    ...buildModelEntries(config.model)
+    ...buildModelEntries(config.model, config.reasoningEffort)
   ])
 }
 
@@ -223,6 +235,7 @@ function readDiscord(section: Record<string, unknown>): DiscordChannelConfig {
   return {
     enabled: readBoolean(section['enabled']),
     botToken: readString(section['bot_token']),
+    ...readReasoningEffort(section),
     ...(model ? { model } : {}),
     ...(group ? { group } : {})
   }
@@ -236,7 +249,7 @@ function writeDiscord(config?: DiscordChannelConfig): Record<string, unknown> | 
   const section = buildSection([
     ['enabled', config.enabled],
     ['bot_token', config.botToken],
-    ...buildModelEntries(config.model)
+    ...buildModelEntries(config.model, config.reasoningEffort)
   ])
 
   if (config.group) {
