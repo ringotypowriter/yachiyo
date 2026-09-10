@@ -5,6 +5,23 @@ import type { MessageImageRecord } from '@yachiyo/shared/protocol'
 import { describeGroupImages } from './groupImageDescriptions.ts'
 
 describe('describeGroupImages', () => {
+  it('does not describe already enriched images again', async () => {
+    const images = [{ dataUrl: '', mediaType: 'image/png', altText: 'a cat' }]
+    await describeGroupImages({
+      server: {
+        getChannelsConfig: () => ({ imageToText: { enabled: true } }),
+        getImageToTextService: () => ({
+          describe: async () => {
+            assert.fail('already described')
+          }
+        })
+      },
+      text: '',
+      images,
+      logLabel: 'test-group'
+    })
+    assert.equal(images[0]?.altText, 'a cat')
+  })
   it('fills alt text when image-to-text succeeds', async () => {
     const images: MessageImageRecord[] = [
       { dataUrl: 'data:image/png;base64,AAA', mediaType: 'image/png' }

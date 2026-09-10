@@ -56,17 +56,26 @@ QQ 官方 Bot API。**仅私聊** —— 没有群支持。
 
 按平台的群讨论设置。`telegram`、`qq` 和 `discord` 都有。
 
-| 键                                                               | 类型      | 默认     | 说明                         |
-| ---------------------------------------------------------------- | --------- | -------- | ---------------------------- |
-| `enabled`                                                        | `boolean` | ——       | 该平台上是否运行群讨论       |
-| `model_provider`、`model_name`                                   | `string`  | 工具模型 | 群探针使用的模型             |
-| `vision`                                                         | `boolean` | `false`  | 把群里的图片传给探针模型     |
-| `active_check_interval_ms`                                       | `number`  | `60000`  | 活跃阶段的探针间隔           |
-| `engaged_check_interval_ms`                                      | `number`  | `30000`  | 参与阶段的探针间隔           |
-| `wake_buffer_ms`                                                 | `number`  | `60000`  | 有新活动时唤醒前的延迟       |
-| `dormancy_miss_count`                                            | `number`  | `3`      | 掉回休眠前的静默检查次数     |
-| `disengage_miss_count`                                           | `number`  | `3`      | 离开参与状态前的静默检查次数 |
-| `probe_adapter`、`probe_adapter_provider`、`probe_adapter_model` | `string`  | ——       | 无头探针适配器覆盖           |
+| 键                                                               | 类型      | 默认     | 说明                                                            |
+| ---------------------------------------------------------------- | --------- | -------- | --------------------------------------------------------------- |
+| `enabled`                                                        | `boolean` | ——       | 该平台上是否运行群讨论                                          |
+| `mode`                                                           | `string`  | `probe`  | `probe` 自动跟随群聊；`mention` 仅在直接 @ 当前机器人账号时触发 |
+| `model_provider`、`model_name`                                   | `string`  | 工具模型 | 群探针使用的模型                                                |
+| `vision`                                                         | `boolean` | `false`  | 把群里的图片传给探针模型                                        |
+| `active_check_interval_ms`                                       | `number`  | `60000`  | 活跃阶段的探针间隔                                              |
+| `engaged_check_interval_ms`                                      | `number`  | `30000`  | 参与阶段的探针间隔                                              |
+| `wake_buffer_ms`                                                 | `number`  | `60000`  | 有新活动时唤醒前的延迟                                          |
+| `dormancy_miss_count`                                            | `number`  | `3`      | 掉回休眠前的静默检查次数                                        |
+| `disengage_miss_count`                                           | `number`  | `3`      | 离开参与状态前的静默检查次数                                    |
+| `probe_adapter`、`probe_adapter_provider`、`probe_adapter_model` | `string`  | ——       | 无头探针适配器覆盖                                              |
+
+两种模式共用会话历史和压缩摘要。在设置中保存 Probe/Mention 切换时，
+不会重启频道服务或打断当前回复；其他配置变化仍可能触发服务重启。
+
+群聊缓冲最多保留最近 100 条记录，不设短时间截断。每轮仅追加尚未看过的消息，
+新会话则从已有缓冲窗口开始。Mention 模式下，普通消息只进入本地缓冲，
+不调用回复模型；图片被选入某轮上下文时才进行描述，仍受图片转文字设置控制。
+这是本地缓冲，不会补拉服务离线期间的群消息。
 
 ## `[privacy]`
 

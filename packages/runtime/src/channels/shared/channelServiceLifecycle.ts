@@ -1,3 +1,24 @@
+import type { ChannelsConfig } from '@yachiyo/shared/protocol'
+
+/** Group trigger mode is applied in place; all other settings retain restart semantics. */
+export function buildChannelServiceConfigKey(
+  cfg: ChannelsConfig,
+  platform: ChannelServicePlatform
+): string {
+  const settings = cfg[platform]
+  const group = settings && 'group' in settings ? settings.group : undefined
+  return JSON.stringify({
+    platform:
+      settings && platform !== 'qqbot'
+        ? { ...settings, group: { enabled: platform === 'qq', ...group, mode: undefined } }
+        : settings,
+    groupCheckIntervalMs: cfg.groupCheckIntervalMs,
+    dmCompactTokenThresholdK: cfg.dmCompactTokenThresholdK,
+    groupContextWindowK: cfg.groupContextWindowK,
+    groupHandoffThresholdK: cfg.groupHandoffThresholdK
+  })
+}
+
 export interface ManagedChannelService {
   start(): void | Promise<void>
   stop(): void | Promise<void>

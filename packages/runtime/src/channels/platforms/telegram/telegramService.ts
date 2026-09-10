@@ -20,6 +20,7 @@ import type { Message } from 'telegraf/types'
 import type {
   ChannelGroupRecord,
   GroupChannelConfig,
+  GroupMessageEntry,
   MessageImageRecord,
   ThreadModelOverride
 } from '@yachiyo/shared/protocol'
@@ -80,10 +81,22 @@ export interface TelegramService {
   healthCheck: () => Promise<boolean>
   /** Notify the service that a group's status changed (approved/blocked). */
   onGroupStatusChange: (group: ChannelGroupRecord) => void
+  setGroupMode: (mode: NonNullable<GroupChannelConfig['mode']>) => void
   /** Send a text message to a Telegram chat by chat ID. */
   sendMessage: (chatId: string, text: string, options?: ChannelSendOptions) => Promise<void>
   /** Wipe the in-memory message buffer for a group without stopping the monitor. */
   clearGroupMessages: (groupId: string) => void
+}
+
+export function formatTelegramGroupText(message: Message): string {
+  const text =
+    'text' in message ? message.text : 'caption' in message ? (message.caption ?? '') : ''
+  const quoted = 'reply_to_message' in message ? message.reply_to_message : undefined
+  const quote =
+    quoted && ('text' in quoted ? quoted.text : 'caption' in quoted ? quoted.caption : undefined)
+  return quote
+    ? `[Reply to ${quoted?.from?.first_name ?? 'Unknown sender'}: ${quote}]\n${text}`
+    : text
 }
 
 export function createTelegramService({
@@ -421,36 +434,27 @@ export function createTelegramService({
               `@${botUsername.toLowerCase()}`
         )
       : false
+    const contextualText = formatTelegramGroupText(msg)
 
-    // When there are no images to download, route immediately.
-    if (!hasMedia) {
-      groupDiscussion.routeMessage(routedGroup.group.id, {
-        senderName: fromUsername,
-        senderExternalUserId: fromId,
-        isMention,
-        text,
-        timestamp: msg.date
-      })
-      return
+    const entry: GroupMessageEntry = {
+      senderName: fromUsername,
+      senderExternalUserId: fromId,
+      isMention,
+      text: contextualText,
+      timestamp: msg.date
     }
-
-    // Resolve images eagerly, then route with the completed entry.
-    const imagePromises = startImageDownloads(msg)
-    void Promise.all(imagePromises).then(async (results) => {
-      const images = results.filter((img): img is MessageImageRecord => img !== null)
-      await groupDiscussion.describeImages({
-        text,
-        images
-      })
-      groupDiscussion.routeMessage(routedGroup.group.id, {
-        senderName: fromUsername,
-        senderExternalUserId: fromId,
-        isMention,
-        text,
-        images: images.length > 0 ? images : undefined,
-        timestamp: msg.date
-      })
-    })
+    groupDiscussion.routeMessage(
+      routedGroup.group.id,
+      entry,
+      hasMedia
+        ? async () => ({
+            text: contextualText,
+            images: (await Promise.all(startImageDownloads(msg))).filter(
+              (img): img is MessageImageRecord => img !== null
+            )
+          })
+        : undefined
+    )
   }
 
   const groupDiscussion: ChannelGroupDiscussionService | null = groupConfig?.enabled
@@ -506,6 +510,9 @@ export function createTelegramService({
     },
     onGroupStatusChange(group) {
       groupDiscussion?.onGroupStatusChange(group)
+    },
+    setGroupMode(mode) {
+      groupDiscussion?.setMode(mode)
     },
     sendMessage,
     clearGroupMessages(groupId: string) {

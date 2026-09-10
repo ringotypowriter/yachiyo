@@ -42,7 +42,7 @@ import {
   findChannelUserId
 } from '../../shared/channelUpdateReceiptSender.ts'
 import { parseCQImages, type CQImageRef } from './qqImageParsing.ts'
-import { resolveCQCodes, extractReplyId } from './qqCQCodes.ts'
+import { resolveCQCodes, extractReplyId, hasCQAtMention } from './qqCQCodes.ts'
 import type {
   ChannelDispatchGate,
   ChannelSendOptions,
@@ -81,6 +81,7 @@ export interface QQService {
   healthCheck: () => Promise<boolean>
   /** Notify the service that a group's status changed (approved/blocked). */
   onGroupStatusChange: (group: ChannelGroupRecord) => void
+  setGroupMode: (mode: NonNullable<GroupChannelConfig['mode']>) => void
   /** Send a private message to a QQ user by numeric user ID. */
   sendPrivateMessage: (userId: number, text: string, options?: ChannelSendOptions) => Promise<void>
   /** Send a message to a QQ group by numeric group ID. */
@@ -385,9 +386,7 @@ export function createQQService({
     const { text: rawText, images: imageRefs } = parseCQImages(msg.rawMessage)
     if (!rawText && imageRefs.length === 0) return
 
-    const isMention = resolvedBotQQId
-      ? msg.rawMessage.includes(`[CQ:at,qq=${resolvedBotQQId}]`)
-      : false
+    const isMention = hasCQAtMention(msg.rawMessage, resolvedBotQQId)
 
     // Resolve [CQ:at,qq=ID] codes into readable @Name so the model
     // can track who is addressing whom in multi-party conversation.
@@ -416,64 +415,29 @@ export function createQQService({
 
     const needsAsyncEnrichment = replyMsgId != null || imagePromises.length > 0
 
-    if (isMention && needsAsyncEnrichment) {
-      // Mentions trigger an immediate probe via runCheck(), so we must
-      // wait for enrichment to complete before routing — otherwise the
-      // model sees stale text and no images on the first turn.
-      void (async () => {
-        const [quote, ...imgResults] = await Promise.all([replyQuotePromise, ...imagePromises])
-        const images = (imgResults as (MessageImageRecord | null)[]).filter(
-          (img): img is MessageImageRecord => img !== null
-        )
-        const text = quote ? `${quote}\n${resolvedText}` : resolvedText
-
-        if (images.length > 0) {
-          await groupDiscussion.describeImages({ text, images })
-        }
-
-        groupDiscussion.routeMessage(routedGroup.group.id, {
-          senderName: msg.nickname,
-          senderExternalUserId: String(msg.userId),
-          isMention,
-          text,
-          images: images.length > 0 ? images : undefined,
-          timestamp: msg.time
-        })
-      })()
-    } else {
-      // Non-mention: route synchronously to preserve buffer ordering.
-      // Enrichment patches the entry in-place before the next debounced
-      // probe fires.
-      const entry: GroupMessageEntry = {
-        senderName: msg.nickname,
-        senderExternalUserId: String(msg.userId),
-        isMention,
-        text: resolvedText,
-        ...(imagePromises.length > 0 ? { imageDescriptionPending: true } : {}),
-        timestamp: msg.time
-      }
-      groupDiscussion.routeMessage(routedGroup.group.id, entry)
-
-      if (replyMsgId) {
-        void replyQuotePromise.then((quote) => {
-          if (quote) entry.text = `${quote}\n${entry.text}`
-        })
-      }
-
-      if (imagePromises.length > 0) {
-        void Promise.all(imagePromises).then(async (results) => {
-          const images = results.filter((img): img is MessageImageRecord => img !== null)
-          if (images.length > 0) {
-            await groupDiscussion.describeImages({
-              text: entry.text,
-              images
-            })
-          }
-          entry.images = images.length > 0 ? images : undefined
-          entry.imageDescriptionPending = false
-        })
-      }
+    const entry: GroupMessageEntry = {
+      senderName: msg.nickname,
+      senderExternalUserId: String(msg.userId),
+      isMention,
+      text: resolvedText,
+      timestamp: msg.time
     }
+    groupDiscussion.routeMessage(
+      routedGroup.group.id,
+      entry,
+      needsAsyncEnrichment
+        ? async () => {
+            const [quote, results] = await Promise.all([
+              replyQuotePromise,
+              Promise.all(imagePromises)
+            ])
+            return {
+              text: quote ? `${quote}\n${resolvedText}` : resolvedText,
+              images: results.filter((img): img is MessageImageRecord => img !== null)
+            }
+          }
+        : undefined
+    )
   })
 
   return {
@@ -511,6 +475,9 @@ export function createQQService({
 
     onGroupStatusChange(group) {
       groupDiscussion?.onGroupStatusChange(group)
+    },
+    setGroupMode(mode) {
+      groupDiscussion?.setMode(mode)
     },
 
     sendPrivateMessage,

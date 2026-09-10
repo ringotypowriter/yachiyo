@@ -28,6 +28,7 @@ import {
 } from '../../channels/shared/channelPolicy.ts'
 import {
   createChannelServiceSupervisor,
+  buildChannelServiceConfigKey,
   type ChannelServicePlatform,
   type ChannelServiceSupervisor
 } from '../../channels/shared/channelServiceLifecycle.ts'
@@ -98,19 +99,6 @@ export function createRuntimeLiveServices(
   const stopController = new AbortController()
   let shutdownPromise: Promise<void> | null = null
   const readiness = createRuntimeLiveServicesReadiness(startOnce, waitForChannelReadyOnce)
-
-  function buildChannelServiceConfigKey(
-    cfg: ChannelsConfig,
-    platform: ChannelServicePlatform
-  ): string {
-    return JSON.stringify({
-      platform: cfg[platform],
-      groupCheckIntervalMs: cfg.groupCheckIntervalMs,
-      dmCompactTokenThresholdK: cfg.dmCompactTokenThresholdK,
-      groupContextWindowK: cfg.groupContextWindowK,
-      groupHandoffThresholdK: cfg.groupHandoffThresholdK
-    })
-  }
 
   function getChannelSupervisor(): ChannelServiceSupervisor {
     if (channelSupervisor) return channelSupervisor
@@ -366,6 +354,9 @@ export function createRuntimeLiveServices(
       const saved = server.saveChannelsConfig(input)
       channelsConfigForSupervisor = saved
       await getChannelSupervisor().reconcileAll('config changed')
+      telegramService?.setGroupMode(saved.telegram?.group?.mode ?? 'probe')
+      qqService?.setGroupMode(saved.qq?.group?.mode ?? 'probe')
+      discordService?.setGroupMode(saved.discord?.group?.mode ?? 'probe')
       return saved
     },
     'host.restartChannelServices': async (input: {

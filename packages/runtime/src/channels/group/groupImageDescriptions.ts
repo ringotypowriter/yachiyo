@@ -32,6 +32,7 @@ export async function describeGroupImages(input: DescribeGroupImagesInput): Prom
   const i2t = input.server.getImageToTextService()
   const describedImages = await Promise.all(
     input.images.map(async (img): Promise<MessageImageRecord | null> => {
+      if (img.altText?.trim()) return img
       try {
         const result = await i2t.describe(img.dataUrl, input.text)
         const altText = result?.altText.trim()

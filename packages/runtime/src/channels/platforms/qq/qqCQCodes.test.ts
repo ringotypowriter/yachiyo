@@ -1,6 +1,15 @@
 import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
-import { resolveCQCodes, extractReplyId } from './qqCQCodes.ts'
+import { resolveCQCodes, extractReplyId, hasCQAtMention } from './qqCQCodes.ts'
+
+it('matches the logged-in account in CQ mention parameters, never names or everyone', () => {
+  assert.equal(hasCQAtMention('[CQ:at,name=Other Name,qq=123]', '123'), true)
+  assert.equal(hasCQAtMention('[CQ:at,qq=123,name=Other Name]', '123'), true)
+  assert.equal(hasCQAtMention('[CQ:at,qq=1234]', '123'), false)
+  assert.equal(hasCQAtMention('[CQ:at,qq=all] @Yachiyo', '123'), false)
+  assert.equal(hasCQAtMention('&#91;CQ:at,qq=123&#93;', '123'), false)
+  assert.equal(hasCQAtMention('[CQ:at,qq=123]', undefined), false)
+})
 
 describe('resolveCQCodes', () => {
   // ── face ──────────────────────────────────────────────────────────

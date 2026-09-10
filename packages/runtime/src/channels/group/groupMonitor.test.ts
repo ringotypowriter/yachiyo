@@ -37,6 +37,136 @@ function fastConfig(overrides: Partial<GroupMonitorConfig> = {}): GroupMonitorCo
 }
 
 describe('GroupMonitor', () => {
+  it('waits asynchronously for pending images when mentioned in either mode', async (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout', 'setInterval'] })
+    for (const mode of ['probe', 'mention'] as const) {
+      let turns = 0
+      const monitor = createGroupMonitor(fastConfig({ mode }), {
+        onTurn: async () => {
+          turns++
+          return false
+        },
+        onStateChange: () => {}
+      })
+      t.after(() => monitor.stop())
+      const image = makeMessage('picture', 'Alice', { enrichmentPending: true })
+      monitor.onMessage(image)
+      monitor.onMessage(makeMessage('question', 'Bob', { isMention: true }))
+      assert.equal(turns, 0)
+      image.enrichmentPending = false
+      t.mock.timers.tick(100)
+      await Promise.resolve()
+      assert.equal(turns, 1)
+      monitor.stop()
+    }
+  })
+
+  it('admits deferred image-only context on mention without processing it on ordinary activity', async (t) => {
+    const turns: GroupMessageEntry[][] = []
+    const monitor = createGroupMonitor(fastConfig({ mode: 'mention' }), {
+      onTurn: async (messages) => {
+        turns.push(messages)
+        return false
+      },
+      onStateChange: () => {}
+    })
+    t.after(() => monitor.stop())
+    monitor.onMessage(
+      makeMessage('', 'Alice', {
+        imageDescriptionDeferred: true,
+        images: [{ dataUrl: 'data:image/png;base64,AAA', mediaType: 'image/png' }]
+      })
+    )
+    assert.equal(turns.length, 0)
+    monitor.onMessage(makeMessage('look', 'Alice', { isMention: true }))
+    await Promise.resolve()
+    assert.equal(turns[0].length, 2)
+  })
+
+  it('only runs on mentions, retaining up to 100 messages without a short time cutoff', async (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout', 'setInterval'] })
+    const turns: string[][] = []
+    const monitor = createGroupMonitor(
+      fastConfig({ mode: 'mention', maxRecentMessages: 100, recentMessageWindowMs: Infinity }),
+      {
+        onTurn: async (messages, freshCount) => {
+          turns.push(messages.slice(-freshCount).map((m) => m.text))
+          return true
+        },
+        onStateChange: () => {}
+      }
+    )
+    t.after(() => monitor.stop())
+    for (let i = 0; i < 110; i++) {
+      monitor.onMessage(
+        makeMessage(`background ${i}`, 'Alice', { timestamp: Date.now() / 1000 - 3600 })
+      )
+    }
+    t.mock.timers.tick(60_000)
+    assert.equal(turns.length, 0)
+    monitor.onMessage(makeMessage('question', 'Alice', { isMention: true }))
+    await Promise.resolve()
+    assert.equal(turns[0].length, 100)
+    assert.equal(turns[0][0], 'background 11')
+    monitor.onMessage(makeMessage('ordinary follow-up'))
+    t.mock.timers.tick(60_000)
+    assert.equal(turns.length, 1)
+    monitor.onMessage(makeMessage('next question', 'Alice', { isMention: true }))
+    await Promise.resolve()
+    assert.deepEqual(turns[1], ['ordinary follow-up', 'next question'])
+  })
+
+  it('drains mentions received during a turn without auto-following ordinary messages', async (t) => {
+    let release!: () => void
+    const blocked = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const turns: string[][] = []
+    const monitor = createGroupMonitor(fastConfig({ mode: 'mention' }), {
+      onTurn: async (messages, freshCount) => {
+        turns.push(messages.slice(-freshCount).map((m) => m.text))
+        if (turns.length === 1) await blocked
+        return true
+      },
+      onStateChange: () => {}
+    })
+    t.after(() => monitor.stop())
+    monitor.onMessage(makeMessage('first', 'Alice', { isMention: true }))
+    monitor.onMessage(makeMessage('second', 'Bob', { isMention: true }))
+    release()
+    await blocked
+    await Promise.resolve()
+    assert.deepEqual(turns, [['first'], ['second']])
+  })
+
+  it('switches trigger mode without clearing the buffer or replaying consumed messages', async (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout', 'setInterval'] })
+    const turns: string[][] = []
+    const monitor = createGroupMonitor(fastConfig({ mode: 'mention' }), {
+      onTurn: async (messages, freshCount) => {
+        turns.push(messages.slice(-freshCount).map((m) => m.text))
+        return true
+      },
+      onStateChange: () => {}
+    })
+    t.after(() => monitor.stop())
+    monitor.onMessage(makeMessage('first', 'Alice', { isMention: true }))
+    await Promise.resolve()
+    monitor.onMessage(makeMessage('background'))
+    monitor.setMode('probe')
+    t.mock.timers.tick(50)
+    await Promise.resolve()
+    assert.deepEqual(turns, [['first'], ['background']])
+    monitor.setMode('mention')
+    monitor.onMessage(makeMessage('later'))
+    t.mock.timers.tick(60_000)
+    assert.equal(turns.length, 2)
+    monitor.onMessage(makeMessage('third', 'Alice', { isMention: true }))
+    await Promise.resolve()
+    assert.deepEqual(turns[2], ['later', 'third'])
+    assert.equal(monitor.getRecentMessages().length, 4)
+  })
+
   it('starts in dormant phase', () => {
     const monitor = createGroupMonitor(fastConfig(), {
       onTurn: async () => false,
@@ -349,7 +479,7 @@ describe('GroupMonitor', () => {
       dormancyMissCount: 10
     })
     const entry = makeMessage('look', 'Alice', {
-      imageDescriptionPending: true,
+      enrichmentPending: true,
       images: [{ dataUrl: 'data:image/png;base64,abc', mediaType: 'image/png' }]
     })
     const monitor = createGroupMonitor(config, {
@@ -365,7 +495,7 @@ describe('GroupMonitor', () => {
 
     assert.equal(turnCalls.length, 0)
 
-    entry.imageDescriptionPending = false
+    entry.enrichmentPending = false
     entry.images = [
       { dataUrl: 'data:image/png;base64,abc', mediaType: 'image/png', altText: 'a cat' }
     ]
@@ -384,7 +514,7 @@ describe('GroupMonitor', () => {
       dormancyMissCount: 10
     })
     const entry = makeMessage('', 'Alice', {
-      imageDescriptionPending: true,
+      enrichmentPending: true,
       images: [{ dataUrl: 'data:image/png;base64,abc', mediaType: 'image/png' }]
     })
     const monitor = createGroupMonitor(config, {
@@ -400,7 +530,7 @@ describe('GroupMonitor', () => {
 
     assert.equal(turnCalls, 0)
 
-    entry.imageDescriptionPending = false
+    entry.enrichmentPending = false
     entry.images = []
     await new Promise((r) => setTimeout(r, 50))
 

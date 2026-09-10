@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 
 import {
   createChannelServiceSupervisor,
+  buildChannelServiceConfigKey,
   type ManagedChannelService
 } from './channelServiceLifecycle.ts'
 
@@ -13,6 +14,30 @@ interface FakeService extends ManagedChannelService {
   blockStart?: Promise<void>
   blockHealthCheck?: Promise<void>
 }
+
+it('keeps the live service for trigger-mode changes but restarts for other configuration', () => {
+  const platform = { enabled: true, wsUrl: 'ws://localhost', group: { enabled: true } }
+  const initial = buildChannelServiceConfigKey({ qq: platform }, 'qq')
+  assert.equal(
+    buildChannelServiceConfigKey(
+      { qq: { ...platform, group: { enabled: true, mode: 'mention' } } },
+      'qq'
+    ),
+    initial
+  )
+  assert.equal(
+    buildChannelServiceConfigKey({ qq: { enabled: true, wsUrl: 'ws://localhost' } }, 'qq'),
+    initial
+  )
+  assert.notEqual(
+    buildChannelServiceConfigKey({ qq: { ...platform, group: { enabled: false } } }, 'qq'),
+    initial
+  )
+  assert.notEqual(
+    buildChannelServiceConfigKey({ qq: platform, groupContextWindowK: 32 }, 'qq'),
+    initial
+  )
+})
 
 function createFakeService(
   healthy = true,

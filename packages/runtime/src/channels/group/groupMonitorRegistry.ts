@@ -45,6 +45,7 @@ export interface GroupMonitorPersistence {
 }
 
 export interface GroupMonitorRegistry {
+  setMode(mode: NonNullable<GroupChannelConfig['mode']>): void
   /** Start monitoring an approved group. Idempotent — safe to call if already running. */
   startMonitor(group: ChannelGroupRecord): void
   /** Update the stored group record for a running monitor (e.g. label change). No-op if not running. */
@@ -76,6 +77,7 @@ export function createGroupMonitorRegistry(
 ): GroupMonitorRegistry {
   const monitors = new Map<string, { monitor: GroupMonitor; group: ChannelGroupRecord }>()
   const saveDebounceTimers = new Map<string, ReturnType<typeof setTimeout>>()
+  let mode = configOverrides?.mode ?? 'probe'
 
   function resolveConfig(): GroupMonitorConfig {
     const activeMs =
@@ -83,6 +85,7 @@ export function createGroupMonitorRegistry(
       globalCheckIntervalMs ??
       policyDefaults.activeCheckIntervalMs
     return {
+      mode,
       activeCheckIntervalMs: activeMs,
       engagedCheckIntervalMs:
         configOverrides?.engagedCheckIntervalMs ?? policyDefaults.engagedCheckIntervalMs,
@@ -122,6 +125,10 @@ export function createGroupMonitorRegistry(
   }
 
   return {
+    setMode(nextMode) {
+      mode = nextMode
+      for (const { monitor } of monitors.values()) monitor.setMode(mode)
+    },
     startMonitor(group) {
       if (monitors.has(group.id)) return
 

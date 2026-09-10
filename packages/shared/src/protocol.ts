@@ -86,8 +86,10 @@ export interface GroupMessageEntry {
   text: string
   /** Resolved images attached to this message (already vision-safe). */
   images?: MessageImageRecord[]
-  /** True while async image-to-text enrichment is still in progress. */
-  imageDescriptionPending?: boolean
+  /** In-memory only: true while quoted content or media is being resolved. */
+  enrichmentPending?: boolean
+  /** In-memory only: describe downloaded images when this entry is selected for a turn. */
+  imageDescriptionDeferred?: boolean
   /** Unix seconds. */
   timestamp: number
 }
@@ -95,6 +97,8 @@ export interface GroupMessageEntry {
 /** Per-platform group discussion settings (from channels.toml). */
 export interface GroupChannelConfig {
   enabled: boolean
+  /** Trigger automatically or only when directly mentioned. Defaults to probe. */
+  mode?: 'probe' | 'mention'
   /** Model override for the group probe call. When set, overrides the default tool model. */
   model?: ThreadModelOverride
   /** When true, pass images from group messages to the probe model. Default false. */

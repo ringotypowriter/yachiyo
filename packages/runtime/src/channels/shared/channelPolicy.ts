@@ -59,7 +59,6 @@ export interface ChannelPolicy {
 }
 
 const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1_000
-const TEN_MINUTES_MS = 10 * 60 * 1_000
 
 const sharedGroupDefaults: GroupPolicyDefaults = {
   activeCheckIntervalMs: 30_000,
@@ -67,8 +66,8 @@ const sharedGroupDefaults: GroupPolicyDefaults = {
   wakeBufferMs: 30_000,
   dormancyMissCount: 3,
   disengageMissCount: 3,
-  maxRecentMessages: 50,
-  recentMessageWindowMs: TEN_MINUTES_MS,
+  maxRecentMessages: 100,
+  recentMessageWindowMs: Infinity,
   groupThreadReuseWindowMs: SEVEN_DAYS_MS
 }
 

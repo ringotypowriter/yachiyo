@@ -61,17 +61,30 @@ QQ Official Bot API. **Direct messages only** — no group support.
 Per-platform group discussion settings. Available for `telegram`, `qq`, and
 `discord`.
 
-| Key                                                              | Type      | Default    | Description                                    |
-| ---------------------------------------------------------------- | --------- | ---------- | ---------------------------------------------- |
-| `enabled`                                                        | `boolean` | —          | Whether group discussion runs on this platform |
-| `model_provider`, `model_name`                                   | `string`  | tool model | Model for the group probe                      |
-| `vision`                                                         | `boolean` | `false`    | Pass group images to the probe model           |
-| `active_check_interval_ms`                                       | `number`  | `60000`    | Probe interval in the active phase             |
-| `engaged_check_interval_ms`                                      | `number`  | `30000`    | Probe interval in the engaged phase            |
-| `wake_buffer_ms`                                                 | `number`  | `60000`    | Delay before waking on new activity            |
-| `dormancy_miss_count`                                            | `number`  | `3`        | Quiet checks before dropping to dormant        |
-| `disengage_miss_count`                                           | `number`  | `3`        | Quiet checks before leaving engaged            |
-| `probe_adapter`, `probe_adapter_provider`, `probe_adapter_model` | `string`  | —          | Headless probe adapter override                |
+| Key                                                              | Type      | Default    | Description                                                                                |
+| ---------------------------------------------------------------- | --------- | ---------- | ------------------------------------------------------------------------------------------ |
+| `enabled`                                                        | `boolean` | —          | Whether group discussion runs on this platform                                             |
+| `mode`                                                           | `string`  | `probe`    | `probe` follows group activity; `mention` runs only on a direct mention of the bot account |
+| `model_provider`, `model_name`                                   | `string`  | tool model | Model for the group probe                                                                  |
+| `vision`                                                         | `boolean` | `false`    | Pass group images to the probe model                                                       |
+| `active_check_interval_ms`                                       | `number`  | `60000`    | Probe interval in the active phase                                                         |
+| `engaged_check_interval_ms`                                      | `number`  | `30000`    | Probe interval in the engaged phase                                                        |
+| `wake_buffer_ms`                                                 | `number`  | `60000`    | Delay before waking on new activity                                                        |
+| `dormancy_miss_count`                                            | `number`  | `3`        | Quiet checks before dropping to dormant                                                    |
+| `disengage_miss_count`                                           | `number`  | `3`        | Quiet checks before leaving engaged                                                        |
+| `probe_adapter`, `probe_adapter_provider`, `probe_adapter_model` | `string`  | —          | Headless probe adapter override                                                            |
+
+Both modes share the same conversation history and rolling summary. Saving a
+Probe/Mention mode change in Settings applies it without restarting the channel
+service or interrupting the current reply. Other configuration changes may still
+restart the service.
+
+Group context keeps up to 100 recent buffered entries, without a short time
+cutoff. Each turn adds only the unseen entries; a new conversation starts with
+the buffered window. Mention mode buffers ordinary messages locally without
+calling the reply model, and describes their images only when selected for a
+turn. Images still follow the image-to-text setting. This is a local buffer, not
+a backfill of messages sent while the service was offline.
 
 ## `[privacy]`
 

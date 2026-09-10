@@ -23,6 +23,7 @@ test('channels config round-trips through TOML', async () => {
         model: { providerName: 'main', model: 'gpt-5' },
         group: {
           enabled: true,
+          mode: 'mention' as const,
           model: { providerName: 'group-main', model: 'gpt-4.1' },
           vision: true,
           activeCheckIntervalMs: 5000,

@@ -6,9 +6,73 @@ import type { ProviderSettings } from '@yachiyo/shared/protocol'
 import { ChannelMessageTooLongError } from '../shared/sendWithUpdateReceipt.ts'
 import {
   runGroupProbeHeadlessAdapter,
+  createChannelGroupDiscussionService,
   sendGroupReplyWithRewriteFallback
 } from './channelGroupDiscussionService.ts'
 import { CLAUDE_CODE_SEND_GROUP_MESSAGE_TOOL_CALL_ID } from './groupProbeClaudeCode.ts'
+import { telegramPolicy } from '../shared/channelPolicy.ts'
+import type { YachiyoServer } from '../../app/host/YachiyoServer.ts'
+import type { GroupMessageEntry } from '@yachiyo/shared/protocol'
+
+test('buffers before enrichment and defers image models across a live switch to mention', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'setInterval'] })
+  let saved: GroupMessageEntry[] = []
+  let descriptions = 0
+  let release!: () => void
+  const pending = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  const service = createChannelGroupDiscussionService({
+    platform: 'telegram',
+    logLabel: 'test',
+    policy: telegramPolicy,
+    groupConfig: { enabled: true },
+    sendMessage: async () => {},
+    server: {
+      listChannelGroups: () => [group],
+      getStorage: () => ({
+        loadGroupMonitorBuffer: () => undefined,
+        saveGroupMonitorBuffer: (snapshot: { buffer: GroupMessageEntry[] }) => {
+          saved = snapshot.buffer
+        },
+        deleteGroupMonitorBuffer: () => {}
+      }),
+      getChannelsConfig: () => ({ imageToText: { enabled: true } }),
+      getImageToTextService: () => ({
+        describe: async () => {
+          descriptions++
+          return { altText: 'cat' }
+        }
+      })
+    } as unknown as YachiyoServer
+  })
+  t.after(() => service.stop())
+  const entry: GroupMessageEntry = {
+    senderName: 'Alice',
+    senderExternalUserId: '1',
+    text: 'reply',
+    isMention: false,
+    timestamp: Date.now() / 1000
+  }
+  service.routeMessage(group.id, entry, async () => {
+    await pending
+    return {
+      text: 'quoted context\nreply',
+      images: [{ dataUrl: 'data:image/png;base64,AAA', mediaType: 'image/png' }]
+    }
+  })
+  t.mock.timers.tick(5000)
+  assert.equal(saved[0], entry)
+  assert.equal(entry.enrichmentPending, true)
+  service.setMode('mention')
+  release()
+  await pending
+  await new Promise<void>((resolve) => setImmediate(resolve))
+  assert.equal(entry.enrichmentPending, false)
+  assert.equal(entry.text, 'quoted context\nreply')
+  assert.equal(entry.imageDescriptionDeferred, true)
+  assert.equal(descriptions, 0)
+})
 
 const settings: ProviderSettings = {
   providerName: 'Claude Code',

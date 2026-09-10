@@ -11,6 +11,7 @@ import type {
   ChannelUserRecord,
   ChannelUserRole,
   ChannelUserStatus,
+  GroupChannelConfig,
   ProviderConfig
 } from '@yachiyo/shared/protocol'
 import {
@@ -18,7 +19,8 @@ import {
   SettingLabel,
   SettingRow,
   SettingSection,
-  SettingSwitch
+  SettingSwitch,
+  SimpleSelect
 } from '../components/primitives'
 import {
   ChannelGroupRow,
@@ -28,6 +30,48 @@ import {
   SettingSlider
 } from './ChannelsPaneRows'
 import { buildGroupProbeModelProviders } from './channelsPaneModel'
+
+function GroupModeSetting({
+  group,
+  defaultEnabled = false,
+  onChange
+}: {
+  group: GroupChannelConfig | undefined
+  defaultEnabled?: boolean
+  onChange: (group: GroupChannelConfig) => void
+}): React.ReactNode {
+  const enabled = group?.enabled ?? defaultEnabled
+  return (
+    <SettingRow>
+      <div className="min-w-0">
+        <div className="text-sm font-medium" style={{ color: theme.text.primary }}>
+          Group discussion
+        </div>
+        <div className="text-sm" style={{ color: theme.text.tertiary }}>
+          {enabled && group?.mode === 'mention'
+            ? 'Respond only when directly mentioned.'
+            : 'Probe follows the conversation automatically.'}
+        </div>
+      </div>
+      <SimpleSelect<'off' | 'probe' | 'mention'>
+        width={140}
+        value={enabled ? (group?.mode ?? 'probe') : 'off'}
+        options={[
+          { value: 'off', label: 'Off' },
+          { value: 'probe', label: 'Probe' },
+          { value: 'mention', label: 'Mention' }
+        ]}
+        onChange={(value) =>
+          onChange({
+            ...group,
+            enabled: value !== 'off',
+            mode: value === 'off' ? group?.mode : value
+          })
+        }
+      />
+    </SettingRow>
+  )
+}
 
 function RestartServiceButton({
   platform,
@@ -386,6 +430,10 @@ export function ChannelsPane({
             </SettingRow>
           )}
 
+          <GroupModeSetting
+            group={telegram?.group}
+            onChange={(group) => patchTelegram({ group })}
+          />
           <RestartServiceButton platform="telegram" enabled={telegramEnabled} />
         </SettingSection>
       </div>
@@ -541,6 +589,11 @@ export function ChannelsPane({
             </SettingRow>
           )}
 
+          <GroupModeSetting
+            group={qq?.group}
+            defaultEnabled
+            onChange={(group) => patchQQ({ group })}
+          />
           <RestartServiceButton platform="qq" enabled={qqEnabled} />
         </SettingSection>
       </div>
@@ -746,28 +799,7 @@ export function ChannelsPane({
             </SettingRow>
           )}
 
-          <SettingRow>
-            <div className="min-w-0">
-              <div className="text-sm font-medium" style={{ color: theme.text.primary }}>
-                {t('settings.channels.groupDiscussion')}
-              </div>
-              <div className="text-sm" style={{ color: theme.text.tertiary }}>
-                {t('settings.channels.discordGroupDescription')}
-              </div>
-            </div>
-            <SettingSwitch
-              ariaLabel={t('settings.channels.enableDiscordGroupDiscussion')}
-              checked={discord?.group?.enabled ?? false}
-              onChange={() =>
-                patchDiscord({
-                  group: {
-                    ...discord?.group,
-                    enabled: !(discord?.group?.enabled ?? false)
-                  }
-                })
-              }
-            />
-          </SettingRow>
+          <GroupModeSetting group={discord?.group} onChange={(group) => patchDiscord({ group })} />
 
           {groupModelSelector && (
             <SettingRow>

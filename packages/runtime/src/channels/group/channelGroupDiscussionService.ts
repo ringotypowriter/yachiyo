@@ -34,7 +34,7 @@ import { GROUP_PERSONA_PROMPT } from './groupPrompts.ts'
 import { prepareGroupReplyForDelivery } from './groupReplyContent.ts'
 import { createGroupTurnSendGuard } from './groupTurnSendGuard.ts'
 import { describeGroupImages } from './groupImageDescriptions.ts'
-import { hasGroupProbeVisibleContent, hasPendingImageDescription } from './groupMessageReadiness.ts'
+import { hasGroupProbeVisibleContent, hasPendingGroupContent } from './groupMessageReadiness.ts'
 import { createGroupMonitorRegistry, type GroupMonitorPersistence } from './groupMonitorRegistry.ts'
 import {
   loadGroupProbeHistory,
@@ -59,14 +59,15 @@ export interface ChannelGroupDiscussionServiceOptions {
 }
 
 export interface ChannelGroupDiscussionService {
-  routeMessage(groupId: string, entry: GroupMessageEntry): void
+  setMode(mode: NonNullable<GroupChannelConfig['mode']>): void
+  routeMessage(
+    groupId: string,
+    entry: GroupMessageEntry,
+    enrich?: () => Promise<Pick<GroupMessageEntry, 'text' | 'images'>>
+  ): void
   onGroupStatusChange(group: ChannelGroupRecord): void
   stop(): void
   clearGroupMessages(groupId: string): void
-  describeImages(input: {
-    text: string
-    images: NonNullable<GroupMessageEntry['images']>
-  }): Promise<void>
 }
 
 function dropHeadlessReplayMessages(
@@ -144,6 +145,7 @@ export function createChannelGroupDiscussionService(
 ): ChannelGroupDiscussionService {
   const { platform, logLabel, server, policy, groupConfig, groupCheckIntervalMs, sendMessage } =
     options
+  let mode = groupConfig?.mode ?? 'probe'
 
   const bufferPersistence: GroupMonitorPersistence = {
     save(groupId, phase, buffer) {
@@ -183,6 +185,18 @@ export function createChannelGroupDiscussionService(
     recentMessages: GroupMessageEntry[],
     freshCount: number
   ): Promise<boolean> {
+    const freshMessages = recentMessages.slice(-freshCount)
+    await Promise.all(
+      recentMessages.map(async (entry) => {
+        if (!entry.imageDescriptionDeferred) return
+        if (entry.images?.length) {
+          await describeGroupImages({ server, text: entry.text, images: entry.images, logLabel })
+        }
+        entry.imageDescriptionDeferred = false
+      })
+    )
+    freshCount = freshMessages.filter(hasGroupProbeVisibleContent).length
+    if (!freshCount) return false
     const auxService = server.getAuxiliaryGenerationService()
     let didSpeak = false
     const turnSendGuard = createGroupTurnSendGuard()
@@ -307,6 +321,10 @@ export function createChannelGroupDiscussionService(
       ownerInstruction: channelsConfig.guestInstruction,
       contextTimeZone
     })
+    const turnSystemPrompt =
+      mode === 'mention'
+        ? `${dynamicSystemPrompt}\n\n这次有人直接 @ 你。以当前新消息中叫到你的请求为回应对象，其他群聊记录用于理解背景，不把旁人的闲聊当成另外的请求。`
+        : dynamicSystemPrompt
     const { thread: probeThread, created: probeThreadCreated } = await resolveGroupProbeThread({
       logLabel,
       server,
@@ -329,7 +347,7 @@ export function createChannelGroupDiscussionService(
     )
     const messages = compileGroupProbeContextLayers({
       stableSystemPrompt,
-      dynamicSystemPrompt,
+      dynamicSystemPrompt: turnSystemPrompt,
       groupProfile: groupUserDoc?.content,
       contextHandoffSummary: probeThread.contextHandoffSummary,
       history: loadGroupProbeHistory(server.getStorage(), probeThread),
@@ -442,11 +460,38 @@ export function createChannelGroupDiscussionService(
   }
 
   return {
-    routeMessage(groupId, entry) {
-      if (!hasPendingImageDescription(entry) && !hasGroupProbeVisibleContent(entry)) {
+    setMode(nextMode) {
+      mode = nextMode
+      groupRegistry.setMode(mode)
+    },
+    routeMessage(groupId, entry, enrich) {
+      if (!groupRegistry.hasMonitor(groupId)) return
+      if (enrich) entry.enrichmentPending = true
+      if (entry.enrichmentPending || entry.images?.some((image) => !image.altText?.trim())) {
+        entry.imageDescriptionDeferred = true
+      }
+      if (!hasPendingGroupContent(entry) && !hasGroupProbeVisibleContent(entry)) {
         return
       }
       groupRegistry.routeMessage(groupId, entry)
+      if (enrich) {
+        void enrich()
+          .then(async (content) => {
+            Object.assign(entry, content)
+            if (mode === 'probe' && entry.images?.length) {
+              await describeGroupImages({
+                server,
+                text: entry.text,
+                images: entry.images,
+                logLabel
+              })
+            }
+          })
+          .catch((error) => console.warn(`[${logLabel}] message enrichment failed:`, error))
+          .finally(() => {
+            entry.enrichmentPending = false
+          })
+      }
     },
 
     onGroupStatusChange(group) {
@@ -468,15 +513,6 @@ export function createChannelGroupDiscussionService(
 
     clearGroupMessages(groupId) {
       groupRegistry.clearGroupMessages(groupId)
-    },
-
-    describeImages(input) {
-      return describeGroupImages({
-        server,
-        text: input.text,
-        images: input.images,
-        logLabel
-      })
     }
   }
 }

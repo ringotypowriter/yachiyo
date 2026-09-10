@@ -4,7 +4,17 @@ import { Telegram } from 'telegraf'
 
 import type { YachiyoServer } from '../../../app/host/YachiyoServer.ts'
 import type { UpdateReceiptLease } from '../../shared/sendWithUpdateReceipt.ts'
-import { createTelegramService } from './telegramService.ts'
+import { createTelegramService, formatTelegramGroupText } from './telegramService.ts'
+
+test('Telegram group context includes the explicitly quoted sender and text', () => {
+  assert.equal(
+    formatTelegramGroupText({
+      text: '@renamed_bot thoughts?',
+      reply_to_message: { from: { first_name: 'Alice' }, text: 'the proposal' }
+    } as never),
+    '[Reply to Alice: the proposal]\n@renamed_bot thoughts?'
+  )
+})
 import { splitTelegramMessage } from './telegramMessageSplit.ts'
 
 test('splitTelegramMessage keeps every chunk inside the Telegram text limit', () => {

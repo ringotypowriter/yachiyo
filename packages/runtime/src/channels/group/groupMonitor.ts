@@ -9,14 +9,15 @@
  * The monitor never calls the model directly — it delegates via callbacks.
  */
 
-import type { GroupMessageEntry } from '@yachiyo/shared/protocol'
-import { hasGroupProbeVisibleContent, hasPendingImageDescription } from './groupMessageReadiness.ts'
+import type { GroupChannelConfig, GroupMessageEntry } from '@yachiyo/shared/protocol'
+import { hasGroupProbeVisibleContent, hasPendingGroupContent } from './groupMessageReadiness.ts'
 
 // ---------------------------------------------------------------------------
 // Public types
 // ---------------------------------------------------------------------------
 
 export interface GroupMonitorConfig {
+  mode?: GroupChannelConfig['mode']
   /** Check interval while active (default 60 000 ms). */
   activeCheckIntervalMs: number
   /** Check interval while engaged (default 30 000 ms). */
@@ -54,6 +55,7 @@ export interface GroupMonitorRestoreState {
 }
 
 export interface GroupMonitor {
+  setMode(mode: NonNullable<GroupChannelConfig['mode']>): void
   /** Feed an inbound group message into the buffer. */
   onMessage(entry: GroupMessageEntry): void
   /** Current state-machine phase. */
@@ -96,6 +98,9 @@ export function createGroupMonitor(
   let checkTimer: ReturnType<typeof setTimeout> | null = null
   let wakeTimer: ReturnType<typeof setTimeout> | null = null
   let checking = false
+  let mode = config.mode ?? 'probe'
+  let stopped = false
+  let pendingMention = false
 
   /** Ring buffer of recent messages. */
   const buffer: GroupMessageEntry[] = []
@@ -189,6 +194,7 @@ export function createGroupMonitor(
   }
 
   function startCheckLoop(): void {
+    if (stopped || mode === 'mention') return
     if (checkTimer) clearInterval(checkTimer)
     checkTimer = setInterval(() => void runCheck(), currentIntervalMs())
   }
@@ -198,14 +204,20 @@ export function createGroupMonitor(
   // -------------------------------------------------------------------------
 
   async function runCheck(): Promise<void> {
-    if (checking) return
+    if (checking || stopped || (mode === 'mention' && !pendingMention)) return
     checking = true
 
     try {
       pruneBuffer()
       const fresh = newMessagesSinceLastCheck()
 
-      if (fresh.some(hasPendingImageDescription)) {
+      if (fresh.some(hasPendingGroupContent)) {
+        if (pendingMention && !wakeTimer) {
+          wakeTimer = setTimeout(() => {
+            wakeTimer = null
+            void runCheck()
+          }, 100)
+        }
         return
       }
 
@@ -213,6 +225,7 @@ export function createGroupMonitor(
       // herself — but her lines still render in the turn delta below, so the
       // model always sees what it already said.
       const visibleFresh = fresh.filter((m) => hasGroupProbeVisibleContent(m) && !isSelfMessage(m))
+      if (visibleFresh.length === 0) pendingMention = false
 
       // A self-only tail must NOT be consumed here: leave the cursor so her
       // line rides into the next turn that has real fresh messages. Otherwise
@@ -221,6 +234,7 @@ export function createGroupMonitor(
       if (visibleFresh.length !== 0) {
         // Advance cursor — these messages are now "seen".
         cursor = buffer.length
+        pendingMention = false
       }
 
       if (phase === 'active' && visibleFresh.length === 0) {
@@ -262,6 +276,7 @@ export function createGroupMonitor(
         return
       }
 
+      if (stopped || mode === 'mention') return
       if (replied) {
         if (phase !== 'engaged') {
           setPhase('engaged')
@@ -278,6 +293,7 @@ export function createGroupMonitor(
       }
     } finally {
       checking = false
+      if (!stopped && pendingMention && !wakeTimer) void runCheck()
     }
   }
 
@@ -286,16 +302,18 @@ export function createGroupMonitor(
   // -------------------------------------------------------------------------
 
   function onMessage(entry: GroupMessageEntry): void {
+    if (stopped) return
     buffer.push(entry)
     pruneBuffer()
 
     // @mention → fast-track to judge evaluation (judge can still say NO).
     if (entry.isMention) {
+      pendingMention = true
       if (wakeTimer) {
         clearTimeout(wakeTimer)
         wakeTimer = null
       }
-      if (phase === 'dormant') {
+      if (phase === 'dormant' && mode === 'probe') {
         setPhase('active')
         startCheckLoop()
       }
@@ -303,6 +321,7 @@ export function createGroupMonitor(
       return
     }
 
+    if (mode === 'mention' || isSelfMessage(entry)) return
     if (phase === 'dormant') {
       // Wake: start a buffer timer, then transition to active.
       if (!wakeTimer) {
@@ -317,6 +336,8 @@ export function createGroupMonitor(
   }
 
   function stop(): void {
+    stopped = true
+    pendingMention = false
     clearTimers()
     phase = 'dormant'
     missCount = 0
@@ -325,11 +346,24 @@ export function createGroupMonitor(
   }
 
   function clearBuffer(): void {
+    pendingMention = false
     buffer.length = 0
     cursor = 0
   }
 
   return {
+    setMode(nextMode) {
+      if (mode === nextMode || stopped) return
+      mode = nextMode
+      clearTimers()
+      setPhase('dormant')
+      if (mode === 'probe') {
+        setPhase('active')
+        startCheckLoop()
+      } else if (pendingMention) {
+        void runCheck()
+      }
+    },
     onMessage,
     getPhase: () => phase,
     getRecentMessages: () => [...buffer],

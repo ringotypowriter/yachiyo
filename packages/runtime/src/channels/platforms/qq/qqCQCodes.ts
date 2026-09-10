@@ -268,6 +268,13 @@ function getCQParam(cqBody: string, key: string): string | undefined {
   return undefined
 }
 
+export function hasCQAtMention(text: string, selfId: string | undefined): boolean {
+  if (!selfId) return false
+  return Array.from(text.matchAll(/\[CQ:at,([^\]]+)\]/g)).some(
+    (match) => getCQParam(match[1], 'qq') === selfId
+  )
+}
+
 // ── JSON card title extraction ──────────────────────────────────────
 function extractJsonTitle(raw: string): string | undefined {
   try {

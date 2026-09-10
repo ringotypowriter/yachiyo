@@ -46,6 +46,7 @@ function readGroupConfig(section: Record<string, unknown>): GroupChannelConfig |
 
   return {
     enabled: readBoolean(group['enabled']),
+    ...(group['mode'] === 'probe' || group['mode'] === 'mention' ? { mode: group['mode'] } : {}),
     ...(model ? { model } : {}),
     ...(vision !== undefined ? { vision } : {}),
     ...(activeCheckIntervalMs !== undefined ? { activeCheckIntervalMs } : {}),
@@ -79,6 +80,7 @@ function buildModelEntries(model?: ThreadModelOverride): Array<[string, string |
 
 function buildGroupSection(group: GroupChannelConfig): Record<string, unknown> {
   const section: Record<string, unknown> = { enabled: group.enabled }
+  if (group.mode) section['mode'] = group.mode
 
   for (const [key, value] of buildModelEntries(group.model)) {
     if (value !== undefined) {

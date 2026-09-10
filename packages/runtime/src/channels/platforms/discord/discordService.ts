@@ -19,6 +19,7 @@ import { Client, Events, GatewayIntentBits, Partials, type Message } from 'disco
 import type {
   ChannelGroupRecord,
   GroupChannelConfig,
+  GroupMessageEntry,
   MessageImageRecord,
   ThreadModelOverride
 } from '@yachiyo/shared/protocol'
@@ -106,6 +107,7 @@ export interface DiscordService {
   healthCheck: () => Promise<boolean>
   /** Notify the service that a group's status changed (approved/blocked). */
   onGroupStatusChange: (group: ChannelGroupRecord) => void
+  setGroupMode: (mode: NonNullable<GroupChannelConfig['mode']>) => void
   /** Send a text message to a Discord channel by channel ID. */
   sendMessage: (channelId: string, text: string, options?: ChannelSendOptions) => Promise<void>
   /** Resolve a Discord user ID to its DM channel and send a text message. */
@@ -116,6 +118,20 @@ export interface DiscordService {
 
 export interface DiscordSendableChannel {
   send: (options: never) => Promise<unknown>
+}
+
+export async function formatDiscordGroupText(message: Message): Promise<string> {
+  const text = message.content ?? ''
+  if (!message.reference?.messageId) return text
+  try {
+    const quoted = await message.fetchReference()
+    return quoted.content
+      ? `[Reply to ${quoted.author.username}: ${quoted.content}]\n${text}`
+      : text
+  } catch {
+    // A deleted or inaccessible quote must not prevent handling the current request.
+    return text
+  }
 }
 
 export interface DiscordChannelResolverSource {
@@ -421,36 +437,30 @@ export function createDiscordService({
     if (!text && !hasImages) return
 
     const isMention = botUserId ? msg.mentions.users.has(botUserId) : false
-
-    // When there are no images, route immediately.
-    if (!hasImages) {
-      groupDiscussion.routeMessage(routedGroup.group.id, {
-        senderName: fromUsername,
-        senderExternalUserId: fromId,
-        isMention,
-        text,
-        timestamp: Math.floor(msg.createdTimestamp / 1_000)
-      })
-      return
+    const entry: GroupMessageEntry = {
+      senderName: fromUsername,
+      senderExternalUserId: fromId,
+      isMention,
+      text,
+      timestamp: Math.floor(msg.createdTimestamp / 1_000)
     }
-
-    // Resolve image attachments eagerly, then route with the completed entry.
-    const imagePromises = startImageDownloads(msg)
-    void Promise.all(imagePromises).then(async (results) => {
-      const images = results.filter((img): img is MessageImageRecord => img !== null)
-      await groupDiscussion.describeImages({
-        text,
-        images
-      })
-      groupDiscussion.routeMessage(routedGroup.group.id, {
-        senderName: fromUsername,
-        senderExternalUserId: fromId,
-        isMention,
-        text,
-        images: images.length > 0 ? images : undefined,
-        timestamp: Math.floor(msg.createdTimestamp / 1_000)
-      })
-    })
+    // Reserve the arrival position before fetching a quote or downloading media.
+    groupDiscussion.routeMessage(
+      routedGroup.group.id,
+      entry,
+      hasImages || msg.reference?.messageId
+        ? async () => {
+            const [text, results] = await Promise.all([
+              formatDiscordGroupText(msg),
+              Promise.all(startImageDownloads(msg))
+            ])
+            return {
+              text,
+              images: results.filter((img): img is MessageImageRecord => img !== null)
+            }
+          }
+        : undefined
+    )
   }
 
   const groupDiscussion: ChannelGroupDiscussionService | null = groupConfig?.enabled
@@ -507,6 +517,9 @@ export function createDiscordService({
 
     onGroupStatusChange(group) {
       groupDiscussion?.onGroupStatusChange(group)
+    },
+    setGroupMode(mode) {
+      groupDiscussion?.setMode(mode)
     },
 
     sendMessage,
