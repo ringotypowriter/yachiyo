@@ -16,7 +16,7 @@ export interface ReasoningSelectorState {
 
 const DEFAULT_REASONING_EFFORT: ReasoningEffortLevel = 'medium'
 const DEFAULT_REASONING_OPTIONS: ReasoningEffortLevel[] = [DEFAULT_REASONING_EFFORT]
-const DEEPSEEK_V4_MAX_EFFORT_OPTIONS: ReasoningEffortLevel[] = ['high', 'max']
+const DEEPSEEK_V4_MAX_EFFORT_OPTIONS: ReasoningEffortLevel[] = ['low', 'high', 'max']
 
 type ReasoningProvider =
   | Pick<ProviderConfig, 'reasoning' | 'thinkingEnabled' | 'type'>

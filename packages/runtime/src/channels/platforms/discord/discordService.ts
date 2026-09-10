@@ -107,7 +107,7 @@ export interface DiscordService {
   healthCheck: () => Promise<boolean>
   /** Notify the service that a group's status changed (approved/blocked). */
   onGroupStatusChange: (group: ChannelGroupRecord) => void
-  setGroupMode: (mode: NonNullable<GroupChannelConfig['mode']>) => void
+  setGroupPreferences: ChannelGroupDiscussionService['setPreferences']
   /** Send a text message to a Discord channel by channel ID. */
   sendMessage: (channelId: string, text: string, options?: ChannelSendOptions) => Promise<void>
   /** Resolve a Discord user ID to its DM channel and send a text message. */
@@ -518,8 +518,8 @@ export function createDiscordService({
     onGroupStatusChange(group) {
       groupDiscussion?.onGroupStatusChange(group)
     },
-    setGroupMode(mode) {
-      groupDiscussion?.setMode(mode)
+    setGroupPreferences(config) {
+      groupDiscussion?.setPreferences(config)
     },
 
     sendMessage,

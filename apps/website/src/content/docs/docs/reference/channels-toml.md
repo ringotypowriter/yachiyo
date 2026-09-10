@@ -75,9 +75,15 @@ Per-platform group discussion settings. Available for `telegram`, `qq`, and
 | `probe_adapter`, `probe_adapter_provider`, `probe_adapter_model` | `string`  | —          | Headless probe adapter override                                                            |
 
 Both modes share the same conversation history and rolling summary. Saving a
-Probe/Mention mode change in Settings applies it without restarting the channel
+Probe/Mention mode or Effort change in Settings applies it without restarting the channel
 service or interrupting the current reply. Other configuration changes may still
 restart the service.
+
+Set `reasoning_effort` in a platform's group section to override effort for group
+replies only. The Effort selector next to Group model shows that model's enabled
+options; Default leaves the override unset. DeepSeek V4 supports Off, Low, High,
+and Max. Off explicitly disables server-side thinking. Changing the group model
+clears the override. The headless Claude Code adapter does not expose this selector.
 
 Group context keeps up to 100 recent buffered entries, without a short time
 cutoff. Each turn adds only the unseen entries; a new conversation starts with

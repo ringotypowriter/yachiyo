@@ -69,8 +69,13 @@ QQ 官方 Bot API。**仅私聊** —— 没有群支持。
 | `disengage_miss_count`                                           | `number`  | `3`      | 离开参与状态前的静默检查次数                                    |
 | `probe_adapter`、`probe_adapter_provider`、`probe_adapter_model` | `string`  | ——       | 无头探针适配器覆盖                                              |
 
-两种模式共用会话历史和压缩摘要。在设置中保存 Probe/Mention 切换时，
+两种模式共用会话历史和压缩摘要。在设置中保存 Probe/Mention 或 Effort 切换时，
 不会重启频道服务或打断当前回复；其他配置变化仍可能触发服务重启。
+
+平台的 group 配置段可设置 `reasoning_effort`，只覆盖群聊回复的思考档位。
+Group model 旁的 Effort 显示该模型已启用的选项，Default 表示不设置覆盖。
+DeepSeek V4 支持 Off、Low、High 和 Max；Off 会显式关闭服务端思考。
+更换群聊模型时会清除档位覆盖。无头 Claude Code 适配器不显示此选择器。
 
 群聊缓冲最多保留最近 100 条记录，不设短时间截断。每轮仅追加尚未看过的消息，
 新会话则从已有缓冲窗口开始。Mention 模式下，普通消息只进入本地缓冲，

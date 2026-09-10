@@ -64,7 +64,7 @@ test('buffers before enrichment and defers image models across a live switch to 
   t.mock.timers.tick(5000)
   assert.equal(saved[0], entry)
   assert.equal(entry.enrichmentPending, true)
-  service.setMode('mention')
+  service.setPreferences({ mode: 'mention' })
   release()
   await pending
   await new Promise<void>((resolve) => setImmediate(resolve))

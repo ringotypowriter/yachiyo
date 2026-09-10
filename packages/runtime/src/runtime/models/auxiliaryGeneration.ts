@@ -1,6 +1,6 @@
 import type { ToolSet } from 'ai'
 
-import type { ProviderSettings } from '@yachiyo/shared/protocol'
+import type { ComposerReasoningSelection, ProviderSettings } from '@yachiyo/shared/protocol'
 import { formatErrorForLog } from '../providers/gateway.ts'
 import { resolveMissingCredentialIssue } from '../providers/providerCredentials.ts'
 import type { ModelMessage, ModelRuntime, ModelToolCallErrorEvent, ModelUsage } from './types.ts'
@@ -30,6 +30,7 @@ export type AuxiliaryTextGenerationResult =
 
 export interface AuxiliaryTextGenerationRequest {
   messages: ModelMessage[]
+  reasoningEffort?: ComposerReasoningSelection
   signal?: AbortSignal
   /** Optional label propagated to LLM lifecycle logs (e.g. "title", "memory-distill"). */
   purpose?: string
@@ -112,7 +113,8 @@ export function createAuxiliaryGenerationService(
         const stream = runtime.streamReply({
           messages: request.messages,
           max_token: request.max_token,
-          providerOptionsMode: 'auxiliary',
+          providerOptionsMode: request.reasoningEffort === undefined ? 'auxiliary' : 'default',
+          reasoningEffort: request.reasoningEffort,
           settings: resolvedSettings,
           signal,
           purpose: request.purpose ?? 'auxiliary',

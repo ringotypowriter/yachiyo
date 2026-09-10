@@ -173,18 +173,17 @@ export function createOpenAiLanguageModel(
     cacheFetch ?? innerFetch,
     thinkingOptions
   )
-  const maxEffortFetch =
-    settings.thinkingEnabled !== false && isDeepSeekV4MaxEffortModel(settings.model)
-      ? createDeepSeekV4MaxEffortFetch(
-          {
-            provider: 'openai',
-            model: settings.model,
-            thinkingEnabled: settings.thinkingEnabled,
-            reasoningEffort: settings.reasoningEffort
-          },
-          thinkingFetch ?? cacheFetch ?? innerFetch
-        )
-      : undefined
+  const maxEffortFetch = isDeepSeekV4MaxEffortModel(settings.model)
+    ? createDeepSeekV4MaxEffortFetch(
+        {
+          provider: 'openai',
+          model: settings.model,
+          thinkingEnabled: settings.thinkingEnabled,
+          reasoningEffort: settings.reasoningEffort
+        },
+        thinkingFetch ?? cacheFetch ?? innerFetch
+      )
+    : undefined
   const composedFetch = maxEffortFetch ?? thinkingFetch ?? cacheFetch
 
   const isCodexOauth = settings.provider === 'openai-codex'

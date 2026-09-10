@@ -203,18 +203,17 @@ export function createAnthropicLanguageModel(
   const baseURL = cleanBaseUrl(settings.baseUrl, DEFAULT_ANTHROPIC_BASE_URL)
   const shouldReplayUnsignedThinking = shouldReplayUnsignedAnthropicThinking(baseURL)
   const promptStack: LanguageModelV3CallOptions['prompt'][] = []
-  const maxEffortFetch =
-    settings.thinkingEnabled !== false && isDeepSeekV4MaxEffortModel(settings.model)
-      ? createDeepSeekV4MaxEffortFetch(
-          {
-            provider: 'anthropic',
-            model: settings.model,
-            thinkingEnabled: settings.thinkingEnabled,
-            reasoningEffort: settings.reasoningEffort
-          },
-          dependencies.fetchImpl
-        )
-      : undefined
+  const maxEffortFetch = isDeepSeekV4MaxEffortModel(settings.model)
+    ? createDeepSeekV4MaxEffortFetch(
+        {
+          provider: 'anthropic',
+          model: settings.model,
+          thinkingEnabled: settings.thinkingEnabled,
+          reasoningEffort: settings.reasoningEffort
+        },
+        dependencies.fetchImpl
+      )
+    : undefined
   const fetchImpl = maxEffortFetch ?? dependencies.fetchImpl
   const unsignedThinkingReplayFetch = shouldReplayUnsignedThinking
     ? createUnsignedThinkingReplayFetch(fetchImpl, () => promptStack.at(-1))

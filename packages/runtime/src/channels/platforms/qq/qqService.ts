@@ -81,7 +81,7 @@ export interface QQService {
   healthCheck: () => Promise<boolean>
   /** Notify the service that a group's status changed (approved/blocked). */
   onGroupStatusChange: (group: ChannelGroupRecord) => void
-  setGroupMode: (mode: NonNullable<GroupChannelConfig['mode']>) => void
+  setGroupPreferences: ChannelGroupDiscussionService['setPreferences']
   /** Send a private message to a QQ user by numeric user ID. */
   sendPrivateMessage: (userId: number, text: string, options?: ChannelSendOptions) => Promise<void>
   /** Send a message to a QQ group by numeric group ID. */
@@ -476,8 +476,8 @@ export function createQQService({
     onGroupStatusChange(group) {
       groupDiscussion?.onGroupStatusChange(group)
     },
-    setGroupMode(mode) {
-      groupDiscussion?.setMode(mode)
+    setGroupPreferences(config) {
+      groupDiscussion?.setPreferences(config)
     },
 
     sendPrivateMessage,

@@ -99,7 +99,9 @@ export interface GroupChannelConfig {
   enabled: boolean
   /** Trigger automatically or only when directly mentioned. Defaults to probe. */
   mode?: 'probe' | 'mention'
-  /** Model override for the group probe call. When set, overrides the default tool model. */
+  /** Optional effort override for group replies; unrelated auxiliary calls are unaffected. */
+  reasoningEffort?: ComposerReasoningSelection
+  /** Model override for group replies. Unset uses the default chat model. */
   model?: ThreadModelOverride
   /** When true, pass images from group messages to the probe model. Default false. */
   vision?: boolean

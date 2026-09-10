@@ -59,7 +59,7 @@ export interface ChannelGroupDiscussionServiceOptions {
 }
 
 export interface ChannelGroupDiscussionService {
-  setMode(mode: NonNullable<GroupChannelConfig['mode']>): void
+  setPreferences(config: Pick<GroupChannelConfig, 'mode' | 'reasoningEffort'>): void
   routeMessage(
     groupId: string,
     entry: GroupMessageEntry,
@@ -146,6 +146,7 @@ export function createChannelGroupDiscussionService(
   const { platform, logLabel, server, policy, groupConfig, groupCheckIntervalMs, sendMessage } =
     options
   let mode = groupConfig?.mode ?? 'probe'
+  let reasoningEffort = groupConfig?.reasoningEffort
 
   const bufferPersistence: GroupMonitorPersistence = {
     save(groupId, phase, buffer) {
@@ -185,6 +186,7 @@ export function createChannelGroupDiscussionService(
     recentMessages: GroupMessageEntry[],
     freshCount: number
   ): Promise<boolean> {
+    const turnEffort = reasoningEffort
     const freshMessages = recentMessages.slice(-freshCount)
     await Promise.all(
       recentMessages.map(async (entry) => {
@@ -376,6 +378,7 @@ export function createChannelGroupDiscussionService(
         `[${logLabel}] group="${group.name}" probing ${freshCount}/${recentMessages.length} fresh message(s) with ${settingsOverride.providerName}/${settingsOverride.model}:\n${currentTurnContent}`
       )
       result = await auxService.generateText({
+        reasoningEffort: turnEffort,
         messages,
         promptCacheKey: probeThread.id,
         tools: probeTools,
@@ -460,8 +463,9 @@ export function createChannelGroupDiscussionService(
   }
 
   return {
-    setMode(nextMode) {
-      mode = nextMode
+    setPreferences(config) {
+      mode = config.mode ?? 'probe'
+      reasoningEffort = config.reasoningEffort
       groupRegistry.setMode(mode)
     },
     routeMessage(groupId, entry, enrich) {

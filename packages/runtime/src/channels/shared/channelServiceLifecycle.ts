@@ -10,7 +10,15 @@ export function buildChannelServiceConfigKey(
   return JSON.stringify({
     platform:
       settings && platform !== 'qqbot'
-        ? { ...settings, group: { enabled: platform === 'qq', ...group, mode: undefined } }
+        ? {
+            ...settings,
+            group: {
+              enabled: platform === 'qq',
+              ...group,
+              mode: undefined,
+              reasoningEffort: undefined
+            }
+          }
         : settings,
     groupCheckIntervalMs: cfg.groupCheckIntervalMs,
     dmCompactTokenThresholdK: cfg.dmCompactTokenThresholdK,

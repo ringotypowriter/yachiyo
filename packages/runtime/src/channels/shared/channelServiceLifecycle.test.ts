@@ -20,6 +20,13 @@ it('keeps the live service for trigger-mode changes but restarts for other confi
   const initial = buildChannelServiceConfigKey({ qq: platform }, 'qq')
   assert.equal(
     buildChannelServiceConfigKey(
+      { qq: { ...platform, group: { enabled: true, reasoningEffort: 'low' } } },
+      'qq'
+    ),
+    initial
+  )
+  assert.equal(
+    buildChannelServiceConfigKey(
       { qq: { ...platform, group: { enabled: true, mode: 'mention' } } },
       'qq'
     ),

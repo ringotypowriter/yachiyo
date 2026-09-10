@@ -15,10 +15,62 @@ import {
   buildGroupProbeModelProviders,
   persistChannelGroupDrafts,
   persistChannelUserDrafts,
-  sanitizeChannelsConfig
+  sanitizeChannelsConfig,
+  getGroupReasoningSelectorState
 } from './channelsPaneModel.ts'
 
 type CallRecord = string | UpdateChannelUserInput | UpdateChannelGroupInput
+
+test('group effort follows the actual default model and hides unsupported headless controls', () => {
+  const providers: ProviderConfig[] = [
+    {
+      name: 'first',
+      type: 'openai',
+      apiKey: '',
+      baseUrl: '',
+      modelList: { enabled: ['gpt-4o'], disabled: [] }
+    },
+    {
+      name: 'deepseek',
+      type: 'openai',
+      apiKey: '',
+      baseUrl: '',
+      modelList: { enabled: ['deepseek-v4-flash'], disabled: [] }
+    }
+  ]
+  const defaultModel = { providerName: 'deepseek', model: 'deepseek-v4-flash' }
+  assert.deepEqual(
+    getGroupReasoningSelectorState({
+      providers,
+      defaultModel,
+      group: { enabled: true, model: { providerName: 'removed', model: 'missing' } }
+    })?.options,
+    ['off', 'low', 'high', 'max']
+  )
+  assert.deepEqual(getGroupReasoningSelectorState({ providers, defaultModel })?.options, [
+    'off',
+    'low',
+    'high',
+    'max'
+  ])
+  assert.equal(
+    getGroupReasoningSelectorState({
+      providers,
+      defaultModel,
+      group: { enabled: true, reasoningEffort: 'low' }
+    })?.selected,
+    'low'
+  )
+  assert.deepEqual(getGroupReasoningSelectorState({ providers })?.options, ['medium'])
+  assert.equal(
+    getGroupReasoningSelectorState({
+      providers,
+      group: { enabled: true, model: defaultModel },
+      adapter: { adapter: 'claude-code', ...defaultModel }
+    }),
+    null
+  )
+})
 type YachiyoApiMock = Partial<YachiyoPreloadYachiyoApi>
 
 function withWindowApiMock(mock: YachiyoApiMock): () => void {

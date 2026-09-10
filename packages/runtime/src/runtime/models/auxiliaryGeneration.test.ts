@@ -4,6 +4,36 @@ import test from 'node:test'
 import { createAuxiliaryGenerationService } from './auxiliaryGeneration.ts'
 import type { ModelStreamRequest } from './types.ts'
 
+test('explicit effort reaches the runtime without auxiliary thinking suppression', async () => {
+  const requests: ModelStreamRequest[] = []
+  const service = createAuxiliaryGenerationService({
+    createModelRuntime: () => ({
+      async *streamReply(request) {
+        requests.push(request)
+        yield 'ok'
+      }
+    }),
+    readToolModelSettings: () => ({
+      providerName: 'test',
+      provider: 'openai',
+      model: 'deepseek-v4-flash',
+      apiKey: 'sk-test',
+      baseUrl: ''
+    })
+  })
+  await service.generateText({ messages: [], reasoningEffort: 'low' })
+  await service.generateText({ messages: [], reasoningEffort: 'off' })
+  await service.generateText({ messages: [] })
+  assert.deepEqual(
+    requests.map((r) => [r.reasoningEffort, r.providerOptionsMode]),
+    [
+      ['low', 'default'],
+      ['off', 'default'],
+      [undefined, 'auxiliary']
+    ]
+  )
+})
+
 test('generateText forwards max_token to model runtime requests', async () => {
   let capturedMaxToken: number | undefined
 

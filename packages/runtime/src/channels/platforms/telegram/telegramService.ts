@@ -81,7 +81,7 @@ export interface TelegramService {
   healthCheck: () => Promise<boolean>
   /** Notify the service that a group's status changed (approved/blocked). */
   onGroupStatusChange: (group: ChannelGroupRecord) => void
-  setGroupMode: (mode: NonNullable<GroupChannelConfig['mode']>) => void
+  setGroupPreferences: ChannelGroupDiscussionService['setPreferences']
   /** Send a text message to a Telegram chat by chat ID. */
   sendMessage: (chatId: string, text: string, options?: ChannelSendOptions) => Promise<void>
   /** Wipe the in-memory message buffer for a group without stopping the monitor. */
@@ -511,8 +511,8 @@ export function createTelegramService({
     onGroupStatusChange(group) {
       groupDiscussion?.onGroupStatusChange(group)
     },
-    setGroupMode(mode) {
-      groupDiscussion?.setMode(mode)
+    setGroupPreferences(config) {
+      groupDiscussion?.setPreferences(config)
     },
     sendMessage,
     clearGroupMessages(groupId: string) {

@@ -5,6 +5,24 @@ import { createDeepSeekV4MaxEffortFetch } from './deepseekMaxEffort.ts'
 import { createAnthropicLanguageModel } from './anthropic.ts'
 import { createOpenAiLanguageModel } from './openai.ts'
 
+test('DeepSeek low effort reaches the request body for both API formats', async () => {
+  for (const provider of ['openai', 'anthropic'] as const) {
+    let body: { reasoning_effort?: string; output_config?: { effort?: string } } = {}
+    const wrapped = createDeepSeekV4MaxEffortFetch(
+      { provider, model: 'deepseek-v4-flash', reasoningEffort: 'low' },
+      async (_input, init) => {
+        body = JSON.parse(String(init?.body))
+        return new Response('{}')
+      }
+    )
+    await wrapped(
+      `https://example.test/${provider === 'openai' ? 'chat/completions' : 'messages'}`,
+      { body: '{}' }
+    )
+    assert.equal(provider === 'openai' ? body.reasoning_effort : body.output_config?.effort, 'low')
+  }
+})
+
 test('createDeepSeekV4MaxEffortFetch adds reasoning_effort for OpenAI chat completions', async () => {
   let capturedBody: Record<string, unknown> | undefined
   const wrappedFetch = createDeepSeekV4MaxEffortFetch(
@@ -151,10 +169,10 @@ test('createDeepSeekV4MaxEffortFetch respects reasoning off', async () => {
     body: JSON.stringify({ model: 'deepseek-v4-pro', messages: [] })
   })
 
-  assert.equal(wrappedFetch, baseFetch)
   assert.deepEqual(capturedBody, {
     model: 'deepseek-v4-pro',
-    messages: []
+    messages: [],
+    thinking: { type: 'disabled' }
   })
 })
 
@@ -174,10 +192,10 @@ test('createDeepSeekV4MaxEffortFetch respects disabled thinking', async () => {
     body: JSON.stringify({ model: 'deepseek-v4-pro', messages: [] })
   })
 
-  assert.equal(wrappedFetch, baseFetch)
   assert.deepEqual(capturedBody, {
     model: 'deepseek-v4-pro',
-    messages: []
+    messages: [],
+    thinking: { type: 'disabled' }
   })
 })
 
@@ -222,7 +240,8 @@ test('createOpenAiLanguageModel installs max-effort fetch for deepseek-v4-pro ch
   assert.equal(capturedBody?.reasoning_effort, 'max')
 })
 
-test('createOpenAiLanguageModel skips max-effort fetch when thinking is disabled', () => {
+test('createOpenAiLanguageModel explicitly disables DeepSeek thinking', async () => {
+  let capturedBody: Record<string, unknown> | undefined
   let openAiOptions:
     | {
         fetch?: typeof globalThis.fetch
@@ -247,10 +266,16 @@ test('createOpenAiLanguageModel skips max-effort fetch when thinking is disabled
         } as never
       }
     } as never,
-    'default'
+    'default',
+    async (_input, init) => {
+      capturedBody = JSON.parse(String(init?.body))
+      return new Response('{}')
+    }
   )
 
-  assert.equal(openAiOptions?.fetch, undefined)
+  assert.ok(openAiOptions?.fetch)
+  await openAiOptions.fetch('https://api.deepseek.com/v1/chat/completions', { body: '{}' })
+  assert.deepEqual(capturedBody?.thinking, { type: 'disabled' })
 })
 
 test('createAnthropicLanguageModel installs max-effort fetch for deepseek-v4-pro messages requests', async () => {
@@ -290,7 +315,7 @@ test('createAnthropicLanguageModel installs max-effort fetch for deepseek-v4-pro
   assert.deepEqual(capturedBody?.output_config, { effort: 'max' })
 })
 
-test('createAnthropicLanguageModel skips max-effort fetch when thinking is disabled', async () => {
+test('createAnthropicLanguageModel explicitly disables DeepSeek thinking', async () => {
   let anthropicOptions:
     | {
         fetch?: typeof globalThis.fetch
@@ -325,5 +350,9 @@ test('createAnthropicLanguageModel skips max-effort fetch when thinking is disab
     method: 'POST',
     body: JSON.stringify({ model: 'deepseek-v4-pro', messages: [] })
   })
-  assert.deepEqual(capturedBody, { model: 'deepseek-v4-pro', messages: [] })
+  assert.deepEqual(capturedBody, {
+    model: 'deepseek-v4-pro',
+    messages: [],
+    thinking: { type: 'disabled' }
+  })
 })

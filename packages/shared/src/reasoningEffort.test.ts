@@ -34,7 +34,7 @@ test('unknown models default to medium as the only selectable reasoning effort',
   assert.equal(state.selected, 'medium')
 })
 
-test('deepseek v4 pro defaults to max and exposes off high max', () => {
+test('deepseek v4 pro defaults to max and exposes off low high max', () => {
   const state = getReasoningSelectorState({
     provider: provider({
       baseUrl: 'https://api.deepseek.com/v1',
@@ -46,11 +46,11 @@ test('deepseek v4 pro defaults to max and exposes off high max', () => {
     model: 'deepseek-v4-pro'
   })
 
-  assert.deepEqual(state.options, ['off', 'high', 'max'])
+  assert.deepEqual(state.options, ['off', 'low', 'high', 'max'])
   assert.equal(state.selected, 'max')
 })
 
-test('deepseek v4 flash defaults to max and exposes off high max', () => {
+test('deepseek v4 flash defaults to max and exposes off low high max', () => {
   const state = getReasoningSelectorState({
     provider: provider({
       baseUrl: 'https://api.deepseek.com/v1',
@@ -62,7 +62,7 @@ test('deepseek v4 flash defaults to max and exposes off high max', () => {
     model: 'deepseek-v4-flash'
   })
 
-  assert.deepEqual(state.options, ['off', 'high', 'max'])
+  assert.deepEqual(state.options, ['off', 'low', 'high', 'max'])
   assert.equal(state.selected, 'max')
 })
 

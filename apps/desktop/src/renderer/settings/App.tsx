@@ -862,6 +862,9 @@ function SettingsPanel({
             onUsersChange={setChannelUsersDraft}
             onGroupsChange={setChannelGroupsDraft}
             providers={channelProviders}
+            defaultModel={
+              (activeValidationError && savedConfig ? savedConfig : draft)?.defaultModel
+            }
           />
         )
       }

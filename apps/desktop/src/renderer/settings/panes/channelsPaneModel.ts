@@ -9,6 +9,34 @@ import type {
   UpdateChannelGroupInput,
   UpdateChannelUserInput
 } from '@yachiyo/shared/protocol'
+import { resolveGroupProbeHeadlessAdapter } from '@yachiyo/shared/protocol'
+import {
+  getReasoningSelectorState,
+  type ReasoningSelectorState
+} from '@yachiyo/shared/reasoningEffort'
+
+export function getGroupReasoningSelectorState(input: {
+  providers: ProviderConfig[]
+  group?: GroupChannelConfig
+  defaultModel?: ThreadModelOverride
+  adapter?: GroupProbeHeadlessAdapterConfig
+}): ReasoningSelectorState | null {
+  if (resolveGroupProbeHeadlessAdapter(input.adapter, input.group?.model)) return null
+  const selectedModel = [input.group?.model, input.defaultModel].find(
+    (selection) => selection && input.providers.some((p) => p.name === selection.providerName)
+  )
+  const provider =
+    input.providers.find((p) => p.name === selectedModel?.providerName) ??
+    input.providers.find((p) => p.modelList.enabled.length > 0) ??
+    input.providers[0]
+  if (!provider) return null
+  const model =
+    provider.name === selectedModel?.providerName
+      ? selectedModel.model
+      : provider.modelList.enabled[0]
+  if (!model) return null
+  return getReasoningSelectorState({ provider, model, selected: input.group?.reasoningEffort })
+}
 
 export function hasPendingChannelUserChanges(
   savedUsers: ChannelUserRecord[],

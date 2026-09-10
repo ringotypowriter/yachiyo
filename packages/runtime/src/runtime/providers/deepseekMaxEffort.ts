@@ -1,4 +1,4 @@
-import type { ProviderSettings, ReasoningEffortLevel } from '@yachiyo/shared/protocol'
+import type { ProviderSettings, ComposerReasoningSelection } from '@yachiyo/shared/protocol'
 import { isDeepSeekV4MaxEffortModel } from '@yachiyo/shared/reasoningEffort'
 
 type SupportedProvider = Extract<ProviderSettings['provider'], 'openai' | 'anthropic'>
@@ -15,9 +15,16 @@ function getRequestPath(input: Parameters<typeof globalThis.fetch>[0]): string {
 function addReasoningEffort(
   provider: SupportedProvider,
   path: string,
-  effort: Extract<ReasoningEffortLevel, 'high' | 'max'>,
+  effort: Extract<ComposerReasoningSelection, 'off' | 'low' | 'high' | 'max'>,
   body: Record<string, unknown>
 ): Record<string, unknown> {
+  if (
+    effort === 'off' &&
+    ((provider === 'openai' && path.endsWith('/chat/completions')) ||
+      (provider === 'anthropic' && path.endsWith('/messages')))
+  ) {
+    return { ...body, thinking: { type: 'disabled' } }
+  }
   if (provider === 'openai' && path.endsWith('/chat/completions')) {
     return { ...body, reasoning_effort: effort }
   }
@@ -45,13 +52,10 @@ export function createDeepSeekV4MaxEffortFetch(
   },
   baseFetch: typeof globalThis.fetch = globalThis.fetch
 ): typeof globalThis.fetch {
-  const effort = settings.reasoningEffort === 'high' ? 'high' : 'max'
+  const effort = settings.thinkingEnabled === false ? 'off' : (settings.reasoningEffort ?? 'max')
   if (
-    settings.thinkingEnabled === false ||
     !isDeepSeekV4MaxEffortModel(settings.model) ||
-    (settings.reasoningEffort !== undefined &&
-      settings.reasoningEffort !== 'high' &&
-      settings.reasoningEffort !== 'max')
+    (effort !== 'off' && effort !== 'low' && effort !== 'high' && effort !== 'max')
   ) {
     return baseFetch
   }

@@ -9,6 +9,7 @@ import type {
   ThreadModelOverride
 } from '@yachiyo/shared/protocol'
 import { isGroupProbeHeadlessAdapterKind } from '@yachiyo/shared/protocol'
+import { isComposerReasoningSelection } from '@yachiyo/shared/reasoningEffort'
 import type { TomlConfigSlice, TomlDoc } from '../../config/tomlSlices.ts'
 import { readTomlTable } from '../../config/tomlSlices.ts'
 
@@ -47,6 +48,9 @@ function readGroupConfig(section: Record<string, unknown>): GroupChannelConfig |
   return {
     enabled: readBoolean(group['enabled']),
     ...(group['mode'] === 'probe' || group['mode'] === 'mention' ? { mode: group['mode'] } : {}),
+    ...(isComposerReasoningSelection(group['reasoning_effort'])
+      ? { reasoningEffort: group['reasoning_effort'] }
+      : {}),
     ...(model ? { model } : {}),
     ...(vision !== undefined ? { vision } : {}),
     ...(activeCheckIntervalMs !== undefined ? { activeCheckIntervalMs } : {}),
@@ -81,6 +85,7 @@ function buildModelEntries(model?: ThreadModelOverride): Array<[string, string |
 function buildGroupSection(group: GroupChannelConfig): Record<string, unknown> {
   const section: Record<string, unknown> = { enabled: group.enabled }
   if (group.mode) section['mode'] = group.mode
+  if (group.reasoningEffort) section['reasoning_effort'] = group.reasoningEffort
 
   for (const [key, value] of buildModelEntries(group.model)) {
     if (value !== undefined) {

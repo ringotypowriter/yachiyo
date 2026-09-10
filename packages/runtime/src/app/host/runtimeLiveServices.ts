@@ -354,9 +354,9 @@ export function createRuntimeLiveServices(
       const saved = server.saveChannelsConfig(input)
       channelsConfigForSupervisor = saved
       await getChannelSupervisor().reconcileAll('config changed')
-      telegramService?.setGroupMode(saved.telegram?.group?.mode ?? 'probe')
-      qqService?.setGroupMode(saved.qq?.group?.mode ?? 'probe')
-      discordService?.setGroupMode(saved.discord?.group?.mode ?? 'probe')
+      telegramService?.setGroupPreferences(saved.telegram?.group ?? {})
+      qqService?.setGroupPreferences(saved.qq?.group ?? {})
+      discordService?.setGroupPreferences(saved.discord?.group ?? {})
       return saved
     },
     'host.restartChannelServices': async (input: {

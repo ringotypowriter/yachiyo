@@ -24,6 +24,7 @@ test('channels config round-trips through TOML', async () => {
         group: {
           enabled: true,
           mode: 'mention' as const,
+          reasoningEffort: 'low' as const,
           model: { providerName: 'group-main', model: 'gpt-4.1' },
           vision: true,
           activeCheckIntervalMs: 5000,
