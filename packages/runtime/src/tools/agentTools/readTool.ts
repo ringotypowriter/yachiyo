@@ -33,7 +33,6 @@ const IMAGE_EXTENSIONS: Record<string, string> = {
   '.jpg': 'image/jpeg',
   '.jpeg': 'image/jpeg',
   '.webp': 'image/webp',
-  '.gif': 'image/gif',
   '.bmp': 'image/bmp',
   '.tiff': 'image/tiff',
   '.tif': 'image/tiff',
@@ -108,7 +107,7 @@ export function createTool(context: AgentToolContext): Tool<ReadToolInput, ReadT
     context.isModelImageCapable === false ? readToolInputSchema : readToolInputSchemaWithoutFocus
 
   return tool({
-    description: `Read a file from the current thread workspace or an absolute path. Supports text files (with offset/limit pagination), PDF files (text extraction), and common image formats (png, jpg, webp, gif, bmp, tiff, avif, heic, ico). Binary formats like office documents, video and audio are not supported. Relative paths resolve from ${context.workspacePath}. Offset is a 1-based line number — use it to start reading at a specific line.`,
+    description: `Read a file from the current thread workspace or an absolute path. Supports text files (with offset/limit pagination), PDF files (text extraction), and common image formats (png, jpg, webp, bmp, tiff, avif, heic, ico). GIF files are not supported; convert them to PNG/JPEG or extract frames first. Binary formats like office documents, video and audio are not supported. Relative paths resolve from ${context.workspacePath}. Offset is a 1-based line number — use it to start reading at a specific line.`,
     inputSchema,
     toModelOutput: ({ output }) => toToolModelOutput(output),
     execute: (input, options) => runReadTool(input, context, options)
@@ -377,6 +376,13 @@ export async function runReadTool(
     return createReadErrorResult(input.path, pathResult.error)
   }
   const resolvedPath = await resolveUnicodeSpacePath(pathResult.resolved, effectiveSignal)
+
+  if (extname(resolvedPath).toLowerCase() === '.gif') {
+    return createReadErrorResult(
+      resolvedPath,
+      'Cannot read GIF files directly. Convert the image to PNG/JPEG or extract frames as PNG/JPEG, then read the converted files.'
+    )
+  }
 
   if (isUnreadableBinary(resolvedPath)) {
     const ext = extname(resolvedPath).toLowerCase()

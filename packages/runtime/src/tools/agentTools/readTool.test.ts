@@ -71,6 +71,25 @@ test('runReadTool reads image file as base64 with image-data content block', asy
   })
 })
 
+for (const filename of ['animation.gif', 'animation.GIF']) {
+  test(`runReadTool rejects ${filename} with conversion guidance`, async () => {
+    await withWorkspace(async (workspacePath) => {
+      const imagePath = join(workspacePath, filename)
+      await writeFile(
+        imagePath,
+        Buffer.from('R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7', 'base64')
+      )
+
+      const result = await runReadTool(readInput({ path: imagePath }), { workspacePath })
+
+      assert.ok(result.error)
+      assert.match(result.error, /GIF/)
+      assert.match(result.error, /PNG|JPEG/)
+      assert.deepEqual(result.content, [{ type: 'text', text: result.error }])
+    })
+  })
+}
+
 test('runReadTool rejects empty image files instead of returning empty image-data', async () => {
   await withWorkspace(async (workspacePath) => {
     const imagePath = join(workspacePath, 'empty.png')
