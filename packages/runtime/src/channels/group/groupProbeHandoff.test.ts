@@ -357,3 +357,42 @@ test('summarizeGroupProbeContext skips when generation is unavailable', async ()
   assert.deepEqual(outcome, { status: 'skipped', reason: 'generation-unavailable' })
   assert.equal(storage.updated.length, 0)
 })
+
+test('handoff uses confirmed final deliveries alongside legacy receipts and excludes unsent drafts', async () => {
+  const messages = [
+    big('u1'),
+    sentReply('a1', 'legacy sent'),
+    big('u2'),
+    { ...msg('a2', 'unpublished draft', 'assistant'), visibleReply: 'rewritten final' },
+    big('u3'),
+    msg('a3', 'unsent final', 'assistant'),
+    big('u4'),
+    big('u5'),
+    big('u6'),
+    big('u7'),
+    big('u8'),
+    big('u9')
+  ]
+  const storage = fakeStorage(baseThread, messages)
+  let transcript = ''
+  await summarizeContext({
+    storage,
+    threadId: 't',
+    promptTokens: 100,
+    handoffThresholdTokens: 100,
+    groupName: 'group',
+    auxService: {
+      generateText: async (request) => {
+        transcript = String(request.messages.at(-1)?.content)
+        return success('summary')
+      }
+    }
+  })
+  assert.match(transcript, /legacy sent/)
+  assert.match(transcript, /rewritten final/)
+  assert.doesNotMatch(transcript, /unpublished draft|unsent final/)
+  assert.match(
+    storage.updated[0]?.contextHandoffSummary ?? '',
+    /<recent_yachiyo_message>\nrewritten final/
+  )
+})

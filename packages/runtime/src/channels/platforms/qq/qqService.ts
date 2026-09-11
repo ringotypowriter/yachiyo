@@ -7,8 +7,8 @@
  *   3. Flush buffered texts as a single AI request.
  *   4. Extract <reply> content and send back via OneBot API.
  *
- * Group discussion uses the probe+tool pattern: a single auxiliary model call
- * with a `send_group_message` tool. Raw text = private monologue, tool call = speech.
+ * Group discussion delivers the completed final reply through the runtime;
+ * the model can explicitly opt out of speaking with staySilent.
  */
 
 import { readFile } from 'node:fs/promises'

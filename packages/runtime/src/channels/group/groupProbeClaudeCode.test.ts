@@ -4,7 +4,6 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
 
-import { extractSuccessfulGroupMessageText } from '../../runtime/context/groupProbeContextLayers.ts'
 import type { ModelMessage } from '../../runtime/models/types.ts'
 import {
   buildClaudeCodeProbeCommand,
@@ -69,7 +68,7 @@ test('parseClaudeCodeProbeDecision preserves the exact visible message', () => {
   })
 })
 
-test('runClaudeCodeGroupProbe calls claude -p and records sent messages for replay', async () => {
+test('runClaudeCodeGroupProbe returns a final reply without claiming delivery', async () => {
   const messages: ModelMessage[] = [{ role: 'user', content: '<msg from="Alice">ping</msg>' }]
   const result = await runClaudeCodeGroupProbe({
     messages,
@@ -101,10 +100,10 @@ test('runClaudeCodeGroupProbe calls claude -p and records sent messages for repl
   assert.equal(result.auxiliaryResult.settings.model, 'sonnet')
   assert.equal(result.decision.action, 'send')
   assert.equal(result.auxiliaryResult.usage, undefined)
-  assert.equal(
-    extractSuccessfulGroupMessageText(result.auxiliaryResult.responseMessages as ModelMessage[]),
-    '短一点'
-  )
+  assert.equal(result.auxiliaryResult.text, '短一点')
+  assert.deepEqual(result.auxiliaryResult.responseMessages, [
+    { role: 'assistant', content: '短一点' }
+  ])
 })
 
 test('runClaudeCodeGroupProbe preserves command runner failures', async () => {

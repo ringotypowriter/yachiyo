@@ -48,7 +48,6 @@ const CLAUDE_CODE_PROVIDER_SETTINGS: ProviderSettings = {
   apiKey: '',
   baseUrl: ''
 }
-export const CLAUDE_CODE_SEND_GROUP_MESSAGE_TOOL_CALL_ID = 'claude-code-send-group-message'
 
 function formatMessageContent(content: ModelMessage['content']): string {
   return typeof content === 'string' ? content : JSON.stringify(content)
@@ -82,7 +81,7 @@ export function buildClaudeCodeProbePrompt(messages: ModelMessage[]): string {
   return `\
 你在替八千代决定群聊中的下一步。\`<group_context>\` 里是她的身份、群聊背景、参与方式和刚发生的对话。按这些内容作出同样的社交判断。
 
-这个运行环境不能使用工具，只能根据已有上下文决定。如果缺少当前事实，她可以在消息里坦白不确定，或者这一轮不说，不要假装已经查询过。用下面两种 JSON 之一表达决定：
+这个运行环境不能使用工具，只能根据已有上下文决定。下文描述的最终答复和 \`staySilent\` 在这里分别用 send 和 silent 表达，都是同一个群聊选择。如果缺少当前事实，她可以在消息里坦白不确定，或者这一轮不说，不要假装已经查询过。用下面两种 JSON 之一表达决定：
 
 {"action": "send", "message": "the exact group message"}
 {"action": "silent"}
@@ -120,36 +119,7 @@ export function parseClaudeCodeProbeDecision(output: string): ClaudeCodeProbeDec
   throw new Error('Claude Code probe returned invalid JSON decision')
 }
 
-function buildSentResponseMessages(message: string): unknown[] {
-  const toolCallId = CLAUDE_CODE_SEND_GROUP_MESSAGE_TOOL_CALL_ID
-  return [
-    {
-      role: 'assistant',
-      content: [
-        {
-          type: 'tool-call',
-          toolCallId,
-          toolName: 'send_group_message',
-          input: { message }
-        }
-      ]
-    },
-    {
-      role: 'tool',
-      content: [
-        {
-          type: 'tool-result',
-          toolCallId,
-          toolName: 'send_group_message',
-          output: { type: 'text', value: 'Message sent.' }
-        }
-      ]
-    }
-  ]
-}
-
 function createAuxiliarySuccessResult(
-  output: string,
   providerName: string | undefined,
   model: string | undefined,
   decision: ClaudeCodeProbeDecision
@@ -163,10 +133,10 @@ function createAuxiliarySuccessResult(
   return {
     status: 'success',
     settings,
-    text: output,
+    text: decision.action === 'send' ? decision.message : '',
     ...(decision.action === 'send'
       ? {
-          responseMessages: buildSentResponseMessages(decision.message)
+          responseMessages: [{ role: 'assistant', content: decision.message }]
         }
       : {})
   }
@@ -205,12 +175,7 @@ export async function runClaudeCodeGroupProbe(
     return {
       status: 'success',
       decision,
-      auxiliaryResult: createAuxiliarySuccessResult(
-        output,
-        input.providerName,
-        input.model,
-        decision
-      )
+      auxiliaryResult: createAuxiliarySuccessResult(input.providerName, input.model, decision)
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)

@@ -99,9 +99,8 @@ function renderSegmentTranscript(messages: MessageRecord[]): string {
   return messages
     .map((message) => {
       if (message.role === 'assistant') {
-        // Group probe assistant turns store the sent text in responseMessages
-        // (visibleReply is not set), so pull it out — otherwise the summary
-        // loses Yachiyo's own replies and the stance/continuity it should keep.
+        // Prefer confirmed visibleReply; legacy turns retain delivery receipts
+        // in responseMessages. Never summarize an unsent draft as public speech.
         const said = extractGroupProbeAssistantMessage(message)
         return said ? `<msg from="Yachiyo">${escapeGroupPromptText(said)}</msg>` : ''
       }

@@ -1,5 +1,11 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import { mkdtemp, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { withThreadCapabilities } from '@yachiyo/shared/protocol'
+import { createInMemoryYachiyoStorage } from '../../storage/memoryStorage.ts'
+import { createAuxiliaryGenerationService } from '../../runtime/models/auxiliaryGeneration.ts'
 
 import type { ChannelGroupRecord, GroupProbeHeadlessAdapterConfig } from '@yachiyo/shared/protocol'
 import type { ProviderSettings } from '@yachiyo/shared/protocol'
@@ -9,7 +15,6 @@ import {
   createChannelGroupDiscussionService,
   sendGroupReplyWithRewriteFallback
 } from './channelGroupDiscussionService.ts'
-import { CLAUDE_CODE_SEND_GROUP_MESSAGE_TOOL_CALL_ID } from './groupProbeClaudeCode.ts'
 import { telegramPolicy } from '../shared/channelPolicy.ts'
 import type { YachiyoServer } from '../../app/host/YachiyoServer.ts'
 import type { GroupMessageEntry } from '@yachiyo/shared/protocol'
@@ -99,41 +104,34 @@ const group: ChannelGroupRecord = {
   createdAt: '2026-04-21T00:00:00.000Z'
 }
 
-test('runGroupProbeHeadlessAdapter drops replay messages when an empty send is rejected', async () => {
-  const result = await runGroupProbeHeadlessAdapter({
+test('headless adapter returns a reply for runtime delivery without sending or fabricating a receipt', async () => {
+  const outcome = await runGroupProbeHeadlessAdapter({
     adapter,
     group,
-    logLabel: 'group-probe',
-    messages: [{ role: 'user', content: '<msg from="Alice">ping</msg>' }],
-    sendGroupMessage: async () =>
-      'Message not sent because it contained no visible text. Send the words you want the group to see.',
+    messages: [{ role: 'user', content: 'ping' }],
     runClaudeCodeProbe: async () => ({
       status: 'success',
-      decision: { action: 'send', message: '' },
-      auxiliaryResult: {
-        status: 'success',
-        settings,
-        text: '{"action":"send","message":""}',
-        responseMessages: [
-          {
-            role: 'assistant',
-            content: [
-              {
-                type: 'tool-call',
-                toolCallId: CLAUDE_CODE_SEND_GROUP_MESSAGE_TOOL_CALL_ID,
-                toolName: 'send_group_message',
-                input: { message: '' }
-              }
-            ]
-          }
-        ]
-      }
+      decision: { action: 'send', message: 'hello' },
+      auxiliaryResult: { status: 'success', settings, text: 'hello' }
     })
   })
+  assert.equal(outcome.reply, 'hello')
+  assert.equal(outcome.result.status, 'success')
+  assert.equal(outcome.result.usage, undefined)
+})
 
-  assert.equal(result.status, 'success')
-  assert.equal(result.responseMessages, undefined)
-  assert.equal(result.usage, undefined)
+test('headless silence produces no deliverable text', async () => {
+  const outcome = await runGroupProbeHeadlessAdapter({
+    adapter,
+    group,
+    messages: [],
+    runClaudeCodeProbe: async () => ({
+      status: 'success',
+      decision: { action: 'silent' },
+      auxiliaryResult: { status: 'success', settings, text: '' }
+    })
+  })
+  assert.equal(outcome.reply, null)
 })
 
 test('sendGroupReplyWithRewriteFallback sends the original draft when only the rewrite is too long', async () => {
@@ -171,3 +169,129 @@ test('sendGroupReplyWithRewriteFallback does not retry an ambiguous delivery fai
 
   assert.deepEqual(attempts, ['voice rewrite'])
 })
+
+for (const mode of ['probe', 'mention'] as const) {
+  for (const silent of [false, true]) {
+    test(
+      `${mode} delivers only the final answer through the real auxiliary service (silent=${silent})`,
+      { timeout: 5000 },
+      async (t) => {
+        const home = await mkdtemp(join(tmpdir(), 'group-final-'))
+        const oldHome = process.env.YACHIYO_HOME
+        process.env.YACHIYO_HOME = home
+        t.after(async () => {
+          if (oldHome === undefined) delete process.env.YACHIYO_HOME
+          else process.env.YACHIYO_HOME = oldHome
+          await rm(home, { recursive: true, force: true })
+        })
+        const storage = createInMemoryYachiyoStorage()
+        let complete!: () => void
+        const finished = new Promise<void>((resolve) => {
+          complete = resolve
+        })
+        const completeRun = storage.completeRun.bind(storage)
+        storage.completeRun = (input) => {
+          const result = completeRun(input)
+          complete()
+          return result
+        }
+        const thread = withThreadCapabilities({
+          id: 'turn-thread',
+          title: 'group',
+          source: 'telegram' as const,
+          channelGroupId: group.id,
+          updatedAt: new Date().toISOString()
+        })
+        storage.createThread({ thread, createdAt: thread.updatedAt })
+        const sent: string[] = []
+        const apiSettings = { ...settings, providerName: 'test', apiKey: 'test-key' }
+        const auxService = createAuxiliaryGenerationService({
+          readToolModelSettings: () => apiSettings,
+          createModelRuntime: () => ({
+            async *streamReply(request) {
+              assert.equal(request.tools?.send_group_message, undefined)
+              assert.ok(request.tools?.staySilent)
+              if (silent)
+                await request.tools.staySilent.execute!(
+                  {},
+                  { toolCallId: 'quiet', messages: request.messages }
+                )
+              yield 'Checking the documentation.'
+              yield 'Here is the answer.'
+              request.onFinish?.({
+                promptTokens: 10,
+                completionTokens: 10,
+                totalPromptTokens: 10,
+                totalCompletionTokens: 10,
+                finishReason: 'stop',
+                responseMessages: [
+                  {
+                    role: 'assistant',
+                    content: [
+                      { type: 'text', text: 'Checking the documentation.' },
+                      { type: 'tool-call', toolCallId: 'search', toolName: 'web_search', input: {} }
+                    ]
+                  },
+                  {
+                    role: 'tool',
+                    content: [
+                      {
+                        type: 'tool-result',
+                        toolCallId: 'search',
+                        toolName: 'web_search',
+                        output: { type: 'text', value: 'source' }
+                      }
+                    ]
+                  },
+                  {
+                    role: 'assistant',
+                    content: [
+                      { type: 'reasoning', text: 'private reasoning' },
+                      { type: 'text', text: 'Here is the answer.' }
+                    ]
+                  }
+                ]
+              })
+            }
+          })
+        })
+        let id = 0
+        const service = createChannelGroupDiscussionService({
+          platform: 'telegram',
+          logLabel: 'test',
+          policy: { ...telegramPolicy, groupHandoffTokenThreshold: 0 },
+          groupConfig: { enabled: true, mode },
+          sendMessage: async (_group, text) => {
+            sent.push(text)
+          },
+          server: {
+            listChannelGroups: () => [{ ...group, workspacePath: home }],
+            listChannelUsers: () => [],
+            getStorage: () => storage,
+            getAuxiliaryGenerationService: () => auxService,
+            resolveProviderSettings: () => apiSettings,
+            getContextTimeZone: () => 'UTC',
+            getWebSearchService: () => ({}),
+            findActiveGroupThread: () => thread,
+            getThreadTotalTokens: () => 0,
+            generateId: () => `id-${id++}`
+          } as unknown as YachiyoServer
+        })
+        t.after(() => service.stop())
+        service.routeMessage(group.id, {
+          senderName: 'Alice',
+          senderExternalUserId: '1',
+          text: 'hello',
+          isMention: true,
+          timestamp: Date.now() / 1000
+        })
+        await finished
+        assert.deepEqual(sent, silent ? [] : ['Here is the answer.'])
+        assert.equal(
+          storage.listThreadMessages(thread.id).at(-1)?.visibleReply,
+          silent ? undefined : 'Here is the answer.'
+        )
+      }
+    )
+  }
+}

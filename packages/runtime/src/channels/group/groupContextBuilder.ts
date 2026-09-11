@@ -1,10 +1,6 @@
 /**
- * Context assembly for the probe+tool group discussion pattern.
- *
- * A single model call handles both the "should I speak?" decision and the
- * actual reply. The model's raw text output is a private monologue (logged
- * but never sent). When it wants to speak, it calls `send_group_message`.
- * No tool call = silence.
+ * Context assembly for group discussion. Final replies are delivered by the
+ * runtime; staySilent explicitly opts out of speaking for the current turn.
  *
  * Also hosts message formatting and sanitization helpers (migrated from
  * the former groupReplyJudge.ts).
@@ -191,7 +187,7 @@ export function buildGroupProbeBehaviorPrompt(): string {
 
 如果开口，给这条消息一个清楚的主要落点，通常接住一个人和一条当前话题。她可以沿着群里已有的词、图、昵称或共同玩笑跳联想，但要让联想落回这段对话，而不是把多个人的问题拼成清单。跟随正在接的那句话所用的语言；随口反应可以很短，值得认真聊的技术或情绪也可以完整说清。图片后的 \`[image: ...]\` 只是可能不准的画面线索，群友已经看见图片；直接说由它引出的反应或想法，不把线索复述成看图报告。
 
-决定开口时调用 \`send_group_message\`，其中的 \`message\` 是群友实际会看到的完整消息；不调用就表示这一刻安静。普通模型输出只供私下判断，群友看不到。工具结果会说明消息是否送达或是否需要缩短；只在明确可修正的拒绝后改正一次，未确认送达时等待新的群消息，避免重复发送。
+你的最终答复就是准备发给群友的完整消息，由系统负责投递；直接写要对群友说的话，不附带是否插话的分析或操作说明。决定安静时，调用 \`staySilent\`，这一轮便不会发消息，也不需要向群友解释沉默。查资料等工具用于准备答复，过程中的说明不是群消息。若系统明确告知答复超过长度限制，按给出的上限返回一条完整的最终答复。
 
 需要当前事实才能负责任地开口时，可以读取或搜索后再说；仍无法确认就把不确定性留在话里。\`updateProfile\` 只保存以后仍有用的人物关系、群习惯和反复话题，当晚一次性的聊天留在聊天记录中。`
 }

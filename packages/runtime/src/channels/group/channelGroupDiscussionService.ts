@@ -1,6 +1,6 @@
 import { join } from 'node:path'
 
-import { tool, type ToolSet } from 'ai'
+import { tool } from 'ai'
 import { z } from 'zod'
 
 import type {
@@ -16,7 +16,6 @@ import type { YachiyoServer } from '../../app/host/YachiyoServer.ts'
 import { YACHIYO_USER_FILE_NAME } from '../../config/paths.ts'
 import { compileGroupProbeContextLayers } from '../../runtime/context/groupProbeContextLayers.ts'
 import { readChannelsConfig } from '../../runtime/config/channelsConfig.ts'
-import type { AuxiliaryTextGenerationResult } from '../../runtime/models/auxiliaryGeneration.ts'
 import type { ModelMessage } from '../../runtime/models/types.ts'
 import { readUserDocument } from '../../runtime/profiles/user.ts'
 import { createTool as createReadTool } from '../../tools/agentTools/readTool.ts'
@@ -32,7 +31,12 @@ import {
 } from './groupContextBuilder.ts'
 import { GROUP_PERSONA_PROMPT } from './groupPrompts.ts'
 import { prepareGroupReplyForDelivery } from './groupReplyContent.ts'
-import { createGroupTurnSendGuard } from './groupTurnSendGuard.ts'
+import {
+  extractFinalGroupReply,
+  runGroupReplyTurn,
+  type GroupReplyGeneration,
+  type GroupReplyDelivery
+} from './groupReplyTurn.ts'
 import { describeGroupImages } from './groupImageDescriptions.ts'
 import { hasGroupProbeVisibleContent, hasPendingGroupContent } from './groupMessageReadiness.ts'
 import { createGroupMonitorRegistry, type GroupMonitorPersistence } from './groupMonitorRegistry.ts'
@@ -41,10 +45,7 @@ import {
   persistSuccessfulGroupProbeTurn,
   resolveGroupProbeThread
 } from './groupProbeThread.ts'
-import {
-  CLAUDE_CODE_SEND_GROUP_MESSAGE_TOOL_CALL_ID,
-  runClaudeCodeGroupProbe
-} from './groupProbeClaudeCode.ts'
+import { runClaudeCodeGroupProbe } from './groupProbeClaudeCode.ts'
 import { rewriteGroupReply } from './groupReplyRewrite.ts'
 import { summarizeGroupProbeContext } from './groupProbeHandoff.ts'
 
@@ -70,55 +71,22 @@ export interface ChannelGroupDiscussionService {
   clearGroupMessages(groupId: string): void
 }
 
-function dropHeadlessReplayMessages(
-  result: Extract<AuxiliaryTextGenerationResult, { status: 'success' }>
-): Extract<AuxiliaryTextGenerationResult, { status: 'success' }> {
-  if (!result.usage) {
-    return { ...result, responseMessages: undefined }
-  }
-  return {
-    ...result,
-    responseMessages: undefined,
-    usage: { ...result.usage, responseMessages: undefined }
-  }
-}
-
 export async function runGroupProbeHeadlessAdapter(input: {
   adapter: GroupProbeHeadlessAdapterConfig
   group: ChannelGroupRecord
-  logLabel: string
   messages: ModelMessage[]
-  sendGroupMessage: (message: string, toolCallId: string) => Promise<string>
   runClaudeCodeProbe?: typeof runClaudeCodeGroupProbe
-}): Promise<AuxiliaryTextGenerationResult> {
-  switch (input.adapter.adapter) {
-    case 'claude-code':
-      return (input.runClaudeCodeProbe ?? runClaudeCodeGroupProbe)({
-        messages: input.messages,
-        workspacePath: input.group.workspacePath,
-        providerName: input.adapter.providerName,
-        model: input.adapter.model
-      }).then(async (probeResult) => {
-        if (probeResult.status === 'failed') {
-          return probeResult.auxiliaryResult
-        }
-        if (probeResult.decision.action !== 'send') {
-          return probeResult.auxiliaryResult
-        }
-
-        try {
-          const sendResult = await input.sendGroupMessage(
-            probeResult.decision.message,
-            CLAUDE_CODE_SEND_GROUP_MESSAGE_TOOL_CALL_ID
-          )
-          return sendResult === 'Message sent.'
-            ? probeResult.auxiliaryResult
-            : dropHeadlessReplayMessages(probeResult.auxiliaryResult)
-        } catch (error) {
-          console.warn(`[${input.logLabel}] Claude Code group probe send rejected:`, error)
-          return dropHeadlessReplayMessages(probeResult.auxiliaryResult)
-        }
-      })
+}): Promise<GroupReplyGeneration> {
+  const probe = await (input.runClaudeCodeProbe ?? runClaudeCodeGroupProbe)({
+    messages: input.messages,
+    workspacePath: input.group.workspacePath,
+    providerName: input.adapter.providerName,
+    model: input.adapter.model
+  })
+  return {
+    result: probe.auxiliaryResult,
+    reply:
+      probe.status === 'success' && probe.decision.action === 'send' ? probe.decision.message : null
   }
 }
 
@@ -201,7 +169,6 @@ export function createChannelGroupDiscussionService(
     if (!freshCount) return false
     const auxService = server.getAuxiliaryGenerationService()
     let didSpeak = false
-    const turnSendGuard = createGroupTurnSendGuard()
 
     // Voice pass: optional channel-global rewrite model that restates outgoing
     // replies in the persona's chat voice. Unset = replies go out as generated.
@@ -214,16 +181,12 @@ export function createChannelGroupDiscussionService(
         console.warn(`[${logLabel}] rewrite model unresolvable, sending replies as generated:`, err)
       }
     }
-    const sentTextByToolCallId = new Map<string, string>()
 
-    async function attemptSendGroupMessage(message: string, toolCallId?: string): Promise<string> {
-      turnSendGuard.beforeAttempt()
-
+    async function attemptSendGroupMessage(message: string): Promise<GroupReplyDelivery> {
       const preparedMessage = prepareGroupReplyForDelivery(message)
       if (preparedMessage === null) {
         console.log(`[${logLabel}] rejected empty message for "${group.name}"`)
-        turnSendGuard.recordRetryableRejection()
-        return 'Message not sent because it contained no visible text. Send the words you want the group to see.'
+        return {}
       }
 
       let outgoing = preparedMessage
@@ -249,24 +212,19 @@ export function createChannelGroupDiscussionService(
         })
       } catch (err) {
         if (err instanceof ChannelMessageTooLongError) {
-          turnSendGuard.recordRetryableRejection()
           console.log(
             `[${logLabel}] rejected over-limit message for "${group.name}": ${err.actualLength} > ${err.maxLength}`
           )
-          return `Message not sent. After required delivery text, your reply can use at most ${err.availableTextLength} characters in this ${platform} group message. Rewrite it as one complete message within that limit.`
+          return {
+            retry: `Message not sent. After required delivery text, your reply can use at most ${err.availableTextLength} characters in this ${platform} group message. Return one complete final reply within that limit.`
+          }
         }
 
-        turnSendGuard.recordDeliveryFailure()
         console.error(`[${logLabel}] failed to send message to "${group.name}"`, err)
-        return 'Delivery was not confirmed. Wait for new group activity before speaking again so an ambiguous failure cannot create a duplicate.'
+        return {}
       }
 
-      turnSendGuard.recordSent()
       console.log(`[${logLabel}] sent reply to "${group.name}": ${outgoing.slice(0, 100)}`)
-      if (toolCallId && outgoing !== preparedMessage) {
-        sentTextByToolCallId.set(toolCallId, outgoing)
-      }
-
       groupRegistry.routeMessage(group.id, {
         senderName: 'Yachiyo',
         senderExternalUserId: '__self__',
@@ -276,17 +234,8 @@ export function createChannelGroupDiscussionService(
       })
 
       didSpeak = true
-      return 'Message sent.'
+      return { sentText: outgoing }
     }
-
-    const sendGroupMessageTool = tool({
-      description:
-        'Send one message to the group chat. Calling this tool makes the message visible to everyone in the group.',
-      inputSchema: z.object({
-        message: z.string().describe('The exact plain-text message to show in the group chat.')
-      }),
-      execute: async ({ message }, { toolCallId }) => attemptSendGroupMessage(message, toolCallId)
-    })
 
     const userDocPath = join(group.workspacePath, YACHIYO_USER_FILE_NAME)
     const groupUserDoc = await readUserDocument({
@@ -295,8 +244,7 @@ export function createChannelGroupDiscussionService(
     })
 
     const toolContext = { workspacePath: group.workspacePath, sandboxed: true }
-    const probeTools: ToolSet = {
-      send_group_message: sendGroupMessageTool,
+    const probeTools = {
       read: createReadTool(toolContext),
       web_read: createWebReadTool(toolContext),
       web_search: createWebSearchTool(toolContext, {
@@ -325,7 +273,7 @@ export function createChannelGroupDiscussionService(
     })
     const turnSystemPrompt =
       mode === 'mention'
-        ? `${dynamicSystemPrompt}\n\n这次有人直接 @ 你，是把话递给你，而不是让你寻找插话机会。以当前新消息中叫到你的话为回应对象，其他群聊记录用于理解背景。通常自然接住这句话：问候可以简短回应，问题直接回答，意思不清楚时可以问一句，不必等到有新信息或完整答案才开口。明确让你不用回复、同一请求已经回应过，或上下文确实表明不宜继续时，也可以安静。决定回应时，把要让群友看到的完整答复放进 \`send_group_message\` 的 \`message\` 参数并调用工具；普通输出只是私下判断，不会发送到群里。`
+        ? `${dynamicSystemPrompt}\n\n这次有人直接 @ 你，是把话递给你，而不是让你寻找插话机会。以当前新消息中叫到你的话为回应对象，其他群聊记录用于理解背景。通常自然接住这句话：问候可以简短回应，问题直接回答，意思不清楚时可以问一句，不必等到有新信息或完整答案才开口。明确让你不用回复、同一请求已经回应过，或上下文确实表明不宜继续时，也可以安静。`
         : dynamicSystemPrompt
     const { thread: probeThread, created: probeThreadCreated } = await resolveGroupProbeThread({
       logLabel,
@@ -358,45 +306,56 @@ export function createChannelGroupDiscussionService(
       anthropicCacheBreakpoints: !headlessAdapter
     })
 
-    let result: AuxiliaryTextGenerationResult
     let handoffSettingsOverride: ProviderSettings | undefined
-    if (headlessAdapter) {
-      console.log(
-        `[${logLabel}] group="${group.name}" probing ${freshCount}/${recentMessages.length} fresh message(s) with ${headlessAdapter.providerName}/${headlessAdapter.model}:\n${currentTurnContent}`
-      )
-      result = await runGroupProbeHeadlessAdapter({
-        adapter: headlessAdapter,
-        group,
-        logLabel,
-        messages,
-        sendGroupMessage: attemptSendGroupMessage
-      })
-    } else {
-      const settingsOverride = server.resolveProviderSettings(groupConfig?.model)
-      handoffSettingsOverride = settingsOverride
-      console.log(
-        `[${logLabel}] group="${group.name}" probing ${freshCount}/${recentMessages.length} fresh message(s) with ${settingsOverride.providerName}/${settingsOverride.model}:\n${currentTurnContent}`
-      )
-      result = await auxService.generateText({
-        reasoningEffort: turnEffort,
-        messages,
-        promptCacheKey: probeThread.id,
-        tools: probeTools,
-        onToolCallError: (event) =>
-          event.toolCall.toolName === 'send_group_message' ? 'abort' : 'continue',
-        settingsOverride,
-        purpose: `${logLabel}-probe`
-      })
-    }
+    console.log(
+      `[${logLabel}] group="${group.name}" probing ${freshCount}/${recentMessages.length} fresh message(s):\n${currentTurnContent}`
+    )
+    const { result, previousResult, sentText } = await runGroupReplyTurn({
+      messages,
+      send: attemptSendGroupMessage,
+      generate: async (turnMessages, staySilent) => {
+        if (headlessAdapter) {
+          return runGroupProbeHeadlessAdapter({
+            adapter: headlessAdapter,
+            group,
+            messages: turnMessages
+          })
+        }
+        const settingsOverride = server.resolveProviderSettings(groupConfig?.model)
+        handoffSettingsOverride = settingsOverride
+        const result = await auxService.generateText({
+          reasoningEffort: turnEffort,
+          messages: turnMessages,
+          promptCacheKey: probeThread.id,
+          tools: {
+            ...probeTools,
+            staySilent: tool({
+              description:
+                '选择这一轮不向群里发消息。适合让当前对话自然继续，或对方明确不需要回复的场合。',
+              inputSchema: z.object({}),
+              execute: async () => {
+                staySilent()
+                return 'No group message will be sent this turn.'
+              }
+            })
+          },
+          settingsOverride,
+          purpose: `${logLabel}-probe`
+        })
+        return { result, reply: extractFinalGroupReply(result) }
+      }
+    })
 
-    if (result.status === 'success') {
+    // A failed correction must not erase the completed first generation's usage.
+    const completedResult = result.status === 'success' ? result : previousResult
+    if (completedResult) {
       persistSuccessfulGroupProbeTurn({
         storage: server.getStorage(),
         generateId: () => server.generateId(),
         thread: probeThread,
         requestContent: currentTurnContent,
-        result,
-        sentTextByToolCallId
+        result: completedResult,
+        sentText
       })
       // Compress the older transcript into a rolling summary + advance the
       // watermark once the probe's prompt has grown enough, in the background so
@@ -408,7 +367,7 @@ export function createChannelGroupDiscussionService(
           storage: server.getStorage(),
           auxService,
           threadId: probeThread.id,
-          promptTokens: result.usage?.initialPromptTokens,
+          promptTokens: completedResult.usage?.initialPromptTokens,
           handoffThresholdTokens: policy.groupHandoffTokenThreshold,
           groupName: group.name,
           settingsOverride: handoffSettingsOverride
@@ -427,8 +386,10 @@ export function createChannelGroupDiscussionService(
             handoffInFlight.delete(probeThread.id)
           })
       }
+    }
+    if (result.status === 'success') {
       console.log(
-        `[${logLabel}] group="${group.name}" monologue: ${result.text.slice(0, 200)}${result.text.length > 200 ? '…' : ''}`
+        `[${logLabel}] group="${group.name}" generation: ${result.text.slice(0, 200)}${result.text.length > 200 ? '…' : ''}`
       )
       console.log(`[${logLabel}] group="${group.name}" didSpeak=${didSpeak}`)
     } else {
