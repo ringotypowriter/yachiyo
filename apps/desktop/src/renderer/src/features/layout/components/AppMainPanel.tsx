@@ -22,6 +22,7 @@ import {
   selectThreadRunningCount
 } from '@renderer/features/chat/state/useBackgroundTasksStore'
 import { Composer } from '@renderer/features/chat/components/Composer'
+import { ConversationAvatar } from '@renderer/features/chat/components/ConversationAvatar'
 import { ContentReaderProvider } from '@renderer/features/chat/components/ContentReaderContext'
 import { ContentReaderStage } from '@renderer/features/chat/components/ContentReaderStage'
 import { useContentReaderStore } from '@renderer/features/chat/state/useContentReaderStore'
@@ -1073,6 +1074,7 @@ export function AppMainPanel({
                 </div>
               ) : (
                 <>
+                  <ConversationAvatar />
                   <Composer
                     onSelectThreadOperation={handleSelectThreadOperation}
                     presentation={showWelcomeState ? 'compact' : 'normal'}

@@ -31,7 +31,6 @@ import { SlashCommandPopup } from '../SlashCommandPopup'
 import { SkillsSelectorPopup } from '../SkillsSelectorPopup'
 import { ToolSelectorPopup } from '../ToolSelectorPopup'
 import { ReasoningSelectorPopup } from '../ReasoningSelectorPopup'
-import { RunArrowIndicator } from '../RunArrowIndicator'
 import { WorkspaceSelectorPopup } from '../WorkspaceSelectorPopup'
 import { WorkspaceSuggestionPopup } from './WorkspaceSuggestionPopup'
 import { SmoothCaretOverlay } from '../SmoothCaretOverlay'
@@ -1061,130 +1060,118 @@ export function ComposerView(props: any): React.JSX.Element {
           </div>
         ) : null}
 
-        {showRunStats ? (
-          hasRunStatsText ? (
-            <Tooltip
-              content={
-                <div
-                  style={{
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: 3,
-                    width: 240,
-                    whiteSpace: 'normal'
-                  }}
-                >
-                  {displayPromptTokens != null ? (
-                    <>
-                      <div style={{ fontWeight: 600, marginBottom: 2 }}>
-                        {t('chat.composer.lastRunTokenUsage')}
-                      </div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 24 }}>
-                        <span style={{ color: theme.text.secondary }}>
-                          {t('chat.composer.promptTokens')}
-                        </span>
-                        <span>{formatNumber(displayPromptTokens)}</span>
-                      </div>
-                    </>
-                  ) : null}
-                  {latestRun?.completionTokens != null ? (
+        {showRunStats && hasRunStatsText ? (
+          <Tooltip
+            content={
+              <div
+                style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 3,
+                  width: 240,
+                  whiteSpace: 'normal'
+                }}
+              >
+                {displayPromptTokens != null ? (
+                  <>
+                    <div style={{ fontWeight: 600, marginBottom: 2 }}>
+                      {t('chat.composer.lastRunTokenUsage')}
+                    </div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', gap: 24 }}>
                       <span style={{ color: theme.text.secondary }}>
-                        {t('chat.composer.completionTokens')}
+                        {t('chat.composer.promptTokens')}
                       </span>
-                      <span>{formatNumber(latestRun.completionTokens)}</span>
+                      <span>{formatNumber(displayPromptTokens)}</span>
                     </div>
-                  ) : null}
-                  {latestRun?.totalPromptTokens != null &&
-                  latestRun.totalPromptTokens !== displayPromptTokens ? (
-                    <>
-                      <div
-                        style={{
-                          height: 1,
-                          background: theme.border.default,
-                          margin: '2px 0'
-                        }}
-                      />
-                      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 24 }}>
-                        <span style={{ color: theme.text.secondary }}>
-                          {t('chat.composer.totalPromptTokens')}
-                        </span>
-                        <span>{formatNumber(latestRun.totalPromptTokens)}</span>
-                      </div>
-                      {latestRun.totalCompletionTokens != null ? (
-                        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 24 }}>
-                          <span style={{ color: theme.text.secondary }}>
-                            {t('chat.composer.totalCompletionTokens')}
-                          </span>
-                          <span>{formatNumber(latestRun.totalCompletionTokens)}</span>
-                        </div>
-                      ) : null}
-                    </>
-                  ) : null}
-                  {estimatedDraftTokens > 0 ? (
-                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 24 }}>
-                      <span style={{ color: theme.text.secondary }}>
-                        {t('chat.composer.draftEstimate')}
-                      </span>
-                      <span>{formatNumber(estimatedDraftTokens)}</span>
-                    </div>
-                  ) : null}
-                  {canHandoffActiveThread &&
-                  (displayContextTokens ?? 0) + estimatedDraftTokens >
-                    stripCompactThresholdTokens ? (
+                  </>
+                ) : null}
+                {latestRun?.completionTokens != null ? (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 24 }}>
+                    <span style={{ color: theme.text.secondary }}>
+                      {t('chat.composer.completionTokens')}
+                    </span>
+                    <span>{formatNumber(latestRun.completionTokens)}</span>
+                  </div>
+                ) : null}
+                {latestRun?.totalPromptTokens != null &&
+                latestRun.totalPromptTokens !== displayPromptTokens ? (
+                  <>
                     <div
                       style={{
-                        marginTop: 4,
-                        paddingTop: 6,
-                        borderTop: `1px solid ${theme.border.default}`,
-                        color: theme.text.warning,
-                        fontSize: 11,
-                        lineHeight: 1.4
+                        height: 1,
+                        background: theme.border.default,
+                        margin: '2px 0'
                       }}
-                    >
-                      {t('chat.composer.contextOverLimit', {
-                        limit: formatTokenCount(stripCompactThresholdTokens),
-                        command: '/handoff'
-                      })}
+                    />
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 24 }}>
+                      <span style={{ color: theme.text.secondary }}>
+                        {t('chat.composer.totalPromptTokens')}
+                      </span>
+                      <span>{formatNumber(latestRun.totalPromptTokens)}</span>
                     </div>
-                  ) : null}
-                </div>
-              }
-            >
-              <span
-                className="text-xs px-1.5 flex items-center gap-1"
-                style={{ color: theme.text.secondary, opacity: 0.7, userSelect: 'none' }}
-              >
-                {(displayContextTokens ?? 0) + estimatedDraftTokens >
-                stripCompactThresholdTokens ? (
-                  <TriangleAlert
-                    size={11}
-                    style={{
-                      color: theme.text.warning,
-                      flexShrink: 0,
-                      opacity: 1,
-                      display: 'block'
-                    }}
-                  />
+                    {latestRun.totalCompletionTokens != null ? (
+                      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 24 }}>
+                        <span style={{ color: theme.text.secondary }}>
+                          {t('chat.composer.totalCompletionTokens')}
+                        </span>
+                        <span>{formatNumber(latestRun.totalCompletionTokens)}</span>
+                      </div>
+                    ) : null}
+                  </>
                 ) : null}
-                {displayContextTokens != null ? formatTokenCount(displayContextTokens) : null}
                 {estimatedDraftTokens > 0 ? (
-                  <span style={{ opacity: 0.6 }}>
-                    {displayPromptTokens != null ? '+' : ''}
-                    {formatTokenCount(estimatedDraftTokens)}
-                  </span>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 24 }}>
+                    <span style={{ color: theme.text.secondary }}>
+                      {t('chat.composer.draftEstimate')}
+                    </span>
+                    <span>{formatNumber(estimatedDraftTokens)}</span>
+                  </div>
                 ) : null}
-                <RunArrowIndicator />
-              </span>
-            </Tooltip>
-          ) : (
+                {canHandoffActiveThread &&
+                (displayContextTokens ?? 0) + estimatedDraftTokens > stripCompactThresholdTokens ? (
+                  <div
+                    style={{
+                      marginTop: 4,
+                      paddingTop: 6,
+                      borderTop: `1px solid ${theme.border.default}`,
+                      color: theme.text.warning,
+                      fontSize: 11,
+                      lineHeight: 1.4
+                    }}
+                  >
+                    {t('chat.composer.contextOverLimit', {
+                      limit: formatTokenCount(stripCompactThresholdTokens),
+                      command: '/handoff'
+                    })}
+                  </div>
+                ) : null}
+              </div>
+            }
+          >
             <span
-              className="text-xs flex items-center"
+              className="text-xs px-1.5 flex items-center gap-1"
               style={{ color: theme.text.secondary, opacity: 0.7, userSelect: 'none' }}
             >
-              <RunArrowIndicator />
+              {(displayContextTokens ?? 0) + estimatedDraftTokens > stripCompactThresholdTokens ? (
+                <TriangleAlert
+                  size={11}
+                  style={{
+                    color: theme.text.warning,
+                    flexShrink: 0,
+                    opacity: 1,
+                    display: 'block'
+                  }}
+                />
+              ) : null}
+              {displayContextTokens != null ? formatTokenCount(displayContextTokens) : null}
+              {estimatedDraftTokens > 0 ? (
+                <span style={{ opacity: 0.6 }}>
+                  {displayPromptTokens != null ? '+' : ''}
+                  {formatTokenCount(estimatedDraftTokens)}
+                </span>
+              ) : null}
             </span>
-          )
+          </Tooltip>
         ) : null}
 
         <div className="ml-auto flex items-center gap-2">

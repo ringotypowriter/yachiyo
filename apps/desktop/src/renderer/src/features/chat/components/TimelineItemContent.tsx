@@ -9,7 +9,6 @@ import {
 } from '@yachiyo/shared/planMode'
 import { getThreadCapabilities, type AcceptThreadPlanDocumentMode } from '@yachiyo/shared/protocol'
 import { theme } from '@renderer/theme/theme'
-import { makeRunningPlaceholderSeed } from '@renderer/lib/runningPlaceholders.ts'
 import {
   type PlanDocumentState,
   type SubagentFinishedResult
@@ -33,7 +32,6 @@ import { HandoffSummaryRow } from './HandoffSummaryRow'
 import { GeneratingRow } from './GeneratingRow'
 import { SubagentRunningIndicator } from './SubagentRunningIndicator'
 import { SubagentFinishedToolCallRow } from './SubagentFinishedToolCallRow'
-import { PreparingBubble } from './PreparingBubble'
 import { RunMemoryRecallRow } from './RunMemoryRecallRow'
 import { ReplyBranchNavigation } from './ReplyBranchNavigation'
 import { ToolCallRow } from './ToolCallRow'
@@ -209,7 +207,7 @@ function renderTimelineItem(
           ) : null}
           <div className="message-response-cluster">
             <div className="message-response-cluster__preparing">
-              <PreparingBubble />
+              <GeneratingRow phase={item.data.reasoning ? 'thinking' : 'loading'} />
             </div>
           </div>
         </div>
@@ -424,23 +422,8 @@ function renderTimelineItem(
     return renderPlanDocumentTimelineCard(context)
   }
 
-  if (item.kind === 'group-generating') {
-    const seed = makeRunningPlaceholderSeed(item.activeRunId, context.threadId ?? '', item.state)
-    return <GeneratingRow retryInfo={groupRetryInfo} state={item.state} seed={seed} />
-  }
-
-  if (item.kind === 'group-preparing') {
-    if (groupRetryInfo) {
-      return <GeneratingRow retryInfo={groupRetryInfo} />
-    }
-
-    return (
-      <div className="message-response-cluster">
-        <div className="message-response-cluster__preparing">
-          <PreparingBubble />
-        </div>
-      </div>
-    )
+  if (item.kind === 'group-activity') {
+    return <GeneratingRow retryInfo={groupRetryInfo} phase={item.phase} />
   }
 
   if (item.kind === 'group-footer') {

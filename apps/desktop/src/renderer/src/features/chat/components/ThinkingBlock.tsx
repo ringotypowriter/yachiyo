@@ -53,26 +53,16 @@ export function ThinkingBlock({
           }))
         }
       >
-        {isActive ? (
-          <span
-            className="shrink-0 w-1.5 h-1.5 rounded-full relative -top-px"
-            style={{
-              background: theme.text.accent,
-              animation: 'yachiyo-generating-pulse 1s ease-in-out infinite'
-            }}
-          />
-        ) : (
-          <ChevronRight
-            size={11}
-            strokeWidth={1.8}
-            className="shrink-0"
-            style={{
-              color: theme.text.accent,
-              transform: isExpanded ? 'rotate(90deg)' : 'rotate(0deg)',
-              transition: 'transform 150ms ease'
-            }}
-          />
-        )}
+        <ChevronRight
+          size={11}
+          strokeWidth={1.8}
+          className="shrink-0"
+          style={{
+            color: theme.text.accent,
+            transform: isExpanded ? 'rotate(90deg)' : 'rotate(0deg)',
+            transition: 'transform 150ms ease'
+          }}
+        />
         <span className="text-xs font-medium tracking-wide" style={{ color: theme.text.accent }}>
           {isActive ? t('chat.timeline.thinking', { elapsed: timer }) : t('chat.timeline.thought')}
         </span>

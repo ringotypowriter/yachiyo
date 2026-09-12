@@ -30,6 +30,7 @@ import {
   getRootAssistantMessages,
   partitionToolCallsForGroups
 } from '../lib/timeline/messageThreadPresentation'
+import { selectRunAvatarPhase } from '../lib/runAvatarState'
 import {
   buildMessageTimelineRows,
   collectInlineCodeMarkdownDocumentsFromRows,
@@ -121,8 +122,7 @@ function estimateTimelineRowSize(item: MessageTimelineRow): number {
       return Math.max(48, Math.ceil(item.textBlock.content.length / 80) * 22 + 16)
     case 'group-plan-document':
       return 220
-    case 'group-generating':
-    case 'group-preparing':
+    case 'group-activity':
       return 40
     case 'group-footer':
       return 84
@@ -238,6 +238,7 @@ export function MessageTimeline({
     retryMessage,
     selectReplyBranch,
     runPhase,
+    activityPhase,
     scrollToMessageId,
     clearScrollToMessageId,
     hasOlderMessages,
@@ -283,6 +284,7 @@ export function MessageTimeline({
       retryMessage: state.retryMessage,
       selectReplyBranch: state.selectReplyBranch,
       runPhase: threadId ? (state.runPhasesByThread[threadId] ?? 'idle') : 'idle',
+      activityPhase: selectRunAvatarPhase(state, threadId),
       // Only this thread's jump: an intent naming another conversation must
       // neither fire nor be consumed here.
       scrollToMessageId:
@@ -381,6 +383,7 @@ export function MessageTimeline({
           inlineToolCalls,
           runs,
           activeRunId,
+          activityPhase,
           activeRequestMessageId,
           subagentActive: legacySubagentActive,
           contextHandoffWatermarkMessageId: thread?.contextHandoffWatermarkMessageId ?? null,
@@ -396,6 +399,7 @@ export function MessageTimeline({
         inlineToolCalls,
         runs,
         activeRunId,
+        activityPhase,
         activeRequestMessageId,
         thread?.contextHandoffWatermarkMessageId,
         thread?.contextHandoffSummary,

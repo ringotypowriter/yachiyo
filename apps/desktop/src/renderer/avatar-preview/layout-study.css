@@ -1,0 +1,106 @@
+#layout-study {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  background: rgb(var(--yachiyo-rgb-app));
+  color: rgb(var(--yachiyo-rgb-ink));
+}
+.layout-study-controls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 14px 20px;
+  flex: none;
+}
+.layout-study-caption {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-right: auto;
+}
+.layout-study-caption strong {
+  font-size: 14px;
+  font-weight: 600;
+}
+.layout-study-caption span,
+.layout-study-note {
+  font-size: 11px;
+  color: rgb(var(--yachiyo-rgb-text-muted));
+}
+.layout-study-controls > button,
+.layout-study-controls > a {
+  border: 1px solid rgb(var(--yachiyo-rgb-ink) / 0.1);
+  border-radius: 7px;
+  padding: 6px 9px;
+  font-size: 12px;
+  cursor: pointer;
+  text-decoration: none;
+}
+.layout-study-controls > button[aria-pressed='true'] {
+  background: rgb(var(--yachiyo-rgb-accent) / 0.12);
+}
+.layout-study-stage {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  padding: 0 20px;
+}
+.layout-study-frame {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  max-width: 1180px;
+  margin-inline: auto;
+  border: 1px solid rgb(var(--yachiyo-rgb-ink) / 0.1);
+  border-radius: 12px;
+  overflow: hidden;
+  background: rgb(var(--yachiyo-rgb-canvas));
+}
+#layout-study[data-narrow='true'] .layout-study-frame {
+  max-width: 620px;
+}
+.layout-study-titlebar {
+  height: 44px;
+  flex: none;
+  border-bottom: 1px solid rgb(var(--yachiyo-rgb-ink) / 0.06);
+}
+.layout-study-titlebar .truncate {
+  padding-inline: 2px;
+}
+.layout-study-note {
+  padding: 10px 20px;
+  flex: none;
+}
+
+/* Only this isolated study changes layout. Production and the welcome surface are untouched. */
+#layout-study .work-chat-shell--normal .work-chat-shell__timeline-row {
+  padding-left: 48px;
+}
+#layout-study .work-chat-shell--normal .work-composer-slot {
+  position: static;
+}
+#layout-study .work-chat-shell--normal .conversation-avatar {
+  top: 56px;
+  left: 8px;
+  right: auto;
+  transform: none;
+}
+
+@media (max-width: 680px) {
+  .layout-study-controls {
+    padding: 10px;
+  }
+  .layout-study-caption {
+    width: 100%;
+  }
+  .layout-study-stage {
+    padding: 0 8px;
+  }
+  .layout-study-note {
+    padding: 8px 10px;
+  }
+}

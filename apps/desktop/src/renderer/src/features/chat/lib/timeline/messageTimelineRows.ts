@@ -1,4 +1,5 @@
 import type { Message, MessageTextBlockRecord, RunRecord, ToolCall } from '@renderer/app/types'
+import type { AvatarPhase } from '../../../../components/avatar/avatarTypes.ts'
 import {
   buildConversationGroupTimelineItems,
   type ConversationGroupTimelineItem,
@@ -131,14 +132,10 @@ export type MessageTimelineRow =
       group: MessageGroup
     } & GroupTimelineRowBase)
   | ({
-      kind: 'group-generating'
+      kind: 'group-activity'
       group: MessageGroup
-      state: 'thinking' | 'working'
+      phase: AvatarPhase
       activeRunId: string | null
-    } & GroupTimelineRowBase)
-  | ({
-      kind: 'group-preparing'
-      group: MessageGroup
     } & GroupTimelineRowBase)
   | ({
       kind: 'group-footer'
@@ -194,6 +191,7 @@ interface BuildConversationGroupRowsInput {
   activeRunId: string | null
   isActiveGroup: boolean
   subagentActive: boolean
+  activityPhase?: AvatarPhase
   toolCallDisplayMode?: ToolCallDisplayMode
 }
 
@@ -207,6 +205,7 @@ interface BuildMessageTimelineRowsInput {
   activeRunId: string | null
   activeRequestMessageId: string | null
   subagentActive: boolean
+  activityPhase?: AvatarPhase
   contextHandoffWatermarkMessageId?: string | null
   contextHandoffSummary?: string
   expandedHandoffFoldKeys?: ReadonlySet<string>
@@ -752,12 +751,9 @@ export function buildConversationGroupRows(
   const timelineItems = buildConversationGroupTimelineItems({
     hasMemoryRecall: Boolean(memorySummary) && !shouldSummarizeCompletedWork,
     replyCount: responseCount,
-    showPreparing: group.showPreparing && !input.subagentActive,
-    showGenerating:
-      activeAssistantMessage?.status === 'streaming' &&
-      (activeAssistantTextBlocks.length > 0 || visibleToolCalls.length > 0) &&
-      !hasRunningToolCall &&
-      !input.subagentActive,
+    // The live status owns one stable row, independent of response content and tool rows.
+    showPreparing: false,
+    showGenerating: false,
     activeAssistantTextBlocks: shouldSummarizeCompletedWork
       ? summarizedFinalTextBlock
         ? [summarizedFinalTextBlock]
@@ -891,32 +887,6 @@ export function buildConversationGroupRows(
       })
       continue
     }
-
-    if (item.kind === 'generating') {
-      rows.push({
-        kind: 'group-generating',
-        key: `generating:${requestMessageId}`,
-        time: group.userMessage.createdAt,
-        requestMessageId,
-        ...(activeAssistantMessage ? { assistantMessageId: activeAssistantMessage.id } : {}),
-        group,
-        state: hasRunningToolCall ? 'working' : 'thinking',
-        activeRunId: input.activeRunId
-      })
-      continue
-    }
-
-    if (item.kind === 'preparing') {
-      rows.push({
-        kind: 'group-preparing',
-        key: `preparing:${requestMessageId}`,
-        time: group.userMessage.createdAt,
-        requestMessageId,
-        scrollMessageId: requestMessageId,
-        ...(activeAssistantMessage ? { assistantMessageId: activeAssistantMessage.id } : {}),
-        group
-      })
-    }
   }
 
   if (activeAssistantMessage && hasCompletedPlanExitToolCall) {
@@ -962,6 +932,21 @@ export function buildConversationGroupRows(
     })
   }
 
+  if (
+    input.isActiveGroup &&
+    (input.activeRunId || group.showPreparing || activeAssistantMessage?.status === 'streaming')
+  ) {
+    rows.push({
+      kind: 'group-activity',
+      key: `activity:${requestMessageId}`,
+      time: group.userMessage.createdAt,
+      requestMessageId,
+      group,
+      phase: input.activityPhase ?? 'loading',
+      activeRunId: input.activeRunId
+    })
+  }
+
   return rows
 }
 
@@ -979,6 +964,7 @@ export function buildMessageTimelineRows(
           runs: input.runs,
           activeRunId: input.activeRunId,
           isActiveGroup,
+          activityPhase: input.activityPhase,
           subagentActive: input.subagentActive && isActiveGroup,
           toolCallDisplayMode: input.toolCallDisplayMode
         })

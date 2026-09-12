@@ -1,0 +1,111 @@
+.yachiyo-avatar {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  vertical-align: middle;
+  pointer-events: none;
+  contain: layout style;
+}
+
+.yachiyo-avatar svg {
+  display: block;
+  overflow: visible;
+}
+.yachiyo-avatar__pose {
+  transform-origin: 50px 42px;
+  animation: avatar-breathe 4.8s ease-in-out infinite;
+}
+.yachiyo-avatar__eye {
+  fill: var(--avatar-eyes);
+}
+.yachiyo-avatar__blink {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: avatar-blink 6.3s ease-in-out infinite;
+}
+.yachiyo-avatar__gaze {
+  transition: transform 240ms ease;
+}
+.yachiyo-avatar[data-phase='loading'] .yachiyo-avatar__pose {
+  animation: none;
+}
+.yachiyo-avatar[data-phase='thinking'] .yachiyo-avatar__gaze {
+  animation: avatar-think 7.4s ease-in-out infinite;
+}
+.yachiyo-avatar[data-phase='working'] .yachiyo-avatar__gaze {
+  transform: translate(3px, 2px);
+}
+.yachiyo-avatar[data-phase='waiting'] .yachiyo-avatar__pose {
+  animation: none;
+}
+.yachiyo-avatar[data-winking='true'] .yachiyo-avatar__blink {
+  animation: none;
+}
+.yachiyo-avatar[data-winking='true'] .yachiyo-avatar__gaze {
+  animation-play-state: paused;
+}
+.yachiyo-avatar__thought-dot {
+  opacity: 0;
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: avatar-thought-dot 2.8s ease-in-out infinite;
+}
+.yachiyo-avatar[data-winking='true'] .yachiyo-avatar__thought-dot {
+  opacity: 0 !important;
+  animation-play-state: paused;
+}
+.yachiyo-avatar[data-size='compact'] .yachiyo-avatar__gaze {
+  animation: none;
+  transform: none;
+}
+.yachiyo-avatar[data-moving='false'] * {
+  animation-play-state: paused !important;
+}
+
+@keyframes avatar-breathe {
+  0%,
+  100% {
+    transform: translateY(0) scale(1, 1);
+  }
+  50% {
+    transform: translateY(-1px) scale(1.025, 0.98);
+  }
+}
+@keyframes avatar-thought-dot {
+  0%, 10%, 72%, 100% { opacity: 0; transform: translateY(1px) scale(0.5); }
+  24%, 56% { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes avatar-blink {
+  0%,
+  42%,
+  46%,
+  100% {
+    transform: scaleY(1);
+  }
+  44% {
+    transform: scaleY(0.13);
+  }
+}
+@keyframes avatar-think {
+  0%,
+  12%,
+  92%,
+  100% {
+    transform: translate(0, 0);
+  }
+  24%,
+  52% {
+    transform: translate(4px, -3px);
+  }
+  65%,
+  82% {
+    transform: translate(-3px, -2px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .yachiyo-avatar * {
+    animation: none !important;
+    transition: none !important;
+  }
+}

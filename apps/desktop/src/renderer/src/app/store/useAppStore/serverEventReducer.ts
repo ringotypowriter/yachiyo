@@ -331,7 +331,7 @@ export function reduceServerEvent(state: AppState, event: YachiyoServerEvent): P
 
     // When a pending steer resolves (tool just finished), the run is
     // about to restart. Reset to 'preparing' so the conversation group
-    // shows a PreparingBubble instead of empty space while waiting for
+    // keeps its loading indicator instead of empty space while waiting for
     // the first message.delta from the restarted run.
     const hadPendingSteer = Boolean(state.pendingSteerMessages[event.threadId])
     const toolCalls = {
