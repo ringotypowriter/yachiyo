@@ -51,6 +51,12 @@
   transform-origin: center;
   animation: avatar-thought-dot 2.8s ease-in-out infinite;
 }
+.yachiyo-avatar__waiting-dot {
+  opacity: 0.85;
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: avatar-waiting-dot 3.8s ease-in-out infinite;
+}
 .yachiyo-avatar[data-winking='true'] .yachiyo-avatar__thought-dot {
   opacity: 0 !important;
   animation-play-state: paused;
@@ -75,6 +81,10 @@
 @keyframes avatar-thought-dot {
   0%, 10%, 72%, 100% { opacity: 0; transform: translateY(1px) scale(0.5); }
   24%, 56% { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes avatar-waiting-dot {
+  0%, 100% { opacity: 0.5; transform: scale(0.9); }
+  50% { opacity: 1; transform: scale(1.05); }
 }
 @keyframes avatar-blink {
   0%,

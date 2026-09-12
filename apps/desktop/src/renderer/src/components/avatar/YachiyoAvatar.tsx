@@ -276,6 +276,15 @@ export function YachiyoAvatar({
             </g>
           </motion.g>
         </motion.g>
+        {phase === 'waiting' && (
+          <circle
+            className="yachiyo-avatar__waiting-dot"
+            cx={76}
+            cy={17}
+            r={3}
+            fill="var(--avatar-body)"
+          />
+        )}
         {phase === 'thinking' && (
           <g className="yachiyo-avatar__thoughts" fill="var(--avatar-body)">
             {[0, 1, 2].map((index) => (

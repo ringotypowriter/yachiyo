@@ -3,6 +3,7 @@ import type { AvatarPhase } from './avatarTypes.ts'
 export function getActivityEyeShape(phase: AvatarPhase): { width: number; height: number } {
   if (phase === 'thinking') return { width: 0.82, height: 1.55 }
   if (phase === 'working') return { width: 1.3, height: 0.7 }
+  if (phase === 'waiting') return { width: 1.18, height: 1.65 }
   return { width: 1, height: 1 }
 }
 
