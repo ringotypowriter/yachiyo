@@ -5,6 +5,7 @@ import { YachiyoAvatar } from '@renderer/components/avatar/YachiyoAvatar'
 import { avatarLabels, type AvatarPhase } from '@renderer/components/avatar/avatarTypes'
 import { WINK_DURATION_MS } from '@renderer/components/avatar/winkMotion'
 import { selectRunAvatarPhase, shouldCelebrateRun } from '../lib/runAvatarState'
+import { useAvatarVisibility } from './useAvatarVisibility'
 
 function selectIndicator(state: AppState): {
   threadId: string | null
@@ -26,6 +27,7 @@ function selectIndicator(state: AppState): {
 
 export function ConversationAvatar(): React.JSX.Element {
   const current = useAppStore(useShallow(selectIndicator))
+  const visible = useAvatarVisibility(current.phase !== 'idle', current.threadId)
   const [celebratingThread, setCelebratingThread] = useState<string | null>(null)
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout> | undefined
@@ -54,7 +56,12 @@ export function ConversationAvatar(): React.JSX.Element {
     current.phase === 'idle' && celebratingThread !== null && celebratingThread === current.threadId
   const phase = celebrating ? 'success' : current.phase
   return (
-    <div className="conversation-avatar" data-conversation-avatar>
+    <div
+      className="conversation-avatar"
+      data-conversation-avatar
+      aria-hidden={!visible}
+      style={{ visibility: visible ? 'visible' : 'hidden' }}
+    >
       <YachiyoAvatar
         phase={phase}
         size="conversation"

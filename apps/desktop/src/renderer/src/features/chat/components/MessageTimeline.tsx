@@ -25,12 +25,12 @@ import {
   type BrowserAutomationActivityBubbleState
 } from '@yachiyo/shared/protocol'
 import { TimelineScrollbar } from './TimelineScrollbar'
+import { ConversationAvatar } from './ConversationAvatar'
 import {
   buildMessageGroups,
   getRootAssistantMessages,
   partitionToolCallsForGroups
 } from '../lib/timeline/messageThreadPresentation'
-import { selectRunAvatarPhase } from '../lib/runAvatarState'
 import {
   buildMessageTimelineRows,
   collectInlineCodeMarkdownDocumentsFromRows,
@@ -122,7 +122,7 @@ function estimateTimelineRowSize(item: MessageTimelineRow): number {
       return Math.max(48, Math.ceil(item.textBlock.content.length / 80) * 22 + 16)
     case 'group-plan-document':
       return 220
-    case 'group-activity':
+    case 'group-retry':
       return 40
     case 'group-footer':
       return 84
@@ -238,7 +238,6 @@ export function MessageTimeline({
     retryMessage,
     selectReplyBranch,
     runPhase,
-    activityPhase,
     scrollToMessageId,
     clearScrollToMessageId,
     hasOlderMessages,
@@ -284,7 +283,6 @@ export function MessageTimeline({
       retryMessage: state.retryMessage,
       selectReplyBranch: state.selectReplyBranch,
       runPhase: threadId ? (state.runPhasesByThread[threadId] ?? 'idle') : 'idle',
-      activityPhase: selectRunAvatarPhase(state, threadId),
       // Only this thread's jump: an intent naming another conversation must
       // neither fire nor be consumed here.
       scrollToMessageId:
@@ -302,6 +300,8 @@ export function MessageTimeline({
   )
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const recapRef = useRef<HTMLDivElement>(null)
+  const avatarPlaceholderRef = useRef<HTMLDivElement>(null)
+  const [avatarPlaceholderHeight, setAvatarPlaceholderHeight] = useState(0)
   const legacySubagentIds = useMemo(
     () => resolveLegacySubagentIds(activeSubagentIds, subagentSnapshotIds),
     [activeSubagentIds, subagentSnapshotIds]
@@ -383,7 +383,7 @@ export function MessageTimeline({
           inlineToolCalls,
           runs,
           activeRunId,
-          activityPhase,
+          retrying: Boolean(retryInfo),
           activeRequestMessageId,
           subagentActive: legacySubagentActive,
           contextHandoffWatermarkMessageId: thread?.contextHandoffWatermarkMessageId ?? null,
@@ -399,7 +399,7 @@ export function MessageTimeline({
         inlineToolCalls,
         runs,
         activeRunId,
-        activityPhase,
+        retryInfo,
         activeRequestMessageId,
         thread?.contextHandoffWatermarkMessageId,
         thread?.contextHandoffSummary,
@@ -516,7 +516,8 @@ export function MessageTimeline({
     overscan: 5,
     getItemKey,
     paddingStart: 16,
-    paddingEnd: 16
+    paddingEnd: 0,
+    scrollPaddingEnd: avatarPlaceholderHeight
   })
   useIsomorphicLayoutEffect(() => {
     // TanStack exposes this policy as a mutable instance callback, not an option.
@@ -774,6 +775,17 @@ export function MessageTimeline({
     programmaticScrollUntilRef.current = Date.now() + 300
     virtualizer.scrollToIndex(timelineRowsRef.current.length - 1, { align: 'end' })
   }, [virtualizer, threadId])
+
+  useEffect(() => {
+    const placeholder = avatarPlaceholderRef.current
+    if (!placeholder) return
+    const observer = new ResizeObserver(() => {
+      setAvatarPlaceholderHeight(placeholder.getBoundingClientRect().height)
+      if (stickToBottomRef.current) scrollToBottom()
+    })
+    observer.observe(placeholder)
+    return () => observer.disconnect()
+  }, [threadId, activeSurface, timelineRows.length, scrollToBottom])
 
   // Re-pin after the virtualizer measures newly-mounted rows. The first
   // scrollToIndex uses estimateSize, which can over/under-shoot the real
@@ -1207,6 +1219,10 @@ export function MessageTimeline({
                       </div>
                     )
                   })}
+                </div>
+
+                <div ref={avatarPlaceholderRef} className="pb-4" data-avatar-placeholder>
+                  {thread && !thread.syncOriginDeviceId && <ConversationAvatar key={threadId} />}
                 </div>
 
                 {recapText ? (

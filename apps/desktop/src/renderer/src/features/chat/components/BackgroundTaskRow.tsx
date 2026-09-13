@@ -1,21 +1,13 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
-import { ChevronDown, ChevronUp, Square, Terminal, X } from 'lucide-react'
-
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { Square, Terminal, X } from 'lucide-react'
 import { theme } from '@renderer/theme/theme'
-import { useRestoreFocusOnUnmount } from '@renderer/lib/focusRestore'
 import { useT } from '@yachiyo/i18n/react'
-import { tPlural } from '@yachiyo/i18n/index'
 import {
   getBackgroundTaskFailureSummary,
   getBackgroundTaskLogContent
 } from '../lib/backgroundTaskPresentation'
-import { useBackgroundTasksStore, type BackgroundTaskState } from '../state/useBackgroundTasksStore'
+import type { BackgroundTaskState } from '../state/useBackgroundTasksStore'
 import { BACKGROUND_TASK_LOG_DEFAULT_MAX_BYTES } from '@yachiyo/shared/protocol'
-
-interface BackgroundTasksChipProps {
-  threadId: string | null
-}
 
 function formatElapsed(startedAt: string, now: number): string {
   const start = Date.parse(startedAt)
@@ -29,215 +21,6 @@ function formatElapsed(startedAt: string, now: number): string {
   return `${hr}h ${min % 60}m`
 }
 
-function useNowTick(intervalMs: number, enabled: boolean): number {
-  const [now, setNow] = useState(() => Date.now())
-  useEffect(() => {
-    if (!enabled) return
-    const id = setInterval(() => setNow(Date.now()), intervalMs)
-    return () => clearInterval(id)
-  }, [intervalMs, enabled])
-  return now
-}
-
-export function BackgroundTasksChip({
-  threadId
-}: BackgroundTasksChipProps): React.JSX.Element | null {
-  useT()
-  // Select the raw per-thread map so the snapshot is referentially stable; the
-  // map only changes when a task is added/updated/removed for this thread.
-  const taskMap = useBackgroundTasksStore((s) => (threadId ? s.tasksByThread[threadId] : undefined))
-  const tasks = useMemo<BackgroundTaskState[]>(() => {
-    if (!taskMap) return []
-    return Object.values(taskMap).sort((a, b) => a.startedAt.localeCompare(b.startedAt))
-  }, [taskMap])
-  const runningCount = useMemo(() => tasks.filter((t) => t.status === 'running').length, [tasks])
-  const [openRequested, setOpen] = useState(false)
-  const [expandedTaskId, setExpandedTaskId] = useState<string | null>(null)
-  const wrapperRef = useRef<HTMLDivElement>(null)
-
-  if (tasks.length === 0) return null
-
-  // Derived: only render the panel when there's something to show. No effect
-  // needed — the unmount happens naturally when `tasks.length` goes to zero.
-  const open = openRequested && tasks.length > 0
-
-  const label =
-    runningCount > 0
-      ? tPlural('chat.backgroundTasks.running', runningCount, { count: runningCount })
-      : tPlural('chat.backgroundTasks.total', tasks.length, { count: tasks.length })
-
-  return (
-    <div ref={wrapperRef} className="composer-task-chip-host">
-      <AnimatePresence>
-        {open && (
-          <motion.div
-            key="bg-tasks-panel"
-            initial={{ opacity: 0, scale: 0.95, y: 4 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.95, y: 4 }}
-            transition={{ duration: 0.15, ease: 'easeOut' }}
-            className="absolute right-0"
-            style={{
-              bottom: '100%',
-              display: 'flex',
-              justifyContent: 'flex-end',
-              marginBottom: 8,
-              maxWidth: '100%',
-              pointerEvents: 'auto',
-              width: '100%'
-            }}
-          >
-            <BackgroundTasksPanel
-              threadId={threadId ?? ''}
-              tasks={tasks}
-              expandedTaskId={expandedTaskId}
-              onToggleExpand={(id) => setExpandedTaskId((cur) => (cur === id ? null : id))}
-              onClose={() => setOpen(false)}
-              ignoreClickOutsideRef={wrapperRef}
-            />
-          </motion.div>
-        )}
-      </AnimatePresence>
-      <div className="flex justify-end">
-        <button
-          type="button"
-          onClick={() => setOpen((v) => !v)}
-          className="composer-task-chip-button"
-          data-open={open ? 'true' : undefined}
-          data-running={runningCount > 0 ? 'true' : undefined}
-        >
-          {runningCount > 0 ? (
-            <span
-              className="composer-task-chip-button__dot"
-              style={{ background: theme.text.accent }}
-            />
-          ) : (
-            <Terminal size={12} strokeWidth={1.75} />
-          )}
-          <span>{label}</span>
-          {open ? (
-            <ChevronDown size={12} strokeWidth={1.75} />
-          ) : (
-            <ChevronUp size={12} strokeWidth={1.75} />
-          )}
-        </button>
-      </div>
-    </div>
-  )
-}
-
-interface BackgroundTasksPanelProps {
-  threadId: string
-  tasks: BackgroundTaskState[]
-  expandedTaskId: string | null
-  onToggleExpand: (taskId: string) => void
-  onClose: () => void
-  ignoreClickOutsideRef: React.RefObject<HTMLDivElement | null>
-}
-
-function BackgroundTasksPanel({
-  threadId,
-  tasks,
-  expandedTaskId,
-  onToggleExpand,
-  onClose,
-  ignoreClickOutsideRef
-}: BackgroundTasksPanelProps): React.JSX.Element {
-  const t = useT()
-  const dismissTask = useBackgroundTasksStore((s) => s.dismissTask)
-  const dismissAllFinished = useBackgroundTasksStore((s) => s.dismissAllFinished)
-  const finishedCount = tasks.filter((t) => t.status !== 'running').length
-  const ref = useRef<HTMLDivElement>(null)
-  const hasRunning = tasks.some((t) => t.status === 'running')
-  const now = useNowTick(1000, hasRunning)
-
-  useRestoreFocusOnUnmount()
-
-  // Click outside to dismiss. The chip wrapper is treated as "inside" so the
-  // toggle button doesn't trigger close-then-reopen on the same click.
-  useEffect(() => {
-    const handler = (e: MouseEvent): void => {
-      const target = e.target as Node
-      if (ref.current?.contains(target)) return
-      if (ignoreClickOutsideRef.current?.contains(target)) return
-      onClose()
-    }
-    const id = setTimeout(() => document.addEventListener('mousedown', handler), 0)
-    return () => {
-      clearTimeout(id)
-      document.removeEventListener('mousedown', handler)
-    }
-  }, [onClose, ignoreClickOutsideRef])
-
-  // Sort: running first (oldest first), then completed (newest first).
-  const sorted = useMemo(() => {
-    const running = tasks.filter((t) => t.status === 'running')
-    const finished = tasks
-      .filter((t) => t.status !== 'running')
-      .sort((a, b) => (b.finishedAt ?? '').localeCompare(a.finishedAt ?? ''))
-    return [...running, ...finished]
-  }, [tasks])
-
-  return (
-    <div
-      ref={ref}
-      className="mb-2 rounded-xl overflow-hidden flex flex-col"
-      style={{
-        width: 'min(760px, 100%)',
-        maxHeight: 'min(78vh, 680px)',
-        background: theme.background.surfaceFrosted,
-        border: `1px solid ${theme.border.default}`,
-        boxShadow: theme.shadow.card,
-        backdropFilter: 'blur(12px)',
-        WebkitBackdropFilter: 'blur(12px)'
-      }}
-    >
-      <div
-        className="flex items-center justify-between px-3 py-2"
-        style={{ borderBottom: `1px solid ${theme.border.default}` }}
-      >
-        <div className="text-xs font-semibold" style={{ color: theme.text.primary }}>
-          {t('chat.backgroundTasks.title')}
-        </div>
-        <div className="flex items-center gap-2">
-          {finishedCount > 0 && (
-            <button
-              type="button"
-              onClick={() => dismissAllFinished(threadId)}
-              className="text-[10px] hover:opacity-70"
-              style={{ color: theme.text.muted }}
-            >
-              {t('chat.backgroundTasks.clearDone', { count: finishedCount })}
-            </button>
-          )}
-          <button
-            type="button"
-            onClick={onClose}
-            title={t('chat.collapse')}
-            className="p-1 rounded hover:opacity-70"
-            style={{ color: theme.icon.default }}
-          >
-            <ChevronDown size={12} strokeWidth={1.75} />
-          </button>
-        </div>
-      </div>
-      <div className="flex-1 overflow-y-auto">
-        {sorted.map((task) => (
-          <BackgroundTaskRow
-            key={task.taskId}
-            task={task}
-            expanded={expandedTaskId === task.taskId}
-            onToggleExpand={() => onToggleExpand(task.taskId)}
-            onCancel={() => void window.api.yachiyo.cancelBackgroundTask({ taskId: task.taskId })}
-            onDismiss={() => dismissTask(threadId, task.taskId)}
-            now={now}
-          />
-        ))}
-      </div>
-    </div>
-  )
-}
-
 interface BackgroundTaskRowProps {
   task: BackgroundTaskState
   expanded: boolean
@@ -247,7 +30,7 @@ interface BackgroundTaskRowProps {
   now: number
 }
 
-function BackgroundTaskRow({
+export function BackgroundTaskRow({
   task,
   expanded,
   onToggleExpand,
@@ -293,6 +76,7 @@ function BackgroundTaskRow({
             }`}
             style={{ background: statusColor }}
           />
+          <Terminal size={12} className="shrink-0" aria-label="Shell command" />
           <span
             className="flex-1 min-w-0 text-xs truncate"
             style={{ color: theme.text.primary, maxWidth: 420 }}

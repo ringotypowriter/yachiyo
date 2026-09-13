@@ -4,8 +4,10 @@ import React from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { ConversationAvatar } from './ConversationAvatar.tsx'
 
-test('the conversation keeps an avatar even without an active run', () => {
+test('history initially hides the avatar without removing its placeholder', () => {
   const html = renderToStaticMarkup(React.createElement(ConversationAvatar))
   assert.match(html, /class="yachiyo-avatar"/)
   assert.match(html, /data-phase="idle"/)
+  assert.match(html, /visibility:hidden/)
+  assert.match(html, /aria-hidden="true"/)
 })

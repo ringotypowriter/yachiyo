@@ -29,7 +29,7 @@ import { UserMessageBubble } from './UserMessageBubble'
 import { AssistantMessageBubble } from './AssistantMessageBubble'
 import { HandoffFoldMarker } from './HandoffFoldMarker'
 import { HandoffSummaryRow } from './HandoffSummaryRow'
-import { GeneratingRow } from './GeneratingRow'
+import { RetryNotice } from './RetryNotice'
 import { SubagentRunningIndicator } from './SubagentRunningIndicator'
 import { SubagentFinishedToolCallRow } from './SubagentFinishedToolCallRow'
 import { RunMemoryRecallRow } from './RunMemoryRecallRow'
@@ -205,11 +205,6 @@ function renderTimelineItem(
               startedAt={item.data.createdAt}
             />
           ) : null}
-          <div className="message-response-cluster">
-            <div className="message-response-cluster__preparing">
-              <GeneratingRow phase={item.data.reasoning ? 'thinking' : 'loading'} />
-            </div>
-          </div>
         </div>
       )
     }
@@ -422,8 +417,8 @@ function renderTimelineItem(
     return renderPlanDocumentTimelineCard(context)
   }
 
-  if (item.kind === 'group-activity') {
-    return <GeneratingRow retryInfo={groupRetryInfo} phase={item.phase} />
+  if (item.kind === 'group-retry') {
+    return groupRetryInfo ? <RetryNotice retryInfo={groupRetryInfo} /> : null
   }
 
   if (item.kind === 'group-footer') {

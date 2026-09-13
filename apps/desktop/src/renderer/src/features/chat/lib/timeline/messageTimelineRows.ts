@@ -1,5 +1,4 @@
 import type { Message, MessageTextBlockRecord, RunRecord, ToolCall } from '@renderer/app/types'
-import type { AvatarPhase } from '../../../../components/avatar/avatarTypes.ts'
 import {
   buildConversationGroupTimelineItems,
   type ConversationGroupTimelineItem,
@@ -132,10 +131,8 @@ export type MessageTimelineRow =
       group: MessageGroup
     } & GroupTimelineRowBase)
   | ({
-      kind: 'group-activity'
+      kind: 'group-retry'
       group: MessageGroup
-      phase: AvatarPhase
-      activeRunId: string | null
     } & GroupTimelineRowBase)
   | ({
       kind: 'group-footer'
@@ -191,7 +188,7 @@ interface BuildConversationGroupRowsInput {
   activeRunId: string | null
   isActiveGroup: boolean
   subagentActive: boolean
-  activityPhase?: AvatarPhase
+  retrying?: boolean
   toolCallDisplayMode?: ToolCallDisplayMode
 }
 
@@ -205,7 +202,7 @@ interface BuildMessageTimelineRowsInput {
   activeRunId: string | null
   activeRequestMessageId: string | null
   subagentActive: boolean
-  activityPhase?: AvatarPhase
+  retrying?: boolean
   contextHandoffWatermarkMessageId?: string | null
   contextHandoffSummary?: string
   expandedHandoffFoldKeys?: ReadonlySet<string>
@@ -751,7 +748,7 @@ export function buildConversationGroupRows(
   const timelineItems = buildConversationGroupTimelineItems({
     hasMemoryRecall: Boolean(memorySummary) && !shouldSummarizeCompletedWork,
     replyCount: responseCount,
-    // The live status owns one stable row, independent of response content and tool rows.
+    // The conversation avatar represents activity outside the scrolling message rows.
     showPreparing: false,
     showGenerating: false,
     activeAssistantTextBlocks: shouldSummarizeCompletedWork
@@ -932,18 +929,13 @@ export function buildConversationGroupRows(
     })
   }
 
-  if (
-    input.isActiveGroup &&
-    (input.activeRunId || group.showPreparing || activeAssistantMessage?.status === 'streaming')
-  ) {
+  if (input.isActiveGroup && input.retrying) {
     rows.push({
-      kind: 'group-activity',
-      key: `activity:${requestMessageId}`,
+      kind: 'group-retry',
+      key: `retry:${requestMessageId}`,
       time: group.userMessage.createdAt,
       requestMessageId,
-      group,
-      phase: input.activityPhase ?? 'loading',
-      activeRunId: input.activeRunId
+      group
     })
   }
 
@@ -964,7 +956,7 @@ export function buildMessageTimelineRows(
           runs: input.runs,
           activeRunId: input.activeRunId,
           isActiveGroup,
-          activityPhase: input.activityPhase,
+          retrying: input.retrying,
           subagentActive: input.subagentActive && isActiveGroup,
           toolCallDisplayMode: input.toolCallDisplayMode
         })

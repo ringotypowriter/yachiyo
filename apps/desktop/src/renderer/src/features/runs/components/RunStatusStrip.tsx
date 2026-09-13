@@ -54,7 +54,7 @@ export function RunStatusStrip(): React.JSX.Element {
           style={{ overflow: 'hidden' }}
         >
           <div
-            className="flex items-center gap-2 px-6 py-2 text-xs"
+            className="run-status-strip__content flex items-center gap-2 px-6 py-2 text-xs"
             style={{ color: content.color, borderTop: `1px solid ${theme.border.subtle}` }}
           >
             <span>{content.text}</span>

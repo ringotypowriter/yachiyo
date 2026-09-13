@@ -86,9 +86,9 @@ function rowKinds(rows: MessageTimelineRow[]): string[] {
   return rows.map((row) => row.kind)
 }
 
-test('one activity row keeps its identity from preparing through reasoning, tools and output', () => {
+test('avatar states do not add a duplicate status row or blank placeholder', () => {
   const phases = ['loading', 'thinking', 'working', 'waiting', 'speaking'] as const
-  const keys = phases.map((activityPhase, index) => {
+  phases.forEach((_, index) => {
     const group = createGroup({
       showPreparing: index === 0,
       activeAssistant: createAssistantMessage({
@@ -104,15 +104,37 @@ test('one activity row keeps its identity from preparing through reasoning, tool
       runs: [],
       activeRunId: index === 0 ? null : 'run-1',
       isActiveGroup: true,
-      subagentActive: false,
-      activityPhase
+      subagentActive: false
     })
-    const activity = rows.filter((row) => row.kind === 'group-activity')
-    assert.equal(activity.length, 1)
-    assert.equal(activity[0].phase, activityPhase)
-    return activity[0].key
+    assert.ok(!rowKinds(rows).some((kind) => kind === 'group-activity' || kind === 'group-retry'))
   })
-  assert.equal(new Set(keys).size, 1)
+})
+
+test('retry notices are kept only on the active conversation group', () => {
+  const group = createGroup({
+    activeAssistant: createAssistantMessage({ id: 'assistant-1', content: '', status: 'streaming' })
+  })
+  const input = {
+    group,
+    inlineToolCalls: [],
+    runs: [],
+    activeRunId: 'run-1',
+    isActiveGroup: true,
+    subagentActive: false,
+    retrying: true
+  }
+  assert.equal(
+    rowKinds(buildConversationGroupRows(input)).filter((kind) => kind === 'group-retry').length,
+    1
+  )
+  assert.ok(
+    !rowKinds(buildConversationGroupRows({ ...input, retrying: false })).includes('group-retry')
+  )
+  assert.ok(
+    !rowKinds(buildConversationGroupRows({ ...input, isActiveGroup: false })).includes(
+      'group-retry'
+    )
+  )
 })
 
 test('inactive history has no activity row and subagent controls remain present', () => {
@@ -131,19 +153,18 @@ test('inactive history has no activity row and subagent controls remain present'
     isActiveGroup: false,
     subagentActive: false
   }
-  assert.ok(!buildConversationGroupRows(base).some((row) => row.kind === 'group-activity'))
+  assert.ok(!rowKinds(buildConversationGroupRows(base)).includes('group-retry'))
   const rows = buildConversationGroupRows({
     ...base,
     activeRunId: 'run-1',
     isActiveGroup: true,
-    subagentActive: true,
-    activityPhase: 'working'
+    subagentActive: true
   })
   assert.ok(rows.some((row) => row.kind === 'group-subagent'))
-  assert.equal(rows.filter((row) => row.kind === 'group-activity').length, 1)
+  assert.ok(!rowKinds(rows).some((kind) => kind === 'group-activity' || kind === 'group-retry'))
 })
 
-test('buildConversationGroupRows splits a streaming conversation into user, content, tool, and generating rows', () => {
+test('buildConversationGroupRows splits streaming content and tools without a status label row', () => {
   const group = createGroup({
     activeAssistant: createAssistantMessage({
       id: 'assistant-1',
@@ -181,12 +202,7 @@ test('buildConversationGroupRows splits a streaming conversation into user, cont
     subagentActive: false
   })
 
-  assert.deepEqual(rowKinds(rows), [
-    'group-user',
-    'group-assistant-text-block',
-    'group-tool-call',
-    'group-activity'
-  ])
+  assert.deepEqual(rowKinds(rows), ['group-user', 'group-assistant-text-block', 'group-tool-call'])
 })
 
 test('buildConversationGroupRows keeps generating after a completed tool call even before text arrives', () => {
@@ -221,10 +237,10 @@ test('buildConversationGroupRows keeps generating after a completed tool call ev
     subagentActive: false
   })
 
-  assert.deepEqual(rowKinds(rows), ['group-user', 'group-tool-call', 'group-activity'])
+  assert.deepEqual(rowKinds(rows), ['group-user', 'group-tool-call'])
 })
 
-test('buildConversationGroupRows defaults to loading without a live output signal', () => {
+test('buildConversationGroupRows only renders the actual content when text is streaming', () => {
   const group = createGroup({
     activeAssistant: createAssistantMessage({
       id: 'assistant-1',
@@ -249,12 +265,7 @@ test('buildConversationGroupRows defaults to loading without a live output signa
     subagentActive: false
   })
 
-  const generatingRow = rows.find(
-    (row): row is MessageTimelineRow & { kind: 'group-activity' } => row.kind === 'group-activity'
-  )
-  assert.ok(generatingRow)
-  assert.equal(generatingRow.phase, 'loading')
-  assert.equal(generatingRow.activeRunId, 'run-1')
+  assert.deepEqual(rowKinds(rows), ['group-user', 'group-assistant-text-block'])
 })
 
 test('buildConversationGroupRows keeps branch navigation, thinking, and footer as separate rows', () => {
@@ -1401,7 +1412,7 @@ test('buildConversationGroupRows renders a live running call inside a deck when 
     subagentActive: false
   })
 
-  assert.deepEqual(rowKinds(rows), ['group-user', 'group-tool-call-deck', 'group-activity'])
+  assert.deepEqual(rowKinds(rows), ['group-user', 'group-tool-call-deck'])
   const deck = rows.find((row) => row.kind === 'group-tool-call-deck')
   assert.deepEqual(
     deck?.toolCalls.map((toolCall) => toolCall.id),
@@ -1587,7 +1598,7 @@ test('buildMessageTimelineRows keeps each conversation flattened into separate v
     subagentActive: false
   })
 
-  assert.deepEqual(rowKinds(rows), ['group-user', 'group-activity', 'assistant-root'])
+  assert.deepEqual(rowKinds(rows), ['group-user', 'assistant-root'])
 })
 
 test('buildConversationGroupRows keeps assistant lookup metadata for tool-only replies', () => {

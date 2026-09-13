@@ -36,8 +36,13 @@
 .yachiyo-avatar[data-phase='working'] .yachiyo-avatar__gaze {
   transform: translate(3px, 2px);
 }
+.yachiyo-avatar[data-phase='idle'] .yachiyo-avatar__pose,
 .yachiyo-avatar[data-phase='waiting'] .yachiyo-avatar__pose {
-  animation: none;
+  animation: avatar-rest-breathe 3.2s ease-in-out infinite;
+}
+.yachiyo-avatar[data-phase='idle'] .yachiyo-avatar__blink,
+.yachiyo-avatar[data-phase='waiting'] .yachiyo-avatar__blink {
+  animation-duration: 3s;
 }
 .yachiyo-avatar[data-winking='true'] .yachiyo-avatar__blink {
   animation: none;
@@ -95,6 +100,15 @@
   }
   44% {
     transform: scaleY(0.13);
+  }
+}
+@keyframes avatar-rest-breathe {
+  0%,
+  100% {
+    transform: translateY(0) scale(1, 1);
+  }
+  50% {
+    transform: translateY(-2px) scale(1.06, 0.96);
   }
 }
 @keyframes avatar-think {

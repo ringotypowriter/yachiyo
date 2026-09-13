@@ -34,8 +34,7 @@ import { ReasoningSelectorPopup } from '../ReasoningSelectorPopup'
 import { WorkspaceSelectorPopup } from '../WorkspaceSelectorPopup'
 import { WorkspaceSuggestionPopup } from './WorkspaceSuggestionPopup'
 import { SmoothCaretOverlay } from '../SmoothCaretOverlay'
-import { BackgroundTasksChip } from '../BackgroundTasksChip'
-import { AgentsChip } from '../AgentsChip'
+import { TasksChip } from '../TasksChip'
 import type { AcpAgentEntry } from '../../lib/composer/modelSelectorState'
 import { clearGoalX } from '@renderer/features/chat/lib/composer/pretextSync'
 import { selectComposerPlaceholder } from '@renderer/features/chat/lib/composer/composerPlaceholder'
@@ -526,8 +525,7 @@ export function ComposerView(props: any): React.JSX.Element {
 
         <div className="composer-widget-shelf__right">
           <ContentReaderReference threadId={activeThreadId} />
-          <BackgroundTasksChip threadId={activeThreadId} />
-          <AgentsChip threadId={activeThreadId} />
+          <TasksChip key={activeThreadId} threadId={activeThreadId} />
         </div>
       </div>
 

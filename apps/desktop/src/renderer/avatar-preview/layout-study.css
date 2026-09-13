@@ -84,9 +84,12 @@
   position: static;
 }
 #layout-study .work-chat-shell--normal .conversation-avatar {
+  position: absolute;
   top: 56px;
+  bottom: auto;
   left: 8px;
   right: auto;
+  padding-bottom: 0;
   transform: none;
 }
 
