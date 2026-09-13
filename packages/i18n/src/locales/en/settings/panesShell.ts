@@ -174,7 +174,7 @@ export const chat = {
   contextSection: 'Context',
   minimalPromptLabel: 'Minimal prompt',
   minimalPromptDesc:
-    'Use a short persona and runtime facts in local chats and owner DMs. Skip automatic SOUL loading; keep user preferences, memory, and tools.',
+    'Use fewer preset rules and let the model rely more on its own judgment. Keep personality, user preferences, and memory.',
   contextHandoffLabel: 'Automatic context handoff',
   contextHandoffDesc: 'Checkpoint old context and continue from a summary when a run gets large.',
   contextHandoffToggleAria: 'Toggle automatic context handoff',
