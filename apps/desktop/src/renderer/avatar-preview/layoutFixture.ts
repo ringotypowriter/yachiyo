@@ -94,7 +94,7 @@ export function buildLayoutPreviewState(
     threadId,
     parentMessageId: user.id,
     role: 'assistant',
-    content: response,
+    content: phase === 'loading' ? '' : response,
     status: active ? 'streaming' : 'completed',
     createdAt: now,
     ...(phase === 'thinking'
@@ -152,7 +152,9 @@ export function buildLayoutPreviewState(
           parentMessageId: 'layout-prior-question',
           role: 'assistant',
           content:
-            'Then the layout should do most of the work. Keep the reading order clear, let secondary elements stay quiet, and use motion only when it has something to express.',
+            phase === 'loading'
+              ? response
+              : 'Then the layout should do most of the work. Keep the reading order clear, let secondary elements stay quiet, and use motion only when it has something to express.',
           status: 'completed',
           createdAt: prior
         },
@@ -160,12 +162,14 @@ export function buildLayoutPreviewState(
         assistant
       ]
     },
-    toolCalls: { [threadId]: [tool] },
+    toolCalls: { [threadId]: phase === 'loading' ? [] : [tool] },
     runsByThread: { [threadId]: [run] },
     latestRunsByThread: { [threadId]: run },
     activeRunIdsByThread: active ? { [threadId]: run.id } : {},
     activeRequestMessageIdsByThread: active ? { [threadId]: user.id } : {},
-    runPhasesByThread: { [threadId]: active ? 'streaming' : 'idle' },
+    runPhasesByThread: {
+      [threadId]: active ? (phase === 'loading' ? 'preparing' : 'streaming') : 'idle'
+    },
     receivingModelOutputByThread: { [threadId]: phase === 'thinking' || phase === 'speaking' },
     pendingAssistantMessages: active
       ? {

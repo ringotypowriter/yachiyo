@@ -14,8 +14,19 @@ test('preview scenarios exercise the real avatar state mapping', () => {
     }
     assert.equal(selectRunAvatarPhase(state, PREVIEW_THREAD_ID), phase)
     assert.equal(state.messages[PREVIEW_THREAD_ID].length, 4)
-    assert.ok(state.messages[PREVIEW_THREAD_ID].at(-1)!.content.length > 3500)
+    assert.ok(state.messages[PREVIEW_THREAD_ID].some((message) => message.content.length > 3500))
   }
+})
+
+test('loading models the first request with no current-run output or tools', () => {
+  const state = buildLayoutPreviewState('loading', false, now)
+  const answer = state.messages![PREVIEW_THREAD_ID].at(-1)!
+  assert.equal(answer.content, '')
+  assert.equal(answer.reasoning, undefined)
+  assert.deepEqual(state.toolCalls![PREVIEW_THREAD_ID], [])
+  assert.equal(state.runPhasesByThread![PREVIEW_THREAD_ID], 'preparing')
+  assert.equal(state.receivingModelOutputByThread![PREVIEW_THREAD_ID], false)
+  assert.ok(state.messages![PREVIEW_THREAD_ID][1].content.length > 3500)
 })
 
 test('welcome clears the selected conversation without deleting its sample history', () => {
