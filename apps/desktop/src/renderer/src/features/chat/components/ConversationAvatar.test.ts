@@ -8,6 +8,5 @@ test('history initially hides the avatar without removing its placeholder', () =
   const html = renderToStaticMarkup(React.createElement(ConversationAvatar))
   assert.match(html, /class="yachiyo-avatar"/)
   assert.match(html, /data-phase="idle"/)
-  assert.match(html, /visibility:hidden/)
   assert.match(html, /aria-hidden="true"/)
 })

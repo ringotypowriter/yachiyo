@@ -56,12 +56,7 @@ export function ConversationAvatar(): React.JSX.Element {
     current.phase === 'idle' && celebratingThread !== null && celebratingThread === current.threadId
   const phase = celebrating ? 'success' : current.phase
   return (
-    <div
-      className="conversation-avatar"
-      data-conversation-avatar
-      aria-hidden={!visible}
-      style={{ visibility: visible ? 'visible' : 'hidden' }}
-    >
+    <div className="conversation-avatar" data-conversation-avatar aria-hidden={!visible}>
       <YachiyoAvatar
         phase={phase}
         size="conversation"
