@@ -56,6 +56,7 @@ export interface MemoryLayerInput {
 }
 
 export interface CompileContextLayersInput {
+  minimalPrompt?: boolean
   history: ContextLayerHistoryMessage[]
   personality: PersonalityLayerInput
   soul?: SoulLayerInput
@@ -389,7 +390,10 @@ export function compileSoulLayer(input: SoulLayerInput | undefined): ModelMessag
   }
 }
 
-export function compileAgentLayer(input: AgentLayerInput | undefined): ModelMessage | null {
+export function compileAgentLayer(
+  input: AgentLayerInput | undefined,
+  minimal = false
+): ModelMessage | null {
   const instructions = input?.instructions?.trim() ?? ''
   if (!instructions) {
     return null
@@ -398,14 +402,19 @@ export function compileAgentLayer(input: AgentLayerInput | undefined): ModelMess
   return {
     role: 'system',
     content: [
-      'This runtime layer describes the current environment, available capabilities, and workspace boundaries. Its facts and boundaries govern how you can carry out the present task without defining your identity or the user’s intent:',
+      minimal
+        ? '运行环境：'
+        : 'This runtime layer describes the current environment, available capabilities, and workspace boundaries. Its facts and boundaries govern how you can carry out the present task without defining your identity or the user’s intent:',
       '',
       instructions
     ].join('\n')
   }
 }
 
-export function compileUserLayer(input: UserLayerInput | undefined): ModelMessage | null {
+export function compileUserLayer(
+  input: UserLayerInput | undefined,
+  minimal = false
+): ModelMessage | null {
   const content = input?.content?.trim() ?? ''
   if (!content) {
     return null
@@ -414,14 +423,19 @@ export function compileUserLayer(input: UserLayerInput | undefined): ModelMessag
   return {
     role: 'system',
     content: [
-      'USER.md is the durable collaboration profile for the current user. Use it to understand stable facts, preferences, and working style without treating it as the current request or overriding what the user says now:',
+      minimal
+        ? '用户资料与协作偏好（USER.md）：'
+        : 'USER.md is the durable collaboration profile for the current user. Use it to understand stable facts, preferences, and working style without treating it as the current request or overriding what the user says now:',
       '',
       content
     ].join('\n')
   }
 }
 
-export function compileSkillsLayer(input: SkillsLayerInput | undefined): ModelMessage | null {
+export function compileSkillsLayer(
+  input: SkillsLayerInput | undefined,
+  minimal = false
+): ModelMessage | null {
   const activeSkills =
     input?.activeSkills
       ?.map((skill) => ({
@@ -437,7 +451,9 @@ export function compileSkillsLayer(input: SkillsLayerInput | undefined): ModelMe
   return {
     role: 'system',
     content: [
-      'These Skills are available as procedural guides for this run. Their descriptions tell you when they fit; availability does not make a Skill mandatory. When one matches the task, use skillsRead for its full instructions and read any referenced material the work actually needs:',
+      minimal
+        ? '可用 Skills（通过 skillsRead 读取）：'
+        : 'These Skills are available as procedural guides for this run. Their descriptions tell you when they fit; availability does not make a Skill mandatory. When one matches the task, use skillsRead for its full instructions and read any referenced material the work actually needs:',
       '',
       ...activeSkills.map((skill) =>
         skill.description ? `- ${skill.name}: ${skill.description}` : `- ${skill.name}`
@@ -594,10 +610,10 @@ export function applyAnthropicCacheBreakpoints(messages: ModelMessage[]): void {
 export function compileContextLayers(input: CompileContextLayersInput): ModelMessage[] {
   const systemPrefix = joinSystemLayers([
     compilePersonalityLayer(input.personality),
-    compileSoulLayer(input.soul),
-    compileUserLayer(input.user),
-    compileSkillsLayer(input.skills),
-    compileAgentLayer(input.agent)
+    input.minimalPrompt ? null : compileSoulLayer(input.soul),
+    compileUserLayer(input.user, input.minimalPrompt),
+    compileSkillsLayer(input.skills, input.minimalPrompt),
+    compileAgentLayer(input.agent, input.minimalPrompt)
   ])
 
   const historyMessages = input.history.flatMap(toModelHistoryMessages)

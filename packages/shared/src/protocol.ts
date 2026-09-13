@@ -695,6 +695,7 @@ export interface ProviderConfig {
 }
 
 export interface ChatConfig {
+  minimalPrompt?: boolean
   activeRunEnterBehavior?: ActiveRunEnterBehavior
   stripCompact?: boolean
   stripCompactThresholdTokens?: number

@@ -249,6 +249,23 @@ export function ChatPane({ draft, onChange }: ChatPaneProps): React.ReactNode {
         <SettingLabel>{t('settings.chat.contextSection')}</SettingLabel>
 
         <SettingItem
+          label="Minimal prompt"
+          description="Use a short persona and runtime facts in local chats and owner DMs. Skip automatic SOUL loading; keep user preferences, memory, and tools."
+          control={
+            <SettingSwitch
+              checked={draft.chat?.minimalPrompt === true}
+              onChange={() =>
+                onChange({
+                  ...draft,
+                  chat: { ...draft.chat, minimalPrompt: draft.chat?.minimalPrompt !== true }
+                })
+              }
+              ariaLabel="Minimal prompt"
+            />
+          }
+        />
+
+        <SettingItem
           label={t('settings.chat.contextHandoffLabel')}
           description={t('settings.chat.contextHandoffDesc')}
           control={

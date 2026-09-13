@@ -131,6 +131,7 @@ export const settingsTomlSlices: readonly TomlConfigSlice<SettingsConfig, TomlDo
         chat: {
           activeRunEnterBehavior:
             config.chat?.activeRunEnterBehavior ?? DEFAULT_ACTIVE_RUN_ENTER_BEHAVIOR,
+          minimalPrompt: config.chat?.minimalPrompt === true,
           stripCompact: config.chat?.stripCompact !== false,
           stripCompactThresholdTokens:
             config.chat?.stripCompactThresholdTokens ?? DEFAULT_STRIP_COMPACT_TOKEN_THRESHOLD,

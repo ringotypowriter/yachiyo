@@ -730,8 +730,18 @@ test('normalization preserves every GeneralConfig key', () => {
   assertKeysPreserved(result.general, sentinel, 'GeneralConfig')
 })
 
+test('minimal prompt defaults off and survives TOML round trips', () => {
+  assert.equal(normalizeSettingsConfig({ providers: [] }).chat?.minimalPrompt, false)
+  for (const enabled of [true, false]) {
+    const config = normalizeSettingsConfig(parseSettingsToml(`[chat]\nminimalPrompt = ${enabled}`))
+    const result = normalizeSettingsConfig(parseSettingsToml(stringifySettingsToml(config)))
+    assert.equal(result.chat?.minimalPrompt, enabled)
+  }
+})
+
 test('normalization preserves every ChatConfig key', () => {
   const sentinel: Required<ChatConfig> = {
+    minimalPrompt: true,
     activeRunEnterBehavior: 'enter-queues-follow-up',
     stripCompact: false,
     stripCompactThresholdTokens: 120_000,

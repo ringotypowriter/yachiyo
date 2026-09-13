@@ -29,7 +29,11 @@ import {
   resolveFileMentionsForUserQuery
 } from '../../../../runtime/files/fileMentions.ts'
 import { prepareModelMessages } from '../../../../runtime/messages/messagePrepare.ts'
-import { EXTERNAL_SYSTEM_PROMPT, SYSTEM_PROMPT } from '../../../../runtime/context/prompt.ts'
+import {
+  EXTERNAL_SYSTEM_PROMPT,
+  MINIMAL_SYSTEM_PROMPT,
+  SYSTEM_PROMPT
+} from '../../../../runtime/context/prompt.ts'
 import {
   buildCurrentTimeSection,
   buildWorkspaceChangedReminderSection,
@@ -376,6 +380,7 @@ export async function prepareServerRunContext(
     })
   }
 
+  const minimalPrompt = config.chat?.minimalPrompt === true && isLocalOrOwnerDm
   const enabledSubagentProfiles = (config.subagentProfiles ?? []).filter((p) => p.enabled)
   const subagentsConfig = config.subagents ?? { mode: 'worker' as const, enabledNamedAgents: [] }
   const hasEnabledWorkerSubagents =
@@ -401,7 +406,8 @@ export async function prepareServerRunContext(
     enabledSubagentProfiles,
     subagentAvailableWorkspaces,
     subagentsConfig,
-    activeSubagents
+    activeSubagents,
+    minimalPrompt
   )
 
   const hiddenQueryReminder = formatQueryReminder(
@@ -537,9 +543,10 @@ export async function prepareServerRunContext(
           memory: { entries: memoryEntries }
         })
       : prepareModelMessages({
+          minimalPrompt,
           personality: {
             basePersona: isLocalOrOwnerDm
-              ? `Today is ${formatDateLine(now, contextTimeZone)}.\n\n${SYSTEM_PROMPT}`
+              ? `Today is ${formatDateLine(now, contextTimeZone)}.\n\n${minimalPrompt ? MINIMAL_SYSTEM_PROMPT : SYSTEM_PROMPT}`
               : SYSTEM_PROMPT
           },
           soul: { content: soulDocument?.rawContent ?? '' },
@@ -548,6 +555,8 @@ export async function prepareServerRunContext(
           agent: {
             instructions: [
               buildAgentInstructions({
+                minimalPrompt,
+                runMode: input.runMode,
                 workspacePath,
                 workspaceLabel: config.workspace?.pathLabels?.[workspacePath],
                 enabledTools: modelEnabledTools,
@@ -569,7 +578,7 @@ export async function prepareServerRunContext(
                 isUserSpecifiedWorkspace: !!input.thread.workspacePath?.trim()
               }),
               ...(isOwnerDm && input.channelHint?.trim() ? [input.channelHint.trim()] : []),
-              ...(isLocalRunTrigger
+              ...(isLocalRunTrigger && !minimalPrompt
                 ? [
                     'Mermaid diagrams in ```mermaid code blocks are rendered as interactive diagrams in this conversation. Write Mermaid code directly — do not suggest the user open it in an external tool.'
                   ]
@@ -616,7 +625,9 @@ export async function prepareServerRunContext(
       threadId: input.thread.id,
       runId: input.runId,
       contextSources: buildContextSources({
-        evolvedTraitCount: (soulDocument?.evolvedTraits ?? []).filter((t) => t.trait.trim()).length,
+        evolvedTraitCount: minimalPrompt
+          ? 0
+          : (soulDocument?.evolvedTraits ?? []).filter((t) => t.trait.trim()).length,
         hasUserContent: (userDocument?.content ?? '').trim().length > 0,
         enabledTools: modelEnabledTools,
         activeSkills,

@@ -33,6 +33,7 @@ export const DEFAULT_SETTINGS_CONFIG: SettingsConfig = {
     }
   },
   chat: {
+    minimalPrompt: false,
     activeRunEnterBehavior: DEFAULT_ACTIVE_RUN_ENTER_BEHAVIOR,
     stripCompact: true,
     stripCompactThresholdTokens: DEFAULT_STRIP_COMPACT_TOKEN_THRESHOLD,

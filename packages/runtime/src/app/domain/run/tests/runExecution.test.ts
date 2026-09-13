@@ -352,6 +352,81 @@ test('executeServerRun persists and emits time to first text token', async () =>
   }
 })
 
+test('minimal prompt reaches run messages without changing tools and reports SOUL as absent', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'yachiyo-minimal-context-'))
+  const thread: ThreadRecord = {
+    id: 'minimal',
+    title: 'Minimal',
+    workspacePath: root,
+    updatedAt: '2026-09-13T00:00:00Z'
+  }
+  const requestMessage: MessageRecord = {
+    id: 'minimal-message',
+    threadId: thread.id,
+    role: 'user',
+    content: 'Hello',
+    status: 'completed',
+    createdAt: thread.updatedAt
+  }
+  const events: unknown[] = []
+  const config: SettingsConfig = {
+    ...DEFAULT_SETTINGS_CONFIG,
+    chat: { ...DEFAULT_SETTINGS_CONFIG.chat, minimalPrompt: true },
+    subagentProfiles: [],
+    workspace: { savedPaths: [] }
+  }
+  const deps = createRunContextDeps({
+    events,
+    messages: [requestMessage],
+    workspacePath: root,
+    config,
+    readSoulDocument: async () => ({
+      filePath: '/tmp/SOUL.md',
+      rawContent: 'SOUL_WORK_INSTRUCTIONS',
+      evolvedTraits: [{ key: 'trait', trait: 'SOUL_WORK_INSTRUCTIONS' }],
+      lastUpdated: thread.updatedAt
+    })
+  })
+  try {
+    const input = {
+      runId: 'minimal-run',
+      thread,
+      requestMessageId: requestMessage.id,
+      enabledTools: ['read' as const],
+      runMode: 'auto' as const,
+      runTrigger: 'local' as const,
+      abortController: new AbortController(),
+      requestMessage,
+      historyMessages: [requestMessage],
+      persistTurnContext: false,
+      includeMemoryRecall: false,
+      applyStripCompact: false
+    }
+    const minimal = await prepareServerRunContext(deps, input)
+    const system = minimal.messages
+      .filter((m) => m.role === 'system')
+      .map((m) => m.content)
+      .join('\n')
+    assert.ok(!system.includes('SOUL_WORK_INSTRUCTIONS'))
+    assert.ok(!system.includes('## Judgment and action'))
+    assert.ok(!system.includes('Available run modes:'))
+    assert.ok(system.includes(root))
+    const compiled = events.find(
+      (event) => (event as { type: string }).type === 'run.context.compiled'
+    ) as {
+      contextSources: Array<{ kind: string; present: boolean }>
+    }
+    assert.equal(compiled.contextSources.find((source) => source.kind === 'soul')?.present, false)
+    config.chat!.minimalPrompt = false
+    const standard = await prepareServerRunContext(deps, input)
+    assert.deepEqual(minimal.modelEnabledTools, standard.modelEnabledTools)
+    assert.ok((standard.messages[0].content as string).includes('SOUL_WORK_INSTRUCTIONS'))
+    assert.ok((standard.messages[0].content as string).includes('## Judgment and action'))
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
 test('prepareServerRunContext injects consumed activity and reports it as a context source', async () => {
   const root = await mkdtemp(join(tmpdir(), 'yachiyo-run-context-'))
   const thread: ThreadRecord = {

@@ -13,6 +13,27 @@ import {
   compileUserLayer
 } from './contextLayers.ts'
 
+test('minimal context omits automatic soul injection but preserves personal and task context', () => {
+  const input = {
+    personality: { basePersona: 'Personal identity' },
+    soul: { content: 'Accumulated work instructions' },
+    user: { content: 'User preferences' },
+    skills: { activeSkills: [{ name: 'example', description: 'Example capability' }] },
+    agent: { instructions: 'Workspace: /tmp/example' },
+    hint: { reminder: 'Current mode: explore' },
+    memory: { entries: ['Past decision'] },
+    history: [{ role: 'user' as const, content: 'Current request' }]
+  }
+  const minimal = compileContextLayers({ ...input, minimalPrompt: true })
+  const standard = compileContextLayers(input)
+  assert.ok(!(minimal[0].content as string).includes(input.soul.content))
+  assert.ok((standard[0].content as string).includes(input.soul.content))
+  for (const content of ['Personal identity', 'User preferences', 'example', '/tmp/example']) {
+    assert.ok((minimal[0].content as string).includes(content))
+  }
+  assert.deepEqual(minimal.slice(1), standard.slice(1))
+})
+
 test('compilePersonalityLayer returns the base persona', () => {
   assert.deepEqual(compilePersonalityLayer({ basePersona: 'Base persona' }), {
     role: 'system',

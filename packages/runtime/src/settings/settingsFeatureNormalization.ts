@@ -147,6 +147,7 @@ export function normalizeChatConfig(value: unknown): ChatConfig {
   const input = asRecord(value)
 
   return {
+    minimalPrompt: normalizeOptionalBool(input['minimalPrompt'], false),
     activeRunEnterBehavior: normalizeActiveRunEnterBehavior(
       input['activeRunEnterBehavior'],
       DEFAULT_ACTIVE_RUN_ENTER_BEHAVIOR

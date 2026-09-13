@@ -2,6 +2,7 @@ import { platform, release } from 'node:os'
 
 import type {
   NamedSubagentId,
+  RunModeId,
   SkillSummary,
   SubagentProfile,
   SubagentSnapshot,
@@ -30,7 +31,8 @@ export function buildSubagentContextBlock(
     mode: 'worker' | 'acp'
     enabledNamedAgents: NamedSubagentId[]
   },
-  activeSubagents: readonly SubagentSnapshot[] = []
+  activeSubagents: readonly SubagentSnapshot[] = [],
+  minimal = false
 ): string {
   const enabledProfiles = profiles.filter((p) => p.enabled)
   const mode = subagentsConfig?.mode ?? 'worker'
@@ -69,13 +71,19 @@ export function buildSubagentContextBlock(
       ? `Agents operate in the current workspace by default (${workspacePath}). To switch workspaces, pass the \`workspace\` parameter with one of the listed paths.`
       : `Agents must stay within the current workspace: ${workspacePath}.`
 
-  const lines = [
-    '<subagents>',
-    'Project rules below govern your work in this workspace and must also be preserved when you delegate. Workspace and profile details describe where delegated agents can run.',
-    '',
-    '<agent_rules>',
-    workspaceRule
-  ]
+  const lines = minimal
+    ? [
+        '<workspace_context>',
+        `默认工作目录：${workspacePath}`,
+        availableWorkspaces.length > 0 ? '可切换的工作目录如下。' : '工作区边界仅限当前目录。'
+      ]
+    : [
+        '<subagents>',
+        'Project rules below govern your work in this workspace and must also be preserved when you delegate. Workspace and profile details describe where delegated agents can run.',
+        '',
+        '<agent_rules>',
+        workspaceRule
+      ]
 
   if (gitContextLines.length > 0) {
     lines.push('', ...gitContextLines)
@@ -89,16 +97,17 @@ export function buildSubagentContextBlock(
   }
 
   if (mode === 'worker') {
-    lines.push(
-      '',
-      'Worker collaboration:',
-      '- `delegateTask` launches a Worker Task asynchronously. The tool call completes when launch succeeds; it does not mean the Task or Worker lifecycle has ended.',
-      '- When your next useful action depends on a running Task, end the current parent turn without presenting the overall work as complete. Every completed Task turn is delivered automatically and wakes this conversation.',
-      '- Use `getTask` with an exact Task ID when you need its current state, latest progress, output, or error. Do not busy-poll.',
-      '- After a Worker finishes a turn, its Task becomes idle and remains addressable with its conversation history until it expires.',
-      '- Continue related work or recover an interrupted idle Task with `steerTask`. A running Task reads the steer at a safe boundary; an idle Task wakes immediately.',
-      '- Launch a new Worker when the work should be independent or no suitable live Worker exists. Code names are display labels, not routing addresses.'
-    )
+    if (!minimal)
+      lines.push(
+        '',
+        'Worker collaboration:',
+        '- `delegateTask` launches a Worker Task asynchronously. The tool call completes when launch succeeds; it does not mean the Task or Worker lifecycle has ended.',
+        '- When your next useful action depends on a running Task, end the current parent turn without presenting the overall work as complete. Every completed Task turn is delivered automatically and wakes this conversation.',
+        '- Use `getTask` with an exact Task ID when you need its current state, latest progress, output, or error. Do not busy-poll.',
+        '- After a Worker finishes a turn, its Task becomes idle and remains addressable with its conversation history until it expires.',
+        '- Continue related work or recover an interrupted idle Task with `steerTask`. A running Task reads the steer at a safe boundary; an idle Task wakes immediately.',
+        '- Launch a new Worker when the work should be independent or no suitable live Worker exists. Code names are display labels, not routing addresses.'
+      )
     if (activeSubagents.length > 0) {
       lines.push('', 'Current live Worker Task roster:')
       for (const subagent of activeSubagents) {
@@ -112,24 +121,27 @@ export function buildSubagentContextBlock(
   }
 
   if (mode === 'acp') {
-    lines.push(
-      '',
-      'Session resume:',
-      '- Omit `session_id` for new tasks.',
-      '- Only pass `session_id` when the user explicitly asks to resume, with an exact ID from a prior `delegateTask` result in context. Never invent one.',
-      '',
-      'Available agent profiles:'
-    )
+    if (!minimal)
+      lines.push(
+        '',
+        'Session resume:',
+        '- Omit `session_id` for new tasks.',
+        '- Only pass `session_id` when the user explicitly asks to resume, with an exact ID from a prior `delegateTask` result in context. Never invent one.'
+      )
+    lines.push('', 'Available agent profiles:')
     for (const profile of enabledProfiles) {
       lines.push(`- ${profile.name}: ${profile.description}`)
     }
   }
 
-  lines.push('</agent_rules>', '</subagents>')
+  if (!minimal) lines.push('</agent_rules>')
+  lines.push(minimal ? '</workspace_context>' : '</subagents>')
   return lines.join('\n')
 }
 
 export function buildAgentInstructions(input: {
+  minimalPrompt?: boolean
+  runMode?: RunModeId
   workspacePath: string
   workspaceLabel?: string
   enabledTools: ToolCallName[]
@@ -143,6 +155,18 @@ export function buildAgentInstructions(input: {
   subagentContextBlock?: string
   isUserSpecifiedWorkspace?: boolean
 }): string {
+  if (input.minimalPrompt) {
+    return [
+      `工作目录：${input.workspacePath}${input.workspaceLabel ? `（${input.workspaceLabel}）` : ''}`,
+      `系统：${platform()} ${release()}`,
+      `当前模式：${input.runMode ?? 'auto'}`,
+      input.userDocumentPath ? `用户资料：${input.userDocumentPath}（已加载）` : '',
+      input.soulDocumentPath ? `长期自我记录：${input.soulDocumentPath}（未自动加载）` : '',
+      input.subagentContextBlock
+    ]
+      .filter(Boolean)
+      .join('\n')
+  }
   const workspaceLine = input.workspaceLabel
     ? `The current thread workspace is ${input.workspacePath} (${input.workspaceLabel}).`
     : `The current thread workspace is ${input.workspacePath}.`
