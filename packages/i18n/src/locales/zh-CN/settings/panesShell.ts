@@ -168,6 +168,9 @@ export const chat = {
   recapDesc: '回到闲置超过 {duration} 的会话时，生成简短摘要。',
   recapToggleAria: '切换闲置会话自动回顾',
   contextSection: '上下文',
+  minimalPromptLabel: '极简提示词',
+  minimalPromptDesc:
+    '本地对话和主人私聊使用简短人格与运行环境信息。不自动加载 SOUL，保留用户偏好、记忆和工具。',
   contextHandoffLabel: '自动上下文交接',
   contextHandoffDesc: '运行变大时对旧上下文存档，并从摘要继续。',
   contextHandoffToggleAria: '切换自动上下文交接',

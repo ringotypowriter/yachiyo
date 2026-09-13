@@ -403,7 +403,7 @@ export function compileAgentLayer(
     role: 'system',
     content: [
       minimal
-        ? '运行环境：'
+        ? 'Runtime environment:'
         : 'This runtime layer describes the current environment, available capabilities, and workspace boundaries. Its facts and boundaries govern how you can carry out the present task without defining your identity or the user’s intent:',
       '',
       instructions
@@ -424,7 +424,7 @@ export function compileUserLayer(
     role: 'system',
     content: [
       minimal
-        ? '用户资料与协作偏好（USER.md）：'
+        ? 'User profile and collaboration preferences (USER.md):'
         : 'USER.md is the durable collaboration profile for the current user. Use it to understand stable facts, preferences, and working style without treating it as the current request or overriding what the user says now:',
       '',
       content
@@ -452,7 +452,7 @@ export function compileSkillsLayer(
     role: 'system',
     content: [
       minimal
-        ? '可用 Skills（通过 skillsRead 读取）：'
+        ? 'Available Skills (read with skillsRead):'
         : 'These Skills are available as procedural guides for this run. Their descriptions tell you when they fit; availability does not make a Skill mandatory. When one matches the task, use skillsRead for its full instructions and read any referenced material the work actually needs:',
       '',
       ...activeSkills.map((skill) =>

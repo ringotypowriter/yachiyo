@@ -74,8 +74,10 @@ export function buildSubagentContextBlock(
   const lines = minimal
     ? [
         '<workspace_context>',
-        `默认工作目录：${workspacePath}`,
-        availableWorkspaces.length > 0 ? '可切换的工作目录如下。' : '工作区边界仅限当前目录。'
+        `Default workspace: ${workspacePath}`,
+        availableWorkspaces.length > 0
+          ? 'Available workspaces are listed below.'
+          : 'Workspace boundary: current directory only.'
       ]
     : [
         '<subagents>',
@@ -157,11 +159,13 @@ export function buildAgentInstructions(input: {
 }): string {
   if (input.minimalPrompt) {
     return [
-      `工作目录：${input.workspacePath}${input.workspaceLabel ? `（${input.workspaceLabel}）` : ''}`,
-      `系统：${platform()} ${release()}`,
-      `当前模式：${input.runMode ?? 'auto'}`,
-      input.userDocumentPath ? `用户资料：${input.userDocumentPath}（已加载）` : '',
-      input.soulDocumentPath ? `长期自我记录：${input.soulDocumentPath}（未自动加载）` : '',
+      `Workspace: ${input.workspacePath}${input.workspaceLabel ? ` (${input.workspaceLabel})` : ''}`,
+      `System: ${platform()} ${release()}`,
+      `Current mode: ${input.runMode ?? 'auto'}`,
+      input.userDocumentPath ? `User profile: ${input.userDocumentPath} (loaded)` : '',
+      input.soulDocumentPath
+        ? `Long-term self-record: ${input.soulDocumentPath} (not automatically loaded)`
+        : '',
       input.subagentContextBlock
     ]
       .filter(Boolean)

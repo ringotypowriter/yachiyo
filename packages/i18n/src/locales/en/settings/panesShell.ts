@@ -172,6 +172,9 @@ export const chat = {
   recapDesc: 'Generate a brief summary when returning to a thread idle for {duration}+.',
   recapToggleAria: 'Toggle auto-recap on idle threads',
   contextSection: 'Context',
+  minimalPromptLabel: 'Minimal prompt',
+  minimalPromptDesc:
+    'Use a short persona and runtime facts in local chats and owner DMs. Skip automatic SOUL loading; keep user preferences, memory, and tools.',
   contextHandoffLabel: 'Automatic context handoff',
   contextHandoffDesc: 'Checkpoint old context and continue from a summary when a run gets large.',
   contextHandoffToggleAria: 'Toggle automatic context handoff',
