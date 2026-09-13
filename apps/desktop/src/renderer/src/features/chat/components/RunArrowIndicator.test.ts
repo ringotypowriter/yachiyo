@@ -66,7 +66,9 @@ test('run arrows retain uploading, downloading, tool execution and idle states',
       await render({
         runPhasesByThread: { t: 'preparing' },
         activeRunIdsByThread: { t: 'run' },
-        pendingAssistantMessages: { run: { threadId: 't', messageId: 'm' } },
+        pendingAssistantMessages: {
+          run: { threadId: 't', messageId: 'm', shouldStartNewTextBlock: true }
+        },
         messages: {
           t: [
             {
