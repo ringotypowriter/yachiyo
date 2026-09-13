@@ -9,16 +9,17 @@ interface RunAvatarInput {
   working: boolean
   waiting: boolean
   textPending?: boolean
+  hasRunProgress?: boolean
 }
 
 export function resolveRunAvatarPhase(input: RunAvatarInput): AvatarPhase {
   if (!input.active) return 'idle'
   if (input.waiting) return 'waiting'
   if (input.working) return 'working'
-  if (!input.receiving) return 'loading'
+  if (!input.receiving)
+    return input.hasRunProgress || input.hasText || input.hasReasoning ? 'thinking' : 'loading'
   if (input.hasText && !input.textPending) return 'speaking'
-  if (input.hasReasoning) return 'thinking'
-  return 'loading'
+  return 'thinking'
 }
 
 export function selectRunAvatarPhase(state: AppState, threadId: string | null): AvatarPhase {
@@ -28,7 +29,7 @@ export function selectRunAvatarPhase(state: AppState, threadId: string | null): 
   const requestId = state.activeRequestMessageIdsByThread[threadId]
   const message = pending
     ? state.messages[threadId]?.find((item) => item.id === pending.messageId)
-    : requestId
+    : requestId && state.runPhasesByThread[threadId] !== 'preparing'
       ? state.messages[threadId]?.findLast(
           (item) => item.role === 'assistant' && item.parentMessageId === requestId
         )
@@ -41,6 +42,10 @@ export function selectRunAvatarPhase(state: AppState, threadId: string | null): 
     hasText: Boolean(message?.content.trim()),
     hasReasoning: Boolean(message?.reasoning),
     textPending: pending?.shouldStartNewTextBlock,
+    hasRunProgress:
+      state.runPhasesByThread[threadId] === 'streaming' ||
+      tools.length > 0 ||
+      Boolean(state.retryInfoByThread[threadId]),
     working: tools.some((tool) => tool.status === 'preparing' || tool.status === 'running'),
     waiting: tools.some((tool) => tool.status === 'waiting-for-user')
   })

@@ -40,12 +40,12 @@ test('message completion does not flash loading before the run completion arrive
   assert.equal(selectRunAvatarPhase(state, 'a'), 'speaking')
   assert.equal(
     selectRunAvatarPhase({ ...state, activeRequestMessageIdsByThread: { a: 'other' } }, 'a'),
-    'loading'
+    'thinking'
   )
   assert.equal(selectRunAvatarPhase({ ...state, activeRunIdsByThread: {} }, 'a'), 'idle')
 })
 
-test('composer and timeline share loading during retry even after receiving reasoning', () => {
+test('retry waiting stays thinking after a run has started responding', () => {
   const state = {
     ...useAppStore.getInitialState(),
     activeRunIdsByThread: { a: 'r' },
@@ -68,7 +68,7 @@ test('composer and timeline share loading during retry even after receiving reas
     },
     retryInfoByThread: { a: { attempt: 1, maxAttempts: 3, error: 'Temporary failure' } }
   }
-  assert.equal(selectRunAvatarPhase(state, 'a'), 'loading')
+  assert.equal(selectRunAvatarPhase(state, 'a'), 'thinking')
   assert.equal(selectRunAvatarPhase({ ...state, retryInfoByThread: {} }, 'a'), 'thinking')
 })
 
@@ -97,14 +97,81 @@ test('tools from a previous run cannot override the active run', () => {
   )
 })
 
-test('loading becomes thinking only with model output, and text output becomes speaking', () => {
+test('only the initial network wait is loading; subsequent waits are thinking', () => {
   assert.equal(resolveRunAvatarPhase(active), 'loading')
-  assert.equal(resolveRunAvatarPhase({ ...active, hasReasoning: true }), 'loading')
+  assert.equal(resolveRunAvatarPhase({ ...active, hasReasoning: true }), 'thinking')
+  assert.equal(resolveRunAvatarPhase({ ...active, hasText: true }), 'thinking')
+  assert.equal(resolveRunAvatarPhase({ ...active, receiving: true }), 'thinking')
   assert.equal(
     resolveRunAvatarPhase({ ...active, receiving: true, hasReasoning: true }),
     'thinking'
   )
   assert.equal(resolveRunAvatarPhase({ ...active, receiving: true, hasText: true }), 'speaking')
+})
+
+test('tool-only runs and continued requests enter thinking without any reasoning text', () => {
+  const state = {
+    ...useAppStore.getInitialState(),
+    activeRunIdsByThread: { a: 'r' },
+    runPhasesByThread: { a: 'preparing' as const }
+  }
+  assert.equal(selectRunAvatarPhase(state, 'a'), 'loading')
+  assert.equal(
+    selectRunAvatarPhase({ ...state, runPhasesByThread: { a: 'streaming' } }, 'a'),
+    'thinking'
+  )
+  const tool = {
+    id: 'tool',
+    runId: 'r',
+    threadId: 'a',
+    toolName: 'read' as const,
+    status: 'completed' as const,
+    inputSummary: '',
+    startedAt: '2026-09-13T00:00:00Z'
+  }
+  assert.equal(selectRunAvatarPhase({ ...state, toolCalls: { a: [tool] } }, 'a'), 'thinking')
+  assert.equal(
+    selectRunAvatarPhase(
+      { ...state, toolCalls: { a: [tool] }, activeRunIdsByThread: { a: 'new' } },
+      'a'
+    ),
+    'loading'
+  )
+  assert.equal(
+    selectRunAvatarPhase(
+      { ...state, retryInfoByThread: { a: { attempt: 1, maxAttempts: 3, error: 'retry' } } },
+      'a'
+    ),
+    'thinking'
+  )
+})
+
+test('a new run for an existing request starts loading instead of reusing its old answer', () => {
+  assert.equal(
+    selectRunAvatarPhase(
+      {
+        ...useAppStore.getInitialState(),
+        activeRunIdsByThread: { a: 'new-run' },
+        activeRequestMessageIdsByThread: { a: 'request' },
+        runPhasesByThread: { a: 'preparing' },
+        messages: {
+          a: [
+            {
+              id: 'old-answer',
+              threadId: 'a',
+              parentMessageId: 'request',
+              role: 'assistant',
+              content: 'Previous reply',
+              status: 'completed',
+              createdAt: '2026-09-13T00:00:00Z'
+            }
+          ]
+        }
+      },
+      'a'
+    ),
+    'loading'
+  )
 })
 
 test('waiting and tool work take priority over stale model output', () => {

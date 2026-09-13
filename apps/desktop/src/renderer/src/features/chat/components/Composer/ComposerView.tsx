@@ -31,6 +31,7 @@ import { SlashCommandPopup } from '../SlashCommandPopup'
 import { SkillsSelectorPopup } from '../SkillsSelectorPopup'
 import { ToolSelectorPopup } from '../ToolSelectorPopup'
 import { ReasoningSelectorPopup } from '../ReasoningSelectorPopup'
+import { RunArrowIndicator } from '../RunArrowIndicator'
 import { WorkspaceSelectorPopup } from '../WorkspaceSelectorPopup'
 import { WorkspaceSuggestionPopup } from './WorkspaceSuggestionPopup'
 import { SmoothCaretOverlay } from '../SmoothCaretOverlay'
@@ -1168,8 +1169,16 @@ export function ComposerView(props: any): React.JSX.Element {
                   {formatTokenCount(estimatedDraftTokens)}
                 </span>
               ) : null}
+              <RunArrowIndicator />
             </span>
           </Tooltip>
+        ) : showRunStats ? (
+          <span
+            className="text-xs flex items-center"
+            style={{ color: theme.text.secondary, opacity: 0.7, userSelect: 'none' }}
+          >
+            <RunArrowIndicator />
+          </span>
         ) : null}
 
         <div className="ml-auto flex items-center gap-2">
