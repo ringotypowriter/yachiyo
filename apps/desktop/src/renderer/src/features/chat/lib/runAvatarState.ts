@@ -25,10 +25,11 @@ export function resolveRunAvatarPhase(input: RunAvatarInput): AvatarPhase {
 export function selectRunAvatarPhase(state: AppState, threadId: string | null): AvatarPhase {
   if (!threadId) return 'idle'
   const runId = state.activeRunIdsByThread[threadId]
+  if (!runId && (state.runPhasesByThread[threadId] ?? 'idle') === 'idle') return 'idle'
   const pending = runId ? state.pendingAssistantMessages[runId] : undefined
   const requestId = state.activeRequestMessageIdsByThread[threadId]
   const message = pending
-    ? state.messages[threadId]?.find((item) => item.id === pending.messageId)
+    ? state.messages[threadId]?.findLast((item) => item.id === pending.messageId)
     : requestId && state.runPhasesByThread[threadId] !== 'preparing'
       ? state.messages[threadId]?.findLast(
           (item) => item.role === 'assistant' && item.parentMessageId === requestId

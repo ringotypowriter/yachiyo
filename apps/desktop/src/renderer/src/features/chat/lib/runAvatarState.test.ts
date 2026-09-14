@@ -16,6 +16,50 @@ const active = {
   waiting: false
 }
 
+test('idle avatar selection does not read message or tool history', () => {
+  const state = {
+    ...useAppStore.getInitialState(),
+    get messages(): ReturnType<typeof useAppStore.getState>['messages'] {
+      throw new Error('Idle avatars must not scan message history')
+    },
+    get toolCalls(): ReturnType<typeof useAppStore.getState>['toolCalls'] {
+      throw new Error('Idle avatars must not scan tool history')
+    }
+  }
+  assert.equal(selectRunAvatarPhase(state, 'a'), 'idle')
+})
+
+test('streaming avatar selection finds the current message from the end of history', () => {
+  const message = {
+    id: 'current',
+    threadId: 'a',
+    role: 'assistant' as const,
+    content: 'Streaming',
+    status: 'streaming' as const,
+    createdAt: '2026-09-14T00:00:00Z'
+  }
+  const state = {
+    ...useAppStore.getInitialState(),
+    activeRunIdsByThread: { a: 'r' },
+    receivingModelOutputByThread: { a: true },
+    pendingAssistantMessages: {
+      r: { threadId: 'a', messageId: 'current', shouldStartNewTextBlock: false }
+    },
+    messages: {
+      a: [
+        {
+          ...message,
+          get id(): string {
+            throw new Error('Current output must be found before older messages are visited')
+          }
+        },
+        message
+      ]
+    }
+  }
+  assert.equal(selectRunAvatarPhase(state, 'a'), 'speaking')
+})
+
 test('message completion does not flash loading before the run completion arrives', () => {
   const state = {
     ...useAppStore.getInitialState(),

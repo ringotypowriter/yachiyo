@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { memo, useEffect, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { useAppStore, type AppState } from '@renderer/app/store/useAppStore'
 import { YachiyoAvatar } from '@renderer/components/avatar/YachiyoAvatar'
@@ -12,7 +12,6 @@ function selectIndicator(state: AppState): {
   runId: string | null
   completedRunId?: string
   status: string
-  phase: AvatarPhase
 } {
   const threadId = state.activeThreadId
   const latest = threadId ? state.latestRunsByThread[threadId] : undefined
@@ -20,14 +19,18 @@ function selectIndicator(state: AppState): {
     threadId,
     runId: threadId ? (state.activeRunIdsByThread[threadId] ?? null) : null,
     completedRunId: latest?.id,
-    status: latest?.status ?? 'idle',
-    phase: selectRunAvatarPhase(state, threadId)
+    status: latest?.status ?? 'idle'
   }
 }
 
-export function ConversationAvatar(): React.JSX.Element {
+function selectPhase(state: AppState): AvatarPhase {
+  return selectRunAvatarPhase(state, state.activeThreadId)
+}
+
+export const ConversationAvatar = memo(function ConversationAvatar(): React.JSX.Element {
   const current = useAppStore(useShallow(selectIndicator))
-  const visible = useAvatarVisibility(current.phase !== 'idle', current.threadId)
+  const runPhase = useAppStore(selectPhase)
+  const visible = useAvatarVisibility(runPhase !== 'idle', current.threadId)
   const [celebratingThread, setCelebratingThread] = useState<string | null>(null)
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout> | undefined
@@ -53,16 +56,17 @@ export function ConversationAvatar(): React.JSX.Element {
   }, [])
 
   const celebrating =
-    current.phase === 'idle' && celebratingThread !== null && celebratingThread === current.threadId
-  const phase = celebrating ? 'success' : current.phase
+    runPhase === 'idle' && celebratingThread !== null && celebratingThread === current.threadId
+  const phase = celebrating ? 'success' : runPhase
   return (
     <div className="conversation-avatar" data-conversation-avatar aria-hidden={!visible}>
       <YachiyoAvatar
         phase={phase}
         size="conversation"
+        static={!visible}
         idleWink={false}
         label={`Yachiyo: ${avatarLabels[phase]}`}
       />
     </div>
   )
-}
+})
