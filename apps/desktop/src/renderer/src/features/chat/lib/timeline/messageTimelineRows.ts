@@ -297,7 +297,7 @@ function keepLatestPlanDocumentAnchorRow(rows: MessageTimelineRow[]): MessageTim
   )
 }
 
-function resolveAssistantTextBlocks(message: Message): MessageTextBlockRecord[] {
+export function resolveAssistantTextBlocks(message: Message): MessageTextBlockRecord[] {
   if (message.visibleReply !== undefined) {
     if (message.visibleReply.trim().length === 0) return []
     return [
@@ -326,7 +326,7 @@ function resolveAssistantTextBlocks(message: Message): MessageTextBlockRecord[] 
   return []
 }
 
-function getActiveAssistantMessages(group: MessageGroup): Message[] {
+export function getActiveAssistantMessages(group: MessageGroup): Message[] {
   if (group.activeAssistantMessages.length > 0) {
     return group.activeAssistantMessages
   }

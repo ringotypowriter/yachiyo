@@ -419,7 +419,6 @@ export async function prepareServerRunContext(
           })
         : null,
       buildCurrentTimeSection(hintTime, {
-        includeDate: !isLocalOrOwnerDm,
         timeZone: contextTimeZone
       }),
       buildInboundAttachmentReminderSection(buildInboundAttachmentReminderItems(requestMessage)),

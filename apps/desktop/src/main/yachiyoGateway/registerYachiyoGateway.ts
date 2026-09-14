@@ -143,6 +143,7 @@ import { IPC_CHANNELS } from './ipcChannels.ts'
 import { registerBackgroundTaskIpc } from './backgroundTaskIpc.ts'
 import { registerPythonEnvironmentIpc } from './pythonEnvironmentIpc.ts'
 import { normalizePngBytes, normalizePngFilename, type SavePngFileInput } from './pngFile.ts'
+import { registerPngExportHandlers } from './pngExportHandlers.ts'
 import { registerProviderBackupHandlers } from './providerBackupHandlers.ts'
 import type { AppUpdateController } from '../electron/appUpdateController.ts'
 
@@ -1337,6 +1338,8 @@ export function registerYachiyoGateway(options: {
   )
 
   registerGatewayFileHandlers(handleYachiyoIpc)
+
+  registerPngExportHandlers(ipcMain, BrowserWindow)
 
   ipcMain.removeHandler(IPC_CHANNELS.savePngFile)
   ipcMain.handle(IPC_CHANNELS.savePngFile, async (event, input: SavePngFileInput) => {

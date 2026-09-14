@@ -306,6 +306,12 @@ const api = {
       defaultFilename?: string
     }): Promise<{ canceled: true } | { canceled: false; filePath: string }> =>
       ipcRenderer.invoke('yachiyo:save-png-file', input),
+    savePngFiles: (input: {
+      pages: ArrayBuffer[]
+      filenamePrefix?: string
+    }): Promise<
+      { canceled: true } | { canceled: false; directoryPath: string; filePaths: string[] }
+    > => ipcRenderer.invoke('yachiyo:save-png-files', input),
     getUsageStats: (
       input: import('@yachiyo/shared/protocol').UsageStatsInput
     ): Promise<import('@yachiyo/shared/protocol').UsageStatsResponse> =>

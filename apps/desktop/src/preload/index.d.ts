@@ -241,6 +241,12 @@ declare global {
           pngData: ArrayBuffer
           defaultFilename?: string
         }) => Promise<{ canceled: true } | { canceled: false; filePath: string }>
+        savePngFiles: (input: {
+          pages: ArrayBuffer[]
+          filenamePrefix?: string
+        }) => Promise<
+          { canceled: true } | { canceled: false; directoryPath: string; filePaths: string[] }
+        >
         getUsageStats: (input: UsageStatsInput) => Promise<UsageStatsResponse>
         getPerfStats: () => Promise<PerfStatsResponse>
 

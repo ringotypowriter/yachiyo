@@ -40,11 +40,14 @@ import { InlineToolDeck } from './InlineToolDeck'
 import { ThinkingBlock } from './ThinkingBlock'
 import { AgentWorkSummaryRow } from './AgentWorkSummaryRow'
 import { MessageActionBar } from './MessageActionBar'
+import type { ResponseShareInput } from '../lib/share/responseShareModel'
 import { RunStatsFooter } from './RunStatsFooter'
 import { PlanDocumentCard } from './PlanDocumentCard'
 import { PlanDocumentTimelineCard } from './PlanDocumentTimelineCard'
 
 export interface TimelineItemRenderContext {
+  onShareImage: (target: Pick<ResponseShareInput, 'group' | 'rootMessage'>) => void
+  canShareImage: (target: Pick<ResponseShareInput, 'group' | 'rootMessage'>) => boolean
   threadCapabilities: ReturnType<typeof getThreadCapabilities> | null
   threadHasActiveRun: boolean
   threadIsSaving: boolean
@@ -240,6 +243,12 @@ function renderTimelineItem(
             workspacePath={workspacePath}
           />
         )}
+        <MessageActionBar
+          align="start"
+          content=""
+          onShareImage={() => context.onShareImage({ rootMessage: item.data })}
+          shareImageDisabled={!context.canShareImage({ rootMessage: item.data })}
+        />
       </div>
     )
   }
@@ -299,6 +308,18 @@ function renderTimelineItem(
           }
           onDelete={canDeleteMessages ? () => onDelete(group.userMessage.id) : undefined}
         />
+        {!activeBranch &&
+        group.activeAssistantMessages.length === 0 &&
+        toolCalls.some((tool) => tool.requestMessageId === group.userMessage.id) ? (
+          <div className="px-6">
+            <MessageActionBar
+              align="start"
+              content=""
+              onShareImage={() => context.onShareImage({ group })}
+              shareImageDisabled={!context.canShareImage({ group })}
+            />
+          </div>
+        ) : null}
       </div>
     )
   }
@@ -434,7 +455,9 @@ function renderTimelineItem(
             style={{ color: theme.text.danger }}
           >
             {item.failedRunError
-              ? t('chat.timeline.failedWithError', { error: item.failedRunError })
+              ? t('chat.timeline.failedWithError', {
+                  error: item.failedRunError
+                })
               : t('chat.timeline.failedToGenerate')}
           </div>
         ) : null}
@@ -457,6 +480,8 @@ function renderTimelineItem(
         <MessageActionBar
           align="start"
           content={item.assistantMessage.content}
+          onShareImage={() => context.onShareImage({ group })}
+          shareImageDisabled={!context.canShareImage({ group })}
           canRetry={canRetryAssistantMessage({
             messageStatus: item.assistantMessage.status,
             threadCapabilities,

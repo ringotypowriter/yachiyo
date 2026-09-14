@@ -34,24 +34,50 @@ export function detectHeavyMarkdownFeatures(content: string): HeavyMarkdownFeatu
 function loadRequestedPlugins(features: HeavyMarkdownFeatures): Promise<void> {
   const loads: Promise<void>[] = []
   if (features.code && !loadedPlugins.code) {
-    codeLoadPromise ??= import('@streamdown/code').then((module) => {
-      loadedPlugins.code = module.code
-    })
+    codeLoadPromise ??= import('@streamdown/code')
+      .then((module) => {
+        loadedPlugins.code = module.code
+      })
+      .catch((error) => {
+        codeLoadPromise = null
+        throw error
+      })
     loads.push(codeLoadPromise)
   }
   if (features.math && !loadedPlugins.math) {
-    mathLoadPromise ??= import('./mathPlugin').then((module) => {
-      loadedPlugins.math = module.mathPlugin
-    })
+    mathLoadPromise ??= import('./mathPlugin')
+      .then((module) => {
+        loadedPlugins.math = module.mathPlugin
+      })
+      .catch((error) => {
+        mathLoadPromise = null
+        throw error
+      })
     loads.push(mathLoadPromise)
   }
   if (features.mermaid && !loadedPlugins.mermaid) {
-    mermaidLoadPromise ??= import('@streamdown/mermaid').then((module) => {
-      loadedPlugins.mermaid = module.mermaid
-    })
+    mermaidLoadPromise ??= import('@streamdown/mermaid')
+      .then((module) => {
+        loadedPlugins.mermaid = module.mermaid
+      })
+      .catch((error) => {
+        mermaidLoadPromise = null
+        throw error
+      })
     loads.push(mermaidLoadPromise)
   }
   return Promise.all(loads).then(() => undefined)
+}
+
+/** Resolve rich syntax before mounting an export-only renderer. Rejections are explicit. */
+export async function loadHeavyMarkdownPlugins(content: string): Promise<HeavyMarkdownPlugins> {
+  const features = detectHeavyMarkdownFeatures(content)
+  await loadRequestedPlugins(features)
+  return {
+    ...(features.code ? { code: loadedPlugins.code } : {}),
+    ...(features.math ? { math: loadedPlugins.math } : {}),
+    ...(features.mermaid ? { mermaid: loadedPlugins.mermaid } : {})
+  }
 }
 
 export function useHeavyMarkdownPlugins(content: string): HeavyMarkdownPlugins | null {

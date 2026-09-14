@@ -87,6 +87,7 @@
     "electron-updater": "^6.8.3",
     "eventsource-parser": "^3.0.6",
     "framer-motion": "^12.38.0",
+    "html-to-image": "^1.11.13",
     "htmlparser2": "^12.0.0",
     "ignore": "^7.0.5",
     "jieba-wasm": "^2.4.0",

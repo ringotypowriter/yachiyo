@@ -205,7 +205,7 @@ function collectResponseMessageTrace(responseMessages?: unknown[]): ResponseMess
   return { timelineParts, toolCalls }
 }
 
-function collectResponseMessageToolTrace(
+export function collectResponseMessageToolTrace(
   responseMessages?: unknown[]
 ): Map<string, ResponseMessageToolTrace> {
   return collectResponseMessageTrace(responseMessages).toolCalls

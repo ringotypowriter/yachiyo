@@ -1,6 +1,6 @@
 import type React from 'react'
 import { useEffect, useState } from 'react'
-import { Check, Copy, GitBranchPlus, Pencil, RotateCcw, Trash2, Undo2 } from 'lucide-react'
+import { Check, Copy, GitBranchPlus, Image, Pencil, RotateCcw, Trash2, Undo2 } from 'lucide-react'
 import { theme } from '@renderer/theme/theme'
 import { useT } from '@yachiyo/i18n/react'
 import { copyTextWithFallback } from '../lib/messages/copyTextWithFallback'
@@ -14,6 +14,8 @@ interface MessageActionBarProps {
   onCreateBranch?: () => Promise<void> | void
   onDelete?: () => Promise<void> | void
   onRevert?: () => Promise<void> | void
+  onShareImage?: () => void
+  shareImageDisabled?: boolean
 }
 
 function ActionButton({
@@ -55,7 +57,9 @@ export function MessageActionBar({
   onRetry,
   onCreateBranch,
   onDelete,
-  onRevert
+  onRevert,
+  onShareImage,
+  shareImageDisabled = false
 }: MessageActionBarProps): React.JSX.Element {
   const t = useT()
   const [copyState, setCopyState] = useState<'idle' | 'copied' | 'failed'>('idle')
@@ -108,6 +112,14 @@ export function MessageActionBar({
           }
           success={copyState === 'copied'}
           onClick={handleCopy}
+        />
+      ) : null}
+      {onShareImage ? (
+        <ActionButton
+          icon={<Image size={12} strokeWidth={1.7} />}
+          label="Share as image"
+          disabled={shareImageDisabled}
+          onClick={onShareImage}
         />
       ) : null}
       {onEdit ? (

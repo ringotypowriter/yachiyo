@@ -399,7 +399,7 @@ function compareTimelineEntries(
 
   return left.priority - right.priority
 }
-function buildChronologicalTimelineItems(input: {
+export function buildChronologicalTimelineItems(input: {
   activeAssistantTextBlocks: readonly MessageTextBlockRecord[]
   visibleToolCalls: readonly ToolCall[]
   sourceTrace?: readonly AssistantResponseTimelineTraceSegment[]

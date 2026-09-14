@@ -12,6 +12,8 @@ interface YachiyoAvatarProps {
   /** Change this number to request one wink without restarting the body morph. */
   wink?: number
   idleWink?: boolean
+  /** A deterministic, motion-free avatar for exported documents. */
+  static?: boolean
   label?: string
 }
 
@@ -33,6 +35,7 @@ export function YachiyoAvatar({
   size = 'inline',
   wink = 0,
   idleWink = true,
+  static: staticAvatar = false,
   label
 }: YachiyoAvatarProps): React.JSX.Element {
   const id = `avatar-${useId().replace(/:/g, '')}`
@@ -58,7 +61,7 @@ export function YachiyoAvatar({
     }
   }, [])
 
-  const moving = visible && pageVisible && !reducedMotion
+  const moving = visible && pageVisible && !reducedMotion && !staticAvatar
   const dots = phase === 'loading'
   const winkProgress = useMotionValue(0)
   const activity = useActivityMotion(phase, moving, wink, winkProgress)
@@ -265,6 +268,7 @@ export function YachiyoAvatar({
                         >
                           <motion.path
                             className={`yachiyo-avatar__eye yachiyo-avatar__eye--${index === 0 ? 'wink' : 'smile'}`}
+                            fill="var(--avatar-eyes)"
                             d={path}
                           />
                         </motion.g>

@@ -1,5 +1,5 @@
 import type React from 'react'
-import { memo, useCallback, useMemo } from 'react'
+import { useCallback, useMemo } from 'react'
 import type {
   Components,
   LinkSafetyConfig,
@@ -7,8 +7,6 @@ import type {
   PluginConfig,
   UrlTransform
 } from 'streamdown'
-import { Streamdown } from 'streamdown'
-import type { PluggableList } from 'unified'
 import { MarkdownErrorBoundary } from './MarkdownErrorBoundary'
 import { LinkSafetyModal } from './LinkSafetyModal'
 import { LinkableCode } from './LinkableCode'
@@ -25,14 +23,15 @@ import {
   MarkdownImageProvider,
   type MarkdownImageContextValue
 } from './MarkdownImage'
-import { getMessageMarkdownAnimation } from './messageMarkdownAnimation'
 import type { InlineCodeFileLinkSnapshot } from './inlineCodeFileLinkSnapshot'
 import { WorkspaceFileLink } from './WorkspaceFileLink'
 import type { WorkspaceFileOperationScope } from './workspaceFileLinkAction'
 import { splitStreamingMarkdownSegments } from './streamingMarkdownSegments'
 import { createMermaidOptions, useDocumentThemeVariant } from './mermaidTheme'
 import { markdownCjkPlugin } from './markdownCjkPlugin'
-import type { ThemeVariant } from '../../theme/theme'
+import type { ResponseShareTheme } from '../../features/chat/lib/share/responseShareTheme'
+import { MarkdownStreamdown } from './MarkdownStreamdown'
+import { ReadonlyMarkdown } from './ReadonlyMarkdown'
 
 function waitForNextPaint(): Promise<void> {
   return new Promise((resolve) => {
@@ -44,6 +43,7 @@ function waitForNextPaint(): Promise<void> {
 
 interface MessageMarkdownProps {
   content: string
+  share?: { theme: ResponseShareTheme; workspacePath?: string }
   isStreaming?: boolean
   /**
    * When provided, markdown image syntax is rendered: remote URLs become a
@@ -57,57 +57,7 @@ interface MessageMarkdownProps {
   workspaceFileScope?: WorkspaceFileOperationScope
 }
 
-interface MarkdownStreamdownProps {
-  content: string
-  isStreaming: boolean
-  linkSafety: LinkSafetyConfig
-  components: Components
-  plugins: PluginConfig
-  mermaidOptions: MermaidOptions
-  mermaidThemeKey: ThemeVariant
-  rehypePlugins: PluggableList
-  urlTransform?: UrlTransform
-}
-
-const MarkdownStreamdown = memo(function MarkdownStreamdown({
-  content,
-  isStreaming,
-  linkSafety,
-  components,
-  plugins,
-  mermaidOptions,
-  mermaidThemeKey,
-  rehypePlugins,
-  urlTransform
-}: MarkdownStreamdownProps): React.JSX.Element {
-  const animated = useMemo(() => getMessageMarkdownAnimation(isStreaming), [isStreaming])
-  // Streamdown caches parsed static content. Remount when a lazy syntax plugin
-  // arrives so the already-rendered source is parsed with that plugin.
-  const syntaxPluginKey = `${Boolean(plugins.code)}:${Boolean(plugins.math)}:${Boolean(
-    plugins.mermaid
-  )}`
-
-  return (
-    <Streamdown
-      key={`${mermaidThemeKey}:${syntaxPluginKey}`}
-      isAnimating={isStreaming}
-      animated={animated}
-      caret={isStreaming ? 'circle' : undefined}
-      mode={isStreaming ? 'streaming' : 'static'}
-      controls={true}
-      plugins={plugins}
-      mermaid={mermaidOptions}
-      rehypePlugins={rehypePlugins}
-      linkSafety={linkSafety}
-      components={components}
-      urlTransform={urlTransform}
-    >
-      {content}
-    </Streamdown>
-  )
-})
-
-export function MessageMarkdown({
+function LiveMessageMarkdown({
   content,
   isStreaming = false,
   imageContext,
@@ -285,5 +235,14 @@ export function MessageMarkdown({
         </div>
       </MarkdownImageProvider>
     </MarkdownErrorBoundary>
+  )
+}
+
+/** Share rendering never receives live-message actions or download callbacks. */
+export function MessageMarkdown(props: MessageMarkdownProps): React.JSX.Element {
+  return props.share ? (
+    <ReadonlyMarkdown content={props.content} {...props.share} />
+  ) : (
+    <LiveMessageMarkdown {...props} />
   )
 }

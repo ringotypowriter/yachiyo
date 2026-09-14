@@ -51,6 +51,13 @@ import {
 import { TimelineItemContent, type TimelineItemRenderContext } from './TimelineItemContent'
 import { resolveLegacySubagentIds } from './subagentIndicatorState'
 import { BrowserTimelineView } from './BrowserTimelineView'
+import { ResponseShareDialog } from './share/ResponseShareDialog'
+import {
+  buildResponseShareSnapshot,
+  canShareResponseImage,
+  type ResponseShareInput,
+  type ResponseShareSnapshot
+} from '../lib/share/responseShareModel'
 import type { MessageTimelineSurface } from './TimelineSurfaceHeader'
 import type { BrowserActivitySession } from '../lib/browser-activity/browserActivity'
 
@@ -210,6 +217,8 @@ export function MessageTimeline({
 }: MessageTimelineProps): React.JSX.Element {
   const t = useT()
   const dialog = useAppDialog()
+  const [shareSnapshot, setShareSnapshot] = useState<ResponseShareSnapshot | null>(null)
+  useEffect(() => setShareSnapshot(null), [threadId])
   const [expandedHandoffFoldKeys, setExpandedHandoffFoldKeys] = useState<Set<string>>(
     () => new Set()
   )
@@ -1065,8 +1074,40 @@ export function MessageTimeline({
 
   const isAcpThread = thread?.runtimeBinding?.kind === 'acp'
 
+  const captureShareImage = useCallback(
+    (target: Pick<ResponseShareInput, 'group' | 'rootMessage'>) =>
+      buildResponseShareSnapshot({
+        ...target,
+        messages,
+        toolCalls,
+        runs,
+        activeRequestMessageId,
+        workspacePath
+      }),
+    [messages, toolCalls, runs, activeRequestMessageId, workspacePath]
+  )
+  const handleShareImage = useCallback(
+    (target: Pick<ResponseShareInput, 'group' | 'rootMessage'>) =>
+      setShareSnapshot(captureShareImage(target)),
+    [captureShareImage]
+  )
+  const canShareImage = useCallback(
+    (target: Pick<ResponseShareInput, 'group' | 'rootMessage'>) =>
+      canShareResponseImage({
+        ...target,
+        messages,
+        toolCalls,
+        runs,
+        activeRequestMessageId,
+        workspacePath
+      }),
+    [messages, toolCalls, runs, activeRequestMessageId, workspacePath]
+  )
+
   const timelineItemContext = useMemo<TimelineItemRenderContext>(
     () => ({
+      onShareImage: handleShareImage,
+      canShareImage,
       threadCapabilities,
       threadHasActiveRun,
       threadIsSaving,
@@ -1095,6 +1136,8 @@ export function MessageTimeline({
       onTimelineRowSizeChange: handleTimelineRowSizeChange
     }),
     [
+      handleShareImage,
+      canShareImage,
       threadCapabilities,
       threadHasActiveRun,
       threadIsSaving,
@@ -1141,6 +1184,9 @@ export function MessageTimeline({
 
   return (
     <div className="flex-1 relative min-h-0 min-w-0 flex flex-col">
+      {shareSnapshot ? (
+        <ResponseShareDialog snapshot={shareSnapshot} onClose={() => setShareSnapshot(null)} />
+      ) : null}
       <div className="message-surface-body">
         {activeSurface === 'browser' ? (
           <BrowserTimelineView
