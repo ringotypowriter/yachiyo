@@ -146,7 +146,7 @@ export function createTool(
       'Browser automation for opening pages, inspecting content, clicking, filling forms, scrolling, and capturing screenshots or PDFs. You can also run JavaScript in the page with action="eval". The browser window is visible to the user and they can interact with it directly. If a step requires human action (e.g. CAPTCHA, login, 2FA, consent dialog), ask the user to perform it rather than failing. Sessions are scoped to this conversation, but cookies and storage are shared globally. Start with action="open"; loadUrl, snapshot, and wait auto-open the session if needed.',
     inputSchema: useBrowserToolInputSchema,
     toModelOutput: ({ output }) => toToolModelOutput(output),
-    execute: async (input): Promise<UseBrowserToolOutput> => {
+    execute: async (input, options): Promise<UseBrowserToolOutput> => {
       const service = deps.browserAutomationService
       if (!service) {
         return {
@@ -175,6 +175,7 @@ export function createTool(
         }
       }
 
+      const cancellation = options?.abortSignal ? { signal: options.abortSignal } : {}
       const session = input.session
       const value = input.value ?? input.text
       const baseDetails: UseBrowserToolCallDetails = {
@@ -215,6 +216,7 @@ export function createTool(
           case 'open': {
             const opened = await runNavigation(() =>
               service.open({
+                ...cancellation,
                 threadId,
                 session,
                 ...(input.url ? { url: input.url } : {}),
@@ -238,7 +240,7 @@ export function createTool(
             }
           }
           case 'close': {
-            await service.close({ threadId, session })
+            await service.close({ ...cancellation, threadId, session })
             return {
               content: textContent(`Closed browser session: ${session}`),
               details: baseDetails,
@@ -246,7 +248,7 @@ export function createTool(
             }
           }
           case 'getUrl': {
-            const finalUrl = await service.getUrl({ threadId, session })
+            const finalUrl = await service.getUrl({ ...cancellation, threadId, session })
             return {
               content: textContent(finalUrl),
               details: { ...baseDetails, finalUrl },
@@ -254,7 +256,7 @@ export function createTool(
             }
           }
           case 'getTitle': {
-            const title = await service.getTitle({ threadId, session })
+            const title = await service.getTitle({ ...cancellation, threadId, session })
             return {
               content: textContent(title),
               details: { ...baseDetails, title },
@@ -265,11 +267,11 @@ export function createTool(
             if (!input.url) throw new Error('url is required for loadUrl')
             const finalUrl = await runNavigation(() =>
               service
-                .loadUrl({ threadId, session, url: input.url! })
+                .loadUrl({ ...cancellation, threadId, session, url: input.url! })
                 .catch(async (error: unknown) => {
                   if (!isMissingSessionError(error)) throw error
-                  await service.open({ threadId, session })
-                  return service.loadUrl({ threadId, session, url: input.url! })
+                  await service.open({ ...cancellation, threadId, session })
+                  return service.loadUrl({ ...cancellation, threadId, session, url: input.url! })
                 })
             )
             return {
@@ -284,6 +286,7 @@ export function createTool(
             const predicate = input.predicate ?? DEFAULT_WAIT_PREDICATE
             await service
               .waitForFunction({
+                ...cancellation,
                 threadId,
                 session,
                 predicate,
@@ -291,15 +294,18 @@ export function createTool(
               })
               .catch(async (error: unknown) => {
                 if (!isMissingSessionError(error) || !input.url) throw error
-                await runNavigation(() => service.open({ threadId, session, url: input.url }))
+                await runNavigation(() =>
+                  service.open({ ...cancellation, threadId, session, url: input.url })
+                )
                 return service.waitForFunction({
+                  ...cancellation,
                   threadId,
                   session,
                   predicate,
                   timeoutMs: input.timeoutMs
                 })
               })
-            const finalUrl = await service.getUrl({ threadId, session })
+            const finalUrl = await service.getUrl({ ...cancellation, threadId, session })
             return {
               content: textContent(
                 `Ready${formatAttemptSuffix(navigationAttempts ?? 1)}: ${finalUrl}`
@@ -311,14 +317,22 @@ export function createTool(
           case 'snapshot': {
             const snapshot = await service
               .snapshot({
+                ...cancellation,
                 threadId,
                 session,
                 maxRefs: input.maxRefs
               })
               .catch(async (error: unknown) => {
                 if (!isMissingSessionError(error) || !input.url) throw error
-                await runNavigation(() => service.open({ threadId, session, url: input.url }))
-                return service.snapshot({ threadId, session, maxRefs: input.maxRefs })
+                await runNavigation(() =>
+                  service.open({ ...cancellation, threadId, session, url: input.url })
+                )
+                return service.snapshot({
+                  ...cancellation,
+                  threadId,
+                  session,
+                  maxRefs: input.maxRefs
+                })
               })
             const refs = formatRefs(snapshot)
             const refsText = refs.join('\n')
@@ -343,6 +357,7 @@ export function createTool(
           }
           case 'scroll': {
             const result = await service.scroll({
+              ...cancellation,
               threadId,
               session,
               ...(input.direction ? { direction: input.direction } : {}),
@@ -360,7 +375,7 @@ export function createTool(
             }
           }
           case 'goBack': {
-            const result = await service.goBack({ threadId, session })
+            const result = await service.goBack({ ...cancellation, threadId, session })
             return {
               content: textContent(`Went back: ${result.url}`),
               details: {
@@ -372,7 +387,7 @@ export function createTool(
             }
           }
           case 'goForward': {
-            const result = await service.goForward({ threadId, session })
+            const result = await service.goForward({ ...cancellation, threadId, session })
             return {
               content: textContent(`Went forward: ${result.url}`),
               details: {
@@ -385,7 +400,12 @@ export function createTool(
           }
           case 'click': {
             if (!input.ref) throw new Error('ref is required for click')
-            const result = await service.click({ threadId, session, ref: input.ref })
+            const result = await service.click({
+              ...cancellation,
+              threadId,
+              session,
+              ref: input.ref
+            })
             return {
               content: textContent(`Clicked @${input.ref}: ${result.url}`),
               details: {
@@ -399,6 +419,7 @@ export function createTool(
           case 'fill': {
             if (!input.ref) throw new Error('ref is required for fill')
             const result = await service.fill({
+              ...cancellation,
               threadId,
               session,
               ref: input.ref,
@@ -417,6 +438,7 @@ export function createTool(
           case 'type': {
             if (!input.ref) throw new Error('ref is required for type')
             const result = await service.type({
+              ...cancellation,
               threadId,
               session,
               ref: input.ref,
@@ -436,7 +458,13 @@ export function createTool(
             if (!input.ref) throw new Error('ref is required for select')
             const value = input.value ?? input.text
             if (value === undefined) throw new Error('value is required for select')
-            const result = await service.select({ threadId, session, ref: input.ref, value })
+            const result = await service.select({
+              ...cancellation,
+              threadId,
+              session,
+              ref: input.ref,
+              value
+            })
             return {
               content: textContent(`Selected @${input.ref}: ${result.url}`),
               details: {
@@ -451,6 +479,7 @@ export function createTool(
             if (!input.ref) throw new Error('ref is required for check')
             if (input.checked === undefined) throw new Error('checked is required for check')
             const result = await service.check({
+              ...cancellation,
               threadId,
               session,
               ref: input.ref,
@@ -470,7 +499,12 @@ export function createTool(
           }
           case 'press': {
             if (!input.key) throw new Error('key is required for press')
-            const result = await service.press({ threadId, session, key: input.key })
+            const result = await service.press({
+              ...cancellation,
+              threadId,
+              session,
+              key: input.key
+            })
             return {
               content: textContent(`Pressed: ${input.key}: ${result.url}`),
               details: {
@@ -484,6 +518,7 @@ export function createTool(
           case 'eval': {
             if (!input.script) throw new Error('script is required for eval')
             const result = await service.evaluateScript({
+              ...cancellation,
               threadId,
               session,
               script: input.script,
@@ -510,6 +545,7 @@ export function createTool(
           }
           case 'screenshot': {
             const result = await service.screenshot({
+              ...cancellation,
               threadId,
               session,
               workspacePath: context.workspacePath,
@@ -529,6 +565,7 @@ export function createTool(
           }
           case 'pdf': {
             const result = await service.pdf({
+              ...cancellation,
               threadId,
               session,
               workspacePath: context.workspacePath,

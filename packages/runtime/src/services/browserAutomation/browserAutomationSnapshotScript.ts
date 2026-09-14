@@ -1,12 +1,22 @@
 export function buildBrowserAutomationSnapshotScript(limit: number): string {
   return `(() => {
     const limit = ${JSON.stringify(limit)}
-    const isVisible = (el) => {
-      if (!(el instanceof Element)) return false
+    // These bound explicit DOM work, not wall time: browser layout and text getters
+    // can themselves be expensive. Results beyond the scan budgets are omitted.
+    const MAX_SCAN_NODES = 10000
+    const MAX_REF_CANDIDATES = 1000
+    let xpathSteps = 10000
+    let truncated = false
+    const geometry = new WeakMap()
+    const visibleRect = (el) => {
+      if (!(el instanceof Element)) return null
+      if (geometry.has(el)) return geometry.get(el)
       const style = window.getComputedStyle(el)
-      if (!style || style.visibility === 'hidden' || style.display === 'none') return false
-      const rect = el.getBoundingClientRect()
-      return rect.width > 1 && rect.height > 1
+      const rect = style && style.visibility !== 'hidden' && style.display !== 'none'
+        ? el.getBoundingClientRect() : null
+      const visible = rect && rect.width > 1 && rect.height > 1 ? rect : null
+      geometry.set(el, visible)
+      return visible
     }
 
     const clip = (text, length) => {
@@ -17,27 +27,15 @@ export function buildBrowserAutomationSnapshotScript(limit: number): string {
     const elementText = (el) => clip(el.innerText || el.textContent || '', 120)
 
     const visibleText = (el) => {
-      if (!isVisible(el)) return ''
-      const rect = el.getBoundingClientRect()
-      if (rect.bottom < 0 || rect.top > window.innerHeight) return ''
+      const rect = visibleRect(el)
+      if (!rect || rect.bottom < 0 || rect.top > window.innerHeight) return ''
       return clip(el.innerText || el.textContent || '', 240)
     }
 
-    const isInViewport = (el) => {
-      const rect = el.getBoundingClientRect()
-      return (
-        rect.bottom >= 0 &&
-        rect.top <= window.innerHeight &&
-        rect.right >= 0 &&
-        rect.left <= window.innerWidth
-      )
-    }
-
-    const compareDocumentPosition = (left, right) => {
-      const leftRect = left.getBoundingClientRect()
-      const rightRect = right.getBoundingClientRect()
-      return leftRect.top - rightRect.top || leftRect.left - rightRect.left
-    }
+    const isInViewport = (rect) => (
+      rect.bottom >= 0 && rect.top <= window.innerHeight &&
+      rect.right >= 0 && rect.left <= window.innerWidth
+    )
 
     const cssIdentifier = (value) => {
       if (globalThis.CSS && typeof globalThis.CSS.escape === 'function') {
@@ -54,16 +52,19 @@ export function buildBrowserAutomationSnapshotScript(limit: number): string {
       const parts = []
       let node = el
       while (node && node.nodeType === 1 && parts.length < 32) {
+        if (xpathSteps-- <= 0) { truncated = true; return '' }
         const tag = node.tagName.toLowerCase()
         let index = 1
         let sibling = node.previousElementSibling
         while (sibling) {
+          if (xpathSteps-- <= 0) { truncated = true; return '' }
           if (sibling.tagName === node.tagName) index++
           sibling = sibling.previousElementSibling
         }
         parts.unshift(tag + '[' + index + ']')
         node = node.parentElement
       }
+      if (node && node.nodeType === 1) { truncated = true; return '' }
       return '/' + parts.join('/')
     }
 
@@ -78,59 +79,65 @@ export function buildBrowserAutomationSnapshotScript(limit: number): string {
       '[contenteditable="true"]'
     ].join(',')
 
-    const nodes = Array.from(document.querySelectorAll(selector))
-      .filter(isVisible)
-      .sort((left, right) => {
-        const viewportOrder = Number(!isInViewport(left)) - Number(!isInViewport(right))
-        return viewportOrder || compareDocumentPosition(left, right)
-      })
-      .slice(0, limit)
-
-    const headings = Array.from(document.querySelectorAll('h1,h2,h3,[role="heading"]'))
-      .map(visibleText)
-      .filter(Boolean)
-      .slice(0, 12)
-
-    const snippets = Array.from(document.querySelectorAll('main p, article p, p, li'))
-      .map(visibleText)
-      .filter((text) => text.length >= 20)
-      .slice(0, 20)
-
-    const isReadableTextParent = (el) => {
-      if (!(el instanceof Element)) return false
-      const tag = el.tagName.toLowerCase()
-      if (['script', 'style', 'noscript', 'template', 'svg'].includes(tag)) return false
-      if (el.closest('[hidden],[aria-hidden="true"]')) return false
-      return isVisible(el)
-    }
-
-    const visibleTextNodeLines = () => {
-      const walker = document.createTreeWalker(document.body, window.NodeFilter?.SHOW_TEXT ?? 4)
-      const lines = []
-      let node = walker.nextNode()
-      while (node) {
-        const parent = node.parentElement
-        if (parent && isReadableTextParent(parent)) {
-          const rect = parent.getBoundingClientRect()
-          if (rect.bottom >= 0 && rect.top <= window.innerHeight) {
-            const text = clip(node.nodeValue || '', 240)
-            if (text) lines.push(text)
-          }
+    const candidates = []
+    const headings = []
+    const snippets = []
+    const lines = []
+    const seenLines = new Set()
+    const hiddenAncestors = new WeakMap()
+    const bodyElements = new WeakSet()
+    let textLength = 0
+    let candidateCount = 0
+    let scanned = 0
+    // SHOW_ALL is intentional: a filtered walker may traverse unbounded numbers
+    // of nonmatching nodes inside a single nextNode() call.
+    const walker = document.createTreeWalker(document, window.NodeFilter?.SHOW_ALL ?? 0xffffffff)
+    while (scanned < MAX_SCAN_NODES) {
+      const node = walker.nextNode()
+      if (!node) break
+      scanned++
+      if (node instanceof Element) {
+        if (node === document.body || bodyElements.has(node.parentElement)) bodyElements.add(node)
+        hiddenAncestors.set(node, Boolean(hiddenAncestors.get(node.parentElement)) ||
+          node.hasAttribute('hidden') || node.getAttribute('aria-hidden') === 'true')
+        if (limit > 0 && node.matches(selector)) {
+          if (candidateCount < MAX_REF_CANDIDATES) {
+            candidateCount++
+            const rect = visibleRect(node)
+            if (rect) candidates.push({ el: node, rect, inViewport: isInViewport(rect) })
+          } else truncated = true
         }
-        node = walker.nextNode()
+        if (headings.length < 12 && node.matches('h1,h2,h3,[role="heading"]')) {
+          const text = visibleText(node)
+          if (text) headings.push(text)
+        }
+        if (snippets.length < 20 && node.matches('p,li')) {
+          const text = visibleText(node)
+          if (text.length >= 20) snippets.push(text)
+        }
+      } else if (node.nodeType === 3 && textLength < 2000) {
+        const parent = node.parentElement
+        if (!parent || !bodyElements.has(parent) || hiddenAncestors.get(parent) ||
+            ['script', 'style', 'noscript', 'template', 'svg'].includes(parent.tagName.toLowerCase())) continue
+        const text = clip(node.nodeValue || '', 240)
+        if (!text || seenLines.has(text)) continue
+        const rect = visibleRect(parent)
+        if (rect && rect.bottom >= 0 && rect.top <= window.innerHeight) {
+          seenLines.add(text)
+          textLength += text.length + (lines.length ? 1 : 0)
+          lines.push(text)
+        }
       }
-      return lines
     }
+    if (scanned === MAX_SCAN_NODES) truncated = true
+    const nodes = candidates.sort((left, right) =>
+      Number(!left.inViewport) - Number(!right.inViewport) ||
+      left.rect.top - right.rect.top || left.rect.left - right.rect.left
+    ).slice(0, limit)
 
-    const viewport = clip(
-      visibleTextNodeLines()
-        .filter((text, index, all) => all.indexOf(text) === index)
-        .join('\\n'),
-      2000
-    )
-
-    const refs = nodes.map((el) => {
-      const rect = el.getBoundingClientRect()
+    const refs = nodes.flatMap(({ el, rect }) => {
+      const xpath = toXpath(el)
+      if (!xpath) return []
       const id = (el.id || '').trim() || undefined
       const role = (el.getAttribute('role') || '').trim() || undefined
       const name = (el.getAttribute('name') || '').trim() || undefined
@@ -157,14 +164,17 @@ export function buildBrowserAutomationSnapshotScript(limit: number): string {
           width: Math.round(rect.width),
           height: Math.round(rect.height)
         },
-        xpath: toXpath(el)
+        xpath
       }
     })
 
     return {
       url: location.href,
       title: document.title || undefined,
-      pageText: { headings, snippets, viewport },
+      pageText: { headings, snippets, viewport: clip(
+        (truncated ? '[Snapshot scan budget reached; content and refs may be incomplete.] ' : '') + lines.join('\\n'),
+        2000
+      ) },
       refs
     }
   })()`

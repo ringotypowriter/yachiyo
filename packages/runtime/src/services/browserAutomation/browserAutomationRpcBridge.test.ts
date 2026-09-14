@@ -92,18 +92,30 @@ test('propagates backend errors with their message', async () => {
   })
 })
 
-test('rejects AbortSignal inputs instead of losing cancellation silently', async () => {
-  const { remote, calls } = createBridge()
-
-  await assert.rejects(
-    remote.waitForFunction({
-      threadId: 't-1',
-      session: 's-1',
-      predicate: 'true',
-      timeoutMs: 1000,
-      signal: new AbortController().signal
-    }),
-    /AbortSignal cannot cross the RPC boundary/
-  )
-  assert.deepEqual(calls, [])
+test('cancellation reaches main browser operation without serializing AbortSignal', async () => {
+  const [mainTransport, utilityTransport] = createLoopbackTransportPair()
+  let mainSignal: AbortSignal | undefined
+  let started!: () => void
+  const ready = new Promise<void>((resolve) => {
+    started = resolve
+  })
+  const backend = {
+    snapshot: async (input: { signal?: AbortSignal }) => {
+      mainSignal = input.signal
+      started()
+      return new Promise((_, reject) =>
+        input.signal?.addEventListener('abort', () => reject(input.signal?.reason), { once: true })
+      )
+    }
+  } as unknown as BrowserAutomationToolBackend
+  serveRpcTarget({ transport: mainTransport, target: createBrowserAutomationRpcTarget(backend) })
+  const remote = createRpcBrowserAutomationBackend(createRpcClient(utilityTransport))
+  const controller = new AbortController()
+  const pending = remote.snapshot({ threadId: 't', session: 's', signal: controller.signal })
+  const rejected = assert.rejects(pending, /abort/i)
+  await ready
+  controller.abort()
+  await rejected
+  await new Promise((resolve) => setImmediate(resolve))
+  assert.equal(mainSignal?.aborted, true)
 })

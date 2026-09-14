@@ -682,3 +682,37 @@ test('useBrowserTool: returns error when threadId is missing', async () => {
   )
   assert.ok(result.error)
 })
+
+test('useBrowserTool: passes execution abort signal to snapshot and automatic open', async () => {
+  const controller = new AbortController()
+  const signals: Array<AbortSignal | undefined> = []
+  let attempts = 0
+  const tool = createTool(makeContext(), {
+    browserAutomationService: makeService({
+      open: async (input) => {
+        signals.push(input.signal)
+        return { url: 'https://example.test' }
+      },
+      snapshot: async (input) => {
+        signals.push(input.signal)
+        if (++attempts === 1)
+          throw new Error('No browser session "s1" is open for this conversation.')
+        return {
+          url: 'https://example.test',
+          pageText: { headings: [], snippets: [] },
+          refs: [],
+          refCount: 0
+        }
+      }
+    })
+  })
+  assert.ok(tool.execute)
+  const result = await resolveToolOutput(
+    tool.execute(
+      { action: 'snapshot', session: 's1', url: 'https://example.test', ...TOOL_INPUT_DEFAULTS },
+      { ...TOOL_EXECUTION_OPTIONS, abortSignal: controller.signal }
+    )
+  )
+  assert.equal(result.error, undefined)
+  assert.deepEqual(signals, [controller.signal, controller.signal, controller.signal])
+})

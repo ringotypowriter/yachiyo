@@ -73,26 +73,26 @@ export function BrowserTimelineView({
 }: BrowserTimelineViewProps): React.JSX.Element {
   const t = useT()
   const viewportRef = useRef<HTMLDivElement>(null)
-  const visibleSessionRef = useRef<{ threadId: string; session: string } | null>(null)
+  const requestedSessionRef = useRef<{ threadId: string; session: string } | null>(null)
   const requestSeqRef = useRef(0)
   const activityBubbleRef = useRef<BrowserAutomationActivityBubbleState | null>(
     activityBubble ?? null
   )
   const [error, setError] = useState<string | null>(null)
 
-  const hideVisibleSession = useCallback((): void => {
+  const hideRequestedSession = useCallback((): void => {
     requestSeqRef.current += 1
-    const visible = visibleSessionRef.current
-    if (!visible) return
-    visibleSessionRef.current = null
-    void window.api.yachiyo.hideBrowserAutomationSession(visible).catch(() => {})
+    const requested = requestedSessionRef.current
+    if (!requested) return
+    requestedSessionRef.current = null
+    void window.api.yachiyo.hideBrowserAutomationSession(requested).catch(() => {})
   }, [])
 
   const syncBrowserView = useCallback(
     (mode: 'show' | 'bounds'): void => {
       const element = viewportRef.current
       if (!element || !sessionId || suspended || sessionPickerOpen) {
-        hideVisibleSession()
+        hideRequestedSession()
         return
       }
 
@@ -104,6 +104,8 @@ export function BrowserTimelineView({
         bounds,
         overlay: { activityBubble: activityBubbleRef.current, theme: getOverlayTheme() }
       }
+      // Cleanup owns the session as soon as show is sent, not when its promise settles.
+      if (mode === 'show') requestedSessionRef.current = { threadId, session: sessionId }
       const operation =
         mode === 'show'
           ? window.api.yachiyo.showBrowserAutomationSession(input)
@@ -112,22 +114,21 @@ export function BrowserTimelineView({
       void operation
         .then(() => {
           if (requestSeq !== requestSeqRef.current) return
-          visibleSessionRef.current = { threadId, session: sessionId }
           setError(null)
         })
         .catch((err: unknown) => {
           if (requestSeq !== requestSeqRef.current) return
-          hideVisibleSession()
+          hideRequestedSession()
           setError(err instanceof Error ? err.message : t('chat.browser.showSessionFailed'))
         })
     },
-    [hideVisibleSession, sessionId, sessionPickerOpen, suspended, t, threadId]
+    [hideRequestedSession, sessionId, sessionPickerOpen, suspended, t, threadId]
   )
 
   useLayoutEffect(() => {
     syncBrowserView('show')
-    return hideVisibleSession
-  }, [hideVisibleSession, syncBrowserView])
+    return hideRequestedSession
+  }, [hideRequestedSession, syncBrowserView])
 
   useEffect(() => {
     activityBubbleRef.current = activityBubble ?? null

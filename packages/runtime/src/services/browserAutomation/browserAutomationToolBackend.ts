@@ -1,8 +1,9 @@
 /**
  * The tool-facing browser-automation surface, split from the Electron
  * implementation so it can cross process boundaries: the agent's browser tool
- * depends only on this interface, every payload is structured-clone-safe, and
- * an RPC-backed implementation (utility process → main) is interchangeable
+ * depends only on this interface; payloads are structured-clone-safe except for
+ * the optional signal, which the browser RPC bridge maps to a cancellation ID. An
+ * RPC-backed implementation (utility process → main) is interchangeable
  * with the in-process Electron one. The UI-facing session-view surface
  * (BrowserWindow/WebContentsView) lives on BrowserAutomationService in
  * electronBrowserAutomationService.ts and never leaves the main process.
@@ -74,79 +75,102 @@ export interface BrowserAutomationScreenshotResult {
 
 export interface BrowserAutomationToolBackend {
   open(input: {
+    signal?: AbortSignal
     threadId: string
     session: string
     url?: string
     viewport?: BrowserAutomationViewport
   }): Promise<{ url: string; title?: string }>
 
-  close(input: { threadId: string; session: string }): Promise<void>
+  close(input: { signal?: AbortSignal; threadId: string; session: string }): Promise<void>
 
-  getUrl(input: { threadId: string; session: string }): Promise<string>
-  getTitle(input: { threadId: string; session: string }): Promise<string>
+  getUrl(input: { signal?: AbortSignal; threadId: string; session: string }): Promise<string>
+  getTitle(input: { signal?: AbortSignal; threadId: string; session: string }): Promise<string>
 
-  loadUrl(input: { threadId: string; session: string; url: string }): Promise<string>
+  loadUrl(input: {
+    signal?: AbortSignal
+    threadId: string
+    session: string
+    url: string
+  }): Promise<string>
 
   waitForFunction(input: {
+    signal?: AbortSignal
     threadId: string
     session: string
     predicate: string
     timeoutMs: number
     pollIntervalMs?: number
-    signal?: AbortSignal
   }): Promise<void>
 
   snapshot(input: {
+    signal?: AbortSignal
     threadId: string
     session: string
     maxRefs?: number
   }): Promise<BrowserAutomationSnapshot>
 
   scroll(input: {
+    signal?: AbortSignal
     threadId: string
     session: string
     direction?: BrowserAutomationScrollDirection
     amount?: number
     ref?: string
   }): Promise<BrowserAutomationPageState>
-  goBack(input: { threadId: string; session: string }): Promise<BrowserAutomationPageState>
-  goForward(input: { threadId: string; session: string }): Promise<BrowserAutomationPageState>
+  goBack(input: {
+    signal?: AbortSignal
+    threadId: string
+    session: string
+  }): Promise<BrowserAutomationPageState>
+  goForward(input: {
+    signal?: AbortSignal
+    threadId: string
+    session: string
+  }): Promise<BrowserAutomationPageState>
   click(input: {
+    signal?: AbortSignal
     threadId: string
     session: string
     ref: string
   }): Promise<BrowserAutomationPageState>
   fill(input: {
+    signal?: AbortSignal
     threadId: string
     session: string
     ref: string
     text: string
   }): Promise<BrowserAutomationPageState>
   type(input: {
+    signal?: AbortSignal
     threadId: string
     session: string
     ref: string
     text: string
   }): Promise<BrowserAutomationPageState>
   select(input: {
+    signal?: AbortSignal
     threadId: string
     session: string
     ref: string
     value: string
   }): Promise<BrowserAutomationPageState>
   check(input: {
+    signal?: AbortSignal
     threadId: string
     session: string
     ref: string
     checked: boolean
   }): Promise<BrowserAutomationPageState>
   press(input: {
+    signal?: AbortSignal
     threadId: string
     session: string
     key: string
   }): Promise<BrowserAutomationPageState>
 
   evaluateScript(input: {
+    signal?: AbortSignal
     threadId: string
     session: string
     script: string
@@ -154,6 +178,7 @@ export interface BrowserAutomationToolBackend {
   }): Promise<BrowserAutomationEvaluationResult>
 
   screenshot(input: {
+    signal?: AbortSignal
     threadId: string
     session: string
     workspacePath: string
@@ -161,6 +186,7 @@ export interface BrowserAutomationToolBackend {
   }): Promise<BrowserAutomationScreenshotResult>
 
   pdf(input: {
+    signal?: AbortSignal
     threadId: string
     session: string
     workspacePath: string

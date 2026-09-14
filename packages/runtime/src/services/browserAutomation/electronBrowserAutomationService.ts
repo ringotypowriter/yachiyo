@@ -1,4 +1,6 @@
 import electron from 'electron'
+import { createBrowserOperationLifecycle } from './browserOperationLifecycle.ts'
+import { BROWSER_AUTOMATION_TOOL_METHODS } from './browserAutomationToolBackend.ts'
 
 import { mkdir, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
@@ -36,7 +38,6 @@ const INTERACTION_SETTLE_MS = 250
 const HISTORY_NAVIGATION_TIMEOUT_MS = 5_000
 const IDLE_SESSION_TTL_MS = 30 * 60 * 1000
 const IDLE_SESSION_SWEEP_MS = 5 * 60 * 1000
-const { BrowserWindow, WebContentsView, session } = electron
 
 export type {
   BrowserAutomationEvaluationResult,
@@ -60,7 +61,9 @@ export interface BrowserAutomationService extends BrowserAutomationToolBackend {
   listSessions(input: ListBrowserAutomationSessionsInput): BrowserAutomationSessionRecord[]
 
   showSessionView(
-    input: ShowBrowserAutomationSessionInput & { window: InstanceType<typeof BrowserWindow> }
+    input: ShowBrowserAutomationSessionInput & {
+      window: InstanceType<typeof electron.BrowserWindow>
+    }
   ): BrowserAutomationSessionRecord
 
   hideSessionView(input: HideBrowserAutomationSessionInput): void
@@ -73,7 +76,8 @@ export interface BrowserAutomationService extends BrowserAutomationToolBackend {
 }
 
 interface ThreadBrowserSessionState {
-  view: InstanceType<typeof WebContentsView>
+  invalidated?: boolean
+  view: InstanceType<typeof electron.WebContentsView>
   refXpathById: Map<string, string>
   refSummaryById: Map<string, string>
   threadId: string
@@ -83,7 +87,7 @@ interface ThreadBrowserSessionState {
   title?: string
   pointer: BrowserAutomationPointerState | null
   overlay: BrowserPointerOverlay | null
-  attachedWindow: InstanceType<typeof BrowserWindow> | null
+  attachedWindow: InstanceType<typeof electron.BrowserWindow> | null
   updatedAt: string
 }
 
@@ -127,24 +131,6 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
-async function withTimeout<TResult>(
-  promise: Promise<TResult>,
-  timeoutMs: number,
-  message: string
-): Promise<TResult> {
-  let timeoutId: ReturnType<typeof setTimeout> | undefined
-  try {
-    return await Promise.race([
-      promise,
-      new Promise<TResult>((_resolve, reject) => {
-        timeoutId = setTimeout(() => reject(new Error(message)), timeoutMs)
-      })
-    ])
-  } finally {
-    if (timeoutId) clearTimeout(timeoutId)
-  }
-}
-
 function pageState(state: ThreadBrowserSessionState): BrowserAutomationPageState {
   return { url: state.url, ...(state.title ? { title: state.title } : {}) }
 }
@@ -170,7 +156,19 @@ function formatRefSummary(ref: BrowserAutomationRef): string {
 
 export function createElectronBrowserAutomationService(input: {
   profilePath: string
+  /** Test seam: no Electron process is required for lifecycle tests. */
+  electron?: typeof electron
+  operationTimeoutMs?: number
 }): BrowserAutomationService {
+  const { BrowserWindow, WebContentsView, session } = input.electron ?? electron
+  const lifecycle = createBrowserOperationLifecycle(({ threadId, session: name }) => {
+    const map = threadSessions.get(threadId)
+    const state = map?.get(name)
+    if (state) {
+      map?.delete(name)
+      destroySessionState(state)
+    }
+  }, input.operationTimeoutMs)
   const threadSessions = new Map<string, Map<string, ThreadBrowserSessionState>>()
   let browserSession: ReturnType<typeof session.fromPath> | undefined
   let proxyReady: Promise<void> | undefined
@@ -220,10 +218,12 @@ export function createElectronBrowserAutomationService(input: {
       })
     }
     await proxyReady
+    lifecycle.assertCurrent()
     return currentSession
   }
 
   function requireSessionState(threadId: string, name: string): ThreadBrowserSessionState {
+    lifecycle.assertCurrent()
     const threadMap = threadSessions.get(threadId)
     const state = threadMap?.get(name)
     if (!state) {
@@ -245,9 +245,9 @@ export function createElectronBrowserAutomationService(input: {
     state: ThreadBrowserSessionState,
     script: string,
     action?: string,
-    wrapScript: (script: string, timeoutMs?: number) => string = wrapBrowserAutomationPageScript,
-    timeoutMs?: number
+    wrapScript: (script: string) => string = wrapBrowserAutomationPageScript
   ): Promise<TResult> {
+    assertStateCurrent(state)
     const url = state.url || state.view.webContents.getURL() || undefined
     const context = {
       ...(action ? { action } : {}),
@@ -257,29 +257,27 @@ export function createElectronBrowserAutomationService(input: {
 
     let result: unknown
     try {
-      const execution = state.view.webContents.executeJavaScript(
-        wrapScript(script, timeoutMs),
-        true
-      )
-      result =
-        typeof timeoutMs === 'number' && Number.isFinite(timeoutMs) && timeoutMs > 0
-          ? await withTimeout(
-              execution,
-              timeoutMs,
-              `Timed out after ${timeoutMs}ms running browser ${action ?? 'automation'} script.`
-            )
-          : await execution
+      const execution = state.view.webContents.executeJavaScript(wrapScript(script), true)
+      result = await execution
     } catch (error) {
       throw normalizeBrowserAutomationScriptExecutionError(error, context)
     }
 
+    assertStateCurrent(state)
     return unwrapBrowserAutomationPageScriptResult<TResult>(result, context)
+  }
+
+  function assertStateCurrent(state: ThreadBrowserSessionState): void {
+    lifecycle.assertCurrent()
+    if (state.invalidated)
+      throw new Error(`Browser session "${state.session}" is invalidated. Re-open it.`)
   }
 
   function updateSessionMetadata(
     state: ThreadBrowserSessionState,
     metadata: { url?: string; title?: string; viewport?: BrowserAutomationViewport } = {}
   ): void {
+    assertStateCurrent(state)
     state.url = metadata.url ?? state.view.webContents.getURL() ?? state.url
     const nextTitle = metadata.title ?? state.view.webContents.getTitle()
     if (nextTitle) {
@@ -322,6 +320,12 @@ export function createElectronBrowserAutomationService(input: {
   }
 
   function destroySessionState(state: ThreadBrowserSessionState): void {
+    if (state.invalidated) return
+    state.invalidated = true
+    lifecycle.invalidate(
+      state,
+      new Error(`Browser session "${state.session}" was destroyed. Re-open it.`)
+    )
     detachSessionView(state)
     state.overlay?.destroy()
     state.overlay = null
@@ -334,6 +338,7 @@ export function createElectronBrowserAutomationService(input: {
     state: ThreadBrowserSessionState,
     pointer: Omit<BrowserAutomationPointerState, 'updatedAt'> | null
   ): void {
+    assertStateCurrent(state)
     state.pointer = pointer ? { ...pointer, updatedAt: timestamp() } : null
     state.updatedAt = timestamp()
     state.overlay?.updatePointer(state.pointer)
@@ -460,7 +465,7 @@ export function createElectronBrowserAutomationService(input: {
     }
   }
 
-  return {
+  const service: BrowserAutomationService = {
     listSessions({ threadId }) {
       const threadMap = threadSessions.get(threadId)
       if (!threadMap) return []
@@ -551,6 +556,8 @@ export function createElectronBrowserAutomationService(input: {
       if (existing) {
         destroySessionState(existing)
         threadMap.delete(sessionName)
+        // Destruction also invalidates this generation; do not create a zombie view.
+        lifecycle.assertCurrent()
       }
 
       const viewportSize = toViewport(viewport)
@@ -580,16 +587,24 @@ export function createElectronBrowserAutomationService(input: {
       threadMap.set(sessionName, state)
 
       view.webContents.on('did-navigate', (_event, navigatedUrl) => {
-        updateSessionMetadata(state, { url: navigatedUrl })
+        if (!state.invalidated) updateSessionMetadata(state, { url: navigatedUrl })
       })
       view.webContents.on('did-navigate-in-page', (_event, navigatedUrl) => {
-        updateSessionMetadata(state, { url: navigatedUrl })
+        if (!state.invalidated) updateSessionMetadata(state, { url: navigatedUrl })
       })
       view.webContents.on('page-title-updated', (_event, title) => {
-        updateSessionMetadata(state, { title })
+        if (!state.invalidated) updateSessionMetadata(state, { title })
+      })
+      view.webContents.once('render-process-gone', () => {
+        if (threadMap.get(sessionName) === state) {
+          lifecycle.invalidate(state, new Error('Browser renderer crashed. Re-open the session.'))
+        }
       })
       view.webContents.once('destroyed', () => {
-        threadMap.delete(sessionName)
+        if (threadMap.get(sessionName) === state) {
+          threadMap.delete(sessionName)
+          destroySessionState(state)
+        }
       })
 
       if (url) {
@@ -675,6 +690,7 @@ export function createElectronBrowserAutomationService(input: {
         refs: Array<Omit<BrowserAutomationRef, 'ref'> & { xpath: string }>
       }>(state, buildBrowserAutomationSnapshotScript(limit), 'snapshot')
 
+      assertStateCurrent(state)
       state.refXpathById.clear()
       state.refSummaryById.clear()
       const refs: BrowserAutomationRef[] = []
@@ -911,14 +927,13 @@ export function createElectronBrowserAutomationService(input: {
       return settleAndUpdate(state)
     },
 
-    async evaluateScript({ threadId, session: sessionName, script, timeoutMs }) {
+    async evaluateScript({ threadId, session: sessionName, script }) {
       const state = requireSessionState(threadId, sessionName)
       const value = await evaluate<unknown>(
         state,
         script,
         'eval',
-        wrapBrowserAutomationPageEvalScript,
-        timeoutMs
+        wrapBrowserAutomationPageEvalScript
       )
       const result = await settleAndUpdate(state)
       return { ...result, value }
@@ -931,9 +946,15 @@ export function createElectronBrowserAutomationService(input: {
       const savedFilePath = toolResultPath(workspacePath, pngName)
 
       await mkdir(dirname(savedFilePath), { recursive: true })
-      const image = await state.view.webContents.capturePage()
+      assertStateCurrent(state)
+      const image = await state.view.webContents.capturePage(undefined, {
+        stayHidden: true,
+        stayAwake: true
+      })
+      assertStateCurrent(state)
       const buffer = image.toPNG()
       assertNonEmptyScreenshotByteLength(buffer.byteLength)
+      assertStateCurrent(state)
       await writeFile(savedFilePath, buffer)
       updateSessionMetadata(state)
 
@@ -952,6 +973,7 @@ export function createElectronBrowserAutomationService(input: {
 
       await mkdir(dirname(savedFilePath), { recursive: true })
 
+      assertStateCurrent(state)
       const buffer = await state.view.webContents
         .printToPDF({
           printBackground: true
@@ -961,6 +983,7 @@ export function createElectronBrowserAutomationService(input: {
           throw error
         })
 
+      assertStateCurrent(state)
       await writeFile(savedFilePath, buffer)
       updateSessionMetadata(state)
 
@@ -972,6 +995,7 @@ export function createElectronBrowserAutomationService(input: {
     },
 
     dispose() {
+      lifecycle.dispose()
       clearInterval(idleSweep)
       for (const threadMap of threadSessions.values()) {
         for (const state of threadMap.values()) {
@@ -981,4 +1005,31 @@ export function createElectronBrowserAutomationService(input: {
       threadSessions.clear()
     }
   }
+  for (const method of BROWSER_AUTOMATION_TOOL_METHODS) {
+    const operation = service[method].bind(service) as (args: {
+      threadId: string
+      session: string
+    }) => Promise<unknown>
+    Object.assign(service, {
+      [method]: (args: {
+        threadId: string
+        session: string
+        timeoutMs?: number
+        signal?: AbortSignal
+      }) => {
+        if (method === 'close') {
+          lifecycle.invalidate(args, new Error('Browser session closed. Re-open it.'))
+          return operation(args)
+        }
+        // Allow healthy wait timeouts and eval's post-script interaction settlement.
+        // Eval uses only the main deadline: a page-side race cannot stop user code.
+        const deadlineInput =
+          (method === 'waitForFunction' || method === 'evaluateScript') && args.timeoutMs
+            ? { ...args, timeoutMs: args.timeoutMs + 1_000 }
+            : args
+        return lifecycle.run(deadlineInput, () => operation(args))
+      }
+    })
+  }
+  return service
 }
