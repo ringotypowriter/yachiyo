@@ -1,4 +1,5 @@
 import './assets/main.css'
+import './features/chat/components/share/responseShare.css'
 
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'

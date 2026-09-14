@@ -4,7 +4,6 @@ import { MessageMarkdown } from '@renderer/lib/markdown/MessageMarkdown'
 import type { ResponseShareSnapshot } from '../../lib/share/responseShareModel'
 import type { ResponseShareTheme } from '../../lib/share/responseShareTheme'
 import { ShareToolView } from './ShareToolView'
-import './responseShare.css'
 
 export interface ShareDocumentOptions {
   includeQuestion: boolean

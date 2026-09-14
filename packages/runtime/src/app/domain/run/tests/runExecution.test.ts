@@ -599,7 +599,10 @@ test('prepareServerRunContext applies the configured time zone to system and rem
       .join('\n')
 
     assert.ok([...possibleSystemDates].some((date) => systemContent.includes(`Today is ${date}.`)))
-    assert.match(userContent, /Current time \(Asia\/Shanghai\):\n- Time: 02:44/)
+    assert.match(
+      userContent,
+      /Current date and time \(Asia\/Shanghai\):\n- Date: 2026-08-22 \(Saturday\)\n- Time: 02:44/
+    )
   } finally {
     await rm(root, { recursive: true, force: true })
   }
