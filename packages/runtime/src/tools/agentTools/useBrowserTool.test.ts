@@ -1,10 +1,13 @@
 import assert from 'node:assert/strict'
+import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import test from 'node:test'
 
 import type { ToolExecutionOptions } from 'ai'
 
 import { createTool } from './useBrowserTool.ts'
-import type { AgentToolContext } from './shared.ts'
+import type { AgentToolContext, UseBrowserToolOutput } from './shared.ts'
 import type { BrowserAutomationToolBackend } from '../../services/browserAutomation/browserAutomationToolBackend.ts'
 
 const TOOL_EXECUTION_OPTIONS: ToolExecutionOptions = {
@@ -16,6 +19,247 @@ const TOOL_INPUT_DEFAULTS = {
   timeoutMs: 15_000,
   maxRefs: 60
 } as const
+
+function outputText(result: UseBrowserToolOutput): string {
+  return result.content.map((block) => (block.type === 'text' ? block.text : '')).join('')
+}
+
+async function assertSpilled(
+  result: UseBrowserToolOutput,
+  workspacePath: string,
+  fullText: string
+): Promise<void> {
+  assert.equal(result.error, undefined)
+  assert.equal(result.metadata.truncated, true)
+  assert.ok(outputText(result).length < 6_000)
+  assert.match(outputText(result), /Use the read tool/)
+  assert.match(result.details.savedFileName ?? '', /^\.yachiyo\/tool-result\/browser-.*\.txt$/)
+  assert.equal(result.details.savedFilePath, join(workspacePath, result.details.savedFileName!))
+  assert.ok(outputText(result).includes(result.details.savedFileName!))
+  assert.equal(await readFile(result.details.savedFilePath!, 'utf8'), fullText)
+  assert.equal(result.details.bytesWritten, Buffer.byteLength(fullText, 'utf8'))
+}
+
+for (const action of ['snapshot', 'eval'] as const) {
+  for (const length of [19_999, 20_000, 20_001]) {
+    test(`useBrowserTool: ${action} spills only above 20k (${length})`, async (t) => {
+      const workspacePath = await mkdtemp(join(tmpdir(), 'browser-spill-'))
+      t.after(() => rm(workspacePath, { recursive: true, force: true }))
+      const fullText = '界'.repeat(length)
+      const tool = createTool(makeContext({ workspacePath }), {
+        browserAutomationService: makeService({
+          snapshot: async () => ({
+            url: fullText,
+            title: '',
+            pageText: { headings: [], snippets: [] },
+            refs: [],
+            refCount: 0
+          }),
+          evaluateScript: async () => ({ url: 'https://example.com', title: '', value: fullText })
+        })
+      })
+      assert.ok(tool.execute)
+      const result = await resolveToolOutput(
+        tool.execute(
+          { action, session: 's1', script: 'document.body.innerText', ...TOOL_INPUT_DEFAULTS },
+          TOOL_EXECUTION_OPTIONS
+        )
+      )
+      if (length > 20_000) {
+        await assertSpilled(result, workspacePath, fullText)
+        assert.ok(JSON.stringify(result.details).length < 12_000)
+      } else {
+        assert.equal(
+          outputText(result),
+          action === 'snapshot'
+            ? fullText
+            : `Evaluated: https://example.com\n\nResult:\n${fullText}`
+        )
+        assert.deepEqual(result.metadata, {})
+        assert.equal(result.details.savedFilePath, undefined)
+        assert.deepEqual(await readdir(workspacePath), [])
+        if (action === 'snapshot') assert.equal(result.details.content, fullText)
+      }
+    })
+  }
+
+  test(`useBrowserTool: ${action} spill failure never returns full output`, async (t) => {
+    const workspacePath = await mkdtemp(join(tmpdir(), 'browser-spill-failure-'))
+    t.after(() => rm(workspacePath, { recursive: true, force: true }))
+    await writeFile(join(workspacePath, '.yachiyo'), 'not a directory')
+    const fullText = 'private-large-output'.repeat(2_000)
+    const tool = createTool(makeContext({ workspacePath }), {
+      browserAutomationService: makeService({
+        snapshot: async () => ({
+          url: 'https://example.com',
+          title: '',
+          pageText: { headings: [], snippets: [], viewport: fullText },
+          refs: [],
+          refCount: 0
+        }),
+        evaluateScript: async () => ({ url: 'https://example.com', title: '', value: fullText })
+      })
+    })
+    assert.ok(tool.execute)
+    const result = await resolveToolOutput(
+      tool.execute(
+        { action, session: 's1', script: 'document.body.innerText', ...TOOL_INPUT_DEFAULTS },
+        TOOL_EXECUTION_OPTIONS
+      )
+    )
+    assert.ok(result.error)
+    assert.ok(JSON.stringify(result).length < 6_000)
+    assert.doesNotMatch(JSON.stringify(result), /private-large-output/)
+    assert.equal(result.details.savedFilePath, undefined)
+  })
+}
+
+for (const hugeField of ['href', 'ariaLabel'] as const) {
+  test(`useBrowserTool: snapshot preview never splits a huge ${hugeField} ref`, async (t) => {
+    const workspacePath = await mkdtemp(join(tmpdir(), 'browser-spill-ref-'))
+    t.after(() => rm(workspacePath, { recursive: true, force: true }))
+    const hugeValue = `start\n${'界'.repeat(25_000)}\nend`
+    const hugeLine =
+      hugeField === 'href' ? `@e2 <a> — ${hugeValue}` : `@e2 <a> — aria="${hugeValue}"`
+    const fullText = `Example\nhttps://example.com\n\n@e1 <button> — Submit\n${hugeLine}\n@e3 <button> — Next`
+    const tool = createTool(makeContext({ workspacePath }), {
+      browserAutomationService: makeService({
+        snapshot: async () => ({
+          url: 'https://example.com',
+          title: 'Example',
+          pageText: { headings: [], snippets: [] },
+          refCount: 3,
+          refs: [
+            { ref: 'e1', tag: 'button', text: 'Submit' },
+            { ref: 'e2', tag: 'a', [hugeField]: hugeValue },
+            { ref: 'e3', tag: 'button', text: 'Next' }
+          ]
+        })
+      })
+    })
+    assert.ok(tool.execute)
+    const result = await resolveToolOutput(
+      tool.execute(
+        { action: 'snapshot', session: 's1', ...TOOL_INPUT_DEFAULTS },
+        TOOL_EXECUTION_OPTIONS
+      )
+    )
+    await assertSpilled(result, workspacePath, fullText)
+    assert.match(outputText(result), /^@e1 <button> — Submit$/m)
+    assert.doesNotMatch(outputText(result), /@e2|start|end/)
+    assert.equal(result.details.content, outputText(result))
+    assert.equal(result.details.refCount, 3)
+    assert.ok(JSON.stringify(result.details).length < 6_000)
+  })
+}
+
+test('useBrowserTool: long snapshot keeps only complete ref lines in preview', async (t) => {
+  const workspacePath = await mkdtemp(join(tmpdir(), 'browser-spill-lines-'))
+  t.after(() => rm(workspacePath, { recursive: true, force: true }))
+  const refs = Array.from({ length: 500 }, (_, index) => ({
+    ref: `e${index}`,
+    tag: 'button',
+    text: `Result ${index} ${'x'.repeat(50)}`
+  }))
+  const lines = refs.map((ref) => `@${ref.ref} <button> — ${ref.text}`)
+  const fullText = `https://example.com\n\n${lines.join('\n')}`
+  const tool = createTool(makeContext({ workspacePath }), {
+    browserAutomationService: makeService({
+      snapshot: async () => ({
+        url: 'https://example.com',
+        title: '',
+        pageText: { headings: [], snippets: [] },
+        refCount: refs.length,
+        refs
+      })
+    })
+  })
+  assert.ok(tool.execute)
+  const result = await resolveToolOutput(
+    tool.execute(
+      { action: 'snapshot', session: 's1', ...TOOL_INPUT_DEFAULTS },
+      TOOL_EXECUTION_OPTIONS
+    )
+  )
+  await assertSpilled(result, workspacePath, fullText)
+  const previewRefs = outputText(result)
+    .split('\n')
+    .filter((line) => line.startsWith('@'))
+  assert.ok(previewRefs.length > 0 && previewRefs.length < refs.length)
+  assert.ok(previewRefs.every((line) => lines.includes(line)))
+  assert.equal(result.details.content, outputText(result))
+})
+
+test('useBrowserTool: spilled eval bounds large page title and URL too', async (t) => {
+  const workspacePath = await mkdtemp(join(tmpdir(), 'browser-spill-header-'))
+  t.after(() => rm(workspacePath, { recursive: true, force: true }))
+  const fullText = 'result'.repeat(5_000)
+  const tool = createTool(makeContext({ workspacePath }), {
+    browserAutomationService: makeService({
+      evaluateScript: async () => ({
+        url: 'https://example.com/' + 'u'.repeat(30_000),
+        title: 't'.repeat(30_000),
+        value: fullText
+      })
+    })
+  })
+  assert.ok(tool.execute)
+  const result = await resolveToolOutput(
+    tool.execute(
+      { action: 'eval', session: 's1', script: 'document.body.innerText', ...TOOL_INPUT_DEFAULTS },
+      TOOL_EXECUTION_OPTIONS
+    )
+  )
+  await assertSpilled(result, workspacePath, fullText)
+  assert.ok(JSON.stringify(result.details).length < 12_000)
+})
+
+test('useBrowserTool: short eval also bounds oversized page metadata without spilling', async (t) => {
+  const workspacePath = await mkdtemp(join(tmpdir(), 'browser-short-header-'))
+  t.after(() => rm(workspacePath, { recursive: true, force: true }))
+  const tool = createTool(makeContext({ workspacePath }), {
+    browserAutomationService: makeService({
+      evaluateScript: async () => ({
+        url: 'https://example.com/' + 'u'.repeat(30_000),
+        title: 't'.repeat(30_000),
+        value: 'short result'
+      })
+    })
+  })
+  assert.ok(tool.execute)
+  const result = await resolveToolOutput(
+    tool.execute(
+      { action: 'eval', session: 's1', script: 'document.title', ...TOOL_INPUT_DEFAULTS },
+      TOOL_EXECUTION_OPTIONS
+    )
+  )
+  assert.equal(result.error, undefined)
+  assert.ok(outputText(result).length < 1_100)
+  assert.match(outputText(result), /Result:\nshort result$/)
+  assert.ok((result.details.finalUrl?.length ?? 0) <= 1_000)
+  assert.ok((result.details.title?.length ?? 0) <= 1_000)
+  assert.equal(result.details.result, 'short result')
+  assert.equal(result.details.savedFilePath, undefined)
+  assert.deepEqual(result.metadata, {})
+  assert.deepEqual(await readdir(workspacePath), [])
+})
+
+test('useBrowserTool: eval preserves short JSON output and details', async () => {
+  const tool = createTool(makeContext(), { browserAutomationService: makeService() })
+  assert.ok(tool.execute)
+  const result = await resolveToolOutput(
+    tool.execute(
+      { action: 'eval', session: 's1', script: '({ answer: 42 })', ...TOOL_INPUT_DEFAULTS },
+      TOOL_EXECUTION_OPTIONS
+    )
+  )
+  assert.equal(
+    outputText(result),
+    'Evaluated: Evaluated\nhttps://example.com/eval\n\nResult:\n{\n  "answer": 42\n}'
+  )
+  assert.equal(result.details.result, '{\n  "answer": 42\n}')
+  assert.deepEqual(result.metadata, {})
+})
 
 function isAsyncIterable<T>(value: unknown): value is AsyncIterable<T> {
   return (

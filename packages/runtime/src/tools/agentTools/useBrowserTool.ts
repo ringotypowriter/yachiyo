@@ -1,3 +1,7 @@
+import { randomUUID } from 'node:crypto'
+import { mkdir, writeFile } from 'node:fs/promises'
+import { join } from 'node:path'
+
 import { tool, type Tool } from 'ai'
 
 import type { UseBrowserToolCallDetails } from '@yachiyo/shared/protocol'
@@ -22,8 +26,63 @@ import {
 } from './shared.ts'
 
 const DEFAULT_WAIT_PREDICATE = `(() => document.readyState === 'complete')()`
-const MAX_EVAL_MODEL_RESULT_CHARS = 20_000
+const MAX_BROWSER_INLINE_CHARS = 20_000
+const MAX_BROWSER_PREVIEW_CHARS = 3_000
+const MAX_BROWSER_PAGE_METADATA_CHARS = 1_000
 const MAX_EVAL_DETAILS_RESULT_CHARS = 4_000
+
+async function prepareBrowserText(
+  workspacePath: string,
+  action: 'snapshot' | 'eval',
+  text: string,
+  previewEntries?: string[]
+): Promise<{
+  text: string
+  saved?: Pick<UseBrowserToolCallDetails, 'savedFileName' | 'savedFilePath' | 'bytesWritten'>
+}> {
+  if (text.length <= MAX_BROWSER_INLINE_CHARS) return { text }
+
+  const savedFileName = `.yachiyo/tool-result/browser-${action}-${randomUUID()}.txt`
+  const savedFilePath = join(workspacePath, savedFileName)
+  try {
+    await mkdir(join(workspacePath, '.yachiyo/tool-result'), { recursive: true })
+    await writeFile(savedFilePath, text, { encoding: 'utf8', flag: 'wx' })
+  } catch (cause) {
+    // Do not return the full browser output if saving fails.
+    throw new Error(`Failed to save oversized browser ${action} output to .yachiyo/tool-result.`, {
+      cause
+    })
+  }
+
+  let preview = ''
+  if (previewEntries) {
+    // A ref can itself contain newlines (e.g. aria-label); keep the entire ref atomic.
+    for (const entry of previewEntries) {
+      const next = preview ? `${preview}\n${entry}` : entry
+      if (next.length > MAX_BROWSER_PREVIEW_CHARS) break
+      preview = next
+    }
+  } else {
+    preview = text.slice(0, MAX_BROWSER_PREVIEW_CHARS)
+  }
+
+  return {
+    text: `Output too large to inline (${text.length} characters). Full output saved to ${savedFileName}.\nUse the read tool with this path and offset/limit to read it.\n\nPreview (truncated):\n${preview || '(No complete preview entry fits.)'}`,
+    saved: { savedFileName, savedFilePath, bytesWritten: Buffer.byteLength(text, 'utf8') }
+  }
+}
+
+function browserPageDetails(
+  page: { url: string; title?: string },
+  bounded: boolean
+): Pick<UseBrowserToolCallDetails, 'finalUrl' | 'title'> {
+  return {
+    finalUrl: bounded ? page.url.slice(0, MAX_BROWSER_PAGE_METADATA_CHARS) : page.url,
+    ...(page.title
+      ? { title: bounded ? page.title.slice(0, MAX_BROWSER_PAGE_METADATA_CHARS) : page.title }
+      : {})
+  }
+}
 
 function isMissingSessionError(error: unknown): boolean {
   return error instanceof Error && error.message.includes('No browser session')
@@ -33,9 +92,8 @@ function formatAttemptSuffix(attempts: number): string {
   return attempts > 1 ? ` after ${attempts} attempts` : ''
 }
 
-function formatRefs(snapshot: BrowserAutomationSnapshot): string {
-  if (snapshot.refs.length === 0) return ''
-  const lines = snapshot.refs.map((ref) => {
+function formatRefs(snapshot: BrowserAutomationSnapshot): string[] {
+  return snapshot.refs.map((ref) => {
     const bits: string[] = []
     if (ref.text) bits.push(ref.text)
     if (ref.ariaLabel) bits.push(`aria="${ref.ariaLabel}"`)
@@ -49,7 +107,6 @@ function formatRefs(snapshot: BrowserAutomationSnapshot): string {
     const label = bits.length > 0 ? ` — ${bits.join(' | ')}` : ''
     return `@${ref.ref} <${ref.tag}>${label}`
   })
-  return lines.join('\n')
 }
 
 function formatPageText(snapshot: BrowserAutomationSnapshot): string {
@@ -263,20 +320,25 @@ export function createTool(
                 await runNavigation(() => service.open({ threadId, session, url: input.url }))
                 return service.snapshot({ threadId, session, maxRefs: input.maxRefs })
               })
-            const refsText = formatRefs(snapshot)
+            const refs = formatRefs(snapshot)
+            const refsText = refs.join('\n')
             const pageText = formatPageText(snapshot)
             const header = snapshot.title ? `${snapshot.title}\n${snapshot.url}` : snapshot.url
             const body = [header, pageText, refsText].filter(Boolean).join('\n\n')
+            const prepared = await prepareBrowserText(context.workspacePath, 'snapshot', body, [
+              ...[header, pageText].filter(Boolean).join('\n\n').split('\n'),
+              ...(refs.length > 0 ? ['', ...refs] : [])
+            ])
             return {
-              content: textContent(body),
+              content: textContent(prepared.text),
               details: detailsWithNavigationAttempts({
                 ...baseDetails,
-                finalUrl: snapshot.url,
-                ...(snapshot.title ? { title: snapshot.title } : {}),
+                ...browserPageDetails(snapshot, Boolean(prepared.saved)),
                 refCount: snapshot.refCount,
-                content: body
+                content: prepared.text,
+                ...prepared.saved
               }),
-              metadata: {}
+              metadata: prepared.saved ? { truncated: true } : {}
             }
           }
           case 'scroll': {
@@ -428,22 +490,22 @@ export function createTool(
               timeoutMs: input.timeoutMs
             })
             const resultText = formatEvalResult(result.value)
-            const modelResult = takeTail(resultText, MAX_EVAL_MODEL_RESULT_CHARS)
+            const prepared = await prepareBrowserText(context.workspacePath, 'eval', resultText)
             const detailsResult = takeTail(resultText, MAX_EVAL_DETAILS_RESULT_CHARS)
             const header = result.title
               ? `Evaluated: ${result.title}\n${result.url}`
               : `Evaluated: ${result.url}`
             return {
               content: textContent(
-                `${header}\n\nResult${modelResult.truncated ? ' (truncated)' : ''}:\n${modelResult.text}`
+                `${header.slice(0, MAX_BROWSER_PAGE_METADATA_CHARS)}\n\nResult${prepared.saved ? ' (truncated)' : ''}:\n${prepared.text}`
               ),
               details: {
                 ...baseDetails,
-                finalUrl: result.url,
-                ...(result.title ? { title: result.title } : {}),
-                result: detailsResult.text
+                ...browserPageDetails(result, true),
+                result: detailsResult.text,
+                ...prepared.saved
               },
-              metadata: modelResult.truncated ? { truncated: true } : {}
+              metadata: prepared.saved ? { truncated: true } : {}
             }
           }
           case 'screenshot': {
