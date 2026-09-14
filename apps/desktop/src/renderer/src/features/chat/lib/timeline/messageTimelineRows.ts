@@ -190,6 +190,7 @@ interface BuildConversationGroupRowsInput {
   subagentActive: boolean
   retrying?: boolean
   toolCallDisplayMode?: ToolCallDisplayMode
+  contextHandoffWatermarkMessageId?: string | null
 }
 
 interface BuildMessageTimelineRowsInput {
@@ -238,6 +239,7 @@ function rowReferencesMessage(row: MessageTimelineRow, messageId: string): boole
 function foldRowsCoveredByHandoff(
   rows: MessageTimelineRow[],
   options: {
+    threadId: string | undefined
     contextHandoffWatermarkMessageId?: string | null
     contextHandoffSummary?: string
     expandedHandoffFoldKeys?: ReadonlySet<string>
@@ -256,7 +258,8 @@ function foldRowsCoveredByHandoff(
     return count
   }, 0)
 
-  const foldKey = `handoff-fold:${contextHandoffWatermarkMessageId}`
+  // A thread has one cumulative history fold, not a new fold for each checkpoint.
+  const foldKey = `handoff-fold:${options.threadId}:history`
   const expanded = options.expandedHandoffFoldKeys?.has(foldKey) === true
 
   const foldMarker: MessageTimelineRow = {
@@ -348,6 +351,7 @@ function getThinkingTimelineBlocks(input: {
   group: MessageGroup
   activeAssistantMessages: readonly Message[]
   isActiveGroup: boolean
+  hasHandoffBoundary?: boolean
 }): ThinkingTimelineBlock[] {
   const { group, activeAssistantMessages } = input
   const assistantMessagesWithReasoning = activeAssistantMessages.filter(
@@ -355,7 +359,7 @@ function getThinkingTimelineBlocks(input: {
       Boolean(assistantMessage.reasoning)
   )
 
-  if (group.hiddenRequestMessageIds.length === 0) {
+  if (group.hiddenRequestMessageIds.length === 0 || input.hasHandoffBoundary) {
     return assistantMessagesWithReasoning.map((assistantMessage) => ({
       keyId: assistantMessage.id,
       assistantMessage,
@@ -575,6 +579,13 @@ export function buildConversationGroupRows(
   const activeBranch =
     group.activeBranchIndex >= 0 ? group.assistantBranches[group.activeBranchIndex] : null
   const activeAssistantMessages = getActiveAssistantMessages(group)
+  const handoffIndex = activeAssistantMessages.findIndex(
+    (message) => message.id === input.contextHandoffWatermarkMessageId
+  )
+  const hasHandoffBoundary = handoffIndex >= 0 && handoffIndex < activeAssistantMessages.length - 1
+  const coveredAssistantOrder = new Map(
+    activeAssistantMessages.slice(0, handoffIndex + 1).map((message, index) => [message.id, index])
+  )
   const activeAssistantMessage = activeAssistantMessages.at(-1) ?? null
   const requestMessageId = group.userMessage.id
   const groupRequestMessageIds = [
@@ -637,7 +648,8 @@ export function buildConversationGroupRows(
   const thinkingBlocks = getThinkingTimelineBlocks({
     group,
     activeAssistantMessages,
-    isActiveGroup: input.isActiveGroup
+    isActiveGroup: input.isActiveGroup,
+    hasHandoffBoundary
   })
   const renderableTextBlocks = activeAssistantTextBlocks.filter(
     (textBlock) => textBlock.content.trim().length > 0
@@ -654,6 +666,8 @@ export function buildConversationGroupRows(
     renderableTextBlocks.length === 0 &&
     workSummaryToolCalls.length > TOOL_ONLY_WORK_SUMMARY_THRESHOLD
   const shouldSummarizeCompletedWork =
+    // Keep individual rows when a summary would consume both history and live content.
+    !hasHandoffBoundary &&
     (input.toolCallDisplayMode ?? DEFAULT_TOOL_CALL_DISPLAY_MODE) === 'work-summary' &&
     activeAssistantMessage != null &&
     activeAssistantMessage.status === 'completed' &&
@@ -812,7 +826,11 @@ export function buildConversationGroupRows(
         key: `tool-group:${requestMessageId}:${item.key}`,
         time: group.userMessage.createdAt,
         requestMessageId,
-        ...(activeAssistantMessage ? { assistantMessageId: activeAssistantMessage.id } : {}),
+        ...(toolCalls[0]?.assistantMessageId
+          ? { assistantMessageId: toolCalls[0].assistantMessageId }
+          : activeAssistantMessage
+            ? { assistantMessageId: activeAssistantMessage.id }
+            : {}),
         group,
         toolGroup: item.group,
         toolCalls
@@ -939,6 +957,25 @@ export function buildConversationGroupRows(
     })
   }
 
+  if (hasHandoffBoundary) {
+    // Thinking rows normally lead the group. Keep covered assistants in message order
+    // so a reasoning-only checkpoint still folds every earlier assistant's text/tools.
+    // Live reasoning stays ahead of live text/tools, outside the history boundary.
+    const isCoveredRow = (row: MessageTimelineRow): boolean =>
+      row.kind === 'group-user' ||
+      row.kind === 'group-branch-navigation' ||
+      ('assistantMessageId' in row && coveredAssistantOrder.has(row.assistantMessageId ?? ''))
+    const coveredRowOrder = (row: MessageTimelineRow): number =>
+      row.kind !== 'group-branch-navigation' && 'assistantMessageId' in row
+        ? (coveredAssistantOrder.get(row.assistantMessageId ?? '') ?? -1)
+        : -1
+    return [
+      ...rows
+        .filter(isCoveredRow)
+        .sort((left, right) => coveredRowOrder(left) - coveredRowOrder(right)),
+      ...rows.filter((row) => !isCoveredRow(row))
+    ]
+  }
   return rows
 }
 
@@ -958,7 +995,8 @@ export function buildMessageTimelineRows(
           isActiveGroup,
           retrying: input.retrying,
           subagentActive: input.subagentActive && isActiveGroup,
-          toolCallDisplayMode: input.toolCallDisplayMode
+          toolCallDisplayMode: input.toolCallDisplayMode,
+          contextHandoffWatermarkMessageId: input.contextHandoffWatermarkMessageId
         })
       }
     }),
@@ -1007,6 +1045,11 @@ export function buildMessageTimelineRows(
     blocks.sort(compareBlocks).flatMap((block) => block.rows)
   )
   return foldRowsCoveredByHandoff(rows, {
+    threadId:
+      input.messageGroups[0]?.userMessage.threadId ??
+      input.rootAssistantMessages[0]?.threadId ??
+      input.pendingSteerMessage?.threadId ??
+      input.orphanToolCalls[0]?.threadId,
     contextHandoffWatermarkMessageId: input.contextHandoffWatermarkMessageId,
     contextHandoffSummary: input.contextHandoffSummary,
     expandedHandoffFoldKeys: input.expandedHandoffFoldKeys

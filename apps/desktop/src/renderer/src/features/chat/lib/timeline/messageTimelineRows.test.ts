@@ -1,14 +1,18 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import type { Message, MessageTextBlockRecord } from '../../../../app/types.ts'
+import type { Message, MessageTextBlockRecord, ToolCall } from '../../../../app/types.ts'
 import { PLAN_DOCUMENT_MARKER } from '@yachiyo/shared/planMode'
 import {
   buildConversationGroupRows,
   buildMessageTimelineRows,
   type MessageTimelineRow
 } from './messageTimelineRows.ts'
-import type { MessageGroup } from './messageThreadPresentation.ts'
+import {
+  buildMessageGroups,
+  partitionToolCallsForGroups,
+  type MessageGroup
+} from './messageThreadPresentation.ts'
 
 const TIMESTAMP = '2026-04-18T00:00:00.000Z'
 
@@ -1719,7 +1723,7 @@ test('buildMessageTimelineRows folds rows covered by the thread handoff watermar
 
   const expandedRows = buildMessageTimelineRows({
     ...baseInput,
-    expandedHandoffFoldKeys: new Set(['handoff-fold:assistant-1'])
+    expandedHandoffFoldKeys: new Set(['handoff-fold:thread-1:history'])
   })
 
   // Expanded: folded rows, summary, then fixed-height fold marker
@@ -1743,6 +1747,296 @@ test('buildMessageTimelineRows folds rows covered by the thread handoff watermar
     'group-assistant-text-block',
     'group-footer'
   ])
+})
+
+for (const toolCallDisplayMode of ['tool-deck', 'work-summary'] as const) {
+  test(`handoff keeps continuation tools outside folded history in ${toolCallDisplayMode} mode`, () => {
+    const checkpoint = createAssistantMessage({
+      id: 'assistant-1',
+      content: '',
+      status: 'completed',
+      createdAt: '2026-04-18T00:00:01.000Z'
+    })
+    const continuation: Message = {
+      ...createUserMessage('hidden-continuation', 'Continue'),
+      parentMessageId: checkpoint.id,
+      hidden: true,
+      turnContext: { hiddenRequestKind: 'steer' },
+      createdAt: '2026-04-18T00:00:02.000Z'
+    }
+    const assistant: Message = {
+      ...createAssistantMessage({
+        id: 'assistant-2',
+        content: '',
+        status: 'streaming',
+        createdAt: '2026-04-18T00:00:03.000Z'
+      }),
+      parentMessageId: continuation.id
+    }
+    const messageGroups = buildMessageGroups({
+      thread: {
+        id: 'thread-1',
+        title: 'Test',
+        updatedAt: TIMESTAMP,
+        headMessageId: continuation.id
+      },
+      messages: [createUserMessage('user-1', 'Question'), checkpoint, continuation, assistant],
+      runPhase: 'streaming',
+      activeRequestMessageId: continuation.id
+    })
+    const toolCalls: ToolCall[] = [
+      {
+        id: 'before-handoff',
+        threadId: 'thread-1',
+        runId: 'run-1',
+        requestMessageId: 'user-1',
+        assistantMessageId: checkpoint.id,
+        toolName: 'read',
+        status: 'completed',
+        inputSummary: 'before.ts',
+        startedAt: checkpoint.createdAt
+      },
+      {
+        id: 'after-handoff',
+        threadId: 'thread-1',
+        runId: 'run-1',
+        requestMessageId: continuation.id,
+        toolName: 'read',
+        status: 'running',
+        inputSummary: 'after.ts',
+        startedAt: assistant.createdAt
+      }
+    ]
+    toolCalls.splice(1, 0, { ...toolCalls[0]!, id: 'before-handoff-2' })
+    toolCalls.push({ ...toolCalls[2]!, id: 'after-handoff-2' })
+    const input = {
+      messageGroups,
+      ...partitionToolCallsForGroups({ groups: messageGroups, toolCalls }),
+      rootAssistantMessages: [],
+      pendingSteerMessage: null,
+      runs: [],
+      activeRunId: 'run-1',
+      activeRequestMessageId: continuation.id,
+      subagentActive: false,
+      contextHandoffWatermarkMessageId: checkpoint.id,
+      toolCallDisplayMode
+    }
+    const visibleToolIds = (rows: MessageTimelineRow[]): string[] =>
+      rows.flatMap((row) =>
+        row.kind === 'group-tool-call'
+          ? [row.toolCall.id]
+          : row.kind === 'group-tool-call-deck' || row.kind === 'group-tool-call-group'
+            ? row.toolCalls.map((toolCall) => toolCall.id)
+            : []
+      )
+
+    assert.deepEqual(visibleToolIds(buildMessageTimelineRows(input)), [
+      'after-handoff',
+      'after-handoff-2'
+    ])
+    assert.deepEqual(
+      visibleToolIds(
+        buildMessageTimelineRows({
+          ...input,
+          expandedHandoffFoldKeys: new Set(['handoff-fold:thread-1:history'])
+        })
+      ),
+      ['before-handoff', 'before-handoff-2', 'after-handoff', 'after-handoff-2']
+    )
+    assert.deepEqual(
+      visibleToolIds(
+        buildMessageTimelineRows({
+          ...input,
+          inlineToolCalls: input.inlineToolCalls.map((toolCall) =>
+            toolCall.requestMessageId === continuation.id
+              ? { ...toolCall, status: 'completed', assistantMessageId: assistant.id }
+              : toolCall
+          )
+        })
+      ),
+      ['after-handoff', 'after-handoff-2']
+    )
+  })
+}
+
+for (const status of ['streaming', 'completed'] as const) {
+  test(`successive handoffs retain one expanded history and live ${status} work`, () => {
+    const assistants = [1, 2, 3].map((index): Message => ({
+      ...createAssistantMessage({
+        id: `assistant-${index}`,
+        content: `Answer ${index}`,
+        reasoning: `Reasoning ${index}`,
+        status: index === 3 ? status : 'completed',
+        createdAt: `2026-04-18T00:00:0${index * 2 - 1}.000Z`,
+        ...(index === 3
+          ? {
+              textBlocks: [
+                { id: 'note-3', content: 'Note 3', createdAt: '2026-04-18T00:00:05.000Z' },
+                { id: 'answer-3', content: 'Answer 3', createdAt: '2026-04-18T00:00:06.000Z' }
+              ]
+            }
+          : {})
+      }),
+      parentMessageId: index === 1 ? 'user-1' : `hidden-${index}`
+    }))
+    const steers = [2, 3].map((index): Message => ({
+      ...createUserMessage(`hidden-${index}`, 'Continue'),
+      parentMessageId: `assistant-${index - 1}`,
+      hidden: true,
+      turnContext: { hiddenRequestKind: 'steer' },
+      createdAt: `2026-04-18T00:00:0${index * 2 - 2}.000Z`
+    }))
+    const messageGroups = buildMessageGroups({
+      thread: {
+        id: 'thread-1',
+        title: 'Test',
+        updatedAt: TIMESTAMP,
+        headMessageId: status === 'streaming' ? 'hidden-3' : 'assistant-3'
+      },
+      messages: [createUserMessage('user-1', 'Question'), ...assistants, ...steers],
+      runPhase: status === 'streaming' ? 'streaming' : 'idle',
+      activeRequestMessageId: status === 'streaming' ? 'hidden-3' : null
+    })
+    assert.equal(messageGroups.length, 1)
+    assert.equal(messageGroups[0]?.activeAssistantMessages.length, 3)
+    const toolCalls: ToolCall[] = assistants.map((assistant, index) => ({
+      id: `tool-${index + 1}`,
+      threadId: 'thread-1',
+      requestMessageId: assistant.parentMessageId!,
+      assistantMessageId: assistant.id,
+      toolName: 'read',
+      status: 'completed',
+      inputSummary: `${index + 1}.ts`,
+      startedAt: assistant.createdAt
+    }))
+    const input = {
+      messageGroups,
+      ...partitionToolCallsForGroups({ groups: messageGroups, toolCalls }),
+      rootAssistantMessages: [],
+      pendingSteerMessage: null,
+      runs: [],
+      activeRunId: null,
+      activeRequestMessageId: status === 'streaming' ? 'hidden-3' : null,
+      subagentActive: false,
+      toolCallDisplayMode: 'work-summary' as const,
+      contextHandoffWatermarkMessageId: 'assistant-1',
+      contextHandoffSummary: 'First summary'
+    }
+    const firstRows = buildMessageTimelineRows(input)
+    const firstFold = firstRows.find((row) => row.kind === 'handoff-fold')
+    assert.ok(firstFold)
+    assert.equal(firstFold.expanded, false)
+    assert.deepEqual(
+      firstRows.filter((row) => row.kind === 'group-thinking').map((row) => row.reasoning),
+      ['Reasoning 2', 'Reasoning 3']
+    )
+    const expandedHandoffFoldKeys = new Set([firstFold.key])
+    const firstExpanded = buildMessageTimelineRows({ ...input, expandedHandoffFoldKeys })
+    assert.equal(firstExpanded.find((row) => row.kind === 'handoff-fold')?.expanded, true)
+
+    const nextInput = {
+      ...input,
+      contextHandoffWatermarkMessageId: 'assistant-2',
+      contextHandoffSummary: 'Updated summary'
+    }
+    const nextRows = buildMessageTimelineRows({ ...nextInput, expandedHandoffFoldKeys })
+    const nextFold = nextRows.find((row) => row.kind === 'handoff-fold')
+    assert.equal(nextFold?.key, firstFold.key)
+    assert.equal(nextFold?.expanded, true)
+    assert.equal(nextRows.find((row) => row.kind === 'handoff-summary')?.content, 'Updated summary')
+    assert.equal(nextRows.filter((row) => row.kind === 'handoff-fold').length, 1)
+    assert.equal(nextRows.filter((row) => row.kind === 'group-user').length, 1)
+    assert.equal(new Set(nextRows.map((row) => row.key)).size, nextRows.length)
+    const liveRows = buildMessageTimelineRows(nextInput)
+    assert.equal(
+      liveRows.some((row) => row.kind === 'group-work-summary'),
+      false
+    )
+    assert.deepEqual(
+      liveRows.filter((row) => row.kind === 'group-tool-call').map((row) => row.toolCall.id),
+      ['tool-3']
+    )
+    assert.deepEqual(
+      liveRows.filter((row) => row.kind === 'group-thinking').map((row) => row.reasoning),
+      ['Reasoning 3']
+    )
+    assert.deepEqual(
+      liveRows
+        .filter((row) => row.kind === 'group-assistant-text-block')
+        .map((row) => row.textBlock.content),
+      ['Note 3', 'Answer 3']
+    )
+    assert.deepEqual(nextRows.slice(nextRows.indexOf(nextFold!) + 1), liveRows.slice(1))
+    const reasoningOnlyCheckpointInput = {
+      ...nextInput,
+      messageGroups: messageGroups.map((group) => ({
+        ...group,
+        activeAssistantMessages: group.activeAssistantMessages.map((message) =>
+          message.id === 'assistant-2' ? { ...message, content: '' } : message
+        )
+      })),
+      inlineToolCalls: input.inlineToolCalls.filter((toolCall) => toolCall.id !== 'tool-2')
+    }
+    assert.deepEqual(
+      buildMessageTimelineRows(reasoningOnlyCheckpointInput).map((row) => row.key),
+      liveRows.map((row) => row.key)
+    )
+    const reasoningOnlyExpanded = buildMessageTimelineRows({
+      ...reasoningOnlyCheckpointInput,
+      expandedHandoffFoldKeys
+    })
+    assert.deepEqual(
+      reasoningOnlyExpanded
+        .filter((row) => row.kind === 'group-assistant-text-block')
+        .map((row) => row.textBlock.content),
+      ['Answer 1', 'Note 3', 'Answer 3']
+    )
+    if (status === 'completed') {
+      const withoutHandoff = buildMessageTimelineRows({
+        ...input,
+        contextHandoffWatermarkMessageId: null
+      })
+      assert.equal(
+        withoutHandoff.some((row) => row.kind === 'group-work-summary'),
+        true
+      )
+      assert.deepEqual(
+        liveRows.filter((row) => row.kind === 'group-footer').map((row) => row.assistantMessage.id),
+        ['assistant-3']
+      )
+    }
+  })
+}
+
+test('cumulative handoff expansion does not leak between threads', () => {
+  const assistant = createAssistantMessage({
+    id: 'checkpoint',
+    content: 'Answer',
+    status: 'completed'
+  })
+  const input = {
+    messageGroups: [],
+    rootAssistantMessages: [assistant],
+    orphanToolCalls: [],
+    pendingSteerMessage: null,
+    inlineToolCalls: [],
+    runs: [],
+    activeRunId: null,
+    activeRequestMessageId: null,
+    subagentActive: false,
+    contextHandoffWatermarkMessageId: assistant.id
+  }
+  const fold = buildMessageTimelineRows(input).find((row) => row.kind === 'handoff-fold')
+  assert.ok(fold)
+  const otherThreadRows = buildMessageTimelineRows({
+    ...input,
+    rootAssistantMessages: [{ ...assistant, threadId: 'thread-2' }],
+    expandedHandoffFoldKeys: new Set([fold.key])
+  })
+  const otherFold = otherThreadRows.find((row) => row.kind === 'handoff-fold')
+  assert.ok(otherFold)
+  assert.notEqual(otherFold.key, fold.key)
+  assert.equal(otherFold.expanded, false)
 })
 
 test('buildMessageTimelineRows shows the handoff fold marker even when no later rows exist yet', () => {

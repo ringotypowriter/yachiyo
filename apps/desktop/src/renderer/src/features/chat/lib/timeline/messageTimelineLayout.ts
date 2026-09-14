@@ -582,7 +582,15 @@ function mergeConsecutiveToolCallDecks(
 
   for (const item of items) {
     if (item.kind === 'tool-call') {
-      if (toolCallById.has(item.toolCallId)) collectedToolCallIds.push(item.toolCallId)
+      const toolCall = toolCallById.get(item.toolCallId)
+      if (toolCall) {
+        const firstToolCall = toolCallById.get(collectedToolCallIds[0]!)
+        // Hidden continuation requests can sit on opposite sides of a handoff fold.
+        if (firstToolCall && firstToolCall.requestMessageId !== toolCall.requestMessageId) {
+          flushDeck()
+        }
+        collectedToolCallIds.push(item.toolCallId)
+      }
       continue
     }
 
@@ -651,6 +659,7 @@ function mergeConsecutiveToolCalls(
 
       if (next.kind === 'tool-call') {
         const nextTc = toolCallById.get(next.toolCallId)
+        if (nextTc?.requestMessageId !== tc.requestMessageId) break
         const nextGroup = nextTc ? getToolCallSemanticGroup(nextTc) : null
         const nextFilePath = nextTc ? getToolCallFilePath(nextTc) : null
         const nextFilePaths = nextTc ? getToolCallFilePaths(nextTc) : []
