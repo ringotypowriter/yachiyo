@@ -27,7 +27,24 @@ test('compileGroupProbeContextLayers keeps instructions, references, history, an
   assert.equal(messages[3]?.role, 'user')
   assert.equal(messages[3]?.content, '<msg from="Alice">old turn</msg>')
   assert.equal(messages[4]?.role, 'user')
-  assert.equal(messages[4]?.content, '<msg from="Bob">fresh turn</msg>')
+  assert.equal(
+    messages[4]?.content,
+    '<new_messages>\n<msg from="Bob">fresh turn</msg>\n</new_messages>'
+  )
+})
+
+test('compileGroupProbeContextLayers does not label historical messages as new when the delta is empty', () => {
+  const messages = compileGroupProbeContextLayers({
+    stableSystemPrompt: 'Group behavior.',
+    dynamicSystemPrompt: '',
+    history: [{ role: 'user', content: '<msg from="Alice">old turn</msg>' }],
+    currentTurnContent: '  \n  '
+  })
+
+  assert.deepEqual(messages, [
+    { role: 'system', content: 'Group behavior.' },
+    { role: 'user', content: '<msg from="Alice">old turn</msg>' }
+  ])
 })
 
 test('compileGroupProbeContextLayers never replays assistant turns — self speech arrives via the group log (#55)', () => {
@@ -87,7 +104,10 @@ test('compileGroupProbeContextLayers never replays assistant turns — self spee
     'sent text must not be synthesized into replay'
   )
   assert.equal(messages[3]?.role, 'user')
-  assert.equal(messages[3]?.content, '<msg from="Bob">fresh turn</msg>')
+  assert.equal(
+    messages[3]?.content,
+    '<new_messages>\n<msg from="Bob">fresh turn</msg>\n</new_messages>'
+  )
 })
 
 test('compileGroupProbeContextLayers drops successful send turns from replay too (#55)', () => {
@@ -134,7 +154,10 @@ test('compileGroupProbeContextLayers drops successful send turns from replay too
   // next turn's delta via the group log buffer instead.
   assert.equal(messages.length, 3)
   assert.equal(messages[2]?.role, 'user')
-  assert.equal(messages[2]?.content, '<msg from="Bob">fresh turn</msg>')
+  assert.equal(
+    messages[2]?.content,
+    '<new_messages>\n<msg from="Bob">fresh turn</msg>\n</new_messages>'
+  )
 })
 
 test('compileGroupProbeContextLayers drops failed group message send attempts', () => {
@@ -173,7 +196,10 @@ test('compileGroupProbeContextLayers drops failed group message send attempts', 
   })
 
   assert.equal(messages[2]?.role, 'user')
-  assert.equal(messages[2]?.content, '<msg from="Bob">fresh turn</msg>')
+  assert.equal(
+    messages[2]?.content,
+    '<new_messages>\n<msg from="Bob">fresh turn</msg>\n</new_messages>'
+  )
 })
 
 test('compileGroupProbeContextLayers drops plain silent assistant monologue replay', () => {
@@ -190,7 +216,10 @@ test('compileGroupProbeContextLayers drops plain silent assistant monologue repl
   })
 
   assert.equal(messages[2]?.role, 'user')
-  assert.equal(messages[2]?.content, '<msg from="Bob">fresh turn</msg>')
+  assert.equal(
+    messages[2]?.content,
+    '<new_messages>\n<msg from="Bob">fresh turn</msg>\n</new_messages>'
+  )
 })
 
 test('compileGroupProbeContextLayers drops text-only silent assistant responseMessages', () => {
@@ -220,7 +249,10 @@ test('compileGroupProbeContextLayers drops text-only silent assistant responseMe
   })
 
   assert.equal(messages[2]?.role, 'user')
-  assert.equal(messages[2]?.content, '<msg from="Bob">fresh turn</msg>')
+  assert.equal(
+    messages[2]?.content,
+    '<new_messages>\n<msg from="Bob">fresh turn</msg>\n</new_messages>'
+  )
 })
 
 test('compileGroupProbeContextLayers drops one-sentence silent assistant monologue replay', () => {
@@ -232,7 +264,10 @@ test('compileGroupProbeContextLayers drops one-sentence silent assistant monolog
   })
 
   assert.equal(messages[2]?.role, 'user')
-  assert.equal(messages[2]?.content, '<msg from="Bob">fresh turn</msg>')
+  assert.equal(
+    messages[2]?.content,
+    '<new_messages>\n<msg from="Bob">fresh turn</msg>\n</new_messages>'
+  )
 })
 
 test('compileGroupProbeContextLayers does not guess token counts from message length', () => {
@@ -251,7 +286,10 @@ test('compileGroupProbeContextLayers does not guess token counts from message le
   assert.ok(contents.some((content) => content.includes('from="A"')))
   assert.ok(contents.some((content) => content.includes('from="B"')))
   assert.ok(contents.some((content) => content.includes('from="C"')))
-  assert.equal(messages[messages.length - 1]?.content, '<msg from="Bob">fresh turn</msg>')
+  assert.equal(
+    messages[messages.length - 1]?.content,
+    '<new_messages>\n<msg from="Bob">fresh turn</msg>\n</new_messages>'
+  )
 })
 
 test('compileGroupProbeContextLayers keeps long replay turns intact', () => {
@@ -399,7 +437,10 @@ test('compileGroupProbeContextLayers drops tool-assisted silent turns unless the
   })
 
   assert.equal(messages[2]?.role, 'user')
-  assert.equal(messages[2]?.content, '<msg from="Bob">fresh turn</msg>')
+  assert.equal(
+    messages[2]?.content,
+    '<new_messages>\n<msg from="Bob">fresh turn</msg>\n</new_messages>'
+  )
 })
 
 test('compileGroupProbeContextLayers applies Anthropic cache breakpoints when requested', () => {

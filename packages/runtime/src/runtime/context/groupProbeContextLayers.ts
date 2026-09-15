@@ -218,7 +218,12 @@ export function compileGroupProbeContextLayers(
   const historyMessages = buildBudgetedHistoryMessages(input.history, input.historyTokenBudget)
 
   const currentTurn: ModelMessage[] = input.currentTurnContent.trim()
-    ? [{ role: 'user', content: input.currentTurnContent.trim() }]
+    ? [
+        {
+          role: 'user',
+          content: `<new_messages>\n${input.currentTurnContent.trim()}\n</new_messages>`
+        }
+      ]
     : []
 
   const compiled = removeEmptyMessages([
