@@ -1,5 +1,6 @@
 import { open, realpath } from 'node:fs/promises'
-import { isAbsolute, relative, resolve } from 'node:path'
+import { isAbsolute, resolve } from 'node:path'
+import { resolveInputWorkspacePath } from '@yachiyo/runtime/runtime/files/inlineCodeFileReferences'
 import {
   decodePreviewText,
   getFilePreviewKind,
@@ -9,19 +10,13 @@ import {
 } from '@yachiyo/shared/filePreview'
 
 export async function readFilePreview(input: ReadFilePreviewInput): Promise<FilePreviewContent> {
-  if (!input.workspacePath) throw new Error('A workspace is required to preview this file.')
-  const workspace = await realpath(input.workspacePath)
-  const path = await realpath(resolve(workspace, input.path))
-  const local = relative(workspace, path)
-  if (
-    !local ||
-    local === '..' ||
-    local.startsWith('../') ||
-    local.startsWith('..\\') ||
-    isAbsolute(local)
-  ) {
-    throw new Error('The file is outside this workspace.')
+  let targetPath = input.path
+  if (!isAbsolute(targetPath)) {
+    const workspace = resolveInputWorkspacePath(input)
+    if (!workspace) throw new Error('A workspace or thread is required to preview a relative path.')
+    targetPath = resolve(workspace, targetPath)
   }
+  const path = await realpath(targetPath)
   const kind = getFilePreviewKind(path)
   if (!kind || kind === 'image') throw new Error('Open this file in its default application.')
   const file = await open(path, 'r')

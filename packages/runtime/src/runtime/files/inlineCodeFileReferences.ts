@@ -43,7 +43,9 @@ export async function resolveExistingFileReferences(
   return resolved
 }
 
-function resolveInputWorkspacePath(input: ResolveFileReferencesInput): string | null {
+export function resolveInputWorkspacePath(
+  input: Pick<ResolveFileReferencesInput, 'workspacePath' | 'threadId'>
+): string | null {
   const explicitWorkspacePath = input.workspacePath?.trim()
   if (explicitWorkspacePath) {
     return resolve(explicitWorkspacePath)

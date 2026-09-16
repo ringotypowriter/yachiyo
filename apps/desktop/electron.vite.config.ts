@@ -5,6 +5,7 @@ import type { Plugin } from 'vite'
 import { defineConfig } from 'electron-vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
+import { pdfPreviewAssets } from './pdfPreviewAssets'
 
 function copyDrizzleMigrations(includeDevAssets: boolean): {
   name: string
@@ -163,7 +164,7 @@ export default defineConfig(({ command }) => ({
         )
       }
     },
-    plugins: [react(), tailwindcss()],
+    plugins: [react(), tailwindcss(), pdfPreviewAssets()],
     define: {
       __APP_VERSION__: JSON.stringify(process.env.npm_package_version ?? '1.0.0')
     }

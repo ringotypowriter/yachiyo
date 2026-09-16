@@ -1,18 +1,11 @@
-import { useEffect, useRef, useState } from 'react'
+import { lazy, Suspense, useEffect, useState } from 'react'
 import type { FilePreviewContent } from '@yachiyo/shared/filePreview'
 import { MessageMarkdown } from '@renderer/lib/markdown/MessageMarkdown'
 import type { ReaderTarget } from '../lib/contentReader'
 
-function PdfDocument({ content, title }: { content: string; title: string }): React.JSX.Element {
-  const frame = useRef<HTMLIFrameElement>(null)
-  useEffect(() => {
-    const bytes = Uint8Array.from(atob(content), (character) => character.charCodeAt(0))
-    const url = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }))
-    if (frame.current) frame.current.src = `${url}#navpanes=0&view=FitH`
-    return () => URL.revokeObjectURL(url)
-  }, [content])
-  return <iframe ref={frame} className="content-reader-pdf" title={title} />
-}
+const PdfDocument = lazy(() =>
+  import('./PdfDocument').then((module) => ({ default: module.PdfDocument }))
+)
 
 export function DocumentReader({
   target,
@@ -20,6 +13,19 @@ export function DocumentReader({
 }: {
   target: Extract<ReaderTarget, { kind: 'file' }>
   revision: string
+}): React.JSX.Element {
+  return (
+    <LoadedDocumentReader
+      key={JSON.stringify([target.path, target.threadId, target.workspacePath, revision])}
+      target={target}
+    />
+  )
+}
+
+function LoadedDocumentReader({
+  target
+}: {
+  target: Extract<ReaderTarget, { kind: 'file' }>
 }): React.JSX.Element {
   const [document, setDocument] = useState<FilePreviewContent | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -43,7 +49,7 @@ export function DocumentReader({
     return () => {
       cancelled = true
     }
-  }, [target.path, target.workspacePath, target.threadId, revision])
+  }, [target.path, target.workspacePath, target.threadId])
 
   return (
     <div className="content-reader-document">
@@ -58,10 +64,18 @@ export function DocumentReader({
         </div>
       ) : null}
       {document?.kind === 'pdf' ? (
-        <PdfDocument
-          content={document.content}
-          title={target.path.split(/[\\/]/).pop() ?? 'PDF document'}
-        />
+        <Suspense
+          fallback={
+            <div className="content-reader-notice" role="status">
+              Loading PDF…
+            </div>
+          }
+        >
+          <PdfDocument
+            content={document.content}
+            title={target.path.split(/[\\/]/).pop() ?? 'PDF document'}
+          />
+        </Suspense>
       ) : null}
       {document?.kind === 'markdown' ? (
         <article className="content-reader-paper content-selectable">

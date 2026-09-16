@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs'
 import test from 'node:test'
 
 // The real document policy governs generated PNG previews, not the capture engine.
-test('main window CSP permits local PNG object URLs without widening scripts or remote images', () => {
+test('main window CSP permits local previews and PDF decoders without remote scripts or JavaScript eval', () => {
   const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8')
   const policy = html.match(/http-equiv="Content-Security-Policy"\s+content="([^"]+)"/)?.[1]
   assert.ok(policy, 'Main window must declare its content security policy')
@@ -14,6 +14,9 @@ test('main window CSP permits local PNG object URLs without widening scripts or 
     })
   )
   assert.deepEqual(directives.get('img-src'), ["'self'", 'data:', 'blob:'])
-  assert.deepEqual(directives.get('script-src'), ["'self'"])
+  assert.deepEqual(directives.get('script-src'), ["'self'", "'wasm-unsafe-eval'"])
+  assert.deepEqual(directives.get('worker-src'), ["'self'", 'blob:'])
+  assert.deepEqual(directives.get('font-src'), ["'self'", 'blob:'])
+  assert.equal(directives.has('frame-src'), false)
   assert.deepEqual(directives.get('default-src'), ["'self'"])
 })

@@ -96,6 +96,7 @@
     "linkedom": "^0.18.12",
     "lucide-react": "^0.577.0",
     "match-sorter": "^8.2.0",
+    "pdfjs-dist": "^6.3.289",
     "recharts": "^3.8.1",
     "rehype-katex": "^7.0.1",
     "remark-cjk-friendly": "^2.3.1",
