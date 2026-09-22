@@ -39,7 +39,10 @@ final class ThreadStore: ChatMessageSource {
     var messagesDidChange: AnyPublisher<([ConversationMessage], Bool), Never> { messagesSubject.eraseToAnyPublisher() }
     var userDidSendMessage: AnyPublisher<Void, Never> { userSentSubject.eraseToAnyPublisher() }
 
-    init(desktopId: String, threadId: String, store: RemoteStore = .shared) {
+    // `store` defaults inside the body: a `= .shared` default argument is evaluated outside the
+    // main actor.
+    init(desktopId: String, threadId: String, store: RemoteStore? = nil) {
+        let store = store ?? .shared
         self.desktopId = desktopId
         self.threadId = threadId
         self.store = store
