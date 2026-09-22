@@ -2,6 +2,7 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
+import { createDemoYachiyoStorage } from '../../../../demo/demoMode.ts'
 import { createInMemoryYachiyoStorage } from '../../../../storage/memoryStorage.ts'
 import { YachiyoServer } from '../../YachiyoServer.ts'
 import { createScriptedModelRuntime } from './scriptedModelRuntime.ts'
@@ -16,6 +17,8 @@ export interface FakeDesktopServerOptions {
   /** Extra `config.toml` content appended after the defaults. */
   configToml?: string
   chunkDelayMs?: number
+  /** Seed the demo threads used by screenshots and the fake-desktop harness. */
+  demo?: boolean
 }
 
 /**
@@ -50,7 +53,7 @@ export async function createFakeDesktopServer(
   const workspacePathForThread = (threadId: string): string => join(root, 'workspaces', threadId)
 
   const server = new YachiyoServer({
-    storage: createInMemoryYachiyoStorage(),
+    storage: options.demo ? createDemoYachiyoStorage() : createInMemoryYachiyoStorage(),
     settingsPath,
     resolveThreadWorkspacePath: workspacePathForThread,
     ensureThreadWorkspace: async (threadId) => {
