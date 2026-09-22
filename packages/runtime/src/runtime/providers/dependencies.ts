@@ -4,6 +4,8 @@ import { createVertex } from '@ai-sdk/google-vertex'
 import { createGateway, streamText } from 'ai'
 import { createOpenAI } from '@ai-sdk/openai'
 
+import type { ResponsesWebSocketSupportStore } from './responsesWebSocketSupport.ts'
+
 import { sleep } from '../../channels/shared/connectionRetry.ts'
 
 export type OpenAIProviderFactory = typeof createOpenAI
@@ -16,6 +18,7 @@ export type SleepImplementation = typeof sleep
 export type NowImplementation = () => number
 
 export interface AiSdkRuntimeDependencies {
+  responsesWebSocketSupport?: ResponsesWebSocketSupportStore
   createAnthropicProvider?: AnthropicProviderFactory
   createGatewayProvider?: GatewayProviderFactory
   createGoogleProvider?: GoogleProviderFactory
@@ -28,6 +31,7 @@ export interface AiSdkRuntimeDependencies {
 }
 
 export interface ResolvedAiSdkRuntimeDependencies {
+  responsesWebSocketSupport?: ResponsesWebSocketSupportStore
   createAnthropicProvider: AnthropicProviderFactory
   createGatewayProvider: GatewayProviderFactory
   createGoogleProvider: GoogleProviderFactory
@@ -47,6 +51,7 @@ export function resolveAiSdkRuntimeDependencies(
   dependencies: AiSdkRuntimeDependencies = {}
 ): ResolvedAiSdkRuntimeDependencies {
   return {
+    responsesWebSocketSupport: dependencies.responsesWebSocketSupport,
     createAnthropicProvider: dependencies.createAnthropicProvider ?? createAnthropic,
     createGatewayProvider: dependencies.createGatewayProvider ?? createGateway,
     createGoogleProvider: dependencies.createGoogleProvider ?? createGoogle,

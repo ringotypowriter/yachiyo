@@ -1162,3 +1162,31 @@ test('settings store caching and dirty-check behavior', async (t) => {
     }
   })
 })
+
+test('Responses WebSocket option round-trips and defaults on only for Responses providers', () => {
+  for (const type of ['openai-responses', 'openai', 'openai-codex']) {
+    for (const enabled of [undefined, false, true]) {
+      const config = normalizeSettingsConfig({
+        providers: [
+          {
+            name: 'responses',
+            type,
+            apiKey: 'test',
+            baseUrl: 'https://example.test/v1',
+            responsesWebSocket: enabled,
+            modelList: { enabled: ['model'], disabled: [] }
+          }
+        ]
+      })
+      const expected = type === 'openai-responses' && enabled !== false
+      assert.equal(config.providers[0]?.responsesWebSocket, expected)
+      const serialized = stringifySettingsToml(config)
+      assert.equal(
+        serialized.includes('responsesWebSocket = false'),
+        type === 'openai-responses' && enabled === false
+      )
+      const reloaded = parseSettingsToml(serialized)
+      assert.equal(toProviderSettings(reloaded).responsesWebSocket, expected)
+    }
+  }
+})

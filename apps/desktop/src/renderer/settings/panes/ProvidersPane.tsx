@@ -211,6 +211,7 @@ export function ProvidersPane({
     const duplicated: ProviderConfig = {
       ...selectedProvider,
       id: createProviderId(),
+      responsesWebSocketUnsupportedEndpoint: undefined,
       presetKey: undefined,
       name: candidate
     }
@@ -592,6 +593,45 @@ export function ProvidersPane({
                 </>
               ) : (
                 <>
+                  {selectedProvider.type === 'openai-responses' && (
+                    <div className="col-span-2 flex items-center justify-between gap-4">
+                      <div className="min-w-0">
+                        <div className="text-sm font-medium" style={{ color: theme.text.primary }}>
+                          Responses WebSocket
+                        </div>
+                        <div className="text-xs leading-5" style={{ color: theme.text.tertiary }}>
+                          Automatically try WebSocket for session requests. Unsupported endpoints
+                          stay on HTTP until retried; temporary failures fall back safely.
+                        </div>
+                      </div>
+                      <SettingSwitch
+                        checked={selectedProvider.responsesWebSocket !== false}
+                        onChange={() =>
+                          handleProviderChange((provider) => ({
+                            ...provider,
+                            responsesWebSocket: provider.responsesWebSocket === false
+                          }))
+                        }
+                        ariaLabel="Responses WebSocket"
+                      />
+                      {selectedProvider.responsesWebSocketUnsupportedEndpoint && (
+                        <button
+                          type="button"
+                          className="shrink-0 text-sm underline"
+                          onClick={() =>
+                            handleProviderChange((provider) => ({
+                              ...provider,
+                              responsesWebSocket: true,
+                              // Explicit reset intent survives JSON; the server removes it on save.
+                              responsesWebSocketUnsupportedEndpoint: ''
+                            }))
+                          }
+                        >
+                          Retry WebSocket
+                        </button>
+                      )}
+                    </div>
+                  )}
                   <div className="col-span-2">
                     <Field label={t('settings.providers.apiKeyLabel')}>
                       <ApiKeyField

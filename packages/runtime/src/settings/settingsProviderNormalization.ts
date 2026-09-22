@@ -82,6 +82,14 @@ function normalizeProviderConfig(value: unknown, fallback?: ProviderConfig): Pro
     apiKey: normalizeString(input['apiKey'], fallback?.apiKey ?? ''),
     baseUrl: normalizeString(input['baseUrl'], fallback?.baseUrl ?? ''),
     ...(codexSessionPath !== undefined ? { codexSessionPath } : {}),
+    responsesWebSocket:
+      type === 'openai-responses' &&
+      normalizeOptionalBool(input['responsesWebSocket'], fallback?.responsesWebSocket !== false),
+    ...(type === 'openai-responses' &&
+    typeof input['responsesWebSocketUnsupportedEndpoint'] === 'string' &&
+    /^[a-f0-9]{64}$/.test(input['responsesWebSocketUnsupportedEndpoint'])
+      ? { responsesWebSocketUnsupportedEndpoint: input['responsesWebSocketUnsupportedEndpoint'] }
+      : {}),
     codexFastMode:
       type === 'openai-codex' &&
       normalizeOptionalBool(input['codexFastMode'], fallback?.codexFastMode === true),
@@ -168,6 +176,7 @@ export function toResolvedProviderSettings(
   }
 
   return {
+    providerId: provider.id,
     providerName: provider.name,
     provider: provider.type,
     model,
@@ -177,6 +186,8 @@ export function toResolvedProviderSettings(
     baseUrl: provider.baseUrl,
     codexSessionPath: provider.codexSessionPath,
     codexFastMode: provider.codexFastMode === true,
+    responsesWebSocket:
+      provider.type === 'openai-responses' && provider.responsesWebSocket !== false,
     project: provider.project,
     location: provider.location,
     serviceAccountEmail: provider.serviceAccountEmail,

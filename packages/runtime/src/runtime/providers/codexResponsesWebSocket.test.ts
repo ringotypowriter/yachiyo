@@ -1,10 +1,14 @@
 import assert from 'node:assert/strict'
-import type { IncomingMessage } from 'node:http'
+import { createServer, type IncomingMessage } from 'node:http'
 import test from 'node:test'
 
 import { WebSocketServer, type WebSocket } from 'ws'
+import { createOpenAI } from '@ai-sdk/openai'
+import { streamText } from 'ai'
 
 import { CodexWebSocketPool, createCodexWebSocketFetch } from './codexResponsesWebSocket.ts'
+import { createResponsesWebSocketFetch } from './responsesWebSocket.ts'
+import { isTransientTransportError } from '../models/runtimeErrors.ts'
 
 const HTTP_URL = 'https://chatgpt.com/backend-api/codex/responses'
 
@@ -90,7 +94,7 @@ function post(body: Record<string, unknown>, signal?: AbortSignal): RequestInit 
       'chatgpt-account-id': 'acct_1',
       'content-type': 'application/json'
     },
-    body: JSON.stringify(body),
+    body: JSON.stringify({ stream: true, ...body }),
     signal
   }
 }
@@ -278,6 +282,327 @@ test('aborting a streaming request drops the socket instead of leaking the strea
     await assert.rejects(reader.read(), (error: unknown) => (error as Error).name === 'AbortError')
     await serverClosed
     assert.equal(pool.size, 0)
+  } finally {
+    pool.closeAll()
+    await server.close()
+  }
+})
+
+test('generic Responses preserves endpoint, auth and body without Codex metadata', async () => {
+  const server = await startServer((socket) => socket.send(event('response.completed')))
+  const pool = new CodexWebSocketPool()
+  const fetch = createResponsesWebSocketFetch(unusedFetch(), { sessionId: 'generic', pool })
+  try {
+    const url = server.url.replace('ws:', 'http:').replace('/responses', '/v1/responses?route=test')
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        authorization: 'Bearer generic-key',
+        'x-custom': 'custom',
+        'content-type': 'application/json'
+      },
+      body: JSON.stringify({
+        model: 'model',
+        stream: true,
+        max_output_tokens: 42,
+        client_metadata: { custom: 'value' }
+      })
+    })
+    assert.match(await response.text(), /data:.*response.completed/)
+    assert.equal(server.handshakes[0].url, '/v1/responses?route=test')
+    const headers = server.handshakes[0].headers
+    assert.equal(headers.authorization, 'Bearer generic-key')
+    assert.equal(headers['x-custom'], 'custom')
+    assert.equal(headers['session-id'], undefined)
+    assert.equal(headers['thread-id'], undefined)
+    assert.equal(headers['openai-beta'], undefined)
+    assert.equal(headers['chatgpt-account-id'], undefined)
+    assert.equal(headers['content-type'], undefined)
+    assert.deepEqual(server.frames[0], {
+      type: 'response.create',
+      model: 'model',
+      max_output_tokens: 42,
+      client_metadata: { custom: 'value' }
+    })
+  } finally {
+    pool.closeAll()
+    await server.close()
+  }
+})
+
+test('generic pool reuses across fetch instances but isolates session, provider, endpoint and auth', async () => {
+  const server = await startServer((socket) => socket.send(event('response.completed')))
+  const pool = new CodexWebSocketPool()
+  const url = server.url.replace('ws:', 'http:')
+  const send = async (
+    sessionId: string,
+    providerKey: string,
+    endpoint = url,
+    token = 'one'
+  ): Promise<void> => {
+    const fetch = createResponsesWebSocketFetch(unusedFetch(), { sessionId, providerKey, pool })
+    await (
+      await fetch(endpoint, {
+        ...post({ model: 'model' }),
+        headers: { authorization: `Bearer ${token}` }
+      })
+    ).text()
+  }
+  try {
+    await send('session', 'provider')
+    await send('session', 'provider')
+    assert.equal(server.handshakes.length, 1)
+    await send('other-session', 'provider')
+    await send('session', 'other-provider')
+    await send('session', 'provider', `${url}?route=other`)
+    await send('session', 'provider', url, 'rotated')
+    assert.equal(server.handshakes.length, 5)
+  } finally {
+    pool.closeAll()
+    await server.close()
+  }
+})
+
+for (const firstEvent of [false, true]) {
+  test(`disconnect after send never replays or falls back (first event: ${firstEvent})`, async () => {
+    const server = await startServer((socket) => {
+      if (firstEvent) socket.send(event('response.created'))
+      socket.close()
+    })
+    const pool = new CodexWebSocketPool()
+    const calls: string[] = []
+    const fetch = createResponsesWebSocketFetch(recordingFetch(calls), {
+      sessionId: 'no-replay',
+      pool
+    })
+    try {
+      await assert.rejects(
+        async () => {
+          const response = await fetch(server.url.replace('ws:', 'http:'), post({ model: 'model' }))
+          await response.text()
+        },
+        (error: Error & { isRetryable?: boolean }) => {
+          assert.match(error.message, /closed before response.completed/)
+          assert.equal(error.isRetryable, false)
+          assert.equal(isTransientTransportError(error), false)
+          return true
+        }
+      )
+      assert.equal(server.frames.length, 1)
+      assert.equal(server.handshakes.length, 1)
+      assert.equal(calls.length, 0)
+    } finally {
+      pool.closeAll()
+      await server.close()
+    }
+  })
+}
+
+test('generic handshake fallback cooldown is isolated by endpoint', async () => {
+  const rejected = await startServer(() => {}, { rejectHandshake: true })
+  const accepted = await startServer((socket) => socket.send(event('response.completed')))
+  const pool = new CodexWebSocketPool()
+  const calls: string[] = []
+  const fetch = createResponsesWebSocketFetch(recordingFetch(calls), {
+    sessionId: 'fallback',
+    pool
+  })
+  try {
+    const url = rejected.url.replace('ws:', 'http:')
+    assert.equal(await (await fetch(url, post({}))).text(), 'http-fallback')
+    assert.equal(await (await fetch(url, post({}))).text(), 'http-fallback')
+    assert.match(
+      await (await fetch(accepted.url.replace('ws:', 'http:'), post({}))).text(),
+      /response.completed/
+    )
+    assert.equal(rejected.handshakes.length, 1)
+    assert.equal(calls.length, 2)
+  } finally {
+    pool.closeAll()
+    await rejected.close()
+    await accepted.close()
+  }
+})
+
+test('generic consumer cancellation closes the active socket', async () => {
+  const server = await startServer((socket) => socket.send(event('response.created')))
+  const pool = new CodexWebSocketPool()
+  const fetch = createResponsesWebSocketFetch(unusedFetch(), { sessionId: 'cancel', pool })
+  try {
+    const response = await fetch(server.url.replace('ws:', 'http:'), post({}))
+    const closed = new Promise<void>((resolve) => server.sockets[0].once('close', () => resolve()))
+    await response.body!.cancel()
+    await closed
+    assert.equal(pool.size, 0)
+  } finally {
+    pool.closeAll()
+    await server.close()
+  }
+})
+
+test('concurrent requests wait for the terminal event, not just the first frame', async () => {
+  const server = await startServer((socket, _frame, index) => {
+    socket.send(event('response.created'))
+    if (index > 0) socket.send(event('response.completed'))
+  })
+  const pool = new CodexWebSocketPool()
+  const fetch = createResponsesWebSocketFetch(unusedFetch(), { sessionId: 'serial', pool })
+  try {
+    const url = server.url.replace('ws:', 'http:')
+    const first = await fetch(url, post({}))
+    const second = fetch(url, post({}))
+    await new Promise((resolve) => setTimeout(resolve, 30))
+    assert.equal(server.frames.length, 1)
+    server.sockets[0].send(event('response.completed'))
+    await first.text()
+    await (await second).text()
+    assert.equal(server.frames.length, 2)
+    assert.equal(server.handshakes.length, 1)
+  } finally {
+    pool.closeAll()
+    await server.close()
+  }
+})
+
+test('abort during handshake rejects without HTTP fallback or a leaked connection', async () => {
+  const server = createServer()
+  let disconnect: (() => void) | undefined
+  const handshake = new Promise<void>((resolve) => {
+    server.on('upgrade', (_request, socket) => {
+      disconnect = () => socket.destroy()
+      resolve()
+    })
+  })
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+  const address = server.address()
+  assert.ok(address && typeof address === 'object')
+  const pool = new CodexWebSocketPool()
+  const controller = new AbortController()
+  const calls: string[] = []
+  const fetch = createResponsesWebSocketFetch(recordingFetch(calls), {
+    sessionId: 'handshake-abort',
+    pool
+  })
+  try {
+    const result = fetch(`http://127.0.0.1:${address.port}/responses`, post({}, controller.signal))
+    const rejected = assert.rejects(result, (error: Error) => error.name === 'AbortError')
+    await handshake
+    controller.abort()
+    await rejected
+    assert.equal(pool.size, 0)
+    assert.equal(calls.length, 0)
+  } finally {
+    pool.closeAll()
+    disconnect?.()
+    await new Promise<void>((resolve) => server.close(() => resolve()))
+  }
+})
+
+test('aborting a queued request is immediate and does not cancel or replay the active request', async () => {
+  const server = await startServer((socket) => socket.send(event('response.created')))
+  const pool = new CodexWebSocketPool()
+  const fetch = createResponsesWebSocketFetch(unusedFetch(), { sessionId: 'queued-abort', pool })
+  try {
+    const url = server.url.replace('ws:', 'http:')
+    const first = await fetch(url, post({}))
+    const controller = new AbortController()
+    const second = fetch(url, post({}, controller.signal))
+    controller.abort()
+    await assert.rejects(second, (error: Error) => error.name === 'AbortError')
+    assert.equal(server.frames.length, 1)
+    server.sockets[0].send(event('response.completed'))
+    await first.text()
+    assert.equal(pool.size, 1)
+  } finally {
+    pool.closeAll()
+    await server.close()
+  }
+})
+
+test('aborting after send but before the first event never replays', async () => {
+  let received!: () => void
+  const frameReceived = new Promise<void>((resolve) => {
+    received = resolve
+  })
+  const server = await startServer(() => received())
+  const pool = new CodexWebSocketPool()
+  const calls: string[] = []
+  const fetch = createResponsesWebSocketFetch(recordingFetch(calls), {
+    sessionId: 'early-abort',
+    pool
+  })
+  const controller = new AbortController()
+  try {
+    const response = fetch(server.url.replace('ws:', 'http:'), post({}, controller.signal))
+    const rejected = assert.rejects(response, (error: Error) => error.name === 'AbortError')
+    await frameReceived
+    controller.abort()
+    await rejected
+    assert.equal(server.frames.length, 1)
+    assert.equal(calls.length, 0)
+    assert.equal(pool.size, 0)
+  } finally {
+    pool.closeAll()
+    await server.close()
+  }
+})
+
+test('generic nonstream Responses requests preserve HTTP JSON semantics', async () => {
+  const server = await startServer(() => {
+    throw new Error('Nonstream call must not open WebSocket')
+  })
+  const pool = new CodexWebSocketPool()
+  const requests: RequestInit[] = []
+  const fetch = createResponsesWebSocketFetch(
+    async (_input, init) => {
+      requests.push(init!)
+      return Response.json({ id: 'response', output: [] })
+    },
+    { sessionId: 'nonstream', pool }
+  )
+  try {
+    for (const body of [{ model: 'model' }, { model: 'model', stream: false }]) {
+      const init = { method: 'POST', body: JSON.stringify(body) }
+      const response = await fetch(server.url.replace('ws:', 'http:'), init)
+      assert.deepEqual(await response.json(), { id: 'response', output: [] })
+      assert.equal(requests.at(-1), init)
+    }
+    assert.equal(server.handshakes.length, 0)
+    assert.equal(requests.length, 2)
+  } finally {
+    pool.closeAll()
+    await server.close()
+  }
+})
+
+test('AI SDK streaming preserves nonretryable disconnect errors for the runtime boundary', async () => {
+  const server = await startServer((socket) => socket.close())
+  const pool = new CodexWebSocketPool()
+  const calls: string[] = []
+  const fetch = createResponsesWebSocketFetch(recordingFetch(calls), {
+    sessionId: 'sdk-no-replay',
+    pool
+  })
+  try {
+    const provider = createOpenAI({
+      apiKey: 'fixture',
+      baseURL: server.url.replace('ws:', 'http:').replace('/responses', ''),
+      fetch
+    })
+    const result = streamText({
+      model: provider.responses('model'),
+      prompt: 'local fixture',
+      maxRetries: 2
+    })
+    let streamError: unknown
+    for await (const part of result.fullStream) {
+      if (part.type === 'error') streamError = part.error
+    }
+    assert.ok(streamError instanceof Error)
+    assert.equal((streamError as Error & { isRetryable: boolean }).isRetryable, false)
+    assert.equal(isTransientTransportError(streamError), false)
+    assert.equal(server.frames.length, 1)
+    assert.equal(calls.length, 0)
   } finally {
     pool.closeAll()
     await server.close()

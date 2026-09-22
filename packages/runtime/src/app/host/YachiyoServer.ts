@@ -109,6 +109,7 @@ import {
   createAuxiliaryGenerationService,
   type AuxiliaryGenerationService
 } from '../../runtime/models/auxiliaryGeneration.ts'
+import { createResponsesWebSocketSupportStore } from '../../runtime/providers/responsesWebSocketSupport.ts'
 import { createAiSdkModelRuntime } from '../../runtime/models/modelRuntime.ts'
 import {
   readSoulDocument,
@@ -375,7 +376,14 @@ export class YachiyoServer {
     })
     const createModelRuntime =
       options.createModelRuntime ??
-      (() => createAiSdkModelRuntime({ fetchImpl: options.fetchImpl }))
+      (() =>
+        createAiSdkModelRuntime({
+          fetchImpl: options.fetchImpl,
+          responsesWebSocketSupport: createResponsesWebSocketSupportStore({
+            read: () => this.configDomain.getConfig(),
+            write: (settings) => this.configDomain.saveConfig(settings, false)
+          })
+        }))
     this.readSoulDocumentFile = options.readSoulDocument ?? (() => readSoulDocument())
     this.addSoulTraitFile = options.addSoulTrait ?? ((trait) => upsertDailySoulTrait({ trait }))
     this.removeSoulTraitFile = options.removeSoulTrait ?? ((trait) => removeSoulTrait({ trait }))

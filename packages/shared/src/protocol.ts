@@ -686,6 +686,8 @@ export interface ProviderConfig {
   codexSessionPath?: string
   // Use priority processing for primary openai-codex agent calls
   codexFastMode?: boolean
+  responsesWebSocket?: boolean // Defaults on for openai-responses.
+  responsesWebSocketUnsupportedEndpoint?: string // SHA-256 endpoint digest; never a raw URL.
   // Used by vertex only
   project?: string
   location?: string
@@ -1230,6 +1232,7 @@ export function isMemoryConfigured(
 }
 
 export interface ProviderSettings {
+  providerId?: string
   providerName: string
   provider: ProviderKind
   model: string
@@ -1243,6 +1246,7 @@ export interface ProviderSettings {
   codexSessionPath?: string
   // Use priority processing for primary openai-codex agent calls
   codexFastMode?: boolean
+  responsesWebSocket?: boolean // Defaults on for openai-responses.
   // Populated at runtime from the Codex session file; not persisted in config.
   codexAccountId?: string
   // Used by vertex only

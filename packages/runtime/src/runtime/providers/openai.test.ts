@@ -3,6 +3,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
+import { createOpenAI } from '@ai-sdk/openai'
 
 import {
   createOpenAiLanguageModel,
@@ -249,4 +250,99 @@ test('fetchOpenAiCompatibleModels reads Codex session auth and filters selectabl
   } finally {
     await rm(root, { recursive: true, force: true })
   }
+})
+
+test('generic Responses WebSocket wiring defaults on for sessions and allows manual disable, without affecting Codex defaults', () => {
+  const previous = process.env['YACHIYO_CODEX_WS']
+  try {
+    delete process.env['YACHIYO_CODEX_WS']
+    for (const provider of ['openai-responses', 'openai', 'openai-codex'] as const) {
+      for (const responsesWebSocket of [undefined, false, true]) {
+        for (const sessionId of [undefined, 'session']) {
+          let transport: typeof globalThis.fetch | undefined
+          let headers: Record<string, string> | undefined
+          createOpenAiLanguageModel(
+            {
+              providerName: 'test',
+              provider,
+              model: 'model',
+              apiKey: 'test',
+              baseUrl: 'https://example.test/v1',
+              responsesWebSocket
+            },
+            {
+              createOpenAIProvider: (options: {
+                fetch?: typeof globalThis.fetch
+                headers?: Record<string, string>
+              }) => {
+                transport = options.fetch
+                headers = options.headers
+                return { chat: () => ({}), responses: () => ({}) } as never
+              }
+            } as never,
+            'default',
+            undefined,
+            { sessionId }
+          )
+          // Codex always retains its unsupported-parameter fetch wrapper.
+          assert.equal(
+            typeof transport === 'function',
+            provider === 'openai-codex' ||
+              (provider === 'openai-responses' && responsesWebSocket !== false && !!sessionId)
+          )
+          if (provider !== 'openai-codex') assert.equal(headers, undefined)
+        }
+      }
+    }
+  } finally {
+    if (previous === undefined) delete process.env['YACHIYO_CODEX_WS']
+    else process.env['YACHIYO_CODEX_WS'] = previous
+  }
+})
+
+test('opted-in Responses model doGenerate still uses HTTP JSON', async () => {
+  let calls = 0
+  const model = createOpenAiLanguageModel(
+    {
+      providerName: 'fixture',
+      provider: 'openai-responses',
+      model: 'model',
+      apiKey: 'fixture',
+      baseUrl: 'https://example.test/v1',
+      responsesWebSocket: true
+    },
+    { createOpenAIProvider: createOpenAI } as never,
+    'default',
+    async (_input, init) => {
+      calls++
+      const body = JSON.parse(String(init?.body)) as Record<string, unknown>
+      assert.notEqual(body['stream'], true)
+      assert.equal(body['max_output_tokens'], 42)
+      return Response.json({
+        id: 'resp_fixture',
+        created_at: 0,
+        model: 'model',
+        status: 'completed',
+        output: [
+          {
+            type: 'message',
+            id: 'msg_fixture',
+            role: 'assistant',
+            status: 'completed',
+            content: [{ type: 'output_text', text: 'fixture output', annotations: [] }]
+          }
+        ],
+        usage: { input_tokens: 1, output_tokens: 2, total_tokens: 3 }
+      })
+    },
+    { sessionId: 'fixture' }
+  )
+  assert.notEqual(typeof model, 'string')
+  if (typeof model === 'string') throw new Error('Expected model instance')
+  const result = await model.doGenerate({
+    prompt: [{ role: 'user', content: [{ type: 'text', text: 'local fixture' }] }],
+    maxOutputTokens: 42
+  })
+  assert.equal(calls, 1)
+  assert.ok(result.content.some((part) => part.type === 'text' && part.text === 'fixture output'))
 })

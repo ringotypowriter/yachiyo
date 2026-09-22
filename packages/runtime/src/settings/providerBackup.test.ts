@@ -222,3 +222,18 @@ test('provider backup merge preserves local identity when ids match', () => {
     { ...imported, name: 'local-name' }
   ])
 })
+
+test('provider backup preserves the optional Responses WebSocket setting', async () => {
+  const provider: ProviderConfig = {
+    id: 'responses',
+    name: 'responses',
+    type: 'openai-responses',
+    apiKey: 'fixture',
+    baseUrl: 'https://example.test/v1',
+    responsesWebSocket: false,
+    responsesWebSocketUnsupportedEndpoint: 'a'.repeat(64),
+    modelList: { enabled: ['model'], disabled: [] }
+  }
+  const encrypted = await encryptProviderBackup([provider], 'fixture password')
+  assert.deepEqual(await decryptProviderBackup(encrypted, 'fixture password'), [provider])
+})

@@ -82,6 +82,11 @@ const providerConfigSchema = z
     baseUrl: z.string(),
     codexSessionPath: z.string().optional(),
     codexFastMode: z.boolean().optional(),
+    responsesWebSocket: z.boolean().optional(),
+    responsesWebSocketUnsupportedEndpoint: z
+      .string()
+      .regex(/^[a-f0-9]{64}$/)
+      .optional(),
     project: z.string().optional(),
     location: z.string().optional(),
     serviceAccountEmail: z.string().optional(),

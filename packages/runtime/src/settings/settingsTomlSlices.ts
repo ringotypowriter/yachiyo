@@ -298,6 +298,15 @@ export const settingsTomlSlices: readonly TomlConfigSlice<SettingsConfig, TomlDo
           ...(provider.type === 'openai-codex' && provider.codexFastMode === true
             ? { codexFastMode: true }
             : {}),
+          ...(provider.type === 'openai-responses' && provider.responsesWebSocket === false
+            ? { responsesWebSocket: false }
+            : {}),
+          ...(provider.type === 'openai-responses' && provider.responsesWebSocketUnsupportedEndpoint
+            ? {
+                responsesWebSocketUnsupportedEndpoint:
+                  provider.responsesWebSocketUnsupportedEndpoint
+              }
+            : {}),
           project: provider.project ?? '',
           location: provider.location ?? '',
           serviceAccountEmail: provider.serviceAccountEmail ?? '',

@@ -159,8 +159,28 @@ export class YachiyoServerConfigDomain {
     return this.readConfig()
   }
 
-  saveConfig(input: SettingsConfig): SettingsConfig {
-    return this.persistConfig(input)
+  saveConfig(input: SettingsConfig, preserveLearnedWebSocketSupport = true): SettingsConfig {
+    if (!preserveLearnedWebSocketSupport) return this.persistConfig(input)
+    const current = this.readConfig()
+    // Full settings drafts can predate runtime learning or a Retry in another window.
+    // Only an explicit empty-string Retry intent clears the runtime-owned digest.
+    return this.persistConfig({
+      ...input,
+      providers: input.providers.map((provider) => {
+        const stored = current.providers.find((entry) => entry.id === provider.id)
+        const preserve =
+          provider.responsesWebSocketUnsupportedEndpoint !== '' &&
+          provider.type === 'openai-responses' &&
+          stored?.type === provider.type &&
+          stored.baseUrl === provider.baseUrl
+        return {
+          ...provider,
+          responsesWebSocketUnsupportedEndpoint: preserve
+            ? stored.responsesWebSocketUnsupportedEndpoint
+            : undefined
+        }
+      })
+    })
   }
 
   applySyncedConfig(input: SettingsConfig): SettingsConfig {

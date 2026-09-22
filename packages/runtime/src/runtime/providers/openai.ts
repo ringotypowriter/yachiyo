@@ -12,6 +12,7 @@ import { createCacheFetch } from './openaiCompatibleCache.ts'
 import { createThinkingFetch, type ThinkingFetchOptions } from './openaiCompatibleThinking.ts'
 import { readCodexSessionAuth } from './codexSessionAuth.ts'
 import { createCodexWebSocketFetch } from './codexResponsesWebSocket.ts'
+import { createResponsesWebSocketFetch } from './responsesWebSocket.ts'
 import {
   cleanBaseUrl,
   DEFAULT_OPENAI_BASE_URL,
@@ -194,10 +195,24 @@ export function createOpenAiLanguageModel(
   const codexFetch = isCodexOauth
     ? createCodexResponsesFetch(
         options.sessionId && process.env['YACHIYO_CODEX_WS'] !== '0'
-          ? createCodexWebSocketFetch(composedFetch ?? innerFetch, { sessionId: options.sessionId })
+          ? createCodexWebSocketFetch(composedFetch ?? innerFetch, {
+              sessionId: options.sessionId,
+              providerKey: settings.providerName
+            })
           : (composedFetch ?? innerFetch)
       )
     : undefined
+  const responsesFetch =
+    settings.provider === 'openai-responses' &&
+    settings.responsesWebSocket !== false &&
+    options.sessionId
+      ? createResponsesWebSocketFetch(composedFetch ?? innerFetch, {
+          sessionId: options.sessionId,
+          providerKey: settings.providerId ?? settings.providerName,
+          supportStore: dependencies.responsesWebSocketSupport
+        })
+      : undefined
+  const transportFetch = codexFetch ?? responsesFetch ?? composedFetch
   const codexHeaders = isCodexOauth
     ? buildCodexHeaders(settings, options.processingTier ?? 'standard')
     : undefined
@@ -208,7 +223,7 @@ export function createOpenAiLanguageModel(
       ? CODEX_BACKEND_BASE_URL
       : cleanBaseUrl(settings.baseUrl, DEFAULT_OPENAI_BASE_URL),
     ...(headers ? { headers } : {}),
-    ...((codexFetch ?? composedFetch) ? { fetch: codexFetch ?? composedFetch } : {})
+    ...(transportFetch ? { fetch: transportFetch } : {})
   })
 
   if (shouldUseOpenAIResponsesApi(settings)) {
