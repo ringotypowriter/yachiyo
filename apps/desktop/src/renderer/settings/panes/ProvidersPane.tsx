@@ -597,11 +597,10 @@ export function ProvidersPane({
                     <div className="col-span-2 flex items-center justify-between gap-4">
                       <div className="min-w-0">
                         <div className="text-sm font-medium" style={{ color: theme.text.primary }}>
-                          Responses WebSocket
+                          {t('settings.providers.responsesWebSocketLabel')}
                         </div>
                         <div className="text-xs leading-5" style={{ color: theme.text.tertiary }}>
-                          Automatically try WebSocket for session requests. Unsupported endpoints
-                          stay on HTTP until retried; temporary failures fall back safely.
+                          {t('settings.providers.responsesWebSocketDescription')}
                         </div>
                       </div>
                       <SettingSwitch
@@ -612,7 +611,7 @@ export function ProvidersPane({
                             responsesWebSocket: provider.responsesWebSocket === false
                           }))
                         }
-                        ariaLabel="Responses WebSocket"
+                        ariaLabel={t('settings.providers.responsesWebSocketLabel')}
                       />
                       {selectedProvider.responsesWebSocketUnsupportedEndpoint && (
                         <button
@@ -627,7 +626,7 @@ export function ProvidersPane({
                             }))
                           }
                         >
-                          Retry WebSocket
+                          {t('settings.providers.retryWebSocket')}
                         </button>
                       )}
                     </div>

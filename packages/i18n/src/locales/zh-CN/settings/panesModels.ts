@@ -31,6 +31,10 @@ export const providers = {
   codexSessionPathLabel: 'Codex 会话文件路径',
   codexFastModeLabel: '极速模式',
   codexFastModeDescription: '普通 Agent 调用使用优先处理，辅助任务保持标准模式。',
+  responsesWebSocketLabel: 'Responses WebSocket',
+  responsesWebSocketDescription:
+    '会话请求自动尝试使用 WebSocket。不支持的端点将持续使用 HTTP，直到手动重试；临时故障时会安全回退到 HTTP。',
+  retryWebSocket: '重试 WebSocket',
   selectAuthFileTitle: '选择 auth.json',
   selectFile: '选择文件',
   apiKeyLabel: 'API 密钥',

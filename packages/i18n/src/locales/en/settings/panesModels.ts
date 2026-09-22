@@ -37,6 +37,10 @@ export const providers = {
   codexFastModeLabel: 'Fast mode',
   codexFastModeDescription:
     'Use priority processing for regular Agent calls. Auxiliary tasks remain Standard.',
+  responsesWebSocketLabel: 'Responses WebSocket',
+  responsesWebSocketDescription:
+    'Automatically try WebSocket for session requests. Unsupported endpoints stay on HTTP until retried; temporary failures fall back safely.',
+  retryWebSocket: 'Retry WebSocket',
   selectAuthFileTitle: 'Select auth.json',
   selectFile: 'Select file',
   apiKeyLabel: 'API Key',
