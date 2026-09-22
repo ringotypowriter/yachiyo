@@ -39,9 +39,6 @@ SOFTWARE.
 | [Lakr233/MarkdownView](https://github.com/Lakr233/MarkdownView) | 3.9.1 | MIT |
 | [Lakr233/ListViewKit](https://github.com/Lakr233/ListViewKit) | 1.2.0 | MIT |
 | [Lakr233/Litext](https://github.com/Lakr233/Litext) | 1.3.0 | MIT |
-| [Lakr233/ChidoriMenu](https://github.com/Lakr233/ChidoriMenu) | 4.0.1 | MIT |
-| [Lakr233/AlertController](https://github.com/Lakr233/AlertController) | 2.2.3 | MIT |
-| [Lakr233/ConfigurableKit](https://github.com/Lakr233/ConfigurableKit) | 4.2.0 | MIT |
 | [apple/swift-collections](https://github.com/apple/swift-collections) | 1.6.0 | Apache-2.0 |
 
 Transitive dependencies resolved by Swift Package Manager keep their own license files.

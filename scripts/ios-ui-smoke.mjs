@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/explicit-function-return-type */
 // Runs the iOS XCUITest smoke flow against the fake desktop, then captures themed screenshots.
-//   node scripts/ios-ui-smoke.mjs [--skip-screenshots]
-// Picks the newest available iOS 26+ simulator runtime and an iPhone on it. Screenshots go to
+//   node scripts/ios-ui-smoke.mjs [--skip-screenshots] [--min-ios 26] [--max-ios <major>]
+// Picks the newest available iOS simulator runtime in range (26+ by default) and an iPhone on it. Screenshots go to
 // apps/ios/Artifacts/ (git-ignored). Exits non-zero when the UI test fails.
 import { execFileSync, spawn } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs'
@@ -18,6 +18,12 @@ const derivedData = join(
 )
 const bundleId = 'sh.ringo.yachiyo.remote'
 const skipScreenshots = process.argv.includes('--skip-screenshots')
+const flag = (name, fallback) => {
+  const index = process.argv.indexOf(name)
+  return index === -1 ? fallback : Number(process.argv[index + 1])
+}
+const minIos = flag('--min-ios', 26)
+const maxIos = flag('--max-ios', Infinity)
 
 const run = (command, args, options = {}) =>
   execFileSync(command, args, { stdio: 'inherit', ...options })
@@ -28,7 +34,10 @@ function pickSimulator() {
   const { runtimes } = JSON.parse(output('xcrun', ['simctl', 'list', 'runtimes', '-j']))
   const candidates = runtimes
     .filter((runtime) => runtime.platform === 'iOS' && runtime.isAvailable)
-    .filter((runtime) => Number(runtime.version.split('.')[0]) >= 26)
+    .filter((runtime) => {
+      const major = Number(runtime.version.split('.')[0])
+      return major >= minIos && major <= maxIos
+    })
     .sort((a, b) => b.version.localeCompare(a.version, undefined, { numeric: true }))
   const { devices } = JSON.parse(output('xcrun', ['simctl', 'list', 'devices', 'available', '-j']))
   for (const runtime of candidates) {
@@ -38,7 +47,7 @@ function pickSimulator() {
     const preferred = phones.find((device) => / Pro$/.test(device.name)) ?? phones[0]
     if (preferred) return { runtime: runtime.version, device: preferred }
   }
-  throw new Error('No iOS 26+ iPhone simulator is available.')
+  throw new Error(`No iOS ${minIos}–${maxIos} iPhone simulator is available.`)
 }
 
 async function startHarness() {

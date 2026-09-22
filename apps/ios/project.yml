@@ -20,15 +20,6 @@ packages:
     path: YachiyoRemoteKit
   YachiyoChatUI:
     path: YachiyoChatUI
-  ChidoriMenu:
-    url: https://github.com/Lakr233/ChidoriMenu
-    exactVersion: 4.0.1
-  AlertController:
-    url: https://github.com/Lakr233/AlertController
-    exactVersion: 2.2.3
-  ConfigurableKit:
-    url: https://github.com/Lakr233/ConfigurableKit
-    exactVersion: 4.2.0
 targets:
   YachiyoRemote:
     type: application
@@ -43,9 +34,6 @@ targets:
         product: YachiyoChatUI
       - package: YachiyoChatUI
         product: YachiyoMaterial
-      - package: ChidoriMenu
-      - package: AlertController
-      - package: ConfigurableKit
     info:
       path: YachiyoRemote/Info.plist
       properties:
