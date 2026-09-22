@@ -49,6 +49,7 @@
     "test:repls:packaged": "node --experimental-strip-types scripts/smoke-repls-packaged.mjs",
     "test:py-repl:managed": "node --experimental-strip-types scripts/smoke-managed-py-repl.mjs",
     "test:server:native": "pnpm --filter @yachiyo/desktop test:server:native",
+    "test:remote": "node scripts/run-server-tests.mjs apps/desktop/src/main/remote",
     "start": "pnpm --filter @yachiyo/desktop start",
     "dev": "node scripts/run-desktop-dev.mjs",
     "dev:cli": "node scripts/run-desktop-dev.mjs --cli",

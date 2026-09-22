@@ -48,6 +48,9 @@ jobs:
       - name: Test
         run: pnpm run test:server
 
+      - name: Test remote
+        run: pnpm run test:remote
+
       - name: Cache sync-core Cargo build
         uses: actions/cache@v4
         with:
