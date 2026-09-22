@@ -120,7 +120,23 @@ export const NAMESPACE_HELP: Record<string, string> = {
   update apply [--json] [--force]          Check, download, install, and restart. Succeeds only after the
                                            relaunched process reports the target version. Active work may
                                            be interrupted by the restart. The initiating Yachiyo run is
-                                           allowed; other active runs block installation unless --force.`
+                                           allowed; other active runs block installation unless --force.`,
+
+  remote: `Usage: yachiyo remote <subcommand> [args...] [flags...]
+
+  Requires the app to be running. Manages phone remote access; pairing itself happens in
+  Settings > Remote by scanning a QR code.
+
+  remote status                            Service, tunnel, cloudflared, and iCloud Drive state
+                                           ("icloudDrive": "available" | "unavailable").
+  remote tunnel install --mode quick       Run a trycloudflare quick tunnel as a LaunchAgent and enable
+                                           remote. Fails while ~/.cloudflared/config.yaml exists.
+  remote tunnel install --mode named --tunnel <name> --hostname <host>
+                                           Run an existing named tunnel (created with cloudflared) that
+                                           routes <host> to this Mac.
+  remote tunnel uninstall                  Stop and remove the cloudflared LaunchAgent (LAN only).
+  remote pairings list                     Paired phones.
+  remote pairings revoke <pairingId>       Unpair a phone and disconnect it.`
 }
 
 export function namespaceHelp(ns: string): string {
@@ -129,9 +145,9 @@ export function namespaceHelp(ns: string): string {
 
 export const USAGE = `Usage: yachiyo <namespace> <subcommand> [args...] [flags...]
 
-All output is JSON unless noted. The app must be running for "send" and "update" commands.
+All output is JSON unless noted. The app must be running for "send", "update", and "remote" commands.
 Use "yachiyo <namespace> --help" for detailed help on a specific namespace.
 
-Namespaces: doctor, soul, provider, agent, config, thread, schedule, channel, send, update
+Namespaces: doctor, soul, provider, agent, config, thread, schedule, channel, send, update, remote
 
 ${Object.values(NAMESPACE_HELP).join('\n\n')}\n\n${GLOBAL_FLAGS_HELP}`

@@ -35,6 +35,7 @@ async function withService(
     deviceName: () => 'Test Mac',
     appVersion: '0.0.0-test',
     endpoints: () => [{ kind: 'lan', url: endpoint }],
+    mailboxRoot: null,
     log: () => undefined
   })
   await service.start()

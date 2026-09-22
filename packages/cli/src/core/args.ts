@@ -5,7 +5,10 @@ const VALUE_FLAGS = new Set([
   '--db',
   '--limit',
   '--title',
-  '--model'
+  '--model',
+  '--mode',
+  '--tunnel',
+  '--hostname'
 ])
 
 export function parseArgs(rawArgs: string[]): {

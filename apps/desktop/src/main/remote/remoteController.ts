@@ -10,6 +10,14 @@ export interface ManagedRemoteService {
   readonly port: number | null
   start(): Promise<void>
   stop(): Promise<void>
+  publishEndpoints(): Promise<void>
+}
+
+/** The tunnel supervisor as the controller sees it. */
+export interface TunnelMonitor {
+  monitor(config: RemoteConfig, onChange: (endpoint: RemoteEndpoint | null) => void): void
+  stopMonitoring(): void
+  endpoint(config: RemoteConfig): RemoteEndpoint | null
 }
 
 export interface RemoteServiceParams {
@@ -20,8 +28,7 @@ export interface RemoteServiceParams {
 export interface RemoteControllerDeps<TService extends ManagedRemoteService> {
   createService(params: RemoteServiceParams): TService
   keepAwake: RemoteKeepAwake
-  /** Current public tunnel endpoint, if the tunnel supervisor knows one. */
-  tunnelEndpoint(): RemoteEndpoint | null
+  tunnel: TunnelMonitor
   /** First non-internal IPv4 address; injectable for tests. */
   lanAddress?: () => string | null
   log(line: string): void
@@ -73,7 +80,7 @@ export class RemoteController<TService extends ManagedRemoteService> {
 
   endpoints(config: RemoteConfig, port: number | null): RemoteEndpoint[] {
     const endpoints: RemoteEndpoint[] = []
-    const tunnel = config.tunnel === 'none' ? null : this.deps.tunnelEndpoint()
+    const tunnel = this.deps.tunnel.endpoint(config)
     if (tunnel) endpoints.push(tunnel)
     if (config.lanEndpoint && port !== null) {
       const address = (this.deps.lanAddress ?? firstLanAddress)()
@@ -86,6 +93,7 @@ export class RemoteController<TService extends ManagedRemoteService> {
     const key = `${config.port}|${config.lanEndpoint}`
     if (!config.enabled) {
       this.deps.keepAwake.setWanted(false)
+      this.deps.tunnel.stopMonitoring()
       if (this.current) {
         await this.current.service.stop()
         this.deps.log('[remote] service stopped')
@@ -110,5 +118,7 @@ export class RemoteController<TService extends ManagedRemoteService> {
       this.current.config = config
     }
     this.deps.keepAwake.setWanted(config.keepAwakeOnPower)
+    // A new quick-tunnel hostname reaches phones through the mailbox.
+    this.deps.tunnel.monitor(config, () => void this.current?.service.publishEndpoints())
   }
 }

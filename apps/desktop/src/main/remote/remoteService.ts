@@ -15,6 +15,7 @@ import {
   type RemoteServerPort
 } from './remoteFacade.ts'
 import { startRemoteHttpServer, type RemoteHttpServer } from './remoteHttpServer.ts'
+import { MailboxWriter } from './mailboxWriter.ts'
 import {
   PairingStore,
   type DesktopIdentity,
@@ -37,6 +38,8 @@ export interface RemoteServiceOptions {
   appVersion: string
   /** Current reachable endpoints for QR codes and mailboxes (tunnel, optional LAN). */
   endpoints: () => RemoteEndpoint[]
+  /** iCloud Drive root for address-recovery mailboxes; null disables mailboxes. */
+  mailboxRoot: string | null
   onPaired?(record: PairingRecord): void
   onPairingsChanged?(): void
   log(line: string): void
@@ -64,6 +67,7 @@ export class RemoteService {
   private facade: RemoteFacade | null = null
   private attachments: AttachmentStaging | null = null
   private sweepTimer: ReturnType<typeof setInterval> | null = null
+  private mailbox: MailboxWriter | null = null
   private readonly connections = new Set<RemoteConnection>()
 
   constructor(options: RemoteServiceOptions) {
@@ -86,6 +90,14 @@ export class RemoteService {
   async start(): Promise<void> {
     if (this.http) return
     this.identity = await this.store.loadIdentity()
+    if (this.options.mailboxRoot) {
+      this.mailbox = new MailboxWriter({
+        root: this.options.mailboxRoot,
+        store: this.store,
+        remoteDeviceId: this.identity.remoteDeviceId,
+        now: this.options.now
+      })
+    }
     this.attachments = createAttachmentStaging({ directory: this.options.uploadsDirectory })
     this.facade = createRemoteFacade({
       server: this.options.server,
@@ -107,6 +119,17 @@ export class RemoteService {
     })
     this.sweepTimer = setInterval(() => void this.attachments?.sweep(), UPLOAD_SWEEP_INTERVAL_MS)
     this.sweepTimer.unref()
+    await this.publishEndpoints()
+  }
+
+  /** Writes the current endpoints to every pairing's mailbox (skipped when unchanged). */
+  async publishEndpoints(pairingIds?: readonly string[]): Promise<void> {
+    if (!this.mailbox) return
+    try {
+      await this.mailbox.publish(this.options.endpoints(), pairingIds)
+    } catch (error) {
+      this.options.log(`[remote] mailbox write failed: ${String(error)}`)
+    }
   }
 
   async stop(): Promise<void> {
@@ -158,7 +181,10 @@ export class RemoteService {
   }
 
   async revoke(pairingId: string): Promise<boolean> {
+    const known = (await this.store.list()).some((pairing) => pairing.pairingId === pairingId)
+    const mailboxSecret = known ? await this.store.mailboxSecret(pairingId) : null
     const removed = await this.store.revoke(pairingId)
+    if (mailboxSecret) await this.mailbox?.remove(mailboxSecret, pairingId)
     for (const connection of [...this.connections]) {
       if (connection.pairingId === pairingId) {
         connection.close(REMOTE_CLOSE_CODES.revoked, 'revoked')
@@ -200,6 +226,7 @@ export class RemoteService {
         this.options.log(`[remote] paired ${record.deviceName} (${record.pairingId})`)
         this.options.onPaired?.(record)
         this.options.onPairingsChanged?.()
+        void this.publishEndpoints([record.pairingId])
       },
       onClosed: (closed) => this.connections.delete(closed),
       log: this.options.log

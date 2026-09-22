@@ -7,6 +7,11 @@ import type {
   AppUpdateCommandResult,
   AppUpdateCommandResponse
 } from '@yachiyo/shared/appUpdate'
+import {
+  remoteCommandRequestSchema,
+  type RemoteCommandRequest,
+  type RemoteCommandResponse
+} from '@yachiyo/shared/remote/command'
 
 export interface SendChannelInput {
   id: string
@@ -91,6 +96,7 @@ export interface CommandSocketOptions {
   onUpdateChannelGroupLabel: (input: UpdateChannelGroupLabelInput) => void
   onMarkThreadReviewed: (input: MarkThreadReviewedInput) => void
   onAppUpdate?: (input: AppUpdateCommandInput) => Promise<AppUpdateCommandReply>
+  onRemote?: (request: RemoteCommandRequest) => Promise<unknown>
   onError?: (error: Error) => void
 }
 
@@ -212,6 +218,7 @@ export function startCommandSocket(options: CommandSocketOptions): CommandSocket
     onUpdateChannelGroupLabel,
     onMarkThreadReviewed,
     onAppUpdate,
+    onRemote,
     onError
   } = options
   const endpoint = resolveCommandSocketEndpoint(options)
@@ -374,6 +381,23 @@ export function startCommandSocket(options: CommandSocketOptions): CommandSocket
             }
             connection.end(JSON.stringify(response))
           })
+        return
+      }
+
+      if (type === 'remote') {
+        const reply = (response: RemoteCommandResponse): void => {
+          if (!transportClosed && !connection.destroyed) connection.end(JSON.stringify(response))
+        }
+        const parsed = remoteCommandRequestSchema.safeParse(message)
+        if (!onRemote || !parsed.success) {
+          reply({ ok: false, error: 'Unsupported remote command.' })
+          return
+        }
+        void onRemote(parsed.data).then(
+          (result) => reply({ ok: true, result }),
+          (error: unknown) =>
+            reply({ ok: false, error: error instanceof Error ? error.message : String(error) })
+        )
         return
       }
 

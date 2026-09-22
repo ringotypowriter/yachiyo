@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import { DEFAULT_REMOTE_CONFIG, type RemoteConfig } from '@yachiyo/shared/protocol'
+import type { RemoteEndpoint } from '@yachiyo/shared/remote/common'
 
 import { RemoteController, type RemoteServiceParams } from './remoteController.ts'
 
@@ -22,15 +23,22 @@ class FakeService {
   async stop(): Promise<void> {
     this.running = false
   }
+
+  published = 0
+  async publishEndpoints(): Promise<void> {
+    this.published += 1
+  }
 }
 
 function createController(): {
   controller: RemoteController<FakeService>
   created: FakeService[]
   wanted: boolean[]
+  monitors: Array<(endpoint: RemoteEndpoint | null) => void>
 } {
   const created: FakeService[] = []
   const wanted: boolean[] = []
+  const monitors: Array<(endpoint: RemoteEndpoint | null) => void> = []
   const controller = new RemoteController<FakeService>({
     createService: (params) => {
       const service = new FakeService(params)
@@ -38,11 +46,22 @@ function createController(): {
       return service
     },
     keepAwake: { setWanted: (value) => wanted.push(value), dispose: () => undefined },
-    tunnelEndpoint: () => ({ kind: 'tunnel', url: 'wss://quiet-fox.trycloudflare.com/remote/v1' }),
+    tunnel: {
+      monitor: (_config, onChange) => {
+        monitors.push(onChange)
+      },
+      stopMonitoring: () => {
+        monitors.length = 0
+      },
+      endpoint: (config) =>
+        config.tunnel === 'none'
+          ? null
+          : { kind: 'tunnel', url: 'wss://quiet-fox.trycloudflare.com/remote/v1' }
+    },
     lanAddress: () => '192.168.1.20',
     log: () => undefined
   })
-  return { controller, created, wanted }
+  return { controller, created, wanted, monitors }
 }
 
 const enabled = (overrides: Partial<RemoteConfig> = {}): RemoteConfig => ({
@@ -99,4 +118,17 @@ test('endpoints list the tunnel first and add LAN only when enabled', async () =
   assert.deepEqual(created[0]!.params.endpoints(), [
     { kind: 'lan', url: 'ws://192.168.1.20:47831/remote/v1' }
   ])
+})
+
+test('a tunnel endpoint change republishes mailboxes; disabling stops monitoring', async () => {
+  const { controller, created, monitors } = createController()
+  await controller.apply(enabled())
+  assert.equal(monitors.length, 1)
+
+  monitors[0]!(null)
+  await Promise.resolve()
+  assert.equal(created[0]!.published, 1)
+
+  await controller.apply({ ...enabled(), enabled: false })
+  assert.equal(monitors.length, 0)
 })

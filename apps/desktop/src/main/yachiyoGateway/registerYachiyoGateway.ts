@@ -415,6 +415,7 @@ function createCommandSocketHandle(): CommandSocketHandle {
         }
       })(input)
     },
+    onRemote: (request) => remote.handleCommand(request),
     onError: (error) => {
       console.error('[command-socket] server error:', error)
       scheduleCommandSocketRestart('socket error')

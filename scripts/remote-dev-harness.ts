@@ -45,6 +45,7 @@ const service = new RemoteService({
     ...(values['tunnel-url'] ? [{ kind: 'tunnel' as const, url: values['tunnel-url'] }] : []),
     { kind: 'lan', url: lanUrl }
   ],
+  mailboxRoot: null,
   log: (line) => console.log(line)
 })
 await service.start()
