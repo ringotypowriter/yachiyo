@@ -42,10 +42,14 @@ test('splitTelegramMessage keeps every chunk inside the Telegram text limit', ()
 
 test('carries a deferred update receipt on the next Telegram outbound', async (t) => {
   const events: string[] = []
-  t.mock.method(Telegram.prototype, 'sendMessage', async (_chatId, text) => {
-    events.push(`send:${text}`)
-    return {} as never
-  })
+  t.mock.method(
+    Telegram.prototype,
+    'sendMessage',
+    async (_chatId: number | string, text: string) => {
+      events.push(`send:${text}`)
+      return {} as never
+    }
+  )
 
   const lease: UpdateReceiptLease = {
     async claim(channelId) {

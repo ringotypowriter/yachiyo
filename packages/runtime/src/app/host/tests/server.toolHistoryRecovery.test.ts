@@ -369,13 +369,6 @@ test('YachiyoServer persists assistant text blocks around tool calls', async () 
           yield 'Before tool'
 
           request.onToolCallStart?.({
-            abortSignal: request.signal,
-            experimental_context: undefined,
-            functionId: undefined,
-            messages: request.messages,
-            metadata: undefined,
-            model: undefined,
-            stepNumber: 0,
             toolCall: {
               input: { filePath: '/tmp/example.txt' },
               toolCallId: 'tool-read-1',
@@ -384,14 +377,6 @@ test('YachiyoServer persists assistant text blocks around tool calls', async () 
           } as never)
 
           request.onToolCallFinish?.({
-            abortSignal: request.signal,
-            durationMs: 1,
-            experimental_context: undefined,
-            functionId: undefined,
-            messages: request.messages,
-            metadata: undefined,
-            model: undefined,
-            stepNumber: 0,
             success: true,
             output: {
               content: [{ type: 'text', text: 'ok' }],
@@ -570,13 +555,6 @@ test('YachiyoServer applies steer at the completed tool-call boundary', async ()
             yield 'Checking the workspace'
 
             request.onToolCallStart?.({
-              abortSignal: request.signal,
-              experimental_context: undefined,
-              functionId: undefined,
-              messages: request.messages,
-              metadata: undefined,
-              model: undefined,
-              stepNumber: 0,
               toolCall: {
                 input: { command: 'pwd' },
                 toolCallId: 'tool-bash-1',
@@ -591,14 +569,6 @@ test('YachiyoServer applies steer at the completed tool-call boundary', async ()
             })
 
             request.onToolCallFinish?.({
-              abortSignal: request.signal,
-              durationMs: 3,
-              experimental_context: undefined,
-              functionId: undefined,
-              messages: request.messages,
-              metadata: undefined,
-              model: undefined,
-              stepNumber: 0,
               success: true,
               output: {
                 content: [{ type: 'text', text: '/tmp/workspace\n' }],
@@ -736,13 +706,6 @@ test('YachiyoServer recovers a committed transport failure and resumes from pres
             yield 'Checking the workspace. '
 
             request.onToolCallStart?.({
-              abortSignal: request.signal,
-              experimental_context: undefined,
-              functionId: undefined,
-              messages: request.messages,
-              metadata: undefined,
-              model: undefined,
-              stepNumber: 0,
               toolCall: {
                 input: { command: 'pwd' },
                 toolCallId: 'tool-bash-recover-1',
@@ -751,14 +714,6 @@ test('YachiyoServer recovers a committed transport failure and resumes from pres
             } as never)
 
             request.onToolCallFinish?.({
-              abortSignal: request.signal,
-              durationMs: 3,
-              experimental_context: undefined,
-              functionId: undefined,
-              messages: request.messages,
-              metadata: undefined,
-              model: undefined,
-              stepNumber: 0,
               success: true,
               output: {
                 content: [{ type: 'text', text: '/tmp/workspace\n' }],

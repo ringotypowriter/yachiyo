@@ -121,8 +121,8 @@ test('message prepare keeps image input close to the user text payload', () => {
       content: [
         { type: 'text', text: 'Look at this' },
         {
-          type: 'image',
-          image: 'AAAA',
+          type: 'file',
+          data: 'AAAA',
           mediaType: 'image/png'
         }
       ]
@@ -132,8 +132,8 @@ test('message prepare keeps image input close to the user text payload', () => {
       role: 'user',
       content: [
         {
-          type: 'image',
-          image: 'BBBB',
+          type: 'file',
+          data: 'BBBB',
           mediaType: 'image/jpeg'
         }
       ]
@@ -180,7 +180,7 @@ test('message prepare only replays image alt text when marked for text replay', 
       role: 'user',
       content: [
         { type: 'text', text: 'Use the image' },
-        { type: 'image', image: 'AAAA', mediaType: 'image/png' }
+        { type: 'file', data: 'AAAA', mediaType: 'image/png' }
       ]
     },
     { role: 'assistant', content: 'I can see it.' },
@@ -287,7 +287,7 @@ test('message prepare emits historical multimodal turn context as separate text 
       role: 'user',
       content: [
         { type: 'text', text: 'What is in this picture?' },
-        { type: 'image', image: 'AAAA', mediaType: 'image/png' },
+        { type: 'file', data: 'AAAA', mediaType: 'image/png' },
         { type: 'text', text: turn1Reminder },
         {
           type: 'text',

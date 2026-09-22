@@ -36,7 +36,8 @@ test('reviewThings addReviewedSource derives source refs from a thread span rowI
   const { execute } = createReviewThingsTool()
   await execute(reviewInput('create', { name: 'Raven UI', summary: 'UI work' }), {
     toolCallId: 't',
-    messages: []
+    messages: [],
+    context: undefined
   })
 
   const output = await execute(
@@ -45,7 +46,7 @@ test('reviewThings addReviewedSource derives source refs from a thread span rowI
       sourceRowId: 'thread_span:thread-1:start-message:end-message',
       preview: 'Reviewed conversation about source previews.'
     }),
-    { toolCallId: 't', messages: [] }
+    { toolCallId: 't', messages: [], context: undefined }
   )
 
   assert.equal(output.error, undefined)
@@ -74,7 +75,8 @@ test('reviewThings list and get expose model-visible Thing details', async () =>
   const { execute } = createReviewThingsTool()
   await execute(reviewInput('create', { name: 'Raven UI', summary: 'UI work' }), {
     toolCallId: 't',
-    messages: []
+    messages: [],
+    context: undefined
   })
   await execute(
     reviewInput('addReviewedSource', {
@@ -82,7 +84,7 @@ test('reviewThings list and get expose model-visible Thing details', async () =>
       sourceRowId: 'thread_message:thread-1:message-1',
       preview: 'Reviewed one message.'
     }),
-    { toolCallId: 't', messages: [] }
+    { toolCallId: 't', messages: [], context: undefined }
   )
 
   const listOutput = await execute(
@@ -93,7 +95,7 @@ test('reviewThings list and get expose model-visible Thing details', async () =>
       sourceRowId: '',
       preview: ''
     }),
-    { toolCallId: 't', messages: [] }
+    { toolCallId: 't', messages: [], context: undefined }
   )
   assert.match(outputText(listOutput), /#raven-ui/)
   assert.match(outputText(listOutput), /UI work/)
@@ -101,7 +103,8 @@ test('reviewThings list and get expose model-visible Thing details', async () =>
 
   const getOutput = await execute(reviewInput('get', { name: 'raven-ui' }), {
     toolCallId: 't',
-    messages: []
+    messages: [],
+    context: undefined
   })
   assert.match(outputText(getOutput), /#raven-ui/)
   assert.match(outputText(getOutput), /Status: active/)
@@ -115,7 +118,8 @@ test('reviewThings addReviewedSource derives source refs from a thread message r
   const { execute } = createReviewThingsTool()
   await execute(reviewInput('create', { name: 'Raven UI', summary: 'UI work' }), {
     toolCallId: 't',
-    messages: []
+    messages: [],
+    context: undefined
   })
 
   const output = await execute(
@@ -124,7 +128,7 @@ test('reviewThings addReviewedSource derives source refs from a thread message r
       sourceRowId: 'source_event:thread_message:thread-1:message-1',
       preview: 'Reviewed one message.'
     }),
-    { toolCallId: 't', messages: [] }
+    { toolCallId: 't', messages: [], context: undefined }
   )
 
   assert.equal(output.error, undefined)
@@ -149,7 +153,8 @@ test('reviewThings addReviewedSource rejects non-thread source rowIds', async ()
   const { execute } = createReviewThingsTool()
   await execute(reviewInput('create', { name: 'Raven UI', summary: 'UI work' }), {
     toolCallId: 't',
-    messages: []
+    messages: [],
+    context: undefined
   })
 
   const output = await execute(
@@ -158,7 +163,7 @@ test('reviewThings addReviewedSource rejects non-thread source rowIds', async ()
       sourceRowId: 'activity_record:activity-1',
       preview: 'Not a thread source.'
     }),
-    { toolCallId: 't', messages: [] }
+    { toolCallId: 't', messages: [], context: undefined }
   )
 
   assert.match(output.error ?? '', /thread source/i)

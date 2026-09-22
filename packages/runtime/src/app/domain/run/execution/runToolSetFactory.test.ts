@@ -84,7 +84,7 @@ test('the production tool factory exposes and calls its injected web search serv
   assert.equal(typeof tools?.webSearch?.execute, 'function')
   const result = (await tools!.webSearch!.execute!(
     { query: 'QuickJS documentation' },
-    { toolCallId: 'search', messages: [] }
+    { toolCallId: 'search', messages: [], context: undefined }
   )) as { error?: string }
   assert.equal(result.error, undefined)
   assert.deepEqual(queries, ['QuickJS documentation'])

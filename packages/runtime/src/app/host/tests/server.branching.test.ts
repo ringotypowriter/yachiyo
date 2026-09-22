@@ -481,13 +481,6 @@ test('YachiyoServer removes tool activity for a deleted assistant-only branch wi
           runAttempt += 1
           const toolCallId = `tool-${runAttempt}`
           request.onToolCallStart?.({
-            abortSignal: request.signal,
-            experimental_context: undefined,
-            functionId: undefined,
-            messages: request.messages,
-            metadata: undefined,
-            model: undefined,
-            stepNumber: 0,
             toolCall: {
               input: { path: `notes-${runAttempt}.txt` },
               toolCallId,
@@ -495,14 +488,6 @@ test('YachiyoServer removes tool activity for a deleted assistant-only branch wi
             }
           } as never)
           request.onToolCallFinish?.({
-            abortSignal: request.signal,
-            durationMs: 1,
-            experimental_context: undefined,
-            functionId: undefined,
-            messages: request.messages,
-            metadata: undefined,
-            model: undefined,
-            stepNumber: 0,
             success: true,
             output: {
               content: [{ type: 'text', text: 'hello' }],
@@ -1066,13 +1051,6 @@ test('YachiyoServer recovers retry branches that only produced tool calls', asyn
 
           if (runAttempt === 2) {
             request.onToolCallStart?.({
-              abortSignal: request.signal,
-              experimental_context: undefined,
-              functionId: undefined,
-              messages: request.messages,
-              metadata: undefined,
-              model: undefined,
-              stepNumber: 0,
               toolCall: {
                 input: { path: 'notes.txt' },
                 toolCallId: 'tool-retry-failed-1',
@@ -1080,14 +1058,6 @@ test('YachiyoServer recovers retry branches that only produced tool calls', asyn
               }
             } as never)
             request.onToolCallFinish?.({
-              abortSignal: request.signal,
-              durationMs: 1,
-              experimental_context: undefined,
-              functionId: undefined,
-              messages: request.messages,
-              metadata: undefined,
-              model: undefined,
-              stepNumber: 0,
               success: true,
               output: {
                 content: [{ type: 'text', text: 'hello' }],
@@ -1128,24 +1098,9 @@ function emitAskUserToolCall(
     toolName: 'askUser'
   }
   request.onToolCallStart?.({
-    abortSignal: request.signal,
-    experimental_context: undefined,
-    functionId: undefined,
-    messages: request.messages,
-    metadata: undefined,
-    model: undefined,
-    stepNumber: 0,
     toolCall
   } as never)
   request.onToolCallFinish?.({
-    abortSignal: request.signal,
-    durationMs: 1,
-    experimental_context: undefined,
-    functionId: undefined,
-    messages: request.messages,
-    metadata: undefined,
-    model: undefined,
-    stepNumber: 0,
     success: true,
     output: {
       content: [{ type: 'text', text: input.answer }],

@@ -122,7 +122,7 @@ export function createImageToTextService(deps: ImageToTextServiceDeps): ImageToT
         role: 'user',
         content: [
           { type: 'text' as const, text: 'Describe this image.' },
-          { type: 'image' as const, image: imageBase64, mediaType }
+          { type: 'file' as const, data: imageBase64, mediaType }
         ]
       }
     ]
@@ -227,7 +227,7 @@ export function createImageToTextService(deps: ImageToTextServiceDeps): ImageToT
             role: 'user',
             content: [
               { type: 'text' as const, text: focus },
-              { type: 'image' as const, image: payload.base64, mediaType: payload.mediaType }
+              { type: 'file' as const, data: payload.base64, mediaType: payload.mediaType }
             ]
           }
         ]

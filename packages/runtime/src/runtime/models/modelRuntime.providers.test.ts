@@ -87,7 +87,7 @@ function createFullStreamRetryRuntime(
       if (!result) throw new Error('No more call results configured')
       if (result.error) throw result.error
       return {
-        fullStream: (async function* () {
+        stream: (async function* () {
           for (const event of result.streamEvents ?? []) yield event
         })()
       }
@@ -673,7 +673,7 @@ test('streamReply injects reasoning_content into responseMessages for OpenAI-com
       throw new Error('unused')
     },
     streamTextImpl: (() => ({
-      fullStream: (async function* () {
+      stream: (async function* () {
         yield { type: 'reasoning-delta', delta: 'Thinking step 1... ' }
         yield { type: 'reasoning-delta', delta: 'done.' }
         yield {
@@ -698,27 +698,25 @@ test('streamReply injects reasoning_content into responseMessages for OpenAI-com
         yield { type: 'text-delta', delta: 'Here are the files.' }
         yield { type: 'finish-step', finishReason: 'stop', stepNumber: 1 }
       })(),
-      usage: Promise.resolve({ inputTokens: 100, outputTokens: 50 }),
-      totalUsage: Promise.resolve({ inputTokens: 200, outputTokens: 100 }),
+      usage: Promise.resolve({ inputTokens: 200, outputTokens: 100 }),
+      finalStep: Promise.resolve({ usage: { inputTokens: 100, outputTokens: 50 } }),
       finishReason: Promise.resolve('stop'),
-      response: Promise.resolve({
-        messages: [
-          {
-            role: 'assistant',
-            content: [
-              { type: 'tool-call', toolCallId: 'tc1', toolName: 'bash', args: { command: 'ls' } }
-            ]
-          },
-          {
-            role: 'tool',
-            content: [{ type: 'tool-result', toolCallId: 'tc1', result: { stdout: 'file.txt' } }]
-          },
-          {
-            role: 'assistant',
-            content: [{ type: 'text', text: 'Here are the files.' }]
-          }
-        ]
-      })
+      responseMessages: Promise.resolve([
+        {
+          role: 'assistant',
+          content: [
+            { type: 'tool-call', toolCallId: 'tc1', toolName: 'bash', args: { command: 'ls' } }
+          ]
+        },
+        {
+          role: 'tool',
+          content: [{ type: 'tool-result', toolCallId: 'tc1', result: { stdout: 'file.txt' } }]
+        },
+        {
+          role: 'assistant',
+          content: [{ type: 'text', text: 'Here are the files.' }]
+        }
+      ])
     })) as never
   })
 
@@ -782,20 +780,35 @@ test('streamReply measures generation after each first token without counting to
     },
     nowImpl: () => now,
     streamTextImpl: ((options: {
-      experimental_onToolCallStart?: (event: { toolCall: { toolCallId: string } }) => void
-      experimental_onToolCallFinish?: (event: { toolCall: { toolCallId: string } }) => void
+      onToolExecutionStart?: (event: {
+        toolCall: { toolCallId: string; toolName: string; input: unknown }
+      }) => void
+      onToolExecutionEnd?: (event: {
+        toolCall: { toolCallId: string; toolName: string; input: unknown }
+        toolOutput: { type: 'tool-result'; output: unknown }
+      }) => void
     }) => ({
-      fullStream: (async function* () {
+      stream: (async function* () {
         now = 100
         yield { type: 'start-step' }
         now = 400
         yield { type: 'tool-input-start', id: 'tool-1', toolName: 'bash' }
         now = 500
-        options.experimental_onToolCallStart?.({ toolCall: { toolCallId: 'tool-1' } })
-        options.experimental_onToolCallStart?.({ toolCall: { toolCallId: 'tool-2' } })
+        options.onToolExecutionStart?.({
+          toolCall: { toolCallId: 'tool-1', toolName: 'bash', input: {} }
+        })
+        options.onToolExecutionStart?.({
+          toolCall: { toolCallId: 'tool-2', toolName: 'bash', input: {} }
+        })
         now = 2_000
-        options.experimental_onToolCallFinish?.({ toolCall: { toolCallId: 'tool-1' } })
-        options.experimental_onToolCallFinish?.({ toolCall: { toolCallId: 'tool-2' } })
+        options.onToolExecutionEnd?.({
+          toolCall: { toolCallId: 'tool-1', toolName: 'bash', input: {} },
+          toolOutput: { type: 'tool-result', output: null }
+        })
+        options.onToolExecutionEnd?.({
+          toolCall: { toolCallId: 'tool-2', toolName: 'bash', input: {} },
+          toolOutput: { type: 'tool-result', output: null }
+        })
         now = 2_100
         yield {
           type: 'finish-step',
@@ -816,8 +829,8 @@ test('streamReply measures generation after each first token without counting to
         }
         yield { type: 'finish', finishReason: 'stop' }
       })(),
-      usage: Promise.resolve({ inputTokens: 120, outputTokens: 30 }),
-      totalUsage: Promise.resolve({ inputTokens: 220, outputTokens: 50 }),
+      usage: Promise.resolve({ inputTokens: 220, outputTokens: 50 }),
+      finalStep: Promise.resolve({ usage: { inputTokens: 120, outputTokens: 30 } }),
       finishReason: Promise.resolve('stop')
     })) as never
   })
@@ -855,7 +868,7 @@ test('streamReply reports the first token before a tool-only step waits for visi
       throw new Error('unused')
     },
     streamTextImpl: (() => ({
-      fullStream: (async function* () {
+      stream: (async function* () {
         yield { type: 'start-step' }
         yield { type: 'tool-input-start', id: 'tool-1', toolName: 'bash' }
         yield {
@@ -872,8 +885,8 @@ test('streamReply reports the first token before a tool-only step waits for visi
         }
         yield { type: 'finish', finishReason: 'stop' }
       })(),
-      usage: Promise.resolve({ inputTokens: 120, outputTokens: 5 }),
-      totalUsage: Promise.resolve({ inputTokens: 220, outputTokens: 15 }),
+      usage: Promise.resolve({ inputTokens: 220, outputTokens: 15 }),
+      finalStep: Promise.resolve({ usage: { inputTokens: 120, outputTokens: 5 } }),
       finishReason: Promise.resolve('stop')
     })) as never
   })
@@ -914,22 +927,20 @@ test('streamReply does not double-inject reasoning_content when it already exist
       throw new Error('unused')
     },
     streamTextImpl: (() => ({
-      fullStream: (async function* () {
+      stream: (async function* () {
         yield { type: 'reasoning-delta', delta: 'Thinking' }
         yield { type: 'text-delta', delta: 'Answer' }
       })(),
       usage: Promise.resolve({ inputTokens: 100, outputTokens: 50 }),
-      totalUsage: Promise.resolve({ inputTokens: 100, outputTokens: 50 }),
+      finalStep: Promise.resolve({ usage: { inputTokens: 100, outputTokens: 50 } }),
       finishReason: Promise.resolve('stop'),
-      response: Promise.resolve({
-        messages: [
-          {
-            role: 'assistant',
-            reasoning_content: 'Already captured',
-            content: [{ type: 'text', text: 'Answer' }]
-          }
-        ]
-      })
+      responseMessages: Promise.resolve([
+        {
+          role: 'assistant',
+          reasoning_content: 'Already captured',
+          content: [{ type: 'text', text: 'Answer' }]
+        }
+      ])
     })) as never
   })
 

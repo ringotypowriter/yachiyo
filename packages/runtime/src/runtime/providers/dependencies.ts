@@ -1,5 +1,5 @@
 import { createAnthropic } from '@ai-sdk/anthropic'
-import { createGoogleGenerativeAI } from '@ai-sdk/google'
+import { createGoogle } from '@ai-sdk/google'
 import { createVertex } from '@ai-sdk/google-vertex'
 import { createGateway, streamText } from 'ai'
 import { createOpenAI } from '@ai-sdk/openai'
@@ -8,7 +8,7 @@ import { sleep } from '../../channels/shared/connectionRetry.ts'
 
 export type OpenAIProviderFactory = typeof createOpenAI
 export type AnthropicProviderFactory = typeof createAnthropic
-export type GoogleProviderFactory = typeof createGoogleGenerativeAI
+export type GoogleProviderFactory = typeof createGoogle
 export type VertexProviderFactory = typeof createVertex
 export type GatewayProviderFactory = typeof createGateway
 export type StreamTextImplementation = typeof streamText
@@ -49,7 +49,7 @@ export function resolveAiSdkRuntimeDependencies(
   return {
     createAnthropicProvider: dependencies.createAnthropicProvider ?? createAnthropic,
     createGatewayProvider: dependencies.createGatewayProvider ?? createGateway,
-    createGoogleProvider: dependencies.createGoogleProvider ?? createGoogleGenerativeAI,
+    createGoogleProvider: dependencies.createGoogleProvider ?? createGoogle,
     createOpenAIProvider: dependencies.createOpenAIProvider ?? createOpenAI,
     createVertexProvider: dependencies.createVertexProvider ?? createVertex,
     streamTextImpl: dependencies.streamTextImpl ?? streamText,

@@ -45,7 +45,7 @@ test('settled lease operations cancel their timeout timers', async (t) => {
   const { lease: l } = lease()
   const cleared: Array<Parameters<typeof clearTimeout>[0]> = []
   const clearTimeoutOriginal = globalThis.clearTimeout
-  t.mock.method(globalThis, 'clearTimeout', (timer) => {
+  t.mock.method(globalThis, 'clearTimeout', (timer: Parameters<typeof clearTimeout>[0]) => {
     cleared.push(timer)
     clearTimeoutOriginal(timer)
   })

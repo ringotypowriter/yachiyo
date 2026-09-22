@@ -22,7 +22,7 @@ test('sendThreadMessage dispatches a hidden steer to the requested conversation'
       targetThreadId: 'thread-target',
       message: 'Please verify the migration before I continue.'
     },
-    { toolCallId: 'send-thread-message-1', messages: [] }
+    { toolCallId: 'send-thread-message-1', messages: [], context: undefined }
   )) as SendThreadMessageToolOutput
 
   assert.deepEqual(deliveries, [
@@ -53,7 +53,7 @@ test('sendThreadMessage refuses to send a message to its own conversation', asyn
       targetThreadId: 'thread-source',
       message: 'This must not be delivered.'
     },
-    { toolCallId: 'send-thread-message-2', messages: [] }
+    { toolCallId: 'send-thread-message-2', messages: [], context: undefined }
   )) as SendThreadMessageToolOutput
 
   assert.equal(dispatched, false)

@@ -181,10 +181,14 @@ test('an inbound Discord DM claims the receipt by user ID, not DM channel ID', a
   const clientEvents = Client.prototype as unknown as {
     on(event: string, listener: (message: unknown) => void): Client
   }
-  t.mock.method(clientEvents, 'on', function (this: Client, event, listener) {
-    if (event === Events.MessageCreate) onMessage = listener
-    return this
-  })
+  t.mock.method(
+    clientEvents,
+    'on',
+    function (this: Client, event: string, listener: (message: unknown) => void) {
+      if (event === Events.MessageCreate) onMessage = listener
+      return this
+    }
+  )
 
   let resolveAcked!: () => void
   const acked = new Promise<void>((resolve) => {

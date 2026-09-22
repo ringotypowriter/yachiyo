@@ -125,7 +125,7 @@ function createAttachmentReplyServer(
       listeners.add(listener)
       return () => listeners.delete(listener)
     },
-    async sendChat(input) {
+    async sendChat(input: Parameters<YachiyoServer['sendChat']>[0]) {
       const replyTool = input.extraTools?.reply as {
         execute(input: {
           attachments: Array<{ path: string; filename: string; mediaType: string }>
@@ -195,7 +195,7 @@ function createInboundCaptureServer(
       listeners.add(listener)
       return () => listeners.delete(listener)
     },
-    async sendChat(input) {
+    async sendChat(input: Parameters<YachiyoServer['sendChat']>[0]) {
       capture({ content: input.content, attachments: input.attachments })
       queueMicrotask(() => {
         for (const listener of listeners) {

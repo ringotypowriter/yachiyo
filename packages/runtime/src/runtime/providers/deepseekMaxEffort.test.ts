@@ -220,7 +220,7 @@ test('createOpenAiLanguageModel installs max-effort fetch for deepseek-v4-pro ch
       baseUrl: 'https://api.deepseek.com/v1'
     },
     {
-      createOpenAIProvider: (options) => {
+      createOpenAIProvider: (options: { fetch?: typeof globalThis.fetch }) => {
         openAiOptions = options
         return {
           chat: (modelId: string) => ({ modelId, provider: 'openai.chat' }),
@@ -258,7 +258,7 @@ test('createOpenAiLanguageModel explicitly disables DeepSeek thinking', async ()
       thinkingEnabled: false
     },
     {
-      createOpenAIProvider: (options) => {
+      createOpenAIProvider: (options: { fetch?: typeof globalThis.fetch }) => {
         openAiOptions = options
         return {
           chat: (modelId: string) => ({ modelId, provider: 'openai.chat' }),
@@ -299,7 +299,7 @@ test('createAnthropicLanguageModel installs max-effort fetch for deepseek-v4-pro
       baseUrl: 'https://api.deepseek.com/anthropic'
     },
     {
-      createAnthropicProvider: (options) => {
+      createAnthropicProvider: (options: { fetch?: typeof globalThis.fetch }) => {
         anthropicOptions = options
         return ((modelId: string) => ({ modelId, provider: 'anthropic' })) as never
       },
@@ -337,7 +337,7 @@ test('createAnthropicLanguageModel explicitly disables DeepSeek thinking', async
       thinkingEnabled: false
     },
     {
-      createAnthropicProvider: (options) => {
+      createAnthropicProvider: (options: { fetch?: typeof globalThis.fetch }) => {
         anthropicOptions = options
         return ((modelId: string) => ({ modelId, provider: 'anthropic' })) as never
       },

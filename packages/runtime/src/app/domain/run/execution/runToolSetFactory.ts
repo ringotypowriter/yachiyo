@@ -16,6 +16,10 @@ import { readChannelsConfig } from '../../../../runtime/config/channelsConfig.ts
 import type { SnapshotTracker } from '../../../../services/fileSnapshot/snapshotTracker.ts'
 import { createFilteredMemoryService } from '../../../../services/memory/memoryService.ts'
 import { createAgentToolSet } from '../../../../tools/agentTools.ts'
+import type {
+  BackgroundBashAdoptionHandle,
+  BackgroundBashTaskHandle
+} from '../../../../tools/agentTools/shared.ts'
 import { createRunEventMetadata } from '../../shared/runEventMetadata.ts'
 import type {
   DelegateTaskFinishedEvent,
@@ -103,14 +107,14 @@ export function createRunToolSet(input: CreateRunToolSetInput): ToolSet | undefi
       : {}),
     ...(deps.onBackgroundBashStarted
       ? {
-          onBackgroundBashStarted: async (task) => {
+          onBackgroundBashStarted: async (task: BackgroundBashTaskHandle) => {
             await deps.onBackgroundBashStarted?.({ ...task, threadId: executionInput.thread.id })
           }
         }
       : {}),
     ...(deps.onBackgroundBashAdopted
       ? {
-          onBackgroundBashAdopted: async (task) => {
+          onBackgroundBashAdopted: async (task: BackgroundBashAdoptionHandle) => {
             await deps.onBackgroundBashAdopted?.({ ...task, threadId: executionInput.thread.id })
           }
         }

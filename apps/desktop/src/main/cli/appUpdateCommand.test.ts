@@ -6,6 +6,7 @@ import {
   createAppUpdateController,
   type AppUpdateController
 } from '../electron/appUpdateController.ts'
+import type { UpdateReceiptOrigin } from '../appUpdate/installReceiptSequence.ts'
 import { createAppUpdateCommandHandler as createAppUpdateCommandHandlerImpl } from './appUpdateCommand.ts'
 
 type AppUpdateCommandHandlerInput = Omit<
@@ -432,7 +433,7 @@ test('a failed command reply withdraws the announcement before clearing its rece
     announce: async () => {
       events.push('announce')
     },
-    reportInstallFailure: async (origin) => {
+    reportInstallFailure: async (origin: UpdateReceiptOrigin) => {
       events.push(`report-failure:${origin.channelId}:${origin.threadId}:${origin.messageId}`)
     },
     clear: () => events.push('clear')

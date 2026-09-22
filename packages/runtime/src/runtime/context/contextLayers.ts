@@ -338,15 +338,15 @@ export function toModelHistoryMessages(message: ContextLayerHistoryMessage): Mod
           (
             image
           ): Array<
-            { type: 'text'; text: string } | { type: 'image'; image: string; mediaType: string }
+            { type: 'text'; text: string } | { type: 'file'; data: string; mediaType: string }
           > => {
             if (image.replayAsText || !image.dataUrl) {
               return image.altText ? [{ type: 'text', text: `[Image: ${image.altText}]` }] : []
             }
             return [
               {
-                type: 'image',
-                image: extractBase64DataUrlPayload(image.dataUrl)?.base64 ?? image.dataUrl,
+                type: 'file',
+                data: extractBase64DataUrlPayload(image.dataUrl)?.base64 ?? image.dataUrl,
                 mediaType: image.mediaType
               }
             ]

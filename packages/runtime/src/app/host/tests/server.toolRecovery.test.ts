@@ -406,13 +406,6 @@ test('YachiyoServer preserves assistant-tool-assistant ordering across recovery'
             yield 'Before tool. '
 
             request.onToolCallStart?.({
-              abortSignal: request.signal,
-              experimental_context: undefined,
-              functionId: undefined,
-              messages: request.messages,
-              metadata: undefined,
-              model: undefined,
-              stepNumber: 0,
               toolCall: {
                 input: { command: 'pwd' },
                 toolCallId: 'tool-bash-order-1',
@@ -421,14 +414,6 @@ test('YachiyoServer preserves assistant-tool-assistant ordering across recovery'
             } as never)
 
             request.onToolCallFinish?.({
-              abortSignal: request.signal,
-              durationMs: 3,
-              experimental_context: undefined,
-              functionId: undefined,
-              messages: request.messages,
-              metadata: undefined,
-              model: undefined,
-              stepNumber: 0,
               success: true,
               output: {
                 content: [{ type: 'text', text: '/tmp/workspace\n' }],
@@ -522,13 +507,6 @@ test('YachiyoServer ignores late tool updates after a tool call has already fini
       createModelRuntime: () => ({
         async *streamReply(request: ModelStreamRequest) {
           request.onToolCallStart?.({
-            abortSignal: request.signal,
-            experimental_context: undefined,
-            functionId: undefined,
-            messages: request.messages,
-            metadata: undefined,
-            model: undefined,
-            stepNumber: 0,
             toolCall: {
               input: { command: 'pwd' },
               toolCallId: 'tool-bash-1',
@@ -537,14 +515,6 @@ test('YachiyoServer ignores late tool updates after a tool call has already fini
           } as never)
 
           request.onToolCallFinish?.({
-            abortSignal: request.signal,
-            durationMs: 3,
-            experimental_context: undefined,
-            functionId: undefined,
-            messages: request.messages,
-            metadata: undefined,
-            model: undefined,
-            stepNumber: 0,
             success: true,
             output: {
               content: [{ type: 'text', text: '/tmp/workspace\n' }],
@@ -658,14 +628,6 @@ test('YachiyoServer persists tool finishes that arrive without a prior tool star
       createModelRuntime: () => ({
         async *streamReply(request: ModelStreamRequest) {
           request.onToolCallFinish?.({
-            abortSignal: request.signal,
-            durationMs: 3,
-            experimental_context: undefined,
-            functionId: undefined,
-            messages: request.messages,
-            metadata: undefined,
-            model: undefined,
-            stepNumber: 0,
             success: true,
             output: {
               content: [{ type: 'text', text: '/tmp/workspace\n' }],
@@ -766,13 +728,6 @@ test('YachiyoServer emits thread.state.replaced with the steer message when a pe
             attempt += 1
 
             request.onToolCallStart?.({
-              abortSignal: request.signal,
-              experimental_context: undefined,
-              functionId: undefined,
-              messages: request.messages,
-              metadata: undefined,
-              model: undefined,
-              stepNumber: 0,
               toolCall: {
                 input: { command: 'pwd' },
                 toolCallId: 'tool-bash-1',
@@ -788,14 +743,6 @@ test('YachiyoServer emits thread.state.replaced with the steer message when a pe
             })
 
             request.onToolCallFinish?.({
-              abortSignal: request.signal,
-              durationMs: 3,
-              experimental_context: undefined,
-              functionId: undefined,
-              messages: request.messages,
-              metadata: undefined,
-              model: undefined,
-              stepNumber: 0,
               success: true,
               output: {
                 content: [{ type: 'text', text: '/tmp/workspace\n' }],

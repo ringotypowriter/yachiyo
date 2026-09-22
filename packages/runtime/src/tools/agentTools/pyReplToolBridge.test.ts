@@ -30,7 +30,7 @@ function cellContext(
   return {
     cellId: 'cell-1',
     cwd: '/workspace/nested',
-    executionOptions: { toolCallId: 'parent', messages: [] },
+    executionOptions: { toolCallId: 'parent', messages: [], context: undefined },
     resolveTool: () => undefined,
     availableTools: [],
     signal: controller.signal,
@@ -262,10 +262,14 @@ test('bridge binds tool authority to the currently active cell id', async () => 
 })
 
 test('bridge rewrites relative path inputs and preserves nested execution options', async () => {
-  const executions: Array<{ input: unknown; options: ToolExecutionOptions; receiver: unknown }> = []
+  const executions: Array<{
+    input: unknown
+    options: ToolExecutionOptions<unknown>
+    receiver: unknown
+  }> = []
   const tool = {
     marker: 'receiver',
-    async execute(input: unknown, options: ToolExecutionOptions): Promise<unknown> {
+    async execute(input: unknown, options: ToolExecutionOptions<unknown>): Promise<unknown> {
       executions.push({ input, options, receiver: this })
       return { received: input }
     }
@@ -273,7 +277,7 @@ test('bridge rewrites relative path inputs and preserves nested execution option
   const active = await createActiveBridge({
     availableTools: ['read'],
     resolveTool: (name) => (name === 'read' ? tool : undefined),
-    executionOptions: { toolCallId: 'parent-call', messages: [] }
+    executionOptions: { toolCallId: 'parent-call', messages: [], context: undefined }
   })
 
   try {
@@ -429,7 +433,7 @@ test('bridge propagates active-cell deactivation to an in-flight nested tool', a
   const active = await createActiveBridge({
     availableTools: ['wait'],
     resolveTool: () => ({
-      execute: async (_input: unknown, options: ToolExecutionOptions): Promise<never> => {
+      execute: async (_input: unknown, options: ToolExecutionOptions<unknown>): Promise<never> => {
         executionStarted = true
         await new Promise<void>((_resolve, reject) => {
           const signal = options.abortSignal

@@ -15,7 +15,7 @@ test('remember passes note text, current message and invocation anchor without m
   const tool = createTool({ memoryService, threadId: 't', messageId: 'm' })
   const result = await tool.execute!(
     { note: 'Our discussion\nwith context.' },
-    { toolCallId: 'call', messages: [] }
+    { toolCallId: 'call', messages: [], context: undefined }
   )
   assert.equal((captured[0] as { note: string }).note, 'Our discussion\nwith context.')
   assert.deepEqual(captured[2], {
@@ -38,13 +38,13 @@ test('remember rejects nonexistent sources and reports deletion as success', asy
   const tool = createTool({ memoryService, storage: createInMemoryYachiyoStorage() })
   const bad = await tool.execute!(
     { note: 'A claim', sources: ['thread_message:missing:m'] },
-    { toolCallId: 'c', messages: [] }
+    { toolCallId: 'c', messages: [], context: undefined }
   )
   assert.ok((bad as { error?: string }).error)
   assert.equal(writes, 0)
   const removed = await tool.execute!(
     { id: 'note-id', action: 'delete' },
-    { toolCallId: 'c', messages: [] }
+    { toolCallId: 'c', messages: [], context: undefined }
   )
   assert.equal((removed as { error?: string }).error, undefined)
 })

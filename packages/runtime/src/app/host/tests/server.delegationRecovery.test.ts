@@ -646,14 +646,6 @@ test('YachiyoServer replays a matching tool-call when recovery only saw a finish
             yield 'Checking. '
 
             request.onToolCallFinish?.({
-              abortSignal: request.signal,
-              durationMs: 3,
-              experimental_context: undefined,
-              functionId: undefined,
-              messages: request.messages,
-              metadata: undefined,
-              model: undefined,
-              stepNumber: 0,
               success: true,
               output: {
                 content: [{ type: 'text', text: '/tmp/workspace\n' }],
@@ -775,13 +767,6 @@ test('YachiyoServer keeps recovered response history when the provider retries m
           yield 'Continued. '
 
           request.onToolCallStart?.({
-            abortSignal: request.signal,
-            experimental_context: undefined,
-            functionId: undefined,
-            messages: request.messages,
-            metadata: undefined,
-            model: undefined,
-            stepNumber: 0,
             toolCall: {
               input: { command: 'pwd' },
               toolCallId: 'tool-retry-history-1',
@@ -790,14 +775,6 @@ test('YachiyoServer keeps recovered response history when the provider retries m
           } as never)
 
           request.onToolCallFinish?.({
-            abortSignal: request.signal,
-            durationMs: 3,
-            experimental_context: undefined,
-            functionId: undefined,
-            messages: request.messages,
-            metadata: undefined,
-            model: undefined,
-            stepNumber: 0,
             success: true,
             output: {
               content: [{ type: 'text', text: '/tmp/workspace\n' }],

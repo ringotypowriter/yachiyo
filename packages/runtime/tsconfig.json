@@ -3,6 +3,7 @@
   "include": ["src/**/*"],
   "exclude": ["src/storage/sqlite/sqlite.native.test.ts", "**/*.mac.test.ts"],
   "compilerOptions": {
+    "noImplicitAny": true,
     "allowImportingTsExtensions": true,
     "composite": false,
     "noEmit": true,

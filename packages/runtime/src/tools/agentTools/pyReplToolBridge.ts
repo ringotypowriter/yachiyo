@@ -21,7 +21,7 @@ const toolRequestSchema = z
 export interface PyReplBridgeCellContext {
   cellId: string
   cwd: string
-  executionOptions: ToolExecutionOptions
+  executionOptions: ToolExecutionOptions<unknown>
   resolveTool: (name: string) => unknown
   availableTools: readonly string[]
   signal: AbortSignal

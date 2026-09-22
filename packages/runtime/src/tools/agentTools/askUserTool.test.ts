@@ -83,7 +83,12 @@ test('askUser answers an unbounded number of questions in a single run', async (
   for (let index = 0; index < 10; index++) {
     const result = (await execute(
       { question: `Question ${index}?` },
-      { abortSignal: AbortSignal.timeout(5000), toolCallId: `ask-${index}`, messages: [] }
+      {
+        abortSignal: AbortSignal.timeout(5000),
+        toolCallId: `ask-${index}`,
+        messages: [],
+        context: undefined
+      }
     )) as AskUserToolOutput
     assert.equal(result.error, undefined)
     const block = result.content[0]

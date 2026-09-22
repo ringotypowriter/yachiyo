@@ -731,13 +731,6 @@ test('YachiyoServer binds recovered tool calls when retry backoff is cancelled',
 
           if (attempt === 1) {
             request.onToolCallStart?.({
-              abortSignal: request.signal,
-              experimental_context: undefined,
-              functionId: undefined,
-              messages: request.messages,
-              metadata: undefined,
-              model: undefined,
-              stepNumber: 0,
               toolCall: {
                 input: { path: 'notes.txt' },
                 toolCallId: 'tool-retry-cancel-1',
@@ -745,14 +738,6 @@ test('YachiyoServer binds recovered tool calls when retry backoff is cancelled',
               }
             } as never)
             request.onToolCallFinish?.({
-              abortSignal: request.signal,
-              durationMs: 1,
-              experimental_context: undefined,
-              functionId: undefined,
-              messages: request.messages,
-              metadata: undefined,
-              model: undefined,
-              stepNumber: 0,
               success: true,
               output: {
                 content: [{ type: 'text', text: 'partial' }],

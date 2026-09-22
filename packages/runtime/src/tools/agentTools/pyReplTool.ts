@@ -87,7 +87,7 @@ class PyReplToolHandle {
 
   async execute(
     input: PyReplToolInput,
-    executionOptions: ToolExecutionOptions
+    executionOptions: ToolExecutionOptions<unknown>
   ): Promise<PyReplExecutionResult> {
     const resources = await this.getResources(executionOptions.abortSignal)
     return await resources.kernel.execute({

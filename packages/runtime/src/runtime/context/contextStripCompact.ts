@@ -14,6 +14,16 @@ interface RunSpan {
   endIndex: number
 }
 
+/** Inline image payloads: legacy `image` parts, tool `image-data` blocks, and `file` parts with an image media type. */
+function isImagePart(record: Record<string, unknown>): boolean {
+  if (record.type === 'image' || record.type === 'image-data') return true
+  return (
+    record.type === 'file' &&
+    typeof record.mediaType === 'string' &&
+    record.mediaType.startsWith('image')
+  )
+}
+
 function extractTextContent(value: unknown, seen = new WeakSet<object>()): string {
   if (typeof value === 'string') return value
   if (Array.isArray(value)) {
@@ -28,7 +38,7 @@ function extractTextContent(value: unknown, seen = new WeakSet<object>()): strin
   seen.add(value)
 
   const record = value as Record<string, unknown>
-  if (record.type === 'image' || record.type === 'image-data') {
+  if (isImagePart(record)) {
     return ''
   }
 
@@ -114,7 +124,7 @@ function countImagesInContent(value: unknown, seen = new WeakSet<object>()): num
   }
 
   const record = value as Record<string, unknown>
-  if (record.type === 'image' || record.type === 'image-data') {
+  if (isImagePart(record)) {
     return 1
   }
 

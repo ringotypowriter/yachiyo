@@ -4,6 +4,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
 
+import type { ToolExecutionOptions } from 'ai'
+
 import type { ModelRuntime, ModelStreamRequest } from '../../runtime/models/types.ts'
 import { RetryableRunError } from '../../runtime/models/runtimeErrors.ts'
 import { DEFAULT_NAMED_SUBAGENT_PROFILES } from '../../settings/namedSubagents.ts'
@@ -35,7 +37,7 @@ const TEST_SETTINGS: ProviderSettings = {
 
 function makeLaunchManager(launches: LaunchSubagentInput[]): SubagentManager {
   return {
-    launch: async (input) => {
+    launch: async (input: LaunchSubagentInput) => {
       launches.push(input)
       return {
         agentId: input.agentId,
@@ -78,12 +80,8 @@ function makeContext(overrides: Partial<DelegateTaskContext> = {}): DelegateTask
   } as DelegateTaskContext & { __testLaunches: LaunchSubagentInput[] }
 }
 
-function launchOptions(toolCallId: string): {
-  toolCallId: string
-  messages: []
-  abortSignal: AbortSignal
-} {
-  return { toolCallId, messages: [], abortSignal: new AbortController().signal }
+function launchOptions(toolCallId: string): ToolExecutionOptions<unknown> {
+  return { toolCallId, messages: [], context: undefined, abortSignal: new AbortController().signal }
 }
 
 test('Worker delegation accepts the current unsaved directory and its realpath alias', async () => {
@@ -623,24 +621,13 @@ test('Worker retry resumes after completed tools without executing them again', 
         }
         toolExecutions += 1
         request.onToolCallStart?.({
-          abortSignal: request.signal,
-          messages: request.messages,
           toolCall
         } as never)
         request.onToolCallFinish?.({
-          abortSignal: request.signal,
-          durationMs: 0,
-          experimental_context: undefined,
-          functionId: undefined,
-          metadata: undefined,
-          model: undefined,
-          messages: request.messages,
           output: {
             content: [{ type: 'text', text: 'wrote once.txt' }],
-            details: {},
-            metadata: {}
+            details: {}
           },
-          stepNumber: 0,
           success: true,
           toolCall
         } as never)
@@ -707,8 +694,6 @@ test('Worker preserves a synthetic interrupted result for a dangling tool call b
       providerCalls += 1
       if (providerCalls === 1) {
         request.onToolCallStart?.({
-          abortSignal: request.signal,
-          messages: request.messages,
           toolCall: {
             type: 'tool-call',
             dynamic: true,
