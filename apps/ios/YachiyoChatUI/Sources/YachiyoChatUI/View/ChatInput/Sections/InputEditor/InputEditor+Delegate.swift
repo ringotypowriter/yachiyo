@@ -19,5 +19,7 @@ extension InputEditor {
         func onInputEditorTextChanged(text: String)
         func onInputEditorPastingLargeTextAsDocument(content: String)
         func onInputEditorPastingImage(image: UIImage)
+        func onInputEditorStopButtonTapped()
+        func onInputEditorSubmitLongPressed()
     }
 }

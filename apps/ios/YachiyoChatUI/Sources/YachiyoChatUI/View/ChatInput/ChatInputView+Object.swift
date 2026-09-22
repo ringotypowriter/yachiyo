@@ -32,8 +32,14 @@ extension ChatInputView {
         publishNewEditorStatus()
     }
 
-    func submitValues() {
-        let object = collectObject()
+    /// Submits the current content with extra options, e.g. an explicit send mode (Yachiyo fork).
+    public func submit(options: [String: ChatInputOptionValue]) {
+        submitValues(extraOptions: options)
+    }
+
+    func submitValues(extraOptions: [String: ChatInputOptionValue] = [:]) {
+        var object = collectObject()
+        object.options.merge(extraOptions) { $1 }
         guard !object.hasEmptyContent else { return }
         endEditing(true)
 

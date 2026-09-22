@@ -46,6 +46,7 @@
     "ios:icons": "node scripts/ios-icons.mjs",
     "ios:codegen": "node scripts/ios-codegen.mjs",
     "ios:check": "node scripts/ios-check.mjs",
+    "ios:ui-smoke": "node scripts/ios-ui-smoke.mjs",
     "typecheck": "pnpm -r --if-present typecheck",
     "typecheck:tests": "pnpm -r --if-present typecheck:tests",
     "test:renderer": "tsx --tsconfig apps/desktop/tsconfig.web.tests.json --test --test-concurrency=1 \"apps/desktop/src/renderer/**/*.test.{ts,tsx}\"",

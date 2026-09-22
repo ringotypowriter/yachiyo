@@ -1,0 +1,221 @@
+import Combine
+import UIKit
+import UniformTypeIdentifiers
+import YachiyoMaterial
+import YachiyoRemoteKit
+
+/// Settings: devices, appearance, address recovery, about. Two levels only: section → item.
+final class SettingsViewController: UITableViewController {
+    private enum Section: Int, CaseIterable { case devices, appearance, recovery, about }
+
+    private let store = RemoteStore.shared
+    private var cancellables: Set<AnyCancellable> = []
+
+    init() {
+        super.init(style: .insetGrouped)
+    }
+
+    @available(*, unavailable)
+    required init?(coder _: NSCoder) { fatalError() }
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        title = String(localized: "Settings")
+        tableView.backgroundColor = .yachiyo(.canvas)
+        tableView.register(UITableViewCell.self, forCellReuseIdentifier: "cell")
+        navigationItem.rightBarButtonItem = UIBarButtonItem(systemItem: .done, primaryAction: UIAction { [weak self] _ in
+            self?.dismiss(animated: true)
+        })
+        store.$desktops
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in self?.tableView.reloadData() }
+            .store(in: &cancellables)
+    }
+
+    override func numberOfSections(in _: UITableView) -> Int { Section.allCases.count }
+
+    override func tableView(_: UITableView, titleForHeaderInSection section: Int) -> String? {
+        switch Section(rawValue: section)! {
+        case .devices: String(localized: "Devices")
+        case .appearance: String(localized: "Appearance")
+        case .recovery: String(localized: "Address recovery")
+        case .about: String(localized: "About")
+        }
+    }
+
+    override func tableView(_: UITableView, titleForFooterInSection section: Int) -> String? {
+        Section(rawValue: section) == .devices
+            ? String(localized: "Removing a device here only affects this iPhone. To revoke it, use Settings > Remote on the Mac.")
+            : nil
+    }
+
+    override func tableView(_: UITableView, numberOfRowsInSection section: Int) -> Int {
+        switch Section(rawValue: section)! {
+        case .devices: store.desktops.count + 1
+        case .appearance: store.desktops.count > 1 ? 3 : 2
+        case .recovery: 1
+        case .about: 3
+        }
+    }
+
+    override func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
+        let cell = UITableViewCell(style: .value1, reuseIdentifier: nil)
+        var content = UIListContentConfiguration.valueCell()
+        cell.accessoryView = nil
+        cell.accessoryType = .none
+        switch Section(rawValue: indexPath.section)! {
+        case .devices:
+            if let desktop = store.desktops[safe: indexPath.row] {
+                content.text = desktop.name
+                content.image = UIImage(systemName: "circle.fill")
+                content.imageProperties.tintColor = desktop.state == .online ? .yachiyo(.success) : .yachiyo(.danger)
+                content.imageProperties.maximumSize = CGSize(width: 8, height: 8)
+                content.secondaryText = stateText(desktop.state)
+                cell.accessibilityIdentifier = "settings.device.\(desktop.id)"
+            } else {
+                content.text = String(localized: "Add device")
+                content.textProperties.color = .yachiyo(.accentStrong)
+                cell.accessibilityIdentifier = "settings.addDevice"
+            }
+        case .appearance:
+            switch indexPath.row {
+            case 0:
+                content.text = String(localized: "Theme")
+                content.secondaryText = ThemeController.shared.themeOverride?.displayName ?? String(localized: "Follow \(primaryName)")
+                cell.accessoryView = menuButton(themeMenu())
+            case 1:
+                content.text = String(localized: "Light or dark")
+                content.secondaryText = appearanceName(ThemeController.shared.appearanceOverride)
+                cell.accessoryView = menuButton(appearanceMenu())
+            default:
+                content.text = String(localized: "Primary device")
+                content.secondaryText = primaryName
+                cell.accessoryView = menuButton(primaryMenu())
+            }
+        case .recovery:
+            content.text = String(localized: "iCloud folder")
+            content.secondaryText = MailboxFolder.isGranted ? String(localized: "Granted") : String(localized: "Not chosen")
+            cell.accessoryType = .disclosureIndicator
+        case .about:
+            switch indexPath.row {
+            case 0:
+                content.text = String(localized: "Version")
+                content.secondaryText = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String
+            case 1:
+                content.text = String(localized: "Protocol")
+                content.secondaryText = String(remoteProtocolVersion)
+            default:
+                content.text = String(localized: "Open source licenses")
+                cell.accessoryType = .disclosureIndicator
+            }
+        }
+        cell.contentConfiguration = content
+        cell.backgroundColor = .yachiyo(.surface)
+        return cell
+    }
+
+    override func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
+        tableView.deselectRow(at: indexPath, animated: true)
+        switch Section(rawValue: indexPath.section)! {
+        case .devices where indexPath.row == store.desktops.count:
+            let pairing = PairingViewController(initialURL: nil)
+            pairing.onFinished = { [weak self] in self?.dismiss(animated: true) }
+            let container = UINavigationController(rootViewController: pairing)
+            container.modalPresentationStyle = .fullScreen
+            present(container, animated: true)
+        case .recovery:
+            let picker = UIDocumentPickerViewController(forOpeningContentTypes: [.folder])
+            picker.delegate = self
+            present(picker, animated: true)
+        case .about where indexPath.row == 2:
+            let notices = Bundle.main.url(forResource: "THIRD_PARTY_NOTICES", withExtension: "md")
+                .flatMap { try? String(contentsOf: $0, encoding: .utf8) } ?? ""
+            navigationController?.pushViewController(TextSheetViewController(title: String(localized: "Licenses"), text: notices), animated: true)
+        default:
+            break
+        }
+    }
+
+    override func tableView(_: UITableView, trailingSwipeActionsConfigurationForRowAt indexPath: IndexPath) -> UISwipeActionsConfiguration? {
+        guard Section(rawValue: indexPath.section) == .devices, let desktop = store.desktops[safe: indexPath.row] else { return nil }
+        let remove = UIContextualAction(style: .destructive, title: String(localized: "Remove")) { [weak self] _, _, done in
+            self?.store.remove(desktopId: desktop.id)
+            done(true)
+        }
+        return UISwipeActionsConfiguration(actions: [remove])
+    }
+
+    // MARK: Helpers
+
+    private var primaryName: String {
+        store.desktops.first(where: \.isPrimary)?.name ?? String(localized: "your Mac")
+    }
+
+    private func stateText(_ state: DesktopConnectionState) -> String {
+        switch state {
+        case .online: String(localized: "Online")
+        case .connecting: String(localized: "Connecting…")
+        case let .offline(lastSeen):
+            lastSeen.map { String(localized: "Last seen \($0.formatted(.relative(presentation: .named)))") } ?? String(localized: "Offline")
+        case .protocolMismatch: String(localized: "Needs update")
+        }
+    }
+
+    private func appearanceName(_ preference: YachiyoAppearancePreference?) -> String {
+        switch preference {
+        case nil: String(localized: "Follow \(primaryName)")
+        case .system: String(localized: "System")
+        case .light: String(localized: "Light")
+        case .dark: String(localized: "Dark")
+        }
+    }
+
+    private func menuButton(_ menu: UIMenu) -> UIButton {
+        let button = UIButton(type: .system)
+        button.setImage(UIImage(systemName: "chevron.up.chevron.down"), for: .normal)
+        button.menu = menu
+        button.showsMenuAsPrimaryAction = true
+        button.sizeToFit()
+        return button
+    }
+
+    private func themeMenu() -> UIMenu {
+        let follow = UIAction(title: String(localized: "Follow \(primaryName)"), state: ThemeController.shared.themeOverride == nil ? .on : .off) { [weak self] _ in
+            ThemeController.shared.themeOverride = nil
+            self?.tableView.reloadData()
+        }
+        let themes = YachiyoThemeID.allCases.map { theme in
+            UIAction(title: theme.displayName, state: ThemeController.shared.themeOverride == theme ? .on : .off) { [weak self] _ in
+                ThemeController.shared.themeOverride = theme
+                self?.tableView.reloadData()
+            }
+        }
+        return UIMenu(children: [follow, UIMenu(options: .displayInline, children: themes)])
+    }
+
+    private func appearanceMenu() -> UIMenu {
+        let options: [YachiyoAppearancePreference?] = [nil, .system, .light, .dark]
+        return UIMenu(children: options.map { option in
+            UIAction(title: appearanceName(option), state: ThemeController.shared.appearanceOverride == option ? .on : .off) { [weak self] _ in
+                ThemeController.shared.appearanceOverride = option
+                self?.tableView.reloadData()
+            }
+        })
+    }
+
+    private func primaryMenu() -> UIMenu {
+        UIMenu(children: store.desktops.map { desktop in
+            UIAction(title: desktop.name, state: desktop.isPrimary ? .on : .off) { [weak self] _ in
+                self?.store.setPrimaryDesktop(desktop.id)
+            }
+        })
+    }
+}
+
+extension SettingsViewController: UIDocumentPickerDelegate {
+    func documentPicker(_: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
+        guard let folder = urls.first else { return }
+        try? MailboxFolder.save(folder: folder)
+        tableView.reloadData()
+    }
+}

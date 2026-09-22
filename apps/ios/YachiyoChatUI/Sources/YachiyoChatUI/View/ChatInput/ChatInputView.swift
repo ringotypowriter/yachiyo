@@ -262,6 +262,17 @@ open class ChatInputView: EditorSectionView {
         }
     }
 
+    /// While true, the composer offers stop in place of the more/mic control (Yachiyo fork).
+    public var isRunning: Bool {
+        get { inputEditor.isRunning }
+        set { inputEditor.isRunning = newValue }
+    }
+
+    public var placeholder: String {
+        get { inputEditor.placeholderLabel.text ?? "" }
+        set { inputEditor.placeholderLabel.text = newValue }
+    }
+
     public func focus() {
         inputEditor.textView.becomeFirstResponder()
     }

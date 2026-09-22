@@ -20,6 +20,18 @@ extension MessageListView {
         var thinkingDuration: TimeInterval
     }
 
+    struct PlanCard: Hashable {
+        let messageId: String
+        let content: String
+        let isPending: Bool
+    }
+
+    struct BranchPosition: Hashable {
+        let messageId: String
+        let index: Int
+        let count: Int
+    }
+
     struct Attachments: Hashable {
         let items: [ChatInputAttachment]
     }
@@ -33,6 +45,9 @@ extension MessageListView {
         case hint(String, String)
         case toolCallHint(String, ToolCallContentPart)
         case activityReporting(String)
+        case questionCard(String, QuestionContentPart)
+        case planCard(String, PlanCard)
+        case branchNavigator(String, BranchPosition)
 
         var id: String {
             switch self {
@@ -43,6 +58,9 @@ extension MessageListView {
             case let .hint(id, _): "hint-\(id)"
             case let .toolCallHint(id, _): "tool-\(id)"
             case let .activityReporting(msg): "activity-\(msg)"
+            case let .questionCard(id, _): "question-\(id)"
+            case let .planCard(id, _): "plan-\(id)"
+            case let .branchNavigator(id, _): "branch-\(id)"
             }
         }
     }
@@ -92,6 +110,11 @@ extension MessageListView {
                 thinkingDuration: reasoningDuration
             )
 
+            if let count = Int(message.metadata[MessageMetadataKey.siblingCount] ?? ""), count > 1 {
+                let index = Int(message.metadata[MessageMetadataKey.siblingIndex] ?? "") ?? 0
+                entries.append(.branchNavigator(message.id, .init(messageId: message.id, index: index, count: count)))
+            }
+
             switch message.role {
             case .user:
                 let attachmentItems = message.parts.compactMap { part -> ChatInputAttachment? in
@@ -119,7 +142,7 @@ extension MessageListView {
                             textContent: filePart.textContent ?? String(data: filePart.data, encoding: .utf8) ?? "",
                             storageFilename: filePart.name ?? "document.txt"
                         )
-                    case .text, .reasoning, .toolCall, .toolResult:
+                    case .text, .reasoning, .toolCall, .toolResult, .question:
                         return nil
                     }
                 }
@@ -152,9 +175,20 @@ extension MessageListView {
                     }
                 }
 
+                for part in message.parts {
+                    if case let .question(question) = part {
+                        entries.append(.questionCard(question.id, question))
+                    }
+                }
+
                 // Text content
-                if !textContent.isEmpty {
+                if let planState = message.metadata[MessageMetadataKey.plan] {
+                    entries.append(.planCard(message.id, .init(messageId: message.id, content: textContent, isPending: planState == "pending")))
+                } else if !textContent.isEmpty {
                     entries.append(.responseContent(message.id, representation))
+                }
+                if let footer = message.metadata[MessageMetadataKey.footer], !footer.isEmpty {
+                    entries.append(.hint("footer.\(message.id)", footer))
                 }
 
             case .system:

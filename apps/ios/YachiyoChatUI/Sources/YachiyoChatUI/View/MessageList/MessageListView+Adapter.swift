@@ -17,6 +17,9 @@ private extension MessageListView {
         case hint
         case toolCallHint
         case activityReporting
+        case questionCard
+        case planCard
+        case branchNavigator
     }
 }
 
@@ -35,6 +38,9 @@ extension MessageListView: ListViewAdapter {
         case .hint: RowType.hint
         case .toolCallHint: RowType.toolCallHint
         case .activityReporting: RowType.activityReporting
+        case .questionCard: RowType.questionCard
+        case .planCard: RowType.planCard
+        case .branchNavigator: RowType.branchNavigator
         }
     }
 
@@ -56,6 +62,12 @@ extension MessageListView: ListViewAdapter {
             ToolHintView()
         case .activityReporting:
             ActivityReportingView()
+        case .questionCard:
+            QuestionCardView()
+        case .planCard:
+            PlanCardView()
+        case .branchNavigator:
+            BranchNavigatorView()
         }
         view.theme = theme
         return view
@@ -107,6 +119,12 @@ extension MessageListView: ListViewAdapter {
                 return max(textHeight, ActivityReportingView.loadingSymbolSize.height + 16)
             case .toolCallHint:
                 return theme.fonts.body.lineHeight + 20
+            case let .questionCard(_, question):
+                return QuestionCardView.height(for: question, width: containerWidth)
+            case let .planCard(_, plan):
+                return PlanCardView.height(for: plan, width: containerWidth)
+            case .branchNavigator:
+                return BranchNavigatorView.height
             }
         }()
 
@@ -115,6 +133,52 @@ extension MessageListView: ListViewAdapter {
 
     public func listView(_: ListView, configureRowView rowView: ListRowView, for _: any Identifiable, at index: Int) {
         guard let entry = entryForRow(at: index) else { return }
+
+        if let questionView = rowView as? QuestionCardView {
+            if case let .questionCard(_, question) = entry {
+                questionView.theme = theme
+                questionView.question = question
+                questionView.onAnswer = { [weak self] answer in
+                    guard let self else { return }
+                    interactionDelegate?.messageList(self, answer: answer, toQuestion: question)
+                }
+            }
+            return
+        }
+        if let planView = rowView as? PlanCardView {
+            if case let .planCard(_, plan) = entry {
+                planView.theme = theme
+                planView.plan = plan
+                planView.onAction = { [weak self] action in
+                    guard let self else { return }
+                    interactionDelegate?.messageList(self, plan: plan.messageId, action: action)
+                }
+            }
+            return
+        }
+        if let branchView = rowView as? BranchNavigatorView {
+            if case let .branchNavigator(_, position) = entry {
+                branchView.theme = theme
+                branchView.position = position
+                branchView.onStep = { [weak self] offset in
+                    guard let self else { return }
+                    interactionDelegate?.messageList(self, showSiblingOf: position.messageId, offset: offset)
+                }
+            }
+            return
+        }
+        if let messageRow = rowView as? MessageListRowView {
+            messageRow.contextMenuProvider = nil
+            switch entry {
+            case let .userContent(id, message), let .responseContent(id, message):
+                messageRow.contextMenuProvider = { [weak self] _ in
+                    guard let self else { return nil }
+                    return interactionDelegate?.messageList(self, menuForMessage: id, role: message.role)
+                }
+            default:
+                break
+            }
+        }
 
         if let userMessageView = rowView as? UserMessageView {
             if case let .userContent(_, message) = entry {
@@ -167,7 +231,10 @@ extension MessageListView: ListViewAdapter {
                 toolHintView.toolName = toolCall.toolName
                 toolHintView.text = toolCall.parameters
                 toolHintView.state = toolCall.state
-                toolHintView.clickHandler = nil
+                toolHintView.clickHandler = { [weak self] in
+                    guard let self else { return }
+                    interactionDelegate?.messageList(self, didSelectToolCall: toolCall.id)
+                }
             }
         }
     }

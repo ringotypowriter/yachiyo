@@ -16,6 +16,10 @@ public protocol ChatInputDelegate: AnyObject {
     func chatInputDidRequestObjectForRestore(_ input: ChatInputView) -> ChatInputContent?
     /// Called when an error occurs in the input view.
     func chatInputDidReportError(_ input: ChatInputView, error: String)
+    /// Called when the stop control is tapped during a run (Yachiyo fork).
+    func chatInputDidRequestStop(_ input: ChatInputView)
+    /// Called when the send control is long-pressed, to offer the alternate send mode (Yachiyo fork).
+    func chatInputDidRequestAlternateSubmit(_ input: ChatInputView)
 }
 
 /// Default implementations making all methods optional.
@@ -27,4 +31,6 @@ public extension ChatInputDelegate {
     }
 
     func chatInputDidReportError(_: ChatInputView, error _: String) {}
+    func chatInputDidRequestStop(_: ChatInputView) {}
+    func chatInputDidRequestAlternateSubmit(_: ChatInputView) {}
 }

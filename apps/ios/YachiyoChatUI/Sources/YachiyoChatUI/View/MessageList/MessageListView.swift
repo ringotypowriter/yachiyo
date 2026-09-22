@@ -51,7 +51,12 @@ public final class MessageListView: UIView {
         }
     }
 
-    private var isAutoScrollingToBottom: Bool = true
+    private var isAutoScrollingToBottom: Bool = true {
+        didSet {
+            guard oldValue != isAutoScrollingToBottom else { return }
+            interactionDelegate?.messageList(self, didChangeFollowingBottom: isAutoScrollingToBottom)
+        }
+    }
     private var sessionScopedCancellables: Set<AnyCancellable> = .init()
     let loadingState = CurrentValueSubject<String?, Never>(nil)
 
@@ -63,6 +68,46 @@ public final class MessageListView: UIView {
 
     var theme: MarkdownTheme = .default {
         didSet { listView.reloadData() }
+    }
+
+    /// Markdown styling for assistant text and the list's own rows (Yachiyo fork).
+    public var markdownTheme: MarkdownTheme {
+        get { theme }
+        set { theme = newValue }
+    }
+
+    public weak var interactionDelegate: MessageListInteractionDelegate?
+
+    /// Insets reserved for the navigation bar and the floating composer.
+    public var contentInsets: UIEdgeInsets {
+        get { contentSafeAreaInsets }
+        set { contentSafeAreaInsets = newValue }
+    }
+
+    public var scrollView: UIScrollView { listView }
+
+    public func scrollToBottom(animated: Bool) {
+        isAutoScrollingToBottom = true
+        if animated {
+            listView.scroll(to: listView.maximumContentOffset)
+        } else {
+            listView.setContentOffset(listView.maximumContentOffset, animated: false)
+        }
+    }
+
+    /// Scrolls until the question card with this tool call id is at the top of the list.
+    public func scrollToQuestion(id: String) {
+        let snapshot = dataSource.snapshot()
+        var offset: CGFloat = 0
+        for index in 0 ..< snapshot.count {
+            guard let entry = snapshot.item(at: index) else { continue }
+            if entry.id == "question-\(id)" {
+                isAutoScrollingToBottom = false
+                listView.scroll(to: CGPoint(x: 0, y: offset - contentSafeAreaInsets.top))
+                return
+            }
+            offset += listView(listView, heightFor: entry, at: index)
+        }
     }
 
     private(set) lazy var labelForSizeCalculation: LTXLabel = .init()

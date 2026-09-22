@@ -40,6 +40,14 @@ extension ChatInputView: InputEditor.Delegate {
         submitValues()
     }
 
+    func onInputEditorStopButtonTapped() {
+        delegate?.chatInputDidRequestStop(self)
+    }
+
+    func onInputEditorSubmitLongPressed() {
+        delegate?.chatInputDidRequestAlternateSubmit(self)
+    }
+
     func onInputEditorBeginEditing() {
         controlPanel.close()
     }

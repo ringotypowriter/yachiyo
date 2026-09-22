@@ -19,6 +19,15 @@ class InputEditor: EditorSectionView {
     let voiceButton = IconButton(icon: "mic")
     let moreButton = IconButton(icon: "plus.circle")
     let sendButton = IconButton(icon: "send")
+    /// Shown instead of the more/mic button while a run is active (Yachiyo fork).
+    let stopButton = IconButton(icon: "stop.circle.fill")
+
+    var isRunning: Bool = false {
+        didSet {
+            guard oldValue != isRunning else { return }
+            doWithAnimation { self.setNeedsLayout(); self.layoutIfNeeded() }
+        }
+    }
 
     let inset: UIEdgeInsets = .init(top: 10, left: 10, bottom: 10, right: 10)
     let iconSpacing: CGFloat = 10
@@ -104,7 +113,26 @@ class InputEditor: EditorSectionView {
         sendButton.tapAction = { [weak self] in
             self?.delegate?.onInputEditorSubmitButtonTapped()
         }
+        let longPress = UILongPressGestureRecognizer(target: self, action: #selector(sendButtonLongPressed(_:)))
+        sendButton.addGestureRecognizer(longPress)
         elementClipper.addSubview(sendButton)
+        stopButton.tapAction = { [weak self] in
+            self?.delegate?.onInputEditorStopButtonTapped()
+        }
+        stopButton.alpha = 0
+        elementClipper.addSubview(stopButton)
+
+        textView.accessibilityIdentifier = "composer.text"
+        sendButton.accessibilityIdentifier = "composer.send"
+        sendButton.accessibilityLabel = String.localized("Send")
+        stopButton.accessibilityIdentifier = "composer.stop"
+        stopButton.accessibilityLabel = String.localized("Stop")
+        voiceButton.accessibilityIdentifier = "composer.mic"
+        voiceButton.accessibilityLabel = String.localized("Dictate")
+        moreButton.accessibilityIdentifier = "composer.more"
+        moreButton.accessibilityLabel = String.localized("Attach")
+        bossButton.accessibilityIdentifier = "composer.camera"
+        bossButton.accessibilityLabel = String.localized("Camera")
 
         textHeight.removeDuplicates()
             .compactMap { [weak self] textHeight -> CGFloat? in
@@ -133,6 +161,31 @@ class InputEditor: EditorSectionView {
         }
 
         updatePlaceholderAlpha()
+        layoutStopButton()
+    }
+
+    /// The stop control takes the more/mic slot while a run is active, so send and stop can
+    /// coexist once there is text to send.
+    private func layoutStopButton() {
+        guard isRunning else {
+            stopButton.alpha = 0
+            return
+        }
+        switch layoutStatus {
+        case .standard, .preFocusText:
+            stopButton.frame = moreButton.frame
+            moreButton.alpha = 0
+        case .editingText:
+            stopButton.frame = voiceButton.frame
+            voiceButton.alpha = 0
+        }
+        stopButton.alpha = 1
+        stopButton.transform = .identity
+    }
+
+    @objc private func sendButtonLongPressed(_ recognizer: UILongPressGestureRecognizer) {
+        guard recognizer.state == .began, sendButton.alpha > 0 else { return }
+        delegate?.onInputEditorSubmitLongPressed()
     }
 
     func set(text: String) {

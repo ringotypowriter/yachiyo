@@ -17,6 +17,8 @@ public enum ContentPart: Identifiable, Sendable {
     case reasoning(ReasoningContentPart)
     case toolCall(ToolCallContentPart)
     case toolResult(ToolResultContentPart)
+    /// An `askUser` question from the agent (Yachiyo fork).
+    case question(QuestionContentPart)
 
     public var id: String {
         switch self {
@@ -27,6 +29,7 @@ public enum ContentPart: Identifiable, Sendable {
         case let .reasoning(part): part.id
         case let .toolCall(part): part.id
         case let .toolResult(part): part.id
+        case let .question(part): part.id
         }
     }
 }
@@ -174,4 +177,35 @@ public struct ToolResultContentPart: Identifiable, Sendable {
         self.toolCallID = toolCallID
         self.result = result
     }
+}
+
+/// An agent question awaiting (or holding) the user's answer (Yachiyo fork).
+public struct QuestionContentPart: Identifiable, Hashable, Sendable {
+    /// The askUser tool call id.
+    public let id: String
+    public var runId: String
+    public var question: String
+    public var choices: [String]
+    public var answer: String?
+    public var isWaiting: Bool
+
+    public init(id: String, runId: String, question: String, choices: [String], answer: String?, isWaiting: Bool) {
+        self.id = id
+        self.runId = runId
+        self.question = question
+        self.choices = choices
+        self.answer = answer
+        self.isWaiting = isWaiting
+    }
+}
+
+/// Message metadata keys the Yachiyo list understands (Yachiyo fork).
+public enum MessageMetadataKey {
+    /// `pending` or `accepted` on a plan document message.
+    public static let plan = "yachiyo.plan"
+    /// Sibling position of a message on the current branch, e.g. "2" of "3".
+    public static let siblingIndex = "yachiyo.siblingIndex"
+    public static let siblingCount = "yachiyo.siblingCount"
+    /// A one-line note shown under an assistant message (run stats, "Stopped", errors).
+    public static let footer = "yachiyo.footer"
 }

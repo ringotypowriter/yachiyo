@@ -21,6 +21,8 @@ class IconButton: UIView {
         addGestureRecognizer(tap)
 
         isUserInteractionEnabled = true
+        isAccessibilityElement = true
+        accessibilityTraits = .button
     }
 
     @available(*, unavailable)

@@ -4,6 +4,11 @@ public struct RemoteCallError: Error, Equatable, Sendable {
     /// One of the desktop's `REMOTE_ERROR_NAMES`, e.g. `RemoteValidationError`.
     public let name: String
     public let message: String
+
+    public init(name: String, message: String) {
+        self.name = name
+        self.message = message
+    }
 }
 
 public struct PairingGrant: Equatable, Sendable {

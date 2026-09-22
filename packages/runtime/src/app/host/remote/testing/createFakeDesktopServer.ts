@@ -17,6 +17,7 @@ export interface FakeDesktopServerOptions {
   /** Extra `config.toml` content appended after the defaults. */
   configToml?: string
   chunkDelayMs?: number
+  slowChunkDelayMs?: number
   /** Seed the demo threads used by screenshots and the fake-desktop harness. */
   demo?: boolean
 }
@@ -69,7 +70,11 @@ export async function createFakeDesktopServer(
     deleteThreadWorkspace: async (threadId) => {
       await rm(workspacePathForThread(threadId), { recursive: true, force: true })
     },
-    createModelRuntime: () => createScriptedModelRuntime({ chunkDelayMs: options.chunkDelayMs }),
+    createModelRuntime: () =>
+      createScriptedModelRuntime({
+        chunkDelayMs: options.chunkDelayMs,
+        slowChunkDelayMs: options.slowChunkDelayMs
+      }),
     readSoulDocument: async () => null,
     readUserDocument: async () => null,
     saveUserDocument: async () => null

@@ -35,6 +35,8 @@ targets:
     platform: iOS
     sources:
       - path: YachiyoRemote
+      - path: THIRD_PARTY_NOTICES.md
+        buildPhase: resources
     dependencies:
       - package: YachiyoRemoteKit
       - package: YachiyoChatUI
@@ -79,6 +81,7 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: sh.ringo.yachiyo.remote.uitests
         TEST_TARGET_NAME: YachiyoRemote
+        GENERATE_INFOPLIST_FILE: YES
 schemes:
   YachiyoRemote:
     build:

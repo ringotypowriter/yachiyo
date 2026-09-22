@@ -10,11 +10,13 @@ import type { ModelRuntime, ModelStreamRequest } from '../../../../runtime/model
  * Commands in the latest user message:
  * - `ask: <question>` — calls askUser with Yes/No choices and replies with the answer.
  * - `tool: <text>` — reports a completed bash-like tool call before replying.
- * - `slow: <text>` — streams 40 chunks 50 ms apart, so steer/cancel can land mid-run.
+ * - `slow: <text>` — streams 40 chunks `slowChunkDelayMs` apart (50 ms by default), so
+ *   steer/cancel can land mid-run.
  * - In Plan Mode, writes the plan document and calls exitPlanMode.
  */
 export interface ScriptedModelOptions {
   chunkDelayMs?: number
+  slowChunkDelayMs?: number
 }
 
 function latestUserText(request: ModelStreamRequest): string {
@@ -89,6 +91,7 @@ function outputText(output: unknown): string {
 
 export function createScriptedModelRuntime(options: ScriptedModelOptions = {}): ModelRuntime {
   const chunkDelayMs = options.chunkDelayMs ?? 15
+  const slowChunkDelayMs = options.slowChunkDelayMs ?? 50
   return {
     async *streamReply(request: ModelStreamRequest): AsyncIterable<string> {
       if (request.purpose && request.purpose !== 'chat') {
@@ -135,7 +138,7 @@ export function createScriptedModelRuntime(options: ScriptedModelOptions = {}): 
         ? Array.from({ length: 40 }, (_, index) => `chunk${index} `)
         : `Scripted reply to: ${text.trim()}`.split(/(?<= )/)
       for (const word of words) {
-        await sleep(slow ? 50 : chunkDelayMs, request.signal)
+        await sleep(slow ? slowChunkDelayMs : chunkDelayMs, request.signal)
         yield word
       }
     }

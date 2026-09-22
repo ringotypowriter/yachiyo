@@ -3,6 +3,7 @@
 //
 //   node --experimental-strip-types scripts/remote-dev-harness.ts [--port 47841]
 //     [--host 127.0.0.1] [--tunnel-url wss://<host>/remote/v1] [--url-file <path>] [--empty]
+//     [--slow-chunk-ms 50]
 //
 // Prints `YACHIYO_REMOTE_PAIRING_URL=<url>`; type `pair` + Enter for a fresh pairing URL.
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
@@ -23,11 +24,15 @@ const { values } = parseArgs({
     host: { type: 'string', default: '127.0.0.1' },
     'tunnel-url': { type: 'string' },
     'url-file': { type: 'string' },
-    empty: { type: 'boolean', default: false }
+    empty: { type: 'boolean', default: false },
+    'slow-chunk-ms': { type: 'string', default: '50' }
   }
 })
 
-const fake = await createFakeDesktopServer({ demo: !values.empty })
+const fake = await createFakeDesktopServer({
+  demo: !values.empty,
+  slowChunkDelayMs: Number(values['slow-chunk-ms'])
+})
 const home = await mkdtemp(join(tmpdir(), 'yachiyo-remote-harness-'))
 const ports = createInProcessRemotePorts(fake.server)
 let lanUrl = ''
