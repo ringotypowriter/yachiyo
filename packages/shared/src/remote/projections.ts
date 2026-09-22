@@ -86,9 +86,11 @@ export const remoteMessageSchema = z
     createdAt: isoDateTimeSchema,
     modelId: z.string().optional(),
     providerName: z.string().optional(),
-    /** Present on the branch path returned by `threads.load`; absent in live events. */
-    siblingCount: z.int().min(1).optional(),
-    siblingIndex: z.int().min(0).optional(),
+    /**
+     * Messages sharing this message's parent, oldest first (this one included). Present on the
+     * branch path returned by `threads.load`; absent in live events.
+     */
+    siblingIds: z.array(idSchema).optional(),
     isPlanDocument: z.boolean(),
     requestKind: z.enum(['steer', 'follow-up']).optional()
   })

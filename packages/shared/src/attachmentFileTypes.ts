@@ -224,7 +224,7 @@ function isSensitiveEnvFile(basename: string): boolean {
   )
 }
 
-function isSensitiveAttachmentFilename(filename: string): boolean {
+export function isSensitiveAttachmentFilename(filename: string): boolean {
   const basename = getLowercaseBasename(filename)
   if (isSensitiveEnvFile(basename)) {
     return true

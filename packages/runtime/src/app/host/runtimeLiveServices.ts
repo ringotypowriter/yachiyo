@@ -45,6 +45,7 @@ import {
   type ChannelMessageTarget,
   type SendChannelMessageInput
 } from './channelMessageDispatch.ts'
+import { createRemoteHostOps } from './remote/remoteHostOps.ts'
 import { createRuntimeLiveServicesReadiness } from './runtimeLiveServicesReadiness.ts'
 
 const CHANNEL_HEALTH_INTERVAL_MS = 60_000
@@ -387,7 +388,8 @@ export function createRuntimeLiveServices(
     // gateway merges them with main-side IPC stats for the Settings panel.
     'host.getPerfStats': () => getPerfMonitor().getStats(),
     'host.stopLiveServices': (): Promise<void> => stop(),
-    'host.shutdownRuntime': (): Promise<void> => shutdown()
+    'host.shutdownRuntime': (): Promise<void> => shutdown(),
+    ...createRemoteHostOps(server)
   }
 
   return {

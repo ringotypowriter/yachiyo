@@ -62,8 +62,7 @@ const message: RemoteMessage = {
   attachments: [],
   status: 'completed',
   createdAt: '2026-09-22T12:00:00.000Z',
-  siblingCount: 2,
-  siblingIndex: 1,
+  siblingIds: ['message-0', 'message-1'],
   isPlanDocument: false
 }
 
@@ -203,5 +202,6 @@ test('generated JSON Schema lists every facade method and matches the committed 
     new URL('./generated/remote-protocol.schema.json', import.meta.url),
     'utf8'
   )
-  assert.equal(committed, `${JSON.stringify(document, null, 2)}\n`)
+  // Compared as parsed JSON: Windows checkouts may rewrite line endings.
+  assert.deepEqual(JSON.parse(committed), document)
 })
