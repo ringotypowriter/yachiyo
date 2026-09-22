@@ -11,6 +11,7 @@ import { createDeepSeekV4MaxEffortFetch } from './deepseekMaxEffort.ts'
 import { createCacheFetch } from './openaiCompatibleCache.ts'
 import { createThinkingFetch, type ThinkingFetchOptions } from './openaiCompatibleThinking.ts'
 import { readCodexSessionAuth } from './codexSessionAuth.ts'
+import { createCodexWebSocketFetch } from './codexResponsesWebSocket.ts'
 import {
   cleanBaseUrl,
   DEFAULT_OPENAI_BASE_URL,
@@ -187,8 +188,15 @@ export function createOpenAiLanguageModel(
   const composedFetch = maxEffortFetch ?? thinkingFetch ?? cacheFetch
 
   const isCodexOauth = settings.provider === 'openai-codex'
+  // Codex OAuth: strip unsupported params, then tunnel `/responses` over a
+  // per-thread WebSocket so prompt-cache routing sticks (HTTP falls back
+  // automatically). Auxiliary calls without a session id stay on HTTP.
   const codexFetch = isCodexOauth
-    ? createCodexResponsesFetch(composedFetch ?? innerFetch)
+    ? createCodexResponsesFetch(
+        options.sessionId && process.env['YACHIYO_CODEX_WS'] !== '0'
+          ? createCodexWebSocketFetch(composedFetch ?? innerFetch, { sessionId: options.sessionId })
+          : (composedFetch ?? innerFetch)
+      )
     : undefined
   const codexHeaders = isCodexOauth
     ? buildCodexHeaders(settings, options.processingTier ?? 'standard')
