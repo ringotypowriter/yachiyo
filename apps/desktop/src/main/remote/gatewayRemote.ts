@@ -11,7 +11,10 @@ import type { RpcMethods } from '@yachiyo/shared/rpc/rpcClient'
 import { resolveYachiyoDataDir } from '@yachiyo/runtime/config/paths'
 import type { YachiyoServer } from '@yachiyo/runtime/app/host/YachiyoServer'
 
-import { tapYachiyoEvents } from '../yachiyoGateway/ipc.ts'
+import QRCode from 'qrcode'
+
+import { handleYachiyoIpc, tapYachiyoEvents } from '../yachiyoGateway/ipc.ts'
+import { IPC_CHANNELS } from '../yachiyoGateway/ipcChannels.ts'
 import { createRemoteKeepAwake } from './keepAwake.ts'
 import { defaultICloudDriveRoot, detectICloudDrive, MailboxWriter } from './mailboxWriter.ts'
 import { PairingStore, type PairingRecord, type SecretBox } from './pairingStore.ts'
@@ -36,6 +39,33 @@ export interface GatewayRemoteBinding {
   listPairings(): Promise<PairingRecord[]>
   revokePairing(pairingId: string): Promise<boolean>
   stop(): Promise<void>
+}
+
+export interface RemotePairingQr {
+  url: string
+  expiresAt: string
+  /** SVG markup of the QR code; rendered in main so the renderer needs no QR library. */
+  svg: string
+}
+
+/** IPC for Settings > Remote. The pairing URL never leaves the settings window. */
+export function registerRemoteIpc(binding: GatewayRemoteBinding): void {
+  handleYachiyoIpc(IPC_CHANNELS.remoteStatus, () => binding.handleCommand({ action: 'status' }))
+  handleYachiyoIpc(IPC_CHANNELS.remoteCreatePairing, async (): Promise<RemotePairingQr> => {
+    const pairing = await binding.createPairingUrl()
+    const svg = await QRCode.toString(pairing.url, {
+      type: 'svg',
+      errorCorrectionLevel: 'M',
+      margin: 1
+    })
+    return { ...pairing, svg }
+  })
+  handleYachiyoIpc(IPC_CHANNELS.remoteListPairings, () =>
+    binding.handleCommand({ action: 'pairings-list' })
+  )
+  handleYachiyoIpc(IPC_CHANNELS.remoteRevokePairing, (input: { pairingId: string }) =>
+    binding.revokePairing(input.pairingId)
+  )
 }
 
 function deviceName(): string {

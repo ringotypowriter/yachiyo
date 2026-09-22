@@ -40,6 +40,7 @@ yachiyo <namespace> <subcommand> [args...] [flags...]
 | `schedule` | Manage scheduled tasks                                    | [schedule.md](references/schedule.md)   |
 | `channel`  | List channel users/groups and change group monitor status | [channel.md](references/channel.md)     |
 | `send`     | Send notifications and channel messages                   | [send.md](references/send.md)           |
+| `remote`   | Phone remote access: tunnel, status, pairings (macOS)     | `yachiyo-remote` skill                  |
 | `doctor`   | Diagnose the current platform runtime and capabilities    | This file                               |
 
 ## Platform diagnostics

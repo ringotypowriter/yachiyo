@@ -1,6 +1,7 @@
 import { behavior, chat, nav, shared, ui } from './panesShell.ts'
 import { codingAgents, essentials, prompts, providers } from './panesModels.ts'
 import { memory, search, skills, sync, workspace } from './panesData.ts'
+import { remote } from './panesRemote.ts'
 import {
   about,
   activity,
@@ -26,6 +27,7 @@ export const settings = {
   skills,
   search,
   sync,
+  remote,
   channels,
   schedule,
   usage,

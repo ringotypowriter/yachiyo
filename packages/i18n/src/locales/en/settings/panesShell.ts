@@ -24,6 +24,7 @@ export const nav = {
   schedules: 'Schedules',
   history: 'History',
   sync: 'Sync',
+  remote: 'Remote',
   statistics: 'Statistics',
   usage: 'Usage',
   performance: 'Performance',

@@ -9,7 +9,8 @@ import {
   MessageSquare,
   Radio,
   Sparkles,
-  Settings2
+  Settings2,
+  Smartphone
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { useT } from '@yachiyo/i18n/react'
@@ -46,6 +47,7 @@ import { SchedulePane } from './panes/SchedulePane'
 import { UsagePane } from './panes/UsagePane'
 import { LogsPane } from './panes/LogsPane'
 import { SyncPane } from './panes/SyncPane'
+import { RemotePane } from './panes/RemotePane'
 import { PythonEnvironmentPane } from './panes/PythonEnvironmentPane'
 import {
   hasPendingChannelGroupChanges,
@@ -86,6 +88,7 @@ const PANEL_ICONS: Record<SettingsPanelId, LucideIcon> = {
   channels: Radio,
   schedules: Clock,
   sync: Cloud,
+  remote: Smartphone,
   usage: BarChart3,
   about: Info
 }
@@ -877,6 +880,8 @@ function SettingsPanel({
       )
     } else if (activePanel === 'sync') {
       body = <SyncPane onConfigReload={reloadSettingsConfig} />
+    } else if (activePanel === 'remote') {
+      body = <RemotePane draft={draft} onChange={setDraft} />
     }
   }
 

@@ -109,7 +109,7 @@ import {
   type CommandSocketHandle
 } from '../cli/commandSocket.ts'
 import { shouldEnableCommandSocket } from './commandSocketMode.ts'
-import { createGatewayRemoteBinding } from '../remote/gatewayRemote.ts'
+import { createGatewayRemoteBinding, registerRemoteIpc } from '../remote/gatewayRemote.ts'
 import { createAppUpdateCommandHandler } from '../cli/appUpdateCommand.ts'
 import { createProviderFetch } from '../net/providerFetch.ts'
 import { openThreadWorkspace } from '../electron/openThreadWorkspace.ts'
@@ -1078,6 +1078,7 @@ export function registerYachiyoGateway(options: {
   handleYachiyoIpc(IPC_CHANNELS.getSettings, () => rpc().getSettings())
   registerPythonEnvironmentIpc(rpc)
   handleYachiyoIpc(IPC_CHANNELS.getSyncStatus, () => rpc().getSyncStatus())
+  registerRemoteIpc(remote)
   handleYachiyoIpc(IPC_CHANNELS.initSync, () => rpc().initSync())
   handleYachiyoIpc(IPC_CHANNELS.runSyncNow, () => rpc().runSyncNow())
   handleYachiyoIpc(IPC_CHANNELS.listSyncConflicts, () => rpc().listSyncConflicts())

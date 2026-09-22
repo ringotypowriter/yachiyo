@@ -349,6 +349,11 @@ const api = {
     listSyncConflicts: () => ipcRenderer.invoke('yachiyo:list-sync-conflicts'),
     resolveSyncConflict: (input: ResolveSyncConflictInput) =>
       ipcRenderer.invoke('yachiyo:resolve-sync-conflict', input),
+    getRemoteStatus: () => ipcRenderer.invoke('yachiyo:remote-status'),
+    createRemotePairing: () => ipcRenderer.invoke('yachiyo:remote-create-pairing'),
+    listRemotePairings: () => ipcRenderer.invoke('yachiyo:remote-list-pairings'),
+    revokeRemotePairing: (pairingId: string) =>
+      ipcRenderer.invoke('yachiyo:remote-revoke-pairing', { pairingId }),
     saveConfig: (input: SettingsConfig) => ipcRenderer.invoke('yachiyo:save-config', input),
     saveUserDocument: (input: { content: string }): Promise<UserDocument> =>
       ipcRenderer.invoke('yachiyo:save-user-document', input),
