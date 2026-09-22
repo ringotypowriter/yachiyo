@@ -1,0 +1,2428 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://yachiyo.ringo.sh/schemas/remote-protocol.json",
+  "title": "YachiyoRemoteProtocol",
+  "x-methods": {
+    "remote.hello": {
+      "input": "RemoteHelloInput",
+      "output": "RemoteHelloOutput"
+    },
+    "threads.list": {
+      "input": "RemoteThreadsListInput",
+      "output": "RemoteThreadsListOutput"
+    },
+    "threads.load": {
+      "input": "RemoteThreadsLoadInput",
+      "output": "RemoteThreadDetail"
+    },
+    "threads.create": {
+      "input": "RemoteThreadsCreateInput",
+      "output": "RemoteThreadsCreateOutput"
+    },
+    "threads.search": {
+      "input": "RemoteThreadsSearchInput",
+      "output": "RemoteThreadsSearchOutput"
+    },
+    "threads.star": {
+      "input": "RemoteThreadsStarInput",
+      "output": "RemoteOk"
+    },
+    "threads.archive": {
+      "input": "RemoteThreadsArchiveInput",
+      "output": "RemoteOk"
+    },
+    "workspaces.listRecent": {
+      "input": "RemoteWorkspacesListRecentInput",
+      "output": "RemoteWorkspacesListRecentOutput"
+    },
+    "models.listSelectable": {
+      "input": "RemoteModelsListSelectableInput",
+      "output": "RemoteModelsListSelectableOutput"
+    },
+    "chat.send": {
+      "input": "RemoteChatSendInput",
+      "output": "RemoteChatAccepted"
+    },
+    "chat.startThread": {
+      "input": "RemoteChatStartThreadInput",
+      "output": "RemoteChatStartThreadOutput"
+    },
+    "chat.retry": {
+      "input": "RemoteChatRetryInput",
+      "output": "RemoteChatRetryOutput"
+    },
+    "chat.edit": {
+      "input": "RemoteChatEditInput",
+      "output": "RemoteChatAccepted"
+    },
+    "chat.withdrawSteer": {
+      "input": "RemoteChatWithdrawSteerInput",
+      "output": "RemoteOk"
+    },
+    "chat.removeFollowUp": {
+      "input": "RemoteChatRemoveFollowUpInput",
+      "output": "RemoteOk"
+    },
+    "branch.select": {
+      "input": "RemoteBranchSelectInput",
+      "output": "RemoteOk"
+    },
+    "branch.create": {
+      "input": "RemoteBranchCreateInput",
+      "output": "RemoteBranchCreateOutput"
+    },
+    "run.cancel": {
+      "input": "RemoteRunCancelInput",
+      "output": "RemoteOk"
+    },
+    "run.answerToolQuestion": {
+      "input": "RemoteRunAnswerToolQuestionInput",
+      "output": "RemoteOk"
+    },
+    "plan.read": {
+      "input": "RemotePlanReadInput",
+      "output": "RemotePlanReadOutput"
+    },
+    "plan.accept": {
+      "input": "RemotePlanAcceptInput",
+      "output": "RemoteChatAccepted"
+    },
+    "attachments.begin": {
+      "input": "RemoteAttachmentsBeginInput",
+      "output": "RemoteAttachmentsBeginOutput"
+    },
+    "attachments.chunk": {
+      "input": "RemoteAttachmentsChunkInput",
+      "output": "RemoteAttachmentsChunkOutput"
+    },
+    "attachments.commit": {
+      "input": "RemoteAttachmentsCommitInput",
+      "output": "RemoteAttachmentsCommitOutput"
+    },
+    "images.get": {
+      "input": "RemoteImagesGetInput",
+      "output": "RemoteImagesGetOutput"
+    },
+    "essentials.list": {
+      "input": "RemoteEssentialsListInput",
+      "output": "RemoteEssentialsListOutput"
+    },
+    "appearance.get": {
+      "input": "RemoteAppearanceGetInput",
+      "output": "RemoteAppearance"
+    },
+    "tasks.list": {
+      "input": "RemoteTasksListInput",
+      "output": "RemoteTasksListOutput"
+    },
+    "events.subscribe": {
+      "input": "RemoteEventsSubscribeInput",
+      "output": "RemoteEventsSubscribeOutput"
+    }
+  },
+  "$defs": {
+    "RemoteActiveRunEnterBehavior": {
+      "type": "string",
+      "enum": [
+        "enter-steers",
+        "enter-queues-follow-up"
+      ]
+    },
+    "RemoteAppearance": {
+      "type": "object",
+      "properties": {
+        "themeId": {
+          "$ref": "#/$defs/RemoteThemeId"
+        },
+        "themeAppearance": {
+          "$ref": "#/$defs/RemoteThemeAppearance"
+        }
+      },
+      "required": [
+        "themeId",
+        "themeAppearance"
+      ],
+      "additionalProperties": false
+    },
+    "RemoteAppearanceGetInput": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    },
+    "RemoteAttachmentsBeginInput": {
+      "type": "object",
+      "properties": {
+        "filename": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255
+        },
+        "mediaType": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255
+        },
+        "size": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 26214400
+        }
+      },
+      "required": [
+        "filename",
+        "mediaType",
+        "size"
+      ],
+      "additionalProperties": false
+    },
+    "RemoteAttachmentsBeginOutput": {
+      "type": "object",
+      "properties": {
+        "uploadId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "chunkSize": {
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "uploadId",
+        "chunkSize"
+      ],
+      "additionalProperties": false
+    },
+    "RemoteAttachmentsChunkInput": {
+      "type": "object",
+      "properties": {
+        "uploadId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "index": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "data": {
+          "type": "string",
+          "maxLength": 699052,
+          "pattern": "^[A-Za-z0-9+/]*={0,2}$"
+        }
+      },
+      "required": [
+        "uploadId",
+        "index",
+        "data"
+      ],
+      "additionalProperties": false
+    },
+    "RemoteAttachmentsChunkOutput": {
+      "type": "object",
+      "properties": {
+        "received": {
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "received"
+      ],
+      "additionalProperties": false
+    },
+    "RemoteAttachmentsCommitInput": {
+      "type": "object",
+      "properties": {
+        "uploadId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      },
+      "required": [
+        "uploadId",
+        "sha256"
+      ],
+      "additionalProperties": false
+    },
+    "RemoteAttachmentsCommitOutput": {
+      "type": "object",
+      "properties": {
+        "attachmentId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "image",
+            "file"
+          ]
+        }
+      },
+      "required": [
+        "attachmentId",
+        "kind"
+      ],
+      "additionalProperties": false
+    },
+    "RemoteBranchCreateInput": {
+      "type": "object",
+      "properties": {
+        "threadId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "messageId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        }
+      },
+      "required": [
+        "threadId",
+        "messageId"
+      ],
+      "additionalProperties": false
+    },
+    "RemoteBranchCreateOutput": {
+      "type": "object",
+      "properties": {
+        "thread": {
+          "$ref": "#/$defs/RemoteThreadSummary"
+        }
+      },
+      "required": [
+        "thread"
+      ],
+      "additionalProperties": false
+    },
+    "RemoteBranchSelectInput": {
+      "type": "object",
+      "properties": {
+        "threadId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "assistantMessageId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        }
+      },
+      "required": [
+        "threadId",
+        "assistantMessageId"
+      ],
+      "additionalProperties": false
+    },
+    "RemoteChatAccepted": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "run-started",
+            "active-run-follow-up",
+            "active-run-steer-pending"
+          ]
+        },
+        "threadId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "runId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "userMessage": {
+          "$ref": "#/$defs/RemoteMessage"
+        }
+      },
+      "required": [
+        "kind",
+        "threadId",
+        "runId"
+      ],
+      "additionalProperties": false
+    },
+    "RemoteChatEditInput": {
+      "type": "object",
+      "properties": {
+        "threadId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "messageId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "content": {
+          "type": "string",
+          "maxLength": 200000
+        },
+        "attachmentIds": {
+          "maxItems": 14,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        }
+      },
+      "required": [
+        "threadId",
+        "messageId",
+        "content"
+      ],
+      "additionalProperties": false
+    },
+    "RemoteChatRemoveFollowUpInput": {
+      "type": "object",
+      "properties": {
+        "threadId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "messageId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        }
+      },
+      "required": [
+        "threadId",
+        "messageId"
+      ],
+      "additionalProperties": false
+    },
+    "RemoteChatRetryInput": {
+      "type": "object",
+      "properties": {
+        "threadId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "messageId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        }
+      },
+      "required": [
+        "threadId",
+        "messageId"
+      ],
+      "additionalProperties": false
+    },
+    "RemoteChatRetryOutput": {
+      "type": "object",
+      "properties": {
+        "threadId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "runId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        }
+      },
+      "required": [
+        "threadId",
+        "runId"
+      ],
+      "additionalProperties": false
+    },
+    "RemoteChatSendInput": {
+      "type": "object",
+      "properties": {
+        "threadId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "content": {
+          "type": "string",
+          "maxLength": 200000
+        },
+        "attachmentIds": {
+          "maxItems": 14,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        },
+        "mode": {
+          "type": "string",
+          "enum": [
+            "normal",
+            "steer",
+            "follow-up"
+          ]
+        },
+        "reasoningEffort": {
+          "$ref": "#/$defs/RemoteReasoningSelection"
+        }
+      },
+      "required": [
+        "threadId",
+        "content"
+      ],
+      "additionalProperties": false
+    },
+    "RemoteChatStartThreadInput": {
+      "type": "object",
+      "properties": {
+        "essentialId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "workspacePath": {
+          "type": "string",
+          "maxLength": 4096
+        },
+        "modelOverride": {
+          "$ref": "#/$defs/RemoteModelOverride"
+        },
+        "reasoningEffort": {
+          "$ref": "#/$defs/RemoteReasoningSelection"
+        },
+        "runMode": {
+          "$ref": "#/$defs/RemoteRunMode"
+        },
+        "privacyMode": {
+          "type": "boolean"
+        },
+        "content": {
+          "type": "string",
+          "maxLength": 200000
+        },
+        "attachmentIds": {
+          "maxItems": 14,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        }
+      },
+      "required": [
+        "content"
+      ],
+      "additionalProperties": false
+    },
+    "RemoteChatStartThreadOutput": {
+      "type": "object",
+      "properties": {
+        "thread": {
+          "$ref": "#/$defs/RemoteThreadSummary"
+        },
+        "accepted": {
+          "$ref": "#/$defs/RemoteChatAccepted"
+        }
+      },
+      "required": [
+        "thread",
+        "accepted"
+      ],
+      "additionalProperties": false
+    },
+    "RemoteChatWithdrawSteerInput": {
+      "type": "object",
+      "properties": {
+        "threadId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        }
+      },
+      "required": [
+        "threadId"
+      ],
+      "additionalProperties": false
+    },
+    "RemoteEndpoint": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "tunnel"
+            },
+            "url": {
+              "type": "string",
+              "maxLength": 2048,
+              "format": "uri"
+            }
+          },
+          "required": [
+            "kind",
+            "url"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "lan"
+            },
+            "url": {
+              "type": "string",
+              "maxLength": 2048,
+              "format": "uri"
+            }
+          },
+          "required": [
+            "kind",
+            "url"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "RemoteEssential": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "icon": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "workspacePath": {
+          "type": "string"
+        },
+        "workspaceName": {
+          "type": "string"
+        },
+        "privacyMode": {
+          "type": "boolean"
+        },
+        "modelOverride": {
+          "$ref": "#/$defs/RemoteModelOverride"
+        },
+        "order": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "id",
+        "privacyMode",
+        "order"
+      ],
+      "additionalProperties": false
+    },
+    "RemoteEssentialsListInput": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    },
+    "RemoteEssentialsListOutput": {
+      "type": "object",
+      "properties": {
+        "essentials": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/RemoteEssential"
+          }
+        }
+      },
+      "required": [
+        "essentials"
+      ],
+      "additionalProperties": false
+    },
+    "RemoteEvent": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "thread.summary"
+            },
+            "threadId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "summary": {
+              "$ref": "#/$defs/RemoteThreadSummary"
+            }
+          },
+          "required": [
+            "type",
+            "threadId",
+            "summary"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "thread.removed"
+            },
+            "threadId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "reason": {
+              "type": "string",
+              "enum": [
+                "archived",
+                "deleted"
+              ]
+            }
+          },
+          "required": [
+            "type",
+            "threadId",
+            "reason"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "run.status"
+            },
+            "threadId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "runId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "status": {
+              "$ref": "#/$defs/RemoteRunStatus"
+            },
+            "error": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "threadId",
+            "runId",
+            "status"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "appearance.changed"
+            },
+            "appearance": {
+              "$ref": "#/$defs/RemoteAppearance"
+            }
+          },
+          "required": [
+            "type",
+            "appearance"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "thread.invalidated"
+            },
+            "threadId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            }
+          },
+          "required": [
+            "type",
+            "threadId"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "message.started"
+            },
+            "threadId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "runId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "messageId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "parentMessageId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            }
+          },
+          "required": [
+            "type",
+            "threadId",
+            "runId",
+            "messageId"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "message.delta"
+            },
+            "threadId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "runId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "messageId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "delta": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "threadId",
+            "runId",
+            "messageId",
+            "delta"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "message.reasoning.delta"
+            },
+            "threadId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "runId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "messageId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "delta": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "threadId",
+            "runId",
+            "messageId",
+            "delta"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "message.completed"
+            },
+            "threadId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "runId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "message": {
+              "$ref": "#/$defs/RemoteMessage"
+            },
+            "queuedFollowUps": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/RemoteMessage"
+              }
+            }
+          },
+          "required": [
+            "type",
+            "threadId",
+            "runId",
+            "message"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "tool.updated"
+            },
+            "threadId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "runId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "toolCall": {
+              "$ref": "#/$defs/RemoteToolCall"
+            }
+          },
+          "required": [
+            "type",
+            "threadId",
+            "toolCall"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "todo.updated"
+            },
+            "threadId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "items": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/RemoteTodoItem"
+              }
+            }
+          },
+          "required": [
+            "type",
+            "threadId",
+            "items"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "run.retrying"
+            },
+            "threadId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "runId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "attempt": {
+              "type": "integer",
+              "minimum": -9007199254740991,
+              "maximum": 9007199254740991
+            },
+            "maxAttempts": {
+              "type": "integer",
+              "minimum": -9007199254740991,
+              "maximum": 9007199254740991
+            },
+            "error": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "threadId",
+            "runId",
+            "attempt",
+            "maxAttempts",
+            "error"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "tasks.changed"
+            },
+            "threadId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            }
+          },
+          "required": [
+            "type",
+            "threadId"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "RemoteEventsSubscribeInput": {
+      "type": "object",
+      "properties": {
+        "threadIds": {
+          "maxItems": 32,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        },
+        "resumeFrom": {
+          "type": "object",
+          "properties": {
+            "epoch": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            },
+            "seq": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            }
+          },
+          "required": [
+            "epoch",
+            "seq"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "threadIds"
+      ],
+      "additionalProperties": false
+    },
+    "RemoteEventsSubscribeOutput": {
+      "type": "object",
+      "properties": {
+        "epoch": {
+          "type": "string"
+        },
+        "headSeq": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "resumed": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "epoch",
+        "headSeq",
+        "resumed"
+      ],
+      "additionalProperties": false
+    },
+    "RemoteFileRef": {
+      "type": "object",
+      "properties": {
+        "filename": {
+          "type": "string"
+        },
+        "mediaType": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "filename",
+        "mediaType"
+      ],
+      "additionalProperties": false
+    },
+    "RemoteHandshakeClientPayload": {
+      "type": "object",
+      "properties": {
+        "deviceName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "app": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 50
+        }
+      },
+      "required": [
+        "deviceName",
+        "app",
+        "version"
+      ],
+      "additionalProperties": false
+    },
+    "RemoteHelloInput": {
+      "type": "object",
+      "properties": {
+        "protocolVersion": {
+          "type": "number",
+          "const": 1
+        },
+        "client": {
+          "type": "object",
+          "properties": {
+            "app": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            },
+            "version": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 50
+            }
+          },
+          "required": [
+            "app",
+            "version"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "protocolVersion",
+        "client"
+      ],
+      "additionalProperties": false
+    },
+    "RemoteHelloOutput": {
+      "type": "object",
+      "properties": {
+        "protocolVersion": {
+          "type": "number",
+          "const": 1
+        },
+        "remoteDeviceId": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{32}$"
+        },
+        "syncDeviceId": {
+          "type": "string"
+        },
+        "deviceName": {
+          "type": "string"
+        },
+        "appVersion": {
+          "type": "string"
+        },
+        "epoch": {
+          "type": "string",
+          "minLength": 1
+        },
+        "activeRunEnterBehavior": {
+          "$ref": "#/$defs/RemoteActiveRunEnterBehavior"
+        }
+      },
+      "required": [
+        "protocolVersion",
+        "remoteDeviceId",
+        "deviceName",
+        "appVersion",
+        "epoch",
+        "activeRunEnterBehavior"
+      ],
+      "additionalProperties": false
+    },
+    "RemoteImageRef": {
+      "type": "object",
+      "properties": {
+        "imageId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "mediaType": {
+          "type": "string"
+        },
+        "filename": {
+          "type": "string"
+        },
+        "altText": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "imageId",
+        "mediaType"
+      ],
+      "additionalProperties": false
+    },
+    "RemoteImagesGetInput": {
+      "type": "object",
+      "properties": {
+        "threadId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "messageId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "imageId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        }
+      },
+      "required": [
+        "threadId",
+        "messageId",
+        "imageId"
+      ],
+      "additionalProperties": false
+    },
+    "RemoteImagesGetOutput": {
+      "type": "object",
+      "properties": {
+        "mediaType": {
+          "type": "string"
+        },
+        "data": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "mediaType",
+        "data"
+      ],
+      "additionalProperties": false
+    },
+    "RemoteMailboxPlaintext": {
+      "type": "object",
+      "properties": {
+        "remoteDeviceId": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{32}$"
+        },
+        "endpoints": {
+          "minItems": 1,
+          "maxItems": 8,
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/RemoteEndpoint"
+          }
+        },
+        "counter": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "issuedAt": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+        }
+      },
+      "required": [
+        "remoteDeviceId",
+        "endpoints",
+        "counter",
+        "issuedAt"
+      ],
+      "additionalProperties": false
+    },
+    "RemoteMessage": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "parentMessageId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "role": {
+          "type": "string",
+          "enum": [
+            "user",
+            "assistant"
+          ]
+        },
+        "content": {
+          "type": "string"
+        },
+        "reasoning": {
+          "type": "string"
+        },
+        "images": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/RemoteImageRef"
+          }
+        },
+        "attachments": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/RemoteFileRef"
+          }
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "completed",
+            "streaming",
+            "failed",
+            "stopped"
+          ]
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+        },
+        "modelId": {
+          "type": "string"
+        },
+        "providerName": {
+          "type": "string"
+        },
+        "siblingCount": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "siblingIndex": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "isPlanDocument": {
+          "type": "boolean"
+        },
+        "requestKind": {
+          "type": "string",
+          "enum": [
+            "steer",
+            "follow-up"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "role",
+        "content",
+        "images",
+        "attachments",
+        "status",
+        "createdAt",
+        "isPlanDocument"
+      ],
+      "additionalProperties": false
+    },
+    "RemoteModelOverride": {
+      "type": "object",
+      "properties": {
+        "providerName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "model": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        }
+      },
+      "required": [
+        "providerName",
+        "model"
+      ],
+      "additionalProperties": false
+    },
+    "RemoteModelsListSelectableInput": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    },
+    "RemoteModelsListSelectableOutput": {
+      "type": "object",
+      "properties": {
+        "models": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/RemoteSelectableModel"
+          }
+        }
+      },
+      "required": [
+        "models"
+      ],
+      "additionalProperties": false
+    },
+    "RemoteOk": {
+      "type": "object",
+      "properties": {
+        "ok": {
+          "type": "boolean",
+          "const": true
+        }
+      },
+      "required": [
+        "ok"
+      ],
+      "additionalProperties": false
+    },
+    "RemotePairingGrant": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "pairing.granted"
+        },
+        "pairingId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "mailboxSecret": {
+          "type": "string",
+          "minLength": 43,
+          "maxLength": 43,
+          "pattern": "^[A-Za-z0-9_-]*$"
+        }
+      },
+      "required": [
+        "type",
+        "pairingId",
+        "mailboxSecret"
+      ],
+      "additionalProperties": false
+    },
+    "RemotePairingPayload": {
+      "type": "object",
+      "properties": {
+        "v": {
+          "type": "number",
+          "const": 1
+        },
+        "remoteDeviceId": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{32}$"
+        },
+        "deviceName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "desktopKey": {
+          "type": "string",
+          "minLength": 43,
+          "maxLength": 43,
+          "pattern": "^[A-Za-z0-9_-]*$"
+        },
+        "token": {
+          "type": "string",
+          "minLength": 43,
+          "maxLength": 43,
+          "pattern": "^[A-Za-z0-9_-]*$"
+        },
+        "endpoints": {
+          "minItems": 1,
+          "maxItems": 8,
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/RemoteEndpoint"
+          }
+        },
+        "expiresAt": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+        }
+      },
+      "required": [
+        "v",
+        "remoteDeviceId",
+        "deviceName",
+        "desktopKey",
+        "token",
+        "endpoints",
+        "expiresAt"
+      ],
+      "additionalProperties": false
+    },
+    "RemotePlanAcceptInput": {
+      "type": "object",
+      "properties": {
+        "threadId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "mode": {
+          "type": "string",
+          "enum": [
+            "direct",
+            "handoff"
+          ]
+        }
+      },
+      "required": [
+        "threadId"
+      ],
+      "additionalProperties": false
+    },
+    "RemotePlanReadInput": {
+      "type": "object",
+      "properties": {
+        "threadId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        }
+      },
+      "required": [
+        "threadId"
+      ],
+      "additionalProperties": false
+    },
+    "RemotePlanReadOutput": {
+      "type": "object",
+      "properties": {
+        "content": {
+          "type": "string"
+        },
+        "decision": {
+          "type": "string",
+          "enum": [
+            "pending",
+            "rejected",
+            "accepted"
+          ]
+        }
+      },
+      "required": [
+        "content"
+      ],
+      "additionalProperties": false
+    },
+    "RemotePush": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "event"
+            },
+            "epoch": {
+              "type": "string",
+              "minLength": 1
+            },
+            "seq": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9007199254740991
+            },
+            "timestamp": {
+              "type": "string",
+              "format": "date-time",
+              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+            },
+            "event": {
+              "$ref": "#/$defs/RemoteEvent"
+            }
+          },
+          "required": [
+            "type",
+            "epoch",
+            "seq",
+            "timestamp",
+            "event"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "resync"
+            },
+            "epoch": {
+              "type": "string",
+              "minLength": 1
+            },
+            "seq": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "reason": {
+              "type": "string",
+              "enum": [
+                "epoch-changed",
+                "out-of-buffer",
+                "overflow"
+              ]
+            }
+          },
+          "required": [
+            "type",
+            "epoch",
+            "seq",
+            "reason"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "RemoteReasoningSelection": {
+      "type": "string",
+      "enum": [
+        "off",
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ]
+    },
+    "RemoteRunAnswerToolQuestionInput": {
+      "type": "object",
+      "properties": {
+        "threadId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "runId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "toolCallId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "answer": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 20000
+        }
+      },
+      "required": [
+        "threadId",
+        "runId",
+        "toolCallId",
+        "answer"
+      ],
+      "additionalProperties": false
+    },
+    "RemoteRunCancelInput": {
+      "type": "object",
+      "properties": {
+        "runId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        }
+      },
+      "required": [
+        "runId"
+      ],
+      "additionalProperties": false
+    },
+    "RemoteRunMode": {
+      "type": "string",
+      "enum": [
+        "auto",
+        "explore",
+        "plan",
+        "chat"
+      ]
+    },
+    "RemoteRunStatus": {
+      "type": "string",
+      "enum": [
+        "running",
+        "completed",
+        "failed",
+        "cancelled"
+      ]
+    },
+    "RemoteSearchResult": {
+      "type": "object",
+      "properties": {
+        "threadId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "threadTitle": {
+          "type": "string"
+        },
+        "threadUpdatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+        },
+        "titleMatched": {
+          "type": "boolean"
+        },
+        "messageMatches": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "messageId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              },
+              "snippet": {
+                "type": "string"
+              },
+              "role": {
+                "type": "string",
+                "enum": [
+                  "user",
+                  "assistant"
+                ]
+              },
+              "createdAt": {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+              }
+            },
+            "required": [
+              "messageId",
+              "snippet"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": [
+        "threadId",
+        "threadTitle",
+        "threadUpdatedAt",
+        "titleMatched",
+        "messageMatches"
+      ],
+      "additionalProperties": false
+    },
+    "RemoteSelectableModel": {
+      "type": "object",
+      "properties": {
+        "providerName": {
+          "type": "string"
+        },
+        "model": {
+          "type": "string"
+        },
+        "isDefault": {
+          "type": "boolean"
+        },
+        "imageCapable": {
+          "type": "boolean"
+        },
+        "reasoningEfforts": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/RemoteReasoningSelection"
+          }
+        },
+        "defaultReasoningEffort": {
+          "$ref": "#/$defs/RemoteReasoningSelection"
+        }
+      },
+      "required": [
+        "providerName",
+        "model",
+        "isDefault",
+        "imageCapable",
+        "reasoningEfforts"
+      ],
+      "additionalProperties": false
+    },
+    "RemoteTask": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "subagent",
+            "background"
+          ]
+        },
+        "title": {
+          "type": "string"
+        },
+        "state": {
+          "type": "string"
+        },
+        "startedAt": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+        },
+        "progress": {
+          "type": "string",
+          "maxLength": 4096
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "title",
+        "state",
+        "startedAt"
+      ],
+      "additionalProperties": false
+    },
+    "RemoteTasksListInput": {
+      "type": "object",
+      "properties": {
+        "threadId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        }
+      },
+      "required": [
+        "threadId"
+      ],
+      "additionalProperties": false
+    },
+    "RemoteTasksListOutput": {
+      "type": "object",
+      "properties": {
+        "tasks": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/RemoteTask"
+          }
+        }
+      },
+      "required": [
+        "tasks"
+      ],
+      "additionalProperties": false
+    },
+    "RemoteThemeAppearance": {
+      "type": "string",
+      "enum": [
+        "system",
+        "light",
+        "dark"
+      ]
+    },
+    "RemoteThemeId": {
+      "type": "string",
+      "enum": [
+        "mizu",
+        "sumi",
+        "ume",
+        "aoba",
+        "mint",
+        "fuji",
+        "yamabuki",
+        "gobyou",
+        "murasaki"
+      ]
+    },
+    "RemoteThreadCapabilities": {
+      "type": "object",
+      "properties": {
+        "canRetry": {
+          "type": "boolean"
+        },
+        "canCreateBranch": {
+          "type": "boolean"
+        },
+        "canSelectReplyBranch": {
+          "type": "boolean"
+        },
+        "canEdit": {
+          "type": "boolean"
+        },
+        "canSend": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "canRetry",
+        "canCreateBranch",
+        "canSelectReplyBranch",
+        "canEdit",
+        "canSend"
+      ],
+      "additionalProperties": false
+    },
+    "RemoteThreadDetail": {
+      "type": "object",
+      "properties": {
+        "thread": {
+          "$ref": "#/$defs/RemoteThreadSummary"
+        },
+        "messages": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/RemoteMessage"
+          }
+        },
+        "hasMoreBefore": {
+          "type": "boolean"
+        },
+        "toolCalls": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/RemoteToolCall"
+          }
+        },
+        "queuedFollowUps": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/RemoteMessage"
+          }
+        },
+        "activeRunId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "activeRunMode": {
+          "$ref": "#/$defs/RemoteRunMode"
+        },
+        "pendingPlan": {
+          "type": "boolean"
+        },
+        "todoItems": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/RemoteTodoItem"
+          }
+        }
+      },
+      "required": [
+        "thread",
+        "messages",
+        "hasMoreBefore",
+        "toolCalls",
+        "queuedFollowUps",
+        "pendingPlan",
+        "todoItems"
+      ],
+      "additionalProperties": false
+    },
+    "RemoteThreadSummary": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "title": {
+          "type": "string"
+        },
+        "icon": {
+          "type": "string"
+        },
+        "colorTag": {
+          "type": "string",
+          "enum": [
+            "coral",
+            "azure",
+            "emerald",
+            "amethyst",
+            "slate"
+          ]
+        },
+        "starred": {
+          "type": "boolean"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+        },
+        "workspaceName": {
+          "type": "string"
+        },
+        "workspacePath": {
+          "type": "string"
+        },
+        "latestRun": {
+          "type": "object",
+          "properties": {
+            "runId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "status": {
+              "$ref": "#/$defs/RemoteRunStatus"
+            },
+            "startedAt": {
+              "type": "string",
+              "format": "date-time",
+              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+            }
+          },
+          "required": [
+            "runId",
+            "status",
+            "startedAt"
+          ],
+          "additionalProperties": false
+        },
+        "needsAttention": {
+          "type": "boolean"
+        },
+        "preview": {
+          "type": "string",
+          "maxLength": 200
+        },
+        "capabilities": {
+          "$ref": "#/$defs/RemoteThreadCapabilities"
+        },
+        "syncOriginDeviceId": {
+          "type": "string"
+        },
+        "privacyMode": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "id",
+        "title",
+        "starred",
+        "updatedAt",
+        "needsAttention",
+        "capabilities"
+      ],
+      "additionalProperties": false
+    },
+    "RemoteThreadsArchiveInput": {
+      "type": "object",
+      "properties": {
+        "threadId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        }
+      },
+      "required": [
+        "threadId"
+      ],
+      "additionalProperties": false
+    },
+    "RemoteThreadsCreateInput": {
+      "type": "object",
+      "properties": {
+        "workspacePath": {
+          "type": "string",
+          "maxLength": 4096
+        },
+        "modelOverride": {
+          "$ref": "#/$defs/RemoteModelOverride"
+        },
+        "reasoningEffort": {
+          "$ref": "#/$defs/RemoteReasoningSelection"
+        }
+      },
+      "additionalProperties": false
+    },
+    "RemoteThreadsCreateOutput": {
+      "type": "object",
+      "properties": {
+        "thread": {
+          "$ref": "#/$defs/RemoteThreadSummary"
+        }
+      },
+      "required": [
+        "thread"
+      ],
+      "additionalProperties": false
+    },
+    "RemoteThreadsListInput": {
+      "type": "object",
+      "properties": {
+        "cursor": {
+          "type": "string",
+          "maxLength": 200
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 200
+        }
+      },
+      "additionalProperties": false
+    },
+    "RemoteThreadsListOutput": {
+      "type": "object",
+      "properties": {
+        "threads": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/RemoteThreadSummary"
+          }
+        },
+        "nextCursor": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "threads"
+      ],
+      "additionalProperties": false
+    },
+    "RemoteThreadsLoadInput": {
+      "type": "object",
+      "properties": {
+        "threadId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 200
+        },
+        "beforeMessageId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        }
+      },
+      "required": [
+        "threadId"
+      ],
+      "additionalProperties": false
+    },
+    "RemoteThreadsSearchInput": {
+      "type": "object",
+      "properties": {
+        "query": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
+        },
+        "scope": {
+          "type": "string",
+          "enum": [
+            "active",
+            "archived"
+          ]
+        }
+      },
+      "required": [
+        "query"
+      ],
+      "additionalProperties": false
+    },
+    "RemoteThreadsSearchOutput": {
+      "type": "object",
+      "properties": {
+        "results": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/RemoteSearchResult"
+          }
+        }
+      },
+      "required": [
+        "results"
+      ],
+      "additionalProperties": false
+    },
+    "RemoteThreadsStarInput": {
+      "type": "object",
+      "properties": {
+        "threadId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "starred": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "threadId",
+        "starred"
+      ],
+      "additionalProperties": false
+    },
+    "RemoteTodoItem": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "content": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "pending",
+            "in_progress",
+            "completed"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "content",
+        "status"
+      ],
+      "additionalProperties": false
+    },
+    "RemoteToolCall": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "runId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "requestMessageId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "assistantMessageId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "toolName": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "preparing",
+            "running",
+            "completed",
+            "failed",
+            "waiting-for-user",
+            "background"
+          ]
+        },
+        "title": {
+          "type": "string"
+        },
+        "inputPreview": {
+          "type": "string",
+          "maxLength": 4096
+        },
+        "outputPreview": {
+          "type": "string",
+          "maxLength": 4096
+        },
+        "truncated": {
+          "type": "boolean"
+        },
+        "error": {
+          "type": "string"
+        },
+        "question": {
+          "$ref": "#/$defs/RemoteToolQuestion"
+        },
+        "startedAt": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+        },
+        "finishedAt": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+        }
+      },
+      "required": [
+        "id",
+        "toolName",
+        "status",
+        "title",
+        "truncated",
+        "startedAt"
+      ],
+      "additionalProperties": false
+    },
+    "RemoteToolQuestion": {
+      "type": "object",
+      "properties": {
+        "question": {
+          "type": "string"
+        },
+        "choices": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "answer": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "question"
+      ],
+      "additionalProperties": false
+    },
+    "RemoteWorkspace": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "lastUsedAt": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+        }
+      },
+      "required": [
+        "path",
+        "name",
+        "lastUsedAt"
+      ],
+      "additionalProperties": false
+    },
+    "RemoteWorkspacesListRecentInput": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    },
+    "RemoteWorkspacesListRecentOutput": {
+      "type": "object",
+      "properties": {
+        "workspaces": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/RemoteWorkspace"
+          }
+        }
+      },
+      "required": [
+        "workspaces"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

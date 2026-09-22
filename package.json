@@ -40,6 +40,8 @@
     "process-host:build": "pnpm --filter @yachiyo/desktop process-host:build",
     "skills:sync": "node scripts/sync-upstream-skill.mjs",
     "skills:check": "node scripts/sync-upstream-skill.mjs --check",
+    "remote:codegen": "node --experimental-strip-types scripts/remote-codegen.mjs",
+    "remote:codegen:check": "node --experimental-strip-types scripts/remote-codegen.mjs --check",
     "typecheck": "pnpm -r --if-present typecheck",
     "typecheck:tests": "pnpm -r --if-present typecheck:tests",
     "test:renderer": "tsx --tsconfig apps/desktop/tsconfig.web.tests.json --test --test-concurrency=1 \"apps/desktop/src/renderer/**/*.test.{ts,tsx}\"",

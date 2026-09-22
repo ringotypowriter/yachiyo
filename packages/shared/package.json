@@ -10,5 +10,8 @@
     "typecheck": "tsc --noEmit -p tsconfig.json --composite false",
     "typecheck:tests": "tsc --noEmit -p tsconfig.tests.json --composite false",
     "test": "pnpm run typecheck:tests && node ../../scripts/run-server-tests.mjs packages/shared/src"
+  },
+  "dependencies": {
+    "zod": "^4.3.6"
   }
 }
