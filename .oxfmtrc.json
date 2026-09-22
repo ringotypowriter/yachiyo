@@ -17,6 +17,7 @@
     "target",
     "packages/runtime/src/services/processBroker/processHostProtocol.generated.ts",
     "packages/shared/src/remote/generated",
-    "packages/shared/src/remote/fixtures"
+    "packages/shared/src/remote/fixtures",
+    "apps/ios"
   ]
 }

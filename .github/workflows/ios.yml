@@ -1,0 +1,68 @@
+name: iOS
+
+# Runs only for changes that can affect the iOS client: the app itself, the protocol and
+# theme sources it is generated from, and the generators.
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'apps/ios/**'
+      - 'packages/shared/src/remote/**'
+      - 'packages/shared/src/theme/**'
+      - 'scripts/ios-*.mjs'
+      - 'scripts/remote-codegen.mjs'
+      - '.github/workflows/ios.yml'
+
+jobs:
+  ios:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select the newest Xcode 26 or later
+        run: |
+          ls -d /Applications/Xcode*.app
+          XCODE=$(ls -d /Applications/Xcode_2[6-9]*.app /Applications/Xcode_[3-9][0-9]*.app 2>/dev/null | sort -V | tail -1)
+          if [ -z "$XCODE" ]; then echo "No Xcode 26+ on this runner"; exit 1; fi
+          sudo xcode-select -s "$XCODE"
+          xcodebuild -version
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+
+      - uses: pnpm/action-setup@v4
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generated files are current
+        run: |
+          pnpm run remote:codegen:check
+          pnpm run ios:codegen --check
+          pnpm run ios:theme --check
+          pnpm run ios:icons --check
+
+      - name: Liquid Glass availability checks stay in YachiyoMaterial
+        run: pnpm run ios:check
+
+      - name: Generate the Xcode project
+        working-directory: apps/ios
+        run: xcodegen generate
+
+      - name: YachiyoRemoteKit tests
+        working-directory: apps/ios/YachiyoRemoteKit
+        run: swift test
+
+      - name: Build for iOS Simulator (deployment target iOS 17)
+        working-directory: apps/ios
+        run: |
+          xcodebuild build \
+            -project YachiyoRemote.xcodeproj \
+            -scheme YachiyoRemote \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath build/DerivedData \
+            CODE_SIGNING_ALLOWED=NO

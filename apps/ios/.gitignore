@@ -1,0 +1,8 @@
+YachiyoRemote.xcodeproj/
+YachiyoRemote/Info.plist
+Artifacts/
+*/.build/
+*/.swiftpm/
+*/Package.resolved
+DerivedData/
+build/
