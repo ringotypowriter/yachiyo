@@ -189,6 +189,11 @@ export class PairingStore {
     return next
   }
 
+  /** Resolves once every queued write has settled; call before removing the directory. */
+  async flush(): Promise<void> {
+    await this.writeQueue.catch(() => undefined)
+  }
+
   private async load(): Promise<StoredPairing[]> {
     if (this.pairings) return this.pairings
     const raw = await readFile(join(this.directory, 'pairings.json'), 'utf8').catch(

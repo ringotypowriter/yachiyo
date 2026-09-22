@@ -295,7 +295,11 @@ export class RemoteConnection {
         )
         .catch((error: unknown) => this.deps.log(`[remote] reply failed: ${String(error)}`))
     })
-    void this.deps.store.touch(pairing.pairingId)
+    this.deps.store
+      .touch(pairing.pairingId)
+      .catch((error: unknown) =>
+        this.deps.log(`[remote] could not record last seen: ${String(error)}`)
+      )
     this.deps.onReady(this)
   }
 }

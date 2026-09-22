@@ -145,6 +145,7 @@ export class RemoteService {
     await this.attachments?.dispose()
     this.attachments = null
     this.facade = null
+    await this.store.flush()
   }
 
   status(): RemoteServiceStatus | null {
