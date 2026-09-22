@@ -2,10 +2,14 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 
 import { textContent } from '../../../tools/agentTools/shared.ts'
-import { appendRecoveryToolResult, buildRecoveryResponseMessages } from './runRecovery.ts'
+import {
+  appendRecoveryToolResult,
+  buildRecoveryResponseMessages,
+  type RecoveryResponseMessage
+} from './runRecovery.ts'
 
 test('appendRecoveryToolResult stores text-only content as plain text model output', () => {
-  const responseMessages = []
+  const responseMessages: RecoveryResponseMessage[] = []
 
   appendRecoveryToolResult(responseMessages, {
     toolCallId: 'tc-grep',

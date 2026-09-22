@@ -141,7 +141,7 @@ test('createAiSdkModelRuntime disables OpenAI reasoning when provider thinking i
   })
 })
 
-test('createAiSdkModelRuntime forwards reasoning deltas from fullStream reasoning events', async () => {
+test('createAiSdkModelRuntime forwards reasoning deltas from full-stream reasoning events', async () => {
   const reasoningDeltas: string[] = []
 
   const runtime = createAiSdkModelRuntime({
@@ -153,7 +153,7 @@ test('createAiSdkModelRuntime forwards reasoning deltas from fullStream reasonin
       throw new Error('Anthropic should not be used in this test.')
     },
     streamTextImpl: (() => ({
-      fullStream: (async function* () {
+      stream: (async function* () {
         yield { type: 'reasoning-start', id: 'reasoning-1' }
         yield { type: 'reasoning-delta', id: 'reasoning-1', delta: 'first ' }
         yield { type: 'reasoning-delta', id: 'reasoning-1', delta: 'second' }
@@ -186,7 +186,7 @@ test('createAiSdkModelRuntime forwards reasoning deltas from fullStream reasonin
   assert.deepEqual(chunks, ['answer'])
 })
 
-test('createAiSdkModelRuntime surfaces nested fullStream error messages', async () => {
+test('createAiSdkModelRuntime surfaces nested stream error messages', async () => {
   const runtime = createAiSdkModelRuntime({
     createOpenAIProvider: () =>
       ({
@@ -196,7 +196,7 @@ test('createAiSdkModelRuntime surfaces nested fullStream error messages', async 
       throw new Error('Anthropic should not be used in this test.')
     },
     streamTextImpl: (() => ({
-      fullStream: (async function* () {
+      stream: (async function* () {
         yield {
           type: 'error',
           error: {
@@ -251,7 +251,7 @@ test('createAiSdkModelRuntime retries context-window errors with stripped contex
       calls.push(input.messages)
       if (calls.length === 1) {
         return {
-          fullStream: (async function* () {
+          stream: (async function* () {
             yield {
               type: 'error',
               error: {
@@ -266,7 +266,7 @@ test('createAiSdkModelRuntime retries context-window errors with stripped contex
       }
 
       return {
-        fullStream: (async function* () {
+        stream: (async function* () {
           yield { type: 'text-delta', id: 'text-1', text: 'ok' }
         })()
       }
@@ -357,7 +357,7 @@ test('createAiSdkModelRuntime does not retry context-window errors when compacti
     streamTextImpl: (() => {
       callCount++
       return {
-        fullStream: (async function* () {
+        stream: (async function* () {
           yield {
             type: 'error',
             error: {
@@ -392,7 +392,7 @@ test('createAiSdkModelRuntime does not retry context-window errors when compacti
   assert.equal(callCount, 1)
 })
 
-test('createAiSdkModelRuntime reports cache reads from totalUsage instead of final-step usage', async () => {
+test('createAiSdkModelRuntime reports cache reads from aggregated usage instead of final-step usage', async () => {
   let finishedUsage:
     | {
         promptTokens: number
@@ -412,21 +412,23 @@ test('createAiSdkModelRuntime reports cache reads from totalUsage instead of fin
       throw new Error('Anthropic should not be used in this test.')
     },
     streamTextImpl: (() => ({
-      fullStream: (async function* () {
+      stream: (async function* () {
         yield { type: 'text-delta', id: 'text-1', text: 'answer' }
       })(),
       usage: Promise.resolve({
-        inputTokens: 200,
-        outputTokens: 50,
-        inputTokenDetails: {
-          cacheReadTokens: 0
-        }
-      }),
-      totalUsage: Promise.resolve({
         inputTokens: 1200,
         outputTokens: 150,
         inputTokenDetails: {
           cacheReadTokens: 600
+        }
+      }),
+      finalStep: Promise.resolve({
+        usage: {
+          inputTokens: 200,
+          outputTokens: 50,
+          inputTokenDetails: {
+            cacheReadTokens: 0
+          }
         }
       }),
       finishReason: Promise.resolve('stop')
@@ -474,7 +476,7 @@ test('createAiSdkModelRuntime logs derived step continuation and cache details p
       throw new Error('Anthropic should not be used in this test.')
     },
     streamTextImpl: (() => ({
-      fullStream: (async function* () {
+      stream: (async function* () {
         yield { type: 'start-step' }
         yield {
           type: 'finish-step',
@@ -515,18 +517,20 @@ test('createAiSdkModelRuntime logs derived step continuation and cache details p
         }
       })(),
       usage: Promise.resolve({
-        inputTokens: 120,
-        outputTokens: 20,
-        inputTokenDetails: {
-          cacheReadTokens: 80
-        }
-      }),
-      totalUsage: Promise.resolve({
         inputTokens: 220,
         outputTokens: 30,
         inputTokenDetails: {
           cacheReadTokens: 144,
           cacheWriteTokens: 8
+        }
+      }),
+      finalStep: Promise.resolve({
+        usage: {
+          inputTokens: 120,
+          outputTokens: 20,
+          inputTokenDetails: {
+            cacheReadTokens: 80
+          }
         }
       }),
       finishReason: Promise.resolve('stop')
@@ -606,7 +610,7 @@ test('createAiSdkModelRuntime logs request prefix diagnostics per step', async (
       throw new Error('Anthropic should not be used in this test.')
     },
     streamTextImpl: (() => ({
-      fullStream: (async function* () {
+      stream: (async function* () {
         yield { type: 'start-step', request: { body: firstBody } }
         yield {
           type: 'finish-step',
@@ -634,14 +638,16 @@ test('createAiSdkModelRuntime logs request prefix diagnostics per step', async (
         }
       })(),
       usage: Promise.resolve({
-        inputTokens: 140,
-        outputTokens: 20,
-        inputTokenDetails: { cacheReadTokens: 80 }
-      }),
-      totalUsage: Promise.resolve({
         inputTokens: 240,
         outputTokens: 30,
         inputTokenDetails: { cacheReadTokens: 80 }
+      }),
+      finalStep: Promise.resolve({
+        usage: {
+          inputTokens: 140,
+          outputTokens: 20,
+          inputTokenDetails: { cacheReadTokens: 80 }
+        }
       }),
       finishReason: Promise.resolve('stop')
     })) as never

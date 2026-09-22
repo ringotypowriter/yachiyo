@@ -486,13 +486,6 @@ test('YachiyoServer does not fire a deferred steer point while a later chained t
             attempt += 1
 
             request.onToolCallStart?.({
-              abortSignal: request.signal,
-              experimental_context: undefined,
-              functionId: undefined,
-              messages: request.messages,
-              metadata: undefined,
-              model: undefined,
-              stepNumber: 0,
               toolCall: {
                 input: { command: 'pwd' },
                 toolCallId: 'tool-bash-1',
@@ -507,14 +500,6 @@ test('YachiyoServer does not fire a deferred steer point while a later chained t
             })
 
             request.onToolCallFinish?.({
-              abortSignal: request.signal,
-              durationMs: 3,
-              experimental_context: undefined,
-              functionId: undefined,
-              messages: request.messages,
-              metadata: undefined,
-              model: undefined,
-              stepNumber: 0,
               success: true,
               output: {
                 content: [{ type: 'text', text: '/tmp/workspace\n' }],
@@ -538,13 +523,6 @@ test('YachiyoServer does not fire a deferred steer point while a later chained t
             } as never)
 
             request.onToolCallStart?.({
-              abortSignal: request.signal,
-              experimental_context: undefined,
-              functionId: undefined,
-              messages: request.messages,
-              metadata: undefined,
-              model: undefined,
-              stepNumber: 1,
               toolCall: {
                 input: { command: 'ls' },
                 toolCallId: 'tool-bash-2',
@@ -559,14 +537,6 @@ test('YachiyoServer does not fire a deferred steer point while a later chained t
             })
 
             request.onToolCallFinish?.({
-              abortSignal: request.signal,
-              durationMs: 3,
-              experimental_context: undefined,
-              functionId: undefined,
-              messages: request.messages,
-              metadata: undefined,
-              model: undefined,
-              stepNumber: 1,
               success: true,
               output: {
                 content: [{ type: 'text', text: 'file.txt\n' }],

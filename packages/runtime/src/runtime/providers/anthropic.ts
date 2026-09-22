@@ -1,8 +1,8 @@
 import type {
-  LanguageModelV3,
-  LanguageModelV3CallOptions,
-  LanguageModelV3Message,
-  LanguageModelV3ReasoningPart
+  LanguageModelV4,
+  LanguageModelV4CallOptions,
+  LanguageModelV4Message,
+  LanguageModelV4ReasoningPart
 } from '@ai-sdk/provider'
 import type { LanguageModel } from 'ai'
 
@@ -57,7 +57,7 @@ function hasOtherProviderOptions(part: { providerOptions?: unknown }): boolean {
   )
 }
 
-function isReplayableUnsignedReasoningPart(part: unknown): part is LanguageModelV3ReasoningPart {
+function isReplayableUnsignedReasoningPart(part: unknown): part is LanguageModelV4ReasoningPart {
   if (!isRecord(part) || part['type'] !== 'reasoning' || typeof part['text'] !== 'string') {
     return false
   }
@@ -75,7 +75,7 @@ function consumesAnthropicBodyPart(part: unknown): boolean {
   return anthropicOptions['signature'] != null || anthropicOptions['redactedData'] != null
 }
 
-function toThinkingBlock(part: LanguageModelV3ReasoningPart): AnthropicThinkingBlock {
+function toThinkingBlock(part: LanguageModelV4ReasoningPart): AnthropicThinkingBlock {
   return {
     type: 'thinking',
     thinking: part.text
@@ -83,7 +83,7 @@ function toThinkingBlock(part: LanguageModelV3ReasoningPart): AnthropicThinkingB
 }
 
 function injectThinkingBlocksIntoAssistantContent(
-  promptContent: LanguageModelV3Message['content'],
+  promptContent: LanguageModelV4Message['content'],
   bodyContent: unknown
 ): unknown {
   if (!Array.isArray(promptContent) || !Array.isArray(bodyContent)) return bodyContent
@@ -121,7 +121,7 @@ export function shouldReplayUnsignedAnthropicThinking(baseUrl: string): boolean 
 
 export function injectUnsignedThinkingIntoAnthropicBody(
   bodyText: string,
-  prompt: LanguageModelV3CallOptions['prompt']
+  prompt: LanguageModelV4CallOptions['prompt']
 ): string {
   const parsed = JSON.parse(bodyText) as { messages?: AnthropicRequestMessage[] }
   if (!Array.isArray(parsed.messages)) return bodyText
@@ -150,7 +150,7 @@ export function injectUnsignedThinkingIntoAnthropicBody(
 
 function createUnsignedThinkingReplayFetch(
   fetchImpl: typeof globalThis.fetch,
-  getPrompt: () => LanguageModelV3CallOptions['prompt'] | undefined
+  getPrompt: () => LanguageModelV4CallOptions['prompt'] | undefined
 ): typeof globalThis.fetch {
   return async (input, init) => {
     const prompt = getPrompt()
@@ -165,8 +165,8 @@ function createUnsignedThinkingReplayFetch(
 }
 
 function withPrompt<T>(
-  promptStack: LanguageModelV3CallOptions['prompt'][],
-  prompt: LanguageModelV3CallOptions['prompt'],
+  promptStack: LanguageModelV4CallOptions['prompt'][],
+  prompt: LanguageModelV4CallOptions['prompt'],
   run: () => PromiseLike<T>
 ): PromiseLike<T> {
   promptStack.push(prompt)
@@ -176,9 +176,9 @@ function withPrompt<T>(
 }
 
 function wrapUnsignedThinkingReplayModel(
-  model: LanguageModelV3,
-  promptStack: LanguageModelV3CallOptions['prompt'][]
-): LanguageModelV3 {
+  model: LanguageModelV4,
+  promptStack: LanguageModelV4CallOptions['prompt'][]
+): LanguageModelV4 {
   return {
     specificationVersion: model.specificationVersion,
     get provider() {
@@ -202,7 +202,7 @@ export function createAnthropicLanguageModel(
 ): LanguageModel {
   const baseURL = cleanBaseUrl(settings.baseUrl, DEFAULT_ANTHROPIC_BASE_URL)
   const shouldReplayUnsignedThinking = shouldReplayUnsignedAnthropicThinking(baseURL)
-  const promptStack: LanguageModelV3CallOptions['prompt'][] = []
+  const promptStack: LanguageModelV4CallOptions['prompt'][] = []
   const maxEffortFetch = isDeepSeekV4MaxEffortModel(settings.model)
     ? createDeepSeekV4MaxEffortFetch(
         {
@@ -228,7 +228,7 @@ export function createAnthropicLanguageModel(
 
   const model = provider(settings.model)
   return shouldReplayUnsignedThinking
-    ? (wrapUnsignedThinkingReplayModel(model as LanguageModelV3, promptStack) as LanguageModel)
+    ? (wrapUnsignedThinkingReplayModel(model as LanguageModelV4, promptStack) as LanguageModel)
     : model
 }
 

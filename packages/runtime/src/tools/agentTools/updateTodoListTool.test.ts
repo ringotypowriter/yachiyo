@@ -57,7 +57,12 @@ test('updateTodoList assigns stable ids without becoming a tracked timeline tool
         { content: 'Wire the server event', status: 'in_progress' }
       ]
     },
-    { abortSignal: AbortSignal.timeout(5000), toolCallId: 'todo-1', messages: [] }
+    {
+      abortSignal: AbortSignal.timeout(5000),
+      toolCallId: 'todo-1',
+      messages: [],
+      context: undefined
+    }
   )) as UpdateTodoListToolOutput
 
   assert.deepEqual(emitted, [
@@ -88,7 +93,12 @@ test('updateTodoList emits multiple in-progress items unchanged', async () => {
         { content: 'Verify the result', status: 'pending' }
       ]
     },
-    { abortSignal: AbortSignal.timeout(5000), toolCallId: 'todo-2', messages: [] }
+    {
+      abortSignal: AbortSignal.timeout(5000),
+      toolCallId: 'todo-2',
+      messages: [],
+      context: undefined
+    }
   )
 
   assert.deepEqual(emitted, [
@@ -119,7 +129,12 @@ test('updateTodoList preserves ids from existing todo items', async () => {
         { content: 'Verify the result', status: 'pending' }
       ]
     },
-    { abortSignal: AbortSignal.timeout(5000), toolCallId: 'todo-3', messages: [] }
+    {
+      abortSignal: AbortSignal.timeout(5000),
+      toolCallId: 'todo-3',
+      messages: [],
+      context: undefined
+    }
   )
 
   assert.deepEqual(emitted, [
@@ -153,7 +168,12 @@ test('updateTodoList keeps an existing id when the item text changes in place', 
         }
       ]
     },
-    { abortSignal: AbortSignal.timeout(5000), toolCallId: 'todo-4', messages: [] }
+    {
+      abortSignal: AbortSignal.timeout(5000),
+      toolCallId: 'todo-4',
+      messages: [],
+      context: undefined
+    }
   )
 
   assert.deepEqual(emitted, [
@@ -188,7 +208,12 @@ test('updateTodoList gives new ids to a new list after the previous list complet
         { content: 'Implement the next feature', status: 'pending' }
       ]
     },
-    { abortSignal: AbortSignal.timeout(5000), toolCallId: 'todo-5', messages: [] }
+    {
+      abortSignal: AbortSignal.timeout(5000),
+      toolCallId: 'todo-5',
+      messages: [],
+      context: undefined
+    }
   )
 
   assert.deepEqual(emitted, [

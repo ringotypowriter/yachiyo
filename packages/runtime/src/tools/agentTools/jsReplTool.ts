@@ -40,7 +40,7 @@ export interface JsReplToolDependencies {
 
 interface ActiveExecution {
   cwd: string
-  options: ToolExecutionOptions
+  options: ToolExecutionOptions<unknown>
   abortController: AbortController
   calls: number
   running: number
@@ -285,7 +285,7 @@ class JsReplWorkerHandle {
     cwd: string
     reset: boolean
     timeoutMs: number
-    options: ToolExecutionOptions
+    options: ToolExecutionOptions<unknown>
   }): Promise<WorkerResult> {
     const execution = this.executeChain.then(async () => {
       await this.ensureWorker()

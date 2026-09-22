@@ -1,4 +1,4 @@
-import type { LanguageModelV3 } from '@ai-sdk/provider'
+import type { LanguageModelV4 } from '@ai-sdk/provider'
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
@@ -178,10 +178,10 @@ test('createAnthropicLanguageModel replays unsigned thinking for custom Anthropi
       baseUrl: 'https://api.deepseek.com/anthropic'
     },
     {
-      createAnthropicProvider: (options) =>
+      createAnthropicProvider: (options: { fetch?: typeof globalThis.fetch }) =>
         (() =>
           ({
-            specificationVersion: 'v3',
+            specificationVersion: 'v4',
             provider: 'anthropic.messages',
             modelId: 'custom-unsigned-thinking-model',
             supportedUrls: {},
@@ -209,13 +209,13 @@ test('createAnthropicLanguageModel replays unsigned thinking for custom Anthropi
               })
               return {} as never
             }
-          }) satisfies LanguageModelV3) as never,
+          }) satisfies LanguageModelV4) as never,
       fetchImpl: (async (_input, init) => {
         finalBody = String(init?.body ?? '')
         return new Response('{}')
       }) as typeof globalThis.fetch
     } as never
-  ) as LanguageModelV3
+  ) as LanguageModelV4
 
   await model.doStream({
     prompt: [

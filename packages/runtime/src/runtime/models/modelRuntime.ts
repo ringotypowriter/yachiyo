@@ -1,10 +1,21 @@
 import { createHash } from 'node:crypto'
 
-import { stepCountIs } from 'ai'
+import {
+  isStepCount,
+  type OnToolExecutionEndCallback,
+  type OnToolExecutionStartCallback,
+  type ToolExecutionEndEvent,
+  type ToolSet
+} from 'ai'
 
 import { applyStripCompact } from '../context/contextStripCompact.ts'
 import { prepareAiSdkMessages } from '../messages/messagePrepare.ts'
-import type { ModelMessage, ModelRuntime } from './types.ts'
+import type {
+  ModelMessage,
+  ModelRuntime,
+  ModelToolCall,
+  ModelToolCallFinishEvent
+} from './types.ts'
 import {
   type AiSdkRuntimeDependencies,
   type FetchModelsDependencies,
@@ -430,6 +441,23 @@ function toToolError(error: unknown, fallbackMessage = 'Tool execution failed'):
   return new Error(fallbackMessage)
 }
 
+function toModelToolCall(toolCall: {
+  input: unknown
+  toolCallId: string
+  toolName: string
+}): ModelToolCall {
+  return { input: toolCall.input, toolCallId: toolCall.toolCallId, toolName: toolCall.toolName }
+}
+
+function toModelToolCallFinishEvent(
+  event: ToolExecutionEndEvent<ToolSet>
+): ModelToolCallFinishEvent {
+  const toolCall = toModelToolCall(event.toolCall)
+  return event.toolOutput.type === 'tool-result'
+    ? { toolCall, success: true, output: event.toolOutput.output }
+    : { toolCall, success: false, error: event.toolOutput.error }
+}
+
 export async function fetchModels(
   provider: import('@yachiyo/shared/protocol').ProviderConfig,
   fetchImpl: typeof globalThis.fetch = globalThis.fetch,
@@ -579,9 +607,7 @@ export function createAiSdkModelRuntime(dependencies: AiSdkRuntimeDependencies =
         const activeToolCallIds = new Set<string>()
         const requestPrefixState: StepRequestPrefixState = {}
 
-        const trackToolCallStart = (
-          event: Parameters<NonNullable<typeof request.onToolCallStart>>[0]
-        ): ReturnType<NonNullable<typeof request.onToolCallStart>> => {
+        const trackToolCallStart: OnToolExecutionStartCallback<ToolSet> = (event) => {
           const toolCallId = event.toolCall.toolCallId
           if (!activeToolCallIds.has(toolCallId)) {
             if (activeToolCallIds.size === 0) {
@@ -589,12 +615,10 @@ export function createAiSdkModelRuntime(dependencies: AiSdkRuntimeDependencies =
             }
             activeToolCallIds.add(toolCallId)
           }
-          return request.onToolCallStart?.(event)
+          request.onToolCallStart?.({ toolCall: toModelToolCall(event.toolCall) })
         }
 
-        const trackToolCallFinish = (
-          event: Parameters<NonNullable<typeof request.onToolCallFinish>>[0]
-        ): ReturnType<NonNullable<typeof request.onToolCallFinish>> => {
+        const trackToolCallFinish: OnToolExecutionEndCallback<ToolSet> = (event) => {
           const toolCallId = event.toolCall.toolCallId
           if (activeToolCallIds.delete(toolCallId) && activeToolCallIds.size === 0) {
             stepToolExecutionMs += Math.max(
@@ -603,7 +627,7 @@ export function createAiSdkModelRuntime(dependencies: AiSdkRuntimeDependencies =
             )
             activeToolExecutionStartedAt = undefined
           }
-          return emitToolCallFinish?.(event)
+          emitToolCallFinish?.(toModelToolCallFinishEvent(event))
         }
 
         const flushPendingStepFinish = (continued: boolean): void => {
@@ -647,15 +671,21 @@ export function createAiSdkModelRuntime(dependencies: AiSdkRuntimeDependencies =
                   tools: request.tools,
                   ...(request.toolChoice ? { toolChoice: request.toolChoice } : {}),
                   stopWhen:
-                    request.stopWhen ?? stepCountIs(request.maxToolSteps ?? DEFAULT_MAX_TOOL_STEPS)
+                    request.stopWhen ?? isStepCount(request.maxToolSteps ?? DEFAULT_MAX_TOOL_STEPS)
                 }
               : {}),
-            experimental_onToolCallStart: trackToolCallStart,
-            experimental_onToolCallFinish: trackToolCallFinish
+            onToolExecutionStart: trackToolCallStart,
+            onToolExecutionEnd: trackToolCallFinish,
+            // Context layers are assembled by trusted runtime code and rely on
+            // several system messages (cache-stable prefix + per-turn reminders),
+            // so keep the AI SDK 6 behavior instead of moving them to `instructions`.
+            allowSystemInMessages: true,
+            // Request bodies are no longer attached to `start-step` parts by default.
+            ...(shouldLogPromptCacheDiagnostics() ? { include: { requestBody: true } } : {})
           })
 
-          if ('fullStream' in result && result.fullStream) {
-            for await (const part of result.fullStream as AsyncIterable<{
+          if ('stream' in result && result.stream) {
+            for await (const part of result.stream as AsyncIterable<{
               errorText?: string
               finishReason?: string
               id?: string
@@ -859,19 +889,9 @@ export function createAiSdkModelRuntime(dependencies: AiSdkRuntimeDependencies =
                 }
 
                 emitToolCallFinish({
-                  abortSignal: request.signal,
-                  durationMs: 0,
-                  experimental_context: undefined,
-                  functionId: undefined,
-                  metadata: undefined,
-                  model: undefined,
-                  messages: request.messages,
-                  stepNumber: undefined,
                   success: true,
                   output: part.output,
                   toolCall: {
-                    type: 'tool-call',
-                    dynamic: true,
                     toolCallId: part.toolCallId,
                     toolName: toolCallContext.toolName,
                     input: toolCallContext.input
@@ -903,23 +923,7 @@ export function createAiSdkModelRuntime(dependencies: AiSdkRuntimeDependencies =
                 const toolError = toToolError(part.error ?? part.errorText)
 
                 if (emitToolCallFinish) {
-                  emitToolCallFinish({
-                    abortSignal: request.signal,
-                    durationMs: 0,
-                    experimental_context: undefined,
-                    functionId: undefined,
-                    metadata: undefined,
-                    model: undefined,
-                    messages: request.messages,
-                    stepNumber: undefined,
-                    success: false,
-                    error: toolError,
-                    toolCall: {
-                      type: 'tool-call',
-                      dynamic: true,
-                      ...toolCall
-                    }
-                  })
+                  emitToolCallFinish({ success: false, error: toolError, toolCall })
                 }
                 toolCallContextById.delete(part.toolCallId)
 
@@ -930,16 +934,18 @@ export function createAiSdkModelRuntime(dependencies: AiSdkRuntimeDependencies =
             }
             flushPendingStepFinish(false)
 
-            if (request.onFinish && 'usage' in result && 'totalUsage' in result) {
-              const responsePromise =
-                'response' in result
-                  ? (result.response as PromiseLike<{ messages?: unknown[] }>)
+            if (request.onFinish && 'usage' in result && 'finalStep' in result) {
+              const responseMessagesPromise =
+                'responseMessages' in result
+                  ? (result.responseMessages as PromiseLike<unknown[] | undefined>)
                   : undefined
-              const [usage, total, response] = await Promise.all([
+              // `usage` aggregates every step; the final step keeps the last-call view.
+              const [total, finalStep, responseMessages] = await Promise.all([
                 result.usage as PromiseLike<AiSdkStreamUsage>,
-                result.totalUsage as PromiseLike<AiSdkStreamUsage>,
-                responsePromise
+                result.finalStep as PromiseLike<{ usage: AiSdkStreamUsage }>,
+                responseMessagesPromise
               ])
+              const usage = finalStep.usage
               // Resolve finishReason separately so it can't block the critical path.
               let finishReason: string | undefined
               try {
@@ -963,7 +969,6 @@ export function createAiSdkModelRuntime(dependencies: AiSdkRuntimeDependencies =
                 )
               }
               if (usage.inputTokens != null && usage.outputTokens != null) {
-                const responseMessages = response?.messages
                 const isOpenAiChatProvider = provider === 'openai'
                 const perStepReasoning = isOpenAiChatProvider
                   ? stepReasoningChunks.map((chunks) => chunks.join(''))

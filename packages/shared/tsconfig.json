@@ -3,6 +3,7 @@
   "include": ["src/**/*"],
   "exclude": ["**/*.test.ts", "**/*.test.tsx", "**/*.spec.ts", "**/*.spec.tsx"],
   "compilerOptions": {
+    "noImplicitAny": true,
     "allowImportingTsExtensions": true,
     "composite": true,
     "noEmit": true,

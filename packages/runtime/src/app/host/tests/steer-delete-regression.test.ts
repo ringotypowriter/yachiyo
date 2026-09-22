@@ -155,13 +155,6 @@ test('cancelling a run during tool execution preserves the tool call in bootstra
         async *streamReply(request: ModelStreamRequest) {
           yield 'Starting...'
           request.onToolCallStart?.({
-            abortSignal: request.signal,
-            experimental_context: undefined,
-            functionId: undefined,
-            messages: request.messages,
-            metadata: undefined,
-            model: undefined,
-            stepNumber: 0,
             toolCall: {
               input: { command: 'sleep 60' },
               toolCallId: 'tool-bash-cancel',
@@ -256,13 +249,6 @@ test('cancelling a run with a pending steer persists the steer but does not rest
 
               // Simulate a long-running tool call
               request.onToolCallStart?.({
-                abortSignal: request.signal,
-                experimental_context: undefined,
-                functionId: undefined,
-                messages: request.messages,
-                metadata: undefined,
-                model: undefined,
-                stepNumber: 0,
                 toolCall: {
                   input: { command: 'sleep 60' },
                   toolCallId: 'tool-bash-slow',
@@ -378,13 +364,6 @@ test('steer sent after cancel (tool still winding down) is persisted as a follow
               yield 'Running command...'
 
               request.onToolCallStart?.({
-                abortSignal: request.signal,
-                experimental_context: undefined,
-                functionId: undefined,
-                messages: request.messages,
-                metadata: undefined,
-                model: undefined,
-                stepNumber: 0,
                 toolCall: {
                   input: { command: 'sleep 60' },
                   toolCallId: 'tool-bash-race',
@@ -501,13 +480,6 @@ test('deleting the final reply after steer keeps earlier tool calls bound to the
             yield 'Checking workspace'
 
             request.onToolCallStart?.({
-              abortSignal: request.signal,
-              experimental_context: undefined,
-              functionId: undefined,
-              messages: request.messages,
-              metadata: undefined,
-              model: undefined,
-              stepNumber: 0,
               toolCall: {
                 input: { command: 'ls' },
                 toolCallId: 'tool-bash-1',
@@ -516,14 +488,6 @@ test('deleting the final reply after steer keeps earlier tool calls bound to the
             } as never)
 
             request.onToolCallFinish?.({
-              abortSignal: request.signal,
-              durationMs: 3,
-              experimental_context: undefined,
-              functionId: undefined,
-              messages: request.messages,
-              metadata: undefined,
-              model: undefined,
-              stepNumber: 0,
               success: true,
               output: {
                 content: [{ type: 'text', text: 'file1.txt\n' }],

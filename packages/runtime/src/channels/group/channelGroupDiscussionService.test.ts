@@ -212,10 +212,11 @@ for (const mode of ['probe', 'mention'] as const) {
               assert.equal(request.tools?.send_group_message, undefined)
               assert.ok(request.tools?.staySilent)
               if (silent)
-                await request.tools.staySilent.execute!(
-                  {},
-                  { toolCallId: 'quiet', messages: request.messages }
-                )
+                await request.tools.staySilent.execute!({} as never, {
+                  toolCallId: 'quiet',
+                  messages: request.messages,
+                  context: undefined
+                })
               yield 'Checking the documentation.'
               yield 'Here is the answer.'
               request.onFinish?.({

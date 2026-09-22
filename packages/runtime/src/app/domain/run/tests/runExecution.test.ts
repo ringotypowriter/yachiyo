@@ -1490,21 +1490,11 @@ test('executeServerRun completes the launch tool call when background bash start
         }
 
         request.onToolCallStart?.({
-          abortSignal: request.signal,
-          messages: request.messages,
           toolCall
         } as never)
 
         request.onToolCallFinish?.({
-          abortSignal: request.signal,
-          durationMs: 0,
-          experimental_context: undefined,
-          functionId: undefined,
-          metadata: undefined,
-          model: undefined,
-          messages: request.messages,
           output: backgroundOutput,
-          stepNumber: undefined,
           success: true,
           toolCall
         } as never)
@@ -1616,19 +1606,10 @@ test('executeServerRun persists exitPlanMode as a complete tool-call pair', asyn
         }
 
         request.onToolCallStart?.({
-          abortSignal: request.signal,
-          messages: request.messages,
           toolCall
         } as never)
 
         request.onToolCallFinish?.({
-          abortSignal: request.signal,
-          durationMs: 0,
-          experimental_context: undefined,
-          functionId: undefined,
-          metadata: undefined,
-          model: undefined,
-          messages: request.messages,
           output: {
             content: [
               {
@@ -1637,7 +1618,6 @@ test('executeServerRun persists exitPlanMode as a complete tool-call pair', asyn
               }
             ]
           },
-          stepNumber: undefined,
           success: true,
           toolCall
         } as never)
@@ -1864,8 +1844,6 @@ test('executeServerRun keeps background bash launch completion separate from tas
         }
 
         request.onToolCallStart?.({
-          abortSignal: request.signal,
-          messages: request.messages,
           toolCall
         } as never)
 
@@ -1880,15 +1858,7 @@ test('executeServerRun keeps background bash launch completion separate from tas
         } as ToolCallRecord)
 
         request.onToolCallFinish?.({
-          abortSignal: request.signal,
-          durationMs: 0,
-          experimental_context: undefined,
-          functionId: undefined,
-          metadata: undefined,
-          model: undefined,
-          messages: request.messages,
           output: backgroundOutput,
-          stepNumber: undefined,
           success: true,
           toolCall
         } as never)
@@ -1993,19 +1963,10 @@ test('executeServerRun continues agent step count from prior run legs', async ()
         }
 
         request.onToolCallStart?.({
-          abortSignal: request.signal,
-          messages: request.messages,
           toolCall
         } as never)
 
         request.onToolCallFinish?.({
-          abortSignal: request.signal,
-          durationMs: 0,
-          experimental_context: undefined,
-          functionId: undefined,
-          metadata: undefined,
-          model: undefined,
-          messages: request.messages,
           output: {
             content: [{ type: 'text' as const, text: 'ok' }],
             details: {
@@ -2017,7 +1978,6 @@ test('executeServerRun continues agent step count from prior run legs', async ()
             },
             metadata: { cwd: root }
           },
-          stepNumber: undefined,
           success: true,
           toolCall
         } as never)
@@ -2142,21 +2102,11 @@ test('executeServerRun ignores completed background task snapshots for launch to
         }
 
         request.onToolCallStart?.({
-          abortSignal: request.signal,
-          messages: request.messages,
           toolCall
         } as never)
 
         request.onToolCallFinish?.({
-          abortSignal: request.signal,
-          durationMs: 0,
-          experimental_context: undefined,
-          functionId: undefined,
-          metadata: undefined,
-          model: undefined,
-          messages: request.messages,
           output: backgroundOutput,
-          stepNumber: undefined,
           success: true,
           toolCall
         } as never)
@@ -2334,8 +2284,6 @@ test('rapid preliminary tool updates do not write a recovery checkpoint per chun
         }
 
         request.onToolCallStart?.({
-          abortSignal: request.signal,
-          messages: request.messages,
           toolCall
         } as never)
 
@@ -2353,19 +2301,11 @@ test('rapid preliminary tool updates do not write a recovery checkpoint per chun
         }
 
         request.onToolCallFinish?.({
-          abortSignal: request.signal,
-          durationMs: 0,
-          experimental_context: undefined,
-          functionId: undefined,
-          metadata: undefined,
-          model: undefined,
-          messages: request.messages,
           output: {
             content: [{ type: 'text', text: 'done\n' }],
             details: { stdout: 'done\n' },
             metadata: {}
           },
-          stepNumber: undefined,
           success: true,
           toolCall
         } as never)

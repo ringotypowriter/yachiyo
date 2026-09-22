@@ -301,12 +301,12 @@ function extractEnglishNounPhraseGroups(value: string): string[][] {
   return nlp(value)
     .nouns()
     .out('array')
-    .map((phrase) =>
+    .map((phrase: string) =>
       stopword
         .removeStopwords(phrase.split(/\s+/u).map(normalizeNovelTerm), stopword.eng)
         .filter(isPhraseWord)
     )
-    .filter((words) => words.length >= 2)
+    .filter((words: string[]) => words.length >= 2)
 }
 
 function extractCjkPhrases(value: string): string[] {

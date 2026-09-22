@@ -1,4 +1,4 @@
-import { stepCountIs } from 'ai'
+import { isStepCount } from 'ai'
 
 import { DEFAULT_STRIP_COMPACT_TOKEN_THRESHOLD } from '@yachiyo/shared/protocol'
 import type {
@@ -391,7 +391,7 @@ function createWorkerRunner(
             stopWhen:
               tools && !reportOnly
                 ? [
-                    stepCountIs(profileSnapshot.maxToolSteps ?? 999),
+                    isStepCount(profileSnapshot.maxToolSteps ?? 999),
                     ({ steps }) => {
                       yielded = hasPendingMessages() && (steps.at(-1)?.toolResults?.length ?? 0) > 0
                       return yielded

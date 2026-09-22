@@ -44,9 +44,12 @@ test('useThings tool creates and lists Things', async () => {
 
   await execute(
     { action: 'create', name: 'Raven UI', summary: 'UI work' },
-    { toolCallId: 't', messages: [] }
+    { toolCallId: 't', messages: [], context: undefined }
   )
-  const output = await execute({ action: 'list' }, { toolCallId: 't', messages: [] })
+  const output = await execute(
+    { action: 'list' },
+    { toolCallId: 't', messages: [], context: undefined }
+  )
 
   assert.equal(output.error, undefined)
   assert.ok(JSON.stringify(output.details).includes('raven-ui'))
@@ -56,7 +59,7 @@ test('useThings tool creates and lists Things', async () => {
 
   const getOutput = await execute(
     { action: 'get', name: 'raven-ui' },
-    { toolCallId: 't', messages: [] }
+    { toolCallId: 't', messages: [], context: undefined }
   )
   assert.match(outputText(getOutput), /#raven-ui/)
   assert.match(outputText(getOutput), /Status: active/)
@@ -69,7 +72,7 @@ test('useThings addCurrentThreadSource derives the source from AgentToolContext.
 
   await execute(
     { action: 'create', name: 'Raven UI', summary: 'UI work' },
-    { toolCallId: 't', messages: [] }
+    { toolCallId: 't', messages: [], context: undefined }
   )
   const output = await execute(
     {
@@ -77,7 +80,7 @@ test('useThings addCurrentThreadSource derives the source from AgentToolContext.
       name: 'raven-ui',
       preview: 'Current conversation discussed source preview semantics.'
     },
-    { toolCallId: 't', messages: [] }
+    { toolCallId: 't', messages: [], context: undefined }
   )
 
   assert.equal(output.error, undefined)

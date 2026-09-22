@@ -31,7 +31,10 @@ interface KernelDouble {
 
 interface TrackedPyReplTool {
   description?: string
-  execute(input: PyReplCallInput, options?: ToolExecutionOptions): Promise<PyReplToolOutput>
+  execute(
+    input: PyReplCallInput,
+    options?: ToolExecutionOptions<unknown>
+  ): Promise<PyReplToolOutput>
   dispose(): Promise<void>
 }
 
@@ -253,7 +256,11 @@ describe('pyRepl tool lifecycle', () => {
         listToolNames: () => ['write', 'read', 'write', 'jsRepl', 'pyRepl']
       })
     )
-    const options: ToolExecutionOptions = { toolCallId: 'outer-call', messages: [] }
+    const options: ToolExecutionOptions<unknown> = {
+      toolCallId: 'outer-call',
+      messages: [],
+      context: undefined
+    }
 
     const first = await tool.execute(
       { code: 'first', cwd: 'nested', timeout: 17, reset: true },

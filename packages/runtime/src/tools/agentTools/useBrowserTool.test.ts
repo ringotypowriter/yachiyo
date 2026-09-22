@@ -10,9 +10,10 @@ import { createTool } from './useBrowserTool.ts'
 import type { AgentToolContext, UseBrowserToolOutput } from './shared.ts'
 import type { BrowserAutomationToolBackend } from '../../services/browserAutomation/browserAutomationToolBackend.ts'
 
-const TOOL_EXECUTION_OPTIONS: ToolExecutionOptions = {
+const TOOL_EXECUTION_OPTIONS: ToolExecutionOptions<unknown> = {
   toolCallId: 'tc-test',
-  messages: []
+  messages: [],
+  context: undefined
 }
 
 const TOOL_INPUT_DEFAULTS = {

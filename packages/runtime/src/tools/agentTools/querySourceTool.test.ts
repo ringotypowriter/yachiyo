@@ -24,7 +24,7 @@ test('querySource defaults to source search and merges note and original matches
     ]
   })
   const tool = createQuerySourceTool({ storage, memoryService: createMemoryService() })
-  const options = { toolCallId: 'search', messages: [] }
+  const options = { toolCallId: 'search', messages: [], context: undefined }
   const result = parseToolJson(await tool.execute!({ text: 'durable source' }, options))
   assert.equal(result.error, undefined)
   assert.equal(result.rows?.length, 1)
@@ -45,7 +45,7 @@ test('querySource discovers unnoted history and labels unresolved notes without 
     memoryService: createMemoryService()
   })
   const result = parseToolJson(
-    await tool.execute!({ text: 'logs' }, { toolCallId: 's', messages: [] })
+    await tool.execute!({ text: 'logs' }, { toolCallId: 's', messages: [], context: undefined })
   )
   assert.equal(result.rows?.[0]?.sourceAvailable, false)
   assert.equal(result.rows?.[0]?.excerpt, undefined)
@@ -58,13 +58,16 @@ test('querySource discovers unnoted history and labels unresolved notes without 
   })
   const unnoted = createQuerySourceTool({ storage })
   const found = parseToolJson(
-    await unnoted.execute!({ text: 'discovery' }, { toolCallId: 's', messages: [] })
+    await unnoted.execute!(
+      { text: 'discovery' },
+      { toolCallId: 's', messages: [], context: undefined }
+    )
   )
   assert.equal(found.rows?.[0]?.threadId, 'unnoted')
   const opened = parseToolJson(
     await unnoted.execute!(
       { ref: 'thread_message:unnoted:original' },
-      { toolCallId: 'o', messages: [] }
+      { toolCallId: 'o', messages: [], context: undefined }
     )
   )
   assert.equal(opened.rows?.[0]?.content, 'Unnoted discovery')
@@ -95,7 +98,10 @@ test('querySource preserves thread-only historical sources alongside current mes
   ]
   const tool = createQuerySourceTool({ storage, memoryService })
   const result = parseToolJson(
-    await tool.execute!({ text: 'database rationale' }, { toolCallId: 's', messages: [] })
+    await tool.execute!(
+      { text: 'database rationale' },
+      { toolCallId: 's', messages: [], context: undefined }
+    )
   )
   assert.ok(result.rows?.some((row) => row.threadId === 'past'))
 })
@@ -120,7 +126,7 @@ test('querySource opens paginated original dialogue and does not expose private 
     messages: [makeMessage({ id: 'p', threadId: 'private', content: 'Private original message' })]
   })
   const tool = createQuerySourceTool({ storage })
-  const options = { toolCallId: 'open', messages: [] }
+  const options = { toolCallId: 'open', messages: [], context: undefined }
   const first = parseToolJson(await tool.execute!({ ref: 'thread:long' }, options))
   const second = parseToolJson(
     await tool.execute!({ ref: 'thread:long', cursor: first.nextCursor }, options)
@@ -285,7 +291,12 @@ test('querySource discovers thread spans with folder community and expands messa
         view: 'index',
         limit: 5
       },
-      { abortSignal: new AbortController().signal, toolCallId: 'tc1', messages: [] }
+      {
+        abortSignal: new AbortController().signal,
+        toolCallId: 'tc1',
+        messages: [],
+        context: undefined
+      }
     )
   )
 
@@ -310,7 +321,12 @@ test('querySource discovers thread spans with folder community and expands messa
         where: { parentRowId: String(row['rowId']) },
         view: 'detail'
       },
-      { abortSignal: new AbortController().signal, toolCallId: 'tc2', messages: [] }
+      {
+        abortSignal: new AbortController().signal,
+        toolCallId: 'tc2',
+        messages: [],
+        context: undefined
+      }
     )
   )
 
@@ -368,7 +384,12 @@ test('querySource delegates thread span text search without bootstrapping storag
         view: 'index',
         limit: 3
       },
-      { abortSignal: new AbortController().signal, toolCallId: 'tc-delegate', messages: [] }
+      {
+        abortSignal: new AbortController().signal,
+        toolCallId: 'tc-delegate',
+        messages: [],
+        context: undefined
+      }
     )
   )
 
@@ -448,7 +469,12 @@ test('querySource reranks text spans by normalized bm25 coverage and density', a
         view: 'index',
         limit: 2
       },
-      { abortSignal: new AbortController().signal, toolCallId: 'tc-span-rerank', messages: [] }
+      {
+        abortSignal: new AbortController().signal,
+        toolCallId: 'tc-span-rerank',
+        messages: [],
+        context: undefined
+      }
     )
   )
 
@@ -548,7 +574,12 @@ test('querySource splits distant text hits into granular content spans', async (
         view: 'content',
         limit: 5
       },
-      { abortSignal: new AbortController().signal, toolCallId: 'tc-span-split', messages: [] }
+      {
+        abortSignal: new AbortController().signal,
+        toolCallId: 'tc-span-split',
+        messages: [],
+        context: undefined
+      }
     )
   )
 
@@ -625,7 +656,12 @@ test('querySource opens only the requested thread span rowId', async () => {
         view: 'index',
         limit: 1
       },
-      { abortSignal: new AbortController().signal, toolCallId: 'tc-rowid-index', messages: [] }
+      {
+        abortSignal: new AbortController().signal,
+        toolCallId: 'tc-rowid-index',
+        messages: [],
+        context: undefined
+      }
     )
   )
   const rowId = String(indexResult.rows?.[0]?.['rowId'])
@@ -638,7 +674,12 @@ test('querySource opens only the requested thread span rowId', async () => {
         view: 'content',
         limit: 1
       },
-      { abortSignal: new AbortController().signal, toolCallId: 'tc-rowid-content', messages: [] }
+      {
+        abortSignal: new AbortController().signal,
+        toolCallId: 'tc-rowid-content',
+        messages: [],
+        context: undefined
+      }
     )
   )
   const detailResult = parseToolJson(
@@ -649,7 +690,12 @@ test('querySource opens only the requested thread span rowId', async () => {
         view: 'detail',
         limit: 2
       },
-      { abortSignal: new AbortController().signal, toolCallId: 'tc-rowid-detail', messages: [] }
+      {
+        abortSignal: new AbortController().signal,
+        toolCallId: 'tc-rowid-detail',
+        messages: [],
+        context: undefined
+      }
     )
   )
   const invalidResult = parseToolJson(
@@ -660,7 +706,12 @@ test('querySource opens only the requested thread span rowId', async () => {
         view: 'content',
         limit: 1
       },
-      { abortSignal: new AbortController().signal, toolCallId: 'tc-rowid-invalid', messages: [] }
+      {
+        abortSignal: new AbortController().signal,
+        toolCallId: 'tc-rowid-invalid',
+        messages: [],
+        context: undefined
+      }
     )
   )
 
@@ -710,7 +761,12 @@ test('querySource maps thread views to span and message child tables', async () 
         view: 'content',
         limit: 1
       },
-      { abortSignal: new AbortController().signal, toolCallId: 'tc-thread-content', messages: [] }
+      {
+        abortSignal: new AbortController().signal,
+        toolCallId: 'tc-thread-content',
+        messages: [],
+        context: undefined
+      }
     )
   )
   const detailResult = parseToolJson(
@@ -721,7 +777,12 @@ test('querySource maps thread views to span and message child tables', async () 
         view: 'detail',
         limit: 1
       },
-      { abortSignal: new AbortController().signal, toolCallId: 'tc-thread-detail', messages: [] }
+      {
+        abortSignal: new AbortController().signal,
+        toolCallId: 'tc-thread-detail',
+        messages: [],
+        context: undefined
+      }
     )
   )
 
@@ -771,7 +832,12 @@ test('querySource maps source event views to their source rows', async () => {
         view: 'index',
         limit: 1
       },
-      { abortSignal: new AbortController().signal, toolCallId: 'tc-source-index', messages: [] }
+      {
+        abortSignal: new AbortController().signal,
+        toolCallId: 'tc-source-index',
+        messages: [],
+        context: undefined
+      }
     )
   )
   const eventRowId = String(indexResult.rows?.[0]?.['rowId'])
@@ -783,7 +849,12 @@ test('querySource maps source event views to their source rows', async () => {
         view: 'content',
         limit: 1
       },
-      { abortSignal: new AbortController().signal, toolCallId: 'tc-source-content', messages: [] }
+      {
+        abortSignal: new AbortController().signal,
+        toolCallId: 'tc-source-content',
+        messages: [],
+        context: undefined
+      }
     )
   )
   const detailResult = parseToolJson(
@@ -794,7 +865,12 @@ test('querySource maps source event views to their source rows', async () => {
         view: 'detail',
         limit: 1
       },
-      { abortSignal: new AbortController().signal, toolCallId: 'tc-source-detail', messages: [] }
+      {
+        abortSignal: new AbortController().signal,
+        toolCallId: 'tc-source-detail',
+        messages: [],
+        context: undefined
+      }
     )
   )
 
@@ -854,7 +930,12 @@ test('querySource auto orders range thread spans by event time, not thread list 
         orderBy: 'auto',
         view: 'index'
       },
-      { abortSignal: new AbortController().signal, toolCallId: 'tc-auto-spans', messages: [] }
+      {
+        abortSignal: new AbortController().signal,
+        toolCallId: 'tc-auto-spans',
+        messages: [],
+        context: undefined
+      }
     )
   )
 
@@ -905,7 +986,12 @@ test('querySource auto orders source events by timeline time across sources', as
         orderBy: 'auto',
         view: 'index'
       },
-      { abortSignal: new AbortController().signal, toolCallId: 'tc-auto-events', messages: [] }
+      {
+        abortSignal: new AbortController().signal,
+        toolCallId: 'tc-auto-events',
+        messages: [],
+        context: undefined
+      }
     )
   )
 
@@ -959,7 +1045,8 @@ test('querySource exposes window text previews without raw snapshot payloads', a
       {
         abortSignal: new AbortController().signal,
         toolCallId: 'tc-window-text-quiet-index',
-        messages: []
+        messages: [],
+        context: undefined
       }
     )
   )
@@ -969,7 +1056,8 @@ test('querySource exposes window text previews without raw snapshot payloads', a
       {
         abortSignal: new AbortController().signal,
         toolCallId: 'tc-window-text-index',
-        messages: []
+        messages: [],
+        context: undefined
       }
     )
   )
@@ -983,7 +1071,8 @@ test('querySource exposes window text previews without raw snapshot payloads', a
       {
         abortSignal: new AbortController().signal,
         toolCallId: 'tc-window-text-content',
-        messages: []
+        messages: [],
+        context: undefined
       }
     )
   )
@@ -997,7 +1086,8 @@ test('querySource exposes window text previews without raw snapshot payloads', a
       {
         abortSignal: new AbortController().signal,
         toolCallId: 'tc-window-text-detail',
-        messages: []
+        messages: [],
+        context: undefined
       }
     )
   )
@@ -1007,7 +1097,8 @@ test('querySource exposes window text previews without raw snapshot payloads', a
       {
         abortSignal: new AbortController().signal,
         toolCallId: 'tc-window-text-source-events',
-        messages: []
+        messages: [],
+        context: undefined
       }
     )
   )
@@ -1084,7 +1175,12 @@ test('querySource rejects match ordering for non-match-ranked tables', async () 
         orderBy: 'match',
         view: 'index'
       },
-      { abortSignal: new AbortController().signal, toolCallId: 'tc-match-activity', messages: [] }
+      {
+        abortSignal: new AbortController().signal,
+        toolCallId: 'tc-match-activity',
+        messages: [],
+        context: undefined
+      }
     )
   )
 
@@ -1109,7 +1205,12 @@ test('querySource rejects time ordering for memories', async () => {
         orderBy: 'timeDesc',
         view: 'index'
       },
-      { abortSignal: new AbortController().signal, toolCallId: 'tc-memory-time', messages: [] }
+      {
+        abortSignal: new AbortController().signal,
+        toolCallId: 'tc-memory-time',
+        messages: [],
+        context: undefined
+      }
     )
   )
 
@@ -1172,19 +1273,34 @@ test('querySource fallback excludes privacy-mode thread data and related activit
   const threadRows = parseToolJson(
     await tool.execute!(
       { from: 'threads', where: { text: 'salary' }, view: 'index' },
-      { abortSignal: new AbortController().signal, toolCallId: 'tc-private-threads', messages: [] }
+      {
+        abortSignal: new AbortController().signal,
+        toolCallId: 'tc-private-threads',
+        messages: [],
+        context: undefined
+      }
     )
   )
   const messageRows = parseToolJson(
     await tool.execute!(
       { from: 'thread_messages', where: { text: 'salary' }, view: 'index' },
-      { abortSignal: new AbortController().signal, toolCallId: 'tc-private-messages', messages: [] }
+      {
+        abortSignal: new AbortController().signal,
+        toolCallId: 'tc-private-messages',
+        messages: [],
+        context: undefined
+      }
     )
   )
   const activityRows = parseToolJson(
     await tool.execute!(
       { from: 'activity_records', where: { text: 'salary' }, view: 'index' },
-      { abortSignal: new AbortController().signal, toolCallId: 'tc-private-activity', messages: [] }
+      {
+        abortSignal: new AbortController().signal,
+        toolCallId: 'tc-private-activity',
+        messages: [],
+        context: undefined
+      }
     )
   )
 
@@ -1233,7 +1349,12 @@ test('querySource source_events returns event-like sources for a time range with
         orderBy: 'timeAsc',
         view: 'index'
       },
-      { abortSignal: new AbortController().signal, toolCallId: 'tc3', messages: [] }
+      {
+        abortSignal: new AbortController().signal,
+        toolCallId: 'tc3',
+        messages: [],
+        context: undefined
+      }
     )
   )
 
@@ -1280,7 +1401,12 @@ test('querySource normalizes offset timestamps before filtering activity records
         },
         view: 'index'
       },
-      { abortSignal: new AbortController().signal, toolCallId: 'tc-offset-time', messages: [] }
+      {
+        abortSignal: new AbortController().signal,
+        toolCallId: 'tc-offset-time',
+        messages: [],
+        context: undefined
+      }
     )
   )
 
@@ -1339,7 +1465,12 @@ test('querySource source_events applies text filters to thread events', async ()
         orderBy: 'timeAsc',
         view: 'index'
       },
-      { abortSignal: new AbortController().signal, toolCallId: 'tc-source-text', messages: [] }
+      {
+        abortSignal: new AbortController().signal,
+        toolCallId: 'tc-source-text',
+        messages: [],
+        context: undefined
+      }
     )
   )
 
@@ -1363,7 +1494,12 @@ test('querySource memories require text and return semantic memory rows', async 
         where: { topic: 'source-system' },
         view: 'index'
       },
-      { abortSignal: new AbortController().signal, toolCallId: 'tc4', messages: [] }
+      {
+        abortSignal: new AbortController().signal,
+        toolCallId: 'tc4',
+        messages: [],
+        context: undefined
+      }
     )
   )
 
@@ -1376,7 +1512,12 @@ test('querySource memories require text and return semantic memory rows', async 
         where: { text: 'durable source', topic: 'source-system' },
         view: 'index'
       },
-      { abortSignal: new AbortController().signal, toolCallId: 'tc5', messages: [] }
+      {
+        abortSignal: new AbortController().signal,
+        toolCallId: 'tc5',
+        messages: [],
+        context: undefined
+      }
     )
   )
 

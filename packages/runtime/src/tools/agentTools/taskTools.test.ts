@@ -30,7 +30,7 @@ test('steerTask addresses tasks by taskId while preserving parent and peer routi
 
   const result = (await tool.execute!(
     { taskId: 'task-1', message: 'Check the config path too.' },
-    { toolCallId: 'call-1', messages: [] }
+    { toolCallId: 'call-1', messages: [], context: undefined }
   )) as SteerTaskToolOutput
 
   assert.deepEqual(dispatched, [{ to: 'task-1', message: 'Check the config path too.' }])
@@ -45,7 +45,7 @@ test('getTask returns the current same-team task snapshot and progress', async (
 
   const result = (await tool.execute!(
     { taskId: 'task-1' },
-    { toolCallId: 'call-1', messages: [] }
+    { toolCallId: 'call-1', messages: [], context: undefined }
   )) as GetTaskToolOutput
 
   assert.equal(result.error, undefined)
@@ -61,7 +61,7 @@ test('getTask reports an unknown or inaccessible task without leaking it', async
 
   const result = (await tool.execute!(
     { taskId: 'other-task' },
-    { toolCallId: 'call-1', messages: [] }
+    { toolCallId: 'call-1', messages: [], context: undefined }
   )) as GetTaskToolOutput
 
   assert.match(result.error ?? '', /not found/)

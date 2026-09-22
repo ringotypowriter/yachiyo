@@ -774,7 +774,7 @@ describe('directMessageService', () => {
       nonRunReply: 'non-run',
       errorReply: 'error',
       shouldDiscardPendingBatch: shouldDiscardPendingBatchForDmCommand,
-      handleSlashCommand: (target, channelUser, command, args, context) =>
+      handleSlashCommand: (target, channelUser, command, args, context): Promise<boolean> =>
         handleDmSlashCommand(
           {
             server: {
@@ -871,7 +871,7 @@ describe('directMessageService', () => {
       nonRunReply: 'non-run',
       errorReply: 'error',
       shouldDiscardPendingBatch: shouldDiscardPendingBatchForDmCommand,
-      handleSlashCommand: (target, channelUser, command, args, context) =>
+      handleSlashCommand: (target, channelUser, command, args, context): Promise<boolean> =>
         handleDmSlashCommand(
           {
             server: {

@@ -8,6 +8,7 @@ import test from 'node:test'
 import { setTimeout as delay } from 'node:timers/promises'
 
 import type { AppUpdateController } from '../electron/appUpdateController.ts'
+import type { UpdateReceiptOrigin } from '../appUpdate/installReceiptSequence.ts'
 import { createAppUpdateCommandHandler } from './appUpdateCommand.ts'
 import {
   createAppUpdateReplyFinalizer,
@@ -311,7 +312,7 @@ test('commandSocket reports an install failure before clearing the owed receipt'
     announce: async () => {
       events.push('announce')
     },
-    reportInstallFailure: async (origin, error) => {
+    reportInstallFailure: async (origin: UpdateReceiptOrigin, error: unknown) => {
       assert.match(error instanceof Error ? error.message : String(error), /quit failed/)
       events.push(`report-failure:${origin.channelId}:${origin.threadId}:${origin.messageId}`)
     },

@@ -387,13 +387,6 @@ test('YachiyoServer.compactThreadToAnotherThread sends full source tool-result h
 
           yield 'Before diagnostic'
           request.onToolCallStart?.({
-            abortSignal: request.signal,
-            experimental_context: undefined,
-            functionId: undefined,
-            messages: request.messages,
-            metadata: undefined,
-            model: undefined,
-            stepNumber: 0,
             toolCall: {
               input: { command: 'diagnostic' },
               toolCallId,
@@ -401,14 +394,6 @@ test('YachiyoServer.compactThreadToAnotherThread sends full source tool-result h
             }
           } as never)
           request.onToolCallFinish?.({
-            abortSignal: request.signal,
-            durationMs: 1,
-            experimental_context: undefined,
-            functionId: undefined,
-            messages: request.messages,
-            metadata: undefined,
-            model: undefined,
-            stepNumber: 0,
             success: true,
             output: {
               content: [{ type: 'text', text: output }],
@@ -565,13 +550,6 @@ test('YachiyoServer.compactThreadToAnotherThread keeps the runtime-prepared sour
 
           yield 'Before diagnostic'
           request.onToolCallStart?.({
-            abortSignal: request.signal,
-            experimental_context: undefined,
-            functionId: undefined,
-            messages: request.messages,
-            metadata: undefined,
-            model: undefined,
-            stepNumber: 0,
             toolCall: {
               input: { command: 'diagnostic' },
               toolCallId,
@@ -579,14 +557,6 @@ test('YachiyoServer.compactThreadToAnotherThread keeps the runtime-prepared sour
             }
           } as never)
           request.onToolCallFinish?.({
-            abortSignal: request.signal,
-            durationMs: 1,
-            experimental_context: undefined,
-            functionId: undefined,
-            messages: request.messages,
-            metadata: undefined,
-            model: undefined,
-            stepNumber: 0,
             success: true,
             output: {
               content: [{ type: 'text', text: output }],

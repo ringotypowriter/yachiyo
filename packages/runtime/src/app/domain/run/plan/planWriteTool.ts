@@ -10,7 +10,7 @@ export interface PlanExitToolOutput {
 }
 
 export function createPlanExitTool(): Tool<PlanExitToolInput, PlanExitToolOutput> {
-  return tool<PlanExitToolInput, PlanExitToolOutput>({
+  return tool({
     description:
       'Exit Plan Mode after the plan document has been written. Call this tool instead of replying with text when the plan is ready for user review.',
     inputSchema: planExitToolInputSchema,
@@ -18,7 +18,7 @@ export function createPlanExitTool(): Tool<PlanExitToolInput, PlanExitToolOutput
       type: 'content',
       value: [{ type: 'text', text: output.content }]
     }),
-    execute: async () => ({
+    execute: async (): Promise<PlanExitToolOutput> => ({
       content: 'Plan Mode exited. The UI will display the current plan document.'
     })
   })

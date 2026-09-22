@@ -17,7 +17,7 @@ interface ExecuteNestedReplToolOptions {
   input: unknown
   cwd: string
   resolveTool: (name: string) => unknown
-  executionOptions: ToolExecutionOptions
+  executionOptions: ToolExecutionOptions<unknown>
   signal: AbortSignal
 }
 
@@ -55,10 +55,11 @@ export function resolveReplToolCwd(
 export function createReplToolExecutionOptions(
   replName: ReplToolName,
   signal?: AbortSignal
-): ToolExecutionOptions {
+): ToolExecutionOptions<unknown> {
   return {
     toolCallId: `${replCallPrefix(replName)}-${crypto.randomUUID()}`,
     messages: [],
+    context: undefined,
     ...(signal ? { abortSignal: signal } : {})
   }
 }
@@ -84,7 +85,7 @@ export async function executeNestedReplTool({
     throw new Error('The requested tool has no executable implementation.')
   }
 
-  const options: ToolExecutionOptions = {
+  const options: ToolExecutionOptions<unknown> = {
     ...executionOptions,
     toolCallId: `${replCallPrefix(replName)}-${crypto.randomUUID()}`,
     abortSignal: signal

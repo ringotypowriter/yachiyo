@@ -425,13 +425,6 @@ test('YachiyoServer creates a per-thread workspace, persists structured tool det
       createModelRuntime: () => ({
         async *streamReply(request: ModelStreamRequest) {
           request.onToolCallStart?.({
-            abortSignal: request.signal,
-            experimental_context: undefined,
-            functionId: undefined,
-            messages: request.messages,
-            metadata: undefined,
-            model: undefined,
-            stepNumber: 0,
             toolCall: {
               input: { command: 'pwd && ls' },
               toolCallId: 'tool-bash-1',
@@ -460,14 +453,6 @@ test('YachiyoServer creates a per-thread workspace, persists structured tool det
           } as never)
 
           request.onToolCallFinish?.({
-            abortSignal: request.signal,
-            durationMs: 3,
-            experimental_context: undefined,
-            functionId: undefined,
-            messages: request.messages,
-            metadata: undefined,
-            model: undefined,
-            stepNumber: 0,
             success: true,
             output: {
               content: [{ type: 'text', text: `${toolWorkspacePath}\n` }],
@@ -547,8 +532,8 @@ test('YachiyoServer accepts image-first user input and forwards it as multimodal
       mediaType?: string
       text?: string
     }[]
-    const imagePart = contentArray.find((part) => part.type === 'image')
-    assert.deepEqual(imagePart, { type: 'image', image: 'AAAA', mediaType: 'image/png' })
+    const imagePart = contentArray.find((part) => part.type === 'file')
+    assert.deepEqual(imagePart, { type: 'file', data: 'AAAA', mediaType: 'image/png' })
     const textPart = contentArray.find((part) => part.type === 'text')
     assert.ok(
       textPart?.text?.includes('<attached_files>'),
@@ -640,8 +625,8 @@ test('YachiyoServer accepts active-run steer as an ordinary message and forwards
         image?: string
         mediaType?: string
       }[]
-      const steerImagePart = steerContent.find((p) => p.type === 'image')
-      assert.deepEqual(steerImagePart, { type: 'image', image: 'BBBB', mediaType: 'image/png' })
+      const steerImagePart = steerContent.find((p) => p.type === 'file')
+      assert.deepEqual(steerImagePart, { type: 'file', data: 'BBBB', mediaType: 'image/png' })
       const steerTextPart = steerContent.find((p) => p.type === 'text')
       assert.ok(steerTextPart?.text?.includes('Use the screenshot instead'))
       assert.ok(steerTextPart?.text?.includes('<attached_files>'))

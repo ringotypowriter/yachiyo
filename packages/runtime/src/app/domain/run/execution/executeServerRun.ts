@@ -1,4 +1,4 @@
-import { stepCountIs, type StopCondition, type ToolSet } from 'ai'
+import { isStepCount, type StopCondition, type ToolSet } from 'ai'
 import { performance } from 'node:perf_hooks'
 import { collectMessagePath } from '@yachiyo/shared/threadTree'
 
@@ -556,7 +556,7 @@ export async function executeServerRun(
 
     const stopWhen: Array<StopCondition<ToolSet>> | undefined = tools
       ? [
-          stepCountIs(maxToolSteps),
+          isStepCount(maxToolSteps),
           ({ steps }) => {
             const latestToolResults = steps.at(-1)?.toolResults ?? []
             if (

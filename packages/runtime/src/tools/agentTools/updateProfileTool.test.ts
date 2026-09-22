@@ -25,6 +25,7 @@ function createExecute(deps: UpdateProfileDeps) {
       abortSignal: AbortSignal.timeout(5000),
       toolCallId: 'test',
       messages: [],
+      context: undefined,
       ...options
     }) as Promise<{
       content: Array<{ type: 'text'; text: string }>

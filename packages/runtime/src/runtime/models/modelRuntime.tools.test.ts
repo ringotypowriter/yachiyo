@@ -4,8 +4,8 @@ import { createAiSdkModelRuntime } from './modelRuntime.ts'
 
 test('createAiSdkModelRuntime forwards tools and tool callbacks into the AI SDK tool loop', async () => {
   let call: {
-    experimental_onToolCallFinish?: unknown
-    experimental_onToolCallStart?: unknown
+    onToolExecutionEnd?: unknown
+    onToolExecutionStart?: unknown
     stopWhen?: unknown
     tools?: unknown
   } | null = null
@@ -19,8 +19,8 @@ test('createAiSdkModelRuntime forwards tools and tool callbacks into the AI SDK 
       throw new Error('Anthropic should not be used in this test.')
     },
     streamTextImpl: ((input: {
-      experimental_onToolCallFinish?: unknown
-      experimental_onToolCallStart?: unknown
+      onToolExecutionEnd?: unknown
+      onToolExecutionStart?: unknown
       stopWhen?: unknown
       tools?: unknown
     }) => {
@@ -66,35 +66,46 @@ test('createAiSdkModelRuntime forwards tools and tool callbacks into the AI SDK 
     assert.fail('Expected streamText to be called.')
   }
   const streamCall = call as {
-    experimental_onToolCallFinish?: unknown
-    experimental_onToolCallStart?: unknown
+    onToolExecutionEnd?: unknown
+    onToolExecutionStart?: unknown
     stopWhen?: unknown
     tools?: unknown
   }
   assert.equal(streamCall.tools, tools)
-  assert.equal(typeof streamCall.experimental_onToolCallStart, 'function')
-  ;(streamCall.experimental_onToolCallStart as (event: unknown) => void)({
-    toolCall: { toolCallId: 'tool-test-1' }
-  } as never)
-  assert.equal(startCalls, 1)
-  assert.equal(typeof streamCall.experimental_onToolCallFinish, 'function')
-  ;(streamCall.experimental_onToolCallFinish as (event: unknown) => void)({
-    abortSignal: undefined,
-    durationMs: 0,
-    experimental_context: undefined,
-    functionId: undefined,
-    metadata: undefined,
-    model: undefined,
+  assert.equal(typeof streamCall.onToolExecutionStart, 'function')
+  ;(streamCall.onToolExecutionStart as (event: unknown) => void)({
+    callId: 'call-1',
     messages: [],
-    stepNumber: undefined,
-    success: true,
-    output: { ok: true },
+    toolContext: undefined,
     toolCall: {
       type: 'tool-call',
       dynamic: true,
       toolCallId: 'tool-test-1',
       toolName: 'bash',
       input: { command: 'pwd' }
+    }
+  } as never)
+  assert.equal(startCalls, 1)
+  assert.equal(typeof streamCall.onToolExecutionEnd, 'function')
+  ;(streamCall.onToolExecutionEnd as (event: unknown) => void)({
+    callId: 'call-1',
+    toolExecutionMs: 0,
+    messages: [],
+    toolContext: undefined,
+    toolCall: {
+      type: 'tool-call',
+      dynamic: true,
+      toolCallId: 'tool-test-1',
+      toolName: 'bash',
+      input: { command: 'pwd' }
+    },
+    toolOutput: {
+      type: 'tool-result',
+      dynamic: true,
+      toolCallId: 'tool-test-1',
+      toolName: 'bash',
+      input: { command: 'pwd' },
+      output: { ok: true }
     }
   } as never)
   assert.equal(finishCalls, 1)
@@ -120,7 +131,7 @@ test('createAiSdkModelRuntime forwards preliminary tool results through onToolCa
       throw new Error('Anthropic should not be used in this test.')
     },
     streamTextImpl: (() => ({
-      fullStream: (async function* () {
+      stream: (async function* () {
         yield { type: 'text-delta', id: 'text-1', text: 'He' }
         yield {
           type: 'tool-input-available',
@@ -200,7 +211,7 @@ test('createAiSdkModelRuntime forwards preliminary tool results through onToolCa
   ])
 })
 
-test('createAiSdkModelRuntime forwards final tool results through onToolCallFinish when using fullStream', async () => {
+test('createAiSdkModelRuntime forwards final tool results through onToolCallFinish when using the full stream', async () => {
   const updates: Array<{
     output: unknown
     toolCall: {
@@ -243,7 +254,7 @@ test('createAiSdkModelRuntime forwards final tool results through onToolCallFini
       throw new Error('Anthropic should not be used in this test.')
     },
     streamTextImpl: (() => ({
-      fullStream: (async function* () {
+      stream: (async function* () {
         yield { type: 'text-delta', id: 'text-1', text: 'He' }
         yield {
           type: 'tool-input-available',
@@ -360,7 +371,7 @@ test('createAiSdkModelRuntime can abort the stream after a tool error', async ()
       throw new Error('Anthropic should not be used in this test.')
     },
     streamTextImpl: (() => ({
-      fullStream: (async function* () {
+      stream: (async function* () {
         yield {
           type: 'tool-input-available',
           toolCallId: 'tool-send-group-message-1',
@@ -409,7 +420,7 @@ test('createAiSdkModelRuntime can abort the stream after a tool input error', as
       throw new Error('Anthropic should not be used in this test.')
     },
     streamTextImpl: (() => ({
-      fullStream: (async function* () {
+      stream: (async function* () {
         yield {
           type: 'tool-input-error',
           toolCallId: 'tool-send-group-message-2',
@@ -460,7 +471,7 @@ test('streamReply forwards tool-output-error after tool-input-error to onToolCal
       throw new Error('Anthropic should not be used in this test.')
     },
     streamTextImpl: (() => ({
-      fullStream: (async function* () {
+      stream: (async function* () {
         yield {
           type: 'tool-input-error',
           toolCallId: 'tc-1',

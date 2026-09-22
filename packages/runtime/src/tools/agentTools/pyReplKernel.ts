@@ -153,7 +153,7 @@ export interface PyReplKernelCall {
   reset: boolean
   timeoutMs: number
   signal?: AbortSignal
-  executionOptions: ToolExecutionOptions
+  executionOptions: ToolExecutionOptions<unknown>
   resolveTool: (name: string) => unknown
 }
 

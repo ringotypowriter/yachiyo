@@ -154,7 +154,7 @@ export function createChannelDirectMessageRuntime<TTarget>(
     shouldDiscardPendingBatch: shouldDiscardPendingBatchForDmCommand,
     resolvePlainTextCommand: (channelUser, text) =>
       resolvePendingDmSlashCommandChoice(slashCommandPendingChoices, channelUser, text),
-    handleSlashCommand: (target, channelUser, command, args, context) =>
+    handleSlashCommand: (target, channelUser, command, args, context): Promise<boolean> =>
       handleDmSlashCommand(
         {
           server: options.server,

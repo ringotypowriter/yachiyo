@@ -299,7 +299,7 @@ function kernelCall(overrides: Partial<PyReplKernelCall> = {}): PyReplKernelCall
     availableTools: ['write', 'pyRepl', 'read', 'write', 'jsRepl'],
     reset: false,
     timeoutMs: 500,
-    executionOptions: {} as ToolExecutionOptions,
+    executionOptions: {} as ToolExecutionOptions<unknown>,
     resolveTool: () => undefined,
     ...overrides
   }

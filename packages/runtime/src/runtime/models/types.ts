@@ -1,31 +1,40 @@
-import type {
-  GenerateTextOnToolCallFinishCallback,
-  GenerateTextOnToolCallStartCallback,
-  ModelMessage as AiSdkModelMessage,
-  StopCondition,
-  ToolChoice,
-  ToolSet
-} from 'ai'
+import type { ModelMessage as AiSdkModelMessage, StopCondition, ToolChoice, ToolSet } from 'ai'
 
 import type { ComposerReasoningSelection, ProviderSettings } from '@yachiyo/shared/protocol'
 
 export type ModelMessage = AiSdkModelMessage
 
+export interface ModelToolCall {
+  input: unknown
+  toolCallId: string
+  toolName: string
+}
+
+export interface ModelToolCallStartEvent {
+  toolCall: ModelToolCall
+}
+
+/**
+ * Runtime-owned tool completion event. The AI SDK's own tool execution
+ * events changed shape between majors, so consumers read this stable
+ * `success` / `output` / `error` contract instead of the SDK type.
+ */
+export interface ModelToolCallFinishEvent {
+  toolCall: ModelToolCall
+  success: boolean
+  /** Tool output when `success` is true. */
+  output?: unknown
+  /** Tool error when `success` is false. */
+  error?: unknown
+}
+
 export interface ModelToolCallUpdateEvent {
-  toolCall: {
-    input: unknown
-    toolCallId: string
-    toolName: string
-  }
+  toolCall: ModelToolCall
   output: unknown
 }
 
 export interface ModelToolCallErrorEvent {
-  toolCall: {
-    input: unknown
-    toolCallId: string
-    toolName: string
-  }
+  toolCall: ModelToolCall
   error: unknown
 }
 
@@ -71,11 +80,11 @@ export interface ModelStreamRequest {
   tools?: ToolSet
   toolChoice?: ToolChoice<ToolSet>
   onToolCallPreparing?: (event: { toolCallId: string; toolName: string }) => void
-  onToolCallStart?: GenerateTextOnToolCallStartCallback<ToolSet>
-  onToolCallFinish?: GenerateTextOnToolCallFinishCallback<ToolSet>
+  onToolCallStart?: (event: ModelToolCallStartEvent) => void
+  onToolCallFinish?: (event: ModelToolCallFinishEvent) => void
   onToolCallUpdate?: (event: ModelToolCallUpdateEvent) => void
   onToolCallError?: (event: ModelToolCallErrorEvent) => 'abort' | 'continue'
-  /** Custom stop condition(s) for the multi-step tool loop. Overrides the default `stepCountIs(maxToolSteps)`. */
+  /** Custom stop condition(s) for the multi-step tool loop. Overrides the default `isStepCount(maxToolSteps)`. */
   stopWhen?: StopCondition<ToolSet> | Array<StopCondition<ToolSet>>
   /** Opaque key for provider-side prompt prefix caching (e.g. OpenAI Responses API). */
   promptCacheKey?: string
