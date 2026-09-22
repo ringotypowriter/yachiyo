@@ -44,10 +44,12 @@
     "tar-stream": "^3.2.1",
     "telegraf": "^4.16.3",
     "unpdf": "^1.4.0",
+    "ws": "^8.20.1",
     "yauzl": "^3.4.0",
     "zod": "^4.3.6"
   },
   "devDependencies": {
+    "@types/ws": "^8.18.1",
     "@types/yauzl": "^3.4.0"
   }
 }
