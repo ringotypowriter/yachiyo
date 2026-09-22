@@ -6,7 +6,7 @@ import { WebSocketServer, type WebSocket } from 'ws'
 import { REMOTE_MAX_MESSAGE_BYTES } from '@yachiyo/shared/remote/methods'
 import { REMOTE_WS_PATH } from '@yachiyo/shared/remote/wire'
 
-const PING_INTERVAL_MS = 25_000
+const DEFAULT_PING_INTERVAL_MS = 25_000
 // Encrypted frame = plaintext + 16-byte tag; leave room for JSON framing overhead.
 const MAX_FRAME_BYTES = REMOTE_MAX_MESSAGE_BYTES + 64 * 1024
 
@@ -24,11 +24,14 @@ export async function startRemoteHttpServer(options: {
   host: string
   port: number
   onConnection(socket: WebSocket): void
+  /** Keepalive period; a socket that misses one pong is terminated at the next tick. */
+  pingIntervalMs?: number
 }): Promise<RemoteHttpServer> {
   const server: Server = createServer((_request, response) => {
     response.writeHead(404).end()
   })
   const wss = new WebSocketServer({ noServer: true, maxPayload: MAX_FRAME_BYTES })
+  const alive = new WeakSet<WebSocket>()
 
   server.on('upgrade', (request, socket, head) => {
     const path = (request.url ?? '').split('?')[0]
@@ -36,15 +39,15 @@ export async function startRemoteHttpServer(options: {
       socket.end('HTTP/1.1 404 Not Found\r\nConnection: close\r\n\r\n')
       return
     }
-    wss.handleUpgrade(request, socket, head, (ws) => options.onConnection(ws))
+    wss.handleUpgrade(request, socket, head, (ws) => {
+      // `noServer` sockets never emit the server's 'connection' event; liveness starts here.
+      alive.add(ws)
+      ws.on('pong', () => alive.add(ws))
+      options.onConnection(ws)
+    })
   })
 
   // Cloudflare drops idle WebSockets after about 100 s; pings keep the tunnel leg alive.
-  const alive = new WeakSet<WebSocket>()
-  wss.on('connection', (ws) => {
-    alive.add(ws)
-    ws.on('pong', () => alive.add(ws))
-  })
   const pingTimer = setInterval(() => {
     for (const ws of wss.clients) {
       if (!alive.has(ws)) {
@@ -54,7 +57,7 @@ export async function startRemoteHttpServer(options: {
       alive.delete(ws)
       ws.ping()
     }
-  }, PING_INTERVAL_MS)
+  }, options.pingIntervalMs ?? DEFAULT_PING_INTERVAL_MS)
   pingTimer.unref()
 
   await new Promise<void>((resolve, reject) => {

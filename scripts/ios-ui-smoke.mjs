@@ -89,6 +89,9 @@ try {
   } catch {
     // Not installed yet.
   }
+  // The simulator keychain outlives the app, so pairings from earlier harness runs would
+  // otherwise come back as offline desktops.
+  run('xcrun', ['simctl', 'keychain', device.udid, 'reset'])
   const destination = `platform=iOS Simulator,id=${device.udid}`
   const common = [
     '-project',
