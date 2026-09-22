@@ -16,6 +16,7 @@ import {
   normalizeDefaultModel,
   normalizeGeneralConfig,
   normalizeMemoryConfig,
+  normalizeRemoteConfig,
   normalizeSkillsConfig,
   normalizeSyncConfig,
   normalizeWebSearchConfig,
@@ -67,7 +68,8 @@ export function normalizeSettingsConfig(value: unknown): SettingsConfig {
     prompts: normalizeUserPrompts(input['prompts']),
     subagentProfiles,
     ...(essentials.length > 0 ? { essentials } : {}),
-    subagents
+    subagents,
+    remote: normalizeRemoteConfig(input['remote'])
   }
 }
 

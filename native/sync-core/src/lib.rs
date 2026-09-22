@@ -262,7 +262,10 @@ fn local_only_settings_header(line: &str) -> bool {
         return false;
     };
     let name = rest[..end].trim();
-    name == "sync" || name.starts_with("sync.")
+    // `sync` holds this device's sync folder; `remote` holds this Mac's tunnel and ports.
+    ["sync", "remote"]
+        .iter()
+        .any(|table| name == *table || name.starts_with(&format!("{table}.")))
 }
 
 fn strip_local_only_settings_tables(text: &str) -> String {
@@ -5332,6 +5335,29 @@ mod tests {
 
     fn config_with_sync_dir(theme_id: &str, sync_dir: &str) -> String {
         format!("[general]\nthemeId = \"{theme_id}\"\n\n[sync]\nsyncDir = \"{sync_dir}\"\n")
+    }
+
+    #[test]
+    fn settings_remote_table_is_local_only_on_import() {
+        let sync = tempfile::tempdir().unwrap();
+        let local_config =
+            "[general]\nthemeId = \"ume\"\n\n[remote]\nenabled = false\n".to_string();
+        let remote_config =
+            "[general]\nthemeId = \"ume\"\n\n[remote]\nenabled = true\ntunnel = \"named\"\n"
+                .to_string();
+        let home_a = setup_home(&remote_config);
+        let home_b = setup_home(&local_config);
+        init_sync(home_a.path(), Some(sync.path()), "A").unwrap();
+        init_sync(home_b.path(), Some(sync.path()), "B").unwrap();
+
+        export_ops(home_a.path(), Some(sync.path())).unwrap();
+        import_ops(home_b.path(), Some(sync.path())).unwrap();
+
+        assert_eq!(
+            fs::read_to_string(home_b.path().join(SETTINGS_FILE)).unwrap(),
+            local_config,
+            "remote settings are per-Mac and must not be imported"
+        );
     }
 
     #[test]

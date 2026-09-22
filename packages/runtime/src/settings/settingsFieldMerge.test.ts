@@ -111,6 +111,12 @@ describe('diffSettings', () => {
     const remote = config({ sync: { syncDir: '/remote/sync' } })
     assert.deepEqual(diffSettings(local, remote), [])
   })
+
+  it('ignores per-Mac remote access differences', () => {
+    const local = config({ remote: { enabled: false, tunnel: 'quick', port: 47831 } })
+    const remote = config({ remote: { enabled: true, tunnel: 'named', port: 48000 } })
+    assert.deepEqual(diffSettings(local, remote), [])
+  })
 })
 
 describe('mergeSettings', () => {
@@ -161,5 +167,14 @@ describe('mergeSettings', () => {
       { 'sync.syncDir': 'remote' }
     )
     assert.equal(get(merged, 'sync.syncDir'), '/local/sync')
+  })
+
+  it('keeps the local remote settings even when remote is selected', () => {
+    const merged = mergeSettings(
+      config({ remote: { enabled: false } }),
+      config({ remote: { enabled: true } }),
+      { 'remote.enabled': 'remote' }
+    )
+    assert.equal(get(merged, 'remote.enabled'), false)
   })
 })

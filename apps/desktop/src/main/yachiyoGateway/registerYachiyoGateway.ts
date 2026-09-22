@@ -38,6 +38,7 @@ import type {
   ListSkillsInput,
   ProviderConfig,
   ProviderSettings,
+  RemoteConfig,
   RenameThingInput,
   RemoveThingSourceInput,
   ResolveSyncConflictInput,
@@ -86,10 +87,8 @@ import {
   createElectronBrowserAutomationService,
   type BrowserAutomationService
 } from '@yachiyo/runtime/services/browserAutomation/electronBrowserAutomationService'
-import {
-  createElectronBrowserSearchPageFactory,
-  type BrowserSearchDiagnosticEvent
-} from '@yachiyo/runtime/services/webSearch/electronBrowserSearchSession'
+import { createElectronBrowserSearchPageFactory } from '@yachiyo/runtime/services/webSearch/electronBrowserSearchSession'
+import { logBrowserSearchDiagnostic } from './browserSearchDiagnostics.ts'
 import { createActivityTrackerRpcTarget } from '@yachiyo/runtime/activity/activityTrackerRpcBridge'
 import { createBrowserAutomationRpcTarget } from '@yachiyo/runtime/services/browserAutomation/browserAutomationRpcBridge'
 import { createBrowserSearchPageFactoryRpcTarget } from '@yachiyo/runtime/services/webSearch/browserSearchPageFactoryRpcBridge'
@@ -110,6 +109,7 @@ import {
   type CommandSocketHandle
 } from '../cli/commandSocket.ts'
 import { shouldEnableCommandSocket } from './commandSocketMode.ts'
+import { createGatewayRemoteBinding } from '../remote/gatewayRemote.ts'
 import { createAppUpdateCommandHandler } from '../cli/appUpdateCommand.ts'
 import { createProviderFetch } from '../net/providerFetch.ts'
 import { openThreadWorkspace } from '../electron/openThreadWorkspace.ts'
@@ -181,6 +181,8 @@ export interface YachiyoGatewayHandle {
   listActiveRunIds(): string[]
   closeRunAdmissionAndGetActiveRunIds(ownerId: string): Promise<string[]>
   openRunAdmission(ownerId: string): Promise<void>
+  /** Starts, reconfigures, or stops the remote service to match `remote` settings. */
+  applyRemoteSettings(config: RemoteConfig): void
 }
 
 // The extracted runtime is the default: the agent loop, sqlite, memory
@@ -224,6 +226,10 @@ function broadcastRuntimeHealth(): void {
     }
   }
 }
+const remote = createGatewayRemoteBinding({
+  server: () => rpc(),
+  hostCall: (method, args) => hostCall(method, args)
+})
 let commandSocket: CommandSocketHandle | null = null
 let commandSocketHealthTimer: ReturnType<typeof setInterval> | null = null
 let commandSocketRecoveryRegistered = false
@@ -287,21 +293,6 @@ function browserAutomation(): BrowserAutomationService {
     throw new Error('Yachiyo server is not running')
   }
   return browserAutomationService
-}
-
-function logBrowserSearchDiagnostic(event: BrowserSearchDiagnosticEvent): void {
-  const details = {
-    profilePath: event.profilePath,
-    ...(event.url ? { url: event.url } : {}),
-    ...(event.code !== undefined ? { code: String(event.code) } : {}),
-    ...(event.details ?? {})
-  }
-  const suffix = Object.entries(details)
-    .filter(([, value]) => value !== undefined && value !== '')
-    .map(([key, value]) => `${key}=${String(value)}`)
-    .join(' ')
-
-  console.warn(`[web-search] ${event.event}${suffix ? ` ${suffix}` : ''}`)
 }
 
 const {
@@ -834,7 +825,8 @@ export function registerYachiyoGateway(options: {
       },
       listActiveRunIds: () => [...utilityActiveRunIds],
       closeRunAdmissionAndGetActiveRunIds,
-      openRunAdmission
+      openRunAdmission,
+      applyRemoteSettings: remote.apply
     }
   } else {
     console.log('[yachiyo] runtime host: in-process (YACHIYO_RUNTIME_UTILITY=0)')
@@ -845,7 +837,8 @@ export function registerYachiyoGateway(options: {
       cancelActiveRuns: () => server!.cancelActiveRuns(),
       listActiveRunIds: () => server!.listActiveRunIds(),
       closeRunAdmissionAndGetActiveRunIds,
-      openRunAdmission
+      openRunAdmission,
+      applyRemoteSettings: remote.apply
     }
     void requestPendingUpdateReceiptDelivery()
   }
@@ -1468,6 +1461,7 @@ export function registerYachiyoGateway(options: {
       commandSocket = null
 
       try {
+        await remote.stop()
         if (USE_UTILITY_RUNTIME) {
           if (serverRpc) await hostCall('shutdownRuntime')
         } else if (liveServices) {

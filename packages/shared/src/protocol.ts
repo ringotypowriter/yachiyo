@@ -17,6 +17,7 @@ export * from './protocol/threadData.ts'
 export * from './protocol/groupProbeAdapters.ts'
 export * from './protocol/browserAutomation.ts'
 export * from './protocol/pythonEnvironment.ts'
+export * from './protocol/remoteSettings.ts'
 
 export type ChannelUserStatus = 'pending' | 'allowed' | 'blocked'
 export type ChannelUserRole = 'owner' | 'guest'
@@ -51,10 +52,6 @@ export interface UpdateChannelUserInput {
   usageLimitKTokens?: number | null
   usedKTokens?: number
 }
-
-// ---------------------------------------------------------------------------
-// Channel Groups (group discussion mode)
-// ---------------------------------------------------------------------------
 
 export type ChannelGroupStatus = 'pending' | 'approved' | 'blocked'
 export type GroupMonitorPhase = 'dormant' | 'active' | 'engaged'
@@ -1176,6 +1173,7 @@ export interface SettingsConfig {
   subagentProfiles?: SubagentProfile[]
   essentials?: EssentialPreset[]
   subagents?: SubagentsConfig
+  remote?: import('./protocol/remoteSettings.ts').RemoteConfig
 }
 
 export type SyncConflictResolution = 'keep_local' | 'use_remote' | 'merge'

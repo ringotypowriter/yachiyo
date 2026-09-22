@@ -1,6 +1,7 @@
 import log from 'electron-log/main'
 import { app, screen, shell, BrowserWindow, globalShortcut, ipcMain, nativeTheme } from 'electron'
 import {
+  DEFAULT_REMOTE_CONFIG,
   DEFAULT_THEME_APPEARANCE,
   type SettingsConfig,
   type SettingsUpdatedEvent
@@ -402,6 +403,7 @@ app.whenReady().then(async () => {
     applyAppLanguage(initialConfig)
     keepAwakeController.setEnabled(initialConfig.general?.preventSystemSleep === true)
     updateFloatWindowShortcuts(initialConfig)
+    server.applyRemoteSettings(initialConfig.remote ?? DEFAULT_REMOTE_CONFIG)
   })
 
   server.subscribe((event) => {
@@ -411,6 +413,7 @@ app.whenReady().then(async () => {
       applyAppLanguage(config)
       keepAwakeController.setEnabled(config.general?.preventSystemSleep === true)
       updateFloatWindowShortcuts(config)
+      server.applyRemoteSettings(config.remote ?? DEFAULT_REMOTE_CONFIG)
     }
   })
 
