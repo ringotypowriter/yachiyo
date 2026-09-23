@@ -109,10 +109,19 @@ try {
   ]
   run('xcodebuild', ['build-for-testing', ...common, '-quiet'], { cwd: iosDir })
   try {
-    run('xcodebuild', ['test-without-building', ...common, '-only-testing:YachiyoRemoteUITests'], {
-      cwd: iosDir,
-      env: { ...process.env, TEST_RUNNER_YACHIYO_PAIRING_URL: harness.url }
-    })
+    // Each separately invoked acceptance test needs its own one-use pairing URL.
+    run(
+      'xcodebuild',
+      [
+        'test-without-building',
+        ...common,
+        '-only-testing:YachiyoRemoteUITests/RemoteSmokeTests/testPairChatAnswerSteerStopAndStartThread'
+      ],
+      {
+        cwd: iosDir,
+        env: { ...process.env, TEST_RUNNER_YACHIYO_PAIRING_URL: harness.url }
+      }
+    )
     console.log('XCUITest smoke flow passed')
   } catch {
     failed = true

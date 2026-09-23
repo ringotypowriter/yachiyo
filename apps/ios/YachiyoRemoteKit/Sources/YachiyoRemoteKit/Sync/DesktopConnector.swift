@@ -32,6 +32,7 @@ public struct DesktopConnector: Sendable {
         if let client = try await dial(current.endpoints, desktopKey: current.desktopKey, lastError: &lastError) {
             return (client, current)
         }
+        try Task.checkCancellation()
         guard let mailbox,
               let keys = try? Mailbox.deriveKeys(secret: current.mailboxSecret),
               let box = try await mailbox.read(mailboxId: keys.mailboxId),
@@ -82,12 +83,14 @@ public struct DesktopConnector: Sendable {
 
     private func dial(_ endpoints: [StoredEndpoint], desktopKey: Data, lastError: inout Error?) async throws -> RemoteClient? {
         for endpoint in endpoints {
+            try Task.checkCancellation()
             guard let url = URL(string: endpoint.url) else { continue }
             do {
                 return try await withTimeout {
                     try await RemoteClient.connect(endpoint: url, desktopKey: desktopKey, identity: identity, channelFactory: channelFactory)
                 }
             } catch {
+                try Task.checkCancellation()
                 lastError = error
             }
         }

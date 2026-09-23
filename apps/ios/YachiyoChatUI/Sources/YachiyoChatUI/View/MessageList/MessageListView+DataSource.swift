@@ -43,7 +43,7 @@ extension MessageListView {
         case reasoningContent(String, MessageRepresentation)
         case responseContent(String, MessageRepresentation)
         case hint(String, String)
-        case toolCallHint(String, ToolCallContentPart)
+        case toolCallHint(String, [ToolCallContentPart], String?)
         case activityReporting(String)
         case questionCard(String, QuestionContentPart)
         case planCard(String, PlanCard)
@@ -56,7 +56,7 @@ extension MessageListView {
             case let .reasoningContent(id, _): "reasoning-\(id)"
             case let .responseContent(id, _): "response-\(id)"
             case let .hint(id, _): "hint-\(id)"
-            case let .toolCallHint(id, _): "tool-\(id)"
+            case let .toolCallHint(id, _, _): "tool-\(id)"
             case let .activityReporting(msg): "activity-\(msg)"
             case let .questionCard(id, _): "question-\(id)"
             case let .planCard(id, _): "plan-\(id)"
@@ -168,11 +168,16 @@ extension MessageListView {
                     entries.append(.reasoningContent(message.id, reasoningRep))
                 }
 
-                // Tool calls
-                for part in message.parts {
-                    if case let .toolCall(tc) = part {
-                        entries.append(.toolCallHint(tc.id, tc))
+                // A stable deck per message preserves selection while calls stream in.
+                let toolCalls = message.parts.compactMap { part -> ToolCallContentPart? in
+                    if case let .toolCall(call) = part { return call }
+                    return nil
+                }
+                if !toolCalls.isEmpty {
+                    let selectedID = selectedToolCalls[message.id].flatMap { id in
+                        toolCalls.contains(where: { $0.id == id }) ? id : nil
                     }
+                    entries.append(.toolCallHint(message.id, toolCalls, selectedID))
                 }
 
                 for part in message.parts {
@@ -211,12 +216,17 @@ extension MessageListView {
 
 extension ToolCallContentPart: Hashable {
     public static func == (lhs: ToolCallContentPart, rhs: ToolCallContentPart) -> Bool {
-        lhs.id == rhs.id && lhs.state == rhs.state
+        lhs.id == rhs.id && lhs.state == rhs.state && lhs.toolName == rhs.toolName
+            && lhs.apiName == rhs.apiName && lhs.toolIcon == rhs.toolIcon && lhs.parameters == rhs.parameters
     }
 
     public func hash(into hasher: inout Hasher) {
         hasher.combine(id)
         hasher.combine(state)
+        hasher.combine(toolName)
+        hasher.combine(apiName)
+        hasher.combine(toolIcon)
+        hasher.combine(parameters)
     }
 }
 

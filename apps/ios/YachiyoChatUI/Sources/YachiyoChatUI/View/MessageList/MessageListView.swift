@@ -21,19 +21,22 @@ public final class MessageListView: UIView {
 
     lazy var dataSource: ListViewDiffableDataSource<Entry> = .init(listView: listView)
 
+    var selectedToolCalls: [String: String] = [:]
+
     private var entryCount = 0
     private var isFirstLoad: Bool = true
     private let autoScrollTolerance: CGFloat = 2
 
     public var session: (any ChatMessageSource)? {
         didSet {
+            selectedToolCalls.removeAll()
             isFirstLoad = true
             alpha = 0
             sessionScopedCancellables.forEach { $0.cancel() }
             sessionScopedCancellables.removeAll()
             guard let session else { return }
             Publishers.CombineLatest(
-                session.messagesDidChange,
+                session.messagesDidChange.prepend((session.messages, false)),
                 loadingState
             )
             .receive(on: DispatchQueue.main)

@@ -91,25 +91,32 @@ public final class RemoteClient: @unchecked Sendable {
         channelFactory: WebSocketChannelFactory
     ) async throws -> RemoteClient {
         let channel = channelFactory(endpoint)
-        do {
-            let initiator = try NoiseInitiator(
-                pattern: mode == .pair ? .ikpsk2 : .ik,
-                prologue: Data("yachiyo-remote/v1".utf8),
-                staticPrivateKey: identity.staticPrivateKey,
-                remoteStaticKey: desktopKey,
-                psk: psk
-            )
-            let hello = try JSONSerialization.data(withJSONObject: [
-                "deviceName": identity.deviceName,
-                "app": "yachiyo-ios",
-                "version": identity.appVersion,
-            ])
-            try await channel.send(Data([mode.rawValue]) + initiator.writeMessage1(payload: hello))
-            _ = try initiator.readMessage2(try await channel.receive())
-            return RemoteClient(channel: channel, transport: try initiator.split())
-        } catch {
+        return try await withTaskCancellationHandler {
+            try Task.checkCancellation()
+            do {
+                let initiator = try NoiseInitiator(
+                    pattern: mode == .pair ? .ikpsk2 : .ik,
+                    prologue: Data("yachiyo-remote/v1".utf8),
+                    staticPrivateKey: identity.staticPrivateKey,
+                    remoteStaticKey: desktopKey,
+                    psk: psk
+                )
+                let hello = try JSONSerialization.data(withJSONObject: [
+                    "deviceName": identity.deviceName,
+                    "app": "yachiyo-ios",
+                    "version": identity.appVersion,
+                ])
+                try await channel.send(Data([mode.rawValue]) + initiator.writeMessage1(payload: hello))
+                _ = try initiator.readMessage2(try await channel.receive())
+                try Task.checkCancellation()
+                return RemoteClient(channel: channel, transport: try initiator.split())
+            } catch {
+                channel.close()
+                throw error
+            }
+        } onCancel: {
+            // Task cancellation must wake a blocked handshake receive/send.
             channel.close()
-            throw error
         }
     }
 

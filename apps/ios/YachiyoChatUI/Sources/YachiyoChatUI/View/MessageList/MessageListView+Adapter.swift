@@ -117,8 +117,8 @@ extension MessageListView: ListViewAdapter {
                     .font: theme.fonts.body,
                 ])).height
                 return max(textHeight, ActivityReportingView.loadingSymbolSize.height + 16)
-            case .toolCallHint:
-                return theme.fonts.body.lineHeight + 20
+            case let .toolCallHint(_, _, selectedID):
+                return ToolHintView.height(isExpanded: selectedID != nil)
             case let .questionCard(_, question):
                 return QuestionCardView.height(for: question, width: containerWidth)
             case let .planCard(_, plan):
@@ -226,14 +226,17 @@ extension MessageListView: ListViewAdapter {
                 }
             }
         } else if let toolHintView = rowView as? ToolHintView {
-            if case let .toolCallHint(_, toolCall) = entry {
+            if case let .toolCallHint(messageID, calls, selectedID) = entry {
                 toolHintView.theme = theme
-                toolHintView.toolName = toolCall.toolName
-                toolHintView.text = toolCall.parameters
-                toolHintView.state = toolCall.state
-                toolHintView.clickHandler = { [weak self] in
+                toolHintView.configure(calls: calls, selectedID: selectedID)
+                toolHintView.onSelect = { [weak self] selectedID in
                     guard let self else { return }
-                    interactionDelegate?.messageList(self, didSelectToolCall: toolCall.id)
+                    selectedToolCalls[messageID] = selectedID
+                    session?.notifyMessagesDidChange(scrolling: false)
+                }
+                toolHintView.onDetails = { [weak self] toolCallID in
+                    guard let self else { return }
+                    interactionDelegate?.messageList(self, didSelectToolCall: toolCallID)
                 }
             }
         }

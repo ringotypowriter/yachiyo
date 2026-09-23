@@ -142,6 +142,10 @@ final class InboxViewController: UIViewController {
     }
 
     private func observeStore() {
+        store.$loadingInboxes
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in self?.updateEmptyState(isEmpty: self?.visibleItems().isEmpty ?? true) }
+            .store(in: &cancellables)
         store.$inbox
             .combineLatest(store.$desktops, store.$unreadCompletions, store.$inboxLoadErrors)
             .receive(on: RunLoop.main)
@@ -201,7 +205,21 @@ final class InboxViewController: UIViewController {
             guard let error = store.inboxLoadErrors[desktop.id] else { return nil }
             return "\(desktop.name): \(error)"
         }
-        navigationItem.prompt = failures.isEmpty ? nil : String(localized: "Couldn't refresh threads. Pull to retry.")
+        let connections = store.desktops.compactMap { store.connectionText(for: $0) }
+        let loading = !store.loadingInboxes.isEmpty
+        navigationItem.prompt = isEmpty ? nil : (connections.first ?? (loading ? String(localized: "Loading threads…") : (failures.isEmpty ? nil : String(localized: "Couldn't refresh threads. Pull to retry."))))
+        if isEmpty, loading || !connections.isEmpty {
+            let connecting = store.desktops.contains { $0.state == .connecting }
+            var configuration = loading || connecting ? UIContentUnavailableConfiguration.loading() : UIContentUnavailableConfiguration.empty()
+            configuration.text = loading ? String(localized: "Loading threads…") : connections.joined(separator: "\n")
+            configuration.secondaryText = loading ? (connections.isEmpty ? String(localized: "Fetching your inbox from your Mac.") : connections.joined(separator: "\n")) : nil
+            if !loading, !connecting, store.desktops.contains(where: { if case .offline = $0.state { return true }; return false }) {
+                configuration.button = YachiyoMaterialKit.primaryButtonConfiguration(title: String(localized: "Retry"), image: nil)
+                configuration.buttonProperties.primaryAction = UIAction { [weak self] _ in Task { await self?.store.refreshInbox() } }
+            }
+            contentUnavailableConfiguration = configuration
+            return
+        }
         if isEmpty, !failures.isEmpty {
             var configuration = UIContentUnavailableConfiguration.empty()
             configuration.image = .lucide("triangle-alert")

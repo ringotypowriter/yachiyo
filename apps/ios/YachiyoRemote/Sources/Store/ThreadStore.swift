@@ -21,6 +21,14 @@ final class ThreadStore: ChatMessageSource {
     @Published private(set) var summary: RemoteThreadSummary?
     @Published private(set) var detail: RemoteThreadDetail?
     @Published private(set) var isLoading = false
+    @Published private(set) var loadError: String?
+    @Published private(set) var isStopping = false
+    private var needsReload = true
+    private var reloadAgain = false
+    private var loadToken: UUID?
+    private var isOpen = false
+    private var eventsDuringLoad: [RemoteEvent] = []
+    private var isReplayingLoadEvents = false
     @Published private(set) var lastError: String?
 
     /// Messages streaming in the active run (message id → accumulated text / reasoning).
@@ -46,14 +54,31 @@ final class ThreadStore: ChatMessageSource {
         self.desktopId = desktopId
         self.threadId = threadId
         self.store = store
-        summary = store.summary(desktopId: desktopId, threadId: threadId)
+        let cached = store.cachedThread(desktopId: desktopId, threadId: threadId)
+        detail = cached?.detail
+        activeRunId = cached?.detail.activeRunId
+        needsReload = cached == nil || cached?.needsRefresh == true || activeRunId != nil
+        summary = store.summary(desktopId: desktopId, threadId: threadId) ?? cached?.detail.thread
+        rebuild(scrolling: false)
         store.threadEvents
-            .filter { [threadId] in $0.event.threadId == threadId }
+            .filter { [desktopId, threadId] in $0.desktopId == desktopId && $0.event.threadId == threadId }
             .sink { [weak self] in self?.apply($0.event) }
             .store(in: &cancellables)
         store.resyncs
             .filter { [desktopId] in $0 == desktopId }
-            .sink { [weak self] _ in Task { await self?.reload() } }
+            .sink { [weak self] _ in self?.invalidate() }
+            .store(in: &cancellables)
+        store.$desktops
+            .map { [desktopId] in $0.first { $0.id == desktopId }?.state }
+            .removeDuplicates()
+            .sink { [weak self] state in
+                guard let self, isOpen else { return }
+                if state == .online { Task { await self.reloadIfNeeded() } }
+                else {
+                    if loadToken != nil { needsReload = true }
+                    loadToken = nil; isLoading = false; eventsDuringLoad.removeAll()
+                }
+            }
             .store(in: &cancellables)
         store.$inbox
             .map { [desktopId, threadId] in $0.first { $0.desktopId == desktopId && $0.summary.id == threadId }?.summary }
@@ -86,19 +111,62 @@ final class ThreadStore: ChatMessageSource {
     // MARK: Loading
 
     func open() async {
+        isOpen = true
         store.setOpenThread(desktopId: desktopId, threadId: threadId)
-        await reload()
+        await reloadIfNeeded()
     }
 
     func close() {
-        store.setOpenThread(desktopId: nil, threadId: nil)
+        isOpen = false
+        needsReload = true
+        loadToken = nil
+        isLoading = false
+        eventsDuringLoad.removeAll()
+        store.clearOpenThread(desktopId: desktopId, threadId: threadId)
     }
 
-    func reload() async {
+    private func invalidate() {
+        needsReload = true
+        store.dirtyThread(desktopId: desktopId, threadId: threadId)
+        if loadToken != nil { reloadAgain = true }
+        else if isOpen { Task { await self.reloadIfNeeded() } }
+    }
+
+    private func reloadIfNeeded() async {
+        guard needsReload || detail == nil else { return }
+        await reload(force: false)
+    }
+
+    func reload(force: Bool = true) async {
+        guard isOpen, let link = store.link(for: desktopId), link.state == .online else { return }
+        // Opening a scope must complete before its snapshot request starts.
+        guard await link.waitForWatch(threadId: threadId), isOpen else { return }
+        guard loadToken == nil, force || needsReload || detail == nil else { return }
+        needsReload = true
+        store.dirtyThread(desktopId: desktopId, threadId: threadId)
+        reloadAgain = false
+        let token = UUID()
+        loadToken = token
+        eventsDuringLoad.removeAll()
+        let initialLoad = detail == nil
         isLoading = true
-        defer { isLoading = false }
+        loadError = nil
+        var completed = false
+        defer {
+            if loadToken == token || completed {
+                loadToken = nil
+                isLoading = false
+                eventsDuringLoad.removeAll()
+                if reloadAgain, isOpen {
+                    reloadAgain = false
+                    Task { await self.reloadIfNeeded() }
+                }
+            }
+        }
         do {
             let loaded: RemoteThreadDetail = try await store.call(desktopId, "threads.load", ThreadLoadInput(threadId: threadId, limit: 50, beforeMessageId: nil))
+            try Task.checkCancellation()
+            guard loadToken == token, isOpen else { return }
             detail = loaded
             summary = loaded.thread
             store.upsert(desktopId: desktopId, summary: loaded.thread)
@@ -109,15 +177,28 @@ final class ThreadStore: ChatMessageSource {
             streamingOrder.removeAll()
             liveToolCalls.removeAll()
             lastError = nil
-            rebuild(scrolling: true)
+            let buffered = eventsDuringLoad
+            needsReload = reloadAgain
+            store.cacheThread(desktopId: desktopId, detail: loaded, needsRefresh: !buffered.isEmpty || reloadAgain)
+            completed = true
+            loadToken = nil
+            isLoading = false
+            eventsDuringLoad.removeAll()
+            isReplayingLoadEvents = true
+            for event in buffered { apply(event) }
+            isReplayingLoadEvents = false
+            rebuild(scrolling: initialLoad)
         } catch {
-            lastError = describe(error)
+            guard loadToken == token, !Task.isCancelled, !(error is CancellationError) else { return }
+            loadError = describe(error)
         }
     }
 
     // MARK: Events
 
     private func apply(_ event: RemoteEvent) {
+        guard isOpen else { return }
+        if loadToken != nil { eventsDuringLoad.append(event) }
         switch event.type {
         case .messageStarted:
             guard let messageId = event.messageId else { return }
@@ -164,11 +245,26 @@ final class ThreadStore: ChatMessageSource {
                 default: runFooters[runId] = nil
                 }
                 // The finished branch (sibling ids, final tool summaries) comes from a reload.
-                Task { await reload() }
+                if !isReplayingLoadEvents { invalidate() }
             }
             rebuild(scrolling: false)
         case .threadInvalidated:
-            Task { await reload() }
+            if !isReplayingLoadEvents { invalidate() }
+        case .threadRemoved:
+            loadToken = nil
+            reloadAgain = false
+            needsReload = false
+            isLoading = false
+            eventsDuringLoad.removeAll()
+            detail = nil
+            summary = nil
+            activeRunId = nil
+            streamingText.removeAll()
+            streamingReasoning.removeAll()
+            streamingParent.removeAll()
+            streamingOrder.removeAll()
+            liveToolCalls.removeAll()
+            rebuild(scrolling: false)
         case .todoUpdated:
             rebuild(scrolling: false)
         default:
@@ -190,6 +286,7 @@ final class ThreadStore: ChatMessageSource {
     // MARK: Timeline
 
     private func rebuild(scrolling: Bool) {
+        guard !isReplayingLoadEvents else { return }
         let toolCalls = allToolCalls
         let loaded = detail?.messages ?? []
         var built: [ConversationMessage] = []
@@ -330,7 +427,10 @@ final class ThreadStore: ChatMessageSource {
     }
 
     func stop() async {
-        guard let runId = activeRunId else { return }
+        guard let runId = activeRunId, !isStopping else { return }
+        isStopping = true
+        lastError = nil
+        defer { isStopping = false }
         do {
             let _: RemoteOk = try await store.call(desktopId, "run.cancel", RunIdInput(runId: runId))
         } catch {

@@ -19,6 +19,10 @@ final class ThreadViewController: UIViewController {
     private let banner = YachiyoMaterialKit.makeFloatingSurface(cornerRadius: 22)
     private let bannerLabel = UILabel()
     private let errorLabel = UILabel()
+    private let loadingStatus = UIStackView()
+    private let loadingLabel = UILabel()
+    private let loadingSpinner = UIActivityIndicatorView(style: .medium)
+    private let retryButton = UIButton(type: .system)
     private let titleLabel = UILabel()
     private let subtitleLabel = UILabel()
     private var cancellables: Set<AnyCancellable> = []
@@ -42,25 +46,26 @@ final class ThreadViewController: UIViewController {
         configureComposer()
         configureCapsules()
         configureBanner()
+        configureLoadingStatus()
         observe()
-        Task { await thread.open() }
         NotificationCenter.default.addObserver(self, selector: #selector(styleDidChange), name: YachiyoStyle.didChangeNotification, object: nil)
     }
 
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
         navigationController?.setToolbarHidden(true, animated: animated)
+        Task { await thread.open() }
     }
 
     override func viewDidDisappear(_ animated: Bool) {
         super.viewDidDisappear(animated)
-        if isMovingFromParent { thread.close() }
+        thread.close()
     }
 
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         let bottomChrome = view.bounds.height - min(composer.isHidden ? banner.frame.minY : composer.frame.minY, capsuleGroup.frame.minY)
-        messageList.contentInsets = UIEdgeInsets(top: view.safeAreaInsets.top + 8, left: 0, bottom: bottomChrome + 12, right: 0)
+        messageList.contentInsets = UIEdgeInsets(top: 8, left: 0, bottom: bottomChrome + 12, right: 0)
     }
 
     @objc private func styleDidChange() {
@@ -94,11 +99,12 @@ final class ThreadViewController: UIViewController {
         messageList.applyYachiyoTheme()
         messageList.interactionDelegate = self
         messageList.session = thread
+        messageList.clipsToBounds = true
         messageList.scrollView.accessibilityIdentifier = "thread.timeline"
         messageList.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(messageList)
         NSLayoutConstraint.activate([
-            messageList.topAnchor.constraint(equalTo: view.topAnchor),
+            messageList.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
             messageList.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             messageList.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             messageList.bottomAnchor.constraint(equalTo: view.bottomAnchor),
@@ -190,7 +196,40 @@ final class ThreadViewController: UIViewController {
         ])
     }
 
+    private func configureLoadingStatus() {
+        loadingStatus.axis = .vertical
+        loadingStatus.spacing = 8
+        loadingStatus.alignment = .center
+        loadingStatus.isLayoutMarginsRelativeArrangement = true
+        loadingStatus.directionalLayoutMargins = NSDirectionalEdgeInsets(top: 12, leading: 16, bottom: 12, trailing: 16)
+        loadingStatus.backgroundColor = .yachiyo(.canvas)
+        loadingStatus.layer.cornerRadius = 16
+        loadingLabel.font = YachiyoFonts.meta()
+        loadingLabel.numberOfLines = 0
+        loadingLabel.textAlignment = .center
+        loadingLabel.accessibilityIdentifier = "thread.loadingStatus"
+        retryButton.setTitle(String(localized: "Retry"), for: .normal)
+        retryButton.accessibilityIdentifier = "thread.retryLoad"
+        retryButton.addAction(UIAction { [weak self] _ in
+            guard let self else { return }
+            if store.link(for: thread.desktopId)?.state == .online { Task { await self.thread.reload() } }
+            else { store.retryConnection(desktopId: thread.desktopId) }
+        }, for: .touchUpInside)
+        for child in [loadingSpinner, loadingLabel, retryButton] { loadingStatus.addArrangedSubview(child) }
+        loadingStatus.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(loadingStatus)
+        NSLayoutConstraint.activate([
+            loadingStatus.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 8),
+            loadingStatus.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            loadingStatus.widthAnchor.constraint(lessThanOrEqualTo: view.safeAreaLayoutGuide.widthAnchor, constant: -32),
+        ])
+    }
+
     private func observe() {
+        thread.$isLoading.combineLatest(thread.$loadError, thread.$isStopping)
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in self?.updateChrome() }
+            .store(in: &cancellables)
         thread.$summary.combineLatest(thread.$detail, thread.$lastError)
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in self?.updateChrome() }
@@ -212,22 +251,22 @@ final class ThreadViewController: UIViewController {
         titleLabel.text = [summary?.icon, summary?.title].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " ")
         titleLabel.textColor = .label
         let desktop = store.desktops.first { $0.id == thread.desktopId }
-        var subtitle = [desktop?.name, summary?.workspaceName].compactMap { $0 }.joined(separator: " · ")
-        if desktop?.state == .connecting { subtitle = String(localized: "Connecting…") }
-        subtitleLabel.text = subtitle
+        subtitleLabel.text = [desktop?.name, summary?.workspaceName].compactMap { $0 }.joined(separator: " · ")
 
-        let banner: String?
-        switch desktop?.state {
-        case .offline:
-            banner = String(localized: "\(desktop?.name ?? "") is offline")
-        case .protocolMismatch:
-            banner = String(localized: "Update Yachiyo on this iPhone or on \(desktop?.name ?? "") to connect.")
-        default:
-            banner = thread.isReadOnly ? String(localized: "Read-only — synced from another device") : nil
-        }
-        bannerLabel.text = banner
-        self.banner.isHidden = banner == nil
-        composer.isHidden = banner != nil
+        let connection = desktop.flatMap { store.connectionText(for: $0) }
+        let busy = desktop?.state == .connecting || (desktop?.state == .online && thread.isLoading) || thread.isStopping
+        let status = connection ?? (thread.isStopping ? String(localized: "Stopping response…") : (thread.isLoading ? (thread.detail == nil ? String(localized: "Loading conversation history and context…") : String(localized: "Refreshing conversation…")) : thread.loadError.map { String(localized: "Couldn't load conversation. \($0)") }))
+        loadingLabel.text = status
+        loadingStatus.isHidden = status == nil
+        loadingSpinner.isHidden = !busy
+        if busy { loadingSpinner.startAnimating() } else { loadingSpinner.stopAnimating() }
+        let offline: Bool
+        if case .offline = desktop?.state { offline = true } else { offline = false }
+        retryButton.isHidden = busy || !(offline || (desktop?.state == .online && thread.loadError != nil))
+        bannerLabel.text = thread.isReadOnly ? String(localized: "Read-only — synced from another device") : nil
+        banner.isHidden = !thread.isReadOnly
+        // Keep the draft and keyboard in place during transient connection/refresh states.
+        composer.isHidden = thread.isReadOnly
         composer.isRunning = thread.isRunning
 
         needsAnswerButton.isHidden = thread.pendingQuestion == nil
