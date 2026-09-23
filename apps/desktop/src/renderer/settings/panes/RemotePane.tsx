@@ -43,6 +43,22 @@ function buttonStyle(disabled: boolean): React.CSSProperties {
   }
 }
 
+function CopyButton({ value, label }: { value: string; label: string }): React.ReactNode {
+  const t = useT()
+  const [copied, setCopied] = useState(false)
+  const copy = (): void => {
+    void navigator.clipboard.writeText(value).then(() => {
+      setCopied(true)
+      window.setTimeout(() => setCopied(false), 1500)
+    })
+  }
+  return (
+    <button type="button" style={buttonStyle(false)} onClick={copy}>
+      {copied ? t('common.copied') : label}
+    </button>
+  )
+}
+
 function formatTime(iso: string): string {
   return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 }
@@ -89,9 +105,12 @@ function PairingOverlay({ qr, onClose }: { qr: PairingQr; onClose: () => void })
         <div className="text-xs" style={{ color: theme.text.tertiary }}>
           {t('settings.remote.qrExpires', { time: formatTime(qr.expiresAt) })}
         </div>
-        <button type="button" style={buttonStyle(false)} onClick={onClose}>
-          {t('settings.remote.qrClose')}
-        </button>
+        <div className="flex gap-2">
+          <CopyButton value={qr.url} label={t('settings.remote.qrCopyLink')} />
+          <button type="button" style={buttonStyle(false)} onClick={onClose}>
+            {t('settings.remote.qrClose')}
+          </button>
+        </div>
       </div>
     </div>,
     document.body
@@ -248,6 +267,11 @@ export function RemotePane({ draft, onChange }: RemotePaneProps): React.ReactNod
               : hint === 'icloud-unavailable'
                 ? t('settings.remote.icloudUnavailable')
                 : undefined)
+          }
+          control={
+            status?.running && address ? (
+              <CopyButton value={address} label={t('common.copy')} />
+            ) : undefined
           }
         />
         <SettingItem

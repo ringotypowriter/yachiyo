@@ -24,6 +24,7 @@ export const remote = {
   pairUnavailable: '请先开启远程访问并保存。',
   qrTitle: '用 iPhone 上的 Yachiyo 扫码',
   qrExpires: '{time} 失效',
+  qrCopyLink: '复制链接',
   qrClose: '完成',
   phones: '已配对的手机',
   phonesEmpty: '还没有配对的手机。',

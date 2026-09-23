@@ -5,14 +5,15 @@ public enum PairingURLError: Error, Equatable {
     case unsupportedVersion
     case missingPayload
     case malformedPayload
-    case expired
 }
 
 /// `yachiyo-remote://pair?v=1&d=<base64url(JSON RemotePairingPayload)>` from the desktop QR code.
+/// `expiresAt` is not checked here: the phone's clock may disagree with the Mac's, and the Mac
+/// rejects an expired token during the handshake anyway.
 public enum PairingURL {
     public static let scheme = "yachiyo-remote"
 
-    public static func decode(_ url: URL, now: Date = Date()) throws -> RemotePairingPayload {
+    public static func decode(_ url: URL) throws -> RemotePairingPayload {
         guard url.scheme == scheme, url.host == "pair",
               let components = URLComponents(url: url, resolvingAgainstBaseURL: false)
         else { throw PairingURLError.notAPairingURL }
@@ -33,9 +34,6 @@ public enum PairingURL {
               Base64URL.decode(payload.token)?.count == 32,
               !payload.endpoints.isEmpty
         else { throw PairingURLError.malformedPayload }
-        if let expiresAt = ISO8601.parse(payload.expiresAt), expiresAt <= now {
-            throw PairingURLError.expired
-        }
         return payload
     }
 }

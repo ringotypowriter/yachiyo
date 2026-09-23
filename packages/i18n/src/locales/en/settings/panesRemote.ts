@@ -24,6 +24,7 @@ export const remote = {
   pairUnavailable: 'Save with remote access on first.',
   qrTitle: 'Scan with Yachiyo on iPhone',
   qrExpires: 'Expires at {time}',
+  qrCopyLink: 'Copy link',
   qrClose: 'Done',
   phones: 'Paired phones',
   phonesEmpty: 'No phones yet.',

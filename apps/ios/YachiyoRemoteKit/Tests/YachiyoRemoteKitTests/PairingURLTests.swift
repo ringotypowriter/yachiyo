@@ -19,10 +19,11 @@ final class PairingURLTests: XCTestCase {
         XCTAssertEqual(payload.endpoints.first?.kind, .tunnel)
     }
 
-    func testRejectsExpiredMalformedAndForeignURLs() {
-        XCTAssertThrowsError(try PairingURL.decode(url(expiresAt: "2020-01-01T00:00:00.000Z"))) {
-            XCTAssertEqual($0 as? PairingURLError, .expired)
-        }
+    func testLeavesExpiryToTheMacSoClockSkewCannotRejectAFreshCode() throws {
+        XCTAssertNoThrow(try PairingURL.decode(url(expiresAt: "2020-01-01T00:00:00.000Z")))
+    }
+
+    func testRejectsMalformedAndForeignURLs() {
         XCTAssertThrowsError(try PairingURL.decode(url(key: "short"))) {
             XCTAssertEqual($0 as? PairingURLError, .malformedPayload)
         }

@@ -143,8 +143,6 @@ final class PairingViewController: UIViewController {
                 let desktop = try await RemoteStore.shared.pair(url: url)
                 UINotificationFeedbackGenerator().notificationOccurred(.success)
                 step = .paired(desktop)
-            } catch let error as PairingURLError where error == .expired {
-                step = .failed(String(localized: "This code has expired. Show a new one in Settings > Remote on your Mac."))
             } catch {
                 step = .failed(String(localized: "This code has expired or was already used, or your Mac can't be reached. Show a new code in Settings > Remote on your Mac."))
             }
