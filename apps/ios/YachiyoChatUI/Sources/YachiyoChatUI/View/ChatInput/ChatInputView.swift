@@ -150,6 +150,7 @@ open class ChatInputView: EditorSectionView {
         controlPanel.delegate = self
         quickSettingBar.delegate = self
         attachmentsBar.delegate = self
+        attachmentsBar.collectionView.accessibilityIdentifier = "composer.attachments"
 
         quickSettingBar.horizontalAdjustment = spacing
 

@@ -3,14 +3,18 @@ import UIKit
 /// The native counterpart of the desktop inline tool deck. Icon hit targets remain
 /// 44 points wide rather than overlapping, so every call is reachable by touch.
 final class ToolHintView: MessageListRowView {
-    private let iconScrollView = UIScrollView()
+    private final class IconScrollView: UIScrollView {
+        override func touchesShouldCancel(in view: UIView) -> Bool {
+            view is UIButton || super.touchesShouldCancel(in: view)
+        }
+    }
+
+    private let iconScrollView = IconScrollView()
     private let iconStack = UIStackView()
     private let summaryButton = UIButton(type: .system)
     private let activityIndicator = UIActivityIndicatorView(style: .medium)
     private let stateImageView = UIImageView()
-    private let detailView = UIView()
-    private let previewLabel = UILabel()
-    private let statusLabel = UILabel()
+    private let runningImageView = UIImageView(image: UIImage(systemName: "hourglass"))
     private let detailButton = UIButton(type: .system)
     private var calls: [ToolCallContentPart] = []
     private var selectedID: String?
@@ -54,12 +58,15 @@ final class ToolHintView: MessageListRowView {
 
     static func height(isExpanded: Bool) -> CGFloat {
         let lineHeight = UIFont.preferredFont(forTextStyle: .footnote).lineHeight
-        return 44 + max(44, lineHeight + 20) + (isExpanded ? ceil(lineHeight * 3) + 68 : 0)
+        return 44 + max(44, ceil(lineHeight * 2) + 8)
     }
 
     override init(frame: CGRect) {
         super.init(frame: frame)
         iconScrollView.showsHorizontalScrollIndicator = false
+        iconScrollView.delaysContentTouches = true
+        iconScrollView.canCancelContentTouches = true
+        iconScrollView.panGestureRecognizer.cancelsTouchesInView = true
         iconScrollView.addSubview(iconStack)
         iconStack.axis = .horizontal
         contentView.addSubview(iconScrollView)
@@ -69,20 +76,11 @@ final class ToolHintView: MessageListRowView {
         stateImageView.contentMode = .scaleAspectFit
         stateImageView.isAccessibilityElement = false
         activityIndicator.isAccessibilityElement = false
-        contentView.addSubview(detailView)
-        detailView.backgroundColor = .secondarySystemBackground
-        detailView.layer.cornerRadius = 14
-        detailView.layer.cornerCurve = .continuous
-        detailView.addSubview(previewLabel)
-        detailView.addSubview(statusLabel)
-        detailView.addSubview(detailButton)
-        statusLabel.font = .preferredFont(forTextStyle: .caption1)
-        statusLabel.adjustsFontForContentSizeCategory = true
-        statusLabel.textColor = .secondaryLabel
-        previewLabel.numberOfLines = 3
-        previewLabel.lineBreakMode = .byTruncatingTail
-        previewLabel.textColor = .secondaryLabel
-        previewLabel.adjustsFontForContentSizeCategory = true
+        contentView.addSubview(runningImageView)
+        runningImageView.contentMode = .scaleAspectFit
+        runningImageView.tintColor = .secondaryLabel
+        runningImageView.isAccessibilityElement = false
+        contentView.addSubview(detailButton)
         summaryButton.contentHorizontalAlignment = .leading
         summaryButton.addAction(UIAction { [weak self] _ in
             guard let self else { return }
@@ -133,39 +131,44 @@ final class ToolHintView: MessageListRowView {
         }
         var configuration = UIButton.Configuration.plain()
         configuration.title = displayed.map { call in
-            let preview = call.parameters.replacingOccurrences(of: "\n", with: " ")
-            return preview.isEmpty || preview == "{}" ? call.toolName : "\(call.toolName) · \(preview)"
+            // The remote adapter stores the human-readable call title in parameters.
+            let title = call.parameters.split(whereSeparator: { $0.isWhitespace }).joined(separator: " ")
+            return title.isEmpty || title == "{}" ? call.toolName : title
         }
         configuration.image = UIImage(systemName: selected == nil ? "chevron.down" : "chevron.up")
         configuration.imagePlacement = .trailing
         configuration.imagePadding = 8
         configuration.contentInsets = .zero
-        configuration.baseForegroundColor = displayed?.state == .failed ? .systemRed : .secondaryLabel
+        configuration.baseForegroundColor = displayed?.state == .failed ? .systemRed : .label
         configuration.titleTextAttributesTransformer = .init { attributes in
             var attributes = attributes
             attributes.font = UIFont.preferredFont(forTextStyle: .footnote)
             return attributes
         }
         summaryButton.configuration = configuration
-        summaryButton.titleLabel?.numberOfLines = 1
+        summaryButton.titleLabel?.numberOfLines = 2
         summaryButton.titleLabel?.lineBreakMode = .byTruncatingTail
-        summaryButton.accessibilityLabel = displayed.map { statusText(for: $0) }
+        let importantCalls = calls.filter { $0.id != displayed?.id && $0.state != .succeeded }
+        summaryButton.accessibilityLabel = ([configuration.title, displayed.map { statusText(for: $0) }]
+            .compactMap { $0 } + importantCalls.map { statusText(for: $0) }).joined(separator: ". ")
         summaryButton.accessibilityValue = selected == nil ? String(localized: "Collapsed") : String(localized: "Expanded")
-        let isRunning = displayed?.state == .running
+        let isRunning = calls.contains { $0.state == .running }
+        let hasFailure = calls.contains { $0.state == .failed }
         if isRunning && !UIAccessibility.isReduceMotionEnabled {
             activityIndicator.startAnimating()
         } else {
             activityIndicator.stopAnimating()
         }
-        stateImageView.isHidden = isRunning && !UIAccessibility.isReduceMotionEnabled
-        stateImageView.image = UIImage(systemName: isRunning ? "hourglass" : (displayed?.state == .failed ? "exclamationmark.circle" : "checkmark.circle"))
-        stateImageView.tintColor = displayed?.state == .failed ? .systemRed : .secondaryLabel
-        detailView.isHidden = selected == nil
-        previewLabel.text = selected?.parameters
-        previewLabel.font = .preferredFont(forTextStyle: .footnote)
+        runningImageView.isHidden = !isRunning || !UIAccessibility.isReduceMotionEnabled
+        stateImageView.isHidden = isRunning && !hasFailure
+        stateImageView.image = UIImage(systemName: hasFailure ? "exclamationmark.circle" : "checkmark.circle")
+        stateImageView.tintColor = hasFailure ? .systemRed : .secondaryLabel
+        stateImageView.accessibilityIdentifier = calls.first.map { "toolDeck.status.\($0.id)" }
+        activityIndicator.accessibilityIdentifier = calls.first.map { "toolDeck.activity.\($0.id)" }
+        runningImageView.accessibilityIdentifier = calls.first.map { "toolDeck.running.\($0.id)" }
+        detailButton.isHidden = selected == nil
         detailButton.isEnabled = selected?.state != .running
         detailButton.accessibilityLabel = String(localized: "Details")
-        statusLabel.text = selected.map { statusText(for: $0) }
         setNeedsLayout()
     }
 
@@ -188,17 +191,17 @@ final class ToolHintView: MessageListRowView {
     override func layoutSubviews() {
         super.layoutSubviews()
         let width = contentView.bounds.width
-        let summaryHeight = max(44, UIFont.preferredFont(forTextStyle: .footnote).lineHeight + 20)
-        iconScrollView.frame = CGRect(x: 0, y: 0, width: width, height: 44)
+        let summaryHeight = Self.height(isExpanded: selectedID != nil) - 44
+        let detailWidth = detailButton.isHidden ? 0 : min(max(0, width - 44), max(96, detailButton.sizeThatFits(.init(width: width, height: 44)).width))
+        iconScrollView.frame = CGRect(x: 0, y: 0, width: max(0, width - detailWidth), height: 44)
         iconStack.frame = CGRect(x: 0, y: 0, width: CGFloat(calls.count) * 44, height: 44)
         iconScrollView.contentSize = iconStack.bounds.size
+        detailButton.frame = CGRect(x: width - detailWidth, y: 0, width: detailWidth, height: 44)
+        let showsBothStates = calls.contains { $0.state == .running } && calls.contains { $0.state == .failed }
         activityIndicator.frame = CGRect(x: 0, y: 44 + (summaryHeight - 20) / 2, width: 20, height: 20)
-        stateImageView.frame = activityIndicator.frame.insetBy(dx: 2, dy: 2)
-        summaryButton.frame = CGRect(x: 28, y: 44, width: max(0, width - 28), height: summaryHeight)
-        detailView.frame = CGRect(x: 0, y: 44 + summaryHeight, width: width, height: max(0, contentView.bounds.height - 44 - summaryHeight))
-        previewLabel.frame = CGRect(x: 12, y: 12, width: max(0, width - 24), height: ceil(previewLabel.font.lineHeight * 3))
-        let detailWidth = min(width, max(100, detailButton.sizeThatFits(.init(width: width, height: 44)).width))
-        detailButton.frame = CGRect(x: width - detailWidth, y: previewLabel.frame.maxY + 4, width: detailWidth, height: 44)
-        statusLabel.frame = CGRect(x: 12, y: detailButton.frame.minY, width: max(0, width - detailWidth - 20), height: 44)
+        runningImageView.frame = activityIndicator.frame.insetBy(dx: 2, dy: 2)
+        stateImageView.frame = activityIndicator.frame.offsetBy(dx: showsBothStates ? 20 : 0, dy: 0).insetBy(dx: 2, dy: 2)
+        let summaryX: CGFloat = showsBothStates ? 48 : 28
+        summaryButton.frame = CGRect(x: summaryX, y: 44, width: max(0, width - summaryX), height: summaryHeight)
     }
 }

@@ -9,6 +9,7 @@ extension InputEditor {
     @MainActor
     protocol Delegate: AnyObject {
         func onInputEditorCaptureButtonTapped()
+        func onInputEditorPickPhotoButtonTapped()
         func onInputEditorPickAttachmentTapped()
         func onInputEditorMicButtonTapped()
         func onInputEditorToggleMoreButtonTapped()

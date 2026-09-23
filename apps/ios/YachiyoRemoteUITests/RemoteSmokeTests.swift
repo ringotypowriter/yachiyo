@@ -262,6 +262,49 @@ final class RemoteSmokeTests: XCTestCase {
         capture("message-acknowledged")
     }
 
+    func testCompactToolsAndPhotoLibraryMenu() {
+        func capture(_ name: String) {
+            let image = XCTAttachment(screenshot: app.screenshot())
+            image.name = name
+            image.lifetime = .keepAlways
+            add(image)
+        }
+        continueAfterPairing()
+        app.terminate()
+        app.launchArguments = ["-YachiyoRoute", "thread:demo-thread-coding-dispatch"]
+        app.launch()
+        let deck = element("toolDeck.summary.demo-tool-dispatch-claude")
+        XCTAssertTrue(deck.waitForExistence(timeout: 30))
+        let timeline = element("thread.timeline")
+        for _ in 0..<8 {
+            if deck.isHittable { break }
+            timeline.swipeDown()
+        }
+        capture("compact-tool-deck")
+        let start = deck.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        let dragY: CGFloat = deck.frame.midY > timeline.frame.midY ? -100 : 100
+        start.press(forDuration: 0.05, thenDragTo: start.withOffset(CGVector(dx: 0, dy: dragY)))
+        XCTAssertEqual(deck.value as? String, "Collapsed", "Scrolling from a tool must not expand it")
+        deck.tap()
+        XCTAssertTrue(element("toolDeck.details.demo-tool-dispatch-claude").exists)
+        capture("selected-tool-deck")
+        let media = app.buttons["composer.media"]
+        XCTAssertTrue(media.waitForExistence(timeout: 10))
+        media.tap()
+        let library = app.buttons["Photo Library"]
+        XCTAssertTrue(library.waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["Camera"].exists)
+        capture("image-source-menu")
+        library.tap()
+        let photo = app.images.matching(NSPredicate(format: "label BEGINSWITH 'Photo' OR label BEGINSWITH 'Image'")).firstMatch
+        XCTAssertTrue(photo.waitForExistence(timeout: 15), app.debugDescription)
+        capture("photo-library-picker")
+        photo.tap()
+        if app.buttons["Add"].waitForExistence(timeout: 3) { app.buttons["Add"].tap() }
+        XCTAssertTrue(app.collectionViews["composer.attachments"].cells.firstMatch.waitForExistence(timeout: 15))
+        capture("photo-attached")
+    }
+
     private func continueAfterPairing() {
         if ProcessInfo.processInfo.environment["YACHIYO_REUSE_PAIRING"] == "1" { return }
         XCTAssertTrue(app.staticTexts["pairing.message"].waitForExistence(timeout: 30))

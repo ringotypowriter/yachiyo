@@ -13,7 +13,7 @@ class InputEditor: EditorSectionView {
 
     let elementClipper = UIView()
 
-    let bossButton = IconButton(icon: "camera")
+    let bossButton = UIButton(type: .system)
     let textView = TextEditorView()
     let placeholderLabel = UILabel()
     let voiceButton = IconButton(icon: "mic")
@@ -73,9 +73,26 @@ class InputEditor: EditorSectionView {
     override func initializeViews() {
         super.initializeViews()
 
-        bossButton.tapAction = { [weak self] in
+        bossButton.setImage(UIImage(systemName: "photo"), for: .normal)
+        bossButton.setPreferredSymbolConfiguration(.init(pointSize: 24), forImageIn: .normal)
+        bossButton.tintColor = .label
+        bossButton.showsMenuAsPrimaryAction = true
+        let photoLibrary = UIAction(
+            title: String.localized("Photo Library"),
+            image: UIImage(systemName: "photo.on.rectangle"),
+            identifier: UIAction.Identifier("media.photoLibrary")
+        ) { [weak self] _ in
+            self?.delegate?.onInputEditorPickPhotoButtonTapped()
+        }
+        let camera = UIAction(
+            title: String.localized("Camera"),
+            image: UIImage(systemName: "camera"),
+            identifier: UIAction.Identifier("media.camera"),
+            attributes: UIImagePickerController.isSourceTypeAvailable(.camera) ? [] : [.disabled]
+        ) { [weak self] _ in
             self?.delegate?.onInputEditorCaptureButtonTapped()
         }
+        bossButton.menu = UIMenu(children: [photoLibrary, camera])
         addSubview(elementClipper)
         elementClipper.clipsToBounds = true
         elementClipper.addSubview(bossButton)
@@ -148,8 +165,8 @@ class InputEditor: EditorSectionView {
         voiceButton.accessibilityLabel = String.localized("Dictate")
         moreButton.accessibilityIdentifier = "composer.more"
         moreButton.accessibilityLabel = String.localized("Attach")
-        bossButton.accessibilityIdentifier = "composer.camera"
-        bossButton.accessibilityLabel = String.localized("Camera")
+        bossButton.accessibilityIdentifier = "composer.media"
+        bossButton.accessibilityLabel = String.localized("Add Image")
 
         textHeight.removeDuplicates()
             .compactMap { [weak self] textHeight -> CGFloat? in

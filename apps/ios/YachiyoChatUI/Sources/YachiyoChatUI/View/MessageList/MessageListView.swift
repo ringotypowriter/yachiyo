@@ -12,8 +12,16 @@ import Litext
 import MarkdownView
 import UIKit
 
+private final class MessageTimelineListView: ListViewKit.ListView {
+    override func touchesShouldCancel(in view: UIView) -> Bool {
+        // Buttons remain tappable, but a drag must belong to the timeline.
+        // Preserve UIKit's tracking policy for other controls (e.g. sliders).
+        view is UIButton || super.touchesShouldCancel(in: view)
+    }
+}
+
 public final class MessageListView: UIView {
-    private lazy var listView: ListViewKit.ListView = .init()
+    private lazy var listView = MessageTimelineListView()
 
     public var contentSize: CGSize {
         listView.contentSize
@@ -124,6 +132,9 @@ public final class MessageListView: UIView {
         listView.adapter = self
         listView.alwaysBounceVertical = true
         listView.alwaysBounceHorizontal = false
+        listView.delaysContentTouches = true
+        listView.canCancelContentTouches = true
+        listView.panGestureRecognizer.cancelsTouchesInView = true
         listView.contentInsetAdjustmentBehavior = .never
         listView.showsVerticalScrollIndicator = false
         listView.showsHorizontalScrollIndicator = false
@@ -136,10 +147,6 @@ public final class MessageListView: UIView {
             listView.trailingAnchor.constraint(equalTo: trailingAnchor),
         ])
 
-        listView.gestureRecognizers?.forEach {
-            guard $0 is UIPanGestureRecognizer else { return }
-            $0.cancelsTouchesInView = false
-        }
     }
 
     @available(*, unavailable)

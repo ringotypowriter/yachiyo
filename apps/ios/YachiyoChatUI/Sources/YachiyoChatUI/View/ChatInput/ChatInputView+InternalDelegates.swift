@@ -16,6 +16,10 @@ extension ChatInputView: InputEditor.Delegate {
         openCamera()
     }
 
+    func onInputEditorPickPhotoButtonTapped() {
+        openPhotoPicker()
+    }
+
     func onInputEditorPickAttachmentTapped() {
         openFilePicker()
     }
@@ -150,7 +154,7 @@ extension ChatInputView {
     func openCamera() {
         guard let parent = parentViewController else { return }
         guard UIImagePickerController.isSourceTypeAvailable(.camera) else {
-            delegate?.chatInputDidReportError(self, error: String.localized("Camera is not available, please grant camera permission"))
+            delegate?.chatInputDidReportError(self, error: String.localized("Camera is not available on this device."))
             return
         }
         let picker = UIImagePickerController()
