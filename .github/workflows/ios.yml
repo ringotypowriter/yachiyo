@@ -3,6 +3,15 @@ name: iOS
 # Runs only for changes that can affect the iOS client: the app itself, the protocol and
 # theme sources it is generated from, and the generators.
 on:
+  push:
+    branches: [main]
+    paths:
+      - 'apps/ios/**'
+      - 'packages/shared/src/remote/**'
+      - 'packages/shared/src/theme/**'
+      - 'scripts/ios-*.mjs'
+      - 'scripts/remote-codegen.mjs'
+      - '.github/workflows/ios.yml'
   pull_request:
     branches: [main]
     paths:
