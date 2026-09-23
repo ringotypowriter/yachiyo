@@ -1,6 +1,5 @@
+import { chacha20poly1305 } from '@noble/ciphers/chacha.js'
 import {
-  createCipheriv,
-  createDecipheriv,
   createHash,
   createHmac,
   createPrivateKey,
@@ -66,6 +65,9 @@ export function dh(keyPair: KeyPair, publicKey: Buffer): Buffer {
   })
 }
 
+// ChaCha20-Poly1305 comes from @noble/ciphers: Electron's BoringSSL-backed node:crypto has no
+// 'chacha20-poly1305' cipher, so createCipheriv would throw "Unknown cipher" in the app.
+
 /** Noise ChaChaPoly nonce: 32 zero bits followed by the little-endian 64-bit counter. */
 function noiseNonce(counter: bigint): Buffer {
   const nonce = Buffer.alloc(12)
@@ -80,9 +82,7 @@ export function aeadEncrypt(
   plaintext: Buffer
 ): Buffer {
   const iv = typeof nonce === 'bigint' ? noiseNonce(nonce) : nonce
-  const cipher = createCipheriv('chacha20-poly1305', key, iv, { authTagLength: TAG_LEN })
-  cipher.setAAD(ad, { plaintextLength: plaintext.length })
-  return Buffer.concat([cipher.update(plaintext), cipher.final(), cipher.getAuthTag()])
+  return Buffer.from(chacha20poly1305(key, iv, ad).encrypt(plaintext))
 }
 
 export function aeadDecrypt(
@@ -93,11 +93,7 @@ export function aeadDecrypt(
 ): Buffer {
   if (ciphertext.length < TAG_LEN) throw new Error('Ciphertext is shorter than the auth tag.')
   const iv = typeof nonce === 'bigint' ? noiseNonce(nonce) : nonce
-  const decipher = createDecipheriv('chacha20-poly1305', key, iv, { authTagLength: TAG_LEN })
-  const body = ciphertext.subarray(0, ciphertext.length - TAG_LEN)
-  decipher.setAuthTag(ciphertext.subarray(ciphertext.length - TAG_LEN))
-  decipher.setAAD(ad, { plaintextLength: body.length })
-  return Buffer.concat([decipher.update(body), decipher.final()])
+  return Buffer.from(chacha20poly1305(key, iv, ad).decrypt(ciphertext))
 }
 
 export function sha256(...parts: Buffer[]): Buffer {
