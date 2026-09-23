@@ -88,6 +88,9 @@ export function cloudflaredArguments(input: {
       input.cloudflaredPath,
       'tunnel',
       '--no-autoupdate',
+      // Avoid QUIC/UDP instability on TUN-proxied networks.
+      '--protocol',
+      'http2',
       '--url',
       `http://127.0.0.1:${input.port}`,
       ...metrics

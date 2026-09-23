@@ -9,6 +9,7 @@ import type { RemoteEndpoint } from '@yachiyo/shared/remote/common'
 
 import {
   CLOUDFLARED_AGENT_LABEL,
+  cloudflaredArguments,
   TunnelSupervisor,
   type CommandResult
 } from './tunnelSupervisor.ts'
@@ -24,6 +25,8 @@ const QUICK_PLIST = `<?xml version="1.0" encoding="UTF-8"?>
     <string>/opt/homebrew/bin/cloudflared</string>
     <string>tunnel</string>
     <string>--no-autoupdate</string>
+    <string>--protocol</string>
+    <string>http2</string>
     <string>--url</string>
     <string>http://127.0.0.1:47831</string>
     <string>--metrics</string>
@@ -78,6 +81,43 @@ async function withSupervisor(
     await rm(root, { recursive: true, force: true })
   }
 }
+
+test('only quick tunnel arguments explicitly select HTTP/2', () => {
+  const common = {
+    cloudflaredPath: '/opt/homebrew/bin/cloudflared',
+    port: 47831,
+    metricsPort: 47832,
+    namedConfigPath: '/home/remote/cloudflared-named.yml'
+  }
+  assert.deepEqual(cloudflaredArguments({ ...common, install: { mode: 'quick' } }), [
+    common.cloudflaredPath,
+    'tunnel',
+    '--no-autoupdate',
+    '--protocol',
+    'http2',
+    '--url',
+    'http://127.0.0.1:47831',
+    '--metrics',
+    '127.0.0.1:47832'
+  ])
+  assert.deepEqual(
+    cloudflaredArguments({
+      ...common,
+      install: { mode: 'named', tunnelName: 'yachiyo-mac', hostname: 'mac.example.com' }
+    }),
+    [
+      common.cloudflaredPath,
+      'tunnel',
+      '--no-autoupdate',
+      '--config',
+      common.namedConfigPath,
+      '--metrics',
+      '127.0.0.1:47832',
+      'run',
+      'yachiyo-mac'
+    ]
+  )
+})
 
 test('quick tunnel LaunchAgent plist matches the expected snapshot', async () => {
   await withSupervisor(async ({ supervisor, root, commands }) => {
