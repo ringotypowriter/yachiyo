@@ -1,7 +1,8 @@
 /* eslint-disable @typescript-eslint/explicit-function-return-type */
 // Runs the iOS XCUITest smoke flow against the fake desktop, then captures themed screenshots.
-//   node scripts/ios-ui-smoke.mjs [--skip-screenshots] [--min-ios 26] [--max-ios <major>]
-// Picks the newest available iOS simulator runtime in range (26+ by default) and an iPhone on it. Screenshots go to
+//   node scripts/ios-ui-smoke.mjs [--skip-screenshots] [--min-ios 26] [--max-ios <major>] [--device ipad]
+// Picks the newest available iOS simulator runtime in range (26+ by default) and an iPhone (or
+// iPad, which the test drives in landscape) on it. Screenshots go to
 // apps/ios/Artifacts/ (git-ignored). Exits non-zero when the UI test fails.
 import { execFileSync, spawn } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs'
@@ -24,6 +25,9 @@ const flag = (name, fallback) => {
 }
 const minIos = flag('--min-ios', 26)
 const maxIos = flag('--max-ios', Infinity)
+const deviceIndex = process.argv.indexOf('--device')
+const family = deviceIndex === -1 ? 'iphone' : process.argv[deviceIndex + 1]
+const familyPrefix = family === 'ipad' ? 'iPad' : 'iPhone'
 
 const run = (command, args, options = {}) =>
   execFileSync(command, args, { stdio: 'inherit', ...options })
@@ -42,12 +46,12 @@ function pickSimulator() {
   const { devices } = JSON.parse(output('xcrun', ['simctl', 'list', 'devices', 'available', '-j']))
   for (const runtime of candidates) {
     const phones = (devices[runtime.identifier] ?? []).filter((device) =>
-      device.name.startsWith('iPhone')
+      device.name.startsWith(familyPrefix)
     )
-    const preferred = phones.find((device) => / Pro$/.test(device.name)) ?? phones[0]
+    const preferred = phones.find((device) => / Pro\b/.test(device.name)) ?? phones[0]
     if (preferred) return { runtime: runtime.version, device: preferred }
   }
-  throw new Error(`No iOS ${minIos}–${maxIos} iPhone simulator is available.`)
+  throw new Error(`No iOS ${minIos}–${maxIos} ${familyPrefix} simulator is available.`)
 }
 
 async function startHarness() {
@@ -145,7 +149,7 @@ try {
           await sleep(route === 'inbox' ? 5000 : 7000)
           const file = join(
             artifacts,
-            `${route === 'inbox' ? 'inbox' : 'thread'}-${theme}-${appearance}.png`
+            `${family === 'ipad' ? 'ipad-' : ''}${route === 'inbox' ? 'inbox' : 'thread'}-${theme}-${appearance}.png`
           )
           run('xcrun', ['simctl', 'io', device.udid, 'screenshot', file], { stdio: 'ignore' })
           console.log(`screenshot ${file}`)

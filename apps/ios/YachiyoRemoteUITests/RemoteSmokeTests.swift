@@ -12,6 +12,10 @@ final class RemoteSmokeTests: XCTestCase {
         guard let url = ProcessInfo.processInfo.environment["YACHIYO_PAIRING_URL"], !url.isEmpty else {
             throw XCTSkip("Run through scripts/ios-ui-smoke.mjs so a harness pairing URL is provided.")
         }
+        // iPad runs in landscape so the multitasking-sized layout is covered too.
+        if UIDevice.current.userInterfaceIdiom == .pad {
+            XCUIDevice.shared.orientation = .landscapeLeft
+        }
         app = XCUIApplication()
         app.launchArguments += ["-YachiyoPairingURL", url]
         app.launch()
