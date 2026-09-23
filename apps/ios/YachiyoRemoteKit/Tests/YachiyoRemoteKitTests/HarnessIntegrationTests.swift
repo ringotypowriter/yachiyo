@@ -15,6 +15,7 @@ final class HarnessIntegrationTests: XCTestCase {
         let connector = DesktopConnector(identity: identity)
         let payload = try PairingURL.decode(url)
         let (client, desktop, hello) = try await connector.pair(payload)
+        XCTAssertTrue(client.codec.gzip)
         XCTAssertEqual(hello.protocolVersion, 1)
         XCTAssertFalse(desktop.pairingId.isEmpty)
 
@@ -46,6 +47,7 @@ final class HarnessIntegrationTests: XCTestCase {
         var stored = desktop
         stored.cursor = tracker.cursor
         let (reconnected, _) = try await connector.connect(stored)
+        XCTAssertTrue(reconnected.codec.gzip)
         var resumedTracker = EventCursorTracker(cursor: stored.cursor)
         let resumed = resumedTracker.accept(try await reconnected.call("events.subscribe", resumedTracker.subscribeInput(threadIds: [created.thread.id])))
         XCTAssertFalse(resumed, "resume within the buffer should not need a resync")
@@ -60,6 +62,14 @@ final class HarnessIntegrationTests: XCTestCase {
         XCTAssertTrue(completed)
         let detail: RemoteThreadDetail = try await reconnected.call("threads.load", ["threadId": created.thread.id])
         XCTAssertTrue(detail.messages.last?.content.contains("You answered: Yes") ?? false)
+        // Exercise compression in both directions with non-ASCII content over a real socket.
+        let largeContent = String(repeating: "Swift gzip 相互運用 🌸", count: 1000)
+        let largeAccepted: RemoteChatAccepted = try await reconnected.call(
+            "chat.send", ["threadId": created.thread.id, "content": largeContent]
+        )
+        XCTAssertFalse(largeAccepted.runId.isEmpty)
+        let largeDetail: RemoteThreadDetail = try await reconnected.call("threads.load", ["threadId": created.thread.id])
+        XCTAssertTrue(largeDetail.messages.contains { $0.content == largeContent })
         reconnected.close()
     }
 }

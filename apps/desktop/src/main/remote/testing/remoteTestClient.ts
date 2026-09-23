@@ -2,12 +2,21 @@ import WebSocket from 'ws'
 
 import type { RemotePush } from '@yachiyo/shared/remote/events'
 import { decodePairingUrl, type PairingGrant } from '@yachiyo/shared/remote/pairing'
-import { REMOTE_HANDSHAKE_MODE, REMOTE_NOISE_PROLOGUE } from '@yachiyo/shared/remote/wire'
+import {
+  REMOTE_COMPRESSION,
+  REMOTE_HANDSHAKE_MODE,
+  REMOTE_NOISE_PROLOGUE
+} from '@yachiyo/shared/remote/wire'
 import type { RpcMessage } from '@yachiyo/shared/rpc/rpcTransport'
 
 import { HandshakeState } from '../noise/handshake.ts'
 import { generateKeyPair, type KeyPair } from '../noise/primitives.ts'
 import { NoiseTransport } from '../noise/transport.ts'
+import {
+  decodeRemoteMessage,
+  encodeRemoteMessage,
+  type RemoteCompression
+} from '../messageCodec.ts'
 
 export class RemoteCallError extends Error {
   constructor(name: string, message: string) {
@@ -21,16 +30,29 @@ interface Pending {
   reject: (error: Error) => void
 }
 
+interface ClientOptions {
+  deviceName?: string
+  compression?: boolean
+}
+
 /**
  * Minimal phone-side client for tests and the Node end-to-end script: Noise initiator,
  * encrypted JSON-RPC, and a log of server pushes.
  */
 export class RemoteTestClient {
   readonly pushes: RemotePush[] = []
+  readonly frames: Array<{
+    direction: 'sent' | 'received'
+    jsonBytes: number
+    encodedBytes: number
+  }> = []
   grant: PairingGrant | null = null
   closeCode: number | null = null
   private readonly socket: WebSocket
   private readonly noise: NoiseTransport
+  readonly compression: RemoteCompression
+  private sendQueue: Promise<void> = Promise.resolve()
+  private receiveQueue: Promise<void> = Promise.resolve()
   private nextId = 1
   private readonly pending = new Map<number, Pending>()
   private readonly waiters: Array<{
@@ -39,10 +61,17 @@ export class RemoteTestClient {
   }> = []
   private readonly closeWaiters: Array<(code: number) => void> = []
 
-  private constructor(socket: WebSocket, noise: NoiseTransport) {
+  private constructor(socket: WebSocket, noise: NoiseTransport, compression: RemoteCompression) {
     this.socket = socket
     this.noise = noise
-    socket.on('message', (data: Buffer) => this.receive(data))
+    this.compression = compression
+    socket.on('message', (data: Buffer) => {
+      this.receiveQueue = this.receiveQueue
+        .then(() => this.receive(data))
+        .catch(() => {
+          socket.close(4400, 'invalid message')
+        })
+    })
     socket.on('close', (code: number) => {
       this.closeCode = code
       for (const pending of this.pending.values()) {
@@ -56,7 +85,7 @@ export class RemoteTestClient {
   /** Pairs using a QR URL; the grant arrives with the reply to the first call. */
   static async pair(
     pairingUrl: string,
-    options: { endpoint?: string; phoneKeyPair?: KeyPair; deviceName?: string } = {}
+    options: ClientOptions & { endpoint?: string; phoneKeyPair?: KeyPair } = {}
   ): Promise<{
     client: RemoteTestClient
     phoneKeyPair: KeyPair
@@ -72,20 +101,22 @@ export class RemoteTestClient {
       phoneKeyPair,
       desktopKey,
       psk: Buffer.from(payload.token, 'base64url'),
-      deviceName: options.deviceName ?? 'Node test phone'
+      deviceName: options.deviceName ?? 'Node test phone',
+      compression: options.compression ?? true
     })
     return { client, phoneKeyPair, desktopKey, endpoint }
   }
 
   static connect(
     endpoint: string,
-    input: { phoneKeyPair: KeyPair; desktopKey: Buffer; deviceName?: string }
+    input: ClientOptions & { phoneKeyPair: KeyPair; desktopKey: Buffer }
   ): Promise<RemoteTestClient> {
     return RemoteTestClient.open(endpoint, {
       mode: 'connect',
       phoneKeyPair: input.phoneKeyPair,
       desktopKey: input.desktopKey,
-      deviceName: input.deviceName ?? 'Node test phone'
+      deviceName: input.deviceName ?? 'Node test phone',
+      compression: input.compression ?? true
     })
   }
 
@@ -97,6 +128,7 @@ export class RemoteTestClient {
       desktopKey: Buffer
       psk?: Buffer
       deviceName: string
+      compression: boolean
     }
   ): Promise<RemoteTestClient> {
     const socket = new WebSocket(endpoint)
@@ -116,7 +148,12 @@ export class RemoteTestClient {
       ...(input.psk ? { psk: input.psk } : {})
     })
     const hello = Buffer.from(
-      JSON.stringify({ deviceName: input.deviceName, app: 'yachiyo-node-test', version: '1.0.0' })
+      JSON.stringify({
+        deviceName: input.deviceName,
+        app: 'yachiyo-node-test',
+        version: '1.0.0',
+        ...(input.compression ? { compression: [REMOTE_COMPRESSION] } : {})
+      })
     )
     const reply = new Promise<Buffer>((resolve, reject) => {
       socket.once('message', (data: Buffer) => resolve(data))
@@ -130,8 +167,17 @@ export class RemoteTestClient {
         handshake.writeMessage(hello)
       ])
     )
-    handshake.readMessage(await reply)
-    return new RemoteTestClient(socket, new NoiseTransport(handshake.split()))
+    const response = handshake.readMessage(await reply)
+    let compression: RemoteCompression
+    if (response.length) {
+      const selection = JSON.parse(response.toString('utf8'))
+      if (!input.compression || selection.compression !== REMOTE_COMPRESSION) {
+        socket.close(4400, 'unsupported compression')
+        throw new Error('Unsupported remote compression selection.')
+      }
+      compression = REMOTE_COMPRESSION
+    }
+    return new RemoteTestClient(socket, new NoiseTransport(handshake.split()), compression)
   }
 
   call<T = unknown>(method: string, input: unknown = {}): Promise<T> {
@@ -139,7 +185,22 @@ export class RemoteTestClient {
     const message: RpcMessage = { kind: 'rpc:request', id, method, args: [input] }
     return new Promise<T>((resolve, reject) => {
       this.pending.set(id, { resolve: resolve as (value: unknown) => void, reject })
-      this.socket.send(this.noise.encrypt(Buffer.from(JSON.stringify(message), 'utf8')))
+      this.sendQueue = this.sendQueue
+        .then(async () => {
+          const plaintext = Buffer.from(JSON.stringify(message))
+          const encoded = await encodeRemoteMessage(plaintext, this.compression)
+          this.frames.push({
+            direction: 'sent',
+            jsonBytes: plaintext.length,
+            encodedBytes: encoded.length
+          })
+          this.socket.send(this.noise.encrypt(encoded))
+        })
+        .catch((error: Error) => {
+          this.pending.delete(id)
+          reject(error)
+          this.socket.close(4400, 'send failed')
+        })
     })
   }
 
@@ -175,8 +236,15 @@ export class RemoteTestClient {
     return this.waitForClose()
   }
 
-  private receive(frame: Buffer): void {
-    const message = JSON.parse(this.noise.decrypt(frame).toString('utf8')) as RpcMessage
+  private async receive(frame: Buffer): Promise<void> {
+    const encoded = this.noise.decrypt(frame)
+    const plaintext = await decodeRemoteMessage(encoded, this.compression)
+    this.frames.push({
+      direction: 'received',
+      jsonBytes: plaintext.length,
+      encodedBytes: encoded.length
+    })
+    const message = JSON.parse(plaintext.toString('utf8')) as RpcMessage
     if (message.kind === 'rpc:response') {
       const pending = this.pending.get(message.id)
       this.pending.delete(message.id)

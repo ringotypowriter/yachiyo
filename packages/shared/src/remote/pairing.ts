@@ -31,7 +31,8 @@ export const handshakeClientPayloadSchema = z
   .object({
     deviceName: z.string().min(1).max(200),
     app: z.string().min(1).max(100),
-    version: z.string().min(1).max(50)
+    version: z.string().min(1).max(50),
+    compression: z.array(z.string().min(1).max(32)).max(8).optional()
   })
   .meta({ id: 'RemoteHandshakeClientPayload' })
 

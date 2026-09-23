@@ -1135,6 +1135,15 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 50
+        },
+        "compression": {
+          "maxItems": 8,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 32
+          }
         }
       },
       "required": [

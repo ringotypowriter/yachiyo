@@ -1,8 +1,13 @@
 import { REMOTE_ERROR_NAMES } from '@yachiyo/shared/remote/common'
 import { handshakeClientPayloadSchema, type PairingGrant } from '@yachiyo/shared/remote/pairing'
-import { REMOTE_HANDSHAKE_MODE, REMOTE_NOISE_PROLOGUE } from '@yachiyo/shared/remote/wire'
+import {
+  REMOTE_COMPRESSION,
+  REMOTE_HANDSHAKE_MODE,
+  REMOTE_NOISE_PROLOGUE
+} from '@yachiyo/shared/remote/wire'
 import type { RpcMessage, RpcTransport } from '@yachiyo/shared/rpc/rpcTransport'
 
+import { decodeRemoteMessage, encodeRemoteMessage, type RemoteCompression } from './messageCodec.ts'
 import { HandshakeState } from './noise/handshake.ts'
 import { NoiseTransport } from './noise/transport.ts'
 import type { DesktopIdentity, PairingRecord, PairingStore } from './pairingStore.ts'
@@ -49,27 +54,99 @@ class EncryptedSocketTransport implements RpcTransport {
   private readonly closeHandlers = new Set<() => void>()
   private readonly socket: RemoteSocket
   private readonly noise: NoiseTransport
+  private readonly compression: RemoteCompression
+  private readonly fail: (code: number, reason: string) => void
 
-  constructor(socket: RemoteSocket, noise: NoiseTransport) {
+  private readonly pending: { plaintext: Buffer; skipCompression: boolean }[] = []
+  private queuedBytes = 0
+  private draining = false
+  private closed = false
+
+  constructor(
+    socket: RemoteSocket,
+    noise: NoiseTransport,
+    compression: RemoteCompression,
+    fail: (code: number, reason: string) => void
+  ) {
     this.socket = socket
     this.noise = noise
+    this.compression = compression
+    this.fail = fail
   }
 
   post(message: RpcMessage): void {
-    if (this.socket.bufferedAmount > MAX_BUFFERED_BYTES) {
-      // A phone that stopped reading will resume or resync after reconnecting.
-      this.socket.close(REMOTE_CLOSE_CODES.backpressure, 'backpressure')
-      return
+    if (this.closed) return
+    try {
+      const plaintext = Buffer.from(JSON.stringify(message), 'utf8')
+      if (this.queuedBytes + plaintext.length + this.socket.bufferedAmount > MAX_BUFFERED_BYTES) {
+        this.fail(REMOTE_CLOSE_CODES.backpressure, 'backpressure')
+        return
+      }
+      const skipCompression =
+        message.kind === 'rpc:event' &&
+        typeof message.payload === 'object' &&
+        message.payload !== null &&
+        'type' in message.payload &&
+        message.payload.type === 'pairing.granted'
+      this.pending.push({ plaintext, skipCompression })
+      this.queuedBytes += plaintext.length
+      void this.drain()
+    } catch {
+      this.fail(REMOTE_CLOSE_CODES.protocolError, 'message encoding failed')
     }
-    this.socket.send(this.noise.encrypt(Buffer.from(JSON.stringify(message), 'utf8')))
   }
 
-  receive(frame: Buffer): void {
-    this.deliver(this.noise.decrypt(frame))
+  private async drain(): Promise<void> {
+    if (this.draining) return
+    this.draining = true
+    try {
+      while (!this.closed && this.pending.length) {
+        const item = this.pending.shift()!
+        const envelope = await encodeRemoteMessage(item.plaintext, this.compression, item)
+        if (this.closed) return
+        // Include the AEAD tag and all remaining queued plaintext in the budget.
+        if (
+          this.socket.bufferedAmount +
+            this.queuedBytes -
+            item.plaintext.length +
+            envelope.length +
+            16 >
+          MAX_BUFFERED_BYTES
+        ) {
+          this.fail(REMOTE_CLOSE_CODES.backpressure, 'backpressure')
+          return
+        }
+        this.socket.send(this.noise.encrypt(envelope))
+        this.queuedBytes -= item.plaintext.length
+      }
+    } catch {
+      this.fail(REMOTE_CLOSE_CODES.protocolError, 'message encoding failed')
+    } finally {
+      this.draining = false
+    }
   }
 
-  deliver(plaintext: Buffer): void {
+  async decode(frame: Buffer): Promise<RpcMessage> {
+    const plaintext = await decodeRemoteMessage(this.noise.decrypt(frame), this.compression)
     const message = JSON.parse(plaintext.toString('utf8')) as RpcMessage
+    if (
+      message.kind === 'rpc:request' &&
+      (!Number.isSafeInteger(message.id) ||
+        typeof message.method !== 'string' ||
+        !Array.isArray(message.args))
+    ) {
+      throw new Error('Invalid remote RPC request.')
+    }
+    return message
+  }
+
+  async receive(frame: Buffer): Promise<void> {
+    const message = await this.decode(frame)
+    if (!this.closed) this.deliver(message)
+  }
+
+  deliver(message: RpcMessage): void {
+    if (this.closed) return
     for (const handler of this.messageHandlers) handler(message)
   }
 
@@ -84,11 +161,14 @@ class EncryptedSocketTransport implements RpcTransport {
   }
 
   emitClose(): void {
+    this.closed = true
+    this.pending.length = 0
+    this.queuedBytes = 0
     for (const handler of this.closeHandlers) handler()
   }
 
   close(): void {
-    this.socket.close(1000, 'closed')
+    this.fail(1000, 'closed')
   }
 }
 
@@ -97,7 +177,6 @@ type State =
   | {
       kind: 'pairing'
       transport: EncryptedSocketTransport
-      noise: NoiseTransport
       token: Buffer
       phoneKey: Buffer
       deviceName: string
@@ -109,6 +188,24 @@ type State =
       subscription: RemoteEventSubscription
     }
   | { kind: 'closed' }
+
+function handshakeReply(compression: RemoteCompression): Buffer {
+  return compression ? Buffer.from(JSON.stringify({ compression }), 'utf8') : Buffer.alloc(0)
+}
+
+function reconnectCompression(payload: Buffer): RemoteCompression {
+  // Reconnect payloads were historically ignored, including empty and non-JSON bytes.
+  try {
+    const offer = handshakeClientPayloadSchema
+      .pick({ compression: true })
+      .safeParse(JSON.parse(payload.toString('utf8')))
+    return offer.success && offer.data.compression?.includes(REMOTE_COMPRESSION)
+      ? REMOTE_COMPRESSION
+      : undefined
+  } catch {
+    return undefined
+  }
+}
 
 function toWireError(error: unknown): { name: string; message: string } {
   const name = error instanceof Error ? error.name : 'Error'
@@ -127,6 +224,8 @@ function toWireError(error: unknown): { name: string; message: string } {
 export class RemoteConnection {
   private state: State = { kind: 'handshake' }
   private queue: Promise<void> = Promise.resolve()
+  private queuedInboundBytes = 0
+  private readonly inbound = new Set<{ frame: Buffer | null }>()
   private readonly timer: ReturnType<typeof setTimeout>
   private readonly socket: RemoteSocket
   private readonly deps: RemoteConnectionDeps
@@ -140,13 +239,31 @@ export class RemoteConnection {
       }
     }, HANDSHAKE_TIMEOUT_MS)
     socket.on('message', (data, isBinary) => {
+      if (this.state.kind === 'closed') return
+      if (this.queuedInboundBytes + data.length > MAX_BUFFERED_BYTES) {
+        this.close(REMOTE_CLOSE_CODES.backpressure, 'backpressure')
+        return
+      }
+      const entry = { frame: Buffer.from(data) as Buffer | null }
+      const bytes = data.length
+      this.inbound.add(entry)
+      this.queuedInboundBytes += bytes
       this.queue = this.queue
-        .then(() => this.handleFrame(Buffer.from(data), isBinary))
+        .then(() => {
+          if (this.state.kind !== 'closed' && entry.frame) {
+            return this.handleFrame(entry.frame, isBinary)
+          }
+          return undefined
+        })
         .catch((error: unknown) => {
           this.deps.log(
             `[remote] connection error: ${error instanceof Error ? error.message : String(error)}`
           )
           this.close(REMOTE_CLOSE_CODES.protocolError, 'protocol error')
+        })
+        .finally(() => {
+          if (this.inbound.delete(entry)) this.queuedInboundBytes -= bytes
+          entry.frame = null
         })
     })
     socket.on('close', () => this.teardown())
@@ -165,8 +282,13 @@ export class RemoteConnection {
   private teardown(): void {
     if (this.state.kind === 'closed') return
     clearTimeout(this.timer)
+    for (const entry of this.inbound) entry.frame = null
+    this.inbound.clear()
+    this.queuedInboundBytes = 0
     if (this.state.kind === 'ready') {
       this.state.subscription.close()
+    }
+    if (this.state.kind === 'ready' || this.state.kind === 'pairing') {
       this.state.transport.emitClose()
     }
     this.state = { kind: 'closed' }
@@ -181,8 +303,7 @@ export class RemoteConnection {
       case 'pairing':
         return this.completePairing(frame)
       case 'ready':
-        this.state.transport.receive(frame)
-        return
+        return this.state.transport.receive(frame)
       case 'closed':
         return
     }
@@ -200,17 +321,20 @@ export class RemoteConnection {
         prologue,
         staticKeyPair: keyPair
       })
-      handshake.readMessage(message)
+      const compression = reconnectCompression(handshake.readMessage(message))
       const phoneKey = handshake.remoteStaticKey!
       const pairing = await this.deps.store.findByPhoneKey(phoneKey)
+      if (this.state.kind === 'closed') return
       if (!pairing) {
         this.close(REMOTE_CLOSE_CODES.unknownDevice, 'unknown device')
         return
       }
-      this.socket.send(handshake.writeMessage(Buffer.alloc(0)))
+      this.socket.send(handshake.writeMessage(handshakeReply(compression)))
       const transport = new EncryptedSocketTransport(
         this.socket,
-        new NoiseTransport(handshake.split())
+        new NoiseTransport(handshake.split()),
+        compression,
+        (code, reason) => this.close(code, reason)
       )
       await this.becomeReady(transport, pairing)
       return
@@ -230,13 +354,17 @@ export class RemoteConnection {
         this.close(REMOTE_CLOSE_CODES.pairingClosed, 'pairing closed')
         return
       }
+      const compression = payload.compression?.includes(REMOTE_COMPRESSION)
+        ? REMOTE_COMPRESSION
+        : undefined
       handshake.setPsk(token)
-      this.socket.send(handshake.writeMessage(Buffer.alloc(0)))
+      this.socket.send(handshake.writeMessage(handshakeReply(compression)))
       const noise = new NoiseTransport(handshake.split())
       this.state = {
         kind: 'pairing',
-        noise,
-        transport: new EncryptedSocketTransport(this.socket, noise),
+        transport: new EncryptedSocketTransport(this.socket, noise, compression, (code, reason) =>
+          this.close(code, reason)
+        ),
         token,
         phoneKey: handshake.remoteStaticKey!,
         deviceName: payload.deviceName
@@ -249,15 +377,18 @@ export class RemoteConnection {
 
   private async completePairing(frame: Buffer): Promise<void> {
     if (this.state.kind !== 'pairing') return
-    const { noise, transport, token, phoneKey, deviceName } = this.state
+    const { transport, token, phoneKey, deviceName } = this.state
     // Decrypting proves the phone derived the same keys from the token; a wrong token throws
     // here and the connection closes before anything is stored.
-    const firstMessage = noise.decrypt(frame)
+    const firstMessage = await transport.decode(frame)
+    if (firstMessage.kind !== 'rpc:request') throw new Error('Expected a pairing RPC request.')
+    if (this.state.kind !== 'pairing') return
     const { record, mailboxSecret } = await this.deps.store.completePairing({
       token,
       phoneKey,
       deviceName
     })
+    if (this.state.kind !== 'pairing') return
     this.deps.onPaired?.(record)
     await this.becomeReady(transport, record, {
       type: 'pairing.granted',
@@ -284,7 +415,13 @@ export class RemoteConnection {
       this.deps.facade
         .dispatch(context, message.method, message.args[0])
         .then(
-          (value) => transport.post({ kind: 'rpc:response', id: message.id, ok: true, value }),
+          (value) =>
+            transport.post({
+              kind: 'rpc:response',
+              id: message.id,
+              ok: true,
+              value
+            }),
           (error: unknown) =>
             transport.post({
               kind: 'rpc:response',

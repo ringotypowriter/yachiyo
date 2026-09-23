@@ -9,6 +9,7 @@ import { REMOTE_METHOD_NAMES, remoteMethods } from './methods.ts'
 import {
   decodePairingUrl,
   encodePairingUrl,
+  handshakeClientPayloadSchema,
   pairingPayloadSchema,
   type PairingPayload
 } from './pairing.ts'
@@ -79,6 +80,25 @@ test('pairing URL encodes and decodes the QR payload losslessly', () => {
 
   assert.match(url, /^yachiyo-remote:\/\/pair\?v=1&d=[A-Za-z0-9_-]+$/)
   assert.deepEqual(decodePairingUrl(url), payload)
+})
+
+test('handshake compression capabilities are optional and bounded', () => {
+  const legacy = { deviceName: 'Phone', app: 'test', version: '1' }
+  roundTrip(handshakeClientPayloadSchema, legacy)
+  roundTrip(handshakeClientPayloadSchema, { ...legacy, compression: ['gzip', 'future-codec'] })
+  assert.equal(
+    handshakeClientPayloadSchema.safeParse({ ...legacy, compression: 'gzip' }).success,
+    false
+  )
+  assert.equal(
+    handshakeClientPayloadSchema.safeParse({ ...legacy, compression: Array(9).fill('gzip') })
+      .success,
+    false
+  )
+  assert.equal(
+    handshakeClientPayloadSchema.safeParse({ ...legacy, compression: ['x'.repeat(33)] }).success,
+    false
+  )
 })
 
 test('pairing payload rejects malformed keys, non-websocket endpoints, and empty endpoint lists', () => {

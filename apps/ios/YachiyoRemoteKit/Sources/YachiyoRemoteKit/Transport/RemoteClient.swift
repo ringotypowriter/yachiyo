@@ -44,6 +44,7 @@ public struct RemoteClientIdentity: Sendable {
 public final class RemoteClient: @unchecked Sendable {
     private let channel: any WebSocketChannel
     private let transport: NoiseTransport
+    let codec: RemoteMessageCodec
     private let lock = NSLock()
     private var nextId = 1
     private var pending: [Int: CheckedContinuation<Data, Error>] = [:]
@@ -58,9 +59,10 @@ public final class RemoteClient: @unchecked Sendable {
     /// Yields once when the connection ends, with the error that ended it (nil when closed locally).
     public let closures: AsyncStream<Error?>
 
-    init(channel: any WebSocketChannel, transport: NoiseTransport) {
+    init(channel: any WebSocketChannel, transport: NoiseTransport, codec: RemoteMessageCodec = .legacy) {
         self.channel = channel
         self.transport = transport
+        self.codec = codec
         (pushes, pushContinuation) = AsyncStream.makeStream(bufferingPolicy: .unbounded)
         (closures, closeContinuation) = AsyncStream.makeStream(bufferingPolicy: .bufferingNewest(1))
         Task { await self.receiveLoop() }
@@ -110,11 +112,13 @@ public final class RemoteClient: @unchecked Sendable {
                     "deviceName": identity.deviceName,
                     "app": "yachiyo-ios",
                     "version": identity.appVersion,
+                    "compression": ["gzip"],
                 ])
                 try await channel.send(Data([mode.rawValue]) + initiator.writeMessage1(payload: hello))
-                _ = try initiator.readMessage2(try await channel.receive())
+                let reply = try initiator.readMessage2(try await channel.receive())
+                let codec = try RemoteMessageCodec.negotiated(reply: reply)
                 try Task.checkCancellation()
-                return RemoteClient(channel: channel, transport: try initiator.split())
+                return RemoteClient(channel: channel, transport: try initiator.split(), codec: codec)
             } catch {
                 channel.close()
                 throw error
@@ -167,7 +171,7 @@ public final class RemoteClient: @unchecked Sendable {
             return outbound.removeFirst()
         }) {
             do {
-                try await channel.send(transport.encrypt(plaintext))
+                try await channel.send(transport.encrypt(codec.encode(plaintext)))
             } catch {
                 fail(error)
                 channel.close()
@@ -197,9 +201,10 @@ public final class RemoteClient: @unchecked Sendable {
         while true {
             do {
                 let frame = try await channel.receive()
-                try handle(try transport.decrypt(frame))
+                try handle(try codec.decode(transport.decrypt(frame)))
             } catch {
                 fail(error)
+                channel.close()
                 return
             }
         }

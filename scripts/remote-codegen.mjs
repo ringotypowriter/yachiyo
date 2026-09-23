@@ -4,8 +4,10 @@
 import { readFile, mkdir, writeFile } from 'node:fs/promises'
 import { dirname, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { gzipSync } from 'node:zlib'
 
 import { buildRemoteProtocolJsonSchema } from '../packages/shared/src/remote/jsonSchema.ts'
+import { REMOTE_COMPRESSED_MESSAGE_TAG } from '../packages/shared/src/remote/wire.ts'
 import {
   buildMailboxFixture,
   buildNoiseSessionFixtures
@@ -15,10 +17,27 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const remoteDir = resolve(root, 'packages/shared/src/remote')
 const check = process.argv.includes('--check')
 
+const compressionRaw = JSON.stringify({
+  kind: 'rpc:response',
+  id: 7,
+  ok: true,
+  value: { content: 'Compression preserves UTF-8: 你好 🌸 café.\n'.repeat(40) }
+})
+
 const outputs = [
   ['generated/remote-protocol.schema.json', buildRemoteProtocolJsonSchema()],
   ['fixtures/noise-sessions.json', buildNoiseSessionFixtures()],
-  ['fixtures/mailbox.json', buildMailboxFixture()]
+  ['fixtures/mailbox.json', buildMailboxFixture()],
+  [
+    'fixtures/remote-compression.json',
+    {
+      raw: compressionRaw,
+      encodedBase64: Buffer.concat([
+        Buffer.from([REMOTE_COMPRESSED_MESSAGE_TAG]),
+        gzipSync(Buffer.from(compressionRaw), { level: 1 })
+      ]).toString('base64')
+    }
+  ]
 ]
 
 let stale = false

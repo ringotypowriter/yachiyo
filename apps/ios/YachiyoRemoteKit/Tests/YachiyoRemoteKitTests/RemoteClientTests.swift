@@ -3,9 +3,51 @@ import XCTest
 @testable import YachiyoRemoteKit
 
 final class RemoteClientTests: XCTestCase {
-    func testOversizedLocalRequestDoesNotSendOrDisruptPendingCalls() async throws {
+    func testCompressedConcurrentCallsPreserveFIFOAndDecodeResponses() async throws {
+        let codec = RemoteMessageCodec(gzip: true)
+        let channel = SuspendedSendChannel(codec: codec)
+        let client = RemoteClient(channel: channel, transport: channel.clientTransport, codec: codec)
+        defer { client.close() }
+        let firstMethod = String(repeating: "first", count: 500)
+        let secondMethod = String(repeating: "second", count: 500)
+        let first = Task { try await client.callRaw(firstMethod, input: [:]) }
+        await fulfillment(of: [channel.firstSendStarted], timeout: 2)
+        let second = Task { try await client.callRaw(secondMethod, input: [:]) }
+        await fulfillment(of: [channel.overlappingSend], timeout: 0.2)
+        channel.releaseFirstSend()
+        let firstResult = try await first.value
+        let secondResult = try await second.value
+        XCTAssertEqual(try JSONDecoder().decode(String.self, from: firstResult), firstMethod)
+        XCTAssertEqual(try JSONDecoder().decode(String.self, from: secondResult), secondMethod)
+        XCTAssertEqual(channel.compressedSendCount, 2)
+    }
+
+    func testInvalidCompressedReplyClosesAndRejectsPendingCalls() async throws {
         let channel = SuspendedSendChannel()
-        let client = RemoteClient(channel: channel, transport: channel.clientTransport)
+        let client = RemoteClient(channel: channel, transport: channel.clientTransport, codec: RemoteMessageCodec(gzip: true))
+        defer { client.close() }
+        let pending = Task { try await client.callRaw("first", input: [:]) }
+        await fulfillment(of: [channel.firstSendStarted], timeout: 2)
+        try channel.receiveInvalidCompressedFrame()
+        do {
+            _ = try await pending.value
+            XCTFail("Invalid gzip must fail pending calls")
+        } catch {
+            XCTAssertEqual(error as? RemoteMessageCodecError, .invalidGzip)
+        }
+        await fulfillment(of: [channel.didClose], timeout: 2)
+        do {
+            _ = try await client.callRaw("later", input: [:])
+            XCTFail("Closed connection must reject later calls")
+        } catch {
+            XCTAssertEqual(error as? WebSocketChannelError, .closed(code: 1000))
+        }
+    }
+
+    func testOversizedLocalRequestDoesNotSendOrDisruptPendingCalls() async throws {
+        let codec = RemoteMessageCodec(gzip: true)
+        let channel = SuspendedSendChannel(codec: codec)
+        let client = RemoteClient(channel: channel, transport: channel.clientTransport, codec: codec)
         defer { client.close() }
         let pending = Task { try await client.callRaw("first", input: [:]) }
         await fulfillment(of: [channel.firstSendStarted], timeout: 2)
@@ -101,6 +143,10 @@ final class RemoteClientTests: XCTestCase {
 }
 
 private final class SuspendedSendChannel: WebSocketChannel, @unchecked Sendable {
+    let didClose = XCTestExpectation(description: "channel closed")
+    private let codec: RemoteMessageCodec
+    private var compressedSends = 0
+    var compressedSendCount: Int { lock.withLock { compressedSends } }
     let firstSendStarted = XCTestExpectation(description: "first send suspended")
     let overlappingSend: XCTestExpectation = {
         let expectation = XCTestExpectation(description: "no overlapping encrypted sends")
@@ -126,8 +172,9 @@ private final class SuspendedSendChannel: WebSocketChannel, @unchecked Sendable 
     private let replyContinuation: AsyncThrowingStream<Data, Error>.Continuation
     private var iterator: AsyncThrowingStream<Data, Error>.Iterator
 
-    init(sendError: WebSocketChannelError? = nil) {
+    init(sendError: WebSocketChannelError? = nil, codec: RemoteMessageCodec = .legacy) {
         self.sendError = sendError
+        self.codec = codec
         (replies, replyContinuation) = AsyncThrowingStream.makeStream()
         iterator = replies.makeAsyncIterator()
     }
@@ -150,9 +197,11 @@ private final class SuspendedSendChannel: WebSocketChannel, @unchecked Sendable 
         }
         guard !lock.withLock({ closed }) else { throw WebSocketChannelError.closed(code: 1000) }
         if let sendError { throw sendError }
-        let request = try JSONSerialization.jsonObject(with: peer.decrypt(data)) as! [String: Any]
+        let encoded = try peer.decrypt(data)
+        if encoded.first == 1 { lock.withLock { compressedSends += 1 } }
+        let request = try JSONSerialization.jsonObject(with: codec.decode(encoded)) as! [String: Any]
         let reply: [String: Any] = ["kind": "rpc:response", "id": request["id"]!, "ok": true, "value": request["method"]!]
-        replyContinuation.yield(try peer.encrypt(JSONSerialization.data(withJSONObject: reply)))
+        replyContinuation.yield(try peer.encrypt(codec.encode(JSONSerialization.data(withJSONObject: reply))))
     }
 
     func receive() async throws -> Data {
@@ -172,8 +221,16 @@ private final class SuspendedSendChannel: WebSocketChannel, @unchecked Sendable 
         replyContinuation.yield(Data(repeating: 0, count: remoteMaxMessageBytes + 17))
     }
 
+    func receiveInvalidCompressedFrame() throws {
+        replyContinuation.yield(try peer.encrypt(Data([1, 0, 0])))
+    }
+
     func close() {
-        lock.withLock { closed = true }
+        let wasClosed = lock.withLock {
+            defer { closed = true }
+            return closed
+        }
+        if !wasClosed { didClose.fulfill() }
         releaseFirstSend()
         replyContinuation.finish(throwing: WebSocketChannelError.closed(code: 1000))
     }

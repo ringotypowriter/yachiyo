@@ -1162,11 +1162,13 @@ public struct RemoteEventsSubscribeOutput: Codable, Equatable, Sendable {
 // MARK: - RemoteHandshakeClientPayload
 public struct RemoteHandshakeClientPayload: Codable, Equatable, Sendable {
     public let app: String
+    public let compression: [String]?
     public let deviceName: String
     public let version: String
 
-    public init(app: String, deviceName: String, version: String) {
+    public init(app: String, compression: [String]?, deviceName: String, version: String) {
         self.app = app
+        self.compression = compression
         self.deviceName = deviceName
         self.version = version
     }
