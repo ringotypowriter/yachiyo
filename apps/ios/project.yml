@@ -51,6 +51,8 @@ targets:
         NSMicrophoneUsageDescription: Dictate messages.
         NSSpeechRecognitionUsageDescription: Turn your voice into message text on this iPhone.
         NSLocalNetworkUsageDescription: Connect to Yachiyo on your Mac over the local network.
+        # All encryption goes through Apple's CryptoKit / Security frameworks (exempt).
+        ITSAppUsesNonExemptEncryption: false
         NSAppTransportSecurity:
           # Remote traffic is end-to-end encrypted by the app; LAN endpoints use plain ws://.
           NSAllowsLocalNetworking: true
