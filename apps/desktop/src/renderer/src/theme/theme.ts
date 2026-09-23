@@ -7,7 +7,7 @@ import {
   type ThemeAppearance,
   type ThemeId
 } from '@yachiyo/shared/protocol'
-import { themeRgbTokenVars } from './themePalettes.ts'
+import { themeRgbTokenVars } from '@yachiyo/shared/theme/themePalettes'
 
 export { DEFAULT_THEME_APPEARANCE, DEFAULT_THEME_ID }
 export {
@@ -17,14 +17,14 @@ export {
   getThemePreviewSegments,
   getThemeSchemePreviewSegments,
   themeRgbTokenVars
-} from './themePalettes.ts'
+} from '@yachiyo/shared/theme/themePalettes'
 export type {
   RgbToken,
   ThemeOption,
   ThemePalette,
   ThemePreviewSegment,
   ThemeSchemePreviewSegment
-} from './themePalettes.ts'
+} from '@yachiyo/shared/theme/themePalettes'
 export type { ThemeAppearance, ThemeId }
 
 export type ThemeVariant = 'light' | 'dark'

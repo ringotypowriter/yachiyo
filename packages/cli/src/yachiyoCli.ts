@@ -10,6 +10,7 @@ import { handleChannelCommand } from './commands/channel.ts'
 import { handleConfigCommand } from './commands/config.ts'
 import { handleDoctorCommand } from './commands/doctor.ts'
 import { handleProviderCommand } from './commands/provider.ts'
+import { handleRemoteCommand } from './commands/remote.ts'
 import { handleScheduleCommand } from './commands/schedule.ts'
 import { handleSendCommand } from './commands/send.ts'
 import { handleSoulCommand } from './commands/soul.ts'
@@ -87,9 +88,14 @@ export async function runYachiyoCli(
     return
   }
 
+  if (namespace === 'remote') {
+    await handleRemoteCommand(positionals.slice(1), flags, stdout, options)
+    return
+  }
+
   if (namespace !== 'provider' && namespace !== 'config' && namespace !== 'agent') {
     throw new Error(
-      `Unknown namespace: ${namespace}. Expected: doctor, soul, provider, agent, config, thread, schedule, channel, send, update\n\n${USAGE}`
+      `Unknown namespace: ${namespace}. Expected: doctor, soul, provider, agent, config, thread, schedule, channel, send, update, remote\n\n${USAGE}`
     )
   }
 

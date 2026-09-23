@@ -7,10 +7,11 @@ const MAC_ONLY_SKILLS = [
   'yachiyo-kagete',
   'yachiyo-ghostty',
   'yachiyo-macos-apps',
-  'yachiyo-macos-screenshot'
+  'yachiyo-macos-screenshot',
+  'yachiyo-remote'
 ]
 
-test('the four macOS-only bundled skills declare darwin platform metadata', async () => {
+test('macOS-only bundled skills declare darwin platform metadata', async () => {
   const coreSkillsRoot = resolve(import.meta.dirname, '../../../../core-skills/core-skills')
 
   for (const name of MAC_ONLY_SKILLS) {

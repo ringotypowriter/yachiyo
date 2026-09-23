@@ -15,6 +15,7 @@ import type {
   AppUpdateStatusResult
 } from '@yachiyo/shared/appUpdate'
 import type { DoctorReport } from '../commands/doctor.ts'
+import type { RemoteCommandRequest } from '@yachiyo/shared/remote/command'
 
 export type CliStdout = Pick<typeof process.stdout, 'write'>
 export type CliStderr = Pick<typeof process.stderr, 'write'>
@@ -85,6 +86,7 @@ export interface RunYachiyoCliOptions {
       ) => void
     }
   ) => Promise<AppUpdateApplyResult>
+  requestRemote?: (socketPath: string, request: RemoteCommandRequest) => Promise<unknown>
   env?: NodeJS.ProcessEnv
   readStdin?: () => Promise<string>
   stdout?: CliStdout

@@ -1,0 +1,81 @@
+# XcodeGen spec; `xcodegen generate` produces YachiyoRemote.xcodeproj (not committed).
+name: YachiyoRemote
+options:
+  bundleIdPrefix: sh.ringo.yachiyo
+  deploymentTarget:
+    iOS: "17.0"
+  developmentLanguage: en
+  createIntermediateGroups: true
+  groupSortPosition: top
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    TARGETED_DEVICE_FAMILY: "1"
+    ENABLE_USER_SCRIPT_SANDBOXING: YES
+    ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS: YES
+packages:
+  YachiyoRemoteKit:
+    path: YachiyoRemoteKit
+  YachiyoChatUI:
+    path: YachiyoChatUI
+targets:
+  YachiyoRemote:
+    type: application
+    platform: iOS
+    sources:
+      - path: YachiyoRemote
+      - path: THIRD_PARTY_NOTICES.md
+        buildPhase: resources
+    dependencies:
+      - package: YachiyoRemoteKit
+      - package: YachiyoChatUI
+        product: YachiyoChatUI
+      - package: YachiyoChatUI
+        product: YachiyoMaterial
+    info:
+      path: YachiyoRemote/Info.plist
+      properties:
+        CFBundleDisplayName: Yachiyo
+        UILaunchScreen: {}
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
+        CFBundleURLTypes:
+          - CFBundleURLName: sh.ringo.yachiyo.remote.pair
+            CFBundleURLSchemes: [yachiyo-remote]
+        NSCameraUsageDescription: Scan the pairing code shown on your Mac, or attach a photo.
+        NSPhotoLibraryUsageDescription: Attach photos to a message.
+        NSMicrophoneUsageDescription: Dictate messages.
+        NSSpeechRecognitionUsageDescription: Turn your voice into message text on this iPhone.
+        NSLocalNetworkUsageDescription: Connect to Yachiyo on your Mac over the local network.
+        NSAppTransportSecurity:
+          # Remote traffic is end-to-end encrypted by the app; LAN endpoints use plain ws://.
+          NSAllowsLocalNetworking: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: sh.ringo.yachiyo.remote
+        CODE_SIGN_STYLE: Automatic
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+  YachiyoRemoteUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: YachiyoRemoteUITests
+    dependencies:
+      - target: YachiyoRemote
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: sh.ringo.yachiyo.remote.uitests
+        TEST_TARGET_NAME: YachiyoRemote
+        GENERATE_INFOPLIST_FILE: YES
+schemes:
+  YachiyoRemote:
+    build:
+      targets:
+        YachiyoRemote: all
+        YachiyoRemoteUITests: [test]
+    test:
+      targets:
+        - YachiyoRemoteUITests

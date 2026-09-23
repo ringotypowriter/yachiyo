@@ -5,6 +5,7 @@ import {
   DEFAULT_THEME_APPEARANCE,
   DEFAULT_THEME_ID,
   DEFAULT_TOOL_CALL_DISPLAY_MODE,
+  DEFAULT_REMOTE_CONFIG,
   DEFAULT_TOOL_MODEL_MODE,
   type SettingsConfig
 } from '@yachiyo/shared/protocol'
@@ -84,5 +85,6 @@ export const DEFAULT_SETTINGS_CONFIG: SettingsConfig = {
       baseUrl: ''
     }
   },
-  subagents: DEFAULT_SUBAGENTS_CONFIG
+  subagents: DEFAULT_SUBAGENTS_CONFIG,
+  remote: DEFAULT_REMOTE_CONFIG
 }

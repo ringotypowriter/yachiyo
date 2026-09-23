@@ -13,7 +13,7 @@
   "homepage": "https://github.com/ringotypowriter/yachiyo",
   "lint-staged": {
     "*.{js,jsx,ts,tsx,mjs,cjs,json,md,yaml,yml}": [
-      "oxfmt --write"
+      "oxfmt --write --no-error-on-unmatched-pattern"
     ]
   },
   "scripts": {
@@ -40,6 +40,13 @@
     "process-host:build": "pnpm --filter @yachiyo/desktop process-host:build",
     "skills:sync": "node scripts/sync-upstream-skill.mjs",
     "skills:check": "node scripts/sync-upstream-skill.mjs --check",
+    "remote:codegen": "node --experimental-strip-types scripts/remote-codegen.mjs",
+    "remote:codegen:check": "node --experimental-strip-types scripts/remote-codegen.mjs --check",
+    "ios:theme": "node --experimental-strip-types scripts/ios-theme.mjs",
+    "ios:icons": "node scripts/ios-icons.mjs",
+    "ios:codegen": "node scripts/ios-codegen.mjs",
+    "ios:check": "node scripts/ios-check.mjs",
+    "ios:ui-smoke": "node scripts/ios-ui-smoke.mjs",
     "typecheck": "pnpm -r --if-present typecheck",
     "typecheck:tests": "pnpm -r --if-present typecheck:tests",
     "test:renderer": "tsx --tsconfig apps/desktop/tsconfig.web.tests.json --test --test-concurrency=1 \"apps/desktop/src/renderer/**/*.test.{ts,tsx}\"",
@@ -47,6 +54,7 @@
     "test:repls:packaged": "node --experimental-strip-types scripts/smoke-repls-packaged.mjs",
     "test:py-repl:managed": "node --experimental-strip-types scripts/smoke-managed-py-repl.mjs",
     "test:server:native": "pnpm --filter @yachiyo/desktop test:server:native",
+    "test:remote": "node scripts/run-server-tests.mjs apps/desktop/src/main/remote",
     "start": "pnpm --filter @yachiyo/desktop start",
     "dev": "node scripts/run-desktop-dev.mjs",
     "dev:cli": "node scripts/run-desktop-dev.mjs --cli",
@@ -75,7 +83,9 @@
     "eslint-plugin-react-refresh": "^0.4.24",
     "husky": "^9.1.7",
     "lint-staged": "^16.4.0",
+    "lucide-static": "1.47.0",
     "oxfmt": "^0.65.0",
+    "quicktype": "26.0.0",
     "tsx": "^4.21.0",
     "typescript": "npm:@typescript/typescript6@^6.0.2"
   },

@@ -1,5 +1,6 @@
 import {
   DEFAULT_ACTIVE_RUN_ENTER_BEHAVIOR,
+  DEFAULT_REMOTE_CONFIG,
   DEFAULT_STRIP_COMPACT_TOKEN_THRESHOLD,
   normalizeActiveRunEnterBehavior,
   normalizeSidebarVisibility,
@@ -13,6 +14,8 @@ import {
   type ExaWebSearchConfig,
   type GeneralConfig,
   type MemoryConfig,
+  type RemoteConfig,
+  type RemoteTunnelMode,
   type SkillsConfig,
   type SettingsConfig,
   type ThreadModelOverride,
@@ -290,5 +293,36 @@ export function normalizeWebSearchConfig(
   return {
     browserSession: normalizeBrowserSessionConfig(input['browserSession'], fallback.browserSession),
     exa: normalizeExaWebSearchConfig(input['exa'], fallback.exa)
+  }
+}
+
+const REMOTE_TUNNEL_MODES: readonly RemoteTunnelMode[] = ['quick', 'named', 'none']
+
+function normalizePort(value: unknown, fallback: number): number {
+  return typeof value === 'number' && Number.isInteger(value) && value > 0 && value < 65536
+    ? value
+    : fallback
+}
+
+export function normalizeRemoteConfig(
+  value: unknown,
+  fallback: RemoteConfig = DEFAULT_REMOTE_CONFIG
+): RemoteConfig {
+  const input = asRecord(value)
+  const tunnel = input['tunnel']
+  return {
+    enabled: typeof input['enabled'] === 'boolean' ? input['enabled'] : fallback.enabled,
+    tunnel: REMOTE_TUNNEL_MODES.includes(tunnel as RemoteTunnelMode)
+      ? (tunnel as RemoteTunnelMode)
+      : fallback.tunnel,
+    port: normalizePort(input['port'], fallback.port),
+    metricsPort: normalizePort(input['metricsPort'], fallback.metricsPort),
+    namedHostname: normalizeString(input['namedHostname'], fallback.namedHostname),
+    lanEndpoint:
+      typeof input['lanEndpoint'] === 'boolean' ? input['lanEndpoint'] : fallback.lanEndpoint,
+    keepAwakeOnPower:
+      typeof input['keepAwakeOnPower'] === 'boolean'
+        ? input['keepAwakeOnPower']
+        : fallback.keepAwakeOnPower
   }
 }

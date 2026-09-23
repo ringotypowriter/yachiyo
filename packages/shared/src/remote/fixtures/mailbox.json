@@ -1,0 +1,19 @@
+{
+  "mailboxSecret": "0f1e2d3c4b5a69788796a5b4c3d2e1f00f1e2d3c4b5a69788796a5b4c3d2e1f0",
+  "mailboxId": "93225b77e5a3110bb350a1f7192c3aee",
+  "mailboxKey": "c3a245098631200782e8bec83840581ca42e223c71c13fd06fe3043af15240b7",
+  "nonce": "000102030405060708090a0b",
+  "plaintext": {
+    "remoteDeviceId": "0123456789abcdef0123456789abcdef",
+    "endpoints": [
+      {
+        "kind": "tunnel",
+        "url": "wss://quiet-fox.trycloudflare.com/remote/v1"
+      }
+    ],
+    "counter": 5,
+    "issuedAt": "2026-09-22T12:00:00.000Z"
+  },
+  "box": "01000102030405060708090a0bf27df281836000c2cdfb705145a28c9cdcd056270c9f38686ae3e1852469a80f06af51ce06bca503565e36b4d0ade194bef50b7d07e690098bbdcc59c261badd85400e6d0e9379af300b9d99c358a90531f57612498c8710148708d75cba0910d21ff2c764b66550b612e393b0a3ca34f265cd1830ab122f0dca3f29fc9782d048b18d199443fbfc58e21021665b3b4943be8e798c9b6dfc7fee083aeccb749997d79eb180e1f6b85df75d69f5d2d617b3e83d0138ee0bbe7c35bf1ea29542f0bdaca0527ac1658eab32c3",
+  "rejectWhenLastCounterAtLeast": 5
+}

@@ -12,9 +12,14 @@ import { stripProviderCredentials } from './providerCredentialConfig.ts'
 
 const MAX_DISPLAY = 160
 const LOCAL_ONLY_SETTING_PATHS = new Set(['sync.syncDir'])
+// Remote access (tunnel, ports, enablement) is configured per Mac and never synced.
+const LOCAL_ONLY_SETTING_PREFIXES = ['remote.']
 
 function isLocalOnlySettingPath(path: string): boolean {
-  return LOCAL_ONLY_SETTING_PATHS.has(path)
+  return (
+    LOCAL_ONLY_SETTING_PATHS.has(path) ||
+    LOCAL_ONLY_SETTING_PREFIXES.some((prefix) => path.startsWith(prefix))
+  )
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {

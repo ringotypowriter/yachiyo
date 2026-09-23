@@ -449,5 +449,26 @@ export const settingsTomlSlices: readonly TomlConfigSlice<SettingsConfig, TomlDo
         })
       }
     }
+  },
+  {
+    key: 'remote',
+    read(doc) {
+      const remote = readTomlTable(doc['remote'])
+      return remote ? { remote: remote as unknown as SettingsConfig['remote'] } : {}
+    },
+    write(config) {
+      const remote = config.remote ?? DEFAULT_SETTINGS_CONFIG.remote!
+      return {
+        remote: {
+          enabled: remote.enabled,
+          tunnel: remote.tunnel,
+          port: remote.port,
+          metricsPort: remote.metricsPort,
+          namedHostname: remote.namedHostname,
+          lanEndpoint: remote.lanEndpoint,
+          keepAwakeOnPower: remote.keepAwakeOnPower
+        }
+      }
+    }
   }
 ]

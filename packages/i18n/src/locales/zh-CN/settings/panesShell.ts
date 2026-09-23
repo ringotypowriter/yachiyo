@@ -24,6 +24,7 @@ export const nav = {
   schedules: '日程',
   history: '历史',
   sync: '同步',
+  remote: '远程',
   statistics: '统计',
   usage: '用量',
   performance: '性能',

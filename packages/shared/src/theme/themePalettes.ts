@@ -1,4 +1,4 @@
-import type { ThemeId } from '@yachiyo/shared/protocol'
+import type { ThemeId } from '../protocol.ts'
 
 type ThemeVariant = 'light' | 'dark'
 

@@ -10,6 +10,7 @@ export type SettingsPanelId =
   | 'channels'
   | 'schedules'
   | 'sync'
+  | 'remote'
   | 'usage'
   | 'about'
 
@@ -88,6 +89,7 @@ export const SETTINGS_PANELS: readonly SettingsPanelDefinition[] = [
     localizedTab('history', 'history')
   ]),
   localizedPanel('sync', 'sync'),
+  localizedPanel('remote', 'remote'),
   localizedPanel('usage', 'statistics', [
     localizedTab('usage', 'usage'),
     localizedTab('performance', 'performance'),
@@ -97,11 +99,16 @@ export const SETTINGS_PANELS: readonly SettingsPanelDefinition[] = [
 ]
 
 export function getSettingsPanels(platform: string): readonly SettingsPanelDefinition[] {
+  // Remote access supervises cloudflared through launchd, so it is macOS only in v1.
+  const panels =
+    platform === 'darwin'
+      ? SETTINGS_PANELS
+      : SETTINGS_PANELS.filter((panel) => panel.id !== 'remote')
   if (resolvePlatformCapabilities(platform as NodeJS.Platform).activityTracking) {
-    return SETTINGS_PANELS
+    return panels
   }
 
-  return SETTINGS_PANELS.map((panel) =>
+  return panels.map((panel) =>
     panel.id === 'source'
       ? { ...panel, tabs: panel.tabs?.filter((tab) => tab.id !== 'activity') }
       : panel

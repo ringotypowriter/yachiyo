@@ -1,5 +1,6 @@
 import type { ReadAppLogsResult } from '@yachiyo/shared/appLogs'
 import type { DiscoveredApp } from '@yachiyo/shared/discoveredApp'
+import type { RemotePairingInfo, RemoteStatusResult } from '@yachiyo/shared/remote/command'
 import type {
   ExportProviderBackupInput,
   ExportProviderBackupResult,
@@ -271,6 +272,10 @@ declare global {
         runSyncNow: () => Promise<SyncStatus>
         listSyncConflicts: () => Promise<ListSyncConflictsResult>
         resolveSyncConflict: (input: ResolveSyncConflictInput) => Promise<ListSyncConflictsResult>
+        getRemoteStatus: () => Promise<RemoteStatusResult>
+        createRemotePairing: () => Promise<{ url: string; expiresAt: string; svg: string }>
+        listRemotePairings: () => Promise<RemotePairingInfo[]>
+        revokeRemotePairing: (pairingId: string) => Promise<boolean>
         saveConfig: (input: SettingsConfig) => Promise<SettingsConfig>
         saveUserDocument: (input: { content: string }) => Promise<UserDocument>
         saveSettings: (input: Partial<ProviderSettings>) => Promise<ProviderSettings>

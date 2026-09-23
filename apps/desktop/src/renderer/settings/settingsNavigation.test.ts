@@ -25,10 +25,20 @@ test('settings navigation groups related panes under fewer top-level panels', ()
       'channels',
       'schedules',
       'sync',
+      'remote',
       'usage',
       'about'
     ]
   )
+})
+
+test('the remote panel is offered on macOS only', () => {
+  assert.ok(getSettingsPanels('darwin').some((panel) => panel.id === 'remote'))
+  assert.equal(
+    getSettingsPanels('win32').some((panel) => panel.id === 'remote'),
+    false
+  )
+  assert.deepEqual(resolveSettingsRouteForPlatform('remote', 'win32'), { panel: 'general' })
 })
 
 test('general panel exposes behavior and user interface tabs', () => {

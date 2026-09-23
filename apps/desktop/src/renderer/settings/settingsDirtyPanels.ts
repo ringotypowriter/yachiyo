@@ -31,7 +31,8 @@ const ROOT_KEYS_BY_PANEL: Partial<Record<SettingsPanelId, readonly (keyof Settin
   providers: ['providers'],
   chat: ['defaultModel', 'toolModel', 'essentials'],
   capabilities: ['skills', 'subagents', 'subagentProfiles', 'prompts', 'workspace'],
-  source: ['memory', 'webSearch']
+  source: ['memory', 'webSearch'],
+  remote: ['remote']
 }
 
 const GENERAL_KEYS_BY_PANEL: Partial<Record<SettingsPanelId, readonly (keyof GeneralConfig)[]>> = {

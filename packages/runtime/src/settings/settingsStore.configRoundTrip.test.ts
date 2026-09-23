@@ -4,7 +4,9 @@ import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import test from 'node:test'
 import {
+  DEFAULT_REMOTE_CONFIG,
   DEFAULT_TOOL_CALL_DISPLAY_MODE,
+  type RemoteConfig,
   type BrowserBackedWebSearchSessionConfig,
   type ChatConfig,
   type ExaWebSearchConfig,
@@ -963,4 +965,37 @@ test('explicit empty imageIncapable list survives round-trip', async () => {
   } finally {
     await rm(root, { recursive: true, force: true })
   }
+})
+
+test('remote settings round-trip through parse → normalize → stringify → parse', () => {
+  const remote: RemoteConfig = {
+    enabled: true,
+    tunnel: 'named',
+    port: 48001,
+    metricsPort: 48002,
+    namedHostname: 'yachiyo.example.com',
+    lanEndpoint: true,
+    keepAwakeOnPower: false
+  }
+  const first = normalizeSettingsConfig({ ...DEFAULT_SETTINGS_CONFIG, remote })
+  const reparsed = normalizeSettingsConfig(parseSettingsToml(stringifySettingsToml(first)))
+
+  assert.deepEqual(reparsed.remote, remote)
+  assert.deepEqual(normalizeSettingsConfig(parseSettingsToml('')).remote, DEFAULT_REMOTE_CONFIG)
+})
+
+test('invalid remote values fall back to defaults field by field', () => {
+  const normalized = normalizeSettingsConfig(
+    parseSettingsToml(
+      ['[remote]', 'enabled = true', 'tunnel = "ssh"', 'port = 70000', 'metricsPort = 9000'].join(
+        '\n'
+      )
+    )
+  )
+
+  assert.deepEqual(normalized.remote, {
+    ...DEFAULT_REMOTE_CONFIG,
+    enabled: true,
+    metricsPort: 9000
+  })
 })
