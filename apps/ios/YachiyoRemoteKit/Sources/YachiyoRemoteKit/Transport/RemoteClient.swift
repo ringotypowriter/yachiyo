@@ -42,6 +42,8 @@ public final class RemoteClient: @unchecked Sendable {
     private let lock = NSLock()
     private var nextId = 1
     private var pending: [Int: CheckedContinuation<Data, Error>] = [:]
+    private var outbound: [Data] = []
+    private var sending = false
     private var closed = false
     private var grantContinuation: CheckedContinuation<PairingGrant, Error>?
     private var receivedGrant: PairingGrant?
@@ -51,7 +53,7 @@ public final class RemoteClient: @unchecked Sendable {
     /// Yields once when the connection ends, with the error that ended it (nil when closed locally).
     public let closures: AsyncStream<Error?>
 
-    private init(channel: any WebSocketChannel, transport: NoiseTransport) {
+    init(channel: any WebSocketChannel, transport: NoiseTransport) {
         self.channel = channel
         self.transport = transport
         (pushes, pushContinuation) = AsyncStream.makeStream(bufferingPolicy: .unbounded)
@@ -123,23 +125,41 @@ public final class RemoteClient: @unchecked Sendable {
             return nextId
         }
         let message: [String: Any] = ["kind": "rpc:request", "id": id, "method": method, "args": [input]]
-        let frame = try transport.encrypt(JSONSerialization.data(withJSONObject: message))
+        let plaintext = try JSONSerialization.data(withJSONObject: message)
+        guard plaintext.count <= remoteMaxMessageBytes else { throw NoiseError.messageTooLarge }
         return try await withCheckedThrowingContinuation { continuation in
-            let rejected: Bool = lock.withLock {
-                if closed { return true }
+            let (rejected, startSending): (Bool, Bool) = lock.withLock {
+                if closed { return (true, false) }
                 pending[id] = continuation
-                return false
+                outbound.append(plaintext)
+                if sending { return (false, false) }
+                sending = true
+                return (false, true)
             }
             if rejected {
                 continuation.resume(throwing: WebSocketChannelError.closed(code: 1000))
                 return
             }
-            Task {
-                do {
-                    try await channel.send(frame)
-                } catch {
-                    self.fail(error)
-                }
+            if startSending { Task { await self.sendLoop() } }
+        }
+    }
+
+    /// Noise nonces are implicit: encryption and delivery must share one FIFO, including
+    /// across the suspension in send. Separate per-call Tasks can reorder encrypted frames.
+    private func sendLoop() async {
+        while let plaintext = lock.withLock({ () -> Data? in
+            guard !closed, !outbound.isEmpty else {
+                sending = false
+                return nil
+            }
+            return outbound.removeFirst()
+        }) {
+            do {
+                try await channel.send(transport.encrypt(plaintext))
+            } catch {
+                fail(error)
+                channel.close()
+                return
             }
         }
     }
@@ -219,6 +239,8 @@ public final class RemoteClient: @unchecked Sendable {
             closed = true
             defer {
                 pending.removeAll()
+                outbound.removeAll()
+                sending = false
                 grantContinuation = nil
             }
             return (Array(pending.values), grantContinuation)

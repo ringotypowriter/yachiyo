@@ -3,6 +3,27 @@ import XCTest
 @testable import YachiyoRemoteKit
 
 final class MailboxTests: XCTestCase {
+    func testRecoveryFolderMustBeYachiyoContainingRemote() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let folder = root.appendingPathComponent("Documents/Yachiyo")
+        let remote = folder.appendingPathComponent("Remote")
+        try FileManager.default.createDirectory(at: remote, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        XCTAssertNoThrow(try BookmarkedFolderMailboxSource.validateFolder(folder))
+        XCTAssertThrowsError(try BookmarkedFolderMailboxSource.validateFolder(root))
+        XCTAssertThrowsError(try BookmarkedFolderMailboxSource.validateFolder(folder.deletingLastPathComponent()))
+        XCTAssertThrowsError(try BookmarkedFolderMailboxSource.validateFolder(remote))
+        let sync = folder.appendingPathComponent("Sync")
+        try FileManager.default.createDirectory(at: sync, withIntermediateDirectories: true)
+        XCTAssertThrowsError(try BookmarkedFolderMailboxSource.validateFolder(sync))
+
+        try FileManager.default.removeItem(at: remote)
+        XCTAssertThrowsError(try BookmarkedFolderMailboxSource.validateFolder(folder))
+        try Data().write(to: remote)
+        XCTAssertThrowsError(try BookmarkedFolderMailboxSource.validateFolder(folder))
+    }
+
     func testOpensTheDesktopMailboxAndRejectsRollback() throws {
         let fixture = try Fixtures.json("mailbox.json") as! [String: Any]
         let keys = try Mailbox.deriveKeys(secret: Data(hex: fixture["mailboxSecret"] as! String))

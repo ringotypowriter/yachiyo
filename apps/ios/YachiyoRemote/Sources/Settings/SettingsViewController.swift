@@ -44,9 +44,14 @@ final class SettingsViewController: UITableViewController {
     }
 
     override func tableView(_: UITableView, titleForFooterInSection section: Int) -> String? {
-        Section(rawValue: section) == .devices
-            ? String(localized: "Removing a device here only affects this iPhone. To revoke it, use Settings > Remote on the Mac.")
-            : nil
+        switch Section(rawValue: section)! {
+        case .devices:
+            String(localized: "Removing a device here only affects this iPhone. To revoke it, use Settings > Remote on the Mac.")
+        case .recovery:
+            String(localized: "Optional. Find your Mac again if its address changes. Choose iCloud Drive > Documents > Yachiyo. Pairing and chat do not require this folder.")
+        default:
+            nil
+        }
     }
 
     override func tableView(_: UITableView, numberOfRowsInSection section: Int) -> Int {
@@ -93,8 +98,9 @@ final class SettingsViewController: UITableViewController {
                 cell.accessoryView = menuButton(primaryMenu())
             }
         case .recovery:
-            content.text = String(localized: "iCloud folder")
-            content.secondaryText = MailboxFolder.isGranted ? String(localized: "Granted") : String(localized: "Not chosen")
+            content.text = String(localized: "Yachiyo recovery folder")
+            content.secondaryText = MailboxFolder.isGranted ? String(localized: "Folder selected") : String(localized: "Not set up")
+            cell.accessibilityIdentifier = "settings.addressRecovery"
             cell.accessoryType = .disclosureIndicator
         case .about:
             switch indexPath.row {
@@ -124,9 +130,7 @@ final class SettingsViewController: UITableViewController {
             container.modalPresentationStyle = .fullScreen
             present(container, animated: true)
         case .recovery:
-            let picker = UIDocumentPickerViewController(forOpeningContentTypes: [.folder])
-            picker.delegate = self
-            present(picker, animated: true)
+            explainRecoveryFolder()
         case .about where indexPath.row == 2:
             let notices = Bundle.main.url(forResource: "THIRD_PARTY_NOTICES", withExtension: "md")
                 .flatMap { try? String(contentsOf: $0, encoding: .utf8) } ?? ""
@@ -146,6 +150,22 @@ final class SettingsViewController: UITableViewController {
     }
 
     // MARK: Helpers
+
+    private func explainRecoveryFolder() {
+        let alert = UIAlertController(
+            title: String(localized: "Set up address recovery"),
+            message: String(localized: "In the folder picker, open Browse > iCloud Drive > Documents, open Yachiyo, then tap Open. Select Yachiyo itself, not Remote or Sync.\n\nYour Mac creates this folder after pairing. Use the same Apple Account with iCloud Drive on both devices. If it is missing, let iCloud finish syncing and try later; do not create a new folder. You can keep using your paired Mac without this step."),
+            preferredStyle: .alert
+        )
+        alert.addAction(UIAlertAction(title: String(localized: "Not now"), style: .cancel))
+        alert.addAction(UIAlertAction(title: String(localized: "Choose Yachiyo folder"), style: .default) { [weak self] _ in
+            guard let self else { return }
+            let picker = UIDocumentPickerViewController(forOpeningContentTypes: [.folder])
+            picker.delegate = self
+            self.present(picker, animated: true)
+        })
+        present(alert, animated: true)
+    }
 
     private var primaryName: String {
         store.desktops.first(where: \.isPrimary)?.name ?? String(localized: "your Mac")
@@ -213,9 +233,21 @@ final class SettingsViewController: UITableViewController {
 }
 
 extension SettingsViewController: UIDocumentPickerDelegate {
-    func documentPicker(_: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
+    func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
         guard let folder = urls.first else { return }
-        try? MailboxFolder.save(folder: folder)
+        do {
+            try MailboxFolder.save(folder: folder)
+        } catch {
+            let alert = UIAlertController(
+                title: String(localized: "Recovery folder not saved"),
+                message: String(localized: "Choose iCloud Drive > Documents > Yachiyo, containing the Remote folder created by your Mac. Do not select Documents, Remote, or Sync. If Yachiyo or Remote is missing, check iCloud Drive on your Mac and wait for syncing, then try again. Your pairing is unchanged."),
+                preferredStyle: .alert
+            )
+            alert.addAction(UIAlertAction(title: String(localized: "OK"), style: .default))
+            controller.dismiss(animated: true) { [weak self] in
+                self?.present(alert, animated: true)
+            }
+        }
         tableView.reloadData()
     }
 }

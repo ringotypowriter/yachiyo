@@ -143,7 +143,7 @@ final class InboxViewController: UIViewController {
 
     private func observeStore() {
         store.$inbox
-            .combineLatest(store.$desktops, store.$unreadCompletions)
+            .combineLatest(store.$desktops, store.$unreadCompletions, store.$inboxLoadErrors)
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in
                 self?.applySnapshot()
@@ -197,6 +197,23 @@ final class InboxViewController: UIViewController {
     }
 
     private func updateEmptyState(isEmpty: Bool) {
+        let failures = store.desktops.compactMap { desktop -> String? in
+            guard let error = store.inboxLoadErrors[desktop.id] else { return nil }
+            return "\(desktop.name): \(error)"
+        }
+        navigationItem.prompt = failures.isEmpty ? nil : String(localized: "Couldn't refresh threads. Pull to retry.")
+        if isEmpty, !failures.isEmpty {
+            var configuration = UIContentUnavailableConfiguration.empty()
+            configuration.image = .lucide("triangle-alert")
+            configuration.text = String(localized: "Couldn't load threads")
+            configuration.secondaryText = failures.joined(separator: "\n")
+            configuration.button = YachiyoMaterialKit.primaryButtonConfiguration(title: String(localized: "Retry"), image: nil)
+            configuration.buttonProperties.primaryAction = UIAction { [weak self] _ in
+                Task { await self?.store.refreshInbox() }
+            }
+            contentUnavailableConfiguration = configuration
+            return
+        }
         guard isEmpty, !filter.isActive, searchQuery.isEmpty else {
             contentUnavailableConfiguration = nil
             return

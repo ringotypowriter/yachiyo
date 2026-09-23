@@ -1,4 +1,5 @@
 import Combine
+import OSLog
 import UIKit
 import YachiyoMaterial
 import YachiyoRemoteKit
@@ -29,6 +30,7 @@ struct DesktopSnapshot: Equatable {
 @MainActor
 final class RemoteStore {
     static let shared = RemoteStore(credentials: KeychainCredentialStore())
+    private static let logger = Logger(subsystem: "sh.ringo.yachiyo.remote", category: "Inbox")
 
     private let credentials: RemoteCredentialStore
     private var links: [String: DesktopLink] = [:]
@@ -36,6 +38,7 @@ final class RemoteStore {
 
     @Published private(set) var desktops: [DesktopSnapshot] = []
     @Published private(set) var inbox: [InboxItem] = []
+    @Published private(set) var inboxLoadErrors: [String: String] = [:]
     @Published private(set) var appearance: RemoteAppearance?
     /// Unread completions (run finished while the thread was not open).
     @Published private(set) var unreadCompletions: Set<String> = []
@@ -103,6 +106,7 @@ final class RemoteStore {
         links[desktopId]?.stop()
         links[desktopId] = nil
         summaries[desktopId] = nil
+        inboxLoadErrors[desktopId] = nil
         try? credentials.remove(remoteDeviceId: desktopId)
         publishDesktops()
         publishInbox()
@@ -191,8 +195,16 @@ final class RemoteStore {
                 cursor = page.nextCursor
             } while cursor != nil
             summaries[link.id] = Dictionary(uniqueKeysWithValues: collected.map { ($0.id, $0) })
+            inboxLoadErrors[link.id] = nil
             publishInbox()
         } catch {
+            let decodingDescription = inboxDecodingErrorDescription(error)
+            let underlying = error as NSError
+            // Log structural diagnostics only: decoder debugDescription and RPC messages
+            // can contain response values, so neither belongs in the system log.
+            Self.logger.error("threads.list failed: domain=\(underlying.domain, privacy: .public) code=\(underlying.code) decoding=\(decodingDescription ?? "none", privacy: .public)")
+            inboxLoadErrors[link.id] = inboxLoadErrorDescription(error)
+            // Do not replace a previously loaded inbox with a partial page or an empty list.
             publishInbox()
         }
     }
@@ -276,3 +288,39 @@ struct ThreadsListInput: Encodable {
 }
 
 struct EmptyInput: Encodable {}
+
+func inboxLoadErrorDescription(_ error: Error) -> String {
+    if let description = inboxDecodingErrorDescription(error) { return description }
+    if let error = error as? RemoteCallError { return "\(error.name): \(error.message)" }
+    switch error {
+    case let WebSocketChannelError.closed(code):
+        return String(localized: "Connection closed (code \(String(code))).")
+    case WebSocketChannelError.unexpectedTextFrame:
+        return String(localized: "The connection received an unexpected text response.")
+    default:
+        return error.localizedDescription
+    }
+}
+
+/// Unlike localizedDescription, decoding diagnostics identify the failing response field.
+/// Never include debugDescription: custom decoders may put user data in it.
+func inboxDecodingErrorDescription(_ error: Error) -> String? {
+    func path(_ keys: [CodingKey]) -> String {
+        keys.reduce("response") { result, key in
+            if let index = key.intValue { return "\(result)[\(index)]" }
+            return "\(result).\(key.stringValue)"
+        }
+    }
+    switch error {
+    case let DecodingError.keyNotFound(key, context):
+        return String(localized: "Missing field at \(path(context.codingPath + [key])).")
+    case let DecodingError.valueNotFound(_, context):
+        return String(localized: "Missing value at \(path(context.codingPath)).")
+    case let DecodingError.typeMismatch(_, context):
+        return String(localized: "Unexpected value type at \(path(context.codingPath)).")
+    case let DecodingError.dataCorrupted(context):
+        return String(localized: "Invalid response data at \(path(context.codingPath)).")
+    default:
+        return nil
+    }
+}

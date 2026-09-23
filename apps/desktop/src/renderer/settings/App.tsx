@@ -48,6 +48,7 @@ import { UsagePane } from './panes/UsagePane'
 import { LogsPane } from './panes/LogsPane'
 import { SyncPane } from './panes/SyncPane'
 import { RemotePane } from './panes/RemotePane'
+import { useSettingsConfigState } from './useSettingsConfigState'
 import { PythonEnvironmentPane } from './panes/PythonEnvironmentPane'
 import {
   hasPendingChannelGroupChanges,
@@ -242,8 +243,8 @@ function SettingsPanel({
   const [activePanelTabs, setActivePanelTabs] = useState(() =>
     getInitialActivePanelTabs(route, platform)
   )
-  const [savedConfig, setSavedConfig] = useState<SettingsConfig | null>(null)
-  const [draft, setDraft] = useState<SettingsConfig | null>(null)
+  const { savedConfig, setSavedConfig, draft, setDraft, initializeConfig } =
+    useSettingsConfigState()
   const [savedChannelsConfig, setSavedChannelsConfig] = useState<ChannelsConfig | null>(null)
   const [channelsDraft, setChannelsDraft] = useState<ChannelsConfig | null>(null)
   const [isLoadingChannelsConfig, setIsLoadingChannelsConfig] = useState(true)
@@ -307,8 +308,7 @@ function SettingsPanel({
           return
         }
 
-        setSavedConfig(config)
-        setDraft(config)
+        initializeConfig(config)
         setSelectedProviderId(config.providers[0]?.id ?? '')
         setLoading(false)
       })
@@ -348,7 +348,7 @@ function SettingsPanel({
     return () => {
       cancelled = true
     }
-  }, [t])
+  }, [initializeConfig, t])
 
   const loadUserDocumentDraft = useCallback(async (): Promise<void> => {
     if (isLoadingUserDocument) {
@@ -401,7 +401,7 @@ function SettingsPanel({
         ? current
         : (config.providers[0]?.id ?? '')
     )
-  }, [])
+  }, [setDraft, setSavedConfig])
 
   const loadChannelRecords = useCallback(
     async (options?: { force?: boolean }): Promise<void> => {
@@ -631,6 +631,8 @@ function SettingsPanel({
     }
   }, [
     t,
+    setDraft,
+    setSavedConfig,
     channelGroupsDraft,
     channelUsersDraft,
     channelsDraft,
@@ -692,6 +694,7 @@ function SettingsPanel({
   }, [
     dialog,
     t,
+    setDraft,
     isDirty,
     savedChannelGroups,
     savedChannelUsers,

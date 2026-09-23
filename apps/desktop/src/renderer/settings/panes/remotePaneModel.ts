@@ -13,16 +13,11 @@ export function withRemote(config: SettingsConfig, patch: Partial<RemoteConfig>)
   return { ...config, remote: { ...remoteConfigOf(config), ...patch } }
 }
 
-/** The public host a phone dials, without the scheme and path noise. */
+/** Preserve the complete endpoint when displaying or copying the server address. */
 export function remoteAddressLabel(status: RemoteStatusResult | null): string | null {
   const endpoint =
     status?.endpoints.find((entry) => entry.kind === 'tunnel') ?? status?.endpoints[0]
-  if (!endpoint) return null
-  try {
-    return new URL(endpoint.url).host
-  } catch {
-    return endpoint.url
-  }
+  return endpoint?.url ?? null
 }
 
 export type RemoteStatusHint = 'cloudflared-stopped' | 'icloud-unavailable' | null

@@ -9,6 +9,8 @@ public protocol MailboxSource: Sendable {
 /// `Documents/Yachiyo` in iCloud Drive, reached through a security-scoped bookmark saved when the
 /// user picked the folder. Reads download the file first and go through NSFileCoordinator.
 public final class BookmarkedFolderMailboxSource: MailboxSource, @unchecked Sendable {
+    public enum FolderError: Error { case wrongFolder }
+
     private let bookmark: Data
 
     public init(bookmark: Data) {
@@ -18,7 +20,17 @@ public final class BookmarkedFolderMailboxSource: MailboxSource, @unchecked Send
     public static func makeBookmark(for folder: URL) throws -> Data {
         let accessing = folder.startAccessingSecurityScopedResource()
         defer { if accessing { folder.stopAccessingSecurityScopedResource() } }
+        try validateFolder(folder)
         return try folder.bookmarkData(options: bookmarkCreationOptions, includingResourceValuesForKeys: nil, relativeTo: nil)
+    }
+
+    /// Structural validation only; mailbox authentication still happens when recovering an address.
+    /// Never create missing directories: an empty lookalike folder cannot receive the Mac's files.
+    static func validateFolder(_ folder: URL) throws {
+        guard folder.lastPathComponent == "Yachiyo",
+              try folder.resourceValues(forKeys: [.isDirectoryKey]).isDirectory == true,
+              try folder.appendingPathComponent("Remote").resourceValues(forKeys: [.isDirectoryKey]).isDirectory == true
+        else { throw FolderError.wrongFolder }
     }
 
     public func read(mailboxId: String) async throws -> Data? {

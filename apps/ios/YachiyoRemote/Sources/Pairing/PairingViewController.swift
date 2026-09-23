@@ -1,11 +1,10 @@
 import UIKit
-import UniformTypeIdentifiers
 import VisionKit
 import YachiyoMaterial
 import YachiyoRemoteKit
 
-/// Pairing: welcome → scan (or a `yachiyo-remote://pair` link) → paired → optional iCloud folder
-/// grant for address recovery. Deep links skip straight to pairing.
+/// Pairing: welcome → scan (or a `yachiyo-remote://pair` link) → paired.
+/// Optional address recovery is configured separately in Settings.
 final class PairingViewController: UIViewController {
     var onFinished: (() -> Void)?
 
@@ -102,14 +101,9 @@ final class PairingViewController: UIViewController {
         case let .paired(desktop):
             headline.text = String(localized: "Paired with \(desktop.name)")
             wordmark.isHidden = true
-            if MailboxFolder.iCloudAvailable {
-                message.text = String(localized: "If your Mac's address changes, Yachiyo finds it again through iCloud Drive. Choose the Yachiyo folder in iCloud Drive > Documents.")
-                setPrimary(String(localized: "Choose iCloud folder")) { [weak self] in self?.chooseFolder() }
-            } else {
-                message.text = String(localized: "Turn on iCloud Drive in the Settings app (your name > iCloud) so Yachiyo can find your Mac after its address changes.")
-                primaryButton.isHidden = true
-            }
-            setSecondary(String(localized: "Skip")) { [weak self] in self?.onFinished?() }
+            message.text = String(localized: "You're ready to use your Mac. Optional: set up Address recovery in Settings to reconnect through iCloud Drive if your Mac's address changes. Without it, you may need to scan a new code.")
+            setPrimary(String(localized: "Continue")) { [weak self] in self?.onFinished?() }
+            secondaryButton.isHidden = true
         case let .failed(reason):
             headline.text = String(localized: "Couldn't pair")
             wordmark.isHidden = true
@@ -161,24 +155,29 @@ final class PairingViewController: UIViewController {
     }
 
     private func pastePairingLink() {
-        let alert = UIAlertController(title: String(localized: "Paste pairing link"), message: nil, preferredStyle: .alert)
+        let alert = UIAlertController(
+            title: String(localized: "Paste pairing link"),
+            message: String(localized: "On your Mac, open Settings > Remote > Copy pairing link. Use that link, not the server address."),
+            preferredStyle: .alert
+        )
         alert.addTextField { field in
             field.placeholder = "yachiyo-remote://pair?…"
             field.text = UIPasteboard.general.string
         }
         alert.addAction(UIAlertAction(title: String(localized: "Cancel"), style: .cancel))
         alert.addAction(UIAlertAction(title: String(localized: "Pair"), style: .default) { [weak self, weak alert] _ in
-            guard let text = alert?.textFields?.first?.text, let url = URL(string: text.trimmingCharacters(in: .whitespacesAndNewlines)) else { return }
+            guard let text = alert?.textFields?.first?.text,
+                  let url = URL(string: text.trimmingCharacters(in: .whitespacesAndNewlines)),
+                  url.scheme == PairingURL.scheme, url.host == "pair"
+            else {
+                self?.step = .failed(String(localized: "This isn't a pairing link. Copy a new pairing link from Settings > Remote on your Mac, not the server address."))
+                return
+            }
             self?.pair(with: url)
         })
         present(alert, animated: true)
     }
 
-    private func chooseFolder() {
-        let picker = UIDocumentPickerViewController(forOpeningContentTypes: [.folder])
-        picker.delegate = self
-        present(picker, animated: true)
-    }
 }
 
 extension PairingViewController: DataScannerViewControllerDelegate {
@@ -191,13 +190,5 @@ extension PairingViewController: DataScannerViewControllerDelegate {
             scanner.dismiss(animated: true) { self.pair(with: url) }
             return
         }
-    }
-}
-
-extension PairingViewController: UIDocumentPickerDelegate {
-    func documentPicker(_: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
-        guard let folder = urls.first else { return }
-        try? MailboxFolder.save(folder: folder)
-        onFinished?()
     }
 }

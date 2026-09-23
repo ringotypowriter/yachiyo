@@ -43,18 +43,42 @@ function buttonStyle(disabled: boolean): React.CSSProperties {
   }
 }
 
-function CopyButton({ value, label }: { value: string; label: string }): React.ReactNode {
+function CopyButton({
+  value,
+  label,
+  disabled = false
+}: {
+  value: string | (() => Promise<string>)
+  label: string
+  disabled?: boolean
+}): React.ReactNode {
   const t = useT()
   const [copied, setCopied] = useState(false)
-  const copy = (): void => {
-    void navigator.clipboard.writeText(value).then(() => {
+  const [copying, setCopying] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const copy = async (): Promise<void> => {
+    setCopying(true)
+    setCopied(false)
+    setError(null)
+    try {
+      await navigator.clipboard.writeText(typeof value === 'string' ? value : await value())
       setCopied(true)
       window.setTimeout(() => setCopied(false), 1500)
-    })
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason))
+    } finally {
+      setCopying(false)
+    }
   }
   return (
-    <button type="button" style={buttonStyle(false)} onClick={copy}>
-      {copied ? t('common.copied') : label}
+    <button
+      type="button"
+      disabled={disabled || copying}
+      style={buttonStyle(disabled || copying)}
+      title={error ?? undefined}
+      onClick={() => void copy()}
+    >
+      {error ? t('settings.remote.copyFailed') : copied ? t('common.copied') : label}
     </button>
   )
 }
@@ -280,14 +304,23 @@ export function RemotePane({ draft, onChange }: RemotePaneProps): React.ReactNod
             canPair ? t('settings.remote.pairDescription') : t('settings.remote.pairUnavailable')
           }
           control={
-            <button
-              type="button"
-              disabled={!canPair}
-              style={buttonStyle(!canPair)}
-              onClick={() => void showPairing()}
-            >
-              {t('settings.remote.pairButton')}
-            </button>
+            <div className="flex flex-wrap justify-end gap-2">
+              <button
+                type="button"
+                disabled={!canPair}
+                style={buttonStyle(!canPair)}
+                onClick={() => void showPairing()}
+              >
+                {t('settings.remote.pairButton')}
+              </button>
+              <CopyButton
+                value={async (): Promise<string> =>
+                  (await window.api.yachiyo.createRemotePairing()).url
+                }
+                label={t('settings.remote.qrCopyLink')}
+                disabled={!canPair}
+              />
+            </div>
           }
         />
       </SettingSection>

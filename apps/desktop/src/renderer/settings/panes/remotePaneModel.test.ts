@@ -29,13 +29,13 @@ function status(overrides: Partial<RemoteStatusResult> = {}): RemoteStatusResult
   }
 }
 
-test('the address prefers the tunnel host and falls back to the first endpoint', () => {
-  assert.equal(remoteAddressLabel(status()), 'quiet-fox.trycloudflare.com')
+test('the copied address preserves the tunnel URL and falls back to the full LAN endpoint', () => {
+  assert.equal(remoteAddressLabel(status()), 'wss://quiet-fox.trycloudflare.com/remote/v1')
   assert.equal(
     remoteAddressLabel(
       status({ endpoints: [{ kind: 'lan', url: 'ws://192.168.1.20:47831/remote/v1' }] })
     ),
-    '192.168.1.20:47831'
+    'ws://192.168.1.20:47831/remote/v1'
   )
   assert.equal(remoteAddressLabel(status({ endpoints: [] })), null)
   assert.equal(remoteAddressLabel(null), null)
