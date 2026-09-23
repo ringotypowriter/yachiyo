@@ -68,7 +68,9 @@ extension ChatInputView {
 
     func publishNewEditorStatus() {
         assert(Thread.isMainThread)
-        let object = collectObject()
+        var object = collectObject()
+        // Drafts retain whitespace and attachment-only input without the send-time fallback text.
+        object.text = inputEditor.textView.text ?? ""
         guard !objectTransactionInProgress else { return }
         objectTransactionInProgress = true
         defer { objectTransactionInProgress = false }
@@ -81,7 +83,7 @@ extension ChatInputView {
         objectTransactionInProgress = true
         defer { objectTransactionInProgress = false }
         resetValues()
-        inputEditor.set(text: object.text.trimmingCharacters(in: .whitespacesAndNewlines))
+        inputEditor.set(text: object.text)
         attachmentsBar.attachments.removeAll()
         for attachment in object.attachments {
             attachmentsBar.insert(item: attachment)

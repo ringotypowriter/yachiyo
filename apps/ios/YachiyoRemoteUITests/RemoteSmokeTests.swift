@@ -174,7 +174,8 @@ final class RemoteSmokeTests: XCTestCase {
         let deck = element("toolDeck.summary.demo-tool-dispatch-claude")
         XCTAssertTrue(deck.waitForExistence(timeout: 30))
         let loading = element("thread.loadingStatus")
-        let ready = NSPredicate(format: "exists == false")
+        // The status label stays in the navigation bar and shows the desktop name when ready.
+        let ready = NSPredicate(format: "label CONTAINS %@", "Harness")
         expectation(for: ready, evaluatedWith: loading)
         waitForExpectations(timeout: 30)
         for _ in 0..<2 {
@@ -288,6 +289,12 @@ final class RemoteSmokeTests: XCTestCase {
         deck.tap()
         XCTAssertTrue(element("toolDeck.details.demo-tool-dispatch-claude").exists)
         capture("selected-tool-deck")
+        element("toolDeck.details.demo-tool-dispatch-claude").tap()
+        let preview = app.textViews["textSheet.body"]
+        XCTAssertTrue(preview.waitForExistence(timeout: 10))
+        capture("tool-details-preview")
+        preview.swipeUp()
+        app.navigationBars.buttons["Done"].tap()
         let media = app.buttons["composer.media"]
         XCTAssertTrue(media.waitForExistence(timeout: 10))
         media.tap()
@@ -303,6 +310,178 @@ final class RemoteSmokeTests: XCTestCase {
         if app.buttons["Add"].waitForExistence(timeout: 3) { app.buttons["Add"].tap() }
         XCTAssertTrue(app.collectionViews["composer.attachments"].cells.firstMatch.waitForExistence(timeout: 15))
         capture("photo-attached")
+        let sendPhoto = element("composer.send")
+        XCTAssertTrue(sendPhoto.isHittable, "An attachment-only draft exposes a reachable Send button")
+        sendPhoto.tap()
+        let sent = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            self.app.collectionViews["composer.attachments"].cells.count == 0
+        }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [sent], timeout: 30), .completed, "Acknowledgement clears the uploaded attachment")
+    }
+
+    /// Non-destructive mobile interaction acceptance; supports YACHIYO_REUSE_PAIRING=1.
+    func testMobileInteractionPolishAcceptance() {
+        func capture(_ name: String) {
+            let attachment = XCTAttachment(screenshot: app.screenshot())
+            attachment.name = "mobile-\(name)"
+            attachment.lifetime = .keepAlways
+            add(attachment)
+        }
+        func waitUntil(_ description: String, _ condition: @escaping () -> Bool) {
+            let ready = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in condition() }, object: nil)
+            XCTAssertEqual(XCTWaiter.wait(for: [ready], timeout: 30), .completed, description)
+        }
+
+        continueAfterPairing()
+        let list = app.collectionViews["inbox.list"]
+        XCTAssertTrue(list.waitForExistence(timeout: 30))
+        let firstThread = list.cells.matching(NSPredicate(format: "identifier BEGINSWITH 'inbox.thread.'")).firstMatch
+        waitUntil("Fixture inbox is loaded") { firstThread.exists && firstThread.isHittable }
+        capture("01-inbox")
+
+        // UIKit integrates Search in the toolbar on iOS 26, and the nav bar on older iOS.
+        let search = app.searchFields.firstMatch
+        if !search.isHittable {
+            let searchButton = app.buttons["Search"].firstMatch
+            if searchButton.exists && searchButton.isHittable { searchButton.tap() }
+            else { list.swipeDown() }
+        }
+        waitUntil("Inbox search is accessible") { search.exists && search.isHittable }
+        search.tap()
+        search.typeText("zz-no-mobile-audit-match-94721")
+        XCTAssertTrue(app.staticTexts["No matching threads"].waitForExistence(timeout: 30))
+        capture("02-search-no-match")
+        let clearSearch = search.buttons["Clear text"]
+        XCTAssertTrue(clearSearch.exists)
+        clearSearch.tap()
+        waitUntil("Clearing the search restores fixture threads") { firstThread.exists }
+        // Dismiss search before opening sheets or swiping a row.
+        let cancelSearch = app.buttons.matching(NSPredicate(format: "label == 'Cancel' OR label == 'close'")).firstMatch
+        XCTAssertTrue(cancelSearch.exists && cancelSearch.isHittable)
+        cancelSearch.tap()
+        waitUntil("Inbox controls return after search reset") { firstThread.isHittable && self.app.buttons["inbox.settings"].isHittable }
+        capture("03-search-reset")
+
+        let threadID = firstThread.identifier
+        let retainedThread = list.cells[threadID]
+        retainedThread.swipeLeft()
+        let archive = app.buttons["Archive"].firstMatch
+        XCTAssertTrue(archive.waitForExistence(timeout: 10))
+        archive.tap()
+        let archiveAlert = app.alerts["Archive thread?"]
+        XCTAssertTrue(archiveAlert.waitForExistence(timeout: 10))
+        capture("04-archive-confirmation")
+        archiveAlert.buttons["Cancel"].tap()
+        waitUntil("Archive cancellation keeps the thread") { !archiveAlert.exists && retainedThread.exists }
+
+        app.buttons["inbox.settings"].tap()
+        let device = app.cells.matching(NSPredicate(format: "identifier BEGINSWITH 'settings.device.'")).firstMatch
+        XCTAssertTrue(device.waitForExistence(timeout: 10))
+        let deviceID = device.identifier
+        device.swipeLeft()
+        let remove = app.buttons["Remove"].firstMatch
+        XCTAssertTrue(remove.waitForExistence(timeout: 10))
+        remove.tap()
+        let removalAlert = app.alerts.firstMatch
+        XCTAssertTrue(removalAlert.waitForExistence(timeout: 10))
+        XCTAssertTrue(removalAlert.buttons["Forget device"].exists)
+        capture("05-device-removal-confirmation")
+        removalAlert.buttons["Cancel"].tap()
+        waitUntil("Removal cancellation keeps the paired device") { !removalAlert.exists && self.app.cells[deviceID].exists }
+        app.navigationBars["Settings"].buttons["Done"].tap()
+
+        let newThread = app.buttons["inbox.new"]
+        XCTAssertTrue(newThread.waitForExistence(timeout: 10))
+        newThread.tap()
+        let mode = app.buttons["newThread.mode"]
+        let privacy = app.buttons["newThread.privacy"]
+        waitUntil("New-thread options finish loading") { mode.exists && mode.isEnabled && privacy.isEnabled }
+        XCTAssertTrue(app.buttons["newThread.workspace"].isEnabled)
+        XCTAssertTrue(app.buttons["newThread.model"].isEnabled)
+        mode.tap()
+        let plan = app.buttons["Plan"].firstMatch
+        XCTAssertTrue(plan.waitForExistence(timeout: 10))
+        capture("06-new-thread-mode-menu")
+        plan.tap()
+        waitUntil("Plan is selected") { mode.label == "Plan" }
+        XCTAssertEqual(privacy.label, "Privacy mode off")
+        privacy.tap()
+        XCTAssertEqual(privacy.label, "Privacy mode on")
+        capture("07-new-thread-private-plan")
+        // Privacy is a toggle, not a separate sheet. Cancel the containing New Thread sheet.
+        app.navigationBars["New thread"].buttons["Cancel"].tap()
+        waitUntil("Cancelling returns to inbox") { newThread.isHittable && !mode.exists }
+        newThread.tap()
+        waitUntil("Fresh sheet has loaded options") { mode.exists && mode.isEnabled }
+        XCTAssertEqual(mode.label, "Auto")
+        XCTAssertEqual(privacy.label, "Privacy mode off")
+        capture("08-new-thread-cancel-reset")
+        app.navigationBars["New thread"].buttons["Cancel"].tap()
+
+        waitUntil("Original thread remains available") { retainedThread.exists && retainedThread.isHittable }
+        retainedThread.tap()
+        let timeline = element("thread.timeline")
+        let field = app.textViews["composer.text"]
+        XCTAssertTrue(timeline.waitForExistence(timeout: 30))
+        waitUntil("Conversation finishes loading") { self.element("thread.loadingStatus").label.contains("Harness") && field.exists }
+        field.tap()
+        let draft = "Mobile audit draft — keep after back and reopen."
+        field.typeText(draft)
+        XCTAssertEqual(field.value as? String, draft)
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 10))
+        XCTAssertTrue(field.isHittable, "Composer remains reachable above the keyboard")
+        capture("09-chat-draft-keyboard")
+        timeline.swipeDown(velocity: .slow)
+        XCTAssertEqual(field.value as? String, draft, "Scrolling must not change or submit the draft")
+        capture("10-chat-scroll-with-draft")
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        waitUntil("Back returns to the inbox") { retainedThread.exists && retainedThread.isHittable }
+        retainedThread.tap()
+        waitUntil("Reopening the same thread restores its draft") { field.exists && field.value as? String == draft }
+        capture("11-chat-draft-restored")
+    }
+
+    func testPlanReviewAndAcceptance() {
+        continueAfterPairing()
+        let newThread = app.buttons["inbox.new"]
+        XCTAssertTrue(newThread.waitForExistence(timeout: 30))
+        newThread.tap()
+        let mode = app.buttons["newThread.mode"]
+        expectation(for: NSPredicate(format: "enabled == true"), evaluatedWith: mode)
+        waitForExpectations(timeout: 30)
+        mode.tap()
+        app.buttons["Plan"].firstMatch.tap()
+        send("Draft a small implementation plan for the fixture.")
+        let openPlan = element("plan.open")
+        XCTAssertTrue(openPlan.waitForExistence(timeout: 45))
+        openPlan.tap()
+        XCTAssertTrue(app.textViews["textSheet.body"].waitForExistence(timeout: 15))
+        let preview = XCTAttachment(screenshot: app.screenshot())
+        preview.name = "plan-full-preview"
+        preview.lifetime = .keepAlways
+        add(preview)
+        app.navigationBars.buttons["Done"].tap()
+        element("plan.revise").tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 10))
+        element("thread.timeline").swipeDown()
+        let accept = element("plan.accept")
+        let handoff = element("plan.handoff")
+        let field = app.textViews["composer.text"]
+        for _ in 0..<6 {
+            if accept.isHittable && handoff.isHittable && handoff.frame.maxY < field.frame.minY - 16 { break }
+            element("thread.timeline").swipeUp()
+        }
+        XCTAssertTrue(accept.isHittable)
+        XCTAssertTrue(handoff.isHittable && handoff.frame.maxY < field.frame.minY - 16, "All plan actions can be scrolled above the composer")
+        let actions = XCTAttachment(screenshot: app.screenshot())
+        actions.name = "plan-phone-actions"
+        actions.lifetime = .keepAlways
+        add(actions)
+        accept.tap()
+        expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: accept)
+        waitForExpectations(timeout: 30)
+        let error = element("thread.error")
+        XCTAssertFalse(error.exists && !error.label.isEmpty, "Plan acceptance succeeds without a conversation error")
     }
 
     private func continueAfterPairing() {

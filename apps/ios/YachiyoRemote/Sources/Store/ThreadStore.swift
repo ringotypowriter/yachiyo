@@ -51,6 +51,7 @@ final class ThreadStore: ChatMessageSource {
     private var streamingOrder: [String] = []
     private var liveToolCalls: [String: RemoteToolCall] = [:]
     private var runFooters: [String: String] = [:]
+    private var pendingPlanContent: String?
     private var activeRunId: String?
     private var cancellables: Set<AnyCancellable> = []
 
@@ -179,8 +180,16 @@ final class ThreadStore: ChatMessageSource {
         }
         do {
             let loaded: RemoteThreadDetail = try await store.call(desktopId, "threads.load", ThreadLoadInput(threadId: threadId, limit: 50, beforeMessageId: nil))
+            // Current plans live in a workspace file, not necessarily in a marker message.
+            // A failed preview read must not hide the pending review actions.
+            var planContent: String?
+            if loaded.pendingPlan {
+                let plan: RemotePlanReadOutput? = try? await store.call(desktopId, "plan.read", ThreadRefInput(threadId: threadId))
+                planContent = plan?.content
+            }
             try Task.checkCancellation()
             guard loadToken == token, isOpen else { return }
+            pendingPlanContent = planContent
             detail = loaded
             summary = loaded.thread
             store.upsert(desktopId: desktopId, summary: loaded.thread)
@@ -331,7 +340,6 @@ final class ThreadStore: ChatMessageSource {
         let toolCalls = allToolCalls
         let loaded = detail?.messages ?? []
         var built: [ConversationMessage] = []
-        let lastPlanId = loaded.last(where: \.isPlanDocument)?.id
 
         for message in loaded {
             built.append(conversationMessage(
@@ -344,7 +352,7 @@ final class ThreadStore: ChatMessageSource {
                 attachments: message.attachments.map(\.filename) + message.images.map { $0.filename ?? "image" },
                 toolCalls: toolCalls.filter { $0.assistantMessageId == message.id },
                 siblings: message.siblingIds,
-                plan: message.isPlanDocument ? ((detail?.pendingPlan ?? false) && message.id == lastPlanId ? "pending" : "accepted") : nil
+                plan: message.isPlanDocument ? "accepted" : nil
             ))
         }
 
@@ -375,6 +383,17 @@ final class ThreadStore: ChatMessageSource {
         }
         if let last = built.last(where: { $0.role == .assistant }), let footer = runFooters.values.first {
             last.metadata[MessageMetadataKey.footer] = footer
+        }
+        // The current file-backed plan is independent of historical marker messages.
+        // Never offer an old document for acceptance when reading the current file fails.
+        if detail?.pendingPlan == true {
+            built.append(conversationMessage(
+                id: "pending-plan-\(threadId)", role: .assistant,
+                text: pendingPlanContent ?? String(localized: "The plan is ready for review."),
+                reasoning: nil, reasoningCollapsed: true,
+                createdAt: detail?.thread.updatedAt.isoDate ?? Date(),
+                attachments: [], toolCalls: [], siblings: nil, plan: "pending"
+            ))
         }
         messages = built
         messagesSubject.send((built, scrolling))
@@ -584,10 +603,12 @@ final class ThreadStore: ChatMessageSource {
         }
     }
 
-    func readPlan() async -> String? {
-        if let cached = detail?.messages.last(where: { $0.isPlanDocument }), !cached.content.isEmpty {
+    func readPlan(messageId: String) async -> String? {
+        // Opening a historical card must read that document, not the current plan.
+        if let cached = detail?.messages.first(where: { $0.id == messageId && $0.isPlanDocument }), !cached.content.isEmpty {
             return cached.content
         }
+        if detail?.pendingPlan == true, let pendingPlanContent { return pendingPlanContent }
         do {
             let output: RemotePlanReadOutput = try await store.call(desktopId, "plan.read", ThreadRefInput(threadId: threadId))
             return output.content

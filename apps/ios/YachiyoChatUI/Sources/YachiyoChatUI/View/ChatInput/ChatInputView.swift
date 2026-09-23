@@ -278,6 +278,16 @@ open class ChatInputView: EditorSectionView {
         set { inputEditor.isRunning = newValue }
     }
 
+    /// Disables repeated stop requests while the host awaits cancellation.
+    public var isStopping: Bool = false {
+        didSet {
+            inputEditor.stopButton.isUserInteractionEnabled = !isStopping
+            inputEditor.stopButton.accessibilityTraits = isStopping ? [.button, .notEnabled] : .button
+            inputEditor.stopButton.accessibilityLabel = isStopping ? String.localized("Stopping…") : String.localized("Stop")
+            inputEditor.stopButton.imageView.alpha = isStopping ? 0.4 : 1
+        }
+    }
+
     public var placeholder: String {
         get { inputEditor.placeholderLabel.text ?? "" }
         set { inputEditor.placeholderLabel.text = newValue }

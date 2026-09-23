@@ -26,9 +26,13 @@ extension ChatInputView: PHPickerViewControllerDelegate {
         picker.dismiss(animated: true)
         for result in results {
             result.itemProvider.loadObject(ofClass: UIImage.self) { [weak self] reading, _ in
-                guard let image = reading as? UIImage else { return }
                 Task { @MainActor [weak self] in
-                    self?.process(image: image)
+                    guard let self else { return }
+                    guard let image = reading as? UIImage else {
+                        delegate?.chatInputDidReportError(self, error: String.localized("Could not load the selected photo. Please try again."))
+                        return
+                    }
+                    process(image: image)
                 }
             }
         }
@@ -38,8 +42,8 @@ extension ChatInputView: PHPickerViewControllerDelegate {
 extension ChatInputView: UIDocumentPickerDelegate {
     public func documentPicker(_: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
         for url in urls {
-            guard url.startAccessingSecurityScopedResource() else { return }
-            defer { url.stopAccessingSecurityScopedResource() }
+            let hasAccess = url.startAccessingSecurityScopedResource()
+            defer { if hasAccess { url.stopAccessingSecurityScopedResource() } }
             process(file: url)
         }
     }

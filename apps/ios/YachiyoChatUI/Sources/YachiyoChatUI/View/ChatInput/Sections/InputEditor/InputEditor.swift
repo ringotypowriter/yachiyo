@@ -21,6 +21,10 @@ class InputEditor: EditorSectionView {
     let sendButton = IconButton(icon: "send")
     let submissionSpinner = UIActivityIndicatorView(style: .medium)
 
+    var hasAttachments = false {
+        didSet { switchToRequiredStatus() }
+    }
+
     var isSubmitting = false {
         didSet {
             guard oldValue != isSubmitting else { return }
@@ -41,8 +45,8 @@ class InputEditor: EditorSectionView {
     }
 
     let inset: UIEdgeInsets = .init(top: 10, left: 10, bottom: 10, right: 10)
-    let iconSpacing: CGFloat = 10
-    let iconSize = CGSize(width: 30, height: 30)
+    let iconSpacing: CGFloat = 4
+    let iconSize = CGSize(width: 44, height: 44)
 
     var isControlPanelOpened: Bool = false {
         didSet { moreButton.change(icon: isControlPanelOpened ? "x.circle" : "plus.circle") }
@@ -106,10 +110,10 @@ class InputEditor: EditorSectionView {
         textView.textAlignment = .natural
         textView.backgroundColor = .clear
         textView.textContainerInset = .zero
-        textView.textContainer.lineBreakMode = .byTruncatingTail
+        textView.textContainer.lineBreakMode = .byWordWrapping
         textView.textContainer.lineFragmentPadding = .zero
         textView.textContainer.maximumNumberOfLines = 0
-        textView.clipsToBounds = false
+        textView.clipsToBounds = true
         textView.isSelectable = true
         textView.isScrollEnabled = true
         textView.isEditable = true
@@ -183,6 +187,7 @@ class InputEditor: EditorSectionView {
     override func layoutSubviews() {
         super.layoutSubviews()
 
+        let previousTextWidth = textView.bounds.width
         elementClipper.frame = bounds
 
         switch isSubmitting ? .editingText : layoutStatus {
@@ -194,6 +199,7 @@ class InputEditor: EditorSectionView {
             layoutAsEditingText()
         }
 
+        if textView.bounds.width != previousTextWidth { updateTextHeight() }
         updatePlaceholderAlpha()
         layoutStopButton()
         submissionSpinner.center = sendButton.center

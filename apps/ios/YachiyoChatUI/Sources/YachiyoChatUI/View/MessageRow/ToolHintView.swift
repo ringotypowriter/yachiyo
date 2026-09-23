@@ -3,6 +3,49 @@ import UIKit
 /// The native counterpart of the desktop inline tool deck. Icon hit targets remain
 /// 44 points wide rather than overlapping, so every call is reachable by touch.
 final class ToolHintView: MessageListRowView {
+    /// Configuration-based button titles can size to their intrinsic width even
+    /// inside a narrow frame. Own both frames so arbitrary tool output cannot
+    /// push the disclosure indicator (or the text) outside the timeline.
+    private final class SummaryButton: UIButton {
+        let summaryLabel = UILabel()
+        let chevron = UIImageView()
+
+        override init(frame: CGRect) {
+            super.init(frame: frame)
+            clipsToBounds = true
+            isAccessibilityElement = true
+            summaryLabel.numberOfLines = 2
+            summaryLabel.lineBreakMode = .byTruncatingTail
+            summaryLabel.clipsToBounds = true
+            summaryLabel.isAccessibilityElement = false
+            chevron.contentMode = .scaleAspectFit
+            chevron.isAccessibilityElement = false
+            addSubview(summaryLabel)
+            addSubview(chevron)
+        }
+
+        @available(*, unavailable)
+        required init?(coder: NSCoder) { fatalError() }
+
+        override var isHighlighted: Bool {
+            didSet { alpha = isHighlighted ? 0.5 : 1 }
+        }
+
+        override func layoutSubviews() {
+            super.layoutSubviews()
+            let iconWidth = min(16, bounds.width)
+            let textWidth = max(0, bounds.width - iconWidth - 8)
+            let textHeight = min(bounds.height, ceil(summaryLabel.font.lineHeight * 2))
+            let isRTL = effectiveUserInterfaceLayoutDirection == .rightToLeft
+            summaryLabel.frame = CGRect(x: isRTL ? bounds.width - textWidth : 0,
+                                        y: (bounds.height - textHeight) / 2,
+                                        width: textWidth, height: textHeight)
+            summaryLabel.preferredMaxLayoutWidth = textWidth
+            chevron.frame = CGRect(x: isRTL ? 0 : bounds.width - iconWidth,
+                                   y: (bounds.height - 16) / 2, width: iconWidth, height: 16)
+        }
+    }
+
     private final class IconScrollView: UIScrollView {
         override func touchesShouldCancel(in view: UIView) -> Bool {
             view is UIButton || super.touchesShouldCancel(in: view)
@@ -11,7 +54,7 @@ final class ToolHintView: MessageListRowView {
 
     private let iconScrollView = IconScrollView()
     private let iconStack = UIStackView()
-    private let summaryButton = UIButton(type: .system)
+    private let summaryButton = SummaryButton(frame: .zero)
     private let activityIndicator = UIActivityIndicatorView(style: .medium)
     private let stateImageView = UIImageView()
     private let runningImageView = UIImageView(image: UIImage(systemName: "hourglass"))
@@ -129,27 +172,21 @@ final class ToolHintView: MessageListRowView {
             }, for: .touchUpInside)
             iconStack.addArrangedSubview(button)
         }
-        var configuration = UIButton.Configuration.plain()
-        configuration.title = displayed.map { call in
+        let title = displayed.map { call in
             // The remote adapter stores the human-readable call title in parameters.
             let title = call.parameters.split(whereSeparator: { $0.isWhitespace }).joined(separator: " ")
             return title.isEmpty || title == "{}" ? call.toolName : title
         }
-        configuration.image = UIImage(systemName: selected == nil ? "chevron.down" : "chevron.up")
-        configuration.imagePlacement = .trailing
-        configuration.imagePadding = 8
-        configuration.contentInsets = .zero
-        configuration.baseForegroundColor = displayed?.state == .failed ? .systemRed : .label
-        configuration.titleTextAttributesTransformer = .init { attributes in
-            var attributes = attributes
-            attributes.font = UIFont.preferredFont(forTextStyle: .footnote)
-            return attributes
-        }
-        summaryButton.configuration = configuration
-        summaryButton.titleLabel?.numberOfLines = 2
-        summaryButton.titleLabel?.lineBreakMode = .byTruncatingTail
+        summaryButton.summaryLabel.text = title
+        summaryButton.summaryLabel.font = UIFont.preferredFont(forTextStyle: .footnote)
+        summaryButton.summaryLabel.textColor = displayed?.state == .failed ? .systemRed : .label
+        summaryButton.summaryLabel.accessibilityIdentifier = "toolDeck.summaryText"
+        summaryButton.chevron.image = UIImage(systemName: selected == nil ? "chevron.down" : "chevron.up")
+        summaryButton.chevron.tintColor = summaryButton.summaryLabel.textColor
+        summaryButton.chevron.accessibilityIdentifier = "toolDeck.summaryChevron"
+        summaryButton.setNeedsLayout()
         let importantCalls = calls.filter { $0.id != displayed?.id && $0.state != .succeeded }
-        summaryButton.accessibilityLabel = ([configuration.title, displayed.map { statusText(for: $0) }]
+        summaryButton.accessibilityLabel = ([title, displayed.map { statusText(for: $0) }]
             .compactMap { $0 } + importantCalls.map { statusText(for: $0) }).joined(separator: ". ")
         summaryButton.accessibilityValue = selected == nil ? String(localized: "Collapsed") : String(localized: "Expanded")
         let isRunning = calls.contains { $0.state == .running }

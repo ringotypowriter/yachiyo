@@ -26,6 +26,9 @@ class DeleteButton: UIView {
         let tap = UITapGestureRecognizer(target: self, action: #selector(onTapped))
         addGestureRecognizer(tap)
         isUserInteractionEnabled = true
+        isAccessibilityElement = true
+        accessibilityTraits = .button
+        accessibilityLabel = String.localized("Remove attachment")
     }
 
     @available(*, unavailable)
@@ -36,10 +39,16 @@ class DeleteButton: UIView {
     override func layoutSubviews() {
         super.layoutSubviews()
 
-        background.frame = bounds
-        background.layer.cornerRadius = min(bounds.width, bounds.height) / 2
+        background.frame = CGRect(x: bounds.width - 24, y: 4, width: 20, height: 20)
+        background.layer.cornerRadius = 10
 
-        imageView.frame = bounds.insetBy(dx: 5, dy: 5)
+        imageView.frame = background.frame.insetBy(dx: 5, dy: 5)
+    }
+
+    override func accessibilityActivate() -> Bool {
+        guard !isHidden, isUserInteractionEnabled else { return false }
+        onTapped()
+        return true
     }
 
     @objc func onTapped() {

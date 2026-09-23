@@ -32,7 +32,7 @@ final class ToolHintViewTests: XCTestCase {
         try render()
         let summary = try XCTUnwrap(view("toolDeck.summary.first", in: deck) as? UIButton)
         let details = try XCTUnwrap(view("toolDeck.details.first", in: deck) as? UIButton)
-        XCTAssertEqual(summary.configuration?.title, "Run the tests")
+        XCTAssertEqual((view("toolDeck.summaryText", in: summary) as? UILabel)?.text, "Run the tests")
         XCTAssertTrue(details.isHidden)
         summary.sendActions(for: .touchUpInside)
         try render()
@@ -40,13 +40,13 @@ final class ToolHintViewTests: XCTestCase {
         XCTAssertFalse(details.isHidden)
         XCTAssertGreaterThanOrEqual(details.bounds.height, 44)
         XCTAssertGreaterThanOrEqual(summary.bounds.height, 44)
-        XCTAssertEqual(summary.titleLabel?.numberOfLines, 2)
+        XCTAssertEqual((view("toolDeck.summaryText", in: summary) as? UILabel)?.numberOfLines, 2)
 
         let firstButton = try XCTUnwrap(view("toolDeck.call.first", in: deck) as? UIButton)
         firstButton.sendActions(for: .touchUpInside)
         try render()
         XCTAssertEqual(list.selectedToolCalls[message.id], first.id)
-        XCTAssertEqual(summary.configuration?.title, "Read the project notes")
+        XCTAssertEqual((view("toolDeck.summaryText", in: summary) as? UILabel)?.text, "Read the project notes")
         XCTAssertEqual(labels(in: deck).filter { $0.text == first.parameters }.count, 1)
         details.sendActions(for: .touchUpInside)
         XCTAssertEqual(detailID, first.id)
@@ -54,7 +54,7 @@ final class ToolHintViewTests: XCTestCase {
         try render()
         XCTAssertNil(list.selectedToolCalls[message.id])
         XCTAssertTrue(details.isHidden)
-        XCTAssertEqual(summary.configuration?.title, "Run the tests")
+        XCTAssertEqual((view("toolDeck.summaryText", in: summary) as? UILabel)?.text, "Run the tests")
     }
 
     func testSelectingCompletedCallKeepsOtherRunningAndFailedStatesVisible() throws {
@@ -68,7 +68,7 @@ final class ToolHintViewTests: XCTestCase {
         let activity = try XCTUnwrap(view("toolDeck.activity.done", in: deck) as? UIActivityIndicatorView)
         let reducedMotionStatus = try XCTUnwrap(view("toolDeck.running.done", in: deck))
         let details = try XCTUnwrap(view("toolDeck.details.done", in: deck) as? UIButton)
-        XCTAssertEqual(summary.configuration?.title, "Read notes")
+        XCTAssertEqual((view("toolDeck.summaryText", in: summary) as? UILabel)?.text, "Read notes")
         XCTAssertFalse(status.isHidden)
         XCTAssertEqual(status.tintColor, .systemRed)
         XCTAssertTrue(activity.isAnimating || !reducedMotionStatus.isHidden)
@@ -113,6 +113,51 @@ final class ToolHintViewTests: XCTestCase {
         XCTAssertEqual(selectionCount, 0)
         summary.sendActions(for: .touchUpInside)
         XCTAssertEqual(selectionCount, 1)
+    }
+
+    func testLongToolSummariesStayWithinTwoLinesAndKeepDetailsReachable() throws {
+        let contents = [
+            String(repeating: "Inspect a long tool result and its metadata. ", count: 80),
+            String(repeating: "/a-very-long-unbroken-path", count: 160),
+            String(repeating: "{\"field\":\"value\"}\n", count: 100),
+        ]
+        for width: CGFloat in [280, 320, 390] {
+            for content in contents {
+                let call = ToolCallContentPart(id: "long", toolName: "read", parameters: content, state: .succeeded)
+                let deck = ToolHintView()
+                deck.frame = CGRect(x: 0, y: 0, width: width, height: ToolHintView.height(isExpanded: true) + MessageListView.listRowInsets.bottom)
+                deck.configure(calls: [call], selectedID: call.id)
+                deck.layoutIfNeeded()
+                let summary = try XCTUnwrap(view("toolDeck.summary.long", in: deck) as? UIButton)
+                let text = try XCTUnwrap(view("toolDeck.summaryText", in: summary) as? UILabel)
+                let chevron = try XCTUnwrap(view("toolDeck.summaryChevron", in: summary))
+                let details = try XCTUnwrap(view("toolDeck.details.long", in: deck) as? UIButton)
+                XCTAssertTrue(summary.bounds.contains(text.frame))
+                XCTAssertTrue(summary.bounds.contains(chevron.frame))
+                XCTAssertLessThanOrEqual(text.frame.maxX + 8, chevron.frame.minX)
+                XCTAssertLessThanOrEqual(text.bounds.height, ceil(text.font.lineHeight * 2))
+                XCTAssertEqual(text.lineBreakMode, .byTruncatingTail)
+                XCTAssertTrue(summary.clipsToBounds)
+                XCTAssertGreaterThanOrEqual(summary.bounds.height, 44)
+                XCTAssertTrue(details.isEnabled)
+                XCTAssertTrue(summary.accessibilityLabel?.contains(text.text ?? "") == true)
+                var opened: String?
+                deck.onDetails = { opened = $0 }
+                details.sendActions(for: .touchUpInside)
+                XCTAssertEqual(opened, call.id)
+                if width == 280 && content.contains("unbroken") {
+                    let image = UIGraphicsImageRenderer(size: deck.bounds.size).image { context in
+                        UIColor.systemBackground.setFill()
+                        context.fill(deck.bounds)
+                        deck.layer.render(in: context.cgContext)
+                    }
+                    let attachment = XCTAttachment(image: image)
+                    attachment.name = "long-tool-summary-narrow"
+                    attachment.lifetime = .keepAlways
+                    add(attachment)
+                }
+            }
+        }
     }
 
     private func view(_ identifier: String, in root: UIView) -> UIView? {

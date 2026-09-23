@@ -226,7 +226,13 @@ final class RemoteStore {
     func pair(url: URL) async throws -> DesktopSnapshot {
         let payload = try PairingURL.decode(url)
         let (client, desktop, hello) = try await connector.pair(payload)
-        try credentials.save(desktop)
+        do {
+            try Task.checkCancellation()
+            try credentials.save(desktop)
+        } catch {
+            client.close()
+            throw error
+        }
         links[desktop.remoteDeviceId]?.stop()
         inboxLoadTokens[desktop.remoteDeviceId] = nil
         discardCache(desktop.remoteDeviceId)

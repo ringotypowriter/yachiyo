@@ -32,6 +32,10 @@ final class InboxViewController: UIViewController {
     private var searchQuery = ""
     private var remoteSearchHits: Set<String>?
     private var searchTask: Task<Void, Never>?
+    private var isSearching = false
+    private var searchFailed = false
+    private var isRefreshing = false
+    private var pendingMutations: Set<String> = []
     private let filterStatus = UIButton(type: .system)
     private lazy var filterItem = UIBarButtonItem(image: .lucide("list-filter"), menu: makeFilterMenu())
     private lazy var newItem = UIBarButtonItem(image: .lucide("square-pen"), primaryAction: UIAction { [weak self] _ in self?.presentNewThread() })
@@ -86,10 +90,7 @@ final class InboxViewController: UIViewController {
         collectionView.delegate = self
         collectionView.accessibilityIdentifier = "inbox.list"
         collectionView.refreshControl = UIRefreshControl(frame: .zero, primaryAction: UIAction { [weak self] _ in
-            Task {
-                await self?.store.refreshInbox()
-                self?.collectionView.refreshControl?.endRefreshing()
-            }
+            self?.refreshInbox()
         })
         view.addSubview(collectionView)
         YachiyoMaterialKit.applyTopEdgeEffect(to: collectionView)
@@ -131,6 +132,7 @@ final class InboxViewController: UIViewController {
         YachiyoMaterialKit.makeProminent(newItem)
 
         let search = UISearchController(searchResultsController: nil)
+        definesPresentationContext = true
         search.obscuresBackgroundDuringPresentation = false
         search.searchResultsUpdater = self
         search.searchBar.placeholder = String(localized: "Search threads")
@@ -215,7 +217,7 @@ final class InboxViewController: UIViewController {
             configuration.secondaryText = loading ? (connections.isEmpty ? String(localized: "Fetching your inbox from your Mac.") : connections.joined(separator: "\n")) : nil
             if !loading, !connecting, store.desktops.contains(where: { if case .offline = $0.state { return true }; return false }) {
                 configuration.button = YachiyoMaterialKit.primaryButtonConfiguration(title: String(localized: "Retry"), image: nil)
-                configuration.buttonProperties.primaryAction = UIAction { [weak self] _ in Task { await self?.store.refreshInbox() } }
+                configuration.buttonProperties.primaryAction = UIAction { [weak self] _ in self?.refreshInbox() }
             }
             contentUnavailableConfiguration = configuration
             return
@@ -227,13 +229,27 @@ final class InboxViewController: UIViewController {
             configuration.secondaryText = failures.joined(separator: "\n")
             configuration.button = YachiyoMaterialKit.primaryButtonConfiguration(title: String(localized: "Retry"), image: nil)
             configuration.buttonProperties.primaryAction = UIAction { [weak self] _ in
-                Task { await self?.store.refreshInbox() }
+                self?.refreshInbox()
             }
             contentUnavailableConfiguration = configuration
             return
         }
-        guard isEmpty, !filter.isActive, searchQuery.isEmpty else {
+        guard isEmpty else {
             contentUnavailableConfiguration = nil
+            if searchFailed { navigationItem.prompt = String(localized: "Content search unavailable. Showing local matches.") }
+            return
+        }
+        if filter.isActive || !searchQuery.isEmpty {
+            var configuration = isSearching ? UIContentUnavailableConfiguration.loading() : UIContentUnavailableConfiguration.empty()
+            configuration.text = isSearching ? String(localized: "Searching threads…") : String(localized: "No matching threads")
+            configuration.secondaryText = searchFailed
+                ? String(localized: "Content search couldn't finish. Local titles and previews were searched. Try searching again when your Mac is online.")
+                : String(localized: "Try a different search or clear your filters.")
+            if filter.isActive {
+                configuration.button = YachiyoMaterialKit.primaryButtonConfiguration(title: String(localized: "Clear filters"), image: nil)
+                configuration.buttonProperties.primaryAction = UIAction { [weak self] _ in self?.filter = Filter() }
+            }
+            contentUnavailableConfiguration = configuration
             return
         }
         var configuration = UIContentUnavailableConfiguration.empty()
@@ -317,17 +333,59 @@ final class InboxViewController: UIViewController {
 
     // MARK: Swipe
 
-    private func leadingSwipe(at indexPath: IndexPath) -> UISwipeActionsConfiguration? {
-        guard let item = dataSource.itemIdentifier(for: indexPath), !item.summary.isReadOnly,
-              store.link(for: item.desktopId)?.state == .online else { return nil }
-        let starred = item.summary.starred
-        let action = UIContextualAction(style: .normal, title: starred ? String(localized: "Unstar") : String(localized: "Star")) { [weak self] _, _, done in
-            Task {
-                let thread = ThreadStore(desktopId: item.desktopId, threadId: item.summary.id)
-                await thread.setStarred(!starred)
-                done(true)
-                _ = self
+    private func refreshInbox() {
+        guard !isRefreshing else { return }
+        isRefreshing = true
+        Task {
+            await store.refreshInbox()
+            isRefreshing = false
+            collectionView.refreshControl?.endRefreshing()
+        }
+    }
+
+    private func canMutate(_ item: InboxItem) -> Bool {
+        !item.summary.isReadOnly && !pendingMutations.contains(item.id)
+            && store.link(for: item.desktopId)?.state == .online
+    }
+
+    private func mutate(_ item: InboxItem, archive: Bool, completion: @escaping (Bool) -> Void) {
+        guard canMutate(item) else { completion(false); return }
+        pendingMutations.insert(item.id)
+        Task {
+            defer { pendingMutations.remove(item.id) }
+            let thread = ThreadStore(desktopId: item.desktopId, threadId: item.summary.id)
+            let succeeded: Bool
+            if archive {
+                succeeded = await thread.archive()
+            } else {
+                await thread.setStarred(!item.summary.starred)
+                succeeded = thread.lastError == nil
             }
+            completion(succeeded)
+            if let error = thread.lastError, presentedViewController == nil || presentedViewController is UISearchController {
+                let alert = UIAlertController(title: String(localized: "Couldn't update thread"), message: error, preferredStyle: .alert)
+                alert.addAction(UIAlertAction(title: String(localized: "OK"), style: .default))
+                (presentedViewController ?? self).present(alert, animated: true)
+            }
+        }
+    }
+
+    private func confirmArchive(_ item: InboxItem, completion: @escaping (Bool) -> Void) {
+        guard canMutate(item), presentedViewController == nil || presentedViewController is UISearchController else { completion(false); return }
+        let alert = UIAlertController(title: String(localized: "Archive thread?"), message: item.summary.title, preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: String(localized: "Cancel"), style: .cancel) { _ in completion(false) })
+        alert.addAction(UIAlertAction(title: String(localized: "Archive"), style: .destructive) { [weak self] _ in
+            guard let self else { completion(false); return }
+            self.mutate(item, archive: true, completion: completion)
+        })
+        (presentedViewController ?? self).present(alert, animated: true)
+    }
+
+    private func leadingSwipe(at indexPath: IndexPath) -> UISwipeActionsConfiguration? {
+        guard let item = dataSource.itemIdentifier(for: indexPath), canMutate(item) else { return nil }
+        let action = UIContextualAction(style: .normal, title: item.summary.starred ? String(localized: "Unstar") : String(localized: "Star")) { [weak self] _, _, done in
+            guard let self else { done(false); return }
+            self.mutate(item, archive: false, completion: done)
         }
         action.image = .lucide("star")
         action.backgroundColor = .yachiyo(.warning)
@@ -335,27 +393,32 @@ final class InboxViewController: UIViewController {
     }
 
     private func trailingSwipe(at indexPath: IndexPath) -> UISwipeActionsConfiguration? {
-        guard let item = dataSource.itemIdentifier(for: indexPath), !item.summary.isReadOnly,
-              store.link(for: item.desktopId)?.state == .online else { return nil }
-        let action = UIContextualAction(style: .destructive, title: String(localized: "Archive")) { _, _, done in
-            Task {
-                let archived = await ThreadStore(desktopId: item.desktopId, threadId: item.summary.id).archive()
-                done(archived)
-            }
+        guard let item = dataSource.itemIdentifier(for: indexPath), canMutate(item) else { return nil }
+        let action = UIContextualAction(style: .destructive, title: String(localized: "Archive")) { [weak self] _, _, done in
+            guard let self else { done(false); return }
+            self.confirmArchive(item, completion: done)
         }
         action.image = .lucide("archive")
-        return UISwipeActionsConfiguration(actions: [action])
+        let configuration = UISwipeActionsConfiguration(actions: [action])
+        configuration.performsFirstActionWithFullSwipe = false
+        return configuration
     }
 
     // MARK: Navigation
 
     func open(_ item: InboxItem) {
+        guard navigationController?.topViewController === self, presentedViewController == nil || presentedViewController is UISearchController else { return }
         // Opening cached history is local; only mutations require an online Mac.
         let controller = ThreadViewController(desktopId: item.desktopId, threadId: item.summary.id)
         navigationController?.pushViewController(controller, animated: true)
     }
 
     private func presentNewThread() {
+        if let search = presentedViewController as? UISearchController {
+            search.dismiss(animated: true) { [weak self] in self?.presentNewThread() }
+            return
+        }
+        guard presentedViewController == nil else { return }
         let controller = NewThreadViewController()
         controller.onStarted = { [weak self] desktopId, thread in
             self?.dismiss(animated: true) {
@@ -370,12 +433,18 @@ final class InboxViewController: UIViewController {
     }
 
     private func presentSettings() {
+        if let search = presentedViewController as? UISearchController {
+            search.dismiss(animated: true) { [weak self] in self?.presentSettings() }
+            return
+        }
+        guard presentedViewController == nil else { return }
         let container = UINavigationController(rootViewController: SettingsViewController())
         YachiyoMaterialKit.configureSheet(container, detents: [.large()])
         present(container, animated: true)
     }
 
     private func presentPairing() {
+        guard presentedViewController == nil else { return }
         let pairing = PairingViewController(initialURL: nil)
         pairing.onFinished = { [weak self] in self?.dismiss(animated: true) }
         let container = UINavigationController(rootViewController: pairing)
@@ -397,6 +466,20 @@ final class InboxViewController: UIViewController {
 }
 
 extension InboxViewController: UICollectionViewDelegate {
+    func collectionView(_ collectionView: UICollectionView, contextMenuConfigurationForItemAt indexPath: IndexPath, point: CGPoint) -> UIContextMenuConfiguration? {
+        guard let item = dataSource.itemIdentifier(for: indexPath), canMutate(item) else { return nil }
+        return UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { [weak self] _ in
+            UIMenu(children: [
+                UIAction(title: item.summary.starred ? String(localized: "Unstar") : String(localized: "Star"), image: .lucide("star")) { _ in
+                    self?.mutate(item, archive: false) { _ in }
+                },
+                UIAction(title: String(localized: "Archive"), image: .lucide("archive"), attributes: .destructive) { _ in
+                    self?.confirmArchive(item) { _ in }
+                },
+            ])
+        }
+    }
+
     func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
         collectionView.deselectItem(at: indexPath, animated: true)
         guard let item = dataSource.itemIdentifier(for: indexPath) else { return }
@@ -408,6 +491,8 @@ extension InboxViewController: UISearchResultsUpdating {
     func updateSearchResults(for searchController: UISearchController) {
         searchQuery = searchController.searchBar.text?.trimmingCharacters(in: .whitespaces) ?? ""
         remoteSearchHits = nil
+        isSearching = !searchQuery.isEmpty
+        searchFailed = false
         applySnapshot()
         searchTask?.cancel()
         guard !searchQuery.isEmpty else { return }
@@ -416,12 +501,17 @@ extension InboxViewController: UISearchResultsUpdating {
             try? await Task.sleep(for: .milliseconds(280))
             guard let self, !Task.isCancelled else { return }
             var hits = Set<String>()
+            var failed = !store.desktops.contains { $0.state == .online }
             for desktop in store.desktops where desktop.state == .online {
                 let output: RemoteThreadsSearchOutput? = try? await store.call(desktop.id, "threads.search", SearchInput(query: query))
+                guard !Task.isCancelled else { return }
+                if output == nil { failed = true }
                 for result in output?.results ?? [] { hits.insert("\(desktop.id)/\(result.threadId)") }
             }
             guard !Task.isCancelled, query == searchQuery else { return }
             remoteSearchHits = hits
+            isSearching = false
+            searchFailed = failed
             applySnapshot()
         }
     }

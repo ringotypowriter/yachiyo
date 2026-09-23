@@ -96,13 +96,16 @@ public struct DesktopConnector: Sendable {
         }
         var lastError: Error?
         for endpoint in payload.endpoints {
+            try Task.checkCancellation()
             guard let url = URL(string: endpoint.url) else { continue }
+            var pairedClient: RemoteClient?
             do {
                 let client = try await withTimeout {
                     try await RemoteClient.pair(endpoint: url, desktopKey: desktopKey, token: token, identity: identity, channelFactory: channelFactory)
                 }
-                let hello: RemoteHelloOutput = try await client.call("remote.hello", HelloInput.current)
-                let grant = try await client.pairingGrant()
+                pairedClient = client
+                let (hello, grant) = try await pairingGreeting(client: client)
+                try Task.checkCancellation()
                 var desktop = PairedDesktop(
                     remoteDeviceId: payload.remoteDeviceId,
                     pairingId: grant.pairingId,
@@ -116,10 +119,28 @@ public struct DesktopConnector: Sendable {
                 desktop.lastSuccessfulURL = url.absoluteString
                 return (client, desktop, hello)
             } catch {
+                pairedClient?.close()
+                try Task.checkCancellation()
                 lastError = error
             }
         }
         throw lastError ?? PairingURLError.malformedPayload
+    }
+
+    /// The authenticated pairing phase must be bounded too: a peer may never send its grant.
+    func pairingGreeting(client: RemoteClient) async throws -> (RemoteHelloOutput, PairingGrant) {
+        try await withTimeout {
+            try await withTaskCancellationHandler {
+                try Task.checkCancellation()
+                let hello: RemoteHelloOutput = try await client.call("remote.hello", HelloInput.current)
+                try Task.checkCancellation()
+                let grant = try await client.pairingGrant()
+                try Task.checkCancellation()
+                return (hello, grant)
+            } onCancel: {
+                client.close()
+            }
+        }
     }
 
     private func dial(_ endpoints: [StoredEndpoint], desktopKey: Data, lastError: inout Error?, observe: Observer?) async throws -> RemoteClient? {

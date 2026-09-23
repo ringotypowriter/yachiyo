@@ -183,12 +183,13 @@ public final class RemoteClient: @unchecked Sendable {
     /// Waits for the pairing grant that follows the first call on a pairing connection.
     public func pairingGrant() async throws -> PairingGrant {
         try await withCheckedThrowingContinuation { continuation in
-            let grant: PairingGrant? = lock.withLock {
-                if let receivedGrant { return receivedGrant }
+            let result: Result<PairingGrant, Error>? = lock.withLock {
+                if closed { return .failure(WebSocketChannelError.closed(code: 1000)) }
+                if let receivedGrant { return .success(receivedGrant) }
                 grantContinuation = continuation
                 return nil
             }
-            if let grant { continuation.resume(returning: grant) }
+            if let result { continuation.resume(with: result) }
         }
     }
 

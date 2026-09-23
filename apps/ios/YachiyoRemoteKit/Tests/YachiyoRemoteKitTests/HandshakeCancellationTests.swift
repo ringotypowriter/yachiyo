@@ -78,6 +78,40 @@ final class HandshakeCancellationTests: XCTestCase {
         await task.value
     }
 
+    func testPairingConnectorCancellationDoesNotTryNextEndpoint() async throws {
+        let channel = BlockedHandshakeChannel(blockSend: false)
+        defer { channel.close() }
+        let connector = DesktopConnector(identity: identity, channelFactory: { _ in
+            channel.recordAttempt()
+            return channel
+        })
+        let payload = try JSONDecoder().decode(RemotePairingPayload.self, from: Data("""
+        {"v":1,"remoteDeviceId":"desktop","deviceName":"Mac",
+         "desktopKey":"\(Base64URL.encode(desktopKey))","token":"\(Base64URL.encode(Data(repeating: 3, count: 32)))",
+         "endpoints":[{"kind":"lan","url":"ws://desktop.invalid/remote/v1"},
+                      {"kind":"lan","url":"ws://second.invalid/remote/v1"}],
+         "expiresAt":"2099-01-01T00:00:00.000Z"}
+        """.utf8))
+        let completed = expectation(description: "cancelled pairing completes")
+        let task = Task {
+            defer { completed.fulfill() }
+            do {
+                let (client, _, _) = try await connector.pair(payload)
+                client.close()
+                XCTFail("Cancelled pairing must not succeed")
+            } catch {
+                XCTAssertTrue(error is CancellationError)
+            }
+        }
+        await fulfillment(of: [channel.blocked], timeout: 2)
+        task.cancel()
+        await fulfillment(of: [completed], timeout: 2)
+        XCTAssertTrue(channel.isClosed)
+        XCTAssertEqual(channel.attemptCount, 1, "Cancellation must not dial another pairing endpoint")
+        channel.close()
+        await task.value
+    }
+
     func testConnectorTimeoutClosesBlockedHandshake() async {
         let channel = BlockedHandshakeChannel(blockSend: false)
         defer { channel.close() }
@@ -120,6 +154,9 @@ private final class BlockedHandshakeChannel: WebSocketChannel, @unchecked Sendab
     private var continuation: CheckedContinuation<Data, Error>?
     private var closed = false
     private var sends = 0
+    private var attempts = 0
+    var attemptCount: Int { lock.withLock { attempts } }
+    func recordAttempt() { lock.withLock { attempts += 1 } }
     var isClosed: Bool { lock.withLock { closed } }
     var sendCount: Int { lock.withLock { sends } }
 

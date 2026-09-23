@@ -139,6 +139,7 @@ extension MessageListView {
                         return ChatInputAttachment(
                             type: .document,
                             name: filePart.name ?? String.localized("Document"),
+                            fileData: filePart.data,
                             textContent: filePart.textContent ?? String(data: filePart.data, encoding: .utf8) ?? "",
                             storageFilename: filePart.name ?? "document.txt"
                         )

@@ -10,7 +10,7 @@ import UIKit
 import YachiyoMaterial
 
 final class BranchNavigatorView: MessageListRowView {
-    static let height: CGFloat = 30
+    static let height: CGFloat = 44
 
     var position: MessageListView.BranchPosition? { didSet { update() } }
     var onStep: ((Int) -> Void)?
@@ -64,7 +64,7 @@ final class BranchNavigatorView: MessageListRowView {
         icon.frame = CGRect(x: 0, y: (height - 14) / 2, width: 14, height: 14)
         label.sizeToFit()
         label.frame.origin = CGPoint(x: icon.frame.maxX + 6, y: (height - label.bounds.height) / 2)
-        previous.frame = CGRect(x: label.frame.maxX + 4, y: 0, width: 32, height: height)
-        nextButton.frame = CGRect(x: previous.frame.maxX, y: 0, width: 32, height: height)
+        previous.frame = CGRect(x: label.frame.maxX + 4, y: 0, width: 44, height: height)
+        nextButton.frame = CGRect(x: previous.frame.maxX, y: 0, width: 44, height: height)
     }
 }

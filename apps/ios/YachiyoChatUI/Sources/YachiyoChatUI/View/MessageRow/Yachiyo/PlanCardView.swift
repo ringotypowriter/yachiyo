@@ -12,7 +12,7 @@ import YachiyoMaterial
 
 final class PlanCardView: MessageListRowView {
     static let padding: CGFloat = 16
-    static let buttonHeight: CGFloat = 40
+    static let buttonHeight: CGFloat = 44
     static let previewLines = 6
 
     var plan: MessageListView.PlanCard? { didSet { rebuild() } }
@@ -46,15 +46,17 @@ final class PlanCardView: MessageListRowView {
         previewLabel.font = YachiyoFonts.meta()
         previewLabel.isUserInteractionEnabled = true
         previewLabel.accessibilityIdentifier = "plan.open"
+        previewLabel.accessibilityTraits.insert(.button)
+        previewLabel.accessibilityHint = String.localized("Read the full plan")
         previewLabel.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(openPlan)))
         card.addSubview(previewLabel)
 
         buttons.axis = .horizontal
         buttons.spacing = 8
-        buttons.distribution = .fillProportionally
+        buttons.distribution = .fillEqually
         buttons.addArrangedSubview(makeButton(String.localized("Request changes"), "pencil.line", "plan.revise", .requestChanges, emphasized: false))
         buttons.addArrangedSubview(makeButton(String.localized("Accept"), "checkmark.circle", "plan.accept", .accept, emphasized: true))
-        buttons.addArrangedSubview(makeButton(String.localized("Hand off"), "arrow.triangle.branch", "plan.handoff", .acceptAndHandoff, emphasized: true))
+        buttons.addArrangedSubview(makeButton(String.localized("Accept & hand off"), "arrow.triangle.branch", "plan.handoff", .acceptAndHandoff, emphasized: false))
         card.addSubview(buttons)
     }
 
@@ -107,11 +109,12 @@ final class PlanCardView: MessageListRowView {
         let padding = Self.padding
         let width = card.bounds.width - padding * 2
         let statusSize = statusLabel.intrinsicContentSize
-        statusLabel.frame = CGRect(x: card.bounds.width - padding - statusSize.width, y: padding, width: statusSize.width, height: 18)
-        titleLabel.frame = CGRect(x: padding, y: padding - 2, width: width - statusSize.width - 8, height: 22)
+        statusLabel.frame = CGRect(x: card.bounds.width - padding - statusSize.width, y: padding, width: statusSize.width, height: statusSize.height)
+        titleLabel.frame = CGRect(x: padding, y: padding, width: max(0, width - statusSize.width - 8), height: Self.headerHeight)
         let previewHeight = Self.previewHeight(for: plan?.content ?? "", width: width)
         previewLabel.frame = CGRect(x: padding, y: titleLabel.frame.maxY + 8, width: width, height: previewHeight)
-        buttons.frame = CGRect(x: padding, y: previewLabel.frame.maxY + 12, width: width, height: Self.buttonHeight)
+        buttons.axis = Self.stacksActions(width: width) ? .vertical : .horizontal
+        buttons.frame = CGRect(x: padding, y: previewLabel.frame.maxY + 12, width: width, height: Self.actionsHeight(width: width))
     }
 
     static func previewHeight(for content: String, width: CGFloat) -> CGFloat {
@@ -122,13 +125,26 @@ final class PlanCardView: MessageListRowView {
             attributes: [.font: font],
             context: nil
         ).height)
-        return min(full, ceil(font.lineHeight * CGFloat(previewLines)))
+        return max(44, min(full, ceil(font.lineHeight * CGFloat(previewLines))))
+    }
+
+    private static func stacksActions(width: CGFloat) -> Bool {
+        width < 480 || YachiyoFonts.caption().pointSize > 18
+    }
+
+    private static var headerHeight: CGFloat {
+        ceil(max(YachiyoFonts.cardTitleStrong().lineHeight, YachiyoFonts.caption().lineHeight + 4))
+    }
+
+    private static func actionsHeight(width: CGFloat) -> CGFloat {
+        let rowHeight = max(buttonHeight, ceil(YachiyoFonts.caption().lineHeight) + 20)
+        return stacksActions(width: width) ? rowHeight * 3 + 16 : rowHeight
     }
 
     static func height(for plan: MessageListView.PlanCard, width: CGFloat) -> CGFloat {
         let inner = width - padding * 2
-        var height = padding + 22 + 8 + previewHeight(for: plan.content, width: inner) + padding
-        if plan.isPending { height += 12 + buttonHeight }
+        var height = padding + headerHeight + 8 + previewHeight(for: plan.content, width: inner) + padding
+        if plan.isPending { height += 12 + actionsHeight(width: inner) }
         return height
     }
 }

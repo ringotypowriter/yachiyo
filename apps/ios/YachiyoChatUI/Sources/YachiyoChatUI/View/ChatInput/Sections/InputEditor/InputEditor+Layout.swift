@@ -26,13 +26,13 @@ extension InputEditor {
             sendButton.transform = .identity
             voiceButton.transform = .identity
             if textView.isFirstResponder {
-                if textView.text.isEmpty {
+                if textView.text.isEmpty && !hasAttachments {
                     layoutStatus = .preFocusText
                 } else {
                     layoutStatus = .editingText
                 }
             } else {
-                if textView.text.isEmpty {
+                if textView.text.isEmpty && !hasAttachments {
                     layoutStatus = .standard
                 } else {
                     layoutStatus = .editingText

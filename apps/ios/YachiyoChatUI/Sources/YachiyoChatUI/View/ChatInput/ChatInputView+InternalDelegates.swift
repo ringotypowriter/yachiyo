@@ -79,7 +79,8 @@ extension ChatInputView: InputEditor.Delegate {
 // MARK: - AttachmentsBar.Delegate
 
 extension ChatInputView: AttachmentsBar.Delegate {
-    func attachmentBarDidUpdateAttachments(_: [AttachmentsBar.Item]) {
+    func attachmentBarDidUpdateAttachments(_ attachments: [AttachmentsBar.Item]) {
+        inputEditor.hasAttachments = !attachments.isEmpty
         publishNewEditorStatus()
     }
 }
@@ -124,6 +125,7 @@ extension ChatInputView: ControlPanel.Delegate {
 
 extension ChatInputView {
     func presentSpeechRecognition() {
+        guard parentViewController?.presentedViewController == nil else { return }
         let controller = SimpleSpeechController()
         controller.callback = { [weak self] text in
             self?.inputEditor.set(
@@ -152,7 +154,7 @@ extension ChatInputView {
 
 extension ChatInputView {
     func openCamera() {
-        guard let parent = parentViewController else { return }
+        guard let parent = parentViewController, parent.presentedViewController == nil else { return }
         guard UIImagePickerController.isSourceTypeAvailable(.camera) else {
             delegate?.chatInputDidReportError(self, error: String.localized("Camera is not available on this device."))
             return
@@ -166,7 +168,7 @@ extension ChatInputView {
     }
 
     func openPhotoPicker() {
-        guard let parent = parentViewController else { return }
+        guard let parent = parentViewController, parent.presentedViewController == nil else { return }
         var config = PHPickerConfiguration()
         config.selectionLimit = 4
         config.filter = .images
@@ -176,7 +178,7 @@ extension ChatInputView {
     }
 
     func openFilePicker() {
-        guard let parent = parentViewController else { return }
+        guard let parent = parentViewController, parent.presentedViewController == nil else { return }
         let supportedTypes: [UTType] = [.data, .image, .text, .plainText, .pdf, .audio]
         let picker = UIDocumentPickerViewController(forOpeningContentTypes: supportedTypes)
         picker.delegate = self

@@ -6,6 +6,7 @@
 import OrderedCollections
 import QuickLook
 import UIKit
+import UniformTypeIdentifiers
 
 class AttachmentsBar: EditorSectionView {
     let collectionView: UICollectionView
@@ -210,21 +211,35 @@ extension AttachmentsBar: UICollectionViewDelegate, UICollectionViewDelegateFlow
 
     func presentPreview(for item: Item) {
         assert(Thread.isMainThread)
+        guard parentViewController?.presentedViewController == nil else { return }
 
-        if item.type == .document {
-            let textViewerController = makeTextViewer(text: item.textContent, editable: storage != nil)
+        let fileType = UTType(filenameExtension: URL(fileURLWithPath: item.name).pathExtension)
+        let isBinaryDocument = !item.fileData.isEmpty && fileType?.conforms(to: .text) != true
+        if item.type == .document, !isBinaryDocument {
+            let decodedText = item.fileData.isEmpty ? nil : String(data: item.fileData, encoding: .utf8)
+            let previewText = item.textContent.isEmpty && storage == nil
+                ? (decodedText ?? String.localized("No text preview is available for this attachment."))
+                : item.textContent
+            let textViewerController = makeTextViewer(text: previewText, editable: storage != nil)
             if storage != nil {
                 (textViewerController as? UINavigationController)?.viewControllers.first?.navigationItem.rightBarButtonItem = UIBarButtonItem(
                     systemItem: .done,
                     primaryAction: UIAction { [weak self, weak textViewerController] _ in
                         guard let self, let navigationController = textViewerController as? UINavigationController,
                               let contentVC = navigationController.viewControllers.first else { return }
-                        let tv = contentVC.view.subviews.compactMap { $0 as? UITextView }.first
-                        let updatedText = tv?.text ?? ""
+                        guard let tv = contentVC.view as? UITextView else { return }
+                        let updatedText = tv.text ?? ""
                         var attachment = item
                         if let storage {
                             let url = storage.fileURL(for: attachment.storageFilename)
-                            try? updatedText.write(to: url, atomically: true, encoding: .utf8)
+                            do {
+                                try updatedText.write(to: url, atomically: true, encoding: .utf8)
+                            } catch {
+                                let alert = UIAlertController(title: String.localized("Could not save attachment"), message: error.localizedDescription, preferredStyle: .alert)
+                                alert.addAction(UIAlertAction(title: String.localized("OK"), style: .default))
+                                contentVC.present(alert, animated: true)
+                                return
+                            }
                         }
                         attachment = ChatInputAttachment(
                             id: item.id,
@@ -402,7 +417,15 @@ extension AttachmentsBar: UICollectionViewDelegate, UICollectionViewDelegateFlow
             return nil
 
         case .document:
-            return nil
+            guard !item.fileData.isEmpty else { return nil }
+            let fileExtension = URL(fileURLWithPath: item.name).pathExtension
+            let destination = destinationURL(withExtension: fileExtension)
+            do {
+                try item.fileData.write(to: destination, options: .atomic)
+                return SingleItemDataSource(item: destination, name: item.name, cleanup: cleanup(for: destination))
+            } catch {
+                return nil
+            }
         }
     }
 

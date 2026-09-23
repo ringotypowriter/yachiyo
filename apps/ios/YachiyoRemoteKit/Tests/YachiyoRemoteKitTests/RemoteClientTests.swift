@@ -3,6 +3,83 @@ import XCTest
 @testable import YachiyoRemoteKit
 
 final class RemoteClientTests: XCTestCase {
+    func testPairingGreetingCancellationClosesStalledHello() async {
+        await assertPairingGreetingCancellation(replyToHello: false)
+    }
+
+    func testPairingGreetingCancellationClosesMissingGrant() async {
+        await assertPairingGreetingCancellation(replyToHello: true)
+    }
+
+    private func assertPairingGreetingCancellation(replyToHello: Bool) async {
+        let channel = SuspendedSendChannel()
+        let client = RemoteClient(channel: channel, transport: channel.clientTransport)
+        defer { client.close() }
+        let connector = DesktopConnector(identity: RemoteClientIdentity(
+            staticPrivateKey: Data(repeating: 7, count: 32), deviceName: "Test", appVersion: "1"
+        ))
+        let completed = expectation(description: "cancelled pairing greeting finishes")
+        let task = Task {
+            defer { completed.fulfill() }
+            do {
+                _ = try await connector.pairingGreeting(client: client)
+                XCTFail("Cancelled pairing greeting must not succeed")
+            } catch {
+                XCTAssertTrue(error is CancellationError || error as? WebSocketChannelError == .closed(code: 1000))
+            }
+        }
+        await fulfillment(of: [channel.firstSendStarted], timeout: 2)
+        if replyToHello {
+            channel.releaseFirstSend()
+            await fulfillment(of: [channel.helloReplySent], timeout: 2)
+        }
+        task.cancel()
+        await fulfillment(of: [channel.didClose, completed], timeout: 2)
+        client.close()
+        await task.value
+    }
+
+    func testPairingGreetingTimesOutWhenHelloSucceedsButGrantIsMissing() async {
+        let channel = SuspendedSendChannel()
+        let client = RemoteClient(channel: channel, transport: channel.clientTransport)
+        defer { client.close() }
+        let connector = DesktopConnector(identity: RemoteClientIdentity(
+            staticPrivateKey: Data(repeating: 7, count: 32), deviceName: "Test", appVersion: "1"
+        ), attemptTimeout: .milliseconds(100))
+        let completed = expectation(description: "missing pairing grant times out")
+        let task = Task {
+            defer { completed.fulfill() }
+            do {
+                _ = try await connector.pairingGreeting(client: client)
+                XCTFail("Missing grant must time out")
+            } catch {
+                XCTAssertEqual((error as? URLError)?.code, .timedOut)
+            }
+        }
+        await fulfillment(of: [channel.firstSendStarted], timeout: 2)
+        channel.releaseFirstSend()
+        await fulfillment(of: [channel.helloReplySent, channel.didClose, completed], timeout: 2)
+        client.close()
+        await task.value
+    }
+
+    func testPairingGrantAfterCloseFailsInsteadOfWaitingForever() async {
+        let channel = SuspendedSendChannel()
+        let client = RemoteClient(channel: channel, transport: channel.clientTransport)
+        client.close()
+        let completed = expectation(description: "closed grant wait fails")
+        Task {
+            defer { completed.fulfill() }
+            do {
+                _ = try await client.pairingGrant()
+                XCTFail("A closed pairing connection must reject grant waits")
+            } catch {
+                XCTAssertEqual(error as? WebSocketChannelError, .closed(code: 1000))
+            }
+        }
+        await fulfillment(of: [completed], timeout: 2)
+    }
+
     func testCompressedConcurrentCallsPreserveFIFOAndDecodeResponses() async throws {
         let codec = RemoteMessageCodec(gzip: true)
         let channel = SuspendedSendChannel(codec: codec)
@@ -143,6 +220,7 @@ final class RemoteClientTests: XCTestCase {
 }
 
 private final class SuspendedSendChannel: WebSocketChannel, @unchecked Sendable {
+    let helloReplySent = XCTestExpectation(description: "hello replied without a grant")
     let didClose = XCTestExpectation(description: "channel closed")
     private let codec: RemoteMessageCodec
     private var compressedSends = 0
@@ -200,8 +278,14 @@ private final class SuspendedSendChannel: WebSocketChannel, @unchecked Sendable 
         let encoded = try peer.decrypt(data)
         if encoded.first == 1 { lock.withLock { compressedSends += 1 } }
         let request = try JSONSerialization.jsonObject(with: codec.decode(encoded)) as! [String: Any]
-        let reply: [String: Any] = ["kind": "rpc:response", "id": request["id"]!, "ok": true, "value": request["method"]!]
+        let isHello = request["method"] as? String == "remote.hello"
+        let value: Any = isHello ? [
+            "activeRunEnterBehavior": "enter-steers", "appVersion": "1", "deviceName": "Mac",
+            "epoch": "epoch", "protocolVersion": 1, "remoteDeviceId": "desktop",
+        ] as [String: Any] : request["method"]!
+        let reply: [String: Any] = ["kind": "rpc:response", "id": request["id"]!, "ok": true, "value": value]
         replyContinuation.yield(try peer.encrypt(codec.encode(JSONSerialization.data(withJSONObject: reply))))
+        if isHello { helloReplySent.fulfill() }
     }
 
     func receive() async throws -> Data {

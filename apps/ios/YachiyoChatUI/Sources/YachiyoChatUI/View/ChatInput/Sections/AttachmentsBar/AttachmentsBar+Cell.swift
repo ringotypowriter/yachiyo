@@ -11,8 +11,6 @@ extension AttachmentsBar {
         let iconView = UIImageView()
 
         let deleteButton = DeleteButton()
-        let deleteButtonSize: CGFloat = 20
-        let deleteButtonInset: CGFloat = 4
 
         var isDeletable: Bool = true {
             didSet { setNeedsLayout() }
@@ -58,10 +56,10 @@ extension AttachmentsBar {
             iconView.frame = contentView.bounds
             deleteButton.isHidden = !isDeletable
             deleteButton.frame = .init(
-                x: bounds.width - deleteButtonInset - deleteButtonSize,
-                y: deleteButtonInset,
-                width: deleteButtonSize,
-                height: deleteButtonSize
+                x: bounds.width - 44,
+                y: 0,
+                width: 44,
+                height: 44
             )
         }
 
@@ -143,10 +141,10 @@ extension AttachmentsBar {
             )
             deleteButton.isHidden = !isDeletable
             deleteButton.frame = .init(
-                x: bounds.width - inset - iconSize,
-                y: inset,
-                width: iconSize,
-                height: iconSize
+                x: bounds.width - 44,
+                y: 0,
+                width: 44,
+                height: 44
             )
             textLabel.frame = .init(
                 x: inset,

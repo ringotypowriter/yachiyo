@@ -16,10 +16,7 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         let coordinator = AppCoordinator(window: window)
         self.window = window
         self.coordinator = coordinator
-        coordinator.start()
-        if let url = connectionOptions.urlContexts.first?.url {
-            coordinator.handle(url: url)
-        }
+        coordinator.start(initialURL: connectionOptions.urlContexts.first?.url)
     }
 
     func scene(_: UIScene, openURLContexts contexts: Set<UIOpenURLContext>) {
@@ -53,11 +50,15 @@ final class AppCoordinator {
         navigation.setToolbarHidden(false, animated: false)
     }
 
-    func start() {
+    func start(initialURL: URL? = nil) {
         window.rootViewController = navigation
         window.makeKeyAndVisible()
         ThemeController.shared.apply()
         RemoteStore.shared.bootstrap()
+        if let initialURL, initialURL.scheme == PairingURL.scheme {
+            DispatchQueue.main.async { self.handle(url: initialURL) }
+            return
+        }
         #if DEBUG
         // `-YachiyoPairingURL <url>` pairs like the deep link, without the system's
         // "Open in Yachiyo?" prompt that `simctl openurl` triggers (automation only).

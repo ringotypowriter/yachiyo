@@ -30,6 +30,18 @@ final class ThreadViewController: UIViewController {
     private var cancellables: Set<AnyCancellable> = []
     private var isFollowingBottom = true
     private var localError: String?
+    private struct CachedDraft {
+        let content: ChatInputContent
+        let revision: UUID
+    }
+    private static var drafts: [String: CachedDraft] = [:]
+    private var draftRevision: UUID?
+    private var draftKey: String { "\(thread.desktopId)/\(thread.threadId)" }
+    private var stopRequested = false
+    private var answeringQuestions: Set<String> = []
+    private var isAcceptingPlan = false
+    private var isSwitchingBranch = false
+    private var isOpeningPlan = false
 
     init(desktopId: String, threadId: String) {
         thread = ThreadStore(desktopId: desktopId, threadId: threadId)
@@ -106,6 +118,7 @@ final class ThreadViewController: UIViewController {
         messageList.session = thread
         messageList.clipsToBounds = true
         messageList.scrollView.accessibilityIdentifier = "thread.timeline"
+        messageList.scrollView.keyboardDismissMode = .interactive
         messageList.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(messageList)
         NSLayoutConstraint.activate([
@@ -177,7 +190,7 @@ final class ThreadViewController: UIViewController {
             capsuleGroup.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 12),
             capsuleGroup.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -12),
             capsuleGroup.bottomAnchor.constraint(equalTo: errorLabel.topAnchor, constant: -6),
-            capsuleGroup.heightAnchor.constraint(equalToConstant: 40),
+            capsuleGroup.heightAnchor.constraint(equalToConstant: 44),
             capsuleRow.centerXAnchor.constraint(equalTo: capsuleGroup.contentView.centerXAnchor),
             capsuleRow.centerYAnchor.constraint(equalTo: capsuleGroup.contentView.centerYAnchor),
         ])
@@ -195,7 +208,8 @@ final class ThreadViewController: UIViewController {
         bottomButton.accessibilityLabel = String(localized: "Scroll to bottom")
         bottomButton.addAction(UIAction { [weak self] _ in self?.messageList.scrollToBottom(animated: true) }, for: .touchUpInside)
         for button in [needsAnswerButton, followUpButton, bottomButton] {
-            button.heightAnchor.constraint(equalToConstant: 36).isActive = true
+            button.heightAnchor.constraint(equalToConstant: 44).isActive = true
+            button.widthAnchor.constraint(greaterThanOrEqualToConstant: 44).isActive = true
             capsuleRow.addArrangedSubview(button)
         }
     }
@@ -301,8 +315,10 @@ final class ThreadViewController: UIViewController {
         bannerLabel.text = thread.isReadOnly ? String(localized: "Read-only — synced from another device") : nil
         banner.isHidden = !thread.isReadOnly
         // Keep the draft and keyboard in place during transient connection/refresh states.
+        if thread.isReadOnly { composer.endEditing(true) }
         composer.isHidden = thread.isReadOnly
         composer.isRunning = thread.isRunning
+        composer.isStopping = stopRequested || thread.isStopping
 
         needsAnswerButton.isHidden = thread.pendingQuestion == nil
         followUpButton.isHidden = thread.queuedFollowUps.isEmpty
@@ -383,6 +399,27 @@ final class ThreadViewController: UIViewController {
 // MARK: - Composer
 
 extension ThreadViewController: ChatInputDelegate {
+    func chatInputDidUpdateObject(_ input: ChatInputView, object: ChatInputContent) {
+        if object.hasEmptyContent {
+            // A late reset from an older composer must not clear a newer controller's draft.
+            if Self.drafts[draftKey]?.revision == draftRevision {
+                Self.drafts[draftKey] = nil
+                draftRevision = nil
+            }
+            return
+        }
+        let previous = Self.drafts[draftKey]
+        let unchanged = previous?.content.text == object.text && previous?.content.attachments == object.attachments
+        let revision = unchanged ? (previous?.revision ?? UUID()) : UUID()
+        Self.drafts[draftKey] = CachedDraft(content: object, revision: revision)
+        draftRevision = revision
+    }
+
+    func chatInputDidRequestObjectForRestore(_: ChatInputView) -> ChatInputContent? {
+        draftRevision = Self.drafts[draftKey]?.revision
+        return Self.drafts[draftKey]?.content
+    }
+
     func chatInputDidSubmit(_: ChatInputView, object: ChatInputContent, completion: @escaping @Sendable (Bool) -> Void) {
         // Reject before uploading attachments. A failed submit keeps the bound draft;
         // reconnecting never schedules a send or replays this action.
@@ -404,10 +441,17 @@ extension ThreadViewController: ChatInputDelegate {
         if case let .string(raw) = object.options["mode"] { mode = SendMode(rawValue: raw) }
         if mode == nil, thread.isRunning { mode = defaultRunningMode }
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        let submittedRevision = Self.drafts[draftKey]?.revision
         Task {
             do {
                 let ids = try await AttachmentUploader.upload(object.attachments, to: thread.desktopId)
                 let sent = await thread.send(text: object.text, attachmentIds: ids, mode: mode)
+                // Retire the cached draft before the weak composer completion is scheduled:
+                // the screen may already have been popped and its composer can deallocate.
+                if sent, let submittedRevision, Self.drafts[draftKey]?.revision == submittedRevision {
+                    Self.drafts[draftKey] = nil
+                    draftRevision = nil
+                }
                 completion(sent)
             } catch {
                 thread.failUpload(error)
@@ -418,12 +462,19 @@ extension ThreadViewController: ChatInputDelegate {
     }
 
     func chatInputDidRequestStop(_: ChatInputView) {
+        guard thread.isRunning, !stopRequested, !thread.isStopping else { return }
+        stopRequested = true
+        localError = nil
+        updateChrome()
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-        Task { await thread.stop() }
+        Task {
+            defer { stopRequested = false; updateChrome() }
+            await thread.stop()
+        }
     }
 
     func chatInputDidRequestAlternateSubmit(_ input: ChatInputView) {
-        guard thread.isRunning else { return }
+        guard thread.isRunning, !input.isSubmitting, presentedViewController == nil else { return }
         let sheet = UIAlertController(title: nil, message: nil, preferredStyle: .actionSheet)
         sheet.addAction(UIAlertAction(title: String(localized: "Steer current reply"), style: .default) { _ in
             input.submit(options: ["mode": .string(SendMode.steer.rawValue)])
@@ -433,6 +484,7 @@ extension ThreadViewController: ChatInputDelegate {
         })
         sheet.addAction(UIAlertAction(title: String(localized: "Cancel"), style: .cancel))
         sheet.popoverPresentationController?.sourceView = input
+        sheet.popoverPresentationController?.sourceRect = input.bounds
         present(sheet, animated: true)
     }
 
@@ -446,29 +498,48 @@ extension ThreadViewController: ChatInputDelegate {
 
 extension ThreadViewController: MessageListInteractionDelegate {
     func messageList(_: MessageListView, answer: String, toQuestion question: QuestionContentPart) {
-        Task { await thread.answer(question, with: answer) }
+        guard answeringQuestions.insert(question.id).inserted else { return }
+        localError = nil
+        Task {
+            defer { answeringQuestions.remove(question.id); updateChrome() }
+            await thread.answer(question, with: answer)
+        }
     }
 
-    func messageList(_: MessageListView, plan _: String, action: PlanCardAction) {
+    func messageList(_: MessageListView, plan messageId: String, action: PlanCardAction) {
         switch action {
         case .requestChanges:
             composer.focus()
         case .accept:
-            Task { _ = await thread.acceptPlan(handoff: false) }
-        case .acceptAndHandoff:
+            guard !isAcceptingPlan else { return }
+            isAcceptingPlan = true
+            localError = nil
             Task {
+                defer { isAcceptingPlan = false; updateChrome() }
+                _ = await thread.acceptPlan(handoff: false)
+            }
+        case .acceptAndHandoff:
+            guard !isAcceptingPlan else { return }
+            isAcceptingPlan = true
+            localError = nil
+            Task {
+                defer { isAcceptingPlan = false; updateChrome() }
                 guard let accepted = await thread.acceptPlan(handoff: true) else { return }
                 let next = ThreadViewController(desktopId: thread.desktopId, threadId: accepted.threadId)
                 navigationController?.pushViewController(next, animated: true)
             }
         case .open:
+            guard !isOpeningPlan, presentedViewController == nil else { return }
+            isOpeningPlan = true
             localError = nil
             Task {
-                guard let content = await thread.readPlan() else {
+                defer { isOpeningPlan = false }
+                guard let content = await thread.readPlan(messageId: messageId) else {
                     localError = thread.lastError ?? String(localized: "Plan unavailable. Connect to your Mac and try opening it again.")
                     updateChrome()
                     return
                 }
+                guard presentedViewController == nil, view.window != nil else { return }
                 let reader = TextSheetViewController(title: String(localized: "Execution plan"), text: content)
                 present(UINavigationController(rootViewController: reader), animated: true)
             }
@@ -476,10 +547,17 @@ extension ThreadViewController: MessageListInteractionDelegate {
     }
 
     func messageList(_: MessageListView, showSiblingOf messageId: String, offset: Int) {
-        Task { await thread.showSibling(of: messageId, offset: offset) }
+        guard !isSwitchingBranch else { return }
+        isSwitchingBranch = true
+        localError = nil
+        Task {
+            defer { isSwitchingBranch = false; updateChrome() }
+            await thread.showSibling(of: messageId, offset: offset)
+        }
     }
 
     func messageList(_: MessageListView, didSelectToolCall toolCallId: String) {
+        guard presentedViewController == nil else { return }
         let detail = UINavigationController(rootViewController: toolPreviewReader(toolCallId))
         YachiyoMaterialKit.configureSheet(detail, detents: [.medium(), .large()])
         present(detail, animated: true)

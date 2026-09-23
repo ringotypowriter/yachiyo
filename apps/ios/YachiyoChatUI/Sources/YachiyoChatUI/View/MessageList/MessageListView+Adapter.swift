@@ -138,6 +138,11 @@ extension MessageListView: ListViewAdapter {
             if case let .questionCard(_, question) = entry {
                 questionView.theme = theme
                 questionView.question = question
+                if !question.isWaiting { questionDrafts[question.id] = nil }
+                questionView.draft = questionDrafts[question.id] ?? ""
+                questionView.onDraftChange = { [weak self] draft in
+                    self?.questionDrafts[question.id] = draft.isEmpty ? nil : draft
+                }
                 questionView.onAnswer = { [weak self] answer in
                     guard let self else { return }
                     interactionDelegate?.messageList(self, answer: answer, toQuestion: question)

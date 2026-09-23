@@ -126,6 +126,17 @@ final class SettingsViewController: UITableViewController {
                 cell.accessoryType = .disclosureIndicator
             }
         }
+        content.textProperties.numberOfLines = 0
+        if Section(rawValue: indexPath.section) == .appearance {
+            content.secondaryTextProperties.numberOfLines = 0
+            cell.selectionStyle = .none
+            cell.accessoryView?.accessibilityLabel = content.text
+            cell.accessoryView?.accessibilityValue = content.secondaryText
+        } else if Section(rawValue: indexPath.section) == .about, indexPath.row < 2 {
+            cell.selectionStyle = .none
+        } else {
+            cell.accessibilityTraits.insert(.button)
+        }
         cell.contentConfiguration = content
         cell.backgroundColor = .yachiyo(.surface)
         return cell
@@ -161,10 +172,22 @@ final class SettingsViewController: UITableViewController {
     override func tableView(_: UITableView, trailingSwipeActionsConfigurationForRowAt indexPath: IndexPath) -> UISwipeActionsConfiguration? {
         guard Section(rawValue: indexPath.section) == .devices, let desktop = desktops[safe: indexPath.row] else { return nil }
         let remove = UIContextualAction(style: .destructive, title: String(localized: "Remove")) { [weak self] _, _, done in
-            self?.store.remove(desktopId: desktop.id)
-            done(true)
+            done(false)
+            guard let self else { return }
+            let alert = UIAlertController(
+                title: String(localized: "Forget \(desktop.name)?"),
+                message: String(localized: "You’ll need to pair again to use this device on this iPhone. This does not revoke access on the Mac."),
+                preferredStyle: .alert
+            )
+            alert.addAction(UIAlertAction(title: String(localized: "Cancel"), style: .cancel))
+            alert.addAction(UIAlertAction(title: String(localized: "Forget device"), style: .destructive) { [weak self] _ in
+                self?.store.remove(desktopId: desktop.id)
+            })
+            present(alert, animated: true)
         }
-        return UISwipeActionsConfiguration(actions: [remove])
+        let configuration = UISwipeActionsConfiguration(actions: [remove])
+        configuration.performsFirstActionWithFullSwipe = false
+        return configuration
     }
 
     // MARK: Helpers
@@ -176,7 +199,9 @@ final class SettingsViewController: UITableViewController {
             message: String(localized: "In the folder picker, open Browse > iCloud Drive > Documents, open Yachiyo, then tap Open. Select Yachiyo itself, not Remote or Sync.\n\nYour Mac creates this folder after pairing. Use the same Apple Account with iCloud Drive on both devices. If it is missing, let iCloud finish syncing and try later; do not create a new folder. You can keep using your paired Mac without this step."),
             preferredStyle: .alert
         )
-        alert.addAction(UIAlertAction(title: String(localized: "Not now"), style: .cancel))
+        alert.addAction(UIAlertAction(title: String(localized: "Not now"), style: .cancel) { [weak self] _ in
+            self?.recoveryFolderDidChange = nil
+        })
         alert.addAction(UIAlertAction(title: String(localized: "Choose Yachiyo folder"), style: .default) { [weak self, weak presenter] _ in
             guard let self, let presenter else { return }
             let picker = UIDocumentPickerViewController(forOpeningContentTypes: [.folder])
@@ -214,7 +239,7 @@ final class SettingsViewController: UITableViewController {
         button.setImage(UIImage(systemName: "chevron.up.chevron.down"), for: .normal)
         button.menu = menu
         button.showsMenuAsPrimaryAction = true
-        button.sizeToFit()
+        button.frame.size = CGSize(width: 44, height: 44)
         return button
     }
 
@@ -252,7 +277,12 @@ final class SettingsViewController: UITableViewController {
 }
 
 extension SettingsViewController: UIDocumentPickerDelegate {
+    func documentPickerWasCancelled(_: UIDocumentPickerViewController) {
+        recoveryFolderDidChange = nil
+    }
+
     func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
+        defer { recoveryFolderDidChange = nil }
         guard let folder = urls.first else { return }
         do {
             try MailboxFolder.save(folder: folder)

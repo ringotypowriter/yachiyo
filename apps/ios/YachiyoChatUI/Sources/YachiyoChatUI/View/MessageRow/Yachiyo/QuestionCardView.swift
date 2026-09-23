@@ -2,7 +2,7 @@
 //  QuestionCardView.swift
 //  YachiyoChatUI
 //
-//  askUser card: the question, up to four stacked choices (wrapping chips beyond that), and a
+//  askUser card: the question, wrapping stacked choices, and a
 //  free-form answer field. Collapses to "question · answer" once answered.
 //
 
@@ -13,11 +13,24 @@ import YachiyoMaterial
 final class QuestionCardView: MessageListRowView {
     static let padding: CGFloat = 14
     static let choiceHeight: CGFloat = 44
-    static let chipHeight: CGFloat = 34
     static let spacing: CGFloat = 8
 
-    var question: QuestionContentPart? { didSet { rebuild() } }
+    var question: QuestionContentPart? {
+        didSet {
+            if oldValue?.id != question?.id { textField.text = "" }
+            rebuild()
+        }
+    }
     var onAnswer: ((String) -> Void)?
+    var onDraftChange: ((String) -> Void)?
+
+    var draft: String {
+        get { textField.text ?? "" }
+        set {
+            if textField.text != newValue { textField.text = newValue }
+            updateSendButton()
+        }
+    }
 
     private let card = UIView()
     private let icon = UIImageView()
@@ -53,7 +66,11 @@ final class QuestionCardView: MessageListRowView {
         textField.accessibilityIdentifier = "question.input"
         textField.returnKeyType = .send
         textField.addAction(UIAction { [weak self] _ in self?.submitTypedAnswer() }, for: .editingDidEndOnExit)
-        textField.addAction(UIAction { [weak self] _ in self?.updateSendButton() }, for: .editingChanged)
+        textField.addAction(UIAction { [weak self] _ in
+            guard let self else { return }
+            updateSendButton()
+            onDraftChange?(draft)
+        }, for: .editingChanged)
         inputRow.addSubview(textField)
         sendButton.setImage(UIImage(systemName: "arrow.up.circle.fill"), for: .normal)
         sendButton.accessibilityIdentifier = "question.send"
@@ -81,14 +98,13 @@ final class QuestionCardView: MessageListRowView {
         if question.isWaiting {
             titleLabel.text = question.question
             icon.image = UIImage(systemName: "questionmark.bubble.fill")
-            let chips = question.choices.count > 4
             for choice in question.choices {
-                stack.addArrangedSubview(makeChoiceButton(choice, compact: chips))
+                stack.addArrangedSubview(makeChoiceButton(choice))
             }
             stack.isHidden = question.choices.isEmpty
             inputRow.isHidden = false
-            textField.text = ""
         } else {
+            textField.resignFirstResponder()
             titleLabel.text = "\(question.question) · \(question.answer ?? String.localized("Answered"))"
             icon.image = UIImage(systemName: "checkmark.bubble")
             stack.isHidden = true
@@ -98,7 +114,7 @@ final class QuestionCardView: MessageListRowView {
         setNeedsLayout()
     }
 
-    private func makeChoiceButton(_ choice: String, compact: Bool) -> UIButton {
+    private func makeChoiceButton(_ choice: String) -> UIButton {
         var configuration = UIButton.Configuration.plain()
         configuration.title = choice
         configuration.baseForegroundColor = .yachiyo(.ink)
@@ -107,7 +123,15 @@ final class QuestionCardView: MessageListRowView {
         configuration.background.strokeColor = YachiyoStyle.ink(0.08)
         configuration.background.strokeWidth = 1
         configuration.titleAlignment = .leading
+        configuration.contentInsets = NSDirectionalEdgeInsets(top: 10, leading: 12, bottom: 10, trailing: 12)
+        configuration.titleLineBreakMode = .byWordWrapping
+        configuration.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { attributes in
+            var attributes = attributes
+            attributes.font = YachiyoFonts.body()
+            return attributes
+        }
         let button = UIButton(configuration: configuration)
+        button.titleLabel?.numberOfLines = 0
         button.contentHorizontalAlignment = .leading
         button.accessibilityIdentifier = "question.choice.\(choice)"
         button.configurationUpdateHandler = { button in
@@ -117,12 +141,11 @@ final class QuestionCardView: MessageListRowView {
             button.configuration = updated
         }
         button.addAction(UIAction { [weak self] _ in self?.submit(choice) }, for: .touchUpInside)
-        button.heightAnchor.constraint(equalToConstant: compact ? Self.chipHeight : Self.choiceHeight).isActive = true
         return button
     }
 
     private func updateSendButton() {
-        let hasText = !(textField.text ?? "").trimmingCharacters(in: .whitespaces).isEmpty
+        let hasText = !(textField.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         sendButton.tintColor = hasText ? .yachiyo(.accentFill) : .yachiyo(.textPlaceholder)
         sendButton.isEnabled = hasText
     }
@@ -134,8 +157,9 @@ final class QuestionCardView: MessageListRowView {
     }
 
     private func submit(_ answer: String) {
+        guard question?.isWaiting == true else { return }
         textField.resignFirstResponder()
-        UINotificationFeedbackGenerator().notificationOccurred(.success)
+        UISelectionFeedbackGenerator().selectionChanged()
         onAnswer?(answer)
     }
 
@@ -150,7 +174,15 @@ final class QuestionCardView: MessageListRowView {
         titleLabel.frame = CGRect(x: padding + 28, y: padding, width: titleWidth, height: max(20, titleHeight))
         var y = titleLabel.frame.maxY + Self.spacing
         if !stack.isHidden {
-            let stackHeight = stack.systemLayoutSizeFitting(CGSize(width: width, height: 0), withHorizontalFittingPriority: .required, verticalFittingPriority: .fittingSizeLevel).height
+            let heights = (question?.choices ?? []).map { Self.choiceHeight(for: $0, width: width) }
+            for (button, height) in zip(stack.arrangedSubviews, heights) {
+                if let constraint = button.constraints.first(where: { $0.firstAttribute == .height }) {
+                    constraint.constant = height
+                } else {
+                    button.heightAnchor.constraint(equalToConstant: height).isActive = true
+                }
+            }
+            let stackHeight = heights.reduce(0, +) + CGFloat(max(0, heights.count - 1)) * Self.spacing
             stack.frame = CGRect(x: padding, y: y, width: width, height: stackHeight)
             y = stack.frame.maxY + Self.spacing
         }
@@ -161,8 +193,18 @@ final class QuestionCardView: MessageListRowView {
         }
     }
 
+    static func choiceHeight(for choice: String, width: CGFloat) -> CGFloat {
+        let textHeight = ceil((choice as NSString).boundingRect(
+            with: CGSize(width: max(1, width - 24), height: .greatestFiniteMagnitude),
+            options: [.usesLineFragmentOrigin, .usesFontLeading],
+            attributes: [.font: YachiyoFonts.body()],
+            context: nil
+        ).height)
+        return max(choiceHeight, textHeight + 20)
+    }
+
     static func height(for question: QuestionContentPart, width: CGFloat) -> CGFloat {
-        let titleText = question.isWaiting ? question.question : "\(question.question) · \(question.answer ?? "")"
+        let titleText = question.isWaiting ? question.question : "\(question.question) · \(question.answer ?? String.localized("Answered"))"
         let titleWidth = width - padding * 2 - 28
         let titleHeight = max(20, ceil((titleText as NSString).boundingRect(
             with: CGSize(width: titleWidth, height: .greatestFiniteMagnitude),
@@ -173,8 +215,7 @@ final class QuestionCardView: MessageListRowView {
         var height = padding + titleHeight + padding
         guard question.isWaiting else { return height }
         if !question.choices.isEmpty {
-            let each = question.choices.count > 4 ? chipHeight : choiceHeight
-            height += CGFloat(question.choices.count) * (each + spacing) - spacing + spacing
+            height += question.choices.reduce(0) { $0 + choiceHeight(for: $1, width: width - padding * 2) + spacing }
         }
         height += choiceHeight + spacing
         return height

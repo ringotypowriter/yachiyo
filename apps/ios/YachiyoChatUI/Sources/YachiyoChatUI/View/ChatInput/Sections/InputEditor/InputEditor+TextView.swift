@@ -119,10 +119,12 @@ extension InputEditor: UITextViewDelegate {
     }
 
     func updateTextHeight() {
+        guard textView.bounds.width > 0 else { return }
         let attrText = textView.attributedText ?? .init()
         let textHeight = TextMeasurementHelper.shared.measureSize(
             of: attrText,
-            usingWidth: textView.frame.width
+            usingWidth: textView.frame.width,
+            lineBreakMode: .byWordWrapping
         ).height
         let decision = ceil(max(textHeight, font.lineHeight))
         doEditorLayoutAnimation { self.textHeight.send(decision) }

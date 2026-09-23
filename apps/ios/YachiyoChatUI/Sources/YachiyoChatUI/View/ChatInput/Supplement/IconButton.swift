@@ -47,7 +47,14 @@ class IconButton: UIView {
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        imageView.frame = bounds.insetBy(dx: 2, dy: 2)
+        let size = min(26, min(bounds.width, bounds.height))
+        imageView.frame = CGRect(x: (bounds.width - size) / 2, y: (bounds.height - size) / 2, width: size, height: size)
+    }
+
+    override func accessibilityActivate() -> Bool {
+        guard isUserInteractionEnabled, !isHidden, alpha > 0 else { return false }
+        buttonAction()
+        return true
     }
 
     @objc private func buttonAction() {

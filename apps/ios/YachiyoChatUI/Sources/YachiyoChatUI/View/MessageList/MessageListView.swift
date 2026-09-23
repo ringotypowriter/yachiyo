@@ -30,6 +30,7 @@ public final class MessageListView: UIView {
     lazy var dataSource: ListViewDiffableDataSource<Entry> = .init(listView: listView)
 
     var selectedToolCalls: [String: String] = [:]
+    var questionDrafts: [String: String] = [:]
 
     private var entryCount = 0
     private var isFirstLoad: Bool = true
@@ -38,7 +39,9 @@ public final class MessageListView: UIView {
     public var session: (any ChatMessageSource)? {
         didSet {
             selectedToolCalls.removeAll()
+            questionDrafts.removeAll()
             isFirstLoad = true
+            isAutoScrollingToBottom = true
             alpha = 0
             sessionScopedCancellables.forEach { $0.cancel() }
             sessionScopedCancellables.removeAll()
@@ -132,6 +135,7 @@ public final class MessageListView: UIView {
         listView.adapter = self
         listView.alwaysBounceVertical = true
         listView.alwaysBounceHorizontal = false
+        listView.keyboardDismissMode = .interactive
         listView.delaysContentTouches = true
         listView.canCancelContentTouches = true
         listView.panGestureRecognizer.cancelsTouchesInView = true
@@ -160,7 +164,7 @@ public final class MessageListView: UIView {
 
         listView.contentInset = contentSafeAreaInsets
 
-        if isAutoScrollingToBottom || wasNearBottom {
+        if !listView.isTracking && !listView.isDecelerating && (isAutoScrollingToBottom || wasNearBottom) {
             let targetOffset = listView.maximumContentOffset
             if abs(listView.contentOffset.y - targetOffset.y) > autoScrollTolerance {
                 listView.scroll(to: targetOffset)

@@ -16,7 +16,7 @@ final class DeviceViewController: UITableViewController {
         var action: Action? = nil
         var identifier: String? = nil
     }
-    private enum Action { case edit, checkRecovery, chooseFolder, primary, forget }
+    private enum Action { case edit, checkRecovery, chooseFolder, primary, forget, reconnect }
 
     private let store = RemoteStore.shared
     private var desktop: DesktopSnapshot
@@ -101,6 +101,11 @@ final class DeviceViewController: UITableViewController {
             }
             if let error = desktop.lastConnectionError {
                 rows.append(Row(title: String(localized: "Last connection failure"), detail: error))
+            }
+            if case .offline = desktop.state {
+                rows.append(Row(title: String(localized: "Reconnect"), symbol: "arrow.clockwise", action: .reconnect, identifier: "device.reconnect"))
+            } else if desktop.state == .protocolMismatch {
+                rows.append(Row(title: String(localized: "Update required"), detail: String(localized: "Update Yachiyo on this iPhone and your Mac to reconnect.")))
             }
             return rows
         case .addresses:
@@ -196,6 +201,7 @@ final class DeviceViewController: UITableViewController {
         cell.accessibilityLabel = row.title
         cell.accessibilityValue = row.detail
         cell.accessibilityTraits = row.action != nil || row.copyValue != nil ? .button : .staticText
+        if !cell.isUserInteractionEnabled { cell.accessibilityTraits.insert(.notEnabled) }
         return cell
     }
 
@@ -205,6 +211,8 @@ final class DeviceViewController: UITableViewController {
         if let url = row.copyValue { copyAddress(url); return }
         guard let action = row.action else { return }
         switch action {
+        case .reconnect:
+            store.retryConnection(desktopId: desktop.id)
         case .edit:
             let editor = ServerAddressViewController(desktopId: desktop.id, address: desktop.endpoints.first?.url ?? "")
             let navigation = UINavigationController(rootViewController: editor)
@@ -231,7 +239,7 @@ final class DeviceViewController: UITableViewController {
     }
 
     private func checkRecovery() {
-        guard !checkingRecovery else { return }
+        guard !checkingRecovery, desktop.recovery?.outcome != .checking else { return }
         checkingRecovery = true
         tableView.reloadData()
         Task { [weak self] in
@@ -243,12 +251,11 @@ final class DeviceViewController: UITableViewController {
     }
 
     private func confirmForget() {
-        let alert = UIAlertController(title: String(localized: "Forget \(desktop.name)?"), message: String(localized: "You’ll need to pair again to use this device on this iPhone."), preferredStyle: .alert)
+        let alert = UIAlertController(title: String(localized: "Forget \(desktop.name)?"), message: String(localized: "You’ll need to pair again to use this device on this iPhone. This does not revoke access on the Mac."), preferredStyle: .alert)
         alert.addAction(UIAlertAction(title: String(localized: "Cancel"), style: .cancel))
         alert.addAction(UIAlertAction(title: String(localized: "Forget device"), style: .destructive) { [weak self] _ in
             guard let self else { return }
             store.remove(desktopId: desktop.id)
-            navigationController?.popViewController(animated: true)
         })
         present(alert, animated: true)
     }
