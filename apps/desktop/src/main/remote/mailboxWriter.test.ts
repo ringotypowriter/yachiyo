@@ -72,6 +72,80 @@ test('publishing writes a decryptable box and bumps the counter only when endpoi
   }
 })
 
+test('concurrent publications preserve invocation order, snapshots and deduplication', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'yachiyo-mailbox-'))
+  try {
+    const { store, secret } = await pairedStore(join(root, 'remote'))
+    const writer = new MailboxWriter({
+      root,
+      store,
+      remoteDeviceId: '0123456789abcdef0123456789abcdef'
+    })
+    const [pairing] = await store.list()
+    const endpoints = [endpoint('first.trycloudflare.com')]
+    const targets = [pairing!.pairingId]
+    const first = writer.publish(endpoints, targets)
+    endpoints[0]!.url = endpoint('mutated.trycloudflare.com').url
+    targets.length = 0
+    const duplicate = writer.publish([endpoint('first.trycloudflare.com')])
+    const second = writer.publish([endpoint('second.trycloudflare.com')])
+    const repeated = writer.publish([endpoint('second.trycloudflare.com')])
+    assert.deepEqual(await Promise.all([first, duplicate, second, repeated]), [
+      [pairing!.pairingId],
+      [],
+      [pairing!.pairingId],
+      []
+    ])
+    const box = await readBox(root, secret, 1)
+    assert.equal(box.counter, 2)
+    assert.deepEqual(box.endpoints, [endpoint('second.trycloudflare.com')])
+    assert.equal((await store.list())[0]?.mailboxCounter, 2)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('a failed publication does not block later queued publications', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'yachiyo-mailbox-'))
+  try {
+    const { store, secret } = await pairedStore(join(root, 'remote'))
+    const writer = new MailboxWriter({
+      root,
+      store,
+      remoteDeviceId: '0123456789abcdef0123456789abcdef'
+    })
+    const failed = writer.publish([endpoint('first.trycloudflare.com')], ['missing-pairing'])
+    const recovered = writer.publish([endpoint('second.trycloudflare.com')])
+    await assert.rejects(failed, /Unknown pairing/)
+    assert.equal((await recovered).length, 1)
+    assert.deepEqual((await readBox(root, secret)).endpoints, [
+      endpoint('second.trycloudflare.com')
+    ])
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('removal waits for pending publication and clears its deduplication state', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'yachiyo-mailbox-'))
+  try {
+    const { store, secret } = await pairedStore(join(root, 'remote'))
+    const writer = new MailboxWriter({
+      root,
+      store,
+      remoteDeviceId: '0123456789abcdef0123456789abcdef'
+    })
+    const [pairing] = await store.list()
+    const endpoints = [endpoint('first.trycloudflare.com')]
+    await Promise.all([writer.publish(endpoints), writer.remove(secret, pairing!.pairingId)])
+    assert.deepEqual(await readdir(mailboxDirectory(root)), [])
+    assert.deepEqual(await writer.publish(endpoints), [pairing!.pairingId])
+    assert.equal((await readBox(root, secret, 1)).counter, 2)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
 test('nothing is written when iCloud Drive is unavailable', async () => {
   const root = await mkdtemp(join(tmpdir(), 'yachiyo-mailbox-'))
   try {
@@ -134,7 +208,7 @@ test('a new quick-tunnel hostname reaches the mailbox through the running servic
 
     hostname = 'second-owl.trycloudflare.com'
     await tunnel.poll()
-    await new Promise((resolve) => setTimeout(resolve, 50))
+    await controller.service!.publishEndpoints()
     const second = await readBox(icloud, secret, first.counter)
     assert.equal(second.counter, first.counter + 1)
     assert.deepEqual(second.endpoints, [endpoint('second-owl.trycloudflare.com')])

@@ -40,6 +40,7 @@ export class MailboxWriter {
   private readonly remoteDeviceId: string
   private readonly now: () => number
   private readonly lastPublished = new Map<string, string>()
+  private operationQueue: Promise<unknown> = Promise.resolve()
 
   constructor(options: {
     root: string
@@ -55,6 +56,15 @@ export class MailboxWriter {
 
   /** Writes changed endpoint lists; returns the pairing ids that were written. */
   async publish(endpoints: RemoteEndpoint[], pairingIds?: readonly string[]): Promise<string[]> {
+    const snapshot = endpoints.map((endpoint) => ({ ...endpoint }))
+    const targets = pairingIds ? [...pairingIds] : undefined
+    return this.enqueue(() => this.publishSnapshot(snapshot, targets))
+  }
+
+  private async publishSnapshot(
+    endpoints: RemoteEndpoint[],
+    pairingIds?: readonly string[]
+  ): Promise<string[]> {
     if (endpoints.length === 0) return []
     if ((await detectICloudDrive(this.root)) === 'unavailable') return []
     const serialized = JSON.stringify(endpoints)
@@ -84,7 +94,15 @@ export class MailboxWriter {
   /** Removes a revoked pairing's box; the secret must be read before the pairing is deleted. */
   async remove(mailboxSecret: Buffer, pairingId: string): Promise<void> {
     const { mailboxId } = deriveMailboxKeys(mailboxSecret)
-    this.lastPublished.delete(pairingId)
-    await rm(join(mailboxDirectory(this.root), `${mailboxId}.box`), { force: true })
+    await this.enqueue(async () => {
+      this.lastPublished.delete(pairingId)
+      await rm(join(mailboxDirectory(this.root), `${mailboxId}.box`), { force: true })
+    })
+  }
+
+  private enqueue<T>(operation: () => Promise<T>): Promise<T> {
+    const result = this.operationQueue.then(operation, operation)
+    this.operationQueue = result.catch(() => undefined)
+    return result
   }
 }
