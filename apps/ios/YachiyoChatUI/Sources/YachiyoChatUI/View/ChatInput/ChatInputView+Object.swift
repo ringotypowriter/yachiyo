@@ -22,9 +22,9 @@ extension ChatInputView {
         )
     }
 
-    func resetValues() {
+    func resetValues(keepingFocus: Bool = false) {
         inputEditor.set(text: "")
-        inputEditor.endEditing(true)
+        if !keepingFocus { inputEditor.endEditing(true) }
         attachmentsBar.attachments.removeAll()
         controlPanel.close()
         inputEditor.isControlPanelOpened = false
@@ -38,22 +38,32 @@ extension ChatInputView {
     }
 
     func submitValues(extraOptions: [String: ChatInputOptionValue] = [:]) {
+        guard !isSubmitting, let delegate else { return }
         var object = collectObject()
         object.options.merge(extraOptions) { $1 }
         guard !object.hasEmptyContent else { return }
-        endEditing(true)
 
-        resetValues()
-        storage.removeAll()
+        let submissionID = UUID()
+        let submittedText = inputEditor.textView.text ?? ""
+        let submittedAttachments = Array(attachmentsBar.attachments.values)
+        pendingSubmissionID = submissionID
+        inputEditor.isSubmitting = true
+        publishNewEditorStatus()
 
-        let completion: @Sendable (Bool) -> Void = { success in
-            Task { @MainActor in
-                guard !success else { return }
-                self.refill(withText: object.text, attachments: object.attachments)
-                self.publishNewEditorStatus()
+        let completion: @Sendable (Bool) -> Void = { [weak self] success in
+            Task { @MainActor [weak self] in
+                guard let self, self.pendingSubmissionID == submissionID else { return }
+                self.invalidateSubmission()
+                guard success else { return }
+                // Never replace edits made while the delegate was uploading or awaiting ACK.
+                guard self.inputEditor.textView.text == submittedText,
+                      Array(self.attachmentsBar.attachments.values) == submittedAttachments else { return }
+                self.resetValues(keepingFocus: true)
+                // Do not remove the shared directory: another import or upload may still
+                // reference it. Temporary assets remain available for the OS temp lifecycle.
             }
         }
-        delegate?.chatInputDidSubmit(self, object: object, completion: completion)
+        delegate.chatInputDidSubmit(self, object: object, completion: completion)
     }
 
     func publishNewEditorStatus() {

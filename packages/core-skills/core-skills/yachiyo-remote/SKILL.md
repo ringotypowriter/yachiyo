@@ -1,6 +1,6 @@
 ---
 name: yachiyo-remote
-description: Set up phone remote access for Yachiyo on this Mac — check iCloud Drive, install cloudflared, choose a quick or named Cloudflare tunnel, and hand the user to Settings > Remote to pair their iPhone by QR code. Use when the user wants to use Yachiyo from their phone or asks about remote access, tunnels, or pairing. macOS only.
+description: Set up and troubleshoot phone remote access on this Mac — check iCloud address recovery, manage Cloudflare tunnels, verify HTTP/2 and public WebSocket health, and recover an offline tunnel. Use for iPhone remote setup, pairing, disconnections, tunnels, or recovery watchdog design. macOS only.
 platforms: darwin
 ---
 
@@ -11,8 +11,11 @@ loopback-only encrypted WebSocket service; `cloudflared` runs as a LaunchAgent s
 tunnel outlives app restarts. Traffic is end-to-end encrypted between phone and Mac, so
 Cloudflare only relays ciphertext.
 
-This skill is for one-time setup. Change app state **only** through the `yachiyo remote` CLI —
+Change app state **only** through the supported `yachiyo remote` CLI —
 never edit `config.toml`, LaunchAgent plists, or `~/.cloudflared` files by hand.
+Read-only inspection of the owned LaunchAgent, metrics, and logs is useful for diagnosis. For
+bundled skill changes, edit `packages/core-skills/core-skills/yachiyo-remote/` in the source
+repository, not the installed copy under `~/.yachiyo/skills/core/` or a custom shadow skill.
 
 ```
 yachiyo remote status
@@ -36,9 +39,12 @@ Run `yachiyo remote status`. Note `icloudDrive`, `cloudflared.path`,
 
 ### 2. iCloud Drive (address recovery)
 
-A quick tunnel's address changes when the Mac restarts. The app writes the new address, encrypted,
+A quick tunnel's address can change whenever its cloudflared process is recreated, not just when
+the Mac restarts. The app writes the new address, encrypted,
 to iCloud Drive so the phone can find the Mac again without rescanning. This needs **iCloud Drive
-turned on** in System Settings — it does not need Yachiyo Sync.
+turned on** in System Settings — it does not need Yachiyo Sync. The phone must also have selected
+the shared recovery folder in its Remote settings; Mac-side `icloudDrive: available` alone does
+not prove the phone can recover an address change.
 
 If `icloudDrive` is `unavailable`:
 
@@ -62,8 +68,8 @@ installs need the user's approval in this session). Re-run `yachiyo remote statu
 Ask the user which tunnel to use:
 
 - **Quick tunnel** (default, no account): a random `*.trycloudflare.com` address. Free, no setup,
-  no uptime guarantee; the address changes after a Mac restart and phones recover it through
-  iCloud Drive.
+  no uptime guarantee; recreating cloudflared can change the address. Phones with the recovery
+  folder configured can discover the replacement through iCloud Drive.
 - **Named tunnel** (advanced): a fixed address on a domain the user owns, through their own
   Cloudflare account. More reliable; needs a Cloudflare account and a domain whose DNS is on
   Cloudflare.
@@ -75,6 +81,13 @@ If `cloudflared.conflictingUserConfig` is `true`, a quick tunnel cannot run whil
 delete or rename the user's file.
 
 Otherwise run `yachiyo remote tunnel install --mode quick`.
+
+Current quick-tunnel installs explicitly use `--protocol http2`, reducing dependence on QUIC/UDP
+on proxy/TUN networks. Verify the actual launch arguments or the latest registered-connection
+log, rather than assuming an older installed agent has this setting. HTTP/2 is a transport choice,
+not a health check: edge registration can still fail while the process remains alive. Named
+tunnels are not forced to HTTP/2 by the current installer; preserve the selected mode and the
+user's routing configuration instead of silently treating it as a quick tunnel.
 
 ### 5b. Named tunnel
 
@@ -93,10 +106,27 @@ the user's existing cloudflared configuration is left alone.
 
 ### 6. Verify
 
-Run `yachiyo remote status` and check that `running` is `true`, `cloudflared.agentRunning` is
-`true`, and `endpoints` contains a `tunnel` entry. A quick tunnel can take up to 30 seconds to
-report its address; poll a few times before concluding it failed. If cloudflared is not running,
-read the end of `~/.yachiyo/logs/cloudflared.log` for the reason.
+Run `yachiyo remote status` to discover the origin port, tunnel mode, and current public endpoint.
+`running` describes the local service; `cloudflared.agentRunning` describes a process, and a
+remembered hostname may be stale. None proves public reachability. Allow at least 30 seconds for
+startup/address discovery before judging a new tunnel.
+
+Check the path in layers:
+
+- Send a WebSocket upgrade to `http://127.0.0.1:<port>/remote/v1`; `101 Switching Protocols`
+  verifies the origin. An ordinary HTTP request may return 404 on this WebSocket-only path.
+- Read cloudflared's loopback `/metrics` endpoint, using the `--metrics` address from the owned
+  LaunchAgent. `cloudflared_tunnel_ha_connections > 0` means there is an edge connection;
+  zero means none. Missing or unreadable metrics mean unknown, not zero.
+- Send the same upgrade to the public endpoint, replacing `wss://` with `https://` for curl.
+  Use HTTP/1.1 with `Connection: Upgrade`, `Upgrade: websocket`, `Sec-WebSocket-Version: 13`,
+  and a valid base64-encoded 16-byte `Sec-WebSocket-Key`. Apply a short timeout and close the
+  probe; do not send a pairing grant or leave an idle socket open.
+
+A proxy's `200 Connection established` is not the final response. The public endpoint must return
+`101`. Curl can then time out because the socket intentionally stays open; a timeout _after_ 101
+does not undo a successful upgrade. This validates transport, not authenticated phone access.
+Do not call the phone connected until its own connection/hello succeeds.
 
 ### 7. Pair the phone
 
@@ -112,3 +142,36 @@ grants access to this Mac.
   connect if the local network option is on in Settings > Remote).
 - **Lid closed**: a Mac with its lid closed sleeps and cannot be reached; "Stay awake on power" only
   prevents idle sleep.
+
+## Recover an offline tunnel
+
+First compare local WS, metrics, public WS, and recent timestamped entries in
+`~/.yachiyo/logs/cloudflared.log`. A healthy local upgrade together with public HTTP 530 /
+Cloudflare 1033 and zero edge connections identifies a tunnel outage, even with an alive process
+and HTTP/2 enabled. Conversely, failed origin checks belong to the local Remote service; public
+DNS/TLS timeouts without corroborating edge failure do not by themselves justify restarting it.
+
+When a restart is warranted, explain that a quick-tunnel address can change and obtain approval
+unless the user has already asked to restart/recover it. Re-run the supported install command
+for the **existing** mode: quick uses `yachiyo remote tunnel install --mode quick`; named uses
+the original tunnel name and hostname. Preserve pairing keys and records, other LaunchAgents,
+and the user's cloudflared configuration. Do not uninstall remote access or revoke phones as a
+substitute for recovering a tunnel.
+
+The current installer unloads then bootstraps the agent. If bootstrap returns error 5 immediately
+after unload, inspect the owned service with `launchctl print gui/<uid>/sh.ringo.yachiyo.cloudflared`
+and validate its plist read-only. Once it is absent and shutdown has settled, retry the same CLI
+operation once. A repeated failure needs diagnosis; do not blindly retry, edit the plist, or use
+sudo just because launchctl suggests it.
+
+Repeat the layered health checks after recovery. Confirm the replacement endpoint appears in
+Remote status; explain iCloud recovery versus rescanning if it changed. Preserve uncertainty
+about phone-side recovery rather than inferring it from Mac-side iCloud availability.
+
+## Automatic recovery design
+
+LaunchAgent `KeepAlive` only replaces an exited process; it cannot fix a live process stuck with
+zero edge connections. The existing supervisor currently discovers hostnames, not full tunnel
+health. For the proposed health watchdog, read [references/tunnel-watchdog.md](references/tunnel-watchdog.md).
+That reference is a design, not an installed recovery service. Do not invent a restart CLI,
+claim the watchdog is running, or install a competing loop from this skill.

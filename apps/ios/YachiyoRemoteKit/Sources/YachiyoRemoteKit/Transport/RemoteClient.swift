@@ -1,5 +1,10 @@
 import Foundation
 
+/// Local request rejection before enqueueing; unlike transport errors, delivery is not ambiguous.
+public enum RemoteRequestError: Error, Equatable, Sendable {
+    case messageTooLarge
+}
+
 public struct RemoteCallError: Error, Equatable, Sendable {
     /// One of the desktop's `REMOTE_ERROR_NAMES`, e.g. `RemoteValidationError`.
     public let name: String
@@ -133,7 +138,7 @@ public final class RemoteClient: @unchecked Sendable {
         }
         let message: [String: Any] = ["kind": "rpc:request", "id": id, "method": method, "args": [input]]
         let plaintext = try JSONSerialization.data(withJSONObject: message)
-        guard plaintext.count <= remoteMaxMessageBytes else { throw NoiseError.messageTooLarge }
+        guard plaintext.count <= remoteMaxMessageBytes else { throw RemoteRequestError.messageTooLarge }
         return try await withCheckedThrowingContinuation { continuation in
             let (rejected, startSending): (Bool, Bool) = lock.withLock {
                 if closed { return (true, false) }

@@ -2,6 +2,8 @@ import Foundation
 
 /// Reads a desktop's address-recovery box. The app implements it over the iCloud Drive folder the
 /// user picked once; tests use fixed data.
+public enum MailboxReadError: Error { case notConfigured, accessDenied, staleBookmark }
+
 public protocol MailboxSource: Sendable {
     func read(mailboxId: String) async throws -> Data?
 }
@@ -36,17 +38,21 @@ public final class BookmarkedFolderMailboxSource: MailboxSource, @unchecked Send
     public func read(mailboxId: String) async throws -> Data? {
         var stale = false
         let folder = try URL(resolvingBookmarkData: bookmark, options: Self.bookmarkResolutionOptions, relativeTo: nil, bookmarkDataIsStale: &stale)
+        guard !stale else { throw MailboxReadError.staleBookmark }
         let accessing = folder.startAccessingSecurityScopedResource()
         defer { if accessing { folder.stopAccessingSecurityScopedResource() } }
         let file = folder.appendingPathComponent("Remote").appendingPathComponent("\(mailboxId).box")
         try? FileManager.default.startDownloadingUbiquitousItem(at: file)
         var coordinationError: NSError?
         var result: Data?
+        var readError: Error?
         NSFileCoordinator().coordinate(readingItemAt: file, options: [], error: &coordinationError) { url in
-            result = try? Data(contentsOf: url)
+            do { result = try Data(contentsOf: url) } catch { readError = error }
         }
-        if let coordinationError, coordinationError.code != NSFileReadNoSuchFileError {
-            throw coordinationError
+        if let error = coordinationError ?? readError as NSError? {
+            if error.domain == NSCocoaErrorDomain && error.code == NSFileReadNoSuchFileError { return nil }
+            if error.domain == NSCocoaErrorDomain && error.code == NSFileReadNoPermissionError { throw MailboxReadError.accessDenied }
+            throw error
         }
         return result
     }

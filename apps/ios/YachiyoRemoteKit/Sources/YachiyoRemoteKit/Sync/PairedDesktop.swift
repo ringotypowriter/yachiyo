@@ -38,6 +38,9 @@ public struct PairedDesktop: Codable, Equatable, Sendable, Identifiable {
     public var endpoints: [StoredEndpoint]
     public var syncDeviceId: String?
     public var cursor: ResumeCursor?
+    public var lastSuccessfulURL: String?
+    public var lastAddressUpdateAt: Date?
+    public var lastAddressUpdateURL: String?
 
     public init(
         remoteDeviceId: String,

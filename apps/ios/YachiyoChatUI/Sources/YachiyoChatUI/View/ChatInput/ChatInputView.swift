@@ -73,6 +73,15 @@ open class ChatInputView: EditorSectionView {
 
     public weak var delegate: ChatInputDelegate?
     var objectTransactionInProgress = false
+    var pendingSubmissionID: UUID?
+
+    /// True until the submission delegate acknowledges or rejects the current send.
+    public var isSubmitting: Bool { pendingSubmissionID != nil }
+
+    func invalidateSubmission() {
+        pendingSubmissionID = nil
+        inputEditor.isSubmitting = false
+    }
     var heightContraints: NSLayoutConstraint = .init()
 
     var handlerColor: UIColor = .init {
@@ -278,11 +287,13 @@ open class ChatInputView: EditorSectionView {
     }
 
     public func prepareForReuse() {
+        invalidateSubmission()
         storage = .init(id: "-1")
         resetValues()
     }
 
     public func bind(conversationID: String) {
+        invalidateSubmission()
         storage = .init(id: conversationID)
         restoreEditorStatusIfPossible()
     }

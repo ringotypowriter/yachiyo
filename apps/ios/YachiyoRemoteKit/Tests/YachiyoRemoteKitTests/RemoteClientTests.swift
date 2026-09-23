@@ -3,6 +3,43 @@ import XCTest
 @testable import YachiyoRemoteKit
 
 final class RemoteClientTests: XCTestCase {
+    func testOversizedLocalRequestDoesNotSendOrDisruptPendingCalls() async throws {
+        let channel = SuspendedSendChannel()
+        let client = RemoteClient(channel: channel, transport: channel.clientTransport)
+        defer { client.close() }
+        let pending = Task { try await client.callRaw("first", input: [:]) }
+        await fulfillment(of: [channel.firstSendStarted], timeout: 2)
+        do {
+            _ = try await client.callRaw("oversized", input: ["content": String(repeating: "x", count: remoteMaxMessageBytes)])
+            XCTFail("Oversized local requests must be rejected before enqueueing")
+        } catch {
+            XCTAssertEqual(error as? RemoteRequestError, .messageTooLarge)
+        }
+        XCTAssertEqual(channel.sendCount, 1)
+        channel.releaseFirstSend()
+        let result = try await pending.value
+        XCTAssertEqual(String(data: result, encoding: .utf8), "\"first\"")
+        let later = try await client.callRaw("later", input: [:])
+        XCTAssertEqual(String(data: later, encoding: .utf8), "\"later\"")
+        XCTAssertEqual(channel.sendCount, 2)
+    }
+
+    func testOversizedIncomingFrameRemainsTransportErrorForPendingCall() async throws {
+        let channel = SuspendedSendChannel()
+        let client = RemoteClient(channel: channel, transport: channel.clientTransport)
+        defer { client.close() }
+        let pending = Task { try await client.callRaw("first", input: [:]) }
+        await fulfillment(of: [channel.firstSendStarted], timeout: 2)
+        channel.receiveOversizedFrame()
+        do {
+            _ = try await pending.value
+            XCTFail("Oversized incoming frames must fail pending calls")
+        } catch {
+            XCTAssertEqual(error as? NoiseError, .messageTooLarge)
+            XCTAssertNil(error as? RemoteRequestError)
+        }
+    }
+
     func testConcurrentCallsDoNotOvertakeASuspendedSend() async throws {
         let channel = SuspendedSendChannel()
         let client = RemoteClient(channel: channel, transport: channel.clientTransport)
@@ -79,6 +116,8 @@ private final class SuspendedSendChannel: WebSocketChannel, @unchecked Sendable 
         receive: NoiseCipherState(key: Data(repeating: 1, count: 32)), handshakeHash: Data()
     )
     private let lock = NSLock()
+    private var sends = 0
+    var sendCount: Int { lock.withLock { sends } }
     private var first = true
     private var suspended: CheckedContinuation<Void, Never>?
     private var closed = false
@@ -95,6 +134,7 @@ private final class SuspendedSendChannel: WebSocketChannel, @unchecked Sendable 
 
     func send(_ data: Data) async throws {
         let isFirst = lock.withLock {
+            sends += 1
             defer { first = false }
             return first
         }
@@ -126,6 +166,10 @@ private final class SuspendedSendChannel: WebSocketChannel, @unchecked Sendable 
             return suspended
         }
         continuation?.resume()
+    }
+
+    func receiveOversizedFrame() {
+        replyContinuation.yield(Data(repeating: 0, count: remoteMaxMessageBytes + 17))
     }
 
     func close() {

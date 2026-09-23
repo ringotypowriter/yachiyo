@@ -26,27 +26,67 @@ public struct DesktopConnector: Sendable {
         self.attemptTimeout = attemptTimeout
     }
 
-    public func connect(_ desktop: PairedDesktop) async throws -> (RemoteClient, PairedDesktop) {
-        var current = desktop
+    public enum Progress: Sendable {
+        case attempting(String)
+        case connected(String)
+        case recovery(AddressRecoveryStatus, PairedDesktop)
+    }
+    public typealias Observer = @Sendable (Progress) async -> Void
+
+    public func recover(_ desktop: PairedDesktop) async -> (PairedDesktop, AddressRecoveryStatus) {
+        func status(_ outcome: AddressRecoveryOutcome, _ detail: String? = nil) -> AddressRecoveryStatus {
+            AddressRecoveryStatus(outcome: outcome, checkedAt: Date(), detail: detail)
+        }
+        guard let mailbox else { return (desktop, status(.notConfigured)) }
+        do {
+            let keys = try Mailbox.deriveKeys(secret: desktop.mailboxSecret)
+            guard let box = try await mailbox.read(mailboxId: keys.mailboxId) else { return (desktop, status(.notFound, "The mailbox file was not found in the selected folder.")) }
+            let plaintext = try Mailbox.open(box: box, key: keys.mailboxKey, lastCounter: desktop.mailboxCounter)
+            guard plaintext.remoteDeviceId == desktop.remoteDeviceId else { return (desktop, status(.failed, "Mailbox device identity does not match this pairing.")) }
+            var updated = desktop
+            updated.mailboxCounter = plaintext.counter
+            updated.endpoints = plaintext.endpoints.map(StoredEndpoint.init)
+            let changed = updated.endpoints != desktop.endpoints
+            if changed {
+                updated.lastAddressUpdateAt = Date()
+                updated.lastAddressUpdateURL = updated.endpoints.first?.url
+            }
+            return (updated, status(changed ? .updated : .unchanged))
+        } catch MailboxReadError.notConfigured {
+            return (desktop, status(.notConfigured))
+        } catch MailboxReadError.staleBookmark {
+            return (desktop, status(.failed, "Folder permission is stale. Select the Yachiyo folder again."))
+        } catch MailboxReadError.accessDenied {
+            return (desktop, status(.failed, "Access to the selected folder was denied. Select it again."))
+        } catch MailboxError.rolledBack {
+            return (desktop, status(.unchanged, "No newer mailbox update; the stale or already accepted counter was rejected."))
+        } catch {
+            let error = error as NSError
+            let detail = error.domain == NSCocoaErrorDomain
+                ? "The mailbox file could not be read. Check folder access and iCloud download status."
+                : "Mailbox authentication or format does not match this pairing."
+            return (desktop, status(.failed, detail))
+        }
+    }
+
+    public func connect(_ desktop: PairedDesktop, recoverUsing: (@Sendable (PairedDesktop) async -> (PairedDesktop, AddressRecoveryStatus))? = nil, observe: Observer? = nil) async throws -> (RemoteClient, PairedDesktop) {
         var lastError: Error?
-        if let client = try await dial(current.endpoints, desktopKey: current.desktopKey, lastError: &lastError) {
-            return (client, current)
+        if let client = try await dial(desktop.endpoints, desktopKey: desktop.desktopKey, lastError: &lastError, observe: observe) {
+            return (client, desktop)
         }
         try Task.checkCancellation()
-        guard let mailbox,
-              let keys = try? Mailbox.deriveKeys(secret: current.mailboxSecret),
-              let box = try await mailbox.read(mailboxId: keys.mailboxId),
-              let plaintext = try? Mailbox.open(box: box, key: keys.mailboxKey, lastCounter: current.mailboxCounter),
-              plaintext.remoteDeviceId == current.remoteDeviceId
-        else { throw DesktopUnreachable(updated: current, lastError: lastError) }
-        // The box is authenticated with the pairing's mailbox key; the Noise handshake below still
-        // proves the desktop's identity, so a forged address can only make this attempt fail.
-        current.mailboxCounter = plaintext.counter
-        current.endpoints = plaintext.endpoints.map(StoredEndpoint.init)
-        if let client = try await dial(current.endpoints, desktopKey: current.desktopKey, lastError: &lastError) {
-            return (client, current)
+        await observe?(.recovery(AddressRecoveryStatus(outcome: .checking), desktop))
+        let (updated, status): (PairedDesktop, AddressRecoveryStatus)
+        if let recoverUsing { (updated, status) = await recoverUsing(desktop) }
+        else { (updated, status) = await recover(desktop) }
+        try Task.checkCancellation()
+        // Publish and persist accepted mailbox data before potentially slow endpoint attempts.
+        await observe?(.recovery(status, updated))
+        if updated.endpoints != desktop.endpoints,
+           let client = try await dial(updated.endpoints, desktopKey: updated.desktopKey, lastError: &lastError, observe: observe) {
+            return (client, updated)
         }
-        throw DesktopUnreachable(updated: current, lastError: lastError)
+        throw DesktopUnreachable(updated: updated, lastError: lastError)
     }
 
     /// Pairs with the desktop in a QR payload and completes `remote.hello`.
@@ -63,7 +103,7 @@ public struct DesktopConnector: Sendable {
                 }
                 let hello: RemoteHelloOutput = try await client.call("remote.hello", HelloInput.current)
                 let grant = try await client.pairingGrant()
-                let desktop = PairedDesktop(
+                var desktop = PairedDesktop(
                     remoteDeviceId: payload.remoteDeviceId,
                     pairingId: grant.pairingId,
                     deviceName: hello.deviceName,
@@ -73,6 +113,7 @@ public struct DesktopConnector: Sendable {
                     syncDeviceId: hello.syncDeviceId,
                     cursor: nil
                 )
+                desktop.lastSuccessfulURL = url.absoluteString
                 return (client, desktop, hello)
             } catch {
                 lastError = error
@@ -81,14 +122,17 @@ public struct DesktopConnector: Sendable {
         throw lastError ?? PairingURLError.malformedPayload
     }
 
-    private func dial(_ endpoints: [StoredEndpoint], desktopKey: Data, lastError: inout Error?) async throws -> RemoteClient? {
+    private func dial(_ endpoints: [StoredEndpoint], desktopKey: Data, lastError: inout Error?, observe: Observer?) async throws -> RemoteClient? {
         for endpoint in endpoints {
             try Task.checkCancellation()
             guard let url = URL(string: endpoint.url) else { continue }
+            await observe?(.attempting(url.absoluteString))
             do {
-                return try await withTimeout {
+                let client = try await withTimeout {
                     try await RemoteClient.connect(endpoint: url, desktopKey: desktopKey, identity: identity, channelFactory: channelFactory)
                 }
+                await observe?(.connected(url.absoluteString))
+                return client
             } catch {
                 try Task.checkCancellation()
                 lastError = error

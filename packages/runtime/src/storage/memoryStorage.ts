@@ -11,7 +11,7 @@ import type {
   ThreadSearchResult,
   ToolCallRecord
 } from '@yachiyo/shared/protocol'
-import { compareBinary, pageMessageWindow } from './messagePageWindow.ts'
+import { assertPageLimit, compareBinary, pageMessageWindow } from './messagePageWindow.ts'
 import {
   groupLatestRunsByThread,
   groupToolCallsByThread,
@@ -773,10 +773,37 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
       }
     },
 
-    listThreadRuns(threadId) {
-      return sortByCreatedAt([...runs.values()])
-        .filter((r) => r.threadId === threadId)
-        .map(toRunRecord)
+    listThreadRuns(threadId, options) {
+      assertPageLimit(options?.limit)
+      const matching = sortByCreatedAt([...runs.values()]).filter((r) => r.threadId === threadId)
+      return (
+        options
+          ? matching
+              .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
+              .slice(0, options.limit)
+          : matching
+      ).map(toRunRecord)
+    },
+
+    listThreadMessageTopology(threadId) {
+      return messages
+        .filter((message) => message.threadId === threadId)
+        .map(({ id, parentMessageId, createdAt, hidden }) => ({
+          id,
+          parentMessageId,
+          createdAt,
+          hidden
+        }))
+        .sort(
+          (left, right) =>
+            compareBinary(left.createdAt, right.createdAt) || compareBinary(left.id, right.id)
+        )
+    },
+
+    hasThreadWaitingToolCall(threadId) {
+      return [...toolCalls.values()].some(
+        (tool) => tool.threadId === threadId && tool.status === 'waiting-for-user'
+      )
     },
 
     listThreadMessages(threadId, options) {
@@ -792,7 +819,14 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
         )
       // Paging is part of the contract, not a sqlite feature: a caller that pages
       // against this store must see the same window it would see in production.
-      const page = pageMessageWindow(threadMessages, options)
+      assertPageLimit(options?.limit)
+      const window = pageMessageWindow(threadMessages, { ...options, limit: undefined })
+      const ids = options?.messageIds === undefined ? undefined : new Set(options.messageIds)
+      const selected = ids ? window.filter((message) => ids.has(message.id)) : window
+      const page =
+        options?.limit === undefined
+          ? selected
+          : selected.slice(Math.max(0, selected.length - options.limit))
       if (options?.includeResponseMessages === false) {
         return page.map((message) => {
           const projected = { ...message }
@@ -826,9 +860,19 @@ export function createInMemoryYachiyoStorage(): YachiyoStorage {
       queueMicrotask(flushPendingResponseMessageRepairs)
     },
 
-    listThreadToolCalls(threadId) {
-      return sortToolCalls([...toolCalls.values()].map(toToolCallRecordWithRun)).filter(
-        (toolCall) => toolCall.threadId === threadId
+    listThreadToolCalls(threadId, scope) {
+      const ids = new Set(scope?.messageIds)
+      return sortToolCalls(
+        [...toolCalls.values()]
+          .filter(
+            (tool) =>
+              tool.threadId === threadId &&
+              (!scope ||
+                (tool.requestMessageId !== null && ids.has(tool.requestMessageId)) ||
+                (tool.assistantMessageId !== null && ids.has(tool.assistantMessageId)) ||
+                (scope.activeRunId !== undefined && tool.runId === scope.activeRunId))
+          )
+          .map(toToolCallRecordWithRun)
       )
     },
 

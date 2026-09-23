@@ -1913,6 +1913,16 @@ export class YachiyoServer {
     return readBackgroundTaskLogSnapshot(target, input.maxBytes)
   }
 
+  getQueuedFollowUpMessages(thread: ThreadRecord): MessageRecord[] {
+    return (
+      this.runDomain.withQueuedFollowUpDraftSnapshot({
+        thread,
+        messages: [],
+        toolCalls: []
+      }).queuedFollowUpMessages ?? []
+    )
+  }
+
   loadThreadData(
     threadId: string,
     options: { includeMessages?: boolean; limit?: number; beforeMessageId?: string } = {}

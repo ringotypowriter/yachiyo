@@ -10,6 +10,14 @@ enum SendMode: String {
     case followUp = "follow-up"
 }
 
+enum ThreadOutboundState: Equatable {
+    case idle, uploading, sending, accepted, queued, unconfirmed, rejected, offline
+}
+
+enum ThreadReplyState: Equatable {
+    case idle, waiting, responding
+}
+
 /// The open thread: its loaded branch, live streaming state, and the actions the phone can
 /// take. Implements `ChatMessageSource` so the forked message list renders it directly.
 @MainActor
@@ -30,6 +38,11 @@ final class ThreadStore: ChatMessageSource {
     private var eventsDuringLoad: [RemoteEvent] = []
     private var isReplayingLoadEvents = false
     @Published private(set) var lastError: String?
+    @Published private(set) var outboundState: ThreadOutboundState = .idle
+    @Published private(set) var replyState: ThreadReplyState = .idle
+    private var respondingRunIds: Set<String> = []
+    private var finishedRunIds: Set<String> = []
+    var isSending: Bool { outboundState == .uploading || outboundState == .sending }
 
     /// Messages streaming in the active run (message id → accumulated text / reasoning).
     private var streamingText: [String: String] = [:]
@@ -57,6 +70,7 @@ final class ThreadStore: ChatMessageSource {
         let cached = store.cachedThread(desktopId: desktopId, threadId: threadId)
         detail = cached?.detail
         activeRunId = cached?.detail.activeRunId
+        replyState = activeRunId == nil ? .idle : .waiting
         needsReload = cached == nil || cached?.needsRefresh == true || activeRunId != nil
         summary = store.summary(desktopId: desktopId, threadId: threadId) ?? cached?.detail.thread
         rebuild(scrolling: false)
@@ -170,13 +184,13 @@ final class ThreadStore: ChatMessageSource {
             detail = loaded
             summary = loaded.thread
             store.upsert(desktopId: desktopId, summary: loaded.thread)
-            activeRunId = loaded.activeRunId
+            activeRunId = loaded.activeRunId.flatMap { finishedRunIds.contains($0) ? nil : $0 }
+            updateReplyState()
             streamingText.removeAll()
             streamingReasoning.removeAll()
             streamingParent.removeAll()
             streamingOrder.removeAll()
             liveToolCalls.removeAll()
-            lastError = nil
             let buffered = eventsDuringLoad
             needsReload = reloadAgain
             store.cacheThread(desktopId: desktopId, detail: loaded, needsRefresh: !buffered.isEmpty || reloadAgain)
@@ -196,13 +210,33 @@ final class ThreadStore: ChatMessageSource {
 
     // MARK: Events
 
+    private func updateReplyState() {
+        guard let activeRunId else { replyState = .idle; return }
+        replyState = respondingRunIds.contains(activeRunId) ? .responding : .waiting
+    }
+
+    private func observeRun(_ runId: String?, responding: Bool = false) {
+        guard let runId, !finishedRunIds.contains(runId) else { return }
+        if activeRunId != runId {
+            // A new run must not attach its tools to a previous run's unfinished bubble.
+            streamingText.removeAll()
+            streamingReasoning.removeAll()
+            streamingParent.removeAll()
+            streamingOrder.removeAll()
+            liveToolCalls.removeAll()
+            activeRunId = runId
+        }
+        if responding { respondingRunIds.insert(runId) }
+        updateReplyState()
+    }
+
     private func apply(_ event: RemoteEvent) {
         guard isOpen else { return }
         if loadToken != nil { eventsDuringLoad.append(event) }
         switch event.type {
         case .messageStarted:
             guard let messageId = event.messageId else { return }
-            activeRunId = event.runId ?? activeRunId
+            observeRun(event.runId)
             if streamingText[messageId] == nil {
                 streamingText[messageId] = ""
                 streamingOrder.append(messageId)
@@ -211,11 +245,13 @@ final class ThreadStore: ChatMessageSource {
             rebuild(scrolling: true)
         case .messageDelta:
             guard let messageId = event.messageId else { return }
+            observeRun(event.runId ?? activeRunId, responding: true)
             if streamingText[messageId] == nil { streamingOrder.append(messageId) }
             streamingText[messageId, default: ""] += event.delta ?? ""
             rebuild(scrolling: true)
         case .messageReasoningDelta:
             guard let messageId = event.messageId else { return }
+            observeRun(event.runId ?? activeRunId, responding: true)
             if streamingText[messageId] == nil {
                 streamingText[messageId] = ""
                 streamingOrder.append(messageId)
@@ -231,14 +267,18 @@ final class ThreadStore: ChatMessageSource {
             rebuild(scrolling: true)
         case .toolUpdated:
             guard let toolCall = event.toolCall else { return }
+            observeRun(event.runId ?? toolCall.runId, responding: true)
             liveToolCalls[toolCall.id] = toolCall
             rebuild(scrolling: true)
         case .runStatus:
             guard let runId = event.runId, let status = event.status else { return }
             if status == .running {
-                activeRunId = runId
+                observeRun(runId)
             } else {
+                finishedRunIds.insert(runId)
+                respondingRunIds.remove(runId)
                 if activeRunId == runId { activeRunId = nil }
+                updateReplyState()
                 switch status {
                 case .cancelled: runFooters[runId] = String(localized: "Stopped")
                 case .failed: runFooters[runId] = String(localized: "Failed: \(event.error ?? "")")
@@ -259,6 +299,7 @@ final class ThreadStore: ChatMessageSource {
             detail = nil
             summary = nil
             activeRunId = nil
+            updateReplyState()
             streamingText.removeAll()
             streamingReasoning.removeAll()
             streamingParent.removeAll()
@@ -389,7 +430,34 @@ final class ThreadStore: ChatMessageSource {
 
     // MARK: Actions
 
+    /// Reserves the composer while attachments upload; it never queues an offline send.
+    func beginUpload() -> Bool {
+        guard !isSending else { return false }
+        guard store.link(for: desktopId)?.state == .online else {
+            outboundState = .offline
+            lastError = String(localized: "Offline — nothing was sent. Your draft is kept.")
+            return false
+        }
+        lastError = nil
+        outboundState = .uploading
+        return true
+    }
+
+    func failUpload(_ error: Error) {
+        guard outboundState == .uploading else { return }
+        outboundState = .rejected
+        lastError = String(localized: "Attachment upload did not complete. Your message was not sent.") + " " + describe(error)
+    }
+
     func send(text: String, attachmentIds: [String], mode: SendMode?) async -> Bool {
+        guard outboundState != .sending else { return false }
+        guard store.link(for: desktopId)?.state == .online else {
+            outboundState = .offline
+            lastError = String(localized: "Offline — nothing was sent. Your draft is kept.")
+            return false
+        }
+        outboundState = .sending
+        lastError = nil
         do {
             let accepted: RemoteChatAccepted = try await store.call(desktopId, "chat.send", ChatSendInput(
                 threadId: threadId,
@@ -397,17 +465,32 @@ final class ThreadStore: ChatMessageSource {
                 attachmentIds: attachmentIds.isEmpty ? nil : attachmentIds,
                 mode: mode?.rawValue
             ))
-            if accepted.kind == .runStarted { activeRunId = accepted.runId }
+            if accepted.kind == .runStarted { observeRun(accepted.runId) }
+            outboundState = accepted.kind == .runStarted ? .accepted : .queued
             if let userMessage = accepted.userMessage {
                 upsertLoaded(userMessage)
             }
-            if accepted.kind == .activeRunFollowUp { await reload() }
+            // Acknowledgement clears the draft immediately; history refresh must not delay it.
+            if accepted.kind == .activeRunFollowUp { invalidate() }
             userSentSubject.send()
             rebuild(scrolling: true)
             lastError = nil
             return true
         } catch {
-            lastError = describe(error)
+            if let remote = error as? RemoteCallError {
+                outboundState = remote.name == "RemoteOffline" ? .offline : .rejected
+                lastError = remote.message
+            } else if error as? RemoteRequestError == .messageTooLarge {
+                outboundState = .rejected
+                lastError = String(localized: "This message is too large. Shorten it before sending again. Nothing was sent; your draft is kept.")
+            } else if error is EncodingError {
+                outboundState = .rejected
+                lastError = String(localized: "This message could not be prepared for sending. Nothing was sent; your draft is kept.")
+            } else {
+                // Once an RPC starts, losing its acknowledgement does not prove rejection.
+                outboundState = .unconfirmed
+                lastError = String(localized: "Delivery unconfirmed. Check the conversation before sending again; your draft is kept.") + " " + describe(error)
+            }
             return false
         }
     }
@@ -502,8 +585,16 @@ final class ThreadStore: ChatMessageSource {
     }
 
     func readPlan() async -> String? {
-        let output: RemotePlanReadOutput? = try? await store.call(desktopId, "plan.read", ThreadRefInput(threadId: threadId))
-        return output?.content
+        if let cached = detail?.messages.last(where: { $0.isPlanDocument }), !cached.content.isEmpty {
+            return cached.content
+        }
+        do {
+            let output: RemotePlanReadOutput = try await store.call(desktopId, "plan.read", ThreadRefInput(threadId: threadId))
+            return output.content
+        } catch {
+            lastError = String(localized: "This plan is not available in the local cache.") + " " + describe(error)
+            return nil
+        }
     }
 
     func toolCall(_ id: String) -> RemoteToolCall? {
@@ -575,4 +666,3 @@ enum UINotificationFeedback {
         UINotificationFeedbackGenerator().notificationOccurred(.success)
     }
 }
-

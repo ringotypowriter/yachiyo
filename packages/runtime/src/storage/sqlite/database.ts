@@ -6,6 +6,7 @@ import { createSqliteAuxiliaryStorageMethods } from './auxiliaryStorage.ts'
 import { createSqliteActivitySourceStorageMethods } from './activitySourceStorage.ts'
 import { createBackgroundResponseMessagesRepairQueue } from './backgroundResponseMessagesRepair.ts'
 import { createSqliteBootstrapStorageMethods } from './bootstrapStorage.ts'
+import { createSqliteRemoteHistoryStorageMethods } from './remoteHistoryStorage.ts'
 import { toChannelGroupRecord, toChannelUserRecord } from './channelRecords.ts'
 import { assertPageLimit } from '../messagePageWindow.ts'
 import { buildThreadMessagePageQuery } from './threadMessagePageQuery.ts'
@@ -1150,7 +1151,8 @@ export function createSqliteYachiyoStorage(
         .run()
     },
 
-    listThreadRuns(threadId) {
+    listThreadRuns(threadId, options) {
+      assertPageLimit(options?.limit)
       return db
         .select({
           assistantMessageId: runsTable.assistantMessageId,
@@ -1178,9 +1180,12 @@ export function createSqliteYachiyoStorage(
         .from(runsTable)
         .where(eq(runsTable.threadId, threadId))
         .orderBy(desc(runsTable.createdAt))
+        .limit(options?.limit ?? -1)
         .all()
         .map(toRunRecord)
     },
+
+    ...createSqliteRemoteHistoryStorageMethods(db),
 
     listThreadMessages(threadId, options) {
       const baseColumns = {
@@ -1236,7 +1241,7 @@ export function createSqliteYachiyoStorage(
         return []
       }
 
-      const pageArgs = { threadId, limit: options?.limit, cursor }
+      const pageArgs = { threadId, limit: options?.limit, cursor, messageIds: options?.messageIds }
       // sqlite returns the page newest-first, because that is the end it is
       // anchored at. Reading order is restored here: callers render a
       // conversation, not a reversed list.
@@ -1299,7 +1304,7 @@ export function createSqliteYachiyoStorage(
       })
     },
 
-    listThreadToolCalls(threadId) {
+    listThreadToolCalls(threadId, scope) {
       return sortToolCallsChronologically(
         db
           .select({
@@ -1321,7 +1326,18 @@ export function createSqliteYachiyoStorage(
             toolName: toolCallsTable.toolName
           })
           .from(toolCallsTable)
-          .where(eq(toolCallsTable.threadId, threadId))
+          .where(
+            and(
+              eq(toolCallsTable.threadId, threadId),
+              scope
+                ? or(
+                    inArray(toolCallsTable.requestMessageId, scope.messageIds),
+                    inArray(toolCallsTable.assistantMessageId, scope.messageIds),
+                    scope.activeRunId ? eq(toolCallsTable.runId, scope.activeRunId) : undefined
+                  )
+                : undefined
+            )
+          )
           .orderBy(asc(toolCallsTable.startedAt))
           .all()
           .map(toToolCallRecord)

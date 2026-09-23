@@ -9,6 +9,13 @@ final class RemoteSmokeTests: XCTestCase {
 
     override func setUpWithError() throws {
         continueAfterFailure = false
+        app = XCUIApplication()
+        // Allows rerunning UI-only acceptance against the same isolated, already-paired fixture.
+        if ProcessInfo.processInfo.environment["YACHIYO_REUSE_PAIRING"] == "1" {
+            app.launchArguments = ["-YachiyoRoute", "inbox"]
+            app.launch()
+            return
+        }
         guard let url = ProcessInfo.processInfo.environment["YACHIYO_PAIRING_URL"], !url.isEmpty else {
             throw XCTSkip("Run through scripts/ios-ui-smoke.mjs so a harness pairing URL is provided.")
         }
@@ -16,7 +23,6 @@ final class RemoteSmokeTests: XCTestCase {
         if UIDevice.current.userInterfaceIdiom == .pad {
             XCUIDevice.shared.orientation = .landscapeLeft
         }
-        app = XCUIApplication()
         app.launchArguments += ["-YachiyoPairingURL", url]
         app.launch()
     }
@@ -184,7 +190,80 @@ final class RemoteSmokeTests: XCTestCase {
         add(attachment)
     }
 
+    /// Use a fresh harness with --send-delay-ms 6000 and TEST_RUNNER_YACHIYO_MANUAL_SERVER_URL.
+    func testDeviceAddressAndDeliveryDiagnostics() throws {
+        guard let address = ProcessInfo.processInfo.environment["YACHIYO_MANUAL_SERVER_URL"] else {
+            throw XCTSkip("Provide the fixture's replacement server URL.")
+        }
+        func reveal(_ item: XCUIElement) {
+            for _ in 0..<8 {
+                if item.isHittable { return }
+                app.tables.firstMatch.swipeUp()
+            }
+        }
+        func capture(_ name: String) {
+            let image = XCTAttachment(screenshot: app.screenshot())
+            image.name = name
+            image.lifetime = .keepAlways
+            add(image)
+        }
+        continueAfterPairing()
+        app.buttons["inbox.settings"].tap()
+        let device = app.cells.matching(NSPredicate(format: "identifier BEGINSWITH 'settings.device.'")).firstMatch
+        XCTAssertTrue(device.waitForExistence(timeout: 10))
+        device.tap()
+        XCTAssertTrue(element("device.savedURL.0").waitForExistence(timeout: 10))
+        capture("device-addresses")
+        let check = element("device.recovery.check")
+        reveal(check)
+        check.tap()
+        let recovery = element("device.recovery.status")
+        XCTAssertTrue(recovery.waitForExistence(timeout: 10))
+        expectation(for: NSPredicate(format: "value CONTAINS 'not configured'"), evaluatedWith: recovery)
+        waitForExpectations(timeout: 10)
+        capture("device-recovery-not-configured")
+
+        let edit = element("device.editAddress")
+        for _ in 0..<8 {
+            if edit.isHittable { break }
+            app.tables.firstMatch.swipeDown()
+        }
+        edit.tap()
+        let addressField = app.textFields["device.editAddress.field"]
+        XCTAssertTrue(addressField.waitForExistence(timeout: 10))
+        addressField.tap()
+        addressField.buttons["Clear text"].tap()
+        addressField.typeText("https://user:password@example.test/")
+        app.buttons["device.editAddress.save"].tap()
+        XCTAssertTrue(element("device.editAddress.error").exists)
+        addressField.tap()
+        addressField.buttons["Clear text"].tap()
+        addressField.typeText(address)
+        app.buttons["device.editAddress.save"].tap()
+        let connected = element("device.connectedURL")
+        XCTAssertTrue(connected.waitForExistence(timeout: 30))
+        expectation(for: NSPredicate(format: "label CONTAINS %@ OR value == %@", address, address), evaluatedWith: connected)
+        waitForExpectations(timeout: 30)
+        capture("device-manual-address-connected")
+
+        app.terminate()
+        app.launchArguments = ["-YachiyoRoute", "thread:demo-thread-coding-dispatch"]
+        app.launch()
+        let field = app.textViews["composer.text"]
+        XCTAssertTrue(field.waitForExistence(timeout: 30))
+        field.tap()
+        field.typeText("Show connection feedback")
+        element("composer.send").tap()
+        XCTAssertEqual(field.value as? String, "Show connection feedback", "Keep the draft until acknowledgement")
+        XCTAssertTrue(element("thread.deliveryStatus").waitForExistence(timeout: 5))
+        capture("message-sending-draft-retained")
+        expectation(for: NSPredicate(format: "value == ''"), evaluatedWith: field)
+        waitForExpectations(timeout: 30)
+        capture("message-acknowledged")
+    }
+
     private func continueAfterPairing() {
+        if ProcessInfo.processInfo.environment["YACHIYO_REUSE_PAIRING"] == "1" { return }
         XCTAssertTrue(app.staticTexts["pairing.message"].waitForExistence(timeout: 30))
         XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Paired with'")).firstMatch.waitForExistence(timeout: 30))
         let button = app.buttons["pairing.primary"]

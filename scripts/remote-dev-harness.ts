@@ -3,7 +3,7 @@
 //
 //   node --experimental-strip-types scripts/remote-dev-harness.ts [--port 47841]
 //     [--host 127.0.0.1] [--tunnel-url wss://<host>/remote/v1] [--url-file <path>] [--empty]
-//     [--slow-chunk-ms 50] [--request-log <path>] [--snapshot-delay-ms 0]
+//     [--slow-chunk-ms 50] [--request-log <path>] [--snapshot-delay-ms 0] [--send-delay-ms 0]
 //
 // Prints `YACHIYO_REMOTE_PAIRING_URL=<url>`; type `pair` + Enter for a fresh pairing URL.
 import { appendFile, mkdtemp, rm, writeFile } from 'node:fs/promises'
@@ -27,7 +27,8 @@ const { values } = parseArgs({
     empty: { type: 'boolean', default: false },
     'slow-chunk-ms': { type: 'string', default: '50' },
     'request-log': { type: 'string' },
-    'snapshot-delay-ms': { type: 'string', default: '0' }
+    'snapshot-delay-ms': { type: 'string', default: '0' },
+    'send-delay-ms': { type: 'string', default: '0' }
   }
 })
 
@@ -37,31 +38,35 @@ const fake = await createFakeDesktopServer({
 })
 const home = await mkdtemp(join(tmpdir(), 'yachiyo-remote-harness-'))
 const ports = createInProcessRemotePorts(fake.server)
-const snapshotMethods = new Set(['host.remote.listThreadSummaries', 'host.remote.loadThread'])
-const host = new Proxy(ports.host, {
-  get(target, key, receiver) {
-    const value = Reflect.get(target, key, receiver) as unknown
-    if (typeof value !== 'function' || !snapshotMethods.has(String(key))) return value
-    return async (...args: unknown[]): Promise<unknown> => {
-      if (values['request-log']) {
-        await appendFile(
-          values['request-log'],
-          `${JSON.stringify({ method: key, at: Date.now() })}\n`
-        )
+function observeRequests<T extends object>(port: T, methods: string[], delay: number): T {
+  return new Proxy(port, {
+    get(target, key, receiver) {
+      const value = Reflect.get(target, key, receiver) as unknown
+      if (typeof value !== 'function' || !methods.includes(String(key))) return value
+      return async (...args: unknown[]): Promise<unknown> => {
+        if (values['request-log']) {
+          await appendFile(
+            values['request-log'],
+            `${JSON.stringify({ method: key, at: Date.now() })}\n`
+          )
+        }
+        if (delay > 0) await new Promise((resolve) => setTimeout(resolve, delay))
+        return (value as (...input: unknown[]) => unknown).apply(target, args)
       }
-      const delay = Number(values['snapshot-delay-ms'])
-      if (delay > 0) await new Promise((resolve) => setTimeout(resolve, delay))
-      return (value as (...input: unknown[]) => unknown).apply(target, args)
     }
-  }
-})
+  })
+}
 let lanUrl = ''
 const service = new RemoteService({
   directory: join(home, 'remote'),
   uploadsDirectory: join(home, 'remote', 'uploads'),
   secretBox: plaintextSecretBox,
-  server: ports.server,
-  host,
+  server: observeRequests(ports.server, ['sendChat'], Number(values['send-delay-ms'])),
+  host: observeRequests(
+    ports.host,
+    ['host.remote.listThreadSummaries', 'host.remote.loadThread'],
+    Number(values['snapshot-delay-ms'])
+  ),
   subscribe: (listener) => fake.server.subscribe(listener),
   listen: { host: values.host!, port: Number(values.port) },
   deviceName: () => `Harness (${hostname().split('.')[0]})`,

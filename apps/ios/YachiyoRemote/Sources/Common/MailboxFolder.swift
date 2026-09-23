@@ -21,7 +21,7 @@ enum MailboxFolder {
 /// Resolves the bookmark at read time, so granting the folder later still takes effect.
 private struct LazyMailboxSource: MailboxSource {
     func read(mailboxId: String) async throws -> Data? {
-        guard let bookmark = UserDefaults.standard.data(forKey: "mailboxFolderBookmark") else { return nil }
+        guard let bookmark = UserDefaults.standard.data(forKey: "mailboxFolderBookmark") else { throw MailboxReadError.notConfigured }
         return try await BookmarkedFolderMailboxSource(bookmark: bookmark).read(mailboxId: mailboxId)
     }
 }

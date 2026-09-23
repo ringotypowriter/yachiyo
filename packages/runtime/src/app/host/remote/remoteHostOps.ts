@@ -8,8 +8,7 @@ import {
   type MessageRecord,
   type RunRecord,
   type SettingsConfig,
-  type ThreadRecord,
-  type ToolCallRecord
+  type ThreadRecord
 } from '@yachiyo/shared/protocol'
 import { isModelImageCapable } from '@yachiyo/shared/providerConfig'
 import { getReasoningSelectorState } from '@yachiyo/shared/reasoningEffort'
@@ -35,6 +34,8 @@ import type {
 import { buildMessageTreeMaps, collectMessagePathFromMaps } from '@yachiyo/shared/threadTree'
 
 import type { YachiyoServer } from '../YachiyoServer.ts'
+import { assertPageLimit } from '../../../storage/messagePageWindow.ts'
+import { fitRemoteThreadBudget } from './remoteThreadBudget.ts'
 
 const THREAD_LIST_DEFAULT = 100
 const RECENT_WORKSPACE_LIMIT = 20
@@ -46,7 +47,7 @@ export type RemoteProjectionServer = Pick<
   | 'getStorage'
   | 'getConfig'
   | 'getSyncStatus'
-  | 'loadThreadData'
+  | 'getQueuedFollowUpMessages'
   | 'listSubagents'
   | 'listBackgroundTasks'
   | 'searchThreadsAndMessages'
@@ -86,10 +87,6 @@ export interface RemoteHostOps {
   }
 }
 
-function hasWaitingQuestion(toolCalls: ToolCallRecord[]): boolean {
-  return toolCalls.some((toolCall) => toolCall.status === 'waiting-for-user')
-}
-
 /**
  * Read-only projections behind `host.remote.*`. They run in the runtime process so path
  * computation and truncation never happen on the main thread, and nothing here reads
@@ -102,7 +99,7 @@ export function createRemoteHostOps(server: RemoteProjectionServer): RemoteHostO
   function attentionFor(thread: ThreadRecord, latestRun: RunRecord | undefined): boolean {
     if (!latestRun) return false
     if (latestRun.status === 'running') {
-      return hasWaitingQuestion(storage().listThreadToolCalls(thread.id))
+      return storage().hasThreadWaitingToolCall(thread.id)
     }
     if (latestRun.status !== 'completed' || latestRun.runMode !== 'plan') return false
     return hasPendingPlanDocument({
@@ -119,12 +116,7 @@ export function createRemoteHostOps(server: RemoteProjectionServer): RemoteHostO
   }
 
   function latestRunOf(threadId: string): RunRecord | undefined {
-    return storage()
-      .listThreadRuns(threadId)
-      .reduce<RunRecord | undefined>(
-        (latest, run) => (!latest || run.createdAt > latest.createdAt ? run : latest),
-        undefined
-      )
+    return storage().listThreadRuns(threadId, { limit: 1 })[0]
   }
 
   function requireActiveThread(threadId: string): ThreadRecord {
@@ -158,18 +150,13 @@ export function createRemoteHostOps(server: RemoteProjectionServer): RemoteHostO
     beforeMessageId?: string
   }): RemoteThreadDetail {
     const thread = requireActiveThread(input.threadId)
-    const messages = storage().listThreadMessages(thread.id, { includeResponseMessages: false })
-    const toolCalls = storage().listThreadToolCalls(thread.id)
-    const { queuedFollowUpMessages, runs } = server.loadThreadData(thread.id, {
-      includeMessages: false
-    })
-    const latestRun = runs.reduce<RunRecord | undefined>(
-      (latest, run) => (!latest || run.createdAt > latest.createdAt ? run : latest),
-      undefined
-    )
-
-    const maps = buildMessageTreeMaps(messages)
-    const headId = thread.headMessageId ?? messages.at(-1)?.id
+    const limit = input.limit ?? REMOTE_THREAD_PAGE_DEFAULT
+    assertPageLimit(limit)
+    // O(thread size) lightweight topology preserves off-branch siblings, hidden ancestors,
+    // missing parents and cycle handling without reading historical message bodies.
+    const topology = storage().listThreadMessageTopology(thread.id)
+    const maps = buildMessageTreeMaps(topology)
+    const headId = thread.headMessageId ?? topology.at(-1)?.id
     const path = headId ? collectMessagePathFromMaps(maps, headId) : []
     const visiblePath = path.filter((message) => !message.hidden)
 
@@ -178,10 +165,23 @@ export function createRemoteHostOps(server: RemoteProjectionServer): RemoteHostO
       end = visiblePath.findIndex((message) => message.id === input.beforeMessageId)
       if (end < 0) throw new RemoteNotFoundError('Message not found on the current branch.')
     }
-    const limit = input.limit ?? REMOTE_THREAD_PAGE_DEFAULT
     const start = Math.max(0, end - limit)
-    const page = visiblePath.slice(start, end)
-    const pageIds = new Set(page.map((message) => message.id))
+    const pageNodes = visiblePath.slice(start, end)
+    const pageIds = pageNodes.map((message) => message.id)
+    const messages = storage().listThreadMessages(thread.id, {
+      includeResponseMessages: false,
+      messageIds: pageIds
+    })
+    const byId = new Map(messages.map((message) => [message.id, message]))
+    // SQL returns chronological rows; render in ancestry order, not timestamp order.
+    const page = pageNodes.flatMap((node) => byId.get(node.id) ?? [])
+    const latestRun = latestRunOf(thread.id)
+    const activeRun = latestRun?.status === 'running' ? latestRun : undefined
+    const toolCalls = storage().listThreadToolCalls(thread.id, {
+      messageIds: pageIds,
+      activeRunId: activeRun?.id
+    })
+    const queuedFollowUpMessages = server.getQueuedFollowUpMessages(thread)
 
     const projected = page
       .map((message) =>
@@ -194,27 +194,40 @@ export function createRemoteHostOps(server: RemoteProjectionServer): RemoteHostO
       )
       .filter((message): message is RemoteMessage => message !== null)
 
-    const activeRun = latestRun?.status === 'running' ? latestRun : undefined
+    // Legacy runs infer plan mode from the request. At most one extra body is read,
+    // without provider responses; active runs do not need this pending-plan check.
+    const requestMessages =
+      !activeRun &&
+      latestRun?.requestMessageId &&
+      latestRun.runMode !== 'plan' &&
+      !byId.has(latestRun.requestMessageId)
+        ? storage().listThreadMessages(thread.id, {
+            includeResponseMessages: false,
+            messageIds: [latestRun.requestMessageId]
+          })
+        : []
     const pendingPlan =
       !activeRun &&
-      isLatestRunPlanMode({ latestRun: latestRun ?? null, messages }) &&
-      hasPendingPlanDocument({ messages, toolCalls })
+      isLatestRunPlanMode({
+        latestRun: latestRun ?? null,
+        messages: [...messages, ...requestMessages]
+      }) &&
+      // Rare plan-mode slow path deliberately retains the canonical nonlocal semantics:
+      // exit/acceptance can be on another branch or outside this page.
+      hasPendingPlanDocument({
+        messages: storage().listThreadMessages(thread.id, { includeResponseMessages: false }),
+        toolCalls: storage().listThreadToolCalls(thread.id)
+      })
 
-    return {
+    return fitRemoteThreadBudget({
       thread: projectThreadSummary(thread, {
         ...(latestRun ? { latestRun } : {}),
-        needsAttention: (activeRun ? hasWaitingQuestion(toolCalls) : false) || pendingPlan
+        needsAttention:
+          (activeRun ? storage().hasThreadWaitingToolCall(thread.id) : false) || pendingPlan
       }),
       messages: projected,
       hasMoreBefore: start > 0,
-      toolCalls: toolCalls
-        .filter(
-          (toolCall) =>
-            (toolCall.requestMessageId && pageIds.has(toolCall.requestMessageId)) ||
-            (toolCall.assistantMessageId && pageIds.has(toolCall.assistantMessageId)) ||
-            (activeRun && toolCall.runId === activeRun.id)
-        )
-        .map(projectToolCall),
+      toolCalls: toolCalls.map(projectToolCall),
       queuedFollowUps: queuedFollowUpMessages
         .map((message) => projectMessage(message))
         .filter((message): message is RemoteMessage => message !== null),
@@ -224,7 +237,7 @@ export function createRemoteHostOps(server: RemoteProjectionServer): RemoteHostO
         : {}),
       pendingPlan,
       todoItems: projectTodoItems(thread.todoItems)
-    }
+    })
   }
 
   function listRecentWorkspaces(): { workspaces: RemoteWorkspace[] } {

@@ -377,6 +377,18 @@ export interface ListThreadMessagesOptions {
    * somewhere it never asked about.
    */
   beforeMessageId?: string
+  /** Restrict body reads to these IDs within the thread; empty means no rows. */
+  messageIds?: string[]
+}
+
+export type ThreadMessageTopology = Pick<
+  MessageRecord,
+  'id' | 'parentMessageId' | 'createdAt' | 'hidden'
+>
+
+export interface ThreadToolCallScope {
+  messageIds: string[]
+  activeRunId?: string
 }
 
 export interface YachiyoStorage {
@@ -422,13 +434,16 @@ export interface YachiyoStorage {
   failRun(input: FailRunInput): void
   updateRunRequestMessageId(runId: string, requestMessageId: string): void
   updateRunSnapshot(runId: string, snapshot: { fileCount: number; workspacePath?: string }): void
-  listThreadRuns(threadId: string): RunRecord[]
+  listThreadRuns(threadId: string, options?: { limit: number }): RunRecord[]
+  /** Lightweight topology only; never reads message bodies or provider response payloads. */
+  listThreadMessageTopology(threadId: string): ThreadMessageTopology[]
+  hasThreadWaitingToolCall(threadId: string): boolean
   listThreadMessages(threadId: string, options?: ListThreadMessagesOptions): MessageRecord[]
   /** Point query for a single message by id. Returns the full record. */
   getMessage(messageId: string): MessageRecord | undefined
   updateMessage(message: MessageRecord): void
   persistResponseMessagesRepairInBackground?(input: PersistResponseMessagesRepairInput): void
-  listThreadToolCalls(threadId: string): ToolCallRecord[]
+  listThreadToolCalls(threadId: string, scope?: ThreadToolCallScope): ToolCallRecord[]
   createToolCall(toolCall: ToolCallRecord): void
   updateToolCall(toolCall: ToolCallRecord): void
   deleteMessages(input: DeleteMessagesInput): void

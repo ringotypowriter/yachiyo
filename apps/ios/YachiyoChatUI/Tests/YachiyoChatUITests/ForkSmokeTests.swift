@@ -77,6 +77,153 @@ final class ForkSmokeTests: XCTestCase {
             XCTAssertNotNil(UIImage(systemName: ToolHintView.symbol(for: name)), name)
         }
     }
+
+    @MainActor
+    func testSubmissionRetainsDraftAndFileUntilDelayedAcknowledgement() async throws {
+        let input = ChatInputView()
+        let delegate = DelayedSubmissionDelegate()
+        input.delegate = delegate
+        input.bind(conversationID: UUID().uuidString)
+        defer { input.storage.removeAll() }
+        let file = input.storage.fileURL(for: "pending.txt")
+        try Data("attachment".utf8).write(to: file)
+        let attachment = ChatInputAttachment(type: .document, storageFilename: "pending.txt")
+        input.refill(withText: "  pending draft  ", attachments: [attachment])
+
+        input.submit(options: [:])
+
+        XCTAssertTrue(input.isSubmitting)
+        XCTAssertEqual(input.inputEditor.textView.text, "  pending draft  ")
+        XCTAssertEqual(input.collectObject().attachments, [attachment])
+        XCTAssertTrue(input.inputEditor.textView.isEditable)
+        XCTAssertTrue(input.inputEditor.submissionSpinner.isAnimating)
+        XCTAssertEqual(try Data(contentsOf: file), Data("attachment".utf8))
+        XCTAssertEqual(delegate.submissions.count, 1)
+
+        delegate.completions[0](true)
+        await waitForSubmissionCompletion(input)
+
+        XCTAssertEqual(input.collectObject().text, "")
+        XCTAssertTrue(input.collectObject().attachments.isEmpty)
+        XCTAssertFalse(input.inputEditor.submissionSpinner.isAnimating)
+        // Shared temp storage is not bulk-deleted, even after ACK.
+        XCTAssertTrue(FileManager.default.fileExists(atPath: file.path))
+    }
+
+    @MainActor
+    func testRejectedSubmissionLeavesExactDraftAndAttachmentsUntouched() async {
+        let input = ChatInputView()
+        let delegate = DelayedSubmissionDelegate()
+        input.delegate = delegate
+        let attachment = ChatInputAttachment(type: .document, textContent: "attachment")
+        input.refill(withText: "  keep whitespace\n", attachments: [attachment])
+        input.submit(options: [:])
+        delegate.completions[0](false)
+        await waitForSubmissionCompletion(input)
+        XCTAssertEqual(input.inputEditor.textView.text, "  keep whitespace\n")
+        XCTAssertEqual(input.collectObject().attachments, [attachment])
+    }
+
+    @MainActor
+    func testAcknowledgementDoesNotClearTextEditedDuringSubmission() async {
+        let input = ChatInputView()
+        let delegate = DelayedSubmissionDelegate()
+        input.delegate = delegate
+        input.refill(withText: "  draft  ", attachments: [])
+        input.submit(options: [:])
+        // The collected, trimmed object is identical: comparison must use exact editor text.
+        input.refill(withText: "draft", attachments: [])
+        delegate.completions[0](true)
+        await waitForSubmissionCompletion(input)
+        XCTAssertEqual(input.inputEditor.textView.text, "draft")
+    }
+
+    @MainActor
+    func testAcknowledgementDoesNotClearNewOrEditedAttachments() async throws {
+        let input = ChatInputView()
+        let delegate = DelayedSubmissionDelegate()
+        input.delegate = delegate
+        input.bind(conversationID: UUID().uuidString)
+        defer { input.storage.removeAll() }
+        var original = ChatInputAttachment(type: .document, textContent: "before")
+        input.refill(withText: "draft", attachments: [original])
+        input.submit(options: [:])
+        original.textContent = "edited with the same ID"
+        let added = ChatInputAttachment(type: .document, storageFilename: "new.txt")
+        let addedFile = input.storage.fileURL(for: added.storageFilename)
+        try Data("new asset".utf8).write(to: addedFile)
+        input.refill(withText: "draft", attachments: [original, added])
+        delegate.completions[0](true)
+        await waitForSubmissionCompletion(input)
+        XCTAssertEqual(input.collectObject().attachments, [original, added])
+        XCTAssertEqual(try Data(contentsOf: addedFile), Data("new asset".utf8))
+    }
+
+    @MainActor
+    func testDuplicateSubmitAndDuplicateCompletionDoNotResendOrClearDraft() async {
+        let input = ChatInputView()
+        let delegate = DelayedSubmissionDelegate()
+        input.delegate = delegate
+        input.refill(withText: "first", attachments: [])
+        input.submit(options: [:])
+        input.submit(options: ["sendMode": .string("queue")])
+        XCTAssertEqual(delegate.submissions.count, 1)
+        let firstCompletion = delegate.completions[0]
+        firstCompletion(false)
+        await waitForSubmissionCompletion(input)
+
+        input.refill(withText: "second", attachments: [])
+        input.submit(options: [:])
+        firstCompletion(true)
+        let staleClearedNewSubmission = expectation(for: NSPredicate { _, _ in !input.isSubmitting }, evaluatedWith: input)
+        staleClearedNewSubmission.isInverted = true
+        await fulfillment(of: [staleClearedNewSubmission], timeout: 0.1)
+        XCTAssertEqual(input.collectObject().text, "second")
+        XCTAssertEqual(delegate.submissions.count, 2)
+        delegate.completions[1](true)
+        await waitForSubmissionCompletion(input)
+        XCTAssertTrue(input.collectObject().hasEmptyContent)
+    }
+
+    @MainActor
+    func testSessionRebindIgnoresPreviousAcknowledgement() async {
+        let input = ChatInputView()
+        let delegate = DelayedSubmissionDelegate()
+        input.delegate = delegate
+        input.bind(conversationID: "old")
+        input.refill(withText: "identical text", attachments: [])
+        input.submit(options: [:])
+        let oldCompletion = delegate.completions[0]
+
+        input.bind(conversationID: "new")
+        XCTAssertFalse(input.isSubmitting)
+        input.refill(withText: "identical text", attachments: [])
+        input.submit(options: [:])
+        oldCompletion(true)
+        let staleClearedNewSession = expectation(for: NSPredicate { _, _ in !input.isSubmitting }, evaluatedWith: input)
+        staleClearedNewSession.isInverted = true
+        await fulfillment(of: [staleClearedNewSession], timeout: 0.1)
+        XCTAssertEqual(input.collectObject().text, "identical text")
+        delegate.completions[1](false)
+        await waitForSubmissionCompletion(input)
+        XCTAssertEqual(input.collectObject().text, "identical text")
+    }
+
+    @MainActor
+    func testNilDelegateDoesNotClearDraftOrStartSubmission() {
+        let input = ChatInputView()
+        input.refill(withText: "still here", attachments: [])
+        input.submit(options: [:])
+        XCTAssertEqual(input.collectObject().text, "still here")
+        XCTAssertFalse(input.isSubmitting)
+    }
+
+    @MainActor
+    private func waitForSubmissionCompletion(_ input: ChatInputView) async {
+        let completed = expectation(for: NSPredicate { _, _ in !input.isSubmitting }, evaluatedWith: input)
+        await fulfillment(of: [completed], timeout: 2)
+    }
+
 }
 
 @MainActor
@@ -95,4 +242,15 @@ private final class CachedMessageSource: ChatMessageSource {
     }
     func message(for id: String) -> ConversationMessage? { messages.first { $0.id == id } }
     func notifyMessagesDidChange(scrolling: Bool) {}
+}
+
+@MainActor
+private final class DelayedSubmissionDelegate: ChatInputDelegate {
+    var submissions: [ChatInputContent] = []
+    var completions: [@Sendable (Bool) -> Void] = []
+
+    func chatInputDidSubmit(_ input: ChatInputView, object: ChatInputContent, completion: @escaping @Sendable (Bool) -> Void) {
+        submissions.append(object)
+        completions.append(completion)
+    }
 }

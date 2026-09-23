@@ -1,4 +1,4 @@
-import { and, desc, eq, lt, or, type SQL } from 'drizzle-orm'
+import { and, desc, eq, inArray, lt, or, type SQL } from 'drizzle-orm'
 import type { SQLiteSelectQueryBuilder } from 'drizzle-orm/sqlite-core'
 
 import { assertPageLimit } from '../messagePageWindow.ts'
@@ -23,6 +23,7 @@ export interface ThreadMessagePageArgs {
   limit?: number
   /** Omit to start at the newest message. */
   cursor?: ThreadMessagePageCursor
+  messageIds?: string[]
 }
 
 /** Rows strictly older than the cursor under `(created_at, id)` descending. */
@@ -45,14 +46,20 @@ function olderThanCursor(cursor: ThreadMessagePageCursor): SQL | undefined {
  */
 export function buildThreadMessagePageQuery<TQuery extends SQLiteSelectQueryBuilder>(
   selected: TQuery,
-  { threadId, limit, cursor }: ThreadMessagePageArgs
+  { threadId, limit, cursor, messageIds }: ThreadMessagePageArgs
 ): TQuery {
   // Shared with the in-memory store, so the two implementations cannot drift
   // into disagreeing about which limits are legal.
   assertPageLimit(limit)
 
   const scoped = selected
-    .where(and(eq(messagesTable.threadId, threadId), cursor ? olderThanCursor(cursor) : undefined))
+    .where(
+      and(
+        eq(messagesTable.threadId, threadId),
+        cursor ? olderThanCursor(cursor) : undefined,
+        messageIds === undefined ? undefined : inArray(messagesTable.id, messageIds)
+      )
+    )
     .orderBy(desc(messagesTable.createdAt), desc(messagesTable.id))
 
   return (limit === undefined ? scoped : scoped.limit(limit)) as TQuery

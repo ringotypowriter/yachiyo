@@ -5,7 +5,7 @@ import YachiyoMaterial
 import YachiyoRemoteKit
 
 /// A thread: the forked message list, floating glass capsules (needs-answer, queued follow-up,
-/// back to bottom), and the floating composer — or a read-only / offline banner in its place.
+/// back to bottom), and the floating composer — or a read-only banner for a genuinely read-only source.
 final class ThreadViewController: UIViewController {
     private let thread: ThreadStore
     private let store = RemoteStore.shared
@@ -19,14 +19,17 @@ final class ThreadViewController: UIViewController {
     private let banner = YachiyoMaterialKit.makeFloatingSurface(cornerRadius: 22)
     private let bannerLabel = UILabel()
     private let errorLabel = UILabel()
+    private let deliverySpinner = UIActivityIndicatorView(style: .medium)
     private let loadingStatus = UIStackView()
     private let loadingLabel = UILabel()
+    private let emptyHistoryLabel = UILabel()
     private let loadingSpinner = UIActivityIndicatorView(style: .medium)
     private let retryButton = UIButton(type: .system)
     private let titleLabel = UILabel()
     private let subtitleLabel = UILabel()
     private var cancellables: Set<AnyCancellable> = []
     private var isFollowingBottom = true
+    private var localError: String?
 
     init(desktopId: String, threadId: String) {
         thread = ThreadStore(desktopId: desktopId, threadId: threadId)
@@ -59,7 +62,7 @@ final class ThreadViewController: UIViewController {
 
     override func viewDidDisappear(_ animated: Bool) {
         super.viewDidDisappear(animated)
-        thread.close()
+        if presentedViewController == nil { thread.close() }
     }
 
     override func viewDidLayoutSubviews() {
@@ -83,9 +86,11 @@ final class ThreadViewController: UIViewController {
         subtitleLabel.font = YachiyoFonts.caption()
         subtitleLabel.textColor = .secondaryLabel
         subtitleLabel.textAlignment = .center
-        let stack = UIStackView(arrangedSubviews: [titleLabel, subtitleLabel])
+        let stack = UIStackView(arrangedSubviews: [titleLabel, loadingStatus])
         stack.axis = .vertical
         stack.alignment = .center
+        stack.widthAnchor.constraint(equalToConstant: 230).isActive = true
+        titleLabel.lineBreakMode = .byTruncatingTail
         navigationItem.titleView = stack
         let menu = UIBarButtonItem(image: .lucide("ellipsis"), menu: UIMenu(children: [UIDeferredMenuElement.uncached { [weak self] completion in
             completion(self?.makeThreadMenu() ?? [])
@@ -109,6 +114,19 @@ final class ThreadViewController: UIViewController {
             messageList.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             messageList.bottomAnchor.constraint(equalTo: view.bottomAnchor),
         ])
+        emptyHistoryLabel.font = YachiyoFonts.meta()
+        emptyHistoryLabel.textColor = .secondaryLabel
+        emptyHistoryLabel.textAlignment = .center
+        emptyHistoryLabel.numberOfLines = 0
+        emptyHistoryLabel.isUserInteractionEnabled = false
+        emptyHistoryLabel.accessibilityIdentifier = "thread.emptyHistory"
+        emptyHistoryLabel.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(emptyHistoryLabel)
+        NSLayoutConstraint.activate([
+            emptyHistoryLabel.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 32),
+            emptyHistoryLabel.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 24),
+            emptyHistoryLabel.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -24),
+        ])
         YachiyoMaterialKit.applyTopEdgeEffect(to: messageList.scrollView)
     }
 
@@ -128,11 +146,20 @@ final class ThreadViewController: UIViewController {
         errorLabel.font = YachiyoFonts.caption()
         errorLabel.textColor = .yachiyo(.dangerStrong)
         errorLabel.numberOfLines = 2
+        errorLabel.isUserInteractionEnabled = false
         errorLabel.accessibilityIdentifier = "thread.error"
         errorLabel.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(errorLabel)
+        deliverySpinner.translatesAutoresizingMaskIntoConstraints = false
+        deliverySpinner.isUserInteractionEnabled = false
+        deliverySpinner.accessibilityIdentifier = "thread.deliveryProgress"
+        view.addSubview(deliverySpinner)
         NSLayoutConstraint.activate([
-            errorLabel.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 20),
+            deliverySpinner.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 16),
+            deliverySpinner.centerYAnchor.constraint(equalTo: errorLabel.centerYAnchor),
+            deliverySpinner.widthAnchor.constraint(equalToConstant: 20),
+            errorLabel.heightAnchor.constraint(equalToConstant: 32),
+            errorLabel.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 44),
             errorLabel.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -20),
             errorLabel.bottomAnchor.constraint(equalTo: composer.topAnchor, constant: -2),
         ])
@@ -197,17 +224,20 @@ final class ThreadViewController: UIViewController {
     }
 
     private func configureLoadingStatus() {
-        loadingStatus.axis = .vertical
-        loadingStatus.spacing = 8
+        // Status lives in the navigation bar, never over the scrollable history. Its
+        // reserved height stays constant while connecting, refreshing, or retrying.
+        loadingStatus.axis = .horizontal
+        loadingStatus.spacing = 4
         loadingStatus.alignment = .center
-        loadingStatus.isLayoutMarginsRelativeArrangement = true
-        loadingStatus.directionalLayoutMargins = NSDirectionalEdgeInsets(top: 12, leading: 16, bottom: 12, trailing: 16)
-        loadingStatus.backgroundColor = .yachiyo(.canvas)
-        loadingStatus.layer.cornerRadius = 16
-        loadingLabel.font = YachiyoFonts.meta()
-        loadingLabel.numberOfLines = 0
-        loadingLabel.textAlignment = .center
+        loadingLabel.font = YachiyoFonts.caption()
+        loadingLabel.textColor = .secondaryLabel
+        loadingLabel.numberOfLines = 1
+        loadingLabel.lineBreakMode = .byTruncatingTail
         loadingLabel.accessibilityIdentifier = "thread.loadingStatus"
+        loadingLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        loadingSpinner.isUserInteractionEnabled = false
+        retryButton.titleLabel?.font = YachiyoFonts.caption()
+        retryButton.setContentCompressionResistancePriority(.required, for: .horizontal)
         retryButton.setTitle(String(localized: "Retry"), for: .normal)
         retryButton.accessibilityIdentifier = "thread.retryLoad"
         retryButton.addAction(UIAction { [weak self] _ in
@@ -216,16 +246,17 @@ final class ThreadViewController: UIViewController {
             else { store.retryConnection(desktopId: thread.desktopId) }
         }, for: .touchUpInside)
         for child in [loadingSpinner, loadingLabel, retryButton] { loadingStatus.addArrangedSubview(child) }
-        loadingStatus.translatesAutoresizingMaskIntoConstraints = false
-        view.addSubview(loadingStatus)
         NSLayoutConstraint.activate([
-            loadingStatus.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 8),
-            loadingStatus.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-            loadingStatus.widthAnchor.constraint(lessThanOrEqualTo: view.safeAreaLayoutGuide.widthAnchor, constant: -32),
+            loadingStatus.heightAnchor.constraint(equalToConstant: 22),
+            loadingStatus.widthAnchor.constraint(lessThanOrEqualToConstant: 230),
         ])
     }
 
     private func observe() {
+        thread.$outboundState.combineLatest(thread.$replyState)
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in self?.updateChrome() }
+            .store(in: &cancellables)
         thread.$isLoading.combineLatest(thread.$loadError, thread.$isStopping)
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in self?.updateChrome() }
@@ -255,9 +286,13 @@ final class ThreadViewController: UIViewController {
 
         let connection = desktop.flatMap { store.connectionText(for: $0) }
         let busy = desktop?.state == .connecting || (desktop?.state == .online && thread.isLoading) || thread.isStopping
-        let status = connection ?? (thread.isStopping ? String(localized: "Stopping response…") : (thread.isLoading ? (thread.detail == nil ? String(localized: "Loading conversation history and context…") : String(localized: "Refreshing conversation…")) : thread.loadError.map { String(localized: "Couldn't load conversation. \($0)") }))
-        loadingLabel.text = status
-        loadingStatus.isHidden = status == nil
+        let status = connection ?? (thread.isStopping ? String(localized: "Stopping response…") : (thread.isLoading ? (thread.detail == nil ? String(localized: "Loading history…") : String(localized: "Refreshing…")) : thread.loadError.map { String(localized: "Couldn't load conversation. \($0)") }))
+        emptyHistoryLabel.isHidden = thread.detail != nil || !thread.messages.isEmpty
+        emptyHistoryLabel.text = desktop?.state == .online
+            ? (thread.loadError == nil ? String(localized: "Loading conversation history…") : String(localized: "History couldn't be loaded. Tap Retry above."))
+            : String(localized: "No saved history on this iPhone yet. History will load when your Mac connects.")
+        loadingLabel.text = status ?? subtitleLabel.text
+        loadingLabel.accessibilityLabel = status ?? subtitleLabel.text
         loadingSpinner.isHidden = !busy
         if busy { loadingSpinner.startAnimating() } else { loadingSpinner.stopAnimating() }
         let offline: Bool
@@ -278,7 +313,11 @@ final class ThreadViewController: UIViewController {
         })
         bottomButton.isHidden = isFollowingBottom
         capsuleGroup.isHidden = needsAnswerButton.isHidden && followUpButton.isHidden && bottomButton.isHidden
-        errorLabel.text = thread.lastError
+        let error = localError ?? thread.lastError
+        errorLabel.text = error ?? deliveryStatus
+        errorLabel.textColor = error == nil ? .secondaryLabel : .yachiyo(.dangerStrong)
+        errorLabel.accessibilityIdentifier = error == nil ? "thread.deliveryStatus" : "thread.error"
+        if thread.isSending { deliverySpinner.startAnimating() } else { deliverySpinner.stopAnimating() }
         view.setNeedsLayout()
     }
 
@@ -294,7 +333,7 @@ final class ThreadViewController: UIViewController {
     private func makeThreadMenu() -> [UIMenuElement] {
         let starred = thread.summary?.starred ?? false
         var items: [UIMenuElement] = []
-        if !thread.isReadOnly {
+        if !thread.isReadOnly, store.link(for: thread.desktopId)?.state == .online {
             items.append(UIAction(title: starred ? String(localized: "Unstar") : String(localized: "Star"), image: .lucide("star")) { [weak self] _ in
                 Task { await self?.thread.setStarred(!starred) }
             })
@@ -308,9 +347,32 @@ final class ThreadViewController: UIViewController {
             UIPasteboard.general.string = self?.thread.detail?.messages.last(where: { $0.role == .assistant })?.content
         })
         items.append(UIAction(title: String(localized: "Refresh"), image: .lucide("rotate-ccw")) { [weak self] _ in
-            Task { await self?.thread.reload() }
+            guard let self else { return }
+            if store.link(for: thread.desktopId)?.state == .online { Task { await self.thread.reload() } }
+            else { store.retryConnection(desktopId: thread.desktopId) }
         })
         return items
+    }
+
+    private var deliveryStatus: String? {
+        switch thread.outboundState {
+        case .uploading: return String(localized: "Uploading attachments…")
+        case .sending: return String(localized: "Sending to your Mac…")
+        case .unconfirmed: return String(localized: "Delivery unconfirmed. Check history before sending again.")
+        case .rejected: return String(localized: "Not sent. Your draft is kept.")
+        case .offline: return String(localized: "Offline — your draft is kept. Nothing is queued to send.")
+        case .queued: return String(localized: "Message queued on your Mac.")
+        case .idle, .accepted: break
+        }
+        if thread.replyState != .idle, store.link(for: thread.desktopId)?.state != .online {
+            return String(localized: "Sent — reconnect to check the reply.")
+        }
+        // Waiting for a reply is not the same as an in-flight send RPC.
+        switch thread.replyState {
+        case .waiting: return String(localized: "Sent — waiting for Yachiyo…")
+        case .responding: return String(localized: "Yachiyo is responding…")
+        case .idle: return thread.outboundState == .accepted ? String(localized: "Sent to your Mac") : nil
+        }
     }
 
     private var defaultRunningMode: SendMode {
@@ -322,6 +384,22 @@ final class ThreadViewController: UIViewController {
 
 extension ThreadViewController: ChatInputDelegate {
     func chatInputDidSubmit(_: ChatInputView, object: ChatInputContent, completion: @escaping @Sendable (Bool) -> Void) {
+        // Reject before uploading attachments. A failed submit keeps the bound draft;
+        // reconnecting never schedules a send or replays this action.
+        guard !thread.isReadOnly, store.link(for: thread.desktopId)?.state == .online else {
+            localError = thread.isReadOnly
+                ? String(localized: "This conversation is read-only.")
+                : String(localized: "Connect to your Mac to send. Your draft is kept.")
+            updateChrome()
+            completion(false)
+            return
+        }
+        localError = nil
+        guard thread.beginUpload() else {
+            updateChrome()
+            completion(false)
+            return
+        }
         var mode: SendMode?
         if case let .string(raw) = object.options["mode"] { mode = SendMode(rawValue: raw) }
         if mode == nil, thread.isRunning { mode = defaultRunningMode }
@@ -332,6 +410,8 @@ extension ThreadViewController: ChatInputDelegate {
                 let sent = await thread.send(text: object.text, attachmentIds: ids, mode: mode)
                 completion(sent)
             } catch {
+                thread.failUpload(error)
+                updateChrome()
                 completion(false)
             }
         }
@@ -357,7 +437,8 @@ extension ThreadViewController: ChatInputDelegate {
     }
 
     func chatInputDidReportError(_: ChatInputView, error: String) {
-        errorLabel.text = error
+        localError = error
+        updateChrome()
     }
 }
 
@@ -381,8 +462,13 @@ extension ThreadViewController: MessageListInteractionDelegate {
                 navigationController?.pushViewController(next, animated: true)
             }
         case .open:
+            localError = nil
             Task {
-                guard let content = await thread.readPlan() else { return }
+                guard let content = await thread.readPlan() else {
+                    localError = thread.lastError ?? String(localized: "Plan unavailable. Connect to your Mac and try opening it again.")
+                    updateChrome()
+                    return
+                }
                 let reader = TextSheetViewController(title: String(localized: "Execution plan"), text: content)
                 present(UINavigationController(rootViewController: reader), animated: true)
             }
@@ -394,13 +480,38 @@ extension ThreadViewController: MessageListInteractionDelegate {
     }
 
     func messageList(_: MessageListView, didSelectToolCall toolCallId: String) {
-        guard let call = thread.toolCall(toolCallId) else { return }
-        let text = [call.title, call.inputPreview.map { "Input\n\($0)" }, call.outputPreview.map { "Output\n\($0)" }, call.error.map { "Error\n\($0)" }]
-            .compactMap { $0 }
-            .joined(separator: "\n\n")
-        let detail = UINavigationController(rootViewController: TextSheetViewController(title: call.toolName, text: text))
+        let detail = UINavigationController(rootViewController: toolPreviewReader(toolCallId))
         YachiyoMaterialKit.configureSheet(detail, detents: [.medium(), .large()])
         present(detail, animated: true)
+    }
+
+    private func toolPreviewReader(_ toolCallId: String, notice: String? = nil) -> TextSheetViewController {
+        let call = thread.toolCall(toolCallId)
+        let availability = store.link(for: thread.desktopId)?.state == .online
+            ? String(localized: "Saved preview, not the complete tool result. Refresh to check for an updated preview.")
+            : String(localized: "Saved preview, not the complete tool result. Connect to your Mac, then tap Refresh to update it.")
+        let text = [notice, availability, call?.title,
+                    call?.inputPreview.map { String(localized: "Input preview\n\($0)") },
+                    call?.outputPreview.map { String(localized: "Output preview\n\($0)") }
+                        ?? String(localized: "No output preview is available yet."),
+                    call?.error.map { String(localized: "Error\n\($0)") }]
+            .compactMap { $0 }.joined(separator: "\n\n")
+        let reader = TextSheetViewController(title: call?.toolName ?? String(localized: "Tool details"), text: text)
+        reader.navigationItem.leftBarButtonItem = UIBarButtonItem(title: String(localized: "Refresh"), primaryAction: UIAction { [weak self, weak reader] _ in
+            guard let self, let navigation = reader?.navigationController else { return }
+            guard store.link(for: thread.desktopId)?.state == .online else {
+                store.retryConnection(desktopId: thread.desktopId)
+                navigation.setViewControllers([toolPreviewReader(toolCallId, notice: String(localized: "Updated preview unavailable while disconnected. Reconnecting to your Mac; tap Refresh when connected."))], animated: false)
+                return
+            }
+            reader?.navigationItem.leftBarButtonItem?.isEnabled = false
+            Task {
+                await self.thread.reload()
+                guard navigation.presentingViewController != nil else { return }
+                navigation.setViewControllers([self.toolPreviewReader(toolCallId, notice: self.thread.loadError)], animated: false)
+            }
+        })
+        return reader
     }
 
     func messageList(_: MessageListView, menuForMessage messageId: String, role: MessageRole) -> UIMenu? {
@@ -409,7 +520,7 @@ extension ThreadViewController: MessageListInteractionDelegate {
             UIPasteboard.general.string = message.content
         }]
         let capabilities = thread.summary?.capabilities
-        if !thread.isRunning, !thread.isReadOnly {
+        if !thread.isRunning, !thread.isReadOnly, store.link(for: thread.desktopId)?.state == .online {
             if role == .user, capabilities?.canEdit ?? false {
                 actions.append(UIAction(title: String(localized: "Edit"), image: .lucide("pencil")) { [weak self] _ in self?.edit(message) })
             }

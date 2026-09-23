@@ -23,6 +23,14 @@ struct DesktopSnapshot: Equatable {
     let name: String
     let state: DesktopConnectionState
     let isPrimary: Bool
+    var endpoints: [StoredEndpoint] = []
+    var attemptingURL: String? = nil
+    var activeURL: String? = nil
+    var lastSuccessfulURL: String? = nil
+    var lastConnectionError: String? = nil
+    var recovery: AddressRecoveryStatus? = nil
+    var lastAddressUpdateAt: Date? = nil
+    var lastAddressUpdateURL: String? = nil
 }
 
 /// App-wide remote state: paired desktops, their connections, and the merged inbox. Thread
@@ -250,6 +258,20 @@ final class RemoteStore {
         return try await link.call(method, input)
     }
 
+    func updateAddress(desktopId: String, address: String) throws {
+        guard let link = links[desktopId] else { throw RemoteCallError(name: "RemoteOffline", message: "Unknown device.") }
+        var updated = try DesktopAddress.replacingPrimary(in: link.desktop, address: address)
+        guard updated.endpoints != link.desktop.endpoints else { return }
+        updated.cursor = link.cursor
+        // A failed Keychain write must not switch the live connection to an unsaved target.
+        try credentials.save(updated)
+        link.replaceDesktop(updated)
+    }
+
+    func checkAddressRecovery(desktopId: String) async {
+        await links[desktopId]?.checkAddressRecovery()
+    }
+
     func retryConnection(desktopId: String) {
         guard let link = links[desktopId], link.state != .protocolMismatch else { return }
         link.stop()
@@ -344,13 +366,15 @@ final class RemoteStore {
 
     private func linkDidChange(_ link: DesktopLink) {
         guard links[link.id] === link else { return }
+        let stateChanged = desktops.first { $0.id == link.id }?.state != link.state
+        publishDesktops()
+        guard stateChanged else { return }
         if link.state == .online { connectedDesktops.insert(link.id) }
         else {
             inboxLoadTokens[link.id] = nil
             inboxEvents[link.id] = nil
             loadingInboxes.remove(link.id)
         }
-        publishDesktops()
         if link.state == .online {
             checkpoint(link.id)
             Task { await reloadSummaries(for: link) }
@@ -474,7 +498,12 @@ final class RemoteStore {
         let sorted = links.values.sorted { $0.displayName.localizedCompare($1.displayName) == .orderedAscending }
         let firstId = sorted.first?.id
         desktops = sorted.map {
-            DesktopSnapshot(id: $0.id, name: $0.displayName, state: $0.state, isPrimary: $0.id == (primary.flatMap { links[$0] != nil ? $0 : nil } ?? firstId))
+            DesktopSnapshot(id: $0.id, name: $0.displayName, state: $0.state, isPrimary: $0.id == (primary.flatMap { links[$0] != nil ? $0 : nil } ?? firstId),
+                endpoints: $0.desktop.endpoints, attemptingURL: $0.attemptingURL,
+                activeURL: $0.activeURL, lastSuccessfulURL: $0.desktop.lastSuccessfulURL,
+                lastConnectionError: $0.lastConnectionError, recovery: $0.recovery,
+                lastAddressUpdateAt: $0.desktop.lastAddressUpdateAt,
+                lastAddressUpdateURL: $0.desktop.lastAddressUpdateURL)
         }
     }
 

@@ -116,3 +116,14 @@ test('a limit that cannot describe a page is refused at the boundary', () => {
     )
   }
 })
+
+test('selected branch body IDs are filtered in SQL, including the empty page', () => {
+  const { sql, params } = compilePageQuery({
+    threadId: 'thread-1',
+    messageIds: ['older-ancestor', 'head']
+  })
+  assert.match(sql, /"thread_id" = \?/)
+  assert.match(sql, /"id" in \(\?, \?\)/)
+  assert.deepEqual(params, ['thread-1', 'older-ancestor', 'head'])
+  assert.match(compilePageQuery({ threadId: 'thread-1', messageIds: [] }).sql, /false/)
+})

@@ -25,6 +25,7 @@ final class DesktopConnectorTests: XCTestCase {
     func testFallsBackToMailboxEndpointsAfterEveryKnownEndpointFails() async throws {
         let fixture = try Fixtures.json("mailbox.json") as! [String: Any]
         let secret = Data(hex: fixture["mailboxSecret"] as! String)
+        let recoveryReported = expectation(description: "accepted recovery reported before dialing")
         let log = DialLog()
         let connector = DesktopConnector(
             identity: RemoteClientIdentity(staticPrivateKey: NoiseKeyPair.generatePrivateKey(), deviceName: "Test", appVersion: "1"),
@@ -49,12 +50,22 @@ final class DesktopConnectorTests: XCTestCase {
         )
 
         do {
-            _ = try await connector.connect(desktop)
+            _ = try await connector.connect(desktop, observe: { progress in
+                if case let .recovery(status, updated) = progress, status.outcome == .updated {
+                    // The UI learns/persists the new target before it is dialed, not after timeout.
+                    XCTAssertEqual(log.all.count, 2)
+                    XCTAssertEqual(updated.mailboxCounter, 5)
+                    XCTAssertNotNil(status.checkedAt)
+                    XCTAssertNotNil(updated.lastAddressUpdateAt)
+                    recoveryReported.fulfill()
+                }
+            })
             XCTFail("expected the desktop to stay unreachable")
         } catch let error as DesktopUnreachable {
             XCTAssertEqual(error.updated.mailboxCounter, 5)
             XCTAssertEqual(error.updated.endpoints.map(\.url), ["wss://quiet-fox.trycloudflare.com/remote/v1"])
         }
+        await fulfillment(of: [recoveryReported], timeout: 1)
         XCTAssertEqual(log.all, [
             "wss://old-owl.trycloudflare.com/remote/v1",
             "ws://192.168.1.20:47831/remote/v1",

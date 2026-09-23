@@ -19,6 +19,17 @@ class InputEditor: EditorSectionView {
     let voiceButton = IconButton(icon: "mic")
     let moreButton = IconButton(icon: "plus.circle")
     let sendButton = IconButton(icon: "send")
+    let submissionSpinner = UIActivityIndicatorView(style: .medium)
+
+    var isSubmitting = false {
+        didSet {
+            guard oldValue != isSubmitting else { return }
+            sendButton.isUserInteractionEnabled = !isSubmitting
+            if isSubmitting { submissionSpinner.startAnimating() }
+            else { submissionSpinner.stopAnimating() }
+            setNeedsLayout()
+        }
+    }
     /// Shown instead of the more/mic button while a run is active (Yachiyo fork).
     let stopButton = IconButton(icon: "stop.circle.fill")
 
@@ -111,11 +122,17 @@ class InputEditor: EditorSectionView {
         }
         elementClipper.addSubview(moreButton)
         sendButton.tapAction = { [weak self] in
-            self?.delegate?.onInputEditorSubmitButtonTapped()
+            guard let self, !isSubmitting else { return }
+            delegate?.onInputEditorSubmitButtonTapped()
         }
         let longPress = UILongPressGestureRecognizer(target: self, action: #selector(sendButtonLongPressed(_:)))
         sendButton.addGestureRecognizer(longPress)
         elementClipper.addSubview(sendButton)
+        submissionSpinner.isUserInteractionEnabled = false
+        submissionSpinner.isAccessibilityElement = true
+        submissionSpinner.accessibilityIdentifier = "composer.submitting"
+        submissionSpinner.accessibilityLabel = String.localized("Sending…")
+        elementClipper.addSubview(submissionSpinner)
         stopButton.tapAction = { [weak self] in
             self?.delegate?.onInputEditorStopButtonTapped()
         }
@@ -151,7 +168,7 @@ class InputEditor: EditorSectionView {
 
         elementClipper.frame = bounds
 
-        switch layoutStatus {
+        switch isSubmitting ? .editingText : layoutStatus {
         case .standard:
             layoutAsStandard()
         case .preFocusText:
@@ -162,6 +179,8 @@ class InputEditor: EditorSectionView {
 
         updatePlaceholderAlpha()
         layoutStopButton()
+        submissionSpinner.center = sendButton.center
+        if isSubmitting { sendButton.alpha = 0 }
     }
 
     /// The stop control takes the more/mic slot while a run is active, so send and stop can
@@ -171,7 +190,7 @@ class InputEditor: EditorSectionView {
             stopButton.alpha = 0
             return
         }
-        switch layoutStatus {
+        switch isSubmitting ? .editingText : layoutStatus {
         case .standard, .preFocusText:
             stopButton.frame = moreButton.frame
             moreButton.alpha = 0
@@ -184,7 +203,7 @@ class InputEditor: EditorSectionView {
     }
 
     @objc private func sendButtonLongPressed(_ recognizer: UILongPressGestureRecognizer) {
-        guard recognizer.state == .began, sendButton.alpha > 0 else { return }
+        guard !isSubmitting, recognizer.state == .began, sendButton.alpha > 0 else { return }
         delegate?.onInputEditorSubmitLongPressed()
     }
 

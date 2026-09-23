@@ -9,6 +9,8 @@ final class SettingsViewController: UITableViewController {
     private enum Section: Int, CaseIterable { case devices, appearance, recovery, about }
 
     private let store = RemoteStore.shared
+    private var desktops: [DesktopSnapshot] = []
+    private var recoveryFolderDidChange: (() -> Void)?
     private var cancellables: Set<AnyCancellable> = []
 
     init() {
@@ -26,9 +28,13 @@ final class SettingsViewController: UITableViewController {
         navigationItem.rightBarButtonItem = UIBarButtonItem(systemItem: .done, primaryAction: UIAction { [weak self] _ in
             self?.dismiss(animated: true)
         })
+        desktops = store.desktops
         store.$desktops
-            .receive(on: RunLoop.main)
-            .sink { [weak self] _ in self?.tableView.reloadData() }
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] snapshots in
+                self?.desktops = snapshots
+                self?.tableView.reloadData()
+            }
             .store(in: &cancellables)
     }
 
@@ -56,8 +62,8 @@ final class SettingsViewController: UITableViewController {
 
     override func tableView(_: UITableView, numberOfRowsInSection section: Int) -> Int {
         switch Section(rawValue: section)! {
-        case .devices: store.desktops.count + 1
-        case .appearance: store.desktops.count > 1 ? 3 : 2
+        case .devices: desktops.count + 1
+        case .appearance: desktops.count > 1 ? 3 : 2
         case .recovery: 1
         case .about: 3
         }
@@ -70,12 +76,17 @@ final class SettingsViewController: UITableViewController {
         cell.accessoryType = .none
         switch Section(rawValue: indexPath.section)! {
         case .devices:
-            if let desktop = store.desktops[safe: indexPath.row] {
+            if let desktop = desktops[safe: indexPath.row] {
+                content = UIListContentConfiguration.subtitleCell()
                 content.text = desktop.name
                 content.image = UIImage(systemName: "circle.fill")
                 content.imageProperties.tintColor = desktop.state == .online ? .yachiyo(.success) : .yachiyo(.danger)
                 content.imageProperties.maximumSize = CGSize(width: 8, height: 8)
-                content.secondaryText = stateText(desktop.state)
+                let address = desktop.activeURL ?? desktop.attemptingURL ?? desktop.endpoints.first?.url ?? desktop.lastSuccessfulURL
+                content.secondaryText = [stateText(desktop.state), address].compactMap { $0 }.joined(separator: " · ")
+                content.secondaryTextProperties.numberOfLines = 2
+                content.secondaryTextProperties.lineBreakMode = .byTruncatingMiddle
+                cell.accessoryType = .disclosureIndicator
                 cell.accessibilityIdentifier = "settings.device.\(desktop.id)"
             } else {
                 content.text = String(localized: "Add device")
@@ -99,7 +110,7 @@ final class SettingsViewController: UITableViewController {
             }
         case .recovery:
             content.text = String(localized: "Yachiyo recovery folder")
-            content.secondaryText = MailboxFolder.isGranted ? String(localized: "Folder selected") : String(localized: "Not set up")
+            content.secondaryText = MailboxFolder.isGranted ? String(localized: "Configured") : String(localized: "Not configured")
             cell.accessibilityIdentifier = "settings.addressRecovery"
             cell.accessoryType = .disclosureIndicator
         case .about:
@@ -123,14 +134,21 @@ final class SettingsViewController: UITableViewController {
     override func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         tableView.deselectRow(at: indexPath, animated: true)
         switch Section(rawValue: indexPath.section)! {
-        case .devices where indexPath.row == store.desktops.count:
+        case .devices where indexPath.row == desktops.count:
             let pairing = PairingViewController(initialURL: nil)
             pairing.onFinished = { [weak self] in self?.dismiss(animated: true) }
             let container = UINavigationController(rootViewController: pairing)
             container.modalPresentationStyle = .fullScreen
             present(container, animated: true)
+        case .devices:
+            guard let desktop = desktops[safe: indexPath.row] else { return }
+            let device = DeviceViewController(desktop: desktop)
+            device.onChooseRecoveryFolder = { [weak self] presenter, completion in
+                self?.explainRecoveryFolder(from: presenter, onChange: completion)
+            }
+            navigationController?.pushViewController(device, animated: true)
         case .recovery:
-            explainRecoveryFolder()
+            explainRecoveryFolder(from: self)
         case .about where indexPath.row == 2:
             let notices = Bundle.main.url(forResource: "THIRD_PARTY_NOTICES", withExtension: "md")
                 .flatMap { try? String(contentsOf: $0, encoding: .utf8) } ?? ""
@@ -141,7 +159,7 @@ final class SettingsViewController: UITableViewController {
     }
 
     override func tableView(_: UITableView, trailingSwipeActionsConfigurationForRowAt indexPath: IndexPath) -> UISwipeActionsConfiguration? {
-        guard Section(rawValue: indexPath.section) == .devices, let desktop = store.desktops[safe: indexPath.row] else { return nil }
+        guard Section(rawValue: indexPath.section) == .devices, let desktop = desktops[safe: indexPath.row] else { return nil }
         let remove = UIContextualAction(style: .destructive, title: String(localized: "Remove")) { [weak self] _, _, done in
             self?.store.remove(desktopId: desktop.id)
             done(true)
@@ -151,24 +169,25 @@ final class SettingsViewController: UITableViewController {
 
     // MARK: Helpers
 
-    private func explainRecoveryFolder() {
+    private func explainRecoveryFolder(from presenter: UIViewController, onChange: (() -> Void)? = nil) {
+        recoveryFolderDidChange = onChange
         let alert = UIAlertController(
             title: String(localized: "Set up address recovery"),
             message: String(localized: "In the folder picker, open Browse > iCloud Drive > Documents, open Yachiyo, then tap Open. Select Yachiyo itself, not Remote or Sync.\n\nYour Mac creates this folder after pairing. Use the same Apple Account with iCloud Drive on both devices. If it is missing, let iCloud finish syncing and try later; do not create a new folder. You can keep using your paired Mac without this step."),
             preferredStyle: .alert
         )
         alert.addAction(UIAlertAction(title: String(localized: "Not now"), style: .cancel))
-        alert.addAction(UIAlertAction(title: String(localized: "Choose Yachiyo folder"), style: .default) { [weak self] _ in
-            guard let self else { return }
+        alert.addAction(UIAlertAction(title: String(localized: "Choose Yachiyo folder"), style: .default) { [weak self, weak presenter] _ in
+            guard let self, let presenter else { return }
             let picker = UIDocumentPickerViewController(forOpeningContentTypes: [.folder])
             picker.delegate = self
-            self.present(picker, animated: true)
+            presenter.present(picker, animated: true)
         })
-        present(alert, animated: true)
+        presenter.present(alert, animated: true)
     }
 
     private var primaryName: String {
-        store.desktops.first(where: \.isPrimary)?.name ?? String(localized: "your Mac")
+        desktops.first(where: \.isPrimary)?.name ?? String(localized: "your Mac")
     }
 
     private func stateText(_ state: DesktopConnectionState) -> String {
@@ -224,7 +243,7 @@ final class SettingsViewController: UITableViewController {
     }
 
     private func primaryMenu() -> UIMenu {
-        UIMenu(children: store.desktops.map { desktop in
+        UIMenu(children: desktops.map { desktop in
             UIAction(title: desktop.name, state: desktop.isPrimary ? .on : .off) { [weak self] _ in
                 self?.store.setPrimaryDesktop(desktop.id)
             }
@@ -237,6 +256,8 @@ extension SettingsViewController: UIDocumentPickerDelegate {
         guard let folder = urls.first else { return }
         do {
             try MailboxFolder.save(folder: folder)
+            recoveryFolderDidChange?()
+            recoveryFolderDidChange = nil
         } catch {
             let alert = UIAlertController(
                 title: String(localized: "Recovery folder not saved"),
@@ -244,8 +265,9 @@ extension SettingsViewController: UIDocumentPickerDelegate {
                 preferredStyle: .alert
             )
             alert.addAction(UIAlertAction(title: String(localized: "OK"), style: .default))
-            controller.dismiss(animated: true) { [weak self] in
-                self?.present(alert, animated: true)
+            let presenter = controller.presentingViewController ?? navigationController?.topViewController ?? self
+            controller.dismiss(animated: true) {
+                presenter.present(alert, animated: true)
             }
         }
         tableView.reloadData()

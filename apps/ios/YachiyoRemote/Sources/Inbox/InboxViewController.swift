@@ -318,7 +318,8 @@ final class InboxViewController: UIViewController {
     // MARK: Swipe
 
     private func leadingSwipe(at indexPath: IndexPath) -> UISwipeActionsConfiguration? {
-        guard let item = dataSource.itemIdentifier(for: indexPath), !item.summary.isReadOnly else { return nil }
+        guard let item = dataSource.itemIdentifier(for: indexPath), !item.summary.isReadOnly,
+              store.link(for: item.desktopId)?.state == .online else { return nil }
         let starred = item.summary.starred
         let action = UIContextualAction(style: .normal, title: starred ? String(localized: "Unstar") : String(localized: "Star")) { [weak self] _, _, done in
             Task {
@@ -334,7 +335,8 @@ final class InboxViewController: UIViewController {
     }
 
     private func trailingSwipe(at indexPath: IndexPath) -> UISwipeActionsConfiguration? {
-        guard let item = dataSource.itemIdentifier(for: indexPath), !item.summary.isReadOnly else { return nil }
+        guard let item = dataSource.itemIdentifier(for: indexPath), !item.summary.isReadOnly,
+              store.link(for: item.desktopId)?.state == .online else { return nil }
         let action = UIContextualAction(style: .destructive, title: String(localized: "Archive")) { _, _, done in
             Task {
                 let archived = await ThreadStore(desktopId: item.desktopId, threadId: item.summary.id).archive()
@@ -348,6 +350,7 @@ final class InboxViewController: UIViewController {
     // MARK: Navigation
 
     func open(_ item: InboxItem) {
+        // Opening cached history is local; only mutations require an online Mac.
         let controller = ThreadViewController(desktopId: item.desktopId, threadId: item.summary.id)
         navigationController?.pushViewController(controller, animated: true)
     }
