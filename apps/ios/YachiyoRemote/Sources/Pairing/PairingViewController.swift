@@ -18,7 +18,7 @@ final class PairingViewController: UIViewController {
 
     private let initialURL: URL?
     private let stack = UIStackView()
-    private let avatar = UIImageView(image: UIImage(systemName: "sparkles"))
+    private let avatar = BrandAvatarView()
     private let headline = UILabel()
     private let wordmark = UILabel()
     private let message = UILabel()
@@ -47,19 +47,6 @@ final class PairingViewController: UIViewController {
     }
 
     private func layout() {
-        avatar.contentMode = .scaleAspectFit
-        avatar.tintColor = .yachiyo(.accent)
-        avatar.backgroundColor = .yachiyo(.surface)
-        avatar.layer.cornerRadius = 41
-        avatar.layer.borderWidth = 7
-        avatar.layer.borderColor = UIColor.yachiyo(.surface, alpha: 0.46).cgColor
-        avatar.layer.shadowColor = YachiyoStyle.ink(0.14).cgColor
-        avatar.layer.shadowOpacity = 1
-        avatar.layer.shadowRadius = 19
-        avatar.layer.shadowOffset = CGSize(width: 0, height: 18)
-        avatar.translatesAutoresizingMaskIntoConstraints = false
-        NSLayoutConstraint.activate([avatar.widthAnchor.constraint(equalToConstant: 82), avatar.heightAnchor.constraint(equalToConstant: 82)])
-
         headline.font = YachiyoFonts.display()
         headline.textColor = .yachiyo(.textSecondary)
         headline.textAlignment = .center

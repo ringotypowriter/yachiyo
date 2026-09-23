@@ -203,7 +203,9 @@ final class InboxViewController: UIViewController {
         }
         var configuration = UIContentUnavailableConfiguration.empty()
         if store.hasDesktops {
-            configuration.image = UIImage(systemName: "sparkles")
+            configuration.image = BrandAvatarView.image
+            configuration.imageProperties.maximumSize = CGSize(width: 82, height: 82)
+            configuration.imageProperties.cornerRadius = 41
             configuration.text = String(localized: "Creation with YACHIYO")
             configuration.textProperties.font = YachiyoFonts.display()
             configuration.secondaryText = String(localized: "Start a thread on your Mac from here.")
