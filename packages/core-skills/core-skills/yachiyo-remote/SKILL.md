@@ -1,6 +1,6 @@
 ---
 name: yachiyo-remote
-description: Set up and troubleshoot phone remote access on this Mac — check iCloud address recovery, manage Cloudflare tunnels, verify HTTP/2 and public WebSocket health, and recover an offline tunnel. Use for iPhone remote setup, pairing, disconnections, tunnels, or recovery watchdog design. macOS only.
+description: Set up and troubleshoot phone remote access on this Mac — check iCloud address recovery, manage Cloudflare tunnels, verify HTTP/2 and public WebSocket health, and install the bundled automatic-recovery watchdog. Use for iPhone remote setup, pairing, disconnections, tunnels, or automatic recovery. macOS only.
 platforms: darwin
 ---
 
@@ -13,6 +13,8 @@ Cloudflare only relays ciphertext.
 
 Change app state **only** through the supported `yachiyo remote` CLI —
 never edit `config.toml`, LaunchAgent plists, or `~/.cloudflared` files by hand.
+The bundled watchdog installer below manages its own helper and restarts only Yachiyo's tunnel;
+it does not change app configuration or pairings.
 Read-only inspection of the owned LaunchAgent, metrics, and logs is useful for diagnosis. For
 bundled skill changes, edit `packages/core-skills/core-skills/yachiyo-remote/` in the source
 repository, not the installed copy under `~/.yachiyo/skills/core/` or a custom shadow skill.
@@ -168,10 +170,33 @@ Repeat the layered health checks after recovery. Confirm the replacement endpoin
 Remote status; explain iCloud recovery versus rescanning if it changed. Preserve uncertainty
 about phone-side recovery rather than inferring it from Mac-side iCloud availability.
 
-## Automatic recovery design
+## Automatic recovery
 
 LaunchAgent `KeepAlive` only replaces an exited process; it cannot fix a live process stuck with
-zero edge connections. The existing supervisor currently discovers hostnames, not full tunnel
-health. For the proposed health watchdog, read [references/tunnel-watchdog.md](references/tunnel-watchdog.md).
-That reference is a design, not an installed recovery service. Do not invent a restart CLI,
-claim the watchdog is running, or install a competing loop from this skill.
+zero edge connections. This skill bundles a dependency-free Node watchdog in `scripts/`.
+When the user asks for automatic recovery, install and verify it, rather than only writing a plan.
+During setup, explain that automatic quick-tunnel recovery can change the address and confirm
+the user wants it. Read [references/tunnel-watchdog.md](references/tunnel-watchdog.md) for the
+policy, ownership boundaries, and operational files.
+
+Use a standalone Node.js runtime, not the Electron/Yachiyo executable. Resolve the current skill
+directory and run:
+
+```
+node resources/core-skills/yachiyo-remote/scripts/watchdog.mjs install
+node resources/core-skills/yachiyo-remote/scripts/watchdog.mjs status
+node resources/core-skills/yachiyo-remote/scripts/watchdog.mjs check
+node resources/core-skills/yachiyo-remote/scripts/watchdog.mjs uninstall
+```
+
+`install` starts the managed watchdog without restarting a healthy tunnel or the app. It copies
+the bundled scripts to `~/.yachiyo/helpers/tunnel-watchdog/` and registers the single owned
+`sh.ringo.yachiyo.tunnel-watchdog` LaunchAgent. `check` is a read-only live probe. `uninstall`
+removes only the watchdog job, not the tunnel or phone pairings. Update code in the source skill
+and rerun `install`; do not patch the generated runtime copy or the installed skill by hand.
+
+Verify `running`, `sampleFresh`, and the observation fields in `status`. After startup grace,
+check another sample to establish that it continues running. Report the actual PID, last check,
+and probe results. A successful install command alone does not prove continuous monitoring or
+phone recovery. Keep the current healthy connection intact; use the included deterministic tests
+for failure/restart policy unless a live outage test has been explicitly approved.

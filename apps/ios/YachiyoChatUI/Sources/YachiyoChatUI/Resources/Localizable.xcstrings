@@ -7,6 +7,9 @@
     "Accepted" : {
 
     },
+    "Add Image" : {
+
+    },
     "Answered" : {
 
     },
@@ -54,7 +57,11 @@
         }
       }
     },
+    "Camera is not available on this device." : {
+
+    },
     "Camera is not available, please grant camera permission" : {
+      "extractionState" : "stale",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
@@ -342,6 +349,9 @@
         }
       }
     },
+    "Photo Library" : {
+
+    },
     "Preparing Transcript..." : {
       "localizations" : {
         "zh-Hans" : {
@@ -365,6 +375,9 @@
 
     },
     "Send answer" : {
+
+    },
+    "Sending…" : {
 
     },
     "Some messages have been removed to fit the model context length." : {

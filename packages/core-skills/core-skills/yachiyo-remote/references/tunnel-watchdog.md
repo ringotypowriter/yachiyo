@@ -1,70 +1,96 @@
-# Tunnel watchdog design
+# Bundled tunnel watchdog
 
-**Status: proposed, not implemented.** This is a repository-facing design reference, not an installation procedure or a claim that automatic recovery exists. Implement future changes in the code repository; do not edit installed core/custom skills under `~/.yachiyo`.
+Implemented in this skill's `scripts/` directory. The helper is optional and must be installed;
+a bundled file or an alive cloudflared process is not proof that monitoring is running.
 
-## Motivation and current boundaries
+## Ownership and installation
 
-The reported incident had a live `cloudflared` process already using `--protocol http2`, but `cloudflared_tunnel_ha_connections` was zero. The public WebSocket request returned HTTP 530 / Cloudflare 1033 while the local origin accepted a WebSocket upgrade with HTTP 101. This supports a connector-health failure, not an origin failure; process liveness alone did not establish reachability.
+`watchdog.mjs install` uses standalone Node.js and macOS utilities, with no npm install or app
+restart. It copies the three runtime modules to `~/.yachiyo/helpers/tunnel-watchdog/`, records a
+source hash and resolved Node executable, and registers `sh.ringo.yachiyo.tunnel-watchdog` under
+`~/Library/LaunchAgents/`. `YACHIYO_HOME` overrides the helper's data/log root. The tunnel is
+still the app-managed `sh.ringo.yachiyo.cloudflared` job.
 
-Current implementation anchors (paths relative to the repository root):
+There is one health loop: the helper, protected by BSD `shlock` and launchd's unique label. The
+app's existing `TunnelSupervisor` remains responsible for hostname discovery and endpoint/iCloud
+publication; it does not run another watchdog. Never add a cron job or another restart loop on
+top. The helper validates the owned cloudflared plist before any recovery and uses only
+`launchctl kickstart -k gui/<uid>/sh.ringo.yachiyo.cloudflared`. It does not reinstall the tunnel,
+rewrite ingress, change protocol flags, touch other agents, revoke pairings, or create secrets.
 
-- `apps/desktop/src/main/remote/tunnelSupervisor.ts`: owns `sh.ringo.yachiyo.cloudflared`, installed as a per-user KeepAlive LaunchAgent. `status()` reports `agentRunning` from `launchctl print`. `monitor()` currently polls only quick tunnels, every 30 seconds, to discover the hostname via `/quicktunnel`; it does not assess connector health or restart unhealthy connectors. Each fetch has a three-second timeout, but polling has no singleflight or generation guard. Empty/failed responses retain the last hostname.
-- `apps/desktop/src/main/remote/remoteController.ts`: starts the origin before monitoring, stops monitoring when remote access is disabled, and forwards endpoint changes to `service.publishEndpoints()`.
-- `apps/desktop/src/main/remote/remoteService.ts` and `mailboxWriter.ts`: publish encrypted endpoint lists for existing pairings. The writer deduplicates unchanged lists, increments persistent per-pairing counters and atomically renames each mailbox file. It skips empty endpoint lists and unavailable iCloud Drive; these are not revocation acknowledgements.
-- `apps/desktop/src/main/remote/remoteCommands.ts`: exposes install/uninstall/status wiring. Installation rewrites the owned plist, attempts `bootout`, then `bootstrap`; it is not a lightweight watchdog restart API.
+Quick-tunnel installation already selects HTTP/2. HTTP/2 reduces dependence on QUIC/UDP but does
+not prevent edge-registration failures. Named tunnels retain their current configuration; the
+probe supports the app-generated single-origin named ingress, not arbitrary user YAML.
 
-Quick-tunnel HTTP/2 is **already implemented** in `cloudflaredArguments()`. Applying a protocol policy to named tunnels requires an explicit product decision; this design does not authorize a blanket named-tunnel/config rewrite.
+## Health and recovery policy
 
-## Ownership and health model
+Every 30 seconds, reread the managed plist and check the loopback origin WebSocket and loopback
+cloudflared metrics. Require a valid `101` handshake and matching WebSocket accept header; a
+plain HTTP 404 on the origin is not an origin health test. Missing/malformed/oversized metrics
+remain unknown, never zero.
 
-Extend the existing `TunnelSupervisor`, with injected probes, clock, randomness and restart runner. Keep launchd responsible for process lifetime; do not add a second watchdog daemon, another cloudflared process, or a competing launchd job. Future monitoring should cover both quick and named tunnels (named endpoints retain their configured hostname).
+The public WebSocket probe uses bounded curl requests, respects normal transport/proxy behavior,
+and validates the final upgrade rather than a proxy's `200 Connection established`. A timeout
+after a valid 101 is expected for an idle socket, which is then closed. Public observations are
+cached for at most five minutes while HA is nonzero; zero HA forces a fresh public probe. Quick
+hostname discovery uses the latest `Requesting new quick Tunnel` log segment; a new segment
+without a URL cannot reuse a previous launch's hostname. The URL banner can precede cloudflared's
+`Starting tunnel` line.
 
-Keep `agentRunning` as a process fact. Add separate proposed health/recovery fields: connector health (`healthy`, `unhealthy`, `unknown`) and phase such as `observing`, `grace`, `recovering`, `cooldown` or `suppressed`, with the reason and last probe/restart timestamps. A Cloudflare-unhealthy connector must remain distinguishable from a stopped process.
+Automatic restart requires all of the following:
 
-Use three independent signals:
+- Startup/restart/wake grace has elapsed: 90 seconds. A scheduler gap over 90 seconds or a clock
+  rollback resets grace and the failure streak.
+- Three consecutive observations report zero HA connections and a healthy local origin.
+- The current public response corroborates an unavailable tunnel (HTTP 530 or Cloudflare 1033),
+  establishing that the edge is reachable. DNS/TLS timeouts with unknown network health do not
+  count as proof of a tunnel failure.
+- The restart cooldown and rolling attempt budget permit it.
 
-| Signal                                                                   | Interpretation                                                                                                                                                                                              |
-| ------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Local metrics `/metrics`, especially `cloudflared_tunnel_ha_connections` | A valid zero indicates no registered connections. Missing, malformed, timed-out or unavailable metrics mean **unknown**, never zero. Positive connections do not prove the public origin route works.       |
-| Local upgrade at `ws://127.0.0.1:<port>` plus `REMOTE_WS_PATH`           | HTTP 101 establishes origin WebSocket availability; close the probe promptly without pairing or exercising application operations. Origin failure suppresses connector restarts.                            |
-| Occasional public upgrade at the current tunnel endpoint                 | HTTP 101 verifies the public WebSocket route. Record HTTP 530 / CF1033 separately from DNS/TLS/timeouts and other failures. A transient public failure with healthy connections does not trigger a restart. |
+Origin down, unknown metrics, unknown/global offline connectivity, an unsupported configuration,
+and a healthy HA connection with an isolated public failure suppress automatic restart. The
+helper therefore does not fight an app shutdown, a disabled Remote origin, or brief cloudflared
+self-recovery. This is deliberately a conservative dead-tunnel recovery mechanism, not a repair
+for every network or ingress misconfiguration.
 
-Do not add a blanket HTTP 200 root handler or treat an ordinary root GET as a WebSocket health check. A successful upgrade verifies transport reachability, not authenticated chat functionality.
+At most three attempts are allowed per rolling 15 minutes, including failed restart commands.
+Cooldown grows from 30 seconds with bounded jitter, capped at five minutes; grace still applies.
+The budget is persisted before launchctl runs and restored after helper crashes or updates.
+Observations and restart commands are bounded and abortable; singleflight checks prevent overlap.
 
-## Proposed recovery policy
+After a restart, subsequent checks verify the new edge registration and public address. The
+existing app independently discovers/publishes the replacement endpoint. This helper does not
+change that publication ordering or claim the phone consumed the mailbox. Automatic phone
+recovery still requires the selected recovery folder and working iCloud sync; otherwise the user
+may need to edit the address or rescan.
 
-Starting defaults below are tunable policy, not existing behavior:
+## Operator commands and evidence
 
-1. Run one bounded probe cycle at a time, on a 30-second cadence. Give every metrics/local/public probe an explicit timeout and cancellation; public checks may be less frequent in steady state and run on suspicion or recovery. Serialize restart actions with monitoring, installation and shutdown.
-2. Allow a 90-second startup/restart/wake grace period (three 30-second intervals). After grace, require three consecutive eligible observations of valid zero connections with a healthy origin before recovery. Public CF1033 corroborates the incident; a lone public failure or unknown metrics does not count as a zero-connection sample.
-3. Suppress restart decisions while the origin is down, remote access/app is off, the Mac is sleeping, or a known global connectivity outage is present. Reset the consecutive-failure streak on suppression, healthy samples or unknown samples; resume through grace after wake/connectivity recovery. Observe uncertainty rather than turning it into restart evidence.
-4. Restart only the verified, owned per-user LaunchAgent: the future action should use `launchctl kickstart -k gui/<uid>/sh.ringo.yachiyo.cloudflared`, through the supervisor's bounded command runner. Verify ownership before acting; missing/unowned agents require explicit operator action. No `sudo`, broad process kills, unrelated agents, plist rewrites or configuration-root changes.
-5. Apply exponential backoff with bounded jitter and a rolling budget of at most three restart attempts per 15 minutes, including failed attempts. On exhaustion, enter observation-only cooldown (initial proposal: 10 minutes), continuing non-disruptive probes. Automatically leave cooldown when its timer and rolling budget permit, then require fresh eligible evidence; a successful probe can restore healthy observation without a restart. Do not leave recovery permanently disabled or burst accumulated ticks after sleep.
+Run `node <skill-directory>/scripts/watchdog.mjs status` for both launchd PID and the persisted
+sample. `running` requires that the loaded job's PID matches the recorded process. `sampleFresh`
+requires a check within two minutes; an old healthy snapshot is not current health. A read-only
+`check` performs a fresh observation without consuming the recovery budget or restarting anything.
 
-A CLI restart wrapper is **future work**, not an available `yachiyo remote` command. It should delegate to the same ownership checks, serialization and budget rather than create another recovery loop. In the reported manual CLI reinstall, the first bootstrap failed with error 5; a second attempt succeeded after unload. Preserve that diagnostic context, allow only controlled bounded retry where appropriate, and prefer kickstarting an existing agent over repeated reinstall/bootstrap or privilege escalation.
+Operational files:
 
-## Endpoint recovery and publication
+- `~/.yachiyo/logs/tunnel-watchdog.log`: startup, reason changes, and restart requests/results.
+- `~/.yachiyo/helpers/tunnel-watchdog/status.json`: latest observation, PID, source hash, recovery
+  state, and persisted budget; atomically replaced with owner-only permissions.
+- `~/.yachiyo/helpers/tunnel-watchdog/installation.json`: installed source and Node executable.
 
-A quick-tunnel restart may rotate its URL. Add a generation token spanning configuration, monitoring, restart and publication. Increment/invalidate it before restart, configuration replacement or stop; cancel old probes and discard every late result whose generation no longer matches. A pre-restart `/quicktunnel` response must never overwrite a recovered endpoint or reach a new service through the controller callback.
+The installer resolves Node out of transient shell-manager symlinks. If that Node version is
+removed, install again using an available standalone Node runtime. `uninstall` unloads/removes
+only the watchdog LaunchAgent; logs and status remain for diagnosis. It does not stop cloudflared.
 
-Recovery sequence:
+## Verification
 
-1. Mark the previous quick URL stale for recovery decisions; retaining it as diagnostic history must not certify it as healthy.
-2. Wait for registration (valid positive connection metrics) and a freshly queried `/quicktunnel` URL from the current generation. Fresh means observed after this restart, not necessarily a different hostname. Named tunnels use the current configured hostname instead.
-3. Verify local and candidate public WebSocket upgrades before accepting the recovered endpoint. Abort publication on generation/configuration changes, failed verification or shutdown.
-4. Commit the current-generation endpoint through the controller/service publication path. Serialize endpoint snapshots and mailbox writes so an older asynchronous publication cannot overwrite a newer endpoint configuration, even with a higher mailbox counter. Preserve monotonically increasing per-pairing counters; counters alone do not prevent stale-content races.
+Run `node --test <skill-directory>/scripts/watchdog-*.test.mjs`. Tests use virtual time and local
+HTTP/WS fixtures: dead-but-alive tunnel decisions, origin/global-offline suppression, unknown
+metrics, healthy-HA/public failure, restart budget/cooldown persistence, cancellation, timeout,
+wake and clock rollback, stale URLs, correct 101 validation, and size bounds. They do not restart
+the live tunnel.
 
-Keep existing pairings, desktop identity and Noise/mailbox keys. Address recovery does not require re-pairing. It also does not guarantee phone reconnection: desktop mailbox publication requires available iCloud Drive, and the phone needs its selected, accessible iCloud `Documents/Yachiyo` recovery folder and completed sync. Without that setup, do not claim a rotated quick URL automatically reaches the phone. Health, endpoint acceptance, mailbox write and phone reconnection are separate outcomes.
-
-## Acceptance tests and diagnostics
-
-Use fake clocks, deterministic jitter and injected metrics/upgrade/command adapters; policy tests must use no network, real launchctl or installed configuration roots.
-
-- Reproduce healthy local HTTP 101 + remote HTTP 530/CF1033 + valid zero connections; recover only after grace and the consecutive threshold.
-- Keep healthy connections with a transient public failure restart-free; treat unavailable/malformed metrics as unknown.
-- Verify origin failure, disabled remote access, sleep and global connectivity suppression, plus wake grace and automatic cooldown resumption.
-- Prove singleflight, probe cancellation, bounded command timeouts, backoff and the three-per-15-minute budget, including failed restarts and delayed timer ticks.
-- Resolve old probes/publications after a restart, configuration change and stop; none may overwrite the current generation. Require registration and fresh URL verification before publishing; ensure serialized mailbox counters and endpoint contents progress together.
-- Preserve pairings/keys and named hostname configuration. Cover absent iCloud/folder access without promising phone recovery. Assert no writes to other configuration roots, user cloudflared config, installed skills or unrelated agents.
-
-Extend `tunnelSupervisor.test.ts`, `remoteController.test.ts`, `remoteService.test.ts` and `mailboxWriter.test.ts` at those module boundaries. Log signal classifications, generation, phase, suppression reason, attempt count and next eligible retry time without pairing secrets. Tests should distinguish connector recovery from successful endpoint publication and eventual phone recovery.
+After installation, verify a fresh observation and another scheduled sample after startup grace.
+Do not deliberately break a healthy user connection just to manufacture a recovery log. A live
+fault-injection restart changes a quick address and needs explicit approval; distinguish simulated
+policy verification, a live healthy probe, and an actually observed recovery in the report.

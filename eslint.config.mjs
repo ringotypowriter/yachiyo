@@ -50,5 +50,12 @@ export default defineConfig(
       'yachiyo/max-typescript-file-lines': 'off'
     }
   },
+  {
+    // Bundled scripts run directly in Node; TypeScript return annotations are not valid JavaScript.
+    files: ['packages/core-skills/core-skills/**/scripts/**/*.mjs'],
+    rules: {
+      '@typescript-eslint/explicit-function-return-type': 'off'
+    }
+  },
   eslintConfigPrettier
 )
