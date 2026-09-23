@@ -32,7 +32,8 @@ final class NewThreadViewController: UIViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         title = String(localized: "New thread")
-        view.backgroundColor = YachiyoMaterialKit.supportsLiquidGlass ? .clear : .yachiyo(.canvas)
+        view.backgroundColor = .yachiyo(.canvas)
+        navigationItem.largeTitleDisplayMode = .never
         navigationItem.leftBarButtonItem = UIBarButtonItem(systemItem: .cancel, primaryAction: UIAction { [weak self] _ in
             self?.dismiss(animated: true)
         })
@@ -76,7 +77,12 @@ final class NewThreadViewController: UIViewController {
         }, for: .touchUpInside)
         let controls = UIStackView(arrangedSubviews: [modeButton, modelButton, privacyButton])
         controls.spacing = 8
-        controls.distribution = .fillProportionally
+        controls.distribution = .fill
+        for button in [modeButton, privacyButton] {
+            button.setContentHuggingPriority(.required, for: .horizontal)
+            button.setContentCompressionResistancePriority(.required, for: .horizontal)
+        }
+        modelButton.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         errorLabel.font = YachiyoFonts.caption()
         errorLabel.textColor = .yachiyo(.dangerStrong)
         errorLabel.numberOfLines = 0
@@ -85,7 +91,14 @@ final class NewThreadViewController: UIViewController {
         stack.axis = .vertical
         stack.spacing = 14
         stack.translatesAutoresizingMaskIntoConstraints = false
-        view.addSubview(stack)
+        // Options must scroll rather than compress the manually laid-out composer when the
+        // keyboard or an iPad multitasking window leaves little vertical space.
+        let optionsScroll = UIScrollView()
+        optionsScroll.translatesAutoresizingMaskIntoConstraints = false
+        optionsScroll.contentInsetAdjustmentBehavior = .never
+        optionsScroll.keyboardDismissMode = .interactive
+        optionsScroll.addSubview(stack)
+        view.addSubview(optionsScroll)
 
         composer.delegate = self
         composer.placeholder = String(localized: "Message Yachiyo…")
@@ -93,13 +106,19 @@ final class NewThreadViewController: UIViewController {
         composer.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(composer)
         NSLayoutConstraint.activate([
-            stack.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 12),
-            stack.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 20),
-            stack.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -20),
+            optionsScroll.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
+            optionsScroll.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor),
+            optionsScroll.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor),
+            optionsScroll.bottomAnchor.constraint(equalTo: composer.topAnchor),
+            stack.topAnchor.constraint(equalTo: optionsScroll.contentLayoutGuide.topAnchor, constant: 12),
+            stack.leadingAnchor.constraint(equalTo: optionsScroll.contentLayoutGuide.leadingAnchor, constant: 20),
+            stack.trailingAnchor.constraint(equalTo: optionsScroll.contentLayoutGuide.trailingAnchor, constant: -20),
+            stack.bottomAnchor.constraint(equalTo: optionsScroll.contentLayoutGuide.bottomAnchor, constant: -12),
+            stack.widthAnchor.constraint(equalTo: optionsScroll.frameLayoutGuide.widthAnchor, constant: -40),
             composer.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 2),
             composer.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -2),
             composer.bottomAnchor.constraint(equalTo: view.keyboardLayoutGuide.topAnchor),
-            composer.topAnchor.constraint(greaterThanOrEqualTo: stack.bottomAnchor, constant: 12),
+            composer.topAnchor.constraint(greaterThanOrEqualTo: view.safeAreaLayoutGuide.topAnchor),
         ])
         updateButtons()
     }

@@ -342,8 +342,9 @@ final class InboxViewController: UIViewController {
             }
         }
         let container = UINavigationController(rootViewController: controller)
+        container.modalPresentationStyle = .pageSheet
         YachiyoMaterialKit.prepareZoomTransition(for: container, from: newItem)
-        YachiyoMaterialKit.configureSheet(container, detents: [.medium(), .large()])
+        YachiyoMaterialKit.configureSheet(container, detents: [.large()])
         present(container, animated: true)
     }
 
