@@ -13,7 +13,7 @@
   "homepage": "https://github.com/ringotypowriter/yachiyo",
   "lint-staged": {
     "*.{js,jsx,ts,tsx,mjs,cjs,json,md,yaml,yml}": [
-      "oxfmt --write"
+      "oxfmt --write --no-error-on-unmatched-pattern"
     ]
   },
   "scripts": {

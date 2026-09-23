@@ -57,7 +57,7 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: sh.ringo.yachiyo.remote
         CODE_SIGN_STYLE: Automatic
-        ASSETCATALOG_COMPILER_APPICON_NAME: ""
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
   YachiyoRemoteUITests:
     type: bundle.ui-testing
     platform: iOS
