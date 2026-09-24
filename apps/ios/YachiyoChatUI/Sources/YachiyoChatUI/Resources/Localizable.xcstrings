@@ -10,9 +10,6 @@
     "Accepted" : {
 
     },
-    "Add Image" : {
-
-    },
     "Answered" : {
 
     },
@@ -357,9 +354,6 @@
         }
       }
     },
-    "Photo Library" : {
-
-    },
     "Preparing Transcript..." : {
       "localizations" : {
         "zh-Hans" : {
@@ -392,6 +386,12 @@
 
     },
     "Sending…" : {
+
+    },
+    "Show %lld earlier tool calls" : {
+
+    },
+    "Show fewer tool calls" : {
 
     },
     "Some messages have been removed to fit the model context length." : {
