@@ -44,17 +44,29 @@ final class RemoteFilePreviewController: UIViewController, QLPreviewControllerDa
                 let file = try await loader()
                 try Task.checkCancellation()
                 guard let self else { return }
-                guard let data = Data(base64Encoded: file.base64), data.count <= 6 * 1024 * 1024 else {
-                    throw CocoaError(.fileReadCorruptFile)
+                let directory = temporaryDirectory
+                let work = Task.detached(priority: .userInitiated) {
+                    try Task.checkCancellation()
+                    guard let data = Data(base64Encoded: file.base64), data.count <= 6 * 1024 * 1024 else {
+                        throw CocoaError(.fileReadCorruptFile)
+                    }
+                    // Never trust a remote filename as a phone-local path.
+                    let filename = URL(fileURLWithPath: file.filename).lastPathComponent
+                    guard !filename.isEmpty, filename != ".", filename != ".." else { throw CocoaError(.fileReadInvalidFileName) }
+                    try Task.checkCancellation()
+                    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+                    let url = directory.appendingPathComponent(filename)
+                    try data.write(to: url, options: .atomic)
+                    return url
                 }
-                // Never trust a remote filename as a phone-local path.
-                let filename = URL(fileURLWithPath: file.filename).lastPathComponent
-                guard !filename.isEmpty, filename != ".", filename != ".." else { throw CocoaError(.fileReadInvalidFileName) }
-                try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
-                let url = temporaryDirectory.appendingPathComponent(filename)
-                try data.write(to: url, options: .atomic)
+                let url = try await withTaskCancellationHandler {
+                    try await work.value
+                } onCancel: {
+                    work.cancel()
+                }
+                try Task.checkCancellation()
                 fileURL = url
-                title = filename
+                title = url.lastPathComponent
                 let preview = QLPreviewController()
                 preview.dataSource = self
                 addChild(preview)
@@ -66,6 +78,7 @@ final class RemoteFilePreviewController: UIViewController, QLPreviewControllerDa
             } catch is CancellationError {
                 // Dismissing a preview must not present a late result.
             } catch {
+                guard !Task.isCancelled else { return }
                 guard let self else { return }
                 spinner.removeFromSuperview()
                 let label = UILabel()

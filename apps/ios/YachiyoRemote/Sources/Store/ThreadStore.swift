@@ -132,6 +132,7 @@ final class ThreadStore: ChatMessageSource {
     // MARK: Loading
 
     func open() async {
+        guard !Task.isCancelled else { return }
         isOpen = true
         store.setOpenThread(desktopId: desktopId, threadId: threadId)
         await reloadIfNeeded()
@@ -161,7 +162,7 @@ final class ThreadStore: ChatMessageSource {
     func reload(force: Bool = true) async {
         guard isOpen, let link = store.link(for: desktopId), link.state == .online else { return }
         // Opening a scope must complete before its snapshot request starts.
-        guard await link.waitForWatch(threadId: threadId), isOpen else { return }
+        guard await link.waitForWatch(threadId: threadId), isOpen, !Task.isCancelled else { return }
         guard loadToken == nil, force || needsReload || detail == nil else { return }
         needsReload = true
         store.dirtyThread(desktopId: desktopId, threadId: threadId)
@@ -189,7 +190,7 @@ final class ThreadStore: ChatMessageSource {
             // Current plans live in a workspace file, not necessarily in a marker message.
             // A failed preview read must not hide the pending review actions.
             var planContent: String?
-            if loaded.pendingPlan {
+            if loaded.pendingPlan, isOpen, loadToken == token, !Task.isCancelled {
                 let plan: RemotePlanReadOutput? = try? await store.call(desktopId, "plan.read", ThreadRefInput(threadId: threadId))
                 planContent = plan?.content
             }

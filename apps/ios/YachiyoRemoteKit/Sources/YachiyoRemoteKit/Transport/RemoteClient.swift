@@ -42,13 +42,24 @@ public struct RemoteClientIdentity: Sendable {
 /// One authenticated, encrypted connection to a desktop: Noise handshake, then JSON-RPC in
 /// `RpcMessage` frames (see packages/shared/src/rpc/rpcTransport.ts).
 public final class RemoteClient: @unchecked Sendable {
+    private struct PendingCall {
+        let continuation: CheckedContinuation<Data, Error>
+        let timeout: Task<Void, Never>
+    }
+
+    private struct OutboundCall {
+        let id: Int
+        let plaintext: Data
+    }
+
     private let channel: any WebSocketChannel
     private let transport: NoiseTransport
     let codec: RemoteMessageCodec
     private let lock = NSLock()
     private var nextId = 1
-    private var pending: [Int: CheckedContinuation<Data, Error>] = [:]
-    private var outbound: [Data] = []
+    private var pending: [Int: PendingCall] = [:]
+    private var outbound: [OutboundCall] = []
+    private let callTimeout: Duration
     private var sending = false
     private var closed = false
     private var grantContinuation: CheckedContinuation<PairingGrant, Error>?
@@ -59,10 +70,11 @@ public final class RemoteClient: @unchecked Sendable {
     /// Yields once when the connection ends, with the error that ended it (nil when closed locally).
     public let closures: AsyncStream<Error?>
 
-    init(channel: any WebSocketChannel, transport: NoiseTransport, codec: RemoteMessageCodec = .legacy) {
+    init(channel: any WebSocketChannel, transport: NoiseTransport, codec: RemoteMessageCodec = .legacy, callTimeout: Duration = .seconds(15)) {
         self.channel = channel
         self.transport = transport
         self.codec = codec
+        self.callTimeout = callTimeout
         (pushes, pushContinuation) = AsyncStream.makeStream(bufferingPolicy: .unbounded)
         (closures, closeContinuation) = AsyncStream.makeStream(bufferingPolicy: .bufferingNewest(1))
         Task { await self.receiveLoop() }
@@ -143,20 +155,35 @@ public final class RemoteClient: @unchecked Sendable {
         let message: [String: Any] = ["kind": "rpc:request", "id": id, "method": method, "args": [input]]
         let plaintext = try JSONSerialization.data(withJSONObject: message)
         guard plaintext.count <= remoteMaxMessageBytes else { throw RemoteRequestError.messageTooLarge }
-        return try await withCheckedThrowingContinuation { continuation in
-            let (rejected, startSending): (Bool, Bool) = lock.withLock {
-                if closed { return (true, false) }
-                pending[id] = continuation
-                outbound.append(plaintext)
-                if sending { return (false, false) }
-                sending = true
-                return (false, true)
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                let (rejection, startSending): (Error?, Bool) = lock.withLock {
+                    if Task.isCancelled { return (CancellationError(), false) }
+                    if closed { return (WebSocketChannelError.closed(code: 1000), false) }
+                    let timeout = Task { [self] in
+                        do { try await Task.sleep(for: callTimeout) } catch { return }
+                        if fail(URLError(.timedOut), ifPending: id) { channel.close() }
+                    }
+                    pending[id] = PendingCall(continuation: continuation, timeout: timeout)
+                    outbound.append(OutboundCall(id: id, plaintext: plaintext))
+                    if sending { return (nil, false) }
+                    sending = true
+                    return (nil, true)
+                }
+                if let rejection {
+                    continuation.resume(throwing: rejection)
+                } else if startSending {
+                    Task { await self.sendLoop() }
+                }
             }
-            if rejected {
-                continuation.resume(throwing: WebSocketChannelError.closed(code: 1000))
-                return
+        } onCancel: {
+            let call = lock.withLock { () -> PendingCall? in
+                guard let call = pending.removeValue(forKey: id) else { return nil }
+                outbound.removeAll { $0.id == id }
+                return call
             }
-            if startSending { Task { await self.sendLoop() } }
+            call?.timeout.cancel()
+            call?.continuation.resume(throwing: CancellationError())
         }
     }
 
@@ -168,7 +195,7 @@ public final class RemoteClient: @unchecked Sendable {
                 sending = false
                 return nil
             }
-            return outbound.removeFirst()
+            return outbound.removeFirst().plaintext
         }) {
             do {
                 try await channel.send(transport.encrypt(codec.encode(plaintext)))
@@ -218,13 +245,19 @@ public final class RemoteClient: @unchecked Sendable {
         switch kind {
         case "rpc:response":
             guard let id = message["id"] as? Int else { return }
-            let continuation = lock.withLock { pending.removeValue(forKey: id) }
+            let call = lock.withLock { pending.removeValue(forKey: id) }
+            call?.timeout.cancel()
             if message["ok"] as? Bool == true {
                 let value = message["value"] ?? NSNull()
-                continuation?.resume(returning: try JSONSerialization.data(withJSONObject: value, options: [.fragmentsAllowed]))
+                guard let call else { return }
+                do {
+                    call.continuation.resume(returning: try JSONSerialization.data(withJSONObject: value, options: [.fragmentsAllowed]))
+                } catch {
+                    call.continuation.resume(throwing: error)
+                }
             } else {
                 let error = message["error"] as? [String: Any]
-                continuation?.resume(throwing: RemoteCallError(
+                call?.continuation.resume(throwing: RemoteCallError(
                     name: error?["name"] as? String ?? "RemoteInternalError",
                     message: error?["message"] as? String ?? "Unknown error"
                 ))
@@ -251,9 +284,10 @@ public final class RemoteClient: @unchecked Sendable {
         }
     }
 
-    private func fail(_ error: Error?) {
-        let (waiting, grantWaiter): ([CheckedContinuation<Data, Error>], CheckedContinuation<PairingGrant, Error>?) = lock.withLock {
-            if closed { return ([], nil) }
+    @discardableResult
+    private func fail(_ error: Error?, ifPending id: Int? = nil) -> Bool {
+        let result: ([PendingCall], CheckedContinuation<PairingGrant, Error>?)? = lock.withLock {
+            if closed || (id.map { pending[$0] == nil } ?? false) { return nil }
             closed = true
             defer {
                 pending.removeAll()
@@ -263,11 +297,16 @@ public final class RemoteClient: @unchecked Sendable {
             }
             return (Array(pending.values), grantContinuation)
         }
+        guard let (waiting, grantWaiter) = result else { return false }
         let reason = error ?? WebSocketChannelError.closed(code: 1000)
-        for continuation in waiting { continuation.resume(throwing: reason) }
+        for call in waiting {
+            call.timeout.cancel()
+            call.continuation.resume(throwing: reason)
+        }
         grantWaiter?.resume(throwing: reason)
         pushContinuation.finish()
         closeContinuation.yield(error)
         closeContinuation.finish()
+        return true
     }
 }

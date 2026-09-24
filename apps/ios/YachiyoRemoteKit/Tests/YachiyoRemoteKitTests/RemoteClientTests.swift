@@ -176,6 +176,96 @@ final class RemoteClientTests: XCTestCase {
         XCTAssertEqual(String(data: secondResult, encoding: .utf8), "\"second\"")
     }
 
+    func testCancellingQueuedCallDropsItsFrameWithoutClosingConnection() async throws {
+        let channel = SuspendedSendChannel()
+        let client = RemoteClient(channel: channel, transport: channel.clientTransport)
+        defer { client.close() }
+        let first = Task { try await client.callRaw("first", input: [:]) }
+        await fulfillment(of: [channel.firstSendStarted], timeout: 2)
+        let queued = Task { try await client.callRaw("cancelled", input: [:]) }
+        // Keep the first send blocked while the second call enqueues.
+        try await Task.sleep(for: .milliseconds(30))
+        queued.cancel()
+        do {
+            _ = try await queued.value
+            XCTFail("Cancelled queued call must fail promptly")
+        } catch {
+            XCTAssertTrue(error is CancellationError)
+        }
+        channel.releaseFirstSend()
+        let firstResult = try await first.value
+        XCTAssertEqual(String(data: firstResult, encoding: .utf8), "\"first\"")
+        let later = try await client.callRaw("later", input: [:])
+        XCTAssertEqual(String(data: later, encoding: .utf8), "\"later\"")
+        XCTAssertEqual(channel.sentMethods, ["first", "later"])
+    }
+
+    func testAlreadyCancelledCallerNeverQueuesAFrame() async throws {
+        let channel = SuspendedSendChannel()
+        let client = RemoteClient(channel: channel, transport: channel.clientTransport)
+        defer { client.close() }
+        let cancelled = Task {
+            withUnsafeCurrentTask { $0?.cancel() }
+            return try await client.callRaw("cancelled", input: [:])
+        }
+        do {
+            _ = try await cancelled.value
+            XCTFail("Already cancelled call must fail")
+        } catch {
+            XCTAssertTrue(error is CancellationError)
+        }
+        XCTAssertEqual(channel.sendCount, 0)
+        let later = Task { try await client.callRaw("later", input: [:]) }
+        await fulfillment(of: [channel.firstSendStarted], timeout: 2)
+        channel.releaseFirstSend()
+        let result = try await later.value
+        XCTAssertEqual(String(data: result, encoding: .utf8), "\"later\"")
+    }
+
+    func testCancellingInFlightCallDoesNotDropEncryptedSendOrCloseConnection() async throws {
+        let channel = SuspendedSendChannel()
+        let client = RemoteClient(channel: channel, transport: channel.clientTransport)
+        defer { client.close() }
+        let first = Task { try await client.callRaw("mutation", input: [:]) }
+        await fulfillment(of: [channel.firstSendStarted], timeout: 2)
+        first.cancel()
+        do {
+            _ = try await first.value
+            XCTFail("Cancelled caller must stop waiting")
+        } catch {
+            XCTAssertTrue(error is CancellationError)
+        }
+        channel.releaseFirstSend()
+        let later = try await client.callRaw("later", input: [:])
+        XCTAssertEqual(String(data: later, encoding: .utf8), "\"later\"")
+        XCTAssertEqual(channel.sentMethods, ["mutation", "later"])
+    }
+
+    func testSilentSocketTimesOutAndReleasesAllPendingCalls() async {
+        let channel = SuspendedSendChannel(suppressReplies: true)
+        let client = RemoteClient(channel: channel, transport: channel.clientTransport, callTimeout: .milliseconds(120))
+        defer { client.close() }
+        let first = Task { try await client.callRaw("first", input: [:]) }
+        await fulfillment(of: [channel.firstSendStarted], timeout: 2)
+        let second = Task { try await client.callRaw("second", input: [:]) }
+        channel.releaseFirstSend()
+        let completed = expectation(description: "both silent calls terminate")
+        completed.expectedFulfillmentCount = 2
+        for task in [first, second] {
+            Task {
+                defer { completed.fulfill() }
+                do {
+                    _ = try await task.value
+                    XCTFail("Silent socket must time out")
+                } catch {
+                    XCTAssertEqual((error as? URLError)?.code, .timedOut)
+                }
+            }
+        }
+        await fulfillment(of: [channel.didClose, completed], timeout: 2)
+        XCTAssertEqual(channel.sentMethods, ["first", "second"])
+    }
+
     func testSendFailureResumesPendingCallsAndRejectsLaterCalls() async throws {
         let channel = SuspendedSendChannel(sendError: .unexpectedTextFrame)
         let client = RemoteClient(channel: channel, transport: channel.clientTransport)
@@ -242,16 +332,20 @@ private final class SuspendedSendChannel: WebSocketChannel, @unchecked Sendable 
     private let lock = NSLock()
     private var sends = 0
     var sendCount: Int { lock.withLock { sends } }
+    private var methods: [String] = []
+    var sentMethods: [String] { lock.withLock { methods } }
     private var first = true
     private var suspended: CheckedContinuation<Void, Never>?
     private var closed = false
     private let sendError: WebSocketChannelError?
+    private let suppressReplies: Bool
     private let replies: AsyncThrowingStream<Data, Error>
     private let replyContinuation: AsyncThrowingStream<Data, Error>.Continuation
     private var iterator: AsyncThrowingStream<Data, Error>.Iterator
 
-    init(sendError: WebSocketChannelError? = nil, codec: RemoteMessageCodec = .legacy) {
+    init(sendError: WebSocketChannelError? = nil, codec: RemoteMessageCodec = .legacy, suppressReplies: Bool = false) {
         self.sendError = sendError
+        self.suppressReplies = suppressReplies
         self.codec = codec
         (replies, replyContinuation) = AsyncThrowingStream.makeStream()
         iterator = replies.makeAsyncIterator()
@@ -278,6 +372,8 @@ private final class SuspendedSendChannel: WebSocketChannel, @unchecked Sendable 
         let encoded = try peer.decrypt(data)
         if encoded.first == 1 { lock.withLock { compressedSends += 1 } }
         let request = try JSONSerialization.jsonObject(with: codec.decode(encoded)) as! [String: Any]
+        lock.withLock { methods.append(request["method"] as! String) }
+        if suppressReplies { return }
         let isHello = request["method"] as? String == "remote.hello"
         let value: Any = isHello ? [
             "activeRunEnterBehavior": "enter-steers", "appVersion": "1", "deviceName": "Mac",

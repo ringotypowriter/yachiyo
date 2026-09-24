@@ -42,6 +42,7 @@ final class ThreadViewController: UIViewController {
     private var isAcceptingPlan = false
     private var isSwitchingBranch = false
     private var isOpeningPlan = false
+    private var openTask: Task<Void, Never>?
 
     init(desktopId: String, threadId: String) {
         thread = ThreadStore(desktopId: desktopId, threadId: threadId)
@@ -69,12 +70,17 @@ final class ThreadViewController: UIViewController {
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
         navigationController?.setToolbarHidden(true, animated: animated)
-        Task { await thread.open() }
+        openTask?.cancel()
+        openTask = Task { await thread.open() }
     }
 
     override func viewDidDisappear(_ animated: Bool) {
         super.viewDidDisappear(animated)
-        if presentedViewController == nil { thread.close() }
+        if presentedViewController == nil {
+            openTask?.cancel()
+            openTask = nil
+            thread.close()
+        }
     }
 
     override func viewDidLayoutSubviews() {

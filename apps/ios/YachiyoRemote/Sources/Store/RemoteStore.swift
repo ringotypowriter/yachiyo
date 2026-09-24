@@ -300,10 +300,12 @@ final class RemoteStore {
         for link in targets where link.state != .online && link.state != .protocolMismatch {
             retryConnection(desktopId: link.id)
         }
-        for link in targets where link.state == .online {
-            caches[link.id]?.needsInboxRefresh = true
-            if inboxLoadTokens[link.id] != nil { inboxInvalidations.insert(link.id) }
-            await reloadSummaries(for: link)
+        await withTaskGroup(of: Void.self) { group in
+            for link in targets where link.state == .online {
+                caches[link.id]?.needsInboxRefresh = true
+                if inboxLoadTokens[link.id] != nil { inboxInvalidations.insert(link.id) }
+                group.addTask { await self.reloadSummaries(for: link) }
+            }
         }
     }
 

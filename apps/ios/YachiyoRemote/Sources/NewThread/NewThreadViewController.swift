@@ -34,6 +34,8 @@ final class NewThreadViewController: UIViewController {
     private var deviceIds: [String] = []
     private var optionsDesktopId: String?
     private var optionsToken = UUID()
+    private var optionsLoadTask: Task<Void, Never>?
+    private var iconLoadTask: Task<Void, Never>?
     private var isLoadingOptions = false
     private var isStarting = false
     private let retryButton = UIButton(type: .system)
@@ -66,7 +68,21 @@ final class NewThreadViewController: UIViewController {
             .receive(on: RunLoop.main)
             .sink { [weak self] desktops in self?.synchronizeDevices(desktops) }
             .store(in: &cancellables)
-        Task { await loadOptions() }
+        startOptionsLoad()
+    }
+
+    override func viewDidDisappear(_ animated: Bool) {
+        super.viewDidDisappear(animated)
+        if isBeingDismissed || navigationController?.isBeingDismissed == true {
+            optionsLoadTask?.cancel()
+            iconLoadTask?.cancel()
+        }
+    }
+
+    private func startOptionsLoad() {
+        optionsLoadTask?.cancel()
+        iconLoadTask?.cancel()
+        optionsLoadTask = Task { await loadOptions() }
     }
 
     private func layout() {
@@ -74,7 +90,7 @@ final class NewThreadViewController: UIViewController {
         deviceControl.addAction(UIAction { [weak self] _ in
             guard let self else { return }
             desktopId = deviceIds[safe: deviceControl.selectedSegmentIndex]
-            Task { await self.loadOptions() }
+            startOptionsLoad()
         }, for: .valueChanged)
         essentialsRow.axis = .horizontal
         essentialsRow.spacing = 10
@@ -114,7 +130,7 @@ final class NewThreadViewController: UIViewController {
         retryButton.setTitle(String(localized: "Retry loading options"), for: .normal)
         retryButton.isHidden = true
         retryButton.addAction(UIAction { [weak self] _ in
-            Task { await self?.loadOptions() }
+            self?.startOptionsLoad()
         }, for: .touchUpInside)
         let stack = UIStackView(arrangedSubviews: [deviceControl, essentialsScroll, workspaceButton, controls, errorLabel, retryButton])
         stack.axis = .vertical
@@ -164,7 +180,9 @@ final class NewThreadViewController: UIViewController {
         if previous != desktopId || targetDesktopId != nil {
             optionsToken = UUID()
             isLoadingOptions = false
-            if online.contains(where: { $0.id == desktopId }) { Task { await self.loadOptions() } }
+            optionsLoadTask?.cancel()
+            iconLoadTask?.cancel()
+            if online.contains(where: { $0.id == desktopId }) { startOptionsLoad() }
             updateInteraction()
         }
     }
@@ -178,6 +196,8 @@ final class NewThreadViewController: UIViewController {
         deviceControl.selectedSegmentIndex = online.firstIndex { $0.id == desktopId } ?? 0
         deviceControl.isHidden = targetDesktopId != nil || online.count < 2
         if online.isEmpty {
+            optionsLoadTask?.cancel()
+            iconLoadTask?.cancel()
             optionsDesktopId = nil
             optionsToken = UUID()
             isLoadingOptions = false
@@ -198,6 +218,7 @@ final class NewThreadViewController: UIViewController {
     }
 
     private func loadOptions() async {
+        guard !Task.isCancelled else { return }
         guard let desktopId, !isStarting, store.desktops.contains(where: { $0.id == desktopId && $0.state == .online }) else { return }
         let token = UUID()
         optionsToken = token
@@ -221,7 +242,7 @@ final class NewThreadViewController: UIViewController {
         async let workspaces: RemoteWorkspacesListRecentOutput? = try? store.call(desktopId, "workspaces.listRecent", EmptyInput())
         async let models: RemoteModelsListSelectableOutput? = try? store.call(desktopId, "models.listSelectable", EmptyInput())
         let results = await (essentials, workspaces, models)
-        guard optionsToken == token, self.desktopId == desktopId else { return }
+        guard optionsToken == token, self.desktopId == desktopId, !Task.isCancelled else { return }
         isLoadingOptions = false
         if let result = results.0 {
             let previous = Dictionary(uniqueKeysWithValues: self.essentials.map { ($0.id, $0) })
@@ -247,12 +268,12 @@ final class NewThreadViewController: UIViewController {
         retryButton.isHidden = !failed
         rebuildEssentials()
         updateButtons()
-        Task { await loadEssentialImages(desktopId: desktopId, token: token) }
+        iconLoadTask = Task { await loadEssentialImages(desktopId: desktopId, token: token) }
     }
 
     private func loadEssentialImages(desktopId: String, token: UUID) async {
         for essential in essentials where essential.hasImageIcon == true {
-            guard optionsToken == token, self.desktopId == desktopId else { return }
+            guard optionsToken == token, self.desktopId == desktopId, !Task.isCancelled else { return }
             let data = await RemoteEssentialIconCache.shared.imageData(
                 desktopId: desktopId, essentialId: essential.id, iconVersion: essential.iconVersion
             ) { [store] in
@@ -260,7 +281,7 @@ final class NewThreadViewController: UIViewController {
                     desktopId, "essentials.getIcon", RemoteEssentialsGetIconInput(essentialId: essential.id)
                 )
             }
-            guard optionsToken == token, self.desktopId == desktopId else { return }
+            guard optionsToken == token, self.desktopId == desktopId, !Task.isCancelled else { return }
             guard let data,
                   let image = UIImage(data: data)?.preparingThumbnail(of: CGSize(width: 32, height: 32)) else { continue }
             essentialImages[essential.id] = image.withRenderingMode(.alwaysOriginal)
@@ -269,14 +290,14 @@ final class NewThreadViewController: UIViewController {
     }
 
     private func updateInteraction() {
-        let enabled = store.desktops.contains { $0.id == desktopId && $0.state == .online } && !isStarting && !isLoadingOptions
+        let enabled = store.desktops.contains { $0.id == desktopId && $0.state == .online } && !isStarting
         deviceControl.isEnabled = !isStarting
         workspaceButton.isEnabled = enabled
         modelButton.isEnabled = enabled && !models.isEmpty
         modeButton.isEnabled = enabled
         privacyButton.isEnabled = enabled
         essentialsRow.isUserInteractionEnabled = enabled
-        retryButton.isEnabled = enabled
+        retryButton.isEnabled = enabled && !isLoadingOptions
         navigationItem.leftBarButtonItem?.isEnabled = !isStarting
         isModalInPresentation = isStarting
         navigationController?.isModalInPresentation = isStarting
@@ -379,12 +400,6 @@ final class NewThreadViewController: UIViewController {
 extension NewThreadViewController: ChatInputDelegate {
     func chatInputDidSubmit(_: ChatInputView, object: ChatInputContent, completion: @escaping @Sendable (Bool) -> Void) {
         guard !isStarting else { completion(false); return }
-        guard !isLoadingOptions else {
-            errorLabel.textColor = .secondaryLabel
-            errorLabel.text = String(localized: "Wait for options to finish loading before sending.")
-            completion(false)
-            return
-        }
         errorLabel.textColor = .yachiyo(.dangerStrong)
         guard let desktopId, store.desktops.contains(where: { $0.id == desktopId && $0.state == .online }) else {
             errorLabel.text = String(localized: "Your Mac is offline. Reconnect before sending. Your draft is kept.")
@@ -392,6 +407,11 @@ extension NewThreadViewController: ChatInputDelegate {
             return
         }
         isStarting = true
+        let selectedEssential = essentialId
+        let selectedWorkspace = workspacePath
+        let selectedModel = model
+        let selectedMode = runMode
+        let selectedPrivacy = privacy
         errorLabel.text = nil
         updateInteraction()
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
@@ -407,11 +427,11 @@ extension NewThreadViewController: ChatInputDelegate {
                 let ids = try await AttachmentUploader.upload(object.attachments, to: desktopId)
                 requestedCreation = true
                 let output: RemoteChatStartThreadOutput = try await store.call(desktopId, "chat.startThread", StartThreadInput(
-                    essentialId: essentialId,
-                    workspacePath: workspacePath,
-                    modelOverride: model.map { ModelOverrideInput(providerName: $0.providerName, model: $0.model) },
-                    runMode: runMode,
-                    privacyMode: privacy ? true : nil,
+                    essentialId: selectedEssential,
+                    workspacePath: selectedWorkspace,
+                    modelOverride: selectedModel.map { ModelOverrideInput(providerName: $0.providerName, model: $0.model) },
+                    runMode: selectedMode,
+                    privacyMode: selectedPrivacy ? true : nil,
                     content: object.text,
                     attachmentIds: ids.isEmpty ? nil : ids
                 ))
