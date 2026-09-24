@@ -45,6 +45,10 @@ class ControlPanel: EditorSectionView {
 
         for item in items {
             let button = GiantButton(title: item.title, icon: item.icon)
+            button.isAccessibilityElement = true
+            button.accessibilityTraits = .button
+            button.accessibilityLabel = item.title
+            button.accessibilityIdentifier = "composer.attachment.\(item.id)"
             button.alpha = 0
             button.actionBlock = { [weak self] in
                 guard let self else { return }

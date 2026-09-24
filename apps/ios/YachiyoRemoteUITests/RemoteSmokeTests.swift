@@ -295,13 +295,14 @@ final class RemoteSmokeTests: XCTestCase {
         capture("tool-details-preview")
         preview.swipeUp()
         app.navigationBars.buttons["Done"].tap()
-        let media = app.buttons["composer.media"]
+        let media = app.buttons["composer.more"]
         XCTAssertTrue(media.waitForExistence(timeout: 10))
         media.tap()
-        let library = app.buttons["Photo Library"]
+        let library = app.buttons["composer.attachment.photo"]
         XCTAssertTrue(library.waitForExistence(timeout: 10))
-        XCTAssertTrue(app.buttons["Camera"].exists)
-        capture("image-source-menu")
+        XCTAssertTrue(app.buttons["composer.attachment.camera"].exists)
+        XCTAssertTrue(app.buttons["composer.attachment.file"].exists)
+        capture("attachment-panel")
         library.tap()
         let photo = app.images.matching(NSPredicate(format: "label BEGINSWITH 'Photo' OR label BEGINSWITH 'Image'")).firstMatch
         XCTAssertTrue(photo.waitForExistence(timeout: 15), app.debugDescription)

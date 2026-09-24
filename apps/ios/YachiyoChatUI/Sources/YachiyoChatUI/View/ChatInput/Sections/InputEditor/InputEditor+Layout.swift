@@ -21,7 +21,6 @@ extension InputEditor {
 
     @objc private func switchToRequiredStatusEx() {
         doWithAnimation { [self] in
-            bossButton.transform = .identity
             moreButton.transform = .identity
             sendButton.transform = .identity
             voiceButton.transform = .identity
@@ -63,47 +62,32 @@ extension InputEditor {
             width: iconSize.width,
             height: iconSize.height
         )
-        voiceButton.alpha = 1
+        // A draft uses the send slot; do not reserve another 44 points for dictation.
+        // During a run the stop button still occupies the voice slot.
+        voiceButton.alpha = 0
 
         let textLayoutHeight = textLayoutHeight(textHeight.value)
         textView.frame = CGRect(
             x: moreButton.frame.maxX + iconSpacing,
             y: (bounds.height - textLayoutHeight) / 2,
-            width: voiceButton.frame.minX - moreButton.frame.maxX - iconSpacing * 2,
+            width: (isRunning ? voiceButton.frame.minX : sendButton.frame.minX) - moreButton.frame.maxX - iconSpacing * 2,
             height: textLayoutHeight
         )
         placeholderLabel.frame = textView.frame
-
-        bossButton.frame = CGRect(
-            x: 0 - inset.left - iconSize.width,
-            y: inset.top,
-            width: iconSize.width,
-            height: iconSize.height
-        )
-        bossButton.alpha = 0
     }
 
     func layoutAsPreEditingText() {
-        defer { bossButton.transform = CGAffineTransform(scaleX: 0.5, y: 0.5) }
         defer { sendButton.transform = CGAffineTransform(scaleX: 0.5, y: 0.5) }
 
-        bossButton.frame = CGRect(
-            x: 0 - inset.left - iconSize.width,
-            y: inset.top,
-            width: iconSize.width,
-            height: iconSize.height
-        )
-        bossButton.alpha = 0
-
         moreButton.frame = CGRect(
-            x: bounds.width - inset.right - iconSize.width,
+            x: inset.left,
             y: inset.top,
             width: iconSize.width,
             height: iconSize.height
         )
         moreButton.alpha = 1
         voiceButton.frame = CGRect(
-            x: moreButton.frame.minX - iconSize.width - iconSpacing,
+            x: bounds.width - inset.right - iconSize.width,
             y: inset.top,
             width: iconSize.width,
             height: iconSize.height
@@ -111,9 +95,9 @@ extension InputEditor {
         voiceButton.alpha = 1
         let textLayoutHeight = textLayoutHeight(textHeight.value)
         textView.frame = CGRect(
-            x: inset.left,
+            x: moreButton.frame.maxX + iconSpacing,
             y: (bounds.height - textLayoutHeight) / 2,
-            width: voiceButton.frame.minX - inset.left - iconSpacing,
+            width: voiceButton.frame.minX - moreButton.frame.maxX - iconSpacing * 2,
             height: textLayoutHeight
         )
         textView.alpha = 1
@@ -129,46 +113,6 @@ extension InputEditor {
     }
 
     func layoutAsStandard() {
-        defer { sendButton.transform = CGAffineTransform(scaleX: 0.5, y: 0.5) }
-
-        bossButton.frame = CGRect(
-            x: inset.left,
-            y: inset.top,
-            width: iconSize.width,
-            height: iconSize.height
-        )
-        bossButton.alpha = 1
-        moreButton.frame = CGRect(
-            x: bounds.width - inset.right - iconSize.width,
-            y: inset.top,
-            width: iconSize.width,
-            height: iconSize.height
-        )
-        moreButton.alpha = 1
-        moreButton.transform = .identity
-        voiceButton.frame = CGRect(
-            x: moreButton.frame.minX - iconSize.width - iconSpacing,
-            y: inset.top,
-            width: iconSize.width,
-            height: iconSize.height
-        )
-        voiceButton.alpha = 1
-        let textLayoutHeight = textLayoutHeight(textHeight.value)
-        textView.frame = CGRect(
-            x: bossButton.frame.maxX + iconSpacing,
-            y: (bounds.height - textLayoutHeight) / 2,
-            width: voiceButton.frame.minX - bossButton.frame.maxX - iconSpacing * 2,
-            height: textLayoutHeight
-        )
-        textView.alpha = 1
-        placeholderLabel.frame = textView.frame
-
-        sendButton.frame = CGRect(
-            x: bounds.width + inset.right,
-            y: inset.top,
-            width: iconSize.width,
-            height: iconSize.height
-        )
-        sendButton.alpha = 0
+        layoutAsPreEditingText()
     }
 }

@@ -80,19 +80,34 @@ final class MediaMenuTests: XCTestCase {
     }
 
     @MainActor
-    func testImageEntryUsesTapPrimaryNativeMenu() throws {
+    func testOneAttachmentEntryStaysLeadingWhileTextGetsSendSpace() {
         let editor = InputEditor()
-        let button = editor.bossButton
-        XCTAssertTrue(button.showsMenuAsPrimaryAction)
-        XCTAssertEqual(button.accessibilityIdentifier, "composer.media")
-        XCTAssertNotNil(button.image(for: .normal))
-        let menu = try XCTUnwrap(button.menu)
-        let actions = menu.children.compactMap { $0 as? UIAction }
-        XCTAssertEqual(actions.map(\.identifier.rawValue), ["media.photoLibrary", "media.camera"])
-        let photos = try XCTUnwrap(actions.first)
-        let camera = try XCTUnwrap(actions.last)
-        XCTAssertFalse(photos.attributes.contains(.disabled))
-        XCTAssertEqual(camera.attributes.contains(.disabled), !UIImagePickerController.isSourceTypeAvailable(.camera))
+        editor.frame = CGRect(x: 0, y: 0, width: 320, height: 64)
+        for status in [InputEditor.LayoutStatus.standard, .preFocusText, .editingText] {
+            editor.layoutStatus = status
+            editor.layoutIfNeeded()
+            assertAttachmentEntryIsHittable(editor)
+            XCTAssertEqual(editor.moreButton.frame.minX, editor.inset.left)
+            XCTAssertGreaterThan(editor.textView.frame.minX, editor.moreButton.frame.maxX)
+            XCTAssertGreaterThan(editor.textView.frame.width, 100)
+        }
+        editor.layoutStatus = .editingText
+        editor.layoutIfNeeded()
+        XCTAssertEqual(editor.voiceButton.alpha, 0)
+        XCTAssertGreaterThan(editor.textView.frame.maxX, editor.voiceButton.frame.minX)
+        XCTAssertLessThan(editor.textView.frame.maxX, editor.sendButton.frame.minX)
+    }
+
+    @MainActor
+    func testAttachmentPanelOffersPhotosCameraAndFilesFromSamePlus() {
+        let input = ChatInputView()
+        XCTAssertEqual(input.controlPanel.subviews.compactMap(\.accessibilityIdentifier), [
+            "composer.attachment.camera", "composer.attachment.photo", "composer.attachment.file",
+        ])
+        input.refill(withText: "Comment", attachments: [])
+        input.inputEditor.moreButton.tapAction()
+        XCTAssertTrue(input.controlPanel.isPanelOpen.value)
+        XCTAssertEqual(input.inputEditor.textView.text, "Comment")
     }
 
     @MainActor
