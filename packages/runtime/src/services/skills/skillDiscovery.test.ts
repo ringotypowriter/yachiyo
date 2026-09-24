@@ -1,14 +1,168 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, rm, writeFile, mkdir } from 'node:fs/promises'
+import { mkdtemp, rm, writeFile, mkdir, symlink, readFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import test from 'node:test'
+import test, { type TestContext } from 'node:test'
 
 import { discoverSkills, isBundledSkillPath } from './skillDiscovery.ts'
 import { parseSkillPlatforms } from './skillDiscovery.ts'
 import { buildSkillRegistry } from './skillRegistry.ts'
 
 const isolatedHomeKeys = ['HOME', 'USERPROFILE', 'YACHIYO_HOME'] as const
+
+async function symlinkFixture(t: TestContext): Promise<{
+  home: string
+  workspace: string
+  skillsRoot: string
+  target: string
+}> {
+  const root = await mkdtemp(join(tmpdir(), 'yachiyo-skill-symlinks-'))
+  const home = join(root, 'home')
+  const workspace = join(root, 'workspace')
+  const skillsRoot = join(workspace, '.yachiyo', 'skills')
+  const target = join(root, 'target')
+  const restore = isolateSkillTestHome(home)
+  t.after(async () => {
+    restore()
+    await rm(root, { recursive: true, force: true })
+  })
+  await mkdir(skillsRoot, { recursive: true })
+  await mkdir(target)
+  return { home, workspace, skillsRoot, target }
+}
+
+test('discoverSkills follows skill folder links while retaining logical paths and relative assets', async (t) => {
+  const { workspace, skillsRoot, target } = await symlinkFixture(t)
+  await writeFile(join(target, 'SKILL.md'), 'Read [guide](guide.md).')
+  await writeFile(join(target, 'guide.md'), 'Linked guide')
+  const alias = join(skillsRoot, 'linked-skill')
+  await symlink(target, alias, 'dir')
+
+  const skills = await discoverSkills([workspace])
+  assert.equal(skills.length, 1)
+  assert.equal(skills[0]?.name, 'linked-skill')
+  assert.equal(skills[0]?.directoryPath, alias)
+  assert.equal(skills[0]?.skillFilePath, join(alias, 'SKILL.md'))
+  assert.equal(skills[0]?.rootPath, skillsRoot)
+  assert.equal(skills[0]?.scope, 'workspace')
+  assert.equal(skills[0]?.origin, 'workspace')
+  assert.equal(skills[0]?.autoEnabled, true)
+  assert.equal(await readFile(join(skills[0]!.directoryPath, 'guide.md'), 'utf8'), 'Linked guide')
+})
+
+test('discoverSkills follows SKILL.md links and uses the logical home folder origin', async (t) => {
+  const { home, target } = await symlinkFixture(t)
+  const core = join(home, '.yachiyo', 'skills', 'core', 'linked-core')
+  const custom = join(home, '.yachiyo', 'skills', 'custom', 'linked-custom')
+  await mkdir(core, { recursive: true })
+  await mkdir(custom, { recursive: true })
+  await writeFile(join(target, 'instructions.md'), 'No heading or frontmatter.')
+  await writeFile(join(target, 'custom.md'), 'Custom instructions.')
+  await writeFile(join(core, 'guide.md'), 'Logical sibling')
+  await symlink(join(target, 'instructions.md'), join(core, 'SKILL.md'), 'file')
+  await symlink(join(target, 'custom.md'), join(custom, 'SKILL.md'), 'file')
+
+  const skills = await discoverSkills()
+  assert.deepEqual(
+    skills.map(({ name, directoryPath, skillFilePath, origin }) => ({
+      name,
+      directoryPath,
+      skillFilePath,
+      origin
+    })),
+    [
+      {
+        name: 'linked-core',
+        directoryPath: core,
+        skillFilePath: join(core, 'SKILL.md'),
+        origin: 'bundled'
+      },
+      {
+        name: 'linked-custom',
+        directoryPath: custom,
+        skillFilePath: join(custom, 'SKILL.md'),
+        origin: 'custom'
+      }
+    ]
+  )
+  assert.equal(
+    await readFile(join(skills[0]!.directoryPath, 'guide.md'), 'utf8'),
+    'Logical sibling'
+  )
+})
+
+test('discoverSkills skips broken links and cycles without discarding valid siblings', async (t) => {
+  const { workspace, skillsRoot, target } = await symlinkFixture(t)
+  await writeFile(join(target, 'SKILL.md'), '# Valid linked skill')
+  await symlink(skillsRoot, join(target, 'ancestor'), 'dir')
+  await symlink(target, join(skillsRoot, 'valid'), 'dir')
+  await symlink('missing', join(skillsRoot, 'broken'), 'dir')
+  await symlink('self', join(skillsRoot, 'self'), 'dir')
+  await symlink('cycle-b', join(skillsRoot, 'cycle-a'), 'dir')
+  await symlink('cycle-a', join(skillsRoot, 'cycle-b'), 'dir')
+  await mkdir(join(skillsRoot, 'broken-file'))
+  await symlink('missing.md', join(skillsRoot, 'broken-file', 'SKILL.md'), 'file')
+  await mkdir(join(skillsRoot, 'cyclic-file'))
+  await symlink('SKILL.md', join(skillsRoot, 'cyclic-file', 'SKILL.md'), 'file')
+  await writeFile(join(skillsRoot, 'SKILL.md'), '# Root skill')
+
+  assert.deepEqual(
+    (await discoverSkills([workspace])).map((skill) => skill.name),
+    ['Root skill', 'Valid linked skill']
+  )
+})
+
+test('discoverSkills deduplicates real files across aliases and roots with first-root precedence', async (t) => {
+  const { home, workspace, skillsRoot, target } = await symlinkFixture(t)
+  await writeFile(join(target, 'SKILL.md'), 'Fallback name uses the winning alias.')
+  await symlink(target, join(skillsRoot, 'z-alias'), 'dir')
+  await symlink(target, join(skillsRoot, 'a-alias'), 'dir')
+  await mkdir(join(workspace, '.codex'), { recursive: true })
+  await symlink(target, join(workspace, '.codex', 'skills'), 'dir')
+  const homeAlias = join(home, '.yachiyo', 'skills', 'core', 'home-alias')
+  await mkdir(homeAlias, { recursive: true })
+  await symlink(join(target, 'SKILL.md'), join(homeAlias, 'SKILL.md'), 'file')
+
+  const skills = await discoverSkills([workspace])
+  assert.equal(skills.length, 1)
+  assert.equal(skills[0]?.name, 'a-alias')
+  assert.equal(skills[0]?.directoryPath, join(skillsRoot, 'a-alias'))
+  assert.equal(skills[0]?.origin, 'workspace')
+  assert.equal(skills[0]?.autoEnabled, true)
+})
+
+test('discoverSkills follows a discovery-root symlink with external origin', async (t) => {
+  const { workspace, target } = await symlinkFixture(t)
+  const rootPath = join(workspace, '.codex', 'skills')
+  await mkdir(join(workspace, '.codex'))
+  await writeFile(join(target, 'SKILL.md'), '# Root-linked skill')
+  await symlink(target, rootPath, 'dir')
+
+  const skills = await discoverSkills([workspace])
+  assert.equal(skills.length, 1)
+  assert.equal(skills[0]?.name, 'Root-linked skill')
+  assert.equal(skills[0]?.directoryPath, rootPath)
+  assert.equal(skills[0]?.skillFilePath, join(rootPath, 'SKILL.md'))
+  assert.equal(skills[0]?.rootPath, rootPath)
+  assert.equal(skills[0]?.origin, 'external')
+  assert.equal(skills[0]?.autoEnabled, undefined)
+})
+
+test('linked skills retain first-wins registry name precedence over distinct later files', async (t) => {
+  const { workspace, skillsRoot, target } = await symlinkFixture(t)
+  await writeFile(join(target, 'SKILL.md'), '# Shared name\n\nFirst root')
+  await symlink(target, join(skillsRoot, 'linked'), 'dir')
+  const laterRoot = join(workspace, '.agents', 'skills')
+  await mkdir(laterRoot, { recursive: true })
+  await writeFile(join(laterRoot, 'SKILL.md'), '# Shared name\n\nLater root')
+
+  const skills = await discoverSkills([workspace])
+  assert.equal(skills.length, 2)
+  const registry = buildSkillRegistry(skills, { platform: process.platform })
+  assert.equal(registry.length, 1)
+  assert.equal(registry[0]?.description, 'First root')
+  assert.equal(registry[0]?.directoryPath, join(skillsRoot, 'linked'))
+})
 
 function isolateSkillTestHome(homePath: string): () => void {
   const previousValues = new Map(isolatedHomeKeys.map((key) => [key, process.env[key]] as const))

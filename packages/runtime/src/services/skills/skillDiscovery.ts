@@ -1,4 +1,4 @@
-import { readdir, readFile } from 'node:fs/promises'
+import { readdir, readFile, realpath, stat } from 'node:fs/promises'
 import { basename, dirname, join, resolve } from 'node:path'
 import { homedir } from 'node:os'
 
@@ -220,13 +220,24 @@ function extractBodySummary(body: string): string | undefined {
 // would dominate the scan.
 const SKIPPED_SCAN_DIR_NAMES = new Set(['node_modules', '.git'])
 
-async function collectSkillFiles(rootPath: string): Promise<string[]> {
+function isUnresolvablePath(error: unknown): boolean {
+  const code = (error as NodeJS.ErrnoException).code
+  return code === 'ENOENT' || code === 'ENOTDIR' || code === 'ELOOP'
+}
+
+async function collectSkillFiles(
+  rootPath: string,
+  ancestors: ReadonlySet<string> = new Set()
+): Promise<string[]> {
   let entries
+  let canonicalPath: string
 
   try {
+    canonicalPath = await realpath(rootPath)
+    if (ancestors.has(canonicalPath)) return []
     entries = await readdir(rootPath, { withFileTypes: true })
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+    if (isUnresolvablePath(error)) {
       return []
     }
 
@@ -235,13 +246,32 @@ async function collectSkillFiles(rootPath: string): Promise<string[]> {
 
   const discovered: string[] = []
   const subdirScans: Promise<string[]>[] = []
+  // Branch-local identities stop cycles without letting concurrent aliases race
+  // to claim a directory. Logical paths remain intact for metadata and references.
+  const nextAncestors = new Set(ancestors).add(canonicalPath)
+  entries.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))
 
   for (const entry of entries) {
     const entryPath = join(rootPath, entry.name)
+    if (entry.isSymbolicLink()) {
+      try {
+        const linkedStat = await stat(entryPath)
+        if (linkedStat.isDirectory()) {
+          if (!SKIPPED_SCAN_DIR_NAMES.has(entry.name)) {
+            subdirScans.push(collectSkillFiles(entryPath, nextAncestors))
+          }
+        } else if (linkedStat.isFile() && entry.name === SKILL_FILE_NAME) {
+          discovered.push(entryPath)
+        }
+      } catch (error) {
+        if (!isUnresolvablePath(error)) throw error
+      }
+      continue
+    }
 
     if (entry.isDirectory()) {
       if (!SKIPPED_SCAN_DIR_NAMES.has(entry.name)) {
-        subdirScans.push(collectSkillFiles(entryPath))
+        subdirScans.push(collectSkillFiles(entryPath, nextAncestors))
       }
       continue
     }
@@ -377,7 +407,7 @@ export async function discoverSkills(
   // Scan roots and read skill files concurrently; Promise.all preserves root
   // order, which buildSkillRegistry relies on for first-wins name precedence.
   const perRoot = await Promise.all(
-    buildSkillDiscoveryRoots(workspacePaths).map(async (root): Promise<DiscoveredSkill[]> => {
+    buildSkillDiscoveryRoots(workspacePaths).map(async (root) => {
       let skillFilePaths: string[]
 
       try {
@@ -393,7 +423,8 @@ export async function discoverSkills(
       const records = await Promise.all(
         skillFilePaths.map(async (skillFilePath) => {
           try {
-            return await readSkillRecord({
+            const canonicalPath = await realpath(skillFilePath)
+            const skill = await readSkillRecord({
               scope: root.scope,
               rootPath: root.rootPath,
               skillFilePath,
@@ -401,6 +432,7 @@ export async function discoverSkills(
               originHint: root.originHint,
               caseInsensitive: platform === 'win32'
             })
+            return skill ? { canonicalPath, skill } : null
           } catch (error) {
             console.warn('[yachiyo][skills] failed to read skill', {
               error: error instanceof Error ? error.message : String(error),
@@ -411,9 +443,18 @@ export async function discoverSkills(
         })
       )
 
-      return records.filter((skill): skill is DiscoveredSkill => skill !== null)
+      return records.filter((record) => record !== null)
     })
   )
 
-  return perRoot.flat()
+  // Deduplicate only after concurrent work finishes, in discovery order, so the
+  // first root/alias keeps its logical path, origin, and auto-enabled status.
+  const seen = new Set<string>()
+  const skills: DiscoveredSkill[] = []
+  for (const { canonicalPath, skill } of perRoot.flat()) {
+    if (seen.has(canonicalPath)) continue
+    seen.add(canonicalPath)
+    skills.push(skill)
+  }
+  return skills
 }
