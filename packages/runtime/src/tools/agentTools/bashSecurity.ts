@@ -17,6 +17,7 @@
 import { homedir } from 'os'
 import { isAbsolute, parse, resolve } from 'path'
 import { findHeredocBodyRanges as findShellHeredocBodyRanges } from './bashHeredocBodyRanges.ts'
+import { tokenizeShellLike, type ShellToken } from './bashSecurityShell.ts'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -63,13 +64,6 @@ interface QuoteExtraction {
   withDoubleQuotes: string
   fullyUnquoted: string
   unquotedKeepQuoteChars: string
-}
-
-interface ShellToken {
-  text: string
-  start: number
-  end: number
-  operator?: boolean
 }
 
 interface TextRange {
@@ -142,115 +136,6 @@ function extractQuotedContent(command: string, isJq = false): QuoteExtraction {
   }
 
   return { withDoubleQuotes, fullyUnquoted, unquotedKeepQuoteChars }
-}
-
-function tokenizeShellLike(command: string): ShellToken[] {
-  const tokens: ShellToken[] = []
-  let token: ShellToken | undefined
-  let inSingleQuote = false
-  let inDoubleQuote = false
-
-  const ensureToken = (index: number): ShellToken => {
-    if (!token) {
-      token = { text: '', start: index, end: index }
-    }
-    return token
-  }
-
-  const finishToken = (): void => {
-    if (!token) return
-    tokens.push(token)
-    token = undefined
-  }
-
-  const pushOperator = (index: number, text: string): void => {
-    tokens.push({ text, start: index, end: index + text.length, operator: true })
-  }
-
-  for (let i = 0; i < command.length; i++) {
-    const char = command[i]!
-
-    if (inSingleQuote) {
-      if (char === "'") {
-        inSingleQuote = false
-        if (token) token.end = i + 1
-        continue
-      }
-      const current = ensureToken(i)
-      current.text += char
-      current.end = i + 1
-      continue
-    }
-
-    if (inDoubleQuote) {
-      if (char === '\\') {
-        const current = ensureToken(i)
-        if (i + 1 < command.length) {
-          current.text += command[i + 1]!
-          current.end = i + 2
-          i++
-        } else {
-          current.text += char
-          current.end = i + 1
-        }
-        continue
-      }
-      if (char === '"') {
-        inDoubleQuote = false
-        if (token) token.end = i + 1
-        continue
-      }
-      const current = ensureToken(i)
-      current.text += char
-      current.end = i + 1
-      continue
-    }
-
-    if (char === "'" || char === '"') {
-      const current = ensureToken(i)
-      current.end = i + 1
-      inSingleQuote = char === "'"
-      inDoubleQuote = char === '"'
-      continue
-    }
-
-    if (char === '\\') {
-      const current = ensureToken(i)
-      if (i + 1 < command.length) {
-        current.text += command[i + 1]!
-        current.end = i + 2
-        i++
-      } else {
-        current.text += char
-        current.end = i + 1
-      }
-      continue
-    }
-
-    if (char === ' ' || char === '\t' || char === '\r') {
-      finishToken()
-      continue
-    }
-
-    if (char === '\n' || char === ';' || char === '|' || char === '&') {
-      finishToken()
-      const nextChar = command[i + 1]
-      if ((char === '|' || char === '&') && nextChar === char) {
-        pushOperator(i, `${char}${nextChar}`)
-        i++
-      } else {
-        pushOperator(i, char)
-      }
-      continue
-    }
-
-    const current = ensureToken(i)
-    current.text += char
-    current.end = i + 1
-  }
-
-  finishToken()
-  return tokens
 }
 
 function isEnvAssignmentToken(token: string): boolean {
@@ -891,7 +776,10 @@ const ENV_VALUE_FLAGS = new Set(['-u', '--unset', '-C', '--chdir'])
  * Returns a sliced token list whose first entry is the actual command
  * (possibly still path-prefixed — see normalizeBaseCommand).
  */
-function normalizeCommandPrefix(tokens: string[]): string[] {
+function normalizeCommandPrefix(
+  tokens: string[],
+  options: { preserveExec?: boolean } = {}
+): string[] {
   const isEnvAssignment = (token: string): boolean => /^[A-Za-z_][A-Za-z0-9_]*=/.test(token)
 
   let i = 0
@@ -934,6 +822,7 @@ function normalizeCommandPrefix(tokens: string[]): string[] {
     }
 
     if (next === 'exec') {
+      if (options.preserveExec) break
       i++
       continue
     }
@@ -1353,14 +1242,88 @@ function validateHugeSearchRoot(ctx: ValidationContext): SecurityResult {
  * app from inside its own agent is a recursive-launch footgun that cascades
  * into catastrophic resource exhaustion.
  *
- * Catches:
- * - Any path containing `Yachiyo.app`
- * - AppleScript / osascript targeting application "Yachiyo"
+ * Inspect operations, not mere bundle-path mentions: installing a simulator
+ * bundle or reading a desktop bundle does not launch the host app.
+ * This is a literal-command footgun guard, not a full shell interpreter:
+ * aliases, expansions, control flow, substitutions and script files are not resolved.
  */
 export function isSelfLaunchCommand(command: string): boolean {
-  if (/Yachiyo\.app\b/.test(command)) return true
-  // osascript -e '... application "Yachiyo" ...' or similar
-  if (/osascript\b/.test(command) && /application\s+["']Yachiyo["']/i.test(command)) return true
+  let segment: string[] = []
+  let redirectTarget = false
+  for (const token of tokenizeShellLike(command, { executionSyntax: true })) {
+    if (redirectTarget) {
+      redirectTarget = false
+      continue
+    }
+    if (token.operator && /^[<>]/.test(token.text)) {
+      redirectTarget = true
+      continue
+    }
+    if (token.operator) {
+      if (isSelfLaunchSegment(segment)) return true
+      segment = []
+    } else {
+      segment.push(token.text)
+    }
+  }
+  return isSelfLaunchSegment(segment)
+}
+
+function isSelfLaunchSegment(segment: string[]): boolean {
+  // Normalize path-qualified wrappers too, while retaining executable paths.
+  const bundlePath = /(?:^|\/)Yachiyo\.app(?:\/|$)/
+  let tokens = segment
+  for (;;) {
+    const length = tokens.length
+    if (tokens[0] && !isEnvAssignmentToken(tokens[0]) && bundlePath.test(tokens[0])) return true
+    const first = normalizeBaseCommand(tokens[0] ?? '')
+    if (first === '{') {
+      tokens = tokens.slice(1)
+      continue
+    }
+    if (first === 'exec') {
+      tokens = tokens.slice(1)
+      while (tokens[0]?.startsWith('-')) {
+        const flag = tokens[0]
+        tokens = tokens.slice(flag === '-a' ? 2 : 1)
+        if (flag === '--') break
+      }
+      continue
+    }
+    if (/^(?:sudo|doas|env)$/.test(first)) tokens = [first, ...tokens.slice(1)]
+    tokens = normalizeCommandPrefix(tokens, { preserveExec: true })
+    if (tokens.length < length) continue
+    const wrapper = normalizeBaseCommand(tokens[0] ?? '')
+    if (wrapper !== 'command' && wrapper !== 'nohup') break
+    tokens = tokens.slice(1)
+    if (wrapper === 'command' && (tokens[0] === '-v' || tokens[0] === '-V')) return false
+    if (wrapper === 'command' && tokens[0] === '-p') tokens = tokens.slice(1)
+    if (tokens[0] === '--') tokens = tokens.slice(1)
+  }
+
+  const executable = tokens[0]
+  if (!executable) return false
+  const base = normalizeBaseCommand(executable)
+  if (base === 'open') {
+    return tokens
+      .slice(1)
+      .some(
+        (arg, index) => bundlePath.test(arg) || (tokens[index] === '-a' && /^Yachiyo$/i.test(arg))
+      )
+  }
+  if (base === 'osascript') {
+    return /application\s+["']Yachiyo["']/i.test(tokens.slice(1).join(' '))
+  }
+  if (/^(?:sh|bash|zsh|dash|ksh)$/.test(base)) {
+    // Only the argument to -c is shell code; ordinary quoted arguments are data.
+    for (let i = 1; i < tokens.length; i++) {
+      const flag = tokens[i]!
+      if (!flag.startsWith('-') || flag === '--') break
+      if (/^-[a-zA-Z]*c[a-zA-Z]*$/.test(flag)) {
+        return isSelfLaunchCommand(tokens[i + 1] ?? '')
+      }
+    }
+  }
   return false
 }
 
