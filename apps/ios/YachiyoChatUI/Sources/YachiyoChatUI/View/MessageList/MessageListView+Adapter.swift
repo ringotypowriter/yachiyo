@@ -117,8 +117,8 @@ extension MessageListView: ListViewAdapter {
                     .font: theme.fonts.body,
                 ])).height
                 return max(textHeight, ActivityReportingView.loadingSymbolSize.height + 16)
-            case let .toolCallHint(_, _, selectedID):
-                return ToolHintView.height(isExpanded: selectedID != nil)
+            case let .toolCallHint(_, calls, selectedID):
+                return ToolHintView.height(width: containerWidth, callCount: calls.count, isExpanded: selectedID != nil)
             case let .questionCard(_, question):
                 return QuestionCardView.height(for: question, width: containerWidth)
             case let .planCard(_, plan):

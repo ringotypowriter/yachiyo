@@ -11,7 +11,7 @@ final class ToolHintViewTests: XCTestCase {
         message.parts = [.toolCall(first), .toolCall(second)]
         let list = MessageListView()
         let deck = ToolHintView()
-        deck.frame = CGRect(x: 0, y: 0, width: 320, height: ToolHintView.height(isExpanded: false))
+        deck.frame = CGRect(x: 0, y: 0, width: 320, height: ToolHintView.height(width: 320 - MessageListView.listRowInsets.horizontal, callCount: 2, isExpanded: false))
         deck.onSelect = { list.selectedToolCalls[message.id] = $0 }
         var detailID: String?
         deck.onDetails = { detailID = $0 }
@@ -84,23 +84,19 @@ final class ToolHintViewTests: XCTestCase {
         XCTAssertEqual(status.tintColor, .secondaryLabel)
     }
 
-    func testTimelineAndIconStripCancelButtonTouchesWhenScrolling() throws {
+    func testTimelineCancelsWrappedIconTouchesWhenScrolling() throws {
         let list = MessageListView()
         let deck = ToolHintView()
         let call = ToolCallContentPart(id: "call", toolName: "read", state: .succeeded)
         deck.configure(calls: [call], selectedID: nil)
         let summary = try XCTUnwrap(view("toolDeck.summary.call", in: deck) as? UIButton)
         let icon = try XCTUnwrap(view("toolDeck.call.call", in: deck) as? UIButton)
-        let iconStrip = try XCTUnwrap(icon.nearestScrollView)
+        XCTAssertNil(icon.nearestScrollView, "Wrapped icons must not introduce a nested scroll view")
         XCTAssertTrue(list.scrollView.delaysContentTouches)
         XCTAssertTrue(list.scrollView.canCancelContentTouches)
         XCTAssertTrue(list.scrollView.panGestureRecognizer.cancelsTouchesInView)
         XCTAssertTrue(list.scrollView.touchesShouldCancel(in: summary))
         XCTAssertTrue(list.scrollView.touchesShouldCancel(in: icon))
-        XCTAssertTrue(iconStrip.delaysContentTouches)
-        XCTAssertTrue(iconStrip.canCancelContentTouches)
-        XCTAssertTrue(iconStrip.panGestureRecognizer.cancelsTouchesInView)
-        XCTAssertTrue(iconStrip.touchesShouldCancel(in: icon))
         let slider = UISlider()
         XCTAssertEqual(list.scrollView.touchesShouldCancel(in: slider), UIScrollView().touchesShouldCancel(in: slider))
 
@@ -125,7 +121,7 @@ final class ToolHintViewTests: XCTestCase {
             for content in contents {
                 let call = ToolCallContentPart(id: "long", toolName: "read", parameters: content, state: .succeeded)
                 let deck = ToolHintView()
-                deck.frame = CGRect(x: 0, y: 0, width: width, height: ToolHintView.height(isExpanded: true) + MessageListView.listRowInsets.bottom)
+                deck.frame = CGRect(x: 0, y: 0, width: width, height: ToolHintView.height(width: width - MessageListView.listRowInsets.horizontal, callCount: 1, isExpanded: true) + MessageListView.listRowInsets.bottom)
                 deck.configure(calls: [call], selectedID: call.id)
                 deck.layoutIfNeeded()
                 let summary = try XCTUnwrap(view("toolDeck.summary.long", in: deck) as? UIButton)
@@ -155,6 +151,50 @@ final class ToolHintViewTests: XCTestCase {
                     attachment.name = "long-tool-summary-narrow"
                     attachment.lifetime = .keepAlways
                     add(attachment)
+                }
+            }
+        }
+    }
+
+    func testWrappingHeightChangesAtExactColumnBoundary() {
+        let oneRow = ToolHintView.height(width: 132, callCount: 3, isExpanded: false)
+        XCTAssertEqual(ToolHintView.height(width: 131, callCount: 3, isExpanded: false), oneRow + 44)
+        XCTAssertEqual(ToolHintView.height(width: 132, callCount: 4, isExpanded: false), oneRow + 44)
+        XCTAssertEqual(ToolHintView.height(width: 44, callCount: 3, isExpanded: false), oneRow + 88)
+        XCTAssertEqual(ToolHintView.height(width: 0, callCount: 3, isExpanded: false), oneRow + 88)
+        XCTAssertEqual(ToolHintView.height(width: 0, callCount: 0, isExpanded: false), oneRow)
+    }
+
+    func testWrappedIconsAndDetailsFitMeasuredHeightAfterResizeAndSelection() throws {
+        let calls = (0..<13).map { ToolCallContentPart(id: "call\($0)", toolName: "read", state: .succeeded) }
+        let deck = ToolHintView()
+        for width: CGFloat in [320, 132, 96, 44, 390] {
+            for expanded in [false, true] {
+                let height = ToolHintView.height(width: width, callCount: calls.count, isExpanded: expanded)
+                deck.frame = CGRect(x: 0, y: 0, width: width + MessageListView.listRowInsets.horizontal,
+                                    height: height + MessageListView.listRowInsets.bottom)
+                deck.configure(calls: calls, selectedID: expanded ? calls[0].id : nil)
+                deck.layoutIfNeeded()
+                let summary = try XCTUnwrap(view("toolDeck.summary.call0", in: deck))
+                let details = try XCTUnwrap(view("toolDeck.details.call0", in: deck))
+                let icons = try calls.map { try XCTUnwrap(view("toolDeck.call.\($0.id)", in: deck)) }
+                XCTAssertEqual(summary.frame.maxY, height)
+                XCTAssertGreaterThan(icons.last!.frame.minY, 0)
+                for (index, icon) in icons.enumerated() {
+                    let frame = icon.convert(icon.bounds, to: deck.contentView)
+                    XCTAssertEqual(frame.size, CGSize(width: 44, height: 44))
+                    XCTAssertTrue(deck.contentView.bounds.contains(frame))
+                    XCTAssertLessThanOrEqual(frame.maxY, summary.frame.minY)
+                    if expanded { XCTAssertFalse(frame.intersects(details.frame)) }
+                    for other in icons.dropFirst(index + 1) {
+                        XCTAssertFalse(icon.frame.intersects(other.frame))
+                    }
+                }
+                if expanded {
+                    XCTAssertTrue(deck.contentView.bounds.contains(details.frame))
+                    XCTAssertGreaterThanOrEqual(details.frame.width, 44)
+                    XCTAssertEqual(details.frame.height, 44)
+                    XCTAssertLessThanOrEqual(details.frame.maxY, summary.frame.minY)
                 }
             }
         }

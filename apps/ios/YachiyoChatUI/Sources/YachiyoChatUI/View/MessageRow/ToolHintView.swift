@@ -46,14 +46,7 @@ final class ToolHintView: MessageListRowView {
         }
     }
 
-    private final class IconScrollView: UIScrollView {
-        override func touchesShouldCancel(in view: UIView) -> Bool {
-            view is UIButton || super.touchesShouldCancel(in: view)
-        }
-    }
-
-    private let iconScrollView = IconScrollView()
-    private let iconStack = UIStackView()
+    private let iconContainer = UIView()
     private let summaryButton = SummaryButton(frame: .zero)
     private let activityIndicator = UIActivityIndicatorView(style: .medium)
     private let stateImageView = UIImageView()
@@ -99,20 +92,50 @@ final class ToolHintView: MessageListRowView {
         }
     }
 
-    static func height(isExpanded: Bool) -> CGFloat {
+    private static var summaryHeight: CGFloat {
         let lineHeight = UIFont.preferredFont(forTextStyle: .footnote).lineHeight
-        return 44 + max(44, ceil(lineHeight * 2) + 8)
+        return max(44, ceil(lineHeight * 2) + 8)
+    }
+
+    private static var detailConfiguration: UIButton.Configuration {
+        var configuration = UIButton.Configuration.plain()
+        configuration.title = String(localized: "Details")
+        configuration.image = UIImage(systemName: "arrow.up.right.square")
+        configuration.imagePlacement = .trailing
+        configuration.imagePadding = 6
+        return configuration
+    }
+
+    /// Shared by row measurement and rendering, including the localized Details width.
+    private struct IconLayout {
+        let columns: Int
+        let iconHeight: CGFloat
+        let detailFrame: CGRect
+        let height: CGFloat
+
+        init(width: CGFloat, callCount: Int, isExpanded: Bool) {
+            let width = max(0, width)
+            let button = UIButton(configuration: ToolHintView.detailConfiguration)
+            let preferredDetailWidth = max(96, button.sizeThatFits(.init(width: width, height: 44)).width)
+            let detailsOnOwnRow = isExpanded && width < preferredDetailWidth + 44
+            let detailWidth = isExpanded ? min(width, preferredDetailWidth) : 0
+            let iconWidth = detailsOnOwnRow ? width : width - detailWidth
+            columns = max(1, Int(iconWidth / 44))
+            let rows = max(1, (callCount + columns - 1) / columns)
+            iconHeight = CGFloat(rows) * 44
+            detailFrame = CGRect(x: width - detailWidth, y: detailsOnOwnRow ? iconHeight : 0,
+                                 width: detailWidth, height: 44)
+            height = iconHeight + (detailsOnOwnRow ? 44 : 0)
+        }
+    }
+
+    static func height(width: CGFloat, callCount: Int, isExpanded: Bool) -> CGFloat {
+        IconLayout(width: width, callCount: callCount, isExpanded: isExpanded).height + summaryHeight
     }
 
     override init(frame: CGRect) {
         super.init(frame: frame)
-        iconScrollView.showsHorizontalScrollIndicator = false
-        iconScrollView.delaysContentTouches = true
-        iconScrollView.canCancelContentTouches = true
-        iconScrollView.panGestureRecognizer.cancelsTouchesInView = true
-        iconScrollView.addSubview(iconStack)
-        iconStack.axis = .horizontal
-        contentView.addSubview(iconScrollView)
+        contentView.addSubview(iconContainer)
         contentView.addSubview(summaryButton)
         contentView.addSubview(activityIndicator)
         contentView.addSubview(stateImageView)
@@ -129,12 +152,7 @@ final class ToolHintView: MessageListRowView {
             guard let self else { return }
             onSelect?(selectedID == nil ? Self.summaryCall(in: calls)?.id : nil)
         }, for: .touchUpInside)
-        var detailConfiguration = UIButton.Configuration.plain()
-        detailConfiguration.title = String(localized: "Details")
-        detailConfiguration.image = UIImage(systemName: "arrow.up.right.square")
-        detailConfiguration.imagePlacement = .trailing
-        detailConfiguration.imagePadding = 6
-        detailButton.configuration = detailConfiguration
+        detailButton.configuration = Self.detailConfiguration
         detailButton.addAction(UIAction { [weak self] _ in
             guard let self, let selectedID else { return }
             onDetails?(selectedID)
@@ -148,8 +166,7 @@ final class ToolHintView: MessageListRowView {
         detailButton.accessibilityIdentifier = calls.first.map { "toolDeck.details.\($0.id)" }
         let selected = calls.first(where: { $0.id == selectedID })
         let displayed = selected ?? Self.summaryCall(in: calls)
-        for view in iconStack.arrangedSubviews {
-            iconStack.removeArrangedSubview(view)
+        for view in iconContainer.subviews {
             view.removeFromSuperview()
         }
         for call in calls {
@@ -162,7 +179,6 @@ final class ToolHintView: MessageListRowView {
             configuration.background.backgroundInsets = .init(top: 8, leading: 8, bottom: 8, trailing: 8)
             configuration.baseForegroundColor = call.state == .failed ? .systemRed : (call.state == .running ? .tintColor : .secondaryLabel)
             button.configuration = configuration
-            button.widthAnchor.constraint(equalToConstant: 44).isActive = true
             button.accessibilityLabel = statusText(for: call)
             button.accessibilityIdentifier = "toolDeck.call.\(call.id)"
             button.accessibilityTraits = call.id == selectedID ? [.button, .selected] : .button
@@ -170,7 +186,7 @@ final class ToolHintView: MessageListRowView {
                 guard let self else { return }
                 onSelect?(self.selectedID == call.id ? nil : call.id)
             }, for: .touchUpInside)
-            iconStack.addArrangedSubview(button)
+            iconContainer.addSubview(button)
         }
         let title = displayed.map { call in
             // The remote adapter stores the human-readable call title in parameters.
@@ -213,7 +229,6 @@ final class ToolHintView: MessageListRowView {
         super.prepareForReuse()
         onSelect = nil
         onDetails = nil
-        iconScrollView.contentOffset = .zero
         activityIndicator.stopAnimating()
     }
 
@@ -228,17 +243,19 @@ final class ToolHintView: MessageListRowView {
     override func layoutSubviews() {
         super.layoutSubviews()
         let width = contentView.bounds.width
-        let summaryHeight = Self.height(isExpanded: selectedID != nil) - 44
-        let detailWidth = detailButton.isHidden ? 0 : min(max(0, width - 44), max(96, detailButton.sizeThatFits(.init(width: width, height: 44)).width))
-        iconScrollView.frame = CGRect(x: 0, y: 0, width: max(0, width - detailWidth), height: 44)
-        iconStack.frame = CGRect(x: 0, y: 0, width: CGFloat(calls.count) * 44, height: 44)
-        iconScrollView.contentSize = iconStack.bounds.size
-        detailButton.frame = CGRect(x: width - detailWidth, y: 0, width: detailWidth, height: 44)
+        let layout = IconLayout(width: width, callCount: calls.count, isExpanded: !detailButton.isHidden)
+        let summaryHeight = Self.summaryHeight
+        iconContainer.frame = CGRect(x: 0, y: 0, width: width, height: layout.iconHeight)
+        for (index, button) in iconContainer.subviews.enumerated() {
+            button.frame = CGRect(x: CGFloat(index % layout.columns) * 44,
+                                  y: CGFloat(index / layout.columns) * 44, width: 44, height: 44)
+        }
+        detailButton.frame = layout.detailFrame
         let showsBothStates = calls.contains { $0.state == .running } && calls.contains { $0.state == .failed }
-        activityIndicator.frame = CGRect(x: 0, y: 44 + (summaryHeight - 20) / 2, width: 20, height: 20)
+        activityIndicator.frame = CGRect(x: 0, y: layout.height + (summaryHeight - 20) / 2, width: 20, height: 20)
         runningImageView.frame = activityIndicator.frame.insetBy(dx: 2, dy: 2)
         stateImageView.frame = activityIndicator.frame.offsetBy(dx: showsBothStates ? 20 : 0, dy: 0).insetBy(dx: 2, dy: 2)
         let summaryX: CGFloat = showsBothStates ? 48 : 28
-        summaryButton.frame = CGRect(x: summaryX, y: 44, width: max(0, width - summaryX), height: summaryHeight)
+        summaryButton.frame = CGRect(x: summaryX, y: layout.height, width: max(0, width - summaryX), height: summaryHeight)
     }
 }

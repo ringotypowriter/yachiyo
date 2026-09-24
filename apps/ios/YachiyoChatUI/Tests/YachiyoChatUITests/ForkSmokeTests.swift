@@ -55,7 +55,8 @@ final class ForkSmokeTests: XCTestCase {
         XCTAssertEqual(ToolHintView.summaryCall(in: [running, completed])?.id, running.id)
         XCTAssertEqual(ToolHintView.summaryCall(in: [completed])?.id, completed.id)
         XCTAssertNil(ToolHintView.summaryCall(in: []))
-        XCTAssertEqual(ToolHintView.height(isExpanded: true), ToolHintView.height(isExpanded: false))
+        XCTAssertEqual(ToolHintView.height(width: 320, callCount: 1, isExpanded: true),
+                       ToolHintView.height(width: 320, callCount: 1, isExpanded: false))
     }
 
     func testToolPreviewChangesInvalidateDeckSnapshot() {
