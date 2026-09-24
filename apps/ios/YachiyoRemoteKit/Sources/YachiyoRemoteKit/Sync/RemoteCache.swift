@@ -103,3 +103,103 @@ public struct RemoteCacheStore: Sendable {
         try url.setResourceValues(values)
     }
 }
+
+/// Local copies of images sent from this phone. Remote image ids are indices within a
+/// message; scope files by desktop and thread so deleting either removes its previews.
+public struct RemoteSentImageStore: Sendable {
+    private let directory: URL
+    private struct PendingImage: Codable {
+        let runId: String
+        let data: Data
+    }
+
+    public init(directory: URL) { self.directory = directory }
+
+    public func save(_ data: Data, desktopId: String, threadId: String, messageId: String, imageId: String) throws {
+        guard !data.isEmpty else { return }
+        try writeProtected(data, to: fileURL(desktopId: desktopId, threadId: threadId, messageId: messageId, imageId: imageId))
+    }
+
+    public func load(desktopId: String, threadId: String, messageId: String, imageId: String) -> Data? {
+        try? Data(contentsOf: fileURL(desktopId: desktopId, threadId: threadId, messageId: messageId, imageId: imageId))
+    }
+
+    /// A steer has no message ID in its acknowledgement. Its composer UUID filename is
+    /// preserved by the server until the user message materializes.
+    public func savePending(_ data: Data, desktopId: String, threadId: String, filename: String, runId: String) throws {
+        guard !data.isEmpty else { return }
+        try writeProtected(JSONEncoder().encode(PendingImage(runId: runId, data: data)),
+                           to: pendingURL(desktopId: desktopId, threadId: threadId, filename: filename))
+    }
+
+    private func writeProtected(_ data: Data, to url: URL) throws {
+        let folder = url.deletingLastPathComponent()
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        var excludedFolder = folder
+        var values = URLResourceValues()
+        values.isExcludedFromBackup = true
+        try excludedFolder.setResourceValues(values)
+        #if os(iOS)
+        try FileManager.default.setAttributes([.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication], ofItemAtPath: folder.path)
+        try data.write(to: url, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+        #else
+        try data.write(to: url, options: .atomic)
+        #endif
+    }
+
+    public func loadPending(desktopId: String, threadId: String, filename: String) -> (runId: String, data: Data)? {
+        let url = pendingURL(desktopId: desktopId, threadId: threadId, filename: filename)
+        guard let data = try? Data(contentsOf: url), let pending = try? JSONDecoder().decode(PendingImage.self, from: data) else { return nil }
+        return (pending.runId, pending.data)
+    }
+
+    public func removePending(desktopId: String, threadId: String, filename: String) throws {
+        let url = pendingURL(desktopId: desktopId, threadId: threadId, filename: filename)
+        if FileManager.default.fileExists(atPath: url.path) { try FileManager.default.removeItem(at: url) }
+    }
+
+    public func removePending(desktopId: String, threadId: String) throws {
+        let folder = pendingDirectory(desktopId: desktopId, threadId: threadId)
+        if FileManager.default.fileExists(atPath: folder.path) { try FileManager.default.removeItem(at: folder) }
+    }
+
+    public func remove(desktopId: String, threadId: String) throws {
+        let folder = threadDirectory(desktopId: desktopId, threadId: threadId)
+        if FileManager.default.fileExists(atPath: folder.path) {
+            try FileManager.default.removeItem(at: folder)
+        }
+    }
+
+    public func remove(desktopId: String) throws {
+        let folder = desktopDirectory(desktopId)
+        if FileManager.default.fileExists(atPath: folder.path) {
+            try FileManager.default.removeItem(at: folder)
+        }
+    }
+
+    private func desktopDirectory(_ desktopId: String) -> URL {
+        directory.appendingPathComponent(digest(desktopId), isDirectory: true)
+    }
+
+    private func threadDirectory(desktopId: String, threadId: String) -> URL {
+        desktopDirectory(desktopId).appendingPathComponent(digest(threadId), isDirectory: true)
+    }
+
+    private func fileURL(desktopId: String, threadId: String, messageId: String, imageId: String) -> URL {
+        // Hash untrusted remote identifiers instead of interpreting them as path components.
+        threadDirectory(desktopId: desktopId, threadId: threadId)
+            .appendingPathComponent(digest("\(messageId)/\(imageId)"), isDirectory: false)
+    }
+
+    private func pendingDirectory(desktopId: String, threadId: String) -> URL {
+        threadDirectory(desktopId: desktopId, threadId: threadId).appendingPathComponent("pending", isDirectory: true)
+    }
+
+    private func pendingURL(desktopId: String, threadId: String, filename: String) -> URL {
+        pendingDirectory(desktopId: desktopId, threadId: threadId).appendingPathComponent(digest(filename), isDirectory: false)
+    }
+
+    private func digest(_ value: String) -> String {
+        SHA256.hash(data: Data(value.utf8)).map { String(format: "%02x", $0) }.joined()
+    }
+}

@@ -446,7 +446,7 @@ extension ThreadViewController: ChatInputDelegate {
         Task {
             do {
                 let ids = try await AttachmentUploader.upload(object.attachments, to: thread.desktopId)
-                let sent = await thread.send(text: object.text, attachmentIds: ids, mode: mode)
+                let sent = await thread.send(text: object.text, attachmentIds: ids, mode: mode, attachments: object.attachments)
                 // Retire the cached draft before the weak composer completion is scheduled:
                 // the screen may already have been popped and its composer can deallocate.
                 if sent, let submittedRevision, Self.drafts[draftKey]?.revision == submittedRevision {

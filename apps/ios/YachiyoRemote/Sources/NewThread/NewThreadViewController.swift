@@ -415,7 +415,29 @@ extension NewThreadViewController: ChatInputDelegate {
                     content: object.text,
                     attachmentIds: ids.isEmpty ? nil : ids
                 ))
+                if let userMessage = output.accepted.userMessage {
+                    let images = object.attachments.filter { $0.type == .image }
+                    if images.count == userMessage.images.count {
+                        let sentImages = RemoteSentImageStore(directory: FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("RemoteSentImages", isDirectory: true))
+                        for (image, reference) in zip(images, userMessage.images) {
+                            // The thread was created successfully even if its local preview cannot be retained.
+                            try? sentImages.save(image.fileData, desktopId: desktopId, threadId: output.thread.id, messageId: userMessage.id, imageId: reference.imageId)
+                        }
+                    }
+                }
                 store.upsert(desktopId: desktopId, summary: output.thread)
+                // Keep the accepted first message available even if the first threads.load fails.
+                store.cacheThread(desktopId: desktopId, detail: RemoteThreadDetail(
+                    activeRunId: output.accepted.runId,
+                    activeRunMode: nil,
+                    hasMoreBefore: false,
+                    messages: output.accepted.userMessage.map { [$0] } ?? [],
+                    pendingPlan: false,
+                    queuedFollowUps: [],
+                    thread: output.thread,
+                    todoItems: [],
+                    toolCalls: []
+                ), needsRefresh: true)
                 started = true
                 completion(true)
                 onStarted?(desktopId, output.thread)

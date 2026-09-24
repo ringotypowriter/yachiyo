@@ -25,6 +25,12 @@ final class ThreadStore: ChatMessageSource {
     let desktopId: String
     let threadId: String
     private let store: RemoteStore
+    private let sentImages = RemoteSentImageStore(directory: FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("RemoteSentImages", isDirectory: true))
+    // Include misses: remote-only images must not trigger disk reads on every streaming delta.
+    private var imageData: [String: Data] = [:]
+    private var missingImages: Set<String> = []
+    private var pendingSteerImages: [String: (runId: String, data: Data)] = [:]
+    private var ambiguousSteerFilenames: Set<String> = []
 
     @Published private(set) var summary: RemoteThreadSummary?
     @Published private(set) var detail: RemoteThreadDetail?
@@ -210,6 +216,26 @@ final class ThreadStore: ChatMessageSource {
             isReplayingLoadEvents = true
             for event in buffered { apply(event) }
             isReplayingLoadEvents = false
+            let loadedMessages = detail?.messages ?? []
+            let uniqueFilenames = loadedMessages.flatMap(\.images).compactMap(\.filename)
+            let counts = Dictionary(uniqueFilenames.map { ($0, 1) }, uniquingKeysWith: +)
+            let allowedFilenames = Set(counts.compactMap { $0.value == 1 ? $0.key : nil })
+            for message in loadedMessages {
+                materializeSteerImages(in: message, allowedFilenames: allowedFilenames)
+            }
+            // A terminal snapshot without the steer means it was withdrawn or cancelled.
+            if loaded.activeRunId == nil && buffered.isEmpty {
+                pendingSteerImages.removeAll()
+                ambiguousSteerFilenames.removeAll()
+                try? sentImages.removePending(desktopId: desktopId, threadId: threadId)
+            }
+            let visibleImageKeys = Set((detail?.messages ?? []).flatMap { message in
+                message.images.map { imageKey(messageId: message.id, imageId: $0.imageId) }
+            } + (detail?.queuedFollowUps ?? []).flatMap { message in
+                message.images.map { imageKey(messageId: message.id, imageId: $0.imageId) }
+            })
+            imageData = imageData.filter { visibleImageKeys.contains($0.key) }
+            missingImages = missingImages.intersection(visibleImageKeys)
             rebuild(scrolling: initialLoad)
         } catch {
             guard loadToken == token, !Task.isCancelled, !(error is CancellationError) else { return }
@@ -269,6 +295,7 @@ final class ThreadStore: ChatMessageSource {
             rebuild(scrolling: true)
         case .messageCompleted:
             guard let message = event.message else { return }
+            if message.role == .user { materializeSteerImages(in: message, runId: event.runId) }
             upsertLoaded(message)
             streamingText[message.id] = nil
             streamingReasoning[message.id] = nil
@@ -300,6 +327,10 @@ final class ThreadStore: ChatMessageSource {
         case .threadInvalidated:
             if !isReplayingLoadEvents { invalidate() }
         case .threadRemoved:
+            imageData.removeAll()
+            missingImages.removeAll()
+            pendingSteerImages.removeAll()
+            ambiguousSteerFilenames.removeAll()
             loadToken = nil
             reloadAgain = false
             needsReload = false
@@ -331,6 +362,7 @@ final class ThreadStore: ChatMessageSource {
             list.append(message)
         }
         detail = current.replacing(messages: list)
+        if let detail { store.cacheThread(desktopId: desktopId, detail: detail, needsRefresh: true) }
     }
 
     // MARK: Timeline
@@ -349,10 +381,11 @@ final class ThreadStore: ChatMessageSource {
                 reasoning: message.reasoning,
                 reasoningCollapsed: true,
                 createdAt: message.createdAt.isoDate ?? Date(),
-                attachments: message.attachments.map(\.filename) + message.images.map { $0.filename ?? "image" },
+                attachments: message.attachments.map(\.filename),
                 toolCalls: toolCalls.filter { $0.assistantMessageId == message.id },
                 siblings: message.siblingIds,
-                plan: message.isPlanDocument ? "accepted" : nil
+                plan: message.isPlanDocument ? "accepted" : nil,
+                images: message.images
             ))
         }
 
@@ -409,7 +442,8 @@ final class ThreadStore: ChatMessageSource {
         attachments: [String],
         toolCalls: [RemoteToolCall],
         siblings: [String]?,
-        plan: String?
+        plan: String?,
+        images: [RemoteImageRef] = []
     ) -> ConversationMessage {
         var parts: [ContentPart] = []
         if let reasoning, !reasoning.isEmpty {
@@ -438,6 +472,18 @@ final class ThreadStore: ChatMessageSource {
         for name in attachments {
             parts.append(.file(FileContentPart(mediaType: "application/octet-stream", data: Data(), textContent: name, name: name)))
         }
+        for image in images {
+            let data = retainedImage(messageId: id, imageId: image.imageId) ?? Data()
+            if data.isEmpty {
+                let name = image.filename ?? "image"
+                parts.append(.file(FileContentPart(mediaType: image.mediaType, data: Data(), textContent: name, name: name)))
+            } else {
+                parts.append(.image(ImageContentPart(
+                    id: "\(id)-image-\(image.imageId)", mediaType: image.mediaType,
+                    data: data, name: image.filename ?? "image.jpeg"
+                )))
+            }
+        }
         var metadata: [String: String] = [:]
         if let siblings, siblings.count > 1, let index = siblings.firstIndex(of: id) {
             metadata[MessageMetadataKey.siblingIndex] = String(index)
@@ -445,6 +491,47 @@ final class ThreadStore: ChatMessageSource {
         }
         if let plan { metadata[MessageMetadataKey.plan] = plan }
         return ConversationMessage(id: id, conversationID: threadId, role: role, parts: parts, createdAt: createdAt, metadata: metadata)
+    }
+
+    private func imageKey(messageId: String, imageId: String) -> String {
+        "\(messageId.utf8.count):\(messageId)\(imageId)"
+    }
+
+    private func retainedImage(messageId: String, imageId: String) -> Data? {
+        let key = imageKey(messageId: messageId, imageId: imageId)
+        if let data = imageData[key] { return data }
+        if missingImages.contains(key) { return nil }
+        if let data = sentImages.load(desktopId: desktopId, threadId: threadId, messageId: messageId, imageId: imageId) {
+            imageData[key] = data
+            return data
+        }
+        missingImages.insert(key)
+        return nil
+    }
+
+    private func materializeSteerImages(in message: RemoteMessage, runId: String? = nil, allowedFilenames: Set<String>? = nil) {
+        guard message.role == .user else { return }
+        let filenames = message.images.compactMap(\.filename)
+        for reference in message.images {
+            guard let filename = reference.filename,
+                  filenames.filter({ $0 == filename }).count == 1,
+                  allowedFilenames?.contains(filename) ?? true,
+                  !ambiguousSteerFilenames.contains(filename),
+                  let pending = pendingSteerImages[filename]
+                    ?? sentImages.loadPending(desktopId: desktopId, threadId: threadId, filename: filename),
+                  runId == nil || pending.runId == runId else { continue }
+            do {
+                try sentImages.save(pending.data, desktopId: desktopId, threadId: threadId,
+                                    messageId: message.id, imageId: reference.imageId)
+                let key = imageKey(messageId: message.id, imageId: reference.imageId)
+                imageData[key] = pending.data
+                missingImages.remove(key)
+                pendingSteerImages[filename] = nil
+                try sentImages.removePending(desktopId: desktopId, threadId: threadId, filename: filename)
+            } catch {
+                lastError = String(localized: "Image sent, but its local preview could not be saved.")
+            }
+        }
     }
 
     // MARK: Actions
@@ -468,7 +555,7 @@ final class ThreadStore: ChatMessageSource {
         lastError = String(localized: "Attachment upload did not complete. Your message was not sent.") + " " + describe(error)
     }
 
-    func send(text: String, attachmentIds: [String], mode: SendMode?) async -> Bool {
+    func send(text: String, attachmentIds: [String], mode: SendMode?, attachments: [ChatInputAttachment] = []) async -> Bool {
         guard outboundState != .sending else { return false }
         guard store.link(for: desktopId)?.state == .online else {
             outboundState = .offline
@@ -487,13 +574,48 @@ final class ThreadStore: ChatMessageSource {
             if accepted.kind == .runStarted { observeRun(accepted.runId) }
             outboundState = accepted.kind == .runStarted ? .accepted : .queued
             if let userMessage = accepted.userMessage {
+                let images = attachments.filter { $0.type == .image }
+                if images.count == userMessage.images.count {
+                    for (image, reference) in zip(images, userMessage.images) {
+                        do {
+                            try sentImages.save(image.fileData, desktopId: desktopId, threadId: threadId, messageId: userMessage.id, imageId: reference.imageId)
+                            let key = imageKey(messageId: userMessage.id, imageId: reference.imageId)
+                            if !image.fileData.isEmpty { imageData[key] = image.fileData }
+                            missingImages.remove(key)
+                        } catch {
+                            // Delivery succeeded; failure to retain a local preview cannot reject it.
+                            lastError = String(localized: "Image sent, but its local preview could not be saved.")
+                        }
+                    }
+                }
                 upsertLoaded(userMessage)
+            } else if accepted.kind == .activeRunSteerPending {
+                for image in attachments where image.type == .image && !image.fileData.isEmpty {
+                    let filename = image.storageFilename
+                    // Only composer-generated UUID names are unambiguous across pending steers.
+                    guard filename.hasSuffix(".jpeg"),
+                          UUID(uuidString: String(filename.dropLast(5))) != nil,
+                          !(detail?.messages ?? []).contains(where: { $0.images.contains(where: { $0.filename == filename }) }),
+                          !ambiguousSteerFilenames.contains(filename) else { continue }
+                    if pendingSteerImages[filename] != nil || sentImages.loadPending(desktopId: desktopId, threadId: threadId, filename: filename) != nil {
+                        pendingSteerImages[filename] = nil
+                        ambiguousSteerFilenames.insert(filename)
+                        try? sentImages.removePending(desktopId: desktopId, threadId: threadId, filename: filename)
+                    } else {
+                        do {
+                            try sentImages.savePending(image.fileData, desktopId: desktopId, threadId: threadId,
+                                                       filename: filename, runId: accepted.runId)
+                            pendingSteerImages[filename] = (accepted.runId, image.fileData)
+                        } catch {
+                            lastError = String(localized: "Image sent, but its local preview could not be saved.")
+                        }
+                    }
+                }
             }
             // Acknowledgement clears the draft immediately; history refresh must not delay it.
             if accepted.kind == .activeRunFollowUp { invalidate() }
             userSentSubject.send()
             rebuild(scrolling: true)
-            lastError = nil
             return true
         } catch {
             if let remote = error as? RemoteCallError {

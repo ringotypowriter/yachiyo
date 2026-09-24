@@ -166,6 +166,8 @@ final class RemoteStore {
         recentThreads[desktopId] = nil
         let disk = cacheStore
         cacheQueue.sync { try? disk.remove(desktopId: desktopId) }
+        let images = RemoteSentImageStore(directory: FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("RemoteSentImages", isDirectory: true))
+        try? images.remove(desktopId: desktopId)
     }
 
     private func invalidate(_ link: DesktopLink) {
@@ -460,7 +462,11 @@ final class RemoteStore {
         // Persist invalidation BEFORE checkpointing the cursor. Inactive scopes miss messages.
         if let id = event.threadId {
             caches[link.id]?.threads[id]?.needsRefresh = true
-            if event.type == .threadRemoved { caches[link.id]?.threads[id] = nil }
+            if event.type == .threadRemoved {
+                caches[link.id]?.threads[id] = nil
+                let images = RemoteSentImageStore(directory: FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("RemoteSentImages", isDirectory: true))
+                try? images.remove(desktopId: link.id, threadId: id)
+            }
         } else if event.type == .threadInvalidated {
             invalidate(link)
         }
