@@ -11,6 +11,7 @@ private final class InboxSectionHeader: UICollectionReusableView {
         super.init(frame: frame)
         backgroundColor = .clear
         isOpaque = false
+        blur.alpha = 0.6
         blur.translatesAutoresizingMaskIntoConstraints = false
         label.translatesAutoresizingMaskIntoConstraints = false
         addSubview(blur)
