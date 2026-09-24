@@ -76,6 +76,23 @@ final class RemoteSmokeTests: XCTestCase {
         XCTAssertTrue(element("thread.timeline").waitForExistence(timeout: 10))
     }
 
+    func testPinnedInboxHeaderScreenshot() {
+        continueAfterPairing()
+        let list = app.collectionViews["inbox.list"]
+        XCTAssertTrue(list.waitForExistence(timeout: 30))
+        let firstThread = list.cells.matching(NSPredicate(format: "identifier BEGINSWITH 'inbox.thread.'")).firstMatch
+        XCTAssertTrue(firstThread.waitForExistence(timeout: 30))
+        list.swipeUp()
+        let start = list.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.65))
+        let end = list.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.43))
+        start.press(forDuration: 0.1, thenDragTo: end)
+        start.press(forDuration: 0.1, thenDragTo: end)
+        let screenshot = XCTAttachment(screenshot: app.screenshot())
+        screenshot.name = "inbox-pinned-header"
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
+    }
+
     /// Screenshot acceptance against the real Remote UI and the latency-enabled demo harness.
     func testRemotePolishScreenshotAcceptance() throws {
         func capture(_ name: String) {
