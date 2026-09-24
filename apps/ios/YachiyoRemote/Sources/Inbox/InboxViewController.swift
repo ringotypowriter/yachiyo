@@ -38,7 +38,6 @@ final class InboxViewController: UIViewController {
     private var searchFailed = false
     private var refreshingDesktopIds: Set<String> = []
     private var pendingMutations: Set<String> = []
-    private let desktopButton = UIButton(type: .system)
     private let filterStatus = UIButton(type: .system)
     private lazy var filterItem = UIBarButtonItem(image: .lucide("list-filter"), menu: makeFilterMenu())
     private lazy var newItem = UIBarButtonItem(image: .lucide("square-pen"), primaryAction: UIAction { [weak self] _ in self?.presentNewThread() })
@@ -46,7 +45,7 @@ final class InboxViewController: UIViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         title = "Yachiyo"
-        navigationItem.largeTitleDisplayMode = .never
+        navigationItem.largeTitleDisplayMode = .always
         view.backgroundColor = .yachiyo(.app)
         configureNavigationBar()
         configureCollectionView()
@@ -70,20 +69,10 @@ final class InboxViewController: UIViewController {
     private func configureNavigationBar() {
         let appearance = UINavigationBarAppearance()
         appearance.configureWithDefaultBackground()
+        appearance.largeTitleTextAttributes = [.font: YachiyoFonts.largeTitle(), .foregroundColor: UIColor.label]
         appearance.titleTextAttributes = [.font: YachiyoFonts.navigationTitle(), .kern: -0.2]
         navigationItem.standardAppearance = appearance
         navigationItem.scrollEdgeAppearance = appearance
-        desktopButton.titleLabel?.font = YachiyoFonts.navigationTitle()
-        desktopButton.titleLabel?.lineBreakMode = .byTruncatingTail
-        desktopButton.tintColor = .label
-        desktopButton.setImage(.lucide("chevron-down"), for: .normal)
-        desktopButton.semanticContentAttribute = .forceRightToLeft
-        desktopButton.accessibilityIdentifier = "inbox.desktop"
-        desktopButton.showsMenuAsPrimaryAction = true
-        desktopButton.menu = UIMenu(children: [UIDeferredMenuElement.uncached { [weak self] completion in
-            completion(self?.makeDesktopMenu().children ?? [])
-        }])
-        navigationItem.titleView = desktopButton
         let settings = UIBarButtonItem(image: .lucide("settings"), primaryAction: UIAction { [weak self] _ in self?.presentSettings() })
         settings.accessibilityIdentifier = "inbox.settings"
         settings.accessibilityLabel = String(localized: "Settings")
@@ -195,25 +184,22 @@ final class InboxViewController: UIViewController {
             collectionView.refreshControl?.endRefreshing()
         }
         title = selectedDesktop?.name ?? "Yachiyo"
-        desktopButton.setTitle(title, for: .normal)
-        desktopButton.accessibilityLabel = title
-        desktopButton.isEnabled = !store.desktops.isEmpty
-    }
-
-    private func makeDesktopMenu() -> UIMenu {
-        UIMenu(children: store.desktops.map { desktop in
-            let action = UIAction(
-                title: desktop.name,
-                image: .lucide("monitor"),
-                state: desktop.id == selectedDesktopId ? .on : .off
-            ) { [weak self] _ in
-                guard let self, selectedDesktopId != desktop.id else { return }
-                synchronizeDesktop(preferredId: desktop.id)
-                UISelectionFeedbackGenerator().selectionChanged()
-            }
-            action.subtitle = store.connectionText(for: desktop)
-            return action
-        })
+        navigationItem.titleMenuProvider = store.desktops.isEmpty ? nil : { [weak self] _ in
+            guard let self else { return UIMenu() }
+            return UIMenu(children: store.desktops.map { desktop in
+                let action = UIAction(
+                    title: desktop.name,
+                    image: .lucide("monitor"),
+                    state: desktop.id == self.selectedDesktopId ? .on : .off
+                ) { [weak self] _ in
+                    guard let self, selectedDesktopId != desktop.id else { return }
+                    synchronizeDesktop(preferredId: desktop.id)
+                    UISelectionFeedbackGenerator().selectionChanged()
+                }
+                action.subtitle = self.store.connectionText(for: desktop)
+                return action
+            })
+        }
     }
 
     // MARK: Snapshot
