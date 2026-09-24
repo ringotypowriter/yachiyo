@@ -17,7 +17,9 @@ export async function readRemoteWorkspaceFile(
   if (/^file:/i.test(value)) {
     path = fileURLToPath(value)
   } else {
-    if (/^[a-z][a-z\d+.-]*:/i.test(value) || value.startsWith('//')) {
+    // A drive letter is not a URI scheme; drive-relative paths (C:foo) remain rejected.
+    const isWindowsDrivePath = /^[a-z]:[/\\]/i.test(value)
+    if ((!isWindowsDrivePath && /^[a-z][a-z\d+.-]*:/i.test(value)) || value.startsWith('//')) {
       throw new Error('Only workspace files can be previewed.')
     }
     path = decodeURIComponent(value.split(/[?#]/, 1)[0])

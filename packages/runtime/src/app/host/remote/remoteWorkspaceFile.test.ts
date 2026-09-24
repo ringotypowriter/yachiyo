@@ -11,7 +11,12 @@ test('remote Markdown files resolve relative, absolute and encoded file URLs wit
   try {
     const file = join(root, 'image space.png')
     await writeFile(file, 'image bytes')
-    for (const path of ['image%20space.png', file, pathToFileURL(file).href]) {
+    for (const path of [
+      'image%20space.png',
+      file,
+      file.replaceAll('\\', '/'),
+      pathToFileURL(file).href
+    ]) {
       const result = await readRemoteWorkspaceFile(root, path)
       assert.equal(result.filename, 'image space.png')
       assert.equal(Buffer.from(result.data, 'base64').toString(), 'image bytes')
@@ -20,6 +25,33 @@ test('remote Markdown files resolve relative, absolute and encoded file URLs wit
     await rm(root, { recursive: true, force: true })
   }
 })
+
+for (const path of [
+  'C:/workspace/image.png',
+  'D:\\workspace\\image.png',
+  'c:/workspace/image.png'
+]) {
+  test(`remote Markdown drive path reaches workspace authorization: ${path}`, async () => {
+    const root = await mkdtemp(join(tmpdir(), 'remote-file-'))
+    try {
+      // A missing workspace must fail at realpath, not mistake the drive for a URI scheme.
+      await assert.rejects(readRemoteWorkspaceFile(join(root, 'missing'), path), { code: 'ENOENT' })
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+}
+
+for (const path of [
+  'C:relative.png',
+  'https://example.com/image.png',
+  'custom:/image.png',
+  '//other/image.png'
+]) {
+  test(`remote Markdown non-file scheme or network URL is rejected: ${path}`, async () => {
+    await assert.rejects(readRemoteWorkspaceFile('.', path), /Only workspace files/)
+  })
+}
 
 test('remote Markdown files reject traversal, outside absolute paths, symlink escape and URLs', async () => {
   const root = await mkdtemp(join(tmpdir(), 'remote-file-'))

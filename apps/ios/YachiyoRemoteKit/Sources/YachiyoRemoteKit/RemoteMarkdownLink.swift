@@ -1,6 +1,6 @@
 import Foundation
 
-/// Local targets belong to the Mac, never the phone's file system or external URL handlers.
+/// Local targets belong to the host, never the phone's file system or external URL handlers.
 public enum RemoteMarkdownLink: Equatable, Sendable {
     case external(URL)
     case workspaceFile(String)
@@ -11,6 +11,11 @@ public enum RemoteMarkdownLink: Equatable, Sendable {
         guard !value.isEmpty, !value.hasPrefix("#") else { self = .unsupported; return }
         if value.hasPrefix("//"), let url = URL(string: "https:" + value), url.host != nil {
             self = .external(url)
+            return
+        }
+        // Recognize absolute Windows drive paths before URL parsing treats the drive as a scheme.
+        if value.range(of: #"^[A-Za-z]:[/\\]"#, options: .regularExpression) != nil {
+            self = .workspaceFile(value)
             return
         }
         guard let url = URL(string: value) else { self = .unsupported; return }

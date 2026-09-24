@@ -16,7 +16,15 @@ final class RemoteMarkdownLinkTests: XCTestCase {
         XCTAssertEqual(RemoteMarkdownLink("output/photo one.png"), .workspaceFile("output/photo one.png"))
     }
 
+    func testWindowsDriveLinksUseAuthenticatedWorkspaceFetch() {
+        XCTAssertEqual(RemoteMarkdownLink("C:/work/photo%20one.png"), .workspaceFile("C:/work/photo%20one.png"))
+        XCTAssertEqual(RemoteMarkdownLink("D:\\work\\photo.png"), .workspaceFile("D:\\work\\photo.png"))
+        XCTAssertEqual(RemoteMarkdownLink("  c:/work/photo.png  "), .workspaceFile("c:/work/photo.png"))
+    }
+
     func testUnsafeSchemesAndEmptyTargetsAreNotOpened() {
+        XCTAssertEqual(RemoteMarkdownLink("C:relative.png"), .unsupported)
+        XCTAssertEqual(RemoteMarkdownLink("custom:/photo.png"), .unsupported)
         XCTAssertEqual(RemoteMarkdownLink("javascript:alert(1)"), .unsupported)
         XCTAssertEqual(RemoteMarkdownLink("data:text/html,test"), .unsupported)
         XCTAssertEqual(RemoteMarkdownLink(""), .unsupported)
