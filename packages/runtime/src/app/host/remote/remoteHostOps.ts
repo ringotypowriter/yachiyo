@@ -36,6 +36,9 @@ import { buildMessageTreeMaps, collectMessagePathFromMaps } from '@yachiyo/share
 import type { YachiyoServer } from '../YachiyoServer.ts'
 import { assertPageLimit } from '../../../storage/messagePageWindow.ts'
 import { fitRemoteThreadBudget } from './remoteThreadBudget.ts'
+import { resolveThreadWorkspacePath } from '../../../config/paths.ts'
+import { readRemoteWorkspaceFile } from './remoteWorkspaceFile.ts'
+import { readEssentialIcon } from './remoteEssentialIcon.ts'
 
 const THREAD_LIST_DEFAULT = 100
 const RECENT_WORKSPACE_LIMIT = 20
@@ -75,6 +78,13 @@ export interface RemoteHostOps {
   'host.remote.listRecentWorkspaces'(): { workspaces: RemoteWorkspace[] }
   'host.remote.listSelectableModels'(): Promise<{ models: RemoteSelectableModel[] }>
   'host.remote.listEssentials'(): Promise<{ essentials: RemoteEssential[] }>
+  'host.remote.getEssentialIcon'(input: {
+    essentialId: string
+  }): Promise<{ mediaType: string; data: string }>
+  'host.remote.getFile'(input: {
+    threadId: string
+    path: string
+  }): Promise<{ filename: string; mediaType: string; data: string }>
   'host.remote.getAppearance'(): Promise<RemoteAppearance>
   'host.remote.getHostInfo'(): Promise<RemoteHostInfo>
   'host.remote.listTasks'(input: { threadId: string }): Promise<{ tasks: RemoteTask[] }>
@@ -293,6 +303,7 @@ export function createRemoteHostOps(server: RemoteProjectionServer): RemoteHostO
           return {
             id: essential.id,
             ...(essential.iconType === 'emoji' && essential.icon ? { icon: essential.icon } : {}),
+            ...(essential.iconType === 'image' && essential.icon ? { hasImageIcon: true } : {}),
             ...(essential.label ? { label: essential.label } : {}),
             ...(essential.workspacePath ? { workspacePath: essential.workspacePath } : {}),
             ...(workspaceName ? { workspaceName } : {}),
@@ -313,6 +324,28 @@ export function createRemoteHostOps(server: RemoteProjectionServer): RemoteHostO
 
   async function getAppearance(): Promise<RemoteAppearance> {
     return appearanceOf(await server.getConfig())
+  }
+
+  async function getEssentialIcon(input: {
+    essentialId: string
+  }): Promise<{ mediaType: string; data: string }> {
+    const config = await server.getConfig()
+    const essential = config.essentials?.find((entry) => entry.id === input.essentialId)
+    if (!essential?.icon || essential.iconType !== 'image') {
+      throw new RemoteNotFoundError('Essential image not found.')
+    }
+    return readEssentialIcon(essential.icon)
+  }
+
+  async function getFile(input: {
+    threadId: string
+    path: string
+  }): Promise<{ filename: string; mediaType: string; data: string }> {
+    const thread = requireActiveThread(input.threadId)
+    return readRemoteWorkspaceFile(
+      thread.workspacePath || resolveThreadWorkspacePath(thread.id),
+      input.path
+    )
   }
 
   async function getHostInfo(): Promise<RemoteHostInfo> {
@@ -405,6 +438,8 @@ export function createRemoteHostOps(server: RemoteProjectionServer): RemoteHostO
     'host.remote.listRecentWorkspaces': listRecentWorkspaces,
     'host.remote.listSelectableModels': listSelectableModels,
     'host.remote.listEssentials': listEssentials,
+    'host.remote.getEssentialIcon': getEssentialIcon,
+    'host.remote.getFile': getFile,
     'host.remote.getAppearance': getAppearance,
     'host.remote.getHostInfo': getHostInfo,
     'host.remote.listTasks': listTasks,

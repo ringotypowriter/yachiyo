@@ -22,6 +22,7 @@ final class NewThreadViewController: UIViewController {
     private let targetDesktopId: String?
     private var desktopId: String?
     private var essentials: [RemoteEssential] = []
+    private var essentialImages: [String: UIImage] = [:]
     private var essentialId: String?
     private var workspaces: [RemoteWorkspace] = []
     private var workspacePath: String?
@@ -200,6 +201,7 @@ final class NewThreadViewController: UIViewController {
         guard let desktopId, !isStarting, store.desktops.contains(where: { $0.id == desktopId && $0.state == .online }) else { return }
         let token = UUID()
         optionsToken = token
+        essentialImages = [:]
         isLoadingOptions = true
         if optionsDesktopId != desktopId {
             optionsDesktopId = desktopId
@@ -240,6 +242,21 @@ final class NewThreadViewController: UIViewController {
         retryButton.isHidden = !failed
         rebuildEssentials()
         updateButtons()
+        Task { await loadEssentialImages(desktopId: desktopId, token: token) }
+    }
+
+    private func loadEssentialImages(desktopId: String, token: UUID) async {
+        for essential in essentials where essential.hasImageIcon == true {
+            guard optionsToken == token, self.desktopId == desktopId else { return }
+            let output: RemoteEssentialsGetIconOutput? = try? await store.call(
+                desktopId, "essentials.getIcon", RemoteEssentialsGetIconInput(essentialId: essential.id)
+            )
+            guard optionsToken == token, self.desktopId == desktopId else { return }
+            guard let output, let data = Data(base64Encoded: output.data),
+                  let image = UIImage(data: data)?.preparingThumbnail(of: CGSize(width: 32, height: 32)) else { continue }
+            essentialImages[essential.id] = image.withRenderingMode(.alwaysOriginal)
+            rebuildEssentials()
+        }
     }
 
     private func updateInteraction() {
@@ -267,6 +284,10 @@ final class NewThreadViewController: UIViewController {
     private func makeEssentialTile(title: String, id: String?, label: String) -> UIButton {
         var configuration = UIButton.Configuration.plain()
         configuration.title = title
+        if let id, let image = essentialImages[id] {
+            configuration.title = nil
+            configuration.image = image
+        }
         configuration.background.cornerRadius = 14
         let selected = essentialId == id
         configuration.background.backgroundColor = selected ? .yachiyo(.accent, alpha: 0.10) : YachiyoStyle.ink(0.04)

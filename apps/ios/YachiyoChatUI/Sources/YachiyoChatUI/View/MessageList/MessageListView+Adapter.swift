@@ -198,6 +198,15 @@ extension MessageListView: ListViewAdapter {
         } else if let responseView = rowView as? ResponseView {
             if case let .responseContent(_, message) = entry {
                 responseView.theme = theme
+                responseView.linkTapHandler = { [weak self] payload, _, _ in
+                    guard let self else { return }
+                    let destination: String
+                    switch payload {
+                    case let .url(url): destination = url.absoluteString
+                    case let .string(string): destination = string
+                    }
+                    interactionDelegate?.messageList(self, openLink: destination, messageId: message.id)
+                }
                 let package = markdownPackageCache.package(for: message, theme: theme)
                 responseView.markdownView.setMarkdown(package)
             }

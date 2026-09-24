@@ -209,5 +209,11 @@ test('archived and unknown threads are not loadable', async () => {
     assert.throws(() => ops['host.remote.loadThread']({ threadId: 'missing' }), {
       name: 'RemoteNotFound'
     })
+    await assert.rejects(ops['host.remote.getFile']({ threadId: thread.id, path: 'image.png' }), {
+      name: 'RemoteNotFound'
+    })
+    await assert.rejects(ops['host.remote.getFile']({ threadId: 'missing', path: 'image.png' }), {
+      name: 'RemoteNotFound'
+    })
   })
 })

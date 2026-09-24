@@ -21,12 +21,17 @@ public protocol MessageListInteractionDelegate: AnyObject {
     func messageList(_ list: MessageListView, plan messageId: String, action: PlanCardAction)
     func messageList(_ list: MessageListView, showSiblingOf messageId: String, offset: Int)
     func messageList(_ list: MessageListView, didSelectToolCall toolCallId: String)
+    func messageList(_ list: MessageListView, openLink destination: String, messageId: String)
     func messageList(_ list: MessageListView, menuForMessage messageId: String, role: MessageRole) -> UIMenu?
     func messageList(_ list: MessageListView, didChangeFollowingBottom isFollowing: Bool)
 }
 
 public extension MessageListInteractionDelegate {
     func messageList(_: MessageListView, didSelectToolCall _: String) {}
+    func messageList(_: MessageListView, openLink destination: String, messageId _: String) {
+        guard let url = URL(string: destination), ["https", "http", "mailto", "tel"].contains(url.scheme?.lowercased() ?? "") else { return }
+        UIApplication.shared.open(url)
+    }
     func messageList(_: MessageListView, menuForMessage _: String, role _: MessageRole) -> UIMenu? { nil }
     func messageList(_: MessageListView, didChangeFollowingBottom _: Bool) {}
 }

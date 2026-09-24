@@ -225,9 +225,17 @@ export const remoteMethods = {
     input: z.object({ threadId: idSchema, messageId: idSchema, imageId: idSchema }),
     output: z.object({ mediaType: z.string(), data: z.string() })
   },
+  'files.get': {
+    input: z.object({ threadId: idSchema, path: z.string().min(1).max(8192) }),
+    output: z.object({ filename: z.string(), mediaType: z.string(), data: z.string() })
+  },
   'essentials.list': {
     input: z.object({}),
     output: z.object({ essentials: z.array(remoteEssentialSchema) })
+  },
+  'essentials.getIcon': {
+    input: z.object({ essentialId: idSchema }),
+    output: z.object({ mediaType: z.string(), data: z.string() })
   },
   'appearance.get': {
     input: z.object({}),

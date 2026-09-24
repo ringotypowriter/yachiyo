@@ -103,9 +103,17 @@
       "input": "RemoteImagesGetInput",
       "output": "RemoteImagesGetOutput"
     },
+    "files.get": {
+      "input": "RemoteFilesGetInput",
+      "output": "RemoteFilesGetOutput"
+    },
     "essentials.list": {
       "input": "RemoteEssentialsListInput",
       "output": "RemoteEssentialsListOutput"
+    },
+    "essentials.getIcon": {
+      "input": "RemoteEssentialsGetIconInput",
+      "output": "RemoteEssentialsGetIconOutput"
     },
     "appearance.get": {
       "input": "RemoteAppearanceGetInput",
@@ -619,6 +627,9 @@
         "icon": {
           "type": "string"
         },
+        "hasImageIcon": {
+          "type": "boolean"
+        },
         "label": {
           "type": "string"
         },
@@ -642,6 +653,36 @@
         "id",
         "privacyMode",
         "order"
+      ],
+      "additionalProperties": false
+    },
+    "RemoteEssentialsGetIconInput": {
+      "type": "object",
+      "properties": {
+        "essentialId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        }
+      },
+      "required": [
+        "essentialId"
+      ],
+      "additionalProperties": false
+    },
+    "RemoteEssentialsGetIconOutput": {
+      "type": "object",
+      "properties": {
+        "mediaType": {
+          "type": "string"
+        },
+        "data": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "mediaType",
+        "data"
       ],
       "additionalProperties": false
     },
@@ -1115,6 +1156,46 @@
       "required": [
         "filename",
         "mediaType"
+      ],
+      "additionalProperties": false
+    },
+    "RemoteFilesGetInput": {
+      "type": "object",
+      "properties": {
+        "threadId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 8192
+        }
+      },
+      "required": [
+        "threadId",
+        "path"
+      ],
+      "additionalProperties": false
+    },
+    "RemoteFilesGetOutput": {
+      "type": "object",
+      "properties": {
+        "filename": {
+          "type": "string"
+        },
+        "mediaType": {
+          "type": "string"
+        },
+        "data": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "filename",
+        "mediaType",
+        "data"
       ],
       "additionalProperties": false
     },

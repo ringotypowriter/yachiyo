@@ -174,8 +174,9 @@ export type RemoteSelectableModel = z.infer<typeof remoteSelectableModelSchema>
 export const remoteEssentialSchema = z
   .object({
     id: idSchema,
-    /** Emoji icon; image icons are not projected in v1. */
+    /** Emoji icon. Image bytes are fetched separately by essential ID. */
     icon: z.string().optional(),
+    hasImageIcon: z.boolean().optional(),
     label: z.string().optional(),
     workspacePath: z.string().optional(),
     workspaceName: z.string().optional(),

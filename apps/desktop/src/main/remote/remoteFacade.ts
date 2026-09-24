@@ -251,7 +251,9 @@ export function createRemoteFacade(options: RemoteFacadeOptions): RemoteFacade {
     'attachments.commit': (input, context) =>
       attachments.commit({ ...input, pairingId: context.pairingId }),
     'images.get': (input) => host['host.remote.getImage'](input),
+    'files.get': (input) => host['host.remote.getFile'](input),
     'essentials.list': () => host['host.remote.listEssentials'](),
+    'essentials.getIcon': (input) => host['host.remote.getEssentialIcon'](input),
     'appearance.get': () => host['host.remote.getAppearance'](),
     'tasks.list': (input) => host['host.remote.listTasks'](input),
     'events.subscribe': async (input, context) => {

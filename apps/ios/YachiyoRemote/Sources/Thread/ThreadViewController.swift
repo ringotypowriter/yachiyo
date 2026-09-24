@@ -563,6 +563,38 @@ extension ThreadViewController: MessageListInteractionDelegate {
         present(detail, animated: true)
     }
 
+    func messageList(_: MessageListView, openLink destination: String, messageId _: String) {
+        switch RemoteMarkdownLink(destination) {
+        case let .external(url):
+            UIApplication.shared.open(url) { [weak self] opened in
+                guard !opened else { return }
+                Task { @MainActor in
+                    self?.localError = String(localized: "This link could not be opened.")
+                    self?.updateChrome()
+                }
+            }
+        case let .workspaceFile(path):
+            guard presentedViewController == nil else { return }
+            guard store.link(for: thread.desktopId)?.state == .online else {
+                localError = String(localized: "Connect to your Mac to preview this file.")
+                updateChrome()
+                return
+            }
+            let desktopId = thread.desktopId
+            let threadId = thread.threadId
+            let preview = RemoteFilePreviewController {
+                let file: RemoteFilesGetOutput = try await RemoteStore.shared.call(
+                    desktopId, "files.get", RemoteFilesGetInput(path: path, threadId: threadId)
+                )
+                return (file.filename, file.data)
+            }
+            present(UINavigationController(rootViewController: preview), animated: true)
+        case .unsupported:
+            localError = String(localized: "This link could not be opened.")
+            updateChrome()
+        }
+    }
+
     private func toolPreviewReader(_ toolCallId: String, notice: String? = nil) -> TextSheetViewController {
         let call = thread.toolCall(toolCallId)
         let availability = store.link(for: thread.desktopId)?.state == .online
