@@ -259,13 +259,13 @@ const {
 } = createGatewayRunAdmission<ServerRpcHost>({
   closeRuntime: async (ownerId) =>
     USE_UTILITY_RUNTIME
-      ? hostCall<string[]>('closeRunAdmissionAndGetActiveRunIds', [ownerId])
+      ? rpc().closeRunAdmissionAndGetActiveRunIds(ownerId)
       : (server?.closeRunAdmissionAndGetActiveRunIds(ownerId) ?? []),
   getRuntime: () => serverRpc,
   openRuntime: async (ownerId, runtime) => {
     if (USE_UTILITY_RUNTIME) {
       if (!runtime) throw new Error('Yachiyo server is not running')
-      await runtime.client.call('host.openRunAdmission', [ownerId])
+      await runtime.proxy.openRunAdmission(ownerId)
     } else {
       server?.openRunAdmission(ownerId)
     }
