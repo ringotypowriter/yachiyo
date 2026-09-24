@@ -76,7 +76,7 @@ final class RemoteSmokeTests: XCTestCase {
         XCTAssertTrue(element("thread.timeline").waitForExistence(timeout: 10))
     }
 
-    func testPinnedInboxHeaderScreenshot() {
+    func testInboxHeadersScrollWithContent() {
         continueAfterPairing()
         let list = app.collectionViews["inbox.list"]
         XCTAssertTrue(list.waitForExistence(timeout: 30))
@@ -88,7 +88,7 @@ final class RemoteSmokeTests: XCTestCase {
         start.press(forDuration: 0.1, thenDragTo: end)
         start.press(forDuration: 0.1, thenDragTo: end)
         let screenshot = XCTAttachment(screenshot: app.screenshot())
-        screenshot.name = "inbox-pinned-header"
+        screenshot.name = "inbox-scrolled-headers"
         screenshot.lifetime = .keepAlways
         add(screenshot)
     }

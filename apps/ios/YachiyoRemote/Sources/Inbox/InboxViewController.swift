@@ -4,23 +4,15 @@ import YachiyoMaterial
 import YachiyoRemoteKit
 
 private final class InboxSectionHeader: UICollectionReusableView {
-    private let blur = UIVisualEffectView(effect: UIBlurEffect(style: .systemUltraThinMaterial))
     private let label = UILabel()
 
     override init(frame: CGRect) {
         super.init(frame: frame)
         backgroundColor = .clear
         isOpaque = false
-        blur.alpha = 0.18
-        blur.translatesAutoresizingMaskIntoConstraints = false
         label.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(blur)
         addSubview(label)
         NSLayoutConstraint.activate([
-            blur.topAnchor.constraint(equalTo: topAnchor),
-            blur.bottomAnchor.constraint(equalTo: bottomAnchor),
-            blur.leadingAnchor.constraint(equalTo: leadingAnchor),
-            blur.trailingAnchor.constraint(equalTo: trailingAnchor),
             label.topAnchor.constraint(equalTo: topAnchor, constant: 10),
             label.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -10),
             label.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16),
@@ -132,7 +124,11 @@ final class InboxViewController: UIViewController {
         configuration.showsSeparators = false
         configuration.leadingSwipeActionsConfigurationProvider = { [weak self] indexPath in self?.leadingSwipe(at: indexPath) }
         configuration.trailingSwipeActionsConfigurationProvider = { [weak self] indexPath in self?.trailingSwipe(at: indexPath) }
-        let layout = UICollectionViewCompositionalLayout.list(using: configuration)
+        let layout = UICollectionViewCompositionalLayout { _, environment in
+            let section = NSCollectionLayoutSection.list(using: configuration, layoutEnvironment: environment)
+            section.boundarySupplementaryItems.forEach { $0.pinToVisibleBounds = false }
+            return section
+        }
         collectionView = UICollectionView(frame: view.bounds, collectionViewLayout: layout)
         collectionView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         collectionView.backgroundColor = .yachiyo(.app)
